@@ -37,14 +37,10 @@ apps/server/cli
 # OpenCode mirror
 vendor/opencode/
 
-# OpenCode local deps
-.opencode/node_modules/
-.opencode/bun.lock
+# OpenCode (entire local dir is runtime-generated)
+.opencode/
 
 # LegalWork workspace-local artifacts
-.opencode/legalwork/
-.opencode/agents/legalwork.md
-.opencode/legalwork.json
 opencode.jsonc
 .vercel
 .env*.local
@@ -52,6 +48,4 @@ opencode.jsonc
 .security
 transcript-analysis
 
-# Per-workspace bundled-core stamp (written by the server when a workspace is opened)
-.opencode/.legalwork-core
 .gstack/
