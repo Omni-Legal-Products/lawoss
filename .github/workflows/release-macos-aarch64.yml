@@ -383,19 +383,23 @@ jobs:
             ${{ matrix.electron_args }} \
             --publish never
 
-      - name: Package Electron (macOS, unsigned)
+      - name: Package Electron (macOS, ad-hoc signed)
         if: matrix.os_type == 'macos' && env.MACOS_NOTARIZE != 'true'
         env:
-          # No Apple cert/notary secrets -> build an UNSIGNED macOS app.
-          # Gatekeeper warns users on first launch (right-click -> Open, or
-          # `xattr -dr com.apple.quarantine`). Set notarize=true + add the Apple
-          # secrets to produce signed + notarized builds instead.
+          # No Apple cert/notary secrets -> ad-hoc sign (mac.identity=-).
+          # This yields a valid self-signed signature with no Apple Team ID, so
+          # Gatekeeper shows the milder "developer cannot be verified -> Open
+          # Anyway" prompt instead of "damaged". The hardened runtime stays on
+          # because build/entitlements.mac.plist already sets
+          # com.apple.security.cs.disable-library-validation. Set notarize=true +
+          # add the Apple secrets to produce signed + notarized builds instead.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: |
           set -euo pipefail
-          echo "MACOS_NOTARIZE != 'true' -> building UNSIGNED macOS app."
+          echo "MACOS_NOTARIZE != 'true' -> ad-hoc signing macOS app."
           pnpm --dir apps/desktop exec electron-builder \
             --config electron-builder.yml \
+            -c.mac.identity=- \
             ${{ matrix.electron_args }} \
             --publish never
 

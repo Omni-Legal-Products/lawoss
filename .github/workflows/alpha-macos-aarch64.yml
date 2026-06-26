@@ -164,15 +164,20 @@ jobs:
             --arm64 \
             --publish never
 
-      - name: Package Electron alpha (macOS, unsigned)
+      - name: Package Electron alpha (macOS, ad-hoc signed)
         if: env.MACOS_NOTARIZE != 'true'
         env:
+          # No Apple cert/notary secrets -> ad-hoc sign (mac.identity=-) so
+          # Gatekeeper shows "developer cannot be verified -> Open Anyway"
+          # instead of "damaged". disable-library-validation is already set in
+          # build/entitlements.mac.plist, so the hardened runtime can stay on.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: |
           set -euo pipefail
-          echo "MACOS_NOTARIZE != 'true' -> building UNSIGNED macOS arm64 alpha."
+          echo "MACOS_NOTARIZE != 'true' -> ad-hoc signing macOS arm64 alpha."
           pnpm --dir apps/desktop exec electron-builder \
             --config electron-builder.yml \
+            -c.mac.identity=- \
             --mac \
             --arm64 \
             --publish never
