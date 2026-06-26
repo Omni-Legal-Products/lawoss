@@ -1,6 +1,6 @@
 # LegalWork — Terms & Conditions
 
-**Last updated: 25 June 2026**
+**Last updated: 26 June 2026**
 
 LegalWork is a local-first desktop application published by **Eigenwelt Labs**
 (Berlin, Germany) ("Eigenwelt", "we", "us"). These Terms & Conditions ("Terms")
@@ -30,16 +30,16 @@ agreement with that provider, not by these Terms. You are responsible for
 choosing providers appropriate for your confidentiality and professional
 obligations. If you run a model locally, no inference content leaves your device.
 
-## 3. Usage analytics (PostHog) — on by default, one switch to turn off
+## 3. Usage analytics (PostHog) — off unless you turn it on
 
-To understand which features are used and to improve the product, the App sends
-**anonymous product-usage analytics** to [PostHog](https://posthog.com), our
-analytics provider (hosted in the United States).
+To understand which features are used and to improve the product, the App can
+send **anonymous product-usage analytics** to [PostHog](https://posthog.com), our
+analytics provider. LegalWork uses PostHog's EU ingestion endpoint.
 
-**This is enabled by default.** If you do not turn it off, the App will send this
-anonymous usage data. You can turn it off at any time in
-**Settings → Privacy → "Share anonymous usage data."** Turning it off stops all
-analytics network requests.
+**This is off by default.** The App sends analytics only after you explicitly
+enable **Settings → Privacy → "Share anonymous usage data."** You can turn it off
+again at any time in the same place. Turning it off stops analytics network
+requests.
 
 What is sent when analytics is on:
 
@@ -47,9 +47,7 @@ What is sent when analytics is on:
   how long it took).
 - Coarse, non-identifying context such as app version, operating-system platform,
   and the type of workspace or the provider/model identifier you used.
-- An anonymous, randomly generated device identifier. If you sign in to an
-  Eigenwelt cloud account, that identifier is linked to your account ID so usage
-  counts survive sign-in — your email and name are not sent.
+- An anonymous, randomly generated device identifier.
 
 What is **never** sent to analytics:
 
@@ -64,11 +62,10 @@ never blocks or slows the App.
 
 ## 4. License
 
-The LegalWork source code is made available under the licenses described in the
-[`LICENSE`](./LICENSE) file (MIT for the core, with portions under the Fair Source
-License in the `/ee` directory). These Terms govern your use of the official App
-builds we distribute and do not limit any rights granted to you under those
-open-source licenses.
+The LegalWork source code is made available under the license described in the
+[`LICENSE`](./LICENSE) file. These Terms govern your use of the official App
+builds we distribute and do not limit any rights granted to you under the
+open-source license.
 
 ## 5. Acceptable use
 
