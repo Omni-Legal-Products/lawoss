@@ -1,0 +1,57 @@
+node_modules/
+apps/desktop/dist-electron/
+packages/*/node_modules/
+apps/*/node_modules/
+.next/
+out/
+dist/
+.vite/
+apps/*/.vite/
+packages/*/dist/
+apps/*/dist/
+tmp/
+
+# Local git worktrees
+_worktrees/
+
+# Desktop sidecars
+apps/desktop/resources/sidecars/
+apps/desktop/server/
+
+# Env
+.env
+.env.*
+!.env.example
+!.env.dev
+
+# Bun build artifacts
+*.bun-build
+apps/server/cli
+
+# pnpm store
+.pnpm-store/
+
+# OS
+.DS_Store
+
+# OpenCode mirror
+vendor/opencode/
+
+# OpenCode local deps
+.opencode/node_modules/
+.opencode/bun.lock
+
+# LegalWork workspace-local artifacts
+.opencode/legalwork/
+.opencode/agents/legalwork.md
+.opencode/legalwork.json
+opencode.jsonc
+.vercel
+.env*.local
+.claude/*
+.security
+transcript-analysis
+
+# Per-workspace bundled-core stamp (written by the server when a workspace is opened)
+.opencode/.legalwork-core
+.gstack/
