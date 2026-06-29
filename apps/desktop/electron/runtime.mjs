@@ -718,37 +718,13 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       env.XDG_STATE_HOME = devPaths.xdgStateHome;
       env.OPENCODE_CONFIG_DIR = devPaths.opencodeConfigDir;
       env.OPENCODE_TEST_HOME = devPaths.homeDir;
-    } else {
-      // Production: scope opencode to LegalWork on EVERY platform so it never
-      // shares projects/sessions/auth with a standalone opencode or a prior
-      // LegalWork install.
-      //
-      // opencode derives its data dir from XDG_DATA_HOME (unix) / LOCALAPPDATA
-      // (Windows), so XDG_DATA_HOME alone would NOT isolate it on Windows.
-      // OPENCODE_DB (absolute db path) and OPENCODE_CONFIG_DIR are honored on all
-      // platforms — they're checked before any platform-specific path logic — so
-      // they guarantee the sessions/projects DB + config/auth are isolated
-      // everywhere. We also set XDG_DATA_HOME on unix so opencode's other data
-      // (storage/repos) lands in the LegalWork tree. XDG_CONFIG_HOME is
-      // intentionally NOT set — it would double-nest the server's config dir.
-      // Paths are fixed (not derived from the mutable env) so this is idempotent
-      // even though the result is later merged back into process.env.
-      const home = app.getPath("home");
-      const isWindows = process.platform === "win32";
-      const dataRoot = isWindows
-        ? path.join(process.env.LOCALAPPDATA || path.join(home, "AppData", "Local"), "legalwork")
-        : path.join(home, ".local", "share", "legalwork");
-      const configRoot = isWindows
-        ? path.join(process.env.APPDATA || path.join(home, "AppData", "Roaming"), "legalwork")
-        : path.join(home, ".config", "legalwork");
-      const opencodeDataDir = path.join(dataRoot, "opencode");
-      const opencodeConfigDir = path.join(configRoot, "opencode");
-      if (!isWindows) env.XDG_DATA_HOME = dataRoot;
-      env.OPENCODE_DB = path.join(opencodeDataDir, "opencode.db");
-      env.OPENCODE_CONFIG_DIR = opencodeConfigDir;
-      await mkdir(opencodeDataDir, { recursive: true });
-      await mkdir(opencodeConfigDir, { recursive: true });
     }
+    // Production no longer scopes opencode's store to a LegalWork-specific dir.
+    // opencode uses its standard per-platform data/config locations
+    // (unix: $XDG_DATA_HOME|~/.local/share/opencode + ~/.config/opencode;
+    // Windows: %LOCALAPPDATA%\opencode). The previous override set OPENCODE_DB /
+    // OPENCODE_CONFIG_DIR (+ XDG_DATA_HOME on unix) but broke on Windows, so it
+    // was removed in favor of opencode's defaults.
     return env;
   }
 
