@@ -33,6 +33,9 @@ const GOOGLE_WORKSPACE_SCOPES = [
   "https://www.googleapis.com/auth/drive.readonly",
 ];
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+// Create/manage drafts (and send) — required by gmail_create_draft and
+// gmail_create_reply_draft. gmail.readonly alone cannot write drafts.
+const GMAIL_COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose";
 const DRIVE_FULL_SCOPE = "https://www.googleapis.com/auth/drive";
 const CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 const CHAT_SPACES_SCOPE = "https://www.googleapis.com/auth/chat.spaces.readonly";
@@ -40,7 +43,7 @@ const CHAT_MESSAGES_READ_SCOPE = "https://www.googleapis.com/auth/chat.messages.
 const CHAT_MESSAGES_CREATE_SCOPE = "https://www.googleapis.com/auth/chat.messages.create";
 
 export const GOOGLE_WORKSPACE_OPTIONAL_FEATURES = {
-  gmailRead: [GMAIL_READONLY_SCOPE],
+  gmailRead: [GMAIL_READONLY_SCOPE, GMAIL_COMPOSE_SCOPE],
   driveFull: [DRIVE_FULL_SCOPE],
   calendarWrite: [CALENDAR_EVENTS_SCOPE],
   chat: [CHAT_SPACES_SCOPE, CHAT_MESSAGES_READ_SCOPE, CHAT_MESSAGES_CREATE_SCOPE],
