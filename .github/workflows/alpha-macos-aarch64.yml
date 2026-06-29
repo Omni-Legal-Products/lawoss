@@ -1,7 +1,7 @@
 name: Alpha Channel (macOS arm64)
 
-# Every merge to `dev` publishes a fresh macOS arm64 build to the LegalWork
-# alpha release channel.
+# Dispatch this workflow manually (Actions tab) to publish a fresh macOS arm64
+# build to the LegalWork alpha release channel.
 #
 # The alpha channel is macOS-only today. It lives as a rolling GitHub
 # release. Each run also updates a small manifest on the fixed
@@ -13,12 +13,10 @@ name: Alpha Channel (macOS arm64)
 #   - .github/workflows/release-macos-aarch64.yml (stable channel)
 
 on:
-  # Every push to `dev` publishes a fresh macOS arm64 alpha build to the rolling
-  # alpha-macos-latest release. Builds are unsigned until Apple signing secrets
-  # are added + MACOS_NOTARIZE=true (see the signed/unsigned package steps below).
-  push:
-    branches:
-      - dev
+  # Manual-only: dispatch from the GitHub Actions tab to publish a macOS arm64
+  # alpha build to the rolling alpha-macos-latest release. Builds are unsigned
+  # until Apple signing secrets are added + MACOS_NOTARIZE=true (see the
+  # signed/unsigned package steps below).
   workflow_dispatch:
 
 permissions:
