@@ -244,7 +244,11 @@ jobs:
     needs: [resolve-release, verify-release]
     if: needs.resolve-release.outputs.build_electron == 'true'
     runs-on: ${{ matrix.platform }}
-    timeout-minutes: 120
+    # Apple notarization routes first-time/new-account submissions to "in-depth
+    # analysis", which can run for hours until the team's notarization history
+    # warms up. 120 min was too tight and cancelled the macOS jobs mid-notarize.
+    # 360 is the GitHub-hosted per-job ceiling; lower it once notarize times drop.
+    timeout-minutes: 360
     env:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
       MACOS_NOTARIZE: ${{ needs.resolve-release.outputs.notarize }}
