@@ -792,12 +792,19 @@ body {
    backdrop-filtered cards behind it), which made modals flicker and feel
    sluggish. We use a solid, OPAQUE fill (not the translucent glass fill, which
    without the blur just looked see-through) and keep the brand blue as the
-   primary color for anything inside the modal. */
+   primary color for anything inside the modal.
+
+   Shadow: keep it small-radius. The big `--shadow-glass-lg` (64px blur, 28px
+   offset) has to be re-rasterized as the modal zoom/fade-animates on open, which
+   reads as a laggy shadow lurching in behind the modal. Upstream uses the
+   component's plain `shadow-xl`; we match that radius with a brand-tinted tone. */
 [data-slot="dialog-content"],
 [data-slot="popover-content"],
 [data-slot="command-dialog-popup"] {
   background: var(--overlay-fill) !important;
-  box-shadow: var(--shadow-glass-lg) !important;
+  box-shadow:
+    0 20px 25px -5px rgba(8, 23, 79, 0.10),
+    0 8px 10px -6px rgba(8, 23, 79, 0.08) !important;
   border: 1px solid var(--popover-border) !important;
   --primary: var(--lw-blue);
   --primary-foreground: #FEFEFE;
