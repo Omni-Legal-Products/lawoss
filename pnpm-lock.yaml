@@ -326,10 +326,10 @@ importers:
         specifier: 0.1.77
         version: 0.1.77(solid-js@1.9.9)(stage-js@1.0.0-alpha.17)(typescript@5.9.3)(web-tree-sitter@0.25.10)
       legalwork-server:
-        specifier: 0.0.7
+        specifier: 0.0.8
         version: link:../server
       opencode-router:
-        specifier: 0.0.7
+        specifier: 0.0.8
         version: link:../opencode-router
       solid-js:
         specifier: 1.9.9
@@ -739,6 +739,7 @@ packages:
 
   '@eigenpal/docx-editor-agents@1.8.3':
     resolution: {integrity: sha512-CWAhf8qYkUrQkkR05BlVrdKJLoauG3hvZpse4Pdggq+T4wJbmBb2ECTejg42CnyUECT8KhfMYQhZUlgPJzWbMA==}
+    deprecated: deprecated
     peerDependencies:
       '@ai-sdk/vue': ^2.0.0
       ai: ^5.0.0 || ^6.0.0
@@ -773,6 +774,7 @@ packages:
 
   '@eigenpal/docx-editor-react@1.8.3':
     resolution: {integrity: sha512-kSwpIIKYVZbPK7TVehNRFWZ3lfkXrhqwrz9RFDLzWfMVGdP9lEqTDafxHd+GT7o7U2pN4e38q51WFBsxzhNNZw==}
+    deprecated: deprecated
     peerDependencies:
       prosemirror-commands: ^1.5.2
       prosemirror-dropcursor: ^1.8.2
