@@ -922,6 +922,71 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     );
   };
 
+  /**
+   * Remove a config/runtime-defined provider so it fully disconnects (mirrors
+   * {@link writeCustomProviderConfig}). Custom providers are stored in the
+   * LegalWork runtime config store or the project opencode.jsonc, so deleting
+   * the auth credential alone leaves them connected — this deletes the
+   * `provider.<id>` block itself. No-op when the provider isn't in config.
+   */
+  const removeCustomProviderFromConfig = async (providerId: string): Promise<void> => {
+    const resolved = providerId.trim();
+    if (!resolved) return;
+
+    const { legalworkClient, legalworkWorkspaceId, hasLegalworkTarget, canUseLegalworkServer } =
+      await resolveLegalworkConfigTarget("write");
+
+    if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
+      // A `null` value tells the server to delete this key from the runtime
+      // provider map (patch payloads can't carry `undefined` over JSON).
+      await legalworkClient.patchConfig(legalworkWorkspaceId, {
+        opencode: { provider: { [resolved]: null } },
+      });
+      return;
+    }
+
+    if (hasLegalworkTarget) {
+      // Connected to a LegalWork server we can't write config to — nothing to
+      // remove there; credential removal above is the best we can do.
+      return;
+    }
+
+    // Desktop-local: delete the provider block from opencode.jsonc.
+    await updateProjectConfigFile(
+      (raw) => {
+        const base = raw.trim()
+          ? raw
+          : '{\n  "$schema": "https://opencode.ai/config.json"\n}\n';
+        const edits = modify(base, ["provider", resolved], undefined, {
+          formattingOptions: { insertSpaces: true, tabSize: 2 },
+        });
+        const updated = applyEdits(base, edits);
+        return updated.endsWith("\n") ? updated : `${updated}\n`;
+      },
+      (config) => {
+        if (!config.provider || typeof config.provider !== "object") return config;
+        const nextProviders = { ...(config.provider as Record<string, unknown>) };
+        delete nextProviders[resolved];
+        return { ...config, provider: nextProviders };
+      },
+    );
+  };
+
+  /** True when the provider is defined in config (custom / has a base URL), so
+   *  removing it requires deleting its config block, not just its credential. */
+  const providerIsConfigDefined = (providerId: string): boolean => {
+    const entry = options.providers().find((provider) => provider.id === providerId);
+    if (!entry) return false;
+    const source = (entry as { source?: unknown }).source;
+    if (source === "custom" || source === "config") return true;
+    const entryOptions = (entry as { options?: unknown }).options;
+    const baseURL =
+      entryOptions && typeof entryOptions === "object"
+        ? (entryOptions as Record<string, unknown>).baseURL
+        : undefined;
+    return typeof baseURL === "string" && baseURL.trim().length > 0;
+  };
+
   async function readCustomProviderForEdit(
     providerId: string,
   ): Promise<CustomProviderEditData | null> {
@@ -1040,12 +1105,30 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       throw new Error(t("providers.provider_id_required"));
     }
 
+    const configDefined = providerIsConfigDefined(resolved);
+
     try {
-      await removeProviderAuthCredentials(resolved);
+      // Remove the stored API credential. Best-effort: config-defined providers
+      // may have none, and the engine can reject removal of a key that isn't
+      // there — that shouldn't abort the config removal below.
+      try {
+        await removeProviderAuthCredentials(resolved);
+      } catch (credentialError) {
+        if (!configDefined) throw credentialError;
+      }
+
+      // Custom / config-defined providers live in the runtime config store or
+      // opencode.jsonc, so removing the credential alone leaves them connected.
+      // Delete the provider's config block too.
+      if (configDefined) {
+        await removeCustomProviderFromConfig(resolved);
+        options.markOpencodeConfigReloadRequired();
+      }
+
       const updated = await refreshProviders({ dispose: true });
       if (Array.isArray(updated?.connected) && updated.connected.includes(resolved)) {
-        // Provider is still connected (e.g. via env var). Just remove
-        // stored credentials; do NOT add to disabled_providers.
+        // Still connected (e.g. via an env var we can't unset). Report what we
+        // did rather than silently doing nothing.
         return `Removed stored credentials for ${resolved}${t("providers.still_connected_suffix")}`;
       }
       removeProviderFromState(resolved);

@@ -178,6 +178,26 @@ export async function writeRuntimeOpencodeConfig(
   return next;
 }
 
+/**
+ * Merge a provider patch into the current runtime provider map. A `null` value
+ * in the patch removes that provider — patch payloads can't carry `undefined`
+ * over JSON, so callers signal deletion with `null`. This is what lets a client
+ * fully disconnect a custom/runtime provider (not just drop its credential).
+ */
+export function mergeRuntimeProviderPatch(
+  current: Record<string, unknown> | undefined,
+  update: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = {
+    ...(isRecord(current) ? current : {}),
+    ...update,
+  };
+  for (const [key, value] of Object.entries(update)) {
+    if (value === null) delete merged[key];
+  }
+  return merged;
+}
+
 export function mergeOpencodeConfigs(
   persisted: Record<string, unknown>,
   runtime: RuntimeOpencodeConfig,

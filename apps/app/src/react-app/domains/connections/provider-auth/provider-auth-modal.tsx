@@ -50,6 +50,12 @@ import type {
   ProviderAuthProvider,
   ProviderOAuthStartResult,
 } from "./store";
+import {
+  LOCAL_RUNTIME_TEMPLATES,
+  resolveTemplateName,
+  slugifyProviderId,
+  type LocalRuntimeTemplate,
+} from "./local-templates";
 
 /** Base URLs that default to the Responses API (`@ai-sdk/openai`). */
 function inferCustomApiType(baseURL: string): CustomProviderApiType {
@@ -103,6 +109,12 @@ type BrandedCustomProvider = {
   name: string;
   apiType: CustomProviderApiType;
   baseUrlPlaceholder: string;
+  /**
+   * Fixed-endpoint runtimes (local model servers) listen on a well-known URL,
+   * so we pre-fill the Base URL field instead of only hinting at it — the user
+   * just fetches their models and connects. Omit for per-deployment gateways.
+   */
+  baseUrlDefault?: string;
   description: string;
 };
 
@@ -119,15 +131,8 @@ const BRANDED_CUSTOM_PROVIDERS: BrandedCustomProvider[] = [
 /** Synthetic list entry id for the user-defined OpenAI-compatible provider. */
 const CUSTOM_PROVIDER_ENTRY_ID = "__custom_openai_compatible__";
 
-/** Turn a free-text provider name into a stable lowercase provider id. */
-function slugifyProviderId(name: string) {
-  const slug = name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug || "custom-provider";
-}
+/** Synthetic list entry id for the templated "Local model" provider. */
+const LOCAL_PROVIDER_ENTRY_ID = "__local_model__";
 
 type ProviderAuthEntry = {
   id: string;
@@ -151,7 +156,14 @@ const PROVIDER_LABELS: Record<string, string> = {
   openrouter: "OpenRouter",
   apertus: "Apertus AI",
   "apertus-ai": "Apertus AI",
+  ollama: "Ollama (local)",
+  lmstudio: "LM Studio (local)",
+  llamacpp: "llama.cpp (local)",
+  vllm: "vLLM (local)",
+  localai: "LocalAI (local)",
 };
+// Note: `ollama` / `lmstudio` labels are kept so opencode's auto-detected
+// local providers still render with a friendly name in the provider list.
 
 export type ProviderAuthModalProps = {
   open: boolean;
@@ -210,6 +222,10 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const [customEditMode, setCustomEditMode] = useState(false);
   // Display name of a branded provider being added (e.g. "Apertus AI"), else null.
   const [customBrandName, setCustomBrandName] = useState<string | null>(null);
+  // True when the form is in "Local model" mode — shows the runtime template
+  // picker. `customTemplateId` is the currently-selected template, if any.
+  const [customShowLocalTemplates, setCustomShowLocalTemplates] = useState(false);
+  const [customTemplateId, setCustomTemplateId] = useState<string | null>(null);
   const [customModelInput, setCustomModelInput] = useState("");
   const [customModels, setCustomModels] = useState<CustomModelDraft[]>([]);
   const [customFetchedModels, setCustomFetchedModels] = useState<string[]>([]);
@@ -228,6 +244,9 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     !customEditMode && customBrandName
       ? BRANDED_CUSTOM_PROVIDERS.find((provider) => provider.id === customFixedProviderId) ?? null
       : null;
+  const activeLocalTemplate = customShowLocalTemplates
+    ? LOCAL_RUNTIME_TEMPLATES.find((template) => template.id === customTemplateId) ?? null
+    : null;
 
   const formatProviderName = (id: string, fallback?: string) => {
     const named = fallback?.trim();
@@ -332,6 +351,17 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
         });
       }
 
+      // One consolidated "Local model" entry with per-runtime templates
+      // (llama.cpp, vLLM, LocalAI, …). Ollama / LM Studio on the default host
+      // are auto-detected by the engine and appear via auth methods above.
+      nextEntries.push({
+        id: LOCAL_PROVIDER_ENTRY_ID,
+        name: "Local model",
+        methods: [{ type: "api", label: "Ollama · LM Studio · llama.cpp · vLLM" }],
+        connected: false,
+        env: [],
+      });
+
       // Generic user-defined option, pinned at the very bottom.
       nextEntries.push({
         id: CUSTOM_PROVIDER_ENTRY_ID,
@@ -417,6 +447,8 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setCustomFixedProviderId(null);
     setCustomEditMode(false);
     setCustomBrandName(null);
+    setCustomShowLocalTemplates(false);
+    setCustomTemplateId(null);
     setCustomModelInput("");
     setCustomModels([]);
     setCustomFetchedModels([]);
@@ -710,6 +742,11 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       return;
     }
 
+    if (entry.id === LOCAL_PROVIDER_ENTRY_ID) {
+      startLocalProvider();
+      return;
+    }
+
     const branded = BRANDED_CUSTOM_PROVIDERS.find((provider) => provider.id === entry.id);
     if (branded) {
       startCustomProvider(branded);
@@ -822,17 +859,56 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setCustomFixedProviderId(branded?.id ?? null);
     setCustomBrandName(branded?.name ?? null);
     setCustomName(branded?.name ?? "");
-    setCustomBaseURL("");
+    // Fixed-endpoint runtimes (Ollama, LM Studio, …) pre-fill their Base URL so
+    // the user can fetch models immediately; per-deployment gateways stay blank.
+    setCustomBaseURL(branded?.baseUrlDefault ?? "");
     setCustomApiKey("");
     setCustomApiType(branded?.apiType ?? "chat");
     setCustomApiTypeTouched(Boolean(branded));
     setCustomBaseUrlPlaceholder(branded?.baseUrlPlaceholder ?? DEFAULT_BASE_URL_PLACEHOLDER);
+    setCustomShowLocalTemplates(false);
+    setCustomTemplateId(null);
     setCustomModelInput("");
     setCustomModels([]);
     setCustomFetchedModels([]);
     setLocalError(null);
     setSelectedProviderId(branded?.id ?? CUSTOM_PROVIDER_ENTRY_ID);
     setView("custom");
+  };
+
+  // Open the custom form in "Local model" mode: a runtime template picker on
+  // top of an otherwise-blank custom form. Provider id derives from the name
+  // (not fixed), so several local providers can coexist.
+  const startLocalProvider = () => {
+    setCustomEditMode(false);
+    setCustomFixedProviderId(null);
+    setCustomBrandName("Local model");
+    setCustomShowLocalTemplates(true);
+    setCustomTemplateId(null);
+    setCustomName("");
+    setCustomBaseURL("");
+    setCustomApiKey("");
+    setCustomApiType("chat");
+    setCustomApiTypeTouched(false);
+    setCustomBaseUrlPlaceholder(DEFAULT_BASE_URL_PLACEHOLDER);
+    setCustomModelInput("");
+    setCustomModels([]);
+    setCustomFetchedModels([]);
+    setLocalError(null);
+    setSelectedProviderId(LOCAL_PROVIDER_ENTRY_ID);
+    setView("custom");
+  };
+
+  // Apply a runtime template: prefill Base URL, API type, and (when the name is
+  // still blank or matches another template's name) the display name.
+  const applyLocalTemplate = (template: LocalRuntimeTemplate) => {
+    setCustomTemplateId(template.id);
+    setCustomBaseURL(template.baseURL);
+    setCustomBaseUrlPlaceholder(template.placeholder);
+    setCustomApiType(template.apiType);
+    setCustomApiTypeTouched(true);
+    setCustomName((current) => resolveTemplateName(current, template));
+    if (localError) setLocalError(null);
   };
 
   const handleCustomSubmit = async () => {
@@ -1334,13 +1410,52 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                       <div className="mt-1 text-xs text-dls-secondary">
                         {isEditingCustomProvider
                           ? "Update this OpenAI-compatible provider."
-                          : activeBrandedProvider?.description ?? "Connect any endpoint that speaks the OpenAI API spec."}
+                          : customShowLocalTemplates
+                            ? "Pick a runtime to prefill its endpoint, then fetch its models."
+                            : activeBrandedProvider?.description ?? "Connect any endpoint that speaks the OpenAI API spec."}
                       </div>
                     </div>
                     <Button variant="outline" onClick={handleBack} disabled={actionDisabled || customBusy}>
                       Back
                     </Button>
                   </div>
+
+                  {customShowLocalTemplates ? (
+                    <div className="space-y-1.5">
+                      <div className="text-xs font-medium text-dls-secondary">Runtime</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {LOCAL_RUNTIME_TEMPLATES.map((template) => {
+                          const active = customTemplateId === template.id;
+                          return (
+                            <button
+                              key={template.id}
+                              type="button"
+                              onClick={() => applyLocalTemplate(template)}
+                              disabled={actionDisabled || customBusy}
+                              className={`rounded-lg border px-3 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                                active
+                                  ? "border-[rgba(var(--dls-accent-rgb),0.4)] bg-[rgba(var(--dls-accent-rgb),0.08)] text-dls-text"
+                                  : "border-dls-border bg-dls-hover text-dls-secondary hover:bg-dls-active hover:text-dls-text"
+                              }`}
+                            >
+                              {template.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {activeLocalTemplate ? (
+                        <div
+                          className={`rounded-lg border px-3 py-2 text-[11px] leading-relaxed ${
+                            activeLocalTemplate.autoDetected
+                              ? "border-amber-7/30 bg-amber-3/30 text-amber-11"
+                              : "border-dls-border bg-dls-hover text-dls-secondary"
+                          }`}
+                        >
+                          {activeLocalTemplate.note}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
 
                   <TextInput
                     label="Name"

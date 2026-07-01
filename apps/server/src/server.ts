@@ -58,6 +58,7 @@ import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import {
   mergeOpencodeConfigs,
+  mergeRuntimeProviderPatch,
   readRuntimeOpencodeConfig,
   runtimeMcpMap,
   type RuntimeOpencodeConfig,
@@ -1769,10 +1770,12 @@ function createRoutes(
       const providerUpdate = ensurePlainObject(provider);
       if (Object.keys(providerUpdate).length) {
         const currentRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
-        logicalUpdates.provider = {
-          ...(ensurePlainObject(currentRuntime.provider)),
-          ...providerUpdate,
-        };
+        // A `null` value in the patch removes that provider (see
+        // mergeRuntimeProviderPatch) so a client can fully disconnect it.
+        logicalUpdates.provider = mergeRuntimeProviderPatch(
+          ensurePlainObject(currentRuntime.provider),
+          providerUpdate,
+        );
       }
 
       const permissionUpdate = ensurePlainObject(permission);
