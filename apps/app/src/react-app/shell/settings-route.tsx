@@ -372,6 +372,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [localProviderBusy, setLocalProviderBusy] = useState(false);
   const [localProviderStatus, setLocalProviderStatus] = useState<string | null>(null);
   const [localProviderError, setLocalProviderError] = useState<string | null>(null);
+  const [disconnectingProviderId, setDisconnectingProviderId] = useState<string | null>(null);
+  const [providerDisconnectStatus, setProviderDisconnectStatus] = useState<string | null>(null);
+  const [providerDisconnectError, setProviderDisconnectError] = useState<string | null>(null);
   const [googleWorkspaceConnected, setGoogleWorkspaceConnected] = useState(false);
   const [imageExtensionBusy, setImageExtensionBusy] = useState(false);
   const [imageExtensionStatus, setImageExtensionStatus] = useState<string | null>(null);
@@ -987,6 +990,22 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       setLocalProviderBusy(false);
     }
   }, [local, legalworkClient, reloadCoordinator, runtimeWorkspaceId, selectedWorkspaceEndpoint]);
+
+  const handleDisconnectProvider = useCallback(async (providerId: string) => {
+    const resolved = providerId.trim();
+    if (!resolved || disconnectingProviderId) return;
+    setProviderDisconnectStatus(null);
+    setProviderDisconnectError(null);
+    setDisconnectingProviderId(resolved);
+    try {
+      const message = await providerAuthStore.disconnectProvider(resolved);
+      setProviderDisconnectStatus(typeof message === "string" && message ? message : `Disconnected ${resolved}.`);
+    } catch (error) {
+      setProviderDisconnectError(describeRouteError(error));
+    } finally {
+      setDisconnectingProviderId(null);
+    }
+  }, [disconnectingProviderId, providerAuthStore]);
 
   useEffect(() => {
     local.setUi((previous) => ({ ...previous, view: "settings", tab: route.tab }));
@@ -1757,14 +1776,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             providerStatusStyle={providerStatusStyle}
             providerSummary={providerSummary}
             connectedProviders={connectedProviders}
-            disconnectingProviderId={null}
+            disconnectingProviderId={disconnectingProviderId}
             providerConnectError={customProviderEditError ?? providerAuthSnapshot.providerAuthError}
-            providerDisconnectStatus={configActionStatus}
-            providerDisconnectError={null}
+            providerDisconnectStatus={providerDisconnectStatus ?? configActionStatus}
+            providerDisconnectError={providerDisconnectError}
             onOpenProviderAuth={handleOpenProviderAuth}
-            onDisconnectProvider={async (providerId) => {
-              await providerAuthStore.disconnectProvider(providerId);
-            }}
+            onDisconnectProvider={handleDisconnectProvider}
             onEditProvider={handleEditCustomProvider}
             canDisconnectProvider={(source) => source !== "env"}
           />
