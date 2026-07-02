@@ -66,7 +66,20 @@ function isTextContent(target: OpenTarget): boolean {
 export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, onClose }: ArtifactPanelProps) {
   const transcriptTargets = usePanelTabStore((state) => state.transcriptArtifactTargets[sessionId] ?? EMPTY_TRANSCRIPT_TARGETS);
   const artifactTargets = useMemo(() => transcriptTargets.filter(isCollectibleArtifactTarget), [transcriptTargets]);
-  const target = artifactTargets.find((item) => item.id === tab.id) ?? null;
+  // Tabs opened from the workspace file browser carry their own path, so they
+  // stay viewable even when the transcript never mentioned the file.
+  const target = artifactTargets.find((item) => item.id === tab.id) ?? (tab.value ? {
+    id: tab.id,
+    kind: "file",
+    value: tab.value,
+    name: tab.label,
+    preview: tab.preview,
+    confidence: 100,
+    reason: "workspace file",
+    exists: true,
+    size: tab.size,
+    updatedAt: tab.updatedAt,
+  } satisfies OpenTarget : null);
 
   if (!target || !client || !workspaceId) {
     return null;

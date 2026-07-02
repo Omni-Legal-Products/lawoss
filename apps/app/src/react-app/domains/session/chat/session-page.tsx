@@ -2,11 +2,15 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
-import { Columns2, FileText, Globe, Mic2, ScrollText, Settings2, SquarePen, X, Zap } from "lucide-react";
+import { Columns2, FileText, Folder, Globe, Mic2, ScrollText, Settings2, SquarePen, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { LEGALWORK_EXTENSION_CATALOG } from "../../../../app/constants";
-import { type LegalworkServerClient, type LegalworkServerStatus } from "../../../../app/lib/legalwork-server";
+import {
+  type LegalworkServerClient,
+  type LegalworkServerStatus,
+  type LegalworkWorkspaceDirectoryEntry,
+} from "../../../../app/lib/legalwork-server";
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import type { BootPhase } from "../../../../app/lib/startup-boot";
 import { openDesktopPath, revealDesktopItemInDir, type WorkspaceInfo } from "../../../../app/lib/desktop";
@@ -52,10 +56,11 @@ import { useShellConfig } from "../../../shell/shell-config";
 import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-store";
 
 import { isElectronRuntime } from "../../../../app/utils";
-import { isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTarget, type OpenTarget } from "../artifacts/open-target";
+import { classifyOpenTarget, isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTarget, type OpenTarget } from "../artifacts/open-target";
 import type { OpenTargetOptions } from "@/lib/target-provider";
 import { VoicePanel } from "../voice/voice-panel";
 import { SidePanel } from "../panel/side-panel";
+import { WorkspaceFilesPanel } from "../panel/workspace-files-panel";
 import { TerminalDock } from "../terminal/terminal-dock";
 import { useActivePanelTab, usePanelTabStore, useSessionPanelState } from "../panel/panel-tab-store";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
@@ -310,6 +315,7 @@ export function SessionPage(props: SessionPageProps) {
   const activeSidePanel = voiceSidePanelOpen ? "voice" : sessionSidePanel;
   const sidePanelOpen = activeSidePanel !== null;
   const panelRailActive = activeSidePanel === "panel";
+  const filesRailActive = activeSidePanel === "files";
   const extensionsRailActive = activeSidePanel === "extensions";
   const voiceRailActive = activeSidePanel === "voice";
   const voiceExtension = useMemo(
@@ -557,6 +563,43 @@ export function SessionPage(props: SessionPageProps) {
       toggleCurrentSidePanel("panel");
     }
   }, [artifactFileTargets, hasArtifactTargets, openTab, panelRailActive, props.selectedSessionId, selectTab, sessionPanelState, toggleCurrentSidePanel]);
+  const openFilesRailPane = useCallback(() => {
+    toggleCurrentSidePanel("files");
+  }, [toggleCurrentSidePanel]);
+  const openWorkspaceFileEntry = useCallback((entry: LegalworkWorkspaceDirectoryEntry) => {
+    const preview = classifyOpenTarget(entry.name, "file");
+    if (preview === "external" || preview === "browser") {
+      if (props.selectedWorkspaceDisplay.workspaceType !== "remote" && isElectronRuntime()) {
+        void openDesktopPath(absoluteWorkspacePath(props.selectedWorkspaceRoot, entry.path)).catch(() => undefined);
+      } else {
+        void downloadOpenTarget({
+          id: `file:${entry.path.toLowerCase()}`,
+          kind: "file",
+          value: entry.path,
+          name: entry.name,
+          preview,
+          confidence: 100,
+          reason: "workspace file",
+          exists: true,
+          size: entry.size,
+          updatedAt: entry.updatedAt,
+        }).catch(() => undefined);
+      }
+      return;
+    }
+    if (!props.selectedSessionId) return;
+    openTab(props.selectedSessionId, {
+      id: `file:${entry.path.toLowerCase()}`,
+      type: "artifact",
+      label: entry.name,
+      preview,
+      value: entry.path,
+      size: entry.size,
+      updatedAt: entry.updatedAt,
+    });
+    preserveSidePanelOnPanelOpenRef.current = true;
+    setCurrentSidePanel("panel");
+  }, [downloadOpenTarget, openTab, props.selectedSessionId, props.selectedWorkspaceDisplay.workspaceType, props.selectedWorkspaceRoot, setCurrentSidePanel]);
   const openExtensionsRailPane = useCallback(() => {
     toggleCurrentSidePanel("extensions");
   }, [toggleCurrentSidePanel]);
@@ -1281,6 +1324,15 @@ export function SessionPage(props: SessionPageProps) {
                       sessionId={props.selectedSessionId}
                       onClose={closeRightPane}
                     />
+                  ) : activeSidePanel === "files" ? (
+                    <WorkspaceFilesPanel
+                      key={props.runtimeWorkspaceId ?? "__no_workspace__"}
+                      client={props.legalworkServerClient}
+                      workspaceId={props.runtimeWorkspaceId}
+                      workspaceRoot={props.selectedWorkspaceRoot}
+                      onOpenFile={openWorkspaceFileEntry}
+                      onClose={closeRightPane}
+                    />
                   ) : activeSidePanel === "panel" && props.selectedSessionId ? (
                     <SidePanel
                       sessionId={props.selectedSessionId}
@@ -1347,6 +1399,21 @@ export function SessionPage(props: SessionPageProps) {
                   {artifactTargetCount > 9 ? "9+" : artifactTargetCount}
                 </span>
               ) : null}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className={cn(
+                "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
+                filesRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+              )}
+              onClick={openFilesRailPane}
+              title="Workspace files"
+              aria-label="Workspace files"
+              aria-pressed={filesRailActive}
+              disabled={!props.selectedSessionId || !props.legalworkServerClient || !props.runtimeWorkspaceId}
+            >
+              <Folder size={17} />
             </Button>
             <Button
               variant="ghost"

@@ -16,6 +16,7 @@ const FILE_SESSION_MAX_BATCH_ITEMS = 64;
 const FILE_SESSION_MAX_FILE_BYTES = 5_000_000;
 const FILE_SESSION_CATALOG_DEFAULT_LIMIT = 2000;
 const FILE_SESSION_CATALOG_MAX_LIMIT = 10000;
+const FILE_LIST_MAX_ENTRIES = 2000;
 
 type JsonResponse = (data: unknown, status?: number) => Response;
 type ReadJsonBody = (request: Request) => Promise<Record<string, unknown>>;
@@ -1066,6 +1067,56 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       kind: info.isFile() ? "file" : info.isDirectory() ? "dir" : "other",
       size: info.size,
       updatedAt: info.mtimeMs,
+    });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/files/list", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const requested = (ctx.url.searchParams.get("path") ?? "").trim();
+    // An empty path lists the workspace root; normalizeWorkspaceRelativePath rejects it.
+    const relativePath = requested ? normalizeWorkspaceRelativePath(requested, { allowSubdirs: true }) : "";
+    const absPath = relativePath ? resolveSafeChildPath(workspace.path, relativePath) : resolve(workspace.path);
+    if (!(await exists(absPath))) {
+      throw new ApiError(404, "dir_not_found", "Directory not found");
+    }
+    const info = await stat(absPath);
+    if (!info.isDirectory()) {
+      throw new ApiError(400, "invalid_path", "Path must point to a directory");
+    }
+
+    const dirents = await readdir(absPath, { withFileTypes: true });
+    type DirectoryEntry = { name: string; path: string; kind: "file" | "dir"; size?: number; updatedAt?: number };
+    const entries = (
+      await Promise.all(
+        dirents.map(async (dirent): Promise<DirectoryEntry | null> => {
+          const entryPath = relativePath ? `${relativePath}/${dirent.name}` : dirent.name;
+          try {
+            const entryInfo = await stat(join(absPath, dirent.name));
+            if (entryInfo.isDirectory()) {
+              return { name: dirent.name, path: entryPath, kind: "dir" };
+            }
+            if (entryInfo.isFile()) {
+              return { name: dirent.name, path: entryPath, kind: "file", size: entryInfo.size, updatedAt: entryInfo.mtimeMs };
+            }
+          } catch {
+            // Broken symlinks and entries deleted mid-listing just drop out.
+          }
+          return null;
+        }),
+      )
+    ).filter((entry): entry is DirectoryEntry => entry !== null);
+
+    entries.sort((left, right) => (
+      left.kind === right.kind
+        ? left.name.localeCompare(right.name, undefined, { sensitivity: "base", numeric: true })
+        : left.kind === "dir" ? -1 : 1
+    ));
+
+    const truncated = entries.length > FILE_LIST_MAX_ENTRIES;
+    return jsonResponse({
+      path: relativePath,
+      entries: truncated ? entries.slice(0, FILE_LIST_MAX_ENTRIES) : entries,
+      truncated,
     });
   });
 

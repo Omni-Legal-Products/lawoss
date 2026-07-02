@@ -420,6 +420,20 @@ export type LegalworkWorkspaceFileStat = {
   updatedAt?: number;
 };
 
+export type LegalworkWorkspaceDirectoryEntry = {
+  name: string;
+  path: string;
+  kind: "file" | "dir";
+  size?: number;
+  updatedAt?: number;
+};
+
+export type LegalworkWorkspaceDirectoryList = {
+  path: string;
+  entries: LegalworkWorkspaceDirectoryEntry[];
+  truncated: boolean;
+};
+
 export type LegalworkInboxItem = {
   id: string;
   name?: string;
@@ -1601,6 +1615,13 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<LegalworkWorkspaceFileContent>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/files/content?path=${encodeURIComponent(path)}`,
+        { token, hostToken },
+      ),
+
+    listWorkspaceDirectory: (workspaceId: string, path: string) =>
+      requestJson<LegalworkWorkspaceDirectoryList>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/files/list?path=${encodeURIComponent(path)}`,
         { token, hostToken },
       ),
 
