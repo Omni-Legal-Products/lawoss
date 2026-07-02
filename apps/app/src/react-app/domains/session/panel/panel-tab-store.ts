@@ -15,6 +15,11 @@ export type ArtifactPanelTab = {
   type: "artifact";
   label: string;
   preview: OpenTargetPreview;
+  // Workspace-relative path for tabs opened directly from the workspace file
+  // browser. Tabs without it resolve through the session's transcript targets.
+  value?: string;
+  size?: number;
+  updatedAt?: number;
 }
 
 export type PanelTab = BrowserPanelTab | ArtifactPanelTab;
@@ -91,7 +96,10 @@ function reconcileOpenArtifactTabs(
       const target = targetMap.get(tab.id);
 
       if (!target) {
-        return null;
+        // Tabs opened from the workspace file browser carry their own path and
+        // are not derived from the transcript — reconciling against transcript
+        // targets must not close them.
+        return tab.value ? tab : null;
       }
 
       return {
@@ -134,7 +142,8 @@ function isSameTab(left: PanelTab, right: PanelTab) {
   if (left.type === "artifact" && right.type === "artifact") {
     return (
       left.label === right.label &&
-      left.preview === right.preview
+      left.preview === right.preview &&
+      left.value === right.value
     );
   }
 

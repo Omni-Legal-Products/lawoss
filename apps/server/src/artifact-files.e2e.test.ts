@@ -109,4 +109,37 @@ describe("artifact file routes", () => {
     expect(xlsxDownload.status).toBe(200);
     expect(Array.from(new Uint8Array(await xlsxDownload.arrayBuffer()))).toEqual([80, 75, 9, 9]);
   });
+
+  test("lists workspace directories with dirs-first ordering and path safety", async () => {
+    const root = await createWorkspaceRoot();
+    const { base, token } = await startLegalworkServer(root);
+
+    const rootList = await fetch(`${base}/workspace/ws_1/files/list`, { headers: auth(token) });
+    expect(rootList.status).toBe(200);
+    const rootListing = await rootList.json() as { path: string; entries: Array<any>; truncated: boolean };
+    expect(rootListing.path).toBe("");
+    expect(rootListing.truncated).toBe(false);
+    expect(rootListing.entries.map((entry) => entry.name)).toContain("reports");
+    expect(rootListing.entries.find((entry) => entry.name === "reports")).toMatchObject({ kind: "dir", path: "reports" });
+
+    const reportsList = await fetch(`${base}/workspace/ws_1/files/list?path=${encodeURIComponent("reports")}`, { headers: auth(token) });
+    expect(reportsList.status).toBe(200);
+    const reportsListing = await reportsList.json() as { path: string; entries: Array<any> };
+    expect(reportsListing.path).toBe("reports");
+    const csvEntry = reportsListing.entries.find((entry) => entry.name === "artifact-eval.csv");
+    expect(csvEntry).toMatchObject({ kind: "file", path: "reports/artifact-eval.csv" });
+    expect(csvEntry.size).toBeGreaterThan(0);
+    expect(csvEntry.updatedAt).toBeGreaterThan(0);
+    const names = reportsListing.entries.map((entry) => entry.name);
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true })));
+
+    const fileList = await fetch(`${base}/workspace/ws_1/files/list?path=${encodeURIComponent("reports/artifact-eval.csv")}`, { headers: auth(token) });
+    expect(fileList.status).toBe(400);
+
+    const escapeList = await fetch(`${base}/workspace/ws_1/files/list?path=${encodeURIComponent("../..")}`, { headers: auth(token) });
+    expect(escapeList.status).toBe(400);
+
+    const missingList = await fetch(`${base}/workspace/ws_1/files/list?path=${encodeURIComponent("does-not-exist")}`, { headers: auth(token) });
+    expect(missingList.status).toBe(404);
+  });
 });
