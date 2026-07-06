@@ -65,8 +65,11 @@ import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } 
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import {
+  applyGlobalToolPermissions,
+  GLOBAL_TOOL_PERMISSIONS_ID,
   mergeOpencodeConfigs,
   mergeRuntimeProviderPatch,
+  readGlobalToolPermissions,
   readRuntimeOpencodeConfig,
   runtimeMcpMap,
   type RuntimeOpencodeConfig,
@@ -1351,9 +1354,14 @@ function createRoutes(
       await readLegalworkConfig(workspace.path),
       await readLegalworkWorkspaceConfig(config, workspace.id),
     );
+    // Tool permissions come from the global row; the workspace row only
+    // contributes external_directory (see applyGlobalToolPermissions).
     const opencode = mergeOpencodeConfigs(
       await readOpencodeConfig(workspace.path),
-      await readRuntimeOpencodeConfig(config, workspace.id),
+      applyGlobalToolPermissions(
+        await readRuntimeOpencodeConfig(config, workspace.id),
+        await readGlobalToolPermissions(config),
+      ),
     );
     const lastAudit = await readLastAudit(workspace.path, workspace.id);
     return jsonResponse({ opencode, legalwork, updatedAt: lastAudit?.timestamp ?? null });
@@ -1788,23 +1796,36 @@ function createRoutes(
       }
 
       const permissionUpdate = ensurePlainObject(permission);
-      if (Object.prototype.hasOwnProperty.call(permissionUpdate, "external_directory")) {
-        const existingRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
-        const existingPermission = ensurePlainObject(existingRuntime.permission);
-        const nextExternalDirectory = permissionUpdate.external_directory;
-        const existingPermissionKeys = Object.keys(existingPermission);
-        const removePermissionParent =
-          typeof nextExternalDirectory === "undefined" &&
-            (existingPermissionKeys.length === 0 ||
-            (existingPermissionKeys.length === 1 && Object.prototype.hasOwnProperty.call(existingPermission, "external_directory")));
+      if (Object.keys(permissionUpdate).length) {
+        const { external_directory: externalDirectoryUpdate, ...toolPermissionUpdate } = permissionUpdate;
 
-        if (removePermissionParent) {
-          logicalUpdates.permission = undefined;
-        } else {
-          logicalUpdates.permission = {
-            ...existingPermission,
-            external_directory: nextExternalDirectory,
-          };
+        // Tool permissions are GLOBAL — one safety posture for every
+        // workspace — so they merge into the reserved global row. A `null`
+        // value in the patch removes that key (JSON cannot carry
+        // `undefined`); unmentioned keys are preserved as-is.
+        if (Object.keys(toolPermissionUpdate).length) {
+          const globalRuntime = await readRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID);
+          const nextGlobal = mergeRuntimeProviderPatch(
+            ensurePlainObject(globalRuntime.permission),
+            toolPermissionUpdate,
+          );
+          await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, (current) => ({
+            ...current,
+            permission: Object.keys(nextGlobal).length
+              ? (nextGlobal as RuntimeOpencodeConfig["permission"])
+              : undefined,
+          }));
+        }
+
+        // external_directory stays workspace-scoped: it is owned by the
+        // authorized-folders routes and describes this workspace's folders.
+        if (externalDirectoryUpdate !== undefined) {
+          const existingRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
+          const nextPermission = mergeRuntimeProviderPatch(
+            ensurePlainObject(existingRuntime.permission),
+            { external_directory: externalDirectoryUpdate },
+          );
+          logicalUpdates.permission = Object.keys(nextPermission).length ? nextPermission : undefined;
         }
       }
 

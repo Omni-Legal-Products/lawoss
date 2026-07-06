@@ -65,6 +65,7 @@ import { PreferencesView } from "@/react-app/domains/settings/pages/preferences-
 import { ShellCustomizationView } from "@/react-app/domains/settings/pages/shell-view";
 import { GeneralSettingsView } from "@/react-app/domains/settings/pages/general-view";
 import { AuthorizedFoldersPanel } from "@/react-app/domains/settings/panels/authorized-folders-panel";
+import { ToolPermissionsPanel } from "@/react-app/domains/settings/panels/tool-permissions-panel";
 import { SettingsStack } from "@/react-app/domains/settings/settings-section";
 import { AdvancedView } from "@/react-app/domains/settings/pages/advanced-view";
 import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-view";
@@ -202,6 +203,7 @@ function parseSettingsPath(pathname: string): {
     case "ai":
     case "preferences":
     case "permissions":
+    case "safety":
     case "shell":
     case "advanced":
     case "appearance":
@@ -1763,6 +1765,31 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 setConfigActionStatus(t("settings.config_updated"));
                 void providerAuthStore.refreshProviders();
                 void connectionsStore.refreshMcpServers();
+              }}
+            />
+          </SettingsStack>
+        );
+      // Tool permissions are global (one safety posture for all workspaces),
+      // so they live in the Global sidebar group — the workspace connection is
+      // only the transport for reading/writing the shared config.
+      case "safety":
+        return (
+          <SettingsStack>
+            <ToolPermissionsPanel
+              legalworkServerClient={legalworkClient}
+              legalworkServerStatus={routeLegalworkStatus}
+              legalworkServerCapabilities={routeLegalworkCapabilities}
+              runtimeWorkspaceId={runtimeWorkspaceId}
+              onConfigUpdated={() => {
+                setConfigActionStatus(t("settings.config_updated"));
+                // Permissions only take effect when the engine rebuilds its
+                // config — without this the running engine silently keeps the
+                // old (permissionless) behavior.
+                reloadCoordinator.markReloadRequired("config", {
+                  type: "config",
+                  name: "opencode.json",
+                  action: "updated",
+                });
               }}
             />
           </SettingsStack>

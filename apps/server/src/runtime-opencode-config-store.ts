@@ -12,6 +12,7 @@ export type RuntimeOpencodeConfig = {
   mcp?: Record<string, Record<string, unknown>>;
   permission?: {
     external_directory?: Record<string, unknown>;
+    [key: string]: unknown;
   };
   provider?: Record<string, unknown>;
 };
@@ -39,15 +40,14 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
     ? value.disabled_providers.filter((item) => typeof item === "string")
     : undefined;
   const mcp = isRecord(value.mcp) ? value.mcp as Record<string, Record<string, unknown>> : undefined;
-  const permission = isRecord(value.permission) ? value.permission : undefined;
-  const externalDirectory = permission && isRecord(permission.external_directory) ? permission.external_directory : undefined;
+  const permission = isRecord(value.permission) && Object.keys(value.permission).length ? value.permission : undefined;
   const provider = isRecord(value.provider) ? value.provider : undefined;
   return {
     ...(defaultAgent ? { default_agent: defaultAgent } : {}),
     ...(plugin ? { plugin } : {}),
     ...(disabledProviders ? { disabled_providers: disabledProviders } : {}),
     ...(mcp ? { mcp } : {}),
-    ...(externalDirectory ? { permission: { external_directory: externalDirectory } } : {}),
+    ...(permission ? { permission } : {}),
     ...(provider ? { provider } : {}),
   };
 }
@@ -131,6 +131,44 @@ async function runtimeDb(config: ServerConfig): Promise<RuntimeOpencodeDb> {
   const db = openRuntimeDb(path);
   dbByPath.set(path, db);
   return db;
+}
+
+/**
+ * Tool permissions are GLOBAL — one safety posture for every workspace this
+ * server hosts. They live under a reserved runtime-DB row instead of per
+ * workspace; only `permission.external_directory` (Authorized Folders) stays
+ * workspace-scoped. The id can never collide with real workspaces (those are
+ * `ws_<hash>`).
+ */
+export const GLOBAL_TOOL_PERMISSIONS_ID = "__global_tool_permissions__";
+
+/** Read the global tool-permission map (never contains external_directory). */
+export async function readGlobalToolPermissions(config: ServerConfig): Promise<Record<string, unknown>> {
+  const globalConfig = await readRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID);
+  const permission = isRecord(globalConfig.permission) ? { ...globalConfig.permission } : {};
+  delete permission.external_directory;
+  return permission;
+}
+
+/**
+ * Effective permission map for a workspace: the global tool permissions plus
+ * the workspace's own external_directory. Tool keys in the workspace row are
+ * ignored (legacy rows from when permissions were workspace-scoped).
+ */
+export function applyGlobalToolPermissions(
+  runtimeConfig: RuntimeOpencodeConfig,
+  globalPermission: Record<string, unknown>,
+): RuntimeOpencodeConfig {
+  const workspacePermission = isRecord(runtimeConfig.permission) ? runtimeConfig.permission : {};
+  const permission: Record<string, unknown> = { ...globalPermission };
+  if (isRecord(workspacePermission.external_directory)) {
+    permission.external_directory = workspacePermission.external_directory;
+  }
+  const next = { ...runtimeConfig };
+  delete next.permission;
+  return Object.keys(permission).length
+    ? { ...next, permission: permission as RuntimeOpencodeConfig["permission"] }
+    : next;
 }
 
 export function runtimePluginList(config: RuntimeOpencodeConfig): string[] {
@@ -222,6 +260,7 @@ export function mergeOpencodeConfigs(
     },
     permission: {
       ...persistedPermission,
+      ...(isRecord(runtime.permission) ? runtime.permission : {}),
       external_directory: {
         ...persistedExternalDirectory,
         ...runtimeExternalDirectory(runtime),
