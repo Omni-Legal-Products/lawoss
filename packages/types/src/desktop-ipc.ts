@@ -302,6 +302,45 @@ export type RunningAppsResult = {
   apps: string[];
 };
 
+export type OfficeAddinAppId = "word" | "excel" | "powerpoint";
+
+export type OfficeAddinAppStatus = {
+  id: OfficeAddinAppId;
+  label: string;
+  /** The Office app is installed on this machine. */
+  installed: boolean;
+  /** The user has installed the LegalWork add-in for this app. */
+  enabled: boolean;
+  /** The LegalWork manifest is present in this app's sideload folder. */
+  manifestInstalled: boolean;
+};
+
+export type OfficeAddinStatus = {
+  /** The current platform supports installing the add-in (macOS today). */
+  supported: boolean;
+  platform: string;
+  /** OpenSSL (needed to generate the certificate) is available. */
+  toolAvailable: boolean;
+  /** The add-in is installed and the HTTPS listener is enabled. */
+  enabled: boolean;
+  port: number;
+  installedAt: number | null;
+  certPresent: boolean;
+  /** The localhost CA is trusted by the OS. */
+  certTrusted: boolean;
+  caFingerprint: string | null;
+  /** The built task pane bundle is available to serve. */
+  paneBundlePresent: boolean;
+  apps: OfficeAddinAppStatus[];
+};
+
+export type OfficeAddinActionResult = {
+  ok: boolean;
+  error?: string;
+  steps?: Array<{ step: string; ok: boolean; skipped?: boolean; error?: string; apps?: unknown }>;
+  status: OfficeAddinStatus;
+};
+
 // ---------------------------------------------------------------------------
 // The command map
 // ---------------------------------------------------------------------------
@@ -406,6 +445,11 @@ export type DesktopCommandMap = {
     args: [options?: Record<string, unknown>];
     result: LegalworkServerInfo;
   };
+
+  // Office add-ins (Word/Excel/PowerPoint task pane)
+  officeAddinStatus: { args: []; result: OfficeAddinStatus };
+  officeAddinInstall: { args: [app: OfficeAddinAppId]; result: OfficeAddinActionResult };
+  officeAddinUninstall: { args: [app: OfficeAddinAppId]; result: OfficeAddinActionResult };
 
   // Dialogs
   pickDirectory: {

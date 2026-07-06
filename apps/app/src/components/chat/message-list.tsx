@@ -369,7 +369,9 @@ const AssistantMessage = React.memo(
               return (
                 <MessageContent
                   key={`reasoning-${index}`}
-                  className="text-muted-foreground prose w-full min-w-0 flex-1 rounded-lg bg-transparent p-0"
+                  // chat-reasoning is an unstyled hook so embedders can
+                  // target reasoning output (the Office pane hides it).
+                  className="chat-reasoning text-muted-foreground prose w-full min-w-0 flex-1 rounded-lg bg-transparent p-0"
                   markdown
                 >
                   {group.text}
@@ -760,7 +762,10 @@ function MessageGroup({
   return (
       <div className="flex flex-col gap-2 group/message-group">
       {stepItems.length > 0 ? (
-        <div ref={stepsRef} className="max-h-[520px] overflow-y-auto">
+        // data-scrollable: the transcript's scroll controller must not treat
+        // gestures inside this nested scroller as transcript browsing, or
+        // autoscroll disengages whenever the user wheels over tool output.
+        <div ref={stepsRef} data-scrollable className="max-h-[520px] overflow-y-auto">
           {stepItems.map((item, groupIndex) => renderItem(item, groupIndex))}
         </div>
       ) : null}

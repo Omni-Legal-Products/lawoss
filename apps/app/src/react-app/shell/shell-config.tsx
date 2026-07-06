@@ -30,6 +30,8 @@ export type ShellConfig = {
   addWorkspace: boolean;
   /** Show the notification bell in the header. */
   notifications: boolean;
+  /** Show the right-hand panel rail (browser, voice, artifacts, extensions). */
+  panelRail: boolean;
 };
 
 /* ------------------------------------------------------------------ */
@@ -49,13 +51,15 @@ export const DEFAULT_SHELL_CONFIG: ShellConfig = {
   browser: true,
   addWorkspace: true,
   notifications: false,
+  panelRail: true,
 };
 
 /* ------------------------------------------------------------------ */
 /*  Persistence                                                        */
 /* ------------------------------------------------------------------ */
 
-const STORAGE_KEY = "legalwork.shell-config";
+export const SHELL_CONFIG_STORAGE_KEY = "legalwork.shell-config";
+const STORAGE_KEY = SHELL_CONFIG_STORAGE_KEY;
 
 function readShellConfig(): ShellConfig {
   if (typeof window === "undefined") return DEFAULT_SHELL_CONFIG;

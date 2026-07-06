@@ -81,12 +81,35 @@ export interface ApprovalConfig {
   timeoutMs: number;
 }
 
+export interface WordAddinConfig {
+  /** Serve the Word task pane bundle and start the HTTPS add-in listener. */
+  enabled: boolean;
+  /** Fixed port for the HTTPS listener referenced by the add-in manifest. */
+  port: number;
+  /** PEM certificate path. Defaults to ~/.office-addin-dev-certs/localhost.crt. */
+  certPath?: string;
+  /** PEM private key path. Defaults to ~/.office-addin-dev-certs/localhost.key. */
+  keyPath?: string;
+  /** Directory containing the built task pane bundle (apps/app dist-word-addin). */
+  distPath?: string;
+}
+
 export interface ServerConfig {
   host: string;
   port: number;
   token: string;
   hostToken: string;
   configPath?: string;
+  wordAddin?: WordAddinConfig;
+  /**
+   * Host-app hook that opens a native "choose folder" dialog. Set by the
+   * desktop app (which owns OS dialogs); null when the server runs
+   * standalone. Lets webview clients like the Office task pane pick folders.
+   * returnFocusTo names the Office app ("word" | "excel" | "powerpoint")
+   * to re-activate after the dialog closes, since showing the dialog steals
+   * focus from it.
+   */
+  pickDirectory?: ((options: { title?: string; defaultPath?: string; returnFocusTo?: string }) => Promise<string | null>) | null;
   opencodeBaseUrl?: string;
   opencodeDirectory?: string;
   opencodeUsername?: string;

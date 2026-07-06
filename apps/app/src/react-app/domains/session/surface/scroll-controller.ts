@@ -10,7 +10,12 @@ function isStickyBottom(sessionId: string | null) {
   return readScrollState(sessionId).mode === "stickyBottom";
 }
 
-const EXACT_BOTTOM_GAP_PX = 1;
+// Widened from 1px: WKWebView (the Office task pane) uses fractional pixel
+// metrics and Office UI scaling, which leave a several-px residual gap even
+// when pinned to the bottom. With a 1px tolerance sticky mode could never
+// re-arm there, permanently disabling autoscroll after any manual scroll.
+// Kept well below a text line (~19px) so it never falsely claims bottom.
+const EXACT_BOTTOM_GAP_PX = 8;
 // Widened from 250ms so a single wheel or trackpad flick isn't missed between
 // two rapid programmatic scroll-to-bottom frames during streaming.
 const SCROLL_GESTURE_WINDOW_MS = 600;
@@ -81,6 +86,7 @@ export function useSessionScrollController(
   const setTopClippedMessageId = useSessionScrollStore((state) => state.setTopClippedMessageId);
 
   const lastKnownScrollTopRef = useRef(0);
+  const lastKnownScrollHeightRef = useRef(0);
   const programmaticScrollRef = useRef(false);
   const programmaticScrollResetRafARef = useRef<number | undefined>(undefined);
   const programmaticScrollResetRafBRef = useRef<number | undefined>(undefined);
@@ -156,9 +162,14 @@ export function useSessionScrollController(
         return;
       }
 
+      // Re-assert the bottom across a few frames: WKWebView (the Office
+      // pane) can finish laying out freshly mounted rows (e.g. the thinking
+      // indicator) a frame after the first set, leaving the tail clipped if
+      // we only settle once.
       container.scrollTop = container.scrollHeight;
       lastKnownScrollTopRef.current = container.scrollTop;
-      window.requestAnimationFrame(() => {
+      let settleFramesLeft = 3;
+      const settle = () => {
         const next = options.containerRef.current;
         if (!next) {
           programmaticScrollRef.current = false;
@@ -166,9 +177,15 @@ export function useSessionScrollController(
         }
         next.scrollTop = next.scrollHeight;
         lastKnownScrollTopRef.current = next.scrollTop;
+        settleFramesLeft -= 1;
+        if (settleFramesLeft > 0) {
+          window.requestAnimationFrame(settle);
+          return;
+        }
         refreshTopClippedMessage();
         releaseProgrammaticScrollSoon();
-      });
+      };
+      window.requestAnimationFrame(settle);
     },
     [options.containerRef, refreshTopClippedMessage, releaseProgrammaticScrollSoon, selectedSessionId, setStickyBottom],
   );
@@ -192,15 +209,29 @@ export function useSessionScrollController(
       const currentTop = container.scrollTop;
       const previousTop = lastKnownScrollTopRef.current;
       const delta = currentTop - previousTop;
-      const scrolledUp = delta <= -MANUAL_BROWSE_UPWARD_THRESHOLD_PX;
       const userGestured = hasScrollGesture();
+
+      // Layout changes (a streaming tool card collapsing, step runs being
+      // regrouped, turn-end chrome unmounting) clamp scrollTop and fire
+      // scroll events with negative deltas that look exactly like the user
+      // scrolling up. Which heights those events observe is timing- and
+      // engine-dependent (WKWebView delivers them after later growth has
+      // already been applied), so height heuristics cannot reliably tell
+      // layout from intent. Only a real input gesture (wheel, touch,
+      // scrollbar) may ever demote sticky-bottom to manual browsing.
+      const currentHeight = container.scrollHeight;
+      const previousHeight = lastKnownScrollHeightRef.current || currentHeight;
+      lastKnownScrollHeightRef.current = currentHeight;
+      const contentShrank = currentHeight < previousHeight - 1;
+      const scrolledUp = userGestured && delta <= -MANUAL_BROWSE_UPWARD_THRESHOLD_PX;
 
       // If the user scrolls up meaningfully while a programmatic scroll is
       // in flight, abandon the programmatic state and switch to manual browse
       // immediately. Without this the ResizeObserver's auto-scroll during
       // streaming keeps re-anchoring us to the bottom and the user can never
-      // actually get away from the tail of the transcript.
-      if (programmaticScrollRef.current && (userGestured || scrolledUp)) {
+      // actually get away from the tail of the transcript. Downward gestures
+      // are not an escape: wheeling toward the tail means "keep following".
+      if (programmaticScrollRef.current && (scrolledUp || (userGestured && delta < 0))) {
         programmaticScrollRef.current = false;
         clearProgrammaticScrollReset();
         saveScrollPosition(container);
@@ -217,6 +248,29 @@ export function useSessionScrollController(
       if (!userGestured && !scrolledUp) {
         if (isExactlyAtBottom(container)) {
           setStickyBottom(selectedSessionId, latestMessageTopClippedId(container));
+        } else if (contentShrank && isStickyBottom(selectedSessionId)) {
+          // A layout shrink clamped us away from the bottom while following
+          // the stream. The ResizeObserver only re-anchors on growth, so
+          // re-pin here or a turn that ends with a collapse leaves the
+          // transcript hovering above the bottom.
+          scrollToBottom("auto");
+        } else {
+          refreshTopClippedMessage();
+        }
+        lastKnownScrollTopRef.current = currentTop;
+        return;
+      }
+
+      // Downward gestures never demote sticky-bottom: the user is chasing
+      // the tail, and during tool-call streaming content grows in large
+      // jumps, so the moving bottom is rarely within the at-bottom epsilon
+      // at the moment the scroll event is handled. Only upward movement
+      // switches to manual browsing.
+      if (delta >= 0) {
+        if (isExactlyAtBottom(container)) {
+          setStickyBottom(selectedSessionId, latestMessageTopClippedId(container));
+        } else if (!isStickyBottom(selectedSessionId)) {
+          setManualScroll(selectedSessionId, currentTop, latestMessageTopClippedId(container));
         } else {
           refreshTopClippedMessage();
         }
@@ -227,7 +281,7 @@ export function useSessionScrollController(
       saveScrollPosition(container);
       lastKnownScrollTopRef.current = currentTop;
     },
-    [clearProgrammaticScrollReset, hasScrollGesture, refreshTopClippedMessage, saveScrollPosition, selectedSessionId, setStickyBottom],
+    [clearProgrammaticScrollReset, hasScrollGesture, refreshTopClippedMessage, saveScrollPosition, scrollToBottom, selectedSessionId, setManualScroll, setStickyBottom],
   );
 
   const jumpToLatest = useCallback(
@@ -268,7 +322,7 @@ export function useSessionScrollController(
 
       const nextHeight = nextContent.offsetHeight;
       const previousContentHeight = observedContentHeightRef.current;
-      const grew = nextHeight > previousContentHeight + 1;
+      const heightChanged = Math.abs(nextHeight - previousContentHeight) > 1;
       observedContentHeightRef.current = nextHeight;
 
       // Only re-anchor to the bottom when we're already in sticky bottom mode
@@ -276,7 +330,13 @@ export function useSessionScrollController(
       // touchpad, or scrollbar in the last SCROLL_GESTURE_WINDOW_MS, treat
       // that as intent to break out of autoscroll and leave their position
       // alone until the next handleScroll tick reclassifies the mode.
-      if (grew && isStickyBottom(selectedSessionId) && !hasScrollGesture()) {
+      // Shrinks re-anchor too: when a turn completes, streaming chrome
+      // (thinking indicator, running-tool state) unmounts and the content
+      // gets shorter. Chromium clamps scrollTop and fires a scroll event our
+      // handler compensates for, but WKWebView (the Office pane) clamps
+      // without a reliable scroll event, leaving the transcript hovering
+      // above the bottom with autoscroll seemingly dead.
+      if (heightChanged && isStickyBottom(selectedSessionId) && !hasScrollGesture()) {
         scrollToBottom("auto");
         return;
       }
@@ -295,6 +355,7 @@ export function useSessionScrollController(
 
     observedContentHeightRef.current = 0;
     lastKnownScrollTopRef.current = 0;
+    lastKnownScrollHeightRef.current = 0;
     queueMicrotask(() => {
       const container = options.containerRef.current;
       if (!container) return;
@@ -324,8 +385,19 @@ export function useSessionScrollController(
 
   useEffect(() => {
     void options.renderedMessages;
-    queueMicrotask(refreshTopClippedMessage);
-  }, [options.renderedMessages, refreshTopClippedMessage]);
+    // Convergence invariant: while following and untouched, every message
+    // update must end with the transcript at the bottom. This catches
+    // growth the ResizeObserver's re-anchor missed because the engine
+    // (WKWebView) finished layout after the pin had already settled.
+    queueMicrotask(() => {
+      refreshTopClippedMessage();
+      const container = options.containerRef.current;
+      if (!container) return;
+      if (isStickyBottom(selectedSessionId) && !hasScrollGesture() && !isExactlyAtBottom(container)) {
+        scrollToBottom("auto");
+      }
+    });
+  }, [hasScrollGesture, options.containerRef, options.renderedMessages, refreshTopClippedMessage, scrollToBottom, selectedSessionId]);
 
   useEffect(() => {
     return () => {

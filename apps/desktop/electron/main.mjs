@@ -1135,6 +1135,15 @@ const desktopCommandHandlers = {
   "legalworkServerRestart": async (event, ...args) => {
       return runtimeManager.legalworkServerRestart(args[0] ?? {});
   },
+  "officeAddinStatus": async () => {
+      return runtimeManager.officeAddinStatus();
+  },
+  "officeAddinInstall": async (event, ...args) => {
+      return runtimeManager.officeAddinInstall(args[0]);
+  },
+  "officeAddinUninstall": async (event, ...args) => {
+      return runtimeManager.officeAddinUninstall(args[0]);
+  },
   "pickDirectory": async (event, ...args) => {
       const options = args[0] ?? {};
       /** @type {import("electron").OpenDialogOptions["properties"]} */
