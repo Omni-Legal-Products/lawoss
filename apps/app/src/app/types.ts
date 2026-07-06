@@ -289,6 +289,14 @@ export type SkillCard = {
   workflowType?: string;
 };
 
+/** A file attached to a skill — lives in the skill's own resources/ folder. */
+export type SkillResourceCard = {
+  name: string;
+  path: string;
+  size: number;
+  updatedAt: number;
+};
+
 export type HubSkillRepo = {
   owner: string;
   repo: string;

@@ -11,6 +11,7 @@ import {
 import {
   Download,
   Edit2,
+  FileArchive,
   FolderOpen,
   Loader2,
   Package,
@@ -44,6 +45,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
+import { syncAttachedFilesSection } from "@/app/utils/skill-resources";
+import {
+  SkillResourcesPanel,
+  StagedResourcesField,
+  flushStagedResources,
+  type SkillResourcesStore,
+  type StagedResourceFile,
+} from "./skill-resources-panel";
 
 type InstallResult = { ok: boolean; message: string };
 type SkillsFilter = "all" | "installed" | "hub";
@@ -80,7 +89,7 @@ export type ImportedCloudSkillRecord = {
 
 export type GithubSkillItem = { dir: string; name: string; description: string };
 
-export type SkillsExtensionsStore = {
+export type SkillsExtensionsStore = SkillResourcesStore & {
   skills: () => SkillCard[];
   skillsStatus: () => string | null;
   hubSkills: () => HubSkillCard[];
@@ -96,6 +105,7 @@ export type SkillsExtensionsStore = {
   installSkillCreator: () => Promise<InstallResult>;
   installHubSkill: (name: string) => Promise<InstallResult>;
   importLocalSkill: (opts?: { asWorkflow?: boolean }) => void | Promise<void>;
+  importLocalSkillZip: (opts?: { asWorkflow?: boolean }) => void | Promise<void>;
   scanGithubSkills: (url: string, ref?: string) => Promise<{ ref: string; skills: GithubSkillItem[] }>;
   importGithubSkills: (input: {
     url: string;
@@ -116,6 +126,9 @@ export type SkillsExtensionsStore = {
     description?: string;
   }) => Promise<{ ok: boolean; message: string }>;
   uninstallSkill: (name: string) => void | Promise<void>;
+  // Zips the skill folder (SKILL.md + resources/) to a user-picked path.
+  // Resolves with an empty message when the user cancels the save dialog.
+  exportSkillZip: (name: string) => Promise<{ ok: boolean; message: string }>;
 };
 
 export type SkillsViewProps = {
@@ -420,6 +433,34 @@ export function SkillsView(props: SkillsViewProps) {
     [extensions, maskError, props.busy],
   );
 
+  const exportSkill = useCallback(
+    async (skill: SkillCard) => {
+      if (props.busy) return;
+      if (!props.canUseDesktopTools) {
+        toast.warning(t("skills.desktop_required"));
+        return;
+      }
+      const result = await extensions.exportSkillZip(skill.name);
+      if (!result.ok) toast.error(result.message);
+      else if (result.message) toast.success(result.message);
+    },
+    [extensions, props.busy, props.canUseDesktopTools],
+  );
+
+  // Attaching/removing a file rewrites the managed "Attached resources" section
+  // in the SKILL.md on disk. Pull the regenerated section into the editor:
+  // replace the content wholesale when it has no unsaved edits, otherwise
+  // splice just the managed block so the edits survive.
+  const syncEditorAfterResourceChange = useCallback(async () => {
+    const skill = selectedSkill;
+    if (!skill) return;
+    const result = await extensions.readSkill(skill.name);
+    if (!result) return;
+    setSelectedContent((current) =>
+      selectedDirty ? syncAttachedFilesSection(current, result.content) : result.content,
+    );
+  }, [extensions, selectedDirty, selectedSkill]);
+
   const saveSelectedSkill = useCallback(async () => {
     if (!selectedSkill || !selectedDirty) return;
     setSelectedError(null);
@@ -524,6 +565,7 @@ export function SkillsView(props: SkillsViewProps) {
                   disabled={props.busy}
                   existingNames={installedNames}
                   onCreate={extensions.createSkill}
+                  saveSkillResource={extensions.saveSkillResource}
                 />
               </>
             ) : (
@@ -548,6 +590,7 @@ export function SkillsView(props: SkillsViewProps) {
                   disabled={props.busy}
                   existingNames={installedNames}
                   onCreate={extensions.createSkill}
+                  saveSkillResource={extensions.saveSkillResource}
                 />
               </>
             )}
@@ -684,6 +727,20 @@ export function SkillsView(props: SkillsViewProps) {
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
+                          void exportSkill(skill);
+                        }}
+                        disabled={props.busy || !props.canUseDesktopTools}
+                        title={t("skill_export.action")}
+                        aria-label={t("skill_export.action")}
+                      >
+                        <Download size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        className={rowIconBtnClass}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
                           if (props.busy || !props.canUseDesktopTools) {
                             if (!props.canUseDesktopTools) toast.warning(t("skills.desktop_required"));
                             return;
@@ -704,7 +761,6 @@ export function SkillsView(props: SkillsViewProps) {
           )}
         </div>
       ) : null}
-
 
       {/* Hub catalog hidden for now; flip SKILLS_HUB_UI_ENABLED to restore. */}
       {showHubSection ? (
@@ -853,15 +909,26 @@ export function SkillsView(props: SkillsViewProps) {
               {selectedLoading ? (
                 <div className="text-xs text-dls-secondary">{t("skills.loading")}</div>
               ) : (
-                <textarea
-                  value={selectedContent}
-                  onChange={(event) => {
-                    setSelectedContent(event.currentTarget.value);
-                    setSelectedDirty(true);
-                  }}
-                  className="min-h-[420px] w-full rounded-xl border border-dls-border bg-dls-hover px-4 py-3 text-xs font-mono text-dls-text focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.25)]"
-                  spellCheck={false}
-                />
+                <>
+                  <textarea
+                    value={selectedContent}
+                    onChange={(event) => {
+                      setSelectedContent(event.currentTarget.value);
+                      setSelectedDirty(true);
+                    }}
+                    className="min-h-[420px] w-full rounded-xl border border-dls-border bg-dls-hover px-4 py-3 text-xs font-mono text-dls-text focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.25)]"
+                    spellCheck={false}
+                  />
+                  {/* Firm templates/playbooks packaged inside this skill's own folder. */}
+                  {selectedSkill ? (
+                    <SkillResourcesPanel
+                      skillName={selectedSkill.name}
+                      busy={props.busy}
+                      extensions={extensions}
+                      onChanged={() => void syncEditorAfterResourceChange()}
+                    />
+                  ) : null}
+                </>
               )}
             </div>
         </DialogContent>
@@ -964,11 +1031,13 @@ function SkillCreatorButton(props: {
   disabled?: boolean;
   existingNames: Set<string>;
   onCreate: (input: { name: string; content: string; description?: string }) => Promise<{ ok: boolean; message: string }>;
+  saveSkillResource: SkillResourcesStore["saveSkillResource"];
 }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [body, setBody] = useState("");
+  const [staged, setStaged] = useState<StagedResourceFile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -981,6 +1050,7 @@ function SkillCreatorButton(props: {
     setName("");
     setDescription("");
     setBody("");
+    setStaged([]);
     setError(null);
     setSaving(false);
   };
@@ -995,6 +1065,11 @@ function SkillCreatorButton(props: {
     try {
       const result = await props.onCreate({ name: slug, content, description: description.trim() });
       if (result.ok) {
+        // The skill folder exists now — flush the files staged during creation.
+        const failed = await flushStagedResources(props.saveSkillResource, slug, staged);
+        if (failed.length > 0) {
+          toast.error(t("skill_resources.staged_upload_failed", { names: failed.join(", ") }));
+        }
         setOpen(false);
         reset();
       } else {
@@ -1079,6 +1154,8 @@ function SkillCreatorButton(props: {
                 className={`${inputClass} min-h-[240px] font-mono text-xs`}
               />
             </label>
+
+            <StagedResourcesField staged={staged} onChange={setStaged} disabled={saving} />
           </div>
 
           <DialogFooter>
@@ -1138,12 +1215,14 @@ function WorkflowCreatorButton(props: {
   disabled?: boolean;
   existingNames: Set<string>;
   onCreate: (input: { name: string; content: string; description?: string }) => Promise<{ ok: boolean; message: string }>;
+  saveSkillResource: SkillResourcesStore["saveSkillResource"];
 }) {
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<WorkflowType | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [body, setBody] = useState("");
+  const [staged, setStaged] = useState<StagedResourceFile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -1167,6 +1246,7 @@ function WorkflowCreatorButton(props: {
     setName("");
     setDescription("");
     setBody("");
+    setStaged([]);
     setError(null);
     setSaving(false);
   };
@@ -1180,6 +1260,11 @@ function WorkflowCreatorButton(props: {
     try {
       const result = await props.onCreate({ name: fullName, content, description: description.trim() });
       if (result.ok) {
+        // The workflow folder exists now — flush the files staged during creation.
+        const failed = await flushStagedResources(props.saveSkillResource, fullName, staged);
+        if (failed.length > 0) {
+          toast.error(t("skill_resources.staged_upload_failed", { names: failed.join(", ") }));
+        }
         setOpen(false);
         reset();
       } else {
@@ -1314,6 +1399,8 @@ function WorkflowCreatorButton(props: {
                     </span>
                   ) : null}
                 </label>
+
+                <StagedResourcesField staged={staged} onChange={setStaged} disabled={saving} />
               </>
             )}
           </div>
@@ -1465,6 +1552,11 @@ function ImportSkillsButton(props: {
     void Promise.resolve(extensions.importLocalSkill({ asWorkflow }));
   };
 
+  const runLocalZip = () => {
+    setOpen(false);
+    void Promise.resolve(extensions.importLocalSkillZip({ asWorkflow }));
+  };
+
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} disabled={props.busy} className={ghostActionClass}>
@@ -1596,14 +1688,20 @@ function ImportSkillsButton(props: {
             <Separator />
 
             <div className="space-y-2">
-              <span className="text-xs font-medium text-dls-text">From a local folder</span>
+              <span className="text-xs font-medium text-dls-text">From this machine</span>
               <p className="text-[12px] leading-relaxed text-dls-secondary">
-                Pick a folder on this machine that contains a SKILL.md.
+                Pick a folder containing a SKILL.md, or a zip exported from LegalWork.
               </p>
-              <Button type="button" variant="outline" disabled={props.busy || !props.canUseDesktopTools} onClick={runLocal}>
-                <FolderOpen size={14} />
-                Choose folder…
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" disabled={props.busy || !props.canUseDesktopTools} onClick={runLocal}>
+                  <FolderOpen size={14} />
+                  Choose folder…
+                </Button>
+                <Button type="button" variant="outline" disabled={props.busy || !props.canUseDesktopTools} onClick={runLocalZip}>
+                  <FileArchive size={14} />
+                  Choose zip…
+                </Button>
+              </div>
               {!props.canUseDesktopTools ? (
                 <p className="text-[11px] text-dls-secondary/70">{t("skills.desktop_required")}</p>
               ) : null}

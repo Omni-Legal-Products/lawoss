@@ -11,6 +11,7 @@ import type {
   ReloadReason,
   ReloadTrigger,
   SkillCard,
+  SkillResourceCard,
 } from "../../../../app/types";
 import { addOpencodeCacheHint, isDesktopRuntime, normalizeDirectoryPath } from "../../../../app/utils";
 import skillCreatorTemplate from "../../../../app/data/skill-creator.md?raw";
@@ -21,7 +22,9 @@ import {
   stripPluginVersion,
 } from "../../../../app/utils/plugins";
 import {
+  exportSkillZip as exportSkillZipCommand,
   importSkill,
+  importSkillZip as importSkillZipCommand,
   installSkillTemplate,
   installSkillFiles,
   joinDesktopPath,
@@ -30,7 +33,9 @@ import {
   pickDirectory,
   readLocalSkill,
   readOpencodeConfig,
+  pickFile,
   revealDesktopItemInDir,
+  saveFile,
   uninstallSkill as uninstallSkillCommand,
   workspaceLegalworkRead,
   workspaceLegalworkWrite,
@@ -65,6 +70,8 @@ export type ExtensionsStoreSnapshot = {
   workspaceContextKey: string;
   skills: SkillCard[];
   skillsStatus: string | null;
+  skillResources: SkillResourceCard[];
+  skillResourcesStatus: string | null;
   hubSkills: HubSkillCard[];
   hubSkillsStatus: string | null;
   hubRepo: HubSkillRepo | null;
@@ -89,6 +96,8 @@ type MutableState = {
   hubSkillsContextKey: string;
   skills: SkillCard[];
   skillsStatus: string | null;
+  skillResources: SkillResourceCard[];
+  skillResourcesStatus: string | null;
   hubSkills: HubSkillCard[];
   hubSkillsStatus: string | null;
   hubRepo: HubSkillRepo | null;
@@ -195,6 +204,8 @@ export function createExtensionsStore(options: {
     hubSkillsContextKey: "",
     skills: [],
     skillsStatus: null,
+    skillResources: [],
+    skillResourcesStatus: null,
     hubSkills: [],
     hubSkillsStatus: null,
     hubRepo: null,
@@ -260,6 +271,8 @@ export function createExtensionsStore(options: {
       workspaceContextKey,
       skills: state.skills,
       skillsStatus: state.skillsStatus,
+      skillResources: state.skillResources,
+      skillResourcesStatus: state.skillResourcesStatus,
       hubSkills: state.hubSkills,
       hubSkillsStatus: state.hubSkillsStatus,
       hubRepo: state.hubRepo,
@@ -932,6 +945,163 @@ export function createExtensionsStore(options: {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Attached files — files in a skill's own resources/ folder
+  // (.opencode/skills/<name>/resources/). Served by the LegalWork server only;
+  // there is no desktop-local fallback because the agent reads the files from
+  // the workspace directly. The state always holds the resources of the skill
+  // most recently passed to refreshSkillResources (the one open in the editor).
+  // ---------------------------------------------------------------------------
+
+  const resolveSkillResourcesTarget = async () => {
+    const { legalworkSnapshot, legalworkClient, legalworkWorkspaceId, hasLegalworkTarget } =
+      await resolveWorkspaceServerTarget();
+    const canUse =
+      hasLegalworkTarget &&
+      legalworkSnapshot.legalworkServerCapabilities?.skillResources?.read !== false &&
+      Boolean(legalworkClient && legalworkWorkspaceId);
+    return { legalworkClient, legalworkWorkspaceId, canUse };
+  };
+
+  async function refreshSkillResources(skillName: string) {
+    const skill = skillName.trim();
+    if (!skill) return;
+    const { legalworkClient, legalworkWorkspaceId, canUse } = await resolveSkillResourcesTarget();
+    if (!canUse || !legalworkClient || !legalworkWorkspaceId) {
+      mutateState((current) => ({
+        ...current,
+        skillResources: [],
+        skillResourcesStatus: t("skill_resources.unavailable"),
+      }));
+      return;
+    }
+    try {
+      const response = await legalworkClient.listSkillResources(legalworkWorkspaceId, skill);
+      const next: SkillResourceCard[] = Array.isArray(response.items)
+        ? response.items.map((item) => ({
+            name: item.name,
+            path: item.path,
+            size: item.size,
+            updatedAt: item.updatedAt,
+          }))
+        : [];
+      mutateState((current) => ({ ...current, skillResources: next, skillResourcesStatus: null }));
+    } catch (error) {
+      mutateState((current) => ({
+        ...current,
+        skillResources: [],
+        skillResourcesStatus: error instanceof Error ? error.message : t("skill_resources.load_failed"),
+      }));
+    }
+  }
+
+  async function readSkillResource(
+    skillName: string,
+    fileName: string,
+  ): Promise<{ name: string; path: string; content: string } | null> {
+    const skill = skillName.trim();
+    const name = fileName.trim();
+    if (!skill || !name) return null;
+    const { legalworkClient, legalworkWorkspaceId, canUse } = await resolveSkillResourcesTarget();
+    if (!canUse || !legalworkClient || !legalworkWorkspaceId) {
+      setStateField("skillResourcesStatus", t("skill_resources.unavailable"));
+      return null;
+    }
+    try {
+      const result = await legalworkClient.getSkillResource(legalworkWorkspaceId, skill, name);
+      return { name: result.item.name, path: result.item.path, content: result.content };
+    } catch (error) {
+      setStateField(
+        "skillResourcesStatus",
+        error instanceof Error ? error.message : t("skill_resources.load_failed"),
+      );
+      return null;
+    }
+  }
+
+  async function saveSkillResource(
+    skillName: string,
+    input: { name: string; content?: string; contentBase64?: string },
+  ): Promise<{ ok: boolean; message: string }> {
+    const skill = skillName.trim();
+    const name = input.name.trim();
+    if (!skill || !name) return { ok: false, message: t("skill_resources.save_failed") };
+    const { legalworkClient, legalworkWorkspaceId, canUse } = await resolveSkillResourcesTarget();
+    if (!canUse || !legalworkClient || !legalworkWorkspaceId) {
+      return { ok: false, message: t("skill_resources.unavailable") };
+    }
+    options.setBusy(true);
+    options.setError(null);
+    try {
+      const result = await legalworkClient.upsertSkillResource(legalworkWorkspaceId, skill, {
+        name,
+        ...(typeof input.contentBase64 === "string"
+          ? { contentBase64: input.contentBase64 }
+          : { content: input.content ?? "" }),
+      });
+      await refreshSkillResources(skill);
+      return {
+        ok: true,
+        message: result.action === "added" ? t("skill_resources.added") : t("skill_resources.updated"),
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t("skills.unknown_error");
+      setStateField("skillResourcesStatus", message);
+      return { ok: false, message };
+    } finally {
+      options.setBusy(false);
+    }
+  }
+
+  async function deleteSkillResource(skillName: string, fileName: string): Promise<{ ok: boolean; message: string }> {
+    const skill = skillName.trim();
+    const name = fileName.trim();
+    if (!skill || !name) return { ok: false, message: t("skill_resources.save_failed") };
+    const { legalworkClient, legalworkWorkspaceId, canUse } = await resolveSkillResourcesTarget();
+    if (!canUse || !legalworkClient || !legalworkWorkspaceId) {
+      return { ok: false, message: t("skill_resources.unavailable") };
+    }
+    options.setBusy(true);
+    options.setError(null);
+    try {
+      await legalworkClient.deleteSkillResource(legalworkWorkspaceId, skill, name);
+      await refreshSkillResources(skill);
+      return { ok: true, message: t("skill_resources.removed") };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t("skills.unknown_error");
+      setStateField("skillResourcesStatus", message);
+      return { ok: false, message };
+    } finally {
+      options.setBusy(false);
+    }
+  }
+
+  // Export a skill/workflow folder (SKILL.md + resources/) as one zip to a
+  // user-picked location. Desktop-only: the folder lives on this machine and
+  // the save dialog is native.
+  async function exportSkillZip(skillName: string): Promise<{ ok: boolean; message: string }> {
+    const name = skillName.trim();
+    if (!name) return { ok: false, message: t("skill_export.failed") };
+    if (!isDesktopRuntime()) return { ok: false, message: t("skill_export.desktop_only") };
+    const target = await saveFile({
+      title: t("skill_export.dialog_title"),
+      defaultPath: `${name}.zip`,
+      filters: [{ name: "Zip archive", extensions: ["zip"] }],
+    });
+    if (!target) return { ok: true, message: "" }; // user cancelled the dialog
+    try {
+      const result = (await exportSkillZipCommand("", name, target)) as {
+        ok: boolean;
+        stdout?: string;
+        stderr?: string;
+      };
+      if (!result.ok) return { ok: false, message: result.stderr || t("skill_export.failed") };
+      return { ok: true, message: t("skill_export.done", { name }) };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : t("skill_export.failed") };
+    }
+  }
+
   async function refreshPlugins(scopeOverride?: PluginScope) {
     const isRemoteWorkspace = options.workspaceType() === "remote";
     const isLocalWorkspace = options.workspaceType() === "local";
@@ -1333,6 +1503,44 @@ export function createExtensionsStore(options: {
         }
         setStateField("skillsStatus", result.stdout || t("skills.imported"));
         options.markReloadRequired?.("skills", { type: "skill", name: targetName, action: "added" });
+      }
+      await refreshSkills({ force: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t("skills.unknown_error");
+      options.setError(addOpencodeCacheHint(message));
+    } finally {
+      options.setBusy(false);
+    }
+  }
+
+  // Import a skill/workflow from a zip — the shape exportSkillZip produces, so
+  // exported workflows round-trip. The main process detects the folder name,
+  // applies the workflow- prefix, and writes into the global skills dir.
+  async function importLocalSkillZip(opts?: { asWorkflow?: boolean }) {
+    if (!isDesktopRuntime()) {
+      options.setError(t("skills.desktop_required"));
+      return;
+    }
+
+    options.setBusy(true);
+    options.setError(null);
+    setStateField("skillsStatus", null);
+    try {
+      const selection = await pickFile({
+        title: t("skills.select_skill_zip"),
+        filters: [{ name: "Zip archive", extensions: ["zip"] }],
+      });
+      const archivePath = typeof selection === "string" ? selection : Array.isArray(selection) ? selection[0] : null;
+      if (!archivePath) return;
+      const result = (await importSkillZipCommand("", archivePath, {
+        overwrite: false,
+        asWorkflow: opts?.asWorkflow === true,
+      })) as { ok: boolean; stderr?: string; stdout?: string; status?: number };
+      if (!result.ok) {
+        setStateField("skillsStatus", result.stderr || result.stdout || t("skills.import_failed").replace("{status}", String(result.status)));
+      } else {
+        setStateField("skillsStatus", result.stdout || t("skills.imported"));
+        options.markReloadRequired?.("skills", { type: "skill", name: undefined, action: "added" });
       }
       await refreshSkills({ force: true });
     } catch (error) {
@@ -1892,6 +2100,8 @@ export function createExtensionsStore(options: {
     syncFromOptions,
     skills: () => snapshot.skills,
     skillsStatus: () => snapshot.skillsStatus,
+    skillResources: () => snapshot.skillResources,
+    skillResourcesStatus: () => snapshot.skillResourcesStatus,
     hubSkills: () => snapshot.hubSkills,
     hubSkillsStatus: () => snapshot.hubSkillsStatus,
     hubRepo: () => snapshot.hubRepo,
@@ -1933,6 +2143,7 @@ export function createExtensionsStore(options: {
     addPlugin,
     removePlugin,
     importLocalSkill,
+    importLocalSkillZip,
     scanGithubSkills,
     importGithubSkills,
     installSkillCreator,
@@ -1944,6 +2155,11 @@ export function createExtensionsStore(options: {
     readSkill,
     saveSkill,
     createSkill,
+    exportSkillZip,
+    refreshSkillResources,
+    readSkillResource,
+    saveSkillResource,
+    deleteSkillResource,
     abortRefreshes,
     ensureSkillsFresh,
     ensurePluginsFresh,
