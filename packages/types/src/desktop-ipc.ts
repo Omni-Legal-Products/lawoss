@@ -311,13 +311,14 @@ export type OfficeAddinAppStatus = {
   installed: boolean;
   /** The user has installed the LegalWork add-in for this app. */
   enabled: boolean;
-  /** The LegalWork manifest is present in this app's sideload folder. */
+  /** The LegalWork manifest is sideloaded (wef folder on macOS, registry on Windows). */
   manifestInstalled: boolean;
 };
 
 export type OfficeAddinStatus = {
-  /** The current platform supports installing the add-in (macOS today). */
+  /** The current platform supports installing the add-in (macOS and Windows). */
   supported: boolean;
+  /** process.platform of the desktop app, e.g. "darwin" | "win32". */
   platform: string;
   /** OpenSSL (needed to generate the certificate) is available. */
   toolAvailable: boolean;
