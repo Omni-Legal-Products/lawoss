@@ -79,6 +79,17 @@ describe("legalwork runtime config file", () => {
     const providers = parsed.provider as Record<string, Record<string, unknown>>;
     expect(providers.eigenwelt?.npm).toBe("@ai-sdk/openai-compatible");
     expect((providers.eigenwelt?.options as Record<string, unknown>)?.baseURL).toBeTruthy();
+    // The engine's config schema requires BOTH limit.context and limit.output;
+    // one missing key invalidates the entire runtime config and silently kills
+    // every plugin and provider (incl. the OAuth methods).
+    const eigenweltModels = providers.eigenwelt?.models as Record<
+      string,
+      { limit?: { context?: number; output?: number } }
+    >;
+    for (const model of Object.values(eigenweltModels)) {
+      expect(model.limit?.context).toBeGreaterThan(0);
+      expect(model.limit?.output).toBeGreaterThan(0);
+    }
     const agents = parsed.agent as Record<string, Record<string, unknown>>;
     expect(agents.reviewer?.model).toBe("opencode/big-pickle");
   });

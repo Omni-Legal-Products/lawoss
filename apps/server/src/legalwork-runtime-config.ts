@@ -101,19 +101,19 @@ const EIGENWELT_PROVIDER_CONFIG = {
       name: "Eigenwelt Large",
       tool_call: true,
       reasoning: false,
-      limit: { context: 128000 },
+      limit: { context: 128000, output: 16384 },
     },
     "eigenwelt-fast": {
       name: "Eigenwelt Fast",
       tool_call: true,
       reasoning: false,
-      limit: { context: 128000 },
+      limit: { context: 128000, output: 16384 },
     },
     "eigenwelt-legal-1": {
       name: "Eigenwelt Legal 1",
       tool_call: true,
       reasoning: true,
-      limit: { context: 128000 },
+      limit: { context: 128000, output: 16384 },
     },
   },
 };
