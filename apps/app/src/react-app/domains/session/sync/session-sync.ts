@@ -6,6 +6,7 @@ import { captureAnalyticsEvent, takeTaskRunStart } from "@/app/lib/analytics";
 import { createClient } from "@/app/lib/opencode";
 import { normalizeEvent } from "@/app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX, type OpencodeEvent, type PendingPermission, type PendingQuestion } from "@/app/types";
+import { consumeEigenweltBudgetStop, EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT } from "@/app/lib/eigenwelt-budget";
 import { createSessionErrorUIMessage, describeOpencodeSessionError, snapshotToUIMessages } from "./usechat-adapter";
 import {
   parseDynamicToolUIPart,
@@ -621,7 +622,13 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "session.error") {
     const sessionId = sessionIdFromProperties(event.properties);
     if (sessionId) {
-      const errorText = describeOpencodeSessionError(sessionErrorFromProperties(event.properties));
+      // A budget-exceeded stop aborts the run from the app side, so the
+      // engine reports a generic MessageAbortedError here. Substitute the
+      // budget copy so the terminal chat message renders as the top-up card
+      // instead of "The message was interrupted".
+      const errorText = consumeEigenweltBudgetStop(sessionId)
+        ? EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT
+        : describeOpencodeSessionError(sessionErrorFromProperties(event.properties));
       const runStartedAt = takeTaskRunStart(sessionId);
       if (runStartedAt !== null) {
         captureAnalyticsEvent("task_run_errored", {
@@ -1149,6 +1156,24 @@ export function seedSessionState(workspaceId: string, snapshot: LegalworkSession
 
   queryClient.setQueryData(statusKey(workspaceId, snapshot.session.id), snapshot.status);
   queryClient.setQueryData(todoKey(workspaceId, snapshot.session.id), snapshot.todos);
+}
+
+/**
+ * Surface a client-originated terminal error in the chat transcript.
+ *
+ * Uses the same per-turn keying as the live `session.error` handler (errored
+ * assistant message id, session id fallback) so the injected message
+ * reconciles with — instead of duplicating — the error the engine reports for
+ * the same turn. Used by the budget-exceeded stop path, which knows the run
+ * failed before the engine's abort error arrives.
+ */
+export function injectSessionErrorMessage(workspaceId: string, sessionId: string, text: string) {
+  const queryClient = getReactQueryClient();
+  useSessionActivityStore.getState().setError(workspaceId, sessionId, text);
+  queryClient.setQueryData<UIMessage[]>(transcriptKey(workspaceId, sessionId), (current = []) => {
+    const turnKey = latestAssistantMessageId(current) ?? sessionId;
+    return upsertMessage(current, createSessionErrorUIMessage(turnKey, text));
+  });
 }
 
 /**

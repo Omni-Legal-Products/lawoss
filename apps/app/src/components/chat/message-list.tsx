@@ -21,6 +21,13 @@ import {
 } from "ai"
 import type { SessionStatus } from "@opencode-ai/sdk/v2/client"
 import { openDesktopUrl } from "@/app/lib/desktop"
+import {
+  EIGENWELT_BUDGET_EXCEEDED_BODY,
+  EIGENWELT_BUDGET_EXCEEDED_TITLE,
+  EIGENWELT_BUDGET_TOP_UP_LABEL,
+  EIGENWELT_CREDITS_URL,
+  isEigenweltBudgetExceededErrorText,
+} from "@/app/lib/eigenwelt-budget"
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "@/app/types"
 import { ApplyPatchTool } from "@/components/tools/apply-patch"
 import { BashTool } from "@/components/tools/bash"
@@ -602,12 +609,47 @@ interface ErrorMessageProps {
 }
 
 function ErrorMessage({ error }: ErrorMessageProps) {
+  if (isEigenweltBudgetExceededErrorText(error)) {
+    return <BudgetExceededMessage />
+  }
   return (
     <Message className="not-prose mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-0 md:px-10">
       <div className="group flex w-full flex-col items-start gap-0">
         <div className="text-foreground flex min-w-0 flex-1 flex-row items-start gap-2 rounded-lg border-2 border-red-300 bg-red-300/20 px-2 py-1">
           <AlertTriangle size={16} className="mt-0.5 shrink-0 text-destructive" />
           <p className="whitespace-pre-wrap text-destructive">{error}</p>
+        </div>
+      </div>
+    </Message>
+  )
+}
+
+/**
+ * Terminal card for an Eigenwelt budget stop (the app aborts the run after
+ * the allowed retries — see app/lib/eigenwelt-budget). Flat, lined border;
+ * the one action that actually resolves the state is topping up.
+ */
+function BudgetExceededMessage() {
+  return (
+    <Message className="not-prose mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-0 md:px-10">
+      <div className="flex w-full min-w-0 flex-col gap-2 rounded-lg border border-dls-border bg-dls-surface px-4 py-3">
+        <div className="flex items-start gap-2">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-700" />
+          <div className="min-w-0 space-y-1">
+            <p className="text-sm font-medium text-foreground">
+              {EIGENWELT_BUDGET_EXCEEDED_TITLE}
+            </p>
+            <p className="text-sm text-muted-foreground">{EIGENWELT_BUDGET_EXCEEDED_BODY}</p>
+          </div>
+        </div>
+        <div className="ml-6">
+          <Button
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => void openDesktopUrl(EIGENWELT_CREDITS_URL)}
+          >
+            {EIGENWELT_BUDGET_TOP_UP_LABEL}
+          </Button>
         </div>
       </div>
     </Message>
