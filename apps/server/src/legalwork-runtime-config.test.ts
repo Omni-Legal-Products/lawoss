@@ -70,6 +70,9 @@ describe("legalwork runtime config file", () => {
     expect(mcp.posthog?.enabled).toBe(true);
     expect(parsed.default_agent).toBe("legalwork");
     expect(Array.isArray(parsed.plugin)).toBe(true);
+    // The Anthropic auth plugin must be wired so "Sign in with Anthropic"
+    // (Claude Pro/Max + Console API-key OAuth) methods are offered by the engine.
+    expect(parsed.plugin as string[]).toContain("opencode-anthropic-auth");
     const agents = parsed.agent as Record<string, Record<string, unknown>>;
     expect(agents.reviewer?.model).toBe("opencode/big-pickle");
   });

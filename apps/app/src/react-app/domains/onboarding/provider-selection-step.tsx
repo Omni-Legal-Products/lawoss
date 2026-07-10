@@ -4,6 +4,7 @@ import { ArrowRightIcon, GithubIcon, SearchIcon, SparklesIcon, TriangleAlertIcon
 
 import { Page, PageBackground, PageTitlebarRegion } from "@/components/page";
 import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
+import { ProviderIcon } from "../../design-system/provider-icon";
 
 type ProviderSelectionStepProps = {
   // Pre-selects `providerId` and opens the real connect flow in the session.
@@ -54,6 +55,16 @@ export function ProviderSelectionStep({ onConnect, onSkip }: ProviderSelectionSt
                       <div className="min-w-0 flex-1">
                         <div className="text-[14px] font-medium text-dls-text">Sign in with OpenAI</div>
                         <div className="text-[12px] text-dls-secondary">Use your ChatGPT subscription — no API key.</div>
+                      </div>
+                      <ArrowRightIcon className="size-4 shrink-0 text-dls-secondary/60 transition-transform group-hover:translate-x-0.5" />
+                    </button>
+                    <button type="button" className={quickButtonClass} onClick={() => onConnect("anthropic", "oauth")}>
+                      <ProviderIcon providerId="anthropic" size={16} className="shrink-0 text-dls-secondary" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[14px] font-medium text-dls-text">Sign in with Anthropic</div>
+                        <div className="text-[12px] text-dls-secondary">
+                          Use your Claude Pro/Max subscription — subject to Anthropic&apos;s terms.
+                        </div>
                       </div>
                       <ArrowRightIcon className="size-4 shrink-0 text-dls-secondary/60 transition-transform group-hover:translate-x-0.5" />
                     </button>

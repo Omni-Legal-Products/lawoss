@@ -6,6 +6,7 @@ import {
   Loader2,
   Plus,
   Search,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
@@ -302,9 +303,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  const isClaudeProMaxMethod = (method: ProviderAuthMethod) => {
+  // The "Claude Pro/Max" method signs in with a consumer Claude subscription
+  // rather than a Console API key. Anthropic's Consumer Terms restrict that
+  // OAuth to Claude Code / claude.ai, so we surface a warning before use.
+  const isClaudeSubscriptionMethod = (method: ProviderAuthMethod) => {
     const label = method.label.toLowerCase();
-    return method.type === "oauth" && (label.includes("pro/max") || label.includes("create an api key"));
+    return method.type === "oauth" && label.includes("pro/max");
   };
 
   const entries = useMemo<ProviderAuthEntry[]>(() => {
@@ -317,9 +321,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       .flatMap((id) => {
         const provider = providersById.get(id);
         const entryMethods = (methods[id] ?? []).filter((method) => {
-          if (isAnthropicProvider(id, provider?.name) && isClaudeProMaxMethod(method)) {
-            return false;
-          }
           if (!isOpenAiProvider(id, provider?.name)) return true;
           if (method.type !== "oauth") return true;
           if (isRemoteWorker) return isOpenAiHeadlessMethod(method);
@@ -1060,6 +1061,9 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
         ? "Use OpenAI's device flow for remote workers, where the browser callback may not resolve on your local machine."
         : "Use OpenAI's device flow when the local browser callback is unreliable.";
     }
+    if (isAnthropicProvider(entry.id, entry.name) && isClaudeSubscriptionMethod(method)) {
+      return "Sign in with your Claude Pro/Max subscription. See the warning above — third-party subscription use may violate Anthropic's terms.";
+    }
     if (method.type === "oauth") {
       return "Continue in the browser and let LegalWork finish the connection automatically.";
     }
@@ -1068,6 +1072,29 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     }
     return "Paste a secret key that LegalWork stores locally on this device.";
   };
+
+  const anthropicSubscriptionWarning = (
+    <div className="flex items-start gap-2.5 rounded-xl border border-amber-6/40 bg-amber-2/30 px-3.5 py-3 text-[12px] leading-relaxed text-amber-11">
+      <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+      <span>
+        Claude Pro/Max sign-in uses your personal Claude subscription. Anthropic&apos;s Consumer Terms
+        limit this OAuth to Claude Code and claude.ai, so third-party use may violate those terms and
+        can be blocked without notice. For reliable, permitted access, use &ldquo;Create an API Key&rdquo;
+        or enter an Anthropic API key instead.
+      </span>
+    </div>
+  );
+
+  const selectedEntryHasClaudeSubscription = Boolean(
+    selectedEntry &&
+      isAnthropicProvider(selectedEntry.id, selectedEntry.name) &&
+      selectedEntry.methods.some(isClaudeSubscriptionMethod),
+  );
+  const oauthSessionIsClaudeSubscription = Boolean(
+    oauthSession &&
+      isAnthropicProvider(oauthSession.providerId) &&
+      oauthSession.methodLabel.toLowerCase().includes("pro/max"),
+  );
 
   return (
     <Dialog
@@ -1198,6 +1225,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                       Back
                     </Button>
                   </div>
+                  {selectedEntryHasClaudeSubscription ? anthropicSubscriptionWarning : null}
                   <div className="grid gap-2">
                     {selectedEntry.methods.map((method) => (
                       <button
@@ -1293,6 +1321,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                   <div className="text-xs text-dls-secondary">
                     Complete sign-in in your browser, then paste the code here.
                   </div>
+                  {oauthSessionIsClaudeSubscription ? anthropicSubscriptionWarning : null}
                   {oauthInstructions ? (
                     <div className="break-all rounded-xl border border-dls-border bg-dls-hover px-3 py-2 font-mono text-[11px] text-dls-secondary">
                       {oauthInstructions}
