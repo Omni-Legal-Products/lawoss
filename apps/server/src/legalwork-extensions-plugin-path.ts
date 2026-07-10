@@ -25,6 +25,7 @@ export function legalworkPluginPath(name: string, here = dirname(fileURLToPath(i
   return join(here, "opencode-plugins", `${name}.${extension}`);
 }
 
+export const legalworkEigenweltAuthPluginPath = () => legalworkPluginPath("legalwork-eigenwelt-auth");
 export const legalworkExtensionsPreviewPluginPath = () => legalworkPluginPath("legalwork-extensions-preview");
 export const legalworkCapabilitiesKnowledgePluginPath = () => legalworkPluginPath("legalwork-capabilities-knowledge");
 export const legalworkAnthropicAdaptiveThinkingPluginPath = () => legalworkPluginPath("legalwork-anthropic-adaptive-thinking");

@@ -121,6 +121,15 @@ type BrandedCustomProvider = {
 
 const BRANDED_CUSTOM_PROVIDERS: BrandedCustomProvider[] = [
   {
+    id: "eigenwelt",
+    name: "Eigenwelt Model API",
+    apiType: "chat",
+    baseUrlPlaceholder: "https://api.eigenwelt.ai/v1",
+    baseUrlDefault: "https://api.eigenwelt.ai/v1",
+    description:
+      "Eigenwelt's own model deployments — org-level credits, zero prompt retention. Paste an API key from platform.eigenwelt.ai.",
+  },
+  {
     id: "apertus",
     name: "Apertus AI",
     apiType: "chat",
@@ -148,8 +157,40 @@ type ProviderOAuthSession = ProviderOAuthStartResult & {
   methodLabel: string;
 };
 
+function normalizeAuthorizationCode(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return "";
+
+  const parseCodeParams = (value: string) => {
+    const params = new URLSearchParams(value.replace(/^[?#]/, ""));
+    const code = params.get("code")?.trim();
+    if (!code) return null;
+    const state = params.get("state")?.trim();
+    return state && !code.includes("#") ? `${code}#${state}` : code;
+  };
+
+  try {
+    const url = new URL(trimmed);
+    const fromSearch = parseCodeParams(url.search);
+    if (fromSearch) return fromSearch;
+    const fromHash = parseCodeParams(url.hash);
+    if (fromHash) return fromHash;
+  } catch {
+    // Not a URL; fall through to query-string and raw-code handling.
+  }
+
+  if (trimmed.includes("code=")) {
+    const queryStart = trimmed.indexOf("code=");
+    const fromQuery = parseCodeParams(trimmed.slice(queryStart));
+    if (fromQuery) return fromQuery;
+  }
+
+  return trimmed.replace(/^authorization\s+code:\s*/i, "").trim();
+}
+
 const PROVIDER_LABELS: Record<string, string> = {
   legalwork: "LegalWork",
+  eigenwelt: "Eigenwelt Model API",
   opencode: "OpenCode Zen",
   openai: "OpenAI",
   anthropic: "Anthropic",
@@ -237,6 +278,10 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const providerPollRef = useRef<number | null>(null);
   const oauthAutoPollRef = useRef<number | null>(null);
   const oauthCodeCopiedResetRef = useRef<number | null>(null);
+  const pollingBusyRef = useRef(false);
+  const oauthSubmitBusyRef = useRef(false);
+  const oauthAutoBusyRef = useRef(false);
+  const oauthStartBusyRef = useRef(false);
   const autoOpenedPreferredProviderIdRef = useRef<string | null>(null);
   const customEditPrefilledRef = useRef<string | null>(null);
 
@@ -351,6 +396,9 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
           env: [],
         });
       }
+      // Re-sort so pinned branded providers (eigenwelt) surface at the top;
+      // the synthetic Local/Custom entries below stay pinned at the bottom.
+      nextEntries.sort(compareProviders);
 
       // One consolidated "Local model" entry with per-runtime templates
       // (llama.cpp, vLLM, LocalAI, …). Ollama / LM Studio on the default host
@@ -455,6 +503,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setCustomFetchedModels([]);
     setCustomFetching(false);
     setCustomBusy(false);
+    pollingBusyRef.current = false;
+    oauthSubmitBusyRef.current = false;
+    oauthAutoBusyRef.current = false;
+    oauthStartBusyRef.current = false;
+    setPollingBusy(false);
+    setOauthAutoBusy(false);
   };
 
   const stopProviderPolling = () => {
@@ -573,11 +627,13 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
   const pollProviders = async () => {
     const id = activeProviderId;
-    if (!id || pollingBusy) return;
+    if (!id || pollingBusyRef.current) return;
+    pollingBusyRef.current = true;
     setPollingBusy(true);
     try {
       await props.onRefreshProviders?.();
     } finally {
+      pollingBusyRef.current = false;
       setPollingBusy(false);
     }
     if ((props.connectedProviderIds ?? []).includes(id)) {
@@ -637,7 +693,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   };
 
   const submitOauth = async (providerId: string, methodIndex: number, code?: string) => {
+    if (oauthSubmitBusyRef.current) {
+      return { connected: false, pending: true };
+    }
+
     const trimmedCode = code?.trim();
+    oauthSubmitBusyRef.current = true;
     setLocalError(null);
     try {
       return await props.onSubmitOAuth(providerId, methodIndex, trimmedCode || undefined);
@@ -645,12 +706,15 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       const message = error instanceof Error ? error.message : "Failed to complete OAuth";
       setLocalError(message);
       throw error instanceof Error ? error : new Error(message);
+    } finally {
+      oauthSubmitBusyRef.current = false;
     }
   };
 
   const attemptOauthAutoCompletion = async () => {
     const session = oauthSession;
-    if (!session || oauthAutoBusy) return;
+    if (!session || oauthAutoBusyRef.current || oauthSubmitBusyRef.current) return;
+    oauthAutoBusyRef.current = true;
     setOauthAutoBusy(true);
     try {
       const result = await submitOauth(session.providerId, session.methodIndex);
@@ -658,6 +722,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
         stopOauthAutoPolling();
       }
     } finally {
+      oauthAutoBusyRef.current = false;
       setOauthAutoBusy(false);
     }
   };
@@ -680,11 +745,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   }, [shouldStartOauthAutoPolling]);
 
   const startOauth = async (entry: ProviderAuthEntry, methodIndex?: number) => {
-    if (actionDisabled) return;
+    if (actionDisabled || oauthStartBusyRef.current) return;
     if (!Number.isInteger(methodIndex) || methodIndex === undefined) {
       setLocalError(`No OAuth flow available for ${entry.name}.`);
       return;
     }
+    oauthStartBusyRef.current = true;
     setLocalError(null);
     setOauthCodeInput("");
     setOauthSession(null);
@@ -718,6 +784,8 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to start OAuth";
       setLocalError(message);
+    } finally {
+      oauthStartBusyRef.current = false;
     }
   };
 
@@ -972,7 +1040,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const handleOauthCodeSubmit = async () => {
     if (!selectedEntry || !oauthSession || actionDisabled) return;
 
-    const trimmed = oauthCodeInput.trim();
+    const trimmed = normalizeAuthorizationCode(oauthCodeInput);
     if (!trimmed) {
       setLocalError("Authorization code is required.");
       return;

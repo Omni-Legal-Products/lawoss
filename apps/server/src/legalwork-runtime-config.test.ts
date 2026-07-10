@@ -73,6 +73,12 @@ describe("legalwork runtime config file", () => {
     // The Anthropic auth plugin must be wired so "Sign in with Anthropic"
     // (Claude Pro/Max + Console API-key OAuth) methods are offered by the engine.
     expect(parsed.plugin as string[]).toContain("opencode-anthropic-auth");
+    // The Eigenwelt auth plugin (local path) powers "Sign in with Eigenwelt";
+    // the static provider block makes the gateway usable once a key is stored.
+    expect((parsed.plugin as string[]).some((entry) => entry.includes("legalwork-eigenwelt-auth"))).toBe(true);
+    const providers = parsed.provider as Record<string, Record<string, unknown>>;
+    expect(providers.eigenwelt?.npm).toBe("@ai-sdk/openai-compatible");
+    expect((providers.eigenwelt?.options as Record<string, unknown>)?.baseURL).toBeTruthy();
     const agents = parsed.agent as Record<string, Record<string, unknown>>;
     expect(agents.reviewer?.model).toBe("opencode/big-pickle");
   });
