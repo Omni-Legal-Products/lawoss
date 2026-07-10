@@ -73,23 +73,10 @@ describe("legalwork runtime config file", () => {
     // The Anthropic auth plugin must be wired so "Sign in with Anthropic"
     // (Claude Pro/Max + Console API-key OAuth) methods are offered by the engine.
     expect(parsed.plugin as string[]).toContain("opencode-anthropic-auth");
-    // The Eigenwelt auth plugin (local path) powers "Sign in with Eigenwelt";
-    // the static provider block makes the gateway usable once a key is stored.
-    expect((parsed.plugin as string[]).some((entry) => entry.includes("legalwork-eigenwelt-auth"))).toBe(true);
-    const providers = parsed.provider as Record<string, Record<string, unknown>>;
-    expect(providers.eigenwelt?.npm).toBe("@ai-sdk/openai-compatible");
-    expect((providers.eigenwelt?.options as Record<string, unknown>)?.baseURL).toBeTruthy();
-    // The engine's config schema requires BOTH limit.context and limit.output;
-    // one missing key invalidates the entire runtime config and silently kills
-    // every plugin and provider (incl. the OAuth methods).
-    const eigenweltModels = providers.eigenwelt?.models as Record<
-      string,
-      { limit?: { context?: number; output?: number } }
-    >;
-    for (const model of Object.values(eigenweltModels)) {
-      expect(model.limit?.context).toBeGreaterThan(0);
-      expect(model.limit?.output).toBeGreaterThan(0);
-    }
+    // No server-injected provider blocks: the engine treats any config-defined
+    // provider as always-connected, so the eigenwelt provider only exists when
+    // written into the per-workspace runtime config at connect time.
+    expect((parsed.provider as Record<string, unknown> | undefined)?.eigenwelt).toBeUndefined();
     const agents = parsed.agent as Record<string, Record<string, unknown>>;
     expect(agents.reviewer?.model).toBe("opencode/big-pickle");
   });

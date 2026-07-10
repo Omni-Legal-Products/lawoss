@@ -7,6 +7,7 @@ import { createManagedOpencodeServer, type ManagedOpencodeServer } from "./manag
 import { createServerLogger, startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
 import { keepLegalworkRuntimeConfigFileFresh, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
+import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
 import pkg from "../package.json" with { type: "json" };
 
 const args = parseCliArgs(process.argv.slice(2));
@@ -40,6 +41,9 @@ if (!config.opencodeBaseUrl && process.env.LEGALWORK_MANAGE_OPENCODE === "1") {
     // on every runtime-DB write — so disposes always pick up current state.
     const runtimeConfigPath = await writeLegalworkRuntimeConfigFile(config, workspace.id);
     keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
+    // Fire-and-forget: pick up models added on the Eigenwelt gateway since the
+    // provider was connected (no-op unless provider.eigenwelt is configured).
+    void refreshEigenweltProviderModels(config, workspace.id);
     const managedOpencodeCwd = process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim() || workspace.path;
     await mkdir(managedOpencodeCwd, { recursive: true });
     managedOpencode = await createManagedOpencodeServer({

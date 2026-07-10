@@ -16,7 +16,6 @@ import { mkdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
-  legalworkEigenweltAuthPluginPath,
   legalworkExtensionsPreviewPluginPath,
   legalworkCapabilitiesKnowledgePluginPath,
   legalworkAnthropicAdaptiveThinkingPluginPath,
@@ -83,41 +82,6 @@ LegalWork can preview, edit, and download standard artifacts when you create or 
 - For websites or React/UI previews, start the dev server when useful and mention the http://localhost:<port> URL.
 - For spreadsheets, use .csv for simple tabular data and .xlsx when the user asks for Excel/XLS specifically.`;
 
-/**
- * Static definition of the Eigenwelt Model API provider (an OpenAI-compatible
- * LiteLLM gateway). Credentials come from the engine auth store — either a
- * pasted API key or the key minted by the "Sign in with Eigenwelt" flow
- * (legalwork-eigenwelt-auth plugin). The model list mirrors the gateway's
- * config (model-api/gateway/litellm-config.yaml); update both together.
- */
-const EIGENWELT_GATEWAY_BASE_URL = process.env.EIGENWELT_GATEWAY_URL ?? "https://api.eigenwelt.ai/v1";
-
-const EIGENWELT_PROVIDER_CONFIG = {
-  npm: "@ai-sdk/openai-compatible",
-  name: "Eigenwelt Model API",
-  options: { baseURL: EIGENWELT_GATEWAY_BASE_URL },
-  models: {
-    "eigenwelt-large": {
-      name: "Eigenwelt Large",
-      tool_call: true,
-      reasoning: false,
-      limit: { context: 128000, output: 16384 },
-    },
-    "eigenwelt-fast": {
-      name: "Eigenwelt Fast",
-      tool_call: true,
-      reasoning: false,
-      limit: { context: 128000, output: 16384 },
-    },
-    "eigenwelt-legal-1": {
-      name: "Eigenwelt Legal 1",
-      tool_call: true,
-      reasoning: true,
-      limit: { context: 128000, output: 16384 },
-    },
-  },
-};
-
 export async function buildLegalworkRuntimeConfigObject(
   config?: ServerConfig,
   workspaceId?: string,
@@ -143,19 +107,12 @@ export async function buildLegalworkRuntimeConfigObject(
         prompt: LEGALWORK_AGENT_PROMPT,
       },
     },
-    provider: {
-      eigenwelt: EIGENWELT_PROVIDER_CONFIG,
-      ...((runtimeConfig.provider as Record<string, unknown> | undefined) ?? {}),
-    },
     plugin: [
       "opencode-chrome-devtools",
       // Adds "Sign in with Anthropic" auth methods (Claude Pro/Max subscription
       // OAuth + "Create an API Key" console OAuth) to the provider list. Without
       // this plugin the engine only offers manual Anthropic API-key entry.
       "opencode-anthropic-auth",
-      // Adds "Sign in with Eigenwelt" (Clerk OAuth via the platform interstitial
-      // + loopback) and API-key entry for the Eigenwelt Model API provider.
-      legalworkEigenweltAuthPluginPath(),
       legalworkExtensionsPreviewPluginPath(),
       legalworkCapabilitiesKnowledgePluginPath(),
       legalworkAnthropicAdaptiveThinkingPluginPath(),

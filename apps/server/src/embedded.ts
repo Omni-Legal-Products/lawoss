@@ -11,6 +11,7 @@ import { createManagedOpencodeServer, type ManagedOpencodeServer, type OpencodeE
 import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
 import { keepLegalworkRuntimeConfigFileFresh, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
+import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
 import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
 
@@ -63,6 +64,9 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       // on every runtime-DB write — so disposes always pick up current state.
       const runtimeConfigPath = await writeLegalworkRuntimeConfigFile(config, workspace.id);
       keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
+      // Fire-and-forget: pick up models added on the Eigenwelt gateway since
+      // the provider was connected (no-op without a provider.eigenwelt block).
+      void refreshEigenweltProviderModels(config, workspace.id);
       const cwd = options.opencodeCwd
         || process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim()
         || workspace.path;
