@@ -27,6 +27,11 @@ asar: true
 asarUnpack:
   - node_modules/.pnpm/@lydell+node-pty*/**
   - node_modules/node-pty/**
+  # sherpa-onnx ships prebuilt native libraries (local speech-to-text for the
+  # Recorder tab); the addon dlopens sibling dylibs/DLLs so it must live
+  # outside the asar.
+  - node_modules/.pnpm/sherpa-onnx*/**
+  - node_modules/sherpa-onnx-node/**
 npmRebuild: false
 afterPack: scripts/electron-after-pack.cjs
 afterSign: scripts/electron-after-sign.cjs
@@ -47,7 +52,9 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
-    NSMicrophoneUsageDescription: LegalWork uses the microphone when you start Voice Mode so you can speak commands to your agent.
+    NSMicrophoneUsageDescription: LegalWork uses the microphone when you start Voice Mode or record a conversation in the Recorder tab.
+    NSAudioCaptureUsageDescription: LegalWork captures system audio when you record calls or meetings in the Recorder tab. Audio is transcribed locally on this device and never uploaded.
+    NSInputMonitoringUsageDescription: LegalWork uses keyboard monitoring to detect your dictation shortcut and support hold-to-talk outside the app.
   extraResources:
     - from: resources/sidecars
       to: sidecars
@@ -65,6 +72,8 @@ mac:
       to: helpers
       filter:
         - "LegalWork Computer Use.app/**"
+        - LegalWorkAudioTap
+        - LegalWorkKeyMonitor
   target:
     - dmg
     - zip

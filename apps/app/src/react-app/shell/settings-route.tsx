@@ -78,6 +78,7 @@ import { ExtensionsView } from "@/react-app/domains/settings/pages/extensions-vi
 import { McpView } from "@/react-app/domains/settings/pages/mcp-view";
 import { RecoveryView } from "@/react-app/domains/settings/pages/recovery-view";
 import { OfficeAddinsView } from "@/react-app/domains/settings/pages/office-addins-view";
+import { RecorderSettingsView } from "@/react-app/domains/settings/pages/recorder-view";
 import { MessagingView } from "@/react-app/domains/settings/pages/messaging-view";
 import { SkillsView } from "@/react-app/domains/settings/pages/skills-view";
 import { UpdatesView } from "@/react-app/domains/settings/pages/updates-view";
@@ -226,6 +227,7 @@ function parseSettingsPath(pathname: string): {
     case "updates":
     case "recovery":
     case "office-addins":
+    case "recorder":
     case "debug":
     case "skills":
     case "workflows":
@@ -1933,6 +1935,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onToggleAnalytics={() => {
               local.setPrefs((previous) => ({ ...previous, analyticsEnabled: !previous.analyticsEnabled }));
             }}
+            hideAppMode={local.prefs.hideAppMode}
+            onChangeHideAppMode={(mode) => {
+              local.setPrefs((previous) => ({ ...previous, hideAppMode: mode }));
+            }}
           />
         );
       case "shell":
@@ -2167,6 +2173,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         );
       case "office-addins":
         return <OfficeAddinsView />;
+      case "recorder":
+        return <RecorderSettingsView />;
       case "debug":
         return <DebugView {...debugViewProps} />;
       default:

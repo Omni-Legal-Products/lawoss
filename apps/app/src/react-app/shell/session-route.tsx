@@ -8,6 +8,12 @@ import {
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { LearningsPane } from "./learnings-route";
+import { RecorderPane } from "../domains/recorder/recorder-pane";
+import {
+  RECORDER_TRANSCRIPT_EVENT,
+  registerRecorderCopilotContext,
+  useRecorderStore,
+} from "../domains/recorder/recorder-store";
 import { toast } from "@/components/ui/sonner";
 import type {
   AgentPartInput,
@@ -106,6 +112,7 @@ import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-works
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import { ProviderSelectionStep } from "@/react-app/domains/onboarding/provider-selection-step";
 import { TemplateWorkflowsStep } from "@/react-app/domains/onboarding/template-workflows-step";
+import { TranscriptionSetupStep } from "@/react-app/domains/onboarding/transcription-setup-step";
 import {
   ensureTemplateWorkflowWatcher,
   startTemplateWorkflowGeneration,
@@ -118,6 +125,7 @@ import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picke
 import { CommandPalette, type PaletteItem, type SessionGroupOption, type SessionOption as PaletteSessionOption } from "./command-palette";
 import { SessionSearchDialog } from "./session-search-dialog";
 import { WhatsNewDialog } from "./whats-new";
+import { TranscriptionIntroDialog } from "./transcription-intro";
 import type { SessionMessageFetcher } from "@/react-app/domains/session/search/session-search";
 import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import { useBootState } from "./boot-state";
@@ -305,20 +313,30 @@ export function SessionRoute() {
   // same mechanism as Learnings. Mutually exclusive — only one main pane at a time.
   const [showWorkflows, setShowWorkflows] = useState(false);
   const [showExtensions, setShowExtensions] = useState(false);
+  const [showRecorder, setShowRecorder] = useState(false);
   const showLearningsPane = useCallback(() => {
     setShowLearnings(true);
     setShowWorkflows(false);
     setShowExtensions(false);
+    setShowRecorder(false);
   }, []);
   const showWorkflowsPane = useCallback(() => {
     setShowWorkflows(true);
     setShowLearnings(false);
     setShowExtensions(false);
+    setShowRecorder(false);
   }, []);
   const showExtensionsPane = useCallback(() => {
     setShowExtensions(true);
     setShowLearnings(false);
     setShowWorkflows(false);
+    setShowRecorder(false);
+  }, []);
+  const showRecorderPane = useCallback(() => {
+    setShowRecorder(true);
+    setShowLearnings(false);
+    setShowWorkflows(false);
+    setShowExtensions(false);
   }, []);
   const platform = usePlatform();
   const { config: shellConfig } = useShellConfig();
@@ -551,6 +569,21 @@ export function SessionRoute() {
   }, [errorsByWorkspaceId, workspaceConnectionOverrides, workspaces]);
 
   const mcpConnectedCount = useMcpConnectedCount(opencodeClient, selectedWorkspaceRoot);
+
+  // Recorder: subscribe to recorder events app-wide (the call overlay asks
+  // must work even when the Recorder pane is closed) and keep the copilot
+  // pointed at the active workspace's OpenCode client.
+  useEffect(() => {
+    void useRecorderStore.getState().init();
+  }, []);
+  useEffect(() => {
+    registerRecorderCopilotContext({
+      getClient: () => opencodeClient,
+      getDirectory: () => selectedWorkspaceRoot || null,
+    });
+    return () => registerRecorderCopilotContext(null);
+  }, [opencodeClient, selectedWorkspaceRoot]);
+
   const providerListQuery = useProviderListQuery({
     client: opencodeClient,
     baseUrl: opencodeBaseUrl,
@@ -601,7 +634,7 @@ export function SessionRoute() {
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError && !selectedModelUnavailable,
   );
 
-  const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot, onboardingStep, goToTemplates, finishOnboarding } =
+  const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot, onboardingStep, goToTemplates, goToSetup, finishOnboarding } =
     useSessionProviderAuth({
       opencodeClient,
       providers,
@@ -665,7 +698,8 @@ export function SessionRoute() {
     if (!result.ok) return { started: false, message: result.message };
     // The templates folder is a workspace now — pull it into the sidebar list.
     void refreshRouteState();
-    finishOnboarding();
+    // Templates → the final install step (Office add-ins + transcription model).
+    goToSetup();
     return { started: true };
   };
 
@@ -1607,12 +1641,16 @@ export function SessionRoute() {
       />
     ) : null}
     {onboardingStep === "templates" && templatesStepEligible ? (
-      // Optional final cover: point a local agent at the firm's templates folder;
+      // Optional cover: point a local agent at the firm's templates folder;
       // the generation run continues in the background while onboarding finishes.
       <TemplateWorkflowsStep
         onStart={startTemplateWorkflowsFromOnboarding}
-        onSkip={finishOnboarding}
+        onSkip={goToSetup}
       />
+    ) : null}
+    {onboardingStep === "setup" ? (
+      // Final cover: one-tap installs — Office add-ins + a transcription model.
+      <TranscriptionSetupStep onDone={finishOnboarding} />
     ) : null}
     <SessionPage
       selectedSessionId={selectedSessionId}
@@ -1686,6 +1724,28 @@ export function SessionRoute() {
           <SettingsSurface embedded singleView initialPath="extensions" workspaceId={selectedWorkspaceId} />
         ) : showLearnings ? (
           <LearningsPane workspaceId={selectedWorkspaceId} />
+        ) : showRecorder ? (
+          <RecorderPane
+            workspacePath={selectedWorkspaceRoot ?? null}
+            workspaceTargets={workspaces
+              .filter((workspace) => workspace.workspaceType !== "remote" && workspace.path?.trim())
+              .map((workspace) => ({
+                id: workspace.id,
+                name: workspace.displayNameResolved,
+                path: workspace.path,
+              }))
+              // Selected workspace first, so the common case is one click away.
+              .sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId))}
+            onInsertTranscript={(text) => {
+              // The composer's listener lives in SessionSurface, which is
+              // unmounted while this pane is the main view — swap back to the
+              // session first, then dispatch once it has remounted.
+              setShowRecorder(false);
+              window.setTimeout(() => {
+                window.dispatchEvent(new CustomEvent(RECORDER_TRANSCRIPT_EVENT, { detail: { text } }));
+              }, 350);
+            }}
+          />
         ) : undefined
       }
       settingsSlot={
@@ -1711,7 +1771,8 @@ export function SessionRoute() {
         onShowLearnings: showLearningsPane,
         onShowWorkflows: showWorkflowsPane,
         onShowExtensions: showExtensionsPane,
-        activeNav: showWorkflows ? "workflows" : showExtensions ? "extensions" : showLearnings ? "learnings" : null,
+        onShowRecorder: showRecorderPane,
+        activeNav: showWorkflows ? "workflows" : showExtensions ? "extensions" : showLearnings ? "learnings" : showRecorder ? "recorder" : null,
         workspaceSessionGroups,
         selectedWorkspaceId,
         selectedSessionId,
@@ -1772,6 +1833,7 @@ export function SessionRoute() {
           setShowLearnings(false);
           setShowWorkflows(false);
           setShowExtensions(false);
+          setShowRecorder(false);
           setLegacySelectedWorkspaceId(workspaceId);
           writeActiveWorkspaceId(workspaceId || null);
           writeLastSessionFor(workspaceId, sessionId);
@@ -1943,6 +2005,7 @@ export function SessionRoute() {
       onSelectAgent={setSelectedAgent}
     />
     <WhatsNewDialog hasWorkspaces={workspaces.length > 0} workspacesReady={!effectiveLoading} />
+    <TranscriptionIntroDialog workspacesReady={!effectiveLoading} />
     <SessionSearchDialog
       open={sessionSearchOpen}
       onClose={() => setSessionSearchOpen(false)}

@@ -535,7 +535,7 @@ function loadUserEnvFile() {
   }
 }
 
-export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, onSidecarExit }) {
+export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, recorder, onSidecarExit }) {
   const engineState = createEngineState();
   const legalworkServerState = createLegalworkServerState();
   const orchestratorState = createOrchestratorState();
@@ -1351,6 +1351,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
         }
         return result.canceled ? null : (result.filePaths[0] ?? null);
       },
+      recorder,
       // Word/Excel/PowerPoint add-in listener — enabled via the Office Add-ins
       // settings tab; null when not installed so the listener stays off.
       ...(officeAddinManager.serverConfig() ?? {}),

@@ -13,6 +13,26 @@
  * tighten them instead of widening call sites.
  */
 import type { WorkspaceWire } from "./workspace.js";
+import type {
+  AudioCapturePermissions,
+  AudioDiarizationState,
+  AudioModelDiskCandidate,
+  AudioModelImportResult,
+  AudioModelState,
+  AudioPermissionKind,
+  AudioRecorderBootstrap,
+  AudioTapApp,
+  AudioRecordingDetail,
+  AudioRecordingMeta,
+  AudioRecordingStartInput,
+  AudioSaveToWorkspaceResult,
+  AudioSystemDictationPasteResult,
+  AudioSystemDictationMode,
+  AudioSystemDictationRuntimeState,
+  AudioSystemDictationStatus,
+  AudioTranscribeLanguage,
+  AudioTranscriberStatus,
+} from "./audio.js";
 
 // ---------------------------------------------------------------------------
 // Payload shapes (moved from apps/app/src/app/lib/desktop-types.ts, which
@@ -555,6 +575,134 @@ export type DesktopCommandMap = {
   resetOpencodeCache: { args: []; result: CacheResetResult };
   opencodeMcpAuth: { args: [action: string, name: string]; result: ExecResult };
   setWindowDecorations: { args: [decorated: boolean]; result: unknown };
+  /**
+   * Stealth (local-recording) mode for the main window: excludes it from
+   * screen shares / recordings via setContentProtection and drops it to a
+   * flat matte-black backdrop. Replaces the old always-on-top call overlay.
+   */
+  windowSetStealth: { args: [enabled: boolean]; result: boolean };
+
+  // Local audio recording + transcription (Recorder tab)
+  audioRecorderBootstrap: { args: []; result: AudioRecorderBootstrap };
+  /** OS-level capture permission status for the recorder's sources. */
+  audioCapturePermissions: { args: []; result: AudioCapturePermissions };
+  /**
+   * Trigger the native permission flow for a kind: microphone shows the OS
+   * prompt (when undetermined); systemAudio opens the matching privacy pane.
+   */
+  audioCapturePermissionsRequest: { args: [kind: AudioPermissionKind]; result: AudioCapturePermissions };
+  /** Deep-link the OS settings pane for a permission kind. */
+  audioCaptureOpenSettings: { args: [kind: AudioPermissionKind]; result: boolean };
+  /** Catalog-compatible models already on disk (HF caches etc.). */
+  audioModelsScanExisting: { args: []; result: AudioModelDiskCandidate[] };
+  /** Copy a detected/on-disk model into the local store. */
+  audioModelImport: {
+    args: [folderPath: string, expectedModelId?: string | null];
+    result: AudioModelImportResult;
+  };
+  /** Running apps for the macOS App Audio picker (empty elsewhere). */
+  audioTapListApps: { args: []; result: AudioTapApp[] };
+  /**
+   * Start the native per-app audio tap (macOS 14.4+). PCM arrives on the
+   * `legalwork:audio:app-pcm` channel; empty pids = whole system mixdown.
+   */
+  audioTapStart: {
+    args: [pids: number[]];
+    result: { ok: boolean; sampleRate: number; error: string | null };
+  };
+  audioTapStop: { args: []; result: unknown };
+  audioModelDownload: { args: [modelId: string]; result: AudioModelState[] };
+  audioModelDownloadCancel: { args: [modelId: string]; result: AudioModelState[] };
+  audioModelDelete: { args: [modelId: string]; result: AudioModelState[] };
+  /** Download the speaker-diarization models (pyannote + embedding) on demand. */
+  audioDiarizationDownload: { args: []; result: AudioDiarizationState };
+  audioDiarizationStatus: { args: []; result: AudioDiarizationState };
+  audioTranscriberStart: {
+    args: [input: { modelId: string; language: AudioTranscribeLanguage }];
+    result: AudioTranscriberStatus;
+  };
+  audioTranscriberStop: { args: []; result: AudioTranscriberStatus };
+  audioRecordingStart: { args: [input: AudioRecordingStartInput]; result: AudioRecordingMeta };
+  audioRecordingStop: { args: [recordingId: string]; result: AudioRecordingMeta };
+  audioRecordingCancel: { args: [recordingId: string]; result: unknown };
+  audioRecordingsList: { args: []; result: AudioRecordingMeta[] };
+  audioRecordingGet: { args: [recordingId: string]; result: AudioRecordingDetail | null };
+  audioRecordingDelete: { args: [recordingId: string]; result: AudioRecordingMeta[] };
+  /** Rename a recording (active or on disk); returns the refreshed list. */
+  audioRecordingRename: { args: [recordingId: string, title: string]; result: AudioRecordingMeta[] };
+  /**
+   * Flip an ephemeral recording (system dictation) to retained. Used when the
+   * paste failed so the spoken text stays recoverable in Recorder history.
+   */
+  audioRecordingRetain: { args: [recordingId: string]; result: AudioRecordingMeta[] };
+  /**
+   * Start mirroring the active recording's growing transcript to a markdown
+   * file in the given workspace (composer "Live call" toggle); updates on
+   * every segment until stopped or the recording ends.
+   */
+  audioLiveTranscriptStart: {
+    args: [workspacePath: string];
+    result: { ok: boolean; filePath: string | null; fileName: string | null; error: string | null };
+  };
+  audioLiveTranscriptStop: { args: []; result: { ok: boolean } };
+  /**
+   * Transcribe an imported audio file (drag & drop). The renderer decodes it to
+   * PCM and streams it through the normal `legalwork:audio:pcm` channel keyed
+   * by the returned recording id, then calls finish. Original file bytes are
+   * persisted via importSource.
+   */
+  audioImportStart: {
+    args: [input: { title?: string; fileName: string; language: AudioTranscribeLanguage; modelId: string }];
+    result: AudioRecordingMeta;
+  };
+  audioImportSource: { args: [recordingId: string, buffer: ArrayBuffer]; result: { ok: boolean } };
+  audioImportFinish: { args: [recordingId: string, durationMs: number]; result: AudioRecordingMeta };
+  audioRecordingSaveToWorkspace: {
+    args: [recordingId: string, workspacePath: string];
+    result: AudioSaveToWorkspaceResult;
+  };
+  /** Toggle system-audio loopback routing for getDisplayMedia (recorder capture). */
+  audioLoopbackEnable: { args: []; result: unknown };
+  audioLoopbackDisable: { args: []; result: unknown };
+  audioOverlaySetVisible: { args: [visible: boolean]; result: { visible: boolean } };
+  audioOverlayGetVisible: { args: []; result: { visible: boolean } };
+  audioSystemDictationGet: { args: []; result: AudioSystemDictationStatus };
+  audioSystemDictationSetEnabled: {
+    args: [enabled: boolean];
+    result: AudioSystemDictationStatus;
+  };
+  audioSystemDictationSetShortcut: {
+    args: [accelerator: string];
+    result: AudioSystemDictationStatus;
+  };
+  audioSystemDictationSetMode: {
+    args: [mode: AudioSystemDictationMode];
+    result: AudioSystemDictationStatus;
+  };
+  audioSystemDictationSetShortcutCapture: {
+    args: [active: boolean];
+    result: AudioSystemDictationStatus;
+  };
+  audioSystemDictationOpenSettings: { args: []; result: AudioSystemDictationStatus };
+  audioSystemDictationSetState: {
+    args: [state: AudioSystemDictationRuntimeState, message?: string];
+    result: AudioSystemDictationStatus;
+  };
+  audioSystemDictationPaste: {
+    args: [text: string];
+    result: AudioSystemDictationPasteResult;
+  };
+  /**
+   * Launch-at-login for background dictation. On Windows the login item
+   * starts the app with --hidden (boots into the tray); on macOS 13+ the
+   * entry appears under System Settings > General > Login Items and may
+   * report requires-approval until the user allows it there.
+   */
+  desktopLoginItemGet: { args: []; result: { openAtLogin: boolean; requiresApproval: boolean } };
+  desktopLoginItemSet: {
+    args: [openAtLogin: boolean];
+    result: { openAtLogin: boolean; requiresApproval: boolean };
+  };
 
   // Window / OS utilities (dunder commands)
   __openPath: { args: [target: string]; result: unknown };

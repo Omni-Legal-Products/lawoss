@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
-import { AppWindowMac, ArrowUp, Blend, ChevronDown, ChevronRight, FileText, ListPlus, Paperclip, Plug, Settings, Square, Terminal, X, Zap } from "lucide-react";
+import { AppWindowMac, ArrowUp, AudioLines, Blend, ChevronDown, ChevronRight, FileText, ListPlus, Paperclip, Plug, Settings, Square, Terminal, X, Zap } from "lucide-react";
 import fuzzysort from "fuzzysort";
 import { toast } from "@/components/ui/sonner";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -106,6 +106,13 @@ type ComposerProps = {
   /** Candidate models selected for this chat (up to 3), shown in the fusion multi-select. */
   fusionModels?: ModelRef[];
   onFusionModelsChange?: (models: ModelRef[]) => void;
+  /**
+   * Present only while a local recording runs: toggle streaming the live call
+   * transcript to a workspace file the agent can read as it grows. Sits next
+   * to Fusion.
+   */
+  onToggleLiveTranscript?: () => void;
+  liveTranscriptActive?: boolean;
 };
 
 const FLUSH_PROMPT_EVENT = "legalwork:flushPromptDraft";
@@ -1529,6 +1536,31 @@ export function ReactSessionComposer(props: ComposerProps) {
                     onChange={props.onFusionModelsChange}
                     disabled={props.busy}
                   />
+                ) : null}
+
+                {props.onToggleLiveTranscript ? (
+                  <button
+                    type="button"
+                    onClick={props.onToggleLiveTranscript}
+                    disabled={props.busy}
+                    aria-pressed={props.liveTranscriptActive}
+                    className={`inline-flex h-9 max-h-9 items-center gap-1.5 rounded-md px-2.5 text-sm transition-colors disabled:pointer-events-none disabled:opacity-60 ${
+                      props.liveTranscriptActive
+                        ? "bg-red-3 font-medium text-red-11 hover:bg-red-4"
+                        : "text-gray-10 hover:bg-gray-3 hover:text-gray-12"
+                    }`}
+                    title={t("composer.live_transcript_hint")}
+                  >
+                    {props.liveTranscriptActive ? (
+                      <span className="relative flex size-2">
+                        <span className="absolute inline-flex size-full animate-ping rounded-full bg-red-9 opacity-75" />
+                        <span className="relative inline-flex size-2 rounded-full bg-red-9" />
+                      </span>
+                    ) : (
+                      <AudioLines size={14} />
+                    )}
+                    <span>{props.liveTranscriptActive ? t("composer.live_transcript_on") : t("composer.live_transcript_off")}</span>
+                  </button>
                 ) : null}
               </div>
 
