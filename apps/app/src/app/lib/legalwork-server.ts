@@ -112,6 +112,135 @@ export type LegalworkServerSettings = {
   remoteAccessEnabled?: boolean;
 };
 
+/** One model from the Eigenwelt platform manifest / sign-in exchange. */
+export type EigenweltManifestModel = {
+  id: string;
+  name?: string;
+  contextLength?: number;
+  toolCall?: boolean;
+  reasoning?: boolean;
+};
+
+/** Per-firm daily usage snapshot from the platform (cents, plus a percentage). */
+export type EigenweltUsage = {
+  dailyAllowanceCents: number;
+  dailyRemainingCents: number;
+  /** Share of today's allowance consumed, 0–100 (server-computed). */
+  dailyUsedPercent: number;
+  extraUsageEnabled: boolean;
+  prepaidBalanceCents: number;
+};
+
+/** Subscription entitlements. OPTIONAL — absent means the free/legacy tier. */
+export type EigenweltEntitlements = {
+  plan: "plus" | "pro" | null;
+  subscriptionStatus: string | null;
+  features: string[];
+  seats: number;
+  usage: EigenweltUsage;
+};
+
+export type EigenweltAccountIdentity = {
+  userId: string;
+  userName: string | null;
+  userEmail: string | null;
+  orgId: string;
+  orgName: string;
+};
+
+/** Feature flags the platform may grant (subset the app gates surfaces on). */
+export type EigenweltFeature = "admin_hub" | "settings_presets" | "org_management" | "premium_models";
+
+/** App-safe connection view: entitlements + platformURL, never the secret token. */
+export type EigenweltEntitlementsView = {
+  entitlements: EigenweltEntitlements | null;
+  account: EigenweltAccountIdentity | null;
+  platformURL: string | null;
+  /** Signed in with an Eigenwelt account — independent of the served model list. */
+  connected: boolean;
+};
+
+/** Payload delivered once "Sign in with Eigenwelt" completes in the browser. */
+export type EigenweltSignInPayload = {
+  apiKey: string;
+  baseURL: string;
+  orgId?: string;
+  orgName?: string;
+  account?: EigenweltAccountIdentity;
+  models: EigenweltManifestModel[];
+  entitlements?: EigenweltEntitlements;
+  /** Short-lived Bearer for the platform hub APIs (~15 min). Secret. */
+  platformToken?: string;
+  /** Epoch millis when `platformToken` expires; the server refreshes before then. */
+  accessTokenExpiresAt?: number;
+  /** Long-lived rotating refresh token (secret); persisted server-side only. */
+  refreshToken?: string;
+  /** Platform origin for hub/billing links, e.g. https://platform.eigenweltlabs.com. */
+  platformURL?: string;
+};
+
+export type EigenweltSignInWaitResult = EigenweltSignInPayload | { pending: true };
+
+export type EigenweltManifest = {
+  baseURL: string;
+  models: EigenweltManifestModel[];
+};
+
+export type EigenweltHubKind =
+  | "skill"
+  | "workflow"
+  | "mcp"
+  | "plugin"
+  | "integration"
+  | "preset";
+
+/** One shared item in the firm hub (list view — no payload). */
+export type EigenweltHubItem = {
+  id: string;
+  kind: EigenweltHubKind;
+  name: string;
+  description: string;
+  createdByUserId: string;
+  version: number;
+  updatedAt: string;
+  /** Platform-pinned items sort first (optional; only newer platforms send it). */
+  pinned?: boolean;
+  /** Sharer identity (for "filter by team member"). */
+  createdByName?: string | null;
+  createdByEmail?: string | null;
+  /** An encrypted key is attached and this caller may copy it. */
+  hasSecret?: boolean;
+  canAccessSecret?: boolean;
+};
+
+/** One item to push in a batch share. `ref` is the LOCAL identifier
+ * (skill name, MCP name, or plugin spec/path). */
+export type EigenweltHubShareItem = {
+  kind: EigenweltHubKind;
+  ref: string;
+  description?: string;
+  /** MCP only: include the configured key (encrypted, allow-scoped). */
+  includeSecret?: boolean;
+  /** Who may copy the key: "all" or a list of clerk user ids. */
+  allow?: "all" | string[];
+};
+
+export type EigenweltHubBatchResult = {
+  results: Array<{ ref?: string; id?: string; kind?: string; ok: boolean; error?: string; keyIncluded?: boolean }>;
+};
+
+export type EigenweltHubItemDetail = EigenweltHubItem & { payload: unknown };
+
+/** Local record of an installed hub item — backs "update available" detection. */
+export type EigenweltHubInstall = {
+  version: number;
+  kind: EigenweltHubKind;
+  name: string;
+  installedAt: number;
+};
+
+export type EigenweltHubInstallMap = Record<string, EigenweltHubInstall>;
+
 // The shared WorkspaceWire contract now carries the opencode block; keep the
 // historical name as an alias for the many existing imports.
 export type LegalworkWorkspaceInfo = WorkspaceInfo;
@@ -173,6 +302,8 @@ export type LegalworkSkillItem = {
   description: string;
   scope: "project" | "global";
   trigger?: string;
+  kind?: "workflow";
+  workflowType?: "tabular" | "assistant";
 };
 
 export type LegalworkSkillContent = {
@@ -1572,6 +1703,168 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         method: "POST",
         body: { scope, content },
       }),
+    // Eigenwelt platform connect: the server owns the OAuth loopback + code
+    // exchange; the app opens the authorize URL and long-polls for the payload.
+    eigenweltOauthStart: () =>
+      requestJson<{ sessionId: string; authorizeUrl: string }>(baseUrl, "/api/eigenwelt/oauth/start", {
+        token,
+        hostToken,
+        method: "POST",
+        timeoutMs: timeouts.config,
+      }),
+    eigenweltOauthWait: (sessionId: string) =>
+      // Long poll: the server holds the request up to ~120s before answering
+      // {pending:true}, so the HTTP timeout must comfortably exceed that.
+      requestJson<EigenweltSignInWaitResult>(
+        baseUrl,
+        `/api/eigenwelt/oauth/wait/${encodeURIComponent(sessionId)}`,
+        { token, hostToken, timeoutMs: 130_000 },
+      ),
+    eigenweltModels: () =>
+      requestJson<EigenweltManifest>(baseUrl, "/api/eigenwelt/models", {
+        token,
+        hostToken,
+        timeoutMs: timeouts.config,
+      }),
+    // Persist the connected firm's entitlements + platformURL + the secret
+    // access + refresh tokens (server-side only). Called right after a
+    // successful sign-in; passing platformToken:null signs out (revoke + clear).
+    eigenweltSaveConnection: (
+      workspaceId: string,
+      payload: {
+        entitlements?: EigenweltEntitlements | null;
+        account?: EigenweltAccountIdentity | null;
+        platformURL?: string | null;
+        platformToken?: string | null;
+        refreshToken?: string | null;
+        accessTokenExpiresAt?: number | null;
+        // Sign-in only: the global gateway manifest. The server caches it and
+        // injects the `eigenwelt` provider into every workspace.
+        baseURL?: string;
+        apiKey?: string;
+        models?: EigenweltManifestModel[];
+        // Sign-out: clears the connection + the global manifest.
+        disconnect?: boolean;
+      },
+    ) =>
+      requestJson<EigenweltEntitlementsView>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/eigenwelt/connection`, {
+        token,
+        hostToken,
+        method: "PUT",
+        body: payload,
+        timeoutMs: timeouts.config,
+      }),
+    // `refresh: true` forces the server to re-pull entitlements from the
+    // platform NOW (bypassing the access-token skew short-circuit) — used by the
+    // post-checkout "waiting for your subscription" poll so a fresh sub shows up
+    // within seconds instead of on the next lazy token refresh.
+    eigenweltEntitlements: (workspaceId: string, opts?: { refresh?: boolean }) =>
+      requestJson<EigenweltEntitlementsView>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/eigenwelt/entitlements${opts?.refresh ? "?refresh=1" : ""}`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      ),
+    // Manual model refresh: re-pull the gateway manifest and rewrite the
+    // eigenwelt provider's model list without re-authenticating.
+    eigenweltRefreshModels: (workspaceId: string) =>
+      requestJson<{ modelCount: number; changed: boolean }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/eigenwelt/refresh-models`,
+        { token, hostToken, method: "POST", timeoutMs: timeouts.config },
+      ),
+    // Firm Hub: the server proxies these to the platform with the stored token.
+    hubList: (workspaceId: string, kind?: EigenweltHubKind) => {
+      // No kind → every team category at once (with sharer identity + key flags).
+      const query = kind ? `?kind=${encodeURIComponent(kind)}` : "?all=1";
+      return requestJson<{ items: EigenweltHubItem[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub${query}`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      );
+    },
+    hubShareBatch: (workspaceId: string, items: EigenweltHubShareItem[]) =>
+      requestJson<EigenweltHubBatchResult>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub/share/batch`,
+        {
+          token,
+          hostToken,
+          method: "POST",
+          body: { items, acknowledgeSharingRisk: true },
+          timeoutMs: timeouts.workspaceExport,
+        },
+      ),
+    hubInstallBatch: (workspaceId: string, itemIds: string[], options: { allowOverwrite: boolean }) =>
+      requestJson<EigenweltHubBatchResult>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub/install/batch`,
+        {
+          token,
+          hostToken,
+          method: "POST",
+          body: { itemIds, acknowledgeExecutableRisk: true, allowOverwrite: options.allowOverwrite },
+          timeoutMs: timeouts.workspaceImport,
+        },
+      ),
+    hubGet: (workspaceId: string, itemId: string) =>
+      requestJson<EigenweltHubItemDetail>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub/${encodeURIComponent(itemId)}`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      ),
+    hubShareWorkflow: (workspaceId: string, payload: { skill: string; name?: string; description?: string }) =>
+      requestJson<{ ok: boolean; id: string; version: number }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub/share/workflow`,
+        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.workspaceExport },
+      ),
+    hubShareIntegration: (workspaceId: string, payload: { mcp: string; name?: string; description?: string }) =>
+      requestJson<{ ok: boolean; id: string; version: number }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub/share/integration`,
+        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.config },
+      ),
+    hubSharePreset: (workspaceId: string, payload: { name: string; description?: string; payload: unknown }) =>
+      requestJson<{ ok: boolean; id: string; version: number }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub/share/preset`,
+        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.config },
+      ),
+    hubInstall: (workspaceId: string, itemId: string, options: { allowOverwrite: boolean }) =>
+      requestJson<{ ok: boolean; kind: EigenweltHubKind; name: string; version?: number }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub/install/${encodeURIComponent(itemId)}`,
+        {
+          token,
+          hostToken,
+          method: "POST",
+          body: { acknowledgeExecutableRisk: true, allowOverwrite: options.allowOverwrite },
+          timeoutMs: timeouts.workspaceImport,
+        },
+      ),
+    // Local install records ({id: {version, kind, name}}) that back the
+    // Firm Hub's "update available" comparison. Never carries platform secrets.
+    hubInstalls: (workspaceId: string) =>
+      requestJson<{ installs: EigenweltHubInstallMap }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub/installs`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      ),
+    hubRecordInstall: (
+      workspaceId: string,
+      payload: { id: string; version: number; kind: EigenweltHubKind; name?: string },
+    ) =>
+      requestJson<{ ok: boolean; installs: EigenweltHubInstallMap }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub/installs`,
+        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.config },
+      ),
+    hubDelete: (workspaceId: string, itemId: string) =>
+      requestJson<{ ok: boolean; id: string }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/hub/${encodeURIComponent(itemId)}`,
+        { token, hostToken, method: "DELETE", timeoutMs: timeouts.config },
+      ),
     listReloadEvents: (workspaceId: string, options?: { since?: number }) => {
       const query = typeof options?.since === "number" ? `?since=${options.since}` : "";
       return requestJson<{ items: LegalworkReloadEvent[]; cursor?: number }>(

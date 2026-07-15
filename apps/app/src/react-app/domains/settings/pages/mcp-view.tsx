@@ -17,6 +17,7 @@ import {
   Power,
   Search,
   Settings2,
+  Share2,
   Unplug,
   Zap,
 } from "lucide-react";
@@ -59,6 +60,7 @@ import {
   type ConfigScope,
   type McpViewLocalState,
 } from "./mcp-view-state";
+import { HubScopeToggle, useHubScope } from "./hub-scope-context";
 
 export type ReactMcpStatus =
   | "connected"
@@ -114,6 +116,13 @@ export type McpViewProps = {
   enablementContext?: import("../../../../app/enablement").EnablementContext;
   /** Organization policy restriction for LegalWork-provided built-in extensions. */
   builtInExtensionsDisabled?: boolean;
+  /** Firm Hub: share an MCP server entry org-wide (gated on admin_hub). */
+  canShareWithFirm?: boolean;
+  onShareWithFirm?: (mcpName: string) => void | Promise<void>;
+  /** Firm Hub: "download integrations shared with your firm" section (self-gating). */
+  firmDownloadView?: React.ReactNode;
+  /** Opens the multi-select "Share with your firm" dialog (Team scope only). */
+  onOpenTeamShare?: () => void;
 };
 
 const builtInExtensionDisabledReason = "Disabled by organization";
@@ -282,6 +291,16 @@ export function McpView(props: McpViewProps) {
   const [computerUseMcpCommand, setComputerUseMcpCommand] = useState<string[] | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<ExtensionFilter>("all");
+  // Local | Team toggle (see skills-view). Only meaningful with a Team view.
+  const [hubScope, setHubScope] = useState<"local" | "team">("local");
+  // A page-level owner (Integrations page) may control the scope via context; if
+  // so, follow it and hide our own toggle. Standalone use keeps the local toggle.
+  const externalScope = useHubScope();
+  const scope = externalScope ?? hubScope;
+  const hasTeamView = Boolean(props.firmDownloadView);
+  const showInternalToggle = hasTeamView && externalScope === null;
+  const showLocal = !hasTeamView || scope === "local";
+  const showTeam = hasTeamView && scope === "team";
   const [showHidden, setShowHidden] = useState(false);
   const [, setExtensionStateVersion] = useState(0);
 
@@ -547,7 +566,19 @@ export function McpView(props: McpViewProps) {
           </div>
         </div>
 
+        {showInternalToggle ? (
+          <div className="flex items-center justify-between gap-3">
+            <HubScopeToggle scope={hubScope} onChange={setHubScope} />
+            {hubScope === "team" && props.onOpenTeamShare ? (
+              <Button variant="outline" size="sm" onClick={props.onOpenTeamShare}>
+                <Share2 className="size-4" /> Share with firm
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+
         {/* Search + filter */}
+        {showLocal ? (
         <div className="space-y-3 border-t border-dls-border pt-5">
           <div className="relative w-full">
             <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-dls-secondary" />
@@ -586,8 +617,13 @@ export function McpView(props: McpViewProps) {
             </button>
           </div>
         </div>
+        ) : null}
       </div>
 
+      {showTeam ? props.firmDownloadView : null}
+
+      {showLocal ? (
+      <>
       {props.mcpStatus ? (
         <div className="whitespace-pre-wrap wrap-break-word rounded-[20px] border border-dls-border bg-dls-hover px-5 py-4 text-[13px] text-dls-secondary">
           {props.mcpStatus}
@@ -655,6 +691,12 @@ export function McpView(props: McpViewProps) {
         statusForEntry={quickConnectStatus}
         onConnect={props.connectMcp}
         onDetail={setDetailEntry}
+        shareRefForEntry={
+          props.canShareWithFirm && props.onShareWithFirm
+            ? (entry) => props.mcpServers.find((server) => server.name === getMcpIdentityKey(entry))?.name ?? null
+            : undefined
+        }
+        onShareMcp={props.onShareWithFirm}
         onSkillDetail={(skill) => {
           setDetailSkill(skill);
           setDetailSkillContent(null);
@@ -690,7 +732,11 @@ export function McpView(props: McpViewProps) {
         }}
         onToggleEnabled={props.setMcpEnabled}
         onToggleBusy={setTogglingMcp}
+        canShareWithFirm={props.canShareWithFirm}
+        onShareWithFirm={props.onShareWithFirm}
       />
+      </>
+      ) : null}
 
       <ConfirmModal
         open={logoutOpen}
@@ -905,6 +951,8 @@ function McpQuickConnectSection(props: {
   statusForEntry: (entry: McpDirectoryInfo) => { status: ReactMcpStatus } | undefined;
   onConnect: (entry: McpDirectoryInfo) => void;
   onDetail: (entry: McpDirectoryInfo) => void;
+  shareRefForEntry?: (entry: McpDirectoryInfo) => string | null;
+  onShareMcp?: (mcpName: string) => void | Promise<void>;
   onSkillDetail?: (skill: SkillItem) => void;
   onPluginDetail?: (plugin: ImportedPlugin) => void;
 }) {
@@ -940,6 +988,7 @@ function McpQuickConnectSection(props: {
             const hidden = props.isEntryHidden(entry);
             const disabledReason = props.disabledReasonForEntry(entry);
             const kind = entry.kind ?? "mcp";
+            const shareRef = props.shareRefForEntry?.(entry) ?? null;
             const typeLabel = kind === "skill" ? "Skill" : kind === "extension" ? "Extension" : "MCP";
             const actionLabel = configured
               ? "View details"
@@ -996,7 +1045,22 @@ function McpQuickConnectSection(props: {
                     {entry.preview ? <span className={typeTagClass}>Preview</span> : null}
                     {disabledReason ? <span className={typeTagClass}>Disabled</span> : null}
                   </div>
-                  {!disabledReason && !connecting ? (
+                  {shareRef && props.onShareMcp ? (
+                    <button
+                      type="button"
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[12px] font-medium text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        void props.onShareMcp?.(shareRef);
+                      }}
+                      title={t("firm_hub.share_with_firm")}
+                      aria-label={`${t("firm_hub.share_with_firm")}: ${entry.name}`}
+                    >
+                      <Share2 size={13} />
+                      Share
+                    </button>
+                  ) : !disabledReason && !connecting ? (
                     <span className="shrink-0 text-[12px] font-medium text-dls-secondary transition-colors group-hover:text-dls-text">
                       {actionLabel}
                     </span>
@@ -1096,6 +1160,8 @@ function McpConfiguredServersSection(props: {
   onRemove: (name: string) => void;
   onToggleEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
   onToggleBusy: (value: SetStateAction<string | null>) => void;
+  canShareWithFirm?: boolean;
+  onShareWithFirm?: (mcpName: string) => void | Promise<void>;
 }) {
   return (
     <div className="space-y-4">
@@ -1134,6 +1200,8 @@ function McpConfiguredServersSection(props: {
               onRemove={props.onRemove}
               onToggleEnabled={props.onToggleEnabled}
               onToggleBusy={props.onToggleBusy}
+              canShareWithFirm={props.canShareWithFirm}
+              onShareWithFirm={props.onShareWithFirm}
             />
           ))}
         </div>
@@ -1170,11 +1238,25 @@ function McpConfiguredServerRow(props: {
   onRemove: (name: string) => void;
   onToggleEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
   onToggleBusy: (value: SetStateAction<string | null>) => void;
+  canShareWithFirm?: boolean;
+  onShareWithFirm?: (mcpName: string) => void | Promise<void>;
 }) {
   const Icon = serviceIcon(props.entry.name);
   return (
     <div className={`group relative transition-colors ${props.selected ? "bg-dls-hover/40" : "hover:bg-dls-hover/60"}`}>
-      <button type="button" className="w-full py-4 pl-5 pr-3 text-left" onClick={() => props.onSelect(props.selected ? null : props.entry.name)}>
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={props.selected}
+        className="w-full py-4 pl-5 pr-3 text-left"
+        onClick={() => props.onSelect(props.selected ? null : props.entry.name)}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          props.onSelect(props.selected ? null : props.entry.name);
+        }}
+      >
         <div className="flex items-center gap-4">
           <div className={`flex size-9 shrink-0 items-center justify-center rounded-lg border ${props.status === "connected" ? "border-green-6 bg-green-3" : serviceIconBg(props.entry.name)}`}>
             <Icon size={16} className={props.status === "connected" ? "text-green-11" : serviceColor(props.entry.name)} />
@@ -1182,6 +1264,21 @@ function McpConfiguredServerRow(props: {
           <div className="min-w-0 flex-1">
             <div className="truncate text-[15px] font-medium tracking-[-0.01em] text-dls-text">{props.displayName(props.entry.name)}</div>
           </div>
+          {props.canShareWithFirm && props.onShareWithFirm ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={props.busy}
+              onClick={(event) => {
+                event.stopPropagation();
+                void props.onShareWithFirm?.(props.entry.name);
+              }}
+              title={t("firm_hub.share_with_firm")}
+            >
+              <Share2 size={13} />
+              Share
+            </Button>
+          ) : null}
           <div className="flex shrink-0 items-center gap-2">
             <div className={`size-1.5 rounded-full ${statusDot(props.status)}`} />
             <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-dls-secondary/70">{friendlyStatus(props.status)}</span>
@@ -1190,7 +1287,7 @@ function McpConfiguredServerRow(props: {
             <ChevronDown size={14} className="text-dls-secondary/40" />
           </div>
         </div>
-      </button>
+      </div>
 
       {props.selected ? <McpConfiguredServerDetails {...props} /> : null}
     </div>

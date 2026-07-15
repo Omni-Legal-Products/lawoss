@@ -9,6 +9,7 @@ import {
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { LearningsPane } from "./learnings-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
+import { PremiumUpsellHost } from "../domains/recorder/premium-upsell-context";
 import {
   RECORDER_TRANSCRIPT_EVENT,
   registerRecorderCopilotContext,
@@ -47,6 +48,7 @@ import {
   workspaceForget,
   workspaceSetRuntimeActive,
   workspaceSetSelected,
+  openDesktopUrl,
   type LegalworkServerInfo,
   type WorkspaceInfo,
   type WorkspaceList,
@@ -650,6 +652,15 @@ export function SessionRoute() {
       setProviderConnectedIds,
       setDisabledProviderIds,
     });
+  // On subscription activation (from the premium upsell challenge): re-pull the
+  // paid Eigenwelt manifest and dispose+reload the engine/provider list so the
+  // newly-entitled EU/ZDR models appear in the picker, not just the audio gate.
+  const handleEigenweltPremiumActivated = useCallback(async () => {
+    if (client && selectedWorkspaceId) {
+      await client.eigenweltRefreshModels(selectedWorkspaceId).catch(() => undefined);
+    }
+    await sessionProviderAuthStore.refreshProviders({ dispose: true }).catch(() => undefined);
+  }, [client, selectedWorkspaceId, sessionProviderAuthStore]);
   // The templates onboarding step needs the desktop runtime (folder picker,
   // skill import IPC); anywhere else it finishes onboarding straight away
   // (usage-analytics consent already lives on the welcome step).
@@ -1700,6 +1711,8 @@ export function SessionRoute() {
           return result;
         },
         onSubmitCustomProvider: sessionProviderAuthStore.submitCustomProvider,
+        onEigenweltSignIn: sessionProviderAuthStore.startEigenweltSignIn,
+        onEigenweltWait: sessionProviderAuthStore.completeEigenweltSignIn,
         onSubmitOAuth: sessionProviderAuthStore.completeProviderAuthOAuth,
         onRefreshProviders: sessionProviderAuthStore.refreshProviders,
         onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),
@@ -2006,6 +2019,22 @@ export function SessionRoute() {
     />
     <WhatsNewDialog hasWorkspaces={workspaces.length > 0} workspacesReady={!effectiveLoading} />
     <TranscriptionIntroDialog workspacesReady={!effectiveLoading} onOpenRecorder={showRecorderPane} />
+    {/* Premium upsell challenge + keeps the recorder gate synced to the sub. */}
+    <PremiumUpsellHost
+      client={client}
+      workspaceId={selectedWorkspaceId}
+      onPremiumActivated={handleEigenweltPremiumActivated}
+      onSignIn={async () => {
+        try {
+          const { authorizeUrl, sessionId } = await sessionProviderAuthStore.startEigenweltSignIn();
+          await openDesktopUrl(authorizeUrl);
+          const result = await sessionProviderAuthStore.completeEigenweltSignIn(sessionId);
+          return result.connected;
+        } catch {
+          return false;
+        }
+      }}
+    />
     <SessionSearchDialog
       open={sessionSearchOpen}
       onClose={() => setSessionSearchOpen(false)}

@@ -1,14 +1,15 @@
 import { existsSync } from "node:fs";
-import { readFile, writeFile, rm } from "node:fs/promises";
+import { lstat, readFile, writeFile, rm } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor, ReloadReason, ReloadTrigger, TokenScope } from "./types.js";
 import { ApprovalService } from "./approvals.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
 import { sanitizePortableOpencodeConfig } from "./portable-opencode.js";
 import { addMcp, listMcp, removeMcp, setMcpEnabled } from "./mcp.js";
-import { deleteSkill, listSkills, upsertSkill } from "./skills.js";
+import { deleteSkill, listSkills, resolveHubSkillKind, upsertSkill } from "./skills.js";
 import {
   deleteSkillResource,
   listSkillResources,
@@ -26,10 +27,10 @@ import { recordAudit, readAuditEntries, readLastAudit } from "./audit.js";
 import { ReloadEventStore } from "./events.js";
 import { computeReloadFingerprint } from "./reload-fingerprint.js";
 import { startReloadWatchers } from "./reload-watcher.js";
-import { opencodeConfigPath, legalworkConfigPath, projectCommandsDir, projectSkillsDir } from "./workspace-files.js";
+import { globalSkillsDir, opencodeConfigPath, legalworkConfigPath, projectCommandsDir, projectPluginsDir, projectSkillsDir } from "./workspace-files.js";
 import { ensureDir, exists, hashToken, shortId } from "./utils.js";
 import { ensureWorkspaceFiles, readRawOpencodeConfig } from "./workspace-init.js";
-import { sanitizeCommandName, validateMcpName } from "./validators.js";
+import { sanitizeCommandName, validateMcpConfig, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
 import { EnvService } from "./env-file.js";
 import { installCloudPlugin, readCloudPluginResolved, readInstalledCloudPlugins, removeCloudPlugin } from "./cloud-plugins.js";
@@ -87,7 +88,61 @@ import {
   readLegalworkWorkspaceConfig,
   writeLegalworkWorkspaceConfig,
 } from "./legalwork-workspace-config-store.js";
-import { buildLegalworkRuntimeConfigObject } from "./legalwork-runtime-config.js";
+import {
+  buildLegalworkRuntimeConfigObject,
+  writeLegalworkRuntimeConfigFile,
+} from "./legalwork-runtime-config.js";
+import {
+  eigenweltHasPremiumModels,
+  fetchEigenweltManifest,
+  parseEigenweltAccountIdentity,
+  parseEigenweltEntitlements,
+  startEigenweltSignIn,
+  validateEigenweltPlatformUrl,
+  waitForEigenweltSignIn,
+} from "./eigenwelt-auth.js";
+import {
+  clearCachedEigenweltPaidManifest,
+  parseManifestModels,
+  refreshEigenweltPaidManifest,
+  writeCachedEigenweltPaidManifest,
+} from "./eigenwelt-paid-manifest.js";
+import {
+  readEigenweltConnection,
+  readEigenweltEntitlementsView,
+  writeEigenweltConnection,
+} from "./eigenwelt-connection-store.js";
+import {
+  ensureFreshPlatformToken,
+  readFreshEntitlementsView,
+  revokeEigenweltConnection,
+} from "./eigenwelt-refresh.js";
+import {
+  buildIntegrationPayload,
+  hubCreate,
+  hubDelete,
+  hubGet,
+  hubGetSecret,
+  hubList,
+  hubListAll,
+  installFolderFiles,
+  installWorkflowFiles,
+  parseIntegrationPayload,
+  parsePluginPayload,
+  requireHubClient,
+  serializeLocalFolder,
+  serializeWorkflowSkill,
+  EIGENWELT_HUB_MAX_BATCH_ITEMS,
+  EIGENWELT_HUB_MAX_PAYLOAD_BYTES,
+  EIGENWELT_HUB_MAX_SECRET_BYTES,
+  type EigenweltHubKind,
+} from "./eigenwelt-hub.js";
+import { sanitizePresetFragment } from "./hub-sanitize.js";
+import {
+  forgetHubInstall,
+  readHubInstalls,
+  recordHubInstall,
+} from "./eigenwelt-hub-installs-store.js";
 import pkg from "../package.json" with { type: "json" };
 import constants from "../../../constants.json" with { type: "json" };
 
@@ -1915,6 +1970,641 @@ function createRoutes(
     });
   });
 
+  // Eigenwelt platform connect: the server owns the OAuth loopback + code
+  // exchange (see eigenwelt-auth.ts). The app opens the authorize URL,
+  // long-polls the wait endpoint for the exchange payload, and then writes
+  // the provider block itself via PATCH /workspace/:id/config.
+  addRoute(routes, "POST", "/api/eigenwelt/oauth/start", "client", async () => {
+    try {
+      return jsonResponse(await startEigenweltSignIn());
+    } catch (error) {
+      throw new ApiError(
+        409,
+        "eigenwelt_signin_unavailable",
+        error instanceof Error ? error.message : "Failed to start the Eigenwelt sign-in.",
+      );
+    }
+  });
+
+  addRoute(routes, "GET", "/api/eigenwelt/oauth/wait/:sessionId", "client", async (ctx) => {
+    try {
+      return jsonResponse(await waitForEigenweltSignIn(ctx.params.sessionId));
+    } catch (error) {
+      throw new ApiError(
+        410,
+        "eigenwelt_signin_failed",
+        error instanceof Error ? error.message : "Eigenwelt sign-in failed.",
+      );
+    }
+  });
+
+  addRoute(routes, "GET", "/api/eigenwelt/models", "client", async () => {
+    try {
+      return jsonResponse(await fetchEigenweltManifest());
+    } catch (error) {
+      throw new ApiError(
+        502,
+        "eigenwelt_platform_unreachable",
+        error instanceof Error ? error.message : "Could not reach the Eigenwelt platform.",
+      );
+    }
+  });
+
+  // Eigenwelt subscription: entitlements + Firm Hub. The app persists the
+  // connection (entitlements + platformURL + the secret platformToken) here
+  // right after "Sign in with Eigenwelt" completes. The token is server-side
+  // only (never returned to the app) and backs the hub proxy routes below.
+  const resolveHubClient = async (workspaceId: string) => {
+    // Refresh the short-lived access token before every hub call so proxied
+    // requests never carry an expired token.
+    await ensureFreshPlatformToken(config, workspaceId);
+    return requireHubClient(await readEigenweltConnection(config, workspaceId));
+  };
+
+  const parseHubKind = (value: string): EigenweltHubKind => {
+    if (
+      value === "skill" || value === "workflow" || value === "mcp" || value === "plugin" ||
+      value === "integration" || value === "preset"
+    ) {
+      return value;
+    }
+    throw new ApiError(400, "invalid_hub_kind", "kind must be skill, workflow, mcp or plugin.");
+  };
+
+  const parseSharedMcpSecret = (secretJson: string): Record<string, unknown> => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(secretJson);
+    } catch {
+      throw new ApiError(400, "invalid_integration_secret", "The shared MCP credential is not valid JSON.");
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new ApiError(400, "invalid_integration_secret", "The shared MCP credential is not a valid configuration.");
+    }
+    const config = parsed as Record<string, unknown>;
+    validateMcpConfig(config);
+    return config;
+  };
+
+  // Derive a valid hub item name ([a-z0-9][a-z0-9-_]*) from a plugin spec/path.
+  const deriveHubName = (ref: string): string => {
+    const base = basename(ref.replace(/^file:\/\//, "")).replace(/\.(js|ts|mjs|cjs)$/i, "");
+    const cleaned = base.replace(/[^a-z0-9-_]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase();
+    return cleaned || "plugin";
+  };
+
+  // Rebuild the engine-visible config file (a single file for the primary
+  // workspace, which the shared engine re-reads on every instance dispose) so a
+  // change to the GLOBAL eigenwelt manifest lands across all workspaces.
+  const rebuildEngineConfigFile = async () => {
+    const primary = config.workspaces?.[0]?.id;
+    if (primary) await writeLegalworkRuntimeConfigFile(config, primary).catch(() => undefined);
+  };
+
+  // Last-applied active-sub state. When an entitlements poll flips it (a sub
+  // activated or lapsed) we rebuild the engine config once so the paid provider
+  // is added or dropped live — the same fallback the recorder does for audio.
+  let lastPaidEntitled: boolean | undefined;
+
+  addRoute(routes, "PUT", "/workspace/:id/eigenwelt/connection", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const entitlements =
+      body.entitlements === undefined ? undefined : parseEigenweltEntitlements(body.entitlements) ?? null;
+    const account =
+      body.account === undefined ? undefined : parseEigenweltAccountIdentity(body.account) ?? null;
+    let platformURL: string | null | undefined;
+    if (body.platformURL === undefined) {
+      platformURL = undefined;
+    } else if (body.platformURL === null) {
+      platformURL = null;
+    } else if (typeof body.platformURL === "string") {
+      try {
+        platformURL = validateEigenweltPlatformUrl(body.platformURL);
+      } catch (error) {
+        throw new ApiError(
+          400,
+          "invalid_eigenwelt_platform_url",
+          error instanceof Error ? error.message : "Invalid Eigenwelt platform URL.",
+        );
+      }
+    } else {
+      throw new ApiError(400, "invalid_eigenwelt_platform_url", "Invalid Eigenwelt platform URL.");
+    }
+    const platformToken =
+      body.platformToken === undefined
+        ? undefined
+        : typeof body.platformToken === "string"
+          ? body.platformToken
+          : null;
+
+    // Sign-out (explicit): revoke the refresh-token family + clear the
+    // connection AND the global paid-provider manifest, so the eigenwelt
+    // provider drops out of every workspace's engine config.
+    if (body.disconnect === true) {
+      await revokeEigenweltConnection(config, workspace.id);
+      await clearCachedEigenweltPaidManifest(config);
+      await rebuildEngineConfigFile();
+      return jsonResponse(await readEigenweltEntitlementsView(config, workspace.id));
+    }
+
+    const refreshToken =
+      body.refreshToken === undefined
+        ? undefined
+        : typeof body.refreshToken === "string"
+          ? body.refreshToken
+          : null;
+    const accessTokenExpiresAt =
+      body.accessTokenExpiresAt === undefined
+        ? undefined
+        : typeof body.accessTokenExpiresAt === "number"
+          ? body.accessTokenExpiresAt
+          : null;
+    const view = await writeEigenweltConnection(config, workspace.id, {
+      entitlements,
+      account,
+      platformURL,
+      platformToken,
+      refreshToken,
+      accessTokenExpiresAt,
+    });
+
+    // Sign-in: cache the GLOBAL paid manifest {baseURL, apiKey, models} and
+    // rebuild the engine config so the eigenwelt provider is injected into
+    // EVERY workspace (an account provider, not a per-workspace one).
+    if (typeof body.baseURL === "string" && body.baseURL && typeof body.apiKey === "string" && body.apiKey) {
+      await writeCachedEigenweltPaidManifest(config, {
+        baseURL: body.baseURL,
+        apiKey: body.apiKey,
+        models: parseManifestModels(body.models),
+      });
+      await rebuildEngineConfigFile();
+    }
+    return jsonResponse(view);
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/eigenwelt/entitlements", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    // Opportunistically refresh (rotate the token + pull current entitlements)
+    // so the plan/usage the desktop shows stays live. `?refresh=1` forces the
+    // pull now (the post-checkout "waiting for your subscription" poll).
+    const force = ctx.url.searchParams.get("refresh") === "1";
+    const view = await readFreshEntitlementsView(config, workspace.id, { force });
+    // A flip in active-sub state adds/drops the paid provider — rebuild the
+    // engine config once so premium API access follows the subscription live.
+    const paidEntitled = eigenweltHasPremiumModels(view.entitlements);
+    if (paidEntitled !== lastPaidEntitled) {
+      lastPaidEntitled = paidEntitled;
+      await rebuildEngineConfigFile();
+    }
+    return jsonResponse(view);
+  });
+
+  // Manual "Refresh models": re-pull the gateway manifest into the GLOBAL
+  // eigenwelt manifest (around the kept key) and rebuild the engine config so
+  // new models appear in every workspace — no re-authentication needed.
+  addRoute(routes, "POST", "/workspace/:id/eigenwelt/refresh-models", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    await resolveWorkspace(config, ctx.params.id);
+    const result = await refreshEigenweltPaidManifest(config);
+    if (result.changed) await rebuildEngineConfigFile();
+    return jsonResponse(result);
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/hub", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveHubClient(workspace.id);
+    const kindParam = ctx.url.searchParams.get("kind")?.trim();
+    // `?all=1` (or no kind) returns every team category in one call — the
+    // platform join carries sharer identity + key status so the app can group
+    // by member and flag included keys.
+    if (!kindParam || ctx.url.searchParams.get("all") === "1") {
+      return jsonResponse({ items: await hubListAll(client) });
+    }
+    return jsonResponse({ items: await hubList(client, parseHubKind(kindParam)) });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/hub/:itemId", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveHubClient(workspace.id);
+    return jsonResponse(await hubGet(client, ctx.params.itemId));
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/hub/share/workflow", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveHubClient(workspace.id);
+    const body = await readJsonBodyLimited(ctx.request, 512 * 1024);
+    const skill = String(body.skill ?? "").trim();
+    if (!skill) throw new ApiError(400, "invalid_skill_name", "Skill name is required");
+    const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : skill;
+    const description = typeof body.description === "string" ? body.description : undefined;
+    const payload = await serializeWorkflowSkill(workspace.path, skill);
+    const result = await hubCreate(client, { kind: "workflow", name, description, payload });
+    return jsonResponse({ ok: true, ...result });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/hub/share/integration", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveHubClient(workspace.id);
+    const body = await readJsonBodyLimited(ctx.request, 64 * 1024);
+    const mcpName = String(body.mcp ?? "").trim();
+    if (!mcpName) throw new ApiError(400, "invalid_mcp_name", "MCP name is required");
+    const items = await listMcp(config, workspace.id, workspace.path);
+    const entry = items.find((item) => item.name === mcpName);
+    if (!entry) throw new ApiError(404, "mcp_not_found", `MCP not found: ${mcpName}`);
+    const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : mcpName;
+    const description = typeof body.description === "string" ? body.description : undefined;
+    const payload = buildIntegrationPayload(entry.name, entry.config);
+    const result = await hubCreate(client, { kind: "integration", name, description, payload });
+    return jsonResponse({ ok: true, ...result });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/hub/share/preset", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveHubClient(workspace.id);
+    const body = await readJsonBody(ctx.request);
+    const name = String(body.name ?? "").trim();
+    if (!name) throw new ApiError(400, "invalid_hub_name", "A preset name is required");
+    if (!body.payload || typeof body.payload !== "object" || Array.isArray(body.payload)) {
+      throw new ApiError(400, "invalid_preset", "A preset payload is required");
+    }
+    // A preset is a SHARE TEMPLATE: keep only the safe opencode settings fragment
+    // (provider shape without keys, model, small_model) and strip every secret.
+    const payload = sanitizePresetFragment(body.payload as Record<string, unknown>);
+    if (Object.keys(payload).length === 0) {
+      throw new ApiError(400, "invalid_preset", "This preset has no shareable settings.");
+    }
+    const description = typeof body.description === "string" ? body.description : undefined;
+    const result = await hubCreate(client, { kind: "preset", name, description, payload });
+    return jsonResponse({ ok: true, ...result });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/hub/install/:itemId", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveHubClient(workspace.id);
+    const body = await readJsonBodyLimited(ctx.request, 16 * 1024);
+    if (body.acknowledgeExecutableRisk !== true) {
+      throw new ApiError(400, "hub_install_acknowledgement_required", "Confirm that you trust the sharer and reviewed the executable content before installing.");
+    }
+    const allowOverwrite = body.allowOverwrite === true;
+    const item = await hubGet(client, ctx.params.itemId);
+    if (item.kind === "skill" || item.kind === "workflow") {
+      const files =
+        item.payload && typeof item.payload === "object"
+          ? (item.payload as { files?: unknown }).files
+          : null;
+      const target = join(globalSkillsDir(), item.name);
+      if (!allowOverwrite && await exists(target)) {
+        throw new ApiError(409, "hub_install_would_overwrite", `A local workflow named ${item.name} already exists. Confirm replacement to continue.`);
+      }
+      const result = await installWorkflowFiles(workspace.path, item.name, files);
+      // Record the pulled version so the Firm Hub can flag a future update.
+      await recordHubInstall(config, workspace.id, item.id, {
+        version: item.version,
+        kind: item.kind,
+        name: result.name,
+        installedAt: Date.now(),
+      });
+      emitReloadEvent(ctx.reloadEvents, workspace, "skills", {
+        type: "skill",
+        name: result.name,
+        action: "added",
+        path: result.path,
+      });
+      await recordAudit(workspace.path, {
+        id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" },
+        action: "firm_hub.install", target: result.path,
+        summary: `Installed ${item.kind} ${item.name} shared by ${item.createdByUserId}`,
+        timestamp: Date.now(),
+      });
+      return jsonResponse({
+        ok: true,
+        kind: item.kind,
+        name: result.name,
+        path: result.path,
+        written: result.written,
+        version: item.version,
+      });
+    }
+    if (item.kind === "mcp" || item.kind === "integration") {
+      const integration = parseIntegrationPayload(item.payload);
+      let mcpConfig = integration.mcp;
+      let keyIncluded = false;
+      if (item.hasSecret && item.canAccessSecret) {
+        const secretJson = await hubGetSecret(client, item.id);
+        if (secretJson) {
+          mcpConfig = parseSharedMcpSecret(secretJson);
+          keyIncluded = true;
+        }
+      }
+      const result = await addMcp(config, workspace.id, integration.key, mcpConfig);
+      await recordHubInstall(config, workspace.id, item.id, {
+        version: item.version,
+        kind: item.kind,
+        name: integration.key,
+        installedAt: Date.now(),
+      });
+      emitReloadEvent(ctx.reloadEvents, workspace, "mcp", {
+        type: "mcp",
+        name: integration.key,
+        action: result.action,
+      });
+      await recordAudit(workspace.path, {
+        id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" },
+        action: "firm_hub.install", target: integration.key,
+        summary: `Installed MCP ${integration.key} shared by ${item.createdByUserId}${keyIncluded ? " with its shared credential" : " as a template"}`,
+        timestamp: Date.now(),
+      });
+      return jsonResponse({
+        ok: true,
+        kind: item.kind,
+        name: integration.key,
+        action: result.action,
+        keyIncluded,
+        version: item.version,
+      });
+    }
+    if (item.kind === "plugin") {
+      if (!item.pinned) {
+        throw new ApiError(403, "hub_plugin_not_approved", "An organization admin must pin this plugin before it can be installed.");
+      }
+      const plugin = parsePluginPayload(item.payload);
+      if ("spec" in plugin) {
+        await addPlugin(config, workspace.id, plugin.spec);
+      } else {
+        if (!allowOverwrite && await exists(projectPluginsDir(workspace.path))) {
+          throw new ApiError(409, "hub_install_would_overwrite", "Plugin files already exist in this workspace. Confirm replacement to continue.");
+        }
+        await installFolderFiles(projectPluginsDir(workspace.path), plugin.files);
+      }
+      await recordHubInstall(config, workspace.id, item.id, {
+        version: item.version, kind: item.kind, name: item.name, installedAt: Date.now(),
+      });
+      emitReloadEvent(ctx.reloadEvents, workspace, "plugins", { type: "plugin", name: item.name, action: "added" });
+      await recordAudit(workspace.path, {
+        id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" },
+        action: "firm_hub.install", target: item.name,
+        summary: `Installed admin-approved plugin ${item.name} shared by ${item.createdByUserId}`,
+        timestamp: Date.now(),
+      });
+      return jsonResponse({ ok: true, kind: item.kind, name: item.name, version: item.version });
+    }
+    // Presets are applied from settings via the config APIs, not installed here.
+    throw new ApiError(400, "preset_install_unsupported", "Apply presets from settings, not the hub install action.");
+  });
+
+  // Batch share: push many local items (skills, workflows, plugins, MCP) at
+  // once. MCP items may include their key (encrypted, allow-list scoped) via the
+  // separate secret channel — the hub payload always stays secret-free.
+  addRoute(routes, "POST", "/workspace/:id/hub/share/batch", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveHubClient(workspace.id);
+    const body = await readJsonBodyLimited(ctx.request, 512 * 1024);
+    if (body.acknowledgeSharingRisk !== true) {
+      throw new ApiError(400, "hub_share_acknowledgement_required", "Review executable content and possible client data before sharing with the firm.");
+    }
+    const rawItems = Array.isArray(body.items) ? body.items : [];
+    if (rawItems.length === 0) throw new ApiError(400, "no_items", "No items to share.");
+    if (rawItems.length > EIGENWELT_HUB_MAX_BATCH_ITEMS) {
+      throw new ApiError(413, "too_many_items", `Share at most ${EIGENWELT_HUB_MAX_BATCH_ITEMS} items at once.`);
+    }
+
+    const results: Array<Record<string, unknown>> = [];
+    for (const raw of rawItems) {
+      const entry = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+      const ref = String(entry.ref ?? "").trim();
+      let kind: EigenweltHubKind | undefined;
+      try {
+        kind = parseHubKind(String(entry.kind ?? ""));
+        const description = typeof entry.description === "string" ? entry.description : undefined;
+        const includeSecret = entry.includeSecret === true;
+        let allow: "all" | string[];
+        if (entry.allow === undefined || entry.allow === "all") {
+          allow = "all";
+        } else if (Array.isArray(entry.allow) && entry.allow.every((value) => typeof value === "string" && value.trim())) {
+          allow = [...new Set(entry.allow.map((value) => String(value).trim()))];
+        } else {
+          throw new ApiError(400, "invalid_secret_allow", "Credential access must be 'all' or a list of firm member ids.");
+        }
+        if (!ref) throw new ApiError(400, "invalid_ref", "Each item needs a local ref.");
+        if (kind === "skill" || kind === "workflow") {
+          const localSkills = await listSkills(workspace.path, false);
+          const localSkill = localSkills.find((skill) => skill.name === ref);
+          const publishedKind = resolveHubSkillKind(localSkill, kind, ref);
+          const payload = await serializeWorkflowSkill(workspace.path, ref);
+          const res = await hubCreate(client, { kind: publishedKind, name: ref, description, payload });
+          results.push({ ref, kind: publishedKind, ok: true, id: res.id, version: res.version });
+        } else if (kind === "mcp") {
+          const mcps = await listMcp(config, workspace.id, workspace.path);
+          const mcp = mcps.find((m) => m.name === ref);
+          if (!mcp) throw new ApiError(404, "mcp_not_found", `MCP not found: ${ref}`);
+          const payload = buildIntegrationPayload(mcp.name, mcp.config); // stripped template
+          const configuredSecret = JSON.stringify(mcp.config);
+          if (includeSecret && Buffer.byteLength(configuredSecret, "utf8") > EIGENWELT_HUB_MAX_SECRET_BYTES) {
+            throw new ApiError(413, "hub_secret_too_large", "The MCP configuration is too large to share as a credential (64 KiB max)." );
+          }
+          const res = await hubCreate(client, {
+            kind: "mcp", name: ref, description, payload,
+            secret: includeSecret ? { value: configuredSecret, allow } : null,
+          });
+          results.push({ ref, kind, ok: true, id: res.id, version: res.version, keyIncluded: includeSecret });
+        } else if (kind === "plugin") {
+          const { items: plugins } = await listPlugins(config, workspace.id, workspace.path, true);
+          const pl = plugins.find((p) => p.spec === ref || p.path === ref);
+          if (!pl) throw new ApiError(404, "plugin_not_found", `Plugin not found: ${ref}`);
+          const name = deriveHubName(pl.path ?? pl.spec);
+          let payload: unknown;
+          const isLocalPlugin = pl.spec.startsWith("file:") || isAbsolute(pl.spec);
+          if (pl.source === "config" && !isLocalPlugin) {
+            payload = { spec: pl.spec };
+          } else {
+            let abs: string;
+            try {
+              abs = pl.spec.startsWith("file:") ? fileURLToPath(pl.spec) : pl.spec;
+            } catch {
+              throw new ApiError(400, "invalid_plugin", "The local plugin path is not a valid file URL.");
+            }
+            const sourceStat = await lstat(abs);
+            if (sourceStat.isSymbolicLink()) {
+              throw new ApiError(400, "invalid_plugin", "Symlinked plugins cannot be shared with the firm.");
+            }
+            if (sourceStat.isDirectory()) {
+              payload = await serializeLocalFolder(abs);
+            } else if (sourceStat.isFile()) {
+              const buf = await readFile(abs);
+              const filePayload = { files: [{ path: basename(abs), contentBase64: buf.toString("base64") }] };
+              if (Buffer.byteLength(JSON.stringify(filePayload), "utf8") > EIGENWELT_HUB_MAX_PAYLOAD_BYTES) {
+                throw new ApiError(413, "hub_payload_too_large", "The plugin is too large to share (20 MiB max).");
+              }
+              payload = filePayload;
+            } else {
+              throw new ApiError(400, "invalid_plugin", "Only plugin files and folders can be shared.");
+            }
+          }
+          const res = await hubCreate(client, { kind: "plugin", name, description, payload });
+          results.push({ ref, kind, ok: true, id: res.id, version: res.version });
+        } else {
+          throw new ApiError(400, "unshareable_kind", `Cannot batch-share kind: ${kind}`);
+        }
+      } catch (err) {
+        results.push({ ref, ...(kind ? { kind } : {}), ok: false, error: err instanceof ApiError ? err.message : String(err) });
+      }
+    }
+    const succeeded = results.filter((result) => result.ok).length;
+    if (succeeded > 0) {
+      await recordAudit(workspace.path, {
+        id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" },
+        action: "firm_hub.share", target: workspace.id,
+        summary: `Shared ${succeeded} item${succeeded === 1 ? "" : "s"} with the firm`,
+        timestamp: Date.now(),
+      });
+    }
+    return jsonResponse({ results });
+  });
+
+  // Batch install: pull many shared items at once. MCP items install fully
+  // configured when the caller is on the key's allow-list, otherwise as a
+  // secret-free template.
+  addRoute(routes, "POST", "/workspace/:id/hub/install/batch", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveHubClient(workspace.id);
+    const body = await readJsonBodyLimited(ctx.request, 64 * 1024);
+    if (body.acknowledgeExecutableRisk !== true) {
+      throw new ApiError(400, "hub_install_acknowledgement_required", "Confirm that you trust the sharers and reviewed the executable content before installing.");
+    }
+    const allowOverwrite = body.allowOverwrite === true;
+    const itemIds = Array.isArray(body.itemIds)
+      ? [...new Set(body.itemIds.filter((v: unknown): v is string => typeof v === "string"))]
+      : [];
+    if (itemIds.length === 0) throw new ApiError(400, "no_items", "No items to install.");
+    if (itemIds.length > EIGENWELT_HUB_MAX_BATCH_ITEMS) {
+      throw new ApiError(413, "too_many_items", `Install at most ${EIGENWELT_HUB_MAX_BATCH_ITEMS} items at once.`);
+    }
+
+    const results: Array<Record<string, unknown>> = [];
+    for (const itemId of itemIds) {
+      try {
+        const item = await hubGet(client, itemId);
+        if (item.kind === "skill" || item.kind === "workflow") {
+          const files = item.payload && typeof item.payload === "object"
+            ? (item.payload as { files?: unknown }).files
+            : null;
+          const target = join(globalSkillsDir(), item.name);
+          if (!allowOverwrite && await exists(target)) {
+            throw new ApiError(409, "hub_install_would_overwrite", `A local workflow named ${item.name} already exists.`);
+          }
+          const res = await installWorkflowFiles(workspace.path, item.name, files);
+          emitReloadEvent(ctx.reloadEvents, workspace, "skills", { type: "skill", name: res.name, action: "added", path: res.path });
+          await recordHubInstall(config, workspace.id, item.id, { version: item.version, kind: item.kind, name: res.name, installedAt: Date.now() });
+          results.push({ id: item.id, kind: item.kind, name: res.name, ok: true });
+        } else if (item.kind === "mcp" || item.kind === "integration") {
+          // Prefer the full configured entry (key included) when we're allowed;
+          // fall back to the secret-free template otherwise.
+          const integration = parseIntegrationPayload(item.payload);
+          let mcpConfig = integration.mcp;
+          let keyIncluded = false;
+          const secretJson = item.hasSecret && item.canAccessSecret ? await hubGetSecret(client, item.id) : null;
+          if (secretJson) {
+            mcpConfig = parseSharedMcpSecret(secretJson);
+            keyIncluded = true;
+          }
+          const res = await addMcp(config, workspace.id, integration.key, mcpConfig);
+          emitReloadEvent(ctx.reloadEvents, workspace, "mcp", { type: "mcp", name: integration.key, action: res.action });
+          await recordHubInstall(config, workspace.id, item.id, { version: item.version, kind: item.kind, name: integration.key, installedAt: Date.now() });
+          results.push({ id: item.id, kind: item.kind, name: integration.key, ok: true, keyIncluded });
+        } else if (item.kind === "plugin") {
+          if (!item.pinned) {
+            throw new ApiError(403, "hub_plugin_not_approved", "An organization admin must pin this plugin before it can be installed.");
+          }
+          const plugin = parsePluginPayload(item.payload);
+          if ("spec" in plugin) {
+            await addPlugin(config, workspace.id, plugin.spec);
+          } else {
+            if (!allowOverwrite && await exists(projectPluginsDir(workspace.path))) {
+              throw new ApiError(409, "hub_install_would_overwrite", "Plugin files already exist in this workspace.");
+            }
+            await installFolderFiles(projectPluginsDir(workspace.path), plugin.files);
+          }
+          emitReloadEvent(ctx.reloadEvents, workspace, "plugins", { type: "plugin", name: item.name, action: "added" });
+          await recordHubInstall(config, workspace.id, item.id, { version: item.version, kind: item.kind, name: item.name, installedAt: Date.now() });
+          results.push({ id: item.id, kind: item.kind, name: item.name, ok: true });
+        } else {
+          throw new ApiError(400, "uninstallable_kind", `Cannot install kind: ${item.kind}`);
+        }
+      } catch (err) {
+        results.push({ id: itemId, ok: false, error: err instanceof ApiError ? err.message : String(err) });
+      }
+    }
+    const succeeded = results.filter((result) => result.ok).length;
+    if (succeeded > 0) {
+      await recordAudit(workspace.path, {
+        id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" },
+        action: "firm_hub.install", target: workspace.id,
+        summary: `Installed ${succeeded} firm hub item${succeeded === 1 ? "" : "s"}`,
+        timestamp: Date.now(),
+      });
+    }
+    return jsonResponse({ results });
+  });
+
+  addRoute(routes, "DELETE", "/workspace/:id/hub/:itemId", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = await resolveHubClient(workspace.id);
+    await hubDelete(client, ctx.params.itemId);
+    // The item no longer exists in the firm — drop any local install record so
+    // it stops showing as installed/updatable.
+    await forgetHubInstall(config, workspace.id, ctx.params.itemId);
+    return jsonResponse({ ok: true, id: ctx.params.itemId });
+  });
+
+  // Local record of installed hub items ({id: {version, kind, name}}) that backs
+  // "update available" detection. Never returns platform secrets.
+  addRoute(routes, "GET", "/workspace/:id/hub/installs", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse({ installs: await readHubInstalls(config, workspace.id) });
+  });
+
+  // Presets are applied from settings (not via the install action), so the app
+  // records the pulled version here after a successful apply/update.
+  addRoute(routes, "POST", "/workspace/:id/hub/installs", "client", async (ctx) => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const body = await readJsonBody(ctx.request);
+    const id = String(body.id ?? "").trim();
+    if (!id) throw new ApiError(400, "invalid_hub_id", "A hub item id is required.");
+    const version = typeof body.version === "number" ? body.version : Number(body.version);
+    if (!Number.isFinite(version)) {
+      throw new ApiError(400, "invalid_hub_version", "A numeric hub item version is required.");
+    }
+    const kind = parseHubKind(String(body.kind ?? "preset"));
+    const name = typeof body.name === "string" ? body.name : "";
+    const installs = await recordHubInstall(config, workspace.id, id, {
+      version,
+      kind,
+      name,
+      installedAt: Date.now(),
+    });
+    return jsonResponse({ ok: true, installs });
+  });
+
   addRoute(routes, "GET", "/workspace/:id/audit", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const limitParam = ctx.url.searchParams.get("limit");
@@ -2868,6 +3558,40 @@ async function readJsonBody(request: Request): Promise<Record<string, unknown>> 
     const json = await request.json();
     return json as Record<string, unknown>;
   } catch {
+    throw new ApiError(400, "invalid_json", "Invalid JSON body");
+  }
+}
+
+async function readJsonBodyLimited(request: Request, maxBytes: number): Promise<Record<string, unknown>> {
+  const declared = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw new ApiError(413, "request_too_large", `Request body exceeds ${maxBytes} bytes.`);
+  }
+  if (!request.body) throw new ApiError(400, "invalid_json", "JSON body required");
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new ApiError(413, "request_too_large", `Request body exceeds ${maxBytes} bytes.`);
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    const parsed: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    return ensurePlainObject(parsed);
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
     throw new ApiError(400, "invalid_json", "Invalid JSON body");
   }
 }

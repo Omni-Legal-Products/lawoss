@@ -51,10 +51,20 @@ import {
 } from "@/react-app/shell/route-workspaces";
 import { createConnectionsStore, useConnectionsStoreSnapshot } from "@/react-app/domains/connections/store";
 import { createLegalworkServerStore, useLegalworkServerStoreSnapshot } from "@/react-app/domains/connections/legalwork-server-store";
-import { createProviderAuthStore, useProviderAuthStoreSnapshot, type CustomProviderEditData } from "@/react-app/domains/connections/provider-auth/store";
+import { createProviderAuthStore, useProviderAuthStoreSnapshot, EIGENWELT_PROVIDER_ID, type CustomProviderEditData } from "@/react-app/domains/connections/provider-auth/store";
 import ProviderAuthModal from "@/react-app/domains/connections/provider-auth/provider-auth-modal";
 import ConnectionsModals from "@/react-app/domains/connections/modals";
 import { AiSettingsView } from "@/react-app/domains/settings/pages/ai-view";
+import { EigenweltAccountView } from "@/react-app/domains/settings/pages/eigenwelt-account-view";
+import { HubDownloadSection } from "@/react-app/domains/settings/pages/hub-download-section";
+import { HubShareDialog } from "@/react-app/domains/settings/pages/hub-share-dialog";
+import { SharePresetSection } from "@/react-app/domains/settings/pages/share-preset-section";
+import {
+  hasEigenweltFeature,
+  invalidateEigenweltEntitlements,
+  useEigenweltEntitlements,
+} from "@/react-app/domains/connections/eigenwelt-entitlements";
+import { PremiumUpsellHost } from "@/react-app/domains/recorder/premium-upsell-context";
 import { FusionSettingsSection } from "@/react-app/domains/settings/pages/fusion-settings-section";
 import { BenchmarkView } from "@/react-app/domains/benchmark/benchmark-view";
 // Side-effect imports: register extension config components into the registry.
@@ -109,6 +119,7 @@ import {
   type WorkspaceInfo,
   type WorkspaceList,
   revealDesktopItemInDir,
+  openDesktopUrl,
 } from "@/app/lib/desktop";
 import {
   isDesktopRuntime,
@@ -217,6 +228,7 @@ function parseSettingsPath(pathname: string): {
   switch (head) {
     case "general":
     case "ai":
+    case "account":
     case "preferences":
     case "permissions":
     case "safety":
@@ -803,6 +815,102 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const opencodeBaseUrl = selectedWorkspaceEndpoint?.opencodeBaseUrl ?? "";
   const runtimeWorkspaceId = selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspace?.id ?? null;
   routeStateRef.current.runtimeWorkspaceId = runtimeWorkspaceId;
+
+  // Firm Hub: share-with-firm actions on the Skills / Integrations lists are
+  // gated on the admin_hub entitlement of the connected Eigenwelt firm.
+  const hubWorkspaceId = (runtimeWorkspaceId ?? selectedWorkspaceId)?.trim() || null;
+  const firmEntitlementsQuery = useEigenweltEntitlements({
+    client: legalworkClient,
+    workspaceId: hubWorkspaceId,
+  });
+  const canShareWithFirm = hasEigenweltFeature(firmEntitlementsQuery.data?.entitlements, "admin_hub");
+  // Multi-select "Share with your firm" dialog, opened from the Team scope pills.
+  const [teamShareOpen, setTeamShareOpen] = useState(false);
+  const [teamShareInitial, setTeamShareInitial] = useState<{
+    kind: "skill" | "workflow" | "mcp" | "plugin";
+    ref: string;
+  } | null>(null);
+  // The recorder's premium gate + upsell challenge for the Settings surface (the
+  // model-manager download list) is owned by <PremiumUpsellHost/>, mounted in the
+  // JSX below with the same client + workspace.
+
+  const shareWorkflowWithFirm = useCallback(
+    async (skillName: string, kind: "skill" | "workflow") => {
+      if (!legalworkClient || !hubWorkspaceId) {
+        toast.error(t("app.error_connect_first"));
+        return;
+      }
+      setTeamShareInitial({ kind, ref: skillName });
+      setTeamShareOpen(true);
+    },
+    [legalworkClient, hubWorkspaceId],
+  );
+
+  const shareIntegrationWithFirm = useCallback(
+    async (mcpName: string) => {
+      if (!legalworkClient || !hubWorkspaceId) {
+        toast.error(t("app.error_connect_first"));
+        return;
+      }
+      setTeamShareInitial({ kind: "mcp", ref: mcpName });
+      setTeamShareOpen(true);
+    },
+    [legalworkClient, hubWorkspaceId],
+  );
+
+  const sharePluginWithFirm = useCallback(
+    async (pluginRef: string) => {
+      if (!legalworkClient || !hubWorkspaceId) {
+        toast.error(t("app.error_connect_first"));
+        return;
+      }
+      setTeamShareInitial({ kind: "plugin", ref: pluginRef });
+      setTeamShareOpen(true);
+    },
+    [legalworkClient, hubWorkspaceId],
+  );
+
+  // Eigenwelt is a first-party global account. Sign-out clears the connection
+  // AND the global provider manifest server-side (revoking the refresh-token
+  // family), then reloads the engine so the eigenwelt provider drops from every
+  // workspace. Errors propagate to the account view, which surfaces a toast.
+  const disconnectEigenwelt = useCallback(async () => {
+    setDisconnectingProviderId(EIGENWELT_PROVIDER_ID);
+    try {
+      if (legalworkClient && hubWorkspaceId) {
+        try {
+          await legalworkClient.eigenweltSaveConnection(hubWorkspaceId, { disconnect: true });
+        } catch {
+          // best-effort: still reset the local view + engine below.
+        }
+        invalidateEigenweltEntitlements(hubWorkspaceId);
+      }
+      // Await a FULL provider refresh (dispose → re-read the now-eigenwelt-free
+      // engine config → setProviders / setProviderConnectedIds) so the account
+      // view's providers-derived state (model count + connected id set) drops
+      // eigenwelt before it re-renders. reloadWorkspaceEngineFromUi alone only
+      // invalidates the React Query provider-list cache — it never re-applies
+      // the local `providers` useState, so the tab stayed "Connected / 1 models"
+      // after sign-out. refreshProviders({ dispose: true }) is what the working
+      // "Refresh models" path already uses.
+      await providerAuthStore.refreshProviders({ dispose: true });
+      void reloadWorkspaceEngineFromUi();
+      if (hubWorkspaceId) await firmEntitlementsQuery.refetch();
+    } finally {
+      setDisconnectingProviderId(null);
+    }
+  }, [legalworkClient, hubWorkspaceId, firmEntitlementsQuery, providerAuthStore, reloadWorkspaceEngineFromUi]);
+
+  // "Refresh models": the server re-pulls the gateway manifest into the GLOBAL
+  // eigenwelt manifest and rebuilds the engine config; reload so the new models
+  // appear in the picker across every workspace.
+  const refreshEigenweltModels = useCallback(async (): Promise<{ modelCount: number; changed: boolean }> => {
+    if (!legalworkClient || !hubWorkspaceId) return { modelCount: 0, changed: false };
+    const result = await legalworkClient.eigenweltRefreshModels(hubWorkspaceId);
+    await providerAuthStore.refreshProviders({ dispose: true });
+    void reloadWorkspaceEngineFromUi();
+    return result;
+  }, [legalworkClient, hubWorkspaceId, providerAuthStore, reloadWorkspaceEngineFromUi]);
 
   const opencodeClient = useMemo(() => {
     if (!selectedWorkspaceEndpoint || !selectedWorkspaceEndpoint.token) return null;
@@ -1484,7 +1592,26 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     ? t("status.providers_connected", { count: providerConnectedIds.length })
     : t("settings.no_providers_connected");
   const providerConnectedIdSet = new Set(providerConnectedIds);
+  // Eigenwelt is managed from its own "Eigenwelt" account tab, not as a model
+  // provider — hide it from the AI providers list (a footnote points there).
+  //
+  // Connecting is OAuth-only (the bare API-key path was removed), so a signed-in
+  // account ALWAYS carries a rotating token and the server reports
+  // `connected: true`. "Connected" is therefore a pure ACCOUNT fact and never
+  // reads the model list: the account can be signed in while the platform serves
+  // zero models, and a stale or orphaned model-provider block must never make a
+  // signed-out account look connected. Model presence is surfaced separately via
+  // eigenweltModelCount below.
+  const eigenweltAccount = firmEntitlementsQuery.data;
+  const eigenweltConnected =
+    Boolean(eigenweltAccount?.connected) || Boolean(eigenweltAccount?.entitlements);
+  // How many models the connected Eigenwelt account currently serves (may be 0
+  // if the platform/LiteLLM hasn't provisioned any yet — login still works).
+  const eigenweltModelCount = Object.keys(
+    providers.find((item) => item.id === EIGENWELT_PROVIDER_ID)?.models ?? {},
+  ).length;
   const connectedProviders = providers.flatMap((provider) => {
+    if (provider.id === EIGENWELT_PROVIDER_ID) return [];
     if (!providerConnectedIdSet.has(provider.id)) return [];
     const providerOptions =
       provider.options && typeof provider.options === "object"
@@ -1878,6 +2005,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onDisconnectProvider={handleDisconnectProvider}
             onEditProvider={handleEditCustomProvider}
             canDisconnectProvider={(source) => source !== "env"}
+            eigenweltConnected={eigenweltConnected}
             fusionView={
               <FusionSettingsSection
                 fusionModels={local.prefs.fusionModels ?? []}
@@ -1894,6 +2022,38 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 }}
               />
             }
+            presetShareView={
+              <>
+                <SharePresetSection client={legalworkClient} workspaceId={hubWorkspaceId} />
+                <HubDownloadSection
+                  legalworkClient={legalworkClient}
+                  workspaceId={hubWorkspaceId}
+                  kind="preset"
+                  onConfigApplied={() => {
+                    void reloadWorkspaceEngineFromUi();
+                  }}
+                />
+              </>
+            }
+          />
+        );
+      case "account":
+        return (
+          <EigenweltAccountView
+            legalworkClient={legalworkClient}
+            workspaceId={hubWorkspaceId}
+            connected={eigenweltConnected}
+            serverConnected={legalworkServerSnapshot.legalworkServerStatus === "connected"}
+            onStartSignIn={providerAuthStore.startEigenweltSignIn}
+            onWaitSignIn={providerAuthStore.completeEigenweltSignIn}
+            onDisconnect={disconnectEigenwelt}
+            onRefreshModels={refreshEigenweltModels}
+            disconnecting={disconnectingProviderId === EIGENWELT_PROVIDER_ID}
+            hasModels={eigenweltModelCount > 0}
+            modelCount={eigenweltModelCount}
+            onConfigApplied={() => {
+              void reloadWorkspaceEngineFromUi();
+            }}
           />
         );
       case "benchmark":
@@ -1955,6 +2115,25 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             canUseDesktopTools={!isRemoteWorkspace}
             accessHint={skillsAccessHint}
             extensions={extensionsStore}
+            canShareWithFirm={canShareWithFirm}
+            onShareWithFirm={shareWorkflowWithFirm}
+            onOpenTeamShare={canShareWithFirm ? () => {
+              setTeamShareInitial(null);
+              setTeamShareOpen(true);
+            } : undefined}
+            firmDownloadView={
+              route.tab === "workflows" ? (
+                <HubDownloadSection
+                  legalworkClient={legalworkClient}
+                  workspaceId={hubWorkspaceId}
+                  kind="workflow"
+                  onConfigApplied={() => {
+                    void extensionsStore.refreshSkills({ force: true });
+                    void reloadWorkspaceEngineFromUi();
+                  }}
+                />
+              ) : undefined
+            }
             onOpenLink={(url) => platform.openLink(url)}
             createSessionAndOpen={async (_command?: string): Promise<string | undefined> => {
               props.onClose?.();
@@ -2048,6 +2227,24 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 uninstallSkill={(name) => { void extensionsStore.uninstallSkill(name); }}
                 readSkill={(name) => extensionsStore.readSkill(name)}
                 showHeader={false}
+                canShareWithFirm={canShareWithFirm}
+                onShareWithFirm={shareIntegrationWithFirm}
+                onOpenTeamShare={canShareWithFirm ? () => {
+                  setTeamShareInitial(null);
+                  setTeamShareOpen(true);
+                } : undefined}
+                firmDownloadView={
+                  <HubDownloadSection
+                    legalworkClient={legalworkClient}
+                    workspaceId={hubWorkspaceId}
+                    kind="mcp"
+                    onConfigApplied={() => {
+                      void extensionsStore.refreshSkills({ force: true });
+                      void extensionsStore.refreshPlugins();
+                      void reloadWorkspaceEngineFromUi();
+                    }}
+                  />
+                }
               />
             }
             skillsView={
@@ -2059,11 +2256,42 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 canUseDesktopTools={!isRemoteWorkspace}
                 accessHint={skillsAccessHint}
                 extensions={extensionsStore}
+                canShareWithFirm={canShareWithFirm}
+                onShareWithFirm={shareWorkflowWithFirm}
+                firmDownloadView={
+                  <HubDownloadSection
+                    legalworkClient={legalworkClient}
+                    workspaceId={hubWorkspaceId}
+                    kind="skill"
+                    onConfigApplied={() => {
+                      void extensionsStore.refreshSkills({ force: true });
+                      void reloadWorkspaceEngineFromUi();
+                    }}
+                  />
+                }
                 onOpenLink={(url) => platform.openLink(url)}
                 createSessionAndOpen={async (_command?: string): Promise<string | undefined> => {
                   props.onClose?.();
                   navigate(selectedWorkspaceId ? workspaceSessionRoute(selectedWorkspaceId) : "/session");
                   return undefined;
+                }}
+              />
+            }
+            hasTeamHub={Boolean(hubWorkspaceId)}
+            canShareWithFirm={canShareWithFirm}
+            onSharePluginWithFirm={sharePluginWithFirm}
+            onOpenTeamShare={canShareWithFirm ? () => {
+              setTeamShareInitial(null);
+              setTeamShareOpen(true);
+            } : undefined}
+            pluginsFirmView={
+              <HubDownloadSection
+                legalworkClient={legalworkClient}
+                workspaceId={hubWorkspaceId}
+                kind="plugin"
+                onConfigApplied={() => {
+                  void extensionsStore.refreshPlugins();
+                  void reloadWorkspaceEngineFromUi();
                 }}
               />
             }
@@ -2313,6 +2541,36 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         onClose={() => {
           setFusionPickerSlot(null);
           modelPicker.setOpen(false);
+        }}
+      />
+      {/* Premium upsell challenge + recorder gate sync for the Settings surface. */}
+      <PremiumUpsellHost
+        client={legalworkClient}
+        workspaceId={hubWorkspaceId}
+        onPremiumActivated={refreshEigenweltModels}
+        onSignIn={async () => {
+          try {
+            const { authorizeUrl, sessionId } = await providerAuthStore.startEigenweltSignIn();
+            await openDesktopUrl(authorizeUrl);
+            const result = await providerAuthStore.completeEigenweltSignIn(sessionId);
+            return result.connected;
+          } catch {
+            return false;
+          }
+        }}
+      />
+      {/* Multi-select "Share with your firm" dialog (opened from the Team pills). */}
+      <HubShareDialog
+        client={legalworkClient}
+        workspaceId={hubWorkspaceId}
+        open={teamShareOpen}
+        initialSelection={teamShareInitial}
+        onOpenChange={(open) => {
+          setTeamShareOpen(open);
+          if (!open) setTeamShareInitial(null);
+        }}
+        onShared={() => {
+          void getReactQueryClient().invalidateQueries({ queryKey: ["eigenwelt-hub"] });
         }}
       />
     </>

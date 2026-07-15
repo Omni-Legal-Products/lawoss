@@ -44,6 +44,13 @@ import {
   OPENCODE_ZEN_PROVIDER_ID,
   readCachedEigenweltFreeManifest,
 } from "./eigenwelt-free.js";
+import {
+  buildEigenweltPaidProviderBlock,
+  EIGENWELT_PROVIDER_ID,
+  readCachedEigenweltPaidManifest,
+} from "./eigenwelt-paid-manifest.js";
+import { eigenweltHasPremiumModels } from "./eigenwelt-auth.js";
+import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 
 const LEGALWORK_AGENT_PROMPT = `You are LegalWork — an AI agent that works alongside legal professionals inside a law firm.
 
@@ -112,6 +119,23 @@ export async function buildLegalworkRuntimeConfigObject(
   const freeProvider = freeManifest && freeManifest.models.length > 0
     ? buildEigenweltFreeProviderBlock(freeManifest)
     : null;
+  // Paid Eigenwelt Model API: a global firm account, so the provider is
+  // injected into EVERY workspace from one manifest cache (written on sign-in /
+  // Refresh models, cleared on sign-out). Key rides in the block's headers, so
+  // it works in every workspace without a per-workspace auth entry.
+  const paidManifest = config ? await readCachedEigenweltPaidManifest(config) : null;
+  // Premium (paid Eigenwelt) models require an ACTIVE subscription, not merely a
+  // signed-in account. Without one we leave the provider out entirely so the
+  // engine falls back to the free tier — the same rule the recorder applies to
+  // premium audio models. A lapse propagates on the next config rebuild (the
+  // entitlements poll triggers one when the plan flips).
+  const paidEntitled =
+    config && workspaceId
+      ? eigenweltHasPremiumModels((await readEigenweltConnection(config, workspaceId)).entitlements)
+      : false;
+  const paidProvider = paidEntitled && paidManifest && paidManifest.models.length > 0
+    ? buildEigenweltPaidProviderBlock(paidManifest)
+    : null;
   const disabledProviders = [
     ...runtimeDisabledProviderList(runtimeConfig),
     // Disable the engine's anonymous OpenCode Zen provider ONLY while our
@@ -122,6 +146,8 @@ export async function buildLegalworkRuntimeConfigObject(
   const providerMap = {
     ...(runtimeConfig.provider ?? {}),
     ...(freeProvider ? { [EIGENWELT_FREE_PROVIDER_ID]: freeProvider } : {}),
+    // Global injection wins over any stale per-workspace eigenwelt block.
+    ...(paidProvider ? { [EIGENWELT_PROVIDER_ID]: paidProvider } : {}),
   };
   return {
     ...runtimeConfig,
@@ -138,6 +164,10 @@ export async function buildLegalworkRuntimeConfigObject(
     },
     plugin: [
       "opencode-chrome-devtools",
+      // Adds "Sign in with Anthropic" auth methods (Claude Pro/Max subscription
+      // OAuth + "Create an API Key" console OAuth) to the provider list. Without
+      // this plugin the engine only offers manual Anthropic API-key entry.
+      "opencode-anthropic-auth",
       legalworkExtensionsPreviewPluginPath(),
       legalworkCapabilitiesKnowledgePluginPath(),
       legalworkAnthropicAdaptiveThinkingPluginPath(),
