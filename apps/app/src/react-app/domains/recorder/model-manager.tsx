@@ -110,7 +110,7 @@ function ModelRow(props: { model: AudioModelState; recommended: boolean; selecte
             {formatBytes(model.installedSizeBytes ?? model.approxSizeBytes)}
           </span>
           {locked ? (
-            <Button variant="outline" size="sm" onClick={() => setUpgradeOpen(true)}>
+            <Button variant="outline" size="sm" onClick={select}>
               <Lock data-icon="inline-start" />
               {premiumLocked ? t("recorder.tier_premium_locked") : t("recorder.tier_device_badge")}
             </Button>
