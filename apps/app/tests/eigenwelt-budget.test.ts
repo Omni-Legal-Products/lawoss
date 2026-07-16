@@ -69,7 +69,8 @@ describe("retry banner action", () => {
     const action = eigenweltBudgetRetryAction();
     expect(action.link).toBe("https://platform.eigenweltlabs.com/billing");
     expect(action.provider).toBe("eigenwelt");
-    expect(action.label.length).toBeGreaterThan(0);
+    expect(action.label).toBe("Upgrade to Pro");
+    expect(action.message).toBe("Upgrade to Pro for higher limits, or come back tomorrow.");
   });
 
   test("uses the connected platform's billing URL when provided", () => {

@@ -671,7 +671,7 @@ function FreeLimitReachedMessage() {
 /**
  * Terminal card for an Eigenwelt budget stop (the app aborts the run after
  * the allowed retries — see app/lib/eigenwelt-budget). Flat, lined border;
- * the one action that actually resolves the state is upgrading to premium.
+ * the one action that actually resolves the state is upgrading to Pro.
  */
 function BudgetExceededMessage() {
   return (
