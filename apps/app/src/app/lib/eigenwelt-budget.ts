@@ -33,8 +33,8 @@ export const EIGENWELT_BUDGET_MAX_RETRY_ATTEMPTS = 3;
 
 export const EIGENWELT_BUDGET_EXCEEDED_TITLE = "Your seat's daily usage has been used up";
 export const EIGENWELT_BUDGET_EXCEEDED_BODY =
-  "Upgrade to premium for higher limits, or come back tomorrow.";
-export const EIGENWELT_BUDGET_UPGRADE_LABEL = "Upgrade to premium";
+  "Upgrade to Pro for higher limits, or come back tomorrow.";
+export const EIGENWELT_BUDGET_UPGRADE_LABEL = "Upgrade to Pro";
 
 /**
  * Text of the synthetic terminal error message injected into the transcript
