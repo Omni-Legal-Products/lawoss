@@ -519,6 +519,9 @@ const {
   audioSystemDictationOpenSettings,
   audioSystemDictationSetState,
   audioSystemDictationPaste,
+  audioSystemDictationReadiness,
+  audioSystemDictationRequestPermission,
+  audioSystemDictationRepairPermission,
   desktopLoginItemGet,
   desktopLoginItemSet,
 } = desktopBridge;
@@ -623,6 +626,9 @@ export {
   audioSystemDictationOpenSettings,
   audioSystemDictationSetState,
   audioSystemDictationPaste,
+  audioSystemDictationReadiness,
+  audioSystemDictationRequestPermission,
+  audioSystemDictationRepairPermission,
   desktopLoginItemGet,
   desktopLoginItemSet,
 };
