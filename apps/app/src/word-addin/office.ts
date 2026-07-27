@@ -22,6 +22,7 @@ type OfficeNamespace = {
   onReady: (callback?: (info: OfficeHostInfo) => void) => Promise<OfficeHostInfo> | void;
   context?: {
     requirements?: { isSetSupported?: (name: string, version?: string) => boolean };
+    diagnostics?: { host?: unknown; platform?: unknown; version?: unknown };
     document?: OfficeDocumentContext;
     ui?: { openBrowserWindow?: (url: string) => void };
   };
@@ -41,6 +42,7 @@ export type WordRange = {
   text: string;
   load: (properties: string) => void;
   insertText: (text: string, insertLocation: string) => WordRange;
+  insertOoxml: (ooxml: string, insertLocation: string) => WordRange;
   insertComment: (commentText: string) => unknown;
   delete: () => void;
   paragraphs: WordParagraphCollection;
@@ -61,6 +63,7 @@ export type WordBody = {
   text: string;
   load: (properties: string) => void;
   insertText: (text: string, insertLocation: string) => WordRange;
+  insertOoxml: (ooxml: string, insertLocation: string) => WordRange;
   search: (searchText: string, options?: WordSearchOptions) => WordRangeCollection;
 };
 
@@ -168,6 +171,44 @@ export function isOfficeApiSupported(setName: string, version: string): boolean 
 /** Check a Word requirement set, e.g. isWordApiSupported("1.4") for tracking/comments. */
 export function isWordApiSupported(version: string): boolean {
   return isOfficeApiSupported("WordApi", version);
+}
+
+/** Highest WordApi requirement set the host reports (sets are cumulative), or null. */
+export function highestWordApiVersion(): string | null {
+  let highest: string | null = null;
+  for (let minor = 1; minor <= 9; minor++) {
+    const version = `1.${minor}`;
+    if (isWordApiSupported(version)) highest = version;
+  }
+  return highest;
+}
+
+/**
+ * One-line host description for unsupported-API errors, so support can see
+ * the customer's actual Office build and API level straight from the
+ * agent transcript instead of asking them for it.
+ */
+export function wordApiDiagnostic(): string {
+  const diagnostics = officeGlobals().office?.context?.diagnostics;
+  const build = typeof diagnostics?.version === "string" && diagnostics.version ? diagnostics.version : "unknown build";
+  const platform = diagnostics?.platform != null ? String(diagnostics.platform) : "unknown platform";
+  const highest = highestWordApiVersion();
+  return `Detected Office ${build} on ${platform}; highest supported WordApi is ${highest ?? "unknown"}.`;
+}
+
+/**
+ * Warning attached to an edit that went through untracked: the host cannot
+ * control change tracking (no WordApi 1.4) and the edit could not be
+ * expressed as revision markup either, so unless the user has Track Changes
+ * on themselves the edit is invisible as a change.
+ */
+export function untrackedEditWarning(): string {
+  return (
+    "Edit applied WITHOUT tracked changes: this Word version does not let add-ins control change tracking " +
+    "(requires WordApi 1.4), and this edit could not be synthesized as revision markup. Tell the user exactly " +
+    "what you changed so they can review it (undo via Ctrl/Cmd+Z), and mention that updating Word/Microsoft 365 " +
+    `enables native redlines. ${wordApiDiagnostic()}`
+  );
 }
 
 /** URL/path of the open document, when the host exposes it. */
