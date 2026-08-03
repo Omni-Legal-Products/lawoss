@@ -36,9 +36,9 @@ LegalMemory is this firm's institutional memory. Use it BY DEFAULT — the user 
 - When drafting, retrieve the firm's closest precedent from LegalMemory and start from it rather than a generic template. When reviewing or negotiating, check search_decisions for the firm's previously accepted and rejected positions.
 - Questions about fees, invoices, or billed work go to billing_rollup and list_invoices.
 - Cite what you rely on: pull the source via get_document or download_document and name it, so the user can verify. Every evidence-bearing result carries a citations array — never make a factual claim from a result whose citations array is empty.
-- CITE EVERY DOCUMENT YOU NAME, using this exact syntax: [[doc:<document_id>|<document title or filename>]]. Take document_id verbatim from citations[].document.id in a tool result; never invent, abbreviate or reformat it. LegalWork resolves these into chips that open the original, and builds the Sources list under your answer from them. A claim about a document without a citation is not an answer; if you cannot cite it, do not assert it.
+- CITE EVERY DOCUMENT YOU NAME, as a markdown link carrying its real id from the tool results: [<document title>](legalmemory://document/<document_id>). Take document_id verbatim from citations[].document.id; never invent, abbreviate or reformat it. LegalWork turns these into chips that open the original, and builds the Sources list under your answer from them. A claim about a document without a citation is not an answer; if you cannot cite it, do not assert it.
 - Cite a document where you actually rely on it, not everywhere it might be relevant. The Sources list is built from these citations, so a document you cite once because it looked related puts a source under the answer that supports none of it.
-- DO NOT write your own source list, bibliography or "documents referenced" section. LegalWork renders one from your citations, and yours would sit directly above a duplicate of itself.
+- DO NOT write your own "Sources", "References" or bibliography section, and do not name a document in bold prose instead of citing it. LegalWork renders the source list from your citation links, and a hand-written one sits directly above a duplicate of itself while its entries are not clickable.
 - Do not download or copy a document just so the user can open it. Clicking a citation opens the original in LegalWork directly. Call download_document only when the task genuinely needs the file's bytes in the workspace, for example to edit or redline it.
 - Results are permission-scoped to the signed-in user. An empty result can mean "no access" rather than "the firm has nothing" — say so instead of overclaiming.
 - Skip LegalMemory only when the task verifiably cannot benefit from firm knowledge (pure computation, or editing text the user just pasted). When in doubt, search it.
@@ -65,24 +65,45 @@ function connectedServerNames(statusResult: unknown): Set<string> {
   return names;
 }
 
+/** How many servers the status result described, connected or not. Zero means
+ * the call told us nothing, not that nothing is configured. */
+function serverCount(statusResult: unknown): number {
+  if (!statusResult || typeof statusResult !== "object") return 0;
+  const data: unknown = "data" in statusResult ? statusResult.data : statusResult;
+  return data && typeof data === "object" ? Object.keys(data).length : 0;
+}
+
 export const LegalWorkLegalMemoryKnowledge = async (pluginInput?: {
   directory?: string;
   client?: McpStatusClient;
 }) => {
   let connectedCache: { at: number; connected: boolean } | null = null;
 
+  /**
+   * Is LegalMemory connected?
+   *
+   * Fails open. The gate exists so guidance does not dangle over tools that are
+   * not there, which is a cosmetic problem; staying silent when the appliance IS
+   * connected costs the entire feature, which is not. If the status call throws,
+   * returns nothing, or reports no servers at all, we cannot tell — and the
+   * expensive mistake in that situation is silence, so we speak.
+   *
+   * Only a status map that lists servers and does not list LegalMemory among the
+   * connected ones is treated as a real negative.
+   */
   const legalMemoryConnected = async (): Promise<boolean> => {
-    // Cache only positive detection (same policy as the Office pane check): a
-    // just-connected appliance must be visible to the very next turn, while a
-    // brief stale positive merely keeps guidance for tools that fail loudly.
     if (connectedCache?.connected && Date.now() - connectedCache.at < CONNECTED_CACHE_MS) return true;
-    let connected = false;
+    let connected = true;
     try {
       const status = await pluginInput?.client?.mcp?.status?.({ directory: pluginInput?.directory });
       const names = connectedServerNames(status);
-      connected = LEGALMEMORY_SERVER_NAMES.some((name) => names.has(name));
+      const knownServers = serverCount(status);
+      // A populated map that omits LegalMemory is the one case we can trust.
+      if (knownServers > 0) {
+        connected = LEGALMEMORY_SERVER_NAMES.some((name) => names.has(name));
+      }
     } catch {
-      connected = false;
+      connected = true;
     }
     connectedCache = { at: Date.now(), connected };
     return connected;
