@@ -21,6 +21,7 @@ import {
 } from "../../../app/lib/desktop";
 import { toSessionTransportDirectory } from "../../../app/lib/session-scope";
 import {
+  getMcpIdentityKey,
   parseMcpServersFromContent,
   removeMcpFromConfig,
   validateMcpServerName,
@@ -869,21 +870,29 @@ export function createConnectionsStore(options: {
       return;
     }
 
-    const matchingQuickConnect = MCP_QUICK_CONNECT.find((candidate) => {
-      const candidateSlug = candidate.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-      return candidateSlug === entry.name || candidate.name === entry.name;
-    });
+    // Match on the server name the catalog entry would be registered under, not
+    // on its slugified title: the two differ for every entry that declares a
+    // serverName ("Microsoft SharePoint" -> "sharepoint").
+    const matchingQuickConnect = MCP_QUICK_CONNECT.find(
+      (candidate) => getMcpIdentityKey(candidate) === entry.name || candidate.name === entry.name,
+    );
 
+    // entry.name is the key in opencode.jsonc, so it is the authoritative
+    // identity — pin it as serverName so the sign-in modal asks the engine for
+    // this exact server even when a catalog entry supplies the display name.
     mutateState((current) => ({
       ...current,
-      mcpAuthEntry:
-        matchingQuickConnect ?? {
+      mcpAuthEntry: {
+        ...(matchingQuickConnect ?? {
           name: entry.name,
           description: "",
-          type: "remote",
+          type: "remote" as const,
           url: entry.config.url,
           oauth: true,
-        },
+        }),
+        id: entry.name,
+        serverName: entry.name,
+      },
       mcpAuthNeedsReload: false,
       mcpAuthModalOpen: true,
     }));

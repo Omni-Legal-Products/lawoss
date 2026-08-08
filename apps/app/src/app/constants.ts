@@ -1,5 +1,6 @@
 import type { ModelRef, SuggestedPlugin } from "./types";
 import { t } from "../i18n";
+import { deriveMcpServerName } from "./mcp-identity";
 import {
   BUILT_IN_LEGALWORK_EXTENSION_MANIFESTS,
   extensionContribution,
@@ -133,13 +134,9 @@ export function isBuiltInLegalWorkExtension(entry: Pick<McpDirectoryInfo, "kind"
 }
 
 /** Derive a safe MCP server name from a display name or explicit serverName. */
-export function getMcpServerName(entry: McpDirectoryInfo): string {
+export function getMcpServerName(entry: Pick<McpDirectoryInfo, "name" | "serverName">): string {
   if (entry.serverName) return entry.serverName;
-  return entry.name
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "") || "mcp";
+  return deriveMcpServerName(entry.name);
 }
 
 export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
