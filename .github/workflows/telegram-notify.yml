@@ -1,0 +1,123 @@
+name: Telegram notifications
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+  release:
+    types: [published]
+  issues:
+    types: [opened, closed, reopened]
+  pull_request:
+    types: [opened, closed, reopened, ready_for_review]
+  discussion:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    if: github.actor != 'github-actions[bot]'
+    env:
+      TG_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+      TG_TOPIC: ${{ vars.TELEGRAM_TOPIC_ID }}
+
+    steps:
+      - name: Check Telegram configuration
+        id: guard
+        shell: bash
+        run: |
+          if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then
+            echo "TELEGRAM_TOKEN or TELEGRAM_CHAT_ID is missing. Notification skipped."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Send Telegram notification
+        if: steps.guard.outputs.ok == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          escape_html() {
+            sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
+          }
+
+          event="$GITHUB_EVENT_PATH"
+          repository=$(jq -r '.repository.full_name' "$event" | escape_html)
+          actor=$(printf '%s' "$GITHUB_ACTOR" | escape_html)
+
+          case "$GITHUB_EVENT_NAME" in
+            workflow_dispatch)
+              url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+              text=$(printf '🧪 <b>Telegram test</b>\nRepo: <b>%s</b>\nSpustil: %s\n\n<a href="%s">Otvoriť workflow</a>' "$repository" "$actor" "$url")
+              ;;
+
+            push)
+              count=$(jq '.commits | length' "$event")
+              commits=$(jq -r '.commits[] | "• " + (.message | split("\n")[0])' "$event" | head -10 | escape_html)
+              compare=$(jq -r '.compare' "$event")
+              text=$(printf '🚀 <b>Push do %s</b>\nRepo: <b>%s</b>\nAutor: %s\n%s commit(ov):\n%s\n\n<a href="%s">Zobraziť zmeny</a>' "$GITHUB_REF_NAME" "$repository" "$actor" "$count" "$commits" "$compare")
+              ;;
+
+            release)
+              tag=$(jq -r '.release.tag_name' "$event" | escape_html)
+              name=$(jq -r '.release.name // .release.tag_name' "$event" | escape_html)
+              url=$(jq -r '.release.html_url' "$event")
+              text=$(printf '🎉 <b>Nový release</b>\nRepo: <b>%s</b>\n%s: %s\n\n<a href="%s">Otvoriť release</a>' "$repository" "$tag" "$name" "$url")
+              ;;
+
+            issues)
+              action=$(jq -r '.action' "$event" | escape_html)
+              number=$(jq -r '.issue.number' "$event")
+              title=$(jq -r '.issue.title' "$event" | escape_html)
+              url=$(jq -r '.issue.html_url' "$event")
+              text=$(printf '🐛 <b>Issue %s</b>\nRepo: <b>%s</b>\n#%s: %s\n\n<a href="%s">Otvoriť issue</a>' "$action" "$repository" "$number" "$title" "$url")
+              ;;
+
+            pull_request)
+              action=$(jq -r '.action' "$event" | escape_html)
+              merged=$(jq -r '.pull_request.merged' "$event")
+              if [ "$action" = "closed" ] && [ "$merged" = "true" ]; then
+                action="merged ✅"
+              fi
+              number=$(jq -r '.pull_request.number' "$event")
+              title=$(jq -r '.pull_request.title' "$event" | escape_html)
+              url=$(jq -r '.pull_request.html_url' "$event")
+              text=$(printf '🔀 <b>Pull request %s</b>\nRepo: <b>%s</b>\n#%s: %s\n\n<a href="%s">Otvoriť PR</a>' "$action" "$repository" "$number" "$title" "$url")
+              ;;
+
+            discussion)
+              title=$(jq -r '.discussion.title' "$event" | escape_html)
+              url=$(jq -r '.discussion.html_url' "$event")
+              text=$(printf '💬 <b>Nová diskusia</b>\nRepo: <b>%s</b>\n%s\n\n<a href="%s">Otvoriť diskusiu</a>' "$repository" "$title" "$url")
+              ;;
+
+            *)
+              text=$(printf 'ℹ️ <b>GitHub udalosť</b>\nRepo: <b>%s</b>\nTyp: %s' "$repository" "$GITHUB_EVENT_NAME")
+              ;;
+          esac
+
+          topic_args=()
+          if [ -n "${TG_TOPIC:-}" ]; then
+            topic_args=(--data-urlencode "message_thread_id=${TG_TOPIC}")
+          fi
+
+          response=$(curl -sS --fail-with-body \
+            "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TG_CHAT}" \
+            "${topic_args[@]}" \
+            --data-urlencode "text=${text}" \
+            --data-urlencode "parse_mode=HTML" \
+            --data-urlencode "disable_web_page_preview=true")
+
+          if [ "$(jq -r '.ok' <<< "$response")" != "true" ]; then
+            jq -r '.description // "Telegram API returned an unknown error"' <<< "$response" >&2
+            exit 1
+          fi
+
+          echo "Telegram notification sent."
