@@ -9,7 +9,7 @@ This file is the single source of truth for people and AI agents working in this
 - Product code lives in this repository.
 - Decisions, ADRs, research, specifications, and planning live in [lawOSS-like-SK-CZ](https://github.com/originalmagneto/lawOSS-like-SK-CZ).
 - The upstream repository is [eigenweltlabs/legalwork](https://github.com/eigenweltlabs/legalwork).
-- `origin` must point to `LAWOSS/legalwork` and `upstream` must point to `eigenweltlabs/legalwork`.
+- `origin` must point to `Omni-Legal-Products/lawoss` and `upstream` must point to `eigenweltlabs/legalwork`.
 - Sync from upstream release tags, not from arbitrary development commits.
 
 ## Core philosophy
