@@ -1,17 +1,22 @@
-name: Telegram notifications
+name: LAWOSS Telegram notifications
 
 on:
   workflow_dispatch:
-  push:
-    branches: [dev]
   release:
     types: [published]
   issues:
     types: [opened, closed, reopened]
   pull_request:
     types: [opened, closed, reopened, ready_for_review]
-  discussion:
-    types: [created]
+  workflow_run:
+    workflows:
+      - Alpha Channel (macOS arm64)
+      - Alpha Channel (Windows x64)
+      - i18n Audit
+      - legalwork-ui-mcp
+      - LegalWork Tests
+      - Release App
+    types: [completed]
 
 permissions:
   contents: read
@@ -19,10 +24,12 @@ permissions:
 jobs:
   notify:
     runs-on: ubuntu-latest
-    if: github.actor != 'github-actions[bot]'
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'failure'
     env:
       TG_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-      TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+      TG_CHAT: ${{ vars.TELEGRAM_CHAT_ID }}
       TG_TOPIC: ${{ vars.TELEGRAM_TOPIC_ID }}
 
     steps:
@@ -30,8 +37,8 @@ jobs:
         id: guard
         shell: bash
         run: |
-          if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then
-            echo "TELEGRAM_TOKEN or TELEGRAM_CHAT_ID is missing. Notification skipped."
+          if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ] || [ -z "$TG_TOPIC" ]; then
+            echo "Telegram configuration is incomplete. Notification skipped."
             echo "ok=false" >> "$GITHUB_OUTPUT"
           else
             echo "ok=true" >> "$GITHUB_OUTPUT"
@@ -55,13 +62,6 @@ jobs:
             workflow_dispatch)
               url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
               text=$(printf '🧪 <b>Telegram test</b>\nRepo: <b>%s</b>\nSpustil: %s\n\n<a href="%s">Otvoriť workflow</a>' "$repository" "$actor" "$url")
-              ;;
-
-            push)
-              count=$(jq '.commits | length' "$event")
-              commits=$(jq -r '.commits[] | "• " + (.message | split("\n")[0])' "$event" | head -10 | escape_html)
-              compare=$(jq -r '.compare' "$event")
-              text=$(printf '🚀 <b>Push do %s</b>\nRepo: <b>%s</b>\nAutor: %s\n%s commit(ov):\n%s\n\n<a href="%s">Zobraziť zmeny</a>' "$GITHUB_REF_NAME" "$repository" "$actor" "$count" "$commits" "$compare")
               ;;
 
             release)
@@ -91,10 +91,11 @@ jobs:
               text=$(printf '🔀 <b>Pull request %s</b>\nRepo: <b>%s</b>\n#%s: %s\n\n<a href="%s">Otvoriť PR</a>' "$action" "$repository" "$number" "$title" "$url")
               ;;
 
-            discussion)
-              title=$(jq -r '.discussion.title' "$event" | escape_html)
-              url=$(jq -r '.discussion.html_url' "$event")
-              text=$(printf '💬 <b>Nová diskusia</b>\nRepo: <b>%s</b>\n%s\n\n<a href="%s">Otvoriť diskusiu</a>' "$repository" "$title" "$url")
+            workflow_run)
+              workflow=$(jq -r '.workflow_run.name' "$event" | escape_html)
+              branch=$(jq -r '.workflow_run.head_branch' "$event" | escape_html)
+              url=$(jq -r '.workflow_run.html_url' "$event")
+              text=$(printf '❌ <b>CI zlyhalo</b>\nRepo: <b>%s</b>\n%s na vetve %s\n\n<a href="%s">Otvoriť workflow</a>' "$repository" "$workflow" "$branch" "$url")
               ;;
 
             *)
@@ -102,15 +103,10 @@ jobs:
               ;;
           esac
 
-          topic_args=()
-          if [ -n "${TG_TOPIC:-}" ]; then
-            topic_args=(--data-urlencode "message_thread_id=${TG_TOPIC}")
-          fi
-
           response=$(curl -sS --fail-with-body \
             "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${TG_CHAT}" \
-            "${topic_args[@]}" \
+            --data-urlencode "message_thread_id=${TG_TOPIC}" \
             --data-urlencode "text=${text}" \
             --data-urlencode "parse_mode=HTML" \
             --data-urlencode "disable_web_page_preview=true")
