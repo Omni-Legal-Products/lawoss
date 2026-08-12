@@ -30,6 +30,7 @@ Základom zostáva upstream LegalWork. Všeobecne použiteľné opravy a lokaliz
 
 | | |
 |---|---|
+| **Organizácia** | [Omni Legal Products](https://github.com/Omni-Legal-Products) |
 | **Koordinácia a rozhodnutia** | [lawOSS-like-SK-CZ](https://github.com/originalmagneto/lawOSS-like-SK-CZ) |
 | **Produktový kód** | tento repozitár |
 | **Upstream** | [eigenweltlabs/legalwork](https://github.com/eigenweltlabs/legalwork) |
