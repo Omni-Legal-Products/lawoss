@@ -7,10 +7,26 @@ This file is the single source of truth for people and AI agents working in this
 ## Repository relationship
 
 - Product code lives in this repository.
-- Decisions, ADRs, research, specifications, and planning live in [lawOSS-like-SK-CZ](https://github.com/originalmagneto/lawOSS-like-SK-CZ).
+- Decisions, ADRs, research, specifications, and planning live in [lawOSS-like-SK-CZ](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ). **Both repositories are in the same organisation since 2026-08-14**, so issues can be transferred natively between them.
 - The upstream repository is [eigenweltlabs/legalwork](https://github.com/eigenweltlabs/legalwork).
 - `origin` must point to `Omni-Legal-Products/lawoss` and `upstream` must point to `eigenweltlabs/legalwork`.
 - Sync from upstream release tags, not from arbitrary development commits.
+
+## From idea to implementation
+
+Work reaches this repository **only after it has been decided elsewhere.**
+
+| Repository | What lives there | What does **not** |
+|---|---|---|
+| [`lawOSS-like-SK-CZ`](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ) | ideas, ADRs, specifications, research, meeting notes — **the source of truth for decisions** | implementation issues, bug reports |
+| **`lawoss`** *(this one)* | code, implementation issues and PRs, builds, releases | deciding **whether** a feature gets built |
+
+Rules:
+
+1. An issue here **must link back** to the spec or ADR that authorised it. An implementation issue without that link is missing its decision — open it in the coordination repository instead.
+2. **Never copy a spec into this repository.** Link to it. A duplicate drifts.
+3. If an issue lands in the wrong repository, do **not** re-create it — use *Issue → ⋯ → Transfer issue*. It works both ways within the organisation and preserves comments and history.
+4. Creating these issues is **not automated on purpose**: it would require a PAT stored as a secret for a handful of approved items per week. A human or their agent walks the approved items after each call. Revisit if the volume grows.
 
 ## Core philosophy
 
