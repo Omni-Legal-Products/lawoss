@@ -37,7 +37,7 @@ const globalItems: SettingsItem[] = [
     desc: t("settings.tab_description_account"),
   },
   { tab: "safety", icon: ShieldCheck, title: "Tool Permissions", desc: "Decide what LegalWork can do on its own across all workspaces." },
-  { tab: "shell", icon: Layout, title: "Customization", desc: "Branding and task suggestions." },
+  { tab: "shell", icon: Layout, title: "Customization", desc: "Branding, task suggestions, and document authorship." },
   { tab: "environment", icon: KeyRound, title: "Secrets", desc: "Store API keys and passwords for connected services." },
   { tab: "preferences", icon: ShieldCheck, title: "Privacy", desc: "Usage analytics and data sharing." },
   { tab: "updates", icon: RefreshCcw, title: "Updates", desc: "App version and update channel." },

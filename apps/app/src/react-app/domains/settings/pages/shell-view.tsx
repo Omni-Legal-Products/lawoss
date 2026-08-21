@@ -220,6 +220,44 @@ export function ShellCustomizationView() {
         </LayoutSectionItem>
       </LayoutSection>
 
+      {/* ---- Document author ---- */}
+      <LayoutSection>
+        <LayoutSectionHeader>
+          <LayoutSectionTitle>Document author</LayoutSectionTitle>
+          <LayoutSectionDescription>
+            Set the name shown on tracked changes and comments in DOCX documents.
+          </LayoutSectionDescription>
+        </LayoutSectionHeader>
+
+        <LayoutSectionItem>
+          <LayoutSectionItemHeader>
+            <LayoutSectionItemTitle>Attorney name</LayoutSectionItemTitle>
+            <LayoutSectionItemDescription>
+              Leave blank to use the default name, Legal Cowork.
+            </LayoutSectionItemDescription>
+            <LayoutSectionItemHeaderActions>
+              <Field className="w-64 max-w-full gap-0">
+                <FieldLabel className="sr-only" htmlFor="document-author-name">
+                  Attorney name
+                </FieldLabel>
+                <Input
+                  id="document-author-name"
+                  className="h-8 text-xs"
+                  value={local.prefs.attorneyName}
+                  placeholder="Legal Cowork"
+                  onChange={(event) =>
+                    local.setPrefs((previous) => ({
+                      ...previous,
+                      attorneyName: event.currentTarget.value,
+                    }))
+                  }
+                />
+              </Field>
+            </LayoutSectionItemHeaderActions>
+          </LayoutSectionItemHeader>
+        </LayoutSectionItem>
+      </LayoutSection>
+
       {/* ---- Model ---- */}
       <LayoutSection>
         <LayoutSectionHeader>
