@@ -1,36 +1,23 @@
 import { applyEdits, modify, parse, printParseErrorCode } from "jsonc-parser";
 import type { McpServerConfig, McpServerEntry } from "./types";
 import { readOpencodeConfig, writeOpencodeConfig } from "./lib/desktop";
+import { deriveMcpServerName } from "./mcp-identity";
 
 type McpConfigValue = Record<string, unknown> | null | undefined;
 
-type McpIdentity = {
-  id?: string;
-  serverName?: string;
-  name: string;
-};
+export {
+  deriveMcpServerName,
+  getMcpIdentityKey,
+  resolveMcpSignInName,
+  validateMcpServerName,
+  type McpIdentity,
+} from "./mcp-identity";
 
-export function normalizeMcpSlug(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-}
-
-export function getMcpIdentityKey(entry: McpIdentity): string {
-  return entry.id ?? entry.serverName ?? normalizeMcpSlug(entry.name);
-}
-
-export function validateMcpServerName(name: string): string {
-  const trimmed = name.trim();
-  if (!trimmed) {
-    throw new Error("server_name is required");
-  }
-  if (trimmed.startsWith("-")) {
-    throw new Error("server_name must not start with '-'");
-  }
-  if (!/^[A-Za-z0-9_-]+$/.test(trimmed)) {
-    throw new Error("server_name must be alphanumeric with '-' or '_'");
-  }
-  return trimmed;
-}
+/**
+ * Slugify a display name into a server name. Alias of `deriveMcpServerName`;
+ * the derivation lives in one module so connect and sign-in cannot drift apart.
+ */
+export const normalizeMcpSlug = deriveMcpServerName;
 
 export async function removeMcpFromConfig(
   projectDir: string,

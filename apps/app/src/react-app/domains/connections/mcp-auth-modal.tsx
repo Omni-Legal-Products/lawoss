@@ -14,7 +14,7 @@ import {
 import type { McpDirectoryInfo } from "@/app/constants";
 import { openDesktopUrl, opencodeMcpAuth } from "@/app/lib/desktop";
 import { unwrap } from "@/app/lib/opencode";
-import { validateMcpServerName } from "@/app/mcp";
+import { getMcpIdentityKey, resolveMcpSignInName } from "@/app/mcp";
 import type { Client } from "@/app/types";
 import { isDesktopRuntime, normalizeDirectoryPath } from "@/app/utils";
 import { t } from "@/i18n";
@@ -192,8 +192,14 @@ const humanizeEngineError = (message: string): string => {
   return looksLikePayload ? t("mcp.auth.connect_failed_generic") : message;
 };
 
-const resolveSlug = (name: string) =>
-    validateMcpServerName(name).toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  /**
+   * The name the engine knows this connector by — the same key connect wrote to
+   * opencode.jsonc. Deriving it from the display name here instead used to
+   * reject anything with a space ("Microsoft SharePoint", "Iron Crow") before
+   * the authorization URL was ever requested, so the sign-in browser never
+   * opened; see app/mcp-identity.ts.
+   */
+  const resolveSlug = resolveMcpSignInName;
 
   // Drop any stored OAuth registration/tokens for this server. Best-effort:
   // used to recover from a stale Dynamic Client Registration that would
@@ -262,7 +268,7 @@ const resolveSlug = (name: string) =>
 
     let slug = "";
     try {
-      slug = resolveSlug(props.entry.name);
+      slug = resolveSlug(props.entry);
     } catch (err) {
       const message = err instanceof Error ? err.message : t("mcp.auth.failed_to_start_oauth");
       setError(message);
@@ -354,7 +360,7 @@ const resolveSlug = (name: string) =>
         setNeedsReload(false);
         setError(t("mcp.auth.slack_client_registration_required"));
       } else if (message.toLowerCase().includes("does not support oauth")) {
-        const serverSlug = props.entry.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "server";
+        const serverSlug = slug || getMcpIdentityKey(props.entry);
         const canAutoReload =
           allowAutoReload && !props.isRemoteWorkspace && !props.reloadBlocked && Boolean(props.onReloadEngine);
 
@@ -475,7 +481,7 @@ const resolveSlug = (name: string) =>
         await props.onReloadEngine?.();
         if (cancelled) return;
 
-        const slug = resolveSlug(props.entry!.name);
+        const slug = resolveSlug(props.entry!);
         const status = await waitForMcpAvailability(slug);
         if (cancelled) return;
 
@@ -583,7 +589,7 @@ const resolveSlug = (name: string) =>
 
     let slug = "";
     try {
-      slug = resolveSlug(props.entry.name);
+      slug = resolveSlug(props.entry);
     } catch (err) {
       const message = err instanceof Error ? err.message : t("mcp.auth.failed_to_start_oauth");
       setError(message);
@@ -651,7 +657,7 @@ const resolveSlug = (name: string) =>
 
     let slug = "";
     try {
-      slug = resolveSlug(props.entry.name);
+      slug = resolveSlug(props.entry);
     } catch (err) {
       const message = err instanceof Error ? err.message : t("mcp.auth.failed_to_start_oauth");
       setError(message);

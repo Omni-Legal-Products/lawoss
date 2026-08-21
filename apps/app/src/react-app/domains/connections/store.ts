@@ -12,6 +12,7 @@ import { extensionResource } from "../../../app/extensions";
 import { captureAnalyticsEvent } from "../../../app/lib/analytics";
 import { captureAppError } from "../../../app/lib/app-error";
 import { createClient, unwrap } from "../../../app/lib/opencode";
+import { detectReconnectWithoutAuth, type McpStatusSnapshot } from "../../../app/mcp-auth-state";
 import { finishPerf, perfNow, recordPerfLog } from "../../../app/lib/perf-log";
 import {
   mergeRuntimeMcpServer,
@@ -21,6 +22,7 @@ import {
 } from "../../../app/lib/desktop";
 import { toSessionTransportDirectory } from "../../../app/lib/session-scope";
 import {
+  getMcpIdentityKey,
   parseMcpServersFromContent,
   removeMcpFromConfig,
   validateMcpServerName,
@@ -869,24 +871,53 @@ export function createConnectionsStore(options: {
       return;
     }
 
-    const matchingQuickConnect = MCP_QUICK_CONNECT.find((candidate) => {
-      const candidateSlug = candidate.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-      return candidateSlug === entry.name || candidate.name === entry.name;
-    });
+    // Match on the server name the catalog entry would be registered under, not
+    // on its slugified title: the two differ for every entry that declares a
+    // serverName ("Microsoft SharePoint" -> "sharepoint").
+    const matchingQuickConnect = MCP_QUICK_CONNECT.find(
+      (candidate) => getMcpIdentityKey(candidate) === entry.name || candidate.name === entry.name,
+    );
 
+    // entry.name is the key in opencode.jsonc, so it is the authoritative
+    // identity — pin it as serverName so the sign-in modal asks the engine for
+    // this exact server even when a catalog entry supplies the display name.
     mutateState((current) => ({
       ...current,
-      mcpAuthEntry:
-        matchingQuickConnect ?? {
+      mcpAuthEntry: {
+        ...(matchingQuickConnect ?? {
           name: entry.name,
           description: "",
-          type: "remote",
+          type: "remote" as const,
           url: entry.config.url,
           oauth: true,
-        },
+        }),
+        id: entry.name,
+        serverName: entry.name,
+      },
       mcpAuthNeedsReload: false,
       mcpAuthModalOpen: true,
     }));
+  }
+
+  /**
+   * Did the server come back "connected" on its own after its credentials were
+   * dropped? See app/mcp-auth-state.ts for why that is the signal.
+   */
+  async function didReconnectWithoutAuth(
+    serverName: string,
+    activeClient: Client | null,
+    projectDir: string,
+  ): Promise<boolean> {
+    if (!activeClient || !projectDir) return false;
+
+    return detectReconnectWithoutAuth({
+      serverName,
+      reconnect: () => activeClient.mcp.connect({ directory: projectDir, name: serverName }),
+      readStatus: async () =>
+        unwrap(await activeClient.mcp.status({ directory: projectDir })) as McpStatusSnapshot,
+      onStatus: (statuses) => setStateField("mcpStatuses", statuses as McpStatusMap),
+      isCancelled: () => disposed,
+    });
   }
 
   async function logoutMcpAuth(name: string) {
@@ -954,7 +985,25 @@ export function createConnectionsStore(options: {
       }
 
       await refreshMcpServers();
-      setStateField("mcpStatus", t("mcp.logout_success").replace("{server}", safeName));
+
+      // A server that accepts the unauthenticated MCP handshake reconnects on
+      // its own moments after the credentials are dropped, and reports
+      // "connected" again — it never needed them. Claiming "Logged out" there
+      // is a lie the next restart exposes: the connector is back to Ready and
+      // reads as a session that survived the logout (issue #86). Ask what
+      // actually happened before saying anything.
+      const reconnectedWithoutAuth = await didReconnectWithoutAuth(
+        safeName,
+        activeClient,
+        resolvedProjectDir,
+      );
+      setStateField(
+        "mcpStatus",
+        (reconnectedWithoutAuth
+          ? t("mcp.logout_no_credentials")
+          : t("mcp.logout_success")
+        ).replace("{server}", safeName),
+      );
     } catch (error) {
       setStateField(
         "mcpStatus",
