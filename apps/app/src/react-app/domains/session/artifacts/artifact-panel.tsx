@@ -10,7 +10,9 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatFileSize } from "@/lib/utils";
+import { useLocal } from "@/react-app/kernel/local-provider";
 import type { DocxEditorApi } from "./artifact-docx-editor";
+import { resolveDocumentAuthor } from "./document-author";
 import { type ArtifactPanelTab, usePanelTabStore } from "../panel/panel-tab-store";
 import { isCollectibleArtifactTarget, type BinaryData, type Data, type OpenTarget, type TextData } from "./open-target";
 import { HTMLPreview, ImagePreview, MarkdownPreview, PdfPreview, PlainText, PreviewError, PreviewLoading, PreviewUnavailable } from "./preview";
@@ -106,6 +108,7 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
 }
 
 function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
+  const local = useLocal();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -474,6 +477,7 @@ function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspa
             key={`${target.id}:${data.revision}`}
             name={target.name}
             content={data.data}
+            author={resolveDocumentAuthor(local.prefs.attorneyName)}
             readOnly={isRemoteWorkspace || target.kind !== "file"}
             onSave={saveDocxContent}
             apiRef={docxApi}

@@ -32,6 +32,8 @@ export type LocalUIState = {
 export type HideAppMode = "never" | "recording" | "always";
 
 export type LocalPreferences = {
+  /** Name stamped on DOCX comments and tracked changes. */
+  attorneyName: string;
   showThinking: boolean;
   /** When to exclude the window from screen shares / recordings. */
   hideAppMode: HideAppMode;
@@ -89,6 +91,7 @@ export const DEFAULT_SHOW_THINKING = true;
 
 const INITIAL_UI: LocalUIState = { view: "settings", tab: "general" };
 const INITIAL_PREFS: LocalPreferences = {
+  attorneyName: "",
   showThinking: DEFAULT_SHOW_THINKING,
   hideAppMode: "recording",
   modelVariant: null,

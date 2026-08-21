@@ -4,6 +4,7 @@ import { DocxEditor, type DocxEditorRef } from "@eigenpal/docx-editor-react";
 import "@eigenpal/docx-editor-react/styles.css";
 
 import { getInitialThemeMode, subscribeToTheme, type ThemeMode } from "@/app/theme";
+import { DEFAULT_DOCUMENT_AUTHOR, resolveDocumentAuthor } from "./document-author";
 
 export type DocxEditorApi = {
   /** Serialize the current document and persist it via `onSave`. Returns true on write. */
@@ -84,7 +85,7 @@ function useThemeColorMode(): ThemeMode {
  * Renders the real OOXML package (pagination, tables, tracked changes), scales the
  * page to the panel width, and persists edits through the panel's Save button.
  */
-export function ArtifactDocxEditor({ name, content, author = "Legal Cowork", readOnly = false, onSave, apiRef }: ArtifactDocxEditorProps) {
+export function ArtifactDocxEditor({ name, content, author = DEFAULT_DOCUMENT_AUTHOR, readOnly = false, onSave, apiRef }: ArtifactDocxEditorProps) {
   const colorMode = useThemeColorMode();
   // Capture a private copy of the bytes once: the editor may detach the buffer while
   // parsing, and a save must not reload (and reset) the view. The parent remounts this
@@ -204,7 +205,7 @@ export function ArtifactDocxEditor({ name, content, author = "Legal Cowork", rea
         documentBuffer={documentBuffer}
         documentName={name}
         documentNameEditable={false}
-        author={author}
+        author={resolveDocumentAuthor(author)}
         mode={readOnly ? "viewing" : "editing"}
         colorMode={colorMode}
         showFileOpen={false}

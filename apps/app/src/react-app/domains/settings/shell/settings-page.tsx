@@ -170,7 +170,7 @@ export function getSettingsTabDescription(tab: SettingsTab) {
     case "preferences":
       return "Usage analytics and data sharing";
     case "shell":
-      return "Branding and task suggestions";
+      return "Branding, task suggestions, and document authorship";
     case "permissions":
       return "Authorized folders and file access";
     case "safety":
