@@ -1,6 +1,0 @@
-/* LAWOSS fonts: IBM Plex Mono for legal identifiers (§, sp. zn., file names)
-   and Playfair Display for the seal + wordmark only. IBM Plex Sans (variable)
-   is already imported by upstream index.css. */
-@import "@fontsource/ibm-plex-mono/400.css";
-@import "@fontsource/ibm-plex-mono/500.css";
-@import "@fontsource-variable/playfair-display";
