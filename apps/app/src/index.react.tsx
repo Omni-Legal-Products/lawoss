@@ -7,6 +7,7 @@ import { BrowserRouter, HashRouter } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { getLegalWorkDeployment } from "./app/lib/legalwork-deployment";
 import { bootstrapTheme } from "./app/theme";
+import { bootstrapLawoss } from "../../../lawoss/theme/bootstrap";
 import { isDesktopRuntime } from "./app/utils";
 import { initLocale } from "./i18n";
 import { getReactQueryClient } from "./react-app/infra/query-client";
@@ -19,6 +20,7 @@ import { AppRoot } from "./react-app/shell/app-root";
 import { startDeepLinkBridge } from "./react-app/shell/startup-deep-links";
 import "./app/index.css";
 
+bootstrapLawoss();
 bootstrapTheme();
 initLocale();
 startDeepLinkBridge();
