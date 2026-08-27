@@ -5,6 +5,8 @@
 
 @import "@legalwork/ui/styles/tokens.css";
 
+@import "../../../../lawoss/theme/lawoss-tokens.css";
+
 @import "tw-animate-css";
 
 @import "shadcn/tailwind.css";
@@ -14,6 +16,12 @@
 @import "@fontsource-variable/geist";
 
 @import "@fontsource-variable/ibm-plex-sans";
+
+@import "@fontsource/ibm-plex-mono/400.css";
+
+@import "@fontsource/ibm-plex-mono/500.css";
+
+@import "@fontsource-variable/playfair-display";
 
 /* ============================================================================
    LegalWork app theme — unified on @legalwork/ui.
@@ -89,11 +97,11 @@
   --ring: var(--lw-accent);
   --radius: 0.625rem;
 
-  --chart-1: var(--sky-9);
-  --chart-2: var(--blue-9);
-  --chart-3: var(--indigo-9);
-  --chart-4: var(--violet-9);
-  --chart-5: var(--purple-9);
+  --chart-1: #c9a24a;
+  --chart-2: #a8b0ba;
+  --chart-3: #8dbb8f;
+  --chart-4: #d89a4e;
+  --chart-5: #7fa3c7;
 
   --sidebar: var(--lw-sidebar);
   --sidebar-foreground: var(--lw-text-primary);

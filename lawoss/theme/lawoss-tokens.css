@@ -1,0 +1,127 @@
+/* ============================================================================
+   LAWOSS token override — „podací denník na tmavom stole“
+   Value-only override of @legalwork/ui tokens. Imported from app index.css
+   AFTER the upstream tokens import; the cascade re-themes every derived
+   semantic token (shadcn, --dls-*) without touching upstream files.
+   Design source of truth: coordination repo
+   docs/design/2026-08-23-dizajnovy-jazyk-lawoss.md (v2, MČ 2026-08-23).
+   Dark is the designed theme; light stays functional as a paper fallback.
+   ========================================================================== */
+
+:root {
+  /* fonts (both themes) — IBM Plex world; serif reserved for seal/wordmark */
+  --lw-font-sans: "IBM Plex Sans Variable", "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --lw-font-serif: "Playfair Display", Georgia, "Times New Roman", serif;
+  --lw-font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+
+  /* LAWOSS extras */
+  --lw-gold-ink: rgba(201, 162, 74, 0.18);
+  --lw-duration-seal: 550ms;
+
+  /* light = paper fallback (not the designed theme) */
+  --lw-canvas: #f6f7f9;
+  --lw-surface: #ffffff;
+  --lw-surface-hover: #f1f3f6;
+  --lw-sunken: #edf0f4;
+  --lw-sidebar: #0d1b2a;
+  --lw-overlay: #ffffff;
+
+  --lw-text-primary: #0d1b2a;
+  --lw-text-secondary: #42586e;
+  --lw-text-tertiary: #66758a;
+  --lw-text-placeholder: #9aa6b8;
+
+  --lw-accent: #8c6a1f;
+  --lw-accent-hover: #a8832e;
+  --lw-accent-active: #7a5b12;
+  --lw-accent-fg: #ffffff;
+  --lw-accent-soft: rgba(201, 162, 74, 0.14);
+  --lw-accent-soft-hover: rgba(201, 162, 74, 0.22);
+  --lw-accent-border: rgba(140, 106, 31, 0.45);
+
+  --lw-success: #1f7a4c;
+  --lw-success-soft: rgba(31, 122, 76, 0.12);
+  --lw-warning: #b4560f;
+  --lw-warning-soft: rgba(180, 86, 15, 0.12);
+  --lw-danger: #b3261e;
+  --lw-danger-hover: #9a1f18;
+  --lw-danger-soft: rgba(179, 38, 30, 0.12);
+
+  --lw-focus-ring: 0 0 0 2px var(--lw-canvas), 0 0 0 4px #c9a24a;
+  --lw-focus-ring-navy: 0 0 0 2px var(--lw-canvas), 0 0 0 4px #0d1b2a;
+}
+
+.dark,
+[data-theme="dark"] {
+  /* desk / sheet / well */
+  --lw-canvas: #0a0e14;
+  --lw-surface: #10171f;
+  --lw-surface-hover: #141c26;
+  --lw-sunken: #0c1219;
+  --lw-sidebar: #0a0e14;
+  --lw-overlay: #141c26;
+
+  /* paper-warm ink, navy-tinted secondaries */
+  --lw-text-primary: #e9e4da;
+  --lw-text-secondary: #a8b0ba;
+  --lw-text-tertiary: #75808c;
+  --lw-text-placeholder: #5c6875;
+  --lw-text-inverse: #0a0e14;
+  --lw-text-on-navy: #e9e4da;
+  --lw-ink: #e9e4da;
+
+  /* rules, not shadows */
+  --lw-border-subtle: rgba(233, 228, 218, 0.08);
+  --lw-border: rgba(233, 228, 218, 0.14);
+  --lw-border-strong: rgba(233, 228, 218, 0.26);
+  --lw-border-inverse: rgba(10, 14, 20, 0.4);
+
+  /* gold = the stamp: one filled action per screen, active tab, seal */
+  --lw-accent: #c9a24a;
+  --lw-accent-hover: #e3c46e;
+  --lw-accent-active: #b8913c;
+  --lw-accent-fg: #0a0e14;
+  --lw-accent-soft: rgba(201, 162, 74, 0.12);
+  --lw-accent-soft-hover: rgba(201, 162, 74, 0.2);
+  --lw-accent-border: rgba(201, 162, 74, 0.55);
+
+  /* primary keeps upstream semantics (inverse fill button) */
+  --lw-primary: #e9e4da;
+  --lw-primary-hover: #ffffff;
+  --lw-primary-active: #d6d0c4;
+  --lw-primary-fg: #0a0e14;
+
+  --lw-hover: rgba(233, 228, 218, 0.04);
+  --lw-active: rgba(233, 228, 218, 0.07);
+  --lw-selected: rgba(201, 162, 74, 0.12);
+
+  --lw-success: #8dbb8f;
+  --lw-success-soft: rgba(141, 187, 143, 0.14);
+  --lw-warning: #d89a4e;
+  --lw-warning-soft: rgba(216, 154, 78, 0.14);
+  --lw-danger: #d9776b;
+  --lw-danger-hover: #e08e84;
+  --lw-danger-soft: rgba(217, 119, 107, 0.14);
+
+  --lw-focus-ring: 0 0 0 2px var(--lw-canvas), 0 0 0 4px #c9a24a;
+  --lw-focus-ring-navy: 0 0 0 2px var(--lw-canvas), 0 0 0 4px #c9a24a;
+
+  /* real offset shadows only where elevation is honest (popover, lifted sheet) */
+  --lw-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --lw-shadow-sm: 0 2px 6px -1px rgba(0, 0, 0, 0.5);
+  --lw-shadow-md: 0 10px 28px -12px rgba(0, 0, 0, 0.65);
+  --lw-shadow-lg: 0 18px 44px -18px rgba(0, 0, 0, 0.75);
+  --lw-shadow-pop: 0 14px 36px -14px rgba(0, 0, 0, 0.7);
+}
+
+/* browser surfaces carry the design too */
+.dark ::selection,
+[data-theme="dark"] ::selection {
+  background: var(--lw-gold-ink);
+  color: var(--lw-text-primary);
+}
+.dark,
+[data-theme="dark"] {
+  color-scheme: dark;
+  scrollbar-color: var(--lw-border) transparent;
+}
