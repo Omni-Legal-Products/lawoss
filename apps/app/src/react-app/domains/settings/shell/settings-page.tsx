@@ -218,11 +218,11 @@ export function getWorkspaceSettingsTabs(): SettingsTab[] {
 }
 
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
-  // Appearance/Language and Recovery are hidden (theme is fixed to Light).
+  // LAWOSS: Appearance/Language is visible (dark theme + sk/cs locales are core).
   // "preferences" is the Privacy tab (usage-analytics opt-out toggle).
   // "benchmark" is not listed here: it lives on the Learnings page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
-  const tabs: SettingsTab[] = ["ai", "account", "safety", "shell", "environment", "preferences", "updates"];
+  const tabs: SettingsTab[] = ["ai", "account", "appearance", "safety", "shell", "environment", "preferences", "updates"];
   // Office add-ins install into local desktop apps, so the tab is desktop-only.
   // Placed right after the first tab.
   if (isDesktopRuntime()) tabs.splice(1, 0, "office-addins");
