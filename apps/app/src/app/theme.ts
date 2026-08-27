@@ -18,9 +18,8 @@ const isThemeMode = (value: string | null): value is ThemeMode =>
   value === "light" || value === "dark" || value === "system";
 
 const readStoredMode = (): ThemeMode => {
-  // Light is the product default. The Appearance tab is hidden, so the theme is
-  // effectively fixed to Light unless a value was previously stored.
-  if (typeof window === "undefined") return "light";
+  // LAWOSS: dark is the designed default ("podací denník na tmavom stole").
+  if (typeof window === "undefined") return "dark";
   try {
     const stored = window.localStorage.getItem(THEME_PREF_KEY);
     if (isThemeMode(stored)) {
@@ -37,7 +36,7 @@ const readStoredMode = (): ThemeMode => {
   } catch {
     // ignore
   }
-  return "light";
+  return "dark";
 };
 
 const resolveMode = (mode: ThemeMode): ResolvedThemeMode => {
