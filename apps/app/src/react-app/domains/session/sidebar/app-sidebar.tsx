@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import * as React from "react";
-import legalworkMarkDark from "@/assets/legalwork-mark-dark.svg";
+import legalworkMarkDark from "../../../../../../../lawoss/brand/lawoss-mark.svg";
 import {
   Archive,
   ArchiveRestore,

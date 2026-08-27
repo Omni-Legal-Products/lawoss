@@ -2,7 +2,7 @@
 # Launchpad slot, TCC permissions). Keep in sync with the runtime identifiers
 # in apps/desktop/electron/main.mjs.
 appId: com.eigenweltlabs.legalwork
-productName: LegalWork
+productName: LAWOSS
 protocols:
   - name: LegalWork
     schemes:
