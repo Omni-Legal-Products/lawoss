@@ -747,6 +747,7 @@ export default {
   "mcp.logout_label": "OAuth",
   "mcp.logout_modal_message": "This will remove stored OAuth credentials for {server}. You'll need to sign in again to use this app.",
   "mcp.logout_modal_title": "Log out of this app?",
+  "mcp.logout_no_credentials": "{server} connects without signing in, so there was nothing to log out of. It will show as Ready again, and any request it rejects has to be sorted out on the server itself.",
   "mcp.logout_success": "Logged out of {server}.",
   "mcp.logout_working": "Logging out...",
   "mcp.name_required": "Enter a server name.",
