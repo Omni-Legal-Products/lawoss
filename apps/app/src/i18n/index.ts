@@ -9,18 +9,20 @@ import ca from "./locales/ca";
 import es from "./locales/es";
 import ru from "./locales/ru";
 import de from "./locales/de";
+import sk from "./locales/sk";
+import cs from "./locales/cs";
 export const LANGUAGE_PREF_KEY = "legalwork.language";
 
 /**
  * Supported languages
  */
-export type Language = "en" | "ja" | "zh" | "vi" | "pt-BR" | "th" | "fr" | "ca" | "es" | "ru" | "de";
+export type Language = "en" | "ja" | "zh" | "vi" | "pt-BR" | "th" | "fr" | "ca" | "es" | "ru" | "de" | "sk" | "cs";
 export type Locale = Language;
 
 /**
  * All supported languages - single source of truth
  */
-export const LANGUAGES: Language[] = ["en", "ja", "zh", "vi", "pt-BR", "th", "fr", "ca", "es", "ru", "de"];
+export const LANGUAGES: Language[] = ["en", "ja", "zh", "vi", "pt-BR", "th", "fr", "ca", "es", "ru", "de", "sk", "cs"];
 
 /**
  * Language options for UI - single source of truth
@@ -37,6 +39,8 @@ export const LANGUAGE_OPTIONS = [
   { value: "es" as Language, label: "Spanish", nativeName: "Español" },
   { value: "ru" as Language, label: "Russian", nativeName: "Русский" },
   { value: "de" as Language, label: "German", nativeName: "Deutsch" },
+  { value: "sk" as Language, label: "Slovak", nativeName: "Slovenčina" },
+  { value: "cs" as Language, label: "Czech", nativeName: "Čeština" },
 ] as const;
 
 const PLURAL_SUFFIX_EMPTY_LANGUAGES = new Set<Language>(["ja", "zh", "th"]);
@@ -69,6 +73,8 @@ const TRANSLATIONS: Record<Language, Record<string, string>> = {
   es,
   ru,
   de,
+  sk,
+  cs,
 };
 
 /**
@@ -135,6 +141,8 @@ const pluralRulesByLanguage: Record<Language, Intl.PluralRules> = {
   es: new Intl.PluralRules("es"),
   ru: new Intl.PluralRules("ru"),
   de: new Intl.PluralRules("de"),
+  sk: new Intl.PluralRules("sk"),
+  cs: new Intl.PluralRules("cs"),
 };
 const pluralRule = (loc: Language, count: number): Intl.LDMLPluralRule => {
   return pluralRulesByLanguage[loc].select(count);
