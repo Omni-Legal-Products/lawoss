@@ -18,6 +18,7 @@ import { SettingsRoute } from "./settings-route";
 import { ShellConfigProvider } from "./shell-config";
 import { StealthMode } from "./stealth-mode";
 import { WelcomeRoute } from "./welcome-route";
+import { LAWOSS_ROUTES } from "../../lawoss/shell/routes";
 
 
 let appOpenedCaptured = false;
@@ -126,7 +127,10 @@ export function AppRoot() {
               />
               {/* Default + fallback: land on the session view. Users open
                   settings deliberately via the sidebar or command palette. */}
-              <Route path="/" element={<Navigate to="/session" replace />} />
+              {LAWOSS_ROUTES.map((route) => (
+                <Route key={route.path} path={route.path} element={route.element} />
+              ))}
+              <Route path="/" element={<Navigate to="/prehlad" replace />} />
               <Route path="*" element={<Navigate to="/session" replace />} />
           </Routes>
         </LegalworkControlProvider>

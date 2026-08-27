@@ -5,6 +5,7 @@
 
 const THEME_PREF_KEY = "legalwork.react.settings.theme-mode";
 const MIGRATION_KEY = "lawoss.theme-migrated-to-dark";
+const LANGUAGE_PREF_KEY = "legalwork.language";
 
 /**
  * One-time migration: profiles created before the LAWOSS fork stored the old
@@ -21,5 +22,16 @@ export function bootstrapLawoss(): void {
     }
   } catch {
     // storage unavailable (private mode, capture) — nothing to migrate
+  }
+  try {
+    // First run: default the UI language from the OS (sk/cs), otherwise keep
+    // the upstream English default. A stored choice always wins.
+    if (!window.localStorage.getItem(LANGUAGE_PREF_KEY)) {
+      const system = (navigator.language || "").toLowerCase();
+      if (system.startsWith("sk")) window.localStorage.setItem(LANGUAGE_PREF_KEY, "sk");
+      else if (system.startsWith("cs")) window.localStorage.setItem(LANGUAGE_PREF_KEY, "cs");
+    }
+  } catch {
+    // ignore
   }
 }

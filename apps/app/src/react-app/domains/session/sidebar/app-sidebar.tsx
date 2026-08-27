@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 import * as React from "react";
 import legalworkMarkDark from "../../../../../../../lawoss/brand/lawoss-mark.svg";
+import { LawossNav } from "../../../../lawoss/shell/layout";
 import {
   Archive,
   ArchiveRestore,
@@ -656,7 +657,8 @@ export function AppSidebar(props: AppSidebarProps) {
             ) : null}
           </div>
         </div>
-        <SidebarMenu className={cn("gap-0.5 px-2 mac:titlebar-no-drag", showSidebarBrandName ? "pt-4" : "pt-3")}>
+        <LawossNav />
+        <SidebarMenu className={cn("gap-0.5 px-2 mac:titlebar-no-drag", showSidebarBrandName ? "pt-1" : "pt-1")}>
           <SidebarMenuItem>
             <DropdownMenu>
               <DropdownMenuTrigger
