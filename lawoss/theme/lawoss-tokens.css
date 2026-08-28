@@ -15,6 +15,15 @@
   --lw-font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
 
   /* LAWOSS extras */
+  /* shape — squared corners (call 28. 8., fork issue #22, design-system §2) */
+  --lw-radius-xs: 2px;
+  --lw-radius-sm: 2px;
+  --lw-radius-md: 3px;
+  --lw-radius-lg: 4px;
+  --lw-radius-xl: 4px;
+  --lw-radius-2xl: 6px;
+  --lw-radius-3xl: 6px;
+
   --lw-gold-ink: rgba(201, 162, 74, 0.18);
   --lw-duration-seal: 550ms;
 
