@@ -1,0 +1,49 @@
+name: OKF pamäť
+
+on:
+  pull_request:
+    branches: [dev]
+    paths: ["lawoss/okf/**", ".github/workflows/ci-okf-pamat.yml"]
+  push:
+    branches: [dev]
+    paths: ["lawoss/okf/**", ".github/workflows/ci-okf-pamat.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  okf-pamat:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
+
+    defaults:
+      run:
+        working-directory: lawoss/okf
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+
+      # Balíček stojí mimo pnpm workspace — inštaluje sa samostatne,
+      # aby fork nepribral ďalší uzol do upstream stromu.
+      - name: Install
+        run: pnpm install --ignore-workspace --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test

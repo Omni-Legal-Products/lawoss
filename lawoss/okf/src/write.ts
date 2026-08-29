@@ -1,0 +1,148 @@
+/**
+ * Brány zápisu do pamäte.
+ *
+ * Dve pravidlá, ktoré nejde obísť promptom, lebo nie sú v prompte:
+ *
+ *  1. ATOMICITA PRAVDY — zmena sekcie „Pravda" musí v tom istom zápise
+ *     pridať riadok do „Historie". Zmena pravdy bez stopy je nemožná.
+ *  2. HUMAN GATE — do L1 a L3 a pri mazaní kdekoľvek zapíše iba človek.
+ *     Agent smie navrhnúť (planWrite), nesmie vykonať (authorize zlyhá).
+ *
+ * planWrite aj authorize sú čisté funkcie — nesiahajú na disk.
+ */
+
+import type { OkfRecord, TimelineEntry } from "./record.ts";
+import type { Layer } from "./schema.ts";
+
+export class TimelineIntegrityError extends Error {}
+export class ApprovalRequiredError extends Error {}
+
+export interface Approval {
+  readonly by: string;
+  readonly at: string;
+}
+
+export type WriteKind = "create" | "update" | "delete";
+
+export interface WriteDiff {
+  readonly kind: WriteKind;
+  readonly id: string;
+  readonly layer: Layer;
+  readonly reason: string;
+  readonly requiresApproval: boolean;
+  readonly before: OkfRecord | undefined;
+  readonly after: OkfRecord | undefined;
+  readonly lines: readonly string[];
+}
+
+function sameEntry(a: TimelineEntry | undefined, b: TimelineEntry | undefined): boolean {
+  return a !== undefined && b !== undefined && a.date === b.date && a.text === b.text;
+}
+
+/** História je append-only: stará musí byť doslovnou predponou novej. */
+function assertAppendOnly(before: OkfRecord, after: OkfRecord): void {
+  if (after.timeline.length < before.timeline.length) {
+    throw new TimelineIntegrityError(
+      `História záznamu ${before.id} sa nesmie skracovať (${before.timeline.length} → ${after.timeline.length})`,
+    );
+  }
+  for (let i = 0; i < before.timeline.length; i++) {
+    if (!sameEntry(before.timeline[i], after.timeline[i])) {
+      throw new TimelineIntegrityError(
+        `História záznamu ${before.id} sa nesmie prepisovať — riadok ${i + 1} sa zmenil`,
+      );
+    }
+  }
+}
+
+/** Zmena pravdy si vyžaduje nový riadok histórie v tom istom zápise. */
+function assertTruthTraced(before: OkfRecord, after: OkfRecord): void {
+  if (before.truth === after.truth) return;
+  if (after.timeline.length === before.timeline.length) {
+    throw new TimelineIntegrityError(
+      `Záznam ${before.id}: zmena sekcie „Pravda" musí pridať riadok do „Historie" v tom istom zápise`,
+    );
+  }
+}
+
+function describe(before: OkfRecord | undefined, after: OkfRecord | undefined): string[] {
+  const lines: string[] = [];
+  if (!before && after) {
+    lines.push(`+ nový záznam ${after.id} (${after.type}, ${after.layer})`);
+    lines.push(`+ Pravda: ${after.truth}`);
+    for (const e of after.timeline) lines.push(`+ Historie: ${e.date} — ${e.text}`);
+    return lines;
+  }
+  if (before && !after) {
+    lines.push(`- zmazanie záznamu ${before.id} (${before.type}, ${before.layer})`);
+    return lines;
+  }
+  if (!before || !after) return lines;
+  if (before.truth !== after.truth) {
+    lines.push(`~ Pravda: ${before.truth}`);
+    lines.push(`~ Pravda → ${after.truth}`);
+  }
+  for (const key of ["title", "summary", "status", "updated"] as const) {
+    if (before[key] !== after[key]) lines.push(`~ ${key}: ${before[key]} → ${after[key]}`);
+  }
+  for (const e of after.timeline.slice(before.timeline.length)) {
+    lines.push(`+ Historie: ${e.date} — ${e.text}`);
+  }
+  return lines;
+}
+
+/**
+ * Zostaví návrh zápisu. Nezapisuje — vracia diff na schválenie.
+ * `after === undefined` znamená zmazanie, `before === undefined` založenie.
+ */
+export function planWrite(
+  before: OkfRecord | undefined,
+  after: OkfRecord | undefined,
+  reason: string,
+): WriteDiff {
+  if (reason.trim() === "") {
+    throw new Error("Zápis do pamäte musí niesť dôvod — bez neho sa nedá revidovať");
+  }
+  if (!before && !after) throw new Error("Prázdny zápis: chýba pôvodný aj nový stav");
+
+  if (before && after) {
+    if (before.id !== after.id) {
+      throw new Error(`Zápis nesmie meniť id záznamu (${before.id} → ${after.id})`);
+    }
+    assertAppendOnly(before, after);
+    assertTruthTraced(before, after);
+  }
+
+  const kind: WriteKind = !before ? "create" : !after ? "delete" : "update";
+  const subject = after ?? before;
+  if (!subject) throw new Error("Prázdny zápis");
+  const layer = subject.layer;
+  const requiresApproval = kind === "delete" || layer === "L1" || layer === "L3";
+
+  return {
+    kind,
+    id: subject.id,
+    layer,
+    reason: reason.trim(),
+    requiresApproval,
+    before,
+    after,
+    lines: describe(before, after),
+  };
+}
+
+/**
+ * Brána. Vyhodí výnimku, ak zápis potrebuje človeka a schválenie chýba.
+ * Volá sa vždy pred dotykom disku.
+ */
+export function authorize(diff: WriteDiff, approval: Approval | undefined): void {
+  if (!diff.requiresApproval) return;
+  if (approval && approval.by.trim() !== "" && approval.at.trim() !== "") return;
+  const why =
+    diff.kind === "delete"
+      ? "mazanie záznamu"
+      : `zápis do vrstvy ${diff.layer}`;
+  throw new ApprovalRequiredError(
+    `${why} (${diff.id}) vyžaduje schválenie človekom — agent smie iba navrhnúť`,
+  );
+}
