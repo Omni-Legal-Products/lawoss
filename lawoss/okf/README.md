@@ -58,8 +58,20 @@ rozdiel žije v jednej mapovacej tabuľke (`src/schema.ts`), nie v dvoch kópiá
 3. **Human gate** — do L1, do L3 a pri mazaní kdekoľvek zapíše iba človek.
    Agent dostane `WriteDiff` a `authorize()` mu bez schválenia zápis odmietne.
 4. **Zákaz úniku L2 → L3** — právny prameň nesmie obsahovať identifikátor
-   klienta (IČO, dátum narodenia, obchodné meno) zo subjektov spisu.
-   Validátor to hľadá aj v histórii záznamu.
+   klienta zo subjektov spisu. Hľadá sa aj v histórii záznamu, bez ohľadu na
+   diakritiku a veľkosť písmen, a **podľa sily zhody** — falošný poplach
+   a únik nemajú rovnakú cenu:
+
+   | Sila | Čo to je | Nález |
+   |---|---|---|
+   | `hard` | IČO (aj písané „291 396 43"), dátum narodenia (ISO aj `11. 4. 1975`) | **chyba** — blokuje |
+   | `strong` | celé meno alebo obchodná firma, aj bez právnej formy | **chyba** — blokuje |
+   | `weak` | samotné krátke priezvisko | varovanie na revíziu, neblokuje |
+
+   Zhoda musí sedieť na hranicu slova — „Rada" nechytí „porada". Meno kratšie
+   než 4 znaky sa nehľadá vôbec, takže „Lex s.r.o." nespustí poplach nad
+   slovom „lexikón". Prahy sú v `src/validate.ts` pomenované konštantami —
+   sú to vedomé rozhodnutia, nie technické detaily.
 
 Zápis vedie výhradne cez `planWrite() → applyRecordWrite()`. Iná cesta na disk nie je.
 

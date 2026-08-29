@@ -111,3 +111,85 @@ test("wiki-link v texte na neexistujuci zaznam je nalez", () => {
   const r = base({ id: "R-005", truth: "viz [[R-999]]" });
   assert.ok(codes(validateStore([r])).includes("BROKEN_LINK"));
 });
+
+// --- tvrdé identifikátory: blokujú vždy, bez ohľadu na dĺžku a formát ---
+
+test("ICO sa pozna aj napisane s medzerami", () => {
+  const pramen = base({ id: "J-010", type: "authority", layer: "L3", truth: "spolocnost s ICO 291 396 43" });
+  const f = validateStore([SUBJEKT, pramen]);
+  assert.ok(codes(f).includes("L3_LEAK"), JSON.stringify(f));
+});
+
+test("kratky zahranicny identifikator sa nepreskoci kvoli dlzke", () => {
+  const cudzi = base({
+    id: "S-002", type: "subject", layer: "L2",
+    title: "Zahranicna firma AG", registry_id: "4711", truth: "",
+  });
+  const pramen = base({ id: "J-011", type: "authority", layer: "L3", truth: "registracne cislo 4711" });
+  assert.ok(codes(validateStore([cudzi, pramen])).includes("L3_LEAK"));
+});
+
+test("datum narodenia sa pozna aj v ceskom formate", () => {
+  const p1 = base({ id: "J-012", type: "authority", layer: "L3", truth: "narodeny 11.04.1975" });
+  const p2 = base({ id: "J-013", type: "authority", layer: "L3", truth: "narodeny 11. 4. 1975" });
+  assert.ok(codes(validateStore([SUBJEKT, p1])).includes("L3_LEAK"), "11.04.1975");
+  assert.ok(codes(validateStore([SUBJEKT, p2])).includes("L3_LEAK"), "11. 4. 1975");
+});
+
+test("cislo, ktore nie je identifikatorom, poplach nespusti", () => {
+  const pramen = base({ id: "J-014", type: "authority", layer: "L3", truth: "§ 348 ods. 1, R 29139644/2024" });
+  assert.deepEqual(validateStore([SUBJEKT, pramen]), []);
+});
+
+// --- mená: podľa sily zhody ---
+
+test("nazov firmy sa pozna aj bez pravnej formy", () => {
+  const pramen = base({ id: "J-015", type: "authority", layer: "L3", truth: "vo veci Gh Real Estate" });
+  assert.ok(codes(validateStore([SUBJEKT, pramen])).includes("L3_LEAK"));
+});
+
+test("diakritika rozdiel nerobi", () => {
+  const s = base({
+    id: "S-003", type: "subject", layer: "L2",
+    title: "Stavby Modrý Kámen s.r.o.", truth: "",
+  });
+  const pramen = base({ id: "J-016", type: "authority", layer: "L3", truth: "vo veci Stavby Modry Kamen" });
+  assert.ok(codes(validateStore([s, pramen])).includes("L3_LEAK"));
+});
+
+test("samotne kratke priezvisko je varovanie na reviziu, nie chyba", () => {
+  const osoba = base({ id: "S-004", type: "subject", layer: "L2", title: "Novák", truth: "" });
+  const pramen = base({ id: "J-017", type: "authority", layer: "L3", truth: "zalobca Novák namietal" });
+  const f = validateStore([osoba, pramen]);
+  const nalez = f.find((x) => x.recordId === "J-017");
+  assert.ok(nalez, JSON.stringify(f));
+  assert.equal(nalez?.severity, "warning");
+  assert.equal(nalez?.code, "L3_LEAK_SUSPECT");
+});
+
+test("cele meno je chyba, nie varovanie", () => {
+  const osoba = base({ id: "S-005", type: "subject", layer: "L2", title: "Jan Novák", truth: "" });
+  const pramen = base({ id: "J-018", type: "authority", layer: "L3", truth: "zalobca Jan Novák namietal" });
+  const nalez = validateStore([osoba, pramen]).find((x) => x.recordId === "J-018");
+  assert.equal(nalez?.severity, "error");
+  assert.equal(nalez?.code, "L3_LEAK");
+});
+
+test("meno sa hlada na hranici slova, nie ako podretazec", () => {
+  const osoba = base({ id: "S-006", type: "subject", layer: "L2", title: "Rada", truth: "" });
+  const pramen = base({ id: "J-019", type: "authority", layer: "L3", truth: "po porade so zastupcom" });
+  assert.deepEqual(validateStore([osoba, pramen]), []);
+});
+
+test("prilis kratky nazov po odstraneni pravnej formy sa nehlada vobec", () => {
+  const s = base({ id: "S-007", type: "subject", layer: "L2", title: "Lex s.r.o.", truth: "" });
+  const pramen = base({ id: "J-020", type: "authority", layer: "L3", truth: "podla lexikonu pojmov" });
+  assert.deepEqual(validateStore([s, pramen]), []);
+});
+
+test("varovanie neblokuje, chyba blokuje", () => {
+  const osoba = base({ id: "S-008", type: "subject", layer: "L2", title: "Novák", truth: "" });
+  const pramen = base({ id: "J-021", type: "authority", layer: "L3", truth: "zalobca Novák" });
+  const f = validateStore([osoba, pramen]);
+  assert.equal(f.every((x) => x.severity === "warning"), true, JSON.stringify(f));
+});

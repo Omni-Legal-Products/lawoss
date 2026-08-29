@@ -43,6 +43,9 @@ applyRecordWrite(spisDir, diff, schvalenie);   // schvalenie undefined pri L2
   `diff.lines` advokátovi a vyžiadaj si schválenie. Bez neho zápis odmietne
   `ApprovalRequiredError`.
 - Do `authority` nikdy nedávaj meno klienta, IČO ani dátum narodenia zo spisu.
+  Validátor to zachytí aj bez diakritiky a v inom formáte dátumu. Ak vráti
+  `L3_LEAK_SUSPECT` (varovanie), je to krátke meno a rozhoduje človek —
+  neprepisuj prameň sám, ukáž nález advokátovi.
 
 ## Pred ukončením práce v spise
 
