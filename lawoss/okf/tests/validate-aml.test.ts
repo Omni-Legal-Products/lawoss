@@ -111,18 +111,20 @@ test("protistrana bez proverenia varovanie nesposobi", () => {
   assert.ok(!codes(f).includes("AML_MISSING"), JSON.stringify(f));
 });
 
-test("neuplna identifikacia FO podla § 8 je varovanie a pomenuje chybajuce polia", () => {
+test("neuplna identifikacia FO je varovanie, pomenuje polia a cituje § 5", () => {
   const neuplny = subjekt();
   delete (neuplny as unknown as Record<string, unknown>).id_document_number;
-  delete (neuplny as unknown as Record<string, unknown>).sex;
+  delete (neuplny as unknown as Record<string, unknown>).birth_place;
   const f = validateStore([neuplny, provereni()], DNES);
   const n = f.find((x) => x.code === "AML_INCOMPLETE");
   assert.ok(n, JSON.stringify(f));
   assert.match(n?.message ?? "", /doklad_cislo/);
-  assert.match(n?.message ?? "", /pohlavi/);
+  assert.match(n?.message ?? "", /misto_narozeni/);
+  assert.match(n?.message ?? "", /§ 5 ods\. 1 zák\. č\. 253\/2008 Sb\./,
+    "výpočet údajov je v § 5; § 8 upravuje vykonanie identifikácie");
 });
 
-test("slovensky spis sa netvari, ze SK sadu pozna", () => {
+test("slovensky spis sa kontroluje podla § 7, nie podla ceskych pravidiel", () => {
   const sk = newRecord({
     id: "S-009", type: "subject", jurisdiction: "sk",
     title: "Ján Malý", summary: "klient", created: "2026-08-31", updated: "2026-08-31",
@@ -130,8 +132,12 @@ test("slovensky spis sa netvari, ze SK sadu pozna", () => {
     role: "klient", person_type: "fo",
   });
   const f = validateStore([sk], DNES);
-  assert.ok(codes(f).includes("AML_RULESET_UNVERIFIED"), JSON.stringify(f));
-  assert.ok(!codes(f).includes("AML_INCOMPLETE"), "SK sada nie je overená — nesmie sa vynucovať");
+  const n = f.find((x) => x.code === "AML_INCOMPLETE");
+  assert.ok(n, JSON.stringify(f));
+  assert.match(n?.message ?? "", /§ 7 ods\. 1 zák\. č\. 297\/2008 Z\. z\./);
+  assert.ok(!codes(f).includes("AML_RULESET_UNVERIFIED"), "SK sada je overená");
+  assert.ok(!(n?.message ?? "").includes("misto_narozeni"),
+    "miesto narodenia je český požiadavok, na slovenský spis nepatrí");
 });
 
 test("uplna evidencia s platnym proverenim je bez nalezov", () => {

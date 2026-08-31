@@ -23,11 +23,18 @@ export function memoryDirName(j: Jurisdiction): string {
   return j === "cz" ? "pamet" : "pamat";
 }
 
+/** Súbor, ktorý sa nepodarilo prečítať. Jeden zlý súbor nesmie skryť zvyšok spisu. */
+export interface StoreProblem {
+  readonly file: string;
+  readonly message: string;
+}
+
 export interface Store {
   readonly dir: string;
   readonly jurisdiction: Jurisdiction;
   readonly memoryDir: string;
   readonly records: OkfRecord[];
+  readonly problems: StoreProblem[];
 }
 
 function detect(dir: string): Jurisdiction | undefined {
@@ -40,13 +47,18 @@ export function readStore(dir: string): Store {
   const j = detect(dir) ?? "cz";
   const memoryDir = join(dir, memoryDirName(j));
   const records: OkfRecord[] = [];
+  const problems: StoreProblem[] = [];
   if (existsSync(memoryDir)) {
     for (const name of readdirSync(memoryDir).sort()) {
       if (!name.endsWith(".md") || name === INDEX_FILE) continue;
-      records.push(parseRecord(readFileSync(join(memoryDir, name), "utf8")));
+      try {
+        records.push(parseRecord(readFileSync(join(memoryDir, name), "utf8")));
+      } catch (e) {
+        problems.push({ file: name, message: e instanceof Error ? e.message : String(e) });
+      }
     }
   }
-  return { dir, jurisdiction: j, memoryDir, records };
+  return { dir, jurisdiction: j, memoryDir, records, problems };
 }
 
 function slug(s: string): string {
@@ -164,6 +176,7 @@ export interface Scope {
   readonly clientRecords: OkfRecord[];
   /** Spisové aj klientske záznamy dohromady — nad týmto beží validácia. */
   readonly records: OkfRecord[];
+  readonly problems: StoreProblem[];
 }
 
 const CLIENT_CARD = "klient.md";
@@ -186,11 +199,13 @@ export function findClientDir(matterDir: string, maxUp = 4): string | undefined 
 export function readScope(matterDir: string): Scope {
   const matter = readStore(matterDir);
   const clientDir = findClientDir(matterDir);
-  const clientRecords = clientDir ? readStore(clientDir).records : [];
+  const client = clientDir ? readStore(clientDir) : undefined;
+  const clientRecords = client?.records ?? [];
   return {
     matter,
     clientDir,
     clientRecords,
     records: [...matter.records, ...clientRecords],
+    problems: [...matter.problems, ...(client?.problems ?? [])],
   };
 }

@@ -107,6 +107,7 @@ export const FIELDS: readonly FieldDef[] = [
   { canonical: "legal_form", cz: "pravni_forma", sk: "pravna_forma", kind: "string", required: false },
   { canonical: "registered_office", cz: "sidlo", sk: "sidlo", kind: "string", required: false },
   { canonical: "registry_entry", cz: "zapis_v_rejstriku", sk: "zapis_v_registri", kind: "string", required: false },
+  { canonical: "business_address", cz: "misto_podnikani", sk: "miesto_podnikania", kind: "string", required: false },
   { canonical: "business_scope", cz: "predmet_podnikani", sk: "predmet_podnikania", kind: "list", required: false },
   { canonical: "representatives", cz: "jednajici_osoby", sk: "konajuce_osoby", kind: "list", required: false },
   { canonical: "ubo", cz: "skutecny_majitel", sk: "konecny_uzivatel_vyhod", kind: "list", required: false },
@@ -136,30 +137,74 @@ export function needleFields(): readonly FieldDef[] {
 }
 
 /**
- * Povinná identifikačná sada podľa AML predpisu danej jurisdikcie.
+ * Povinná identifikačná sada podľa AML predpisu jurisdikcie.
  *
- * CZ vychádza z § 8 zák. č. 253/2008 Sb. SK zámerne chýba: slovenský predpis
- * je zák. č. 297/2008 Z. z. a jeho požiadavky neboli overené. Predstierať ich
- * by bolo tiché prekladanie právnych pojmov medzi jurisdikciami, čo AGENTS.md
- * zakazuje. Doplní slovenský advokát.
+ * Overené proti doslovnému zneniu 31. 8. 2026:
+ *   CZ — § 5 ods. 1 zák. č. 253/2008 Sb. (identifikačné údaje).
+ *        Pozor: § 8 upravuje *vykonanie* identifikácie, nie výpočet údajov.
+ *   SK — § 7 ods. 1 zák. č. 297/2008 Z. z. (identifikácia), znenie k 17. 8. 2026,
+ *        načítané z portálu Slov-Lex.
+ *
+ * Sady sa vecne líšia a neprekladajú sa: CZ žiada miesto narodenia, vydavateľa
+ * dokladu a jeho platnosť, ktoré SK nežiada; SK žiada označenie registra
+ * a číslo zápisu u právnickej osoby, ktoré CZ nežiada. Preto dve sady, nie jedna.
  */
+export type AmlRequirement =
+  | string
+  | {
+      /** Údaj, ktorý stačí sám o sebe. */
+      readonly primary: string;
+      /** Čo je potrebné, ak primárny údaj pridelený nebol. */
+      readonly fallback: readonly string[];
+    };
+
+export type PersonKind = "fo" | "po" | "podnikatel";
+
+/** Spoločné pre českú fyzickú osobu — § 5 ods. 1 písm. a). */
+const CZ_FO: readonly AmlRequirement[] = [
+  "title",
+  // „rodné číslo, a nebylo-li přiděleno, datum narození a pohlaví"
+  { primary: "birth_number", fallback: ["birth_date", "sex"] },
+  "birth_place",
+  "residence",
+  "citizenship",
+  "id_document_type",
+  "id_document_number",
+  "id_document_issuer",
+  "id_document_valid_to",
+];
+
+/** Spoločné pre slovenskú fyzickú osobu — § 7 ods. 1 písm. a). */
+const SK_FO: readonly AmlRequirement[] = [
+  "title",
+  // „rodného čísla alebo dátumu narodenia, ak rodné číslo nebolo pridelené"
+  { primary: "birth_number", fallback: ["birth_date"] },
+  "residence",
+  "citizenship",
+  "id_document_type",
+  "id_document_number",
+];
+
 export const AML_REQUIRED: Partial<
-  Record<Jurisdiction, { readonly fo: readonly string[]; readonly po: readonly string[] }>
+  Record<Jurisdiction, Readonly<Record<PersonKind, readonly AmlRequirement[]>>>
 > = {
   cz: {
-    fo: [
-      "title",
-      "birth_number",
-      "birth_place",
-      "sex",
-      "citizenship",
-      "residence",
-      "id_document_type",
-      "id_document_number",
-      "id_document_issuer",
-      "id_document_valid_to",
-    ],
-    po: ["title", "registry_id", "registered_office", "legal_form", "registry_entry", "representatives"],
+    fo: CZ_FO,
+    // § 5 ods. 1 písm. b) bod 1 a 2 — firma/názov, sídlo, IČO, člen štatutárneho orgánu.
+    // Právnu formu ani zápis v registri ustanovenie nežiada.
+    po: ["title", "registered_office", "registry_id", "representatives"],
+    // „jde-li o podnikající fyzickou osobu, též její obchodní firma, sídlo
+    // a identifikační číslo osoby"
+    podnikatel: [...CZ_FO, "registered_office", "registry_id"],
+  },
+  sk: {
+    fo: SK_FO,
+    // § 7 ods. 1 písm. b) — názov, sídlo, IČO, označenie registra a číslo zápisu,
+    // osoba oprávnená konať a členovia riadiaceho orgánu.
+    po: ["title", "registered_office", "registry_id", "registry_entry", "representatives"],
+    // FO-podnikateľ: adresa miesta podnikania, označenie registra a číslo zápisu.
+    // IČO je „ak bolo pridelené", teda podmienené — nevynucuje sa.
+    podnikatel: [...SK_FO, "business_address", "registry_entry"],
   },
 };
 

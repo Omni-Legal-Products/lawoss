@@ -31,7 +31,7 @@ export { maskValue, maskRecord } from "./mask.ts";
 export {
   readStore, readScope, findClientDir, memoryDirName, applyRecordWrite,
   writeIndex, ensureBrain, syncStatus,
-  type Store, type Scope,
+  type Store, type Scope, type StoreProblem,
 } from "./store.ts";
 
 import { FIELDS, LAYER_OF, type Jurisdiction, type RecordType } from "./schema.ts";

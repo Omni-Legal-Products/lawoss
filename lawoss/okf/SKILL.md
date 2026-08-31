@@ -47,6 +47,9 @@ applyRecordWrite(spisDir, diff, schvalenie);   // schvalenie undefined pri L2
 - **AML údaje patria k `klient.md`, nie do spisu.** Identifikácia sa robí raz pri vzniku
   obchodného vzťahu a archivuje 10 rokov od jeho skončenia (§ 16), nie od skončenia kauzy.
   Spis na subjekt odkazuje `[[S-001]]`; `readScope()` obe úrovne prečíta naraz.
+- **Povinná sada sa líši podľa jurisdikcie a neprekladá sa.** CZ (§ 5 z. 253/2008 Sb.) žiada
+  miesto narodenia, vydavateľa dokladu a jeho platnosť; SK (§ 7 z. 297/2008 Z. z.) nie, zato
+  žiada zápis v registri u PO. Nedopĺňaj údaj len preto, že ho žiada druhá jurisdikcia.
 - **Rodné číslo ani číslo dokladu nikdy nepíš do `popis`** — popis sa renderuje do `INDEX.md`
   a do `_STATUS.md`. Patria do poľa frontmatteru, kde sa maskujú vo výpisoch.
 - Preverenie **nevykonávaj v tomto skille** — použi AML skill a MCP konektory, sem zapíš len

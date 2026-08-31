@@ -21,7 +21,7 @@ je iná kategória než obsah spisu a maže sa inak.
 
 ## AML evidencia
 
-`subject` nesie identifikačné údaje podľa **§ 8 zák. č. 253/2008 Sb.** — rodné číslo,
+`subject` nesie identifikačné údaje podľa **§ 5 ods. 1 zák. č. 253/2008 Sb.** (CZ) a **§ 7 ods. 1 zák. č. 297/2008 Z. z.** (SK) — rodné číslo,
 miesto narodenia, pohlavie, občianstvo, trvalý pobyt, doklad totožnosti; pri právnickej
 osobe právnu formu, sídlo, zápis v registri, konajúce osoby a skutočného majiteľa.
 
@@ -58,15 +58,32 @@ Rodné číslo, číslo dokladu, trvalý pobyt a dátum narodenia sú v tabuľke
 | `SENSITIVE_IN_SUMMARY` | rodné číslo alebo iný citlivý údaj v `popis`, ktorý ide do `INDEX.md` a projekcie | **chyba** |
 | `AML_MISSING` | subjekt v role `klient` nemá žiadne preverenie | varovanie |
 | `AML_EXPIRED` | `platnost_do` preverenia je v minulosti (§ 9) | varovanie |
-| `AML_INCOMPLETE` | FO alebo PO nemá kompletnú sadu podľa § 8 | varovanie |
+| `AML_INCOMPLETE` | FO, PO alebo podnikateľ nemá kompletnú sadu podľa predpisu svojej jurisdikcie | varovanie |
 | `AML_RULESET_UNVERIFIED` | jurisdikcia nemá overenú povinnú sadu | varovanie |
+| `PARSE` | súbor sa nedá prečítať — vypíše sa a preskočí, zvyšok spisu sa načíta | **chyba** |
 
-> [!IMPORTANT]
-> **Slovenská povinná sada nie je implementovaná.** CZ vychádza z § 8 zák. č. 253/2008 Sb.
-> Slovenský predpis je zák. č. 297/2008 Z. z. a jeho požiadavky neboli overené — predstierať
-> ich by bolo tiché prekladanie právnych pojmov medzi jurisdikciami. `AML_REQUIRED.sk` preto
-> zámerne chýba a validátor to nahlási namiesto toho, aby vynucoval české pravidlá na SK spis.
-> Doplní slovenský advokát.
+### Dve jurisdikcie, dve sady — a naozaj sa líšia
+
+Overené proti doslovnému zneniu 31. 8. 2026: CZ z [§ 5 zák. č. 253/2008 Sb.](https://krajta.slv.cz/2008/253/par_5),
+SK z [§ 7 zák. č. 297/2008 Z. z.](https://www.slov-lex.sk/ezbierky/pravne-predpisy/SK/ZZ/2008/297/) (znenie k 17. 8. 2026).
+
+| Údaj o fyzickej osobe | 🇨🇿 § 5 | 🇸🇰 § 7 |
+|---|---|---|
+| miesto narodenia | **áno** | nie |
+| pohlavie | len ak **nebolo pridelené rodné číslo** | nie |
+| orgán, ktorý doklad vydal, a platnosť dokladu | **áno** | nie |
+| označenie registra a číslo zápisu u právnickej osoby | nie | **áno** |
+| adresa skutočného miesta výkonu činnosti | nie | **áno, ak je odlišná** |
+
+Preto dve sady, nie jedna preložená. Ten istý záznam prejde slovenskou kontrolou
+a v českej mu chýbajú tri polia — a naopak. Rodné číslo má v oboch predpisoch
+náhradu, ale rôznu: CZ „datum narození **a pohlaví**", SK len dátum narodenia.
+
+> [!NOTE]
+> `AML_REQUIRED` v `src/schema.ts` vynucuje **zákonné minimum**, nie kancelárske zvyklosti.
+> Identifikačný formulár kancelárie môže žiadať viac (napr. rodné priezvisko) — také polia
+> zostávajú voliteľné. Jurisdikcia bez overenej sady sa nekontroluje českými pravidlami;
+> validátor to ohlási ako `AML_RULESET_UNVERIFIED`.
 
 Jadro **preverenie nevykonáva** — nesie jeho výsledok a stráži lehotu. Volanie registrov,
 PEP a sankcií patrí skillom a MCP konektorom; miešať to sem by z pamäte spravilo sieťový nástroj.
@@ -165,7 +182,7 @@ inštaluje sa samostatne, aby fork nepribral ďalší uzol do upstream stromu.
 
 ```bash
 pnpm install --ignore-workspace
-pnpm test        # node --test, 136 testov
+pnpm test        # node --test, 159 testov
 pnpm typecheck
 ```
 

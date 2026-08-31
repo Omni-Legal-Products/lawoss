@@ -19,6 +19,7 @@
 import type { OkfRecord } from "./record.ts";
 import {
   AML_REQUIRED, SENSITIVE_FIELDS, fieldKey, needleFields,
+  type PersonKind,
   type FieldDef, type Jurisdiction,
 } from "./schema.ts";
 
@@ -33,6 +34,9 @@ export interface Finding {
 
 /** Meno kratšie než toto sa nehľadá vôbec — spôsobilo by falošné nálezy. */
 const MIN_NAME_LENGTH = 4;
+
+/** Druhy osôb, pre ktoré má zmysel kontrolovať AML úplnosť. */
+const PERSON_KINDS: readonly PersonKind[] = ["fo", "po", "podnikatel"];
 /** Jednoslovné meno od tejto dĺžky sa považuje za dosť určité na blokovanie. */
 const STRONG_SINGLE_TOKEN_LENGTH = 8;
 
@@ -220,28 +224,51 @@ function sensitiveInSummary(r: OkfRecord): Finding | undefined {
   }
   return undefined;
 }
+/** Je údaj v zázname vyplnený? Prázdny reťazec ani prázdny zoznam sa nepočíta. */
+function filled(raw: Record<string, unknown>, canonical: string): boolean {
+  const v = raw[canonical];
+  if (v === undefined) return false;
+  if (typeof v === "string") return v.trim() !== "";
+  if (Array.isArray(v)) return v.length > 0;
+  return true;
+}
 
-/** Kontrola úplnosti identifikácie podľa AML predpisu jurisdikcie. */
+/**
+ * Kontrola úplnosti identifikácie podľa AML predpisu jurisdikcie.
+ *
+ * Rieši aj zákonné alternatívy — „rodné číslo, a nebylo-li přiděleno, datum
+ * narození a pohlaví" nie sú deväť povinných polí, ale osem a vetva.
+ */
 function amlCompleteness(r: OkfRecord): Finding | undefined {
   const ruleset = AML_REQUIRED[r.jurisdiction as Jurisdiction];
   if (!ruleset) return undefined;
-  const kind = r.person_type === "fo" ? "fo" : r.person_type === "po" ? "po" : undefined;
+  const kind = PERSON_KINDS.find((k) => k === r.person_type);
   if (!kind) return undefined;
 
   const raw = r as unknown as Record<string, unknown>;
-  const missing = ruleset[kind].filter((c) => {
-    const v = raw[c];
-    return v === undefined || (typeof v === "string" && v.trim() === "") ||
-      (Array.isArray(v) && v.length === 0);
-  });
+  const missing: string[] = [];
+  for (const req of ruleset[kind]) {
+    if (typeof req === "string") {
+      if (!filled(raw, req)) missing.push(req);
+      continue;
+    }
+    if (filled(raw, req.primary)) continue;
+    const chybaju = req.fallback.filter((c) => !filled(raw, c));
+    if (chybaju.length === 0) continue;
+    missing.push(req.primary, ...chybaju);
+  }
   if (missing.length === 0) return undefined;
 
-  const keys = missing.map((c) => fieldKey(c, r.jurisdiction)).join(", ");
+  const keys = [...new Set(missing)].map((c) => fieldKey(c, r.jurisdiction)).join(", ");
+  const predpis =
+    r.jurisdiction === "sk"
+      ? "§ 7 ods. 1 zák. č. 297/2008 Z. z."
+      : "§ 5 ods. 1 zák. č. 253/2008 Sb.";
   return {
     severity: "warning",
     code: "AML_INCOMPLETE",
     recordId: r.id,
-    message: `Identifikácia subjektu ${r.id} nie je úplná podľa § 8 — chýba: ${keys}`,
+    message: `Identifikácia subjektu ${r.id} nie je úplná podľa ${predpis} — chýba: ${keys}`,
   };
 }
 
@@ -340,7 +367,7 @@ export function validateStore(
   const unverified = records.find(
     (r) =>
       r.type === "subject" &&
-      (r.person_type === "fo" || r.person_type === "po") &&
+      PERSON_KINDS.some((k) => k === r.person_type) &&
       AML_REQUIRED[r.jurisdiction as Jurisdiction] === undefined,
   );
   if (unverified) {

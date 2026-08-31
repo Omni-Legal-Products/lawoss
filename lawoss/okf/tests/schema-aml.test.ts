@@ -69,14 +69,42 @@ test("ICO zostava jehlou aj ked citlive nie je", () => {
   assert.ok(needleFields().some((f) => f.canonical === "registry_id" && f.needle === "hard"));
 });
 
-test("ceska povinna sada podla § 8 je definovana pre FO aj PO", () => {
-  assert.ok((AML_REQUIRED.cz?.fo ?? []).includes("birth_number"));
-  assert.ok((AML_REQUIRED.cz?.fo ?? []).includes("id_document_number"));
+test("ceska sada vychadza z § 5 — nie z § 8, ktory upravuje vykonanie identifikacie", () => {
+  const fo = AML_REQUIRED.cz?.fo ?? [];
+  const names = fo.map((r) => (typeof r === "string" ? r : r.primary));
+  assert.ok(names.includes("birth_number"));
+  assert.ok(names.includes("birth_place"), "§ 5 žiada miesto narodenia vždy");
+  assert.ok(names.includes("id_document_issuer"), "§ 5 žiada orgán, ktorý doklad vydal");
   assert.ok((AML_REQUIRED.cz?.po ?? []).includes("registry_id"));
   assert.ok((AML_REQUIRED.cz?.po ?? []).includes("registered_office"));
 });
 
-test("slovenska povinna sada nie je overena — nesmie sa tvarit ze je", () => {
-  assert.equal(AML_REQUIRED.sk, undefined,
-    "SK požiadavky nie sú overené; predstierať ich by bolo tiché prekladanie právnych pojmov");
+test("ceska PO sada neziada pravnu formu ani zapis v rejstriku", () => {
+  const po = AML_REQUIRED.cz?.po ?? [];
+  assert.ok(!po.includes("legal_form"), "§ 5 ods. 1 písm. b) právnu formu nežiada");
+  assert.ok(!po.includes("registry_entry"), "zápis v registri žiada slovenský, nie český predpis");
+});
+
+test("slovenska sada vychadza z § 7 a lisi sa od ceskej", () => {
+  const fo = (AML_REQUIRED.sk?.fo ?? []).map((r) => (typeof r === "string" ? r : r.primary));
+  assert.ok(fo.includes("residence"));
+  assert.ok(fo.includes("id_document_number"));
+  assert.ok(!fo.includes("birth_place"), "§ 7 miesto narodenia nežiada — CZ áno");
+  assert.ok(!fo.includes("id_document_issuer"), "§ 7 vydavateľa dokladu nežiada — CZ áno");
+  assert.ok((AML_REQUIRED.sk?.po ?? []).includes("registry_entry"), "§ 7 zápis v registri žiada");
+});
+
+test("rodne cislo ma v oboch jurisdikciach nahradu, ale roznu", () => {
+  const cz = (AML_REQUIRED.cz?.fo ?? []).find((r) => typeof r !== "string" && r.primary === "birth_number");
+  const sk = (AML_REQUIRED.sk?.fo ?? []).find((r) => typeof r !== "string" && r.primary === "birth_number");
+  assert.deepEqual(typeof cz === "string" ? [] : cz?.fallback, ["birth_date", "sex"]);
+  assert.deepEqual(typeof sk === "string" ? [] : sk?.fallback, ["birth_date"]);
+});
+
+test("obe jurisdikcie maju sadu pre FO, PO aj podnikatela", () => {
+  for (const j of ["cz", "sk"] as const) {
+    for (const kind of ["fo", "po", "podnikatel"] as const) {
+      assert.ok((AML_REQUIRED[j]?.[kind] ?? []).length > 0, `${j}/${kind} chýba`);
+    }
+  }
 });

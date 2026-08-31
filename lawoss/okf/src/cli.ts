@@ -36,6 +36,15 @@ function ok(out: string): CliResult {
 }
 
 /** Slovenské a české skloňovanie po číslovke: 1 riadok, 2–4 riadky, 5+ riadkov. */
+function problemLines(problems: readonly { file: string; message: string }[]): string[] {
+  if (problems.length === 0) return [];
+  return [
+    "Nečitateľné súbory (preskočené):",
+    ...problems.map((p) => `  ERROR PARSE ${p.file}: ${p.message}`),
+    "",
+  ];
+}
+
 function riadkov(n: number): string {
   if (n === 1) return "1 riadok";
   if (n >= 2 && n <= 4) return `${n} riadky`;
@@ -61,6 +70,7 @@ export function runCli(argv: readonly string[]): CliResult {
     case "read": {
       const scope = readScope(dir);
       const lines = [
+        ...problemLines(scope.problems),
         `Spis: ${dir}`,
         `Jurisdikcia: ${scope.matter.jurisdiction}   Záznamov: ${scope.records.length}` +
           (scope.clientDir ? ` (z toho ${scope.clientRecords.length} u klienta)` : ""),
@@ -73,10 +83,17 @@ export function runCli(argv: readonly string[]): CliResult {
     }
 
     case "validate": {
-      const findings = validateStore(readScope(dir).records);
-      if (findings.length === 0) return ok("OK — pamäť je konzistentná.");
-      const lines = findings.map((f) => `${f.severity.toUpperCase()} ${f.code} ${f.recordId}: ${f.message}`);
-      const hasError = findings.some((f) => f.severity === "error");
+      const scope = readScope(dir);
+      const findings = validateStore(scope.records);
+      const problems = problemLines(scope.problems);
+      if (findings.length === 0 && problems.length === 0) {
+        return ok("OK — pamäť je konzistentná.");
+      }
+      const lines = [
+        ...problems,
+        ...findings.map((f) => `${f.severity.toUpperCase()} ${f.code} ${f.recordId}: ${f.message}`),
+      ];
+      const hasError = scope.problems.length > 0 || findings.some((f) => f.severity === "error");
       return { code: hasError ? 1 : 0, out: lines.join("\n") };
     }
 
@@ -101,6 +118,7 @@ export function runCli(argv: readonly string[]): CliResult {
       const findings = validateStore(scope.records);
 
       const lines: string[] = [
+        ...problemLines(scope.problems),
         `Spis:   ${dir}`,
         `Klient: ${scope.clientDir ?? "— (subjekty nie sú na klientskej úrovni)"}`,
         "",
