@@ -113,12 +113,57 @@ function splitFrontmatter(text: string): { fm: string; body: string } {
   return { fm: lines.slice(1, end).join("\n"), body: lines.slice(end + 1).join("\n") };
 }
 
+/**
+ * Rozdelí obsah `[…]` na položky. Čiarka vnútri úvodzoviek nie je oddeľovač —
+ * bez toho sa „Doprava, s.r.o." rozpadne na dva zmrzačené reťazce a tichá
+ * strata dát sa prejaví až pri prvom read-modify-write cykle.
+ */
+function splitList(inner: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let quote: string | undefined;
+  let quoted = false;
+
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner.charAt(i);
+    if (quote !== undefined) {
+      if (ch === "\\" && inner.charAt(i + 1) === quote) {
+        cur += quote;
+        i++;
+        continue;
+      }
+      if (ch === quote) {
+        quote = undefined;
+        continue;
+      }
+      cur += ch;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      // Medzera medzi čiarkou a úvodzovkou patrí formátovaniu, nie hodnote.
+      if (cur.trim() === "") cur = "";
+      quote = ch;
+      quoted = true;
+      continue;
+    }
+    if (ch === ",") {
+      out.push(quoted ? cur : cur.trim());
+      cur = "";
+      quoted = false;
+      continue;
+    }
+    cur += ch;
+  }
+  out.push(quoted ? cur : cur.trim());
+  return out;
+}
+
 function parseScalar(raw: string): string | number | string[] {
   const v = raw.trim();
   if (v.startsWith("[") && v.endsWith("]")) {
     const inner = v.slice(1, -1).trim();
     if (inner === "") return [];
-    return inner.split(",").map((s) => unquote(s.trim()));
+    return splitList(inner);
   }
   if (/^-?\d+(\.\d+)?$/.test(v)) return Number(v);
   return unquote(v);
@@ -226,7 +271,11 @@ export function parseRecord(text: string): OkfRecord {
 }
 
 function emit(v: string | number | string[]): string {
-  if (Array.isArray(v)) return `[${v.map((x) => `"${x}"`).join(", ")}]`;
+  // Úvodzovka vnútri položky sa musí escapovať aj v zozname — inak sa
+  // hodnota pri čítaní predčasne uzavrie a zvyšok sa rozsype.
+  if (Array.isArray(v)) {
+    return `[${v.map((x) => `"${x.replace(/"/g, '\\"')}"`).join(", ")}]`;
+  }
   if (typeof v === "number") return String(v);
   return /[:#[\]"']/.test(v) ? `"${v.replace(/"/g, '\\"')}"` : v;
 }
