@@ -1,0 +1,149 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { validateStore } from "../src/validate.ts";
+import { newRecord } from "../src/index.ts";
+import type { OkfRecord } from "../src/record.ts";
+
+const DNES = { today: "2026-08-31" };
+
+function subjekt(over: Partial<OkfRecord> = {}): OkfRecord {
+  return {
+    ...newRecord({
+      id: "S-001", type: "subject", jurisdiction: "cz",
+      title: "Jan Novák", summary: "klient",
+      created: "2026-08-31", updated: "2026-08-31", truth: "klient",
+      timeline: [{ date: "2026-08-31", text: "identifikace" }],
+      role: "klient", person_type: "fo",
+      birth_number: "750101/1234", birth_place: "Praha", sex: "muz",
+      citizenship: "CR", residence: "Krátká 12, 110 00 Praha 1",
+      id_document_type: "obcansky prukaz", id_document_number: "123456789",
+      id_document_issuer: "MC Praha 1", id_document_valid_to: "2032-05-14",
+    }),
+    ...over,
+  };
+}
+
+function provereni(over: Partial<OkfRecord> = {}): OkfRecord {
+  return {
+    ...newRecord({
+      id: "P-001", type: "screening", jurisdiction: "cz",
+      title: "Prověření", summary: "AML prověření, riziko nízké",
+      created: "2026-08-31", updated: "2026-08-31", truth: "bez nálezu",
+      timeline: [{ date: "2026-08-31", text: "provedeno" }],
+      subject_ref: "S-001", check_date: "2026-08-31", mode: "medium",
+      risk: "nizke", conclusion: "pokracovat", valid_until: "2027-08-31",
+    }),
+    ...over,
+  };
+}
+
+function pramen(truth: string, id = "J-001"): OkfRecord {
+  return newRecord({
+    id, type: "authority", jurisdiction: "cz",
+    title: "Právní věta", summary: "pramen",
+    created: "2026-08-31", updated: "2026-08-31", truth,
+    timeline: [{ date: "2026-08-31", text: "z" }],
+  });
+}
+
+const codes = (f: ReturnType<typeof validateStore>) => f.map((x) => x.code);
+
+// --- rozšírená brána úniku ---
+
+test("rodne cislo v pravnom prameni blokuje", () => {
+  const f = validateStore([subjekt(), provereni(), pramen("narozen r.c. 750101/1234")], DNES);
+  assert.ok(codes(f).includes("L3_LEAK"), JSON.stringify(f));
+});
+
+test("rodne cislo bez lomitka sa tiez najde", () => {
+  const f = validateStore([subjekt(), provereni(), pramen("rc 7501011234")], DNES);
+  assert.ok(codes(f).includes("L3_LEAK"), JSON.stringify(f));
+});
+
+test("cislo dokladu v pravnom prameni blokuje", () => {
+  const f = validateStore([subjekt(), provereni(), pramen("OP c. 123456789")], DNES);
+  assert.ok(codes(f).includes("L3_LEAK"), JSON.stringify(f));
+});
+
+test("trvaly pobyt v pravnom prameni blokuje", () => {
+  const f = validateStore([subjekt(), provereni(), pramen("bytem Krátká 12, 110 00 Praha 1")], DNES);
+  assert.ok(codes(f).includes("L3_LEAK"), JSON.stringify(f));
+});
+
+test("cisty pramen pri plnej AML evidencii zostava cisty", () => {
+  const f = validateStore(
+    [subjekt(), provereni(), pramen("§ 8 zák. č. 253/2008 Sb. vyžaduje identifikaci klienta.")],
+    DNES,
+  );
+  assert.deepEqual(f, []);
+});
+
+// --- citlivy udaj v popise ---
+
+test("rodne cislo v popise je chyba — popis ide do rejstrika a projekcie", () => {
+  const f = validateStore([subjekt({ summary: "klient, r.c. 750101/1234" }), provereni()], DNES);
+  const n = f.find((x) => x.code === "SENSITIVE_IN_SUMMARY");
+  assert.ok(n, JSON.stringify(f));
+  assert.equal(n?.severity, "error");
+});
+
+test("bezne cislo v popise poplach nespusti", () => {
+  const f = validateStore([subjekt({ summary: "klient, spis 12 C 345/2026" }), provereni()], DNES);
+  assert.deepEqual(codes(f), []);
+});
+
+// --- AML lehoty a uplnost ---
+
+test("prosle provereni je varovanie na opakovanie podla § 9", () => {
+  const f = validateStore([subjekt(), provereni({ valid_until: "2026-01-01" })], DNES);
+  const n = f.find((x) => x.code === "AML_EXPIRED");
+  assert.ok(n, JSON.stringify(f));
+  assert.equal(n?.severity, "warning");
+});
+
+test("klient bez akehokolvek proverenia je varovanie", () => {
+  const f = validateStore([subjekt()], DNES);
+  assert.ok(codes(f).includes("AML_MISSING"), JSON.stringify(f));
+});
+
+test("protistrana bez proverenia varovanie nesposobi", () => {
+  const f = validateStore([subjekt({ id: "S-002", role: "protistrana" })], DNES);
+  assert.ok(!codes(f).includes("AML_MISSING"), JSON.stringify(f));
+});
+
+test("neuplna identifikacia FO podla § 8 je varovanie a pomenuje chybajuce polia", () => {
+  const neuplny = subjekt();
+  delete (neuplny as unknown as Record<string, unknown>).id_document_number;
+  delete (neuplny as unknown as Record<string, unknown>).sex;
+  const f = validateStore([neuplny, provereni()], DNES);
+  const n = f.find((x) => x.code === "AML_INCOMPLETE");
+  assert.ok(n, JSON.stringify(f));
+  assert.match(n?.message ?? "", /doklad_cislo/);
+  assert.match(n?.message ?? "", /pohlavi/);
+});
+
+test("slovensky spis sa netvari, ze SK sadu pozna", () => {
+  const sk = newRecord({
+    id: "S-009", type: "subject", jurisdiction: "sk",
+    title: "Ján Malý", summary: "klient", created: "2026-08-31", updated: "2026-08-31",
+    truth: "t", timeline: [{ date: "2026-08-31", text: "x" }],
+    role: "klient", person_type: "fo",
+  });
+  const f = validateStore([sk], DNES);
+  assert.ok(codes(f).includes("AML_RULESET_UNVERIFIED"), JSON.stringify(f));
+  assert.ok(!codes(f).includes("AML_INCOMPLETE"), "SK sada nie je overená — nesmie sa vynucovať");
+});
+
+test("uplna evidencia s platnym proverenim je bez nalezov", () => {
+  assert.deepEqual(validateStore([subjekt(), provereni()], DNES), []);
+});
+
+test("subjekt bez typ_osoby v neoverenej jurisdikcii varovanie nesposobi", () => {
+  const sk = newRecord({
+    id: "S-010", type: "subject", jurisdiction: "sk",
+    title: "Protistrana s.r.o.", summary: "protistrana", created: "2026-08-31",
+    updated: "2026-08-31", truth: "t", timeline: [{ date: "2026-08-31", text: "x" }],
+  });
+  assert.deepEqual(validateStore([sk], DNES), [],
+    "bez AML identifikácie sa nemá čo hlásiť — inak je to šum, nie signál");
+});

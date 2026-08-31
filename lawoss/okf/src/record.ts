@@ -41,20 +41,65 @@ export interface OkfRecord {
   status: string;
   created: string;
   updated: string;
+
+  // zoznamy
   sources?: string[];
   related?: string[];
   deadlines?: string[];
   parties?: string[];
+  area?: string[];
+  business_scope?: string[];
+  representatives?: string[];
+  ubo?: string[];
+  registries?: string[];
+
+  // spis
   matter_ref?: string;
   court?: string;
-  area?: string[];
+
+  // identifikácia subjektu (§ 8 zák. č. 253/2008 Sb.)
+  role?: string;
+  person_type?: string;
   registry_id?: string;
   birth_date?: string;
+  birth_number?: string;
+  birth_place?: string;
+  sex?: string;
+  citizenship?: string;
+  residence?: string;
+  id_document_type?: string;
+  id_document_number?: string;
+  id_document_issuer?: string;
+  id_document_valid_to?: string;
+
+  // právnická osoba
+  legal_form?: string;
+  registered_office?: string;
+  registry_entry?: string;
+  pep?: string;
+
+  // preverenie
+  subject_ref?: string;
+  check_date?: string;
+  mode?: string;
+  pep_result?: string;
+  sanctions_result?: string;
+  funds_origin?: string;
+  risk?: string;
+  conclusion?: string;
+  valid_until?: string;
+
   truth: string;
   timeline: TimelineEntry[];
 }
 
 const FM_DELIM = "---";
+
+/** Polia, ktoré parser priraďuje výslovne; zvyšok sa berie z tabuľky. */
+const CORE_FIELDS = new Set([
+  "schema", "id", "type", "title", "summary",
+  "layer", "jurisdiction", "status", "created", "updated",
+]);
 
 function splitFrontmatter(text: string): { fm: string; body: string } {
   const lines = text.split("\n");
@@ -166,15 +211,16 @@ export function parseRecord(text: string): OkfRecord {
     timeline: parseTimeline(sectionBody(body, HEADINGS[j].timeline)),
   };
 
-  const lists = ["sources", "related", "deadlines", "parties", "area"] as const;
-  for (const key of lists) {
-    const v = canon.get(key);
-    if (v !== undefined) rec[key] = (Array.isArray(v) ? v : [String(v)]) as string[];
-  }
-  const scalars = ["matter_ref", "court", "registry_id", "birth_date"] as const;
-  for (const key of scalars) {
-    const v = canon.get(key);
-    if (v !== undefined) rec[key] = String(v);
+  // Nepovinné polia sa berú z tabuľky, nie z ručného zoznamu — inak by nové
+  // pole ticho vypadlo pri čítaní a nikto by si toho nevšimol.
+  const target = rec as unknown as Record<string, string | string[]>;
+  for (const f of FIELDS) {
+    if (CORE_FIELDS.has(f.canonical)) continue;
+    const v = canon.get(f.canonical);
+    if (v === undefined) continue;
+    target[f.canonical] = f.kind === "list"
+      ? (Array.isArray(v) ? v : [String(v)])
+      : String(v);
   }
   return rec;
 }

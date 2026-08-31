@@ -10,8 +10,9 @@
  */
 
 export {
-  FIELDS, RECORD_TYPES, LAYER_OF, fieldKey, canonicalField, typeKey, canonicalType,
-  type Jurisdiction, type Layer, type RecordType, type FieldDef,
+  FIELDS, RECORD_TYPES, LAYER_OF, SENSITIVE_FIELDS, AML_REQUIRED,
+  fieldKey, canonicalField, typeKey, canonicalType, needleFields,
+  type Jurisdiction, type Layer, type RecordType, type FieldDef, type NeedleStrength,
 } from "./schema.ts";
 
 export {
@@ -25,13 +26,21 @@ export {
 } from "./write.ts";
 
 export { renderStatus, BLOCKS, type BlockName } from "./render.ts";
-export { validateStore, type Finding, type Severity } from "./validate.ts";
+export { validateStore, type Finding, type Severity, type ValidateOptions } from "./validate.ts";
+export { maskValue, maskRecord } from "./mask.ts";
 export {
-  readStore, memoryDirName, applyRecordWrite, writeIndex, ensureBrain, syncStatus,
-  type Store,
+  readStore, readScope, findClientDir, memoryDirName, applyRecordWrite,
+  writeIndex, ensureBrain, syncStatus,
+  type Store, type Scope,
 } from "./store.ts";
 
-import { LAYER_OF, type Jurisdiction, type RecordType } from "./schema.ts";
+import { FIELDS, LAYER_OF, type Jurisdiction, type RecordType } from "./schema.ts";
+
+/** Polia, ktoré newRecord priraďuje výslovne; zvyšok sa berie z tabuľky. */
+const CORE_INIT_FIELDS = new Set([
+  "schema", "id", "type", "title", "summary",
+  "layer", "jurisdiction", "status", "created", "updated",
+]);
 import type { OkfRecord, TimelineEntry } from "./record.ts";
 
 export interface NewRecordInit {
@@ -45,15 +54,48 @@ export interface NewRecordInit {
   truth: string;
   timeline: TimelineEntry[];
   status?: string;
+
   sources?: string[];
   related?: string[];
   deadlines?: string[];
   parties?: string[];
+  area?: string[];
+  business_scope?: string[];
+  representatives?: string[];
+  ubo?: string[];
+  registries?: string[];
+
   matter_ref?: string;
   court?: string;
-  area?: string[];
+
+  role?: string;
+  person_type?: string;
   registry_id?: string;
   birth_date?: string;
+  birth_number?: string;
+  birth_place?: string;
+  sex?: string;
+  citizenship?: string;
+  residence?: string;
+  id_document_type?: string;
+  id_document_number?: string;
+  id_document_issuer?: string;
+  id_document_valid_to?: string;
+
+  legal_form?: string;
+  registered_office?: string;
+  registry_entry?: string;
+  pep?: string;
+
+  subject_ref?: string;
+  check_date?: string;
+  mode?: string;
+  pep_result?: string;
+  sanctions_result?: string;
+  funds_origin?: string;
+  risk?: string;
+  conclusion?: string;
+  valid_until?: string;
 }
 
 /**
@@ -75,15 +117,14 @@ export function newRecord(init: NewRecordInit): OkfRecord {
     truth: init.truth,
     timeline: init.timeline,
   };
-  const optionalLists = ["sources", "related", "deadlines", "parties", "area"] as const;
-  for (const k of optionalLists) {
-    const v = init[k];
-    if (v !== undefined) rec[k] = v;
-  }
-  const optionalScalars = ["matter_ref", "court", "registry_id", "birth_date"] as const;
-  for (const k of optionalScalars) {
-    const v = init[k];
-    if (v !== undefined) rec[k] = v;
+  // Nepovinné polia sa kopírujú podľa tabuľky, nie podľa ručného zoznamu —
+  // inak by nové pole ticho vypadlo pri zakladaní záznamu.
+  const src = init as unknown as Record<string, string | string[] | undefined>;
+  const dst = rec as unknown as Record<string, string | string[]>;
+  for (const f of FIELDS) {
+    if (CORE_INIT_FIELDS.has(f.canonical)) continue;
+    const v = src[f.canonical];
+    if (v !== undefined) dst[f.canonical] = v;
   }
   return rec;
 }

@@ -17,6 +17,10 @@
  */
 
 import type { OkfRecord } from "./record.ts";
+import {
+  AML_REQUIRED, SENSITIVE_FIELDS, fieldKey, needleFields,
+  type FieldDef, type Jurisdiction,
+} from "./schema.ts";
 
 export type Severity = "error" | "warning";
 
@@ -64,18 +68,22 @@ function atWordBoundary(body: string): RegExp {
 const LEGAL_FORM =
   /[\s,]*(spol\.?\s*s\s*r\.?\s*o\.?|s\.?\s*r\.?\s*o\.?|a\.\s*s\.?|v\.\s*o\.\s*s\.?|o\.\s*p\.\s*s\.?|z\.\s*s\.?|z\.\s*u\.?|k\.\s*s\.?)\s*$/;
 
-/** IČO býva písané po trojiciach — „291 396 43" je ten istý údaj. */
-function registryNeedle(value: string, source: string): Needle | undefined {
-  const digits = value.replace(/\D/g, "");
-  if (digits.length < 3) return undefined;
-  const body = digits.split("").map(escapeRegex).join("[ \\u00a0]?");
-  return { pattern: atWordBoundary(body), label: value, source, strength: "hard" };
+/**
+ * Presný identifikátor (IČO, rodné číslo, číslo dokladu). Hľadá sa aj keď
+ * je rozdelený oddeľovačmi — „291 396 43" a „750101/1234" sú tie isté údaje
+ * ako bez medzery a lomítka.
+ */
+function exactNeedle(value: string, source: string, label: string): Needle | undefined {
+  const chars = value.replace(/[^0-9a-zA-Z]/g, "");
+  if (chars.length < 3) return undefined;
+  const body = chars.split("").map(escapeRegex).join("[ \\u00a0/.\\-]?");
+  return { pattern: atWordBoundary(body), label, source, strength: "hard" };
 }
 
 /** Dátum narodenia hľadáme v ISO aj v českom a slovenskom zápise. */
 function birthDateNeedle(value: string, source: string): Needle | undefined {
   const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
-  if (!iso) return undefined;
+  if (!iso) return exactNeedle(value, source, value);
   const [, y, mm, dd] = iso;
   if (!y || !mm || !dd) return undefined;
   const d = String(Number(dd));
@@ -87,6 +95,14 @@ function birthDateNeedle(value: string, source: string): Needle | undefined {
     source,
     strength: "hard",
   };
+}
+
+/** Viacslovný údaj — adresa. Hľadá sa celý, preto je zhoda dosť určitá. */
+function phraseNeedle(value: string, source: string): Needle | undefined {
+  const tokens = normalize(value).split(" ").filter((t) => t.length > 0);
+  if (tokens.length === 0) return undefined;
+  const body = tokens.map(escapeRegex).join("\\s+");
+  return { pattern: atWordBoundary(body), label: value, source, strength: "strong" };
 }
 
 function nameNeedle(title: string, source: string): Needle | undefined {
@@ -104,16 +120,26 @@ function nameNeedle(title: string, source: string): Needle | undefined {
   return { pattern: atWordBoundary(body), label: title, source, strength };
 }
 
+function needleForField(f: FieldDef, value: string, source: string): Needle | undefined {
+  if (f.canonical === "birth_date") return birthDateNeedle(value, source);
+  if (f.needle === "strong") return phraseNeedle(value, source);
+  return exactNeedle(value, source, value);
+}
+
+/**
+ * Jehly sa berú z tabuľky polí, nie z ručného zoznamu. Nové citlivé pole je
+ * tým pádom automaticky strážené — pridanie AML údaja nemôže ticho oslabiť
+ * bránu tým, že sa niekto zabudne vrátiť sem.
+ */
 function clientNeedles(records: readonly OkfRecord[]): Needle[] {
   const out: Needle[] = [];
   for (const r of records) {
     if (r.type !== "subject") continue;
-    if (r.registry_id) {
-      const n = registryNeedle(r.registry_id, r.id);
-      if (n) out.push(n);
-    }
-    if (r.birth_date) {
-      const n = birthDateNeedle(r.birth_date, r.id);
+    const raw = r as unknown as Record<string, unknown>;
+    for (const f of needleFields()) {
+      const v = raw[f.canonical];
+      if (typeof v !== "string" || v.trim() === "") continue;
+      const n = needleForField(f, v, r.id);
       if (n) out.push(n);
     }
     if (r.title) {
@@ -130,6 +156,7 @@ function recordText(r: OkfRecord): string {
 
 function linkTargets(r: OkfRecord): string[] {
   const out = [...(r.related ?? [])];
+  if (r.subject_ref) out.push(r.subject_ref);
   for (const m of recordText(r).matchAll(/\[\[([^\]]+)\]\]/g)) {
     if (m[1]) out.push(m[1]);
   }
@@ -157,7 +184,71 @@ function leakFinding(r: OkfRecord, n: Needle): Finding {
   };
 }
 
-export function validateStore(records: readonly OkfRecord[]): Finding[] {
+export interface ValidateOptions {
+  /** Dnešný dátum pre kontrolu lehôt. Vstupuje zvonka, aby boli testy deterministické. */
+  readonly today?: string;
+}
+
+/** Vzor českého a slovenského rodného čísla — šesť číslic, voliteľné lomítko, koncovka. */
+const BIRTH_NUMBER_PATTERN = /\b\d{6}\s?\/\s?\d{3,4}\b/;
+
+/** Popis sa dostáva do INDEX.md aj do projekcie v _STATUS.md — citlivý údaj tam nepatrí. */
+function sensitiveInSummary(r: OkfRecord): Finding | undefined {
+  const raw = r as unknown as Record<string, unknown>;
+  if (BIRTH_NUMBER_PATTERN.test(r.summary)) {
+    return {
+      severity: "error",
+      code: "SENSITIVE_IN_SUMMARY",
+      recordId: r.id,
+      message:
+        `Popis záznamu ${r.id} obsahuje rodné číslo. Popis sa renderuje do INDEX.md ` +
+        `a do _STATUS.md — citlivý údaj patrí do poľa frontmatteru, nie do popisu.`,
+    };
+  }
+  for (const key of SENSITIVE_FIELDS) {
+    const v = raw[key];
+    if (typeof v === "string" && v.trim().length >= 4 && r.summary.includes(v)) {
+      return {
+        severity: "error",
+        code: "SENSITIVE_IN_SUMMARY",
+        recordId: r.id,
+        message:
+          `Popis záznamu ${r.id} opakuje citlivý údaj z poľa ` +
+          `${fieldKey(key, r.jurisdiction)}. Popis sa renderuje do INDEX.md a do _STATUS.md.`,
+      };
+    }
+  }
+  return undefined;
+}
+
+/** Kontrola úplnosti identifikácie podľa AML predpisu jurisdikcie. */
+function amlCompleteness(r: OkfRecord): Finding | undefined {
+  const ruleset = AML_REQUIRED[r.jurisdiction as Jurisdiction];
+  if (!ruleset) return undefined;
+  const kind = r.person_type === "fo" ? "fo" : r.person_type === "po" ? "po" : undefined;
+  if (!kind) return undefined;
+
+  const raw = r as unknown as Record<string, unknown>;
+  const missing = ruleset[kind].filter((c) => {
+    const v = raw[c];
+    return v === undefined || (typeof v === "string" && v.trim() === "") ||
+      (Array.isArray(v) && v.length === 0);
+  });
+  if (missing.length === 0) return undefined;
+
+  const keys = missing.map((c) => fieldKey(c, r.jurisdiction)).join(", ");
+  return {
+    severity: "warning",
+    code: "AML_INCOMPLETE",
+    recordId: r.id,
+    message: `Identifikácia subjektu ${r.id} nie je úplná podľa § 8 — chýba: ${keys}`,
+  };
+}
+
+export function validateStore(
+  records: readonly OkfRecord[],
+  opts: ValidateOptions = {},
+): Finding[] {
   const findings: Finding[] = [];
   const ids = new Set(records.map((r) => r.id));
 
@@ -205,6 +296,67 @@ export function validateStore(records: readonly OkfRecord[]): Finding[] {
         recordId: r.id,
         message: `Záznam ${r.id} má zmena: ${r.updated}, ale história siaha do ${last.date}`,
       });
+    }
+  }
+
+  for (const r of records) {
+    const f = sensitiveInSummary(r);
+    if (f) findings.push(f);
+  }
+
+  const today = opts.today ?? new Date().toISOString().slice(0, 10);
+  const screenings = records.filter((r) => r.type === "screening");
+
+  // § 9 — priebežná kontrola. Preverenie s uplynutou platnosťou treba zopakovať.
+  for (const r of screenings) {
+    if (r.valid_until && r.valid_until < today) {
+      findings.push({
+        severity: "warning",
+        code: "AML_EXPIRED",
+        recordId: r.id,
+        message:
+          `Preverenie ${r.id} platilo do ${r.valid_until} a je po lehote. ` +
+          `§ 9 AML zákona vyžaduje priebežnú kontrolu — zopakuj a založ nový záznam.`,
+      });
+    }
+  }
+
+  // § 8 — klient musí byť preverený. Protistrana pod túto povinnosť nespadá.
+  for (const r of records) {
+    if (r.type !== "subject" || r.role !== "klient") continue;
+    if (!screenings.some((p) => p.subject_ref === r.id)) {
+      findings.push({
+        severity: "warning",
+        code: "AML_MISSING",
+        recordId: r.id,
+        message: `Klient ${r.id} nemá žiadny záznam o preverení (typ screening).`,
+      });
+    }
+  }
+
+  // Varovanie patrí tam, kde by kontrola úplnosti reálne bežala — teda kde
+  // niekto AML identifikáciu naozaj vedie (`typ_osoby`). Subjekt bez nej je
+  // len údaj o tom, kto je protistrana, nie AML záznam.
+  const unverified = records.find(
+    (r) =>
+      r.type === "subject" &&
+      (r.person_type === "fo" || r.person_type === "po") &&
+      AML_REQUIRED[r.jurisdiction as Jurisdiction] === undefined,
+  );
+  if (unverified) {
+    findings.push({
+      severity: "warning",
+      code: "AML_RULESET_UNVERIFIED",
+      recordId: unverified.id,
+      message:
+        `Pre jurisdikciu ${unverified.jurisdiction} nie je overená povinná identifikačná sada, ` +
+        `takže sa úplnosť nekontroluje. Doplní advokát danej jurisdikcie.`,
+    });
+  } else {
+    for (const r of records) {
+      if (r.type !== "subject") continue;
+      const f = amlCompleteness(r);
+      if (f) findings.push(f);
     }
   }
 

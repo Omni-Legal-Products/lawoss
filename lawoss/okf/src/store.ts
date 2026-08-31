@@ -9,7 +9,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { parseRecord, serializeRecord, type OkfRecord } from "./record.ts";
 import { renderStatus } from "./render.ts";
 import { authorize, type Approval, type WriteDiff } from "./write.ts";
@@ -149,4 +149,48 @@ export function syncStatus(dir: string): void {
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
   const next = renderStatus(existing, store.records, store.jurisdiction);
   if (next !== existing) writeFileSync(path, next, "utf8");
+}
+
+/**
+ * Rozsah pamäte, ktorý agent pri práci na spise vidí.
+ *
+ * AML identifikácia sa podľa § 8 robí raz pri vzniku obchodného vzťahu
+ * a podľa § 16 sa archivuje 10 rokov od jeho skončenia — nie od skončenia
+ * kauzy. Preto subjekty a preverenia žijú u klienta a spis na ne odkazuje.
+ */
+export interface Scope {
+  readonly matter: Store;
+  readonly clientDir: string | undefined;
+  readonly clientRecords: OkfRecord[];
+  /** Spisové aj klientske záznamy dohromady — nad týmto beží validácia. */
+  readonly records: OkfRecord[];
+}
+
+const CLIENT_CARD = "klient.md";
+
+/**
+ * Nájde zložku klienta nad spisom. MČ profil A má medzi nimi ešte úroveň
+ * oblasti práva, preto sa hľadá viac než jednu úroveň vyššie.
+ */
+export function findClientDir(matterDir: string, maxUp = 4): string | undefined {
+  let dir = resolve(matterDir);
+  for (let i = 0; i < maxUp; i++) {
+    const parent = dirname(dir);
+    if (parent === dir) return undefined;
+    if (existsSync(join(parent, CLIENT_CARD))) return parent;
+    dir = parent;
+  }
+  return undefined;
+}
+
+export function readScope(matterDir: string): Scope {
+  const matter = readStore(matterDir);
+  const clientDir = findClientDir(matterDir);
+  const clientRecords = clientDir ? readStore(clientDir).records : [];
+  return {
+    matter,
+    clientDir,
+    clientRecords,
+    records: [...matter.records, ...clientRecords],
+  };
 }
