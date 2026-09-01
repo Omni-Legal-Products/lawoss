@@ -37,7 +37,10 @@ export interface WriteDiff {
 }
 
 function sameEntry(a: TimelineEntry | undefined, b: TimelineEntry | undefined): boolean {
-  return a !== undefined && b !== undefined && a.date === b.date && a.text === b.text;
+  // Druh sa porovnáva tiež — bez toho by šlo ticho prepísať, čím udalosť
+  // bola, a append-only záruka by tam mala dieru.
+  return a !== undefined && b !== undefined &&
+    a.date === b.date && a.text === b.text && a.kind === b.kind;
 }
 
 /** História je append-only: stará musí byť doslovnou predponou novej. */

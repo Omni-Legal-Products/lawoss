@@ -98,6 +98,18 @@ a prípravu návrhu**. Vlastný zápis nechaj CLI.
 - [ ] **Fáza** a **Ďalší krok** v `_STATUS.md` zodpovedajú realite — to píše človek,
       ale ak sú zjavne zastarané, upozorni naň advokáta
 
+## Tri úrovne pamäte
+
+| Úroveň | Čo tam žije |
+|---|---|
+| `<spis>/memory/` | obsah veci — `matter`, `decision`, `claim`, `evidence`, `task`, `question` |
+| `<klient>/memory/` | `subject` a `screening` — identifikácia sa robí raz na klienta |
+| `_kancelaria/memory/` | `rule`, `lesson` (L1) a `authority` (L3) |
+
+`readScope()` prečíta všetky tri naraz. **Prameň patrí kancelárii, nie spisu** —
+inak sa ten istý judikát skopíruje do desiatich spisov a kontrola úniku beží
+desaťkrát nad tým istým textom.
+
 ## Jediná pamäť veci
 
 Adresár `memory/` je jediné miesto, kam sa zapisuje. Nájdeš-li vo spise `_memory.md`,

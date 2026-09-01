@@ -82,6 +82,16 @@ export type Risk = (typeof RISK)[number];
 export const CONCLUSION = ["proceed", "enhanced_diligence", "decline"] as const;
 export type Conclusion = (typeof CONCLUSION)[number];
 
+/**
+ * Druhy udalosti v histórii záznamu. Slovník je **otvorený** — neznámy druh
+ * sa nepremenúva a nebráni zápisu; advokát smie zapísať aj to, čo slovník
+ * nepozná. Slúži na filtrovanie chronológie, nie na výpočet lehôt.
+ */
+export const EVENT_KINDS = [
+  "dorucenie", "podanie", "pojednavanie", "rozhodnutie", "vyzva", "hovor", "email",
+] as const;
+export type EventKind = (typeof EVENT_KINDS)[number];
+
 /** Stav úlohy. `blocked` znamená, že čaká na inú úlohu — nie „nechce sa mi". */
 export const TASK_STATES = ["pending", "in_progress", "blocked", "done"] as const;
 export type TaskState = (typeof TASK_STATES)[number];
@@ -407,6 +417,15 @@ const VALUE_LABELS: Record<string, Record<string, Record<Jurisdiction, string>>>
   procedural_status: {
     proposed: { cz: "navržen", sk: "navrhnutý" },
     taken: { cz: "proveden", sk: "vykonaný" },
+  },
+  event_kind: {
+    dorucenie: { cz: "doručení", sk: "doručenie" },
+    podanie: { cz: "podání", sk: "podanie" },
+    pojednavanie: { cz: "jednání", sk: "pojednávanie" },
+    rozhodnutie: { cz: "rozhodnutí", sk: "rozhodnutie" },
+    vyzva: { cz: "výzva", sk: "výzva" },
+    hovor: { cz: "hovor", sk: "hovor" },
+    email: { cz: "e-mail", sk: "e-mail" },
   },
   state: {
     pending: { cz: "čeká", sk: "čaká" },

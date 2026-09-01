@@ -228,13 +228,21 @@ Zápis vedie výhradne cez `planWrite() → applyRecordWrite()`. Iná cesta na d
 ## Čo jadro zapisuje do spisu
 
 ```
-spis/
-├── spis.md          ← karta veci (novy-spis) — iba čítame
+_kancelaria/
+└── memory/          ← L1 pravidlá a poučenia + L3 právne pramene
+
+klient/
+├── client.md
+├── memory/          ← subjekty a AML preverenia
+└── <oblasť>/spis/
+    ├── spis.md      ← karta veci (novy-spis) — iba čítame
 ├── _STATUS.md       ← ľudské rozhranie; prepisujeme LEN medzi markermi
 ├── BRAIN.md         ← vstupný bod pre agentov (nikdy neprepíšeme existujúci)
-└── memory/          ← jeden pre obe jurisdikcie
-    ├── INDEX.md     ← generovaný register
-    └── D-001-*.md   ← záznamy
+    ├── _STATUS.md   ← ľudské rozhranie; prepisujeme LEN medzi markermi
+    ├── BRAIN.md     ← vstupný bod pre agentov
+    └── memory/      ← obsah veci (L2)
+        ├── INDEX.md ← generovaný register
+        └── D-001-*.md
 ```
 
 V `_STATUS.md` sa prepisuje výlučne obsah medzi `<!-- okf:render:*:start -->`
@@ -266,7 +274,7 @@ inštaluje sa samostatne, aby fork nepribral ďalší uzol do upstream stromu.
 
 ```bash
 pnpm install --ignore-workspace
-pnpm test        # node --test, 304 testov
+pnpm test        # node --test, 318 testov
 pnpm typecheck
 ```
 

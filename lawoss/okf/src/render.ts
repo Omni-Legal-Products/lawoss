@@ -51,14 +51,17 @@ function renderTimeline(records: readonly OkfRecord[], j: Jurisdiction): string 
   const rows: { date: string; line: string }[] = [];
   for (const r of records) {
     for (const e of r.timeline) {
-      rows.push({ date: e.date, line: `| ${e.date} | ${e.text} | [[${r.id}]] |` });
+      rows.push({
+        date: e.date,
+        line: `| ${e.date} | ${e.kind ? valueLabel("event_kind", e.kind, j) : ""} | ${e.text} | [[${r.id}]] |`,
+      });
     }
   }
   if (rows.length === 0) return EMPTY[j];
   rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   const head =
-    j === "cz" ? "| Datum | Událost | Záznam |" : "| Dátum | Udalosť | Záznam |";
-  return [head, "|---|---|---|", ...rows.map((r) => r.line)].join("\n");
+    j === "cz" ? "| Datum | Druh | Událost | Záznam |" : "| Dátum | Druh | Udalosť | Záznam |";
+  return [head, "|---|---|---|---|", ...rows.map((r) => r.line)].join("\n");
 }
 
 function renderRecords(records: readonly OkfRecord[], j: Jurisdiction): string {

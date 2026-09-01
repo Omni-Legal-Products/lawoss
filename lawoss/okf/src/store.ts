@@ -190,6 +190,15 @@ export function ensureBrain(dir: string, j: Jurisdiction): void {
     "  a při **mazání** jen člověk — nástroj bez schválení zápis odmítne.",
     `- \`${STATUS_FILE}\` mimo markery patří advokátovi. Needituj to.`,
     "",
+    "## Tři úrovně paměti",
+    "",
+    `- \`${mem}/\` zde ve spisu — obsah věci (L2)`,
+    "- `../../memory/` u klienta — subjekty a AML prověření (identifikace se dělá jednou)",
+    "- `_kancelaria/memory/` — pravidla a poučení (L1) a právní prameny (L3)",
+    "",
+    "Pramen patří kanceláři, ne spisu: jinak se týž judikát zkopíruje do deseti",
+    "spisů a kontrola úniku běží desetkrát nad týmž textem.",
+    "",
     "## Jediná paměť věci",
     "",
     `Tento adresář (\`${mem}/\`) je **jediné** místo, kam se paměť zapisuje.`,
@@ -215,6 +224,15 @@ export function ensureBrain(dir: string, j: Jurisdiction): void {
     "- Do L2 (spis) zapisuje agent sám. Do **L1** (pravidlá, poučenia) a **L3** (právne pramene)",
     "  a pri **mazaní** iba človek — nástroj bez schválenia zápis odmietne.",
     `- \`${STATUS_FILE}\` mimo markerov patrí advokátovi. Needituj to.`,
+    "",
+    "## Tri úrovne pamäte",
+    "",
+    `- \`${mem}/\` tu v spise — obsah veci (L2)`,
+    "- `../../memory/` u klienta — subjekty a AML preverenia (identifikácia sa robí raz)",
+    "- `_kancelaria/memory/` — pravidlá a poučenia (L1) a právne pramene (L3)",
+    "",
+    "Prameň patrí kancelárii, nie spisu: inak sa ten istý judikát skopíruje do",
+    "desiatich spisov a kontrola úniku beží desaťkrát nad tým istým textom.",
     "",
     "## Jediná pamäť veci",
     "",
@@ -248,6 +266,8 @@ export interface Scope {
   readonly matter: Store;
   readonly clientDir: string | undefined;
   readonly clientRecords: OkfRecord[];
+  readonly officeDir: string | undefined;
+  readonly officeRecords: OkfRecord[];
   /** Spisové aj klientske záznamy dohromady — nad týmto beží validácia. */
   readonly records: OkfRecord[];
   readonly problems: StoreProblem[];
@@ -259,6 +279,29 @@ export interface Scope {
  * fungovať priečinky založené skriptami `novy-spis`.
  */
 const CLIENT_CARDS = ["client.md", "klient.md"];
+
+/**
+ * Zložka kancelárie. Býva v koreni spisov vedľa priečinkov klientov a drží
+ * to, čo je nadspisové: pravidlá a poučenia (L1) a právne pramene (L3).
+ *
+ * Prameň patrí sem, nie do spisu — inak sa ten istý judikát skopíruje do
+ * desiatich spisov a kontrola úniku beží desaťkrát nad tým istým textom.
+ */
+export const OFFICE_DIR = "_kancelaria";
+
+/** Nájde zložku kancelárie nad spisom alebo klientom. */
+export function findOfficeDir(startDir: string, maxUp = 5): string | undefined {
+  let dir = resolve(startDir);
+  if (dir.endsWith(`/${OFFICE_DIR}`)) return undefined;
+  for (let i = 0; i < maxUp; i++) {
+    const candidate = join(dir, OFFICE_DIR);
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+  return undefined;
+}
 
 /**
  * Nájde zložku klienta nad spisom. MČ profil A má medzi nimi ešte úroveň
@@ -280,11 +323,16 @@ export function readScope(matterDir: string): Scope {
   const clientDir = findClientDir(matterDir);
   const client = clientDir ? readStore(clientDir) : undefined;
   const clientRecords = client?.records ?? [];
+  const officeDir = findOfficeDir(matterDir);
+  const office = officeDir ? readStore(officeDir) : undefined;
+  const officeRecords = office?.records ?? [];
   return {
     matter,
     clientDir,
     clientRecords,
-    records: [...matter.records, ...clientRecords],
-    problems: [...matter.problems, ...(client?.problems ?? [])],
+    officeDir,
+    officeRecords,
+    records: [...matter.records, ...clientRecords, ...officeRecords],
+    problems: [...matter.problems, ...(client?.problems ?? []), ...(office?.problems ?? [])],
   };
 }

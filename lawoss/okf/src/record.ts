@@ -29,6 +29,8 @@ export const HEADINGS = { truth: "Truth", timeline: "History" } as const;
 export interface TimelineEntry {
   readonly date: string;
   readonly text: string;
+  /** Druh udalosti. Voliteľný — staršie záznamy ho nemajú a musia ďalej fungovať. */
+  readonly kind?: string;
 }
 
 export interface OkfRecord {
@@ -254,8 +256,11 @@ function parseTimeline(raw: string | undefined): TimelineEntry[] {
   if (!raw) return [];
   const out: TimelineEntry[] = [];
   for (const line of raw.split("\n")) {
-    const m = /^-\s*(\d{4}-\d{2}-\d{2})\s*[—-]\s*(.*)$/.exec(line.trim());
-    if (m && m[1] && m[2] !== undefined) out.push({ date: m[1], text: m[2].trim() });
+    const m = /^-\s*(\d{4}-\d{2}-\d{2})\s*(?:\[([a-z_]+)\]\s*)?[—-]\s*(.*)$/.exec(line.trim());
+    if (!m || !m[1] || m[3] === undefined) continue;
+    out.push(m[2] === undefined
+      ? { date: m[1], text: m[3].trim() }
+      : { date: m[1], text: m[3].trim(), kind: m[2] });
   }
   return out;
 }
@@ -336,6 +341,8 @@ export function serializeRecord(r: OkfRecord): string {
   lines.push(FM_DELIM, "");
   lines.push(`## ${HEADINGS.truth}`, "", r.truth, "");
   lines.push(`## ${HEADINGS.timeline}`, "");
-  for (const e of r.timeline) lines.push(`- ${e.date} — ${e.text}`);
+  for (const e of r.timeline) {
+    lines.push(`- ${e.date}${e.kind ? ` [${e.kind}]` : ""} — ${e.text}`);
+  }
   return lines.join("\n") + "\n";
 }

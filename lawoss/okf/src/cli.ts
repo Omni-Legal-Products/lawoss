@@ -94,7 +94,8 @@ export function runCli(argv: readonly string[]): CliResult {
         ...problemLines(scope.problems),
         `Spis: ${dir}`,
         `Jurisdikcia: ${scope.matter.jurisdiction}   Záznamov: ${scope.records.length}` +
-          (scope.clientDir ? ` (z toho ${scope.clientRecords.length} u klienta)` : ""),
+          (scope.clientDir ? `, u klienta ${scope.clientRecords.length}` : "") +
+          (scope.officeDir ? `, v kancelárii ${scope.officeRecords.length}` : ""),
         "",
         ...scope.records
           .map(maskRecord)
