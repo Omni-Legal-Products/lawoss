@@ -1,5 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96">
-  <rect width="96" height="96" rx="22" fill="#0A0E14"/>
-  <path d="M48 14l28 16.2v33.6L48 80 20 63.8V30.2z" fill="none" stroke="#C9A24A" stroke-width="4"/>
-  <path d="M48 30v34M35 40h26M35 40l-6.5 13a7.5 7.5 0 0 0 13 0zM61 40l-6.5 13a7.5 7.5 0 0 0 13 0zM39 66h18" fill="none" stroke="#C9A24A" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="LAWOSS">
+  <defs>
+    <linearGradient id="lw-gold" x1="18" y1="14" x2="78" y2="82" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#EBD59A"/>
+      <stop offset="0.45" stop-color="#C9A24A"/>
+      <stop offset="1" stop-color="#8C6A1F"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke="url(#lw-gold)" stroke-width="3">
+    <circle cx="48" cy="48" r="33"/>
+  </g>
+  <g fill="url(#lw-gold)">
+    <!-- entablature: wide architrave over a narrower frieze -->
+    <rect x="25" y="27.5" width="46" height="4.6" rx="1"/>
+    <rect x="29.5" y="35" width="37" height="3.6" rx="1"/>
+    <!-- central column with capital, flaring into a base -->
+    <rect x="41.5" y="41.5" width="13" height="3.4" rx="1"/>
+    <path d="M44.6 44.9h6.8v25.4h-6.8z"/>
+    <path d="M41.3 70.3h13.4l1.9 4.8H39.4z"/>
+    <!-- flanking columns, cropped by the ring like a portico in perspective -->
+    <path d="M33.2 41.5h4.6v33.1l-4.6-3.4z"/>
+    <path d="M58.2 41.5h4.6v29.7l-4.6 3.4z"/>
+  </g>
 </svg>
