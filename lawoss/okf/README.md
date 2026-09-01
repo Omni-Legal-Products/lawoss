@@ -126,6 +126,10 @@ rozdiel žije v jednej mapovacej tabuľke (`src/schema.ts`), nie v dvoch kópiá
    Prepísať ani skrátiť sa nedá.
 3. **Human gate** — do L1, do L3 a pri mazaní kdekoľvek zapíše iba človek.
    Agent dostane `WriteDiff` a `authorize()` mu bez schválenia zápis odmietne.
+   Schválenie musí niesť meno a **platný časový údaj** a zapíše sa do append-only
+   histórie záznamu — kto ho vydal, zostane trvalo viditeľné. Je to hranica
+   **procesná, nie kryptografická**: knižnica nevie rozlíšiť, kto ju volá, ale
+   podpis sa nedá zmazať. Zápisy preto veď cez `okf-memory write`, nie cez API.
 4. **Zákaz úniku L2 → L3** — právny prameň nesmie obsahovať identifikátor
    klienta zo subjektov spisu. Hľadá sa aj v histórii záznamu, bez ohľadu na
    diakritiku a veľkosť písmen, a **podľa sily zhody** — falošný poplach
@@ -173,6 +177,9 @@ node bin/okf-memory.ts aml      <spis>            # subjekty a stav preverenia
 node bin/okf-memory.ts validate <spis>            # exit 1 pri chybe
 node bin/okf-memory.ts sync     <spis> [--apply]  # projekcia do _STATUS.md a INDEX.md
 node bin/okf-memory.ts init     <spis> [--sk] [--apply]
+
+# Zápis záznamu — jediná zápisová hranica pre agenta
+node bin/okf-memory.ts write <spis> --file navrh.md --reason "…" [--apply] [--approve-as "meno"]
 ```
 
 ## Vývoj
@@ -182,7 +189,7 @@ inštaluje sa samostatne, aby fork nepribral ďalší uzol do upstream stromu.
 
 ```bash
 pnpm install --ignore-workspace
-pnpm test        # node --test, 159 testov
+pnpm test        # node --test, 196 testov
 pnpm typecheck
 ```
 

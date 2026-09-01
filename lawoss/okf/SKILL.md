@@ -30,12 +30,27 @@ Citáciu do výstupu overuj vždy proti originálu dokumentu, nikdy proti pamät
 
 ## Zápis
 
-```ts
-import { newRecord, planWrite, applyRecordWrite, readStore } from "@lawoss/okf-pamat";
+```bash
+# Náhľad — vypíše diff a nič nezapíše
+okf-memory write <spis> --file navrh.md --reason "prečo sa to mení"
 
-const diff = planWrite(predchadzajuci, novy, "prečo sa to mení");
-applyRecordWrite(spisDir, diff, schvalenie);   // schvalenie undefined pri L2
+# Zápis do L2 — agent smie sám
+okf-memory write <spis> --file navrh.md --reason "…" --apply
+
+# Zápis do L1, L3 alebo mazanie — meno zadáva človek
+okf-memory write <spis> --file navrh.md --reason "…" --apply --approve-as "JUDr. …"
 ```
+
+> [!IMPORTANT]
+> **`Approval` si nikdy nekonštruuj sám.** Meno v `--approve-as` zadáva do príkazu
+> **človek**. Agent, ktorý si napíše `{ by: "agent" }`, bránu síce technicky prejde —
+> knižnica nevie rozlíšiť, kto ju volá — ale **schválenie sa zapisuje do append-only
+> histórie záznamu** a zostane tam navždy viditeľné. Je to hranica procesná, nie
+> kryptografická; drží ju to, že podpis je trvalý a dohľadateľný, nie to, že sa nedá
+> napísať.
+
+Knižničné API (`planWrite` → `applyRecordWrite`) používaj iba na **čítanie diffu
+a prípravu návrhu**. Vlastný zápis nechaj CLI.
 
 **Pravidlá, ktoré nástroj vynucuje — neobchádzaj ich, zlyhá to:**
 

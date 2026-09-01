@@ -135,9 +135,14 @@ export function planWrite(
  * Brána. Vyhodí výnimku, ak zápis potrebuje človeka a schválenie chýba.
  * Volá sa vždy pred dotykom disku.
  */
+/** Čas schválenia musí byť čas — inak sa audit stopa nedá zaradiť do času. */
+function isTimestamp(value: string): boolean {
+  return value.trim() !== "" && !Number.isNaN(Date.parse(value));
+}
+
 export function authorize(diff: WriteDiff, approval: Approval | undefined): void {
   if (!diff.requiresApproval) return;
-  if (approval && approval.by.trim() !== "" && approval.at.trim() !== "") return;
+  if (approval && approval.by.trim() !== "" && isTimestamp(approval.at)) return;
   const why =
     diff.kind === "delete"
       ? "mazanie záznamu"

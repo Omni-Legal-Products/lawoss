@@ -8,7 +8,9 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { readStore, readScope, writeIndex, syncStatus, ensureBrain } from "./store.ts";
+import { readStore, readScope, writeIndex, syncStatus, ensureBrain, applyRecordWrite } from "./store.ts";
+import { parseRecord, type OkfRecord } from "./record.ts";
+import { planWrite, type Approval, type WriteDiff } from "./write.ts";
 import { maskRecord } from "./mask.ts";
 import { fieldKey } from "./schema.ts";
 import { renderStatus, RenderConflictError } from "./render.ts";
@@ -26,10 +28,19 @@ const USAGE = [
   "  okf-memory validate <spis>            kontrola schémy, únikov L2→L3 a odkazov",
   "  okf-memory sync     <spis> [--apply]  projekcia do _STATUS.md a INDEX.md",
   "  okf-memory aml      <spis>            subjekty a stav AML preverenia",
+  "  okf-memory write    <spis> --file <záznam.md> --reason \"…\" [--apply] [--approve-as \"meno\"]",
   "  okf-memory init     <spis> [--sk] [--apply]   BRAIN.md a adresár pamäte",
   "",
   "Bez --apply sa nič nezapisuje.",
 ].join("\n");
+
+/** Hodnota prepínača s hodnotou: `--file cesta`. Chýbajúca hodnota nie je hodnota. */
+function flagValue(rest: readonly string[], name: string): string | undefined {
+  const i = rest.indexOf(name);
+  if (i === -1) return undefined;
+  const v = rest[i + 1];
+  return v === undefined || v.startsWith("--") ? undefined : v;
+}
 
 function ok(out: string): CliResult {
   return { code: 0, out };
@@ -49,6 +60,13 @@ function riadkov(n: number): string {
   if (n === 1) return "1 riadok";
   if (n >= 2 && n <= 4) return `${n} riadky`;
   return `${n} riadkov`;
+}
+
+/** Slovenčina skloňuje: „Nový záznam", ale „Zmena záznamu". */
+function nadpisZapisu(kind: WriteDiff["kind"]): string {
+  if (kind === "create") return "Nový záznam";
+  if (kind === "delete") return "Zmazanie záznamu";
+  return "Zmena záznamu";
 }
 
 /** 1 záznam, 2–4 záznamy, 5+ záznamov. */
@@ -168,6 +186,87 @@ export function runCli(argv: readonly string[]): CliResult {
         lines.push("AML evidencia bez nálezov.");
       }
       return ok(lines.join("\n"));
+    }
+
+    case "write": {
+      const file = flagValue(rest, "--file");
+      const reason = flagValue(rest, "--reason");
+      const approveAs = flagValue(rest, "--approve-as");
+
+      if (!file || !reason) {
+        return { code: 2, out: `Príkaz write vyžaduje --file a --reason.\n\n${USAGE}` };
+      }
+      if (!existsSync(file)) return { code: 2, out: `Súbor návrhu neexistuje: ${file}` };
+
+      let after: OkfRecord;
+      try {
+        after = parseRecord(readFileSync(file, "utf8"));
+      } catch (e) {
+        return { code: 2, out: `Návrh sa nedá prečítať: ${e instanceof Error ? e.message : String(e)}` };
+      }
+
+      const store = readStore(dir);
+      const before = store.records.find((r) => r.id === after.id);
+
+      let diff: WriteDiff;
+      try {
+        diff = planWrite(before, after, reason);
+      } catch (e) {
+        return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };
+      }
+
+      const out: string[] = [
+        `${nadpisZapisu(diff.kind)} ${diff.id} (${after.type}, ${diff.layer})`,
+        `Dôvod: ${diff.reason}`,
+        "",
+        ...diff.lines,
+        "",
+      ];
+
+      if (!apply) {
+        out.push(
+          diff.requiresApproval
+            ? `dry-run: zápis do vrstvy ${diff.layer} vyžaduje schválenie človekom. ` +
+              `Zapíš s --apply --approve-as "<meno>".`
+            : "dry-run: nič sa nezapísalo. Zapíš s --apply.",
+        );
+        return ok(out.join("\n"));
+      }
+
+      if (diff.requiresApproval && approveAs === undefined) {
+        out.push(
+          `ODMIETNUTÉ: zápis do vrstvy ${diff.layer} vyžaduje --approve-as "<meno advokáta>". ` +
+            `Meno zadáva človek, agent si ho nekonštruuje sám.`,
+        );
+        return { code: 1, out: out.join("\n") };
+      }
+
+      const approval: Approval | undefined =
+        approveAs === undefined ? undefined : { by: approveAs, at: new Date().toISOString() };
+
+      // Audit riadok sa pridáva AŽ po tom, čo návrh prešiel bránami. Keby sa
+      // pridal skôr, história by rástla pri každom zápise a brána atomicity
+      // pravdy by bola splnená vždy — teda by neplatila.
+      let zapis = diff;
+      if (approval !== undefined) {
+        const auditovany: OkfRecord = {
+          ...after,
+          timeline: [
+            ...after.timeline,
+            { date: approval.at.slice(0, 10), text: `schválil ${approval.by} — ${diff.reason}` },
+          ],
+        };
+        zapis = planWrite(before, auditovany, reason);
+      }
+
+      try {
+        applyRecordWrite(dir, zapis, approval);
+      } catch (e) {
+        return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };
+      }
+
+      out.push(`Zapísané: ${diff.id}${approval ? ` (schválil ${approval.by})` : ""}.`);
+      return ok(out.join("\n"));
     }
 
     case "init": {
