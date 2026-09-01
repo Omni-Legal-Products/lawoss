@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 
 import lawossMark from "../../../../../lawoss/brand/lawoss-mark.svg";
+import { useExperiment } from "../experiments/store";
 import "./lawoss.css";
 
 export type LawossTabItem = {
@@ -10,7 +11,17 @@ export type LawossTabItem = {
   label: string;
   count?: string;
   external?: boolean;
+  /** Short marker rendered next to the label, e.g. unfinished work. */
+  badge?: string;
 };
+
+/**
+ * Register tabs are themselves an experiment inside the upstream session
+ * sidebar: without the switch that sidebar stays vanilla. `Experimenty` is the
+ * one entry that always shows, otherwise the switch would be unreachable.
+ */
+export const REGISTROVE_ZALOZKY_FLAG = "sidebar-registrove-zalozky";
+export const EXPERIMENTY_PATH = "/experimenty";
 
 /**
  * LAWOSS navigation — the register-tab groups. The `Asistent` and `Nastavenia`
@@ -37,6 +48,10 @@ export const LAWOSS_TABS: { group: string; items: LawossTabItem[] }[] = [
       { to: "/settings", label: "Nastavenia", external: true },
     ],
   },
+  {
+    group: "experiment",
+    items: [{ to: EXPERIMENTY_PATH, label: "Experimenty", badge: "EXP" }],
+  },
 ];
 
 function RailTabs() {
@@ -48,6 +63,7 @@ function RailTabs() {
           {group.items.map((item) => (
             <NavLink key={item.to} to={item.to} className="lw-tab">
               {item.label}
+              {item.badge ? <span className="lw-badge">{item.badge}</span> : null}
               <span className="lw-count">{item.count ?? ""}</span>
             </NavLink>
           ))}
@@ -86,23 +102,36 @@ export function LawossLayout(props: { children: ReactNode }) {
   );
 }
 
+/**
+ * What the upstream session sidebar shows. With the switch off it stays vanilla
+ * apart from the `Experimenty` door — without that door the switch that brings
+ * the register tabs back would be unreachable from the session shell.
+ */
+export function visibleNavItems(registreOn: boolean): LawossTabItem[] {
+  return LAWOSS_TABS.flatMap((group) => group.items)
+    .filter((item) => !item.external)
+    .filter((item) => registreOn || item.to === EXPERIMENTY_PATH);
+}
+
 /** Compact variant mounted inside the upstream session sidebar (1-line 🟡 insert). */
 export function LawossNav() {
+  const registreOn = useExperiment(REGISTROVE_ZALOZKY_FLAG);
+  const items = visibleNavItems(registreOn);
+
   return (
     <nav className="lw-sidebar-nav" style={{ padding: "2px 8px 6px" }}>
-      {LAWOSS_TABS.flatMap((group) => group.items)
-        .filter((item) => !item.external)
-        .map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            className="lw-tab"
-            style={{ height: 32, marginLeft: 0, borderRadius: 6, transform: "none", boxShadow: "none" }}
-          >
-            {item.label}
-            <span className="lw-count">{item.count ?? ""}</span>
-          </NavLink>
-        ))}
+      {items.map((item) => (
+        <NavLink
+          key={item.to}
+          to={item.to}
+          className="lw-tab"
+          style={{ height: 32, marginLeft: 0, borderRadius: 6, transform: "none", boxShadow: "none" }}
+        >
+          {item.label}
+          {item.badge ? <span className="lw-badge">{item.badge}</span> : null}
+          <span className="lw-count">{item.count ?? ""}</span>
+        </NavLink>
+      ))}
     </nav>
   );
 }

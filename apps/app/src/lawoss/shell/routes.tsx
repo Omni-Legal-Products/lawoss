@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 import type { ReactElement } from "react";
 
+import { ExperimentyPage } from "../domains/experimenty/experimenty-page";
 import { KonektoryPage } from "../domains/konektory/konektory-page";
 import { LehotyPage } from "../domains/lehoty/lehoty-page";
 import { MarketplacePage } from "../domains/marketplace/marketplace-page";
@@ -15,4 +16,5 @@ export const LAWOSS_ROUTES: ReadonlyArray<{ path: string; element: ReactElement 
   { path: "/lehoty", element: <LehotyPage /> },
   { path: "/konektory", element: <KonektoryPage /> },
   { path: "/marketplace", element: <MarketplacePage /> },
+  { path: "/experimenty", element: <ExperimentyPage /> },
 ];

@@ -165,3 +165,55 @@
 @media (prefers-reduced-motion: reduce) {
   .lw-tab, .lw-row, .lw-btn { transition: none; }
 }
+
+/* --- Experimenty ------------------------------------------------------- */
+.lw-badge {
+  font-family: var(--lw-font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.14em;
+  color: var(--lw-warning);
+  border: 1px solid var(--lw-warning);
+  border-radius: 2px;
+  padding: 1px 4px;
+  margin-left: 6px;
+  flex: 0 0 auto;
+  opacity: 0.75;
+}
+/* label + badge stay left, the count keeps its right edge */
+.lw-tab .lw-count { margin-left: auto; }
+.lw-tab[aria-current="page"] .lw-badge { opacity: 1; }
+.lw-row.lw-cols-exp { grid-template-columns: 26px minmax(0, 1fr) 60px 110px 52px; }
+.lw-row.lw-cols-exp-view { grid-template-columns: 26px minmax(0, 1fr) 60px 110px 62px; text-decoration: none; color: inherit; }
+.lw-row .lw-no { line-height: 1; }
+.lw-switch {
+  width: 34px;
+  height: 18px;
+  border-radius: 9px;
+  border: 1px solid var(--lw-border-strong);
+  background: transparent;
+  padding: 0 2px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.lw-switch-knob {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--lw-text-tertiary);
+  transition: transform 120ms ease, background 120ms ease;
+}
+.lw-switch.on { border-color: var(--lw-accent); background: color-mix(in srgb, var(--lw-accent) 18%, transparent); }
+.lw-switch.on .lw-switch-knob { transform: translateX(16px); background: var(--lw-accent); }
+.lw-reset {
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--lw-border);
+  color: var(--lw-text-secondary);
+  margin-left: 14px;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.lw-reset:hover { color: var(--lw-accent); border-color: var(--lw-accent); }
