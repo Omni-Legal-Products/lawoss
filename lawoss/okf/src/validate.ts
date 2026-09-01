@@ -18,7 +18,8 @@
 
 import type { OkfRecord } from "./record.ts";
 import {
-  AML_REQUIRED, PERSON_KINDS, SENSITIVE_FIELDS, fieldLabel, needleFields,
+  AML_REQUIRED, PERSON_KINDS, SENSITIVE_FIELDS, EVIDENCE_KINDS,
+  fieldLabel, needleFields,
   type FieldDef, type Jurisdiction,
 } from "./schema.ts";
 
@@ -156,8 +157,14 @@ function recordText(r: OkfRecord): string {
 }
 
 function linkTargets(r: OkfRecord): string[] {
-  const out = [...(r.related ?? [])];
+  const out = [
+    ...(r.related ?? []),
+    ...(r.supporting_evidence ?? []),
+    ...(r.contradicting_evidence ?? []),
+    ...(r.proves ?? []),
+  ];
   if (r.subject_ref) out.push(r.subject_ref);
+  if (r.claimed_by) out.push(r.claimed_by);
   for (const m of recordText(r).matchAll(/\[\[([^\]]+)\]\]/g)) {
     if (m[1]) out.push(m[1]);
   }
@@ -333,6 +340,55 @@ export function validateStore(
   for (const r of records) {
     const f = sensitiveInSummary(r);
     if (f) findings.push(f);
+  }
+
+  for (const r of records) {
+    if (r.type !== "evidence" || r.evidence_kind === undefined) continue;
+    if (EVIDENCE_KINDS.some((k) => k === r.evidence_kind)) continue;
+    findings.push({
+      severity: "warning",
+      code: "UNKNOWN_EVIDENCE_KIND",
+      recordId: r.id,
+      message:
+        `Dôkaz ${r.id} má druh „${r.evidence_kind}", ktorý schéma nepozná. ` +
+        `Známe druhy: ${EVIDENCE_KINDS.join(", ")}.`,
+    });
+  }
+
+  // Väzba tvrdenie ↔ dôkaz musí sedieť z oboch strán. Jednosmerne vedená
+  // väzba sa po pár mesiacoch rozíde a matica potom ukáže dôkaz, ktorý
+  // k tvrdeniu nevedie — alebo tvrdenie bez opory, ktorá v spise je.
+  const dokazy = new Map(records.filter((r) => r.type === "evidence").map((r) => [r.id, r]));
+  const tvrdenia = new Map(records.filter((r) => r.type === "claim").map((r) => [r.id, r]));
+
+  for (const [id, claim] of tvrdenia) {
+    const uvedene = [...(claim.supporting_evidence ?? []), ...(claim.contradicting_evidence ?? [])];
+    for (const eId of uvedene) {
+      const e = dokazy.get(eId);
+      if (!e) continue; // rozbitý odkaz rieši BROKEN_LINK
+      if ((e.proves ?? []).includes(id)) continue;
+      findings.push({
+        severity: "warning",
+        code: "LINK_ASYMMETRY",
+        recordId: id,
+        message: `Tvrdenie ${id} sa opiera o dôkaz ${eId}, ale ${eId} tvrdenie ${id} neuvádza v poli k preukázaniu.`,
+      });
+    }
+  }
+
+  for (const [id, e] of dokazy) {
+    for (const cId of e.proves ?? []) {
+      const claim = tvrdenia.get(cId);
+      if (!claim) continue;
+      const uvedene = [...(claim.supporting_evidence ?? []), ...(claim.contradicting_evidence ?? [])];
+      if (uvedene.includes(id)) continue;
+      findings.push({
+        severity: "warning",
+        code: "LINK_ASYMMETRY",
+        recordId: id,
+        message: `Dôkaz ${id} má preukazovať tvrdenie ${cId}, ale ${cId} ho medzi dôkazmi neuvádza.`,
+      });
+    }
   }
 
   const today = opts.today ?? new Date().toISOString().slice(0, 10);

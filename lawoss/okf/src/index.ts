@@ -12,9 +12,12 @@
 export {
   FIELDS, RECORD_TYPES, LAYER_OF, SENSITIVE_FIELDS, AML_REQUIRED,
   STATUS, PERSON_KINDS, ROLES, RISK, CONCLUSION, SCREENING_MODES,
+  PROOF_STATUS, CONFIDENCE, EVIDENCE_STRENGTH, PROCEDURAL_STATUS,
+  EVIDENCE_KINDS, EVIDENCE_KIND_PROVISION,
   fieldLabel, canonicalField, typeLabel, isRecordType, isJurisdiction, needleFields,
   type Jurisdiction, type Layer, type RecordType, type FieldDef, type NeedleStrength,
   type Status, type PersonKind, type Role, type Risk, type Conclusion, type ScreeningMode,
+  type ProofStatus, type Confidence, type EvidenceStrength, type ProceduralStatus, type EvidenceKind,
 } from "./schema.ts";
 
 export {
@@ -66,6 +69,9 @@ export interface NewRecordInit {
   representatives?: string[];
   ubo?: string[];
   registries?: string[];
+  supporting_evidence?: string[];
+  contradicting_evidence?: string[];
+  proves?: string[];
 
   matter_ref?: string;
   court?: string;
@@ -98,6 +104,25 @@ export interface NewRecordInit {
   risk?: string;
   conclusion?: string;
   valid_until?: string;
+
+  // tvrdenie (claim)
+  claimed_by?: string;
+  claimed_at?: string;
+  claimed_in?: string;
+  legal_question?: string;
+  burden_of_proof?: string;
+  proof_status?: string;
+  credibility?: string;
+
+  // dôkaz (evidence)
+  evidence_kind?: string;
+  origin_date?: string;
+  author?: string;
+  formal_requirements?: string;
+  evidence_strength?: string;
+  reliability?: string;
+  objection?: string;
+  procedural_status?: string;
 }
 
 /**

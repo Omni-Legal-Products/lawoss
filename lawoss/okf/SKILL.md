@@ -22,6 +22,8 @@ Citáciu do výstupu overuj vždy proti originálu dokumentu, nikdy proti pamät
 | taktické rozhodnutie („takto áno / takto nie") | `decision` | L2 |
 | strana, protistrana, overený subjekt | `subject` | L2 |
 | otvorená otázka bez odpovede | `question` | L2 |
+| kto čo tvrdí a či je to preukázané | `claim` | L2 |
+| listina alebo iný dôkazný prostriedok | `evidence` | L2 |
 | identifikácia klienta alebo protistrany (§ 8) | `subject` | L2, **u klienta** |
 | AML preverenie k dátumu | `screening` | L2, **u klienta** |
 | pracovné pravidlo, preferencia kancelárie | `rule` | **L1** |
@@ -71,6 +73,12 @@ a prípravu návrhu**. Vlastný zápis nechaj CLI.
   a do `_STATUS.md`. Patria do poľa frontmatteru, kde sa maskujú vo výpisoch.
 - Preverenie **nevykonávaj v tomto skille** — použi AML skill a MCP konektory, sem zapíš len
   výsledok ako `screening` so zdrojmi, rizikom a `platnost_do`.
+- **Väzbu tvrdenie ↔ dôkaz veď z oboch strán.** Zapíšeš `supporting_evidence` do
+  tvrdenia, zapíš aj `proves` do dôkazu — inak to validátor ohlási ako `LINK_ASYMMETRY`.
+- **`proof_status` neodvodzuj z počtu dôkazov.** Je to hodnota, ktorú zapisuje advokát;
+  „tri dôkazy = preukázané" je právna domnienka, nie výpočet.
+- **Sporná udalosť je tvrdenie**, nie záznam typu udalosť. Nesporné udalosti nesie
+  `## History`; keď sa udalosť stane spornou, založ `claim` a naviaž dôkazy.
 - Do `authority` nikdy nedávaj meno klienta, IČO ani dátum narodenia zo spisu.
   Validátor to zachytí aj bez diakritiky a v inom formáte dátumu. Ak vráti
   `L3_LEAK_SUSPECT` (varovanie), je to krátke meno a rozhoduje človek —

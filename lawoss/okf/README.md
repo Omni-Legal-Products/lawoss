@@ -13,11 +13,44 @@ to zostáva skillu `novy-spis`. Toto jadro vlastní iba pamäť.
 | Vrstva | Typy záznamov | Kto smie zapísať |
 |---|---|---|
 | **L1** kancelária | `rule` (pravidlo), `lesson` (poučenie) | iba človek |
-| **L2** spis | `matter`, `decision`, `subject`, `question`, `screening` | agent sám |
+| **L2** spis | `matter`, `decision`, `subject`, `question`, `screening`, `claim`, `evidence` | agent sám |
 | **L3** právo | `authority` (prameň) | iba človek |
 
 `lesson` je samostatný typ, nie podtyp poznámky: to, čo sa model naučil zle,
 je iná kategória než obsah spisu a maže sa inak.
+
+## Dôkazná vrstva — `claim` a `evidence`
+
+`claim` (tvrdenie) nesie, **kto čo tvrdí a či je to preukázané**; `evidence` (dôkaz)
+nesie listinu alebo iný dôkazný prostriedok a to, čo má preukazovať. Väzba je
+**obojsmerná** a validátor ju stráži: jednosmerne vedená väzba sa po pár mesiacoch
+rozíde a matica potom ukáže dôkaz, ktorý k tvrdeniu nevedie.
+
+```
+C-001  tvrzení   „Pohledávka P42 je zjištěná"   supporting_evidence: ["E-001"]
+E-001  důkaz     Protokol B-148                 proves: ["C-001"]
+```
+
+Druh dôkazu je kanonická hodnota, **právne ukotvenie je jurisdikčné**:
+
+| `evidence_kind` | 🇨🇿 ustanovenie |
+|---|---|
+| `document` | § 129 zák. č. 99/1963 Sb. |
+| `witness` | § 126 |
+| `expert_opinion` | § 127 (§ 127a pri posudku predloženom účastníkom) |
+| `inspection` | § 130 |
+| `party_examination` | § 131 |
+
+> [!WARNING]
+> **Dve rozšírené nepresnosti, overené 2. 9. 2026 v plnom znení.** § 125 **nie je**
+> listina — je to demonštratívny výpočet dôkazných prostriedkov („zejména… a jiné
+> listiny"). Listinu upravuje **§ 129**, ohliadku **§ 130** (nie § 129).
+>
+> Slovenské ukotvenie zámerne chýba: Civilný sporový poriadok nebol overený
+> a domýšľať ho by bolo tiché prekladanie právnych pojmov.
+
+`proof_status` je hodnota, **ktorú zapisuje advokát** — nástroj ju z počtu dôkazov
+neodvodzuje. „Tri dôkazy = preukázané" je právna domnienka, ktorú nástroj robiť nesmie.
 
 ## AML evidencia
 
@@ -207,7 +240,7 @@ inštaluje sa samostatne, aby fork nepribral ďalší uzol do upstream stromu.
 
 ```bash
 pnpm install --ignore-workspace
-pnpm test        # node --test, 217 testov
+pnpm test        # node --test, 249 testov
 pnpm typecheck
 ```
 

@@ -24,6 +24,8 @@ export type RecordType =
   | "subject"
   | "question"
   | "screening"
+  | "claim"
+  | "evidence"
   | "rule"
   | "lesson"
   | "authority";
@@ -34,6 +36,8 @@ export const RECORD_TYPES: readonly RecordType[] = [
   "subject",
   "question",
   "screening",
+  "claim",
+  "evidence",
   "rule",
   "lesson",
   "authority",
@@ -46,6 +50,8 @@ export const LAYER_OF: Record<RecordType, Layer> = {
   subject: "L2",
   question: "L2",
   screening: "L2",
+  claim: "L2",
+  evidence: "L2",
   rule: "L1",
   lesson: "L1",
   authority: "L3",
@@ -72,6 +78,51 @@ export type Risk = (typeof RISK)[number];
 /** Záver AML preverenia. */
 export const CONCLUSION = ["proceed", "enhanced_diligence", "decline"] as const;
 export type Conclusion = (typeof CONCLUSION)[number];
+
+/** Stav preukázania tvrdenia. Hodnotu zapisuje advokát, nástroj ju neodvodzuje. */
+export const PROOF_STATUS = ["proven", "unproven", "disputed"] as const;
+export type ProofStatus = (typeof PROOF_STATUS)[number];
+
+/** Miera dôveryhodnosti tvrdenia alebo spoľahlivosti dôkazu. */
+export const CONFIDENCE = ["high", "medium", "low"] as const;
+export type Confidence = (typeof CONFIDENCE)[number];
+
+/** Priamy dôkaz × nepriamy (indícia). */
+export const EVIDENCE_STRENGTH = ["direct", "indirect"] as const;
+export type EvidenceStrength = (typeof EVIDENCE_STRENGTH)[number];
+
+/** Procesný stav dôkazu — navrhnutý × vykonaný. */
+export const PROCEDURAL_STATUS = ["proposed", "taken"] as const;
+export type ProceduralStatus = (typeof PROCEDURAL_STATUS)[number];
+
+/** Druhy dôkazu. Hodnoty sú kanonické, právne ukotvenie je jurisdikčné. */
+export const EVIDENCE_KINDS = [
+  "document", "witness", "expert_opinion", "party_examination", "inspection",
+] as const;
+export type EvidenceKind = (typeof EVIDENCE_KINDS)[number];
+
+/**
+ * Ustanovenie, ktoré druh dôkazu upravuje.
+ *
+ * CZ overené 2. 9. 2026 v plnom znení zák. č. 99/1963 Sb. Pozor na dve
+ * rozšírené nepresnosti: **§ 125 nie je listina**, ale demonštratívny výpočet
+ * dôkazných prostriedkov („zejména… a jiné listiny"); listinu upravuje § 129
+ * a ohliadku § 130, nie § 129.
+ *
+ * SK zámerne chýba — slovenský procesný predpis (Civilný sporový poriadok)
+ * nebol overený a domýšľať ho by bolo tiché prekladanie právnych pojmov.
+ */
+export const EVIDENCE_KIND_PROVISION: Partial<
+  Record<Jurisdiction, Readonly<Record<EvidenceKind, string>>>
+> = {
+  cz: {
+    document: "§ 129 zák. č. 99/1963 Sb.",
+    witness: "§ 126 zák. č. 99/1963 Sb.",
+    expert_opinion: "§ 127 zák. č. 99/1963 Sb. (§ 127a při posudku předloženém účastníkem)",
+    party_examination: "§ 131 zák. č. 99/1963 Sb.",
+    inspection: "§ 130 zák. č. 99/1963 Sb.",
+  },
+};
 
 /** Režim subjektového preverenia podľa spec 0002. */
 export const SCREENING_MODES = ["light", "medium", "hard"] as const;
@@ -157,6 +208,28 @@ export const FIELDS: readonly FieldDef[] = [
   { canonical: "risk", cz: "riziko", sk: "riziko", kind: "string", required: false },
   { canonical: "conclusion", cz: "závěr", sk: "záver", kind: "string", required: false },
   { canonical: "valid_until", cz: "platnost do", sk: "platnosť do", kind: "string", required: false },
+
+  // --- tvrdenie (claim) ---
+  { canonical: "claimed_by", cz: "tvrdí", sk: "tvrdí", kind: "string", required: false },
+  { canonical: "claimed_at", cz: "kdy tvrzeno", sk: "kedy tvrdené", kind: "string", required: false },
+  { canonical: "claimed_in", cz: "kde tvrzeno", sk: "kde tvrdené", kind: "string", required: false },
+  { canonical: "legal_question", cz: "právní otázka", sk: "právna otázka", kind: "string", required: false },
+  { canonical: "burden_of_proof", cz: "důkazní břemeno", sk: "dôkazné bremeno", kind: "string", required: false },
+  { canonical: "supporting_evidence", cz: "podporující důkazy", sk: "podporujúce dôkazy", kind: "list", required: false },
+  { canonical: "contradicting_evidence", cz: "vyvracející důkazy", sk: "vyvracajúce dôkazy", kind: "list", required: false },
+  { canonical: "proof_status", cz: "stav prokázání", sk: "stav preukázania", kind: "string", required: false },
+  { canonical: "credibility", cz: "věrohodnost", sk: "vierohodnosť", kind: "string", required: false },
+
+  // --- dôkaz (evidence) ---
+  { canonical: "evidence_kind", cz: "druh důkazu", sk: "druh dôkazu", kind: "string", required: false },
+  { canonical: "origin_date", cz: "datum vzniku", sk: "dátum vzniku", kind: "string", required: false },
+  { canonical: "author", cz: "autor", sk: "autor", kind: "string", required: false },
+  { canonical: "formal_requirements", cz: "formální náležitosti", sk: "formálne náležitosti", kind: "string", required: false },
+  { canonical: "proves", cz: "k prokázání", sk: "na preukázanie", kind: "list", required: false },
+  { canonical: "evidence_strength", cz: "síla důkazu", sk: "sila dôkazu", kind: "string", required: false },
+  { canonical: "reliability", cz: "spolehlivost", sk: "spoľahlivosť", kind: "string", required: false },
+  { canonical: "objection", cz: "námitka", sk: "námietka", kind: "string", required: false },
+  { canonical: "procedural_status", cz: "procesní stav", sk: "procesný stav", kind: "string", required: false },
 ];
 
 /** Údaje, ktoré sa maskujú vo výstupoch pre človeka a nesmú do `popis`. */
@@ -246,6 +319,8 @@ const TYPE_LABELS: Record<RecordType, Record<Jurisdiction, string>> = {
   subject: { cz: "subjekt", sk: "subjekt" },
   question: { cz: "otázka", sk: "otázka" },
   screening: { cz: "prověření", sk: "preverenie" },
+  claim: { cz: "tvrzení", sk: "tvrdenie" },
+  evidence: { cz: "důkaz", sk: "dôkaz" },
   rule: { cz: "pravidlo", sk: "pravidlo" },
   lesson: { cz: "poučení", sk: "poučenie" },
   authority: { cz: "pramen", sk: "prameň" },

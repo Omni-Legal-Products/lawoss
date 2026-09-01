@@ -54,6 +54,9 @@ export interface OkfRecord {
   representatives?: string[];
   ubo?: string[];
   registries?: string[];
+  supporting_evidence?: string[];
+  contradicting_evidence?: string[];
+  proves?: string[];
 
   // spis
   matter_ref?: string;
@@ -90,6 +93,25 @@ export interface OkfRecord {
   risk?: string;
   conclusion?: string;
   valid_until?: string;
+
+  // tvrdenie (claim)
+  claimed_by?: string;
+  claimed_at?: string;
+  claimed_in?: string;
+  legal_question?: string;
+  burden_of_proof?: string;
+  proof_status?: string;
+  credibility?: string;
+
+  // dôkaz (evidence)
+  evidence_kind?: string;
+  origin_date?: string;
+  author?: string;
+  formal_requirements?: string;
+  evidence_strength?: string;
+  reliability?: string;
+  objection?: string;
+  procedural_status?: string;
 
   truth: string;
   timeline: TimelineEntry[];
