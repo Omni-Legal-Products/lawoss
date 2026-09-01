@@ -97,9 +97,43 @@ function appendBlock(text: string, b: BlockName, body: string, j: Jurisdiction):
   return text.replace(/\n*$/, "\n") + section;
 }
 
+export class RenderConflictError extends Error {}
+
+/**
+ * Nadpisy, pod ktorými blok žije v už existujúcich spisoch — vrátane
+ * číslovania zo šablóny `mc-novy-spis` (`## 3. Lehoty`).
+ */
+const BLOCK_HEADING_ALIASES: Record<BlockName, readonly string[]> = {
+  deadlines: ["Lhůty", "Lehoty"],
+  timeline: ["Chronologie", "Chronológia"],
+  records: ["Záznamy paměti", "Záznamy pamäte", "Záznamy"],
+};
+
+/**
+ * Blok, ktorý sa sám nepridáva — renderuje sa iba tam, kde si ho niekto
+ * vyžiadal markerom. Zoznam záznamov patrí do INDEX.md; `_STATUS.md` je
+ * rozhranie na vec, nie výpis databázy.
+ */
+const MARKER_ONLY: readonly BlockName[] = ["records"];
+
+/** Nadpis bloku, ktorý v súbore je, ale markery pod ním nie sú. */
+function bareHeading(text: string, b: BlockName): string | undefined {
+  for (const alias of BLOCK_HEADING_ALIASES[b]) {
+    // Zhoda musí sedieť na celý nadpis — „Lehoty a termíny klienta"
+    // je vlastná sekcia advokáta, nie naša projekcia.
+    const re = new RegExp(`^##\\s*(?:\\d+\\.\\s*)?${alias}\\s*$`, "mi");
+    if (re.test(text)) return alias;
+  }
+  return undefined;
+}
+
 /**
  * Vráti nový obsah _STATUS.md. Ľudské časti prechádzajú nedotknuté,
  * bloky sa prepíšu. Opakované volanie s tou istou pamäťou nič nezmení.
+ *
+ * Keď sekcia existuje, ale markery v nej nie sú, render **zlyhá**. Ticho
+ * pripojiť druhú sekciu na koniec by v spise vyrobilo dve pravdy o lehotách
+ * — presne to, čo má projekcia odstrániť.
  */
 export function renderStatus(
   existing: string,
@@ -109,8 +143,24 @@ export function renderStatus(
   let out = existing;
   for (const b of BLOCKS) {
     const body = RENDERERS[b](records, j);
+
     const replaced = replaceBlock(out, b, body);
-    out = replaced ?? appendBlock(out, b, body, j);
+    if (replaced !== undefined) {
+      out = replaced;
+      continue;
+    }
+
+    const bare = bareHeading(out, b);
+    if (bare !== undefined) {
+      throw new RenderConflictError(
+        `Sekcia „${bare}" v _STATUS.md existuje, ale nemá markery — render by ` +
+          `pripojil druhú rovnakú sekciu a v spise by vznikli dve pravdy. ` +
+          `Doplň markery cez retrofit a spusti sync znova.`,
+      );
+    }
+
+    if (MARKER_ONLY.includes(b)) continue;
+    out = appendBlock(out, b, body, j);
   }
   return out;
 }

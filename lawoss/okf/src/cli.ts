@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { readStore, readScope, writeIndex, syncStatus, ensureBrain } from "./store.ts";
 import { maskRecord } from "./mask.ts";
 import { fieldKey } from "./schema.ts";
-import { renderStatus } from "./render.ts";
+import { renderStatus, RenderConflictError } from "./render.ts";
 import { validateStore } from "./validate.ts";
 
 export interface CliResult {
@@ -99,16 +99,23 @@ export function runCli(argv: readonly string[]): CliResult {
 
     case "sync": {
       const s = readStore(dir);
-      if (!apply) {
-        const statusPath = join(dir, "_STATUS.md");
-        const before = existsSync(statusPath) ? readFileSync(statusPath, "utf8") : "";
-        const after = renderStatus(before, s.records, s.jurisdiction);
-        const zmena = before === after ? "bez zmeny" : "_STATUS.md by sa zmenil";
-        return ok(`dry-run: ${zmena}; INDEX.md by dostal ${riadkov(s.records.length)}. Zapíš s --apply.`);
+      try {
+        if (!apply) {
+          const statusPath = join(dir, "_STATUS.md");
+          const before = existsSync(statusPath) ? readFileSync(statusPath, "utf8") : "";
+          const after = renderStatus(before, s.records, s.jurisdiction);
+          const zmena = before === after ? "bez zmeny" : "_STATUS.md by sa zmenil";
+          return ok(`dry-run: ${zmena}; INDEX.md by dostal ${riadkov(s.records.length)}. Zapíš s --apply.`);
+        }
+        syncStatus(dir);
+        writeIndex(dir);
+        return ok(`Zapísané: _STATUS.md a INDEX.md (${zaznamov(s.records.length)}).`);
+      } catch (e) {
+        // Konflikt sekcií je stav spisu, nie chyba programu — advokát dostane
+        // vetu, čo urobiť, nie výpis interpretu.
+        if (e instanceof RenderConflictError) return { code: 1, out: `KONFLIKT: ${e.message}` };
+        throw e;
       }
-      syncStatus(dir);
-      writeIndex(dir);
-      return ok(`Zapísané: _STATUS.md a INDEX.md (${zaznamov(s.records.length)}).`);
     }
 
     case "aml": {

@@ -67,12 +67,15 @@ test("druhy beh renderu uz nic nezmeni", () => {
   assert.equal(renderStatus(once, ZAZNAMY, "cz"), once);
 });
 
-test("chybajuci blok sa doplni aj s markermi", () => {
+test("chybajuci blok sa doplni aj s markermi — okrem marker-only blokov", () => {
   const out = renderStatus(LUDSKY_STATUS, ZAZNAMY, "cz");
-  for (const b of BLOCKS) {
+  // `records` je od úlohy 2 marker-only: sám sa nepridáva, zoznam záznamov
+  // patrí do INDEX.md (podmienka MČ k O1). Ostatné bloky sa doplniť majú.
+  for (const b of BLOCKS.filter((x) => x !== "records")) {
     assert.match(out, new RegExp(`okf:render:${b}:start`), `chýba blok ${b}`);
     assert.match(out, new RegExp(`okf:render:${b}:end`), `chýba koniec ${b}`);
   }
+  assert.doesNotMatch(out, /okf:render:records/, "records sa sám pridávať nemá");
 });
 
 test("chronologia zluci historiu vsetkych zaznamov podla datumu", () => {
