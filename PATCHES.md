@@ -14,6 +14,7 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 | `apps/app/src/index.react.tsx` | +1 import + 1 call `bootstrapLawoss()` (one-time dark migration) before upstream theme bootstrap | Existing profiles stored the old light default | MČ | design/faza-b0-branding |
 | `apps/app/src/react-app/shell/shell-config.tsx` | Default `appName`/`sidebarBrandName` `LegalWork` → `LAWOSS` (value-only) | LAWOSS branding | MČ | design/faza-b0-branding |
 | `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx` | Brand mark import → `lawoss/brand/lawoss-mark.svg` (1 line) | LAWOSS branding | MČ | design/faza-b0-branding |
+| `apps/app/src/react-app/domains/settings/shell/settings-page.tsx` | `getGlobalSettingsTabs()`: +`"appearance"` v zozname (1 riadok + komentár) | Appearance/Language je pre LAWOSS core (dark téma + sk/cs locale) | MČ | design/faza-b1-registre |
 | `apps/app/index.html` | `<title>` `LegalWork` → `LAWOSS` | LAWOSS branding | MČ | design/faza-b0-branding |
 | `apps/desktop/electron-builder.yml` | `productName` → `LAWOSS`; icon files in `resources/icons/**` replaced by LAWOSS badge (binary) | LAWOSS branding; `appId` intentionally unchanged (keychain/user-data continuity — separate ADR if ever) | MČ | design/faza-b0-branding |
 
