@@ -15,7 +15,8 @@ import { isDesktopRuntime } from "../../app/utils";
 import { createClient, unwrap } from "../../app/lib/opencode";
 import { useLocal } from "../kernel/local-provider";
 import { usePlatform } from "../kernel/platform";
-import { WelcomePage } from "../domains/onboarding/welcome-page";
+// 🟡 LAWOSS: our welcome screen instead of the upstream one (PATCHES.md).
+import { LawossWelcomePage as WelcomePage } from "../../lawoss/domains/onboarding/lawoss-welcome-page";
 import { AttributionStep } from "../domains/onboarding/attribution-step";
 import { CreateWorkspaceModal } from "../domains/workspace/create-workspace-modal";
 import { resolveLegalworkConnection } from "./legalwork-connection";
