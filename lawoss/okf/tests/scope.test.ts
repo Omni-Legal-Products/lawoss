@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findClientDir, readScope, memoryDirName } from "../src/store.ts";
+import { findClientDir, readScope, MEMORY_DIR } from "../src/store.ts";
 import { serializeRecord } from "../src/record.ts";
 import { newRecord, validateStore } from "../src/index.ts";
 import type { OkfRecord } from "../src/record.ts";
@@ -15,14 +15,14 @@ function struktura(): { klient: string; spis: string } {
   const spis = join(klient, "3 - Soudni", "2026-08 Svoboda - vypoved najmu - zaloba");
   mkdirSync(spis, { recursive: true });
   writeFileSync(join(klient, "klient.md"), "---\ntype: klient\n---\n# Novák Jan\n");
-  mkdirSync(join(klient, memoryDirName("cz")));
-  mkdirSync(join(spis, memoryDirName("cz")));
+  mkdirSync(join(klient, MEMORY_DIR));
+  mkdirSync(join(spis, MEMORY_DIR));
   writeFileSync(join(spis, "_STATUS.md"), "# Status\n\n> **Fáze:** příprava\n");
   return { klient, spis };
 }
 
 function put(dir: string, r: OkfRecord): void {
-  writeFileSync(join(dir, memoryDirName("cz"), `${r.id}-x.md`), serializeRecord(r));
+  writeFileSync(join(dir, MEMORY_DIR, `${r.id}-x.md`), serializeRecord(r));
 }
 
 const SUBJEKT = newRecord({
@@ -30,7 +30,7 @@ const SUBJEKT = newRecord({
   title: "Jan Novák", summary: "klient",
   created: "2026-08-31", updated: "2026-08-31", truth: "klient",
   timeline: [{ date: "2026-08-31", text: "identifikace" }],
-  role: "klient", person_type: "fo",
+  role: "client", person_type: "natural_person",
   birth_number: "750101/1234", birth_place: "Praha", sex: "muz", citizenship: "CR",
   residence: "Krátká 12, 110 00 Praha 1", id_document_type: "obcansky prukaz",
   id_document_number: "123456789", id_document_issuer: "MC Praha 1",
@@ -61,7 +61,7 @@ test("zlozka klienta sa najde aj o dve urovne vyssie", () => {
 
 test("spis bez klientskej zlozky nad sebou vrati undefined", () => {
   const root = mkdtempSync(join(tmpdir(), "okf-solo-"));
-  mkdirSync(join(root, memoryDirName("cz")));
+  mkdirSync(join(root, MEMORY_DIR));
   assert.equal(findClientDir(root), undefined);
 });
 

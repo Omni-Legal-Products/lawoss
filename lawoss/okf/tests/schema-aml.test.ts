@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  FIELDS, RECORD_TYPES, LAYER_OF, typeKey, canonicalType, fieldKey, canonicalField,
+  FIELDS, RECORD_TYPES, LAYER_OF, typeLabel, fieldLabel, canonicalField,
   SENSITIVE_FIELDS, needleFields, AML_REQUIRED,
 } from "../src/schema.ts";
 
@@ -10,11 +10,9 @@ test("provereni je novy typ zaznamu vo vrstve L2", () => {
   assert.equal(LAYER_OF.screening, "L2");
 });
 
-test("provereni sa v CZ a SK pise inak", () => {
-  assert.equal(typeKey("screening", "cz"), "provereni");
-  assert.equal(typeKey("screening", "sk"), "preverenie");
-  assert.equal(canonicalType("provereni", "cz"), "screening");
-  assert.equal(canonicalType("preverenie", "sk"), "screening");
+test("popisok typu preverenie sa v CZ a SK pise inak", () => {
+  assert.equal(typeLabel("screening", "cz"), "prověření");
+  assert.equal(typeLabel("screening", "sk"), "preverenie");
 });
 
 test("identifikacne polia podla § 8 su v schéme pre obe jurisdikcie", () => {
@@ -40,15 +38,15 @@ test("polia provereni su v scheme", () => {
 });
 
 test("rodne cislo ma v CZ a SK rovnaky kluc, trvaly pobyt tiez", () => {
-  assert.equal(fieldKey("birth_number", "cz"), "rodne_cislo");
-  assert.equal(fieldKey("birth_number", "sk"), "rodne_cislo");
+  assert.equal(fieldLabel("birth_number", "cz"), "rodné číslo");
+  assert.equal(fieldLabel("birth_number", "sk"), "rodné číslo");
 });
 
 test("miesto narodenia a obcianstvo sa pisu jurisdikcne", () => {
-  assert.equal(fieldKey("birth_place", "cz"), "misto_narozeni");
-  assert.equal(fieldKey("birth_place", "sk"), "miesto_narodenia");
-  assert.equal(canonicalField("statne_obcianstvo", "sk"), "citizenship");
-  assert.equal(canonicalField("statni_obcanstvi", "cz"), "citizenship");
+  assert.equal(fieldLabel("birth_place", "cz"), "místo narození");
+  assert.equal(fieldLabel("birth_place", "sk"), "miesto narodenia");
+  assert.equal(canonicalField("citizenship"), "citizenship");
+  assert.equal(canonicalField("statne_obcianstvo"), undefined);
 });
 
 test("citlive polia su oznacene a patri medzi ne rodne cislo, doklad, pobyt a datum narodenia", () => {
@@ -70,40 +68,40 @@ test("ICO zostava jehlou aj ked citlive nie je", () => {
 });
 
 test("ceska sada vychadza z § 5 — nie z § 8, ktory upravuje vykonanie identifikacie", () => {
-  const fo = AML_REQUIRED.cz?.fo ?? [];
+  const fo = AML_REQUIRED.cz?.natural_person ?? [];
   const names = fo.map((r) => (typeof r === "string" ? r : r.primary));
   assert.ok(names.includes("birth_number"));
   assert.ok(names.includes("birth_place"), "§ 5 žiada miesto narodenia vždy");
   assert.ok(names.includes("id_document_issuer"), "§ 5 žiada orgán, ktorý doklad vydal");
-  assert.ok((AML_REQUIRED.cz?.po ?? []).includes("registry_id"));
-  assert.ok((AML_REQUIRED.cz?.po ?? []).includes("registered_office"));
+  assert.ok((AML_REQUIRED.cz?.legal_person ?? []).includes("registry_id"));
+  assert.ok((AML_REQUIRED.cz?.legal_person ?? []).includes("registered_office"));
 });
 
 test("ceska PO sada neziada pravnu formu ani zapis v rejstriku", () => {
-  const po = AML_REQUIRED.cz?.po ?? [];
+  const po = AML_REQUIRED.cz?.legal_person ?? [];
   assert.ok(!po.includes("legal_form"), "§ 5 ods. 1 písm. b) právnu formu nežiada");
   assert.ok(!po.includes("registry_entry"), "zápis v registri žiada slovenský, nie český predpis");
 });
 
 test("slovenska sada vychadza z § 7 a lisi sa od ceskej", () => {
-  const fo = (AML_REQUIRED.sk?.fo ?? []).map((r) => (typeof r === "string" ? r : r.primary));
+  const fo = (AML_REQUIRED.sk?.natural_person ?? []).map((r) => (typeof r === "string" ? r : r.primary));
   assert.ok(fo.includes("residence"));
   assert.ok(fo.includes("id_document_number"));
   assert.ok(!fo.includes("birth_place"), "§ 7 miesto narodenia nežiada — CZ áno");
   assert.ok(!fo.includes("id_document_issuer"), "§ 7 vydavateľa dokladu nežiada — CZ áno");
-  assert.ok((AML_REQUIRED.sk?.po ?? []).includes("registry_entry"), "§ 7 zápis v registri žiada");
+  assert.ok((AML_REQUIRED.sk?.legal_person ?? []).includes("registry_entry"), "§ 7 zápis v registri žiada");
 });
 
 test("rodne cislo ma v oboch jurisdikciach nahradu, ale roznu", () => {
-  const cz = (AML_REQUIRED.cz?.fo ?? []).find((r) => typeof r !== "string" && r.primary === "birth_number");
-  const sk = (AML_REQUIRED.sk?.fo ?? []).find((r) => typeof r !== "string" && r.primary === "birth_number");
+  const cz = (AML_REQUIRED.cz?.natural_person ?? []).find((r) => typeof r !== "string" && r.primary === "birth_number");
+  const sk = (AML_REQUIRED.sk?.natural_person ?? []).find((r) => typeof r !== "string" && r.primary === "birth_number");
   assert.deepEqual(typeof cz === "string" ? [] : cz?.fallback, ["birth_date", "sex"]);
   assert.deepEqual(typeof sk === "string" ? [] : sk?.fallback, ["birth_date"]);
 });
 
 test("obe jurisdikcie maju sadu pre FO, PO aj podnikatela", () => {
   for (const j of ["cz", "sk"] as const) {
-    for (const kind of ["fo", "po", "podnikatel"] as const) {
+    for (const kind of ["natural_person", "legal_person", "sole_trader"] as const) {
       assert.ok((AML_REQUIRED[j]?.[kind] ?? []).length > 0, `${j}/${kind} chýba`);
     }
   }

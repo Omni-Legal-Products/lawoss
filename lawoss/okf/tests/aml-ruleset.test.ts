@@ -12,7 +12,7 @@ function osoba(j: Jurisdiction, over: Record<string, unknown> = {}): OkfRecord {
     id: "S-001", type: "subject", jurisdiction: j,
     title: "Jan Novák", summary: "klient", created: "2026-08-31", updated: "2026-08-31",
     truth: "t", timeline: [{ date: "2026-08-31", text: "x" }],
-    role: "protistrana", person_type: "fo",
+    role: "counterparty", person_type: "natural_person",
   });
   return { ...base, ...over } as OkfRecord;
 }
@@ -22,7 +22,7 @@ function firma(j: Jurisdiction, over: Record<string, unknown> = {}): OkfRecord {
     id: "S-002", type: "subject", jurisdiction: j,
     title: "Firma s.r.o.", summary: "protistrana", created: "2026-08-31", updated: "2026-08-31",
     truth: "t", timeline: [{ date: "2026-08-31", text: "x" }],
-    role: "protistrana", person_type: "po",
+    role: "counterparty", person_type: "legal_person",
   });
   return { ...base, ...over } as OkfRecord;
 }
@@ -48,7 +48,7 @@ test("CZ FO bez rodneho cisla potrebuje datum narodenia AJ pohlavie", () => {
   delete bez.birth_number;
   const f = nalez(osoba("cz", { ...bez, birth_date: "1975-01-01" }));
   assert.ok(f, "bez pohlavia má chýbať");
-  assert.match(f?.message ?? "", /pohlavi/);
+  assert.match(f?.message ?? "", /pohlaví/);
 });
 
 test("CZ FO bez rodneho cisla s datumom aj pohlavim je uplna", () => {
@@ -60,7 +60,7 @@ test("CZ FO bez rodneho cisla s datumom aj pohlavim je uplna", () => {
 test("CZ FO bez mista narodenia je neuplna — § 5 ho ziada vzdy", () => {
   const bez = { ...CZ_FO_UPLNA } as Record<string, unknown>;
   delete bez.birth_place;
-  assert.match(nalez(osoba("cz", bez))?.message ?? "", /misto_narozeni/);
+  assert.match(nalez(osoba("cz", bez))?.message ?? "", /místo narození/);
 });
 
 test("CZ PO nepotrebuje pravnu formu ani zapis v rejstriku — § 5 ich neziada", () => {
@@ -102,7 +102,7 @@ test("SK PO potrebuje oznacenie registra a cislo zapisu", () => {
     representatives: ["Ján Malý"],
   }));
   assert.ok(f, "chýbajúci zápis v registri má byť nález");
-  assert.match(f?.message ?? "", /zapis_v_registri/);
+  assert.match(f?.message ?? "", /zápis v registri/);
 });
 
 test("SK PO s zapisom v registri je uplna", () => {
@@ -118,16 +118,16 @@ test("SK PO s zapisom v registri je uplna", () => {
 // --- podnikatel ---
 
 test("CZ podnikajuca FO potrebuje navyse sidlo a ICO", () => {
-  const f = nalez(osoba("cz", { ...CZ_FO_UPLNA, person_type: "podnikatel" }));
+  const f = nalez(osoba("cz", { ...CZ_FO_UPLNA, person_type: "sole_trader" }));
   assert.ok(f);
-  assert.match(f?.message ?? "", /sidlo/);
-  assert.match(f?.message ?? "", /ico/);
+  assert.match(f?.message ?? "", /sídlo/);
+  assert.match(f?.message ?? "", /IČO/);
 });
 
 test("SK podnikatel potrebuje navyse miesto podnikania a zapis v registri", () => {
-  const f = nalez(osoba("sk", { ...SK_FO_UPLNA, person_type: "podnikatel" }));
+  const f = nalez(osoba("sk", { ...SK_FO_UPLNA, person_type: "sole_trader" }));
   assert.ok(f);
-  assert.match(f?.message ?? "", /miesto_podnikania|zapis_v_registri/);
+  assert.match(f?.message ?? "", /miesto podnikania|zápis v registri/);
 });
 
 // --- schéma a strážca neznámej jurisdikcie ---
@@ -135,8 +135,8 @@ test("SK podnikatel potrebuje navyse miesto podnikania a zapis v registri", () =
 test("adresa miesta podnikania je v scheme pre obe jurisdikcie", () => {
   const f = FIELDS.find((x) => x.canonical === "business_address");
   assert.ok(f, "chýba pole business_address");
-  assert.equal(f?.cz, "misto_podnikani");
-  assert.equal(f?.sk, "miesto_podnikania");
+  assert.equal(f?.cz, "místo podnikání");
+  assert.equal(f?.sk, "miesto podnikania");
 });
 
 test("obe jurisdikcie uz maju overenu sadu — varovanie sa nevydava", () => {
@@ -145,7 +145,7 @@ test("obe jurisdikcie uz maju overenu sadu — varovanie sa nevydava", () => {
 });
 
 test("neznama jurisdikcia sa nekontroluje ceskymi pravidlami, ale ohlasi sa", () => {
-  const pl = osoba("pl" as Jurisdiction, { person_type: "fo" });
+  const pl = osoba("pl" as Jurisdiction, { person_type: "natural_person" });
   const f = validateStore([pl], DNES);
   assert.ok(f.some((x) => x.code === "AML_RULESET_UNVERIFIED"), JSON.stringify(f));
   assert.ok(!f.some((x) => x.code === "AML_INCOMPLETE"));

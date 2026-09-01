@@ -5,14 +5,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../src/cli.ts";
 import { serializeRecord } from "../src/record.ts";
-import { newRecord, memoryDirName } from "../src/index.ts";
+import { newRecord, MEMORY_DIR } from "../src/index.ts";
 import type { OkfRecord } from "../src/record.ts";
 
 const RC = "750101/1234";
 const DOKLAD = "123456789";
 
 function put(dir: string, r: OkfRecord): void {
-  writeFileSync(join(dir, memoryDirName("cz"), `${r.id}-x.md`), serializeRecord(r));
+  writeFileSync(join(dir, MEMORY_DIR, `${r.id}-x.md`), serializeRecord(r));
 }
 
 function subjekt(over: Partial<OkfRecord> = {}): OkfRecord {
@@ -22,7 +22,7 @@ function subjekt(over: Partial<OkfRecord> = {}): OkfRecord {
       title: "Jan Novák", summary: "klient",
       created: "2026-08-31", updated: "2026-08-31", truth: "klient",
       timeline: [{ date: "2026-08-31", text: "identifikace" }],
-      role: "klient", person_type: "fo",
+      role: "client", person_type: "natural_person",
       birth_number: RC, birth_place: "Praha", sex: "muz", citizenship: "CR",
       residence: "Krátká 12, 110 00 Praha 1", id_document_type: "obcansky prukaz",
       id_document_number: DOKLAD, id_document_issuer: "MC Praha 1",
@@ -52,8 +52,8 @@ function struktura(opts: { provereni?: OkfRecord | null } = {}): string {
   const spis = join(klient, "3 - Soudni", "2026-08 vec");
   mkdirSync(spis, { recursive: true });
   writeFileSync(join(klient, "klient.md"), "---\ntype: klient\n---\n");
-  mkdirSync(join(klient, memoryDirName("cz")));
-  mkdirSync(join(spis, memoryDirName("cz")));
+  mkdirSync(join(klient, MEMORY_DIR));
+  mkdirSync(join(spis, MEMORY_DIR));
   writeFileSync(join(spis, "_STATUS.md"), "# Status\n");
   put(klient, subjekt());
   const p = opts.provereni === undefined ? provereni() : opts.provereni;
@@ -100,7 +100,7 @@ test("validate vidi subjekt na klientskej urovni", () => {
 
 test("aml na spise bez subjektov to povie a neskonci chybou", () => {
   const root = mkdtempSync(join(tmpdir(), "okf-empty-"));
-  mkdirSync(join(root, memoryDirName("cz")));
+  mkdirSync(join(root, MEMORY_DIR));
   const r = runCli(["aml", root]);
   assert.equal(r.code, 0);
   assert.match(r.out, /žiadne|nie sú|0/i);

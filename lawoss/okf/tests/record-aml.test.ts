@@ -6,34 +6,34 @@ import { FIELDS } from "../src/schema.ts";
 const SUBJEKT_CZ = `---
 okf: 1
 id: S-001
-typ: subjekt
-nazev: Jan Novák
-popis: klient, FO, identifikace provedena 29. 8. 2026
-vrstva: L2
-jurisdikce: cz
-stav: platny
-vznik: 2026-08-29
-zmena: 2026-08-29
-role: klient
-typ_osoby: fo
-rodne_cislo: "750101/1234"
-datum_narozeni: 1975-01-01
-misto_narozeni: Praha
-pohlavi: muz
-statni_obcanstvi: CR
-trvaly_pobyt: "Krátká 12, 110 00 Praha 1"
-doklad_typ: obcansky prukaz
-doklad_cislo: "123456789"
-doklad_vydal: MC Praha 1
-doklad_plati_do: 2032-05-14
-pep: ne
+type: subject
+title: Jan Novák
+summary: klient, FO, identifikace provedena 29. 8. 2026
+layer: L2
+jurisdiction: cz
+status: active
+created: 2026-08-29
+updated: 2026-08-29
+role: client
+person_type: natural_person
+birth_number: "750101/1234"
+birth_date: 1975-01-01
+birth_place: Praha
+sex: muz
+citizenship: CR
+residence: "Krátká 12, 110 00 Praha 1"
+id_document_type: obcansky prukaz
+id_document_number: "123456789"
+id_document_issuer: MC Praha 1
+id_document_valid_to: 2032-05-14
+pep: no
 ---
 
-## Pravda
+## Truth
 
 Klient, identifikace provedena z obcanskeho prukazu.
 
-## Historie
+## History
 
 - 2026-08-29 — identifikace dle § 8 AML zakona
 `;
@@ -41,44 +41,44 @@ Klient, identifikace provedena z obcanskeho prukazu.
 const PROVERENI_SK = `---
 okf: 1
 id: P-001
-typ: preverenie
-nazov: Preverenie klienta
-popis: AML preverenie, riziko nizke
-vrstva: L2
-jurisdikcia: sk
-stav: platny
-vznik: 2026-08-29
-zmena: 2026-08-29
-subjekt: S-001
-datum_preverenia: 2026-08-29
-rezim: medium
-registre: ["ORSR", "RPO", "ISIR", "EU sankcie"]
-pep_vysledok: nie je PEP
-sankcie_vysledok: bez zaznamu
-povod_prostriedkov: prijmy z podnikania
-riziko: nizke
-zaver: pokracovat
-platnost_do: 2027-08-29
+type: screening
+title: Preverenie klienta
+summary: AML preverenie, riziko nizke
+layer: L2
+jurisdiction: sk
+status: active
+created: 2026-08-29
+updated: 2026-08-29
+subject_ref: S-001
+check_date: 2026-08-29
+mode: medium
+registries: ["ORSR", "RPO", "ISIR", "EU sankcie"]
+pep_result: nie je PEP
+sanctions_result: bez zaznamu
+funds_origin: prijmy z podnikania
+risk: low
+conclusion: proceed
+valid_until: 2027-08-29
 ---
 
-## Pravda
+## Truth
 
 Bez nalezu.
 
-## História
+## History
 
 - 2026-08-29 — preverenie vykonane
 `;
 
 test("identifikacne polia subjektu sa nestracaju pri citani", () => {
   const r = parseRecord(SUBJEKT_CZ);
-  assert.equal(r.role, "klient");
-  assert.equal(r.person_type, "fo");
+  assert.equal(r.role, "client");
+  assert.equal(r.person_type, "natural_person");
   assert.equal(r.birth_number, "750101/1234");
   assert.equal(r.residence, "Krátká 12, 110 00 Praha 1");
   assert.equal(r.id_document_number, "123456789");
   assert.equal(r.id_document_valid_to, "2032-05-14");
-  assert.equal(r.pep, "ne");
+  assert.equal(r.pep, "no");
 });
 
 test("subjekt prejde serializaciou tam a spat bez straty", () => {
@@ -92,7 +92,7 @@ test("provereni sa cita vratane zoznamu registrov", () => {
   assert.equal(r.subject_ref, "S-001");
   assert.equal(r.mode, "medium");
   assert.deepEqual(r.registries, ["ORSR", "RPO", "ISIR", "EU sankcie"]);
-  assert.equal(r.risk, "nizke");
+  assert.equal(r.risk, "low");
   assert.equal(r.valid_until, "2027-08-29");
 });
 
@@ -101,11 +101,11 @@ test("provereni prejde serializaciou tam a spat bez straty", () => {
   assert.deepEqual(parseRecord(serializeRecord(r)), r);
 });
 
-test("slovenske provereni sa serializuje do slovenskych klucov", () => {
+test("provereni sa serializuje do kanonickych klucov", () => {
   const out = serializeRecord(parseRecord(PROVERENI_SK));
-  assert.match(out, /^datum_preverenia:/m);
-  assert.match(out, /^registre:/m);
-  assert.doesNotMatch(out, /^datum_provereni:/m);
+  assert.match(out, /^check_date:/m);
+  assert.match(out, /^registries:/m);
+  assert.doesNotMatch(out, /^datum_preverenia:|^registre:/m);
 });
 
 test("kazde pole schemy prezije round-trip — ziadne sa nestraca", () => {

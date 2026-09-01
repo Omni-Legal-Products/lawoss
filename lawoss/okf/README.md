@@ -34,7 +34,7 @@ záznam — archivovateľný 10 rokov podľa § 16 a opakovateľný podľa § 9.
 
 Identifikácia sa robí raz pri vzniku obchodného vzťahu, nie pri každej kauze. Preto
 `subject` a `screening` žijú v **zložke klienta** a spis na ne odkazuje `[[S-001]]`.
-`readScope()` prečíta oboje naraz; zložku klienta hľadá podľa `klient.md` až štyri
+`readScope()` prečíta oboje naraz; zložku klienta hľadá podľa `client.md` (aj legacy `klient.md`) až štyri
 úrovne nad spisom, takže MČ profil A (klient → oblasť → spis) sedí.
 
 ### Citlivé údaje
@@ -90,33 +90,51 @@ PEP a sankcií patrí skillom a MCP konektorom; miešať to sem by z pamäte spr
 
 ## Tvar záznamu
 
+Jeden kanonický tvar pre obe jurisdikcie — **jadro stojí na anglických kľúčoch**.
+
 ```markdown
 ---
 okf: 1
-id: R-001
-typ: rozhodnuti
-nazev: Nenapadat mistni prislusnost
-popis: Zdrzeni prevazuje nad vyhodou zmeny soudu
-vrstva: L2
-jurisdikce: cz
-stav: platny
-vznik: 2026-08-29
-zmena: 2026-08-29
-lhuty: ["2026-09-12"]
+id: D-001
+type: decision
+title: Nenapadat mistni prislusnost
+summary: Zdrzeni prevazuje nad vyhodou zmeny soudu
+layer: L2
+jurisdiction: cz
+status: active
+created: 2026-09-01
+updated: 2026-09-01
+deadlines: ["2026-09-12"]
 ---
 
-## Pravda
+## Truth
 
 Miestnu príslušnosť nenapádame.
 
-## Historie
+## History
 
-- 2026-08-29 — rozhodnuté po porade s klientom
+- 2026-09-01 — rozhodnuté po porade s klientom
 ```
 
-**Pravda** je aktuálny overený stav a prepisuje sa. **Historie** je append-only.
-Slovenský spis nesie `lehoty`, `nazov`, `jurisdikcia` a nadpis `## História` —
-rozdiel žije v jednej mapovacej tabuľke (`src/schema.ts`), nie v dvoch kópiách kódu.
+**Truth** je aktuálny overený stav a prepisuje sa. **History** je append-only.
+
+### Prečo anglicky
+
+Perzistencia je anglická, **rozhranie lokalizované**. Dôsledky:
+
+- **Nová krajina je nový locale, nie tretia kolónka schémy a migrácia dát.** Pri lokalizovanej perzistencii by Poľsko znamenalo tretiu sadu kľúčov, tretie nadpisy, tretí názov priečinka a testovú maticu 3×.
+- **Spis prenesený medzi jurisdikciami sa neprepisuje.** Česká pobočka otvorí slovenský spis a číta ho; český a slovenský záznam môžu ležať v jednom priečinku.
+- **Jurisdikcia je hodnota poľa, nie názov adresára** — jeden `memory/` namiesto `pamet/` × `pamat/`.
+
+Stĺpce `cz` a `sk` v `src/schema.ts` **zostávajú**, ale prestali byť kľúčmi — sú z nich
+popisky pre človeka. Používa ich validátor v hláškach („chýba: místo narození") a appka
+pri zobrazení. Renderované tabuľky v `_STATUS.md` aj hlášky CLI zostávajú v jazyku
+používateľa; markery sú kanonické.
+
+> [!NOTE]
+> Kde sa právo medzi jurisdikciami naozaj líši, riešením **nie je jeden kľúč s dvomi
+> prekladmi, ale dve kanonické polia s odlišným významom.** Preklad rieši jazyk,
+> nie rozdiel v práve — preto sú AML povinné sady CZ a SK dve, nie jedna preložená.
 
 ## Štyri brány, ktoré nie sú v prompte
 
@@ -155,9 +173,9 @@ spis/
 ├── spis.md          ← karta veci (novy-spis) — iba čítame
 ├── _STATUS.md       ← ľudské rozhranie; prepisujeme LEN medzi markermi
 ├── BRAIN.md         ← vstupný bod pre agentov (nikdy neprepíšeme existujúci)
-└── pamet/           ← `pamat/` v SK spise
+└── memory/          ← jeden pre obe jurisdikcie
     ├── INDEX.md     ← generovaný register
-    └── R-001-*.md   ← záznamy
+    └── D-001-*.md   ← záznamy
 ```
 
 V `_STATUS.md` sa prepisuje výlučne obsah medzi `<!-- okf:render:*:start -->`
@@ -189,7 +207,7 @@ inštaluje sa samostatne, aby fork nepribral ďalší uzol do upstream stromu.
 
 ```bash
 pnpm install --ignore-workspace
-pnpm test        # node --test, 196 testov
+pnpm test        # node --test, 217 testov
 pnpm typecheck
 ```
 

@@ -3,8 +3,8 @@
  *
  * Dve pravidlá, ktoré nejde obísť promptom, lebo nie sú v prompte:
  *
- *  1. ATOMICITA PRAVDY — zmena sekcie „Pravda" musí v tom istom zápise
- *     pridať riadok do „Historie". Zmena pravdy bez stopy je nemožná.
+ *  1. ATOMICITA PRAVDY — zmena sekcie „Truth" musí v tom istom zápise
+ *     pridať riadok do „History". Zmena pravdy bez stopy je nemožná.
  *  2. HUMAN GATE — do L1 a L3 a pri mazaní kdekoľvek zapíše iba človek.
  *     Agent smie navrhnúť (planWrite), nesmie vykonať (authorize zlyhá).
  *
@@ -60,7 +60,7 @@ function assertTruthTraced(before: OkfRecord, after: OkfRecord): void {
   if (before.truth === after.truth) return;
   if (after.timeline.length === before.timeline.length) {
     throw new TimelineIntegrityError(
-      `Záznam ${before.id}: zmena sekcie „Pravda" musí pridať riadok do „Historie" v tom istom zápise`,
+      `Záznam ${before.id}: zmena sekcie „Truth" musí pridať riadok do „History" v tom istom zápise`,
     );
   }
 }
@@ -69,8 +69,8 @@ function describe(before: OkfRecord | undefined, after: OkfRecord | undefined): 
   const lines: string[] = [];
   if (!before && after) {
     lines.push(`+ nový záznam ${after.id} (${after.type}, ${after.layer})`);
-    lines.push(`+ Pravda: ${after.truth}`);
-    for (const e of after.timeline) lines.push(`+ Historie: ${e.date} — ${e.text}`);
+    lines.push(`+ Truth: ${after.truth}`);
+    for (const e of after.timeline) lines.push(`+ History: ${e.date} — ${e.text}`);
     return lines;
   }
   if (before && !after) {
@@ -79,14 +79,14 @@ function describe(before: OkfRecord | undefined, after: OkfRecord | undefined): 
   }
   if (!before || !after) return lines;
   if (before.truth !== after.truth) {
-    lines.push(`~ Pravda: ${before.truth}`);
-    lines.push(`~ Pravda → ${after.truth}`);
+    lines.push(`~ Truth: ${before.truth}`);
+    lines.push(`~ Truth → ${after.truth}`);
   }
   for (const key of ["title", "summary", "status", "updated"] as const) {
     if (before[key] !== after[key]) lines.push(`~ ${key}: ${before[key]} → ${after[key]}`);
   }
   for (const e of after.timeline.slice(before.timeline.length)) {
-    lines.push(`+ Historie: ${e.date} — ${e.text}`);
+    lines.push(`+ History: ${e.date} — ${e.text}`);
   }
   return lines;
 }

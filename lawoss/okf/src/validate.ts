@@ -18,8 +18,7 @@
 
 import type { OkfRecord } from "./record.ts";
 import {
-  AML_REQUIRED, SENSITIVE_FIELDS, fieldKey, needleFields,
-  type PersonKind,
+  AML_REQUIRED, PERSON_KINDS, SENSITIVE_FIELDS, fieldLabel, needleFields,
   type FieldDef, type Jurisdiction,
 } from "./schema.ts";
 
@@ -35,8 +34,6 @@ export interface Finding {
 /** Meno kratšie než toto sa nehľadá vôbec — spôsobilo by falošné nálezy. */
 const MIN_NAME_LENGTH = 4;
 
-/** Druhy osôb, pre ktoré má zmysel kontrolovať AML úplnosť. */
-const PERSON_KINDS: readonly PersonKind[] = ["fo", "po", "podnikatel"];
 /** Jednoslovné meno od tejto dĺžky sa považuje za dosť určité na blokovanie. */
 const STRONG_SINGLE_TOKEN_LENGTH = 8;
 
@@ -218,7 +215,7 @@ function sensitiveInSummary(r: OkfRecord): Finding | undefined {
         recordId: r.id,
         message:
           `Popis záznamu ${r.id} opakuje citlivý údaj z poľa ` +
-          `${fieldKey(key, r.jurisdiction)}. Popis sa renderuje do INDEX.md a do _STATUS.md.`,
+          `${fieldLabel(key, r.jurisdiction)}. Popis sa renderuje do INDEX.md a do _STATUS.md.`,
       };
     }
   }
@@ -259,7 +256,7 @@ function amlCompleteness(r: OkfRecord): Finding | undefined {
   }
   if (missing.length === 0) return undefined;
 
-  const keys = [...new Set(missing)].map((c) => fieldKey(c, r.jurisdiction)).join(", ");
+  const keys = [...new Set(missing)].map((c) => fieldLabel(c, r.jurisdiction)).join(", ");
   const predpis =
     r.jurisdiction === "sk"
       ? "§ 7 ods. 1 zák. č. 297/2008 Z. z."
@@ -350,7 +347,7 @@ export function validateStore(
 
   // § 8 — klient musí byť preverený. Protistrana pod túto povinnosť nespadá.
   for (const r of records) {
-    if (r.type !== "subject" || r.role !== "klient") continue;
+    if (r.type !== "subject" || r.role !== "client") continue;
     if (!screenings.some((p) => p.subject_ref === r.id)) {
       findings.push({
         severity: "warning",

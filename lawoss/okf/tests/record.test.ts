@@ -5,23 +5,23 @@ import { parseRecord, serializeRecord, HEADINGS } from "../src/record.ts";
 const CZ = `---
 okf: 1
 id: R-001
-typ: rozhodnuti
-nazev: Nenapadat prislusnost
-popis: Namitku mistni prislusnosti nepodavame, zdrzela by vec o mesice
-vrstva: L2
-jurisdikce: cz
-stav: platny
-vznik: 2026-08-29
-zmena: 2026-08-29
-lhuty: ["2026-09-12"]
-souvisi: ["S-001"]
+type: decision
+title: Nenapadat prislusnost
+summary: Namitku mistni prislusnosti nepodavame, zdrzela by vec o mesice
+layer: L2
+jurisdiction: cz
+status: active
+created: 2026-08-29
+updated: 2026-08-29
+deadlines: ["2026-09-12"]
+related: ["S-001"]
 ---
 
-## Pravda
+## Truth
 
 Misto prislusnosti nenapadame.
 
-## Historie
+## History
 
 - 2026-08-20 — puvodne zvazovana namitka podle § 105 o. s. r.
 - 2026-08-29 — prehodnoceno: prodleni prevazuje nad vyhodou
@@ -30,22 +30,22 @@ Misto prislusnosti nenapadame.
 const SK = `---
 okf: 1
 id: R-001
-typ: rozhodnutie
-nazov: Nenapadat prislusnost
-popis: Namietku miestnej prislusnosti nepodavame
-vrstva: L2
-jurisdikcia: sk
-stav: platny
-vznik: 2026-08-29
-zmena: 2026-08-29
-lehoty: ["2026-09-12"]
+type: decision
+title: Nenapadat prislusnost
+summary: Namietku miestnej prislusnosti nepodavame
+layer: L2
+jurisdiction: sk
+status: active
+created: 2026-08-29
+updated: 2026-08-29
+deadlines: ["2026-09-12"]
 ---
 
-## Pravda
+## Truth
 
 Miesto prislusnosti nenapadame.
 
-## História
+## History
 
 - 2026-08-29 — rozhodnute
 `;
@@ -60,17 +60,18 @@ test("cita ceskym zaznam do kanonickeho modelu", () => {
   assert.deepEqual(r.related, ["S-001"]);
 });
 
-test("slovensky zaznam s lehoty konci v tom istom kanonickom poli", () => {
+test("slovensky zaznam ma rovnake kluce ako cesky", () => {
   const r = parseRecord(SK);
   assert.equal(r.type, "decision");
   assert.deepEqual(r.deadlines, ["2026-09-12"]);
+  assert.equal(r.jurisdiction, "sk", "jurisdikcia je hodnota poľa, nie tvar kľúčov");
 });
 
-test("sekcia Pravda sa cita ako text", () => {
+test("sekcia Truth sa cita ako text", () => {
   assert.equal(parseRecord(CZ).truth, "Misto prislusnosti nenapadame.");
 });
 
-test("Historia sa cita ako usporiadany zoznam zaznamov", () => {
+test("History sa cita ako usporiadany zoznam zaznamov", () => {
   const r = parseRecord(CZ);
   assert.equal(r.timeline.length, 2);
   assert.equal(r.timeline[0]?.date, "2026-08-20");
@@ -82,29 +83,30 @@ test("serializacia a spatne precitanie zachova model", () => {
   assert.deepEqual(parseRecord(serializeRecord(r)), r);
 });
 
-test("serializuje sa do jurisdikcnych klucov, nie kanonickych", () => {
+test("serializuje sa do kanonickych klucov bez ohladu na jurisdikciu", () => {
   const out = serializeRecord(parseRecord(SK));
-  assert.match(out, /^lehoty:/m);
-  assert.doesNotMatch(out, /^lhuty:/m);
-  assert.match(out, /^typ: rozhodnutie$/m);
+  assert.match(out, /^deadlines:/m);
+  assert.doesNotMatch(out, /^lehoty:|^lhuty:/m);
+  assert.match(out, /^type: decision$/m);
 });
 
-test("nadpisy sekcii su jurisdikcne", () => {
-  assert.equal(HEADINGS.cz.timeline, "Historie");
-  assert.equal(HEADINGS.sk.timeline, "História");
-  assert.match(serializeRecord(parseRecord(SK)), /^## História$/m);
+test("nadpisy sekcii su anglicke pre obe jurisdikcie", () => {
+  assert.equal(HEADINGS.truth, "Truth");
+  assert.equal(HEADINGS.timeline, "History");
+  assert.match(serializeRecord(parseRecord(SK)), /^## History$/m);
+  assert.match(serializeRecord(parseRecord(CZ)), /^## History$/m);
 });
 
 test("zaznam bez frontmatteru je chyba", () => {
-  assert.throws(() => parseRecord("## Pravda\n\nnieco"), /frontmatter/i);
+  assert.throws(() => parseRecord("## Truth\n\nnieco"), /frontmatter/i);
 });
 
 test("neznamy typ zaznamu je chyba", () => {
-  const bad = CZ.replace("typ: rozhodnuti", "typ: vymysleny");
+  const bad = CZ.replace("type: decision", "typ: vymysleny");
   assert.throws(() => parseRecord(bad), /typ/i);
 });
 
 test("chybajuce povinne pole je chyba", () => {
-  const bad = CZ.replace(/^popis:.*$/m, "");
-  assert.throws(() => parseRecord(bad), /popis/);
+  const bad = CZ.replace(/^summary:.*$/m, "");
+  assert.throws(() => parseRecord(bad), /summary/);
 });

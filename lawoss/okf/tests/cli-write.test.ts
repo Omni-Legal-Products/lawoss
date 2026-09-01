@@ -5,12 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../src/cli.ts";
 import { serializeRecord, parseRecord } from "../src/record.ts";
-import { newRecord, memoryDirName, authorize, planWrite, ApprovalRequiredError } from "../src/index.ts";
+import { newRecord, MEMORY_DIR, authorize, planWrite, ApprovalRequiredError } from "../src/index.ts";
 import type { OkfRecord } from "../src/record.ts";
 
 function spis(): string {
   const dir = mkdtempSync(join(tmpdir(), "okf-write-"));
-  mkdirSync(join(dir, memoryDirName("cz")));
+  mkdirSync(join(dir, MEMORY_DIR));
   writeFileSync(join(dir, "_STATUS.md"), "# Status\n");
   return dir;
 }
@@ -46,7 +46,7 @@ function navrh(dir: string, r: OkfRecord): string {
   return path;
 }
 
-const pocet = (dir: string) => readdirSync(join(dir, "pamet")).filter((f) => f.endsWith(".md")).length;
+const pocet = (dir: string) => readdirSync(join(dir, MEMORY_DIR)).filter((f) => f.endsWith(".md")).length;
 
 // --- náhľad ---
 
@@ -102,9 +102,9 @@ test("schvalenie sa zapise do append-only historie zaznamu", () => {
     "write", dir, "--file", navrh(dir, poucenie()), "--reason", "povysenie z veci Novak",
     "--apply", "--approve-as", "JUDr. Vojtěch Říha",
   ]);
-  const subor = readdirSync(join(dir, "pamet")).find((f) => f.startsWith("L-001"));
+  const subor = readdirSync(join(dir, MEMORY_DIR)).find((f) => f.startsWith("L-001"));
   assert.ok(subor);
-  const ulozeny = parseRecord(readFileSync(join(dir, "pamet", subor), "utf8"));
+  const ulozeny = parseRecord(readFileSync(join(dir, MEMORY_DIR, subor), "utf8"));
   const audit = ulozeny.timeline.at(-1);
   assert.ok(audit, "audit riadok chýba");
   assert.match(audit.text, /JUDr\. Vojtěch Říha/);

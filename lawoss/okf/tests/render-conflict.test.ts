@@ -101,12 +101,12 @@ test("sync nad sablonou bez markerov skonci citatelne, nie stack tracom", async 
   const { join } = await import("node:path");
   const { runCli } = await import("../src/cli.ts");
   const { serializeRecord } = await import("../src/record.ts");
-  const { memoryDirName } = await import("../src/index.ts");
+  const { MEMORY_DIR } = await import("../src/index.ts");
 
   const dir = mkdtempSync(join(tmpdir(), "okf-konflikt-"));
-  mkdirSync(join(dir, memoryDirName("sk")));
+  mkdirSync(join(dir, MEMORY_DIR));
   writeFileSync(join(dir, "_STATUS.md"), SABLONA_MC);
-  writeFileSync(join(dir, "pamat", "D-001.md"), serializeRecord(ZAZNAM));
+  writeFileSync(join(dir, MEMORY_DIR, "D-001.md"), serializeRecord(ZAZNAM));
 
   const pred = readFileSync(join(dir, "_STATUS.md"), "utf8");
   const r = runCli(["sync", dir, "--apply"]);
@@ -125,12 +125,12 @@ test("aj dry-run sync konflikt ohlasi, nie az --apply", async () => {
   const { join } = await import("node:path");
   const { runCli } = await import("../src/cli.ts");
   const { serializeRecord } = await import("../src/record.ts");
-  const { memoryDirName } = await import("../src/index.ts");
+  const { MEMORY_DIR } = await import("../src/index.ts");
 
   const dir = mkdtempSync(join(tmpdir(), "okf-konflikt-dry-"));
-  mkdirSync(join(dir, memoryDirName("sk")));
+  mkdirSync(join(dir, MEMORY_DIR));
   writeFileSync(join(dir, "_STATUS.md"), SABLONA_MC);
-  writeFileSync(join(dir, "pamat", "D-001.md"), serializeRecord(ZAZNAM));
+  writeFileSync(join(dir, MEMORY_DIR, "D-001.md"), serializeRecord(ZAZNAM));
 
   const r = runCli(["sync", dir]);
   assert.equal(r.code, 1, r.out);

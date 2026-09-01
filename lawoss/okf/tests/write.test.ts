@@ -5,14 +5,14 @@ import type { OkfRecord } from "../src/record.ts";
 
 function rec(over: Partial<OkfRecord> = {}): OkfRecord {
   return {
-    schema: 1,
+    okf: 1,
     id: "R-001",
     type: "decision",
     title: "Rozhodnutie",
     summary: "popis",
     layer: "L2",
     jurisdiction: "sk",
-    status: "platny",
+    status: "active",
     created: "2026-08-29",
     updated: "2026-08-29",
     truth: "povodna pravda",
@@ -106,6 +106,6 @@ test("diff nesie citatelny zoznam zmien", () => {
     timeline: [...before.timeline, { date: "2026-08-30", text: "prehodnotene" }],
   });
   const d = planWrite(before, after, "x");
-  assert.ok(d.lines.some((l) => l.includes("Pravda")), d.lines.join("|"));
+  assert.ok(d.lines.some((l) => l.includes("Truth")), d.lines.join("|"));
   assert.ok(d.lines.some((l) => l.includes("prehodnotene")), d.lines.join("|"));
 });

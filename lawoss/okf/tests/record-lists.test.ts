@@ -24,21 +24,21 @@ test("hodnota bez uvodzoviek sa stale deli na ciarke", () => {
   const r = parseRecord(`---
 okf: 1
 id: R-001
-typ: rozhodnuti
-nazev: X
-popis: y
-vrstva: L2
-jurisdikce: cz
-stav: platny
-vznik: 2026-09-01
-zmena: 2026-09-01
-zdroje: [a, b, c]
+type: decision
+title: X
+summary: y
+layer: L2
+jurisdiction: cz
+status: active
+created: 2026-09-01
+updated: 2026-09-01
+sources: [a, b, c]
 ---
 
-## Pravda
+## Truth
 t
 
-## Historie
+## History
 - 2026-09-01 — z
 `);
   assert.deepEqual(r.sources, ["a", "b", "c"]);

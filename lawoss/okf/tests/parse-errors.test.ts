@@ -6,14 +6,14 @@ import { join } from "node:path";
 import { runCli } from "../src/cli.ts";
 import { readStore } from "../src/store.ts";
 import { serializeRecord } from "../src/record.ts";
-import { newRecord, memoryDirName } from "../src/index.ts";
+import { newRecord, MEMORY_DIR } from "../src/index.ts";
 
 function spis(): string {
   const dir = mkdtempSync(join(tmpdir(), "okf-bad-"));
-  mkdirSync(join(dir, memoryDirName("cz")));
+  mkdirSync(join(dir, MEMORY_DIR));
   writeFileSync(join(dir, "_STATUS.md"), "# Status\n");
   writeFileSync(
-    join(dir, "pamet", "R-001-dobry.md"),
+    join(dir, MEMORY_DIR, "R-001-dobry.md"),
     serializeRecord(newRecord({
       id: "R-001", type: "decision", jurisdiction: "cz",
       title: "Dobrý", summary: "v pořádku", created: "2026-08-31", updated: "2026-08-31",
@@ -21,8 +21,8 @@ function spis(): string {
     })),
   );
   writeFileSync(
-    join(dir, "pamet", "R-002-rozbity.md"),
-    "---\nokf: 1\nid: R-002\ntyp: rozhodnuti\nnazev: Rozbitý\njurisdikcia: sk\n---\n\n## Pravda\nx\n",
+    join(dir, MEMORY_DIR, "R-002-rozbity.md"),
+    "---\nokf: 1\nid: R-002\ntype: decision\ntitle: Rozbitý\njurisdiction: sk\n---\n\n## Truth\nx\n",
   );
   return dir;
 }
@@ -55,6 +55,6 @@ test("aml rozbity subor nezhodi", () => {
 
 test("spis bez rozbitych suborov ziadne problemy nehlasi", () => {
   const dir = mkdtempSync(join(tmpdir(), "okf-ok-"));
-  mkdirSync(join(dir, memoryDirName("cz")));
+  mkdirSync(join(dir, MEMORY_DIR));
   assert.deepEqual(readStore(dir).problems, []);
 });

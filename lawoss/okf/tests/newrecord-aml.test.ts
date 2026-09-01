@@ -8,7 +8,7 @@ test("newRecord prenesie identifikacne polia subjektu", () => {
     id: "S-001", type: "subject", jurisdiction: "cz",
     title: "Jan Novák", summary: "klient",
     created: "2026-08-31", updated: "2026-08-31", truth: "t", timeline: [],
-    role: "klient", person_type: "fo",
+    role: "client", person_type: "natural_person",
     birth_number: "750101/1234", residence: "Krátká 12, Praha 1",
     id_document_type: "obcansky prukaz", id_document_number: "123456789",
     pep: "ne",
@@ -16,7 +16,7 @@ test("newRecord prenesie identifikacne polia subjektu", () => {
   assert.equal(r.birth_number, "750101/1234");
   assert.equal(r.residence, "Krátká 12, Praha 1");
   assert.equal(r.id_document_number, "123456789");
-  assert.equal(r.role, "klient");
+  assert.equal(r.role, "client");
 });
 
 test("newRecord prenesie polia proverenia vratane zoznamov", () => {
@@ -38,7 +38,7 @@ test("zaznam z newRecord prezije zapis na disk a spatne precitanie", () => {
     id: "S-002", type: "subject", jurisdiction: "sk",
     title: "Firma s.r.o.", summary: "protistrana",
     created: "2026-08-31", updated: "2026-08-31", truth: "t", timeline: [],
-    person_type: "po", registry_id: "12345678",
+    person_type: "legal_person", registry_id: "12345678",
     registered_office: "Hlavná 1, Bratislava", legal_form: "s.r.o.",
     representatives: ["Ján Malý"], ubo: ["Ján Malý"],
   });

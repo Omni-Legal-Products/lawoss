@@ -2,28 +2,29 @@
  * Čítanie a zápis jedného pamäťového záznamu.
  *
  * Záznam je markdown so YAML frontmatterom a dvomi sekciami:
- *   ## Pravda    — aktuálny overený stav, prepisuje sa
- *   ## Historie  — append-only stopa, nikdy sa nemaže
+ *   ## Truth    — aktuálny overený stav, prepisuje sa
+ *   ## History  — append-only stopa, nikdy sa nemaže
  *
- * Frontmatter sa číta a píše v jurisdikčných kľúčoch, model je kanonický.
+ * Kľúče frontmatteru aj nadpisy sekcií sú kanonické (anglické) pre obe
+ * jurisdikcie. Lokalizuje sa až výstup pre človeka.
  */
 
 import {
   FIELDS,
   canonicalField,
-  canonicalType,
-  fieldKey,
-  typeKey,
+  isJurisdiction,
+  isRecordType,
   LAYER_OF,
   type Jurisdiction,
   type Layer,
   type RecordType,
 } from "./schema.ts";
 
-export const HEADINGS: Record<Jurisdiction, { truth: string; timeline: string }> = {
-  cz: { truth: "Pravda", timeline: "Historie" },
-  sk: { truth: "Pravda", timeline: "História" },
-};
+/**
+ * Nadpisy sekcií záznamu. Anglické pre obe jurisdikcie — záznam je formát,
+ * nie dokument. Ľudským rozhraním je `_STATUS.md`, a ten zostáva lokalizovaný.
+ */
+export const HEADINGS = { truth: "Truth", timeline: "History" } as const;
 
 export interface TimelineEntry {
   readonly date: string;
@@ -31,7 +32,8 @@ export interface TimelineEntry {
 }
 
 export interface OkfRecord {
-  schema: number;
+  /** Verzia formátu. Kľúč `okf:` je zároveň značkou, podľa ktorej sa súbor pozná. */
+  okf: number;
   id: string;
   type: RecordType;
   title: string;
@@ -97,7 +99,7 @@ const FM_DELIM = "---";
 
 /** Polia, ktoré parser priraďuje výslovne; zvyšok sa berie z tabuľky. */
 const CORE_FIELDS = new Set([
-  "schema", "id", "type", "title", "summary",
+  "okf", "id", "type", "title", "summary",
   "layer", "jurisdiction", "status", "created", "updated",
 ]);
 
@@ -188,10 +190,18 @@ function parseFrontmatter(fm: string): Map<string, string | number | string[]> {
   return out;
 }
 
-function detectJurisdiction(raw: Map<string, unknown>): Jurisdiction {
-  if (raw.has("jurisdikce")) return "cz";
-  if (raw.has("jurisdikcia")) return "sk";
-  throw new Error("Nedá sa určiť jurisdikcia — chýba pole jurisdikce (CZ) alebo jurisdikcia (SK)");
+/**
+ * Jurisdikcia je hodnota poľa, nie názov adresára ani prítomnosť kľúča.
+ * Vďaka tomu môžu český a slovenský záznam ležať vedľa seba.
+ */
+function readJurisdiction(raw: Map<string, unknown>): Jurisdiction {
+  const value = raw.get("jurisdiction");
+  if (value === undefined) {
+    throw new Error("Záznam nemá pole jurisdiction — bez neho sa nedá lokalizovať výstup");
+  }
+  const j = String(value);
+  if (!isJurisdiction(j)) throw new Error(`Neznáma jurisdikcia: ${j}`);
+  return j;
 }
 
 function sectionBody(body: string, heading: string): string | undefined {
@@ -217,24 +227,25 @@ function parseTimeline(raw: string | undefined): TimelineEntry[] {
 export function parseRecord(text: string): OkfRecord {
   const { fm, body } = splitFrontmatter(text);
   const raw = parseFrontmatter(fm);
-  const j = detectJurisdiction(raw);
+  const j = readJurisdiction(raw);
 
   const canon = new Map<string, string | number | string[]>();
   for (const [k, v] of raw) {
-    const c = canonicalField(k, j);
-    if (c === undefined) throw new Error(`Neznáme pole frontmatteru pre jurisdikciu ${j}: ${k}`);
-    canon.set(c, v);
+    if (canonicalField(k) === undefined) {
+      throw new Error(`Neznáme pole frontmatteru: ${k}`);
+    }
+    canon.set(k, v);
   }
 
   for (const f of FIELDS) {
     if (f.required && !canon.has(f.canonical)) {
-      throw new Error(`Chýba povinné pole: ${fieldKey(f.canonical, j)}`);
+      throw new Error(`Chýba povinné pole: ${f.canonical}`);
     }
   }
 
   const typeRaw = String(canon.get("type"));
-  const type = canonicalType(typeRaw, j);
-  if (!type) throw new Error(`Neznámy typ záznamu pre jurisdikciu ${j}: ${typeRaw}`);
+  if (!isRecordType(typeRaw)) throw new Error(`Neznámy typ záznamu: ${typeRaw}`);
+  const type: RecordType = typeRaw;
 
   const layer = String(canon.get("layer")) as Layer;
   if (layer !== LAYER_OF[type]) {
@@ -242,7 +253,7 @@ export function parseRecord(text: string): OkfRecord {
   }
 
   const rec: OkfRecord = {
-    schema: Number(canon.get("schema")),
+    okf: Number(canon.get("okf")),
     id: String(canon.get("id")),
     type,
     title: String(canon.get("title")),
@@ -252,8 +263,8 @@ export function parseRecord(text: string): OkfRecord {
     status: String(canon.get("status")),
     created: String(canon.get("created")),
     updated: String(canon.get("updated")),
-    truth: sectionBody(body, HEADINGS[j].truth) ?? "",
-    timeline: parseTimeline(sectionBody(body, HEADINGS[j].timeline)),
+    truth: sectionBody(body, HEADINGS.truth) ?? "",
+    timeline: parseTimeline(sectionBody(body, HEADINGS.timeline)),
   };
 
   // Nepovinné polia sa berú z tabuľky, nie z ručného zoznamu — inak by nové
@@ -263,9 +274,7 @@ export function parseRecord(text: string): OkfRecord {
     if (CORE_FIELDS.has(f.canonical)) continue;
     const v = canon.get(f.canonical);
     if (v === undefined) continue;
-    target[f.canonical] = f.kind === "list"
-      ? (Array.isArray(v) ? v : [String(v)])
-      : String(v);
+    target[f.canonical] = f.kind === "list" ? (Array.isArray(v) ? v : [String(v)]) : String(v);
   }
   return rec;
 }
@@ -281,20 +290,16 @@ function emit(v: string | number | string[]): string {
 }
 
 export function serializeRecord(r: OkfRecord): string {
-  const j = r.jurisdiction;
   const lines: string[] = [FM_DELIM];
+  const src = r as unknown as Record<string, string | number | string[] | undefined>;
   for (const f of FIELDS) {
-    const c = f.canonical;
-    let value: string | number | string[] | undefined;
-    if (c === "type") value = typeKey(r.type, j);
-    else if (c === "jurisdiction") value = j;
-    else value = (r as unknown as Record<string, string | number | string[] | undefined>)[c];
+    const value = src[f.canonical];
     if (value === undefined) continue;
-    lines.push(`${fieldKey(c, j)}: ${emit(value)}`);
+    lines.push(`${f.canonical}: ${emit(value)}`);
   }
   lines.push(FM_DELIM, "");
-  lines.push(`## ${HEADINGS[j].truth}`, "", r.truth, "");
-  lines.push(`## ${HEADINGS[j].timeline}`, "");
+  lines.push(`## ${HEADINGS.truth}`, "", r.truth, "");
+  lines.push(`## ${HEADINGS.timeline}`, "");
   for (const e of r.timeline) lines.push(`- ${e.date} — ${e.text}`);
   return lines.join("\n") + "\n";
 }

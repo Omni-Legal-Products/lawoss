@@ -12,7 +12,7 @@ import { readStore, readScope, writeIndex, syncStatus, ensureBrain, applyRecordW
 import { parseRecord, type OkfRecord } from "./record.ts";
 import { planWrite, type Approval, type WriteDiff } from "./write.ts";
 import { maskRecord } from "./mask.ts";
-import { fieldKey } from "./schema.ts";
+import { fieldLabel } from "./schema.ts";
 import { renderStatus, RenderConflictError } from "./render.ts";
 import { validateStore } from "./validate.ts";
 
@@ -160,7 +160,7 @@ export function runCli(argv: readonly string[]): CliResult {
         for (const key of ["birth_number", "birth_date", "id_document_number", "residence", "registry_id", "pep"]) {
           const v = (r as unknown as Record<string, unknown>)[key];
           if (typeof v === "string" && v !== "") {
-            lines.push(`        ${fieldKey(key, r.jurisdiction).padEnd(18)} ${v}`);
+            lines.push(`        ${fieldLabel(key, r.jurisdiction).padEnd(18)} ${v}`);
           }
         }
         const mine = preverenia.filter((p) => p.subject_ref === raw.id);

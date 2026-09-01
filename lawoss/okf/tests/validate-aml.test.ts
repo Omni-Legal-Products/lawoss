@@ -13,7 +13,7 @@ function subjekt(over: Partial<OkfRecord> = {}): OkfRecord {
       title: "Jan Novák", summary: "klient",
       created: "2026-08-31", updated: "2026-08-31", truth: "klient",
       timeline: [{ date: "2026-08-31", text: "identifikace" }],
-      role: "klient", person_type: "fo",
+      role: "client", person_type: "natural_person",
       birth_number: "750101/1234", birth_place: "Praha", sex: "muz",
       citizenship: "CR", residence: "Krátká 12, 110 00 Praha 1",
       id_document_type: "obcansky prukaz", id_document_number: "123456789",
@@ -107,7 +107,7 @@ test("klient bez akehokolvek proverenia je varovanie", () => {
 });
 
 test("protistrana bez proverenia varovanie nesposobi", () => {
-  const f = validateStore([subjekt({ id: "S-002", role: "protistrana" })], DNES);
+  const f = validateStore([subjekt({ id: "S-002", role: "counterparty" })], DNES);
   assert.ok(!codes(f).includes("AML_MISSING"), JSON.stringify(f));
 });
 
@@ -118,8 +118,8 @@ test("neuplna identifikacia FO je varovanie, pomenuje polia a cituje § 5", () =
   const f = validateStore([neuplny, provereni()], DNES);
   const n = f.find((x) => x.code === "AML_INCOMPLETE");
   assert.ok(n, JSON.stringify(f));
-  assert.match(n?.message ?? "", /doklad_cislo/);
-  assert.match(n?.message ?? "", /misto_narozeni/);
+  assert.match(n?.message ?? "", /číslo dokladu/);
+  assert.match(n?.message ?? "", /místo narození/);
   assert.match(n?.message ?? "", /§ 5 ods\. 1 zák\. č\. 253\/2008 Sb\./,
     "výpočet údajov je v § 5; § 8 upravuje vykonanie identifikácie");
 });
@@ -129,14 +129,14 @@ test("slovensky spis sa kontroluje podla § 7, nie podla ceskych pravidiel", () 
     id: "S-009", type: "subject", jurisdiction: "sk",
     title: "Ján Malý", summary: "klient", created: "2026-08-31", updated: "2026-08-31",
     truth: "t", timeline: [{ date: "2026-08-31", text: "x" }],
-    role: "klient", person_type: "fo",
+    role: "client", person_type: "natural_person",
   });
   const f = validateStore([sk], DNES);
   const n = f.find((x) => x.code === "AML_INCOMPLETE");
   assert.ok(n, JSON.stringify(f));
   assert.match(n?.message ?? "", /§ 7 ods\. 1 zák\. č\. 297\/2008 Z\. z\./);
   assert.ok(!codes(f).includes("AML_RULESET_UNVERIFIED"), "SK sada je overená");
-  assert.ok(!(n?.message ?? "").includes("misto_narozeni"),
+  assert.ok(!(n?.message ?? "").includes("miesto narodenia"),
     "miesto narodenia je český požiadavok, na slovenský spis nepatrí");
 });
 

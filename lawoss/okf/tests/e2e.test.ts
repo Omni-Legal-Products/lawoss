@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  memoryDirName, readStore, ensureBrain, writeIndex, syncStatus,
+  MEMORY_DIR, readStore, ensureBrain, writeIndex, syncStatus,
   applyRecordWrite, planWrite, validateStore, newRecord,
   ApprovalRequiredError, TimelineIntegrityError, LeakBlockedError,
 } from "../src/index.ts";
@@ -14,7 +14,7 @@ const ADVOKAT = { by: "JUDr. Vojtěch Říha, Ph.D.", at: "2026-08-29T12:00:00Z"
 
 function zalozSpis(j: Jurisdiction): string {
   const dir = mkdtempSync(join(tmpdir(), `okf-e2e-${j}-`));
-  mkdirSync(join(dir, memoryDirName(j)));
+  mkdirSync(join(dir, MEMORY_DIR));
   writeFileSync(
     join(dir, "_STATUS.md"),
     ["# Novák ⁄ Svoboda — Status (SSOT)", "", "> **Fáze:** příprava žaloby",
@@ -115,7 +115,7 @@ for (const j of ["cz", "sk"] as const) {
     syncStatus(dir);
     assert.equal(readFileSync(join(dir, "_STATUS.md"), "utf8"), status, "render nie je idempotentny");
 
-    const index = readFileSync(join(dir, memoryDirName(j), "INDEX.md"), "utf8");
+    const index = readFileSync(join(dir, MEMORY_DIR, "INDEX.md"), "utf8");
     for (const id of ["S-001", "R-001", "P-001", "J-001"]) assert.match(index, new RegExp(id));
   });
 }

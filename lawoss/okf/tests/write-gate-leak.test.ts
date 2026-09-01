@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyRecordWrite, memoryDirName, LeakBlockedError } from "../src/store.ts";
+import { applyRecordWrite, MEMORY_DIR, LeakBlockedError } from "../src/store.ts";
 import { serializeRecord } from "../src/record.ts";
 import { newRecord, planWrite } from "../src/index.ts";
 import type { OkfRecord } from "../src/record.ts";
@@ -25,8 +25,8 @@ function subjekt(over: Partial<OkfRecord> = {}): OkfRecord {
 
 function spisSoSubjektom(s: OkfRecord = subjekt()): string {
   const dir = mkdtempSync(join(tmpdir(), "okf-leak-"));
-  mkdirSync(join(dir, memoryDirName("cz")));
-  writeFileSync(join(dir, "pamet", `${s.id}-x.md`), serializeRecord(s));
+  mkdirSync(join(dir, MEMORY_DIR));
+  writeFileSync(join(dir, MEMORY_DIR, `${s.id}-x.md`), serializeRecord(s));
   return dir;
 }
 
@@ -39,7 +39,7 @@ function pramen(id: string, truth: string): OkfRecord {
   });
 }
 
-const pocet = (dir: string) => readdirSync(join(dir, "pamet")).length;
+const pocet = (dir: string) => readdirSync(join(dir, MEMORY_DIR)).length;
 
 test("zapis pramena s ICO klienta sa odmietne uz pri zapise", () => {
   const dir = spisSoSubjektom();
@@ -117,16 +117,16 @@ test("subjekt na klientskej urovni bran nemoze uniknut", () => {
   const spis = join(klient, "3 - Soudni", "2026-09 vec");
   mkdirSync(spis, { recursive: true });
   writeFileSync(join(klient, "klient.md"), "---\ntype: klient\n---\n");
-  mkdirSync(join(klient, memoryDirName("cz")));
-  mkdirSync(join(spis, memoryDirName("cz")));
-  writeFileSync(join(klient, "pamet", "S-001-x.md"), serializeRecord(subjekt()));
+  mkdirSync(join(klient, MEMORY_DIR));
+  mkdirSync(join(spis, MEMORY_DIR));
+  writeFileSync(join(klient, MEMORY_DIR, "S-001-x.md"), serializeRecord(subjekt()));
 
   const p = pramen("A-006", "Vo veci spoločnosti s IČO 29139643.");
   assert.throws(
     () => applyRecordWrite(spis, planWrite(undefined, p, "veta"), SCHVALENIE),
     LeakBlockedError,
   );
-  assert.equal(readdirSync(join(spis, "pamet")).length, 0, "v spise nesmie nič pribudnúť");
+  assert.equal(readdirSync(join(spis, MEMORY_DIR)).length, 0, "v spise nesmie nič pribudnúť");
 });
 
 test("mazanie pramena kontrolu uniku nespusti", () => {

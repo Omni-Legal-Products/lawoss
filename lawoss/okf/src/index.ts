@@ -11,8 +11,10 @@
 
 export {
   FIELDS, RECORD_TYPES, LAYER_OF, SENSITIVE_FIELDS, AML_REQUIRED,
-  fieldKey, canonicalField, typeKey, canonicalType, needleFields,
+  STATUS, PERSON_KINDS, ROLES, RISK, CONCLUSION, SCREENING_MODES,
+  fieldLabel, canonicalField, typeLabel, isRecordType, isJurisdiction, needleFields,
   type Jurisdiction, type Layer, type RecordType, type FieldDef, type NeedleStrength,
+  type Status, type PersonKind, type Role, type Risk, type Conclusion, type ScreeningMode,
 } from "./schema.ts";
 
 export {
@@ -29,7 +31,7 @@ export { renderStatus, RenderConflictError, BLOCKS, type BlockName } from "./ren
 export { validateStore, type Finding, type Severity, type ValidateOptions } from "./validate.ts";
 export { maskValue, maskRecord } from "./mask.ts";
 export {
-  readStore, readScope, findClientDir, memoryDirName, applyRecordWrite, LeakBlockedError,
+  readStore, readScope, findClientDir, MEMORY_DIR, applyRecordWrite, LeakBlockedError,
   writeIndex, ensureBrain, syncStatus,
   type Store, type Scope, type StoreProblem,
 } from "./store.ts";
@@ -38,7 +40,7 @@ import { FIELDS, LAYER_OF, type Jurisdiction, type RecordType } from "./schema.t
 
 /** Polia, ktoré newRecord priraďuje výslovne; zvyšok sa berie z tabuľky. */
 const CORE_INIT_FIELDS = new Set([
-  "schema", "id", "type", "title", "summary",
+  "okf", "id", "type", "title", "summary",
   "layer", "jurisdiction", "status", "created", "updated",
 ]);
 import type { OkfRecord, TimelineEntry } from "./record.ts";
@@ -104,14 +106,14 @@ export interface NewRecordInit {
  */
 export function newRecord(init: NewRecordInit): OkfRecord {
   const rec: OkfRecord = {
-    schema: 1,
+    okf: 1,
     id: init.id,
     type: init.type,
     title: init.title,
     summary: init.summary,
     layer: LAYER_OF[init.type],
     jurisdiction: init.jurisdiction,
-    status: init.status ?? "platny",
+    status: init.status ?? "active",
     created: init.created,
     updated: init.updated,
     truth: init.truth,

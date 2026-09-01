@@ -20,8 +20,24 @@ const INDEX_FILE = "INDEX.md";
 const BRAIN_FILE = "BRAIN.md";
 const STATUS_FILE = "_STATUS.md";
 
-export function memoryDirName(j: Jurisdiction): string {
-  return j === "cz" ? "pamet" : "pamat";
+/**
+ * Jeden adresár pamäte pre obe jurisdikcie (O6). Jurisdikcia je hodnota poľa
+ * v zázname, nie názov priečinka — spis prenesený medzi jurisdikciami sa tým
+ * neprepisuje a české aj slovenské záznamy môžu ležať vedľa seba.
+ */
+export const MEMORY_DIR = "memory";
+
+/** Karty veci, z ktorých sa dá prečítať jurisdikcia prázdneho spisu. */
+const MATTER_CARDS = ["matter.md", "spis.md", "project.md", "projekt.md"];
+
+function jurisdictionFromCard(dir: string): Jurisdiction | undefined {
+  for (const name of MATTER_CARDS) {
+    const path = join(dir, name);
+    if (!existsSync(path)) continue;
+    const m = /^jurisdiction:\s*(cz|sk)\s*$/m.exec(readFileSync(path, "utf8"));
+    if (m?.[1] === "cz" || m?.[1] === "sk") return m[1];
+  }
+  return undefined;
 }
 
 /** Súbor, ktorý sa nepodarilo prečítať. Jeden zlý súbor nesmie skryť zvyšok spisu. */
@@ -38,15 +54,8 @@ export interface Store {
   readonly problems: StoreProblem[];
 }
 
-function detect(dir: string): Jurisdiction | undefined {
-  if (existsSync(join(dir, memoryDirName("cz")))) return "cz";
-  if (existsSync(join(dir, memoryDirName("sk")))) return "sk";
-  return undefined;
-}
-
 export function readStore(dir: string): Store {
-  const j = detect(dir) ?? "cz";
-  const memoryDir = join(dir, memoryDirName(j));
+  const memoryDir = join(dir, MEMORY_DIR);
   const records: OkfRecord[] = [];
   const problems: StoreProblem[] = [];
   if (existsSync(memoryDir)) {
@@ -59,6 +68,9 @@ export function readStore(dir: string): Store {
       }
     }
   }
+  // Jurisdikcia slúži už len na lokalizáciu výstupu. Berie sa zo záznamov;
+  // prázdny spis ju má na karte veci, inak sa predpokladá česká.
+  const j = records[0]?.jurisdiction ?? jurisdictionFromCard(dir) ?? "cz";
   return { dir, jurisdiction: j, memoryDir, records, problems };
 }
 
@@ -139,20 +151,20 @@ export function writeIndex(dir: string): void {
 export function ensureBrain(dir: string, j: Jurisdiction): void {
   const path = join(dir, BRAIN_FILE);
   if (existsSync(path)) return;
-  const mem = memoryDirName(j);
+  const mem = MEMORY_DIR;
   const cz = [
     "# BRAIN.md — protokol paměti spisu",
     "",
     "Vstupní bod pro agenty. Čti v tomto pořadí, dál jen cíleně přes odkazy.",
     "",
-    "1. `spis.md` — karta věci",
+    "1. `matter.md` (dříve `spis.md`) — karta věci",
     `2. \`${STATUS_FILE}\` — **Fáze** a **Další krok** nahoře; tabulky mezi markery generuje paměť`,
     `3. \`${mem}/${INDEX_FILE}\` — rejstřík paměti, odtud na konkrétní záznam`,
     "",
     "## Zápisová disciplína",
     "",
-    "- Každý záznam má sekci **Pravda** (aktuální stav) a **Historie** (append-only).",
-    "- Změna Pravdy musí ve stejném zápisu přidat řádek do Historie. Nástroj to vynucuje.",
+    "- Každý záznam má sekci **Truth** (aktuální stav) a **History** (append-only).",
+    "- Změna Truth musí ve stejném zápisu přidat řádek do History. Nástroj to vynucuje.",
     "- Do L2 (spis) zapisuje agent sám. Do **L1** (pravidla, poučení) a **L3** (právní prameny)",
     "  a při **mazání** jen člověk — nástroj bez schválení zápis odmítne.",
     `- \`${STATUS_FILE}\` mimo markery patří advokátovi. Needituj to.`,
@@ -163,14 +175,14 @@ export function ensureBrain(dir: string, j: Jurisdiction): void {
     "",
     "Vstupný bod pre agentov. Čítaj v tomto poradí, ďalej len cielene cez odkazy.",
     "",
-    "1. `spis.md` — karta veci",
+    "1. `matter.md` (predtým `spis.md`) — karta veci",
     `2. \`${STATUS_FILE}\` — **Fáza** a **Ďalší krok** hore; tabuľky medzi markermi generuje pamäť`,
     `3. \`${mem}/${INDEX_FILE}\` — register pamäte, odtiaľ na konkrétny záznam`,
     "",
     "## Zápisová disciplína",
     "",
-    "- Každý záznam má sekciu **Pravda** (aktuálny stav) a **História** (append-only).",
-    "- Zmena Pravdy musí v tom istom zápise pridať riadok do Histórie. Nástroj to vynucuje.",
+    "- Každý záznam má sekciu **Truth** (aktuálny stav) a **History** (append-only).",
+    "- Zmena Truth musí v tom istom zápise pridať riadok do History. Nástroj to vynucuje.",
     "- Do L2 (spis) zapisuje agent sám. Do **L1** (pravidlá, poučenia) a **L3** (právne pramene)",
     "  a pri **mazaní** iba človek — nástroj bez schválenia zápis odmietne.",
     `- \`${STATUS_FILE}\` mimo markerov patrí advokátovi. Needituj to.`,
@@ -204,7 +216,12 @@ export interface Scope {
   readonly problems: StoreProblem[];
 }
 
-const CLIENT_CARD = "klient.md";
+/**
+ * Karta klienta. `client.md` je kanonická; `klient.md` sa uznáva dovtedy,
+ * kým nedobehne migrácia existujúcich spisov — dovtedy by inak prestali
+ * fungovať priečinky založené skriptami `novy-spis`.
+ */
+const CLIENT_CARDS = ["client.md", "klient.md"];
 
 /**
  * Nájde zložku klienta nad spisom. MČ profil A má medzi nimi ešte úroveň
@@ -215,7 +232,7 @@ export function findClientDir(matterDir: string, maxUp = 4): string | undefined 
   for (let i = 0; i < maxUp; i++) {
     const parent = dirname(dir);
     if (parent === dir) return undefined;
-    if (existsSync(join(parent, CLIENT_CARD))) return parent;
+    if (CLIENT_CARDS.some((c) => existsSync(join(parent, c)))) return parent;
     dir = parent;
   }
   return undefined;

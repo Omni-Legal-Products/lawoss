@@ -5,11 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../src/cli.ts";
 import { serializeRecord } from "../src/record.ts";
-import { newRecord, memoryDirName } from "../src/index.ts";
+import { newRecord, MEMORY_DIR } from "../src/index.ts";
 
 function spis(withLeak = false): string {
   const dir = mkdtempSync(join(tmpdir(), "okf-cli-"));
-  mkdirSync(join(dir, memoryDirName("cz")));
+  mkdirSync(join(dir, MEMORY_DIR));
   writeFileSync(join(dir, "_STATUS.md"), "# Status\n\n> **Fáze:** ruční\n");
   const s = newRecord({
     id: "S-001", type: "subject", jurisdiction: "cz", title: "Modrý Kámen s.r.o.",
@@ -17,14 +17,14 @@ function spis(withLeak = false): string {
     created: "2026-08-29", updated: "2026-08-29", truth: "t",
     timeline: [{ date: "2026-08-29", text: "overene" }],
   });
-  writeFileSync(join(dir, "pamet", "S-001-x.md"), serializeRecord(s));
+  writeFileSync(join(dir, MEMORY_DIR, "S-001-x.md"), serializeRecord(s));
   if (withLeak) {
     const j = newRecord({
       id: "J-001", type: "authority", jurisdiction: "cz", title: "Pramen", summary: "p",
       created: "2026-08-29", updated: "2026-08-29", truth: "tykalo sa ICO 12345678",
       timeline: [{ date: "2026-08-29", text: "z" }],
     });
-    writeFileSync(join(dir, "pamet", "J-001-x.md"), serializeRecord(j));
+    writeFileSync(join(dir, MEMORY_DIR, "J-001-x.md"), serializeRecord(j));
   }
   return dir;
 }

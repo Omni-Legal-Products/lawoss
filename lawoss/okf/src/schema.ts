@@ -1,12 +1,18 @@
 /**
- * Mapovacia tabuľka OKF pamäte.
+ * Schéma OKF pamäte.
  *
- * Jediné miesto, kde žije rozdiel medzi českou a slovenskou nomenklatúrou.
- * Parser, serializer, detektor únikov aj testy čítajú z tejto tabuľky — nové
- * pole sa pridáva raz sem, nie dvakrát do kódu.
+ * **Jadro stojí na anglických kľúčoch** (rozhodnutie O6). Na disku je jeden
+ * kanonický tvar pre obe jurisdikcie — `type: decision`, `deadlines:`,
+ * `## Truth`. Spis prenesený medzi jurisdikciami sa tým neprepisuje a nová
+ * krajina je nový locale, nie tretí stĺpec schémy a migrácia dát.
  *
- * Kľúče a hodnoty enumov sú technické identifikátory, preto bez diakritiky.
- * Ľudské texty (nadpisy sekcií, obsah) diakritiku nesú.
+ * Stĺpce `cz` a `sk` **prestali byť kľúčmi** a sú z nich popisky pre človeka:
+ * používa ich validátor v hláškach a appka pri zobrazení. Perzistencia je
+ * anglická, rozhranie lokalizované.
+ *
+ * Kde sa právo medzi jurisdikciami naozaj líši, riešením nie je jeden kľúč
+ * s dvomi prekladmi, ale **dve kanonické polia s odlišným významom** —
+ * preklad rieši jazyk, nie rozdiel v práve.
  */
 
 export type Jurisdiction = "cz" | "sk";
@@ -47,6 +53,30 @@ export const LAYER_OF: Record<RecordType, Layer> = {
 
 export type FieldKind = "string" | "number" | "list";
 
+/** Stav záznamu. `superseded` = prekonaný novším, `void` = zrušený ako omyl. */
+export const STATUS = ["active", "superseded", "void"] as const;
+export type Status = (typeof STATUS)[number];
+
+/** Druh osoby. Rozlíšenie fyzická × právnická je v CZ aj SK rovnaké. */
+export const PERSON_KINDS = ["natural_person", "legal_person", "sole_trader"] as const;
+export type PersonKind = (typeof PERSON_KINDS)[number];
+
+/** Vzťah subjektu ku kancelárii — nie procesné postavenie v konaní. */
+export const ROLES = ["client", "counterparty", "representative", "ubo"] as const;
+export type Role = (typeof ROLES)[number];
+
+/** Riziková kategória AML preverenia. */
+export const RISK = ["low", "medium", "high"] as const;
+export type Risk = (typeof RISK)[number];
+
+/** Záver AML preverenia. */
+export const CONCLUSION = ["proceed", "enhanced_diligence", "decline"] as const;
+export type Conclusion = (typeof CONCLUSION)[number];
+
+/** Režim subjektového preverenia podľa spec 0002. */
+export const SCREENING_MODES = ["light", "medium", "hard"] as const;
+export type ScreeningMode = (typeof SCREENING_MODES)[number];
+
 /**
  * Sila, s akou sa hodnota poľa hľadá pri kontrole úniku do L3.
  *   hard   — presný identifikátor, blokuje vždy
@@ -55,8 +85,11 @@ export type FieldKind = "string" | "number" | "list";
 export type NeedleStrength = "hard" | "strong";
 
 export interface FieldDef {
+  /** Kľúč na disku. Rovnaký pre obe jurisdikcie. */
   readonly canonical: string;
+  /** Popisok pre českého používateľa. Nie kľúč. */
   readonly cz: string;
+  /** Popisok pre slovenského používateľa. Nie kľúč. */
   readonly sk: string;
   readonly kind: FieldKind;
   readonly required: boolean;
@@ -68,62 +101,62 @@ export interface FieldDef {
 
 export const FIELDS: readonly FieldDef[] = [
   // --- jadro záznamu ---
-  { canonical: "schema", cz: "okf", sk: "okf", kind: "number", required: true },
+  { canonical: "okf", cz: "okf", sk: "okf", kind: "number", required: true },
   { canonical: "id", cz: "id", sk: "id", kind: "string", required: true },
   { canonical: "type", cz: "typ", sk: "typ", kind: "string", required: true },
-  { canonical: "title", cz: "nazev", sk: "nazov", kind: "string", required: true },
+  { canonical: "title", cz: "název", sk: "názov", kind: "string", required: true },
   { canonical: "summary", cz: "popis", sk: "popis", kind: "string", required: true },
   { canonical: "layer", cz: "vrstva", sk: "vrstva", kind: "string", required: true },
   { canonical: "jurisdiction", cz: "jurisdikce", sk: "jurisdikcia", kind: "string", required: true },
   { canonical: "status", cz: "stav", sk: "stav", kind: "string", required: true },
   { canonical: "created", cz: "vznik", sk: "vznik", kind: "string", required: true },
-  { canonical: "updated", cz: "zmena", sk: "zmena", kind: "string", required: true },
+  { canonical: "updated", cz: "změna", sk: "zmena", kind: "string", required: true },
   { canonical: "sources", cz: "zdroje", sk: "zdroje", kind: "list", required: false },
-  { canonical: "related", cz: "souvisi", sk: "suvisi", kind: "list", required: false },
+  { canonical: "related", cz: "souvisí", sk: "súvisí", kind: "list", required: false },
 
   // --- spis ---
-  { canonical: "deadlines", cz: "lhuty", sk: "lehoty", kind: "list", required: false },
+  { canonical: "deadlines", cz: "lhůty", sk: "lehoty", kind: "list", required: false },
   { canonical: "parties", cz: "strany", sk: "strany", kind: "list", required: false },
-  { canonical: "matter_ref", cz: "spisova_znacka", sk: "spisova_znacka", kind: "string", required: false },
-  { canonical: "court", cz: "soud", sk: "sud", kind: "string", required: false },
-  { canonical: "area", cz: "oblast_prava", sk: "oblast_prava", kind: "list", required: false },
+  { canonical: "matter_ref", cz: "spisová značka", sk: "spisová značka", kind: "string", required: false },
+  { canonical: "court", cz: "soud", sk: "súd", kind: "string", required: false },
+  { canonical: "area", cz: "oblast práva", sk: "oblasť práva", kind: "list", required: false },
 
   // --- identifikácia subjektu (§ 8 zák. č. 253/2008 Sb.) ---
   { canonical: "role", cz: "role", sk: "rola", kind: "string", required: false },
-  { canonical: "person_type", cz: "typ_osoby", sk: "typ_osoby", kind: "string", required: false },
-  { canonical: "registry_id", cz: "ico", sk: "ico", kind: "string", required: false, needle: "hard" },
-  { canonical: "birth_date", cz: "datum_narozeni", sk: "datum_narodenia", kind: "string", required: false, sensitive: true, needle: "hard" },
-  { canonical: "birth_number", cz: "rodne_cislo", sk: "rodne_cislo", kind: "string", required: false, sensitive: true, needle: "hard" },
-  { canonical: "birth_place", cz: "misto_narozeni", sk: "miesto_narodenia", kind: "string", required: false },
-  { canonical: "sex", cz: "pohlavi", sk: "pohlavie", kind: "string", required: false },
-  { canonical: "citizenship", cz: "statni_obcanstvi", sk: "statne_obcianstvo", kind: "string", required: false },
-  { canonical: "residence", cz: "trvaly_pobyt", sk: "trvaly_pobyt", kind: "string", required: false, sensitive: true, needle: "strong" },
-  { canonical: "id_document_type", cz: "doklad_typ", sk: "doklad_typ", kind: "string", required: false },
-  { canonical: "id_document_number", cz: "doklad_cislo", sk: "doklad_cislo", kind: "string", required: false, sensitive: true, needle: "hard" },
-  { canonical: "id_document_issuer", cz: "doklad_vydal", sk: "doklad_vydal", kind: "string", required: false },
-  { canonical: "id_document_valid_to", cz: "doklad_plati_do", sk: "doklad_plati_do", kind: "string", required: false },
+  { canonical: "person_type", cz: "typ osoby", sk: "typ osoby", kind: "string", required: false },
+  { canonical: "registry_id", cz: "IČO", sk: "IČO", kind: "string", required: false, needle: "hard" },
+  { canonical: "birth_date", cz: "datum narození", sk: "dátum narodenia", kind: "string", required: false, sensitive: true, needle: "hard" },
+  { canonical: "birth_number", cz: "rodné číslo", sk: "rodné číslo", kind: "string", required: false, sensitive: true, needle: "hard" },
+  { canonical: "birth_place", cz: "místo narození", sk: "miesto narodenia", kind: "string", required: false },
+  { canonical: "sex", cz: "pohlaví", sk: "pohlavie", kind: "string", required: false },
+  { canonical: "citizenship", cz: "státní občanství", sk: "štátna príslušnosť", kind: "string", required: false },
+  { canonical: "residence", cz: "trvalý pobyt", sk: "trvalý pobyt", kind: "string", required: false, sensitive: true, needle: "strong" },
+  { canonical: "id_document_type", cz: "druh dokladu", sk: "druh dokladu", kind: "string", required: false },
+  { canonical: "id_document_number", cz: "číslo dokladu", sk: "číslo dokladu", kind: "string", required: false, sensitive: true, needle: "hard" },
+  { canonical: "id_document_issuer", cz: "doklad vydal", sk: "doklad vydal", kind: "string", required: false },
+  { canonical: "id_document_valid_to", cz: "doklad platí do", sk: "doklad platí do", kind: "string", required: false },
 
   // --- právnická osoba ---
-  { canonical: "legal_form", cz: "pravni_forma", sk: "pravna_forma", kind: "string", required: false },
-  { canonical: "registered_office", cz: "sidlo", sk: "sidlo", kind: "string", required: false },
-  { canonical: "registry_entry", cz: "zapis_v_rejstriku", sk: "zapis_v_registri", kind: "string", required: false },
-  { canonical: "business_address", cz: "misto_podnikani", sk: "miesto_podnikania", kind: "string", required: false },
-  { canonical: "business_scope", cz: "predmet_podnikani", sk: "predmet_podnikania", kind: "list", required: false },
-  { canonical: "representatives", cz: "jednajici_osoby", sk: "konajuce_osoby", kind: "list", required: false },
-  { canonical: "ubo", cz: "skutecny_majitel", sk: "konecny_uzivatel_vyhod", kind: "list", required: false },
-  { canonical: "pep", cz: "pep", sk: "pep", kind: "string", required: false },
+  { canonical: "legal_form", cz: "právní forma", sk: "právna forma", kind: "string", required: false },
+  { canonical: "registered_office", cz: "sídlo", sk: "sídlo", kind: "string", required: false },
+  { canonical: "registry_entry", cz: "zápis v rejstříku", sk: "zápis v registri", kind: "string", required: false },
+  { canonical: "business_address", cz: "místo podnikání", sk: "miesto podnikania", kind: "string", required: false },
+  { canonical: "business_scope", cz: "předmět podnikání", sk: "predmet podnikania", kind: "list", required: false },
+  { canonical: "representatives", cz: "jednající osoby", sk: "konajúce osoby", kind: "list", required: false },
+  { canonical: "ubo", cz: "skutečný majitel", sk: "konečný užívateľ výhod", kind: "list", required: false },
+  { canonical: "pep", cz: "PEP", sk: "PEP", kind: "string", required: false },
 
   // --- prevereníe (úkon v čase) ---
   { canonical: "subject_ref", cz: "subjekt", sk: "subjekt", kind: "string", required: false },
-  { canonical: "check_date", cz: "datum_provereni", sk: "datum_preverenia", kind: "string", required: false },
-  { canonical: "mode", cz: "rezim", sk: "rezim", kind: "string", required: false },
+  { canonical: "check_date", cz: "datum prověření", sk: "dátum preverenia", kind: "string", required: false },
+  { canonical: "mode", cz: "režim", sk: "režim", kind: "string", required: false },
   { canonical: "registries", cz: "registry", sk: "registre", kind: "list", required: false },
-  { canonical: "pep_result", cz: "pep_vysledek", sk: "pep_vysledok", kind: "string", required: false },
-  { canonical: "sanctions_result", cz: "sankce_vysledek", sk: "sankcie_vysledok", kind: "string", required: false },
-  { canonical: "funds_origin", cz: "puvod_prostredku", sk: "povod_prostriedkov", kind: "string", required: false },
+  { canonical: "pep_result", cz: "výsledek PEP", sk: "výsledok PEP", kind: "string", required: false },
+  { canonical: "sanctions_result", cz: "výsledek sankcí", sk: "výsledok sankcií", kind: "string", required: false },
+  { canonical: "funds_origin", cz: "původ prostředků", sk: "pôvod prostriedkov", kind: "string", required: false },
   { canonical: "risk", cz: "riziko", sk: "riziko", kind: "string", required: false },
-  { canonical: "conclusion", cz: "zaver", sk: "zaver", kind: "string", required: false },
-  { canonical: "valid_until", cz: "platnost_do", sk: "platnost_do", kind: "string", required: false },
+  { canonical: "conclusion", cz: "závěr", sk: "záver", kind: "string", required: false },
+  { canonical: "valid_until", cz: "platnost do", sk: "platnosť do", kind: "string", required: false },
 ];
 
 /** Údaje, ktoré sa maskujú vo výstupoch pre človeka a nesmú do `popis`. */
@@ -158,8 +191,6 @@ export type AmlRequirement =
       readonly fallback: readonly string[];
     };
 
-export type PersonKind = "fo" | "po" | "podnikatel";
-
 /** Spoločné pre českú fyzickú osobu — § 5 ods. 1 písm. a). */
 const CZ_FO: readonly AmlRequirement[] = [
   "title",
@@ -189,51 +220,57 @@ export const AML_REQUIRED: Partial<
   Record<Jurisdiction, Readonly<Record<PersonKind, readonly AmlRequirement[]>>>
 > = {
   cz: {
-    fo: CZ_FO,
+    natural_person: CZ_FO,
     // § 5 ods. 1 písm. b) bod 1 a 2 — firma/názov, sídlo, IČO, člen štatutárneho orgánu.
     // Právnu formu ani zápis v registri ustanovenie nežiada.
-    po: ["title", "registered_office", "registry_id", "representatives"],
+    legal_person: ["title", "registered_office", "registry_id", "representatives"],
     // „jde-li o podnikající fyzickou osobu, též její obchodní firma, sídlo
     // a identifikační číslo osoby"
-    podnikatel: [...CZ_FO, "registered_office", "registry_id"],
+    sole_trader: [...CZ_FO, "registered_office", "registry_id"],
   },
   sk: {
-    fo: SK_FO,
+    natural_person: SK_FO,
     // § 7 ods. 1 písm. b) — názov, sídlo, IČO, označenie registra a číslo zápisu,
     // osoba oprávnená konať a členovia riadiaceho orgánu.
-    po: ["title", "registered_office", "registry_id", "registry_entry", "representatives"],
+    legal_person: ["title", "registered_office", "registry_id", "registry_entry", "representatives"],
     // FO-podnikateľ: adresa miesta podnikania, označenie registra a číslo zápisu.
     // IČO je „ak bolo pridelené", teda podmienené — nevynucuje sa.
-    podnikatel: [...SK_FO, "business_address", "registry_entry"],
+    sole_trader: [...SK_FO, "business_address", "registry_entry"],
   },
 };
 
-const TYPE_KEYS: Record<RecordType, Record<Jurisdiction, string>> = {
+/** Popisok typu záznamu pre človeka. Na disku je vždy kanonický anglický názov. */
+const TYPE_LABELS: Record<RecordType, Record<Jurisdiction, string>> = {
   matter: { cz: "spis", sk: "spis" },
-  decision: { cz: "rozhodnuti", sk: "rozhodnutie" },
+  decision: { cz: "rozhodnutí", sk: "rozhodnutie" },
   subject: { cz: "subjekt", sk: "subjekt" },
-  question: { cz: "otazka", sk: "otazka" },
-  screening: { cz: "provereni", sk: "preverenie" },
+  question: { cz: "otázka", sk: "otázka" },
+  screening: { cz: "prověření", sk: "preverenie" },
   rule: { cz: "pravidlo", sk: "pravidlo" },
-  lesson: { cz: "pouceni", sk: "poucenie" },
-  authority: { cz: "pramen", sk: "pramen" },
+  lesson: { cz: "poučení", sk: "poučenie" },
+  authority: { cz: "pramen", sk: "prameň" },
 };
 
-export function fieldKey(canonical: string, j: Jurisdiction): string {
+/** Popisok poľa pre človeka — do hlášok a do rozhrania, nikdy do súboru. */
+export function fieldLabel(canonical: string, j: Jurisdiction): string {
   const f = FIELDS.find((x) => x.canonical === canonical);
-  if (!f) throw new Error(`Neznáme kanonické pole: ${canonical}`);
+  if (!f) throw new Error(`Neznáme pole: ${canonical}`);
   return j === "cz" ? f.cz : f.sk;
 }
 
-export function canonicalField(localKey: string, j: Jurisdiction): string | undefined {
-  const f = FIELDS.find((x) => (j === "cz" ? x.cz : x.sk) === localKey);
-  return f?.canonical;
+/** Je to kľúč, ktorý schéma pozná? Kľúče sú kanonické, teda bez prekladu. */
+export function canonicalField(key: string): string | undefined {
+  return FIELDS.find((x) => x.canonical === key)?.canonical;
 }
 
-export function typeKey(t: RecordType, j: Jurisdiction): string {
-  return TYPE_KEYS[t][j];
+export function typeLabel(t: RecordType, j: Jurisdiction): string {
+  return TYPE_LABELS[t][j];
 }
 
-export function canonicalType(localKey: string, j: Jurisdiction): RecordType | undefined {
-  return RECORD_TYPES.find((t) => TYPE_KEYS[t][j] === localKey);
+export function isRecordType(value: string): value is RecordType {
+  return (RECORD_TYPES as readonly string[]).includes(value);
+}
+
+export function isJurisdiction(value: string): value is Jurisdiction {
+  return value === "cz" || value === "sk";
 }
