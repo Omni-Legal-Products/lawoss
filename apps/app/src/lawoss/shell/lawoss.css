@@ -271,3 +271,11 @@
 .lw-welcome-todo p { font-size: 12.5px; line-height: 1.6; color: var(--lw-text-secondary); }
 .lw-welcome-todo p + p { margin-top: 7px; }
 .lw-welcome-todo p b { color: var(--lw-text-primary); font-weight: 500; }
+.lw-welcome-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 34px; }
+.lw-welcome-brand img { width: 38px; height: 38px; }
+.lw-welcome-wordmark { font-family: var(--lw-font-serif); font-size: 20px; letter-spacing: 0.18em; line-height: 1; color: var(--lw-text-primary); }
+.lw-welcome-brand small { display: block; font-size: 8px; letter-spacing: 0.16em; color: var(--lw-text-tertiary); margin-top: 4px; }
+/* Hero headline follows the brand mockups: serif, tight. */
+.lw-welcome-h1 { font-family: var(--lw-font-serif); letter-spacing: -0.02em; }
+/* The longer strapline does not fit the rail on one line — let it wrap. */
+.lw-brand small { letter-spacing: 0.12em; line-height: 1.4; max-width: 20ch; }

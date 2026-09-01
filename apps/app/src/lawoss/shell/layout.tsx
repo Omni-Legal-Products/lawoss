@@ -88,7 +88,7 @@ export function LawossLayout(props: { children: ReactNode }) {
             <div className="lw-wordmark">
               LAW<b>OSS</b>
             </div>
-            <small>CZECHIA · SLOVAKIA</small>
+            <small>CZECHIA SLOVAKIA AND BEYOND</small>
           </div>
         </div>
         <RailTabs />

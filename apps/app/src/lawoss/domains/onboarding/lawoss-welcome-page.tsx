@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 
+import lawossMark from "../../../../../../lawoss/brand/lawoss-mark.svg";
 import "../../shell/lawoss.css";
 
 /**
@@ -61,6 +62,13 @@ export function LawossWelcomePage({
             <div className="lw-welcome-entry">
               <div className="lw-welcome-col">
                 <div>
+                  <div className="lw-welcome-brand">
+                    <img src={lawossMark} alt="" />
+                    <div>
+                      <div className="lw-welcome-wordmark">LAWOSS</div>
+                      <small>CZECHIA SLOVAKIA AND BEYOND</small>
+                    </div>
+                  </div>
                   <span className="lw-sc lw-welcome-eyebrow">Advokátska prax · Slovensko a Česko</span>
                   <h1 className="lw-h1 lw-welcome-h1">Pripravme LAWOSS na vašu prácu</h1>
                   <p className="lw-lead">
