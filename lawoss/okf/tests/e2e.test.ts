@@ -6,7 +6,7 @@ import { join } from "node:path";
 import {
   memoryDirName, readStore, ensureBrain, writeIndex, syncStatus,
   applyRecordWrite, planWrite, validateStore, newRecord,
-  ApprovalRequiredError, TimelineIntegrityError,
+  ApprovalRequiredError, TimelineIntegrityError, LeakBlockedError,
 } from "../src/index.ts";
 import type { Jurisdiction } from "../src/index.ts";
 
@@ -81,26 +81,28 @@ for (const j of ["cz", "sk"] as const) {
     applyRecordWrite(dir, navrh, ADVOKAT);
     assert.equal(readStore(dir).records.length, 3);
 
-    // 6. Klientsky udaj sa nesmie dostat do zdielatelnej pravnej vrstvy.
-    const pramen = newRecord({
+    // 6. Klientsky udaj sa do zdielatelnej pravnej vrstvy nedostane —
+    //    brana ho zastavi uz pri zapise, nie az pri samostatnej validacii.
+    const spinavy = newRecord({
       id: "J-001", type: "authority", jurisdiction: j,
-      title: "K miestnej prislusnosti", summary: "pravny prameň",
+      title: "K miestnej prislusnosti", summary: "pravny pramen",
       created: "2026-08-30", updated: "2026-08-30",
       truth: "Vec sa tykala spolocnosti s ICO 12345678.",
       timeline: [{ date: "2026-08-30", text: "zalozene" }],
     });
-    applyRecordWrite(dir, planWrite(undefined, pramen, "pravna veta"), ADVOKAT);
-    const nalezy = validateStore(readStore(dir).records);
-    assert.ok(nalezy.some((f) => f.code === "L3_LEAK"), JSON.stringify(nalezy));
+    assert.throws(
+      () => applyRecordWrite(dir, planWrite(undefined, spinavy, "pravna veta"), ADVOKAT),
+      LeakBlockedError,
+    );
+    assert.equal(readStore(dir).records.length, 3, "odmietnuty zapis nesmie nic vytvorit");
 
-    // 7. Po ocisteni je pamat validna.
+    // 7. Cisty pramen prejde a pamat je validna.
     const cisty = {
-      ...pramen,
+      ...spinavy,
       truth: "Miestna prislusnost sa posudzuje k okamihu zacatia konania.",
-      updated: "2026-08-31",
-      timeline: [...pramen.timeline, { date: "2026-08-31", text: "odstraneny klientsky identifikator" }],
     };
-    applyRecordWrite(dir, planWrite(pramen, cisty, "odstranenie klientskeho udaja"), ADVOKAT);
+    applyRecordWrite(dir, planWrite(undefined, cisty, "pravna veta"), ADVOKAT);
+    assert.equal(readStore(dir).records.length, 4);
     assert.deepEqual(validateStore(readStore(dir).records), []);
 
     // 8. Projekcia: bloky sa naplnia, ludsky text zostane, druhy beh nic nezmeni.

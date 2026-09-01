@@ -29,7 +29,7 @@ export { renderStatus, RenderConflictError, BLOCKS, type BlockName } from "./ren
 export { validateStore, type Finding, type Severity, type ValidateOptions } from "./validate.ts";
 export { maskValue, maskRecord } from "./mask.ts";
 export {
-  readStore, readScope, findClientDir, memoryDirName, applyRecordWrite,
+  readStore, readScope, findClientDir, memoryDirName, applyRecordWrite, LeakBlockedError,
   writeIndex, ensureBrain, syncStatus,
   type Store, type Scope, type StoreProblem,
 } from "./store.ts";

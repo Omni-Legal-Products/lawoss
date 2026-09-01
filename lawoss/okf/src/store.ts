@@ -12,6 +12,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { dirname, join, resolve } from "node:path";
 import { parseRecord, serializeRecord, type OkfRecord } from "./record.ts";
 import { renderStatus } from "./render.ts";
+import { validateStore } from "./validate.ts";
 import { authorize, type Approval, type WriteDiff } from "./write.ts";
 import type { Jurisdiction } from "./schema.ts";
 
@@ -78,9 +79,33 @@ function fileFor(store: Store, r: OkfRecord): string {
   return join(store.memoryDir, existing ?? `${r.id}-${slug(r.title)}.md`);
 }
 
-/** Zapíše návrh na disk — najprv však prejde bránou. */
+export class LeakBlockedError extends Error {}
+
+/**
+ * Štvrtá brána — zákaz úniku klientskych identifikátorov do zdieľateľnej
+ * vrstvy L3. Beží **iba pre L3**: v spise sú identifikátory legitímne
+ * a `validate.ts` ich tam aj tak preskakuje.
+ *
+ * Kontrola musí vidieť aj klientsku úroveň. AML subjekty žijú u klienta,
+ * prameň sa zapisuje v spise — keby brána čítala iba spis, nevidela by
+ * práve tie identifikátory, kvôli ktorým existuje.
+ */
+function assertNoLeak(dir: string, after: OkfRecord): void {
+  if (after.layer !== "L3") return;
+  const ostatne = readScope(dir).records.filter((r) => r.id !== after.id);
+  const chyby = validateStore([...ostatne, after]).filter(
+    (f) => f.recordId === after.id && f.severity === "error" && f.code === "L3_LEAK",
+  );
+  if (chyby.length === 0) return;
+  throw new LeakBlockedError(
+    `Zápis záznamu ${after.id} odmietnutý — ${chyby.map((f) => f.message).join(" ")}`,
+  );
+}
+
+/** Zapíše návrh na disk — najprv však prejde bránami. */
 export function applyRecordWrite(dir: string, diff: WriteDiff, approval: Approval | undefined): void {
   authorize(diff, approval);
+  if (diff.after) assertNoLeak(dir, diff.after);
   const store = readStore(dir);
   if (!existsSync(store.memoryDir)) mkdirSync(store.memoryDir, { recursive: true });
 
