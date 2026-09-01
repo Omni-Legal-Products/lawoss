@@ -24,6 +24,7 @@ Citáciu do výstupu overuj vždy proti originálu dokumentu, nikdy proti pamät
 | otvorená otázka bez odpovede | `question` | L2 |
 | kto čo tvrdí a či je to preukázané | `claim` | L2 |
 | listina alebo iný dôkazný prostriedok | `evidence` | L2 |
+| úloha so záväzkom a termínom | `task` | L2 |
 | identifikácia klienta alebo protistrany (§ 8) | `subject` | L2, **u klienta** |
 | AML preverenie k dátumu | `screening` | L2, **u klienta** |
 | pracovné pravidlo, preferencia kancelárie | `rule` | **L1** |
@@ -75,6 +76,8 @@ a prípravu návrhu**. Vlastný zápis nechaj CLI.
   výsledok ako `screening` so zdrojmi, rizikom a `platnost_do`.
 - **Väzbu tvrdenie ↔ dôkaz veď z oboch strán.** Zapíšeš `supporting_evidence` do
   tvrdenia, zapíš aj `proves` do dôkazu — inak to validátor ohlási ako `LINK_ASYMMETRY`.
+- **`due` na úlohe nie je procesná lehota.** Lehota patrí do `deadlines`; zmeškaný
+  interný termín sa dá dohnať, zmeškaná lehota nie. Nemiešaj ich.
 - **`proof_status` neodvodzuj z počtu dôkazov.** Je to hodnota, ktorú zapisuje advokát;
   „tri dôkazy = preukázané" je právna domnienka, nie výpočet.
 - **Sporná udalosť je tvrdenie**, nie záznam typu udalosť. Nesporné udalosti nesie
@@ -94,6 +97,16 @@ a prípravu návrhu**. Vlastný zápis nechaj CLI.
 - [ ] pri spornej veci: matica `evidence_matrix` v `_STATUS.md` sedí a žiadne tvrdenie nie je bez opory
 - [ ] **Fáza** a **Ďalší krok** v `_STATUS.md` zodpovedajú realite — to píše človek,
       ale ak sú zjavne zastarané, upozorni naň advokáta
+
+## Jediná pamäť veci
+
+Adresár `memory/` je jediné miesto, kam sa zapisuje. Nájdeš-li vo spise `_memory.md`,
+`lrd.json`, `progress.txt`, `LEARNINGS.md` alebo `facts/`, `research/`, `strategy/`
+zo starších nástrojov — **čítaj ich ako archív, nezapisuj do nich.** Dve pamäte
+v jednom spise znamenajú dve pravdy a jedna z nich bude ticho zastaraná.
+
+Mapovanie: `progress.txt` → `## History` v zázname · `LEARNINGS.md` → L1 `lesson` ·
+`lrd.json` → záznamy typu `task` · `MEMORY.md` (TP/LL/OQ) → `decision` / `lesson` / `question`.
 
 ## Čo do pamäte nepatrí
 

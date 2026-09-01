@@ -13,7 +13,7 @@ to zostáva skillu `novy-spis`. Toto jadro vlastní iba pamäť.
 | Vrstva | Typy záznamov | Kto smie zapísať |
 |---|---|---|
 | **L1** kancelária | `rule` (pravidlo), `lesson` (poučenie) | iba človek |
-| **L2** spis | `matter`, `decision`, `subject`, `question`, `screening`, `claim`, `evidence` | agent sám |
+| **L2** spis | `matter`, `decision`, `subject`, `question`, `screening`, `claim`, `evidence`, `task` | agent sám |
 | **L3** právo | `authority` (prameň) | iba človek |
 
 `lesson` je samostatný typ, nie podtyp poznámky: to, čo sa model naučil zle,
@@ -266,7 +266,7 @@ inštaluje sa samostatne, aby fork nepribral ďalší uzol do upstream stromu.
 
 ```bash
 pnpm install --ignore-workspace
-pnpm test        # node --test, 265 testov
+pnpm test        # node --test, 304 testov
 pnpm typecheck
 ```
 

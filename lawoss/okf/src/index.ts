@@ -12,12 +12,12 @@
 export {
   FIELDS, RECORD_TYPES, LAYER_OF, SENSITIVE_FIELDS, AML_REQUIRED,
   STATUS, PERSON_KINDS, ROLES, RISK, CONCLUSION, SCREENING_MODES,
-  PROOF_STATUS, CONFIDENCE, EVIDENCE_STRENGTH, PROCEDURAL_STATUS,
+  PROOF_STATUS, CONFIDENCE, EVIDENCE_STRENGTH, PROCEDURAL_STATUS, TASK_STATES,
   EVIDENCE_KINDS, EVIDENCE_KIND_PROVISION,
   fieldLabel, canonicalField, typeLabel, isRecordType, isJurisdiction, needleFields,
   type Jurisdiction, type Layer, type RecordType, type FieldDef, type NeedleStrength,
   type Status, type PersonKind, type Role, type Risk, type Conclusion, type ScreeningMode,
-  type ProofStatus, type Confidence, type EvidenceStrength, type ProceduralStatus, type EvidenceKind,
+  type ProofStatus, type Confidence, type EvidenceStrength, type ProceduralStatus, type EvidenceKind, type TaskState,
 } from "./schema.ts";
 
 export {
@@ -34,7 +34,7 @@ export { renderStatus, RenderConflictError, BLOCKS, MARKER_ONLY, type BlockName 
 export { validateStore, type Finding, type Severity, type ValidateOptions } from "./validate.ts";
 export { maskValue, maskRecord } from "./mask.ts";
 export {
-  readStore, readScope, findClientDir, MEMORY_DIR, applyRecordWrite, LeakBlockedError,
+  readStore, readScope, findClientDir, MEMORY_DIR, applyRecordWrite, LeakBlockedError, ConcurrentWriteError,
   writeIndex, ensureBrain, syncStatus,
   type Store, type Scope, type StoreProblem,
 } from "./store.ts";
@@ -72,6 +72,8 @@ export interface NewRecordInit {
   supporting_evidence?: string[];
   contradicting_evidence?: string[];
   proves?: string[];
+  depends_on?: string[];
+  acceptance?: string[];
 
   matter_ref?: string;
   court?: string;
@@ -123,6 +125,18 @@ export interface NewRecordInit {
   reliability?: string;
   objection?: string;
   procedural_status?: string;
+  effective_from?: string;
+  effective_to?: string;
+  verified_at?: string;
+  verified_against?: string;
+  procedural_role?: string;
+  representation?: string;
+  legal_capacity?: string;
+  capacity_notes?: string;
+  assignee?: string;
+  priority?: string;
+  state?: string;
+  due?: string;
 }
 
 /**

@@ -392,6 +392,93 @@ export function validateStore(
   }
 
   const today = opts.today ?? new Date().toISOString().slice(0, 10);
+
+  const ulohy = new Map(records.filter((r) => r.type === "task").map((r) => [r.id, r]));
+
+  // Zacyklený plán si nikto nevšimne — úlohy sa navzájom čakajú donekonečna.
+  const stav = new Map<string, "open" | "done">();
+  const vCykle = new Set<string>();
+  const navstiv = (id: string, cesta: string[]): void => {
+    if (stav.get(id) === "done") return;
+    if (stav.get(id) === "open") {
+      for (const x of cesta.slice(cesta.indexOf(id))) vCykle.add(x);
+      return;
+    }
+    stav.set(id, "open");
+    for (const d of ulohy.get(id)?.depends_on ?? []) {
+      if (ulohy.has(d)) navstiv(d, [...cesta, id]);
+    }
+    stav.set(id, "done");
+  };
+  for (const id of ulohy.keys()) navstiv(id, []);
+  for (const id of [...vCykle].sort()) {
+    findings.push({
+      severity: "error",
+      code: "TASK_CYCLE",
+      recordId: id,
+      message: `Úloha ${id} je súčasťou cyklu závislostí — plán sa nedá dokončiť.`,
+    });
+  }
+
+  for (const [id, t] of ulohy) {
+    if (t.state === "blocked") {
+      const blokuje = (t.depends_on ?? []).some((d) => ulohy.get(d)?.state !== "done");
+      if (!blokuje) {
+        findings.push({
+          severity: "warning",
+          code: "TASK_BLOCKED_WITHOUT_BLOCKER",
+          recordId: id,
+          message: `Úloha ${id} je blokovaná, ale žiadna jej závislosť nie je otvorená — blokovaná úloha bez blokátora je zabudnutá úloha.`,
+        });
+      }
+    }
+    if (t.due && t.due < today && t.state !== "done") {
+      findings.push({
+        severity: "warning",
+        code: "TASK_OVERDUE",
+        recordId: id,
+        message: `Úloha ${id} mala byť hotová do ${t.due}.`,
+      });
+    }
+  }
+
+  // Spec 0002 žiada, aby L3 niesla jurisdikciu a časovú platnosť. Jurisdikcia
+  // tam bola od začiatku, platnosť nie — bez nej systém nerozozná zastaranú
+  // citáciu a to je chyba, ktorá sa v podaní pozná neskoro.
+  for (const r of records) {
+    if (r.type !== "authority") continue;
+
+    if (r.effective_to && r.effective_to < today) {
+      findings.push({
+        severity: "warning",
+        code: "AUTHORITY_STALE",
+        recordId: r.id,
+        message: `Prameň ${r.id} platil do ${r.effective_to} — citácia môže mieriť na zrušené znenie.`,
+      });
+    }
+
+    if (!r.verified_at && !r.verified_against) {
+      findings.push({
+        severity: "warning",
+        code: "AUTHORITY_UNVERIFIED",
+        recordId: r.id,
+        message:
+          `Prameň ${r.id} nenesie stopu overenia (overené dňa / proti čomu). ` +
+          `Prameň bez stopy overenia je dohad, nie prameň.`,
+      });
+    }
+
+    for (const zdroj of r.sources ?? []) {
+      if (!/\bSb\.|\bZ\.\s?z\./.test(zdroj)) continue; // judikát sa ako predpis nekontroluje
+      if (/č\.\s?\d+\s?\/\s?\d{4}/.test(zdroj)) continue;
+      findings.push({
+        severity: "warning",
+        code: "CITATION_INCOMPLETE",
+        recordId: r.id,
+        message: `Prameň ${r.id}: citácia „${zdroj}" odkazuje na predpis, ale neuvádza jeho číslo a rok.`,
+      });
+    }
+  }
   const screenings = records.filter((r) => r.type === "screening");
 
   // § 9 — priebežná kontrola. Preverenie s uplynutou platnosťou treba zopakovať.
@@ -424,6 +511,21 @@ export function validateStore(
   // Varovanie patrí tam, kde by kontrola úplnosti reálne bežala — teda kde
   // niekto AML identifikáciu naozaj vedie (`typ_osoby`). Subjekt bez nej je
   // len údaj o tom, kto je protistrana, nie AML záznam.
+  // Insolvencia klienta je dôvod pozrieť sa na konflikt záujmov — nie zákaz,
+  // ale vec, ktorú si advokát má všimnúť skôr než protistrana.
+  for (const r of records) {
+    if (r.type !== "subject" || r.role !== "client") continue;
+    if (!/insolven|konkurz|konkurs|likvid/i.test(r.capacity_notes ?? "")) continue;
+    findings.push({
+      severity: "warning",
+      code: "CAPACITY_CONFLICT_CHECK",
+      recordId: r.id,
+      message:
+        `Klient ${r.id} má v poznámkach k spôsobilosti „${r.capacity_notes}". ` +
+        `Over konflikt záujmov skôr, než ho nájde protistrana.`,
+    });
+  }
+
   const unverified = records.find(
     (r) =>
       r.type === "subject" &&

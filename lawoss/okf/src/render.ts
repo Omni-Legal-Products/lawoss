@@ -12,7 +12,7 @@
 import type { OkfRecord } from "./record.ts";
 import { typeLabel, valueLabel, type Jurisdiction } from "./schema.ts";
 
-export const BLOCKS = ["deadlines", "timeline", "records", "evidence_matrix"] as const;
+export const BLOCKS = ["deadlines", "timeline", "records", "evidence_matrix", "tasks"] as const;
 export type BlockName = (typeof BLOCKS)[number];
 
 const BLOCK_HEADINGS: Record<BlockName, Record<Jurisdiction, string>> = {
@@ -20,6 +20,7 @@ const BLOCK_HEADINGS: Record<BlockName, Record<Jurisdiction, string>> = {
   timeline: { cz: "Chronologie", sk: "Chronológia" },
   records: { cz: "Záznamy paměti", sk: "Záznamy pamäte" },
   evidence_matrix: { cz: "Dokazování", sk: "Dokazovanie" },
+  tasks: { cz: "Otevřené úkoly", sk: "Otvorené úlohy" },
 };
 
 const EMPTY: Record<Jurisdiction, string> = {
@@ -132,11 +133,31 @@ function renderEvidenceMatrix(records: readonly OkfRecord[], j: Jurisdiction): s
   ].join("\n");
 }
 
+/**
+ * Prehľad otvorených úloh. `due` je interný záväzok — do tabuľky lehôt
+ * nepatrí. Zmeškaný interný termín sa dá dohnať, zmeškaná procesná lehota nie.
+ */
+function renderTasks(records: readonly OkfRecord[], j: Jurisdiction): string {
+  const open = records
+    .filter((r) => r.type === "task" && r.state !== "done")
+    .sort((a, b) => (a.id < b.id ? -1 : 1));
+  if (open.length === 0) return EMPTY[j];
+  const head =
+    j === "cz" ? "| Úkol | Věc | Řeší | Stav | Termín |" : "| Úloha | Vec | Rieši | Stav | Termín |";
+  const rows = open.map(
+    (t) =>
+      `| [[${t.id}]] | ${t.title} | ${t.assignee ?? "—"} | ` +
+      `${valueLabel("state", t.state ?? "—", j)} | ${t.due ?? "—"} |`,
+  );
+  return [head, "|---|---|---|---|---|", ...rows].join("\n");
+}
+
 const RENDERERS: Record<BlockName, (r: readonly OkfRecord[], j: Jurisdiction) => string> = {
   deadlines: renderDeadlines,
   timeline: renderTimeline,
   records: renderRecords,
   evidence_matrix: renderEvidenceMatrix,
+  tasks: renderTasks,
 };
 
 function replaceBlock(text: string, b: BlockName, body: string): string | undefined {
@@ -173,6 +194,7 @@ const BLOCK_HEADING_ALIASES: Record<BlockName, readonly string[]> = {
   timeline: ["Chronologie", "Chronológia"],
   records: ["Záznamy paměti", "Záznamy pamäte", "Záznamy"],
   evidence_matrix: ["Dokazování", "Dokazovanie"],
+  tasks: ["Otevřené úkoly", "Otvorené úlohy", "Úkoly", "Úlohy"],
 };
 
 /**
@@ -180,7 +202,7 @@ const BLOCK_HEADING_ALIASES: Record<BlockName, readonly string[]> = {
  * vyžiadal markerom. Zoznam záznamov patrí do INDEX.md; `_STATUS.md` je
  * rozhranie na vec, nie výpis databázy.
  */
-export const MARKER_ONLY: readonly BlockName[] = ["records", "evidence_matrix"];
+export const MARKER_ONLY: readonly BlockName[] = ["records", "evidence_matrix", "tasks"];
 
 /** Nadpis bloku, ktorý v súbore je, ale markery pod ním nie sú. */
 function bareHeading(text: string, b: BlockName): string | undefined {

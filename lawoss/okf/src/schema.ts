@@ -26,6 +26,7 @@ export type RecordType =
   | "screening"
   | "claim"
   | "evidence"
+  | "task"
   | "rule"
   | "lesson"
   | "authority";
@@ -38,6 +39,7 @@ export const RECORD_TYPES: readonly RecordType[] = [
   "screening",
   "claim",
   "evidence",
+  "task",
   "rule",
   "lesson",
   "authority",
@@ -52,6 +54,7 @@ export const LAYER_OF: Record<RecordType, Layer> = {
   screening: "L2",
   claim: "L2",
   evidence: "L2",
+  task: "L2",
   rule: "L1",
   lesson: "L1",
   authority: "L3",
@@ -78,6 +81,10 @@ export type Risk = (typeof RISK)[number];
 /** Záver AML preverenia. */
 export const CONCLUSION = ["proceed", "enhanced_diligence", "decline"] as const;
 export type Conclusion = (typeof CONCLUSION)[number];
+
+/** Stav úlohy. `blocked` znamená, že čaká na inú úlohu — nie „nechce sa mi". */
+export const TASK_STATES = ["pending", "in_progress", "blocked", "done"] as const;
+export type TaskState = (typeof TASK_STATES)[number];
 
 /** Stav preukázania tvrdenia. Hodnotu zapisuje advokát, nástroj ju neodvodzuje. */
 export const PROOF_STATUS = ["proven", "unproven", "disputed"] as const;
@@ -230,6 +237,26 @@ export const FIELDS: readonly FieldDef[] = [
   { canonical: "reliability", cz: "spolehlivost", sk: "spoľahlivosť", kind: "string", required: false },
   { canonical: "objection", cz: "námitka", sk: "námietka", kind: "string", required: false },
   { canonical: "procedural_status", cz: "procesní stav", sk: "procesný stav", kind: "string", required: false },
+
+  // --- právny prameň (authority): časová platnosť a stopa overenia ---
+  { canonical: "effective_from", cz: "účinnost od", sk: "účinnosť od", kind: "string", required: false },
+  { canonical: "effective_to", cz: "účinnost do", sk: "účinnosť do", kind: "string", required: false },
+  { canonical: "verified_at", cz: "ověřeno dne", sk: "overené dňa", kind: "string", required: false },
+  { canonical: "verified_against", cz: "ověřeno proti", sk: "overené proti", kind: "string", required: false },
+
+  // --- procesné postavenie subjektu (nie AML) ---
+  { canonical: "procedural_role", cz: "procesní postavení", sk: "procesné postavenie", kind: "string", required: false },
+  { canonical: "representation", cz: "zastoupení", sk: "zastúpenie", kind: "string", required: false },
+  { canonical: "legal_capacity", cz: "způsobilost být účastníkem", sk: "spôsobilosť byť účastníkom", kind: "string", required: false },
+  { canonical: "capacity_notes", cz: "poznámky ke způsobilosti", sk: "poznámky k spôsobilosti", kind: "string", required: false },
+
+  // --- úloha (task) ---
+  { canonical: "assignee", cz: "řeší", sk: "rieši", kind: "string", required: false },
+  { canonical: "depends_on", cz: "závisí na", sk: "závisí od", kind: "list", required: false },
+  { canonical: "acceptance", cz: "akceptační kritéria", sk: "akceptačné kritériá", kind: "list", required: false },
+  { canonical: "priority", cz: "priorita", sk: "priorita", kind: "string", required: false },
+  { canonical: "state", cz: "stav úkolu", sk: "stav úlohy", kind: "string", required: false },
+  { canonical: "due", cz: "termín", sk: "termín", kind: "string", required: false },
 ];
 
 /** Údaje, ktoré sa maskujú vo výstupoch pre človeka a nesmú do `popis`. */
@@ -321,6 +348,7 @@ const TYPE_LABELS: Record<RecordType, Record<Jurisdiction, string>> = {
   screening: { cz: "prověření", sk: "preverenie" },
   claim: { cz: "tvrzení", sk: "tvrdenie" },
   evidence: { cz: "důkaz", sk: "dôkaz" },
+  task: { cz: "úkol", sk: "úloha" },
   rule: { cz: "pravidlo", sk: "pravidlo" },
   lesson: { cz: "poučení", sk: "poučenie" },
   authority: { cz: "pramen", sk: "prameň" },
@@ -379,6 +407,12 @@ const VALUE_LABELS: Record<string, Record<string, Record<Jurisdiction, string>>>
   procedural_status: {
     proposed: { cz: "navržen", sk: "navrhnutý" },
     taken: { cz: "proveden", sk: "vykonaný" },
+  },
+  state: {
+    pending: { cz: "čeká", sk: "čaká" },
+    in_progress: { cz: "rozpracováno", sk: "rozpracované" },
+    blocked: { cz: "blokován", sk: "blokovaná" },
+    done: { cz: "hotovo", sk: "hotové" },
   },
   evidence_kind: {
     document: { cz: "listina", sk: "listina" },

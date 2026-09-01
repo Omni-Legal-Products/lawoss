@@ -92,6 +92,26 @@ function fileFor(store: Store, r: OkfRecord): string {
 }
 
 export class LeakBlockedError extends Error {}
+export class ConcurrentWriteError extends Error {}
+
+/**
+ * Optimistická kontrola súbehu. `updated` slúži ako verzia: keď sa záznam
+ * na disku medzitým posunul, zápis z prekonaného východiska sa odmietne.
+ *
+ * Append-only história konflikt zmierňuje — dva zápisy sa dajú zliať —
+ * ale `## Truth` je last-write-wins a tichá strata cudzej práce je presne
+ * to, čo advokát zistí až vtedy, keď je neskoro.
+ */
+function assertNotStale(store: Store, diff: WriteDiff): void {
+  const before = diff.before;
+  if (!before) return;
+  const naDisku = store.records.find((r) => r.id === before.id);
+  if (!naDisku || naDisku.updated === before.updated) return;
+  throw new ConcurrentWriteError(
+    `Záznam ${before.id} sa medzitým zmenil: vychádzaš zo stavu ${before.updated}, ` +
+      `na disku je ${naDisku.updated}. Načítaj ho znova a zápis zopakuj.`,
+  );
+}
 
 /**
  * Štvrtá brána — zákaz úniku klientskych identifikátorov do zdieľateľnej
@@ -119,6 +139,7 @@ export function applyRecordWrite(dir: string, diff: WriteDiff, approval: Approva
   authorize(diff, approval);
   if (diff.after) assertNoLeak(dir, diff.after);
   const store = readStore(dir);
+  assertNotStale(store, diff);
   if (!existsSync(store.memoryDir)) mkdirSync(store.memoryDir, { recursive: true });
 
   if (diff.kind === "delete") {
@@ -169,6 +190,14 @@ export function ensureBrain(dir: string, j: Jurisdiction): void {
     "  a při **mazání** jen člověk — nástroj bez schválení zápis odmítne.",
     `- \`${STATUS_FILE}\` mimo markery patří advokátovi. Needituj to.`,
     "",
+    "## Jediná paměť věci",
+    "",
+    `Tento adresář (\`${mem}/\`) je **jediné** místo, kam se paměť zapisuje.`,
+    "Najdeš-li ve spisu `_memory.md`, `lrd.json`, `progress.txt`, `LEARNINGS.md`",
+    "nebo adresáře `facts/`, `research/`, `strategy/` ze starších nástrojů —",
+    "**čti je jako archiv, ale nezapisuj do nich.** Dvě paměti v jednom spisu",
+    "znamenají dvě pravdy a jedna z nich bude tiše zastaralá.",
+    "",
   ];
   const sk = [
     "# BRAIN.md — protokol pamäte spisu",
@@ -186,6 +215,14 @@ export function ensureBrain(dir: string, j: Jurisdiction): void {
     "- Do L2 (spis) zapisuje agent sám. Do **L1** (pravidlá, poučenia) a **L3** (právne pramene)",
     "  a pri **mazaní** iba človek — nástroj bez schválenia zápis odmietne.",
     `- \`${STATUS_FILE}\` mimo markerov patrí advokátovi. Needituj to.`,
+    "",
+    "## Jediná pamäť veci",
+    "",
+    `Tento adresár (\`${mem}/\`) je **jediné** miesto, kam sa pamäť zapisuje.`,
+    "Ak nájdeš v spise `_memory.md`, `lrd.json`, `progress.txt`, `LEARNINGS.md`",
+    "alebo adresáre `facts/`, `research/`, `strategy/` zo starších nástrojov —",
+    "**čítaj ich ako archív, ale nezapisuj do nich.** Dve pamäte v jednom spise",
+    "znamenajú dve pravdy a jedna z nich bude ticho zastaraná.",
     "",
   ];
   writeFileSync(path, (j === "cz" ? cz : sk).join("\n"), "utf8");

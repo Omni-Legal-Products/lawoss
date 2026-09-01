@@ -17,6 +17,7 @@ function base(over: Partial<OkfRecord>): OkfRecord {
     updated: "2026-08-29",
     truth: "",
     timeline: [],
+    verified_at: "2026-09-02",
     ...over,
   } as OkfRecord;
 }

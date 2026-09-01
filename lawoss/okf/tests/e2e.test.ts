@@ -84,7 +84,7 @@ for (const j of ["cz", "sk"] as const) {
     // 6. Klientsky udaj sa do zdielatelnej pravnej vrstvy nedostane —
     //    brana ho zastavi uz pri zapise, nie az pri samostatnej validacii.
     const spinavy = newRecord({
-      id: "J-001", type: "authority", jurisdiction: j,
+      id: "J-001", type: "authority", jurisdiction: j, verified_at: "2026-09-02",
       title: "K miestnej prislusnosti", summary: "pravny pramen",
       created: "2026-08-30", updated: "2026-08-30",
       truth: "Vec sa tykala spolocnosti s ICO 12345678.",

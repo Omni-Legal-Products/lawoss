@@ -43,6 +43,7 @@ function pramen(truth: string, id = "J-001"): OkfRecord {
     title: "Právní věta", summary: "pramen",
     created: "2026-08-31", updated: "2026-08-31", truth,
     timeline: [{ date: "2026-08-31", text: "z" }],
+    verified_at: "2026-08-31",
   });
 }
 

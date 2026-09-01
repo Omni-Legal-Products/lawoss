@@ -57,6 +57,8 @@ export interface OkfRecord {
   supporting_evidence?: string[];
   contradicting_evidence?: string[];
   proves?: string[];
+  depends_on?: string[];
+  acceptance?: string[];
 
   // spis
   matter_ref?: string;
@@ -112,6 +114,18 @@ export interface OkfRecord {
   reliability?: string;
   objection?: string;
   procedural_status?: string;
+  effective_from?: string;
+  effective_to?: string;
+  verified_at?: string;
+  verified_against?: string;
+  procedural_role?: string;
+  representation?: string;
+  legal_capacity?: string;
+  capacity_notes?: string;
+  assignee?: string;
+  priority?: string;
+  state?: string;
+  due?: string;
 
   truth: string;
   timeline: TimelineEntry[];
