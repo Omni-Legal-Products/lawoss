@@ -190,6 +190,9 @@ export interface ValidateOptions {
   readonly today?: string;
 }
 
+/** Roly, pri ktorých vzniká identifikačná povinnosť. */
+const IDENTIFIED_ROLES = ["client", "representative", "ubo"] as const;
+
 /** Vzor českého a slovenského rodného čísla — šesť číslic, voliteľné lomítko, koncovka. */
 const BIRTH_NUMBER_PATTERN = /\b\d{6}\s?\/\s?\d{3,4}\b/;
 
@@ -237,6 +240,10 @@ function filled(raw: Record<string, unknown>, canonical: string): boolean {
  * narození a pohlaví" nie sú deväť povinných polí, ale osem a vetva.
  */
 function amlCompleteness(r: OkfRecord): Finding | undefined {
+  // Identifikačná povinnosť mieri na klienta, jeho zástupcu a konečného
+  // užívateľa výhod — nie na protistranu. Hlásiť pri protistrane chýbajúce
+  // rodné číslo je šum, ktorý celú kontrolu znehodnotí.
+  if (!IDENTIFIED_ROLES.some((role) => role === r.role)) return undefined;
   const ruleset = AML_REQUIRED[r.jurisdiction as Jurisdiction];
   if (!ruleset) return undefined;
   const kind = PERSON_KINDS.find((k) => k === r.person_type);
@@ -365,6 +372,7 @@ export function validateStore(
     (r) =>
       r.type === "subject" &&
       PERSON_KINDS.some((k) => k === r.person_type) &&
+      IDENTIFIED_ROLES.some((role) => role === r.role) &&
       AML_REQUIRED[r.jurisdiction as Jurisdiction] === undefined,
   );
   if (unverified) {

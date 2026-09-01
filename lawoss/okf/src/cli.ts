@@ -164,7 +164,8 @@ export function runCli(argv: readonly string[]): CliResult {
           }
         }
         const mine = preverenia.filter((p) => p.subject_ref === raw.id);
-        if (mine.length === 0) {
+        // Preverenie sa vyžaduje pri klientovi, nie pri protistrane.
+        if (mine.length === 0 && raw.role === "client") {
           lines.push("        preverenie        — žiadne (§ 8 vyžaduje preverenie klienta)");
         }
         for (const p of mine) {

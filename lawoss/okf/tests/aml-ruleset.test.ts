@@ -12,7 +12,7 @@ function osoba(j: Jurisdiction, over: Record<string, unknown> = {}): OkfRecord {
     id: "S-001", type: "subject", jurisdiction: j,
     title: "Jan Novák", summary: "klient", created: "2026-08-31", updated: "2026-08-31",
     truth: "t", timeline: [{ date: "2026-08-31", text: "x" }],
-    role: "counterparty", person_type: "natural_person",
+    role: "client", person_type: "natural_person",
   });
   return { ...base, ...over } as OkfRecord;
 }
@@ -22,7 +22,7 @@ function firma(j: Jurisdiction, over: Record<string, unknown> = {}): OkfRecord {
     id: "S-002", type: "subject", jurisdiction: j,
     title: "Firma s.r.o.", summary: "protistrana", created: "2026-08-31", updated: "2026-08-31",
     truth: "t", timeline: [{ date: "2026-08-31", text: "x" }],
-    role: "counterparty", person_type: "legal_person",
+    role: "client", person_type: "legal_person",
   });
   return { ...base, ...over } as OkfRecord;
 }
@@ -149,4 +149,25 @@ test("neznama jurisdikcia sa nekontroluje ceskymi pravidlami, ale ohlasi sa", ()
   const f = validateStore([pl], DNES);
   assert.ok(f.some((x) => x.code === "AML_RULESET_UNVERIFIED"), JSON.stringify(f));
   assert.ok(!f.some((x) => x.code === "AML_INCOMPLETE"));
+});
+
+test("protistrana sa na uplnost identifikacie nekontroluje", () => {
+  // Identifikačná povinnosť podľa § 5 mieri na klienta, jeho zástupcu
+  // a konečného užívateľa výhod — nie na protistranu. Hlásiť pri nej
+  // chýbajúce rodné číslo je šum, ktorý kontrolu znehodnotí.
+  const protistrana = osoba("cz", { role: "counterparty", person_type: "sole_trader" });
+  assert.equal(nalez(protistrana), undefined);
+});
+
+test("klient, zastupca aj konecny uzivatel vyhod sa kontroluju", () => {
+  for (const role of ["client", "representative", "ubo"]) {
+    assert.ok(nalez(osoba("cz", { role, person_type: "natural_person" })),
+      `rola ${role} sa má kontrolovať`);
+  }
+});
+
+test("subjekt bez roly sa nekontroluje — nevieme, ci povinnost vznikla", () => {
+  const bezRoly = osoba("cz", { person_type: "natural_person" });
+  delete (bezRoly as unknown as Record<string, unknown>).role;
+  assert.equal(nalez(bezRoly), undefined);
 });
