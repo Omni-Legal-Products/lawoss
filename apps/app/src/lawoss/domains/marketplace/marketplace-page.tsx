@@ -28,10 +28,6 @@ const REGISTRY: RegistryRow[] = [
 export function MarketplacePage() {
   return (
     <LawossLayout>
-      <div className="lw-mockup">
-        <b>NÁVRH</b>
-        fiktívne dáta · fáza C7
-      </div>
       <h1 className="lw-h1">Marketplace</h1>
       <p className="lw-lead">
         Konektory, skills a pluginy pre agenta — z overeného registra s pinnutými verziami. Systém upozorní na novú

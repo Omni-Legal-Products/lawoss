@@ -39,14 +39,10 @@ function FlagRow(props: { id: string; label: string; note: string; owner: string
 export function ExperimentyPage() {
   return (
     <LawossLayout>
-      <div className="lw-mockup">
-        <b>EXPERIMENT</b>
-        rozpracované · len na tomto stroji
-      </div>
       <h1 className="lw-h1">Experimenty</h1>
       <p className="lw-lead">
-        Prepínače zapínajú nedokončené správanie inde v aplikácii, zoznam nižšie vedie na obrazovky, ktoré sú zatiaľ len
-        návrh. Nič odtiaľto sa nesynchronizuje a nič nesmie prísť pred klienta.
+        Všetko rozpracované je tu, aby zvyšok aplikácie ostal taký, aký je. Prepínače vedia pridať nedokončené
+        správanie, zoznam nižšie vedie na obrazovky, ktoré sú zatiaľ len návrh. Nič odtiaľto sa nesynchronizuje.
       </p>
 
       <div className="lw-reg">
@@ -59,15 +55,22 @@ export function ExperimentyPage() {
             </button>
           </span>
         </div>
-        {EXPERIMENT_FLAGS.map((flag) => (
-          <FlagRow key={flag.id} id={flag.id} label={flag.label} note={flag.note} owner={flag.owner} stav={flag.stav} />
-        ))}
+        {EXPERIMENT_FLAGS.length === 0 ? (
+          <p className="lw-empty">
+            Žiadny prepínač zatiaľ nie je. Prepínač smie iba <b>pridať</b> nedokončené správanie — nikdy neskryť to,
+            čo v LegalWorku funguje.
+          </p>
+        ) : (
+          EXPERIMENT_FLAGS.map((flag) => (
+            <FlagRow key={flag.id} id={flag.id} label={flag.label} note={flag.note} owner={flag.owner} stav={flag.stav} />
+          ))
+        )}
       </div>
 
       <div className="lw-reg">
         <div className="lw-reg-h">
           <h2>Rozpracované pohľady</h2>
-          <span className="lw-meta">fiktívne dáta — nie sú napojené na spisy</span>
+          <span className="lw-meta">nie sú napojené na spisy</span>
         </div>
         {EXPERIMENT_VIEWS.map((view) => (
           <Link key={view.id} to={view.to} className="lw-row lw-cols-exp-view">

@@ -1,9 +1,10 @@
 /**
- * LAWOSS experiments — the single list behind the "Experimenty" tab.
+ * LAWOSS experiments — the single list behind the "Experimenty" sidebar item.
  *
  * Two kinds of entry:
  *  - `flag` — a switch that changes behaviour somewhere else in the app.
- *    Consume it with `useExperiment(id)`; default is always off.
+ *    Consume it with `useExperiment(id)`; default is always off. A flag may
+ *    only ADD unfinished behaviour — never hide working upstream behaviour.
  *  - `view` — a standalone screen that is still a design draft. Listed so we
  *    can see at a glance which screens are mockups and who owns them.
  *
@@ -28,14 +29,6 @@ export type Experiment =
   | (ExperimentBase & { kind: "view"; to: string });
 
 export const EXPERIMENTS: readonly Experiment[] = [
-  {
-    kind: "flag",
-    id: "sidebar-registrove-zalozky",
-    label: "Registrové záložky v sidebare asistenta",
-    note: "Vloží Prehľad · Lehoty · Konektory · Marketplace priamo do sidebaru upstream asistenta, aby sa nemuselo prepínať medzi dvoma shellmi.",
-    owner: "MČ",
-    stav: "v testovaní",
-  },
   {
     kind: "view",
     id: "view-prehlad",
