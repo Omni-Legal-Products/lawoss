@@ -91,6 +91,7 @@ a prípravu návrhu**. Vlastný zápis nechaj CLI.
 - [ ] `okf-memory validate <spis>` → bez chýb
 - [ ] pri AML veci `okf-memory aml <spis>` → preverenie klienta platí a je úplné
 - [ ] `okf-memory sync <spis> --apply` → projekcia do `_STATUS.md` a `INDEX.md`
+- [ ] pri spornej veci: matica `evidence_matrix` v `_STATUS.md` sedí a žiadne tvrdenie nie je bez opory
 - [ ] **Fáza** a **Ďalší krok** v `_STATUS.md` zodpovedajú realite — to píše človek,
       ale ak sú zjavne zastarané, upozorni naň advokáta
 

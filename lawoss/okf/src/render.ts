@@ -10,15 +10,16 @@
  */
 
 import type { OkfRecord } from "./record.ts";
-import { typeLabel, type Jurisdiction } from "./schema.ts";
+import { typeLabel, valueLabel, type Jurisdiction } from "./schema.ts";
 
-export const BLOCKS = ["deadlines", "timeline", "records"] as const;
+export const BLOCKS = ["deadlines", "timeline", "records", "evidence_matrix"] as const;
 export type BlockName = (typeof BLOCKS)[number];
 
 const BLOCK_HEADINGS: Record<BlockName, Record<Jurisdiction, string>> = {
   deadlines: { cz: "Lhůty", sk: "Lehoty" },
   timeline: { cz: "Chronologie", sk: "Chronológia" },
   records: { cz: "Záznamy paměti", sk: "Záznamy pamäte" },
+  evidence_matrix: { cz: "Dokazování", sk: "Dokazovanie" },
 };
 
 const EMPTY: Record<Jurisdiction, string> = {
@@ -68,10 +69,74 @@ function renderRecords(records: readonly OkfRecord[], j: Jurisdiction): string {
   return [head, "|---|---|---|", ...rows].join("\n");
 }
 
+/**
+ * Sila väzby medzi tvrdením a dôkazom. Nie je to právny záver — je to
+ * zobrazenie dvoch hodnôt, ktoré advokát zapísal (`evidence_strength`
+ * a `reliability`). Stav preukázania sa z nej **neodvodzuje**.
+ */
+function cellMark(claim: OkfRecord, e: OkfRecord): string {
+  if ((claim.contradicting_evidence ?? []).includes(e.id)) return "✗";
+  if (!(claim.supporting_evidence ?? []).includes(e.id)) return "–";
+  if (e.evidence_strength === "indirect") return "~";
+  if (e.evidence_strength === "direct" && e.reliability === "high") return "✓✓";
+  return "✓";
+}
+
+const MATRIX_LABELS: Record<Jurisdiction, Record<string, string>> = {
+  cz: {
+    claim: "Tvrzení", state: "Stav", burden: "Břemeno nese", credibility: "Věrohodnost",
+    legend: "✓✓ přímý a spolehlivý · ✓ podpůrný · ~ nepřímý · ✗ vyvrací · – nesouvisí",
+    burdenHead: "Důkazní břemeno",
+  },
+  sk: {
+    claim: "Tvrdenie", state: "Stav", burden: "Bremeno nesie", credibility: "Vierohodnosť",
+    legend: "✓✓ priamy a spoľahlivý · ✓ podporný · ~ nepriamy · ✗ vyvracia · – nesúvisí",
+    burdenHead: "Dôkazné bremeno",
+  },
+};
+
+function renderEvidenceMatrix(records: readonly OkfRecord[], j: Jurisdiction): string {
+  const claims = records.filter((r) => r.type === "claim").sort((a, b) => (a.id < b.id ? -1 : 1));
+  if (claims.length === 0) return EMPTY[j];
+  const evidence = records.filter((r) => r.type === "evidence").sort((a, b) => (a.id < b.id ? -1 : 1));
+  const L = MATRIX_LABELS[j];
+
+  const head = [L.claim, ...evidence.map((e) => e.id), L.state];
+  const rows = claims.map((c) => [
+    c.id,
+    ...evidence.map((e) => cellMark(c, e)),
+    valueLabel("proof_status", c.proof_status ?? "—", j),
+  ]);
+
+  const bremeno = [
+    `| ${L.claim} | ${L.burden} | ${L.state} | ${L.credibility} |`,
+    "|---|---|---|---|",
+    ...claims.map(
+      (c) =>
+        `| ${c.id} | ${c.burden_of_proof ?? "—"} | ` +
+        `${valueLabel("proof_status", c.proof_status ?? "—", j)} | ` +
+        `${valueLabel("credibility", c.credibility ?? "—", j)} |`,
+    ),
+  ];
+
+  return [
+    `| ${head.join(" | ")} |`,
+    `|${head.map(() => "---").join("|")}|`,
+    ...rows.map((r) => `| ${r.join(" | ")} |`),
+    "",
+    `_${L.legend}_`,
+    "",
+    `**${L.burdenHead}**`,
+    "",
+    ...bremeno,
+  ].join("\n");
+}
+
 const RENDERERS: Record<BlockName, (r: readonly OkfRecord[], j: Jurisdiction) => string> = {
   deadlines: renderDeadlines,
   timeline: renderTimeline,
   records: renderRecords,
+  evidence_matrix: renderEvidenceMatrix,
 };
 
 function replaceBlock(text: string, b: BlockName, body: string): string | undefined {
@@ -107,6 +172,7 @@ const BLOCK_HEADING_ALIASES: Record<BlockName, readonly string[]> = {
   deadlines: ["Lhůty", "Lehoty"],
   timeline: ["Chronologie", "Chronológia"],
   records: ["Záznamy paměti", "Záznamy pamäte", "Záznamy"],
+  evidence_matrix: ["Dokazování", "Dokazovanie"],
 };
 
 /**
@@ -114,7 +180,7 @@ const BLOCK_HEADING_ALIASES: Record<BlockName, readonly string[]> = {
  * vyžiadal markerom. Zoznam záznamov patrí do INDEX.md; `_STATUS.md` je
  * rozhranie na vec, nie výpis databázy.
  */
-const MARKER_ONLY: readonly BlockName[] = ["records"];
+export const MARKER_ONLY: readonly BlockName[] = ["records", "evidence_matrix"];
 
 /** Nadpis bloku, ktorý v súbore je, ale markery pod ním nie sú. */
 function bareHeading(text: string, b: BlockName): string | undefined {

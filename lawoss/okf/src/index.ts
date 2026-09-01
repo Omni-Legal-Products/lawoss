@@ -30,7 +30,7 @@ export {
   type Approval, type WriteDiff, type WriteKind,
 } from "./write.ts";
 
-export { renderStatus, RenderConflictError, BLOCKS, type BlockName } from "./render.ts";
+export { renderStatus, RenderConflictError, BLOCKS, MARKER_ONLY, type BlockName } from "./render.ts";
 export { validateStore, type Finding, type Severity, type ValidateOptions } from "./validate.ts";
 export { maskValue, maskRecord } from "./mask.ts";
 export {

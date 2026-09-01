@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { renderStatus, BLOCKS } from "../src/render.ts";
+import { renderStatus, BLOCKS, MARKER_ONLY } from "../src/render.ts";
 import type { OkfRecord } from "../src/record.ts";
 
 function r(over: Partial<OkfRecord>): OkfRecord {
@@ -71,11 +71,13 @@ test("chybajuci blok sa doplni aj s markermi — okrem marker-only blokov", () =
   const out = renderStatus(LUDSKY_STATUS, ZAZNAMY, "cz");
   // `records` je od úlohy 2 marker-only: sám sa nepridáva, zoznam záznamov
   // patrí do INDEX.md (podmienka MČ k O1). Ostatné bloky sa doplniť majú.
-  for (const b of BLOCKS.filter((x) => x !== "records")) {
+  for (const b of BLOCKS.filter((x) => !MARKER_ONLY.includes(x))) {
     assert.match(out, new RegExp(`okf:render:${b}:start`), `chýba blok ${b}`);
     assert.match(out, new RegExp(`okf:render:${b}:end`), `chýba koniec ${b}`);
   }
-  assert.doesNotMatch(out, /okf:render:records/, "records sa sám pridávať nemá");
+  for (const b of MARKER_ONLY) {
+    assert.doesNotMatch(out, new RegExp(`okf:render:${b}`), `${b} sa sám pridávať nemá`);
+  }
 });
 
 test("chronologia zluci historiu vsetkych zaznamov podla datumu", () => {

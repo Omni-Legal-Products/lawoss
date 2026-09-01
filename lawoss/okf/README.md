@@ -49,8 +49,34 @@ Druh dôkazu je kanonická hodnota, **právne ukotvenie je jurisdikčné**:
 > Slovenské ukotvenie zámerne chýba: Civilný sporový poriadok nebol overený
 > a domýšľať ho by bolo tiché prekladanie právnych pojmov.
 
-`proof_status` je hodnota, **ktorú zapisuje advokát** — nástroj ju z počtu dôkazov
-neodvodzuje. „Tri dôkazy = preukázané" je právna domnienka, ktorú nástroj robiť nesmie.
+### Matica tvrdenie × dôkaz
+
+Blok `evidence_matrix` premietne dôkaznú vrstvu do `_STATUS.md`. Je **marker-only** —
+renderuje sa iba tam, kde si ho advokát vyžiadal.
+
+```
+| Tvrzení | E-001 | E-002 | E-003 | Stav |
+|---|---|---|---|---|
+| C-001 | ✓✓ | – | – | prokázáno |
+| C-002 | – | ✓✓ | ~ | prokázáno |
+
+_✓✓ přímý a spolehlivý · ✓ podpůrný · ~ nepřímý · ✗ vyvrací · – nesouvisí_
+
+**Důkazní břemeno**
+
+| Tvrzení | Břemeno nese | Stav | Věrohodnost |
+|---|---|---|---|
+| C-001 | S-002 | prokázáno | vysoká |
+```
+
+Značka v bunke je **zobrazenie dvoch zapísaných hodnôt** (`evidence_strength`
+a `reliability`), nie právny záver.
+
+> [!IMPORTANT]
+> **`proof_status` nástroj neodvodzuje.** Je to hodnota, ktorú zapisuje advokát;
+> tvrdenie s tromi podpornými dôkazmi môže byť „neprokázáno" a matica to takto
+> ukáže. „Tri dôkazy = preukázané" je právna domnienka, nie výpočet — a test to
+> stráži, aby to niekto v budúcnosti neoptimalizoval.
 
 ## AML evidencia
 
@@ -240,7 +266,7 @@ inštaluje sa samostatne, aby fork nepribral ďalší uzol do upstream stromu.
 
 ```bash
 pnpm install --ignore-workspace
-pnpm test        # node --test, 249 testov
+pnpm test        # node --test, 265 testov
 pnpm typecheck
 ```
 

@@ -326,6 +326,77 @@ const TYPE_LABELS: Record<RecordType, Record<Jurisdiction, string>> = {
   authority: { cz: "pramen", sk: "prameň" },
 };
 
+/**
+ * Popisky hodnôt enumov. Na disku je kanonická anglická hodnota, človeku
+ * sa ukazuje jeho jazyk — rovnaká deľba ako pri kľúčoch.
+ */
+const VALUE_LABELS: Record<string, Record<string, Record<Jurisdiction, string>>> = {
+  status: {
+    active: { cz: "platný", sk: "platný" },
+    superseded: { cz: "překonaný", sk: "prekonaný" },
+    void: { cz: "zrušený", sk: "zrušený" },
+  },
+  role: {
+    client: { cz: "klient", sk: "klient" },
+    counterparty: { cz: "protistrana", sk: "protistrana" },
+    representative: { cz: "zástupce", sk: "zástupca" },
+    ubo: { cz: "skutečný majitel", sk: "konečný užívateľ výhod" },
+  },
+  person_type: {
+    natural_person: { cz: "fyzická osoba", sk: "fyzická osoba" },
+    legal_person: { cz: "právnická osoba", sk: "právnická osoba" },
+    sole_trader: { cz: "podnikatel", sk: "podnikateľ" },
+  },
+  risk: {
+    low: { cz: "nízké", sk: "nízke" },
+    medium: { cz: "střední", sk: "stredné" },
+    high: { cz: "vysoké", sk: "vysoké" },
+  },
+  conclusion: {
+    proceed: { cz: "pokračovat", sk: "pokračovať" },
+    enhanced_diligence: { cz: "zesílená kontrola", sk: "zosilnená kontrola" },
+    decline: { cz: "odmítnout", sk: "odmietnuť" },
+  },
+  proof_status: {
+    proven: { cz: "prokázáno", sk: "preukázané" },
+    unproven: { cz: "neprokázáno", sk: "nepreukázané" },
+    disputed: { cz: "sporné", sk: "sporné" },
+  },
+  credibility: {
+    high: { cz: "vysoká", sk: "vysoká" },
+    medium: { cz: "střední", sk: "stredná" },
+    low: { cz: "nízká", sk: "nízka" },
+  },
+  reliability: {
+    high: { cz: "vysoká", sk: "vysoká" },
+    medium: { cz: "střední", sk: "stredná" },
+    low: { cz: "nízká", sk: "nízka" },
+  },
+  evidence_strength: {
+    direct: { cz: "přímý", sk: "priamy" },
+    indirect: { cz: "nepřímý", sk: "nepriamy" },
+  },
+  procedural_status: {
+    proposed: { cz: "navržen", sk: "navrhnutý" },
+    taken: { cz: "proveden", sk: "vykonaný" },
+  },
+  evidence_kind: {
+    document: { cz: "listina", sk: "listina" },
+    witness: { cz: "výslech svědka", sk: "výsluch svedka" },
+    expert_opinion: { cz: "znalecký posudek", sk: "znalecký posudok" },
+    party_examination: { cz: "výslech účastníka", sk: "výsluch účastníka" },
+    inspection: { cz: "ohledání", sk: "ohliadka" },
+  },
+};
+
+/**
+ * Popisok hodnoty enumu. Neznámu hodnotu vráti nezmenenú — advokát smie
+ * zapísať aj to, čo slovník nepozná, a nesmie tým prísť o obsah.
+ */
+export function valueLabel(field: string, value: string, j: Jurisdiction): string {
+  return VALUE_LABELS[field]?.[value]?.[j] ?? value;
+}
+
 /** Popisok poľa pre človeka — do hlášok a do rozhrania, nikdy do súboru. */
 export function fieldLabel(canonical: string, j: Jurisdiction): string {
   const f = FIELDS.find((x) => x.canonical === canonical);
