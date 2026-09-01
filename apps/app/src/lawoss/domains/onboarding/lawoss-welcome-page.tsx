@@ -1,10 +1,11 @@
 /** @jsxImportSource react */
-import { Page, PageBackground, PageTitlebarRegion } from "@/components/page";
+import { Page, PageTitlebarRegion } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 
 import lawossMark from "../../../../../../lawoss/brand/lawoss-mark.svg";
+import { LawossWordmark } from "../../shell/wordmark";
 import "../../shell/lawoss.css";
 
 /**
@@ -53,7 +54,6 @@ export function LawossWelcomePage({
 }: LawossWelcomePageProps) {
   return (
     <Page className="min-h-screen bg-background">
-      <PageBackground />
       <PageTitlebarRegion />
 
       <ScrollArea className="relative z-10">
@@ -65,7 +65,7 @@ export function LawossWelcomePage({
                   <div className="lw-welcome-brand">
                     <img src={lawossMark} alt="" />
                     <div>
-                      <div className="lw-welcome-wordmark">LAWOSS</div>
+                      <LawossWordmark className="lw-welcome-wordmark" />
                       <small>CZECHIA SLOVAKIA AND BEYOND</small>
                     </div>
                   </div>

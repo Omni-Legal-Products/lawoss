@@ -19,8 +19,8 @@
 .lw-rail { display: flex; flex-direction: column; padding: 30px 0 20px 18px; }
 .lw-brand { display: flex; align-items: center; gap: 10px; padding: 0 0 26px 14px; }
 .lw-brand img { width: 26px; height: 26px; }
-.lw-brand .lw-wordmark { font-family: var(--lw-font-serif); font-size: 15px; letter-spacing: 0.16em; line-height: 1; }
-.lw-brand .lw-wordmark b { color: var(--lw-accent); font-weight: 500; }
+.lw-brand .lw-wordmark { display: block; width: 96px; height: auto; color: var(--lw-text-primary); }
+
 .lw-brand small { display: block; font-size: 8.5px; letter-spacing: 0.22em; color: var(--lw-text-tertiary); margin-top: 3px; }
 
 .lw-tab {
@@ -273,7 +273,7 @@
 .lw-welcome-todo p b { color: var(--lw-text-primary); font-weight: 500; }
 .lw-welcome-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 34px; }
 .lw-welcome-brand img { width: 38px; height: 38px; }
-.lw-welcome-wordmark { font-family: var(--lw-font-serif); font-size: 20px; letter-spacing: 0.18em; line-height: 1; color: var(--lw-text-primary); }
+.lw-welcome-wordmark { display: block; width: 132px; height: auto; color: var(--lw-text-primary); }
 .lw-welcome-brand small { display: block; font-size: 8px; letter-spacing: 0.16em; color: var(--lw-text-tertiary); margin-top: 4px; }
 /* Hero headline follows the brand mockups: serif, tight. */
 .lw-welcome-h1 { font-family: var(--lw-font-serif); letter-spacing: -0.02em; }

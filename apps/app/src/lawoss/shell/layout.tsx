@@ -16,6 +16,7 @@ import {
 
 import lawossMark from "../../../../../lawoss/brand/lawoss-mark.svg";
 import { EXPERIMENT_VIEWS } from "../experiments/registry";
+import { LawossWordmark } from "./wordmark";
 import "./lawoss.css";
 
 export const EXPERIMENTY_PATH = "/experimenty";
@@ -89,9 +90,7 @@ export function LawossLayout(props: { children: ReactNode }) {
         <div className="lw-brand">
           <img src={lawossMark} alt="" />
           <div>
-            <div className="lw-wordmark">
-              LAW<b>OSS</b>
-            </div>
+            <LawossWordmark className="lw-wordmark" />
             <small>CZECHIA SLOVAKIA AND BEYOND</small>
           </div>
         </div>
