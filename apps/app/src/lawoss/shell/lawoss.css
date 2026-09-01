@@ -279,3 +279,11 @@
 .lw-welcome-h1 { font-family: var(--lw-font-serif); letter-spacing: -0.02em; }
 /* The longer strapline does not fit the rail on one line — let it wrap. */
 .lw-brand small { letter-spacing: 0.12em; line-height: 1.4; max-width: 20ch; }
+.lw-rail-label {
+  font-variant-caps: all-small-caps; letter-spacing: 0.09em; font-size: 12px; font-weight: 500;
+  color: var(--lw-text-tertiary); padding: 0 0 6px 14px; margin-left: 6px;
+}
+.lw-tab-back { color: var(--lw-text-tertiary); font-size: 12.5px; height: 30px; }
+.lw-tab-back:hover { color: var(--lw-accent); }
+.lw-empty { padding: 16px 4px; font-size: 13px; line-height: 1.6; color: var(--lw-text-tertiary); }
+.lw-empty b { color: var(--lw-text-secondary); font-weight: 500; }

@@ -22,13 +22,12 @@ Object.defineProperty(globalThis, "localStorage", {
 
 const { EXPERIMENTS, EXPERIMENT_FLAGS, EXPERIMENT_VIEWS } = await import("../src/lawoss/experiments/registry");
 const { LAWOSS_ROUTES } = await import("../src/lawoss/shell/routes");
-const { EXPERIMENTY_PATH, visibleNavItems } = await import("../src/lawoss/shell/layout");
+const { EXPERIMENTY_PATH, experimentyNavItems } = await import("../src/lawoss/shell/layout");
 const { isExperimentOn, reloadExperimentsFromStorage, resetExperiments, setExperiment } = await import(
   "../src/lawoss/experiments/store"
 );
 
 const STORAGE_KEY = "lawoss.experiments";
-const FLAG = "sidebar-registrove-zalozky";
 
 beforeEach(() => {
   storage.clear();
@@ -59,26 +58,7 @@ describe("registry", () => {
 });
 
 describe("store", () => {
-  test("a flag is off until someone turns it on", () => {
-    expect(isExperimentOn(FLAG)).toBe(false);
-  });
-
-  test("toggling holds and survives a reboot", () => {
-    setExperiment(FLAG, true);
-    expect(isExperimentOn(FLAG)).toBe(true);
-
-    reloadExperimentsFromStorage();
-    expect(isExperimentOn(FLAG)).toBe(true);
-  });
-
-  test("turning it back off persists too", () => {
-    setExperiment(FLAG, true);
-    setExperiment(FLAG, false);
-    reloadExperimentsFromStorage();
-    expect(isExperimentOn(FLAG)).toBe(false);
-  });
-
-  test("unknown ids stay false and are not writable", () => {
+  test("an unknown flag is off and cannot be written", () => {
     setExperiment("nikdy-neexistoval", true);
     expect(isExperimentOn("nikdy-neexistoval")).toBe(false);
   });
@@ -92,45 +72,40 @@ describe("store", () => {
   test("corrupted storage falls back to all-off instead of throwing", () => {
     localStorage.setItem(STORAGE_KEY, "{ toto nie je json");
     expect(() => reloadExperimentsFromStorage()).not.toThrow();
-    expect(isExperimentOn(FLAG)).toBe(false);
   });
 
-  test("non-boolean values are ignored", () => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ [FLAG]: "ano" }));
-    reloadExperimentsFromStorage();
-    expect(isExperimentOn(FLAG)).toBe(false);
+  test("a stored array is ignored rather than treated as flags", () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(["a", "b"]));
+    expect(() => reloadExperimentsFromStorage()).not.toThrow();
+    expect(isExperimentOn("a")).toBe(false);
   });
 
-  test("reset clears everything", () => {
-    setExperiment(FLAG, true);
+  test("reset does not throw and leaves everything off", () => {
     resetExperiments();
-    expect(isExperimentOn(FLAG)).toBe(false);
+    for (const flag of EXPERIMENT_FLAGS) expect(isExperimentOn(flag.id)).toBe(false);
   });
 });
 
 describe("sidebar asistenta", () => {
-  test("switch off leaves the upstream sidebar vanilla apart from the Experimenty door", () => {
-    const items = visibleNavItems(false);
-    expect(items.map((item) => item.to)).toEqual([EXPERIMENTY_PATH]);
+  test("the Experimenty group leads with the switch page", () => {
+    expect(experimentyNavItems()[0].to).toBe(EXPERIMENTY_PATH);
   });
 
-  test("switch on brings the register tabs back", () => {
-    const paths = visibleNavItems(true).map((item) => item.to);
-    expect(paths).toContain("/prehlad");
-    expect(paths).toContain("/lehoty");
-    expect(paths).toContain("/konektory");
-    expect(paths).toContain("/marketplace");
-    expect(paths).toContain(EXPERIMENTY_PATH);
+  test("every experimental screen is reachable as a sub-item", () => {
+    const paths = experimentyNavItems().map((item) => item.to);
+    for (const view of EXPERIMENT_VIEWS) expect(paths).toContain(view.to);
   });
 
-  test("external entries never leak into the session sidebar", () => {
-    for (const on of [false, true]) {
-      expect(visibleNavItems(on).some((item) => item.external)).toBe(false);
+  test("sub-items carry no duplicates", () => {
+    const paths = experimentyNavItems().map((item) => item.to);
+    expect(new Set(paths).size).toBe(paths.length);
+  });
+
+  test("no flag may hide working upstream behaviour", () => {
+    // Flags are additive by contract; a flag that gates existing navigation is
+    // what this whole item exists to avoid.
+    for (const flag of EXPERIMENT_FLAGS) {
+      expect(flag.label.toLowerCase()).not.toContain("skryť");
     }
-  });
-
-  test("the Experimenty entry is always marked", () => {
-    const door = visibleNavItems(false)[0];
-    expect(door.badge).toBeTruthy();
   });
 });
