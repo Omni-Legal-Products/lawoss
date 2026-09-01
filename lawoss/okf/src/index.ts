@@ -23,7 +23,7 @@ export {
 } from "./record.ts";
 
 export {
-  planWrite, authorize, ApprovalRequiredError, TimelineIntegrityError,
+  planWrite, authorize, ApprovalRequiredError, TimelineIntegrityError, StaleUpdatedError,
   type Approval, type WriteDiff, type WriteKind,
 } from "./write.ts";
 

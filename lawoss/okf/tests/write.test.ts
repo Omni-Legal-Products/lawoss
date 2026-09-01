@@ -33,6 +33,7 @@ test("zmena pravdy so stopou v historii prejde", () => {
   const before = rec();
   const after = rec({
     truth: "nova pravda",
+    updated: "2026-08-30",
     timeline: [...before.timeline, { date: "2026-08-30", text: "prehodnotene" }],
   });
   const d = planWrite(before, after, "nove zistenie");
@@ -103,6 +104,7 @@ test("diff nesie citatelny zoznam zmien", () => {
   const before = rec();
   const after = rec({
     truth: "nova pravda",
+    updated: "2026-08-30",
     timeline: [...before.timeline, { date: "2026-08-30", text: "prehodnotene" }],
   });
   const d = planWrite(before, after, "x");

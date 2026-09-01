@@ -14,7 +14,7 @@ import { parseRecord, serializeRecord, type OkfRecord } from "./record.ts";
 import { renderStatus } from "./render.ts";
 import { validateStore } from "./validate.ts";
 import { authorize, type Approval, type WriteDiff } from "./write.ts";
-import type { Jurisdiction } from "./schema.ts";
+import { typeLabel, type Jurisdiction } from "./schema.ts";
 
 const INDEX_FILE = "INDEX.md";
 const BRAIN_FILE = "BRAIN.md";
@@ -30,7 +30,7 @@ export const MEMORY_DIR = "memory";
 /** Karty veci, z ktorých sa dá prečítať jurisdikcia prázdneho spisu. */
 const MATTER_CARDS = ["matter.md", "spis.md", "project.md", "projekt.md"];
 
-function jurisdictionFromCard(dir: string): Jurisdiction | undefined {
+export function jurisdictionFromCard(dir: string): Jurisdiction | undefined {
   for (const name of MATTER_CARDS) {
     const path = join(dir, name);
     if (!existsSync(path)) continue;
@@ -139,10 +139,10 @@ export function writeIndex(dir: string): void {
     j === "cz"
       ? "> Generováno. Needituj ručně — přepíše se."
       : "> Generované. Needituj ručne — prepíše sa.";
-  const head = j === "cz" ? "| Záznam | Typ | Vrstva | Popis |" : "| Záznam | Typ | Vrstva | Popis |";
+  const head = "| Záznam | Typ | Vrstva | Popis |";
   const rows = [...store.records]
     .sort((a, b) => (a.id < b.id ? -1 : 1))
-    .map((r) => `| [[${r.id}]] | ${r.type} | ${r.layer} | ${r.summary} |`);
+    .map((r) => `| [[${r.id}]] | ${typeLabel(r.type, j)} | ${r.layer} | ${r.summary} |`);
   const body = [`# ${title}`, "", note, "", head, "|---|---|---|---|", ...rows, ""].join("\n");
   writeFileSync(join(store.memoryDir, INDEX_FILE), body, "utf8");
 }

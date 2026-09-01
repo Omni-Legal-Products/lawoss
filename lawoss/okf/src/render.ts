@@ -10,7 +10,7 @@
  */
 
 import type { OkfRecord } from "./record.ts";
-import type { Jurisdiction } from "./schema.ts";
+import { typeLabel, type Jurisdiction } from "./schema.ts";
 
 export const BLOCKS = ["deadlines", "timeline", "records"] as const;
 export type BlockName = (typeof BLOCKS)[number];
@@ -61,10 +61,10 @@ function renderTimeline(records: readonly OkfRecord[], j: Jurisdiction): string 
 
 function renderRecords(records: readonly OkfRecord[], j: Jurisdiction): string {
   if (records.length === 0) return EMPTY[j];
-  const head = j === "cz" ? "| Záznam | Typ | Popis |" : "| Záznam | Typ | Popis |";
+  const head = "| Záznam | Typ | Popis |";
   const rows = [...records]
     .sort((a, b) => (a.id < b.id ? -1 : 1))
-    .map((r) => `| [[${r.id}]] | ${r.type} | ${r.summary} |`);
+    .map((r) => `| [[${r.id}]] | ${typeLabel(r.type, j)} | ${r.summary} |`);
   return [head, "|---|---|---|", ...rows].join("\n");
 }
 

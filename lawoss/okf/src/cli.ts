@@ -6,13 +6,16 @@
  * nič neprepíše.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { readStore, readScope, writeIndex, syncStatus, ensureBrain, applyRecordWrite } from "./store.ts";
+import {
+  readStore, readScope, writeIndex, syncStatus, ensureBrain, applyRecordWrite,
+  jurisdictionFromCard, MEMORY_DIR,
+} from "./store.ts";
 import { parseRecord, type OkfRecord } from "./record.ts";
 import { planWrite, type Approval, type WriteDiff } from "./write.ts";
 import { maskRecord } from "./mask.ts";
-import { fieldLabel } from "./schema.ts";
+import { fieldLabel, typeLabel, type Jurisdiction } from "./schema.ts";
 import { renderStatus, RenderConflictError } from "./render.ts";
 import { validateStore } from "./validate.ts";
 
@@ -51,7 +54,7 @@ function problemLines(problems: readonly { file: string; message: string }[]): s
   if (problems.length === 0) return [];
   return [
     "Nečitateľné súbory (preskočené):",
-    ...problems.map((p) => `  ERROR PARSE ${p.file}: ${p.message}`),
+    ...problems.map((p) => `  ERROR PARSE_ERROR ${p.file}: ${p.message}`),
     "",
   ];
 }
@@ -79,7 +82,7 @@ function zaznamov(n: number): string {
 export function runCli(argv: readonly string[]): CliResult {
   const [cmd, dir, ...rest] = argv;
   const apply = rest.includes("--apply");
-  const jurisdiction = rest.includes("--sk") ? "sk" : "cz";
+
 
   if (!cmd || !dir) return { code: 2, out: USAGE };
   if (!existsSync(dir)) return { code: 2, out: `Cesta neexistuje: ${dir}\n\n${USAGE}` };
@@ -95,7 +98,7 @@ export function runCli(argv: readonly string[]): CliResult {
         "",
         ...scope.records
           .map(maskRecord)
-          .map((r) => `  ${r.id.padEnd(8)} ${r.layer}  ${r.type.padEnd(10)} ${r.summary}`),
+          .map((r) => `  ${r.id.padEnd(8)} ${r.layer}  ${typeLabel(r.type, r.jurisdiction).padEnd(12)} ${r.summary}`),
       ];
       return ok(lines.join("\n"));
     }
@@ -252,6 +255,9 @@ export function runCli(argv: readonly string[]): CliResult {
       if (approval !== undefined) {
         const auditovany: OkfRecord = {
           ...after,
+          // Audit riadok je zmena obsahu, takže musí posunúť updated —
+          // inak by ho zastavila kontrola bumpu.
+          updated: approval.at.slice(0, 10),
           timeline: [
             ...after.timeline,
             { date: approval.at.slice(0, 10), text: `schválil ${approval.by} — ${diff.reason}` },
@@ -271,9 +277,29 @@ export function runCli(argv: readonly string[]): CliResult {
     }
 
     case "init": {
-      if (!apply) return ok(`dry-run: založil by som BRAIN.md a adresár pamäte (${jurisdiction}). Zapíš s --apply.`);
+      // Jurisdikcia ide z karty veci; prepínač ju iba prebíja. Default zo
+      // switcha bol v SK spisoch častý omyl (N8).
+      const zKarty = jurisdictionFromCard(dir);
+      const jurisdiction: Jurisdiction = rest.includes("--sk")
+        ? "sk"
+        : rest.includes("--cz")
+          ? "cz"
+          : (zKarty ?? "cz");
+      const zdroj = rest.includes("--sk") || rest.includes("--cz")
+        ? "prepínač"
+        : zKarty
+          ? "karta veci"
+          : "predvolené";
+
+      if (!apply) {
+        return ok(
+          `dry-run: založil by som adresár ${MEMORY_DIR}/ a BRAIN.md ` +
+            `(jurisdikcia ${jurisdiction}, zdroj: ${zdroj}). Zapíš s --apply.`,
+        );
+      }
+      mkdirSync(join(dir, MEMORY_DIR), { recursive: true });
       ensureBrain(dir, jurisdiction);
-      return ok(`Založené: BRAIN.md (${jurisdiction}).`);
+      return ok(`Založené: ${MEMORY_DIR}/ a BRAIN.md (jurisdikcia ${jurisdiction}, zdroj: ${zdroj}).`);
     }
 
     default:

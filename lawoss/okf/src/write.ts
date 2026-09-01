@@ -16,6 +16,7 @@ import type { Layer } from "./schema.ts";
 
 export class TimelineIntegrityError extends Error {}
 export class ApprovalRequiredError extends Error {}
+export class StaleUpdatedError extends Error {}
 
 export interface Approval {
   readonly by: string;
@@ -53,6 +54,21 @@ function assertAppendOnly(before: OkfRecord, after: OkfRecord): void {
       );
     }
   }
+}
+
+/**
+ * Zmena obsahu si vyžaduje posun `updated`. Bez neho sa zvonku nedá poznať,
+ * že sa záznam zmenil — a projekcia ani drift check nemajú podľa čoho ísť.
+ * Doteraz to chytal až `STALE_UPDATED` vo validácii, teda po zápise (N8).
+ */
+function assertUpdatedBumped(before: OkfRecord, after: OkfRecord): void {
+  const obsahSaZmenil =
+    before.truth !== after.truth || after.timeline.length > before.timeline.length;
+  if (!obsahSaZmenil) return;
+  if (after.updated !== before.updated) return;
+  throw new StaleUpdatedError(
+    `Záznam ${before.id}: zmena obsahu musí posunúť updated (teraz ${before.updated})`,
+  );
 }
 
 /** Zmena pravdy si vyžaduje nový riadok histórie v tom istom zápise. */
@@ -111,6 +127,7 @@ export function planWrite(
     }
     assertAppendOnly(before, after);
     assertTruthTraced(before, after);
+    assertUpdatedBumped(before, after);
   }
 
   const kind: WriteKind = !before ? "create" : !after ? "delete" : "update";
