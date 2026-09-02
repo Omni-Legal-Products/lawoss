@@ -96,9 +96,12 @@ export function LawossLayout(props: { children: ReactNode }) {
 
   return (
     <div className="lw-desk">
-      {/* Ťahacia lišta okna (mac) — rovnaký prvok, aký používa upstream. */}
+      {/* Ťahacia lišta okna (mac) — rovnaký prvok, aký používa upstream.
+          Chromium počíta ťahaciu oblasť ako drag mínus no-drag obdĺžniky bez
+          ohľadu na z-index, preto panely pod ňou NESMÚ byť no-drag: obsah
+          začína až pod lištou (padding 44px), takže to nič nepotrebuje. */}
       <PageTitlebarRegion />
-      <aside className="lw-rail mac:titlebar-no-drag">
+      <aside className="lw-rail">
         <div className="lw-brand">
           <img src={lawossMark} alt="" />
           <div>
@@ -124,7 +127,7 @@ export function LawossLayout(props: { children: ReactNode }) {
           <span>nie sú napojené na spisy</span>
         </div>
       </aside>
-      <main className="lw-sheet mac:titlebar-no-drag">{props.children}</main>
+      <main className="lw-sheet">{props.children}</main>
     </div>
   );
 }
