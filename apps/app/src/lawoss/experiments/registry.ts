@@ -31,6 +31,15 @@ export type Experiment =
 export const EXPERIMENTS: readonly Experiment[] = [
   {
     kind: "view",
+    id: "view-novy-spis",
+    to: "/experimenty/novy-spis",
+    label: "Nový spis (OKF)",
+    note: "Fáza A: dialóg zloží požiadavku, agent cez skill /novy-spis zavolá okf CLI a plán ti ukáže pred zápisom. Nainštaluje skill aj CLI do workspace.",
+    owner: "MČ",
+    stav: "v testovaní",
+  },
+  {
+    kind: "view",
     id: "view-prehlad",
     to: "/prehlad",
     label: "Prehľad",

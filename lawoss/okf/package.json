@@ -1,0 +1,17 @@
+{
+  "name": "@lawoss/okf",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OKF CLI — detect · plan · apply · validate · render nad priečinkom klienta. Nulové závislosti, žiadny server, súbory dnu a von.",
+  "type": "module",
+  "bin": {
+    "okf": "./src/cli.ts"
+  },
+  "scripts": {
+    "test": "bun test test/",
+    "build": "bun build src/cli.ts --target node --format esm --outfile bundle/okf.js && bun scripts/postbuild.ts"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
