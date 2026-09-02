@@ -36,14 +36,18 @@ export const ELECTRON_UPDATER_FEEDS = Object.freeze({
   // app/legalwork/update/[file]/route.ts) redirects every file to the same
   // GitHub release assets this URL used to point at:
   //   https://github.com/eigenweltlabs/legalwork/releases/latest/download
-  stable: "https://eigenweltlabs.com/legalwork/update",
+  // 🟡 LAWOSS: feed forku — upstream feed by ponúkal LegalWork a prepísal by
+  // fork (rovnaké appId). Tracked feed ostáva na vlastnej doméne (rovnaký
+  // vzor ako upstream), GitHub je fallback. Kým fork nemá releasy, oba feedy
+  // zlyhajú a updater nič neponúkne.
+  stable: "https://lawoss.app/update",
   // Alpha is a per-platform rolling release: each platform's alpha workflow
   // (alpha-macos-aarch64.yml / alpha-windows-x64.yml) refreshes its own
   // updater manifest on its own tag.
   alpha:
     process.platform === "win32"
-      ? "https://github.com/eigenweltlabs/legalwork/releases/download/alpha-windows-latest"
-      : "https://github.com/eigenweltlabs/legalwork/releases/download/alpha-macos-latest",
+      ? "https://github.com/Omni-Legal-Products/lawoss/releases/download/alpha-windows-latest"
+      : "https://github.com/Omni-Legal-Products/lawoss/releases/download/alpha-macos-latest",
 });
 
 // Safety net: if the tracked feed host is unreachable (outage, or the domain
@@ -51,8 +55,17 @@ export const ELECTRON_UPDATER_FEEDS = Object.freeze({
 // ALWAYS self-update as long as releases exist. Alpha already points at
 // GitHub, so only stable needs a fallback.
 export const ELECTRON_UPDATER_FALLBACK_FEEDS = Object.freeze({
-  stable: "https://github.com/eigenweltlabs/legalwork/releases/latest/download",
+  stable: "https://github.com/Omni-Legal-Products/lawoss/releases/latest/download",
 });
+
+// 🟡 LAWOSS: lokálny build bez stampnutej verzie (package.json = 0.0.0) by
+// videl každý release ako novší. Taký build sa neaktualizuje.
+export function isUnstampedLocalBuild(app) {
+  // Zabalený build má verziu od electron-buildera priamo v app.getVersion();
+  // resolveAppVersion() si výsledok cachuje pre celý proces, čo tu nechceme.
+  const version = app?.isPackaged ? app.getVersion?.() : resolveAppVersion(app);
+  return version === "0.0.0";
+}
 
 const ALPHA_CHANNEL_PLATFORMS = new Set(["darwin", "win32"]);
 
@@ -196,6 +209,10 @@ async function applyElectronUpdaterFeed(app, updater) {
    Exported for tests — a broken update path is the app's worst failure mode. */
 export async function checkForUpdatesWithFeedFallback(app, updater) {
   const channelState = await applyElectronUpdaterFeed(app, updater);
+  if (isUnstampedLocalBuild(app)) {
+    console.warn("[updater] lokálny build 0.0.0 — kontrola aktualizácií preskočená");
+    return { channelState: { ...channelState, feedFallback: false }, result: null };
+  }
   const fallbackUrl = ELECTRON_UPDATER_FALLBACK_FEEDS[channelState.channel];
   try {
     const result = await updater.checkForUpdates();
