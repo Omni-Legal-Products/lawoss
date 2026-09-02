@@ -129,6 +129,17 @@ export type EvidenceKind = (typeof EVIDENCE_KINDS)[number];
  * SK zámerne chýba — slovenský procesný predpis (Civilný sporový poriadok)
  * nebol overený a domýšľať ho by bolo tiché prekladanie právnych pojmov.
  */
+/**
+ * Ustanovenie, z ktorého plynie povinnosť preverenia (kontroly) klienta.
+ *
+ * Overené 2. 9. 2026 v plnom znení: v ČR je to **§ 9** („Kontrola klienta"),
+ * nie § 8 — ten upravuje *prevádzanie* identifikácie. Slovenské ustanovenie
+ * overené nie je; 297/2008 Z. z. má vlastné číslovanie a domýšľať sa nesmie.
+ */
+export const SCREENING_PROVISION: Partial<Record<Jurisdiction, string>> = {
+  cz: "§ 9 zák. č. 253/2008 Sb.",
+};
+
 export const EVIDENCE_KIND_PROVISION: Partial<
   Record<Jurisdiction, Readonly<Record<EvidenceKind, string>>>
 > = {
@@ -189,7 +200,7 @@ export const FIELDS: readonly FieldDef[] = [
   { canonical: "court", cz: "soud", sk: "súd", kind: "string", required: false },
   { canonical: "area", cz: "oblast práva", sk: "oblasť práva", kind: "list", required: false },
 
-  // --- identifikácia subjektu (§ 8 zák. č. 253/2008 Sb.) ---
+  // --- identifikácia subjektu (zoznam údajov § 5 zák. č. 253/2008 Sb.) ---
   { canonical: "role", cz: "role", sk: "rola", kind: "string", required: false },
   { canonical: "person_type", cz: "typ osoby", sk: "typ osoby", kind: "string", required: false },
   { canonical: "registry_id", cz: "IČO", sk: "IČO", kind: "string", required: false, needle: "hard" },

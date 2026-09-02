@@ -495,7 +495,8 @@ export function validateStore(
     }
   }
 
-  // § 8 — klient musí byť preverený. Protistrana pod túto povinnosť nespadá.
+  // Preverenie (kontrola) klienta — v ČR § 9 zák. č. 253/2008 Sb.; § 8 upravuje
+  // vykonanie identifikácie, nie kontrolu. Protistrana pod povinnosť nespadá.
   for (const r of records) {
     if (r.type !== "subject" || r.role !== "client") continue;
     if (!screenings.some((p) => p.subject_ref === r.id)) {
