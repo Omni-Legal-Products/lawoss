@@ -55,6 +55,7 @@ LegalWork už poskytuje chat, lokálneho agenta, Office add-iny, transkripciu a 
 | 🇸🇰🇨🇿 **SK a CZ lokalizácia** | Kompletné rozhranie a právne názvoslovie pre obe jurisdikcie |
 | 📁 **OKF** | Zakladanie a udržiavanie štruktúrovaných spisov |
 | 🔌 **Právne MCP konektory** | Judikatúra, Slov-Lex a ďalšie overené zdroje |
+| 🔗 **Jeden MCP endpoint pre viacero právnych zdrojov** | Klient sa pripája iba raz; orchestrátor podľa otázky vyberie relevantné zdroje a vráti jednotný overený výsledok s citáciami, pokrytím a limitmi |
 | ⏰ **Lehoty a timeline** | Kontrolovaný výpočet a evidencia lehôt s potvrdením advokáta |
 | 📄 **OCR ingest** | Prevod dokumentov do čistého, agenticky použiteľného Markdownu |
 
