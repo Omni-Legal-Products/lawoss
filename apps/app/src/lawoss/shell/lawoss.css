@@ -5,7 +5,10 @@
 .lw-desk {
   display: grid;
   grid-template-columns: 196px 1fr;
-  min-height: 100vh;
+  /* Vlastný scroll: v Electrone sa koreň appky neposúva, takže hárok musí
+     scrollovať sám. Rail ostáva na mieste. */
+  height: 100vh;
+  overflow: hidden;
   background:
     radial-gradient(1100px 700px at 18% -10%, color-mix(in srgb, var(--lw-accent) 10%, transparent), transparent 60%),
     var(--lw-canvas);
@@ -16,7 +19,7 @@
 }
 
 /* ── register tabs (left) ─────────────────────────────────────────────── */
-.lw-rail { display: flex; flex-direction: column; padding: 30px 0 20px 18px; }
+.lw-rail { display: flex; flex-direction: column; padding: 44px 0 20px 18px; min-height: 0; overflow-y: auto; }
 .lw-brand { display: flex; align-items: center; gap: 10px; padding: 0 0 26px 14px; }
 .lw-brand img { width: 26px; height: 26px; }
 .lw-brand .lw-wordmark { display: block; width: 96px; height: auto; color: var(--lw-text-primary); }
@@ -56,7 +59,8 @@
 /* ── sheet (main) ─────────────────────────────────────────────────────── */
 .lw-sheet {
   background: var(--lw-surface); border-left: 1px solid var(--lw-border);
-  padding: 34px 44px 60px 40px; position: relative;
+  padding: 44px 44px 60px 40px; position: relative;
+  min-height: 0; overflow-y: auto;
   box-shadow: -30px 0 80px -40px rgb(0 0 0 / 0.85); min-width: 0;
 }
 .lw-sheet::before {
@@ -311,3 +315,10 @@
 .lw-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
 .lw-btn-secondary { height: 36px; padding: 0 16px; border: 1px solid var(--lw-border-strong); border-radius: 3px; background: transparent; color: var(--lw-text-primary); font: inherit; cursor: pointer; }
 .lw-btn:disabled, .lw-btn-secondary:disabled { opacity: 0.45; cursor: default; }
+
+/* Experimenty v upstream sidebare: horná časť má pevný pomer (flex-[2]),
+   sub-items ju nesmú pretiecť do FOLDERS. */
+.lw-exp-sub { max-height: 168px; overflow-y: auto; }
+.lw-inline { display: flex; gap: 8px; }
+.lw-inline .lw-input { flex: 1; min-width: 0; }
+.lw-hint-warn { font-size: 12px; color: var(--lw-warning); }

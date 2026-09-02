@@ -2,6 +2,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { pickDirectory } from "@/app/lib/desktop";
+import { isDesktopRuntime } from "@/app/utils";
+
 import { LawossLayout } from "../../shell/layout";
 import { composePrompt, targetDir, type Jurisdikcia, type NovySpisForm, type SubjectKind } from "../../okf/compose-prompt";
 import { loadOkfConnection, openSessionWithPrompt, type OkfConnection } from "../../okf/connection";
@@ -32,6 +35,8 @@ export function NovySpisPage() {
   const [form, setForm] = useState<NovySpisForm>({
     mode: "okf", subject: "pravnicka-osoba", title: "", ico: "", jurisdikcia: "SK", verify: true, root: "", protistrana: "",
   });
+  /** Koreň zadaný ručne alebo cez dialóg; prázdny = koreň workspace-u. */
+  const [rootOverride, setRootOverride] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -51,7 +56,18 @@ export function NovySpisPage() {
     () => connection?.workspaces.find((item) => item.id === workspaceId) ?? null,
     [connection, workspaceId],
   );
-  const effectiveForm = useMemo<NovySpisForm>(() => ({ ...form, root: workspace?.path ?? "" }), [form, workspace]);
+  const effectiveRoot = rootOverride.trim() || workspace?.path || "";
+  const effectiveForm = useMemo<NovySpisForm>(() => ({ ...form, root: effectiveRoot }), [form, effectiveRoot]);
+  const rootOutsideWorkspace = Boolean(workspace?.path && effectiveRoot && !effectiveRoot.startsWith(workspace.path));
+
+  async function pickRoot() {
+    try {
+      const picked = (await pickDirectory({ title: "Koreňový priečinok pre nový spis" })) as string | null;
+      if (picked) setRootOverride(picked);
+    } catch (error) {
+      setStatus({ tone: "err", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
   const preview = useMemo(() => previewPlan(effectiveForm), [effectiveForm]);
   const prompt = useMemo(() => composePrompt(effectiveForm), [effectiveForm]);
   const set = <K extends keyof NovySpisForm>(key: K, value: NovySpisForm[K]) => setForm((current) => ({ ...current, [key]: value }));
@@ -107,7 +123,7 @@ export function NovySpisPage() {
         </div>
 
         <label className="lw-field">
-          <span className="lw-sc">Workspace (koreň)</span>
+          <span className="lw-sc">Workspace (kde beží agent)</span>
           <select className="lw-input" value={workspaceId} onChange={(event) => setWorkspaceId(event.target.value)} disabled={!connection}>
             {!connection ? <option value="">načítavam…</option> : null}
             {connection && connection.workspaces.length === 0 ? <option value="">žiadny workspace</option> : null}
@@ -116,6 +132,24 @@ export function NovySpisPage() {
             ))}
           </select>
         </label>
+
+        <div className="lw-field">
+          <span className="lw-sc">Koreňový priečinok (kam vznikne)</span>
+          <div className="lw-inline">
+            <input
+              className="lw-input lw-mono"
+              value={rootOverride}
+              onChange={(event) => setRootOverride(event.target.value)}
+              placeholder={workspace?.path || "predvolene koreň workspace-u"}
+            />
+            {isDesktopRuntime() ? (
+              <button type="button" className="lw-btn-secondary" onClick={() => void pickRoot()}>Vybrať…</button>
+            ) : null}
+          </div>
+          {rootOutsideWorkspace ? (
+            <small className="lw-hint-warn">Mimo workspace-u — agent naň potrebuje povolenie (Tool Permissions).</small>
+          ) : null}
+        </div>
 
         <label className="lw-field">
           <span className="lw-sc">Typ subjektu</span>

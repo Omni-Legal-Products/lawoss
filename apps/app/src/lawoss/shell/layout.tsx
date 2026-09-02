@@ -3,6 +3,7 @@ import { useState, type ReactNode } from "react";
 import { ChevronRight, FlaskConical } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
+import { PageTitlebarRegion } from "@/components/page";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -38,9 +39,30 @@ export function experimentyNavItems(): { to: string; label: string }[] {
  * Everything else in that sidebar stays upstream — this only adds a collapsible
  * group holding the unfinished screens, never hides working navigation.
  */
+const NAV_OPEN_KEY = "lawoss.experimenty.open";
+
+function readNavOpen(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(NAV_OPEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function LawossNav() {
-  const [open, setOpen] = useState(true);
+  // Predvolene zbalené: upstream sidebar má hornú časť s pevným pomerom a
+  // rozbalené sub-items by ju pretiekli do zoznamu priečinkov.
+  const [open, setOpen] = useState(readNavOpen);
   const items = experimentyNavItems();
+  const toggle = () =>
+    setOpen((value) => {
+      try {
+        globalThis.localStorage?.setItem(NAV_OPEN_KEY, value ? "0" : "1");
+      } catch {
+        // ignore
+      }
+      return !value;
+    });
 
   return (
     <SidebarGroup className="py-0">
@@ -50,7 +72,7 @@ export function LawossNav() {
             <SidebarMenuButton
               type="button"
               aria-expanded={open}
-              onClick={() => setOpen((value) => !value)}
+              onClick={toggle}
               className="gap-4 text-sidebar-foreground/80 [&_svg]:size-[18px]"
             >
               <FlaskConical strokeWidth={1.5} />
@@ -59,7 +81,7 @@ export function LawossNav() {
               <ChevronRight className={`ms-auto transition-transform ${open ? "rotate-90" : ""}`} />
             </SidebarMenuButton>
             {open ? (
-              <SidebarMenuSub>
+              <SidebarMenuSub className="lw-exp-sub">
                 {items.map((item) => (
                   <SidebarMenuSubItem key={item.to}>
                     <SidebarMenuSubButton render={<NavLink to={item.to} />}>
@@ -86,7 +108,9 @@ export function LawossLayout(props: { children: ReactNode }) {
 
   return (
     <div className="lw-desk">
-      <aside className="lw-rail">
+      {/* Ťahacia lišta okna (mac) — rovnaký prvok, aký používa upstream. */}
+      <PageTitlebarRegion />
+      <aside className="lw-rail mac:titlebar-no-drag">
         <div className="lw-brand">
           <img src={lawossMark} alt="" />
           <div>
@@ -112,7 +136,7 @@ export function LawossLayout(props: { children: ReactNode }) {
           <span>nie sú napojené na spisy</span>
         </div>
       </aside>
-      <main className="lw-sheet">{props.children}</main>
+      <main className="lw-sheet mac:titlebar-no-drag">{props.children}</main>
     </div>
   );
 }
