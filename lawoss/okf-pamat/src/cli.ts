@@ -9,15 +9,19 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  readStore, readScope, writeIndex, syncStatus, ensureBrain, applyRecordWrite,
+  readStore, readScope, writeIndex, syncStatus, ensureBrain, applyRecordWrite, standingApproval,
+  findOfficeDir, OFFICE_DIR,
   jurisdictionFromCard, MEMORY_DIR,
 } from "./store.ts";
 import { parseRecord, type OkfRecord } from "./record.ts";
 import { planWrite, type Approval, type WriteDiff } from "./write.ts";
 import { maskRecord } from "./mask.ts";
-import { fieldLabel, typeLabel, type Jurisdiction } from "./schema.ts";
+import { fieldLabel, typeLabel, SCREENING_PROVISION, type Jurisdiction } from "./schema.ts";
 import { renderStatus, RenderConflictError } from "./render.ts";
 import { validateStore } from "./validate.ts";
+import { readStandingAuthorization, isExpired, CONFIG_FILE } from "./config.ts";
+
+const dnes = (): string => new Date().toISOString().slice(0, 10);
 
 export interface CliResult {
   readonly code: number;
@@ -32,6 +36,9 @@ const USAGE = [
   "  okf-memory sync     <spis> [--apply]  projekcia do _STATUS.md a INDEX.md",
   "  okf-memory aml      <spis>            subjekty a stav AML preverenia",
   "  okf-memory write    <spis> --file <záznam.md> --reason \"…\" [--apply] [--approve-as \"meno\"]",
+  "",
+  "  --approve-as sa nevyžaduje, keď zápis kryje trvalé poverenie advokáta",
+  `  v ${OFFICE_DIR}/${CONFIG_FILE} — viď AGENTNI-ZAPISY.md`,
   "  okf-memory init     <spis> [--sk] [--apply]   BRAIN.md a adresár pamäte",
   "",
   "Bez --apply sa nič nezapisuje.",
@@ -108,10 +115,20 @@ export function runCli(argv: readonly string[]): CliResult {
       const scope = readScope(dir);
       const findings = validateStore(scope.records);
       const problems = problemLines(scope.problems);
-      if (findings.length === 0 && problems.length === 0) {
+      // Prepadnuté poverenie sa inak prejaví až tým, že agentovi prestanú
+      // prechádzať zápisy — a to vyzerá ako porucha, nie ako uplynutie lehoty.
+      const auth = readStandingAuthorization(findOfficeDir(dir));
+      const poverenie =
+        auth && isExpired(auth, dnes())
+          ? [`WARNING STANDING_AUTH_EXPIRED ${OFFICE_DIR}/${CONFIG_FILE}: ` +
+             `trvalé poverenie (${auth.by}) uplynulo ${auth.expiresAt} — ` +
+             `zápisy do ${auth.scope.join(", ")} znova vyžadujú --approve-as.`]
+          : [];
+      if (findings.length === 0 && problems.length === 0 && poverenie.length === 0) {
         return ok("OK — pamäť je konzistentná.");
       }
       const lines = [
+        ...poverenie,
         ...problems,
         ...findings.map((f) => `${f.severity.toUpperCase()} ${f.code} ${f.recordId}: ${f.message}`),
       ];
@@ -170,7 +187,11 @@ export function runCli(argv: readonly string[]): CliResult {
         const mine = preverenia.filter((p) => p.subject_ref === raw.id);
         // Preverenie sa vyžaduje pri klientovi, nie pri protistrane.
         if (mine.length === 0 && raw.role === "client") {
-          lines.push("        preverenie        — žiadne (§ 8 vyžaduje preverenie klienta)");
+          const opora = SCREENING_PROVISION[raw.jurisdiction];
+          lines.push(
+            `        preverenie        — žiadne (preverenie klienta sa vyžaduje` +
+              `${opora ? ` — ${opora}` : ""})`,
+          );
         }
         for (const p of mine) {
           lines.push(
@@ -228,26 +249,33 @@ export function runCli(argv: readonly string[]): CliResult {
         "",
       ];
 
+      // Trvalé poverenie je schválenie udelené vopred písomne. Agent si ho
+      // nekonštruuje — číta ho zo súboru, ktorý napísal advokát.
+      const trvale = approveAs === undefined ? standingApproval(dir, diff) : undefined;
+      const approval: Approval | undefined =
+        approveAs !== undefined ? { by: approveAs, at: new Date().toISOString() } : trvale;
+
       if (!apply) {
         out.push(
-          diff.requiresApproval
-            ? `dry-run: zápis do vrstvy ${diff.layer} vyžaduje schválenie človekom. ` +
-              `Zapíš s --apply --approve-as "<meno>".`
-            : "dry-run: nič sa nezapísalo. Zapíš s --apply.",
+          !diff.requiresApproval
+            ? "dry-run: nič sa nezapísalo. Zapíš s --apply."
+            : trvale !== undefined
+              ? `dry-run: zápis do vrstvy ${diff.layer} kryje trvalé poverenie ` +
+                `(${trvale.by}). Zapíš s --apply.`
+              : `dry-run: zápis do vrstvy ${diff.layer} vyžaduje schválenie človekom. ` +
+                `Zapíš s --apply --approve-as "<meno>".`,
         );
         return ok(out.join("\n"));
       }
 
-      if (diff.requiresApproval && approveAs === undefined) {
+      if (diff.requiresApproval && approval === undefined) {
         out.push(
-          `ODMIETNUTÉ: zápis do vrstvy ${diff.layer} vyžaduje --approve-as "<meno advokáta>". ` +
+          `ODMIETNUTÉ: zápis do vrstvy ${diff.layer} vyžaduje --approve-as "<meno advokáta>" ` +
+            `alebo trvalé poverenie v ${OFFICE_DIR}/${CONFIG_FILE}. ` +
             `Meno zadáva človek, agent si ho nekonštruuje sám.`,
         );
         return { code: 1, out: out.join("\n") };
       }
-
-      const approval: Approval | undefined =
-        approveAs === undefined ? undefined : { by: approveAs, at: new Date().toISOString() };
 
       // Audit riadok sa pridáva AŽ po tom, čo návrh prešiel bránami. Keby sa
       // pridal skôr, história by rástla pri každom zápise a brána atomicity
