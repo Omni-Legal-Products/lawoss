@@ -1,18 +1,21 @@
 /** @jsxImportSource react */
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { ChevronRight, FlaskConical } from "lucide-react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 
 import { PageTitlebarRegion } from "@/components/page";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 
 import lawossMark from "../../../../../lawoss/brand/lawoss-mark.svg";
@@ -39,58 +42,43 @@ export function experimentyNavItems(): { to: string; label: string }[] {
  * Everything else in that sidebar stays upstream — this only adds a collapsible
  * group holding the unfinished screens, never hides working navigation.
  */
-const NAV_OPEN_KEY = "lawoss.experimenty.open";
-
-function readNavOpen(): boolean {
-  try {
-    return globalThis.localStorage?.getItem(NAV_OPEN_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
+/**
+ * The single LAWOSS entry in the upstream session sidebar (1-line 🟡 insert).
+ * Sub-items open in a menu, not inline: the upstream sidebar's top pane has a
+ * fixed flex ratio, and an inline list overflowed into the folders pane at
+ * small window heights. A menu takes no vertical space regardless of count.
+ */
 export function LawossNav() {
-  // Predvolene zbalené: upstream sidebar má hornú časť s pevným pomerom a
-  // rozbalené sub-items by ju pretiekli do zoznamu priečinkov.
-  const [open, setOpen] = useState(readNavOpen);
+  const navigate = useNavigate();
   const items = experimentyNavItems();
-  const toggle = () =>
-    setOpen((value) => {
-      try {
-        globalThis.localStorage?.setItem(NAV_OPEN_KEY, value ? "0" : "1");
-      } catch {
-        // ignore
-      }
-      return !value;
-    });
 
   return (
     <SidebarGroup className="py-0">
       <SidebarGroupContent>
         <SidebarMenu className="gap-0.5 px-2">
           <SidebarMenuItem>
-            <SidebarMenuButton
-              type="button"
-              aria-expanded={open}
-              onClick={toggle}
-              className="gap-4 text-sidebar-foreground/80 [&_svg]:size-[18px]"
-            >
-              <FlaskConical strokeWidth={1.5} />
-              <span>Experimenty</span>
-              <span className="lw-badge">EXP</span>
-              <ChevronRight className={`ms-auto transition-transform ${open ? "rotate-90" : ""}`} />
-            </SidebarMenuButton>
-            {open ? (
-              <SidebarMenuSub className="lw-exp-sub">
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <SidebarMenuButton
+                    type="button"
+                    className="gap-4 text-sidebar-foreground/80 [&_svg]:size-[18px]"
+                  >
+                    <FlaskConical strokeWidth={1.5} />
+                    <span>Experimenty</span>
+                    <span className="lw-badge">EXP</span>
+                    <ChevronRight className="ms-auto" />
+                  </SidebarMenuButton>
+                }
+              />
+              <DropdownMenuContent align="start" side="right" className="min-w-52">
                 {items.map((item) => (
-                  <SidebarMenuSubItem key={item.to}>
-                    <SidebarMenuSubButton render={<NavLink to={item.to} />}>
-                      <span>{item.label}</span>
-                    </SidebarMenuSubButton>
-                  </SidebarMenuSubItem>
+                  <DropdownMenuItem key={item.to} onClick={() => navigate(item.to)}>
+                    {item.label}
+                  </DropdownMenuItem>
                 ))}
-              </SidebarMenuSub>
-            ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarGroupContent>
