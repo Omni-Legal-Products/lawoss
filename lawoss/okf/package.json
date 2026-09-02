@@ -1,21 +1,17 @@
 {
-  "name": "@lawoss/okf-pamat",
+  "name": "@lawoss/okf",
   "version": "0.1.0",
   "private": true,
+  "description": "OKF CLI — detect · plan · apply · validate · render nad priečinkom klienta. Nulové závislosti, žiadny server, súbory dnu a von.",
   "type": "module",
-  "description": "OKF pamäťové jadro — typované záznamy, truth/timeline, projekcia do _STATUS.md",
-  "exports": {
-    ".": "./src/index.ts"
+  "bin": {
+    "okf": "./src/cli.ts"
   },
   "scripts": {
-    "test": "node --test 'tests/**/*.test.ts'",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "test": "bun test test/",
+    "build": "bun build src/cli.ts --target node --format esm --outfile bundle/okf.js && bun scripts/postbuild.ts"
   },
-  "devDependencies": {
-    "@types/node": "^24.3.0",
-    "typescript": "^5.9.2"
-  },
-  "bin": {
-    "okf-memory": "./bin/okf-memory.ts"
+  "engines": {
+    "node": ">=18"
   }
 }

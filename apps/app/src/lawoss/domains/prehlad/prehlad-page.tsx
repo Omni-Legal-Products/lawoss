@@ -11,10 +11,6 @@ import { LawossLayout } from "../../shell/layout";
 export function PrehladPage() {
   return (
     <LawossLayout>
-      <div className="lw-mockup">
-        <b>NÁVRH</b>
-        fiktívne dáta · fáza C4
-      </div>
       <h1 className="lw-h1">Prehľad praxe</h1>
       <p className="lw-lead">Utorok 23. augusta. Tri veci čakajú na vaše rozhodnutie, dve lehoty sú tento týždeň.</p>
 

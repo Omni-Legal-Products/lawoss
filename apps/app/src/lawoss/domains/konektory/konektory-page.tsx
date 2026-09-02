@@ -34,10 +34,6 @@ const CONNECTORS: ConnectorRow[] = [
 export function KonektoryPage() {
   return (
     <LawossLayout>
-      <div className="lw-mockup">
-        <b>NÁVRH</b>
-        fiktívne dáta · fáza C6
-      </div>
       <h1 className="lw-h1">Konektory</h1>
       <p className="lw-lead">
         Čo agent vidí a čo smie použiť. Registre sú iba na čítanie; lokálne nástroje bežia vo vašom počítači; servery

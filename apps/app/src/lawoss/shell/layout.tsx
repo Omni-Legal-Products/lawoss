@@ -1,108 +1,133 @@
 /** @jsxImportSource react */
 import type { ReactNode } from "react";
-import { NavLink } from "react-router-dom";
+import { ChevronRight, FlaskConical } from "lucide-react";
+import { NavLink, useNavigate } from "react-router-dom";
+
+import { PageTitlebarRegion } from "@/components/page";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "@/components/ui/sidebar";
 
 import lawossMark from "../../../../../lawoss/brand/lawoss-mark.svg";
+import { EXPERIMENT_VIEWS } from "../experiments/registry";
+import { LawossWordmark } from "./wordmark";
 import "./lawoss.css";
 
-export type LawossTabItem = {
-  to: string;
-  label: string;
-  count?: string;
-  external?: boolean;
-};
+export const EXPERIMENTY_PATH = "/experimenty";
 
 /**
- * LAWOSS navigation — the register-tab groups. The `Asistent` and `Nastavenia`
- * entries jump back into the upstream shell (session / settings routes).
- * Mockup counts are fictional until lawoss/okf/read.ts lands (fáza C1).
+ * Everything reachable under the Experimenty item: the switch/status page
+ * first, then each unfinished screen. Driven by the registry so adding an
+ * experiment is still one row.
  */
-export const LAWOSS_TABS: { group: string; items: LawossTabItem[] }[] = [
-  {
-    group: "prax",
-    items: [
-      { to: "/prehlad", label: "Prehľad" },
-      { to: "/lehoty", label: "Lehoty", count: "7" },
-    ],
-  },
-  {
-    group: "agent",
-    items: [{ to: "/session", label: "Asistent", external: true }],
-  },
-  {
-    group: "system",
-    items: [
-      { to: "/konektory", label: "Konektory", count: "8" },
-      { to: "/marketplace", label: "Marketplace" },
-      { to: "/settings", label: "Nastavenia", external: true },
-    ],
-  },
-];
+export function experimentyNavItems(): { to: string; label: string }[] {
+  return [
+    { to: EXPERIMENTY_PATH, label: "Prepínače a stav" },
+    ...EXPERIMENT_VIEWS.map((view) => ({ to: view.to, label: view.label })),
+  ];
+}
 
-function RailTabs() {
+/**
+ * The single LAWOSS entry in the upstream session sidebar (1-line 🟡 insert).
+ * Everything else in that sidebar stays upstream — this only adds a collapsible
+ * group holding the unfinished screens, never hides working navigation.
+ */
+/**
+ * The single LAWOSS entry in the upstream session sidebar (1-line 🟡 insert).
+ * Sub-items open in a menu, not inline: the upstream sidebar's top pane has a
+ * fixed flex ratio, and an inline list overflowed into the folders pane at
+ * small window heights. A menu takes no vertical space regardless of count.
+ */
+export function LawossNav() {
+  const navigate = useNavigate();
+  const items = experimentyNavItems();
+
   return (
-    <>
-      {LAWOSS_TABS.map((group, index) => (
-        <div key={group.group}>
-          {index > 0 ? <div className="lw-gap" /> : null}
-          {group.items.map((item) => (
-            <NavLink key={item.to} to={item.to} className="lw-tab">
-              {item.label}
-              <span className="lw-count">{item.count ?? ""}</span>
-            </NavLink>
-          ))}
-        </div>
-      ))}
-    </>
+    <SidebarGroup className="py-0">
+      <SidebarGroupContent>
+        <SidebarMenu className="gap-0.5 px-2">
+          <SidebarMenuItem>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <SidebarMenuButton
+                    type="button"
+                    className="gap-4 text-sidebar-foreground/80 [&_svg]:size-[18px]"
+                  >
+                    <FlaskConical strokeWidth={1.5} />
+                    <span>Experimenty</span>
+                    <span className="lw-badge">EXP</span>
+                    <ChevronRight className="ms-auto" />
+                  </SidebarMenuButton>
+                }
+              />
+              <DropdownMenuContent align="start" side="right" className="min-w-52">
+                {items.map((item) => (
+                  <DropdownMenuItem key={item.to} onClick={() => navigate(item.to)}>
+                    {item.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
   );
 }
 
 /**
- * Standalone LAWOSS page frame: register tabs on the desk, content on the sheet.
- * Fáza B renders the new views in this frame; fáza C2 folds the matter view into
- * the upstream session shell.
+ * Frame for the experimental screens. Deliberately not a second main
+ * navigation: it carries the brand, a way back into the app, and the sibling
+ * experiments — nothing that competes with the upstream shell.
  */
 export function LawossLayout(props: { children: ReactNode }) {
+  const items = experimentyNavItems();
+
   return (
     <div className="lw-desk">
+      {/* Ťahacia lišta okna (mac) — rovnaký prvok, aký používa upstream.
+          Chromium počíta ťahaciu oblasť ako drag mínus no-drag obdĺžniky bez
+          ohľadu na z-index, preto panely pod ňou NESMÚ byť no-drag: obsah
+          začína až pod lištou (padding 44px), takže to nič nepotrebuje. */}
+      <PageTitlebarRegion />
       <aside className="lw-rail">
         <div className="lw-brand">
-          <img src={lawossMark} alt="LAWOSS" />
+          <img src={lawossMark} alt="" />
           <div>
-            <div className="lw-wordmark">
-              LAW<b>OSS</b>
-            </div>
-            <small>CZECHIA · SLOVAKIA</small>
+            <LawossWordmark className="lw-wordmark" />
+            <small>CZECHIA SLOVAKIA AND BEYOND</small>
           </div>
         </div>
-        <RailTabs />
+
+        <NavLink to="/session" className="lw-tab lw-tab-back">
+          ← Späť do aplikácie
+        </NavLink>
+
+        <div className="lw-gap" />
+        <div className="lw-rail-label">Experimenty</div>
+        {items.map((item) => (
+          <NavLink key={item.to} to={item.to} className="lw-tab">
+            {item.label}
+          </NavLink>
+        ))}
+
         <div className="lw-who">
-          JUDr. Martin Novák
-          <span>advokát · SR · fiktívne dáta</span>
+          Rozpracované
+          <span>nie sú napojené na spisy</span>
         </div>
       </aside>
       <main className="lw-sheet">{props.children}</main>
     </div>
-  );
-}
-
-/** Compact variant mounted inside the upstream session sidebar (1-line 🟡 insert). */
-export function LawossNav() {
-  return (
-    <nav className="lw-sidebar-nav" style={{ padding: "2px 8px 6px" }}>
-      {LAWOSS_TABS.flatMap((group) => group.items)
-        .filter((item) => !item.external)
-        .map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            className="lw-tab"
-            style={{ height: 32, marginLeft: 0, borderRadius: 6, transform: "none", boxShadow: "none" }}
-          >
-            {item.label}
-            <span className="lw-count">{item.count ?? ""}</span>
-          </NavLink>
-        ))}
-    </nav>
   );
 }
