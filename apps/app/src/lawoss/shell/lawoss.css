@@ -316,9 +316,6 @@
 .lw-btn-secondary { height: 36px; padding: 0 16px; border: 1px solid var(--lw-border-strong); border-radius: 3px; background: transparent; color: var(--lw-text-primary); font: inherit; cursor: pointer; }
 .lw-btn:disabled, .lw-btn-secondary:disabled { opacity: 0.45; cursor: default; }
 
-/* Experimenty v upstream sidebare: horná časť má pevný pomer (flex-[2]),
-   sub-items ju nesmú pretiecť do FOLDERS. */
-.lw-exp-sub { max-height: 168px; overflow-y: auto; }
 .lw-inline { display: flex; gap: 8px; }
 .lw-inline .lw-input { flex: 1; min-width: 0; }
 .lw-hint-warn { font-size: 12px; color: var(--lw-warning); }
