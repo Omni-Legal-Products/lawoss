@@ -1,0 +1,21 @@
+{
+  "name": "@lawoss/okf-pamat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OKF pamäťové jadro — typované záznamy, truth/timeline, projekcia do _STATUS.md",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test 'tests/**/*.test.ts'",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.2"
+  },
+  "bin": {
+    "okf-memory": "./bin/okf-memory.ts"
+  }
+}
