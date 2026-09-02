@@ -44,7 +44,7 @@ function poucenie(over: Partial<OkfRecord> = {}): OkfRecord {
   return {
     ...newRecord({
       id: "L-001", type: "lesson", jurisdiction: "cz",
-      title: "Príslušnosť overovať pred podaním", summary: "poučenie do praxe",
+      title: "Príslušnosť overovať pred podaním", description: "poučenie do praxe",
       created: "2026-09-02", updated: "2026-09-02", truth: "Overiť sídlo pred podaním.",
       timeline: [{ date: "2026-09-02", text: "vzniklo z veci" }],
     }),
@@ -150,7 +150,7 @@ test("poverenie neotvara cestu klientskym udajom do L3", () => {
   const { spis } = kancelaria(PLATNE);
   const subjekt = newRecord({
     id: "S-001", type: "subject", jurisdiction: "cz",
-    title: "Gh Real Estate s.r.o.", summary: "protistrana",
+    title: "Gh Real Estate s.r.o.", description: "protistrana",
     created: "2026-09-02", updated: "2026-09-02", truth: "t",
     timeline: [{ date: "2026-09-02", text: "overené" }],
     registry_id: "29139643",
@@ -159,7 +159,7 @@ test("poverenie neotvara cestu klientskym udajom do L3", () => {
 
   const pramen = newRecord({
     id: "A-001", type: "authority", jurisdiction: "cz",
-    title: "Právna veta", summary: "prameň",
+    title: "Právna veta", description: "prameň",
     created: "2026-09-02", updated: "2026-09-02",
     truth: "Vec spoločnosti s IČO 29139643.",
     timeline: [{ date: "2026-09-02", text: "z" }],

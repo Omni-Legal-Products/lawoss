@@ -9,7 +9,7 @@ description: Use when reading or writing case memory in an OKF matter folder (sp
 
 1. `BRAIN.md` — protokol pamäte tohto spisu
 2. `_STATUS.md` — **Fáza** a **Ďalší krok** hore
-3. `memory/INDEX.md` — register; odtiaľ cielene na záznam
+3. `memory/index.md` — register; odtiaľ cielene na záznam
 
 **Nikdy nečítaj celý spis „pre istotu".** Register je mapa, dokumenty sú prameň.
 Citáciu do výstupu overuj vždy proti originálu dokumentu, nikdy proti pamäti.
@@ -70,7 +70,7 @@ a prípravu návrhu**. Vlastný zápis nechaj CLI.
 - **Povinná sada sa líši podľa jurisdikcie a neprekladá sa.** CZ (§ 5 z. 253/2008 Sb.) žiada
   miesto narodenia, vydavateľa dokladu a jeho platnosť; SK (§ 7 z. 297/2008 Z. z.) nie, zato
   žiada zápis v registri u PO. Nedopĺňaj údaj len preto, že ho žiada druhá jurisdikcia.
-- **Rodné číslo ani číslo dokladu nikdy nepíš do `popis`** — popis sa renderuje do `INDEX.md`
+- **Rodné číslo ani číslo dokladu nikdy nepíš do `popis`** — popis sa renderuje do `index.md`
   a do `_STATUS.md`. Patria do poľa frontmatteru, kde sa maskujú vo výpisoch.
 - Preverenie **nevykonávaj v tomto skille** — použi AML skill a MCP konektory, sem zapíš len
   výsledok ako `screening` so zdrojmi, rizikom a `platnost_do`.
@@ -93,7 +93,7 @@ a prípravu návrhu**. Vlastný zápis nechaj CLI.
 - [ ] `zmena:` v každom dotknutom zázname je na dnešný dátum
 - [ ] `okf-memory validate <spis>` → bez chýb
 - [ ] pri AML veci `okf-memory aml <spis>` → preverenie klienta platí a je úplné
-- [ ] `okf-memory sync <spis> --apply` → projekcia do `_STATUS.md` a `INDEX.md`
+- [ ] `okf-memory sync <spis> --apply` → projekcia do `_STATUS.md` a `index.md`
 - [ ] pri spornej veci: matica `evidence_matrix` v `_STATUS.md` sedí a žiadne tvrdenie nie je bez opory
 - [ ] **Fáza** a **Ďalší krok** v `_STATUS.md` zodpovedajú realite — to píše človek,
       ale ak sú zjavne zastarané, upozorni naň advokáta

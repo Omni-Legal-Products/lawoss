@@ -14,7 +14,7 @@ export {
   STATUS, PERSON_KINDS, ROLES, RISK, CONCLUSION, SCREENING_MODES,
   PROOF_STATUS, CONFIDENCE, EVIDENCE_STRENGTH, PROCEDURAL_STATUS, TASK_STATES,
   EVIDENCE_KINDS, EVIDENCE_KIND_PROVISION, SCREENING_PROVISION, EVENT_KINDS,
-  fieldLabel, canonicalField, typeLabel, truthDigest, isRecordType, isJurisdiction, needleFields,
+  fieldLabel, canonicalField, typeLabel, truthDigest, OKF_VERSION, isRecordType, isJurisdiction, needleFields,
   type Jurisdiction, type Layer, type RecordType, type FieldDef, type NeedleStrength,
   type Status, type PersonKind, type Role, type Risk, type Conclusion, type ScreeningMode,
   type ProofStatus, type Confidence, type EvidenceStrength, type ProceduralStatus, type EvidenceKind, type TaskState, type EventKind,
@@ -40,7 +40,7 @@ export {
 } from "./config.ts";
 export {
   readStore, readScope, findClientDir, findOfficeDir, MEMORY_DIR, OFFICE_DIR, applyRecordWrite, LeakBlockedError, ConcurrentWriteError,
-  writeIndex, ensureBrain, syncStatus, standingApproval, statusLinkResolver,
+  writeIndex, writeLog, ensureBrain, syncStatus, standingApproval, statusLinkResolver,
   type Store, type Scope, type StoreProblem,
 } from "./store.ts";
 
@@ -48,7 +48,7 @@ import { FIELDS, LAYER_OF, type Jurisdiction, type RecordType } from "./schema.t
 
 /** Polia, ktoré newRecord priraďuje výslovne; zvyšok sa berie z tabuľky. */
 const CORE_INIT_FIELDS = new Set([
-  "okf", "id", "type", "title", "summary",
+  "okf", "id", "type", "title", "description",
   "layer", "jurisdiction", "status", "created", "updated",
 ]);
 import type { OkfRecord, TimelineEntry } from "./record.ts";
@@ -58,7 +58,7 @@ export interface NewRecordInit {
   type: RecordType;
   jurisdiction: Jurisdiction;
   title: string;
-  summary: string;
+  description: string;
   created: string;
   updated: string;
   truth: string;
@@ -67,6 +67,7 @@ export interface NewRecordInit {
 
   sources?: string[];
   related?: string[];
+  tags?: string[];
   deadlines?: string[];
   parties?: string[];
   area?: string[];
@@ -155,7 +156,7 @@ export function newRecord(init: NewRecordInit): OkfRecord {
     id: init.id,
     type: init.type,
     title: init.title,
-    summary: init.summary,
+    description: init.description,
     layer: LAYER_OF[init.type],
     jurisdiction: init.jurisdiction,
     status: init.status ?? "active",

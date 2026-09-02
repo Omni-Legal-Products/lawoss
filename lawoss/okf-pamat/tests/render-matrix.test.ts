@@ -16,7 +16,7 @@ function tvrdenie(over: Partial<OkfRecord> = {}): OkfRecord {
   return {
     ...newRecord({
       id: "C-001", type: "claim", jurisdiction: "cz",
-      title: "Výpověď byla doručena", summary: "sporné doručení",
+      title: "Výpověď byla doručena", description: "sporné doručení",
       created: "2026-09-02", updated: "2026-09-02", truth: "t",
       timeline: [{ date: "2026-09-02", text: "x" }],
       burden_of_proof: "S-002", proof_status: "disputed", credibility: "medium",
@@ -30,7 +30,7 @@ function dokaz(over: Partial<OkfRecord> = {}): OkfRecord {
   return {
     ...newRecord({
       id: "E-001", type: "evidence", jurisdiction: "cz",
-      title: "Doručenka", summary: "doklad", created: "2026-09-02", updated: "2026-09-02",
+      title: "Doručenka", description: "doklad", created: "2026-09-02", updated: "2026-09-02",
       truth: "t", timeline: [{ date: "2026-09-02", text: "x" }],
       evidence_kind: "document", evidence_strength: "direct", reliability: "high",
       proves: ["C-001"],

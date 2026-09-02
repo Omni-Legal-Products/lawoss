@@ -35,7 +35,7 @@ function vault(config = KONFIG): { root: string; klient: string; spis: string } 
 function subjekt(id: string, over: Record<string, string> = {}) {
   return newRecord({
     id, type: "subject", jurisdiction: "cz",
-    title: "Veronika Říhová", summary: "klientka",
+    title: "Veronika Říhová", description: "klientka",
     created: "2026-09-02", updated: "2026-09-02", truth: "t",
     timeline: [{ date: "2026-09-02", text: "založené" }],
     role: "client", person_type: "natural", ...over,
@@ -100,7 +100,7 @@ test("brana uniku vidi klientske identifikatory aj vo vaulte", () => {
   );
   const pramen = newRecord({
     id: "A-001", type: "authority", jurisdiction: "cz",
-    title: "Právna veta", summary: "prameň",
+    title: "Právna veta", description: "prameň",
     created: "2026-09-02", updated: "2026-09-02",
     truth: "Vec spoločnosti s IČO 29139643.",
     timeline: [{ date: "2026-09-02", text: "z" }],
@@ -121,7 +121,7 @@ test("bez client_path by tá istá brána bola slepá — regresný dôkaz", () 
   );
   const pramen = newRecord({
     id: "A-002", type: "authority", jurisdiction: "cz",
-    title: "Veta", summary: "p", created: "2026-09-02", updated: "2026-09-02",
+    title: "Veta", description: "p", created: "2026-09-02", updated: "2026-09-02",
     truth: "Vec spoločnosti s IČO 29139643.",
     timeline: [{ date: "2026-09-02", text: "z" }],
   });

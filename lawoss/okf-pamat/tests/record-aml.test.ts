@@ -8,7 +8,7 @@ okf: 1
 id: S-001
 type: subject
 title: Jan Novák
-summary: klient, FO, identifikace provedena 29. 8. 2026
+description: klient, FO, identifikace provedena 29. 8. 2026
 layer: L2
 jurisdiction: cz
 status: active
@@ -43,7 +43,7 @@ okf: 1
 id: P-001
 type: screening
 title: Preverenie klienta
-summary: AML preverenie, riziko nizke
+description: AML preverenie, riziko nizke
 layer: L2
 jurisdiction: sk
 status: active

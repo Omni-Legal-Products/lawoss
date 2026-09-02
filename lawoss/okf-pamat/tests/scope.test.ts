@@ -27,7 +27,7 @@ function put(dir: string, r: OkfRecord): void {
 
 const SUBJEKT = newRecord({
   id: "S-001", type: "subject", jurisdiction: "cz",
-  title: "Jan Novák", summary: "klient",
+  title: "Jan Novák", description: "klient",
   created: "2026-08-31", updated: "2026-08-31", truth: "klient",
   timeline: [{ date: "2026-08-31", text: "identifikace" }],
   role: "client", person_type: "natural_person",
@@ -39,7 +39,7 @@ const SUBJEKT = newRecord({
 
 const PROVERENI = newRecord({
   id: "P-001", type: "screening", jurisdiction: "cz",
-  title: "Prověření klienta", summary: "AML, riziko nízké",
+  title: "Prověření klienta", description: "AML, riziko nízké",
   created: "2026-08-31", updated: "2026-08-31", truth: "bez nálezu",
   timeline: [{ date: "2026-08-31", text: "provedeno" }],
   subject_ref: "S-001", check_date: "2026-08-31", mode: "medium",
@@ -48,7 +48,7 @@ const PROVERENI = newRecord({
 
 const ROZHODNUTI = newRecord({
   id: "R-001", type: "decision", jurisdiction: "cz",
-  title: "Nepodávat námitku", summary: "zdržení převažuje",
+  title: "Nepodávat námitku", description: "zdržení převažuje",
   created: "2026-08-31", updated: "2026-08-31", truth: "nenapadáme",
   timeline: [{ date: "2026-08-31", text: "rozhodnuto" }],
   related: ["S-001"],

@@ -10,7 +10,7 @@ const DNES = { today: "2026-08-31" };
 function osoba(j: Jurisdiction, over: Record<string, unknown> = {}): OkfRecord {
   const base = newRecord({
     id: "S-001", type: "subject", jurisdiction: j,
-    title: "Jan Novák", summary: "klient", created: "2026-08-31", updated: "2026-08-31",
+    title: "Jan Novák", description: "klient", created: "2026-08-31", updated: "2026-08-31",
     truth: "t", timeline: [{ date: "2026-08-31", text: "x" }],
     role: "client", person_type: "natural_person",
   });
@@ -20,7 +20,7 @@ function osoba(j: Jurisdiction, over: Record<string, unknown> = {}): OkfRecord {
 function firma(j: Jurisdiction, over: Record<string, unknown> = {}): OkfRecord {
   const base = newRecord({
     id: "S-002", type: "subject", jurisdiction: j,
-    title: "Firma s.r.o.", summary: "protistrana", created: "2026-08-31", updated: "2026-08-31",
+    title: "Firma s.r.o.", description: "protistrana", created: "2026-08-31", updated: "2026-08-31",
     truth: "t", timeline: [{ date: "2026-08-31", text: "x" }],
     role: "client", person_type: "legal_person",
   });

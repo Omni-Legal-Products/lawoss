@@ -16,7 +16,7 @@ function spis(): string {
     join(dir, MEMORY_DIR, "R-001-dobry.md"),
     serializeRecord(newRecord({
       id: "R-001", type: "decision", jurisdiction: "cz",
-      title: "Dobrý", summary: "v pořádku", created: "2026-08-31", updated: "2026-08-31",
+      title: "Dobrý", description: "v pořádku", created: "2026-08-31", updated: "2026-08-31",
       truth: "t", timeline: [{ date: "2026-08-31", text: "x" }],
     })),
   );

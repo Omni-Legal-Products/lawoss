@@ -10,7 +10,7 @@ function pramen(over: Partial<OkfRecord> = {}): OkfRecord {
   return {
     ...newRecord({
       id: "A-001", type: "authority", jurisdiction: "cz",
-      title: "29 NSČR 73/2024", summary: "kumulativnost § 348 odst. 1 IZ",
+      title: "29 NSČR 73/2024", description: "kumulativnost § 348 odst. 1 IZ",
       created: "2026-09-02", updated: "2026-09-02",
       truth: "Podmínky § 348 odst. 1 IZ jsou kumulativní.",
       timeline: [{ date: "2026-09-02", text: "ověřeno" }],
@@ -50,7 +50,7 @@ test("platnost do buducnosti nalez nesposobi", () => {
 
 test("platnost sa kontroluje len pri prameni, nie pri spisovom zazname", () => {
   const rozhodnutie = newRecord({
-    id: "D-001", type: "decision", jurisdiction: "cz", title: "X", summary: "y",
+    id: "D-001", type: "decision", jurisdiction: "cz", title: "X", description: "y",
     created: "2026-09-02", updated: "2026-09-02", truth: "t",
     timeline: [{ date: "2026-09-02", text: "x" }],
     effective_to: "2020-01-01",

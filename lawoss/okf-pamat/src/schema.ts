@@ -174,6 +174,8 @@ export interface FieldDef {
   readonly required: boolean;
   /** Údaj, ktorý sa maskuje vo výstupoch pre človeka a nesmie do `popis`. */
   readonly sensitive?: boolean;
+  /** Staršie názvy toho istého kľúča. Čítajú sa, nezapisujú. */
+  readonly aliases?: readonly string[];
   /** Hodnota sa hľadá v právnych prameňoch ako možný únik z L2. */
   readonly needle?: NeedleStrength;
 }
@@ -184,7 +186,8 @@ export const FIELDS: readonly FieldDef[] = [
   { canonical: "id", cz: "id", sk: "id", kind: "string", required: true },
   { canonical: "type", cz: "typ", sk: "typ", kind: "string", required: true },
   { canonical: "title", cz: "název", sk: "názov", kind: "string", required: true },
-  { canonical: "summary", cz: "popis", sk: "popis", kind: "string", required: true },
+  { canonical: "description", cz: "popis", sk: "popis", kind: "string", required: true,
+    aliases: ["summary"] },
   { canonical: "layer", cz: "vrstva", sk: "vrstva", kind: "string", required: true },
   { canonical: "jurisdiction", cz: "jurisdikce", sk: "jurisdikcia", kind: "string", required: true },
   { canonical: "status", cz: "stav", sk: "stav", kind: "string", required: true },
@@ -192,6 +195,7 @@ export const FIELDS: readonly FieldDef[] = [
   { canonical: "updated", cz: "změna", sk: "zmena", kind: "string", required: true },
   { canonical: "sources", cz: "zdroje", sk: "zdroje", kind: "list", required: false },
   { canonical: "related", cz: "souvisí", sk: "súvisí", kind: "list", required: false },
+  { canonical: "tags", cz: "štítky", sk: "štítky", kind: "list", required: false },
   { canonical: "truth_digest", cz: "otisk pravdy", sk: "odtlačok pravdy", kind: "string", required: false },
 
   // --- spis ---
@@ -471,7 +475,7 @@ export function fieldLabel(canonical: string, j: Jurisdiction): string {
 
 /** Je to kľúč, ktorý schéma pozná? Kľúče sú kanonické, teda bez prekladu. */
 export function canonicalField(key: string): string | undefined {
-  return FIELDS.find((x) => x.canonical === key)?.canonical;
+  return FIELDS.find((x) => x.canonical === key || x.aliases?.includes(key))?.canonical;
 }
 
 export function typeLabel(t: RecordType, j: Jurisdiction): string {
@@ -506,3 +510,14 @@ export function truthDigest(truth: string): string {
   }
   return h.toString(16).padStart(8, "0");
 }
+
+
+/**
+ * Verzia Open Knowledge Format, podľa ktorej sa priečinok `memory/` píše.
+ *
+ * Bundle je práve `memory/`: adresár konceptov, kde `index.md` a `log.md` sú
+ * rezervované názvy a všetko ostatné je koncept s povinným poľom `type`.
+ * `BRAIN.md` a `_STATUS.md` ležia mimo neho — sú to ľudské rozhrania spisu,
+ * nie koncepty.
+ */
+export const OKF_VERSION = "0.2";

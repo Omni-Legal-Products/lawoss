@@ -10,7 +10,7 @@ okf: 1
 id: D-001
 type: decision
 title: X
-summary: y
+description: y
 layer: L2
 jurisdiction: cz
 status: active
@@ -27,7 +27,7 @@ t
 
 function zaznam(timeline: OkfRecord["timeline"]): OkfRecord {
   return newRecord({
-    id: "D-001", type: "decision", jurisdiction: "cz", title: "X", summary: "y",
+    id: "D-001", type: "decision", jurisdiction: "cz", title: "X", description: "y",
     created: "2026-09-02", updated: "2026-09-02", truth: "t", timeline,
   });
 }

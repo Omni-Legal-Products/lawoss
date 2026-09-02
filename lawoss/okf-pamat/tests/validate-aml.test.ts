@@ -10,7 +10,7 @@ function subjekt(over: Partial<OkfRecord> = {}): OkfRecord {
   return {
     ...newRecord({
       id: "S-001", type: "subject", jurisdiction: "cz",
-      title: "Jan Novák", summary: "klient",
+      title: "Jan Novák", description: "klient",
       created: "2026-08-31", updated: "2026-08-31", truth: "klient",
       timeline: [{ date: "2026-08-31", text: "identifikace" }],
       role: "client", person_type: "natural_person",
@@ -27,7 +27,7 @@ function provereni(over: Partial<OkfRecord> = {}): OkfRecord {
   return {
     ...newRecord({
       id: "P-001", type: "screening", jurisdiction: "cz",
-      title: "Prověření", summary: "AML prověření, riziko nízké",
+      title: "Prověření", description: "AML prověření, riziko nízké",
       created: "2026-08-31", updated: "2026-08-31", truth: "bez nálezu",
       timeline: [{ date: "2026-08-31", text: "provedeno" }],
       subject_ref: "S-001", check_date: "2026-08-31", mode: "medium",
@@ -40,7 +40,7 @@ function provereni(over: Partial<OkfRecord> = {}): OkfRecord {
 function pramen(truth: string, id = "J-001"): OkfRecord {
   return newRecord({
     id, type: "authority", jurisdiction: "cz",
-    title: "Právní věta", summary: "pramen",
+    title: "Právní věta", description: "pramen",
     created: "2026-08-31", updated: "2026-08-31", truth,
     timeline: [{ date: "2026-08-31", text: "z" }],
     verified_at: "2026-08-31",
@@ -82,14 +82,14 @@ test("cisty pramen pri plnej AML evidencii zostava cisty", () => {
 // --- citlivy udaj v popise ---
 
 test("rodne cislo v popise je chyba — popis ide do rejstrika a projekcie", () => {
-  const f = validateStore([subjekt({ summary: "klient, r.c. 750101/1234" }), provereni()], DNES);
+  const f = validateStore([subjekt({ description: "klient, r.c. 750101/1234" }), provereni()], DNES);
   const n = f.find((x) => x.code === "SENSITIVE_IN_SUMMARY");
   assert.ok(n, JSON.stringify(f));
   assert.equal(n?.severity, "error");
 });
 
 test("bezne cislo v popise poplach nespusti", () => {
-  const f = validateStore([subjekt({ summary: "klient, spis 12 C 345/2026" }), provereni()], DNES);
+  const f = validateStore([subjekt({ description: "klient, spis 12 C 345/2026" }), provereni()], DNES);
   assert.deepEqual(codes(f), []);
 });
 
@@ -128,7 +128,7 @@ test("neuplna identifikacia FO je varovanie, pomenuje polia a cituje § 5", () =
 test("slovensky spis sa kontroluje podla § 7, nie podla ceskych pravidiel", () => {
   const sk = newRecord({
     id: "S-009", type: "subject", jurisdiction: "sk",
-    title: "Ján Malý", summary: "klient", created: "2026-08-31", updated: "2026-08-31",
+    title: "Ján Malý", description: "klient", created: "2026-08-31", updated: "2026-08-31",
     truth: "t", timeline: [{ date: "2026-08-31", text: "x" }],
     role: "client", person_type: "natural_person",
   });
@@ -148,7 +148,7 @@ test("uplna evidencia s platnym proverenim je bez nalezov", () => {
 test("subjekt bez typ_osoby v neoverenej jurisdikcii varovanie nesposobi", () => {
   const sk = newRecord({
     id: "S-010", type: "subject", jurisdiction: "sk",
-    title: "Protistrana s.r.o.", summary: "protistrana", created: "2026-08-31",
+    title: "Protistrana s.r.o.", description: "protistrana", created: "2026-08-31",
     updated: "2026-08-31", truth: "t", timeline: [{ date: "2026-08-31", text: "x" }],
   });
   assert.deepEqual(validateStore([sk], DNES), [],

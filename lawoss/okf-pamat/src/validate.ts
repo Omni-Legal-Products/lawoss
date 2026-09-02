@@ -153,7 +153,7 @@ function clientNeedles(records: readonly OkfRecord[]): Needle[] {
 }
 
 function recordText(r: OkfRecord): string {
-  return [r.title, r.summary, r.truth, ...r.timeline.map((e) => `${e.date} ${e.text}`)].join("\n");
+  return [r.title, r.description, r.truth, ...r.timeline.map((e) => `${e.date} ${e.text}`)].join("\n");
 }
 
 function linkTargets(r: OkfRecord): string[] {
@@ -206,7 +206,7 @@ const BIRTH_NUMBER_PATTERN = /\b\d{6}\s?\/\s?\d{3,4}\b/;
 /** Popis sa dostáva do INDEX.md aj do projekcie v _STATUS.md — citlivý údaj tam nepatrí. */
 function sensitiveInSummary(r: OkfRecord): Finding | undefined {
   const raw = r as unknown as Record<string, unknown>;
-  if (BIRTH_NUMBER_PATTERN.test(r.summary)) {
+  if (BIRTH_NUMBER_PATTERN.test(r.description)) {
     return {
       severity: "error",
       code: "SENSITIVE_IN_SUMMARY",
@@ -218,7 +218,7 @@ function sensitiveInSummary(r: OkfRecord): Finding | undefined {
   }
   for (const key of SENSITIVE_FIELDS) {
     const v = raw[key];
-    if (typeof v === "string" && v.trim().length >= 4 && r.summary.includes(v)) {
+    if (typeof v === "string" && v.trim().length >= 4 && r.description.includes(v)) {
       return {
         severity: "error",
         code: "SENSITIVE_IN_SUMMARY",

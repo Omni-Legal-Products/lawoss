@@ -39,7 +39,7 @@ export interface OkfRecord {
   id: string;
   type: RecordType;
   title: string;
-  summary: string;
+  description: string;
   layer: Layer;
   jurisdiction: Jurisdiction;
   status: string;
@@ -49,6 +49,7 @@ export interface OkfRecord {
   // zoznamy
   sources?: string[];
   related?: string[];
+  tags?: string[];
   deadlines?: string[];
   parties?: string[];
   area?: string[];
@@ -148,7 +149,7 @@ const FM_DELIM = "---";
 
 /** Polia, ktoré parser priraďuje výslovne; zvyšok sa berie z tabuľky. */
 const CORE_FIELDS = new Set([
-  "okf", "id", "type", "title", "summary",
+  "okf", "id", "type", "title", "description",
   "layer", "jurisdiction", "status", "created", "updated",
 ]);
 
@@ -284,11 +285,15 @@ export function parseRecord(text: string): OkfRecord {
   const canon = new Map<string, string | number | string[]>();
   const extra: Record<string, string | number | string[]> = {};
   for (const [k, v] of raw) {
-    if (canonicalField(k) === undefined) {
+    const kanon = canonicalField(k);
+    if (kanon === undefined) {
       extra[k] = v;
       continue;
     }
-    canon.set(k, v);
+    // Kľúčom je kanonický názov, nie ten zo súboru — inak by starý alias
+    // (`summary`) prešiel kontrolou neznámych polí, ale kontrola povinných
+    // polí by ho nenašla a záznam by spadol na „chýba description".
+    canon.set(kanon, v);
   }
 
   for (const f of FIELDS) {
@@ -311,7 +316,7 @@ export function parseRecord(text: string): OkfRecord {
     id: String(canon.get("id")),
     type,
     title: String(canon.get("title")),
-    summary: String(canon.get("summary")),
+    description: String(canon.get("description")),
     layer,
     jurisdiction: j,
     status: String(canon.get("status")),

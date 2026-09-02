@@ -91,7 +91,7 @@ function renderRecords(records: readonly OkfRecord[], j: Jurisdiction, href?: Li
   const head = "| Záznam | Typ | Popis |";
   const rows = [...records]
     .sort((a, b) => (a.id < b.id ? -1 : 1))
-    .map((r) => `| ${odkaz(r.id, href)} | ${typeLabel(r.type, j)} | ${r.summary} |`);
+    .map((r) => `| ${odkaz(r.id, href)} | ${typeLabel(r.type, j)} | ${r.description} |`);
   return [head, "|---|---|---|", ...rows].join("\n");
 }
 

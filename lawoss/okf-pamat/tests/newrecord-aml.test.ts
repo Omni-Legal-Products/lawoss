@@ -6,7 +6,7 @@ import { serializeRecord, parseRecord } from "../src/record.ts";
 test("newRecord prenesie identifikacne polia subjektu", () => {
   const r = newRecord({
     id: "S-001", type: "subject", jurisdiction: "cz",
-    title: "Jan Novák", summary: "klient",
+    title: "Jan Novák", description: "klient",
     created: "2026-08-31", updated: "2026-08-31", truth: "t", timeline: [],
     role: "client", person_type: "natural_person",
     birth_number: "750101/1234", residence: "Krátká 12, Praha 1",
@@ -22,7 +22,7 @@ test("newRecord prenesie identifikacne polia subjektu", () => {
 test("newRecord prenesie polia proverenia vratane zoznamov", () => {
   const r = newRecord({
     id: "P-001", type: "screening", jurisdiction: "cz",
-    title: "Prověření klienta", summary: "AML, riziko nízké",
+    title: "Prověření klienta", description: "AML, riziko nízké",
     created: "2026-08-31", updated: "2026-08-31", truth: "t", timeline: [],
     subject_ref: "S-001", check_date: "2026-08-31", mode: "medium",
     registries: ["ARES", "ISIR", "ESM"], risk: "nizke",
@@ -36,7 +36,7 @@ test("newRecord prenesie polia proverenia vratane zoznamov", () => {
 test("zaznam z newRecord prezije zapis na disk a spatne precitanie", () => {
   const r = newRecord({
     id: "S-002", type: "subject", jurisdiction: "sk",
-    title: "Firma s.r.o.", summary: "protistrana",
+    title: "Firma s.r.o.", description: "protistrana",
     created: "2026-08-31", updated: "2026-08-31", truth: "t", timeline: [],
     person_type: "legal_person", registry_id: "12345678",
     registered_office: "Hlavná 1, Bratislava", legal_form: "s.r.o.",

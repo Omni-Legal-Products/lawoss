@@ -65,7 +65,7 @@ klikateľné odkazy a **graf vaultu ukáže pamäť spisu**.
 > Format — takže spor, ktorý som k úlohe 12 otvoril, žiadny spor nebol.
 
 **Denné poznámky, tagy a šablóny sa nerozbijú.** Jadro sa dotýka výhradne
-`memory/`, `BRAIN.md`, `INDEX.md` a blokov medzi markermi v `_STATUS.md`.
+`memory/`, `BRAIN.md`, `index.md` a blokov medzi markermi v `_STATUS.md`.
 Čokoľvek iné vo vaulte je preň neviditeľné.
 
 **Jurisdikcia je hodnota poľa**, nie priečinok — český a slovenský spis môžu

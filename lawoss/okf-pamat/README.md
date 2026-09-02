@@ -114,7 +114,7 @@ Rodné číslo, číslo dokladu, trvalý pobyt a dátum narodenia sú v tabuľke
 
 | Kód | Kedy | Nález |
 |---|---|---|
-| `SENSITIVE_IN_SUMMARY` | rodné číslo alebo iný citlivý údaj v `popis`, ktorý ide do `INDEX.md` a projekcie | **chyba** |
+| `SENSITIVE_IN_SUMMARY` | rodné číslo alebo iný citlivý údaj v `popis`, ktorý ide do `index.md` a projekcie | **chyba** |
 | `AML_MISSING` | subjekt v role `klient` nemá žiadne preverenie | varovanie |
 | `AML_EXPIRED` | `platnost_do` preverenia je v minulosti (§ 9) | varovanie |
 | `AML_INCOMPLETE` | FO, PO alebo podnikateľ nemá kompletnú sadu podľa predpisu svojej jurisdikcie | varovanie |
@@ -157,7 +157,7 @@ okf: 1
 id: D-001
 type: decision
 title: Nenapadat mistni prislusnost
-summary: Zdrzeni prevazuje nad vyhodou zmeny soudu
+description: Zdrzeni prevazuje nad vyhodou zmeny soudu
 layer: L2
 jurisdiction: cz
 status: active
@@ -225,6 +225,22 @@ používateľa; markery sú kanonické.
 
 Zápis vedie výhradne cez `planWrite() → applyRecordWrite()`. Iná cesta na disk nie je.
 
+### Zhoda s Open Knowledge Format
+
+Priečinok `memory/` je **bundle podľa [Open Knowledge Format](https://github.com/GoogleCloudPlatform/open-knowledge-format) v0.2** — vendor-neutrálnej
+špecifikácie Google Cloud pre agentmi čitateľné znalosti. Znamená to, že spis
+prečíta ktorýkoľvek nástroj, ktorý OKF pozná, bez nášho SDK.
+
+- `index.md` a `log.md` sú **rezervované názvy** (malými písmenami); všetko
+  ostatné v bundle je koncept s povinným poľom `type`
+- koreňový `index.md` nesie `okf_version`
+- odkazy sú **markdown cesty**, nie `[[…]]`
+- neznáme kľúče vo frontmatteri sa **zachovajú**, dokument sa neodmieta
+
+Dve odchýlky sú vedomé a sú v [`OKF-ZHODA.md`](OKF-ZHODA.md) aj s dôvodmi:
+rozbitý odkaz a neznámy `type` u nás nie sú tolerované, lebo v spise nejde
+o „nedopísanú znalosť", ale o vadu.
+
 ### Napojenie na existujúci Obsidian vault
 
 Pamäť je markdown v priečinku spisu, vault je priečinok markdownu — napojenie
@@ -260,7 +276,7 @@ klient/
     ├── _STATUS.md   ← ľudské rozhranie; prepisujeme LEN medzi markermi
     ├── BRAIN.md     ← vstupný bod pre agentov
     └── memory/      ← obsah veci (L2)
-        ├── INDEX.md ← generovaný register
+        ├── index.md ← generovaný register
         └── D-001-*.md
 ```
 
@@ -279,7 +295,7 @@ Bez `--apply` je každý príkaz iba náhľad.
 node bin/okf-memory.ts read     <spis>
 node bin/okf-memory.ts aml      <spis>            # subjekty a stav preverenia
 node bin/okf-memory.ts validate <spis>            # exit 1 pri chybe
-node bin/okf-memory.ts sync     <spis> [--apply]  # projekcia do _STATUS.md a INDEX.md
+node bin/okf-memory.ts sync     <spis> [--apply]  # projekcia do _STATUS.md a index.md
 node bin/okf-memory.ts init     <spis> [--sk] [--apply]
 
 # Zápis záznamu — jediná zápisová hranica pre agenta

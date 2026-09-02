@@ -9,7 +9,7 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  readStore, readScope, writeIndex, syncStatus, ensureBrain, applyRecordWrite, standingApproval,
+  readStore, readScope, writeIndex, writeLog, syncStatus, ensureBrain, applyRecordWrite, standingApproval,
   findOfficeDir, OFFICE_DIR,
   jurisdictionFromCard, MEMORY_DIR, statusLinkResolver,
 } from "./store.ts";
@@ -106,7 +106,7 @@ export function runCli(argv: readonly string[]): CliResult {
         "",
         ...scope.records
           .map(maskRecord)
-          .map((r) => `  ${r.id.padEnd(8)} ${r.layer}  ${typeLabel(r.type, r.jurisdiction).padEnd(12)} ${r.summary}`),
+          .map((r) => `  ${r.id.padEnd(8)} ${r.layer}  ${typeLabel(r.type, r.jurisdiction).padEnd(12)} ${r.description}`),
       ];
       return ok(lines.join("\n"));
     }
@@ -150,6 +150,7 @@ export function runCli(argv: readonly string[]): CliResult {
         }
         syncStatus(dir);
         writeIndex(dir);
+        writeLog(dir);
         return ok(`Zapísané: _STATUS.md a INDEX.md (${zaznamov(s.records.length)}).`);
       } catch (e) {
         // Konflikt sekcií je stav spisu, nie chyba programu — advokát dostane

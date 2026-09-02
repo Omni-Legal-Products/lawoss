@@ -19,7 +19,7 @@ function rozhodnutie(over: Partial<OkfRecord> = {}): OkfRecord {
   return {
     ...newRecord({
       id: "D-001", type: "decision", jurisdiction: "cz",
-      title: "Nenapadat prislusnost", summary: "zdrzeni prevazuje",
+      title: "Nenapadat prislusnost", description: "zdrzeni prevazuje",
       created: "2026-09-01", updated: "2026-09-01", truth: "Nenapadame.",
       timeline: [{ date: "2026-09-01", text: "rozhodnuto" }],
     }),
@@ -31,7 +31,7 @@ function poucenie(over: Partial<OkfRecord> = {}): OkfRecord {
   return {
     ...newRecord({
       id: "L-001", type: "lesson", jurisdiction: "cz",
-      title: "Prislusnost overovat pred podanim", summary: "poucenie do praxe",
+      title: "Prislusnost overovat pred podanim", description: "poucenie do praxe",
       created: "2026-09-01", updated: "2026-09-01", truth: "Overit sidlo pred podanim.",
       timeline: [{ date: "2026-09-01", text: "vzniklo z veci" }],
     }),

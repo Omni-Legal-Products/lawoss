@@ -54,8 +54,8 @@ function zapis(dir: string, r: OkfRecord, dovod: string): OkfRecord {
   return parseRecord(readFileSync(join(dir, MEMORY_DIR, subor), "utf8"));
 }
 
-const zaklad = (id: string, type: RecordType, title: string, summary: string) => ({
-  id, type, title, summary, jurisdiction: "cz" as const,
+const zaklad = (id: string, type: RecordType, title: string, description: string) => ({
+  id, type, title, description, jurisdiction: "cz" as const,
   created: D, updated: D, truth: "t",
   timeline: [{ date: D, text: "založené" }],
 });

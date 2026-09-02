@@ -6,7 +6,7 @@ import { newRecord } from "../src/index.ts";
 function tamASpat(hodnoty: string[]): string[] {
   const r = newRecord({
     id: "S-001", type: "subject", jurisdiction: "cz",
-    title: "X", summary: "y", created: "2026-09-01", updated: "2026-09-01",
+    title: "X", description: "y", created: "2026-09-01", updated: "2026-09-01",
     truth: "t", timeline: [{ date: "2026-09-01", text: "z" }],
     parties: hodnoty,
   });
@@ -26,7 +26,7 @@ okf: 1
 id: R-001
 type: decision
 title: X
-summary: y
+description: y
 layer: L2
 jurisdiction: cz
 status: active
@@ -63,7 +63,7 @@ test("apostrof sa neberie ako uvodzovka uprostred slova", () => {
 test("ciarka prezije aj v poli zdroje a oblast_prava", () => {
   const r = newRecord({
     id: "R-002", type: "decision", jurisdiction: "cz",
-    title: "X", summary: "y", created: "2026-09-01", updated: "2026-09-01",
+    title: "X", description: "y", created: "2026-09-01", updated: "2026-09-01",
     truth: "t", timeline: [{ date: "2026-09-01", text: "z" }],
     area: ["Obchodní právo, korporace"], sources: ["NS 29 Cdo 1/2020, bod 12"],
   });

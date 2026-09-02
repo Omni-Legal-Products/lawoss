@@ -15,9 +15,17 @@ import { renderStatus, type LinkResolver } from "./render.ts";
 import { validateStore } from "./validate.ts";
 import { authorize, type Approval, type WriteDiff } from "./write.ts";
 import { readStandingAuthorization, covers, readClientPath, matchesClientPath } from "./config.ts";
-import { typeLabel, truthDigest, type Jurisdiction } from "./schema.ts";
+import { typeLabel, valueLabel, truthDigest, OKF_VERSION, type Jurisdiction } from "./schema.ts";
 
-const INDEX_FILE = "INDEX.md";
+/**
+ * Rezervované názvy Open Knowledge Format. Musia byť **malými písmenami** —
+ * spec hovorí, že každý iný `.md` v bundle je koncept a musí niesť `type`.
+ * Náš starý `INDEX.md` bol teda na case-sensitive systéme nekonformný koncept.
+ */
+const INDEX_FILE = "index.md";
+const LOG_FILE = "log.md";
+/** Predchodca `index.md`. Číta sa ako rezervovaný, pri zápise sa odstráni. */
+const LEGACY_INDEX_FILE = "INDEX.md";
 const BRAIN_FILE = "BRAIN.md";
 const STATUS_FILE = "_STATUS.md";
 
@@ -61,7 +69,8 @@ export function readStore(dir: string): Store {
   const problems: StoreProblem[] = [];
   if (existsSync(memoryDir)) {
     for (const name of readdirSync(memoryDir).sort()) {
-      if (!name.endsWith(".md") || name === INDEX_FILE) continue;
+      if (!name.endsWith(".md")) continue;
+      if (name === INDEX_FILE || name === LOG_FILE || name === LEGACY_INDEX_FILE) continue;
       try {
         records.push(parseRecord(readFileSync(join(memoryDir, name), "utf8")));
       } catch (e) {
@@ -206,18 +215,80 @@ export function writeIndex(dir: string): void {
   const store = readStore(dir);
   if (!existsSync(store.memoryDir)) return;
   const j = store.jurisdiction;
-  const title = j === "cz" ? "Rejstřík paměti" : "Register pamäte";
-  const note =
+  const href = linkResolver(store, true);
+
+  // Tvar podľa OKF: sekcie s odrážkami `* [Titul](cesta) - popis`, nie tabuľka.
+  // Frontmatter smie mať iba koreňový index, a iba `okf_version`.
+  const nadpis: Record<string, Record<Jurisdiction, string>> = {
+    L1: { cz: "Kancelář (L1)", sk: "Kancelária (L1)" },
+    L2: { cz: "Spis (L2)", sk: "Spis (L2)" },
+    L3: { cz: "Právo (L3)", sk: "Právo (L3)" },
+  };
+  const lines: string[] = [
+    "---",
+    `okf_version: "${OKF_VERSION}"`,
+    "---",
+    "",
+    `# ${j === "cz" ? "Rejstřík paměti" : "Register pamäte"}`,
+    "",
     j === "cz"
       ? "> Generováno. Needituj ručně — přepíše se."
-      : "> Generované. Needituj ručne — prepíše sa.";
+      : "> Generované. Needituj ručne — prepíše sa.",
+  ];
+  for (const layer of ["L2", "L1", "L3"] as const) {
+    const vo = [...store.records].filter((r) => r.layer === layer).sort((a, b) => (a.id < b.id ? -1 : 1));
+    if (vo.length === 0) continue;
+    lines.push("", `## ${nadpis[layer]?.[j] ?? layer}`, "");
+    for (const r of vo) {
+      const cesta = href(r.id);
+      const odkaz = cesta ? `[${r.id}](${cesta})` : r.id;
+      lines.push(`* ${odkaz} — ${typeLabel(r.type, j)} — ${r.description}`);
+    }
+  }
+  // Starý `INDEX.md` sa musí zmazať PRED zápisom, nie po ňom.
+  //
+  // macOS je case-insensitive: `existsSync("INDEX.md")` vráti true aj na
+  // práve zapísaný `index.md` a mazanie po zápise by nový súbor zlikvidovalo.
+  // Zápis do `index.md` navyše na takom systéme prepíše obsah existujúceho
+  // `INDEX.md`, ale **ponechá starý názov** — premenovanie sa teda musí urobiť
+  // zmazaním. Presný názov berieme z `readdirSync`, ktorý vracia uloženú
+  // podobu, nie tú, na ktorú sme sa pýtali.
+  if (readdirSync(store.memoryDir).includes(LEGACY_INDEX_FILE)) {
+    rmSync(join(store.memoryDir, LEGACY_INDEX_FILE), { force: true });
+  }
+  writeFileSync(join(store.memoryDir, INDEX_FILE), lines.join("\n") + "\n", "utf8");
+}
+
+/**
+ * `log.md` — chronológia bundle podľa OKF: zoskupené podľa dátumu ISO 8601,
+ * najnovšie hore.
+ *
+ * Nie je to druhý zdroj pravdy. Generuje sa z `## History` jednotlivých
+ * záznamov, takže sa s nimi nemôže rozísť.
+ */
+export function writeLog(dir: string): void {
+  const store = readStore(dir);
+  if (!existsSync(store.memoryDir)) return;
+  const j = store.jurisdiction;
   const href = linkResolver(store, true);
-  const head = "| Záznam | Typ | Vrstva | Popis |";
-  const rows = [...store.records]
-    .sort((a, b) => (a.id < b.id ? -1 : 1))
-    .map((r) => `| ${odkazNaZaznam(r.id, href)} | ${typeLabel(r.type, j)} | ${r.layer} | ${r.summary} |`);
-  const body = [`# ${title}`, "", note, "", head, "|---|---|---|---|", ...rows, ""].join("\n");
-  writeFileSync(join(store.memoryDir, INDEX_FILE), body, "utf8");
+
+  const podlaDatumu = new Map<string, string[]>();
+  for (const r of store.records) {
+    for (const e of r.timeline) {
+      const cesta = href(r.id);
+      const odkaz = cesta ? `[${r.id}](${cesta})` : r.id;
+      const druh = e.kind ? `**${valueLabel("event_kind", e.kind, j)}**: ` : "";
+      const zoznam = podlaDatumu.get(e.date) ?? [];
+      zoznam.push(`* ${druh}${e.text} — ${odkaz}`);
+      podlaDatumu.set(e.date, zoznam);
+    }
+  }
+
+  const lines: string[] = [`# ${j === "cz" ? "Historie spisu" : "História spisu"}`, ""];
+  for (const datum of [...podlaDatumu.keys()].sort().reverse()) {
+    lines.push(`## ${datum}`, "", ...(podlaDatumu.get(datum) ?? []), "");
+  }
+  writeFileSync(join(store.memoryDir, LOG_FILE), lines.join("\n"), "utf8");
 }
 
 /** Vstupný bod pre agentov. Nikdy neprepíše existujúci — je to ľudský súbor. */

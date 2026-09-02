@@ -31,7 +31,7 @@ for (const j of ["cz", "sk"] as const) {
     // 1. Agent sam zapise subjekt a rozhodnutie do L2.
     const subjekt = newRecord({
       id: "S-001", type: "subject", jurisdiction: j,
-      title: "Stavby Modrý Kámen s.r.o.", summary: "protistrana, overena v registri",
+      title: "Stavby Modrý Kámen s.r.o.", description: "protistrana, overena v registri",
       registry_id: "12345678", created: "2026-08-29", updated: "2026-08-29",
       truth: "Protistrana, zapisana v registri.",
       timeline: [{ date: "2026-08-29", text: "overene v obchodnom registri" }],
@@ -40,7 +40,7 @@ for (const j of ["cz", "sk"] as const) {
 
     const rozhodnutie = newRecord({
       id: "R-001", type: "decision", jurisdiction: j,
-      title: "Nepodavat namietku prislusnosti", summary: "zdrzanie prevazuje nad vyhodou",
+      title: "Nepodavat namietku prislusnosti", description: "zdrzanie prevazuje nad vyhodou",
       created: "2026-08-29", updated: "2026-08-29",
       deadlines: ["2026-09-12"], related: ["S-001"],
       truth: "Miestnu prislusnost nenapadame.",
@@ -67,7 +67,7 @@ for (const j of ["cz", "sk"] as const) {
     // 4. Povysenie do L1 agent sam nesmie.
     const poucenie = newRecord({
       id: "P-001", type: "lesson", jurisdiction: j,
-      title: "Prislusnost overovat pred podanim", summary: "poucenie do praxe kancelarie",
+      title: "Prislusnost overovat pred podanim", description: "poucenie do praxe kancelarie",
       created: "2026-08-30", updated: "2026-08-30",
       truth: "Sidlo protistrany overit z registra pred podanim, nie po nom.",
       timeline: [{ date: "2026-08-30", text: "vzniklo z veci Novak" }],
@@ -85,7 +85,7 @@ for (const j of ["cz", "sk"] as const) {
     //    brana ho zastavi uz pri zapise, nie az pri samostatnej validacii.
     const spinavy = newRecord({
       id: "J-001", type: "authority", jurisdiction: j, verified_at: "2026-09-02",
-      title: "K miestnej prislusnosti", summary: "pravny pramen",
+      title: "K miestnej prislusnosti", description: "pravny pramen",
       created: "2026-08-30", updated: "2026-08-30",
       truth: "Vec sa tykala spolocnosti s ICO 12345678.",
       timeline: [{ date: "2026-08-30", text: "zalozene" }],
@@ -115,7 +115,7 @@ for (const j of ["cz", "sk"] as const) {
     syncStatus(dir);
     assert.equal(readFileSync(join(dir, "_STATUS.md"), "utf8"), status, "render nie je idempotentny");
 
-    const index = readFileSync(join(dir, MEMORY_DIR, "INDEX.md"), "utf8");
+    const index = readFileSync(join(dir, MEMORY_DIR, "index.md"), "utf8");
     for (const id of ["S-001", "R-001", "P-001", "J-001"]) assert.match(index, new RegExp(id));
   });
 }
@@ -123,7 +123,7 @@ for (const j of ["cz", "sk"] as const) {
 test("mazanie zaznamu vyzaduje cloveka aj v L2", () => {
   const dir = zalozSpis("cz");
   const r = newRecord({
-    id: "R-009", type: "decision", jurisdiction: "cz", title: "Docasne", summary: "s",
+    id: "R-009", type: "decision", jurisdiction: "cz", title: "Docasne", description: "s",
     created: "2026-08-29", updated: "2026-08-29", truth: "t", timeline: [],
   });
   applyRecordWrite(dir, planWrite(undefined, r, "zalozenie"), undefined);

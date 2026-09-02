@@ -28,7 +28,7 @@ function subjekt(over: Partial<OkfRecord> = {}): OkfRecord {
   return {
     ...newRecord({
       id: "S-001", type: "subject", jurisdiction: "cz",
-      title: "Eva Nováková", summary: "klientka",
+      title: "Eva Nováková", description: "klientka",
       created: "2026-09-02", updated: "2026-09-02",
       truth: "Klientka, predávajúca vozidlo.",
       timeline: [{ date: "2026-09-02", text: "založené" }],
@@ -51,15 +51,22 @@ const suborZaznamu = (dir: string, id: string) =>
 
 // --- Obsidian → nástroj: cudzie kľúče vo frontmatteri ---------------------
 
-test("Obsidian tagy zaznam nezhodia a prezijú round-trip", () => {
-  // Advokát v Obsidiane pridá tagy. Kým to bola chyba, celý záznam vypadol
-  // zo store — a s ním z jehiel detektora únikov. Tichý dôsledok pridania
-  // tagu teda nebolo nepohodlie, ale slepá brána.
+test("Obsidian tagy su prvotriedne pole, cudzie kluce prezijú v extra", () => {
+  // Advokát v Obsidiane pridá tagy. Kým bol neznámy kľúč chybou, celý záznam
+  // vypadol zo store — a s ním z jehiel detektora únikov. Tichý dôsledok
+  // pridania tagu teda nebolo nepohodlie, ale slepá brána.
+  //
+  // `tags` je odporúčané pole OKF, takže patrí do schémy. `cssclasses` je
+  // čisto obsidianovské a zostáva cudzím kľúčom — musí prežiť round-trip.
   const r = parseRecord(serializeRecord(subjekt()).replace(
     "role: client", "role: client\ntags: [klient, vozidlo]\ncssclasses: pravni"));
-  assert.deepEqual(r.extra, { tags: ["klient", "vozidlo"], cssclasses: "pravni" });
+  assert.deepEqual(r.tags, ["klient", "vozidlo"], "tags je pole schémy, nie cudzí kľúč");
+  assert.deepEqual(r.extra, { cssclasses: "pravni" });
   assert.equal(r.role, "client", "známe polia sa čítajú ďalej");
-  assert.deepEqual(parseRecord(serializeRecord(r)).extra, r.extra, "round-trip nesmie nič stratiť");
+
+  const spat = parseRecord(serializeRecord(r));
+  assert.deepEqual(spat.tags, r.tags);
+  assert.deepEqual(spat.extra, r.extra, "round-trip nesmie nič stratiť");
 });
 
 test("cudzi kluc sa zapise spat do suboru, nie zahodi", () => {
@@ -89,11 +96,11 @@ test("odkaz v _STATUS.md mieri na skutocny subor, nie na [[ID]]", () => {
   assert.equal(m[1], `${MEMORY_DIR}/${suborZaznamu(dir, "S-001")}`);
 });
 
-test("odkaz v INDEX.md je relativny voci memory/, nie voci spisu", () => {
+test("odkaz v index.md je relativny voci memory/, nie voci spisu", () => {
   const dir = spis();
   zapis(dir, subjekt());
   runCli(["sync", dir, "--apply"]);
-  const index = readFileSync(join(dir, MEMORY_DIR, "INDEX.md"), "utf8");
+  const index = readFileSync(join(dir, MEMORY_DIR, "index.md"), "utf8");
   assert.match(index, /\[S-001\]\(\.\/S-001-[^)]+\.md\)/);
   assert.doesNotMatch(index, /\.\/memory\//, "z memory/ sa na memory/ neodkazuje");
 });
