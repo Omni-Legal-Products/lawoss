@@ -225,6 +225,15 @@ používateľa; markery sú kanonické.
 
 Zápis vedie výhradne cez `planWrite() → applyRecordWrite()`. Iná cesta na disk nie je.
 
+### Napojenie na existujúci Obsidian vault
+
+Pamäť je markdown v priečinku spisu, vault je priečinok markdownu — napojenie
+je preto konfigurácia, nie most. Stačí `_kancelaria/memory/` v koreni vaultu
+a jeden riadok `client_path: AK/*/*` v `okf.config`; karty `klient.md` sa doň
+nesypú. `[[wiki-odkazy]]` v projekcii fungujú natívne a graf ukáže pamäť spisu.
+
+Overené na vaulte s 88 908 súbormi. Podrobne: [`OBSIDIAN-VAULT.md`](OBSIDIAN-VAULT.md).
+
 ### Keď sa zo zápisu má stať agentná práca
 
 Human gate sa dá **udeliť vopred** namiesto klikania pri každom zázname:

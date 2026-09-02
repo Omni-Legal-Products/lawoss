@@ -9,12 +9,12 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { parseRecord, serializeRecord, type OkfRecord } from "./record.ts";
 import { renderStatus } from "./render.ts";
 import { validateStore } from "./validate.ts";
 import { authorize, type Approval, type WriteDiff } from "./write.ts";
-import { readStandingAuthorization, covers } from "./config.ts";
+import { readStandingAuthorization, covers, readClientPath, matchesClientPath } from "./config.ts";
 import { typeLabel, type Jurisdiction } from "./schema.ts";
 
 const INDEX_FILE = "INDEX.md";
@@ -334,6 +334,34 @@ export function findClientDir(matterDir: string, maxUp = 4): string | undefined 
     const parent = dirname(dir);
     if (parent === dir) return undefined;
     if (CLIENT_CARDS.some((c) => existsSync(join(parent, c)))) return parent;
+    dir = parent;
+  }
+  // Karta nie je — skús vzor z konfigu kancelárie. Poradie je dôležité:
+  // karta v priečinku je konkrétnejšia než vzor pre celý vault a musí vyhrať.
+  return findClientByPath(matterDir, maxUp);
+}
+
+/**
+ * Nájde priečinok klienta podľa `client_path` v `_kancelaria/okf.config`.
+ * Koreňom je rodič `_kancelaria/`, teda koreň vaultu.
+ *
+ * Bez tohto by v cudzom vaulte klientská úroveň nevznikla vôbec — a s ňou by
+ * zmizli AML subjekty **aj z dosahu brány úniku**, ktorá `readScope` používa.
+ * Tichý dôsledok chýbajúcej karty by teda nebol nepohodlie, ale slepá brána.
+ */
+function findClientByPath(matterDir: string, maxUp: number): string | undefined {
+  const officeDir = findOfficeDir(matterDir);
+  if (!officeDir) return undefined;
+  const pattern = readClientPath(officeDir);
+  if (!pattern) return undefined;
+
+  const root = dirname(officeDir);
+  let dir = resolve(matterDir);
+  for (let i = 0; i < maxUp; i++) {
+    const parent = dirname(dir);
+    if (parent === dir) return undefined;
+    const rel = relative(root, parent);
+    if (rel !== "" && !rel.startsWith("..") && matchesClientPath(rel, pattern)) return parent;
     dir = parent;
   }
   return undefined;

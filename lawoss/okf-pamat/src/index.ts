@@ -35,6 +35,7 @@ export { validateStore, type Finding, type Severity, type ValidateOptions } from
 export { maskValue, maskRecord } from "./mask.ts";
 export {
   readStandingAuthorization, covers, isExpired, CONFIG_FILE,
+  readClientPath, matchesClientPath,
   type StandingAuthorization,
 } from "./config.ts";
 export {
