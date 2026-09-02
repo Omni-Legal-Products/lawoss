@@ -19,7 +19,7 @@
 import type { OkfRecord } from "./record.ts";
 import {
   AML_REQUIRED, PERSON_KINDS, SENSITIVE_FIELDS, EVIDENCE_KINDS,
-  fieldLabel, needleFields,
+  fieldLabel, needleFields, truthDigest,
   type FieldDef, type Jurisdiction,
 } from "./schema.ts";
 
@@ -493,6 +493,23 @@ export function validateStore(
           `§ 9 AML zákona vyžaduje priebežnú kontrolu — zopakuj a založ nový záznam.`,
       });
     }
+  }
+
+  // Pravda zmenená mimo nástroja. Brána atomicity beží v ceste zápisu, takže
+  // ručnú úpravu v Obsidiane nemá ako zachytiť — odtlačok je jediné miesto,
+  // kde sa to dá dodatočne všimnúť. Varovanie, nie chyba: úprava rukou je
+  // legitímna, chýba jej len riadok Histórie.
+  for (const r of records) {
+    if (!r.truth_digest) continue;
+    if (r.truth_digest === truthDigest(r.truth)) continue;
+    findings.push({
+      severity: "warning",
+      code: "TRUTH_EDITED_OUTSIDE",
+      recordId: r.id,
+      message:
+        `Pravda záznamu ${r.id} sa zmenila mimo nástroja — v Histórii k tomu ` +
+        `nemusí byť riadok. Doplň ho, alebo zápis zopakuj cez okf-memory write.`,
+    });
   }
 
   // Preverenie (kontrola) klienta — v ČR § 9 zák. č. 253/2008 Sb.; § 8 upravuje

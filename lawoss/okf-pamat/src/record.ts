@@ -63,6 +63,7 @@ export interface OkfRecord {
   acceptance?: string[];
 
   // spis
+  truth_digest?: string;
   matter_ref?: string;
   court?: string;
 
@@ -131,6 +132,16 @@ export interface OkfRecord {
 
   truth: string;
   timeline: TimelineEntry[];
+
+  /**
+   * Kľúče frontmatteru, ktoré schéma nepozná — zachovajú sa tak, ako prišli.
+   *
+   * Advokát pracujúci v Obsidiane si do záznamu prirodzene doplní `tags:`.
+   * Kým sa neznámy kľúč považoval za chybu, celý záznam vypadol zo store —
+   * a s ním **aj z jehiel detektora únikov**. Tichým dôsledkom pridania tagu
+   * teda nebolo nepohodlie, ale slepá brána.
+   */
+  extra?: Record<string, string | number | string[]>;
 }
 
 const FM_DELIM = "---";
@@ -271,9 +282,11 @@ export function parseRecord(text: string): OkfRecord {
   const j = readJurisdiction(raw);
 
   const canon = new Map<string, string | number | string[]>();
+  const extra: Record<string, string | number | string[]> = {};
   for (const [k, v] of raw) {
     if (canonicalField(k) === undefined) {
-      throw new Error(`Neznáme pole frontmatteru: ${k}`);
+      extra[k] = v;
+      continue;
     }
     canon.set(k, v);
   }
@@ -317,6 +330,7 @@ export function parseRecord(text: string): OkfRecord {
     if (v === undefined) continue;
     target[f.canonical] = f.kind === "list" ? (Array.isArray(v) ? v : [String(v)]) : String(v);
   }
+  if (Object.keys(extra).length > 0) rec.extra = extra;
   return rec;
 }
 
@@ -337,6 +351,10 @@ export function serializeRecord(r: OkfRecord): string {
     const value = src[f.canonical];
     if (value === undefined) continue;
     lines.push(`${f.canonical}: ${emit(value)}`);
+  }
+  // Cudzie kľúče idú na koniec frontmatteru, aby round-trip nič nestratil.
+  for (const [k, v] of Object.entries(r.extra ?? {})) {
+    lines.push(`${k}: ${emit(v)}`);
   }
   lines.push(FM_DELIM, "");
   lines.push(`## ${HEADINGS.truth}`, "", r.truth, "");

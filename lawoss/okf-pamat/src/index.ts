@@ -14,7 +14,7 @@ export {
   STATUS, PERSON_KINDS, ROLES, RISK, CONCLUSION, SCREENING_MODES,
   PROOF_STATUS, CONFIDENCE, EVIDENCE_STRENGTH, PROCEDURAL_STATUS, TASK_STATES,
   EVIDENCE_KINDS, EVIDENCE_KIND_PROVISION, SCREENING_PROVISION, EVENT_KINDS,
-  fieldLabel, canonicalField, typeLabel, isRecordType, isJurisdiction, needleFields,
+  fieldLabel, canonicalField, typeLabel, truthDigest, isRecordType, isJurisdiction, needleFields,
   type Jurisdiction, type Layer, type RecordType, type FieldDef, type NeedleStrength,
   type Status, type PersonKind, type Role, type Risk, type Conclusion, type ScreeningMode,
   type ProofStatus, type Confidence, type EvidenceStrength, type ProceduralStatus, type EvidenceKind, type TaskState, type EventKind,
@@ -30,7 +30,7 @@ export {
   type Approval, type WriteDiff, type WriteKind,
 } from "./write.ts";
 
-export { renderStatus, RenderConflictError, BLOCKS, MARKER_ONLY, type BlockName } from "./render.ts";
+export { renderStatus, RenderConflictError, BLOCKS, MARKER_ONLY, type BlockName, type LinkResolver } from "./render.ts";
 export { validateStore, type Finding, type Severity, type ValidateOptions } from "./validate.ts";
 export { maskValue, maskRecord } from "./mask.ts";
 export {
@@ -40,7 +40,7 @@ export {
 } from "./config.ts";
 export {
   readStore, readScope, findClientDir, findOfficeDir, MEMORY_DIR, OFFICE_DIR, applyRecordWrite, LeakBlockedError, ConcurrentWriteError,
-  writeIndex, ensureBrain, syncStatus, standingApproval,
+  writeIndex, ensureBrain, syncStatus, standingApproval, statusLinkResolver,
   type Store, type Scope, type StoreProblem,
 } from "./store.ts";
 
@@ -80,6 +80,7 @@ export interface NewRecordInit {
   depends_on?: string[];
   acceptance?: string[];
 
+  truth_digest?: string;
   matter_ref?: string;
   court?: string;
 

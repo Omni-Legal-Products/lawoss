@@ -192,6 +192,7 @@ export const FIELDS: readonly FieldDef[] = [
   { canonical: "updated", cz: "změna", sk: "zmena", kind: "string", required: true },
   { canonical: "sources", cz: "zdroje", sk: "zdroje", kind: "list", required: false },
   { canonical: "related", cz: "souvisí", sk: "súvisí", kind: "list", required: false },
+  { canonical: "truth_digest", cz: "otisk pravdy", sk: "odtlačok pravdy", kind: "string", required: false },
 
   // --- spis ---
   { canonical: "deadlines", cz: "lhůty", sk: "lehoty", kind: "list", required: false },
@@ -483,4 +484,25 @@ export function isRecordType(value: string): value is RecordType {
 
 export function isJurisdiction(value: string): value is Jurisdiction {
   return value === "cz" || value === "sk";
+}
+
+
+/**
+ * Odtlačok Pravdy — detekcia zmeny mimo nástroja.
+ *
+ * **Nie je to kryptografia a nemá ňou byť.** Nechráni pred niekým, kto chce
+ * stopu zahladiť — kto prepíše Pravdu, prepíše aj odtlačok. Chráni pred tým
+ * druhým prípadom: advokát opraví Pravdu v Obsidiane, na riadok Histórie
+ * zabudne, a brána atomicity to nemá ako vidieť, lebo cez ňu ten zápis nešiel.
+ *
+ * FNV-1a, nie `node:crypto` — validácia musí zostať spustiteľná v prehliadači.
+ */
+export function truthDigest(truth: string): string {
+  let h = 0x811c9dc5;
+  const s = truth.trim().replace(/\r\n/g, "\n");
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
 }

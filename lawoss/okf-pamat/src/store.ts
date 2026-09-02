@@ -11,11 +11,11 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { parseRecord, serializeRecord, type OkfRecord } from "./record.ts";
-import { renderStatus } from "./render.ts";
+import { renderStatus, type LinkResolver } from "./render.ts";
 import { validateStore } from "./validate.ts";
 import { authorize, type Approval, type WriteDiff } from "./write.ts";
 import { readStandingAuthorization, covers, readClientPath, matchesClientPath } from "./config.ts";
-import { typeLabel, type Jurisdiction } from "./schema.ts";
+import { typeLabel, truthDigest, type Jurisdiction } from "./schema.ts";
 
 const INDEX_FILE = "INDEX.md";
 const BRAIN_FILE = "BRAIN.md";
@@ -169,7 +169,37 @@ export function applyRecordWrite(dir: string, diff: WriteDiff, approval: Approva
   }
   const after = diff.after;
   if (!after) throw new Error(`Návrh ${diff.kind} nemá nový stav záznamu`);
-  writeFileSync(fileFor(store, after), serializeRecord(after), "utf8");
+  // Odtlačok sa počíta až tu, z toho, čo naozaj ide na disk.
+  const zapis: OkfRecord = { ...after, truth_digest: truthDigest(after.truth) };
+  writeFileSync(fileFor(store, zapis), serializeRecord(zapis), "utf8");
+}
+
+/**
+ * Mapa identifikátor → skutočný názov súboru v `memory/`.
+ *
+ * Cesty sa berú z disku, nie sa dopočítavajú zo `slug(title)`: keď sa titulok
+ * záznamu neskôr zmení, súbor si ponechá pôvodný názov a dopočítaná cesta by
+ * mierila vedľa.
+ */
+function linkResolver(store: Store, zVnutraMemory: boolean): LinkResolver {
+  const podlaId = new Map<string, string>();
+  if (existsSync(store.memoryDir)) {
+    for (const name of readdirSync(store.memoryDir)) {
+      if (!name.endsWith(".md")) continue;
+      const id = name.replace(/\.md$/, "").split("-").slice(0, 2).join("-");
+      if (!podlaId.has(id)) podlaId.set(id, name);
+    }
+  }
+  return (id) => {
+    const name = podlaId.get(id);
+    if (!name) return undefined;
+    return zVnutraMemory ? `./${name}` : `./${MEMORY_DIR}/${name}`;
+  };
+}
+
+/** Resolver pre `_STATUS.md` v danom spise. Pre náhľad v CLI. */
+export function statusLinkResolver(dir: string): LinkResolver {
+  return linkResolver(readStore(dir), false);
 }
 
 export function writeIndex(dir: string): void {
@@ -181,10 +211,11 @@ export function writeIndex(dir: string): void {
     j === "cz"
       ? "> Generováno. Needituj ručně — přepíše se."
       : "> Generované. Needituj ručne — prepíše sa.";
+  const href = linkResolver(store, true);
   const head = "| Záznam | Typ | Vrstva | Popis |";
   const rows = [...store.records]
     .sort((a, b) => (a.id < b.id ? -1 : 1))
-    .map((r) => `| [[${r.id}]] | ${typeLabel(r.type, j)} | ${r.layer} | ${r.summary} |`);
+    .map((r) => `| ${odkazNaZaznam(r.id, href)} | ${typeLabel(r.type, j)} | ${r.layer} | ${r.summary} |`);
   const body = [`# ${title}`, "", note, "", head, "|---|---|---|---|", ...rows, ""].join("\n");
   writeFileSync(join(store.memoryDir, INDEX_FILE), body, "utf8");
 }
@@ -272,7 +303,7 @@ export function syncStatus(dir: string): void {
   const store = readStore(dir);
   const path = join(dir, STATUS_FILE);
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
-  const next = renderStatus(existing, store.records, store.jurisdiction);
+  const next = renderStatus(existing, store.records, store.jurisdiction, linkResolver(store, false));
   if (next !== existing) writeFileSync(path, next, "utf8");
 }
 
@@ -384,4 +415,11 @@ export function readScope(matterDir: string): Scope {
     records: [...matter.records, ...clientRecords, ...officeRecords],
     problems: [...matter.problems, ...(client?.problems ?? []), ...(office?.problems ?? [])],
   };
+}
+
+
+/** Rovnaké pravidlo ako v projekcii: markdown odkaz, alebo holý identifikátor. */
+function odkazNaZaznam(id: string, href: LinkResolver): string {
+  const cesta = href(id);
+  return cesta ? `[${id}](${cesta})` : id;
 }

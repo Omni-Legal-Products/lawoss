@@ -49,9 +49,20 @@ okf-memory read "AK/R/Novák Ján/Prodej vozidla"
 
 ## Čo funguje samo
 
-**`[[wiki-odkazy]]` sú natívne.** Projekcia do `_STATUS.md` odkazuje na záznamy
-ako `[[D-001]]` — v Obsidiane sú to hneď klikateľné odkazy a **graf vaultu
-ukáže pamäť spisu** bez toho, aby sme čokoľvek pridávali.
+**Odkazy vedú na skutočné súbory.** Projekcia do `_STATUS.md` odkazuje na
+záznamy ako `[S-001](./memory/S-001-eva-novakova.md)` — v Obsidiane sú to
+klikateľné odkazy a **graf vaultu ukáže pamäť spisu**.
+
+> [!NOTE]
+> **Oprava oproti prvej verzii tohto dokumentu.** Pôvodne tu stálo, že
+> `[[wiki-odkazy]]` fungujú natívne. Nefungovali. Projekcia písala `[[S-001]]`,
+> ale súbor sa volá `S-001-eva-novakova.md` — Obsidian hľadá wiki-odkaz podľa
+> názvu súboru, takže **každý odkaz visel v grafe ako osirelý.** Odhalilo sa to
+> až skúšaním na napodobenine skutočného vaultu, nie čítaním kódu.
+>
+> Relatívny markdown odkaz mieri na skutočný súbor. Zhodou okolností je to
+> zároveň tvar, ktorý žiada podmienka MČ v úlohe 12 **aj** Open Knowledge
+> Format — takže spor, ktorý som k úlohe 12 otvoril, žiadny spor nebol.
 
 **Denné poznámky, tagy a šablóny sa nerozbijú.** Jadro sa dotýka výhradne
 `memory/`, `BRAIN.md`, `INDEX.md` a blokov medzi markermi v `_STATUS.md`.
@@ -76,7 +87,9 @@ related: ["[[Subjekty/Rihova-Veronika]]"]
 ```
 
 V Obsidiane tým vznikne obojsmerná väzba a subjekt v spise sa preklikne na
-kartu osoby.
+kartu osoby. Wiki-odkaz tu funguje preto, že nesie **cestu** — `[[S-001]]` na
+holé identifikátor nesadol, `[[Subjekty/Rihova-Veronika]]` na existujúci súbor
+sadne.
 
 > [!IMPORTANT]
 > **AML údaje sa tým nepresúvajú.** `AML_INCOMPLETE` naďalej vyžaduje údaje
@@ -106,22 +119,59 @@ kde by udrela.
 | Nerobiť | Prečo |
 |---|---|
 | **Synchronizáciu vault ↔ samostatné úložisko** | dve pravdy, ktoré sa rozídu. Vault **je** úložisko. |
-| **Prepis `[[…]]` na markdown odkazy** | viď konflikt nižšie |
 | **Kontrolu nad celým vaultom** | 88 908 súborov; `validate` beží nad jedným spisom a tak to má zostať |
 | **Presúvanie existujúcich poznámok** | OKF pridáva `memory/`, neupratuje cudzí vault |
 | **Automatické zakladanie `klient.md`** | 52 súborov do živého vaultu je zásah, nie inštalácia |
 
-### ⚠️ Konflikt s úlohou 12 (O1c)
+### ✅ Úloha 12 (O1c) — námietka stiahnutá, podmienka splnená
 
-Pamäťový plán má úlohu **„markdown odkazy namiesto `[[…]]`"** ako podmienku MČ
-k O1. **Pre vault je to presne opačne** — `[[…]]` je to, čo z projekcie robí
-navigovateľný graf; markdown odkazy by túto vlastnosť zabili.
+Pôvodne som proti podmienke MČ „markdown odkazy namiesto `[[…]]`" namietal
+s tým, že pre vault je to opačne. **Bol to omyl** a skúška ho vyvrátila:
+wiki-odkaz na holé ID v Obsidiane vôbec nesadol, lebo súbor nesie v názve aj
+slug titulku. Markdown odkaz mieri na skutočný súbor a funguje v Obsidiane
+rovnako dobre ako mimo neho.
 
-Návrh: dialekt odkazov nech je **voľba v `okf.config`**, nie globálny prepínač.
-Vault dostane `[[…]]`, kto Obsidian nepoužíva, dostane markdown. Patrí to na
-call 7. 9. spolu s ostatnými podmienkami O1.
+Podmienka je tým **splnená**, nie obídená — a nie je potrebný žiadny prepínač
+dialektu.
 
 ---
+
+## Čo sa deje pri prechode medzi systémami
+
+Tri veci sa našli až skúšaním v oboch smeroch. Každá vyzerala v kóde v poriadku
+a každá ticho nefungovala.
+
+### Advokát si pridá tagy → záznam sa nestratí
+
+`tags:` je základný idióm Obsidianu. Kým bol neznámy kľúč vo frontmatteri
+chybou, **celý záznam vypadol zo store** — a s ním z jehiel detektora únikov.
+Pridanie tagu k subjektu teda ticho oslepilo bránu pre toho klienta.
+
+Neznáme kľúče sa odteraz **zachovajú a prežijú round-trip**. Zhoduje sa to
+s Open Knowledge Format v0.1: *„Consumers MUST preserve unknown keys on
+round-trip and MUST NOT reject documents with unrecognized fields."*
+
+### Advokát prepíše Pravdu v Obsidiane → nástroj si to všimne
+
+Brána atomicity beží **v ceste zápisu**. Úprava v Obsidiane cez ňu nejde, takže
+zmena Pravdy bez riadku Histórie prechádzala bez stopy — presne to, čo má
+systém znemožniť.
+
+Každý zápis preto ukladá `truth_digest`. Pri nezhode ohlási `validate`
+**varovanie** `TRUTH_EDITED_OUTSIDE`. Úprava rukou je legitímna, chýba jej len
+stopa.
+
+> [!WARNING]
+> **Nie je to kryptografia a nemá ňou byť.** Kto prepíše Pravdu, prepíše aj
+> odtlačok. Chráni pred zabudnutím, nie pred úmyslom. Záznam bez odtlačku sa
+> nekontroluje, aby staršie spisy ďalej fungovali.
+
+### Dropbox vyrobí konfliktnú kópiu → ohlási sa ako duplicita
+
+Vault v Dropboxe pri súbežnej úprave založí `… (conflicted copy …).md`.
+V `memory/` z toho vzniknú dva záznamy s tým istým identifikátorom —
+`validate` to hlási ako **chybu** `DUPLICATE_ID`. Dve pravdy o tom istom
+zázname nie sú varovanie.
 
 ## Overenie
 
@@ -131,6 +181,7 @@ cd lawoss/okf-pamat && node --test 'tests/**/*.test.ts'
 
 Testy napojenia sú v [`tests/obsidian-vault.test.ts`](tests/obsidian-vault.test.ts),
 vrátane regresného dôkazu, že bez `client_path` je brána úniku slepá.
+Prechody medzi systémami drží [`tests/prechod-obsidian.test.ts`](tests/prechod-obsidian.test.ts).
 
 Ručne, nad kópiou vaultu (nikdy nad ostrým): založ `_kancelaria/`, zapíš
 `client_path`, spusti `init` a `read` nad jedným spisom a over, že výpis hlási

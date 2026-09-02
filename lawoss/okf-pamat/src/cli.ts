@@ -11,7 +11,7 @@ import { join } from "node:path";
 import {
   readStore, readScope, writeIndex, syncStatus, ensureBrain, applyRecordWrite, standingApproval,
   findOfficeDir, OFFICE_DIR,
-  jurisdictionFromCard, MEMORY_DIR,
+  jurisdictionFromCard, MEMORY_DIR, statusLinkResolver,
 } from "./store.ts";
 import { parseRecord, type OkfRecord } from "./record.ts";
 import { planWrite, type Approval, type WriteDiff } from "./write.ts";
@@ -142,7 +142,9 @@ export function runCli(argv: readonly string[]): CliResult {
         if (!apply) {
           const statusPath = join(dir, "_STATUS.md");
           const before = existsSync(statusPath) ? readFileSync(statusPath, "utf8") : "";
-          const after = renderStatus(before, s.records, s.jurisdiction);
+          // Rovnaký resolver ako pri zápise — inak by náhľad hlásil zmenu,
+          // ktorá vzniká len tým, že náhľad odkazy nepozná.
+          const after = renderStatus(before, s.records, s.jurisdiction, statusLinkResolver(dir));
           const zmena = before === after ? "bez zmeny" : "_STATUS.md by sa zmenil";
           return ok(`dry-run: ${zmena}; INDEX.md by dostal ${riadkov(s.records.length)}. Zapíš s --apply.`);
         }
