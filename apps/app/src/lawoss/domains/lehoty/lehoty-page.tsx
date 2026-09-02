@@ -11,10 +11,6 @@ import { LawossLayout } from "../../shell/layout";
 export function LehotyPage() {
   return (
     <LawossLayout>
-      <div className="lw-mockup">
-        <b>NÁVRH</b>
-        fiktívne dáta · fáza C3
-      </div>
       <h1 className="lw-h1">Lehoty</h1>
       <p className="lw-lead">
         Register lehôt zo všetkých spisov. Kandidáti od agenta sa stávajú lehotami až po vašom potvrdení v rozhodovacej

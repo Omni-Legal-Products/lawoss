@@ -5,9 +5,15 @@ import path from "node:path";
 
 import {
   ELECTRON_UPDATER_FALLBACK_FEEDS,
+  ELECTRON_UPDATER_FEEDS,
   checkForUpdatesWithFeedFallback,
   staleUpdaterStatePaths,
 } from "./updater.mjs";
+
+// 🟡 LAWOSS: testy čítajú tracked feed z modulu namiesto literálu, aby
+// presmerovanie feedu vo forku (PATCHES.md) nerozbilo upstream testy.
+const STABLE_FEED = ELECTRON_UPDATER_FEEDS.stable;
+const STABLE_ORIGIN = new URL(STABLE_FEED).origin;
 
 const fakeApp = { getPath: (key) => (key === "home" ? "/Users/test" : `/Users/test/${key}`) };
 
@@ -43,14 +49,14 @@ describe("checkForUpdatesWithFeedFallback", () => {
   it("uses the tracked feed when it answers", async () => {
     const updater = fakeUpdater({ failFeeds: [] });
     const { channelState, result } = await checkForUpdatesWithFeedFallback(feedApp, updater);
-    assert.equal(channelState.feedUrl, "https://eigenweltlabs.com/legalwork/update");
+    assert.equal(channelState.feedUrl, STABLE_FEED);
     assert.equal(channelState.feedFallback, false);
     assert.equal(result.updateInfo.version, "9.9.9");
-    assert.deepEqual(updater.feedUrls, ["https://eigenweltlabs.com/legalwork/update"]);
+    assert.deepEqual(updater.feedUrls, [STABLE_FEED]);
   });
 
   it("falls back to GitHub when the tracked feed errors", async () => {
-    const updater = fakeUpdater({ failFeeds: ["https://eigenweltlabs.com"] });
+    const updater = fakeUpdater({ failFeeds: [STABLE_ORIGIN] });
     const { channelState, result } = await checkForUpdatesWithFeedFallback(feedApp, updater);
     assert.equal(channelState.feedFallback, true);
     assert.equal(channelState.feedUrl, ELECTRON_UPDATER_FALLBACK_FEEDS.stable);
@@ -63,7 +69,7 @@ describe("checkForUpdatesWithFeedFallback", () => {
   });
 
   it("throws only when both feeds fail, tagging the error against redundant retries", async () => {
-    const updater = fakeUpdater({ failFeeds: ["https://eigenweltlabs.com", "https://github.com"] });
+    const updater = fakeUpdater({ failFeeds: [STABLE_ORIGIN, "https://github.com"] });
     const error = await checkForUpdatesWithFeedFallback(feedApp, updater).then(
       () => assert.fail("expected rejection"),
       (rejection) => rejection,
@@ -80,7 +86,7 @@ describe("checkForUpdatesWithFeedFallback", () => {
   it("cross-checks GitHub on 'no update' and prefers the newer version", async () => {
     const updater = fakeUpdater({
       failFeeds: [],
-      versions: { "https://eigenweltlabs.com": "0.1.0" }, // stale: equals current
+      versions: { [STABLE_ORIGIN]: "0.1.0" }, // stale: equals current
     });
     const { channelState, result } = await checkForUpdatesWithFeedFallback(feedApp, updater);
     assert.equal(result.updateInfo.version, "9.9.9");
@@ -96,7 +102,7 @@ describe("checkForUpdatesWithFeedFallback", () => {
   it("keeps the tracked feed's answer when GitHub agrees there is no update", async () => {
     const updater = fakeUpdater({
       failFeeds: [],
-      versions: { "https://eigenweltlabs.com": "0.1.0", "https://github.com": "0.1.0" },
+      versions: { [STABLE_ORIGIN]: "0.1.0", "https://github.com": "0.1.0" },
     });
     const { channelState, result } = await checkForUpdatesWithFeedFallback(feedApp, updater);
     assert.equal(result.updateInfo.version, "0.1.0");
@@ -104,22 +110,31 @@ describe("checkForUpdatesWithFeedFallback", () => {
     // The tracked feed is re-applied after the cross-check.
     assert.equal(
       updater.feedUrls[updater.feedUrls.length - 1],
-      "https://eigenweltlabs.com/legalwork/update",
+      STABLE_FEED,
     );
   });
 
   it("ignores a failing GitHub cross-check when the tracked feed answered", async () => {
     const updater = fakeUpdater({
       failFeeds: ["https://github.com"],
-      versions: { "https://eigenweltlabs.com": "0.1.0" },
+      versions: { [STABLE_ORIGIN]: "0.1.0" },
     });
     const { channelState, result } = await checkForUpdatesWithFeedFallback(feedApp, updater);
     assert.equal(result.updateInfo.version, "0.1.0");
     assert.equal(channelState.feedFallback, false);
     assert.equal(
       updater.feedUrls[updater.feedUrls.length - 1],
-      "https://eigenweltlabs.com/legalwork/update",
+      STABLE_FEED,
     );
+  });
+
+  it("skips the check entirely for an unstamped 0.0.0 local build (LAWOSS)", async () => {
+    const updater = fakeUpdater({ failFeeds: [] });
+    const localApp = { ...feedApp, getVersion: () => "0.0.0" };
+    const { result } = await checkForUpdatesWithFeedFallback(localApp, updater);
+    assert.equal(result, null);
+    // Feed gets applied (so a later manual check works) but nothing is fetched.
+    assert.deepEqual(updater.feedUrls, [STABLE_FEED]);
   });
 });
 
