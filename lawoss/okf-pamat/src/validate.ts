@@ -109,7 +109,8 @@ function phraseNeedle(value: string, source: string): Needle | undefined {
 
 function nameNeedle(title: string, source: string): Needle | undefined {
   const stripped = normalize(title).replace(LEGAL_FORM, "").trim();
-  const tokens = stripped.split(" ").filter((t) => t.length >= 2);
+  const all = stripped.split(" ").filter((t) => t.length > 0);
+  const tokens = all.filter((t) => t.length >= 2);
   if (tokens.length === 0) return undefined;
 
   let strength: Strength;
@@ -118,7 +119,10 @@ function nameNeedle(title: string, source: string): Needle | undefined {
   else if ((tokens[0] ?? "").length >= MIN_NAME_LENGTH) strength = "weak";
   else return undefined;
 
-  const body = tokens.map(escapeRegex).join("\\s+");
+  // Vzor sa stavia zo všetkých slov vrátane jednopísmenových — „Kolář a Klaudy"
+  // by inak hľadalo „kolar\s+klaudy" a v texte, kde spojka je, nikdy nesadlo.
+  // Sila sa posudzuje bez nich, aby samotné „a" nerobilo z názvu silnú jehlu.
+  const body = all.map(escapeRegex).join("\\s+");
   return { pattern: atWordBoundary(body), label: title, source, strength };
 }
 

@@ -247,7 +247,10 @@ function parseScalar(raw: string): FmScalar | string[] | FmMap {
     return splitList(inner);
   }
   if (v.startsWith("{") && v.endsWith("}")) return parseFlowMap(v.slice(1, -1));
-  if (/^-?\d+(\.\d+)?$/.test(v)) return Number(v);
+  // Číslo len bez vedúcej nuly: „04920040" je IČO, nie 4920040. Tretina
+  // českých IČO začína nulou a stratená nula urobí z overeného údaja
+  // nesprávny — a jehla úniku postavená na zlom čísle nikdy nesadne na to pravé.
+  if (/^-?(0|[1-9]\d*)(\.\d+)?$/.test(v)) return Number(v);
   return unquote(v);
 }
 
