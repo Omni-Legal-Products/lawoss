@@ -6,18 +6,18 @@
  * nič neprepíše.
  */
 
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import {
   readStore, readScope, writeIndex, writeLog, syncStatus, ensureBrain, applyRecordWrite, standingApproval,
   findOfficeDir, OFFICE_DIR,
-  jurisdictionFromCard, MEMORY_DIR, statusLinkResolver,
+  jurisdictionFromCard, MEMORY_DIR, statusLinkResolver, findClientDir, STATUS_FILE,
 } from "./store.ts";
 import { parseRecord, type OkfRecord } from "./record.ts";
 import { planWrite, type Approval, type WriteDiff } from "./write.ts";
 import { maskRecord } from "./mask.ts";
 import { fieldLabel, typeLabel, SCREENING_PROVISION, type Jurisdiction } from "./schema.ts";
-import { renderStatus, RenderConflictError } from "./render.ts";
+import { renderStatus, RenderConflictError, statusSkeleton } from "./render.ts";
 import { validateStore } from "./validate.ts";
 import { readStandingAuthorization, isExpired, CONFIG_FILE } from "./config.ts";
 
@@ -151,7 +151,16 @@ export function runCli(argv: readonly string[]): CliResult {
         syncStatus(dir);
         writeIndex(dir);
         writeLog(dir);
-        return ok(`Zapísané: _STATUS.md a INDEX.md (${zaznamov(s.records.length)}).`);
+        // Klientský `memory/` je tiež bundle a doteraz nedostal index ani log.
+        const klient = findClientDir(dir);
+        if (klient) {
+          writeIndex(klient);
+          writeLog(klient);
+        }
+        return ok(
+          `Zapísané: _STATUS.md, index.md a log.md (${zaznamov(s.records.length)})` +
+            `${klient ? " + index.md a log.md u klienta" : ""}.`,
+        );
       } catch (e) {
         // Konflikt sekcií je stav spisu, nie chyba programu — advokát dostane
         // vetu, čo urobiť, nie výpis interpretu.
@@ -234,7 +243,14 @@ export function runCli(argv: readonly string[]): CliResult {
         return { code: 2, out: `Návrh sa nedá prečítať: ${e instanceof Error ? e.message : String(e)}` };
       }
 
-      const store = readStore(dir);
+      // L1 a L3 patria kancelárii. `write <spis>` ich doteraz nechal v spise —
+      // z jedného testu skončilo jedenásť prameňov vo veciach a kancelária
+      // zostala prázdna. Ak kancelária existuje, smerujú tam. Brána úniku sa
+      // ale posudzuje voči spisu, z ktorého zápis prichádza (viď applyRecordWrite).
+      const office = findOfficeDir(dir);
+      const cielovy =
+        after.layer !== "L2" && office && resolve(office) !== resolve(dir) ? office : dir;
+      const store = readStore(cielovy);
       const before = store.records.find((r) => r.id === after.id);
 
       let diff: WriteDiff;
@@ -251,6 +267,7 @@ export function runCli(argv: readonly string[]): CliResult {
         ...diff.lines,
         "",
       ];
+      if (cielovy !== dir) out.push(`Cieľ: ${OFFICE_DIR}/ — vrstva ${diff.layer} patrí kancelárii, nie spisu.`, "");
 
       // Trvalé poverenie je schválenie udelené vopred písomne. Agent si ho
       // nekonštruuje — číta ho zo súboru, ktorý napísal advokát.
@@ -299,12 +316,12 @@ export function runCli(argv: readonly string[]): CliResult {
       }
 
       try {
-        applyRecordWrite(dir, zapis, approval);
+        applyRecordWrite(cielovy, zapis, approval, dir);
       } catch (e) {
         return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };
       }
 
-      out.push(`Zapísané: ${diff.id}${approval ? ` (schválil ${approval.by})` : ""}.`);
+      out.push(`Zapísané: ${diff.id}${cielovy !== dir ? ` do ${OFFICE_DIR}/` : ""}${approval ? ` (schválil ${approval.by})` : ""}.`);
       return ok(out.join("\n"));
     }
 
@@ -331,7 +348,15 @@ export function runCli(argv: readonly string[]): CliResult {
       }
       mkdirSync(join(dir, MEMORY_DIR), { recursive: true });
       ensureBrain(dir, jurisdiction);
-      return ok(`Založené: ${MEMORY_DIR}/ a BRAIN.md (jurisdikcia ${jurisdiction}, zdroj: ${zdroj}).`);
+      // Kostru so všetkými blokmi dostane iba nová vec. Existujúci súbor je
+      // advokátov a nerozširuje sa — to je zmysel MARKER_ONLY.
+      const status = join(dir, STATUS_FILE);
+      const kostra = !existsSync(status);
+      if (kostra) writeFileSync(status, statusSkeleton(jurisdiction), "utf8");
+      return ok(
+        `Založené: ${MEMORY_DIR}/, BRAIN.md${kostra ? ` a ${STATUS_FILE} so všetkými blokmi` : ""} ` +
+          `(jurisdikcia ${jurisdiction}, zdroj: ${zdroj}).`,
+      );
     }
 
     default:

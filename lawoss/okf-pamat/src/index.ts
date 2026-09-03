@@ -30,7 +30,7 @@ export {
   type Approval, type WriteDiff, type WriteKind,
 } from "./write.ts";
 
-export { renderStatus, RenderConflictError, BLOCKS, MARKER_ONLY, type BlockName, type LinkResolver } from "./render.ts";
+export { renderStatus, RenderConflictError, statusSkeleton, BLOCKS, MARKER_ONLY, type BlockName, type LinkResolver } from "./render.ts";
 export { validateStore, type Finding, type Severity, type ValidateOptions } from "./validate.ts";
 export { maskValue, maskRecord } from "./mask.ts";
 export {
@@ -39,7 +39,7 @@ export {
   type StandingAuthorization,
 } from "./config.ts";
 export {
-  readStore, readScope, findClientDir, findOfficeDir, MEMORY_DIR, OFFICE_DIR, applyRecordWrite, LeakBlockedError, ConcurrentWriteError,
+  readStore, readScope, findClientDir, findOfficeDir, MEMORY_DIR, OFFICE_DIR, STATUS_FILE, applyRecordWrite, LeakBlockedError, ConcurrentWriteError,
   writeIndex, writeLog, ensureBrain, syncStatus, standingApproval, statusLinkResolver,
   type Store, type Scope, type StoreProblem,
 } from "./store.ts";

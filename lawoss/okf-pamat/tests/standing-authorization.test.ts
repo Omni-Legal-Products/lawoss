@@ -87,18 +87,21 @@ test("neuplne poverenie nie je poverenie", () => {
 // --- s platným poverením zápis prejde --------------------------------------
 
 test("platne poverenie pusti zapis do L1 bez --approve-as", () => {
-  const { spis } = kancelaria(PLATNE);
+  const { root, spis } = kancelaria(PLATNE);
   const r = runCli(["write", spis, "--file", navrh(spis, poucenie()), "--reason", "poučenie z veci", "--apply"]);
   assert.equal(r.code, 0, r.out);
-  assert.equal(pocet(spis), 1);
+  // Poučenie je L1 — patrí kancelárii, nie spisu, z ktorého vzniklo.
+  assert.equal(pocet(join(root, OFFICE_DIR)), 1);
+  assert.equal(pocet(spis), 0);
 });
 
 test("audit riadok pomenuje poverenie, nie agenta", () => {
-  const { spis } = kancelaria(PLATNE);
+  const { root, spis } = kancelaria(PLATNE);
   runCli(["write", spis, "--file", navrh(spis, poucenie()), "--reason", "poučenie z veci Novák", "--apply"]);
-  const subor = readdirSync(join(spis, MEMORY_DIR)).find((f) => f.startsWith("L-001"));
+  const office = join(root, OFFICE_DIR);
+  const subor = readdirSync(join(office, MEMORY_DIR)).find((f) => f.startsWith("L-001"));
   assert.ok(subor);
-  const audit = parseRecord(readFileSync(join(spis, MEMORY_DIR, subor), "utf8")).timeline.at(-1);
+  const audit = parseRecord(readFileSync(join(office, MEMORY_DIR, subor), "utf8")).timeline.at(-1);
   assert.ok(audit);
   assert.match(audit.text, /JUDr\. Vojtěch Říha, Ph\.D\./);
   assert.match(audit.text, /trvalé poverenie do 2026-12-31/);
@@ -130,17 +133,18 @@ test("vrstva mimo scope poverenim krytá nie je", () => {
 
 test("mazanie poverenie nekryje nikdy — je nezvratne", () => {
   const { root, spis } = kancelaria(PLATNE);
+  const office = join(root, OFFICE_DIR);
   const p = poucenie();
   runCli(["write", spis, "--file", navrh(spis, p), "--reason", "založenie", "--apply"]);
-  assert.equal(pocet(spis), 1);
+  assert.equal(pocet(office), 1);
 
   const zmazanie = planWrite(p, undefined, "duplicita");
   assert.equal(
-    standingApproval(spis, zmazanie), undefined,
+    standingApproval(office, zmazanie), undefined,
     "poverenie sa nesmie vzťahovať na mazanie",
   );
-  assert.throws(() => applyRecordWrite(spis, zmazanie, undefined), ApprovalRequiredError);
-  assert.equal(pocet(spis), 1, "záznam nesmie zmiznúť");
+  assert.throws(() => applyRecordWrite(office, zmazanie, undefined), ApprovalRequiredError);
+  assert.equal(pocet(office), 1, "záznam nesmie zmiznúť");
   assert.ok(readStandingAuthorization(join(root, OFFICE_DIR)), "poverenie pritom platí");
 });
 

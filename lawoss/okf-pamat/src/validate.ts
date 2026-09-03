@@ -153,6 +153,19 @@ function clientNeedles(records: readonly OkfRecord[]): Needle[] {
       if (n) out.push(n);
     }
   }
+  // Rodné číslo vo voľnom texte. Polia sú strážené z tabuľky, ale výrok
+  // opísaný do Pravdy otázky nesie rodné číslo tretej osoby a pole preň
+  // niet — prameň L3 s ním prešiel bránou. Vzor je dosť špecifický na to,
+  // aby vo voľnom texte nefalošil. Sumy ani IČO sa takto nehľadajú: osem
+  // číslic je v spise všade.
+  for (const r of records) {
+    if (r.layer !== "L2") continue;
+    const text = [r.truth, ...r.timeline.map((e) => e.text)].join("\n");
+    for (const m of text.matchAll(BIRTH_NUMBER_PATTERN_G)) {
+      const n = exactNeedle(m[0], r.id, "rodné číslo v texte záznamu");
+      if (n) out.push(n);
+    }
+  }
   return out;
 }
 
@@ -206,6 +219,7 @@ const IDENTIFIED_ROLES = ["client", "representative", "ubo"] as const;
 
 /** Vzor českého a slovenského rodného čísla — šesť číslic, voliteľné lomítko, koncovka. */
 const BIRTH_NUMBER_PATTERN = /\b\d{6}\s?\/\s?\d{3,4}\b/;
+const BIRTH_NUMBER_PATTERN_G = new RegExp(BIRTH_NUMBER_PATTERN.source, "g");
 
 /** Popis sa dostáva do INDEX.md aj do projekcie v _STATUS.md — citlivý údaj tam nepatrí. */
 function sensitiveInSummary(r: OkfRecord): Finding | undefined {
@@ -545,6 +559,24 @@ export function validateStore(
         code: "SOURCE_ID_DUPLICATE",
         recordId: r.id,
         message: `Záznam ${r.id} má v \`sources\` id „${dup}" viackrát — poznámka pod čiarou by nevedela, na ktorý mieri.`,
+      });
+    }
+  }
+
+  // Uplynutá lehota. Tabuľka lehôt ju inak ukazuje medzi budúcimi a nikto sa
+  // nedozvie, či bola splnená alebo zmeškaná. Úloha po termíne sa hlásila,
+  // lehota nie — pritom zmeškaná procesná lehota sa dohnať nedá.
+  for (const r of records) {
+    if (r.status !== "active") continue;
+    for (const d of r.deadlines ?? []) {
+      if (d >= today) continue;
+      findings.push({
+        severity: "warning",
+        code: "DEADLINE_PASSED",
+        recordId: r.id,
+        message:
+          `Lehota ${d} záznamu ${r.id} uplynula. Ak bola splnená, zapíš to do histórie ` +
+          `a lehotu odstráň; ak nie, rieš ju hneď.`,
       });
     }
   }

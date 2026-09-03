@@ -9,7 +9,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { parseRecord, serializeRecord, type OkfRecord } from "./record.ts";
 import { renderStatus, type LinkResolver } from "./render.ts";
 import { validateStore } from "./validate.ts";
@@ -27,7 +27,7 @@ const LOG_FILE = "log.md";
 /** Predchodca `index.md`. Číta sa ako rezervovaný, pri zápise sa odstráni. */
 const LEGACY_INDEX_FILE = "INDEX.md";
 const BRAIN_FILE = "BRAIN.md";
-const STATUS_FILE = "_STATUS.md";
+export const STATUS_FILE = "_STATUS.md";
 
 /**
  * Jeden adresár pamäte pre obe jurisdikcie (O6). Jurisdikcia je hodnota poľa
@@ -165,9 +165,19 @@ export function standingApproval(
   };
 }
 
-export function applyRecordWrite(dir: string, diff: WriteDiff, approval: Approval | undefined): void {
+/**
+ * @param leakScopeDir Spis, z ktorého zápis prichádza. Keď CLI smeruje L1/L3
+ *   do kancelárie, `dir` je kancelária — ale jehly úniku musia prísť zo spisu
+ *   a jeho klienta, inak by presmerovanie bránu oslepilo.
+ */
+export function applyRecordWrite(
+  dir: string,
+  diff: WriteDiff,
+  approval: Approval | undefined,
+  leakScopeDir: string = dir,
+): void {
   authorize(diff, approval ?? standingApproval(dir, diff));
-  if (diff.after) assertNoLeak(dir, diff.after);
+  if (diff.after) assertNoLeak(leakScopeDir, diff.after);
   const store = readStore(dir);
   assertNotStale(store, diff);
   if (!existsSync(store.memoryDir)) mkdirSync(store.memoryDir, { recursive: true });
@@ -245,6 +255,23 @@ export function writeIndex(dir: string): void {
       lines.push(`* ${odkaz} — ${typeLabel(r.type, j)} — ${r.description}`);
     }
   }
+  // Subjekty a preverenia žijú u klienta. Bez tejto sekcie ich projekcia
+  // veci nikdy neukázala — AML evidencia bola v spise neviditeľná.
+  const klientDir = findClientDir(dir);
+  if (klientDir) {
+    const ks = readStore(klientDir);
+    if (ks.records.length > 0) {
+      const prefix = relative(store.memoryDir, ks.memoryDir).split(sep).join("/");
+      const kh = linkResolver(ks, true);
+      lines.push("", "## Klient", "");
+      for (const r of [...ks.records].sort((a, b) => (a.id < b.id ? -1 : 1))) {
+        const c = kh(r.id);
+        const odkaz = c ? `[${r.id}](${prefix}/${c.slice(2)})` : r.id;
+        lines.push(`* ${odkaz} — ${typeLabel(r.type, j)} — ${r.description}`);
+      }
+    }
+  }
+
   // Starý `INDEX.md` sa musí zmazať PRED zápisom, nie po ňom.
   //
   // macOS je case-insensitive: `existsSync("INDEX.md")` vráti true aj na
@@ -415,7 +442,9 @@ export const OFFICE_DIR = "_kancelaria";
 /** Nájde zložku kancelárie nad spisom alebo klientom. */
 export function findOfficeDir(startDir: string, maxUp = 5): string | undefined {
   let dir = resolve(startDir);
-  if (dir.endsWith(`/${OFFICE_DIR}`)) return undefined;
+  // Z kancelárie samotnej je kanceláriou ona sama. Inak by zápis L1 priamo
+  // do `_kancelaria/` nikdy nedostal trvalé poverenie — konfig leží práve tam.
+  if (dir.endsWith(`/${OFFICE_DIR}`)) return dir;
   for (let i = 0; i < maxUp; i++) {
     const candidate = join(dir, OFFICE_DIR);
     if (existsSync(candidate)) return candidate;
@@ -474,7 +503,9 @@ export function readScope(matterDir: string): Scope {
   const clientDir = findClientDir(matterDir);
   const client = clientDir ? readStore(clientDir) : undefined;
   const clientRecords = client?.records ?? [];
-  const officeDir = findOfficeDir(matterDir);
+  // Kancelária ako „spis" nesmie čítať samu seba dvakrát.
+  const najdena = findOfficeDir(matterDir);
+  const officeDir = najdena && resolve(najdena) !== resolve(matterDir) ? najdena : undefined;
   const office = officeDir ? readStore(officeDir) : undefined;
   const officeRecords = office?.records ?? [];
   return {

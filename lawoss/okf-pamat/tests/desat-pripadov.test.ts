@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../src/cli.ts";
 import { serializeRecord, parseRecord } from "../src/record.ts";
-import { newRecord, MEMORY_DIR, OFFICE_DIR, CONFIG_FILE } from "../src/index.ts";
+import { newRecord, findOfficeDir, MEMORY_DIR, OFFICE_DIR, CONFIG_FILE } from "../src/index.ts";
 import type { OkfRecord } from "../src/record.ts";
 import type { RecordType } from "../src/schema.ts";
 
@@ -49,9 +49,13 @@ function zapis(dir: string, r: OkfRecord, dovod: string): OkfRecord {
   writeFileSync(navrh, serializeRecord(r));
   const res = runCli(["write", dir, "--file", navrh, "--reason", dovod, "--apply"]);
   assert.equal(res.code, 0, res.out);
-  const subor = readdirSync(join(dir, MEMORY_DIR)).find((f) => f.startsWith(`${r.id}`));
-  assert.ok(subor, `${r.id} sa nezapísal`);
-  return parseRecord(readFileSync(join(dir, MEMORY_DIR, subor), "utf8"));
+  // L1/L3 smerujú do kancelárie — hľadá sa v spise, potom v kancelárii.
+  const kde = [dir, findOfficeDir(dir)].filter((x): x is string => !!x)
+    .find((d) => readdirSync(join(d, MEMORY_DIR)).some((f) => f.startsWith(`${r.id}-`)));
+  assert.ok(kde, `${r.id} sa nezapísal`);
+  const subor = readdirSync(join(kde, MEMORY_DIR)).find((f) => f.startsWith(`${r.id}-`));
+  assert.ok(subor);
+  return parseRecord(readFileSync(join(kde, MEMORY_DIR, subor), "utf8"));
 }
 
 const zaklad = (id: string, type: RecordType, title: string, description: string) => ({

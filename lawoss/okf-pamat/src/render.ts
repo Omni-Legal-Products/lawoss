@@ -208,6 +208,23 @@ function appendBlock(text: string, b: BlockName, body: string, j: Jurisdiction):
   return text.replace(/\n*$/, "\n") + section;
 }
 
+/**
+ * Kostra `_STATUS.md` pre novú vec — všetkých päť blokov s markermi.
+ *
+ * Bloky `records`, `evidence_matrix` a `tasks` sa do existujúceho súboru
+ * nikdy nepridávajú samy (MARKER_ONLY): advokátovu šablónu nerozširujeme.
+ * Dôsledok bol, že na čerstvo založenej veci sa matica dôkazov ani úlohy
+ * neukázali nikdy — desať vecí z ISIR malo tvrdenia, dôkazy aj úlohy, a
+ * `_STATUS.md` ukazoval len lehoty a chronológiu. Kostru vlastní `init`.
+ */
+export function statusSkeleton(j: Jurisdiction): string {
+  const head =
+    j === "cz"
+      ? "# Status věci\n\n> **Fáze:** \n> **Další krok:** \n"
+      : "# Status veci\n\n> **Fáza:** \n> **Ďalší krok:** \n";
+  return BLOCKS.reduce((t, b) => appendBlock(t, b, EMPTY[j], j), head);
+}
+
 export class RenderConflictError extends Error {}
 
 /**

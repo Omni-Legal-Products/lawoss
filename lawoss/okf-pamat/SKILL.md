@@ -124,3 +124,15 @@ Mapovanie: `progress.txt` → `## History` v zázname · `LEARNINGS.md` → L1 `
 
 Plné znenia dokumentov. Do záznamu ide jednovetová anotácia a odkaz na súbor,
 nikdy kópia obsahu — inak destilát prestane byť lacný a začne amplifikovať chyby.
+
+## Čo sa naučilo na desiatich veciach z ISIR
+
+- **L1 a L3 smerujú do kancelárie.** `okf-memory write <spis>` zapíše poučenie
+  alebo prameň do `_kancelaria/memory/`, ak kancelária existuje — vo výpise
+  uvidíš `Cieľ: _kancelaria/`. Brána úniku sa pritom posudzuje voči spisu.
+- **Opakovanú lehotu zapíš ako výčet konkrétnych dátumov** v `deadlines`
+  (napr. štvrťročné správy správcu: `[2026-09-23, 2026-12-23]`). Schéma
+  opakovanie zámerne nemodeluje — počítanie procesných lehôt patrí lehotníku,
+  nie pamäti.
+- **Rodné číslo vo voľnom texte je jehla.** Výrok opísaný do Pravdy otázky
+  nesmie prejsť do L3 ani vtedy, keď preň niet poľa.
