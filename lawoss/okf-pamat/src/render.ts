@@ -12,6 +12,28 @@
 import type { OkfRecord } from "./record.ts";
 import { typeLabel, valueLabel, type Jurisdiction } from "./schema.ts";
 
+/**
+ * Preloží identifikátor záznamu na cestu k jeho súboru, relatívne k súboru,
+ * do ktorého sa odkaz píše. Vracia `undefined`, keď súbor nepoznáme.
+ */
+export type LinkResolver = (id: string) => string | undefined;
+
+/**
+ * Odkaz na záznam. **Markdown, nie `[[…]]`.**
+ *
+ * Wiki-odkaz `[[S-001]]` sa v Obsidiane hľadá podľa názvu súboru, ale súbor
+ * sa volá `S-001-eva-novakova.md` — odkaz teda nikdy nesadol a v grafe visel
+ * ako osirelý. Relatívny markdown odkaz mieri na skutočný súbor, funguje
+ * v Obsidiane aj mimo neho a je to tvar, ktorý žiada Open Knowledge Format.
+ *
+ * Keď cestu nepoznáme, vypíše sa holý identifikátor. Žiadny odkaz je lepší
+ * než odkaz, ktorý nikam nevedie.
+ */
+function odkaz(id: string, href?: LinkResolver): string {
+  const cesta = href?.(id);
+  return cesta ? `[${id}](${cesta})` : id;
+}
+
 export const BLOCKS = ["deadlines", "timeline", "records", "evidence_matrix", "tasks"] as const;
 export type BlockName = (typeof BLOCKS)[number];
 
@@ -35,10 +57,10 @@ function endMarker(b: BlockName): string {
   return `<!-- okf:render:${b}:end -->`;
 }
 
-function renderDeadlines(records: readonly OkfRecord[], j: Jurisdiction): string {
+function renderDeadlines(records: readonly OkfRecord[], j: Jurisdiction, href?: LinkResolver): string {
   const rows: string[] = [];
   for (const r of records) {
-    for (const d of r.deadlines ?? []) rows.push(`| ${d} | ${r.title} | [[${r.id}]] |`);
+    for (const d of r.deadlines ?? []) rows.push(`| ${d} | ${r.title} | ${odkaz(r.id, href)} |`);
   }
   if (rows.length === 0) return EMPTY[j];
   rows.sort();
@@ -47,13 +69,13 @@ function renderDeadlines(records: readonly OkfRecord[], j: Jurisdiction): string
   return [head, "|---|---|---|", ...rows].join("\n");
 }
 
-function renderTimeline(records: readonly OkfRecord[], j: Jurisdiction): string {
+function renderTimeline(records: readonly OkfRecord[], j: Jurisdiction, href?: LinkResolver): string {
   const rows: { date: string; line: string }[] = [];
   for (const r of records) {
     for (const e of r.timeline) {
       rows.push({
         date: e.date,
-        line: `| ${e.date} | ${e.kind ? valueLabel("event_kind", e.kind, j) : ""} | ${e.text} | [[${r.id}]] |`,
+        line: `| ${e.date} | ${e.kind ? valueLabel("event_kind", e.kind, j) : ""} | ${e.text} | ${odkaz(r.id, href)} |`,
       });
     }
   }
@@ -64,12 +86,12 @@ function renderTimeline(records: readonly OkfRecord[], j: Jurisdiction): string 
   return [head, "|---|---|---|---|", ...rows.map((r) => r.line)].join("\n");
 }
 
-function renderRecords(records: readonly OkfRecord[], j: Jurisdiction): string {
+function renderRecords(records: readonly OkfRecord[], j: Jurisdiction, href?: LinkResolver): string {
   if (records.length === 0) return EMPTY[j];
   const head = "| Záznam | Typ | Popis |";
   const rows = [...records]
     .sort((a, b) => (a.id < b.id ? -1 : 1))
-    .map((r) => `| [[${r.id}]] | ${typeLabel(r.type, j)} | ${r.summary} |`);
+    .map((r) => `| ${odkaz(r.id, href)} | ${typeLabel(r.type, j)} | ${r.description} |`);
   return [head, "|---|---|---|", ...rows].join("\n");
 }
 
@@ -99,7 +121,7 @@ const MATRIX_LABELS: Record<Jurisdiction, Record<string, string>> = {
   },
 };
 
-function renderEvidenceMatrix(records: readonly OkfRecord[], j: Jurisdiction): string {
+function renderEvidenceMatrix(records: readonly OkfRecord[], j: Jurisdiction, _href?: LinkResolver): string {
   const claims = records.filter((r) => r.type === "claim").sort((a, b) => (a.id < b.id ? -1 : 1));
   if (claims.length === 0) return EMPTY[j];
   const evidence = records.filter((r) => r.type === "evidence").sort((a, b) => (a.id < b.id ? -1 : 1));
@@ -140,7 +162,7 @@ function renderEvidenceMatrix(records: readonly OkfRecord[], j: Jurisdiction): s
  * Prehľad otvorených úloh. `due` je interný záväzok — do tabuľky lehôt
  * nepatrí. Zmeškaný interný termín sa dá dohnať, zmeškaná procesná lehota nie.
  */
-function renderTasks(records: readonly OkfRecord[], j: Jurisdiction): string {
+function renderTasks(records: readonly OkfRecord[], j: Jurisdiction, href?: LinkResolver): string {
   const open = records
     .filter((r) => r.type === "task" && r.state !== "done")
     .sort((a, b) => (a.id < b.id ? -1 : 1));
@@ -149,13 +171,13 @@ function renderTasks(records: readonly OkfRecord[], j: Jurisdiction): string {
     j === "cz" ? "| Úkol | Věc | Řeší | Stav | Termín |" : "| Úloha | Vec | Rieši | Stav | Termín |";
   const rows = open.map(
     (t) =>
-      `| [[${t.id}]] | ${t.title} | ${t.assignee ?? "—"} | ` +
+      `| ${odkaz(t.id, href)} | ${t.title} | ${t.assignee ?? "—"} | ` +
       `${valueLabel("state", t.state ?? "—", j)} | ${t.due ?? "—"} |`,
   );
   return [head, "|---|---|---|---|---|", ...rows].join("\n");
 }
 
-const RENDERERS: Record<BlockName, (r: readonly OkfRecord[], j: Jurisdiction) => string> = {
+const RENDERERS: Record<BlockName, (r: readonly OkfRecord[], j: Jurisdiction, href?: LinkResolver) => string> = {
   deadlines: renderDeadlines,
   timeline: renderTimeline,
   records: renderRecords,
@@ -184,6 +206,23 @@ function appendBlock(text: string, b: BlockName, body: string, j: Jurisdiction):
     "",
   ].join("\n");
   return text.replace(/\n*$/, "\n") + section;
+}
+
+/**
+ * Kostra `_STATUS.md` pre novú vec — všetkých päť blokov s markermi.
+ *
+ * Bloky `records`, `evidence_matrix` a `tasks` sa do existujúceho súboru
+ * nikdy nepridávajú samy (MARKER_ONLY): advokátovu šablónu nerozširujeme.
+ * Dôsledok bol, že na čerstvo založenej veci sa matica dôkazov ani úlohy
+ * neukázali nikdy — desať vecí z ISIR malo tvrdenia, dôkazy aj úlohy, a
+ * `_STATUS.md` ukazoval len lehoty a chronológiu. Kostru vlastní `init`.
+ */
+export function statusSkeleton(j: Jurisdiction): string {
+  const head =
+    j === "cz"
+      ? "# Status věci\n\n> **Fáze:** \n> **Další krok:** \n"
+      : "# Status veci\n\n> **Fáza:** \n> **Ďalší krok:** \n";
+  return BLOCKS.reduce((t, b) => appendBlock(t, b, EMPTY[j], j), head);
 }
 
 export class RenderConflictError extends Error {}
@@ -230,10 +269,11 @@ export function renderStatus(
   existing: string,
   records: readonly OkfRecord[],
   j: Jurisdiction,
+  href?: LinkResolver,
 ): string {
   let out = existing;
   for (const b of BLOCKS) {
-    const body = RENDERERS[b](records, j);
+    const body = RENDERERS[b](records, j, href);
 
     const replaced = replaceBlock(out, b, body);
     if (replaced !== undefined) {

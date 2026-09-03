@@ -13,7 +13,7 @@ const DNES = { today: "2026-09-02" };
 function subjekt(): OkfRecord {
   return newRecord({
     id: "S-001", type: "subject", jurisdiction: "cz",
-    title: "Jan Novák", summary: "klient", created: "2026-09-02", updated: "2026-09-02",
+    title: "Jan Novák", description: "klient", created: "2026-09-02", updated: "2026-09-02",
     truth: "t", timeline: [{ date: "2026-09-02", text: "x" }],
     role: "counterparty", registry_id: "12345678",
   });
@@ -24,7 +24,7 @@ function tvrzenie(over: Partial<OkfRecord> = {}): OkfRecord {
     ...newRecord({
       id: "C-001", type: "claim", jurisdiction: "cz",
       title: "Výpověď byla doručena 12. 6. 2026",
-      summary: "sporná otázka doručení výpovědi z nájmu",
+      description: "sporná otázka doručení výpovědi z nájmu",
       created: "2026-09-02", updated: "2026-09-02",
       truth: "Protistrana tvrdí doručení 12. 6.; klient popírá.",
       timeline: [{ date: "2026-09-02", text: "tvrzeno v žalobě" }],
@@ -42,7 +42,7 @@ function dokaz(over: Partial<OkfRecord> = {}): OkfRecord {
   return {
     ...newRecord({
       id: "E-001", type: "evidence", jurisdiction: "cz",
-      title: "Doručenka datové zprávy", summary: "doklad o doručení výpovědi",
+      title: "Doručenka datové zprávy", description: "doklad o doručení výpovědi",
       created: "2026-09-02", updated: "2026-09-02",
       truth: "Doručenka ze systému ISDS, sestava z 20. 6. 2026.",
       timeline: [{ date: "2026-09-02", text: "založeno do spisu" }],
@@ -125,7 +125,7 @@ test("slovenske ukotvenie sa nepredstiera", () => {
 
 test("neznamy druh dokazu je varovanie, nie chyba", () => {
   const f = validateStore([tvrzenie(), dokaz({ evidence_kind: "vymysleny" })], DNES)
-    .find((x) => x.code === "UNKNOWN_EVIDENCE_KIND");
+    .find((x) => x.code === "UNKNOWN_VALUE");
   assert.ok(f);
   assert.equal(f.severity, "warning");
 });
@@ -170,7 +170,7 @@ test("udaje z dokazu nie su jehlami detektora uniku", () => {
   // alebo dátum stali jehlou, každý prameň citujúci ISDS by spadol.
   const pramen = newRecord({
     id: "A-001", type: "authority", jurisdiction: "cz",
-    title: "Doručování datovou schránkou", summary: "právní věta",
+    title: "Doručování datovou schránkou", description: "právní věta",
     created: "2026-09-02", updated: "2026-09-02",
     truth: "Doručenka ze systému ISDS prokazuje okamžik doručení.",
     timeline: [{ date: "2026-09-02", text: "z" }],
@@ -182,7 +182,7 @@ test("udaje z dokazu nie su jehlami detektora uniku", () => {
 test("klientsky identifikator v prameni blokuje aj vedla dokazov", () => {
   const pramen = newRecord({
     id: "A-002", type: "authority", jurisdiction: "cz",
-    title: "Veta", summary: "p", created: "2026-09-02", updated: "2026-09-02",
+    title: "Veta", description: "p", created: "2026-09-02", updated: "2026-09-02",
     truth: "Ve věci IČO 12345678.", timeline: [{ date: "2026-09-02", text: "z" }],
   });
   const f = validateStore([subjekt(), dokaz(), pramen], DNES);

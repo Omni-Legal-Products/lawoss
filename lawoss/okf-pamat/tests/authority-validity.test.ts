@@ -10,7 +10,7 @@ function pramen(over: Partial<OkfRecord> = {}): OkfRecord {
   return {
     ...newRecord({
       id: "A-001", type: "authority", jurisdiction: "cz",
-      title: "29 NSČR 73/2024", summary: "kumulativnost § 348 odst. 1 IZ",
+      title: "29 NSČR 73/2024", description: "kumulativnost § 348 odst. 1 IZ",
       created: "2026-09-02", updated: "2026-09-02",
       truth: "Podmínky § 348 odst. 1 IZ jsou kumulativní.",
       timeline: [{ date: "2026-09-02", text: "ověřeno" }],
@@ -50,7 +50,7 @@ test("platnost do buducnosti nalez nesposobi", () => {
 
 test("platnost sa kontroluje len pri prameni, nie pri spisovom zazname", () => {
   const rozhodnutie = newRecord({
-    id: "D-001", type: "decision", jurisdiction: "cz", title: "X", summary: "y",
+    id: "D-001", type: "decision", jurisdiction: "cz", title: "X", description: "y",
     created: "2026-09-02", updated: "2026-09-02", truth: "t",
     timeline: [{ date: "2026-09-02", text: "x" }],
     effective_to: "2020-01-01",
@@ -78,30 +78,30 @@ test("staci jedna zo stop, aby nalez nevznikol", () => {
 // --- citačný formát ---
 
 test("neuplna citacia predpisu je varovanie", () => {
-  const f = validateStore([pramen({ sources: ["insolvenční zákon, Sb."] })], DNES)
+  const f = validateStore([pramen({ sources: [{ title: "insolvenční zákon, Sb." }] })], DNES)
     .find((x) => x.code === "CITATION_INCOMPLETE");
   assert.ok(f, "odkaz na Sb. bez čísla a roku je neúplný");
   assert.equal(f.severity, "warning");
 });
 
 test("uplna ceska citacia prejde", () => {
-  assert.ok(!kody([pramen({ sources: ["§ 348 odst. 1 zák. č. 182/2006 Sb."] })])
+  assert.ok(!kody([pramen({ sources: [{ title: "§ 348 odst. 1 zák. č. 182/2006 Sb." }] })])
     .includes("CITATION_INCOMPLETE"));
 });
 
 test("uplna slovenska citacia prejde", () => {
-  const sk = pramen({ jurisdiction: "sk", sources: ["§ 7 ods. 1 zák. č. 297/2008 Z. z."] });
+  const sk = pramen({ jurisdiction: "sk", sources: [{ title: "§ 7 ods. 1 zák. č. 297/2008 Z. z." }] });
   assert.ok(!kody([sk]).includes("CITATION_INCOMPLETE"));
 });
 
 test("citacia judikatu sa ako predpis nekontroluje", () => {
-  assert.ok(!kody([pramen({ sources: ["NS ČR, 29 NSČR 73/2024, 12. 6. 2026"] })])
+  assert.ok(!kody([pramen({ sources: [{ title: "NS ČR, 29 NSČR 73/2024, 12. 6. 2026" }] })])
     .includes("CITATION_INCOMPLETE"));
 });
 
 test("kontrola citacie nesaha na siet — bezi nad textom, nie nad registrom", () => {
   // Prameň s číslom predpisu, ktorý neexistuje, prejde. Overiť existenciu
   // by znamenalo sieťové volanie z validácie a jadro sieťovú plochu nemá.
-  assert.ok(!kody([pramen({ sources: ["§ 1 zák. č. 999999/2099 Sb."] })])
+  assert.ok(!kody([pramen({ sources: [{ title: "§ 1 zák. č. 999999/2099 Sb." }] })])
     .includes("CITATION_INCOMPLETE"));
 });

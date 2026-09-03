@@ -16,7 +16,7 @@ okf: 1
 id: D-001
 type: decision
 title: Nenapadat prislusnost
-summary: zdrzanie prevazuje nad vyhodou
+description: zdrzanie prevazuje nad vyhodou
 layer: L2
 jurisdiction: sk
 status: active
@@ -102,7 +102,7 @@ test("hodnoty enumov su anglicke a vymenovane", () => {
 
 test("novy zaznam ma stav active, nie platny", () => {
   const r = newRecord({
-    id: "D-002", type: "decision", jurisdiction: "cz", title: "X", summary: "y",
+    id: "D-002", type: "decision", jurisdiction: "cz", title: "X", description: "y",
     created: "2026-09-01", updated: "2026-09-01", truth: "t", timeline: [],
   });
   assert.equal(r.status, "active");
@@ -154,7 +154,7 @@ test("markery zostavaju kanonicke", () => {
 test("hlasky validacie pouzivaju lokalizovany popisok pola", () => {
   const subjekt = newRecord({
     id: "S-001", type: "subject", jurisdiction: "cz", title: "Jan Novák",
-    summary: "klient", created: "2026-09-01", updated: "2026-09-01",
+    description: "klient", created: "2026-09-01", updated: "2026-09-01",
     truth: "t", timeline: [{ date: "2026-09-01", text: "x" }],
     role: "client", person_type: "natural_person",
   });

@@ -9,17 +9,25 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { parseRecord, serializeRecord, type OkfRecord } from "./record.ts";
-import { renderStatus } from "./render.ts";
+import { renderStatus, type LinkResolver } from "./render.ts";
 import { validateStore } from "./validate.ts";
 import { authorize, type Approval, type WriteDiff } from "./write.ts";
-import { readStandingAuthorization, covers } from "./config.ts";
-import { typeLabel, type Jurisdiction } from "./schema.ts";
+import { readStandingAuthorization, covers, readClientPath, matchesClientPath } from "./config.ts";
+import { typeLabel, valueLabel, truthDigest, OKF_VERSION, type Jurisdiction } from "./schema.ts";
 
-const INDEX_FILE = "INDEX.md";
+/**
+ * Rezervované názvy Open Knowledge Format. Musia byť **malými písmenami** —
+ * spec hovorí, že každý iný `.md` v bundle je koncept a musí niesť `type`.
+ * Náš starý `INDEX.md` bol teda na case-sensitive systéme nekonformný koncept.
+ */
+const INDEX_FILE = "index.md";
+const LOG_FILE = "log.md";
+/** Predchodca `index.md`. Číta sa ako rezervovaný, pri zápise sa odstráni. */
+const LEGACY_INDEX_FILE = "INDEX.md";
 const BRAIN_FILE = "BRAIN.md";
-const STATUS_FILE = "_STATUS.md";
+export const STATUS_FILE = "_STATUS.md";
 
 /**
  * Jeden adresár pamäte pre obe jurisdikcie (O6). Jurisdikcia je hodnota poľa
@@ -61,7 +69,8 @@ export function readStore(dir: string): Store {
   const problems: StoreProblem[] = [];
   if (existsSync(memoryDir)) {
     for (const name of readdirSync(memoryDir).sort()) {
-      if (!name.endsWith(".md") || name === INDEX_FILE) continue;
+      if (!name.endsWith(".md")) continue;
+      if (name === INDEX_FILE || name === LOG_FILE || name === LEGACY_INDEX_FILE) continue;
       try {
         records.push(parseRecord(readFileSync(join(memoryDir, name), "utf8")));
       } catch (e) {
@@ -156,9 +165,19 @@ export function standingApproval(
   };
 }
 
-export function applyRecordWrite(dir: string, diff: WriteDiff, approval: Approval | undefined): void {
+/**
+ * @param leakScopeDir Spis, z ktorého zápis prichádza. Keď CLI smeruje L1/L3
+ *   do kancelárie, `dir` je kancelária — ale jehly úniku musia prísť zo spisu
+ *   a jeho klienta, inak by presmerovanie bránu oslepilo.
+ */
+export function applyRecordWrite(
+  dir: string,
+  diff: WriteDiff,
+  approval: Approval | undefined,
+  leakScopeDir: string = dir,
+): void {
   authorize(diff, approval ?? standingApproval(dir, diff));
-  if (diff.after) assertNoLeak(dir, diff.after);
+  if (diff.after) assertNoLeak(leakScopeDir, diff.after);
   const store = readStore(dir);
   assertNotStale(store, diff);
   if (!existsSync(store.memoryDir)) mkdirSync(store.memoryDir, { recursive: true });
@@ -169,24 +188,134 @@ export function applyRecordWrite(dir: string, diff: WriteDiff, approval: Approva
   }
   const after = diff.after;
   if (!after) throw new Error(`Návrh ${diff.kind} nemá nový stav záznamu`);
-  writeFileSync(fileFor(store, after), serializeRecord(after), "utf8");
+  // Odtlačok sa počíta až tu, z toho, čo naozaj ide na disk.
+  const zapis: OkfRecord = { ...after, truth_digest: truthDigest(after.truth) };
+  writeFileSync(fileFor(store, zapis), serializeRecord(zapis), "utf8");
+}
+
+/**
+ * Mapa identifikátor → skutočný názov súboru v `memory/`.
+ *
+ * Cesty sa berú z disku, nie sa dopočítavajú zo `slug(title)`: keď sa titulok
+ * záznamu neskôr zmení, súbor si ponechá pôvodný názov a dopočítaná cesta by
+ * mierila vedľa.
+ */
+function linkResolver(store: Store, zVnutraMemory: boolean): LinkResolver {
+  const podlaId = new Map<string, string>();
+  if (existsSync(store.memoryDir)) {
+    for (const name of readdirSync(store.memoryDir)) {
+      if (!name.endsWith(".md")) continue;
+      const id = name.replace(/\.md$/, "").split("-").slice(0, 2).join("-");
+      if (!podlaId.has(id)) podlaId.set(id, name);
+    }
+  }
+  return (id) => {
+    const name = podlaId.get(id);
+    if (!name) return undefined;
+    return zVnutraMemory ? `./${name}` : `./${MEMORY_DIR}/${name}`;
+  };
+}
+
+/** Resolver pre `_STATUS.md` v danom spise. Pre náhľad v CLI. */
+export function statusLinkResolver(dir: string): LinkResolver {
+  return linkResolver(readStore(dir), false);
 }
 
 export function writeIndex(dir: string): void {
   const store = readStore(dir);
   if (!existsSync(store.memoryDir)) return;
   const j = store.jurisdiction;
-  const title = j === "cz" ? "Rejstřík paměti" : "Register pamäte";
-  const note =
+  const href = linkResolver(store, true);
+
+  // Tvar podľa OKF: sekcie s odrážkami `* [Titul](cesta) - popis`, nie tabuľka.
+  // Frontmatter smie mať iba koreňový index, a iba `okf_version`.
+  const nadpis: Record<string, Record<Jurisdiction, string>> = {
+    L1: { cz: "Kancelář (L1)", sk: "Kancelária (L1)" },
+    L2: { cz: "Spis (L2)", sk: "Spis (L2)" },
+    L3: { cz: "Právo (L3)", sk: "Právo (L3)" },
+  };
+  const lines: string[] = [
+    "---",
+    `okf_version: "${OKF_VERSION}"`,
+    "---",
+    "",
+    `# ${j === "cz" ? "Rejstřík paměti" : "Register pamäte"}`,
+    "",
     j === "cz"
       ? "> Generováno. Needituj ručně — přepíše se."
-      : "> Generované. Needituj ručne — prepíše sa.";
-  const head = "| Záznam | Typ | Vrstva | Popis |";
-  const rows = [...store.records]
-    .sort((a, b) => (a.id < b.id ? -1 : 1))
-    .map((r) => `| [[${r.id}]] | ${typeLabel(r.type, j)} | ${r.layer} | ${r.summary} |`);
-  const body = [`# ${title}`, "", note, "", head, "|---|---|---|---|", ...rows, ""].join("\n");
-  writeFileSync(join(store.memoryDir, INDEX_FILE), body, "utf8");
+      : "> Generované. Needituj ručne — prepíše sa.",
+  ];
+  for (const layer of ["L2", "L1", "L3"] as const) {
+    const vo = [...store.records].filter((r) => r.layer === layer).sort((a, b) => (a.id < b.id ? -1 : 1));
+    if (vo.length === 0) continue;
+    lines.push("", `## ${nadpis[layer]?.[j] ?? layer}`, "");
+    for (const r of vo) {
+      const cesta = href(r.id);
+      const odkaz = cesta ? `[${r.id}](${cesta})` : r.id;
+      lines.push(`* ${odkaz} — ${typeLabel(r.type, j)} — ${r.description}`);
+    }
+  }
+  // Subjekty a preverenia žijú u klienta. Bez tejto sekcie ich projekcia
+  // veci nikdy neukázala — AML evidencia bola v spise neviditeľná.
+  const klientDir = findClientDir(dir);
+  if (klientDir) {
+    const ks = readStore(klientDir);
+    if (ks.records.length > 0) {
+      const prefix = relative(store.memoryDir, ks.memoryDir).split(sep).join("/");
+      const kh = linkResolver(ks, true);
+      lines.push("", "## Klient", "");
+      for (const r of [...ks.records].sort((a, b) => (a.id < b.id ? -1 : 1))) {
+        const c = kh(r.id);
+        const odkaz = c ? `[${r.id}](${prefix}/${c.slice(2)})` : r.id;
+        lines.push(`* ${odkaz} — ${typeLabel(r.type, j)} — ${r.description}`);
+      }
+    }
+  }
+
+  // Starý `INDEX.md` sa musí zmazať PRED zápisom, nie po ňom.
+  //
+  // macOS je case-insensitive: `existsSync("INDEX.md")` vráti true aj na
+  // práve zapísaný `index.md` a mazanie po zápise by nový súbor zlikvidovalo.
+  // Zápis do `index.md` navyše na takom systéme prepíše obsah existujúceho
+  // `INDEX.md`, ale **ponechá starý názov** — premenovanie sa teda musí urobiť
+  // zmazaním. Presný názov berieme z `readdirSync`, ktorý vracia uloženú
+  // podobu, nie tú, na ktorú sme sa pýtali.
+  if (readdirSync(store.memoryDir).includes(LEGACY_INDEX_FILE)) {
+    rmSync(join(store.memoryDir, LEGACY_INDEX_FILE), { force: true });
+  }
+  writeFileSync(join(store.memoryDir, INDEX_FILE), lines.join("\n") + "\n", "utf8");
+}
+
+/**
+ * `log.md` — chronológia bundle podľa OKF: zoskupené podľa dátumu ISO 8601,
+ * najnovšie hore.
+ *
+ * Nie je to druhý zdroj pravdy. Generuje sa z `## History` jednotlivých
+ * záznamov, takže sa s nimi nemôže rozísť.
+ */
+export function writeLog(dir: string): void {
+  const store = readStore(dir);
+  if (!existsSync(store.memoryDir)) return;
+  const j = store.jurisdiction;
+  const href = linkResolver(store, true);
+
+  const podlaDatumu = new Map<string, string[]>();
+  for (const r of store.records) {
+    for (const e of r.timeline) {
+      const cesta = href(r.id);
+      const odkaz = cesta ? `[${r.id}](${cesta})` : r.id;
+      const druh = e.kind ? `**${valueLabel("event_kind", e.kind, j)}**: ` : "";
+      const zoznam = podlaDatumu.get(e.date) ?? [];
+      zoznam.push(`* ${druh}${e.text} — ${odkaz}`);
+      podlaDatumu.set(e.date, zoznam);
+    }
+  }
+
+  const lines: string[] = [`# ${j === "cz" ? "Historie spisu" : "História spisu"}`, ""];
+  for (const datum of [...podlaDatumu.keys()].sort().reverse()) {
+    lines.push(`## ${datum}`, "", ...(podlaDatumu.get(datum) ?? []), "");
+  }
+  writeFileSync(join(store.memoryDir, LOG_FILE), lines.join("\n"), "utf8");
 }
 
 /** Vstupný bod pre agentov. Nikdy neprepíše existujúci — je to ľudský súbor. */
@@ -272,7 +401,7 @@ export function syncStatus(dir: string): void {
   const store = readStore(dir);
   const path = join(dir, STATUS_FILE);
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
-  const next = renderStatus(existing, store.records, store.jurisdiction);
+  const next = renderStatus(existing, store.records, store.jurisdiction, linkResolver(store, false));
   if (next !== existing) writeFileSync(path, next, "utf8");
 }
 
@@ -313,7 +442,9 @@ export const OFFICE_DIR = "_kancelaria";
 /** Nájde zložku kancelárie nad spisom alebo klientom. */
 export function findOfficeDir(startDir: string, maxUp = 5): string | undefined {
   let dir = resolve(startDir);
-  if (dir.endsWith(`/${OFFICE_DIR}`)) return undefined;
+  // Z kancelárie samotnej je kanceláriou ona sama. Inak by zápis L1 priamo
+  // do `_kancelaria/` nikdy nedostal trvalé poverenie — konfig leží práve tam.
+  if (dir.endsWith(`/${OFFICE_DIR}`)) return dir;
   for (let i = 0; i < maxUp; i++) {
     const candidate = join(dir, OFFICE_DIR);
     if (existsSync(candidate)) return candidate;
@@ -336,6 +467,34 @@ export function findClientDir(matterDir: string, maxUp = 4): string | undefined 
     if (CLIENT_CARDS.some((c) => existsSync(join(parent, c)))) return parent;
     dir = parent;
   }
+  // Karta nie je — skús vzor z konfigu kancelárie. Poradie je dôležité:
+  // karta v priečinku je konkrétnejšia než vzor pre celý vault a musí vyhrať.
+  return findClientByPath(matterDir, maxUp);
+}
+
+/**
+ * Nájde priečinok klienta podľa `client_path` v `_kancelaria/okf.config`.
+ * Koreňom je rodič `_kancelaria/`, teda koreň vaultu.
+ *
+ * Bez tohto by v cudzom vaulte klientská úroveň nevznikla vôbec — a s ňou by
+ * zmizli AML subjekty **aj z dosahu brány úniku**, ktorá `readScope` používa.
+ * Tichý dôsledok chýbajúcej karty by teda nebol nepohodlie, ale slepá brána.
+ */
+function findClientByPath(matterDir: string, maxUp: number): string | undefined {
+  const officeDir = findOfficeDir(matterDir);
+  if (!officeDir) return undefined;
+  const pattern = readClientPath(officeDir);
+  if (!pattern) return undefined;
+
+  const root = dirname(officeDir);
+  let dir = resolve(matterDir);
+  for (let i = 0; i < maxUp; i++) {
+    const parent = dirname(dir);
+    if (parent === dir) return undefined;
+    const rel = relative(root, parent);
+    if (rel !== "" && !rel.startsWith("..") && matchesClientPath(rel, pattern)) return parent;
+    dir = parent;
+  }
   return undefined;
 }
 
@@ -344,7 +503,9 @@ export function readScope(matterDir: string): Scope {
   const clientDir = findClientDir(matterDir);
   const client = clientDir ? readStore(clientDir) : undefined;
   const clientRecords = client?.records ?? [];
-  const officeDir = findOfficeDir(matterDir);
+  // Kancelária ako „spis" nesmie čítať samu seba dvakrát.
+  const najdena = findOfficeDir(matterDir);
+  const officeDir = najdena && resolve(najdena) !== resolve(matterDir) ? najdena : undefined;
   const office = officeDir ? readStore(officeDir) : undefined;
   const officeRecords = office?.records ?? [];
   return {
@@ -356,4 +517,11 @@ export function readScope(matterDir: string): Scope {
     records: [...matter.records, ...clientRecords, ...officeRecords],
     problems: [...matter.problems, ...(client?.problems ?? []), ...(office?.problems ?? [])],
   };
+}
+
+
+/** Rovnaké pravidlo ako v projekcii: markdown odkaz, alebo holý identifikátor. */
+function odkazNaZaznam(id: string, href: LinkResolver): string {
+  const cesta = href(id);
+  return cesta ? `[${id}](${cesta})` : id;
 }

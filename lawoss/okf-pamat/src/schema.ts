@@ -60,7 +60,8 @@ export const LAYER_OF: Record<RecordType, Layer> = {
   authority: "L3",
 };
 
-export type FieldKind = "string" | "number" | "list";
+/** `map` = ploché mapovanie, `maplist` = zoznam plochých mapovaní (OKF `sources`, `verified`). */
+export type FieldKind = "string" | "number" | "list" | "map" | "maplist";
 
 /** Stav záznamu. `superseded` = prekonaný novším, `void` = zrušený ako omyl. */
 export const STATUS = ["active", "superseded", "void"] as const;
@@ -174,6 +175,14 @@ export interface FieldDef {
   readonly required: boolean;
   /** Údaj, ktorý sa maskuje vo výstupoch pre človeka a nesmie do `popis`. */
   readonly sensitive?: boolean;
+  /** Staršie názvy toho istého kľúča. Čítajú sa, nezapisujú. */
+  readonly aliases?: readonly string[];
+  /**
+   * Výpočet povolených hodnôt. Hodnota mimo neho je varovanie `UNKNOWN_VALUE`.
+   * Väzba je tu, v tabuľke, nie v ručnom zozname vo validácii — nové pole
+   * s výpočtom je tým pádom strážené samo od seba.
+   */
+  readonly values?: readonly string[];
   /** Hodnota sa hľadá v právnych prameňoch ako možný únik z L2. */
   readonly needle?: NeedleStrength;
 }
@@ -184,14 +193,18 @@ export const FIELDS: readonly FieldDef[] = [
   { canonical: "id", cz: "id", sk: "id", kind: "string", required: true },
   { canonical: "type", cz: "typ", sk: "typ", kind: "string", required: true },
   { canonical: "title", cz: "název", sk: "názov", kind: "string", required: true },
-  { canonical: "summary", cz: "popis", sk: "popis", kind: "string", required: true },
+  { canonical: "description", cz: "popis", sk: "popis", kind: "string", required: true,
+    aliases: ["summary"] },
   { canonical: "layer", cz: "vrstva", sk: "vrstva", kind: "string", required: true },
   { canonical: "jurisdiction", cz: "jurisdikce", sk: "jurisdikcia", kind: "string", required: true },
-  { canonical: "status", cz: "stav", sk: "stav", kind: "string", required: true },
+  { canonical: "status", cz: "stav", sk: "stav", kind: "string", required: true,
+    values: STATUS },
   { canonical: "created", cz: "vznik", sk: "vznik", kind: "string", required: true },
   { canonical: "updated", cz: "změna", sk: "zmena", kind: "string", required: true },
-  { canonical: "sources", cz: "zdroje", sk: "zdroje", kind: "list", required: false },
+  { canonical: "sources", cz: "zdroje", sk: "zdroje", kind: "maplist", required: false },
   { canonical: "related", cz: "souvisí", sk: "súvisí", kind: "list", required: false },
+  { canonical: "tags", cz: "štítky", sk: "štítky", kind: "list", required: false },
+  { canonical: "truth_digest", cz: "otisk pravdy", sk: "odtlačok pravdy", kind: "string", required: false },
 
   // --- spis ---
   { canonical: "deadlines", cz: "lhůty", sk: "lehoty", kind: "list", required: false },
@@ -201,8 +214,10 @@ export const FIELDS: readonly FieldDef[] = [
   { canonical: "area", cz: "oblast práva", sk: "oblasť práva", kind: "list", required: false },
 
   // --- identifikácia subjektu (zoznam údajov § 5 zák. č. 253/2008 Sb.) ---
-  { canonical: "role", cz: "role", sk: "rola", kind: "string", required: false },
-  { canonical: "person_type", cz: "typ osoby", sk: "typ osoby", kind: "string", required: false },
+  { canonical: "role", cz: "role", sk: "rola", kind: "string", required: false,
+    values: ROLES },
+  { canonical: "person_type", cz: "typ osoby", sk: "typ osoby", kind: "string", required: false,
+    values: PERSON_KINDS },
   { canonical: "registry_id", cz: "IČO", sk: "IČO", kind: "string", required: false, needle: "hard" },
   { canonical: "birth_date", cz: "datum narození", sk: "dátum narodenia", kind: "string", required: false, sensitive: true, needle: "hard" },
   { canonical: "birth_number", cz: "rodné číslo", sk: "rodné číslo", kind: "string", required: false, sensitive: true, needle: "hard" },
@@ -228,13 +243,16 @@ export const FIELDS: readonly FieldDef[] = [
   // --- prevereníe (úkon v čase) ---
   { canonical: "subject_ref", cz: "subjekt", sk: "subjekt", kind: "string", required: false },
   { canonical: "check_date", cz: "datum prověření", sk: "dátum preverenia", kind: "string", required: false },
-  { canonical: "mode", cz: "režim", sk: "režim", kind: "string", required: false },
+  { canonical: "mode", cz: "režim", sk: "režim", kind: "string", required: false,
+    values: SCREENING_MODES },
   { canonical: "registries", cz: "registry", sk: "registre", kind: "list", required: false },
   { canonical: "pep_result", cz: "výsledek PEP", sk: "výsledok PEP", kind: "string", required: false },
   { canonical: "sanctions_result", cz: "výsledek sankcí", sk: "výsledok sankcií", kind: "string", required: false },
   { canonical: "funds_origin", cz: "původ prostředků", sk: "pôvod prostriedkov", kind: "string", required: false },
-  { canonical: "risk", cz: "riziko", sk: "riziko", kind: "string", required: false },
-  { canonical: "conclusion", cz: "závěr", sk: "záver", kind: "string", required: false },
+  { canonical: "risk", cz: "riziko", sk: "riziko", kind: "string", required: false,
+    values: RISK },
+  { canonical: "conclusion", cz: "závěr", sk: "záver", kind: "string", required: false,
+    values: CONCLUSION },
   { canonical: "valid_until", cz: "platnost do", sk: "platnosť do", kind: "string", required: false },
 
   // --- tvrdenie (claim) ---
@@ -245,23 +263,30 @@ export const FIELDS: readonly FieldDef[] = [
   { canonical: "burden_of_proof", cz: "důkazní břemeno", sk: "dôkazné bremeno", kind: "string", required: false },
   { canonical: "supporting_evidence", cz: "podporující důkazy", sk: "podporujúce dôkazy", kind: "list", required: false },
   { canonical: "contradicting_evidence", cz: "vyvracející důkazy", sk: "vyvracajúce dôkazy", kind: "list", required: false },
-  { canonical: "proof_status", cz: "stav prokázání", sk: "stav preukázania", kind: "string", required: false },
-  { canonical: "credibility", cz: "věrohodnost", sk: "vierohodnosť", kind: "string", required: false },
+  { canonical: "proof_status", cz: "stav prokázání", sk: "stav preukázania", kind: "string", required: false,
+    values: PROOF_STATUS },
+  { canonical: "credibility", cz: "věrohodnost", sk: "vierohodnosť", kind: "string", required: false,
+    values: CONFIDENCE },
 
   // --- dôkaz (evidence) ---
-  { canonical: "evidence_kind", cz: "druh důkazu", sk: "druh dôkazu", kind: "string", required: false },
+  { canonical: "evidence_kind", cz: "druh důkazu", sk: "druh dôkazu", kind: "string", required: false,
+    values: EVIDENCE_KINDS },
   { canonical: "origin_date", cz: "datum vzniku", sk: "dátum vzniku", kind: "string", required: false },
   { canonical: "author", cz: "autor", sk: "autor", kind: "string", required: false },
   { canonical: "formal_requirements", cz: "formální náležitosti", sk: "formálne náležitosti", kind: "string", required: false },
   { canonical: "proves", cz: "k prokázání", sk: "na preukázanie", kind: "list", required: false },
-  { canonical: "evidence_strength", cz: "síla důkazu", sk: "sila dôkazu", kind: "string", required: false },
-  { canonical: "reliability", cz: "spolehlivost", sk: "spoľahlivosť", kind: "string", required: false },
+  { canonical: "evidence_strength", cz: "síla důkazu", sk: "sila dôkazu", kind: "string", required: false,
+    values: EVIDENCE_STRENGTH },
+  { canonical: "reliability", cz: "spolehlivost", sk: "spoľahlivosť", kind: "string", required: false,
+    values: CONFIDENCE },
   { canonical: "objection", cz: "námitka", sk: "námietka", kind: "string", required: false },
-  { canonical: "procedural_status", cz: "procesní stav", sk: "procesný stav", kind: "string", required: false },
+  { canonical: "procedural_status", cz: "procesní stav", sk: "procesný stav", kind: "string", required: false,
+    values: PROCEDURAL_STATUS },
 
   // --- právny prameň (authority): časová platnosť a stopa overenia ---
   { canonical: "effective_from", cz: "účinnost od", sk: "účinnosť od", kind: "string", required: false },
   { canonical: "effective_to", cz: "účinnost do", sk: "účinnosť do", kind: "string", required: false },
+  { canonical: "verified", cz: "ověření", sk: "overenia", kind: "maplist", required: false },
   { canonical: "verified_at", cz: "ověřeno dne", sk: "overené dňa", kind: "string", required: false },
   { canonical: "verified_against", cz: "ověřeno proti", sk: "overené proti", kind: "string", required: false },
 
@@ -276,7 +301,8 @@ export const FIELDS: readonly FieldDef[] = [
   { canonical: "depends_on", cz: "závisí na", sk: "závisí od", kind: "list", required: false },
   { canonical: "acceptance", cz: "akceptační kritéria", sk: "akceptačné kritériá", kind: "list", required: false },
   { canonical: "priority", cz: "priorita", sk: "priorita", kind: "string", required: false },
-  { canonical: "state", cz: "stav úkolu", sk: "stav úlohy", kind: "string", required: false },
+  { canonical: "state", cz: "stav úkolu", sk: "stav úlohy", kind: "string", required: false,
+    values: TASK_STATES },
   { canonical: "due", cz: "termín", sk: "termín", kind: "string", required: false },
 ];
 
@@ -470,7 +496,7 @@ export function fieldLabel(canonical: string, j: Jurisdiction): string {
 
 /** Je to kľúč, ktorý schéma pozná? Kľúče sú kanonické, teda bez prekladu. */
 export function canonicalField(key: string): string | undefined {
-  return FIELDS.find((x) => x.canonical === key)?.canonical;
+  return FIELDS.find((x) => x.canonical === key || x.aliases?.includes(key))?.canonical;
 }
 
 export function typeLabel(t: RecordType, j: Jurisdiction): string {
@@ -484,3 +510,35 @@ export function isRecordType(value: string): value is RecordType {
 export function isJurisdiction(value: string): value is Jurisdiction {
   return value === "cz" || value === "sk";
 }
+
+
+/**
+ * Odtlačok Pravdy — detekcia zmeny mimo nástroja.
+ *
+ * **Nie je to kryptografia a nemá ňou byť.** Nechráni pred niekým, kto chce
+ * stopu zahladiť — kto prepíše Pravdu, prepíše aj odtlačok. Chráni pred tým
+ * druhým prípadom: advokát opraví Pravdu v Obsidiane, na riadok Histórie
+ * zabudne, a brána atomicity to nemá ako vidieť, lebo cez ňu ten zápis nešiel.
+ *
+ * FNV-1a, nie `node:crypto` — validácia musí zostať spustiteľná v prehliadači.
+ */
+export function truthDigest(truth: string): string {
+  let h = 0x811c9dc5;
+  const s = truth.trim().replace(/\r\n/g, "\n");
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
+
+/**
+ * Verzia Open Knowledge Format, podľa ktorej sa priečinok `memory/` píše.
+ *
+ * Bundle je práve `memory/`: adresár konceptov, kde `index.md` a `log.md` sú
+ * rezervované názvy a všetko ostatné je koncept s povinným poľom `type`.
+ * `BRAIN.md` a `_STATUS.md` ležia mimo neho — sú to ľudské rozhrania spisu,
+ * nie koncepty.
+ */
+export const OKF_VERSION = "0.2";

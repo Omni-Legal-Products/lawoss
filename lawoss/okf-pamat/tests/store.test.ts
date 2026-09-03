@@ -18,7 +18,7 @@ function spis(j: "cz" | "sk" = "cz"): string {
 
 function rec(over: Partial<OkfRecord>): OkfRecord {
   return {
-    okf: 1, id: "R-001", type: "decision", title: "Rozhodnuti", summary: "s",
+    okf: 1, id: "R-001", type: "decision", title: "Rozhodnuti", description: "s",
     layer: "L2", jurisdiction: "cz", status: "active",
     created: "2026-08-29", updated: "2026-08-29", truth: "p", timeline: [],
     ...over,
@@ -43,10 +43,10 @@ test("nacita vsetky zaznamy zo spisu", () => {
   assert.equal(s.jurisdiction, "cz");
 });
 
-test("INDEX.md sa nepocita ako zaznam", () => {
+test("index.md sa nepocita ako zaznam", () => {
   const dir = spis();
   put(dir, rec({}));
-  writeFileSync(join(dir, MEMORY_DIR, "INDEX.md"), "# index\n");
+  writeFileSync(join(dir, MEMORY_DIR, "index.md"), "# index\n");
   assert.equal(readStore(dir).records.length, 1);
 });
 
@@ -71,12 +71,12 @@ test("zapis do L1 so schvalenim prejde", () => {
   assert.equal(readStore(dir).records.length, 1);
 });
 
-test("INDEX.md nesie riadok na kazdy zaznam s popisom", () => {
+test("index.md nesie riadok na kazdy zaznam s popisom", () => {
   const dir = spis();
-  put(dir, rec({ id: "R-001", summary: "prvy" }));
-  put(dir, rec({ id: "O-001", type: "question", summary: "druhy" }));
+  put(dir, rec({ id: "R-001", description: "prvy" }));
+  put(dir, rec({ id: "O-001", type: "question", description: "druhy" }));
   writeIndex(dir);
-  const idx = readFileSync(join(dir, MEMORY_DIR, "INDEX.md"), "utf8");
+  const idx = readFileSync(join(dir, MEMORY_DIR, "index.md"), "utf8");
   assert.match(idx, /R-001/);
   assert.match(idx, /prvy/);
   assert.match(idx, /druhy/);

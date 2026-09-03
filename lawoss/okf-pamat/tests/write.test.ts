@@ -9,7 +9,7 @@ function rec(over: Partial<OkfRecord> = {}): OkfRecord {
     id: "R-001",
     type: "decision",
     title: "Rozhodnutie",
-    summary: "popis",
+    description: "popis",
     layer: "L2",
     jurisdiction: "sk",
     status: "active",
@@ -63,27 +63,27 @@ test("zapis bez dovodu je odmietnuty", () => {
 });
 
 test("agent smie zapisat do L2 bez schvalenia", () => {
-  const d = planWrite(rec(), rec({ summary: "iny popis" }), "spresnenie");
+  const d = planWrite(rec(), rec({ description: "iny popis" }), "spresnenie");
   assert.equal(d.requiresApproval, false);
   assert.doesNotThrow(() => authorize(d, undefined));
 });
 
 test("zapis do L1 bez schvalenia cloveka je odmietnuty", () => {
   const before = rec({ id: "P-001", type: "lesson", layer: "L1" });
-  const d = planWrite(before, rec({ id: "P-001", type: "lesson", layer: "L1", summary: "iny" }), "povysenie");
+  const d = planWrite(before, rec({ id: "P-001", type: "lesson", layer: "L1", description: "iny" }), "povysenie");
   assert.equal(d.requiresApproval, true);
   assert.throws(() => authorize(d, undefined), ApprovalRequiredError);
 });
 
 test("zapis do L3 bez schvalenia cloveka je odmietnuty", () => {
   const before = rec({ id: "J-001", type: "authority", layer: "L3" });
-  const d = planWrite(before, rec({ id: "J-001", type: "authority", layer: "L3", summary: "iny" }), "x");
+  const d = planWrite(before, rec({ id: "J-001", type: "authority", layer: "L3", description: "iny" }), "x");
   assert.throws(() => authorize(d, undefined), ApprovalRequiredError);
 });
 
 test("zapis do L1 so schvalenim prejde", () => {
   const before = rec({ id: "P-001", type: "lesson", layer: "L1" });
-  const d = planWrite(before, rec({ id: "P-001", type: "lesson", layer: "L1", summary: "iny" }), "x");
+  const d = planWrite(before, rec({ id: "P-001", type: "lesson", layer: "L1", description: "iny" }), "x");
   assert.doesNotThrow(() => authorize(d, SCHVALENIE));
 });
 

@@ -20,7 +20,7 @@ function zaznam(over: Partial<OkfRecord> = {}): OkfRecord {
   return {
     ...newRecord({
       id: "D-001", type: "decision", jurisdiction: "cz",
-      title: "Rozhodnutie", summary: "s",
+      title: "Rozhodnutie", description: "s",
       created: "2026-09-01", updated: "2026-09-01", truth: "pôvodná pravda",
       timeline: [{ date: "2026-09-01", text: "založené" }],
     }),
@@ -53,11 +53,11 @@ test("projekcia ukazuje typ v jazyku pouzivatela, nie kanonicky", () => {
   assert.doesNotMatch(renderStatus(s, [zaznam()], "cz"), /\| decision \|/);
 });
 
-test("INDEX.md ukazuje typ v jazyku pouzivatela", () => {
+test("index.md ukazuje typ v jazyku pouzivatela", () => {
   const dir = spis("sk");
   writeFileSync(join(dir, MEMORY_DIR, "D-001.md"), serializeRecord(zaznam({ jurisdiction: "sk" })));
   writeIndex(dir);
-  const idx = readFileSync(join(dir, MEMORY_DIR, "INDEX.md"), "utf8");
+  const idx = readFileSync(join(dir, MEMORY_DIR, "index.md"), "utf8");
   assert.match(idx, /rozhodnutie/);
   assert.doesNotMatch(idx, /\| decision \|/);
 });
@@ -97,7 +97,7 @@ test("s bumpom updated zmena prejde", () => {
 
 test("zmena, ktora obsah nemeni, bump nevyzaduje", () => {
   const before = zaznam();
-  assert.doesNotThrow(() => planWrite(before, zaznam({ summary: "presnejší popis" }), "spresnenie"));
+  assert.doesNotThrow(() => planWrite(before, zaznam({ description: "presnejší popis" }), "spresnenie"));
 });
 
 test("zalozenie zaznamu bump nevyzaduje", () => {
