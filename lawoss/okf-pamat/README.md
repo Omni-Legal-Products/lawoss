@@ -115,6 +115,8 @@ Rodné číslo, číslo dokladu, trvalý pobyt a dátum narodenia sú v tabuľke
 | Kód | Kedy | Nález |
 |---|---|---|
 | `SENSITIVE_IN_SUMMARY` | rodné číslo alebo iný citlivý údaj v `popis`, ktorý ide do `index.md` a projekcie | **chyba** |
+| `CITATION_UNRESOLVED` | `[^id]` v texte bez položky v `sources` — veta vyzerá podložene a nie je | **chyba** |
+| `SOURCE_ID_DUPLICATE` | to isté `id` prameňa dvakrát | **chyba** |
 | `AML_MISSING` | subjekt v role `klient` nemá žiadne preverenie | varovanie |
 | `AML_EXPIRED` | `platnost_do` preverenia je v minulosti (§ 9) | varovanie |
 | `AML_INCOMPLETE` | FO, PO alebo podnikateľ nemá kompletnú sadu podľa predpisu svojej jurisdikcie | varovanie |
@@ -236,6 +238,8 @@ prečíta ktorýkoľvek nástroj, ktorý OKF pozná, bez nášho SDK.
 - koreňový `index.md` nesie `okf_version`
 - odkazy sú **markdown cesty**, nie `[[…]]`
 - neznáme kľúče vo frontmatteri sa **zachovajú**, dokument sa neodmieta
+- `sources[]` so stabilným `id` a **atribúcia tvrdenia** poznámkou `[^id]`;
+  `verified[]` ako zoznam overení
 
 Dve odchýlky sú vedomé a sú v [`OKF-ZHODA.md`](OKF-ZHODA.md) aj s dôvodmi:
 rozbitý odkaz a neznámy `type` u nás nie sú tolerované, lebo v spise nejde

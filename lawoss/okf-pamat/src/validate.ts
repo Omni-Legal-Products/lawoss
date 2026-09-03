@@ -457,7 +457,7 @@ export function validateStore(
       });
     }
 
-    if (!r.verified_at && !r.verified_against) {
+    if (!r.verified_at && !r.verified_against && (r.verified ?? []).length === 0) {
       findings.push({
         severity: "warning",
         code: "AUTHORITY_UNVERIFIED",
@@ -469,13 +469,14 @@ export function validateStore(
     }
 
     for (const zdroj of r.sources ?? []) {
-      if (!/\bSb\.|\bZ\.\s?z\./.test(zdroj)) continue; // judikát sa ako predpis nekontroluje
-      if (/č\.\s?\d+\s?\/\s?\d{4}/.test(zdroj)) continue;
+      const text = zdroj.title ?? "";
+      if (!/\bSb\.|\bZ\.\s?z\./.test(text)) continue; // judikát sa ako predpis nekontroluje
+      if (/č\.\s?\d+\s?\/\s?\d{4}/.test(text)) continue;
       findings.push({
         severity: "warning",
         code: "CITATION_INCOMPLETE",
         recordId: r.id,
-        message: `Prameň ${r.id}: citácia „${zdroj}" odkazuje na predpis, ale neuvádza jeho číslo a rok.`,
+        message: `Prameň ${r.id}: citácia „${text}" odkazuje na predpis, ale neuvádza jeho číslo a rok.`,
       });
     }
   }
@@ -491,6 +492,36 @@ export function validateStore(
         message:
           `Preverenie ${r.id} platilo do ${r.valid_until} a je po lehote. ` +
           `§ 9 AML zákona vyžaduje priebežnú kontrolu — zopakuj a založ nový záznam.`,
+      });
+    }
+  }
+
+  // Atribúcia tvrdenia podľa OKF: `[^id]` v texte je kľúč do `sources[].id`.
+  // Poznámka bez prameňa je presne tá chyba, kvôli ktorej vznikol zákaz
+  // neoverených prameňov — veta vyzerá podložene a nie je. Preto chyba.
+  for (const r of records) {
+    const ids = new Set((r.sources ?? []).map((z) => z.id).filter((x): x is string => !!x));
+    const text = [r.truth, ...r.timeline.map((e) => e.text)].join("\n");
+    const pouzite = new Set([...text.matchAll(/\[\^([^\]\s]+)\]/g)].map((m) => m[1] ?? ""));
+    for (const label of pouzite) {
+      if (ids.has(label)) continue;
+      findings.push({
+        severity: "error",
+        code: "CITATION_UNRESOLVED",
+        recordId: r.id,
+        message:
+          `Záznam ${r.id} sa odvoláva na prameň [^${label}], ktorý v \`sources\` nemá ` +
+          `položku s týmto id. Tvrdenie vyzerá podložene a nie je.`,
+      });
+    }
+    // Duplicitné id by tichým výberom prvého prepísalo atribúciu.
+    const vsetky = (r.sources ?? []).map((z) => z.id).filter((x): x is string => !!x);
+    for (const dup of vsetky.filter((x, i) => vsetky.indexOf(x) !== i)) {
+      findings.push({
+        severity: "error",
+        code: "SOURCE_ID_DUPLICATE",
+        recordId: r.id,
+        message: `Záznam ${r.id} má v \`sources\` id „${dup}" viackrát — poznámka pod čiarou by nevedela, na ktorý mieri.`,
       });
     }
   }

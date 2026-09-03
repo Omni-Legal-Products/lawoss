@@ -26,6 +26,32 @@ import {
  */
 export const HEADINGS = { truth: "Truth", timeline: "History" } as const;
 
+/** Skalár frontmatteru. */
+export type FmScalar = string | number;
+/** Ploché mapovanie — jeden prameň, jedno overenie. */
+export type FmMap = Record<string, FmScalar>;
+/**
+ * Hodnota frontmatteru. Presne tie tvary, ktoré Open Knowledge Format používa:
+ * skalár, zoznam skalárov, ploché mapovanie a zoznam plochých mapovaní.
+ * Nič hlbšie — hlbší tvar je chyba, nie ticho preparsovaný údaj.
+ */
+export type FmValue = FmScalar | string[] | FmMap | FmMap[];
+
+/** Prameň podľa OKF v0.2 — `id` je kľúč pre poznámku pod čiarou `[^id]`. */
+export interface Source {
+  id?: string;
+  title?: string;
+  resource?: string;
+  author?: string;
+  last_modified?: string;
+}
+
+/** Overenie podľa OKF v0.2. Prameň sa overuje opakovane, preto zoznam. */
+export interface Verification {
+  by: string;
+  at: string;
+}
+
 export interface TimelineEntry {
   readonly date: string;
   readonly text: string;
@@ -46,8 +72,11 @@ export interface OkfRecord {
   created: string;
   updated: string;
 
+  // štruktúrované podľa OKF v0.2
+  sources?: Source[];
+  verified?: Verification[];
+
   // zoznamy
-  sources?: string[];
   related?: string[];
   tags?: string[];
   deadlines?: string[];
@@ -142,7 +171,7 @@ export interface OkfRecord {
    * a s ním **aj z jehiel detektora únikov**. Tichým dôsledkom pridania tagu
    * teda nebolo nepohodlie, ale slepá brána.
    */
-  extra?: Record<string, string | number | string[]>;
+  extra?: Record<string, FmValue>;
 }
 
 const FM_DELIM = "---";
@@ -210,15 +239,33 @@ function splitList(inner: string): string[] {
   return out;
 }
 
-function parseScalar(raw: string): string | number | string[] {
+function parseScalar(raw: string): FmScalar | string[] | FmMap {
   const v = raw.trim();
   if (v.startsWith("[") && v.endsWith("]")) {
     const inner = v.slice(1, -1).trim();
     if (inner === "") return [];
     return splitList(inner);
   }
+  if (v.startsWith("{") && v.endsWith("}")) return parseFlowMap(v.slice(1, -1));
   if (/^-?\d+(\.\d+)?$/.test(v)) return Number(v);
   return unquote(v);
+}
+
+/** `{ by: x, at: y }` — tvar, ktorým OKF zapisuje `generated` a `verified`. */
+function parseFlowMap(inner: string): FmMap {
+  const out: FmMap = {};
+  if (inner.trim() === "") return out;
+  for (const part of splitList(inner)) {
+    const idx = part.indexOf(":");
+    if (idx === -1) throw new Error(`Neplatná položka mapovania: ${part}`);
+    const key = part.slice(0, idx).trim();
+    const val = parseScalar(part.slice(idx + 1));
+    if (Array.isArray(val) || typeof val === "object") {
+      throw new Error(`Mapovanie v mapovaní sa nepodporuje: ${key}`);
+    }
+    out[key] = val;
+  }
+  return out;
 }
 
 function unquote(v: string): string {
@@ -228,16 +275,138 @@ function unquote(v: string): string {
   return v;
 }
 
-export function parseFrontmatter(fm: string): Map<string, string | number | string[]> {
-  const out = new Map<string, string | number | string[]>();
-  for (const line of fm.split("\n")) {
-    if (line.trim() === "" || line.trimStart().startsWith("#")) continue;
+const indentOf = (line: string): number => line.length - line.trimStart().length;
+
+/**
+ * Riadkový čítač frontmatteru rozšírený o bloky, ktoré používa OKF:
+ *
+ *   sources:            verified:            tags:
+ *     - id: x             - by: a              - klient
+ *       title: y            at: b              - vozidlo
+ *
+ * Nie je to YAML. Je to presne tento tvar a nič iné — čokoľvek hlbšie alebo
+ * inak odsadené skončí chybou s číslom riadku. V právnom dokumente je tichý
+ * omyl v citácii horší než odmietnutý súbor.
+ */
+export function parseFrontmatter(fm: string): Map<string, FmValue> {
+  const out = new Map<string, FmValue>();
+  const lines = fm.split("\n");
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i] ?? "";
+    if (line.trim() === "" || line.trimStart().startsWith("#")) { i++; continue; }
+    if (indentOf(line) !== 0) throw new Error(`Riadok ${i + 1}: neočakávané odsadenie: ${line}`);
     const idx = line.indexOf(":");
-    if (idx === -1) throw new Error(`Neplatný riadok frontmatteru: ${line}`);
+    if (idx === -1) throw new Error(`Riadok ${i + 1}: neplatný riadok frontmatteru: ${line}`);
     const key = line.slice(0, idx).trim();
-    out.set(key, parseScalar(line.slice(idx + 1)));
+    const rest = line.slice(idx + 1);
+
+    if (rest.trim() !== "") {
+      out.set(key, parseScalar(rest));
+      i++;
+      continue;
+    }
+
+    // Prázdna hodnota → blok na ďalších riadkoch.
+    const block: string[] = [];
+    let j = i + 1;
+    while (j < lines.length) {
+      const l = lines[j] ?? "";
+      if (l.trim() === "") { j++; continue; }
+      if (indentOf(l) === 0) break;
+      block.push(l);
+      j++;
+    }
+    if (block.length === 0) {
+      out.set(key, "");
+    } else {
+      out.set(key, parseBlock(block, i + 2));
+    }
+    i = j;
   }
   return out;
+}
+
+function parseBlock(block: string[], firstLineNo: number): string[] | FmMap | FmMap[] {
+  const base = indentOf(block[0] ?? "");
+  const first = (block[0] ?? "").trim();
+
+  if (!first.startsWith("- ")) {
+    // ploché mapovanie
+    const map: FmMap = {};
+    block.forEach((l, k) => {
+      if (indentOf(l) !== base) {
+        throw new Error(`Riadok ${firstLineNo + k}: nerovnaké odsadenie v mapovaní: ${l}`);
+      }
+      const idx = l.indexOf(":");
+      if (idx === -1) throw new Error(`Riadok ${firstLineNo + k}: chýba dvojbodka: ${l}`);
+      if (l.slice(idx + 1).trim() === "") {
+        throw new Error(`Riadok ${firstLineNo + k}: vnorený blok sa nepodporuje: ${l}`);
+      }
+      const v = parseScalar(l.slice(idx + 1));
+      if (typeof v === "object") throw new Error(`Riadok ${firstLineNo + k}: vnorené mapovanie sa nepodporuje`);
+      map[l.slice(0, idx).trim()] = v;
+    });
+    return map;
+  }
+
+  // zoznam: buď skaláre, alebo ploché mapovania — nie zmes
+  const items: (FmScalar | FmMap)[] = [];
+  let cur: FmMap | undefined;
+  // Hĺbka polí položky sa určí prvým pokračovacím riadkom. Čokoľvek hlbšie
+  // je vnorený blok — a ten sa neprečíta „nejako", ale odmietne.
+  let fieldIndent: number | undefined;
+  block.forEach((l, k) => {
+    const ind = indentOf(l);
+    const t = l.trim();
+    if (ind === base) {
+      fieldIndent = undefined;
+      if (!t.startsWith("- ")) throw new Error(`Riadok ${firstLineNo + k}: očakávaná položka „- ": ${l}`);
+      const body = t.slice(2).trim();
+      const idx = body.indexOf(":");
+      if (idx === -1 || body.startsWith('"') || body.startsWith("'") || body.startsWith("[") || body.startsWith("{")) {
+        const v = parseScalar(body);
+        if (typeof v === "object" && !Array.isArray(v)) { cur = v; items.push(cur); return; }
+        if (Array.isArray(v)) throw new Error(`Riadok ${firstLineNo + k}: zoznam v zozname sa nepodporuje`);
+        cur = undefined;
+        items.push(v);
+        return;
+      }
+      if (body.slice(idx + 1).trim() === "") {
+        throw new Error(`Riadok ${firstLineNo + k}: vnorený blok v položke sa nepodporuje: ${l}`);
+      }
+      cur = {};
+      const v = parseScalar(body.slice(idx + 1));
+      if (typeof v === "object") throw new Error(`Riadok ${firstLineNo + k}: vnorená hodnota sa nepodporuje`);
+      cur[body.slice(0, idx).trim()] = v;
+      items.push(cur);
+      return;
+    }
+    if (ind > base) {
+      if (!cur) throw new Error(`Riadok ${firstLineNo + k}: odsadený riadok bez položky: ${l}`);
+      fieldIndent ??= ind;
+      if (ind !== fieldIndent) {
+        throw new Error(`Riadok ${firstLineNo + k}: hlbšie vnorenie v položke sa nepodporuje: ${l}`);
+      }
+      const idx = t.indexOf(":");
+      if (idx === -1) throw new Error(`Riadok ${firstLineNo + k}: chýba dvojbodka: ${l}`);
+      if (t.slice(idx + 1).trim() === "") {
+        throw new Error(`Riadok ${firstLineNo + k}: vnorený blok v položke sa nepodporuje: ${l}`);
+      }
+      const v = parseScalar(t.slice(idx + 1));
+      if (typeof v === "object") throw new Error(`Riadok ${firstLineNo + k}: vnorená hodnota sa nepodporuje`);
+      cur[t.slice(0, idx).trim()] = v;
+      return;
+    }
+    throw new Error(`Riadok ${firstLineNo + k}: neočakávané odsadenie: ${l}`);
+  });
+
+  const maps = items.filter((x) => typeof x === "object");
+  if (maps.length === 0) return items.map((x) => String(x));
+  if (maps.length !== items.length) {
+    throw new Error(`Riadok ${firstLineNo}: zoznam mieša skaláre a mapovania`);
+  }
+  return items as FmMap[];
 }
 
 /**
@@ -282,8 +451,8 @@ export function parseRecord(text: string): OkfRecord {
   const raw = parseFrontmatter(fm);
   const j = readJurisdiction(raw);
 
-  const canon = new Map<string, string | number | string[]>();
-  const extra: Record<string, string | number | string[]> = {};
+  const canon = new Map<string, FmValue>();
+  const extra: Record<string, FmValue> = {};
   for (const [k, v] of raw) {
     const kanon = canonicalField(k);
     if (kanon === undefined) {
@@ -328,38 +497,91 @@ export function parseRecord(text: string): OkfRecord {
 
   // Nepovinné polia sa berú z tabuľky, nie z ručného zoznamu — inak by nové
   // pole ticho vypadlo pri čítaní a nikto by si toho nevšimol.
-  const target = rec as unknown as Record<string, string | string[]>;
+  const target = rec as unknown as Record<string, FmValue>;
   for (const f of FIELDS) {
     if (CORE_FIELDS.has(f.canonical)) continue;
     const v = canon.get(f.canonical);
     if (v === undefined) continue;
-    target[f.canonical] = f.kind === "list" ? (Array.isArray(v) ? v : [String(v)]) : String(v);
+    target[f.canonical] = coerceField(f.kind, v, f.canonical);
   }
   if (Object.keys(extra).length > 0) rec.extra = extra;
   return rec;
 }
 
-function emit(v: string | number | string[]): string {
-  // Úvodzovka vnútri položky sa musí escapovať aj v zozname — inak sa
-  // hodnota pri čítaní predčasne uzavrie a zvyšok sa rozsype.
-  if (Array.isArray(v)) {
-    return `[${v.map((x) => `"${x.replace(/"/g, '\\"')}"`).join(", ")}]`;
+/**
+ * Prispôsobí prečítanú hodnotu druhu poľa. Staré tvary sa prijímajú:
+ * `sources: ["§ 129 o. s. ř."]` (zoznam reťazcov) sa stane zoznamom prameňov
+ * s `title`, aby staršie spisy bežali ďalej bez migrácie.
+ */
+export function coerceField(kind: string, v: FmValue, key: string): FmValue {
+  const isMap = (x: unknown): x is FmMap => typeof x === "object" && x !== null && !Array.isArray(x);
+  switch (kind) {
+    case "list":
+      return Array.isArray(v) ? (v as unknown[]).map((x) => (isMap(x) ? JSON.stringify(x) : String(x))) : [String(v)];
+    case "map":
+      if (isMap(v)) return stringifyMap(v);
+      throw new Error(`Pole ${key} má byť mapovanie`);
+    case "maplist": {
+      const items = Array.isArray(v) ? (v as unknown[]) : [v];
+      return items.map((x) => (isMap(x) ? stringifyMap(x) : { title: String(x) }));
+    }
+    default:
+      if (typeof v === "object") throw new Error(`Pole ${key} má byť jednoduchá hodnota`);
+      return String(v);
   }
+}
+
+function stringifyMap(m: FmMap): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, val] of Object.entries(m)) out[k] = String(val);
+  return out;
+}
+
+function emitScalar(v: FmScalar): string {
   if (typeof v === "number") return String(v);
-  return /[:#[\]"']/.test(v) ? `"${v.replace(/"/g, '\\"')}"` : v;
+  return /[:#[\]"'{}]/.test(v) ? `"${v.replace(/"/g, '\\"')}"` : v;
+}
+
+/**
+ * Zapíše hodnotu tak, aby ju prečítal späť `parseFrontmatter` — a ktorýkoľvek
+ * OKF konzument. Mapovania idú blokovo, lebo tak ich píše spec a tak sú
+ * čitateľné aj pre človeka v Obsidiane.
+ */
+function emitLines(key: string, v: FmValue): string[] {
+  if (Array.isArray(v)) {
+    if (v.length === 0) return [`${key}: []`];
+    if (typeof v[0] === "object") {
+      const out = [`${key}:`];
+      for (const m of v as FmMap[]) {
+        const ks = Object.keys(m);
+        ks.forEach((k, i) => out.push(`${i === 0 ? "  - " : "    "}${k}: ${emitScalar(m[k] ?? "")}`));
+        if (ks.length === 0) out.push("  - {}");
+      }
+      return out;
+    }
+    // Úvodzovka vnútri položky sa musí escapovať aj v zozname — inak sa
+    // hodnota pri čítaní predčasne uzavrie a zvyšok sa rozsype.
+    return [`${key}: [${(v as string[]).map((x) => `"${x.replace(/"/g, '\\"')}"`).join(", ")}]`];
+  }
+  if (typeof v === "object") {
+    const ks = Object.keys(v);
+    if (ks.length === 0) return [`${key}: {}`];
+    return [`${key}:`, ...ks.map((k) => `  ${k}: ${emitScalar(v[k] ?? "")}`)];
+  }
+  return [`${key}: ${emitScalar(v)}`];
 }
 
 export function serializeRecord(r: OkfRecord): string {
   const lines: string[] = [FM_DELIM];
-  const src = r as unknown as Record<string, string | number | string[] | undefined>;
+  const src = r as unknown as Record<string, FmValue | undefined>;
   for (const f of FIELDS) {
     const value = src[f.canonical];
     if (value === undefined) continue;
-    lines.push(`${f.canonical}: ${emit(value)}`);
+    lines.push(...emitLines(f.canonical, value));
   }
   // Cudzie kľúče idú na koniec frontmatteru, aby round-trip nič nestratil.
   for (const [k, v] of Object.entries(r.extra ?? {})) {
-    lines.push(`${k}: ${emit(v)}`);
+    lines.push(...emitLines(k, v));
   }
   lines.push(FM_DELIM, "");
   lines.push(`## ${HEADINGS.truth}`, "", r.truth, "");

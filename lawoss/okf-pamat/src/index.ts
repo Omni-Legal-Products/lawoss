@@ -21,8 +21,8 @@ export {
 } from "./schema.ts";
 
 export {
-  parseRecord, serializeRecord, HEADINGS,
-  type OkfRecord, type TimelineEntry,
+  parseRecord, serializeRecord, parseFrontmatter, HEADINGS,
+  type OkfRecord, type TimelineEntry, type Source, type Verification, type FmValue, type FmMap,
 } from "./record.ts";
 
 export {
@@ -45,13 +45,14 @@ export {
 } from "./store.ts";
 
 import { FIELDS, LAYER_OF, type Jurisdiction, type RecordType } from "./schema.ts";
+import { coerceField, type FmValue } from "./record.ts";
 
 /** Polia, ktoré newRecord priraďuje výslovne; zvyšok sa berie z tabuľky. */
 const CORE_INIT_FIELDS = new Set([
   "okf", "id", "type", "title", "description",
   "layer", "jurisdiction", "status", "created", "updated",
 ]);
-import type { OkfRecord, TimelineEntry } from "./record.ts";
+import type { OkfRecord, TimelineEntry, Source, Verification } from "./record.ts";
 
 export interface NewRecordInit {
   id: string;
@@ -65,7 +66,9 @@ export interface NewRecordInit {
   timeline: TimelineEntry[];
   status?: string;
 
-  sources?: string[];
+  /** Reťazec sa prijme ako `{ title }` — rovnako ako pri čítaní starých spisov. */
+  sources?: (string | Source)[];
+  verified?: Verification[];
   related?: string[];
   tags?: string[];
   deadlines?: string[];
@@ -167,12 +170,12 @@ export function newRecord(init: NewRecordInit): OkfRecord {
   };
   // Nepovinné polia sa kopírujú podľa tabuľky, nie podľa ručného zoznamu —
   // inak by nové pole ticho vypadlo pri zakladaní záznamu.
-  const src = init as unknown as Record<string, string | string[] | undefined>;
-  const dst = rec as unknown as Record<string, string | string[]>;
+  const src = init as unknown as Record<string, FmValue | undefined>;
+  const dst = rec as unknown as Record<string, FmValue>;
   for (const f of FIELDS) {
     if (CORE_INIT_FIELDS.has(f.canonical)) continue;
     const v = src[f.canonical];
-    if (v !== undefined) dst[f.canonical] = v;
+    if (v !== undefined) dst[f.canonical] = coerceField(f.kind, v, f.canonical);
   }
   return rec;
 }

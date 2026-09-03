@@ -60,7 +60,8 @@ export const LAYER_OF: Record<RecordType, Layer> = {
   authority: "L3",
 };
 
-export type FieldKind = "string" | "number" | "list";
+/** `map` = ploché mapovanie, `maplist` = zoznam plochých mapovaní (OKF `sources`, `verified`). */
+export type FieldKind = "string" | "number" | "list" | "map" | "maplist";
 
 /** Stav záznamu. `superseded` = prekonaný novším, `void` = zrušený ako omyl. */
 export const STATUS = ["active", "superseded", "void"] as const;
@@ -193,7 +194,7 @@ export const FIELDS: readonly FieldDef[] = [
   { canonical: "status", cz: "stav", sk: "stav", kind: "string", required: true },
   { canonical: "created", cz: "vznik", sk: "vznik", kind: "string", required: true },
   { canonical: "updated", cz: "změna", sk: "zmena", kind: "string", required: true },
-  { canonical: "sources", cz: "zdroje", sk: "zdroje", kind: "list", required: false },
+  { canonical: "sources", cz: "zdroje", sk: "zdroje", kind: "maplist", required: false },
   { canonical: "related", cz: "souvisí", sk: "súvisí", kind: "list", required: false },
   { canonical: "tags", cz: "štítky", sk: "štítky", kind: "list", required: false },
   { canonical: "truth_digest", cz: "otisk pravdy", sk: "odtlačok pravdy", kind: "string", required: false },
@@ -267,6 +268,7 @@ export const FIELDS: readonly FieldDef[] = [
   // --- právny prameň (authority): časová platnosť a stopa overenia ---
   { canonical: "effective_from", cz: "účinnost od", sk: "účinnosť od", kind: "string", required: false },
   { canonical: "effective_to", cz: "účinnost do", sk: "účinnosť do", kind: "string", required: false },
+  { canonical: "verified", cz: "ověření", sk: "overenia", kind: "maplist", required: false },
   { canonical: "verified_at", cz: "ověřeno dne", sk: "overené dňa", kind: "string", required: false },
   { canonical: "verified_against", cz: "ověřeno proti", sk: "overené proti", kind: "string", required: false },
 

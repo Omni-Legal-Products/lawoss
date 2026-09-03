@@ -213,7 +213,7 @@ test("vec 7 — pramen L3: overenie a ucinnost sa zapisu", () => {
 
   assert.equal(r.layer, "L3");
   assert.equal(r.verified_at, D);
-  assert.deepEqual(r.sources, ["zák. č. 182/2006 Sb., § 173"]);
+  assert.deepEqual(r.sources, [{ title: "zák. č. 182/2006 Sb., § 173" }]);
   assert.equal(runCli(["validate", dir]).code, 0);
 });
 

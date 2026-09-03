@@ -11,7 +11,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseFrontmatter } from "./record.ts";
+import { parseFrontmatter, type FmValue } from "./record.ts";
 import type { WriteDiff } from "./write.ts";
 
 export const CONFIG_FILE = "okf.config";
@@ -31,7 +31,7 @@ function text(v: unknown): string {
 
 function readConfig(
   officeDir: string | undefined,
-): Map<string, string | number | string[]> | undefined {
+): Map<string, FmValue> | undefined {
   if (!officeDir) return undefined;
   const path = join(officeDir, CONFIG_FILE);
   if (!existsSync(path)) return undefined;
@@ -71,7 +71,8 @@ export function readStandingAuthorization(
   const expiresAt = text(kv.get("expires_at"));
   const reason = text(kv.get("reason"));
   const raw = kv.get("scope");
-  const scope = Array.isArray(raw) ? raw : [];
+  // Vrstvy sú reťazce; mapovanie v `scope` je chyba zápisu, nie vrstva.
+  const scope = Array.isArray(raw) ? (raw as unknown[]).filter((x): x is string => typeof x === "string") : [];
 
   // Neúplné poverenie nie je poverenie. Bez mena sa nedá podpísať, bez konca
   // by platilo navždy a bez dôvodu sa po roku nedá posúdiť, či ešte platí.

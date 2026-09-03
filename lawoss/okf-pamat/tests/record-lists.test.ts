@@ -41,7 +41,8 @@ t
 ## History
 - 2026-09-01 — z
 `);
-  assert.deepEqual(r.sources, ["a", "b", "c"]);
+  // Zoznam reťazcov je starý tvar — číta sa ako pramene s `title`.
+  assert.deepEqual(r.sources, [{ title: "a" }, { title: "b" }, { title: "c" }]);
 });
 
 test("prazdny zoznam zostava prazdny", () => {
@@ -69,5 +70,5 @@ test("ciarka prezije aj v poli zdroje a oblast_prava", () => {
   });
   const zpet = parseRecord(serializeRecord(r));
   assert.deepEqual(zpet.area, ["Obchodní právo, korporace"]);
-  assert.deepEqual(zpet.sources, ["NS 29 Cdo 1/2020, bod 12"]);
+  assert.deepEqual(zpet.sources, [{ title: "NS 29 Cdo 1/2020, bod 12" }]);
 });
