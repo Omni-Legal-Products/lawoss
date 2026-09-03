@@ -19,7 +19,7 @@
 import type { OkfRecord } from "./record.ts";
 import {
   AML_REQUIRED, PERSON_KINDS, SENSITIVE_FIELDS, EVIDENCE_KINDS,
-  fieldLabel, needleFields, truthDigest,
+  fieldLabel, needleFields, truthDigest, FIELDS, EVENT_KINDS,
   type FieldDef, type Jurisdiction,
 } from "./schema.ts";
 
@@ -346,17 +346,36 @@ export function validateStore(
     if (f) findings.push(f);
   }
 
+  // Hodnoty mimo výpočet. Varovanie, nie chyba — OKF žiada dokument s neznámou
+  // hodnotou neodmietať. Ticho sa ale stratiť nesmie: neplatný `person_type`
+  // by inak bez slova vypol AML kontrolu pre ten subjekt. Našlo sa na dátach
+  // z ISIR — „natural" namiesto „natural_person" a nikto si nič nevšimol.
+  const povolene = (values: readonly string[]) => values.join(", ");
   for (const r of records) {
-    if (r.type !== "evidence" || r.evidence_kind === undefined) continue;
-    if (EVIDENCE_KINDS.some((k) => k === r.evidence_kind)) continue;
-    findings.push({
-      severity: "warning",
-      code: "UNKNOWN_EVIDENCE_KIND",
-      recordId: r.id,
-      message:
-        `Dôkaz ${r.id} má druh „${r.evidence_kind}", ktorý schéma nepozná. ` +
-        `Známe druhy: ${EVIDENCE_KINDS.join(", ")}.`,
-    });
+    const raw = r as unknown as Record<string, unknown>;
+    for (const f of FIELDS) {
+      const v = raw[f.canonical];
+      if (!f.values || typeof v !== "string" || v === "" || f.values.includes(v)) continue;
+      findings.push({
+        severity: "warning",
+        code: "UNKNOWN_VALUE",
+        recordId: r.id,
+        message:
+          `Pole ${f.canonical} záznamu ${r.id} má hodnotu „${v}", ktorú schéma nepozná. ` +
+          `Kontroly viazané na toto pole sa nevykonajú. Povolené: ${povolene(f.values)}.`,
+      });
+    }
+    for (const e of r.timeline) {
+      if (!e.kind || (EVENT_KINDS as readonly string[]).includes(e.kind)) continue;
+      findings.push({
+        severity: "warning",
+        code: "UNKNOWN_VALUE",
+        recordId: r.id,
+        message:
+          `História záznamu ${r.id} má druh udalosti „${e.kind}", ktorý schéma nepozná. ` +
+          `Povolené: ${povolene(EVENT_KINDS)}.`,
+      });
+    }
   }
 
   // Väzba tvrdenie ↔ dôkaz musí sedieť z oboch strán. Jednosmerne vedená

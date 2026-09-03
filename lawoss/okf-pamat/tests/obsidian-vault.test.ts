@@ -38,7 +38,7 @@ function subjekt(id: string, over: Record<string, string> = {}) {
     title: "Veronika Říhová", description: "klientka",
     created: "2026-09-02", updated: "2026-09-02", truth: "t",
     timeline: [{ date: "2026-09-02", text: "založené" }],
-    role: "client", person_type: "natural", ...over,
+    role: "client", person_type: "natural_person", ...over,
   });
 }
 

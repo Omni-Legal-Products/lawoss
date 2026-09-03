@@ -125,7 +125,7 @@ test("slovenske ukotvenie sa nepredstiera", () => {
 
 test("neznamy druh dokazu je varovanie, nie chyba", () => {
   const f = validateStore([tvrzenie(), dokaz({ evidence_kind: "vymysleny" })], DNES)
-    .find((x) => x.code === "UNKNOWN_EVIDENCE_KIND");
+    .find((x) => x.code === "UNKNOWN_VALUE");
   assert.ok(f);
   assert.equal(f.severity, "warning");
 });

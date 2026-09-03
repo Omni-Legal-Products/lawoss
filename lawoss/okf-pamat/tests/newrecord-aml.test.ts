@@ -25,8 +25,8 @@ test("newRecord prenesie polia proverenia vratane zoznamov", () => {
     title: "Prověření klienta", description: "AML, riziko nízké",
     created: "2026-08-31", updated: "2026-08-31", truth: "t", timeline: [],
     subject_ref: "S-001", check_date: "2026-08-31", mode: "medium",
-    registries: ["ARES", "ISIR", "ESM"], risk: "nizke",
-    conclusion: "pokracovat", valid_until: "2027-08-31",
+    registries: ["ARES", "ISIR", "ESM"], risk: "low",
+    conclusion: "proceed", valid_until: "2027-08-31",
   });
   assert.equal(r.layer, "L2");
   assert.deepEqual(r.registries, ["ARES", "ISIR", "ESM"]);

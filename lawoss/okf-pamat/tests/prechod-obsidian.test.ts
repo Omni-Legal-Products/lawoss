@@ -32,7 +32,7 @@ function subjekt(over: Partial<OkfRecord> = {}): OkfRecord {
       created: "2026-09-02", updated: "2026-09-02",
       truth: "Klientka, predávajúca vozidlo.",
       timeline: [{ date: "2026-09-02", text: "založené" }],
-      role: "client", person_type: "natural",
+      role: "client", person_type: "natural_person",
       deadlines: ["2026-10-01"],
     }),
     ...over,

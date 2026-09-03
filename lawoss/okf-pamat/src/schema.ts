@@ -177,6 +177,12 @@ export interface FieldDef {
   readonly sensitive?: boolean;
   /** Staršie názvy toho istého kľúča. Čítajú sa, nezapisujú. */
   readonly aliases?: readonly string[];
+  /**
+   * Výpočet povolených hodnôt. Hodnota mimo neho je varovanie `UNKNOWN_VALUE`.
+   * Väzba je tu, v tabuľke, nie v ručnom zozname vo validácii — nové pole
+   * s výpočtom je tým pádom strážené samo od seba.
+   */
+  readonly values?: readonly string[];
   /** Hodnota sa hľadá v právnych prameňoch ako možný únik z L2. */
   readonly needle?: NeedleStrength;
 }
@@ -191,7 +197,8 @@ export const FIELDS: readonly FieldDef[] = [
     aliases: ["summary"] },
   { canonical: "layer", cz: "vrstva", sk: "vrstva", kind: "string", required: true },
   { canonical: "jurisdiction", cz: "jurisdikce", sk: "jurisdikcia", kind: "string", required: true },
-  { canonical: "status", cz: "stav", sk: "stav", kind: "string", required: true },
+  { canonical: "status", cz: "stav", sk: "stav", kind: "string", required: true,
+    values: STATUS },
   { canonical: "created", cz: "vznik", sk: "vznik", kind: "string", required: true },
   { canonical: "updated", cz: "změna", sk: "zmena", kind: "string", required: true },
   { canonical: "sources", cz: "zdroje", sk: "zdroje", kind: "maplist", required: false },
@@ -207,8 +214,10 @@ export const FIELDS: readonly FieldDef[] = [
   { canonical: "area", cz: "oblast práva", sk: "oblasť práva", kind: "list", required: false },
 
   // --- identifikácia subjektu (zoznam údajov § 5 zák. č. 253/2008 Sb.) ---
-  { canonical: "role", cz: "role", sk: "rola", kind: "string", required: false },
-  { canonical: "person_type", cz: "typ osoby", sk: "typ osoby", kind: "string", required: false },
+  { canonical: "role", cz: "role", sk: "rola", kind: "string", required: false,
+    values: ROLES },
+  { canonical: "person_type", cz: "typ osoby", sk: "typ osoby", kind: "string", required: false,
+    values: PERSON_KINDS },
   { canonical: "registry_id", cz: "IČO", sk: "IČO", kind: "string", required: false, needle: "hard" },
   { canonical: "birth_date", cz: "datum narození", sk: "dátum narodenia", kind: "string", required: false, sensitive: true, needle: "hard" },
   { canonical: "birth_number", cz: "rodné číslo", sk: "rodné číslo", kind: "string", required: false, sensitive: true, needle: "hard" },
@@ -234,13 +243,16 @@ export const FIELDS: readonly FieldDef[] = [
   // --- prevereníe (úkon v čase) ---
   { canonical: "subject_ref", cz: "subjekt", sk: "subjekt", kind: "string", required: false },
   { canonical: "check_date", cz: "datum prověření", sk: "dátum preverenia", kind: "string", required: false },
-  { canonical: "mode", cz: "režim", sk: "režim", kind: "string", required: false },
+  { canonical: "mode", cz: "režim", sk: "režim", kind: "string", required: false,
+    values: SCREENING_MODES },
   { canonical: "registries", cz: "registry", sk: "registre", kind: "list", required: false },
   { canonical: "pep_result", cz: "výsledek PEP", sk: "výsledok PEP", kind: "string", required: false },
   { canonical: "sanctions_result", cz: "výsledek sankcí", sk: "výsledok sankcií", kind: "string", required: false },
   { canonical: "funds_origin", cz: "původ prostředků", sk: "pôvod prostriedkov", kind: "string", required: false },
-  { canonical: "risk", cz: "riziko", sk: "riziko", kind: "string", required: false },
-  { canonical: "conclusion", cz: "závěr", sk: "záver", kind: "string", required: false },
+  { canonical: "risk", cz: "riziko", sk: "riziko", kind: "string", required: false,
+    values: RISK },
+  { canonical: "conclusion", cz: "závěr", sk: "záver", kind: "string", required: false,
+    values: CONCLUSION },
   { canonical: "valid_until", cz: "platnost do", sk: "platnosť do", kind: "string", required: false },
 
   // --- tvrdenie (claim) ---
@@ -251,19 +263,25 @@ export const FIELDS: readonly FieldDef[] = [
   { canonical: "burden_of_proof", cz: "důkazní břemeno", sk: "dôkazné bremeno", kind: "string", required: false },
   { canonical: "supporting_evidence", cz: "podporující důkazy", sk: "podporujúce dôkazy", kind: "list", required: false },
   { canonical: "contradicting_evidence", cz: "vyvracející důkazy", sk: "vyvracajúce dôkazy", kind: "list", required: false },
-  { canonical: "proof_status", cz: "stav prokázání", sk: "stav preukázania", kind: "string", required: false },
-  { canonical: "credibility", cz: "věrohodnost", sk: "vierohodnosť", kind: "string", required: false },
+  { canonical: "proof_status", cz: "stav prokázání", sk: "stav preukázania", kind: "string", required: false,
+    values: PROOF_STATUS },
+  { canonical: "credibility", cz: "věrohodnost", sk: "vierohodnosť", kind: "string", required: false,
+    values: CONFIDENCE },
 
   // --- dôkaz (evidence) ---
-  { canonical: "evidence_kind", cz: "druh důkazu", sk: "druh dôkazu", kind: "string", required: false },
+  { canonical: "evidence_kind", cz: "druh důkazu", sk: "druh dôkazu", kind: "string", required: false,
+    values: EVIDENCE_KINDS },
   { canonical: "origin_date", cz: "datum vzniku", sk: "dátum vzniku", kind: "string", required: false },
   { canonical: "author", cz: "autor", sk: "autor", kind: "string", required: false },
   { canonical: "formal_requirements", cz: "formální náležitosti", sk: "formálne náležitosti", kind: "string", required: false },
   { canonical: "proves", cz: "k prokázání", sk: "na preukázanie", kind: "list", required: false },
-  { canonical: "evidence_strength", cz: "síla důkazu", sk: "sila dôkazu", kind: "string", required: false },
-  { canonical: "reliability", cz: "spolehlivost", sk: "spoľahlivosť", kind: "string", required: false },
+  { canonical: "evidence_strength", cz: "síla důkazu", sk: "sila dôkazu", kind: "string", required: false,
+    values: EVIDENCE_STRENGTH },
+  { canonical: "reliability", cz: "spolehlivost", sk: "spoľahlivosť", kind: "string", required: false,
+    values: CONFIDENCE },
   { canonical: "objection", cz: "námitka", sk: "námietka", kind: "string", required: false },
-  { canonical: "procedural_status", cz: "procesní stav", sk: "procesný stav", kind: "string", required: false },
+  { canonical: "procedural_status", cz: "procesní stav", sk: "procesný stav", kind: "string", required: false,
+    values: PROCEDURAL_STATUS },
 
   // --- právny prameň (authority): časová platnosť a stopa overenia ---
   { canonical: "effective_from", cz: "účinnost od", sk: "účinnosť od", kind: "string", required: false },
@@ -283,7 +301,8 @@ export const FIELDS: readonly FieldDef[] = [
   { canonical: "depends_on", cz: "závisí na", sk: "závisí od", kind: "list", required: false },
   { canonical: "acceptance", cz: "akceptační kritéria", sk: "akceptačné kritériá", kind: "list", required: false },
   { canonical: "priority", cz: "priorita", sk: "priorita", kind: "string", required: false },
-  { canonical: "state", cz: "stav úkolu", sk: "stav úlohy", kind: "string", required: false },
+  { canonical: "state", cz: "stav úkolu", sk: "stav úlohy", kind: "string", required: false,
+    values: TASK_STATES },
   { canonical: "due", cz: "termín", sk: "termín", kind: "string", required: false },
 ];
 

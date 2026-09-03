@@ -66,7 +66,7 @@ test("vec 1 — subjekt PO: identifikacia podla § 5 zapadne cela", () => {
   const dir = spis("Stavby Morava s.r.o.");
   const r = zapis(dir, newRecord({
     ...zaklad("S-001", "subject", "Stavby Morava s.r.o.", "dlžník v insolvenčnom konaní"),
-    role: "counterparty", person_type: "legal",
+    role: "counterparty", person_type: "legal_person",
     registry_id: "11223344", legal_form: "společnost s ručením omezeným",
     registered_office: "Nádražní 12, 602 00 Brno",
     registry_entry: "C 99999 vedená u Krajského soudu v Brně",
@@ -89,7 +89,7 @@ test("vec 2 — subjekt FO: citlive polia sa citaju maskovane", () => {
   const dir = spis("Nováková Eva");
   const r = zapis(dir, newRecord({
     ...zaklad("S-002", "subject", "Eva Nováková", "klientka, veriteľka"),
-    role: "client", person_type: "natural",
+    role: "client", person_type: "natural_person",
     birth_number: "885612/1234", birth_date: "1988-06-12", birth_place: "Praha",
     sex: "female", citizenship: "CZ", residence: "Krátká 4, 110 00 Praha 1",
     id_document_type: "občanský průkaz", id_document_number: "123456789",
@@ -111,21 +111,21 @@ test("vec 3 — prevernie: rezim, riziko, zaver aj platnost", () => {
   const dir = spis("Nováková Eva");
   zapis(dir, newRecord({
     ...zaklad("S-002", "subject", "Eva Nováková", "klientka"),
-    role: "client", person_type: "natural",
+    role: "client", person_type: "natural_person",
     birth_number: "885612/1234", residence: "Krátká 4, 110 00 Praha 1",
   }), "identifikácia");
 
   const r = zapis(dir, newRecord({
     ...zaklad("SC-001", "screening", "Preverenie klientky", "AML kontrola pri prevzatí veci"),
-    subject_ref: "S-002", check_date: D, mode: "in_person",
+    subject_ref: "S-002", check_date: D, mode: "medium",
     pep_result: "negative", sanctions_result: "negative",
     funds_origin: "príjem zo závislej činnosti", risk: "low",
-    conclusion: "accept", valid_until: "2027-09-02",
+    conclusion: "proceed", valid_until: "2027-09-02",
   }), "vstupná AML kontrola");
 
   assert.equal(r.subject_ref, "S-002");
   assert.equal(r.risk, "low");
-  assert.equal(r.conclusion, "accept");
+  assert.equal(r.conclusion, "proceed");
   assert.equal(r.valid_until, "2027-09-02");
   assert.equal(runCli(["validate", dir]).code, 0, runCli(["validate", dir]).out);
 });
@@ -154,7 +154,7 @@ test("vec 5 — tvrdenie a dokaz: vazba drzi v oboch smeroch", () => {
   // Tvrdenie odkazuje na toho, kto ho vzniesol — bez subjektu je to rozbitý odkaz.
   zapis(dir, newRecord({
     ...zaklad("S-001", "subject", "Karel Doležal", "protistrana"),
-    role: "counterparty", person_type: "natural",
+    role: "counterparty", person_type: "natural_person",
   }), "protistrana");
   zapis(dir, newRecord({
     ...zaklad("C-001", "claim", "Výpoveď bola doručená 12. 6. 2026", "sporné doručenie"),
@@ -183,7 +183,7 @@ test("vec 6 — uloha: zavislost sa zapise a otvorena uloha sa vykresli", () => 
   const dir = spis("Stavby Morava s.r.o.");
   zapis(dir, newRecord({
     ...zaklad("T-001", "task", "Vyžiadať výpis z KN", "podklad pre prihlášku"),
-    assignee: "VŘ", state: "todo", due: "2026-09-20",
+    assignee: "VŘ", state: "pending", due: "2026-09-20",
   }), "úloha");
   const t2 = zapis(dir, newRecord({
     ...zaklad("T-002", "task", "Zostaviť prihlášku", "po výpise z KN"),
@@ -257,7 +257,7 @@ test("vec 10 — sposobilost a zastupenie: polia sa zapisu a validacia varuje", 
   const dir = spis("Nováková Eva");
   const r = zapis(dir, newRecord({
     ...zaklad("S-003", "subject", "Marie Dvořáková", "protistrana, obmedzená svojprávnosť"),
-    role: "counterparty", person_type: "natural",
+    role: "counterparty", person_type: "natural_person",
     procedural_role: "defendant", representation: "opatrovník Jan Dvořák",
     legal_capacity: "limited",
     capacity_notes: "obmedzenie rozsudkom Okresního soudu v Brně z 3. 3. 2025",
@@ -271,7 +271,7 @@ test("vec 10 — sposobilost a zastupenie: polia sa zapisu a validacia varuje", 
 
   zapis(dir, newRecord({
     ...zaklad("S-004", "subject", "Eva Nováková", "klientka v insolvencii"),
-    role: "client", person_type: "natural",
+    role: "client", person_type: "natural_person",
     capacity_notes: "prebieha insolvenčné konanie, majetkovú podstatu spravuje správca",
   }), "identifikácia klientky");
   const v = runCli(["validate", dir]);

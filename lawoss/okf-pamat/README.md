@@ -115,6 +115,7 @@ Rodné číslo, číslo dokladu, trvalý pobyt a dátum narodenia sú v tabuľke
 | Kód | Kedy | Nález |
 |---|---|---|
 | `SENSITIVE_IN_SUMMARY` | rodné číslo alebo iný citlivý údaj v `popis`, ktorý ide do `index.md` a projekcie | **chyba** |
+| `UNKNOWN_VALUE` | hodnota mimo výpočet (`role`, `person_type`, `mode`, `state`, druh udalosti…) — kontroly viazané na pole sa nevykonajú | varovanie |
 | `CITATION_UNRESOLVED` | `[^id]` v texte bez položky v `sources` — veta vyzerá podložene a nie je | **chyba** |
 | `SOURCE_ID_DUPLICATE` | to isté `id` prameňa dvakrát | **chyba** |
 | `AML_MISSING` | subjekt v role `klient` nemá žiadne preverenie | varovanie |

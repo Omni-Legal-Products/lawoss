@@ -40,7 +40,7 @@ function provereni(over: Partial<OkfRecord> = {}): OkfRecord {
       created: "2026-08-31", updated: "2026-08-31", truth: "bez nálezu",
       timeline: [{ date: "2026-08-31", text: "provedeno" }],
       subject_ref: "S-001", check_date: "2026-08-31", mode: "medium",
-      risk: "nizke", conclusion: "pokracovat", valid_until: "2027-08-31",
+      risk: "low", conclusion: "proceed", valid_until: "2027-08-31",
     }),
     ...over,
   };
