@@ -130,6 +130,11 @@ nikdy kópia obsahu — inak destilát prestane byť lacný a začne amplifikova
 - **L1 a L3 smerujú do kancelárie.** `okf-memory write <spis>` zapíše poučenie
   alebo prameň do `_kancelaria/memory/`, ak kancelária existuje — vo výpise
   uvidíš `Cieľ: _kancelaria/`. Brána úniku sa pritom posudzuje voči spisu.
+- **Identifikátory L1/L3 sú jedinečné v kancelárii, nie v spise.** Desať vecí
+  s vlastným `A-001` skončí kolíziou; pred zápisom prameňa si pozri
+  `okf-memory read _kancelaria` alebo nechaj CLI povedať voľné id — pri
+  kolízii ho navrhne. `created` je nemenné: iný dátum založenia pod tým istým
+  id je iný záznam, nie úprava.
 - **Opakovanú lehotu zapíš ako výčet konkrétnych dátumov** v `deadlines`
   (napr. štvrťročné správy správcu: `[2026-09-23, 2026-12-23]`). Schéma
   opakovanie zámerne nemodeluje — počítanie procesných lehôt patrí lehotníku,

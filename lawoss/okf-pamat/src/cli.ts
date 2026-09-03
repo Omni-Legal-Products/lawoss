@@ -253,6 +253,26 @@ export function runCli(argv: readonly string[]): CliResult {
       const store = readStore(cielovy);
       const before = store.records.find((r) => r.id === after.id);
 
+      // Identifikátory sa razia v spise, kancelária je spoločná. Keď do nej
+      // druhá vec pošle svoje vlastné A-001, vyzerá to ako prepis prvého —
+      // append-only brána ho odmietne, ale s vysvetlením o histórii, ktoré
+      // nikomu nič nepovie. `created` je nemenné, takže iný dátum založenia
+      // pod tým istým id je iný záznam, nie úprava.
+      if (before && before.created !== after.created) {
+        const prefix = after.id.replace(/\d+$/, "");
+        const max = store.records
+          .filter((r) => r.id.startsWith(prefix))
+          .reduce((m, r) => Math.max(m, Number(r.id.slice(prefix.length)) || 0), 0);
+        const volne = `${prefix}${String(max + 1).padStart(3, "0")}`;
+        return {
+          code: 1,
+          out:
+            `ODMIETNUTÉ: identifikátor ${after.id} už v ${cielovy === dir ? "spise" : OFFICE_DIR + "/"} ` +
+            `patrí inému záznamu („${before.title}", založený ${before.created}). ` +
+            `Voľné je ${volne} — prečísluj návrh aj odkazy naň.`,
+        };
+      }
+
       let diff: WriteDiff;
       try {
         diff = planWrite(before, after, reason);
@@ -305,14 +325,21 @@ export function runCli(argv: readonly string[]): CliResult {
         const auditovany: OkfRecord = {
           ...after,
           // Audit riadok je zmena obsahu, takže musí posunúť updated —
-          // inak by ho zastavila kontrola bumpu.
-          updated: approval.at.slice(0, 10),
+          // inak by ho zastavila kontrola bumpu. Nikdy ale dozadu: keď návrh
+          // nesie neskorší dátum, deň schválenia ho nesmie prepísať.
+          updated: after.updated > approval.at.slice(0, 10) ? after.updated : approval.at.slice(0, 10),
           timeline: [
             ...after.timeline,
             { date: approval.at.slice(0, 10), text: `schválil ${approval.by} — ${diff.reason}` },
           ],
         };
-        zapis = planWrite(before, auditovany, reason);
+        // Druhý prechod bránami — tá istá chyba musí skončiť rovnako ako prvá:
+        // kódom 1 a vetou, nie výpisom interpretu.
+        try {
+          zapis = planWrite(before, auditovany, reason);
+        } catch (e) {
+          return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };
+        }
       }
 
       try {

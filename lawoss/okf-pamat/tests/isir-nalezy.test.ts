@@ -9,7 +9,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, exist
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../src/cli.ts";
-import { serializeRecord } from "../src/record.ts";
+import { serializeRecord, parseRecord } from "../src/record.ts";
 import { newRecord, validateStore, applyRecordWrite, planWrite, LeakBlockedError,
   MEMORY_DIR, OFFICE_DIR, CONFIG_FILE, STATUS_FILE } from "../src/index.ts";
 import type { OkfRecord } from "../src/record.ts";
@@ -144,4 +144,48 @@ test("sync zapise index.md a log.md aj u klienta a vec ich odkazuje", () => {
   assert.ok(m, `sekcia Klient chýba:\n${idx}`);
   const cesta = m[1] ?? "";
   assert.ok(existsSync(join(spis, MEMORY_DIR, cesta)), `odkaz ${cesta} musí viesť na súbor`);
+});
+
+// --- 6. kolízia identifikátorov v spoločnej kancelárii ----------------------
+
+test("druhe A-001 z inej veci sa nezamieňa za prepis prveho — navrhne volne id", () => {
+  const { root, spis } = kancelaria();
+  runCli(["init", spis, "--apply"]);
+  const office = join(root, OFFICE_DIR);
+  zapis(spis, rec("A-001", "authority", "Lehota § 198 IZ", { created: "2026-09-01", updated: "2026-09-01" }));
+
+  const ina = join(root, "AK", "E", "EUROTON", "2025 INS 14748");
+  mkdirSync(ina, { recursive: true });
+  runCli(["init", ina, "--apply"]);
+  const f = join(ina, "navrh.md");
+  writeFileSync(f, serializeRecord(rec("A-001", "authority", "Zrušenie konkursu § 308", { created: "2026-09-03", updated: "2026-09-03" })));
+  const r = runCli(["write", ina, "--file", f, "--reason", "x", "--apply"]);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /patrí inému záznamu/);
+  assert.match(r.out, /Lehota § 198 IZ/);
+  assert.match(r.out, /Voľné je A-002/);
+  assert.doesNotMatch(r.out, /História/, "dôvod má byť kolízia, nie história");
+  assert.equal(readdirSync(join(office, MEMORY_DIR)).filter((x) => x.startsWith("A-")).length, 1);
+});
+
+test("uprava toho isteho pramena z inej veci prejde — created sedi", () => {
+  const { root, spis } = kancelaria();
+  runCli(["init", spis, "--apply"]);
+  const p1 = rec("A-001", "authority", "Lehota § 198 IZ", { created: "2026-09-01", updated: "2026-09-01" });
+  zapis(spis, p1);
+  const ina = join(root, "AK", "E", "EUROTON", "2025 INS 14748");
+  mkdirSync(ina, { recursive: true });
+  runCli(["init", ina, "--apply"]);
+  // Úprava sa stavia z toho, čo je na disku — CLI pri zápise pripojilo
+  // audit riadok a história sa smie len predlžovať.
+  const officeMem = join(root, OFFICE_DIR, MEMORY_DIR);
+  const subor = readdirSync(officeMem).find((x) => x.startsWith("A-001-")) ?? "";
+  const ulozeny = parseRecord(readFileSync(join(officeMem, subor), "utf8"));
+  // Uložený záznam má `updated` na dni audit riadku; zmena obsahu ho musí posunúť.
+  const p2 = { ...ulozeny, truth: "doplnené", updated: "2026-09-04",
+    timeline: [...ulozeny.timeline, { date: "2026-09-04", text: "doplnené z inej veci" }] };
+  const f = join(ina, "navrh.md"); writeFileSync(f, serializeRecord(p2));
+  const r = runCli(["write", ina, "--file", f, "--reason", "x", "--apply"]);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(readdirSync(join(root, OFFICE_DIR, MEMORY_DIR)).filter((x) => x.startsWith("A-")).length, 1);
 });
