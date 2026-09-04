@@ -9,11 +9,14 @@ import {
   type LegalworkServerClient,
 } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/sonner";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
+import { useLocal } from "@/react-app/kernel/local-provider";
+import { MAX_DOCUMENT_AUTHOR_LENGTH, normalizeDocumentAuthor } from "@/app/lib/document-author";
 
 import {
   LayoutSection,
@@ -59,12 +62,18 @@ export type PersonalisationViewProps = {
 };
 
 export function PersonalisationView(props: PersonalisationViewProps) {
+  const local = useLocal();
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [instructionsDraft, setInstructionsDraft] = useState("");
+  const [documentAuthorDraft, setDocumentAuthorDraft] = useState(() => local.prefs.documentAuthor);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
+
+  useEffect(() => {
+    setDocumentAuthorDraft(local.prefs.documentAuthor);
+  }, [local.prefs.documentAuthor]);
 
   useEffect(() => {
     if (!props.client) {
@@ -92,6 +101,8 @@ export function PersonalisationView(props: PersonalisationViewProps) {
   }, [props.client]);
 
   const instructionsChanged = instructionsDraft !== settings.customInstructions;
+  const normalizedDocumentAuthor = normalizeDocumentAuthor(documentAuthorDraft);
+  const documentAuthorChanged = normalizedDocumentAuthor !== local.prefs.documentAuthor;
   const remainingCharacters = 12_000 - instructionsDraft.length;
   const disabled = loading || busy || !props.client;
 
@@ -182,6 +193,43 @@ export function PersonalisationView(props: PersonalisationViewProps) {
               {remainingCharacters.toLocaleString()} characters remaining
             </div>
           </div>
+        </LayoutSection>
+
+        <LayoutSection>
+          <LayoutSectionHeader>
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <LayoutSectionTitle>Document author</LayoutSectionTitle>
+                <LayoutSectionDescription>
+                  New tracked changes and comments in the in-app DOCX editor use this name. Existing documents are not
+                  rewritten.
+                </LayoutSectionDescription>
+              </div>
+              <Button
+                size="sm"
+                disabled={!documentAuthorChanged}
+                onClick={() => {
+                  local.setPrefs((previous) => ({ ...previous, documentAuthor: normalizedDocumentAuthor }));
+                  setDocumentAuthorDraft(normalizedDocumentAuthor);
+                  toast.success("Document author saved.");
+                }}
+              >
+                Save
+              </Button>
+            </div>
+          </LayoutSectionHeader>
+          <Input
+            value={documentAuthorDraft}
+            maxLength={MAX_DOCUMENT_AUTHOR_LENGTH}
+            onChange={(event) => setDocumentAuthorDraft(event.currentTarget.value)}
+            placeholder="LegalWork"
+            aria-label="Document author"
+            className="rounded-2xl bg-surface px-4 py-3.5"
+          />
+          <SettingsNotice>
+            V otvorenom dokumente vo Worde komentáre aj natívne revízie identifikuje samotný Word podľa aktuálneho
+            Office konta; toto nastavenie sa týka nových úprav v DOCX editore LAWOSS a kompatibilného redline fallbacku.
+          </SettingsNotice>
         </LayoutSection>
 
         <LayoutSection>

@@ -3,23 +3,18 @@ import { Page, PageTitlebarRegion } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
+import { useState } from "react";
 
 import lawossMark from "../../../../../../lawoss/brand/lawoss-mark.svg";
 import { LawossWordmark } from "../../shell/wordmark";
 import "../../shell/lawoss.css";
-
-/**
- * LAWOSS welcome screen — a holding version of MF's approved Fáza 1 design
- * (`docs/superpowers/specs/2026-08-28-lawoss-one-click-onboarding-design.md`
- * in the coordination repo). It carries the design's copy and the four things
- * onboarding sets up, in LAWOSS colours, and says out loud that the real flow
- * is still MF's to build.
- *
- * Deliberately NOT implemented here: the recommended-setup fast path, the
- * per-screen model/add-on steps and resumable state. Those are Fáza 1 proper.
- * The one real action below — pick a folder — is the upstream behaviour,
- * untouched, so onboarding still works.
- */
+import {
+  DEFAULT_ONBOARDING_PROGRESS,
+  readOnboardingProgress,
+  writeOnboardingProgress,
+  type OnboardingLane,
+  type OnboardingProgress,
+} from "./onboarding-state";
 
 /** What onboarding sets up, per the design's "Obrazovka 1: Začnime". */
 const NASTAVIME = [
@@ -47,11 +42,41 @@ type LawossWelcomePageProps = {
 
 export function LawossWelcomePage({
   onGetStarted,
+  manualFolder = "",
+  onManualFolderChange,
+  onUseManualFolder,
+  showManualFolder = false,
   busy,
   error,
   analyticsEnabled,
   onAnalyticsChange,
 }: LawossWelcomePageProps) {
+  const [progress, setProgress] = useState<OnboardingProgress>(() => {
+    if (typeof window === "undefined") return DEFAULT_ONBOARDING_PROGRESS;
+    return readOnboardingProgress(window.localStorage);
+  });
+  const detailed = progress.lane === "detailed";
+
+  const remember = (next: OnboardingProgress) => {
+    setProgress(next);
+    if (typeof window !== "undefined") writeOnboardingProgress(window.localStorage, next);
+  };
+
+  const chooseLane = (lane: OnboardingLane) => {
+    remember({ lane, step: progress.step === "folder" ? "folder" : "welcome" });
+  };
+
+  const continueOnboarding = () => {
+    remember({ ...progress, step: "folder" });
+    onGetStarted();
+  };
+
+  const useManualFolder = () => {
+    if (!onUseManualFolder) return;
+    remember({ ...progress, step: "folder" });
+    onUseManualFolder();
+  };
+
   return (
     <Page className="min-h-screen bg-background">
       <PageTitlebarRegion />
@@ -74,6 +99,27 @@ export function LawossWelcomePage({
                   <p className="lw-lead">
                     Nastavíme pracovný priečinok, AI model a základné doplnky. Väčšinu nastavení môžete neskôr zmeniť.
                   </p>
+
+                  <div className="lw-welcome-lanes" role="group" aria-label="Spôsob nastavenia">
+                    <button
+                      type="button"
+                      className={`lw-welcome-lane ${!detailed ? "active" : ""}`}
+                      aria-pressed={!detailed}
+                      onClick={() => chooseLane("recommended")}
+                    >
+                      <span className="lw-welcome-lane-title">Odporúčané nastavenie</span>
+                      <span className="lw-welcome-lane-desc">Bezpečné predvolené hodnoty, pripravené na prvú úlohu.</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`lw-welcome-lane ${detailed ? "active" : ""}`}
+                      aria-pressed={detailed}
+                      onClick={() => chooseLane("detailed")}
+                    >
+                      <span className="lw-welcome-lane-title">Nastaviť podrobne</span>
+                      <span className="lw-welcome-lane-desc">Najprv zvoľte priečinok a upravte voľby podľa svojej praxe.</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div className="lw-welcome-steps">
@@ -89,10 +135,25 @@ export function LawossWelcomePage({
                 </div>
 
                 <div className="lw-welcome-actions">
-                  <Button size="lg" className="w-full" onClick={onGetStarted} disabled={busy}>
-                    {/* Slovak throughout: the rest of this screen is not translated
-                        either, so the upstream `getStartedLabel` would mix languages. */}
-                    {busy ? "Vytvárame pracovné miesto…" : "Vybrať priečinok a začať"}
+                  {detailed && showManualFolder ? (
+                    <div className="lw-welcome-manual">
+                      <label htmlFor="lw-manual-folder">Cesta k pracovnému priečinku</label>
+                      <div className="lw-welcome-manual-row">
+                        <input
+                          id="lw-manual-folder"
+                          value={manualFolder}
+                          onChange={(event) => onManualFolderChange?.(event.currentTarget.value)}
+                          placeholder="/Users/…/Spisy"
+                          autoComplete="off"
+                        />
+                        <Button variant="outline" onClick={useManualFolder} disabled={busy || !manualFolder.trim()}>
+                          Použiť cestu
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+                  <Button size="lg" className="w-full" onClick={continueOnboarding} disabled={busy}>
+                    {busy ? "Vytvárame pracovné miesto…" : detailed ? "Vybrať priečinok a pokračovať" : "Použiť odporúčané nastavenie"}
                   </Button>
                   {error ? <p className="lw-welcome-err">{error}</p> : null}
                   <p className="lw-welcome-fine">
@@ -135,14 +196,13 @@ export function LawossWelcomePage({
                 </div>
 
                 <div className="lw-welcome-todo">
-                  <b>Rozpracované — dokončí Martin Friedrich</b>
+                  <b>Čo bude nasledovať</b>
                   <p>
-                    Toto je dočasná obrazovka. Schválený návrh „one-click onboarding, Fáza 1“ leží v koordinačnom repe
-                    ako <span className="lw-mono">docs/superpowers/specs/2026-08-28-lawoss-one-click-onboarding-design.md</span>.
+                    Najprv vytvoríme pracovné miesto bez úprav vašich dokumentov. Potom pripojíte AI model a môžete
+                    voliteľne zapnúť Office alebo hlasovú transkripciu.
                   </p>
                   <p>
-                    Chýba rýchla cesta <b>Použiť odporúčané nastavenie</b>, obrazovky pre AI model a doplnky, a
-                    pokračovanie od posledného nedokončeného kroku. Martin, je to tvoje. 🙂
+                    Ak onboarding prerušíte, zvolený spôsob nastavenia a posledný krok zostanú uložené v tomto počítači.
                   </p>
                 </div>
               </div>

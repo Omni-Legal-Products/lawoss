@@ -241,6 +241,25 @@
   display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
   border-top: 1px solid var(--lw-border); padding-top: 16px; text-align: left;
 }
+.lw-welcome-lanes { display: flex; flex-direction: column; gap: 8px; margin-top: 22px; }
+.lw-welcome-lane {
+  display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 11px 13px;
+  border: 1px solid var(--lw-border); border-radius: 3px; background: transparent; color: var(--lw-text-primary);
+  text-align: left; font: inherit; cursor: pointer; transition: border-color 140ms, background 140ms;
+}
+.lw-welcome-lane:hover { border-color: var(--lw-border-strong); background: var(--lw-hover); }
+.lw-welcome-lane.active { border-color: var(--lw-accent-border); background: var(--lw-accent-soft); }
+.lw-welcome-lane-title { font-size: 13.5px; font-weight: 500; }
+.lw-welcome-lane-desc { font-size: 12px; line-height: 1.45; color: var(--lw-text-secondary); }
+.lw-welcome-manual { display: flex; flex-direction: column; gap: 6px; }
+.lw-welcome-manual > label { font-size: 12px; color: var(--lw-text-secondary); }
+.lw-welcome-manual-row { display: flex; gap: 8px; }
+.lw-welcome-manual-row input {
+  min-width: 0; flex: 1; height: 36px; padding: 0 10px; border: 1px solid var(--lw-border);
+  border-radius: 3px; background: var(--lw-sunken); color: var(--lw-text-primary); font: inherit; font-size: 12.5px;
+}
+.lw-welcome-manual-row input:focus { outline: none; border-color: var(--lw-accent-border); }
+.lw-welcome-manual-row input::placeholder { color: var(--lw-text-placeholder); }
 
 .lw-welcome-panel-wrap { display: none; }
 @media (min-width: 1024px) {
@@ -291,6 +310,11 @@
 .lw-tab-back:hover { color: var(--lw-accent); }
 .lw-empty { padding: 16px 4px; font-size: 13px; line-height: 1.6; color: var(--lw-text-tertiary); }
 .lw-empty b { color: var(--lw-text-secondary); font-weight: 500; }
+
+@media (max-width: 520px) {
+  .lw-welcome-manual-row { flex-direction: column; }
+  .lw-welcome-manual-row .lw-btn { width: 100%; justify-content: center; }
+}
 
 /* --- Nový spis (formulár) ------------------------------------------------ */
 .lw-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 22px; margin-top: 26px; }

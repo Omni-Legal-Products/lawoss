@@ -17,6 +17,7 @@ import { coerceReleaseChannel } from "../../app/lib/release-channels";
 import { isDesktopRuntime } from "../../app/lib/runtime-env";
 import { resolveLegalworkConnection } from "../shell/legalwork-connection";
 import type { ModelRef, ReleaseChannel, SettingsTab, View } from "../../app/types";
+import { DEFAULT_DOCUMENT_AUTHOR, normalizeDocumentAuthor } from "../../app/lib/document-author";
 import { readStoredDefaultModel } from "./model-config";
 
 export type LocalUIState = {
@@ -65,6 +66,8 @@ export type LocalPreferences = {
    * concrete default, or the welcome toggle's opt-out default is defeated.
    */
   analyticsEnabled: boolean | null;
+  /** Name stamped on new in-app DOCX tracked changes. */
+  documentAuthor: string;
   /**
    * Fusion mode defaults: up to three candidate models preselected in the
    * chat's fusion picker when fusion is turned on. The session's default
@@ -101,6 +104,7 @@ const INITIAL_PREFS: LocalPreferences = {
   // value here would make getStoredAnalyticsConsent() report a choice that was
   // never made, defeating the welcome toggle's default.
   analyticsEnabled: null,
+  documentAuthor: DEFAULT_DOCUMENT_AUTHOR,
   fusionModels: [],
 };
 
@@ -138,12 +142,10 @@ export function LocalProvider({ children }: LocalProviderProps) {
   );
   const [prefs, setPrefsRaw] = useState<LocalPreferences>(() => {
     const persisted = readPersisted(PREFS_STORAGE_KEY, INITIAL_PREFS);
-    if (persisted.defaultModel) {
-      return persisted;
-    }
     return {
       ...persisted,
-      defaultModel: readStoredDefaultModel(),
+      documentAuthor: normalizeDocumentAuthor(persisted.documentAuthor),
+      defaultModel: persisted.defaultModel ?? readStoredDefaultModel(),
     };
   });
   const ready = true;

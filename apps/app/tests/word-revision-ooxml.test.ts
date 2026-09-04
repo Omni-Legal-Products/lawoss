@@ -35,6 +35,11 @@ describe("revisionOoxml", () => {
     expect(pkg).not.toContain(`a < b`);
   });
 
+  test("uses the configured author and escapes it as an XML attribute", () => {
+    const pkg = revisionOoxml([{ kind: "ins", text: "new clause" }], 'Martin & "MF"');
+    expect(pkg).toContain(`w:author="Martin &amp; &quot;MF&quot;"`);
+  });
+
   test("newlines in inserted text become w:br line breaks", () => {
     const pkg = revisionOoxml([{ kind: "ins", text: "line one\nline two" }]);
     expect(pkg).toContain(
