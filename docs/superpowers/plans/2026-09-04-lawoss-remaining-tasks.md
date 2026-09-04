@@ -48,5 +48,5 @@
 
 - [x] Run focused tests, app typecheck, and app build.
 - [x] Inspect the final diff and remove accidental changes.
-- [ ] Commit on `codex/mf-remaining-tasks` with a clear message.
-- [ ] Push the branch to `origin` so the team can inspect it and create/update a PR if repository credentials permit.
+- [x] Commit on `codex/mf-remaining-tasks` with a clear message.
+- [x] Push the branch to `origin` so the team can inspect it and create/update a PR if repository credentials permit.
