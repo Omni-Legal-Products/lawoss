@@ -46,5 +46,5 @@
 
 - [x] Check links, dates, and observed/inferred labels.
 - [x] Inspect the diff for copied source passages, accidental secrets, and false claims of approval.
-- [ ] Commit the documentation changes on `codex/mf-remaining-tasks`.
-- [ ] Push the branch and report the exact commit and remaining team approvals.
+- [x] Commit the documentation changes on `codex/mf-remaining-tasks`.
+- [x] Push the branch and report the exact commit and remaining team approvals.
