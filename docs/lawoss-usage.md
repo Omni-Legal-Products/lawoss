@@ -11,6 +11,18 @@ Tento návod opisuje bezpečný spôsob práce v LAWOSS. Je určený pre prvé p
 
 Ak potrebujete konkrétnu cestu k priečinku alebo chcete nastavenie upraviť, zvoľte **Nastaviť podrobne**. Prerušený onboarding si zapamätá zvolený spôsob a posledný krok na tomto počítači.
 
+## Pracovný návyk pre AI úlohy
+
+Oficiálne materiály [ChatGPT Training](https://learn.chatgpt.com/training) a [Claude Academy](https://academy.claude.com/all) používajú rozdielne produkty, ale pre LAWOSS z nich vyplýva rovnaký praktický postup:
+
+1. Najprv pomenujte cieľ, kontext, rozsah zdrojov, rozhodný dátum, jurisdikciu a podobu výstupu.
+2. Rozlíšte, čo má AI iba zistiť alebo navrhnúť a čo môže po vašej kontrole vykonať. Pri právne významnej zmene vždy vyžiadajte najprv plán alebo návrh.
+3. Konektory, skills a ďalšie nástroje zapínajte iba v nevyhnutnom rozsahu. Pred použitím skontrolujte oprávnenie, smer toku dát, model a miesto uloženia výsledku.
+4. Výsledok berte ako pracovný návrh. Skontrolujte zdroje, dátum, jurisdikciu, neistoty, citácie a presný rozdiel pred uložením do spisu.
+5. Opakovateľný postup držte v skille alebo šablóne; všeobecné pravidlá a jednorazové zadanie oddeľte od tohto postupu. Pri plánovaných úlohách skontrolujte každý beh a jeho výstup.
+
+Pri delegovaní si urobte krátku kontrolu v štyroch krokoch: čo delegujete, ako ste úlohu opísali, čo na výsledku overíte a akú starostlivosť vyžaduje jeho použitie. Toto je pracovná adaptácia rámca AI Fluency z Claude Academy, nie náhrada právneho posúdenia.
+
 ## Bežná právna úloha
 
 - Pomenujte cieľ, jurisdikciu, rozhodný dátum a požadovaný výstup.
