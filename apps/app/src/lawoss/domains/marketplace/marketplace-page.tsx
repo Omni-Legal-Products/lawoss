@@ -80,7 +80,6 @@ function CatalogRow(props: { entry: MarketplaceEntry; selected: boolean; onSelec
     <button
       className={`lw-row lw-cols-mkt lw-marketplace-row ${props.selected ? "selected" : ""}`}
       type="button"
-      aria-pressed={props.selected}
       onClick={props.onSelect}
     >
       <span className={`lw-no lw-marketplace-mark ${verificationClass(entry.verification.status)}`}>●</span>
