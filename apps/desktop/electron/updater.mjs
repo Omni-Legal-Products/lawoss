@@ -5,6 +5,15 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ELECTRON_UPDATER_CHANNEL_FILENAME = "electron-updater-channel.v1.json";
+const MISSING_UPDATER_CONFIG_MESSAGE =
+  "This local LAWOSS build cannot update itself because it has no updater configuration. Install a versioned LAWOSS release instead.";
+
+export function formatUpdaterErrorReason(error) {
+  const message = error instanceof Error
+    ? error.message
+    : String(error?.message ?? error);
+  return /app-update\.yml/i.test(message) ? MISSING_UPDATER_CONFIG_MESSAGE : message;
+}
 
 // In dev mode, app.getVersion() returns the Electron framework version
 // (e.g. "35.7.5") instead of the LegalWork app version. Read from
@@ -439,7 +448,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
         }
       }
       checkedUpdateVersion = null;
-      return { available: false, reason: String(error?.message ?? error), ...updaterChannelState(app, channel) };
+      return { available: false, reason: formatUpdaterErrorReason(error), ...updaterChannelState(app, channel) };
     }
   });
 
@@ -475,13 +484,13 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       try {
         const channel = await readElectronUpdaterChannel(app);
         if (channel !== "stable" || error?.githubFallbackAttempted) {
-          return { ok: false, reason: String(error?.message ?? error) };
+          return { ok: false, reason: formatUpdaterErrorReason(error) };
         }
         updater.setFeedURL({ provider: "generic", url: ELECTRON_UPDATER_FALLBACK_FEEDS.stable });
         const result = await updater.checkForUpdates();
         const info = result?.updateInfo ?? null;
         if (!info?.version || !isVersionNewer(info.version, resolveAppVersion(app))) {
-          return { ok: false, reason: String(error?.message ?? error) };
+          return { ok: false, reason: formatUpdaterErrorReason(error) };
         }
         checkedUpdateVersion = info.version;
         // Same stuck-ShipIt hygiene as the happy path — the throw above may
@@ -490,7 +499,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
         await updater.downloadUpdate();
         return { ok: true };
       } catch {
-        return { ok: false, reason: String(error?.message ?? error) };
+        return { ok: false, reason: formatUpdaterErrorReason(error) };
       }
     }
   });
@@ -505,7 +514,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       updater.quitAndInstall(false, true);
       return { ok: true };
     } catch (error) {
-      return { ok: false, reason: String(error?.message ?? error) };
+      return { ok: false, reason: formatUpdaterErrorReason(error) };
     }
   });
 
