@@ -11,7 +11,7 @@ function ukol(over: Partial<OkfRecord> = {}): OkfRecord {
   return {
     ...newRecord({
       id: "T-001", type: "task", jurisdiction: "cz",
-      title: "Připravit doplnění k § 348", summary: "argumentace k písm. d)",
+      title: "Připravit doplnění k § 348", description: "argumentace k písm. d)",
       created: "2026-09-02", updated: "2026-09-02", truth: "t",
       timeline: [{ date: "2026-09-02", text: "zadáno" }],
       assignee: "VŘ", state: "pending", priority: "1", due: "2026-09-12",

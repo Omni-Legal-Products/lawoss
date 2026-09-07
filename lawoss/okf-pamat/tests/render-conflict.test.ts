@@ -5,7 +5,7 @@ import { newRecord } from "../src/index.ts";
 
 const ZAZNAM = newRecord({
   id: "D-001", type: "decision", jurisdiction: "sk",
-  title: "Rozhodnutie", summary: "s", created: "2026-09-01", updated: "2026-09-01",
+  title: "Rozhodnutie", description: "s", created: "2026-09-01", updated: "2026-09-01",
   truth: "t", timeline: [{ date: "2026-09-01", text: "z" }],
   deadlines: ["2026-09-12"],
 });

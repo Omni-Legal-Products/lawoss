@@ -18,7 +18,7 @@ function zaznam(over: Partial<OkfRecord> = {}): OkfRecord {
   return {
     ...newRecord({
       id: "D-001", type: "decision", jurisdiction: "cz",
-      title: "Rozhodnutie", summary: "s", created: "2026-09-02", updated: "2026-09-02",
+      title: "Rozhodnutie", description: "s", created: "2026-09-02", updated: "2026-09-02",
       truth: "pôvodná", timeline: [{ date: "2026-09-02", text: "založené" }],
     }),
     ...over,

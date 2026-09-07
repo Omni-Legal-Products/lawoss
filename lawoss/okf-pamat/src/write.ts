@@ -101,7 +101,7 @@ function describe(before: OkfRecord | undefined, after: OkfRecord | undefined): 
     lines.push(`~ Truth: ${before.truth}`);
     lines.push(`~ Truth → ${after.truth}`);
   }
-  for (const key of ["title", "summary", "status", "updated"] as const) {
+  for (const key of ["title", "description", "status", "updated"] as const) {
     if (before[key] !== after[key]) lines.push(`~ ${key}: ${before[key]} → ${after[key]}`);
   }
   for (const e of after.timeline.slice(before.timeline.length)) {

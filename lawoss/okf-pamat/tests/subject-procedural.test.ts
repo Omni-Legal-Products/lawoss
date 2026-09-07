@@ -10,7 +10,7 @@ function subjekt(over: Partial<OkfRecord> = {}): OkfRecord {
   return {
     ...newRecord({
       id: "S-001", type: "subject", jurisdiction: "cz",
-      title: "Gh Real Estate s.r.o.", summary: "dlužník",
+      title: "Gh Real Estate s.r.o.", description: "dlužník",
       created: "2026-09-02", updated: "2026-09-02", truth: "t",
       timeline: [{ date: "2026-09-02", text: "x" }],
       role: "counterparty",

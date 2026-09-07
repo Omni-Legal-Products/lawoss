@@ -19,7 +19,7 @@
 import type { OkfRecord } from "./record.ts";
 import {
   AML_REQUIRED, PERSON_KINDS, SENSITIVE_FIELDS, EVIDENCE_KINDS,
-  fieldLabel, needleFields,
+  fieldLabel, needleFields, truthDigest, FIELDS, EVENT_KINDS,
   type FieldDef, type Jurisdiction,
 } from "./schema.ts";
 
@@ -109,7 +109,8 @@ function phraseNeedle(value: string, source: string): Needle | undefined {
 
 function nameNeedle(title: string, source: string): Needle | undefined {
   const stripped = normalize(title).replace(LEGAL_FORM, "").trim();
-  const tokens = stripped.split(" ").filter((t) => t.length >= 2);
+  const all = stripped.split(" ").filter((t) => t.length > 0);
+  const tokens = all.filter((t) => t.length >= 2);
   if (tokens.length === 0) return undefined;
 
   let strength: Strength;
@@ -118,7 +119,10 @@ function nameNeedle(title: string, source: string): Needle | undefined {
   else if ((tokens[0] ?? "").length >= MIN_NAME_LENGTH) strength = "weak";
   else return undefined;
 
-  const body = tokens.map(escapeRegex).join("\\s+");
+  // Vzor sa stavia zo všetkých slov vrátane jednopísmenových — „Kolář a Klaudy"
+  // by inak hľadalo „kolar\s+klaudy" a v texte, kde spojka je, nikdy nesadlo.
+  // Sila sa posudzuje bez nich, aby samotné „a" nerobilo z názvu silnú jehlu.
+  const body = all.map(escapeRegex).join("\\s+");
   return { pattern: atWordBoundary(body), label: title, source, strength };
 }
 
@@ -149,11 +153,24 @@ function clientNeedles(records: readonly OkfRecord[]): Needle[] {
       if (n) out.push(n);
     }
   }
+  // Rodné číslo vo voľnom texte. Polia sú strážené z tabuľky, ale výrok
+  // opísaný do Pravdy otázky nesie rodné číslo tretej osoby a pole preň
+  // niet — prameň L3 s ním prešiel bránou. Vzor je dosť špecifický na to,
+  // aby vo voľnom texte nefalošil. Sumy ani IČO sa takto nehľadajú: osem
+  // číslic je v spise všade.
+  for (const r of records) {
+    if (r.layer !== "L2") continue;
+    const text = [r.truth, ...r.timeline.map((e) => e.text)].join("\n");
+    for (const m of text.matchAll(BIRTH_NUMBER_PATTERN_G)) {
+      const n = exactNeedle(m[0], r.id, "rodné číslo v texte záznamu");
+      if (n) out.push(n);
+    }
+  }
   return out;
 }
 
 function recordText(r: OkfRecord): string {
-  return [r.title, r.summary, r.truth, ...r.timeline.map((e) => `${e.date} ${e.text}`)].join("\n");
+  return [r.title, r.description, r.truth, ...r.timeline.map((e) => `${e.date} ${e.text}`)].join("\n");
 }
 
 function linkTargets(r: OkfRecord): string[] {
@@ -202,11 +219,12 @@ const IDENTIFIED_ROLES = ["client", "representative", "ubo"] as const;
 
 /** Vzor českého a slovenského rodného čísla — šesť číslic, voliteľné lomítko, koncovka. */
 const BIRTH_NUMBER_PATTERN = /\b\d{6}\s?\/\s?\d{3,4}\b/;
+const BIRTH_NUMBER_PATTERN_G = new RegExp(BIRTH_NUMBER_PATTERN.source, "g");
 
 /** Popis sa dostáva do INDEX.md aj do projekcie v _STATUS.md — citlivý údaj tam nepatrí. */
 function sensitiveInSummary(r: OkfRecord): Finding | undefined {
   const raw = r as unknown as Record<string, unknown>;
-  if (BIRTH_NUMBER_PATTERN.test(r.summary)) {
+  if (BIRTH_NUMBER_PATTERN.test(r.description)) {
     return {
       severity: "error",
       code: "SENSITIVE_IN_SUMMARY",
@@ -218,7 +236,7 @@ function sensitiveInSummary(r: OkfRecord): Finding | undefined {
   }
   for (const key of SENSITIVE_FIELDS) {
     const v = raw[key];
-    if (typeof v === "string" && v.trim().length >= 4 && r.summary.includes(v)) {
+    if (typeof v === "string" && v.trim().length >= 4 && r.description.includes(v)) {
       return {
         severity: "error",
         code: "SENSITIVE_IN_SUMMARY",
@@ -342,17 +360,36 @@ export function validateStore(
     if (f) findings.push(f);
   }
 
+  // Hodnoty mimo výpočet. Varovanie, nie chyba — OKF žiada dokument s neznámou
+  // hodnotou neodmietať. Ticho sa ale stratiť nesmie: neplatný `person_type`
+  // by inak bez slova vypol AML kontrolu pre ten subjekt. Našlo sa na dátach
+  // z ISIR — „natural" namiesto „natural_person" a nikto si nič nevšimol.
+  const povolene = (values: readonly string[]) => values.join(", ");
   for (const r of records) {
-    if (r.type !== "evidence" || r.evidence_kind === undefined) continue;
-    if (EVIDENCE_KINDS.some((k) => k === r.evidence_kind)) continue;
-    findings.push({
-      severity: "warning",
-      code: "UNKNOWN_EVIDENCE_KIND",
-      recordId: r.id,
-      message:
-        `Dôkaz ${r.id} má druh „${r.evidence_kind}", ktorý schéma nepozná. ` +
-        `Známe druhy: ${EVIDENCE_KINDS.join(", ")}.`,
-    });
+    const raw = r as unknown as Record<string, unknown>;
+    for (const f of FIELDS) {
+      const v = raw[f.canonical];
+      if (!f.values || typeof v !== "string" || v === "" || f.values.includes(v)) continue;
+      findings.push({
+        severity: "warning",
+        code: "UNKNOWN_VALUE",
+        recordId: r.id,
+        message:
+          `Pole ${f.canonical} záznamu ${r.id} má hodnotu „${v}", ktorú schéma nepozná. ` +
+          `Kontroly viazané na toto pole sa nevykonajú. Povolené: ${povolene(f.values)}.`,
+      });
+    }
+    for (const e of r.timeline) {
+      if (!e.kind || (EVENT_KINDS as readonly string[]).includes(e.kind)) continue;
+      findings.push({
+        severity: "warning",
+        code: "UNKNOWN_VALUE",
+        recordId: r.id,
+        message:
+          `História záznamu ${r.id} má druh udalosti „${e.kind}", ktorý schéma nepozná. ` +
+          `Povolené: ${povolene(EVENT_KINDS)}.`,
+      });
+    }
   }
 
   // Väzba tvrdenie ↔ dôkaz musí sedieť z oboch strán. Jednosmerne vedená
@@ -457,7 +494,7 @@ export function validateStore(
       });
     }
 
-    if (!r.verified_at && !r.verified_against) {
+    if (!r.verified_at && !r.verified_against && (r.verified ?? []).length === 0) {
       findings.push({
         severity: "warning",
         code: "AUTHORITY_UNVERIFIED",
@@ -469,13 +506,14 @@ export function validateStore(
     }
 
     for (const zdroj of r.sources ?? []) {
-      if (!/\bSb\.|\bZ\.\s?z\./.test(zdroj)) continue; // judikát sa ako predpis nekontroluje
-      if (/č\.\s?\d+\s?\/\s?\d{4}/.test(zdroj)) continue;
+      const text = zdroj.title ?? "";
+      if (!/\bSb\.|\bZ\.\s?z\./.test(text)) continue; // judikát sa ako predpis nekontroluje
+      if (/č\.\s?\d+\s?\/\s?\d{4}/.test(text)) continue;
       findings.push({
         severity: "warning",
         code: "CITATION_INCOMPLETE",
         recordId: r.id,
-        message: `Prameň ${r.id}: citácia „${zdroj}" odkazuje na predpis, ale neuvádza jeho číslo a rok.`,
+        message: `Prameň ${r.id}: citácia „${text}" odkazuje na predpis, ale neuvádza jeho číslo a rok.`,
       });
     }
   }
@@ -493,6 +531,71 @@ export function validateStore(
           `§ 9 AML zákona vyžaduje priebežnú kontrolu — zopakuj a založ nový záznam.`,
       });
     }
+  }
+
+  // Atribúcia tvrdenia podľa OKF: `[^id]` v texte je kľúč do `sources[].id`.
+  // Poznámka bez prameňa je presne tá chyba, kvôli ktorej vznikol zákaz
+  // neoverených prameňov — veta vyzerá podložene a nie je. Preto chyba.
+  for (const r of records) {
+    const ids = new Set((r.sources ?? []).map((z) => z.id).filter((x): x is string => !!x));
+    const text = [r.truth, ...r.timeline.map((e) => e.text)].join("\n");
+    const pouzite = new Set([...text.matchAll(/\[\^([^\]\s]+)\]/g)].map((m) => m[1] ?? ""));
+    for (const label of pouzite) {
+      if (ids.has(label)) continue;
+      findings.push({
+        severity: "error",
+        code: "CITATION_UNRESOLVED",
+        recordId: r.id,
+        message:
+          `Záznam ${r.id} sa odvoláva na prameň [^${label}], ktorý v \`sources\` nemá ` +
+          `položku s týmto id. Tvrdenie vyzerá podložene a nie je.`,
+      });
+    }
+    // Duplicitné id by tichým výberom prvého prepísalo atribúciu.
+    const vsetky = (r.sources ?? []).map((z) => z.id).filter((x): x is string => !!x);
+    for (const dup of vsetky.filter((x, i) => vsetky.indexOf(x) !== i)) {
+      findings.push({
+        severity: "error",
+        code: "SOURCE_ID_DUPLICATE",
+        recordId: r.id,
+        message: `Záznam ${r.id} má v \`sources\` id „${dup}" viackrát — poznámka pod čiarou by nevedela, na ktorý mieri.`,
+      });
+    }
+  }
+
+  // Uplynutá lehota. Tabuľka lehôt ju inak ukazuje medzi budúcimi a nikto sa
+  // nedozvie, či bola splnená alebo zmeškaná. Úloha po termíne sa hlásila,
+  // lehota nie — pritom zmeškaná procesná lehota sa dohnať nedá.
+  for (const r of records) {
+    if (r.status !== "active") continue;
+    for (const d of r.deadlines ?? []) {
+      if (d >= today) continue;
+      findings.push({
+        severity: "warning",
+        code: "DEADLINE_PASSED",
+        recordId: r.id,
+        message:
+          `Lehota ${d} záznamu ${r.id} uplynula. Ak bola splnená, zapíš to do histórie ` +
+          `a lehotu odstráň; ak nie, rieš ju hneď.`,
+      });
+    }
+  }
+
+  // Pravda zmenená mimo nástroja. Brána atomicity beží v ceste zápisu, takže
+  // ručnú úpravu v Obsidiane nemá ako zachytiť — odtlačok je jediné miesto,
+  // kde sa to dá dodatočne všimnúť. Varovanie, nie chyba: úprava rukou je
+  // legitímna, chýba jej len riadok Histórie.
+  for (const r of records) {
+    if (!r.truth_digest) continue;
+    if (r.truth_digest === truthDigest(r.truth)) continue;
+    findings.push({
+      severity: "warning",
+      code: "TRUTH_EDITED_OUTSIDE",
+      recordId: r.id,
+      message:
+        `Pravda záznamu ${r.id} sa zmenila mimo nástroja — v Histórii k tomu ` +
+        `nemusí byť riadok. Doplň ho, alebo zápis zopakuj cez okf-memory write.`,
+    });
   }
 
   // Preverenie (kontrola) klienta — v ČR § 9 zák. č. 253/2008 Sb.; § 8 upravuje

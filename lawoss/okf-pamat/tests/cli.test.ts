@@ -13,14 +13,14 @@ function spis(withLeak = false): string {
   writeFileSync(join(dir, "_STATUS.md"), "# Status\n\n> **Fáze:** ruční\n");
   const s = newRecord({
     id: "S-001", type: "subject", jurisdiction: "cz", title: "Modrý Kámen s.r.o.",
-    summary: "protistrana", registry_id: "12345678",
+    description: "protistrana", registry_id: "12345678",
     created: "2026-08-29", updated: "2026-08-29", truth: "t",
     timeline: [{ date: "2026-08-29", text: "overene" }],
   });
   writeFileSync(join(dir, MEMORY_DIR, "S-001-x.md"), serializeRecord(s));
   if (withLeak) {
     const j = newRecord({
-      id: "J-001", type: "authority", jurisdiction: "cz", title: "Pramen", summary: "p",
+      id: "J-001", type: "authority", jurisdiction: "cz", title: "Pramen", description: "p",
       created: "2026-08-29", updated: "2026-08-29", truth: "tykalo sa ICO 12345678",
       timeline: [{ date: "2026-08-29", text: "z" }],
     });

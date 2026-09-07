@@ -14,7 +14,7 @@ function subjekt(over: Partial<OkfRecord> = {}): OkfRecord {
   return {
     ...newRecord({
       id: "S-001", type: "subject", jurisdiction: "cz",
-      title: "Gh Real Estate s.r.o.", summary: "protistrana",
+      title: "Gh Real Estate s.r.o.", description: "protistrana",
       created: "2026-09-01", updated: "2026-09-01", truth: "t",
       timeline: [{ date: "2026-09-01", text: "overené" }],
       registry_id: "29139643",
@@ -33,7 +33,7 @@ function spisSoSubjektom(s: OkfRecord = subjekt()): string {
 function pramen(id: string, truth: string): OkfRecord {
   return newRecord({
     id, type: "authority", jurisdiction: "cz",
-    title: "Právna veta", summary: "prameň",
+    title: "Právna veta", description: "prameň",
     created: "2026-09-01", updated: "2026-09-01", truth,
     timeline: [{ date: "2026-09-01", text: "založené" }],
   });
@@ -83,7 +83,7 @@ test("zapis do L2 sa kontrolou uniku nezdrzuje", () => {
   const dir = spisSoSubjektom();
   const r = newRecord({
     id: "D-001", type: "decision", jurisdiction: "cz",
-    title: "Rozhodnutie", summary: "IČO overené v OR",
+    title: "Rozhodnutie", description: "IČO overené v OR",
     created: "2026-09-01", updated: "2026-09-01", truth: "IČO 29139643 sedí.",
     timeline: [{ date: "2026-09-01", text: "z" }],
   });
