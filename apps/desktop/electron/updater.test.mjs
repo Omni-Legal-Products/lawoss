@@ -7,6 +7,7 @@ import {
   ELECTRON_UPDATER_FALLBACK_FEEDS,
   ELECTRON_UPDATER_FEEDS,
   checkForUpdatesWithFeedFallback,
+  formatUpdaterErrorReason,
   staleUpdaterStatePaths,
 } from "./updater.mjs";
 
@@ -147,5 +148,24 @@ describe("staleUpdaterStatePaths", () => {
 
   it("is a no-op off macOS", { skip: process.platform === "darwin" }, () => {
     assert.deepEqual(staleUpdaterStatePaths(fakeApp), []);
+  });
+});
+
+describe("formatUpdaterErrorReason", () => {
+  it("explains that a local build without app-update.yml cannot self-update", () => {
+    const error = Object.assign(
+      new Error("ENOENT: no such file or directory, open '/Applications/LawOSS.app/Contents/Resources/app-update.yml'"),
+      { code: "ENOENT" },
+    );
+
+    assert.equal(
+      formatUpdaterErrorReason(error),
+      "This local LAWOSS build cannot update itself because it has no updater configuration. Install a versioned LAWOSS release instead.",
+    );
+  });
+
+  it("keeps unrelated updater errors unchanged", () => {
+    const error = new Error("network timeout");
+    assert.equal(formatUpdaterErrorReason(error), "network timeout");
   });
 });

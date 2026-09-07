@@ -334,7 +334,7 @@ export function WelcomeRoute() {
           manualFolder={manualFolder}
           onManualFolderChange={setManualFolder}
           onUseManualFolder={handleUseManualFolder}
-          showManualFolder={import.meta.env.DEV && isDesktopRuntime()}
+          showManualFolder={isDesktopRuntime()}
           analyticsEnabled={analyticsOptIn}
           onAnalyticsChange={setAnalyticsOptIn}
         />

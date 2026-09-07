@@ -27,6 +27,7 @@ import {
   type WordRunContext,
 } from "./office";
 import { runOfficeCode } from "./office-run-code";
+import { readStoredDocumentAuthor } from "../app/lib/document-author";
 
 export type WordToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
 
@@ -136,13 +137,17 @@ function revisionRun(text: string, kind: "ins" | "del"): string {
  * changes: they show up in the Review ribbon, attributable and
  * accept/rejectable, no WordApi 1.4 needed.
  */
-export function revisionOoxml(parts: Array<{ kind: "ins" | "del"; text: string }>): string {
+export function revisionOoxml(
+  parts: Array<{ kind: "ins" | "del"; text: string }>,
+  author = readStoredDocumentAuthor(),
+): string {
   const date = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+  const escapedAuthor = xmlEscape(author);
   const revisions = parts
     .filter((part) => part.text.length > 0)
     .map(
       (part) =>
-        `<w:${part.kind} w:id="${++revisionIdCounter}" w:author="${REVISION_AUTHOR}" w:date="${date}">` +
+        `<w:${part.kind} w:id="${++revisionIdCounter}" w:author="${escapedAuthor}" w:date="${date}">` +
         `${revisionRun(part.text, part.kind)}</w:${part.kind}>`,
     )
     .join("");
@@ -202,6 +207,7 @@ async function readDocument(args: Record<string, unknown>): Promise<unknown> {
     if (trackingSupported) context.document.load("changeTrackingMode");
     await context.sync();
     const text = body.text ?? "";
+    const revisionAuthor = readStoredDocumentAuthor();
     return {
       documentUrl: getDocumentUrl(),
       totalChars: text.length,
@@ -214,7 +220,7 @@ async function readDocument(args: Record<string, unknown>): Promise<unknown> {
         : {
             warning:
               "This Word version lacks WordApi 1.4: edits become redlines via synthesized revision markup " +
-              `(author "${REVISION_AUTHOR}"), and comments are unavailable. ${wordApiDiagnostic()}`,
+                `(author "${revisionAuthor}"), and comments are unavailable. ${wordApiDiagnostic()}`,
           }),
       text: text.slice(0, maxChars),
     };

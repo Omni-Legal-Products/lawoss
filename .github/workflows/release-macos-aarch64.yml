@@ -434,6 +434,38 @@ jobs:
             ${{ matrix.electron_args }} \
             --publish never
 
+      - name: Validate macOS updater package
+        if: matrix.os_type == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          app_update_config="$(find apps/desktop/dist-electron -type f -path '*/Contents/Resources/app-update.yml' -print -quit)"
+          if [ -z "$app_update_config" ]; then
+            echo "Packaged macOS app is missing Contents/Resources/app-update.yml" >&2
+            exit 1
+          fi
+
+          app_bundle="${app_update_config%/Contents/Resources/app-update.yml}"
+          app_version="$(plutil -extract CFBundleShortVersionString raw -o - "$app_bundle/Contents/Info.plist")"
+          if [ -z "$app_version" ] || [ "$app_version" = "0.0.0" ]; then
+            echo "Packaged macOS app has an unstamped version: ${app_version:-<empty>}" >&2
+            exit 1
+          fi
+
+          grep -Eq '^provider:[[:space:]]+github$' "$app_update_config"
+          grep -Eq '^owner:[[:space:]]+Omni-Legal-Products$' "$app_update_config"
+          grep -Eq '^repo:[[:space:]]+lawoss$' "$app_update_config"
+
+          manifest="apps/desktop/dist-electron/latest-mac.yml"
+          if [ ! -s "$manifest" ]; then
+            echo "Missing or empty macOS updater manifest: $manifest" >&2
+            exit 1
+          fi
+          grep -Eq '^version:[[:space:]]+' "$manifest"
+          grep -Eq '^files:' "$manifest"
+          echo "Validated LAWOSS macOS updater package v$app_version and $manifest"
+
       - name: Package Electron (Linux)
         if: matrix.os_type == 'linux'
         run: |

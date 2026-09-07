@@ -185,7 +185,9 @@ text snippets, not offsets) and run with Word change tracking forced to
 rejects in Word. On Word versions without WordApi 1.4 (change-tracking
 control), typed edits are synthesized as OOXML `w:ins`/`w:del` revision
 markup via `insertOoxml` (WordApi 1.1) — still real, accept/rejectable
-redlines, attributed to author "LegalWork". Only if the host rejects that
+redlines, attributed to the configured document author (default `LegalWork`).
+Native Word tracking and comments use the current Office identity because the
+Office API does not expose a writable author property. Only if the host rejects that
 package does the edit apply untracked, flagged `trackedChange: false` with
 a warning (including the detected Office build) that instructs the agent
 to spell out exactly what changed and to suggest updating Word. Comments
