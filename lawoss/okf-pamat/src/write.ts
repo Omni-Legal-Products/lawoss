@@ -64,11 +64,20 @@ function assertAppendOnly(before: OkfRecord, after: OkfRecord): void {
  * že sa záznam zmenil — a projekcia ani drift check nemajú podľa čoho ísť.
  * Doteraz to chytal až `STALE_UPDATED` vo validácii, teda po zápise (N8).
  */
-function assertUpdatedBumped(before: OkfRecord, after: OkfRecord): void {
+function assertUpdatedBumped(
+  before: OkfRecord,
+  after: OkfRecord,
+  today: string = new Date().toISOString().slice(0, 10),
+): void {
   const obsahSaZmenil =
     before.truth !== after.truth || after.timeline.length > before.timeline.length;
   if (!obsahSaZmenil) return;
   if (after.updated !== before.updated) return;
+  // Rovnaké `updated` je v poriadku vtedy, keď už nesie dnešok: zmena sa deje
+  // dnes a dátum ju opisuje verne. Bez tejto výnimky sa záznam nedá zmeniť
+  // druhýkrát v ten istý deň — pri schválenom zápise mu CLI opečiatkuje
+  // `updated` dňom schválenia, takže druhá zmena už nemá čo posunúť.
+  if (after.updated === today) return;
   throw new StaleUpdatedError(
     `Záznam ${before.id}: zmena obsahu musí posunúť updated (teraz ${before.updated})`,
   );

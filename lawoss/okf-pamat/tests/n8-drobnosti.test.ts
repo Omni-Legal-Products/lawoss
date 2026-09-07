@@ -95,6 +95,19 @@ test("s bumpom updated zmena prejde", () => {
   assert.doesNotThrow(() => planWrite(before, after, "obrat"));
 });
 
+test("druha zmena v ten isty den prejde, ked updated uz nesie dnesok", () => {
+  const dnes = new Date().toISOString().slice(0, 10);
+  const before = zaznam({ updated: dnes });
+  const after = zaznam({
+    updated: dnes,
+    truth: "opravená pravda",
+    timeline: [...before.timeline, { date: dnes, text: "oprava v ten istý deň" }],
+  });
+  // `updated` sa nemá kam posunúť — už nesie dnešok — a zmena aj tak musí prejsť.
+  // Bez toho sa schválený záznam v L1/L3 nedá opraviť v deň, keď vznikol.
+  assert.doesNotThrow(() => planWrite(before, after, "oprava v ten istý deň"));
+});
+
 test("zmena, ktora obsah nemeni, bump nevyzaduje", () => {
   const before = zaznam();
   assert.doesNotThrow(() => planWrite(before, zaznam({ description: "presnejší popis" }), "spresnenie"));
