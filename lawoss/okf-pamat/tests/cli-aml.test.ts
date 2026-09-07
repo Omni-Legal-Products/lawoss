@@ -19,7 +19,7 @@ function subjekt(over: Partial<OkfRecord> = {}): OkfRecord {
   return {
     ...newRecord({
       id: "S-001", type: "subject", jurisdiction: "cz",
-      title: "Jan Novák", summary: "klient",
+      title: "Jan Novák", description: "klient",
       created: "2026-08-31", updated: "2026-08-31", truth: "klient",
       timeline: [{ date: "2026-08-31", text: "identifikace" }],
       role: "client", person_type: "natural_person",
@@ -36,11 +36,11 @@ function provereni(over: Partial<OkfRecord> = {}): OkfRecord {
   return {
     ...newRecord({
       id: "P-001", type: "screening", jurisdiction: "cz",
-      title: "Prověření klienta", summary: "AML, riziko nízké",
+      title: "Prověření klienta", description: "AML, riziko nízké",
       created: "2026-08-31", updated: "2026-08-31", truth: "bez nálezu",
       timeline: [{ date: "2026-08-31", text: "provedeno" }],
       subject_ref: "S-001", check_date: "2026-08-31", mode: "medium",
-      risk: "nizke", conclusion: "pokracovat", valid_until: "2027-08-31",
+      risk: "low", conclusion: "proceed", valid_until: "2027-08-31",
     }),
     ...over,
   };

@@ -14,15 +14,15 @@ export {
   STATUS, PERSON_KINDS, ROLES, RISK, CONCLUSION, SCREENING_MODES,
   PROOF_STATUS, CONFIDENCE, EVIDENCE_STRENGTH, PROCEDURAL_STATUS, TASK_STATES,
   EVIDENCE_KINDS, EVIDENCE_KIND_PROVISION, SCREENING_PROVISION, EVENT_KINDS,
-  fieldLabel, canonicalField, typeLabel, isRecordType, isJurisdiction, needleFields,
+  fieldLabel, canonicalField, typeLabel, truthDigest, OKF_VERSION, isRecordType, isJurisdiction, needleFields,
   type Jurisdiction, type Layer, type RecordType, type FieldDef, type NeedleStrength,
   type Status, type PersonKind, type Role, type Risk, type Conclusion, type ScreeningMode,
   type ProofStatus, type Confidence, type EvidenceStrength, type ProceduralStatus, type EvidenceKind, type TaskState, type EventKind,
 } from "./schema.ts";
 
 export {
-  parseRecord, serializeRecord, HEADINGS,
-  type OkfRecord, type TimelineEntry,
+  parseRecord, serializeRecord, parseFrontmatter, HEADINGS,
+  type OkfRecord, type TimelineEntry, type Source, type Verification, type FmValue, type FmMap,
 } from "./record.ts";
 
 export {
@@ -30,42 +30,47 @@ export {
   type Approval, type WriteDiff, type WriteKind,
 } from "./write.ts";
 
-export { renderStatus, RenderConflictError, BLOCKS, MARKER_ONLY, type BlockName } from "./render.ts";
+export { renderStatus, RenderConflictError, statusSkeleton, BLOCKS, MARKER_ONLY, type BlockName, type LinkResolver } from "./render.ts";
 export { validateStore, type Finding, type Severity, type ValidateOptions } from "./validate.ts";
 export { maskValue, maskRecord } from "./mask.ts";
 export {
   readStandingAuthorization, covers, isExpired, CONFIG_FILE,
+  readClientPath, matchesClientPath,
   type StandingAuthorization,
 } from "./config.ts";
 export {
-  readStore, readScope, findClientDir, findOfficeDir, MEMORY_DIR, OFFICE_DIR, applyRecordWrite, LeakBlockedError, ConcurrentWriteError,
-  writeIndex, ensureBrain, syncStatus, standingApproval,
+  readStore, readScope, findClientDir, findOfficeDir, MEMORY_DIR, OFFICE_DIR, STATUS_FILE, applyRecordWrite, LeakBlockedError, ConcurrentWriteError,
+  writeIndex, writeLog, ensureBrain, syncStatus, standingApproval, statusLinkResolver,
   type Store, type Scope, type StoreProblem,
 } from "./store.ts";
 
 import { FIELDS, LAYER_OF, type Jurisdiction, type RecordType } from "./schema.ts";
+import { coerceField, type FmValue } from "./record.ts";
 
 /** Polia, ktoré newRecord priraďuje výslovne; zvyšok sa berie z tabuľky. */
 const CORE_INIT_FIELDS = new Set([
-  "okf", "id", "type", "title", "summary",
+  "okf", "id", "type", "title", "description",
   "layer", "jurisdiction", "status", "created", "updated",
 ]);
-import type { OkfRecord, TimelineEntry } from "./record.ts";
+import type { OkfRecord, TimelineEntry, Source, Verification } from "./record.ts";
 
 export interface NewRecordInit {
   id: string;
   type: RecordType;
   jurisdiction: Jurisdiction;
   title: string;
-  summary: string;
+  description: string;
   created: string;
   updated: string;
   truth: string;
   timeline: TimelineEntry[];
   status?: string;
 
-  sources?: string[];
+  /** Reťazec sa prijme ako `{ title }` — rovnako ako pri čítaní starých spisov. */
+  sources?: (string | Source)[];
+  verified?: Verification[];
   related?: string[];
+  tags?: string[];
   deadlines?: string[];
   parties?: string[];
   area?: string[];
@@ -79,6 +84,7 @@ export interface NewRecordInit {
   depends_on?: string[];
   acceptance?: string[];
 
+  truth_digest?: string;
   matter_ref?: string;
   court?: string;
 
@@ -153,7 +159,7 @@ export function newRecord(init: NewRecordInit): OkfRecord {
     id: init.id,
     type: init.type,
     title: init.title,
-    summary: init.summary,
+    description: init.description,
     layer: LAYER_OF[init.type],
     jurisdiction: init.jurisdiction,
     status: init.status ?? "active",
@@ -164,12 +170,12 @@ export function newRecord(init: NewRecordInit): OkfRecord {
   };
   // Nepovinné polia sa kopírujú podľa tabuľky, nie podľa ručného zoznamu —
   // inak by nové pole ticho vypadlo pri zakladaní záznamu.
-  const src = init as unknown as Record<string, string | string[] | undefined>;
-  const dst = rec as unknown as Record<string, string | string[]>;
+  const src = init as unknown as Record<string, FmValue | undefined>;
+  const dst = rec as unknown as Record<string, FmValue>;
   for (const f of FIELDS) {
     if (CORE_INIT_FIELDS.has(f.canonical)) continue;
     const v = src[f.canonical];
-    if (v !== undefined) dst[f.canonical] = v;
+    if (v !== undefined) dst[f.canonical] = coerceField(f.kind, v, f.canonical);
   }
   return rec;
 }

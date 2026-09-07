@@ -28,7 +28,7 @@ test("necitlive pole sa nemaskuje", () => {
 test("maskRecord maskuje citlive polia a ostatne necha", () => {
   const r = newRecord({
     id: "S-001", type: "subject", jurisdiction: "cz",
-    title: "Jan Novák", summary: "klient",
+    title: "Jan Novák", description: "klient",
     created: "2026-08-31", updated: "2026-08-31", truth: "t", timeline: [],
     birth_number: "750101/1234", registry_id: "12345678",
     residence: "Krátká 12, Praha 1", citizenship: "CR",
@@ -44,7 +44,7 @@ test("maskRecord maskuje citlive polia a ostatne necha", () => {
 test("maskRecord povodny zaznam nemeni", () => {
   const r = newRecord({
     id: "S-002", type: "subject", jurisdiction: "cz",
-    title: "X", summary: "y",
+    title: "X", description: "y",
     created: "2026-08-31", updated: "2026-08-31", truth: "t", timeline: [],
     birth_number: "750101/1234",
   });

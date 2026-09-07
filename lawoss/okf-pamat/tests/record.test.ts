@@ -7,7 +7,7 @@ okf: 1
 id: R-001
 type: decision
 title: Nenapadat prislusnost
-summary: Namitku mistni prislusnosti nepodavame, zdrzela by vec o mesice
+description: Namitku mistni prislusnosti nepodavame, zdrzela by vec o mesice
 layer: L2
 jurisdiction: cz
 status: active
@@ -32,7 +32,7 @@ okf: 1
 id: R-001
 type: decision
 title: Nenapadat prislusnost
-summary: Namietku miestnej prislusnosti nepodavame
+description: Namietku miestnej prislusnosti nepodavame
 layer: L2
 jurisdiction: sk
 status: active
@@ -107,6 +107,6 @@ test("neznamy typ zaznamu je chyba", () => {
 });
 
 test("chybajuce povinne pole je chyba", () => {
-  const bad = CZ.replace(/^summary:.*$/m, "");
-  assert.throws(() => parseRecord(bad), /summary/);
+  const bad = CZ.replace(/^description:.*$/m, "");
+  assert.throws(() => parseRecord(bad), /description/);
 });

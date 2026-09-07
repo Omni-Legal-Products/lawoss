@@ -9,7 +9,7 @@ function base(over: Partial<OkfRecord>): OkfRecord {
     id: "X-001",
     type: "decision",
     title: "t",
-    summary: "s",
+    description: "s",
     layer: "L2",
     jurisdiction: "cz",
     status: "active",

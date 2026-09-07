@@ -11,7 +11,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseFrontmatter } from "./record.ts";
+import { parseFrontmatter, type FmValue } from "./record.ts";
 import type { WriteDiff } from "./write.ts";
 
 export const CONFIG_FILE = "okf.config";
@@ -29,19 +29,50 @@ function text(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-export function readStandingAuthorization(
+function readConfig(
   officeDir: string | undefined,
-): StandingAuthorization | undefined {
+): Map<string, FmValue> | undefined {
   if (!officeDir) return undefined;
   const path = join(officeDir, CONFIG_FILE);
   if (!existsSync(path)) return undefined;
+  return parseFrontmatter(readFileSync(path, "utf8"));
+}
 
-  const kv = parseFrontmatter(readFileSync(path, "utf8"));
+/**
+ * Kde v strome leží priečinok klienta, keď v ňom nie je karta.
+ *
+ * Vaulty, ktoré vznikli pred OKF, majú klientov usporiadaných podľa vlastnej
+ * logiky (`AK/R/Novák Ján/…`) a karta v nich nie je. Rozsypať do nich 52
+ * súborov `klient.md` len preto, aby ich nástroj spoznal, je zásah do cudzieho
+ * poriadku. Vzor sa preto zapíše raz do konfigu.
+ *
+ * Hviezdička zastupuje **jeden segment cesty**, nie ľubovoľnú hĺbku — vzor
+ * `AK/*` + `/*` by inak označil za klienta aj priečinok veci.
+ */
+export function readClientPath(officeDir: string | undefined): string | undefined {
+  const v = readConfig(officeDir)?.get("client_path");
+  return typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
+}
+
+/** Sedí relatívna cesta na vzor, kde `*` je práve jeden segment? */
+export function matchesClientPath(relative: string, pattern: string): boolean {
+  const seg = relative.split("/").filter((x) => x !== "");
+  const pat = pattern.split("/").filter((x) => x !== "");
+  if (seg.length !== pat.length) return false;
+  return pat.every((p, i) => p === "*" || p === seg[i]);
+}
+
+export function readStandingAuthorization(
+  officeDir: string | undefined,
+): StandingAuthorization | undefined {
+  const kv = readConfig(officeDir);
+  if (!kv) return undefined;
   const by = text(kv.get("standing_authorization"));
   const expiresAt = text(kv.get("expires_at"));
   const reason = text(kv.get("reason"));
   const raw = kv.get("scope");
-  const scope = Array.isArray(raw) ? raw : [];
+  // Vrstvy sú reťazce; mapovanie v `scope` je chyba zápisu, nie vrstva.
+  const scope = Array.isArray(raw) ? (raw as unknown[]).filter((x): x is string => typeof x === "string") : [];
 
   // Neúplné poverenie nie je poverenie. Bez mena sa nedá podpísať, bez konca
   // by platilo navždy a bez dôvodu sa po roku nedá posúdiť, či ešte platí.

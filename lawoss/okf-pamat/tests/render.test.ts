@@ -5,7 +5,7 @@ import type { OkfRecord } from "../src/record.ts";
 
 function r(over: Partial<OkfRecord>): OkfRecord {
   return {
-    okf: 1, id: "X-1", type: "decision", title: "t", summary: "s",
+    okf: 1, id: "X-1", type: "decision", title: "t", description: "s",
     layer: "L2", jurisdiction: "cz", status: "active",
     created: "2026-08-29", updated: "2026-08-29", truth: "", timeline: [],
     ...over,

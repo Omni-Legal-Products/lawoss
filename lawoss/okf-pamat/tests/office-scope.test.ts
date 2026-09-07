@@ -27,14 +27,14 @@ function put(dir: string, r: OkfRecord): void {
 
 const poucenie = newRecord({
   id: "L-001", type: "lesson", jurisdiction: "cz",
-  title: "Příslušnost ověřovat před podáním", summary: "poučení do praxe",
+  title: "Příslušnost ověřovat před podáním", description: "poučení do praxe",
   created: "2026-09-02", updated: "2026-09-02", truth: "t",
   timeline: [{ date: "2026-09-02", text: "vzniklo" }],
 });
 
 const pramen = newRecord({
   id: "A-001", type: "authority", jurisdiction: "cz",
-  title: "29 NSČR 73/2024", summary: "kumulativnost § 348",
+  title: "29 NSČR 73/2024", description: "kumulativnost § 348",
   created: "2026-09-02", updated: "2026-09-02", truth: "Podmínky jsou kumulativní.",
   timeline: [{ date: "2026-09-02", text: "ověřeno" }],
   verified_at: "2026-09-02",
@@ -55,12 +55,12 @@ test("readScope cita tri urovne: spis, klient, kancelaria", () => {
   const { office, klient, spis } = kancelaria();
   put(office, poucenie);
   put(klient, newRecord({
-    id: "S-001", type: "subject", jurisdiction: "cz", title: "Klient", summary: "k",
+    id: "S-001", type: "subject", jurisdiction: "cz", title: "Klient", description: "k",
     created: "2026-09-02", updated: "2026-09-02", truth: "t",
     timeline: [{ date: "2026-09-02", text: "x" }],
   }));
   put(spis, newRecord({
-    id: "D-001", type: "decision", jurisdiction: "cz", title: "R", summary: "s",
+    id: "D-001", type: "decision", jurisdiction: "cz", title: "R", description: "s",
     created: "2026-09-02", updated: "2026-09-02", truth: "t",
     timeline: [{ date: "2026-09-02", text: "x" }],
   }));
@@ -85,7 +85,7 @@ test("odkaz zo spisu na poucenie kancelarie nie je rozbity", () => {
   const { office, spis } = kancelaria();
   put(office, poucenie);
   put(spis, newRecord({
-    id: "D-001", type: "decision", jurisdiction: "cz", title: "R", summary: "s",
+    id: "D-001", type: "decision", jurisdiction: "cz", title: "R", description: "s",
     created: "2026-09-02", updated: "2026-09-02", truth: "viz [[L-001]]",
     timeline: [{ date: "2026-09-02", text: "x" }],
   }));
