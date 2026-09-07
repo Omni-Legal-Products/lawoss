@@ -95,7 +95,7 @@
   --border: var(--lw-border);
   --input: var(--lw-border);
   --ring: var(--lw-accent);
-  --radius: 0.625rem;
+  --radius: 0.25rem; /* LAWOSS squared (issue #22) */
 
   --chart-1: #c9a24a;
   --chart-2: #a8b0ba;
