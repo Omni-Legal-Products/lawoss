@@ -225,6 +225,16 @@ používateľa; markery sú kanonické.
 
 Zápis vedie výhradne cez `planWrite() → applyRecordWrite()`. Iná cesta na disk nie je.
 
+### Keď sa zo zápisu má stať agentná práca
+
+Human gate sa dá **udeliť vopred** namiesto klikania pri každom zázname:
+advokát napíše do `_kancelaria/okf.config` trvalé poverenie s menom, rozsahom,
+dôvodom a dátumom konca. Zápisy do jeho `scope` potom prejdú bez `--approve-as`
+a v histórii záznamu sa objaví, že ich kryje poverenie a do kedy platí.
+
+Poverenie **nevypína** mazanie, zákaz úniku do L3 ani atomicitu pravdy —
+schvaľuje zápis, nič iné. Podrobne: [`AGENTNI-ZAPISY.md`](AGENTNI-ZAPISY.md).
+
 ## Čo jadro zapisuje do spisu
 
 ```

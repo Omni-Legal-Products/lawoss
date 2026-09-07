@@ -66,7 +66,7 @@ export interface OkfRecord {
   matter_ref?: string;
   court?: string;
 
-  // identifikácia subjektu (§ 8 zák. č. 253/2008 Sb.)
+  // identifikácia subjektu — zoznam údajov § 5 zák. č. 253/2008 Sb.
   role?: string;
   person_type?: string;
   registry_id?: string;
@@ -216,7 +216,7 @@ function unquote(v: string): string {
   return v;
 }
 
-function parseFrontmatter(fm: string): Map<string, string | number | string[]> {
+export function parseFrontmatter(fm: string): Map<string, string | number | string[]> {
   const out = new Map<string, string | number | string[]>();
   for (const line of fm.split("\n")) {
     if (line.trim() === "" || line.trimStart().startsWith("#")) continue;

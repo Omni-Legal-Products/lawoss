@@ -14,6 +14,7 @@ import { parseRecord, serializeRecord, type OkfRecord } from "./record.ts";
 import { renderStatus } from "./render.ts";
 import { validateStore } from "./validate.ts";
 import { authorize, type Approval, type WriteDiff } from "./write.ts";
+import { readStandingAuthorization, covers } from "./config.ts";
 import { typeLabel, type Jurisdiction } from "./schema.ts";
 
 const INDEX_FILE = "INDEX.md";
@@ -135,8 +136,28 @@ function assertNoLeak(dir: string, after: OkfRecord): void {
 }
 
 /** Zapíše návrh na disk — najprv však prejde bránami. */
+/**
+ * Schválenie plynúce z trvalého poverenia advokáta v `_kancelaria/okf.config`.
+ *
+ * Nie je to obídenie brány — je to schválenie udelené vopred a písomne,
+ * namiesto klikania pri každom zázname. Preto ide tou istou cestou ako ručné
+ * a rovnako sa zapíše do append-only histórie záznamu.
+ */
+export function standingApproval(
+  dir: string,
+  diff: WriteDiff,
+  today?: string,
+): Approval | undefined {
+  const auth = readStandingAuthorization(findOfficeDir(dir));
+  if (!auth || !covers(auth, diff, today)) return undefined;
+  return {
+    by: `${auth.by} (trvalé poverenie do ${auth.expiresAt})`,
+    at: new Date().toISOString(),
+  };
+}
+
 export function applyRecordWrite(dir: string, diff: WriteDiff, approval: Approval | undefined): void {
-  authorize(diff, approval);
+  authorize(diff, approval ?? standingApproval(dir, diff));
   if (diff.after) assertNoLeak(dir, diff.after);
   const store = readStore(dir);
   assertNotStale(store, diff);
