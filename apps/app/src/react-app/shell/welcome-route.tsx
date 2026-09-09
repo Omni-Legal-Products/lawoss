@@ -175,7 +175,7 @@ export function WelcomeRoute() {
           list = null;
         }
         if (!list) {
-          throw new Error("LegalWork server is unavailable. Start or reconnect the server before creating a workspace.");
+          throw new Error(t("session_route.create_server_unavailable"));
         }
         setCreatePhase("engine");
         const createdId =
@@ -218,13 +218,15 @@ export function WelcomeRoute() {
         }
         dispatch({ type: "close" });
         // Leaving the welcome screen — commit the analytics choice and start
-        // the PERSISTED in-session onboarding ("Your AI" → quick setup). The
+        // the PERSISTED in-session onboarding (quick setup → "Your AI"). The
         // stage survives reloads; hasCompletedOnboarding only gates /welcome.
+        // Office add-ins and audio need the desktop, so the web starts at the
+        // permissions step.
         local.setPrefs((prev) => ({
           ...prev,
           analyticsEnabled: analyticsOptIn,
           hasCompletedOnboarding: true,
-          onboardingStage: "ai",
+          onboardingStage: isDesktopRuntime() ? "office" : "permissions",
         }));
         captureAnalyticsEvent("workspace_created", { source: "onboarding", surface: analyticsSurface() });
         // The consent choice just persisted: an opt-out sends its single
@@ -239,7 +241,7 @@ export function WelcomeRoute() {
         captureAppError("workspace_create", error);
         dispatch({
           type: "create:error",
-          error: error instanceof Error ? error.message : "Failed to create workspace.",
+          error: error instanceof Error ? error.message : t("welcome_route.create_failed"),
         });
       } finally {
         dispatch({ type: "create:finish" });
@@ -284,7 +286,7 @@ export function WelcomeRoute() {
           list = null;
         }
         if (!list) {
-          throw new Error("LegalWork server is unavailable. Start or reconnect the server before connecting a remote workspace.");
+          throw new Error(t("welcome_route.server_unavailable_connect"));
         }
         const createdId =
           resolveWorkspaceListSelectedId(list) ||
@@ -302,7 +304,7 @@ export function WelcomeRoute() {
       } catch (error) {
         dispatch({
           type: "remote:error",
-          error: error instanceof Error ? error.message : "Connection failed.",
+          error: error instanceof Error ? error.message : t("welcome_route.connection_failed"),
         });
         return false;
       } finally {
