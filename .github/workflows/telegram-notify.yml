@@ -8,6 +8,10 @@ on:
     types: [opened, closed, reopened]
   pull_request:
     types: [opened, closed, reopened, ready_for_review]
+  push:
+    branches:
+      - dev
+      - "codex/**"
   workflow_run:
     workflows:
       - Alpha Channel (macOS arm64)
@@ -89,6 +93,14 @@ jobs:
               title=$(jq -r '.pull_request.title' "$event" | escape_html)
               url=$(jq -r '.pull_request.html_url' "$event")
               text=$(printf '🔀 <b>Pull request %s</b>\nRepo: <b>%s</b>\n#%s: %s\n\n<a href="%s">Otvoriť PR</a>' "$action" "$repository" "$number" "$title" "$url")
+              ;;
+
+            push)
+              branch=$(printf '%s' "$GITHUB_REF_NAME" | escape_html)
+              commit=$(jq -r '.after // .head_commit.id // empty' "$event" | cut -c1-12 | escape_html)
+              message=$(jq -r '.head_commit.message // "Bez správy commitu"' "$event" | tr '\r\n' ' ' | cut -c1-160 | escape_html)
+              url="https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+              text=$(printf '📦 <b>Nový push</b>\nRepo: <b>%s</b>\nVetva: <b>%s</b>\nCommit: <code>%s</code>\n%s\n\n<a href="%s">Otvoriť commit</a>' "$repository" "$branch" "$commit" "$message" "$url")
               ;;
 
             workflow_run)
