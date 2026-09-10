@@ -22,6 +22,10 @@
 > [!IMPORTANT]
 > LAWOSS je v aktívnom vývoji a zatiaľ nemá vlastné produkčné binárky. Nepoužívajte testovacie buildy s klientskymi, privilegovanými ani spisovými dátami bez vlastného bezpečnostného posúdenia.
 
+## Aktuálne odovzdanie
+
+[Logo B a jednotný sidebar — technický zápis, testy a preview z 10. 9. 2026](docs/2026-09-10-logo-b-sidebar-handoff.md).
+
 ## Čo je LAWOSS
 
 Voice Mode po spustení prenáša mikrofónový zvuk a výňatok aktuálneho chatu do OpenAI Realtime cez pripojený OpenAI API kľúč. Recorder a systémové diktovanie transkribujú lokálne. Podrobnosti o prenose dát a voliteľnej telemetrii sú v [TERMS.md](TERMS.md).
