@@ -25,7 +25,7 @@ Node 24.13.0, pnpm 11.4.0, macOS ARM64. The host's Node 26 failed to build bette
 | `pnpm build` | Pass; renderer, Word add-in, Electron bridge (108 methods), server dependencies and plugin bundles verified |
 | Browser visual checks | LAWOSS dark overview and Slovak onboarding inspected |
 | Built Electron launch | LAWOSS window and local server started; no renderer console errors on inspected screen |
-| `git diff --check`, AGENTS/CLAUDE equality | Pass |
+| `git diff v0.1.18 --check`, AGENTS/CLAUDE equality | Pass; upstream license/patch whitespace is retained unchanged |
 
 Desktop startup still reports HTTP 404 for existing LAWOSS architecture-download destinations. These destinations are preserved rather than replaced with upstream distribution. Live paid voice, microphone permissions and signed installer/update behavior were not exercised. Build reports upstream bundle-size/browser-externalization warnings.
 
