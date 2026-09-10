@@ -50,3 +50,10 @@ The existing Word add-in changes, OKF modules, updater feeds, release customizat
 - `apps/app/src/react-app/shell/session-route.tsx`: use the existing mainView slot for experiment content and reset auxiliary panes on route changes. The original sidebar, workspace actions, resizing, titlebar and status bar remain shared.
 - `apps/app/src/react-app/shell/use-workspace-route-state.ts`: optional preserveRoute keeps non-session experiment URLs from being replaced by session restoration or first-run redirects; existing session onboarding behavior is unchanged.
 - `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx`: pass active pane state to LAWOSS navigation to prevent simultaneous active indicators.
+
+### Selected identity B (2026-09-10)
+
+MČ selected variant B from the supplied original references; decision recorded in the coordination repository under `assets/brand/loga-2026-09-10/README.md`.
+- `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx`: use the existing white vector wordmark for the default LAWOSS brand, keeping custom brand names and logos supported.
+- `apps/app/public/legalwork-mark.svg`, `favicon-16x16.png`, `favicon-32x32.png`, `apple-touch-icon.png`: generated from the selected portico source.
+- `apps/desktop/resources/icons/**`: regenerate production and development macOS/Windows/runtime icons from the selected LAWOSS B mark. Icon source now matches generated files.
