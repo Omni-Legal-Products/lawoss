@@ -1,3 +1,4 @@
+import { parseWorkspaceAttachmentMention } from "./workspace-attachment";
 /** @jsxImportSource react */
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, type ForwardedRef } from "react";
 import { LexicalComposer } from "@lexical/react/LexicalComposer.js";
@@ -38,6 +39,7 @@ import {
   parseLegalMemoryComposerMention,
   type ComposerMentionKind,
 } from "./mention-encoding";
+import { t } from "@/i18n";
 
 type EditorProps = {
   value: string;
@@ -88,6 +90,7 @@ type SerializedComposerSkillNode = Spread<
 >;
 
 const MENTION_PILL_CLASS: Record<ComposerMentionKind, string> = {
+  upload: "inline-flex items-center rounded-full border border-gray-6 bg-gray-3 px-2.5 py-1 text-xs font-medium text-gray-11",
   file: "inline-flex items-center rounded-full border border-gray-6 bg-gray-3 px-2.5 py-1 text-xs font-medium text-gray-11",
   memory: "inline-flex items-center rounded-full border border-indigo-6/60 bg-indigo-2/40 px-2.5 py-1 text-xs font-medium text-indigo-11",
   agent: "inline-flex items-center rounded-full border border-sky-6/35 bg-sky-3/20 px-2.5 py-1 text-xs font-medium text-sky-11",
@@ -95,6 +98,7 @@ const MENTION_PILL_CLASS: Record<ComposerMentionKind, string> = {
 };
 
 function mentionPillText(value: string, kind: ComposerMentionKind) {
+  if (kind === "upload") return parseWorkspaceAttachmentMention(value)?.name ?? value;
   if (kind === "memory") {
     const memory = parseLegalMemoryComposerMention(value);
     if (memory) return `@${memory.label}`;
@@ -327,8 +331,8 @@ function createPastedTextChipDom(label: string, lines: number) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full text-amber-10 transition-colors hover:bg-amber-4 hover:text-amber-12";
-  button.title = "Expand pasted text";
-  button.setAttribute("aria-label", "Expand pasted text");
+  button.title = t("artifact.expand_pasted");
+  button.setAttribute("aria-label", t("artifact.expand_pasted"));
   button.dataset.pastedExpandLabel = label;
 
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -881,7 +885,7 @@ export const LexicalPromptEditor = forwardRef<LexicalPromptEditorHandle, EditorP
         <PlainTextPlugin
           contentEditable={
             <ContentEditable
-              className="min-h-[60px] max-h-[280px] w-full resize-none overflow-y-auto bg-transparent text-[15px] leading-6 text-dls-text outline-none placeholder:text-dls-secondary [&_p]:min-h-[1.5rem] [&_p]:m-0"
+              className="min-h-[72px] max-h-[280px] w-full resize-none overflow-y-auto bg-transparent text-[15px] leading-6 text-dls-text outline-none placeholder:text-dls-secondary [&_p]:min-h-[1.5rem] [&_p]:m-0"
               aria-placeholder={props.placeholder}
               placeholder={<span />}
               onPaste={props.onPaste}
@@ -891,7 +895,7 @@ export const LexicalPromptEditor = forwardRef<LexicalPromptEditorHandle, EditorP
             />
           }
           placeholder={
-            <div className="pointer-events-none absolute left-0 top-0 text-[15px] leading-6 text-dls-secondary/70">
+            <div className="pointer-events-none absolute left-0 top-0 text-[15px] leading-6 text-dls-secondary">
               {props.placeholder}
             </div>
           }

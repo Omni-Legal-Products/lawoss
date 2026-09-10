@@ -41,7 +41,23 @@ export type LegalworkControlSnapshot = {
   status: "off" | "ready" | "acting";
   busyActionId: string | null;
   narration: string;
+  activeSurface: LegalworkControlSurface | null;
+  openFiles: LegalworkOpenFile[];
   actions: LegalworkControlActionMetadata[];
+};
+
+export type LegalworkOpenFile = { id: string; sessionId: string; name: string; path: string; active: boolean };
+
+export type LegalworkControlSurface = {
+  id: string;
+  kind: "document";
+  format: "docx" | "xlsx" | "pptx" | "md";
+  sessionId: string;
+  workspaceId: string;
+  name: string;
+  path: string;
+  editable: boolean;
+  agentEditsTracked: boolean;
 };
 
 export type LegalworkControlResult =
@@ -95,6 +111,8 @@ type LegalworkControlContextValue = {
   busyActionId: string | null;
   actions: LegalworkControlActionMetadata[];
   registerAction: (actionId: string, actionRef: ControlActionRef) => () => void;
+  registerOpenFiles: (files: LegalworkOpenFile[]) => () => void;
+  registerSurface: (surface: LegalworkControlSurface) => () => void;
   executeAction: (actionId: string, args?: unknown) => Promise<LegalworkControlResult>;
   snapshot: () => LegalworkControlSnapshot;
 };
@@ -128,7 +146,7 @@ const SPOTLIGHT_TIMING_MS = Object.freeze({
 const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 function describeError(error: unknown) {
-  return error instanceof Error ? error.message : String(error || "Unknown error");
+  return error instanceof Error ? error.message : String(error || t("control.unknown_error"));
 }
 
 function returnedActionError(result: unknown) {
@@ -137,7 +155,7 @@ function returnedActionError(result: unknown) {
   if (payload.ok !== false) return null;
   return typeof payload.error === "string" && payload.error.trim()
     ? payload.error
-    : "Action returned an error.";
+    : t("control.action_error");
 }
 
 function isBrowser() {
@@ -189,8 +207,12 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
   const [enabledState, setEnabledState] = useState(false);
   const [busyActionId, setBusyActionId] = useState<string | null>(null);
   const [narration, setNarration] = useState("Control mode is off.");
+  const [openFiles, setOpenFiles] = useState<LegalworkOpenFile[]>([]);
+  const openFilesToken = useRef<symbol | null>(null);
+  const [activeSurface, setActiveSurface] = useState<LegalworkControlSurface | null>(null);
   const [spotlight, setSpotlight] = useState<SpotlightState>({ visible: false, phase: "target", rect: null });
   const busyActionIdRef = useRef<string | null>(null);
+  const activeSurfaceTokenRef = useRef<symbol | null>(null);
   const spotlightRunRef = useRef(0);
 
   const route = `${location.pathname}${location.search}${location.hash}`;
@@ -218,8 +240,10 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
     status,
     busyActionId,
     narration,
+    activeSurface,
+    openFiles,
     actions: listActionMetadata(),
-  }), [busyActionId, enabled, listActionMetadata, narration, route, status]);
+  }), [openFiles, activeSurface, busyActionId, enabled, listActionMetadata, narration, route, status]);
 
   const registerAction = useCallback((actionId: string, actionRef: ControlActionRef) => {
     const token = Symbol(actionId);
@@ -238,6 +262,25 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
         actionsRef.current.delete(actionId);
         setVersion((value) => value + 1);
       }
+    };
+  }, []);
+
+  const registerOpenFiles = useCallback((files: LegalworkOpenFile[]) => {
+    const token = Symbol("openFiles");
+    openFilesToken.current = token;
+    setOpenFiles(files);
+    return () => { if (openFilesToken.current === token) { openFilesToken.current = null; setOpenFiles([]); } };
+  }, []);
+
+  const registerSurface = useCallback((surface: LegalworkControlSurface) => {
+    const token = Symbol(surface.id);
+    activeSurfaceTokenRef.current = token;
+    setActiveSurface(surface);
+
+    return () => {
+      if (activeSurfaceTokenRef.current !== token) return;
+      activeSurfaceTokenRef.current = null;
+      setActiveSurface(null);
     };
   }, []);
 
@@ -277,12 +320,12 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
     const registered = actionsRef.current.get(actionId);
     const action = registered?.ref.current;
     if (!registered || !action) return { ok: false, actionId, error: `Unknown action: ${actionId}` };
-    if (action.disabled) return { ok: false, actionId, error: `Action is disabled: ${action.label}` };
+    if (action.disabled) return { ok: false, actionId, error: t("control.action_disabled", { label: action.label }) };
     if (busyActionIdRef.current) return { ok: false, actionId, error: `Already acting: ${busyActionIdRef.current}` };
 
     if (action.requiresConfirmation && isBrowser()) {
-      const confirmed = window.confirm(`Allow Control Mode to ${action.label}?`);
-      if (!confirmed) return { ok: false, actionId, error: "User cancelled action." };
+      const confirmed = window.confirm(t("control.confirm_allow", { label: action.label }));
+      if (!confirmed) return { ok: false, actionId, error: t("control.user_cancelled") };
     }
 
     const runId = spotlightRunRef.current + 1;
@@ -290,22 +333,22 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
     busyActionIdRef.current = action.id;
     setEnabled(true);
     setBusyActionId(action.id);
-    setNarration(`Moving to ${action.label}…`);
+    setNarration(t("control.narration_moving", { label: action.label }));
 
     try {
       await playTargetChoreography(action, runId);
-      setNarration(`Running ${action.label}…`);
+      setNarration(t("control.narration_running", { label: action.label }));
       const effectiveArgs = args === undefined ? action.previewArgs : args;
       const result = await action.execute(effectiveArgs, { setNarration });
       const resultError = returnedActionError(result);
       if (resultError) {
-        setNarration(`Could not ${action.label}: ${resultError}`);
+        setNarration(t("control.narration_could_not", { label: action.label, error: resultError }));
         if (spotlightRunRef.current === runId) {
           setSpotlight({ visible: false, phase: "target", rect: null });
         }
         return { ok: false, actionId, error: resultError };
       }
-      setNarration(`Done: ${action.label}`);
+      setNarration(t("control.narration_done", { label: action.label }));
       await wait(SPOTLIGHT_TIMING_MS.done);
       if (spotlightRunRef.current === runId) {
         setSpotlight({ visible: false, phase: "target", rect: null });
@@ -313,7 +356,7 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
       return { ok: true, actionId, result };
     } catch (error) {
       const message = describeError(error);
-      setNarration(`Could not ${action.label}: ${message}`);
+      setNarration(t("control.narration_could_not", { label: action.label, error: message }));
       if (spotlightRunRef.current === runId) {
         setSpotlight({ visible: false, phase: "target", rect: null });
       }
@@ -332,9 +375,11 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
     busyActionId,
     actions,
     registerAction,
+    registerSurface,
+    registerOpenFiles,
     executeAction,
     snapshot,
-  }), [actions, busyActionId, enabled, executeAction, narration, registerAction, route, setEnabled, snapshot]);
+  }), [actions, busyActionId, enabled, executeAction, narration, registerAction, registerSurface, registerOpenFiles, route, setEnabled, snapshot]);
 
   useEffect(() => {
     if (!enabled) {
@@ -404,6 +449,16 @@ export function useControlAction(action: LegalworkControlAction | null | false |
   }, [actionId, registerAction]);
 }
 
+export function useControlSurface(surface: LegalworkControlSurface | null | false | undefined) {
+  const control = useLegalworkControl();
+  const registerSurface = control?.registerSurface;
+
+  useEffect(() => {
+    if (!registerSurface || !surface) return undefined;
+    return registerSurface(surface);
+  }, [registerSurface, surface]);
+}
+
 /**
  * Register a dynamic list of control actions. Unlike calling useControlAction
  * per item, this scales to an arbitrary, changing number of actions without
@@ -446,6 +501,7 @@ export function useControlActions(actions: readonly LegalworkControlAction[]) {
 }
 
 import { SETTINGS_TAB_VALUES } from "../../../app/types";
+import { t } from "@/i18n";
 
 const SETTINGS_TABS: ReadonlySet<string> = new Set<string>(SETTINGS_TAB_VALUES);
 
@@ -455,56 +511,56 @@ export function LegalworkRouteControlActions() {
   const actions = useMemo<LegalworkControlAction[]>(() => [
     {
       id: "route.session",
-      label: "Open sessions",
+      label: t("control.open_sessions"),
       description: "Navigate to the main session view.",
       sideEffect: "navigation",
       execute: () => navigate("/session"),
     },
     {
       id: "route.settings.general",
-      label: "Open general settings",
+      label: t("control.open_general_settings"),
       description: "Navigate to general settings.",
       sideEffect: "navigation",
       execute: () => navigate("/settings/general"),
     },
     {
       id: "route.settings.extensions",
-      label: "Open MCP and extension settings",
+      label: t("control.open_mcp_settings"),
       description: "Navigate to extension and MCP settings.",
       sideEffect: "navigation",
       execute: () => navigate("/settings/extensions"),
     },
     {
       id: "route.settings.skills",
-      label: "Open skills settings",
+      label: t("control.open_skills_settings"),
       description: "Navigate to skills settings.",
       sideEffect: "navigation",
       execute: () => navigate("/settings/skills"),
     },
     {
       id: "route.settings.providers",
-      label: "Open provider settings",
+      label: t("control.open_provider_settings"),
       description: "Navigate to AI provider settings.",
       sideEffect: "navigation",
       execute: () => navigate("/settings/ai"),
     },
     {
       id: "route.settings.authorized_folders",
-      label: "Open authorized folder settings",
+      label: t("control.open_folder_settings"),
       description: "Navigate to authorized folders and file access settings.",
       sideEffect: "navigation",
       execute: () => navigate("/settings/permissions"),
     },
     {
       id: "route.settings.appearance",
-      label: "Open appearance settings",
+      label: t("control.open_appearance_settings"),
       description: "Navigate to appearance settings.",
       sideEffect: "navigation",
       execute: () => navigate("/settings/appearance"),
     },
     {
       id: "settings.panel.open",
-      label: "Open a settings panel",
+      label: t("control.open_settings_panel"),
       description: "Navigate to a specific settings panel by tab id.",
       sideEffect: "navigation",
       requiresArgs: true,
@@ -533,21 +589,21 @@ export function LegalworkRouteControlActions() {
     },
     {
       id: "route.back",
-      label: "Go back",
+      label: t("control.go_back"),
       description: "Navigate back one entry in history.",
       sideEffect: "navigation",
       execute: () => navigate(-1),
     },
     {
       id: "route.forward",
-      label: "Go forward",
+      label: t("control.go_forward"),
       description: "Navigate forward one entry in history.",
       sideEffect: "navigation",
       execute: () => navigate(1),
     },
     {
       id: "help.capabilities",
-      label: "What can LegalWork do?",
+      label: t("control.capabilities"),
       description: "List the main capabilities of LegalWork.",
       sideEffect: "none",
       execute: () => ({
@@ -570,4 +626,10 @@ export function LegalworkRouteControlActions() {
 
   useControlActions(actions);
   return null;
+}
+
+export function useControlOpenFiles(files: LegalworkOpenFile[]) {
+  const control = use(LegalworkControlContext);
+  const register = control?.registerOpenFiles;
+  useEffect(() => register?.(files), [register, files]);
 }

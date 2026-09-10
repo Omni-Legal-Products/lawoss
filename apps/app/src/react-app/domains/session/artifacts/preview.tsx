@@ -1,16 +1,20 @@
 /** @jsxImportSource react */
 import type * as React from "react";
-import { Loader2 } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { DocumentIcon } from "@/react-app/design-system/document-icon";
+import { PanelEmptyState } from "@/react-app/design-system/panel-chrome";
 import { MarkdownBlock } from "../surface/markdown";
+import { t } from "@/i18n";
 
 interface PreviewLoadingProps extends React.ComponentProps<"div"> {}
 
 export function PreviewLoading({ className, ...props }: PreviewLoadingProps) {
   return (
-    <div className={cn("flex h-full items-center justify-center text-muted-foreground", className)} {...props}>
-      <Loader2 className="size-4 animate-spin" />
+    <div role="status" className={cn("flex h-full flex-col items-center justify-center gap-3 text-muted-foreground", className)} {...props}>
+      <Loader2 aria-hidden="true" className="size-5 animate-spin" strokeWidth={1.5} />
+      <p className="text-xs">{t("artifact.opening_preview")}</p>
     </div>
   );
 }
@@ -20,7 +24,11 @@ interface PreviewErrorProps extends React.ComponentProps<"div"> {
 }
 
 export function PreviewError({ message, className, ...props }: PreviewErrorProps) {
-  return <div className={cn("p-4 text-sm text-muted-foreground", className)} {...props}>{message}</div>;
+  return (
+    <div role="alert" className={cn("h-full overflow-auto", className)} {...props}>
+      <PanelEmptyState icon={<AlertCircle />} title={t("artifact.preview_unable_title")} description={message} />
+    </div>
+  );
 }
 
 interface PlainTextProps extends React.ComponentProps<"pre"> {
@@ -99,5 +107,9 @@ export function ImagePreview({ src, alt, className, ...props }: ImagePreviewProp
 interface PreviewUnavailableProps extends React.ComponentProps<"div"> {}
 
 export function PreviewUnavailable({ className, ...props }: PreviewUnavailableProps) {
-  return <div className={cn("p-4 text-sm text-muted-foreground", className)} {...props}>Preview unavailable. Open externally to view this file.</div>;
+  return (
+    <div className={cn("h-full overflow-auto", className)} {...props}>
+      <PanelEmptyState icon={<DocumentIcon kind="unknown" />} title={t("artifact.preview_unavailable_title")} description={t("artifact.preview_unavailable_desc")} />
+    </div>
+  );
 }

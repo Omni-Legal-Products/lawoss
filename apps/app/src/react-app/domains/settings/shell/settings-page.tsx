@@ -12,7 +12,6 @@ import {
   Gauge,
   KeyRound,
   Blocks,
-  Building2,
   Languages,
   Layout,
   Mic,
@@ -65,7 +64,7 @@ export function getSettingsTabIcon(tab: SettingsTab) {
     case "ai":
       return Zap;
     case "account":
-      return Building2;
+      return UserCircle;
     case "personalisation":
       return Sparkles;
     case "benchmark":
@@ -114,21 +113,21 @@ export function getSettingsTabIcon(tab: SettingsTab) {
 export function getSettingsTabLabel(tab: SettingsTab) {
   switch (tab) {
     case "ai":
-      return "AI Providers";
+      return t("settings.tab_ai");
     case "account":
       return t("settings.tab_account");
     case "personalisation":
-      return "Personalisation";
+      return t("settings.tab_personalisation");
     case "benchmark":
       return t("settings.tab_benchmark");
     case "preferences":
-      return "Privacy";
+      return t("settings.tab_preferences");
     case "shell":
-      return "Customization";
+      return t("settings.tab_shell");
     case "permissions":
-      return "Permissions";
+      return t("settings.tab_permissions");
     case "safety":
-      return "Tool Permissions";
+      return t("settings.tab_safety");
     case "cloud-account":
       return t("settings.tab_cloud_account");
     case "cloud-marketplaces":
@@ -140,7 +139,7 @@ export function getSettingsTabLabel(tab: SettingsTab) {
     case "skills":
       return t("settings.tab_skills");
     case "extensions":
-      return t("settings.tab_extensions");
+      return t("sidebar.integrations");
     case "environment":
       return t("settings.tab_environment");
     case "advanced":
@@ -158,7 +157,7 @@ export function getSettingsTabLabel(tab: SettingsTab) {
     case "debug":
       return t("settings.tab_debug");
     case "general":
-      return "Settings";
+      return t("settings.tab_settings");
     default:
       return t("settings.tab_general");
   }
@@ -167,21 +166,21 @@ export function getSettingsTabLabel(tab: SettingsTab) {
 export function getSettingsTabDescription(tab: SettingsTab) {
   switch (tab) {
     case "ai":
-      return "Connect services that provide AI models";
+      return t("settings.tab_description_ai");
     case "account":
       return t("settings.tab_description_account");
     case "personalisation":
-      return "System prompt additions, local memory, and response personality";
+      return t("settings.tab_description_personalisation");
     case "benchmark":
       return t("settings.tab_description_benchmark");
     case "preferences":
-      return "Usage analytics and data sharing";
+      return t("settings.tab_description_preferences");
     case "shell":
-      return "Branding and task suggestions";
+      return t("settings.tab_description_shell");
     case "permissions":
-      return "Authorized folders and file access";
+      return t("settings.tab_description_permissions");
     case "safety":
-      return "What LegalWork may do on its own — applies to all workspaces";
+      return t("settings.tab_description_safety");
     case "cloud-account":
       return t("settings.tab_description_cloud_account");
     case "cloud-marketplaces":
@@ -211,40 +210,30 @@ export function getSettingsTabDescription(tab: SettingsTab) {
     case "debug":
       return t("settings.tab_description_debug");
     case "general":
-      return "Overview of all settings";
+      return t("settings.tab_description_overview");
     default:
       return t("settings.tab_description_general");
   }
 }
 
 export function getWorkspaceSettingsTabs(): SettingsTab[] {
-  // Skills now live in the Integrations page (as a tab between Connectors and
-  // Plugins); Workflows and Integrations (extensions) are top-level pages in the
-  // main app shell. Preferences (Model) and Advanced are hidden.
+  // Skills and plugins live in Settings > Integrations.
+  // Workspace-specific access is configured here.
   return ["permissions"];
 }
 
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // LAWOSS: Appearance/Language is visible (dark theme + sk/cs locales are core).
   // "preferences" is the Privacy tab (usage-analytics opt-out toggle).
-  // "benchmark" is not listed here: it lives on the Learnings page in the main
+  // "benchmark" is not listed here: it lives on the Evals page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
-  const tabs: SettingsTab[] = [
-    "ai",
-    "account",
-    "personalisation",
-    "appearance",
-    "safety",
-    "shell",
-    "environment",
-    "preferences",
-    "updates",
-  ];
+  // Account leads: it is the firm's sign-in, plan and billing home.
+  const tabs: SettingsTab[] = ["account", "ai", "extensions", "personalisation", "appearance", "safety", "shell", "environment", "preferences", "updates"];
   // Office add-ins install into local desktop apps, so the tab is desktop-only.
-  // Placed right after the first tab.
-  if (isDesktopRuntime()) tabs.splice(1, 0, "office-addins");
+  // Placed right after AI Providers.
+  if (isDesktopRuntime()) tabs.splice(2, 0, "office-addins");
   // Recorder models/settings are desktop-only (local transcription engine).
-  if (isDesktopRuntime()) tabs.splice(1, 0, "recorder");
+  if (isDesktopRuntime()) tabs.splice(2, 0, "recorder");
   if (developerMode) tabs.push("debug");
   return tabs;
 }
@@ -279,12 +268,12 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
   const globalTabs = getGlobalSettingsTabs(props.developerMode);
 
   return (
-    <Sidebar className="mac:**:data-[sidebar=sidebar]:bg-transparent">
+    <Sidebar aria-label={t("settings.navigation")} className="mac:**:data-[sidebar=sidebar]:bg-transparent">
       <div className="hidden h-10 mac:block mac:titlebar-drag" />
-      <SidebarHeader>
+      <SidebarHeader className="gap-3 border-b border-sidebar-border/60 px-3 pb-4 pt-3">
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton type="button" onClick={props.onClose}>
+            <SidebarMenuButton type="button" onClick={props.onClose} className="mb-2 text-muted-foreground">
               <ArrowLeft size={14} />
               <span>{t("dashboard.back_to_app")}</span>
             </SidebarMenuButton>
@@ -293,10 +282,15 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
-                  <SidebarMenuButton type="button">
-                    <WorkspaceIcon workspaceId={props.selectedWorkspaceId} sizeClass="size-4" />
-                    <span className="truncate">{props.selectedWorkspaceName}</span>
-                    <ChevronDown className="ml-auto" />
+                  <SidebarMenuButton type="button" className="h-12 border border-border/70 bg-background/65 px-2.5 hover:bg-background/90">
+                    <span className="flex size-7 shrink-0 items-center justify-center [&_svg]:size-5">
+                      <WorkspaceIcon workspaceId={props.selectedWorkspaceId} sizeClass="size-5" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-medium">{props.selectedWorkspaceName}</span>
+                      <span className="block text-[10px] font-normal text-muted-foreground">{t("settings.group_workspace")}</span>
+                    </span>
+                    <ChevronDown className="ml-auto text-muted-foreground" />
                   </SidebarMenuButton>
                 }
               />
@@ -316,7 +310,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent className="gap-1 px-1 pb-4 pt-2">
         {/* Top-level hub entry */}
         <SidebarGroup>
           <SidebarGroupContent>
@@ -325,6 +319,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
                 <SidebarMenuButton
                   type="button"
                   isActive={props.activeTab === "general"}
+                  aria-current={props.activeTab === "general" ? "page" : undefined}
                   onClick={() => props.onSelectTab("general")}
                 >
                   <Cog />
@@ -346,6 +341,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
                     <SidebarMenuButton
                       type="button"
                       isActive={props.activeTab === tab}
+                      aria-current={props.activeTab === tab ? "page" : undefined}
                       onClick={() => props.onSelectTab(tab)}
                     >
                       <Icon />
@@ -369,6 +365,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
                     <SidebarMenuButton
                       type="button"
                       isActive={props.activeTab === tab}
+                      aria-current={props.activeTab === tab ? "page" : undefined}
                       onClick={() => props.onSelectTab(tab)}
                     >
                       <Icon />
@@ -386,11 +383,9 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
 }
 
 export function SettingsPage(props: SettingsPageProps) {
-  // Wide tabs (benchmark tables) share a larger cap so the heading stays aligned with the content.
-  const wide = props.activeTab === "benchmark";
   return (
     <SettingsContent>
-      <SettingsPanel className={wide ? "lg:max-w-6xl" : undefined}>
+      <SettingsPanel key={props.activeTab} className="lw-enter">
         <SettingsPanelHeading>
           <SettingsPanelTitle>{getSettingsTabLabel(props.activeTab)}</SettingsPanelTitle>
           <SettingsPanelDescription>{getSettingsTabDescription(props.activeTab)}</SettingsPanelDescription>

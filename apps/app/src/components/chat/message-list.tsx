@@ -24,13 +24,6 @@ import {
 import type { SessionStatus } from "@opencode-ai/sdk/v2/client"
 import { openDesktopUrl } from "@/app/lib/desktop"
 import {
-  EIGENWELT_FREE_LIMIT_BODY,
-  EIGENWELT_FREE_LIMIT_TITLE,
-  EIGENWELT_FREE_UPGRADE_LABEL,
-  EIGENWELT_FREE_UPGRADE_URL,
-  isEigenweltFreeLimitErrorText,
-} from "@/app/lib/eigenwelt-free-budget"
-import {
   eigenweltBudgetLimitDisplay,
   isEigenweltBudgetExceededErrorText,
   type EigenweltBudgetPlan,
@@ -59,7 +52,7 @@ import { ArtifactList } from "@/components/chat/artifact"
 import { collectLegalMemoryDocuments } from "@/lib/legalmemory-documents"
 import { LegalMemoryMatterGraph } from "@/components/chat/legalmemory-matter-graph"
 import { LegalMemorySourcesCard } from "@/components/chat/legalmemory-sources-card"
-import { TaskSuggestions } from "@/components/chat/task-suggestions"
+import { SessionWelcome } from "@/components/chat/session-welcome"
 import {
   DescriptiveButtonContent,
   DescriptiveButtonDescription,
@@ -107,9 +100,11 @@ import {
 } from "@/lib/tool-activity"
 import { cn } from "@/lib/utils"
 import { useOpenTargets } from "@/lib/target-provider"
-import { resolveFilePartOpenTarget } from "@/react-app/domains/session/artifacts/open-target"
+import { resolveFilePartOpenTarget, resolvePathOpenTarget } from "@/react-app/domains/session/artifacts/open-target"
+import { WORKSPACE_ATTACHMENT_LINK_SOURCE, parseWorkspaceAttachmentLink } from "@/react-app/domains/session/surface/composer/workspace-attachment"
 import { LEGALMEMORY_OPEN_EVENT, parseLegalMemoryRef } from "@/components/markdown/legalmemory-ref"
 import { groupMessages, isMessageGroup, getLastTextPart, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
+import { t } from "@/i18n";
 
 function MessageTimestamp({ message, className }: { message: UIMessage; className?: string }) {
   const created = getMessageCreated(message)
@@ -153,7 +148,7 @@ class ToolMessage extends React.Component<ToolMessageProps, { failed: boolean }>
   render() {
     if (this.state.failed) {
       return (
-        <div className="text-xs text-muted-foreground">Tool step unavailable</div>
+        <div className="text-xs text-muted-foreground">{t("message_list.tool_step_unavailable")}</div>
       )
     }
     return <ToolMessageInner part={this.props.part} />
@@ -308,7 +303,7 @@ function FileMessage({ part }: FileMessageProps) {
         onClick={() => {
           if (openTarget) onOpenTarget(openTarget)
         }}
-        title={`Open ${title}`}
+        title={t("message_list.open_item", { label: title })}
         className={cn(baseClassName, "cursor-pointer transition-colors hover:bg-muted/60")}
       >
         {inner}
@@ -331,7 +326,7 @@ function EmptyMessage({
       )}
       {...props}
     >
-      Empty message
+      {t("message_list.empty_message")}
     </div>
   )
 }
@@ -363,11 +358,11 @@ function CopyMessageButton({ messages }: CopyMessageButtonProps) {
   }
 
   return (
-    <MessageAction tooltip={copied ? "Copied!" : "Copy"}>
+    <MessageAction tooltip={copied ? t("message_list.copied") : t("common.copy")}>
       <Button
         variant="ghost"
         size="icon"
-        aria-label="Copy message"
+        aria-label={t("message_list.copy_message")}
         onClick={() => void onCopy()}
       >
         {copied ? <Check /> : <Copy />}
@@ -453,7 +448,7 @@ type UserMessageProps = {
 }
 
 const LEGACY_USER_MEMORY_INSTRUCTION_RE = /Read the downloaded LegalMemory copy at workspace path "[^"]+" before answering\. It is "([^"]+)" \((legalmemory:\/\/document\/[\w.:-]+), document_id [^)]+\)\. Use a document-capable tool appropriate for its format \(for example, extract or convert DOCX rather than reading it as plain text\)\. This is a local path reference, not a binary chat attachment\.\s*/g
-const USER_RICH_TOKEN_RE = /(Load \[skill [^\]]+\] and follow its instructions\.|\[skill [^\]]+\]|\[[^\]\n]+\]\(legalmemory:\/\/document\/[\w.:-]+\))/
+const USER_RICH_TOKEN_RE = new RegExp(String.raw`(Load \[skill [^\]]+\] and follow its instructions\.|\[skill [^\]]+\]|\[[^\]\n]+\]\(legalmemory:\/\/document\/[\w.:-]+\)|${WORKSPACE_ATTACHMENT_LINK_SOURCE})`)
 
 function cleanUserMessageText(text: string) {
   return text.replace(
@@ -464,7 +459,7 @@ function cleanUserMessageText(text: string) {
 
 function UserSkillChip(props: { name: string }) {
   return (
-    <span className="mx-0.5 inline-flex items-center rounded-full border border-violet-6/35 bg-violet-3/20 px-2.5 py-1 text-xs font-medium text-violet-11 align-middle" title={`Skill: ${props.name}`}>
+    <span className="mx-0.5 inline-flex items-center rounded-full border border-violet-6/35 bg-violet-3/20 px-2.5 py-1 text-xs font-medium text-violet-11 align-middle" title={t("message_list.skill_badge", { name: props.name })}>
       {props.name}
     </span>
   )
@@ -475,7 +470,7 @@ function UserLegalMemoryChip(props: { label: string; documentId: string }) {
     <button
       type="button"
       className="mx-0.5 inline-flex max-w-72 items-center gap-1.5 rounded-full border border-indigo-6/60 bg-indigo-2/55 px-2.5 py-1 text-xs font-medium text-indigo-11 align-middle transition-colors hover:bg-indigo-3/70"
-      title={`Open ${props.label}`}
+      title={t("message_list.open_item", { label: props.label })}
       onClick={() => {
         window.dispatchEvent(new CustomEvent(LEGALMEMORY_OPEN_EVENT, {
           detail: { documentId: props.documentId, label: props.label },
@@ -489,6 +484,25 @@ function UserLegalMemoryChip(props: { label: string; documentId: string }) {
   )
 }
 
+function UserWorkspaceAttachmentChip(props: { name: string; path: string }) {
+  const { openTargets, onOpenTarget } = useOpenTargets()
+  return (
+    <button
+      type="button"
+      className="mx-0.5 inline-flex max-w-72 items-center gap-1.5 rounded-full border border-gray-6 bg-gray-3 px-2.5 py-1 text-xs font-medium text-gray-11 align-middle transition-colors hover:bg-gray-4"
+      title={t("message_list.open_item", { label: props.name })}
+      onClick={() => {
+        const target = resolvePathOpenTarget(props.path, openTargets, "attachment")
+        if (target) onOpenTarget?.(target)
+      }}
+    >
+      <FileIcon className="size-3.5 shrink-0" />
+      <span className="truncate">{props.name}</span>
+      <ArrowUpRight className="size-3.5 shrink-0 opacity-70" />
+    </button>
+  )
+}
+
 function renderUserTextWithReferenceChips(rawText: string) {
   const text = cleanUserMessageText(rawText)
   if (!USER_RICH_TOKEN_RE.test(text)) return text
@@ -496,6 +510,8 @@ function renderUserTextWithReferenceChips(rawText: string) {
   return text.split(USER_RICH_TOKEN_RE).map((segment) => {
     const key = `${offset}:${segment}`
     offset += segment.length
+    const attachment = parseWorkspaceAttachmentLink(segment)
+    if (attachment) return <UserWorkspaceAttachmentChip key={key} {...attachment} />
     const skillMatch = segment.match(/^(?:Load )?\[skill ([^\]]+)\](?: and follow its instructions\.)?$/)
     if (skillMatch?.[1]) return <UserSkillChip key={key} name={skillMatch[1]} />
     const memoryMatch = segment.match(/^\[([^\]\n]+)\]\((legalmemory:\/\/document\/[\w.:-]+)\)$/)
@@ -544,32 +560,32 @@ const UserMessage = React.memo(
                     <MessageTimestamp message={message} className="mr-1.5" />
                     <CopyMessageButton messages={[message]} />
                     {messageText ? (
-                      <MessageAction tooltip="Edit message">
+                      <MessageAction tooltip={t("message_list.edit_message")}>
                         <Button
                           variant="ghost"
                           size="icon"
-                          aria-label="Edit message"
+                          aria-label={t("message_list.edit_message")}
                           onClick={() => onEditUserMessage(message.id, messageText)}
                         >
                           <Pencil />
                         </Button>
                       </MessageAction>
                     ) : null}
-                    <MessageAction tooltip="Branch in new chat">
+                    <MessageAction tooltip={t("message_list.branch_in_new_chat")}>
                       <Button
                         variant="ghost"
                         size="icon"
-                        aria-label="Branch in new chat"
+                        aria-label={t("message_list.branch_in_new_chat")}
                         onClick={() => onForkAtMessage(message.id)}
                       >
                         <Split className="rotate-90" />
                       </Button>
                     </MessageAction>
-                    <MessageAction tooltip="Revert">
+                    <MessageAction tooltip={t("message_list.revert")}>
                       <Button
                         variant="ghost"
                         size="icon"
-                        aria-label="Revert"
+                        aria-label={t("message_list.revert")}
                         onClick={() => onRevertToUserMessage(message.id)}
                       >
                         <Undo2 />
@@ -584,22 +600,22 @@ const UserMessage = React.memo(
             {messageText ? (
               <ContextMenuItem onClick={() => onEditUserMessage(message.id, messageText)}>
                 <Pencil className="size-4" />
-                Edit message
+                {t("message_list.edit_message")}
               </ContextMenuItem>
             ) : null}
             {messageText ? (
               <ContextMenuItem onClick={() => void navigator.clipboard.writeText(messageText)}>
                 <Copy className="size-4" />
-                Copy
+                {t("common.copy")}
               </ContextMenuItem>
             ) : null}
             <ContextMenuItem onClick={() => onForkAtMessage(message.id)}>
               <Split className="size-4 rotate-90" />
-              Branch in new chat
+              {t("message_list.branch_in_new_chat")}
             </ContextMenuItem>
             <ContextMenuItem onClick={() => onRevertToUserMessage(message.id)}>
               <Undo2 className="size-4" />
-              Revert
+              {t("message_list.revert")}
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
@@ -620,7 +636,7 @@ type MessageComponentProps = {
 const MessageComponent = React.memo(
   ({ message, isLastMessage, isStreaming, isLastStep }: MessageComponentProps) => {
     if (isSessionErrorMessage(message)) {
-      return <ErrorMessage error={getMessagesText([message]) || "Session failed"} />
+      return <ErrorMessage error={getMessagesText([message]) || t("session.failed")} />
     }
 
     if (isEmptyMessage(message) && !isStreaming) {
@@ -670,7 +686,7 @@ const LoadingMessage = React.memo(({ label }: { label?: string }) => (
             style={{ backgroundColor: "#818cf8", width: "100%", height: "100%", borderRadius: "50%" }}
           />
         </div>
-        <span>{label ?? "Thinking…"}</span>
+        <span>{label ?? t("session.thinking")}</span>
       </div>
     </div>
   </Message>
@@ -684,9 +700,6 @@ interface ErrorMessageProps {
 
 function ErrorMessage({ error }: ErrorMessageProps) {
   const eigenweltPlan = React.useContext(EigenweltBudgetPlanContext)
-  if (isEigenweltFreeLimitErrorText(error)) {
-    return <FreeLimitReachedMessage />
-  }
   if (isEigenweltBudgetExceededErrorText(error)) {
     return <BudgetExceededMessage plan={eigenweltPlan} />
   }
@@ -696,39 +709,6 @@ function ErrorMessage({ error }: ErrorMessageProps) {
         <div className="text-foreground flex min-w-0 flex-1 flex-row items-start gap-2 rounded-lg border-2 border-red-300 bg-red-300/20 px-2 py-1">
           <AlertTriangle size={16} className="mt-0.5 shrink-0 text-destructive" />
           <p className="whitespace-pre-wrap text-destructive">{error}</p>
-        </div>
-      </div>
-    </Message>
-  )
-}
-
-/**
- * Terminal card for an Eigenwelt free-tier daily-limit stop (the app aborts
- * the run after the allowed retries — see app/lib/eigenwelt-free-budget).
- * Flat, lined border; friendly copy — the state resolves by upgrading or by
- * waiting for tomorrow's allowance.
- */
-function FreeLimitReachedMessage() {
-  return (
-    <Message className="not-prose mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-0 md:px-10">
-      <div className="flex w-full min-w-0 flex-col gap-2 rounded-lg border border-dls-border bg-dls-surface px-4 py-3">
-        <div className="flex items-start gap-2">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-700" />
-          <div className="min-w-0 space-y-1">
-            <p className="text-sm font-medium text-foreground">
-              {EIGENWELT_FREE_LIMIT_TITLE}
-            </p>
-            <p className="text-sm text-muted-foreground">{EIGENWELT_FREE_LIMIT_BODY}</p>
-          </div>
-        </div>
-        <div className="ml-6">
-          <Button
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() => void openDesktopUrl(EIGENWELT_FREE_UPGRADE_URL)}
-          >
-            {EIGENWELT_FREE_UPGRADE_LABEL}
-          </Button>
         </div>
       </div>
     </Message>
@@ -798,8 +778,8 @@ const RetryMessage = React.memo(({ status }: RetryMessageProps) => {
   }, [status])
 
   const info = seconds > 0
-    ? `Retrying in ${seconds}s · attempt ${status.attempt}`
-    : `Retrying · attempt ${status.attempt}`
+    ? t("session.retrying_in", { seconds, attempt: status.attempt })
+    : t("session.retrying", { attempt: status.attempt })
   const action = status.action
 
   return (
@@ -969,21 +949,21 @@ function MessageGroup({
             <CopyMessageButton messages={renderableItems.map((item) => item.message)} />
             {lastRealItem ? (
               <>
-                <MessageAction tooltip="Branch in new chat">
+                <MessageAction tooltip={t("message_list.branch_in_new_chat")}>
                   <Button
                     variant="ghost"
                     size="icon"
-                    aria-label="Branch in new chat"
+                    aria-label={t("message_list.branch_in_new_chat")}
                     onClick={() => onForkAtMessage(lastRealItem.message.id)}
                   >
                     <Split className="rotate-90" />
                   </Button>
                 </MessageAction>
-                <MessageAction tooltip="Revert">
+                <MessageAction tooltip={t("message_list.revert")}>
                   <Button
                     variant="ghost"
                     size="icon"
-                    aria-label="Revert"
+                    aria-label={t("message_list.revert")}
                     onClick={() => onRevertToUserMessage(lastRealItem.message.id)}
                   >
                     <Undo2 />
@@ -1020,7 +1000,7 @@ export function MessageList({ eigenweltPlan = null, messages, status, retryStatu
   return (
     <EigenweltBudgetPlanContext.Provider value={eigenweltPlan}>
     <div className={cn("flex flex-col gap-2 @container/message-list")}>
-      {messages.length === 0 && <TaskSuggestions className="mx-auto w-full max-w-3xl shrink-0 px-3 pb-3 md:px-5 md:pb-5 grow" />}
+      {messages.length === 0 && <SessionWelcome />}
 
       {items.map((item) => {
         if (isMessageGroup(item)) {

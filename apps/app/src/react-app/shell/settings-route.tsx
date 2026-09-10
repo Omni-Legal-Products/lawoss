@@ -31,7 +31,7 @@ import type {
   WorkspaceSessionGroup,
 } from "@/app/types";
 import { getWorkspaceTaskLoadErrorDisplay } from "@/app/utils";
-import { currentLocale, t, setLocale, type Language } from "@/i18n";
+import { t } from "@/i18n";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import {
   type RouteWorkspace,
@@ -82,7 +82,7 @@ import { ToolPermissionsPanel } from "@/react-app/domains/settings/panels/tool-p
 import { SettingsStack } from "@/react-app/domains/settings/settings-section";
 import { AdvancedView } from "@/react-app/domains/settings/pages/advanced-view";
 import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-view";
-import { captureAnalyticsEvent } from "@/app/lib/analytics";
+import { captureAnalyticsEvent, captureAnalyticsOptOut } from "@/app/lib/analytics";
 import { DebugView } from "@/react-app/domains/settings/pages/debug-view";
 import { EnvironmentView } from "@/react-app/domains/settings/pages/environment-view";
 import { ExtensionsView } from "@/react-app/domains/settings/pages/extensions-view";
@@ -147,6 +147,7 @@ import { ensureDesktopLocalLegalworkConnection } from "./desktop-local-legalwork
 import { resolveLegalworkConnection } from "./legalwork-connection";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { notifyAlert } from "./notifications";
+import { ROUTE_LEGALWORK_CAPABILITIES } from "./legalwork-capabilities";
 import { useReloadCoordinator } from "./reload-coordinator";
 import { readActiveWorkspaceId, writeActiveWorkspaceId } from "./session-memory";
 import { workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
@@ -157,14 +158,6 @@ import {
   OPENAI_IMAGE_MODEL,
 } from "@/react-app/domains/settings/openai-image-extension";
 import { OLLAMA_PROVIDER_CONFIG, type LocalProviderInstallInput } from "@/react-app/domains/settings/openai-image-extension";
-
-const ROUTE_LEGALWORK_CAPABILITIES: LegalworkServerCapabilities = {
-  skills: { read: true, write: true, source: "legalwork" },
-  plugins: { read: true, write: true },
-  mcp: { read: true, write: true },
-  commands: { read: true, write: true },
-  config: { read: true, write: true },
-};
 
 function normalizeComputerUsePermissions(value: unknown) {
   if (typeof value !== "object" || value === null) return null;
@@ -356,6 +349,16 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const local = useLocal();
   const platform = usePlatform();
   const reloadCoordinator = useReloadCoordinator();
+  // Onboarding holds the whole app: its covers live on the session route, so
+  // anything that lands here mid-flow (a dialog CTA, a deep link) would strand
+  // the user outside onboarding with no way back. Send them to the session,
+  // where the active cover resumes. Not for the embedded settings surface —
+  // that renders inside the session route, underneath the covers.
+  const onboardingStage = local.prefs.onboardingStage;
+  useEffect(() => {
+    if (props.embedded) return;
+    if (onboardingStage !== "done") navigate("/session", { replace: true });
+  }, [navigate, onboardingStage, props.embedded]);
   const [embeddedPath, setEmbeddedPath] = useState(props.initialPath ?? "general");
   const route = props.embedded ? parseSettingsPath(`/settings/${embeddedPath}`) : parseSettingsPath(location.pathname);
   const navigationWorkspaceId = readNavigationWorkspaceId(location.state);
@@ -464,9 +467,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [imageGenerationBusy, setImageGenerationBusy] = useState(false);
   const [imageGenerationStatus, setImageGenerationStatus] = useState<string | null>(null);
   const [imageGenerationError, setImageGenerationError] = useState<string | null>(null);
-  const [voiceBusy, setVoiceBusy] = useState(false);
-  const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
-  const [voiceError, setVoiceError] = useState<string | null>(null);
   const [userEnvKeys, setUserEnvKeys] = useState<string[]>([]);
   const emptyWorkspaceDisplay = useMemo<WorkspaceDisplay>(
     () => ({
@@ -749,6 +749,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     void providerAuthStore.openProviderAuthModal();
   }, [providerAuthStore]);
 
+  const handleReplaceProviderKey = useCallback((providerId: string) => {
+    setCustomProviderEdit(null);
+    void providerAuthStore.openProviderAuthModal({ preferredProviderId: providerId });
+  }, [providerAuthStore]);
+
   const [customProviderEdit, setCustomProviderEdit] = useState<CustomProviderEditData | null>(null);
   const [customProviderEditError, setCustomProviderEditError] = useState<string | null>(null);
   const handleEditCustomProvider = useCallback(async (providerId: string) => {
@@ -887,7 +892,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         }
         invalidateEigenweltEntitlements(hubWorkspaceId);
       }
-      // Await a FULL provider refresh (dispose → re-read the now-eigenwelt-free
+      // Await a FULL provider refresh (dispose → re-read the rebuilt
       // engine config → setProviders / setProviderConnectedIds) so the account
       // view's providers-derived state (model count + connected id set) drops
       // eigenwelt before it re-renders. reloadWorkspaceEngineFromUi alone only
@@ -914,17 +919,18 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     return result;
   }, [legalworkClient, hubWorkspaceId, providerAuthStore, reloadWorkspaceEngineFromUi]);
 
+  const opencodeToken = selectedWorkspaceEndpoint?.token ?? "";
   const opencodeClient = useMemo(() => {
-    if (!selectedWorkspaceEndpoint || !selectedWorkspaceEndpoint.token) return null;
+    if (!opencodeBaseUrl || !opencodeToken) return null;
     return createClient(
-      selectedWorkspaceEndpoint.opencodeBaseUrl,
+      opencodeBaseUrl,
       selectedWorkspaceRoot || undefined,
       {
-        token: selectedWorkspaceEndpoint.token,
+        token: opencodeToken,
         mode: "legalwork",
       },
     );
-  }, [selectedWorkspaceEndpoint, selectedWorkspaceRoot]);
+  }, [opencodeBaseUrl, opencodeToken, selectedWorkspaceRoot]);
 
   useEffect(() => {
     setActiveClient(opencodeClient);
@@ -1075,44 +1081,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       setImageGenerationBusy(false);
     }
   }, [legalworkClient, runtimeWorkspaceId, selectedWorkspaceEndpoint, selectedWorkspaceRoot]);
-
-  const saveVoiceApiKey = useCallback(async (apiKey: string) => {
-    const resolvedApiKey = apiKey.trim();
-    if (!legalworkClient || !resolvedApiKey) {
-      setVoiceError("OpenAI API key is required.");
-      return;
-    }
-    setVoiceBusy(true);
-    setVoiceStatus(null);
-    setVoiceError(null);
-    try {
-      await legalworkClient.upsertUserEnv([{ key: "OPENAI_API_KEY", value: resolvedApiKey }]);
-      setUserEnvKeys((current) => Array.from(new Set([...current, "OPENAI_API_KEY"])));
-      setVoiceStatus("Saved OPENAI_API_KEY for Voice Mode.");
-    } catch (error) {
-      setVoiceError(describeRouteError(error));
-    } finally {
-      setVoiceBusy(false);
-    }
-  }, [legalworkClient]);
-
-  const testVoiceSession = useCallback(async () => {
-    if (!legalworkClient) {
-      setVoiceError("LegalWork server is not connected.");
-      return;
-    }
-    setVoiceBusy(true);
-    setVoiceStatus(null);
-    setVoiceError(null);
-    try {
-      const session = await legalworkClient.createVoiceRealtimeSession();
-      setVoiceStatus(`Realtime ready with ${session.model} (${session.tools.length} LegalWork tools).`);
-    } catch (error) {
-      setVoiceError(describeRouteError(error));
-    } finally {
-      setVoiceBusy(false);
-    }
-  }, [legalworkClient]);
 
   const installLocalProvider = useCallback(async (input: LocalProviderInstallInput) => {
     const client = selectedWorkspaceEndpoint?.client ?? legalworkClient;
@@ -1281,7 +1249,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               return {
                 workspaceId: workspace.id,
                 sessions: [],
-                error: connectionState.message ?? "Remote worker connection failed.",
+                error: connectionState.message ?? t("diagnostics.remote_failed"),
                 connectionState,
               };
             }
@@ -1410,7 +1378,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       if (!result.ok) {
         setErrorsByWorkspaceId((current) => ({
           ...current,
-          [workspaceId]: result.state.message ?? "Remote worker connection failed.",
+          [workspaceId]: result.state.message ?? t("diagnostics.remote_failed"),
         }));
         if (remoteWorkspaceCheckRunRef.current[workspaceId] === runId) {
           delete remoteWorkspaceCheckRunRef.current[workspaceId];
@@ -1697,13 +1665,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       onInstall: installOpenAiImageExtension,
       onTestGenerate: generateOpenAiTestImage,
     },
-    voiceExtension: {
-      busy: voiceBusy,
-      status: voiceStatus,
-      error: voiceError,
-      onSaveApiKey: saveVoiceApiKey,
-      onTestSession: testVoiceSession,
-    },
     localProvider: {
       busy: localProviderBusy,
       status: localProviderStatus,
@@ -1723,7 +1684,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   );
   const routeLegalworkStatus = legalworkClient ? "connected" : "disconnected";
   const notFoundRouteError = !loading && routeWorkspaceId && !selectedWorkspace
-    ? "Workspace was not found. Select a new workspace from the sidebar."
+    ? t("workspace.not_found")
     : null;
   useEffect(() => {
     if (notFoundRouteError) {
@@ -1813,7 +1774,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     setRenameWorkspaceBusy(true);
     try {
       if (!legalworkClient) {
-        toast.error("LegalWork server is unavailable. Reconnect the server before renaming workspaces.");
+        toast.error(t("session_route.rename_server_unavailable"));
         return;
       }
       await legalworkClient.updateWorkspaceDisplayName(renameWorkspaceId, trimmed);
@@ -1821,7 +1782,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       setRenameWorkspaceTitle("");
       await refreshRouteState();
     } catch (error) {
-      toast.error("Workspace rename failed", {
+      toast.error(t("session_route.rename_failed"), {
         description: describeRouteError(error),
       });
     } finally {
@@ -1838,7 +1799,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
 
   const handleForgetWorkspace = useCallback(async (workspaceId: string) => {
     if (typeof window !== "undefined") {
-      const message = t("workspace_list.remove_confirm") || "Remove this workspace from the sidebar?";
+      const message = t("workspace_list.remove_confirm") || t("workspace.remove_confirm");
       if (!window.confirm(message)) return;
     }
     if (legalworkClient) {
@@ -1871,7 +1832,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           .catch(() => null);
       }
       if (!list) {
-        throw new Error("LegalWork server is unavailable. Start or reconnect the server before creating a workspace.");
+        throw new Error(t("session_route.create_server_unavailable"));
       }
       const createdId = resolveWorkspaceListSelectedId(list) || list.workspaces[list.workspaces.length - 1]?.id || "";
       if (createdId) {
@@ -2005,6 +1966,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             providerDisconnectError={providerDisconnectError}
             onOpenProviderAuth={handleOpenProviderAuth}
             onDisconnectProvider={handleDisconnectProvider}
+            onReplaceProviderKey={handleReplaceProviderKey}
             onEditProvider={handleEditCustomProvider}
             canDisconnectProvider={(source) => source !== "env"}
             eigenweltConnected={eigenweltConnected}
@@ -2079,6 +2041,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             workspaceId={runtimeWorkspaceId ?? selectedWorkspaceId}
             providers={providers}
             providerConnectedIds={providerConnectedIds}
+            showHeader={props.singleView === true}
             runId={route.benchmarkRunId ?? null}
             taskId={route.benchmarkTaskId ?? null}
             itemId={route.benchmarkItemId ?? null}
@@ -2102,14 +2065,22 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             busy={busy}
             showThinking={local.prefs.showThinking}
             onToggleShowThinking={() => {
-              local.setPrefs((previous) => ({ ...previous, showThinking: !previous.showThinking }));
+              local.setPrefs((previous) => ({
+                ...previous,
+                showThinking: !previous.showThinking,
+                showThinkingChosen: true,
+              }));
             }}
             autoCompactContext={autoCompactContext}
             autoCompactContextBusy={autoCompactContextBusy}
             onToggleAutoCompactContext={toggleAutoCompactContext}
             analyticsEnabled={local.prefs.analyticsEnabled === true}
             onToggleAnalytics={() => {
+              // Turning OFF sends the one anonymous opted-out marker (and
+              // purges the queue) so opt-out rates stay measurable.
+              const turningOff = local.prefs.analyticsEnabled === true;
               local.setPrefs((previous) => ({ ...previous, analyticsEnabled: !previous.analyticsEnabled }));
+              if (turningOff) captureAnalyticsOptOut("settings");
             }}
             hideAppMode={local.prefs.hideAppMode}
             onChangeHideAppMode={(mode) => {
@@ -2157,13 +2128,13 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               return undefined;
             }}
             onGenerateFromTemplates={async () => {
-              const selection = await pickDirectory({ title: "Choose your templates folder" });
+              const selection = await pickDirectory({ title: t("settings.templates_folder_title") });
               const folder =
                 typeof selection === "string" ? selection : Array.isArray(selection) ? selection[0] : null;
               // A cancelled picker is not an error — resolve ok with no message.
               if (!folder?.trim()) return { ok: true };
               if (!legalworkClient || !baseUrl || !token) {
-                return { ok: false, message: "Still connecting to the LegalWork server. Try again in a moment." };
+                return { ok: false, message: t("settings.still_connecting") };
               }
               return startTemplateWorkflowGeneration({
                 environmentClient: legalworkClient,
@@ -2208,6 +2179,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             mcpView={
               <McpView
                 busy={busy}
+                workspaceKey={selectedWorkspace?.id}
                 selectedWorkspaceRoot={selectedWorkspaceRoot}
                 isRemoteWorkspace={isRemoteWorkspace}
                 mcpServers={connectionsSnapshot.mcpServers}
@@ -2220,9 +2192,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 quickConnect={extensionItems.quickConnectEntries}
                 enablementContext={enablementContext}
                 builtInExtensionsDisabled={builtInExtensionsDisabled}
-                connectMcp={(entry) => {
-                  void connectionsStore.connectMcp(entry);
-                }}
+                connectMcp={connectionsStore.connectMcp}
+                cancelPendingMcpAuth={connectionsStore.cancelPendingMcpAuth}
                 configSlotForEntry={extensionController.configSlotForEntry}
                 isExtensionConnected={extensionController.isConnected}
                 authorizeMcp={(entry) => {
@@ -2327,11 +2298,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               return next;
             })}
             opencodeDevModeEnabled={false}
-            openDebugDeepLink={async () => ({ ok: false, message: "Debug deep links are not wired into the React settings route yet." })}
+            openDebugDeepLink={async () => ({ ok: false, message: t("settings.debug_deeplinks_unwired") })}
             canMigrateRuntimeConfig={Boolean(legalworkClient && selectedWorkspaceId)}
             migrateRuntimeConfig={async () => {
               if (!legalworkClient || !selectedWorkspaceId) {
-                throw new Error("Select a workspace before migrating legacy runtime config.");
+                throw new Error(t("settings.select_workspace_migrate"));
               }
               const result = await legalworkClient.migrateRuntimeConfig(selectedWorkspaceId);
               if (result.migrated) {
@@ -2342,27 +2313,14 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             }}
             getRuntimeConfigStatus={async () => {
               if (!legalworkClient || !selectedWorkspaceId) {
-                throw new Error("Select a workspace to inspect runtime config.");
+                throw new Error(t("settings.select_workspace_inspect"));
               }
               return legalworkClient.getRuntimeConfigStatus(selectedWorkspaceId);
             }}
           />
         );
       case "appearance":
-        return (
-          <AppearanceView
-            busy={busy}
-            themeMode={themeMode}
-            setThemeMode={(mode) => {
-              captureAnalyticsEvent("theme_changed", { mode });
-              setThemeModeState(mode);
-            }}
-            language={currentLocale() as Language}
-            setLanguage={setLocale}
-            hideTitlebar={hideTitlebar}
-            toggleHideTitlebar={() => setHideTitlebar((current) => !current)}
-          />
-        );
+        return <AppearanceView busy={busy} />;
       case "updates":
         return (
           <UpdatesView
@@ -2502,6 +2460,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       <ConnectionsModals
         client={activeClient}
         projectDir={selectedWorkspaceRoot}
+        workspaceKey={selectedWorkspace?.id}
         reloadBlocked={activeReloadBlockingSessions.length > 0}
         activeSessions={activeReloadBlockingSessions}
         isRemoteWorkspace={selectedWorkspace?.workspaceType === "remote"}
@@ -2517,6 +2476,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         }}
         onCloseMcpAuthModal={() => connectionsStore.closeMcpAuthModal()}
         onCompleteMcpAuthModal={() => connectionsStore.completeMcpAuthModal()}
+        onConnectMcp={connectionsStore.connectMcp}
+        onCancelPendingMcpAuth={connectionsStore.cancelPendingMcpAuth}
       />
       <ModelPickerModal
         open={modelPicker.open}
@@ -2581,6 +2542,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         workspaceId={hubWorkspaceId}
         open={teamShareOpen}
         initialSelection={teamShareInitial}
+        includeGlobalSkills={(selectedWorkspace?.workspaceType ?? "local") !== "remote"}
         onOpenChange={(open) => {
           setTeamShareOpen(open);
           if (!open) setTeamShareInitial(null);

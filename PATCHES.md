@@ -24,6 +24,21 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 
 ## Review checklist for upstream sync
 
+### v0.1.18 integration (2026-09-10)
+
+Merged exact upstream tag `v0.1.18` (`336270d`) onto LAWOSS `ec0f4c1`. LAWOSS-owned domain and theme files remain intact. The new upstream design-system import precedes LAWOSS token overrides. Existing patch rows above remain active; additional inherited hooks below complete the sync checklist.
+
+| Upstream files | Preserved downstream behavior |
+|---|---|
+| `apps/app/src/i18n/index.ts`, `apps/app/scripts/i18n-check.ts` | Keep SK/CZ registered alongside EN/DE and system detection; validate supplied translations while retaining explicit English fallback for partial SK/CZ locales. |
+| `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx`, `apps/app/src/react-app/shell/app-root.tsx` | Keep LAWOSS navigation, routes and brand mark with upstream Evals and reactive locale support. |
+| `apps/app/src/react-app/domains/session/artifacts/artifact-docx-editor.tsx`, `artifact-panel.tsx` in the same directory | Preserve configured document author with upstream recovery, dirty-document handling and live editor tools. |
+| `apps/app/src/react-app/domains/settings/pages/personalisation-view.tsx`, `apps/app/src/react-app/kernel/local-provider.tsx` | Preserve document-author preference and normalization with upstream thinking-default migration. |
+| `apps/app/src/react-app/domains/settings/shell/settings-page.tsx`, `apps/app/src/react-app/shell/welcome-route.tsx` | Keep Appearance and LAWOSS onboarding while adopting Extensions settings and upstream analytics lifecycle. |
+| `apps/desktop/resources/icons/**`, `apps/desktop/electron-builder.yml` | Keep LAWOSS icons and use LAWOSS artwork for the newly packaged dark dock icon. |
+
+The existing Word add-in changes, OKF modules, updater feeds, release customization and application tests are retained from the fork. No new LAWOSS behavior is introduced into the upstream extension implementation.
+
 - Confirm that every active row still applies after the merge.
 - Reapply only the smallest required downstream change.
 - Remove rows for patches accepted upstream or no longer needed.

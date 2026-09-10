@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/command";
 import { openModelPickerEvent } from "@/react-app/shell/new-providers-listener";
 import { newProvidersEvent } from "@/app/lib/provider-events";
+import { t } from "@/i18n";
 
 function getProviderDisplayName(providerId: string) {
   return providerId
@@ -72,8 +73,8 @@ export function useModelOptions(open: boolean) {
         modelID: id,
         title: model.name,
         description: provider.name,
-        behaviorTitle: "Reasoning",
-        behaviorLabel: "Default",
+        behaviorTitle: t("model_select.reasoning"),
+        behaviorLabel: t("model_select.default"),
         behaviorDescription: "",
         behaviorValue: null,
         isFree: false,
@@ -134,6 +135,9 @@ interface ModelSelectProps {
   onOpenChange: (open: boolean) => void;
   onChange: (model: ModelRef) => void;
   disabled?: boolean;
+  /** Render a plain label instead of a picker — for setups where there is
+   *  nothing to pick (a single provider serving a single model). */
+  locked?: boolean;
 }
 
 export function ModelSelect({
@@ -142,6 +146,7 @@ export function ModelSelect({
   onOpenChange,
   onChange,
   disabled = false,
+  locked = false,
 }: ModelSelectProps) {
   const [search, setSearch] = React.useState("");
   const searchInputRef = React.useRef<HTMLInputElement>(null);
@@ -186,6 +191,16 @@ export function ModelSelect({
     onOpenChange(false);
   };
 
+  if (locked) {
+    return (
+      <span className="flex items-center px-2.5 py-1.5 text-sm text-gray-10">
+        <span className="max-w-48 truncate">
+          {selectedOption?.title ?? value.modelID ?? t("model_select.no_model")}
+        </span>
+      </span>
+    );
+  }
+
   return (
     <Popover
       open={open}
@@ -203,19 +218,19 @@ export function ModelSelect({
             <PopoverTrigger
               type="button"
               disabled={disabled}
-              aria-label="Change model"
+              aria-label={t("model_select.change_model")}
               aria-keyshortcuts="Meta+Alt+/"
               className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-gray-10 transition-colors hover:bg-gray-3 hover:text-gray-12 disabled:pointer-events-none disabled:opacity-60"
             />
           }
         >
           <span className="max-w-48 truncate">
-            {selectedOption?.title ?? value.modelID ?? "Select model"}
+            {selectedOption?.title ?? value.modelID ?? t("model_select.select_model")}
           </span>
           <ChevronDown className="h-3 w-3" />
         </TooltipTrigger>
         <TooltipContent>
-          Change model
+          {t("session.change_model")}
         </TooltipContent>
       </Tooltip>
       <PopoverContent
@@ -227,10 +242,10 @@ export function ModelSelect({
           <CommandHeader>
             <CommandInput
               ref={searchInputRef}
-              placeholder="Search models..."
+              placeholder={t("model_select.search_models")}
             />
           </CommandHeader>
-          <CommandEmpty>No models found.</CommandEmpty>
+          <CommandEmpty>{t("fusion.multiselect_empty")}</CommandEmpty>
           <CommandList>
             {(group: ModelSelectGroup) => (
               <CommandGroup
@@ -286,7 +301,7 @@ export function ModelSelect({
                 }}
               >
                 <Settings2 className="size-3.5" />
-                All models
+                {t("model_picker.all_models")}
               </button>
             </div>
           </div>

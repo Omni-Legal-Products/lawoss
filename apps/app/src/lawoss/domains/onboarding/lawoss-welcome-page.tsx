@@ -31,6 +31,7 @@ type LawossWelcomePageProps = {
   onGetStarted: () => void;
   getStartedLabel?: string;
   busy?: boolean;
+  busyPhase?: "workspace" | "session" | "engine" | null;
   error?: string | null;
   manualFolder?: string;
   onManualFolderChange?: (value: string) => void;
@@ -47,6 +48,7 @@ export function LawossWelcomePage({
   onUseManualFolder,
   showManualFolder = false,
   busy,
+  busyPhase,
   error,
   analyticsEnabled,
   onAnalyticsChange,
@@ -153,7 +155,7 @@ export function LawossWelcomePage({
                     </div>
                   ) : null}
                   <Button size="lg" className="w-full" onClick={continueOnboarding} disabled={busy}>
-                    {busy ? "Vytvárame pracovné miesto…" : detailed ? "Vybrať priečinok a pokračovať" : "Použiť odporúčané nastavenie"}
+                    {busy ? busyPhase === "engine" ? "Spúšťame pracovné prostredie…" : busyPhase === "session" ? "Pripravujeme prvú úlohu…" : "Vytvárame pracovné miesto…" : detailed ? "Vybrať priečinok a pokračovať" : "Použiť odporúčané nastavenie"}
                   </Button>
                   {error ? <p className="lw-welcome-err">{error}</p> : null}
                   <p className="lw-welcome-fine">

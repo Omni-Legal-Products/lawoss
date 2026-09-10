@@ -11,7 +11,7 @@ import {
 } from "react";
 
 import { THINKING_PREF_KEY } from "../../app/constants";
-import { setAnalyticsDistinctId } from "../../app/lib/analytics";
+import { getAnalyticsDistinctId, setAnalyticsDistinctId } from "../../app/lib/analytics";
 import { createLegalworkServerClient } from "../../app/lib/legalwork-server";
 import { coerceReleaseChannel } from "../../app/lib/release-channels";
 import { isDesktopRuntime } from "../../app/lib/runtime-env";
@@ -33,7 +33,20 @@ export type LocalUIState = {
 export type HideAppMode = "never" | "recording" | "always";
 
 export type LocalPreferences = {
+  /** Show the model's reasoning in the chat. Off unless the user turns it on. */
   showThinking: boolean;
+  /**
+   * True once the user flipped the reasoning toggle themselves. The stored
+   * value alone cannot tell a choice from a persisted default, so this is what
+   * lets a later change of the default reach everyone who never chose.
+   */
+  showThinkingChosen: boolean;
+  /**
+   * The DEFAULT_SHOW_THINKING generation this store was last aligned with
+   * (see applyShowThinkingDefault). Stores from before the field existed read
+   * as 0 and get the current default applied once.
+   */
+  showThinkingDefaultVersion: number;
   /** When to exclude the window from screen shares / recordings. */
   hideAppMode: HideAppMode;
   modelVariant: string | null;
@@ -59,6 +72,17 @@ export type LocalPreferences = {
    * workspace list is empty, the app redirects to /welcome.
    */
   hasCompletedOnboarding: boolean;
+  /**
+   * Where the in-session onboarding covers stand. PERSISTED so a reload or
+   * crash resumes the flow instead of silently ending it. One action per
+   * step: "office" (install the Word add-in) -> "audio" (turn on
+   * transcription & dictation) -> "permissions" (what the agent may do on
+   * its own) -> "ai" (start the trial / skip) -> "done". "setup" is a legacy
+   * value from an interim build, treated as "office". The welcome route sets
+   * the first step when the first workspace is created ("office" on desktop,
+   * "permissions" elsewhere — the Office and audio steps need the desktop).
+   */
+  onboardingStage: "ai" | "office" | "audio" | "permissions" | "setup" | "done";
   /**
    * User preference committed from the welcome-screen toggle (nothing is
    * applied before then); switchable anytime in Settings -> Privacy.
@@ -88,11 +112,21 @@ const LocalContext = createContext<LocalContextValue | undefined>(undefined);
 
 const UI_STORAGE_KEY = "legalwork.ui";
 const PREFS_STORAGE_KEY = "legalwork.preferences";
-export const DEFAULT_SHOW_THINKING = true;
+export const DEFAULT_SHOW_THINKING = false;
+/**
+ * Bump whenever DEFAULT_SHOW_THINKING changes. Version 1 was the original
+ * "on" default; 2 turned it off. Every store below the current version gets
+ * the new default unless the user chose a value themselves.
+ */
+export const SHOW_THINKING_DEFAULT_VERSION = 2;
 
 const INITIAL_UI: LocalUIState = { view: "settings", tab: "general" };
 const INITIAL_PREFS: LocalPreferences = {
   showThinking: DEFAULT_SHOW_THINKING,
+  showThinkingChosen: false,
+  // 0, not the current version: readPersisted fills missing fields from here,
+  // so an older store must still look "behind" for applyShowThinkingDefault.
+  showThinkingDefaultVersion: 0,
   hideAppMode: "recording",
   modelVariant: null,
   defaultModel: null,
@@ -100,6 +134,7 @@ const INITIAL_PREFS: LocalPreferences = {
   releaseChannel: "stable",
   featureFlags: { microsandboxCreateSandbox: true },
   hasCompletedOnboarding: false,
+  onboardingStage: "done",
   // null until the user chooses on the welcome screen — persisting a concrete
   // value here would make getStoredAnalyticsConsent() report a choice that was
   // never made, defeating the welcome toggle's default.
@@ -123,6 +158,20 @@ function readPersisted<T>(key: string, fallback: T): T {
   }
 }
 
+/**
+ * Align a loaded store with the current reasoning default: a store from an
+ * older default generation keeps the user's own choice, but a value that was
+ * only ever the old persisted default is replaced by the current default.
+ */
+export function applyShowThinkingDefault(prefs: LocalPreferences): LocalPreferences {
+  if (prefs.showThinkingDefaultVersion >= SHOW_THINKING_DEFAULT_VERSION) return prefs;
+  return {
+    ...prefs,
+    showThinking: prefs.showThinkingChosen ? prefs.showThinking : DEFAULT_SHOW_THINKING,
+    showThinkingDefaultVersion: SHOW_THINKING_DEFAULT_VERSION,
+  };
+}
+
 function writePersisted(key: string, value: unknown) {
   if (typeof window === "undefined") return;
   try {
@@ -141,7 +190,7 @@ export function LocalProvider({ children }: LocalProviderProps) {
     readPersisted(UI_STORAGE_KEY, INITIAL_UI),
   );
   const [prefs, setPrefsRaw] = useState<LocalPreferences>(() => {
-    const persisted = readPersisted(PREFS_STORAGE_KEY, INITIAL_PREFS);
+    const persisted = applyShowThinkingDefault(readPersisted(PREFS_STORAGE_KEY, INITIAL_PREFS));
     return {
       ...persisted,
       documentAuthor: normalizeDocumentAuthor(persisted.documentAuthor),
@@ -159,10 +208,15 @@ export function LocalProvider({ children }: LocalProviderProps) {
     writePersisted(PREFS_STORAGE_KEY, prefs);
   }, [prefs]);
 
-  // Sync analytics consent with the local server and adopt its per-launch
-  // distinct id in return. In-memory on both sides; retried briefly because
-  // the server may still be booting. Desktop only. Until the round-trip
-  // succeeds, analytics falls back to a locally minted id.
+  // Sync analytics consent and our per-launch distinct id to the local
+  // server, so the renderer, the server's gateway header and the Office pane
+  // all report one launch. We offer the id rather than asking for one:
+  // events fire (app open, welcome screen) before this round-trip can
+  // answer, and asking would strand those first events on a second id.
+  // In-memory on both sides; retried briefly because the server may still be
+  // booting. Desktop only. The answer is normally our own id echoed back —
+  // it differs only against a server that already had one (a shared or
+  // longer-lived server), where matching it keeps desktop and pane together.
   useEffect(() => {
     if (!isDesktopRuntime()) return;
     let cancelled = false;
@@ -175,7 +229,10 @@ export function LocalProvider({ children }: LocalProviderProps) {
               baseUrl: normalizedBaseUrl,
               token: resolvedToken || undefined,
               hostToken: resolvedHostToken || undefined,
-            }).setAnalyticsIdentity({ analyticsEnabled: prefs.analyticsEnabled === true });
+            }).setAnalyticsIdentity({
+              analyticsEnabled: prefs.analyticsEnabled === true,
+              distinctId: getAnalyticsDistinctId(),
+            });
             if (typeof result?.distinctId === "string") setAnalyticsDistinctId(result.distinctId);
             return;
           }
@@ -201,7 +258,8 @@ export function LocalProvider({ children }: LocalProviderProps) {
     try {
       const parsed = JSON.parse(raw);
       if (typeof parsed === "boolean") {
-        setPrefsRaw((previous) => ({ ...previous, showThinking: parsed }));
+        // The legacy key was only ever written by the toggle: a real choice.
+        setPrefsRaw((previous) => ({ ...previous, showThinking: parsed, showThinkingChosen: true }));
       }
     } catch {
       // ignore invalid legacy values

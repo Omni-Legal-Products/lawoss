@@ -19,6 +19,7 @@ import type {
   BenchmarkTaskItem,
   BenchmarkWorkType,
 } from "./benchmark-types";
+import { t } from "@/i18n";
 
 export * from "./benchmark-types";
 
@@ -133,16 +134,33 @@ export type LegalworkPersonalizationSettings = {
 export type EigenweltManifestModel = {
   id: string;
   name?: string;
+  description?: string;
   contextLength?: number;
   toolCall?: boolean;
   reasoning?: boolean;
+  /** Where the deployment runs: "EU" or an ISO 3166 alpha-2 code ("US"). */
+  region?: string;
+  /** Plain-English hosting label, e.g. "Europe". */
+  hostedIn?: string;
+  /** The model behind the Eigenwelt name, e.g. "DeepSeek V4 Flash". */
+  upstreamModel?: string;
+  /** The provider keeps prompts and responses for a while to detect misuse. */
+  abuseMonitoring?: boolean;
 };
 
-/** Per-firm daily usage snapshot from the platform (cents, plus a percentage). */
+/** The signed-in seat's included usage for the current window (cents, plus a percentage). */
 export type EigenweltUsage = {
+  /** A week on current platforms, a day on platforms from before the weekly allowance. */
+  window: "day" | "week";
+  allowanceCents: number;
+  remainingCents: number;
+  /** Share of this window's allowance consumed, 0–100 (server-computed). */
+  usedPercent: number;
+  /** ISO timestamp when the allowance resets; null when unknown or without an allowance. */
+  resetsAt: string | null;
+  /** @deprecated The same numbers under the pre-weekly names; read the fields above. */
   dailyAllowanceCents: number;
   dailyRemainingCents: number;
-  /** Share of today's allowance consumed, 0–100 (server-computed). */
   dailyUsedPercent: number;
   extraUsageEnabled: boolean;
   prepaidBalanceCents: number;
@@ -150,8 +168,15 @@ export type EigenweltUsage = {
 
 /** Subscription entitlements. OPTIONAL — absent means the free/legacy tier. */
 export type EigenweltEntitlements = {
-  plan: "plus" | "pro" | null;
+  /** "hub" = the Knowledge Hub plan without AI (no `premium_models` feature). */
+  plan: "plus" | "pro" | "hub" | null;
   subscriptionStatus: string | null;
+  /**
+   * ISO timestamp when the 7-day trial ends (or ended — compare against now);
+   * null when unknown. A trial is live only while `subscriptionStatus` is
+   * "trialing". Older servers omit the field entirely.
+   */
+  trialEndsAt?: string | null;
   features: string[];
   seats: number;
   usage: EigenweltUsage;
@@ -175,6 +200,14 @@ export type EigenweltEntitlementsView = {
   platformURL: string | null;
   /** Signed in with an Eigenwelt account — independent of the served model list. */
   connected: boolean;
+  /**
+   * Fingerprint of the model list the server currently serves (admins turn
+   * models on and off on the platform); null when not connected. Only the
+   * entitlements read sends it; older servers omit it.
+   */
+  modelsRevision?: string | null;
+  /** The ids of the models the server's engine config serves right now. */
+  servedModelIds?: string[];
 };
 
 /** Payload delivered once "Sign in with Eigenwelt" completes in the browser. */
@@ -399,6 +432,13 @@ export type LegalworkRuntimeConfigMigrationResult = {
   userOpencodeKeys: string[];
   updatedAt: number | null;
   legacyError?: string | null;
+};
+
+/** A provider the server dropped from a workspace's stored config at startup. */
+export type LegalworkProviderRepairNotice = {
+  providerId: string;
+  name: string;
+  reason: "retired" | "invalid";
 };
 
 export type LegalworkRuntimeConfigStatus = {
@@ -1148,7 +1188,7 @@ async function fetchWithTimeout(
       } catch {
         // ignore
       }
-      reject(new Error("Request timed out."));
+      reject(new Error(t("app.request_timed_out")));
     }, timeoutMs);
   });
 
@@ -1157,7 +1197,7 @@ async function fetchWithTimeout(
   } catch (error) {
     const name = (error && typeof error === "object" && "name" in error ? (error as any).name : "") as string;
     if (name === "AbortError") {
-      throw new Error("Request timed out.");
+      throw new Error(t("app.request_timed_out"));
     }
     throw error;
   } finally {
@@ -1291,9 +1331,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     runtimeVersions: () =>
       requestJson<LegalworkRuntimeSnapshot>(baseUrl, "/runtime/versions", { token, hostToken, timeoutMs: timeouts.status }),
     status: () => requestJson<LegalworkServerDiagnostics>(baseUrl, "/status", { token, hostToken, timeoutMs: timeouts.status }),
-    // Sync analytics consent; the server answers with the per-launch
-    // distinct id (in-memory) for the caller to adopt.
-    setAnalyticsIdentity: (payload: { analyticsEnabled: boolean }) =>
+    // Sync analytics consent and our per-launch distinct id; the server
+    // answers with the id now in force (in-memory) for the caller to adopt.
+    setAnalyticsIdentity: (payload: { analyticsEnabled: boolean; distinctId: string }) =>
       requestJson<{ ok: boolean; distinctId?: string }>(baseUrl, "/analytics/identity", {
         token,
         hostToken,
@@ -1528,6 +1568,13 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/runs`,
         { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.benchmarkCatalog },
       ),
+    /** Tool ids the engine exposes, for the ablation arm picker. */
+    benchmarkToolIds: (workspaceId: string) =>
+      requestJson<{ items: string[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/tool-ids`,
+        { token, hostToken, timeoutMs: timeouts.benchmarkCatalog },
+      ),
     benchmarkGetRun: (workspaceId: string, runId: string) =>
       requestJson<BenchmarkRunDetail>(
         baseUrl,
@@ -1727,6 +1774,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/runtime-config`,
         { token, hostToken, timeoutMs: timeouts.config },
       ),
+    getProviderRepairs: (workspaceId: string) =>
+      requestJson<{ removed: LegalworkProviderRepairNotice[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/provider-repairs`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      ),
     patchConfig: (workspaceId: string, payload: { opencode?: Record<string, unknown>; legalwork?: Record<string, unknown> }) =>
       requestJson<{ updatedAt?: number | null }>(baseUrl, `/workspace/${workspaceId}/config`, {
         token,
@@ -1787,11 +1840,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       }),
     // Eigenwelt platform connect: the server owns the OAuth loopback + code
     // exchange; the app opens the authorize URL and long-polls for the payload.
-    eigenweltOauthStart: () =>
+    eigenweltOauthStart: (opts?: { intent?: "sign-in" }) =>
       requestJson<{ sessionId: string; authorizeUrl: string }>(baseUrl, "/api/eigenwelt/oauth/start", {
         token,
         hostToken,
         method: "POST",
+        ...(opts?.intent ? { body: { intent: opts.intent } } : {}),
         timeoutMs: timeouts.config,
       }),
     eigenweltOauthWait: (sessionId: string) =>
@@ -2241,7 +2295,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         throw new LegalworkServerError(
           result.status,
           "request_failed",
-          message || "Shared folder upload failed",
+          message || t("workspace.shared_upload_failed"),
         );
       }
 
@@ -2476,20 +2530,30 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         timeoutMs: timeouts.config,
       }),
 
-    createVoiceRealtimeSession: (payload?: { model?: string; sessionContext?: string }) =>
+    getVoiceRealtimeCapability: () =>
+      requestJson<{
+        supported: boolean;
+        providerId: "openai" | null;
+        model: "gpt-realtime-2.1" | null;
+        reason: string | null;
+      }>(baseUrl, "/voice/realtime/capability", {
+        token,
+        hostToken,
+        timeoutMs: timeouts.config,
+      }),
+
+    createVoiceRealtimeCall: (payload: { sdp: string; sessionContext?: string }) =>
       requestJson<{
         ok: true;
-        clientSecret: string;
-        expiresAt: number | null;
-        model: string;
-        transcriptionModel: string;
+        sdp: string;
+        model: "gpt-realtime-2.1";
+        providerId: "openai";
         tools: string[];
-        source?: string;
-      }>(baseUrl, "/voice/realtime/session", {
+      }>(baseUrl, "/voice/realtime/call", {
         token,
         hostToken,
         method: "POST",
-        body: payload ?? {},
+        body: payload,
         timeoutMs: timeouts.config,
       }),
   };

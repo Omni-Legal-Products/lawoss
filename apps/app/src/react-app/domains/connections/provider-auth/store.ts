@@ -48,6 +48,11 @@ export type ProviderAuthLegalworkServer = {
   };
 };
 import { dispatchNewProviders } from "../../../../app/lib/provider-events";
+import {
+  customProviderModelEntry,
+  customProviderModelFromEntry,
+  DEFAULT_MODEL_OUTPUT_LIMIT,
+} from "./custom-provider-config";
 
 type ProviderReturnFocusTarget = "none" | "composer";
 
@@ -80,6 +85,8 @@ export type CustomProviderModelInput = {
   reasoning?: boolean;
   /** Optional context-window size used for truncation. */
   contextLimit?: number | null;
+  /** Output-token limit of an edited model; new models get the default. */
+  outputLimit?: number | null;
 };
 
 /**
@@ -118,7 +125,7 @@ export function buildEigenweltProviderBlock(
 ): Record<string, unknown> {
   return {
     npm: "@ai-sdk/openai-compatible",
-    name: "Eigenwelt Model API",
+    name: "Eigenwelt Subscription",
     options: { baseURL },
     models: Object.fromEntries(
       models.map((model) => [
@@ -127,7 +134,7 @@ export function buildEigenweltProviderBlock(
           name: model.name ?? model.id,
           tool_call: model.toolCall ?? true,
           reasoning: model.reasoning ?? false,
-          limit: { context: model.contextLength ?? 128000, output: 16384 },
+          limit: { context: model.contextLength ?? 128000, output: DEFAULT_MODEL_OUTPUT_LIMIT },
         },
       ]),
     ),
@@ -155,7 +162,13 @@ export type CustomProviderEditData = {
   name: string;
   baseURL: string;
   apiType: CustomProviderApiType;
-  models: Array<{ id: string; toolCall: boolean; reasoning: boolean; contextLimit: number | null }>;
+  models: Array<{
+    id: string;
+    toolCall: boolean;
+    reasoning: boolean;
+    contextLimit: number | null;
+    outputLimit: number | null;
+  }>;
 };
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -302,7 +315,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
 
     if (hasLegalworkTarget) {
-      throw new Error("LegalWork server config API is unavailable for this workspace.");
+      throw new Error(t("providers.config_api_unavailable"));
     }
 
     if (isLocalWorkspace && isDesktopRuntime() && root) {
@@ -326,19 +339,19 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         content,
       ) as { ok: boolean; stderr?: string; stdout?: string };
       if (!result.ok) {
-        throw new Error(result.stderr || result.stdout || "Failed to write opencode.jsonc");
+        throw new Error(result.stderr || result.stdout || t("connections.write_jsonc_failed"));
       }
       return true;
     }
 
     if (hasLegalworkTarget) {
-      throw new Error("LegalWork server config API is unavailable for this workspace.");
+      throw new Error(t("providers.config_api_unavailable"));
     }
 
     if (isLocalWorkspace && isDesktopRuntime() && root) {
       const result = await writeOpencodeConfig("project", root, content) as { ok: boolean; stderr?: string; stdout?: string };
       if (!result.ok) {
-        throw new Error(result.stderr || result.stdout || "Failed to write opencode.jsonc");
+        throw new Error(result.stderr || result.stdout || t("connections.write_jsonc_failed"));
       }
       return true;
     }
@@ -445,7 +458,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     );
 
     if (!updatedConfig) {
-      throw new Error("Could not update opencode.jsonc for this workspace.");
+      throw new Error(t("providers.opencode_jsonc_update_failed"));
     }
 
     options.setDisabledProviders(nextDisabled);
@@ -937,7 +950,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
 
     if (hasLegalworkTarget) {
-      throw new Error("LegalWork server config API is unavailable for this workspace.");
+      throw new Error(t("providers.config_api_unavailable"));
     }
 
     // Desktop-local fallback: merge the provider into the project opencode.jsonc.
@@ -1047,17 +1060,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     const providerOptions = isPlainRecord(entry.options) ? entry.options : {};
     const baseURL = typeof providerOptions.baseURL === "string" ? providerOptions.baseURL : "";
     const modelsRecord = isPlainRecord(entry.models) ? entry.models : {};
-    const models = Object.entries(modelsRecord).map(([id, raw]) => {
-      const model = isPlainRecord(raw) ? raw : {};
-      const limit = isPlainRecord(model.limit) ? model.limit : {};
-      const context = typeof limit.context === "number" ? limit.context : null;
-      return {
-        id,
-        toolCall: typeof model.tool_call === "boolean" ? model.tool_call : true,
-        reasoning: typeof model.reasoning === "boolean" ? model.reasoning : false,
-        contextLimit: context,
-      };
-    });
+    const models = Object.entries(modelsRecord).map(([id, raw]) => customProviderModelFromEntry(id, raw));
 
     return {
       providerId: resolvedId,
@@ -1087,21 +1090,15 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       throw new Error(t("providers.provider_id_required"));
     }
     if (!baseURL) {
-      throw new Error("Base URL is required.");
+      throw new Error(t("providers.base_url_required"));
     }
     if (!models.length) {
-      throw new Error("Add at least one model ID.");
+      throw new Error(t("providers.model_id_required"));
     }
 
     const modelsConfig: Record<string, Record<string, unknown>> = {};
     for (const model of models) {
-      const entry: Record<string, unknown> = { name: model.name?.trim() || model.id };
-      if (model.toolCall !== undefined) entry.tool_call = model.toolCall;
-      if (model.reasoning) entry.reasoning = true;
-      if (typeof model.contextLimit === "number" && model.contextLimit > 0) {
-        entry.limit = { context: model.contextLimit };
-      }
-      modelsConfig[model.id] = entry;
+      modelsConfig[model.id] = customProviderModelEntry(model);
     }
 
     const providerConfig: Record<string, unknown> = {
@@ -1114,7 +1111,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     try {
       const wrote = await writeCustomProviderConfig(providerId, providerConfig);
       if (!wrote) {
-        throw new Error("Could not save the provider configuration for this workspace.");
+        throw new Error(t("providers.save_config_failed"));
       }
 
       // Keep the secret out of the config file: store it in the engine auth
@@ -1175,7 +1172,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       payload.entitlements || payload.platformToken || payload.refreshToken || payload.platformURL,
     );
     if (!(baseURL && payload.apiKey) && !hasAccount) {
-      throw new Error("The Eigenwelt platform did not return a gateway URL.");
+      throw new Error(t("providers.no_gateway_url"));
     }
 
     // Eigenwelt is a firm ACCOUNT, not a per-workspace provider — so we hand the
@@ -1209,11 +1206,13 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
 
   /** Start "Sign in with Eigenwelt": the LegalWork server binds the OAuth
    *  loopback and returns the platform authorize URL for the app to open. */
-  async function startEigenweltSignIn(): Promise<{ authorizeUrl: string; sessionId: string }> {
+  async function startEigenweltSignIn(opts?: {
+    intent?: "sign-in";
+  }): Promise<{ authorizeUrl: string; sessionId: string }> {
     setStateField("providerAuthError", null);
     try {
       const legalworkClient = requireEigenweltServerClient();
-      const started = await legalworkClient.eigenweltOauthStart();
+      const started = await legalworkClient.eigenweltOauthStart(opts);
       return { authorizeUrl: started.authorizeUrl, sessionId: started.sessionId };
     } catch (error) {
       const message = describeProviderError(error, t("providers.connect_failed"));
@@ -1246,9 +1245,9 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         }
         if (opts?.cancelled?.()) return { connected: false, cancelled: true };
         await finalizeEigenweltConnect(result as EigenweltSignInPayload);
-        return { connected: true, message: `${t("status.connected")} Eigenwelt Model API` };
+        return { connected: true, message: `${t("status.connected")} Eigenwelt Subscription` };
       }
-      throw new Error("Eigenwelt sign-in timed out. Try again from the provider list.");
+      throw new Error(t("providers.eigenwelt_signin_timeout"));
     } catch (error) {
       if (opts?.cancelled?.()) return { connected: false, cancelled: true };
       const message = describeProviderError(error, t("providers.oauth_failed"));

@@ -9,7 +9,7 @@ import type { ThreadStatus } from "@/lib/messages";
 import { OpenTargetProvider } from "@/lib/target-provider";
 import type { LegalworkSessionSnapshot } from "../../../app/lib/legalwork-server";
 import { deriveOpenTargets, type OpenTarget } from "../session/artifacts/open-target";
-import { LEARNINGS_PANEL_SESSION_ID, usePanelTabStore } from "../session/panel/panel-tab-store";
+import { EVALS_PANEL_SESSION_ID, usePanelTabStore } from "../session/panel/panel-tab-store";
 import { snapshotToUIMessages } from "../session/sync/usechat-adapter";
 import { SettingsNotice, Spinner } from "../settings/settings-section";
 import { isItemActive } from "./format";
@@ -103,8 +103,8 @@ export function SessionTranscriptScreen(props: SessionTranscriptScreenProps) {
       : `${scratchPrefix}${target.value.replace(/^\.\//, "")}`;
     const resolved: OpenTarget = { ...target, value, id: `file:${value.toLowerCase()}`, exists: true };
     const panelStore = usePanelTabStore.getState();
-    const existing = panelStore.transcriptArtifactTargets[LEARNINGS_PANEL_SESSION_ID] ?? [];
-    panelStore.syncTranscriptArtifacts(LEARNINGS_PANEL_SESSION_ID, [
+    const existing = panelStore.transcriptArtifactTargets[EVALS_PANEL_SESSION_ID] ?? [];
+    panelStore.syncTranscriptArtifacts(EVALS_PANEL_SESSION_ID, [
       ...existing.filter((entry) => entry.id !== resolved.id),
       resolved,
     ]);
@@ -114,7 +114,7 @@ export function SessionTranscriptScreen(props: SessionTranscriptScreenProps) {
   // Escape the settings surface padding so the chat fills the pane edge to
   // edge, exactly like the session view.
   return (
-    <div className="-m-4 flex min-h-0 min-w-0 flex-1 flex-col self-stretch md:-m-6 lg:-m-8">
+    <div className="-mx-5 -my-7 flex min-h-0 min-w-0 flex-1 flex-col self-stretch md:-m-8">
       {error || (item && !item.sessionId) ? (
         <div className="px-4 pt-3">
           {error ? <SettingsNotice tone="error">{error}</SettingsNotice> : null}
