@@ -9,11 +9,13 @@ This repository sends selected GitHub events to a dedicated Telegram forum topic
 | Telegram group | `LawOSS (SLOVAKIA | CZECHIA) + AI Frontier Labs` |
 | Repository | `Omni-Legal-Products/lawoss` |
 | Default branch | `dev` |
-| Topic | `LAWOSS APP GH` |
+| Topic | `GitHub · App` |
 | Topic ID | `293` |
 | Workflow | `.github/workflows/telegram-notify.yml` |
 
-The coordination repository `originalmagneto/lawOSS-like-SK-CZ` uses the separate topic `SK Mike GH` with topic ID `2`.
+The coordination repository `Omni-Legal-Products/lawOSS-like-SK-CZ` uses the separate topic `GitHub · Ops` with topic ID `2`.
+
+Both topics were renamed on 2026-08-14 (from `SK Mike GH` and `LAWOSS APP GH`) so the shared `GitHub ·` prefix keeps them together. Renaming a topic does not change its ID, so no workflow or variable was affected.
 
 ## GitHub Actions configuration
 
@@ -51,7 +53,7 @@ Routine pushes are intentionally not sent. This keeps the topic focused on event
 3. Merge the workflow pull request into `dev`.
 4. Open GitHub Actions and select `LAWOSS Telegram notifications`.
 5. Run the workflow manually.
-6. Confirm that the message arrives in `LAWOSS APP GH`.
+6. Confirm that the message arrives in `GitHub · App`.
 
 ## Troubleshooting
 

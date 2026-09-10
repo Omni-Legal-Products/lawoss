@@ -99,11 +99,11 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 
 ## Telegram notification routing
 
-- Product repository events go to Telegram topic `LAWOSS APP GH` in group `LawOSS (SLOVAKIA | CZECHIA) + AI Frontier Labs`.
+- Product repository events go to Telegram topic `GitHub · App` in group `LawOSS (SLOVAKIA | CZECHIA) + AI Frontier Labs`.
 - `TELEGRAM_CHAT_ID` is the repository variable `-1003828145652`.
 - `TELEGRAM_TOPIC_ID` is the repository variable `293`.
 - `TELEGRAM_TOKEN` is a GitHub Actions secret. Never print, copy, commit, or document its value.
 - The workflow is `.github/workflows/telegram-notify.yml`.
 - Notify pull requests, issues, releases, and failed CI runs. Do not add routine push notifications without a team decision.
-- The coordination repository uses a different topic, `SK Mike GH` with topic ID `2`.
+- The coordination repository uses a different topic, `GitHub · Ops` with topic ID `2`.
 - Setup and recovery instructions live in `docs/telegram-notifications.md`.
