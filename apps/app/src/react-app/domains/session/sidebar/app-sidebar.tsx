@@ -677,7 +677,7 @@ export function AppSidebar(props: AppSidebarProps) {
             ) : null}
           </div>
         </div>
-        <LawossNav />
+        <LawossNav activePane={Boolean(props.activeNav)} />
         <SidebarMenu className={cn("gap-0.5 px-2 mac:titlebar-no-drag", showSidebarBrandName ? "pt-1" : "pt-1")}>
           <SidebarMenuItem>
             <DropdownMenu>

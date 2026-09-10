@@ -53,6 +53,8 @@ import {
 import { legacySessionRoute, workspaceSessionRoute } from "./workspace-routes";
 
 export type UseWorkspaceRouteStateInput = {
+  /** Keep embedded non-session pages addressable while loading workspace data. */
+  preserveRoute?: boolean;
   /** Invoked when the legalwork-server settings-changed event fires (the route bumps its settings version). */
   onServerSettingsChanged: () => void;
   /** Receives the local legalwork-server host info discovered during refresh. */
@@ -60,7 +62,7 @@ export type UseWorkspaceRouteStateInput = {
 };
 
 export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
-  const { onServerSettingsChanged, onHostInfo } = input;
+  const { onServerSettingsChanged, onHostInfo, preserveRoute = false } = input;
   const navigate = useNavigate();
   const local = useLocal();
   const params = useParams<{ workspaceId?: string; sessionId?: string }>();
@@ -647,7 +649,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   // Once workspaces + sessions are loaded and the URL has no sessionId, try to
   // restore the last session the user opened in the active workspace.
   useEffect(() => {
-    if (loading) return;
+    if (loading || preserveRoute) return;
     if (routeWorkspaceId && workspaces.length > 0 && !workspaces.some((workspace) => workspace.id === routeWorkspaceId)) {
       const fallbackWorkspaceId = workspaces.some((workspace) => workspace.id === legacySelectedWorkspaceId)
         ? legacySelectedWorkspaceId
@@ -672,6 +674,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     loading,
     legacySelectedWorkspaceId,
     navigateToWorkspaceSession,
+    preserveRoute,
     routeWorkspaceId,
     selectedSessionId,
     selectedWorkspaceId,
@@ -683,11 +686,11 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   // completed onboarding. This fires after the initial route refresh so
   // `loading` is false and we know for sure there are zero workspaces.
   useEffect(() => {
-    if (loading) return;
+    if (loading || preserveRoute) return;
     if (workspaces.length > 0) return;
     if (local.prefs.hasCompletedOnboarding) return;
     navigate("/welcome", { replace: true });
-  }, [loading, local.prefs.hasCompletedOnboarding, navigate, workspaces.length]);
+  }, [loading, preserveRoute, local.prefs.hasCompletedOnboarding, navigate, workspaces.length]);
 
   // NOTE: Blueprint seeding was removed from the route.
   // It was firing `materializeBlueprintSessions` + a session re-fetch on every

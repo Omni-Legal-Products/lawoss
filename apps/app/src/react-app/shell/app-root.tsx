@@ -132,7 +132,7 @@ export function AppRoot() {
               {/* Default + fallback: land on the session view. Users open
                   settings deliberately via the sidebar or command palette. */}
               {LAWOSS_ROUTES.map((route) => (
-                <Route key={route.path} path={route.path} element={route.element} />
+                <Route key={route.path} path={route.path} element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               ))}
               <Route path="/" element={<Navigate to="/prehlad" replace />} />
               <Route path="*" element={<Navigate to="/session" replace />} />
