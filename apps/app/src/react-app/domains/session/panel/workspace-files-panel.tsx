@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertCircle, ChevronRight, Eye, EyeOff, Folder, FolderOpen, RotateCw, X } from "lucide-react";
+import { AlertCircle, ChevronRight, Eye, EyeOff, RotateCw, X } from "lucide-react";
 
 import type {
   LegalworkServerClient,
@@ -12,9 +12,12 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn, formatFileSize } from "@/lib/utils";
+import { FolderIcon } from "@/react-app/design-system/folder-icon";
+import { PanelEmptyState, PanelHeader } from "@/react-app/design-system/panel-chrome";
 
 import { ArtifactIcon } from "../artifacts/artifact-icon";
 import { classifyOpenTarget } from "../artifacts/open-target";
+import { t } from "@/i18n";
 
 type WorkspaceFilesPanelProps = {
   client: LegalworkServerClient | null;
@@ -58,7 +61,7 @@ export function WorkspaceFilesPanel({
     queryKey: ["workspace-files", workspaceId, path] as const,
     queryFn: async () => {
       if (!client || !workspaceId) {
-        throw new Error("Workspace is not connected.");
+        throw new Error(t("workspace_files.not_connected"));
       }
       return client.listWorkspaceDirectory(workspaceId, path);
     },
@@ -97,12 +100,8 @@ export function WorkspaceFilesPanel({
 
   return (
     <TooltipProvider delay={1000}>
-      <div className="flex h-full min-h-0 flex-col bg-background">
-        <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border bg-background pe-2 ps-4 mac:bg-background/80 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
-          <div className="flex min-w-0 flex-1 items-center gap-1.5">
-            <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
-            <h3 className="truncate text-sm font-medium text-foreground">Files</h3>
-          </div>
+      <div className="flex h-full min-h-0 flex-col bg-background/90">
+        <PanelHeader title={t("workspace_files.files")} icon={<FolderIcon open />}>
           <Tooltip>
             <TooltipTrigger
               render={(
@@ -110,14 +109,14 @@ export function WorkspaceFilesPanel({
                   variant="ghost"
                   size="icon-sm"
                   onClick={() => setShowHidden((value) => !value)}
-                  aria-label={showHidden ? "Hide hidden files" : "Show hidden files"}
+                  aria-label={showHidden ? t("workspace_files.hide_hidden") : t("workspace_files.show_hidden")}
                   aria-pressed={showHidden}
                 >
                   {showHidden ? <EyeOff /> : <Eye />}
                 </Button>
               )}
             />
-            <TooltipContent>{showHidden ? "Hide hidden files" : "Show hidden files"}</TooltipContent>
+            <TooltipContent>{showHidden ? t("workspace_files.hide_hidden") : t("workspace_files.show_hidden")}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger
@@ -127,7 +126,7 @@ export function WorkspaceFilesPanel({
                   size="icon-sm"
                   onClick={() => void refetch()}
                   disabled={isFetching}
-                  aria-label="Refresh folder"
+                  aria-label={t("workspace_files.refresh_folder")}
                 >
                   <RotateCw className={cn(isFetching && "animate-spin")} />
                 </Button>
@@ -138,19 +137,19 @@ export function WorkspaceFilesPanel({
           <Tooltip>
             <TooltipTrigger
               render={(
-                <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close files panel">
+                <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("workspace_files.close_panel")}>
                   <X />
                 </Button>
               )}
             />
             <TooltipContent>Close</TooltipContent>
           </Tooltip>
-        </div>
+        </PanelHeader>
 
         <nav
           ref={breadcrumbsRef}
-          aria-label="Current folder"
-          className="no-scrollbar flex h-9 shrink-0 items-center gap-0.5 overflow-x-auto whitespace-nowrap border-b border-border/60 bg-background px-2.5"
+          aria-label={t("workspace_files.current_folder")}
+          className="no-scrollbar flex h-10 shrink-0 items-center gap-0.5 overflow-x-auto whitespace-nowrap border-b border-border/50 bg-muted/20 px-2.5"
         >
           {crumbs.map((crumb, index) => {
             const current = index === crumbs.length - 1;
@@ -163,7 +162,7 @@ export function WorkspaceFilesPanel({
                   disabled={current}
                   aria-current={current ? "location" : undefined}
                   className={cn(
-                    "shrink-0 rounded-md px-1.5 py-0.5 text-xs transition-colors",
+                    "shrink-0 rounded-md px-1.5 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
                     current
                       ? "font-medium text-foreground"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -176,40 +175,38 @@ export function WorkspaceFilesPanel({
           })}
         </nav>
 
-        <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-1.5">
+        <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-2">
           {isLoading ? (
             <div className="space-y-0.5">
               {SKELETON_ROW_WIDTHS.map((width, index) => (
                 <div key={index} className="flex items-center gap-2.5 px-2.5 py-2">
-                  <Skeleton className="size-4 shrink-0 rounded" />
+                  <Skeleton className="size-5 shrink-0 rounded-md" />
                   <Skeleton className="h-3.5 rounded" style={{ width }} />
                 </div>
               ))}
             </div>
           ) : isError ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-              <AlertCircle className="size-7 text-muted-foreground/50" strokeWidth={1.5} />
-              <p className="text-sm text-muted-foreground">
-                {error instanceof Error ? error.message : "Failed to load this folder."}
-              </p>
+            <PanelEmptyState
+              icon={<AlertCircle />}
+              title={t("workspace_files.open_failed_title")}
+              description={error instanceof Error ? error.message : t("workspace_files.load_failed")}
+            >
               <Button variant="outline" size="sm" onClick={() => void refetch()}>
-                Try again
+                {t("workspace_files.try_again")}
               </Button>
-            </div>
+            </PanelEmptyState>
           ) : visibleEntries.length === 0 ? (
-            <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-              <FolderOpen className="size-8 text-muted-foreground/40" strokeWidth={1.5} />
-              <p className="text-sm text-muted-foreground">This folder is empty</p>
+            <PanelEmptyState icon={<FolderIcon open />} title={t("workspace_files.empty_title")} description={t("workspace_files.empty_body")}>
               {hiddenCount > 0 ? (
                 <button
                   type="button"
-                  className="text-xs text-muted-foreground/70 underline-offset-2 hover:underline"
+                  className="rounded-md px-2 py-1 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                   onClick={() => setShowHidden(true)}
                 >
                   Show {hiddenCount} hidden {hiddenCount === 1 ? "item" : "items"}
                 </button>
               ) : null}
-            </div>
+            </PanelEmptyState>
           ) : (
             <>
               {visibleEntries.map((entry) => (
@@ -218,16 +215,16 @@ export function WorkspaceFilesPanel({
                   type="button"
                   onClick={() => (entry.kind === "dir" ? navigateTo(entry.path) : onOpenFile(entry))}
                   title={entry.name}
-                  className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="group flex min-h-9 w-full items-center gap-2.5 rounded-lg border border-transparent px-2 py-1.5 text-left transition-colors hover:border-border/50 hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
                 >
                   {entry.kind === "dir" ? (
-                    <Folder className="size-4 shrink-0 fill-sky-9/15 text-sky-9" />
+                    <FolderIcon />
                   ) : (
-                    <ArtifactIcon type={classifyOpenTarget(entry.name, "file")} className="size-4" />
+                    <ArtifactIcon type={classifyOpenTarget(entry.name, "file")} className="size-5" />
                   )}
                   <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">{entry.name}</span>
                   {entry.kind === "dir" ? (
-                    <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100" />
+                    <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
                   ) : entry.size !== undefined ? (
                     <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
                       {formatFileSize(entry.size)}
@@ -237,13 +234,13 @@ export function WorkspaceFilesPanel({
               ))}
               {data?.truncated ? (
                 <p className="px-2.5 py-2 text-center text-[11px] text-muted-foreground/70">
-                  This folder has more entries than can be shown.
+                  {t("workspace_files.more_entries")}
                 </p>
               ) : null}
               {!showHidden && hiddenCount > 0 ? (
                 <button
                   type="button"
-                  className="w-full px-2.5 py-2 text-center text-[11px] text-muted-foreground/70 underline-offset-2 hover:underline"
+                  className="w-full rounded-md px-2.5 py-2 text-center text-[11px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
                   onClick={() => setShowHidden(true)}
                 >
                   {hiddenCount} hidden {hiddenCount === 1 ? "item" : "items"}

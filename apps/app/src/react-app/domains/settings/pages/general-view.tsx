@@ -1,15 +1,16 @@
 /** @jsxImportSource react */
 import {
   ArrowRight,
-  Building2,
   FileStack,
   FolderLock,
   KeyRound,
   Layout,
   Mic,
+  Puzzle,
   RefreshCcw,
   ShieldCheck,
   Sparkles,
+  UserCircle,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -17,6 +18,7 @@ import {
 import { t } from "../../../../i18n";
 import { isDesktopRuntime } from "../../../../app/utils";
 import type { SettingsTab } from "../../../../app/types";
+import { IconTile, Surface } from "@/react-app/design-system/surface";
 
 export type GeneralSettingsViewProps = {
   onNavigateTab: (tab: SettingsTab) => void;
@@ -25,35 +27,38 @@ export type GeneralSettingsViewProps = {
 
 type SettingsItem = { tab: SettingsTab; icon: LucideIcon; title: string; desc: string };
 
-const workspaceItems: SettingsItem[] = [
-  { tab: "permissions", icon: FolderLock, title: "Permissions", desc: "Authorized folders and file access." },
+const workspaceItems = (): SettingsItem[] => [
+  { tab: "permissions", icon: FolderLock, title: t("settings.tab_permissions"), desc: `${t("settings.tab_description_permissions")}.` },
 ];
 
-const globalItems: SettingsItem[] = [
-  { tab: "ai", icon: Zap, title: "AI Providers", desc: "Connect services that provide AI models." },
+const globalItems = (): SettingsItem[] => [
+  // Account leads, mirroring getGlobalSettingsTabs.
   {
     tab: "account",
-    icon: Building2,
+    icon: UserCircle,
     title: t("settings.tab_account"),
     desc: t("settings.tab_description_account"),
   },
+  { tab: "ai", icon: Zap, title: t("settings.tab_ai"), desc: `${t("settings.tab_description_ai")}.` },
+  { tab: "extensions", icon: Puzzle, title: t("sidebar.integrations"), desc: `${t("settings.tab_description_extensions")}.` },
   {
     tab: "personalisation",
     icon: Sparkles,
-    title: "Personalisation",
-    desc: "System prompt additions, local memory, and response personality.",
+    title: t("settings.tab_personalisation"),
+    desc: `${t("settings.tab_description_personalisation")}.`,
   },
-  { tab: "safety", icon: ShieldCheck, title: "Tool Permissions", desc: "Decide what LegalWork can do on its own across all workspaces." },
-  { tab: "shell", icon: Layout, title: "Customization", desc: "Branding and task suggestions." },
-  { tab: "environment", icon: KeyRound, title: "Secrets", desc: "Store API keys and passwords for connected services." },
-  { tab: "preferences", icon: ShieldCheck, title: "Privacy", desc: "Usage analytics and data sharing." },
-  { tab: "updates", icon: RefreshCcw, title: "Updates", desc: "App version and update channel." },
+  { tab: "safety", icon: ShieldCheck, title: t("settings.tab_safety"), desc: `${t("settings.tab_description_safety")}.` },
+  { tab: "shell", icon: Layout, title: t("settings.tab_shell"), desc: `${t("settings.tab_description_shell")}.` },
+  { tab: "environment", icon: KeyRound, title: t("settings.tab_environment"), desc: `${t("settings.tab_description_environment")}` },
+  { tab: "preferences", icon: ShieldCheck, title: t("settings.tab_preferences"), desc: `${t("settings.tab_description_preferences")}.` },
+  { tab: "updates", icon: RefreshCcw, title: t("settings.tab_updates"), desc: `${t("settings.tab_description_updates_short")}.` },
 ];
 
 // Recorder and Office add-ins depend on local desktop capabilities, mirroring
 // their placement in getGlobalSettingsTabs.
 function resolveGlobalItems(): SettingsItem[] {
-  if (!isDesktopRuntime()) return globalItems;
+  const items = globalItems();
+  if (!isDesktopRuntime()) return items;
   const recorderItem: SettingsItem = {
     tab: "recorder",
     icon: Mic,
@@ -68,7 +73,8 @@ function resolveGlobalItems(): SettingsItem[] {
     // omits it because the settings-page tab header uses no trailing period.
     desc: `${t("office_addins.tab_description")}.`,
   };
-  return [globalItems[0], recorderItem, officeAddinsItem, ...globalItems.slice(1)];
+  // After Account and AI Providers, mirroring getGlobalSettingsTabs.
+  return [...items.slice(0, 2), recorderItem, officeAddinsItem, ...items.slice(2)];
 }
 
 function SettingsRow(props: { icon: LucideIcon; title: string; desc: string; onClick: () => void }) {
@@ -76,18 +82,18 @@ function SettingsRow(props: { icon: LucideIcon; title: string; desc: string; onC
     <button
       type="button"
       onClick={props.onClick}
-      className="group flex w-full items-center gap-3.5 px-4 py-3 text-left transition-colors first:rounded-t-2xl last:rounded-b-2xl hover:bg-hover"
+      className="group flex w-full items-center gap-3.5 px-5 py-3.5 text-left transition-colors first:rounded-t-2xl last:rounded-b-2xl hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
     >
-      <div className="grid size-9 shrink-0 place-items-center rounded-[10px] bg-sunken text-ink">
+      <IconTile size="sm" variant="inset">
         <props.icon size={17} />
-      </div>
+      </IconTile>
       <div className="min-w-0 flex-1">
-        <div className="text-base font-medium text-ink">{props.title}</div>
-        <div className="mt-0.5 text-sm leading-snug text-subtext">{props.desc}</div>
+        <div className="text-[13px] font-medium text-foreground">{props.title}</div>
+        <div className="mt-0.5 text-[13px] leading-relaxed text-muted-foreground">{props.desc}</div>
       </div>
       <ArrowRight
         size={16}
-        className="shrink-0 text-tertiary transition-transform group-hover:translate-x-0.5 group-hover:text-ink"
+        className="shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-foreground group-focus-visible:translate-x-0.5 group-focus-visible:text-foreground motion-reduce:transform-none motion-reduce:transition-none"
       />
     </button>
   );
@@ -97,7 +103,7 @@ function SettingsGroup(props: { label: string; items: SettingsItem[]; onNavigate
   return (
     <section className="space-y-2.5">
       <div className="lw-section-eyebrow px-1">{props.label}</div>
-      <div className="divide-y divide-subtle overflow-hidden rounded-2xl border border-subtle bg-surface shadow-xs">
+      <Surface className="divide-y divide-border/70 overflow-hidden">
         {props.items.map((item) => (
           <SettingsRow
             key={item.tab}
@@ -107,7 +113,7 @@ function SettingsGroup(props: { label: string; items: SettingsItem[]; onNavigate
             onClick={() => props.onNavigateTab(item.tab)}
           />
         ))}
-      </div>
+      </Surface>
     </section>
   );
 }
@@ -115,8 +121,8 @@ function SettingsGroup(props: { label: string; items: SettingsItem[]; onNavigate
 export function GeneralSettingsView(props: GeneralSettingsViewProps) {
   return (
     <div className="w-full max-w-3xl space-y-9">
-      <SettingsGroup label="Workspace" items={workspaceItems} onNavigateTab={props.onNavigateTab} />
-      <SettingsGroup label="Global" items={resolveGlobalItems()} onNavigateTab={props.onNavigateTab} />
+      <SettingsGroup label={t("settings.group_workspace")} items={workspaceItems()} onNavigateTab={props.onNavigateTab} />
+      <SettingsGroup label={t("settings.group_global")} items={resolveGlobalItems()} onNavigateTab={props.onNavigateTab} />
       <p className="px-1 text-[11px] text-muted-foreground/70">
         {t("settings.tab_description_general")}
       </p>

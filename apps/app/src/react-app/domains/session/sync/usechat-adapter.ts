@@ -6,10 +6,17 @@ import type { LegalworkSessionSnapshot } from "../../../../app/lib/legalwork-ser
 import { safeStringify } from "../../../../app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "../../../../app/types";
 import {
+  eigenweltModelDisabledMessage,
+  eigenweltSignInExpiredMessage,
+  isEigenweltModelDisabledError,
+  isEigenweltSignInExpiredError,
+} from "./eigenwelt-provider-error";
+import {
   parseDynamicToolUIPart,
   parseStructuredOutputUIPart,
   STRUCTURED_OUTPUT_TOOL,
 } from "./parse-tool-parts";
+import { t } from "@/i18n";
 
 function recordValue(value: unknown, key: string) {
   if (!value || typeof value !== "object") return undefined;
@@ -37,11 +44,11 @@ function firstNumberValue(records: unknown[], keys: string[]) {
 }
 
 function defaultErrorMessage(name: string | null, fallback: string) {
-  if (name === "ProviderAuthError") return "Provider authentication failed";
-  if (name === "MessageOutputLengthError") return "The model reached its output limit before finishing";
-  if (name === "StructuredOutputError") return "The model could not produce valid structured output";
-  if (name === "ContextOverflowError") return "The conversation is too large for the model context window";
-  if (name === "MessageAbortedError") return "The message was interrupted";
+  if (name === "ProviderAuthError") return t("chat.error_provider_auth");
+  if (name === "MessageOutputLengthError") return t("chat.error_output_limit");
+  if (name === "StructuredOutputError") return t("chat.error_structured_output");
+  if (name === "ContextOverflowError") return t("chat.error_context_window");
+  if (name === "MessageAbortedError") return t("chat.error_interrupted");
   return fallback;
 }
 
@@ -54,9 +61,17 @@ function withAttachmentRecoveryHint(text: string) {
   return `${text}\nAn attached file in this conversation uses a format the model can't read. Revert the conversation to before the attachment was sent, or start a new session.`;
 }
 
+function describeErrorText(text: string) {
+  if (isEigenweltModelDisabledError({ texts: [text] })) return eigenweltModelDisabledMessage();
+  if (isEigenweltSignInExpiredError({ status: null, provider: null, texts: [text] })) {
+    return eigenweltSignInExpiredMessage();
+  }
+  return withAttachmentRecoveryHint(text);
+}
+
 export function describeOpencodeSessionError(error: unknown, fallback = "Session failed") {
-  if (error instanceof Error) return withAttachmentRecoveryHint(error.message || fallback);
-  if (typeof error === "string") return withAttachmentRecoveryHint(error.trim() || fallback);
+  if (error instanceof Error) return describeErrorText(error.message || fallback);
+  if (typeof error === "string") return describeErrorText(error.trim() || fallback);
   if (!error || typeof error !== "object") return fallback;
 
   const data = recordValue(error, "data");
@@ -71,12 +86,31 @@ export function describeOpencodeSessionError(error: unknown, fallback = "Session
   const retries = firstNumberValue(records, ["retries", "retryCount"]);
   const responseBody = firstStringValue(records, ["responseBody", "body", "response"]);
 
-  const lines = [message ?? defaultErrorMessage(name, fallback)];
+  // A model the firm's admin turned off (403 from the gateway): say so
+  // instead of echoing the allowlist. Checked first, since a 403 from the
+  // eigenwelt provider otherwise reads as an expired sign-in.
+  const modelOff = isEigenweltModelDisabledError({ texts: [message, responseBody] });
+  // A dead Eigenwelt key (the sign-in on this device was replaced or
+  // revoked): the raw 401 body is noise, the fix is signing in again.
+  const signInExpired =
+    !modelOff &&
+    isEigenweltSignInExpiredError({
+      status,
+      provider,
+      texts: [message, responseBody],
+    });
+  const lines = [
+    modelOff
+      ? eigenweltModelDisabledMessage()
+      : signInExpired
+        ? eigenweltSignInExpiredMessage()
+        : (message ?? defaultErrorMessage(name, fallback)),
+  ];
   if (status && !lines[0]?.includes(String(status))) lines.push(`Status: ${status}`);
   if (provider && !lines[0]?.includes(provider)) lines.push(`Provider: ${provider}`);
   if (code) lines.push(`Code: ${code}`);
   if (retries !== null) lines.push(`Retries: ${retries}`);
-  if (responseBody && responseBody !== message) lines.push(`Response: ${responseBody}`);
+  if (responseBody && responseBody !== message && !signInExpired) lines.push(`Response: ${responseBody}`);
   if (lines.some((line) => line !== fallback)) return withAttachmentRecoveryHint(lines.join("\n"));
 
   const serialized = safeStringify(error);

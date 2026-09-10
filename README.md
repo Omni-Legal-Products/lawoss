@@ -24,6 +24,8 @@
 
 ## Čo je LAWOSS
 
+Voice Mode po spustení prenáša mikrofónový zvuk a výňatok aktuálneho chatu do OpenAI Realtime cez pripojený OpenAI API kľúč. Recorder a systémové diktovanie transkribujú lokálne. Podrobnosti o prenose dát a voliteľnej telemetrii sú v [TERMS.md](TERMS.md).
+
 LAWOSS je česká a slovenská open-source vrstva nad projektom [LegalWork](https://github.com/eigenweltlabs/legalwork). Spája lokálne agentické pracovné prostredie s právnymi workflowmi, otvorenými promptmi, skills a MCP konektormi pre naše jurisdikcie.
 
 Základom zostáva upstream LegalWork. Všeobecne použiteľné opravy a lokalizácie chceme ponúkať späť upstreamu. Naše právne workflowy držíme v samostatných adresároch, aby zostali prenositeľné a aby bol fork dlhodobo udržateľný.

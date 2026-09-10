@@ -35,6 +35,7 @@ Rules:
 - **Portable domain layer:** LAWOSS prompts, skills, templates, and MCP configuration must remain usable outside this fork where practical.
 - **Upstream-first:** offer generally useful fixes and localization improvements to LegalWork upstream.
 - **Small downstream diff:** prefer adding files to modifying upstream files.
+- **Preserve syncability:** every change must keep future release-tag merges practical. During syncs preserve LAWOSS UI, branding, CZ/SK locales and domain behavior; adopt upstream improvements around the smallest documented downstream hooks. Verify the integrated UI, not only conflict-free text.
 
 ## Three change zones
 

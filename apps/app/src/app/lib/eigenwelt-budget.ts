@@ -1,9 +1,10 @@
+import { t } from "@/i18n";
 /**
  * Eigenwelt gateway budget-exceeded handling.
  *
  * The Eigenwelt gateway (LiteLLM) answers HTTP 429 with error type
  * `budget_exceeded` and a message containing "Budget has been exceeded" once a
- * seat's daily usage is used up. The engine treats that like any transient
+ * seat's weekly usage is used up. The engine treats that like any transient
  * provider error and retries with backoff forever. These helpers implement the
  * LegalWork policy on top of the engine's retry loop:
  *
@@ -12,7 +13,7 @@
  *   behavior),
  * - the engine gets at most {@link EIGENWELT_BUDGET_MAX_RETRY_ATTEMPTS}
  *   attempts, after which the app aborts the run and renders a terminal
- *   "daily usage used up" card pointing at the platform's billing page.
+ *   "weekly usage used up" card pointing at the platform's billing page.
  *
  * Everything in here is pure/registry state so it can be unit tested without
  * React or the engine.
@@ -31,32 +32,26 @@ export const EIGENWELT_BILLING_URL_DEFAULT = "https://platform.eigenweltlabs.com
 /** Stop the engine's retry loop after this many budget-exceeded attempts. */
 export const EIGENWELT_BUDGET_MAX_RETRY_ATTEMPTS = 3;
 
-export const EIGENWELT_BUDGET_EXCEEDED_TITLE = "Your seat's daily usage has been used up";
-export const EIGENWELT_BUDGET_EXCEEDED_BODY =
-  "Upgrade to Pro for higher limits, or come back tomorrow.";
-export const EIGENWELT_BUDGET_UPGRADE_LABEL = "Upgrade to Pro";
-export const EIGENWELT_PRO_LIMIT_TITLE = "Daily usage limit reached";
-export const EIGENWELT_PRO_LIMIT_BODY = "You've used today's Pro allowance. Come back tomorrow.";
+// Functions, not consts: a module-scope t() would freeze the English copy at
+// import time, before initLocale() has picked the language.
+export const eigenweltBudgetExceededTitle = () => t("budget.exceeded_title");
+export const eigenweltBudgetExceededBody = () => t("budget.exceeded_body");
+export const eigenweltBudgetUpgradeLabel = () => t("budget.upgrade_label");
 
-export type EigenweltBudgetPlan = "plus" | "pro" | null;
+/** Kept for wire compatibility with older payloads; "hub" has no gateway budget at all. */
+export type EigenweltBudgetPlan = "plus" | "pro" | "hub" | null;
 
-/** Plan-aware terminal-card copy. Pro is already the highest usage tier. */
-export function eigenweltBudgetLimitDisplay(plan: EigenweltBudgetPlan): {
+/** Terminal-card copy for the single Plus plan (plan param retained for
+ *  compatibility; every plan sees the same copy now that Pro is retired). */
+export function eigenweltBudgetLimitDisplay(_plan: EigenweltBudgetPlan): {
   title: string;
   body: string;
   upgradeLabel: string | null;
 } {
-  if (plan === "pro") {
-    return {
-      title: EIGENWELT_PRO_LIMIT_TITLE,
-      body: EIGENWELT_PRO_LIMIT_BODY,
-      upgradeLabel: null,
-    };
-  }
   return {
-    title: EIGENWELT_BUDGET_EXCEEDED_TITLE,
-    body: EIGENWELT_BUDGET_EXCEEDED_BODY,
-    upgradeLabel: EIGENWELT_BUDGET_UPGRADE_LABEL,
+    title: eigenweltBudgetExceededTitle(),
+    body: eigenweltBudgetExceededBody(),
+    upgradeLabel: eigenweltBudgetUpgradeLabel(),
   };
 }
 
@@ -67,8 +62,13 @@ export function eigenweltBudgetLimitDisplay(plan: EigenweltBudgetPlan): {
  * the plain error block for the dedicated upgrade card, so only stops the app
  * itself gated on the eigenwelt provider ever render the card.
  */
+// Deliberately NOT translated. This string is written into a session's stored
+// error text and matched back later to swap in the localized upgrade card. A
+// localized sentinel would stop matching after a language switch, and the user
+// would see this raw text instead of the card.
 export const EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT =
-  `${EIGENWELT_BUDGET_EXCEEDED_TITLE}. ${EIGENWELT_BUDGET_EXCEEDED_BODY}`;
+  "Your seat's included usage for this week is used up." +
+  " It resets next week. Your firm's billing shows this week's usage in detail.";
 
 /** LiteLLM budget error marker (message looks like "Budget has been exceeded! ... Team=org_..."). */
 const BUDGET_MESSAGE_PATTERN = /budget has been exceeded/i;
@@ -101,9 +101,12 @@ export function shouldStopEigenweltBudgetRetry(
   return attempt >= EIGENWELT_BUDGET_MAX_RETRY_ATTEMPTS;
 }
 
+/** The stable prefix of {@link EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT}. */
+const EIGENWELT_BUDGET_SENTINEL = "Your seat's included usage for this week is used up";
+
 /** Matches only the copy injected by the budget stop path. */
 export function isEigenweltBudgetExceededErrorText(text: string | null | undefined): boolean {
-  return Boolean(text && text.includes(EIGENWELT_BUDGET_EXCEEDED_TITLE));
+  return Boolean(text && text.includes(EIGENWELT_BUDGET_SENTINEL));
 }
 
 /**
@@ -126,9 +129,9 @@ export function eigenweltBudgetRetryAction(billingUrl: string = EIGENWELT_BILLIN
   return {
     reason: "budget_exceeded",
     provider: EIGENWELT_PROVIDER_ID,
-    title: "Out of daily usage?",
-    message: EIGENWELT_BUDGET_EXCEEDED_BODY,
-    label: EIGENWELT_BUDGET_UPGRADE_LABEL,
+    title: t("budget.retry_title"),
+    message: eigenweltBudgetExceededBody(),
+    label: eigenweltBudgetUpgradeLabel(),
     link: billingUrl,
   };
 }
