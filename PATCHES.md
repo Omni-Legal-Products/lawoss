@@ -6,7 +6,7 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 
 | Upstream file | LAWOSS change | Reason | Owner | PR |
 |---|---|---|---|---|
-| `README.md` | LAWOSS project presentation, roadmap, team, safety notes, and upstream attribution | Product identity and contributor orientation | MČ | Initial setup PR |
+| `README.md` | LAWOSS project presentation, roadmap, team, safety notes, and upstream attribution | Product identity and contributor orientation | MČ | Initial setup PR; PR #39 adds the handoff index |
 | `AGENTS.md` | LAWOSS workflow, three-zone model, CZ/SK legal constraints, and upstream sync rules | Sustainable fork governance | MČ | Initial setup PR |
 | `apps/app/src/app/index.css` | +1 `@import` (LAWOSS token override after upstream tokens); +3 fontsource imports (Plex Mono 400/500, Playfair); `--chart-1..5` values remapped to brand palette; `--radius` 0.625rem → 0.25rem (squared, issue #22) | Fáza A reskin via cascade, zero structural change | MČ | design/faza-a-tokeny |
 | `apps/app/src/app/theme.ts` | Default theme `light` → `dark` (2 fallback returns + comment), value-only | Dark is the designed LAWOSS theme | MČ | design/faza-a-tokeny |
@@ -43,3 +43,17 @@ The existing Word add-in changes, OKF modules, updater feeds, release customizat
 - Reapply only the smallest required downstream change.
 - Remove rows for patches accepted upstream or no longer needed.
 - Add a row before merging any new modification to an upstream file.
+
+### Unified experiments shell (2026-09-10)
+
+- `apps/app/src/react-app/shell/app-root.tsx`: render LAWOSS routes through the same SessionRoute/DevProfiler tree as sessions.
+- `apps/app/src/react-app/shell/session-route.tsx`: use the existing mainView slot for experiment content and reset auxiliary panes on route changes. The original sidebar, workspace actions, resizing, titlebar and status bar remain shared.
+- `apps/app/src/react-app/shell/use-workspace-route-state.ts`: optional preserveRoute keeps non-session experiment URLs from being replaced by session restoration or first-run redirects; existing session onboarding behavior is unchanged.
+- `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx`: pass active pane state to LAWOSS navigation to prevent simultaneous active indicators.
+
+### Selected identity B (2026-09-10)
+
+MČ selected variant B from the supplied original references; decision recorded in the coordination repository under `assets/brand/loga-2026-09-10/README.md`.
+- `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx`: use the existing white vector wordmark for the default LAWOSS brand, keeping custom brand names and logos supported.
+- `apps/app/public/legalwork-mark.svg`, `favicon-16x16.png`, `favicon-32x32.png`, `apple-touch-icon.png`: generated from the selected portico source.
+- `apps/desktop/resources/icons/**`: regenerate production and development macOS/Windows/runtime icons from the selected LAWOSS B mark. Icon source now matches generated files.

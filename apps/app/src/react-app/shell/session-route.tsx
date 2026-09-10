@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { LAWOSS_ROUTES } from "../../lawoss/shell/routes";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
 import { PremiumUpsellHost } from "../domains/recorder/premium-upsell-context";
@@ -322,6 +323,7 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
 export function SessionRoute() {
   const navigate = useNavigate();
   const location = useLocation();
+  const experimentView = LAWOSS_ROUTES.find((route) => route.path === location.pathname)?.element;
   const detached = useMemo(
     () => new URLSearchParams(location.search).get("detached") === "1",
     [location.search],
@@ -401,6 +403,7 @@ export function SessionRoute() {
     rememberPendingCreatedSession,
     handleRuntimeSessionUpdated,
   } = useWorkspaceRouteState({
+    preserveRoute: Boolean(experimentView),
     onServerSettingsChanged: () => setLegalworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setLegalworkServerHostInfoState,
   });
@@ -1812,7 +1815,8 @@ export function SessionRoute() {
     setShowEvals(false);
     setShowWorkflows(false);
     setShowExtensions(false);
-  }, [selectedSessionId, selectedWorkspaceId]);
+    setShowRecorder(false);
+  }, [selectedSessionId, selectedWorkspaceId, location.key]);
 
   return (
     <WorkspaceProvider
@@ -2000,7 +2004,7 @@ export function SessionRoute() {
               }, 350);
             }}
           />
-        ) : undefined
+        ) : experimentView
       }
       terminalOpen={terminalOpen}
       onTerminalOpenChange={setTerminalOpen}

@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 import * as React from "react";
 import legalworkMarkDark from "../../../../../../../lawoss/brand/lawoss-mark.svg";
+import { LawossWordmark } from "../../../../lawoss/shell/wordmark";
 import { LawossNav } from "../../../../lawoss/shell/layout";
 import {
   Archive,
@@ -672,12 +673,12 @@ export function AppSidebar(props: AppSidebarProps) {
             />
             {showSidebarBrandName ? (
               <div className="min-w-0">
-                <div className="truncate text-[15px] font-semibold leading-tight tracking-[-0.02em]">{sidebarBrandName}</div>
+                <div className="truncate text-[15px] font-semibold leading-tight tracking-[-0.02em]">{sidebarBrandName === "LAWOSS" ? <LawossWordmark className="w-28 max-w-full text-foreground" /> : sidebarBrandName}</div>
               </div>
             ) : null}
           </div>
         </div>
-        <LawossNav />
+        <LawossNav activePane={Boolean(props.activeNav)} />
         <SidebarMenu className={cn("gap-0.5 px-2 mac:titlebar-no-drag", showSidebarBrandName ? "pt-1" : "pt-1")}>
           <SidebarMenuItem>
             <DropdownMenu>

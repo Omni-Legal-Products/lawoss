@@ -1,9 +1,8 @@
 /** @jsxImportSource react */
 import type { ReactNode } from "react";
 import { ChevronRight, FlaskConical } from "lucide-react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 
-import { PageTitlebarRegion } from "@/components/page";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,9 +17,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 
-import lawossMark from "../../../../../lawoss/brand/lawoss-mark.svg";
 import { EXPERIMENT_VIEWS } from "../experiments/registry";
-import { LawossWordmark } from "./wordmark";
 import "./lawoss.css";
 
 export const EXPERIMENTY_PATH = "/experimenty";
@@ -48,12 +45,13 @@ export function experimentyNavItems(): { to: string; label: string }[] {
  * fixed flex ratio, and an inline list overflowed into the folders pane at
  * small window heights. A menu takes no vertical space regardless of count.
  */
-export function LawossNav() {
+export function LawossNav(props: { activePane?: boolean } = {}) {
   const navigate = useNavigate();
+  const location = useLocation();
   const items = experimentyNavItems();
 
   return (
-    <SidebarGroup className="py-0">
+    <SidebarGroup className="p-0 mac:titlebar-no-drag">
       <SidebarGroupContent>
         <SidebarMenu className="gap-0.5 px-2">
           <SidebarMenuItem>
@@ -62,7 +60,8 @@ export function LawossNav() {
                 render={
                   <SidebarMenuButton
                     type="button"
-                    className="gap-4 text-sidebar-foreground/80 [&_svg]:size-[18px]"
+                    isActive={!props.activePane && items.some((item) => item.to === location.pathname)}
+                    className="gap-3 text-sidebar-foreground/80 [&_svg]:size-[18px]"
                   >
                     <FlaskConical strokeWidth={1.5} />
                     <span>Experimenty</span>
@@ -86,48 +85,16 @@ export function LawossNav() {
   );
 }
 
-/**
- * Frame for the experimental screens. Deliberately not a second main
- * navigation: it carries the brand, a way back into the app, and the sibling
- * experiments — nothing that competes with the upstream shell.
- */
+/** Experiment content shares the persistent session shell and its sidebar. */
 export function LawossLayout(props: { children: ReactNode }) {
-  const items = experimentyNavItems();
-
   return (
-    <div className="lw-desk">
-      {/* Ťahacia lišta okna (mac) — rovnaký prvok, aký používa upstream.
-          Chromium počíta ťahaciu oblasť ako drag mínus no-drag obdĺžniky bez
-          ohľadu na z-index, preto panely pod ňou NESMÚ byť no-drag: obsah
-          začína až pod lištou (padding 44px), takže to nič nepotrebuje. */}
-      <PageTitlebarRegion />
-      <aside className="lw-rail">
-        <div className="lw-brand">
-          <img src={lawossMark} alt="" />
-          <div>
-            <LawossWordmark className="lw-wordmark" />
-            <small>CZECHIA SLOVAKIA AND BEYOND</small>
-          </div>
-        </div>
-
-        <NavLink to="/session" className="lw-tab lw-tab-back">
-          ← Späť do aplikácie
-        </NavLink>
-
-        <div className="lw-gap" />
-        <div className="lw-rail-label">Experimenty</div>
-        {items.map((item) => (
-          <NavLink key={item.to} to={item.to} className="lw-tab">
-            {item.label}
-          </NavLink>
+    <div className="lw-experiment-content">
+      <nav className="lw-experiment-nav" aria-label="Experimenty">
+        {experimentyNavItems().map((item) => (
+          <NavLink key={item.to} to={item.to} end>{item.label}</NavLink>
         ))}
-
-        <div className="lw-who">
-          Rozpracované
-          <span>nie sú napojené na spisy</span>
-        </div>
-      </aside>
-      <main className="lw-sheet">{props.children}</main>
+      </nav>
+      <section className="lw-sheet">{props.children}</section>
     </div>
   );
 }
