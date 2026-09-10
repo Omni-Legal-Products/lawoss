@@ -51,7 +51,7 @@ export function LawossNav(props: { activePane?: boolean } = {}) {
   const items = experimentyNavItems();
 
   return (
-    <SidebarGroup className="py-0">
+    <SidebarGroup className="p-0 mac:titlebar-no-drag">
       <SidebarGroupContent>
         <SidebarMenu className="gap-0.5 px-2">
           <SidebarMenuItem>
@@ -61,7 +61,7 @@ export function LawossNav(props: { activePane?: boolean } = {}) {
                   <SidebarMenuButton
                     type="button"
                     isActive={!props.activePane && items.some((item) => item.to === location.pathname)}
-                    className="gap-4 text-sidebar-foreground/80 [&_svg]:size-[18px]"
+                    className="gap-3 text-sidebar-foreground/80 [&_svg]:size-[18px]"
                   >
                     <FlaskConical strokeWidth={1.5} />
                     <span>Experimenty</span>
