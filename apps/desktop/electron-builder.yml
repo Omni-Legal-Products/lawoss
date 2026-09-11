@@ -3,6 +3,11 @@
 # in apps/desktop/electron/main.mjs.
 appId: com.eigenweltlabs.legalwork
 productName: LAWOSS
+# Bez tohto riadku si electron-builder odvodí copyright z `author` v
+# package.json (default `Copyright © <rok> <author>`) a do binárky by sa
+# dostal jediný držiteľ. LAWOSS je fork: drvivá väčšina kódu je LegalWork pod
+# MIT, ktorá žiada zachovať pôvodnú doložku. Preto sú tu menovaní obaja.
+copyright: "Copyright © 2026 LAWOSS contributors. Based on LegalWork, Copyright © 2026 Eigenwelt Labs. MIT License."
 protocols:
   - name: LegalWork
     schemes:
@@ -15,6 +20,14 @@ files:
   - "!server/dist/opencode-plugins/**"
   - package.json
 extraResources:
+  # MIT žiada doložku „in all copies or substantial portions of the Software".
+  # Balík je kópia: bez týchto dvoch súborov by tester dostal .dmg, v ktorom
+  # licencia LegalWorku nie je nikde. `files:` je whitelist a koreň repozitára
+  # do neho nesiaha, preto idú cez extraResources.
+  - from: ../../LICENSE
+    to: LICENSE
+  - from: ../../NOTICE
+    to: NOTICE
   - from: ../app/dist
     to: app-dist
   - from: ../app/dist-word-addin
