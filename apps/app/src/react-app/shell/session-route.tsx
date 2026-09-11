@@ -175,6 +175,7 @@ import {
   countConnectedProviders,
   ensureProviderListQuery,
   getConnectedProviderItems,
+  getDefaultModelForSingleConnectedProvider,
   isModelAvailableInConnectedProviders,
   refreshProviderListQueries,
   RETIRED_FREE_PROVIDER_IDS,
@@ -686,32 +687,27 @@ export function SessionRoute() {
       cancelled = true;
     };
   }, [client, repairWorkspaceId]);
-  // Connected to Eigenwelt but no USABLE model — either nothing is selected
-  // (fresh installs default to null) OR the selection points at a model the
-  // gateway no longer serves (the catalog changed under us, e.g. a model was
-  // swapped). Auto-pick the gateway's default/only model so the composer
-  // never sits on a dead model — critical now the picker is a plain label
-  // when a single model is served (there is no manual way out).
+  // Connected to exactly one provider but no USABLE model — either nothing is
+  // selected (fresh installs default to null) OR the selection points at a
+  // model the provider no longer serves. Auto-pick that provider's advertised
+  // default, or its first available model, so a successful BYO connection does
+  // not leave the composer in the no-model state.
   useEffect(() => {
     const list = providerListQuery.data;
     if (!list) return;
     // A valid, still-available selection is left untouched.
     if (local.prefs.defaultModel && !selectedModelUnavailable) return;
-    const eigenwelt = getConnectedProviderItems(list).find((provider) => provider.id === "eigenwelt");
-    if (!eigenwelt) return;
-    const modelIds = Object.keys(eigenwelt.models ?? {});
-    if (modelIds.length === 0) return;
-    const preferred = list.default?.["eigenwelt"];
-    const modelID = preferred && eigenwelt.models?.[preferred] ? preferred : modelIds[0];
+    const model = getDefaultModelForSingleConnectedProvider(list);
+    if (!model) return;
     setPrefs((previous) => {
       // No-op when it already matches, so a stale selection can't render-loop.
       if (
-        previous.defaultModel?.providerID === "eigenwelt" &&
-        previous.defaultModel?.modelID === modelID
+        previous.defaultModel?.providerID === model.providerID &&
+        previous.defaultModel?.modelID === model.modelID
       ) {
         return previous;
       }
-      return { ...previous, defaultModel: { providerID: "eigenwelt", modelID }, modelVariant: null };
+      return { ...previous, defaultModel: model, modelVariant: null };
     });
   }, [local.prefs.defaultModel, selectedModelUnavailable, providerListQuery.data, setPrefs]);
   // Creating a task only needs a reachable workspace — `session.create` never

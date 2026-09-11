@@ -4,6 +4,7 @@ import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
 
 import {
   countConnectedProviders,
+  getDefaultModelForSingleConnectedProvider,
   isModelAvailableInConnectedProviders,
 } from "../src/react-app/infra/provider-list-query";
 
@@ -26,6 +27,7 @@ const EIGENWELT_MODEL = { providerID: "eigenwelt", modelID: "ewl-1" };
 const providerList = (input: {
   connected: string[];
   models?: Record<string, string[]>;
+  defaultModels?: Record<string, string>;
 }): ProviderListResponse => ({
   all: Object.entries(input.models ?? { eigenwelt: ["ewl-1"] }).map(([id, modelIds]) => ({
     id,
@@ -39,7 +41,7 @@ const providerList = (input: {
     ),
   })),
   connected: input.connected,
-  default: {},
+  default: input.defaultModels ?? {},
 }) as unknown as ProviderListResponse;
 
 const signedIn = providerList({ connected: ["eigenwelt"] });
@@ -80,5 +82,44 @@ describe("connect-AI notice vs. the model-unavailable label", () => {
   test("no list yet counts nothing", () => {
     expect(countConnectedProviders(null)).toBe(0);
     expect(countConnectedProviders(undefined)).toBe(0);
+  });
+});
+
+describe("default model selection after provider connection", () => {
+  test("uses the provider's advertised default when exactly one provider is connected", () => {
+    const openai = providerList({
+      connected: ["openai"],
+      models: { openai: ["gpt-5.4", "gpt-5.5"] },
+      defaultModels: { openai: "gpt-5.5" },
+    });
+
+    expect(getDefaultModelForSingleConnectedProvider(openai)).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5.5",
+    });
+  });
+
+  test("falls back to the first available model when the advertised default is unavailable", () => {
+    const openai = providerList({
+      connected: ["openai"],
+      models: { openai: ["gpt-5.4", "gpt-5.5"] },
+      defaultModels: { openai: "retired-model" },
+    });
+
+    expect(getDefaultModelForSingleConnectedProvider(openai)).toEqual({
+      providerID: "openai",
+      modelID: "gpt-5.4",
+    });
+  });
+
+  test("does not choose arbitrarily when zero or multiple providers are connected", () => {
+    const noProvider = providerList({ connected: [], models: { openai: ["gpt-5.5"] } });
+    const multipleProviders = providerList({
+      connected: ["openai", "anthropic"],
+      models: { openai: ["gpt-5.5"], anthropic: ["claude"] },
+    });
+
+    expect(getDefaultModelForSingleConnectedProvider(noProvider)).toBeNull();
+    expect(getDefaultModelForSingleConnectedProvider(multipleProviders)).toBeNull();
   });
 });
