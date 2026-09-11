@@ -18,7 +18,7 @@ on:
       - Alpha Channel (Windows x64)
       - i18n Audit
       - legalwork-ui-mcp
-      - LegalWork Tests
+      - LAWOSS Tests
       - Release App
     types: [completed]
 

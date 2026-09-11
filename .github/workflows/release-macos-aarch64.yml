@@ -14,7 +14,7 @@ on:
         required: false
         type: string
       release_name:
-        description: "Release title (defaults to LegalWork <tag>)"
+        description: "Release title (defaults to LAWOSS <tag>)"
         required: false
         type: string
       release_body:
@@ -114,18 +114,21 @@ jobs:
             exit 1
           fi
 
+          VERSION="${TAG#v}"
+          RELEASE_DOWNLOAD_BASE="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+
           RELEASE_NAME_INPUT="${INPUT_RELEASE_NAME:-}"
           if [ -n "$RELEASE_NAME_INPUT" ]; then
             RELEASE_NAME="$RELEASE_NAME_INPUT"
           else
-            RELEASE_NAME="LegalWork $TAG"
+            RELEASE_NAME="LAWOSS $TAG"
           fi
 
           RELEASE_BODY_INPUT="${INPUT_RELEASE_BODY:-}"
           if [ -n "$RELEASE_BODY_INPUT" ]; then
             RELEASE_BODY="$RELEASE_BODY_INPUT"
           else
-            printf -v RELEASE_BODY '%s\n\nLegalWork %s desktop release.\n\n%s\n%s' \
+            printf -v RELEASE_BODY '%s\n\nLAWOSS %s desktop release.\n\n%s\n%s' \
               "## What's new" \
               "$TAG" \
               "- Download the attached installer for your platform." \
@@ -133,9 +136,9 @@ jobs:
           fi
 
           # Download links go at the top of every release body so visitors
-          # grab the latest installers via the site.
+          # can download the installers directly from this fork's release.
           printf -v RELEASE_BODY '%s\n\n%s' \
-            "**Download the latest version:** [macOS (Apple Silicon)](https://eigenweltlabs.com/legalwork/download/mac?src=release-notes) · [macOS (Intel)](https://eigenweltlabs.com/legalwork/download/mac-intel?src=release-notes) · [Windows](https://eigenweltlabs.com/legalwork/download/win?src=release-notes) · [Linux x64](https://eigenweltlabs.com/legalwork/download/linux?src=release-notes) · [Linux arm64](https://eigenweltlabs.com/legalwork/download/linux-arm64?src=release-notes)" \
+            "**Download the latest version:** [macOS (Apple Silicon)](${RELEASE_DOWNLOAD_BASE}/lawoss-mac-arm64-${VERSION}.dmg) · [macOS (Intel)](${RELEASE_DOWNLOAD_BASE}/lawoss-mac-x64-${VERSION}.dmg) · [Windows](${RELEASE_DOWNLOAD_BASE}/lawoss-win-x64-${VERSION}.exe) · [Linux x64](${RELEASE_DOWNLOAD_BASE}/lawoss-linux-x86_64-${VERSION}.AppImage) · [Linux arm64](${RELEASE_DOWNLOAD_BASE}/lawoss-linux-arm64-${VERSION}.AppImage)" \
             "$RELEASE_BODY"
 
           draft="${INPUT_DRAFT:-}"
@@ -513,7 +516,7 @@ jobs:
 
           mkdir -p "$RUNNER_TEMP/signpath-unsigned"
           shopt -s nullglob
-          installers=(apps/desktop/dist-electron/legalwork-win-x64-*.exe)
+          installers=(apps/desktop/dist-electron/lawoss-win-x64-*.exe)
           if [ "${#installers[@]}" -ne 1 ]; then
             printf 'Expected exactly one unsigned Windows installer, found %s.\n' "${#installers[@]}" >&2
             printf '%s\n' "${installers[@]}" >&2
@@ -526,7 +529,7 @@ jobs:
         id: upload-unsigned-windows-installer
         uses: actions/upload-artifact@v4
         with:
-          name: unsigned-legalwork-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          name: unsigned-lawoss-windows-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/signpath-unsigned/*.exe
           if-no-files-found: error
           retention-days: 1
@@ -568,7 +571,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          assets=(apps/desktop/dist-electron/legalwork-*)
+          assets=(apps/desktop/dist-electron/lawoss-*)
           if [ ${#assets[@]} -eq 0 ]; then
             echo "No Electron release assets found in apps/desktop/dist-electron" >&2
             exit 1

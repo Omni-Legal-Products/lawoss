@@ -1,4 +1,4 @@
-name: LegalWork Tests
+name: LAWOSS Tests
 
 on:
   pull_request:
