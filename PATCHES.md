@@ -26,7 +26,7 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 | `apps/app/src/app/constants.ts` | `MCP_QUICK_CONNECT` premenované na `MCP_QUICK_CONNECT_ALL` a znovu exportované cez filter `isHiddenQuickConnect` (+1 import) | LegalMemory sa neponúka na pripojenie; jeho subsystém tým ostáva nečinný bez guardov na ~25 miestach | MČ | plan/branding-pass-a-alfa |
 | `apps/app/tests/mcp-catalog-auth.test.ts` | Asercia v teste „LegalMemory discovers auth requirements for its firm's deployment" prepísaná z „LegalMemory je v katalógu" (`toBeDefined()`) na „LegalMemory v katalógu nie je" (`toBeUndefined()`) | Skrytie LegalMemory z `MCP_QUICK_CONNECT` je zámer úlohy 4, nie regresia | MČ | plan/branding-pass-a-alfa |
 | `apps/app/src/react-app/domains/settings/pages/hub-scope-context.tsx` | `HubScopeToggle` vracia `null`, keď je `firm-hub` skrytý (+1 import, +1 riadok) | Firemné zdieľanie je platená plocha upstreamu | MČ | plan/branding-pass-a-alfa |
-| `apps/app/src/react-app/domains/session/surface/session-surface.tsx` | `TrialEndedNotice` vracia `null`, keď je `trial-notice` skrytý (+1 import, +1 riadok) — early return, nie obal JSX výrazu; funkcia je samostatný komponent bez okolitého JSX na obalenie | Výzva na predplatné dodávateľa upstreamu nepatrí do LAWOSS | MČ | plan/branding-pass-a-alfa |
+| `apps/app/src/react-app/domains/session/surface/session-surface.tsx` | `trialEndedNoticeVisible` zohľadňuje `isCommercialSurfaceHidden("trial-notice")` (+1 import, +1 riadok) | Výzva na predplatné dodávateľa upstreamu nepatrí do LAWOSS | MČ | plan/branding-pass-a-alfa |
 
 ## Review checklist for upstream sync
 

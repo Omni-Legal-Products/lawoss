@@ -418,8 +418,6 @@ function NoModelNotice(props: {
  * path; picking another model also clears it.
  */
 function TrialEndedNotice(props: { billingUrl: string }) {
-  // LAWOSS: výzva na predplatné dodávateľa upstreamu nepatrí do LAWOSS.
-  if (isCommercialSurfaceHidden("trial-notice")) return null;
   return (
     <div className="flex items-center gap-2.5 border-b border-dls-border bg-amber-2/40 px-4 py-3">
       <TriangleAlert size={14} className="shrink-0 text-amber-11" />
@@ -580,8 +578,14 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // the paid gateway is blocked, so surface the subscribe path instead of
   // letting sends fail on a vanished model.
   const eigenweltTrial = eigenweltTrialState(eigenweltEntitlementsQuery.data?.entitlements ?? null);
+  // LAWOSS: výzva na predplatné dodávateľa upstreamu nepatrí do LAWOSS. Musí
+  // sa skryť tu, nie iba v `TrialEndedNotice` — táto premenná riadi aj
+  // `lockedOutNoticeVisible` a `noAiPlanNoticeVisible` nižšie, takže skrytie
+  // len na úrovni komponenty by potichu potlačilo aj náhradné upozornenia.
   const trialEndedNoticeVisible =
-    props.selectedModel.providerID === "eigenwelt" && eigenweltTrial.kind === "ended";
+    !isCommercialSurfaceHidden("trial-notice") &&
+    props.selectedModel.providerID === "eigenwelt" &&
+    eigenweltTrial.kind === "ended";
   const trialBillingUrl = eigenweltBillingUrl(eigenweltEntitlementsQuery.data?.platformURL ?? null);
   // Locked out: the selection points at a provider that is no longer
   // connected (signed out of Eigenwelt, access revoked, provider removed) and
