@@ -28,6 +28,7 @@ gyp ERR! node-gyp -v v12.3.0
 - Ak potrebujete iba overiť kód (typecheck, testy, UI build) bez spúšťania desktopovej appky s lokálnou databázou, použite `pnpm install --ignore-scripts` — vynechá natívny build a tieto kroky prejdú aj na Node v26.7.0 (overené, pozri krok 3 nižšie).
 - Ak potrebujete appku naozaj spustiť (`pnpm dev:electron`, plný `pnpm build`), `better-sqlite3` sa musí skompilovať. **Použite Node 24** — repozitár má `.nvmrc` s hodnotou `24` a všetky CI a release workflowy (vrátane `.github/workflows/alpha-macos-aarch64.yml`, ktorý stavia macOS alfa buildy s natívnym `better-sqlite3`) bežia na `actions/setup-node` s `node-version: 24`. Toto je overená a reálne používaná kombinácia, nie odhad. Na macOS budete navyše potrebovať nainštalované Xcode Command Line Tools (`xcode-select --install`), aby `node-gyp` mal čím kompilovať, ak by aj na Node 24 chýbala predpripravená binárka pre vašu platformu.
 - Ak už máte `nvm`, `fnm`, `volta` alebo podobné, prepnite Node verziu iba pre tento projekt (napr. `nvm use` prečíta `.nvmrc` automaticky) namiesto zmeny systémového Node.
+- Táto verzia je teraz deklarovaná aj v koreňovom `package.json` (`engines.node`), takže si ju viete overiť aj bez otvárania `.nvmrc`.
 
 ## 3. Čo potrebuješ
 
