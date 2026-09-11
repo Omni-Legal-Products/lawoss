@@ -311,6 +311,14 @@ V `_STATUS.md` sa prepisuje výlučne obsah medzi `<!-- okf:render:*:start -->`
 a `<!-- okf:render:*:end -->`. Fáza, Ďalší krok a vlastné sekcie advokáta
 prechádzajú nedotknuté. Opakované spustenie nič nezmení.
 
+Bloky: `parties` (strany zo subjektov, rodné číslo maskované), `facts` (každý
+riadok pravdy veci je fakt, `[^id]` sa premení na odkaz na prameň; tvrdenia
+strán za nimi), `deadlines`, `timeline`, `tasks`, `documents` (dôkazy a kde
+ležia — URL registra alebo súbor vo veci, cesta relatívna k priečinku veci),
+marker-only `records` a `evidence_matrix`. Aliasy nadpisov sedia aj na šablónu
+Fázy A (`## 1. Strany`, `## 2. Fakty veci`, `## 6. Kľúčové dokumenty`) —
+`retrofit` ich nájde a doplní markery.
+
 Markery nesú kanonické názvy (`deadlines`, `timeline`, `records`), takže spis,
 ktorý zmení jazyk, si projekciu neroztrhá.
 
