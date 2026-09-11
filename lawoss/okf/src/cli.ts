@@ -3,9 +3,9 @@
  * okf — CLI nad priečinkom klienta. Súbory dnu, súbory von. Žiadny server.
  *
  *   okf detect <dir> [--type klient|spis|projekt] [--json]
- *   okf plan <typ> <dir> --title "…" [--ico X] [--klient X] [--protistrana X]
+ *   okf plan <typ> <dir> --title "…" --sk|--cz [--ico X] [--klient X] [--protistrana X]
  *            [--protistrana-ico X] [--oblast X] [--desc X] [--json]
- *   okf apply <typ> <dir> --title "…" [rovnaké flagy]        ← až po potvrdení človekom
+ *   okf apply <typ> <dir> --title "…" --sk|--cz [rovnaké flagy]        ← až po potvrdení človekom
  *   okf validate <dir> [--json]                                 exit 1 pri chybe
  *   okf render <dir> [--json]
  *
@@ -15,7 +15,7 @@
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { ENTITY_TYPES, type EntityType, type PlanInput } from "./core.ts";
+import { ENTITY_TYPES, type EntityType, type Jurisdiction, type PlanInput } from "./core.ts";
 import { apply, detect, plan, render, validate } from "./fs.ts";
 
 type Flags = Record<string, string | boolean>;
@@ -44,6 +44,31 @@ function entityType(value: string | undefined): EntityType {
   throw new Error(`typ musí byť ${ENTITY_TYPES.join(" | ")}; dostal som: ${value ?? "(nič)"}`);
 }
 
+/**
+ * Jurisdikcia z prepínača `--sk` / `--cz`.
+ *
+ * Pri `spis` je povinná a odmietame už pri `plan`, nie až pri `apply` — advokát
+ * vidí plán prvý, takže odmietnutie musí prísť tam. Dôvod je vecný: `okf-pamat`
+ * si jurisdikciu číta z karty veci a bez nej pamäť spisu nezaloží. Spis, ktorý
+ * by tu vznikol bez nej, by sa o krok neskôr zasekol — a to je horšie než
+ * nevzniknúť vôbec. Tiché predvolenie `cz` je presne tá chyba, ktorú `okf-pamat`
+ * práve odstránil; nezavádzame ju späť na druhom konci.
+ */
+function jurisdictionFrom(flags: Flags, type: EntityType): Jurisdiction | undefined {
+  const sk = flags.sk === true;
+  const cz = flags.cz === true;
+  if (sk && cz) throw new Error("naraz --sk aj --cz; vyber jednu jurisdikciu");
+  if (sk) return "sk";
+  if (cz) return "cz";
+  if (type === "spis") {
+    throw new Error(
+      "Spis potrebuje jurisdikciu: uveď --sk alebo --cz. Zapíše sa do karty veci " +
+        "ako `jurisdiction:` a `okf-memory` ju odtiaľ prečíta.",
+    );
+  }
+  return undefined;
+}
+
 function inputFrom(positional: string[], flags: Flags): PlanInput {
   const type = entityType(positional[1]);
   const dir = positional[2];
@@ -54,6 +79,7 @@ function inputFrom(positional: string[], flags: Flags): PlanInput {
     description: str(flags, "desc"), ico: str(flags, "ico"), klient: str(flags, "klient"),
     protistrana: str(flags, "protistrana"), protistranaIco: str(flags, "protistrana-ico"),
     oblast: str(flags, "oblast"), spzn: str(flags, "spzn"), sud: str(flags, "sud"), date: str(flags, "date"),
+    jurisdiction: jurisdictionFrom(flags, type),
   };
 }
 

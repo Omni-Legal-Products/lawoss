@@ -13,6 +13,9 @@
 export const OKF_VERSION = "0.1";
 
 export type EntityType = "klient" | "spis" | "projekt";
+
+/** Jurisdikcia veci. Strojová hodnota je malými písmenami — tak ju číta `okf-pamat`. */
+export type Jurisdiction = "sk" | "cz";
 export const ENTITY_TYPES: readonly EntityType[] = ["klient", "spis", "projekt"];
 
 export type PlanInput = {
@@ -31,6 +34,12 @@ export type PlanInput = {
   sud?: string;
   /** ISO dátum; predvolene dnes. Test seam. */
   date?: string;
+  /**
+   * Jurisdikcia veci. Pri `spis` povinná: `okf-pamat` ju číta z karty a bez nej
+   * pamäť spisu nezaloží. Karta je jediné miesto pravdy — prepínač pri `init`
+   * je len núdzová cesta pre spisy založené inak.
+   */
+  jurisdiction?: Jurisdiction;
 };
 
 export type PlanEntry = {
@@ -80,6 +89,7 @@ export function templateVars(input: PlanInput): Record<string, string> {
     OBLAST: input.oblast ?? "",
     SPZN: input.spzn ?? "",
     SUD: input.sud ?? "",
+    JURISDICTION: input.jurisdiction ?? "",
     DATE: date,
   };
 }

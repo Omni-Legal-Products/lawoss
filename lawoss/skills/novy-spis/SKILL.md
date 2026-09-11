@@ -19,18 +19,20 @@ Ak `node` ani `bun` nie sú k dispozícii, **zastav sa a povedz to** — nesnaž
 | Príkaz | Robí | Zapíše |
 |---|---|---|
 | `okf detect <dir>` | čo v priečinku je a čo chýba | nič |
-| `okf plan <typ> <dir> --title "…" [flagy]` | presný zoznam, čo by vzniklo | nič |
-| `okf apply <typ> <dir> --title "…" [flagy]` | vytvorí **iba chýbajúce** súbory | áno |
+| `okf plan <typ> <dir> --title "…" --sk\|--cz [flagy]` | presný zoznam, čo by vzniklo | nič |
+| `okf apply <typ> <dir> --title "…" --sk\|--cz [flagy]` | vytvorí **iba chýbajúce** súbory | áno |
 | `okf validate <dir>` | pravidlá OKF v0.1; exit 1 pri chybe | nič |
 | `okf render <dir>` | pregeneruje `index.md` a `CLAUDE.md` mirror | iba odvodené |
 
 `<typ>` ∈ `klient` · `spis` · `projekt`. Flagy: `--ico`, `--klient`, `--protistrana`, `--protistrana-ico`, `--oblast`, `--desc`, `--spzn`, `--sud`. Pridaj `--json`, keď potrebuješ výstup spracovať.
 
+**Pri `spis` je `--sk` alebo `--cz` povinné** a odmietne to už `plan`. Jurisdikcia sa zapíše do karty veci ako `jurisdiction:` a `okf-memory` ju odtiaľ číta — bez nej pamäť spisu nezaloží. Nehádaj ju: ak ti ju advokát nepovedal, spýtaj sa.
+
 ## Postup — vždy rovnaký
 1. **Zisti profil.** Klient pre právne veci → `klient` (a pod ním `Spisy/<spis>` ako `spis`). Firma s priebežnou korporátnou agendou → tiež `klient`, spisy tematicky. Interná vec bez klienta → `projekt`. Daňové a účtovné veci sem nepatria.
 2. **Over subjekt** cez MCP (`orsr_*`, `rpo_*`): IČO, sídlo, štatutár, stav. Žiadne údaje „z hlavy“. Zahraničná firma → oficiálny register krajiny alebo web, do karty zapíš zdroj.
 3. **`okf detect <dir>`** — existujúci priečinok nikdy nezakladaj znova. Ak už má kartu, ideš do retrofitu.
-4. **`okf plan …`** a **ukáž plán advokátovi** presne tak, ako ho CLI vypíše (`+` vznikne, `=` ostáva). Nič sa ešte nezapísalo.
+4. **`okf plan … --sk|--cz`** a **ukáž plán advokátovi** presne tak, ako ho CLI vypíše (`+` vznikne, `=` ostáva). Nič sa ešte nezapísalo.
 5. **Čakaj na potvrdenie.** Bez výslovného „áno“ od človeka `apply` nespúšťaj. Toto je brána a nedá sa preskočiť.
 6. **`okf apply …`** s rovnakými argumentmi ako plán. Potom **`okf validate <dir>`** — musí byť OK. Potom **`okf render <koreň klienta>`**.
 7. Vypíš, čo vzniklo, a navrhni ďalší krok (doplniť `spis.md` frontmatter: `spisova_znacka`, `sud`, `oblast_prava`, `lehoty`).

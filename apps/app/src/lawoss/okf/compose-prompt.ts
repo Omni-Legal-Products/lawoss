@@ -32,6 +32,11 @@ export function targetDir(form: NovySpisForm): string {
   return root ? `${root}/${title}` : title;
 }
 
+/** Prepínač jurisdikcie pre `okf` CLI. Strojová hodnota je malými písmenami. */
+export function jurisdictionFlag(form: Pick<NovySpisForm, "jurisdikcia">): string {
+  return form.jurisdikcia === "SK" ? "--sk" : "--cz";
+}
+
 export function composePrompt(form: NovySpisForm): string {
   const type = entityTypeFor(form.subject);
   const dir = targetDir(form);
@@ -42,7 +47,10 @@ export function composePrompt(form: NovySpisForm): string {
   lines.push(`- názov: ${form.title.trim() || "[doplň názov]"}`);
   if (form.ico.trim()) lines.push(`- IČO: ${form.ico.trim()}`);
   if (form.protistrana.trim()) lines.push(`- protistrana: ${form.protistrana.trim()}`);
-  lines.push(`- jurisdikcia: ${form.jurisdikcia === "SK" ? "Slovensko" : "Česko"}`);
+  // Jurisdikciu treba dvakrát: raz ľudsky pre agenta, raz ako prepínač, ktorý
+  // skončí v karte veci. `okf-pamat` ju z karty číta a bez nej pamäť spisu
+  // nezaloží — advokát ju v dialógu vybral, nesmie sa cestou stratiť.
+  lines.push(`- jurisdikcia: ${form.jurisdikcia === "SK" ? "Slovensko" : "Česko"} (prepínač \`${jurisdictionFlag(form)}\`)`);
   lines.push(`- cieľový priečinok: ${dir}`);
   lines.push("");
   if (form.verify && form.subject === "pravnicka-osoba") {
@@ -52,6 +60,9 @@ export function composePrompt(form: NovySpisForm): string {
         : "Najprv over subjekt v obchodnom rejstříku cez dostupné MCP alebo web a do karty zapíš zdroj.",
     );
   }
-  lines.push("Spusť `okf detect` a `okf plan`, ukáž mi plán a čakaj na moje potvrdenie. `apply` až po ňom, potom `validate` a `render`.");
+  lines.push(
+    `Spusť \`okf detect\` a \`okf plan ${type} "${dir}" --title "${form.title.trim()}" ${jurisdictionFlag(form)}\`, ` +
+      "ukáž mi plán a čakaj na moje potvrdenie. `apply` s rovnakými argumentmi až po ňom, potom `validate` a `render`.",
+  );
   return lines.join("\n");
 }

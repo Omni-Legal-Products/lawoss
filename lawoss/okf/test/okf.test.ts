@@ -97,18 +97,70 @@ describe("cli", () => {
   const capture = () => { const lines: string[] = []; return { lines, out: (l: string) => { lines.push(l); } }; };
   test("plan writes nothing and prints + / =", () => {
     const c = capture();
-    expect(run(["plan", "spis", root, "--title", "Vec", "--json"], c.out)).toBe(0);
+    expect(run(["plan", "spis", root, "--title", "Vec", "--sk", "--json"], c.out)).toBe(0);
     const parsed = JSON.parse(c.lines.join("\n"));
     expect(parsed.entries.every((e: { content?: string }) => e.content === undefined)).toBe(true);
     expect(existsSync(join(root, "spis.md"))).toBe(false);
   });
   test("apply then validate returns 0; validate on broken folder returns 1", () => {
-    expect(run(["apply", "spis", root, "--title", "Vec"], () => {})).toBe(0);
+    expect(run(["apply", "spis", root, "--title", "Vec", "--sk"], () => {})).toBe(0);
     expect(run(["validate", root], () => {})).toBe(0);
     writeFileSync(join(root, "zle.md"), "x");
     expect(run(["validate", root], () => {})).toBe(1);
   });
   test("bad type is a usage error (exit 2)", () => {
     expect(run(["plan", "kauza", root], () => {})).toBe(2);
+  });
+});
+
+/**
+ * Kontrakt spisu proti `okf-pamat`.
+ *
+ * Spis, ktorý vznikne tu, musí byť použiteľný v ďalšom kroku. Tieto testy
+ * strážia dve miesta, kde sa tie dve polovice OKF doteraz míňali: jurisdikciu
+ * na karte veci a markery v `_STATUS.md`.
+ */
+describe("kontrakt spisu", () => {
+  const capture = () => { const lines: string[] = []; return { lines, out: (l: string) => { lines.push(l); } }; };
+
+  test("spis bez jurisdikcie sa nezaloží — odmietne už plan, nie až apply", () => {
+    const c = capture();
+    expect(run(["plan", "spis", "/x", "--title", "Vec"], c.out)).toBe(2);
+    expect(c.lines.join("\n")).toContain("--sk");
+  });
+
+  test("naraz --sk aj --cz je chyba, nie tiché víťazstvo jednej", () => {
+    const c = capture();
+    expect(run(["plan", "spis", "/x", "--title", "Vec", "--sk", "--cz"], c.out)).toBe(2);
+  });
+
+  test("klient a projekt jurisdikciu nepotrebujú", () => {
+    for (const type of ["klient", "projekt"]) {
+      const c = capture();
+      expect(run(["plan", type, "/x", "--title", "X", "--json"], c.out)).toBe(0);
+    }
+  });
+
+  test("karta veci nesie jurisdikciu malými písmenami — tak ju číta okf-pamat", () => {
+    const p = planEntity(
+      { type: "spis", dir: "/x", title: "Vec", jurisdiction: "sk", date: "2026-09-02" },
+      TEMPLATES,
+      () => false,
+    );
+    const card = p.entries.find((e) => e.path === "spis.md");
+    expect(card?.content).toContain("jurisdiction: sk");
+  });
+
+  test("_STATUS.md má markery pre všetkých šesť blokov, inak okf-memory sync skončí konfliktom", () => {
+    const p = planEntity(
+      { type: "spis", dir: "/x", title: "Vec", jurisdiction: "cz", date: "2026-09-02" },
+      TEMPLATES,
+      () => false,
+    );
+    const status = p.entries.find((e) => e.path === "_STATUS.md")?.content ?? "";
+    for (const block of ["parties", "facts", "deadlines", "timeline", "tasks", "documents"]) {
+      expect(status).toContain(`<!-- okf:render:${block}:start -->`);
+      expect(status).toContain(`<!-- okf:render:${block}:end -->`);
+    }
   });
 });
