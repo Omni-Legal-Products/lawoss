@@ -35,7 +35,7 @@ gyp ERR! node-gyp -v v12.3.0
 |---|---|---|
 | **Node.js** | 24 — presne táto verzia beží vo všetkých CI a release workflowoch tohto repozitára (`.nvmrc`, `actions/setup-node` v `.github/workflows/*`), vrátane buildu macOS alfa balíčkov s natívnym `better-sqlite3`. Node v26.7.0 sme tiež overili: `pnpm install --ignore-scripts`, `pnpm typecheck`, `bun test tests/` a `pnpm build:ui` na ňom prešli | Node v26.7.0 s plným `pnpm install`/`pnpm build` (natívny `better-sqlite3`) — pozri sekciu 2 |
 | **pnpm** | 11.4.0 (repozitár vyžaduje presne túto verziu cez `packageManager` v `package.json`) | — |
-| **bun** | 1.4.0, na spúšťanie `apps/app` testov (CI používa `1.3.6`, oba fungujú) | — |
+| **bun** | 1.4.0, na spúšťanie `apps/app` testov. Pinnutá verzia sa medzi CI workflowmi líši a job, ktorý reálne spúšťa `apps/app` testy (`.github/workflows/ci-tests.yml`), bun verziu nepinuje (`oven-sh/setup-bun@v2` bez `bun-version` — inštaluje najnovšiu); pin `1.3.6`/`1.3.9` je iba v alfa/release buildoch, nie v teste | či presne 1.4.0 zodpovedá tomu, čo si CI v momente vášho behu nainštaluje ako "najnovšiu" |
 | **Git** | akákoľvek bežná verzia na klonovanie repozitára | — |
 | **Xcode Command Line Tools** (macOS) | potrebné pre kompiláciu `better-sqlite3` zo zdroja, ak pre vašu platformu chýba predpripravená binárka — `xcode-select --install` | či ich CI runner reálne potrebuje (má vlastný predpripravený image) |
 
