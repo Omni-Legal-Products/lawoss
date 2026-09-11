@@ -2691,12 +2691,12 @@ const desktopCommandHandlers = {
       if (!found) {
         return { ok: false, error: "Autogram.app was not found." };
       }
-      try {
-        execFileSync("open", ["-a", found]);
-        return { ok: true };
-      } catch (err) {
-        return { ok: false, error: String(err?.message ?? err) };
-      }
+      // `shell.openPath` je idióm, ktorý tento súbor už používa (r. 1644, 2522).
+      // `execFileSync` by spustil podproces a **zablokoval hlavný proces** —
+      // v Electrone to znamená zamrznuté UI, kým `open` dobehne.
+      const failure = await shell.openPath(found);
+      if (failure) return { ok: false, error: failure };
+      return { ok: true };
   },
 };
 
