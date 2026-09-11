@@ -2662,6 +2662,42 @@ const desktopCommandHandlers = {
   "__setApplicationMenuVisible": async (event, ...args) => {
       return applicationMenu.setVisible(args[0]);
   },
+  // LAWOSS: Autogram (github.com/originalmagneto/autogram-macOS) is a separate
+  // native signing app by the same author, installed and run independently of
+  // LAWOSS. This only detects the .app bundle and can open it — no process
+  // control, no data exchange.
+  "autogramStatus": async (event, ...args) => {
+      if (process.platform !== "darwin") return { installed: false, path: null };
+      const candidates = [
+        path.join("/Applications", "Autogram.app"),
+        path.join(os.homedir(), "Applications", "Autogram.app"),
+      ];
+      for (const candidate of candidates) {
+        if (existsSync(candidate)) {
+          return { installed: true, path: candidate };
+        }
+      }
+      return { installed: false, path: null };
+  },
+  "autogramOpen": async (event, ...args) => {
+      if (process.platform !== "darwin") {
+        return { ok: false, error: "Autogram is only available on macOS." };
+      }
+      const candidates = [
+        path.join("/Applications", "Autogram.app"),
+        path.join(os.homedir(), "Applications", "Autogram.app"),
+      ];
+      const found = candidates.find((candidate) => existsSync(candidate));
+      if (!found) {
+        return { ok: false, error: "Autogram.app was not found." };
+      }
+      try {
+        execFileSync("open", ["-a", found]);
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: String(err?.message ?? err) };
+      }
+  },
 };
 
 async function handleDesktopInvoke(event, command, ...args) {

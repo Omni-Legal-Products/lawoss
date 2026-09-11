@@ -48,6 +48,7 @@ const GERMAN_KEEPS_ENGLISH = new Set<string>([
   "tool.generic", "tool.detail_in_path", "tool_activity.agent_prefix",
   "reload.label_skill", "reload.label_plugin", "reload.label_mcp", "reload.label_agent",
   // Product and brand names
+  "autogram.title",
   "benchmark.onboarding_eyebrow", "benchmark.import_title", "settings.tab_benchmark",
   "account.plan_hub", "premium_upsell.eyebrow", "onboarding_ai.panel_eyebrow",
   "recorder.tier_premium_name", "recorder.tier_premium_locked", "recorder.tier_max_name",

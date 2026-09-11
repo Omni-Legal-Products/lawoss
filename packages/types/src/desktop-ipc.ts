@@ -369,6 +369,21 @@ export type OfficeAddinOpenAppResult = {
   error?: string;
 };
 
+// LAWOSS: Autogram (github.com/originalmagneto/autogram-macOS) is a separate
+// native signing app by the same author. This is presence detection only —
+// LAWOSS does not launch or drive Autogram, it just offers to open it.
+export type AutogramStatus = {
+  /** Autogram.app was found in /Applications or ~/Applications. */
+  installed: boolean;
+  /** Absolute path to the found Autogram.app bundle, when installed. */
+  path: string | null;
+};
+
+export type AutogramOpenResult = {
+  ok: boolean;
+  error?: string;
+};
+
 // ---------------------------------------------------------------------------
 // The command map
 // ---------------------------------------------------------------------------
@@ -487,6 +502,10 @@ export type DesktopCommandMap = {
   officeAddinInstall: { args: [app: OfficeAddinAppId]; result: OfficeAddinActionResult };
   officeAddinUninstall: { args: [app: OfficeAddinAppId]; result: OfficeAddinActionResult };
   officeAddinOpenApp: { args: [app: OfficeAddinAppId]; result: OfficeAddinOpenAppResult };
+
+  // LAWOSS: Autogram teaser card (Integrations settings) — presence check + open.
+  autogramStatus: { args: []; result: AutogramStatus };
+  autogramOpen: { args: []; result: AutogramOpenResult };
 
   // Dialogs
   pickDirectory: {

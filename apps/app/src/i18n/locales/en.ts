@@ -3665,4 +3665,21 @@ export default {
   "budget.exceeded_body": "It resets next week. Your firm's billing shows this week's usage in detail.",
   "budget.upgrade_label": "Open Billing",
   "budget.retry_title": "Out of usage for this week?",
+  // LAWOSS: Autogram teaser card (Integrations settings, macOS only). Autogram
+  // is a separate, already-working app — this only detects/opens it.
+  "autogram.title": "Autogram",
+  "autogram.badge": "macOS app",
+  "autogram.description":
+    "A separate, already-working native signing app by the same author. Install and use it on its own — a deeper connection with LAWOSS is in preparation.",
+  "autogram.module_signing": "Signing (qualified e-signature, PAdES, ASiC-E, qualified timestamp, hand-written signature)",
+  "autogram.module_conversion": "Guaranteed conversion under Act No. 305/2013 Coll.",
+  "autogram.module_safari": "Safari extension for government portals",
+  "autogram.module_registry": "Conversion register",
+  "autogram.status_loading": "Checking for Autogram…",
+  "autogram.status_installed": "Autogram is installed on this Mac",
+  "autogram.status_not_installed": "Autogram was not found on this Mac",
+  "autogram.integration_note": "LAWOSS integration is in preparation",
+  "autogram.open_app": "Open Autogram",
+  "autogram.open_failed": "Could not open Autogram.",
+  "autogram.get_app": "Get Autogram",
 } as const;

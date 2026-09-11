@@ -5,6 +5,8 @@ import { Blocks, Cpu, Download, Package, Plug, type LucideIcon } from "lucide-re
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
 
+import { AutogramIntegrationCard } from "@/lawoss/domains/integrations/autogram-integration-card";
+
 import { ClaudePluginImportModal } from "../../connections/modals/claude-plugin-import-modal";
 import type { LegalworkClaudePluginPreview } from "../../../../app/lib/legalwork-server";
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
@@ -144,7 +146,12 @@ export function ExtensionsView(props: ExtensionsViewProps) {
       ) : null}
 
       <HubScopeContext.Provider value={hubScope}>
-      {tab === "connectors" ? props.mcpView : null}
+      {tab === "connectors" ? (
+        <div className="space-y-4">
+          <AutogramIntegrationCard />
+          {props.mcpView}
+        </div>
+      ) : null}
 
       {tab === "skills" ? props.skillsView : null}
 
