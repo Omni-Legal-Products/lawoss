@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { getMcpServerName, MCP_QUICK_CONNECT } from "../src/app/constants";
+import { getMcpServerName, MCP_QUICK_CONNECT, MCP_QUICK_CONNECT_ALL } from "../src/app/constants";
 
 describe("MCP catalog authentication", () => {
   test("each server has one setup policy, so catalog lookup cannot select a conflicting entry", () => {
@@ -27,12 +27,15 @@ describe("MCP catalog authentication", () => {
     }
   });
 
-  // LAWOSS: LegalMemory is intentionally hidden from quick connect (see
-  // src/lawoss/feature-flags.ts) — LAWOSS ships its own memory (OKF), so the
-  // firm-deployment auth-discovery entry this test originally checked no
-  // longer appears in the filtered catalog.
-  test("LegalMemory does not appear in the LAWOSS quick-connect catalog", () => {
-    const entry = MCP_QUICK_CONNECT.find((item) => item.serverName === "legalmemory");
-    expect(entry).toBeUndefined();
+  // LAWOSS: LegalMemory is hidden from MCP_QUICK_CONNECT (see
+  // src/lawoss/feature-flags.ts) — LAWOSS ships its own memory (OKF) — but this
+  // upstream test exercises the catalog entry's own auth-discovery data, not
+  // catalog visibility, so it reads from the unfiltered MCP_QUICK_CONNECT_ALL.
+  // Visibility itself is covered separately by
+  // apps/app/tests/lawoss-quick-connect.test.ts.
+  test("LegalMemory discovers auth requirements for its firm's deployment", () => {
+    const entry = MCP_QUICK_CONNECT_ALL.find((item) => item.serverName === "legalmemory");
+    expect(entry).toBeDefined();
+    expect(entry?.oauth).toBeUndefined();
   });
 });

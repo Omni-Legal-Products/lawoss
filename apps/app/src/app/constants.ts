@@ -145,7 +145,7 @@ export function getMcpServerName(entry: Pick<McpDirectoryInfo, "name" | "serverN
   return deriveMcpServerName(entry.name);
 }
 
-const MCP_QUICK_CONNECT_ALL: McpDirectoryInfo[] = [
+export const MCP_QUICK_CONNECT_ALL: McpDirectoryInfo[] = [
   {
     get name() { return t("mcp.quick_connect_legalmemory_title"); },
     serverName: "legalmemory",
