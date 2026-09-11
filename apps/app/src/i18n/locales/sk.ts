@@ -105,7 +105,7 @@ export default {
   "model_picker.recommended": "Nedávne",
   "notifications.clear_all": "Vymazať všetko",
   "notifications.empty": "Zatiaľ žiadne upozornenia",
-  "notifications.empty_hint": "Novinky z LegalWork Cloud a vašich priečinkov sa zobrazia tu.",
+  "notifications.empty_hint": "Novinky z vašich priečinkov sa zobrazia tu.",
   "notifications.engine_reloaded": "Aktualizácie boli použité",
   "notifications.just_now": "Práve teraz",
   "notifications.reconnect_failed": "Nepodarilo sa znova pripojiť k serveru LegalWork",
