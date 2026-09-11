@@ -6,7 +6,7 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 
 | Upstream file | LAWOSS change | Reason | Owner | PR |
 |---|---|---|---|---|
-| `README.md` | LAWOSS project presentation, roadmap, team, safety notes, and upstream attribution | Product identity and contributor orientation | MČ | Initial setup PR; PR #39 adds the handoff index |
+| `README.md` | LAWOSS project presentation, roadmap, team, safety notes, and upstream attribution; +1 link to the alpha tester build guide (`docs/lawoss-build-pre-testerov.md`) | Product identity and contributor orientation; alpha is distributed as a self-compiled build, not a signed artifact | MČ | Initial setup PR; PR #39 adds the handoff index; plan/branding-pass-a-alfa |
 | `AGENTS.md` | LAWOSS workflow, three-zone model, CZ/SK legal constraints, and upstream sync rules | Sustainable fork governance | MČ | Initial setup PR |
 | `apps/app/src/app/index.css` | +1 `@import` (LAWOSS token override after upstream tokens); +3 fontsource imports (Plex Mono 400/500, Playfair); `--chart-1..5` values remapped to brand palette; `--radius` 0.625rem → 0.25rem (squared, issue #22) | Fáza A reskin via cascade, zero structural change | MČ | design/faza-a-tokeny |
 | `apps/app/src/app/theme.ts` | Default theme `light` → `dark` (2 fallback returns + comment), value-only | Dark is the designed LAWOSS theme | MČ | design/faza-a-tokeny |
