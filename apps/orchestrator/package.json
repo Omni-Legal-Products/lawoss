@@ -1,7 +1,7 @@
 {
   "name": "legalwork-orchestrator",
   "version": "0.0.0",
-  "description": "LegalWork host orchestrator for opencode + LegalWork server + opencode-router",
+  "description": "LAWOSS host orchestrator for opencode + LAWOSS server + opencode-router",
   "private": true,
   "type": "module",
   "scripts": {
@@ -25,12 +25,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/eigenweltlabs/legalwork.git",
+    "url": "git+https://github.com/Omni-Legal-Products/lawoss.git",
     "directory": "apps/orchestrator"
   },
-  "homepage": "https://github.com/eigenweltlabs/legalwork/tree/dev/apps/orchestrator",
+  "homepage": "https://github.com/Omni-Legal-Products/lawoss/tree/dev/apps/orchestrator",
   "bugs": {
-    "url": "https://github.com/eigenweltlabs/legalwork/issues"
+    "url": "https://github.com/Omni-Legal-Products/lawoss/issues"
   },
   "keywords": [
     "legalwork",

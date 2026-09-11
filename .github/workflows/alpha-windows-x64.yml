@@ -1,7 +1,7 @@
 name: Alpha Channel (Windows x64)
 
 # Dispatch this workflow manually (Actions tab) to publish a fresh Windows x64
-# build to the LegalWork alpha release channel.
+# build to the LAWOSS alpha release channel.
 #
 # Mirrors alpha-macos-aarch64.yml: each run publishes an immutable prerelease
 # with the build artifacts and refreshes a small manifest on the fixed
@@ -37,7 +37,7 @@ jobs:
 
     env:
       ALPHA_RELEASE_TAG: alpha-windows-latest
-      ALPHA_RELEASE_NAME: LegalWork Alpha (Windows x64)
+      ALPHA_RELEASE_NAME: LAWOSS Alpha (Windows x64)
       SIGNPATH_ORGANIZATION_ID: ${{ secrets.SIGNPATH_ORGANIZATION_ID || vars.SIGNPATH_ORGANIZATION_ID }}
       SIGNPATH_PROJECT_SLUG: ${{ secrets.SIGNPATH_PROJECT_SLUG || vars.SIGNPATH_PROJECT_SLUG }}
       SIGNPATH_SIGNING_POLICY_SLUG: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG || vars.SIGNPATH_SIGNING_POLICY_SLUG }}
@@ -187,7 +187,7 @@ jobs:
 
           mkdir -p "$RUNNER_TEMP/signpath-unsigned"
           shopt -s nullglob
-          installers=(apps/desktop/dist-electron/legalwork-win-x64-*.exe)
+          installers=(apps/desktop/dist-electron/lawoss-win-x64-*.exe)
           if [ "${#installers[@]}" -ne 1 ]; then
             printf 'Expected exactly one unsigned Windows installer, found %s.\n' "${#installers[@]}" >&2
             printf '%s\n' "${installers[@]}" >&2
@@ -199,7 +199,7 @@ jobs:
         id: upload-unsigned-windows-installer
         uses: actions/upload-artifact@v4
         with:
-          name: unsigned-legalwork-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          name: unsigned-lawoss-windows-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/signpath-unsigned/*.exe
           if-no-files-found: error
           retention-days: 1
@@ -244,14 +244,14 @@ jobs:
           ALPHA_RUN_RELEASE_TAG: ${{ steps.alpha-version.outputs.release_tag }}
         run: |
           set -euo pipefail
-          body="Rolling alpha build for LegalWork (Windows x64) from ${GITHUB_SHA}."
+          body="Rolling alpha build for LAWOSS (Windows x64) from ${GITHUB_SHA}."
           if gh release view "$ALPHA_RUN_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Alpha prerelease $ALPHA_RUN_RELEASE_TAG already exists; reusing it."
             exit 0
           fi
           gh release create "$ALPHA_RUN_RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "LegalWork Alpha ${ALPHA_VERSION} (Windows x64)" \
+            --title "LAWOSS Alpha ${ALPHA_VERSION} (Windows x64)" \
             --notes "$body" \
             --target "$GITHUB_SHA" \
             --prerelease
@@ -290,10 +290,10 @@ jobs:
           const fs = require("node:fs");
           const manifestPath = "apps/desktop/dist-electron/latest.yml";
           const releaseTag = process.env.ALPHA_RUN_RELEASE_TAG;
-          const baseUrl = `https://github.com/eigenweltlabs/legalwork/releases/download/${releaseTag}`;
+          const baseUrl = `https://github.com/Omni-Legal-Products/lawoss/releases/download/${releaseTag}`;
           const rewritten = fs.readFileSync(manifestPath, "utf8")
-            .replace(/(url:\s*)(legalwork-[^\n]+)/g, `$1${baseUrl}/$2`)
-            .replace(/(path:\s*)(legalwork-[^\n]+)/g, `$1${baseUrl}/$2`);
+            .replace(/(url:\s*)(lawoss-[^\n]+)/g, `$1${baseUrl}/$2`)
+            .replace(/(path:\s*)(lawoss-[^\n]+)/g, `$1${baseUrl}/$2`);
           fs.writeFileSync(process.env.POINTER_MANIFEST, rewritten);
           NODE
 

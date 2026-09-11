@@ -1918,7 +1918,7 @@ function resolveSidecarBaseUrl(
     readFlag(flags, "sidecar-base-url") ??
     process.env.LEGALWORK_SIDECAR_BASE_URL;
   if (override && override.trim()) return override.trim();
-  return `https://github.com/eigenweltlabs/legalwork/releases/download/legalwork-orchestrator-v${cliVersion}`;
+    return `https://github.com/Omni-Legal-Products/lawoss/releases/download/legalwork-orchestrator-v${cliVersion}`;
 }
 
 function resolveSidecarManifestUrl(

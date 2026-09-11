@@ -1,6 +1,6 @@
-# LegalWork Orchestrator
+# LAWOSS Orchestrator
 
-Host orchestrator for opencode + LegalWork server + opencode-router. This is a CLI-first way to run host mode without the desktop UI.
+Host orchestrator for opencode + LAWOSS server + opencode-router. This is a CLI-first way to run host mode without the desktop UI.
 
 Published on npm as `legalwork-orchestrator` and installs the `legalwork` command.
 
@@ -34,7 +34,7 @@ Use `--sidecar-source` to control where `legalwork-server` and `opencode-router`
 apply the same policies via env vars.
 
 By default the manifest is fetched from
-`https://github.com/eigenweltlabs/legalwork/releases/download/legalwork-orchestrator-v<version>/legalwork-orchestrator-sidecars.json`.
+`https://github.com/Omni-Legal-Products/lawoss/releases/download/legalwork-orchestrator-v<version>/legalwork-orchestrator-sidecars.json`.
 
 OpenCode Router is optional. If it exits, `legalwork` continues running unless you pass
 `--opencode-router-required` or set `LEGALWORK_OPENCODE_ROUTER_REQUIRED=1`.
@@ -67,12 +67,12 @@ pnpm --filter legalwork-orchestrator dev -- \
   start --workspace /path/to/workspace --approval auto --allow-external
 ```
 
-When `LEGALWORK_DEV_MODE=1` is set, orchestrator uses an isolated OpenCode dev state for config, auth, data, cache, and state. LegalWork's repo-level `pnpm dev` commands enable this automatically so local development does not reuse your personal OpenCode environment.
+When `LEGALWORK_DEV_MODE=1` is set, orchestrator uses an isolated OpenCode dev state for config, auth, data, cache, and state. LAWOSS's repo-level `pnpm dev` commands enable this automatically so local development does not reuse your personal OpenCode environment.
 
 The command prints pairing URLs by default and withholds live credentials from stdout to avoid leaking them into shell history or collected logs. Use `--json` only when you explicitly need the raw pairing secrets in command output.
 
 Use `--detach` to keep services running and exit the dashboard. The detach summary includes the
-LegalWork URL and a redacted `opencode attach` command, while keeping live credentials out of the detached summary.
+LAWOSS URL and a redacted `opencode attach` command, while keeping live credentials out of the detached summary.
 
 ## Sandbox mode (Docker / Apple container)
 

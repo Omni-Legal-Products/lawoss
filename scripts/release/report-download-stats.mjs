@@ -19,23 +19,30 @@
  *
  * Env:
  *   GITHUB_TOKEN            optional; raises the API rate limit (set in CI)
- *   LEGALWORK_POSTHOG_KEY   override the default publishable project key
- *   LEGALWORK_POSTHOG_HOST  override the default EU ingestion host
+ *   LAWOSS_POSTHOG_KEY      override the default publishable project key
+ *   LAWOSS_POSTHOG_HOST     override the default EU ingestion host
+ *   LEGALWORK_POSTHOG_*     legacy aliases accepted for compatibility
  *
  * Usage: node scripts/release/report-download-stats.mjs [--dry-run]
  */
 
-const REPO = "eigenweltlabs/legalwork";
+const REPO = "Omni-Legal-Products/lawoss";
 
 // Same publishable key/host defaults as apps/app/src/app/lib/analytics.ts —
-// release stats land in the LegalWork PostHog project next to app usage.
+// release stats land in the LAWOSS PostHog project next to app usage.
 const POSTHOG_KEY =
-  (process.env.LEGALWORK_POSTHOG_KEY ?? "").trim() ||
-  "phc_mvBQ5pbmKNZPmLn6c6bMZb9yXqEtf6bvSPZBa5vwRJfw";
-const POSTHOG_HOST = ((process.env.LEGALWORK_POSTHOG_HOST ?? "").trim() || "https://eu.i.posthog.com").replace(
-  /\/+$/,
-  "",
-);
+  (
+    process.env.LAWOSS_POSTHOG_KEY ??
+    process.env.LEGALWORK_POSTHOG_KEY ??
+    ""
+  ).trim() || "phc_mvBQ5pbmKNZPmLn6c6bMZb9yXqEtf6bvSPZBa5vwRJfw";
+const POSTHOG_HOST = (
+  (
+    process.env.LAWOSS_POSTHOG_HOST ??
+    process.env.LEGALWORK_POSTHOG_HOST ??
+    ""
+  ).trim() || "https://eu.i.posthog.com"
+).replace(/\/+$/, "");
 const GITHUB_TOKEN = (process.env.GITHUB_TOKEN ?? "").trim();
 const DRY_RUN = process.argv.includes("--dry-run");
 
@@ -52,7 +59,9 @@ async function githubGet(path) {
     },
   });
   if (!response.ok) {
-    throw new Error(`GitHub API ${response.status} on ${path}: ${await response.text()}`);
+    throw new Error(
+      `GitHub API ${response.status} on ${path}: ${await response.text()}`,
+    );
   }
   return response.json();
 }
@@ -88,7 +97,9 @@ function classifyAsset(name) {
     };
   }
 
-  const installer = name.match(/^legalwork-(mac|win|linux)-(arm64|x64|x86_64)-(.+?)\.(dmg|zip|exe|AppImage|tar\.gz)$/);
+  const installer = name.match(
+    /^(?:lawoss|legalwork)-(mac|win|linux)-(arm64|x64|x86_64)-(.+?)\.(dmg|zip|exe|AppImage|tar\.gz)$/,
+  );
   if (installer) {
     return {
       fileKind: installer[4],
@@ -189,7 +200,9 @@ try {
     trafficEvents += 1;
   }
 } catch (error) {
-  console.warn(`Traffic API unavailable (needs push access) — skipping: ${error.message ?? error}`);
+  console.warn(
+    `Traffic API unavailable (needs push access) — skipping: ${error.message ?? error}`,
+  );
 }
 
 const installerTotals = new Map();
@@ -200,7 +213,10 @@ for (const event of events) {
   // Mac zips are auto-update fetches, not human downloads (see classifyAsset).
   if (fileKind === "zip" && platform === "mac") continue;
   const key = platform ?? "unknown";
-  installerTotals.set(key, (installerTotals.get(key) ?? 0) + event.properties.cumulative_downloads);
+  installerTotals.set(
+    key,
+    (installerTotals.get(key) ?? 0) + event.properties.cumulative_downloads,
+  );
 }
 
 console.log(

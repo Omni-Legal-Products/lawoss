@@ -1,7 +1,7 @@
 {
   "name": "legalwork-server",
   "version": "0.0.0",
-  "description": "Filesystem-backed API for LegalWork remote clients",
+  "description": "Filesystem-backed API for LAWOSS remote clients",
   "type": "module",
   "bin": {
     "legalwork-server": "bin/legalwork-server.mjs"
@@ -24,12 +24,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/eigenweltlabs/legalwork.git",
+    "url": "git+https://github.com/Omni-Legal-Products/lawoss.git",
     "directory": "apps/server"
   },
-  "homepage": "https://github.com/eigenweltlabs/legalwork/tree/dev/apps/server",
+  "homepage": "https://github.com/Omni-Legal-Products/lawoss/tree/dev/apps/server",
   "bugs": {
-    "url": "https://github.com/eigenweltlabs/legalwork/issues"
+    "url": "https://github.com/Omni-Legal-Products/lawoss/issues"
   },
   "keywords": [
     "legalwork",
