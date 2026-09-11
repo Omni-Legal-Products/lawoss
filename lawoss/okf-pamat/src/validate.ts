@@ -188,7 +188,17 @@ function linkTargets(r: OkfRecord): string[] {
   return out;
 }
 
-function leakFinding(r: OkfRecord, n: Needle): Finding {
+function leakFinding(r: OkfRecord, n: Needle, nameSeverity: "error" | "warning" = "error"): Finding {
+  if (n.strength === "strong" && nameSeverity === "warning") {
+    return {
+      severity: "warning",
+      code: "L3_LEAK_NAME",
+      recordId: r.id,
+      message:
+        `Právny prameň ${r.id} obsahuje meno „${n.label}" subjektu ${n.source}. ` +
+        `Kancelária to podľa okf.config pripúšťa ako varovanie — posúď, či ho preformulovať.`,
+    };
+  }
   if (n.strength === "weak") {
     return {
       severity: "warning",
@@ -212,6 +222,11 @@ function leakFinding(r: OkfRecord, n: Needle): Finding {
 export interface ValidateOptions {
   /** Dnešný dátum pre kontrolu lehôt. Vstupuje zvonka, aby boli testy deterministické. */
   readonly today?: string;
+  /**
+   * Závažnosť zhody celého mena v L3 podľa politiky kancelárie. Predvolene
+   * chyba. Zhody identifikátorov (`hard`) sa týmto nemenia nikdy.
+   */
+  readonly nameLeakSeverity?: "error" | "warning";
 }
 
 /** Roly, pri ktorých vzniká identifikačná povinnosť. */
@@ -326,7 +341,7 @@ export function validateStore(
     if (r.layer !== "L3") continue;
     const haystack = normalize(recordText(r));
     for (const n of needles) {
-      if (n.pattern.test(haystack)) findings.push(leakFinding(r, n));
+      if (n.pattern.test(haystack)) findings.push(leakFinding(r, n, opts.nameLeakSeverity));
     }
   }
 

@@ -117,6 +117,8 @@ Rodné číslo, číslo dokladu, trvalý pobyt a dátum narodenia sú v tabuľke
 | `SENSITIVE_IN_SUMMARY` | rodné číslo alebo iný citlivý údaj v `popis`, ktorý ide do `index.md` a projekcie | **chyba** |
 | `UNKNOWN_VALUE` | hodnota mimo výpočet (`role`, `person_type`, `mode`, `state`, druh udalosti…) — kontroly viazané na pole sa nevykonajú | varovanie |
 | `DEADLINE_PASSED` | lehota v `deadlines` je v minulosti a záznam je stále `active` | varovanie |
+| `L3_LEAK_NAME` | zhoda celého mena v L3 znížená na varovanie politikou kancelárie (`leak_name_severity: warning` + povinný `leak_name_reason`); identifikátory sa takto zmäkčiť nedajú | varovanie |
+| `STANDING_AUTH_INVALID` | poverenie v `okf.config` sa nedá použiť (dátum nie je `RRRR-MM-DD`, `granted_at` po `expires_at`, chýba pole) — zápisy do L1/L3 vyžadujú `--approve-as` | varovanie |
 | `CITATION_UNRESOLVED` | `[^id]` v texte bez položky v `sources` — veta vyzerá podložene a nie je | **chyba** |
 | `SOURCE_ID_DUPLICATE` | to isté `id` prameňa dvakrát | **chyba** |
 | `AML_MISSING` | subjekt v role `klient` nemá žiadne preverenie | varovanie |
@@ -226,6 +228,17 @@ používateľa; markery sú kanonické.
    než 4 znaky sa nehľadá vôbec, takže „Lex s.r.o." nespustí poplach nad
    slovom „lexikón". Prahy sú v `src/validate.ts` pomenované konštantami —
    sú to vedomé rozhodnutia, nie technické detaily.
+
+   **Brána sa nesmie dať oslepiť.** Keď je v dosahu spisu čo i len jeden
+   nečitateľný záznam, zápis do L3 sa odmietne — nástroj nevie, či v ňom nie je
+   subjekt, ktorého identifikátory by inak strážil. Obsidian pridá viacriadkový
+   `aliases:`, súbor sa nedá prečítať, a bez tohto pravidla by prameň s IČO
+   toho klienta prešiel bez slova. Zápis do L2 to nezdržuje.
+
+   **Politika kancelárie sa týka len mien.** `leak_name_severity: warning`
+   s povinným `leak_name_reason` v `okf.config` zníži zhodu celého mena na
+   varovanie. IČO, rodné číslo a dátum narodenia sa zmäkčiť nedajú: to nie je
+   prah, to je únik.
 
 Zápis vedie výhradne cez `planWrite() → applyRecordWrite()`. Iná cesta na disk nie je.
 

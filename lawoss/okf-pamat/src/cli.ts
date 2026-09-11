@@ -19,7 +19,7 @@ import { maskRecord } from "./mask.ts";
 import { fieldLabel, typeLabel, SCREENING_PROVISION, type Jurisdiction } from "./schema.ts";
 import { renderStatus, RenderConflictError, statusSkeleton } from "./render.ts";
 import { validateStore } from "./validate.ts";
-import { readStandingAuthorization, isExpired, CONFIG_FILE } from "./config.ts";
+import { inspectStandingAuthorization, isExpired, readNameLeakSeverity, CONFIG_FILE } from "./config.ts";
 
 const dnes = (): string => new Date().toISOString().slice(0, 10);
 
@@ -113,17 +113,26 @@ export function runCli(argv: readonly string[]): CliResult {
 
     case "validate": {
       const scope = readScope(dir);
-      const findings = validateStore(scope.records);
+      const office = findOfficeDir(dir);
+      const findings = validateStore(scope.records, { nameLeakSeverity: readNameLeakSeverity(office) });
       const problems = problemLines(scope.problems);
-      // Prepadnuté poverenie sa inak prejaví až tým, že agentovi prestanú
-      // prechádzať zápisy — a to vyzerá ako porucha, nie ako uplynutie lehoty.
-      const auth = readStandingAuthorization(findOfficeDir(dir));
-      const poverenie =
-        auth && isExpired(auth, dnes())
-          ? [`WARNING STANDING_AUTH_EXPIRED ${OFFICE_DIR}/${CONFIG_FILE}: ` +
-             `trvalé poverenie (${auth.by}) uplynulo ${auth.expiresAt} — ` +
-             `zápisy do ${auth.scope.join(", ")} znova vyžadujú --approve-as.`]
-          : [];
+      // Prepadnuté alebo chybne zapísané poverenie sa inak prejaví až tým, že
+      // agentovi prestanú prechádzať zápisy — a to vyzerá ako porucha, nie ako
+      // uplynutie lehoty či preklep v dátume.
+      const kontrola = inspectStandingAuthorization(office);
+      const poverenie: string[] = [];
+      if (kontrola.problem) {
+        poverenie.push(
+          `WARNING STANDING_AUTH_INVALID ${OFFICE_DIR}/${CONFIG_FILE}: ${kontrola.problem} — ` +
+            `poverenie neplatí a zápisy do L1/L3 vyžadujú --approve-as.`,
+        );
+      } else if (kontrola.auth && isExpired(kontrola.auth, dnes())) {
+        poverenie.push(
+          `WARNING STANDING_AUTH_EXPIRED ${OFFICE_DIR}/${CONFIG_FILE}: ` +
+            `trvalé poverenie (${kontrola.auth.by}) uplynulo ${kontrola.auth.expiresAt} — ` +
+            `zápisy do ${kontrola.auth.scope.join(", ")} znova vyžadujú --approve-as.`,
+        );
+      }
       if (findings.length === 0 && problems.length === 0 && poverenie.length === 0) {
         return ok("OK — pamäť je konzistentná.");
       }
@@ -173,7 +182,7 @@ export function runCli(argv: readonly string[]): CliResult {
       const scope = readScope(dir);
       const subjekty = scope.records.filter((r) => r.type === "subject");
       const preverenia = scope.records.filter((r) => r.type === "screening");
-      const findings = validateStore(scope.records);
+      const findings = validateStore(scope.records, { nameLeakSeverity: readNameLeakSeverity(findOfficeDir(dir)) });
 
       const lines: string[] = [
         ...problemLines(scope.problems),

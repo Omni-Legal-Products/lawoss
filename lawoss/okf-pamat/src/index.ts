@@ -34,13 +34,15 @@ export { renderStatus, RenderConflictError, statusSkeleton, BLOCKS, MARKER_ONLY,
 export { validateStore, type Finding, type Severity, type ValidateOptions } from "./validate.ts";
 export { maskValue, maskRecord } from "./mask.ts";
 export {
-  readStandingAuthorization, covers, isExpired, CONFIG_FILE,
+  readStandingAuthorization, inspectStandingAuthorization, isIsoDate, readNameLeakSeverity, covers, isExpired, CONFIG_FILE,
+  type StandingAuthorizationCheck, type NameLeakSeverity,
   readClientPath, matchesClientPath,
   type StandingAuthorization,
 } from "./config.ts";
 export {
   readStore, readScope, findClientDir, findOfficeDir, MEMORY_DIR, OFFICE_DIR, STATUS_FILE, applyRecordWrite, LeakBlockedError, ConcurrentWriteError,
-  writeIndex, writeLog, ensureBrain, syncStatus, standingApproval, statusLinkResolver,
+  writeIndex, writeLog, ensureBrain, syncStatus, standingApproval, statusLinkResolver, STANDING,
+  type ApprovalInput,
   type Store, type Scope, type StoreProblem,
 } from "./store.ts";
 

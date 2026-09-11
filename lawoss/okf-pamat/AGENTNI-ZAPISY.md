@@ -64,6 +64,28 @@ Stopa teda nezmizne. Zmení sa len to, **kedy** advokát rozhodol — nie **či*
 
 ---
 
+## Tri podmienky, za ktorých poverenie platí (od 11. 9. 2026)
+
+Z rozhodovacieho podkladu MČ po calle 7. 9. — poverenie je jediná brána, ktorá
+po zrušení ceremónie ostala, takže sa nesmie dať obísť ani ticho nevypršať.
+
+1. **Dátum musí byť dátum.** `expires_at` aj `granted_at` sa čítajú ako
+   `RRRR-MM-DD` a musia byť skutočný deň. `31.12.2026` sa dovtedy porovnávalo
+   ako text a poverenie by nikdy nevypršalo; teraz **neplatí** a `validate`
+   ohlási `STANDING_AUTH_INVALID` s dôvodom. `granted_at` nesmie byť po
+   `expires_at`.
+2. **Knižnica si o poverenie musí povedať.** `applyRecordWrite(dir, diff,
+   undefined)` znamená *bez schválenia* — brána do L1/L3 drží, aj keď konfig
+   poverenie obsahuje. Kto chce konať pod poverením, podá `STANDING`.
+   Aplikácia, ktorá o poverení nevie, ho nedostane automaticky. CLI si oň
+   hovorí samo.
+3. **Súbor je advokátov.** `okf.config` nezapisuje žiadny príkaz jadra a leží
+   mimo `memory/`, takže sa naň záznamová cesta nedostane. **Zámok to nie je** —
+   agent, ktorý má prístup k disku, si súbor napísať môže. Hranicou zostáva
+   stopa: každý zápis pod poverením nesie v histórii meno z konfigu a dátum
+   konca, takže podvrhnuté poverenie je vidieť v každom zázname, ktorý ním
+   prešiel. Predstierať tu kryptografickú záruku by bolo horšie než ju nemať.
+
 ## Čo poverenie nevypína
 
 Toto je podstatná časť. Poverenie schvaľuje zápis; nerobí nič iné.

@@ -14,7 +14,7 @@ import { parseRecord, serializeRecord, type OkfRecord } from "./record.ts";
 import { renderStatus, type LinkResolver } from "./render.ts";
 import { validateStore } from "./validate.ts";
 import { authorize, type Approval, type WriteDiff } from "./write.ts";
-import { readStandingAuthorization, covers, readClientPath, matchesClientPath } from "./config.ts";
+import { readStandingAuthorization, covers, readClientPath, matchesClientPath, readNameLeakSeverity } from "./config.ts";
 import { typeLabel, valueLabel, truthDigest, OKF_VERSION, type Jurisdiction } from "./schema.ts";
 
 /**
@@ -102,6 +102,16 @@ function fileFor(store: Store, r: OkfRecord): string {
 }
 
 export class LeakBlockedError extends Error {}
+
+/**
+ * Výslovná žiadosť knižničného volajúceho konať pod trvalým poverením.
+ *
+ * Bez nej `undefined` znamená „bez schválenia" a brána do L1/L3 drží — aj keď
+ * poverenie v konfigu je. Aplikácia, ktorá o poverení nevie, ho nesmie dostať
+ * automaticky; musí si oň povedať. CLI si oň hovorí samo.
+ */
+export const STANDING: unique symbol = Symbol("okf.standing-authorization");
+export type ApprovalInput = Approval | typeof STANDING | undefined;
 export class ConcurrentWriteError extends Error {}
 
 /**
@@ -134,8 +144,22 @@ function assertNotStale(store: Store, diff: WriteDiff): void {
  */
 function assertNoLeak(dir: string, after: OkfRecord): void {
   if (after.layer !== "L3") return;
-  const ostatne = readScope(dir).records.filter((r) => r.id !== after.id);
-  const chyby = validateStore([...ostatne, after]).filter(
+  const scope = readScope(dir);
+  // Nečitateľný subjekt = chýbajúce jehly = brána, ktorá nič nezastaví a nikto
+  // sa to nedozvie. Obsidian pridá viacriadkový `aliases:`, súbor sa nedá
+  // prečítať, subjekt vypadne — a prameň s jeho IČO prejde. Preto sa pri
+  // nečitateľnom súbore v dosahu do L3 nezapisuje vôbec.
+  if (scope.problems.length > 0) {
+    const subory = scope.problems.map((p) => p.file).join(", ");
+    throw new LeakBlockedError(
+      `Zápis záznamu ${after.id} odmietnutý — v dosahu spisu sú nečitateľné záznamy (${subory}), ` +
+        `takže brána úniku by bola slepá. Oprav ich alebo presuň mimo ${MEMORY_DIR}/.`,
+    );
+  }
+  const ostatne = scope.records.filter((r) => r.id !== after.id);
+  const chyby = validateStore([...ostatne, after], {
+    nameLeakSeverity: readNameLeakSeverity(findOfficeDir(dir)),
+  }).filter(
     (f) => f.recordId === after.id && f.severity === "error" && f.code === "L3_LEAK",
   );
   if (chyby.length === 0) return;
@@ -173,10 +197,10 @@ export function standingApproval(
 export function applyRecordWrite(
   dir: string,
   diff: WriteDiff,
-  approval: Approval | undefined,
+  approval: ApprovalInput,
   leakScopeDir: string = dir,
 ): void {
-  authorize(diff, approval ?? standingApproval(dir, diff));
+  authorize(diff, approval === STANDING ? standingApproval(dir, diff) : approval);
   if (diff.after) assertNoLeak(leakScopeDir, diff.after);
   const store = readStore(dir);
   assertNotStale(store, diff);
