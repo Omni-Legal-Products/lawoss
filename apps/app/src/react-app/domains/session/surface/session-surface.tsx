@@ -29,6 +29,7 @@ import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { isOfficeAddinRuntime } from "@/app/lib/runtime-env";
 import { t } from "@/i18n";
+import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import { readWorkspaceImports, type ImportedPlugin } from "@/app/lib/extension-imports";
 import {
   materializeLegalMemoryFile,
@@ -417,6 +418,8 @@ function NoModelNotice(props: {
  * path; picking another model also clears it.
  */
 function TrialEndedNotice(props: { billingUrl: string }) {
+  // LAWOSS: výzva na predplatné dodávateľa upstreamu nepatrí do LAWOSS.
+  if (isCommercialSurfaceHidden("trial-notice")) return null;
   return (
     <div className="flex items-center gap-2.5 border-b border-dls-border bg-amber-2/40 px-4 py-3">
       <TriangleAlert size={14} className="shrink-0 text-amber-11" />

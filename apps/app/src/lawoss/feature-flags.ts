@@ -28,3 +28,18 @@ export const HIDDEN_QUICK_CONNECT_SERVERS: ReadonlySet<string> = new Set<string>
 
 export const isHiddenQuickConnect = (serverName: string): boolean =>
   HIDDEN_QUICK_CONNECT_SERVERS.has(serverName);
+
+/**
+ * Komerčné plochy upstreamu, ktoré prerastajú do záložiek, ktoré si necháme.
+ * `firm-hub` je platené firemné zdieľanie, `trial-notice` je výzva na
+ * predplatné nad session.
+ */
+export type CommercialSurface = "firm-hub" | "trial-notice";
+
+export const HIDDEN_COMMERCIAL_SURFACES: ReadonlySet<CommercialSurface> = new Set<CommercialSurface>([
+  "firm-hub",
+  "trial-notice",
+]);
+
+export const isCommercialSurfaceHidden = (surface: CommercialSurface): boolean =>
+  HIDDEN_COMMERCIAL_SURFACES.has(surface);

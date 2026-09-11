@@ -4,6 +4,7 @@ import {
   HIDDEN_QUICK_CONNECT_SERVERS,
   HIDDEN_SETTINGS_TABS,
   hideCommercialTabs,
+  isCommercialSurfaceHidden,
   isHiddenQuickConnect,
 } from "../src/lawoss/feature-flags";
 
@@ -28,5 +29,10 @@ describe("LAWOSS feature flags", () => {
     expect(HIDDEN_QUICK_CONNECT_SERVERS.has("legalmemory")).toBe(true);
     expect(isHiddenQuickConnect("legalmemory")).toBe(true);
     expect(isHiddenQuickConnect("slovlex")).toBe(false);
+  });
+
+  test("firemné zdieľanie a trial oznámenie sú skryté", () => {
+    expect(isCommercialSurfaceHidden("firm-hub")).toBe(true);
+    expect(isCommercialSurfaceHidden("trial-notice")).toBe(true);
   });
 });

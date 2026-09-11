@@ -9,6 +9,7 @@
 import { createContext, useContext } from "react";
 
 import { t } from "@/i18n";
+import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import { HubTabs } from "../segmented-tabs";
 
 export type HubScope = "local" | "team";
@@ -31,6 +32,10 @@ export function HubScopeToggle({
   scope: HubScope;
   onChange: (scope: HubScope) => void;
 }) {
+  // LAWOSS: firemné zdieľanie je platená plocha upstreamu. Bez prepínača
+  // ostane `useHubScope()` na `null`, teda lokálny rozsah — to je stav,
+  // s ktorým consumery vedia pracovať.
+  if (isCommercialSurfaceHidden("firm-hub")) return null;
   return (
     <HubTabs
       items={[
