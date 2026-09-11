@@ -29,6 +29,7 @@ import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { isOfficeAddinRuntime } from "@/app/lib/runtime-env";
 import { t } from "@/i18n";
+import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import { readWorkspaceImports, type ImportedPlugin } from "@/app/lib/extension-imports";
 import {
   materializeLegalMemoryFile,
@@ -577,8 +578,14 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // the paid gateway is blocked, so surface the subscribe path instead of
   // letting sends fail on a vanished model.
   const eigenweltTrial = eigenweltTrialState(eigenweltEntitlementsQuery.data?.entitlements ?? null);
+  // LAWOSS: výzva na predplatné dodávateľa upstreamu nepatrí do LAWOSS. Musí
+  // sa skryť tu, nie iba v `TrialEndedNotice` — táto premenná riadi aj
+  // `lockedOutNoticeVisible` a `noAiPlanNoticeVisible` nižšie, takže skrytie
+  // len na úrovni komponenty by potichu potlačilo aj náhradné upozornenia.
   const trialEndedNoticeVisible =
-    props.selectedModel.providerID === "eigenwelt" && eigenweltTrial.kind === "ended";
+    !isCommercialSurfaceHidden("trial-notice") &&
+    props.selectedModel.providerID === "eigenwelt" &&
+    eigenweltTrial.kind === "ended";
   const trialBillingUrl = eigenweltBillingUrl(eigenweltEntitlementsQuery.data?.platformURL ?? null);
   // Locked out: the selection points at a provider that is no longer
   // connected (signed out of Eigenwelt, access revoked, provider removed) and

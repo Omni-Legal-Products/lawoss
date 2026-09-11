@@ -17,6 +17,7 @@ import {
 
 import { t } from "../../../../i18n";
 import { isDesktopRuntime } from "../../../../app/utils";
+import { HIDDEN_SETTINGS_TABS } from "@/lawoss/feature-flags";
 import type { SettingsTab } from "../../../../app/types";
 import { IconTile, Surface } from "@/react-app/design-system/surface";
 
@@ -58,23 +59,30 @@ const globalItems = (): SettingsItem[] => [
 // their placement in getGlobalSettingsTabs.
 function resolveGlobalItems(): SettingsItem[] {
   const items = globalItems();
-  if (!isDesktopRuntime()) return items;
-  const recorderItem: SettingsItem = {
-    tab: "recorder",
-    icon: Mic,
-    title: t("recorder.settings_tab_label"),
-    desc: `${t("recorder.settings_tab_description")}.`,
-  };
-  const officeAddinsItem: SettingsItem = {
-    tab: "office-addins",
-    icon: FileStack,
-    title: t("office_addins.tab_label"),
-    // Trailing period to match the other overview rows; the shared i18n value
-    // omits it because the settings-page tab header uses no trailing period.
-    desc: `${t("office_addins.tab_description")}.`,
-  };
-  // After Account and AI Providers, mirroring getGlobalSettingsTabs.
-  return [...items.slice(0, 2), recorderItem, officeAddinsItem, ...items.slice(2)];
+  // LAWOSS: getGlobalSettingsTabs() filters HIDDEN_SETTINGS_TABS through
+  // hideCommercialTabs(); this list builds its own entries with a direct
+  // onNavigateTab link into the same tabs, so it needs the same filter or a
+  // hidden tab (account, recorder) stays one click away here.
+  const withDesktopItems = (() => {
+    if (!isDesktopRuntime()) return items;
+    const recorderItem: SettingsItem = {
+      tab: "recorder",
+      icon: Mic,
+      title: t("recorder.settings_tab_label"),
+      desc: `${t("recorder.settings_tab_description")}.`,
+    };
+    const officeAddinsItem: SettingsItem = {
+      tab: "office-addins",
+      icon: FileStack,
+      title: t("office_addins.tab_label"),
+      // Trailing period to match the other overview rows; the shared i18n value
+      // omits it because the settings-page tab header uses no trailing period.
+      desc: `${t("office_addins.tab_description")}.`,
+    };
+    // After Account and AI Providers, mirroring getGlobalSettingsTabs.
+    return [...items.slice(0, 2), recorderItem, officeAddinsItem, ...items.slice(2)];
+  })();
+  return withDesktopItems.filter((item) => !HIDDEN_SETTINGS_TABS.has(item.tab));
 }
 
 function SettingsRow(props: { icon: LucideIcon; title: string; desc: string; onClick: () => void }) {

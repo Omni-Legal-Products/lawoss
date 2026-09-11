@@ -231,6 +231,32 @@ const resolvePluralKey = (loc: Language, key: string, count: number): string => 
   return key;
 };
 
+/* ------------------------------------------------------------------ */
+/*  LAWOSS: substitúcia mena značky                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LAWOSS: upstream reťazce hovoria o LegalWorku. Namiesto prepísania 229
+ * hodnôt v `en.ts` — čo by pri každom synce konfliktovalo na 229 miestach —
+ * sa meno nahrádza na jednom mieste, pri výdaji textu. Nové upstream reťazce
+ * sú tým pokryté automaticky.
+ *
+ * Nahrádza sa iba presný tvar `LegalWork`. Identifikátory ako
+ * `legalwork-server` alebo `LEGALWORK_DEV_MODE` sa v UI nezobrazujú a ich
+ * prepis by rozbil beh.
+ */
+export const applyBrandName = (text: string): string => text.replaceAll("LegalWork", "LAWOSS");
+
+/**
+ * Kľúče, kde `LegalWork` popisuje **cudzí produkt alebo jeho autora**, nie náš.
+ * Prepísať ich na LAWOSS by bolo vecne nepravdivé.
+ */
+export const BRAND_EXEMPT_KEYS: ReadonlySet<string> = new Set<string>([
+  // „…from Eigenwelt Labs, the makers of LegalWork." — veta o dodávateľovi
+  // ich vlastného LegalMemory, nie o nás.
+  "mcp.quick_connect_legalmemory_desc",
+]);
+
 /**
  * Translation function with fallback behavior.
  * - Locale fallback: target language → English → key itself.
@@ -258,9 +284,13 @@ export const t = (
   const result = lookupEntry(loc, lookupKey);
   if (result === null) return key;
 
-  if (!params) return result;
+  // LAWOSS: značka sa nahrádza raz, pred dosadením parametrov, aby hodnota
+  // parametra nemohla substitúciu spustiť ani obísť.
+  const branded = BRAND_EXEMPT_KEYS.has(key) ? result : applyBrandName(result);
 
-  let out = result;
+  if (!params) return branded;
+
+  let out = branded;
   for (const [k, v] of Object.entries(params)) {
     if (k === "lng") continue;
     out = out.replace(`{${k}}`, String(v));

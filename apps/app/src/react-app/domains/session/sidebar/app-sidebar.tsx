@@ -38,6 +38,7 @@ import {
   isWindowsPlatform,
 } from "../../../../app/utils";
 import { t } from "../../../../i18n";
+import { HIDDEN_SETTINGS_TABS } from "@/lawoss/feature-flags";
 
 import {
   Sidebar,
@@ -719,16 +720,19 @@ export function AppSidebar(props: AppSidebarProps) {
               <span>{t("sidebar.workflows")}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
-              isActive={props.activeNav === "recorder"}
-              onClick={() => props.onShowRecorder?.()}
-            >
-              <Mic className="size-[18px]" strokeWidth={1.5} />
-              <span>{t("recorder.nav_label")}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
+          {/* LAWOSS: recorder je skrytý aj v hlavnom sidebare, nielen v nastaveniach. */}
+          {HIDDEN_SETTINGS_TABS.has("recorder") ? null : (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
+                isActive={props.activeNav === "recorder"}
+                onClick={() => props.onShowRecorder?.()}
+              >
+                <Mic className="size-[18px]" strokeWidth={1.5} />
+                <span>{t("recorder.nav_label")}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
           <SidebarMenuItem>
             <SidebarMenuButton
               className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[19px]")}

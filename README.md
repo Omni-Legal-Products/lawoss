@@ -129,6 +129,8 @@ pnpm test:e2e
 
 Prečítajte si [`AGENTS.md`](AGENTS.md). Každá zmena ide cez krátku vetvu, pull request, jedno schválenie a zelené CI. Pri zásahu do upstream súboru aktualizujte v tom istom PR aj [`PATCHES.md`](PATCHES.md).
 
+- [Build pre alfa testerov](docs/lawoss-build-pre-testerov.md) — ako si aplikáciu skompilovať a čo hlásiť
+
 ## Bezpečnosť a modely
 
 - Free modely poskytované upstreamom logujú používanie. Sú určené iba na testovanie bez klientskych a spisových dát.
