@@ -309,6 +309,10 @@ export function runCli(argv: readonly string[]): CliResult {
         "",
       ];
       if (cielovy !== dir) out.push(`Cieľ: ${OFFICE_DIR}/ — vrstva ${diff.layer} patrí kancelárii, nie spisu.`, "");
+      // Bez kancelárie ostáva L1/L3 v spise ako pred smerovaním — ale nahlas.
+      // Potichu to skončilo prameňom v spise a prázdnou kanceláriou.
+      if (after.layer !== "L2" && !office)
+        out.push(`Upozornenie: nad spisom sa nenašla kancelária (${OFFICE_DIR}/) — vrstva ${after.layer} ostáva v spise.`, "");
 
       // Trvalé poverenie je schválenie udelené vopred písomne. Agent si ho
       // nekonštruuje — číta ho zo súboru, ktorý napísal advokát.

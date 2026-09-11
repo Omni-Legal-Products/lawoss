@@ -481,8 +481,16 @@ export const OFFICE_DIR = "Office";
 export const LEGACY_OFFICE_DIR = "_kancelaria";
 const OFFICE_DIRS = [OFFICE_DIR, LEGACY_OFFICE_DIR] as const;
 
-/** Nájde zložku kancelárie nad spisom alebo klientom. */
-export function findOfficeDir(startDir: string, maxUp = 5): string | undefined {
+/**
+ * Nájde zložku kancelárie nad spisom alebo klientom.
+ *
+ * Rozloženie Fázy A je `AK/<písmeno>/<klient>/Spisy/<vec>` — spis leží päť
+ * úrovní pod koreňom vaultu. S piatimi krokmi sa kancelária nenašla a zápis
+ * prameňa skončil potichu v spise (test 10 vecí z ISIR, 11. 9. 2026). Osem
+ * krokov nechá rezervu pre ďalšiu úroveň, ale nedôjde až ku koreňu disku,
+ * kde by cudzí priečinok `Office` vyzeral ako kancelária.
+ */
+export function findOfficeDir(startDir: string, maxUp = 8): string | undefined {
   let dir = resolve(startDir);
   // Z kancelárie samotnej je kanceláriou ona sama. Inak by zápis L1 priamo
   // do kancelárie nikdy nedostal trvalé poverenie — konfig leží práve tam.

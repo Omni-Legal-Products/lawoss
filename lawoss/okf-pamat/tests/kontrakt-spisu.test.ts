@@ -138,3 +138,24 @@ test("L3 zo spisu pod starou _kancelaria skonci v nej, nie v neexistujucom Offic
   assert.ok(readdirSync(join(office, MEMORY_DIR)).some((x) => x.startsWith("A-001-")));
   assert.ok(!existsSync(join(root, OFFICE_DIR)), "nový priečinok sa nezakladá potichu");
 });
+
+// --- kancelária nad rozložením Fázy A -----------------------------------------
+
+test("kancelaria sa najde aj nad spisom Fazy A: AK/<pismeno>/<klient>/Spisy/<vec>", () => {
+  // Päť úrovní pod koreňom. S maxUp = 5 sa nenašla a pramen skončil potichu v spise.
+  const root = mkdtempSync(join(tmpdir(), "okf-office-faza-a-"));
+  mkdirSync(join(root, OFFICE_DIR, MEMORY_DIR), { recursive: true });
+  const spisDir = join(root, "AK", "R", "REAL 29 s.r.o.", "Spisy", "MSPH 79 INS 2047-2023");
+  mkdirSync(join(spisDir, MEMORY_DIR), { recursive: true });
+  assert.equal(findOfficeDir(spisDir), join(root, OFFICE_DIR));
+});
+
+test("bez kancelarie ostava pramen v spise, ale CLI to povie nahlas", () => {
+  const root = mkdtempSync(join(tmpdir(), "okf-no-office-"));
+  const spisDir = join(root, "vec"); mkdirSync(join(spisDir, MEMORY_DIR), { recursive: true });
+  const f = join(spisDir, "navrh.md"); writeFileSync(f, serializeRecord(rec("A-001", "authority", "Veta")));
+  const r = runCli(["write", spisDir, "--file", f, "--reason", "x", "--approve-as", "JUDr. Test", "--apply"]);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /nenašla kancelária/);
+  assert.ok(readdirSync(join(spisDir, MEMORY_DIR)).some((x) => x.startsWith("A-001-")));
+});
