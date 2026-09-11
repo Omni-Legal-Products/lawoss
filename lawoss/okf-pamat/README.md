@@ -117,6 +117,8 @@ Rodné číslo, číslo dokladu, trvalý pobyt a dátum narodenia sú v tabuľke
 | `SENSITIVE_IN_SUMMARY` | rodné číslo alebo iný citlivý údaj v `popis`, ktorý ide do `index.md` a projekcie | **chyba** |
 | `UNKNOWN_VALUE` | hodnota mimo výpočet (`role`, `person_type`, `mode`, `state`, druh udalosti…) — kontroly viazané na pole sa nevykonajú | varovanie |
 | `DEADLINE_PASSED` | lehota v `deadlines` je v minulosti a záznam je stále `active` | varovanie |
+| `L3_LEAK_NAME` | zhoda celého mena v L3 znížená na varovanie politikou kancelárie (`leak_name_severity: warning` + povinný `leak_name_reason`); identifikátory sa takto zmäkčiť nedajú | varovanie |
+| `STANDING_AUTH_INVALID` | poverenie v `okf.config` sa nedá použiť (dátum nie je `RRRR-MM-DD`, `granted_at` po `expires_at`, chýba pole) — zápisy do L1/L3 vyžadujú `--approve-as` | varovanie |
 | `CITATION_UNRESOLVED` | `[^id]` v texte bez položky v `sources` — veta vyzerá podložene a nie je | **chyba** |
 | `SOURCE_ID_DUPLICATE` | to isté `id` prameňa dvakrát | **chyba** |
 | `AML_MISSING` | subjekt v role `klient` nemá žiadne preverenie | varovanie |
@@ -227,6 +229,17 @@ používateľa; markery sú kanonické.
    slovom „lexikón". Prahy sú v `src/validate.ts` pomenované konštantami —
    sú to vedomé rozhodnutia, nie technické detaily.
 
+   **Brána sa nesmie dať oslepiť.** Keď je v dosahu spisu čo i len jeden
+   nečitateľný záznam, zápis do L3 sa odmietne — nástroj nevie, či v ňom nie je
+   subjekt, ktorého identifikátory by inak strážil. Obsidian pridá viacriadkový
+   `aliases:`, súbor sa nedá prečítať, a bez tohto pravidla by prameň s IČO
+   toho klienta prešiel bez slova. Zápis do L2 to nezdržuje.
+
+   **Politika kancelárie sa týka len mien.** `leak_name_severity: warning`
+   s povinným `leak_name_reason` v `okf.config` zníži zhodu celého mena na
+   varovanie. IČO, rodné číslo a dátum narodenia sa zmäkčiť nedajú: to nie je
+   prah, to je únik.
+
 Zápis vedie výhradne cez `planWrite() → applyRecordWrite()`. Iná cesta na disk nie je.
 
 ### Zhoda s Open Knowledge Format
@@ -250,7 +263,7 @@ o „nedopísanú znalosť", ale o vadu.
 ### Napojenie na existujúci Obsidian vault
 
 Pamäť je markdown v priečinku spisu, vault je priečinok markdownu — napojenie
-je preto konfigurácia, nie most. Stačí `_kancelaria/memory/` v koreni vaultu
+je preto konfigurácia, nie most. Stačí `Office/memory/` v koreni vaultu
 a jeden riadok `client_path: AK/*/*` v `okf.config`; karty `klient.md` sa doň
 nesypú. `[[wiki-odkazy]]` v projekcii fungujú natívne a graf ukáže pamäť spisu.
 
@@ -259,17 +272,25 @@ Overené na vaulte s 88 908 súbormi. Podrobne: [`OBSIDIAN-VAULT.md`](OBSIDIAN-V
 ### Keď sa zo zápisu má stať agentná práca
 
 Human gate sa dá **udeliť vopred** namiesto klikania pri každom zázname:
-advokát napíše do `_kancelaria/okf.config` trvalé poverenie s menom, rozsahom,
+advokát napíše do `Office/okf.config` trvalé poverenie s menom, rozsahom,
 dôvodom a dátumom konca. Zápisy do jeho `scope` potom prejdú bez `--approve-as`
 a v histórii záznamu sa objaví, že ich kryje poverenie a do kedy platí.
 
 Poverenie **nevypína** mazanie, zákaz úniku do L3 ani atomicitu pravdy —
 schvaľuje zápis, nič iné. Podrobne: [`AGENTNI-ZAPISY.md`](AGENTNI-ZAPISY.md).
 
+## Priečinok kancelárie sa volá `Office`
+
+Rozhodnutie z callu 11. 9. 2026: strojová vrstva — názvy súborov, priečinkov
+a odkazov — je po anglicky, aby ten istý kontrakt uniesol slovenčinu, češtinu
+a neskôr poľštinu; obsah zápisov ostáva v jazyku advokáta. `_kancelaria`
+z augusta sa **ďalej rozpozná** (čítanie aj zápis), nový koreň sa ale zakladá
+už len ako `Office/`.
+
 ## Čo jadro zapisuje do spisu
 
 ```
-_kancelaria/
+Office/
 └── memory/          ← L1 pravidlá a poučenia + L3 právne pramene
 
 klient/
@@ -289,6 +310,14 @@ klient/
 V `_STATUS.md` sa prepisuje výlučne obsah medzi `<!-- okf:render:*:start -->`
 a `<!-- okf:render:*:end -->`. Fáza, Ďalší krok a vlastné sekcie advokáta
 prechádzajú nedotknuté. Opakované spustenie nič nezmení.
+
+Bloky: `parties` (strany zo subjektov, rodné číslo maskované), `facts` (každý
+riadok pravdy veci je fakt, `[^id]` sa premení na odkaz na prameň; tvrdenia
+strán za nimi), `deadlines`, `timeline`, `tasks`, `documents` (dôkazy a kde
+ležia — URL registra alebo súbor vo veci, cesta relatívna k priečinku veci),
+marker-only `records` a `evidence_matrix`. Aliasy nadpisov sedia aj na šablónu
+Fázy A (`## 1. Strany`, `## 2. Fakty veci`, `## 6. Kľúčové dokumenty`) —
+`retrofit` ich nájde a doplní markery.
 
 Markery nesú kanonické názvy (`deadlines`, `timeline`, `records`), takže spis,
 ktorý zmení jazyk, si projekciu neroztrhá.

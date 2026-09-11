@@ -52,7 +52,7 @@ test("rodne cislo v Pravde otazky je jehlou — pramen L3 s nim je unik", () => 
 
 test("ta ista jehla blokuje zapis L3 aj v ceste zapisu", () => {
   const { spis } = kancelaria();
-  runCli(["init", spis, "--apply"]);
+  runCli(["init", spis, "--cz", "--apply"]);
   zapis(spis, rec("Q-001", "question", "x", { truth: "rč 820829/2224 vo výroku" }));
   const a = rec("A-001", "authority", "Veta", { truth: "Osoba s rč 820829/2224." });
   assert.throws(() => applyRecordWrite(spis, planWrite(undefined, a, "veta"), { by: "VŘ", at: "2026-09-03T10:00:00Z" }), LeakBlockedError);
@@ -81,7 +81,7 @@ test("buduca lehota ani lehota prekonaneho zaznamu sa nehlasi", () => {
 
 test("init zalozi _STATUS.md so vsetkymi piatimi blokmi a sync ich vyplni", () => {
   const { spis } = kancelaria();
-  const r = runCli(["init", spis, "--apply"]);
+  const r = runCli(["init", spis, "--cz", "--apply"]);
   assert.equal(r.code, 0, r.out);
   const status = readFileSync(join(spis, STATUS_FILE), "utf8");
   for (const b of ["deadlines", "timeline", "records", "evidence_matrix", "tasks"]) {
@@ -95,17 +95,17 @@ test("init zalozi _STATUS.md so vsetkymi piatimi blokmi a sync ich vyplni", () =
 test("existujuci _STATUS.md init neprepise", () => {
   const { spis } = kancelaria();
   writeFileSync(join(spis, STATUS_FILE), "# Moje\n");
-  runCli(["init", spis, "--apply"]);
+  runCli(["init", spis, "--cz", "--apply"]);
   assert.equal(readFileSync(join(spis, STATUS_FILE), "utf8"), "# Moje\n");
 });
 
 // --- 4. L1/L3 smerujú do kancelárie ----------------------------------------
 
-test("pramen L3 zapisany cez <spis> skonci v _kancelaria/memory", () => {
+test("pramen L3 zapisany cez <spis> skonci v Office/memory", () => {
   const { root, spis } = kancelaria();
-  runCli(["init", spis, "--apply"]);
+  runCli(["init", spis, "--cz", "--apply"]);
   const out = zapis(spis, rec("A-001", "authority", "Lehota § 198 IZ je hmotněprávní"));
-  assert.match(out, /_kancelaria/);
+  assert.match(out, /Office\//);
   assert.ok(readdirSync(join(root, OFFICE_DIR, MEMORY_DIR)).some((f) => f.startsWith("A-001-")), "prameň má byť v kancelárii");
   assert.ok(!readdirSync(join(spis, MEMORY_DIR)).some((f) => f.startsWith("A-001-")), "a nie v spise");
 });
@@ -114,7 +114,7 @@ test("presmerovanie do kancelarie branu uniku neoslepi", () => {
   // Subjekt s IČO žije u klienta; prameň mieri do kancelárie, ktorej scope
   // klienta nevidí. Jehly musia prísť zo spisu, z ktorého zápis prichádza.
   const { klient, spis } = kancelaria();
-  runCli(["init", spis, "--apply"]);
+  runCli(["init", spis, "--cz", "--apply"]);
   writeFileSync(join(klient, MEMORY_DIR, "S-001-x.md"), serializeRecord(rec("S-001", "subject", "EUROTON s.r.o.", { role: "client", person_type: "legal_person", registry_id: "02872579" })));
   const f = join(spis, "navrh.md"); writeFileSync(f, serializeRecord(rec("A-001", "authority", "Veta", { truth: "Ve věci IČO 02872579." })));
   const r = runCli(["write", spis, "--file", f, "--reason", "x", "--apply"]);
@@ -133,7 +133,7 @@ test("zapis priamo do kancelarie sa nepresmeruje sam na seba", () => {
 
 test("sync zapise index.md a log.md aj u klienta a vec ich odkazuje", () => {
   const { klient, spis } = kancelaria();
-  runCli(["init", spis, "--apply"]);
+  runCli(["init", spis, "--cz", "--apply"]);
   writeFileSync(join(klient, MEMORY_DIR, "S-001-pavel-harnach.md"), serializeRecord(rec("S-001", "subject", "Pavel Harnach", { role: "client", person_type: "natural_person" })));
   zapis(spis, rec("M-001", "matter", "KSPA 71 INS 16948/2024"));
   assert.equal(runCli(["sync", spis, "--apply"]).code, 0);
@@ -150,13 +150,13 @@ test("sync zapise index.md a log.md aj u klienta a vec ich odkazuje", () => {
 
 test("druhe A-001 z inej veci sa nezamieňa za prepis prveho — navrhne volne id", () => {
   const { root, spis } = kancelaria();
-  runCli(["init", spis, "--apply"]);
+  runCli(["init", spis, "--cz", "--apply"]);
   const office = join(root, OFFICE_DIR);
   zapis(spis, rec("A-001", "authority", "Lehota § 198 IZ", { created: "2026-09-01", updated: "2026-09-01" }));
 
   const ina = join(root, "AK", "E", "EUROTON", "2025 INS 14748");
   mkdirSync(ina, { recursive: true });
-  runCli(["init", ina, "--apply"]);
+  runCli(["init", ina, "--cz", "--apply"]);
   const f = join(ina, "navrh.md");
   writeFileSync(f, serializeRecord(rec("A-001", "authority", "Zrušenie konkursu § 308", { created: "2026-09-03", updated: "2026-09-03" })));
   const r = runCli(["write", ina, "--file", f, "--reason", "x", "--apply"]);
@@ -170,12 +170,12 @@ test("druhe A-001 z inej veci sa nezamieňa za prepis prveho — navrhne volne i
 
 test("uprava toho isteho pramena z inej veci prejde — created sedi", () => {
   const { root, spis } = kancelaria();
-  runCli(["init", spis, "--apply"]);
+  runCli(["init", spis, "--cz", "--apply"]);
   const p1 = rec("A-001", "authority", "Lehota § 198 IZ", { created: "2026-09-01", updated: "2026-09-01" });
   zapis(spis, p1);
   const ina = join(root, "AK", "E", "EUROTON", "2025 INS 14748");
   mkdirSync(ina, { recursive: true });
-  runCli(["init", ina, "--apply"]);
+  runCli(["init", ina, "--cz", "--apply"]);
   // Úprava sa stavia z toho, čo je na disku — CLI pri zápise pripojilo
   // audit riadok a história sa smie len predlžovať.
   const officeMem = join(root, OFFICE_DIR, MEMORY_DIR);

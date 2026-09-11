@@ -9,7 +9,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
-  readStore, readScope, writeIndex, writeLog, syncStatus, ensureBrain, applyRecordWrite, standingApproval,
+  readStore, readScope, writeIndex, writeLog, syncStatus, retrofitStatusFile, ensureBrain, applyRecordWrite, standingApproval,
   findOfficeDir, OFFICE_DIR,
   jurisdictionFromCard, MEMORY_DIR, statusLinkResolver, findClientDir, STATUS_FILE,
 } from "./store.ts";
@@ -19,7 +19,7 @@ import { maskRecord } from "./mask.ts";
 import { fieldLabel, typeLabel, SCREENING_PROVISION, type Jurisdiction } from "./schema.ts";
 import { renderStatus, RenderConflictError, statusSkeleton } from "./render.ts";
 import { validateStore } from "./validate.ts";
-import { readStandingAuthorization, isExpired, CONFIG_FILE } from "./config.ts";
+import { inspectStandingAuthorization, isExpired, readNameLeakSeverity, CONFIG_FILE } from "./config.ts";
 
 const dnes = (): string => new Date().toISOString().slice(0, 10);
 
@@ -33,7 +33,8 @@ const USAGE = [
   "",
   "  okf-memory read     <spis>            prehľad pamäte",
   "  okf-memory validate <spis>            kontrola schémy, únikov L2→L3 a odkazov",
-  "  okf-memory sync     <spis> [--apply]  projekcia do _STATUS.md a INDEX.md",
+  "  okf-memory sync     <spis> [--apply]  projekcia do _STATUS.md, index.md a log.md",
+  "  okf-memory retrofit <spis> [--apply]  doplní markery do existujúcich sekcií _STATUS.md",
   "  okf-memory aml      <spis>            subjekty a stav AML preverenia",
   "  okf-memory write    <spis> --file <záznam.md> --reason \"…\" [--apply] [--approve-as \"meno\"]",
   "",
@@ -113,17 +114,26 @@ export function runCli(argv: readonly string[]): CliResult {
 
     case "validate": {
       const scope = readScope(dir);
-      const findings = validateStore(scope.records);
+      const office = findOfficeDir(dir);
+      const findings = validateStore(scope.records, { nameLeakSeverity: readNameLeakSeverity(office) });
       const problems = problemLines(scope.problems);
-      // Prepadnuté poverenie sa inak prejaví až tým, že agentovi prestanú
-      // prechádzať zápisy — a to vyzerá ako porucha, nie ako uplynutie lehoty.
-      const auth = readStandingAuthorization(findOfficeDir(dir));
-      const poverenie =
-        auth && isExpired(auth, dnes())
-          ? [`WARNING STANDING_AUTH_EXPIRED ${OFFICE_DIR}/${CONFIG_FILE}: ` +
-             `trvalé poverenie (${auth.by}) uplynulo ${auth.expiresAt} — ` +
-             `zápisy do ${auth.scope.join(", ")} znova vyžadujú --approve-as.`]
-          : [];
+      // Prepadnuté alebo chybne zapísané poverenie sa inak prejaví až tým, že
+      // agentovi prestanú prechádzať zápisy — a to vyzerá ako porucha, nie ako
+      // uplynutie lehoty či preklep v dátume.
+      const kontrola = inspectStandingAuthorization(office);
+      const poverenie: string[] = [];
+      if (kontrola.problem) {
+        poverenie.push(
+          `WARNING STANDING_AUTH_INVALID ${OFFICE_DIR}/${CONFIG_FILE}: ${kontrola.problem} — ` +
+            `poverenie neplatí a zápisy do L1/L3 vyžadujú --approve-as.`,
+        );
+      } else if (kontrola.auth && isExpired(kontrola.auth, dnes())) {
+        poverenie.push(
+          `WARNING STANDING_AUTH_EXPIRED ${OFFICE_DIR}/${CONFIG_FILE}: ` +
+            `trvalé poverenie (${kontrola.auth.by}) uplynulo ${kontrola.auth.expiresAt} — ` +
+            `zápisy do ${kontrola.auth.scope.join(", ")} znova vyžadujú --approve-as.`,
+        );
+      }
       if (findings.length === 0 && problems.length === 0 && poverenie.length === 0) {
         return ok("OK — pamäť je konzistentná.");
       }
@@ -134,6 +144,17 @@ export function runCli(argv: readonly string[]): CliResult {
       ];
       const hasError = scope.problems.length > 0 || findings.some((f) => f.severity === "error");
       return { code: hasError ? 1 : 0, out: lines.join("\n") };
+    }
+
+    case "retrofit": {
+      // Sekcia bez markerov je advokátova; `sync` na nej zámerne končí konfliktom.
+      // Retrofit je ten výslovný krok, na ktorý konflikt odkazuje.
+      const bloky = retrofitStatusFile(dir, apply);
+      if (bloky.length === 0) return ok("Nič na doplnenie — každá známa sekcia už markery má, alebo v súbore nie je.");
+      return ok(
+        `${apply ? "Doplnené" : "dry-run: doplnil by som"} markery do ${bloky.length} sekcií: ${bloky.join(", ")}` +
+          `${apply ? ". Spusti sync." : ". Zapíš s --apply."}`,
+      );
     }
 
     case "sync": {
@@ -173,7 +194,7 @@ export function runCli(argv: readonly string[]): CliResult {
       const scope = readScope(dir);
       const subjekty = scope.records.filter((r) => r.type === "subject");
       const preverenia = scope.records.filter((r) => r.type === "screening");
-      const findings = validateStore(scope.records);
+      const findings = validateStore(scope.records, { nameLeakSeverity: readNameLeakSeverity(findOfficeDir(dir)) });
 
       const lines: string[] = [
         ...problemLines(scope.problems),
@@ -288,6 +309,10 @@ export function runCli(argv: readonly string[]): CliResult {
         "",
       ];
       if (cielovy !== dir) out.push(`Cieľ: ${OFFICE_DIR}/ — vrstva ${diff.layer} patrí kancelárii, nie spisu.`, "");
+      // Bez kancelárie ostáva L1/L3 v spise ako pred smerovaním — ale nahlas.
+      // Potichu to skončilo prameňom v spise a prázdnou kanceláriou.
+      if (after.layer !== "L2" && !office)
+        out.push(`Upozornenie: nad spisom sa nenašla kancelária (${OFFICE_DIR}/) — vrstva ${after.layer} ostáva v spise.`, "");
 
       // Trvalé poverenie je schválenie udelené vopred písomne. Agent si ho
       // nekonštruuje — číta ho zo súboru, ktorý napísal advokát.
@@ -366,6 +391,16 @@ export function runCli(argv: readonly string[]): CliResult {
         : zKarty
           ? "karta veci"
           : "predvolené";
+      // Tichý default „cz" bol v SK spisoch častý omyl a české a slovenské
+      // právo sa modeluje zvlášť. Bez výslovnej jurisdikcie sa spis nezakladá.
+      if (zdroj === "predvolené") {
+        return {
+          code: 2,
+          out:
+            "Spis nemá jurisdikciu: uveď --cz alebo --sk, alebo `jurisdiction: cz|sk` " +
+            "v karte veci (matter.md / spis.md). Bez nej sa pamäť nezaloží.",
+        };
+      }
 
       if (!apply) {
         return ok(

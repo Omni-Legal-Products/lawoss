@@ -11,6 +11,7 @@
 
 import type { OkfRecord } from "./record.ts";
 import { typeLabel, valueLabel, type Jurisdiction } from "./schema.ts";
+import { maskValue } from "./mask.ts";
 
 /**
  * Preloží identifikátor záznamu na cestu k jeho súboru, relatívne k súboru,
@@ -34,7 +35,13 @@ function odkaz(id: string, href?: LinkResolver): string {
   return cesta ? `[${id}](${cesta})` : id;
 }
 
-export const BLOCKS = ["deadlines", "timeline", "records", "evidence_matrix", "tasks"] as const;
+/**
+ * Poradie je poradím v kostre nového `_STATUS.md`: strany a fakty hore, lehoty
+ * a chronológia, úlohy, dokumenty; záznamy a dokazovanie sú marker-only.
+ * Strany, fakty a dokumenty pribudli 11. 9. 2026: šablóna Fázy A ich má ako
+ * sekcie 1, 2 a 6 a bez projekcie ostávali prázdne, hoci pamäť dáta mala.
+ */
+export const BLOCKS = ["parties", "facts", "deadlines", "timeline", "tasks", "documents", "records", "evidence_matrix"] as const;
 export type BlockName = (typeof BLOCKS)[number];
 
 const BLOCK_HEADINGS: Record<BlockName, Record<Jurisdiction, string>> = {
@@ -43,6 +50,9 @@ const BLOCK_HEADINGS: Record<BlockName, Record<Jurisdiction, string>> = {
   records: { cz: "Záznamy paměti", sk: "Záznamy pamäte" },
   evidence_matrix: { cz: "Dokazování", sk: "Dokazovanie" },
   tasks: { cz: "Otevřené úkoly", sk: "Otvorené úlohy" },
+  parties: { cz: "Strany", sk: "Strany" },
+  facts: { cz: "Fakta věci", sk: "Fakty veci" },
+  documents: { cz: "Klíčové dokumenty", sk: "Kľúčové dokumenty" },
 };
 
 const EMPTY: Record<Jurisdiction, string> = {
@@ -177,7 +187,81 @@ function renderTasks(records: readonly OkfRecord[], j: Jurisdiction, href?: Link
   return [head, "|---|---|---|---|---|", ...rows].join("\n");
 }
 
+/** Bunka tabuľky: zvislá čiara a nový riadok by rozbili markdown. */
+function cell(s: string): string {
+  return s.replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ").trim();
+}
+
+/** Odkaz na prameň záznamu: URL alebo cesta relatívna k priečinku veci. */
+function sourceLink(s: { id?: string; title?: string; resource?: string }): string {
+  const label = s.title ?? s.id ?? s.resource ?? "?";
+  if (!s.resource) return cell(label);
+  const name = /^https?:\/\//.test(s.resource) ? label : (s.resource.split("/").pop() ?? label);
+  return `[${cell(name)}](${s.resource})`;
+}
+
+const ROLE_ORDER = ["client", "counterparty", "representative", "ubo"];
+
+/** Strany zo subjektov. Rodné číslo maskované — status číta aj ten, kto AML evidenciu vidieť nemá. */
+function renderParties(records: readonly OkfRecord[], j: Jurisdiction, href?: LinkResolver): string {
+  const subjects = records
+    .filter((r) => r.type === "subject")
+    .sort((a, b) => ROLE_ORDER.indexOf(a.role ?? "") - ROLE_ORDER.indexOf(b.role ?? "") || (a.id < b.id ? -1 : 1));
+  if (subjects.length === 0) return EMPTY[j];
+  const head = j === "cz" ? "| Role | Subjekt | IČO / RČ | Záznam |" : "| Rola | Subjekt | IČO / RČ | Záznam |";
+  const rows = subjects.map((s) => {
+    const ident = s.registry_id ?? (s.birth_number ? maskValue("birth_number", s.birth_number) : "—");
+    return `| ${valueLabel("role", s.role ?? "—", j)} | ${cell(s.title)} | ${ident} | ${odkaz(s.id, href)} |`;
+  });
+  return [head, "|---|---|---|---|", ...rows].join("\n");
+}
+
+/**
+ * Fakty veci: každý riadok pravdy záznamu veci je jeden fakt, poznámka pod
+ * čiarou `[^id]` sa premení na odkaz na prameň. Tvrdenia strán (claim) idú
+ * za nimi so svojím pôvodcom — sú to tvrdenia, nie zistenia.
+ */
+function renderFacts(records: readonly OkfRecord[], j: Jurisdiction, href?: LinkResolver): string {
+  const rows: string[] = [];
+  let n = 0;
+  const byId = (a: OkfRecord, b: OkfRecord) => (a.id < b.id ? -1 : 1);
+  for (const r of records.filter((x) => x.type === "matter").sort(byId)) {
+    const src = new Map((r.sources ?? []).map((s) => [s.id ?? "", s]));
+    for (const raw of r.truth.split("\n")) {
+      const line = raw.replace(/^[-*]\s+/, "").trim();
+      if (!line) continue;
+      const refs = [...line.matchAll(/\[\^([^\]]+)\]/g)].map((m) => m[1] ?? "");
+      const text = line.replace(/\[\^[^\]]+\]/g, "").replace(/\*\*/g, "").trim();
+      const zdroj = refs.map((id) => { const s = src.get(id); return s ? sourceLink(s) : `[^${id}]`; }).join(", ") || "—";
+      const kedy = refs.map((id) => src.get(id)?.last_modified).find(Boolean) ?? r.updated;
+      rows.push(`| ${++n} | ${cell(text)} | ${zdroj} | ${kedy} | ${odkaz(r.id, href)} |`);
+    }
+  }
+  for (const c of records.filter((x) => x.type === "claim").sort(byId)) {
+    const kto = c.claimed_by ? (j === "cz" ? `tvrdí ${c.claimed_by}` : `tvrdí ${c.claimed_by}`) : "—";
+    rows.push(`| ${++n} | ${cell(c.title)} | ${cell(kto)} | ${c.claimed_at ?? c.updated} | ${odkaz(c.id, href)} |`);
+  }
+  if (rows.length === 0) return EMPTY[j];
+  const head = j === "cz" ? "| # | Fakt | Zdroj | Zjištěno | Záznam |" : "| # | Fakt | Zdroj | Zistené | Záznam |";
+  return [head, "|---|---|---|---|---|", ...rows].join("\n");
+}
+
+/** Kľúčové dokumenty z dôkazov: kde listina leží — URL registra alebo súbor vo veci. */
+function renderDocuments(records: readonly OkfRecord[], j: Jurisdiction, href?: LinkResolver): string {
+  const docs = records.filter((r) => r.type === "evidence").sort((a, b) => (a.id < b.id ? -1 : 1));
+  if (docs.length === 0) return EMPTY[j];
+  const head = j === "cz" ? "| Dokument | Druh | Datum | Umístění | Záznam |" : "| Dokument | Druh | Dátum | Umiestnenie | Záznam |";
+  const rows = docs.map((e) => {
+    const kde = (e.sources ?? []).filter((s) => s.resource).map(sourceLink).join(", ") || "—";
+    return `| ${cell(e.title)} | ${valueLabel("evidence_kind", e.evidence_kind ?? "—", j)} | ${e.origin_date ?? "—"} | ${kde} | ${odkaz(e.id, href)} |`;
+  });
+  return [head, "|---|---|---|---|---|", ...rows].join("\n");
+}
+
 const RENDERERS: Record<BlockName, (r: readonly OkfRecord[], j: Jurisdiction, href?: LinkResolver) => string> = {
+  parties: renderParties,
+  facts: renderFacts,
+  documents: renderDocuments,
   deadlines: renderDeadlines,
   timeline: renderTimeline,
   records: renderRecords,
@@ -237,6 +321,10 @@ const BLOCK_HEADING_ALIASES: Record<BlockName, readonly string[]> = {
   records: ["Záznamy paměti", "Záznamy pamäte", "Záznamy"],
   evidence_matrix: ["Dokazování", "Dokazovanie"],
   tasks: ["Otevřené úkoly", "Otvorené úlohy", "Úkoly", "Úlohy"],
+  // Sekcie 1, 2 a 6 šablóny Fázy A.
+  parties: ["Strany", "Strany věci", "Strany veci", "Účastníci", "Účastníci řízení"],
+  facts: ["Fakta věci", "Fakty veci", "Fakta", "Fakty", "Skutkový stav"],
+  documents: ["Klíčové dokumenty", "Kľúčové dokumenty", "Dokumenty", "Listiny"],
 };
 
 /**
@@ -244,17 +332,65 @@ const BLOCK_HEADING_ALIASES: Record<BlockName, readonly string[]> = {
  * vyžiadal markerom. Zoznam záznamov patrí do INDEX.md; `_STATUS.md` je
  * rozhranie na vec, nie výpis databázy.
  */
-export const MARKER_ONLY: readonly BlockName[] = ["records", "evidence_matrix", "tasks"];
+/**
+ * Marker-only bloky sa do cudzieho súboru samy nepridávajú (podmienka MČ k O1:
+ * markery do existujúcich sekcií, nie rast súboru). Kostra novej veci ich má,
+ * do existujúceho statusu ich doplní `retrofit`.
+ */
+export const MARKER_ONLY: readonly BlockName[] = ["records", "evidence_matrix", "tasks", "parties", "facts", "documents"];
+
+/**
+ * „Strany", „Fakty" a „Dokumenty" sú bežné nadpisy, ktoré si advokát píše
+ * sám. Keby ich holá sekcia blokovala sync ako pri lehotách, po tejto verzii
+ * by sa zastavil každý existujúci status. Preto: holý nadpis = sekcia
+ * advokáta, blok sa nepridá a nič sa nehlási; markery doplní iba výslovný
+ * `retrofit`.
+ */
+export const SOFT_HEADING: readonly BlockName[] = ["parties", "facts", "documents"];
 
 /** Nadpis bloku, ktorý v súbore je, ale markery pod ním nie sú. */
 function bareHeading(text: string, b: BlockName): string | undefined {
+  return findBareHeading(text, b)?.alias;
+}
+
+/** Kde presne nadpis bez markerov leží — pre retrofit. */
+function findBareHeading(text: string, b: BlockName): { alias: string; end: number } | undefined {
   for (const alias of BLOCK_HEADING_ALIASES[b]) {
     // Zhoda musí sedieť na celý nadpis — „Lehoty a termíny klienta"
     // je vlastná sekcia advokáta, nie naša projekcia.
     const re = new RegExp(`^##\\s*(?:\\d+\\.\\s*)?${alias}\\s*$`, "mi");
-    if (re.test(text)) return alias;
+    const m = re.exec(text);
+    // `\s*$` s príznakom m zhltne aj koniec riadka — koniec nadpisu je bez neho.
+    if (m) return { alias, end: m.index + m[0].trimEnd().length };
   }
   return undefined;
+}
+
+/**
+ * Retrofit: do sekcií, ktoré v `_STATUS.md` už sú, ale nemajú markery, vloží
+ * markery **hneď pod nadpis**. Čo advokát v sekcii mal, ostáva pod nimi —
+ * nič sa nemaže, nič sa nepripája na koniec súboru. Druhé spustenie nenájde
+ * nič holé a nezmení nič (idempotentné). Spis založený cez `/novy-spis` má
+ * šablónu s `## 3. Lehoty` bez markerov a `sync` naň končí konfliktom —
+ * presne pre tento prípad.
+ */
+export function retrofitStatus(
+  existing: string,
+  records: readonly OkfRecord[],
+  j: Jurisdiction,
+  href?: LinkResolver,
+): { text: string; inserted: BlockName[] } {
+  let out = existing;
+  const inserted: BlockName[] = [];
+  for (const b of BLOCKS) {
+    if (out.includes(startMarker(b))) continue;
+    const hit = findBareHeading(out, b);
+    if (!hit) continue;
+    const body = RENDERERS[b](records, j, href);
+    out = out.slice(0, hit.end) + `\n${startMarker(b)}\n${body}\n${endMarker(b)}\n` + out.slice(hit.end);
+    inserted.push(b);
+  }
+  return { text: out, inserted };
 }
 
 /**
@@ -282,6 +418,7 @@ export function renderStatus(
     }
 
     const bare = bareHeading(out, b);
+    if (bare !== undefined && SOFT_HEADING.includes(b)) continue;
     if (bare !== undefined) {
       throw new RenderConflictError(
         `Sekcia „${bare}" v _STATUS.md existuje, ale nemá markery — render by ` +

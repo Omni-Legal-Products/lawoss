@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { runCli } from "../src/cli.ts";
 import { serializeRecord, parseRecord } from "../src/record.ts";
 import {
-  newRecord, planWrite, applyRecordWrite, standingApproval, readStandingAuthorization,
+  newRecord, planWrite, applyRecordWrite, standingApproval, readStandingAuthorization, STANDING,
   MEMORY_DIR, OFFICE_DIR, CONFIG_FILE, LeakBlockedError, ApprovalRequiredError,
 } from "../src/index.ts";
 import type { OkfRecord } from "../src/record.ts";
@@ -119,7 +119,7 @@ test("dry-run povie, ze poverenie zapis kryje", () => {
 // --- hranice poverenia -----------------------------------------------------
 
 test("prepadnute poverenie neplati", () => {
-  const { spis } = kancelaria(PLATNE.replace("2026-12-31", "2026-08-31"));
+  const { spis } = kancelaria(PLATNE.replace("2026-12-31", "2026-09-05"));
   const r = runCli(["write", spis, "--file", navrh(spis, poucenie()), "--reason", "x", "--apply"]);
   assert.equal(r.code, 1, r.out);
   assert.equal(pocet(spis), 0);
@@ -168,8 +168,9 @@ test("poverenie neotvara cestu klientskym udajom do L3", () => {
     truth: "Vec spoločnosti s IČO 29139643.",
     timeline: [{ date: "2026-09-02", text: "z" }],
   });
+  // Knižnica si o poverenie musí povedať (G1.2) — a ani potom nesmie prejsť únik.
   assert.throws(
-    () => applyRecordWrite(spis, planWrite(undefined, pramen, "veta"), undefined),
+    () => applyRecordWrite(spis, planWrite(undefined, pramen, "veta"), STANDING),
     LeakBlockedError,
     "poverenie schvaľuje zápis, nie únik údajov",
   );
@@ -189,10 +190,10 @@ test("poverenie neoslabuje atomicitu Pravdy a Historie", () => {
 // --- prepadnutie sa nesmie prejaviť ako porucha ----------------------------
 
 test("validate ohlasi prepadnute poverenie", () => {
-  const { spis } = kancelaria(PLATNE.replace("2026-12-31", "2026-08-31"));
+  const { spis } = kancelaria(PLATNE.replace("2026-12-31", "2026-09-05"));
   const r = runCli(["validate", spis]);
   assert.match(r.out, /STANDING_AUTH_EXPIRED/);
-  assert.match(r.out, /2026-08-31/);
+  assert.match(r.out, /2026-09-05/);
   assert.equal(r.code, 0, "uplynutie lehoty je varovanie, nie chyba");
 });
 

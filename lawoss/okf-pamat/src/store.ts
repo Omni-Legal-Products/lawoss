@@ -11,10 +11,10 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { parseRecord, serializeRecord, type OkfRecord } from "./record.ts";
-import { renderStatus, type LinkResolver } from "./render.ts";
+import { renderStatus, retrofitStatus, type LinkResolver, type BlockName } from "./render.ts";
 import { validateStore } from "./validate.ts";
 import { authorize, type Approval, type WriteDiff } from "./write.ts";
-import { readStandingAuthorization, covers, readClientPath, matchesClientPath } from "./config.ts";
+import { readStandingAuthorization, covers, readClientPath, matchesClientPath, readNameLeakSeverity } from "./config.ts";
 import { typeLabel, valueLabel, truthDigest, OKF_VERSION, type Jurisdiction } from "./schema.ts";
 
 /**
@@ -102,6 +102,16 @@ function fileFor(store: Store, r: OkfRecord): string {
 }
 
 export class LeakBlockedError extends Error {}
+
+/**
+ * Výslovná žiadosť knižničného volajúceho konať pod trvalým poverením.
+ *
+ * Bez nej `undefined` znamená „bez schválenia" a brána do L1/L3 drží — aj keď
+ * poverenie v konfigu je. Aplikácia, ktorá o poverení nevie, ho nesmie dostať
+ * automaticky; musí si oň povedať. CLI si oň hovorí samo.
+ */
+export const STANDING: unique symbol = Symbol("okf.standing-authorization");
+export type ApprovalInput = Approval | typeof STANDING | undefined;
 export class ConcurrentWriteError extends Error {}
 
 /**
@@ -134,8 +144,22 @@ function assertNotStale(store: Store, diff: WriteDiff): void {
  */
 function assertNoLeak(dir: string, after: OkfRecord): void {
   if (after.layer !== "L3") return;
-  const ostatne = readScope(dir).records.filter((r) => r.id !== after.id);
-  const chyby = validateStore([...ostatne, after]).filter(
+  const scope = readScope(dir);
+  // Nečitateľný subjekt = chýbajúce jehly = brána, ktorá nič nezastaví a nikto
+  // sa to nedozvie. Obsidian pridá viacriadkový `aliases:`, súbor sa nedá
+  // prečítať, subjekt vypadne — a prameň s jeho IČO prejde. Preto sa pri
+  // nečitateľnom súbore v dosahu do L3 nezapisuje vôbec.
+  if (scope.problems.length > 0) {
+    const subory = scope.problems.map((p) => p.file).join(", ");
+    throw new LeakBlockedError(
+      `Zápis záznamu ${after.id} odmietnutý — v dosahu spisu sú nečitateľné záznamy (${subory}), ` +
+        `takže brána úniku by bola slepá. Oprav ich alebo presuň mimo ${MEMORY_DIR}/.`,
+    );
+  }
+  const ostatne = scope.records.filter((r) => r.id !== after.id);
+  const chyby = validateStore([...ostatne, after], {
+    nameLeakSeverity: readNameLeakSeverity(findOfficeDir(dir)),
+  }).filter(
     (f) => f.recordId === after.id && f.severity === "error" && f.code === "L3_LEAK",
   );
   if (chyby.length === 0) return;
@@ -146,7 +170,7 @@ function assertNoLeak(dir: string, after: OkfRecord): void {
 
 /** Zapíše návrh na disk — najprv však prejde bránami. */
 /**
- * Schválenie plynúce z trvalého poverenia advokáta v `_kancelaria/okf.config`.
+ * Schválenie plynúce z trvalého poverenia advokáta v `Office/okf.config`.
  *
  * Nie je to obídenie brány — je to schválenie udelené vopred a písomne,
  * namiesto klikania pri každom zázname. Preto ide tou istou cestou ako ručné
@@ -173,10 +197,10 @@ export function standingApproval(
 export function applyRecordWrite(
   dir: string,
   diff: WriteDiff,
-  approval: Approval | undefined,
+  approval: ApprovalInput,
   leakScopeDir: string = dir,
 ): void {
-  authorize(diff, approval ?? standingApproval(dir, diff));
+  authorize(diff, approval === STANDING ? standingApproval(dir, diff) : approval);
   if (diff.after) assertNoLeak(leakScopeDir, diff.after);
   const store = readStore(dir);
   assertNotStale(store, diff);
@@ -344,7 +368,7 @@ export function ensureBrain(dir: string, j: Jurisdiction): void {
     "",
     `- \`${mem}/\` zde ve spisu — obsah věci (L2)`,
     "- `../../memory/` u klienta — subjekty a AML prověření (identifikace se dělá jednou)",
-    "- `_kancelaria/memory/` — pravidla a poučení (L1) a právní prameny (L3)",
+    `- \`${OFFICE_DIR}/memory/\` — pravidla a poučení (L1) a právní prameny (L3)`,
     "",
     "Pramen patří kanceláři, ne spisu: jinak se týž judikát zkopíruje do deseti",
     "spisů a kontrola úniku běží desetkrát nad týmž textem.",
@@ -379,7 +403,7 @@ export function ensureBrain(dir: string, j: Jurisdiction): void {
     "",
     `- \`${mem}/\` tu v spise — obsah veci (L2)`,
     "- `../../memory/` u klienta — subjekty a AML preverenia (identifikácia sa robí raz)",
-    "- `_kancelaria/memory/` — pravidlá a poučenia (L1) a právne pramene (L3)",
+    `- \`${OFFICE_DIR}/memory/\` — pravidlá a poučenia (L1) a právne pramene (L3)`,
     "",
     "Prameň patrí kancelárii, nie spisu: inak sa ten istý judikát skopíruje do",
     "desiatich spisov a kontrola úniku beží desaťkrát nad tým istým textom.",
@@ -403,6 +427,17 @@ export function syncStatus(dir: string): void {
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
   const next = renderStatus(existing, store.records, store.jurisdiction, linkResolver(store, false));
   if (next !== existing) writeFileSync(path, next, "utf8");
+}
+
+/** Retrofit markerov do existujúceho `_STATUS.md`. Vráti, ktoré bloky pribudli. */
+export function retrofitStatusFile(dir: string, apply: boolean): BlockName[] {
+  const store = readStore(dir);
+  const path = join(dir, STATUS_FILE);
+  if (!existsSync(path)) return [];
+  const existing = readFileSync(path, "utf8");
+  const { text, inserted } = retrofitStatus(existing, store.records, store.jurisdiction, linkResolver(store, false));
+  if (apply && inserted.length > 0) writeFileSync(path, text, "utf8");
+  return inserted;
 }
 
 /**
@@ -437,17 +472,32 @@ const CLIENT_CARDS = ["client.md", "klient.md"];
  * Prameň patrí sem, nie do spisu — inak sa ten istý judikát skopíruje do
  * desiatich spisov a kontrola úniku beží desaťkrát nad tým istým textom.
  */
-export const OFFICE_DIR = "_kancelaria";
+/**
+ * Priečinok kancelárie. Rozhodnutie z callu 11. 9. 2026: jazykovo neutrálne
+ * `Office` — strojová vrstva je po anglicky, obsah zápisov v jazyku advokáta.
+ * Starší `_kancelaria` sa ďalej rozpozná; nový sa zakladá už len ako `Office`.
+ */
+export const OFFICE_DIR = "Office";
+export const LEGACY_OFFICE_DIR = "_kancelaria";
+const OFFICE_DIRS = [OFFICE_DIR, LEGACY_OFFICE_DIR] as const;
 
-/** Nájde zložku kancelárie nad spisom alebo klientom. */
-export function findOfficeDir(startDir: string, maxUp = 5): string | undefined {
+/**
+ * Nájde zložku kancelárie nad spisom alebo klientom.
+ *
+ * Rozloženie Fázy A je `AK/<písmeno>/<klient>/Spisy/<vec>` — spis leží päť
+ * úrovní pod koreňom vaultu. S piatimi krokmi sa kancelária nenašla a zápis
+ * prameňa skončil potichu v spise (test 10 vecí z ISIR, 11. 9. 2026). Osem
+ * krokov nechá rezervu pre ďalšiu úroveň, ale nedôjde až ku koreňu disku,
+ * kde by cudzí priečinok `Office` vyzeral ako kancelária.
+ */
+export function findOfficeDir(startDir: string, maxUp = 8): string | undefined {
   let dir = resolve(startDir);
   // Z kancelárie samotnej je kanceláriou ona sama. Inak by zápis L1 priamo
-  // do `_kancelaria/` nikdy nedostal trvalé poverenie — konfig leží práve tam.
-  if (dir.endsWith(`/${OFFICE_DIR}`)) return dir;
+  // do kancelárie nikdy nedostal trvalé poverenie — konfig leží práve tam.
+  if (OFFICE_DIRS.some((n) => dir.endsWith(`/${n}`))) return dir;
   for (let i = 0; i < maxUp; i++) {
-    const candidate = join(dir, OFFICE_DIR);
-    if (existsSync(candidate)) return candidate;
+    const candidate = OFFICE_DIRS.map((n) => join(dir, n)).find((c) => existsSync(c));
+    if (candidate) return candidate;
     const parent = dirname(dir);
     if (parent === dir) return undefined;
     dir = parent;
@@ -473,8 +523,8 @@ export function findClientDir(matterDir: string, maxUp = 4): string | undefined 
 }
 
 /**
- * Nájde priečinok klienta podľa `client_path` v `_kancelaria/okf.config`.
- * Koreňom je rodič `_kancelaria/`, teda koreň vaultu.
+ * Nájde priečinok klienta podľa `client_path` v `Office/okf.config`.
+ * Koreňom je rodič `Office/` (alebo staršej `_kancelaria/`), teda koreň vaultu.
  *
  * Bez tohto by v cudzom vaulte klientská úroveň nevznikla vôbec — a s ňou by
  * zmizli AML subjekty **aj z dosahu brány úniku**, ktorá `readScope` používa.
