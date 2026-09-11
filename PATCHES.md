@@ -21,6 +21,7 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 | `apps/app/index.html` | `<title>` `LegalWork` → `LAWOSS` | LAWOSS branding | MČ | design/faza-b0-branding |
 | `apps/desktop/electron-builder.yml` | `productName` → `LAWOSS`; publisher → `Omni-Legal-Products/lawoss`; icon files in `resources/icons/**` replaced by LAWOSS badge (binary) | LAWOSS branding and fork-owned updater metadata; `appId` intentionally unchanged (keychain/user-data continuity — separate ADR if ever) | MČ | fix/updater-release-assets |
 | `scripts/release/ship.mjs` | Default GitHub repository → `Omni-Legal-Products/lawoss` in release links and workflow watch | Release helper must ship and monitor the LAWOSS fork, not upstream LegalWork | MF | fix/updater-release-assets |
+| `apps/app/src/i18n/index.ts` | +`applyBrandName()`, +`BRAND_EXEMPT_KEYS`, substitúcia `LegalWork` → `LAWOSS` v `t()` pred dosadením parametrov | Branding bez prepisovania 229 upstream reťazcov; nové upstream reťazce pokryté automaticky | MČ | plan/branding-pass-a-alfa |
 
 ## Review checklist for upstream sync
 
