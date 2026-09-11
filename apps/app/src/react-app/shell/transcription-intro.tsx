@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { FeatureAnnouncementModal } from "@/react-app/design-system/modals/feature-announcement-modal";
 import { isDesktopRuntime, isOfficeAddinRuntime } from "@/app/utils";
 import { t } from "@/i18n";
+import { HIDDEN_SETTINGS_TABS } from "@/lawoss/feature-flags";
 import { useLocal } from "@/react-app/kernel/local-provider";
 
 import { hasPendingFreeRetiredNotice } from "./free-retired-dialog";
@@ -39,6 +40,10 @@ export function TranscriptionIntroDialog(props: { workspacesReady: boolean; onOp
   const onboardingStage = local.prefs.onboardingStage;
 
   useEffect(() => {
+    // LAWOSS: recorder je skrytá plocha (feature-flags.ts) — nesľubuj ju v
+    // prvorunovom vysvetlení, ktoré by čitateľa poslalo do funkcie, ktorú
+    // nevidí.
+    if (HIDDEN_SETTINGS_TABS.has("recorder")) return;
     if (!isDesktopRuntime() || isOfficeAddinRuntime()) return;
     if (!props.workspacesReady || alreadySeen()) return;
     // A profile inside (or fresh out of) the onboarding covers never needs
