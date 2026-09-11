@@ -303,6 +303,7 @@ export default {
   "autogram.status_loading": "Ověřuji Autogram…",
   "autogram.status_installed": "Autogram je na tomto Macu nainstalován",
   "autogram.status_not_installed": "Autogram se na tomto Macu nenašel",
+  "autogram.status_error": "Nepodařilo se zjistit, zda je Autogram nainstalován",
   "autogram.integration_note": "propojení s LAWOSS se připravuje",
   "autogram.open_app": "Otevřít Autogram",
   "autogram.open_failed": "Autogram se nepodařilo otevřít.",

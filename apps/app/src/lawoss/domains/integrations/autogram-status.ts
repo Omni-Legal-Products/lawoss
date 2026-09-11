@@ -28,3 +28,21 @@ export type AutogramCardAction = "open" | "download";
 export function resolveAutogramCardAction(status: AutogramCardStatus | null | undefined): AutogramCardAction {
   return status?.installed === true ? "open" : "download";
 }
+
+export type AutogramStatusLine = "loading" | "error" | "installed" | "not_installed";
+
+/**
+ * The status line's i18n key depends on whether detection itself failed, not
+ * just on what it found. A rejected `autogramStatus()` call (e.g. the
+ * desktop bridge is unavailable) must read as "could not check", never as
+ * "not installed" — those are different facts.
+ */
+export function resolveAutogramStatusLine(params: {
+  isPending: boolean;
+  isError: boolean;
+  installed: boolean | undefined;
+}): AutogramStatusLine {
+  if (params.isPending) return "loading";
+  if (params.isError) return "error";
+  return params.installed === true ? "installed" : "not_installed";
+}

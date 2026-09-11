@@ -4070,6 +4070,7 @@ const de = {
   "autogram.status_loading": "Autogram wird geprüft…",
   "autogram.status_installed": "Autogram ist auf diesem Mac installiert",
   "autogram.status_not_installed": "Autogram wurde auf diesem Mac nicht gefunden",
+  "autogram.status_error": "Ob Autogram installiert ist, konnte nicht geprüft werden",
   "autogram.integration_note": "Die Anbindung an LAWOSS wird vorbereitet",
   "autogram.open_app": "Autogram öffnen",
   "autogram.open_failed": "Autogram konnte nicht geöffnet werden.",

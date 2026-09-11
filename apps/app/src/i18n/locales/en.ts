@@ -3678,6 +3678,7 @@ export default {
   "autogram.status_loading": "Checking for Autogram…",
   "autogram.status_installed": "Autogram is installed on this Mac",
   "autogram.status_not_installed": "Autogram was not found on this Mac",
+  "autogram.status_error": "Could not check whether Autogram is installed",
   "autogram.integration_note": "LAWOSS integration is in preparation",
   "autogram.open_app": "Open Autogram",
   "autogram.open_failed": "Could not open Autogram.",

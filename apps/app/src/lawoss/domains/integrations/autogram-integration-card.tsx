@@ -13,8 +13,16 @@ import autogramIcon from "../../../../../../lawoss/brand/autogram-icon.png";
 import {
   AUTOGRAM_RELEASES_URL,
   resolveAutogramCardAction,
+  resolveAutogramStatusLine,
   shouldShowAutogramCard,
 } from "./autogram-status";
+
+const AUTOGRAM_STATUS_LINE_KEY = {
+  loading: "autogram.status_loading",
+  error: "autogram.status_error",
+  installed: "autogram.status_installed",
+  not_installed: "autogram.status_not_installed",
+} as const;
 
 const AUTOGRAM_STATUS_QUERY_KEY = ["lawoss", "autogram", "status"] as const;
 
@@ -87,11 +95,15 @@ export function AutogramIntegrationCard() {
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <p className="text-[11px] text-dls-secondary/70">
-          {statusQuery.isPending
-            ? t("autogram.status_loading")
-            : statusQuery.data?.installed
-              ? t("autogram.status_installed")
-              : t("autogram.status_not_installed")}
+          {t(
+            AUTOGRAM_STATUS_LINE_KEY[
+              resolveAutogramStatusLine({
+                isPending: statusQuery.isPending,
+                isError: statusQuery.isError,
+                installed: statusQuery.data?.installed,
+              })
+            ],
+          )}
           {" · "}
           {t("autogram.integration_note")}
         </p>
