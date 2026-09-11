@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { planEntity, validateMarkdown, type TemplateSet } from "../../../lawoss/okf/src/core";
-import { composePrompt, entityTypeFor, targetDir, type NovySpisForm } from "../src/lawoss/okf/compose-prompt";
+import { composePrompt, entityTypeFor, jurisdictionFlag, targetDir, type NovySpisForm } from "../src/lawoss/okf/compose-prompt";
 
 const form: NovySpisForm = {
   mode: "okf", subject: "pravnicka-osoba", title: "ACME s.r.o.", ico: "12345678",
@@ -49,5 +49,29 @@ describe("okf core used by the app preview", () => {
       if (!entry.path.endsWith(".md")) continue;
       expect(validateMarkdown(entry.path, entry.content ?? "", true)).toBeNull();
     }
+  });
+});
+
+/**
+ * Jurisdikcia vybraná v dialógu sa musí dostať až do karty veci. Cesta je
+ * dlhá — formulár → požiadavka pre agenta → `okf` CLI → `spis.md` — a doteraz
+ * končila hneď na prvom kroku: prompt ju spomínal len ľudsky a agent nemal
+ * podľa čoho zložiť prepínač. Spis potom vznikol bez `jurisdiction:` a
+ * `okf-memory init` ho odmietol.
+ */
+describe("jurisdikcia sa z dialógu dostane do CLI", () => {
+  test("slovenská vec nesie --sk, česká --cz", () => {
+    expect(jurisdictionFlag({ jurisdikcia: "SK" })).toBe("--sk");
+    expect(jurisdictionFlag({ jurisdikcia: "CZ" })).toBe("--cz");
+  });
+
+  test("požiadavka pre agenta obsahuje prepínač, nie len názov krajiny", () => {
+    expect(composePrompt({ ...form, jurisdikcia: "SK" })).toContain("--sk");
+    expect(composePrompt({ ...form, jurisdikcia: "CZ" })).toContain("--cz");
+  });
+
+  test("hotový príkaz v požiadavke je spustiteľný tak, ako stojí", () => {
+    const text = composePrompt({ ...form, subject: "spis", title: "Vec A", jurisdikcia: "CZ" });
+    expect(text).toContain(`okf plan spis "/Users/x/Klienti/Vec A" --title "Vec A" --cz`);
   });
 });
