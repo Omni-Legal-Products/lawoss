@@ -4058,6 +4058,23 @@ const de = {
     "„{name}“ wurde entfernt: Den kostenlosen Eigenwelt-Zugang gibt es nicht mehr. Starten Sie die Testphase oder verbinden Sie Ihr eigenes Modell.",
   "providers.removed_invalid":
     "„{name}“ wurde entfernt, weil die Engine die Konfiguration nicht laden konnte. Fügen Sie den Anbieter in den KI-Einstellungen erneut hinzu.",
+  "autogram.title": "Autogram",
+  "autogram.badge": "macOS-App",
+  "autogram.description":
+    "Eine eigenständige, bereits funktionierende native Signatur-App desselben Autors. Installieren und nutzen Sie sie unabhängig von LAWOSS, eine tiefere Anbindung an LAWOSS wird vorbereitet.",
+  "autogram.module_signing":
+    "Signieren (qualifizierte elektronische Signatur, PAdES, ASiC-E, qualifizierter Zeitstempel, handschriftliche Signatur)",
+  "autogram.module_conversion": "Garantierte Konvertierung nach dem slowakischen Gesetz Nr. 305/2013 Z. z.",
+  "autogram.module_safari": "Safari-Erweiterung für Behördenportale",
+  "autogram.module_registry": "Konvertierungsregister",
+  "autogram.status_loading": "Autogram wird geprüft…",
+  "autogram.status_installed": "Autogram ist auf diesem Mac installiert",
+  "autogram.status_not_installed": "Autogram wurde auf diesem Mac nicht gefunden",
+  "autogram.status_error": "Ob Autogram installiert ist, konnte nicht geprüft werden",
+  "autogram.integration_note": "Die Anbindung an LAWOSS wird vorbereitet",
+  "autogram.open_app": "Autogram öffnen",
+  "autogram.open_failed": "Autogram konnte nicht geöffnet werden.",
+  "autogram.get_app": "Autogram herunterladen",
 } as const;
 
 export default de;
