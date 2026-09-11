@@ -132,9 +132,9 @@ Pracujeme v troch zónach:
 | Člen | Zameranie |
 |---|---|
 | [Marián Čuprík](https://github.com/originalmagneto) | SK jurisdikcia, integrácie a upstream sync |
-| [Martin Friedrich](https://github.com/LexaurinTheDog) | Lehoty, právne workflowy a bezpečnostné brány |
+| [Vojta Říha](https://github.com/LexaurinTheDog) | CZ jurisdikcia, lokalizácia a technické návrhy |
 | [Igor Ribár](https://github.com/igorribar) | Advokátska prax a produktové overovanie |
-| [Vojta Říha](https://github.com/BiggusDicckkus) | CZ jurisdikcia, lokalizácia a technické návrhy |
+| [Martin Friedrich](https://github.com/BiggusDicckkus) | Lehoty, právne workflowy a bezpečnostné brány |
 
 ## Vývoj
 
