@@ -17,6 +17,7 @@ import { Badge, Button, Card, Row, Spinner } from "@legalwork/ui/react";
 import { toast } from "@/components/ui/sonner";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import { t } from "@/i18n";
+import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import type {
   EigenweltHubInstall,
   EigenweltHubItem,
@@ -207,6 +208,12 @@ export function HubDownloadSection({
 
   // No workspace to install into — nothing to render.
   if (!connected) return null;
+
+  // LAWOSS: `connected` only means a local sidecar client exists, not that
+  // the workspace has an Eigenwelt account — in an ordinary LAWOSS run it is
+  // true for every tester, so without this guard the Plus upsell below would
+  // render for everyone. Firm Hub is a paid upstream surface (feature-flags.ts).
+  if (!entitled && isCommercialSurfaceHidden("firm-hub")) return null;
 
   // Connected but not on Plus: show the upsell, which opens the Plus modal.
   if (!entitled) {
