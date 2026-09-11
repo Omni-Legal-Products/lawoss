@@ -97,6 +97,7 @@ git commit -m "test: overiť verejnú identitu LAWOSS distribúcie"
 - Modify: `.github/workflows/telegram-notify.yml`
 - Modify: `apps/desktop/electron-builder.yml`
 - Modify: `apps/desktop/package.json`
+- Modify: `scripts/release/apply-signpath-windows-artifact.mjs`
 
 **Interfaces:**
 - Consumes: the existing GitHub Actions release jobs and Electron Builder packaging configuration.
@@ -104,7 +105,7 @@ git commit -m "test: overiť verejnú identitu LAWOSS distribúcie"
 
 - [ ] **Step 1: Change stable release defaults and direct GitHub asset links**
 
-Use `LAWOSS` in the default release title and body. Derive `VERSION="${TAG#v}"` and `RELEASE_DOWNLOAD_BASE="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${TAG}"`, then link the five installer filenames using the `lawoss-` prefix. Replace the upstream `eigenweltlabs.com/legalwork` links. Update stable Windows staging and Electron asset globs from `legalwork-*` to `lawoss-*`, including the temporary unsigned artifact label.
+Use `LAWOSS` in the default release title and body. Derive `VERSION="${TAG#v}"` and `RELEASE_DOWNLOAD_BASE="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${TAG}"`, then link the five installer filenames using the `lawoss-` prefix. Replace the upstream `eigenweltlabs.com/legalwork` links. Update stable Windows staging, Electron asset globs, and SignPath signed-installer discovery from `legalwork-*` to `lawoss-*`, including the temporary unsigned artifact label.
 
 - [ ] **Step 2: Change alpha titles and fork updater pointers**
 
@@ -181,9 +182,9 @@ Run: `node --check scripts/release/report-download-stats.mjs`
 
 Run: `node --check scripts/release/lawoss-public-branding.test.mjs`
 
-Run: `pnpm exec prettier --check .github/workflows/release-macos-aarch64.yml .github/workflows/alpha-macos-aarch64.yml .github/workflows/alpha-windows-x64.yml .github/workflows/ci-tests.yml .github/workflows/telegram-notify.yml .github/workflows/download-stats.yml apps/desktop/electron-builder.yml apps/desktop/package.json scripts/release/report-download-stats.mjs scripts/release/lawoss-public-branding.test.mjs PATCHES.md`
+Run: `pnpm dlx prettier@3.6.2 --check .github/workflows/release-macos-aarch64.yml .github/workflows/alpha-macos-aarch64.yml .github/workflows/alpha-windows-x64.yml .github/workflows/ci-tests.yml .github/workflows/telegram-notify.yml .github/workflows/download-stats.yml apps/desktop/electron-builder.yml apps/desktop/package.json scripts/release/report-download-stats.mjs scripts/release/lawoss-public-branding.test.mjs`
 
-Expected: all commands exit 0.
+Expected: both syntax checks and the Prettier check exit 0. `PATCHES.md` retains the repository's existing compact table formatting and is checked with `git diff --check` instead of being reformatted.
 
 - [ ] **Step 3: Run the desktop test suite and typecheck**
 
@@ -209,4 +210,3 @@ git commit -m "docs: evidovať LAWOSS distribučný branding"
 Run: `git push -u origin codex/lawoss-branding-phase1`.
 
 Open a PR against `dev` with a title such as `chore: odstrániť upstream identitu z LAWOSS distribúcie`, explain the compatibility-preserving scope, list exact verification commands, and note that a complete `appId`/namespace migration is intentionally out of scope.
-
