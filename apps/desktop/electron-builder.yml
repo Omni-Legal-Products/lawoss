@@ -127,4 +127,4 @@ win:
 # trusted local CA) — see build/installer.nsh.
 nsis:
   include: build/installer.nsh
-artifactName: legalwork-${os}-${arch}-${version}.${ext}
+artifactName: lawoss-${os}-${arch}-${version}.${ext}
