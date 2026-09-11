@@ -142,8 +142,12 @@ test("prepinac kartu prebije", () => {
   assert.match(readFileSync(join(dir, "BRAIN.md"), "utf8"), /paměti|Vstupní/);
 });
 
-test("bez karty a bez prepinaca sa predpoklada cestina", () => {
+test("bez karty a bez prepinaca init odmietne — tichy default cz padol", () => {
+  // Tichý default bol v SK spisoch častý omyl (N8) a české a slovenské právo
+  // sa modeluje zvlášť. Rozhodnutie z rozdelenia práce ku kontraktu spisu (G4).
   const dir = mkdtempSync(join(tmpdir(), "okf-init-def-"));
-  runCli(["init", dir, "--apply"]);
-  assert.match(readFileSync(join(dir, "BRAIN.md"), "utf8"), /paměti|Vstupní/);
+  const r = runCli(["init", dir, "--apply"]);
+  assert.equal(r.code, 2, r.out);
+  assert.match(r.out, /--cz|--sk/);
+  assert.ok(!existsSync(join(dir, MEMORY_DIR)), "bez jurisdikcie nesmie nič vzniknúť");
 });

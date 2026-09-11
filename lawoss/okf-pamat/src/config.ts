@@ -1,5 +1,5 @@
 /**
- * Konfigurácia kancelárie — `_kancelaria/okf.config`.
+ * Konfigurácia kancelárie — `Office/okf.config` (staršie `_kancelaria/`).
  *
  * Jediná vec, ktorú dnes nesie: **trvalé poverenie** advokáta, ktorým sa
  * ruší potvrdzovanie jednotlivých zápisov do L1 a L3. Je to vedomý akt —

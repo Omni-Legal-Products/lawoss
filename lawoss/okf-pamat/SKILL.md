@@ -104,7 +104,7 @@ a prípravu návrhu**. Vlastný zápis nechaj CLI.
 |---|---|
 | `<spis>/memory/` | obsah veci — `matter`, `decision`, `claim`, `evidence`, `task`, `question` |
 | `<klient>/memory/` | `subject` a `screening` — identifikácia sa robí raz na klienta |
-| `_kancelaria/memory/` | `rule`, `lesson` (L1) a `authority` (L3) |
+| `Office/memory/` | `rule`, `lesson` (L1) a `authority` (L3) |
 
 `readScope()` prečíta všetky tri naraz. **Prameň patrí kancelárii, nie spisu** —
 inak sa ten istý judikát skopíruje do desiatich spisov a kontrola úniku beží
@@ -128,11 +128,11 @@ nikdy kópia obsahu — inak destilát prestane byť lacný a začne amplifikova
 ## Čo sa naučilo na desiatich veciach z ISIR
 
 - **L1 a L3 smerujú do kancelárie.** `okf-memory write <spis>` zapíše poučenie
-  alebo prameň do `_kancelaria/memory/`, ak kancelária existuje — vo výpise
-  uvidíš `Cieľ: _kancelaria/`. Brána úniku sa pritom posudzuje voči spisu.
+  alebo prameň do `Office/memory/`, ak kancelária existuje — vo výpise
+  uvidíš `Cieľ: Office/`. Brána úniku sa pritom posudzuje voči spisu.
 - **Identifikátory L1/L3 sú jedinečné v kancelárii, nie v spise.** Desať vecí
   s vlastným `A-001` skončí kolíziou; pred zápisom prameňa si pozri
-  `okf-memory read _kancelaria` alebo nechaj CLI povedať voľné id — pri
+  `okf-memory read Office` alebo nechaj CLI povedať voľné id — pri
   kolízii ho navrhne. `created` je nemenné: iný dátum založenia pod tým istým
   id je iný záznam, nie úprava.
 - **Opakovanú lehotu zapíš ako výčet konkrétnych dátumov** v `deadlines`

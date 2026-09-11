@@ -14,7 +14,7 @@ agent zapisovať sám. Nie je to vypnutá brána. Je to schválenie udelené v i
 
 ## Ako sa zapne
 
-Advokát vytvorí v adresári kancelárie súbor `_kancelaria/okf.config`:
+Advokát vytvorí v adresári kancelárie súbor `Office/okf.config`:
 
 ```
 standing_authorization: JUDr. Vojtěch Říha, Ph.D.
@@ -49,7 +49,7 @@ Bez poverenia:
 ```
 $ okf-memory write <spis> --file poucenie.md --reason "z veci Novák" --apply
 ODMIETNUTÉ: zápis do vrstvy L1 vyžaduje --approve-as "<meno advokáta>"
-alebo trvalé poverenie v _kancelaria/okf.config.
+alebo trvalé poverenie v Office/okf.config.
 ```
 
 S poverením ten istý príkaz prejde a v zázname pribudne riadok histórie:
@@ -115,7 +115,7 @@ Aby sa uplynutie neprejavilo ako porucha, `validate` ho hlási:
 
 ```
 $ okf-memory validate <spis>
-WARNING STANDING_AUTH_EXPIRED _kancelaria/okf.config: trvalé poverenie
+WARNING STANDING_AUTH_EXPIRED Office/okf.config: trvalé poverenie
 (JUDr. Vojtěch Říha, Ph.D.) uplynulo 2026-08-31 — zápisy do L1, L3 znova
 vyžadujú --approve-as.
 ```

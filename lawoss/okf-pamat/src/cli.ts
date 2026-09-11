@@ -9,7 +9,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
-  readStore, readScope, writeIndex, writeLog, syncStatus, ensureBrain, applyRecordWrite, standingApproval,
+  readStore, readScope, writeIndex, writeLog, syncStatus, retrofitStatusFile, ensureBrain, applyRecordWrite, standingApproval,
   findOfficeDir, OFFICE_DIR,
   jurisdictionFromCard, MEMORY_DIR, statusLinkResolver, findClientDir, STATUS_FILE,
 } from "./store.ts";
@@ -33,7 +33,8 @@ const USAGE = [
   "",
   "  okf-memory read     <spis>            prehľad pamäte",
   "  okf-memory validate <spis>            kontrola schémy, únikov L2→L3 a odkazov",
-  "  okf-memory sync     <spis> [--apply]  projekcia do _STATUS.md a INDEX.md",
+  "  okf-memory sync     <spis> [--apply]  projekcia do _STATUS.md, index.md a log.md",
+  "  okf-memory retrofit <spis> [--apply]  doplní markery do existujúcich sekcií _STATUS.md",
   "  okf-memory aml      <spis>            subjekty a stav AML preverenia",
   "  okf-memory write    <spis> --file <záznam.md> --reason \"…\" [--apply] [--approve-as \"meno\"]",
   "",
@@ -143,6 +144,17 @@ export function runCli(argv: readonly string[]): CliResult {
       ];
       const hasError = scope.problems.length > 0 || findings.some((f) => f.severity === "error");
       return { code: hasError ? 1 : 0, out: lines.join("\n") };
+    }
+
+    case "retrofit": {
+      // Sekcia bez markerov je advokátova; `sync` na nej zámerne končí konfliktom.
+      // Retrofit je ten výslovný krok, na ktorý konflikt odkazuje.
+      const bloky = retrofitStatusFile(dir, apply);
+      if (bloky.length === 0) return ok("Nič na doplnenie — každá známa sekcia už markery má, alebo v súbore nie je.");
+      return ok(
+        `${apply ? "Doplnené" : "dry-run: doplnil by som"} markery do ${bloky.length} sekcií: ${bloky.join(", ")}` +
+          `${apply ? ". Spusti sync." : ". Zapíš s --apply."}`,
+      );
     }
 
     case "sync": {
@@ -375,6 +387,16 @@ export function runCli(argv: readonly string[]): CliResult {
         : zKarty
           ? "karta veci"
           : "predvolené";
+      // Tichý default „cz" bol v SK spisoch častý omyl a české a slovenské
+      // právo sa modeluje zvlášť. Bez výslovnej jurisdikcie sa spis nezakladá.
+      if (zdroj === "predvolené") {
+        return {
+          code: 2,
+          out:
+            "Spis nemá jurisdikciu: uveď --cz alebo --sk, alebo `jurisdiction: cz|sk` " +
+            "v karte veci (matter.md / spis.md). Bez nej sa pamäť nezaloží.",
+        };
+      }
 
       if (!apply) {
         return ok(

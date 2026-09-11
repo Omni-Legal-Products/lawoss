@@ -248,13 +248,47 @@ export const MARKER_ONLY: readonly BlockName[] = ["records", "evidence_matrix", 
 
 /** Nadpis bloku, ktorý v súbore je, ale markery pod ním nie sú. */
 function bareHeading(text: string, b: BlockName): string | undefined {
+  return findBareHeading(text, b)?.alias;
+}
+
+/** Kde presne nadpis bez markerov leží — pre retrofit. */
+function findBareHeading(text: string, b: BlockName): { alias: string; end: number } | undefined {
   for (const alias of BLOCK_HEADING_ALIASES[b]) {
     // Zhoda musí sedieť na celý nadpis — „Lehoty a termíny klienta"
     // je vlastná sekcia advokáta, nie naša projekcia.
     const re = new RegExp(`^##\\s*(?:\\d+\\.\\s*)?${alias}\\s*$`, "mi");
-    if (re.test(text)) return alias;
+    const m = re.exec(text);
+    // `\s*$` s príznakom m zhltne aj koniec riadka — koniec nadpisu je bez neho.
+    if (m) return { alias, end: m.index + m[0].trimEnd().length };
   }
   return undefined;
+}
+
+/**
+ * Retrofit: do sekcií, ktoré v `_STATUS.md` už sú, ale nemajú markery, vloží
+ * markery **hneď pod nadpis**. Čo advokát v sekcii mal, ostáva pod nimi —
+ * nič sa nemaže, nič sa nepripája na koniec súboru. Druhé spustenie nenájde
+ * nič holé a nezmení nič (idempotentné). Spis založený cez `/novy-spis` má
+ * šablónu s `## 3. Lehoty` bez markerov a `sync` naň končí konfliktom —
+ * presne pre tento prípad.
+ */
+export function retrofitStatus(
+  existing: string,
+  records: readonly OkfRecord[],
+  j: Jurisdiction,
+  href?: LinkResolver,
+): { text: string; inserted: BlockName[] } {
+  let out = existing;
+  const inserted: BlockName[] = [];
+  for (const b of BLOCKS) {
+    if (out.includes(startMarker(b))) continue;
+    const hit = findBareHeading(out, b);
+    if (!hit) continue;
+    const body = RENDERERS[b](records, j, href);
+    out = out.slice(0, hit.end) + `\n${startMarker(b)}\n${body}\n${endMarker(b)}\n` + out.slice(hit.end);
+    inserted.push(b);
+  }
+  return { text: out, inserted };
 }
 
 /**

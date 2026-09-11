@@ -263,7 +263,7 @@ o „nedopísanú znalosť", ale o vadu.
 ### Napojenie na existujúci Obsidian vault
 
 Pamäť je markdown v priečinku spisu, vault je priečinok markdownu — napojenie
-je preto konfigurácia, nie most. Stačí `_kancelaria/memory/` v koreni vaultu
+je preto konfigurácia, nie most. Stačí `Office/memory/` v koreni vaultu
 a jeden riadok `client_path: AK/*/*` v `okf.config`; karty `klient.md` sa doň
 nesypú. `[[wiki-odkazy]]` v projekcii fungujú natívne a graf ukáže pamäť spisu.
 
@@ -272,17 +272,25 @@ Overené na vaulte s 88 908 súbormi. Podrobne: [`OBSIDIAN-VAULT.md`](OBSIDIAN-V
 ### Keď sa zo zápisu má stať agentná práca
 
 Human gate sa dá **udeliť vopred** namiesto klikania pri každom zázname:
-advokát napíše do `_kancelaria/okf.config` trvalé poverenie s menom, rozsahom,
+advokát napíše do `Office/okf.config` trvalé poverenie s menom, rozsahom,
 dôvodom a dátumom konca. Zápisy do jeho `scope` potom prejdú bez `--approve-as`
 a v histórii záznamu sa objaví, že ich kryje poverenie a do kedy platí.
 
 Poverenie **nevypína** mazanie, zákaz úniku do L3 ani atomicitu pravdy —
 schvaľuje zápis, nič iné. Podrobne: [`AGENTNI-ZAPISY.md`](AGENTNI-ZAPISY.md).
 
+## Priečinok kancelárie sa volá `Office`
+
+Rozhodnutie z callu 11. 9. 2026: strojová vrstva — názvy súborov, priečinkov
+a odkazov — je po anglicky, aby ten istý kontrakt uniesol slovenčinu, češtinu
+a neskôr poľštinu; obsah zápisov ostáva v jazyku advokáta. `_kancelaria`
+z augusta sa **ďalej rozpozná** (čítanie aj zápis), nový koreň sa ale zakladá
+už len ako `Office/`.
+
 ## Čo jadro zapisuje do spisu
 
 ```
-_kancelaria/
+Office/
 └── memory/          ← L1 pravidlá a poučenia + L3 právne pramene
 
 klient/
