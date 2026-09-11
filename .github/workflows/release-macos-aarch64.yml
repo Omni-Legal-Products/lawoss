@@ -138,7 +138,7 @@ jobs:
           # Download links go at the top of every release body so visitors
           # can download the installers directly from this fork's release.
           printf -v RELEASE_BODY '%s\n\n%s' \
-            "**Download the latest version:** [macOS (Apple Silicon)](${RELEASE_DOWNLOAD_BASE}/lawoss-mac-arm64-${VERSION}.dmg) · [macOS (Intel)](${RELEASE_DOWNLOAD_BASE}/lawoss-mac-x64-${VERSION}.dmg) · [Windows](${RELEASE_DOWNLOAD_BASE}/lawoss-win-x64-${VERSION}.exe) · [Linux x64](${RELEASE_DOWNLOAD_BASE}/lawoss-linux-x86_64-${VERSION}.AppImage) · [Linux arm64](${RELEASE_DOWNLOAD_BASE}/lawoss-linux-arm64-${VERSION}.AppImage)" \
+            "**Download the latest version:** [macOS (Apple Silicon)](${RELEASE_DOWNLOAD_BASE}/lawoss-mac-arm64-${VERSION}.dmg) · [macOS (Intel)](${RELEASE_DOWNLOAD_BASE}/lawoss-mac-x64-${VERSION}.dmg) · [Windows](${RELEASE_DOWNLOAD_BASE}/lawoss-win-x64-${VERSION}.exe) · [Linux x64](${RELEASE_DOWNLOAD_BASE}/lawoss-linux-x64-${VERSION}.AppImage) · [Linux arm64](${RELEASE_DOWNLOAD_BASE}/lawoss-linux-arm64-${VERSION}.AppImage)" \
             "$RELEASE_BODY"
 
           draft="${INPUT_DRAFT:-}"

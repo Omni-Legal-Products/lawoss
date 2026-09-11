@@ -44,7 +44,7 @@ export const ELECTRON_UPDATER_FEEDS = Object.freeze({
   // Stable is served via our domain; the route (eigenwelt-website
   // app/legalwork/update/[file]/route.ts) redirects every file to the same
   // GitHub release assets this URL used to point at:
-  //   https://github.com/eigenweltlabs/legalwork/releases/latest/download
+  //   https://github.com/Omni-Legal-Products/lawoss/releases/latest/download
   // 🟡 LAWOSS: feed forku — upstream feed by ponúkal LegalWork a prepísal by
   // fork (rovnaké appId). Tracked feed ostáva na vlastnej doméne (rovnaký
   // vzor ako upstream), GitHub je fallback. Kým fork nemá releasy, oba feedy

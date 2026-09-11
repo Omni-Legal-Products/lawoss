@@ -59,7 +59,7 @@ function resolveFallbackBaseUrl(version) {
   if (override) {
     return override.replace(/\/$/, "")
   }
-  return `https://github.com/eigenweltlabs/legalwork/releases/download/legalwork-orchestrator-v${version}`
+  return `https://github.com/Omni-Legal-Products/lawoss/releases/download/legalwork-orchestrator-v${version}`
 }
 
 async function downloadFallbackBinary() {

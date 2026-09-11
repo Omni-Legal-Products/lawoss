@@ -7,7 +7,7 @@ import { useBootState, useBootOverlayVisible } from "./boot-state";
 import { OwDotTicker } from "./dot-ticker";
 import { t } from "@/i18n";
 
-const RELEASES_URL = "https://github.com/eigenweltlabs/legalwork/releases";
+const RELEASES_URL = "https://github.com/Omni-Legal-Products/lawoss/releases";
 
 /**
  * One-click support-log collection for the boot error screen. The customer

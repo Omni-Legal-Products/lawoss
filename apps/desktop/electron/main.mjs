@@ -104,7 +104,7 @@ const DESKTOP_PROTOCOL_SCHEME = "legalwork";
 const isDevMode = process.env.LEGALWORK_DEV_MODE === "1";
 const APP_NAME =
   process.env.LEGALWORK_ELECTRON_APP_NAME?.trim() ||
-  (isDevMode ? "LegalWork - Dev" : "LegalWork");
+  (isDevMode ? "LAWOSS - Dev" : "LAWOSS");
 const APP_IDENTIFIER =
   process.env.LEGALWORK_ELECTRON_APP_IDENTIFIER?.trim() ||
   (isDevMode ? DEV_APP_IDENTIFIER : APP_BUNDLE_IDENTIFIER);
@@ -116,7 +116,7 @@ const APP_IDENTIFIER =
 // and the self-updater can never point at different feeds.
 const RELEASE_DOWNLOAD_BASE_URL = ELECTRON_UPDATER_FEEDS.stable;
 const RELEASE_DOWNLOAD_FALLBACK_BASE_URL = ELECTRON_UPDATER_FALLBACK_FEEDS.stable;
-const RELEASE_PAGE_URL = "https://github.com/eigenweltlabs/legalwork/releases/latest";
+const RELEASE_PAGE_URL = "https://github.com/Omni-Legal-Products/lawoss/releases/latest";
 
 const WINDOWS_PASTE_SCRIPT = `
 $source = @'

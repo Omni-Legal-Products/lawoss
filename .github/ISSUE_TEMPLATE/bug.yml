@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a problem in LegalWork
+description: Report a problem in LAWOSS
 title: "[Bug]: "
 labels:
   - bug
@@ -47,12 +47,12 @@ body:
   - type: textarea
     id: desktop_info
     attributes:
-      label: OW version & Desktop info (optional) 
+      label: OW version & Desktop info (optional)
       description: |
-        Include OS and LegalWork version if possible.
-        LegalWork version: Settings > General.
+        Include OS and LAWOSS version if possible.
+        LAWOSS version: Settings > General.
       placeholder: |
-        - LegalWork version: [e.g. 0.1.166]
+        - LAWOSS version: [e.g. 0.1.166]
         - OS: [e.g. macOS Tahoe 26.2]
     validations:
       required: false
