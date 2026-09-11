@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { t } from "../../../../i18n";
 import { isDesktopRuntime } from "../../../../app/utils";
+import { hideCommercialTabs } from "@/lawoss/feature-flags";
 import type { SettingsTab } from "../../../../app/types";
 import {
   SettingsContent,
@@ -235,7 +236,8 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // Recorder models/settings are desktop-only (local transcription engine).
   if (isDesktopRuntime()) tabs.splice(2, 0, "recorder");
   if (developerMode) tabs.push("debug");
-  return tabs;
+  // LAWOSS: účet a recorder sú komerčné plochy upstreamu — skryté, nie zmazané.
+  return hideCommercialTabs(tabs);
 }
 
 type SettingsPageProps = {

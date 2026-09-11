@@ -24,6 +24,7 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 | `apps/app/src/i18n/index.ts` | +`applyBrandName()`, +`BRAND_EXEMPT_KEYS`, substitúcia `LegalWork` → `LAWOSS` v `t()` pred dosadením parametrov | Branding bez prepisovania 229 upstream reťazcov; nové upstream reťazce pokryté automaticky | MČ | plan/branding-pass-a-alfa |
 | `apps/desktop/electron-builder.yml` | `artifactName` `legalwork-` → `lawoss-` (value-only) | Vydanie z 11. 9. vyšlo ako `legalwork-mac-arm64-0.1.14.dmg`, hoci `productName` je LAWOSS | MČ | plan/branding-pass-a-alfa |
 | `apps/desktop/package.json` | +1 súbor v skripte `test` (`electron/artifact-name.test.mjs`) | Aby sa názov artefaktov nemohol ticho vrátiť | MČ | plan/branding-pass-a-alfa |
+| `apps/app/src/react-app/domains/settings/shell/settings-page.tsx` | `getGlobalSettingsTabs()` vracia `hideCommercialTabs(tabs)` (+1 import, +1 riadok) | Skryť účet a recorder bez mazania upstream kódu | MČ | plan/branding-pass-a-alfa |
 
 ## Review checklist for upstream sync
 
