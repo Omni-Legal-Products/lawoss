@@ -28,6 +28,7 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 | `apps/app/src/react-app/domains/settings/pages/hub-scope-context.tsx` | `HubScopeToggle` vracia `null`, keď je `firm-hub` skrytý (+1 import, +1 riadok) | Firemné zdieľanie je platená plocha upstreamu | MČ | plan/branding-pass-a-alfa |
 | `apps/app/src/react-app/domains/session/surface/session-surface.tsx` | `trialEndedNoticeVisible` zohľadňuje `isCommercialSurfaceHidden("trial-notice")` (+1 import, +1 riadok) | Výzva na predplatné dodávateľa upstreamu nepatrí do LAWOSS | MČ | plan/branding-pass-a-alfa |
 | `apps/app/src/react-app/shell/transcription-intro.tsx` | `TranscriptionIntroDialog` sa nikdy nezobrazí, keď je `HIDDEN_SETTINGS_TABS.has("recorder")` (+1 import, +1 riadok v efekte) | Prvorunové vysvetlenie propaguje presne tú funkciu (recorder), ktorú LAWOSS skrýva | MČ | plan/branding-pass-a-alfa |
+| `apps/app/src/react-app/domains/settings/pages/general-view.tsx` | `resolveGlobalItems()` prefiltrovaný cez `HIDDEN_SETTINGS_TABS` (+1 import, +1 filter) | `Nastavenia → General` mal vlastný, neprefiltrovaný zoznam položiek vedúcich cez `onNavigateTab` priamo do skrytých panelov (account, recorder); `hideCommercialTabs()` filtrovala iba `getGlobalSettingsTabs()`, nie tento zoznam | MČ | plan/branding-pass-a-alfa |
 
 ## Review checklist for upstream sync
 
