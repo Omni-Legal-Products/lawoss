@@ -27,9 +27,12 @@ describe("MCP catalog authentication", () => {
     }
   });
 
-  test("LegalMemory discovers auth requirements for its firm's deployment", () => {
+  // LAWOSS: LegalMemory is intentionally hidden from quick connect (see
+  // src/lawoss/feature-flags.ts) — LAWOSS ships its own memory (OKF), so the
+  // firm-deployment auth-discovery entry this test originally checked no
+  // longer appears in the filtered catalog.
+  test("LegalMemory does not appear in the LAWOSS quick-connect catalog", () => {
     const entry = MCP_QUICK_CONNECT.find((item) => item.serverName === "legalmemory");
-    expect(entry).toBeDefined();
-    expect(entry?.oauth).toBeUndefined();
+    expect(entry).toBeUndefined();
   });
 });

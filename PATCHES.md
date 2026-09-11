@@ -25,6 +25,7 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 | `apps/desktop/electron-builder.yml` | `artifactName` `legalwork-` → `lawoss-` (value-only) | Vydanie z 11. 9. vyšlo ako `legalwork-mac-arm64-0.1.14.dmg`, hoci `productName` je LAWOSS | MČ | plan/branding-pass-a-alfa |
 | `apps/desktop/package.json` | +1 súbor v skripte `test` (`electron/artifact-name.test.mjs`) | Aby sa názov artefaktov nemohol ticho vrátiť | MČ | plan/branding-pass-a-alfa |
 | `apps/app/src/react-app/domains/settings/shell/settings-page.tsx` | `getGlobalSettingsTabs()` vracia `hideCommercialTabs(tabs)` (+1 import, +1 riadok) | Skryť účet a recorder bez mazania upstream kódu | MČ | plan/branding-pass-a-alfa |
+| `apps/app/src/app/constants.ts` | `MCP_QUICK_CONNECT` premenované na `MCP_QUICK_CONNECT_ALL` a znovu exportované cez filter `isHiddenQuickConnect` (+1 import) | LegalMemory sa neponúka na pripojenie; jeho subsystém tým ostáva nečinný bez guardov na ~25 miestach | MČ | plan/branding-pass-a-alfa |
 
 ## Review checklist for upstream sync
 

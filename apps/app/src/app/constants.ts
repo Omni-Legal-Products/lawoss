@@ -1,6 +1,7 @@
 import type { ModelRef, SuggestedPlugin } from "./types";
 import { t } from "../i18n";
 import { deriveMcpServerName } from "./mcp-identity";
+import { isHiddenQuickConnect } from "@/lawoss/feature-flags";
 import {
   BUILT_IN_LEGALWORK_EXTENSION_MANIFESTS,
   extensionContribution,
@@ -144,7 +145,7 @@ export function getMcpServerName(entry: Pick<McpDirectoryInfo, "name" | "serverN
   return deriveMcpServerName(entry.name);
 }
 
-export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
+const MCP_QUICK_CONNECT_ALL: McpDirectoryInfo[] = [
   {
     get name() { return t("mcp.quick_connect_legalmemory_title"); },
     serverName: "legalmemory",
@@ -569,5 +570,13 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
   },
   ...BUILT_IN_LEGALWORK_EXTENSION_MANIFESTS.map(extensionManifestToDirectoryInfo),
 ];
+
+/**
+ * LAWOSS: skryté položky sa z ponuky odfiltrujú. Pole vyššie ostáva úplné,
+ * aby sa upstream zmeny doň mergovali bez konfliktu.
+ */
+export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = MCP_QUICK_CONNECT_ALL.filter(
+  (entry) => !isHiddenQuickConnect(entry.serverName ?? ""),
+);
 
 export const LEGALWORK_EXTENSION_CATALOG = MCP_QUICK_CONNECT.filter((entry) => entry.kind === "extension");
