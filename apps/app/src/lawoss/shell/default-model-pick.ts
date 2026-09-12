@@ -1,4 +1,4 @@
-import type { ModelRef, ProviderListItem } from "../../app/types";
+import type { ModelRef, ProviderListItem } from "@/app/types";
 
 type ProviderModel = ProviderListItem["models"][string];
 

@@ -4,7 +4,7 @@ import type { Client, ModelRef, ProviderListItem } from "../../app/types";
 import { unwrap } from "../../app/lib/opencode";
 import { dispatchNewProviders } from "../../app/lib/provider-events";
 import { filterProviderList } from "../../app/utils/providers";
-import { pickDefaultModel } from "../kernel/default-model-pick";
+import { pickDefaultModel } from "../../lawoss/shell/default-model-pick";
 import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
 
 export const PROVIDER_LIST_CACHE_MS = 5 * 60 * 1000;

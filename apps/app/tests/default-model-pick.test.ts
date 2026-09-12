@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
+import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+
 import type { ProviderListItem } from "../src/app/types";
-import { isAgentCapableModel, pickDefaultModel } from "../src/react-app/kernel/default-model-pick";
+import { isAgentCapableModel, pickDefaultModel } from "../src/lawoss/shell/default-model-pick";
+import { getDefaultModelForSingleConnectedProvider } from "../src/react-app/infra/provider-list-query";
 
 /**
  * Connecting OpenRouter without saving a default model let the app pick the
@@ -68,6 +71,23 @@ describe("pickDefaultModel", () => {
   test("does not choose arbitrarily between zero or several providers", () => {
     expect(pickDefaultModel([])).toBeNull();
     expect(pickDefaultModel([openrouter, provider("openai", { "gpt-5": { toolcall: true } })])).toBeNull();
+  });
+});
+
+describe("getDefaultModelForSingleConnectedProvider", () => {
+  // The auto-pick in session-route goes through this upstream function; the
+  // upstream body took the catalogue's first entry, so this fails without the
+  // delegation to pickDefaultModel.
+  test("delegates to pickDefaultModel and skips the image model", () => {
+    const list = {
+      all: [openrouter],
+      connected: ["openrouter"],
+      default: { openrouter: "google/gemini-3-pro-image-preview" },
+    } as unknown as ProviderListResponse;
+    expect(getDefaultModelForSingleConnectedProvider(list)).toEqual({
+      providerID: "openrouter",
+      modelID: "anthropic/claude-sonnet-4.5",
+    });
   });
 });
 
