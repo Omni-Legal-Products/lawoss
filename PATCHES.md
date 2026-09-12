@@ -37,6 +37,7 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 | `apps/app/src/i18n/locales/en.ts` | +15 kľúčov `autogram.*` (Autogram teaser karta v Integrations, vrátane loading a chybového stavu) | Anglický zdroj pre i18n fallback; sk/cs preklady sú vlastné LAWOSS súbory bez záznamu | MČ | feat/autogram-teaser |
 | `apps/app/src/i18n/locales/de.ts` | +15 kľúčov `autogram.*` (formálne „Sie“, bez pomlčiek) | `scripts/i18n-check.ts` vyžaduje pre `de` plné pokrytie kľúčov z `en.ts` | MČ | feat/autogram-teaser |
 | `apps/app/scripts/i18n-check.ts` | `"autogram.title"` pridaný do `GERMAN_KEEPS_ENGLISH` (produktový názov) | „Autogram“ je názov produktu tretej strany, nemá nemecký preklad | MČ | feat/autogram-teaser |
+| `apps/app/tsconfig.json` | +1 riadok `"allowImportingTsExtensions": true` (iba typecheck; `noEmit` už platí, Vite `.ts` prípony rieši sám) | Prehľad a Lehoty čítajú pamäť spisu cez `lawoss/okf-pamat/src/record.ts`, ktorý importuje `./schema.ts` s príponou (balíček beží pod `node --test`, kde je prípona povinná); bez flagu `tsc` hlási TS5097 | VŘ | feat/prehlad-a-lehoty-c1 |
 
 ## Review checklist for upstream sync
 

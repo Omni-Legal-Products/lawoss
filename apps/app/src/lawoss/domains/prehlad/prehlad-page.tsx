@@ -2,17 +2,203 @@
 import { Link } from "react-router-dom";
 
 import { LawossLayout } from "../../shell/layout";
+import {
+  activeWorkspace,
+  addDays,
+  dayClass,
+  formatDay,
+  formatLongDay,
+  today,
+  useOkfConnection,
+  useOkfOverview,
+  type OkfReadResult,
+} from "../../okf/read-model";
 
 /**
- * Prehľad praxe — fáza B mockup with fictional data. Real aggregation over the
- * OKF root (`_STATUS.md`, `lehoty.md`, connector health) lands in fáza C4.
- * Visual contract: coordination repo, dizajnový jazyk v2 + hifi prototype.
+ * Prehľad praxe nad skutočnou pamäťou spisov (fáza C1/C2): čísla v hlavičke,
+ * lehoty na 14 dní a zoznam vecí pochádzajú zo záznamov `memory/*.md` vo
+ * workspace-i. Iba čítanie. Bez jediného spisu ostáva pôvodná ukážka
+ * s viditeľným štítkom.
  */
 export function PrehladPage() {
+  const { connection, error } = useOkfConnection();
+  const workspace = activeWorkspace(connection);
+  const query = useOkfOverview(connection, workspace);
+  const data = query.data;
+  const hasMatters = Boolean(data && data.matters.length > 0);
+
   return (
     <LawossLayout>
       <h1 className="lw-h1">Prehľad praxe</h1>
-      <p className="lw-lead">Utorok 23. augusta. Tri veci čakajú na vaše rozhodnutie, dve lehoty sú tento týždeň.</p>
+
+      {error ? <div className="lw-status err">{error}</div> : null}
+      {connection && !connection.client ? (
+        <div className="lw-status warn">Server LegalWork nebeží alebo chýba token — pamäť spisov sa nedá prečítať.</div>
+      ) : null}
+      {query.error ? <div className="lw-status err">{query.error instanceof Error ? query.error.message : String(query.error)}</div> : null}
+
+      {query.isPending && query.fetchStatus === "fetching" ? (
+        <p className="lw-lead">Načítavam pamäť spisov z workspace-u „{workspace?.displayNameResolved || workspace?.name}“…</p>
+      ) : data && hasMatters ? (
+        <RealOverview data={data} />
+      ) : (
+        <>
+          {data ? (
+            <p className="lw-empty">
+              Workspace <b>{workspace?.displayNameResolved || workspace?.name}</b> nemá žiadnu vec s pamäťou
+              (<span className="lw-mono">AK/&lt;písmeno&gt;/&lt;klient&gt;/Spisy/&lt;vec&gt;/memory/</span>). Založ ju cez{" "}
+              <Link to="/experimenty/novy-spis">Nový spis</Link>. Nižšie je ukážka, ako prehľad vyzerá.
+            </p>
+          ) : null}
+          <SampleOverview />
+        </>
+      )}
+    </LawossLayout>
+  );
+}
+
+function RealOverview({ data }: { data: OkfReadResult }) {
+  const now = today();
+  const fortnight = addDays(now, 14);
+  const soon = data.upcomingDeadlines.filter((d) => d.date <= fortnight);
+  const dueToday = data.upcomingDeadlines.filter((d) => d.date === now).length;
+  const withDue = data.matters.reduce((n, m) => n + m.openTasks.filter((t) => t.due).length, 0);
+  const t = data.totals;
+
+  return (
+    <>
+      <p className="lw-lead">
+        {formatLongDay(now)}. {t.matters} {plural(t.matters, "spis", "spisy", "spisov")}, {t.deadlinesWithin7Days}{" "}
+        {plural(t.deadlinesWithin7Days, "lehota", "lehoty", "lehôt")} do 7 dní, {t.openTasks}{" "}
+        {plural(t.openTasks, "otvorená úloha", "otvorené úlohy", "otvorených úloh")}.
+      </p>
+
+      <div className="lw-obal">
+        <div>
+          <span className="lw-sc">Aktívne spisy</span>
+          <span className="lw-v">
+            {t.matters}
+            {data.truncated ? <small>zobrazených prvých {t.matters}</small> : null}
+          </span>
+        </div>
+        <div>
+          <span className="lw-sc">Lehoty · 7 dní</span>
+          <span className={`lw-v${t.deadlinesWithin7Days > 0 ? " warn" : ""}`}>
+            {t.deadlinesWithin7Days}
+            <small>{dueToday > 0 ? `${dueToday} dnes` : t.overdue > 0 ? `${t.overdue} po termíne` : "žiadna dnes"}</small>
+          </span>
+        </div>
+        <div>
+          <span className="lw-sc">Otvorené úlohy</span>
+          <span className="lw-v">
+            {t.openTasks}
+            <small>{withDue} s termínom</small>
+          </span>
+        </div>
+        <div>
+          <span className="lw-sc">Záznamy v pamäti</span>
+          <span className={`lw-v${data.problems.length > 0 ? " warn" : ""}`}>
+            {t.records}
+            <small>{data.problems.length > 0 ? `${data.problems.length} nečitateľných` : "všetky čitateľné"}</small>
+          </span>
+        </div>
+      </div>
+
+      <div className="lw-reg">
+        <div className="lw-reg-h">
+          <h2>Lehoty · najbližších 14 dní</h2>
+          <span className="lw-meta">
+            zapísané v pamäti spisov, nič sa nedopočítava
+            <Link to="/lehoty">Celý register</Link>
+          </span>
+        </div>
+        {t.overdue > 0 ? (
+          <Link className="lw-row lw-cols-leh" to="/lehoty">
+            <span className="lw-no">!</span>
+            <span className="lw-d urg">po termíne</span>
+            <span className="lw-t">
+              {t.overdue} {plural(t.overdue, "lehota", "lehoty", "lehôt")} s dátumom pred dneškom
+              <small>otvor register a skontroluj, či sú vybavené</small>
+            </span>
+            <span className="lw-ref" />
+            <span className="lw-st warn">skontrolovať</span>
+          </Link>
+        ) : null}
+        {soon.length === 0 ? (
+          <p className="lw-empty">V najbližších 14 dňoch nie je v pamäti zapísaná žiadna lehota.</p>
+        ) : (
+          soon.map((d, i) => (
+            <Link key={`${d.matter.path}/${d.recordId}/${d.date}`} className="lw-row lw-cols-leh" to="/lehoty">
+              <span className="lw-no">{i + 1}.</span>
+              <span className={dayClass(d.date, now)}>{formatDay(d.date)}</span>
+              <span className="lw-t">
+                {d.title}
+                <small>
+                  {d.matter.title}
+                  {d.matter.court ? ` · ${d.matter.court}` : ""}
+                </small>
+              </span>
+              <span className="lw-ref">{d.matter.matterRef ?? d.recordId}</span>
+              <span className="lw-st">zapísané</span>
+            </Link>
+          ))
+        )}
+      </div>
+
+      <div className="lw-reg">
+        <div className="lw-reg-h">
+          <h2>Spisy</h2>
+          <span className="lw-meta">posledná udalosť z histórie záznamov</span>
+        </div>
+        {data.matters.map((m, i) => (
+          <div key={m.path} className="lw-row lw-cols-leh">
+            <span className="lw-no">{i + 1}.</span>
+            <span className="lw-d">{m.lastEvent ? formatDay(m.lastEvent.date) : "—"}</span>
+            <span className="lw-t">
+              {m.title}
+              <small>{m.lastEvent ? m.lastEvent.text : "bez udalosti v histórii"}</small>
+            </span>
+            <span className="lw-ref">{m.matterRef ?? m.court ?? ""}</span>
+            <span className={`lw-st${m.openTasks.length > 0 ? " warn" : " off"}`}>
+              {m.openTasks.length} {plural(m.openTasks.length, "úloha", "úlohy", "úloh")}
+              {m.state ? ` · ${m.state}` : ""}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {data.problems.length > 0 ? (
+        <div className="lw-status warn">
+          {data.problems.length} {plural(data.problems.length, "súbor sa nedal prečítať", "súbory sa nedali prečítať", "súborov sa nedalo prečítať")}:{" "}
+          {data.problems.slice(0, 3).map((p) => p.path).join(", ")}
+          {data.problems.length > 3 ? ", …" : ""}
+        </div>
+      ) : null}
+
+      <div className="lw-note">
+        <span>
+          Všetko beží <b>lokálne</b>; pamäť spisov sa iba <b>číta</b>, nič sa nezapisuje.
+        </span>
+        <span>
+          Chat a agent: záložka <b>Asistent</b>.
+        </span>
+      </div>
+    </>
+  );
+}
+
+function plural(n: number, one: string, few: string, many: string): string {
+  return n === 1 ? one : n >= 2 && n <= 4 ? few : many;
+}
+
+/** Pôvodná ukážka z fázy B — fiktívne dáta, zobrazuje sa iba bez spisov. */
+function SampleOverview() {
+  return (
+    <>
+      <p className="lw-lead">
+        <span className="lw-badge">ukážka — fiktívne dáta</span> Utorok 23. augusta. Tri veci čakajú na vaše rozhodnutie, dve
+        lehoty sú tento týždeň.
+      </p>
 
       <div className="lw-obal">
         <div>
@@ -127,7 +313,7 @@ export function PrehladPage() {
           Chat a agent: záložka <b>Asistent</b>.
         </span>
       </div>
-    </LawossLayout>
+    </>
   );
 }
 
