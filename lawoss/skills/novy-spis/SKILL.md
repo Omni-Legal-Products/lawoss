@@ -24,7 +24,9 @@ Ak `node` ani `bun` nie sú k dispozícii, **zastav sa a povedz to** — nesnaž
 | `okf validate <dir>` | pravidlá OKF v0.1; exit 1 pri chybe | nič |
 | `okf render <dir>` | pregeneruje `index.md` a `CLAUDE.md` mirror | iba odvodené |
 
-`<typ>` ∈ `klient` · `spis` · `projekt`. Flagy: `--ico`, `--klient`, `--protistrana`, `--protistrana-ico`, `--oblast`, `--desc`, `--spzn`, `--sud`. Pridaj `--json`, keď potrebuješ výstup spracovať.
+`<typ>` ∈ `klient` · `spis` · `projekt`. Flagy: `--ico`, `--klient`, `--protistrana`, `--protistrana-ico`, `--oblast`, `--desc`, `--spzn`, `--sud`, `--advokat`. Pridaj `--json`, keď potrebuješ výstup spracovať.
+
+`--advokat "Meno"` je ten, kto za spis zodpovedá. Bez neho ostane v karte `advokat: "[DOPLNIT]"` — nehádaj ho, spýtaj sa.
 
 **Pri `spis` je `--sk` alebo `--cz` povinné** a odmietne to už `plan`. Jurisdikcia sa zapíše do karty veci ako `jurisdiction:` a `okf-memory` ju odtiaľ číta — bez nej pamäť spisu nezaloží. Nehádaj ju: ak ti ju advokát nepovedal, spýtaj sa.
 

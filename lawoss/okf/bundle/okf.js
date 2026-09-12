@@ -36,6 +36,8 @@ function templateVars(input) {
     OBLAST: input.oblast ?? "",
     SPZN: input.spzn ?? "",
     SUD: input.sud ?? "",
+    JURISDICTION: input.jurisdiction ?? "",
+    ADVOKAT: input.advokat?.trim() || "[DOPLNIT]",
     DATE: date
   };
 }
@@ -243,30 +245,48 @@ updated: {{DATE}}
 > **Ďalší krok:** _(čo sa má stať najbližšie + kto to má urobiť + dokedy)_
 
 ## 1. Strany
+<!-- okf:render:parties:start -->
+<!-- okf:render:parties:end -->
+
 | Rola | Subjekt | IČO | Kontakt |
 |---|---|---|---|
 | Klient | {{KLIENT}} | {{KLIENT_ICO}} | |
 | Protistrana | {{PROTISTRANA}} | {{PROTISTRANA_ICO}} | |
 
 ## 2. Fakty veci
+<!-- okf:render:facts:start -->
+<!-- okf:render:facts:end -->
+
 *(každý fakt zistený pri práci — tvrdenia strán, zistenia z dokumentov, priznania, technický stav)*
 
 | # | Fakt | Zdroj | Zistené | Dopad na vec |
 |---|---|---|---|---|
 
 ## 3. Lehoty
+<!-- okf:render:deadlines:start -->
+<!-- okf:render:deadlines:end -->
+
 | Dátum | Typ | Zdroj | Stav |
 |---|---|---|---|
 
 ## 4. Chronológia
+<!-- okf:render:timeline:start -->
+<!-- okf:render:timeline:end -->
+
 | Dátum | Udalosť | Zdroj |
 |---|---|---|
 
 ## 5. Otvorené úlohy
+<!-- okf:render:tasks:start -->
+<!-- okf:render:tasks:end -->
+
 | # | Úloha | Termín | Status | Kto |
 |---|---|---|---|---|
 
 ## 6. Kľúčové dokumenty
+<!-- okf:render:documents:start -->
+<!-- okf:render:documents:end -->
+
 | Typ | Lokácia |
 |---|---|
 
@@ -290,9 +310,10 @@ protistrana_ico: "{{PROTISTRANA_ICO}}"
 oblast_prava: [{{OBLAST}}]
 spisova_znacka: "{{SPZN}}"
 sud: "{{SUD}}"
+jurisdiction: {{JURISDICTION}}
 status: aktívny
 lehoty: []
-advokat: Marián Čuprík
+advokat: "{{ADVOKAT}}"
 tags: []
 timestamp: {{DATE}}
 updated: {{DATE}}
@@ -519,6 +540,20 @@ function entityType(value) {
     return value;
   throw new Error(`typ mus\xED by\u0165 ${ENTITY_TYPES.join(" | ")}; dostal som: ${value ?? "(ni\u010D)"}`);
 }
+function jurisdictionFrom(flags, type) {
+  const sk = flags.sk === true;
+  const cz = flags.cz === true;
+  if (sk && cz)
+    throw new Error("naraz --sk aj --cz; vyber jednu jurisdikciu");
+  if (sk)
+    return "sk";
+  if (cz)
+    return "cz";
+  if (type === "spis") {
+    throw new Error("Spis potrebuje jurisdikciu: uve\u010F --sk alebo --cz. Zap\xED\u0161e sa do karty veci " + "ako `jurisdiction:` a `okf-memory` ju odtia\u013E pre\u010D\xEDta.");
+  }
+  return;
+}
 function inputFrom(positional, flags) {
   const type = entityType(positional[1]);
   const dir = positional[2];
@@ -537,7 +572,9 @@ function inputFrom(positional, flags) {
     oblast: str(flags, "oblast"),
     spzn: str(flags, "spzn"),
     sud: str(flags, "sud"),
-    date: str(flags, "date")
+    date: str(flags, "date"),
+    advokat: str(flags, "advokat"),
+    jurisdiction: jurisdictionFrom(flags, type)
   };
 }
 function run(argv, out = console.log) {
