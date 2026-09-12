@@ -30,6 +30,9 @@ describe("nový spis — požiadavka pre agenta", () => {
     expect(targetDir({ ...form, title: "a\\b/c" })).toBe("/Users/x/Klienti/a-b-c");
     expect(targetDir({ ...form, title: "../.." })).toBe("/Users/x/Klienti/---");
     expect(targetDir({ ...form, title: " / " })).toBe("/Users/x/Klienti/-");
+    // `.` by bol koreň sám, `.názov` skrytý priečinok mimo dosahu `okf validate`/`render`
+    expect(targetDir({ ...form, title: "." })).toBe("/Users/x/Klienti/[názov]");
+    expect(targetDir({ ...form, title: " .Novák" })).toBe("/Users/x/Klienti/Novák");
     const text = composePrompt(spis);
     expect(text).toContain(`okf plan spis "/Users/x/Klienti/Novák Jan — MSPH 79 INS 1-2026" --title "Novák Jan — MSPH 79 INS 1/2026" --cz`);
     expect(text).toContain("- názov: Novák Jan — MSPH 79 INS 1/2026");
