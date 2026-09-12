@@ -13,6 +13,7 @@ import { PaperGrainGradient } from "@legalwork/ui/react";
 import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import { isOfficeAddinRuntime } from "@/app/utils";
 import { t } from "@/i18n";
+import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import { FeatureAnnouncementModal } from "@/react-app/design-system/modals/feature-announcement-modal";
 
 const NOTICE_KEY = "legalwork.freeRetiredNotice";
@@ -35,6 +36,9 @@ export function markFreeRetiredNoticePending(): void {
 
 /** Whether the migration dialog is still due (other announcements defer). */
 export function hasPendingFreeRetiredNotice(): boolean {
+  // LAWOSS: dialóg ponúka skúšobnú verziu dodávateľa upstreamu; „nikdy nečaká",
+  // aby neblokoval What's new a úvod prepisu.
+  if (isCommercialSurfaceHidden("eigenwelt-trial")) return false;
   try {
     return window.localStorage.getItem(NOTICE_KEY) === "pending";
   } catch {

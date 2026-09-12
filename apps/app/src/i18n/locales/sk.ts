@@ -308,4 +308,8 @@ export default {
   "autogram.open_app": "Otvoriť Autogram",
   "autogram.open_failed": "Autogram sa nepodarilo otvoriť.",
   "autogram.get_app": "Získať Autogram",
+  // Lišta nad composerom bez AI modelu — bez zmienky o skúšobnej verzii dodávateľa upstreamu.
+  "chat.no_model_title": "Nie je pripojený žiadny AI model.",
+  "chat.no_model_body": "Pripojte vlastný model, napríklad Anthropic cez API kľúč.",
+  "chat.no_model_byo": "Pripojiť model",
 } as const;

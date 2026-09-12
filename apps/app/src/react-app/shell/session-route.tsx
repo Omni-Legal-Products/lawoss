@@ -78,6 +78,7 @@ import {
   safeStringify,
 } from "@/app/utils";
 import { t } from "@/i18n";
+import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import {
   type RouteWorkspace,
   type RouteSession,
@@ -746,6 +747,10 @@ export function SessionRoute() {
     },
     [setOnboardingStage],
   );
+  // LAWOSS: krok „Your AI" je len lievik na Eigenwelt trial — preskočiť ho (aj uložený stav "ai").
+  useEffect(() => {
+    if (onboardingStage === "ai" && isCommercialSurfaceHidden("eigenwelt-trial")) finishOnboarding("skipped");
+  }, [onboardingStage, finishOnboarding]);
   const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot } =
     useSessionProviderAuth({
       opencodeClient,
@@ -1884,7 +1889,7 @@ export function SessionRoute() {
         onDone={() => setOnboardingStage("ai")}
       />
     ) : null}
-    {onboardingStage === "ai" ? (
+    {onboardingStage === "ai" && !isCommercialSurfaceHidden("eigenwelt-trial") ? (
       // Last step. One action per step: start the trial (browser funnel) or skip.
       <AiStep
         onStartSignIn={sessionProviderAuthStore.startEigenweltSignIn}

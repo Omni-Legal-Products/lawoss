@@ -35,4 +35,10 @@ describe("LAWOSS feature flags", () => {
     expect(isCommercialSurfaceHidden("firm-hub")).toBe(true);
     expect(isCommercialSurfaceHidden("trial-notice")).toBe(true);
   });
+
+  test("ponuka Plus, prihlásenie do Eigenweltu a výzvy na skúšobnú verziu sú skryté", () => {
+    expect(isCommercialSurfaceHidden("premium-upsell")).toBe(true);
+    expect(isCommercialSurfaceHidden("eigenwelt-sign-in")).toBe(true);
+    expect(isCommercialSurfaceHidden("eigenwelt-trial")).toBe(true);
+  });
 });
