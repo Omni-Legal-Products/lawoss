@@ -13,13 +13,14 @@ describe("lokalizácia sk a cs pokrýva celé rozhranie", () => {
       const enKeys = Object.keys(en).sort();
       const keys = Object.keys(dict).sort();
       const missing = enKeys.filter((k) => !(k in dict));
-      const extra = keys.filter((k) => !(k in en));
+      // Čeština a slovenčina majú kategórie few a many, ktoré angličtina nemá — tie sú povolené navyše.
+      const extra = keys.filter((k) => !(k in en) && !(/_(few|many)$/.test(k) && `${k.replace(/_(few|many)$/, "")}_other` in en));
       expect(missing).toEqual([]);
       expect(extra).toEqual([]);
     });
     test(`${lang}: žiadna hodnota nie je prázdna a placeholdery sedia na en`, () => {
       const broken = Object.entries(dict)
-        .filter(([k, v]) => !v.trim() || placeholders(v) !== placeholders(en[k as keyof typeof en] ?? ""))
+        .filter(([k, v]) => { const base = k.replace(/_(few|many)$/, "_other"); const ref = en[(k in en ? k : base) as keyof typeof en] ?? ""; return !v.trim() || placeholders(v) !== placeholders(ref); })
         .map(([k]) => k);
       expect(broken).toEqual([]);
     });
