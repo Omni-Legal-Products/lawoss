@@ -24,6 +24,8 @@ import {
  * Nadpisy sekcií záznamu. Anglické pre obe jurisdikcie — záznam je formát,
  * nie dokument. Ľudským rozhraním je `_STATUS.md`, a ten zostáva lokalizovaný.
  */
+import { canonicalEventKind } from "./schema.ts";
+
 export const HEADINGS = { truth: "Truth", timeline: "History" } as const;
 
 /** Skalár frontmatteru. */
@@ -444,7 +446,7 @@ function parseTimeline(raw: string | undefined): TimelineEntry[] {
     if (!m || !m[1] || m[3] === undefined) continue;
     out.push(m[2] === undefined
       ? { date: m[1], text: m[3].trim() }
-      : { date: m[1], text: m[3].trim(), kind: m[2] });
+      : { date: m[1], text: m[3].trim(), kind: canonicalEventKind(m[2]) });
   }
   return out;
 }
@@ -468,11 +470,10 @@ export function parseRecord(text: string): OkfRecord {
     canon.set(kanon, v);
   }
 
-  for (const f of FIELDS) {
-    if (f.required && !canon.has(f.canonical)) {
-      throw new Error(`Chýba povinné pole: ${f.canonical}`);
-    }
-  }
+  // Všetky chýbajúce polia naraz — agent sa inak dozvedal po jednom (issue #49).
+  const chyba = FIELDS.filter((f) => f.required && !canon.has(f.canonical)).map((f) => f.canonical);
+  if (chyba.length === 1) throw new Error(`Chýba povinné pole: ${chyba[0]}`);
+  if (chyba.length > 1) throw new Error(`Chýbajú povinné polia: ${chyba.join(", ")}`);
 
   const typeRaw = String(canon.get("type"));
   if (!isRecordType(typeRaw)) throw new Error(`Neznámy typ záznamu: ${typeRaw}`);
@@ -590,7 +591,7 @@ export function serializeRecord(r: OkfRecord): string {
   lines.push(`## ${HEADINGS.truth}`, "", r.truth, "");
   lines.push(`## ${HEADINGS.timeline}`, "");
   for (const e of r.timeline) {
-    lines.push(`- ${e.date}${e.kind ? ` [${e.kind}]` : ""} — ${e.text}`);
+    lines.push(`- ${e.date}${e.kind ? ` [${canonicalEventKind(e.kind)}]` : ""} — ${e.text}`);
   }
   return lines.join("\n") + "\n";
 }

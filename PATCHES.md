@@ -52,6 +52,7 @@ Merged exact upstream tag `v0.1.18` (`336270d`) onto LAWOSS `ec0f4c1`. LAWOSS-ow
 | `apps/app/src/react-app/domains/settings/pages/personalisation-view.tsx`, `apps/app/src/react-app/kernel/local-provider.tsx` | Preserve document-author preference and normalization with upstream thinking-default migration. |
 | `apps/app/src/react-app/domains/settings/shell/settings-page.tsx`, `apps/app/src/react-app/shell/welcome-route.tsx` | Keep Appearance and LAWOSS onboarding while adopting Extensions settings and upstream analytics lifecycle. |
 | `apps/desktop/resources/icons/**`, `apps/desktop/electron-builder.yml` | Keep LAWOSS icons and use LAWOSS artwork for the newly packaged dark dock icon. |
+| `pnpm-workspace.yaml` | pridané `lawoss/*` medzi `packages` (+ zodpovedajúci `pnpm-lock.yaml`) | balíčky `lawoss/okf` a `lawoss/okf-pamat` sú súčasťou pnpm workspace — akčný bod z callu 11. 9. 2026 | VŘ | feat/okf-z-aplikacie-bez-rucnych-krokov |
 
 The existing Word add-in changes, OKF modules, updater feeds, release customization and application tests are retained from the fork. No new LAWOSS behavior is introduced into the upstream extension implementation.
 

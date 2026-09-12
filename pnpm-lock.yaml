@@ -480,6 +480,17 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
 
+  lawoss/okf: {}
+
+  lawoss/okf-pamat:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.3.0
+        version: 24.13.4
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+
   packages/handsfree: {}
 
   packages/legalwork-ui-mcp:
@@ -3468,6 +3479,9 @@ packages:
 
   '@types/node@22.19.7':
     resolution: {integrity: sha512-MciR4AKGHWl7xwxkBa6xUGxQJ4VBOmPTF7sL+iGzuahOFaO0jHCsuEfS80pan1ef4gWId1oWOweIhrDEYLuaOw==}
+
+  '@types/node@24.13.4':
+    resolution: {integrity: sha512-YJ7EqCstVTzIr0fMr7qul/977en+pQHrfmuKIo6Zr9i75Be21dr3MovcfvGtyvi2HAUrRerWps5sMO9I7WaxDw==}
 
   '@types/node@25.6.0':
     resolution: {integrity: sha512-+qIYRKdNYJwY3vRCZMdJbPLJAtGjQBudzZzdzwQYkEPQd+PJGixUL5QfvCLDaULoLv+RhT3LDkwEfKaAkgSmNQ==}
@@ -7738,6 +7752,9 @@ packages:
   undici-types@6.21.0:
     resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
 
+  undici-types@7.18.2:
+    resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
+
   undici-types@7.19.2:
     resolution: {integrity: sha512-qYVnV5OEm2AW8cJMCpdV20CDyaN3g0AjDlOGf1OW4iaDEx8MwdtChUp4zu4H0VP3nDRF/8RKWH+IPp9uW0YGZg==}
 
@@ -11505,6 +11522,10 @@ snapshots:
   '@types/node@22.19.7':
     dependencies:
       undici-types: 6.21.0
+
+  '@types/node@24.13.4':
+    dependencies:
+      undici-types: 7.18.2
 
   '@types/node@25.6.0':
     dependencies:
@@ -16530,6 +16551,8 @@ snapshots:
   ufo@1.6.3: {}
 
   undici-types@6.21.0: {}
+
+  undici-types@7.18.2: {}
 
   undici-types@7.19.2: {}
 
