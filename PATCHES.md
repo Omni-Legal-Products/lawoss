@@ -37,6 +37,8 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 | `apps/app/src/i18n/locales/en.ts` | +15 kľúčov `autogram.*` (Autogram teaser karta v Integrations, vrátane loading a chybového stavu) | Anglický zdroj pre i18n fallback; sk/cs preklady sú vlastné LAWOSS súbory bez záznamu | MČ | feat/autogram-teaser |
 | `apps/app/src/i18n/locales/de.ts` | +15 kľúčov `autogram.*` (formálne „Sie“, bez pomlčiek) | `scripts/i18n-check.ts` vyžaduje pre `de` plné pokrytie kľúčov z `en.ts` | MČ | feat/autogram-teaser |
 | `apps/app/scripts/i18n-check.ts` | `"autogram.title"` pridaný do `GERMAN_KEEPS_ENGLISH` (produktový názov) | „Autogram“ je názov produktu tretej strany, nemá nemecký preklad | MČ | feat/autogram-teaser |
+| `apps/app/src/react-app/infra/provider-list-query.ts` | Telo `getDefaultModelForSingleConnectedProvider()` nahradené delegáciou na `pickDefaultModel()` z LAWOSS súboru `apps/app/src/lawoss/shell/default-model-pick.ts` (+1 import, −9 riadkov) | Automatický výber predvoleného modelu bral prvý záznam katalógu bez ohľadu na schopnosti — u OpenRouteru obrázkový `google/gemini-3-pro-image-preview` bez nástrojov, každý prompt padal na HTTP 404 „No endpoints found that support tool use“; teraz sa vyberá len model s `capabilities.toolcall` a id bez `image/audio/tts/transcribe/realtime/embed` | VŘ | fix/predvoleny-model-s-nastrojmi |
+| `apps/app/tests/model-connect-notice.test.ts` | Fixture modelu doplnená o `capabilities: { toolcall: true }` (1 riadok) | Fixture bez schopností by po sprísnení výberu nezodpovedala reálnemu katalógu enginu a upstream testy predvoleného modelu by padli | VŘ | fix/predvoleny-model-s-nastrojmi |
 
 ## Review checklist for upstream sync
 

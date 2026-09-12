@@ -4,6 +4,7 @@ import type { Client, ModelRef, ProviderListItem } from "../../app/types";
 import { unwrap } from "../../app/lib/opencode";
 import { dispatchNewProviders } from "../../app/lib/provider-events";
 import { filterProviderList } from "../../app/utils/providers";
+import { pickDefaultModel } from "../../lawoss/shell/default-model-pick";
 import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
 
 export const PROVIDER_LIST_CACHE_MS = 5 * 60 * 1000;
@@ -109,23 +110,13 @@ export function countConnectedProviders(
 /**
  * Pick a safe initial model when the user has connected exactly one provider.
  * With multiple providers there is no user-intent signal for choosing between
- * them, so the model picker remains responsible for that decision.
+ * them, so the model picker remains responsible for that decision. Only a
+ * tool-capable chat model qualifies (see pickDefaultModel).
  */
 export function getDefaultModelForSingleConnectedProvider(
   value: ProviderListResponse | null | undefined,
 ): ModelRef | null {
-  const connected = getConnectedProviderItems(value);
-  if (connected.length !== 1) return null;
-
-  const provider = connected[0];
-  const modelIds = Object.keys(provider.models ?? {});
-  if (modelIds.length === 0) return null;
-
-  const advertisedDefault = value?.default?.[provider.id];
-  const modelID = advertisedDefault && provider.models?.[advertisedDefault]
-    ? advertisedDefault
-    : modelIds[0];
-  return { providerID: provider.id, modelID };
+  return pickDefaultModel(getConnectedProviderItems(value), value?.default ?? {});
 }
 
 /** The built-in OpenCode Zen provider id. Retired as a fallback: the server
