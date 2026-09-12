@@ -45,6 +45,7 @@ const methodPillToneClass = (type: ProviderAuthMethod["type"]) => {
 };
 import type { ProviderAuthAuthorization } from "@opencode-ai/sdk/v2/client";
 import { t } from "@/i18n";
+import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import type {
   CustomProviderApiType,
   CustomProviderEditData,
@@ -413,6 +414,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     // API-key option, no base-URL field, no models fields, no custom form.
     if (
       props.onEigenweltSignIn &&
+      !isCommercialSurfaceHidden("eigenwelt-sign-in") && // LAWOSS: predplatné dodávateľa upstreamu sa neponúka
       !nextEntries.some((entry) => entry.id === EIGENWELT_PROVIDER_ID)
     ) {
       nextEntries.push({

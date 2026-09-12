@@ -21,6 +21,7 @@ import { openDesktopUrl } from "@/app/lib/desktop";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { t } from "@/i18n";
+import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import { FeatureAnnouncementModal } from "@/react-app/design-system/modals/feature-announcement-modal";
 import { eigenweltBillingUrl } from "@/react-app/domains/connections/eigenwelt-entitlements";
 
@@ -72,6 +73,8 @@ export function PremiumUpsellModal(props: {
   const platformURL = eigenweltPremiumPlatformUrl();
   const checkoutUrl = eigenweltBillingUrl(platformURL);
   const [copied, setCopied] = useState(false);
+  // LAWOSS: ponuka Eigenwelt Plus nepatrí do LAWOSS; lokálny prepis ostáva.
+  if (isCommercialSurfaceHidden("premium-upsell")) return null;
 
   const copyCheckoutUrl = async () => {
     try {

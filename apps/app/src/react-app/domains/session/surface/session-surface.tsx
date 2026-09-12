@@ -389,7 +389,8 @@ function NoModelNotice(props: {
         <span className="font-medium text-dls-text">{title}</span> {body}
       </p>
       <div className="flex shrink-0 items-center gap-2">
-        {props.variant === "no-ai-plan" ? (
+        {/* LAWOSS: skúšobná verzia, prihlásenie a upgrade vedú do platformy dodávateľa — ostáva len vlastný model. */}
+        {isCommercialSurfaceHidden("eigenwelt-trial") ? null : props.variant === "no-ai-plan" ? (
           <button type="button" className={primaryButtonClass} onClick={() => props.onConnect?.("upgrade")}>
             {t("chat.no_ai_plan_upgrade")}
           </button>
