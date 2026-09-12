@@ -31,6 +31,55 @@ Citáciu do výstupu overuj vždy proti originálu dokumentu, nikdy proti pamät
 | poučenie z chyby, čo nabudúce inak | `lesson` | **L1** |
 | judikát, ustanovenie, argumentačný vzor | `authority` | **L3** |
 
+## Povinné polia záznamu
+
+Každý záznam je markdown s YAML hlavičkou a dvoma sekciami `## Truth` a `## History`.
+Bez ktoréhokoľvek z týchto **desiatich** polí CLI návrh odmietne (vypíše všetky chýbajúce naraz):
+
+| Pole | Hodnota |
+|---|---|
+| `okf` | `1` |
+| `id` | `S-001`, `M-001`, `D-001`, `T-001`, `Q-001`, `SC-001`, `C-001`, `E-001`, `R-001`, `L-001`, `A-001` — prefix podľa typu, číslo trojmiestne |
+| `type` | `subject` · `matter` · `decision` · `task` · `question` · `screening` · `claim` · `evidence` · `rule` · `lesson` · `authority` |
+| `title`, `description` | jedna veta; opis bez citlivých údajov |
+| `layer` | `L2` (spis) · `L1` (`rule`, `lesson`) · `L3` (`authority`) — určuje ho typ |
+| `jurisdiction` | `cz` alebo `sk` — nikdy predvolene |
+| `status` | `active` · `superseded` · `void` |
+| `created`, `updated` | `RRRR-MM-DD`; `updated` sa pri zmene pravdy posúva dopredu |
+
+Najmenší platný záznam (spis, CZ):
+
+```markdown
+---
+okf: 1
+id: T-001
+type: task
+title: Stáhnout poslední dokument z ISIR
+description: Oddíl B, událost z 2026-09-11.
+layer: L2
+jurisdiction: cz
+status: active
+created: 2026-09-11
+updated: 2026-09-11
+state: pending
+assignee: VŘ
+deadlines: ["2026-09-25"]
+related: ["M-001"]
+---
+
+## Truth
+
+Nezahájeno.
+
+## History
+
+- 2026-09-11 — Úkol založen.
+```
+
+Polia podľa typu (hodnoty z výpočtu, inak `UNKNOWN_VALUE`): `subject` → `role` (`client`, `counterparty`, `representative`, `ubo`), `person_type` (`natural_person`, `legal_person`, `sole_trader`), `registry_id` alebo `birth_number`, `registered_office`/`residence`; `matter` → `matter_ref`, `court`, `area`, `parties`; `decision` → `procedural_status` (`proposed`, `taken`), `deadlines`; `task` → `state` (`pending`, `in_progress`, `blocked`, `done`), `assignee`, `deadlines`; `question` → `legal_question`, `proof_status`; `screening` → `subject_ref`, `check_date`, `mode` (`light`, `medium`, `hard`), `risk`, `conclusion`, `valid_until`; `claim` → `claimed_by`, `proof_status`; `evidence` → `evidence_kind` (`document`, `witness`, `expert_opinion`, `party_examination`, `inspection`), `origin_date`, `sources`; `authority` → `sources` s `id` a `[^id]` v pravde, `verified`.
+
+Druhy udalostí v `## History` (`- 2026-09-11 [decision] — …`): `delivery` · `filing` · `hearing` · `decision` · `request` · `call` · `email`. Staré slovenské hodnoty (`rozhodnutie`, `podanie`, …) sa pri čítaní prevedú, do súboru sa už píšu anglicky.
+
 ## Zápis
 
 ```bash

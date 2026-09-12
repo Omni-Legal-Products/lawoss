@@ -88,9 +88,21 @@ export type Conclusion = (typeof CONCLUSION)[number];
  * sa nepremenúva a nebráni zápisu; advokát smie zapísať aj to, čo slovník
  * nepozná. Slúži na filtrovanie chronológie, nie na výpočet lehôt.
  */
+/**
+ * Druhy udalostí sú anglické ako každý strojový kľúč (O6, rozhodnutie 1 z callu 11. 9. 2026).
+ * Staré slovenské hodnoty sa pri čítaní prevedú cez EVENT_KIND_ALIASES, aby existujúce
+ * spisy čítali ďalej; späť sa zapisujú už anglicky.
+ */
 export const EVENT_KINDS = [
-  "dorucenie", "podanie", "pojednavanie", "rozhodnutie", "vyzva", "hovor", "email",
+  "delivery", "filing", "hearing", "decision", "request", "call", "email",
 ] as const;
+export const EVENT_KIND_ALIASES: Readonly<Record<string, EventKind>> = {
+  dorucenie: "delivery", podanie: "filing", pojednavanie: "hearing", rozhodnutie: "decision", vyzva: "request", hovor: "call",
+};
+/** Kanonický druh udalosti; neznámu hodnotu nechá tak, nech ju validácia pomenuje. */
+export function canonicalEventKind(kind: string): string {
+  return EVENT_KIND_ALIASES[kind] ?? kind;
+}
 export type EventKind = (typeof EVENT_KINDS)[number];
 
 /** Stav úlohy. `blocked` znamená, že čaká na inú úlohu — nie „nechce sa mi". */
@@ -456,12 +468,12 @@ const VALUE_LABELS: Record<string, Record<string, Record<Jurisdiction, string>>>
     taken: { cz: "proveden", sk: "vykonaný" },
   },
   event_kind: {
-    dorucenie: { cz: "doručení", sk: "doručenie" },
-    podanie: { cz: "podání", sk: "podanie" },
-    pojednavanie: { cz: "jednání", sk: "pojednávanie" },
-    rozhodnutie: { cz: "rozhodnutí", sk: "rozhodnutie" },
-    vyzva: { cz: "výzva", sk: "výzva" },
-    hovor: { cz: "hovor", sk: "hovor" },
+    delivery: { cz: "doručení", sk: "doručenie" },
+    filing: { cz: "podání", sk: "podanie" },
+    hearing: { cz: "jednání", sk: "pojednávanie" },
+    decision: { cz: "rozhodnutí", sk: "rozhodnutie" },
+    request: { cz: "výzva", sk: "výzva" },
+    call: { cz: "hovor", sk: "hovor" },
     email: { cz: "e-mail", sk: "e-mail" },
   },
   state: {
