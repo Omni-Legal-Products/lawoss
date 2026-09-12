@@ -37,6 +37,8 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 | `apps/app/src/i18n/locales/en.ts` | +15 kľúčov `autogram.*` (Autogram teaser karta v Integrations, vrátane loading a chybového stavu) | Anglický zdroj pre i18n fallback; sk/cs preklady sú vlastné LAWOSS súbory bez záznamu | MČ | feat/autogram-teaser |
 | `apps/app/src/i18n/locales/de.ts` | +15 kľúčov `autogram.*` (formálne „Sie“, bez pomlčiek) | `scripts/i18n-check.ts` vyžaduje pre `de` plné pokrytie kľúčov z `en.ts` | MČ | feat/autogram-teaser |
 | `apps/app/scripts/i18n-check.ts` | `"autogram.title"` pridaný do `GERMAN_KEEPS_ENGLISH` (produktový názov) | „Autogram“ je názov produktu tretej strany, nemá nemecký preklad | MČ | feat/autogram-teaser |
+| `apps/server/src/opencode-plugins/legalwork-skill-tools.ts` | Pomocné funkcie `fitSkillName`, `resolveSkillName`, `buildSkillMarkdown` (+ `MAX_SKILL_NAME_LENGTH`, `titleFromName`) presunuté bez zmeny do nového súboru `legalwork-skill-tools-shared.ts` (+1 import); modul exportuje už len `LegalWorkSkillTools` | opencode (v1.18.29, `plugin/index.ts` → `getLegacyPlugins`) volá KAŽDÝ export plugin modulu ako `server(input)`; `buildSkillMarkdown(PluginInput)` padal na `input.description.trim` a engine pri každom štarte logoval `failed to load plugin` | VŘ | fix/skill-tools-plugin-start |
+| `apps/server/src/opencode-plugins/legalwork-skill-tools.test.ts` | Import pomocných funkcií presmerovaný na `legalwork-skill-tools-shared.js` (+1 namespace import); +1 test, ktorý každý export modulu zavolá ako plugin vstup tak, ako to robí opencode | Aby sa export pomocnej funkcie vedľa pluginu nemohol ticho vrátiť | VŘ | fix/skill-tools-plugin-start |
 
 ## Review checklist for upstream sync
 
