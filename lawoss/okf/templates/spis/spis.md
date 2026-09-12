@@ -13,7 +13,7 @@ sud: "{{SUD}}"
 jurisdiction: {{JURISDICTION}}
 status: aktívny
 lehoty: []
-advokat: Marián Čuprík
+advokat: "{{ADVOKAT}}"
 tags: []
 timestamp: {{DATE}}
 updated: {{DATE}}

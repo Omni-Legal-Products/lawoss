@@ -26,10 +26,17 @@ export function entityTypeFor(subject: SubjectKind): EntityType {
   return "klient";
 }
 
+/**
+ * Cieľový priečinok = koreň + JEDEN segment z názvu veci. Spisová značka má
+ * vždy lomítko (`MSPH 79 INS 1/2026`) — bez sanitizácie by sa ročník stal
+ * ďalšou adresárovou úrovňou a `..` by ušlo mimo koreň. Názov veci v karte
+ * ostáva pôvodný, mení sa iba názov priečinka. Úvodné bodky preč: `.` by bol
+ * koreň sám a `.názov` skrytý priečinok, ktorý `okf` pri prehľadávaní preskočí.
+ */
 export function targetDir(form: NovySpisForm): string {
-  const title = form.title.trim() || "[názov]";
+  const name = form.title.replace(/[\\/]+/g, "-").replace(/\.{2,}/g, "-").replace(/^[\s.]+|\s+$/g, "") || "[názov]";
   const root = form.root.replace(/[\\/]+$/, "");
-  return root ? `${root}/${title}` : title;
+  return root ? `${root}/${name}` : name;
 }
 
 /** Prepínač jurisdikcie pre `okf` CLI. Strojová hodnota je malými písmenami. */

@@ -19,6 +19,24 @@ describe("nový spis — požiadavka pre agenta", () => {
     expect(targetDir({ ...form, root: "/a/b/" })).toBe("/a/b/ACME s.r.o.");
     expect(targetDir({ ...form, root: "", title: "" })).toBe("[názov]");
   });
+  /**
+   * Spisová značka má vždy lomítko (`MSPH 79 INS 1/2026`) a advokát ju do
+   * názvu dá prakticky vždy. Bez sanitizácie sa ročník stal ďalšou
+   * adresárovou úrovňou a `..` mohlo ujsť mimo koreň (#52).
+   */
+  test("názov priečinka je jeden segment; názov veci v karte ostáva pôvodný", () => {
+    const spis: NovySpisForm = { ...form, subject: "spis", title: "Novák Jan — MSPH 79 INS 1/2026", jurisdikcia: "CZ" };
+    expect(targetDir(spis)).toBe("/Users/x/Klienti/Novák Jan — MSPH 79 INS 1-2026");
+    expect(targetDir({ ...form, title: "a\\b/c" })).toBe("/Users/x/Klienti/a-b-c");
+    expect(targetDir({ ...form, title: "../.." })).toBe("/Users/x/Klienti/---");
+    expect(targetDir({ ...form, title: " / " })).toBe("/Users/x/Klienti/-");
+    // `.` by bol koreň sám, `.názov` skrytý priečinok mimo dosahu `okf validate`/`render`
+    expect(targetDir({ ...form, title: "." })).toBe("/Users/x/Klienti/[názov]");
+    expect(targetDir({ ...form, title: " .Novák" })).toBe("/Users/x/Klienti/Novák");
+    const text = composePrompt(spis);
+    expect(text).toContain(`okf plan spis "/Users/x/Klienti/Novák Jan — MSPH 79 INS 1-2026" --title "Novák Jan — MSPH 79 INS 1/2026" --cz`);
+    expect(text).toContain("- názov: Novák Jan — MSPH 79 INS 1/2026");
+  });
   test("prompt names the skill, the gate and the verification step", () => {
     const text = composePrompt(form);
     expect(text).toContain("/novy-spis");
