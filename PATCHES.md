@@ -37,6 +37,8 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 | `apps/app/src/i18n/locales/en.ts` | +15 kľúčov `autogram.*` (Autogram teaser karta v Integrations, vrátane loading a chybového stavu) | Anglický zdroj pre i18n fallback; sk/cs preklady sú vlastné LAWOSS súbory bez záznamu | MČ | feat/autogram-teaser |
 | `apps/app/src/i18n/locales/de.ts` | +15 kľúčov `autogram.*` (formálne „Sie“, bez pomlčiek) | `scripts/i18n-check.ts` vyžaduje pre `de` plné pokrytie kľúčov z `en.ts` | MČ | feat/autogram-teaser |
 | `apps/app/scripts/i18n-check.ts` | `"autogram.title"` pridaný do `GERMAN_KEEPS_ENGLISH` (produktový názov) | „Autogram“ je názov produktu tretej strany, nemá nemecký preklad | MČ | feat/autogram-teaser |
+| `apps/desktop/electron/main.mjs` | +1 import z `update-feed.mjs`; telo `resolveCorrectArchitectureDownloadUrl()` deleguje na `resolveArchitectureDownloadUrl()` (sledovaný feed potichu, fallback na `releases/download/v<verzia>/<asset>`); statický `downloadUrl` v `resolveArchitectureInfo()` cez `releaseAssetUrl()` namiesto `legalwork-*` na `releases/latest` (−1 riadok `assetName`) | Sledovaný feed `lawoss.app/update` nebeží (404) a `releases/latest` forku drží orchestrátorový sidecar — rozlíšenie architektúry zlyhávalo na oboch feedoch a zahlcovalo log (issue #51); logika je v novom LAWOSS súbore, upstream pomocné funkcie ostávajú | VŘ | fix/updater-feed-fork |
+| `apps/desktop/package.json` | +1 súbor v skripte `test` (`electron/update-feed.test.mjs`) | Testy feedu forku bežia v `pnpm --filter @legalwork/desktop test` | VŘ | fix/updater-feed-fork |
 
 ## Review checklist for upstream sync
 

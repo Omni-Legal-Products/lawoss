@@ -42,6 +42,7 @@ import {
   ELECTRON_UPDATER_FEEDS,
   registerUpdaterIpc,
 } from "./updater.mjs";
+import { releaseAssetUrl, resolveArchitectureDownloadUrl } from "./update-feed.mjs";
 import {
   checkComputerUsePermissions,
   getComputerUseMcpCommand,
@@ -518,28 +519,15 @@ function selectDownloadFile(files, arch) {
 }
 
 async function resolveCorrectArchitectureDownloadUrl(arch) {
-  for (const baseUrl of [RELEASE_DOWNLOAD_BASE_URL, RELEASE_DOWNLOAD_FALLBACK_BASE_URL]) {
-    try {
-      const response = await fetch(`${baseUrl}/${updaterManifestName(arch)}`, {
-        headers: { Accept: "text/yaml, text/plain, */*" },
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const selected = selectDownloadFile(parseUpdaterManifestFiles(await response.text()), arch);
-      // No match is treated like an unreachable feed: a 200 with a
-      // non-manifest body (maintenance page, bot challenge) parses to nothing
-      // and must not short-circuit past the GitHub fallback.
-      if (!selected?.url) {
-        console.warn(`[architecture] no matching download in manifest via ${baseUrl}`);
-        continue;
-      }
-      return /^https?:\/\//i.test(selected.url)
-        ? selected.url
-        : new URL(selected.url, `${baseUrl}/`).toString();
-    } catch (error) {
-      console.warn(`[architecture] failed to resolve download URL via ${baseUrl}`, error);
-    }
-  }
-  return null;
+  // 🟡 LAWOSS: sledovaný feed potichu, fallback na release forku podľa tagu
+  // `v<verzia>` namiesto `releases/latest` (issue #51) — pozri update-feed.mjs.
+  return resolveArchitectureDownloadUrl({
+    manifestUrl: `${RELEASE_DOWNLOAD_BASE_URL}/${updaterManifestName(arch)}`,
+    selectFromManifest: (raw) => selectDownloadFile(parseUpdaterManifestFiles(raw), arch)?.url ?? null,
+    platform: process.platform,
+    arch,
+    version: app.getVersion(),
+  });
 }
 
 async function resolveArchitectureInfo() {
@@ -547,7 +535,6 @@ async function resolveArchitectureInfo() {
   const systemArch = resolveSystemArch();
   const version = app.getVersion();
   const targetArch = systemArch === "arm64" || systemArch === "x64" ? systemArch : appArch;
-  const assetName = `legalwork-${platformDownloadSlug()}-${downloadAssetArch(targetArch)}-${version}.${downloadAssetExtension()}`;
   const latestDownloadUrl = await resolveCorrectArchitectureDownloadUrl(targetArch);
   const hasCorrectArchitectureDownload = Boolean(latestDownloadUrl);
   return {
@@ -560,7 +547,7 @@ async function resolveArchitectureInfo() {
     version,
     // Static fallback uses GitHub directly: if we reach this branch the
     // tracked route did not answer, so handing out its URL would be dead too.
-    downloadUrl: latestDownloadUrl || `${RELEASE_DOWNLOAD_FALLBACK_BASE_URL}/${assetName}`,
+    downloadUrl: latestDownloadUrl || releaseAssetUrl({ platform: process.platform, arch: targetArch, version }),
     releaseUrl: RELEASE_PAGE_URL,
   };
 }
