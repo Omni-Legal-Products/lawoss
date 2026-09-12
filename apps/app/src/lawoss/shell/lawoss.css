@@ -120,6 +120,7 @@
 .lw-row .lw-st.ok { color: var(--lw-success); }
 .lw-row .lw-st.warn { color: var(--lw-warning); }
 .lw-row .lw-st.off { color: var(--lw-text-tertiary); }
+.lw-row .lw-st.err { color: var(--lw-danger); }
 .lw-row .lw-go { text-align: right; font-size: 13px; color: var(--lw-text-secondary); white-space: nowrap; }
 .lw-row:hover .lw-go { color: var(--lw-accent); }
 .lw-cols-wait { grid-template-columns: 34px 96px 1fr 170px 130px; }

@@ -1,128 +1,157 @@
 /** @jsxImportSource react */
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { LawossLayout } from "../../shell/layout";
+import { createClient, unwrap } from "@/app/lib/opencode";
+import { toSessionTransportDirectory } from "@/app/lib/session-scope";
+import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
+import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
+import { workspaceSettingsRoute } from "@/react-app/shell/workspace-routes";
 
-type ConnectorRow = {
-  no: string;
-  name: string;
-  sub: string;
-  trust: "loc" | "own" | "ext";
-  trustLabel: string;
-  ref: string;
-  status: string;
-  statusTone: "ok" | "warn" | "off";
-  action: string;
+import { loadOkfConnection, type OkfConnection } from "../../okf/connection";
+import { LawossLayout } from "../../shell/layout";
+import { toConnectorRows, type ConnectorRow, type ConnectorStatusMap } from "./rows";
+
+type Loaded = {
+  workspace: RouteWorkspace;
+  rows: ReturnType<typeof toConnectorRows>;
+  /** Stav z opencode sa nepodarilo načítať — servery sa ukážu ako odpojené. */
+  statusError: string | null;
 };
 
-const CONNECTORS: ConnectorRow[] = [
-  { no: "1.", name: "Slov-Lex", sub: "zbierka zákonov SR · mcp-slovlex", trust: "own", trustLabel: "vlastný server · remote", ref: "9 nástrojov · read-only", status: "pripojené", statusTone: "ok", action: "nástroje · logy" },
-  { no: "2.", name: "Judikatúra SR", sub: "NS SR · ÚS SR · MS SR · 161 229 rozhodnutí", trust: "own", trustLabel: "vlastný server · remote", ref: "24 nástrojov · read-only", status: "pripojené", statusTone: "ok", action: "nástroje · logy" },
-  { no: "3.", name: "ORSR · RPO · RPVS", sub: "registre SR · 3 servery", trust: "own", trustLabel: "vlastný server · remote", ref: "18 nástrojov · read-only", status: "pripojené", statusTone: "ok", action: "nástroje · logy" },
-  { no: "4.", name: "OKF skripty", sub: "okf-validate · okf-freshness · vlastné", trust: "loc", trustLabel: "lokálne", ref: "3 skripty · posledný beh OK", status: "pripravené", statusTone: "ok", action: "spustiť" },
-  { no: "5.", name: "Whisper transkripcia", sub: "sherpa-onnx · model medium-sk", trust: "loc", trustLabel: "lokálne", ref: "GPU áno", status: "pripravené", statusTone: "ok", action: "modely" },
-  { no: "6.", name: "OCR", sub: "tesseract 5 · sk · cs · en", trust: "loc", trustLabel: "lokálne", ref: "—", status: "pripravené", statusTone: "ok", action: "nastavenia" },
-  { no: "7.", name: "Autogram", sub: "KEP + časová pečiatka · zaručená konverzia · externý proces", trust: "loc", trustLabel: "lokálne", ref: "mac · win", status: "nenájdený", statusTone: "warn", action: "nastaviť cestu →" },
-  { no: "8.", name: "Context7", sub: "dokumentácia knižníc", trust: "ext", trustLabel: "tretia strana · dáta odchádzajú", ref: "2 nástroje", status: "vypnuté v spisoch", statusTone: "off", action: "zapnúť" },
-];
+type State =
+  | { phase: "loading" }
+  | { phase: "no-server" }
+  | { phase: "no-workspace" }
+  | { phase: "error"; message: string }
+  | ({ phase: "ready" } & Loaded);
+
+/** Tie isté volania ako settings: listMcp + mcp.status (connections/store.ts) a listSkills (extensions-store.ts). */
+async function loadKonektory(connection: OkfConnection, workspace: RouteWorkspace): Promise<Loaded> {
+  const client = connection.client;
+  if (!client) throw new Error("Server LegalWork nebeží.");
+  const [mcp, skills] = await Promise.all([
+    client.listMcp(workspace.id),
+    client.listSkills(workspace.id, { includeGlobal: true }),
+  ]);
+  let statuses: ConnectorStatusMap = {};
+  let statusError: string | null = null;
+  try {
+    const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl: connection.baseUrl, token: connection.token });
+    if (!endpoint) throw new Error("Workspace nie je dostupný.");
+    const opencode = createClient(endpoint.opencodeBaseUrl, workspace.path || undefined, { token: endpoint.token, mode: "legalwork" });
+    statuses = unwrap(await opencode.mcp.status({ directory: toSessionTransportDirectory(workspace.path) }));
+  } catch (error) {
+    statusError = error instanceof Error ? error.message : String(error);
+  }
+  return { workspace, rows: toConnectorRows(mcp.items, statuses, skills.items), statusError };
+}
 
 /**
- * Konektory — fáza B mockup. Real state comes from `connections/store` (MCP)
- * plus `lawoss/hub` local-tool detection in fáza C6; the schema shows what the
- * agent can reach and, deliberately, what it cannot (no send/sign tool).
+ * Konektory — iba čítanie. Ukazuje, čo agent vo workspace skutočne vidí:
+ * MCP servery so stavom a skills, z rovnakých dát ako Settings → Extensions.
+ * Pripájanie, odpájanie a OAuth ostávajú v Settings; tu sú len odkazy.
  */
 export function KonektoryPage() {
+  const [state, setState] = useState<State>({ phase: "loading" });
+
+  useEffect(() => {
+    let cancelled = false;
+    loadOkfConnection()
+      .then(async (connection) => {
+        if (!connection.client) return { phase: "no-server" } satisfies State;
+        const workspace = connection.workspaces.find((item) => item.id === connection.activeWorkspaceId) ?? connection.workspaces[0];
+        if (!workspace) return { phase: "no-workspace" } satisfies State;
+        return { phase: "ready", ...(await loadKonektory(connection, workspace)) } satisfies State;
+      })
+      .catch((error: unknown): State => ({ phase: "error", message: error instanceof Error ? error.message : String(error) }))
+      .then((next) => { if (!cancelled) setState(next); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const workspaceId = state.phase === "ready" ? state.workspace.id : null;
+  const mcpSettings = workspaceId ? workspaceSettingsRoute(workspaceId, "extensions/mcp") : "/settings/extensions";
+  const skillsSettings = workspaceId ? workspaceSettingsRoute(workspaceId, "extensions/skills") : "/settings/extensions";
+
   return (
     <LawossLayout>
       <h1 className="lw-h1">Konektory</h1>
       <p className="lw-lead">
-        Čo agent vidí a čo smie použiť. Registre sú iba na čítanie; lokálne nástroje bežia vo vašom počítači; servery
-        tretích strán sú vždy označené.
+        Čo agent vidí a čo smie použiť. Stav je ten istý ako v Settings → Extensions; tu sa iba číta — pripojiť,
+        odpojiť alebo prihlásiť server sa dá tam.
       </p>
 
-      <div className="lw-schema">
-        <Schema />
-      </div>
+      {state.phase === "loading" ? <p className="lw-empty">Načítavam stav zo servera…</p> : null}
+      {state.phase === "no-server" ? (
+        <div className="lw-status warn">Server LegalWork nebeží alebo chýba token — stav konektorov sa nedá prečítať.</div>
+      ) : null}
+      {state.phase === "no-workspace" ? (
+        <p className="lw-empty">Žiadny workspace. Pridajte priečinok cez „Add folder“ v bočnom paneli.</p>
+      ) : null}
+      {state.phase === "error" ? <div className="lw-status err">{state.message}</div> : null}
 
-      <div className="lw-reg">
-        <div className="lw-reg-h">
-          <h2>Pripojené</h2>
-          <span className="lw-meta">
-            stav k 04:10
-            <a href="#byo">Pridať vlastný server</a>
-            <Link to="/marketplace">Marketplace</Link>
-          </span>
-        </div>
-        {CONNECTORS.map((row) => (
-          <div key={row.no} className="lw-row lw-cols-con">
-            <span className="lw-no">{row.no}</span>
-            <span className="lw-t">
-              {row.name}
-              <small>{row.sub}</small>
-            </span>
-            <span className={`lw-trust ${row.trust}`}>{row.trustLabel}</span>
-            <span className="lw-ref">{row.ref}</span>
-            <span className={`lw-st ${row.statusTone}`}>{row.status}</span>
-            <span className="lw-go">{row.action}</span>
-          </div>
-        ))}
-      </div>
+      {state.phase === "ready" ? (
+        <>
+          <Section
+            title="MCP servery"
+            meta={<>workspace {state.workspace.displayNameResolved || state.workspace.name}<Link to={mcpSettings}>Settings → Extensions</Link></>}
+            rows={state.rows.servers}
+            empty={<>Žiadny MCP server nie je nakonfigurovaný. Pripojiť sa dá v <Link to={mcpSettings}>Settings → Extensions</Link>.</>}
+            action={{ label: "spravovať →", to: mcpSettings }}
+          />
+          {state.statusError ? (
+            <div className="lw-status warn">Stav pripojenia z opencode sa nepodarilo načítať ({state.statusError}); servery sú zobrazené ako odpojené.</div>
+          ) : null}
+          <Section
+            title="Skills"
+            meta={<Link to={skillsSettings}>Settings → Skills</Link>}
+            rows={state.rows.skills}
+            empty={<>Žiadny skill. Pridať sa dá v <Link to={skillsSettings}>Settings → Skills</Link>.</>}
+            action={{ label: "otvoriť →", to: skillsSettings }}
+          />
+        </>
+      ) : null}
 
       <div className="lw-note">
         <span>
           Agent <b>nemá</b> nástroj na odoslanie ani podpis (ADR 0007 pravidlo 5).
         </span>
         <span>
-          Vlastný server (BYO): remote URL alebo lokálny príkaz — zapisuje sa priamo do opencode configu.
+          Táto stránka nič nemení — každý riadok vedie do Settings, kde sa server pripája, odpája alebo prihlasuje.
         </span>
       </div>
     </LawossLayout>
   );
 }
 
-function Schema() {
+function Section(props: {
+  title: string;
+  meta: React.ReactNode;
+  rows: ConnectorRow[];
+  empty: React.ReactNode;
+  action: { label: string; to: string };
+}) {
   return (
-    <svg viewBox="0 0 1160 230" aria-label="Schéma: LAWOSS → opencode → konektory" fontSize="12">
-      <g fill="var(--lw-text-primary)">
-        <rect x="20" y="70" width="200" height="90" rx="3" fill="var(--lw-hover)" stroke="var(--lw-border-strong)" />
-        <text x="36" y="96" fontWeight="600">LAWOSS</text>
-        <text x="36" y="116" fill="var(--lw-text-secondary)">chat · spisy · lehoty</text>
-        <text x="36" y="134" fill="var(--lw-text-secondary)">dokumenty · nastavenia</text>
-        <text x="36" y="152" fill="var(--lw-text-tertiary)" fontSize="11">povrch pre advokáta</text>
-
-        <line x1="220" x2="300" y1="115" y2="115" stroke="var(--lw-accent)" />
-        <path d="M294 110l8 5-8 5z" fill="var(--lw-accent)" />
-
-        <rect x="300" y="50" width="240" height="130" rx="3" fill="var(--lw-accent-soft)" stroke="var(--lw-accent)" />
-        <text x="316" y="76" fontWeight="600">opencode · agent</text>
-        <text x="316" y="98" fill="var(--lw-text-secondary)">subagenti · tool calling · súbory</text>
-        <text x="316" y="120" fill="var(--lw-text-secondary)">skills · prompty · pamäť OKF</text>
-        <text x="316" y="166" fill="var(--lw-text-tertiary)" fontSize="11">žiadny nástroj na odoslanie ani podpis</text>
-
-        <g stroke="var(--lw-border-strong)" fill="none">
-          <path d="M540 115 C600 115 600 30 660 30" />
-          <path d="M540 115 C600 115 600 72 660 72" />
-          <path d="M540 115 C600 115 600 115 660 115" stroke="var(--lw-accent)" />
-          <path d="M540 115 C600 115 600 158 660 158" />
-          <path d="M540 115 C600 115 600 200 660 200" strokeDasharray="3 3" />
-        </g>
-
-        <circle cx="668" cy="30" r="4" fill="var(--lw-success)" />
-        <text x="682" y="34">Slov-Lex · Judikatúra SR</text>
-        <text x="920" y="34" fill="var(--lw-text-tertiary)" fontSize="11">remote · read-only · 33 nástrojov</text>
-        <circle cx="668" cy="72" r="4" fill="var(--lw-success)" />
-        <text x="682" y="76">ORSR · RPVS · FS · úpadcovia</text>
-        <text x="920" y="76" fill="var(--lw-text-tertiary)" fontSize="11">remote · read-only · 18 nástrojov</text>
-        <circle cx="668" cy="115" r="4" fill="var(--lw-success)" />
-        <text x="682" y="119">OKF skripty · OCR · Whisper</text>
-        <text x="920" y="119" fill="var(--lw-text-tertiary)" fontSize="11">lokálne · výstup do spisu</text>
-        <circle cx="668" cy="158" r="4" fill="var(--lw-warning)" />
-        <text x="682" y="162">Autogram</text>
-        <text x="920" y="162" fill="var(--lw-warning)" fontSize="11">lokálne · nenájdený</text>
-        <circle cx="668" cy="200" r="4" fill="none" stroke="var(--lw-text-tertiary)" />
-        <text x="682" y="204" fill="var(--lw-text-secondary)">Vlastný server (BYO)</text>
-        <text x="920" y="204" fill="var(--lw-text-tertiary)" fontSize="11">remote URL alebo lokálny príkaz</text>
-      </g>
-    </svg>
+    <div className="lw-reg">
+      <div className="lw-reg-h">
+        <h2>{props.title}</h2>
+        <span className="lw-meta">{props.meta}</span>
+      </div>
+      {props.rows.length === 0 ? <p className="lw-empty">{props.empty}</p> : null}
+      {props.rows.map((row, index) => (
+        <div key={row.key} className="lw-row lw-cols-con">
+          <span className="lw-no">{index + 1}.</span>
+          <span className="lw-t">
+            {row.name}
+            <small>{row.sub}</small>
+            {row.error ? <small className="lw-hint-warn">{row.error}</small> : null}
+          </span>
+          <span className="lw-trust own">{row.scope}</span>
+          <span className="lw-ref">{row.ref}</span>
+          <span className={`lw-st ${row.tone}`}>{row.status}</span>
+          <Link className="lw-go" to={props.action.to}>{props.action.label}</Link>
+        </div>
+      ))}
+    </div>
   );
 }
