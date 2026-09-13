@@ -89,6 +89,57 @@ Voliteľné, ale užitočné pred hlásením problému — overí, že TypeScrip
 3. **Prepnite jazyk.** V **Settings → Language** (SK/CZ lokalizácia je súčasťou LAWOSS jadra) zvoľte preferovaný jazyk rozhrania.
 4. Vyskúšajte appku na neškodnej úlohe — napríklad nechajte ju zhrnúť testovací dokument, ktorý ste sami vložili do testovacieho priečinka.
 
+## 5a. Pripojenie modelu
+
+LAWOSS nemá vlastný model ani vlastný kľúč — pripájate si svojho poskytovateľa.
+Všetko ide cez **Settings → AI Providers**.
+
+### Anthropic
+
+Dve cesty, obe funkčné:
+
+- **Predplatné Claude (Pro/Max)** — „Sign in with Anthropic". Otvorí sa prehliadač,
+  po prihlásení sa vrátite do appky. Kľúč nikam nezadávate.
+- **API kľúč** — vložíte `sk-ant-…` z console.anthropic.com. Kľúč sa ukladá lokálne
+  do `auth.json` enginu, neodchádza nikam inam.
+
+### OpenRouter, OpenAI, ostatní
+
+Rovnaká obrazovka, rovnaký postup: vložíte API kľúč poskytovateľa. OpenRouter je
+rozcestník k mnohým modelom pod jedným kľúčom.
+
+### Výber modelu
+
+Po pripojení si appka vyberie východiskový model sama. **Vyberá len spomedzi
+modelov, ktoré vedia volať nástroje** — agent bez nástrojov nevie čítať súbory ani
+zapisovať do spisu, takže obrázkové, hlasové a prepisovacie modely sa ako
+východiskové neponúkajú. Model kedykoľvek zmeníte v lište nad vstupným poľom.
+
+> Ak vám odpoveď skončí chybou `No endpoints found that support tool use`,
+> máte vybraný model bez nástrojov — prepnite ho v pickeri.
+
+### Ladiaci port
+
+`pnpm dev` neotvára ladiaci port Electronu. Keď ho potrebujete (napríklad na
+vzdialenú diagnostiku), spustite `LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT=9823 pnpm dev`.
+
+## 5b. Smoke scenár alfy
+
+Prejdite po zostavení týchto šesť krokov. Pri každom je uvedené, čo má nastať;
+ak nastane niečo iné, je to nález do issues (krok 6 nižšie).
+
+| # | Krok | Očakávaný výsledok |
+|---|---|---|
+| 1 | Prvé spustenie a onboarding | Appka sa otvorí, prejdete výberom pracovného priečinka bez chyby. Priečinok je prázdny a mimo klientskych dát. |
+| 2 | Pripojenie modelu | Po vložení kľúča je poskytovateľ v zozname ako pripojený a v lište nad vstupným poľom je vybraný model (nie „No AI model connected"). |
+| 3 | Jazyk | **Settings → Language** → slovenčina alebo čeština. Rozhranie sa prepne celé, vrátane nastavení a bočného panela; nikde neostane anglická veta. |
+| 4 | Založenie spisu | **Experimenty → Nový spis (OKF)**: krok 1 nainštaluje skilly do workspace-u, krok 2 otvorí asistenta. Agent ukáže **plán** a čaká na potvrdenie; až potom vzniknú súbory. |
+| 5 | Zápis do pamäte | Požiadajte agenta o zápis (napr. úlohu s termínom). Záznam vznikne v `memory/`, `_STATUS.md` ho ukáže v sekcii Lehoty alebo Otvorené úlohy a v histórii záznamu je, kto zápis schválil. |
+| 6 | Reštart | Zavrieť a znova otvoriť appku: workspace, model, jazyk aj spis ostávajú. Prehľad a Lehoty ukazujú skutočné údaje zo spisu, nie ukážku. |
+
+Čo v alfe **nefunguje zámerne**: notarizované buildy (kompilujete si sami),
+automatické aktualizácie, nahrávanie a prepis (skryté), platené plochy upstreamu.
+
 ## 6. Čo hlásiť a kam
 
 Chyby patria do **issues vo forku** (`https://github.com/Omni-Legal-Products/lawoss/issues`), nie do Telegramu.
