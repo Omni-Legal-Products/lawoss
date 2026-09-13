@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { remoteDebugEnv } from "../apps/desktop/scripts/dev-remote-debug.mjs";
+
 const args = process.argv.slice(2).filter((arg) => arg !== "--");
 const root = fileURLToPath(new URL("../", import.meta.url));
 // Supervised browser previews pass --host/--port. Keep the normal command
@@ -18,7 +20,8 @@ const child = spawn(
       ...process.env,
       LEGALWORK_DEV_MODE: "1",
       ...(webPreview ? { LEGALWORK_VISUAL_PREVIEW: "1" } : {}),
-      LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT: process.env.LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT || "9823",
+      // LAWOSS: ladiaci port len na vyžiadanie — viď apps/desktop/scripts/dev-remote-debug.mjs
+      ...remoteDebugEnv(process.env),
     },
   },
 );
