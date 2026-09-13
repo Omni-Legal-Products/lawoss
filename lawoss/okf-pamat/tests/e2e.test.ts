@@ -103,7 +103,9 @@ for (const j of ["cz", "sk"] as const) {
     };
     applyRecordWrite(dir, planWrite(undefined, cisty, "pravna veta"), ADVOKAT);
     assert.equal(readStore(dir).records.length, 4);
-    assert.deepEqual(validateStore(readStore(dir).records), []);
+    // `today` vstupuje zvonka: bez neho by test po 12. 9. 2026 padal na DEADLINE_PASSED,
+    // teda by závisel na dni, kedy sa spustí.
+    assert.deepEqual(validateStore(readStore(dir).records, { today: "2026-09-01" }), []);
 
     // 8. Projekcia: bloky sa naplnia, ludsky text zostane, druhy beh nic nezmeni.
     writeIndex(dir);
