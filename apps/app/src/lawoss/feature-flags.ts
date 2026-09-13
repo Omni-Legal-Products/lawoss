@@ -56,3 +56,10 @@ export const HIDDEN_COMMERCIAL_SURFACES: ReadonlySet<CommercialSurface> = new Se
 
 export const isCommercialSurfaceHidden = (surface: CommercialSurface): boolean =>
   HIDDEN_COMMERCIAL_SURFACES.has(surface);
+
+/**
+ * Je záložka nastavení skrytá? Onboarding sa pýta rovnako ako zoznam záložiek:
+ * krok, ktorý zapína funkciu, ku ktorej sa používateľ potom nikde nedostane,
+ * je slepá ulička.
+ */
+export const isHiddenSettingsTab = (tab: string): boolean => HIDDEN_SETTINGS_TABS.has(tab);

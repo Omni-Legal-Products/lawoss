@@ -6,6 +6,7 @@ import {
   hideCommercialTabs,
   isCommercialSurfaceHidden,
   isHiddenQuickConnect,
+  isHiddenSettingsTab,
 } from "../src/lawoss/feature-flags";
 
 describe("LAWOSS feature flags", () => {
@@ -40,5 +41,14 @@ describe("LAWOSS feature flags", () => {
     expect(isCommercialSurfaceHidden("premium-upsell")).toBe(true);
     expect(isCommercialSurfaceHidden("eigenwelt-sign-in")).toBe(true);
     expect(isCommercialSurfaceHidden("eigenwelt-trial")).toBe(true);
+  });
+});
+
+describe("onboarding nesmie zapínať to, čo je skryté", () => {
+  test("recorder je skrytá záložka, takže krok prepisu sa preskočí", () => {
+    expect(isHiddenSettingsTab("recorder")).toBe(true);
+    expect(isHiddenSettingsTab("account")).toBe(true);
+    expect(isHiddenSettingsTab("ai")).toBe(false);
+    expect(isHiddenSettingsTab("extensions")).toBe(false);
   });
 });
