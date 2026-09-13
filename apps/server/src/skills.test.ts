@@ -21,6 +21,23 @@ afterEach(async () => {
   await rm(workspace, { recursive: true, force: true });
 });
 
+describe("listSkills — odolnosť voči chybnému SKILL.md", () => {
+  test("chybný frontmatter jedného skillu nezhodí výpis ostatných", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lawoss-skills-"));
+    const skills = join(root, ".opencode", "skills");
+    await mkdir(join(skills, "dobry"), { recursive: true });
+    await writeFile(join(skills, "dobry", "SKILL.md"), "---\nname: dobry\ndescription: Funkčný skill.\n---\n\nTelo.\n");
+    await mkdir(join(skills, "chybny"), { recursive: true });
+    // Neuvodzovkovaný `description` s dvojbodkou — presne to, čo v praxi zhodilo výpis.
+    await writeFile(join(skills, "chybny", "SKILL.md"), "---\nname: chybny\ndescription: Zápis z jednania: lehoty do kalendára.\n---\n\nTelo.\n");
+
+    const items = await listSkills(root, false);
+
+    expect(items.map((item) => item.name)).toEqual(["dobry"]);
+    await rm(root, { recursive: true, force: true });
+  });
+});
+
 describe("deleteSkill", () => {
   test("deletes a flat skill", async () => {
     const dir = join(workspace, ".opencode", "skills", "flat-skill");
