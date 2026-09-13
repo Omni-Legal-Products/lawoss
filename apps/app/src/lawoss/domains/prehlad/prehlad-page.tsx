@@ -13,6 +13,7 @@ import {
   useOkfOverview,
   type OkfReadResult,
 } from "../../okf/read-model";
+import { matterLink } from "../spis/spis-page";
 
 /**
  * Prehľad praxe nad skutočnou pamäťou spisov (fáza C1/C2): čísla v hlavičke,
@@ -148,10 +149,10 @@ function RealOverview({ data }: { data: OkfReadResult }) {
       <div className="lw-reg">
         <div className="lw-reg-h">
           <h2>Spisy</h2>
-          <span className="lw-meta">posledná udalosť z histórie záznamov</span>
+          <span className="lw-meta">posledná udalosť z histórie záznamov · klikni na spis pre detail</span>
         </div>
         {data.matters.map((m, i) => (
-          <div key={m.path} className="lw-row lw-cols-leh">
+          <Link key={m.path} className="lw-row lw-cols-leh" to={matterLink(m.path)}>
             <span className="lw-no">{i + 1}.</span>
             <span className="lw-d">{m.lastEvent ? formatDay(m.lastEvent.date) : "—"}</span>
             <span className="lw-t">
@@ -163,7 +164,7 @@ function RealOverview({ data }: { data: OkfReadResult }) {
               {m.openTasks.length} {plural(m.openTasks.length, "úloha", "úlohy", "úloh")}
               {m.state ? ` · ${m.state}` : ""}
             </span>
-          </div>
+          </Link>
         ))}
       </div>
 

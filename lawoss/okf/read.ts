@@ -30,6 +30,8 @@ export type MatterInput = {
   /** Frontmatter karty `spis.md`, ak existuje (`title`, `spisova_znacka`, `sud`, `status`). */
   cardFrontmatter?: Record<string, string>;
   records: OkfRecord[];
+  /** `id` záznamu → cesta jeho súboru. Prehľad ju nepotrebuje, detail veci ňou odkazuje na zdroj. */
+  recordFiles?: Record<string, string>;
 };
 
 export type UpcomingDeadline = OverviewDeadline & {

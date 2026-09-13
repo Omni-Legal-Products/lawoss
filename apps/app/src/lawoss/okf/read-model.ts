@@ -23,6 +23,8 @@ export type OkfReadResult = Overview & {
   problems: ReadProblem[];
   /** Workspace má viac vecí než `MAX_MATTERS`; prehľad je čiastočný. */
   truncated: boolean;
+  /** Prečítané záznamy po veciach — detail veci ich potrebuje, prehľad ich ignoruje. */
+  inputs: MatterInput[];
 };
 
 export const MAX_MATTERS = 200;
@@ -91,13 +93,17 @@ async function readMatter(
     .filter((e) => e.kind === "file" && e.name.endsWith(".md") && !RESERVED.has(e.name))
     .sort((a, b) => a.name.localeCompare(b.name));
   // Súbory jednej veci sa čítajú za sebou; súbežnosť drží `mapLimit` nad vecami.
+  const recordFiles: Record<string, string> = {};
   for (const file of files) {
     try {
-      input.records.push(parseRecord((await client.readWorkspaceFile(workspaceId, file.path)).content));
+      const record = parseRecord((await client.readWorkspaceFile(workspaceId, file.path)).content);
+      input.records.push(record);
+      recordFiles[record.id] = file.path;
     } catch (e) {
       problems.push({ path: file.path, message: message(e) });
     }
   }
+  if (input.records.length > 0) input.recordFiles = recordFiles;
   return input;
 }
 
@@ -119,7 +125,7 @@ export async function readWorkspaceMemory(
       return { path, records: [] };
     }
   });
-  return { ...buildOverview(matters, todayIso), problems, truncated };
+  return { ...buildOverview(matters, todayIso), problems, truncated, inputs: matters };
 }
 
 /** Spojenie na server rovnako ako v Novom spise, len ako hook. */

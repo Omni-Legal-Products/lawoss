@@ -467,3 +467,19 @@
   .lw-experiment-content :is(.lw-cols-exp, .lw-cols-exp-view) > :nth-child(n+3) { grid-column: 2; }
   .lw-experiment-content .lw-form { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* --- Spisový prehľad --------------------------------------------------- */
+.lw-raw {
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--lw-border);
+  border-left: 2px solid var(--lw-warning);
+  background: var(--lw-surface);
+  font-family: var(--lw-font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--lw-text-secondary);
+  white-space: pre-wrap;
+  overflow-x: auto;
+  max-height: 40vh;
+}

@@ -49,6 +49,15 @@ export const EXPERIMENTS: readonly Experiment[] = [
   },
   {
     kind: "view",
+    id: "view-spis",
+    to: "/spis",
+    label: "Spis",
+    note: "Read-only cockpit jednej veci — obal, fakty, úlohy, lehoty, čo čaká na advokáta a chronológia z pamäte spisu. Vec sa vyberá parametrom ?vec=<cesta>, bez zápisu a bez brány.",
+    owner: "MF",
+    stav: "v testovaní",
+  },
+  {
+    kind: "view",
     id: "view-lehoty",
     to: "/lehoty",
     label: "Lehoty",
