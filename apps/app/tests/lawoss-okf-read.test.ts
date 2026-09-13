@@ -168,6 +168,32 @@ describe("readWorkspaceMemory — čítanie cez server API", () => {
     expect(out.matters).toEqual([{ path: "AK/X/Klient/Spisy/Holá vec", title: "Holá vec", deadlines: [], openTasks: [], counts: { records: 0, evidence: 0, subjects: 0 } }]);
   });
 
+  /**
+   * Priečinok veci môže medzitým zmiznúť (Dropbox, iCloud) alebo nemusí ísť
+   * otvoriť. Doteraz taká vec zhodila `Promise.all` a s ním celý Prehľad aj
+   * Lehoty — advokát nevidel ani ostatné spisy.
+   */
+  test("nečitateľný priečinok veci nezhodí celé čítanie", async () => {
+    const dirs: Record<string, Array<{ name: string; kind: "file" | "dir" }>> = {
+      AK: [{ name: "N", kind: "dir" }],
+      "AK/N": [{ name: "Klient", kind: "dir" }],
+      "AK/N/Klient/Spisy": [{ name: "vec-A", kind: "dir" }, { name: "vec-B", kind: "dir" }],
+      "AK/N/Klient/Spisy/vec-A": [],
+    };
+    const client: OkfReadClient = {
+      listWorkspaceDirectory: async (_ws, path) => {
+        const entries = dirs[path];
+        if (!entries) throw new Error(`EACCES ${path}`);
+        return { path, truncated: false, entries: entries.map((e) => ({ ...e, path: `${path}/${e.name}` })) };
+      },
+      readWorkspaceFile: async (_ws, path) => { throw new Error(`404 ${path}`); },
+    };
+    const out = await readWorkspaceMemory(client, "ws", TODAY);
+    expect(out.matters.map((m) => m.path)).toEqual(["AK/N/Klient/Spisy/vec-A", "AK/N/Klient/Spisy/vec-B"]);
+    expect(out.matters[1].title).toBe("vec-B");
+    expect(out.problems).toEqual([{ path: "AK/N/Klient/Spisy/vec-B", message: expect.stringContaining("EACCES") }]);
+  });
+
   test("počet vecí je ohraničený a súbežných čítaní je najviac 6", async () => {
     const many: Record<string, string> = {};
     for (let i = 0; i < MAX_MATTERS + 5; i++) many[`AK/A/K/Spisy/vec-${String(i).padStart(3, "0")}/memory/M-001.md`] = record("M-001", "matter");
