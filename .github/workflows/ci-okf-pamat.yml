@@ -37,6 +37,12 @@ jobs:
         with:
           version: 11.4.0
 
+      # `bun build` zostavuje bundle CLI, ktorý sa inštaluje do workspace-u.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
       # Balíček stojí mimo pnpm workspace — inštaluje sa samostatne,
       # aby fork nepribral ďalší uzol do upstream stromu.
       - name: Install
@@ -47,3 +53,11 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      - name: Bundle je čerstvý
+        # `bundle/okf-memory.js` sa inštaluje do workspace-u ako CLI skillu
+        # `/okf-pamat`, takže zastaraný bundle znamená, že agent v appke beží
+        # na inom kóde než repozitár.
+        run: |
+          bun run build
+          git diff --exit-code bundle/
