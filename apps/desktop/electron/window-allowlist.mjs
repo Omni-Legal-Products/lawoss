@@ -23,6 +23,45 @@ export function isAllowedNavigation(url, allowlist) {
 }
 
 /**
+ * Allowlist entry for the app's own document, or nothing at all. `file:`,
+ * `data:`, `about:` and `javascript:` all report the opaque origin "null", so a
+ * start URL that is not http(s) must NOT become an entry: "null" would then
+ * match every other opaque-origin URL and `window.open("javascript:…")` would
+ * get a window with our preload. A malformed start URL yields nothing rather
+ * than throwing — the app must still start and fail visibly at `loadURL`.
+ *
+ * @param {string | undefined} url
+ * @returns {string[]}
+ */
+export function originAllowlistEntry(url) {
+  if (!url) return [];
+  let origin;
+  try {
+    origin = new URL(url).origin;
+  } catch {
+    return [];
+  }
+  return origin && origin !== "null" ? [origin] : [];
+}
+
+/**
+ * What may be written to the log about a blocked URL: scheme, host and path.
+ * Query and fragment stay out — a blocked navigation can carry a magic link,
+ * an OAuth code or a matter identifier, and the log is not the place for them.
+ *
+ * @param {string} url
+ * @returns {string}
+ */
+export function describeBlockedUrl(url) {
+  try {
+    const target = new URL(url);
+    return target.origin === "null" ? `${target.protocol}…` : `${target.origin}${target.pathname}`;
+  } catch {
+    return "(neplatná adresa)";
+  }
+}
+
+/**
  * Cancel every main-frame navigation outside the allowlist. `will-navigate`
  * and `will-redirect` do not fire for CDP `Page.navigate` (it behaves like
  * loadURL), so `did-start-navigation` is the backstop for agent automation

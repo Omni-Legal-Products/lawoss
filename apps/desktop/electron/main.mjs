@@ -53,7 +53,7 @@ import { createApplicationMenu } from "./app-menu.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
-import { guardNavigation, isAllowedNavigation } from "./window-allowlist.mjs";
+import { describeBlockedUrl, guardNavigation, isAllowedNavigation, originAllowlistEntry } from "./window-allowlist.mjs";
 
 const mcpOAuthCallbacks = createMcpOAuthCallbackBroker();
 const mcpOAuthOwners = new WeakSet();
@@ -105,7 +105,7 @@ const DESKTOP_PROTOCOL_SCHEME = "legalwork";
 const startUrl = process.env.LEGALWORK_ELECTRON_START_URL?.trim() || process.env.ELECTRON_START_URL?.trim();
 // App windows show only their own document (#47): the dev server origin from
 // the start URL or the packaged file:// bundle; data: carries the shutdown screen.
-const OWN_ORIGINS = startUrl ? [new URL(startUrl).origin] : [];
+const OWN_ORIGINS = originAllowlistEntry(startUrl);
 const NAVIGATION_ALLOWLIST = ["file:", "data:", ...OWN_ORIGINS];
 const isDevMode = process.env.LEGALWORK_DEV_MODE === "1";
 const APP_NAME =
@@ -2702,12 +2702,12 @@ function guardAppWindow(contents) {
       return { action: "deny" };
     }
     if (isAllowedNavigation(url, OWN_ORIGINS)) return { action: "allow" };
-    console.warn(`[window] window.open outside allowlist, opening in system browser: ${url}`);
+    console.warn(`[window] window.open outside allowlist, opening in system browser: ${describeBlockedUrl(url)}`);
     void shell.openExternal(url);
     return { action: "deny" };
   });
   guardNavigation(contents, NAVIGATION_ALLOWLIST, (url) => {
-    console.warn(`[window] blocked navigation outside allowlist: ${url}`);
+    console.warn(`[window] blocked navigation outside allowlist: ${describeBlockedUrl(url)}`);
     browserPanel.routeBlockedMainWindowNavigation(url);
   });
 }

@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { guardNavigation, isAllowedNavigation } from "./window-allowlist.mjs";
+import { describeBlockedUrl, guardNavigation, isAllowedNavigation, originAllowlistEntry } from "./window-allowlist.mjs";
 
 const DEV = ["file:", "data:", "http://localhost:5173"];
 const PACKAGED = ["file:", "data:"];
@@ -34,6 +34,41 @@ describe("isAllowedNavigation", () => {
     assert.equal(isAllowedNavigation("about:blank", DEV), false);
     assert.equal(isAllowedNavigation("nie je url", DEV), false);
     assert.equal(isAllowedNavigation("", DEV), false);
+  });
+});
+
+describe("originAllowlistEntry", () => {
+  it("z http(s) štartovacej adresy spraví presný origin", () => {
+    assert.deepEqual(originAllowlistEntry("http://localhost:5173/"), ["http://localhost:5173"]);
+    assert.deepEqual(originAllowlistEntry("https://127.0.0.1:8443/app/index.html?x=1"), ["https://127.0.0.1:8443"]);
+  });
+
+  it("nepriehľadný origin sa nikdy nestane položkou allowlistu", () => {
+    // `new URL("file:///…").origin` je reťazec "null" a ten istý "null" má aj
+    // `javascript:` — ako položka allowlistu by pustil `window.open("javascript:…")`
+    // do okna s naším preloadom.
+    for (const url of ["file:///Applications/LAWOSS.app/Contents/Resources/app-dist/index.html", "data:text/html,x", "about:blank", "javascript:alert(1)"]) {
+      assert.deepEqual(originAllowlistEntry(url), []);
+    }
+    assert.equal(isAllowedNavigation("javascript:alert(1)", [...PACKAGED, ...originAllowlistEntry("file:///a/index.html")]), false);
+  });
+
+  it("prázdna ani nezmyselná adresa nezhodí štart aplikácie", () => {
+    assert.deepEqual(originAllowlistEntry(undefined), []);
+    assert.deepEqual(originAllowlistEntry(""), []);
+    assert.deepEqual(originAllowlistEntry("nie je url"), []);
+  });
+});
+
+describe("describeBlockedUrl", () => {
+  it("do logu ide schéma, hostiteľ a cesta — nikdy dotaz ani fragment", () => {
+    assert.equal(
+      describeBlockedUrl("https://example.test/login?token=tajne#kod"),
+      "https://example.test/login",
+    );
+    assert.equal(describeBlockedUrl("http://localhost:5174/transfers/0361bbfc"), "http://localhost:5174/transfers/0361bbfc");
+    assert.equal(describeBlockedUrl("data:text/html,%3Cscript%3E"), "data:…");
+    assert.equal(describeBlockedUrl("nie je url"), "(neplatná adresa)");
   });
 });
 
