@@ -19,7 +19,7 @@
 import type { OkfRecord } from "./record.ts";
 import {
   AML_REQUIRED, PERSON_KINDS, SENSITIVE_FIELDS, EVIDENCE_KINDS,
-  fieldLabel, needleFields, truthDigest, FIELDS, EVENT_KINDS,
+  fieldLabel, needleFields, truthDigest, FIELDS, EVENT_KINDS, canonicalEventKind,
   type FieldDef, type Jurisdiction,
 } from "./schema.ts";
 
@@ -395,7 +395,7 @@ export function validateStore(
       });
     }
     for (const e of r.timeline) {
-      if (!e.kind || (EVENT_KINDS as readonly string[]).includes(e.kind)) continue;
+      if (!e.kind || (EVENT_KINDS as readonly string[]).includes(canonicalEventKind(e.kind))) continue;
       findings.push({
         severity: "warning",
         code: "UNKNOWN_VALUE",
