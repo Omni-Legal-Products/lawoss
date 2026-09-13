@@ -105,3 +105,15 @@ Pri hlásení uveďte:
 - **Nie je notarizovaná.** OS pri spustení ukáže varovanie; to nie je chyba appky.
 - **Nemá automatické aktualizácie.** Nový build znamená nové klonovanie a nový `pnpm install && pnpm build`. Updater má vlastnú logiku pre budúce release buildy, ale lokálny nestampnutý build (`0.0.0`) kontrolu aktualizácií preskakuje zámerne.
 - **Nepatria do nej skutočné klientske dáta.** Je to testovací build bez bezpečnostného auditu produkčnej prevádzky — nepoužívajte ho so spismi, osobnými údajmi klientov ani inak citlivým obsahom. Na testovanie použite vymyslené alebo verejne dostupné dokumenty.
+
+## Ladiaci port Electronu
+
+`pnpm dev` **neotvára** ladiaci port (CDP). Kto sa naň pripojí, riadi okno
+aplikácie aj jej session, takže port je od 13. 9. 2026 na vyžiadanie:
+
+```bash
+LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT=9823 pnpm dev
+```
+
+Bez premennej beží appka rovnako, len bez otvoreného portu. Skript
+`scripts/legalwork-debug.sh` si port nastavuje sám.

@@ -627,13 +627,17 @@ async function findFreeCdpPort(candidates) {
   return 0;
 }
 
-const explicitCdpPort = Number.parseInt(
-  process.env.LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT?.trim() ?? "",
-  10,
-);
-const remoteDebugPort = Number.isFinite(explicitCdpPort) && explicitCdpPort > 0
-  ? explicitCdpPort
-  : await findFreeCdpPort([9223, 9224, 9225, 9226, 9227]);
+const cdpPortSetting = process.env.LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT?.trim() ?? "";
+// LAWOSS: `off` zavrie ladiaci port úplne. Kto sa naň pripojí, riadi okno appky
+// aj jej session, takže advokát, ktorý vstavaný prehliadač nepoužíva, ho má
+// vedieť vypnúť. Bez tejto hodnoty ostáva správanie upstreamu.
+const cdpDisabled = cdpPortSetting.toLowerCase() === "off";
+const explicitCdpPort = Number.parseInt(cdpPortSetting, 10);
+const remoteDebugPort = cdpDisabled
+  ? 0
+  : Number.isFinite(explicitCdpPort) && explicitCdpPort > 0
+    ? explicitCdpPort
+    : await findFreeCdpPort([9223, 9224, 9225, 9226, 9227]);
 if (remoteDebugPort > 0) {
   app.commandLine.appendSwitch("remote-debugging-port", String(remoteDebugPort));
   app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
