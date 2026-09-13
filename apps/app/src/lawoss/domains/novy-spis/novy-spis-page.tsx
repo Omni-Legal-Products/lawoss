@@ -9,7 +9,7 @@ import { LawossLayout } from "../../shell/layout";
 import { composePrompt, targetDir, type Jurisdikcia, type NovySpisForm, type SubjectKind } from "../../okf/compose-prompt";
 import { loadOkfConnection, openSessionWithPrompt, type OkfConnection } from "../../okf/connection";
 import { previewPlan } from "../../okf/preview";
-import { NOVY_SPIS_SKILL_NAME, OKF_CLI_RESOURCE_NAME, okfCliSource, skillBody } from "../../okf/skill-bundle";
+import { NOVY_SPIS_SKILL_NAME, OKF_CLI_RESOURCE_NAME, OKF_MEMORY_CLI_RESOURCE_NAME, OKF_PAMAT_SKILL_NAME, okfCliSource, okfMemoryCliSource, pamatSkillBody, skillBody } from "../../okf/skill-bundle";
 
 const SUBJECTS: Array<{ id: SubjectKind; label: string }> = [
   { id: "pravnicka-osoba", label: "Právnická osoba" },
@@ -81,7 +81,11 @@ export function NovySpisPage() {
       const body = skillBody();
       await connection.client.upsertSkill(workspace.id, { name: NOVY_SPIS_SKILL_NAME, content: body.content, description: body.description });
       await connection.client.upsertSkillResource(workspace.id, NOVY_SPIS_SKILL_NAME, { name: OKF_CLI_RESOURCE_NAME, content: okfCliSource() });
-      setStatus({ tone: "ok", text: `Skill /${NOVY_SPIS_SKILL_NAME} a ${OKF_CLI_RESOURCE_NAME} sú v .opencode/skills/ workspace-u „${workspace.name}“.` });
+      // Pamäť spisu ide spolu so založením: bez nej agent do OKF nezapíše.
+      const pamat = pamatSkillBody();
+      await connection.client.upsertSkill(workspace.id, { name: OKF_PAMAT_SKILL_NAME, content: pamat.content, description: pamat.description });
+      await connection.client.upsertSkillResource(workspace.id, OKF_PAMAT_SKILL_NAME, { name: OKF_MEMORY_CLI_RESOURCE_NAME, content: okfMemoryCliSource() });
+      setStatus({ tone: "ok", text: `Skilly /${NOVY_SPIS_SKILL_NAME} (${OKF_CLI_RESOURCE_NAME}) a /${OKF_PAMAT_SKILL_NAME} (${OKF_MEMORY_CLI_RESOURCE_NAME}) sú v .opencode/skills/ workspace-u „${workspace.name}“.` });
     } catch (error) {
       setStatus({ tone: "err", text: error instanceof Error ? error.message : String(error) });
     } finally {
