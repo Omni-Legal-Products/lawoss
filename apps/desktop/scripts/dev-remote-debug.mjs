@@ -20,6 +20,11 @@ export function parseRemoteDebugPort(raw) {
  * @param {NodeJS.ProcessEnv} env
  */
 export function remoteDebugEnv(env) {
-  const port = parseRemoteDebugPort(env?.LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT);
+  const raw = typeof env?.LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT === "string"
+    ? env.LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT.trim()
+    : "";
+  // `off` je pokyn pre main.mjs, aby port neotváral vôbec — nie port.
+  if (raw.toLowerCase() === "off") return { LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT: "off" };
+  const port = parseRemoteDebugPort(raw);
   return port ? { LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT: port } : {};
 }

@@ -24,3 +24,10 @@ test("nezmysel sa ignoruje, nie dosadí", () => {
     assert.deepEqual(remoteDebugEnv({ LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT: raw }), {}, raw);
   }
 });
+
+test("hodnota off sa odovzdá ďalej — appka podľa nej port nezatvorí sama od seba", () => {
+  // `off` nie je port, ale nesmie zmiznúť: rozhoduje o ňom main.mjs.
+  assert.deepEqual(remoteDebugEnv({ LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT: "off" }), {
+    LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT: "off",
+  });
+});

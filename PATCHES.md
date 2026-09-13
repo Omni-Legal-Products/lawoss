@@ -54,6 +54,7 @@ Merged exact upstream tag `v0.1.18` (`336270d`) onto LAWOSS `ec0f4c1`. LAWOSS-ow
 | `apps/desktop/resources/icons/**`, `apps/desktop/electron-builder.yml` | Keep LAWOSS icons and use LAWOSS artwork for the newly packaged dark dock icon. |
 | `scripts/dev.mjs` | `LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT` sa už nedosadzuje na `9823`; port sa odovzdá len keď ho niekto nastaví (`remoteDebugEnv()` z `apps/desktop/scripts/dev-remote-debug.mjs`) | `pnpm dev` inak vždy otvoril ladiaci port Electronu na loopbacku — kto sa naň pripojí, riadi okno aj session; `electron-dev.mjs` premennú berie ako opt-in | VŘ | fix/cdp-port-len-na-vyziadanie |
 | `apps/desktop/package.json` | +1 súbor v skripte `test` (`scripts/dev-remote-debug.test.mjs`) | Aby sa default nemohol ticho vrátiť | VŘ | fix/cdp-port-len-na-vyziadanie |
+| `apps/desktop/electron/main.mjs` | `LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT=off` zavrie ladiaci port úplne; bez tejto hodnoty ostáva správanie upstreamu (port sa hľadá v rozsahu 9223–9227 pre vstavaný prehliadač) | Kto sa na port pripojí, riadi okno appky aj jej session; advokát, ktorý vstavaný prehliadač nepoužíva, ho má vedieť vypnúť | VŘ | fix/cdp-port-len-na-vyziadanie |
 
 The existing Word add-in changes, OKF modules, updater feeds, release customization and application tests are retained from the fork. No new LAWOSS behavior is introduced into the upstream extension implementation.
 
