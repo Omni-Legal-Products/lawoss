@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import en from "../src/i18n/locales/en";
 import cs from "../src/i18n/locales/cs";
 import sk from "../src/i18n/locales/sk";
+import { applyBrandName, BRAND_EXEMPT_KEYS } from "../src/i18n";
 
 const placeholders = (value: string) => (value.match(/\{[a-zA-Z_]+\}/g) ?? []).sort().join(",");
 const dictionaries: Record<string, Record<string, string>> = { cs, sk };
@@ -25,4 +26,22 @@ describe("lokalizácia sk a cs pokrýva celé rozhranie", () => {
       expect(broken).toEqual([]);
     });
   }
+});
+
+describe("značka sa dosadzuje aj do našich prekladov", () => {
+  test("LegalWork v sk a cs hodnotách vyjde ako LAWOSS", () => {
+    const withBrand = (dict: Record<string, string>) =>
+      Object.entries(dict).filter(([, value]) => value.includes("LegalWork"));
+    for (const [lang, dict] of Object.entries(dictionaries)) {
+      const rows = withBrand(dict);
+      expect(rows.length).toBeGreaterThan(0);
+      for (const [key, value] of rows) {
+        const rendered = applyBrandName(value);
+        if (BRAND_EXEMPT_KEYS.has(key)) continue;
+        expect(rendered.includes("LegalWork")).toBe(false);
+        expect(rendered.includes("LAWOSS")).toBe(true);
+      }
+      expect(lang === "sk" || lang === "cs").toBe(true);
+    }
+  });
 });

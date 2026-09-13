@@ -197,17 +197,21 @@ for (const language of LANGUAGES) {
   if (language === "en") continue;
   const dict = LOCALES[language];
 
-  // LAWOSS locales intentionally retain English fallback while translation progresses.
-  // Validate their supplied placeholders below without claiming full coverage.
-  const partial = language === "sk" || language === "cs";
+  // LAWOSS: sk and cs are complete since 2026-09-13 and are checked like de.
+  // Czech and Slovak have CLDR plural categories English does not (`few`, `many`),
+  // so `X_few`/`X_many` are legitimate as long as en.ts has the family's `X_other`.
+  const extraPluralOfKnownFamily = (key: string): boolean => {
+    const base = key.replace(/_(few|many)$/, "");
+    return base !== key && (`${base}_other` in SOURCE || base in SOURCE);
+  };
 
   const missing = Object.keys(SOURCE).filter((key) => !(key in dict));
-  if (missing.length && !partial) {
+  if (missing.length) {
     fail(`${language}: ${missing.length} key(s) missing, first: ${missing.slice(0, 5).join(", ")}`);
   }
 
-  const extra = Object.keys(dict).filter((key) => !(key in SOURCE));
-  if (extra.length && !partial) {
+  const extra = Object.keys(dict).filter((key) => !(key in SOURCE) && !extraPluralOfKnownFamily(key));
+  if (extra.length) {
     fail(`${language}: ${extra.length} key(s) not in en.ts, first: ${extra.slice(0, 5).join(", ")}`);
   }
 
@@ -232,7 +236,7 @@ for (const language of LANGUAGES) {
     if (base !== key) families.add(base);
   }
   for (const base of families) {
-    if (!partial && !(`${base}_other` in dict) && !(base in dict)) {
+    if (!(`${base}_other` in dict) && !(base in dict)) {
       fail(`${language}: plural family "${base}" resolves to nothing (no "${base}_other", no "${base}")`);
     }
   }
@@ -361,5 +365,5 @@ if (failures.length) {
 
 const total = Object.keys(SOURCE).length;
 console.log(
-  `i18n check passed: ${total} English keys; en/de complete; sk/cs use English fallback with placeholder validation.`,
+  `i18n check passed: ${total} English keys; en/de complete; sk/cs complete.`,
 );
