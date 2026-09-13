@@ -7,6 +7,7 @@ import { LehotyPage } from "../domains/lehoty/lehoty-page";
 import { MarketplacePage } from "../domains/marketplace/marketplace-page";
 import { NovySpisPage } from "../domains/novy-spis/novy-spis-page";
 import { PrehladPage } from "../domains/prehlad/prehlad-page";
+import { PrveNastaveniePage } from "../domains/onboarding/prve-nastavenie-page";
 
 /**
  * LAWOSS routes (fáza B) — mapped directly in the upstream app-root
@@ -19,4 +20,5 @@ export const LAWOSS_ROUTES: ReadonlyArray<{ path: string; element: ReactElement 
   { path: "/marketplace", element: <MarketplacePage /> },
   { path: "/experimenty", element: <ExperimentyPage /> },
   { path: "/experimenty/novy-spis", element: <NovySpisPage /> },
+  { path: "/experimenty/prve-nastavenie", element: <PrveNastaveniePage /> },
 ];

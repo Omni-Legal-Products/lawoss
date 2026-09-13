@@ -289,6 +289,10 @@
 .lw-tab[aria-current="page"] .lw-badge { opacity: 1; }
 .lw-row.lw-cols-exp { grid-template-columns: 26px minmax(0, 1fr) 60px 110px 52px; }
 .lw-row.lw-cols-exp-view { grid-template-columns: 26px minmax(0, 1fr) 60px 110px 62px; text-decoration: none; color: inherit; }
+/* Prvé nastavenie: číslo · názov + dôvod + oprava · slovný stav. */
+.lw-row.lw-cols-ledger { grid-template-columns: 30px minmax(0, 1fr) 150px; align-items: start; }
+.lw-row.lw-cols-ledger .lw-st { white-space: normal; }
+.lw-ledger-akcia { color: var(--lw-text-secondary); }
 .lw-row .lw-no { line-height: 1; }
 .lw-switch {
   width: 34px;
@@ -395,6 +399,8 @@
 .lw-welcome-todo p { font-size: 12.5px; line-height: 1.6; color: var(--lw-text-secondary); }
 .lw-welcome-todo p + p { margin-top: 7px; }
 .lw-welcome-todo p b { color: var(--lw-text-primary); font-weight: 500; }
+.lw-welcome-todo p a { color: var(--lw-text-primary); border-bottom: 1px solid var(--lw-border); text-decoration: none; }
+.lw-welcome-todo p a:hover { color: var(--lw-accent); border-color: var(--lw-accent); }
 .lw-welcome-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 34px; }
 .lw-welcome-brand img { width: 38px; height: 38px; }
 .lw-welcome-wordmark { display: block; width: 132px; height: auto; color: var(--lw-text-primary); }
@@ -463,7 +469,7 @@
   .lw-experiment-content :is(.lw-cols-wait, .lw-cols-leh, .lw-cols-con, .lw-cols-mkt) > :nth-child(n+4) { grid-column: 3; }
 }
 @container (max-width: 540px) {
-  .lw-experiment-content :is(.lw-cols-exp, .lw-cols-exp-view) { grid-template-columns: 20px minmax(0, 1fr); gap: 8px; }
-  .lw-experiment-content :is(.lw-cols-exp, .lw-cols-exp-view) > :nth-child(n+3) { grid-column: 2; }
+  .lw-experiment-content :is(.lw-cols-exp, .lw-cols-exp-view, .lw-cols-ledger) { grid-template-columns: 20px minmax(0, 1fr); gap: 8px; }
+  .lw-experiment-content :is(.lw-cols-exp, .lw-cols-exp-view, .lw-cols-ledger) > :nth-child(n+3) { grid-column: 2; }
   .lw-experiment-content .lw-form { grid-template-columns: minmax(0, 1fr); }
 }
