@@ -52,6 +52,8 @@ Merged exact upstream tag `v0.1.18` (`336270d`) onto LAWOSS `ec0f4c1`. LAWOSS-ow
 | `apps/app/src/react-app/domains/settings/pages/personalisation-view.tsx`, `apps/app/src/react-app/kernel/local-provider.tsx` | Preserve document-author preference and normalization with upstream thinking-default migration. |
 | `apps/app/src/react-app/domains/settings/shell/settings-page.tsx`, `apps/app/src/react-app/shell/welcome-route.tsx` | Keep Appearance and LAWOSS onboarding while adopting Extensions settings and upstream analytics lifecycle. |
 | `apps/desktop/resources/icons/**`, `apps/desktop/electron-builder.yml` | Keep LAWOSS icons and use LAWOSS artwork for the newly packaged dark dock icon. |
+| `apps/server/src/skills.ts` | `parseSkillEntry()` číta a parsuje SKILL.md v `try`/`catch`: chybný súbor sa preskočí s `console.warn` namiesto toho, aby výnimka zhodila celý výpis | Jeden cudzí skill s neplatným frontmatterom inak zneviditeľní všetky skilly vo workspace aj v `~/.claude/skills` — a tým aj `legalwork_skill_create` | VŘ | fix/vypis-skillov-prezije-chybny-skill |
+| `apps/server/src/skills.test.ts` | +1 test: chybný SKILL.md v priečinku sa preskočí a ostatné skilly sa vrátia | Regresia, ktorá sa inak prejaví až u používateľa s cudzím skillom | VŘ | fix/vypis-skillov-prezije-chybny-skill |
 
 The existing Word add-in changes, OKF modules, updater feeds, release customization and application tests are retained from the fork. No new LAWOSS behavior is introduced into the upstream extension implementation.
 

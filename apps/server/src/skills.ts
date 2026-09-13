@@ -66,8 +66,18 @@ async function parseSkillEntry(
   entryName: string,
   scope: "project" | "global",
 ): Promise<SkillItem | null> {
-  const content = await readFile(skillPath, "utf8");
-  const { data, body } = parseFrontmatter(content);
+  // LAWOSS: jeden cudzí SKILL.md s chybným frontmatterom (napr. neuvodzovkovaný
+  // `description` s dvojbodkou) inak vyhodí YAMLParseError a zhodí celý výpis
+  // skillov vrátane endpointu, ktorý používa `legalwork_skill_create`.
+  // Chybný súbor sa preskočí a zapíše sa do logu; ostatné skilly sa vrátia.
+  let parsed: ReturnType<typeof parseFrontmatter>;
+  try {
+    parsed = parseFrontmatter(await readFile(skillPath, "utf8"));
+  } catch (error) {
+    console.warn(`[skills] preskočený neplatný SKILL.md: ${skillPath}`, error);
+    return null;
+  }
+  const { data, body } = parsed;
   const name = typeof data.name === "string" ? data.name : entryName;
   const description = typeof data.description === "string" ? data.description : "";
   const kind = data.kind === "workflow" ? "workflow" : undefined;
