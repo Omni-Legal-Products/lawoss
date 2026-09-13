@@ -24,7 +24,10 @@ describe("skill okf-pamat pre workspace LAWOSS", () => {
     expect(body.description).toMatch(/^Use when reading or writing case memory/);
     expect(body.description.length).toBeLessThanOrEqual(1024); // limit servera (validateDescription)
     expect(body.content.startsWith("# okf-pamat")).toBe(true);
-    expect(body.content).not.toContain("\n---\n");
+    // Frontmatter je odstrihnutý, ale `---` v tele ostáva legitímne: SKILL.md
+    // ukazuje najmenší platný záznam vrátane jeho YAML hlavičky v code blocku.
+    expect(body.content.startsWith("---")).toBe(false);
+    expect(/^(name|description):/m.test(body.content.split("```")[0] ?? "")).toBe(false);
     // druhý skill nesmie prepísať prvý
     expect(skillBody().description).not.toBe(body.description);
     expect(NOVY_SPIS_SKILL_NAME).not.toBe(OKF_PAMAT_SKILL_NAME);
