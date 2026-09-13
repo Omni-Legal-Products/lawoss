@@ -449,6 +449,15 @@
 .lw-inline .lw-input { flex: 1; min-width: 0; }
 .lw-hint-warn { font-size: 12px; color: var(--lw-warning); }
 
+/* Dry-run plán nového spisu: tri skupiny ako registre, nie dekoratívne karty. */
+.lw-plan-group { margin-top: 16px; }
+.lw-plan-group > .lw-sc { display: block; padding-bottom: 6px; border-bottom: 1px solid var(--lw-border); }
+.lw-plan-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 16px; padding: 7px 0; border-bottom: 1px solid var(--lw-border-subtle); }
+.lw-plan-row b { font-family: var(--lw-font-mono); font-size: 12px; font-weight: 400; overflow-wrap: anywhere; }
+.lw-plan-row span { color: var(--lw-text-tertiary); font-size: 12.5px; }
+.lw-plan-group.warn .lw-plan-row span { color: var(--lw-warning); }
+.lw-plan-empty { padding: 8px 0; color: var(--lw-text-tertiary); font-size: 12.5px; }
+
 /* Experimental pages occupy the existing shell's center pane. */
 .lw-experiment-content { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; color: var(--lw-text-primary); font-family: var(--lw-font-sans); }
 .lw-experiment-nav { display: flex; gap: 4px; flex-shrink: 0; overflow-x: auto; padding: 8px 16px; border-bottom: 1px solid var(--lw-border-subtle); }
