@@ -32,6 +32,8 @@ export type PlanInput = {
   oblast?: string;
   spzn?: string;
   sud?: string;
+  /** Kto za spis zodpovedá. Bez hodnoty ostáva v karte `[DOPLNIT]` — nikdy meno natvrdo. */
+  advokat?: string;
   /** ISO dátum; predvolene dnes. Test seam. */
   date?: string;
   /**
@@ -90,6 +92,7 @@ export function templateVars(input: PlanInput): Record<string, string> {
     SPZN: input.spzn ?? "",
     SUD: input.sud ?? "",
     JURISDICTION: input.jurisdiction ?? "",
+    ADVOKAT: input.advokat?.trim() || "[DOPLNIT]",
     DATE: date,
   };
 }

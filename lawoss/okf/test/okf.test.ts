@@ -151,6 +151,15 @@ describe("kontrakt spisu", () => {
     expect(card?.content).toContain("jurisdiction: sk");
   });
 
+  test("advokát prichádza z --advokat; bez neho je v karte [DOPLNIT], nikdy meno natvrdo (#50)", () => {
+    expect(run(["apply", "spis", join(root, "s"), "--title", "Vec", "--cz", "--advokat", "Novák Jan"], () => {})).toBe(0);
+    const withName = readFileSync(join(root, "s", "spis.md"), "utf8");
+    expect(withName).toContain('advokat: "Novák Jan"');
+    expect(parseFrontmatter(withName)?.advokat).toBe("Novák Jan");
+    expect(run(["apply", "spis", join(root, "bez"), "--title", "Vec", "--cz"], () => {})).toBe(0);
+    expect(parseFrontmatter(readFileSync(join(root, "bez", "spis.md"), "utf8"))?.advokat).toBe("[DOPLNIT]");
+  });
+
   test("_STATUS.md má markery pre všetkých šesť blokov, inak okf-memory sync skončí konfliktom", () => {
     const p = planEntity(
       { type: "spis", dir: "/x", title: "Vec", jurisdiction: "cz", date: "2026-09-02" },

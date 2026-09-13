@@ -4,7 +4,7 @@
  *
  *   okf detect <dir> [--type klient|spis|projekt] [--json]
  *   okf plan <typ> <dir> --title "…" --sk|--cz [--ico X] [--klient X] [--protistrana X]
- *            [--protistrana-ico X] [--oblast X] [--desc X] [--json]
+ *            [--protistrana-ico X] [--oblast X] [--desc X] [--advokat X] [--json]
  *   okf apply <typ> <dir> --title "…" --sk|--cz [rovnaké flagy]        ← až po potvrdení človekom
  *   okf validate <dir> [--json]                                 exit 1 pri chybe
  *   okf render <dir> [--json]
@@ -79,6 +79,7 @@ function inputFrom(positional: string[], flags: Flags): PlanInput {
     description: str(flags, "desc"), ico: str(flags, "ico"), klient: str(flags, "klient"),
     protistrana: str(flags, "protistrana"), protistranaIco: str(flags, "protistrana-ico"),
     oblast: str(flags, "oblast"), spzn: str(flags, "spzn"), sud: str(flags, "sud"), date: str(flags, "date"),
+    advokat: str(flags, "advokat"),
     jurisdiction: jurisdictionFrom(flags, type),
   };
 }
