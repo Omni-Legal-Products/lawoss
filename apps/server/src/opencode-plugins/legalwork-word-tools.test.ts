@@ -1,6 +1,7 @@
+import { isOpenWordFilePipelineCall } from "./legalwork-word-tools-shared.js";
+import * as pluginModule from "./legalwork-word-tools.js";
 import { describe, expect, test } from "bun:test";
 import {
-  isOpenWordFilePipelineCall,
   LegalWorkWordTools,
 } from "./legalwork-word-tools.js";
 
@@ -139,6 +140,22 @@ describe("routing an unqualified edit request to the live document", () => {
       else process.env.LEGALWORK_SERVER_URL = originalUrl;
       if (originalToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN;
       else process.env.LEGALWORK_SERVER_TOKEN = originalToken;
+    }
+  });
+});
+
+describe("plugin module surface", () => {
+  // opencode volá KAŽDÝ export modulu pluginu ako plugin (`server(input)`).
+  // Helper exportovaný vedľa pluginu preto bežal s PluginInput enginu —
+  // rovnaká pasca, ktorá v legalwork-skill-tools zhodila štart enginu.
+  test("every export loads as a plugin entry point", async () => {
+    const pluginInput = { directory: process.cwd(), worktree: process.cwd() };
+    const entries: Array<[string, unknown]> = Object.entries(pluginModule);
+    expect(entries.length).toBeGreaterThan(0);
+    for (const [name, entry] of entries) {
+      if (typeof entry !== "function") throw new Error(`${name}: plugin export is not a function`);
+      const hooks: unknown = await entry(pluginInput);
+      if (!hooks || typeof hooks !== "object") throw new Error(`${name}: plugin returned no hooks`);
     }
   });
 });
