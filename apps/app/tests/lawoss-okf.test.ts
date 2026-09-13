@@ -34,8 +34,24 @@ describe("nový spis — požiadavka pre agenta", () => {
     expect(targetDir({ ...form, title: "." })).toBe("/Users/x/Klienti/[názov]");
     expect(targetDir({ ...form, title: " .Novák" })).toBe("/Users/x/Klienti/Novák");
     const text = composePrompt(spis);
-    expect(text).toContain(`okf plan spis "/Users/x/Klienti/Novák Jan — MSPH 79 INS 1-2026" --title "Novák Jan — MSPH 79 INS 1/2026" --cz`);
+    expect(text).toContain(`okf plan spis '/Users/x/Klienti/Novák Jan — MSPH 79 INS 1-2026' --title 'Novák Jan — MSPH 79 INS 1/2026' --cz`);
     expect(text).toContain("- názov: Novák Jan — MSPH 79 INS 1/2026");
+  });
+  /**
+   * Názov píše advokát a príkaz agent spúšťa tak, ako stojí. Znaky zakázané na
+   * Windows a dlhý názov padnú už na `mkdir`; `"`, `$(…)` a spätná úvodzovka by
+   * v dvojitých úvodzovkách urobili z poľa formulára príkaz.
+   */
+  test("nepriateľský názov nerozbije ani priečinok, ani príkaz", () => {
+    expect(targetDir({ ...form, title: 'Vec: 1*2?<3>|4"' })).toBe("/Users/x/Klienti/Vec- 1-2-3-4-");
+    expect(targetDir({ ...form, title: "Vec\nA" })).toBe("/Users/x/Klienti/Vec-A");
+    expect(targetDir({ ...form, title: "á".repeat(300) })).toBe(`/Users/x/Klienti/${"á".repeat(120)}`);
+    // koncová bodka ostáva: `s.r.o.` je názov, nie preklep
+    expect(targetDir({ ...form, title: "ACME s.r.o." })).toBe("/Users/x/Klienti/ACME s.r.o.");
+    const text = composePrompt({ ...form, subject: "spis", title: "Vec $(id) `id` \"A\"", jurisdikcia: "CZ" });
+    expect(text).toContain(`okf plan spis '/Users/x/Klienti/Vec $(id) \`id\` -A-' --title 'Vec $(id) \`id\` "A"' --cz`);
+    const apostrof = composePrompt({ ...form, subject: "spis", title: "O'Brien", jurisdikcia: "CZ" });
+    expect(apostrof).toContain(`--title 'O'\\''Brien' --cz`);
   });
   test("prompt names the skill, the gate and the verification step", () => {
     const text = composePrompt(form);
@@ -90,6 +106,6 @@ describe("jurisdikcia sa z dialógu dostane do CLI", () => {
 
   test("hotový príkaz v požiadavke je spustiteľný tak, ako stojí", () => {
     const text = composePrompt({ ...form, subject: "spis", title: "Vec A", jurisdikcia: "CZ" });
-    expect(text).toContain(`okf plan spis "/Users/x/Klienti/Vec A" --title "Vec A" --cz`);
+    expect(text).toContain(`okf plan spis '/Users/x/Klienti/Vec A' --title 'Vec A' --cz`);
   });
 });
