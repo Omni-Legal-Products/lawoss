@@ -108,7 +108,17 @@ export async function readWorkspaceMemory(
 ): Promise<OkfReadResult> {
   const problems: ReadProblem[] = [];
   const { paths, truncated } = await findMatters(client, workspaceId);
-  const matters = await mapLimit(paths, CONCURRENCY, (p) => readMatter(client, workspaceId, p, problems));
+  // Nečitateľná vec nezhodí celý prehľad — priečinok môže medzitým zmiznúť
+  // (Dropbox, iCloud) alebo nemusí ísť otvoriť. Vec ostane v zozname s názvom
+  // z cesty a dôvod skončí v `problems`, nech advokát vidí, že tam niečo je.
+  const matters = await mapLimit(paths, CONCURRENCY, async (path) => {
+    try {
+      return await readMatter(client, workspaceId, path, problems);
+    } catch (e) {
+      problems.push({ path, message: message(e) });
+      return { path, records: [] };
+    }
+  });
   return { ...buildOverview(matters, todayIso), problems, truncated };
 }
 

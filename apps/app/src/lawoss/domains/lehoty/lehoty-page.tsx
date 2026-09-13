@@ -89,6 +89,13 @@ function RealRegister({ data }: { data: OkfReadResult }) {
         )}
       </div>
 
+      {data.truncated ? (
+        <div className="lw-status warn">
+          Workspace má viac spisov, než sa číta naraz — register je z prvých {data.matters.length} spisov a lehoty
+          zvyšných tu nie sú.
+        </div>
+      ) : null}
+
       {data.problems.length > 0 ? (
         <div className="lw-status warn">
           {data.problems.length} súborov pamäte sa nedalo prečítať — ich lehoty tu chýbajú:{" "}
