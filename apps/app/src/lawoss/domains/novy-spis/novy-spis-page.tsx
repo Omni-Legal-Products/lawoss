@@ -8,6 +8,7 @@ import { isDesktopRuntime } from "@/app/utils";
 import { LawossLayout } from "../../shell/layout";
 import { composePrompt, targetDir, type Jurisdikcia, type NovySpisForm, type SubjectKind } from "../../okf/compose-prompt";
 import { loadOkfConnection, openSessionWithPrompt, type OkfConnection } from "../../okf/connection";
+import { groupPlan, workspaceRelativePath, type PlanGroupItem } from "../../okf/plan-groups";
 import { previewPlan } from "../../okf/preview";
 import { NOVY_SPIS_SKILL_NAME, OKF_CLI_RESOURCE_NAME, okfCliSource, skillBody } from "../../okf/skill-bundle";
 
@@ -19,6 +20,23 @@ const SUBJECTS: Array<{ id: SubjectKind; label: string }> = [
 ];
 
 type Status = { tone: "ok" | "warn" | "err"; text: string } | null;
+/** Obsah cieľového priečinka zistený pri „Zobraziť plán“, viazaný na cestu, pre ktorú platí. */
+type Probe = { dir: string; names: string[] };
+
+function PlanGroup({ title, items, empty, tone }: { title: string; items: PlanGroupItem[]; empty: string; tone?: "warn" }) {
+  return (
+    <div className={`lw-plan-group ${tone ?? ""}`}>
+      <span className="lw-sc">{title}</span>
+      {items.length === 0 ? <p className="lw-plan-empty">{empty}</p> : null}
+      {items.map((item) => (
+        <div className="lw-plan-row" key={`${title}:${item.label}`}>
+          <b>{item.label}</b>
+          <span>{item.note}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /**
  * Nový spis — Fáza A. Nič nezakladá sám: pripraví skill + CLI vo workspace a
@@ -30,8 +48,10 @@ export function NovySpisPage() {
   const [connection, setConnection] = useState<OkfConnection | null>(null);
   const [connError, setConnError] = useState<string | null>(null);
   const [workspaceId, setWorkspaceId] = useState("");
-  const [busy, setBusy] = useState<"skill" | "session" | null>(null);
+  const [busy, setBusy] = useState<"plan" | "confirm" | null>(null);
   const [status, setStatus] = useState<Status>(null);
+  const [probe, setProbe] = useState<Probe | null>(null);
+  const [result, setResult] = useState<{ dir: string; route: string } | null>(null);
   const [form, setForm] = useState<NovySpisForm>({
     mode: "okf", subject: "pravnicka-osoba", title: "", ico: "", jurisdikcia: "SK", verify: true, root: "", protistrana: "",
   });
@@ -68,35 +88,60 @@ export function NovySpisPage() {
       setStatus({ tone: "err", text: error instanceof Error ? error.message : String(error) });
     }
   }
-  const preview = useMemo(() => previewPlan(effectiveForm), [effectiveForm]);
+  const dir = useMemo(() => targetDir(effectiveForm), [effectiveForm]);
+  // Zistený obsah platí len pre cestu, pri ktorej sa zisťoval — po zmene názvu
+  // alebo koreňa je plán opäť „všetko nové“, kým advokát nestlačí Zobraziť plán.
+  const existing = useMemo(() => new Set(probe?.dir === dir ? probe.names : []), [probe, dir]);
+  const rows = useMemo(() => previewPlan(effectiveForm, (path) => existing.has(path)), [effectiveForm, existing]);
+  const groups = useMemo(
+    () => groupPlan(rows, { form: effectiveForm, workspacePath: workspace?.path ?? "" }),
+    [rows, effectiveForm, workspace],
+  );
   const prompt = useMemo(() => composePrompt(effectiveForm), [effectiveForm]);
   const set = <K extends keyof NovySpisForm>(key: K, value: NovySpisForm[K]) => setForm((current) => ({ ...current, [key]: value }));
 
   const canAct = Boolean(connection?.client && workspace && form.mode === "okf");
+  // Plán platí len pre cestu, pre ktorú sa zisťoval. Premenovaním veci sa schová
+  // a „Potvrdiť“ zhasne — advokát nepotvrdí plán, ktorý sa medzitým zmenil.
+  const planShown = probe?.dir === dir;
 
-  async function installSkill() {
+  /**
+   * Krok „03 Návrh štruktúry“. Pýta sa servera, čo v cieľovom priečinku už je —
+   * bez toho by skupina ZOSTÁVA bola vždy prázdna a plán by tvrdil, že existujúce
+   * súbory vznikajú nanovo. Neexistujúci priečinok nie je chyba, len prázdny výsledok.
+   */
+  async function showPlan() {
+    setBusy("plan"); setStatus(null); setResult(null);
+    const relative = workspace ? workspaceRelativePath(dir, workspace.path) : null;
+    let names: string[] = [];
+    if (connection?.client && workspace && relative !== null) {
+      try {
+        const list = await connection.client.listWorkspaceDirectory(workspace.id, relative);
+        names = list.entries.map((entry) => entry.name);
+      } catch {
+        // priečinok ešte nie je — plán berie všetko ako nové
+      }
+    }
+    setProbe({ dir, names });
+    setBusy(null);
+  }
+
+  async function confirmCreate() {
     if (!connection?.client || !workspace) return;
-    setBusy("skill"); setStatus(null);
+    setBusy("confirm"); setStatus(null);
     try {
       const body = skillBody();
       await connection.client.upsertSkill(workspace.id, { name: NOVY_SPIS_SKILL_NAME, content: body.content, description: body.description });
       await connection.client.upsertSkillResource(workspace.id, NOVY_SPIS_SKILL_NAME, { name: OKF_CLI_RESOURCE_NAME, content: okfCliSource() });
-      setStatus({ tone: "ok", text: `Skill /${NOVY_SPIS_SKILL_NAME} a ${OKF_CLI_RESOURCE_NAME} sú v .opencode/skills/ workspace-u „${workspace.name}“.` });
+      const route = await openSessionWithPrompt(connection, workspace, prompt);
+      setResult({ dir, route });
+      setStatus({
+        tone: "ok",
+        text: `Skill /${NOVY_SPIS_SKILL_NAME} je vo workspace „${workspace.name}“ a požiadavka čaká v novej session. Agent spustí plán a pred zápisom si vyžiada tvoje áno.`,
+      });
     } catch (error) {
       setStatus({ tone: "err", text: error instanceof Error ? error.message : String(error) });
     } finally {
-      setBusy(null);
-    }
-  }
-
-  async function openAssistant() {
-    if (!connection || !workspace) return;
-    setBusy("session"); setStatus(null);
-    try {
-      const route = await openSessionWithPrompt(connection, workspace, prompt);
-      navigate(route);
-    } catch (error) {
-      setStatus({ tone: "err", text: error instanceof Error ? error.message : String(error) });
       setBusy(null);
     }
   }
@@ -194,10 +239,18 @@ export function NovySpisPage() {
 
       <div className="lw-reg">
         <div className="lw-reg-h">
-          <h2>Čo vznikne — dry-run</h2>
-          <span className="lw-meta">nič sa ešte nezapísalo</span>
+          <h2>Návrh štruktúry</h2>
+          <span className="lw-meta">{planShown ? `${dir}/ — nič sa ešte nezapísalo` : "dry-run · zatiaľ nezobrazený"}</span>
         </div>
-        <pre className="lw-pre lw-mono">{`${targetDir(effectiveForm)}/\n${preview.map((path, index) => `${index === preview.length - 1 ? "└──" : "├──"} ${path}`).join("\n")}`}</pre>
+        {planShown ? (
+          <>
+            <PlanGroup title="Pridá sa" items={groups.prida} empty="nič nové — priečinok už má všetko, čo profil predpisuje" />
+            <PlanGroup title="Zostáva" items={groups.zostava} empty="priečinok je prázdny alebo ešte neexistuje" />
+            <PlanGroup title="Vyžaduje pozornosť" items={groups.pozornost} empty="nič — plán je bez konfliktov" tone="warn" />
+          </>
+        ) : (
+          <p className="lw-plan-empty">Plán sa zostaví z formulára a z obsahu cieľového priečinka. Nič sa pritom nezapisuje.</p>
+        )}
       </div>
 
       <div className="lw-reg">
@@ -210,22 +263,26 @@ export function NovySpisPage() {
 
       {connError ? <div className="lw-status err">{connError}</div> : null}
       {connection && !connection.client ? (
-        <div className="lw-status warn">Server LegalWork nebeží alebo chýba token — náhľad funguje, inštalácia a asistent nie.</div>
+        <div className="lw-status warn">Server LegalWork nebeží alebo chýba token — plán sa zostaví z formulára, potvrdenie nie je dostupné.</div>
       ) : null}
       {status ? <div className={`lw-status ${status.tone}`}>{status.text}</div> : null}
 
       <div className="lw-actions">
-        <button type="button" className="lw-btn-secondary" disabled={!canAct || busy !== null} onClick={() => void installSkill()}>
-          {busy === "skill" ? "Inštalujem…" : "1 · Pripraviť skill a CLI vo workspace"}
+        <button type="button" className="lw-btn-secondary" disabled={form.mode !== "okf" || busy !== null} onClick={() => void showPlan()}>
+          {busy === "plan" ? "Zisťujem…" : "Zobraziť plán"}
         </button>
-        <button type="button" className="lw-btn" disabled={!canAct || busy !== null} onClick={() => void openAssistant()}>
-          {busy === "session" ? "Otváram…" : "2 · Založiť cez asistenta"}
-        </button>
+        {result ? (
+          <button type="button" className="lw-btn" onClick={() => navigate(result.route)}>Otvoriť spis</button>
+        ) : (
+          <button type="button" className="lw-btn" disabled={!canAct || !planShown || busy !== null} onClick={() => void confirmCreate()}>
+            {busy === "confirm" ? "Odovzdávam…" : "Potvrdiť vytvorenie spisu"}
+          </button>
+        )}
       </div>
 
       <div className="lw-note">
-        <span>Krok 1 stačí raz na workspace — skill je súbor v <span className="lw-mono">.opencode/skills/</span>.</span>
-        <span>Krok 2 otvorí session s požiadavkou. Agent spustí <b>plan</b> a čaká na tvoje áno.</span>
+        <span><b>Zobraziť plán</b> prečíta cieľový priečinok a rozdelí zmeny na tri skupiny. Zápis sa nekoná.</span>
+        <span><b>Potvrdiť vytvorenie spisu</b> vloží skill <span className="lw-mono">/{NOVY_SPIS_SKILL_NAME}</span> do workspace-u a odovzdá požiadavku agentovi — ten plán zopakuje a čaká na tvoje áno.</span>
         <span>CLI beží cez <span className="lw-mono">node</span> alebo <span className="lw-mono">bun</span> na tvojom stroji — Fáza B to presunie na server.</span>
       </div>
     </LawossLayout>
