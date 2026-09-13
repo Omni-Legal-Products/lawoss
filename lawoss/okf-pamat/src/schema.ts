@@ -87,9 +87,8 @@ export type Conclusion = (typeof CONCLUSION)[number];
  * Druhy udalosti v histórii záznamu. Slovník je **otvorený** — neznámy druh
  * sa nepremenúva a nebráni zápisu; advokát smie zapísať aj to, čo slovník
  * nepozná. Slúži na filtrovanie chronológie, nie na výpočet lehôt.
- */
-/**
- * Druhy udalostí sú anglické ako každý strojový kľúč (O6, rozhodnutie 1 z callu 11. 9. 2026).
+ *
+ * Hodnoty sú anglické ako každý strojový kľúč (O6, rozhodnutie 1 z callu 11. 9. 2026).
  * Staré slovenské hodnoty sa pri čítaní prevedú cez EVENT_KIND_ALIASES, aby existujúce
  * spisy čítali ďalej; späť sa zapisujú už anglicky.
  */

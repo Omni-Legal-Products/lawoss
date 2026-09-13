@@ -64,7 +64,6 @@ updated: 2026-09-11
 state: pending
 assignee: VŘ
 deadlines: ["2026-09-25"]
-related: ["M-001"]
 ---
 
 ## Truth

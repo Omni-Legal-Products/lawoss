@@ -11,6 +11,7 @@
 
 import {
   FIELDS,
+  canonicalEventKind,
   canonicalField,
   isJurisdiction,
   isRecordType,
@@ -24,8 +25,6 @@ import {
  * Nadpisy sekcií záznamu. Anglické pre obe jurisdikcie — záznam je formát,
  * nie dokument. Ľudským rozhraním je `_STATUS.md`, a ten zostáva lokalizovaný.
  */
-import { canonicalEventKind } from "./schema.ts";
-
 export const HEADINGS = { truth: "Truth", timeline: "History" } as const;
 
 /** Skalár frontmatteru. */

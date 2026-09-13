@@ -37,6 +37,7 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 | `apps/app/src/i18n/locales/en.ts` | +15 kľúčov `autogram.*` (Autogram teaser karta v Integrations, vrátane loading a chybového stavu) | Anglický zdroj pre i18n fallback; sk/cs preklady sú vlastné LAWOSS súbory bez záznamu | MČ | feat/autogram-teaser |
 | `apps/app/src/i18n/locales/de.ts` | +15 kľúčov `autogram.*` (formálne „Sie“, bez pomlčiek) | `scripts/i18n-check.ts` vyžaduje pre `de` plné pokrytie kľúčov z `en.ts` | MČ | feat/autogram-teaser |
 | `apps/app/scripts/i18n-check.ts` | `"autogram.title"` pridaný do `GERMAN_KEEPS_ENGLISH` (produktový názov) | „Autogram“ je názov produktu tretej strany, nemá nemecký preklad | MČ | feat/autogram-teaser |
+| `pnpm-workspace.yaml` | pridané `lawoss/*` medzi `packages` (+ zodpovedajúci `pnpm-lock.yaml`) | balíčky `lawoss/okf` a `lawoss/okf-pamat` sú súčasťou pnpm workspace — akčný bod z callu 11. 9. 2026 | VŘ | feat/okf-z-aplikacie-bez-rucnych-krokov |
 
 ## Review checklist for upstream sync
 
@@ -52,7 +53,6 @@ Merged exact upstream tag `v0.1.18` (`336270d`) onto LAWOSS `ec0f4c1`. LAWOSS-ow
 | `apps/app/src/react-app/domains/settings/pages/personalisation-view.tsx`, `apps/app/src/react-app/kernel/local-provider.tsx` | Preserve document-author preference and normalization with upstream thinking-default migration. |
 | `apps/app/src/react-app/domains/settings/shell/settings-page.tsx`, `apps/app/src/react-app/shell/welcome-route.tsx` | Keep Appearance and LAWOSS onboarding while adopting Extensions settings and upstream analytics lifecycle. |
 | `apps/desktop/resources/icons/**`, `apps/desktop/electron-builder.yml` | Keep LAWOSS icons and use LAWOSS artwork for the newly packaged dark dock icon. |
-| `pnpm-workspace.yaml` | pridané `lawoss/*` medzi `packages` (+ zodpovedajúci `pnpm-lock.yaml`) | balíčky `lawoss/okf` a `lawoss/okf-pamat` sú súčasťou pnpm workspace — akčný bod z callu 11. 9. 2026 | VŘ | feat/okf-z-aplikacie-bez-rucnych-krokov |
 
 The existing Word add-in changes, OKF modules, updater feeds, release customization and application tests are retained from the fork. No new LAWOSS behavior is introduced into the upstream extension implementation.
 
