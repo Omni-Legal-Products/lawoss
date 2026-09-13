@@ -193,7 +193,10 @@ export function MarketplacePage() {
 
       <div className="lw-reg lw-marketplace">
         <div className="lw-reg-h">
-          <h2>Katalóg</h2>
+          <h2>
+            Katalóg
+            <span className="lw-badge">ukážka — katalóg zatiaľ neexistuje</span>
+          </h2>
           <span className="lw-meta">
             {entries.length} položiek
             <Link to="/konektory">Pripojené</Link>
