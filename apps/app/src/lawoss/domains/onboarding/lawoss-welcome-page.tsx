@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 
 import lawossMark from "../../../../../../lawoss/brand/lawoss-mark.svg";
 import { LawossWordmark } from "../../shell/wordmark";
@@ -205,6 +206,10 @@ export function LawossWelcomePage({
                   </p>
                   <p>
                     Ak onboarding prerušíte, zvolený spôsob nastavenia a posledný krok zostanú uložené v tomto počítači.
+                  </p>
+                  <p>
+                    Čo už vzniklo a čo ešte chýba, ukáže register{" "}
+                    <Link to="/experimenty/prve-nastavenie">Prvé nastavenie</Link>. Otvoríte ho aj neskôr.
                   </p>
                 </div>
               </div>

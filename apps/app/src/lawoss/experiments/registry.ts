@@ -40,6 +40,15 @@ export const EXPERIMENTS: readonly Experiment[] = [
   },
   {
     kind: "view",
+    id: "view-prve-nastavenie",
+    to: "/experimenty/prve-nastavenie",
+    label: "Prvé nastavenie",
+    note: "Stavový register prvého nastavenia — číta workspace, predvolený model, ochranu pri úpravách a to, či už prebehla prvá úloha. Iba na čítanie.",
+    owner: "VŘ",
+    stav: "v testovaní",
+  },
+  {
+    kind: "view",
     id: "view-prehlad",
     to: "/prehlad",
     label: "Prehľad",
