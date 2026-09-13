@@ -87,6 +87,20 @@ function skillRow(item: LegalworkSkillItem): ConnectorRow {
   };
 }
 
+/**
+ * Načítanie jedného zoznamu tak, aby jeho zlyhanie neskrylo ten druhý. Stránka
+ * číta dva nezávislé zdroje (MCP a skills) a jeden chybný cudzí `SKILL.md`
+ * dnes zhodí celé `listSkills` — advokát by potom nevidel ani MCP servery,
+ * ktoré sa načítali v poriadku.
+ */
+export async function settledItems<T>(load: Promise<{ items: T[] }>): Promise<{ items: T[]; error: string | null }> {
+  try {
+    return { items: (await load).items, error: null };
+  } catch (error) {
+    return { items: [], error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export function toConnectorRows(
   mcp: readonly LegalworkMcpItem[],
   statuses: ConnectorStatusMap,

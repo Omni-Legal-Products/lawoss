@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { LegalworkMcpItem, LegalworkSkillItem } from "../src/app/lib/legalwork-server";
-import { toConnectorRows } from "../src/lawoss/domains/konektory/rows";
+import { settledItems, toConnectorRows } from "../src/lawoss/domains/konektory/rows";
 
 const remote = (name: string, config: Record<string, unknown> = {}): LegalworkMcpItem => ({
   name,
@@ -95,6 +95,25 @@ describe("konektory — mapovanie zo Settings dát", () => {
   });
 });
 
+/**
+ * Stránka číta dva nezávislé zdroje. Jediný chybný cudzí `SKILL.md` zhodí celé
+ * `listSkills` na serveri — bez tejto ochrany by advokát nevidel ani MCP
+ * servery, ktoré sa načítali v poriadku.
+ */
+describe("settledItems — zlyhanie jedného zoznamu neskryje druhý", () => {
+  test("úspech vráti položky a žiadnu chybu", async () => {
+    expect(await settledItems(Promise.resolve({ items: [1, 2] }))).toEqual({ items: [1, 2], error: null });
+  });
+
+  test("zlyhanie vráti prázdny zoznam a hlášku, nie výnimku", async () => {
+    expect(await settledItems(Promise.reject(new Error("YAMLParseError: implicit map key")))).toEqual({
+      items: [],
+      error: "YAMLParseError: implicit map key",
+    });
+    expect(await settledItems(Promise.reject("500"))).toEqual({ items: [], error: "500" });
+  });
+});
+
 describe("Konektory page contract", () => {
   test("stránka číta z rovnakých volaní ako Settings a nemá fiktívny zoznam", async () => {
     const source = await Bun.file(
@@ -105,6 +124,9 @@ describe("Konektory page contract", () => {
     expect(source).toContain("listSkills(");
     expect(source).toContain("mcp.status(");
     expect(source).toContain("toConnectorRows(");
+    // Zoznamy sa načítavajú nezávisle — pád jedného nesmie zhodiť celú stránku.
+    expect(source).toContain("settledItems(client.listMcp(");
+    expect(source).toContain("settledItems(client.listSkills(");
     expect(source).not.toContain("const CONNECTORS");
     expect(source).not.toContain("Slov-Lex");
   });

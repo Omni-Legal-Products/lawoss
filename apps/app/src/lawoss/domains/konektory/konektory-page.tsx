@@ -10,13 +10,17 @@ import { workspaceSettingsRoute } from "@/react-app/shell/workspace-routes";
 
 import { loadOkfConnection, type OkfConnection } from "../../okf/connection";
 import { LawossLayout } from "../../shell/layout";
-import { toConnectorRows, type ConnectorRow, type ConnectorStatusMap } from "./rows";
+import { settledItems, toConnectorRows, type ConnectorRow, type ConnectorStatusMap } from "./rows";
 
 type Loaded = {
   workspace: RouteWorkspace;
   rows: ReturnType<typeof toConnectorRows>;
   /** Stav z opencode sa nepodarilo načítať — servery sa ukážu ako odpojené. */
   statusError: string | null;
+  /** Zoznam serverov sa nepodarilo načítať; skills sa aj tak zobrazia. */
+  mcpError: string | null;
+  /** Zoznam skills sa nepodarilo načítať; servery sa aj tak zobrazia. */
+  skillsError: string | null;
 };
 
 type State =
@@ -30,9 +34,11 @@ type State =
 async function loadKonektory(connection: OkfConnection, workspace: RouteWorkspace): Promise<Loaded> {
   const client = connection.client;
   if (!client) throw new Error("Server LegalWork nebeží.");
+  // Dva nezávislé zdroje: zlyhanie jedného nesmie skryť druhý (jediný chybný
+  // cudzí `SKILL.md` dnes zhodí celé `listSkills`).
   const [mcp, skills] = await Promise.all([
-    client.listMcp(workspace.id),
-    client.listSkills(workspace.id, { includeGlobal: true }),
+    settledItems(client.listMcp(workspace.id)),
+    settledItems(client.listSkills(workspace.id, { includeGlobal: true })),
   ]);
   let statuses: ConnectorStatusMap = {};
   let statusError: string | null = null;
@@ -44,7 +50,13 @@ async function loadKonektory(connection: OkfConnection, workspace: RouteWorkspac
   } catch (error) {
     statusError = error instanceof Error ? error.message : String(error);
   }
-  return { workspace, rows: toConnectorRows(mcp.items, statuses, skills.items), statusError };
+  return {
+    workspace,
+    rows: toConnectorRows(mcp.items, statuses, skills.items),
+    statusError,
+    mcpError: mcp.error,
+    skillsError: skills.error,
+  };
 }
 
 /**
@@ -99,6 +111,9 @@ export function KonektoryPage() {
             empty={<>Žiadny MCP server nie je nakonfigurovaný. Pripojiť sa dá v <Link to={mcpSettings}>Settings → Extensions</Link>.</>}
             action={{ label: "spravovať →", to: mcpSettings }}
           />
+          {state.mcpError ? (
+            <div className="lw-status err">Zoznam MCP serverov sa nepodarilo načítať ({state.mcpError}).</div>
+          ) : null}
           {state.statusError ? (
             <div className="lw-status warn">Stav pripojenia z opencode sa nepodarilo načítať ({state.statusError}); servery sú zobrazené ako odpojené.</div>
           ) : null}
@@ -109,6 +124,9 @@ export function KonektoryPage() {
             empty={<>Žiadny skill. Pridať sa dá v <Link to={skillsSettings}>Settings → Skills</Link>.</>}
             action={{ label: "otvoriť →", to: skillsSettings }}
           />
+          {state.skillsError ? (
+            <div className="lw-status err">Zoznam skills sa nepodarilo načítať ({state.skillsError}).</div>
+          ) : null}
         </>
       ) : null}
 
