@@ -26,6 +26,7 @@
     "src/lib/**/*",
     "src/overlay/**/*",
     "src/react-app/**/*",
+    "src/lawoss/**/*",
     "src/app/lib/**/*",
     "src/app/cloud/**/*",
     "src/app/data/**/*",
