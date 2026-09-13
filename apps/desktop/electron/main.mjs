@@ -535,14 +535,20 @@ async function resolveArchitectureInfo() {
   const systemArch = resolveSystemArch();
   const version = app.getVersion();
   const targetArch = systemArch === "arm64" || systemArch === "x64" ? systemArch : appArch;
-  const latestDownloadUrl = await resolveCorrectArchitectureDownloadUrl(targetArch);
+  // 🟡 LAWOSS: adresu na stiahnutie hľadáme len pri nezhode architektúr. Inak je
+  // `mismatch` nepravda tak či tak, bránu nikto neuvidí a `downloadUrl` nikto
+  // nepoužije — ale `ArchitectureMismatchGate` dovtedy vykresľuje `null`, takže
+  // tri sieťové požiadavky (každá so stropom 5 s) držia prázdne okno pri každom
+  // štarte. Nezhoda je lokálny údaj, sieť na jej zistenie netreba.
+  const architectureMismatch = appArch !== systemArch;
+  const latestDownloadUrl = architectureMismatch ? await resolveCorrectArchitectureDownloadUrl(targetArch) : null;
   const hasCorrectArchitectureDownload = Boolean(latestDownloadUrl);
   return {
     appArch,
     appArchLabel: archLabel(appArch),
     systemArch,
     systemArchLabel: archLabel(systemArch),
-    mismatch: appArch !== systemArch && hasCorrectArchitectureDownload,
+    mismatch: architectureMismatch && hasCorrectArchitectureDownload,
     platform: process.platform === "win32" ? "windows" : process.platform,
     version,
     // Static fallback uses GitHub directly: if we reach this branch the
