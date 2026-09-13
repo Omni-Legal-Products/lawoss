@@ -122,8 +122,11 @@ východiskové neponúkajú. Model kedykoľvek zmeníte v lište nad vstupným p
 
 ### Ladiaci port
 
-`pnpm dev` neotvára ladiaci port Electronu. Keď ho potrebujete (napríklad na
-vzdialenú diagnostiku), spustite `LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT=9823 pnpm dev`.
+Appka otvára ladiaci port (CDP) na loopbacku — používa ho vstavaný prehliadač a
+vyberá si ho sama z rozsahu 9223–9227. Konkrétny port si vypýtate cez
+`LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT=9823 pnpm dev`, **úplne ho zavriete** cez
+`LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT=off pnpm dev`. Kto sa naň pripojí, riadi
+okno aj session, takže na cudzom stroji ho zavrite.
 
 ## 5b. Smoke scenár alfy
 
