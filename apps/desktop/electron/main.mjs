@@ -53,6 +53,7 @@ import { createApplicationMenu } from "./app-menu.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
+import { guardNavigation, isAllowedNavigation } from "./window-allowlist.mjs";
 
 const mcpOAuthCallbacks = createMcpOAuthCallbackBroker();
 const mcpOAuthOwners = new WeakSet();
@@ -101,6 +102,11 @@ const NATIVE_DEEP_LINK_EVENT = "legalwork:deep-link-native";
 const APP_BUNDLE_IDENTIFIER = "com.eigenweltlabs.legalwork";
 const DEV_APP_IDENTIFIER = "com.eigenweltlabs.legalwork.dev";
 const DESKTOP_PROTOCOL_SCHEME = "legalwork";
+const startUrl = process.env.LEGALWORK_ELECTRON_START_URL?.trim() || process.env.ELECTRON_START_URL?.trim();
+// App windows show only their own document (#47): the dev server origin from
+// the start URL or the packaged file:// bundle; data: carries the shutdown screen.
+const OWN_ORIGINS = startUrl ? [new URL(startUrl).origin] : [];
+const NAVIGATION_ALLOWLIST = ["file:", "data:", ...OWN_ORIGINS];
 const isDevMode = process.env.LEGALWORK_DEV_MODE === "1";
 const APP_NAME =
   process.env.LEGALWORK_ELECTRON_APP_NAME?.trim() ||
@@ -1638,36 +1644,7 @@ async function openDetachedSessionWindow(event, input = {}) {
     }
   });
 
-  sessionWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("file://")) {
-      try {
-        void shell.openPath(fileURLToPath(url));
-      } catch {
-        void shell.openExternal(url);
-      }
-      return { action: "deny" };
-    }
-    const local = url.startsWith("http://127.0.0.1") || url.startsWith("http://localhost");
-    if (!local) {
-      void shell.openExternal(url);
-      return { action: "deny" };
-    }
-    return { action: "allow" };
-  });
-  sessionWindow.webContents.on("will-navigate", (navigationEvent, url) => {
-    if (browserPanel.isMainWindowAllowedNavigation(url)) return;
-    navigationEvent.preventDefault();
-    browserPanel.routeBlockedMainWindowNavigation(url);
-  });
-  sessionWindow.webContents.on("did-start-navigation", (_navigationEvent, url, isInPlace, isMainFrame) => {
-    if (!isMainFrame || isInPlace || browserPanel.isMainWindowAllowedNavigation(url)) return;
-    try {
-      sessionWindow.webContents.stop();
-    } catch {
-      // Best effort — routing below still preserves the detached chat.
-    }
-    browserPanel.routeBlockedMainWindowNavigation(url);
-  });
+  guardAppWindow(sessionWindow.webContents);
 
   const sourceUrl = event.sender.getURL();
   const appDocumentUrl = sourceUrl.split("#", 1)[0];
@@ -2709,6 +2686,32 @@ async function handleDesktopInvoke(event, command, ...args) {
 }
 
 
+// Both app windows: window.open outside the app's own origin goes to the system
+// browser instead of a new Electron window carrying our preload; any other
+// main-frame navigation outside the allowlist is cancelled, logged and rerouted
+// into the built-in browser panel (window-allowlist.mjs, #47).
+/** @param {import("electron").WebContents} contents */
+function guardAppWindow(contents) {
+  contents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith("file://")) {
+      try {
+        void shell.openPath(fileURLToPath(url));
+      } catch {
+        void shell.openExternal(url);
+      }
+      return { action: "deny" };
+    }
+    if (isAllowedNavigation(url, OWN_ORIGINS)) return { action: "allow" };
+    console.warn(`[window] window.open outside allowlist, opening in system browser: ${url}`);
+    void shell.openExternal(url);
+    return { action: "deny" };
+  });
+  guardNavigation(contents, NAVIGATION_ALLOWLIST, (url) => {
+    console.warn(`[window] blocked navigation outside allowlist: ${url}`);
+    browserPanel.routeBlockedMainWindowNavigation(url);
+  });
+}
+
 async function createMainWindow() {
   if (mainWindow) return mainWindow;
 
@@ -2820,51 +2823,8 @@ async function createMainWindow() {
     }, 1_000);
   });
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("file://")) {
-      try {
-        void shell.openPath(fileURLToPath(url));
-      } catch {
-        void shell.openExternal(url);
-      }
+  guardAppWindow(mainWindow.webContents);
 
-      return { action: "deny" };
-    }
-
-    const local =
-      url.startsWith("http://127.0.0.1") ||
-      url.startsWith("http://localhost");
-    if (!local) {
-      void shell.openExternal(url);
-      return { action: "deny" };
-    }
-    return { action: "allow" };
-  });
-
-  mainWindow.webContents.on("will-navigate", (event, url) => {
-    if (browserPanel.isMainWindowAllowedNavigation(url)) return;
-    event.preventDefault();
-    browserPanel.routeBlockedMainWindowNavigation(url);
-  });
-
-  // `will-navigate` does NOT fire for CDP `Page.navigate` (it behaves like
-  // loadURL), so agent automation that picks the wrong CDP target — the app
-  // window itself is the first page target when no browser tab exists — used
-  // to replace the entire workspace UI with the website, with no way back
-  // (#2000). Catch those at `did-start-navigation`, cancel the load, and
-  // reroute the URL into a built-in browser tab instead.
-  mainWindow.webContents.on("did-start-navigation", (_event, url, isInPlace, isMainFrame) => {
-    if (!isMainFrame || isInPlace) return;
-    if (browserPanel.isMainWindowAllowedNavigation(url)) return;
-    try {
-      mainWindow?.webContents.stop();
-    } catch {
-      // best effort — routing below still gives the user a way back
-    }
-    browserPanel.routeBlockedMainWindowNavigation(url);
-  });
-
-  const startUrl = process.env.LEGALWORK_ELECTRON_START_URL?.trim() || process.env.ELECTRON_START_URL?.trim();
   if (startUrl) {
     await mainWindow.loadURL(startUrl);
   } else {
