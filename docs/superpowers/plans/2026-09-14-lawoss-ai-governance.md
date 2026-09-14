@@ -4,7 +4,7 @@
 
 **Goal:** Add source-aligned AI handling guidance, explainable subscription detection, integrated settings reminders, and governed private MCP catalog entries to the latest LAWOSS app.
 
-**Architecture:** Add a small pure LAWOSS domain module for AI data regimes and subscription detection. Persist only the lawyer’s selected regime and acknowledgement in the existing local preference store; derive subscription state from the already-live Eigenwelt entitlement query and provider list. Reuse one React guidance panel in the welcome page, AI settings and Integrations, and extend the existing deterministic marketplace catalog with private, source-pinned Gravity entries without inventing a registry upload.
+**Architecture:** Add a small pure LAWOSS domain module for AI data regimes and subscription detection. Persist only the lawyer’s selected regime and acknowledgement in the existing local preference store; derive subscription state from the already-live Eigenwelt entitlement query and provider list. Reuse one React guidance panel in the welcome page, AI settings and Integrations, and extend the existing deterministic marketplace catalog with private, source-pinned Gravity entries plus a reviewable organisation registry manifest without implicit installation.
 
 **Tech Stack:** React, TypeScript, Bun tests, Vite, existing `LocalProvider`, React Query, LAWOSS token overrides, existing Firm Hub client and marketplace catalog.
 
@@ -144,7 +144,7 @@ expect(detectSubscriptionType({ eigenweltConnected: true, plan: null, subscripti
 
 - [x] **Step 2: Run the marketplace tests and confirm they fail.**
 
-- [x] **Step 3: Add the private entry and a Marketplace page note** explaining that the current organisation registry endpoint is unavailable and that publication is currently performed through the authenticated Firm Hub share flow from Settings > Integrations.
+- [x] **Step 3: Add the private entry, publish its review-state manifest to `Omni-Legal-Products/lawoss-registry`, and keep activation behind the authenticated Firm Hub share flow from Settings > Integrations.**
 
 - [x] **Step 4: Run the marketplace tests and confirm they pass.**
 

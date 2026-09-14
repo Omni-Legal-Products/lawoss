@@ -63,6 +63,11 @@ describe("LAWOSS marketplace catalog", () => {
         repository: "BiggusDicckkus/MCP-05.2026",
         ref: "e21e2d7",
       },
+      registry: {
+        repository: "Omni-Legal-Products/lawoss-registry",
+        ref: "e53f7a6",
+        manifest: "manifests/gravity-legal-mcp-suite.json",
+      },
       verification: { status: "review" },
       install: { action: "preview-only" },
     });

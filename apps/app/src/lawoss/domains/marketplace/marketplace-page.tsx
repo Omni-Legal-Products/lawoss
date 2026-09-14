@@ -142,6 +142,14 @@ function EntryDetail(props: { entry: MarketplaceEntry }) {
           <dt>Závislosti</dt>
           <dd>{props.entry.dependencies.length ? props.entry.dependencies.join(" · ") : "žiadne"}</dd>
         </div>
+        {props.entry.registry ? (
+          <div className="wide">
+            <dt>Organizačný registry</dt>
+            <dd className="lw-mono">
+              {props.entry.registry.repository}@{props.entry.registry.ref} · {props.entry.registry.manifest}
+            </dd>
+          </div>
+        ) : null}
       </dl>
 
       <div className="lw-marketplace-risk">
@@ -191,8 +199,8 @@ export function MarketplacePage() {
         potvrdenie človekom.
       </p>
       <div className="lw-note">
-        Organizačný registry endpoint zatiaľ nie je nakonfigurovaný. Súkromné Gravity MCP servery sú preto uvedené
-        ako pinned preview; publikovanie do Firm Hub prebehne až po schválení správcom v Settings → Integrations.
+        Súkromné Gravity MCP servery sú publikované v organizačnom registry ako pinned manifest v stave review.
+        LAWOSS ich naďalej zobrazuje ako preview; aktivácia prebehne až po schválení správcom v Settings → Integrations.
       </div>
 
       <div className="lw-reg lw-marketplace">

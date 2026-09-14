@@ -2,6 +2,11 @@ export type MarketplaceKind = "mcp" | "skill" | "cli" | "workflow";
 export type MarketplaceChannel = "stable" | "lab" | "community" | "private";
 export type MarketplaceRisk = "read-only" | "local-write" | "network" | "external-action";
 export type MarketplaceVerificationStatus = "verified" | "review" | "unverified";
+export type MarketplaceRegistryRef = {
+  repository: string;
+  ref: string;
+  manifest: string;
+};
 
 export type MarketplaceEntry = {
   id: string;
@@ -14,6 +19,8 @@ export type MarketplaceEntry = {
     repository: string;
     ref: string;
   };
+  /** Optional organisation registry pin for a published manifest. */
+  registry?: MarketplaceRegistryRef;
   dependencies: readonly string[];
   capabilities: readonly MarketplaceRisk[];
   verification: {
@@ -49,6 +56,11 @@ export const MARKETPLACE_CATALOG: readonly MarketplaceEntry[] = [
     channel: "private",
     jurisdictions: ["SK", "EU"],
     source: { repository: "BiggusDicckkus/MCP-05.2026", ref: "e21e2d7" },
+    registry: {
+      repository: "Omni-Legal-Products/lawoss-registry",
+      ref: "e53f7a6",
+      manifest: "manifests/gravity-legal-mcp-suite.json",
+    },
     dependencies: ["Python >=3.14", "uv"],
     capabilities: ["read-only", "network"],
     verification: { status: "review", checkedAt: "2026-09-14" },
