@@ -33,7 +33,7 @@ async function createWorkspaceRoot() {
   return root;
 }
 
-function startMockOpencode(options?: { failMcpNames?: string[] }) {
+function startMockOpencode(options?: { failMcpNames?: string[]; disconnectStatus?: number; failDisconnectDirectories?: string[] }) {
   const requests: EngineRequest[] = [];
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -51,7 +51,12 @@ function startMockOpencode(options?: { failMcpNames?: string[] }) {
         }
         return Response.json({});
       }
-      if (url.pathname.match(/^\/mcp\/[^/]+\/disconnect$/) && request.method === "POST") return Response.json({});
+      if (url.pathname.match(/^\/mcp\/[^/]+\/disconnect$/) && request.method === "POST") {
+        if (options?.failDisconnectDirectories?.includes(url.searchParams.get("directory") ?? "")) {
+          return Response.json({}, { status: 500 });
+        }
+        return Response.json({}, { status: options?.disconnectStatus ?? 200 });
+      }
       return Response.json({ code: "not_found", message: "Not found" }, { status: 404 });
     },
   }) as Served;
@@ -161,6 +166,46 @@ describe("runtime MCP engine sync", () => {
     } finally {
       if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
       else process.env.LEGALWORK_RUNTIME_DB = previousDb;
+    }
+  });
+
+  test("retries a failed shared disconnect without removing another workspace's own connector", async () => {
+    const rootA = await createWorkspaceRoot();
+    const rootB = await createWorkspaceRoot();
+    const rootC = await createWorkspaceRoot();
+    const previousDb = process.env.LEGALWORK_RUNTIME_DB;
+    const previousConfigHome = process.env.XDG_CONFIG_HOME;
+    process.env.LEGALWORK_RUNTIME_DB = join(rootA, "runtime.sqlite");
+    process.env.XDG_CONFIG_HOME = join(rootA, "config");
+    try {
+      const options = { failDisconnectDirectories: [rootB] };
+      const mock = startMockOpencode(options);
+      const legalwork = await startLegalworkServerWithWorkspaces([rootA, rootB, rootC], `http://127.0.0.1:${mock.server.port}`);
+      for (const [workspace, scope] of [["ws_1", "global"], ["ws_3", "workspace"]]) {
+        const response = await fetch(`${legalwork.base}/workspace/${workspace}/mcp`, {
+          method: "POST", headers: auth(legalwork.token),
+          body: JSON.stringify({ name: "legalmemory", config: POSTHOG_CONFIG, scope }),
+        });
+        expect(response.status).toBe(200);
+      }
+      mock.requests.length = 0;
+      const remove = () => fetch(`${legalwork.base}/workspace/ws_1/mcp/legalmemory`, {
+        method: "DELETE", headers: auth(legalwork.token),
+      });
+      expect((await remove()).status).toBe(502);
+      options.failDisconnectDirectories = [];
+      expect((await remove()).status).toBe(200);
+      const directories = mock.requests
+        .filter((entry) => entry.pathname === "/mcp/legalmemory/disconnect")
+        .map((entry) => new URLSearchParams(entry.search).get("directory"));
+      expect(directories).toEqual([rootA, rootB, rootA, rootB]);
+      const response = await fetch(`${legalwork.base}/workspace/ws_3/mcp`, { headers: auth(legalwork.token) });
+      expect(await response.json()).toMatchObject({ items: [expect.objectContaining({ name: "legalmemory", config: POSTHOG_CONFIG })] });
+    } finally {
+      if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
+      else process.env.LEGALWORK_RUNTIME_DB = previousDb;
+      if (previousConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = previousConfigHome;
     }
   });
 
@@ -281,6 +326,56 @@ describe("runtime MCP engine sync", () => {
       );
       expect(disconnectRequest).toBeDefined();
       expect(disconnectRequest?.search).toContain(`directory=${encodeURIComponent(workspaceRoot)}`);
+    } finally {
+      if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
+      else process.env.LEGALWORK_RUNTIME_DB = previousDb;
+    }
+  });
+
+  test("reports failed disconnects and retries even after the saved entry is gone", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const previousDb = process.env.LEGALWORK_RUNTIME_DB;
+    process.env.LEGALWORK_RUNTIME_DB = join(workspaceRoot, "runtime.sqlite");
+    try {
+      const options = { disconnectStatus: 500 };
+      const mock = startMockOpencode(options);
+      const legalwork = await startLegalworkServer(workspaceRoot, `http://127.0.0.1:${mock.server.port}`);
+      await fetch(`${legalwork.base}/workspace/ws_1/mcp`, {
+        method: "POST", headers: auth(legalwork.token),
+        body: JSON.stringify({ name: "legalmemory", config: POSTHOG_CONFIG }),
+      });
+      const remove = () => fetch(`${legalwork.base}/workspace/ws_1/mcp/legalmemory`, {
+        method: "DELETE", headers: auth(legalwork.token),
+      });
+      expect((await remove()).status).toBe(502);
+      options.disconnectStatus = 200;
+      expect((await remove()).status).toBe(200);
+      expect(mock.requests.filter((entry) => entry.pathname === "/mcp/legalmemory/disconnect")).toHaveLength(2);
+      options.disconnectStatus = 404;
+      expect((await remove()).status).toBe(200);
+    } finally {
+      if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
+      else process.env.LEGALWORK_RUNTIME_DB = previousDb;
+    }
+  });
+
+  test("does not report a successful disable when the engine rejects it", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const previousDb = process.env.LEGALWORK_RUNTIME_DB;
+    process.env.LEGALWORK_RUNTIME_DB = join(workspaceRoot, "runtime.sqlite");
+    try {
+      const options: { failMcpNames: string[] } = { failMcpNames: [] };
+      const mock = startMockOpencode(options);
+      const legalwork = await startLegalworkServer(workspaceRoot, `http://127.0.0.1:${mock.server.port}`);
+      await fetch(`${legalwork.base}/workspace/ws_1/mcp`, {
+        method: "POST", headers: auth(legalwork.token),
+        body: JSON.stringify({ name: "legalmemory", config: POSTHOG_CONFIG }),
+      });
+      options.failMcpNames.push("legalmemory");
+      const response = await fetch(`${legalwork.base}/workspace/ws_1/mcp/legalmemory/enabled`, {
+        method: "POST", headers: auth(legalwork.token), body: JSON.stringify({ enabled: false }),
+      });
+      expect(response.status).toBe(502);
     } finally {
       if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
       else process.env.LEGALWORK_RUNTIME_DB = previousDb;
