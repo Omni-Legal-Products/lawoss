@@ -31,6 +31,7 @@ import { buildLegalworkWorkspaceBaseUrl, createLegalworkServerClient } from "../
 import { writeActiveWorkspaceId, writeLastSessionFor } from "./session-memory";
 import { workspaceSessionRoute } from "./workspace-routes";
 import { ensureDesktopLocalLegalworkConnection } from "./desktop-local-legalwork";
+import { detectSubscriptionType, type AiDataRegime } from "../../lawoss/domains/ai-guidance/ai-guidance-state";
 
 function folderNameFromPath(path: string) {
   const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -109,6 +110,31 @@ export function WelcomeRoute() {
   // screen (see handleCreateWorkspace). Seeded from any previously recorded
   // choice so re-entering the screen never overrides an opt-out.
   const [analyticsOptIn, setAnalyticsOptIn] = useState(() => getStoredAnalyticsConsent() ?? true);
+
+  const handleAiDataRegimeChange = useCallback(
+    (regime: AiDataRegime) => {
+      local.setPrefs((prev) => ({ ...prev, aiDataRegime: regime, aiGuidanceAcknowledgedAt: null }));
+    },
+    [local],
+  );
+
+  const handleAiGuidanceAcknowledgedChange = useCallback(
+    (acknowledged: boolean) => {
+      local.setPrefs((prev) => ({
+        ...prev,
+        aiGuidanceAcknowledgedAt: acknowledged ? new Date().toISOString() : null,
+      }));
+    },
+    [local],
+  );
+
+  const onboardingSubscription = detectSubscriptionType({
+    eigenweltConnected: false,
+    plan: null,
+    subscriptionStatus: null,
+    premiumModels: false,
+    connectedProviderIds: [],
+  });
 
   // If the user already completed the welcome step, redirect away immediately;
   // the in-session covers (onboardingStage) carry the rest of onboarding.
@@ -347,6 +373,11 @@ export function WelcomeRoute() {
           showManualFolder={isDesktopRuntime()}
           analyticsEnabled={analyticsOptIn}
           onAnalyticsChange={setAnalyticsOptIn}
+          aiDataRegime={local.prefs.aiDataRegime}
+          aiGuidanceAcknowledged={Boolean(local.prefs.aiGuidanceAcknowledgedAt)}
+          onAiDataRegimeChange={handleAiDataRegimeChange}
+          onAiGuidanceAcknowledgedChange={handleAiGuidanceAcknowledgedChange}
+          subscription={onboardingSubscription}
         />
       <CreateWorkspaceModal
         open={state.modalOpen}

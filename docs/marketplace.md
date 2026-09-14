@@ -47,6 +47,17 @@ The app currently ships a deterministic bundled catalog and renders an
 installation preview only. Opening a detail or preview does not install,
 connect, update or execute anything.
 
+## Current private Gravity entry
+
+The latest LAWOSS catalog includes the private, review-state entry
+`gravity-legal-mcp-suite`, pinned to `BiggusDicckkus/MCP-05.2026@e21e2d7`.
+It is explicitly limited to read-only and network capabilities and requires
+an administrator to review source, secrets, scopes and data flows. The
+organisation registry endpoint is not currently available, so the entry is a
+local preview and has not been uploaded or installed. Publication, once the
+organisation endpoint is configured, should use the authenticated Firm Hub
+share flow from **Settings → Integrations**.
+
 ## Future GitHub registry flow
 
 The planned registry flow is:

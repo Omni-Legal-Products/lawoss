@@ -42,6 +42,20 @@ export type InstallationPreview = {
 
 export const MARKETPLACE_CATALOG: readonly MarketplaceEntry[] = [
   {
+    id: "gravity-legal-mcp-suite",
+    name: "Gravity legal MCP suite",
+    description: "Súkromný balík read-only právnych MCP serverov pre Slov-Lex, registre, judikatúru a európske zdroje.",
+    kind: "mcp",
+    channel: "private",
+    jurisdictions: ["SK", "EU"],
+    source: { repository: "BiggusDicckkus/MCP-05.2026", ref: "e21e2d7" },
+    dependencies: ["Python >=3.14", "uv"],
+    capabilities: ["read-only", "network"],
+    verification: { status: "review", checkedAt: "2026-09-14" },
+    humanGate: "Pred zdieľaním s organizáciou musí správca skontrolovať zdroj, secrets, scopes a dátové toky.",
+    install: { scope: "global", action: "preview-only" },
+  },
+  {
     id: "slov-lex",
     name: "Slov-Lex",
     description: "Overené znenia právnych predpisov Slovenskej republiky cez read-only MCP konektor.",

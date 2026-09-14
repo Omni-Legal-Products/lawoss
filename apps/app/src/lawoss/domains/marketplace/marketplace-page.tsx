@@ -190,6 +190,10 @@ export function MarketplacePage() {
         Schopnosti pre agenta z lokálneho katalógu. Pred použitím vidíte zdroj, závislosti, oprávnenia a potrebné
         potvrdenie človekom.
       </p>
+      <div className="lw-note">
+        Organizačný registry endpoint zatiaľ nie je nakonfigurovaný. Súkromné Gravity MCP servery sú preto uvedené
+        ako pinned preview; publikovanie do Firm Hub prebehne až po schválení správcom v Settings → Integrations.
+      </div>
 
       <div className="lw-reg lw-marketplace">
         <div className="lw-reg-h">

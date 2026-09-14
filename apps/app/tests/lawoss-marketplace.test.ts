@@ -51,6 +51,22 @@ describe("LAWOSS marketplace catalog", () => {
     expect(preview.capabilities).toEqual(entry.capabilities);
     expect(preview.humanGate).toBe(entry.humanGate);
   });
+
+  test("includes the Gravity legal MCP suite as a private review entry", () => {
+    const entry = MARKETPLACE_CATALOG.find((candidate) => candidate.id === "gravity-legal-mcp-suite");
+
+    expect(entry).toBeDefined();
+    expect(entry).toMatchObject({
+      kind: "mcp",
+      channel: "private",
+      source: {
+        repository: "BiggusDicckkus/MCP-05.2026",
+        ref: "e21e2d7",
+      },
+      verification: { status: "review" },
+      install: { action: "preview-only" },
+    });
+  });
 });
 
 describe("Marketplace page contract", () => {
