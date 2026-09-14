@@ -1,4 +1,5 @@
 import { webdavSearch } from "./webdav-search.js";
+import { deleteFolderTree } from "./delete-folder.js";
 import { posix } from "node:path";
 import { randomUUID } from "node:crypto";
 import { pipeline } from "node:stream/promises";
@@ -21,6 +22,7 @@ import {
   hashVersion,
   missingAsNull,
   pageEntries,
+  storagePath,
   type StorageAdapter,
   type WriteCondition,
 } from "./common.js";
@@ -134,6 +136,21 @@ export function webdavAdapter(input: StorageInput): StorageAdapter {
     download,
     write: upload,
     upload,
+    async rename(path, destination) {
+      await client.moveFile(remote(path), remote(destination), { ...options, overwrite: false });
+    },
+    async deleteFile(path) {
+      const info = await fileStat(path);
+      if (!info) throw new ApiError(404, "storage_not_found", "File not found.");
+      await client.deleteFile(remote(path), { ...options, headers: info.version ? { "If-Match": quoteEtag(info.version) } : {} });
+    },
+    async deleteFolder(path) {
+      storagePath(path, false);
+      const result = await client.stat(remote(path), options);
+      const info = "data" in result ? result.data : result;
+      if (info.type !== "directory") throw new ApiError(400, "storage_not_a_folder", "Choose a folder.");
+      await client.deleteFile(remote(path), { ...options, headers: info.etag ? { "If-Match": quoteEtag(info.etag) } : {} });
+    },
     async mkdir(path) {
       await client.createDirectory(remote(path), options);
     },
@@ -217,7 +234,9 @@ export async function sftpAdapter(input: StorageInput): Promise<StorageAdapter> 
     };
     return {
       async list(path, cursor) {
-        const items = await client.list(await remote(path));
+        const target = await remote(path);
+        if ((await client.exists(target)) === "l") throw denied();
+        const items = await client.list(target);
         return pageEntries(
           items
             .filter((item) => item.type === "d" || item.type === "-")
@@ -237,6 +256,25 @@ export async function sftpAdapter(input: StorageInput): Promise<StorageAdapter> 
       download,
       write: upload,
       upload,
+      async rename(path, destination) {
+        const source = await remote(path);
+        const target = await remote(destination, true);
+        if (await client.exists(target)) conflict();
+        // Standard SFTP rename rejects existing destinations; posixRename replaces them.
+        await client.rename(source, target);
+      },
+      async deleteFile(path) {
+        const target = await remote(path);
+        if (!(await client.stat(target)).isFile) throw new ApiError(400, "storage_not_a_file", "Choose a file.");
+        await client.delete(target);
+      },
+      async deleteFolder(this: StorageAdapter, path) {
+        await deleteFolderTree(this, path, async (folder) => {
+          const target = await remote(folder);
+          if ((await client.exists(target)) !== "d") throw new ApiError(400, "storage_not_a_folder", "Choose a folder.");
+          await client.rmdir(target, false);
+        });
+      },
       async mkdir(path) {
         await client.mkdir(await remote(path, true));
       },
@@ -313,6 +351,8 @@ export async function ftpAdapter(input: StorageInput): Promise<StorageAdapter> {
     };
     return {
       async list(path, cursor) {
+        if (path && !(await parent(path)).existing?.isDirectory)
+          throw new ApiError(400, "storage_not_a_folder", "Choose a folder.");
         await client.cd(root);
         if (path) await client.cd(path);
         if (!inRoot(root, await client.pwd())) throw denied();
@@ -336,6 +376,26 @@ export async function ftpAdapter(input: StorageInput): Promise<StorageAdapter> {
       download,
       write: upload,
       upload,
+      async rename(path, destination) {
+        const { existing } = await parent(path);
+        if (!existing) throw new ApiError(404, "storage_not_found", "File or folder not found.");
+        const target = await parent(destination);
+        if (target.existing) conflict();
+        // FTP has no conditional RNTO. Renames are serialized with this app's other writes.
+        await client.rename(posix.basename(path), target.name);
+      },
+      async deleteFile(path) {
+        const { name, existing } = await parent(path);
+        if (!existing?.isFile) throw new ApiError(400, "storage_not_a_file", "Choose a file.");
+        await client.remove(name);
+      },
+      async deleteFolder(this: StorageAdapter, path) {
+        await deleteFolderTree(this, path, async (folder) => {
+          const { name, existing } = await parent(folder);
+          if (!existing?.isDirectory) throw new ApiError(400, "storage_not_a_folder", "Choose a folder.");
+          await client.removeEmptyDir(name);
+        });
+      },
       async mkdir(path) {
         const { name, existing } = await parent(path);
         if (existing) conflict();

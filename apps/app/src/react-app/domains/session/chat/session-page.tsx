@@ -608,6 +608,56 @@ export function SessionPage(props: SessionPageProps) {
     preserveSidePanelOnPanelOpenRef.current = true;
     setCurrentSidePanel("panel");
   }, [openTab, panelStateSessionId, props.runtimeWorkspaceId, setCurrentSidePanel]);
+  const openDocumentAction = useMemo<LegalworkControlAction>(() => ({
+    id: "documents.open", label: "Open a file in the side viewer", sideEffect: "navigation", requiresArgs: true,
+    args: [{ name: "sessionId", type: "string", required: true }, { name: "path", type: "string", required: true }, { name: "connectionId", type: "string" }, { name: "copyTo", type: "string" }],
+    execute: async (args) => {
+      if (controlStringArg(args, "sessionId") !== panelStateSessionId) return { ok: false, error: "No matching session is visible. Open this session first." };
+      const client = props.legalworkServerClient, workspaceId = props.runtimeWorkspaceId;
+      if (!client || !workspaceId) return { ok: false, error: "Workspace is not ready." };
+      let path = controlStringArg(args, "path"), connectionId = controlStringArg(args, "connectionId");
+      if (!path || /[\\\x00-\x1f\x7f]/.test(path) || path.split("/").some((part) => !part || part === "." || part === "..")) return { ok: false, error: "Use a relative file path within the workspace or connection." };
+      if (!confirmDiscardDocuments(undefined, () => false)) return { ok: false, error: "Save the current draft before opening another file." };
+      const copyTo = controlStringArg(args, "copyTo");
+      if (copyTo) {
+        if (/[\\\x00-\x1f\x7f]/.test(copyTo) || copyTo.split("/").some((part) => !part || part === "." || part === "..") || copyTo.split(".").at(-1)?.toLowerCase() !== path.split(".").at(-1)?.toLowerCase())
+          return { ok: false, error: "Use a new workspace-relative filename with the same file extension as the template." };
+        if (connectionId) {
+          const copy = await client.checkoutStorageFile(workspaceId, connectionId, path);
+          await client.keepStorageLocalCopy(workspaceId, connectionId, copy.localPath, copyTo);
+        } else await client.copyWorkspaceFile(workspaceId, path, copyTo);
+        path = copyTo;
+        connectionId = "";
+      }
+      const name = path.split("/").at(-1)!;
+      const preview = classifyOpenTarget(name, "file");
+      if (preview === "external" || preview === "browser") return { ok: false, error: "This file type cannot be opened in the side viewer." };
+      let tabId: string;
+      if (connectionId) {
+        const root = (await client.storageRoots(workspaceId)).roots.find((item) => item.id === connectionId);
+        if (!root) return { ok: false, error: "This storage connection is unavailable." };
+        // The viewer performs the normal checkout, retaining source and cloud-save controls.
+        const file: StorageEntry = { path, name, kind: "file", size: null, modifiedAt: null };
+        tabId = storageFileTab(workspaceId, root, file).id;
+        if (!confirmDiscardDocuments(undefined, () => false)) return { ok: false, error: "Save the current draft first." };
+        openStorageFile(root, file);
+      } else {
+        const file = await client.statWorkspaceFile(workspaceId, path);
+        if (!file.exists || file.kind !== "file") return { ok: false, error: "File not found in this workspace." };
+        tabId = `file:${file.path}`;
+        if (!confirmDiscardDocuments(undefined, () => false)) return { ok: false, error: "Save the current draft first." };
+        openTab(panelStateSessionId, { id: tabId, type: "artifact", label: name, value: file.path, preview, size: file.size, updatedAt: file.updatedAt });
+        preserveSidePanelOnPanelOpenRef.current = true;
+        setCurrentSidePanel("panel");
+      }
+      if (usePanelTabStore.getState().sessions[panelStateSessionId]?.activeTabId !== tabId) return { ok: false, error: "The file could not be selected." };
+      const liveEditing = ["word", "markdown", "sheet", "slides"].includes(preview);
+      return { ok: true, status: "opening", name, path, liveEditing, ...(copyTo ? { copied: true, message: "A new workspace copy is opening. The source template is unchanged. Use inapp_documents_list for the active path and the matching live editing tools. This new deliverable saves locally; upload it to storage separately if requested." } : { message: liveEditing
+        ? "The file is opening in the side viewer. Call inapp_documents_list for this file's activeDocument, then use its exact path with the matching inapp_* read/edit tools. Edits save locally; cloud saving is separate. If loading fails, report that failure instead of editing a different active file."
+        : "The file is opening as a preview. This format has no live in-app editing tools. Use inapp_documents_list for the local path and the existing tools for this file format." }) };
+    },
+  }), [panelStateSessionId, props.legalworkServerClient, props.runtimeWorkspaceId, openStorageFile, openTab, setCurrentSidePanel]);
+  useControlAction(openDocumentAction);
   const openLegalMemoryFile = useCallback(async (file: LegalMemoryTreeFile) => {
     const client = props.legalworkServerClient;
     const workspaceId = props.runtimeWorkspaceId;
@@ -901,7 +951,6 @@ export function SessionPage(props: SessionPageProps) {
     <FileSidebars
       key={props.runtimeWorkspaceId ?? "__no_workspace__"}
       active={fileSidebar}
-      onClose={closeFileSidebar}
       memory={memoryDrivePanel}
       files={(
         <WorkspaceFilesPanel

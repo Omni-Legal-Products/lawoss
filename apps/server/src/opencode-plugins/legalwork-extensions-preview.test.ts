@@ -233,7 +233,8 @@ describe("in-app Office sidebar routing", () => {
       const result = JSON.parse(await plugin.tool.inapp_xlsx_read.execute({ path }, { sessionID }));
       expect(result.ok).toBe(false);
     }
-    expect(JSON.parse(await plugin.tool.inapp_pptx_read.execute({ path: surface.path }, { sessionID: "ses_office" })).ok).toBe(false);
+    const pptxResult = await plugin.tool.inapp_pptx_read.execute({ path: surface.path }, { sessionID: "ses_office" });
+    expect(typeof pptxResult === "string" && JSON.parse(pptxResult).ok).toBe(false);
     expect(calls).toBe(0);
     expect(JSON.parse(await plugin.tool.inapp_documents_list.execute({}, {})).files).toEqual([]);
   });
@@ -287,5 +288,68 @@ describe("in-app Markdown routing", () => {
     expect(JSON.parse(await plugin.tool.inapp_md_read.execute({ path: surface.path }, { sessionID: "other" })).ok).toBe(false);
     expect(JSON.parse(await plugin.tool.inapp_md_read.execute({ path: "wrong.md" }, { sessionID: "ses_md" })).ok).toBe(false);
     expect(calls).toHaveLength(1);
+  });
+});
+
+test("opens workspace and connected files in the engine session, then exposes live editing", async () => {
+  const calls: unknown[] = [];
+  await withBridge({}, (body) => { calls.push(body); return { ok: true, status: "opening" }; });
+  const plugin = await LegalWorkExtensionsPreview();
+  expect(JSON.parse(await plugin.tool.inapp_documents_open.execute({ path: "draft.md" }, {})).ok).toBe(false);
+  expect(calls).toEqual([]);
+  await plugin.tool.inapp_documents_open.execute({ path: "draft.md" }, { sessionID: "ses_this" });
+  await plugin.tool.inapp_documents_open.execute({ path: "Matter/draft.docx", connection_id: "team:s3" }, { sessionID: "ses_this" });
+  await plugin.tool.inapp_documents_open.execute({ path: "Templates/Pitch.pptx", connection_id: "team:s3", copy_to: "Client pitch.pptx" }, { sessionID: "ses_this" });
+  expect(calls).toEqual([
+    { actionId: "documents.open", args: { sessionId: "ses_this", path: "draft.md" } },
+    { actionId: "documents.open", args: { sessionId: "ses_this", path: "Matter/draft.docx", connectionId: "team:s3" } },
+    { actionId: "documents.open", args: { sessionId: "ses_this", path: "Templates/Pitch.pptx", connectionId: "team:s3", copyTo: "Client pitch.pptx" } },
+  ]);
+  const output: { system: string[] } = { system: [] };
+  await plugin["experimental.chat.system.transform"]({ sessionID: "ses_this" }, output);
+  expect(output.system.join("\n")).toContain("inapp_documents_open");
+  expect(output.system.join("\n")).toContain("inapp_md_*");
+  expect(output.system.join("\n")).toContain("An empty inapp_documents_list means you need to open the file");
+});
+
+describe("PowerPoint visual feedback", () => {
+  const snapshot = { activeSurface: { kind: "document", format: "pptx", sessionId: "ses_slides", name: "Deck.pptx", path: "Deck.pptx", editable: true } };
+  test("only explicit previews send a slide image attachment", async () => {
+    let request: unknown;
+    await withBridge(snapshot, (body) => {
+      request = body;
+      return { ok: true, result: { ok: true, saved: true, data: { slideIndex: 2, layout: { warnings: [{ kind: "text_overlap", elementIds: ["title", "body"] }] }, preview: { available: true, width: 1280, height: 720, dataUrl: "data:image/png;base64,cHJldmlldw==" } } } };
+    });
+    const plugin = await LegalWorkExtensionsPreview();
+    const result = await plugin.tool.inapp_pptx_preview.execute({ path: "Deck.pptx", slideIndex: 2 }, { sessionID: "ses_slides" });
+    expect(request).toMatchObject({ actionId: "office.agent_tool", args: { toolName: "preview", args: { slideIndex: 2 } } });
+    const edits = [
+      await plugin.tool.inapp_pptx_read.execute({ path: "Deck.pptx", slideIndex: 2 }, { sessionID: "ses_slides" }),
+      await plugin.tool.inapp_pptx_replace_text.execute({ path: "Deck.pptx", slideIndex: 2, elementId: "title", search: "Draft", replaceWith: "Final" }, { sessionID: "ses_slides" }),
+      await plugin.tool.inapp_pptx_update_layout.execute({ path: "Deck.pptx", slideIndex: 2, elementId: "title", height: 120, fontSize: 28 }, { sessionID: "ses_slides" }),
+    ];
+    for (const edit of edits) {
+      if (typeof edit !== "string") throw new Error("Routine calls must not return attachments");
+      expect(edit).not.toContain("base64");
+      expect(JSON.parse(edit)).toMatchObject({ result: { data: { layout: { warnings: [{ kind: "text_overlap" }] } } } });
+      expect(JSON.parse(edit).result.data.preview).toBeUndefined();
+    }
+    const instructions: { system: string[] } = { system: [] };
+    await plugin["experimental.chat.system.transform"]({ sessionID: "ses_slides" }, instructions);
+    expect(instructions.system.join("\n")).toContain("Do not request a preview after every read or individual edit");
+    if (typeof result === "string") throw new Error("Expected a visual tool result");
+    expect(result.attachments).toEqual([{ type: "file", mime: "image/png", url: "data:image/png;base64,cHJldmlldw==", filename: "slide-3.png" }]);
+    expect(result.output).not.toContain("base64");
+    expect(JSON.parse(result.output)).toMatchObject({ result: { saved: true, data: { layout: { warnings: [{ kind: "text_overlap" }] }, preview: { attached: true, width: 1280 } } } });
+  });
+  test("retains saved edits and reports unavailable preview honestly", async () => {
+    await withBridge(snapshot, () => ({ ok: true, result: { ok: true, saved: true, data: { slideIndex: 0, preview: { available: false, error: "Canvas unavailable" } } } }));
+    const plugin = await LegalWorkExtensionsPreview();
+    const result = await plugin.tool.inapp_pptx_replace_text.execute({ path: "Deck.pptx", slideIndex: 0, elementId: "title", search: "Draft", replaceWith: "Final" }, { sessionID: "ses_slides" });
+    expect(typeof result).toBe("string");
+    if (typeof result !== "string") throw new Error("Unexpected attachment");
+    expect(JSON.parse(result)).toMatchObject({ result: { saved: true, data: { preview: { available: false } } } });
+    const wrongSession = await plugin.tool.inapp_pptx_preview.execute({ path: "Deck.pptx" }, { sessionID: "ses_other" });
+    expect(typeof wrongSession === "string" && JSON.parse(wrongSession).ok).toBe(false);
   });
 });

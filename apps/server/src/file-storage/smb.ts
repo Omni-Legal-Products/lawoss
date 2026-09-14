@@ -2,6 +2,7 @@ import { Client, SmbAuthError } from "smb3-client";
 import { randomUUID } from "node:crypto";
 import { posix } from "node:path";
 import { pipeline } from "node:stream/promises";
+import { deleteFolderTree } from "./delete-folder.js";
 import type { StorageInput } from "@legalwork/types/file-storage";
 import { ApiError } from "../errors.js";
 import {
@@ -100,6 +101,17 @@ export async function smbAdapter(input: StorageInput): Promise<StorageAdapter> {
       download,
       write: upload,
       upload,
+      async rename(path, destination) {
+        await client.rename(await remote(path), await remote(destination, true), { replace: false });
+      },
+      async deleteFile(path) {
+        const target = await remote(path);
+        if ((await client.stat(target)).isDirectory) throw new ApiError(400, "storage_not_a_file", "Choose a file.");
+        await client.rm(target);
+      },
+      async deleteFolder(this: StorageAdapter, path) {
+        await deleteFolderTree(this, path, async (folder) => { await client.rmdir(await remote(folder)); });
+      },
       async read(path) {
         const data = await collectStream(client.createReadStream(await remote(path)));
         return { data, size: data.length, version: hashVersion(data) };
