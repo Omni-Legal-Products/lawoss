@@ -60,6 +60,16 @@ The existing Word add-in changes, OKF modules, updater feeds, release customizat
 - Remove rows for patches accepted upstream or no longer needed.
 - Add a row before merging any new modification to an upstream file.
 
+### AI governance patch (2026-09-14)
+
+| Upstream file | LAWOSS change | Reason | Owner | PR |
+|---|---|---|---|---|
+| `apps/app/src/react-app/shell/welcome-route.tsx` | Pass persistent AI data regime, guidance acknowledgement and unknown-subscription seed into the LAWOSS welcome page | Onboarding must establish the AI handling boundary before the first workspace is used | MF | codex/ai-guidance-onboarding |
+| `apps/app/src/react-app/kernel/local-provider.tsx` | Persist and normalize `aiDataRegime` and `aiGuidanceAcknowledgedAt` in local preferences | Keep the practice-level AI governance choice across reloads without storing provider secrets | MF | codex/ai-guidance-onboarding |
+| `apps/app/src/react-app/domains/settings/pages/ai-view.tsx`, `apps/app/src/react-app/domains/settings/pages/extensions-view.tsx` | Add injectable AI guidance and compact connector-policy notice slots | Reuse the same LAWOSS guidance surface in Settings and Integrations | MF | codex/ai-guidance-onboarding |
+| `apps/app/src/react-app/shell/settings-route.tsx` | Derive subscription type from live Eigenwelt entitlements and connected BYO providers; wire guidance callbacks and views | Complete Settings and Integrations wiring without treating a provider or plan as a compliance certificate | MF | codex/ai-guidance-onboarding |
+| `apps/app/src/i18n/locales/en.ts`, `apps/app/src/i18n/locales/de.ts`, `apps/app/src/i18n/locales/sk.ts`, `apps/app/src/i18n/locales/cs.ts` | Add AI governance, DPA reminder, subscription detection and human-review copy | Localized LAWOSS guidance for the supported settings and onboarding surfaces | MF | codex/ai-guidance-onboarding |
+
 ### Unified experiments shell (2026-09-10)
 
 - `apps/app/src/react-app/shell/app-root.tsx`: render LAWOSS routes through the same SessionRoute/DevProfiler tree as sessions.
