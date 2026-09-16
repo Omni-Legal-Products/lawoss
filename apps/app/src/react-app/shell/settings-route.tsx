@@ -9,6 +9,7 @@ import { createClient } from "@/app/lib/opencode";
 import {
   createLegalworkServerClient,
   isLoopbackLegalworkServerUrl,
+  LegalworkServerError,
   readLegalworkServerSettings,
   type LegalworkServerCapabilities,
   type LegalworkServerClient,
@@ -73,6 +74,7 @@ import "@/react-app/domains/settings/google-workspace-config";
 import { useSettingsExtensionController } from "@/react-app/domains/settings/settings-extension-controller";
 import { buildExtensionItems } from "@/react-app/domains/settings/extension-items";
 import { isLegalWorkExtensionEnabled, LEGALWORK_EXTENSION_STATE_CHANGED, setLegalWorkExtensionEnabled } from "@/react-app/domains/settings/extension-state";
+import { NotificationsView } from "@/react-app/domains/settings/pages/notifications-view";
 import { PreferencesView } from "@/react-app/domains/settings/pages/preferences-view";
 import { PersonalisationView } from "@/react-app/domains/settings/pages/personalisation-view";
 import { ShellCustomizationView } from "@/react-app/domains/settings/pages/shell-view";
@@ -108,6 +110,7 @@ import {
 } from "@/react-app/domains/settings/state/template-workflow-generation";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { useLocal } from "@/react-app/kernel/local-provider";
+import { useNotificationStore } from "@/react-app/kernel/notification-store";
 import {
   legalworkServerInfo,
   legalworkServerRestart,
@@ -226,6 +229,7 @@ function parseSettingsPath(pathname: string): {
     case "ai":
     case "account":
     case "personalisation":
+    case "notifications":
     case "preferences":
     case "permissions":
     case "safety":
@@ -884,17 +888,25 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   // AND the global provider manifest server-side (revoking the refresh-token
   // family), then reloads the engine so the eigenwelt provider drops from every
   // workspace. Errors propagate to the account view, which surfaces a toast.
-  const disconnectEigenwelt = useCallback(async () => {
+  const disconnectEigenwelt = useCallback(async (options?: { force?: boolean }) => {
     setDisconnectingProviderId(EIGENWELT_PROVIDER_ID);
     try {
       if (legalworkClient && hubWorkspaceId) {
         try {
-          await legalworkClient.eigenweltSaveConnection(hubWorkspaceId, { disconnect: true });
-        } catch {
-          // best-effort: still reset the local view + engine below.
+          await legalworkClient.eigenweltSaveConnection(hubWorkspaceId, {
+            disconnect: true,
+            ...(options?.force ? { force: true } : {}),
+          });
+        } catch (error) {
+          // The server refuses while changes made here have not reached the
+          // firm: the account view asks the user, nothing is reset yet.
+          if (error instanceof LegalworkServerError && error.code === "tasks_pending") throw error;
+          // Anything else is best-effort: still reset the local view + engine below.
         }
         invalidateEigenweltEntitlements();
       }
+      // The firm's tasks left this machine: so do the announcements naming them.
+      useNotificationStore.getState().removeKind("tasks");
       // Await a FULL provider refresh (dispose → re-read the rebuilt
       // engine config → setProviders / setProviderConnectedIds) so the account
       // view's providers-derived state (model count + connected id set) drops
@@ -2062,6 +2074,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onBackToList={() => navigateSettingsPath("benchmark")}
           />
         );
+      case "notifications":
+        return <NotificationsView />;
       case "preferences":
         return (
           <PreferencesView

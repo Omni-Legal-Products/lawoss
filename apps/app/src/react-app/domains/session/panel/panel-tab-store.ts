@@ -13,7 +13,10 @@ export const PERSISTED_PANEL_TAB_STORE_KEY = "legalwork:panel-tabs:v1";
  */
 export const EVALS_PANEL_SESSION_ID = "__evals__";
 
-export type PanelTabType = "artifact" | "browser";
+// Asking for a tab lives in its own module, so asking does not create this store.
+export { PANEL_OPEN_TAB_EVENT, requestPanelTab } from "./panel-tab-request";
+
+export type PanelTabType = "artifact" | "browser" | "task";
 
 export type { BrowserPanelTab } from "../../../../app/lib/desktop-types";
 import type { BrowserPanelTab } from "../../../../app/lib/desktop-types";
@@ -31,7 +34,14 @@ export type ArtifactPanelTab = {
   storage?: StorageFileSource;
 }
 
-export type PanelTab = BrowserPanelTab | ArtifactPanelTab;
+export type TaskPanelTab = {
+  id: string;
+  type: "task";
+  taskId: string;
+  label: string;
+};
+
+export type PanelTab = BrowserPanelTab | ArtifactPanelTab | TaskPanelTab;
 
 export type SessionPanelState = {
   tabs: PanelTab[];
@@ -166,6 +176,10 @@ function isSameTab(left: PanelTab, right: PanelTab) {
       left.canGoBack === right.canGoBack &&
       left.canGoForward === right.canGoForward
     );
+  }
+
+  if (left.type === "task" && right.type === "task") {
+    return left.label === right.label && left.taskId === right.taskId;
   }
 
   return false;
@@ -306,7 +320,7 @@ export const usePanelTabStore = create<PanelTabStore>()(
         const mergedTabs: PanelTab[] = [];
 
         for (const tab of session.tabs) {
-          if (tab.type === "artifact") {
+          if (tab.type !== "browser") {
             mergedTabs.push(tab);
             continue;
           }

@@ -527,6 +527,8 @@ const {
   audioSystemDictationRepairPermission,
   desktopLoginItemGet,
   desktopLoginItemSet,
+  desktopNotificationShow,
+  desktopBadgeSet,
 } = desktopBridge;
 
 export {
@@ -637,4 +639,6 @@ export {
   audioSystemDictationRepairPermission,
   desktopLoginItemGet,
   desktopLoginItemSet,
+  desktopNotificationShow,
+  desktopBadgeSet,
 };

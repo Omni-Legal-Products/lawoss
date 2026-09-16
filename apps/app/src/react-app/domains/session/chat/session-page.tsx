@@ -67,7 +67,13 @@ import { FileSidebars } from "../panel/file-sidebars";
 import { MemoryDriveIcon } from "../panel/memory-drive-icon";
 import { LegalMemoryFilesPanel } from "../panel/legalmemory-files-panel";
 import { TerminalDock } from "../terminal/terminal-dock";
-import { EVALS_PANEL_SESSION_ID, useActivePanelTab, usePanelTabStore } from "../panel/panel-tab-store";
+import {
+  EVALS_PANEL_SESSION_ID,
+  PANEL_OPEN_TAB_EVENT,
+  useActivePanelTab,
+  usePanelTabStore,
+  type PanelTab,
+} from "../panel/panel-tab-store";
 import { storageFileTab } from "../panel/storage-file-tab";
 import type { StorageEntry, StorageRoot } from "@legalwork/types/file-storage";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
@@ -112,7 +118,9 @@ export type SessionPageSidebarProps = {
   onShowExtensions?: () => void;
   onShowFileStorage?: () => void;
   onShowRecorder?: () => void;
-  activeNav?: "evals" | "workflows" | "extensions" | "recorder" | null;
+  /** Omitted when the firm's plan has no intake, which hides the nav row. */
+  onShowTasks?: () => void;
+  activeNav?: "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
   workspaceSessionGroups: WorkspaceSessionGroup[];
   selectedWorkspaceId: string;
   selectedSessionId: string | null;
@@ -120,19 +128,19 @@ export type SessionPageSidebarProps = {
   sessionStatusById: Record<string, string>;
   connectingWorkspaceId: string | null;
   workspaceConnectionStateById: Record<string, WorkspaceConnectionState>;
-  newTaskDisabled: boolean;
+  newChatDisabled: boolean;
   sidebarHydratedFromCache: boolean;
   startupPhase: BootPhase;
   onSelectWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
   onOpenSession: (workspaceId: string, sessionId: string) => void;
   onPrefetchSession?: (workspaceId: string, sessionId: string) => void;
-  onCreateTaskInWorkspace: (workspaceId: string) => void;
-  onCreateTaskWithPrompt?: (workspaceId: string, prompt: string) => void;
+  onCreateChatInWorkspace: (workspaceId: string) => void;
+  onCreateChatWithPrompt?: (workspaceId: string, prompt: string) => void;
   onOpenRenameWorkspace: (workspaceId: string) => void;
   onRevealWorkspace: (workspaceId: string) => void;
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
-  onCreateTaskInNewWorkspace: () => void;
+  onCreateChatInNewWorkspace: () => void;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
 };
 
@@ -380,6 +388,19 @@ export function SessionPage(props: SessionPageProps) {
     if (activeSidePanel === "panel" && panel !== "panel" && !confirmDiscardDocuments()) return;
     setSidePanelState(panelStateSessionId, panel);
   }, [activeSidePanel, panelStateSessionId, setSidePanelState, setFileSidebarState]);
+
+  // A mainView (the Tasks pane) hands the page a file to show in the panel.
+  useEffect(() => {
+    const handleOpenTab = (event: Event) => {
+      const tab = (event as CustomEvent<PanelTab>).detail;
+      if (!tab) return;
+      openTab(panelStateSessionId, tab);
+      preserveSidePanelOnPanelOpenRef.current = true;
+      setCurrentSidePanel("panel");
+    };
+    window.addEventListener(PANEL_OPEN_TAB_EVENT, handleOpenTab);
+    return () => window.removeEventListener(PANEL_OPEN_TAB_EVENT, handleOpenTab);
+  }, [openTab, panelStateSessionId, setCurrentSidePanel]);
 
   const closeFileSidebar = useCallback(() => {
     setFileSidebarState(panelStateSessionId, null);
@@ -987,12 +1008,12 @@ export function SessionPage(props: SessionPageProps) {
           sessionStatusById={props.sidebar.sessionStatusById}
           connectingWorkspaceId={props.sidebar.connectingWorkspaceId}
           workspaceConnectionStateById={props.sidebar.workspaceConnectionStateById}
-          newTaskDisabled={props.sidebar.newTaskDisabled}
+          newChatDisabled={props.sidebar.newChatDisabled}
           onSelectWorkspace={props.sidebar.onSelectWorkspace}
           onOpenSession={openSessionTab}
           onOpenSessionWindow={isElectronRuntime() ? openSessionWindow : undefined}
           onPrefetchSession={props.sidebar.onPrefetchSession}
-          onCreateTaskInWorkspace={props.sidebar.onCreateTaskInWorkspace}
+          onCreateChatInWorkspace={props.sidebar.onCreateChatInWorkspace}
           onOpenRenameSession={props.onRenameSession ? openRenameModal : undefined}
           onOpenDeleteSession={props.onDeleteSession ? (sessionId) => {
             setSessionActionId(sessionId);
@@ -1010,11 +1031,12 @@ export function SessionPage(props: SessionPageProps) {
           onRevealWorkspace={props.sidebar.onRevealWorkspace}
           onForgetWorkspace={props.sidebar.onForgetWorkspace}
           onOpenCreateWorkspace={props.sidebar.onOpenCreateWorkspace}
-          onCreateTaskInNewWorkspace={props.sidebar.onCreateTaskInNewWorkspace}
+          onCreateChatInNewWorkspace={props.sidebar.onCreateChatInNewWorkspace}
           onShowEvals={props.sidebar.onShowEvals}
           onShowWorkflows={props.sidebar.onShowWorkflows}
           onShowExtensions={props.sidebar.onShowExtensions}
           onShowRecorder={props.sidebar.onShowRecorder}
+          onShowTasks={props.sidebar.onShowTasks}
           activeNav={props.sidebar.activeNav}
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}
           onStartResize={startLeftSidebarResize}
@@ -1369,7 +1391,7 @@ export function SessionPage(props: SessionPageProps) {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => props.sidebar.onCreateTaskInWorkspace(props.selectedWorkspaceId)}
+                            onClick={() => props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId)}
                           >
                             Retry
                           </Button>
@@ -1385,7 +1407,7 @@ export function SessionPage(props: SessionPageProps) {
                       <TaskSuggestionCards
                         providerConnectedCount={providerCount}
                         onConnect={() => props.onOpenProviderAuth?.()}
-                        onSelect={(prompt) => props.sidebar.onCreateTaskWithPrompt?.(props.selectedWorkspaceId, prompt)}
+                        onSelect={(prompt) => props.sidebar.onCreateChatWithPrompt?.(props.selectedWorkspaceId, prompt)}
                       />
                       <Button variant="ghost" size="sm" className="mt-4 gap-2" onClick={props.onOpenSettings}>
                         <Settings2 size={14} aria-hidden="true" />

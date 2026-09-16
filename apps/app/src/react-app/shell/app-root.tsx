@@ -18,6 +18,7 @@ import { SessionRoute } from "./session-route";
 import { SettingsRoute } from "./settings-route";
 import { ShellConfigProvider } from "./shell-config";
 import { StealthMode } from "./stealth-mode";
+import { TaskNotificationsListener } from "./task-notifications-listener";
 import { WelcomeRoute } from "./welcome-route";
 
 
@@ -61,6 +62,17 @@ export function AppRoot() {
                 element={
                   <DevProfiler id="WelcomeRoute">
                     <WelcomeRoute />
+                  </DevProfiler>
+                }
+              />
+              {/* Tasks is GLOBAL only: intake is org-level, while workspaces
+                  are folders on this machine, so there is no
+                  /workspace/:id/tasks sibling. */}
+              <Route
+                path="/tasks"
+                element={
+                  <DevProfiler id="SessionRoute">
+                    <SessionRoute />
                   </DevProfiler>
                 }
               />
@@ -148,6 +160,7 @@ export function AppRoot() {
         true app-level signal.
       */}
       <NewProvidersListener />
+      <TaskNotificationsListener />
       <StealthMode />
       <DevProfilerOverlay />
       <ReactRenderWatchdogOverlay />

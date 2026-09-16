@@ -7,6 +7,7 @@ import {
   FlaskConical,
   ChevronRight,
   FolderPlus,
+  Inbox,
   Loader2,
   Mic,
   PenLine,
@@ -42,6 +43,7 @@ import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -49,6 +51,7 @@ import {
   SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
+import { useUnreadTaskCount } from "@/react-app/kernel/notification-store";
 import {
   Collapsible,
   CollapsibleContent,
@@ -463,12 +466,12 @@ export type AppSidebarProps = {
   sessionStatusById?: Record<string, string>;
   connectingWorkspaceId: string | null;
   workspaceConnectionStateById: Record<string, WorkspaceConnectionState>;
-  newTaskDisabled: boolean;
+  newChatDisabled: boolean;
   onSelectWorkspace: (workspaceId: string) => Promise<boolean> | boolean | void;
   onOpenSession: (workspaceId: string, sessionId: string) => void;
   onOpenSessionWindow?: (workspaceId: string, sessionId: string) => void;
   onPrefetchSession?: (workspaceId: string, sessionId: string) => void;
-  onCreateTaskInWorkspace: (workspaceId: string) => void;
+  onCreateChatInWorkspace: (workspaceId: string) => void;
   onOpenRenameSession?: (sessionId: string) => void;
   onOpenDeleteSession?: (sessionId: string) => void;
   onArchiveSession?: (sessionId: string, archived: boolean) => void;
@@ -477,13 +480,20 @@ export type AppSidebarProps = {
   onRevealWorkspace: (workspaceId: string) => void;
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
-  onCreateTaskInNewWorkspace: () => void;
+  onCreateChatInNewWorkspace: () => void;
   onShowEvals?: () => void;
   onShowWorkflows?: () => void;
   onShowExtensions?: () => void;
   onShowRecorder?: () => void;
+  /**
+   * Tasks is the firm's intake inbox and is entitlement-gated: the route only
+   * passes this handler when the firm is connected AND its plan includes
+   * `intake`, and the nav row is omitted entirely without it. A lapsed
+   * subscription therefore makes the row disappear rather than error.
+   */
+  onShowTasks?: () => void;
   /** Which main-pane nav tab is currently shown (shades it like hover). */
-  activeNav?: "evals" | "workflows" | "extensions" | "recorder" | null;
+  activeNav?: "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
   onStartResize?: React.PointerEventHandler<HTMLButtonElement>;
 };
@@ -511,6 +521,8 @@ const NAV_ITEM_CLASS =
 export function AppSidebar(props: AppSidebarProps) {
   const { config: shellConfig } = useShellConfig();
   const navigate = useNavigate();
+  const unreadTasks = useUnreadTaskCount();
+  const showUnreadTasks = unreadTasks > 0 && props.activeNav !== "tasks";
   const goSettings = React.useCallback(
     (tab: string) => {
       const ws = props.selectedWorkspaceId.trim();
@@ -625,14 +637,14 @@ export function AppSidebar(props: AppSidebarProps) {
     developerMode: props.developerMode,
     showSessionActions: props.showSessionActions,
     sessionStatusById: props.sessionStatusById,
-    newTaskDisabled: props.newTaskDisabled,
+    newChatDisabled: props.newChatDisabled,
     connectingWorkspaceId: props.connectingWorkspaceId,
     workspaceConnectionStateById: props.workspaceConnectionStateById,
     onSelectWorkspace: props.onSelectWorkspace,
     onOpenSession: props.onOpenSession,
     onOpenSessionWindow: props.onOpenSessionWindow,
     onPrefetchSession: props.onPrefetchSession,
-    onCreateTaskInWorkspace: props.onCreateTaskInWorkspace,
+    onCreateChatInWorkspace: props.onCreateChatInWorkspace,
     onOpenRenameSession: props.onOpenRenameSession,
     onOpenDeleteSession: props.onOpenDeleteSession,
     onArchiveSession: props.onArchiveSession,
@@ -681,7 +693,7 @@ export function AppSidebar(props: AppSidebarProps) {
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
-                  <SidebarMenuButton className="lw-sidebar-new-task mb-1 gap-3 font-medium text-foreground [&_svg]:size-[18px]">
+                  <SidebarMenuButton className="lw-sidebar-new-chat mb-1 gap-3 font-medium text-foreground [&_svg]:size-[18px]">
                     <PenLine className="size-[18px]" strokeWidth={1.5} />
                     <span>{t("sidebar.new_task")}</span>
                   </SidebarMenuButton>
@@ -691,21 +703,44 @@ export function AppSidebar(props: AppSidebarProps) {
                 {props.workspaceSessionGroups.map((group) => (
                   <DropdownMenuItem
                     key={group.workspace.id}
-                    disabled={props.newTaskDisabled}
-                    onClick={() => props.onCreateTaskInWorkspace(group.workspace.id)}
+                    disabled={props.newChatDisabled}
+                    onClick={() => props.onCreateChatInWorkspace(group.workspace.id)}
                   >
                     <WorkspaceIcon workspaceId={group.workspace.id} sizeClass="size-4" />
                     <span className="truncate">{workspaceLabel(group.workspace)}</span>
                   </DropdownMenuItem>
                 ))}
                 {props.workspaceSessionGroups.length > 0 ? <DropdownMenuSeparator /> : null}
-                <DropdownMenuItem onClick={props.onCreateTaskInNewWorkspace}>
+                <DropdownMenuItem onClick={props.onCreateChatInNewWorkspace}>
                   <FolderPlus className="size-4" />
                   {t("sidebar.new_folder")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </SidebarMenuItem>
+          {props.onShowTasks ? (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
+                isActive={props.activeNav === "tasks"}
+                onClick={props.onShowTasks}
+              >
+                <Inbox className="size-[18px]" strokeWidth={1.5} />
+                <span>{t("sidebar.tasks")}</span>
+                {/* The space keeps the spoken name "Tasks (2 new)"; a flex row ignores it. */}
+                {showUnreadTasks ? <>{" "}<span className="sr-only">{t("sidebar.tasks_unread", { count: unreadTasks })}</span></> : null}
+              </SidebarMenuButton>
+              {/* Tasks announced since the pane was last open (task notifications). */}
+              {showUnreadTasks ? (
+                <SidebarMenuBadge
+                  aria-hidden
+                  className="end-2.5 h-4 min-w-4 rounded-full bg-primary px-1 text-[10px] leading-none font-semibold text-primary-foreground peer-hover/menu-button:text-primary-foreground peer-data-active/menu-button:text-primary-foreground peer-data-[size=default]/menu-button:top-2.5"
+                >
+                  {unreadTasks > 9 ? "9+" : unreadTasks}
+                </SidebarMenuBadge>
+              ) : null}
+            </SidebarMenuItem>
+          ) : null}
           <SidebarMenuItem>
             <SidebarMenuButton
               className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
@@ -1008,9 +1043,9 @@ function WorkspaceSidebarGroup({
                   className="size-6 text-muted-foreground opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-header:opacity-100 [@media(hover:none)]:opacity-100"
                   onClick={(e) => {
                     e.stopPropagation();
-                    ctx.onCreateTaskInWorkspace(workspace.id);
+                    ctx.onCreateChatInWorkspace(workspace.id);
                   }}
-                  disabled={ctx.newTaskDisabled}
+                  disabled={ctx.newChatDisabled}
                   aria-label={t("session.new_task")}
                 >
                   <Plus className="size-4" />
@@ -1125,8 +1160,8 @@ function WorkspaceSidebarGroup({
                   <SidebarMenuSubItem>
                     <SidebarMenuSubButton
                       className="text-muted-foreground text-xs"
-                      onClick={() => ctx.onCreateTaskInWorkspace(workspace.id)}
-                      aria-disabled={ctx.newTaskDisabled}
+                      onClick={() => ctx.onCreateChatInWorkspace(workspace.id)}
+                      aria-disabled={ctx.newChatDisabled}
                     >
                       <span className="truncate">
                         {isRemoteWorkspace && connectionState.status === "connected"

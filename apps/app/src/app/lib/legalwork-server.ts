@@ -195,7 +195,12 @@ export type EigenweltAccountIdentity = {
 };
 
 /** Feature flags the platform may grant (subset the app gates surfaces on). */
-export type EigenweltFeature = "admin_hub" | "settings_presets" | "org_management" | "premium_models";
+export type EigenweltFeature =
+  | "admin_hub"
+  | "settings_presets"
+  | "org_management"
+  | "premium_models"
+  | "intake";
 
 /** App-safe connection view: entitlements + platformURL, never the secret token. */
 export type EigenweltEntitlementsView = {
@@ -294,6 +299,174 @@ export type EigenweltHubInstall = {
 };
 
 export type EigenweltHubInstallMap = Record<string, EigenweltHubInstall>;
+
+// Tasks — the firm's work list as the LegalWork server holds it (task-store.ts
+// there). Tasks are local first: every read and write below goes to the
+// server's own store, which syncs with the firm's Eigenwelt account when one
+// is connected. Nothing here carries a platform credential.
+export type LegalworkTaskStatus = "open" | "in_progress" | "done" | "cancelled";
+export type LegalworkTaskPriority = 0 | 1 | 2 | 3 | 4;
+/** Where a task came from: filed on a LegalWork machine, or arrived at one of
+ *  the firm's intake addresses on the platform and pulled down. */
+export type LegalworkTaskOrigin = "desktop" | "intake";
+
+export type LegalworkTaskAttachment = {
+  id: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  /** Whether the bytes are on this machine; an intake attachment is fetched on first open. */
+  cached: boolean;
+};
+
+export type LegalworkTaskSync = {
+  /** The firm the task is synced with; null while it only exists here. */
+  orgId: string | null;
+  syncedAt: string | null;
+  /** A local change is still waiting to reach the platform. */
+  pending: boolean;
+  error: string | null;
+};
+
+export type LegalworkTask = {
+  id: string;
+  origin: LegalworkTaskOrigin;
+  title: string;
+  description: string;
+  status: LegalworkTaskStatus;
+  priority: LegalworkTaskPriority;
+  tags: string[];
+  dueDate: string | null;
+  assigneeUserId: string | null;
+  assigneeName: string | null;
+  createdByUserId: string | null;
+  // Intake-only; null on a task filed here.
+  endpointId: string | null;
+  endpointName: string | null;
+  submissionId: string | null;
+  assignmentNote: string | null;
+  workflowHubItemId: string | null;
+  workflowVersion: number | null;
+  cloudRunId: string | null;
+  lastLocalRunAt: string | null;
+  attachments: LegalworkTaskAttachment[];
+  createdAt: string;
+  updatedAt: string;
+  /** Set while the task is in the trash. */
+  deletedAt: string | null;
+  sync: LegalworkTaskSync;
+  /** The sessions on this machine tied to the task, newest first. Local only. */
+  sessions: LegalworkTaskSessionLink[];
+  /** The agent session that filed the task, when an agent did. */
+  createdSession: LegalworkTaskSessionLink | null;
+};
+
+/** How a task and a session are tied: the agent filed the task in it, or a
+ *  workflow run / plain session was started from the task. */
+export type LegalworkTaskSessionKind = "created" | "workflow" | "session";
+
+export type LegalworkTaskSessionLink = {
+  sessionId: string;
+  workspaceId: string;
+  kind: LegalworkTaskSessionKind;
+  workflowName: string | null;
+  startedAt: string;
+};
+
+export type LegalworkTaskMember = {
+  userId: string;
+  name: string | null;
+  email: string | null;
+  role: string;
+};
+
+export type LegalworkTaskListParams = {
+  assignee?: string;
+  status?: LegalworkTaskStatus;
+  endpointId?: string;
+  tag?: string;
+  sort?: "created" | "updated" | "due" | "priority";
+  order?: "asc" | "desc";
+  limit?: number;
+  cursor?: string;
+  /** "only" lists the trash, "include" both; default is the live tasks. */
+  deleted?: "only" | "include";
+};
+
+export type LegalworkTaskCreate = {
+  title: string;
+  description?: string;
+  priority?: LegalworkTaskPriority;
+  /** A calendar day (YYYY-MM-DD, the firm's local day) or an ISO timestamp. */
+  dueDate?: string | null;
+  assigneeUserId?: string | null;
+  tags?: string[];
+};
+
+export type LegalworkTaskPatch = {
+  title?: string;
+  description?: string;
+  status?: LegalworkTaskStatus;
+  assigneeUserId?: string | null;
+  priority?: LegalworkTaskPriority;
+  dueDate?: string | null;
+  tags?: string[];
+  /** Appended to the task's history; it never replaces triage's note. */
+  note?: string;
+  noteSource?: LegalworkTaskNoteSource;
+  lastLocalRunAt?: string | null;
+};
+
+export type LegalworkTaskNoteSource = "member" | "agent";
+
+/** One entry of a task's history, oldest first in the detail response. */
+export type LegalworkTaskNote = {
+  id: string;
+  body: string;
+  /** "agent" when an agent wrote it for the author (the LegalWork task tools). */
+  source: LegalworkTaskNoteSource;
+  /** Null for a note written on a machine that was not signed in at the time. */
+  authorUserId: string | null;
+  authorName: string | null;
+  authorEmail: string | null;
+  createdAt: string;
+};
+
+export type LegalworkTaskDetail = { task: LegalworkTask; submission: unknown; notes: LegalworkTaskNote[] };
+
+/** Where the local store stands against the platform. */
+export type LegalworkTaskSyncStatus = {
+  connected: boolean;
+  orgId: string | null;
+  accountUserId: string | null;
+  /** Local writes still waiting to be pushed. */
+  pending: number;
+  lastSyncAt: number | null;
+  error: string | null;
+  /** Signed out after a sign-out removed the firm's tasks from this machine. */
+  signedOut: boolean;
+};
+
+/** Something to announce about a task (the server's task-notifications.ts). */
+export type LegalworkTaskNotificationKind = "new" | "assigned" | "due_today" | "overdue";
+
+/**
+ * Whose the task is, for the signed-in member: `mine` (assigned to them, or
+ * filed by them and not assigned), `unassigned`, or `others`.
+ */
+export type LegalworkTaskAudience = "mine" | "unassigned" | "others";
+
+export type LegalworkTaskNotification = {
+  id: string;
+  kind: LegalworkTaskNotificationKind;
+  taskId: string;
+  /** The task's title when the notification was claimed. */
+  title: string;
+  origin: LegalworkTaskOrigin;
+  dueDate: string | null;
+  audience: LegalworkTaskAudience;
+  createdAt: string;
+};
 
 // The shared WorkspaceWire contract now carries the opencode block; keep the
 // historical name as an alias for the many existing imports.
@@ -1930,8 +2103,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         baseURL?: string;
         apiKey?: string;
         models?: EigenweltManifestModel[];
-        // Sign-out: clears the connection + the global manifest.
+        // Sign-out: clears the connection + the global manifest, and removes
+        // the firm's tasks from this machine after a last push. Answers 409
+        // `tasks_pending` (details.pending) while changes could not be
+        // pushed; `force` signs out regardless, losing them.
         disconnect?: boolean;
+        force?: boolean;
       },
     ) =>
       requestJson<EigenweltEntitlementsView>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/eigenwelt/connection`, {
@@ -2150,6 +2327,138 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/hub/${encodeURIComponent(itemId)}`,
         { token, hostToken, method: "DELETE", timeoutMs: timeouts.config },
       ),
+    // Tasks: the server's own store (task-store.ts), local first. The
+    // workspace in the path only scopes the request — tasks are the machine's.
+    listTasks: (workspaceId: string, params?: LegalworkTaskListParams) => {
+      const query = new URLSearchParams();
+      if (params?.assignee) query.set("assignee", params.assignee);
+      if (params?.status) query.set("status", params.status);
+      if (params?.endpointId) query.set("endpointId", params.endpointId);
+      if (params?.tag) query.set("tag", params.tag);
+      if (params?.sort) query.set("sort", params.sort);
+      if (params?.order) query.set("order", params.order);
+      if (params?.limit !== undefined) query.set("limit", String(params.limit));
+      if (params?.cursor) query.set("cursor", params.cursor);
+      if (params?.deleted) query.set("deleted", params.deleted);
+      const search = query.toString();
+      return requestJson<{ tasks: LegalworkTask[]; nextCursor: string | null }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/tasks${search ? `?${search}` : ""}`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      );
+    },
+    getTask: (workspaceId: string, taskId: string) =>
+      requestJson<LegalworkTaskDetail>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      ),
+    createTask: (workspaceId: string, payload: LegalworkTaskCreate) =>
+      requestJson<{ ok: boolean; task: LegalworkTask }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/tasks`,
+        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.config },
+      ),
+    patchTask: (workspaceId: string, taskId: string, patch: LegalworkTaskPatch) =>
+      requestJson<{ ok: boolean; task: LegalworkTask }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}`,
+        { token, hostToken, method: "PATCH", body: patch, timeoutMs: timeouts.config },
+      ),
+    // Soft: the task goes to the trash and comes back with restoreTask.
+    deleteTask: (workspaceId: string, taskId: string) =>
+      requestJson<{ ok: boolean; task: LegalworkTask }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}`,
+        { token, hostToken, method: "DELETE", timeoutMs: timeouts.config },
+      ),
+    restoreTask: (workspaceId: string, taskId: string) =>
+      requestJson<{ ok: boolean; task: LegalworkTask }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}/restore`,
+        { token, hostToken, method: "POST", timeoutMs: timeouts.config },
+      ),
+    /** Tie a session started from the task to it (kept on this machine only). */
+    recordTaskSession: (
+      workspaceId: string,
+      taskId: string,
+      link: { sessionId: string; workspaceId: string; kind: "workflow" | "session"; workflowName?: string | null },
+    ) =>
+      requestJson<{ ok: boolean; task: LegalworkTask }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}/sessions`,
+        { token, hostToken, method: "POST", body: link, timeoutMs: timeouts.config },
+      ),
+    uploadTaskAttachments: async (workspaceId: string, taskId: string, files: File[]) => {
+      const form = new FormData();
+      for (const file of files) form.append("files[]", file, file.name);
+      const result = await requestMultipartRaw(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}/attachments`,
+        { token, hostToken, method: "POST", body: form, timeoutMs: timeouts.binary },
+      );
+      // The server always answers `{ code, message }` on failure, so the code is
+      // the only fallback needed when a body is missing entirely.
+      let parsed: { ok?: boolean; task?: LegalworkTask | null; code?: string; message?: string } | null = null;
+      try {
+        parsed = result.text ? JSON.parse(result.text) : null;
+      } catch {
+        parsed = null;
+      }
+      if (!result.ok) {
+        const code = typeof parsed?.code === "string" ? parsed.code : "request_failed";
+        throw new LegalworkServerError(result.status, code, parsed?.message ?? code);
+      }
+      return { ok: true, task: parsed?.task ?? null };
+    },
+    deleteTaskAttachment: (workspaceId: string, taskId: string, attachmentId: string) =>
+      requestJson<{ ok: boolean; task: LegalworkTask }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(attachmentId)}`,
+        { token, hostToken, method: "DELETE", timeoutMs: timeouts.config },
+      ),
+    downloadTaskAttachment: (workspaceId: string, taskId: string, attachmentId: string) =>
+      requestBinary(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(attachmentId)}`,
+        { token, hostToken, timeoutMs: timeouts.binary },
+      ),
+    listTaskMembers: (workspaceId: string) =>
+      requestJson<{ members: LegalworkTaskMember[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/task-members`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      ),
+    listTaskTags: (workspaceId: string) =>
+      requestJson<{ tags: string[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/task-tags`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      ),
+    taskSyncStatus: (workspaceId: string) =>
+      requestJson<LegalworkTaskSyncStatus>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/task-sync`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      ),
+    /** Push pending writes and pull the platform's changes now. */
+    runTaskSync: (workspaceId: string) =>
+      requestJson<LegalworkTaskSyncStatus>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/task-sync`,
+        { token, hostToken, method: "POST", timeoutMs: timeouts.binary },
+      ),
+    /**
+     * Take the task notifications noted since the last call. Each is handed
+     * out once: whoever claims it is the one to show it.
+     */
+    claimTaskNotifications: () =>
+      requestJson<{ notifications: LegalworkTaskNotification[] }>(baseUrl, "/task-notifications/claim", {
+        token,
+        hostToken,
+        method: "POST",
+        timeoutMs: timeouts.status,
+      }),
     listReloadEvents: (workspaceId: string, options?: { since?: number }) => {
       const query = typeof options?.since === "number" ? `?since=${options.since}` : "";
       return requestJson<{ items: LegalworkReloadEvent[]; cursor?: number }>(
