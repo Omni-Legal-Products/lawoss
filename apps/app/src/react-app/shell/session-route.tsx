@@ -8,6 +8,7 @@ import {
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { LAWOSS_ROUTES } from "../../lawoss/shell/routes";
+import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
 import { TasksPane } from "../domains/tasks/tasks-pane";
@@ -990,10 +991,10 @@ export function SessionRoute() {
   const aiPlansVariant = isAiPlansVariant(aiAccess) ? aiAccess : null;
   // Not in the Office task pane: it shares this computer's connection, and
   // its composer notice keeps the ways out in the space it has.
-  const aiPlansGateEnabled = !isOfficeAddinRuntime();
+  const aiPlansGateEnabled = !isOfficeAddinRuntime() && !isCommercialSurfaceHidden("ai-plans");
   const aiPlansGateVisible =
     aiPlansGateEnabled && onboardingStage === "done" && aiPlansVariant !== null;
-  const aiPlansScreenVisible = onboardingStage === "ai" || aiPlansGateVisible;
+  const aiPlansScreenVisible = (onboardingStage === "ai" && !isCommercialSurfaceHidden("ai-plans")) || aiPlansGateVisible;
   // Announcements wait until it is clear whether the plan screen shows, and
   // until it is gone: they never stack on top of it.
   const announcementsReady = !effectiveLoading && aiAccess !== "unknown" && !aiPlansScreenVisible;
@@ -1045,6 +1046,10 @@ export function SessionRoute() {
     captureAnalyticsEvent("onboarding_ai_completed", { method: path ?? "existing" });
     finishOnboarding(path === "eigenwelt" ? "connected" : (path ?? "existing"));
   }, [aiAccess, finishOnboarding, onboardingStage]);
+  // LAWOSS: bez obrazovky s plánmi je krok "ai" prázdny, onboarding sa dokončí hneď.
+  useEffect(() => {
+    if (onboardingStage === "ai" && isCommercialSurfaceHidden("ai-plans")) setOnboardingStage("done");
+  }, [onboardingStage, setOnboardingStage]);
   // "Check for updates" on the plan screen: the Updates settings in a dialog
   // above it, so an app that cannot get past the screen can still update. It
   // starts a check the way the app menu's "Check for Updates…" does.
