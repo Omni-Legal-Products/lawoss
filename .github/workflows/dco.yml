@@ -11,6 +11,8 @@ permissions:
 jobs:
   dco:
     name: DCO
+    # LAWOSS: the sign-off policy belongs to upstream; see PATCHES.md.
+    if: github.repository == 'eigenweltlabs/legalwork'
     runs-on: ubuntu-latest
     steps:
       # No PR checkout: inspect commit metadata without running contributor code.

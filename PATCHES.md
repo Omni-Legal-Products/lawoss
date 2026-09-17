@@ -37,8 +37,29 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 | `apps/app/src/i18n/locales/en.ts` | +15 kľúčov `autogram.*` (Autogram teaser karta v Integrations, vrátane loading a chybového stavu) | Anglický zdroj pre i18n fallback; sk/cs preklady sú vlastné LAWOSS súbory bez záznamu | MČ | feat/autogram-teaser |
 | `apps/app/src/i18n/locales/de.ts` | +15 kľúčov `autogram.*` (formálne „Sie“, bez pomlčiek) | `scripts/i18n-check.ts` vyžaduje pre `de` plné pokrytie kľúčov z `en.ts` | MČ | feat/autogram-teaser |
 | `apps/app/scripts/i18n-check.ts` | `"autogram.title"` pridaný do `GERMAN_KEEPS_ENGLISH` (produktový názov) | „Autogram“ je názov produktu tretej strany, nemá nemecký preklad | MČ | feat/autogram-teaser |
+| `.github/workflows/dco.yml` | Job `dco` beží len pri `github.repository == 'eigenweltlabs/legalwork'` (+1 komentár, +1 riadok `if:`) | Upstream DCO kontrola (#140, `--check-merge-commits`) by zhodila každé PR forku: žiadny LAWOSS commit nemá `Signed-off-by`. Príspevky posielané do upstreamu podpisujeme `git commit -s` podľa jeho `CONTRIBUTING.md` | MČ | sync/upstream-v0.1.21 |
 
 ## Review checklist for upstream sync
+
+### v0.1.21 integration (2026-09-17)
+
+Merged exact upstream tag `v0.1.21` (`a4edd4b`, covering v0.1.19 and v0.1.20) onto LAWOSS `790a86c`. Six textual conflicts, all resolved by keeping both sides; every active row above was re-checked in the merged tree.
+
+| Upstream files | Preserved downstream behavior |
+|---|---|
+| `README.md` | LAWOSS README kept; the only upstream change was the Bun 1.4.2+ requirement, reflected in `docs/lawoss-build-pre-testerov.md`. |
+| `apps/app/src/i18n/locales/en.ts`, `de.ts` | LAWOSS `autogram.*` keys kept next to the new upstream Tasks, plans, storage and notification keys. |
+| `apps/app/src/react-app/domains/session/artifacts/artifact-panel.tsx` | Document author from local preferences kept; upstream `localReadOnly`, `saveActions` and the exported `ArtifactPanelView` adopted. |
+| `apps/app/src/react-app/domains/settings/shell/settings-page.tsx` | `"appearance"` stays in the global tabs next to the new upstream `"notifications"`; `hideCommercialTabs()` still filters the list. |
+| `apps/app/src/react-app/shell/session-route.tsx` | Pane reset keeps `setShowRecorder(false)` and the `location.key` dependency for LAWOSS routes; upstream Tasks pane keep-open window adopted. |
+
+Guards verified after the merge: `isCommercialSurfaceHidden` in `session-surface.tsx`, `hub-download-section.tsx`, `hub-scope-context.tsx`; `HIDDEN_SETTINGS_TABS` in `general-view.tsx`, `transcription-intro.tsx`, `app-sidebar.tsx`; `applyBrandName` in `i18n/index.ts`; the `welcome-route.tsx` redirect; the connections store still reads the filtered `MCP_QUICK_CONNECT` after upstream #136. `opencodeVersion` and `apps/server/src/extensions/` are unchanged by upstream. `legalwork-legalmemory-knowledge` changed upstream only.
+
+New upstream surfaces that `apps/app/src/lawoss/feature-flags.ts` does not cover yet (not changed in this sync; they need a decision in the coordination repository):
+
+- `apps/app/src/react-app/domains/onboarding/ai-plans-overlay.tsx` (#155): unskippable plan screen (own model, Eigenwelt Plus, Pro) as the last onboarding step and as a gate while no model works; it offers Eigenwelt sign-in although the `account` tab is hidden.
+- Tasks pane, notifications and firm task sync via Eigenwelt (#154).
+- File storage in Integrations with team sync via Eigenwelt (#131, #142).
 
 ### v0.1.18 integration (2026-09-10)
 
