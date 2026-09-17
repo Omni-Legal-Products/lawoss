@@ -64,6 +64,7 @@ New upstream surfaces handled in this sync (decision MČ 2026-09-17: remove paid
 - `apps/app/src/react-app/domains/onboarding/ai-plans-overlay.tsx` (#155): hidden as `CommercialSurface "ai-plans"`; the onboarding step `"ai"` finishes immediately. The file stays because `tests/onboarding-transitions.test.tsx` renders it.
 - Tasks (#154): kept local. Firm sync, members and sign-out wipe are off on the server (`apps/server/src/lawoss/commercial-services.ts`). Upstream tests enable them through `apps/server/bunfig.toml` → `test-preload-lawoss.ts`.
 - File storage (#131, #142, #148): SMB, WebDAV, S3, Azure Blob, GCS, SFTP and FTP kept local; team connections off on the server; Box hidden unless the firm runs its own OAuth broker.
+- **Check on every sync:** a person can add their own MCP server without any sign-in to LegalWork, Eigenwelt or LAWOSS (Settings → Integrations → Connectors → Add; remote URL with optional headers, and local command). Requirement MČ 2026-09-17, [ADR 0013 draft](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/80). Verified in v0.1.21: no Eigenwelt call on this path.
 - Still visible and left to open PR #65 (VŘ): trial/log-in buttons in the composer notice, the Eigenwelt entry in the providers dialog, the premium upsell and free-tier dialogs. #65 must drop its `AiStep` hunk (file deleted upstream) and its `finishOnboarding("skipped")` call when rebased.
 
 ### v0.1.18 integration (2026-09-10)
