@@ -33,8 +33,14 @@ import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import { readWorkspaceImports, type ImportedPlugin } from "@/app/lib/extension-imports";
 import {
   materializeLegalMemoryFile,
+  materializeLegalMemoryFolder,
   type LegalMemoryFileDragItem,
+  type LegalMemoryFolderDragItem,
 } from "@/app/lib/legalmemory-file";
+import {
+  materializeStorageFile,
+  type StorageFileDragItem,
+} from "@/app/lib/storage-file-drag";
 import type {
   LegalworkServerClient,
   LegalworkSessionSnapshot,
@@ -64,10 +70,16 @@ import {
 import { collectVoiceActivity } from "@/react-app/domains/session/voice/voice-activity";
 import {
   createLegalMemoryComposerMention,
+  createLegalMemoryFolderComposerMention,
   decodeComposerMentionValue,
   encodeComposerMentionValue,
   legalMemoryComposerInstruction,
   legalMemoryComposerDisplayText,
+  createStorageComposerMention,
+  storageComposerInstruction,
+  storageComposerDisplayText,
+  taskComposerDisplayText,
+  taskComposerInstruction,
   type ComposerMentionKind,
 } from "./composer/mention-encoding";
 import { desktopBridge } from "@/app/lib/desktop";
@@ -151,6 +163,13 @@ export type SessionSurfaceProps = {
   selectedModel: ModelRef;
   /** Open the connect-AI flow from the notice above the composer. */
   onConnectAi?: (action: ConnectAiAction) => void;
+  /**
+   * The route lays the plan screen over the app whenever no model is usable,
+   * so the notice above the composer only covers what that screen leaves
+   * open: a connected provider with no model picked, and a plan without
+   * models while another provider works. Off in the Office task pane.
+   */
+  aiPlansGate?: boolean;
   onModelPickerOpenChange: (open: boolean) => void;
   onModelChange: (model: ModelRef) => void;
   onSendDraft: (draft: ComposerDraft, sessionId: string) => void;
@@ -350,7 +369,7 @@ function TodoPanel(props: { todos: TodoItem[] }) {
 
 /**
  * The ways out of "no usable model": trial sign-up, sign-in, bring your own,
- * or (a firm on the Knowledge Hub plan) upgrading to Plus.
+ * or (a firm on a plan without models) upgrading.
  */
 export type ConnectAiAction = "trial" | "login" | "byo" | "upgrade";
 
@@ -360,17 +379,37 @@ export type ConnectAiAction = "trial" | "login" | "byo" | "upgrade";
  * provider that is no longer connected (signed out of Eigenwelt, access
  * revoked) with nothing else to switch to. Offers the three real paths: the
  * Eigenwelt trial, signing in to an existing account, or bringing your own
- * model/key. A firm subscribed to the Knowledge Hub (no AI in the plan) gets
+ * model/key. A firm subscribed to a plan without AI (none today) gets
  * "upgrade or bring your own" instead: it is signed in and paying already.
+ *
+ * On the desktop and the web the plan screen covers every state without a
+ * usable model, so there the notice only asks to pick a model ("pick-model":
+ * a provider is connected, nothing is selected) or offers that upgrade. The
+ * Office task pane keeps the full notice.
  */
 function NoModelNotice(props: {
-  variant: "none" | "signed-out" | "no-ai-plan";
+  /** "pick-model": a provider is connected, nothing is selected yet. */
+  variant: "none" | "signed-out" | "no-ai-plan" | "pick-model";
   onConnect?: (action: ConnectAiAction) => void;
+  onPickModel?: () => void;
 }) {
   const primaryButtonClass =
     "rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-fg transition-opacity hover:opacity-90";
   const secondaryButtonClass =
     "rounded-md border border-dls-border px-2.5 py-1 text-xs font-medium text-dls-text transition-colors hover:bg-dls-hover";
+  if (props.variant === "pick-model") {
+    return (
+      <div className="flex flex-wrap items-center gap-2.5 border-b border-dls-border bg-dls-surface px-4 py-3">
+        <p className="min-w-0 flex-1 text-xs leading-relaxed text-dls-secondary">
+          <span className="font-medium text-dls-text">{t("chat.pick_model_title")}</span>{" "}
+          {t("chat.pick_model_body")}
+        </p>
+        <button type="button" className={primaryButtonClass} onClick={() => props.onPickModel?.()}>
+          {t("chat.pick_model_cta")}
+        </button>
+      </div>
+    );
+  }
   const title =
     props.variant === "no-ai-plan"
       ? t("chat.no_ai_plan_title")
@@ -592,7 +631,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // nothing else is connected, so there is no model to switch to. Same ways
   // out as "no model"; a lapsed trial keeps its own subscribe notice.
   const lockedOutNoticeVisible = lockedOutCandidate && !trialEndedNoticeVisible;
-  // Signed in to a firm on the Knowledge Hub plan: subscribed, but the plan
+  // Signed in to a firm on a plan without models: subscribed, but the plan
   // has no Eigenwelt models, so neither "start a trial" nor "log in" applies.
   // Also shown while the selection still points at the Eigenwelt provider
   // (a firm moved down from Plus keeps the model in the picker until the
@@ -604,13 +643,34 @@ export function SessionSurface(props: SessionSurfaceProps) {
     planWithoutModels &&
     !trialEndedNoticeVisible &&
     (noModelNoticeVisible || lockedOutCandidate || props.selectedModel.providerID === "eigenwelt");
-  const connectNoticeVisible =
-    noModelNoticeVisible || lockedOutNoticeVisible || noAiPlanNoticeVisible;
+  // Under the plan screen, "no model" only needs a notice when a provider is
+  // connected and nothing is picked yet; every state without a usable model
+  // is the plan screen's.
+  const pickModelNoticeVisible =
+    Boolean(props.aiPlansGate) && noModelNoticeVisible && (props.providerConnectedCount ?? 0) > 0;
+  const connectNoticeVisible = props.aiPlansGate
+    ? noAiPlanNoticeVisible || pickModelNoticeVisible
+    : noModelNoticeVisible || lockedOutNoticeVisible || noAiPlanNoticeVisible;
+  // While nothing can serve the prompt (no selection, a selection on a
+  // provider that is gone, or a plan without models), lock the composer
+  // exactly as a vanished model does, so the notice's buttons or the plan
+  // screen are the way forward instead of a send that fails inside the
+  // engine. Read from those conditions, not from which notice shows: under
+  // the plan screen most of them show none. The red "model no longer
+  // available" label stays tied to `modelUnavailable` alone; an empty
+  // selection has no model to flag.
+  const sendBlocked =
+    Boolean(props.modelUnavailable) ||
+    noModelNoticeVisible ||
+    lockedOutNoticeVisible ||
+    noAiPlanNoticeVisible;
   const connectNoticeVariant = noAiPlanNoticeVisible
     ? "no-ai-plan"
-    : lockedOutNoticeVisible && props.selectedModel.providerID === "eigenwelt"
-      ? "signed-out"
-      : "none";
+    : props.aiPlansGate
+      ? "pick-model"
+      : lockedOutNoticeVisible && props.selectedModel.providerID === "eigenwelt"
+        ? "signed-out"
+        : "none";
   // "Upgrade to Plus" opens the firm's billing page; everything else is the
   // route's business (sign-in flows, the provider picker).
   const onConnectAi = (action: ConnectAiAction) => {
@@ -1117,6 +1177,14 @@ export function SessionSurface(props: SessionSurfaceProps) {
           modelContexts.push(legalMemoryComposerInstruction(value));
           return [{ type: "text", text: legalMemoryComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
         }
+        if (kind === "storage") {
+          modelContexts.push(storageComposerInstruction(value));
+          return [{ type: "text", text: storageComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
+        }
+        if (kind === "task") {
+          modelContexts.push(taskComposerInstruction(value));
+          return [{ type: "text", text: taskComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
+        }
         if (kind === "app") return [{ type: "app", name: value } satisfies ComposerDraft["parts"][number]];
       }
       return [{ type: "text", text: segment } satisfies ComposerDraft["parts"][number]];
@@ -1131,7 +1199,15 @@ export function SessionSurface(props: SessionSurfaceProps) {
     for (const [value, kind] of Object.entries(mentions)) {
       resolved = resolved.replaceAll(
         `@${encodeComposerMentionValue(value)}`,
-        kind === "memory" ? legalMemoryComposerDisplayText(value) : kind === "upload" ? workspaceAttachmentDisplayText(value) : `@${value}`,
+        kind === "memory"
+          ? legalMemoryComposerDisplayText(value)
+          : kind === "storage"
+            ? storageComposerDisplayText(value)
+            : kind === "task"
+              ? taskComposerDisplayText(value)
+              : kind === "upload"
+                ? workspaceAttachmentDisplayText(value)
+                : `@${value}`,
       );
     }
     const slashCommand = parseSlashCommandInvocation(resolved);
@@ -1512,13 +1588,66 @@ export function SessionSurface(props: SessionSurfaceProps) {
     }
   };
 
+  /** Insert a memory pill without disturbing the draft the user is typing. */
+  const appendMemoryMention = (reference: string) => {
+    const composerState = useComposerStateStore.getState();
+    const currentDraft = getComposerDraft(composerState, props.sessionId);
+    const currentMentions = getComposerMentions(composerState, props.sessionId);
+    const separator = currentDraft && !/\s$/.test(currentDraft) ? " " : "";
+    setComposerDraft(props.sessionId, `${currentDraft}${separator}@${encodeComposerMentionValue(reference)} `);
+    setComposerMentions(props.sessionId, { ...currentMentions, [reference]: "memory" });
+  };
+
   const handleDropLegalMemoryFile = async (file: LegalMemoryFileDragItem) => {
     try {
       // Materialize the authorized original before inserting the pill. Only its
       // workspace path is sent to the agent; the binary is deliberately not
       // added to ComposerDraft.attachments or emitted as a file part.
       const result = await materializeLegalMemoryFile(props.client, props.workspaceId, file.document_id);
-      const reference = createLegalMemoryComposerMention(file.document_id, file.name, result.path);
+      appendMemoryMention(createLegalMemoryComposerMention(file.document_id, file.name, result.path));
+    } catch (error) {
+      toast.error(t("session.download_failed", { name: file.name }), {
+        description: error instanceof Error ? error.message : t("session.legalmemory_download_failed"),
+      });
+    }
+  };
+
+  const handleDropLegalMemoryFolder = async (folder: LegalMemoryFolderDragItem) => {
+    // A folder is many downloads, so unlike a single file it needs to say it is
+    // working; the toast is dismissed by id once the copy lands.
+    const pending = toast.info(t("session.legalmemory_folder_downloading", { name: folder.name }), {
+      duration: Infinity,
+    });
+    try {
+      const result = await materializeLegalMemoryFolder(props.client, props.workspaceId, folder);
+      toast.dismiss(pending);
+      if (!result.files) {
+        toast.error(t("session.legalmemory_folder_empty", { name: folder.name }));
+        return;
+      }
+      appendMemoryMention(
+        createLegalMemoryFolderComposerMention(folder.source_id, folder.name, result.path, result.files),
+      );
+      if (result.truncated || result.skipped) {
+        toast.warning(t("session.legalmemory_folder_partial", { name: folder.name, count: String(result.files) }));
+      }
+    } catch (error) {
+      toast.dismiss(pending);
+      toast.error(t("session.legalmemory_folder_failed", { name: folder.name }), {
+        description: error instanceof Error ? error.message : t("session.legalmemory_download_failed"),
+      });
+    }
+  };
+
+  const handleDropStorageFile = async (file: StorageFileDragItem) => {
+    try {
+      // Check the object out, then insert a storage pill that carries the
+      // workspace path as metadata. Same contract as the LegalMemory pill: the
+      // agent is told to open the copy with a format-appropriate tool, so an
+      // xlsx is never handed to a plain-text reader, and the badge shows the
+      // filename instead of the checkout path.
+      const copy = await materializeStorageFile(props.client, props.workspaceId, file);
+      const reference = createStorageComposerMention(file.connectionId, file.path, file.name, copy.localPath);
       const composerState = useComposerStateStore.getState();
       const currentDraft = getComposerDraft(composerState, props.sessionId);
       const currentMentions = getComposerMentions(composerState, props.sessionId);
@@ -1527,10 +1656,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
         props.sessionId,
         `${currentDraft}${separator}@${encodeComposerMentionValue(reference)} `,
       );
-      setComposerMentions(props.sessionId, { ...currentMentions, [reference]: "memory" });
+      setComposerMentions(props.sessionId, { ...currentMentions, [reference]: "storage" });
     } catch (error) {
       toast.error(t("session.download_failed", { name: file.name }), {
-        description: error instanceof Error ? error.message : t("session.legalmemory_download_failed"),
+        description: error instanceof Error ? error.message : t("session.storage_download_failed"),
       });
     }
   };
@@ -1599,7 +1728,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         await typeComposerText(prompt);
         props.onDraftChange(buildDraft(prompt, attachments));
       };
-      if (props.modelUnavailable) {
+      if (sendBlocked) {
         void seedComposer();
         return;
       }
@@ -1607,7 +1736,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     };
     window.addEventListener(LEGALMEMORY_REF_EVENT, handleLegalMemoryRef);
     return () => window.removeEventListener(LEGALMEMORY_REF_EVENT, handleLegalMemoryRef);
-  }, [attachments, buildDraft, props.modelUnavailable, props.onDraftChange, sendDraft, typeComposerText]);
+  }, [attachments, buildDraft, sendBlocked, props.onDraftChange, sendDraft, typeComposerText]);
 
   // A LegalMemory source was clicked. The server pulls the original over MCP
   // and drops it in the workspace, then we open it. The agent is not involved:
@@ -1667,13 +1796,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
     label: t("control.send_composer"),
     description: "Send the currently visible composer draft to the active session.",
     sideEffect: "mutation",
-    disabled: props.modelUnavailable || (!draft.trim() && attachments.length === 0) || model.transitionState !== "idle",
+    disabled: sendBlocked || (!draft.trim() && attachments.length === 0) || model.transitionState !== "idle",
     targetRef: composerShellRef,
     execute: async () => {
       await handleSend();
       return true;
     },
-  }), [attachments.length, draft, handleSend, model.transitionState, props.modelUnavailable]);
+  }), [attachments.length, draft, handleSend, model.transitionState, sendBlocked]);
   useControlAction(composerSendControlAction);
 
   const composerStopControlAction = useMemo<LegalworkControlAction>(() => ({
@@ -2020,7 +2149,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onStop={handleAbort}
         busy={chatStreaming}
         queuedCount={queuedMessages.length}
-        disabled={model.transitionState !== "idle" || Boolean(props.modelUnavailable)}
+        disabled={model.transitionState !== "idle" || sendBlocked}
         modelUnavailable={Boolean(props.modelUnavailable)}
         modelUnavailableLabelHidden={lockedOutNoticeVisible}
         statusLabel={statusLabel(snapshot ?? undefined, chatStreaming)}
@@ -2056,6 +2185,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
         searchFiles={props.searchFiles}
         onInsertMention={handleInsertMention}
         onDropLegalMemoryFile={handleDropLegalMemoryFile}
+        onDropLegalMemoryFolder={handleDropLegalMemoryFolder}
+        onDropStorageFile={handleDropStorageFile}
         inputHistory={inputHistory}
         onPasteText={handlePasteText}
         onUnsupportedFileLinks={handleUnsupportedFileLinks}
@@ -2081,7 +2212,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
               <div>
                 {trialEndedNoticeVisible ? <TrialEndedNotice billingUrl={trialBillingUrl} /> : null}
                 {connectNoticeVisible ? (
-                  <NoModelNotice variant={connectNoticeVariant} onConnect={onConnectAi} />
+                  <NoModelNotice
+                    variant={connectNoticeVariant}
+                    onConnect={onConnectAi}
+                    onPickModel={props.onModelClick}
+                  />
                 ) : null}
                 {queuedMessages.length > 0 ? (
                   <QueuedMessagesPanel messages={queuedMessages} onRemove={removeQueuedDraft} />

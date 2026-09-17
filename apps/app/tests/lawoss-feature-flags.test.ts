@@ -35,4 +35,8 @@ describe("LAWOSS feature flags", () => {
     expect(isCommercialSurfaceHidden("firm-hub")).toBe(true);
     expect(isCommercialSurfaceHidden("trial-notice")).toBe(true);
   });
+
+  test("obrazovka s plánmi Eigenwelt je skrytá", () => {
+    expect(isCommercialSurfaceHidden("ai-plans")).toBe(true);
+  });
 });

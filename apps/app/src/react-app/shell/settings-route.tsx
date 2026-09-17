@@ -9,6 +9,7 @@ import { createClient } from "@/app/lib/opencode";
 import {
   createLegalworkServerClient,
   isLoopbackLegalworkServerUrl,
+  LegalworkServerError,
   readLegalworkServerSettings,
   type LegalworkServerCapabilities,
   type LegalworkServerClient,
@@ -73,6 +74,7 @@ import "@/react-app/domains/settings/google-workspace-config";
 import { useSettingsExtensionController } from "@/react-app/domains/settings/settings-extension-controller";
 import { buildExtensionItems } from "@/react-app/domains/settings/extension-items";
 import { isLegalWorkExtensionEnabled, LEGALWORK_EXTENSION_STATE_CHANGED, setLegalWorkExtensionEnabled } from "@/react-app/domains/settings/extension-state";
+import { NotificationsView } from "@/react-app/domains/settings/pages/notifications-view";
 import { PreferencesView } from "@/react-app/domains/settings/pages/preferences-view";
 import { PersonalisationView } from "@/react-app/domains/settings/pages/personalisation-view";
 import { ShellCustomizationView } from "@/react-app/domains/settings/pages/shell-view";
@@ -85,6 +87,8 @@ import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-vi
 import { captureAnalyticsEvent, captureAnalyticsOptOut } from "@/app/lib/analytics";
 import { DebugView } from "@/react-app/domains/settings/pages/debug-view";
 import { EnvironmentView } from "@/react-app/domains/settings/pages/environment-view";
+import { FileStorageView } from "@/react-app/domains/settings/pages/file-storage-view";
+import { STORAGE_CHANGED_EVENT } from "@/react-app/domains/settings/pages/storage-providers";
 import { ExtensionsView } from "@/react-app/domains/settings/pages/extensions-view";
 import { McpView } from "@/react-app/domains/settings/pages/mcp-view";
 import { RecoveryView } from "@/react-app/domains/settings/pages/recovery-view";
@@ -106,6 +110,7 @@ import {
 } from "@/react-app/domains/settings/state/template-workflow-generation";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { useLocal } from "@/react-app/kernel/local-provider";
+import { useNotificationStore } from "@/react-app/kernel/notification-store";
 import {
   legalworkServerInfo,
   legalworkServerRestart,
@@ -204,7 +209,7 @@ const SETTINGS_UPDATE_AUTO_DOWNLOAD_KEY = "legalwork.react.settings.update-auto-
 function parseSettingsPath(pathname: string): {
   tab: SettingsTab;
   redirectPath: string | null;
-  extensionsSection?: "all" | "mcp" | "skills" | "plugins";
+  extensionsSection?: "all" | "mcp" | "skills" | "plugins" | "storage";
   benchmarkRunId?: string;
   benchmarkTaskId?: string;
   benchmarkItemId?: string;
@@ -224,6 +229,7 @@ function parseSettingsPath(pathname: string): {
     case "ai":
     case "account":
     case "personalisation":
+    case "notifications":
     case "preferences":
     case "permissions":
     case "safety":
@@ -258,6 +264,7 @@ function parseSettingsPath(pathname: string): {
       return { tab: "benchmark", redirectPath: null };
     }
     case "extensions":
+      if (tail === "storage") return { tab: "extensions", redirectPath: null, extensionsSection: "storage" };
       if (tail === "mcp") return { tab: "extensions", redirectPath: null, extensionsSection: "mcp" };
       if (tail === "skills") return { tab: "extensions", redirectPath: null, extensionsSection: "skills" };
       if (tail === "plugins") return { tab: "extensions", redirectPath: null, extensionsSection: "plugins" };
@@ -881,17 +888,25 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   // AND the global provider manifest server-side (revoking the refresh-token
   // family), then reloads the engine so the eigenwelt provider drops from every
   // workspace. Errors propagate to the account view, which surfaces a toast.
-  const disconnectEigenwelt = useCallback(async () => {
+  const disconnectEigenwelt = useCallback(async (options?: { force?: boolean }) => {
     setDisconnectingProviderId(EIGENWELT_PROVIDER_ID);
     try {
       if (legalworkClient && hubWorkspaceId) {
         try {
-          await legalworkClient.eigenweltSaveConnection(hubWorkspaceId, { disconnect: true });
-        } catch {
-          // best-effort: still reset the local view + engine below.
+          await legalworkClient.eigenweltSaveConnection(hubWorkspaceId, {
+            disconnect: true,
+            ...(options?.force ? { force: true } : {}),
+          });
+        } catch (error) {
+          // The server refuses while changes made here have not reached the
+          // firm: the account view asks the user, nothing is reset yet.
+          if (error instanceof LegalworkServerError && error.code === "tasks_pending") throw error;
+          // Anything else is best-effort: still reset the local view + engine below.
         }
-        invalidateEigenweltEntitlements(hubWorkspaceId);
+        invalidateEigenweltEntitlements();
       }
+      // The firm's tasks left this machine: so do the announcements naming them.
+      useNotificationStore.getState().removeKind("tasks");
       // Await a FULL provider refresh (dispose → re-read the rebuilt
       // engine config → setProviders / setProviderConnectedIds) so the account
       // view's providers-derived state (model count + connected id set) drops
@@ -2059,6 +2074,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onBackToList={() => navigateSettingsPath("benchmark")}
           />
         );
+      case "notifications":
+        return <NotificationsView />;
       case "preferences":
         return (
           <PreferencesView
@@ -2171,11 +2188,13 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               navigateSettingsPath(path);
             }}
             onRefresh={() => {
+              window.dispatchEvent(new Event(STORAGE_CHANGED_EVENT));
               void connectionsStore.refreshMcpServers();
               void extensionsStore.refreshPlugins();
             }}
             previewClaudePlugin={(url) => extensionsStore.previewClaudePlugin(url)}
             installClaudePlugin={(url) => extensionsStore.installClaudePlugin(url)}
+            storageView={<FileStorageView client={isRemoteWorkspace ? selectedWorkspaceEndpoint?.client ?? legalworkClient : legalworkClient} workspaceId={runtimeWorkspaceId || selectedWorkspaceId || null} />}
             mcpView={
               <McpView
                 busy={busy}
@@ -2193,6 +2212,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 enablementContext={enablementContext}
                 builtInExtensionsDisabled={builtInExtensionsDisabled}
                 connectMcp={connectionsStore.connectMcp}
+                probeMcp={connectionsStore.probeMcp}
+                registerMcpClient={connectionsStore.registerMcpClient}
                 cancelPendingMcpAuth={connectionsStore.cancelPendingMcpAuth}
                 configSlotForEntry={extensionController.configSlotForEntry}
                 isExtensionConnected={extensionController.isConnected}

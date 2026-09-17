@@ -37,8 +37,35 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 | `apps/app/src/i18n/locales/en.ts` | +15 kľúčov `autogram.*` (Autogram teaser karta v Integrations, vrátane loading a chybového stavu) | Anglický zdroj pre i18n fallback; sk/cs preklady sú vlastné LAWOSS súbory bez záznamu | MČ | feat/autogram-teaser |
 | `apps/app/src/i18n/locales/de.ts` | +15 kľúčov `autogram.*` (formálne „Sie“, bez pomlčiek) | `scripts/i18n-check.ts` vyžaduje pre `de` plné pokrytie kľúčov z `en.ts` | MČ | feat/autogram-teaser |
 | `apps/app/scripts/i18n-check.ts` | `"autogram.title"` pridaný do `GERMAN_KEEPS_ENGLISH` (produktový názov) | „Autogram“ je názov produktu tretej strany, nemá nemecký preklad | MČ | feat/autogram-teaser |
+| `.github/workflows/dco.yml` | Job `dco` beží len pri `github.repository == 'eigenweltlabs/legalwork'` (+1 komentár, +1 riadok `if:`) | Upstream DCO kontrola (#140, `--check-merge-commits`) by zhodila každé PR forku: žiadny LAWOSS commit nemá `Signed-off-by`. Príspevky posielané do upstreamu podpisujeme `git commit -s` podľa jeho `CONTRIBUTING.md` | MČ | sync/upstream-v0.1.21 |
+| `apps/app/src/react-app/shell/session-route.tsx` | Obrazovka s plánmi (`ai-plans`): brána `aiPlansGateEnabled` a `aiPlansScreenVisible` zohľadňujú `isCommercialSurfaceHidden("ai-plans")` (+1 import, 2 podmienky); +4-riadkový efekt, ktorý krok onboardingu `"ai"` hneď dokončí | Plány Eigenwelt Plus/Pro LAWOSS neponúka (rozhodnutie MČ 17. 9.); bez efektu by onboarding ostal visieť v kroku `"ai"` a nastavenia by boli nedostupné | MČ | sync/upstream-v0.1.21 |
+| `apps/server/src/tasks-api.ts` | `connectedTaskOrgId()` vráti `null`, kým nie je `LAWOSS_EIGENWELT_FIRM_SERVICES=1` (+1 import, +1 riadok) | Úlohy, poznámky a prílohy nesmú po prihlásení do Eigenwelt odísť na ich platformu; tým sa vypne sync, členovia firmy aj zmazanie pri odhlásení. Lokálne úlohy fungujú ďalej | MČ | sync/upstream-v0.1.21 |
+| `apps/server/src/file-storage/team.ts` | `TeamStorage.identity()` vráti `null` bez `LAWOSS_EIGENWELT_FIRM_SERVICES=1` (+1 import, +1 riadok) | Tímové pripojenia úložísk by posielali prístupové údaje na platformu Eigenwelt; lokálny rozsah funguje ďalej | MČ | sync/upstream-v0.1.21 |
+| `apps/server/src/routes/file-storage.ts` | Zoznam OAuth poskytovateľov filtruje `storageOAuthProviderAllowed()` (+1 import, 1 podmienka): Box len s vlastným `LEGALWORK_STORAGE_BOX_OAUTH_URL` | Box ide pri prihlásení aj pri každom obnovení tokenu cez broker Eigenwelt | MČ | sync/upstream-v0.1.21 |
 
 ## Review checklist for upstream sync
+
+### v0.1.21 integration (2026-09-17)
+
+Merged exact upstream tag `v0.1.21` (`a4edd4b`, covering v0.1.19 and v0.1.20) onto LAWOSS `790a86c`. Six textual conflicts, all resolved by keeping both sides; every active row above was re-checked in the merged tree.
+
+| Upstream files | Preserved downstream behavior |
+|---|---|
+| `README.md` | LAWOSS README kept; the only upstream change was the Bun 1.4.2+ requirement, reflected in `docs/lawoss-build-pre-testerov.md`. |
+| `apps/app/src/i18n/locales/en.ts`, `de.ts` | LAWOSS `autogram.*` keys kept next to the new upstream Tasks, plans, storage and notification keys. |
+| `apps/app/src/react-app/domains/session/artifacts/artifact-panel.tsx` | Document author from local preferences kept; upstream `localReadOnly`, `saveActions` and the exported `ArtifactPanelView` adopted. |
+| `apps/app/src/react-app/domains/settings/shell/settings-page.tsx` | `"appearance"` stays in the global tabs next to the new upstream `"notifications"`; `hideCommercialTabs()` still filters the list. |
+| `apps/app/src/react-app/shell/session-route.tsx` | Pane reset keeps `setShowRecorder(false)` and the `location.key` dependency for LAWOSS routes; upstream Tasks pane keep-open window adopted. |
+
+Guards verified after the merge: `isCommercialSurfaceHidden` in `session-surface.tsx`, `hub-download-section.tsx`, `hub-scope-context.tsx`; `HIDDEN_SETTINGS_TABS` in `general-view.tsx`, `transcription-intro.tsx`, `app-sidebar.tsx`; `applyBrandName` in `i18n/index.ts`; the `welcome-route.tsx` redirect; the connections store still reads the filtered `MCP_QUICK_CONNECT` after upstream #136. `opencodeVersion` and `apps/server/src/extensions/` are unchanged by upstream. `legalwork-legalmemory-knowledge` changed upstream only.
+
+New upstream surfaces handled in this sync (decision MČ 2026-09-17: remove paid Eigenwelt paths, keep what works locally):
+
+- `apps/app/src/react-app/domains/onboarding/ai-plans-overlay.tsx` (#155): hidden as `CommercialSurface "ai-plans"`; the onboarding step `"ai"` finishes immediately. The file stays because `tests/onboarding-transitions.test.tsx` renders it.
+- Tasks (#154): kept local. Firm sync, members and sign-out wipe are off on the server (`apps/server/src/lawoss/commercial-services.ts`). Upstream tests enable them through `apps/server/bunfig.toml` → `test-preload-lawoss.ts`.
+- File storage (#131, #142, #148): SMB, WebDAV, S3, Azure Blob, GCS, SFTP and FTP kept local; team connections off on the server; Box hidden unless the firm runs its own OAuth broker.
+- **Check on every sync:** a person can add their own MCP server without any sign-in to LegalWork, Eigenwelt or LAWOSS (Settings → Integrations → Connectors → Add; remote URL with optional headers, and local command). Requirement MČ 2026-09-17, [ADR 0013 draft](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/80). Verified in v0.1.21: no Eigenwelt call on this path.
+- Still visible and left to open PR #65 (VŘ): trial/log-in buttons in the composer notice, the Eigenwelt entry in the providers dialog, the premium upsell and free-tier dialogs. #65 must drop its `AiStep` hunk (file deleted upstream) and its `finishOnboarding("skipped")` call when rebased.
 
 ### v0.1.18 integration (2026-09-10)
 

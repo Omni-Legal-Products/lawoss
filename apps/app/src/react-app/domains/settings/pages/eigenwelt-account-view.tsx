@@ -13,6 +13,16 @@ import {
 } from "lucide-react";
 import { Button, Card } from "@legalwork/ui/react";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "@/components/ui/sonner";
 import { currentLocale, t } from "@/i18n";
 import { openDesktopUrl } from "@/app/lib/desktop";
@@ -21,7 +31,7 @@ import {
   eigenweltTrialState,
   isEigenweltEntitledStatus,
 } from "@/app/lib/eigenwelt-trial";
-import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { ProviderIcon } from "@/react-app/design-system/provider-icon";
 import {
   eigenweltBillingUrl,
@@ -59,7 +69,8 @@ export type EigenweltAccountViewProps = {
     sessionId: string,
     opts?: { cancelled?: () => boolean },
   ) => Promise<{ connected: boolean; cancelled?: boolean; message?: string }>;
-  onDisconnect: () => Promise<void>;
+  /** `force` signs out even while changes made here have not reached the firm. */
+  onDisconnect: (options?: { force?: boolean }) => Promise<void>;
   /** Re-pull the gateway model list into the provider (no re-auth). */
   onRefreshModels?: () => Promise<{ modelCount: number; changed: boolean }>;
   disconnecting: boolean;
@@ -148,13 +159,26 @@ export function EigenweltAccountView({
     }
   };
 
-  const disconnect = async () => {
+  // Changes made on this computer that could not be pushed before signing
+  // out: the one thing about syncing the user has to decide on, because the
+  // sign-out removes the firm's tasks from this computer and them with it.
+  const [pendingSignOut, setPendingSignOut] = useState<number | null>(null);
+
+  const disconnect = async (options?: { force?: boolean }) => {
     try {
-      await onDisconnect();
+      await onDisconnect(options);
+      setPendingSignOut(null);
       toast.success(t("account.disconnected"));
       await entitlementsQuery.refetch();
       onConfigApplied?.();
     } catch (error) {
+      if (error instanceof LegalworkServerError && error.code === "tasks_pending") {
+        const details = error.details;
+        const pending =
+          typeof details === "object" && details !== null && "pending" in details ? Number(details.pending) : NaN;
+        setPendingSignOut(Number.isFinite(pending) && pending > 0 ? pending : 1);
+        return;
+      }
       toast.error(error instanceof Error ? error.message : t("account.disconnect_failed"));
     }
   };
@@ -171,7 +195,7 @@ export function EigenweltAccountView({
 
       if (entitlementsResult.status === "fulfilled") {
         queryClient.setQueryData(
-          eigenweltEntitlementsQueryKey(workspaceId),
+          eigenweltEntitlementsQueryKey(),
           entitlementsResult.value,
         );
       }
@@ -250,14 +274,15 @@ export function EigenweltAccountView({
   const planActive = Boolean(
     entitlements?.plan && isEigenweltEntitledStatus(entitlements.subscriptionStatus),
   );
+  // The plan ids are the marketed names ("plus", "pro"), so capitalizing is
+  // the whole translation.
   const planValue =
     planActive && entitlements?.plan
-      ? entitlements.plan === "hub"
-        ? t("account.plan_hub")
-        : entitlements.plan.charAt(0).toUpperCase() + entitlements.plan.slice(1)
+      ? entitlements.plan.charAt(0).toUpperCase() + entitlements.plan.slice(1)
       : t("account.plan_inactive");
-  // The Knowledge Hub plan has no Eigenwelt models: no usage to show, and the
-  // models row explains the upgrade instead of "no models yet".
+  // A plan without the Eigenwelt models (no current plan is one; see
+  // eigenweltPlanWithoutModels): no usage to show, and the models row
+  // explains the upgrade instead of "no models yet".
   const modelsIncluded = hasEigenweltFeature(entitlements, "premium_models");
   // When the seat's included usage resets, e.g. "Mon, Sep 7" (platforms that
   // send no reset time show the percentage alone).
@@ -295,6 +320,22 @@ export function EigenweltAccountView({
                 {disconnecting ? <Loader2 className="size-4 animate-spin" /> : <LogOut className="size-4" />}
                 {t("account.sign_out")}
               </Button>
+              <AlertDialog open={pendingSignOut !== null} onOpenChange={(open) => (open ? undefined : setPendingSignOut(null))}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{t("account.sign_out_pending_title")}</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {t("account.sign_out_pending_body", { count: pendingSignOut ?? 0 })}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{t("account.sign_out_keep")}</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => void disconnect({ force: true })}>
+                      {t("account.sign_out_anyway")}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </LayoutSectionItemHeaderActions>
           </LayoutSectionItemHeader>
         </LayoutSectionItem>

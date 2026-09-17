@@ -592,13 +592,6 @@ export type DesktopCommandMap = {
     args: [scope: string, projectDir: string, content: string];
     result: ExecResult;
   };
-  /** Merge (config given) or delete (null) one MCP server in the runtime
-   * opencode config — the file the packaged engine loads for EVERY workspace
-   * instance, which makes a connector global across old and new workspaces. */
-  mergeRuntimeMcpServer: {
-    args: [name: string, config: Record<string, unknown> | null];
-    result: ExecResult;
-  };
   /**
    * The renderer passes its reset-modal mode, but the main process currently
    * IGNORES it and always removes workspace state + bootstrap config; only
@@ -768,6 +761,28 @@ export type DesktopCommandMap = {
   desktopLoginItemSet: {
     args: [openAtLogin: boolean];
     result: { openAtLogin: boolean; requiresApproval: boolean };
+  };
+  /**
+   * A system notification (task announcements while the app is in the
+   * background). Shown by the main process, so a click can bring the window
+   * back — restored, shown and focused — which the page itself cannot; the
+   * click is then reported to the page as `legalwork:desktop-notification-click`
+   * with the notification's id. Resolves false where the system cannot show one.
+   */
+  desktopNotificationShow: {
+    args: [notification: { id: string; title: string; body?: string }];
+    result: boolean;
+  };
+  /**
+   * The count on the app icon: the Dock badge on macOS, the launcher badge on
+   * Linux. Windows has no count, so there the page draws one
+   * (`overlayDataUrl`, a PNG) and it is laid over the taskbar icon, with
+   * `description` for screen readers. 0 clears it. Resolves false where the
+   * system shows none.
+   */
+  desktopBadgeSet: {
+    args: [badge: { count: number; overlayDataUrl?: string | null; description?: string }];
+    result: boolean;
   };
 
   // Window / OS utilities (dunder commands)
