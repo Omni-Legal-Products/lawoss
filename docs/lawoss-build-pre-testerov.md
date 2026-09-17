@@ -84,7 +84,7 @@ Voliteľné, ale užitočné pred hlásením problému — overí, že TypeScrip
 
 ## 5. Prvé spustenie
 
-1. **Pripojte model.** V appke choďte na **Settings → AI Providers** a pripojte AI model, ktorý chcete používať (vlastný API kľúč alebo iný podporovaný spôsob pripojenia). Appka bez pripojeného modelu nemá s čím pracovať. Kým model nie je pripojený, cez appku sa zobrazí obrazovka s plánmi; LAWOSS žiadne predplatné nepredáva, Plus a Pro sú plány dodávateľa upstreamu (Eigenwelt). Pokračujte cez **I bring my own model**.
+1. **Pripojte model.** V appke choďte na **Settings → AI Providers** a pripojte AI model, ktorý chcete používať (vlastný API kľúč alebo iný podporovaný spôsob pripojenia). Appka bez pripojeného modelu nemá s čím pracovať. Kým model nie je pripojený, odosielanie je zamknuté a nad poľom na písanie je lišta s tlačidlom **Connect a provider**. LAWOSS žiadne predplatné nepredáva: tlačidlá na skúšobnú verziu alebo prihlásenie (Eigenwelt, dodávateľ upstreamu) nepoužívajte.
 
 > Pozor, ak používate aj samostatný `opencode` CLI: build od upstream v0.1.21 pri prvom spustení presunie MCP konektory z `~/.config/opencode/opencode.json` do vlastnej databázy v `~/.config/legalwork/` a z pôvodného súboru ich zmaže. Pred prvým spustením si ten súbor zálohujte. Starší LAWOSS build po návrate konektory neuvidí.
 2. **Založte testovací priečinok.** Pri prvom spustení appka ponúkne výber pracovného priečinka. Vytvorte si na to nový, prázdny priečinok mimo akéhokoľvek reálneho spisu — **nepoužívajte priečinok so skutočnými klientskymi dátami** (dôvod je v sekcii 6).

@@ -4,7 +4,7 @@ Merge upstream release `v0.1.21` (`a4edd4b`) into LAWOSS `790a86c`, preserving t
 
 Preserved: LAWOSS branding and logo B, token overrides and fonts, experimental navigation and routes, SK/CZ locales, LAWOSS onboarding, document-author preference, hidden commercial surfaces (`account`, `recorder`, `firm-hub`, `trial-notice`, LegalMemory quick connect), OKF and memory modules, Autogram card, updater destinations and release customization.
 
-Adopted: one shared MCP connector store with server probing and OAuth fixes, file actions and grouped tool activity, detached-window file sidebars, model output limits and image/PDF support from their source, sending locked while no AI provider is connected, Tasks pane with notifications, file storage integrations (Box, S3, SMB, WebDAV) for Memory Drive, the plan screen, and Bun 1.4.2 across CI and release workflows. `opencodeVersion` stays `v1.18.29`.
+Adopted: one shared MCP connector store with server probing and OAuth fixes, file actions and grouped tool activity, detached-window file sidebars, model output limits and image/PDF support from their source, sending locked while no AI provider is connected, Tasks pane with notifications (local only), file storage integrations for Memory Drive (local scope, without Box), and Bun 1.4.2 across CI and release workflows. `opencodeVersion` stays `v1.18.29`.
 
 ## Conflicts
 
@@ -64,14 +64,18 @@ The built Electron screenshot shows the existing LAWOSS demonstration data. The 
 
 ![LAWOSS session preview after the sync](reviews/upstream-v0.1.21-session.png)
 
-![Plan screen as LAWOSS testers will see it](reviews/upstream-v0.1.21-plans.png)
+![Plan screen before the LAWOSS guard, hidden since this sync](reviews/upstream-v0.1.21-plans.png)
 
-## Open decisions after the merge
+## Decisions applied in this sync
 
-These upstream surfaces are not covered by `apps/app/src/lawoss/feature-flags.ts`. They are left unchanged here and need a decision in the coordination repository:
+Decision MČ 2026-09-17: remove paid Eigenwelt paths, keep what works locally.
 
-1. **Plan screen** (`ai-plans-overlay.tsx`, upstream #155). It is the last onboarding step and a gate over the app while no model works, and it cannot be skipped. Because `applyBrandName()` rewrites `LegalWork` to `LAWOSS`, it reads "Choose how you use AI in LAWOSS" and offers "Premium models in LAWOSS" for €29/€69 per seat, which presents Eigenwelt plans as a LAWOSS offer. It also offers Eigenwelt sign-in although the `account` tab is hidden. Testers with their own provider connected do not see it.
-2. **Tasks pane** (upstream #154): sidebar entry, notifications and firm task sync via Eigenwelt. Works locally without an account.
-3. **File storage** (upstream #131, #142): Integrations tab with team sync via Eigenwelt. The Local/Team toggle stays hidden by the existing `firm-hub` guard; team actions such as sharing a connection with the firm appear only after an Eigenwelt sign-in.
+1. **Plan screen** (`ai-plans-overlay.tsx`, upstream #155) is hidden as `CommercialSurface "ai-plans"`. Before the guard it was the unskippable last onboarding step and a gate over the app while no model works, and because `applyBrandName()` rewrites `LegalWork` to `LAWOSS` it offered "Premium models in LAWOSS" for €29/€69 per seat. Without the screen the onboarding step `"ai"` would never finish, so a LAWOSS effect finishes it immediately; the own model is connected under Settings → AI Providers or from the composer notice.
+2. **Tasks** (upstream #154) stay, local only. `apps/server/src/lawoss/commercial-services.ts` turns off firm sync, firm members and the sign-out wipe unless `LAWOSS_EIGENWELT_FIRM_SERVICES=1`. Without this guard, every local write is queued and a later Eigenwelt sign-in (even just for models) would upload all local tasks, notes and attachments.
+3. **File storage** (upstream #131, #142, #148) stays with local scope: SMB, WebDAV, S3-compatible, Azure Blob, GCS, SFTP, FTP/FTPS with the user's own credentials. Team connections via Eigenwelt are off on the server; Box is hidden because every token exchange and refresh goes through the Eigenwelt OAuth broker, unless a firm sets its own `LEGALWORK_STORAGE_BOX_OAUTH_URL`.
+
+Upstream server tests still exercise the Eigenwelt paths: `apps/server/bunfig.toml` preloads `test-preload-lawoss.ts`, which sets the variable for the test run only.
+
+Still visible until open PR #65 is rebased and merged: trial and log-in buttons in the composer notice, the Eigenwelt entry in the providers dialog, the premium upsell and free-tier dialogs. Remaining English copy mentions Eigenwelt in the new-task dialog and in Settings → Notifications ("New and assigned tasks"); SK/CZ translations should avoid it.
 
 Merge to `dev` remains subject to the repository's required review and CI; no release was published as part of preparing this sync.
