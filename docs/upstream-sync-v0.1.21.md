@@ -47,9 +47,11 @@ Node 24.19.0, pnpm 11.4.0, Bun 1.4.2, macOS ARM64.
 
 Desktop startup still reports HTTP 404 for the existing LAWOSS architecture-download destinations, as in v0.1.18. Not exercised: Eigenwelt sign-in, firm task sync, file storage providers, signed installer and update behavior. Build reports the upstream bundle-size warnings.
 
-## Upgrade note: connectors move on first start
+## Upgrade note: connectors move on every start
 
-On its first start v0.1.21 moves MCP connectors into a shared row of `~/.config/legalwork/runtime.sqlite` (`__global_mcp__`, upstream #136). It clears them from the per-workspace rows, and **deletes them from each workspace's `opencode.json` and from the global `~/.config/opencode/opencode.json`**. Consequences for testers:
+On every start (`apps/server/src/embedded.ts`, `cli.ts`) v0.1.21 moves MCP connectors into a shared row of `~/.config/legalwork/runtime.sqlite` (`__global_mcp__`, upstream #136). It clears them from the per-workspace rows, and **deletes them from each workspace's `opencode.json` and from the global `~/.config/opencode/opencode.json`**. Consequences for testers:
+
+- An `mcp` block written by hand into one of those files is moved and removed again on the next start.
 
 - MCP servers listed in the global OpenCode config disappear from the standalone `opencode` CLI.
 - Going back to a pre-sync LAWOSS build shows no connectors, because older builds do not read the shared row.
