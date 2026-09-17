@@ -204,6 +204,23 @@ type SignInSession = {
 
 const sessions = new Map<string, SignInSession>();
 
+/**
+ * Loopbacks held by this server's unfinished sign-ins, by port, oldest first.
+ * When every port is taken, a new sign-in replaces the oldest of them instead
+ * of failing, so an abandoned browser tab never locks the user out.
+ */
+type OpenLoopback = {
+  /** False while a browser callback is being exchanged: that sign-in is about to finish. */
+  replaceable: () => boolean;
+  /** Fail the sign-in as replaced and close its loopback. */
+  replace: () => Promise<void>;
+};
+
+const openLoopbacks = new Map<number, OpenLoopback>();
+
+export const EIGENWELT_SIGN_IN_REPLACED_MESSAGE =
+  "This Eigenwelt sign-in was replaced by a newer one. Continue in the browser tab that opened last.";
+
 function base64url(buffer: Buffer): string {
   return buffer.toString("base64url");
 }
@@ -215,9 +232,9 @@ function generatePkce(): { verifier: string; challenge: string } {
 }
 
 const CALLBACK_HTML = `<!doctype html>
-<html><head><meta charset="utf-8"><title>Eigenwelt — connected</title>
+<html><head><meta charset="utf-8"><title>Eigenwelt: connected</title>
 <style>body{font-family:system-ui,sans-serif;background:#fefefe;color:#0e0a07;display:grid;place-items:center;min-height:90vh}main{text-align:center}h1{font-weight:500;letter-spacing:-0.04em}p{color:rgba(14,10,7,.55)}</style>
-</head><body><main><h1>You're connected.</h1><p>Return to LegalWork — this tab can be closed.</p></main></body></html>`;
+</head><body><main><h1>You're connected.</h1><p>Return to LegalWork. You can close this tab.</p></main></body></html>`;
 
 function callbackErrorHtml(message: string): string {
   const safe = message
@@ -225,7 +242,7 @@ function callbackErrorHtml(message: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
   return `<!doctype html>
-<html><head><meta charset="utf-8"><title>Eigenwelt — sign-in failed</title>
+<html><head><meta charset="utf-8"><title>Eigenwelt: sign-in failed</title>
 <style>body{font-family:system-ui,sans-serif;background:#fefefe;color:#0e0a07;display:grid;place-items:center;min-height:90vh}main{max-width:26rem;text-align:center;padding:0 1rem}h1{font-weight:500;letter-spacing:-0.04em}p{color:rgba(14,10,7,.55);line-height:1.5}</style>
 </head><body><main><h1>Sign-in didn&rsquo;t finish.</h1><p>${safe}</p></main></body></html>`;
 }
@@ -327,20 +344,41 @@ export function parseEigenweltAccountIdentity(value: unknown): EigenweltAccountI
   };
 }
 
-async function bindLoopback(
-  handler: (req: IncomingMessage, res: ServerResponse, port: number) => void,
-): Promise<{ server: Server; port: number }> {
+type LoopbackHandler = (req: IncomingMessage, res: ServerResponse, port: number) => void;
+
+function listenOnLoopback(port: number, handler: LoopbackHandler): Promise<Server | null> {
+  return new Promise<Server | null>((resolve) => {
+    const candidate = createServer((req, res) => handler(req, res, port));
+    candidate.once("error", () => resolve(null));
+    candidate.listen(port, "127.0.0.1", () => resolve(candidate));
+  });
+}
+
+async function bindLoopback(handler: LoopbackHandler): Promise<{ server: Server; port: number }> {
   for (const port of EIGENWELT_LOOPBACK_PORTS) {
-    const server = await new Promise<Server | null>((resolve) => {
-      const candidate = createServer((req, res) => handler(req, res, port));
-      candidate.once("error", () => resolve(null));
-      candidate.listen(port, "127.0.0.1", () => resolve(candidate));
-    });
+    const server = await listenOnLoopback(port, handler);
     if (server) return { server, port };
   }
+  // Every port is taken. This server's own unfinished sign-ins give theirs
+  // up, oldest first; the new sign-in takes the first port that frees.
+  for (const [port, loopback] of [...openLoopbacks]) {
+    if (!loopback.replaceable()) continue;
+    await loopback.replace();
+    const server = await listenOnLoopback(port, handler);
+    if (server) return { server, port };
+  }
+  // Only another program can still hold them, typically another LegalWork
+  // app in the middle of its own sign-in.
   throw new Error(
-    `Sign-in ports are busy (${EIGENWELT_LOOPBACK_PORTS.join(", ")}). Close other LegalWork sign-in attempts and retry.`,
+    `Sign-in ports are busy (${EIGENWELT_LOOPBACK_PORTS.join(", ")}). Another LegalWork app is signing in to Eigenwelt. Finish or close that sign-in and try again.`,
   );
+}
+
+/** The plans the platform's checkout sells (model-api's PlanId). */
+export type EigenweltSignInPlan = "plus" | "pro";
+
+export function isEigenweltSignInPlan(value: unknown): value is EigenweltSignInPlan {
+  return value === "plus" || value === "pro";
 }
 
 /**
@@ -353,6 +391,9 @@ export async function startEigenweltSignIn(opts?: {
   /** "sign-in" lands existing users on the platform's sign-in page; the
    *  default lands on sign-up (most app-originated clicks are new users). */
   intent?: "sign-in";
+  /** The plan picked on the app's plan screen. A firm without a subscription
+   *  lands on that plan's checkout instead of the plan comparison. */
+  plan?: EigenweltSignInPlan;
 }): Promise<{ sessionId: string; authorizeUrl: string }> {
   const platform = eigenweltPlatformUrl();
   const { verifier, challenge } = generatePkce();
@@ -371,6 +412,9 @@ export async function startEigenweltSignIn(opts?: {
 
   let settled = false;
   let teardown = () => {};
+  // Set once a valid browser callback arrived: the exchange is running, so a
+  // newer sign-in must not replace this one.
+  let exchanging = false;
   const settleOk = (payload: EigenweltSignInPayload) => {
     if (settled) return;
     settled = true;
@@ -463,6 +507,7 @@ export async function startEigenweltSignIn(opts?: {
     }
     // Answer the browser only once the exchange settled — the old
     // "You're connected" page lied whenever the exchange then failed.
+    exchanging = true;
     void (async () => {
       const outcome = await exchange(code, boundPort);
       const html = outcome.ok ? CALLBACK_HTML : callbackErrorHtml(outcome.message);
@@ -476,8 +521,29 @@ export async function startEigenweltSignIn(opts?: {
     teardown();
   }, SIGN_IN_TIMEOUT_MS);
   timeout.unref?.();
+  const loopback: OpenLoopback = {
+    replaceable: () => !exchanging && !settled,
+    replace: () => {
+      settleErr(new Error(EIGENWELT_SIGN_IN_REPLACED_MESSAGE));
+      clearTimeout(timeout);
+      if (openLoopbacks.get(port) === loopback) openLoopbacks.delete(port);
+      return new Promise<void>((resolve) => {
+        // Resolve on close; the fallback covers a close that never reports back.
+        const fallback = setTimeout(resolve, 1_000);
+        fallback.unref?.();
+        server.close(() => {
+          clearTimeout(fallback);
+          resolve();
+        });
+        // An abandoned browser tab may still hold a keep-alive connection.
+        server.closeAllConnections?.();
+      });
+    },
+  };
+  openLoopbacks.set(port, loopback);
   teardown = () => {
     clearTimeout(timeout);
+    if (openLoopbacks.get(port) === loopback) openLoopbacks.delete(port);
     server.close();
   };
 
@@ -491,6 +557,8 @@ export async function startEigenweltSignIn(opts?: {
   // default; explicit sign-in intent (the "already have an account" link)
   // lands on sign-in instead.
   if (opts?.intent === "sign-in") authorizeUrl.searchParams.set("intent", "sign-in");
+  // Platforms that predate the hint ignore it and show the plan comparison.
+  if (opts?.plan && isEigenweltSignInPlan(opts.plan)) authorizeUrl.searchParams.set("plan", opts.plan);
 
   return { sessionId, authorizeUrl: authorizeUrl.toString() };
 }

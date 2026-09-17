@@ -119,6 +119,7 @@ import { providerRepairNotices } from "./runtime-provider-repair.js";
 import {
   eigenweltHasPremiumModels,
   fetchEigenweltManifest,
+  isEigenweltSignInPlan,
   parseEigenweltAccountIdentity,
   parseEigenweltEntitlements,
   startEigenweltSignIn,
@@ -728,9 +729,9 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
   };
   // Tasks push and pull with the firm's account in the background (a no-op
   // while no firm is connected); each local write also asks for a round.
-  startTaskSyncTimer(config);
+  const stopTaskSync = startTaskSyncTimer(config);
   // Due days are checked every minute, connected or not, for the app to announce.
-  startTaskReminderTimer(config);
+  const stopTaskReminders = startTaskReminderTimer(config);
   const officeTools = new OfficeToolRelay();
   const benchmarkRunner = new BenchmarkRunner({
     config,
@@ -943,6 +944,8 @@ export async function startServer(config: ServerConfig): Promise<StartedServer> 
     ...server,
     wordAddinPort: wordAddinServer?.port ?? null,
     stop: async () => {
+      stopTaskSync();
+      stopTaskReminders();
       benchmarkRunner.dispose();
       watcherHandle.close();
       workspaceBootstrapPromises.delete(config);
@@ -2007,8 +2010,9 @@ function createRoutes(
   addRoute(routes, "POST", "/api/eigenwelt/oauth/start", "client", async (ctx) => {
     const body = await readOptionalJsonBody(ctx.request);
     const intent = body.intent === "sign-in" ? ("sign-in" as const) : undefined;
+    const plan = isEigenweltSignInPlan(body.plan) ? body.plan : undefined;
     try {
-      return jsonResponse(await startEigenweltSignIn(intent ? { intent } : undefined));
+      return jsonResponse(await startEigenweltSignIn({ intent, plan }));
     } catch (error) {
       throw new ApiError(
         409,

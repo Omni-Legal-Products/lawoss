@@ -22,6 +22,8 @@ import {
   useRecorderStore,
 } from "../domains/recorder/recorder-store";
 import { toast } from "@/components/ui/sonner";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useUpdateCheckRequestStore } from "@/react-app/domains/settings/state/update-check-request";
 import type {
   AgentPartInput,
   FilePartInput,
@@ -120,7 +122,7 @@ import { useModelPicker } from "@/react-app/domains/session/modals/use-model-pic
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
-import { AiStep } from "@/react-app/domains/onboarding/ai-step";
+import { AiPlansOverlay } from "@/react-app/domains/onboarding/ai-plans-overlay";
 import { AudioStep } from "@/react-app/domains/onboarding/audio-step";
 import { OfficeStep } from "@/react-app/domains/onboarding/office-step";
 import { PermissionsStep } from "@/react-app/domains/onboarding/permissions-step";
@@ -135,6 +137,7 @@ import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picke
 import { CommandPalette, type PaletteItem, type SessionGroupOption, type SessionOption as PaletteSessionOption } from "./command-palette";
 import { SessionSearchDialog } from "./session-search-dialog";
 import {
+  eigenweltBillingUrl,
   hasEigenweltFeature,
   invalidateEigenweltEntitlements,
   useEigenweltEntitlements,
@@ -163,6 +166,14 @@ import { useControlAction, type LegalworkControlAction } from "./control/control
 import { useReactRenderWatchdog } from "./react-render-watchdog";
 
 import { filterProviderList } from "@/app/utils/providers";
+import {
+  aiAccessState,
+  forgetEigenweltAccount,
+  isAiPlansVariant,
+  readRememberedEigenweltAccount,
+  rememberEigenweltAccount,
+  type RememberedEigenweltAccount,
+} from "@/app/lib/eigenwelt-access";
 import { ensureDesktopLocalLegalworkConnection } from "./desktop-local-legalwork";
 import { resolveLegalworkConnection } from "./legalwork-connection";
 import { useReloadCoordinator } from "./reload-coordinator";
@@ -810,9 +821,12 @@ export function SessionRoute() {
   // Set when the user navigates backwards in the onboarding flow, so the
   // office step shows its rows instead of auto-skipping forward again.
   const onboardingWentBack = useRef(false);
-  // The AI step is the last one, so finishing it finishes onboarding.
+  // The AI step (the plan screen) is the last one, so finishing it finishes
+  // onboarding. It finishes by itself once a model is usable: "connected"
+  // (Eigenwelt), "own_model" (an own provider) or "existing" (one was there
+  // before).
   const finishOnboarding = useCallback(
-    (ai: "connected" | "skipped") => {
+    (ai: "connected" | "own_model" | "existing") => {
       captureAnalyticsEvent("onboarding_completed", { ai });
       setOnboardingStage("done");
     },
@@ -942,6 +956,171 @@ export function SessionRoute() {
     activeReloadBlockingSessions.length,
     sessionProviderAuthStore,
   ]);
+
+  // The plan screen. LegalWork has no free model tier: with neither an own
+  // provider nor an Eigenwelt plan that includes the models, the screen lies
+  // over the app until one of them works (see aiAccessState for its variants).
+  // The same screen is the last onboarding step.
+  const eigenweltView = eigenweltEntitlementsQuery.data;
+  // The last signed-in account, remembered so a returning user is asked to
+  // sign in instead of being shown the plans.
+  const [rememberedEigenweltAccount, setRememberedEigenweltAccount] =
+    useState<RememberedEigenweltAccount | null>(() => readRememberedEigenweltAccount());
+  useEffect(() => {
+    if (!eigenweltView?.connected) return;
+    rememberEigenweltAccount({
+      email: eigenweltView.account?.userEmail ?? null,
+      firmName: eigenweltView.account?.orgName ?? null,
+    });
+    const stored = readRememberedEigenweltAccount();
+    setRememberedEigenweltAccount((previous) =>
+      previous && stored && previous.email === stored.email && previous.firmName === stored.firmName
+        ? previous
+        : stored,
+    );
+  }, [eigenweltView]);
+  const accessProviders = useMemo(() => {
+    const list = providerListQuery.data;
+    return list ? getConnectedProviderItems(filterProviderList(list, disabledProviderIds)) : null;
+  }, [disabledProviderIds, providerListQuery.data]);
+  const aiAccess = aiAccessState({
+    connectedProviders: accessProviders,
+    eigenwelt: eigenweltView ?? (eigenweltEntitlementsQuery.isError ? null : undefined),
+    signedInBefore: rememberedEigenweltAccount !== null,
+  });
+  const aiPlansVariant = isAiPlansVariant(aiAccess) ? aiAccess : null;
+  // Not in the Office task pane: it shares this computer's connection, and
+  // its composer notice keeps the ways out in the space it has.
+  const aiPlansGateEnabled = !isOfficeAddinRuntime();
+  const aiPlansGateVisible =
+    aiPlansGateEnabled && onboardingStage === "done" && aiPlansVariant !== null;
+  const aiPlansScreenVisible = onboardingStage === "ai" || aiPlansGateVisible;
+  // Announcements wait until it is clear whether the plan screen shows, and
+  // until it is gone: they never stack on top of it.
+  const announcementsReady = !effectiveLoading && aiAccess !== "unknown" && !aiPlansScreenVisible;
+  const aiPlansAccount = eigenweltView?.connected
+    ? {
+        email: eigenweltView.account?.userEmail ?? null,
+        firmName: eigenweltView.account?.orgName ?? null,
+      }
+    : rememberedEigenweltAccount;
+  // Plan screen analytics, in memory like every other app event: one visit is
+  // one stretch the screen is up. ai_plans_viewed { mode, variant, trigger }
+  // says why it shows: "onboarding", "app_start" (no model when the app
+  // opened) or "lost_access" (a model worked earlier in this run, then a
+  // sign-out, an ended subscription or a removed provider took it away).
+  // ai_plans_completed { mode, variant, method } says how it closed with a
+  // usable model: "eigenwelt", "own_model" or "existing" (it came from
+  // elsewhere, e.g. Settings).
+  const aiPlansPathRef = useRef<"eigenwelt" | "own_model" | null>(null);
+  const aiPlansVisitRef = useRef<{ mode: "onboarding" | "gate"; variant: string } | null>(null);
+  const aiHadModelThisRunRef = useRef(false);
+  useEffect(() => {
+    const visit = aiPlansVisitRef.current;
+    if (!aiPlansScreenVisible) {
+      if (visit && aiAccess === "ready") {
+        captureAnalyticsEvent("ai_plans_completed", {
+          mode: visit.mode,
+          variant: visit.variant,
+          method: aiPlansPathRef.current ?? "existing",
+        });
+      }
+      aiPlansVisitRef.current = null;
+      aiPlansPathRef.current = null;
+      if (aiAccess === "ready") aiHadModelThisRunRef.current = true;
+      return;
+    }
+    // Wait until the account is known, so a late answer is not a second view.
+    if (!aiPlansVariant) return;
+    const mode = onboardingStage === "ai" ? "onboarding" : "gate";
+    if (visit && visit.mode === mode && visit.variant === aiPlansVariant) return;
+    if (!visit && mode === "onboarding") captureAnalyticsEvent("onboarding_ai_viewed");
+    const trigger =
+      mode === "onboarding" ? "onboarding" : aiHadModelThisRunRef.current ? "lost_access" : "app_start";
+    aiPlansVisitRef.current = { mode, variant: aiPlansVariant };
+    captureAnalyticsEvent("ai_plans_viewed", { mode, variant: aiPlansVariant, trigger });
+  }, [aiAccess, aiPlansScreenVisible, aiPlansVariant, onboardingStage]);
+  useEffect(() => {
+    if (onboardingStage !== "ai" || aiAccess !== "ready") return;
+    const path = aiPlansPathRef.current;
+    captureAnalyticsEvent("onboarding_ai_completed", { method: path ?? "existing" });
+    finishOnboarding(path === "eigenwelt" ? "connected" : (path ?? "existing"));
+  }, [aiAccess, finishOnboarding, onboardingStage]);
+  // "Check for updates" on the plan screen: the Updates settings in a dialog
+  // above it, so an app that cannot get past the screen can still update. It
+  // starts a check the way the app menu's "Check for Updates…" does.
+  const [plansUpdatesOpen, setPlansUpdatesOpen] = useState(false);
+  const openPlansUpdates = useCallback(() => {
+    useUpdateCheckRequestStore.getState().requestUpdateCheck();
+    setPlansUpdatesOpen(true);
+  }, []);
+  // "I bring my own model" opens the provider connection without the
+  // Eigenwelt entry (that choice has its own cards). Closing the dialog
+  // without connecting leaves the plan screen where it was.
+  // ai_plans_own_model_closed { connected } tells the two apart.
+  const [providerModalFromPlans, setProviderModalFromPlans] = useState(false);
+  const providerModalOpen = sessionProviderAuthSnapshot.providerAuthModalOpen;
+  const providerModalWasOpen = useRef(false);
+  const providersAtOwnModelOpenRef = useRef<{
+    ids: string[];
+    mode: "onboarding" | "gate";
+    variant: string;
+  } | null>(null);
+  useEffect(() => {
+    if (providerModalOpen) {
+      providerModalWasOpen.current = true;
+      return;
+    }
+    if (!providerModalWasOpen.current) return;
+    providerModalWasOpen.current = false;
+    const opened = providersAtOwnModelOpenRef.current;
+    providersAtOwnModelOpenRef.current = null;
+    if (opened) {
+      captureAnalyticsEvent("ai_plans_own_model_closed", {
+        connected: providerConnectedIds.some((id) => !opened.ids.includes(id)),
+        mode: opened.mode,
+        variant: opened.variant,
+      });
+    }
+    setProviderModalFromPlans(false);
+  }, [providerConnectedIds, providerModalOpen]);
+  const openProvidersFromPlans = useCallback(() => {
+    aiPlansPathRef.current = "own_model";
+    providersAtOwnModelOpenRef.current = {
+      ids: providerConnectedIds,
+      mode: onboardingStage === "ai" ? "onboarding" : "gate",
+      variant: aiPlansVariant ?? "new",
+    };
+    setProviderModalFromPlans(true);
+    void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "none" }).catch(() => {
+      providersAtOwnModelOpenRef.current = null;
+      setProviderModalFromPlans(false);
+      toast.error(t("providers.load_failed"));
+    });
+  }, [aiPlansVariant, onboardingStage, providerConnectedIds, sessionProviderAuthStore]);
+  // "no-models": the plan screen polls this after opening the billing page.
+  // Once the plan includes the models, bring the Eigenwelt provider online.
+  const checkEigenweltPlanModels = useCallback(async () => {
+    if (!client || !selectedWorkspaceId) return false;
+    const fresh = await client.eigenweltEntitlements(selectedWorkspaceId, { refresh: true });
+    if (!hasEigenweltFeature(fresh.entitlements, "premium_models")) return false;
+    aiPlansPathRef.current = "eigenwelt";
+    invalidateEigenweltEntitlements();
+    await handleEigenweltPremiumActivated();
+    return true;
+  }, [client, handleEigenweltPremiumActivated, selectedWorkspaceId]);
+  // "Use another account": sign out (the server revokes the sign-in and drops
+  // the Eigenwelt provider) and forget the account, so the screen offers the
+  // plans and a fresh sign-in.
+  const switchEigenweltAccount = useCallback(async () => {
+    forgetEigenweltAccount();
+    setRememberedEigenweltAccount(null);
+    if (client && selectedWorkspaceId) {
+      await client.eigenweltSaveConnection(selectedWorkspaceId, { disconnect: true }).catch(() => undefined);
+    }
+    invalidateEigenweltEntitlements();
+    await sessionProviderAuthStore.refreshProviders({ dispose: true }).catch(() => undefined);
+  }, [client, selectedWorkspaceId, sessionProviderAuthStore]);
   // Resume the generation-completion watcher after a reload: a persisted
   // "running" run keeps its Workflows spinner honest only while someone polls.
   useEffect(() => {
@@ -1116,6 +1295,9 @@ export function SessionRoute() {
       modelPickerOpen: modelPicker.compactOpen,
       modelUnavailable: selectedModelUnavailable,
       modelSelectorLocked: soloEigenweltModel,
+      // The plan screen covers "no usable model" here; the composer notice
+      // only handles what it does not.
+      aiPlansGate: aiPlansGateEnabled,
       selectedModel: local.prefs.defaultModel ?? { providerID: "", modelID: "" },
       // The connect-AI notice above the composer (no model selected, or signed
       // out with nothing else connected). Trial and login go straight to the
@@ -1336,6 +1518,7 @@ export function SessionRoute() {
     usableProviderCount,
     sessionProviderAuthStore,
     startEigenweltTrial,
+    aiPlansGateEnabled,
     handleApplyEnvironmentChanges,
     environmentRuntimeKey,
     local,
@@ -1973,25 +2156,51 @@ export function SessionRoute() {
         }}
       />
     ) : null}
-    {onboardingStage === "ai" ? (
-      // Last step. One action per step: start the trial (browser funnel) or skip.
-      <AiStep
+    {aiPlansScreenVisible ? (
+      // The plan screen: the last onboarding step, and the screen over the
+      // app while no model is usable. There is no skip: it closes by itself
+      // once a model works (onboarding then finishes, see above).
+      <AiPlansOverlay
+        mode={onboardingStage === "ai" ? "onboarding" : "gate"}
+        variant={aiPlansVariant ?? "new"}
+        account={aiPlansAccount}
+        serverReady={Boolean(selectedWorkspaceEndpoint)}
         onStartSignIn={sessionProviderAuthStore.startEigenweltSignIn}
         onWaitSignIn={sessionProviderAuthStore.completeEigenweltSignIn}
-        onConnected={() => {
-          // The trial just activated: refetch entitlements so the premium
-          // models are live the moment onboarding ends.
+        onSignedIn={() => {
+          // Connected: refetch the entitlements so the screen closes (and the
+          // models are live) the moment the account shows up.
+          aiPlansPathRef.current = "eigenwelt";
           invalidateEigenweltEntitlements();
-          finishOnboarding("connected");
         }}
-        onBack={() => {
-          onboardingWentBack.current = true;
-          setOnboardingStage("permissions");
-        }}
-        onSkip={() => finishOnboarding("skipped")}
-        serverReady={Boolean(selectedWorkspaceEndpoint)}
+        onBringOwnModel={openProvidersFromPlans}
+        onOpenBilling={() => void openDesktopUrl(eigenweltBillingUrl(eigenweltView?.platformURL))}
+        onCheckModels={checkEigenweltPlanModels}
+        onUseOtherAccount={switchEigenweltAccount}
+        onBack={
+          onboardingStage === "ai"
+            ? () => {
+                onboardingWentBack.current = true;
+                setOnboardingStage("permissions");
+              }
+            : undefined
+        }
+        onOpenUpdates={isDesktopRuntime() ? openPlansUpdates : undefined}
       />
     ) : null}
+    <Dialog open={plansUpdatesOpen} onOpenChange={setPlansUpdatesOpen}>
+      <DialogContent className="flex max-h-[calc(100vh-2rem)] min-h-0 flex-col gap-0 bg-background p-0 sm:max-w-2xl">
+        <DialogHeader className="px-6 pb-1 pt-6">
+          <DialogTitle>{t("settings.tab_updates")}</DialogTitle>
+          <DialogDescription>{t("settings.tab_description_updates")}</DialogDescription>
+        </DialogHeader>
+        {plansUpdatesOpen ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <SettingsSurface embedded singleView initialPath="updates" workspaceId={selectedWorkspaceId} />
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
     <SessionPage
       detached={detached}
       selectedSessionId={selectedSessionId}
@@ -2022,6 +2231,7 @@ export function SessionRoute() {
       mcpConnectedCount={mcpConnectedCount}
       onOpenSettings={() => handleOpenSettings("/settings/general")}
       onOpenProviderAuth={() => sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" })}
+      titlebarControlsHidden={aiPlansScreenVisible}
       providerAuthModal={sessionProviderAuthSnapshot.providerAuthModalOpen ? {
         open: true,
         loading: false,
@@ -2041,8 +2251,9 @@ export function SessionRoute() {
           return result;
         },
         onSubmitCustomProvider: sessionProviderAuthStore.submitCustomProvider,
-        onEigenweltSignIn: sessionProviderAuthStore.startEigenweltSignIn,
-        onEigenweltWait: sessionProviderAuthStore.completeEigenweltSignIn,
+        // From the plan screen's "own model" card: providers only.
+        onEigenweltSignIn: providerModalFromPlans ? undefined : sessionProviderAuthStore.startEigenweltSignIn,
+        onEigenweltWait: providerModalFromPlans ? undefined : sessionProviderAuthStore.completeEigenweltSignIn,
         onSubmitOAuth: sessionProviderAuthStore.completeProviderAuthOAuth,
         onRefreshProviders: sessionProviderAuthStore.refreshProviders,
         onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),
@@ -2356,8 +2567,8 @@ export function SessionRoute() {
       onSelectAgent={setSelectedAgent}
     />
     <FreeRetiredDialog workspacesReady={!effectiveLoading} onStartTrial={() => void startEigenweltTrial()} />
-    <WhatsNewDialog hasWorkspaces={workspaces.length > 0} workspacesReady={!effectiveLoading} />
-    <TranscriptionIntroDialog workspacesReady={!effectiveLoading} onOpenRecorder={showRecorderPane} />
+    <WhatsNewDialog hasWorkspaces={workspaces.length > 0} workspacesReady={announcementsReady} />
+    <TranscriptionIntroDialog workspacesReady={announcementsReady} onOpenRecorder={showRecorderPane} />
     {/* Premium upsell challenge + keeps the recorder gate synced to the sub. */}
     <PremiumUpsellHost
       client={client}
