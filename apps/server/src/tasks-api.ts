@@ -1,5 +1,6 @@
 import type { EigenweltConnection } from "./eigenwelt-connection-store.js";
 import { ApiError } from "./errors.js";
+import { eigenweltFirmServicesEnabled } from "./lawoss/commercial-services.js";
 import {
   ANONYMOUS_ACTOR,
   isTaskPriority,
@@ -38,6 +39,7 @@ export function taskActorOf(connection: EigenweltConnection): TaskActor {
  * signed out — tasks still work, they just stay on this machine.
  */
 export function connectedTaskOrgId(connection: EigenweltConnection): string | null {
+  if (!eigenweltFirmServicesEnabled()) return null; // LAWOSS: úlohy ostávajú na tomto počítači
   const signedIn = Boolean(connection.platformToken) || Boolean(connection.refreshToken);
   return signedIn ? connection.account?.orgId ?? null : null;
 }

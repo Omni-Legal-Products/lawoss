@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { Readable } from "node:stream";
 import { workingCopy, snapshotWorkspaceFile, keepWorkspaceCopy } from "../file-storage/working-copy.js";
+import { storageOAuthProviderAllowed } from "../lawoss/commercial-services.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
@@ -127,7 +128,7 @@ export function registerStorageRoutes({
   };
   addRoute(routes, "GET", `${base}/oauth/providers`, "host", async (ctx) => {
     requireClientScope(ctx, "owner");
-    return jsonResponse({ providers: oauthProviders.filter((p) => p.clientId).map(({ id, name, rootHint }) => ({ id, name, rootHint })) });
+    return jsonResponse({ providers: oauthProviders.filter((p) => p.clientId && storageOAuthProviderAllowed(p.id)).map(({ id, name, rootHint }) => ({ id, name, rootHint })) });
   });
   addRoute(routes, "GET", `${base}/:storageId/oauth`, "host", async (ctx) => {
     requireClientScope(ctx, "owner");

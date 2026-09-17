@@ -3,6 +3,7 @@ import { ApiError } from "../errors.js";
 import { eigenweltPlatformUrl } from "../eigenwelt-auth.js";
 import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { ensureFreshPlatformToken } from "../eigenwelt-refresh.js";
+import { eigenweltFirmServicesEnabled } from "../lawoss/commercial-services.js";
 import type { ServerConfig } from "../types.js";
 import type { StorageTeamStatus } from "@legalwork/types/file-storage";
 import { storageInputSchema, storageSecretKeys } from "./schema.js";
@@ -61,6 +62,7 @@ export class TeamStorage {
     this.invalidate(workspaceId);
   }
   private async identity(): Promise<Identity | null> {
+    if (!eigenweltFirmServicesEnabled()) return null; // LAWOSS: bez tímových pripojení cez Eigenwelt
     const token = await ensureFreshPlatformToken(this.config);
     const connection = await readEigenweltConnection(this.config);
     return token && connection.account?.orgId ? { token, orgId: connection.account.orgId } : null;
