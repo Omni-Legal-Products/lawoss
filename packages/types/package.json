@@ -39,7 +39,9 @@
       "development": "./src/audio.ts",
       "default": "./src/audio.ts"
     },
-    "./office-editor": "./src/office-editor.ts"
+    "./office-editor": "./src/office-editor.ts",
+    "./file-storage": "./src/file-storage.ts",
+    "./model-limits": "./src/model-limits.ts"
   },
   "files": [
     "src",

@@ -10,6 +10,12 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { LAWOSS_ROUTES } from "../../lawoss/shell/routes";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
+import { TasksPane } from "../domains/tasks/tasks-pane";
+import {
+  TASKS_PANE_OPEN_EVENT,
+  takePendingTasksPaneRequest,
+  type TasksPaneOpenDetail,
+} from "../domains/tasks/tasks-pane-request";
 import { PremiumUpsellHost } from "../domains/recorder/premium-upsell-context";
 import {
   RECORDER_TRANSCRIPT_EVENT,
@@ -17,6 +23,8 @@ import {
   useRecorderStore,
 } from "../domains/recorder/recorder-store";
 import { toast } from "@/components/ui/sonner";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useUpdateCheckRequestStore } from "@/react-app/domains/settings/state/update-check-request";
 import type {
   AgentPartInput,
   FilePartInput,
@@ -96,6 +104,7 @@ import {
   workspaceLabel,
 } from "@/react-app/shell/route-workspaces";
 import { useLocal } from "@/react-app/kernel/local-provider";
+import { useNotificationStore } from "@/react-app/kernel/notification-store";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { SessionPage, type OpenSessionTab } from "@/react-app/domains/session/chat/session-page";
 import type { ConnectAiAction } from "@/react-app/domains/session/surface/session-surface";
@@ -114,7 +123,7 @@ import { useModelPicker } from "@/react-app/domains/session/modals/use-model-pic
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
-import { AiStep } from "@/react-app/domains/onboarding/ai-step";
+import { AiPlansOverlay } from "@/react-app/domains/onboarding/ai-plans-overlay";
 import { AudioStep } from "@/react-app/domains/onboarding/audio-step";
 import { OfficeStep } from "@/react-app/domains/onboarding/office-step";
 import { PermissionsStep } from "@/react-app/domains/onboarding/permissions-step";
@@ -129,6 +138,7 @@ import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picke
 import { CommandPalette, type PaletteItem, type SessionGroupOption, type SessionOption as PaletteSessionOption } from "./command-palette";
 import { SessionSearchDialog } from "./session-search-dialog";
 import {
+  eigenweltBillingUrl,
   hasEigenweltFeature,
   invalidateEigenweltEntitlements,
   useEigenweltEntitlements,
@@ -157,6 +167,14 @@ import { useControlAction, type LegalworkControlAction } from "./control/control
 import { useReactRenderWatchdog } from "./react-render-watchdog";
 
 import { filterProviderList } from "@/app/utils/providers";
+import {
+  aiAccessState,
+  forgetEigenweltAccount,
+  isAiPlansVariant,
+  readRememberedEigenweltAccount,
+  rememberEigenweltAccount,
+  type RememberedEigenweltAccount,
+} from "@/app/lib/eigenwelt-access";
 import { ensureDesktopLocalLegalworkConnection } from "./desktop-local-legalwork";
 import { resolveLegalworkConnection } from "./legalwork-connection";
 import { useReloadCoordinator } from "./reload-coordinator";
@@ -181,6 +199,9 @@ import {
   RETIRED_FREE_PROVIDER_IDS,
   useProviderListQuery,
 } from "@/react-app/infra/provider-list-query";
+
+/** How long a task opened on arrival from another screen outlasts the route settling. */
+const TASK_OPEN_SETTLE_MS = 4_000;
 
 /**
  * Serialize an SDK error value into a string that parseSessionError can parse.
@@ -335,24 +356,85 @@ export function SessionRoute() {
   const [showWorkflows, setShowWorkflows] = useState(false);
   const [showExtensions, setShowExtensions] = useState(false);
   const [showRecorder, setShowRecorder] = useState(false);
+  const [showTasks, setShowTasks] = useState(false);
+  // A task a notification asked to show: the pane opens on it (see
+  // TASKS_PANE_OPEN_EVENT); a null id opens the task list. Chat chips open
+  // their task in the side panel instead.
+  const [openTask, setOpenTask] = useState<{ id: string | null; at: number } | null>(null);
+  // An ask made outside the session view (Settings) is taken when this route
+  // mounts, while it still settles on a session: the resets that follow must
+  // not close the pane it opened (see the pane-closing effect below).
+  const keepTasksPaneUntil = useRef(0);
   const showEvalsPane = useCallback(() => {
     setShowEvals(true);
     setShowWorkflows(false);
     setShowExtensions(false);
     setShowRecorder(false);
+    setShowTasks(false);
   }, []);
   const showWorkflowsPane = useCallback(() => {
     setShowWorkflows(true);
     setShowEvals(false);
     setShowExtensions(false);
     setShowRecorder(false);
+    setShowTasks(false);
   }, []);
   const showRecorderPane = useCallback(() => {
     setShowRecorder(true);
     setShowEvals(false);
     setShowWorkflows(false);
     setShowExtensions(false);
+    setShowTasks(false);
   }, []);
+  const showTasksPane = useCallback(() => {
+    setShowTasks(true);
+    setShowEvals(false);
+    setShowWorkflows(false);
+    setShowExtensions(false);
+    setShowRecorder(false);
+  }, []);
+  // The Tasks pane is where task announcements are read — once the user looks
+  // at it: while it is open AND the window is in front, the counts next to
+  // Tasks and on the app icon stay clear. An announcement that arrives while
+  // the window is in the background stays counted until the window comes
+  // back. A detached window leaves the (shared, persisted) announcements to
+  // the main one.
+  useEffect(() => {
+    if (!showTasks || detached) return;
+    const markRead = () => {
+      if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+      const store = useNotificationStore.getState();
+      if (store.notifications.some((notification) => notification.kind === "tasks" && notification.readAt === null)) {
+        store.markKindRead("tasks");
+      }
+    };
+    markRead();
+    const unsubscribe = useNotificationStore.subscribe(markRead);
+    window.addEventListener("focus", markRead);
+    document.addEventListener("visibilitychange", markRead);
+    return () => {
+      unsubscribe();
+      window.removeEventListener("focus", markRead);
+      document.removeEventListener("visibilitychange", markRead);
+    };
+  }, [detached, showTasks]);
+  useEffect(() => {
+    const pending = takePendingTasksPaneRequest();
+    if (pending) {
+      keepTasksPaneUntil.current = Date.now() + TASK_OPEN_SETTLE_MS;
+      setOpenTask({ id: pending.taskId, at: Date.now() });
+      showTasksPane();
+    }
+    const handleRequest = (event: Event) => {
+      // Taken here: nothing is left for a later mount.
+      takePendingTasksPaneRequest();
+      const taskId = (event as CustomEvent<Partial<TasksPaneOpenDetail>>).detail?.taskId ?? null;
+      setOpenTask({ id: taskId, at: Date.now() });
+      showTasksPane();
+    };
+    window.addEventListener(TASKS_PANE_OPEN_EVENT, handleRequest);
+    return () => window.removeEventListener(TASKS_PANE_OPEN_EVENT, handleRequest);
+  }, [showTasksPane]);
   const platform = usePlatform();
   const { config: shellConfig } = useShellConfig();
   const local = useLocal();
@@ -710,11 +792,11 @@ export function SessionRoute() {
       return { ...previous, defaultModel: model, modelVariant: null };
     });
   }, [local.prefs.defaultModel, selectedModelUnavailable, providerListQuery.data, setPrefs]);
-  // Creating a task only needs a reachable workspace — `session.create` never
+  // Creating a chat only needs a reachable workspace — `session.create` never
   // touches a model. A missing or dead model selection must NOT block it: the
   // new chat opens with the connect-AI bar above the composer, which is where
   // the ways out (trial / log in / bring your own) live.
-  const canCreateTask = Boolean(
+  const canCreateChat = Boolean(
     opencodeClient && selectedWorkspaceId && !loading && !selectedWorkspaceError,
   );
 
@@ -738,9 +820,12 @@ export function SessionRoute() {
   // Set when the user navigates backwards in the onboarding flow, so the
   // office step shows its rows instead of auto-skipping forward again.
   const onboardingWentBack = useRef(false);
-  // The AI step is the last one, so finishing it finishes onboarding.
+  // The AI step (the plan screen) is the last one, so finishing it finishes
+  // onboarding. It finishes by itself once a model is usable: "connected"
+  // (Eigenwelt), "own_model" (an own provider) or "existing" (one was there
+  // before).
   const finishOnboarding = useCallback(
-    (ai: "connected" | "skipped") => {
+    (ai: "connected" | "own_model" | "existing") => {
       captureAnalyticsEvent("onboarding_completed", { ai });
       setOnboardingStage("done");
     },
@@ -832,12 +917,15 @@ export function SessionRoute() {
   // when the window regains focus) makes the server re-pull the firm's list
   // and rebuild the engine config; the response says which model ids that
   // config now serves. When the engine's live provider list differs, reload
-  // it once per served list, so the picker gains or loses the model and a
+  // it once per poll, so the picker gains or loses the model and a
   // selection on a model that went off is moved by the auto-select above.
-  // Skipped while a task runs (a dispose would interrupt it); the next poll
-  // retries.
+  // A reload that still leaves them apart (it raced a config rebuild) is
+  // retried on the next poll instead of never, which used to leave "Model no
+  // longer available" up until the window was reloaded. Skipped while a task
+  // runs (a dispose would interrupt it); the next poll retries.
   const eigenweltEntitlementsQuery = useEigenweltEntitlements({ client, workspaceId: selectedWorkspaceId });
   const servedModelIds = eigenweltEntitlementsQuery.data?.servedModelIds;
+  const servedModelIdsPolledAt = eigenweltEntitlementsQuery.dataUpdatedAt;
   const eigenweltModelsIncluded = hasEigenweltFeature(
     eigenweltEntitlementsQuery.data?.entitlements,
     "premium_models",
@@ -854,17 +942,184 @@ export function SessionRoute() {
     const servedKey = [...servedModelIds].sort().join("\u0000");
     const engineKey = [...engineEigenweltModelIds].sort().join("\u0000");
     if (servedKey === engineKey) return;
-    if (reloadedForServedModels.current === servedKey) return; // one reload per change
+    const attempt = `${servedKey}\u0001${servedModelIdsPolledAt}`;
+    if (reloadedForServedModels.current === attempt) return; // one reload per poll
     if (activeReloadBlockingSessions.length > 0) return; // don't disrupt a running task
-    reloadedForServedModels.current = servedKey;
+    reloadedForServedModels.current = attempt;
     void sessionProviderAuthStore.refreshProviders({ dispose: true }).catch(() => undefined);
   }, [
     servedModelIds,
+    servedModelIdsPolledAt,
     engineEigenweltModelIds,
     eigenweltModelsIncluded,
     activeReloadBlockingSessions.length,
     sessionProviderAuthStore,
   ]);
+
+  // The plan screen. LegalWork has no free model tier: with neither an own
+  // provider nor an Eigenwelt plan that includes the models, the screen lies
+  // over the app until one of them works (see aiAccessState for its variants).
+  // The same screen is the last onboarding step.
+  const eigenweltView = eigenweltEntitlementsQuery.data;
+  // The last signed-in account, remembered so a returning user is asked to
+  // sign in instead of being shown the plans.
+  const [rememberedEigenweltAccount, setRememberedEigenweltAccount] =
+    useState<RememberedEigenweltAccount | null>(() => readRememberedEigenweltAccount());
+  useEffect(() => {
+    if (!eigenweltView?.connected) return;
+    rememberEigenweltAccount({
+      email: eigenweltView.account?.userEmail ?? null,
+      firmName: eigenweltView.account?.orgName ?? null,
+    });
+    const stored = readRememberedEigenweltAccount();
+    setRememberedEigenweltAccount((previous) =>
+      previous && stored && previous.email === stored.email && previous.firmName === stored.firmName
+        ? previous
+        : stored,
+    );
+  }, [eigenweltView]);
+  const accessProviders = useMemo(() => {
+    const list = providerListQuery.data;
+    return list ? getConnectedProviderItems(filterProviderList(list, disabledProviderIds)) : null;
+  }, [disabledProviderIds, providerListQuery.data]);
+  const aiAccess = aiAccessState({
+    connectedProviders: accessProviders,
+    eigenwelt: eigenweltView ?? (eigenweltEntitlementsQuery.isError ? null : undefined),
+    signedInBefore: rememberedEigenweltAccount !== null,
+  });
+  const aiPlansVariant = isAiPlansVariant(aiAccess) ? aiAccess : null;
+  // Not in the Office task pane: it shares this computer's connection, and
+  // its composer notice keeps the ways out in the space it has.
+  const aiPlansGateEnabled = !isOfficeAddinRuntime();
+  const aiPlansGateVisible =
+    aiPlansGateEnabled && onboardingStage === "done" && aiPlansVariant !== null;
+  const aiPlansScreenVisible = onboardingStage === "ai" || aiPlansGateVisible;
+  // Announcements wait until it is clear whether the plan screen shows, and
+  // until it is gone: they never stack on top of it.
+  const announcementsReady = !effectiveLoading && aiAccess !== "unknown" && !aiPlansScreenVisible;
+  const aiPlansAccount = eigenweltView?.connected
+    ? {
+        email: eigenweltView.account?.userEmail ?? null,
+        firmName: eigenweltView.account?.orgName ?? null,
+      }
+    : rememberedEigenweltAccount;
+  // Plan screen analytics, in memory like every other app event: one visit is
+  // one stretch the screen is up. ai_plans_viewed { mode, variant, trigger }
+  // says why it shows: "onboarding", "app_start" (no model when the app
+  // opened) or "lost_access" (a model worked earlier in this run, then a
+  // sign-out, an ended subscription or a removed provider took it away).
+  // ai_plans_completed { mode, variant, method } says how it closed with a
+  // usable model: "eigenwelt", "own_model" or "existing" (it came from
+  // elsewhere, e.g. Settings).
+  const aiPlansPathRef = useRef<"eigenwelt" | "own_model" | null>(null);
+  const aiPlansVisitRef = useRef<{ mode: "onboarding" | "gate"; variant: string } | null>(null);
+  const aiHadModelThisRunRef = useRef(false);
+  useEffect(() => {
+    const visit = aiPlansVisitRef.current;
+    if (!aiPlansScreenVisible) {
+      if (visit && aiAccess === "ready") {
+        captureAnalyticsEvent("ai_plans_completed", {
+          mode: visit.mode,
+          variant: visit.variant,
+          method: aiPlansPathRef.current ?? "existing",
+        });
+      }
+      aiPlansVisitRef.current = null;
+      aiPlansPathRef.current = null;
+      if (aiAccess === "ready") aiHadModelThisRunRef.current = true;
+      return;
+    }
+    // Wait until the account is known, so a late answer is not a second view.
+    if (!aiPlansVariant) return;
+    const mode = onboardingStage === "ai" ? "onboarding" : "gate";
+    if (visit && visit.mode === mode && visit.variant === aiPlansVariant) return;
+    if (!visit && mode === "onboarding") captureAnalyticsEvent("onboarding_ai_viewed");
+    const trigger =
+      mode === "onboarding" ? "onboarding" : aiHadModelThisRunRef.current ? "lost_access" : "app_start";
+    aiPlansVisitRef.current = { mode, variant: aiPlansVariant };
+    captureAnalyticsEvent("ai_plans_viewed", { mode, variant: aiPlansVariant, trigger });
+  }, [aiAccess, aiPlansScreenVisible, aiPlansVariant, onboardingStage]);
+  useEffect(() => {
+    if (onboardingStage !== "ai" || aiAccess !== "ready") return;
+    const path = aiPlansPathRef.current;
+    captureAnalyticsEvent("onboarding_ai_completed", { method: path ?? "existing" });
+    finishOnboarding(path === "eigenwelt" ? "connected" : (path ?? "existing"));
+  }, [aiAccess, finishOnboarding, onboardingStage]);
+  // "Check for updates" on the plan screen: the Updates settings in a dialog
+  // above it, so an app that cannot get past the screen can still update. It
+  // starts a check the way the app menu's "Check for Updates…" does.
+  const [plansUpdatesOpen, setPlansUpdatesOpen] = useState(false);
+  const openPlansUpdates = useCallback(() => {
+    useUpdateCheckRequestStore.getState().requestUpdateCheck();
+    setPlansUpdatesOpen(true);
+  }, []);
+  // "I bring my own model" opens the provider connection without the
+  // Eigenwelt entry (that choice has its own cards). Closing the dialog
+  // without connecting leaves the plan screen where it was.
+  // ai_plans_own_model_closed { connected } tells the two apart.
+  const [providerModalFromPlans, setProviderModalFromPlans] = useState(false);
+  const providerModalOpen = sessionProviderAuthSnapshot.providerAuthModalOpen;
+  const providerModalWasOpen = useRef(false);
+  const providersAtOwnModelOpenRef = useRef<{
+    ids: string[];
+    mode: "onboarding" | "gate";
+    variant: string;
+  } | null>(null);
+  useEffect(() => {
+    if (providerModalOpen) {
+      providerModalWasOpen.current = true;
+      return;
+    }
+    if (!providerModalWasOpen.current) return;
+    providerModalWasOpen.current = false;
+    const opened = providersAtOwnModelOpenRef.current;
+    providersAtOwnModelOpenRef.current = null;
+    if (opened) {
+      captureAnalyticsEvent("ai_plans_own_model_closed", {
+        connected: providerConnectedIds.some((id) => !opened.ids.includes(id)),
+        mode: opened.mode,
+        variant: opened.variant,
+      });
+    }
+    setProviderModalFromPlans(false);
+  }, [providerConnectedIds, providerModalOpen]);
+  const openProvidersFromPlans = useCallback(() => {
+    aiPlansPathRef.current = "own_model";
+    providersAtOwnModelOpenRef.current = {
+      ids: providerConnectedIds,
+      mode: onboardingStage === "ai" ? "onboarding" : "gate",
+      variant: aiPlansVariant ?? "new",
+    };
+    setProviderModalFromPlans(true);
+    void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "none" }).catch(() => {
+      providersAtOwnModelOpenRef.current = null;
+      setProviderModalFromPlans(false);
+      toast.error(t("providers.load_failed"));
+    });
+  }, [aiPlansVariant, onboardingStage, providerConnectedIds, sessionProviderAuthStore]);
+  // "no-models": the plan screen polls this after opening the billing page.
+  // Once the plan includes the models, bring the Eigenwelt provider online.
+  const checkEigenweltPlanModels = useCallback(async () => {
+    if (!client || !selectedWorkspaceId) return false;
+    const fresh = await client.eigenweltEntitlements(selectedWorkspaceId, { refresh: true });
+    if (!hasEigenweltFeature(fresh.entitlements, "premium_models")) return false;
+    aiPlansPathRef.current = "eigenwelt";
+    invalidateEigenweltEntitlements();
+    await handleEigenweltPremiumActivated();
+    return true;
+  }, [client, handleEigenweltPremiumActivated, selectedWorkspaceId]);
+  // "Use another account": sign out (the server revokes the sign-in and drops
+  // the Eigenwelt provider) and forget the account, so the screen offers the
+  // plans and a fresh sign-in.
+  const switchEigenweltAccount = useCallback(async () => {
+    forgetEigenweltAccount();
+    setRememberedEigenweltAccount(null);
+    if (client && selectedWorkspaceId) {
+      await client.eigenweltSaveConnection(selectedWorkspaceId, { disconnect: true }).catch(() => undefined);
+    }
+    invalidateEigenweltEntitlements();
+    await sessionProviderAuthStore.refreshProviders({ dispose: true }).catch(() => undefined);
+  }, [client, selectedWorkspaceId, sessionProviderAuthStore]);
   // Resume the generation-completion watcher after a reload: a persisted
   // "running" run keeps its Workflows spinner honest only while someone polls.
   useEffect(() => {
@@ -903,7 +1158,7 @@ export function SessionRoute() {
   });
   const showPreparingStatus =
     effectiveLoading ||
-    (!canCreateTask && !routeError && !selectedWorkspaceError);
+    (!canCreateChat && !routeError && !selectedWorkspaceError);
 
   useEffect(() => {
     if (!opencodeClient) {
@@ -1008,7 +1263,7 @@ export function SessionRoute() {
     // for one render tick. Only block rendering when we KNOW the session
     // belongs to a different workspace (i.e., it exists in another
     // workspace's list). A brand-new session that hasn't been refreshed
-    // into any list yet must still render so "New task" feels instant.
+    // into any list yet must still render so "New Chat" feels instant.
     let sessionOwnedByOtherWorkspace = false;
     for (const [workspaceId, sessions] of Object.entries(sessionsByWorkspaceId)) {
       if (workspaceId === selectedWorkspaceId) continue;
@@ -1039,6 +1294,9 @@ export function SessionRoute() {
       modelPickerOpen: modelPicker.compactOpen,
       modelUnavailable: selectedModelUnavailable,
       modelSelectorLocked: soloEigenweltModel,
+      // The plan screen covers "no usable model" here; the composer notice
+      // only handles what it does not.
+      aiPlansGate: aiPlansGateEnabled,
       selectedModel: local.prefs.defaultModel ?? { providerID: "", modelID: "" },
       // The connect-AI notice above the composer (no model selected, or signed
       // out with nothing else connected). Trial and login go straight to the
@@ -1074,6 +1332,12 @@ export function SessionRoute() {
         if (!targetSessionId) return;
         const text = (draft.resolvedText ?? draft.text).trim();
         if (!text && draft.attachments.length === 0) return;
+        // Nothing selected at all (a fresh install that skipped the AI step,
+        // or a selection cleared by the free-tier retirement): the composer is
+        // locked behind the connect-AI bar, so this only backstops programmatic
+        // sends. Without it the prompt reaches the engine with no model and
+        // fails there with a generic error.
+        if (!local.prefs.defaultModel) throw new Error(t("session_route.no_model"));
         if (selectedModelUnavailable) throw new Error(t("session_route.model_unavailable"));
 
         const fusionModels = getFusionSelectedModels(targetSessionId);
@@ -1253,6 +1517,7 @@ export function SessionRoute() {
     usableProviderCount,
     sessionProviderAuthStore,
     startEigenweltTrial,
+    aiPlansGateEnabled,
     handleApplyEnvironmentChanges,
     environmentRuntimeKey,
     local,
@@ -1355,7 +1620,7 @@ export function SessionRoute() {
   );
 
 
-  const handleCreateTaskInWorkspace = useCallback(async (workspaceId: string) => {
+  const handleCreateChatInWorkspace = useCallback(async (workspaceId: string) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
     if (
       !workspace ||
@@ -1379,6 +1644,9 @@ export function SessionRoute() {
       const session = unwrap(
         await workspaceClient.session.create({ directory: workspace.path?.trim() || undefined }),
       );
+      // The UI calls this "New Chat" now, but the analytics names stay as they
+      // are: renaming the event or its source breaks funnel continuity against
+      // every event already recorded.
       captureAnalyticsEvent("task_created", {
         source: "new_task",
         surface: analyticsSurface(),
@@ -1406,7 +1674,7 @@ export function SessionRoute() {
         description: message,
         action: {
           label: "Retry",
-          onClick: () => void handleCreateTaskInWorkspace(workspaceId),
+          onClick: () => void handleCreateChatInWorkspace(workspaceId),
         },
         duration: Infinity,
       });
@@ -1460,9 +1728,9 @@ export function SessionRoute() {
     terminalOpen,
     setTerminalOpen,
   } = useShellShortcuts({
-    canCreateTask,
+    canCreateChat,
     workspaceId: selectedWorkspaceId,
-    onCreateTask: handleCreateTaskInWorkspace,
+    onCreateChat: handleCreateChatInWorkspace,
     onNextSessionTab: goToNextSessionTab,
     onPrevSessionTab: goToPrevSessionTab,
   });
@@ -1497,12 +1765,12 @@ export function SessionRoute() {
     selectedWorkspaceId,
     selectedWorkspaceRoot,
     selectedSessionId,
-    canCreateTask,
+    canCreateChat,
     legalworkClient: client,
     opencodeClient,
     navigateToSession: navigateToSessionForControl,
     navigateToSessionRoot: navigateToSessionRootForControl,
-    createTaskInWorkspace: handleCreateTaskInWorkspace,
+    createTaskInWorkspace: handleCreateChatInWorkspace,
     openModelPicker: openModelPickerForControl,
     refreshRouteState,
   });
@@ -1791,14 +2059,14 @@ export function SessionRoute() {
     } catch (error) {
       setCreateWorkspaceError(describeWorkspaceCreateError(error));
       // Surface the error even when creation was started outside the modal
-      // (e.g. from the New Task workspace picker's folder select).
+      // (e.g. from the New Chat workspace picker's folder select).
       setCreateWorkspaceOpen(true);
     } finally {
       setCreateWorkspaceBusy(false);
     }
   }, [baseUrl, client, local, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, token]);
 
-  const handleCreateTaskInNewWorkspace = useCallback(async () => {
+  const handleCreateChatInNewWorkspace = useCallback(async () => {
     if (createWorkspaceBusy) return;
     const folder = (await pickDirectory({ title: t("onboarding.authorize_folder") })) as string | null;
     if (!folder?.trim()) return;
@@ -1812,6 +2080,7 @@ export function SessionRoute() {
     setShowWorkflows(false);
     setShowExtensions(false);
     setShowRecorder(false);
+    if (Date.now() >= keepTasksPaneUntil.current) setShowTasks(false);
   }, [selectedSessionId, selectedWorkspaceId, location.key]);
 
   return (
@@ -1881,28 +2150,57 @@ export function SessionRoute() {
               }
             : undefined
         }
-        onDone={() => setOnboardingStage("ai")}
+        onDone={() => {
+          captureAnalyticsEvent("onboarding_permissions_done");
+          setOnboardingStage("ai");
+        }}
       />
     ) : null}
-    {onboardingStage === "ai" ? (
-      // Last step. One action per step: start the trial (browser funnel) or skip.
-      <AiStep
+    {aiPlansScreenVisible ? (
+      // The plan screen: the last onboarding step, and the screen over the
+      // app while no model is usable. There is no skip: it closes by itself
+      // once a model works (onboarding then finishes, see above).
+      <AiPlansOverlay
+        mode={onboardingStage === "ai" ? "onboarding" : "gate"}
+        variant={aiPlansVariant ?? "new"}
+        account={aiPlansAccount}
+        serverReady={Boolean(selectedWorkspaceEndpoint)}
         onStartSignIn={sessionProviderAuthStore.startEigenweltSignIn}
         onWaitSignIn={sessionProviderAuthStore.completeEigenweltSignIn}
-        onConnected={() => {
-          // The trial just activated: refetch entitlements so the premium
-          // models are live the moment onboarding ends.
-          invalidateEigenweltEntitlements(selectedWorkspaceId ?? undefined);
-          finishOnboarding("connected");
+        onSignedIn={() => {
+          // Connected: refetch the entitlements so the screen closes (and the
+          // models are live) the moment the account shows up.
+          aiPlansPathRef.current = "eigenwelt";
+          invalidateEigenweltEntitlements();
         }}
-        onBack={() => {
-          onboardingWentBack.current = true;
-          setOnboardingStage("permissions");
-        }}
-        onSkip={() => finishOnboarding("skipped")}
-        serverReady={Boolean(selectedWorkspaceEndpoint)}
+        onBringOwnModel={openProvidersFromPlans}
+        onOpenBilling={() => void openDesktopUrl(eigenweltBillingUrl(eigenweltView?.platformURL))}
+        onCheckModels={checkEigenweltPlanModels}
+        onUseOtherAccount={switchEigenweltAccount}
+        onBack={
+          onboardingStage === "ai"
+            ? () => {
+                onboardingWentBack.current = true;
+                setOnboardingStage("permissions");
+              }
+            : undefined
+        }
+        onOpenUpdates={isDesktopRuntime() ? openPlansUpdates : undefined}
       />
     ) : null}
+    <Dialog open={plansUpdatesOpen} onOpenChange={setPlansUpdatesOpen}>
+      <DialogContent className="flex max-h-[calc(100vh-2rem)] min-h-0 flex-col gap-0 bg-background p-0 sm:max-w-2xl">
+        <DialogHeader className="px-6 pb-1 pt-6">
+          <DialogTitle>{t("settings.tab_updates")}</DialogTitle>
+          <DialogDescription>{t("settings.tab_description_updates")}</DialogDescription>
+        </DialogHeader>
+        {plansUpdatesOpen ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <SettingsSurface embedded singleView initialPath="updates" workspaceId={selectedWorkspaceId} />
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
     <SessionPage
       detached={detached}
       selectedSessionId={selectedSessionId}
@@ -1918,13 +2216,13 @@ export function SessionRoute() {
       runtimeWorkspaceId={selectedWorkspaceEndpoint?.workspaceId || null}
       opencodeBaseUrl={opencodeBaseUrl}
       workspaces={sidebarWorkspaces}
-      clientConnected={canCreateTask}
+      clientConnected={canCreateChat}
       legalworkServerStatus={client ? "connected" : "disconnected"}
       legalworkServerClient={selectedWorkspaceEndpoint?.client ?? client}
       environmentClient={client}
       legalworkServerToken={selectedWorkspaceServerToken}
       developerMode={developerMode}
-      headerStatus={canCreateTask ? t("status.connected") : t("session.loading_detail")}
+      headerStatus={canCreateChat ? t("status.connected") : t("session.loading_detail")}
       busyHint={effectiveLoading ? t("session.loading_detail") : null}
       startupPhase={effectiveLoading ? "nativeInit" : "ready"}
       providerConnectedIds={providerConnectedIds}
@@ -1933,6 +2231,7 @@ export function SessionRoute() {
       mcpConnectedCount={mcpConnectedCount}
       onOpenSettings={() => handleOpenSettings("/settings/general")}
       onOpenProviderAuth={() => sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" })}
+      titlebarControlsHidden={aiPlansScreenVisible}
       providerAuthModal={sessionProviderAuthSnapshot.providerAuthModalOpen ? {
         open: true,
         loading: false,
@@ -1952,8 +2251,9 @@ export function SessionRoute() {
           return result;
         },
         onSubmitCustomProvider: sessionProviderAuthStore.submitCustomProvider,
-        onEigenweltSignIn: sessionProviderAuthStore.startEigenweltSignIn,
-        onEigenweltWait: sessionProviderAuthStore.completeEigenweltSignIn,
+        // From the plan screen's "own model" card: providers only.
+        onEigenweltSignIn: providerModalFromPlans ? undefined : sessionProviderAuthStore.startEigenweltSignIn,
+        onEigenweltWait: providerModalFromPlans ? undefined : sessionProviderAuthStore.completeEigenweltSignIn,
         onSubmitOAuth: sessionProviderAuthStore.completeProviderAuthOAuth,
         onRefreshProviders: sessionProviderAuthStore.refreshProviders,
         onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),
@@ -1978,6 +2278,22 @@ export function SessionRoute() {
           <SettingsSurface embedded singleView initialPath="extensions" workspaceId={selectedWorkspaceId} />
         ) : showEvals ? (
           <EvalsPane workspaceId={selectedWorkspaceId} />
+        ) : showTasks ? (
+          <TasksPane
+            client={client}
+            workspaceId={selectedWorkspaceId}
+            baseUrl={baseUrl}
+            token={token}
+            workspaces={sidebarWorkspaces}
+            defaultModel={local.prefs.defaultModel}
+            openTask={openTask}
+            onOpenSession={(workspaceId, sessionId) => {
+              setShowTasks(false);
+              writeActiveWorkspaceId(workspaceId || null);
+              writeLastSessionFor(workspaceId, sessionId);
+              navigateToWorkspaceSession(workspaceId, sessionId);
+            }}
+          />
         ) : showRecorder ? (
           <RecorderPane
             workspacePath={selectedWorkspaceRoot ?? null}
@@ -2011,8 +2327,12 @@ export function SessionRoute() {
         onShowEvals: showEvalsPane,
         onShowWorkflows: showWorkflowsPane,
         onShowExtensions: () => navigate(`/workspace/${encodeURIComponent(selectedWorkspaceId)}/settings/extensions/mcp`),
+        onShowFileStorage: () => navigate(`/workspace/${encodeURIComponent(selectedWorkspaceId)}/settings/extensions/storage`),
         onShowRecorder: showRecorderPane,
-        activeNav: showWorkflows ? "workflows" : showExtensions ? "extensions" : showEvals ? "evals" : showRecorder ? "recorder" : null,
+        // Tasks live on this machine, so the surface exists for everyone — a
+        // connected firm additionally syncs them with its Eigenwelt account.
+        onShowTasks: showTasksPane,
+        activeNav: showWorkflows ? "workflows" : showExtensions ? "extensions" : showEvals ? "evals" : showRecorder ? "recorder" : showTasks ? "tasks" : null,
         workspaceSessionGroups,
         selectedWorkspaceId,
         selectedSessionId,
@@ -2020,7 +2340,7 @@ export function SessionRoute() {
         sessionStatusById: sidebarSessionStatusById,
         connectingWorkspaceId: null,
         workspaceConnectionStateById,
-        newTaskDisabled: !canCreateTask,
+        newChatDisabled: !canCreateChat,
         sidebarHydratedFromCache: Object.values(sessionsByWorkspaceId).some((list) => list.length > 0),
         startupPhase: effectiveLoading ? "nativeInit" : "ready",
         onSelectWorkspace: async (workspaceId) => {
@@ -2074,16 +2394,17 @@ export function SessionRoute() {
           setShowWorkflows(false);
           setShowExtensions(false);
           setShowRecorder(false);
+          setShowTasks(false);
           setLegacySelectedWorkspaceId(workspaceId);
           writeActiveWorkspaceId(workspaceId || null);
           writeLastSessionFor(workspaceId, sessionId);
           navigateToWorkspaceSession(workspaceId, sessionId);
         },
         onPrefetchSession: () => {},
-        onCreateTaskInWorkspace: (workspaceId) => {
-          void handleCreateTaskInWorkspace(workspaceId);
+        onCreateChatInWorkspace: (workspaceId) => {
+          void handleCreateChatInWorkspace(workspaceId);
         },
-        onCreateTaskWithPrompt: (workspaceId, prompt) => {
+        onCreateChatWithPrompt: (workspaceId, prompt) => {
           void (async () => {
             const workspace = workspaces.find((item) => item.id === workspaceId);
             if (!workspace) return;
@@ -2109,8 +2430,8 @@ export function SessionRoute() {
               navigateToWorkspaceSession(workspaceId, session.id);
               focusPromptSoon();
             } catch {
-              // Fall back to normal task creation without prompt
-              void handleCreateTaskInWorkspace(workspaceId);
+              // Fall back to normal chat creation without prompt
+              void handleCreateChatInWorkspace(workspaceId);
             }
           })();
         },
@@ -2118,15 +2439,16 @@ export function SessionRoute() {
         onRevealWorkspace: (id) => void handleRevealWorkspace(id),
         onForgetWorkspace: (id) => void handleForgetWorkspace(id),
         onOpenCreateWorkspace: () => {
-          // New Task returns to the session view — drop any open top-level pane
+          // New Chat returns to the session view — drop any open top-level pane
           // (Evals/Skills/Integrations) so it doesn't linger behind the modal.
           setShowEvals(false);
           setShowWorkflows(false);
           setShowExtensions(false);
+          setShowTasks(false);
           handleOpenCreateWorkspace();
         },
-        onCreateTaskInNewWorkspace: () => {
-          void handleCreateTaskInNewWorkspace();
+        onCreateChatInNewWorkspace: () => {
+          void handleCreateChatInNewWorkspace();
         },
         onReorderWorkspaces: handleReorderWorkspaces,
       }}
@@ -2208,7 +2530,7 @@ export function SessionRoute() {
       onClose={() => setCommandPaletteOpen(false)}
       onCreateNewSession={() => {
         if (selectedWorkspaceId) {
-          void handleCreateTaskInWorkspace(selectedWorkspaceId);
+          void handleCreateChatInWorkspace(selectedWorkspaceId);
         }
       }}
       onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)}
@@ -2245,8 +2567,8 @@ export function SessionRoute() {
       onSelectAgent={setSelectedAgent}
     />
     <FreeRetiredDialog workspacesReady={!effectiveLoading} onStartTrial={() => void startEigenweltTrial()} />
-    <WhatsNewDialog hasWorkspaces={workspaces.length > 0} workspacesReady={!effectiveLoading} />
-    <TranscriptionIntroDialog workspacesReady={!effectiveLoading} onOpenRecorder={showRecorderPane} />
+    <WhatsNewDialog hasWorkspaces={workspaces.length > 0} workspacesReady={announcementsReady} />
+    <TranscriptionIntroDialog workspacesReady={announcementsReady} onOpenRecorder={showRecorderPane} />
     {/* Premium upsell challenge + keeps the recorder gate synced to the sub. */}
     <PremiumUpsellHost
       client={client}

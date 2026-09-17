@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import {
   EIGENWELT_LOOPBACK_PORTS,
+  buildEigenweltModelsMap,
   fetchEigenweltManifest,
   refreshEigenweltProviderModels,
   startEigenweltSignIn,
@@ -232,8 +233,85 @@ describe("eigenwelt sign-in", () => {
     await waitForEigenweltSignIn(restarted.sessionId);
   });
 
+  test("the authorize URL carries the sign-in intent and a known plan, and drops anything else", async () => {
+    await setupPlatform();
+    const finish = async (started: { sessionId: string; authorizeUrl: string }) => {
+      const url = new URL(started.authorizeUrl);
+      await fetch(
+        `http://127.0.0.1:${url.searchParams.get("port")}/callback?code=test-code&state=${url.searchParams.get("state")}`,
+      );
+      await waitForEigenweltSignIn(started.sessionId);
+      return url;
+    };
+
+    const plain = await finish(await startEigenweltSignIn());
+    expect(plain.searchParams.has("intent")).toBe(false);
+    expect(plain.searchParams.has("plan")).toBe(false);
+
+    const pro = await finish(await startEigenweltSignIn({ plan: "pro" }));
+    expect(pro.searchParams.get("plan")).toBe("pro");
+    expect(pro.searchParams.has("intent")).toBe(false);
+
+    const returning = await finish(await startEigenweltSignIn({ intent: "sign-in", plan: "plus" }));
+    expect(returning.searchParams.get("intent")).toBe("sign-in");
+    expect(returning.searchParams.get("plan")).toBe("plus");
+
+    // A value from an untyped caller never reaches the platform.
+    const unknown = await finish(
+      await startEigenweltSignIn({ plan: "hub" as unknown as "plus" }),
+    );
+    expect(unknown.searchParams.has("plan")).toBe(false);
+  });
+
   test("waiting on an unknown session fails", async () => {
     await expect(waitForEigenweltSignIn("nope")).rejects.toThrow(/Unknown/);
+  });
+
+  test("with every port taken by unfinished sign-ins, a new sign-in replaces the oldest", async () => {
+    await setupPlatform();
+    const portOf = (started: { authorizeUrl: string }) =>
+      Number(new URL(started.authorizeUrl).searchParams.get("port"));
+    const finish = async (started: { sessionId: string; authorizeUrl: string }) => {
+      const url = new URL(started.authorizeUrl);
+      await fetch(
+        `http://127.0.0.1:${url.searchParams.get("port")}/callback?code=test-code&state=${url.searchParams.get("state")}`,
+      );
+      return waitForEigenweltSignIn(started.sessionId);
+    };
+
+    // Three abandoned browser tabs hold all three ports.
+    const first = await startEigenweltSignIn();
+    const second = await startEigenweltSignIn();
+    const third = await startEigenweltSignIn();
+    expect([first, second, third].map(portOf).sort((a, b) => a - b)).toEqual([...EIGENWELT_LOOPBACK_PORTS]);
+
+    // A fourth attempt starts anyway, on the oldest attempt's port.
+    const fourth = await startEigenweltSignIn();
+    expect(portOf(fourth)).toBe(portOf(first));
+    await expect(waitForEigenweltSignIn(first.sessionId)).rejects.toThrow(/replaced by a newer one/);
+    expect(await finish(fourth)).toEqual(EXCHANGE_PAYLOAD);
+
+    // The attempts it did not need to replace are untouched.
+    expect(await finish(second)).toEqual(EXCHANGE_PAYLOAD);
+    expect(await finish(third)).toEqual(EXCHANGE_PAYLOAD);
+  });
+
+  test("ports held by another program still fail, with a message that says so", async () => {
+    await setupPlatform();
+    const blockers = await Promise.all(
+      EIGENWELT_LOOPBACK_PORTS.map(
+        (port) =>
+          new Promise<Server>((resolve, reject) => {
+            const blocker = createServer((_req, res) => res.end());
+            blocker.once("error", reject);
+            blocker.listen(port, "127.0.0.1", () => resolve(blocker));
+          }),
+      ),
+    );
+    cleanups.push(async () => {
+      await Promise.all(blockers.map((blocker) => new Promise<void>((resolve) => blocker.close(() => resolve()))));
+    });
+    await expect(startEigenweltSignIn()).rejects.toThrow(/Another LegalWork app is signing in/);
   });
 });
 
@@ -284,6 +362,34 @@ describe("eigenwelt manifest", () => {
   });
 });
 
+describe("buildEigenweltModelsMap", () => {
+  test("lets images and PDFs through only to the models that read them", () => {
+    const models = buildEigenweltModelsMap([
+      { id: "gemini", inputModalities: ["text", "image", "pdf"] },
+      { id: "glm", inputModalities: ["text", "image"] },
+      { id: "deepseek", inputModalities: ["text"] },
+      { id: "older-platform" },
+    ]) as Record<string, Record<string, unknown>>;
+
+    expect(models.gemini).toMatchObject({
+      attachment: true,
+      modalities: { input: ["text", "image", "pdf"], output: ["text"] },
+    });
+    expect(models.glm).toMatchObject({ attachment: true, modalities: { input: ["text", "image"], output: ["text"] } });
+    expect(models.deepseek).toMatchObject({ attachment: false, modalities: { input: ["text"], output: ["text"] } });
+    // No list from the platform: the engine's own default (text only) stays.
+    expect(models["older-platform"]).not.toHaveProperty("modalities");
+    expect(models["older-platform"]).not.toHaveProperty("attachment");
+  });
+
+  test("never writes a modality the engine schema does not know", () => {
+    const models = buildEigenweltModelsMap([
+      { id: "odd", inputModalities: ["video", "image"] as never },
+    ]) as Record<string, Record<string, unknown>>;
+    expect(models.odd.modalities).toEqual({ input: ["text", "image"], output: ["text"] });
+  });
+});
+
 describe("refreshEigenweltProviderModels", () => {
   const staleProvider = {
     npm: "@ai-sdk/openai-compatible",
@@ -319,9 +425,11 @@ describe("refreshEigenweltProviderModels", () => {
     const models = eigenwelt.models as Record<string, { limit?: { context?: number; output?: number } }>;
     expect(Object.keys(models).sort()).toEqual(["deepseek-v4-flash", "ewl-small"]);
     expect(models["stale-model"]).toBeUndefined();
-    // Both limit keys are mandatory for the engine schema.
-    expect(models["deepseek-v4-flash"]?.limit).toEqual({ context: 200000, output: 16384 });
-    expect(models["ewl-small"]?.limit).toEqual({ context: 128000, output: 16384 });
+    // Both limit keys are mandatory for the engine schema. Neither manifest
+    // model reports an output limit, so both get the 32k default — which is
+    // also how a config written with the old hardcoded 16,384 gets replaced.
+    expect(models["deepseek-v4-flash"]?.limit).toEqual({ context: 200000, output: 32000 });
+    expect(models["ewl-small"]?.limit).toEqual({ context: 128000, output: 32000 });
 
     // Second call within the throttle window does nothing (no write, no fetch).
     const modelsCallsAfterFirst = platform.modelsCalls;

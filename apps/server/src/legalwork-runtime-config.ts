@@ -12,7 +12,7 @@
  * runtime-DB write — unlike the previous OPENCODE_CONFIG_CONTENT env var,
  * which was frozen at spawn and reverted MCP state on each dispose.
  */
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -24,6 +24,8 @@ import {
   legalworkAnthropicToolSchemaPluginPath,
   legalworkWordToolsPluginPath,
   legalworkSkillToolsPluginPath,
+  legalworkStorageToolsPluginPath,
+  legalworkTaskToolsPluginPath,
   legalworkExcelToolsPluginPath,
   legalworkPowerPointToolsPluginPath,
   legalworkBenchmarkToolsPluginPath,
@@ -31,9 +33,11 @@ import {
 import type { ServerConfig } from "./types.js";
 import {
   applyGlobalToolPermissions,
+  GLOBAL_MCP_ID,
   GLOBAL_PERSONALIZATION_ID,
   GLOBAL_TOOL_PERMISSIONS_ID,
   onRuntimeOpencodeConfigWrite,
+  readGlobalMcpMap,
   readGlobalToolPermissions,
   readGlobalPersonalizationSettings,
   readRuntimeOpencodeConfig,
@@ -96,6 +100,7 @@ LegalWork can preview, edit, and download standard artifacts when you create or 
 
 - Prefer standard output files for user-visible deliverables: Markdown (.md), Word documents (.docx), CSV (.csv), Excel workbooks (.xlsx), PowerPoint decks (.pptx), and browser previews (index.html or a local http://localhost:<port> URL). Legal deliverables — memos, redlined contracts, and document-review tables — are first-class.
 - After creating or updating an artifact, mention the exact workspace-relative file path in your final response, for example reports/diligence-summary.md or reviews/nda-review.html.
+- For document, spreadsheet and presentation work, open the working file with inapp_documents_open before reading/editing it, then use the matching live inapp_* tools. For a new deliverable based on a template, use its copy_to option to create and open a separate workspace copy. An empty viewer means open the file, not switch to Python. Use a file pipeline only for an unsupported operation, an unavailable editor, or an explicit user request, and reopen the result for review.
 - Do not invent Workspace/<id>/... paths unless a tool returns them; prefer clean workspace-relative paths.
 - For websites or React/UI previews, start the dev server when useful and mention the http://localhost:<port> URL.
 - For spreadsheets, use .csv for simple tabular data and .xlsx when the user asks for Excel/XLS specifically.`;
@@ -127,6 +132,9 @@ export async function buildLegalworkRuntimeConfigObject(
   const personalization = config
     ? await readGlobalPersonalizationSettings(config)
     : null;
+  // Shared connectors reach every workspace through this file; a workspace's
+  // own entry of the same name wins, matching listMcp.
+  const sharedMcp = config ? await readGlobalMcpMap(config) : {};
   // Paid Eigenwelt Model API: a global firm account, so the provider is
   // injected into EVERY workspace from one manifest cache (written on sign-in /
   // Refresh models, cleared on sign-out). Key rides in the block's headers, so
@@ -136,11 +144,12 @@ export async function buildLegalworkRuntimeConfigObject(
   // trial counts), not merely a signed-in account. Without one the provider is
   // left out entirely — there is no free fallback tier; the composer shows the
   // connect-AI state instead. A lapse propagates on the next config rebuild
-  // (the entitlements poll triggers one when the plan flips).
-  const paidEntitled =
-    config && workspaceId
-      ? eigenweltHasPremiumModels((await readEigenweltConnection(config, workspaceId)).entitlements)
-      : false;
+  // (the entitlements poll triggers one when the plan flips). Read from the
+  // account's connection, so the provider does not depend on which workspace
+  // this file happens to be built for.
+  const paidEntitled = config
+    ? eigenweltHasPremiumModels((await readEigenweltConnection(config)).entitlements)
+    : false;
   const paidProvider = paidEntitled && paidManifest && paidManifest.models.length > 0
     ? buildEigenweltPaidProviderBlock(paidManifest)
     : null;
@@ -189,11 +198,13 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkPowerPointToolsPluginPath()),
       bundledPluginSpec(legalworkBenchmarkToolsPluginPath()),
       bundledPluginSpec(legalworkSkillToolsPluginPath()),
+      bundledPluginSpec(legalworkStorageToolsPluginPath()),
+      bundledPluginSpec(legalworkTaskToolsPluginPath()),
       ...(personalization?.localMemoriesEnabled ? [AGENT_MEMORY_PLUGIN_SPEC] : []),
       ...runtimePluginList(runtimeConfig),
     ].filter((item, index, list) => list.indexOf(item) === index),
     ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
-    mcp: runtimeMcpMap(runtimeConfig),
+    mcp: { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) },
   };
 }
 
@@ -203,6 +214,24 @@ export async function buildLegalworkRuntimeConfig(config?: ServerConfig, workspa
 
 export function legalworkRuntimeConfigFilePath(config: ServerConfig): string {
   return join(runtimeStorageDir(config), "runtime-opencode-config.json");
+}
+
+/**
+ * The paid Eigenwelt provider block the engine config file serves right now,
+ * serialized ("null" when it serves none; null when the file is unreadable).
+ * Comparing it around a rebuild tells whether the Eigenwelt models changed.
+ */
+export async function readEngineEigenweltProvider(config: ServerConfig): Promise<string | null> {
+  try {
+    const file: unknown = JSON.parse(await readFile(legalworkRuntimeConfigFilePath(config), "utf8"));
+    const providers =
+      typeof file === "object" && file !== null && "provider" in file && typeof file.provider === "object"
+        ? file.provider
+        : null;
+    return JSON.stringify(providers && EIGENWELT_PROVIDER_ID in providers ? providers[EIGENWELT_PROVIDER_ID] : null);
+  } catch {
+    return null;
+  }
 }
 
 // Serialize file writes per path so a slow older write can never land after
@@ -238,12 +267,13 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
  */
 export function keepLegalworkRuntimeConfigFileFresh(config: ServerConfig, workspaceId: string): () => void {
   return onRuntimeOpencodeConfigWrite((writeConfig, writtenWorkspaceId) => {
-    // Global tool-permission and personalisation writes affect every
-    // workspace's derived config.
+    // Global tool-permission, personalisation and connector writes affect
+    // every workspace's derived config.
     if (
       writtenWorkspaceId !== workspaceId &&
       writtenWorkspaceId !== GLOBAL_TOOL_PERMISSIONS_ID &&
-      writtenWorkspaceId !== GLOBAL_PERSONALIZATION_ID
+      writtenWorkspaceId !== GLOBAL_PERSONALIZATION_ID &&
+      writtenWorkspaceId !== GLOBAL_MCP_ID
     ) return;
     void writeLegalworkRuntimeConfigFile(writeConfig, workspaceId).catch(() => undefined);
   });

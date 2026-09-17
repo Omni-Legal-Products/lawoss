@@ -41,6 +41,8 @@ const placeholders = (value: string): string[] =>
  * Everything else matching English is an untranslated string.
  */
 const GERMAN_KEEPS_ENGLISH = new Set<string>([
+  // Storage protocol names and the shared technical term "Port".
+  "storage.provider_webdav", "storage.provider_sftp", "storage.provider_ftp", "storage.field_port",
   // Tool transcript: loanwords and identical tokens
   "terminal.region_label", "message_list.skill_badge", "benchmark.run_name_placeholder",
   "provider_auth.name", "hub_share.skills", "hub_share.plugins",
@@ -50,7 +52,7 @@ const GERMAN_KEEPS_ENGLISH = new Set<string>([
   // Product and brand names
   "autogram.title",
   "benchmark.onboarding_eyebrow", "benchmark.import_title", "settings.tab_benchmark",
-  "account.plan_hub", "premium_upsell.eyebrow", "onboarding_ai.panel_eyebrow",
+  "premium_upsell.eyebrow",
   "recorder.tier_premium_name", "recorder.tier_premium_locked", "recorder.tier_max_name",
   "skills.cloud_org_fallback", "mcp.quick_connect_featured",
   // Professional terms LegalWork deliberately leaves untranslated
@@ -141,7 +143,7 @@ const AGENT_FACING = new Set<string>([
   "task_suggestions.grid_prompt", "task_suggestions.redline_prompt",
   "task_suggestions.summary_prompt",
   // Sample chat content and quoted example prompts.
-  "onboarding_ai.chat_user", "mcp.quick_connect_legalwork_ui_desc",
+  "mcp.quick_connect_legalwork_ui_desc",
   "mcp.quick_connect_legalwork_cloud_desc", "mcp.quick_connect_legalwork_admin_desc",
 ]);
 
