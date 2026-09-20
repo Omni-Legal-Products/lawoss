@@ -7,6 +7,7 @@ import { parseFrontmatter, planEntity, renderTemplate, validateMarkdown } from "
 import { apply, detect, plan, render, validate } from "../src/fs.ts";
 import { TEMPLATES } from "../src/templates.ts";
 import { run } from "../src/cli.ts";
+import { readStandingAuthorization } from "../../okf-pamat/src/config.ts";
 
 let root = "";
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), "okf-")); });
@@ -113,6 +114,68 @@ describe("cli", () => {
   });
   test("bad type is a usage error (exit 2)", () => {
     expect(run(["plan", "kauza", root], () => {})).toBe(2);
+  });
+});
+
+describe("configured lawyer fallback (#50)", () => {
+  const configure = (contents: string) => {
+    const office = join(root, "Office");
+    mkdirSync(office, { recursive: true });
+    writeFileSync(join(office, "okf.config"), contents);
+    return office;
+  };
+  const plannedLawyer = (dir: string, advokat?: string) => {
+    const p = plan({ type: "spis", dir, title: "Synthetic matter", jurisdiction: "sk", advokat });
+    return parseFrontmatter(p.entries.find((entry) => entry.path === "spis.md")?.content ?? "")?.advokat;
+  };
+
+  test("ancestor Office name is identical in plan and CLI apply, without granting permission", () => {
+    const office = configure('standing_authorization: Ján Novák\n');
+    const dir = join(root, "clients", "synthetic", "matters", "advisory");
+    expect(plannedLawyer(dir)).toBe("Ján Novák");
+    expect(existsSync(dir)).toBe(false);
+    expect(run(["apply", "spis", dir, "--title", "Synthetic matter", "--sk"], () => {})).toBe(0);
+    expect(parseFrontmatter(readFileSync(join(dir, "spis.md"), "utf8"))?.advokat).toBe("Ján Novák");
+    expect(readStandingAuthorization(office)).toBeUndefined();
+  });
+
+  test("explicit lawyer overrides the configured name in plan and CLI apply", () => {
+    configure("standing_authorization: Configured Lawyer\n");
+    const dir = join(root, "matter");
+    const explicit = 'Jana "Janka" Nováková';
+    expect(plannedLawyer(dir, explicit)).toBe(explicit);
+    expect(run(["apply", "spis", dir, "--title", "Synthetic matter", "--sk", "--advokat", explicit], () => {})).toBe(0);
+    expect(parseFrontmatter(readFileSync(join(dir, "spis.md"), "utf8"))?.advokat).toBe(explicit);
+  });
+
+  test("quoted configured names round-trip quotes and backslashes", () => {
+    const name = 'Ján "Jano" Novák \\ partner';
+    configure(`standing_authorization: ${JSON.stringify(name)}\n`);
+    expect(plannedLawyer(join(root, "matter"))).toBe(name);
+    configure("standing_authorization: 'Ján ''Jano'' Novák'\n");
+    expect(plannedLawyer(join(root, "matter"))).toBe("Ján 'Jano' Novák");
+  });
+
+  test("nearest Office wins and explicit name works even with an unreadable config", () => {
+    configure("standing_authorization: Outer Lawyer\n");
+    const office = join(root, "nested", "Office");
+    mkdirSync(office, { recursive: true });
+    writeFileSync(join(office, "okf.config"), "standing_authorization: Inner Lawyer\n");
+    const dir = join(root, "nested", "client", "matter");
+    expect(plannedLawyer(dir)).toBe("Inner Lawyer");
+    rmSync(join(office, "okf.config"));
+    mkdirSync(join(office, "okf.config"));
+    expect(plannedLawyer(dir)).toBe("[DOPLNIT]");
+    expect(plannedLawyer(dir, "Explicit Lawyer")).toBe("Explicit Lawyer");
+  });
+
+  test("missing, malformed and non-name config values preserve the placeholder", () => {
+    const dir = join(root, "matter");
+    expect(plannedLawyer(dir)).toBe("[DOPLNIT]");
+    for (const contents of ["", "client_path: clients/*\n", "standing_authorization: \n", "standing_authorization: [Someone]\n", "standing_authorization: 123\n", "standing_authorization: null\n", "standing_authorization: true\n", 'standing_authorization: "Unclosed\n', 'standing_authorization: "Ján \\q Novák"\n', 'standing_authorization: "Ján\\nNovák"\n', "standing_authorization: Ján Novák\nbroken config\n", "standing_authorization: First\nstanding_authorization: Second\n"]) {
+      configure(contents);
+      expect(plannedLawyer(dir)).toBe("[DOPLNIT]");
+    }
   });
 });
 

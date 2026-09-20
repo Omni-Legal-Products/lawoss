@@ -26,7 +26,7 @@ Ak `node` ani `bun` nie sú k dispozícii, **zastav sa a povedz to** — nesnaž
 
 `<typ>` ∈ `klient` · `spis` · `projekt`. Flagy: `--ico`, `--klient`, `--protistrana`, `--protistrana-ico`, `--oblast`, `--desc`, `--spzn`, `--sud`, `--advokat`, `--client-type fo|fo-podnikatel|po|iny`, `--country ISO-kód`, `--identifier-type`, `--identifier`, `--matter-kind dispute|advisory|transaction|other`, `--mode bounded|ongoing`. Pridaj `--json`, keď potrebuješ výstup spracovať.
 
-`--advokat "Meno"` je ten, kto za spis zodpovedá. Bez neho ostane v karte `advokat: "[DOPLNIT]"` — nehádaj ho, spýtaj sa.
+`--advokat "Meno"` je ten, kto za spis zodpovedá, a má prednosť pred konfiguráciou. Bez flagu CLI predvyplní meno z `standing_authorization` v najbližšom nadradenom `Office/okf.config`; ak chýba alebo je neplatné, ostane `advokat: "[DOPLNIT]"` — nehádaj ho, spýtaj sa. Predvyplnenie mena neudeľuje poverenie na zápis. Prepojenie s identitou v natívnom UI a sledovaných zmenách zostáva samostatnou úlohou #6.
 
 **Pri `spis` je `--sk` alebo `--cz` povinné** a odmietne to už `plan`. Jurisdikcia sa zapíše do karty veci ako `jurisdiction:` a `okf-memory` ju odtiaľ číta — bez nej pamäť spisu nezaloží. Nehádaj ju: ak ti ju advokát nepovedal, spýtaj sa.
 

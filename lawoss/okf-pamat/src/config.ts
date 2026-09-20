@@ -38,6 +38,35 @@ function readConfig(
   return parseFrontmatter(readFileSync(path, "utf8"));
 }
 
+/** Meno na predvyplnenie karty; samo osebe nie je poverením na zápis. */
+export function readConfiguredLawyerName(officeDir: string | undefined): string | undefined {
+  if (!officeDir) return undefined;
+  try {
+    const contents = readFileSync(join(officeDir, CONFIG_FILE), "utf8");
+    const value = parseFrontmatter(contents).get("standing_authorization");
+    if (typeof value !== "string") return undefined;
+    // Čítač pamäte odstraňuje úvodzovky bez dekódovania. Pre meno overíme
+    // pôvodný skalár, aby poškodené úvodzovky ani escape sekvencie neprešli.
+    const fields = [...contents.matchAll(/^standing_authorization:[ \t]*(.*)$/gm)];
+    if (fields.length !== 1) return undefined;
+    const scalar = fields[0]?.[1]?.trim();
+    if (!scalar) return undefined;
+    let name = value;
+    if (scalar.startsWith('"')) {
+      const decoded: unknown = JSON.parse(scalar);
+      if (typeof decoded !== "string") return undefined;
+      name = decoded;
+    } else if (scalar.startsWith("'")) {
+      if (!/^'(?:[^']|'')*'$/.test(scalar)) return undefined;
+      name = scalar.slice(1, -1).replace(/''/g, "'");
+    } else if (/^[!&*>|%@`\[{}]|^(?:null|true|false|~)$/i.test(scalar)) return undefined;
+    if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(name)) return undefined;
+    return name.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Kde v strome leží priečinok klienta, keď v ňom nie je karta.
  *

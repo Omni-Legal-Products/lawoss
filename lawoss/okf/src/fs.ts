@@ -16,6 +16,8 @@ import {
   validateMarkdown,
 } from "./core.ts";
 import { TEMPLATES } from "./templates.ts";
+import { readConfiguredLawyerName } from "../../okf-pamat/src/config.ts";
+import { findOfficeDir } from "../../okf-pamat/src/store.ts";
 
 function readText(path: string): string {
   return readFileSync(path, "utf8");
@@ -64,7 +66,8 @@ export function detect(dir: string, hint?: EntityType): DetectResult {
 export function plan(input: PlanInput): Plan {
   const agents = join(input.dir, "AGENTS.md");
   const templates = existsSync(agents) ? { ...TEMPLATES, [input.type]: { ...TEMPLATES[input.type], "AGENTS.md": readText(agents) } } : TEMPLATES;
-  const result = planEntity(input, templates, (p) => existsSync(join(input.dir, p)));
+  const advokat = input.advokat?.trim() || (input.type === "spis" ? readConfiguredLawyerName(findOfficeDir(input.dir)) : undefined);
+  const result = planEntity({ ...input, advokat }, templates, (p) => existsSync(join(input.dir, p)));
   if (existsSync(agents)) {
     const mirror = result.entries.find((entry) => entry.path === "CLAUDE.md" && entry.action === "create");
     if (mirror) mirror.content = readText(agents);

@@ -10,8 +10,8 @@ import { fileURLToPath } from "url";
 var ENTITY_TYPES = ["klient", "spis", "projekt"];
 
 // src/fs.ts
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { existsSync as existsSync3, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync3, statSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { dirname as dirname2, join as join3, relative as relative2 } from "node:path";
 
 // src/core.ts
 var OKF_VERSION = "0.1";
@@ -375,23 +375,549 @@ var TEMPLATES = {
   projekt: { "projekt.md": projekt_default, "AGENTS.md": AGENTS_default3, "MEMORY.md": MEMORY_default3 }
 };
 
+// ../okf-pamat/src/config.ts
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
+// ../okf-pamat/src/schema.ts
+var STATUS = ["active", "superseded", "void"];
+var PERSON_KINDS = ["natural_person", "legal_person", "sole_trader"];
+var ROLES = ["client", "counterparty", "representative", "ubo"];
+var RISK = ["low", "medium", "high"];
+var CONCLUSION = ["proceed", "enhanced_diligence", "decline"];
+var TASK_STATES = ["pending", "in_progress", "blocked", "done"];
+var PROOF_STATUS = ["proven", "unproven", "disputed"];
+var CONFIDENCE = ["high", "medium", "low"];
+var EVIDENCE_STRENGTH = ["direct", "indirect"];
+var PROCEDURAL_STATUS = ["proposed", "taken"];
+var EVIDENCE_KINDS = [
+  "document",
+  "witness",
+  "expert_opinion",
+  "party_examination",
+  "inspection"
+];
+var SCREENING_MODES = ["light", "medium", "hard"];
+var FIELDS = [
+  { canonical: "okf", cz: "okf", sk: "okf", kind: "number", required: true },
+  { canonical: "id", cz: "id", sk: "id", kind: "string", required: true },
+  { canonical: "type", cz: "typ", sk: "typ", kind: "string", required: true },
+  { canonical: "title", cz: "název", sk: "názov", kind: "string", required: true },
+  {
+    canonical: "description",
+    cz: "popis",
+    sk: "popis",
+    kind: "string",
+    required: true,
+    aliases: ["summary"]
+  },
+  { canonical: "layer", cz: "vrstva", sk: "vrstva", kind: "string", required: true },
+  { canonical: "jurisdiction", cz: "jurisdikce", sk: "jurisdikcia", kind: "string", required: true },
+  {
+    canonical: "status",
+    cz: "stav",
+    sk: "stav",
+    kind: "string",
+    required: true,
+    values: STATUS
+  },
+  { canonical: "created", cz: "vznik", sk: "vznik", kind: "string", required: true },
+  { canonical: "updated", cz: "změna", sk: "zmena", kind: "string", required: true },
+  { canonical: "sources", cz: "zdroje", sk: "zdroje", kind: "maplist", required: false },
+  { canonical: "related", cz: "souvisí", sk: "súvisí", kind: "list", required: false },
+  { canonical: "tags", cz: "štítky", sk: "štítky", kind: "list", required: false },
+  { canonical: "truth_digest", cz: "otisk pravdy", sk: "odtlačok pravdy", kind: "string", required: false },
+  { canonical: "deadlines", cz: "lhůty", sk: "lehoty", kind: "list", required: false },
+  { canonical: "parties", cz: "strany", sk: "strany", kind: "list", required: false },
+  { canonical: "matter_ref", cz: "spisová značka", sk: "spisová značka", kind: "string", required: false },
+  { canonical: "court", cz: "soud", sk: "súd", kind: "string", required: false },
+  { canonical: "area", cz: "oblast práva", sk: "oblasť práva", kind: "list", required: false },
+  {
+    canonical: "role",
+    cz: "role",
+    sk: "rola",
+    kind: "string",
+    required: false,
+    values: ROLES
+  },
+  {
+    canonical: "person_type",
+    cz: "typ osoby",
+    sk: "typ osoby",
+    kind: "string",
+    required: false,
+    values: PERSON_KINDS
+  },
+  { canonical: "registry_id", cz: "IČO", sk: "IČO", kind: "string", required: false, needle: "hard" },
+  { canonical: "birth_date", cz: "datum narození", sk: "dátum narodenia", kind: "string", required: false, sensitive: true, needle: "hard" },
+  { canonical: "birth_number", cz: "rodné číslo", sk: "rodné číslo", kind: "string", required: false, sensitive: true, needle: "hard" },
+  { canonical: "birth_place", cz: "místo narození", sk: "miesto narodenia", kind: "string", required: false },
+  { canonical: "sex", cz: "pohlaví", sk: "pohlavie", kind: "string", required: false },
+  { canonical: "citizenship", cz: "státní občanství", sk: "štátna príslušnosť", kind: "string", required: false },
+  { canonical: "residence", cz: "trvalý pobyt", sk: "trvalý pobyt", kind: "string", required: false, sensitive: true, needle: "strong" },
+  { canonical: "id_document_type", cz: "druh dokladu", sk: "druh dokladu", kind: "string", required: false },
+  { canonical: "id_document_number", cz: "číslo dokladu", sk: "číslo dokladu", kind: "string", required: false, sensitive: true, needle: "hard" },
+  { canonical: "id_document_issuer", cz: "doklad vydal", sk: "doklad vydal", kind: "string", required: false },
+  { canonical: "id_document_valid_to", cz: "doklad platí do", sk: "doklad platí do", kind: "string", required: false },
+  { canonical: "legal_form", cz: "právní forma", sk: "právna forma", kind: "string", required: false },
+  { canonical: "registered_office", cz: "sídlo", sk: "sídlo", kind: "string", required: false },
+  { canonical: "registry_entry", cz: "zápis v rejstříku", sk: "zápis v registri", kind: "string", required: false },
+  { canonical: "business_address", cz: "místo podnikání", sk: "miesto podnikania", kind: "string", required: false },
+  { canonical: "business_scope", cz: "předmět podnikání", sk: "predmet podnikania", kind: "list", required: false },
+  { canonical: "representatives", cz: "jednající osoby", sk: "konajúce osoby", kind: "list", required: false },
+  { canonical: "ubo", cz: "skutečný majitel", sk: "konečný užívateľ výhod", kind: "list", required: false },
+  { canonical: "pep", cz: "PEP", sk: "PEP", kind: "string", required: false },
+  { canonical: "subject_ref", cz: "subjekt", sk: "subjekt", kind: "string", required: false },
+  { canonical: "check_date", cz: "datum prověření", sk: "dátum preverenia", kind: "string", required: false },
+  {
+    canonical: "mode",
+    cz: "režim",
+    sk: "režim",
+    kind: "string",
+    required: false,
+    values: SCREENING_MODES
+  },
+  { canonical: "registries", cz: "registry", sk: "registre", kind: "list", required: false },
+  { canonical: "pep_result", cz: "výsledek PEP", sk: "výsledok PEP", kind: "string", required: false },
+  { canonical: "sanctions_result", cz: "výsledek sankcí", sk: "výsledok sankcií", kind: "string", required: false },
+  { canonical: "funds_origin", cz: "původ prostředků", sk: "pôvod prostriedkov", kind: "string", required: false },
+  {
+    canonical: "risk",
+    cz: "riziko",
+    sk: "riziko",
+    kind: "string",
+    required: false,
+    values: RISK
+  },
+  {
+    canonical: "conclusion",
+    cz: "závěr",
+    sk: "záver",
+    kind: "string",
+    required: false,
+    values: CONCLUSION
+  },
+  { canonical: "valid_until", cz: "platnost do", sk: "platnosť do", kind: "string", required: false },
+  { canonical: "claimed_by", cz: "tvrdí", sk: "tvrdí", kind: "string", required: false },
+  { canonical: "claimed_at", cz: "kdy tvrzeno", sk: "kedy tvrdené", kind: "string", required: false },
+  { canonical: "claimed_in", cz: "kde tvrzeno", sk: "kde tvrdené", kind: "string", required: false },
+  { canonical: "legal_question", cz: "právní otázka", sk: "právna otázka", kind: "string", required: false },
+  { canonical: "burden_of_proof", cz: "důkazní břemeno", sk: "dôkazné bremeno", kind: "string", required: false },
+  { canonical: "supporting_evidence", cz: "podporující důkazy", sk: "podporujúce dôkazy", kind: "list", required: false },
+  { canonical: "contradicting_evidence", cz: "vyvracející důkazy", sk: "vyvracajúce dôkazy", kind: "list", required: false },
+  {
+    canonical: "proof_status",
+    cz: "stav prokázání",
+    sk: "stav preukázania",
+    kind: "string",
+    required: false,
+    values: PROOF_STATUS
+  },
+  {
+    canonical: "credibility",
+    cz: "věrohodnost",
+    sk: "vierohodnosť",
+    kind: "string",
+    required: false,
+    values: CONFIDENCE
+  },
+  {
+    canonical: "evidence_kind",
+    cz: "druh důkazu",
+    sk: "druh dôkazu",
+    kind: "string",
+    required: false,
+    values: EVIDENCE_KINDS
+  },
+  { canonical: "origin_date", cz: "datum vzniku", sk: "dátum vzniku", kind: "string", required: false },
+  { canonical: "author", cz: "autor", sk: "autor", kind: "string", required: false },
+  { canonical: "formal_requirements", cz: "formální náležitosti", sk: "formálne náležitosti", kind: "string", required: false },
+  { canonical: "proves", cz: "k prokázání", sk: "na preukázanie", kind: "list", required: false },
+  {
+    canonical: "evidence_strength",
+    cz: "síla důkazu",
+    sk: "sila dôkazu",
+    kind: "string",
+    required: false,
+    values: EVIDENCE_STRENGTH
+  },
+  {
+    canonical: "reliability",
+    cz: "spolehlivost",
+    sk: "spoľahlivosť",
+    kind: "string",
+    required: false,
+    values: CONFIDENCE
+  },
+  { canonical: "objection", cz: "námitka", sk: "námietka", kind: "string", required: false },
+  {
+    canonical: "procedural_status",
+    cz: "procesní stav",
+    sk: "procesný stav",
+    kind: "string",
+    required: false,
+    values: PROCEDURAL_STATUS
+  },
+  { canonical: "effective_from", cz: "účinnost od", sk: "účinnosť od", kind: "string", required: false },
+  { canonical: "effective_to", cz: "účinnost do", sk: "účinnosť do", kind: "string", required: false },
+  { canonical: "verified", cz: "ověření", sk: "overenia", kind: "maplist", required: false },
+  { canonical: "verified_at", cz: "ověřeno dne", sk: "overené dňa", kind: "string", required: false },
+  { canonical: "verified_against", cz: "ověřeno proti", sk: "overené proti", kind: "string", required: false },
+  { canonical: "procedural_role", cz: "procesní postavení", sk: "procesné postavenie", kind: "string", required: false },
+  { canonical: "representation", cz: "zastoupení", sk: "zastúpenie", kind: "string", required: false },
+  { canonical: "legal_capacity", cz: "způsobilost být účastníkem", sk: "spôsobilosť byť účastníkom", kind: "string", required: false },
+  { canonical: "capacity_notes", cz: "poznámky ke způsobilosti", sk: "poznámky k spôsobilosti", kind: "string", required: false },
+  { canonical: "assignee", cz: "řeší", sk: "rieši", kind: "string", required: false },
+  { canonical: "depends_on", cz: "závisí na", sk: "závisí od", kind: "list", required: false },
+  { canonical: "acceptance", cz: "akceptační kritéria", sk: "akceptačné kritériá", kind: "list", required: false },
+  { canonical: "priority", cz: "priorita", sk: "priorita", kind: "string", required: false },
+  {
+    canonical: "state",
+    cz: "stav úkolu",
+    sk: "stav úlohy",
+    kind: "string",
+    required: false,
+    values: TASK_STATES
+  },
+  { canonical: "due", cz: "termín", sk: "termín", kind: "string", required: false }
+];
+var SENSITIVE_FIELDS = FIELDS.filter((f) => f.sensitive).map((f) => f.canonical);
+var CZ_FO = [
+  "title",
+  { primary: "birth_number", fallback: ["birth_date", "sex"] },
+  "birth_place",
+  "residence",
+  "citizenship",
+  "id_document_type",
+  "id_document_number",
+  "id_document_issuer",
+  "id_document_valid_to"
+];
+var SK_FO = [
+  "title",
+  { primary: "birth_number", fallback: ["birth_date"] },
+  "residence",
+  "citizenship",
+  "id_document_type",
+  "id_document_number"
+];
+var AML_REQUIRED = {
+  cz: {
+    natural_person: CZ_FO,
+    legal_person: ["title", "registered_office", "registry_id", "representatives"],
+    sole_trader: [...CZ_FO, "registered_office", "registry_id"]
+  },
+  sk: {
+    natural_person: SK_FO,
+    legal_person: ["title", "registered_office", "registry_id", "registry_entry", "representatives"],
+    sole_trader: [...SK_FO, "business_address", "registry_entry"]
+  }
+};
+
+// ../okf-pamat/src/record.ts
+var CORE_FIELDS = new Set([
+  "okf",
+  "id",
+  "type",
+  "title",
+  "description",
+  "layer",
+  "jurisdiction",
+  "status",
+  "created",
+  "updated"
+]);
+function splitList(inner) {
+  const out = [];
+  let cur = "";
+  let quote;
+  let quoted = false;
+  for (let i = 0;i < inner.length; i++) {
+    const ch = inner.charAt(i);
+    if (quote !== undefined) {
+      if (ch === "\\" && inner.charAt(i + 1) === quote) {
+        cur += quote;
+        i++;
+        continue;
+      }
+      if (ch === quote) {
+        quote = undefined;
+        continue;
+      }
+      cur += ch;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      if (cur.trim() === "")
+        cur = "";
+      quote = ch;
+      quoted = true;
+      continue;
+    }
+    if (ch === ",") {
+      out.push(quoted ? cur : cur.trim());
+      cur = "";
+      quoted = false;
+      continue;
+    }
+    cur += ch;
+  }
+  out.push(quoted ? cur : cur.trim());
+  return out;
+}
+function parseScalar(raw) {
+  const v = raw.trim();
+  if (v.startsWith("[") && v.endsWith("]")) {
+    const inner = v.slice(1, -1).trim();
+    if (inner === "")
+      return [];
+    return splitList(inner);
+  }
+  if (v.startsWith("{") && v.endsWith("}"))
+    return parseFlowMap(v.slice(1, -1));
+  if (/^-?(0|[1-9]\d*)(\.\d+)?$/.test(v))
+    return Number(v);
+  return unquote(v);
+}
+function parseFlowMap(inner) {
+  const out = {};
+  if (inner.trim() === "")
+    return out;
+  for (const part of splitList(inner)) {
+    const idx = part.indexOf(":");
+    if (idx === -1)
+      throw new Error(`Neplatná položka mapovania: ${part}`);
+    const key = part.slice(0, idx).trim();
+    const val = parseScalar(part.slice(idx + 1));
+    if (Array.isArray(val) || typeof val === "object") {
+      throw new Error(`Mapovanie v mapovaní sa nepodporuje: ${key}`);
+    }
+    out[key] = val;
+  }
+  return out;
+}
+function unquote(v) {
+  if (v.length >= 2 && (v.startsWith('"') && v.endsWith('"') || v.startsWith("'") && v.endsWith("'"))) {
+    return v.slice(1, -1);
+  }
+  return v;
+}
+var indentOf = (line) => line.length - line.trimStart().length;
+function parseFrontmatter2(fm) {
+  const out = new Map;
+  const lines = fm.split(`
+`);
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i] ?? "";
+    if (line.trim() === "" || line.trimStart().startsWith("#")) {
+      i++;
+      continue;
+    }
+    if (indentOf(line) !== 0)
+      throw new Error(`Riadok ${i + 1}: neočakávané odsadenie: ${line}`);
+    const idx = line.indexOf(":");
+    if (idx === -1)
+      throw new Error(`Riadok ${i + 1}: neplatný riadok frontmatteru: ${line}`);
+    const key = line.slice(0, idx).trim();
+    const rest = line.slice(idx + 1);
+    if (rest.trim() !== "") {
+      out.set(key, parseScalar(rest));
+      i++;
+      continue;
+    }
+    const block = [];
+    let j = i + 1;
+    while (j < lines.length) {
+      const l = lines[j] ?? "";
+      if (l.trim() === "") {
+        j++;
+        continue;
+      }
+      if (indentOf(l) === 0)
+        break;
+      block.push(l);
+      j++;
+    }
+    if (block.length === 0) {
+      out.set(key, "");
+    } else {
+      out.set(key, parseBlock(block, i + 2));
+    }
+    i = j;
+  }
+  return out;
+}
+function parseBlock(block, firstLineNo) {
+  const base = indentOf(block[0] ?? "");
+  const first = (block[0] ?? "").trim();
+  if (!first.startsWith("- ")) {
+    const map = {};
+    block.forEach((l, k) => {
+      if (indentOf(l) !== base) {
+        throw new Error(`Riadok ${firstLineNo + k}: nerovnaké odsadenie v mapovaní: ${l}`);
+      }
+      const idx = l.indexOf(":");
+      if (idx === -1)
+        throw new Error(`Riadok ${firstLineNo + k}: chýba dvojbodka: ${l}`);
+      if (l.slice(idx + 1).trim() === "") {
+        throw new Error(`Riadok ${firstLineNo + k}: vnorený blok sa nepodporuje: ${l}`);
+      }
+      const v = parseScalar(l.slice(idx + 1));
+      if (typeof v === "object")
+        throw new Error(`Riadok ${firstLineNo + k}: vnorené mapovanie sa nepodporuje`);
+      map[l.slice(0, idx).trim()] = v;
+    });
+    return map;
+  }
+  const items = [];
+  let cur;
+  let fieldIndent;
+  block.forEach((l, k) => {
+    const ind = indentOf(l);
+    const t = l.trim();
+    if (ind === base) {
+      fieldIndent = undefined;
+      if (!t.startsWith("- "))
+        throw new Error(`Riadok ${firstLineNo + k}: očakávaná položka „- ": ${l}`);
+      const body = t.slice(2).trim();
+      const idx = body.indexOf(":");
+      if (idx === -1 || body.startsWith('"') || body.startsWith("'") || body.startsWith("[") || body.startsWith("{")) {
+        const v = parseScalar(body);
+        if (typeof v === "object" && !Array.isArray(v)) {
+          cur = v;
+          items.push(cur);
+          return;
+        }
+        if (Array.isArray(v))
+          throw new Error(`Riadok ${firstLineNo + k}: zoznam v zozname sa nepodporuje`);
+        cur = undefined;
+        items.push(v);
+        return;
+      }
+      if (body.slice(idx + 1).trim() === "") {
+        throw new Error(`Riadok ${firstLineNo + k}: vnorený blok v položke sa nepodporuje: ${l}`);
+      }
+      cur = {};
+      const v = parseScalar(body.slice(idx + 1));
+      if (typeof v === "object")
+        throw new Error(`Riadok ${firstLineNo + k}: vnorená hodnota sa nepodporuje`);
+      cur[body.slice(0, idx).trim()] = v;
+      items.push(cur);
+      return;
+    }
+    if (ind > base) {
+      if (!cur)
+        throw new Error(`Riadok ${firstLineNo + k}: odsadený riadok bez položky: ${l}`);
+      fieldIndent ??= ind;
+      if (ind !== fieldIndent) {
+        throw new Error(`Riadok ${firstLineNo + k}: hlbšie vnorenie v položke sa nepodporuje: ${l}`);
+      }
+      const idx = t.indexOf(":");
+      if (idx === -1)
+        throw new Error(`Riadok ${firstLineNo + k}: chýba dvojbodka: ${l}`);
+      if (t.slice(idx + 1).trim() === "") {
+        throw new Error(`Riadok ${firstLineNo + k}: vnorený blok v položke sa nepodporuje: ${l}`);
+      }
+      const v = parseScalar(t.slice(idx + 1));
+      if (typeof v === "object")
+        throw new Error(`Riadok ${firstLineNo + k}: vnorená hodnota sa nepodporuje`);
+      cur[t.slice(0, idx).trim()] = v;
+      return;
+    }
+    throw new Error(`Riadok ${firstLineNo + k}: neočakávané odsadenie: ${l}`);
+  });
+  const maps = items.filter((x) => typeof x === "object");
+  if (maps.length === 0)
+    return items.map((x) => String(x));
+  if (maps.length !== items.length) {
+    throw new Error(`Riadok ${firstLineNo}: zoznam mieša skaláre a mapovania`);
+  }
+  return items;
+}
+
+// ../okf-pamat/src/config.ts
+var CONFIG_FILE = "okf.config";
+function readConfiguredLawyerName(officeDir) {
+  if (!officeDir)
+    return;
+  try {
+    const contents = readFileSync(join(officeDir, CONFIG_FILE), "utf8");
+    const value = parseFrontmatter2(contents).get("standing_authorization");
+    if (typeof value !== "string")
+      return;
+    const fields = [...contents.matchAll(/^standing_authorization:[ \t]*(.*)$/gm)];
+    if (fields.length !== 1)
+      return;
+    const scalar = fields[0]?.[1]?.trim();
+    if (!scalar)
+      return;
+    let name = value;
+    if (scalar.startsWith('"')) {
+      const decoded = JSON.parse(scalar);
+      if (typeof decoded !== "string")
+        return;
+      name = decoded;
+    } else if (scalar.startsWith("'")) {
+      if (!/^'(?:[^']|'')*'$/.test(scalar))
+        return;
+      name = scalar.slice(1, -1).replace(/''/g, "'");
+    } else if (/^[!&*>|%@`\[{}]|^(?:null|true|false|~)$/i.test(scalar))
+      return;
+    if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(name))
+      return;
+    return name.trim() || undefined;
+  } catch {
+    return;
+  }
+}
+
+// ../okf-pamat/src/store.ts
+import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync2, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join as join2, relative, resolve, sep } from "node:path";
+
+// ../okf-pamat/src/validate.ts
+var BIRTH_NUMBER_PATTERN = /\b\d{6}\s?\/\s?\d{3,4}\b/;
+var BIRTH_NUMBER_PATTERN_G = new RegExp(BIRTH_NUMBER_PATTERN.source, "g");
+
+// ../okf-pamat/src/store.ts
+var STANDING = Symbol("okf.standing-authorization");
+var OFFICE_DIR = "Office";
+var LEGACY_OFFICE_DIR = "_kancelaria";
+var OFFICE_DIRS = [OFFICE_DIR, LEGACY_OFFICE_DIR];
+function findOfficeDir(startDir, maxUp = 8) {
+  let dir = resolve(startDir);
+  if (OFFICE_DIRS.some((n) => dir.endsWith(`/${n}`)))
+    return dir;
+  for (let i = 0;i < maxUp; i++) {
+    const candidate = OFFICE_DIRS.map((n) => join2(dir, n)).find((c) => existsSync2(c));
+    if (candidate)
+      return candidate;
+    const parent = dirname(dir);
+    if (parent === dir)
+      return;
+    dir = parent;
+  }
+  return;
+}
+
 // src/fs.ts
 function readText(path) {
-  return readFileSync(path, "utf8");
+  return readFileSync3(path, "utf8");
 }
 function listMarkdown(root) {
   const out = [];
   const walk = (dir) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    for (const entry of readdirSync2(dir, { withFileTypes: true })) {
       if (entry.name.startsWith("."))
         continue;
-      const full = join(dir, entry.name);
+      const full = join3(dir, entry.name);
       if (entry.isDirectory()) {
         if (entry.name === "templates" || entry.name === "node_modules")
           continue;
         walk(full);
       } else if (entry.name.endsWith(".md")) {
-        out.push(relative(root, full).split("\\").join("/"));
+        out.push(relative2(root, full).split("\\").join("/"));
       }
     }
   };
@@ -399,7 +925,7 @@ function listMarkdown(root) {
   return out.sort();
 }
 function detect(dir, hint) {
-  const isDir = existsSync(dir) && statSync(dir).isDirectory();
+  const isDir = existsSync3(dir) && statSync(dir).isDirectory();
   const base = {
     dir,
     isDir,
@@ -413,21 +939,22 @@ function detect(dir, hint) {
   };
   if (!isDir)
     return base;
-  const type = ENTITY_TYPES2.find((candidate) => existsSync(join(dir, CARD_FILE[candidate]))) ?? null;
-  const hasAgents = existsSync(join(dir, "AGENTS.md"));
-  const hasClaude = existsSync(join(dir, "CLAUDE.md"));
-  const claudeIsMirror = hasAgents && hasClaude ? readText(join(dir, "AGENTS.md")) === readText(join(dir, "CLAUDE.md")) : null;
-  const indexPath = join(dir, "index.md");
-  const okfVersion = existsSync(indexPath) ? parseFrontmatter(readText(indexPath))?.okf_version ?? null : null;
+  const type = ENTITY_TYPES2.find((candidate) => existsSync3(join3(dir, CARD_FILE[candidate]))) ?? null;
+  const hasAgents = existsSync3(join3(dir, "AGENTS.md"));
+  const hasClaude = existsSync3(join3(dir, "CLAUDE.md"));
+  const claudeIsMirror = hasAgents && hasClaude ? readText(join3(dir, "AGENTS.md")) === readText(join3(dir, "CLAUDE.md")) : null;
+  const indexPath = join3(dir, "index.md");
+  const okfVersion = existsSync3(indexPath) ? parseFrontmatter(readText(indexPath))?.okf_version ?? null : null;
   const effective = type ?? hint ?? null;
-  const missing = effective ? planEntity({ type: effective, dir, title: "" }, TEMPLATES, (p) => existsSync(join(dir, p))).entries.filter((entry) => entry.action === "create").map((entry) => entry.path) : [];
+  const missing = effective ? planEntity({ type: effective, dir, title: "" }, TEMPLATES, (p) => existsSync3(join3(dir, p))).entries.filter((entry) => entry.action === "create").map((entry) => entry.path) : [];
   return { ...base, type, hasAgents, hasClaude, claudeIsMirror, okfVersion, markdownCount: listMarkdown(dir).length, missing };
 }
 function plan(input) {
-  const agents = join(input.dir, "AGENTS.md");
-  const templates = existsSync(agents) ? { ...TEMPLATES, [input.type]: { ...TEMPLATES[input.type], "AGENTS.md": readText(agents) } } : TEMPLATES;
-  const result = planEntity(input, templates, (p) => existsSync(join(input.dir, p)));
-  if (existsSync(agents)) {
+  const agents = join3(input.dir, "AGENTS.md");
+  const templates = existsSync3(agents) ? { ...TEMPLATES, [input.type]: { ...TEMPLATES[input.type], "AGENTS.md": readText(agents) } } : TEMPLATES;
+  const advokat = input.advokat?.trim() || (input.type === "spis" ? readConfiguredLawyerName(findOfficeDir(input.dir)) : undefined);
+  const result = planEntity({ ...input, advokat }, templates, (p) => existsSync3(join3(input.dir, p)));
+  if (existsSync3(agents)) {
     const mirror = result.entries.find((entry) => entry.path === "CLAUDE.md" && entry.action === "create");
     if (mirror)
       mirror.content = readText(agents);
@@ -437,29 +964,29 @@ function plan(input) {
 function apply(p) {
   const created = [];
   const skipped = [];
-  mkdirSync(p.dir, { recursive: true });
+  mkdirSync2(p.dir, { recursive: true });
   for (const entry of p.entries) {
-    const full = join(p.dir, entry.path);
-    if (entry.action !== "create" || existsSync(full)) {
+    const full = join3(p.dir, entry.path);
+    if (entry.action !== "create" || existsSync3(full)) {
       skipped.push(entry.path);
       continue;
     }
-    mkdirSync(dirname(full), { recursive: true });
-    writeFileSync(full, entry.content ?? "", "utf8");
+    mkdirSync2(dirname2(full), { recursive: true });
+    writeFileSync2(full, entry.content ?? "", "utf8");
     created.push(entry.path);
   }
   return { created, skipped };
 }
 function validate(root) {
-  if (!existsSync(root))
+  if (!existsSync3(root))
     return [{ path: root, message: "priečinok neexistuje" }];
   const errors = [];
   for (const rel of listMarkdown(root)) {
     if (rel.split("/").some((part) => WORKING_FOLDERS.some((folder) => folder === part)) || rel.split("/").pop() === "BRAIN.md")
       continue;
-    const parent = dirname(join(root, rel));
-    const bundleRoot = !rel.includes("/") || parent.endsWith("/memory") || ENTITY_TYPES2.some((type) => existsSync(join(parent, CARD_FILE[type])));
-    const error = validateMarkdown(rel, readText(join(root, rel)), bundleRoot);
+    const parent = dirname2(join3(root, rel));
+    const bundleRoot = !rel.includes("/") || parent.endsWith("/memory") || ENTITY_TYPES2.some((type) => existsSync3(join3(parent, CARD_FILE[type])));
+    const error = validateMarkdown(rel, readText(join3(root, rel)), bundleRoot);
     if (error)
       errors.push(error);
   }
@@ -468,24 +995,24 @@ function validate(root) {
 function render(root) {
   const written = [];
   const kept = [];
-  const agents = join(root, "AGENTS.md");
-  const claude = join(root, "CLAUDE.md");
-  if (existsSync(agents)) {
+  const agents = join3(root, "AGENTS.md");
+  const claude = join3(root, "CLAUDE.md");
+  if (existsSync3(agents)) {
     const a = readText(agents);
-    if (!existsSync(claude)) {
-      writeFileSync(claude, a, "utf8");
+    if (!existsSync3(claude)) {
+      writeFileSync2(claude, a, "utf8");
       written.push("CLAUDE.md");
     } else if (readText(claude) === a)
       kept.push("CLAUDE.md");
     else {
       const backup = `CLAUDE.md.${Date.now()}.bak`;
-      writeFileSync(join(root, backup), readText(claude), { encoding: "utf8", flag: "wx" });
-      writeFileSync(claude, a, "utf8");
+      writeFileSync2(join3(root, backup), readText(claude), { encoding: "utf8", flag: "wx" });
+      writeFileSync2(claude, a, "utf8");
       written.push(backup, "CLAUDE.md");
     }
   }
-  const index = join(root, "index.md");
-  if (existsSync(index)) {
+  const index = join3(root, "index.md");
+  if (existsSync3(index)) {
     const text = readText(index);
     const fm = parseFrontmatter(text);
     const head = fm ? text.slice(0, text.indexOf(`
@@ -500,7 +1027,7 @@ function render(root) {
 ${body}
 `;
     if (next !== text) {
-      writeFileSync(index, next, "utf8");
+      writeFileSync2(index, next, "utf8");
       written.push("index.md");
     } else
       kept.push("index.md");
