@@ -121,6 +121,8 @@ Rodné číslo, číslo dokladu, trvalý pobyt a dátum narodenia sú v tabuľke
 | `STANDING_AUTH_INVALID` | poverenie v `okf.config` sa nedá použiť (dátum nie je `RRRR-MM-DD`, `granted_at` po `expires_at`, chýba pole) — zápisy do L1/L3 vyžadujú `--approve-as` | varovanie |
 | `CITATION_UNRESOLVED` | `[^id]` v texte bez položky v `sources` — veta vyzerá podložene a nie je | **chyba** |
 | `SOURCE_ID_DUPLICATE` | to isté `id` prameňa dvakrát | **chyba** |
+| `L3_SOURCE_MISSING` | `authority` bez `source`/`verified_via`/`verified_at` — do L3 sa nezapíše ani nevaliduje bez overeného prameňa | **chyba** |
+| `SUBJECT_SOURCE_MISSING` | `subject` bez `source` (zdroja overenia — OR/ARES/register) | varovanie |
 | `AML_MISSING` | subjekt v role `klient` nemá žiadne preverenie | varovanie |
 | `AML_EXPIRED` | `platnost_do` preverenia je v minulosti (§ 9) | varovanie |
 | `AML_INCOMPLETE` | FO, PO alebo podnikateľ nemá kompletnú sadu podľa predpisu svojej jurisdikcie | varovanie |

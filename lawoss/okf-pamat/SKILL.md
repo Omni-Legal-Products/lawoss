@@ -19,6 +19,8 @@ Citáciu do výstupu overuj vždy proti originálu dokumentu, nikdy proti pamät
 Pred prvou odpoveďou spusti `okf-memory preamble <spis>` a výstupom sa riaď
 po celú session. Ban-list je záväzný: prameň zo sekcie „Necitovať" nesmieš
 použiť ani nepriamo — namiesto neho povedz, prečo je zakázaný (dôvod je pri zázname).
+Ak preambula ohlási nečitateľné súbory, zastav sa a povedz to advokátovi —
+ban-list môže byť neúplný.
 
 ## Kam čo patrí
 
@@ -36,6 +38,10 @@ použiť ani nepriamo — namiesto neho povedz, prečo je zakázaný (dôvod je 
 | pracovné pravidlo, preferencia kancelárie | `rule` | **L1** |
 | poučenie z chyby, čo nabudúce inak | `lesson` | **L1** |
 | judikát, ustanovenie, argumentačný vzor — len s `source` + `verified_via` + `verified_at`; navigačný nález (napr. komentárový korpus) sa najprv dooveruje v primárnom prameni | `authority` | **L3** |
+
+Na ban-list (sekcia „Necitovať" v preambule) sa prameň dostane nastavením
+`status: banned` alebo `deprecated` — oba sa v nej objavia; `superseded`
+(prekonaný novším, ale stále citovateľným prameňom) nie.
 
 ## Zápis
 
@@ -109,10 +115,12 @@ Než skončíš, prejdi čo sa v session stalo a navrhni zápisy:
 
 1. zmena stavu veci → `matter` · taktická voľba → `decision` · nový termín → `deadline` v zázname
 2. návrhy priprav cez `okf-memory write <spis> --file <navrh.md> --reason "…"` **bez `--apply`** a ukáž diff
-3. L2 zapíš s `--apply` sám, ak platí trvalé poverenie; L1/L3 nechaj na advokáta
+3. L2 zapíš s `--apply` sám vždy; L1/L3 vyžaduje schválenie advokáta (`--approve-as`)
+   alebo platné trvalé poverenie, ktoré danú vrstvu pokrýva
 4. ak advokát tvoj výstup v session prepísal, navrhni `lesson` — čo nabudúce inak
 
 Session bez jediného návrhu zápisu je podozrivá — buď sa nič nestalo, alebo si nedával pozor.
+Potom prejdi kontrolný zoznam nižšie.
 
 ## Pred ukončením práce v spise
 
