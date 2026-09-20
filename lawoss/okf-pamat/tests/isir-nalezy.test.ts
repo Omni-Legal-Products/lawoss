@@ -18,7 +18,11 @@ const D = { today: "2026-09-03" };
 const T = "2026-09-03";
 const rec = (id: string, type: OkfRecord["type"], title: string, over: Partial<OkfRecord> = {}): OkfRecord => ({
   ...newRecord({ id, type, jurisdiction: "cz", title, description: "d", created: T, updated: T, truth: "t",
-    timeline: [{ date: T, text: "z" }] }), ...over });
+    timeline: [{ date: T, text: "z" }],
+    // N5: authority/subject v týchto testoch preveruje niečo iné (jehly,
+    // smerovanie do kancelárie, kolízie id) — zdroj je tu vyplnený naschvál
+    // neutrálne, aby brána L3_SOURCE_MISSING tie testy nezakryla.
+    source: "test", verified_via: "test", verified_at: T }), ...over });
 
 /** kancelária → klient → spis, s trvalým poverením pre L1/L3 */
 function kancelaria(): { root: string; klient: string; spis: string } {

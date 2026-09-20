@@ -1,22 +1,27 @@
 /**
  * Brány zápisu do pamäte.
  *
- * Dve pravidlá, ktoré nejde obísť promptom, lebo nie sú v prompte:
+ * Pravidlá, ktoré nejde obísť promptom, lebo nie sú v prompte:
  *
  *  1. ATOMICITA PRAVDY — zmena sekcie „Truth" musí v tom istom zápise
  *     pridať riadok do „History". Zmena pravdy bez stopy je nemožná.
  *  2. HUMAN GATE — do L1 a L3 a pri mazaní kdekoľvek zapíše iba človek.
  *     Agent smie navrhnúť (planWrite), nesmie vykonať (authorize zlyhá).
+ *  3. PRAMEŇ (N5) — `authority` bez source/verified_via/verified_at sa do
+ *     L3 nezapíše (assertHasSource zlyhá). Nie je to schválenie, je to
+ *     kvalita dát — beží popri authorize, nie namiesto neho.
  *
- * planWrite aj authorize sú čisté funkcie — nesiahajú na disk.
+ * planWrite, authorize aj assertHasSource sú čisté funkcie — nesiahajú na disk.
  */
 
 import type { OkfRecord, TimelineEntry } from "./record.ts";
 import type { Layer } from "./schema.ts";
+import { checkL3Sources } from "./validate.ts";
 
 export class TimelineIntegrityError extends Error {}
 export class ApprovalRequiredError extends Error {}
 export class StaleUpdatedError extends Error {}
+export class L3SourceMissingError extends Error {}
 
 export interface Approval {
   readonly by: string;
@@ -179,4 +184,18 @@ export function authorize(diff: WriteDiff, approval: Approval | undefined): void
   throw new ApprovalRequiredError(
     `${why} (${diff.id}) vyžaduje schválenie človekom — agent smie iba navrhnúť`,
   );
+}
+
+/**
+ * Brána N5. `authority` bez `source` / `verified_via` / `verified_at` sa do
+ * L3 nezapíše — nie je to schválenie (to rieši `authorize`), ale kvalita
+ * dát: navigačný nález nie je prameň, kým sa nedoverí v primárnom prameni.
+ * Rovnaká kontrola beží aj vo `validate` (`checkL3Sources`), aby zápis
+ * a validácia nemohli tichým behom rozísť.
+ */
+export function assertHasSource(after: OkfRecord | undefined): void {
+  if (!after || after.type !== "authority") return;
+  const chyby = checkL3Sources([after]).filter((f) => f.code === "L3_SOURCE_MISSING");
+  if (chyby.length === 0) return;
+  throw new L3SourceMissingError(chyby.map((f) => `${f.code}: ${f.message}`).join(" "));
 }

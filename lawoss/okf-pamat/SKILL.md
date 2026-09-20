@@ -29,7 +29,7 @@ Citáciu do výstupu overuj vždy proti originálu dokumentu, nikdy proti pamät
 | AML preverenie k dátumu | `screening` | L2, **u klienta** |
 | pracovné pravidlo, preferencia kancelárie | `rule` | **L1** |
 | poučenie z chyby, čo nabudúce inak | `lesson` | **L1** |
-| judikát, ustanovenie, argumentačný vzor | `authority` | **L3** |
+| judikát, ustanovenie, argumentačný vzor — len s `source` + `verified_via` + `verified_at`; navigačný nález (napr. komentárový korpus) sa najprv dooveruje v primárnom prameni | `authority` | **L3** |
 
 ## Zápis
 
