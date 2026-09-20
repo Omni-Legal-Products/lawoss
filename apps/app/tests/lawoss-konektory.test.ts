@@ -114,20 +114,13 @@ describe("settledItems — zlyhanie jedného zoznamu neskryje druhý", () => {
   });
 });
 
-describe("Konektory page contract", () => {
-  test("stránka číta z rovnakých volaní ako Settings a nemá fiktívny zoznam", async () => {
-    const source = await Bun.file(
-      new URL("../src/lawoss/domains/konektory/konektory-page.tsx", import.meta.url),
-    ).text();
-
-    expect(source).toContain("listMcp(");
-    expect(source).toContain("listSkills(");
-    expect(source).toContain("mcp.status(");
-    expect(source).toContain("toConnectorRows(");
-    // Zoznamy sa načítavajú nezávisle — pád jedného nesmie zhodiť celú stránku.
-    expect(source).toContain("settledItems(client.listMcp(");
-    expect(source).toContain("settledItems(client.listSkills(");
-    expect(source).not.toContain("const CONNECTORS");
-    expect(source).not.toContain("Slov-Lex");
+describe("Konektory compatibility route", () => {
+  test("opens native integrations for the selected workspace without a second loader", async () => {
+    const { KonektoryPage } = await import("../src/lawoss/domains/konektory/konektory-page");
+    const { NativeIntegrationsRedirect } = await import("../src/lawoss/domains/marketplace/native-redirect");
+    const { nativeIntegrationRoute } = await import("../src/lawoss/domains/marketplace/native-actions");
+    const element = KonektoryPage();
+    expect(element.type).toBe(NativeIntegrationsRedirect);
+    expect(nativeIntegrationRoute(element.props.from, "selected-folder")).toBe("/workspace/selected-folder/settings/extensions/mcp");
   });
 });

@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { useEffect, useMemo, useState } from "react";
+import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import { useNavigate } from "react-router-dom";
 
 import { pickDirectory } from "@/app/lib/desktop";
@@ -10,7 +11,8 @@ import { composePrompt, targetDir, type Jurisdikcia, type NovySpisForm, type Sub
 import { loadOkfConnection, openSessionWithPrompt, type OkfConnection } from "../../okf/connection";
 import { groupPlan, workspaceRelativePath, type PlanGroupItem } from "../../okf/plan-groups";
 import { previewPlan } from "../../okf/preview";
-import { NOVY_SPIS_SKILL_NAME, OKF_CLI_RESOURCE_NAME, OKF_MEMORY_CLI_RESOURCE_NAME, OKF_PAMAT_SKILL_NAME, okfCliSource, okfMemoryCliSource, pamatSkillBody, skillBody } from "../../okf/skill-bundle";
+import { NOVY_SPIS_SKILL_NAME } from "../../okf/skill-bundle";
+import { prepareOkfDraft, okfTargetWithinWorkspace } from "./prepare-draft";
 
 const SUBJECTS: Array<{ id: SubjectKind; label: string }> = [
   { id: "pravnicka-osoba", label: "Právnická osoba" },
@@ -40,16 +42,31 @@ function PlanGroup({ title, items, empty, tone }: { title: string; items: PlanGr
   );
 }
 
-/**
- * Nový spis — Fáza A. Nič nezakladá sám: pripraví skill + CLI vo workspace a
- * odovzdá požiadavku agentovi, ktorý plán ukáže advokátovi pred zápisom.
- * Žije pod Experimentmi; upstream „Add folder“ ostáva nedotknuté.
- */
-export function NovySpisPage() {
-  const navigate = useNavigate();
-  const [connection, setConnection] = useState<OkfConnection | null>(null);
-  const [connError, setConnError] = useState<string | null>(null);
-  const [workspaceId, setWorkspaceId] = useState("");
+export type NovySpisPanelProps = {
+  connection: Pick<OkfConnection, "client" | "baseUrl" | "token">;
+  workspace: RouteWorkspace;
+  onOpenSession: (route: string) => void;
+};
+
+/** The native dialog and the legacy route share this workspace-bound form. */
+export function NovySpisPanel({ connection, workspace, onOpenSession }: NovySpisPanelProps) {
+  const [canWrite, setCanWrite] = useState(false);
+  const [permissionError, setPermissionError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setCanWrite(false);
+    setPermissionError(null);
+    if (!connection.client) return;
+    connection.client.capabilities().then((capabilities) => {
+      if (cancelled) return;
+      const allowed = capabilities.skills.write && Boolean(capabilities.skillResources?.write);
+      setCanWrite(allowed);
+      if (!allowed) setPermissionError("Workspace nepovoľuje zápis skillov a ich súborov.");
+    }).catch((error: unknown) => {
+      if (!cancelled) setPermissionError(error instanceof Error ? error.message : String(error));
+    });
+    return () => { cancelled = true; };
+  }, [connection.client]);
   const [busy, setBusy] = useState<"plan" | "confirm" | null>(null);
   const [status, setStatus] = useState<Status>(null);
   const [probe, setProbe] = useState<Probe | null>(null);
@@ -60,27 +77,14 @@ export function NovySpisPage() {
   /** Koreň zadaný ručne alebo cez dialóg; prázdny = koreň workspace-u. */
   const [rootOverride, setRootOverride] = useState("");
 
-  useEffect(() => {
-    let cancelled = false;
-    loadOkfConnection()
-      .then((next) => {
-        if (cancelled) return;
-        setConnection(next);
-        setWorkspaceId((current) => current || next.activeWorkspaceId);
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) setConnError(error instanceof Error ? error.message : String(error));
-      });
-    return () => { cancelled = true; };
-  }, []);
-
-  const workspace = useMemo(
-    () => connection?.workspaces.find((item) => item.id === workspaceId) ?? null,
-    [connection, workspaceId],
-  );
   const effectiveRoot = rootOverride.trim() || workspace?.path || "";
   const effectiveForm = useMemo<NovySpisForm>(() => ({ ...form, root: effectiveRoot }), [form, effectiveRoot]);
-  const rootOutsideWorkspace = Boolean(workspace?.path && effectiveRoot && workspaceRelativePath(effectiveRoot, workspace.path) === null);
+  const rootOutsideWorkspace = !okfTargetWithinWorkspace(targetDir(effectiveForm), workspace);
+  useEffect(() => {
+    setProbe(null);
+    setResult(null);
+    setStatus(null);
+  }, [effectiveForm, workspace.id]);
 
   async function pickRoot() {
     try {
@@ -102,7 +106,7 @@ export function NovySpisPage() {
   const prompt = useMemo(() => composePrompt(effectiveForm), [effectiveForm]);
   const set = <K extends keyof NovySpisForm>(key: K, value: NovySpisForm[K]) => setForm((current) => ({ ...current, [key]: value }));
 
-  const canAct = Boolean(connection?.client && workspace && form.mode === "okf");
+  const canAct = Boolean(connection.client && canWrite && workspace.workspaceType !== "remote" && workspace.path && !rootOutsideWorkspace && form.title.trim() && form.mode === "okf");
   // Plán platí len pre cestu, pre ktorú sa zisťoval. Premenovaním veci sa schová
   // a „Potvrdiť“ zhasne — advokát nepotvrdí plán, ktorý sa medzitým zmenil.
   const planShown = probe?.dir === dir && probe.formKey === JSON.stringify(effectiveForm);
@@ -113,8 +117,9 @@ export function NovySpisPage() {
    * súbory vznikajú nanovo. Neexistujúci priečinok nie je chyba, len prázdny výsledok.
    */
   async function showPlan() {
+    if (!connection.client || rootOutsideWorkspace || workspace.workspaceType === "remote") return;
     setBusy("plan"); setStatus(null); setResult(null);
-    const relative = workspace ? workspaceRelativePath(dir, workspace.path) : null;
+    const relative = workspace ? workspaceRelativePath(dir.replaceAll("\\", "/"), workspace.path.replaceAll("\\", "/")) : null;
     let names: string[] = [];
     if (connection?.client && workspace && relative !== null) {
       try {
@@ -133,21 +138,16 @@ export function NovySpisPage() {
   }
 
   async function confirmCreate() {
-    if (!connection?.client || !workspace) return;
+    if (!connection.client || !canAct || !planShown) return;
     setBusy("confirm"); setStatus(null);
     try {
-      const body = skillBody();
-      await connection.client.upsertSkill(workspace.id, { name: NOVY_SPIS_SKILL_NAME, content: body.content, description: body.description });
-      await connection.client.upsertSkillResource(workspace.id, NOVY_SPIS_SKILL_NAME, { name: OKF_CLI_RESOURCE_NAME, content: okfCliSource() });
-      // Pamäť spisu ide spolu so založením: bez nej agent do OKF nezapíše.
-      const pamat = pamatSkillBody();
-      await connection.client.upsertSkill(workspace.id, { name: OKF_PAMAT_SKILL_NAME, content: pamat.content, description: pamat.description });
-      await connection.client.upsertSkillResource(workspace.id, OKF_PAMAT_SKILL_NAME, { name: OKF_MEMORY_CLI_RESOURCE_NAME, content: okfMemoryCliSource() });
-      const route = await openSessionWithPrompt(connection, workspace, prompt);
+      const route = await prepareOkfDraft(connection.client, workspace, () => openSessionWithPrompt(
+        { ...connection, workspaces: [workspace], activeWorkspaceId: workspace.id }, workspace, prompt,
+      ));
       setResult({ dir, route });
       setStatus({
         tone: "ok",
-        text: `Skill /${NOVY_SPIS_SKILL_NAME} je vo workspace „${workspace.name}“ a požiadavka čaká v novej session. Agent overí plán a vykoná potvrdené vytvorenie; pri konflikte sa zastaví.`,
+        text: `Návrh čaká v novom rozhovore workspace „${workspace.name}“. Cieľový priečinok zatiaľ nebol vytvorený. Otvorte rozhovor, skontrolujte a odošlite požiadavku agentovi.`,
       });
 
     } catch (error) {
@@ -158,36 +158,17 @@ export function NovySpisPage() {
   }
 
   return (
-    <LawossLayout>
-      <h1 className="lw-h1">Nový spis</h1>
+    <section aria-label="Spis podľa OKF">
+      <h2 className="text-lg font-medium">Spis podľa OKF</h2>
       <p className="lw-lead">
-        Založíme priečinok klienta tak, aby sa v ňom vyznal agent aj bez LAWOSS. Originály ostávajú, pridáva sa iba to,
-        čo chýba. Skontroluj plán a odovzdaj potvrdené vytvorenie asistentovi.
+        Pripravte plán a návrh požiadavky pre asistenta. Po odoslaní v rozhovore agent overí plán a vytvorí priečinok; pri konflikte si vyžiada upresnenie.
       </p>
 
-      <div className="lw-form">
+      <fieldset className="lw-form" disabled={busy !== null}>
         <div className="lw-field lw-field-wide">
-          <span className="lw-sc">Ako založiť</span>
-          <div className="lw-choice">
-            <button type="button" className={`lw-choice-item ${form.mode === "okf" ? "on" : ""}`} onClick={() => set("mode", "okf")}>
-              <b>Spis podľa OKF</b><small>Karta klienta alebo veci, pamäť, podklady a evidencia vstupov.</small>
-            </button>
-            <button type="button" className={`lw-choice-item ${form.mode === "plain" ? "on" : ""}`} onClick={() => set("mode", "plain")}>
-              <b>Obyčajný priečinok</b><small>Presne to, čo robí LegalWork dnes — použi „Add folder“ v sidebare.</small>
-            </button>
-          </div>
-        </div>
-
-        <label className="lw-field">
           <span className="lw-sc">Workspace (kde beží agent)</span>
-          <select className="lw-input" value={workspaceId} onChange={(event) => setWorkspaceId(event.target.value)} disabled={!connection}>
-            {!connection ? <option value="">načítavam…</option> : null}
-            {connection && connection.workspaces.length === 0 ? <option value="">žiadny workspace</option> : null}
-            {connection?.workspaces.map((item) => (
-              <option key={item.id} value={item.id}>{item.displayNameResolved || item.name} — {item.path}</option>
-            ))}
-          </select>
-        </label>
+          <p>{workspace.displayNameResolved || workspace.name} — {workspace.path}</p>
+        </div>
 
         <div className="lw-field">
           <span className="lw-sc">Koreňový priečinok (kam vznikne)</span>
@@ -203,7 +184,7 @@ export function NovySpisPage() {
             ) : null}
           </div>
           {rootOutsideWorkspace ? (
-            <small className="lw-hint-warn">Mimo workspace-u — agent naň potrebuje povolenie (Tool Permissions).</small>
+            <small className="lw-hint-warn">Vyberte cieľ vo vybranom workspace. Iný koreň najprv otvorte cez „Pridať priečinok“.</small>
           ) : null}
         </div>
 
@@ -217,6 +198,12 @@ export function NovySpisPage() {
         <label className="lw-field">
           <span className="lw-sc">Názov</span>
           <input className="lw-input" value={form.title} onChange={(event) => set("title", event.target.value)} placeholder="ACME s.r.o." />
+        </label>
+
+        <label className="lw-field">
+          <span className="lw-sc">Názov priečinka (voliteľné)</span>
+          <input className="lw-input" value={form.slug ?? ""} onChange={(event) => set("slug", event.target.value)} placeholder={form.title || "Podľa názvu"} />
+          <small>Názov na karte ostane nezmenený.</small>
         </label>
 
         <label className="lw-field">
@@ -276,7 +263,7 @@ export function NovySpisPage() {
             <span className="lw-switch-knob" />
           </button>
         </label>
-      </div>
+      </fieldset>
 
       <div className="lw-reg">
         <div className="lw-reg-h">
@@ -302,30 +289,60 @@ export function NovySpisPage() {
         <pre className="lw-pre">{prompt}</pre>
       </div>
 
-      {connError ? <div className="lw-status err">{connError}</div> : null}
+      {permissionError ? <div role="alert" className="lw-status err">{permissionError}</div> : null}
       {connection && !connection.client ? (
-        <div className="lw-status warn">Server LegalWork nebeží alebo chýba token — plán sa zostaví z formulára, potvrdenie nie je dostupné.</div>
+        <div className="lw-status warn">Pripojenie nie je dostupné — overenie plánu ani príprava rozhovoru zatiaľ nie sú možné.</div>
       ) : null}
       {status ? <div className={`lw-status ${status.tone}`}>{status.text}</div> : null}
 
       <div className="lw-actions">
-        <button type="button" className="lw-btn-secondary" disabled={form.mode !== "okf" || busy !== null} onClick={() => void showPlan()}>
+        <button type="button" className="lw-btn-secondary" disabled={!connection.client || rootOutsideWorkspace || workspace.workspaceType === "remote" || !form.title.trim() || busy !== null} onClick={() => void showPlan()}>
           {busy === "plan" ? "Zisťujem…" : "Zobraziť plán"}
         </button>
         {result ? (
-          <button type="button" className="lw-btn" onClick={() => navigate(result.route)}>Otvoriť rozhovor</button>
+          <button type="button" className="lw-btn" onClick={() => onOpenSession(result.route)}>Otvoriť rozhovor</button>
         ) : (
           <button type="button" className="lw-btn" disabled={!canAct || !planShown || busy !== null} onClick={() => void confirmCreate()}>
-            {busy === "confirm" ? "Odovzdávam…" : "Potvrdiť vytvorenie"}
+            {busy === "confirm" ? "Odovzdávam…" : "Pripraviť návrh rozhovoru"}
           </button>
         )}
       </div>
 
       <div className="lw-note">
         <span><b>Zobraziť plán</b> prečíta cieľový priečinok a rozdelí zmeny na tri skupiny. Zápis sa nekoná.</span>
-        <span><b>Potvrdiť vytvorenie</b> vloží skill <span className="lw-mono">/{NOVY_SPIS_SKILL_NAME}</span> do workspace-u a odovzdá požiadavku agentovi — ten plán overí a vykoná potvrdené vytvorenie.</span>
+        <span><b>Pripraviť návrh rozhovoru</b> vloží skill <span className="lw-mono">/{NOVY_SPIS_SKILL_NAME}</span> do workspace-u a uloží neodoslaný návrh v novom rozhovore. Cieľový priečinok tým ešte nevznikne.</span>
         <span>Preverenie je do získania a posúdenia zdroja neúplné. Založenie priečinka nepotvrdzuje splnenie AML povinností.</span>
       </div>
-    </LawossLayout>
+    </section>
   );
+}
+
+/** Compatibility route; native Add folder supplies its existing connection directly. */
+export function NovySpisPage() {
+  const navigate = useNavigate();
+  const [connection, setConnection] = useState<OkfConnection | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [workspaceId, setWorkspaceId] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    loadOkfConnection().then((next) => {
+      if (cancelled) return;
+      setConnection(next);
+      setWorkspaceId(next.activeWorkspaceId);
+    }).catch((value: unknown) => {
+      if (!cancelled) setError(value instanceof Error ? value.message : String(value));
+    });
+    return () => { cancelled = true; };
+  }, []);
+  const workspaces = connection?.workspaces.filter((item) => item.workspaceType !== "remote" && item.path) ?? [];
+  const workspace = workspaces.find((item) => item.id === workspaceId) ?? workspaces[0];
+  return <LawossLayout>
+    {error ? <p role="alert">{error}</p> : null}
+    {!connection && !error ? <p>Načítavam workspace…</p> : null}
+    {connection && !workspace ? <p>Najprv otvorte lokálny pracovný priečinok cez „Pridať priečinok“.</p> : null}
+    {workspaces.length > 1 ? <label>Workspace <select value={workspace?.id ?? ""} onChange={(event) => setWorkspaceId(event.target.value)}>
+      {workspaces.map((item) => <option key={item.id} value={item.id}>{item.displayNameResolved || item.name}</option>)}
+    </select></label> : null}
+    {connection && workspace ? <NovySpisPanel key={workspace.id} connection={connection} workspace={workspace} onOpenSession={navigate} /> : null}
+  </LawossLayout>;
 }

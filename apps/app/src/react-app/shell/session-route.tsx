@@ -122,6 +122,7 @@ import { runFusionSend } from "@/react-app/domains/session/fusion/fusion-control
 import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/session/fusion/fusion-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
+import { NovySpisPanel } from "@/lawoss/domains/novy-spis/novy-spis-page";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import { AiPlansOverlay } from "@/react-app/domains/onboarding/ai-plans-overlay";
@@ -2523,6 +2524,21 @@ export function SessionRoute() {
     />
     <CreateWorkspaceModal
       open={createWorkspaceOpen}
+      additionalContent={createWorkspaceOpen && !createWorkspaceBusy && selectedWorkspace && selectedWorkspace.workspaceType !== "remote" && selectedWorkspace.path && selectedWorkspaceEndpoint && !selectedWorkspaceError && !selectedWorkspaceIsLoading ? (
+        <details className="rounded-xl border border-dls-border p-4">
+          <summary className="cursor-pointer text-sm font-medium">Pripraviť nový spis podľa OKF</summary>
+          <NovySpisPanel
+            key={selectedWorkspace.id}
+            connection={selectedWorkspaceEndpoint}
+            workspace={selectedWorkspace}
+            onOpenSession={(route) => {
+              setCreateWorkspaceOpen(false);
+              navigate(route);
+              void refreshRouteState();
+            }}
+          />
+        </details>
+      ) : undefined}
       onClose={() => {
         setCreateWorkspaceOpen(false);
         setCreateWorkspaceError(null);

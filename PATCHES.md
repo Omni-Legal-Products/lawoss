@@ -145,3 +145,20 @@ Prvý nový priečinok z hlavnej obrazovky teraz pred vytvorením rozhovoru spus
 PR #62, #68, #72 a #63 sú začlenené so zachovaným pôvodom. Navigácia hlavného a odpojeného okna používa presný origin; dev launcher overuje identitu checkoutu Vite. `scripts/dev.mjs` už nevnucuje port 9823 a `apps/desktop/scripts/electron-dev.mjs` nevypisuje falošnú adresu CDP pri `off`; bez premennej sa zachová upstream automatický port. Príručka testera zodpovedá tomuto správaniu.
 
 PR #63 rieši len vyhľadanie inštalátora pri nezhode architektúry. Prevádzka update feedu, publikovanie inštalátorov, podpisovanie a zladenie alpha tagov s verziami ostávajú samostatne nevyriešené; tento merge nepredstavuje funkčné vydanie ani automatické aktualizácie.
+
+### OKF v natívnom Pridať priečinok (2026-09-20)
+
+| Súbory upstreamu | Úprava a dôvod |
+|---|---|
+| `apps/app/src/react-app/domains/workspace/create-workspace-modal.tsx`, `types.ts` | Voliteľný `ReactNode` slot pre doplnkový obsah; bez slotu ostáva pôvodný tok otvorenia lokálneho priečinka. |
+| `apps/app/src/react-app/shell/session-route.tsx` | Rozbaliteľný spoločný panel OKF pre dostupný vybraný lokálny workspace; dostáva existujúci endpoint, klienta a oprávnenia, pri zatvorení sa odpojí. Bez workspace zostáva obyčajné Pridať priečinok. Panel overí právo zápisu skillov a pripraví neodoslaný návrh rozhovoru; nepotvrdzuje vznik cieľových súborov ani neregistruje neoverený priečinok. Staršia experimentálna adresa používa rovnaký panel bez duplikácie formulára. |
+
+### LAWOSS katalóg v natívnych Integrations (2026-09-20)
+
+| Súbory upstreamu | Úprava a dôvod |
+|---|---|
+| `apps/app/src/react-app/shell/settings-route.tsx` | Pripája zelený `NativeCatalog` a čítanie existujúceho registra `listCloudPlugins` k vybranému natívnemu endpointu/workspace. Natívne MCP zoznamy dostávajú reálne `extensionsStore.skills()` a importované balíky namiesto prázdnych polí. Inštalácia používa pôvodné callbacks/API a oprávnenia; refresh obnoví balíky, skills aj MCP vrátane čiastočných chýb. Zmena workspace odpojí rozpracované preview. |
+| `apps/app/src/react-app/domains/settings/pages/extensions-view.tsx` | Voliteľný `catalogView` slot v lokálnej záložke Plugins; pôvodné Team, scope prepínače, import a OpenCode Plugins ostávajú natívne. |
+| `apps/app/src/react-app/domains/settings/pages/mcp-view.tsx` | Detail importovaného balíka používa typ plugin a označenie „Nainštalované“; samotný import sa už nevydáva za pripojenie MCP. |
+
+Staré `/marketplace` a `/konektory` sú v zelenom LAWOSS routeri iba presmerovania do natívnych záložiek Plugins/MCP pre zapamätaný vybraný workspace. Experimentálny zoznam ich už neponúka a pôvodné stránky nenačítavajú paralelné pripojenie. Verejné registre zatiaľ používa existujúci import do workspace; globálna inštalácia týmto API nie je implementovaná a katalóg to uvádza. Kontrola upstream syncu: zachovať slot, mapovanie endpoint/workspace, rozlíšenie installed/connected a obnovu všetkých troch natívnych zoznamov po zmene.

@@ -116,35 +116,38 @@ export function CreateWorkspaceModal(props: CreateWorkspaceModalProps) {
           </div>
         </DialogHeader>
 
-        <CreateWorkspaceLocalPanel
-          selectedFolder={selectedFolder}
-          hasSelectedFolder={hasSelectedFolder}
-          pickingFolder={pickingFolder}
-          onPickFolder={() => void handlePickFolder()}
-          submitting={submitting}
-          localError={localError}
-          onClose={props.onClose}
-          onSubmit={() => void handleLocalSubmit()}
-          confirmLabel={props.confirmLabel}
-          workerLabel={props.workerLabel}
-          onConfirmWorker={props.onConfirmWorker}
-          preset={preset}
-          workerSubmitting={workerSubmitting}
-          workerDisabled={workerDisabled}
-          workerDisabledReason={workerDisabledReason}
-          workerCtaLabel={props.workerCtaLabel}
-          workerCtaDescription={props.workerCtaDescription}
-          onWorkerCta={props.onWorkerCta}
-          workerRetryLabel={props.workerRetryLabel}
-          onWorkerRetry={props.onWorkerRetry}
-          workerDebugLines={workerDebugLines}
-          progress={progress}
-          elapsedSeconds={elapsedSeconds}
-          showProgressDetails={showProgressDetails}
-          onToggleProgressDetails={() =>
-            setShowProgressDetails((prev) => !prev)
-          }
-        />
+        <div className={props.additionalContent ? "min-h-0 flex-1 overflow-y-auto space-y-4" : "contents"}>
+          <CreateWorkspaceLocalPanel
+            selectedFolder={selectedFolder}
+            hasSelectedFolder={hasSelectedFolder}
+            pickingFolder={pickingFolder}
+            onPickFolder={() => void handlePickFolder()}
+            submitting={submitting}
+            localError={localError}
+            onClose={props.onClose}
+            onSubmit={() => void handleLocalSubmit()}
+            confirmLabel={props.confirmLabel}
+            workerLabel={props.workerLabel}
+            onConfirmWorker={props.onConfirmWorker}
+            preset={preset}
+            workerSubmitting={workerSubmitting}
+            workerDisabled={workerDisabled}
+            workerDisabledReason={workerDisabledReason}
+            workerCtaLabel={props.workerCtaLabel}
+            workerCtaDescription={props.workerCtaDescription}
+            onWorkerCta={props.onWorkerCta}
+            workerRetryLabel={props.workerRetryLabel}
+            onWorkerRetry={props.onWorkerRetry}
+            workerDebugLines={workerDebugLines}
+            progress={progress}
+            elapsedSeconds={elapsedSeconds}
+            showProgressDetails={showProgressDetails}
+            onToggleProgressDetails={() =>
+              setShowProgressDetails((prev) => !prev)
+            }
+          />
+          {props.additionalContent}
+        </div>
       </DialogContent>
     </Dialog>
   );

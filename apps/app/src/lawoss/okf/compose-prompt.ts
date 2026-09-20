@@ -17,6 +17,8 @@ export type NovySpisForm = {
   clientName?: string;
   subject: SubjectKind;
   title: string;
+  /** Voliteľný názov priečinka; ľudský názov veci zostáva v title. */
+  slug?: string;
   ico: string;
   jurisdikcia: Jurisdikcia;
   verify: boolean;
@@ -45,7 +47,8 @@ export function entityTypeFor(subject: SubjectKind): EntityType {
  * koreň sám a `.názov` skrytý priečinok, ktorý `okf` pri prehľadávaní preskočí.
  */
 export function targetDir(form: NovySpisForm): string {
-  const name = form.title.replace(/[\\/]+/g, "-").replace(/\.{2,}/g, "-").replace(/^[\s.]+|\s+$/g, "") || "[názov]";
+  const segment = (value: string) => value.replace(/[\\/]+/g, "-").replace(/\.{2,}/g, "-").replace(/^[\s.]+|\s+$/g, "");
+  const name = segment(form.slug ?? "") || segment(form.title) || "[názov]";
   const root = form.root.replace(/[\\/]+$/, "");
   return root ? `${root}/${name}` : name;
 }

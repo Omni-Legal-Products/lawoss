@@ -19,6 +19,20 @@ describe("nový spis — požiadavka pre agenta", () => {
     expect(targetDir({ ...form, root: "/a/b/" })).toBe("/a/b/ACME s.r.o.");
     expect(targetDir({ ...form, root: "", title: "" })).toBe("[názov]");
   });
+  test("an explicit folder name leaves the matter title unchanged", () => {
+    const named = { ...form, subject: "spis" as const, title: "Novák — 14 C 101/2025", slug: "novak-odvolanie" };
+    expect(targetDir(named)).toBe("/Users/x/Klienti/novak-odvolanie");
+    expect(composePrompt(named)).toContain('--title "Novák — 14 C 101/2025"');
+    expect(composePrompt(named)).toContain('okf plan spis "/Users/x/Klienti/novak-odvolanie"');
+  });
+  test("a supplied folder name cannot introduce traversal or nested directories", () => {
+    expect(targetDir({ ...form, slug: "../other\\nested/name" })).toBe("/Users/x/Klienti/--other-nested-name");
+    expect(targetDir({ ...form, slug: " .hidden" })).toBe("/Users/x/Klienti/hidden");
+  });
+  test("an empty folder name falls back to the readable title", () => {
+    expect(targetDir({ ...form, slug: "   " })).toBe(targetDir(form));
+    expect(targetDir({ ...form, slug: "." })).toBe(targetDir(form));
+  });
   /**
    * Spisová značka má vždy lomítko (`MSPH 79 INS 1/2026`) a advokát ju do
    * názvu dá prakticky vždy. Bez sanitizácie sa ročník stal ďalšou

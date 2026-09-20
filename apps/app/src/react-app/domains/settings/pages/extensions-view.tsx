@@ -52,6 +52,8 @@ export type ExtensionsViewProps = {
   skillsView: ReactNode;
   /** Team ("shared with your firm") view for the Plugins tab. */
   pluginsFirmView?: ReactNode;
+  /** Optional downstream catalog; installation stays in the native workspace lifecycle. */
+  catalogView?: ReactNode;
   /** Whether the firm is connected + entitled (shows the Local/Team toggle). */
   hasTeamHub?: boolean;
   /** Opens the multi-select "Share with your firm" dialog. */
@@ -166,6 +168,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
           props.pluginsFirmView ?? null
         ) : (
         <div className="space-y-6">
+          {props.catalogView}
           <div className={`flex flex-wrap items-start gap-3 ${props.showHeader !== false ? "justify-end" : "justify-between"}`}>
             {props.showHeader === false ? (
               <p className="max-w-prose text-sm text-dls-secondary">

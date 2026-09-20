@@ -74,24 +74,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
     owner: "MČ",
     stav: "v testovaní",
   },
-  {
-    kind: "view",
-    id: "view-konektory",
-    to: "/konektory",
-    label: "Konektory",
-    note: "Stav MCP a skills zo Settings → Extensions, iba čítanie; pripájanie ostáva v Settings.",
-    owner: "MČ",
-    stav: "v testovaní",
-  },
-  {
-    kind: "view",
-    id: "view-marketplace",
-    to: "/marketplace",
-    label: "Marketplace",
-    note: "Ukážkový katalóg s pinnutými verziami — reálny katalóg čaká na lawoss-registry (fáza C7).",
-    owner: "MČ",
-    stav: "návrh",
-  },
+
 ];
 
 export const EXPERIMENT_FLAGS = EXPERIMENTS.filter((item) => item.kind === "flag");

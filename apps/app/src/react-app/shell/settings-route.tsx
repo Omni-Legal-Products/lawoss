@@ -3,6 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "@/components/ui/sonner";
 
+import { NativeCatalog } from "@/lawoss/domains/marketplace/native-catalog";
+import { useNativeIntegrations } from "@/lawoss/domains/marketplace/use-native-integrations";
+import { installWithRefresh } from "@/lawoss/domains/marketplace/native-actions";
+
 import { SUGGESTED_PLUGINS } from "@/app/constants";
 import type { EnablementContext } from "@/app/enablement";
 import { createClient } from "@/app/lib/opencode";
@@ -1552,6 +1556,26 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     !isRemoteWorkspace || legalworkServerSnapshot.legalworkServerCanWriteSkills;
   const canWriteWorkspacePlugins =
     !isRemoteWorkspace || legalworkServerSnapshot.legalworkServerCanWritePlugins;
+  const canInstallWorkspaceBundle = canWriteWorkspacePlugins && canWriteWorkspaceSkills &&
+    (!isRemoteWorkspace || (legalworkServerSnapshot.legalworkServerCapabilities?.mcp?.write === true &&
+      legalworkServerSnapshot.legalworkServerCapabilities?.skillResources?.write === true));
+  const canInstallOkfSkills = canWriteWorkspaceSkills &&
+    (!isRemoteWorkspace || legalworkServerSnapshot.legalworkServerCapabilities?.skillResources?.write === true);
+  const nativeIntegrations = useNativeIntegrations({
+    client: selectedWorkspaceEndpoint?.client ?? legalworkClient,
+    endpoint: selectedWorkspaceEndpoint?.baseUrl ?? baseUrl,
+    workspaceId: runtimeWorkspaceId,
+    enabled: route.tab === "extensions",
+    canRemove: canInstallWorkspaceBundle,
+    canInstallSkills: canInstallOkfSkills,
+    refreshSkills: () => extensionsStore.refreshSkills({ force: true }),
+    refreshPlugins: () => extensionsStore.refreshPlugins(),
+    refreshMcp: () => connectionsStore.refreshMcpServers(),
+  });
+  const refreshNativeIntegrations = () => {
+    window.dispatchEvent(new Event(STORAGE_CHANGED_EVENT));
+    void nativeIntegrations.refresh().catch((error) => toast.error(describeRouteError(error)));
+  };
   const skillsAccessHint =
     isRemoteWorkspace && !canWriteWorkspaceSkills ? t("app.skills_hint_readonly") : null;
   const pluginsAccessHint =
@@ -2172,6 +2196,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       case "extensions":
         return (
           <ExtensionsView
+            key={`${selectedWorkspaceEndpoint?.baseUrl ?? baseUrl}:${runtimeWorkspaceId}`}
             busy={busy}
             showHeader={props.singleView}
             selectedWorkspaceRoot={selectedWorkspaceRoot}
@@ -2187,15 +2212,29 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               const path = `extensions/${section}`;
               navigateSettingsPath(path);
             }}
-            onRefresh={() => {
-              window.dispatchEvent(new Event(STORAGE_CHANGED_EVENT));
-              void connectionsStore.refreshMcpServers();
-              void extensionsStore.refreshPlugins();
-            }}
+            onRefresh={refreshNativeIntegrations}
             previewClaudePlugin={(url) => extensionsStore.previewClaudePlugin(url)}
-            installClaudePlugin={(url) => extensionsStore.installClaudePlugin(url)}
+            installClaudePlugin={canInstallWorkspaceBundle ? (url) => installWithRefresh(
+              () => extensionsStore.installClaudePlugin(url), nativeIntegrations.refresh,
+            ) : undefined}
+            catalogView={<NativeCatalog
+              workspaceId={runtimeWorkspaceId ?? ""}
+              workspaceName={selectedWorkspaceName}
+              busy={busy}
+              loading={nativeIntegrations.loading}
+              error={nativeIntegrations.error}
+              plugins={nativeIntegrations.plugins}
+              skills={extensionsStore.skills()}
+              canInstallPlugin={Boolean(legalworkClient) && canInstallWorkspaceBundle}
+              canInstallSkills={Boolean(legalworkClient) && canInstallOkfSkills}
+              installPlugin={(url) => extensionsStore.installClaudePlugin(url)}
+              previewPlugin={(url) => extensionsStore.previewClaudePlugin(url)}
+              installOkf={nativeIntegrations.installOkf}
+              refresh={nativeIntegrations.refresh}
+            />}
             storageView={<FileStorageView client={isRemoteWorkspace ? selectedWorkspaceEndpoint?.client ?? legalworkClient : legalworkClient} workspaceId={runtimeWorkspaceId || selectedWorkspaceId || null} />}
-            mcpView={
+            mcpView={<>
+              {nativeIntegrations.error ? <p role="alert" className="text-sm text-red-11">{describeRouteError(nativeIntegrations.error)}</p> : null}
               <McpView
                 busy={busy}
                 workspaceKey={selectedWorkspace?.id}
@@ -2230,9 +2269,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                     : undefined
                 }
                 readConfigFile={(scope) => connectionsStore.readMcpConfigFile(scope)}
-                installedSkills={[]}
-                installedPlugins={[]}
-                uninstallSkill={(name) => { void extensionsStore.uninstallSkill(name); }}
+                installedSkills={extensionsStore.skills()}
+                installedPlugins={nativeIntegrations.plugins}
+                removeCloudPlugin={canInstallWorkspaceBundle ? (id) => nativeIntegrations.removePlugin(id).catch((error) => toast.error(describeRouteError(error))) : undefined}
+                uninstallSkill={canWriteWorkspaceSkills ? (name) => { void extensionsStore.uninstallSkill(name); } : undefined}
                 readSkill={(name) => extensionsStore.readSkill(name)}
                 showHeader={false}
                 canShareWithFirm={canShareWithFirm}
@@ -2254,7 +2294,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                   />
                 }
               />
-            }
+            </>}
             skillsView={
               <SkillsView
                 workspaceName={selectedWorkspaceName}
