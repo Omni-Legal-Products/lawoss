@@ -139,3 +139,9 @@ Rozsah a prijaté rozhodnutia: [zápis 11. 9.](https://github.com/Omni-Legal-Pro
 Kombinované riešenie `session-route.tsx` zachováva novú upstream obrazovku AI plánov za LAWOSS guardom, preskočenie komerčného onboardingu a skrytého recordera. Pôvodné vetvy a autorstvo sú zachované lokálnymi merge commitmi.
 
 Prvý nový priečinok z hlavnej obrazovky teraz pred vytvorením rozhovoru spustí desktop engine a použije jeho čerstvé pripojenie (`session-route.tsx`). Reprodukcia v čistom profile: HTTP server bežal, ale vytvorenie rozhovoru vrátilo `opencode_unconfigured`.
+
+### Desktopové opravy #47 a #51 (2026-09-20)
+
+PR #62, #68, #72 a #63 sú začlenené so zachovaným pôvodom. Navigácia hlavného a odpojeného okna používa presný origin; dev launcher overuje identitu checkoutu Vite. `scripts/dev.mjs` už nevnucuje port 9823 a `apps/desktop/scripts/electron-dev.mjs` nevypisuje falošnú adresu CDP pri `off`; bez premennej sa zachová upstream automatický port. Príručka testera zodpovedá tomuto správaniu.
+
+PR #63 rieši len vyhľadanie inštalátora pri nezhode architektúry. Prevádzka update feedu, publikovanie inštalátorov, podpisovanie a zladenie alpha tagov s verziami ostávajú samostatne nevyriešené; tento merge nepredstavuje funkčné vydanie ani automatické aktualizácie.

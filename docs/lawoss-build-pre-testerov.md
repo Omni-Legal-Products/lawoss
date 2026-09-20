@@ -110,12 +110,20 @@ Pri hlásení uveďte:
 
 ## Ladiaci port Electronu
 
-`pnpm dev` **neotvára** ladiaci port (CDP). Kto sa naň pripojí, riadi okno
-aplikácie aj jej session, takže port je od 13. 9. 2026 na vyžiadanie:
+`pnpm dev` už nevnucuje port 9823. Bez premennej ostáva upstream správanie:
+Electron hľadá voľný port 9223–9227 pre vstavaný prehliadač. Kto sa na CDP
+pripojí, riadi okno aplikácie aj jej session.
+
+Ak vstavaný prehliadač nepotrebujete, port úplne vypnete:
+
+```bash
+LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT=off pnpm dev
+```
+
+Konkrétny port pre ladenie nastavíte takto:
 
 ```bash
 LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT=9823 pnpm dev
 ```
 
-Bez premennej beží appka rovnako, len bez otvoreného portu. Skript
-`scripts/legalwork-debug.sh` si port nastavuje sám.
+Skript `scripts/legalwork-debug.sh` si port nastavuje sám.

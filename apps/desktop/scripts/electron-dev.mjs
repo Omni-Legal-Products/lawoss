@@ -246,9 +246,8 @@ if (!viteReady) {
 
 const resolvedStartUrl = await waitForVite(startUrl);
 
-// Optional Electron CDP for external debugging / raw CDP clients.
-// NOT required for the built-in browser (uses native webContents APIs).
-// Set LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT=9823 to enable.
+// Override upstream automatic CDP for the built-in browser.
+// Use a port such as 9823 for debugging, or `off` to disable CDP.
 const cdpPortRaw = process.env.LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT?.trim() ?? "";
 const cdpPort = cdpPortRaw === "" || cdpPortRaw === "0" ? "" : cdpPortRaw;
 
@@ -264,7 +263,7 @@ electronChild = run(pnpmCmd, ["exec", "electron", "./electron/main.mjs"], {
   },
 });
 
-if (cdpPort) {
+if (cdpPort && cdpPort.toLowerCase() !== "off") {
   console.log(`[legalwork] Electron CDP exposed at http://127.0.0.1:${cdpPort}`);
 }
 

@@ -20,7 +20,7 @@ const child = spawn(
       ...process.env,
       LEGALWORK_DEV_MODE: "1",
       ...(webPreview ? { LEGALWORK_VISUAL_PREVIEW: "1" } : {}),
-      // LAWOSS: ladiaci port len na vyžiadanie — viď apps/desktop/scripts/dev-remote-debug.mjs
+      // LAWOSS: nevnucovať port 9823; upstream automatika alebo explicitné `off`.
       ...remoteDebugEnv(process.env),
     },
   },

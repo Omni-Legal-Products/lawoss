@@ -1,10 +1,7 @@
 /**
- * LAWOSS: ladiaci port Electronu (CDP) sa otvára len na vyžiadanie.
- *
- * `scripts/dev.mjs` dosadzoval `LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT = "9823"`,
- * keď premenná nebola nastavená, takže `pnpm dev` vždy otvoril ladiaci port na
- * loopbacku. Kto sa naň pripojí, riadi okno appky aj jej session. `electron-dev.mjs`
- * pritom premennú berie ako opt-in („Set … to enable"), takže default patril sem.
+ * LAWOSS: dev launcher no longer forces port 9823. Without an override,
+ * main.mjs retains upstream automatic CDP for the built-in browser;
+ * the explicit setting `off` disables it entirely.
  */
 
 /** Port musí byť celé číslo 1–65535; čokoľvek iné sa ignoruje. */
