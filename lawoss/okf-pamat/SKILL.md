@@ -14,6 +14,12 @@ description: Use when reading or writing case memory in an OKF matter folder (sp
 **Nikdy nečítaj celý spis „pre istotu".** Register je mapa, dokumenty sú prameň.
 Citáciu do výstupu overuj vždy proti originálu dokumentu, nikdy proti pamäti.
 
+## Na začiatku session nad spisom
+
+Pred prvou odpoveďou spusti `okf-memory preamble <spis>` a výstupom sa riaď
+po celú session. Ban-list je záväzný: prameň zo sekcie „Necitovať" nesmieš
+použiť ani nepriamo — namiesto neho povedz, prečo je zakázaný (dôvod je pri zázname).
+
 ## Kam čo patrí
 
 | Čo sa objavilo | Typ záznamu | Vrstva |
@@ -86,6 +92,27 @@ a prípravu návrhu**. Vlastný zápis nechaj CLI.
   Validátor to zachytí aj bez diakritiky a v inom formáte dátumu. Ak vráti
   `L3_LEAK_SUSPECT` (varovanie), je to krátke meno a rozhoduje človek —
   neprepisuj prameň sám, ukáž nález advokátovi.
+
+### Popis záznamu je háčik, nie zhrnutie
+
+`popis` sa renderuje do `index.md` — je to jediné, podľa čoho budúci agent
+rozhodne, či záznam otvoriť. Píš, čo musí čitateľ vedieť, aby siahol správne:
+
+- ✅ `1 VSPH 1195/2024 NECITOVAŤ ako oporu — NS otázku nevyriešil`
+- ✅ `plán neprejde testom § 348/1/d — schodok voči veriteľovi X`
+- ❌ `poznámky k judikatúre o zpeněžení` (nič nehovorí)
+- ❌ `zápis zo stretnutia 8. 9.` (dátum nie je obsah)
+
+## Na konci session nad spisom
+
+Než skončíš, prejdi čo sa v session stalo a navrhni zápisy:
+
+1. zmena stavu veci → `matter` · taktická voľba → `decision` · nový termín → `deadline` v zázname
+2. návrhy priprav cez `okf-memory write <spis> --file <navrh.md> --reason "…"` **bez `--apply`** a ukáž diff
+3. L2 zapíš s `--apply` sám, ak platí trvalé poverenie; L1/L3 nechaj na advokáta
+4. ak advokát tvoj výstup v session prepísal, navrhni `lesson` — čo nabudúce inak
+
+Session bez jediného návrhu zápisu je podozrivá — buď sa nič nestalo, alebo si nedával pozor.
 
 ## Pred ukončením práce v spise
 
