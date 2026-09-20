@@ -63,8 +63,13 @@ export const LAYER_OF: Record<RecordType, Layer> = {
 /** `map` = ploché mapovanie, `maplist` = zoznam plochých mapovaní (OKF `sources`, `verified`). */
 export type FieldKind = "string" | "number" | "list" | "map" | "maplist";
 
-/** Stav záznamu. `superseded` = prekonaný novším, `void` = zrušený ako omyl. */
-export const STATUS = ["active", "superseded", "void"] as const;
+/**
+ * Stav záznamu. `superseded` = prekonaný novším, `void` = zrušený ako omyl.
+ * `banned`/`deprecated` (N4) patria k `authority` — prameň, ktorý sa už
+ * necituje (napr. rozhodnutie, ktoré NS neskôr korigoval), ale zostáva
+ * v pamäti ako ban-list, nie zmazaný.
+ */
+export const STATUS = ["active", "superseded", "void", "banned", "deprecated"] as const;
 export type Status = (typeof STATUS)[number];
 
 /** Druh osoby. Rozlíšenie fyzická × právnická je v CZ aj SK rovnaké. */
@@ -416,6 +421,8 @@ const VALUE_LABELS: Record<string, Record<string, Record<Jurisdiction, string>>>
     active: { cz: "platný", sk: "platný" },
     superseded: { cz: "překonaný", sk: "prekonaný" },
     void: { cz: "zrušený", sk: "zrušený" },
+    banned: { cz: "zakázaný — necitovat", sk: "zakázaný — necitovať" },
+    deprecated: { cz: "překonaný", sk: "prekonaný" },
   },
   role: {
     client: { cz: "klient", sk: "klient" },
