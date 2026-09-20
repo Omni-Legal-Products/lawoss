@@ -3,10 +3,10 @@ name: OKF pamäť
 on:
   pull_request:
     branches: [dev]
-    paths: ["lawoss/okf-pamat/**", ".github/workflows/ci-okf-pamat.yml"]
+    paths: ["lawoss/okf-pamat/**", "lawoss/okf-handoff/**", ".github/workflows/ci-okf-pamat.yml"]
   push:
     branches: [dev]
-    paths: ["lawoss/okf-pamat/**", ".github/workflows/ci-okf-pamat.yml"]
+    paths: ["lawoss/okf-pamat/**", "lawoss/okf-handoff/**", ".github/workflows/ci-okf-pamat.yml"]
 
 permissions:
   contents: read
@@ -51,6 +51,10 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      - name: Natívny handoff
+        working-directory: .
+        run: bun test lawoss/okf-handoff/
 
       - name: Bundle je čerstvý
         # `bundle/okf-memory.js` sa inštaluje do workspace-u ako CLI skillu

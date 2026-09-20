@@ -596,7 +596,7 @@ Prijatý originál zachovaj byte-identický aj s pôvodným názvom. Rovnaké n�
 var ENTITY_TYPES = ["klient", "spis", "projekt"];
 
 // src/fs.ts
-import { existsSync as existsSync3, lstatSync, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync3, statSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { existsSync as existsSync3, lstatSync as lstatSync2, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync3, statSync, writeFileSync as writeFileSync2 } from "node:fs";
 import { dirname as dirname2, join as join3, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
 // src/core.ts
 var OKF_VERSION = "0.1";
@@ -1017,7 +1017,7 @@ function readConfiguredLawyerName(officeDir) {
 }
 
 // ../okf-pamat/src/store.ts
-import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync2, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync as existsSync2, lstatSync, mkdirSync, readFileSync as readFileSync2, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join as join2, relative, resolve, sep } from "node:path";
 
 // ../okf-pamat/src/validate.ts
@@ -1130,7 +1130,7 @@ function apply(p) {
     if (!target.startsWith(root + sep2))
       throw new Error(`Cesta opúšťa priečinok entity: ${entry.path}`);
     for (let part = target;part !== root; part = dirname2(part)) {
-      if (lstatSync(part, { throwIfNoEntry: false })?.isSymbolicLink())
+      if (lstatSync2(part, { throwIfNoEntry: false })?.isSymbolicLink())
         throw new Error(`Cesta vedie cez symbolický odkaz: ${entry.path}`);
     }
   }

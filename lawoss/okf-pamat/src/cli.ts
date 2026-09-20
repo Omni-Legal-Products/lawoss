@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
-  readStore, readScope, writeIndex, writeLog, syncStatus, retrofitStatusFile, ensureBrain, applyRecordWrite, standingApproval,
+  readStore, readScope, syncProjections, ProjectionWriteError, retrofitStatusFile, ensureBrain, applyRecordWrite, standingApproval,
   findOfficeDir, OFFICE_DIR,
   jurisdictionFromCard, MEMORY_DIR, statusLinkResolver, findClientDir, STATUS_FILE,
 } from "./store.ts";
@@ -193,15 +193,8 @@ export function runCli(argv: readonly string[]): CliResult {
           const zmena = before === after ? "bez zmeny" : "_STATUS.md by sa zmenil";
           return ok(`dry-run: ${zmena}; INDEX.md by dostal ${riadkov(s.records.length)}. Zapíš s --apply.`);
         }
-        syncStatus(dir);
-        writeIndex(dir);
-        writeLog(dir);
-        // Klientský `memory/` je tiež bundle a doteraz nedostal index ani log.
+        syncProjections(dir);
         const klient = findClientDir(dir);
-        if (klient) {
-          writeIndex(klient);
-          writeLog(klient);
-        }
         return ok(
           `Zapísané: _STATUS.md, index.md a log.md (${zaznamov(s.records.length)})` +
             `${klient ? " + index.md a log.md u klienta" : ""}.`,
@@ -210,6 +203,7 @@ export function runCli(argv: readonly string[]): CliResult {
         // Konflikt sekcií je stav spisu, nie chyba programu — advokát dostane
         // vetu, čo urobiť, nie výpis interpretu.
         if (e instanceof RenderConflictError) return { code: 1, out: `KONFLIKT: ${e.message}` };
+        if (e instanceof ProjectionWriteError) return { code: 1, out: `ODMIETNUTÉ: ${e.message}` };
         throw e;
       }
     }

@@ -7,7 +7,7 @@ import { existsSync as existsSync3, mkdirSync as mkdirSync2, readFileSync as rea
 import { join as join3, resolve as resolve2 } from "node:path";
 
 // src/store.ts
-import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync2, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync as existsSync2, lstatSync, mkdirSync, readFileSync as readFileSync2, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname, join as join2, relative, resolve, sep } from "node:path";
 
@@ -1104,12 +1104,12 @@ function appendBlock(text, b, body, j) {
 function statusSkeleton(j) {
   const head = j === "cz" ? `# Status věci
 
-> **Fáze:** 
-> **Další krok:** 
+> **Fáze:**
+> **Další krok:**
 ` : `# Status veci
 
-> **Fáza:** 
-> **Ďalší krok:** 
+> **Fáza:**
+> **Ďalší krok:**
 `;
   return BLOCKS.reduce((t, b) => appendBlock(t, b, EMPTY[j], j), head);
 }
@@ -2129,7 +2129,68 @@ function scopeLinkResolver(dir, insideMemory) {
 function statusLinkResolver(dir) {
   return scopeLinkResolver(dir, false);
 }
+
+class ProjectionWriteError extends Error {
+}
+function projectionStat(path) {
+  try {
+    return lstatSync(path);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT")
+      return;
+    throw error;
+  }
+}
+function assertProjectionDirectory(dir, boundary = dir) {
+  for (let path = resolve(dir);; path = dirname(path)) {
+    const info = projectionStat(path);
+    if (info && (info.isSymbolicLink() || !info.isDirectory())) {
+      throw new ProjectionWriteError(`Nebezpečný cieľ projekcie ${path}: symbolický odkaz alebo nepravidelný adresár.`);
+    }
+    if (path === resolve(boundary) || dirname(path) === path)
+      break;
+  }
+}
+function assertProjectionFile(path, root) {
+  assertProjectionDirectory(dirname(path), root);
+  const info = projectionStat(path);
+  if (info && (info.isSymbolicLink() || !info.isFile())) {
+    throw new ProjectionWriteError(`Nebezpečný cieľ projekcie ${path}: symbolický odkaz alebo iný než bežný súbor.`);
+  }
+}
+function preflightBundleProjections(dir) {
+  assertProjectionDirectory(dir);
+  assertProjectionDirectory(join2(dir, MEMORY_DIR), dir);
+  for (const name of [INDEX_FILE, LEGACY_INDEX_FILE, LOG_FILE])
+    assertProjectionFile(join2(dir, MEMORY_DIR, name), dir);
+}
+function writeProjection(path, content, root) {
+  assertProjectionFile(path, root);
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporary, content, { encoding: "utf8", flag: "wx", mode: projectionStat(path)?.mode ?? 384 });
+    renameSync(temporary, path);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
+}
+function syncProjections(dir) {
+  const clientDir = findClientDir(dir);
+  assertProjectionDirectory(dir, clientDir ?? dir);
+  assertProjectionFile(join2(dir, STATUS_FILE), dir);
+  preflightBundleProjections(dir);
+  if (clientDir)
+    preflightBundleProjections(clientDir);
+  syncStatus(dir);
+  writeIndex(dir);
+  writeLog(dir);
+  if (clientDir) {
+    writeIndex(clientDir);
+    writeLog(clientDir);
+  }
+}
 function writeIndex(dir) {
+  preflightBundleProjections(dir);
   const scope = completeScope(dir);
   const store = scope.matter;
   if (!existsSync2(store.memoryDir))
@@ -2164,11 +2225,12 @@ function writeIndex(dir) {
   if (readdirSync(store.memoryDir).includes(LEGACY_INDEX_FILE)) {
     rmSync(join2(store.memoryDir, LEGACY_INDEX_FILE), { force: true });
   }
-  writeFileSync(join2(store.memoryDir, INDEX_FILE), lines.join(`
+  writeProjection(join2(store.memoryDir, INDEX_FILE), lines.join(`
 `) + `
-`, "utf8");
+`, dir);
 }
 function writeLog(dir) {
+  preflightBundleProjections(dir);
   const scope = completeScope(dir);
   const store = scope.matter;
   if (!existsSync2(store.memoryDir))
@@ -2190,8 +2252,8 @@ function writeLog(dir) {
   for (const datum of [...podlaDatumu.keys()].sort().reverse()) {
     lines.push(`## ${datum}`, "", ...podlaDatumu.get(datum) ?? [], "");
   }
-  writeFileSync(join2(store.memoryDir, LOG_FILE), lines.join(`
-`), "utf8");
+  writeProjection(join2(store.memoryDir, LOG_FILE), lines.join(`
+`), dir);
 }
 function ensureBrain(dir, j) {
   const path = join2(dir, BRAIN_FILE);
@@ -2280,15 +2342,18 @@ function ensureBrain(dir, j) {
 `), "utf8");
 }
 function syncStatus(dir) {
+  assertProjectionFile(join2(dir, STATUS_FILE), dir);
   const scope = completeScope(dir);
   const store = scope.matter;
   const path = join2(dir, STATUS_FILE);
   const existing = existsSync2(path) ? readFileSync2(path, "utf8") : "";
   const next = renderStatus(existing, scope.records, store.jurisdiction, statusLinkResolver(dir));
   if (next !== existing)
-    writeFileSync(path, next, "utf8");
+    writeProjection(path, next, dir);
 }
 function retrofitStatusFile(dir, apply) {
+  if (apply)
+    assertProjectionFile(join2(dir, STATUS_FILE), dir);
   const store = readStore(dir);
   const path = join2(dir, STATUS_FILE);
   if (!existsSync2(path))
@@ -2296,7 +2361,7 @@ function retrofitStatusFile(dir, apply) {
   const existing = readFileSync2(path, "utf8");
   const { text, inserted } = retrofitStatus(existing, store.records, store.jurisdiction, linkResolver(store, false));
   if (apply && inserted.length > 0)
-    writeFileSync(path, text, "utf8");
+    writeProjection(path, text, dir);
   return inserted;
 }
 var CLIENT_CARDS = ["client.md", "klient.md"];
@@ -2528,18 +2593,14 @@ ${serializeRecord(maskRecord(r))}`),
           const zmena = before === after ? "bez zmeny" : "_STATUS.md by sa zmenil";
           return ok(`dry-run: ${zmena}; INDEX.md by dostal ${riadkov(s.records.length)}. Zapíš s --apply.`);
         }
-        syncStatus(dir);
-        writeIndex(dir);
-        writeLog(dir);
+        syncProjections(dir);
         const klient = findClientDir(dir);
-        if (klient) {
-          writeIndex(klient);
-          writeLog(klient);
-        }
         return ok(`Zapísané: _STATUS.md, index.md a log.md (${zaznamov(s.records.length)})` + `${klient ? " + index.md a log.md u klienta" : ""}.`);
       } catch (e) {
         if (e instanceof RenderConflictError)
           return { code: 1, out: `KONFLIKT: ${e.message}` };
+        if (e instanceof ProjectionWriteError)
+          return { code: 1, out: `ODMIETNUTÉ: ${e.message}` };
         throw e;
       }
     }

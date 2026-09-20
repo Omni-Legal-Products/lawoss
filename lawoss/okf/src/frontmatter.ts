@@ -20,4 +20,3 @@ export function parseFrontmatter(text: string): Record<string, string> | null {
   }
   return null; // neuzavretý frontmatter
 }
-

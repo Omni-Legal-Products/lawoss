@@ -304,8 +304,8 @@ function appendBlock(text: string, b: BlockName, body: string, j: Jurisdiction):
 export function statusSkeleton(j: Jurisdiction): string {
   const head =
     j === "cz"
-      ? "# Status věci\n\n> **Fáze:** \n> **Další krok:** \n"
-      : "# Status veci\n\n> **Fáza:** \n> **Ďalší krok:** \n";
+      ? "# Status věci\n\n> **Fáze:**\n> **Další krok:**\n"
+      : "# Status veci\n\n> **Fáza:**\n> **Ďalší krok:**\n";
   return BLOCKS.reduce((t, b) => appendBlock(t, b, EMPTY[j], j), head);
 }
 

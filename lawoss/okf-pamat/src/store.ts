@@ -8,7 +8,7 @@
  * v _STATUS.md. Dokumenty spisu ani karty nikdy neotvára na zápis.
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { parseRecord, recordRevision, serializeRecord, type OkfRecord } from "./record.ts";
@@ -350,7 +350,72 @@ export function statusLinkResolver(dir: string): LinkResolver {
   return scopeLinkResolver(dir, false);
 }
 
+export class ProjectionWriteError extends Error {}
+
+function projectionStat(path: string) {
+  try {
+    return lstatSync(path);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+/** Check the selected root and every directory between it and its client, without following links. */
+function assertProjectionDirectory(dir: string, boundary = dir): void {
+  for (let path = resolve(dir); ; path = dirname(path)) {
+    const info = projectionStat(path);
+    if (info && (info.isSymbolicLink() || !info.isDirectory())) {
+      throw new ProjectionWriteError(`Nebezpečný cieľ projekcie ${path}: symbolický odkaz alebo nepravidelný adresár.`);
+    }
+    if (path === resolve(boundary) || dirname(path) === path) break;
+  }
+}
+
+function assertProjectionFile(path: string, root: string): void {
+  assertProjectionDirectory(dirname(path), root);
+  const info = projectionStat(path);
+  if (info && (info.isSymbolicLink() || !info.isFile())) {
+    throw new ProjectionWriteError(`Nebezpečný cieľ projekcie ${path}: symbolický odkaz alebo iný než bežný súbor.`);
+  }
+}
+
+function preflightBundleProjections(dir: string): void {
+  assertProjectionDirectory(dir);
+  assertProjectionDirectory(join(dir, MEMORY_DIR), dir);
+  for (const name of [INDEX_FILE, LEGACY_INDEX_FILE, LOG_FILE]) assertProjectionFile(join(dir, MEMORY_DIR, name), dir);
+}
+
+/** Replace the directory entry, so even a raced-in file symlink/hard link cannot overwrite its referent. */
+function writeProjection(path: string, content: string, root: string): void {
+  assertProjectionFile(path, root);
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporary, content, { encoding: "utf8", flag: "wx", mode: projectionStat(path)?.mode ?? 0o600 });
+    renameSync(temporary, path);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
+}
+
+/** Preflight every matter/client destination before the first sync mutation. */
+export function syncProjections(dir: string): void {
+  const clientDir = findClientDir(dir);
+  assertProjectionDirectory(dir, clientDir ?? dir);
+  assertProjectionFile(join(dir, STATUS_FILE), dir);
+  preflightBundleProjections(dir);
+  if (clientDir) preflightBundleProjections(clientDir);
+  syncStatus(dir);
+  writeIndex(dir);
+  writeLog(dir);
+  if (clientDir) {
+    writeIndex(clientDir);
+    writeLog(clientDir);
+  }
+}
+
 export function writeIndex(dir: string): void {
+  preflightBundleProjections(dir);
   const scope = completeScope(dir);
   const store = scope.matter;
   if (!existsSync(store.memoryDir)) return;
@@ -396,7 +461,7 @@ export function writeIndex(dir: string): void {
   if (readdirSync(store.memoryDir).includes(LEGACY_INDEX_FILE)) {
     rmSync(join(store.memoryDir, LEGACY_INDEX_FILE), { force: true });
   }
-  writeFileSync(join(store.memoryDir, INDEX_FILE), lines.join("\n") + "\n", "utf8");
+  writeProjection(join(store.memoryDir, INDEX_FILE), lines.join("\n") + "\n", dir);
 }
 
 /**
@@ -407,6 +472,7 @@ export function writeIndex(dir: string): void {
  * záznamov, takže sa s nimi nemôže rozísť.
  */
 export function writeLog(dir: string): void {
+  preflightBundleProjections(dir);
   const scope = completeScope(dir);
   const store = scope.matter;
   if (!existsSync(store.memoryDir)) return;
@@ -429,7 +495,7 @@ export function writeLog(dir: string): void {
   for (const datum of [...podlaDatumu.keys()].sort().reverse()) {
     lines.push(`## ${datum}`, "", ...(podlaDatumu.get(datum) ?? []), "");
   }
-  writeFileSync(join(store.memoryDir, LOG_FILE), lines.join("\n"), "utf8");
+  writeProjection(join(store.memoryDir, LOG_FILE), lines.join("\n"), dir);
 }
 
 /** Vstupný bod pre agentov. Nikdy neprepíše existujúci — je to ľudský súbor. */
@@ -520,22 +586,24 @@ export function ensureBrain(dir: string, j: Jurisdiction): void {
 
 /** Premietne pamäť do blokov _STATUS.md. Mimo markerov nemení nič. */
 export function syncStatus(dir: string): void {
+  assertProjectionFile(join(dir, STATUS_FILE), dir);
   const scope = completeScope(dir);
   const store = scope.matter;
   const path = join(dir, STATUS_FILE);
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
   const next = renderStatus(existing, scope.records, store.jurisdiction, statusLinkResolver(dir));
-  if (next !== existing) writeFileSync(path, next, "utf8");
+  if (next !== existing) writeProjection(path, next, dir);
 }
 
 /** Retrofit markerov do existujúceho `_STATUS.md`. Vráti, ktoré bloky pribudli. */
 export function retrofitStatusFile(dir: string, apply: boolean): BlockName[] {
+  if (apply) assertProjectionFile(join(dir, STATUS_FILE), dir);
   const store = readStore(dir);
   const path = join(dir, STATUS_FILE);
   if (!existsSync(path)) return [];
   const existing = readFileSync(path, "utf8");
   const { text, inserted } = retrofitStatus(existing, store.records, store.jurisdiction, linkResolver(store, false));
-  if (apply && inserted.length > 0) writeFileSync(path, text, "utf8");
+  if (apply && inserted.length > 0) writeProjection(path, text, dir);
   return inserted;
 }
 

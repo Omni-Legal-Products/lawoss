@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHandoff } from "./checkpoint.mjs";
@@ -69,4 +69,17 @@ test("changed matter binding after good checkpoint reports error without overwri
   expect((await handoff.checkpoint("ses_binding", "before-compaction")).ok).toBe(false);
   expect(readFileSync(good.path!, "utf8")).toBe(before);
   expect(readFileSync(join(root, ".lawoss/handoff/ses_binding.status.md"), "utf8")).toContain("state: error");
+});
+
+
+test("automatic handoff refuses a projection symlink without touching its external referent", async () => {
+  const root = fixture();
+  const outside = mkdtempSync(join(tmpdir(), "okf-handoff-external-")); roots.push(outside);
+  const original = join(outside, "original.txt"); writeFileSync(original, "external original");
+  symlinkSync(original, join(root, "memory", "log.md"));
+  const result = await createHandoff(root)!.checkpoint("ses_symlink", "before-turn");
+  expect(result.ok).toBe(false);
+  expect(readFileSync(original, "utf8")).toBe("external original");
+  expect(existsSync(join(root, "_STATUS.md"))).toBe(false);
+  expect(readFileSync(join(root, ".lawoss/handoff/ses_symlink.status.md"), "utf8")).toContain("state: error");
 });
