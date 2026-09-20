@@ -88,6 +88,8 @@ Merged exact upstream tag `v0.1.18` (`336270d`) onto LAWOSS `ec0f4c1`. LAWOSS-ow
 | `apps/app/src/react-app/domains/settings/shell/settings-page.tsx`, `apps/app/src/react-app/shell/welcome-route.tsx` | Keep Appearance and LAWOSS onboarding while adopting Extensions settings and upstream analytics lifecycle. |
 | `apps/desktop/resources/icons/**`, `apps/desktop/electron-builder.yml` | Keep LAWOSS icons and use LAWOSS artwork for the newly packaged dark dock icon. |
 | `apps/app/scripts/i18n-check.ts` | Odstránená výnimka `partial` pre `sk`/`cs` (kontrolujú sa na plné pokrytie ako `de`); kontrola kľúčov navyše pozná české a slovenské CLDR kategórie `_few`/`_many`, keď rodina má v `en.ts` `_other` | Preklad je dokončený, takže tolerovať anglický fallback by znamenalo, že nový chýbajúci kľúč prejde bez povšimnutia | VŘ | loc/prvy-preklad-sk-cz |
+| `apps/server/src/opencode-plugins/legalwork-word-tools.ts` | `isOpenWordFilePipelineCall` a `FILE_BACKEND_MARKERS` a pomocné `decodedDocumentUrl`/`documentName` presunuté bez zmeny do nového `legalwork-word-tools-shared.ts` (+1 import, −24 riadkov) | opencode volá každý export modulu pluginu ako plugin — rovnaká pasca ako v `legalwork-skill-tools` (PR #61) | VŘ | fix/word-tools-exporty-a-picker |
+| `apps/server/src/opencode-plugins/legalwork-word-tools.test.ts` | helper sa importuje zo shared modulu; +1 test „every export loads as a plugin entry point" | Regresia sa inak prejaví až pádom pri štarte enginu | VŘ | fix/word-tools-exporty-a-picker |
 
 The existing Word add-in changes, OKF modules, updater feeds, release customization and application tests are retained from the fork. No new LAWOSS behavior is introduced into the upstream extension implementation.
 
