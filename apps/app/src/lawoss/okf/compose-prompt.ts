@@ -3,7 +3,7 @@
  * skill /novy-spis zavolá okf CLI a plán ukáže advokátovi. Čistá funkcia,
  * aby sa dala otestovať bez React-u.
  */
-import type { EntityType } from "../../../../../lawoss/okf/src/core";
+import { sanitizeSegment, type EntityType } from "../../../../../lawoss/okf/src/core";
 
 export type Jurisdikcia = "SK" | "CZ";
 export type SubjectKind = "pravnicka-osoba" | "fyzicka-osoba" | "spis" | "projekt";
@@ -27,7 +27,7 @@ export function entityTypeFor(subject: SubjectKind): EntityType {
 }
 
 export function targetDir(form: NovySpisForm): string {
-  const title = form.title.trim() || "[názov]";
+  const title = sanitizeSegment(form.title.trim() || "[názov]");
   const root = form.root.replace(/[\\/]+$/, "");
   return root ? `${root}/${title}` : title;
 }

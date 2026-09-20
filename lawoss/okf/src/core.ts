@@ -154,3 +154,16 @@ export type DetectResult = {
   /** Súbory, ktoré by `plan` pre zistený (alebo zadaný) typ ešte vytvoril. */
   missing: string[];
 };
+
+/** Jeden bezpečný segment cesty z ľudského názvu veci. Lomítko je v spisovej
+ *  značke vždy (`43 INS 8294/2021`) — bez tohto by sa ročník stal priečinkom. */
+export function sanitizeSegment(raw: string): string {
+  const cleaned = raw
+    .replace(/[\u0000-\u001f]/g, "")
+    .replace(/[\\/]+/g, "-")
+    .replace(/\.{2,}/g, ".")
+    .replace(/^[.\s-]+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || "bez-nazvu";
+}
