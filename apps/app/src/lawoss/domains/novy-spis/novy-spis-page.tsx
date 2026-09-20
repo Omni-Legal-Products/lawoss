@@ -10,6 +10,7 @@ import { LawossLayout } from "../../shell/layout";
 import { composePrompt, targetDir, type Jurisdikcia, type NovySpisForm, type SubjectKind } from "../../okf/compose-prompt";
 import { loadOkfConnection, openSessionWithPrompt, type OkfConnection } from "../../okf/connection";
 import { groupPlan, workspaceRelativePath, type PlanGroupItem } from "../../okf/plan-groups";
+import { loadProfilePreview, type ProfilePreview } from "../../okf/load-profile";
 import { previewPlan } from "../../okf/preview";
 import { NOVY_SPIS_SKILL_NAME } from "../../okf/skill-bundle";
 import { prepareOkfDraft, okfTargetWithinWorkspace } from "./prepare-draft";
@@ -25,7 +26,7 @@ const SUBJECTS: Array<{ id: SubjectKind; label: string }> = [
 
 type Status = { tone: "ok" | "warn" | "err"; text: string } | null;
 /** Obsah cieľového priečinka zistený pri „Zobraziť plán“, viazaný na cestu, pre ktorú platí. */
-type Probe = { dir: string; names: string[]; formKey: string };
+type Probe = { dir: string; names: string[]; formKey: string; profile: ProfilePreview };
 
 function PlanGroup({ title, items, empty, tone }: { title: string; items: PlanGroupItem[]; empty: string; tone?: "warn" }) {
   return (
@@ -72,7 +73,7 @@ export function NovySpisPanel({ connection, workspace, onOpenSession }: NovySpis
   const [probe, setProbe] = useState<Probe | null>(null);
   const [result, setResult] = useState<{ dir: string; route: string } | null>(null);
   const [form, setForm] = useState<NovySpisForm>({
-    mode: "okf", subject: "pravnicka-osoba", title: "", ico: "", jurisdikcia: "SK", verify: true, root: "", protistrana: "", country: "SK", identifierType: "ICO", matterKind: "dispute", matterMode: "bounded", clientName: "",
+    mode: "okf", subject: "pravnicka-osoba", title: "", ico: "", jurisdikcia: "SK", root: "", protistrana: "", country: "SK", identifierType: "ICO", matterKind: "dispute", matterMode: "bounded", clientName: "",
   });
   /** Koreň zadaný ručne alebo cez dialóg; prázdny = koreň workspace-u. */
   const [rootOverride, setRootOverride] = useState("");
@@ -98,12 +99,13 @@ export function NovySpisPanel({ connection, workspace, onOpenSession }: NovySpis
   // Zistený obsah platí len pre cestu, pri ktorej sa zisťoval — po zmene názvu
   // alebo koreňa je plán opäť „všetko nové“, kým advokát nestlačí Zobraziť plán.
   const existing = useMemo(() => new Set(probe?.dir === dir ? probe.names : []), [probe, dir]);
-  const rows = useMemo(() => previewPlan(effectiveForm, (path) => existing.has(path)), [effectiveForm, existing]);
+  const rows = useMemo(() => previewPlan(effectiveForm, (path) => existing.has(path), probe?.profile.profile), [effectiveForm, existing, probe]);
   const groups = useMemo(
     () => groupPlan(rows, { form: effectiveForm, workspacePath: workspace?.path ?? "" }),
     [rows, effectiveForm, workspace],
   );
-  const prompt = useMemo(() => composePrompt(effectiveForm), [effectiveForm]);
+  const prompt = useMemo(() => composePrompt(effectiveForm, probe?.dir === dir && probe.formKey === JSON.stringify(effectiveForm)
+    ? { source: probe.profile.source, warning: probe.profile.warning, profile: probe.profile.profile, paths: rows.map((row) => row.path) } : undefined), [effectiveForm, probe, dir, rows]);
   const set = <K extends keyof NovySpisForm>(key: K, value: NovySpisForm[K]) => setForm((current) => ({ ...current, [key]: value }));
 
   const canAct = Boolean(connection.client && canWrite && workspace.workspaceType !== "remote" && workspace.path && !rootOutsideWorkspace && form.title.trim() && form.mode === "okf");
@@ -133,7 +135,18 @@ export function NovySpisPanel({ connection, workspace, onOpenSession }: NovySpis
         }
       }
     }
-    setProbe({ dir, names, formKey: JSON.stringify(effectiveForm) });
+    try {
+      if (relative === null) throw new Error("Cieľ je mimo workspace.");
+      const profile = await loadProfilePreview(connection.client, workspace.id, relative, form.subject === "spis");
+      // Root listings omit nested .keep files; probe every planned path before calling it new.
+      const entries = previewPlan(effectiveForm, () => false, profile.profile);
+      const stats = await Promise.all(entries.map(async (entry) => ({ path: entry.path, exists: (await connection.client!.statWorkspaceFile(workspace.id, `${relative}/${entry.path}`)).exists })));
+      names = stats.filter((entry) => entry.exists).map((entry) => entry.path);
+      setProbe({ dir, names, formKey: JSON.stringify(effectiveForm), profile });
+    } catch (error) {
+      setProbe(null);
+      setStatus({ tone: "err", text: `Profil alebo súbory sa nepodarilo overiť: ${error instanceof Error ? error.message : String(error)}` });
+    }
     setBusy(null);
   }
 
@@ -213,13 +226,24 @@ export function NovySpisPanel({ connection, workspace, onOpenSession }: NovySpis
 
         {form.subject !== "spis" && form.subject !== "projekt" ? <>
           <label className="lw-field">
-            <span className="lw-sc">Krajina klienta (ISO kód)</span>
+            <span className="lw-sc">Krajina registrácie / sídla (ISO kód)</span>
             <input className="lw-input" value={form.country ?? ""} onChange={(event) => set("country", event.target.value.toUpperCase())} placeholder="SK, CZ, AT…" maxLength={2} />
           </label>
           <label className="lw-field">
             <span className="lw-sc">Typ identifikátora</span>
             <input className="lw-input" value={form.identifierType ?? ""} onChange={(event) => set("identifierType", event.target.value)} placeholder="ICO, FN, interný identifikátor…" />
           </label>
+        </> : null}
+        {form.subject === "fyzicka-osoba" || form.subject === "fyzicka-osoba-podnikatel" ? <>
+          <label className="lw-field">
+            <span className="lw-sc">Občianstvo (ISO kódy)</span>
+            <input className="lw-input" value={form.citizenship ?? ""} onChange={(event) => set("citizenship", event.target.value.toUpperCase())} placeholder="SK alebo SK,CZ" />
+          </label>
+          <label className="lw-field">
+            <span className="lw-sc">Krajina pobytu (ISO kód)</span>
+            <input className="lw-input" value={form.residenceCountry ?? ""} onChange={(event) => set("residenceCountry", event.target.value.toUpperCase())} placeholder="SK, CZ, AT…" maxLength={2} />
+          </label>
+          <p className="lw-hint">Pri nepodnikateľovi absencia v obchodnom registri nepotvrdzuje identitu. Chýbajúce údaje asistent doplní pri identifikácii.</p>
         </> : null}
         {form.subject === "spis" ? <>
           <label className="lw-field">
@@ -257,12 +281,9 @@ export function NovySpisPanel({ connection, workspace, onOpenSession }: NovySpis
           <input className="lw-input" value={form.protistrana} onChange={(event) => set("protistrana", event.target.value)} placeholder="voliteľné" />
         </label>
 
-        <label className="lw-field lw-field-row">
-          <span>Pokúsiť sa preveriť klienta v príslušnom registri</span>
-          <button type="button" role="switch" aria-checked={form.verify} className={`lw-switch ${form.verify ? "on" : ""}`} onClick={() => set("verify", !form.verify)}>
-            <span className="lw-switch-knob" />
-          </button>
-        </label>
+        {form.subject !== "spis" && form.subject !== "projekt" ? <p className="lw-hint">
+          Pri založení sa preverí príslušný register. Nedostupný alebo nejednoznačný výsledok ostane označený ako neoverený.
+        </p> : null}
       </fieldset>
 
       <div className="lw-reg">
@@ -272,6 +293,8 @@ export function NovySpisPanel({ connection, workspace, onOpenSession }: NovySpis
         </div>
         {planShown ? (
           <>
+            <p className="lw-plan-empty">Pracovný profil: {probe?.profile.source}</p>
+            {probe?.profile.warning ? <p className="lw-hint-warn">{probe.profile.warning}</p> : null}
             <PlanGroup title="Pridá sa" items={groups.prida} empty="nič nové — priečinok už má všetko, čo profil predpisuje" />
             <PlanGroup title="Zostáva" items={groups.zostava} empty="priečinok je prázdny alebo ešte neexistuje" />
             <PlanGroup title="Vyžaduje pozornosť" items={groups.pozornost} empty="nič — plán je bez konfliktov" tone="warn" />

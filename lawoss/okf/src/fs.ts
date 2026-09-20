@@ -1,6 +1,6 @@
 /** Súborová vrstva OKF — jediné miesto, ktoré číta a píše na disk. */
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve, sep } from "node:path";
 
 import {
   CARD_FILE,
@@ -18,9 +18,24 @@ import {
 import { TEMPLATES } from "./templates.ts";
 import { readConfiguredLawyerName } from "../../okf-pamat/src/config.ts";
 import { findOfficeDir } from "../../okf-pamat/src/store.ts";
+import { PROFILE_FILE, parseOfficeWorkingProfile, parseWorkingProfile, type WorkingProfile } from "./profile.ts";
 
 function readText(path: string): string {
   return readFileSync(path, "utf8");
+}
+
+function storedProfile(dir: string): WorkingProfile | undefined {
+  const path = join(dir, PROFILE_FILE);
+  if (!existsSync(path)) return undefined;
+  return parseWorkingProfile(readText(path));
+}
+
+function officeProfile(dir: string): WorkingProfile | undefined {
+  const office = findOfficeDir(dir);
+  if (!office || !existsSync(join(office, "okf.config"))) return undefined;
+  const path = join(office, "okf.config");
+  if (!statSync(path).isFile()) return undefined;
+  return parseOfficeWorkingProfile(readText(path));
 }
 
 /** Všetky .md pod `root`, relatívne cesty, bez šablón a skrytých priečinkov. */
@@ -57,7 +72,7 @@ export function detect(dir: string, hint?: EntityType): DetectResult {
   const okfVersion = existsSync(indexPath) ? (parseFrontmatter(readText(indexPath))?.okf_version ?? null) : null;
   const effective = type ?? hint ?? null;
   const missing = effective
-    ? planEntity({ type: effective, dir, title: "" }, TEMPLATES, (p) => existsSync(join(dir, p))).entries
+    ? plan({ type: effective, dir, title: "" }).entries
         .filter((entry) => entry.action === "create").map((entry) => entry.path)
     : [];
   return { ...base, type, hasAgents, hasClaude, claudeIsMirror, okfVersion, markdownCount: listMarkdown(dir).length, missing };
@@ -67,7 +82,8 @@ export function plan(input: PlanInput): Plan {
   const agents = join(input.dir, "AGENTS.md");
   const templates = existsSync(agents) ? { ...TEMPLATES, [input.type]: { ...TEMPLATES[input.type], "AGENTS.md": readText(agents) } } : TEMPLATES;
   const advokat = input.advokat?.trim() || (input.type === "spis" ? readConfiguredLawyerName(findOfficeDir(input.dir)) : undefined);
-  const result = planEntity({ ...input, advokat }, templates, (p) => existsSync(join(input.dir, p)));
+  const profile = storedProfile(input.dir) ?? input.workingProfile ?? (input.type === "spis" ? officeProfile(input.dir) : undefined);
+  const result = planEntity({ ...input, advokat, workingProfile: profile }, templates, (p) => existsSync(join(input.dir, p)));
   if (existsSync(agents)) {
     const mirror = result.entries.find((entry) => entry.path === "CLAUDE.md" && entry.action === "create");
     if (mirror) mirror.content = readText(agents);
@@ -79,6 +95,16 @@ export function plan(input: PlanInput): Plan {
 export function apply(p: Plan): { created: string[]; skipped: string[] } {
   const created: string[] = [];
   const skipped: string[] = [];
+  // Vlastný pracovný priečinok nesmie presmerovať zápis cez symlink mimo entity.
+  // Over celý plán pred prvým zápisom, aby odmietnutie nezanechalo polovičný spis.
+  const root = resolve(p.dir);
+  for (const entry of p.entries.filter((item) => item.action === "create")) {
+    const target = resolve(root, entry.path);
+    if (!target.startsWith(root + sep)) throw new Error(`Cesta opúšťa priečinok entity: ${entry.path}`);
+    for (let part = target; part !== root; part = dirname(part)) {
+      if (lstatSync(part, { throwIfNoEntry: false })?.isSymbolicLink()) throw new Error(`Cesta vedie cez symbolický odkaz: ${entry.path}`);
+    }
+  }
   mkdirSync(p.dir, { recursive: true });
   for (const entry of p.entries) {
     const full = join(p.dir, entry.path);
@@ -93,9 +119,17 @@ export function apply(p: Plan): { created: string[]; skipped: string[] } {
 export function validate(root: string): ValidationError[] {
   if (!existsSync(root)) return [{ path: root, message: "priečinok neexistuje" }];
   const errors: ValidationError[] = [];
-  for (const rel of listMarkdown(root)) {
+  const documents = listMarkdown(root);
+  const workingPaths: string[] = [];
+  for (const rel of documents.filter((path) => path.split("/").pop() === PROFILE_FILE)) {
+    try {
+      const scope = dirname(join(root, rel));
+      for (const folder of storedProfile(scope)?.folders ?? []) workingPaths.push(relative(root, join(scope, folder)).split("\\").join("/") + "/");
+    } catch (error) { errors.push({ path: rel, message: error instanceof Error ? error.message : String(error) }); }
+  }
+  for (const rel of documents) {
     // Source documents and the generated agent entry point are not memory concepts.
-    if (rel.split("/").some((part) => WORKING_FOLDERS.some((folder) => folder === part)) || rel.split("/").pop() === "BRAIN.md") continue;
+    if (workingPaths.some((path) => rel.startsWith(path)) || rel.split("/").some((part) => WORKING_FOLDERS.some((folder) => folder === part)) || rel.split("/").pop() === "BRAIN.md") continue;
     const parent = dirname(join(root, rel));
     const bundleRoot = !rel.includes("/") || parent.endsWith("/memory") || ENTITY_TYPES.some((type) => existsSync(join(parent, CARD_FILE[type])));
     const error = validateMarkdown(rel, readText(join(root, rel)), bundleRoot);

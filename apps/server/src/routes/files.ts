@@ -82,6 +82,7 @@ export function normalizeWorkspaceRelativePath(input: string, options: { allowSu
 }
 
 export function isSupportedWorkspaceTextFilePath(relativePath: string): boolean {
+  if (basename(relativePath) === "okf.config") return true;
   const lowered = relativePath.toLowerCase();
   return [
     ".md",

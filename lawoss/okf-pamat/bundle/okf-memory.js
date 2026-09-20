@@ -1918,6 +1918,29 @@ function jurisdictionFromCard(dir) {
   }
   return;
 }
+function hasUnparsedBody(text) {
+  const lines = text.split(`
+`);
+  const body = lines.slice(lines.indexOf("---", 1) + 1);
+  let section = "";
+  const seen = new Set;
+  for (const line of body) {
+    if (!line.trim())
+      continue;
+    if (/^##\s+/.test(line)) {
+      const heading = /^##\s+(Truth|History)\s*$/.exec(line)?.[1];
+      if (!heading || seen.has(heading))
+        return true;
+      seen.add(heading);
+      section = heading;
+    } else if (section === "Truth") {
+      continue;
+    } else if (section !== "History" || !/^-\s*\d{4}-\d{2}-\d{2}\s*(?:\[[a-z_]+\]\s*)?[—-]\s*.*$/.test(line.trim())) {
+      return true;
+    }
+  }
+  return false;
+}
 function readStore(dir) {
   const memoryDir = join2(dir, MEMORY_DIR);
   const records = [];
@@ -1934,7 +1957,11 @@ function readStore(dir) {
       if (name === INDEX_FILE || name === LOG_FILE || name === LEGACY_INDEX_FILE)
         continue;
       try {
-        records.push(parseRecord(readFileSync2(join2(memoryDir, name), "utf8")));
+        const source = readFileSync2(join2(memoryDir, name), "utf8");
+        records.push(parseRecord(source));
+        if (hasUnparsedBody(source)) {
+          problems.push({ file: join2(memoryDir, name), message: "Časť obsahu mimo podporovaných sekcií Truth/History alebo riadkov History sa nedá načítať. Otvor celý zdrojový súbor; tento výpis nie je úplný." });
+        }
       } catch (e) {
         problems.push({ file: name, message: e instanceof Error ? e.message : String(e) });
       }
@@ -2064,11 +2091,13 @@ function linkResolver(store, zVnutraMemory) {
   const podlaId = new Map;
   if (existsSync2(store.memoryDir)) {
     for (const name of readdirSync(store.memoryDir)) {
-      if (!name.endsWith(".md"))
+      if (!name.endsWith(".md") || [INDEX_FILE, LOG_FILE, LEGACY_INDEX_FILE].includes(name))
         continue;
-      const id = name.replace(/\.md$/, "").split("-").slice(0, 2).join("-");
-      if (!podlaId.has(id))
-        podlaId.set(id, name);
+      try {
+        const { id } = parseRecord(readFileSync2(join2(store.memoryDir, name), "utf8"));
+        if (!podlaId.has(id))
+          podlaId.set(id, name);
+      } catch {}
     }
   }
   return (id) => {
@@ -2087,11 +2116,12 @@ function completeScope(dir) {
 function scopeLinkResolver(dir, insideMemory) {
   const scope = readScope(dir);
   const stores = [scope.matter, ...[scope.clientDir, scope.officeDir].flatMap((path) => path ? [readStore(path)] : [])];
+  const sources = stores.map((store) => ({ memoryDir: store.memoryDir, href: linkResolver(store, true) }));
   return (id) => {
-    for (const store of stores) {
-      const href = linkResolver(store, true)(id);
+    for (const source of sources) {
+      const href = source.href(id);
       if (href)
-        return "./" + relative(insideMemory ? join2(dir, MEMORY_DIR) : dir, join2(store.memoryDir, href)).split(sep).join("/");
+        return "./" + relative(insideMemory ? join2(dir, MEMORY_DIR) : dir, join2(source.memoryDir, href)).split(sep).join("/");
     }
     return;
   };
@@ -2423,8 +2453,24 @@ ${USAGE}` };
   switch (cmd) {
     case "read": {
       const scope = readScope(dir);
+      const problems = [...scope.problems];
+      const inputs = [];
+      const contextFiles = [
+        { path: join3(dir, "VSTUPY.md"), title: "Evidencia vstupov" },
+        { path: join3(dir, "KOMUNIKACNE-KANALY.md"), title: "Komunikačné kanály veci" },
+        ...scope.clientDir ? [{ path: join3(scope.clientDir, "KOMUNIKACNE-KANALY.md"), title: "Komunikačné kanály klienta" }] : []
+      ];
+      for (const { path, title } of contextFiles) {
+        try {
+          inputs.push(`## ${title} — ${path}`, readFileSync3(path, "utf8"));
+        } catch (error) {
+          if (!(error instanceof Error && ("code" in error) && error.code === "ENOENT")) {
+            problems.push({ file: path, message: error instanceof Error ? error.message : String(error) });
+          }
+        }
+      }
       const lines = [
-        ...problemLines(scope.problems),
+        ...problemLines(problems),
         `Spis: ${dir}`,
         `Jurisdikcia: ${scope.matter.jurisdiction}   Záznamov: ${scope.records.length}` + (scope.clientDir ? `, u klienta ${scope.clientRecords.length}` : "") + (scope.officeDir ? `, v kancelárii ${scope.officeRecords.length}` : ""),
         "",
@@ -2433,9 +2479,9 @@ ${USAGE}` };
 Revision ${r.id}: ${revisionHash(r)}
 
 ${serializeRecord(maskRecord(r))}`),
-        ...existsSync3(join3(dir, "VSTUPY.md")) ? ["## Evidencia vstupov", readFileSync3(join3(dir, "VSTUPY.md"), "utf8")] : []
+        ...inputs
       ];
-      return { code: scope.problems.length ? 1 : 0, out: lines.join(`
+      return { code: problems.length ? 1 : 0, out: lines.join(`
 `) };
     }
     case "validate": {

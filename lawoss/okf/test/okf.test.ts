@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -241,6 +241,27 @@ describe("kontrakt spisu", () => {
 });
 
 describe("alpha client and two matters", () => {
+  test("FO and entrepreneur keep citizenship, residence and registration country distinct", () => {
+    for (const type of ["fo", "fo-podnikatel"]) {
+      const dir = join(root, type);
+      expect(run(["apply", "klient", dir, "--title", "Synthetic Person", "--client-type", type, "--country", "cz", "--citizenship", "sk", "--residence-country", "at"], () => {})).toBe(0);
+      expect(parseFrontmatter(readFileSync(join(dir, "klient.md"), "utf8"))).toMatchObject({ country: "CZ", citizenship: "SK", residence_country: "AT" });
+    }
+  });
+  test("corporate client has shared documents and independent ongoing advisory matters", () => {
+    expect(run(["apply", "klient", root, "--title", "Synthetic Company", "--client-type", "po"], () => {})).toBe(0);
+    expect(existsSync(join(root, "01_Podklady"))).toBe(true);
+    for (const title of ["Korporatna podpora", "Pracovne pravo"]) {
+      const dir = join(root, "Spisy", title);
+      expect(run(["apply", "spis", dir, "--title", title, "--klient", "Synthetic Company", "--sk", "--matter-kind", "advisory", "--mode", "ongoing"], () => {})).toBe(0);
+      expect(parseFrontmatter(readFileSync(join(dir, "spis.md"), "utf8"))).toMatchObject({ matter_kind: "advisory", mode: "ongoing", sud: "", spisova_znacka: "" });
+      expect(existsSync(join(dir, "PRACOVNY-PROFIL.md"))).toBe(true);
+    }
+    render(root);
+    expect(readFileSync(join(root, "index.md"), "utf8")).toContain("Korporatna podpora");
+    expect(readFileSync(join(root, "index.md"), "utf8")).toContain("Pracovne pravo");
+    expect(validate(root)).toEqual([]);
+  });
   test("client identity and incomplete registry provenance survive CLI creation", () => {
     expect(run(["apply", "klient", root, "--title", "Example", "--client-type", "po", "--country", "AT", "--identifier-type", "FN", "--identifier", "123x"], () => {})).toBe(0);
     const card = parseFrontmatter(readFileSync(join(root, "klient.md"), "utf8"));
@@ -274,6 +295,64 @@ describe("alpha client and two matters", () => {
     writeFileSync(join(root, "AGENTS.md"), "---\ntype: agents\n---\nExisting instructions\n");
     apply(plan({ type: "spis", dir: root, title: "Vec" }));
     expect(readFileSync(join(root, "CLAUDE.md"), "utf8")).toBe(readFileSync(join(root, "AGENTS.md"), "utf8"));
+  });
+});
+
+describe("office working profile", () => {
+  const configure = (contents: string) => {
+    mkdirSync(join(root, "Office"), { recursive: true });
+    writeFileSync(join(root, "Office", "okf.config"), contents);
+  };
+  test("configured folders, roles and naming survive plan/apply and later config changes", () => {
+    configure('matter_folders: ["Podklady od klienta", "Drafty", "Research", "Dolezita posta"]\nfolder_roles:\n  drafts: Drafty\n  research: Research\n  correspondence: Dolezita posta\ndocument_naming: "{date}_{kind}_{client}"\n');
+    const dir = join(root, "clients", "synthetic", "matter");
+    const input = { type: "spis" as const, dir, title: "Synthetic", jurisdiction: "sk" as const };
+    const p = plan(input);
+    expect(p.entries.some((entry) => entry.path === "Drafty/.keep")).toBe(true);
+    expect(p.entries.some((entry) => entry.path === "03_Drafty/.keep")).toBe(false);
+    expect(existsSync(dir)).toBe(false);
+    apply(p);
+    expect(detect(dir).missing).toEqual([]);
+    const profile = readFileSync(join(dir, "PRACOVNY-PROFIL.md"), "utf8");
+    expect(profile).toContain("{date}_{kind}_{client}");
+    expect(profile).toContain("Drafty");
+    writeFileSync(join(dir, "Podklady od klienta", "original.md"), "Unmodified source without frontmatter\n");
+    expect(validate(dir)).toEqual([]);
+    configure('matter_folders: ["Different"]\n');
+    expect(apply(plan(input)).created).toEqual([]);
+    expect(existsSync(join(dir, "Different"))).toBe(false);
+    expect(readFileSync(join(dir, "PRACOVNY-PROFIL.md"), "utf8")).toBe(profile);
+  });
+  test("unsafe, conflicting and malformed profile paths fail before any write", () => {
+    const dir = join(root, "matter");
+    for (const contents of ['matter_folders: ["../outside"]', 'matter_folders: ["/outside"]', 'matter_folders: ["memory"]', 'matter_folders: [".opencode"]', 'matter_folders: ["spis.md/sub"]', 'matter_folders: ["Drafty", "drafty"]', 'matter_folders: wrong', 'folder_roles:\n  drafts: ../outside', 'document_naming: "../{date}"']) {
+      configure(contents);
+      expect(() => plan({ type: "spis", dir, title: "Synthetic" })).toThrow();
+      expect(existsSync(dir)).toBe(false);
+    }
+  });
+  test("retrofit preserves existing user folders and files", () => {
+    mkdirSync(join(root, "Existing drafts"));
+    writeFileSync(join(root, "Existing drafts", "original.docx"), "original bytes");
+    apply(plan({ type: "spis", dir: root, title: "Synthetic" }));
+    expect(readFileSync(join(root, "Existing drafts", "original.docx"), "utf8")).toBe("original bytes");
+  });
+  test("duplicate profile keys and role names are refused instead of choosing the last value", () => {
+    for (const contents of ['matter_folders: ["A"]\nmatter_folders: ["B"]', 'folder_roles:\n  drafts: 03_Drafty\n  drafts: 04_Vystupy', 'folder_roles: {drafts: 03_Drafty, drafts: 04_Vystupy}']) {
+      configure(contents);
+      expect(() => plan({ type: "spis", dir: join(root, "matter"), title: "Synthetic" })).toThrow();
+    }
+  });
+  test("apply refuses a configured folder symlink before creating any scaffold files", () => {
+    const outside = join(root, "outside");
+    const dir = join(root, "matter");
+    mkdirSync(outside);
+    mkdirSync(dir);
+    symlinkSync(outside, join(dir, "Drafty"), "dir");
+    configure('matter_folders: ["Drafty"]\n');
+    expect(() => apply(plan({ type: "spis", dir, title: "Synthetic" }))).toThrow();
+    expect(existsSync(join(outside, ".keep"))).toBe(false);
+    expect(existsSync(join(dir, "spis.md"))).toBe(false);
   });
 });
 

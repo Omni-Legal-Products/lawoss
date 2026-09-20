@@ -10,6 +10,10 @@ Zrkadlené s `CLAUDE.md`.
 
 Najprv čítaj `spis.md`, `BRAIN.md` (po `okf-memory init`), `_STATUS.md`, `VSTUPY.md` a plné relevantné záznamy `memory/`. Načítaj aj klientsky `../../AGENTS.md`, kartu klienta, jeho pamäť a kancelárske pravidlá. Pri cielenej otázke hľadaj naprieč všetkými typmi záznamov. Poradenstvo bez konania nepotrebuje súd ani spisovú značku.
 
+Pred uložením súboru čítaj `PRACOVNY-PROFIL.md`: určuje skutočné priečinky, ich roly a názvy nových dokumentov. Originály nemeň ani neprepisuj; rovnaké názvy oddeľ stabilným ID vstupu. Novú verziu draftu ulož samostatne a zachovaj odkaz na originál. Dôležitú správu označ odkazom na kanonický originál a jeho prílohy. Bez priradenej roly si vyžiadaj umiestnenie, nehádaj ho.
+
+Vec `advisory` v režime `ongoing` môže mať opakované zadania a termíny bez súdneho konania. Pracuj len s jej úlohami a vstupmi; spoločné firemné údaje čítaj z klienta. Uzavretie jedného zadania neuzatvára priebežnú vec.
+
 <!-- okf:protokol-zapisu:v2 -->
 ## Protokol zápisu
 

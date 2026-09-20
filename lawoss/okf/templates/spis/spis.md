@@ -28,4 +28,5 @@ updated: {{DATE}}
 - Prehľad (generovaný z pamäte): [`_STATUS.md`](./_STATUS.md)
 - Zápisový protokol: [`BRAIN.md`](./BRAIN.md) po `okf-memory init`
 - Nespracované vstupy: [`VSTUPY.md`](./VSTUPY.md)
+- Priečinky a názvy dokumentov: [`PRACOVNY-PROFIL.md`](./PRACOVNY-PROFIL.md)
 - Klient: [`../../klient.md`](../../klient.md)

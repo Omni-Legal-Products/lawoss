@@ -162,3 +162,15 @@ PR #63 rieši len vyhľadanie inštalátora pri nezhode architektúry. Prevádzk
 | `apps/app/src/react-app/domains/settings/pages/mcp-view.tsx` | Detail importovaného balíka používa typ plugin a označenie „Nainštalované“; samotný import sa už nevydáva za pripojenie MCP. |
 
 Staré `/marketplace` a `/konektory` sú v zelenom LAWOSS routeri iba presmerovania do natívnych záložiek Plugins/MCP pre zapamätaný vybraný workspace. Experimentálny zoznam ich už neponúka a pôvodné stránky nenačítavajú paralelné pripojenie. Verejné registre zatiaľ používa existujúci import do workspace; globálna inštalácia týmto API nie je implementovaná a katalóg to uvádza. Kontrola upstream syncu: zachovať slot, mapovanie endpoint/workspace, rozlíšenie installed/connected a obnovu všetkých troch natívnych zoznamov po zmene.
+
+### Lokálny checkpoint OKF cez natívne lifecycle hooky (2026-09-20)
+
+| Súbory upstreamu | Úprava a dôvod |
+|---|---|
+| `apps/server/src/legalwork-runtime-config.ts` | Dva riadky pripájajú zelený OKF handoff cez existujúci `legalworkPluginPath`. Zachováva natívny zoznam pluginov aj compaction prompt; nič nemení v legalmemory plugine. |
+| `apps/server/package.json` | Existujúci build natívnych pluginov zahŕňa malý exportný wrapper `src/opencode-plugins/lawoss-okf-handoff.ts`; vlastná implementácia a testy sú v `lawoss/okf-handoff/`. Wrapper exportuje iba vstup pluginu. |
+| `apps/server/src/legalwork-runtime-config.test.ts` | Overuje prítomnosť nového pluginu ako natívneho file:// vstupu; nesmie sa vytratiť pri upstream synce. |
+
+Checkpoint sa aktivuje iba pri otvorení koreňa konkrétnej veci s kartou a pamäťou. Udalosť idle, hook pred zhutnením a hook pred ďalším ťahom vykonajú existujúce CLI read/sync bez podprocesu alebo modelového volania. Uložený Markdown je odvodený kontext s hashmi; nečitateľné alebo zmenené zdroje neprepíšu posledný dobrý checkpoint. Globálne workspace-y bez priamej karty veci ostávajú bez zápisu. Pri upstream synce overiť rozhrania `event`, `experimental.session.compacting` a `experimental.chat.system.transform` (teraz 1.18.29), zabalenie pluginu a zachovanie pôvodného compaction promptu. Nevytvára Git repo, automaticky necommituje a nesynchronizuje tímové dáta.
+
+- `apps/server/src/routes/files.ts`: existujúce natívne textové file API prijíma aj presný názov `okf.config`, aby náhľad pracovného profilu vedel načítať `Office/okf.config`. Ostatné `.config` súbory sa tým nepovoľujú; autentifikácia, rozsah workspace a režim iba na čítanie ostávajú zachované. HTTP regresia je v `okf-config-read.e2e.test.ts`.

@@ -64,6 +64,28 @@ export interface Store {
   readonly problems: StoreProblem[];
 }
 
+/** Detect body content the canonical parser cannot preserve, without printing raw personal data. */
+function hasUnparsedBody(text: string): boolean {
+  const lines = text.split("\n");
+  const body = lines.slice(lines.indexOf("---", 1) + 1);
+  let section = "";
+  const seen = new Set<string>();
+  for (const line of body) {
+    if (!line.trim()) continue;
+    if (/^##\s+/.test(line)) {
+      const heading = /^##\s+(Truth|History)\s*$/.exec(line)?.[1];
+      if (!heading || seen.has(heading)) return true;
+      seen.add(heading);
+      section = heading;
+    } else if (section === "Truth") {
+      continue;
+    } else if (section !== "History" || !/^-\s*\d{4}-\d{2}-\d{2}\s*(?:\[[a-z_]+\]\s*)?[—-]\s*.*$/.test(line.trim())) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function readStore(dir: string): Store {
   const memoryDir = join(dir, MEMORY_DIR);
   const records: OkfRecord[] = [];
@@ -78,7 +100,11 @@ export function readStore(dir: string): Store {
       if (!name.endsWith(".md")) continue;
       if (name === INDEX_FILE || name === LOG_FILE || name === LEGACY_INDEX_FILE) continue;
       try {
-        records.push(parseRecord(readFileSync(join(memoryDir, name), "utf8")));
+        const source = readFileSync(join(memoryDir, name), "utf8");
+        records.push(parseRecord(source));
+        if (hasUnparsedBody(source)) {
+          problems.push({ file: join(memoryDir, name), message: "Časť obsahu mimo podporovaných sekcií Truth/History alebo riadkov History sa nedá načítať. Otvor celý zdrojový súbor; tento výpis nie je úplný." });
+        }
       } catch (e) {
         problems.push({ file: name, message: e instanceof Error ? e.message : String(e) });
       }
@@ -283,9 +309,13 @@ function linkResolver(store: Store, zVnutraMemory: boolean): LinkResolver {
   const podlaId = new Map<string, string>();
   if (existsSync(store.memoryDir)) {
     for (const name of readdirSync(store.memoryDir)) {
-      if (!name.endsWith(".md")) continue;
-      const id = name.replace(/\.md$/, "").split("-").slice(0, 2).join("-");
-      if (!podlaId.has(id)) podlaId.set(id, name);
+      if (!name.endsWith(".md") || [INDEX_FILE, LOG_FILE, LEGACY_INDEX_FILE].includes(name)) continue;
+      try {
+        const { id } = parseRecord(readFileSync(join(store.memoryDir, name), "utf8"));
+        if (!podlaId.has(id)) podlaId.set(id, name);
+      } catch {
+        // readStore reports unreadable records; never invent a source link from their filenames.
+      }
     }
   }
   return (id) => {
@@ -305,10 +335,11 @@ function completeScope(dir: string): Scope {
 function scopeLinkResolver(dir: string, insideMemory: boolean): LinkResolver {
   const scope = readScope(dir);
   const stores = [scope.matter, ...[scope.clientDir, scope.officeDir].flatMap((path) => path ? [readStore(path)] : [])];
+  const sources = stores.map((store) => ({ memoryDir: store.memoryDir, href: linkResolver(store, true) }));
   return (id) => {
-    for (const store of stores) {
-      const href = linkResolver(store, true)(id);
-      if (href) return "./" + relative(insideMemory ? join(dir, MEMORY_DIR) : dir, join(store.memoryDir, href)).split(sep).join("/");
+    for (const source of sources) {
+      const href = source.href(id);
+      if (href) return "./" + relative(insideMemory ? join(dir, MEMORY_DIR) : dir, join(source.memoryDir, href)).split(sep).join("/");
     }
     return undefined;
   };

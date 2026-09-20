@@ -59,8 +59,8 @@ describe("nový spis — požiadavka pre agenta", () => {
     expect(text).toContain("čakaj na moje potvrdenie");
     expect(text).toContain("/Users/x/Klienti/ACME s.r.o.");
   });
-  test("no verification line when the switch is off or subject is not a company", () => {
-    expect(composePrompt({ ...form, verify: false })).not.toContain("ORSR");
+  test("legacy verification switch cannot bypass client checks; internal projects need none", () => {
+    expect(composePrompt({ ...form, verify: false })).toContain("ORSR");
     expect(composePrompt({ ...form, subject: "projekt" })).not.toContain("ORSR");
   });
 });
@@ -73,7 +73,7 @@ describe("okf core used by the app preview", () => {
   };
   test("preview plan for a client lists card, AGENTS, CLAUDE mirror and index", () => {
     const paths = planEntity({ type: "klient", dir: "/k", title: "K" }, templates, () => false).entries.map((e) => e.path);
-    expect(paths).toEqual(["klient.md", "AGENTS.md", "MEMORY.md", "CLAUDE.md", "index.md", "Spisy/.keep"]);
+    expect(paths).toEqual(["klient.md", "AGENTS.md", "MEMORY.md", "CLAUDE.md", "index.md", "Spisy/.keep", "PRACOVNY-PROFIL.md", "00_Na_zatriedenie/.keep", "01_Podklady/.keep", "02_Resers/.keep", "03_Drafty/.keep", "04_Vystupy/.keep", "05_Komunikacia/.keep", "05_Komunikacia/Dolezita_posta/.keep"]);
   });
   test("every generated concept document would pass v0.1 validation", () => {
     const plan = planEntity({ type: "spis", dir: "/s", title: "S" }, templates, () => false);
@@ -128,4 +128,19 @@ describe("alpha form preserves identity and matter intent", () => {
     const prompt = composePrompt({ ...form, title: 'Vec "A" $HOME `date`' });
     expect(prompt).toContain('--title "Vec \\"A\\" \\$HOME \\`date\\`"');
   });
+});
+
+ test("natural-person citizenship, residence and matter jurisdiction stay independent", () => {
+  const text = composePrompt({ ...form, subject: "fyzicka-osoba", country: "DE", citizenship: "sk,cz", residenceCountry: "AT", jurisdikcia: "CZ", ico: "", identifierType: "internal" });
+  expect(text).toContain('--citizenship "SK,CZ" --residence-country "AT"');
+  expect(text).toContain('--country "DE"');
+  expect(text).toContain('--cz');
+  expect(text).toContain('Pri FO');
+});
+
+ test("draft carries the preview paths and boundary warning for CLI reconciliation", () => {
+  const text = composePrompt(form, { source: "Predvolený profil", warning: "Office nad workspace", paths: ["03_Drafty/.keep"] });
+  expect(text).toContain('"paths":["03_Drafty/.keep"]');
+  expect(text).toContain("Office nad workspace");
+  expect(text).toContain("pôvodné potvrdenie nepokrýva rozšírený plán");
 });

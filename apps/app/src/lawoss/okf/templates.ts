@@ -1,3 +1,4 @@
+import communicationRegister from "../../../../../lawoss/okf/templates/spis/KOMUNIKACNE-KANALY.md?raw";
 /** Šablóny OKF pre appku — tie isté súbory ako CLI, načítané cez Vite `?raw`. */
 import klientAgents from "../../../../../lawoss/okf/templates/klient/AGENTS.md?raw";
 import klientMemory from "../../../../../lawoss/okf/templates/klient/MEMORY.md?raw";
@@ -15,7 +16,7 @@ import spisInputs from "../../../../../lawoss/okf/templates/spis/VSTUPY.md?raw";
 import type { TemplateSet } from "../../../../../lawoss/okf/src/core";
 
 export const OKF_TEMPLATES: TemplateSet = {
-  klient: { "klient.md": klientCard, "AGENTS.md": klientAgents, "MEMORY.md": klientMemory },
-  spis: { "VSTUPY.md": spisInputs, "spis.md": spisCard, "_STATUS.md": spisStatus, "AGENTS.md": spisAgents, "MEMORY.md": spisMemory },
+  klient: { "KOMUNIKACNE-KANALY.md": communicationRegister, "VSTUPY.md": spisInputs, "klient.md": klientCard, "AGENTS.md": klientAgents, "MEMORY.md": klientMemory },
+  spis: { "KOMUNIKACNE-KANALY.md": communicationRegister, "VSTUPY.md": spisInputs, "spis.md": spisCard, "_STATUS.md": spisStatus, "AGENTS.md": spisAgents, "MEMORY.md": spisMemory },
   projekt: { "projekt.md": projektCard, "AGENTS.md": projektAgents, "MEMORY.md": projektMemory },
 };

@@ -105,17 +105,33 @@ export function runCli(argv: readonly string[]): CliResult {
   switch (cmd) {
     case "read": {
       const scope = readScope(dir);
+      const problems = [...scope.problems];
+      const inputs: string[] = [];
+      const contextFiles = [
+        { path: join(dir, "VSTUPY.md"), title: "Evidencia vstupov" },
+        { path: join(dir, "KOMUNIKACNE-KANALY.md"), title: "Komunikačné kanály veci" },
+        ...(scope.clientDir ? [{ path: join(scope.clientDir, "KOMUNIKACNE-KANALY.md"), title: "Komunikačné kanály klienta" }] : []),
+      ];
+      for (const { path, title } of contextFiles) {
+        try {
+          inputs.push(`## ${title} — ${path}`, readFileSync(path, "utf8"));
+        } catch (error) {
+          if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+            problems.push({ file: path, message: error instanceof Error ? error.message : String(error) });
+          }
+        }
+      }
       const lines = [
-        ...problemLines(scope.problems),
+        ...problemLines(problems),
         `Spis: ${dir}`,
         `Jurisdikcia: ${scope.matter.jurisdiction}   Záznamov: ${scope.records.length}` +
           (scope.clientDir ? `, u klienta ${scope.clientRecords.length}` : "") +
           (scope.officeDir ? `, v kancelárii ${scope.officeRecords.length}` : ""),
         "",
         ...scope.records.map((r) => `## ${r.id} — ${typeLabel(r.type, r.jurisdiction)}\n\nRevision ${r.id}: ${revisionHash(r)}\n\n${serializeRecord(maskRecord(r))}`),
-        ...(existsSync(join(dir, "VSTUPY.md")) ? ["## Evidencia vstupov", readFileSync(join(dir, "VSTUPY.md"), "utf8")] : []),
+        ...inputs,
       ];
-      return { code: scope.problems.length ? 1 : 0, out: lines.join("\n") };
+      return { code: problems.length ? 1 : 0, out: lines.join("\n") };
     }
 
     case "validate": {

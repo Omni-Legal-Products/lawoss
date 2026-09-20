@@ -261,3 +261,18 @@ nikdy kópia obsahu — inak destilát prestane byť lacný a začne amplifikova
   nie pamäti.
 - **Rodné číslo vo voľnom texte je jehla.** Výrok opísaný do Pravdy otázky
   nesmie prejsť do L3 ani vtedy, keď preň niet poľa.
+
+## Komunikácia, aktualizácie a odovzdanie
+
+Pri vstupoch čítaj aj `KOMUNIKACNE-KANALY.md` veci a klienta, ak existuje. Je to evidencia rozsahu a výsledku kontroly, nie prístupové poverenie. Kanál v stave `error`, `partial` alebo `not_configured` neoznač za skontrolovaný; zachovaj posledný úspešný kurzor. Spolu s každým novým podkladom udržuj `VSTUPY.md` a odkazy na výsledné ID pamäte.
+
+Pamäť dopĺňaj po ucelenom pracovnom kroku, nie až pri závere rozhovoru. Pred poslednou odpoveďou a plánovaným odovzdaním:
+
+1. Zapíš nové poznatky, rozhodnutia a nevyriešené otázky cez existujúcu zápisovú bránu. Pri zmene existujúceho záznamu znovu načítaj revíziu; nikdy neobíď konflikt automatickým „moja verzia vyhráva“.
+2. Skontroluj nové súbory, nespracované vstupy a výsledok kontroly povolených kanálov. Zmena súboru alebo nová Git revízia neznamená, že sa poznatok už dostal do pamäte.
+3. Spusti `okf-memory validate <vec>` a po úspechu `okf-memory sync <vec> --apply`. Pri chybe zaznamenaj konkrétny problém a netvrď, že odovzdanie je úplné.
+4. V odovzdaní uveď aktuálny cieľ, čo je hotové, rozhodnutia s ID a zdrojmi, otvorené otázky, chyby a najbližší krok. Nezahadzuj údaj pre chybný typ záznamu. Handoff je pomôcka; nový agent znovu číta plné zdroje cez `read`.
+
+Git je voliteľná lokálna história. Sám neaktualizuje pamäť a nespracuje vecný konflikt. Bez konkrétneho nastavenia neinicializuj repozitár a nerob `git add .`, automatický commit ani push klientskych podkladov. Pri rekonciliácii porovnaj vstupy a ich obsah s posledným spracovaným stavom, načítaj obe strany konfliktu, zachovaj provenienciu a urob zápis s aktuálnou revíziou. Zmenený originál nesmie byť potichu vyhlásený za už spracovaný iba preto, že cesta ostala rovnaká.
+
+Teplá cache je dočasná optimalizácia enginu, nie úložisko. Pád alebo násilné ukončenie nemusí spustiť záverečný hook; preto ukladaj priebežne. Natívny checkpoint nemôže zachrániť poznatok, ktorý agent vôbec nezapísal do súborov.

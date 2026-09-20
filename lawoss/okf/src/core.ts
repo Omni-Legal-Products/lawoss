@@ -10,8 +10,12 @@
  */
 
 
+import { parseFrontmatter } from "./frontmatter.ts";
+export { parseFrontmatter } from "./frontmatter.ts";
+
 export const OKF_VERSION = "0.1";
-export const WORKING_FOLDERS = ["00_Na_zatriedenie", "01_Podklady", "02_Resers", "03_Drafty", "04_Vystupy", "05_Komunikacia"] as const;
+export { WORKING_FOLDERS } from "./profile.ts";
+import { PROFILE_FILE, workingProfile, renderWorkingProfile, type WorkingProfile } from "./profile.ts";
 
 export type EntityType = "klient" | "spis" | "projekt";
 
@@ -26,6 +30,9 @@ export type MatterMode = "bounded" | "ongoing";
 export type PlanInput = {
   clientType?: ClientType;
   country?: string;
+  citizenship?: string;
+  residenceCountry?: string;
+  workingProfile?: WorkingProfile;
   identifierType?: string;
   identifier?: string;
   matterKind?: MatterKind;
@@ -117,6 +124,8 @@ export function templateVars(input: PlanInput): Record<string, string> {
   return {
     CLIENT_TYPE: input.clientType ?? "iny",
     COUNTRY: input.country?.toUpperCase() ?? "",
+    CITIZENSHIP: input.citizenship?.toUpperCase() ?? "",
+    RESIDENCE_COUNTRY: input.residenceCountry?.toUpperCase() ?? "",
     IDENTIFIER_TYPE: input.identifierType ?? (input.ico ? "ICO" : ""),
     IDENTIFIER: input.identifier ?? input.ico ?? "",
     MATTER_KIND: input.matterKind ?? "dispute",
@@ -156,33 +165,13 @@ export function planEntity(input: PlanInput, templates: TemplateSet, exists: (re
     push("index.md", `---\nokf_version: "${OKF_VERSION}"\n---\n\n# ${input.title}\n\n## Spisy\n`);
     push("Spisy/.keep", "");
   }
-  if (input.type === "spis") {
-    for (const folder of [...WORKING_FOLDERS, "05_Komunikacia/Dolezita_posta"]) push(`${folder}/.keep`, "");
+  if (input.type === "spis" || input.type === "klient") {
+    const selected = input.workingProfile;
+    const profile = workingProfile(selected?.folders, selected?.roles, selected?.naming);
+    push(PROFILE_FILE, renderWorkingProfile(profile));
+    for (const folder of profile.folders) push(`${folder}/.keep`, "");
   }
   return { okfVersion: OKF_VERSION, type: input.type, dir: input.dir, entries };
-}
-
-/** Frontmatter medzi prvými dvoma `---`; iba jednoduché `key: value`. */
-export function parseFrontmatter(text: string): Record<string, string> | null {
-  const lines = text.split(/\r?\n/);
-  if (lines[0] !== "---") return null;
-  const out: Record<string, string> = {};
-  for (let i = 1; i < lines.length; i += 1) {
-    const line = lines[i];
-    if (line === "---") return out;
-    const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$/.exec(line);
-    if (match) {
-      const value = match[2].trim();
-      if (value.startsWith('"')) {
-        try {
-          const decoded: unknown = JSON.parse(value);
-          if (typeof decoded !== "string") return null;
-          out[match[1]] = decoded;
-        } catch { return null; }
-      } else out[match[1]] = value;
-    }
-  }
-  return null; // neuzavretý frontmatter
 }
 
 export type ValidationError = { path: string; message: string };

@@ -10,6 +10,12 @@ Zrkadlené s `CLAUDE.md`.
 
 Najprv čítaj `klient.md`, `index.md` a plné relevantné záznamy `memory/`. Spoločné subjekty a preverenia patria klientovi; obsah konkrétnej veci do `Spisy/<vec>/memory/`. Každá vec má samostatné vstupy a úlohy. Pri práci v konkrétnej veci čítaj aj jej `AGENTS.md` a `BRAIN.md`. Preverenie registra nie je potvrdením právnej úplnosti AML.
 
+## Firma a priebežná podpora
+
+Firma má jednu kartu klienta a spoločné podklady (napr. zakladateľské dokumenty a kontakty) v klientskych pracovných priečinkoch podľa `PRACOVNY-PROFIL.md`. Každá samostatná poradenská oblasť má vlastnú vec, napr. `Spisy/Korporatna-podpora/` a `Spisy/Pracovne-pravo/`, s `matter_kind: advisory` a `mode: ongoing`. Pri založení cez CLI použi `--matter-kind advisory --mode ongoing` a skutočnú jurisdikciu `--sk` alebo `--cz`. Súd, spisová značka ani protistrana nie sú pre také poradenstvo povinné; nevymýšľaj ich.
+
+Požiadavku, úlohu, termín a prijatú správu priraď ku konkrétnej veci. Ak zaradenie nie je jasné, označ ho ako nevyriešené a vyžiadaj rozhodnutie; nevytváraj rovnakú úlohu vo viacerých veciach. Na spoločné firemné podklady z veci odkazuj, nekopíruj ich do každej veci. Samostatný projekt alebo spor založ ako ďalšiu vec, keď má vlastný cieľ a rozsah; priebežnú podporu tým automaticky neuzatváraj. `okf render <klient>` obnoví zoznam vecí v `index.md`.
+
 <!-- okf:protokol-zapisu:v2 -->
 ## Protokol zápisu
 

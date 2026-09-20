@@ -35,7 +35,7 @@ const labels = (items: PlanGroupItem[]): string[] => items.map((item) => item.la
 describe("plán nového spisu v troch skupinách", () => {
   test("nový klient — plán ukáže, že preverenie zatiaľ neprebehlo", () => {
     const groups = groupPlan(rowsFor(form), { form, workspacePath: WORKSPACE });
-    expect(labels(groups.prida)).toEqual(["klient.md", "AGENTS.md", "MEMORY.md", "CLAUDE.md", "index.md", "Spisy/.keep"]);
+    expect(labels(groups.prida)).toEqual(["klient.md", "AGENTS.md", "MEMORY.md", "CLAUDE.md", "index.md", "Spisy/.keep", "PRACOVNY-PROFIL.md", "00_Na_zatriedenie/.keep", "01_Podklady/.keep", "02_Resers/.keep", "03_Drafty/.keep", "04_Vystupy/.keep", "05_Komunikacia/.keep", "05_Komunikacia/Dolezita_posta/.keep"]);
     expect(groups.zostava).toEqual([]);
     expect(labels(groups.pozornost)).toEqual(["Overenie subjektu"]);
   });
@@ -44,7 +44,7 @@ describe("plán nového spisu v troch skupinách", () => {
   test("existujúci priečinok — hotové súbory ostávajú a nezapisujú sa nanovo", () => {
     const groups = groupPlan(rowsFor(form, ["klient.md", "AGENTS.md"]), { form, workspacePath: WORKSPACE });
     expect(labels(groups.zostava)).toEqual(["klient.md", "AGENTS.md"]);
-    expect(labels(groups.prida)).toEqual(["MEMORY.md", "CLAUDE.md", "index.md", "Spisy/.keep"]);
+    expect(labels(groups.prida)).toEqual(["MEMORY.md", "CLAUDE.md", "index.md", "Spisy/.keep", "PRACOVNY-PROFIL.md", "00_Na_zatriedenie/.keep", "01_Podklady/.keep", "02_Resers/.keep", "03_Drafty/.keep", "04_Vystupy/.keep", "05_Komunikacia/.keep", "05_Komunikacia/Dolezita_posta/.keep"]);
     expect(groups.zostava[0].note).toContain("neprepisuje");
   });
 
@@ -60,16 +60,16 @@ describe("plán nového spisu v troch skupinách", () => {
     expect(labels(groups.prida)).toContain("spis.md");
   });
 
-  test("chýbajúce IČO pri právnickej osobe a vypnuté overenie žiadajú pozornosť", () => {
+  test("chýbajúce IČO a stále neoverená identita vyžadujú pozornosť", () => {
     const bez: NovySpisForm = { ...form, ico: "" };
     expect(labels(groupPlan(rowsFor(bez), { form: bez, workspacePath: WORKSPACE }).pozornost)).toEqual(["ICO", "Overenie subjektu"]);
 
     const neovereny: NovySpisForm = { ...form, verify: false };
     expect(labels(groupPlan(rowsFor(neovereny), { form: neovereny, workspacePath: WORKSPACE }).pozornost)).toEqual(["Overenie subjektu"]);
 
-    // Fyzická osoba ani projekt v registri nie sú — prázdne IČO tam nie je vada.
+    // FO nemusí mať IČO; overenie identity však ostáva potrebné.
     const fo: NovySpisForm = { ...form, subject: "fyzicka-osoba", ico: "", verify: false };
-    expect(groupPlan(rowsFor(fo), { form: fo, workspacePath: WORKSPACE }).pozornost).toEqual([]);
+    expect(labels(groupPlan(rowsFor(fo), { form: fo, workspacePath: WORKSPACE }).pozornost)).toEqual(["Overenie subjektu"]);
   });
 
   test("prázdny povinný názov žiada pozornosť", () => {

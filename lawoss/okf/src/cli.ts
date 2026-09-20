@@ -85,7 +85,7 @@ function inputFrom(positional: string[], flags: Flags): PlanInput {
   return {
     type, dir, title,
     clientType: choice(flags, "client-type", ["fo", "fo-podnikatel", "po", "iny"] satisfies ClientType[]),
-    country: str(flags, "country"), identifierType: str(flags, "identifier-type"), identifier: str(flags, "identifier"),
+    country: str(flags, "country"), citizenship: str(flags, "citizenship"), residenceCountry: str(flags, "residence-country"), identifierType: str(flags, "identifier-type"), identifier: str(flags, "identifier"),
     matterKind: choice(flags, "matter-kind", ["dispute", "advisory", "transaction", "other"] satisfies MatterKind[]),
     mode: choice(flags, "mode", ["bounded", "ongoing"] satisfies MatterMode[]),
     description: str(flags, "desc"), ico: str(flags, "ico"), klient: str(flags, "klient"),
