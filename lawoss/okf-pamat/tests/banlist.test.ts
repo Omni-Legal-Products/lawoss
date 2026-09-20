@@ -70,3 +70,42 @@ test("authority so statusom banned sa zapíše a validate nehlási UNKNOWN_VALUE
   assert.equal(v.code, 0, v.out);
   assert.doesNotMatch(v.out, /UNKNOWN_VALUE/);
 });
+
+// --- composePreamble + CLI `preamble` (Task 6) -----------------------------
+
+test("preamble vypíše pravidlá, poučenia a ban-list; L2 obsah nie", () => {
+  const dir = spis();
+
+  const pravidlo = newRecord({
+    ...zaklad("R-001", "rule", "Termíny vždy s rezervou",
+      "kancelária počíta interný termín o deň skôr, než beží procesná lehota"),
+    truth: "Interné termíny sa nastavujú deň pred procesnou lehotou.",
+  });
+  const poucenie = newRecord({
+    ...zaklad("L-001", "lesson", "Doručenku sťahovať hneď", "prílohy z DS expirujú"),
+    truth: "Prílohy z dátovej schránky sťahovať do spisu ihneď po prijatí.",
+  });
+  const vec = newRecord(
+    zaklad("M-001", "matter", "Stav veci", "prehľad skutkového stavu veci"),
+  );
+  const pramen = newRecord({
+    ...zaklad("A-301", "authority", "Prekonaný výklad prihlasovacej lehoty",
+      "1 VSPH 1195/2024 NECITOVAŤ ako oporu — NS otázku nevyriešil"),
+    truth: "Pôvodný výklad, ktorý NS neskôr korigoval.",
+    status: "banned",
+    source: "1 VSPH 1195/2024", verified_via: "mcp:slv", verified_at: D,
+  });
+
+  for (const r of [pravidlo, poucenie, vec, pramen]) {
+    const res = runCli(["write", dir, "--file", navrh(dir, r), "--reason", "test", "--apply"]);
+    assert.equal(res.code, 0, res.out);
+  }
+
+  const p = runCli(["preamble", dir]);
+  assert.equal(p.code, 0, p.out);
+  assert.match(p.out, /Termíny vždy s rezervou/);
+  assert.match(p.out, /Doručenku sťahovať hneď/);
+  assert.match(p.out, /Necitovať/);
+  assert.match(p.out, /Prekonaný výklad prihlasovacej lehoty/);
+  assert.doesNotMatch(p.out, /Stav veci/);
+});

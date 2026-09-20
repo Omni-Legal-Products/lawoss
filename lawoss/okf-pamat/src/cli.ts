@@ -16,6 +16,7 @@ import {
 import { parseRecord, type OkfRecord } from "./record.ts";
 import { planWrite, type Approval, type WriteDiff } from "./write.ts";
 import { maskRecord } from "./mask.ts";
+import { composePreamble } from "./preamble.ts";
 import { fieldLabel, typeLabel, SCREENING_PROVISION, type Jurisdiction } from "./schema.ts";
 import { renderStatus, RenderConflictError, statusSkeleton } from "./render.ts";
 import { validateStore } from "./validate.ts";
@@ -32,6 +33,7 @@ const USAGE = [
   "okf-memory — pamäť spisu (OKF)",
   "",
   "  okf-memory read     <spis>            prehľad pamäte",
+  "  okf-memory preamble <spis>            pravidlá, poučenia a ban-list na začiatok session",
   "  okf-memory validate <spis>            kontrola schémy, únikov L2→L3 a odkazov",
   "  okf-memory sync     <spis> [--apply]  projekcia do _STATUS.md, index.md a log.md",
   "  okf-memory retrofit <spis> [--apply]  doplní markery do existujúcich sekcií _STATUS.md",
@@ -110,6 +112,11 @@ export function runCli(argv: readonly string[]): CliResult {
           .map((r) => `  ${r.id.padEnd(8)} ${r.layer}  ${typeLabel(r.type, r.jurisdiction).padEnd(12)} ${r.description}`),
       ];
       return ok(lines.join("\n"));
+    }
+
+    case "preamble": {
+      const scope = readScope(dir);
+      return ok(composePreamble(scope.records));
     }
 
     case "validate": {
