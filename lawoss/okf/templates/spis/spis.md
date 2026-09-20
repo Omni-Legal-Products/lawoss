@@ -10,9 +10,10 @@ protistrana_ico: "{{PROTISTRANA_ICO}}"
 oblast_prava: [{{OBLAST}}]
 spisova_znacka: "{{SPZN}}"
 sud: "{{SUD}}"
+jurisdiction: {{JURISDICTION}}
 status: aktívny
 lehoty: []
-advokat: Marián Čuprík
+advokat: "{{ADVOKAT}}"
 tags: []
 timestamp: {{DATE}}
 updated: {{DATE}}

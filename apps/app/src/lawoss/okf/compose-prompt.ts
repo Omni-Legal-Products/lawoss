@@ -26,10 +26,22 @@ export function entityTypeFor(subject: SubjectKind): EntityType {
   return "klient";
 }
 
+/**
+ * Cieľový priečinok = koreň + JEDEN segment z názvu veci. Spisová značka má
+ * vždy lomítko (`MSPH 79 INS 1/2026`) — bez sanitizácie by sa ročník stal
+ * ďalšou adresárovou úrovňou a `..` by ušlo mimo koreň. Názov veci v karte
+ * ostáva pôvodný, mení sa iba názov priečinka. Úvodné bodky preč: `.` by bol
+ * koreň sám a `.názov` skrytý priečinok, ktorý `okf` pri prehľadávaní preskočí.
+ */
 export function targetDir(form: NovySpisForm): string {
-  const title = form.title.trim() || "[názov]";
+  const name = form.title.replace(/[\\/]+/g, "-").replace(/\.{2,}/g, "-").replace(/^[\s.]+|\s+$/g, "") || "[názov]";
   const root = form.root.replace(/[\\/]+$/, "");
-  return root ? `${root}/${title}` : title;
+  return root ? `${root}/${name}` : name;
+}
+
+/** Prepínač jurisdikcie pre `okf` CLI. Strojová hodnota je malými písmenami. */
+export function jurisdictionFlag(form: Pick<NovySpisForm, "jurisdikcia">): string {
+  return form.jurisdikcia === "SK" ? "--sk" : "--cz";
 }
 
 export function composePrompt(form: NovySpisForm): string {
@@ -42,7 +54,10 @@ export function composePrompt(form: NovySpisForm): string {
   lines.push(`- názov: ${form.title.trim() || "[doplň názov]"}`);
   if (form.ico.trim()) lines.push(`- IČO: ${form.ico.trim()}`);
   if (form.protistrana.trim()) lines.push(`- protistrana: ${form.protistrana.trim()}`);
-  lines.push(`- jurisdikcia: ${form.jurisdikcia === "SK" ? "Slovensko" : "Česko"}`);
+  // Jurisdikciu treba dvakrát: raz ľudsky pre agenta, raz ako prepínač, ktorý
+  // skončí v karte veci. `okf-pamat` ju z karty číta a bez nej pamäť spisu
+  // nezaloží — advokát ju v dialógu vybral, nesmie sa cestou stratiť.
+  lines.push(`- jurisdikcia: ${form.jurisdikcia === "SK" ? "Slovensko" : "Česko"} (prepínač \`${jurisdictionFlag(form)}\`)`);
   lines.push(`- cieľový priečinok: ${dir}`);
   lines.push("");
   if (form.verify && form.subject === "pravnicka-osoba") {
@@ -52,6 +67,9 @@ export function composePrompt(form: NovySpisForm): string {
         : "Najprv over subjekt v obchodnom rejstříku cez dostupné MCP alebo web a do karty zapíš zdroj.",
     );
   }
-  lines.push("Spusť `okf detect` a `okf plan`, ukáž mi plán a čakaj na moje potvrdenie. `apply` až po ňom, potom `validate` a `render`.");
+  lines.push(
+    `Spusť \`okf detect\` a \`okf plan ${type} "${dir}" --title "${form.title.trim()}" ${jurisdictionFlag(form)}\`, ` +
+      "ukáž mi plán a čakaj na moje potvrdenie. `apply` s rovnakými argumentmi až po ňom, potom `validate` a `render`.",
+  );
   return lines.join("\n");
 }
