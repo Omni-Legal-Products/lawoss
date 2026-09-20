@@ -21,8 +21,32 @@ var CARD_FILE = { klient: "klient.md", spis: "spis.md", projekt: "projekt.md" };
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
+function yamlString(value) {
+  return JSON.stringify(value).replace(/[\u0085\u2028\u2029]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
 function renderTemplate(template, vars) {
-  return template.replace(/\{\{([A-Z_]+)\}\}/g, (_, key) => vars[key] ?? "");
+  const substitute = (text) => text.replace(/\{\{([A-Z_]+)\}\}/g, (_, key) => vars[key] ?? "");
+  const header = /^---\r?\n([\s\S]*?)\r?\n---(?=\r?\n|$)/.exec(template);
+  if (!header)
+    return substitute(template);
+  const rendered = header[1].split(/\r?\n/).map((line) => {
+    const field = /^([A-Za-z_][A-Za-z0-9_]*:[ \t]*)(.*\{\{[A-Z_]+\}\}.*)$/.exec(line);
+    if (!field)
+      return line;
+    const raw = field[2];
+    const list = /^\[\{\{([A-Z_]+)\}\}\]$/.exec(raw);
+    if (list) {
+      const item = vars[list[1]];
+      return `${field[1]}${item ? `[${yamlString(item)}]` : "[]"}`;
+    }
+    const value = substitute(raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw);
+    const plain = raw === "{{DATE}}" && /^\d{4}-\d{2}-\d{2}$/.test(value) || /^\{\{(?:JURISDICTION|CLIENT_TYPE|MATTER_KIND|MODE)\}\}$/.test(raw) && /^[a-z][a-z-]*$/.test(value);
+    return `${field[1]}${plain ? value : yamlString(value)}`;
+  }).join(`
+`);
+  return `---
+${rendered}
+---${substitute(template.slice(header[0].length))}`;
 }
 function templateVars(input) {
   const date = input.date ?? today();
@@ -86,8 +110,20 @@ function parseFrontmatter(text) {
     if (line === "---")
       return out;
     const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$/.exec(line);
-    if (match)
-      out[match[1]] = match[2].trim().replace(/^"(.*)"$/, "$1");
+    if (match) {
+      const value = match[2].trim();
+      if (value.startsWith('"')) {
+        try {
+          const decoded = JSON.parse(value);
+          if (typeof decoded !== "string")
+            return null;
+          out[match[1]] = decoded;
+        } catch {
+          return null;
+        }
+      } else
+        out[match[1]] = value;
+    }
   }
   return null;
 }

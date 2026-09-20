@@ -689,7 +689,6 @@ function parseTimeline(raw) {
 function parseRecord(text) {
   const { fm, body } = splitFrontmatter(text);
   const raw = parseFrontmatter(fm);
-  const j = readJurisdiction(raw);
   const canon = new Map;
   const extra = {};
   for (const [k, v] of raw) {
@@ -705,6 +704,7 @@ function parseRecord(text) {
     throw new Error(`Chýba povinné pole: ${chyba[0]}`);
   if (chyba.length > 1)
     throw new Error(`Chýbajú povinné polia: ${chyba.join(", ")}`);
+  const j = readJurisdiction(canon);
   const typeRaw = String(canon.get("type"));
   if (!isRecordType(typeRaw))
     throw new Error(`Neznámy typ záznamu: ${typeRaw}`);

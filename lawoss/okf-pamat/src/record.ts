@@ -456,7 +456,6 @@ function parseTimeline(raw: string | undefined): TimelineEntry[] {
 export function parseRecord(text: string): OkfRecord {
   const { fm, body } = splitFrontmatter(text);
   const raw = parseFrontmatter(fm);
-  const j = readJurisdiction(raw);
 
   const canon = new Map<string, FmValue>();
   const extra: Record<string, FmValue> = {};
@@ -476,6 +475,7 @@ export function parseRecord(text: string): OkfRecord {
   const chyba = FIELDS.filter((f) => f.required && !canon.has(f.canonical)).map((f) => f.canonical);
   if (chyba.length === 1) throw new Error(`Chýba povinné pole: ${chyba[0]}`);
   if (chyba.length > 1) throw new Error(`Chýbajú povinné polia: ${chyba.join(", ")}`);
+  const j = readJurisdiction(canon);
 
   const typeRaw = String(canon.get("type"));
   if (!isRecordType(typeRaw)) throw new Error(`Neznámy typ záznamu: ${typeRaw}`);

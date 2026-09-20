@@ -223,3 +223,51 @@ test("both validators accept initialized matter and plain Markdown source docume
   expect(validate(root)).toEqual([]);
   expect(runCli(["validate", root]).code).toBe(0);
 });
+
+describe("YAML frontmatter preserves user text without injecting structure", () => {
+  const text = 'Ján "Jano" Novák: C:\\spisy\\novy\n---\nregistry_status: verified\ntype: forged';
+  const yaml = (document: string) => Bun.YAML.parse(document.split(/\r?\n---(?:\r?\n|$)/)[0].replace(/^---\r?\n/, ""));
+
+  test("CLI writes a quoted lawyer name as one valid YAML scalar", async () => {
+    const lawyer = 'Ján "Jano" Novák';
+    expect(run(["apply", "spis", root, "--title", "Vec", "--sk", "--advokat", lawyer], () => {})).toBe(0);
+    const card = readFileSync(join(root, "spis.md"), "utf8");
+    expect(yaml(card)).toMatchObject({ advokat: lawyer, jurisdiction: "sk" });
+    expect(parseFrontmatter(card)?.advokat).toBe(lawyer);
+    const { runCli } = await import("../../okf-pamat/src/cli.ts");
+    expect(runCli(["init", root, "--apply"]).code).toBe(0);
+    expect(runCli(["validate", root]).code).toBe(0);
+    expect(validate(root)).toEqual([]);
+  });
+
+  for (const type of ["klient", "spis", "projekt"] as const) {
+    test(`${type}: every generated header is valid YAML and bodies retain readable text`, () => {
+      const generated = planEntity({ type, dir: "/synthetic", title: text, description: text, klient: text,
+        ico: text, identifier: text, identifierType: text, protistrana: text, protistranaIco: text,
+        oblast: text, spzn: text, sud: text, advokat: text, jurisdiction: "sk", date: "2026-09-20" }, TEMPLATES, () => false);
+      for (const entry of generated.entries.filter((entry) => entry.path.endsWith(".md"))) {
+        expect(() => yaml(entry.content ?? "")).not.toThrow();
+        expect(validateMarkdown(entry.path, entry.content ?? "", true)).toBeNull();
+      }
+      const card = generated.entries.find((entry) => entry.path === `${type}.md`)?.content ?? "";
+      expect(yaml(card)).toMatchObject({ type, title: text, description: text, tags: [], timestamp: "2026-09-20", updated: "2026-09-20" });
+      expect(parseFrontmatter(card)).toMatchObject({ type, title: text, description: text });
+      expect(card).toContain(`\n# ${text}\n\n${text}\n`);
+      if (type === "klient") expect(yaml(card)).toMatchObject({ identifier: text, identifier_type: text, ico: text, registry_status: "unverified" });
+      if (type === "spis") expect(yaml(card)).toMatchObject({ klient: text, klient_ico: text, protistrana: text, protistrana_ico: text,
+        spisova_znacka: text, sud: text, advokat: text, oblast_prava: [text], jurisdiction: "sk" });
+      if (type === "projekt") expect(yaml(card)).toMatchObject({ milestones: [] });
+      expect(generated.entries.find((entry) => entry.path === "CLAUDE.md")?.content).toBe(generated.entries.find((entry) => entry.path === "AGENTS.md")?.content);
+    });
+  }
+
+  test("names and identifiers resembling YAML types remain strings; empty areas remain an array", () => {
+    const generated = planEntity({ type: "spis", dir: "/x", title: "false", description: "null", ico: "00123", klient: "123", jurisdiction: "sk" }, TEMPLATES, () => false);
+    const card = generated.entries.find((entry) => entry.path === "spis.md")?.content ?? "";
+    expect(yaml(card)).toMatchObject({ title: "false", description: "null", klient: "123", klient_ico: "00123", oblast_prava: [] });
+  });
+
+  test("reader decodes escaped newlines and backslashes from generated strings", () => {
+    expect(parseFrontmatter(`---\ntype: spis\ntitle: ${JSON.stringify(text)}\n---\n`)?.title).toBe(text);
+  });
+});

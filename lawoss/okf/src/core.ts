@@ -84,9 +84,32 @@ export function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** Nahradí `{{KEY}}`; neznámy kľúč sa nahradí prázdnym reťazcom, aby v súbore neostali zátvorky. */
+/** JSON string escaping is a YAML-compatible subset, including Unicode line separators. */
+function yamlString(value: string): string {
+  return JSON.stringify(value).replace(/[\u0085\u2028\u2029]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+
+/** Escape complete dynamic frontmatter values; Markdown bodies keep the original readable text. */
 export function renderTemplate(template: string, vars: Record<string, string | undefined>): string {
-  return template.replace(/\{\{([A-Z_]+)\}\}/g, (_, key: string) => vars[key] ?? "");
+  const substitute = (text: string): string => text.replace(/\{\{([A-Z_]+)\}\}/g, (_, key: string) => vars[key] ?? "");
+  const header = /^---\r?\n([\s\S]*?)\r?\n---(?=\r?\n|$)/.exec(template);
+  if (!header) return substitute(template);
+  const rendered = header[1].split(/\r?\n/).map((line) => {
+    const field = /^([A-Za-z_][A-Za-z0-9_]*:[ \t]*)(.*\{\{[A-Z_]+\}\}.*)$/.exec(line);
+    if (!field) return line;
+    const raw = field[2];
+    const list = /^\[\{\{([A-Z_]+)\}\}\]$/.exec(raw);
+    if (list) {
+      const item = vars[list[1]];
+      return `${field[1]}${item ? `[${yamlString(item)}]` : "[]"}`;
+    }
+    const value = substitute(raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw);
+    // Keep dates and machine enums compatible with existing card readers (notably jurisdictionFromCard).
+    const plain = (raw === "{{DATE}}" && /^\d{4}-\d{2}-\d{2}$/.test(value)) ||
+      (/^\{\{(?:JURISDICTION|CLIENT_TYPE|MATTER_KIND|MODE)\}\}$/.test(raw) && /^[a-z][a-z-]*$/.test(value));
+    return `${field[1]}${plain ? value : yamlString(value)}`;
+  }).join("\n");
+  return `---\n${rendered}\n---${substitute(template.slice(header[0].length))}`;
 }
 
 export function templateVars(input: PlanInput): Record<string, string> {
@@ -148,7 +171,16 @@ export function parseFrontmatter(text: string): Record<string, string> | null {
     const line = lines[i];
     if (line === "---") return out;
     const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$/.exec(line);
-    if (match) out[match[1]] = match[2].trim().replace(/^"(.*)"$/, "$1");
+    if (match) {
+      const value = match[2].trim();
+      if (value.startsWith('"')) {
+        try {
+          const decoded: unknown = JSON.parse(value);
+          if (typeof decoded !== "string") return null;
+          out[match[1]] = decoded;
+        } catch { return null; }
+      } else out[match[1]] = value;
+    }
   }
   return null; // neuzavretý frontmatter
 }
