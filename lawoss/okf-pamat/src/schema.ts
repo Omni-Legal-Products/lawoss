@@ -201,6 +201,12 @@ export const FIELDS: readonly FieldDef[] = [
     values: STATUS },
   { canonical: "created", cz: "vznik", sk: "vznik", kind: "string", required: true },
   { canonical: "updated", cz: "změna", sk: "zmena", kind: "string", required: true },
+  // N5: prameň, ktorým sa `authority` opiera o niečo overiteľné (ECLI / § so
+  // znením k dátumu) a stopa, ktorým konektorom sa to overilo. Strojové kľúče
+  // sú anglické (O6) — `verified_at` už v schéme je (časová platnosť prameňa),
+  // tu sa iba dopĺňajú súrodenci, ktorých mu N5 pridáva.
+  { canonical: "source", cz: "source", sk: "source", kind: "string", required: false },
+  { canonical: "verified_via", cz: "verified_via", sk: "verified_via", kind: "string", required: false },
   { canonical: "sources", cz: "zdroje", sk: "zdroje", kind: "maplist", required: false },
   { canonical: "related", cz: "souvisí", sk: "súvisí", kind: "list", required: false },
   { canonical: "tags", cz: "štítky", sk: "štítky", kind: "list", required: false },
