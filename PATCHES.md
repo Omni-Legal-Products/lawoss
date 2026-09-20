@@ -115,3 +115,20 @@ MČ selected variant B from the supplied original references; decision recorded 
 - `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx`: use the existing white vector wordmark for the default LAWOSS brand, keeping custom brand names and logos supported.
 - `apps/app/public/legalwork-mark.svg`, `favicon-16x16.png`, `favicon-32x32.png`, `apple-touch-icon.png`: generated from the selected portico source.
 - `apps/desktop/resources/icons/**`: regenerate production and development macOS/Windows/runtime icons from the selected LAWOSS B mark. Icon source now matches generated files.
+
+
+## Lokálny integračný kandidát OKF alfy (2026-09-20)
+
+Rozsah a prijaté rozhodnutia: [zápis 11. 9.](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/blob/main/meetings/2026-09-11-zapis-sync-call.md), [reprodukcie auditu](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/79). Kandidát nie je vydanie.
+
+| Súbory upstreamu | Úprava a dôvod |
+|---|---|
+| `apps/server/src/claude-plugin-bundle.ts`, `cloud-plugins.ts` a ich testy | Prenos textových resources Node pluginu, nemenný adresár podľa obsahu, absolútna cesta MCP spúšťača, zachovanie štartovacieho timeoutu; pôvodný import uložil nefunkčný príkaz bez runtime. Podporuje lokálne balíky LAWOSS marketplace, bez zásahu do extensions. |
+| `apps/app/src/app/lib/legalwork-server.ts` | Inštalácia GitHub pluginu má čas na stiahnutie a prvý štart; krátky konfiguračný timeout nestačil. |
+| `apps/app/src/app/lib/opencode.ts` | `POST /session` má ohraničený 60-sekundový timeout pre studený štart enginu; automatické opakovanie POST sa nepridáva. Čistý profil v smoke teste dokončil vytvorenie session až po 20,8 sekundy, pôvodný 10-sekundový limit už zobrazil chybu. Ostatné bežné požiadavky si ponechávajú pôvodný limit. |
+| `apps/app/tsconfig.json` | Výslovné zahrnutie `src/lawoss/**/*` do typechecku. |
+| `.github/workflows/ci-okf-pamat.yml` | Zjednotenie workspace inštalácie z #60 s kontrolou CLI bundle z #57 a Bun 1.4.2 zo syncu. |
+
+Kombinované riešenie `session-route.tsx` zachováva novú upstream obrazovku AI plánov za LAWOSS guardom, preskočenie komerčného onboardingu a skrytého recordera. Pôvodné vetvy a autorstvo sú zachované lokálnymi merge commitmi.
+
+Prvý nový priečinok z hlavnej obrazovky teraz pred vytvorením rozhovoru spustí desktop engine a použije jeho čerstvé pripojenie (`session-route.tsx`). Reprodukcia v čistom profile: HTTP server bežal, ale vytvorenie rozhovoru vrátilo `opencode_unconfigured`.

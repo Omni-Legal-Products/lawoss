@@ -19,6 +19,7 @@ export type MatterOverview = {
   matterRef?: string;
   court?: string;
   state?: string;
+  matterKind?: string;
   deadlines: OverviewDeadline[];
   openTasks: OverviewTask[];
   lastEvent?: { date: string; text: string };
@@ -30,6 +31,9 @@ export type MatterInput = {
   /** Frontmatter karty `spis.md`, ak existuje (`title`, `spisova_znacka`, `sud`, `status`). */
   cardFrontmatter?: Record<string, string>;
   records: OkfRecord[];
+  /** All directories contributing to this matter, including shared client and office. */
+  scopePaths?: string[];
+  intake?: string;
   /** `id` záznamu → cesta jeho súboru. Prehľad ju nepotrebuje, detail veci ňou odkazuje na zdroj. */
   recordFiles?: Record<string, string>;
 };
@@ -100,9 +104,11 @@ function matterOverview(input: MatterInput): MatterOverview {
       subjects: input.records.filter((r) => r.type === "subject").length,
     },
   };
-  const matterRef = card.spisova_znacka || matterRecord?.matter_ref;
-  const court = card.sud || matterRecord?.court;
+  const matterRef = card.matter_ref || card.spisova_znacka || matterRecord?.matter_ref;
+  const court = card.court || card.sud || matterRecord?.court;
   const state = card.status || matterRecord?.status;
+  const matterKind = card.matter_kind || matterRecord?.extra?.matter_kind;
+  if (typeof matterKind === "string") out.matterKind = matterKind;
   if (matterRef) out.matterRef = matterRef;
   if (court) out.court = court;
   if (state) out.state = state;

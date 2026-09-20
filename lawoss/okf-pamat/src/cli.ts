@@ -6,6 +6,7 @@
  * nič neprepíše.
  */
 
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
@@ -13,7 +14,7 @@ import {
   findOfficeDir, OFFICE_DIR,
   jurisdictionFromCard, MEMORY_DIR, statusLinkResolver, findClientDir, STATUS_FILE,
 } from "./store.ts";
-import { parseRecord, type OkfRecord } from "./record.ts";
+import { parseRecord, serializeRecord, recordRevision, type OkfRecord } from "./record.ts";
 import { planWrite, type Approval, type WriteDiff } from "./write.ts";
 import { maskRecord } from "./mask.ts";
 import { fieldLabel, typeLabel, SCREENING_PROVISION, type Jurisdiction } from "./schema.ts";
@@ -38,6 +39,7 @@ const USAGE = [
   "  okf-memory aml      <spis>            subjekty a stav AML preverenia",
   "  okf-memory write    <spis> --file <záznam.md> --reason \"…\" [--apply] [--approve-as \"meno\"]",
   "",
+  "  Pri úprave existujúceho záznamu: --if-revision <SHA256 z read>",
   "  --approve-as sa nevyžaduje, keď zápis kryje trvalé poverenie advokáta",
   `  v ${OFFICE_DIR}/${CONFIG_FILE} — viď AGENTNI-ZAPISY.md`,
   "  okf-memory init     <spis> [--sk] [--apply]   BRAIN.md a adresár pamäte",
@@ -53,6 +55,11 @@ function flagValue(rest: readonly string[], name: string): string | undefined {
   return v === undefined || v.startsWith("--") ? undefined : v;
 }
 
+/** Token for the unmasked canonical persisted record; no secret or user identity. */
+function revisionHash(record: OkfRecord): string {
+  return createHash("sha256").update(recordRevision(record) ?? "").digest("hex");
+}
+
 function ok(out: string): CliResult {
   return { code: 0, out };
 }
@@ -61,7 +68,7 @@ function ok(out: string): CliResult {
 function problemLines(problems: readonly { file: string; message: string }[]): string[] {
   if (problems.length === 0) return [];
   return [
-    "Nečitateľné súbory (preskočené):",
+    "NEÚPLNÉ ČÍTANIE — nečitateľné súbory:",
     ...problems.map((p) => `  ERROR PARSE_ERROR ${p.file}: ${p.message}`),
     "",
   ];
@@ -105,11 +112,10 @@ export function runCli(argv: readonly string[]): CliResult {
           (scope.clientDir ? `, u klienta ${scope.clientRecords.length}` : "") +
           (scope.officeDir ? `, v kancelárii ${scope.officeRecords.length}` : ""),
         "",
-        ...scope.records
-          .map(maskRecord)
-          .map((r) => `  ${r.id.padEnd(8)} ${r.layer}  ${typeLabel(r.type, r.jurisdiction).padEnd(12)} ${r.description}`),
+        ...scope.records.map((r) => `## ${r.id} — ${typeLabel(r.type, r.jurisdiction)}\n\nRevision ${r.id}: ${revisionHash(r)}\n\n${serializeRecord(maskRecord(r))}`),
+        ...(existsSync(join(dir, "VSTUPY.md")) ? ["## Evidencia vstupov", readFileSync(join(dir, "VSTUPY.md"), "utf8")] : []),
       ];
-      return ok(lines.join("\n"));
+      return { code: scope.problems.length ? 1 : 0, out: lines.join("\n") };
     }
 
     case "validate": {
@@ -158,7 +164,9 @@ export function runCli(argv: readonly string[]): CliResult {
     }
 
     case "sync": {
-      const s = readStore(dir);
+      const scope = readScope(dir);
+      if (scope.problems.length) return { code: 1, out: problemLines(scope.problems).join("\n") };
+      const s = { records: scope.records, jurisdiction: scope.matter.jurisdiction };
       try {
         if (!apply) {
           const statusPath = join(dir, "_STATUS.md");
@@ -205,7 +213,7 @@ export function runCli(argv: readonly string[]): CliResult {
 
       if (subjekty.length === 0) {
         lines.push("Žiadne subjekty — AML evidencia je prázdna.");
-        return ok(lines.join("\n"));
+        return { code: scope.problems.length ? 1 : 0, out: lines.join("\n") };
       }
 
       for (const raw of subjekty) {
@@ -244,13 +252,15 @@ export function runCli(argv: readonly string[]): CliResult {
       } else {
         lines.push("AML evidencia bez nálezov.");
       }
-      return ok(lines.join("\n"));
+      return { code: scope.problems.length ? 1 : 0, out: lines.join("\n") };
     }
 
     case "write": {
       const file = flagValue(rest, "--file");
       const reason = flagValue(rest, "--reason");
       const approveAs = flagValue(rest, "--approve-as");
+      const expectedRevision = flagValue(rest, "--if-revision");
+      if (rest.includes("--if-revision") && !expectedRevision) return { code: 2, out: "Prepínač --if-revision vyžaduje SHA256 z príkazu read." };
 
       if (!file || !reason) {
         return { code: 2, out: `Príkaz write vyžaduje --file a --reason.\n\n${USAGE}` };
@@ -292,6 +302,13 @@ export function runCli(argv: readonly string[]): CliResult {
             `patrí inému záznamu („${before.title}", založený ${before.created}). ` +
             `Voľné je ${volne} — prečísluj návrh aj odkazy naň.`,
         };
+      }
+
+      if (before && expectedRevision === undefined) {
+        return { code: 1, out: `ODMIETNUTÉ: úprava ${after.id} vyžaduje --if-revision <SHA256 z read>. Načítaj záznam a priprav návrh z jeho aktuálneho stavu.` };
+      }
+      if (expectedRevision !== undefined && (!before || revisionHash(before) !== expectedRevision)) {
+        return { code: 1, out: `ODMIETNUTÉ: revízia ${after.id} sa nezhoduje alebo záznam už neexistuje. Načítaj ho znova, zosúlaď zmeny a priprav nový návrh; neopakuj starý zápis.` };
       }
 
       let diff: WriteDiff;

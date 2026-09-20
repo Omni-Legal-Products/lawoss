@@ -1,26 +1,8 @@
-<!-- okf:protokol-zapisu:v1 -->
-## PROTOKOL ZÁPISU (povinný)
+<!-- okf:protokol-zapisu:v2 -->
+## Protokol zápisu
 
-> Kontext konverzácie sa stráca. Tento priečinok je jediná trvalá pamäť veci —
-> **čo nezapíšeš, pre budúceho agenta neexistuje.**
+Kanonická pamäť je `memory/`, riadená cez `okf-memory` a jeho `BRAIN.md`. Fakt, udalosť, rozhodnutie, otázku, dokument a úlohu ulož ako záznam s Truth, History a zdrojom. Lehotu veď len v príslušnom zázname pamäte; nevytváraj druhý zoznam v karte ani ručnú tabuľku v `_STATUS.md`. Zápis rob cez `okf-memory write` s dôvodom a podľa existujúceho oprávnenia, potom `validate` a `sync --apply`. Neobchádzaj brány zápisu.
 
-**Počas práce — zapíš HNEĎ, keď sa objaví:**
+Každý nový podklad alebo správu najprv zaznamenaj do `VSTUPY.md` konkrétnej veci so zdrojom, časom a stavom `pending`. Až po spracovaní celého obsahu a zápise výsledných ID nastav `processed`. Pred odovzdaním vypíš nespracované vstupy a chyby čítania. Prehľad ani typ záznamu nenahrádza prečítanie plného relevantného obsahu naprieč typmi.
 
-| Čo sa objavilo | Kam to zapísať |
-|---|---|
-| nový FAKT veci (tvrdenie, zistenie, priznanie, stav veci) | `_STATUS.md` → § Fakty veci |
-| udalosť (podanie, doručenie, pojednávanie, hovor, výzva) | `_STATUS.md` → § Chronológia |
-| nová / zmenená / zmeškaná LEHOTA | `spis.md` frontmatter `lehoty:` **a** `_STATUS.md` → § Lehoty |
-| taktické rozhodnutie, stratégia („takto áno / takto nie") | `MEMORY.md` → TP-XXX |
-| poučenie, prekvapenie, čo nabudúce inak | `MEMORY.md` → LL-XXX |
-| otvorená otázka bez odpovede | `MEMORY.md` → OQ-XXX |
-| nový dokument (prijatý aj náš výstup) | správny podpriečinok **a** `_STATUS.md` → § Kľúčové dokumenty |
-| e-mail thread / tel. hovor / správa relevantná pre vec | `_STATUS.md` → § Komunikácia |
-| nová úloha alebo záväzok (náš aj klientov) | `_STATUS.md` → § Otvorené úlohy |
-
-**Pred ukončením práce — HARD GATE (nikdy nekonči odpoveď bez tohto):**
-
-- [ ] Všetko z tabuľky vyššie je zapísané? (prejdi konverzáciu spätne)
-- [ ] `_STATUS.md`: **Fáza** a **Ďalší krok** navrchu zodpovedajú realite po tejto práci?
-- [ ] `updated:` vo frontmatteri každého zmeneného súboru bumpnuté na dnešný dátum?
-- [ ] Menil si `AGENTS.md`? → zosynchronizuj `CLAUDE.md` (`sync_agents_claude.sh`)
+`_STATUS.md`, `memory/index.md` a `memory/log.md` sú projekcie. `MEMORY.md` je starší archív, nie druhá aktívna pamäť. Originály a rešerše sú pracovné podklady v príslušných priečinkoch, nie archív pamäte. Pri zmene `AGENTS.md` udržuj `CLAUDE.md` obsahovo zhodný.

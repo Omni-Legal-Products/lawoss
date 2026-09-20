@@ -93,3 +93,25 @@ describe("jurisdikcia sa z dialógu dostane do CLI", () => {
     expect(text).toContain(`okf plan spis "/Users/x/Klienti/Vec A" --title "Vec A" --cz`);
   });
 });
+
+
+describe("alpha form preserves identity and matter intent", () => {
+  test("foreign registration country is independent of legal jurisdiction", () => {
+    const prompt = composePrompt({ ...form, country: "AT", identifierType: "FN", ico: "123x" });
+    expect(prompt).toContain('--country "AT"');
+    expect(prompt).toContain('--identifier-type "FN" --identifier "123x"');
+    expect(prompt).toContain("--sk");
+    expect(prompt).not.toContain("--ico");
+    expect(prompt).toContain("unverified");
+  });
+  test("ongoing advisory and client survive prompt composition", () => {
+    const prompt = composePrompt({ ...form, subject: "spis", matterKind: "advisory", matterMode: "ongoing", clientName: "Example" });
+    expect(prompt).toContain('--matter-kind advisory --mode ongoing --klient "Example"');
+    expect(prompt).toContain("VSTUPY.md");
+    expect(prompt).toContain("okf-memory init");
+  });
+  test("shell metacharacters in user titles stay literal in proposed command", () => {
+    const prompt = composePrompt({ ...form, title: 'Vec "A" $HOME `date`' });
+    expect(prompt).toContain('--title "Vec \\"A\\" \\$HOME \\`date\\`"');
+  });
+});

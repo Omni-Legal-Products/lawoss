@@ -1,58 +1,16 @@
 /** @jsxImportSource react */
-import { Link } from "react-router-dom";
-
-import { LawossLayout } from "../../shell/layout";
+import { OkfPage } from "../okf-page";
 import {
-  activeWorkspace,
   dayClass,
   formatDay,
   today,
-  useOkfConnection,
-  useOkfOverview,
   type OkfReadResult,
 } from "../../okf/read-model";
 import type { UpcomingDeadline } from "../../../../../../lawoss/okf/read";
 
-/**
- * Lehoty — register zo všetkých vecí v pamäti spisov (fáza C1/C3). Zobrazuje
- * zapísaný dátum z poľa `deadlines`, vec a súd; nič nepočíta (výpočet lehôt
- * je úloha 13, CZ a SK zvlášť) a nič nezapisuje — žiadna brána potvrdenia.
- * Bez jediného spisu ostáva pôvodná ukážka s viditeľným štítkom.
- */
+/** Iba skutočné údaje zo spisov; chýbajúce údaje nenahrádza ukážka. */
 export function LehotyPage() {
-  const { connection, error } = useOkfConnection();
-  const workspace = activeWorkspace(connection);
-  const query = useOkfOverview(connection, workspace);
-  const data = query.data;
-  const hasMatters = Boolean(data && data.matters.length > 0);
-
-  return (
-    <LawossLayout>
-      <h1 className="lw-h1">Lehoty</h1>
-
-      {error ? <div className="lw-status err">{error}</div> : null}
-      {connection && !connection.client ? (
-        <div className="lw-status warn">Server LegalWork nebeží alebo chýba token — pamäť spisov sa nedá prečítať.</div>
-      ) : null}
-      {query.error ? <div className="lw-status err">{query.error instanceof Error ? query.error.message : String(query.error)}</div> : null}
-
-      {query.isPending && query.fetchStatus === "fetching" ? (
-        <p className="lw-lead">Načítavam pamäť spisov z workspace-u „{workspace?.displayNameResolved || workspace?.name}“…</p>
-      ) : data && hasMatters ? (
-        <RealRegister data={data} />
-      ) : (
-        <>
-          {data ? (
-            <p className="lw-empty">
-              Workspace <b>{workspace?.displayNameResolved || workspace?.name}</b> nemá žiadnu vec s pamäťou. Založ ju cez{" "}
-              <Link to="/experimenty/novy-spis">Nový spis</Link>. Nižšie je ukážka, ako register vyzerá.
-            </p>
-          ) : null}
-          <SampleRegister />
-        </>
-      )}
-    </LawossLayout>
-  );
+  return <OkfPage title="Lehoty">{(data) => <RealRegister data={data} />}</OkfPage>;
 }
 
 function RealRegister({ data }: { data: OkfReadResult }) {
@@ -134,91 +92,5 @@ function DeadlineRow({ d, index, now }: { d: UpcomingDeadline; index: number; no
       <span className="lw-ref">{d.matter.court ?? "—"}</span>
       <span className="lw-st">{d.recordId}</span>
     </div>
-  );
-}
-
-/** Pôvodná ukážka z fázy B — fiktívne dáta, zobrazuje sa iba bez spisov. */
-function SampleRegister() {
-  return (
-    <>
-      <p className="lw-lead">
-        <span className="lw-badge">ukážka — fiktívne dáta</span> Register lehôt zo všetkých spisov. Kandidáti od agenta sa
-        stávajú lehotami až po vašom potvrdení v rozhodovacej bráne — s citáciou predpisu, výpočtom a auditnou stopou.
-      </p>
-
-      <div className="lw-reg">
-        <div className="lw-reg-h">
-          <h2>Čaká na potvrdenie</h2>
-          <span className="lw-meta">1 kandidát · stav needs_review</span>
-        </div>
-        <Link className="lw-row lw-cols-leh" to="/session">
-          <span className="lw-no">14.</span>
-          <span className="lw-d soon">7. 6.</span>
-          <span className="lw-t">
-            Lehota na odvolanie
-            <small>ABC s.r.o. v. DEF a.s. · doručenie 23. 5. · 15 dní kalendárnych · výpočet deterministický</small>
-          </span>
-          <span className="lw-ref">§ 362 ods. 1 CSP · Slov-Lex ✓</span>
-          <span className="lw-st ai">otvoriť bránu</span>
-        </Link>
-      </div>
-
-      <div className="lw-reg">
-        <div className="lw-reg-h">
-          <h2>Potvrdené</h2>
-          <span className="lw-meta">
-            zapísané v spise + ICS
-            <a href="#ics">Exportovať ICS</a>
-          </span>
-        </div>
-        <div className="lw-row lw-cols-leh">
-          <span className="lw-no">1.</span>
-          <span className="lw-d urg">zajtra</span>
-          <span className="lw-t">
-            Žaloba o náhradu škody
-            <small>Novák v. Poisťovňa · 2024-03 Poisťovňa - náhrada škody</small>
-          </span>
-          <span className="lw-ref">Okresný súd Bratislava I</span>
-          <span className="lw-st ok">potvrdené</span>
-        </div>
-        <div className="lw-row lw-cols-leh">
-          <span className="lw-no">2.</span>
-          <span className="lw-d soon">pi 23. 5.</span>
-          <span className="lw-t">
-            Vyjadrenie k žalobe
-            <small>Kováč / rozvod</small>
-          </span>
-          <span className="lw-ref">Okresný súd Trnava</span>
-          <span className="lw-st ok">potvrdené</span>
-        </div>
-        <div className="lw-row lw-cols-leh">
-          <span className="lw-no">3.</span>
-          <span className="lw-d">ne 25. 5.</span>
-          <span className="lw-t">
-            Odvolanie
-            <small>STAV s.r.o. v. Mesto Žilina</small>
-          </span>
-          <span className="lw-ref">Krajský súd Žilina</span>
-          <span className="lw-st ok">potvrdené</span>
-        </div>
-        <div className="lw-row lw-cols-leh">
-          <span className="lw-no">4.</span>
-          <span className="lw-d">po 2. 6.</span>
-          <span className="lw-t">
-            Návrh na zápis zmeny konateľa
-            <small>Alfa s.r.o.</small>
-          </span>
-          <span className="lw-ref">ORSR</span>
-          <span className="lw-st warn">čaká na doklady</span>
-        </div>
-      </div>
-
-      <div className="lw-note">
-        <span>
-          Brána (spec 0005): zdroj s locatorom · deterministický výpočet · <b>Potvrdiť / Upraviť / Odmietnuť / Odložiť</b> ·
-          zápis do <b>spis.md</b> + ICS + audit. Originál návrhu sa neprepíše.
-        </span>
-      </div>
-    </>
   );
 }

@@ -2,11 +2,13 @@
 // @lawoss/okf-pamat — vygenerované z bin/okf-memory.ts cez `bun run build`. Needitovať ručne.
 
 // src/cli.ts
+import { createHash } from "node:crypto";
 import { existsSync as existsSync3, mkdirSync as mkdirSync2, readFileSync as readFileSync3, writeFileSync as writeFileSync2 } from "node:fs";
 import { join as join3, resolve as resolve2 } from "node:path";
 
 // src/store.ts
-import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync2, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync2, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { dirname, join as join2, relative, resolve, sep } from "node:path";
 
 // src/schema.ts
@@ -42,14 +44,25 @@ var ROLES = ["client", "counterparty", "representative", "ubo"];
 var RISK = ["low", "medium", "high"];
 var CONCLUSION = ["proceed", "enhanced_diligence", "decline"];
 var EVENT_KINDS = [
-  "dorucenie",
-  "podanie",
-  "pojednavanie",
-  "rozhodnutie",
-  "vyzva",
-  "hovor",
+  "delivery",
+  "filing",
+  "hearing",
+  "decision",
+  "request",
+  "call",
   "email"
 ];
+var EVENT_KIND_ALIASES = {
+  dorucenie: "delivery",
+  podanie: "filing",
+  pojednavanie: "hearing",
+  rozhodnutie: "decision",
+  vyzva: "request",
+  hovor: "call"
+};
+function canonicalEventKind(kind) {
+  return EVENT_KIND_ALIASES[kind] ?? kind;
+}
 var TASK_STATES = ["pending", "in_progress", "blocked", "done"];
 var PROOF_STATUS = ["proven", "unproven", "disputed"];
 var CONFIDENCE = ["high", "medium", "low"];
@@ -348,12 +361,12 @@ var VALUE_LABELS = {
     taken: { cz: "proveden", sk: "vykonaný" }
   },
   event_kind: {
-    dorucenie: { cz: "doručení", sk: "doručenie" },
-    podanie: { cz: "podání", sk: "podanie" },
-    pojednavanie: { cz: "jednání", sk: "pojednávanie" },
-    rozhodnutie: { cz: "rozhodnutí", sk: "rozhodnutie" },
-    vyzva: { cz: "výzva", sk: "výzva" },
-    hovor: { cz: "hovor", sk: "hovor" },
+    delivery: { cz: "doručení", sk: "doručenie" },
+    filing: { cz: "podání", sk: "podanie" },
+    hearing: { cz: "jednání", sk: "pojednávanie" },
+    decision: { cz: "rozhodnutí", sk: "rozhodnutie" },
+    request: { cz: "výzva", sk: "výzva" },
+    call: { cz: "hovor", sk: "hovor" },
     email: { cz: "e-mail", sk: "e-mail" }
   },
   state: {
@@ -588,16 +601,16 @@ function parseBlock(block, firstLineNo) {
       const body = t.slice(2).trim();
       const idx = body.indexOf(":");
       if (idx === -1 || body.startsWith('"') || body.startsWith("'") || body.startsWith("[") || body.startsWith("{")) {
-        const v2 = parseScalar(body);
-        if (typeof v2 === "object" && !Array.isArray(v2)) {
-          cur = v2;
+        const v = parseScalar(body);
+        if (typeof v === "object" && !Array.isArray(v)) {
+          cur = v;
           items.push(cur);
           return;
         }
-        if (Array.isArray(v2))
+        if (Array.isArray(v))
           throw new Error(`Riadok ${firstLineNo + k}: zoznam v zozname sa nepodporuje`);
         cur = undefined;
-        items.push(v2);
+        items.push(v);
         return;
       }
       if (body.slice(idx + 1).trim() === "") {
@@ -669,7 +682,7 @@ function parseTimeline(raw) {
     const m = /^-\s*(\d{4}-\d{2}-\d{2})\s*(?:\[([a-z_]+)\]\s*)?[—-]\s*(.*)$/.exec(line.trim());
     if (!m || !m[1] || m[3] === undefined)
       continue;
-    out.push(m[2] === undefined ? { date: m[1], text: m[3].trim() } : { date: m[1], text: m[3].trim(), kind: m[2] });
+    out.push(m[2] === undefined ? { date: m[1], text: m[3].trim() } : { date: m[1], text: m[3].trim(), kind: canonicalEventKind(m[2]) });
   }
   return out;
 }
@@ -687,11 +700,11 @@ function parseRecord(text) {
     }
     canon.set(kanon, v);
   }
-  for (const f of FIELDS) {
-    if (f.required && !canon.has(f.canonical)) {
-      throw new Error(`Chýba povinné pole: ${f.canonical}`);
-    }
-  }
+  const chyba = FIELDS.filter((f) => f.required && !canon.has(f.canonical)).map((f) => f.canonical);
+  if (chyba.length === 1)
+    throw new Error(`Chýba povinné pole: ${chyba[0]}`);
+  if (chyba.length > 1)
+    throw new Error(`Chýbajú povinné polia: ${chyba.join(", ")}`);
   const typeRaw = String(canon.get("type"));
   if (!isRecordType(typeRaw))
     throw new Error(`Neznámy typ záznamu: ${typeRaw}`);
@@ -797,11 +810,19 @@ function serializeRecord(r) {
   lines.push(`## ${HEADINGS.truth}`, "", r.truth, "");
   lines.push(`## ${HEADINGS.timeline}`, "");
   for (const e of r.timeline) {
-    lines.push(`- ${e.date}${e.kind ? ` [${e.kind}]` : ""} — ${e.text}`);
+    lines.push(`- ${e.date}${e.kind ? ` [${canonicalEventKind(e.kind)}]` : ""} — ${e.text}`);
   }
   return lines.join(`
 `) + `
 `;
+}
+function canonicalValue(value) {
+  return JSON.stringify(value, (_key, item) => item !== null && typeof item === "object" && !Array.isArray(item) ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item);
+}
+function recordRevision(record) {
+  const content = { ...record };
+  delete content.truth_digest;
+  return canonicalValue(parseRecord(serializeRecord(content)));
 }
 
 // src/mask.ts
@@ -1446,7 +1467,7 @@ function validateStore(records, opts = {}) {
       });
     }
     for (const e of r.timeline) {
-      if (!e.kind || EVENT_KINDS.includes(e.kind))
+      if (!e.kind || EVENT_KINDS.includes(canonicalEventKind(e.kind)))
         continue;
       findings.push({
         severity: "warning",
@@ -1585,12 +1606,12 @@ function validateStore(records, opts = {}) {
     }
   }
   for (const r of records) {
-    const ids2 = new Set((r.sources ?? []).map((z) => z.id).filter((x) => !!x));
+    const ids = new Set((r.sources ?? []).map((z) => z.id).filter((x) => !!x));
     const text = [r.truth, ...r.timeline.map((e) => e.text)].join(`
 `);
     const pouzite = new Set([...text.matchAll(/\[\^([^\]\s]+)\]/g)].map((m) => m[1] ?? ""));
     for (const label of pouzite) {
-      if (ids2.has(label))
+      if (ids.has(label))
         continue;
       findings.push({
         severity: "error",
@@ -1688,6 +1709,14 @@ class ApprovalRequiredError extends Error {
 
 class StaleUpdatedError extends Error {
 }
+function changedFields(before, after) {
+  const previous = new Map(Object.entries(before));
+  const next = new Map(Object.entries(after));
+  return [...new Set([...previous.keys(), ...next.keys()])].filter((key) => key !== "truth_digest" && key !== "timeline" && canonicalValue(previous.get(key)) !== canonicalValue(next.get(key)));
+}
+function contentChanged(before, after) {
+  return changedFields(before, after).some((key) => key !== "updated");
+}
 function sameEntry(a, b) {
   return a !== undefined && b !== undefined && a.date === b.date && a.text === b.text && a.kind === b.kind;
 }
@@ -1702,20 +1731,20 @@ function assertAppendOnly(before, after) {
   }
 }
 function assertUpdatedBumped(before, after, today = new Date().toISOString().slice(0, 10)) {
-  const obsahSaZmenil = before.truth !== after.truth || after.timeline.length > before.timeline.length;
+  const obsahSaZmenil = contentChanged(before, after) || after.timeline.length > before.timeline.length;
   if (!obsahSaZmenil)
     return;
-  if (after.updated !== before.updated)
+  if (after.updated > before.updated)
     return;
-  if (after.updated === today)
+  if (after.updated === before.updated && after.updated === today)
     return;
   throw new StaleUpdatedError(`Záznam ${before.id}: zmena obsahu musí posunúť updated (teraz ${before.updated})`);
 }
 function assertTruthTraced(before, after) {
-  if (before.truth === after.truth)
+  if (!contentChanged(before, after))
     return;
   if (after.timeline.length === before.timeline.length) {
-    throw new TimelineIntegrityError(`Záznam ${before.id}: zmena sekcie „Truth" musí pridať riadok do „History" v tom istom zápise`);
+    throw new TimelineIntegrityError(`Záznam ${before.id}: zmena sekcie „Truth" alebo metadát musí pridať riadok do „History" v tom istom zápise`);
   }
 }
 function describe(before, after) {
@@ -1737,9 +1766,12 @@ function describe(before, after) {
     lines.push(`~ Truth: ${before.truth}`);
     lines.push(`~ Truth → ${after.truth}`);
   }
-  for (const key of ["title", "description", "status", "updated"]) {
-    if (before[key] !== after[key])
-      lines.push(`~ ${key}: ${before[key]} → ${after[key]}`);
+  const previous = new Map(Object.entries(before));
+  const next = new Map(Object.entries(after));
+  for (const key of changedFields(before, after)) {
+    if (key === "truth")
+      continue;
+    lines.push(`~ ${key}: ${canonicalValue(previous.get(key)) ?? "∅"} → ${canonicalValue(next.get(key)) ?? "∅"}`);
   }
   for (const e of after.timeline.slice(before.timeline.length)) {
     lines.push(`+ History: ${e.date} — ${e.text}`);
@@ -1890,8 +1922,13 @@ function readStore(dir) {
   const memoryDir = join2(dir, MEMORY_DIR);
   const records = [];
   const problems = [];
-  if (existsSync2(memoryDir)) {
-    for (const name of readdirSync(memoryDir).sort()) {
+  try {
+    for (const entry of readdirSync(memoryDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const name = entry.name;
+      if (entry.isDirectory()) {
+        problems.push({ file: name, message: "Vnorený adresár pamäte nie je podporovaný; jeho záznamy neboli načítané." });
+        continue;
+      }
       if (!name.endsWith(".md"))
         continue;
       if (name === INDEX_FILE || name === LOG_FILE || name === LEGACY_INDEX_FILE)
@@ -1902,16 +1939,31 @@ function readStore(dir) {
         problems.push({ file: name, message: e instanceof Error ? e.message : String(e) });
       }
     }
+  } catch (error) {
+    if (!(error instanceof Error && ("code" in error) && error.code === "ENOENT")) {
+      problems.push({ file: memoryDir, message: error instanceof Error ? error.message : String(error) });
+    }
   }
-  const j = records[0]?.jurisdiction ?? jurisdictionFromCard(dir) ?? "cz";
-  return { dir, jurisdiction: j, memoryDir, records, problems };
+  let j = records[0]?.jurisdiction;
+  if (!j) {
+    try {
+      j = jurisdictionFromCard(dir);
+    } catch (error) {
+      problems.push({ file: dir, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return { dir, jurisdiction: j ?? "cz", memoryDir, records, problems };
 }
 function slug(s) {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48);
 }
 function fileFor(store, r) {
   const existing = existsSync2(store.memoryDir) ? readdirSync(store.memoryDir).find((n) => n.startsWith(`${r.id}-`) || n === `${r.id}.md`) : undefined;
-  return join2(store.memoryDir, existing ?? `${r.id}-${slug(r.title)}.md`);
+  const target = join2(store.memoryDir, existing ?? `${r.id}-${slug(r.title)}.md`);
+  if (existing && parseRecord(readFileSync2(target, "utf8")).id !== r.id) {
+    throw new ConcurrentWriteError(`Cieľový súbor je obsadený iným ID než ${r.id}; zápis alebo mazanie bolo odmietnuté.`);
+  }
+  return target;
 }
 
 class LeakBlockedError extends Error {
@@ -1922,12 +1974,16 @@ class ConcurrentWriteError extends Error {
 }
 function assertNotStale(store, diff) {
   const before = diff.before;
-  if (!before)
+  const matches = store.records.filter((r) => r.id === diff.id);
+  if (store.problems.length || matches.length > 1) {
+    throw new ConcurrentWriteError(`Pamäť obsahuje nečitateľné záznamy alebo duplicitné id ${diff.id}; oprav ju pred zápisom.`);
+  }
+  const naDisku = matches[0];
+  if (!before && !naDisku)
     return;
-  const naDisku = store.records.find((r) => r.id === before.id);
-  if (!naDisku || naDisku.updated === before.updated)
+  if (before && naDisku && recordRevision(naDisku) === recordRevision(before))
     return;
-  throw new ConcurrentWriteError(`Záznam ${before.id} sa medzitým zmenil: vychádzaš zo stavu ${before.updated}, ` + `na disku je ${naDisku.updated}. Načítaj ho znova a zápis zopakuj.`);
+  throw new ConcurrentWriteError(`Záznam ${diff.id} sa medzitým zmenil: vychádzaš zo stavu ${before?.updated ?? "nový záznam"}, ` + `na disku je ${naDisku?.updated ?? "záznam odstránený"}. Načítaj ho znova a zápis zopakuj.`);
 }
 function assertNoLeak(dir, after) {
   if (after.layer !== "L3")
@@ -1955,23 +2011,54 @@ function standingApproval(dir, diff, today) {
   };
 }
 function applyRecordWrite(dir, diff, approval, leakScopeDir = dir) {
+  for (const id of [diff.id, ...diff.before ? [diff.before.id] : [], ...diff.after ? [diff.after.id] : []]) {
+    if (typeof id !== "string" || !/^[\p{L}\p{N}][\p{L}\p{N}_-]*$/u.test(id)) {
+      throw new Error("Neplatné ID záznamu: použi písmená, číslice, pomlčku alebo podčiarkovník; ID nesmie byť cesta.");
+    }
+  }
   authorize(diff, approval === STANDING ? standingApproval(dir, diff) : approval);
   if (diff.after)
     assertNoLeak(leakScopeDir, diff.after);
-  const store = readStore(dir);
-  assertNotStale(store, diff);
-  if (!existsSync2(store.memoryDir))
-    mkdirSync(store.memoryDir, { recursive: true });
-  if (diff.kind === "delete") {
-    if (diff.before)
-      rmSync(fileFor(store, diff.before), { force: true });
-    return;
+  mkdirSync(dir, { recursive: true });
+  const lock = join2(dir, ".okf-write.lock");
+  try {
+    mkdirSync(lock);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "EEXIST") {
+      throw new ConcurrentWriteError(`Pamäť ${dir} je zamknutá iným zápisom. Zopakuj zápis po jeho dokončení. Po páde procesu odstráň ${lock} až po overení, že žiadny zápis nebeží.`);
+    }
+    throw error;
   }
-  const after = diff.after;
-  if (!after)
-    throw new Error(`Návrh ${diff.kind} nemá nový stav záznamu`);
-  const zapis = { ...after, truth_digest: truthDigest(after.truth) };
-  writeFileSync(fileFor(store, zapis), serializeRecord(zapis), "utf8");
+  try {
+    const store = readStore(dir);
+    assertNotStale(store, diff);
+    mkdirSync(store.memoryDir, { recursive: true });
+    if (diff.kind === "delete") {
+      if (diff.before)
+        rmSync(fileFor(store, diff.before));
+      return;
+    }
+    const after = diff.after;
+    if (!after)
+      throw new Error(`Návrh ${diff.kind} nemá nový stav záznamu`);
+    const zapis = { ...after, truth_digest: truthDigest(after.truth) };
+    const target = fileFor(store, zapis);
+    if (diff.kind === "create" && existsSync2(target)) {
+      throw new ConcurrentWriteError(`Cieľový súbor pre ID ${zapis.id} už existuje; možná kolízia veľkosti písmen. Zvoľ iné ID.`);
+    }
+    if (diff.kind === "update" && !existsSync2(target)) {
+      throw new ConcurrentWriteError(`Súbor pre ID ${zapis.id} sa nenašiel pod očakávaným názvom; zápis bol odmietnutý.`);
+    }
+    const temporary = `${target}.${randomUUID()}.tmp`;
+    try {
+      writeFileSync(temporary, serializeRecord(zapis), { encoding: "utf8", flag: "wx", mode: 384 });
+      renameSync(temporary, target);
+    } finally {
+      rmSync(temporary, { force: true });
+    }
+  } finally {
+    rmSync(lock, { recursive: true });
+  }
 }
 function linkResolver(store, zVnutraMemory) {
   const podlaId = new Map;
@@ -1991,15 +2078,34 @@ function linkResolver(store, zVnutraMemory) {
     return zVnutraMemory ? `./${name}` : `./${MEMORY_DIR}/${name}`;
   };
 }
+function completeScope(dir) {
+  const scope = readScope(dir);
+  if (scope.problems.length)
+    throw new Error(`NEÚPLNÉ ČÍTANIE: ${scope.problems.map((p) => `${p.file}: ${p.message}`).join("; ")}`);
+  return scope;
+}
+function scopeLinkResolver(dir, insideMemory) {
+  const scope = readScope(dir);
+  const stores = [scope.matter, ...[scope.clientDir, scope.officeDir].flatMap((path) => path ? [readStore(path)] : [])];
+  return (id) => {
+    for (const store of stores) {
+      const href = linkResolver(store, true)(id);
+      if (href)
+        return "./" + relative(insideMemory ? join2(dir, MEMORY_DIR) : dir, join2(store.memoryDir, href)).split(sep).join("/");
+    }
+    return;
+  };
+}
 function statusLinkResolver(dir) {
-  return linkResolver(readStore(dir), false);
+  return scopeLinkResolver(dir, false);
 }
 function writeIndex(dir) {
-  const store = readStore(dir);
+  const scope = completeScope(dir);
+  const store = scope.matter;
   if (!existsSync2(store.memoryDir))
     return;
   const j = store.jurisdiction;
-  const href = linkResolver(store, true);
+  const href = scopeLinkResolver(dir, true);
   const nadpis = {
     L1: { cz: "Kancelář (L1)", sk: "Kancelária (L1)" },
     L2: { cz: "Spis (L2)", sk: "Spis (L2)" },
@@ -2015,28 +2121,14 @@ function writeIndex(dir) {
     j === "cz" ? "> Generováno. Needituj ručně — přepíše se." : "> Generované. Needituj ručne — prepíše sa."
   ];
   for (const layer of ["L2", "L1", "L3"]) {
-    const vo = [...store.records].filter((r) => r.layer === layer).sort((a, b) => a.id < b.id ? -1 : 1);
+    const vo = [...scope.records].filter((r) => r.layer === layer).sort((a, b) => a.id < b.id ? -1 : 1);
     if (vo.length === 0)
       continue;
     lines.push("", `## ${nadpis[layer]?.[j] ?? layer}`, "");
     for (const r of vo) {
       const cesta = href(r.id);
-      const odkaz2 = cesta ? `[${r.id}](${cesta})` : r.id;
-      lines.push(`* ${odkaz2} — ${typeLabel(r.type, j)} — ${r.description}`);
-    }
-  }
-  const klientDir = findClientDir(dir);
-  if (klientDir) {
-    const ks = readStore(klientDir);
-    if (ks.records.length > 0) {
-      const prefix = relative(store.memoryDir, ks.memoryDir).split(sep).join("/");
-      const kh = linkResolver(ks, true);
-      lines.push("", "## Klient", "");
-      for (const r of [...ks.records].sort((a, b) => a.id < b.id ? -1 : 1)) {
-        const c = kh(r.id);
-        const odkaz2 = c ? `[${r.id}](${prefix}/${c.slice(2)})` : r.id;
-        lines.push(`* ${odkaz2} — ${typeLabel(r.type, j)} — ${r.description}`);
-      }
+      const odkaz = cesta ? `[${r.id}](${cesta})` : r.id;
+      lines.push(`* ${odkaz} — ${typeLabel(r.type, j)} — ${r.description}`);
     }
   }
   if (readdirSync(store.memoryDir).includes(LEGACY_INDEX_FILE)) {
@@ -2047,19 +2139,20 @@ function writeIndex(dir) {
 `, "utf8");
 }
 function writeLog(dir) {
-  const store = readStore(dir);
+  const scope = completeScope(dir);
+  const store = scope.matter;
   if (!existsSync2(store.memoryDir))
     return;
   const j = store.jurisdiction;
-  const href = linkResolver(store, true);
+  const href = scopeLinkResolver(dir, true);
   const podlaDatumu = new Map;
-  for (const r of store.records) {
+  for (const r of scope.records) {
     for (const e of r.timeline) {
       const cesta = href(r.id);
-      const odkaz2 = cesta ? `[${r.id}](${cesta})` : r.id;
+      const odkaz = cesta ? `[${r.id}](${cesta})` : r.id;
       const druh = e.kind ? `**${valueLabel("event_kind", e.kind, j)}**: ` : "";
       const zoznam = podlaDatumu.get(e.date) ?? [];
-      zoznam.push(`* ${druh}${e.text} — ${odkaz2}`);
+      zoznam.push(`* ${druh}${e.text} — ${odkaz}`);
       podlaDatumu.set(e.date, zoznam);
     }
   }
@@ -2078,16 +2171,20 @@ function ensureBrain(dir, j) {
   const cz = [
     "# BRAIN.md — protokol paměti spisu",
     "",
-    "Vstupní bod pro agenty. Čti v tomto pořadí, dál jen cíleně přes odkazy.",
+    "Vstupní bod pro agenty. Načti úplný kontext paměti, pak originály podle úkolu.",
     "",
     "1. `matter.md` (dříve `spis.md`) — karta věci",
     `2. \`${STATUS_FILE}\` — **Fáze** a **Další krok** nahoře; tabulky mezi markery generuje paměť`,
-    `3. \`${mem}/${INDEX_FILE}\` — rejstřík paměti, odtud na konkrétní záznam`,
+    "3. `okf-memory read <spis>` — celý obsah všech typů záznamů věci, klienta a kanceláře včetně revizí",
+    "4. `VSTUPY.md` — nespracované vstupy pending; chyby čtení a neúplnost předej dál",
+    "5. `memory/index.md` — pomocná mapa, nenahrazuje úplný kontext",
     "",
     "## Zápisová disciplína",
     "",
     "- Každý záznam má sekci **Truth** (aktuální stav) a **History** (append-only).",
-    "- Změna Truth musí ve stejném zápisu přidat řádek do History. Nástroj to vynucuje.",
+    "- Změna Truth i věcných metadat musí přidat řádek do History a aktualizovat updated.",
+    "- Před úpravou uchovej Revision ID: sha256 z read; write vyžaduje --if-revision. Při konfliktu načti nový stav a slaď změny, nevyměňuj jen token.",
+    "- Neúplné čtení vrací chybu; sync nesmí přepsat projekce. Chybějící generated ani strojové verified nepotvrzuje lhůtu člověkem.",
     "- Do L2 (spis) zapisuje agent sám. Do **L1** (pravidla, poučení) a **L3** (právní prameny)",
     "  a při **mazání** jen člověk — nástroj bez schválení zápis odmítne.",
     `- \`${STATUS_FILE}\` mimo markery patří advokátovi. Needituj to.`,
@@ -2095,7 +2192,7 @@ function ensureBrain(dir, j) {
     "## Tři úrovně paměti",
     "",
     `- \`${mem}/\` zde ve spisu — obsah věci (L2)`,
-    "- `../../memory/` u klienta — subjekty a AML prověření (identifikace se dělá jednou)",
+    "- `memory/` u nalezeného klienta — společné subjekty a prověření",
     `- \`${OFFICE_DIR}/memory/\` — pravidla a poučení (L1) a právní prameny (L3)`,
     "",
     "Pramen patří kanceláři, ne spisu: jinak se týž judikát zkopíruje do deseti",
@@ -2106,23 +2203,27 @@ function ensureBrain(dir, j) {
     `Tento adresář (\`${mem}/\`) je **jediné** místo, kam se paměť zapisuje.`,
     "Najdeš-li ve spisu `_memory.md`, `lrd.json`, `progress.txt`, `LEARNINGS.md`",
     "nebo adresáře `facts/`, `research/`, `strategy/` ze starších nástrojů —",
-    "**čti je jako archiv, ale nezapisuj do nich.** Dvě paměti v jednom spisu",
+    "**staré záznamy paměti čti jako archiv.** Originály a aktuální rešerše zůstávají pracovními podklady. Dvě paměti v jednom spisu",
     "znamenají dvě pravdy a jedna z nich bude tiše zastaralá.",
     ""
   ];
   const sk = [
     "# BRAIN.md — protokol pamäte spisu",
     "",
-    "Vstupný bod pre agentov. Čítaj v tomto poradí, ďalej len cielene cez odkazy.",
+    "Vstupný bod pre agentov. Načítaj úplný kontext pamäte, potom originály podľa úlohy.",
     "",
     "1. `matter.md` (predtým `spis.md`) — karta veci",
     `2. \`${STATUS_FILE}\` — **Fáza** a **Ďalší krok** hore; tabuľky medzi markermi generuje pamäť`,
-    `3. \`${mem}/${INDEX_FILE}\` — register pamäte, odtiaľ na konkrétny záznam`,
+    "3. `okf-memory read <spis>` — celý obsah všetkých typov záznamov veci, klienta a kancelárie vrátane revízií",
+    "4. `VSTUPY.md` — nespracované vstupy pending; chyby čítania a neúplnosť odovzdaj ďalej",
+    "5. `memory/index.md` — pomocná mapa, nenahrádza úplný kontext",
     "",
     "## Zápisová disciplína",
     "",
     "- Každý záznam má sekciu **Truth** (aktuálny stav) a **History** (append-only).",
-    "- Zmena Truth musí v tom istom zápise pridať riadok do History. Nástroj to vynucuje.",
+    "- Zmena Truth aj vecných metadát musí pridať riadok do History a aktualizovať updated.",
+    "- Pred úpravou uchovaj Revision ID: sha256 z read; write vyžaduje --if-revision. Pri konflikte načítaj nový stav a zosúlaď zmeny, nevymieňaj iba token.",
+    "- Neúplné čítanie vracia chybu; sync nesmie prepísať projekcie. Chýbajúce generated ani strojové verified nepotvrdzuje lehotu človekom.",
     "- Do L2 (spis) zapisuje agent sám. Do **L1** (pravidlá, poučenia) a **L3** (právne pramene)",
     "  a pri **mazaní** iba človek — nástroj bez schválenia zápis odmietne.",
     `- \`${STATUS_FILE}\` mimo markerov patrí advokátovi. Needituj to.`,
@@ -2130,7 +2231,7 @@ function ensureBrain(dir, j) {
     "## Tri úrovne pamäte",
     "",
     `- \`${mem}/\` tu v spise — obsah veci (L2)`,
-    "- `../../memory/` u klienta — subjekty a AML preverenia (identifikácia sa robí raz)",
+    "- `memory/` u nájdeného klienta — spoločné subjekty a preverenia",
     `- \`${OFFICE_DIR}/memory/\` — pravidlá a poučenia (L1) a právne pramene (L3)`,
     "",
     "Prameň patrí kancelárii, nie spisu: inak sa ten istý judikát skopíruje do",
@@ -2141,7 +2242,7 @@ function ensureBrain(dir, j) {
     `Tento adresár (\`${mem}/\`) je **jediné** miesto, kam sa pamäť zapisuje.`,
     "Ak nájdeš v spise `_memory.md`, `lrd.json`, `progress.txt`, `LEARNINGS.md`",
     "alebo adresáre `facts/`, `research/`, `strategy/` zo starších nástrojov —",
-    "**čítaj ich ako archív, ale nezapisuj do nich.** Dve pamäte v jednom spise",
+    "**staré záznamy pamäte čítaj ako archív.** Originály a aktuálne rešerše zostávajú pracovnými podkladmi. Dve pamäte v jednom spise",
     "znamenajú dve pravdy a jedna z nich bude ticho zastaraná.",
     ""
   ];
@@ -2149,10 +2250,11 @@ function ensureBrain(dir, j) {
 `), "utf8");
 }
 function syncStatus(dir) {
-  const store = readStore(dir);
+  const scope = completeScope(dir);
+  const store = scope.matter;
   const path = join2(dir, STATUS_FILE);
   const existing = existsSync2(path) ? readFileSync2(path, "utf8") : "";
-  const next = renderStatus(existing, store.records, store.jurisdiction, linkResolver(store, false));
+  const next = renderStatus(existing, scope.records, store.jurisdiction, statusLinkResolver(dir));
   if (next !== existing)
     writeFileSync(path, next, "utf8");
 }
@@ -2162,9 +2264,9 @@ function retrofitStatusFile(dir, apply) {
   if (!existsSync2(path))
     return [];
   const existing = readFileSync2(path, "utf8");
-  const { text: text2, inserted } = retrofitStatus(existing, store.records, store.jurisdiction, linkResolver(store, false));
+  const { text, inserted } = retrofitStatus(existing, store.records, store.jurisdiction, linkResolver(store, false));
   if (apply && inserted.length > 0)
-    writeFileSync(path, text2, "utf8");
+    writeFileSync(path, text, "utf8");
   return inserted;
 }
 var CLIENT_CARDS = ["client.md", "klient.md"];
@@ -2186,12 +2288,12 @@ function findOfficeDir(startDir, maxUp = 8) {
   }
   return;
 }
-function findClientDir(matterDir, maxUp = 4) {
+function findClientDir(matterDir, maxUp = Number.POSITIVE_INFINITY) {
   let dir = resolve(matterDir);
   for (let i = 0;i < maxUp; i++) {
     const parent = dirname(dir);
     if (parent === dir)
-      return;
+      break;
     if (CLIENT_CARDS.some((c) => existsSync2(join2(parent, c))))
       return parent;
     dir = parent;
@@ -2227,14 +2329,22 @@ function readScope(matterDir) {
   const officeDir = najdena && resolve(najdena) !== resolve(matterDir) ? najdena : undefined;
   const office = officeDir ? readStore(officeDir) : undefined;
   const officeRecords = office?.records ?? [];
+  const records = [...matter.records, ...clientRecords, ...officeRecords];
+  const problems = [...matter.problems, ...client?.problems ?? [], ...office?.problems ?? []];
+  const seen = new Set;
+  for (const record of records) {
+    if (seen.has(record.id))
+      problems.push({ file: matterDir, message: `Duplicitné ID ${record.id} v rozsahu pamäte.` });
+    seen.add(record.id);
+  }
   return {
     matter,
     clientDir,
     clientRecords,
     officeDir,
     officeRecords,
-    records: [...matter.records, ...clientRecords, ...officeRecords],
-    problems: [...matter.problems, ...client?.problems ?? [], ...office?.problems ?? []]
+    records,
+    problems
   };
 }
 
@@ -2250,6 +2360,7 @@ var USAGE = [
   "  okf-memory aml      <spis>            subjekty a stav AML preverenia",
   '  okf-memory write    <spis> --file <záznam.md> --reason "…" [--apply] [--approve-as "meno"]',
   "",
+  "  Pri úprave existujúceho záznamu: --if-revision <SHA256 z read>",
   "  --approve-as sa nevyžaduje, keď zápis kryje trvalé poverenie advokáta",
   `  v ${OFFICE_DIR}/${CONFIG_FILE} — viď AGENTNI-ZAPISY.md`,
   "  okf-memory init     <spis> [--sk] [--apply]   BRAIN.md a adresár pamäte",
@@ -2264,6 +2375,9 @@ function flagValue(rest, name) {
   const v = rest[i + 1];
   return v === undefined || v.startsWith("--") ? undefined : v;
 }
+function revisionHash(record) {
+  return createHash("sha256").update(recordRevision(record) ?? "").digest("hex");
+}
 function ok(out) {
   return { code: 0, out };
 }
@@ -2271,7 +2385,7 @@ function problemLines(problems) {
   if (problems.length === 0)
     return [];
   return [
-    "Nečitateľné súbory (preskočené):",
+    "NEÚPLNÉ ČÍTANIE — nečitateľné súbory:",
     ...problems.map((p) => `  ERROR PARSE_ERROR ${p.file}: ${p.message}`),
     ""
   ];
@@ -2314,10 +2428,15 @@ ${USAGE}` };
         `Spis: ${dir}`,
         `Jurisdikcia: ${scope.matter.jurisdiction}   Záznamov: ${scope.records.length}` + (scope.clientDir ? `, u klienta ${scope.clientRecords.length}` : "") + (scope.officeDir ? `, v kancelárii ${scope.officeRecords.length}` : ""),
         "",
-        ...scope.records.map(maskRecord).map((r) => `  ${r.id.padEnd(8)} ${r.layer}  ${typeLabel(r.type, r.jurisdiction).padEnd(12)} ${r.description}`)
+        ...scope.records.map((r) => `## ${r.id} — ${typeLabel(r.type, r.jurisdiction)}
+
+Revision ${r.id}: ${revisionHash(r)}
+
+${serializeRecord(maskRecord(r))}`),
+        ...existsSync3(join3(dir, "VSTUPY.md")) ? ["## Evidencia vstupov", readFileSync3(join3(dir, "VSTUPY.md"), "utf8")] : []
       ];
-      return ok(lines.join(`
-`));
+      return { code: scope.problems.length ? 1 : 0, out: lines.join(`
+`) };
     }
     case "validate": {
       const scope = readScope(dir);
@@ -2350,7 +2469,11 @@ ${USAGE}` };
       return ok(`${apply ? "Doplnené" : "dry-run: doplnil by som"} markery do ${bloky.length} sekcií: ${bloky.join(", ")}` + `${apply ? ". Spusti sync." : ". Zapíš s --apply."}`);
     }
     case "sync": {
-      const s = readStore(dir);
+      const scope = readScope(dir);
+      if (scope.problems.length)
+        return { code: 1, out: problemLines(scope.problems).join(`
+`) };
+      const s = { records: scope.records, jurisdiction: scope.matter.jurisdiction };
       try {
         if (!apply) {
           const statusPath = join3(dir, "_STATUS.md");
@@ -2387,8 +2510,8 @@ ${USAGE}` };
       ];
       if (subjekty.length === 0) {
         lines.push("Žiadne subjekty — AML evidencia je prázdna.");
-        return ok(lines.join(`
-`));
+        return { code: scope.problems.length ? 1 : 0, out: lines.join(`
+`) };
       }
       for (const raw of subjekty) {
         const r = maskRecord(raw);
@@ -2418,13 +2541,16 @@ ${USAGE}` };
       } else {
         lines.push("AML evidencia bez nálezov.");
       }
-      return ok(lines.join(`
-`));
+      return { code: scope.problems.length ? 1 : 0, out: lines.join(`
+`) };
     }
     case "write": {
       const file = flagValue(rest, "--file");
       const reason = flagValue(rest, "--reason");
       const approveAs = flagValue(rest, "--approve-as");
+      const expectedRevision = flagValue(rest, "--if-revision");
+      if (rest.includes("--if-revision") && !expectedRevision)
+        return { code: 2, out: "Prepínač --if-revision vyžaduje SHA256 z príkazu read." };
       if (!file || !reason) {
         return { code: 2, out: `Príkaz write vyžaduje --file a --reason.
 
@@ -2450,6 +2576,12 @@ ${USAGE}` };
           code: 1,
           out: `ODMIETNUTÉ: identifikátor ${after.id} už v ${cielovy === dir ? "spise" : OFFICE_DIR + "/"} ` + `patrí inému záznamu („${before.title}", založený ${before.created}). ` + `Voľné je ${volne} — prečísluj návrh aj odkazy naň.`
         };
+      }
+      if (before && expectedRevision === undefined) {
+        return { code: 1, out: `ODMIETNUTÉ: úprava ${after.id} vyžaduje --if-revision <SHA256 z read>. Načítaj záznam a priprav návrh z jeho aktuálneho stavu.` };
+      }
+      if (expectedRevision !== undefined && (!before || revisionHash(before) !== expectedRevision)) {
+        return { code: 1, out: `ODMIETNUTÉ: revízia ${after.id} sa nezhoduje alebo záznam už neexistuje. Načítaj ho znova, zosúlaď zmeny a priprav nový návrh; neopakuj starý zápis.` };
       }
       let diff;
       try {

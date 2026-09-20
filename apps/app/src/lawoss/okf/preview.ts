@@ -5,7 +5,7 @@
  * ZOSTÁVA a nie medzi tým, čo sa zapíše.
  */
 import { planEntity, type PlanEntry, type PlanInput } from "../../../../../lawoss/okf/src/core";
-import { entityTypeFor, targetDir, type NovySpisForm } from "./compose-prompt";
+import { clientTypeFor, entityTypeFor, targetDir, type NovySpisForm } from "./compose-prompt";
 import { OKF_TEMPLATES } from "./templates";
 
 export function previewPlan(form: NovySpisForm, exists: (relativePath: string) => boolean = () => false): PlanEntry[] {
@@ -13,8 +13,12 @@ export function previewPlan(form: NovySpisForm, exists: (relativePath: string) =
     type: entityTypeFor(form.subject),
     dir: targetDir(form),
     title: form.title.trim() || "[názov]",
-    ico: form.ico.trim() || undefined,
+    ico: !form.identifierType || form.identifierType === "ICO" ? form.ico.trim() || undefined : undefined,
     protistrana: form.protistrana.trim() || undefined,
+    jurisdiction: form.jurisdikcia === "SK" ? "sk" : "cz",
+    clientType: clientTypeFor(form.subject), country: form.country,
+    identifierType: form.identifierType, identifier: form.ico.trim(),
+    matterKind: form.matterKind, mode: form.matterMode, klient: form.clientName,
   };
   return planEntity(input, OKF_TEMPLATES, exists).entries;
 }

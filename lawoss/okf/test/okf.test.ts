@@ -74,13 +74,16 @@ describe("fs", () => {
     writeFileSync(join(root, "index.md"), "- spis.md\n");
     expect(validate(root)).toEqual([]);
   });
-  test("render mirrors CLAUDE.md only when absent or identical", () => {
+  test("render restores exact mirror and preserves divergent content in a backup", () => {
     writeFileSync(join(root, "AGENTS.md"), "---\ntype: agents\n---\nA\n");
     expect(render(root).written).toContain("CLAUDE.md");
     writeFileSync(join(root, "CLAUDE.md"), "---\ntype: agents\n---\nUPRAVENE\n");
     const r = render(root);
-    expect(r.written).not.toContain("CLAUDE.md");
-    expect(r.kept.some((k) => k.startsWith("CLAUDE.md"))).toBe(true);
+    expect(r.written).toContain("CLAUDE.md");
+    expect(readFileSync(join(root, "CLAUDE.md"), "utf8")).toBe(readFileSync(join(root, "AGENTS.md"), "utf8"));
+    const backup = r.written.find((path) => path.endsWith(".bak"));
+    expect(backup).toBeDefined();
+    expect(readFileSync(join(root, backup!), "utf8")).toContain("UPRAVENE");
   });
   test("render lists nested cards in index.md and keeps okf_version", () => {
     apply(plan({ type: "klient", dir: root, title: "ACME", date: "2026-09-02" }));
@@ -172,4 +175,51 @@ describe("kontrakt spisu", () => {
       expect(status).toContain(`<!-- okf:render:${block}:end -->`);
     }
   });
+});
+
+describe("alpha client and two matters", () => {
+  test("client identity and incomplete registry provenance survive CLI creation", () => {
+    expect(run(["apply", "klient", root, "--title", "Example", "--client-type", "po", "--country", "AT", "--identifier-type", "FN", "--identifier", "123x"], () => {})).toBe(0);
+    const card = parseFrontmatter(readFileSync(join(root, "klient.md"), "utf8"));
+    expect(card?.client_type).toBe("po");
+    expect(card?.country).toBe("AT");
+    expect(card?.identifier).toBe("123x");
+    expect(card?.registry_status).toBe("unverified");
+    expect(card?.registry_retrieved_at).toBe("");
+    expect(card?.registry_current_at).toBe("");
+  });
+  test("advisory has its own input register and folders without court or duplicate deadline ledger", () => {
+    for (const name of ["Spor", "Poradenstvo"]) {
+      const dir = join(root, "Spisy", name);
+      expect(run(["apply", "spis", dir, "--title", name, "--sk", "--matter-kind", name === "Spor" ? "dispute" : "advisory", "--mode", name === "Spor" ? "bounded" : "ongoing"], () => {})).toBe(0);
+      expect(existsSync(join(dir, "01_Podklady"))).toBe(true);
+      expect(existsSync(join(dir, "05_Komunikacia", "Dolezita_posta"))).toBe(true);
+      expect(readFileSync(join(dir, "VSTUPY.md"), "utf8")).toContain("pending");
+      expect(readFileSync(join(dir, "AGENTS.md"), "utf8")).toContain("BRAIN.md");
+      expect(readFileSync(join(dir, "spis.md"), "utf8")).not.toContain("lehoty:");
+    }
+    const card = parseFrontmatter(readFileSync(join(root, "Spisy", "Poradenstvo", "spis.md"), "utf8"));
+    expect(card?.matter_kind).toBe("advisory");
+    expect(card?.mode).toBe("ongoing");
+    expect(card?.sud).toBe("");
+  });
+  test("status contains no second manual tables outside generated blocks", () => {
+    const status = TEMPLATES.spis["_STATUS.md"].replace(/<!-- okf:render:\w+:start -->[\s\S]*?<!-- okf:render:\w+:end -->/g, "");
+    expect(status).not.toContain("|---");
+  });
+  test("retrofit mirrors the actual existing guide", () => {
+    writeFileSync(join(root, "AGENTS.md"), "---\ntype: agents\n---\nExisting instructions\n");
+    apply(plan({ type: "spis", dir: root, title: "Vec" }));
+    expect(readFileSync(join(root, "CLAUDE.md"), "utf8")).toBe(readFileSync(join(root, "AGENTS.md"), "utf8"));
+  });
+});
+
+test("both validators accept initialized matter and plain Markdown source documents", async () => {
+  const { runCli } = await import("../../okf-pamat/src/cli.ts");
+  expect(run(["apply", "spis", root, "--title", "Vec", "--sk"], () => {})).toBe(0);
+  expect(runCli(["init", root, "--apply"]).code).toBe(0);
+  expect(runCli(["sync", root, "--apply"]).code).toBe(0);
+  writeFileSync(join(root, "01_Podklady", "sprava.md"), "Originál správy bez OKF hlavičky\n");
+  expect(validate(root)).toEqual([]);
+  expect(runCli(["validate", root]).code).toBe(0);
 });

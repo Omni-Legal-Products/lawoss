@@ -65,9 +65,14 @@ export function groupPlan(rows: readonly PlanEntry[], context: PlanGroupContext)
     groups.pozornost.push({ label: folder, note: `názov priečinka sa líši od názvu veci „${title}“ — upravený na jeden segment` });
   }
 
-  if (form.subject === "pravnicka-osoba") {
-    if (!form.ico.trim()) groups.pozornost.push({ label: "IČO", note: "prázdne povinné pole pri právnickej osobe" });
+  if (form.subject === "pravnicka-osoba" || form.subject === "fyzicka-osoba-podnikatel") {
+    if (!form.ico.trim()) groups.pozornost.push({ label: form.identifierType || "Identifikátor", note: "chýba registračný identifikátor klienta" });
     if (!form.verify) groups.pozornost.push({ label: "Overenie subjektu", note: "vypnuté — údaje v karte ostanú neoverené" });
+  }
+
+  if (form.subject !== "spis" && form.subject !== "projekt") {
+    if (!form.country?.trim()) groups.pozornost.push({ label: "Krajina klienta", note: "doplň krajinu; jurisdikcia veci ju nenahrádza" });
+    if (form.verify) groups.pozornost.push({ label: "Overenie subjektu", note: "zatiaľ neoverené — zapnutý pokus o preverenie nie je jeho výsledkom" });
   }
 
   if (workspacePath && workspaceRelativePath(dir, workspacePath) === null) {

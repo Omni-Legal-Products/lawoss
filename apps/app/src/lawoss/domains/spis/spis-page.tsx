@@ -322,7 +322,7 @@ function RegisterRows({ id, cockpit, now }: { id: RegisterId; cockpit: Cockpit; 
   return (
     <>
       <DeadlineGroup title="Potvrdené" rows={cockpit.deadlines.confirmed} now={now} empty="Žiadna potvrdená lehota." />
-      <DeadlineGroup title="Kandidáti" rows={cockpit.deadlines.candidates} now={now} empty="Žiaden kandidát od agenta." />
+      <DeadlineGroup title="Kandidáti" rows={cockpit.deadlines.candidates} now={now} empty="Žiadna nepotvrdená lehota." />
     </>
   );
 }
@@ -390,7 +390,7 @@ function DeadlineStrip({ deadlines: unsorted, now }: { deadlines: readonly Cockp
           {formatDay(to)}
         </text>
         {deadlines.map((d, i) => {
-          const color = d.overdue ? "var(--lw-danger)" : d.provenance === "AI návrh" ? "var(--lw-accent)" : "var(--lw-text-secondary)";
+          const color = d.overdue ? "var(--lw-danger)" : !d.confirmed ? "var(--lw-accent)" : "var(--lw-text-secondary)";
           const top = i % 2 === 0 ? 30 : 58;
           // Popisok pri pravom okraji sa otočí doľava, inak by vytiekol mimo plochu.
           const flip = x(d.date) > 860;
@@ -404,7 +404,7 @@ function DeadlineStrip({ deadlines: unsorted, now }: { deadlines: readonly Cockp
                 y1={top}
                 y2="92"
                 stroke={color}
-                strokeDasharray={d.provenance === "AI návrh" ? "3 3" : undefined}
+                strokeDasharray={!d.confirmed ? "3 3" : undefined}
               />
               <circle cx={x(d.date)} cy="92" r="4.5" fill={d.overdue ? color : "var(--lw-surface)"} stroke={color} strokeWidth="1.5" />
               <text x={label} y={top + 4} textAnchor={anchor} fill={color} fontWeight="500">
@@ -419,8 +419,8 @@ function DeadlineStrip({ deadlines: unsorted, now }: { deadlines: readonly Cockp
       </svg>
       <div className="lw-leg">
         <span className="t">po termíne</span>
-        <span className="m">potvrdené (zapísané alebo overené)</span>
-        <span className="k">kandidát — AI návrh, čaká na potvrdenie</span>
+        <span className="m">potvrdené človekom pre konkrétny dátum</span>
+        <span className="k">kandidát — čaká na potvrdenie človekom</span>
       </div>
       {deadlines.length === 0 ? <p className="lw-empty">Vec nemá v pamäti zapísanú žiadnu lehotu.</p> : null}
     </div>

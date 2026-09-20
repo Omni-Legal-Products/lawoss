@@ -12,10 +12,10 @@ import type { RecordType } from "../okf-pamat/src/schema.ts";
 import { deadlineTier, type MatterInput, type MatterOverview } from "./read.ts";
 
 /** Odkiaľ údaj pochádza. Slovo, nie farba — stav musí byť čitateľný aj bez nej. */
-export type Provenance = "overené" | "AI návrh" | "zapísané";
+export type Provenance = "overené" | "AI návrh" | "zapísané" | "overenie neurčené" | "strojovo overené";
 
 /** Prečo riadok čaká na advokáta. Opäť slovo, nie farba. */
-export type AttentionState = "po termíne" | "blíži sa" | "neparsovateľné" | "chýba údaj" | "bez prameňa";
+export type AttentionState = "po termíne" | "blíži sa" | "neparsovateľné" | "chýba údaj" | "bez prameňa" | "nespracované";
 
 export type MatterProblem = { path: string; message: string };
 
@@ -46,6 +46,7 @@ export type CockpitDeadline = {
   source?: string;
   file: string;
   overdue: boolean;
+  confirmed: boolean;
 };
 export type AttentionRow = {
   id: string;
@@ -101,14 +102,26 @@ const FACT_TYPES = new Set<RecordType>(["decision", "subject", "question", "scre
 /** Fakt bez prameňa je nález validácie; pri týchto typoch prameň chýbať nesmie. */
 const NEEDS_SOURCE = new Set<RecordType>(["claim", "evidence", "decision"]);
 
-/**
- * `verified` v zázname = overil človek. `generated` (mimo schémy, teda v
- * `extra`) = zapísal agent a nikto to zatiaľ nepotvrdil.
- */
+/** Calendar validity is required; Date.parse alone normalizes invalid dates such as February 30. */
+function validVerificationTime(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))?$/.test(value)) return false;
+  const day = new Date(`${value.slice(0, 10)}T00:00:00Z`);
+  return !Number.isNaN(day.getTime()) && day.toISOString().slice(0, 10) === value.slice(0, 10) && !Number.isNaN(Date.parse(value));
+}
+
+/** Legacy verification without actor type never implies human approval. */
 export function provenance(record: OkfRecord): Provenance {
-  if ((record.verified?.length ?? 0) > 0) return "overené";
+  if (record.verified?.some((v) => v.type === "human" && typeof v.by === "string" && v.by.trim() && validVerificationTime(v.at) && v.truth === record.truth)) return "overené";
+  if (record.verified?.some((v) => v.type === "machine")) return "strojovo overené";
+  if ((record.verified?.length ?? 0) > 0) return "overenie neurčené";
   if (record.extra && "generated" in record.extra) return "AI návrh";
   return "zapísané";
+}
+
+/** Confirmation applies only to this date and the exact reviewed Truth. */
+export function deadlineConfirmed(record: OkfRecord, date: string): boolean {
+  return record.verified?.some((v) => v.type === "human" && typeof v.by === "string" && Boolean(v.by.trim()) && validVerificationTime(v.at) && v.at.slice(0, 10) >= record.updated.slice(0, 10) &&
+    v.deadline === date && v.truth === record.truth) ?? false;
 }
 
 const MEMORY_DIR = "memory";
@@ -179,6 +192,7 @@ function deadlines(input: MatterInput, todayIso: string): CockpitDeadline[] {
         provenance: provenance(r),
         file: fileOf(input, r),
         overdue: deadlineTier(date, todayIso) === "overdue",
+        confirmed: deadlineConfirmed(r, date),
       };
       const src = firstSource(r);
       if (src?.title) item.source = src.title;
@@ -204,14 +218,17 @@ function obal(matter: MatterOverview, jurisdiction: string | undefined): Cockpit
   const field = (label: string, value: string | undefined, fallback: string): CockpitField =>
     value ? { label, value, missing: false } : { label, value: fallback, missing: true };
   return [
-    field("Spisová značka", matter.matterRef, "nie je v karte ani v zázname"),
-    field("Súd / orgán", matter.court, "nie je v karte ani v zázname"),
+    ...(!matter.matterKind || matter.matterKind === "dispute" ? [
+      field("Spisová značka", matter.matterRef, "nie je v karte ani v zázname"),
+      field("Súd / orgán", matter.court, "nie je v karte ani v zázname"),
+    ] : []),
     field("Jurisdikcia", jurisdiction, "záznam veci chýba"),
     field("Stav konania", matter.state, "nie je v karte ani v zázname"),
   ];
 }
 
 const STATE_RANK: Record<AttentionState, number> = {
+  "nespracované": 2,
   "po termíne": 0,
   "blíži sa": 1,
   neparsovateľné: 2,
@@ -231,6 +248,14 @@ export function attention(
   todayIso: string,
 ): AttentionRow[] {
   const rows: AttentionRow[] = [];
+  for (const line of (input.intake ?? "").split("\n")) {
+    const cells = line.trim().split("|").slice(1, -1).map((cell) => cell.trim());
+    if (cells[4] !== "pending") continue;
+    rows.push({ id: `vstup:${cells[0]}`, kind: "záznam", state: "nespracované",
+      title: `Nespracovaný vstup ${cells[0]}`, detail: `${cells[2]} · ${cells[3]}`,
+      file: `${input.path}/VSTUPY.md` });
+  }
+
 
   for (const d of deadlines(input, todayIso)) {
     const tier = deadlineTier(d.date, todayIso);
@@ -284,7 +309,7 @@ export function attention(
     });
   }
 
-  for (const f of obal(matter, undefined).slice(0, 2)) {
+  for (const f of obal(matter, undefined).filter((f) => ["Spisová značka", "Súd / orgán"].includes(f.label))) {
     if (!f.missing) continue;
     rows.push({
       id: `nalez:obal:${f.label}`,
@@ -325,12 +350,12 @@ export function buildCockpit(data: CockpitInput, path: string | null, todayIso: 
   const matter = selectMatter(data.matters, path);
   if (!matter) return null;
   const input = data.inputs.find((i) => i.path === matter.path) ?? { path: matter.path, records: [] };
-  const unreadable = data.problems.filter((p) => p.path.startsWith(`${matter.path}/`));
-  const jurisdiction = input.records.find((r) => r.type === "matter")?.jurisdiction;
+  const unreadable = data.problems.filter((p) => (input.scopePaths ?? [matter.path]).some((dir) => p.path === dir || p.path === (dir ? `${dir}/memory` : "memory") || p.path.startsWith(dir ? `${dir}/memory/` : "memory/") || (dir === matter.path && p.path.startsWith(`${dir}/`))));
+  const jurisdiction = input.records.find((r) => r.type === "matter")?.jurisdiction ?? input.cardFrontmatter?.jurisdiction;
 
   const all = deadlines(input, todayIso);
-  const candidates = all.filter((d) => d.provenance === "AI návrh");
-  const confirmed = all.filter((d) => d.provenance !== "AI návrh");
+  const candidates = all.filter((d) => !d.confirmed);
+  const confirmed = all.filter((d) => d.confirmed);
   const factRows = facts(input);
   const taskRows = tasks(input, todayIso);
   const attentionRows = attention(matter, input, unreadable, todayIso);

@@ -13,8 +13,10 @@ V aplikácii LAWOSS je skill nainštalovaný do `.opencode/skills/okf-pamat/` aj
 ```
 node "<cesta k tomuto skillu>/resources/okf-memory.js" <príkaz> …
 ```
-Kancelária je priečinok `Office/` v koreni workspace-u s `okf.config` (trvalé
-poverenie advokáta), spisy ležia v `AK/<písmeno>/<klient>/Spisy/<vec>`. Návrh
+Kancelária je priečinok `Office/` s `okf.config` (trvalé poverenie advokáta);
+`AK/<písmeno>/<klient>/Spisy/<vec>` je predvolený profil. Klienta určuje karta
+`client.md` / `klient.md` v nadradenom priečinku alebo `client_path` v konfigurácii.
+Skill aj CLI fungujú nad obyčajnými Markdown súbormi bez LAWOSS aj bez Obsidianu. Návrh
 záznamu (`--file`) píš mimo spis (napr. do `/tmp`) alebo ho po zápise zmaž — do
 spisu patrí iba to, čo prešlo bránou. Ak `node` nie je k dispozícii, **zastav sa
 a povedz to**.
@@ -23,10 +25,20 @@ a povedz to**.
 
 1. `BRAIN.md` — protokol pamäte tohto spisu
 2. `_STATUS.md` — **Fáza** a **Ďalší krok** hore
-3. `memory/index.md` — register; odtiaľ cielene na záznam
+3. `okf-memory read <spis>` — plný obsah záznamov všetkých typov v rozsahu veci, klienta a kancelárie; obsahuje aj `VSTUPY.md`, ak existuje
+4. `VSTUPY.md` — nespracované riadky `pending`, zdroje a odkazy na výsledné záznamy
+5. `memory/index.md` — pomocná mapa; originálne dokumenty otváraj podľa úlohy a zdrojových odkazov
 
-**Nikdy nečítaj celý spis „pre istotu".** Register je mapa, dokumenty sú prameň.
-Citáciu do výstupu overuj vždy proti originálu dokumentu, nikdy proti pamäti.
+Typ ani opis záznamu nerozhoduje o tom, či jeho obsah môže obsahovať dôležitý
+pokyn alebo termín. Pri odovzdaní kontextu nepouži iba index či `_STATUS.md`.
+Citáciu do výstupu overuj proti originálu dokumentu. Výstup `read` maskuje len
+vybrané štruktúrované polia; voľný text môže obsahovať citlivé údaje.
+
+`read` a `aml` vrátia pri neúplnom čítaní kód **1** a vypíšu dostupný obsah aj
+problémy. Nevykladaj čiastočný výstup ako „nič ďalšie neexistuje“. `sync` pri
+nečitateľnej pamäti alebo duplicitnom ID v rozsahu odmietne prepísanie projekcií.
+Uveď konkrétny problém, oprav príčinu a zopakuj čítanie a validáciu; neodstraňuj
+zdrojový záznam len preto, aby kontrola prešla.
 
 ## Kam čo patrí
 
@@ -59,7 +71,7 @@ Bez ktoréhokoľvek z týchto **desiatich** polí CLI návrh odmietne (vypíše 
 | `layer` | `L2` (spis) · `L1` (`rule`, `lesson`) · `L3` (`authority`) — určuje ho typ |
 | `jurisdiction` | `cz` alebo `sk` — nikdy predvolene |
 | `status` | `active` · `superseded` · `void` |
-| `created`, `updated` | `RRRR-MM-DD`; `updated` sa pri zmene pravdy posúva dopredu |
+| `created`, `updated` | ISO dátum; pri zmene obsahu vrátane metadát aktualizuj `updated`, nikdy ho neposúvaj späť. Opakovaný zápis v dnešný deň môže ponechať dnešný dátum. |
 
 Najmenší platný záznam (spis, CZ):
 
@@ -99,8 +111,11 @@ Druhy udalostí v `## History` (`- 2026-09-11 [decision] — …`): `delivery` �
 # Náhľad — vypíše diff a nič nezapíše
 okf-memory write <spis> --file navrh.md --reason "prečo sa to mení"
 
-# Zápis do L2 — agent smie sám
+# Nový záznam L2 — agent smie sám
 okf-memory write <spis> --file navrh.md --reason "…" --apply
+
+# Úprava existujúceho záznamu — revízia zachytená pred prípravou návrhu
+okf-memory write <spis> --file navrh.md --reason "…" --if-revision <sha256> --apply
 
 # Zápis do L1, L3 alebo mazanie — meno zadáva človek
 okf-memory write <spis> --file navrh.md --reason "…" --apply --approve-as "JUDr. …"
@@ -109,21 +124,21 @@ okf-memory write <spis> --file navrh.md --reason "…" --apply --approve-as "JUD
 > [!IMPORTANT]
 > **`Approval` si nikdy nekonštruuj sám.** Meno v `--approve-as` zadáva do príkazu
 > **človek**. Agent, ktorý si napíše `{ by: "agent" }`, bránu síce technicky prejde —
-> knižnica nevie rozlíšiť, kto ju volá — ale **schválenie sa zapisuje do append-only
-> histórie záznamu** a zostane tam navždy viditeľné. Je to hranica procesná, nie
-> kryptografická; drží ju to, že podpis je trvalý a dohľadateľný, nie to, že sa nedá
-> napísať.
+> knižnica nevie rozlíšiť, kto ju volá. CLI zaznamená schválenie do histórie.
+> Zápisová cesta chráni jej existujúce riadky, priamy editor súborov však môže
+> ochranu obísť. Záznam mena nie je autentifikácia ani kryptografický podpis.
 
 Knižničné API (`planWrite` → `applyRecordWrite`) používaj iba na **čítanie diffu
 a prípravu návrhu**. Vlastný zápis nechaj CLI.
 
 **Pravidlá, ktoré nástroj vynucuje — neobchádzaj ich, zlyhá to:**
 
-- Meníš `## Truth`? Pridaj v tom istom zápise riadok do `## History`.
+- Meníš `## Truth` alebo vecné pole (`deadlines`, `due`, stav, zdroje, overenie…)?
+  Pridaj v tom istom zápise riadok do `## History`, aktualizuj `updated` a skontroluj celý diff.
 - Históriu neprepisuj ani neskracuj. Iba pripájaj.
-- Zápis do **L1** alebo **L3** a **mazanie** čohokoľvek → najprv ukáž
-  `diff.lines` advokátovi a vyžiadaj si schválenie. Bez neho zápis odmietne
-  `ApprovalRequiredError`.
+- Zápis do **L1** alebo **L3** potrebuje platné schválenie alebo existujúce trvalé
+  poverenie, ktoré ho pokrýva. **Mazanie** potrebuje výslovné schválenie človeka.
+  Trvalé poverenie neoprávňuje agenta potvrdiť obsah ani lehotu ako overenú človekom.
 - **AML údaje patria k `klient.md`, nie do spisu.** Identifikácia sa robí raz pri vzniku
   obchodného vzťahu a archivuje 10 rokov od jeho skončenia (§ 16), nie od skončenia kauzy.
   Spis na subjekt odkazuje `[[S-001]]`; `readScope()` obe úrovne prečíta naraz.
@@ -149,13 +164,56 @@ a prípravu návrhu**. Vlastný zápis nechaj CLI.
   `L3_LEAK_SUSPECT` (varovanie), je to krátke meno a rozhoduje človek —
   neprepisuj prameň sám, ukáž nález advokátovi.
 
+## Konflikt zápisu
+
+Pred úpravou spusti `read`, uchovaj riadok `Revision <ID>: <sha256>` a načítaj
+pôvodný zdrojový súbor; návrh nepripravuj z maskovaného výpisu. Zachovaj
+históriu. Každá úprava existujúceho záznamu, aj náhľad, vyžaduje
+`--if-revision <sha256>` s touto pôvodnou revíziou. Vytvorenie nového záznamu ju
+nevyžaduje. Hash pokrýva celý kanonický obsah vrátane metadát a histórie,
+vynecháva odvodené `truth_digest`.
+
+CLI odmietne nezhodu aj v ten istý deň; jadro pod zámkom opäť porovná pôvodný
+obsah pred samotným zápisom. Pri konflikte načítaj nový stav, zosúlaď vecné
+zmeny a priprav nový návrh aj diff. **Nevymeň iba token pri starom návrhu.**
+Rovnaký deň `updated` nie je dôkazom rovnakej revízie. CLI nemá príkaz na
+mazanie; knižničný delete diff podlieha rovnakému porovnaniu pôvodného obsahu
+aj výslovnému schváleniu človeka.
+
+## Overenie a potvrdenie konkrétnej lehoty
+
+Chýbajúce `generated`, samotné `verified`, meno overovateľa, zdroj ani úspešná
+validácia neznamenajú ľudské potvrdenie. V `verified` rozlišuj `type: machine`
+a `type: human`; druhé zapíš iba podľa skutočného ľudského overenia.
+
+Kokpit považuje konkrétny dátum z `deadlines` za potvrdený, len ak jedno overenie
+nesie všetky tieto údaje:
+
+```yaml
+verified:
+  - type: human
+    by: JUDr. Príklad
+    at: 2026-09-20T10:00:00Z
+    deadline: 2026-09-30
+    truth: "Presný aktuálny text sekcie Truth."
+```
+
+`by` musí byť neprázdne, `at` platný ISO dátum alebo čas a jeho deň nesmie byť
+starší než deň `updated`. `deadline` sa musí rovnať danému termínu a `truth`
+presne aktuálnemu textu Truth po parsovaní záznamu. Jeden potvrdený termín
+nepotvrdzuje ďalšie dátumy v zozname. Po zmene Truth alebo termínu ponechaj
+predchádzajúce overenie ako históriu a nové potvrdenie si nevymýšľaj. Staršie
+záznamy bez týchto polí zostávajú čitateľné; ich lehoty sú nepotvrdené. Tieto
+polia evidujú tvrdenie o overení, neoverujú totožnosť človeka.
+
 ## Pred ukončením práce v spise
 
 - [ ] Všetko podstatné z konverzácie je v pamäti? (prejdi ju spätne)
-- [ ] `zmena:` v každom dotknutom zázname je na dnešný dátum
+- [ ] Každá vecná zmena má dôvod, nový riadok History a aktuálne `updated`
 - [ ] `okf-memory validate <spis>` → bez chýb
-- [ ] pri AML veci `okf-memory aml <spis>` → preverenie klienta platí a je úplné
-- [ ] `okf-memory sync <spis> --apply` → projekcia do `_STATUS.md` a `index.md`
+- [ ] `okf-memory read <spis>` → úplný kontext, vypísané prípadné chyby a nespracované vstupy
+- [ ] pri AML evidencii `okf-memory aml <spis>` → skontrolované nálezy a stav evidencie; výpis nenahrádza preverenie
+- [ ] `okf-memory sync <spis> --apply` → projekcia do `_STATUS.md`, `index.md` a `log.md`
 - [ ] pri spornej veci: matica `evidence_matrix` v `_STATUS.md` sedí a žiadne tvrdenie nie je bez opory
 - [ ] **Fáza** a **Ďalší krok** v `_STATUS.md` zodpovedajú realite — to píše človek,
       ale ak sú zjavne zastarané, upozorni naň advokáta
@@ -176,7 +234,7 @@ desaťkrát nad tým istým textom.
 
 Adresár `memory/` je jediné miesto, kam sa zapisuje. Nájdeš-li vo spise `_memory.md`,
 `lrd.json`, `progress.txt`, `LEARNINGS.md` alebo `facts/`, `research/`, `strategy/`
-zo starších nástrojov — **čítaj ich ako archív, nezapisuj do nich.** Dve pamäte
+zo starších nástrojov — ak sú to staršie záznamy pamäte, **čítaj ich ako archív, nezapisuj do nich.** Originály dokumentov a aktuálne rešerše zostávajú pracovnými podkladmi bez ohľadu na názov priečinka. Dve pamäte
 v jednom spise znamenajú dve pravdy a jedna z nich bude ticho zastaraná.
 
 Mapovanie: `progress.txt` → `## History` v zázname · `LEARNINGS.md` → L1 `lesson` ·

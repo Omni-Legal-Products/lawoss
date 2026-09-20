@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { LAYER_OF, type RecordType } from "../../../lawoss/okf-pamat/src/schema.ts";
 import type { OkfRecord } from "../../../lawoss/okf-pamat/src/record.ts";
 import { addDays, buildOverview, deadlineTier, type MatterInput } from "../../../lawoss/okf/read";
-import { MAX_MATTERS, readWorkspaceMemory, type OkfReadClient } from "../src/lawoss/okf/read-model";
+import { MAX_DISCOVERY_DIRECTORIES, MAX_MATTERS, readWorkspaceMemory, type OkfReadClient } from "../src/lawoss/okf/read-model";
 
 const TODAY = "2026-09-12";
 
@@ -147,14 +147,15 @@ describe("readWorkspaceMemory — čítanie cez server API", () => {
     expect(out.matters).toHaveLength(1);
     const [m] = out.matters;
     expect(m).toMatchObject({ path: MATTER, title: "Novák Jan — insolvence", matterRef: "MSPH 79 INS 1/2026", court: "Městský soud v Praze", state: "aktivní" });
-    expect(m.counts).toEqual({ records: 3, evidence: 1, subjects: 0 });
+    expect(m.counts).toEqual({ records: 4, evidence: 1, subjects: 0 });
     expect(m.openTasks).toEqual([{ id: "T-001", title: "task T-001", assignee: "VR", due: undefined }]);
     expect(out.upcomingDeadlines).toEqual([{ date: "2026-09-15", title: "evidence E-001", recordId: "E-001", matter: { path: MATTER, title: "Novák Jan — insolvence", matterRef: "MSPH 79 INS 1/2026", court: "Městský soud v Praze" } }]);
     expect(out.problems).toEqual([{ path: `${MATTER}/memory/Z-999-rozbity.md`, message: expect.stringContaining("frontmatter") }]);
     expect(out.truncated).toBe(false);
-    // index.md, log.md, Office/ a skryté priečinky sa nečítajú
+    // index.md, log.md a skryté priečinky sa nečítajú; Office patrí rozsahu.
     expect(log.some((l) => l.endsWith("index.md") || l.endsWith("log.md"))).toBe(false);
-    expect(log.some((l) => l.includes("Office") || l.includes(".skryty"))).toBe(false);
+    expect(log.some((l) => l.includes(".skryty"))).toBe(false);
+    expect(log.some((l) => l.includes("Office"))).toBe(true);
   });
 
   test("workspace bez AK/ je prázdny prehľad, nie chyba", async () => {
@@ -175,7 +176,9 @@ describe("readWorkspaceMemory — čítanie cez server API", () => {
    */
   test("nečitateľný priečinok veci nezhodí celé čítanie", async () => {
     const dirs: Record<string, Array<{ name: string; kind: "file" | "dir" }>> = {
+      "": [{ name: "AK", kind: "dir" }],
       AK: [{ name: "N", kind: "dir" }],
+      "AK/N/Klient": [{ name: "Spisy", kind: "dir" }],
       "AK/N": [{ name: "Klient", kind: "dir" }],
       "AK/N/Klient/Spisy": [{ name: "vec-A", kind: "dir" }, { name: "vec-B", kind: "dir" }],
       "AK/N/Klient/Spisy/vec-A": [],
@@ -183,8 +186,8 @@ describe("readWorkspaceMemory — čítanie cez server API", () => {
     const client: OkfReadClient = {
       listWorkspaceDirectory: async (_ws, path) => {
         const entries = dirs[path];
-        if (!entries) throw new Error(`EACCES ${path}`);
-        return { path, truncated: false, entries: entries.map((e) => ({ ...e, path: `${path}/${e.name}` })) };
+        if (!entries) throw new Error(`${path.endsWith("vec-B") ? "EACCES" : "404"} ${path}`);
+        return { path, truncated: false, entries: entries.map((e) => ({ ...e, path: path ? `${path}/${e.name}` : e.name })) };
       },
       readWorkspaceFile: async (_ws, path) => { throw new Error(`404 ${path}`); },
     };
@@ -215,4 +218,79 @@ describe("readWorkspaceMemory — čítanie cez server API", () => {
     expect(peak).toBeLessThanOrEqual(6);
     expect(peak).toBeGreaterThan(1);
   });
+});
+
+describe("alpha — úplnosť a rozsah", () => {
+  test("odmietnutý prístup nie je prázdny úspešný prehľad", async () => {
+    const client: OkfReadClient = { ...fakeClient({}), listWorkspaceDirectory: async () => { throw new Error("EACCES"); } };
+    expect((await readWorkspaceMemory(client, "ws", TODAY)).problems).not.toHaveLength(0);
+  });
+  test("kanonická karta, klient aj kancelária sú v rovnakom rozsahu", async () => {
+    const out = await readWorkspaceMemory(fakeClient({
+      [`${MATTER}/matter.md`]: "---\ntitle: Poradenstvo\nmatter_kind: advisory\n---\n",
+      [`${MATTER}/memory/Q-001.md`]: record("Q-001", "question"),
+      "AK/N/Novák Jan/client.md": "---\ntype: client\n---\n",
+      "AK/N/Novák Jan/memory/S-001.md": record("S-001", "subject"),
+      "Office/memory/L-001.md": record("L-001", "lesson"),
+    }), "ws", TODAY);
+    expect(out.matters[0].title).toBe("Poradenstvo");
+    expect(out.inputs[0].records.map((r) => r.id)).toEqual(["Q-001", "S-001", "L-001"]);
+    expect(out.inputs[0].recordFiles?.["S-001"]).toBe("AK/N/Novák Jan/memory/S-001.md");
+  });
+  test("API truncated listing is visible", async () => {
+    const base = fakeClient({ [`${MATTER}/memory/Q-001.md`]: record("Q-001", "question") });
+    const client: OkfReadClient = { ...base, listWorkspaceDirectory: async (ws, path) => ({ ...await base.listWorkspaceDirectory(ws, path), truncated: path === "AK" }) };
+    const out = await readWorkspaceMemory(client, "ws", TODAY);
+    expect(out.truncated).toBe(true);
+    expect(out.problems).not.toHaveLength(0);
+  });
+});
+
+test("client_path configuration joins client scope without a card", async () => {
+  const out = await readWorkspaceMemory(fakeClient({
+    [`${MATTER}/memory/Q-001.md`]: record("Q-001", "question"),
+    "AK/N/Novák Jan/memory/S-001.md": record("S-001", "subject"),
+    "Office/okf.config": "client_path: AK/*/*\n",
+  }), "ws", TODAY);
+  expect(out.inputs[0].records.map((r) => r.id)).toEqual(["Q-001", "S-001"]);
+});
+
+test("discovers root and nested card-based clients while skipping dependency and hidden trees", async () => {
+  const log: string[] = [];
+  const out = await readWorkspaceMemory(fakeClient({
+    "Client/klient.md": "---\ntype: klient\n---\n",
+    "Client/Spisy/Advice/spis.md": "---\ntype: spis\ntitle: Advice\n---\n",
+    "Clients/International/Other/client.md": "---\ntype: client\n---\n",
+    "Clients/International/Other/Veci/Dispute/matter.md": "---\ntype: matter\ntitle: Dispute\n---\n",
+    "node_modules/package/matter.md": "---\ntype: matter\n---\n",
+    ".opencode/test/spis.md": "---\ntype: spis\n---\n",
+    ".git/fixtures/spis.md": "---\ntype: spis\n---\n",
+    "dist/fixture/spis.md": "---\ntype: spis\n---\n",
+    "source/Spisy/Not-a-matter/note.txt": "not a matter card",
+  }, log), "ws", TODAY);
+  expect(out.matters.map((m) => m.title).sort()).toEqual(["Advice", "Dispute"]);
+  expect(out.problems).toEqual([]);
+  expect(log.some((line) => /(?:list|read) (?:node_modules|\.opencode|\.git|dist)\//.test(line))).toBe(false);
+});
+
+
+test("unrelated repository discovery is bounded and marked incomplete", async () => {
+  const files: Record<string, string> = {};
+  for (let i = 0; i < MAX_DISCOVERY_DIRECTORIES + 10; i++) files[`source/folder-${i}/note.txt`] = "x";
+  const log: string[] = [];
+  const out = await readWorkspaceMemory(fakeClient(files, log), "ws", TODAY);
+  expect(out.truncated).toBe(true);
+  expect(out.matters).toEqual([]);
+  expect(log.filter((line) => line.startsWith("list ")).length).toBeLessThanOrEqual(MAX_DISCOVERY_DIRECTORIES);
+});
+
+test("workspace itself may be the client root without losing its shared context", async () => {
+  const out = await readWorkspaceMemory(fakeClient({
+    "klient.md": "---\ntype: klient\n---\n",
+    "memory/Q-CLIENT.md": record("Q-CLIENT", "question"),
+    "Spisy/Advice/spis.md": "---\ntype: spis\n---\n",
+    "Spisy/Advice/memory/Q-MATTER.md": record("Q-MATTER", "question"),
+  }), "ws", TODAY);
+  expect(out.inputs[0].records.map((r) => r.id)).toEqual(["Q-MATTER", "Q-CLIENT"]);
+  expect(out.problems).toEqual([]);
 });

@@ -11,6 +11,7 @@
 
 
 export const OKF_VERSION = "0.1";
+export const WORKING_FOLDERS = ["00_Na_zatriedenie", "01_Podklady", "02_Resers", "03_Drafty", "04_Vystupy", "05_Komunikacia"] as const;
 
 export type EntityType = "klient" | "spis" | "projekt";
 
@@ -18,7 +19,17 @@ export type EntityType = "klient" | "spis" | "projekt";
 export type Jurisdiction = "sk" | "cz";
 export const ENTITY_TYPES: readonly EntityType[] = ["klient", "spis", "projekt"];
 
+export type ClientType = "fo" | "fo-podnikatel" | "po" | "iny";
+export type MatterKind = "dispute" | "advisory" | "transaction" | "other";
+export type MatterMode = "bounded" | "ongoing";
+
 export type PlanInput = {
+  clientType?: ClientType;
+  country?: string;
+  identifierType?: string;
+  identifier?: string;
+  matterKind?: MatterKind;
+  mode?: MatterMode;
   type: EntityType;
   /** Cieľový priečinok entity (existujúci pri retrofite, nový pri založení). */
   dir: string;
@@ -81,6 +92,12 @@ export function renderTemplate(template: string, vars: Record<string, string | u
 export function templateVars(input: PlanInput): Record<string, string> {
   const date = input.date ?? today();
   return {
+    CLIENT_TYPE: input.clientType ?? "iny",
+    COUNTRY: input.country?.toUpperCase() ?? "",
+    IDENTIFIER_TYPE: input.identifierType ?? (input.ico ? "ICO" : ""),
+    IDENTIFIER: input.identifier ?? input.ico ?? "",
+    MATTER_KIND: input.matterKind ?? "dispute",
+    MODE: input.mode ?? "bounded",
     TITLE: input.title,
     KLIENT: input.type === "klient" ? input.title : (input.klient ?? ""),
     KLIENT_ICO: input.ico ?? "",
@@ -115,6 +132,9 @@ export function planEntity(input: PlanInput, templates: TemplateSet, exists: (re
   if (input.type === "klient") {
     push("index.md", `---\nokf_version: "${OKF_VERSION}"\n---\n\n# ${input.title}\n\n## Spisy\n`);
     push("Spisy/.keep", "");
+  }
+  if (input.type === "spis") {
+    for (const folder of [...WORKING_FOLDERS, "05_Komunikacia/Dolezita_posta"]) push(`${folder}/.keep`, "");
   }
   return { okfVersion: OKF_VERSION, type: input.type, dir: input.dir, entries };
 }

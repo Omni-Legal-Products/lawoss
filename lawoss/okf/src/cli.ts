@@ -15,7 +15,7 @@
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { ENTITY_TYPES, type EntityType, type Jurisdiction, type PlanInput } from "./core.ts";
+import { ENTITY_TYPES, type ClientType, type MatterKind, type MatterMode, type EntityType, type Jurisdiction, type PlanInput } from "./core.ts";
 import { apply, detect, plan, render, validate } from "./fs.ts";
 
 type Flags = Record<string, string | boolean>;
@@ -37,6 +37,14 @@ function parseArgs(argv: string[]): { positional: string[]; flags: Flags } {
 function str(flags: Flags, key: string): string | undefined {
   const value = flags[key];
   return typeof value === "string" ? value : undefined;
+}
+
+function choice<T extends string>(flags: Flags, key: string, values: readonly T[]): T | undefined {
+  const value = str(flags, key);
+  if (value === undefined) return undefined;
+  const match = values.find((item) => item === value);
+  if (!match) throw new Error(`--${key}: vyber ${values.join(" | ")}`);
+  return match;
 }
 
 function entityType(value: string | undefined): EntityType {
@@ -76,6 +84,10 @@ function inputFrom(positional: string[], flags: Flags): PlanInput {
   const title = str(flags, "title") ?? dir.split(/[\\/]/).filter(Boolean).pop() ?? "";
   return {
     type, dir, title,
+    clientType: choice(flags, "client-type", ["fo", "fo-podnikatel", "po", "iny"] satisfies ClientType[]),
+    country: str(flags, "country"), identifierType: str(flags, "identifier-type"), identifier: str(flags, "identifier"),
+    matterKind: choice(flags, "matter-kind", ["dispute", "advisory", "transaction", "other"] satisfies MatterKind[]),
+    mode: choice(flags, "mode", ["bounded", "ongoing"] satisfies MatterMode[]),
     description: str(flags, "desc"), ico: str(flags, "ico"), klient: str(flags, "klient"),
     protistrana: str(flags, "protistrana"), protistranaIco: str(flags, "protistrana-ico"),
     oblast: str(flags, "oblast"), spzn: str(flags, "spzn"), sud: str(flags, "sud"), date: str(flags, "date"),

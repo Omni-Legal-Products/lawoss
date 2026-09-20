@@ -1,7 +1,9 @@
 /** @jsxImportSource react */
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 
+import { loadOkfConnection, openSessionWithPrompt, type OkfConnection } from "../../okf/connection";
+import { activatePlugin } from "./activation";
 import { LawossLayout } from "../../shell/layout";
 import {
   MARKETPLACE_CATALOG,
@@ -17,6 +19,7 @@ import {
 
 const KIND_OPTIONS: ReadonlyArray<{ value: MarketplaceKind | "all"; label: string }> = [
   { value: "all", label: "Všetky typy" },
+  { value: "plugin", label: "Pluginy" },
   { value: "mcp", label: "MCP" },
   { value: "skill", label: "Skills" },
   { value: "cli", label: "CLI" },
@@ -32,6 +35,7 @@ const CHANNEL_OPTIONS: ReadonlyArray<{ value: MarketplaceChannel | "all"; label:
 ];
 
 const KIND_LABELS: Record<MarketplaceKind, string> = {
+  plugin: "plugin",
   mcp: "MCP",
   skill: "skill",
   cli: "CLI",
@@ -100,6 +104,52 @@ function CatalogRow(props: { entry: MarketplaceEntry; selected: boolean; onSelec
 }
 
 function EntryDetail(props: { entry: MarketplaceEntry }) {
+  const navigate = useNavigate();
+  const [connection, setConnection] = useState<OkfConnection | null>(null);
+  const [workspaceId, setWorkspaceId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    loadOkfConnection().then((value) => {
+      if (!cancelled) { setConnection(value); setWorkspaceId(value.activeWorkspaceId || value.workspaces[0]?.id || ""); }
+    }).catch((reason) => { if (!cancelled) setError(String(reason)); });
+    return () => { cancelled = true; };
+  }, []);
+  const workspace = connection?.workspaces.find((item) => item.id === workspaceId);
+  async function activate() {
+    if (!connection?.client || !workspace) return;
+    setBusy(true); setError(""); setMessage("");
+    try {
+      if (props.entry.install.action === "okf") {
+        const bundle = await import("../../okf/skill-bundle");
+        for (const skill of [
+          { name: bundle.NOVY_SPIS_SKILL_NAME, body: bundle.skillBody(), resource: bundle.OKF_CLI_RESOURCE_NAME, content: bundle.okfCliSource() },
+          { name: bundle.OKF_PAMAT_SKILL_NAME, body: bundle.pamatSkillBody(), resource: bundle.OKF_MEMORY_CLI_RESOURCE_NAME, content: bundle.okfMemoryCliSource() },
+        ]) {
+          await connection.client.upsertSkill(workspace.id, { name: skill.name, ...skill.body });
+          await connection.client.upsertSkillResource(workspace.id, skill.name, { name: skill.resource, content: skill.content });
+        }
+        setMessage("Skilly /novy-spis a /okf-pamat sú uložené vo vybranom pracovnom priečinku.");
+      } else {
+        const result = await activatePlugin(connection.client, workspace.id, props.entry);
+        setMessage(`Balík je nainštalovaný. Prvý štart MCP môže trvať niekoľko minút. Stav pripojenia skontrolujte v Konektoroch.${result.preview.warnings.length ? " Upozornenia: " + result.preview.warnings.join(" ") : ""}`);
+      }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  }
+  async function tryPlugin() {
+    if (!connection || !workspace) return;
+    setBusy(true); setError("");
+    try {
+      const prompt = props.entry.id === "okf"
+        ? "Použi skill /okf-pamat. Najprv načítaj celý kontext veci, klienta a kancelárie, vrátane VSTUPY.md. Uveď chyby čítania a nespracované vstupy. Bez určenia veci nič nezapisuj."
+        : `Použi nainštalovaný skill pre ${props.entry.name} a jeho MCP. Uveď dostupné nástroje a vyžiadaj konkrétny vstup na overenie. Pri výpadku oznám chybu; úspešné pripojenie nie je overenie údajov.`;
+      navigate(await openSessionWithPrompt(connection, workspace, prompt));
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  }
   const preview = installationPreview(props.entry);
 
   return (
@@ -129,7 +179,7 @@ function EntryDetail(props: { entry: MarketplaceEntry }) {
           <dd>{props.entry.jurisdictions.join(" · ")}</dd>
         </div>
         <div>
-          <dt>Overené</dt>
+          <dt>Kontrola zdroja</dt>
           <dd>{props.entry.verification.checkedAt}</dd>
         </div>
         <div className="wide">
@@ -155,23 +205,20 @@ function EntryDetail(props: { entry: MarketplaceEntry }) {
         </div>
       </div>
 
-      <div className="lw-marketplace-preview" data-preview-status="preview-only">
-        <div className="lw-marketplace-preview-heading">
-          <div>
-            <span className="lw-sc">Plán inštalácie</span>
-            <h3>Iba náhľad</h3>
-          </div>
-          <span className="lw-marketplace-preview-status">{preview.status}</span>
-        </div>
-        <p>
-          <b>Iba náhľad — nič sa neinštaluje.</b> Budúci installer môže použiť tento pinned zdroj až po explicitnom
-          potvrdení človekom.
-        </p>
-        <ul>
-          <li>Rozsah: {preview.scope}</li>
-          <li>Zdroj: {preview.source}</li>
-          <li>Ľudská brána: {preview.humanGate}</li>
-        </ul>
+      <div className="lw-marketplace-preview">
+        <h3>Aktivovať v pracovnom priečinku</h3>
+        <p>{props.entry.humanGate}</p>
+        <label>Pracovný priečinok <select value={workspaceId} onChange={(event) => { setWorkspaceId(event.target.value); setMessage(""); }} disabled={busy}>
+          <option value="">Vyberte priečinok</option>
+          {connection?.workspaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select></label>
+        {!connection?.client ? <p>Aktivácia vyžaduje bežiaci server LAWOSS a pracovný priečinok.</p> : null}
+        <p>Rozsah: {preview.scope}. {props.entry.dependencies.join(" · ")}</p>
+        <button className="lw-btn" type="button" disabled={busy || !connection?.client || !workspace} onClick={() => void activate()}>{busy ? "Pracujem…" : "Nainštalovať a aktivovať"}</button>
+        <button className="lw-btn" type="button" disabled={busy || !connection?.client || !workspace} onClick={() => void tryPlugin()}>Použiť v novom rozhovore</button>
+        <Link to="/konektory">Skontrolovať pripojenie</Link>
+        {message ? <p role="status">{message}</p> : null}
+        {error ? <p className="lw-status err" role="alert">Aktivácia alebo otvorenie rozhovoru zlyhalo: {error}</p> : null}
       </div>
     </section>
   );
@@ -195,7 +242,7 @@ export function MarketplacePage() {
         <div className="lw-reg-h">
           <h2>
             Katalóg
-            <span className="lw-badge">ukážka — katalóg zatiaľ neexistuje</span>
+            <span className="lw-badge">alfa · podporované doplnky</span>
           </h2>
           <span className="lw-meta">
             {entries.length} položiek
@@ -247,14 +294,14 @@ export function MarketplacePage() {
         )}
       </div>
 
-      {selectedEntry ? <EntryDetail entry={selectedEntry} /> : null}
+      {selectedEntry ? <EntryDetail key={selectedEntry.id} entry={selectedEntry} /> : null}
 
       <div className="lw-note">
         <span>
           Katalóg je <b>lokálny a deterministický</b>; zobrazenie položky ju nepripojí ani nenainštaluje.
         </span>
         <span>
-          Budúci GitHub registry dodá pinned manifest po <b>validácii</b>.
+          Balíky z GitHubu používajú <b>konkrétny commit</b>.
         </span>
         <span>
           Externé akcie ostávajú za <b>ľudskou bránou</b>.

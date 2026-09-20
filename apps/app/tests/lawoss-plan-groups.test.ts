@@ -18,7 +18,7 @@ const WORKSPACE = "/Users/x/Workspace";
 
 const form: NovySpisForm = {
   mode: "okf", subject: "pravnicka-osoba", title: "Novák Jan", ico: "12345678",
-  jurisdikcia: "CZ", verify: true, root: WORKSPACE, protistrana: "",
+  country: "CZ", identifierType: "ICO", jurisdikcia: "CZ", verify: true, root: WORKSPACE, protistrana: "",
 };
 
 /** Rovnaká cesta ako `previewPlan()`, len so šablónami nezávislými od Vite. */
@@ -33,11 +33,11 @@ function rowsFor(next: NovySpisForm, existing: readonly string[] = []) {
 const labels = (items: PlanGroupItem[]): string[] => items.map((item) => item.label);
 
 describe("plán nového spisu v troch skupinách", () => {
-  test("nový spis — všetko je v PRIDÁ SA a nič nevyžaduje pozornosť", () => {
+  test("nový klient — plán ukáže, že preverenie zatiaľ neprebehlo", () => {
     const groups = groupPlan(rowsFor(form), { form, workspacePath: WORKSPACE });
     expect(labels(groups.prida)).toEqual(["klient.md", "AGENTS.md", "MEMORY.md", "CLAUDE.md", "index.md", "Spisy/.keep"]);
     expect(groups.zostava).toEqual([]);
-    expect(groups.pozornost).toEqual([]);
+    expect(labels(groups.pozornost)).toEqual(["Overenie subjektu"]);
   });
 
   /** Akceptačné kritérium spec MF 3.2: existujúci súbor sa neprepíše. */
@@ -62,7 +62,7 @@ describe("plán nového spisu v troch skupinách", () => {
 
   test("chýbajúce IČO pri právnickej osobe a vypnuté overenie žiadajú pozornosť", () => {
     const bez: NovySpisForm = { ...form, ico: "" };
-    expect(labels(groupPlan(rowsFor(bez), { form: bez, workspacePath: WORKSPACE }).pozornost)).toEqual(["IČO"]);
+    expect(labels(groupPlan(rowsFor(bez), { form: bez, workspacePath: WORKSPACE }).pozornost)).toEqual(["ICO", "Overenie subjektu"]);
 
     const neovereny: NovySpisForm = { ...form, verify: false };
     expect(labels(groupPlan(rowsFor(neovereny), { form: neovereny, workspacePath: WORKSPACE }).pozornost)).toEqual(["Overenie subjektu"]);
@@ -74,16 +74,16 @@ describe("plán nového spisu v troch skupinách", () => {
 
   test("prázdny povinný názov žiada pozornosť", () => {
     const bez: NovySpisForm = { ...form, title: "   " };
-    expect(labels(groupPlan(rowsFor(bez), { form: bez, workspacePath: WORKSPACE }).pozornost)).toEqual(["Názov"]);
+    expect(labels(groupPlan(rowsFor(bez), { form: bez, workspacePath: WORKSPACE }).pozornost)).toEqual(["Názov", "Overenie subjektu"]);
   });
 
   test("cesta mimo workspace — agent na ňu potrebuje povolenie", () => {
     const inde: NovySpisForm = { ...form, root: "/Users/x/Dropbox/Klienti" };
     const groups = groupPlan(rowsFor(inde), { form: inde, workspacePath: WORKSPACE });
-    expect(labels(groups.pozornost)).toEqual(["/Users/x/Dropbox/Klienti/Novák Jan"]);
-    expect(groups.pozornost[0].note).toContain("mimo workspace");
+    expect(labels(groups.pozornost)).toEqual(["Overenie subjektu", "/Users/x/Dropbox/Klienti/Novák Jan"]);
+    expect(groups.pozornost[1].note).toContain("mimo workspace");
     // Bez známeho workspace-u sa cesta neposudzuje — nehádame, že je mimo.
-    expect(groupPlan(rowsFor(inde), { form: inde, workspacePath: "" }).pozornost).toEqual([]);
+    expect(labels(groupPlan(rowsFor(inde), { form: inde, workspacePath: "" }).pozornost)).toEqual(["Overenie subjektu"]);
   });
 
   test("workspaceRelativePath vráti cestu pre server, alebo null pri ceste mimo", () => {

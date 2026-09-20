@@ -8,7 +8,6 @@ import {
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { LAWOSS_ROUTES } from "../../lawoss/shell/routes";
-import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
 import { TasksPane } from "../domains/tasks/tasks-pane";
@@ -833,10 +832,6 @@ export function SessionRoute() {
     },
     [setOnboardingStage],
   );
-  // LAWOSS: krok „Your AI" je len lievik na Eigenwelt trial — preskočiť ho (aj uložený stav "ai").
-  useEffect(() => {
-    if (onboardingStage === "ai" && isCommercialSurfaceHidden("eigenwelt-trial")) finishOnboarding("skipped");
-  }, [onboardingStage, finishOnboarding]);
 
   // LAWOSS: krok „audio" zapína prepis a diktovanie, ale záložka recorder je
   // skrytá — používateľ by zapol funkciu, ku ktorej sa potom nikde nedostane.
@@ -2037,6 +2032,12 @@ export function SessionRoute() {
       const createdId = resolveWorkspaceListSelectedId(list) || list.workspaces[list.workspaces.length - 1]?.id || "";
       let targetWorkspaceId = createdId;
       let targetWorkspace = list.workspaces.find((workspace: WorkspaceInfo) => workspace.id === createdId) ?? null;
+      // A fresh profile can have an HTTP server before its first engine exists.
+      const localInfo = isDesktopRuntime() && targetWorkspace
+        ? await ensureDesktopLocalLegalworkConnection({ route: "session", workspace: targetWorkspace, allWorkspaces: list.workspaces })
+        : null;
+      const sessionBaseUrl = localInfo?.baseUrl || baseUrl;
+      const sessionToken = localInfo?.ownerToken || localInfo?.clientToken || token;
       if (createdId) {
         await workspaceSetSelected(createdId).catch(() => undefined);
         await workspaceSetRuntimeActive(createdId).catch(() => undefined);
@@ -2047,11 +2048,11 @@ export function SessionRoute() {
       await refreshRouteState();
       if (targetWorkspaceId) {
         const workspacePath = targetWorkspace?.path?.trim() || folder;
-        const session = createdOnServer && baseUrl && token
+        const session = createdOnServer && sessionBaseUrl && sessionToken
           ? unwrap(await createClient(
-              `${(buildLegalworkWorkspaceBaseUrl(baseUrl, targetWorkspaceId) ?? baseUrl).replace(/\/+$/, "")}/opencode`,
+              `${(buildLegalworkWorkspaceBaseUrl(sessionBaseUrl, targetWorkspaceId) ?? sessionBaseUrl).replace(/\/+$/, "")}/opencode`,
               workspacePath || undefined,
-              { token, mode: "legalwork" },
+              { token: sessionToken, mode: "legalwork" },
             ).session.create({ directory: workspacePath || undefined }))
           : null;
         setLegacySelectedWorkspaceId(targetWorkspaceId);

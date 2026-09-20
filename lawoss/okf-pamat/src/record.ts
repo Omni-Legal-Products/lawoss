@@ -51,6 +51,9 @@ export interface Source {
 export interface Verification {
   by: string;
   at: string;
+  type?: "human" | "machine";
+  deadline?: string;
+  truth?: string;
 }
 
 export interface TimelineEntry {
@@ -593,4 +596,19 @@ export function serializeRecord(r: OkfRecord): string {
     lines.push(`- ${e.date}${e.kind ? ` [${canonicalEventKind(e.kind)}]` : ""} — ${e.text}`);
   }
   return lines.join("\n") + "\n";
+}
+
+/** Stable comparison of metadata, independent of map key insertion order. */
+export function canonicalValue(value: unknown): string | undefined {
+  return JSON.stringify(value, (_key, item: unknown) =>
+    item !== null && typeof item === "object" && !Array.isArray(item)
+      ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b)))
+      : item);
+}
+
+/** Compare the complete persisted state; truth_digest is derived at write time. */
+export function recordRevision(record: OkfRecord): string | undefined {
+  const content = { ...record };
+  delete content.truth_digest;
+  return canonicalValue(parseRecord(serializeRecord(content)));
 }

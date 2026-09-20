@@ -15,13 +15,15 @@ import { NOVY_SPIS_SKILL_NAME, OKF_CLI_RESOURCE_NAME, OKF_MEMORY_CLI_RESOURCE_NA
 const SUBJECTS: Array<{ id: SubjectKind; label: string }> = [
   { id: "pravnicka-osoba", label: "Právnická osoba" },
   { id: "fyzicka-osoba", label: "Fyzická osoba" },
+  { id: "fyzicka-osoba-podnikatel", label: "Fyzická osoba – podnikateľ" },
+  { id: "iny-subjekt", label: "Iný subjekt" },
   { id: "spis", label: "Spis (pod existujúcim klientom)" },
   { id: "projekt", label: "Interný projekt" },
 ];
 
 type Status = { tone: "ok" | "warn" | "err"; text: string } | null;
 /** Obsah cieľového priečinka zistený pri „Zobraziť plán“, viazaný na cestu, pre ktorú platí. */
-type Probe = { dir: string; names: string[] };
+type Probe = { dir: string; names: string[]; formKey: string };
 
 function PlanGroup({ title, items, empty, tone }: { title: string; items: PlanGroupItem[]; empty: string; tone?: "warn" }) {
   return (
@@ -53,7 +55,7 @@ export function NovySpisPage() {
   const [probe, setProbe] = useState<Probe | null>(null);
   const [result, setResult] = useState<{ dir: string; route: string } | null>(null);
   const [form, setForm] = useState<NovySpisForm>({
-    mode: "okf", subject: "pravnicka-osoba", title: "", ico: "", jurisdikcia: "SK", verify: true, root: "", protistrana: "",
+    mode: "okf", subject: "pravnicka-osoba", title: "", ico: "", jurisdikcia: "SK", verify: true, root: "", protistrana: "", country: "SK", identifierType: "ICO", matterKind: "dispute", matterMode: "bounded", clientName: "",
   });
   /** Koreň zadaný ručne alebo cez dialóg; prázdny = koreň workspace-u. */
   const [rootOverride, setRootOverride] = useState("");
@@ -78,7 +80,7 @@ export function NovySpisPage() {
   );
   const effectiveRoot = rootOverride.trim() || workspace?.path || "";
   const effectiveForm = useMemo<NovySpisForm>(() => ({ ...form, root: effectiveRoot }), [form, effectiveRoot]);
-  const rootOutsideWorkspace = Boolean(workspace?.path && effectiveRoot && !effectiveRoot.startsWith(workspace.path));
+  const rootOutsideWorkspace = Boolean(workspace?.path && effectiveRoot && workspaceRelativePath(effectiveRoot, workspace.path) === null);
 
   async function pickRoot() {
     try {
@@ -103,7 +105,7 @@ export function NovySpisPage() {
   const canAct = Boolean(connection?.client && workspace && form.mode === "okf");
   // Plán platí len pre cestu, pre ktorú sa zisťoval. Premenovaním veci sa schová
   // a „Potvrdiť“ zhasne — advokát nepotvrdí plán, ktorý sa medzitým zmenil.
-  const planShown = probe?.dir === dir;
+  const planShown = probe?.dir === dir && probe.formKey === JSON.stringify(effectiveForm);
 
   /**
    * Krok „03 Návrh štruktúry“. Pýta sa servera, čo v cieľovom priečinku už je —
@@ -118,11 +120,15 @@ export function NovySpisPage() {
       try {
         const list = await connection.client.listWorkspaceDirectory(workspace.id, relative);
         names = list.entries.map((entry) => entry.name);
-      } catch {
-        // priečinok ešte nie je — plán berie všetko ako nové
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/404|not found|ENOENT/i.test(message)) {
+          setStatus({ tone: "err", text: `Obsah priečinka sa nepodarilo overiť: ${message}` });
+          setProbe(null); setBusy(null); return;
+        }
       }
     }
-    setProbe({ dir, names });
+    setProbe({ dir, names, formKey: JSON.stringify(effectiveForm) });
     setBusy(null);
   }
 
@@ -141,7 +147,7 @@ export function NovySpisPage() {
       setResult({ dir, route });
       setStatus({
         tone: "ok",
-        text: `Skill /${NOVY_SPIS_SKILL_NAME} je vo workspace „${workspace.name}“ a požiadavka čaká v novej session. Agent spustí plán a pred zápisom si vyžiada tvoje áno.`,
+        text: `Skill /${NOVY_SPIS_SKILL_NAME} je vo workspace „${workspace.name}“ a požiadavka čaká v novej session. Agent overí plán a vykoná potvrdené vytvorenie; pri konflikte sa zastaví.`,
       });
 
     } catch (error) {
@@ -156,7 +162,7 @@ export function NovySpisPage() {
       <h1 className="lw-h1">Nový spis</h1>
       <p className="lw-lead">
         Založíme priečinok klienta tak, aby sa v ňom vyznal agent aj bez LAWOSS. Originály ostávajú, pridáva sa iba to,
-        čo chýba. Fáza A: požiadavku dostane asistent, plán ti ukáže pred zápisom.
+        čo chýba. Skontroluj plán a odovzdaj potvrdené vytvorenie asistentovi.
       </p>
 
       <div className="lw-form">
@@ -164,7 +170,7 @@ export function NovySpisPage() {
           <span className="lw-sc">Ako založiť</span>
           <div className="lw-choice">
             <button type="button" className={`lw-choice-item ${form.mode === "okf" ? "on" : ""}`} onClick={() => set("mode", "okf")}>
-              <b>Spis podľa OKF</b><small>AGENTS.md, karta, MEMORY.md, CLAUDE.md mirror. Predvolené.</small>
+              <b>Spis podľa OKF</b><small>Karta klienta alebo veci, pamäť, podklady a evidencia vstupov.</small>
             </button>
             <button type="button" className={`lw-choice-item ${form.mode === "plain" ? "on" : ""}`} onClick={() => set("mode", "plain")}>
               <b>Obyčajný priečinok</b><small>Presne to, čo robí LegalWork dnes — použi „Add folder“ v sidebare.</small>
@@ -214,9 +220,39 @@ export function NovySpisPage() {
         </label>
 
         <label className="lw-field">
-          <span className="lw-sc">IČO</span>
-          <input className="lw-input lw-mono" value={form.ico} onChange={(event) => set("ico", event.target.value)} placeholder="12345678" />
+          <span className="lw-sc">Identifikátor klienta</span>
+          <input className="lw-input lw-mono" value={form.ico} onChange={(event) => set("ico", event.target.value)} placeholder={form.subject === "fyzicka-osoba" ? "interný identifikátor (voliteľné)" : "napr. IČO alebo zahraničné registračné číslo"} />
         </label>
+
+        {form.subject !== "spis" && form.subject !== "projekt" ? <>
+          <label className="lw-field">
+            <span className="lw-sc">Krajina klienta (ISO kód)</span>
+            <input className="lw-input" value={form.country ?? ""} onChange={(event) => set("country", event.target.value.toUpperCase())} placeholder="SK, CZ, AT…" maxLength={2} />
+          </label>
+          <label className="lw-field">
+            <span className="lw-sc">Typ identifikátora</span>
+            <input className="lw-input" value={form.identifierType ?? ""} onChange={(event) => set("identifierType", event.target.value)} placeholder="ICO, FN, interný identifikátor…" />
+          </label>
+        </> : null}
+        {form.subject === "spis" ? <>
+          <label className="lw-field">
+            <span className="lw-sc">Klient</span>
+            <input className="lw-input" value={form.clientName ?? ""} onChange={(event) => set("clientName", event.target.value)} placeholder="Názov existujúceho klienta" />
+            <small>Koreňový priečinok nastav na klientov priečinok Spisy.</small>
+          </label>
+          <label className="lw-field">
+            <span className="lw-sc">Druh veci</span>
+            <select className="lw-input" value={form.matterKind ?? "dispute"} onChange={(event) => set("matterKind", event.target.value === "advisory" ? "advisory" : event.target.value === "transaction" ? "transaction" : event.target.value === "other" ? "other" : "dispute")}>
+              <option value="dispute">Spor</option><option value="advisory">Poradenstvo</option><option value="transaction">Transakcia</option><option value="other">Iná vec</option>
+            </select>
+          </label>
+          <label className="lw-field">
+            <span className="lw-sc">Režim práce</span>
+            <select className="lw-input" value={form.matterMode ?? "bounded"} onChange={(event) => set("matterMode", event.target.value === "ongoing" ? "ongoing" : "bounded")}>
+              <option value="bounded">Ohraničené zadanie</option><option value="ongoing">Priebežná činnosť</option>
+            </select>
+          </label>
+        </> : null}
 
         <div className="lw-field">
           <span className="lw-sc">Jurisdikcia</span>
@@ -235,7 +271,7 @@ export function NovySpisPage() {
         </label>
 
         <label className="lw-field lw-field-row">
-          <span>Overiť subjekt v registri pri založení (ORSR · RPO)</span>
+          <span>Pokúsiť sa preveriť klienta v príslušnom registri</span>
           <button type="button" role="switch" aria-checked={form.verify} className={`lw-switch ${form.verify ? "on" : ""}`} onClick={() => set("verify", !form.verify)}>
             <span className="lw-switch-knob" />
           </button>
@@ -277,18 +313,18 @@ export function NovySpisPage() {
           {busy === "plan" ? "Zisťujem…" : "Zobraziť plán"}
         </button>
         {result ? (
-          <button type="button" className="lw-btn" onClick={() => navigate(result.route)}>Otvoriť spis</button>
+          <button type="button" className="lw-btn" onClick={() => navigate(result.route)}>Otvoriť rozhovor</button>
         ) : (
           <button type="button" className="lw-btn" disabled={!canAct || !planShown || busy !== null} onClick={() => void confirmCreate()}>
-            {busy === "confirm" ? "Odovzdávam…" : "Potvrdiť vytvorenie spisu"}
+            {busy === "confirm" ? "Odovzdávam…" : "Potvrdiť vytvorenie"}
           </button>
         )}
       </div>
 
       <div className="lw-note">
         <span><b>Zobraziť plán</b> prečíta cieľový priečinok a rozdelí zmeny na tri skupiny. Zápis sa nekoná.</span>
-        <span><b>Potvrdiť vytvorenie spisu</b> vloží skill <span className="lw-mono">/{NOVY_SPIS_SKILL_NAME}</span> do workspace-u a odovzdá požiadavku agentovi — ten plán zopakuje a čaká na tvoje áno.</span>
-        <span>CLI beží cez <span className="lw-mono">node</span> alebo <span className="lw-mono">bun</span> na tvojom stroji — Fáza B to presunie na server.</span>
+        <span><b>Potvrdiť vytvorenie</b> vloží skill <span className="lw-mono">/{NOVY_SPIS_SKILL_NAME}</span> do workspace-u a odovzdá požiadavku agentovi — ten plán overí a vykoná potvrdené vytvorenie.</span>
+        <span>Preverenie je do získania a posúdenia zdroja neúplné. Založenie priečinka nepotvrdzuje splnenie AML povinností.</span>
       </div>
     </LawossLayout>
   );

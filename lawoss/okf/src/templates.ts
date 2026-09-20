@@ -10,10 +10,12 @@ import projektAgents from "../templates/projekt/AGENTS.md" with { type: "text" }
 import projektMemory from "../templates/projekt/MEMORY.md" with { type: "text" };
 import projektCard from "../templates/projekt/projekt.md" with { type: "text" };
 
+import spisInputs from "../templates/spis/VSTUPY.md" with { type: "text" };
+
 import type { TemplateSet } from "./core.ts";
 
 export const TEMPLATES: TemplateSet = {
   klient: { "klient.md": klientCard, "AGENTS.md": klientAgents, "MEMORY.md": klientMemory },
-  spis: { "spis.md": spisCard, "_STATUS.md": spisStatus, "AGENTS.md": spisAgents, "MEMORY.md": spisMemory },
+  spis: { "VSTUPY.md": spisInputs, "spis.md": spisCard, "_STATUS.md": spisStatus, "AGENTS.md": spisAgents, "MEMORY.md": spisMemory },
   projekt: { "projekt.md": projektCard, "AGENTS.md": projektAgents, "MEMORY.md": projektMemory },
 };

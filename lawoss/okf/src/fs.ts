@@ -4,6 +4,7 @@ import { dirname, join, relative } from "node:path";
 
 import {
   CARD_FILE,
+  WORKING_FOLDERS,
   ENTITY_TYPES,
   type DetectResult,
   type EntityType,
@@ -61,7 +62,14 @@ export function detect(dir: string, hint?: EntityType): DetectResult {
 }
 
 export function plan(input: PlanInput): Plan {
-  return planEntity(input, TEMPLATES, (p) => existsSync(join(input.dir, p)));
+  const agents = join(input.dir, "AGENTS.md");
+  const templates = existsSync(agents) ? { ...TEMPLATES, [input.type]: { ...TEMPLATES[input.type], "AGENTS.md": readText(agents) } } : TEMPLATES;
+  const result = planEntity(input, templates, (p) => existsSync(join(input.dir, p)));
+  if (existsSync(agents)) {
+    const mirror = result.entries.find((entry) => entry.path === "CLAUDE.md" && entry.action === "create");
+    if (mirror) mirror.content = readText(agents);
+  }
+  return result;
 }
 
 /** Zapíše IBA položky `create`. Nikdy neprepíše existujúci súbor — kontroluje to znova pri zápise. */
@@ -83,7 +91,11 @@ export function validate(root: string): ValidationError[] {
   if (!existsSync(root)) return [{ path: root, message: "priečinok neexistuje" }];
   const errors: ValidationError[] = [];
   for (const rel of listMarkdown(root)) {
-    const error = validateMarkdown(rel, readText(join(root, rel)), !rel.includes("/"));
+    // Source documents and the generated agent entry point are not memory concepts.
+    if (rel.split("/").some((part) => WORKING_FOLDERS.some((folder) => folder === part)) || rel.split("/").pop() === "BRAIN.md") continue;
+    const parent = dirname(join(root, rel));
+    const bundleRoot = !rel.includes("/") || parent.endsWith("/memory") || ENTITY_TYPES.some((type) => existsSync(join(parent, CARD_FILE[type])));
+    const error = validateMarkdown(rel, readText(join(root, rel)), bundleRoot);
     if (error) errors.push(error);
   }
   return errors;
@@ -91,7 +103,7 @@ export function validate(root: string): ValidationError[] {
 
 /**
  * Pregeneruje odvodené súbory: CLAUDE.md ako mirror AGENTS.md (iba ak chýba
- * alebo je už mirrorom — vlastnoručne upravený CLAUDE.md sa neprepisuje) a
+ * alebo sa líši — pôvodný obsah sa pred synchronizáciou zálohuje) a
  * zoznam entít v index.md (iba telo pod frontmatterom, ak index existuje).
  */
 export function render(root: string): { written: string[]; kept: string[] } {
@@ -103,7 +115,12 @@ export function render(root: string): { written: string[]; kept: string[] } {
     const a = readText(agents);
     if (!existsSync(claude)) { writeFileSync(claude, a, "utf8"); written.push("CLAUDE.md"); }
     else if (readText(claude) === a) kept.push("CLAUDE.md");
-    else kept.push("CLAUDE.md (upravený ručne — nechaný)");
+    else {
+      const backup = `CLAUDE.md.${Date.now()}.bak`;
+      writeFileSync(join(root, backup), readText(claude), { encoding: "utf8", flag: "wx" });
+      writeFileSync(claude, a, "utf8");
+      written.push(backup, "CLAUDE.md");
+    }
   }
   const index = join(root, "index.md");
   if (existsSync(index)) {

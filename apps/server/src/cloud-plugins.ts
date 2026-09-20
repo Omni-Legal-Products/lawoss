@@ -1,4 +1,5 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { eq } from "drizzle-orm";
@@ -13,7 +14,7 @@ const OPENCODE_SKILL_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const OPENCODE_MCP_NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]*$/;
 const OPENCODE_MCP_IMPORT_PATH_PREFIX = "opencode.jsonc#mcp.";
 
-type CloudPluginConfigObjectType = "skill" | "agent" | "command" | "tool" | "mcp" | "hook" | "context" | "custom";
+type CloudPluginConfigObjectType = "skill" | "agent" | "command" | "tool" | "mcp" | "hook" | "context" | "custom" | "resource";
 
 type CloudPluginConfigObjectVersion = {
   id: string;
@@ -129,6 +130,7 @@ function normalizeConfigObjectType(value: unknown): CloudPluginConfigObjectType 
     case "hook":
     case "context":
     case "custom":
+    case "resource":
       return value;
     default:
       return null;
@@ -237,6 +239,13 @@ function normalizePluginSourcePath(path: string, objectType: string, namespace: 
 }
 
 function getPluginObjectInstallPath(object: CloudPluginConfigObject, namespace: string): string {
+  if (object.objectType === "resource") {
+    const path = object.currentRelativePath ?? "";
+    if (!path || path.includes("\\") || path.includes("\0") || path.startsWith("/") || path.split("/").some((part) => !part || part === "." || part === "..")) {
+      throw new ApiError(400, "invalid_cloud_plugin_path", "Invalid plugin resource path");
+    }
+    return `.opencode/plugin-resources/${namespace}/${path}`;
+  }
   const existing = normalizePluginSourcePath(object.currentRelativePath ?? "", object.objectType, namespace);
   if (existing) {
     if (object.objectType === "skill") {
@@ -383,6 +392,8 @@ function normalizePluginMcpConfig(input: unknown): Record<string, unknown> | nul
   const command = mcpCommandFromConfig(input);
   if (command.length > 0) {
     const config: Record<string, unknown> = { type: "local", command, enabled };
+    const timeout = typeof input.startup_timeout_sec === "number" ? input.startup_timeout_sec * 1000 : input.timeout;
+    if (typeof timeout === "number" && Number.isFinite(timeout) && timeout > 0) config.timeout = Math.min(timeout, 300_000);
     const environment = readStringRecord(input.environment) ?? readStringRecord(input.env);
     if (environment) config.environment = environment;
     return config;
@@ -574,7 +585,54 @@ function resolveWorkspaceInstallPath(workspaceRoot: string, relativePath: string
 async function writePluginWorkspaceFile(workspaceRoot: string, path: string, content: string): Promise<void> {
   const absolutePath = resolveWorkspaceInstallPath(workspaceRoot, path);
   await mkdir(dirname(absolutePath), { recursive: true });
-  await writeFile(absolutePath, content.endsWith("\n") ? content : `${content}\n`, "utf8");
+  await writeFile(absolutePath, content, "utf8");
+}
+
+/** Prepare an immutable runtime before changing any installed MCP command. */
+async function preparePluginResources(workspaceRoot: string, namespace: string, resolved: CloudPluginResolved): Promise<string> {
+  const prefix = `.opencode/plugin-resources/${namespace}/`;
+  const resources = resolved.memberships.flatMap(({ configObject: object }) => {
+    if (!object || object.status !== "active" || object.objectType !== "resource") return [];
+    const path = getPluginObjectInstallPath(object, namespace).slice(prefix.length);
+    const version = object.latestVersion;
+    if (version?.rawSourceText == null) throw new ApiError(400, "invalid_plugin_resource", `Plugin resource ${path} has no content`);
+    return [{ path, content: version.rawSourceText, versionId: version.id }];
+  }).sort((a, b) => a.path.localeCompare(b.path));
+  if (!resources.length) return namespace;
+  const paths = new Set<string>();
+  for (const resource of resources) {
+    if (paths.has(resource.path) || resource.path.split("/").some((_, index, parts) => paths.has(parts.slice(0, index).join("/")))) {
+      throw new ApiError(400, "invalid_plugin_resource", `Conflicting plugin resource path: ${resource.path}`);
+    }
+    paths.add(resource.path);
+  }
+  const digest = createHash("sha256").update(JSON.stringify(resources)).digest("hex");
+  const resourceNamespace = `${namespace}/${digest}`;
+  const target = resolveWorkspaceInstallPath(workspaceRoot, `.opencode/plugin-resources/${resourceNamespace}`);
+  let exists = false;
+  try { await stat(target); exists = true; }
+  catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error; }
+  if (exists) {
+    for (const resource of resources) {
+      if (await readFile(resolve(target, resource.path), "utf8") !== resource.content) {
+        throw new ApiError(409, "plugin_resource_changed", "Installed plugin resources were modified; refusing to overwrite an immutable runtime");
+      }
+    }
+    return resourceNamespace;
+  }
+  await mkdir(dirname(target), { recursive: true });
+  const staging = await mkdtemp(`${target}.staging-`);
+  try {
+    for (const resource of resources) {
+      const path = resolve(staging, resource.path);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, resource.content, { encoding: "utf8", flag: "wx" });
+    }
+    await rename(staging, target);
+  } finally {
+    await rm(staging, { recursive: true, force: true });
+  }
+  return resourceNamespace;
 }
 
 async function removePluginWorkspaceFile(workspaceRoot: string, path: string): Promise<void> {
@@ -618,6 +676,7 @@ export async function installCloudPlugin(input: {
   resolved: CloudPluginResolved;
 }): Promise<CloudImportedPlugin> {
   const namespace = pluginNamespace(input.resolved.plugin.name, input.resolved.plugin.id);
+  const resourceNamespace = await preparePluginResources(input.workspaceRoot, namespace, input.resolved);
   const cloudImports = await readInstalledCloudPlugins(input.serverConfig, input.workspaceId);
   const existing = cloudImports.plugins[input.resolved.plugin.id];
   const files: CloudImportedPluginFile[] = [];
@@ -629,6 +688,12 @@ export async function installCloudPlugin(input: {
 
     if (object.objectType === "mcp") {
       const configs = pluginMcpConfigsFromPayload(object, namespace);
+      const resourceRoot = resolve(input.workspaceRoot, ".opencode/plugin-resources", resourceNamespace);
+      for (const item of configs) {
+        if (Array.isArray(item.config.command)) {
+          item.config.command = item.config.command.map((part: unknown) => typeof part === "string" ? part.replaceAll("${CLAUDE_PLUGIN_ROOT}", resourceRoot) : part);
+        }
+      }
       for (const config of configs) {
         // Plugins are installed per workspace, so the MCPs they bring stay with it.
         await addMcp(input.serverConfig, input.workspaceId, config.name, config.config, "workspace");
@@ -646,7 +711,7 @@ export async function installCloudPlugin(input: {
 
     if (version?.rawSourceText == null) continue;
 
-    const path = getPluginObjectInstallPath(object, namespace);
+    const path = getPluginObjectInstallPath(object, object.objectType === "resource" ? resourceNamespace : namespace);
     let content = version.rawSourceText;
     if (object.objectType === "skill") {
       const description = cloudConfigObjectDescription(object) || "Skill";
@@ -658,7 +723,7 @@ export async function installCloudPlugin(input: {
       const fileName = path.match(/\/([^/]+)\.md$/)?.[1] ?? object.title;
       content = buildCloudCommandContent(slugifyConfigObjectName(fileName, object.id), cloudConfigObjectDescription(object), content);
     }
-    await writePluginWorkspaceFile(input.workspaceRoot, path, content);
+    if (object.objectType !== "resource") await writePluginWorkspaceFile(input.workspaceRoot, path, content);
     files.push({
       configObjectId: object.id,
       versionId: version.id,

@@ -78,8 +78,8 @@ describe("buildCockpit — čaká na pozornosť advokáta", () => {
     expect(c.attention[1]).toMatchObject({ state: "blíži sa", date: "2026-09-15", provenance: "AI návrh" });
     // lehota ďalej než 7 dní na advokáta nečaká, v registri však ostáva
     expect(c.attention.some((r) => r.title === "Ďaleká lehota")).toBe(false);
-    expect(c.deadlines.confirmed.map((d) => d.date)).toEqual(["2026-09-01", "2026-12-01"]);
-    expect(c.deadlines.candidates.map((d) => d.date)).toEqual(["2026-09-15"]);
+    expect(c.deadlines.confirmed.map((d) => d.date)).toEqual([]);
+    expect(c.deadlines.candidates.map((d) => d.date)).toEqual(["2026-09-01", "2026-09-15", "2026-12-01"]);
     expect(c.registers.find((r) => r.id === "lehoty")?.count).toBe(3);
   });
 
@@ -118,7 +118,7 @@ describe("buildCockpit — čaká na pozornosť advokáta", () => {
 
 describe("pomocné funkcie", () => {
   test("provenance rozlišuje overené, AI návrh a zapísané", () => {
-    expect(provenance(rec("claim", "C-1", { verified: [{ by: "VR", at: TODAY }] }))).toBe("overené");
+    expect(provenance(rec("claim", "C-1", { verified: [{ by: "VR", at: TODAY, type: "human", truth: "" }] }))).toBe("overené");
     expect(provenance(rec("claim", "C-2", { extra: { generated: { by: "agent", at: TODAY } } }))).toBe("AI návrh");
     expect(provenance(rec("claim", "C-3"))).toBe("zapísané");
   });
@@ -128,3 +128,54 @@ describe("pomocné funkcie", () => {
     expect(clientFromPath("Office/memory")).toBeUndefined();
   });
 });
+
+describe("audit alpha — potvrdenie a poradenská vec", () => {
+  test("legacy a strojové overenie nepotvrdzujú žiadny termín", () => {
+    const c = buildCockpit(input([matter([
+      rec("question", "Q-001", { deadlines: ["2026-09-30"], verified: [{ by: "machine", at: TODAY }] }),
+      rec("decision", "D-001", { deadlines: ["2026-10-01"] }),
+    ])]), PATH, TODAY)!;
+    expect(c.deadlines.confirmed).toHaveLength(0);
+    expect(c.deadlines.candidates).toHaveLength(2);
+    expect(provenance(rec("claim", "C-001", { verified: [{ by: "machine", at: TODAY }] }))).not.toBe("overené");
+  });
+  test("poradenstvo nevyžaduje súd ani procesnú značku", () => {
+    const c = buildCockpit(input([{ path: PATH, cardFrontmatter: { matter_kind: "advisory", jurisdiction: "sk" }, records: [rec("matter", "M-001")] }]), PATH, TODAY)!;
+    expect(c.attention.filter((r) => r.id.startsWith("nalez:obal:"))).toEqual([]);
+    expect(c.okfValid).toBe(true);
+  });
+});
+
+ test("human confirmation covers exactly one date and reviewed content", () => {
+  const r = rec("decision", "D-003", { truth: "Doručené", deadlines: ["2026-09-30", "2026-10-01"], verified: [{ by: "VR", at: TODAY, type: "human", deadline: "2026-09-30", truth: "Doručené" }] });
+  const c = buildCockpit(input([matter([r])]), PATH, TODAY)!;
+  expect(c.deadlines.confirmed.map((d) => d.date)).toEqual(["2026-09-30"]);
+  expect(c.deadlines.candidates.map((d) => d.date)).toEqual(["2026-10-01"]);
+  expect(buildCockpit(input([matter([{ ...r, truth: "Opravené doručenie" }])]), PATH, TODAY)!.deadlines.confirmed).toHaveLength(0);
+ });
+
+test("pending intake rows remain visible despite generic narrative mentioning processed", () => {
+  const m = matter([rec("matter", "M-001")]);
+  m.intake = "Use pending / processed.\n| ID | Prijaté | Zdroj | Originál | Stav | Výsledné záznamy |\n| --- | --- | --- | --- | --- | --- |\n| IN-001 | 2026-09-12 | email | mail.eml | pending | |\n| IN-002 | 2026-09-11 | email | old.eml | processed | Q-001 |";
+  const c = buildCockpit(input([m]), PATH, TODAY)!;
+  expect(c.attention.filter((r) => r.state === "nespracované").map((r) => r.id)).toEqual(["vstup:IN-001"]);
+});
+
+for (const shared of ["Office", "AK/N/Novák Jan"]) {
+  test(`failed shared memory directory listing stays visible: ${shared}`, () => {
+    const m = { ...matter([rec("matter", "M-001")]), scopePaths: [PATH, "AK/N/Novák Jan", "Office"] };
+    const problem = { path: `${shared}/memory`, message: "EACCES" };
+    const c = buildCockpit(input([m], [problem]), PATH, TODAY)!;
+    expect(c.unreadable).toEqual([problem]);
+    expect(c.okfValid).toBe(false);
+  });
+}
+
+for (const at of ["2026-99-99", "2026-02-30", "2026-09-12Tgarbage", "2026-09-12T25:00:00Z"]) {
+  test(`invalid verification timestamp cannot confirm a deadline: ${at}`, () => {
+    const r = rec("question", "Q-INVALID", { deadlines: ["2026-10-01"], verified: [{ by: "VR", at, type: "human", deadline: "2026-10-01", truth: "" }] });
+    const c = buildCockpit(input([matter([r])]), PATH, TODAY)!;
+    expect(c.deadlines.confirmed).toEqual([]);
+    expect(provenance(r)).not.toBe("overené");
+  });
+}

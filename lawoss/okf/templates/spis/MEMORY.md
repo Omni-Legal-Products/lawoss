@@ -1,16 +1,9 @@
 ---
 type: memory
-title: {{TITLE}} — Memory
+title: {{TITLE}} — Archív
 updated: {{DATE}}
 ---
 
-# MEMORY.md — projektová pamäť ({{TITLE}})
+# Staršia pamäť
 
-## Taktické pravidlá
-*(TP-001, TP-002, …)*
-
-## Lessons learned
-*(LL-001, …)*
-
-## Otvorené otázky
-*(OQ-001, …)*
+Aktívne záznamy patria do `memory/` cez `okf-memory`. Tento súbor slúži iba ako archív starších poznámok; nové fakty sem nezapisuj.

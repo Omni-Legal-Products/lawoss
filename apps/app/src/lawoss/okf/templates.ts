@@ -10,10 +10,12 @@ import projektAgents from "../../../../../lawoss/okf/templates/projekt/AGENTS.md
 import projektMemory from "../../../../../lawoss/okf/templates/projekt/MEMORY.md?raw";
 import projektCard from "../../../../../lawoss/okf/templates/projekt/projekt.md?raw";
 
+import spisInputs from "../../../../../lawoss/okf/templates/spis/VSTUPY.md?raw";
+
 import type { TemplateSet } from "../../../../../lawoss/okf/src/core";
 
 export const OKF_TEMPLATES: TemplateSet = {
   klient: { "klient.md": klientCard, "AGENTS.md": klientAgents, "MEMORY.md": klientMemory },
-  spis: { "spis.md": spisCard, "_STATUS.md": spisStatus, "AGENTS.md": spisAgents, "MEMORY.md": spisMemory },
+  spis: { "VSTUPY.md": spisInputs, "spis.md": spisCard, "_STATUS.md": spisStatus, "AGENTS.md": spisAgents, "MEMORY.md": spisMemory },
   projekt: { "projekt.md": projektCard, "AGENTS.md": projektAgents, "MEMORY.md": projektMemory },
 };
