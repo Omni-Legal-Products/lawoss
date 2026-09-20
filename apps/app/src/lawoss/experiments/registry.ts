@@ -34,7 +34,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
     id: "view-novy-spis",
     to: "/experimenty/novy-spis",
     label: "Nový spis (OKF)",
-    note: "Fáza A: dialóg zloží požiadavku, agent cez skill /novy-spis zavolá okf CLI a plán ti ukáže pred zápisom. Nainštaluje skill aj CLI do workspace.",
+    note: "Fáza A: dialóg zloží požiadavku, agent cez skill /novy-spis zavolá okf CLI a plán ti ukáže pred zápisom. Nainštaluje do workspace skilly /novy-spis a /okf-pamat aj s CLI — pamäť spisu so všetkými bránami.",
     owner: "MČ",
     stav: "v testovaní",
   },

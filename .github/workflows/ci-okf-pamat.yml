@@ -37,8 +37,12 @@ jobs:
         with:
           version: 11.4.0
 
-      # Balíček je členom pnpm workspace (`lawoss/*` v pnpm-workspace.yaml) —
-      # inštaluje sa z koreňového lockfile, iba jeho vlastné závislosti.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      # OKF patrí do pnpm workspace; používame koreňový lockfile.
       - name: Install
         run: pnpm install --frozen-lockfile --ignore-scripts --filter @lawoss/okf-pamat
 
@@ -47,3 +51,11 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      - name: Bundle je čerstvý
+        # `bundle/okf-memory.js` sa inštaluje do workspace-u ako CLI skillu
+        # `/okf-pamat`, takže zastaraný bundle znamená, že agent v appke beží
+        # na inom kóde než repozitár.
+        run: |
+          bun run build
+          git diff --exit-code bundle/

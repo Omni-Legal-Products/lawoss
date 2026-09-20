@@ -10,7 +10,7 @@ import { composePrompt, targetDir, type Jurisdikcia, type NovySpisForm, type Sub
 import { loadOkfConnection, openSessionWithPrompt, type OkfConnection } from "../../okf/connection";
 import { groupPlan, workspaceRelativePath, type PlanGroupItem } from "../../okf/plan-groups";
 import { previewPlan } from "../../okf/preview";
-import { NOVY_SPIS_SKILL_NAME, OKF_CLI_RESOURCE_NAME, okfCliSource, skillBody } from "../../okf/skill-bundle";
+import { NOVY_SPIS_SKILL_NAME, OKF_CLI_RESOURCE_NAME, OKF_MEMORY_CLI_RESOURCE_NAME, OKF_PAMAT_SKILL_NAME, okfCliSource, okfMemoryCliSource, pamatSkillBody, skillBody } from "../../okf/skill-bundle";
 
 const SUBJECTS: Array<{ id: SubjectKind; label: string }> = [
   { id: "pravnicka-osoba", label: "Právnická osoba" },
@@ -133,12 +133,17 @@ export function NovySpisPage() {
       const body = skillBody();
       await connection.client.upsertSkill(workspace.id, { name: NOVY_SPIS_SKILL_NAME, content: body.content, description: body.description });
       await connection.client.upsertSkillResource(workspace.id, NOVY_SPIS_SKILL_NAME, { name: OKF_CLI_RESOURCE_NAME, content: okfCliSource() });
+      // Pamäť spisu ide spolu so založením: bez nej agent do OKF nezapíše.
+      const pamat = pamatSkillBody();
+      await connection.client.upsertSkill(workspace.id, { name: OKF_PAMAT_SKILL_NAME, content: pamat.content, description: pamat.description });
+      await connection.client.upsertSkillResource(workspace.id, OKF_PAMAT_SKILL_NAME, { name: OKF_MEMORY_CLI_RESOURCE_NAME, content: okfMemoryCliSource() });
       const route = await openSessionWithPrompt(connection, workspace, prompt);
       setResult({ dir, route });
       setStatus({
         tone: "ok",
         text: `Skill /${NOVY_SPIS_SKILL_NAME} je vo workspace „${workspace.name}“ a požiadavka čaká v novej session. Agent spustí plán a pred zápisom si vyžiada tvoje áno.`,
       });
+
     } catch (error) {
       setStatus({ tone: "err", text: error instanceof Error ? error.message : String(error) });
     } finally {

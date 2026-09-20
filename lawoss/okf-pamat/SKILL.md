@@ -5,6 +5,20 @@ description: Use when reading or writing case memory in an OKF matter folder (sp
 
 # okf-pamat — pamäť spisu
 
+## Kde je CLI
+
+V aplikácii LAWOSS je skill nainštalovaný do `.opencode/skills/okf-pamat/` aj s CLI
+`resources/okf-memory.js` (jeden súbor, bez závislostí). Všade, kde je nižšie
+`okf-memory …`, spúšťaj:
+```
+node "<cesta k tomuto skillu>/resources/okf-memory.js" <príkaz> …
+```
+Kancelária je priečinok `Office/` v koreni workspace-u s `okf.config` (trvalé
+poverenie advokáta), spisy ležia v `AK/<písmeno>/<klient>/Spisy/<vec>`. Návrh
+záznamu (`--file`) píš mimo spis (napr. do `/tmp`) alebo ho po zápise zmaž — do
+spisu patrí iba to, čo prešlo bránou. Ak `node` nie je k dispozícii, **zastav sa
+a povedz to**.
+
 ## Vstup do spisu (vždy v tomto poradí)
 
 1. `BRAIN.md` — protokol pamäte tohto spisu
