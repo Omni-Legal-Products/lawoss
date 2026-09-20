@@ -109,3 +109,27 @@ test("preamble vypíše pravidlá, poučenia a ban-list; L2 obsah nie", () => {
   assert.match(p.out, /Prekonaný výklad prihlasovacej lehoty/);
   assert.doesNotMatch(p.out, /Stav veci/);
 });
+
+test("preamble hlási rozbitý súbor rovnako ako read — ban-list nesmie zmiznúť potichu", () => {
+  const dir = spis();
+  // Rovnaká vada ako v tests/parse-errors.test.ts — chýbajúce povinné polia
+  // (created/updated/description) zhodia parseRecord, čítanie ostatných
+  // súborov to nesmie zastaviť.
+  writeFileSync(
+    join(dir, MEMORY_DIR, "A-901-rozbity.md"),
+    "---\nokf: 1\nid: A-901\ntype: authority\ntitle: Rozbitý\njurisdiction: cz\nstatus: banned\n---\n\n## Truth\nx\n",
+  );
+
+  const p = runCli(["preamble", dir]);
+  assert.equal(p.code, 0, p.out);
+  assert.match(p.out, /Nečitateľné súbory \(preskočené\):/);
+  assert.match(p.out, /ERROR PARSE_ERROR/);
+  assert.match(p.out, /A-901-rozbity\.md/);
+});
+
+test("preamble prazdnej pamate bez problemov je prazdny retazec", () => {
+  const dir = spis();
+  const p = runCli(["preamble", dir]);
+  assert.equal(p.code, 0, p.out);
+  assert.equal(p.out, "");
+});

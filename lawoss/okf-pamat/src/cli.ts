@@ -116,7 +116,13 @@ export function runCli(argv: readonly string[]): CliResult {
 
     case "preamble": {
       const scope = readScope(dir);
-      return ok(composePreamble(scope.records));
+      // Rovnaká hláška ako `read` — rozbitý súbor sa nesmie stratiť potichu.
+      // Ban-list je záväzný (SKILL.md); ak z neho vinou parse chyby vypadne
+      // prameň bez jediného varovania, agent cituje niečo, čo bolo zakázané.
+      const problems = problemLines(scope.problems);
+      const body = composePreamble(scope.records);
+      const lines = body ? [...problems, body] : problems;
+      return ok(lines.join("\n"));
     }
 
     case "validate": {
