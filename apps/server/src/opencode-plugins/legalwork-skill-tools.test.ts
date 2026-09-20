@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  LegalWorkSkillTools,
-  buildSkillMarkdown,
-  fitSkillName,
-  resolveSkillName,
-} from "./legalwork-skill-tools.js";
+import * as pluginModule from "./legalwork-skill-tools.js";
+import { LegalWorkSkillTools } from "./legalwork-skill-tools.js";
+import { buildSkillMarkdown, fitSkillName, resolveSkillName } from "./legalwork-skill-tools-shared.js";
 
 type Recorded = { url: string; method: string; body: Record<string, unknown> | null };
 
@@ -191,5 +188,23 @@ describe("system prompt", () => {
     const output: { system: string[] } = { system: [] };
     await plugin["experimental.chat.system.transform"](null, output);
     expect(output.system.join("\n")).toContain("legalwork_skill_create");
+  });
+});
+
+describe("plugin module surface", () => {
+  // opencode (v1.18.29, plugin/index.ts getLegacyPlugins) treats EVERY export of
+  // a plugin module as a plugin: a non-function export throws, a function is
+  // called with the engine's PluginInput. A helper exported next to the plugin
+  // therefore ran as `helper(pluginInput)` and failed the load at engine start
+  // with "undefined is not an object (evaluating 'input.description.trim')".
+  test("every export loads as a plugin entry point", async () => {
+    const pluginInput = { directory: WORKSPACE.path, worktree: WORKSPACE.path };
+    const entries: Array<[string, unknown]> = Object.entries(pluginModule);
+    expect(entries.length).toBeGreaterThan(0);
+    for (const [name, entry] of entries) {
+      if (typeof entry !== "function") throw new Error(`${name}: plugin export is not a function`);
+      const hooks: unknown = await entry(pluginInput);
+      if (!hooks || typeof hooks !== "object") throw new Error(`${name}: plugin returned no hooks`);
+    }
   });
 });
