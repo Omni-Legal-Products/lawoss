@@ -32,16 +32,36 @@ export const isHiddenQuickConnect = (serverName: string): boolean =>
 /**
  * Komerčné plochy upstreamu, ktoré prerastajú do záložiek, ktoré si necháme.
  * `firm-hub` je platené firemné zdieľanie, `trial-notice` je výzva na
- * predplatné nad session, `ai-plans` je obrazovka s plánmi Eigenwelt Plus/Pro
- * (posledný krok onboardingu a brána cez appku, kým nie je pripojený model).
+ * predplatné nad session, `premium-upsell` je ponuka Eigenwelt Plus
+ * (prémiové modely prepisu reči), `eigenwelt-sign-in` je položka
+ * „Eigenwelt Subscription" vo výbere poskytovateľov a `eigenwelt-trial` sú
+ * výzvy na skúšobnú verziu / prihlásenie do platformy dodávateľa (lišta nad
+ * composerom, migračný dialóg zrušenej bezplatnej vrstvy, posledný krok
+ * onboardingu). Pripojenie vlastného modelu (Anthropic, OpenRouter, …) ostáva.
  */
-export type CommercialSurface = "firm-hub" | "trial-notice" | "ai-plans";
+export type CommercialSurface =
+  | "ai-plans"
+  | "firm-hub"
+  | "trial-notice"
+  | "premium-upsell"
+  | "eigenwelt-sign-in"
+  | "eigenwelt-trial";
 
 export const HIDDEN_COMMERCIAL_SURFACES: ReadonlySet<CommercialSurface> = new Set<CommercialSurface>([
+  "ai-plans",
   "firm-hub",
   "trial-notice",
-  "ai-plans",
+  "premium-upsell",
+  "eigenwelt-sign-in",
+  "eigenwelt-trial",
 ]);
 
 export const isCommercialSurfaceHidden = (surface: CommercialSurface): boolean =>
   HIDDEN_COMMERCIAL_SURFACES.has(surface);
+
+/**
+ * Je záložka nastavení skrytá? Onboarding sa pýta rovnako ako zoznam záložiek:
+ * krok, ktorý zapína funkciu, ku ktorej sa používateľ potom nikde nedostane,
+ * je slepá ulička.
+ */
+export const isHiddenSettingsTab = (tab: string): boolean => HIDDEN_SETTINGS_TABS.has(tab);

@@ -87,6 +87,7 @@ import {
   safeStringify,
 } from "@/app/utils";
 import { t } from "@/i18n";
+import { isCommercialSurfaceHidden, isHiddenSettingsTab } from "@/lawoss/feature-flags";
 import {
   type RouteWorkspace,
   type RouteSession,
@@ -832,6 +833,17 @@ export function SessionRoute() {
     },
     [setOnboardingStage],
   );
+  // LAWOSS: krok „Your AI" je len lievik na Eigenwelt trial — preskočiť ho (aj uložený stav "ai").
+  useEffect(() => {
+    if (onboardingStage === "ai" && isCommercialSurfaceHidden("eigenwelt-trial")) finishOnboarding("skipped");
+  }, [onboardingStage, finishOnboarding]);
+
+  // LAWOSS: krok „audio" zapína prepis a diktovanie, ale záložka recorder je
+  // skrytá — používateľ by zapol funkciu, ku ktorej sa potom nikde nedostane.
+  // Preskočiť aj uložený stav "audio", aby v ňom nikto neuviazol.
+  useEffect(() => {
+    if (onboardingStage === "audio" && isHiddenSettingsTab("recorder")) setOnboardingStage("permissions");
+  }, [onboardingStage, setOnboardingStage]);
   const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot } =
     useSessionProviderAuth({
       opencodeClient,
@@ -2119,7 +2131,7 @@ export function SessionRoute() {
         }}
       />
     ) : null}
-    {onboardingStage === "audio" ? (
+    {onboardingStage === "audio" && !isHiddenSettingsTab("recorder") ? (
       // One action: turn on transcription & dictation.
       <AudioStep
         legalworkClient={client}
@@ -2151,7 +2163,9 @@ export function SessionRoute() {
           isDesktopRuntime()
             ? () => {
                 onboardingWentBack.current = true;
-                setOnboardingStage("audio");
+                // LAWOSS: krok „audio" je preskočený, keď je recorder skrytý —
+                // späť sa ide rovno na „office", inak by krok problikol.
+                setOnboardingStage(isHiddenSettingsTab("recorder") ? "office" : "audio");
               }
             : undefined
         }
