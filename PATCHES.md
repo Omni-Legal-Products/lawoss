@@ -42,6 +42,7 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 | `apps/server/src/tasks-api.ts` | `connectedTaskOrgId()` vráti `null`, kým nie je `LAWOSS_EIGENWELT_FIRM_SERVICES=1` (+1 import, +1 riadok) | Úlohy, poznámky a prílohy nesmú po prihlásení do Eigenwelt odísť na ich platformu; tým sa vypne sync, členovia firmy aj zmazanie pri odhlásení. Lokálne úlohy fungujú ďalej | MČ | sync/upstream-v0.1.21 |
 | `apps/server/src/file-storage/team.ts` | `TeamStorage.identity()` vráti `null` bez `LAWOSS_EIGENWELT_FIRM_SERVICES=1` (+1 import, +1 riadok) | Tímové pripojenia úložísk by posielali prístupové údaje na platformu Eigenwelt; lokálny rozsah funguje ďalej | MČ | sync/upstream-v0.1.21 |
 | `apps/server/src/routes/file-storage.ts` | Zoznam OAuth poskytovateľov filtruje `storageOAuthProviderAllowed()` (+1 import, 1 podmienka): Box len s vlastným `LEGALWORK_STORAGE_BOX_OAUTH_URL` | Box ide pri prihlásení aj pri každom obnovení tokenu cez broker Eigenwelt | MČ | sync/upstream-v0.1.21 |
+| `pnpm-workspace.yaml` | pridané `lawoss/*` medzi `packages` (+ zodpovedajúci `pnpm-lock.yaml`) | balíčky `lawoss/okf` a `lawoss/okf-pamat` sú súčasťou pnpm workspace — akčný bod z callu 11. 9. 2026 | VŘ | feat/okf-z-aplikacie-bez-rucnych-krokov |
 
 ## Review checklist for upstream sync
 

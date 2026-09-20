@@ -37,10 +37,10 @@ jobs:
         with:
           version: 11.4.0
 
-      # Balíček stojí mimo pnpm workspace — inštaluje sa samostatne,
-      # aby fork nepribral ďalší uzol do upstream stromu.
+      # Balíček je členom pnpm workspace (`lawoss/*` v pnpm-workspace.yaml) —
+      # inštaluje sa z koreňového lockfile, iba jeho vlastné závislosti.
       - name: Install
-        run: pnpm install --ignore-workspace --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter @lawoss/okf-pamat
 
       - name: Typecheck
         run: pnpm typecheck

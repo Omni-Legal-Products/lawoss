@@ -339,11 +339,11 @@ node bin/okf-memory.ts write <spis> --file navrh.md --reason "…" [--apply] [--
 
 ## Vývoj
 
-Balíček je **bez runtime závislostí** a nie je súčasťou pnpm workspace —
-inštaluje sa samostatne, aby fork nepribral ďalší uzol do upstream stromu.
+Balíček je **bez runtime závislostí** a je členom pnpm workspace (`lawoss/*`
+v `pnpm-workspace.yaml`) — závislosti drží koreňový `pnpm-lock.yaml`.
 
 ```bash
-pnpm install --ignore-workspace
+pnpm install --filter @lawoss/okf-pamat   # z koreňa repa alebo z tohto priečinka
 pnpm test        # node --test, 318 testov
 pnpm typecheck
 ```

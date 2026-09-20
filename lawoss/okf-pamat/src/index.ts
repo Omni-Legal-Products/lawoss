@@ -13,7 +13,7 @@ export {
   FIELDS, RECORD_TYPES, LAYER_OF, SENSITIVE_FIELDS, AML_REQUIRED,
   STATUS, PERSON_KINDS, ROLES, RISK, CONCLUSION, SCREENING_MODES,
   PROOF_STATUS, CONFIDENCE, EVIDENCE_STRENGTH, PROCEDURAL_STATUS, TASK_STATES,
-  EVIDENCE_KINDS, EVIDENCE_KIND_PROVISION, SCREENING_PROVISION, EVENT_KINDS,
+  EVIDENCE_KINDS, EVIDENCE_KIND_PROVISION, SCREENING_PROVISION, EVENT_KINDS, EVENT_KIND_ALIASES, canonicalEventKind,
   fieldLabel, canonicalField, typeLabel, truthDigest, OKF_VERSION, isRecordType, isJurisdiction, needleFields,
   type Jurisdiction, type Layer, type RecordType, type FieldDef, type NeedleStrength,
   type Status, type PersonKind, type Role, type Risk, type Conclusion, type ScreeningMode,
