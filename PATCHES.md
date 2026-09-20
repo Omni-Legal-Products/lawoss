@@ -43,6 +43,7 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 | `apps/server/src/file-storage/team.ts` | `TeamStorage.identity()` vráti `null` bez `LAWOSS_EIGENWELT_FIRM_SERVICES=1` (+1 import, +1 riadok) | Tímové pripojenia úložísk by posielali prístupové údaje na platformu Eigenwelt; lokálny rozsah funguje ďalej | MČ | sync/upstream-v0.1.21 |
 | `apps/server/src/routes/file-storage.ts` | Zoznam OAuth poskytovateľov filtruje `storageOAuthProviderAllowed()` (+1 import, 1 podmienka): Box len s vlastným `LEGALWORK_STORAGE_BOX_OAUTH_URL` | Box ide pri prihlásení aj pri každom obnovení tokenu cez broker Eigenwelt | MČ | sync/upstream-v0.1.21 |
 | `pnpm-workspace.yaml` | pridané `lawoss/*` medzi `packages` (+ zodpovedajúci `pnpm-lock.yaml`) | balíčky `lawoss/okf` a `lawoss/okf-pamat` sú súčasťou pnpm workspace — akčný bod z callu 11. 9. 2026 | VŘ | feat/okf-z-aplikacie-bez-rucnych-krokov |
+| `apps/app/tsconfig.json` | +1 riadok `"allowImportingTsExtensions": true` (iba typecheck; `noEmit` už platí, Vite `.ts` prípony rieši sám) | Prehľad a Lehoty čítajú pamäť spisu cez `lawoss/okf-pamat/src/record.ts`, ktorý importuje `./schema.ts` s príponou (balíček beží pod `node --test`, kde je prípona povinná); bez flagu `tsc` hlási TS5097 | VŘ | feat/prehlad-a-lehoty-c1 |
 
 ## Review checklist for upstream sync
 
