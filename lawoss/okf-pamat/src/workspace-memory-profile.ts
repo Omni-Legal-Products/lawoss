@@ -21,7 +21,7 @@ export function parseWorkspaceMemoryProfile(value: unknown): WorkspaceMemoryProf
   if (value.sources.length === 0 || value.sources.length > WORKSPACE_MEMORY_LIMITS.sources || value.roots.length === 0 || value.roots.length > WORKSPACE_MEMORY_LIMITS.sources) throw new Error("Invalid profile source/root count.");
   const rootIds = new Set<string>(), sourceIds = new Set<string>();
   const roots = value.roots.map(root => {
-    if (!object(root) || !id(root.id) || rootIds.has(root.id) || typeof root.path !== "string" || root.path.length === 0 || root.path.includes("\0") || root.path.includes("\\") || root.path.split("/").includes("..")) throw new Error("Invalid or duplicate root.");
+    if (!object(root) || !id(root.id) || rootIds.has(root.id) || typeof root.path !== "string" || root.path.length === 0 || root.path.includes("\0") || (root.path.includes("\\") && !/^[A-Za-z]:[\\/]/.test(root.path)) || root.path.split(/[\\/]/).includes("..")) throw new Error("Invalid or duplicate root.");
     rootIds.add(root.id); return { id: root.id, path: root.path };
   });
   const sources = value.sources.map(source => {

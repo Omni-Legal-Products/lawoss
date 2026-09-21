@@ -75,6 +75,7 @@ test("two processes cannot both commit from one revision", async (t) => {
   const writeUrl = new URL("../src/write.ts", import.meta.url).href;
   const script = `
     import fs from 'node:fs';
+    import { basename, dirname } from 'node:path';
     import { syncBuiltinESMExports } from 'node:module';
     const [dir, pause, storeUrl, writeUrl, beforeJson] = process.argv.slice(1);
     const before = JSON.parse(beforeJson);
@@ -83,7 +84,7 @@ test("two processes cannot both commit from one revision", async (t) => {
     // All filesystem writes still happen; this only controls process scheduling.
     if (pause === 'yes') {
       fs.writeFileSync = (...args) => {
-        if (String(args[0]).includes('/memory/')) {
+        if (basename(dirname(String(args[0]))) === 'memory') {
           process.send('ready');
           const until = Date.now() + 10000;
           while (!fs.existsSync(dir + '/release')) {

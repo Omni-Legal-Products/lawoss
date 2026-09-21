@@ -1224,7 +1224,7 @@ import { isAbsolute as isAbsolute3, join as join5, resolve as resolve4 } from "n
 // src/store.ts
 import { existsSync as existsSync2, lstatSync, mkdirSync, readFileSync as readFileSync2, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { dirname, join as join2, relative, resolve, sep } from "node:path";
+import { basename, dirname, join as join2, relative, resolve, sep as sep2 } from "node:path";
 
 // src/validate.ts
 var MIN_NAME_LENGTH = 4;
@@ -1906,7 +1906,7 @@ function assertHasSource(after) {
 
 // src/config.ts
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 var CONFIG_FILE = "okf.config";
 function text(v) {
   return typeof v === "string" ? v.trim() : "";
@@ -1924,7 +1924,7 @@ function readClientPath(officeDir) {
   return typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
 }
 function matchesClientPath(relative, pattern) {
-  const seg = relative.split("/").filter((x) => x !== "");
+  const seg = relative.split(sep).join("/").split("/").filter((x) => x !== "");
   const pat = pattern.split("/").filter((x) => x !== "");
   if (seg.length !== pat.length)
     return false;
@@ -2205,7 +2205,7 @@ function scopeLinkResolver(dir, insideMemory) {
     for (const source of sources) {
       const href = source.href(id);
       if (href)
-        return "./" + relative(insideMemory ? join2(dir, MEMORY_DIR) : dir, join2(source.memoryDir, href)).split(sep).join("/");
+        return "./" + relative(insideMemory ? join2(dir, MEMORY_DIR) : dir, join2(source.memoryDir, href)).split(sep2).join("/");
     }
     return;
   };
@@ -2454,7 +2454,7 @@ var LEGACY_OFFICE_DIR = "_kancelaria";
 var OFFICE_DIRS = [OFFICE_DIR, LEGACY_OFFICE_DIR];
 function findOfficeDir(startDir, maxUp = 8) {
   let dir = resolve(startDir);
-  if (OFFICE_DIRS.some((n) => dir.endsWith(`/${n}`)))
+  if (OFFICE_DIRS.some((n) => basename(dir) === n))
     return dir;
   for (let i = 0;i < maxUp; i++) {
     const candidate = OFFICE_DIRS.map((n) => join2(dir, n)).find((c) => existsSync2(c));
@@ -2549,12 +2549,12 @@ function composePreamble(records) {
 var WORKSPACE_MEMORY_LIMITS = Object.freeze({ profileBytes: 256 * 1024, journalBytes: 4 * 1024 * 1024, sourceBytes: 2 * 1024 * 1024, totalBytes: 16 * 1024 * 1024, sources: 256 });
 // src/workspace-memory-reader.ts
 import { readdirSync as readdirSync2, realpathSync as realpathSync2 } from "node:fs";
-import { isAbsolute as isAbsolute2, join as join3, resolve as resolve3, sep as sep3 } from "node:path";
+import { isAbsolute as isAbsolute2, join as join3, resolve as resolve3, sep as sep4 } from "node:path";
 
 // src/workspace-memory-fs.ts
 import { createHash } from "node:crypto";
 import { closeSync, constants, fstatSync, lstatSync as lstatSync2, openSync, readSync, realpathSync } from "node:fs";
-import { isAbsolute, parse, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
+import { isAbsolute, parse, relative as relative2, resolve as resolve2, sep as sep3 } from "node:path";
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -2575,11 +2575,11 @@ function missing(error) {
 }
 function contained(root, target) {
   const rel = relative2(root, target);
-  return rel === "" || !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep2}`);
+  return rel === "" || !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep3}`);
 }
 function checkedPath(path, kind, allowMissing = false) {
   const full = resolve2(path), root = parse(full).root;
-  const parts = relative2(root, full).split(sep2).filter(Boolean);
+  const parts = relative2(root, full).split(sep3).filter(Boolean);
   let current = root;
   for (let i = 0;i < parts.length; i++) {
     current = resolve2(current, parts[i]);
@@ -2658,7 +2658,7 @@ function parseWorkspaceMemoryProfile(value) {
     throw new Error("Invalid profile source/root count.");
   const rootIds = new Set, sourceIds = new Set;
   const roots = value.roots.map((root) => {
-    if (!object(root) || !id(root.id) || rootIds.has(root.id) || typeof root.path !== "string" || root.path.length === 0 || root.path.includes("\x00") || root.path.includes("\\") || root.path.split("/").includes(".."))
+    if (!object(root) || !id(root.id) || rootIds.has(root.id) || typeof root.path !== "string" || root.path.length === 0 || root.path.includes("\x00") || root.path.includes("\\") && !/^[A-Za-z]:[\\/]/.test(root.path) || root.path.split(/[\\/]/).includes(".."))
       throw new Error("Invalid or duplicate root.");
     rootIds.add(root.id);
     return { id: root.id, path: root.path };
@@ -2693,7 +2693,7 @@ function parseWorkspaceMemoryProfileText(text) {
 
 // src/workspace-memory-reader.ts
 function isControlPath(path) {
-  return path.split(sep3).some((component) => component.toLowerCase() === ".lawoss");
+  return path.split(sep4).some((component) => component.toLowerCase() === ".lawoss");
 }
 function byId(a, b) {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;

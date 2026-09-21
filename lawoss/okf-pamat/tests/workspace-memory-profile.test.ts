@@ -15,3 +15,16 @@ test("shared parser rejects identity/count/path/role/anchor violations", () => {
   for (const value of invalid) assert.throws(() => parseWorkspaceMemoryProfile(value));
   assert.throws(() => parseWorkspaceMemoryProfileText(JSON.stringify({ ...profile(), oversized: "é".repeat(256 * 1024) })));
 });
+
+test("native drive-absolute roots preserve their spelling without relaxing source paths", () => {
+  for (const path of [String.raw`C:\Vault\Říhová`, "D:/Vault/Říhová", String.raw`C:\Vault/subdir`]) {
+    const value = { ...profile(), roots: [{ id: "local", path }] };
+    assert.deepEqual(parseWorkspaceMemoryProfile(value), value);
+  }
+  for (const path of [String.raw`C:\Vault\..\escape`, String.raw`C:\Vault/../escape`, String.raw`C:/Vault\..\escape`, String.raw`vault\child`, String.raw`\\server\share`, "C:\\Vault\0bad"]) {
+    assert.throws(() => parseWorkspaceMemoryProfile({ ...profile(), roots: [{ id: "local", path }] }), path);
+  }
+  for (const path of [String.raw`C:\Vault\memory.md`, String.raw`folder\memory.md`, String.raw`..\memory.md`]) {
+    assert.throws(() => parseWorkspaceMemoryProfile({ ...profile(), sources: [{ ...profile().sources[0], path }] }), path);
+  }
+});

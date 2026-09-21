@@ -10,7 +10,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { parseFrontmatter, type FmValue } from "./record.ts";
 import type { WriteDiff } from "./write.ts";
 
@@ -85,7 +85,7 @@ export function readClientPath(officeDir: string | undefined): string | undefine
 
 /** Sedí relatívna cesta na vzor, kde `*` je práve jeden segment? */
 export function matchesClientPath(relative: string, pattern: string): boolean {
-  const seg = relative.split("/").filter((x) => x !== "");
+  const seg = relative.split(sep).join("/").split("/").filter((x) => x !== "");
   const pat = pattern.split("/").filter((x) => x !== "");
   if (seg.length !== pat.length) return false;
   return pat.every((p, i) => p === "*" || p === seg[i]);
