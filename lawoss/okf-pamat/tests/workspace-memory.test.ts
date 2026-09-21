@@ -219,3 +219,64 @@ test("live lock acquisition excludes a second cooperating writer", t => {
   finally { mock.mock.restore(); syncBuiltinESMExports(); }
   assert.equal(result.status, "committed"); assert.equal(concurrent, "conflict");
 });
+
+test("control directories stay reserved through case aliases and external root mappings", t => {
+  const f = fixture(t);
+  const history = join(f.workspace, ".lawoss", "memory-history", "previous"); mkdirSync(history, { recursive: true });
+  writeFileSync(join(history, "journal.json"), JSON.stringify({ version: 1, status: "committed" }));
+  const snapshot = join(history, "memory.before"); writeFileSync(snapshot, "Original historical narrative\n");
+  const alias = join(f.workspace, ".LAWOSS", "memory-history", "previous", "memory.before");
+  const actualAlias = existsSync(alias) && statSync(alias).ino === statSync(snapshot).ino;
+  t.diagnostic(`Case-insensitive control alias available: ${actualAlias}`);
+  f.profile.sources[1]!.root = "case"; f.profile.sources[1]!.path = ".LAWOSS/memory-history/previous/memory.before"; f.putProfile();
+  assert.equal(f.load().complete, false);
+  f.profile.sources[1]!.required = false; f.profile.sources[1]!.writable = false;
+  f.profile.sources[1]!.path = ".LAWOSS/memory-history/previous/missing.before"; f.putProfile();
+  assert.equal(f.load().complete, false, "Optional missing control paths must still be reserved");
+  const externalControl = join(f.vault, "other-workspace", ".lawoss"); mkdirSync(externalControl, { recursive: true });
+  writeFileSync(join(externalControl, "snapshot.before"), "External historical narrative\n");
+  f.profile.sources[1]!.root = "vault"; f.profile.sources[1]!.path = "other-workspace/.lawoss/snapshot.before"; f.putProfile();
+  assert.equal(f.load().complete, false, "A vault grant does not authorize control metadata as memory sources");
+  f.profile.roots[1]!.path = externalControl; f.profile.sources[1]!.path = "snapshot.before"; f.putProfile();
+  assert.equal(f.load().complete, false, "A root must not hide the reserved component");
+  assert.equal(readFileSync(snapshot, "utf8"), "Original historical narrative\n");
+  assert.equal(readFileSync(join(externalControl, "snapshot.before"), "utf8"), "External historical narrative\n");
+});
+
+test("profile formatting and object order preserve semantic binding and pending SAVE", t => {
+  const f = fixture(t), before = f.load(), request = f.request();
+  const formatted = { sources: f.profile.sources.map(s => ({ writable: s.writable, role: s.role, path: s.path, required: s.required, root: s.root, id: s.id, ...(s.anchors ? { anchors: s.anchors } : {}) })), roots: f.profile.roots.map(r => ({ path: r.path, id: r.id })), matterId: f.profile.matterId, version: 1 };
+  writeFileSync(f.profilePath, JSON.stringify(formatted, null, 2) + "\n");
+  const after = f.load(); assert.equal(after.complete, true);
+  assert.notEqual(after.profileHash, before.profileHash); assert.equal(after.bindingHash, before.bindingHash); assert.equal(after.contextHash, before.contextHash);
+  assert.equal(saveWorkspaceMemory(f.workspace, request, { ...f.options, apply: true }).status, "committed");
+});
+
+test("identity, source mapping, roles, flags, anchors and grants remain bound", t => {
+  const f = fixture(t), before = f.load(); const original = JSON.stringify(f.profile);
+  const variants = [
+    () => { f.profile.matterId = "matter-test-02"; },
+    () => { writeFileSync(join(f.vault, "other-card.md"), "Other card\n"); f.profile.sources[1]!.path = "other-card.md"; },
+    () => { f.profile.sources[1]!.role = "work_note"; },
+    () => { f.profile.sources[1]!.required = false; },
+    () => { f.profile.sources[1]!.writable = false; },
+    () => { f.profile.sources[0]!.anchors = ["Old narrative"]; },
+  ];
+  for (const change of variants) {
+    Object.assign(f.profile, JSON.parse(original)); change(); f.putProfile();
+    const after = f.load(); assert.equal(after.complete, true); assert.notEqual(after.bindingHash, before.bindingHash);
+  }
+  Object.assign(f.profile, JSON.parse(original)); f.putProfile();
+  assert.notEqual(readWorkspaceMemory(f.workspace, { allowedRoots: [f.vault, f.workspace] }).bindingHash, before.bindingHash);
+});
+
+test("case-equivalent source IDs are rejected before preview or history creation", t => {
+  const f = fixture(t); f.profile.sources[1]!.id = "Memory"; f.putProfile();
+  const report = f.load(); assert.equal(report.complete, false);
+  assert.ok(report.problems.some(p => /duplicate source/i.test(p.message)));
+  assert.equal(existsSync(join(f.workspace, ".lawoss", "memory-history")), false);
+  f.profile.sources[1]!.id = "Card"; f.putProfile();
+  const accepted = f.load(); assert.equal(accepted.complete, true); assert.ok(accepted.sources.some(s => s.id === "Card"));
+  const request = f.request(); assert.equal(saveWorkspaceMemory(f.workspace, request, { ...f.options, apply: true }).status, "committed");
+  assert.equal(readFileSync(join(f.workspace, ".lawoss", "memory-history", request.operationId, "Card.before"), "utf8"), "card old text\n");
+});

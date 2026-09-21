@@ -1,11 +1,14 @@
-import { readdirSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { readdirSync, realpathSync } from "node:fs";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { checkedDirectory, checkedPath, contained, isObject, jsonText, message, missing, readText, relativeFile, safeId, sha256 } from "./workspace-memory-fs.ts";
 import { WORKSPACE_MEMORY_LIMITS } from "./workspace-memory-types.ts";
 import type { WorkspaceMemoryOptions, WorkspaceMemoryReport, WorkspaceMemoryRole, WorkspaceMemorySource } from "./workspace-memory-types.ts";
 
 const roles: WorkspaceMemoryRole[] = ["case_memory", "case_card", "work_note", "task_log", "rules", "lessons", "source_index", "evidence"];
 export const writableRoles = new Set<WorkspaceMemoryRole>(["case_memory", "case_card", "work_note", "task_log"]);
+// Reserve control metadata in every workspace, even through external grants or case aliases.
+function isControlPath(path: string): boolean { return path.split(sep).some(component => component.toLowerCase() === ".lawoss"); }
+function byId(a: { id: string }, b: { id: string }): number { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; }
 function role(value: unknown): value is WorkspaceMemoryRole { return typeof value === "string" && roles.some(r => r === value); }
 
 /** Any orphan operation directory is unresolved too: a crash can precede the first journal. */
@@ -56,26 +59,39 @@ export function readWorkspaceMemorySnapshot(directory: string, options: Workspac
       else { try { roots.set(root.id, checkedDirectory(path)); } catch (error) { rootProblems.set(root.id, message(error)); } }
     }
     const ids = new Set<string>();
+    const sourceProblems = new Map<string, string>();
     for (const source of profile.sources) {
-      if (!isObject(source) || !safeId(source.id) || ids.has(source.id) || typeof source.root !== "string" || !roots.has(source.root) || !relativeFile(source.path) || !role(source.role) || typeof source.required !== "boolean" || typeof source.writable !== "boolean") throw new Error("Invalid or duplicate source.");
+      if (!isObject(source) || !safeId(source.id) || ids.has(source.id.toLowerCase()) || typeof source.root !== "string" || !roots.has(source.root) || !relativeFile(source.path) || !role(source.role) || typeof source.required !== "boolean" || typeof source.writable !== "boolean") throw new Error("Invalid or duplicate source.");
       if (source.writable && !writableRoles.has(source.role)) throw new Error(`Role ${source.role} cannot be writable.`);
       const anchors: string[] = [];
       if (source.anchors !== undefined) {
         if (!Array.isArray(source.anchors) || source.anchors.some(a => typeof a !== "string" || a.trim().length === 0)) throw new Error(`Invalid identity anchors: ${source.id}`);
         for (const anchor of source.anchors) if (typeof anchor === "string") anchors.push(anchor);
       }
-      ids.add(source.id);
-      const path = resolve(roots.get(source.root)!, source.path);
-      if (contained(join(report.directory, ".lawoss"), path)) throw new Error("Memory sources cannot alias workspace control files.");
+      // IDs remain case-preserving in reports, but must be filename-distinct on all hosts.
+      ids.add(source.id.toLowerCase());
+      let path = resolve(roots.get(source.root)!, source.path);
+      if (isControlPath(path)) throw new Error("Memory sources cannot alias reserved .lawoss control files.");
+      if (!rootProblems.has(source.root)) {
+        try {
+          // Keep symlink rejection before canonicalization; never use realpath to grant authority.
+          if (checkedPath(path, "file", true)) path = realpathSync(path);
+          if (isControlPath(path)) throw new Error("Memory sources cannot alias reserved .lawoss control files.");
+        } catch (error) { sourceProblems.set(source.id, message(error)); }
+      }
       report.sources.push({ id: source.id, root: source.root, path, role: source.role, required: source.required, writable: source.writable, anchors, sha256: null, bytes: 0, content: null, status: "error" });
     }
     if (!report.sources.some(s => s.role === "case_memory" && s.required)) throw new Error("At least one case_memory source must be required.");
     if (!report.sources.some(s => s.required && s.anchors.length > 0)) throw new Error("At least one required source must have identity anchors.");
-    report.bindingHash = sha256(JSON.stringify({ version: 1, directory: report.directory, matterId: report.matterId, profileHash: report.profileHash, grants, roots: [...roots], sources: report.sources.map(({ id, path, role, required, writable, anchors }) => ({ id, path, role, required, writable, anchors })) }));
+    // Raw profileHash is provenance. Binding describes normalized identity, mapping and authority.
+    const semanticRoots = [...roots].map(([id, path]) => ({ id, path })).sort(byId);
+    const semanticSources = report.sources.map(({ id, root, path, role, required, writable, anchors }) => ({ id, root, path, role, required, writable, anchors: [...new Set(anchors)].sort() })).sort(byId);
+    report.bindingHash = sha256(JSON.stringify({ version: 1, directory: report.directory, matterId: report.matterId, grants, roots: semanticRoots, sources: semanticSources }));
     const physical = new Set<string>(); let total = 0;
     for (const source of report.sources) {
       try {
         if (rootProblems.has(source.root)) throw new Error(rootProblems.get(source.root)!);
+        if (sourceProblems.has(source.id)) throw new Error(sourceProblems.get(source.id)!);
         const text = readText(source.path, Math.min(WORKSPACE_MEMORY_LIMITS.sourceBytes, WORKSPACE_MEMORY_LIMITS.totalBytes - total));
         total += text.bytes;
         if (physical.has(text.physical)) throw new Error("Duplicate physical source (alias or hardlink)."); physical.add(text.physical);
@@ -93,7 +109,7 @@ export function readWorkspaceMemorySnapshot(directory: string, options: Workspac
     }
     if (readText(profilePath, WORKSPACE_MEMORY_LIMITS.profileBytes).sha256 !== report.profileHash) throw new Error("Profile changed during snapshot load.");
     checkHistory(report.directory, report, ownOperation);
-    report.contextHash = sha256(JSON.stringify({ bindingHash: report.bindingHash, sources: report.sources.map(({ id, sha256, status }) => ({ id, sha256, status })) }));
+    report.contextHash = sha256(JSON.stringify({ bindingHash: report.bindingHash, sources: report.sources.map(({ id, sha256, status }) => ({ id, sha256, status })).sort(byId) }));
     // Missing optional files are reported, but do not invalidate otherwise complete reads.
     report.complete = report.problems.every(p => p.code === "missing-source" && report.sources.some(s => s.id === p.sourceId && !s.required && !s.writable));
   } catch (error) { report.present = true; report.problems.push({ code: "invalid-profile", message: message(error) }); }
