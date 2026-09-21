@@ -247,7 +247,7 @@ Zelený orchestrátor `apps/app/src/lawoss/okf/matter-session.ts` po serverom po
 | Súbory upstreamu | Úprava a dôvod |
 |---|---|
 | `apps/app/tests/opencode-session-timeout.test.ts` | Deterministický fetch-start deferred a ručne spúšťané transportné deadline callbacks overujú pôvodný 10-sekundový health limit, 60-sekundový session limit, chybu po timeout-e a jediný create POST. Produkčné timeouty sa nemenia. |
-| `apps/desktop/electron/workspace-store.test.mjs` | Symlink/junction capability probe má vlastný pomenovaný subtest s explicitným dôvodom skipu; zvyšok perzistencie a neplatných vstupov vždy beží. |
+| `apps/desktop/electron/workspace-store.test.mjs` | Symlink/junction capability probe má vlastný pomenovaný subtest s explicitným dôvodom skipu; zvyšok perzistencie a neplatných vstupov vždy beží. Relatívny negatívny vstup vzniká na rovnakom disku ako fixture a test výslovne overuje, že nie je absolútny; Windows `path.relative` medzi diskami inak vracia platnú absolútnu cestu. |
 | `.github/workflows/ci-tests.yml`, `ci-okf.yml`, `ci-okf-pamat.yml`, nový `ci-windows-portable.yml` | Testy zahŕňajú nadväzujúce PR. Bun 1.4.2, samostatný strict OKF typecheck a Linux/macOS bundle freshness; Windows spúšťa source naming/memory/handoff/updater/native registry regresie bez balenia alebo podpisovania. Filtre zahŕňajú spoločný testovací helper a workspace-store. |
 | `pnpm-lock.yaml` | Nový importer pre existujúce dev nástroje OKF TypeScript 5.9.3 a bun-types 1.3.6; pamäťové dev typy sú zjednotené na už zamknuté @types/node 25.6.0, ktoré používa bun-types. Čisté CI inak načítalo súčasne deklarácie Node 24 aj 25. Runtime zostáva Node 24, žiadna runtime závislosť ani oslabenie strict kontrol. |
 

@@ -282,10 +282,13 @@ test("registers an existing canonical workspace without changing its files and p
   const stateBeforeInvalidInputs = await readFile(statePath, "utf8");
   const filePath = path.join(root, "not-a-directory.txt");
   await writeFile(filePath, "file\n", "utf8");
+  // A cross-drive path.relative(cwd, target) can return an absolute Windows path.
+  const relativeMatterPath = path.relative(path.dirname(matterRealPath), matterRealPath);
+  assert.equal(path.isAbsolute(relativeMatterPath), false);
   const invalidInputs = [
     { folderPath: path.join(root, "missing"), registerExisting: true },
     { folderPath: filePath, registerExisting: true },
-    { folderPath: path.relative(process.cwd(), matterRealPath), registerExisting: true },
+    { folderPath: relativeMatterPath, registerExisting: true },
     { folderPath: matterRealPath, registerExisting: "true" },
   ];
   for (const input of invalidInputs) {
