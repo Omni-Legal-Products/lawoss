@@ -153,8 +153,18 @@ export function rewriteSelectedMarkdownLinks(markdownPath: string, content: stri
   // Malformed/unsupported affected links must not bypass the same guard merely by
   // spelling a filename through entities. Residual entity syntax is uncertain here.
   if (moves.length && /&(?:#[0-9]+|#x[0-9a-f]+|[a-z][a-z0-9]*);/i.test(residual)) fail("Uncertain entity syntax outside supported links");
-  let decodedResidual = residual; try { decodedResidual = decodeURIComponent(residual); } catch { /* raw token check remains */ }
-  if (moves.some(move => fold(decodedResidual).includes(fold(posix.basename(move.from))))) fail("Affected path in unsupported/ambiguous Markdown syntax");
+  if (moves.length) {
+    // CommonMark removes a backslash before ASCII punctuation before URL decoding.
+    // Normalize only for refusal: unsupported syntax still cannot produce a rewrite.
+    const unescaped = residual.replace(/\\([!-/:-@\[-`{-~])/g, "$1");
+    // Decode independent percent-byte runs so ordinary "50%" or "%ZZ" prose cannot
+    // hide a valid encoded path elsewhere. Invalid UTF-8 runs remain uncertain.
+    const decodedResidual = unescaped.replace(/(?:%[0-9a-f]{2})+/gi, encoded => {
+      try { return decodeURIComponent(encoded); } catch { return fail("Uncertain URI encoding outside supported links"); }
+    });
+    const candidates = [fold(residual), fold(unescaped), fold(decodedResidual)];
+    if (moves.some(move => candidates.some(text => text.includes(fold(posix.basename(move.from)))))) fail("Affected path in unsupported/ambiguous Markdown syntax");
+  }
   let result = content; for (const edit of edits.sort((a, b) => b.start - a.start)) result = result.slice(0, edit.start) + edit.text + result.slice(edit.end);
   return { content: result, rewrites: rewrites.sort((a, b) => order(a.from, b.from) || order(a.to, b.to) || order(a.kind, b.kind)) };
 }

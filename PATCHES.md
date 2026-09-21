@@ -216,6 +216,8 @@ Zelená akcia v cockpite vychádza z konkrétneho discovered record (nie len que
 
 Portable naming and the third native OKF skill `/usporiadaj-spis` are implemented only in LAWOSS-owned `lawoss/okf/**`, `lawoss/skills/usporiadaj-spis/**`, `apps/app/src/lawoss/okf/skill-bundle.ts`, `apps/app/src/lawoss/domains/marketplace/{use-native-integrations.ts,native-catalog.tsx}` and their LAWOSS tests. No upstream file hook, server file manager or new dependency is introduced. Native install/badge now cover all three skills; the new-matter draft flow keeps its two required skills. [Authorizing spec/plan, Task 4](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/83).
 
+Final review I1/I2: the unsupported-link guard decodes percent-byte runs independently and recognizes CommonMark punctuation escapes for refusal. Unrelated percent prose cannot hide an encoded selected path; uncertain UTF-8 encoding fails closed. Escaped affected destinations remain unsupported and cause refusal before preview/apply creates files or control artifacts. Synthetic whole-tree assertions cover source and distributed Node CLI paths; supported link rewriting and the existing CAS/journal/original-copy transaction are unchanged.
+
 ## Internal candidate: explicit local MCP export (Task 5)
 
 [Authorizing spec/plan](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/83).

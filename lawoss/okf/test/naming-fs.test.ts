@@ -50,6 +50,42 @@ describe("naming filesystem transaction", () => {
     writeFileSync(join(f.root, "PRACOVNY-PROFIL.md"), "invalid"); expect(() => planDocumentNaming(f.root, f.request)).toThrow();
     rmSync(join(f.root, "PRACOVNY-PROFIL.md")); expect(() => planDocumentNaming(f.root, f.request)).toThrow();
   });
+  for (const scenario of [
+    { name: "I1 HTML control", source: "a b.PDF", text: '<a href="../03_Drafty/a%20b.PDF">doc</a>' },
+    { name: "I1 percent prose", source: "a b.PDF", text: '50% hotovo\n<a href="../03_Drafty/a%20b.PDF">doc</a>' },
+    { name: "I1 malformed percent", source: "a b.PDF", text: '%ZZ %2 %FF\n<a href="../03_Drafty/a%20b.PDF">doc</a>' },
+    { name: "I2 inline", source: "old.PDF", text: String.raw`[x](../03_Drafty/old\.PDF)` },
+    { name: "I2 reference", source: "old.PDF", text: String.raw`[id]: ../03_Drafty/old\.PDF` },
+    { name: "I2 angle", source: "old.PDF", text: String.raw`[x](<../03_Drafty/old\.PDF>)` },
+    { name: "I2 used reference", source: "old.PDF", text: "[read][id]\n" + String.raw`[id]: ../03_Drafty/old\.PDF` },
+  ]) test(`final ${scenario.name}: source and Node bundle refuse preview/apply with zero whole-tree writes`, () => {
+    const f = fixture(), source = `03_Drafty/${scenario.source}`;
+    if (scenario.source !== "old.PDF") renameSync(join(f.root, "03_Drafty/old.PDF"), join(f.root, source));
+    f.request.documents.find(d => d.id === "working")!.path = source;
+    writeFileSync(join(f.root, "notes/note.md"), "Unrelated selected note\n");
+    const approved = planDocumentNaming(f.root, f.request);
+    writeFileSync(join(f.root, "notes/note.md"), scenario.text);
+    const manifest = join(f.base, "request.json"), planPath = join(f.base, "approved.json"), out = join(f.base, "preview.json");
+    writeFileSync(manifest, JSON.stringify(f.request)); writeFileSync(planPath, JSON.stringify(approved));
+    const before = tree(f.base);
+    expect(() => planDocumentNaming(f.root, f.request)).toThrow();
+    expect(tree(f.base)).toEqual(before);
+    expect(applyDocumentNaming(f.root, approved).status).toBe("conflict");
+    expect(tree(f.base)).toEqual(before);
+    expect(run(["naming", f.root, "--manifest", manifest, "--out", out, "--json"], () => {})).toBe(2);
+    expect(tree(f.base)).toEqual(before);
+    const cli = fileURLToPath(new URL("../bundle/okf.js", import.meta.url));
+    const invoke = (args: string[]) => spawnSync("node", [cli, "naming", f.root, ...args, "--json"], { encoding: "utf8" });
+    const preview = invoke(["--manifest", manifest, "--out", out]);
+    expect(preview.status).toBe(2); expect(preview.stderr + preview.stdout).toMatch(/unsupported|Uncertain/);
+    expect(tree(f.base)).toEqual(before);
+    expect(invoke(["--plan", planPath, "--apply"]).status).toBe(1);
+    expect(tree(f.base)).toEqual(before);
+    expect(existsSync(join(f.root, ".lawoss"))).toBe(false); expect(existsSync(out)).toBe(false);
+    expect(readFileSync(join(f.root, source))).toEqual(f.binary);
+    expect(readFileSync(join(f.root, "01_Podklady/original.pdf"))).toEqual(f.binary);
+    expect(readFileSync(join(f.root, "notes/note.md"), "utf8")).toBe(scenario.text);
+  });
   test("CAS rejects source, profile, selected Markdown and physical replacement", () => {
     for (const path of ["03_Drafty/old.PDF", "PRACOVNY-PROFIL.md", "notes/note.md"]) {
       const f = fixture(), plan = planDocumentNaming(f.root, f.request); writeFileSync(join(f.root, path), "newer");

@@ -1555,12 +1555,19 @@ function rewriteSelectedMarkdownLinks(markdownPath, content, moves) {
     residual = residual.slice(0, c.start) + " ".repeat(c.end - c.start) + residual.slice(c.end);
   if (moves.length && /&(?:#[0-9]+|#x[0-9a-f]+|[a-z][a-z0-9]*);/i.test(residual))
     fail("Uncertain entity syntax outside supported links");
-  let decodedResidual = residual;
-  try {
-    decodedResidual = decodeURIComponent(residual);
-  } catch {}
-  if (moves.some((move) => fold(decodedResidual).includes(fold(posix.basename(move.from)))))
-    fail("Affected path in unsupported/ambiguous Markdown syntax");
+  if (moves.length) {
+    const unescaped = residual.replace(/\\([!-/:-@\[-`{-~])/g, "$1");
+    const decodedResidual = unescaped.replace(/(?:%[0-9a-f]{2})+/gi, (encoded) => {
+      try {
+        return decodeURIComponent(encoded);
+      } catch {
+        return fail("Uncertain URI encoding outside supported links");
+      }
+    });
+    const candidates = [fold(residual), fold(unescaped), fold(decodedResidual)];
+    if (moves.some((move) => candidates.some((text) => text.includes(fold(posix.basename(move.from))))))
+      fail("Affected path in unsupported/ambiguous Markdown syntax");
+  }
   let result = content;
   for (const edit of edits.sort((a, b) => b.start - a.start))
     result = result.slice(0, edit.start) + edit.text + result.slice(edit.end);

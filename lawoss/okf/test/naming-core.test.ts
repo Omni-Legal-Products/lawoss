@@ -32,6 +32,33 @@ describe("bounded naming core", () => {
   test("canonical fingerprints ignore object key insertion order", () => {
     expect(namingFingerprint({ b: 1, a: { y: 2, x: 3 } })).toBe(namingFingerprint({ a: { x: 3, y: 2 }, b: 1 }));
   });
+  test.each(["", "50% hotovo\n", "%ZZ unrelated\n", "%2 unrelated\n", "%FF\n", "%E0%A4\n"])("final I1: encoded affected HTML is refused despite percent prose %j", prefix => {
+    expect(() => rewriteSelectedMarkdownLinks("links.md", `${prefix}<a href="a%20b.pdf">doc</a>`, [{ from: "a b.pdf", to: "drafts/new.pdf" }])).toThrow();
+  });
+  test.each([
+    String.raw`[x](old\.pdf)`,
+    String.raw`[id]: old\.pdf`,
+    String.raw`[x](<old\.pdf>)`,
+    String.raw`[id]: <old\.pdf>`,
+    "[read][id]\n" + String.raw`[id]: old\.pdf`,
+    String.raw`[x](old\.%70df)`,
+    String.raw`<a href="old\.pdf">doc</a>`,
+  ])("final I2: escaped affected syntax is refused: %s", text => {
+    expect(() => rewriteSelectedMarkdownLinks("links.md", text, [{ from: "old.pdf", to: "drafts/new.pdf" }])).toThrow();
+  });
+  test("final I1/I2: provably unrelated text and covered semantics remain unchanged", () => {
+    const moves = [{ from: "old.pdf", to: "drafts/new.pdf" }];
+    for (const text of [
+      '50% hotovo %ZZ %2\n<a href="other%20file.pdf">doc</a>',
+      String.raw`[x](other\.pdf)`,
+      String.raw`[x](https://example.test/old\.pdf)`,
+      "[read][old\\.pdf]\n[old\\.pdf]: other.pdf",
+      '`unrelated\\.pdf`\n[[elsewhere.pdf|old\\.pdf]]',
+    ]) expect(rewriteSelectedMarkdownLinks("links.md", text, moves)).toEqual({ content: text, rewrites: [] });
+    const noMoves = '50% %FF\n' + String.raw`[x](old\.pdf)`;
+    expect(rewriteSelectedMarkdownLinks("links.md", noMoves, [])).toEqual({ content: noMoves, rewrites: [] });
+    expect(rewriteSelectedMarkdownLinks("links.md", '50% %ZZ\n[x](a%20b.pdf?q=1#p2)', [{ from: "a b.pdf", to: "drafts/new.pdf" }]).content).toBe('50% %ZZ\n[x](drafts/new.pdf?q=1#p2)');
+  });
   test("review 1: Markdown path delimiters are encoded and unsafe wiki targets rejected", () => {
     for (const name of ["A#B", "A%B", "A[B]", "A^B"]) {
       const target = renderDocumentName(workingProfile(), { date: "bez-datumu", description: name, version: "01" }, ".pdf");
