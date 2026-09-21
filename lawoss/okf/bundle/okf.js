@@ -599,7 +599,7 @@ var ENTITY_TYPES = ["klient", "spis", "projekt"];
 
 // src/fs.ts
 import { existsSync as existsSync3, lstatSync as lstatSync2, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync3, statSync, writeFileSync as writeFileSync2 } from "node:fs";
-import { basename, dirname as dirname2, join as join3, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
+import { basename as basename2, dirname as dirname2, join as join3, relative as relative2, resolve as resolve2, sep as sep3 } from "node:path";
 // src/core.ts
 var OKF_VERSION = "0.1";
 var ENTITY_TYPES2 = ["klient", "spis", "projekt"];
@@ -1001,7 +1001,7 @@ var TEMPLATES = {
 
 // ../okf-pamat/src/config.ts
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 var CONFIG_FILE = "okf.config";
 function readConfiguredLawyerName(officeDir) {
   if (!officeDir)
@@ -1039,7 +1039,7 @@ function readConfiguredLawyerName(officeDir) {
 
 // ../okf-pamat/src/store.ts
 import { existsSync as existsSync2, lstatSync, mkdirSync, readFileSync as readFileSync2, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join as join2, relative, resolve, sep } from "node:path";
+import { basename, dirname, join as join2, relative, resolve, sep as sep2 } from "node:path";
 
 // ../okf-pamat/src/validate.ts
 var BIRTH_NUMBER_PATTERN = /\b\d{6}\s?\/\s?\d{3,4}\b/;
@@ -1052,7 +1052,7 @@ var LEGACY_OFFICE_DIR = "_kancelaria";
 var OFFICE_DIRS = [OFFICE_DIR, LEGACY_OFFICE_DIR];
 function findOfficeDir(startDir, maxUp = 8) {
   let dir = resolve(startDir);
-  if (OFFICE_DIRS.some((n) => dir.endsWith(`/${n}`)))
+  if (OFFICE_DIRS.some((n) => basename(dir) === n))
     return dir;
   for (let i = 0;i < maxUp; i++) {
     const candidate = OFFICE_DIRS.map((n) => join2(dir, n)).find((c) => existsSync2(c));
@@ -1164,7 +1164,7 @@ function apply(p) {
     throw new Error("Karta entity sa od náhľadu zmenila; načítaj nový plán.");
   for (const entry of p.entries.filter((item) => item.action === "create")) {
     const target = resolve2(root, entry.path);
-    if (!target.startsWith(root + sep2))
+    if (!target.startsWith(root + sep3))
       throw new Error(`Cesta opúšťa priečinok entity: ${entry.path}`);
     for (let part = target;part !== root; part = dirname2(part)) {
       if (lstatSync2(part, { throwIfNoEntry: false })?.isSymbolicLink())
@@ -1203,7 +1203,7 @@ function validate(root) {
     if (workingPaths.some((path) => rel.startsWith(path)) || rel.split("/").some((part) => WORKING_FOLDERS.some((folder) => folder === part)) || rel.split("/").pop() === "BRAIN.md")
       continue;
     const parent = dirname2(join3(root, rel));
-    const bundleRoot = !rel.includes("/") || basename(parent) === "memory" || ENTITY_TYPES2.some((type) => CARD_ALIASES[type].some((name) => existsSync3(join3(parent, name))));
+    const bundleRoot = !rel.includes("/") || basename2(parent) === "memory" || ENTITY_TYPES2.some((type) => CARD_ALIASES[type].some((name) => existsSync3(join3(parent, name))));
     const error = validateMarkdown(rel, readText(join3(root, rel)), bundleRoot);
     if (error)
       errors.push(error);
@@ -1255,11 +1255,11 @@ ${body}
 
 // src/naming-fs.ts
 import { closeSync as closeSync2, constants as constants2, fstatSync as fstatSync2, fsyncSync, lstatSync as lstatSync4, mkdirSync as mkdirSync3, openSync as openSync2, opendirSync, readSync as readSync2, realpathSync as realpathSync2, renameSync as renameSync2, unlinkSync, writeSync } from "node:fs";
-import { basename as basename2, dirname as dirname3, extname, isAbsolute as isAbsolute2, join as join4, relative as relative4, resolve as resolve4, sep as sep4 } from "node:path";
+import { basename as basename3, dirname as dirname3, extname, isAbsolute as isAbsolute2, join as join4, relative as relative4, resolve as resolve4, sep as sep5 } from "node:path";
 
 // ../okf-pamat/src/workspace-memory-fs.ts
 import { closeSync, constants, fstatSync, lstatSync as lstatSync3, openSync, readSync, realpathSync } from "node:fs";
-import { isAbsolute, parse, relative as relative3, resolve as resolve3, sep as sep3 } from "node:path";
+import { isAbsolute, parse, relative as relative3, resolve as resolve3, sep as sep4 } from "node:path";
 function isObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -1268,11 +1268,11 @@ function missing(error) {
 }
 function contained(root, target) {
   const rel = relative3(root, target);
-  return rel === "" || !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep3}`);
+  return rel === "" || !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep4}`);
 }
 function checkedPath(path, kind, allowMissing = false) {
   const full = resolve3(path), root = parse(full).root;
-  const parts = relative3(root, full).split(sep3).filter(Boolean);
+  const parts = relative3(root, full).split(sep4).filter(Boolean);
   let current = root;
   for (let i = 0;i < parts.length; i++) {
     current = resolve3(current, parts[i]);
@@ -1320,7 +1320,7 @@ function parseWorkspaceMemoryProfile(value) {
     throw new Error("Invalid profile source/root count.");
   const rootIds = new Set, sourceIds = new Set;
   const roots = value.roots.map((root) => {
-    if (!object(root) || !id(root.id) || rootIds.has(root.id) || typeof root.path !== "string" || root.path.length === 0 || root.path.includes("\x00") || root.path.includes("\\") || root.path.split("/").includes(".."))
+    if (!object(root) || !id(root.id) || rootIds.has(root.id) || typeof root.path !== "string" || root.path.length === 0 || root.path.includes("\x00") || root.path.includes("\\") && !/^[A-Za-z]:[\\/]/.test(root.path) || root.path.split(/[\\/]/).includes(".."))
       throw new Error("Invalid or duplicate root.");
     rootIds.add(root.id);
     return { id: root.id, path: root.path };
@@ -1634,8 +1634,8 @@ function checkCase(path, shouldExist) {
     for (let entry = directory.readSync();entry; entry = directory.readSync()) {
       if (++count > 20000)
         conflict("Destination/path directory exceeds bounded case-check limit (20000 entries)");
-      if (fold(entry.name) === fold(basename2(path))) {
-        if (entry.name !== basename2(path) || !shouldExist)
+      if (fold(entry.name) === fold(basename3(path))) {
+        if (entry.name !== basename3(path) || !shouldExist)
           conflict(`Case-fold collision: ${path}`);
         found = true;
       }
@@ -1669,7 +1669,7 @@ function memoryProtection(root) {
     const location = profile.roots.find((r) => r.id === source.root);
     const full = resolve4(root, location.path, source.path);
     if (contained(root, full))
-      mapped.add(fold(relative4(root, full).split(sep4).join("/")));
+      mapped.add(fold(relative4(root, full).split(sep5).join("/")));
   }
   return { source: pin(path, read), mapped };
 }
@@ -2004,8 +2004,8 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
 function writeNamingPlanOutsideMatter(matterDir, output, plan) {
   const root = rootDirectory(matterDir), path = resolve4(output);
   checkedPath(dirname3(path), "directory");
-  const parent = realpathSync2(dirname3(path)), physicalOutput = join4(parent, basename2(path));
-  if (contained(root.path, physicalOutput) || !safeRelativePath(basename2(path)))
+  const parent = realpathSync2(dirname3(path)), physicalOutput = join4(parent, basename3(path));
+  if (contained(root.path, physicalOutput) || !safeRelativePath(basename3(path)))
     throw new NamingSchemaError("--out must be a new portable filename outside the matter root");
   checkCase(physicalOutput, false);
   exclusive(physicalOutput, JSON.stringify(plan, null, 2) + `
