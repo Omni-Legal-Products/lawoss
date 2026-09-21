@@ -18,6 +18,7 @@ export type NovySpisForm = {
   matterKind?: MatterKind;
   matterMode?: MatterMode;
   clientName?: string;
+  advokat?: string;
   subject: SubjectKind;
   title: string;
   /** Voliteľný názov priečinka; ľudský názov veci zostáva v title. */
@@ -86,6 +87,7 @@ export function composePrompt(form: NovySpisForm, preview?: { source: string; wa
     lines.push("Vykonaj pokus o preverenie v príslušnom registri podľa typu a krajiny klienta: SK ORSR/RPO, CZ ARES a verejný register, ostatné štáty národný register alebo BRIS. Použi dostupné MCP, inak oficiálny zdroj. Pri FO nerozhoduj podľa neprítomnosti v obchodnom registri; chýbajúce identifikačné údaje si vyžiadaj. Občianstvo, pobyt a jurisdikcia veci sú odlišné údaje. Ulož zdroj, podklad, identifikátor vybraného subjektu, spôsob zhody, čas získania a aktuálnosť zdroja. Nedostupný alebo neúplný výsledok ostáva unverified s dôvodom; AML tým nie je dokončené.");
   }
   const flags = [jurisdictionFlag(form)];
+  if (form.advokat?.trim()) flags.push(`--advokat ${shellQuote(form.advokat.trim())}`);
   if (type === "klient") flags.push(`--client-type ${clientTypeFor(form.subject)}`, `--country ${shellQuote(form.country?.trim().toUpperCase() || "")}`, `--identifier-type ${shellQuote(form.identifierType || "ICO")}`, `--identifier ${shellQuote(form.ico.trim())}`);
   if (type === "klient" && (form.subject === "fyzicka-osoba" || form.subject === "fyzicka-osoba-podnikatel")) {
     flags.push(`--citizenship ${shellQuote(form.citizenship?.trim().toUpperCase() || "")}`, `--residence-country ${shellQuote(form.residenceCountry?.trim().toUpperCase() || "")}`);

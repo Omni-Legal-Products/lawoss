@@ -2528,6 +2528,7 @@ export function SessionRoute() {
         <details className="rounded-xl border border-dls-border p-4">
           <summary className="cursor-pointer text-sm font-medium">Pripraviť nový spis podľa OKF</summary>
           <NovySpisPanel
+            documentAuthor={local.prefs.documentAuthor}
             key={selectedWorkspace.id}
             connection={selectedWorkspaceEndpoint}
             workspace={selectedWorkspace}

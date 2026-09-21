@@ -2800,7 +2800,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
 
     writeWorkspaceFile: (
       workspaceId: string,
-      payload: { path: string; content: string; baseUpdatedAt?: number | null; force?: boolean },
+      payload: { path: string; content: string; baseUpdatedAt?: number | null; force?: boolean; expectedContent?: string | null },
     ) =>
       requestJson<LegalworkWorkspaceFileWriteResult>(
         baseUrl,
