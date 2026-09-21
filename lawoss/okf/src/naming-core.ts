@@ -4,7 +4,11 @@ import { posix } from "node:path";
 import type { WorkingProfile } from "./profile.ts";
 
 export const NAMING_LIMITS = Object.freeze({ documents: 64, markdownFiles: 32, documentBytes: 100 * 1024 * 1024, markdownBytes: 5 * 1024 * 1024, totalBytes: 1024 * 1024 * 1024 });
-export class NamingSchemaError extends Error {}
+export class NamingSchemaError extends Error { readonly code = "LAWOSS_NAMING_SCHEMA"; }
+/** Stable across bundled module copies; do not depend on constructor identity for CLI status. */
+export function isNamingSchemaError(error: unknown): error is NamingSchemaError {
+  return error instanceof Error && "code" in error && error.code === "LAWOSS_NAMING_SCHEMA";
+}
 export class NamingConflict extends Error {}
 export type NamingMetadata = { date: string; kind?: string; client?: string; description?: string; version?: string };
 export type NamingDocument = { id: string; path: string; treatment: "rename-working" | "copy-original-to-drafts"; destinationRole: string; metadata: NamingMetadata };
@@ -83,15 +87,16 @@ export function namingFingerprint(value: unknown): string { return hash(canonica
 /** Conservative link grammar: an affected token outside supported, unambiguous syntax fails closed. */
 export function rewriteSelectedMarkdownLinks(markdownPath: string, content: string, moves: readonly { from: string; to: string }[]): { content: string; rewrites: LinkRewrite[] } {
   const referenceIds = [...content.matchAll(/^ {0,3}\[([^\]\n]+)\]:/gm)].map(m => fold(m[1]!.trim().replace(/\s+/g, " ")));
+  if (referenceIds.length > 20000) fail("Selected Markdown exceeds bounded reference count");
   if (new Set(referenceIds).size !== referenceIds.length && moves.some(move => fold(content).includes(fold(posix.basename(move.from))))) fail("Duplicate reference definitions in affected Markdown");
   const rewrites: LinkRewrite[] = [];
   const edits: { start: number; end: number; text: string }[] = [];
   const covered: { start: number; end: number }[] = [];
   const code = [...content.matchAll(/^---\r?\n[\s\S]*?\n---(?:\r?\n|$)|<!--[\s\S]*?(?:-->|$)|```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`+[^`\n]*`+|^(?: {4}|\t).*$/gm)].map(m => ({ start: m.index!, end: m.index! + m[0].length }));
   const patterns: [LinkRewrite["kind"], RegExp][] = [
-    ["wikilink", /!?\[\[([^\]\n|]+)(?:\|[^\]\n]*)?\]\]/g],
-    ["inline", /!?\[[^\]\n]*\]\(\s*(<[^>\n]+>|[^\s()]+)(?:\s+(?:"[^"\n]*"|'[^'\n]*'))?\s*\)/g],
-    ["reference", /^ {0,3}\[[^\]\n]+\]:[ \t]*(<[^>\n]+>|[^\s]+)(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'))?[ \t]*\r?$/gm],
+    ["wikilink", /!?\[\[([^\]\n|]+)(?:\|[^\]\n]*)?\]\]/gd],
+    ["inline", /!?\[[^\]\n]*\]\(\s*(<[^>\n]+>|[^\s()]+)(?:\s+(?:"[^"\n]*"|'[^'\n]*'))?\s*\)/gd],
+    ["reference", /^ {0,3}\[[^\]\n]+\]:[ \t]*(<[^>\n]+>|[^\s]+)(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'))?[ \t]*\r?$/gdm],
   ];
   for (const [kind, pattern] of patterns) for (const m of content.matchAll(pattern)) {
     const start = m.index!, end = start + m[0].length;
@@ -100,6 +105,9 @@ export function rewriteSelectedMarkdownLinks(markdownPath: string, content: stri
     if (code.some(c => start < c.end && end > c.start) || covered.some(c => start < c.end && end > c.start)) continue;
     const raw = m[1]!, angle = raw.startsWith("<") && raw.endsWith(">");
     const destination = angle ? raw.slice(1, -1) : raw;
+    // CommonMark entities are interpreted before URL parsing. Without a full entity parser,
+    // an entity-bearing relative destination cannot be proved unrelated and must not be masked.
+    if (moves.length && !/^(?:[A-Za-z][A-Za-z0-9+.-]*:|\/)/.test(destination) && /&(?:#[0-9]+|#x[0-9a-f]+|[a-z][a-z0-9]*);/i.test(destination)) fail("Uncertain entity-bearing relative link destination");
     const split = destination.search(/[?#]/); const pathname = split < 0 ? destination : destination.slice(0, split), suffix = split < 0 ? "" : destination.slice(split);
     if (/^(?:[A-Za-z][A-Za-z0-9+.-]*:|\/|#)/.test(pathname)) { covered.push({ start, end }); continue; }
     let decoded: string; try { decoded = decodeURIComponent(pathname); } catch { continue; }
@@ -117,14 +125,34 @@ export function rewriteSelectedMarkdownLinks(markdownPath: string, content: stri
     const move = unique[0]!;
     let next = kind === "wikilink" && decoded === move.from && decoded !== resolved ? move.to : posix.relative(posix.dirname(markdownPath), move.to);
     if (pathname.startsWith("./") && !next.startsWith(".")) next = `./${next}`;
-    if (pathname.includes("%") || (kind !== "wikilink" && !angle)) next = next.split("/").map(encodeURIComponent).join("/");
+    // URL paths and their fragments are separate. Wiki paths have application-specific
+    // escaping: reject syntax-sensitive output instead of guessing percent-decoding behavior.
+    if (kind === "wikilink") {
+      if (/[#%[\]\^|]/.test(next)) fail("Unsafe wiki target syntax; refine metadata or selected link format");
+    } else next = next.split("/").map(segment => encodeURIComponent(segment).replace(/[!'()*]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)).join("/");
     next += suffix;
     const replacement = angle ? `<${next}>` : next;
-    const offset = m[0].indexOf(raw, kind === "reference" ? m[0].indexOf(":") + 1 : kind === "inline" ? m[0].indexOf("](") + 2 : 0);
-    edits.push({ start: start + offset, end: start + offset + raw.length, text: replacement });
+    const capture = m.indices?.[1];
+    if (!capture) fail("Missing exact link destination capture");
+    edits.push({ start: capture[0], end: capture[1], text: replacement });
     covered.push({ start, end }); rewrites.push({ from: destination, to: next, kind });
   }
+  // A reference label is not a path. Preserve supported reference usages even when
+  // the identifier itself contains the old filename (for example [read][doc:old.pdf]).
+  for (const m of content.matchAll(/!?\[([^\]\n]+)\](?:\[([^\]\n]*)\])?/g)) {
+    const start = m.index!, end = start + m[0].length;
+    if (content[start - 1] === "\\" || code.some(c => start < c.end && end > c.start) || covered.some(c => start < c.end && end > c.start)) continue;
+    if (m[2] === undefined && /[(:\[]/.test(content[end] ?? "")) continue;
+    const id = fold((m[2] || m[1]!).trim().replace(/\s+/g, " "));
+    if (referenceIds.includes(id)) {
+      if (covered.length >= 20000) fail("Selected Markdown exceeds bounded link count");
+      covered.push({ start, end });
+    }
+  }
   let residual = content; for (const c of covered.sort((a, b) => b.start - a.start)) residual = residual.slice(0, c.start) + " ".repeat(c.end - c.start) + residual.slice(c.end);
+  // Malformed/unsupported affected links must not bypass the same guard merely by
+  // spelling a filename through entities. Residual entity syntax is uncertain here.
+  if (moves.length && /&(?:#[0-9]+|#x[0-9a-f]+|[a-z][a-z0-9]*);/i.test(residual)) fail("Uncertain entity syntax outside supported links");
   let decodedResidual = residual; try { decodedResidual = decodeURIComponent(residual); } catch { /* raw token check remains */ }
   if (moves.some(move => fold(decodedResidual).includes(fold(posix.basename(move.from))))) fail("Affected path in unsupported/ambiguous Markdown syntax");
   let result = content; for (const edit of edits.sort((a, b) => b.start - a.start)) result = result.slice(0, edit.start) + edit.text + result.slice(edit.end);

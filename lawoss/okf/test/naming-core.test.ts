@@ -32,4 +32,34 @@ describe("bounded naming core", () => {
   test("canonical fingerprints ignore object key insertion order", () => {
     expect(namingFingerprint({ b: 1, a: { y: 2, x: 3 } })).toBe(namingFingerprint({ a: { x: 3, y: 2 }, b: 1 }));
   });
+  test("review 1: Markdown path delimiters are encoded and unsafe wiki targets rejected", () => {
+    for (const name of ["A#B", "A%B", "A[B]", "A^B"]) {
+      const target = renderDocumentName(workingProfile(), { date: "bez-datumu", description: name, version: "01" }, ".pdf");
+      const moves = [{ from: "drafts/old.pdf", to: `drafts/${target}` }];
+      for (const text of ['[x](<../drafts/old.pdf#p2>)', '[id]: <../drafts/old.pdf?q=1#p2>']) {
+        const expected = text.replace("old.pdf", encodeURIComponent(target));
+        expect(rewriteSelectedMarkdownLinks("notes/n.md", text, moves).content).toBe(expected);
+      }
+      expect(() => rewriteSelectedMarkdownLinks("notes/n.md", '[[../drafts/old.pdf#p2|label]]', moves)).toThrow("wiki");
+    }
+  });
+  test("review 1: bare Markdown closing delimiters encoded; wiki alias metadata normalized", () => {
+    const result = rewriteSelectedMarkdownLinks("n.md", "[label](old.pdf#p2)", [{ from: "old.pdf", to: "A)B'(!.pdf" }]);
+    expect(result.content).toBe("[label](A%29B%27%28%21.pdf#p2)");
+    expect(renderDocumentName(workingProfile(), { date: "bez-datumu", description: "A|B", version: "01" }, ".pdf")).toBe("bez-datumu_A-B_v01.pdf");
+  });
+  test("review 2: entity-bearing relative paths fail closed before covered-token masking", () => {
+    for (const text of ['[x](../drafts/old&#46;pdf)', '[x](<../drafts/old&#x2e;pdf#p2>)', '[id]: ../drafts/old&period;pdf', '[[../drafts/old&#46;pdf|label]]', '[x](../drafts/old&#46;pdf', '<a href="../drafts/old&#46;pdf">x</a>']) {
+      expect(() => rewriteSelectedMarkdownLinks("notes/n.md", text, [{ from: "drafts/old.pdf", to: "drafts/new.pdf" }])).toThrow("entity");
+    }
+    const unrelated = '[x](https://example.test/?a=1&amp;b=2)';
+    expect(rewriteSelectedMarkdownLinks("notes/n.md", unrelated, [{ from: "drafts/old.pdf", to: "drafts/new.pdf" }]).content).toBe(unrelated);
+  });
+  test("review 3: reference identifier with colon and destination text stays byte-identical", () => {
+    const moves = [{ from: "old.pdf", to: "new.pdf" }];
+    expect(rewriteSelectedMarkdownLinks("n.md", "[doc:old.pdf]: old.pdf", moves).content).toBe("[doc:old.pdf]: new.pdf");
+    const source = '[read][doc:old.pdf]\n[doc:old.pdf]: <old.pdf#p2> "Title"';
+    expect(rewriteSelectedMarkdownLinks("n.md", source, moves).content).toBe('[read][doc:old.pdf]\n[doc:old.pdf]: <new.pdf#p2> "Title"');
+  });
+
 });

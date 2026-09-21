@@ -6,6 +6,9 @@ import { parseWorkspaceMemoryProfileText } from "../../okf-pamat/src/workspace-m
 import { parseWorkingProfile, PROFILE_FILE } from "./profile.ts";
 import { exactKeys, fold, hash, NAMING_LIMITS, NamingConflict, namingFingerprint, NamingSchemaError, normalizedMetadata, object, parseNamingRequest, renderDocumentName, rewriteSelectedMarkdownLinks, safeRelativePath, type FilePin, type NamingPlanV1, type NamingRequestV1 } from "./naming-core.ts";
 
+// One CLI import facade avoids separate bundles of the same naming-core module.
+export { NamingSchemaError, isNamingSchemaError, parseNamingRequest } from "./naming-core.ts";
+
 const PROFILE_LIMIT = 256 * 1024, JSON_LIMIT = 4 * 1024 * 1024;
 const reserved = /^(?:memory|spisy|office|_kancelaria|agents\.md|claude\.md|brain\.md|memory\.md|_memory\.md|client\.md|klient\.md|matter\.md|spis\.md|project\.md|projekt\.md|index\.md|log\.md|_status\.md|vstupy\.md|pracovny-profil\.md|komunikacne-kanaly\.md|okf\.config)$/i;
 type Binary = { data: Buffer; sha256: string; bytes: number; physical: string; mode: number };
@@ -130,7 +133,7 @@ export function parseNamingPlan(value: unknown): NamingPlanV1 {
     if (!object(m) || !isPin(m.source) || m.source.path !== request.markdownFiles[i] || m.source.bytes > NAMING_LIMITS.markdownBytes || typeof m.afterSha256 !== "string" || !/^[a-f0-9]{64}$/.test(m.afterSha256) || !Array.isArray(m.rewrites)) throw new NamingSchemaError("Invalid planned Markdown");
   }
   const { fingerprint, ...body } = value;
-  if (namingFingerprint(body) !== fingerprint) throw new NamingSchemaError("Plan fingerprint changed; obtain a new preview and approval");
+  if (namingFingerprint(body) !== fingerprint) throw new NamingConflict("Plan fingerprint changed; obtain a new preview and approval");
   // Every runtime field above is checked; full semantic equivalence is checked against a new plan before writes.
   return value as NamingPlanV1;
 }
@@ -184,12 +187,27 @@ export function applyDocumentNaming(matterDir: string, input: NamingPlanV1, hook
     lockIdentity = exclusive(lock, JSON.stringify({ operationId: plan.operationId, fingerprint: plan.fingerprint }));
     assertRoot(root);
     if (exists(operation, "directory")) {
-      if (!exists(journal)) return { ...report("recovery-required", "Existing operation has no complete journal"), journal };
-      const prior = readNamingJson(journal, 2 * JSON_LIMIT);
-      if (!object(prior) || prior.fingerprint !== plan.fingerprint || namingFingerprint(prior.plan) !== namingFingerprint(plan)) return report("conflict", "Operation ID belongs to a different plan or invalid journal");
-      if (!exists(join(operation, "committed.json"))) return { ...report("recovery-required", "Incomplete operation; retain journal and snapshots for human recovery"), journal };
-      const committed = readNamingJson(join(operation, "committed.json"));
-      if (!object(committed) || committed.fingerprint !== plan.fingerprint) conflict("Invalid committed receipt");
+      const recovery = (message: string): NamingApplyReport => ({ ...report("recovery-required", message), journal });
+      let committed: Record<string, unknown>;
+      try {
+        if (!exists(journal)) return recovery("Existing operation has no complete journal");
+        const prior = readNamingJson(journal, 2 * JSON_LIMIT);
+        if (!object(prior) || prior.version !== 1 || prior.status !== "prepared" || typeof prior.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(prior.fingerprint)) return recovery("Incomplete or invalid operation journal");
+        const priorPlan = parseNamingPlan(prior.plan);
+        if (priorPlan.fingerprint !== prior.fingerprint) return recovery("Journal plan fingerprint is inconsistent");
+        if (prior.fingerprint !== plan.fingerprint) return report("conflict", "Operation ID belongs to a different plan");
+        if (namingFingerprint(prior.plan) !== namingFingerprint(plan)) return recovery("Journal plan is inconsistent");
+        if (!exists(join(operation, "committed.json"))) return recovery("Incomplete operation; retain journal and snapshots for human recovery");
+        const receipt = readNamingJson(join(operation, "committed.json"));
+        if (!object(receipt) || receipt.version !== 1 || receipt.status !== "committed" || typeof receipt.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(receipt.fingerprint) || !Array.isArray(receipt.finalFiles) || !receipt.finalFiles.every(file => isPin(file) && safeRelativePath(file.path))) return recovery("Incomplete or invalid committed receipt");
+        if (receipt.fingerprint !== plan.fingerprint) return report("conflict", "Committed receipt belongs to a different plan");
+        if (receipt.finalFiles.length !== plan.documents.length + plan.documents.filter(d => d.treatment === "copy-original-to-drafts").length + plan.markdown.length) return recovery("Incomplete committed final states");
+        committed = receipt;
+      } catch (error) {
+        // Reading an existing interrupted record is recovery, not a new operation conflict.
+        // Do not set prepared: these records must never enter this invocation's rollback.
+        return recovery(`Unreadable operation records; retain evidence: ${error instanceof Error ? error.message : String(error)}`);
+      }
       if (namingFingerprint(finalStates(root.path, plan)) !== namingFingerprint(committed.finalFiles)) conflict("Committed physical final states changed");
       return { ...report("already-applied"), journal };
     }

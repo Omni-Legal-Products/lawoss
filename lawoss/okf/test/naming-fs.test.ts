@@ -161,4 +161,67 @@ describe("naming filesystem transaction", () => {
     expect(readFileSync(join(f.root, "01_Podklady/original.pdf"))).toEqual(f.binary);
   });
 
+  test("review 5: truncated journal and committed receipt retain recovery evidence", () => {
+    for (const record of ["journal.json", "committed.json"]) {
+      const f = fixture(), plan = planDocumentNaming(f.root, f.request);
+      expect(applyDocumentNaming(f.root, plan).status).toBe("applied");
+      const path = join(f.root, ".lawoss/naming-history/op-1", record); writeFileSync(path, '{"version":1,');
+      const before = tree(f.root), result = applyDocumentNaming(f.root, plan);
+      expect(result.status).toBe("recovery-required"); expect(result.journal).toBe(join(f.root, ".lawoss/naming-history/op-1/journal.json"));
+      expect(tree(f.root)).toEqual(before); expect(readFileSync(path, "utf8")).toBe('{"version":1,');
+    }
+  });
+  test("review 1-3: filesystem refuses ambiguous selected links and applies exact reference destination", () => {
+    for (const text of ['[x](../03_Drafty/old&#46;PDF)', '[[../03_Drafty/old.PDF#p2|label]]']) {
+      const f = fixture(); f.request.documents[1]!.metadata.description = "A#B"; writeFileSync(join(f.root, "notes/note.md"), text);
+      const before = tree(f.root); expect(() => planDocumentNaming(f.root, f.request)).toThrow(); expect(tree(f.root)).toEqual(before);
+    }
+    const f = fixture(); writeFileSync(join(f.root, "notes/note.md"), "[doc:../03_Drafty/old.PDF]: ../03_Drafty/old.PDF#p2");
+    const plan = planDocumentNaming(f.root, f.request); expect(applyDocumentNaming(f.root, plan).status).toBe("applied");
+    expect(readFileSync(join(f.root, "notes/note.md"), "utf8")).toBe("[doc:../03_Drafty/old.PDF]: ../03_Drafty/bez-datumu_working_v01.PDF#p2");
+  });
+  test("review 4-5: actual Node bundle distinguishes schema, fingerprint conflict and recovery", () => {
+    const f = fixture(), manifest = join(f.base, "request.json"), planPath = join(f.base, "plan.json"); writeFileSync(manifest, JSON.stringify(f.request));
+    const cli = fileURLToPath(new URL("../bundle/okf.js", import.meta.url));
+    const invoke = (args: string[]) => spawnSync("node", [cli, "naming", f.root, ...args, "--json"], { encoding: "utf8" });
+    expect(invoke(["--manifest", manifest, "--out", planPath]).status).toBe(0);
+    const originalPlan = readFileSync(planPath, "utf8"), before = tree(f.root);
+    const wrongSchema = join(f.base, "invalid-plan.json"); writeFileSync(wrongSchema, '{"wrong":"schema"}');
+    expect(invoke(["--plan", wrongSchema, "--apply"]).status).toBe(2);
+    writeFileSync(wrongSchema, '{'); expect(invoke(["--plan", wrongSchema, "--apply"]).status).toBe(2);
+    const altered = JSON.parse(originalPlan); altered.documents[0].target.path = "03_Drafty/changed.pdf"; writeFileSync(wrongSchema, JSON.stringify(altered));
+    expect(invoke(["--plan", wrongSchema, "--apply"]).status).toBe(1);
+    expect(invoke(["--manifest", manifest, "--out", join(f.root, "plan.json")]).status).toBe(2);
+    const invalidRequest = structuredClone(f.request); invalidRequest.documents[0]!.metadata.date = "2026-02-29"; writeFileSync(manifest, JSON.stringify(invalidRequest));
+    expect(invoke(["--manifest", manifest]).status).toBe(2);
+    invalidRequest.documents[0]!.metadata.date = "bez-datumu"; delete invalidRequest.documents[0]!.metadata.description; writeFileSync(manifest, JSON.stringify(invalidRequest));
+    expect(invoke(["--manifest", manifest]).status).toBe(2);
+    expect(tree(f.root)).toEqual(before);
+    expect(invoke(["--plan", planPath, "--apply"]).status).toBe(0);
+    const journal = join(f.root, ".lawoss/naming-history/op-1/journal.json"), savedJournal = readFileSync(journal);
+    writeFileSync(journal, '{'); const badJournal = invoke(["--plan", planPath, "--apply"]);
+    expect(badJournal.status).toBe(1); expect(JSON.parse(badJournal.stdout).status).toBe("recovery-required"); expect(JSON.parse(badJournal.stdout).journal).toBe(journal);
+    writeFileSync(journal, savedJournal); writeFileSync(join(f.root, ".lawoss/naming-history/op-1/committed.json"), '{');
+    const badReceipt = invoke(["--plan", planPath, "--apply"]); expect(badReceipt.status).toBe(1); expect(JSON.parse(badReceipt.stdout).status).toBe("recovery-required"); expect(JSON.parse(badReceipt.stdout).journal).toBe(journal);
+  });
+
+  test("review 5: complete different-fingerprint receipt stays conflict; invalid records need recovery", () => {
+    const f = fixture(), plan = planDocumentNaming(f.root, f.request); expect(applyDocumentNaming(f.root, plan).status).toBe("applied");
+    const receiptPath = join(f.root, ".lawoss/naming-history/op-1/committed.json"), receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+    receipt.fingerprint = "0".repeat(64); writeFileSync(receiptPath, JSON.stringify(receipt));
+    const before = tree(f.root); expect(applyDocumentNaming(f.root, plan).status).toBe("conflict"); expect(tree(f.root)).toEqual(before);
+    writeFileSync(receiptPath, JSON.stringify({ version: 1, status: "committed", fingerprint: plan.fingerprint }));
+    expect(applyDocumentNaming(f.root, plan).status).toBe("recovery-required");
+    writeFileSync(join(f.root, ".lawoss/naming-history/op-1/journal.json"), '{}'); expect(applyDocumentNaming(f.root, plan).status).toBe("recovery-required");
+  });
+
+  test("review 1: angle link resolves to the actual special-character target after apply", () => {
+    const f = fixture(); f.request.documents[1]!.metadata.description = "A#B%[C]";
+    writeFileSync(join(f.root, "notes/note.md"), "[x](<../03_Drafty/old.PDF#p2>)");
+    const plan = planDocumentNaming(f.root, f.request); expect(applyDocumentNaming(f.root, plan).status).toBe("applied");
+    const name = "bez-datumu_A#B%[C]_v01.PDF";
+    expect(readFileSync(join(f.root, "notes/note.md"), "utf8")).toBe(`[x](<../03_Drafty/${encodeURIComponent(name)}#p2>)`);
+    expect(readFileSync(join(f.root, "03_Drafty", name))).toEqual(f.binary); expect(existsSync(join(f.root, "03_Drafty/old.PDF"))).toBe(false);
+  });
+
 });

@@ -19,8 +19,7 @@ import { fileURLToPath } from "node:url";
 
 import { ENTITY_TYPES, type ClientType, type MatterKind, type MatterMode, type EntityType, type Jurisdiction, type PlanInput } from "./core.ts";
 import { apply, detect, plan, render, validate } from "./fs.ts";
-import { NamingSchemaError, parseNamingRequest } from "./naming-core.ts";
-import { applyDocumentNaming, parseNamingPlan, planDocumentNaming, readNamingJson, writeNamingPlanOutsideMatter } from "./naming-fs.ts";
+import { NamingSchemaError, isNamingSchemaError, parseNamingRequest, applyDocumentNaming, parseNamingPlan, planDocumentNaming, readNamingJson, writeNamingPlanOutsideMatter } from "./naming-fs.ts";
 
 type Flags = Record<string, string | boolean>;
 
@@ -169,7 +168,7 @@ export function run(argv: string[], out: (line: string) => void = console.log): 
     }
   } catch (error) {
     out(`okf: ${error instanceof Error ? error.message : String(error)}`);
-    return cmd === "naming" && !(error instanceof NamingSchemaError) && !(error instanceof SyntaxError) ? 1 : 2;
+    return cmd === "naming" && !isNamingSchemaError(error) && !(error instanceof SyntaxError) ? 1 : 2;
   }
 }
 
