@@ -1,5 +1,7 @@
 /** @jsxImportSource react */
 import { useEffect, useMemo, useState } from "react";
+import { useLocal } from "@/react-app/kernel/local-provider";
+import { lawyerName } from "../../okf/lawyer-name";
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import { useNavigate } from "react-router-dom";
 
@@ -47,10 +49,11 @@ export type NovySpisPanelProps = {
   connection: Pick<OkfConnection, "client" | "baseUrl" | "token">;
   workspace: RouteWorkspace;
   onOpenSession: (route: string) => void;
+  documentAuthor?: string;
 };
 
 /** The native dialog and the legacy route share this workspace-bound form. */
-export function NovySpisPanel({ connection, workspace, onOpenSession }: NovySpisPanelProps) {
+export function NovySpisPanel({ connection, workspace, onOpenSession, documentAuthor }: NovySpisPanelProps) {
   const [canWrite, setCanWrite] = useState(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
   useEffect(() => {
@@ -79,7 +82,7 @@ export function NovySpisPanel({ connection, workspace, onOpenSession }: NovySpis
   const [rootOverride, setRootOverride] = useState("");
 
   const effectiveRoot = rootOverride.trim() || workspace?.path || "";
-  const effectiveForm = useMemo<NovySpisForm>(() => ({ ...form, root: effectiveRoot }), [form, effectiveRoot]);
+  const effectiveForm = useMemo<NovySpisForm>(() => ({ ...form, root: effectiveRoot, advokat: lawyerName(documentAuthor) }), [form, effectiveRoot, documentAuthor]);
   const rootOutsideWorkspace = !okfTargetWithinWorkspace(targetDir(effectiveForm), workspace);
   useEffect(() => {
     setProbe(null);
@@ -197,6 +200,12 @@ export function NovySpisPanel({ connection, workspace, onOpenSession }: NovySpis
           {rootOutsideWorkspace ? (
             <small className="lw-hint-warn">Vyberte cieľ vo vybranom workspace. Iný koreň najprv otvorte cez „Pridať priečinok“.</small>
           ) : null}
+        </div>
+
+        <div className="lw-field lw-field-wide">
+          <span className="lw-sc">Advokát / autor dokumentov</span>
+          <p>{effectiveForm.advokat || "Meno nie je nastavené. Doplňte ho v Nastavenia → Prispôsobenie; agent si chýbajúce meno vyžiada."}</p>
+          <small>Spoločné meno pre nové karty a úpravy dokumentov. Meno samo neudeľuje oprávnenie na zápis.</small>
         </div>
 
         <label className="lw-field">
@@ -340,6 +349,7 @@ export function NovySpisPanel({ connection, workspace, onOpenSession }: NovySpis
 
 /** Compatibility route; native Add folder supplies its existing connection directly. */
 export function NovySpisPage() {
+  const local = useLocal();
   const navigate = useNavigate();
   const [connection, setConnection] = useState<OkfConnection | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -364,6 +374,6 @@ export function NovySpisPage() {
     {workspaces.length > 1 ? <label>Workspace <select value={workspace?.id ?? ""} onChange={(event) => setWorkspaceId(event.target.value)}>
       {workspaces.map((item) => <option key={item.id} value={item.id}>{item.displayNameResolved || item.name}</option>)}
     </select></label> : null}
-    {connection && workspace ? <NovySpisPanel key={workspace.id} connection={connection} workspace={workspace} onOpenSession={navigate} /> : null}
+    {connection && workspace ? <NovySpisPanel documentAuthor={local.prefs.documentAuthor} key={workspace.id} connection={connection} workspace={workspace} onOpenSession={navigate} /> : null}
   </LawossLayout>;
 }

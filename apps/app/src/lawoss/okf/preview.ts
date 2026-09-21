@@ -14,6 +14,7 @@ export function previewPlan(form: NovySpisForm, exists: (relativePath: string) =
   const input: PlanInput = {
     type: entityTypeFor(form.subject),
     workingProfile,
+    advokat: form.advokat?.trim() || undefined,
     dir: targetDir(form),
     title: form.title.trim() || "[názov]",
     ico: !form.identifierType || form.identifierType === "ICO" ? form.ico.trim() || undefined : undefined,

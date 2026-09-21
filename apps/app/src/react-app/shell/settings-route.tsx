@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { OfficeProfileView } from "@/lawoss/domains/settings/office-profile-view";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "@/components/ui/sonner";
@@ -2062,6 +2063,14 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       case "personalisation":
         return (
           <PersonalisationView
+            officeProfileView={<OfficeProfileView
+              key={`${selectedWorkspace?.id}:${selectedWorkspaceEndpoint?.baseUrl}`}
+              client={selectedWorkspaceEndpoint?.client ?? null}
+              workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? null}
+              workspacePath={selectedWorkspace?.path ?? ""}
+              workspaceName={selectedWorkspaceDisplay.displayName ?? selectedWorkspaceDisplay.name}
+              remote={selectedWorkspace?.workspaceType === "remote"}
+            />}
             client={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient}
             onSettingsApplied={() => {
               reloadCoordinator.markReloadRequired("config", {

@@ -1,3 +1,4 @@
+import { writeConditionalText } from "../lawoss/conditional-text-write.js";
 import { createReadStream } from "node:fs";
 import { readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -1235,6 +1236,9 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     if (typeof body.content !== "string") {
       throw new ApiError(400, "invalid_payload", "content must be a string");
     }
+    if (body.expectedContent !== undefined && body.expectedContent !== null && typeof body.expectedContent !== "string") {
+      throw new ApiError(400, "invalid_payload", "expectedContent must be text or null");
+    }
     const content = body.content;
     const bytes = Buffer.byteLength(content, "utf8");
     const maxBytes = FILE_SESSION_MAX_FILE_BYTES;
@@ -1268,10 +1272,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       paths: [absPath],
     });
 
-    await ensureDir(dirname(absPath));
-    const tmp = `${absPath}.tmp-${shortId()}`;
-    await writeFile(tmp, content, "utf8");
-    await rename(tmp, absPath);
+    await writeConditionalText(workspace.path, absPath, content, body.expectedContent);
     const after = await stat(absPath);
     const revision = fileRevision(after);
 

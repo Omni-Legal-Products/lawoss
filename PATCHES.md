@@ -176,3 +176,11 @@ Checkpoint sa aktivuje iba pri otvorení koreňa konkrétnej veci s kartou a pam
 - `apps/server/src/routes/files.ts`: existujúce natívne textové file API prijíma aj presný názov `okf.config`, aby náhľad pracovného profilu vedel načítať `Office/okf.config`. Ostatné `.config` súbory sa tým nepovoľujú; autentifikácia, rozsah workspace a režim iba na čítanie ostávajú zachované. HTTP regresia je v `okf-config-read.e2e.test.ts`.
 
 Prepublikačné review OKF (20. 9. 2026): `ci-okf-pamat.yml` spúšťa aj regresie zeleného `lawoss/okf-handoff/` pri zmenách pamäte alebo hooku. Pred automatickou synchronizáciou sa preveria všetky projekčné ciele veci aj klienta; symlinky a nepravidelné súbory sa odmietnu pred prvým zápisom. Natívny hook má priamy regresný test s externým cieľom. Zápis projekcie používa dočasný súbor a rename; nejde o garanciu transakcie proti súbežnej útočnej výmene celých adresárov.
+
+### Native office profile and shared author (2026-09-21, PR #81)
+
+- `apps/app/src/react-app/domains/settings/pages/personalisation-view.tsx`: one optional `officeProfileView` slot and clearer existing author copy. The persisted document-author preference remains the identity source; naming a lawyer does not alter authorization.
+- `apps/app/src/react-app/shell/settings-route.tsx`: mount the green office editor in Personalisation, bound to the selected workspace endpoint and remounted on workspace/server changes.
+- `apps/app/src/react-app/shell/session-route.tsx`: pass the existing document-author preference to the native OKF creation panel. Preview and CLI handoff receive the same explicit lawyer name.
+- `apps/app/src/app/lib/legalwork-server.ts`: optional `expectedContent` precondition on the existing text write API; null means the file must still be absent.
+- `apps/server/src/routes/files.ts`: retain native authorization, read-only, approval, audit and file events; delegate text replacement to a small LAWOSS helper that serializes text saves and checks the optional exact-content precondition after approval and immediately before replacement. Guarded writes reject symlink components. This is a conflict guard against stale editor saves, not an OS transaction with uncooperative external writers.
