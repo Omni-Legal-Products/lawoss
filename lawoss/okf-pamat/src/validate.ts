@@ -334,7 +334,7 @@ export function checkL3Sources(records: readonly OkfRecord[]): Finding[] {
   for (const r of records) {
     if (r.type === "authority") {
       const missing = L3_SOURCE_FIELDS.filter(
-        (f) => !String((r as unknown as Record<string, unknown>)[f] ?? "").trim(),
+        (f) => !String(r[f] ?? "").trim(),
       );
       if (missing.length) {
         out.push({

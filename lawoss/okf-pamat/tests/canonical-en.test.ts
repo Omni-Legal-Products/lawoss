@@ -93,7 +93,7 @@ test("canonicalField uz kluce neprekklada — kanonicky kluc je kanonicky", () =
 // --- hodnoty enumov ---
 
 test("hodnoty enumov su anglicke a vymenovane", () => {
-  assert.deepEqual([...STATUS], ["active", "superseded", "void"]);
+  assert.deepEqual([...STATUS], ["active", "superseded", "void", "banned", "deprecated"]);
   assert.deepEqual([...PERSON_KINDS], ["natural_person", "legal_person", "sole_trader"]);
   assert.deepEqual([...ROLES], ["client", "counterparty", "representative", "ubo"]);
   assert.deepEqual([...RISK], ["low", "medium", "high"]);

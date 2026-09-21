@@ -9,7 +9,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseRecord, serializeRecord } from "../src/record.ts";
@@ -141,3 +141,25 @@ for (const field of ["source", "verified_via", "verified_at"] as const) {
     assert.equal(readdirSync(join(findOfficeDir(dir)!, MEMORY_DIR)).length, 0);
   });
 }
+
+
+test("legacy authority bez prameňa ostáva čitateľná a sync nemení zdroj", () => {
+  const dir = spis();
+  assert.equal(runCli(["init", dir, "--cz", "--apply"]).code, 0);
+  const old = parseRecord(AUTHORITY);
+  delete old.source;
+  delete old.verified_via;
+  delete old.verified_at;
+  const path = join(findOfficeDir(dir)!, MEMORY_DIR, "legacy.md");
+  const original = serializeRecord(old);
+  writeFileSync(path, original);
+  const read = runCli(["read", dir]);
+  assert.equal(read.code, 0, read.out);
+  assert.ok(read.out.includes(old.truth));
+  const sync = runCli(["sync", dir, "--apply"]);
+  assert.equal(sync.code, 0, sync.out);
+  assert.equal(readFileSync(path, "utf8"), original);
+  const validation = runCli(["validate", dir]);
+  assert.equal(validation.code, 1);
+  assert.match(validation.out, /L3_SOURCE_MISSING/);
+});

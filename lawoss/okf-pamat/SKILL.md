@@ -40,6 +40,15 @@ nečitateľnej pamäti alebo duplicitnom ID v rozsahu odmietne prepísanie proje
 Uveď konkrétny problém, oprav príčinu a zopakuj čítanie a validáciu; neodstraňuj
 zdrojový záznam len preto, aby kontrola prešla.
 
+## Na začiatku session nad spisom
+
+Pred prvou odpoveďou spusti `okf-memory preamble <spis>` a výstupom sa riaď
+po celú session. Ban-list je záväzný: prameň zo sekcie „Necitovať" nesmieš
+použiť ani nepriamo — namiesto neho povedz, prečo je zakázaný (dôvod je pri zázname).
+Ak preambula ohlási nečitateľné súbory, zastav sa a povedz to advokátovi —
+ban-list môže byť neúplný (CLI vráti kód 1). Preambula je stručná mapa;
+potom načítaj plné pravidlá, poučenia a obsah veci cez `read` podľa vstupného postupu.
+
 ## Kam čo patrí
 
 | Čo sa objavilo | Typ záznamu | Vrstva |
@@ -70,7 +79,7 @@ Bez ktoréhokoľvek z týchto **desiatich** polí CLI návrh odmietne (vypíše 
 | `title`, `description` | jedna veta; opis bez citlivých údajov |
 | `layer` | `L2` (spis) · `L1` (`rule`, `lesson`) · `L3` (`authority`) — určuje ho typ |
 | `jurisdiction` | `cz` alebo `sk` — nikdy predvolene |
-| `status` | `active` · `superseded` · `void` |
+| `status` | `active` · `superseded` · `void`; pri `authority` aj `banned` · `deprecated` |
 | `created`, `updated` | ISO dátum; pri zmene obsahu vrátane metadát aktualizuj `updated`, nikdy ho neposúvaj späť. Opakovaný zápis v dnešný deň môže ponechať dnešný dátum. |
 
 Najmenší platný záznam (spis, CZ):
@@ -101,9 +110,13 @@ Nezahájeno.
 - 2026-09-11 — Úkol založen.
 ```
 
-Polia podľa typu (hodnoty z výpočtu, inak `UNKNOWN_VALUE`): `subject` → `role` (`client`, `counterparty`, `representative`, `ubo`), `person_type` (`natural_person`, `legal_person`, `sole_trader`), `registry_id` alebo `birth_number`, `registered_office`/`residence`; `matter` → `matter_ref`, `court`, `area`, `parties`; `decision` → `procedural_status` (`proposed`, `taken`), `deadlines`; `task` → `state` (`pending`, `in_progress`, `blocked`, `done`), `assignee`, `deadlines`; `question` → `legal_question`, `proof_status`; `screening` → `subject_ref`, `check_date`, `mode` (`light`, `medium`, `hard`), `risk`, `conclusion`, `valid_until`; `claim` → `claimed_by`, `proof_status`; `evidence` → `evidence_kind` (`document`, `witness`, `expert_opinion`, `party_examination`, `inspection`), `origin_date`, `sources`; `authority` → `sources` s `id` a `[^id]` v pravde, `verified`.
+Polia podľa typu (hodnoty z výpočtu, inak `UNKNOWN_VALUE`): `subject` → `role` (`client`, `counterparty`, `representative`, `ubo`), `person_type` (`natural_person`, `legal_person`, `sole_trader`), `registry_id` alebo `birth_number`, `registered_office`/`residence`; `matter` → `matter_ref`, `court`, `area`, `parties`; `decision` → `procedural_status` (`proposed`, `taken`), `deadlines`; `task` → `state` (`pending`, `in_progress`, `blocked`, `done`), `assignee`, `deadlines`; `question` → `legal_question`, `proof_status`; `screening` → `subject_ref`, `check_date`, `mode` (`light`, `medium`, `hard`), `risk`, `conclusion`, `valid_until`; `claim` → `claimed_by`, `proof_status`; `evidence` → `evidence_kind` (`document`, `witness`, `expert_opinion`, `party_examination`, `inspection`), `origin_date`, `sources`; `authority` → povinné `source`, `verified_via`, `verified_at`; podrobné odkazy v `sources` s `id` a `[^id]` v pravde, `verified`. Vyplnené polia evidujú preverenie; CLI samo obsah prameňa neoveruje.
 
 Druhy udalostí v `## History` (`- 2026-09-11 [decision] — …`): `delivery` · `filing` · `hearing` · `decision` · `request` · `call` · `email`. Staré slovenské hodnoty (`rozhodnutie`, `podanie`, …) sa pri čítaní prevedú, do súboru sa už píšu anglicky.
+
+Na ban-list (sekcia „Necitovať" v preambule) sa prameň dostane nastavením
+`status: banned` alebo `deprecated` — oba sa v nej objavia; `superseded`
+(prekonaný novším, ale stále citovateľným prameňom) nie.
 
 ## Zápis
 
@@ -205,6 +218,30 @@ nepotvrdzuje ďalšie dátumy v zozname. Po zmene Truth alebo termínu ponechaj
 predchádzajúce overenie ako históriu a nové potvrdenie si nevymýšľaj. Staršie
 záznamy bez týchto polí zostávajú čitateľné; ich lehoty sú nepotvrdené. Tieto
 polia evidujú tvrdenie o overení, neoverujú totožnosť človeka.
+
+### Popis záznamu je háčik, nie zhrnutie
+
+`description` sa renderuje do `index.md` a preambuly ako navigačná pomôcka.
+Nenahrádza plné čítanie cez `read` a nesmie rozhodovať o vynechaní záznamu.
+Píš, čo musí čitateľ vedieť, aby našiel podklad:
+
+- ✅ `1 VSPH 1195/2024 NECITOVAŤ ako oporu — NS otázku nevyriešil`
+- ✅ `plán neprejde testom § 348/1/d — schodok voči veriteľovi X`
+- ❌ `poznámky k judikatúre o zpeněžení` (nič nehovorí)
+- ❌ `zápis zo stretnutia 8. 9.` (dátum nie je obsah)
+
+## Na konci session nad spisom
+
+Než skončíš, prejdi čo sa v session stalo a navrhni zápisy:
+
+1. zmena stavu veci → `matter` · taktická voľba → `decision` · nový termín → `deadlines` v príslušnom zázname
+2. návrhy priprav cez `okf-memory write <spis> --file <navrh.md> --reason "…"` **bez `--apply`** a ukáž diff; pri úprave pridaj `--if-revision` z aktuálneho čítania
+3. Nové, podložené poznatky L2 zapíš s `--apply` v rozsahu zadania; L1/L3 vyžaduje schválenie advokáta (`--approve-as`)
+   alebo platné trvalé poverenie, ktoré danú vrstvu pokrýva
+4. ak advokát tvoj výstup v session prepísal, navrhni `lesson` — čo nabudúce inak
+
+Ak nevznikol nový poznatok ani zmena, nič neduplikuj a nevymýšľaj záznam len kvôli ukončeniu session.
+Potom prejdi kontrolný zoznam nižšie.
 
 ## Pred ukončením práce v spise
 

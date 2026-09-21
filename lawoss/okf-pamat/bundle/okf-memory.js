@@ -38,7 +38,7 @@ var LAYER_OF = {
   lesson: "L1",
   authority: "L3"
 };
-var STATUS = ["active", "superseded", "void"];
+var STATUS = ["active", "superseded", "void", "banned", "deprecated"];
 var PERSON_KINDS = ["natural_person", "legal_person", "sole_trader"];
 var ROLES = ["client", "counterparty", "representative", "ubo"];
 var RISK = ["low", "medium", "high"];
@@ -104,8 +104,8 @@ var FIELDS = [
   },
   { canonical: "created", cz: "vznik", sk: "vznik", kind: "string", required: true },
   { canonical: "updated", cz: "změna", sk: "zmena", kind: "string", required: true },
-  { canonical: "source", cz: "source", sk: "source", kind: "string", required: false },
-  { canonical: "verified_via", cz: "verified_via", sk: "verified_via", kind: "string", required: false },
+  { canonical: "source", cz: "pramen", sk: "prameň", kind: "string", required: false },
+  { canonical: "verified_via", cz: "ověřeno přes", sk: "overené cez", kind: "string", required: false },
   { canonical: "sources", cz: "zdroje", sk: "zdroje", kind: "maplist", required: false },
   { canonical: "related", cz: "souvisí", sk: "súvisí", kind: "list", required: false },
   { canonical: "tags", cz: "štítky", sk: "štítky", kind: "list", required: false },
@@ -316,7 +316,9 @@ var VALUE_LABELS = {
   status: {
     active: { cz: "platný", sk: "platný" },
     superseded: { cz: "překonaný", sk: "prekonaný" },
-    void: { cz: "zrušený", sk: "zrušený" }
+    void: { cz: "zrušený", sk: "zrušený" },
+    banned: { cz: "zakázaný — necitovat", sk: "zakázaný — necitovať" },
+    deprecated: { cz: "překonaný — necitovat", sk: "prekonaný — necitovať" }
   },
   role: {
     client: { cz: "klient", sk: "klient" },
@@ -2484,12 +2486,31 @@ function readScope(matterDir) {
   };
 }
 
+// src/preamble.ts
+var bullet = (r) => `- [${r.id}] ${r.title} — ${r.description}`;
+function composePreamble(records) {
+  const active = (r) => r.status === "active";
+  const rules = records.filter((r) => r.type === "rule" && active(r));
+  const lessons = records.filter((r) => r.type === "lesson" && active(r));
+  const banned = records.filter((r) => r.type === "authority" && (r.status === "banned" || r.status === "deprecated"));
+  const parts = [];
+  if (rules.length)
+    parts.push("## Pravidlá kancelárie", ...rules.map(bullet));
+  if (lessons.length)
+    parts.push("## Poučenia z chýb", ...lessons.map(bullet));
+  if (banned.length)
+    parts.push("## Necitovať (ban-list)", ...banned.map(bullet));
+  return parts.join(`
+`);
+}
+
 // src/cli.ts
 var dnes = () => new Date().toISOString().slice(0, 10);
 var USAGE = [
   "okf-memory — pamäť spisu (OKF)",
   "",
   "  okf-memory read     <spis>            prehľad pamäte",
+  "  okf-memory preamble <spis>            pravidlá, poučenia a ban-list na začiatok session",
   "  okf-memory validate <spis>            kontrola schémy, únikov L2→L3 a odkazov",
   "  okf-memory sync     <spis> [--apply]  projekcia do _STATUS.md, index.md a log.md",
   "  okf-memory retrofit <spis> [--apply]  doplní markery do existujúcich sekcií _STATUS.md",
@@ -2580,6 +2601,8 @@ ${USAGE}` };
         `Spis: ${dir}`,
         `Jurisdikcia: ${scope.matter.jurisdiction}   Záznamov: ${scope.records.length}` + (scope.clientDir ? `, u klienta ${scope.clientRecords.length}` : "") + (scope.officeDir ? `, v kancelárii ${scope.officeRecords.length}` : ""),
         "",
+        composePreamble(scope.records.map(maskRecord)),
+        "",
         ...scope.records.map((r) => `## ${r.id} — ${typeLabel(r.type, r.jurisdiction)}
 
 Revision ${r.id}: ${revisionHash(r)}
@@ -2588,6 +2611,14 @@ ${serializeRecord(maskRecord(r))}`),
         ...inputs
       ];
       return { code: problems.length ? 1 : 0, out: lines.join(`
+`) };
+    }
+    case "preamble": {
+      const scope = readScope(dir);
+      const problems = problemLines(scope.problems);
+      const body = composePreamble(scope.records);
+      const lines = body ? [...problems, body] : problems;
+      return { code: scope.problems.length ? 1 : 0, out: lines.join(`
 `) };
     }
     case "validate": {

@@ -17,6 +17,7 @@ import {
 import { parseRecord, serializeRecord, recordRevision, type OkfRecord } from "./record.ts";
 import { planWrite, assertHasSource, type Approval, type WriteDiff } from "./write.ts";
 import { maskRecord } from "./mask.ts";
+import { composePreamble } from "./preamble.ts";
 import { fieldLabel, typeLabel, SCREENING_PROVISION, type Jurisdiction } from "./schema.ts";
 import { renderStatus, RenderConflictError, statusSkeleton } from "./render.ts";
 import { validateStore } from "./validate.ts";
@@ -33,6 +34,7 @@ const USAGE = [
   "okf-memory — pamäť spisu (OKF)",
   "",
   "  okf-memory read     <spis>            prehľad pamäte",
+  "  okf-memory preamble <spis>            pravidlá, poučenia a ban-list na začiatok session",
   "  okf-memory validate <spis>            kontrola schémy, únikov L2→L3 a odkazov",
   "  okf-memory sync     <spis> [--apply]  projekcia do _STATUS.md, index.md a log.md",
   "  okf-memory retrofit <spis> [--apply]  doplní markery do existujúcich sekcií _STATUS.md",
@@ -128,10 +130,23 @@ export function runCli(argv: readonly string[]): CliResult {
           (scope.clientDir ? `, u klienta ${scope.clientRecords.length}` : "") +
           (scope.officeDir ? `, v kancelárii ${scope.officeRecords.length}` : ""),
         "",
+        composePreamble(scope.records.map(maskRecord)),
+        "",
         ...scope.records.map((r) => `## ${r.id} — ${typeLabel(r.type, r.jurisdiction)}\n\nRevision ${r.id}: ${revisionHash(r)}\n\n${serializeRecord(maskRecord(r))}`),
         ...inputs,
       ];
       return { code: problems.length ? 1 : 0, out: lines.join("\n") };
+    }
+
+    case "preamble": {
+      const scope = readScope(dir);
+      // Rovnaká hláška ako `read` — rozbitý súbor sa nesmie stratiť potichu.
+      // Ban-list je záväzný (SKILL.md); ak z neho vinou parse chyby vypadne
+      // prameň bez jediného varovania, agent cituje niečo, čo bolo zakázané.
+      const problems = problemLines(scope.problems);
+      const body = composePreamble(scope.records);
+      const lines = body ? [...problems, body] : problems;
+      return { code: scope.problems.length ? 1 : 0, out: lines.join("\n") };
     }
 
     case "validate": {

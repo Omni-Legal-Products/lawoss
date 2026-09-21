@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHandoff } from "./checkpoint.mjs";
+import { newRecord, serializeRecord } from "../okf-pamat/src/index.ts";
 const roots: string[] = [];
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "okf-handoff-")); roots.push(root);
@@ -82,4 +83,24 @@ test("automatic handoff refuses a projection symlink without touching its extern
   expect(readFileSync(original, "utf8")).toBe("external original");
   expect(existsSync(join(root, "_STATUS.md"))).toBe(false);
   expect(readFileSync(join(root, ".lawoss/handoff/ses_symlink.status.md"), "utf8")).toContain("state: error");
+});
+
+
+test("native checkpoint carries the ban-list followed by the complete source record", async () => {
+  const root = fixture();
+  const source = newRecord({
+    id: "A-901", type: "authority", jurisdiction: "sk", status: "banned",
+    title: "Syntetický neplatný výklad", description: "Nepoužiť ako oporu",
+    created: "2026-09-20", updated: "2026-09-20",
+    truth: "Úplný dôvod zákazu je zachovaný aj keď ho opis neobsahuje.",
+    timeline: [{ date: "2026-09-20", text: "Výklad označený za nepoužiteľný." }],
+  });
+  writeFileSync(join(root, "memory", "authority.md"), serializeRecord(source));
+  const result = await createHandoff(root)!.checkpoint("ses_banlist", "before-compaction");
+  expect(result.ok).toBe(true);
+  const checkpoint = readFileSync(result.path!, "utf8");
+  expect(checkpoint).toContain("## Necitovať (ban-list)");
+  expect(checkpoint).toContain(source.truth);
+  expect(checkpoint).toContain("status: banned");
+  expect(checkpoint.indexOf("## Necitovať (ban-list)")).toBeLessThan(checkpoint.indexOf(source.truth));
 });

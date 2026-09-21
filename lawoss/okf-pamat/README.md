@@ -122,6 +122,8 @@ Rodné číslo, číslo dokladu, trvalý pobyt a dátum narodenia sú v tabuľke
 | `STANDING_AUTH_INVALID` | poverenie v `okf.config` sa nedá použiť (dátum nie je `RRRR-MM-DD`, `granted_at` po `expires_at`, chýba pole) — zápisy do L1/L3 vyžadujú `--approve-as` | varovanie |
 | `CITATION_UNRESOLVED` | `[^id]` v texte bez položky v `sources` — veta vyzerá podložene a nie je | **chyba** |
 | `SOURCE_ID_DUPLICATE` | to isté `id` prameňa dvakrát | **chyba** |
+| `L3_SOURCE_MISSING` | `authority` bez `source`/`verified_via`/`verified_at` — do L3 sa nezapíše ani nevaliduje bez overeného prameňa | **chyba** |
+| `SUBJECT_SOURCE_MISSING` | `subject` bez `source` (zdroja overenia — OR/ARES/register) | varovanie |
 | `AML_MISSING` | subjekt v role `klient` nemá žiadne preverenie | varovanie |
 | `AML_EXPIRED` | `platnost_do` preverenia je v minulosti (§ 9) | varovanie |
 | `AML_INCOMPLETE` | FO, PO alebo podnikateľ nemá kompletnú sadu podľa predpisu svojej jurisdikcie | varovanie |
@@ -399,3 +401,17 @@ pnpm typecheck
 ```
 
 Beží na Node 24+ (natívne spúšťanie TypeScriptu, žiadny build krok).
+
+
+### Integrácia preambuly (21. 9. 2026)
+
+`preamble` vypíše pravidlá, poučenia a zakázané/prekonané pramene; pri neúplnom
+čítaní vráti kód 1. Rovnaký prehľad je na začiatku `read`, po ňom zostáva celý
+obsah všetkých záznamov. Existujúci natívny handoff ho tak prenesie bez ďalšieho
+hooku či paralelnej pamäte. Opis je pomôcka na orientáciu, nie filter čítania.
+
+Nové a upravované `authority` potrebujú `source`, `verified_via`, `verified_at`;
+kontrola platí aj pre náhľad a schválenie ju neobíde. Sú to tvrdenia o preverení,
+CLI samo nevolá register ani neoveruje obsah citácie. Staršie záznamy bez polí
+zostávajú čitateľné a synchronizovateľné; `validate` ich označí na doplnenie.
+Prameň doplň až po skutočnom overení, s novým riadkom histórie a aktuálnou revíziou.
