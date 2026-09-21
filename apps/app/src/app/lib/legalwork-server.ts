@@ -1619,7 +1619,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/recorder/live-transcript`,
         { token, hostToken, method: "POST", body: { enabled }, timeoutMs: timeouts.status },
       ),
-    createLocalWorkspace: (payload: { folderPath: string; name: string; preset: string }) =>
+    createLocalWorkspace: (payload: { folderPath: string; name: string; preset: string; registerExisting?: boolean }) =>
       requestJson<WorkspaceList>(baseUrl, "/workspaces/local", {
         token,
         hostToken,

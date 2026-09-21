@@ -1,5 +1,5 @@
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
+import { readFile, rename, rm, writeFile, lstat, realpath } from "node:fs/promises";
+import { basename, dirname, resolve, isAbsolute } from "node:path";
 import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
 import { inheritWorkspaceOpencodeConnection, resolveWorkspaceOpencodeConnection } from "../opencode-connection.js";
@@ -290,9 +290,24 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       throw new ApiError(400, "invalid_payload", "folderPath is required");
     }
 
+    if (body.registerExisting !== undefined && typeof body.registerExisting !== "boolean") {
+      throw new ApiError(400, "invalid_payload", "registerExisting must be boolean");
+    }
     const workspacePath = resolve(folderPath);
-    await ensureDir(workspacePath);
-    await ensureWorkspaceFiles(workspacePath, preset);
+    if (body.registerExisting === true) {
+      // Existing matters must not receive starter files. Require an exact,
+      // canonical directory, rejecting aliases/symlinks before registration.
+      try {
+        if (!isAbsolute(folderPath) || !(await lstat(workspacePath)).isDirectory() || await realpath(workspacePath) !== workspacePath) {
+          throw new Error("Not a canonical existing directory");
+        }
+      } catch {
+        throw new ApiError(400, "invalid_payload", "registerExisting requires an existing canonical directory");
+      }
+    } else {
+      await ensureDir(workspacePath);
+      await ensureWorkspaceFiles(workspacePath, preset);
+    }
 
     const workspace: WorkspaceInfo = {
       id: workspaceIdForPath(workspacePath),
@@ -316,7 +331,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       actor: ctx.actor ?? { type: "host" },
       action: "workspace.create",
       target: workspace.path,
-      summary: `Created workspace ${name}`,
+      summary: `${body.registerExisting === true ? "Registered existing" : "Created"} workspace ${name}`,
       timestamp: Date.now(),
     });
 

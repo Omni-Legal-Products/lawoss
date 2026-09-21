@@ -47,6 +47,8 @@ export type ExtensionsViewProps = {
   mcpConnectedAppsCount: number;
   /** Connectors tab — the MCP quick-connect grid + configured servers + built-ins. */
   mcpView: ReactNode;
+  /** Local selected-workspace file memory; grants remain in native Permissions. */
+  fileMemoryView?: ReactNode;
   storageView?: ReactNode;
   /** Skills tab — bundled + installed skills, with add/import. */
   skillsView: ReactNode;
@@ -154,6 +156,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
       <HubScopeContext.Provider value={hubScope}>
       {tab === "connectors" ? (
         <div className="space-y-4">
+          {hubScope === "local" ? props.fileMemoryView : null}
           <AutogramIntegrationCard />
           {props.mcpView}
         </div>

@@ -196,3 +196,18 @@ Rozhodnutie: [spec/plan PR #83](https://github.com/Omni-Legal-Products/lawOSS-li
 | `apps/app/src/app/lib/legalwork-server.ts` | Typovaný `getWorkspaceMemoryStatus(workspaceId)` používa read-only endpoint; shared strict status kontrakt nemá telá zdrojov ani anchors. |
 
 Natívny LAWOSS plugin wrapper výslovne vyberá native režim a exportuje iba plugin. Pri synce zachovať obidva runtime-only endpointy, explicitný build seam a zákaz environment fallbacku pri nedostupnom hoste. Skryté/custom/deny runtime pravidlá konzervatívne odoberú všetky externé grants; samotný profil alebo file config prístup neposkytuje.
+
+### Pamäť v Integrations a nový rozhovor v existujúcom spise (2026-09-21, Task 3)
+
+Rozhodnutie: [spec/plan PR #83](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/83).
+
+| Súbory upstreamu | Úprava a dôvod |
+|---|---|
+| `apps/app/src/react-app/shell/settings-route.tsx` | Pripája zelenú kartu súborovej pamäte k vybranému endpointu, workspace ID, koreňu a remote príznaku. Žiadna nová settings route ani grant store. |
+| `apps/app/src/react-app/domains/settings/pages/extensions-view.tsx` | Voliteľný `fileMemoryView` slot iba v lokálnej záložke Connectors, popri pôvodných Autogram/MCP kartách. |
+| `apps/app/src/app/lib/legalwork-server.ts` | Voliteľný boolean `registerExisting` na pôvodnom host-authenticated `createLocalWorkspace`; ostatné volania ostávajú bez zmeny. |
+| `apps/server/src/routes/workspaces.ts` | `registerExisting: true` vyžaduje existujúci absolútny kanonický adresár bez symlink aliasov; preskočí mkdir a starter inicializáciu. Pôvodný registry, deterministické ID, persistencia, autorizované korene a audit zostávajú. Bežné vytváranie workspace inicializuje pôvodným spôsobom. |
+
+Profil používa zdieľaný browser-safe parser, native file API a exact-content CAS (null pri vytvorení). Stav pripravenosti pochádza iba zo serverovej kontroly zhodného uloženého obsahu, nikdy z JSON parsera alebo rozpracovaného návrhu. Oprávnenia sa zobrazujú z runtime-only statusu; spravuje ich existujúca Permissions obrazovka. Pri synce zachovať oddelenie mapovania od oprávnení a oddelenie uloženého profilu od návrhu. Existujúci file API/activation bootstrap ostáva pôvodný; nulová zmena stromu súborov je garantovaná testom pre samotnú registráciu, nie pre následnú bežnú inicializáciu session.
+
+Zelená akcia v cockpite vychádza z konkrétneho discovered record (nie len query stringu alebo názvu), použije desktop path helper a native registry, aktivuje/vyberie presný child workspace a vytvorí jeden nový rozhovor s canonical transport directory a neodoslaným draftom. Existujúci kancelársky rozhovor nemení. HTTP regresie: `apps/server/src/lawoss-register-existing.e2e.test.ts`, `apps/app/tests/lawoss-file-memory.test.tsx`, `apps/app/tests/lawoss-matter-session.test.ts`; posledný test používa skutočný server a klienta, iba desktop IPC a modelový engine sú syntetické.

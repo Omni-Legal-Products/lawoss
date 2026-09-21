@@ -95,6 +95,7 @@ import { EnvironmentView } from "@/react-app/domains/settings/pages/environment-
 import { FileStorageView } from "@/react-app/domains/settings/pages/file-storage-view";
 import { STORAGE_CHANGED_EVENT } from "@/react-app/domains/settings/pages/storage-providers";
 import { ExtensionsView } from "@/react-app/domains/settings/pages/extensions-view";
+import { FileMemoryIntegrationCard } from "@/lawoss/domains/integrations/file-memory-integration-card";
 import { McpView } from "@/react-app/domains/settings/pages/mcp-view";
 import { RecoveryView } from "@/react-app/domains/settings/pages/recovery-view";
 import { OfficeAddinsView } from "@/react-app/domains/settings/pages/office-addins-view";
@@ -2207,6 +2208,13 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           <ExtensionsView
             key={`${selectedWorkspaceEndpoint?.baseUrl ?? baseUrl}:${runtimeWorkspaceId}`}
             busy={busy}
+            fileMemoryView={<FileMemoryIntegrationCard
+              client={selectedWorkspaceEndpoint?.client ?? legalworkClient}
+              workspaceId={runtimeWorkspaceId}
+              workspacePath={selectedWorkspaceRoot}
+              workspaceName={selectedWorkspaceName}
+              remote={isRemoteWorkspace}
+            />}
             showHeader={props.singleView}
             selectedWorkspaceRoot={selectedWorkspaceRoot}
             isRemoteWorkspace={isRemoteWorkspace}
