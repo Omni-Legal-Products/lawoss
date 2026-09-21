@@ -1,8 +1,9 @@
+import { resolveHostMemoryGrants } from "./host-memory-grants.mjs";
 import { createHandoff } from "./checkpoint.mjs";
 
-/** Native engine hooks. No model call, HTTP request, Git operation or background timer. */
-export async function LawossOkfHandoff(input) {
-  const handoff = createHandoff(input.directory);
+/** Native lifecycle hooks; native mode refreshes authenticated host permissions. */
+export async function LawossOkfHandoff(input, { mode = "standalone" } = {}) {
+  const handoff = createHandoff(input.directory, mode === "native" ? { resolveAllowedRoots: () => resolveHostMemoryGrants({ directory: input.directory, serverUrl: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_SERVER_TOKEN }) } : {});
   if (!handoff) return {};
   const checkpoint = async (sessionId, trigger) => {
     const result = await handoff.checkpoint(sessionId, trigger);

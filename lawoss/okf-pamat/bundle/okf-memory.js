@@ -2577,9 +2577,6 @@ function contained(root, target) {
   const rel = relative2(root, target);
   return rel === "" || !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep2}`);
 }
-function relativeFile(value) {
-  return typeof value === "string" && value.length > 0 && !isAbsolute(value) && !value.includes("\\") && !value.includes("\x00") && !/^[A-Za-z]:/.test(value) && value.split("/").every((part) => part !== "" && part !== "." && part !== "..");
-}
 function checkedPath(path, kind, allowMissing = false) {
   const full = resolve2(path), root = parse(full).root;
   const parts = relative2(root, full).split(sep2).filter(Boolean);
@@ -2639,17 +2636,67 @@ function jsonText(path, limit) {
   return JSON.parse(readText(path, limit).content);
 }
 
-// src/workspace-memory-reader.ts
+// src/workspace-memory-profile.ts
 var roles = ["case_memory", "case_card", "work_note", "task_log", "rules", "lessons", "source_index", "evidence"];
 var writableRoles = new Set(["case_memory", "case_card", "work_note", "task_log"]);
+function object(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function id(value) {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/.test(value);
+}
+function role(value) {
+  return typeof value === "string" && roles.some((r) => r === value);
+}
+function file(value) {
+  return typeof value === "string" && value.length > 0 && !value.includes("\\") && !value.includes("\x00") && !/^[A-Za-z]:/.test(value) && value.split("/").every((part) => part !== "" && part !== "." && part !== "..");
+}
+function parseWorkspaceMemoryProfile(value) {
+  if (!object(value) || value.version !== 1 || !id(value.matterId) || !Array.isArray(value.roots) || !Array.isArray(value.sources))
+    throw new Error("Invalid version 1 memory profile.");
+  if (value.sources.length === 0 || value.sources.length > WORKSPACE_MEMORY_LIMITS.sources || value.roots.length === 0 || value.roots.length > WORKSPACE_MEMORY_LIMITS.sources)
+    throw new Error("Invalid profile source/root count.");
+  const rootIds = new Set, sourceIds = new Set;
+  const roots = value.roots.map((root) => {
+    if (!object(root) || !id(root.id) || rootIds.has(root.id) || typeof root.path !== "string" || root.path.length === 0 || root.path.includes("\x00") || root.path.includes("\\") || root.path.split("/").includes(".."))
+      throw new Error("Invalid or duplicate root.");
+    rootIds.add(root.id);
+    return { id: root.id, path: root.path };
+  });
+  const sources = value.sources.map((source) => {
+    if (!object(source) || !id(source.id) || sourceIds.has(source.id.toLowerCase()) || typeof source.root !== "string" || !rootIds.has(source.root) || !file(source.path) || !role(source.role) || typeof source.required !== "boolean" || typeof source.writable !== "boolean")
+      throw new Error("Invalid or duplicate source.");
+    if (source.writable && !writableRoles.has(source.role))
+      throw new Error(`Role ${source.role} cannot be writable.`);
+    const anchors = [];
+    if (source.anchors !== undefined) {
+      if (!Array.isArray(source.anchors) || source.anchors.some((a) => typeof a !== "string" || a.trim().length === 0))
+        throw new Error(`Invalid identity anchors: ${source.id}`);
+      for (const anchor of source.anchors)
+        if (typeof anchor === "string")
+          anchors.push(anchor);
+    }
+    sourceIds.add(source.id.toLowerCase());
+    return { id: source.id, root: source.root, path: source.path, role: source.role, required: source.required, writable: source.writable, ...source.anchors !== undefined ? { anchors } : {} };
+  });
+  if (!sources.some((s) => s.role === "case_memory" && s.required))
+    throw new Error("At least one case_memory source must be required.");
+  if (!sources.some((s) => s.required && (s.anchors?.length ?? 0) > 0))
+    throw new Error("At least one required source must have identity anchors.");
+  return { version: 1, matterId: value.matterId, roots, sources };
+}
+function parseWorkspaceMemoryProfileText(text) {
+  if (new TextEncoder().encode(text).byteLength > WORKSPACE_MEMORY_LIMITS.profileBytes)
+    throw new Error("Memory profile byte limit exceeded.");
+  return parseWorkspaceMemoryProfile(JSON.parse(text));
+}
+
+// src/workspace-memory-reader.ts
 function isControlPath(path) {
   return path.split(sep3).some((component) => component.toLowerCase() === ".lawoss");
 }
 function byId(a, b) {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-}
-function role(value) {
-  return typeof value === "string" && roles.some((r) => r === value);
 }
 function checkHistory(workspace, report, ownOperation) {
   const history = join3(workspace, ".lawoss", "memory-history");
@@ -2690,14 +2737,10 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
     report.directory = checkedDirectory(report.directory);
     const profileText = readText(profilePath, WORKSPACE_MEMORY_LIMITS.profileBytes);
     report.profileHash = profileText.sha256;
-    const profile = JSON.parse(profileText.content);
-    if (!isObject(profile) || profile.version !== 1 || !safeId(profile.matterId) || !Array.isArray(profile.roots) || !Array.isArray(profile.sources))
-      throw new Error("Invalid version 1 memory profile.");
+    const profile = parseWorkspaceMemoryProfileText(profileText.content);
     report.matterId = profile.matterId;
     if (options.matterId !== undefined && options.matterId !== profile.matterId)
       throw new Error("Caller matterId does not match the profile.");
-    if (profile.sources.length === 0 || profile.sources.length > WORKSPACE_MEMORY_LIMITS.sources || profile.roots.length === 0 || profile.roots.length > WORKSPACE_MEMORY_LIMITS.sources)
-      throw new Error("Invalid profile source/root count.");
     const grants = [...new Set((options.allowedRoots ?? []).map((grant) => {
       if (typeof grant !== "string" || !isAbsolute2(grant))
         throw new Error("Caller grants must be absolute directory paths.");
@@ -2706,8 +2749,6 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
     const roots = new Map;
     const rootProblems = new Map;
     for (const root of profile.roots) {
-      if (!isObject(root) || !safeId(root.id) || roots.has(root.id) || typeof root.path !== "string" || root.path.length === 0 || root.path.includes("\x00") || root.path.includes("\\") || root.path.split("/").includes(".."))
-        throw new Error("Invalid or duplicate root.");
       const path = resolve3(report.directory, root.path);
       roots.set(root.id, path);
       if (!contained(report.directory, path) && !grants.some((grant) => contained(grant, path)))
@@ -2720,22 +2761,9 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
         }
       }
     }
-    const ids = new Set;
     const sourceProblems = new Map;
     for (const source of profile.sources) {
-      if (!isObject(source) || !safeId(source.id) || ids.has(source.id.toLowerCase()) || typeof source.root !== "string" || !roots.has(source.root) || !relativeFile(source.path) || !role(source.role) || typeof source.required !== "boolean" || typeof source.writable !== "boolean")
-        throw new Error("Invalid or duplicate source.");
-      if (source.writable && !writableRoles.has(source.role))
-        throw new Error(`Role ${source.role} cannot be writable.`);
-      const anchors = [];
-      if (source.anchors !== undefined) {
-        if (!Array.isArray(source.anchors) || source.anchors.some((a) => typeof a !== "string" || a.trim().length === 0))
-          throw new Error(`Invalid identity anchors: ${source.id}`);
-        for (const anchor of source.anchors)
-          if (typeof anchor === "string")
-            anchors.push(anchor);
-      }
-      ids.add(source.id.toLowerCase());
+      const anchors = source.anchors ?? [];
       let path = resolve3(roots.get(source.root), source.path);
       if (isControlPath(path))
         throw new Error("Memory sources cannot alias reserved .lawoss control files.");
@@ -2751,10 +2779,6 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
       }
       report.sources.push({ id: source.id, root: source.root, path, role: source.role, required: source.required, writable: source.writable, anchors, sha256: null, bytes: 0, content: null, status: "error" });
     }
-    if (!report.sources.some((s) => s.role === "case_memory" && s.required))
-      throw new Error("At least one case_memory source must be required.");
-    if (!report.sources.some((s) => s.required && s.anchors.length > 0))
-      throw new Error("At least one required source must have identity anchors.");
     const semanticRoots = [...roots].map(([id, path]) => ({ id, path })).sort(byId);
     const semanticSources = report.sources.map(({ id, root, path, role, required, writable, anchors }) => ({ id, root, path, role, required, writable, anchors: [...new Set(anchors)].sort() })).sort(byId);
     report.bindingHash = sha256(JSON.stringify({ version: 1, directory: report.directory, matterId: report.matterId, grants, roots: semanticRoots, sources: semanticSources }));

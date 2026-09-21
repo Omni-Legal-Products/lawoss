@@ -26,16 +26,26 @@ chybe profilu. Ten používa súborový reader bez typovaného `sync`, nevytvor�
 `memory/`, `_STATUS.md` ani kartu. [Profil, SAVE a presné CLI príkazy](../okf-pamat/SKILL.md#existujúca-súborová-pamäť-profil-má-prednosť),
 [špecifikácia](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/blob/06aba22/specs/2026-09-21-riha-memory-parity.md).
 
-Host môže povoliť externé korene iba striktným JSON poľom absolútnych ciest:
+Natívny plugin pred **každým čítaním**, vrátane záverečnej kontroly snapshotu,
+načíta aktuálne oprávnenia cez autentifikovaný lokálny server. Vyberie jednoznačný
+najdlhší kanonický workspace z `/workspaces` a číta
+`/workspace/:id/lawoss/memory/grants`. Tento read-only endpoint používa výlučne
+existujúci hostiteľský runtime store; viditeľné allow pravidlá v pracovnom
+`opencode.json` nie sú grantom. Oprávnenia sa spravujú cez pôvodné natívne
+Authorized Folders. Ak runtime obsahuje deny alebo vlastné pravidlá, externé
+korene sa konzervatívne nepovolia, aby široký allow neobišiel užší deny.
 
-```sh
-export LAWOSS_MEMORY_ALLOWED_ROOTS='["/absolute/vault", "/absolute/archive"]'
-# Potom spusti LAWOSS z prostredia s touto premennou.
-```
+Výpadok hosta, nejednoznačný workspace alebo odobratý grant checkpoint odmietnu.
+Chýbajúce `LEGALWORK_SERVER_URL` aj `LEGALWORK_SERVER_TOKEN` nikdy nezapnú fallback.
+`LAWOSS_MEMORY_ALLOWED_ROOTS` ostáva len pre samostatný prenosný režim
+(`LawossOkfHandoff` mimo natívneho wrappera alebo `createWorkspaceHandoff` bez
+host provideru); prijíma JSON pole absolútnych ciest. Profil ani uložený binding
+nikdy neposkytuje grant.
 
-Premenná sa zachytí pri vytvorení handoffu; profil ani metadáta granty neudeľujú.
-Neplatná premenná, nepovolený koreň a chýbajúci/nečitateľný zdroj dajú viditeľnú
-chybu. Nepribúda GUI nastavenie alebo externá pamäť do existujúceho prehľadu appky.
+Read-only `/workspace/:id/lawoss/memory` používa rovnaké runtime pravidlá a vracia
+úplnosť, identitu, hash profilu/bindingu/kontextu a stav/revíziu každého zdroja.
+Nevracia telá dokumentov, anchors ani surové filesystem chyby. Shared browser-safe
+parser v `workspace-memory-profile.ts` overuje iba schému; ready vyžaduje reader.
 
 Každý hook číta aktuálne zdroje a pred uložením ich znovu skontroluje.
 `bindingHash` viaže sémantickú identitu, mapovanie a caller granty, `contextHash`

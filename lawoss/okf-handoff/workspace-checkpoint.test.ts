@@ -138,3 +138,23 @@ test("restart without host grants cannot recover authority from persisted bindin
     expect(readFileSync(join(f.root, ".lawoss/handoff/ses_authority.status.md"), "utf8")).toContain("state: error");
   }
 });
+
+test("live host grant revocation preserves stale checkpoint and ignores environment", async () => {
+  const f = fixture(true); process.env.LAWOSS_MEMORY_ALLOWED_ROOTS = JSON.stringify([f.vault]);
+  let grants = [f.vault], calls = 0;
+  const handoff = createWorkspaceHandoff(f.root, { resolveAllowedRoots: async () => { calls++; return grants; } });
+  const first = await handoff.checkpoint("ses_live", "idle"); expect(first.ok).toBe(true);
+  const good = readFileSync(first.path!, "utf8"); grants = [];
+  expect((await handoff.checkpoint("ses_live", "before-turn")).ok).toBe(false);
+  expect(calls).toBeGreaterThanOrEqual(3);
+  expect(readFileSync(first.path!, "utf8")).toBe(good);
+  expect(readFileSync(join(f.root, ".lawoss/handoff/ses_live.status.md"), "utf8")).toContain("not current");
+});
+
+test("host grant is refreshed for the final checkpoint read too", async () => {
+  const f = fixture(true); let calls = 0;
+  const handoff = createWorkspaceHandoff(f.root, { resolveAllowedRoots: async () => ++calls === 1 ? [f.vault] : [] });
+  expect((await handoff.checkpoint("ses_race", "idle")).ok).toBe(false);
+  expect(calls).toBe(2);
+  expect(existsSync(join(f.root, ".lawoss/handoff/ses_race.md"))).toBe(false);
+});

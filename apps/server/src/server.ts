@@ -1,3 +1,4 @@
+import { getWorkspaceMemoryGrants, getWorkspaceMemoryStatus } from "./lawoss/workspace-memory.js";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
@@ -1760,6 +1761,16 @@ function createRoutes(
     }
 
     return jsonResponse({ item: removed });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/lawoss/memory/grants", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse(await getWorkspaceMemoryGrants(config, workspace));
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/lawoss/memory", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse(await getWorkspaceMemoryStatus(config, workspace));
   });
 
   addRoute(routes, "GET", "/workspace/:id/authorized-folders", "client", async (ctx) => {

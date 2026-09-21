@@ -184,3 +184,15 @@ Prepublikačné review OKF (20. 9. 2026): `ci-okf-pamat.yml` spúšťa aj regres
 - `apps/app/src/react-app/shell/session-route.tsx`: pass the existing document-author preference to the native OKF creation panel. Preview and CLI handoff receive the same explicit lawyer name.
 - `apps/app/src/app/lib/legalwork-server.ts`: optional `expectedContent` precondition on the existing text write API; null means the file must still be absent.
 - `apps/server/src/routes/files.ts`: retain native authorization, read-only, approval, audit and file events; delegate text replacement to a small LAWOSS helper that serializes text saves and checks the optional exact-content precondition after approval and immediately before replacement. Guarded writes reject symlink components. This is a conflict guard against stale editor saves, not an OS transaction with uncooperative external writers.
+
+### Živé hostiteľské oprávnenia pamäte (2026-09-21, Task 2)
+
+Rozhodnutie: [spec/plan PR #83](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/83).
+
+| Súbory upstreamu | Úprava a dôvod |
+|---|---|
+| `apps/server/src/server.ts` | Dva autentifikované read-only hooky `/workspace/:id/lawoss/memory` a `/lawoss/memory/grants`; zelený resolver používa iba existujúci runtime store, nikdy workspace-authored config. Natívny Authorized Folders PUT ostáva správcom oprávnení. |
+| `apps/server/package.json` | Výslovný Bun Node bundle pre `src/lawoss/workspace-memory-runtime.ts` → `dist/lawoss/workspace-memory-runtime.js`, portable reader za deklarovaným `.mjs` seamom; runtime store zostáva pôvodným modulom servera. Tým endpoint funguje aj mimo Bun/checkoutu a TypeScript rootDir ostáva `src`. |
+| `apps/app/src/app/lib/legalwork-server.ts` | Typovaný `getWorkspaceMemoryStatus(workspaceId)` používa read-only endpoint; shared strict status kontrakt nemá telá zdrojov ani anchors. |
+
+Natívny LAWOSS plugin wrapper výslovne vyberá native režim a exportuje iba plugin. Pri synce zachovať obidva runtime-only endpointy, explicitný build seam a zákaz environment fallbacku pri nedostupnom hoste. Skryté/custom/deny runtime pravidlá konzervatívne odoberú všetky externé grants; samotný profil alebo file config prístup neposkytuje.
