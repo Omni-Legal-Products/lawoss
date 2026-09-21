@@ -1764,12 +1764,12 @@ function createRoutes(
   });
 
   addRoute(routes, "GET", "/workspace/:id/lawoss/memory/grants", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await resolveWorkspace(config, ctx.params.id, { bootstrap: false });
     return jsonResponse(await getWorkspaceMemoryGrants(config, workspace));
   });
 
   addRoute(routes, "GET", "/workspace/:id/lawoss/memory", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await resolveWorkspace(config, ctx.params.id, { bootstrap: false });
     return jsonResponse(await getWorkspaceMemoryStatus(config, workspace));
   });
 
@@ -4113,7 +4113,7 @@ function createRoutes(
   return routes;
 }
 
-async function resolveWorkspace(config: ServerConfig, id: string): Promise<WorkspaceInfo> {
+async function resolveWorkspace(config: ServerConfig, id: string, options: { bootstrap?: boolean } = {}): Promise<WorkspaceInfo> {
   const workspaceId = id.trim();
   const aliasWorkspaceId = workspaceId.startsWith("rem_") ? workspaceId.slice("rem_".length) : "";
   const workspace =
@@ -4127,7 +4127,8 @@ async function resolveWorkspace(config: ServerConfig, id: string): Promise<Works
   if (!authorized) {
     throw new ApiError(403, "workspace_unauthorized", "Workspace is not authorized");
   }
-  if (!config.readOnly) {
+  // Read-only inspection keeps registry/alias/root authorization but never seeds or repairs files.
+  if (!config.readOnly && options.bootstrap !== false) {
     let bootstraps = workspaceBootstrapPromises.get(config);
     if (!bootstraps) {
       bootstraps = new Map();

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, writeFile, readdir, readFile, lstat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "./server.js";
@@ -62,8 +62,56 @@ test("production plugin resolves real HTTP grants on each hook and preserves rev
 });
 
 test("status and grants reject remote workspaces before reading local paths", async () => {
-  const f = await fixture(); f.config.workspaces[0]!.workspaceType = "remote";
   for (const path of ["/lawoss/memory", "/lawoss/memory/grants"]) {
+    const f = await fixture(); f.config.workspaces[0]!.workspaceType = "remote";
+    const before = await workspaceSnapshot(f.root);
     const response = await fetch(f.url + path, { headers: f.headers }); expect(response.status).toBe(400); expect(await response.text()).not.toContain("SECRET-SOURCE-BODY");
+    expect(await workspaceSnapshot(f.root)).toEqual(before);
   }
 });
+
+async function workspaceSnapshot(root: string) {
+  const paths = (await readdir(root, { recursive: true })).sort();
+  return Promise.all(paths.map(async path => {
+    const stat = await lstat(join(root, path));
+    return { path, directory: stat.isDirectory(), bytes: stat.isFile() ? (await readFile(join(root, path))).toString("hex") : null };
+  }));
+}
+
+for (const endpoint of ["/lawoss/memory", "/lawoss/memory/grants"]) {
+  for (const granted of [false, true]) for (const oldCore of [false, true]) {
+    test(`first ${endpoint} leaves writable workspace unchanged (grant=${granted}, oldCore=${oldCore})`, async () => {
+      const f = await fixture();
+      if (granted) await writeRuntimeOpencodeConfig(f.config, "synthetic", () => ({ permission: { external_directory: { [`${f.vault}/*`]: "allow" } } }));
+      if (oldCore) {
+        await mkdir(join(f.root, ".opencode/commands"), { recursive: true });
+        await writeFile(join(f.root, ".opencode/.legalwork-core"), "synthetic-old-bundled-stamp");
+        await writeFile(join(f.root, ".opencode/legalwork.json"), JSON.stringify({ synthetic: true }));
+        await writeFile(join(f.root, ".opencode/commands/synthetic.md"), "Synthetic existing command bytes\n");
+      }
+      const before = await workspaceSnapshot(f.root);
+      const response = await fetch(f.url + endpoint, { headers: f.headers }); expect(response.status).toBe(200);
+      const body = await response.json();
+      if (endpoint.endsWith("grants")) expect(body.folders).toEqual(granted ? [f.vault] : []);
+      else expect(body.complete).toBe(granted);
+      expect(await workspaceSnapshot(f.root)).toEqual(before);
+    });
+  }
+  for (const rejected of ["unauthenticated", "unknown", "unauthorized"]) {
+    test(`first ${endpoint} retains ${rejected} rejection without workspace writes`, async () => {
+      const f = await fixture(), before = await workspaceSnapshot(f.root);
+      if (rejected === "unauthorized") f.config.authorizedRoots = [f.vault];
+      const url = rejected === "unknown" ? f.url.replace("synthetic", "unknown") : f.url;
+      const response = await fetch(url + endpoint, rejected === "unauthenticated" ? {} : { headers: f.headers });
+      expect(response.status).toBe(rejected === "unauthenticated" ? 401 : rejected === "unknown" ? 404 : 403);
+      expect(await workspaceSnapshot(f.root)).toEqual(before);
+    });
+  }
+  test(`first ${endpoint} supports registry alias without suppressing later normal bootstrap`, async () => {
+    const f = await fixture(), before = await workspaceSnapshot(f.root);
+    const response = await fetch(f.url.replace("synthetic", "rem_synthetic") + endpoint, { headers: f.headers });
+    expect(response.status).toBe(200); expect(await workspaceSnapshot(f.root)).toEqual(before);
+    expect((await fetch(f.url + "/authorized-folders", { headers: f.headers })).status).toBe(200);
+    expect((await workspaceSnapshot(f.root)).some(entry => entry.path === ".opencode/.legalwork-core")).toBe(true);
+  });
+}

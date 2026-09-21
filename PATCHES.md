@@ -191,7 +191,7 @@ Rozhodnutie: [spec/plan PR #83](https://github.com/Omni-Legal-Products/lawOSS-li
 
 | Súbory upstreamu | Úprava a dôvod |
 |---|---|
-| `apps/server/src/server.ts` | Dva autentifikované read-only hooky `/workspace/:id/lawoss/memory` a `/lawoss/memory/grants`; zelený resolver používa iba existujúci runtime store, nikdy workspace-authored config. Natívny Authorized Folders PUT ostáva správcom oprávnení. |
+| `apps/server/src/server.ts` | Dva autentifikované read-only hooky `/workspace/:id/lawoss/memory` a `/lawoss/memory/grants`; explicitné `bootstrap: false` v spoločnom resolveri zachová lookup/alias/authorized-root kontrolu bez inicializácie alebo opravy `.opencode`; ostatné route-y si ponechávajú pôvodný bootstrap; zelený resolver používa iba existujúci runtime store, nikdy workspace-authored config. Natívny Authorized Folders PUT ostáva správcom oprávnení. |
 | `apps/server/package.json` | Výslovný Bun Node bundle pre `src/lawoss/workspace-memory-runtime.ts` → `dist/lawoss/workspace-memory-runtime.js`, portable reader za deklarovaným `.mjs` seamom; runtime store zostáva pôvodným modulom servera. Tým endpoint funguje aj mimo Bun/checkoutu a TypeScript rootDir ostáva `src`. |
 | `apps/app/src/app/lib/legalwork-server.ts` | Typovaný `getWorkspaceMemoryStatus(workspaceId)` používa read-only endpoint; shared strict status kontrakt nemá telá zdrojov ani anchors. |
 
