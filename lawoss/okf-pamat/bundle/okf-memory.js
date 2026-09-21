@@ -104,6 +104,8 @@ var FIELDS = [
   },
   { canonical: "created", cz: "vznik", sk: "vznik", kind: "string", required: true },
   { canonical: "updated", cz: "změna", sk: "zmena", kind: "string", required: true },
+  { canonical: "source", cz: "source", sk: "source", kind: "string", required: false },
+  { canonical: "verified_via", cz: "verified_via", sk: "verified_via", kind: "string", required: false },
   { canonical: "sources", cz: "zdroje", sk: "zdroje", kind: "maplist", required: false },
   { canonical: "related", cz: "souvisí", sk: "súvisí", kind: "list", required: false },
   { canonical: "tags", cz: "štítky", sk: "štítky", kind: "list", required: false },
@@ -1399,6 +1401,32 @@ function amlCompleteness(r) {
     message: `Identifikácia subjektu ${r.id} nie je úplná podľa ${predpis} — chýba: ${keys}`
   };
 }
+var L3_SOURCE_FIELDS = ["source", "verified_via", "verified_at"];
+function checkL3Sources(records) {
+  const out = [];
+  for (const r of records) {
+    if (r.type === "authority") {
+      const missing = L3_SOURCE_FIELDS.filter((f) => !String(r[f] ?? "").trim());
+      if (missing.length) {
+        out.push({
+          severity: "error",
+          code: "L3_SOURCE_MISSING",
+          recordId: r.id,
+          message: `authority ${r.id}: chýba ${missing.join(", ")} — do L3 sa nezapisuje ` + `bez overeného prameňa (navigácia → dooverenie v primárnom prameni)`
+        });
+      }
+    }
+    if (r.type === "subject" && !String(r.source ?? "").trim()) {
+      out.push({
+        severity: "warning",
+        code: "SUBJECT_SOURCE_MISSING",
+        recordId: r.id,
+        message: `subject ${r.id}: bez zdroja overenia (OR/ARES/register) — údaje môžu byť zastarané`
+      });
+    }
+  }
+  return out;
+}
 function validateStore(records, opts = {}) {
   const findings = [];
   const ids = new Set(records.map((r) => r.id));
@@ -1594,6 +1622,7 @@ function validateStore(records, opts = {}) {
       });
     }
   }
+  findings.push(...checkL3Sources(records));
   const screenings = records.filter((r) => r.type === "screening");
   for (const r of screenings) {
     if (r.valid_until && r.valid_until < today) {
@@ -1709,6 +1738,9 @@ class ApprovalRequiredError extends Error {
 
 class StaleUpdatedError extends Error {
 }
+
+class L3SourceMissingError extends Error {
+}
 function changedFields(before, after) {
   const previous = new Map(Object.entries(before));
   const next = new Map(Object.entries(after));
@@ -1819,6 +1851,14 @@ function authorize(diff, approval) {
     return;
   const why = diff.kind === "delete" ? "mazanie záznamu" : `zápis do vrstvy ${diff.layer}`;
   throw new ApprovalRequiredError(`${why} (${diff.id}) vyžaduje schválenie človekom — agent smie iba navrhnúť`);
+}
+function assertHasSource(after) {
+  if (!after || after.type !== "authority")
+    return;
+  const chyby = checkL3Sources([after]).filter((f) => f.code === "L3_SOURCE_MISSING");
+  if (chyby.length === 0)
+    return;
+  throw new L3SourceMissingError(chyby.map((f) => `${f.code}: ${f.message}`).join(" "));
 }
 
 // src/config.ts
@@ -2046,6 +2086,7 @@ function applyRecordWrite(dir, diff, approval, leakScopeDir = dir) {
   authorize(diff, approval === STANDING ? standingApproval(dir, diff) : approval);
   if (diff.after)
     assertNoLeak(leakScopeDir, diff.after);
+  assertHasSource(diff.after);
   mkdirSync(dir, { recursive: true });
   const lock = join2(dir, ".okf-write.lock");
   try {
@@ -2692,6 +2733,7 @@ ${USAGE}` };
       }
       let diff;
       try {
+        assertHasSource(after);
         diff = planWrite(before, after, reason);
       } catch (e) {
         return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };

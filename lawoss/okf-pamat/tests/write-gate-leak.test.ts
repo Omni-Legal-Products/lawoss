@@ -36,6 +36,7 @@ function pramen(id: string, truth: string): OkfRecord {
     title: "Právna veta", description: "prameň",
     created: "2026-09-01", updated: "2026-09-01", truth,
     timeline: [{ date: "2026-09-01", text: "založené" }],
+    source: "test", verified_via: "test", verified_at: "2026-09-01",
   });
 }
 

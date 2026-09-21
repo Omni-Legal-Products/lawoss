@@ -14,7 +14,7 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { parseRecord, recordRevision, serializeRecord, type OkfRecord } from "./record.ts";
 import { renderStatus, retrofitStatus, type LinkResolver, type BlockName } from "./render.ts";
 import { validateStore } from "./validate.ts";
-import { authorize, type Approval, type WriteDiff } from "./write.ts";
+import { authorize, assertHasSource, type Approval, type WriteDiff } from "./write.ts";
 import { readStandingAuthorization, covers, readClientPath, matchesClientPath, readNameLeakSeverity } from "./config.ts";
 import { typeLabel, valueLabel, truthDigest, OKF_VERSION, type Jurisdiction } from "./schema.ts";
 
@@ -258,6 +258,7 @@ export function applyRecordWrite(
   }
   authorize(diff, approval === STANDING ? standingApproval(dir, diff) : approval);
   if (diff.after) assertNoLeak(leakScopeDir, diff.after);
+  assertHasSource(diff.after);
   mkdirSync(dir, { recursive: true });
   const lock = join(dir, ".okf-write.lock");
   try {

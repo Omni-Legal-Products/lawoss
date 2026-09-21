@@ -124,6 +124,7 @@ test("bez client_path by tá istá brána bola slepá — regresný dôkaz", () 
     title: "Veta", description: "p", created: "2026-09-02", updated: "2026-09-02",
     truth: "Vec spoločnosti s IČO 29139643.",
     timeline: [{ date: "2026-09-02", text: "z" }],
+    source: "test", verified_via: "test", verified_at: "2026-09-02",
   });
   // Prejde — a presne preto sa client_path musí nastaviť pri napojení vaultu.
   assert.doesNotThrow(() =>

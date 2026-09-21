@@ -15,7 +15,7 @@ import {
   jurisdictionFromCard, MEMORY_DIR, statusLinkResolver, findClientDir, STATUS_FILE,
 } from "./store.ts";
 import { parseRecord, serializeRecord, recordRevision, type OkfRecord } from "./record.ts";
-import { planWrite, type Approval, type WriteDiff } from "./write.ts";
+import { planWrite, assertHasSource, type Approval, type WriteDiff } from "./write.ts";
 import { maskRecord } from "./mask.ts";
 import { fieldLabel, typeLabel, SCREENING_PROVISION, type Jurisdiction } from "./schema.ts";
 import { renderStatus, RenderConflictError, statusSkeleton } from "./render.ts";
@@ -323,6 +323,7 @@ export function runCli(argv: readonly string[]): CliResult {
 
       let diff: WriteDiff;
       try {
+        assertHasSource(after);
         diff = planWrite(before, after, reason);
       } catch (e) {
         return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };

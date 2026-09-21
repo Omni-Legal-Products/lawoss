@@ -26,12 +26,12 @@ export {
 } from "./record.ts";
 
 export {
-  planWrite, authorize, ApprovalRequiredError, TimelineIntegrityError, StaleUpdatedError,
+  planWrite, authorize, assertHasSource, ApprovalRequiredError, TimelineIntegrityError, StaleUpdatedError, L3SourceMissingError,
   type Approval, type WriteDiff, type WriteKind,
 } from "./write.ts";
 
 export { renderStatus, retrofitStatus, RenderConflictError, statusSkeleton, BLOCKS, MARKER_ONLY, SOFT_HEADING, type BlockName, type LinkResolver } from "./render.ts";
-export { validateStore, type Finding, type Severity, type ValidateOptions } from "./validate.ts";
+export { validateStore, checkL3Sources, type Finding, type Severity, type ValidateOptions } from "./validate.ts";
 export { maskValue, maskRecord } from "./mask.ts";
 export {
   readStandingAuthorization, inspectStandingAuthorization, isIsoDate, readNameLeakSeverity, covers, isExpired, CONFIG_FILE,
@@ -139,6 +139,8 @@ export interface NewRecordInit {
   procedural_status?: string;
   effective_from?: string;
   effective_to?: string;
+  source?: string;
+  verified_via?: string;
   verified_at?: string;
   verified_against?: string;
   procedural_role?: string;

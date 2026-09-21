@@ -33,6 +33,7 @@ for (const j of ["cz", "sk"] as const) {
       id: "S-001", type: "subject", jurisdiction: j,
       title: "Stavby Modrý Kámen s.r.o.", description: "protistrana, overena v registri",
       registry_id: "12345678", created: "2026-08-29", updated: "2026-08-29",
+      source: "OR",
       truth: "Protistrana, zapisana v registri.",
       timeline: [{ date: "2026-08-29", text: "overene v obchodnom registri" }],
     });
@@ -84,7 +85,8 @@ for (const j of ["cz", "sk"] as const) {
     // 6. Klientsky udaj sa do zdielatelnej pravnej vrstvy nedostane —
     //    brana ho zastavi uz pri zapise, nie az pri samostatnej validacii.
     const spinavy = newRecord({
-      id: "J-001", type: "authority", jurisdiction: j, verified_at: "2026-09-02",
+      id: "J-001", type: "authority", jurisdiction: j,
+      source: "test", verified_via: "test", verified_at: "2026-09-02",
       title: "K miestnej prislusnosti", description: "pravny pramen",
       created: "2026-08-30", updated: "2026-08-30",
       truth: "Vec sa tykala spolocnosti s ICO 12345678.",

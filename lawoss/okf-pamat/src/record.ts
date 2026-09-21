@@ -153,6 +153,11 @@ export interface OkfRecord {
   procedural_status?: string;
   effective_from?: string;
   effective_to?: string;
+  // N5: prameň authority (ECLI / § so znením k dátumu) a konektor, ktorým
+  // sa overilo. `verified_at` bol v schéme už kvôli časovej platnosti —
+  // tu iba pribúdajú súrodenci.
+  source?: string;
+  verified_via?: string;
   verified_at?: string;
   verified_against?: string;
   procedural_role?: string;
