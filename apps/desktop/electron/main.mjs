@@ -38,7 +38,6 @@ import { createRuntimeManager, resolveLegalworkServerConfigPath } from "./runtim
 import { createMcpOAuthCallbackBroker, watchMcpOAuthOwner } from "./mcp-oauth-callback.mjs";
 import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
 import {
-  ELECTRON_UPDATER_FALLBACK_FEEDS,
   ELECTRON_UPDATER_FEEDS,
   registerUpdaterIpc,
 } from "./updater.mjs";
@@ -115,14 +114,9 @@ const APP_NAME =
 const APP_IDENTIFIER =
   process.env.LEGALWORK_ELECTRON_APP_IDENTIFIER?.trim() ||
   (isDevMode ? DEV_APP_IDENTIFIER : APP_BUNDLE_IDENTIFIER);
-// Our update feed mirrors GitHub's releases/latest/download file layout and
-// redirects to the GitHub assets (see eigenwelt-website
-// app/legalwork/update/[file]/route.ts). If it misbehaves, resolution falls
-// back to GitHub directly so the arch-mismatch download flow never depends on
-// our site being up. The URLs are defined once, in updater.mjs, so this flow
-// and the self-updater can never point at different feeds.
+// The architecture-mismatch helper checks this tracked feed first and then a
+// version-specific GitHub release path in update-feed.mjs.
 const RELEASE_DOWNLOAD_BASE_URL = ELECTRON_UPDATER_FEEDS.stable;
-const RELEASE_DOWNLOAD_FALLBACK_BASE_URL = ELECTRON_UPDATER_FALLBACK_FEEDS.stable;
 const RELEASE_PAGE_URL = "https://github.com/eigenweltlabs/legalwork/releases/latest";
 
 const WINDOWS_PASTE_SCRIPT = `
