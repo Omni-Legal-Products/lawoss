@@ -3539,4 +3539,4 @@ ${USAGE}` };
 var result = runCli(process.argv.slice(2));
 process.stdout.write(result.out + `
 `);
-process.exit(result.code);
+process.exitCode = result.code;

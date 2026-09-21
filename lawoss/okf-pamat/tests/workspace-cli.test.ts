@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import type { WorkspaceMemoryReport } from "../src/index.ts";
+import { readWorkspaceMemory, renderWorkspaceMemory, type WorkspaceMemoryReport } from "../src/index.ts";
 
 const roots: string[] = [];
 function fixture() {
@@ -99,3 +99,37 @@ test("distributed Node bundle supports the same strict read flags and save previ
   const preview = cli(["workspace-save", f.root, ...f.grants, "--file", file, "--json"], true);
   assert.equal(preview.code, 0, preview.out); assert.equal(JSON.parse(preview.out).status, "preview");
 });
+
+
+for (const bundle of [false, true]) {
+  for (const json of [false, true]) {
+    for (const incomplete of [false, true]) {
+      test(`pipe drains full large ${json ? "JSON" : "render"} from ${bundle ? "bundle" : "source"} with exit ${incomplete ? 1 : 0}`, () => {
+        const f = fixture();
+        const body = "SYNTHETIC-01\n" + "Příliš žluťoučký kůň — úplný zdroj.\n".repeat(12_000) + "SYNTHETIC-END-OF-LARGE-SOURCE\n";
+        assert.ok(Buffer.byteLength(body, "utf8") >= 300 * 1024);
+        writeFileSync(join(f.root, "_memory.md"), body);
+        if (incomplete) rmSync(join(f.notes, "note.md"));
+        const expected = readWorkspaceMemory(f.root, { allowedRoots: [f.vault, f.notes] });
+        const result = cli([json ? "workspace-read" : "read", f.root, ...f.grants, ...(json ? ["--json"] : [])], bundle);
+        assert.equal(result.code, incomplete ? 1 : 0);
+        // Fixed-length ISO timestamps permit a byte check before parsing. Keep
+        // failure diagnostics bounded instead of printing the entire source payload.
+        const expectedText = json ? JSON.stringify(expected, null, 2) + "\n" : renderWorkspaceMemory(expected) + "\n";
+        assert.equal(Buffer.byteLength(result.out, "utf8"), Buffer.byteLength(expectedText, "utf8"), "The process must drain every output byte into the pipe");
+        if (json) {
+          const actual = JSON.parse(result.out) as WorkspaceMemoryReport;
+          assert.equal(actual.complete, !incomplete);
+          assert.equal(actual.sources.length, expected.sources.length);
+          assert.equal(actual.sources.find(source => source.id === "memory")?.content, body);
+          assert.deepEqual({ ...actual, loadedAt: expected.loadedAt }, expected);
+        } else {
+          const normalizeLoadTime = (text: string) => text.replace(/^Loaded at: .*$/m, "Loaded at: <timestamp>");
+          assert.ok(normalizeLoadTime(result.out) === normalizeLoadTime(expectedText), "The complete rendered context must match the reader");
+          assert.ok(result.out.includes(body));
+          assert.ok(result.out.endsWith("--- END SOURCE DATA ---\n\n"));
+        }
+      });
+    }
+  }
+}
