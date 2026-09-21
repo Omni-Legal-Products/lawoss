@@ -8,8 +8,8 @@
 
 import { readManualStatus } from "./manual-status.ts";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
 import {
   readStore, readScope, syncProjections, ProjectionWriteError, retrofitStatusFile, ensureBrain, applyRecordWrite, standingApproval,
   findOfficeDir, OFFICE_DIR,
@@ -24,6 +24,8 @@ import { renderStatus, RenderConflictError, statusSkeleton } from "./render.ts";
 import { validateStore } from "./validate.ts";
 import { inspectStandingAuthorization, isExpired, readNameLeakSeverity, CONFIG_FILE } from "./config.ts";
 
+import { readWorkspaceMemory, renderWorkspaceMemory, saveWorkspaceMemory, type WorkspaceMemorySaveRequest } from "./workspace-memory.ts";
+
 const dnes = (): string => new Date().toISOString().slice(0, 10);
 
 export interface CliResult {
@@ -34,7 +36,9 @@ export interface CliResult {
 const USAGE = [
   "okf-memory — pamäť spisu (OKF)",
   "",
-  "  okf-memory read     <spis>            prehľad pamäte",
+  "  okf-memory read     <spis>            prehľad pamäte (profil má prednosť)",
+  "  okf-memory workspace-read <spis> [--json] [--matter id] [--allow-root /absolute]…",
+  "  okf-memory workspace-save <spis> --file request.json [--apply] [--json] [--matter id] [--allow-root /absolute]…",
   "  okf-memory preamble <spis>            pravidlá, poučenia a ban-list na začiatok session",
   "  okf-memory validate <spis>            kontrola schémy, únikov L2→L3 a odkazov",
   "  okf-memory sync     <spis> [--apply]  projekcia do _STATUS.md, index.md a log.md",
@@ -97,6 +101,47 @@ function zaznamov(n: number): string {
   return `${n} záznamov`;
 }
 
+/** Detect the opt-in entry before running its stricter reader, preserving canonical paths. */
+function workspaceProfilePresent(directory: string): boolean {
+  try {
+    const control = join(directory, ".lawoss");
+    let stat;
+    try { stat = lstatSync(control); }
+    catch (error) { if (error instanceof Error && "code" in error && error.code === "ENOENT") return false; throw error; }
+    if (!stat.isDirectory()) return true;
+    try { lstatSync(join(control, "memory-profile.json")); return true; }
+    catch (error) { if (error instanceof Error && "code" in error && error.code === "ENOENT") return false; throw error; }
+  } catch { return true; }
+}
+
+/** Strict opt-in arguments: a missing/duplicate value must never broaden authority. */
+function workspaceArguments(rest: readonly string[], save: boolean) {
+  const allowedRoots: string[] = [];
+  const values = new Map<string, string>();
+  const switches = new Set<string>();
+  for (let i = 0; i < rest.length; i++) {
+    const flag = rest[i]!;
+    if (flag === "--json" || (save && flag === "--apply")) {
+      if (switches.has(flag)) throw new Error(`Duplicate flag: ${flag}`);
+      switches.add(flag); continue;
+    }
+    if (flag !== "--allow-root" && flag !== "--matter" && !(save && flag === "--file")) throw new Error(`Unknown argument: ${flag}`);
+    const value = rest[++i];
+    if (!value || value.startsWith("--")) throw new Error(`Missing value: ${flag}`);
+    if (flag === "--allow-root") {
+      if (!isAbsolute(value) || value.includes("\0")) throw new Error("--allow-root requires an absolute directory path");
+      allowedRoots.push(value);
+    } else {
+      if (values.has(flag)) throw new Error(`Duplicate flag: ${flag}`);
+      values.set(flag, value);
+    }
+  }
+  if (save && !values.has("--file")) throw new Error("workspace-save requires --file request.json");
+  const matterId = values.get("--matter");
+  return { options: { allowedRoots, ...(matterId !== undefined ? { matterId } : {}) },
+    json: switches.has("--json"), apply: switches.has("--apply"), file: values.get("--file") };
+}
+
 export function runCli(argv: readonly string[]): CliResult {
   const [cmd, dir, ...rest] = argv;
   const apply = rest.includes("--apply");
@@ -104,6 +149,34 @@ export function runCli(argv: readonly string[]): CliResult {
 
   if (!cmd || !dir) return { code: 2, out: USAGE };
   if (!existsSync(dir)) return { code: 2, out: `Cesta neexistuje: ${dir}\n\n${USAGE}` };
+
+  if (["workspace-read", "workspace-save", "read"].includes(cmd)) {
+    let args;
+    try { args = workspaceArguments(rest, cmd === "workspace-save"); }
+    catch (error) { return { code: 2, out: `Invalid arguments: ${error instanceof Error ? error.message : String(error)}` }; }
+    if (cmd === "workspace-save") {
+      let request: WorkspaceMemorySaveRequest;
+      try {
+        // The writer validates the entire runtime schema; never reconstruct or weaken it here.
+        request = JSON.parse(readFileSync(args.file!, "utf8"));
+      } catch (error) { return { code: 2, out: `Invalid request file: ${error instanceof Error ? error.message : String(error)}` }; }
+      const report = saveWorkspaceMemory(dir, request, { ...args.options, apply: args.apply });
+      return { code: ["preview", "committed", "already-applied"].includes(report.status) ? 0 : 1,
+        out: args.json ? JSON.stringify(report, null, 2) : [
+          `Workspace SAVE: ${report.status}`, ...report.problems.map(p => `${p.code}: ${p.message}`),
+          ...report.changes.map(c => `${c.sourceId}: ${c.beforeSha256} → ${c.afterSha256} (${c.path})`),
+          ...(report.historyPath ? [`History: ${report.historyPath}`] : []),
+          ...(report.status === "preview" ? ["Preview only; nothing written. Apply explicitly with --apply."] : []),
+        ].join("\n") };
+    }
+    if (cmd === "workspace-read" || workspaceProfilePresent(dir)) {
+      const report = readWorkspaceMemory(dir, args.options);
+      return { code: report.complete ? 0 : 1, out: args.json ? JSON.stringify(report, null, 2) : renderWorkspaceMemory(report) };
+    }
+    if (rest.length) return { code: 2, out: "Workspace flags require .lawoss/memory-profile.json; use workspace-read to inspect an absent profile." };
+  } else if (["write", "init", "sync", "retrofit", "validate", "preamble", "aml"].includes(cmd) && workspaceProfilePresent(dir)) {
+    return { code: 1, out: `ODMIETNUTÉ: ${cmd} uses typed OKF memory, but .lawoss/memory-profile.json is present. Use workspace-read / workspace-save; repair an invalid profile before continuing.` };
+  }
 
   switch (cmd) {
     case "read": {

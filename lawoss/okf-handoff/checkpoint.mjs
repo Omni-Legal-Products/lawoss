@@ -3,6 +3,8 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSyn
 import { join, resolve } from "node:path";
 import { runCli } from "../okf-pamat/src/cli.ts";
 
+import { createWorkspaceHandoff, hasWorkspaceBinding, workspaceProfilePresent } from "./workspace-checkpoint.mjs";
+
 const digest = (text) => createHash("sha256").update(text).digest("hex");
 const MAX_CONTEXT_BYTES = 2 * 1024 * 1024;
 
@@ -47,6 +49,7 @@ function atomic(path, text) {
 
 /** Only a workspace that IS a matter is eligible. Never scan or choose a descendant. */
 export function createHandoff(directory, { cli = runCli, now = () => new Date().toISOString() } = {}) {
+  if (workspaceProfilePresent(directory) || hasWorkspaceBinding(directory)) return createWorkspaceHandoff(directory, { now });
   const binding = matterBinding(directory);
   if (!binding) return null;
   const lastGood = new Map();
