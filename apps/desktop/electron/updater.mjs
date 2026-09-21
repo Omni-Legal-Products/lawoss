@@ -5,6 +5,27 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveGitHubAppFeed } from "./update-feed.mjs";
 
+/** @typedef {{ bytesPerSecond?: number, percent?: number, transferred?: number, total?: number, delta?: number }} UpdaterEvent */
+/** @typedef {{
+ * autoDownload?: boolean,
+ * autoInstallOnAppQuit?: boolean,
+ * disableDifferentialDownload?: boolean,
+ * allowPrerelease?: boolean,
+ * allowDowngrade?: boolean,
+ * on(event: string, listener: (info: UpdaterEvent) => void): void,
+ * setFeedURL(input: { provider: "generic", url: string }): void,
+ * checkForUpdates(): Promise<object | null>,
+ * downloadUpdate(): Promise<unknown>,
+ * quitAndInstall(isSilent: boolean, isForceRunAfter: boolean): void,
+ * }} AutoUpdaterLike */
+/** @typedef {() => Promise<{ autoUpdater?: AutoUpdaterLike, default?: { autoUpdater?: AutoUpdaterLike } }>} ElectronUpdaterLoader */
+/** @typedef {(options: object) => Promise<{ feedUrl: string }>} GitHubFeedResolver */
+
+/** @type {ElectronUpdaterLoader} */
+const defaultLoadElectronUpdater = () => import("electron-updater");
+/** @type {GitHubFeedResolver} */
+const defaultResolveGitHubFeed = resolveGitHubAppFeed;
+
 const ELECTRON_UPDATER_CHANNEL_FILENAME = "electron-updater-channel.v1.json";
 const MISSING_UPDATER_CONFIG_MESSAGE =
   "This local LAWOSS build cannot update itself because it has no updater configuration. Install a versioned LAWOSS release instead.";
@@ -216,7 +237,7 @@ export async function checkForUpdatesWithFeedFallback(app, updater, options = {}
     return { channelState: { ...channelState, feedFallback: false }, result: null };
   }
   const canUseGitHubFallback = channelState.channel === "stable" && updater?.setFeedURL;
-  const resolveFallback = () => resolveGitHubAppFeed({
+  const resolveFallback = () => (options.resolveGitHubFeed ?? resolveGitHubAppFeed)({
     platform: options.platform ?? process.platform,
     arch: options.arch ?? process.arch,
     currentVersion: resolveAppVersion(app),
@@ -335,13 +356,36 @@ async function cleanStaleUpdaterState(app) {
 
 // electron-updater wiring. Packaged-only; dev builds skip this so the
 // updater doesn't try to probe a non-existent release channel.
-export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
+export function registerUpdaterIpc({
+  app,
+  ipcMain,
+  getMainWindow,
+  loadElectronUpdater = defaultLoadElectronUpdater,
+  prepareUpdaterInstall = enableSquirrelDirectContentsWrite,
+  resolveGitHubFeed = defaultResolveGitHubFeed,
+}) {
   let autoUpdaterInstance = null;
   let autoUpdaterLoaded = false;
   let checkedUpdateVersion = null;
+  let checkedUpdateSource = null;
+
+  function clearCheckedUpdate() {
+    checkedUpdateVersion = null;
+    checkedUpdateSource = null;
+  }
+
+  function rememberCheckedUpdate(info, channelState) {
+    const version = info?.version;
+    const available = Boolean(version && isVersionNewer(version, resolveAppVersion(app)));
+    checkedUpdateVersion = available ? version : null;
+    checkedUpdateSource = available
+      ? (channelState?.feedFallback ? "github-fallback" : "primary")
+      : null;
+    return available;
+  }
 
   async function checkStableGitHubFallback(updater) {
-    const fallback = await resolveGitHubAppFeed({
+    const fallback = await resolveGitHubFeed({
       platform: process.platform,
       arch: process.arch,
       currentVersion: resolveAppVersion(app),
@@ -368,7 +412,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
     if (autoUpdaterLoaded) return autoUpdaterInstance;
     autoUpdaterLoaded = true;
     try {
-      const mod = await import("electron-updater");
+      const mod = await loadElectronUpdater();
       autoUpdaterInstance = mod.autoUpdater ?? mod.default?.autoUpdater ?? null;
       if (autoUpdaterInstance) {
         autoUpdaterInstance.autoDownload = false;
@@ -381,7 +425,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
         autoUpdaterInstance.disableDifferentialDownload = true;
         // Make Squirrel.Mac write contents in place rather than moving whole
         // bundles (see enableSquirrelDirectContentsWrite for why).
-        await enableSquirrelDirectContentsWrite();
+        await prepareUpdaterInstall();
         autoUpdaterInstance.on("error", (err) => {
           console.warn("[updater] error", err);
         });
@@ -412,7 +456,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
 
   ipcMain.handle("legalwork:updater:setChannel", async (_event, rawChannel) => {
     const channel = await writeElectronUpdaterChannel(app, rawChannel);
-    checkedUpdateVersion = null;
+    clearCheckedUpdate();
     const updater = await ensureAutoUpdater();
     if (updater) {
       return applyElectronUpdaterFeed(app, updater);
@@ -423,16 +467,17 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
   ipcMain.handle("legalwork:updater:check", async (_event, rawChannel) => {
     if (rawChannel !== undefined) {
       await writeElectronUpdaterChannel(app, rawChannel);
+      clearCheckedUpdate();
     }
     const updater = await ensureAutoUpdater();
     if (!updater) {
+      clearCheckedUpdate();
       const channelState = updaterChannelState(app, await readElectronUpdaterChannel(app));
       return { available: false, reason: "unavailable", ...channelState };
     }
     const shapeCheckResult = (info, channelState) => {
       const currentVersion = resolveAppVersion(app);
-      const available = Boolean(info?.version && isVersionNewer(info.version, currentVersion));
-      checkedUpdateVersion = available ? info.version : null;
+      const available = rememberCheckedUpdate(info, channelState);
       return {
         available,
         currentVersion,
@@ -443,7 +488,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       };
     };
     try {
-      const { channelState, result } = await checkForUpdatesWithFeedFallback(app, updater);
+      const { channelState, result } = await checkForUpdatesWithFeedFallback(app, updater, { resolveGitHubFeed });
       return shapeCheckResult(result?.updateInfo ?? null, channelState);
     } catch (error) {
       /* Last-ditch recovery, deliberately dumb: if anything above threw before
@@ -469,7 +514,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
           // Fall through to the error result below.
         }
       }
-      checkedUpdateVersion = null;
+      clearCheckedUpdate();
       return { available: false, reason: formatUpdaterErrorReason(error), ...updaterChannelState(app, channel) };
     }
   });
@@ -483,13 +528,12 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       // update info came from, and channel switches clear the cache below.
       const currentVersion = resolveAppVersion(app);
       if (!checkedUpdateVersion || !isVersionNewer(checkedUpdateVersion, currentVersion)) {
-        const { result } = await checkForUpdatesWithFeedFallback(app, updater);
+        const { channelState, result } = await checkForUpdatesWithFeedFallback(app, updater, { resolveGitHubFeed });
         const info = result?.updateInfo ?? null;
-        checkedUpdateVersion = info?.version && isVersionNewer(info.version, currentVersion)
-          ? info.version
-          : null;
+        rememberCheckedUpdate(info, channelState);
       }
       if (!checkedUpdateVersion) {
+        clearCheckedUpdate();
         return { ok: false, reason: "No update available." };
       }
       // Clear any stuck ShipIt state from a prior aborted install so this
@@ -498,6 +542,9 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       await updater.downloadUpdate();
       return { ok: true };
     } catch (error) {
+      if (checkedUpdateSource === "github-fallback") {
+        return { ok: false, reason: formatUpdaterErrorReason(error) };
+      }
       /* Last-ditch mirror of the check path: one raw GitHub check + download
          with no helpers, so a bug in our plumbing can't block updates. Same
          guards as the check path: stable channel only (a transient alpha
@@ -513,7 +560,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
         if (!info?.version || !isVersionNewer(info.version, resolveAppVersion(app))) {
           return { ok: false, reason: formatUpdaterErrorReason(error) };
         }
-        checkedUpdateVersion = info.version;
+        rememberCheckedUpdate(info, { feedFallback: true });
         // Same stuck-ShipIt hygiene as the happy path — the throw above may
         // have happened before that cleanStaleUpdaterState() ran.
         await cleanStaleUpdaterState(app);
@@ -531,7 +578,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
     try {
       // Re-assert the in-place-write default right before the swap; the ShipIt
       // defaults domain may have been wiped when stale state was cleaned.
-      await enableSquirrelDirectContentsWrite();
+      await prepareUpdaterInstall();
       updater.quitAndInstall(false, true);
       return { ok: true };
     } catch (error) {

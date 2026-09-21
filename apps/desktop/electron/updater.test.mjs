@@ -8,6 +8,7 @@ import {
   ELECTRON_UPDATER_FEEDS,
   checkForUpdatesWithFeedFallback,
   formatUpdaterErrorReason,
+  registerUpdaterIpc,
   staleUpdaterStatePaths,
 } from "./updater.mjs";
 
@@ -332,6 +333,136 @@ describe("checkForUpdatesWithFeedFallback", () => {
       assert.equal(apiRequests, 0);
     } finally {
       await rm(userData, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("registered updater download IPC", () => {
+  /** @param {{ primaryFailures?: number }} [options] */
+  async function createHarness({ primaryFailures: initialPrimaryFailures = 1 } = {}) {
+    const root = await mkdtemp(path.join(os.tmpdir(), "lawoss-updater-ipc-"));
+    const handlers = new Map();
+    const ipcMain = {
+      handle(channel, handler) {
+        handlers.set(channel, handler);
+      },
+    };
+    let currentFeed = null;
+    let primaryFailures = initialPrimaryFailures;
+    let githubResolutions = 0;
+    let downloadAttempts = 0;
+    const checkFeeds = [];
+    const updater = {
+      on() {},
+      setFeedURL({ url }) {
+        currentFeed = url;
+      },
+      async checkForUpdates() {
+        checkFeeds.push(currentFeed);
+        if (currentFeed === STABLE_FEED && primaryFailures > 0) {
+          primaryFailures -= 1;
+          throw new Error("primary unavailable");
+        }
+        return { updateInfo: { version: "0.2.0" } };
+      },
+      async downloadUpdate() {
+        downloadAttempts += 1;
+        throw new Error("fallback download failed");
+      },
+      quitAndInstall() {},
+    };
+    const app = {
+      isPackaged: true,
+      getVersion: () => "0.1.0",
+      getPath: () => root,
+    };
+    registerUpdaterIpc({
+      app,
+      ipcMain,
+      getMainWindow: () => null,
+      loadElectronUpdater: async () => ({ autoUpdater: updater }),
+      prepareUpdaterInstall: async () => {},
+      resolveGitHubFeed: async () => {
+        githubResolutions += 1;
+        return { feedUrl: GITHUB_TAG_FEED };
+      },
+    });
+    return {
+      cleanup: () => rm(root, { recursive: true, force: true }),
+      invoke: async (channel, ...args) => handlers.get(channel)(null, ...args),
+      metrics: () => ({ checkFeeds, downloadAttempts, githubResolutions }),
+    };
+  }
+
+  it("po fallback checku neopakuje API ani download, keď retained fallback download zlyhá", async () => {
+    const harness = await createHarness();
+    try {
+      const checked = await harness.invoke("legalwork:updater:check");
+      assert.equal(checked.available, true);
+      assert.equal(checked.feedFallback, true);
+
+      const downloaded = await harness.invoke("legalwork:updater:download");
+      assert.deepEqual(downloaded, { ok: false, reason: "fallback download failed" });
+      assert.deepEqual(harness.metrics(), {
+        checkFeeds: [STABLE_FEED, GITHUB_TAG_FEED],
+        downloadAttempts: 1,
+        githubResolutions: 1,
+      });
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it("po implicitnom fallback checku v download IPC neopakuje API ani download", async () => {
+    const harness = await createHarness();
+    try {
+      const downloaded = await harness.invoke("legalwork:updater:download");
+      assert.deepEqual(downloaded, { ok: false, reason: "fallback download failed" });
+      assert.deepEqual(harness.metrics(), {
+        checkFeeds: [STABLE_FEED, GITHUB_TAG_FEED],
+        downloadAttempts: 1,
+        githubResolutions: 1,
+      });
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it("po zlyhaní downloadu z primárneho zdroja povolí jeden fallback pokus", async () => {
+    const harness = await createHarness({ primaryFailures: 0 });
+    try {
+      const checked = await harness.invoke("legalwork:updater:check");
+      assert.equal(checked.available, true);
+      assert.equal(checked.feedFallback, false);
+
+      const downloaded = await harness.invoke("legalwork:updater:download");
+      assert.deepEqual(downloaded, { ok: false, reason: "fallback download failed" });
+      assert.deepEqual(harness.metrics(), {
+        checkFeeds: [STABLE_FEED, GITHUB_TAG_FEED],
+        downloadAttempts: 2,
+        githubResolutions: 1,
+      });
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it("setChannel vymaže uloženú verziu aj fallback source", async () => {
+    const harness = await createHarness();
+    try {
+      const checked = await harness.invoke("legalwork:updater:check");
+      assert.equal(checked.feedFallback, true);
+      await harness.invoke("legalwork:updater:setChannel", "stable");
+
+      const downloaded = await harness.invoke("legalwork:updater:download");
+      assert.deepEqual(downloaded, { ok: false, reason: "fallback download failed" });
+      assert.deepEqual(harness.metrics(), {
+        checkFeeds: [STABLE_FEED, GITHUB_TAG_FEED, STABLE_FEED, GITHUB_TAG_FEED],
+        downloadAttempts: 2,
+        githubResolutions: 2,
+      });
+    } finally {
+      await harness.cleanup();
     }
   });
 });
