@@ -285,6 +285,7 @@ export type WorkspaceCreateInput = {
   folderPath: string;
   name?: string | null;
   preset?: string | null;
+  registerExisting?: boolean;
 };
 
 export type WorkspaceCreateRemoteInput = {

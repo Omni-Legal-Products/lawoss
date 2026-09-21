@@ -3,7 +3,7 @@
 // normalization/discovery, and the workspace-facing command operations.
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -648,8 +648,25 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
   async function createWorkspace(input = {}) {
     const rawFolderPath = String(input.folderPath ?? "").trim();
     if (!rawFolderPath) throw new Error("folderPath is required");
-    const folderPath = await normalizeLocalWorkspacePath(rawFolderPath);
-    await mkdir(folderPath, { recursive: true });
+    if (input.registerExisting !== undefined && typeof input.registerExisting !== "boolean") {
+      throw new Error("registerExisting must be boolean");
+    }
+    const registerExisting = input.registerExisting === true;
+    let folderPath;
+    if (registerExisting) {
+      const resolvedPath = path.resolve(rawFolderPath);
+      try {
+        if (!path.isAbsolute(rawFolderPath) || !(await lstat(resolvedPath)).isDirectory() || await realpath(resolvedPath) !== resolvedPath) {
+          throw new Error("Not a canonical existing directory");
+        }
+      } catch {
+        throw new Error("registerExisting requires an existing canonical directory");
+      }
+      folderPath = resolvedPath;
+    } else {
+      folderPath = await normalizeLocalWorkspacePath(rawFolderPath);
+      await mkdir(folderPath, { recursive: true });
+    }
     const preset = String(input.preset ?? "starter");
     const workspace = normalizeWorkspaceEntry({
       id: localWorkspaceId(folderPath),
@@ -659,8 +676,10 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
       preset,
       workspaceType: "local",
     });
-    await mkdir(path.join(folderPath, ".opencode"), { recursive: true });
-    await writeWorkspaceLegalworkConfig(folderPath, defaultWorkspaceLegalworkConfig(folderPath, preset));
+    if (!registerExisting) {
+      await mkdir(path.join(folderPath, ".opencode"), { recursive: true });
+      await writeWorkspaceLegalworkConfig(folderPath, defaultWorkspaceLegalworkConfig(folderPath, preset));
+    }
 
     return mutateWorkspaceState((state) => {
       const key = workspacePathKey(workspace);

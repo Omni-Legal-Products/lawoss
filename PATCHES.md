@@ -228,3 +228,14 @@ Portable naming and the third native OKF skill `/usporiadaj-spis` are implemente
 | `apps/server/src/runtime-config-migrate.e2e.test.ts` | Syntetická regresia preukazuje precedence global/project/runtime, zachovanie v2 polí konektorov pred a po migrácii a absenciu obnovy OAuth tokenov. Produkčný serverový kód sa nemení. |
 
 Samotný builder, dialóg a testy sú v zelených `apps/app/src/lawoss/**` a `apps/app/tests/lawoss-mcp-config-export.test.tsx`. Export vyžaduje výslovný výber a potvrdenie, vytvorí iba lokálny Blob download a nikdy nečíta OAuth credential store. Runtime zdroj sa v UI neprezentuje ako dôkaz globálneho alebo klientského rozsahu.
+
+## Internal candidate: persistent native matter registration (Task 6)
+
+[Authorizing spec/plan](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/83).
+
+| Súbory upstreamu | Úprava a dôvod |
+|---|---|
+| `packages/types/src/desktop-ipc.ts` | Pôvodný `workspaceCreate` prijíma voliteľný boolean `registerExisting`; nevzniká nový IPC príkaz ani druhá registračná cesta. |
+| `apps/desktop/electron/workspace-store.mjs`, `workspace-store.test.mjs` | Režim `registerExisting: true` prijme iba existujúci absolútny kanonický adresár, nevytvorí ani nezmení jeho súbory a atómovo ho uloží do natívneho zoznamu spolu s selected/active/watched ID. Bežná tvorba bez príznaku alebo s `false` ostáva pôvodná. Regresia overuje bajtovo nezmenený syntetický spis, idempotentný retry, nový store nad rovnakým userData a odmietnutie neplatných vstupov. |
+
+Zelený orchestrátor `apps/app/src/lawoss/okf/matter-session.ts` po serverom potvrdenej registrácii vyžaduje zhodnú natívnu registráciu ešte pred štartom enginu a vytvorením jedinej session. Zlyhanie alebo rozpor sa zastaví bez session; už platný serverový záznam a kancelársky draft ostávajú zachované.

@@ -1,4 +1,4 @@
-import { joinDesktopPath, workspaceSetSelected, workspaceSetRuntimeActive } from "@/app/lib/desktop";
+import { joinDesktopPath, workspaceCreate, workspaceSetSelected, workspaceSetRuntimeActive } from "@/app/lib/desktop";
 import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
 import { toSessionTransportDirectory } from "@/app/lib/session-scope";
 import { isDesktopRuntime, normalizeDirectoryPath } from "@/app/utils";
@@ -28,6 +28,14 @@ export async function openMatterSession(connection: OkfConnection, workspace: Ro
   const matches = list.workspaces.filter(candidate => candidate.workspaceType !== "remote" && normalizeDirectoryPath(candidate.path) === normalizeDirectoryPath(directory));
   const child = matches[0];
   if (!child || matches.length !== 1 || list.activeId !== child.id) throw new Error("Server nepotvrdil jednoznačný workspace vybraného spisu.");
+  const nativeList = await workspaceCreate({ folderPath: child.path, name: child.name, preset: child.preset, registerExisting: true });
+  const nativeMatches = nativeList.workspaces.filter(candidate =>
+    candidate.id === child.id || normalizeDirectoryPath(candidate.path) === normalizeDirectoryPath(child.path),
+  );
+  const nativeChild = nativeMatches[0];
+  if (!nativeChild || nativeMatches.length !== 1 || nativeChild.workspaceType === "remote" || nativeChild.id !== child.id || normalizeDirectoryPath(nativeChild.path) !== normalizeDirectoryPath(child.path)) {
+    throw new Error("Desktop nepotvrdil jednoznačnú natívnu registráciu vybraného spisu.");
+  }
   const info = await ensureDesktopLocalLegalworkConnection({ route: "session", workspace: child, allWorkspaces: list.workspaces });
   const baseUrl = info?.baseUrl || connection.baseUrl;
   const token = info?.ownerToken || info?.clientToken || connection.token;

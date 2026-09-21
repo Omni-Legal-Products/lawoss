@@ -1,10 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
 import { join } from "node:path";
 import { buildOverview } from "../../../lawoss/okf/read";
+import { workspaceBootstrap } from "../src/app/lib/desktop";
 import { openMatterSession, resolveDiscoveredMatter } from "../src/lawoss/okf/matter-session";
 import { getSessionDraft, saveSessionDraft } from "../src/react-app/domains/session/sync/draft-store";
 import { readActiveWorkspaceId, readLastSessionFor } from "../src/react-app/shell/session-memory";
-import type { RouteWorkspace } from "../src/react-app/shell/route-workspaces";
+import { mapDesktopWorkspace, mergeRouteWorkspaces, type RouteWorkspace } from "../src/react-app/shell/route-workspaces";
 import { memoryFixture } from "./lawoss-memory-fixture";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -29,12 +30,28 @@ test("production matter orchestration supports native engine startup and creates
   f.config.workspaces = f.config.workspaces.filter(workspace => workspace.id === "office");
   const started: unknown[] = [];
   const selected: { command: string; id: unknown }[] = [];
+  const nativeCalls: string[] = [];
+  const nativeOffice = { id: "office", path: f.root, name: "Office", preset: "starter", workspaceType: "local" as const };
+  let nativeWorkspaces = [nativeOffice];
+  let nativeCreateMode: "success" | "reject" | "id-mismatch" | "path-mismatch" = "success";
   const storage = new Map<string, string>();
   Object.defineProperty(globalThis, "window", { configurable: true, value: {
     localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => { storage.set(key, value); }, removeItem: (key: string) => { storage.delete(key); } },
     dispatchEvent: () => true,
     __LEGALWORK_ELECTRON__: { invokeDesktop: async (command: string, ...args: unknown[]) => {
       if (command === "__joinPath") return join(...args.filter((part): part is string => typeof part === "string"));
+      nativeCalls.push(command);
+      if (command === "workspaceCreate") {
+        const child = f.config.workspaces.find(candidate => candidate.path === f.matter && candidate.id !== "matter");
+        expect(child).toBeDefined();
+        expect(args[0]).toEqual({ folderPath: f.matter, name: "Rovnaký názov", preset: "starter", registerExisting: true });
+        if (nativeCreateMode === "reject") throw new Error("synthetic native registration rejection");
+        if (nativeCreateMode === "id-mismatch") return { selectedId: "wrong", activeId: "wrong", watchedId: "wrong", workspaces: [nativeOffice, { ...child!, id: "wrong" }] };
+        if (nativeCreateMode === "path-mismatch") return { selectedId: child!.id, activeId: child!.id, watchedId: child!.id, workspaces: [nativeOffice, { ...child!, path: join(f.root, "wrong") }] };
+        nativeWorkspaces = [nativeOffice, child!];
+        return { selectedId: child!.id, activeId: child!.id, watchedId: child!.id, workspaces: nativeWorkspaces };
+      }
+      if (command === "workspaceBootstrap") return { selectedId: nativeWorkspaces.at(-1)?.id, activeId: nativeWorkspaces.at(-1)?.id, watchedId: nativeWorkspaces.at(-1)?.id, workspaces: nativeWorkspaces };
       if (command === "engineInfo") return { running: false, baseUrl: f.engineUrl };
       if (command === "engineStart") { started.push(args[0]); return { running: true, baseUrl: f.engineUrl }; }
       if (command === "legalworkServerInfo") return { baseUrl: f.baseUrl, ownerToken: "synthetic-client", hostToken: "synthetic-host" };
@@ -49,6 +66,7 @@ test("production matter orchestration supports native engine startup and creates
   const child = f.config.workspaces.find(w => w.path === f.matter && w.id !== "matter");
   expect(child).toBeDefined();
   expect(started).toEqual([f.matter]);
+  expect(nativeCalls).toEqual(["workspaceCreate", "engineInfo", "engineStart", "legalworkServerInfo", "workspaceSetSelected", "workspaceSetRuntimeActive"]);
   expect(route).toBe(`/workspace/${child!.id}/session/synthetic-session`);
   expect(selected).toEqual([{ command: "workspaceSetSelected", id: child!.id }, { command: "workspaceSetRuntimeActive", id: child!.id }]);
   expect(readActiveWorkspaceId()).toBe(child!.id); expect(readLastSessionFor(child!.id)).toBe("synthetic-session");
@@ -56,6 +74,33 @@ test("production matter orchestration supports native engine startup and creates
   expect(getSessionDraft(child!.id, "synthetic-session").text).toContain(f.matter);
   expect(getSessionDraft(child!.id, "synthetic-session").text).toContain("CASE-A");
   expect(getSessionDraft("office", "existing-office-session").text).toBe("untouched office draft");
+
+  const nativeBootstrap = (await workspaceBootstrap()).workspaces.map(mapDesktopWorkspace);
+  const onlineReload = mergeRouteWorkspaces(f.config.workspaces, nativeBootstrap);
+  const offlineReload = mergeRouteWorkspaces([], nativeBootstrap);
+  expect(onlineReload.filter(candidate => candidate.id === child!.id && candidate.path === f.matter)).toHaveLength(1);
+  expect(offlineReload.filter(candidate => candidate.id === child!.id && candidate.path === f.matter)).toHaveLength(1);
+
+  const callsBeforeNativeFailure = nativeCalls.length;
+  nativeCreateMode = "reject";
+  await expect(openMatterSession(connection, workspace, records[0]!, records)).rejects.toThrow("synthetic native registration rejection");
+  expect(nativeCalls.slice(callsBeforeNativeFailure)).toEqual(["workspaceCreate"]);
+  expect(f.engineCalls.filter(call => call.path === "/session" && call.method === "POST")).toHaveLength(1);
+  expect(f.config.workspaces.filter(candidate => candidate.id === child!.id && candidate.path === f.matter)).toHaveLength(1);
+  expect(getSessionDraft("office", "existing-office-session").text).toBe("untouched office draft");
+
+  const callsBeforeNativeMismatch = nativeCalls.length;
+  nativeCreateMode = "id-mismatch";
+  await expect(openMatterSession(connection, workspace, records[0]!, records)).rejects.toThrow("natívnu registráciu");
+  expect(nativeCalls.slice(callsBeforeNativeMismatch)).toEqual(["workspaceCreate"]);
+  expect(f.engineCalls.filter(call => call.path === "/session" && call.method === "POST")).toHaveLength(1);
+
+  const callsBeforeNativePathMismatch = nativeCalls.length;
+  nativeCreateMode = "path-mismatch";
+  await expect(openMatterSession(connection, workspace, records[0]!, records)).rejects.toThrow("natívnu registráciu");
+  expect(nativeCalls.slice(callsBeforeNativePathMismatch)).toEqual(["workspaceCreate"]);
+  expect(f.engineCalls.filter(call => call.path === "/session" && call.method === "POST")).toHaveLength(1);
+
   f.config.readOnly = true;
   await expect(openMatterSession(connection, workspace, records[1]!, records)).rejects.toThrow("iba čítanie");
   expect(f.engineCalls.filter(call => call.path === "/session" && call.method === "POST")).toHaveLength(1);
