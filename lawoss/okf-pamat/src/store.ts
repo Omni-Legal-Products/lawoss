@@ -116,7 +116,7 @@ export function readStore(dir: string): Store {
   }
   // Jurisdikcia slúži už len na lokalizáciu výstupu. Berie sa zo záznamov;
   // prázdny spis ju má na karte veci, inak sa predpokladá česká.
-  let j = records[0]?.jurisdiction;
+  let j: Jurisdiction | undefined = records[0]?.jurisdiction;
   if (!j) {
     try {
       j = jurisdictionFromCard(dir);

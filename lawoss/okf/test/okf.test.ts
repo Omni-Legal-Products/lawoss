@@ -1,3 +1,4 @@
+import { symlinkSkipReason } from "../../tests/symlink-capability.mts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,6 +9,7 @@ import { apply, detect, plan, render, validate } from "../src/fs.ts";
 import { TEMPLATES } from "../src/templates.ts";
 import { run } from "../src/cli.ts";
 import { readStandingAuthorization } from "../../okf-pamat/src/config.ts";
+const dirSymlinkSkip = symlinkSkipReason("dir");
 
 let root = "";
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), "okf-")); });
@@ -343,7 +345,7 @@ describe("office working profile", () => {
       expect(() => plan({ type: "spis", dir: join(root, "matter"), title: "Synthetic" })).toThrow();
     }
   });
-  test("apply refuses a configured folder symlink before creating any scaffold files", () => {
+  test.skipIf(Boolean(dirSymlinkSkip))(`apply refuses a configured folder symlink before creating any scaffold files${dirSymlinkSkip ? ` (${dirSymlinkSkip})` : ""}`, () => {
     const outside = join(root, "outside");
     const dir = join(root, "matter");
     mkdirSync(outside);

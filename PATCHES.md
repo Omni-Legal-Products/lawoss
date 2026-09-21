@@ -239,3 +239,16 @@ Samotný builder, dialóg a testy sú v zelených `apps/app/src/lawoss/**` a `ap
 | `apps/desktop/electron/workspace-store.mjs`, `workspace-store.test.mjs` | Režim `registerExisting: true` prijme iba existujúci absolútny kanonický adresár, nevytvorí ani nezmení jeho súbory a atómovo ho uloží do natívneho zoznamu spolu s selected/active/watched ID. Bežná tvorba bez príznaku alebo s `false` ostáva pôvodná. Regresia overuje bajtovo nezmenený syntetický spis, idempotentný retry, nový store nad rovnakým userData a odmietnutie neplatných vstupov. |
 
 Zelený orchestrátor `apps/app/src/lawoss/okf/matter-session.ts` po serverom potvrdenej registrácii vyžaduje zhodnú natívnu registráciu ešte pred štartom enginu a vytvorením jedinej session. Zlyhanie alebo rozpor sa zastaví bez session; už platný serverový záznam a kancelársky draft ostávajú zachované.
+
+## Internal candidate: prenosné záverečné kontroly (Task 7)
+
+[Authorizing spec/plan](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/83).
+
+| Súbory upstreamu | Úprava a dôvod |
+|---|---|
+| `apps/app/tests/opencode-session-timeout.test.ts` | Deterministický fetch-start deferred a ručne spúšťané transportné deadline callbacks overujú pôvodný 10-sekundový health limit, 60-sekundový session limit, chybu po timeout-e a jediný create POST. Produkčné timeouty sa nemenia. |
+| `apps/desktop/electron/workspace-store.test.mjs` | Symlink/junction capability probe má vlastný pomenovaný subtest s explicitným dôvodom skipu; zvyšok perzistencie a neplatných vstupov vždy beží. |
+| `.github/workflows/ci-tests.yml`, `ci-okf.yml`, `ci-okf-pamat.yml`, nový `ci-windows-portable.yml` | Testy zahŕňajú nadväzujúce PR. Bun 1.4.2, samostatný strict OKF typecheck a Linux/macOS bundle freshness; Windows spúšťa source naming/memory/handoff/updater/native registry regresie bez balenia alebo podpisovania. Filtre zahŕňajú spoločný testovací helper a workspace-store. |
+| `pnpm-lock.yaml` | Iba nový importer pre existujúce dev nástroje OKF TypeScript 5.9.3 a bun-types 1.3.6; žiadna runtime závislosť. |
+
+Windows symlink prípady sa vynechajú iba po neúspešnom capability probe s dôvodom; obsah, CAS, hardlinky a ostatné ochrany zostávajú aktívne. POSIX mode assertions nepredstierajú kontrolu Windows ACL. Jediná produkčná zdrojová úprava tejto úlohy je explicitný `Jurisdiction | undefined` v zelenom pamäťovom store; runtime aj zabalený CLI obsah ostávajú bez zmeny.

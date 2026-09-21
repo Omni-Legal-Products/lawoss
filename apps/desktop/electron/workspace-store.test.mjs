@@ -194,7 +194,7 @@ test("normalizes recovered remote LegalWork entries before persisting", async ()
   }
 });
 
-test("registers an existing canonical workspace without changing its files and persists it across restart", async () => {
+test("registers an existing canonical workspace without changing its files and persists it across restart", async (t) => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "legalwork-workspace-store-existing-")));
   const userData = path.join(root, "userData");
   const officePath = path.join(root, "office");
@@ -294,19 +294,21 @@ test("registers an existing canonical workspace without changing its files and p
     assert.deepEqual(await snapshotTree(matterRealPath), matterBefore);
   }
 
-  const aliasPath = path.join(root, "matter-alias");
-  let symlinkSupported = true;
-  try {
-    await symlink(matterRealPath, aliasPath, process.platform === "win32" ? "junction" : "dir");
-  } catch (error) {
-    if (error && typeof error === "object" && "code" in error && ["EACCES", "EPERM", "ENOTSUP"].includes(String(error.code))) symlinkSupported = false;
-    else throw error;
-  }
-  if (symlinkSupported) {
+  await t.test("native registration rejects directory aliases when supported", async (t) => {
+    const aliasPath = path.join(root, "matter-alias");
+    try {
+      await symlink(matterRealPath, aliasPath, process.platform === "win32" ? "junction" : "dir");
+    } catch (error) {
+      if (error && typeof error === "object" && "code" in error && ["EACCES", "EPERM", "ENOTSUP"].includes(String(error.code))) {
+        t.skip(`directory alias capability unavailable (${String(error.code)})`);
+        return;
+      }
+      throw error;
+    }
     await assert.rejects(() => restarted.createWorkspace({ folderPath: aliasPath, registerExisting: true }));
     assert.equal(await readFile(statePath, "utf8"), stateBeforeInvalidInputs);
     assert.deepEqual(await snapshotTree(matterRealPath), matterBefore);
-  }
+  });
 
   const defaultCreatePath = path.join(root, "default-create");
   await restarted.createWorkspace({ folderPath: defaultCreatePath, name: "Default" });

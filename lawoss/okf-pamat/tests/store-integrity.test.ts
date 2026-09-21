@@ -14,7 +14,7 @@ test("memory path that cannot be read is a problem, not an empty successful stor
   assert.match(store.problems[0]?.message ?? "", /ENOTDIR/);
 });
 
-test("permission denied reading memory is reported", { skip: process.platform === "win32" || process.getuid?.() === 0 }, (t) => {
+test("permission denied reading memory is reported", { skip: process.platform === "win32" ? "POSIX chmod permission denial does not model Windows ACLs" : process.getuid?.() === 0 ? "root bypasses POSIX read permissions" : false }, (t) => {
   const dir = mkdtempSync(join(tmpdir(), "okf-denied-"));
   const memory = join(dir, "memory");
   mkdirSync(memory);

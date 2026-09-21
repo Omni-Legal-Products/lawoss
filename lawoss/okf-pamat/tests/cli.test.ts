@@ -64,7 +64,7 @@ test("read vypise zaznamy", () => {
 });
 
 test("neznamy prikaz konci kodom 2 a napovedou", () => {
-  const r = runCli(["vymyslene", "/tmp"]);
+  const r = runCli(["vymyslene", join(tmpdir(), "unused")]);
   assert.equal(r.code, 2);
   assert.match(r.out, /okf-memory/);
 });

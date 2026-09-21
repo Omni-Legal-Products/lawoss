@@ -1,3 +1,5 @@
+import { symlinkSkipReason } from "../../tests/symlink-capability.mts";
+// POSIX mode assertions below do not model Windows ACLs; content/CAS checks run on every OS.
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { test } from "node:test";
@@ -6,6 +8,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readWorkspaceMemory, renderWorkspaceMemory, saveWorkspaceMemory, WORKSPACE_MEMORY_LIMITS, type WorkspaceMemorySaveRequest } from "../src/workspace-memory.ts";
+const fileSymlinkSkip = symlinkSkipReason("file");
+const dirSymlinkSkip = symlinkSkipReason("dir");
 
 function fixture(t: { after(fn: () => void): void }) {
   const base = mkdtempSync(join(realpathSync(tmpdir()), "workspace-memory-"));
@@ -64,14 +68,21 @@ test("source limit is an explicit failure, never truncated success", t => {
   const r = f.load(); assert.equal(r.complete, false); assert.equal(r.sources.find(s => s.id === "note")!.content, null);
 });
 
-test("symlink profile, root, source and hardlink aliases are rejected", t => {
+test("symlink profile and source are rejected", { skip: fileSymlinkSkip }, t => {
   const f = fixture(t); const original = readFileSync(f.profilePath);
   rmSync(f.profilePath); writeFileSync(join(f.workspace, "profile.json"), original); symlinkSync(join(f.workspace, "profile.json"), f.profilePath);
   assert.equal(f.load().complete, false); rmSync(f.profilePath); f.putProfile();
   rmSync(join(f.vault, "note.md")); symlinkSync(join(f.vault, "card.md"), join(f.vault, "note.md")); assert.equal(f.load().complete, false);
+});
+
+test("hardlink source aliases are rejected (including NTFS)", t => {
+  const f = fixture(t);
   rmSync(join(f.vault, "note.md")); linkSync(join(f.vault, "card.md"), join(f.vault, "note.md")); assert.equal(f.load().complete, false);
-  rmSync(join(f.vault, "note.md")); writeFileSync(join(f.vault, "note.md"), "note");
-  symlinkSync(f.vault, join(f.workspace, "linked-vault")); f.profile.roots[1]!.path = "linked-vault"; f.putProfile(); assert.equal(f.load().complete, false);
+});
+
+test("symlink root is rejected", { skip: dirSymlinkSkip }, t => {
+  const f = fixture(t);
+  symlinkSync(f.vault, join(f.workspace, "linked-vault"), "dir"); f.profile.roots[1]!.path = "linked-vault"; f.putProfile(); assert.equal(f.load().complete, false);
 });
 
 test("profile schema rejects traversal, unknown roles, duplicate IDs and absent required anchors", t => {
@@ -110,8 +121,8 @@ test("coordinated save keeps private old versions and replays idempotently", t =
   const after = f.load(); assert.equal(after.complete, true, JSON.stringify(after.problems)); assert.notEqual(after.contextHash, before.contextHash);
   for (const source of after.sources) assert.equal(source.content, req.updates.find(u => u.sourceId === source.id)!.content);
   const history = join(f.workspace, ".lawoss", "memory-history", req.operationId);
-  assert.equal(statSync(history).mode & 0o077, 0);
-  for (const source of before.sources) { const p = join(history, `${source.id}.before`); assert.equal(readFileSync(p, "utf8"), source.content); assert.equal(statSync(p).mode & 0o077, 0); }
+  if (process.platform !== "win32") assert.equal(statSync(history).mode & 0o077, 0);
+  for (const source of before.sources) { const p = join(history, `${source.id}.before`); assert.equal(readFileSync(p, "utf8"), source.content); if (process.platform !== "win32") assert.equal(statSync(p).mode & 0o077, 0); }
   assert.equal(saveWorkspaceMemory(f.workspace, req, { ...f.options, apply: true }).status, "already-applied");
   assert.equal(f.load().contextHash, after.contextHash);
   req.reason = "different request"; assert.equal(saveWorkspaceMemory(f.workspace, req, { ...f.options, apply: true }).status, "conflict");
@@ -140,12 +151,15 @@ test("a missing optional read-only source is explicit and does not block require
   assert.equal(report.sources[2]!.sha256, null); assert.match(renderWorkspaceMemory(report), /Source content unavailable/);
 });
 
-test("directory source, unsafe metadata directory and blank anchors fail closed", t => {
+test("directory source and blank anchors fail closed", t => {
   const f = fixture(t); rmSync(join(f.vault, "note.md")); mkdirSync(join(f.vault, "note.md")); assert.equal(f.load().complete, false);
   rmSync(join(f.vault, "note.md"), { recursive: true }); writeFileSync(join(f.vault, "note.md"), "note");
   f.profile.sources[0]!.anchors = ["  "]; f.putProfile(); assert.equal(f.load().complete, false);
-  f.profile.sources[0]!.anchors = ["matter-test-01"]; f.putProfile();
-  symlinkSync(f.vault, join(f.workspace, ".lawoss", "memory-history")); assert.equal(f.load().complete, false);
+});
+
+test("symlink metadata directory fails closed", { skip: dirSymlinkSkip }, t => {
+  const f = fixture(t);
+  symlinkSync(f.vault, join(f.workspace, ".lawoss", "memory-history"), "dir"); assert.equal(f.load().complete, false);
 });
 
 test("role authority and control-file aliases cannot be made writable by a profile", t => {
@@ -204,7 +218,7 @@ test("source permissions and UTF8 BOM survive coordinated replacement", t => {
   const f = fixture(t); writeFileSync(join(f.vault, "card.md"), "\uFEFF---\nkind: synthetic\n---\ncard\n");
   const beforeMode = statSync(join(f.vault, "card.md")).mode & 0o777;
   const request = f.request(); assert.equal(saveWorkspaceMemory(f.workspace, request, { ...f.options, apply: true }).status, "committed");
-  assert.equal(statSync(join(f.vault, "card.md")).mode & 0o777, beforeMode);
+  if (process.platform !== "win32") assert.equal(statSync(join(f.vault, "card.md")).mode & 0o777, beforeMode);
   assert.equal(readFileSync(join(f.vault, "card.md"), "utf8"), request.updates[1]!.content);
 });
 
