@@ -26,7 +26,7 @@ describe("nový spis — požiadavka pre agenta", () => {
     expect(composePrompt(named)).toContain('okf plan spis "/Users/x/Klienti/novak-odvolanie"');
   });
   test("a supplied folder name cannot introduce traversal or nested directories", () => {
-    expect(targetDir({ ...form, slug: "../other\\nested/name" })).toBe("/Users/x/Klienti/--other-nested-name");
+    expect(targetDir({ ...form, slug: "../other\\nested/name" })).toBe("/Users/x/Klienti/other-nested-name");
     expect(targetDir({ ...form, slug: " .hidden" })).toBe("/Users/x/Klienti/hidden");
   });
   test("an empty folder name falls back to the readable title", () => {
@@ -42,8 +42,8 @@ describe("nový spis — požiadavka pre agenta", () => {
     const spis: NovySpisForm = { ...form, subject: "spis", title: "Novák Jan — MSPH 79 INS 1/2026", jurisdikcia: "CZ" };
     expect(targetDir(spis)).toBe("/Users/x/Klienti/Novák Jan — MSPH 79 INS 1-2026");
     expect(targetDir({ ...form, title: "a\\b/c" })).toBe("/Users/x/Klienti/a-b-c");
-    expect(targetDir({ ...form, title: "../.." })).toBe("/Users/x/Klienti/---");
-    expect(targetDir({ ...form, title: " / " })).toBe("/Users/x/Klienti/-");
+    expect(targetDir({ ...form, title: "../.." })).toBe("/Users/x/Klienti/[názov]");
+    expect(targetDir({ ...form, title: " / " })).toBe("/Users/x/Klienti/[názov]");
     // `.` by bol koreň sám, `.názov` skrytý priečinok mimo dosahu `okf validate`/`render`
     expect(targetDir({ ...form, title: "." })).toBe("/Users/x/Klienti/[názov]");
     expect(targetDir({ ...form, title: " .Novák" })).toBe("/Users/x/Klienti/Novák");

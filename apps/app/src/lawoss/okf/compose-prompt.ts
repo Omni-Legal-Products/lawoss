@@ -4,7 +4,7 @@
  * aby sa dala otestovať bez React-u.
  */
 import type { WorkingProfile } from "../../../../../lawoss/okf/src/profile";
-import type { ClientType, MatterKind, MatterMode, EntityType } from "../../../../../lawoss/okf/src/core";
+import { sanitizeSegment, type ClientType, type MatterKind, type MatterMode, type EntityType } from "../../../../../lawoss/okf/src/core";
 
 export type Jurisdikcia = "SK" | "CZ";
 export type SubjectKind = "pravnicka-osoba" | "fyzicka-osoba" | "fyzicka-osoba-podnikatel" | "iny-subjekt" | "spis" | "projekt";
@@ -51,8 +51,7 @@ export function entityTypeFor(subject: SubjectKind): EntityType {
  * koreň sám a `.názov` skrytý priečinok, ktorý `okf` pri prehľadávaní preskočí.
  */
 export function targetDir(form: NovySpisForm): string {
-  const segment = (value: string) => value.replace(/[\\/]+/g, "-").replace(/\.{2,}/g, "-").replace(/^[\s.]+|\s+$/g, "");
-  const name = segment(form.slug ?? "") || segment(form.title) || "[názov]";
+  const name = sanitizeSegment(form.slug ?? "", "") || sanitizeSegment(form.title, "[názov]");
   const root = form.root.replace(/[\\/]+$/, "");
   return root ? `${root}/${name}` : name;
 }
