@@ -40,19 +40,25 @@ export function useNativeIntegrations(options: {
   const installOkf = async (): Promise<InstallResult> => {
     if (!client || !workspaceId) throw new Error("Vyberte dostupný pracovný priečinok.");
     if (!options.canInstallSkills) throw new Error("V tomto priečinku nemáte oprávnenie na inštaláciu.");
-    const bundle = await import("../../okf/skill-bundle");
-    for (const skill of [
-      { name: bundle.NOVY_SPIS_SKILL_NAME, body: bundle.skillBody(), resource: bundle.OKF_CLI_RESOURCE_NAME, content: bundle.okfCliSource() },
-      { name: bundle.OKF_PAMAT_SKILL_NAME, body: bundle.pamatSkillBody(), resource: bundle.OKF_MEMORY_CLI_RESOURCE_NAME, content: bundle.okfMemoryCliSource() },
-    ]) {
-      await client.upsertSkill(workspaceId, { name: skill.name, ...skill.body });
-      await client.upsertSkillResource(workspaceId, skill.name, { name: skill.resource, content: skill.content });
-    }
-    return { ok: true, message: "Skilly /novy-spis a /okf-pamat sú uložené v tomto pracovnom priečinku." };
+    return installNativeOkfPack(client, workspaceId);
   };
   const removePlugin = async (pluginId: string) => {
     if (!client || !workspaceId) throw new Error("Vyberte dostupný pracovný priečinok.");
     await removeImportedPlugin(client, workspaceId, pluginId, options.canRemove, refresh);
   };
   return { plugins: imports.data ?? [], loading: imports.isPending, error: imports.error, refresh, installOkf, removePlugin };
+}
+
+/** Shared native install action; each resource follows its skill in the captured workspace. */
+export async function installNativeOkfPack(client: Pick<LegalworkServerClient, "upsertSkill" | "upsertSkillResource">, workspaceId: string): Promise<InstallResult> {
+  const bundle = await import("../../okf/skill-bundle");
+  for (const skill of [
+    { name: bundle.NOVY_SPIS_SKILL_NAME, body: bundle.skillBody(), resource: bundle.OKF_CLI_RESOURCE_NAME, content: bundle.okfCliSource() },
+    { name: bundle.OKF_PAMAT_SKILL_NAME, body: bundle.pamatSkillBody(), resource: bundle.OKF_MEMORY_CLI_RESOURCE_NAME, content: bundle.okfMemoryCliSource() },
+    { name: bundle.USPORIADAJ_SPIS_SKILL_NAME, body: bundle.usporiadajSpisSkillBody(), resource: bundle.OKF_CLI_RESOURCE_NAME, content: bundle.okfCliSource() },
+  ]) {
+    await client.upsertSkill(workspaceId, { name: skill.name, ...skill.body });
+    await client.upsertSkillResource(workspaceId, skill.name, { name: skill.resource, content: skill.content });
+  }
+  return { ok: true, message: "Skilly /novy-spis, /okf-pamat a /usporiadaj-spis sú uložené v tomto pracovnom priečinku." };
 }

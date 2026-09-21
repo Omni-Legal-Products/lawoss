@@ -3,7 +3,7 @@
 // @bun
 
 // src/cli.ts
-import { realpathSync } from "fs";
+import { realpathSync as realpathSync3 } from "fs";
 import { fileURLToPath } from "url";
 
 // src/frontmatter.ts
@@ -1253,6 +1253,789 @@ ${body}
   return { written, kept };
 }
 
+// src/naming-core.ts
+var NAMING_LIMITS = Object.freeze({ documents: 64, markdownFiles: 32, documentBytes: 100 * 1024 * 1024, markdownBytes: 5 * 1024 * 1024, totalBytes: 1024 * 1024 * 1024 });
+
+class NamingSchemaError extends Error {
+}
+var order = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+var fold = (value) => value.normalize("NFC").toUpperCase().toLowerCase();
+function object(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+function fail(message) {
+  throw new NamingSchemaError(message);
+}
+function exactKeys(value, keys) {
+  if (Object.keys(value).some((k) => !keys.includes(k)))
+    fail("Unknown naming field");
+}
+function safeId(value) {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/.test(value) && !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(value);
+}
+function safeRelativePath(value) {
+  return typeof value === "string" && value.length > 0 && value.length <= 1024 && value.split("/").every((p) => p.length > 0 && p.length <= 240 && p === p.normalize("NFC") && !p.startsWith(".") && p.trim() === p && !/[. ]$/.test(p) && !/[\\<>:"|?*\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(p) && !/^(?:con|conin\$|conout\$|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(p));
+}
+function validateDate(value) {
+  if (value === "bez-datumu")
+    return true;
+  if (typeof value !== "string" || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(value) || value.startsWith("0000"))
+    return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+function parseNamingRequest(value) {
+  if (!object(value))
+    return fail("Invalid naming request");
+  exactKeys(value, ["schema", "operationId", "documents", "markdownFiles"]);
+  if (value.schema !== "lawoss.document-naming.request/v1" || !safeId(value.operationId) || !Array.isArray(value.documents) || value.documents.length < 1 || value.documents.length > NAMING_LIMITS.documents || !Array.isArray(value.markdownFiles) || value.markdownFiles.length > NAMING_LIMITS.markdownFiles)
+    return fail("Invalid naming request or selection limit");
+  const ids = new Set, paths = new Set;
+  const documents = value.documents.map((d) => {
+    if (!object(d))
+      return fail("Invalid document");
+    exactKeys(d, ["id", "path", "treatment", "destinationRole", "metadata"]);
+    if (!safeId(d.id) || ids.has(fold(d.id)) || !safeRelativePath(d.path) || paths.has(fold(d.path)) || d.treatment !== "rename-working" && d.treatment !== "copy-original-to-drafts" || typeof d.destinationRole !== "string" || !/^[a-z][a-z_]*$/.test(d.destinationRole) || d.treatment === "copy-original-to-drafts" && d.destinationRole !== "drafts" || !object(d.metadata))
+      return fail("Invalid/duplicate document, portable path or original destination");
+    exactKeys(d.metadata, ["date", "kind", "client", "description", "version"]);
+    if (!validateDate(d.metadata.date))
+      return fail("Explicit valid ISO calendar date or bez-datumu required");
+    const metadata = { date: d.metadata.date };
+    for (const key of ["kind", "client", "description", "version"]) {
+      const field = d.metadata[key];
+      if (field !== undefined) {
+        if (typeof field !== "string" || !field.trim() || field.length > 240)
+          return fail(`Invalid metadata: ${key}`);
+        metadata[key] = field;
+      }
+    }
+    ids.add(fold(d.id));
+    paths.add(fold(d.path));
+    return { id: d.id, path: d.path, treatment: d.treatment, destinationRole: d.destinationRole, metadata };
+  }).sort((a, b) => order(a.path, b.path));
+  const selected = new Set;
+  const markdownFiles = value.markdownFiles.map((p) => {
+    if (!safeRelativePath(p) || !/\.md$/i.test(p) || selected.has(fold(p)) || paths.has(fold(p)))
+      return fail("Invalid/duplicate Markdown or selected document overlap");
+    selected.add(fold(p));
+    return p;
+  }).sort(order);
+  return { schema: "lawoss.document-naming.request/v1", operationId: value.operationId, documents, markdownFiles };
+}
+
+// src/naming-fs.ts
+import { closeSync as closeSync2, constants as constants2, fstatSync as fstatSync2, fsyncSync, lstatSync as lstatSync4, mkdirSync as mkdirSync3, openSync as openSync2, opendirSync, readSync as readSync2, realpathSync as realpathSync2, renameSync as renameSync2, unlinkSync, writeSync } from "node:fs";
+import { basename, dirname as dirname3, extname, isAbsolute as isAbsolute2, join as join4, relative as relative4, resolve as resolve4, sep as sep4 } from "node:path";
+
+// ../okf-pamat/src/workspace-memory-fs.ts
+import { closeSync, constants, fstatSync, lstatSync as lstatSync3, openSync, readSync, realpathSync } from "node:fs";
+import { isAbsolute, parse, relative as relative3, resolve as resolve3, sep as sep3 } from "node:path";
+function isObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function missing(error) {
+  return isObject(error) && error.code === "ENOENT";
+}
+function contained(root, target) {
+  const rel = relative3(root, target);
+  return rel === "" || !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep3}`);
+}
+function checkedPath(path, kind, allowMissing = false) {
+  const full = resolve3(path), root = parse(full).root;
+  const parts = relative3(root, full).split(sep3).filter(Boolean);
+  let current = root;
+  for (let i = 0;i < parts.length; i++) {
+    current = resolve3(current, parts[i]);
+    let stat;
+    try {
+      stat = lstatSync3(current);
+    } catch (error) {
+      if (allowMissing && missing(error))
+        return false;
+      throw error;
+    }
+    if (stat.isSymbolicLink())
+      throw new Error(`Symlink is not allowed: ${current}`);
+    if (i < parts.length - 1 || kind === "directory") {
+      if (!stat.isDirectory())
+        throw new Error(`Not a directory: ${current}`);
+    } else if (!stat.isFile())
+      throw new Error(`Not a regular file: ${current}`);
+  }
+  return true;
+}
+
+// ../okf-pamat/src/workspace-memory-types.ts
+var WORKSPACE_MEMORY_LIMITS = Object.freeze({ profileBytes: 256 * 1024, journalBytes: 4 * 1024 * 1024, sourceBytes: 2 * 1024 * 1024, totalBytes: 16 * 1024 * 1024, sources: 256 });
+
+// ../okf-pamat/src/workspace-memory-profile.ts
+var roles = ["case_memory", "case_card", "work_note", "task_log", "rules", "lessons", "source_index", "evidence"];
+var writableRoles = new Set(["case_memory", "case_card", "work_note", "task_log"]);
+function object2(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function id(value) {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/.test(value);
+}
+function role(value) {
+  return typeof value === "string" && roles.some((r) => r === value);
+}
+function file(value) {
+  return typeof value === "string" && value.length > 0 && !value.includes("\\") && !value.includes("\x00") && !/^[A-Za-z]:/.test(value) && value.split("/").every((part) => part !== "" && part !== "." && part !== "..");
+}
+function parseWorkspaceMemoryProfile(value) {
+  if (!object2(value) || value.version !== 1 || !id(value.matterId) || !Array.isArray(value.roots) || !Array.isArray(value.sources))
+    throw new Error("Invalid version 1 memory profile.");
+  if (value.sources.length === 0 || value.sources.length > WORKSPACE_MEMORY_LIMITS.sources || value.roots.length === 0 || value.roots.length > WORKSPACE_MEMORY_LIMITS.sources)
+    throw new Error("Invalid profile source/root count.");
+  const rootIds = new Set, sourceIds = new Set;
+  const roots = value.roots.map((root) => {
+    if (!object2(root) || !id(root.id) || rootIds.has(root.id) || typeof root.path !== "string" || root.path.length === 0 || root.path.includes("\x00") || root.path.includes("\\") || root.path.split("/").includes(".."))
+      throw new Error("Invalid or duplicate root.");
+    rootIds.add(root.id);
+    return { id: root.id, path: root.path };
+  });
+  const sources = value.sources.map((source) => {
+    if (!object2(source) || !id(source.id) || sourceIds.has(source.id.toLowerCase()) || typeof source.root !== "string" || !rootIds.has(source.root) || !file(source.path) || !role(source.role) || typeof source.required !== "boolean" || typeof source.writable !== "boolean")
+      throw new Error("Invalid or duplicate source.");
+    if (source.writable && !writableRoles.has(source.role))
+      throw new Error(`Role ${source.role} cannot be writable.`);
+    const anchors = [];
+    if (source.anchors !== undefined) {
+      if (!Array.isArray(source.anchors) || source.anchors.some((a) => typeof a !== "string" || a.trim().length === 0))
+        throw new Error(`Invalid identity anchors: ${source.id}`);
+      for (const anchor of source.anchors)
+        if (typeof anchor === "string")
+          anchors.push(anchor);
+    }
+    sourceIds.add(source.id.toLowerCase());
+    return { id: source.id, root: source.root, path: source.path, role: source.role, required: source.required, writable: source.writable, ...source.anchors !== undefined ? { anchors } : {} };
+  });
+  if (!sources.some((s) => s.role === "case_memory" && s.required))
+    throw new Error("At least one case_memory source must be required.");
+  if (!sources.some((s) => s.required && (s.anchors?.length ?? 0) > 0))
+    throw new Error("At least one required source must have identity anchors.");
+  return { version: 1, matterId: value.matterId, roots, sources };
+}
+function parseWorkspaceMemoryProfileText(text) {
+  if (new TextEncoder().encode(text).byteLength > WORKSPACE_MEMORY_LIMITS.profileBytes)
+    throw new Error("Memory profile byte limit exceeded.");
+  return parseWorkspaceMemoryProfile(JSON.parse(text));
+}
+
+// src/naming-core.ts
+import { createHash } from "node:crypto";
+import { posix } from "node:path";
+var NAMING_LIMITS2 = Object.freeze({ documents: 64, markdownFiles: 32, documentBytes: 100 * 1024 * 1024, markdownBytes: 5 * 1024 * 1024, totalBytes: 1024 * 1024 * 1024 });
+
+class NamingSchemaError2 extends Error {
+}
+
+class NamingConflict extends Error {
+}
+var order2 = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+var fold2 = (value) => value.normalize("NFC").toUpperCase().toLowerCase();
+function hash(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+function object3(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+function fail2(message) {
+  throw new NamingSchemaError2(message);
+}
+function exactKeys2(value, keys) {
+  if (Object.keys(value).some((k) => !keys.includes(k)))
+    fail2("Unknown naming field");
+}
+function safeId2(value) {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/.test(value) && !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(value);
+}
+function safeRelativePath2(value) {
+  return typeof value === "string" && value.length > 0 && value.length <= 1024 && value.split("/").every((p) => p.length > 0 && p.length <= 240 && p === p.normalize("NFC") && !p.startsWith(".") && p.trim() === p && !/[. ]$/.test(p) && !/[\\<>:"|?*\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(p) && !/^(?:con|conin\$|conout\$|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(p));
+}
+function validateDate2(value) {
+  if (value === "bez-datumu")
+    return true;
+  if (typeof value !== "string" || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(value) || value.startsWith("0000"))
+    return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+function parseNamingRequest2(value) {
+  if (!object3(value))
+    return fail2("Invalid naming request");
+  exactKeys2(value, ["schema", "operationId", "documents", "markdownFiles"]);
+  if (value.schema !== "lawoss.document-naming.request/v1" || !safeId2(value.operationId) || !Array.isArray(value.documents) || value.documents.length < 1 || value.documents.length > NAMING_LIMITS2.documents || !Array.isArray(value.markdownFiles) || value.markdownFiles.length > NAMING_LIMITS2.markdownFiles)
+    return fail2("Invalid naming request or selection limit");
+  const ids = new Set, paths = new Set;
+  const documents = value.documents.map((d) => {
+    if (!object3(d))
+      return fail2("Invalid document");
+    exactKeys2(d, ["id", "path", "treatment", "destinationRole", "metadata"]);
+    if (!safeId2(d.id) || ids.has(fold2(d.id)) || !safeRelativePath2(d.path) || paths.has(fold2(d.path)) || d.treatment !== "rename-working" && d.treatment !== "copy-original-to-drafts" || typeof d.destinationRole !== "string" || !/^[a-z][a-z_]*$/.test(d.destinationRole) || d.treatment === "copy-original-to-drafts" && d.destinationRole !== "drafts" || !object3(d.metadata))
+      return fail2("Invalid/duplicate document, portable path or original destination");
+    exactKeys2(d.metadata, ["date", "kind", "client", "description", "version"]);
+    if (!validateDate2(d.metadata.date))
+      return fail2("Explicit valid ISO calendar date or bez-datumu required");
+    const metadata = { date: d.metadata.date };
+    for (const key of ["kind", "client", "description", "version"]) {
+      const field = d.metadata[key];
+      if (field !== undefined) {
+        if (typeof field !== "string" || !field.trim() || field.length > 240)
+          return fail2(`Invalid metadata: ${key}`);
+        metadata[key] = field;
+      }
+    }
+    ids.add(fold2(d.id));
+    paths.add(fold2(d.path));
+    return { id: d.id, path: d.path, treatment: d.treatment, destinationRole: d.destinationRole, metadata };
+  }).sort((a, b) => order2(a.path, b.path));
+  const selected = new Set;
+  const markdownFiles = value.markdownFiles.map((p) => {
+    if (!safeRelativePath2(p) || !/\.md$/i.test(p) || selected.has(fold2(p)) || paths.has(fold2(p)))
+      return fail2("Invalid/duplicate Markdown or selected document overlap");
+    selected.add(fold2(p));
+    return p;
+  }).sort(order2);
+  return { schema: "lawoss.document-naming.request/v1", operationId: value.operationId, documents, markdownFiles };
+}
+function normalizeNamingValue(value) {
+  const normalized = value.normalize("NFC").replace(/[\s\\/<>:"|?*`\u0000-\u001f\u007f-\u009f\u2028\u2029]+/gu, "-").replace(/-+/g, "-").replace(/^[. -]+|[. -]+$/g, "");
+  if (!normalized)
+    fail2("Metadata becomes empty after normalization");
+  return { input: value, normalized };
+}
+function normalizedMetadata(metadata) {
+  return Object.fromEntries(Object.entries(metadata).map(([k, v]) => [k, normalizeNamingValue(v).normalized]));
+}
+function renderDocumentName(profile, metadata, extension) {
+  if (!validateDate2(metadata.date))
+    fail2("Explicit document date required");
+  const normalized = normalizedMetadata(metadata);
+  const rendered = profile.naming.replace(/\{(date|kind|client|description|version)\}/g, (_, key) => normalized[key] ?? fail2(`Missing metadata: ${key}`)) + extension;
+  if (!safeRelativePath2(rendered) || rendered.includes("/") || Buffer.byteLength(rendered) > 240)
+    fail2("Rendered name is not a portable filename");
+  return rendered;
+}
+function canonical(value) {
+  if (Array.isArray(value))
+    return `[${value.map(canonical).join(",")}]`;
+  if (object3(value))
+    return `{${Object.keys(value).sort(order2).map((k) => `${JSON.stringify(k)}:${canonical(value[k])}`).join(",")}}`;
+  if (value === null || typeof value === "string" || typeof value === "boolean" || typeof value === "number" && Number.isFinite(value))
+    return JSON.stringify(value);
+  return fail2("Non-JSON naming value");
+}
+function namingFingerprint(value) {
+  return hash(canonical(value));
+}
+function rewriteSelectedMarkdownLinks(markdownPath, content, moves) {
+  const referenceIds = [...content.matchAll(/^ {0,3}\[([^\]\n]+)\]:/gm)].map((m) => fold2(m[1].trim().replace(/\s+/g, " ")));
+  if (new Set(referenceIds).size !== referenceIds.length && moves.some((move) => fold2(content).includes(fold2(posix.basename(move.from)))))
+    fail2("Duplicate reference definitions in affected Markdown");
+  const rewrites = [];
+  const edits = [];
+  const covered = [];
+  const code = [...content.matchAll(/^---\r?\n[\s\S]*?\n---(?:\r?\n|$)|<!--[\s\S]*?(?:-->|$)|```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`+[^`\n]*`+|^(?: {4}|\t).*$/gm)].map((m) => ({ start: m.index, end: m.index + m[0].length }));
+  const patterns = [
+    ["wikilink", /!?\[\[([^\]\n|]+)(?:\|[^\]\n]*)?\]\]/g],
+    ["inline", /!?\[[^\]\n]*\]\(\s*(<[^>\n]+>|[^\s()]+)(?:\s+(?:"[^"\n]*"|'[^'\n]*'))?\s*\)/g],
+    ["reference", /^ {0,3}\[[^\]\n]+\]:[ \t]*(<[^>\n]+>|[^\s]+)(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'))?[ \t]*\r?$/gm]
+  ];
+  for (const [kind, pattern] of patterns)
+    for (const m of content.matchAll(pattern)) {
+      const start = m.index, end = start + m[0].length;
+      if (content[start - 1] === "\\")
+        continue;
+      if (covered.length > 20000 || rewrites.length > 4096)
+        fail2("Selected Markdown exceeds bounded link count");
+      if (code.some((c) => start < c.end && end > c.start) || covered.some((c) => start < c.end && end > c.start))
+        continue;
+      const raw = m[1], angle = raw.startsWith("<") && raw.endsWith(">");
+      const destination = angle ? raw.slice(1, -1) : raw;
+      const split = destination.search(/[?#]/);
+      const pathname = split < 0 ? destination : destination.slice(0, split), suffix = split < 0 ? "" : destination.slice(split);
+      if (/^(?:[A-Za-z][A-Za-z0-9+.-]*:|\/|#)/.test(pathname)) {
+        covered.push({ start, end });
+        continue;
+      }
+      let decoded;
+      try {
+        decoded = decodeURIComponent(pathname);
+      } catch {
+        continue;
+      }
+      if (decoded.includes("\\"))
+        continue;
+      const resolved = posix.normalize(posix.join(posix.dirname(markdownPath), decoded));
+      const matches = moves.filter((move) => move.from === resolved || kind === "wikilink" && move.from === decoded);
+      const unique = [...new Set(matches)];
+      if (unique.length > 1)
+        fail2("Ambiguous affected wikilink");
+      if (unique.length === 0) {
+        if (kind === "wikilink" && moves.some((move) => fold2(posix.basename(move.from, posix.extname(move.from))) === fold2(posix.basename(decoded, posix.extname(decoded)))))
+          fail2("Ambiguous affected wikilink; use an exact relative path");
+        if (moves.some((move) => fold2(move.from) === fold2(resolved)))
+          fail2("Ambiguous affected link case");
+        covered.push({ start, end });
+        continue;
+      }
+      const move = unique[0];
+      let next = kind === "wikilink" && decoded === move.from && decoded !== resolved ? move.to : posix.relative(posix.dirname(markdownPath), move.to);
+      if (pathname.startsWith("./") && !next.startsWith("."))
+        next = `./${next}`;
+      if (pathname.includes("%") || kind !== "wikilink" && !angle)
+        next = next.split("/").map(encodeURIComponent).join("/");
+      next += suffix;
+      const replacement = angle ? `<${next}>` : next;
+      const offset = m[0].indexOf(raw, kind === "reference" ? m[0].indexOf(":") + 1 : kind === "inline" ? m[0].indexOf("](") + 2 : 0);
+      edits.push({ start: start + offset, end: start + offset + raw.length, text: replacement });
+      covered.push({ start, end });
+      rewrites.push({ from: destination, to: next, kind });
+    }
+  let residual = content;
+  for (const c of covered.sort((a, b) => b.start - a.start))
+    residual = residual.slice(0, c.start) + " ".repeat(c.end - c.start) + residual.slice(c.end);
+  let decodedResidual = residual;
+  try {
+    decodedResidual = decodeURIComponent(residual);
+  } catch {}
+  if (moves.some((move) => fold2(decodedResidual).includes(fold2(posix.basename(move.from)))))
+    fail2("Affected path in unsupported/ambiguous Markdown syntax");
+  let result = content;
+  for (const edit of edits.sort((a, b) => b.start - a.start))
+    result = result.slice(0, edit.start) + edit.text + result.slice(edit.end);
+  return { content: result, rewrites: rewrites.sort((a, b) => order2(a.from, b.from) || order2(a.to, b.to) || order2(a.kind, b.kind)) };
+}
+
+// src/naming-fs.ts
+var PROFILE_LIMIT = 256 * 1024;
+var JSON_LIMIT = 4 * 1024 * 1024;
+var reserved2 = /^(?:memory|spisy|office|_kancelaria|agents\.md|claude\.md|brain\.md|memory\.md|_memory\.md|client\.md|klient\.md|matter\.md|spis\.md|project\.md|projekt\.md|index\.md|log\.md|_status\.md|vstupy\.md|pracovny-profil\.md|komunikacne-kanaly\.md|okf\.config)$/i;
+var physical = (stat) => `${stat.dev}:${stat.ino}`;
+var utf8 = (data) => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(data);
+function conflict(message) {
+  throw new NamingConflict(message);
+}
+function exists(path, kind = "file") {
+  return checkedPath(path, kind, true);
+}
+function rootDirectory(directory) {
+  checkedPath(directory, "directory");
+  const path = realpathSync2(directory);
+  return { path, identity: physical(lstatSync4(path)) };
+}
+function assertRoot(root) {
+  checkedPath(root.path, "directory");
+  if (realpathSync2(root.path) !== root.path || physical(lstatSync4(root.path)) !== root.identity)
+    conflict("Matter root changed");
+}
+function readNamingBinary(path, limit) {
+  checkedPath(path, "file");
+  const fd = openSync2(path, constants2.O_RDONLY | constants2.O_NOFOLLOW | constants2.O_NONBLOCK);
+  try {
+    const before = fstatSync2(fd);
+    if (!before.isFile() || before.nlink !== 1)
+      conflict(`Regular single-link file required: ${path}`);
+    if (before.size > limit)
+      conflict(`Byte limit exceeded: ${path}`);
+    const data = Buffer.alloc(Math.min(before.size + 1, limit + 1));
+    let count = 0;
+    while (count < data.length) {
+      const n = readSync2(fd, data, count, data.length - count, null);
+      if (!n)
+        break;
+      count += n;
+    }
+    const after = fstatSync2(fd), named = lstatSync4(path);
+    if (count !== before.size || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || physical(before) !== physical(after) || physical(before) !== physical(named) || named.isSymbolicLink() || named.nlink !== 1)
+      conflict(`File changed during read: ${path}`);
+    const bytes = data.subarray(0, count);
+    return { data: bytes, bytes: count, sha256: hash(bytes), physical: physical(before), mode: before.mode & 511 };
+  } finally {
+    closeSync2(fd);
+  }
+}
+function readNamingJson(path, limit = JSON_LIMIT) {
+  return JSON.parse(utf8(readNamingBinary(path, limit).data));
+}
+function pin(path, read) {
+  return { path, sha256: read.sha256, bytes: read.bytes, physical: read.physical };
+}
+function assertPin(root, expected, limit) {
+  const read = readNamingBinary(join4(root, expected.path), limit);
+  if (read.sha256 !== expected.sha256 || read.bytes !== expected.bytes || read.physical !== expected.physical)
+    conflict(`Changed source: ${expected.path}`);
+  return read;
+}
+function checkCase(path, shouldExist) {
+  const directory = opendirSync(dirname3(path));
+  let found = false, count = 0;
+  try {
+    for (let entry = directory.readSync();entry; entry = directory.readSync()) {
+      if (++count > 20000)
+        conflict("Destination/path directory exceeds bounded case-check limit (20000 entries)");
+      if (fold2(entry.name) === fold2(basename(path))) {
+        if (entry.name !== basename(path) || !shouldExist)
+          conflict(`Case-fold collision: ${path}`);
+        found = true;
+      }
+    }
+  } finally {
+    directory.closeSync();
+  }
+  if (shouldExist && !found)
+    conflict(`Missing exact path: ${path}`);
+}
+function contentPath(root, path, mapped) {
+  if (!safeRelativePath2(path) || path.split("/").some((p) => reserved2.test(p)) || mapped.has(fold2(path)))
+    throw new NamingSchemaError2(`Protected or unsafe path: ${path}`);
+  const result = resolve4(root, path);
+  if (!contained(root, result))
+    throw new NamingSchemaError2("Path outside matter");
+  let component = root;
+  for (const part of path.split("/").slice(0, -1)) {
+    component = join4(component, part);
+    checkedPath(component, "directory");
+    checkCase(component, true);
+  }
+  return result;
+}
+function memoryProtection(root) {
+  const path = ".lawoss/memory-profile.json", absolute = join4(root, path), mapped = new Set;
+  if (!exists(absolute))
+    return { source: null, mapped };
+  const read = readNamingBinary(absolute, PROFILE_LIMIT), profile = parseWorkspaceMemoryProfileText(utf8(read.data));
+  for (const source of profile.sources) {
+    const location = profile.roots.find((r) => r.id === source.root);
+    const full = resolve4(root, location.path, source.path);
+    if (contained(root, full))
+      mapped.add(fold2(relative4(root, full).split(sep4).join("/")));
+  }
+  return { source: pin(path, read), mapped };
+}
+function targetAbsent(root, target) {
+  const path = join4(root, target.path);
+  checkedPath(dirname3(path), "directory");
+  if (physical(lstatSync4(dirname3(path))) !== target.parentPhysical)
+    conflict(`Target directory changed: ${target.path}`);
+  checkCase(path, false);
+  if (exists(path))
+    conflict(`Target exists: ${target.path}`);
+}
+function planDocumentNaming(matterDir, input) {
+  const request = parseNamingRequest2(input), root = rootDirectory(matterDir);
+  const profileRead = readNamingBinary(join4(root.path, PROFILE_FILE), PROFILE_LIMIT), profile = parseWorkingProfile(utf8(profileRead.data));
+  const protection = memoryProtection(root.path), selected = new Set([...request.documents.map((d) => fold2(d.path)), ...request.markdownFiles.map(fold2)]), targets = new Set, identities = new Set;
+  let totalBytes = profileRead.bytes + (protection.source?.bytes ?? 0);
+  const documents = request.documents.map((document) => {
+    const sourcePath = contentPath(root.path, document.path, protection.mapped);
+    checkCase(sourcePath, true);
+    const sourceRead = readNamingBinary(sourcePath, NAMING_LIMITS2.documentBytes);
+    if (identities.has(sourceRead.physical))
+      conflict("Selected physical file identity overlaps");
+    identities.add(sourceRead.physical);
+    const rolePath = profile.roles[document.destinationRole];
+    if (!rolePath)
+      throw new NamingSchemaError2(`Missing saved-profile role: ${document.destinationRole}`);
+    const targetPath = `${rolePath}/${renderDocumentName(profile, document.metadata, extname(document.path))}`;
+    const absoluteTarget = contentPath(root.path, targetPath, protection.mapped);
+    if (selected.has(fold2(targetPath)) || targets.has(fold2(targetPath)))
+      conflict(`Source/target or target overlap: ${targetPath}`);
+    targets.add(fold2(targetPath));
+    const target = { path: targetPath, mustBeAbsent: true, parentPhysical: physical(lstatSync4(dirname3(absoluteTarget))) };
+    targetAbsent(root.path, target);
+    totalBytes += sourceRead.bytes;
+    if (totalBytes > NAMING_LIMITS2.totalBytes)
+      conflict("Total byte limit exceeded");
+    return { id: document.id, treatment: document.treatment, source: pin(document.path, sourceRead), target, normalizedMetadata: normalizedMetadata(document.metadata) };
+  });
+  const moves = documents.filter((d) => d.treatment === "rename-working").map((d) => ({ from: d.source.path, to: d.target.path }));
+  const markdown = request.markdownFiles.map((path) => {
+    const full = contentPath(root.path, path, protection.mapped);
+    checkCase(full, true);
+    const read = readNamingBinary(full, NAMING_LIMITS2.markdownBytes);
+    if (identities.has(read.physical))
+      conflict("Selected physical file identity overlaps");
+    identities.add(read.physical);
+    const rewritten = rewriteSelectedMarkdownLinks(path, utf8(read.data), moves);
+    if (Buffer.byteLength(rewritten.content) > NAMING_LIMITS2.markdownBytes)
+      conflict("Rewritten Markdown exceeds byte limit");
+    totalBytes += read.bytes;
+    if (totalBytes > NAMING_LIMITS2.totalBytes)
+      conflict("Total byte limit exceeded");
+    return { source: pin(path, read), afterSha256: hash(rewritten.content), rewrites: rewritten.rewrites };
+  });
+  assertRoot(root);
+  const body = { schema: "lawoss.document-naming.plan/v1", operationId: request.operationId, matterRootPhysical: root.path, rootIdentity: root.identity, request, profile: { ...pin(PROFILE_FILE, profileRead), naming: profile.naming, roles: profile.roles }, memoryProfile: protection.source, documents, markdown, limits: NAMING_LIMITS2, totalBytes, linkScope: "selected-files-only; unselected links are not verified" };
+  const result = { ...body, fingerprint: namingFingerprint(body) };
+  if (Buffer.byteLength(JSON.stringify(result, null, 2) + `
+`) > JSON_LIMIT)
+    conflict("Plan exceeds 4 MiB; reduce selected link scope");
+  return result;
+}
+function isPin(v) {
+  return object3(v) && typeof v.path === "string" && typeof v.sha256 === "string" && /^[a-f0-9]{64}$/.test(v.sha256) && typeof v.bytes === "number" && Number.isSafeInteger(v.bytes) && v.bytes >= 0 && typeof v.physical === "string" && /^[0-9]+:[0-9]+$/.test(v.physical);
+}
+function parseNamingPlan(value) {
+  if (!object3(value))
+    throw new NamingSchemaError2("Invalid naming plan");
+  exactKeys2(value, ["schema", "operationId", "fingerprint", "matterRootPhysical", "rootIdentity", "request", "profile", "memoryProfile", "documents", "markdown", "limits", "totalBytes", "linkScope"]);
+  const request = parseNamingRequest2(value.request);
+  if (value.schema !== "lawoss.document-naming.plan/v1" || value.operationId !== request.operationId || typeof value.fingerprint !== "string" || typeof value.matterRootPhysical !== "string" || !isAbsolute2(value.matterRootPhysical) || typeof value.rootIdentity !== "string" || !/^[0-9]+:[0-9]+$/.test(value.rootIdentity) || !object3(value.profile) || typeof value.profile.naming !== "string" || !object3(value.profile.roles) || !isPin(value.profile) || value.profile.path !== PROFILE_FILE || value.memoryProfile !== null && (!isPin(value.memoryProfile) || value.memoryProfile.path !== ".lawoss/memory-profile.json") || !Array.isArray(value.documents) || value.documents.length !== request.documents.length || !Array.isArray(value.markdown) || value.markdown.length !== request.markdownFiles.length || namingFingerprint(value.limits) !== namingFingerprint(NAMING_LIMITS2) || typeof value.totalBytes !== "number" || !Number.isSafeInteger(value.totalBytes) || value.totalBytes < 0 || value.totalBytes > NAMING_LIMITS2.totalBytes || value.linkScope !== "selected-files-only; unselected links are not verified")
+    throw new NamingSchemaError2("Invalid naming plan fields");
+  for (const [i, d] of value.documents.entries()) {
+    const document = request.documents[i];
+    if (!object3(d) || d.id !== document.id || d.treatment !== document.treatment || !isPin(d.source) || d.source.path !== document.path || d.source.bytes > NAMING_LIMITS2.documentBytes || !object3(d.target) || !safeRelativePath2(d.target.path) || d.target.mustBeAbsent !== true || typeof d.target.parentPhysical !== "string" || !/^[0-9]+:[0-9]+$/.test(d.target.parentPhysical) || !object3(d.normalizedMetadata))
+      throw new NamingSchemaError2("Invalid planned document");
+  }
+  for (const [i, m] of value.markdown.entries()) {
+    if (!object3(m) || !isPin(m.source) || m.source.path !== request.markdownFiles[i] || m.source.bytes > NAMING_LIMITS2.markdownBytes || typeof m.afterSha256 !== "string" || !/^[a-f0-9]{64}$/.test(m.afterSha256) || !Array.isArray(m.rewrites))
+      throw new NamingSchemaError2("Invalid planned Markdown");
+  }
+  const { fingerprint, ...body } = value;
+  if (namingFingerprint(body) !== fingerprint)
+    throw new NamingSchemaError2("Plan fingerprint changed; obtain a new preview and approval");
+  return value;
+}
+function exclusive(path, data, mode = 384) {
+  checkedPath(dirname3(path), "directory");
+  const fd = openSync2(path, constants2.O_WRONLY | constants2.O_CREAT | constants2.O_EXCL | constants2.O_NOFOLLOW, mode);
+  try {
+    const buffer = typeof data === "string" ? Buffer.from(data) : data;
+    let count = 0;
+    while (count < buffer.length)
+      count += writeSync(fd, buffer, count, buffer.length - count);
+    fsyncSync(fd);
+    return physical(fstatSync2(fd));
+  } finally {
+    closeSync2(fd);
+  }
+}
+function controlDirectory(path) {
+  try {
+    mkdirSync3(path, { mode: 448 });
+  } catch (error) {
+    if (!object3(error) || error.code !== "EEXIST")
+      throw error;
+  }
+  checkedPath(path, "directory");
+}
+function profileCAS(root, plan) {
+  assertPin(root, plan.profile, PROFILE_LIMIT);
+  const current = memoryProtection(root);
+  if (namingFingerprint(current.source) !== namingFingerprint(plan.memoryProfile))
+    conflict("Memory profile presence/content/identity changed");
+}
+function finalStates(root, plan) {
+  profileCAS(root, plan);
+  const files = [];
+  for (const doc of plan.documents) {
+    const targetPath = join4(root, doc.target.path);
+    checkedPath(dirname3(targetPath), "directory");
+    if (physical(lstatSync4(dirname3(targetPath))) !== doc.target.parentPhysical)
+      conflict("Final target directory changed");
+    checkCase(targetPath, true);
+    const target = readNamingBinary(targetPath, NAMING_LIMITS2.documentBytes);
+    files.push(pin(doc.target.path, target));
+    if (target.sha256 !== doc.source.sha256 || target.bytes !== doc.source.bytes)
+      conflict(`Final target changed: ${doc.target.path}`);
+    if (doc.treatment === "copy-original-to-drafts")
+      files.push(pin(doc.source.path, assertPin(root, doc.source, NAMING_LIMITS2.documentBytes)));
+    else if (exists(join4(root, doc.source.path)))
+      conflict(`Working source reappeared: ${doc.source.path}`);
+  }
+  for (const m of plan.markdown) {
+    const read = readNamingBinary(join4(root, m.source.path), NAMING_LIMITS2.markdownBytes);
+    if (read.sha256 !== m.afterSha256)
+      conflict(`Final Markdown changed: ${m.source.path}`);
+    files.push(pin(m.source.path, read));
+  }
+  return files;
+}
+function applyDocumentNaming(matterDir, input, hooks = {}) {
+  const plan = parseNamingPlan(input), root = rootDirectory(matterDir);
+  const report = (status, message) => ({ status, operationId: plan.operationId, fingerprint: plan.fingerprint, ...message ? { message } : {} });
+  if (root.path !== plan.matterRootPhysical || root.identity !== plan.rootIdentity)
+    return report("conflict", "Matter root physical identity differs");
+  const history = join4(root.path, ".lawoss/naming-history"), operation = join4(history, plan.operationId), journal = join4(operation, "journal.json"), lock = join4(history, "apply.lock");
+  let lockIdentity;
+  const created = [], installed = [], removed = [];
+  let prepared = false;
+  try {
+    if (!exists(operation, "directory")) {
+      const fresh = planDocumentNaming(root.path, plan.request);
+      if (fresh.fingerprint !== plan.fingerprint)
+        conflict("Preview is stale; create and approve a new plan");
+    }
+    controlDirectory(join4(root.path, ".lawoss"));
+    controlDirectory(history);
+    checkCase(operation, exists(operation, "directory"));
+    lockIdentity = exclusive(lock, JSON.stringify({ operationId: plan.operationId, fingerprint: plan.fingerprint }));
+    assertRoot(root);
+    if (exists(operation, "directory")) {
+      if (!exists(journal))
+        return { ...report("recovery-required", "Existing operation has no complete journal"), journal };
+      const prior = readNamingJson(journal, 2 * JSON_LIMIT);
+      if (!object3(prior) || prior.fingerprint !== plan.fingerprint || namingFingerprint(prior.plan) !== namingFingerprint(plan))
+        return report("conflict", "Operation ID belongs to a different plan or invalid journal");
+      if (!exists(join4(operation, "committed.json")))
+        return { ...report("recovery-required", "Incomplete operation; retain journal and snapshots for human recovery"), journal };
+      const committed = readNamingJson(join4(operation, "committed.json"));
+      if (!object3(committed) || committed.fingerprint !== plan.fingerprint)
+        conflict("Invalid committed receipt");
+      if (namingFingerprint(finalStates(root.path, plan)) !== namingFingerprint(committed.finalFiles))
+        conflict("Committed physical final states changed");
+      return { ...report("already-applied"), journal };
+    }
+    const fresh = planDocumentNaming(root.path, plan.request);
+    if (fresh.fingerprint !== plan.fingerprint)
+      conflict("Preview changed while acquiring lock");
+    mkdirSync3(operation, { mode: 448 });
+    prepared = true;
+    exclusive(journal, JSON.stringify({ version: 1, status: "prepared", fingerprint: plan.fingerprint, plan }, null, 2));
+    const snapshots = new Map;
+    for (const [i, source] of [...plan.documents.map((d) => d.source), ...plan.markdown.map((m) => m.source)].entries()) {
+      const read = assertPin(root.path, source, i < plan.documents.length ? NAMING_LIMITS2.documentBytes : NAMING_LIMITS2.markdownBytes);
+      const backup = join4(operation, `before-${i}.bin`);
+      exclusive(backup, read.data);
+      snapshots.set(source.path, { backup, mode: read.mode, beforeSha256: read.sha256 });
+    }
+    hooks.checkpoint?.("prepared");
+    profileCAS(root.path, plan);
+    for (const document of plan.documents) {
+      assertRoot(root);
+      profileCAS(root.path, plan);
+      targetAbsent(root.path, document.target);
+      const source = assertPin(root.path, document.source, NAMING_LIMITS2.documentBytes), path = join4(root.path, document.target.path);
+      const identity = exclusive(path, source.data, source.mode);
+      created.push({ path, physical: identity, sha256: source.sha256 });
+      if (readNamingBinary(path, NAMING_LIMITS2.documentBytes).sha256 !== source.sha256)
+        conflict("Target copy verification failed");
+      exclusive(join4(operation, `target-${created.length}.json`), JSON.stringify(created.at(-1)));
+      hooks.checkpoint?.("target-created", document.target.path);
+    }
+    const moves = plan.documents.filter((d) => d.treatment === "rename-working").map((d) => ({ from: d.source.path, to: d.target.path }));
+    for (const [i, markdown] of plan.markdown.entries()) {
+      const before = assertPin(root.path, markdown.source, NAMING_LIMITS2.markdownBytes);
+      const rewritten = rewriteSelectedMarkdownLinks(markdown.source.path, utf8(before.data), moves);
+      if (hash(rewritten.content) !== markdown.afterSha256)
+        conflict("Link rewrite differs from approved plan");
+      if (markdown.source.sha256 === markdown.afterSha256)
+        continue;
+      const staged = join4(operation, `markdown-${i}.stage`), identity = exclusive(staged, rewritten.content, before.mode);
+      if (readNamingBinary(staged, NAMING_LIMITS2.markdownBytes).sha256 !== markdown.afterSha256)
+        conflict("Staged Markdown differs");
+      assertRoot(root);
+      profileCAS(root.path, plan);
+      assertPin(root.path, markdown.source, NAMING_LIMITS2.markdownBytes);
+      const path = join4(root.path, markdown.source.path);
+      exclusive(join4(operation, `markdown-${i}-intent.json`), JSON.stringify({ path: markdown.source.path, stagedPhysical: identity }));
+      renameSync2(staged, path);
+      installed.push({ path, physical: identity, sha256: markdown.afterSha256, ...snapshots.get(markdown.source.path) });
+      hooks.checkpoint?.("markdown-installed", markdown.source.path);
+    }
+    for (const document of plan.documents.filter((d) => d.treatment === "rename-working")) {
+      assertRoot(root);
+      profileCAS(root.path, plan);
+      for (const m of plan.markdown)
+        if (readNamingBinary(join4(root.path, m.source.path), NAMING_LIMITS2.markdownBytes).sha256 !== m.afterSha256)
+          conflict("Selected links changed before source removal");
+      const target = readNamingBinary(join4(root.path, document.target.path), NAMING_LIMITS2.documentBytes);
+      if (target.sha256 !== document.source.sha256)
+        conflict("Target changed before source removal");
+      assertPin(root.path, document.source, NAMING_LIMITS2.documentBytes);
+      const path = join4(root.path, document.source.path), snapshot = snapshots.get(document.source.path);
+      exclusive(join4(operation, `remove-${removed.length}-intent.json`), JSON.stringify({ path: document.source.path, ...snapshot }));
+      unlinkSync(path);
+      removed.push({ path, sha256: document.source.sha256, ...snapshot });
+      hooks.checkpoint?.("source-removed", document.source.path);
+    }
+    hooks.checkpoint?.("before-commit");
+    assertRoot(root);
+    const finalFiles = finalStates(root.path, plan);
+    for (const file of [...created, ...installed])
+      if (readNamingBinary(file.path, NAMING_LIMITS2.documentBytes).physical !== file.physical)
+        conflict("Written file physical identity changed before commit");
+    exclusive(join4(operation, "committed.json"), JSON.stringify({ version: 1, status: "committed", fingerprint: plan.fingerprint, finalFiles }));
+    return { ...report("applied"), journal };
+  } catch (error) {
+    const recovery = prepared;
+    let completeRollback = true;
+    if (prepared) {
+      for (const source of [...removed].reverse())
+        try {
+          assertRoot(root);
+          if (exists(source.path)) {
+            completeRollback = false;
+            continue;
+          }
+          if (!exists(source.path)) {
+            const backup = readNamingBinary(source.backup, NAMING_LIMITS2.documentBytes);
+            if (backup.sha256 !== source.sha256)
+              conflict("Backup changed");
+            exclusive(source.path, backup.data, source.mode);
+          }
+        } catch {
+          completeRollback = false;
+        }
+      for (const markdown of [...installed].reverse())
+        try {
+          assertRoot(root);
+          const current = readNamingBinary(markdown.path, NAMING_LIMITS2.markdownBytes);
+          if (current.physical !== markdown.physical || current.sha256 !== markdown.sha256) {
+            completeRollback = false;
+            continue;
+          }
+          const snapshot = readNamingBinary(markdown.backup, NAMING_LIMITS2.markdownBytes), stage = `${markdown.backup}.restore`;
+          if (snapshot.sha256 !== markdown.beforeSha256)
+            conflict("Markdown backup changed");
+          exclusive(stage, snapshot.data, markdown.mode);
+          const check = readNamingBinary(markdown.path, NAMING_LIMITS2.markdownBytes);
+          if (check.physical !== markdown.physical || check.sha256 !== markdown.sha256) {
+            completeRollback = false;
+            continue;
+          }
+          renameSync2(stage, markdown.path);
+        } catch {
+          completeRollback = false;
+        }
+      if (completeRollback)
+        for (const target of [...created].reverse())
+          try {
+            assertRoot(root);
+            const current = readNamingBinary(target.path, NAMING_LIMITS2.documentBytes);
+            if (current.physical === target.physical && current.sha256 === target.sha256)
+              unlinkSync(target.path);
+          } catch {
+            completeRollback = false;
+          }
+      try {
+        exclusive(join4(operation, "failure.json"), JSON.stringify({ status: "recovery-required", error: error instanceof Error ? error.message : String(error), created, installed, removed }));
+      } catch {}
+    }
+    return { ...report(recovery ? "recovery-required" : "conflict", error instanceof Error ? error.message : String(error)), ...prepared ? { journal } : {} };
+  } finally {
+    if (lockIdentity)
+      try {
+        checkedPath(lock, "file");
+        if (physical(lstatSync4(lock)) === lockIdentity)
+          unlinkSync(lock);
+      } catch {}
+  }
+}
+function writeNamingPlanOutsideMatter(matterDir, output, plan) {
+  const root = rootDirectory(matterDir), path = resolve4(output);
+  checkedPath(dirname3(path), "directory");
+  const parent = realpathSync2(dirname3(path)), physicalOutput = join4(parent, basename(path));
+  if (contained(root.path, physicalOutput) || !safeRelativePath2(basename(path)))
+    throw new NamingSchemaError2("--out must be a new portable filename outside the matter root");
+  checkCase(physicalOutput, false);
+  exclusive(physicalOutput, JSON.stringify(plan, null, 2) + `
+`);
+}
+
 // src/cli.ts
 function parseArgs(argv) {
   const positional = [];
@@ -1343,6 +2126,27 @@ function run(argv, out = console.log) {
   const cmd = positional[0];
   try {
     switch (cmd) {
+      case "naming": {
+        const dir = positional[1];
+        const namingKeys = argv.filter((arg) => arg.startsWith("--"));
+        if (!dir || positional.length !== 2 || new Set(namingKeys).size !== namingKeys.length || Object.keys(flags).some((key) => !["manifest", "plan", "apply", "out", "json"].includes(key)) || flags.json !== undefined && flags.json !== true)
+          throw new NamingSchemaError("Usage: okf naming <dir> --manifest request.json [--out plan.json] [--json] OR --plan plan.json --apply [--json]");
+        if (flags.apply === true && str(flags, "plan") && flags.manifest === undefined && flags.out === undefined) {
+          const result = applyDocumentNaming(dir, parseNamingPlan(readNamingJson(str(flags, "plan"))));
+          out(JSON.stringify(result, null, 2));
+          return result.status === "applied" || result.status === "already-applied" ? 0 : 1;
+        }
+        if (!str(flags, "manifest") || flags.plan !== undefined || flags.apply !== undefined || flags.out !== undefined && !str(flags, "out"))
+          throw new NamingSchemaError("Preview requires --manifest; apply requires the exact approved --plan and --apply");
+        const result = planDocumentNaming(dir, parseNamingRequest(readNamingJson(str(flags, "manifest"))));
+        const output = str(flags, "out");
+        if (output)
+          writeNamingPlanOutsideMatter(dir, output, result);
+        if (!json)
+          out(`Preview: no writes inside the matter. Link scope: selected files only; unselected links are not verified.${output ? ` New external plan: ${output}` : ""}`);
+        out(JSON.stringify(result, null, 2));
+        return 0;
+      }
       case "detect": {
         const dir = positional[1];
         if (!dir)
@@ -1417,17 +2221,17 @@ function run(argv, out = console.log) {
         return 0;
       }
       default:
-        out("okf detect|plan|apply|validate|render \u2014 pozri hlavi\u010Dku src/cli.ts");
+        out("okf detect|plan|apply|validate|render|naming \u2014 pozri hlavi\u010Dku src/cli.ts");
         return cmd ? 2 : 0;
     }
   } catch (error) {
     out(`okf: ${error instanceof Error ? error.message : String(error)}`);
-    return 2;
+    return cmd === "naming" && !(error instanceof NamingSchemaError) && !(error instanceof SyntaxError) ? 1 : 2;
   }
 }
 var isMain = (() => {
   try {
-    return realpathSync(process.argv[1] ?? "") === realpathSync(fileURLToPath(import.meta.url));
+    return realpathSync3(process.argv[1] ?? "") === realpathSync3(fileURLToPath(import.meta.url));
   } catch {
     return false;
   }

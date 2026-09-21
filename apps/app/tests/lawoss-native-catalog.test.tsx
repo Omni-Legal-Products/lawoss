@@ -13,15 +13,15 @@ const props = {
 
 describe("native catalog rendering", () => {
   test("existing OKF skills show the limited confirmed fact, not verified resources or connected MCP", () => {
-    const html = renderToStaticMarkup(<NativeCatalog {...props} skills={[{ name: "novy-spis", path: "a" }, { name: "okf-pamat", path: "b" }]} />);
+    const html = renderToStaticMarkup(<NativeCatalog {...props} skills={[{ name: "novy-spis", path: "a" }, { name: "okf-pamat", path: "b" }, { name: "usporiadaj-spis", path: "c" }]} />);
     expect(html).toContain("Skilly uložené");
     expect(html).toContain("Potvrdiť aktualizáciu balíka");
     expect(html).not.toContain("MCP pripojené");
     expect(html).toContain("Tento import zatiaľ nepodporuje globálnu inštaláciu");
     expect(html).toContain("Selected matter");
   });
-  test("one OKF skill does not report the pair installed and readonly actions stay disabled", () => {
-    const html = renderToStaticMarkup(<NativeCatalog {...props} skills={[{ name: "novy-spis", path: "a" }]} />);
+  test("partial OKF pack does not report all three installed and readonly actions stay disabled", () => {
+    const html = renderToStaticMarkup(<NativeCatalog {...props} skills={[{ name: "novy-spis", path: "a" }, { name: "okf-pamat", path: "b" }]} />);
     expect(html).not.toContain("Skilly uložené");
     expect(html.match(/ disabled=""/g)?.length).toBe(3);
   });
