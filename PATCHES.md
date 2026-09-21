@@ -252,3 +252,7 @@ Zelený orchestrátor `apps/app/src/lawoss/okf/matter-session.ts` po serverom po
 | `pnpm-lock.yaml` | Nový importer pre existujúce dev nástroje OKF TypeScript 5.9.3 a bun-types 1.3.6; pamäťové dev typy sú zjednotené na už zamknuté @types/node 25.6.0, ktoré používa bun-types. Čisté CI inak načítalo súčasne deklarácie Node 24 aj 25. Runtime zostáva Node 24, žiadna runtime závislosť ani oslabenie strict kontrol. |
 
 Windows symlink prípady sa vynechajú iba po neúspešnom capability probe s dôvodom; obsah, CAS, hardlinky a ostatné ochrany zostávajú aktívne. POSIX mode assertions nepredstierajú kontrolu Windows ACL. Jediná produkčná zdrojová úprava tejto úlohy je explicitný `Jurisdiction | undefined` v zelenom pamäťovom store; runtime aj zabalený CLI obsah ostávajú bez zmeny.
+
+### Oprava potvrdená Windows CI (Task 7)
+
+Prenosný validator v zelenom `lawoss/okf/src/fs.ts` klasifikuje rodičovský priečinok pamäte cez natívne `basename(parent) === "memory"`; pôvodné `endsWith("/memory")` odmietalo platný `memory/index.md` na Windows. Bežné vnorené indexy naďalej nesmú mať frontmatter a pamäťový index smie niesť iba `okf_version`. Regresie v `lawoss/okf/test/okf.test.ts` pokrývajú oba prípady a explicitné LF aj CRLF šablóny so zachovaním pôvodného používateľského textu a presného zrkadla AGENTS/CLAUDE. Produkčné konce riadkov sa nemenia. Pre túto overenú opravu sa regeneruje iba OKF bundle; pamäťový bundle zostáva bajtovo nezmenený.

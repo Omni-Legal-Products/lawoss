@@ -599,7 +599,7 @@ var ENTITY_TYPES = ["klient", "spis", "projekt"];
 
 // src/fs.ts
 import { existsSync as existsSync3, lstatSync as lstatSync2, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync3, statSync, writeFileSync as writeFileSync2 } from "node:fs";
-import { dirname as dirname2, join as join3, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
+import { basename, dirname as dirname2, join as join3, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
 // src/core.ts
 var OKF_VERSION = "0.1";
 var ENTITY_TYPES2 = ["klient", "spis", "projekt"];
@@ -1203,7 +1203,7 @@ function validate(root) {
     if (workingPaths.some((path) => rel.startsWith(path)) || rel.split("/").some((part) => WORKING_FOLDERS.some((folder) => folder === part)) || rel.split("/").pop() === "BRAIN.md")
       continue;
     const parent = dirname2(join3(root, rel));
-    const bundleRoot = !rel.includes("/") || parent.endsWith("/memory") || ENTITY_TYPES2.some((type) => CARD_ALIASES[type].some((name) => existsSync3(join3(parent, name))));
+    const bundleRoot = !rel.includes("/") || basename(parent) === "memory" || ENTITY_TYPES2.some((type) => CARD_ALIASES[type].some((name) => existsSync3(join3(parent, name))));
     const error = validateMarkdown(rel, readText(join3(root, rel)), bundleRoot);
     if (error)
       errors.push(error);
@@ -1255,7 +1255,7 @@ ${body}
 
 // src/naming-fs.ts
 import { closeSync as closeSync2, constants as constants2, fstatSync as fstatSync2, fsyncSync, lstatSync as lstatSync4, mkdirSync as mkdirSync3, openSync as openSync2, opendirSync, readSync as readSync2, realpathSync as realpathSync2, renameSync as renameSync2, unlinkSync, writeSync } from "node:fs";
-import { basename, dirname as dirname3, extname, isAbsolute as isAbsolute2, join as join4, relative as relative4, resolve as resolve4, sep as sep4 } from "node:path";
+import { basename as basename2, dirname as dirname3, extname, isAbsolute as isAbsolute2, join as join4, relative as relative4, resolve as resolve4, sep as sep4 } from "node:path";
 
 // ../okf-pamat/src/workspace-memory-fs.ts
 import { closeSync, constants, fstatSync, lstatSync as lstatSync3, openSync, readSync, realpathSync } from "node:fs";
@@ -1634,8 +1634,8 @@ function checkCase(path, shouldExist) {
     for (let entry = directory.readSync();entry; entry = directory.readSync()) {
       if (++count > 20000)
         conflict("Destination/path directory exceeds bounded case-check limit (20000 entries)");
-      if (fold(entry.name) === fold(basename(path))) {
-        if (entry.name !== basename(path) || !shouldExist)
+      if (fold(entry.name) === fold(basename2(path))) {
+        if (entry.name !== basename2(path) || !shouldExist)
           conflict(`Case-fold collision: ${path}`);
         found = true;
       }
@@ -2004,8 +2004,8 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
 function writeNamingPlanOutsideMatter(matterDir, output, plan) {
   const root = rootDirectory(matterDir), path = resolve4(output);
   checkedPath(dirname3(path), "directory");
-  const parent = realpathSync2(dirname3(path)), physicalOutput = join4(parent, basename(path));
-  if (contained(root.path, physicalOutput) || !safeRelativePath(basename(path)))
+  const parent = realpathSync2(dirname3(path)), physicalOutput = join4(parent, basename2(path));
+  if (contained(root.path, physicalOutput) || !safeRelativePath(basename2(path)))
     throw new NamingSchemaError("--out must be a new portable filename outside the matter root");
   checkCase(physicalOutput, false);
   exclusive(physicalOutput, JSON.stringify(plan, null, 2) + `

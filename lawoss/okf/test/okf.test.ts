@@ -368,6 +368,19 @@ test("both validators accept initialized matter and plain Markdown source docume
   expect(runCli(["validate", root]).code).toBe(0);
 });
 
+test("memory indexes allow only okf_version while ordinary nested indexes reject frontmatter", () => {
+  const index = '---\nokf_version: "0.1"\n---\n';
+  for (const folder of ["memory", join("nested", "memory"), "not-memory", "memories", "ordinary"]) {
+    mkdirSync(join(root, folder), { recursive: true });
+    writeFileSync(join(root, folder, "index.md"), index);
+  }
+  const errors = validate(root);
+  expect(errors.map(error => error.path).sort()).toEqual(["memories/index.md", "not-memory/index.md", "ordinary/index.md"]);
+  expect(errors.every(error => error.message.includes("nesmie"))).toBe(true);
+  writeFileSync(join(root, "memory", "index.md"), index.replace('okf_version: "0.1"', 'okf_version: "0.1"\ntitle: invalid'));
+  expect(validate(root).find(error => error.path === "memory/index.md")?.message).toContain("iba okf_version");
+});
+
 describe("YAML frontmatter preserves user text without injecting structure", () => {
   const text = 'Ján "Jano" Novák: C:\\spisy\\novy\n---\nregistry_status: verified\ntype: forged';
   const yaml = (document: string) => Bun.YAML.parse(document.split(/\r?\n---(?:\r?\n|$)/)[0].replace(/^---\r?\n/, ""));
@@ -384,11 +397,12 @@ describe("YAML frontmatter preserves user text without injecting structure", () 
     expect(validate(root)).toEqual([]);
   });
 
-  for (const type of ["klient", "spis", "projekt"] as const) {
-    test(`${type}: every generated header is valid YAML and bodies retain readable text`, () => {
+  for (const type of ["klient", "spis", "projekt"] as const) for (const eol of ["\n", "\r\n"]) {
+    test(`${type}: every generated header is valid YAML and bodies retain readable text (${eol === "\n" ? "LF" : "CRLF"})`, () => {
+      const templates = { ...TEMPLATES, [type]: Object.fromEntries(Object.entries(TEMPLATES[type]).map(([path, content]) => [path, content.replace(/\r?\n/g, eol)])) };
       const generated = planEntity({ type, dir: "/synthetic", title: text, description: text, klient: text,
         ico: text, identifier: text, identifierType: text, protistrana: text, protistranaIco: text,
-        oblast: text, spzn: text, sud: text, advokat: text, jurisdiction: "sk", date: "2026-09-20" }, TEMPLATES, () => false);
+        oblast: text, spzn: text, sud: text, advokat: text, jurisdiction: "sk", date: "2026-09-20" }, templates, () => false);
       for (const entry of generated.entries.filter((entry) => entry.path.endsWith(".md"))) {
         expect(() => yaml(entry.content ?? "")).not.toThrow();
         expect(validateMarkdown(entry.path, entry.content ?? "", true)).toBeNull();
@@ -396,7 +410,7 @@ describe("YAML frontmatter preserves user text without injecting structure", () 
       const card = generated.entries.find((entry) => entry.path === ({ klient: "client.md", spis: "matter.md", projekt: "project.md" })[type])?.content ?? "";
       expect(yaml(card)).toMatchObject({ type, title: text, description: text, tags: [], timestamp: "2026-09-20", updated: "2026-09-20" });
       expect(parseFrontmatter(card)).toMatchObject({ type, title: text, description: text });
-      expect(card).toContain(`\n# ${text}\n\n${text}\n`);
+      expect(card).toContain(`${eol}# ${text}${eol}${eol}${text}${eol}`);
       if (type === "klient") expect(yaml(card)).toMatchObject({ identifier: text, identifier_type: text, ico: text, registry_status: "unverified" });
       if (type === "spis") expect(yaml(card)).toMatchObject({ klient: text, klient_ico: text, protistrana: text, protistrana_ico: text,
         spisova_znacka: text, sud: text, advokat: text, oblast_prava: [text], jurisdiction: "sk" });
