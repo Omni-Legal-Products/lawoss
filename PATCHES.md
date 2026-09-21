@@ -215,3 +215,16 @@ Zelená akcia v cockpite vychádza z konkrétneho discovered record (nie len que
 ## Internal candidate: document naming (Task 4)
 
 Portable naming and the third native OKF skill `/usporiadaj-spis` are implemented only in LAWOSS-owned `lawoss/okf/**`, `lawoss/skills/usporiadaj-spis/**`, `apps/app/src/lawoss/okf/skill-bundle.ts`, `apps/app/src/lawoss/domains/marketplace/{use-native-integrations.ts,native-catalog.tsx}` and their LAWOSS tests. No upstream file hook, server file manager or new dependency is introduced. Native install/badge now cover all three skills; the new-matter draft flow keeps its two required skills. [Authorizing spec/plan, Task 4](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/83).
+
+## Internal candidate: explicit local MCP export (Task 5)
+
+[Authorizing spec/plan](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/83).
+
+| Súbory upstreamu | Úprava a dôvod |
+|---|---|
+| `apps/app/src/app/types.ts` | Natívny MCP záznam zachováva lokálne `cwd` z pripnutej OpenCode v2 schémy a explicitný efektívny príznak `disabledByTools`. |
+| `apps/app/src/react-app/domains/connections/store.ts` | Existujúci serverový zoznam prenesie vyhodnotený tools stav ako boolean; file fallback ho na všetkých záznamoch zruší, aby lokálny export nemohol vydávať neoverený stav za efektívny. Nevzniká druhý config store ani credential reader. |
+| `apps/app/src/react-app/domains/settings/pages/mcp-view.tsx` | Jeden zelený dialóg exportu je pripojený k existujúcemu natívnemu zoznamu MCP a identity workspace; zmena zoznamu alebo workspace ruší staré potvrdenie. |
+| `apps/server/src/runtime-config-migrate.e2e.test.ts` | Syntetická regresia preukazuje precedence global/project/runtime, zachovanie v2 polí konektorov pred a po migrácii a absenciu obnovy OAuth tokenov. Produkčný serverový kód sa nemení. |
+
+Samotný builder, dialóg a testy sú v zelených `apps/app/src/lawoss/**` a `apps/app/tests/lawoss-mcp-config-export.test.tsx`. Export vyžaduje výslovný výber a potvrdenie, vytvorí iba lokálny Blob download a nikdy nečíta OAuth credential store. Runtime zdroj sa v UI neprezentuje ako dôkaz globálneho alebo klientského rozsahu.
