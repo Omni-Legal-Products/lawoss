@@ -304,7 +304,7 @@ klient/
 ├── client.md
 ├── memory/          ← subjekty a AML preverenia
 └── <oblasť>/spis/
-    ├── spis.md      ← karta veci (novy-spis) — iba čítame
+    ├── matter.md    ← karta veci (staršie spis.md) (novy-spis) — iba čítame
 ├── _STATUS.md       ← ľudské rozhranie; prepisujeme LEN medzi markermi
 ├── BRAIN.md         ← vstupný bod pre agentov (nikdy neprepíšeme existujúci)
     ├── _STATUS.md   ← ľudské rozhranie; prepisujeme LEN medzi markermi
@@ -415,3 +415,12 @@ kontrola platí aj pre náhľad a schválenie ju neobíde. Sú to tvrdenia o pre
 CLI samo nevolá register ani neoveruje obsah citácie. Staršie záznamy bez polí
 zostávajú čitateľné a synchronizovateľné; `validate` ich označí na doplnenie.
 Prameň doplň až po skutočnom overení, s novým riadkom histórie a aktuálnou revíziou.
+
+
+### Ručný stav a aktuálnosť
+
+`okf-memory read` prenáša aj ručné časti `_STATUS.md` (Fázu, Ďalší krok a vlastné poznámky), takže sa dostanú do natívneho checkpointu. Generované bloky sa v tomto výpise neopakujú; plné zdrojové záznamy zostávajú súčasťou čítania. Neúplné/duplicitné markery vyvolajú viditeľnú chybu čítania.
+
+Pole `manual_updated: YYYY-MM-DD` vo frontmatteri označuje deklarovaný dátum poslednej vecnej kontroly ručného obsahu. Aktualizuje ho autor pri kontrole Fázy a Ďalšieho kroku. `sync` ho nemení; pôvodný `updated` ani čas zmeny súboru ho nenahrádzajú. Nová šablóna má prázdne `manual_updated`; existujúci súbor sa automaticky nedatuje.
+
+Chýbajúci, neplatný či budúci dátum znamená neznámu aktuálnosť. Novší dátum `updated` v načítanej pamäti znamená starší ručný stav. Ani platný dátum nedokazuje ľudské schválenie alebo kontrolu všetkých externých podkladov; zmeny v ten istý deň a plná rekonciliácia vstupov zostávajú mimo tejto kontroly. Kokpit upozorňuje na neznámy/starší ručný stav a odkazuje na `_STATUS.md`.

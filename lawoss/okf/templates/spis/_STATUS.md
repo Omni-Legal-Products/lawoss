@@ -2,9 +2,12 @@
 type: status
 title: {{TITLE}} — Status
 updated: {{DATE}}
+manual_updated: ""
 ---
 
 # {{TITLE}} — Status (projekcia pamäte)
+
+<!-- manual_updated: dátum YYYY-MM-DD poslednej vecnej kontroly ručných častí; sync ho nemení. Prázdny = aktuálnosť neznáma. -->
 
 > **Fáza:** _(jedna veta — kde vec práve stojí)_
 > **Ďalší krok:** _(čo sa má stať najbližšie + kto to má urobiť + dokedy)_

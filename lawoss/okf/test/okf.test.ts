@@ -24,10 +24,10 @@ describe("core", () => {
   test("planEntity is pure: exists() decides create vs skip", () => {
     const p = planEntity({ type: "spis", dir: "/x", title: "Vec", date: "2026-09-02" }, TEMPLATES, (path) => path === "AGENTS.md");
     const byPath = Object.fromEntries(p.entries.map((e) => [e.path, e.action]));
-    expect(byPath["spis.md"]).toBe("create");
+    expect(byPath["matter.md"]).toBe("create");
     expect(byPath["AGENTS.md"]).toBe("skip");
     expect(byPath["CLAUDE.md"]).toBe("create");
-    expect(p.entries.find((e) => e.path === "spis.md")?.content).toContain("type: spis");
+    expect(p.entries.find((e) => e.path === "matter.md")?.content).toContain("type: spis");
   });
   test("validateMarkdown enforces v0.1 rules", () => {
     expect(validateMarkdown("x.md", "just text", true)?.message).toContain("type:");
@@ -43,13 +43,13 @@ describe("fs", () => {
   test("detect on an empty folder reports no OKF and what is missing", () => {
     const d = detect(root, "klient");
     expect(d.type).toBeNull();
-    expect(d.missing).toContain("klient.md");
+    expect(d.missing).toContain("client.md");
     expect(d.missing).toContain("AGENTS.md");
   });
   test("apply creates only missing files; a second apply changes nothing", () => {
     const input = { type: "klient" as const, dir: root, title: "ACME s.r.o.", ico: "12345678", date: "2026-09-02" };
     const first = apply(plan(input));
-    expect(first.created).toContain("klient.md");
+    expect(first.created).toContain("client.md");
     expect(first.created).toContain("CLAUDE.md");
     expect(readFileSync(join(root, "CLAUDE.md"), "utf8")).toBe(readFileSync(join(root, "AGENTS.md"), "utf8"));
     const second = apply(plan(input));
@@ -60,7 +60,7 @@ describe("fs", () => {
     writeFileSync(join(root, "AGENTS.md"), "MOJE VLASTNE\n");
     apply(plan({ type: "spis", dir: root, title: "Vec", date: "2026-09-02" }));
     expect(readFileSync(join(root, "AGENTS.md"), "utf8")).toBe("MOJE VLASTNE\n");
-    expect(existsSync(join(root, "spis.md"))).toBe(true);
+    expect(existsSync(join(root, "matter.md"))).toBe(true);
   });
   test("a scaffolded folder validates; a hand-made one without type: does not", () => {
     apply(plan({ type: "spis", dir: root, title: "Vec", date: "2026-09-02" }));
@@ -93,7 +93,7 @@ describe("fs", () => {
     render(root);
     const index = readFileSync(join(root, "index.md"), "utf8");
     expect(index).toContain('okf_version: "0.1"');
-    expect(index).toContain("[Spisy/Vec A](./Spisy/Vec A/spis.md)");
+    expect(index).toContain("[Spisy/Vec A](./Spisy/Vec A/matter.md)");
   });
 });
 
@@ -104,7 +104,7 @@ describe("cli", () => {
     expect(run(["plan", "spis", root, "--title", "Vec", "--sk", "--json"], c.out)).toBe(0);
     const parsed = JSON.parse(c.lines.join("\n"));
     expect(parsed.entries.every((e: { content?: string }) => e.content === undefined)).toBe(true);
-    expect(existsSync(join(root, "spis.md"))).toBe(false);
+    expect(existsSync(join(root, "matter.md"))).toBe(false);
   });
   test("apply then validate returns 0; validate on broken folder returns 1", () => {
     expect(run(["apply", "spis", root, "--title", "Vec", "--sk"], () => {})).toBe(0);
@@ -126,7 +126,7 @@ describe("configured lawyer fallback (#50)", () => {
   };
   const plannedLawyer = (dir: string, advokat?: string) => {
     const p = plan({ type: "spis", dir, title: "Synthetic matter", jurisdiction: "sk", advokat });
-    return parseFrontmatter(p.entries.find((entry) => entry.path === "spis.md")?.content ?? "")?.advokat;
+    return parseFrontmatter(p.entries.find((entry) => entry.path === "matter.md")?.content ?? "")?.advokat;
   };
 
   test("ancestor Office name is identical in plan and CLI apply, without granting permission", () => {
@@ -135,7 +135,7 @@ describe("configured lawyer fallback (#50)", () => {
     expect(plannedLawyer(dir)).toBe("Ján Novák");
     expect(existsSync(dir)).toBe(false);
     expect(run(["apply", "spis", dir, "--title", "Synthetic matter", "--sk"], () => {})).toBe(0);
-    expect(parseFrontmatter(readFileSync(join(dir, "spis.md"), "utf8"))?.advokat).toBe("Ján Novák");
+    expect(parseFrontmatter(readFileSync(join(dir, "matter.md"), "utf8"))?.advokat).toBe("Ján Novák");
     expect(readStandingAuthorization(office)).toBeUndefined();
   });
 
@@ -145,7 +145,7 @@ describe("configured lawyer fallback (#50)", () => {
     const explicit = 'Jana "Janka" Nováková';
     expect(plannedLawyer(dir, explicit)).toBe(explicit);
     expect(run(["apply", "spis", dir, "--title", "Synthetic matter", "--sk", "--advokat", explicit], () => {})).toBe(0);
-    expect(parseFrontmatter(readFileSync(join(dir, "spis.md"), "utf8"))?.advokat).toBe(explicit);
+    expect(parseFrontmatter(readFileSync(join(dir, "matter.md"), "utf8"))?.advokat).toBe(explicit);
   });
 
   test("quoted configured names round-trip quotes and backslashes", () => {
@@ -213,17 +213,17 @@ describe("kontrakt spisu", () => {
       TEMPLATES,
       () => false,
     );
-    const card = p.entries.find((e) => e.path === "spis.md");
+    const card = p.entries.find((e) => e.path === "matter.md");
     expect(card?.content).toContain("jurisdiction: sk");
   });
 
   test("advokát prichádza z --advokat; bez neho je v karte [DOPLNIT], nikdy meno natvrdo (#50)", () => {
     expect(run(["apply", "spis", join(root, "s"), "--title", "Vec", "--cz", "--advokat", "Novák Jan"], () => {})).toBe(0);
-    const withName = readFileSync(join(root, "s", "spis.md"), "utf8");
+    const withName = readFileSync(join(root, "s", "matter.md"), "utf8");
     expect(withName).toContain('advokat: "Novák Jan"');
     expect(parseFrontmatter(withName)?.advokat).toBe("Novák Jan");
     expect(run(["apply", "spis", join(root, "bez"), "--title", "Vec", "--cz"], () => {})).toBe(0);
-    expect(parseFrontmatter(readFileSync(join(root, "bez", "spis.md"), "utf8"))?.advokat).toBe("[DOPLNIT]");
+    expect(parseFrontmatter(readFileSync(join(root, "bez", "matter.md"), "utf8"))?.advokat).toBe("[DOPLNIT]");
   });
 
   test("_STATUS.md má markery pre všetkých šesť blokov, inak okf-memory sync skončí konfliktom", () => {
@@ -245,7 +245,7 @@ describe("alpha client and two matters", () => {
     for (const type of ["fo", "fo-podnikatel"]) {
       const dir = join(root, type);
       expect(run(["apply", "klient", dir, "--title", "Synthetic Person", "--client-type", type, "--country", "cz", "--citizenship", "sk", "--residence-country", "at"], () => {})).toBe(0);
-      expect(parseFrontmatter(readFileSync(join(dir, "klient.md"), "utf8"))).toMatchObject({ country: "CZ", citizenship: "SK", residence_country: "AT" });
+      expect(parseFrontmatter(readFileSync(join(dir, "client.md"), "utf8"))).toMatchObject({ country: "CZ", citizenship: "SK", residence_country: "AT" });
     }
   });
   test("corporate client has shared documents and independent ongoing advisory matters", () => {
@@ -254,7 +254,7 @@ describe("alpha client and two matters", () => {
     for (const title of ["Korporatna podpora", "Pracovne pravo"]) {
       const dir = join(root, "Spisy", title);
       expect(run(["apply", "spis", dir, "--title", title, "--klient", "Synthetic Company", "--sk", "--matter-kind", "advisory", "--mode", "ongoing"], () => {})).toBe(0);
-      expect(parseFrontmatter(readFileSync(join(dir, "spis.md"), "utf8"))).toMatchObject({ matter_kind: "advisory", mode: "ongoing", sud: "", spisova_znacka: "" });
+      expect(parseFrontmatter(readFileSync(join(dir, "matter.md"), "utf8"))).toMatchObject({ matter_kind: "advisory", mode: "ongoing", sud: "", spisova_znacka: "" });
       expect(existsSync(join(dir, "PRACOVNY-PROFIL.md"))).toBe(true);
     }
     render(root);
@@ -264,7 +264,7 @@ describe("alpha client and two matters", () => {
   });
   test("client identity and incomplete registry provenance survive CLI creation", () => {
     expect(run(["apply", "klient", root, "--title", "Example", "--client-type", "po", "--country", "AT", "--identifier-type", "FN", "--identifier", "123x"], () => {})).toBe(0);
-    const card = parseFrontmatter(readFileSync(join(root, "klient.md"), "utf8"));
+    const card = parseFrontmatter(readFileSync(join(root, "client.md"), "utf8"));
     expect(card?.client_type).toBe("po");
     expect(card?.country).toBe("AT");
     expect(card?.identifier).toBe("123x");
@@ -280,9 +280,9 @@ describe("alpha client and two matters", () => {
       expect(existsSync(join(dir, "05_Komunikacia", "Dolezita_posta"))).toBe(true);
       expect(readFileSync(join(dir, "VSTUPY.md"), "utf8")).toContain("pending");
       expect(readFileSync(join(dir, "AGENTS.md"), "utf8")).toContain("BRAIN.md");
-      expect(readFileSync(join(dir, "spis.md"), "utf8")).not.toContain("lehoty:");
+      expect(readFileSync(join(dir, "matter.md"), "utf8")).not.toContain("lehoty:");
     }
-    const card = parseFrontmatter(readFileSync(join(root, "Spisy", "Poradenstvo", "spis.md"), "utf8"));
+    const card = parseFrontmatter(readFileSync(join(root, "Spisy", "Poradenstvo", "matter.md"), "utf8"));
     expect(card?.matter_kind).toBe("advisory");
     expect(card?.mode).toBe("ongoing");
     expect(card?.sud).toBe("");
@@ -325,7 +325,7 @@ describe("office working profile", () => {
   });
   test("unsafe, conflicting and malformed profile paths fail before any write", () => {
     const dir = join(root, "matter");
-    for (const contents of ['matter_folders: ["../outside"]', 'matter_folders: ["/outside"]', 'matter_folders: ["memory"]', 'matter_folders: [".opencode"]', 'matter_folders: ["spis.md/sub"]', 'matter_folders: ["Drafty", "drafty"]', 'matter_folders: wrong', 'folder_roles:\n  drafts: ../outside', 'document_naming: "../{date}"']) {
+    for (const contents of ['matter_folders: ["../outside"]', 'matter_folders: ["/outside"]', 'matter_folders: ["memory"]', 'matter_folders: [".opencode"]', 'matter_folders: ["spis.md/sub"]', 'matter_folders: ["matter.md/sub"]', 'matter_folders: ["client.md/sub"]', 'matter_folders: ["project.md/sub"]', 'matter_folders: ["Drafty", "drafty"]', 'matter_folders: wrong', 'folder_roles:\n  drafts: ../outside', 'document_naming: "../{date}"']) {
       configure(contents);
       expect(() => plan({ type: "spis", dir, title: "Synthetic" })).toThrow();
       expect(existsSync(dir)).toBe(false);
@@ -352,7 +352,7 @@ describe("office working profile", () => {
     configure('matter_folders: ["Drafty"]\n');
     expect(() => apply(plan({ type: "spis", dir, title: "Synthetic" }))).toThrow();
     expect(existsSync(join(outside, ".keep"))).toBe(false);
-    expect(existsSync(join(dir, "spis.md"))).toBe(false);
+    expect(existsSync(join(dir, "matter.md"))).toBe(false);
   });
 });
 
@@ -373,7 +373,7 @@ describe("YAML frontmatter preserves user text without injecting structure", () 
   test("CLI writes a quoted lawyer name as one valid YAML scalar", async () => {
     const lawyer = 'Ján "Jano" Novák';
     expect(run(["apply", "spis", root, "--title", "Vec", "--sk", "--advokat", lawyer], () => {})).toBe(0);
-    const card = readFileSync(join(root, "spis.md"), "utf8");
+    const card = readFileSync(join(root, "matter.md"), "utf8");
     expect(yaml(card)).toMatchObject({ advokat: lawyer, jurisdiction: "sk" });
     expect(parseFrontmatter(card)?.advokat).toBe(lawyer);
     const { runCli } = await import("../../okf-pamat/src/cli.ts");
@@ -391,7 +391,7 @@ describe("YAML frontmatter preserves user text without injecting structure", () 
         expect(() => yaml(entry.content ?? "")).not.toThrow();
         expect(validateMarkdown(entry.path, entry.content ?? "", true)).toBeNull();
       }
-      const card = generated.entries.find((entry) => entry.path === `${type}.md`)?.content ?? "";
+      const card = generated.entries.find((entry) => entry.path === ({ klient: "client.md", spis: "matter.md", projekt: "project.md" })[type])?.content ?? "";
       expect(yaml(card)).toMatchObject({ type, title: text, description: text, tags: [], timestamp: "2026-09-20", updated: "2026-09-20" });
       expect(parseFrontmatter(card)).toMatchObject({ type, title: text, description: text });
       expect(card).toContain(`\n# ${text}\n\n${text}\n`);
@@ -405,7 +405,7 @@ describe("YAML frontmatter preserves user text without injecting structure", () 
 
   test("names and identifiers resembling YAML types remain strings; empty areas remain an array", () => {
     const generated = planEntity({ type: "spis", dir: "/x", title: "false", description: "null", ico: "00123", klient: "123", jurisdiction: "sk" }, TEMPLATES, () => false);
-    const card = generated.entries.find((entry) => entry.path === "spis.md")?.content ?? "";
+    const card = generated.entries.find((entry) => entry.path === "matter.md")?.content ?? "";
     expect(yaml(card)).toMatchObject({ title: "false", description: "null", klient: "123", klient_ico: "00123", oblast_prava: [] });
   });
 

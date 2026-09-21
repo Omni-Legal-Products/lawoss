@@ -33,7 +33,7 @@ const defaultRoles = {
   inbox: "00_Na_zatriedenie", client_documents: "01_Podklady", research: "02_Resers", drafts: "03_Drafty",
   outputs: "04_Vystupy", correspondence: "05_Komunikacia", important_mail: "05_Komunikacia/Dolezita_posta",
 };
-const reserved = /^(?:memory|spisy|office|_kancelaria|agents\.md|claude\.md|brain\.md|memory\.md|klient\.md|spis\.md|projekt\.md|index\.md|log\.md|_status\.md|vstupy\.md|pracovny-profil\.md|komunikacne-kanaly\.md)$/i;
+const reserved = /^(?:memory|spisy|office|_kancelaria|agents\.md|claude\.md|brain\.md|memory\.md|client\.md|klient\.md|matter\.md|spis\.md|project\.md|projekt\.md|index\.md|log\.md|_status\.md|vstupy\.md|pracovny-profil\.md|komunikacne-kanaly\.md)$/i;
 const safeFolder = (path: string) => path.split("/").every((part) =>
   part !== "" && !part.startsWith(".") && part.trim() === part && !/[. ]$/.test(part) &&
   !/[\\<>:"|?*\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(part) && !reserved.test(part) &&

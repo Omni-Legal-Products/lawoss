@@ -67,13 +67,13 @@ describe("nový spis — požiadavka pre agenta", () => {
 
 describe("okf core used by the app preview", () => {
   const templates: TemplateSet = {
-    klient: { "klient.md": "---\ntype: klient\ntitle: {{TITLE}}\n---\n", "AGENTS.md": "---\ntype: agents\n---\n", "MEMORY.md": "---\ntype: memory\n---\n" },
-    spis: { "spis.md": "---\ntype: spis\n---\n", "_STATUS.md": "---\ntype: status\n---\n", "AGENTS.md": "---\ntype: agents\n---\n", "MEMORY.md": "---\ntype: memory\n---\n" },
-    projekt: { "projekt.md": "---\ntype: projekt\n---\n", "AGENTS.md": "---\ntype: agents\n---\n", "MEMORY.md": "---\ntype: memory\n---\n" },
+    klient: { "client.md": "---\ntype: klient\ntitle: {{TITLE}}\n---\n", "AGENTS.md": "---\ntype: agents\n---\n", "MEMORY.md": "---\ntype: memory\n---\n" },
+    spis: { "matter.md": "---\ntype: spis\n---\n", "_STATUS.md": "---\ntype: status\n---\n", "AGENTS.md": "---\ntype: agents\n---\n", "MEMORY.md": "---\ntype: memory\n---\n" },
+    projekt: { "project.md": "---\ntype: projekt\n---\n", "AGENTS.md": "---\ntype: agents\n---\n", "MEMORY.md": "---\ntype: memory\n---\n" },
   };
   test("preview plan for a client lists card, AGENTS, CLAUDE mirror and index", () => {
     const paths = planEntity({ type: "klient", dir: "/k", title: "K" }, templates, () => false).entries.map((e) => e.path);
-    expect(paths).toEqual(["klient.md", "AGENTS.md", "MEMORY.md", "CLAUDE.md", "index.md", "Spisy/.keep", "PRACOVNY-PROFIL.md", "00_Na_zatriedenie/.keep", "01_Podklady/.keep", "02_Resers/.keep", "03_Drafty/.keep", "04_Vystupy/.keep", "05_Komunikacia/.keep", "05_Komunikacia/Dolezita_posta/.keep"]);
+    expect(paths).toEqual(["client.md", "AGENTS.md", "MEMORY.md", "CLAUDE.md", "index.md", "Spisy/.keep", "PRACOVNY-PROFIL.md", "00_Na_zatriedenie/.keep", "01_Podklady/.keep", "02_Resers/.keep", "03_Drafty/.keep", "04_Vystupy/.keep", "05_Komunikacia/.keep", "05_Komunikacia/Dolezita_posta/.keep"]);
   });
   test("every generated concept document would pass v0.1 validation", () => {
     const plan = planEntity({ type: "spis", dir: "/s", title: "S" }, templates, () => false);
@@ -86,7 +86,7 @@ describe("okf core used by the app preview", () => {
 
 /**
  * Jurisdikcia vybraná v dialógu sa musí dostať až do karty veci. Cesta je
- * dlhá — formulár → požiadavka pre agenta → `okf` CLI → `spis.md` — a doteraz
+ * dlhá — formulár → požiadavka pre agenta → `okf` CLI → `matter.md` — a doteraz
  * končila hneď na prvom kroku: prompt ju spomínal len ľudsky a agent nemal
  * podľa čoho zložiť prepínač. Spis potom vznikol bez `jurisdiction:` a
  * `okf-memory init` ho odmietol.

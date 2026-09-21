@@ -3,7 +3,8 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, 
 import { dirname, join, relative, resolve, sep } from "node:path";
 
 import {
-  CARD_FILE,
+  CARD_ALIASES,
+  existingCard,
   WORKING_FOLDERS,
   ENTITY_TYPES,
   type DetectResult,
@@ -64,7 +65,7 @@ export function detect(dir: string, hint?: EntityType): DetectResult {
     okfVersion: null, markdownCount: 0, missing: [],
   };
   if (!isDir) return base;
-  const type = ENTITY_TYPES.find((candidate) => existsSync(join(dir, CARD_FILE[candidate]))) ?? null;
+  const type = ENTITY_TYPES.find((candidate) => CARD_ALIASES[candidate].some((name) => existsSync(join(dir, name)))) ?? null;
   const hasAgents = existsSync(join(dir, "AGENTS.md"));
   const hasClaude = existsSync(join(dir, "CLAUDE.md"));
   const claudeIsMirror = hasAgents && hasClaude ? readText(join(dir, "AGENTS.md")) === readText(join(dir, "CLAUDE.md")) : null;
@@ -83,7 +84,15 @@ export function plan(input: PlanInput): Plan {
   const templates = existsSync(agents) ? { ...TEMPLATES, [input.type]: { ...TEMPLATES[input.type], "AGENTS.md": readText(agents) } } : TEMPLATES;
   const advokat = input.advokat?.trim() || (input.type === "spis" ? readConfiguredLawyerName(findOfficeDir(input.dir)) : undefined);
   const profile = storedProfile(input.dir) ?? input.workingProfile ?? (input.type === "spis" ? officeProfile(input.dir) : undefined);
-  const result = planEntity({ ...input, advokat, workingProfile: profile }, templates, (p) => existsSync(join(input.dir, p)));
+  let clientCardPath: string | undefined;
+  if (input.type === "spis") {
+    for (let parent = dirname(resolve(input.dir)); ; parent = dirname(parent)) {
+      const card = existingCard("klient", (name) => existsSync(join(parent, name)));
+      if (card) { clientCardPath = relative(input.dir, join(parent, card)).split("\\").join("/"); break; }
+      if (dirname(parent) === parent) break;
+    }
+  }
+  const result = planEntity({ ...input, advokat, workingProfile: profile, clientCardPath }, templates, (p) => existsSync(join(input.dir, p)));
   if (existsSync(agents)) {
     const mirror = result.entries.find((entry) => entry.path === "CLAUDE.md" && entry.action === "create");
     if (mirror) mirror.content = readText(agents);
@@ -98,6 +107,9 @@ export function apply(p: Plan): { created: string[]; skipped: string[] } {
   // Vlastný pracovný priečinok nesmie presmerovať zápis cez symlink mimo entity.
   // Over celý plán pred prvým zápisom, aby odmietnutie nezanechalo polovičný spis.
   const root = resolve(p.dir);
+  const card = existingCard(p.type, (name) => existsSync(join(root, name)));
+  const plannedCard = p.entries.find((entry) => CARD_ALIASES[p.type].includes(entry.path));
+  if (plannedCard && (card || plannedCard.action === "skip") && card !== plannedCard.path) throw new Error("Karta entity sa od náhľadu zmenila; načítaj nový plán.");
   for (const entry of p.entries.filter((item) => item.action === "create")) {
     const target = resolve(root, entry.path);
     if (!target.startsWith(root + sep)) throw new Error(`Cesta opúšťa priečinok entity: ${entry.path}`);
@@ -131,7 +143,7 @@ export function validate(root: string): ValidationError[] {
     // Source documents and the generated agent entry point are not memory concepts.
     if (workingPaths.some((path) => rel.startsWith(path)) || rel.split("/").some((part) => WORKING_FOLDERS.some((folder) => folder === part)) || rel.split("/").pop() === "BRAIN.md") continue;
     const parent = dirname(join(root, rel));
-    const bundleRoot = !rel.includes("/") || parent.endsWith("/memory") || ENTITY_TYPES.some((type) => existsSync(join(parent, CARD_FILE[type])));
+    const bundleRoot = !rel.includes("/") || parent.endsWith("/memory") || ENTITY_TYPES.some((type) => CARD_ALIASES[type].some((name) => existsSync(join(parent, name))));
     const error = validateMarkdown(rel, readText(join(root, rel)), bundleRoot);
     if (error) errors.push(error);
   }
@@ -164,7 +176,7 @@ export function render(root: string): { written: string[]; kept: string[] } {
     const text = readText(index);
     const fm = parseFrontmatter(text);
     const head = fm ? text.slice(0, text.indexOf("\n---", 3) + 4) : "";
-    const cards = listMarkdown(root).filter((rel) => rel.includes("/") && /\/(spis|projekt|klient)\.md$/.test(rel));
+    const cards = listMarkdown(root).filter((rel) => rel.includes("/") && /\/(matter|spis|project|projekt|client|klient)\.md$/.test(rel));
     const body = cards.length
       ? cards.map((rel) => `- [${rel.split("/").slice(0, -1).join("/")}](./${rel})`).join("\n")
       : "_(zatiaľ žiadne)_";

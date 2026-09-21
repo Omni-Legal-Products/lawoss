@@ -248,6 +248,11 @@ export function attention(
   todayIso: string,
 ): AttentionRow[] {
   const rows: AttentionRow[] = [];
+  if (input.manualStatus && input.manualStatus.state !== "dated") {
+    rows.push({ id: "status:manual", kind: "nález", state: input.manualStatus.state === "stale" ? "nespracované" : "chýba údaj",
+      title: "Ručný stav veci", detail: input.manualStatus.message,
+      file: input.path ? `${input.path}/_STATUS.md` : "_STATUS.md" });
+  }
   for (const line of (input.intake ?? "").split("\n")) {
     const cells = line.trim().split("|").slice(1, -1).map((cell) => cell.trim());
     if (cells[4] !== "pending") continue;
@@ -317,7 +322,7 @@ export function attention(
       state: "chýba údaj",
       title: `Obal: ${f.label}`,
       detail: "doplní sa v karte spisu alebo v zázname typu matter",
-      file: `${matter.path}/spis.md`,
+      file: input.cardPath ?? (matter.path ? `${matter.path}/` : "./"),
     });
   }
 

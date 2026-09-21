@@ -15,3 +15,5 @@ Je to rekonštruovateľná projekcia uložených zdrojov, nie ďalšia autoritat
 Plugin sám nič neposiela vzdialene. Pri bežnom zhutnení alebo ťahu kontext spracuje už zvolený model v existujúcom natívnom toku. Nezavádza tímovú synchronizáciu ani zámok pre cudzie editory.
 
 Testy: `bun test lawoss/okf-handoff/`. Produkčný vstup je `apps/server/src/opencode-plugins/lawoss-okf-handoff.ts`; existujúci build servera ho zbalí medzi natívne pluginy. Overené rozhranie: `@opencode-ai/plugin` 1.18.29.
+
+Checkpoint zahŕňa aj ručné časti `_STATUS.md` a deklarovaný `manual_updated`. Automatický sync tento dátum neposúva. Odvodené bloky sa nezdvojujú; zdrojové záznamy pamäte ostávajú úplné. Pri chybných markeroch checkpoint hlási chybu a zachová posledný dobrý súbor.

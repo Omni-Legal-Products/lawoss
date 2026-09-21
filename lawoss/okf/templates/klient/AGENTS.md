@@ -8,7 +8,7 @@ updated: {{DATE}}
 
 Zrkadlené s `CLAUDE.md`.
 
-Najprv čítaj `klient.md`, `index.md` a plné relevantné záznamy `memory/`. Spoločné subjekty a preverenia patria klientovi; obsah konkrétnej veci do `Spisy/<vec>/memory/`. Každá vec má samostatné vstupy a úlohy. Pri práci v konkrétnej veci čítaj aj jej `AGENTS.md` a `BRAIN.md`. Preverenie registra nie je potvrdením právnej úplnosti AML.
+Najprv čítaj `{{CARD}}`, `index.md` a plné relevantné záznamy `memory/`. Spoločné subjekty a preverenia patria klientovi; obsah konkrétnej veci do `Spisy/<vec>/memory/`. Každá vec má samostatné vstupy a úlohy. Pri práci v konkrétnej veci čítaj aj jej `AGENTS.md` a `BRAIN.md`. Preverenie registra nie je potvrdením právnej úplnosti AML.
 
 ## Firma a priebežná podpora
 

@@ -62,3 +62,17 @@ test("large context stays complete on disk but compaction receives explicit boun
   expect(Buffer.byteLength(output.context[0])).toBeLessThan(1024);
   expect(output.context[0]).not.toContain(source); expect(output.prompt).toBe("upstream");
 });
+
+test("native checkpoint keeps manual phase, notes and stale date across first sync", async () => {
+  const root = fixture();
+  writeFileSync(join(root, "_STATUS.md"), "---\ntype: status\nmanual_updated: 2026-08-01\n---\n\n# Status\n\n> **Fáza:** Čakáme na podklad.\n\n## Poznámka\nDôležitý ručný fakt.\n");
+  const hooks = await LawossOkfHandoff({ directory: root });
+  const output = { context: [] as string[] };
+  await hooks["experimental.session.compacting"]!({ sessionID: "ses_manual" }, output);
+  const checkpoint = readFileSync(join(root, ".lawoss/handoff/ses_manual.md"), "utf8");
+  expect(checkpoint).toContain("Čakáme na podklad.");
+  expect(checkpoint).toContain("Dôležitý ručný fakt.");
+  expect(checkpoint).toContain("manual_updated: 2026-08-01");
+  await hooks.event!({ event: { type: "session.idle", properties: { sessionID: "ses_manual" } } });
+  expect(readFileSync(join(root, ".lawoss/handoff/ses_manual.md"), "utf8")).toBe(checkpoint);
+});

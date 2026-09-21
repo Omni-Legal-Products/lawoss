@@ -11,7 +11,7 @@ import { composePrompt, targetDir, type Jurisdikcia, type NovySpisForm, type Sub
 import { loadOkfConnection, openSessionWithPrompt, type OkfConnection } from "../../okf/connection";
 import { groupPlan, workspaceRelativePath, type PlanGroupItem } from "../../okf/plan-groups";
 import { loadProfilePreview, type ProfilePreview } from "../../okf/load-profile";
-import { previewPlan } from "../../okf/preview";
+import { previewPlan, probePlanFiles } from "../../okf/preview";
 import { NOVY_SPIS_SKILL_NAME } from "../../okf/skill-bundle";
 import { prepareOkfDraft, okfTargetWithinWorkspace } from "./prepare-draft";
 
@@ -98,7 +98,7 @@ export function NovySpisPanel({ connection, workspace, onOpenSession }: NovySpis
   const dir = useMemo(() => targetDir(effectiveForm), [effectiveForm]);
   // Zistený obsah platí len pre cestu, pri ktorej sa zisťoval — po zmene názvu
   // alebo koreňa je plán opäť „všetko nové“, kým advokát nestlačí Zobraziť plán.
-  const existing = useMemo(() => new Set(probe?.dir === dir ? probe.names : []), [probe, dir]);
+  const existing = useMemo(() => new Set(probe?.dir === dir && probe.formKey === JSON.stringify(effectiveForm) ? probe.names : []), [probe, dir, effectiveForm]);
   const rows = useMemo(() => previewPlan(effectiveForm, (path) => existing.has(path), probe?.profile.profile), [effectiveForm, existing, probe]);
   const groups = useMemo(
     () => groupPlan(rows, { form: effectiveForm, workspacePath: workspace?.path ?? "" }),
@@ -139,9 +139,7 @@ export function NovySpisPanel({ connection, workspace, onOpenSession }: NovySpis
       if (relative === null) throw new Error("Cieľ je mimo workspace.");
       const profile = await loadProfilePreview(connection.client, workspace.id, relative, form.subject === "spis");
       // Root listings omit nested .keep files; probe every planned path before calling it new.
-      const entries = previewPlan(effectiveForm, () => false, profile.profile);
-      const stats = await Promise.all(entries.map(async (entry) => ({ path: entry.path, exists: (await connection.client!.statWorkspaceFile(workspace.id, `${relative}/${entry.path}`)).exists })));
-      names = stats.filter((entry) => entry.exists).map((entry) => entry.path);
+      names = await probePlanFiles(connection.client, workspace.id, relative, effectiveForm, profile.profile);
       setProbe({ dir, names, formKey: JSON.stringify(effectiveForm), profile });
     } catch (error) {
       setProbe(null);

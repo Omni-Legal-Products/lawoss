@@ -24,7 +24,7 @@ import {
 /**
  * Spisový prehľad — read-only cockpit jednej veci (spec MF, bod 3.3).
  *
- * Číta iba to, čo prečítal read-model: kartu `spis.md` a záznamy `memory/*.md`
+ * Číta iba to, čo prečítal read-model: kartu veci a záznamy `memory/*.md`
  * vybranej veci. Nezapisuje, nevolá skill a nemá bránu potvrdenia — každý
  * riadok len ukazuje, z ktorého súboru pochádza. Vec sa vyberá parametrom
  * `?vec=<cesta>`; bez neho sa otvorí prvá vec v prehľade.
@@ -266,7 +266,7 @@ function RegisterRows({ id, cockpit, now }: { id: RegisterId; cockpit: Cockpit; 
             <span className="lw-d">{f.label}</span>
             <span className="lw-t">
               <span className={f.missing ? "" : "lw-mono"}>{f.value}</span>
-              <small className="lw-mono">{cockpit.matter.path}/spis.md</small>
+              <small className="lw-mono">{cockpit.matter.cardPath ?? "Karta veci chýba"}</small>
             </span>
             <span className="lw-ref" />
             <span className={`lw-st${f.missing ? " warn" : ""}`}>{f.missing ? "chýba údaj" : "zapísané"}</span>

@@ -9,9 +9,9 @@ import { groupPlan, workspaceRelativePath, type PlanGroupItem } from "../src/law
  * buildu nie je k dispozícii. Testujeme triedenie plánu, nie obsah kariet.
  */
 const TEMPLATES: TemplateSet = {
-  klient: { "klient.md": "---\ntype: klient\n---\n", "AGENTS.md": "---\ntype: agents\n---\n", "MEMORY.md": "---\ntype: memory\n---\n" },
-  spis: { "spis.md": "---\ntype: spis\n---\n", "_STATUS.md": "---\ntype: status\n---\n", "AGENTS.md": "---\ntype: agents\n---\n", "MEMORY.md": "---\ntype: memory\n---\n" },
-  projekt: { "projekt.md": "---\ntype: projekt\n---\n", "AGENTS.md": "---\ntype: agents\n---\n", "MEMORY.md": "---\ntype: memory\n---\n" },
+  klient: { "client.md": "---\ntype: klient\n---\n", "AGENTS.md": "---\ntype: agents\n---\n", "MEMORY.md": "---\ntype: memory\n---\n" },
+  spis: { "matter.md": "---\ntype: spis\n---\n", "_STATUS.md": "---\ntype: status\n---\n", "AGENTS.md": "---\ntype: agents\n---\n", "MEMORY.md": "---\ntype: memory\n---\n" },
+  projekt: { "project.md": "---\ntype: projekt\n---\n", "AGENTS.md": "---\ntype: agents\n---\n", "MEMORY.md": "---\ntype: memory\n---\n" },
 };
 
 const WORKSPACE = "/Users/x/Workspace";
@@ -35,15 +35,15 @@ const labels = (items: PlanGroupItem[]): string[] => items.map((item) => item.la
 describe("plán nového spisu v troch skupinách", () => {
   test("nový klient — plán ukáže, že preverenie zatiaľ neprebehlo", () => {
     const groups = groupPlan(rowsFor(form), { form, workspacePath: WORKSPACE });
-    expect(labels(groups.prida)).toEqual(["klient.md", "AGENTS.md", "MEMORY.md", "CLAUDE.md", "index.md", "Spisy/.keep", "PRACOVNY-PROFIL.md", "00_Na_zatriedenie/.keep", "01_Podklady/.keep", "02_Resers/.keep", "03_Drafty/.keep", "04_Vystupy/.keep", "05_Komunikacia/.keep", "05_Komunikacia/Dolezita_posta/.keep"]);
+    expect(labels(groups.prida)).toEqual(["client.md", "AGENTS.md", "MEMORY.md", "CLAUDE.md", "index.md", "Spisy/.keep", "PRACOVNY-PROFIL.md", "00_Na_zatriedenie/.keep", "01_Podklady/.keep", "02_Resers/.keep", "03_Drafty/.keep", "04_Vystupy/.keep", "05_Komunikacia/.keep", "05_Komunikacia/Dolezita_posta/.keep"]);
     expect(groups.zostava).toEqual([]);
     expect(labels(groups.pozornost)).toEqual(["Overenie subjektu"]);
   });
 
   /** Akceptačné kritérium spec MF 3.2: existujúci súbor sa neprepíše. */
   test("existujúci priečinok — hotové súbory ostávajú a nezapisujú sa nanovo", () => {
-    const groups = groupPlan(rowsFor(form, ["klient.md", "AGENTS.md"]), { form, workspacePath: WORKSPACE });
-    expect(labels(groups.zostava)).toEqual(["klient.md", "AGENTS.md"]);
+    const groups = groupPlan(rowsFor(form, ["client.md", "AGENTS.md"]), { form, workspacePath: WORKSPACE });
+    expect(labels(groups.zostava)).toEqual(["client.md", "AGENTS.md"]);
     expect(labels(groups.prida)).toEqual(["MEMORY.md", "CLAUDE.md", "index.md", "Spisy/.keep", "PRACOVNY-PROFIL.md", "00_Na_zatriedenie/.keep", "01_Podklady/.keep", "02_Resers/.keep", "03_Drafty/.keep", "04_Vystupy/.keep", "05_Komunikacia/.keep", "05_Komunikacia/Dolezita_posta/.keep"]);
     expect(groups.zostava[0].note).toContain("neprepisuje");
   });
@@ -57,7 +57,7 @@ describe("plán nového spisu v troch skupinách", () => {
     const groups = groupPlan(rowsFor(spis), { form: spis, workspacePath: WORKSPACE });
     expect(labels(groups.pozornost)).toEqual(["Novák Jan — MSPH 79 INS 1-2026"]);
     expect(groups.pozornost[0].note).toContain("Novák Jan — MSPH 79 INS 1/2026");
-    expect(labels(groups.prida)).toContain("spis.md");
+    expect(labels(groups.prida)).toContain("matter.md");
   });
 
   test("chýbajúce IČO a stále neoverená identita vyžadujú pozornosť", () => {

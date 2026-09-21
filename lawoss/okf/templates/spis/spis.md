@@ -29,4 +29,4 @@ updated: {{DATE}}
 - Zápisový protokol: [`BRAIN.md`](./BRAIN.md) po `okf-memory init`
 - Nespracované vstupy: [`VSTUPY.md`](./VSTUPY.md)
 - Priečinky a názvy dokumentov: [`PRACOVNY-PROFIL.md`](./PRACOVNY-PROFIL.md)
-- Klient: [`../../klient.md`](../../klient.md)
+- Klient: {{CLIENT_LINK}}

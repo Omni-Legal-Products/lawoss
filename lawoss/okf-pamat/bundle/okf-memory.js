@@ -1,16 +1,6 @@
 #!/usr/bin/env node
 // @lawoss/okf-pamat — vygenerované z bin/okf-memory.ts cez `bun run build`. Needitovať ručne.
 
-// src/cli.ts
-import { createHash } from "node:crypto";
-import { existsSync as existsSync3, mkdirSync as mkdirSync2, readFileSync as readFileSync3, writeFileSync as writeFileSync2 } from "node:fs";
-import { join as join3, resolve as resolve2 } from "node:path";
-
-// src/store.ts
-import { existsSync as existsSync2, lstatSync, mkdirSync, readFileSync as readFileSync2, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { randomUUID } from "node:crypto";
-import { dirname, join as join2, relative, resolve, sep } from "node:path";
-
 // src/schema.ts
 var RECORD_TYPES = [
   "matter",
@@ -1115,7 +1105,12 @@ function statusSkeleton(j) {
 > **Fáza:**
 > **Ďalší krok:**
 `;
-  return BLOCKS.reduce((t, b) => appendBlock(t, b, EMPTY[j], j), head);
+  return BLOCKS.reduce((t, b) => appendBlock(t, b, EMPTY[j], j), `---
+type: status
+manual_updated: ""
+---
+
+${head}`);
 }
 
 class RenderConflictError extends Error {
@@ -1184,6 +1179,52 @@ function renderStatus(existing, records, j, href) {
   }
   return out;
 }
+function manualStatusContent(text) {
+  let out = text;
+  for (const block of BLOCKS) {
+    const start = startMarker(block);
+    const end = endMarker(block);
+    if (!out.includes(start) && !out.includes(end))
+      continue;
+    const first = out.indexOf(start);
+    const last = out.indexOf(end);
+    if (first < 0 || last < first || out.indexOf(start, first + start.length) >= 0 || out.indexOf(end, last + end.length) >= 0) {
+      throw new RenderConflictError(`Neúplné alebo duplicitné markery ${block} v _STATUS.md; otvor celý súbor.`);
+    }
+    let prefix = out.slice(0, first);
+    for (const heading of BLOCK_HEADING_ALIASES[block]) {
+      prefix = prefix.replace(new RegExp(`(?:^|\\n)##[ 	]*(?:\\d+\\.[ 	]*)?${heading}[ 	]*\\r?\\n[ 	]*$`, "i"), `
+`);
+    }
+    out = prefix + out.slice(last + end.length);
+  }
+  return out.replace(/\r\n/g, `
+`).replace(/\n{3,}/g, `
+
+`).trim();
+}
+
+// src/manual-status.ts
+function readManualStatus(text, records, today = new Date().toISOString().slice(0, 10)) {
+  const content = manualStatusContent(text);
+  const header = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text)?.[1];
+  const value = header ? parseFrontmatter(header).get("manual_updated") : undefined;
+  const updated = typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value && value <= today ? value : undefined;
+  if (!updated)
+    return { content, state: "unknown", message: "Ručný stav: aktuálnosť neznáma — chýba platný manual_updated; čas synchronizácie nie je kontrola obsahu." };
+  const stale = records.some((record) => record.updated > updated);
+  return { content, updated, state: stale ? "stale" : "dated", message: stale ? `Ručný stav z ${updated} je starší než pamäť — skontroluj Fázu a Ďalší krok.` : `Ručný stav má deklarovaný dátum ${updated}; nejde o dôkaz ľudského schválenia ani kontroly všetkých podkladov.` };
+}
+
+// src/cli.ts
+import { createHash } from "node:crypto";
+import { existsSync as existsSync3, mkdirSync as mkdirSync2, readFileSync as readFileSync3, writeFileSync as writeFileSync2 } from "node:fs";
+import { join as join3, resolve as resolve2 } from "node:path";
+
+// src/store.ts
+import { existsSync as existsSync2, lstatSync, mkdirSync, readFileSync as readFileSync2, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { dirname, join as join2, relative, resolve, sep } from "node:path";
 
 // src/validate.ts
 var MIN_NAME_LENGTH = 4;
@@ -2582,6 +2623,15 @@ ${USAGE}` };
       const scope = readScope(dir);
       const problems = [...scope.problems];
       const inputs = [];
+      try {
+        const status = readManualStatus(readFileSync3(join3(dir, STATUS_FILE), "utf8"), scope.records);
+        if (status.content)
+          inputs.push(`## Ručný stav — ${join3(dir, STATUS_FILE)}`, status.message, status.content);
+      } catch (error) {
+        if (!(error instanceof Error && ("code" in error) && error.code === "ENOENT")) {
+          problems.push({ file: join3(dir, STATUS_FILE), message: error instanceof Error ? error.message : String(error) });
+        }
+      }
       const contextFiles = [
         { path: join3(dir, "VSTUPY.md"), title: "Evidencia vstupov" },
         { path: join3(dir, "KOMUNIKACNE-KANALY.md"), title: "Komunikačné kanály veci" },

@@ -6,6 +6,7 @@
  * ich cez `parseRecord` a zloží prehľad cez `buildOverview`. Poškodený súbor
  * nezhodí celé čítanie — skončí v `problems` a zvyšok sa spracuje.
  */
+import { readManualStatus } from "../../../../../lawoss/okf-pamat/src/manual-status.ts";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
@@ -135,8 +136,11 @@ export async function readWorkspaceMemory(
     const recordFiles: Record<string, string> = {};
     const input: MatterInput = { path, records: [], recordFiles, scopePaths };
     const entries = await list(path);
-    const card = CARD_FILES.find((name) => entries.some((e) => e.kind === "file" && e.name === name));
+    const cards = CARD_FILES.filter((name) => entries.some((e) => e.kind === "file" && e.name === name));
+    if (cards.length > 1) problems.push({ path, message: `Viac kariet veci: ${cards.join(", ")}. Zosúlaď ich obsah; prehľad používa ${cards[0]}.` });
+    const card = cards[0];
     if (card) {
+      input.cardPath = childPath(path, card);
       try {
         const fm = parseFrontmatter((await client.readWorkspaceFile(workspaceId, childPath(path, card))).content);
         if (!fm) throw new Error("Karta nemá platný frontmatter.");
@@ -185,6 +189,11 @@ export async function readWorkspaceMemory(
         recordFiles[record.id] ??= bundle.files[record.id];
         input.records.push(record);
       }
+    }
+    if (entries.some((entry) => entry.name === "_STATUS.md" && entry.kind === "file")) {
+      const statusPath = childPath(path, "_STATUS.md");
+      try { input.manualStatus = readManualStatus((await client.readWorkspaceFile(workspaceId, statusPath)).content, input.records, todayIso); }
+      catch (error) { problems.push({ path: statusPath, message: message(error) }); }
     }
     return input;
   });

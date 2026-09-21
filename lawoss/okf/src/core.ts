@@ -45,6 +45,8 @@ export type PlanInput = {
   /** IČO klienta (klient) alebo klient_ico (spis). */
   ico?: string;
   klient?: string;
+  /** Relatívna cesta k existujúcej karte klienta; dopĺňa súborová vrstva. */
+  clientCardPath?: string;
   protistrana?: string;
   protistranaIco?: string;
   oblast?: string;
@@ -85,7 +87,17 @@ export type Plan = {
 export type TemplateSet = Record<EntityType, Record<string, string>>;
 
 /** Karta entity — jediný súbor, podľa ktorého sa dá typ priečinka spoznať. */
-export const CARD_FILE: Record<EntityType, string> = { klient: "klient.md", spis: "spis.md", projekt: "projekt.md" };
+export const CARD_FILE: Record<EntityType, string> = { klient: "client.md", spis: "matter.md", projekt: "project.md" };
+export const CARD_ALIASES: Record<EntityType, readonly string[]> = {
+  klient: ["client.md", "klient.md"], spis: ["matter.md", "spis.md"], projekt: ["project.md", "projekt.md"],
+};
+
+/** Retrofit zachová pôvodnú kartu. Dve karty nie sú bezpečný vstup pre zápis. */
+export function existingCard(type: EntityType, exists: (path: string) => boolean): string | undefined {
+  const cards = CARD_ALIASES[type].filter(exists);
+  if (cards.length > 1) throw new Error(`Viac kariet entity: ${cards.join(", ")}. Najprv zosúlaď ich obsah.`);
+  return cards[0];
+}
 
 export function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -152,13 +164,16 @@ export function templateVars(input: PlanInput): Record<string, string> {
  * mirror AGENTS.md (vstup pre harness-y, ktoré čítajú CLAUDE.md a nie AGENTS.md).
  */
 export function planEntity(input: PlanInput, templates: TemplateSet, exists: (relativePath: string) => boolean): Plan {
-  const vars = templateVars(input);
+  const card = existingCard(input.type, exists) ?? CARD_FILE[input.type];
+  const vars = { ...templateVars(input), CARD: card,
+    CLIENT_LINK: input.clientCardPath ? `[Karta klienta](<${input.clientCardPath}>)` : "Kartu klienta otvor v jeho priečinku.",
+  };
   const files = templates[input.type];
   const entries: PlanEntry[] = [];
   const push = (path: string, content: string) => {
     entries.push(exists(path) ? { path, action: "skip", reason: "exists" } : { path, action: "create", content });
   };
-  for (const [name, template] of Object.entries(files)) push(name, renderTemplate(template, vars));
+  for (const [name, template] of Object.entries(files)) push(CARD_ALIASES[input.type].includes(name) ? card : name, renderTemplate(template, vars));
   const agents = entries.find((entry) => entry.path === "AGENTS.md");
   push("CLAUDE.md", agents?.content ?? renderTemplate(files["AGENTS.md"], vars));
   if (input.type === "klient") {

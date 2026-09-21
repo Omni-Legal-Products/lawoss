@@ -179,3 +179,8 @@ for (const at of ["2026-99-99", "2026-02-30", "2026-09-12Tgarbage", "2026-09-12T
     expect(provenance(r)).not.toBe("overené");
   });
 }
+
+test("missing matter metadata refers to the actual canonical card", () => {
+  const c = buildCockpit(input([{ path: "client/matter", cardPath: "client/matter/matter.md", records: [] }]), "client/matter", TODAY);
+  expect(c?.attention.filter((row) => row.id.startsWith("nalez:obal:")).map((row) => row.file)).toEqual(["client/matter/matter.md", "client/matter/matter.md"]);
+});

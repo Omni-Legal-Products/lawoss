@@ -294,3 +294,28 @@ test("workspace itself may be the client root without losing its shared context"
   expect(out.inputs[0].records.map((r) => r.id)).toEqual(["Q-MATTER", "Q-CLIENT"]);
   expect(out.problems).toEqual([]);
 });
+
+for (const card of ["matter.md", "spis.md", "project.md", "projekt.md"]) {
+  test(`read model keeps actual card path ${card} at workspace root`, async () => {
+    const result = await readWorkspaceMemory(fakeClient({ [card]: "---\ntype: matter\ntitle: Synthetic\n---\n" }), "ws", TODAY);
+    expect(result.inputs[0]?.cardPath).toBe(card);
+    expect(result.matters[0]?.cardPath).toBe(card);
+  });
+}
+test("conflicting card aliases remain an explicit read problem", async () => {
+  const result = await readWorkspaceMemory(fakeClient({
+    "matter.md": "---\ntype: matter\ntitle: New\n---\n",
+    "spis.md": "---\ntype: spis\ntitle: Old\n---\n",
+  }), "ws", TODAY);
+  expect(result.problems.some((problem) => problem.message.includes("matter.md") && problem.message.includes("spis.md"))).toBe(true);
+});
+
+test("read model reports an old manual date despite fresh projection mtime", async () => {
+  const result = await readWorkspaceMemory(fakeClient({
+    "matter.md": "---\ntype: matter\n---\n",
+    "_STATUS.md": "---\ntype: status\nupdated: 2026-09-20\nmanual_updated: 2026-08-01\n---\n\n> **Fáza:** Stále čakáme.\n",
+    "memory/R-001.md": record("R-001", "decision"),
+  }), "ws", TODAY);
+  expect(result.inputs[0]?.manualStatus).toMatchObject({ state: "stale", updated: "2026-08-01" });
+  expect(result.inputs[0]?.manualStatus?.content).toContain("Stále čakáme.");
+});

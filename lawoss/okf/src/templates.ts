@@ -16,7 +16,7 @@ import spisInputs from "../templates/spis/VSTUPY.md" with { type: "text" };
 import type { TemplateSet } from "./core.ts";
 
 export const TEMPLATES: TemplateSet = {
-  klient: { "KOMUNIKACNE-KANALY.md": communicationRegister, "VSTUPY.md": spisInputs, "klient.md": klientCard, "AGENTS.md": klientAgents, "MEMORY.md": klientMemory },
-  spis: { "KOMUNIKACNE-KANALY.md": communicationRegister, "VSTUPY.md": spisInputs, "spis.md": spisCard, "_STATUS.md": spisStatus, "AGENTS.md": spisAgents, "MEMORY.md": spisMemory },
-  projekt: { "projekt.md": projektCard, "AGENTS.md": projektAgents, "MEMORY.md": projektMemory },
+  klient: { "KOMUNIKACNE-KANALY.md": communicationRegister, "VSTUPY.md": spisInputs, "client.md": klientCard, "AGENTS.md": klientAgents, "MEMORY.md": klientMemory },
+  spis: { "KOMUNIKACNE-KANALY.md": communicationRegister, "VSTUPY.md": spisInputs, "matter.md": spisCard, "_STATUS.md": spisStatus, "AGENTS.md": spisAgents, "MEMORY.md": spisMemory },
+  projekt: { "project.md": projektCard, "AGENTS.md": projektAgents, "MEMORY.md": projektMemory },
 };

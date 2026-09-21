@@ -7,6 +7,7 @@
  * z predpisov, žiadne odvodené termíny. Lehota je dátum v poli `deadlines`,
  * úloha je záznam typu `task`, udalosť je riadok v `## History`.
  */
+import type { ManualStatus } from "../okf-pamat/src/manual-status.ts";
 import type { OkfRecord } from "../okf-pamat/src/record.ts";
 
 export type OverviewDeadline = { date: string; title: string; recordId: string };
@@ -15,6 +16,8 @@ export type OverviewTask = { id: string; title: string; assignee?: string; due?:
 export type MatterOverview = {
   /** Cesta priečinka veci relatívne ku koreňu workspace-u. */
   path: string;
+  /** Skutočná cesta načítanej karty, vrátane starších názvov. */
+  cardPath?: string;
   title: string;
   matterRef?: string;
   court?: string;
@@ -28,12 +31,15 @@ export type MatterOverview = {
 
 export type MatterInput = {
   path: string;
-  /** Frontmatter karty `spis.md`, ak existuje (`title`, `spisova_znacka`, `sud`, `status`). */
+  /** Skutočná cesta načítanej karty, vrátane starších názvov. */
+  cardPath?: string;
+  /** Frontmatter kanonickej alebo staršej karty, ak existuje (`title`, `spisova_znacka`, `sud`, `status`). */
   cardFrontmatter?: Record<string, string>;
   records: OkfRecord[];
   /** All directories contributing to this matter, including shared client and office. */
   scopePaths?: string[];
   intake?: string;
+  manualStatus?: ManualStatus;
   /** `id` záznamu → cesta jeho súboru. Prehľad ju nepotrebuje, detail veci ňou odkazuje na zdroj. */
   recordFiles?: Record<string, string>;
 };
@@ -104,6 +110,7 @@ function matterOverview(input: MatterInput): MatterOverview {
       subjects: input.records.filter((r) => r.type === "subject").length,
     },
   };
+  if (input.cardPath) out.cardPath = input.cardPath;
   const matterRef = card.matter_ref || card.spisova_znacka || matterRecord?.matter_ref;
   const court = card.court || card.sud || matterRecord?.court;
   const state = card.status || matterRecord?.status;

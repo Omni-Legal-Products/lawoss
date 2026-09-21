@@ -6,6 +6,7 @@
  * nič neprepíše.
  */
 
+import { readManualStatus } from "./manual-status.ts";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -109,6 +110,14 @@ export function runCli(argv: readonly string[]): CliResult {
       const scope = readScope(dir);
       const problems = [...scope.problems];
       const inputs: string[] = [];
+      try {
+        const status = readManualStatus(readFileSync(join(dir, STATUS_FILE), "utf8"), scope.records);
+        if (status.content) inputs.push(`## Ručný stav — ${join(dir, STATUS_FILE)}`, status.message, status.content);
+      } catch (error) {
+        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+          problems.push({ file: join(dir, STATUS_FILE), message: error instanceof Error ? error.message : String(error) });
+        }
+      }
       const contextFiles = [
         { path: join(dir, "VSTUPY.md"), title: "Evidencia vstupov" },
         { path: join(dir, "KOMUNIKACNE-KANALY.md"), title: "Komunikačné kanály veci" },
