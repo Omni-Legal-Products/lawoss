@@ -48,12 +48,37 @@ const shouldRun = (...modes) => (isAll && !modes.some((m) => EXCLUDED_FROM_ALL.h
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * LAWOSS locale files spread domain dictionaries imported from
+ * `apps/app/src/lawoss/i18n/*` (`...setupEn`). Resolve each spread identifier
+ * to the object literal exported under that name, so the eval below sees the
+ * same keys the app does. Type annotations between the name and `=` are skipped.
+ */
+function resolveSpreadImports(content, filePath) {
+  const imports = new Map();
+  for (const m of content.matchAll(/import\s*\{([^}]+)\}\s*from\s*"([^"]+)";/g)) {
+    for (const name of m[1].split(",").map((n) => n.trim()).filter(Boolean)) imports.set(name, m[2]);
+  }
+  const prelude = [];
+  for (const m of content.matchAll(/^\s*\.\.\.([A-Za-z_$][\w$]*),?\s*$/gm)) {
+    const name = m[1];
+    const source = imports.get(name);
+    if (!source) throw new Error(`${filePath}: spread ${name} has no matching import`);
+    const modulePath = resolve(dirname(filePath), source.endsWith(".ts") ? source : `${source}.ts`);
+    const moduleContent = readFileSync(modulePath, "utf-8");
+    const exported = moduleContent.match(new RegExp(`export const ${name}\\b[^=]*=\\s*\\{([\\s\\S]*?)\\n\\}[^\\n]*;`));
+    if (!exported) throw new Error(`${modulePath}: could not find export const ${name}`);
+    prelude.push(`const ${name} = {${exported[1]}};`);
+  }
+  return prelude.join("\n");
+}
+
 /** Parse a locale .ts file into a JS object via eval. */
 function parseLocale(filePath) {
   const content = readFileSync(filePath, "utf-8");
   const match = content.match(/export default \{([\s\S]*?)\} as const;/);
   if (!match) throw new Error(`Could not parse ${filePath}`);
-  return new Function(`return {${match[1]}}`)();
+  return new Function(`${resolveSpreadImports(content, filePath)}\nreturn {${match[1]}}`)();
 }
 
 /** Extract translation keys from a locale .ts file (as a Set). */
