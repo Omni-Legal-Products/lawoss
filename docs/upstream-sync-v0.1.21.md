@@ -55,6 +55,7 @@ On every start (`apps/server/src/embedded.ts`, `cli.ts`) v0.1.21 moves MCP conne
 
 - MCP servers listed in the global OpenCode config disappear from the standalone `opencode` CLI.
 - Going back to a pre-sync LAWOSS build shows no connectors, because older builds do not read the shared row.
+- LAWOSS adds a one-time backup: before the first move, `apps/server/src/mcp-shared-store.ts` copies each affected file to `<file>.bak-<timestamp>` next to it (logged as `connector files backed up before the move`). The restore procedure is in [docs/rollback-v0.1.21.md](rollback-v0.1.21.md).
 
 A desktop smoke test must therefore not run against a real profile: `LEGALWORK_ELECTRON_USERDATA` alone is not enough, because the server reads `~/.config/legalwork` and recovers workspaces from it. The launch above used a separate `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME` and `LEGALWORK_DESKTOP_DISABLE_WORKSPACE_RECOVERY=1`.
 

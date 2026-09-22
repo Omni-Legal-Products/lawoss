@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -246,12 +246,20 @@ describe("importing connectors from earlier builds", () => {
     expect(migratedFile).toContain("// written by an earlier desktop build");
     expect(migratedFile).toContain('"broken"');
     expect(migratedFile).not.toContain('"courtlistener"');
+    // The move is one-way for older builds and the standalone CLI, so the file
+    // as it was before the move sits next to it, byte for byte.
+    expect(first.backups).toHaveLength(1);
+    expect(first.backups[0]).toMatch(/^.*opencode\.jsonc\.bak-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$/u);
+    expect(await readFile(first.backups[0]!, "utf8")).toBe(globalFile);
     // Every workspace's engine config now carries all of them.
     expect(Object.keys(await engineMcp(config, "ws_b")).sort()).toEqual(["courtlistener", "fibery", "legalmemory", "notion"]);
 
     const second = await importConnectorsIntoSharedRow(config, { runtimeConfigFile, globalOpencodeConfigFile });
     expect(second.imported).toEqual([]);
     expect(await readGlobalMcpMap(config)).toEqual(shared);
+    // Nothing left to move, so no second backup piles up on every start.
+    expect(second.backups).toEqual([]);
+    expect((await readdir(root)).filter((name) => name.includes(".bak-"))).toHaveLength(1);
   });
 
   test("moves old project file connectors into the global store without retaining a shadow copy", async () => {
