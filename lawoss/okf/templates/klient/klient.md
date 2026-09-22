@@ -20,6 +20,7 @@ status: aktívny
 tags: []
 timestamp: {{DATE}}
 updated: {{DATE}}
+language: {{LANGUAGE}}
 ---
 
 # {{KLIENT}}

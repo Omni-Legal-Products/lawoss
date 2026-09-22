@@ -13,7 +13,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import {
   readStore, readScope, syncProjections, ProjectionWriteError, retrofitStatusFile, ensureBrain, applyRecordWrite, standingApproval,
   findOfficeDir, OFFICE_DIR,
-  jurisdictionFromCard, MEMORY_DIR, statusLinkResolver, findClientDir, STATUS_FILE,
+  jurisdictionFromCard, documentLanguageFromCard, MEMORY_DIR, statusLinkResolver, findClientDir, STATUS_FILE,
 } from "./store.ts";
 import { parseRecord, serializeRecord, recordRevision, type OkfRecord } from "./record.ts";
 import { planWrite, assertHasSource, type Approval, type WriteDiff } from "./write.ts";
@@ -21,6 +21,7 @@ import { maskRecord } from "./mask.ts";
 import { composePreamble } from "./preamble.ts";
 import { fieldLabel, typeLabel, SCREENING_PROVISION, type Jurisdiction } from "./schema.ts";
 import { renderStatus, RenderConflictError, statusSkeleton } from "./render.ts";
+import type { DocumentLanguage } from "./document-language.ts";
 import { validateStore } from "./validate.ts";
 import { inspectStandingAuthorization, isExpired, readNameLeakSeverity, CONFIG_FILE } from "./config.ts";
 
@@ -286,7 +287,7 @@ export function runCli(argv: readonly string[]): CliResult {
           const before = existsSync(statusPath) ? readFileSync(statusPath, "utf8") : "";
           // Rovnaký resolver ako pri zápise — inak by náhľad hlásil zmenu,
           // ktorá vzniká len tým, že náhľad odkazy nepozná.
-          const after = renderStatus(before, s.records, s.jurisdiction, statusLinkResolver(dir));
+          const after = renderStatus(before, s.records, s.jurisdiction, statusLinkResolver(dir), documentLanguageFromCard(dir));
           const zmena = before === after ? "bez zmeny" : "_STATUS.md by sa zmenil";
           return ok(`dry-run: ${zmena}; INDEX.md by dostal ${riadkov(s.records.length)}. Zapíš s --apply.`);
         }
@@ -506,6 +507,9 @@ export function runCli(argv: readonly string[]): CliResult {
       // Jurisdikcia ide z karty veci; prepínač ju iba prebíja. Default zo
       // switcha bol v SK spisoch častý omyl (N8).
       const zKarty = jurisdictionFromCard(dir);
+      let language: DocumentLanguage | undefined;
+      try { language = documentLanguageFromCard(dir); }
+      catch (error) { return { code: 2, out: error instanceof Error ? error.message : String(error) }; }
       const jurisdiction: Jurisdiction = rest.includes("--sk")
         ? "sk"
         : rest.includes("--cz")
@@ -539,7 +543,7 @@ export function runCli(argv: readonly string[]): CliResult {
       // advokátov a nerozširuje sa — to je zmysel MARKER_ONLY.
       const status = join(dir, STATUS_FILE);
       const kostra = !existsSync(status);
-      if (kostra) writeFileSync(status, statusSkeleton(jurisdiction), "utf8");
+      if (kostra) writeFileSync(status, statusSkeleton(jurisdiction, language), "utf8");
       return ok(
         `Založené: ${MEMORY_DIR}/, BRAIN.md${kostra ? ` a ${STATUS_FILE} so všetkými blokmi` : ""} ` +
           `(jurisdikcia ${jurisdiction}, zdroj: ${zdroj}).`,

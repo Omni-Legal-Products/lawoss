@@ -1,5 +1,10 @@
-/** Interface translations only; generated cards, prompts and filenames keep their original content. */
+/** Interface copy; generation receives an explicit document language separately from jurisdiction. */
 export const setupEn = {
+  "lawoss.setup.wizard.documentLanguage": "Language of new documents",
+  "lawoss.setup.wizard.documentLanguageHint": "Follows the interface language; German uses English templates. Changing it requires a new plan. Existing documents and the selected jurisdiction remain unchanged.",
+  "lawoss.setup.wizard.documentLanguage_cs": "Czech documents",
+  "lawoss.setup.wizard.documentLanguage_sk": "Slovak documents",
+  "lawoss.setup.wizard.documentLanguage_en": "English documents",
   "lawoss.setup.welcome.documents": "Working documents",
   "lawoss.setup.welcome.documentsDesc": "The folder LAWOSS will work with. It asks for confirmation before changing or deleting a file.",
   "lawoss.setup.welcome.model": "AI model",
@@ -138,6 +143,11 @@ export const setupEn = {
 };
 
 export const setupCs: Record<keyof typeof setupEn, string> = {
+  "lawoss.setup.wizard.documentLanguage": "Jazyk nových dokumentů",
+  "lawoss.setup.wizard.documentLanguageHint": "Podle jazyka rozhraní; němčina použije anglické šablony. Změna vyžaduje nový plán. Existující dokumenty a vybraná jurisdikce zůstanou beze změny.",
+  "lawoss.setup.wizard.documentLanguage_cs": "České dokumenty",
+  "lawoss.setup.wizard.documentLanguage_sk": "Slovenské dokumenty",
+  "lawoss.setup.wizard.documentLanguage_en": "Anglické dokumenty",
   "lawoss.setup.welcome.documents": "Pracovní dokumenty",
   "lawoss.setup.welcome.documentsDesc": "Složka, se kterou bude LAWOSS pracovat. Před úpravou nebo odstraněním souboru si vyžádá potvrzení.",
   "lawoss.setup.welcome.model": "AI model",
@@ -276,6 +286,11 @@ export const setupCs: Record<keyof typeof setupEn, string> = {
 };
 
 export const setupSk: Record<keyof typeof setupEn, string> = {
+  "lawoss.setup.wizard.documentLanguage": "Jazyk nových dokumentov",
+  "lawoss.setup.wizard.documentLanguageHint": "Podľa jazyka rozhrania; nemčina použije anglické šablóny. Zmena vyžaduje nový plán. Existujúce dokumenty a vybraná jurisdikcia zostanú bez zmeny.",
+  "lawoss.setup.wizard.documentLanguage_cs": "České dokumenty",
+  "lawoss.setup.wizard.documentLanguage_sk": "Slovenské dokumenty",
+  "lawoss.setup.wizard.documentLanguage_en": "Anglické dokumenty",
   "lawoss.setup.welcome.documents": "Pracovné dokumenty",
   "lawoss.setup.welcome.documentsDesc": "Priečinok, s ktorým bude LAWOSS pracovať. Pred úpravou alebo odstránením súboru si vypýta potvrdenie.",
   "lawoss.setup.welcome.model": "AI model",
@@ -414,6 +429,11 @@ export const setupSk: Record<keyof typeof setupEn, string> = {
 };
 
 export const setupDe: Record<keyof typeof setupEn, string> = {
+  "lawoss.setup.wizard.documentLanguage": "Sprache neuer Dokumente",
+  "lawoss.setup.wizard.documentLanguageHint": "Entspricht der Oberflächensprache; Deutsch verwendet englische Vorlagen. Eine Änderung erfordert einen neuen Plan. Vorhandene Dokumente und die gewählte Rechtsordnung bleiben unverändert.",
+  "lawoss.setup.wizard.documentLanguage_cs": "Tschechische Dokumente",
+  "lawoss.setup.wizard.documentLanguage_sk": "Slowakische Dokumente",
+  "lawoss.setup.wizard.documentLanguage_en": "Englische Dokumente",
   "lawoss.setup.welcome.documents": "Arbeitsdokumente",
   "lawoss.setup.welcome.documentsDesc": "Der Ordner, mit dem LAWOSS arbeitet. Vor dem Ändern oder Löschen einer Datei wird eine Bestätigung angefordert.",
   "lawoss.setup.welcome.model": "KI-Modell",

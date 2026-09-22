@@ -18,6 +18,7 @@ advokat: "{{ADVOKAT}}"
 tags: []
 timestamp: {{DATE}}
 updated: {{DATE}}
+language: {{LANGUAGE}}
 ---
 
 # {{TITLE}}

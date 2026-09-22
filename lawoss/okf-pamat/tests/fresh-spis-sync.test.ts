@@ -32,7 +32,7 @@ function renderTemplate(template: string, vars: Readonly<Record<string, string |
 
 /** Zapíše spis presne tak, ako by ho vytvoril `okf apply --type spis` do prázdneho priečinka. */
 function applyFreshSpis(dir: string, title: string): void {
-  const vars = { TITLE: title, DATE: "2026-09-19" };
+  const vars = { TITLE: title, DATE: "2026-09-19", LANGUAGE: "sk" };
   mkdirSync(dir, { recursive: true });
   const agents = renderTemplate(readTemplate("AGENTS.md"), vars);
   writeFileSync(join(dir, "spis.md"), renderTemplate(readTemplate("spis.md"), vars), "utf8");

@@ -3,14 +3,17 @@
  * skill /novy-spis zavolá okf CLI a plán ukáže advokátovi. Čistá funkcia,
  * aby sa dala otestovať bez React-u.
  */
+import type { Language } from "@/i18n";
 import type { WorkingProfile } from "../../../../../lawoss/okf/src/profile";
-import { sanitizeSegment, type ClientType, type MatterKind, type MatterMode, type EntityType } from "../../../../../lawoss/okf/src/core";
+import { resolveDocumentLanguage, sanitizeSegment, type DocumentLanguage, type ClientType, type MatterKind, type MatterMode, type EntityType } from "../../../../../lawoss/okf/src/core";
 
 export type Jurisdikcia = "SK" | "CZ";
 export type SubjectKind = "pravnicka-osoba" | "fyzicka-osoba" | "fyzicka-osoba-podnikatel" | "iny-subjekt" | "spis" | "projekt";
 
 export type NovySpisForm = {
   mode: "okf" | "plain";
+  /** Language of newly generated documents; independent of legal jurisdiction. */
+  documentLanguage?: DocumentLanguage;
   country?: string;
   citizenship?: string;
   residenceCountry?: string;
@@ -31,6 +34,11 @@ export type NovySpisForm = {
   root: string;
   protistrana: string;
 };
+
+/** German UI uses the available English document templates, never another jurisdiction. */
+export function documentLanguageForLocale(locale: Language): DocumentLanguage {
+  return locale === "cs" || locale === "sk" ? locale : "en";
+}
 
 export function clientTypeFor(subject: SubjectKind): ClientType {
   return subject === "pravnicka-osoba" ? "po" : subject === "fyzicka-osoba" ? "fo" : subject === "fyzicka-osoba-podnikatel" ? "fo-podnikatel" : "iny";
@@ -65,6 +73,7 @@ export function jurisdictionFlag(form: Pick<NovySpisForm, "jurisdikcia">): strin
 export function composePrompt(form: NovySpisForm, preview?: { source: string; warning?: string; paths: string[]; profile?: WorkingProfile }): string {
   const type = entityTypeFor(form.subject);
   const dir = targetDir(form);
+  const documentLanguage = resolveDocumentLanguage(form.documentLanguage, form.jurisdikcia === "SK" ? "sk" : "cz");
   const lines: string[] = [];
   lines.push(`Použi skill /novy-spis. Založ ${type === "klient" ? "klienta" : type} podľa OKF.`);
   lines.push("");
@@ -81,12 +90,13 @@ export function composePrompt(form: NovySpisForm, preview?: { source: string; wa
   // skončí v karte veci. `okf-pamat` ju z karty číta a bez nej pamäť spisu
   // nezaloží — advokát ju v dialógu vybral, nesmie sa cestou stratiť.
   lines.push(`- jurisdikcia: ${form.jurisdikcia === "SK" ? "Slovensko" : "Česko"} (prepínač \`${jurisdictionFlag(form)}\`)`);
+  lines.push(`- jazyk nových dokumentov: ${documentLanguage} (samostatný od jurisdikcie veci)`);
   lines.push(`- cieľový priečinok: ${dir}`);
   lines.push("");
   if (type === "klient") {
     lines.push("Vykonaj pokus o preverenie v príslušnom registri podľa typu a krajiny klienta: SK ORSR/RPO, CZ ARES a verejný register, ostatné štáty národný register alebo BRIS. Použi dostupné MCP, inak oficiálny zdroj. Pri FO nerozhoduj podľa neprítomnosti v obchodnom registri; chýbajúce identifikačné údaje si vyžiadaj. Občianstvo, pobyt a jurisdikcia veci sú odlišné údaje. Ulož zdroj, podklad, identifikátor vybraného subjektu, spôsob zhody, čas získania a aktuálnosť zdroja. Nedostupný alebo neúplný výsledok ostáva unverified s dôvodom; AML tým nie je dokončené.");
   }
-  const flags = [jurisdictionFlag(form)];
+  const flags = [jurisdictionFlag(form), `--language ${documentLanguage}`];
   if (form.advokat?.trim()) flags.push(`--advokat ${shellQuote(form.advokat.trim())}`);
   if (type === "klient") flags.push(`--client-type ${clientTypeFor(form.subject)}`, `--country ${shellQuote(form.country?.trim().toUpperCase() || "")}`, `--identifier-type ${shellQuote(form.identifierType || "ICO")}`, `--identifier ${shellQuote(form.ico.trim())}`);
   if (type === "klient" && (form.subject === "fyzicka-osoba" || form.subject === "fyzicka-osoba-podnikatel")) {

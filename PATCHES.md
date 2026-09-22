@@ -284,3 +284,7 @@ Doménové obrazovky, slovníky, viditeľný prepínač a regresie zostávajú v
 ### Zrozumiteľná systémová voľba jazyka (2026-09-22)
 
 `apps/app/src/react-app/domains/settings/appearance/language-section.tsx` používa rovnaký jednoznačný popis systémovej voľby ako hlavička a explicitné locale. `settings.language_system` v EN/DE/CS/SK nezopakuje názov detegovaného jazyka; vysvetlenie zostáva v existujúcom popise nastavenia. Režim system, detekcia aj uložená voľba sa nemenia.
+
+### Jazyk nových generovaných súborov (2026-09-22)
+
+[Samostatné zadanie a plán](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/blob/specs/interface-languages/specs/2026-09-22-jazyk-generovanych-suborov.md) rozširujú pôvodný UI rozsah: zelené `apps/app/src/lawoss/**` odovzdajú vyriešený jazyk do náhľadu a CLI príkazu nového spisu. `lawoss/okf/**` a `lawoss/okf-pamat/**` ukladajú jazyk oddelene od jurisdikcie a lokalizujú vlastné šablóny. Existujúce záznamy, používateľské texty a explicitné profily sa automaticky neprekladajú. Zmena nevyžaduje nový upstream hook; oba prenosné CLI bundles sú regenerované spolu so zdrojmi.

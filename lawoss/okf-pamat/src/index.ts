@@ -34,6 +34,7 @@ export {
 export { renderStatus, retrofitStatus, RenderConflictError, statusSkeleton, BLOCKS, MARKER_ONLY, SOFT_HEADING, type BlockName, type LinkResolver } from "./render.ts";
 export { validateStore, checkL3Sources, type Finding, type Severity, type ValidateOptions } from "./validate.ts";
 export { maskValue, maskRecord } from "./mask.ts";
+export { type DocumentLanguage } from "./document-language.ts";
 export {
   readStandingAuthorization, inspectStandingAuthorization, isIsoDate, readNameLeakSeverity, covers, isExpired, CONFIG_FILE,
   type StandingAuthorizationCheck, type NameLeakSeverity,
@@ -41,7 +42,7 @@ export {
   type StandingAuthorization,
 } from "./config.ts";
 export {
-  readStore, readScope, findClientDir, findOfficeDir, MEMORY_DIR, OFFICE_DIR, LEGACY_OFFICE_DIR, STATUS_FILE, applyRecordWrite, LeakBlockedError, ConcurrentWriteError,
+  readStore, readScope, findClientDir, findOfficeDir, documentLanguageFromCard, MEMORY_DIR, OFFICE_DIR, LEGACY_OFFICE_DIR, STATUS_FILE, applyRecordWrite, LeakBlockedError, ConcurrentWriteError,
   writeIndex, writeLog, ensureBrain, syncStatus, retrofitStatusFile, standingApproval, statusLinkResolver, STANDING,
   type ApprovalInput,
   type Store, type Scope, type StoreProblem,

@@ -13,6 +13,9 @@
 import { parseFrontmatter } from "./frontmatter.ts";
 export { parseFrontmatter } from "./frontmatter.ts";
 
+import { resolveDocumentLanguage, type DocumentLanguage } from "./language.ts";
+export { DOCUMENT_LANGUAGES, resolveDocumentLanguage, type DocumentLanguage } from "./language.ts";
+
 export const OKF_VERSION = "0.1";
 export { WORKING_FOLDERS } from "./profile.ts";
 import { PROFILE_FILE, workingProfile, renderWorkingProfile, type WorkingProfile } from "./profile.ts";
@@ -28,6 +31,8 @@ export type MatterKind = "dispute" | "advisory" | "transaction" | "other";
 export type MatterMode = "bounded" | "ongoing";
 
 export type PlanInput = {
+  /** Language of newly generated prose; never changes jurisdiction or existing files. */
+  language?: DocumentLanguage;
   clientType?: ClientType;
   country?: string;
   citizenship?: string;
@@ -73,6 +78,7 @@ export type PlanEntry = {
 };
 
 export type Plan = {
+  language: DocumentLanguage;
   okfVersion: string;
   type: EntityType;
   dir: string;
@@ -85,6 +91,11 @@ export type Plan = {
  * takže tento súbor nemá žiadny import a beží aj v prehliadači.
  */
 export type TemplateSet = Record<EntityType, Record<string, string>>;
+export type LocalizedTemplateSet = Record<DocumentLanguage, TemplateSet>;
+
+function selectTemplates(templates: TemplateSet | LocalizedTemplateSet, language: DocumentLanguage): TemplateSet {
+  return "cs" in templates ? templates[language] : templates;
+}
 
 /** Karta entity — jediný súbor, podľa ktorého sa dá typ priečinka spoznať. */
 export const CARD_FILE: Record<EntityType, string> = { klient: "client.md", spis: "matter.md", projekt: "project.md" };
@@ -125,7 +136,7 @@ export function renderTemplate(template: string, vars: Record<string, string | u
     const value = substitute(raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw);
     // Keep dates and machine enums compatible with existing card readers (notably jurisdictionFromCard).
     const plain = (raw === "{{DATE}}" && /^\d{4}-\d{2}-\d{2}$/.test(value)) ||
-      (/^\{\{(?:JURISDICTION|CLIENT_TYPE|MATTER_KIND|MODE)\}\}$/.test(raw) && /^[a-z][a-z-]*$/.test(value));
+      (/^\{\{(?:JURISDICTION|CLIENT_TYPE|MATTER_KIND|MODE|LANGUAGE)\}\}$/.test(raw) && /^[a-z][a-z-]*$/.test(value));
     return `${field[1]}${plain ? value : yamlString(value)}`;
   }).join("\n");
   return `---\n${rendered}\n---${substitute(template.slice(header[0].length))}`;
@@ -134,6 +145,7 @@ export function renderTemplate(template: string, vars: Record<string, string | u
 export function templateVars(input: PlanInput): Record<string, string> {
   const date = input.date ?? today();
   return {
+    LANGUAGE: resolveDocumentLanguage(input.language, input.jurisdiction),
     CLIENT_TYPE: input.clientType ?? "iny",
     COUNTRY: input.country?.toUpperCase() ?? "",
     CITIZENSHIP: input.citizenship?.toUpperCase() ?? "",
@@ -163,12 +175,16 @@ export function templateVars(input: PlanInput): Record<string, string> {
  * nikdy neprepisuje, existujúce súbory sa preskočia. CLAUDE.md je byte-identický
  * mirror AGENTS.md (vstup pre harness-y, ktoré čítajú CLAUDE.md a nie AGENTS.md).
  */
-export function planEntity(input: PlanInput, templates: TemplateSet, exists: (relativePath: string) => boolean): Plan {
+export function planEntity(input: PlanInput, templates: TemplateSet | LocalizedTemplateSet, exists: (relativePath: string) => boolean): Plan {
+  const language = resolveDocumentLanguage(input.language, input.jurisdiction);
+  const selectedTemplates = selectTemplates(templates, language);
+  const clientLabel = { cs: "Karta klienta", sk: "Karta klienta", en: "Client card" }[language];
+  const missingClient = { cs: "Kartu klienta otevři v jeho složce.", sk: "Kartu klienta otvor v jeho priečinku.", en: "Open the client card in the client’s folder." }[language];
   const card = existingCard(input.type, exists) ?? CARD_FILE[input.type];
   const vars = { ...templateVars(input), CARD: card,
-    CLIENT_LINK: input.clientCardPath ? `[Karta klienta](<${input.clientCardPath}>)` : "Kartu klienta otvor v jeho priečinku.",
+    CLIENT_LINK: input.clientCardPath ? `[${clientLabel}](<${input.clientCardPath}>)` : missingClient,
   };
-  const files = templates[input.type];
+  const files = selectedTemplates[input.type];
   const entries: PlanEntry[] = [];
   const push = (path: string, content: string) => {
     entries.push(exists(path) ? { path, action: "skip", reason: "exists" } : { path, action: "create", content });
@@ -177,16 +193,16 @@ export function planEntity(input: PlanInput, templates: TemplateSet, exists: (re
   const agents = entries.find((entry) => entry.path === "AGENTS.md");
   push("CLAUDE.md", agents?.content ?? renderTemplate(files["AGENTS.md"], vars));
   if (input.type === "klient") {
-    push("index.md", `---\nokf_version: "${OKF_VERSION}"\n---\n\n# ${input.title}\n\n## Spisy\n`);
+    push("index.md", `---\nokf_version: "${OKF_VERSION}"\n---\n\n# ${input.title}\n\n## ${language === "en" ? "Matters" : "Spisy"}\n`);
     push("Spisy/.keep", "");
   }
   if (input.type === "spis" || input.type === "klient") {
     const selected = input.workingProfile;
-    const profile = workingProfile(selected?.folders, selected?.roles, selected?.naming);
-    push(PROFILE_FILE, renderWorkingProfile(profile));
+    const profile = workingProfile(selected?.folders, selected?.roles, selected?.naming, language);
+    push(PROFILE_FILE, renderWorkingProfile(profile, language));
     for (const folder of profile.folders) push(`${folder}/.keep`, "");
   }
-  return { okfVersion: OKF_VERSION, type: input.type, dir: input.dir, entries };
+  return { okfVersion: OKF_VERSION, type: input.type, dir: input.dir, language, entries };
 }
 
 export type ValidationError = { path: string; message: string };
