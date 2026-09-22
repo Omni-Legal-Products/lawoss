@@ -155,6 +155,7 @@ pnpm test:e2e
 Prečítajte si [`AGENTS.md`](AGENTS.md). Každá zmena ide cez krátku vetvu, pull request, jedno schválenie a zelené CI. Pri zásahu do upstream súboru aktualizujte v tom istom PR aj [`PATCHES.md`](PATCHES.md).
 
 - [Build pre alfa testerov](docs/lawoss-build-pre-testerov.md) — ako si aplikáciu skompilovať a čo hlásiť
+- [Akceptačný protokol pre alfu](docs/lawoss-alpha-acceptance.md) — zlatá cesta, provider matica a bezpečné hlásenie výsledku
 
 ## Bezpečnosť a modely
 
