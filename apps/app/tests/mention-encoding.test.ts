@@ -1,13 +1,24 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  createTaskComposerMention,
+  parseTaskComposerMention,
+  taskComposerDisplayText,
+  taskComposerInstruction,
   createLegalMemoryComposerMention,
+  createLegalMemoryFolderComposerMention,
   decodeComposerMentionValue,
   encodeComposerMentionValue,
   legalMemoryComposerInstruction,
   legalMemoryComposerDisplayText,
   parseLegalMemoryComposerMention,
+  parseLegalMemoryFolderComposerMention,
+  createStorageComposerMention,
+  parseStorageComposerMention,
+  storageComposerInstruction,
+  storageComposerDisplayText,
 } from "../src/react-app/domains/session/surface/composer/mention-encoding";
+import { STORAGE_LINK_SOURCE, parseStorageRefLink } from "../src/components/markdown/storage-ref";
 
 describe("mention-encoding", () => {
   test("round-trips paths with spaces", () => {
@@ -59,5 +70,139 @@ describe("mention-encoding", () => {
     expect(legalMemoryComposerDisplayText(value)).toBe(
       "[Member consent final.docx](legalmemory://document/doc-123)",
     );
+  });
+
+  test("turns a dropped folder into one pill pointing at the copied folder", () => {
+    const value = createLegalMemoryFolderComposerMention(
+      "source-7",
+      "Pleadings",
+      ".legalmemory/Pleadings",
+      12,
+    );
+    expect(parseLegalMemoryFolderComposerMention(value)).toEqual({
+      sourceId: "source-7",
+      label: "Pleadings",
+      localPath: ".legalmemory/Pleadings",
+      files: 12,
+    });
+    const instruction = legalMemoryComposerInstruction(value);
+    expect(instruction).toContain('LegalMemory folder "Pleadings"');
+    expect(instruction).toContain("12 documents");
+    expect(instruction).toContain('workspace folder ".legalmemory/Pleadings"');
+    expect(legalMemoryComposerDisplayText(value)).toBe("[Pleadings](.legalmemory/Pleadings)");
+  });
+
+  test("keeps folder and document mentions apart", () => {
+    const folder = createLegalMemoryFolderComposerMention("source-7", "Pleadings", ".legalmemory/Pleadings", 1);
+    const document = createLegalMemoryComposerMention("doc-123", "Answer.docx", ".legalmemory/Answer.docx");
+    expect(parseLegalMemoryComposerMention(folder)).toBeNull();
+    expect(parseLegalMemoryFolderComposerMention(document)).toBeNull();
+    // A single-document folder still reads as a folder, not as one file.
+    expect(legalMemoryComposerInstruction(folder)).toContain("Its 1 document was copied");
+  });
+});
+
+describe("storage mentions", () => {
+  test("keeps the filename for the pill and the connection + path for the agent", () => {
+    const value = createStorageComposerMention(
+      "conn-1",
+      "1001-00003/Diligence/competitor-identification-chart.xlsx",
+      "competitor-identification-chart.xlsx",
+      ".legalwork/storage-downloads/file-UTukY5/competitor-identification-chart.xlsx",
+    );
+    const mention = parseStorageComposerMention(value);
+    expect(mention?.connectionId).toBe("conn-1");
+    expect(mention?.path).toBe("1001-00003/Diligence/competitor-identification-chart.xlsx");
+    expect(mention?.label).toBe("competitor-identification-chart.xlsx");
+    expect(mention?.localPath).toBe(".legalwork/storage-downloads/file-UTukY5/competitor-identification-chart.xlsx");
+  });
+
+  test("tells the agent to open the checked-out copy with a format-aware tool", () => {
+    const value = createStorageComposerMention(
+      "conn-1",
+      "a/b/competitor-identification-chart.xlsx",
+      "competitor-identification-chart.xlsx",
+      ".legalwork/storage-downloads/file-UTukY5/competitor-identification-chart.xlsx",
+    );
+    const instruction = storageComposerInstruction(value);
+    // The binary-read failure came from handing a workspace path to a plain
+    // text reader. The instruction must name the copy AND the format caveat.
+    expect(instruction).toContain(".legalwork/storage-downloads/file-UTukY5/competitor-identification-chart.xlsx");
+    expect(instruction).toContain("document-capable tool");
+    expect(instruction).toContain("rather than reading it as plain text");
+  });
+
+  test("falls back to fetching through storage tools when there is no local copy", () => {
+    const value = createStorageComposerMention("conn-1", "a/b.docx", "b.docx");
+    expect(parseStorageComposerMention(value)?.localPath).toBeUndefined();
+    expect(storageComposerInstruction(value)).toContain("storage tools");
+  });
+
+  test("shows the filename as the badge label and keeps the path behind it", () => {
+    const value = createStorageComposerMention(
+      "conn-1",
+      "a/b/chart.xlsx",
+      "chart.xlsx",
+      ".legalwork/storage-downloads/file-UTukY5/chart.xlsx",
+    );
+    const display = storageComposerDisplayText(value);
+    // Visible label is just the filename; the checkout path rides in the href
+    // so the chip can open the copy without another round-trip.
+    expect(display.startsWith("[chart.xlsx](legalworkstorage://conn-1/a%2Fb%2Fchart.xlsx?")).toBe(true);
+    expect(display.slice(0, display.indexOf("]("))).toBe("[chart.xlsx");
+    expect(parseStorageRefLink(display)?.localPath).toBe(".legalwork/storage-downloads/file-UTukY5/chart.xlsx");
+  });
+
+  test("the user-turn renderer recognises the persisted link as one chip token", () => {
+    const value = createStorageComposerMention("conn-1", "a/b/chart.xlsx", "chart.xlsx", "copy/chart.xlsx");
+    const display = storageComposerDisplayText(value);
+    const ref = parseStorageRefLink(display);
+    expect(ref?.label).toBe("chart.xlsx");
+    expect(ref?.connectionId).toBe("conn-1");
+    expect(ref?.path).toBe("a/b/chart.xlsx");
+    // The whole link must match as a single token, otherwise it renders raw.
+    expect(new RegExp(`^${STORAGE_LINK_SOURCE}$`).test(display)).toBe(true);
+  });
+
+  test("round-trips paths containing spaces and unicode", () => {
+    const path = "Matters/Acquisition/Übernahme entwurf.docx";
+    const value = createStorageComposerMention("conn-2", path, "Übernahme entwurf.docx");
+    expect(parseStorageComposerMention(value)?.path).toBe(path);
+  });
+
+  test("ignores values that are not storage mentions", () => {
+    expect(parseStorageComposerMention("legalmemory://document/abc")).toBeNull();
+    expect(parseStorageComposerMention("not a uri")).toBeNull();
+    expect(parseStorageComposerMention("legalworkstorage://conn-only")).toBeNull();
+  });
+});
+
+describe("intake task mention", () => {
+  const TASK_ID = "6803168d-3938-445e-b079-8cf13a0099b6";
+
+  test("carries the task id and nothing the sender wrote", () => {
+    const value = createTaskComposerMention(TASK_ID);
+    expect(value).toBe(`legalwork-task://${TASK_ID}`);
+    expect(parseTaskComposerMention(value)).toEqual({ taskId: TASK_ID });
+    // One `@token`: nothing in the value needs encoding.
+    expect(decodeComposerMentionValue(encodeComposerMentionValue(value))).toBe(value);
+  });
+
+  test("sends the task badge, which names the tool that reads it", () => {
+    expect(taskComposerDisplayText(createTaskComposerMention(TASK_ID))).toBe(
+      `[task ${TASK_ID} via legalwork_task_get]`,
+    );
+  });
+
+  test("tells the model for one turn how to read the task and where its files are", () => {
+    const instruction = taskComposerInstruction(createTaskComposerMention(TASK_ID));
+    expect(instruction).toContain("legalwork_task_get");
+    expect(instruction).toContain(`.legalwork/tasks/${TASK_ID}/`);
+  });
+
+  test("leaves other values alone", () => {
+    expect(parseTaskComposerMention("legalmemory://document/abc")).toBeNull();
+    expect(parseTaskComposerMention("legalwork-task://")).toBeNull();
+    expect(taskComposerDisplayText("docs/a.md")).toBe("docs/a.md");
   });
 });

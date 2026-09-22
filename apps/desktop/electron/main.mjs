@@ -19,7 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
 import { captureAuthStatus, openCapturePermissionSettings, requestCapturePermission } from "./audio/capture-permissions.mjs";
@@ -332,6 +332,7 @@ const applicationMenu = createApplicationMenu({
 });
 
 const uiControlServer = createUiControlServer({
+  getUserDataDir: () => app.getPath("userData"),
   appName: APP_NAME,
   appIdentifier: APP_IDENTIFIER,
   getWindow: () => createMainWindow(),
@@ -914,6 +915,50 @@ function syncBackgroundPresence() {
   } else {
     appTray.destroy();
   }
+}
+
+// ── System notifications (task announcements) ─────────────────────────────
+//
+// The renderer decides what to announce; the main process shows it, so a
+// click can bring back a hidden or minimized window. A notification is kept
+// referenced until it is clicked or dismissed — one that is garbage-collected
+// loses its click. The click reaches the page as an event with the id; a page
+// that is still loading (the window was re-created) only gets the window.
+const DESKTOP_NOTIFICATION_CLICK_EVENT = "legalwork:desktop-notification-click";
+const MAX_LIVE_NOTIFICATIONS = 50;
+const liveNotifications = new Map();
+
+function showDesktopNotification(input) {
+  if (!Notification.isSupported()) return false;
+  const id = String(input?.id ?? "").trim().slice(0, 200);
+  const title = String(input?.title ?? "").trim().slice(0, 200);
+  if (!id || !title) return false;
+  const body = String(input?.body ?? "").slice(0, 500);
+  const notification = new Notification({ title, body });
+  const forget = () => {
+    if (liveNotifications.get(id) === notification) liveNotifications.delete(id);
+  };
+  notification.on("click", () => {
+    forget();
+    void createMainWindow().then((win) => {
+      if (win.isDestroyed()) return;
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+      if (process.platform === "darwin") app.focus({ steal: true });
+      if (!win.webContents.isLoading()) {
+        win.webContents.send(DESKTOP_NOTIFICATION_CLICK_EVENT, { id });
+      }
+    });
+  });
+  notification.on("close", forget);
+  liveNotifications.set(id, notification);
+  while (liveNotifications.size > MAX_LIVE_NOTIFICATIONS) {
+    const oldest = liveNotifications.keys().next().value;
+    liveNotifications.delete(oldest);
+  }
+  notification.show();
+  return true;
 }
 
 function normalizePlatform(value) {
@@ -2218,36 +2263,6 @@ const desktopCommandHandlers = {
   "readOpencodeConfig": async (event, ...args) => {
       return readOpencodeConfig(String(args[0] ?? "").trim(), String(args[1] ?? "").trim());
   },
-  // One MCP server in ~/.config/legalwork/runtime-opencode-config.json — the
-  // file the packaged engine reads for every workspace instance (its log lists
-  // it on each rebuild), which is what makes a connector global. The global
-  // opencode config is not on that list, and the workspace config only covers
-  // one workspace. Merge, never rewrite: the file also carries state written by
-  // a LegalWork server when one manages this machine.
-  "mergeRuntimeMcpServer": async (event, ...args) => {
-      const name = String(args[0] ?? "").trim();
-      if (!name) return execResult(false, "MCP name is required");
-      const config = args[1] && typeof args[1] === "object" ? args[1] : null;
-      const dir = path.join(os.homedir(), ".config", "legalwork");
-      const file = path.join(dir, "runtime-opencode-config.json");
-      let current = {};
-      try {
-        current = JSON.parse(await readFile(file, "utf8"));
-      } catch {
-        // Absent or unreadable: start from empty and create it.
-      }
-      if (typeof current !== "object" || current === null || Array.isArray(current)) current = {};
-      const mcp = typeof current.mcp === "object" && current.mcp !== null && !Array.isArray(current.mcp) ? current.mcp : {};
-      if (config) mcp[name] = config;
-      else delete mcp[name];
-      const next = { ...current, mcp };
-      await mkdir(dir, { recursive: true });
-      // Atomic, so the engine never reads a partial file mid-rebuild.
-      const tmp = `${file}.${Date.now()}.tmp`;
-      await writeFile(tmp, `${JSON.stringify(next, null, 2)}\n`, "utf8");
-      await rename(tmp, file);
-      return execResult(true, `Merged ${name} into ${file}`);
-  },
   "writeOpencodeConfig": async (event, ...args) => {
       return writeOpencodeConfig(
         String(args[0] ?? "").trim(),
@@ -2504,6 +2519,33 @@ const desktopCommandHandlers = {
         };
       } catch {
         return { openAtLogin, requiresApproval: false };
+      }
+  },
+  "desktopNotificationShow": async (event, ...args) => {
+      try {
+        return showDesktopNotification(args[0]);
+      } catch {
+        return false;
+      }
+  },
+  "desktopBadgeSet": async (event, ...args) => {
+      const input = args[0] ?? {};
+      const count = Math.max(0, Math.min(9999, Math.floor(Number(input.count) || 0)));
+      try {
+        if (process.platform === "win32") {
+          // No count on Windows: a small image over the taskbar icon instead.
+          const win = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
+          if (!win || win.isDestroyed()) return false;
+          const dataUrl = typeof input.overlayDataUrl === "string" && input.overlayDataUrl.startsWith("data:image/png;base64,")
+            ? input.overlayDataUrl
+            : null;
+          const image = count > 0 && dataUrl ? nativeImage.createFromDataURL(dataUrl) : null;
+          win.setOverlayIcon(image && !image.isEmpty() ? image : null, count > 0 ? String(input.description ?? "").slice(0, 200) : "");
+          return true;
+        }
+        return app.setBadgeCount(count);
+      } catch {
+        return false;
       }
   },
   "windowSetStealth": async (event, ...args) => {

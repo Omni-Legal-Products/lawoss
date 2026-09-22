@@ -3,6 +3,7 @@ import { confirmDiscardDocuments } from "../artifacts/docx-document-state";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { isCollectibleArtifactTarget, type OpenTarget, type OpenTargetPreview } from "../artifacts/open-target";
+import type { StorageFileSource } from "./storage-file-tab";
 
 export const PERSISTED_PANEL_TAB_STORE_KEY = "legalwork:panel-tabs:v1";
 
@@ -12,7 +13,10 @@ export const PERSISTED_PANEL_TAB_STORE_KEY = "legalwork:panel-tabs:v1";
  */
 export const EVALS_PANEL_SESSION_ID = "__evals__";
 
-export type PanelTabType = "artifact" | "browser";
+// Asking for a tab lives in its own module, so asking does not create this store.
+export { PANEL_OPEN_TAB_EVENT, requestPanelTab } from "./panel-tab-request";
+
+export type PanelTabType = "artifact" | "browser" | "task";
 
 export type { BrowserPanelTab } from "../../../../app/lib/desktop-types";
 import type { BrowserPanelTab } from "../../../../app/lib/desktop-types";
@@ -27,9 +31,17 @@ export type ArtifactPanelTab = {
   value?: string;
   size?: number;
   updatedAt?: number;
+  storage?: StorageFileSource;
 }
 
-export type PanelTab = BrowserPanelTab | ArtifactPanelTab;
+export type TaskPanelTab = {
+  id: string;
+  type: "task";
+  taskId: string;
+  label: string;
+};
+
+export type PanelTab = BrowserPanelTab | ArtifactPanelTab | TaskPanelTab;
 
 export type SessionPanelState = {
   tabs: PanelTab[];
@@ -54,6 +66,7 @@ export type PanelTabStore = {
   sessions: Record<string, SessionPanelState>;
   transcriptArtifactTargets: Record<string, OpenTarget[]>;
   openTab: (sessionId: string, tab: PanelTab) => void;
+  setStorageWorkingPath: (sessionId: string, tabId: string, path: string) => void;
   closeTab: (sessionId: string, tabId: string) => void;
   selectTab: (sessionId: string, tabId: string) => void;
   reorderTabs: (sessionId: string, tabIds: string[]) => void;
@@ -103,10 +116,9 @@ function reconcileOpenArtifactTabs(
       const target = targetMap.get(tab.id);
 
       if (!target) {
-        // Tabs opened from the workspace file browser carry their own path and
-        // are not derived from the transcript — reconciling against transcript
-        // targets must not close them.
-        return tab.value ? tab : null;
+        // Workspace and connected-storage tabs carry their own source. A
+        // transcript update must not close directly opened files.
+        return tab.value || tab.storage ? tab : null;
       }
 
       return {
@@ -150,7 +162,8 @@ function isSameTab(left: PanelTab, right: PanelTab) {
     return (
       left.label === right.label &&
       left.preview === right.preview &&
-      left.value === right.value
+      left.value === right.value &&
+      left.storage === right.storage
     );
   }
 
@@ -163,6 +176,10 @@ function isSameTab(left: PanelTab, right: PanelTab) {
       left.canGoBack === right.canGoBack &&
       left.canGoForward === right.canGoForward
     );
+  }
+
+  if (left.type === "task" && right.type === "task") {
+    return left.label === right.label && left.taskId === right.taskId;
   }
 
   return false;
@@ -223,6 +240,12 @@ export const usePanelTabStore = create<PanelTabStore>()(
     (set, get) => ({
       sessions: {},
       transcriptArtifactTargets: {},
+      setStorageWorkingPath: (sessionId, tabId, path) => set((state) => {
+        const session = getWritableSession(state, sessionId);
+        const tab = session.tabs.find((item) => item.id === tabId);
+        if (tab?.type !== "artifact" || !tab.storage || tab.value === path) return state;
+        return updateSession(state, sessionId, { ...session, tabs: session.tabs.map((item) => item.id === tabId ? { ...tab, value: path } : item) });
+      }),
       openTab: (sessionId, tab) => set((state) => {
         const session = getWritableSession(state, sessionId);
         if (session.activeTabId !== tab.id && !confirmDiscardDocuments()) return state;
@@ -297,7 +320,7 @@ export const usePanelTabStore = create<PanelTabStore>()(
         const mergedTabs: PanelTab[] = [];
 
         for (const tab of session.tabs) {
-          if (tab.type === "artifact") {
+          if (tab.type !== "browser") {
             mergedTabs.push(tab);
             continue;
           }

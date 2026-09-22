@@ -1,11 +1,15 @@
 /** @jsxImportSource react */
+import { StorageDriveTree } from "./storage-drive-tree";
+import { StorageDriveSearch } from "./storage-drive-search";
+import type { StorageEntry, StorageRoot } from "@legalwork/types/file-storage";
+import { STORAGE_CHANGED_EVENT } from "../../settings/pages/storage-providers";
 import { MemoryDriveIcon } from "./memory-drive-icon";
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { AlertCircle, ChevronRight, HardDrive, Loader2, RotateCw, Search, X } from "lucide-react";
 
-import { writeLegalMemoryFileDrag } from "@/app/lib/legalmemory-file";
+import { writeLegalMemoryFileDrag, writeLegalMemoryFolderDrag } from "@/app/lib/legalmemory-file";
 import { LEGALMEMORY_CONNECTION_CHANGED_EVENT } from "@/app/lib/legalmemory-connection";
 import {
   LegalworkServerError,
@@ -15,6 +19,7 @@ import {
   type LegalMemoryTreeRoot,
   type LegalworkServerClient,
 } from "@/app/lib/legalwork-server";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -48,7 +53,8 @@ type LegalMemoryFilesPanelProps = {
   client: LegalworkServerClient | null;
   workspaceId: string | null;
   onOpenFile: (file: LegalMemoryTreeFile) => Promise<void> | void;
-  onConnectLegalMemory?: () => void;
+  onOpenStorageFile: (root: StorageRoot, file: StorageEntry) => void;
+  onConnectStorage?: () => void;
   onClose: () => void;
 };
 
@@ -58,9 +64,12 @@ export function LegalMemoryFilesPanel({
   client,
   workspaceId,
   onOpenFile,
-  onConnectLegalMemory,
+  onOpenStorageFile,
+  onConnectStorage,
   onClose,
 }: LegalMemoryFilesPanelProps) {
+  const storageQueryClient = useQueryClient();
+  const [storageRevision, setStorageRevision] = React.useState(0);
   const [openFolders, setOpenFolders] = React.useState<Set<string>>(new Set());
   const [folders, setFolders] = React.useState<Map<string, FolderState>>(new Map());
   const [query, setQuery] = React.useState("");
@@ -87,6 +96,28 @@ export function LegalMemoryFilesPanel({
     return () => window.removeEventListener(LEGALMEMORY_CONNECTION_CHANGED_EVENT, resetDisconnectedTree);
   }, []);
 
+  const storageRoots = useQuery({
+    queryKey: ["storage-roots", workspaceId],
+    queryFn: () => client!.storageRoots(workspaceId!),
+    enabled: Boolean(client && workspaceId),
+    refetchInterval: 30_000,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  React.useEffect(() => {
+    const refreshStorage = () => {
+      setStorageRevision((value) => value + 1);
+      void storageRoots.refetch();
+      void storageQueryClient.invalidateQueries({ queryKey: ["storage-children", workspaceId] });
+    };
+    window.addEventListener(STORAGE_CHANGED_EVENT, refreshStorage);
+    return () => window.removeEventListener(STORAGE_CHANGED_EVENT, refreshStorage);
+  }, [storageRoots.refetch, storageQueryClient, workspaceId]);
+  const storageCatalogRevision = JSON.stringify(storageRoots.data?.roots.map((root) => [root.id, root.revision, root.writable]));
+  const storageRefreshKey = `${storageRevision}:${storageCatalogRevision}`;
+  const hasStorage = Boolean(storageRoots.data?.roots.length);
+
   const rootsQuery = useQuery({
     queryKey: ["legalmemory-tree-roots", workspaceId] as const,
     queryFn: async () => {
@@ -96,6 +127,7 @@ export function LegalMemoryFilesPanel({
     enabled: Boolean(client && workspaceId),
     staleTime: 30_000,
     refetchOnWindowFocus: false,
+    retry: (count, error) => !(error instanceof LegalworkServerError && error.code === "legalmemory_not_configured") && count < 2,
   });
 
   React.useEffect(() => {
@@ -109,7 +141,7 @@ export function LegalMemoryFilesPanel({
       if (!client || !workspaceId) throw new Error(t("legalmemory.workspace_not_connected"));
       return client.legalMemoryTreeSearch(workspaceId, { query: searchQuery, limit: 100 });
     },
-    enabled: Boolean(client && workspaceId && searchQuery),
+    enabled: Boolean(client && workspaceId && searchQuery && rootsQuery.data?.roots.length),
     staleTime: 15_000,
     refetchOnWindowFocus: false,
   });
@@ -266,11 +298,16 @@ export function LegalMemoryFilesPanel({
   }, [onOpenFile, openingId]);
 
   const refresh = React.useCallback(() => {
-    setOpenFolders(new Set());
-    setFolders(new Map());
+    for (const row of rows) {
+      if (row.kind === "root" && row.open) void loadPage(row.root.source_id, "", 0);
+      if (row.kind === "folder" && row.open) void loadPage(row.sourceId, row.folder.path, 0);
+    }
+    setStorageRevision((value) => value + 1);
+    void storageQueryClient.invalidateQueries({ queryKey: ["storage-children", workspaceId] });
+    void storageRoots.refetch();
     void rootsQuery.refetch();
-    if (searchQuery) void search.refetch();
-  }, [rootsQuery, search, searchQuery]);
+    if (searchQuery && rootsQuery.data?.roots.length) void search.refetch();
+  }, [rootsQuery, search, searchQuery, storageRoots, storageQueryClient, workspaceId, rows, loadPage]);
 
   const roots = rootsQuery.data?.roots ?? [];
   const totalFiles = roots.reduce((sum, root) => sum + root.files, 0);
@@ -283,7 +320,7 @@ export function LegalMemoryFilesPanel({
   return (
     <TooltipProvider delay={800}>
       <aside aria-label={t("sidebar.memory_drive")} className="flex h-full w-full min-w-0 flex-col bg-background/90 backdrop-blur-xl">
-        <PanelHeader title={t("sidebar.memory_drive")} icon={<MemoryDriveIcon />} meta={rootsQuery.data && totalsKnown ? totalFiles.toLocaleString() : undefined}>
+        <PanelHeader title={t("sidebar.memory_drive")} icon={<MemoryDriveIcon />} meta={!hasStorage && rootsQuery.data && totalsKnown ? totalFiles.toLocaleString() : undefined}>
           <Tooltip>
             <TooltipTrigger render={<Button variant="ghost" size="icon-sm" onClick={refresh} aria-label={t("legalmemory.refresh_drive")} />}>
               <RotateCw className={cn("size-3.5", (rootsQuery.isFetching || search.isFetching) && "animate-spin")} />
@@ -298,10 +335,11 @@ export function LegalMemoryFilesPanel({
           </Tooltip>
         </PanelHeader>
 
-        {!notConfigured ? <div className="shrink-0 border-b border-border/50 bg-muted/20 p-3">
+        {!notConfigured || hasStorage ? <div className="shrink-0 border-b border-border/50 bg-muted/20 p-3">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
+              maxLength={512}
               value={query}
               onChange={(event) => setQuery(event.currentTarget.value)}
               placeholder={t("legalmemory.search_placeholder")}
@@ -321,10 +359,22 @@ export function LegalMemoryFilesPanel({
           </div>
         </div> : null}
 
-        {notConfigured ? (
-          <PanelEmptyState icon={<HardDrive />} title={t("legalmemory.connect_title")} description={t("legalmemory.intro")}>
-            {onConnectLegalMemory ? (
-              <Button variant="outline" size="sm" onClick={onConnectLegalMemory}>{t("legalmemory.open_integrations")}</Button>
+        {client && workspaceId && hasStorage ? (
+          <div className={cn("min-h-0 overflow-y-auto", rootsQuery.data?.roots.length ? "max-h-[60%] shrink-0 border-b border-border/50" : "flex-1")}>
+            {searchQuery ? <StorageDriveSearch key={`${workspaceId}:${searchQuery}:${storageRefreshKey}`} client={client} workspaceId={workspaceId} roots={storageRoots.data!.roots} query={searchQuery} refreshKey={storageRefreshKey} onOpenFile={onOpenStorageFile} /> : null}
+            <div hidden={Boolean(searchQuery)}>
+            <StorageDriveTree key={workspaceId} client={client} workspaceId={workspaceId} roots={storageRoots.data!.roots} onOpenFile={onOpenStorageFile} />
+            </div>
+          </div>
+        ) : null}
+        {storageRoots.data?.teamError ? <p role="alert" className="px-4 py-2 text-xs text-destructive">{storageRoots.data.teamError}</p> : null}
+        {storageRoots.isError ? <div role="alert" className="px-4 py-2 text-xs text-destructive">{storageRoots.error.message}<Button variant="ghost" size="sm" onClick={() => void storageRoots.refetch()}>{t("storage.retry")}</Button></div> : null}
+        {storageRoots.isLoading && !hasStorage ? <div className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground"><Loader2 className="size-3 animate-spin" />{t("storage.loading")}</div> : null}
+
+        {notConfigured && hasStorage ? null : notConfigured ? (
+          <PanelEmptyState icon={<HardDrive />} title={t("storage.connect_title")} description={t("storage.connect_description")}>
+            {onConnectStorage ? (
+              <Button variant="outline" size="sm" onClick={onConnectStorage}>{t("storage.connect_title")}</Button>
             ) : null}
           </PanelEmptyState>
         ) : initialLoading ? (
@@ -336,14 +386,15 @@ export function LegalMemoryFilesPanel({
               </div>
             ))}
           </div>
-        ) : initialError ? (
+        ) : initialError && hasStorage ? <p role="alert" className="px-4 py-2 text-xs text-destructive">{rootsQuery.error instanceof Error ? rootsQuery.error.message : t("legalmemory.load_failed")}</p> : initialError ? (
           <PanelEmptyState icon={<AlertCircle />} title={t("legalmemory.unable_to_open")} description={rootsQuery.error instanceof Error ? rootsQuery.error.message : t("legalmemory.load_failed")}>
             <Button variant="outline" size="sm" onClick={() => void rootsQuery.refetch()}>{t("legalmemory.try_again")}</Button>
           </PanelEmptyState>
-        ) : roots.length === 0 && !searchQuery ? (
+        ) : roots.length === 0 && hasStorage ? null : roots.length === 0 && !searchQuery ? (
           <PanelEmptyState icon={<FolderIcon open />} title={t("legalmemory.empty_title")} description={t("legalmemory.empty_body")} />
         ) : (
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto px-2 py-2">
+            {searchQuery && hasStorage ? <h3 className="px-2 py-2 text-xs font-medium text-muted-foreground">LegalMemory</h3> : null}
             <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
               {virtualizer.getVirtualItems().map((item) => {
                 const row = rows[item.index];
@@ -413,6 +464,7 @@ function LegalMemoryTreeRow({
   }
   if (row.kind === "root") {
     return (
+      <MemoryEntryMenu onOpen={() => { if (!row.open) onToggle(row.root.source_id, ""); }} onRefresh={() => onLoadMore(row.root.source_id, "", 0)} name={row.root.display_name}>
       <button
         type="button"
         style={inset}
@@ -427,14 +479,18 @@ function LegalMemoryTreeRow({
           <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">{row.root.files.toLocaleString()}</span>
         ) : null}
       </button>
+      </MemoryEntryMenu>
     );
   }
   if (row.kind === "folder") {
     return (
+      <MemoryEntryMenu onOpen={() => { if (!row.open) onToggle(row.sourceId, row.folder.path); }} onRefresh={() => onLoadMore(row.sourceId, row.folder.path, 0)} name={row.folder.name}>
       <button
         type="button"
+        draggable
         style={inset}
         aria-expanded={row.open}
+        onDragStart={(event) => writeLegalMemoryFolderDrag(event.dataTransfer, row.sourceId, row.folder)}
         onClick={() => onToggle(row.sourceId, row.folder.path)}
         title={row.folder.path}
         className="group flex min-h-9 w-full items-center gap-1.5 rounded-lg pr-2 text-left transition-colors hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
@@ -444,12 +500,14 @@ function LegalMemoryTreeRow({
         <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">{row.folder.name}</span>
         <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100">{row.folder.files.toLocaleString()}</span>
       </button>
+      </MemoryEntryMenu>
     );
   }
 
   const selected = selectedId === row.file.source_object_id;
   const opening = openingId === row.file.source_object_id;
   return (
+    <MemoryEntryMenu onOpen={() => onOpen(row.file)} name={row.file.name}>
     <button
       type="button"
       draggable
@@ -476,5 +534,16 @@ function LegalMemoryTreeRow({
         </span>
       ) : null}
     </button>
+    </MemoryEntryMenu>
   );
+}
+
+function MemoryEntryMenu({ children, name, onOpen, onRefresh }: { children: React.ReactNode; name: string; onOpen: () => void; onRefresh?: () => void }) {
+  return <ContextMenu>
+    <ContextMenuTrigger render={<div />}>{children}</ContextMenuTrigger>
+    <ContextMenuContent>
+      <ContextMenuItem onClick={onOpen}>{t("storage.open")}</ContextMenuItem>
+      {onRefresh && <ContextMenuItem onClick={onRefresh}>{t("storage.refresh_folder", { name })}</ContextMenuItem>}
+    </ContextMenuContent>
+  </ContextMenu>;
 }

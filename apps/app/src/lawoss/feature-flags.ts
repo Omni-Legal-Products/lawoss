@@ -32,13 +32,15 @@ export const isHiddenQuickConnect = (serverName: string): boolean =>
 /**
  * Komerčné plochy upstreamu, ktoré prerastajú do záložiek, ktoré si necháme.
  * `firm-hub` je platené firemné zdieľanie, `trial-notice` je výzva na
- * predplatné nad session.
+ * predplatné nad session, `ai-plans` je obrazovka s plánmi Eigenwelt Plus/Pro
+ * (posledný krok onboardingu a brána cez appku, kým nie je pripojený model).
  */
-export type CommercialSurface = "firm-hub" | "trial-notice";
+export type CommercialSurface = "firm-hub" | "trial-notice" | "ai-plans";
 
 export const HIDDEN_COMMERCIAL_SURFACES: ReadonlySet<CommercialSurface> = new Set<CommercialSurface>([
   "firm-hub",
   "trial-notice",
+  "ai-plans",
 ]);
 
 export const isCommercialSurfaceHidden = (surface: CommercialSurface): boolean =>

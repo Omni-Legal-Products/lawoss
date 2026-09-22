@@ -35,3 +35,6 @@ export const legalworkExcelToolsPluginPath = () => legalworkPluginPath("legalwor
 export const legalworkPowerPointToolsPluginPath = () => legalworkPluginPath("legalwork-powerpoint-tools");
 export const legalworkBenchmarkToolsPluginPath = () => legalworkPluginPath("legalwork-benchmark-tools");
 export const legalworkSkillToolsPluginPath = () => legalworkPluginPath("legalwork-skill-tools");
+
+export const legalworkStorageToolsPluginPath = () => legalworkPluginPath("legalwork-storage-tools");
+export const legalworkTaskToolsPluginPath = () => legalworkPluginPath("legalwork-task-tools");

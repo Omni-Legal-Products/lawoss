@@ -36,7 +36,7 @@ gyp ERR! node-gyp -v v12.3.0
 |---|---|---|
 | **Node.js** | 24 — presne táto verzia beží vo všetkých CI a release workflowoch tohto repozitára (`.nvmrc`, `actions/setup-node` v `.github/workflows/*`), vrátane buildu macOS alfa balíčkov s natívnym `better-sqlite3`. Node v26.7.0 sme tiež overili: `pnpm install --ignore-scripts`, `pnpm typecheck`, `bun test tests/` a `pnpm build:ui` na ňom prešli | Node v26.7.0 s plným `pnpm install`/`pnpm build` (natívny `better-sqlite3`) — pozri sekciu 2 |
 | **pnpm** | 11.4.0 (repozitár vyžaduje presne túto verziu cez `packageManager` v `package.json`) | — |
-| **bun** | 1.4.0, na spúšťanie `apps/app` testov. Pinnutá verzia sa medzi CI workflowmi líši a job, ktorý reálne spúšťa `apps/app` testy (`.github/workflows/ci-tests.yml`), bun verziu nepinuje (`oven-sh/setup-bun@v2` bez `bun-version` — inštaluje najnovšiu); pin `1.3.6`/`1.3.9` je iba v alfa/release buildoch, nie v teste | či presne 1.4.0 zodpovedá tomu, čo si CI v momente vášho behu nainštaluje ako "najnovšiu" |
+| **bun** | 1.4.2, na spúšťanie `apps/app` testov. Od upstream v0.1.21 je `bun-version: 1.4.2` pinnutá v `ci-tests.yml`, alfa aj release workflowoch a README upstreamu vyžaduje Bun 1.4.2+ | `ci-docx.yml` bun verziu nepinuje (inštaluje najnovšiu) |
 | **Git** | akákoľvek bežná verzia na klonovanie repozitára | — |
 | **Xcode Command Line Tools** (macOS) | potrebné pre kompiláciu `better-sqlite3` zo zdroja, ak pre vašu platformu chýba predpripravená binárka — `xcode-select --install` | či ich CI runner reálne potrebuje (má vlastný predpripravený image) |
 
@@ -84,7 +84,9 @@ Voliteľné, ale užitočné pred hlásením problému — overí, že TypeScrip
 
 ## 5. Prvé spustenie
 
-1. **Pripojte model.** V appke choďte na **Settings → AI Providers** a pripojte AI model, ktorý chcete používať (vlastný API kľúč alebo iný podporovaný spôsob pripojenia). Appka bez pripojeného modelu nemá s čím pracovať.
+1. **Pripojte model.** V appke choďte na **Settings → AI Providers** a pripojte AI model, ktorý chcete používať (vlastný API kľúč alebo iný podporovaný spôsob pripojenia). Appka bez pripojeného modelu nemá s čím pracovať. Kým model nie je pripojený, odosielanie je zamknuté a nad poľom na písanie je lišta s tlačidlom **Connect a provider**. LAWOSS žiadne predplatné nepredáva: tlačidlá na skúšobnú verziu alebo prihlásenie (Eigenwelt, dodávateľ upstreamu) nepoužívajte.
+
+   > Pozor, ak používate aj samostatný `opencode` CLI: build od upstream v0.1.21 pri každom spustení presunie MCP konektory z `~/.config/opencode/opencode.json` (aj z `opencode.json` v pracovných priečinkoch) do vlastnej databázy v `~/.config/legalwork/` a z pôvodného súboru ich zmaže. Server si pred prvým presunom uloží kópiu každého dotknutého súboru ako `<súbor>.bak-<dátum>` vedľa neho; napriek tomu si ho pred prvým spustením zálohujte aj sami a konektory odvtedy pridávajte v appke. Starší LAWOSS build po návrate konektory neuvidí — postup obnovy je v [docs/rollback-v0.1.21.md](rollback-v0.1.21.md).
 2. **Založte testovací priečinok.** Pri prvom spustení appka ponúkne výber pracovného priečinka. Vytvorte si na to nový, prázdny priečinok mimo akéhokoľvek reálneho spisu — **nepoužívajte priečinok so skutočnými klientskymi dátami** (dôvod je v sekcii 6).
 3. **Prepnite jazyk.** V **Settings → Language** (SK/CZ lokalizácia je súčasťou LAWOSS jadra) zvoľte preferovaný jazyk rozhrania.
 4. Vyskúšajte appku na neškodnej úlohe — napríklad nechajte ju zhrnúť testovací dokument, ktorý ste sami vložili do testovacieho priečinka.

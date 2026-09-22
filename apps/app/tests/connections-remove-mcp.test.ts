@@ -18,6 +18,8 @@ afterEach(() => {
 describe("desktop MCP removal", () => {
   test("also removes the LegalWork server runtime entry", async () => {
     const desktopCalls: DesktopCall[] = [];
+    const removalOrder: string[] = [];
+    let disconnectError = false;
     const browserWindow = new EventTarget() as EventTarget & {
       __LEGALWORK_ELECTRON__?: {
         invokeDesktop: (command: string, ...args: unknown[]) => Promise<unknown>;
@@ -26,12 +28,6 @@ describe("desktop MCP removal", () => {
     browserWindow.__LEGALWORK_ELECTRON__ = {
       invokeDesktop: async (command, ...args) => {
         desktopCalls.push({ command, args });
-        if (command === "readOpencodeConfig") {
-          return { path: "/tmp/opencode.jsonc", exists: false, content: null };
-        }
-        if (command === "mergeRuntimeMcpServer") {
-          return { ok: true, status: 0, stdout: "removed", stderr: "" };
-        }
         throw new Error(`Unexpected desktop command: ${command}`);
       },
     };
@@ -43,6 +39,8 @@ describe("desktop MCP removal", () => {
     const serverCalls: Array<{ workspaceId: string; name: string }> = [];
     const legalworkClient = {
       removeMcp: async (workspaceId: string, name: string) => {
+        removalOrder.push("engine");
+        if (disconnectError) throw new Error("Could not disconnect the running integration");
         serverCalls.push({ workspaceId, name });
         return { items: [] };
       },
@@ -81,11 +79,17 @@ describe("desktop MCP removal", () => {
     await store.removeMcp("legalmemory");
 
     expect(serverCalls).toEqual([{ workspaceId: "ws-runtime", name: "legalmemory" }]);
-    expect(desktopCalls).toContainEqual({
-      command: "mergeRuntimeMcpServer",
-      args: ["legalmemory", null],
-    });
+    // The server's shared row is the only store; the desktop no longer merges
+    // into the engine config file (the server rebuilds it from the DB).
+    // File cleanup and runtime removal are one server-owned operation.
+    expect(desktopCalls).toEqual([]);
     expect(queryClient.getQueryData(["legalmemory-tree-roots", "ws-runtime"])).toBeUndefined();
+    expect(connectionChanges).toBe(1);
+    expect(removalOrder).toEqual(["engine"]);
+
+    disconnectError = true;
+    await store.removeMcp("legalmemory");
+    expect(store.getSnapshot().mcpStatus).toBe("Could not disconnect the running integration");
     expect(connectionChanges).toBe(1);
   });
 });

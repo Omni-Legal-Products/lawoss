@@ -472,7 +472,6 @@ const {
   updaterEnvironment,
   readOpencodeConfig,
   writeOpencodeConfig,
-  mergeRuntimeMcpServer,
   resetLegalworkState,
   resetOpencodeCache,
   opencodeMcpAuth,
@@ -528,6 +527,8 @@ const {
   audioSystemDictationRepairPermission,
   desktopLoginItemGet,
   desktopLoginItemSet,
+  desktopNotificationShow,
+  desktopBadgeSet,
 } = desktopBridge;
 
 export {
@@ -583,7 +584,6 @@ export {
   updaterEnvironment,
   readOpencodeConfig,
   writeOpencodeConfig,
-  mergeRuntimeMcpServer,
   resetLegalworkState,
   resetOpencodeCache,
   opencodeMcpAuth,
@@ -639,4 +639,6 @@ export {
   audioSystemDictationRepairPermission,
   desktopLoginItemGet,
   desktopLoginItemSet,
+  desktopNotificationShow,
+  desktopBadgeSet,
 };
