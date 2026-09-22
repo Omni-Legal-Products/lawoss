@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useLocale } from "@/i18n/use-locale";
 import { LAWOSS_ROUTES } from "../../lawoss/shell/routes";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
@@ -345,6 +346,7 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string) {
 }
 
 export function SessionRoute() {
+  const locale = useLocale();
   const navigate = useNavigate();
   const location = useLocation();
   const experimentView = LAWOSS_ROUTES.find((route) => route.path === location.pathname)?.element;
@@ -2526,7 +2528,7 @@ export function SessionRoute() {
       open={createWorkspaceOpen}
       additionalContent={createWorkspaceOpen && !createWorkspaceBusy && selectedWorkspace && selectedWorkspace.workspaceType !== "remote" && selectedWorkspace.path && selectedWorkspaceEndpoint && !selectedWorkspaceError && !selectedWorkspaceIsLoading ? (
         <details className="rounded-xl border border-dls-border p-4">
-          <summary className="cursor-pointer text-sm font-medium">Pripraviť nový spis podľa OKF</summary>
+          <summary className="cursor-pointer text-sm font-medium">{t("lawoss.setup.wizard.title", locale)}</summary>
           <NovySpisPanel
             documentAuthor={local.prefs.documentAuthor}
             key={selectedWorkspace.id}

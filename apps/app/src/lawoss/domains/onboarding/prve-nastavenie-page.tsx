@@ -1,5 +1,7 @@
 /** @jsxImportSource react */
 import { useEffect, useState } from "react";
+import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
 import { useNavigate } from "react-router-dom";
 
 import { resolveModelDisplayName, resolveProviderDisplayName } from "@/app/utils";
@@ -10,7 +12,7 @@ import { LawossLayout } from "../../shell/layout";
 import { loadOkfConnection } from "../../okf/connection";
 import { DEFAULT_ONBOARDING_PROGRESS, readOnboardingProgress } from "./onboarding-state";
 import {
-  SETUP_LEDGER_STAV_TEXT,
+  setupStatusLabel,
   buildSetupLedger,
   type SetupLedgerInput,
   type SetupLedgerStav,
@@ -50,6 +52,7 @@ function lokalnyZaklad(): SetupLedgerInput {
  * `buildSetupLedger`.
  */
 export function PrveNastaveniePage() {
+  const locale = useLocale();
   const navigate = useNavigate();
   const [input, setInput] = useState<SetupLedgerInput | null>(null);
 
@@ -89,24 +92,21 @@ export function PrveNastaveniePage() {
     };
   }, []);
 
-  const riadky = input ? buildSetupLedger(input) : [];
+  const riadky = input ? buildSetupLedger(input, locale) : [];
   const chybaPriecinka = input?.workspace === null;
 
   return (
     <LawossLayout>
-      <h1 className="lw-h1">Prvé nastavenie</h1>
-      <p className="lw-lead">
-        Čo už vzniklo, čo ešte chýba a kam sa ukladajú súbory. Register je iba na čítanie a otvoríte ho aj neskôr;
-        keď nastavenie prerušíte, pokračuje sa od posledného kroku.
-      </p>
+      <h1 className="lw-h1">{t("lawoss.initial.title", locale)}</h1>
+      <p className="lw-lead">{t("lawoss.initial.intro", locale)}</p>
 
       <div className="lw-reg">
         <div className="lw-reg-h">
-          <h2>Prvé nastavenie</h2>
-          <span className="lw-meta">stav sa číta z tohto počítača</span>
+          <h2>{t("lawoss.initial.title", locale)}</h2>
+          <span className="lw-meta">{t("lawoss.initial.local_status", locale)}</span>
         </div>
         {input === null ? (
-          <p className="lw-empty">Čítame stav nastavenia…</p>
+          <p className="lw-empty">{t("lawoss.initial.loading", locale)}</p>
         ) : (
           riadky.map((riadok) => (
             <div key={riadok.id} className="lw-row lw-cols-ledger">
@@ -117,7 +117,7 @@ export function PrveNastaveniePage() {
                 {riadok.akcia ? <small className="lw-ledger-akcia">→ {riadok.akcia}</small> : null}
               </span>
               <span className={`lw-st ${STAV_TRIEDA[riadok.stav]}`}>
-                {SETUP_LEDGER_STAV_TEXT[riadok.stav]}
+                {setupStatusLabel(riadok.stav, locale)}
               </span>
             </div>
           ))
@@ -126,16 +126,11 @@ export function PrveNastaveniePage() {
 
       <div className="lw-actions">
         <button className="lw-btn gold" type="button" onClick={() => navigate(chybaPriecinka ? "/welcome" : "/session")}>
-          Pokračovať
+          {t("lawoss.initial.continue", locale)}
         </button>
       </div>
 
-      <div className="lw-note">
-        <span>
-          Všetko beží <b>lokálne</b>; dokumenty idú iba k modelu, ktorý si vyberiete.
-        </span>
-        <span>Register nič nenastavuje — opravy sa robia tam, kam odkazuje riadok.</span>
-      </div>
+      <div className="lw-note"><span>{t("lawoss.initial.local_note", locale)}</span><span>{t("lawoss.initial.readonly_note", locale)}</span></div>
     </LawossLayout>
   );
 }

@@ -1,4 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { currentLanguagePreference, setLanguagePreference, setLocale } from "../src/i18n";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+
+const previousLanguage = currentLanguagePreference();
+beforeEach(() => setLocale("en"));
+afterEach(() => setLanguagePreference(previousLanguage));
 
 import type { McpServerEntry } from "../src/app/types";
 import type { LegalworkServerClient } from "../src/app/lib/legalwork-server";

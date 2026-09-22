@@ -31,6 +31,7 @@ import { MarkdownBlock } from "../domains/session/surface/markdown";
 import { resolveExtensionIconSrc } from "./extension-icon-src";
 import { ExtensionMeshAvatar } from "./extension-mesh-avatar";
 import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
 
 export type ExtensionDetailModalProps = {
   open: boolean;
@@ -231,6 +232,7 @@ export function ExtensionDetailModal({
   size = "default",
 }: ExtensionDetailModalProps) {
   "use memo";
+  const locale = useLocale();
 
   return (
     <Dialog
@@ -313,7 +315,7 @@ export function ExtensionDetailModal({
                 className="text-sm font-medium text-dls-accent underline-offset-2 hover:underline"
                 onClick={() => { void openDesktopUrl(learnMoreUrl); }}
               >
-                {t("extension_detail.learn_more")}
+                {t("extension_detail.learn_more", locale)}
               </button>
             ) : null}
 
@@ -333,7 +335,7 @@ export function ExtensionDetailModal({
             {resourceLabels.length > 0 || contributionLabels.length > 0 ? (
               <Card variant="outline" size="sm">
                 <CardHeader>
-                  <CardTitle>{t("extension_detail.manifest")}</CardTitle>
+                  <CardTitle>{t("extension_detail.manifest", locale)}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3 text-sm">
@@ -399,7 +401,7 @@ export function ExtensionDetailModal({
                         size="xs"
                         onClick={onReveal}
                       >
-                        {t("extension_detail.reveal_in_finder")}
+                        {t("extension_detail.reveal_in_finder", locale)}
                         <ExternalLink data-icon="inline-end" />
                       </Button>
                     </div>
@@ -408,7 +410,7 @@ export function ExtensionDetailModal({
                   {oauth ? (
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Authentication</span>
-                      <span className="font-medium text-card-foreground">{t("extension_detail.oauth_required")}</span>
+                      <span className="font-medium text-card-foreground">{t("extension_detail.oauth_required", locale)}</span>
                     </div>
                   ) : null}
 
@@ -430,7 +432,7 @@ export function ExtensionDetailModal({
 
                   {preview ? (
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">{t("extension_detail.release_stage")}</span>
+                      <span className="text-muted-foreground">{t("extension_detail.release_stage", locale)}</span>
                       <span className="font-medium text-dls-accent">Preview</span>
                     </div>
                   ) : null}
@@ -471,7 +473,7 @@ export function ExtensionDetailModal({
               return (
                 <div className="flex flex-col gap-2">
                   <div className="text-sm font-medium text-card-foreground">
-                    {t("extension_detail.skill_content")}
+                    {t("extension_detail.skill_content", locale)}
                   </div>
                   <div className="max-h-[300px] overflow-y-auto rounded-xl border border-border bg-card p-4 text-sm leading-relaxed text-card-foreground">
                     <MarkdownBlock text={body} />
@@ -484,7 +486,7 @@ export function ExtensionDetailModal({
             {showEnablementCard && ((kind !== "skill" && kind !== "ui-control") || (!trigger && !contentPreview && kind !== "ui-control")) ? (
               <Card variant="outline" size="sm">
                 <CardHeader>
-                  <CardTitle>{t("extension_detail.what_this_enables")}</CardTitle>
+                  <CardTitle>{t("extension_detail.what_this_enables", locale)}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-sm leading-relaxed text-muted-foreground">
@@ -527,7 +529,7 @@ export function ExtensionDetailModal({
           </div>
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <DialogClose render={<Button variant="outline" />}>
-              {t("common.close")}
+              {t("common.close", locale)}
             </DialogClose>
             {connected && onUninstall ? (
               <Button
@@ -576,6 +578,7 @@ interface UiControlConnectionDetailsProps {
 
 function UiControlConnectionDetails(props: UiControlConnectionDetailsProps) {
   "use memo";
+  const locale = useLocale();
 
   const opencodeConfig = props.launchCommand ? uiControlOpencodeConfig(props.launchCommand, props.environment) : fallbackUiControlOpencodeConfig;
 
@@ -583,20 +586,20 @@ function UiControlConnectionDetails(props: UiControlConnectionDetailsProps) {
     <div className="space-y-4">
       <Card variant="outline" size="sm">
         <CardHeader>
-          <CardTitle>{t("extension_detail.connect_another_client")}</CardTitle>
+          <CardTitle>{t("extension_detail.connect_another_client", locale)}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex flex-col gap-2 text-sm leading-relaxed text-muted-foreground">
-            <div>{t("extension_detail.bridge_note")}</div>
-            <div>{t("extension_detail.client_starts")} <span className="font-mono text-card-foreground">legalwork-ui-mcp</span> {t("extension_detail.stdio_note")}</div>
-            <div>{t("extension_detail.no_direct_url")}</div>
+            <div>{t("extension_detail.bridge_note", locale)}</div>
+            <div>{t("extension_detail.client_starts", locale)} <span className="font-mono text-card-foreground">legalwork-ui-mcp</span> {t("extension_detail.stdio_note", locale)}</div>
+            <div>{t("extension_detail.no_direct_url", locale)}</div>
           </div>
         </CardContent>
       </Card>
 
       <Card variant="outline" size="sm">
         <CardHeader>
-          <CardTitle>{t("extension_detail.client_examples")}</CardTitle>
+          <CardTitle>{t("extension_detail.client_examples", locale)}</CardTitle>
         </CardHeader>
         <CardContent>
           <pre className="max-h-[180px] overflow-x-auto rounded-xl border border-border p-3 text-xs leading-relaxed text-card-foreground">
@@ -626,7 +629,7 @@ function UiControlConnectionDetails(props: UiControlConnectionDetailsProps) {
               <TableBody>
                 <TableRow className="*:border-border hover:bg-transparent [&>:not(:last-child)]:border-r">
                   <TableCell className="bg-muted/50 w-40 py-2 text-xs font-medium">
-                    {t("extension_detail.production_discovery")}
+                    {t("extension_detail.production_discovery", locale)}
                   </TableCell>
                   <TableCell className="py-2 whitespace-normal">
                     <span className="font-mono text-xs break-all">~/Library/Application Support/com.eigenweltlabs.legalwork/legalwork-ui-control.json</span>
@@ -634,7 +637,7 @@ function UiControlConnectionDetails(props: UiControlConnectionDetailsProps) {
                 </TableRow>
                 <TableRow className="*:border-border hover:bg-transparent [&>:not(:last-child)]:border-r">
                   <TableCell className="bg-muted/50 py-2 text-xs font-medium">
-                    {t("extension_detail.dev_discovery")}
+                    {t("extension_detail.dev_discovery", locale)}
                   </TableCell>
                   <TableCell className="py-2 whitespace-normal">
                     <span className="font-mono text-xs break-all">~/Library/Application Support/com.eigenweltlabs.legalwork.dev/legalwork-ui-control.json</span>
@@ -651,7 +654,7 @@ function UiControlConnectionDetails(props: UiControlConnectionDetailsProps) {
                 {props.environment?.LEGALWORK_UI_CONTROL_DISCOVERY ? (
                   <TableRow className="*:border-border hover:bg-transparent [&>:not(:last-child)]:border-r">
                     <TableCell className="bg-muted/50 py-2 text-xs font-medium">
-                      {t("extension_detail.current_override")}
+                      {t("extension_detail.current_override", locale)}
                     </TableCell>
                     <TableCell className="py-2 whitespace-normal">
                       <span className="font-mono text-xs break-all">{props.environment.LEGALWORK_UI_CONTROL_DISCOVERY}</span>

@@ -1,9 +1,11 @@
+import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { SkillCard } from "../../../app/types";
 import type { ImportedPlugin } from "../../../app/lib/extension-imports";
 import type { LegalworkClaudePluginPreview } from "../../../app/lib/legalwork-server";
-import { MARKETPLACE_CATALOG, type MarketplaceEntry } from "./catalog";
+import { getMarketplaceCatalog, type MarketplaceEntry } from "./catalog";
 import { catalogPluginId, catalogPluginUrl, installCatalogEntry, type CatalogActions, type InstallResult } from "./native-actions";
 
 type Props = CatalogActions & {
@@ -18,14 +20,15 @@ type Props = CatalogActions & {
 
 /** Content only: native Settings owns workspace, permissions, install lifecycle and connection status. */
 export function NativeCatalog(props: Props) {
-  return <section aria-label="LAWOSS katalóg" className="space-y-3">
+  const locale = useLocale();
+  return <section aria-label={t("lawoss.integrations.catalog.title", locale)} className="space-y-3">
     <div>
       <h3 className="text-base font-medium text-dls-text">LAWOSS</h3>
-      <p className="text-sm text-dls-secondary">Balíky pre pracovný priečinok {props.workspaceName}. Tento import zatiaľ nepodporuje globálnu inštaláciu. Stav pripojenia MCP je v záložke Konektory.</p>
+      <p className="text-sm text-dls-secondary">{t("lawoss.integrations.catalog.description", locale, { name: props.workspaceName })}</p>
     </div>
-    {props.error ? <p role="alert" className="text-sm text-red-11">Zoznam nainštalovaných balíkov sa nepodarilo načítať: {props.error instanceof Error ? props.error.message : String(props.error)}</p> : null}
+    {props.error ? <p role="alert" className="text-sm text-red-11">{t("lawoss.integrations.catalog.load_error", locale, { detail: props.error instanceof Error ? props.error.message : String(props.error) })}</p> : null}
     <div className="grid gap-3 sm:grid-cols-2">
-      {MARKETPLACE_CATALOG.map((entry) => <CatalogCard key={entry.id} entry={entry} context={props}
+      {getMarketplaceCatalog(locale).map((entry) => <CatalogCard key={entry.id} entry={entry} context={props}
         installed={entry.install.action === "okf"
           ? ["novy-spis", "okf-pamat", "usporiadaj-spis"].every((name) => props.skills.some((skill) => skill.name === name))
           : !props.error && props.plugins.some((plugin) => plugin.pluginId === catalogPluginId(entry))} />)}
@@ -34,6 +37,7 @@ export function NativeCatalog(props: Props) {
 }
 
 function CatalogCard({ entry, context, installed }: { entry: MarketplaceEntry; context: Props; installed: boolean }) {
+  const locale = useLocale();
   const [preview, setPreview] = useState<LegalworkClaudePluginPreview | null>(null);
   const [working, setWorking] = useState(false);
   const [status, setStatus] = useState<InstallResult | null>(null);
@@ -54,30 +58,30 @@ function CatalogCard({ entry, context, installed }: { entry: MarketplaceEntry; c
   return <article className="rounded-xl border border-dls-border bg-dls-surface p-4 space-y-3">
     <div className="flex items-start justify-between gap-2">
       <h4 className="text-sm font-semibold text-dls-text">{entry.name}</h4>
-      {installed ? <span className="text-xs text-dls-secondary">{entry.install.action === "okf" ? "Skilly uložené" : "Nainštalované"}</span> : null}
+      {installed ? <span className="text-xs text-dls-secondary">{entry.install.action === "okf" ? t("lawoss.integrations.catalog.skills_saved", locale) : t("lawoss.integrations.catalog.installed", locale)}</span> : null}
     </div>
     <p className="text-sm text-dls-secondary">{entry.description}</p>
     <details className="text-sm text-dls-secondary">
-      <summary className="cursor-pointer text-dls-text">Rozsah a plán inštalácie</summary>
+      <summary className="cursor-pointer text-dls-text">{t("lawoss.integrations.catalog.plan", locale)}</summary>
       <div className="mt-3 space-y-2">
-        <p>Rozsah: {context.workspaceName || "pracovný priečinok"}. Balík je v testovaní.</p>
-        <p className="break-all">Zdroj: {entry.source.repository}@{entry.source.ref}</p>
-        <p>Vyžaduje: {entry.dependencies.join(", ")}.</p>
+        <p>{t("lawoss.integrations.catalog.scope", locale, { name: context.workspaceName || t("lawoss.integrations.catalog.workspace", locale) })}</p>
+        <p className="break-all">{t("lawoss.integrations.catalog.source", locale, { source: `${entry.source.repository}@${entry.source.ref}` })}</p>
+        <p>{t("lawoss.integrations.catalog.requires", locale, { dependencies: entry.dependencies.join(", ") })}</p>
         <p>{entry.humanGate}</p>
-        {entry.install.action === "okf" ? <p>Uloží alebo aktualizuje tri skilly /novy-spis, /okf-pamat a /usporiadaj-spis a ich CLI resources. Samotná inštalácia nevytvára vec.</p> : <>
-          <Button variant="outline" disabled={working || context.busy || !context.workspaceId} onClick={() => void showPreview()}>Načítať obsah balíka</Button>
+        {entry.install.action === "okf" ? <p>{t("lawoss.integrations.catalog.okf_install", locale)}</p> : <>
+          <Button variant="outline" disabled={working || context.busy || !context.workspaceId} onClick={() => void showPreview()}>{t("lawoss.integrations.catalog.load_contents", locale)}</Button>
           {preview ? <div>
             <ul className="list-disc pl-5">{preview.components.map((component) => <li key={`${component.type}:${component.name}`}>{component.name} ({component.type})</li>)}</ul>
             {preview.warnings.map((warning) => <p key={warning} role="alert">{warning}</p>)}
           </div> : null}
         </>}
-        {!permitted ? <p>Inštalácia vyžaduje dostupný priečinok a oprávnenie na zápis.</p> : null}
+        {!permitted ? <p>{t("lawoss.integrations.catalog.permission_hint", locale)}</p> : null}
         <Button variant="outline" disabled={disabled || (entry.install.action === "plugin" && !preview)} onClick={() => void install()}>
-          {working ? "Pracujem…" : installed ? "Potvrdiť aktualizáciu balíka" : "Potvrdiť inštaláciu do priečinka"}
+          {working ? t("lawoss.integrations.catalog.working", locale) : installed ? t("lawoss.integrations.catalog.confirm_update", locale) : t("lawoss.integrations.catalog.confirm_install", locale)}
         </Button>
       </div>
     </details>
-    {context.loading && entry.install.action === "plugin" ? <p role="status" className="text-xs text-dls-secondary">Načítavam stav inštalácie…</p> : null}
-    {status ? <p role={status.ok ? "status" : "alert"} className="text-sm text-dls-secondary">{status.message}</p> : null}
+    {context.loading && entry.install.action === "plugin" ? <p role="status" className="text-xs text-dls-secondary">{t("lawoss.integrations.catalog.loading_status", locale)}</p> : null}
+    {status ? <p role={status.ok ? "status" : "alert"} className="text-sm text-dls-secondary">{status.messageKey ? t(status.messageKey, locale) : status.message}</p> : null}
   </article>;
 }

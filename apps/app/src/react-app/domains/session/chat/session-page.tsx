@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { LanguageSwitcher } from "@/lawoss/shell/language-switcher";
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -1066,6 +1067,7 @@ export function SessionPage(props: SessionPageProps) {
               )}
                 </div>
                 <div className="flex items-center gap-1.5 text-gray-10 mac:titlebar-no-drag">
+                  <LanguageSwitcher />
                   <NotificationBell />
                 </div>
               </header>
@@ -1187,7 +1189,8 @@ export function SessionPage(props: SessionPageProps) {
                   <AppWindowMac size={16} />
                 </Button>
               ) : null}
-              <NotificationBell />
+              <LanguageSwitcher />
+                  <NotificationBell />
               {props.developerMode ? (
                 <Button
                   variant="ghost"

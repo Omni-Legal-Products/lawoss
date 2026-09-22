@@ -1,3 +1,5 @@
+import { currentLocale, t, type Language } from "@/i18n";
+
 export type MarketplaceKind = "mcp" | "skill" | "cli" | "workflow" | "plugin";
 export type MarketplaceChannel = "stable" | "lab" | "community" | "private";
 export type MarketplaceRisk = "read-only" | "local-write" | "network" | "external-action";
@@ -64,6 +66,18 @@ export const MARKETPLACE_CATALOG: readonly MarketplaceEntry[] = [
     install: { scope: "workspace", action: "plugin", path: `plugins/${item.id}` },
   })),
 ];
+
+/** Resolve display copy at render time; immutable install identities stay unchanged. */
+export function getMarketplaceCatalog(locale: Language = currentLocale()): readonly MarketplaceEntry[] {
+  return MARKETPLACE_CATALOG.map((entry) => ({
+    ...entry,
+    name: entry.id === "slovlex" ? entry.name : t(`lawoss.integrations.catalog.${entry.id}_name`, locale),
+    description: t(`lawoss.integrations.catalog.${entry.id}_description`, locale),
+    humanGate: t(entry.install.action === "okf" ? "lawoss.integrations.catalog.okf_gate" : "lawoss.integrations.catalog.plugin_gate", locale),
+    source: entry.install.action === "okf" ? { ...entry.source, ref: t("lawoss.integrations.catalog.bundled", locale) } : entry.source,
+    dependencies: entry.install.action === "okf" ? entry.dependencies : ["Node.js 22.14+", t("lawoss.integrations.catalog.npm", locale), t("lawoss.integrations.catalog.internet", locale)],
+  }));
+}
 
 export function filterMarketplaceEntries(
   entries: readonly MarketplaceEntry[],

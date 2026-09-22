@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import type { LegalworkServerClient } from "../../../app/lib/legalwork-server";
 import { refreshIntegrationState, removeImportedPlugin, type InstallResult } from "./native-actions";
@@ -6,7 +7,7 @@ export function importedPluginsQuery(client: Pick<LegalworkServerClient, "listCl
   return queryOptions({
     queryKey: ["workspace-imported-plugins", endpoint, workspaceId],
     queryFn: async () => {
-      if (!client || !workspaceId) throw new Error("Vyberte dostupný pracovný priečinok.");
+      if (!client || !workspaceId) throw new Error(t("lawoss.integrations.catalog.select_available"));
       const result = await client.listCloudPlugins(workspaceId);
       return Object.values(result.plugins);
     },
@@ -38,12 +39,12 @@ export function useNativeIntegrations(options: {
     ]);
   };
   const installOkf = async (): Promise<InstallResult> => {
-    if (!client || !workspaceId) throw new Error("Vyberte dostupný pracovný priečinok.");
-    if (!options.canInstallSkills) throw new Error("V tomto priečinku nemáte oprávnenie na inštaláciu.");
+    if (!client || !workspaceId) throw new Error(t("lawoss.integrations.catalog.select_available"));
+    if (!options.canInstallSkills) throw new Error(t("lawoss.integrations.catalog.install_denied"));
     return installNativeOkfPack(client, workspaceId);
   };
   const removePlugin = async (pluginId: string) => {
-    if (!client || !workspaceId) throw new Error("Vyberte dostupný pracovný priečinok.");
+    if (!client || !workspaceId) throw new Error(t("lawoss.integrations.catalog.select_available"));
     await removeImportedPlugin(client, workspaceId, pluginId, options.canRemove, refresh);
   };
   return { plugins: imports.data ?? [], loading: imports.isPending, error: imports.error, refresh, installOkf, removePlugin };
@@ -60,5 +61,5 @@ export async function installNativeOkfPack(client: Pick<LegalworkServerClient, "
     await client.upsertSkill(workspaceId, { name: skill.name, ...skill.body });
     await client.upsertSkillResource(workspaceId, skill.name, { name: skill.resource, content: skill.content });
   }
-  return { ok: true, message: "Skilly /novy-spis, /okf-pamat a /usporiadaj-spis sú uložené v tomto pracovnom priečinku." };
+  return { ok: true, message: t("lawoss.integrations.catalog.pack_saved"), messageKey: "lawoss.integrations.catalog.pack_saved" };
 }

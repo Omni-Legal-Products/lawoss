@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { workspaceRelativePath } from "../../okf/plan-groups";
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
@@ -9,9 +10,9 @@ export async function prepareOkfDraft(
   workspace: RouteWorkspace,
   openDraft: () => Promise<string>,
 ): Promise<string> {
-  if (workspace.workspaceType === "remote" || !workspace.path) throw new Error("Vyberte dostupný lokálny workspace.");
+  if (workspace.workspaceType === "remote" || !workspace.path) throw new Error(t("lawoss.setup.error.localWorkspace"));
   const capabilities = await client.capabilities();
-  if (!capabilities.skills.write || !capabilities.skillResources?.write) throw new Error("Workspace nepovoľuje zápis skillov a ich súborov.");
+  if (!capabilities.skills.write || !capabilities.skillResources?.write) throw new Error(t("lawoss.setup.error.skillWrite"));
   const body = skillBody();
   await client.upsertSkill(workspace.id, { name: NOVY_SPIS_SKILL_NAME, content: body.content, description: body.description });
   await client.upsertSkillResource(workspace.id, NOVY_SPIS_SKILL_NAME, { name: OKF_CLI_RESOURCE_NAME, content: okfCliSource() });

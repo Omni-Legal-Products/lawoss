@@ -1,5 +1,7 @@
 /** @jsxImportSource react */
 import type { ReactNode } from "react";
+import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
 import { ChevronRight, FlaskConical } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 
@@ -29,7 +31,7 @@ export const EXPERIMENTY_PATH = "/experimenty";
  */
 export function experimentyNavItems(): { to: string; label: string }[] {
   return [
-    { to: EXPERIMENTY_PATH, label: "Prepínače a stav" },
+    { to: EXPERIMENTY_PATH, label: t("lawoss.shell.switches_status") },
     ...EXPERIMENT_VIEWS.map((view) => ({ to: view.to, label: view.label })),
   ];
 }
@@ -46,6 +48,7 @@ export function experimentyNavItems(): { to: string; label: string }[] {
  * small window heights. A menu takes no vertical space regardless of count.
  */
 export function LawossNav(props: { activePane?: boolean } = {}) {
+  const locale = useLocale();
   const navigate = useNavigate();
   const location = useLocation();
   const items = experimentyNavItems();
@@ -64,7 +67,7 @@ export function LawossNav(props: { activePane?: boolean } = {}) {
                     className="gap-3 text-sidebar-foreground/80 [&_svg]:size-[18px]"
                   >
                     <FlaskConical strokeWidth={1.5} />
-                    <span>Experimenty</span>
+                    <span>{t("lawoss.shell.experiments", locale)}</span>
                     <span className="lw-badge">EXP</span>
                     <ChevronRight className="ms-auto" />
                   </SidebarMenuButton>
@@ -87,9 +90,10 @@ export function LawossNav(props: { activePane?: boolean } = {}) {
 
 /** Experiment content shares the persistent session shell and its sidebar. */
 export function LawossLayout(props: { children: ReactNode }) {
+  const locale = useLocale();
   return (
     <div className="lw-experiment-content">
-      <nav className="lw-experiment-nav" aria-label="Experimenty">
+      <nav className="lw-experiment-nav" aria-label={t("lawoss.shell.experiments", locale)}>
         {experimentyNavItems().map((item) => (
           <NavLink key={item.to} to={item.to} end>{item.label}</NavLink>
         ))}

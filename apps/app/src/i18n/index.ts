@@ -290,12 +290,11 @@ export const t = (
 
   if (!params) return branded;
 
-  let out = branded;
-  for (const [k, v] of Object.entries(params)) {
-    if (k === "lng") continue;
-    out = out.replace(`{${k}}`, String(v));
-  }
-  return out;
+  // Interpolate the original template once. Callback results are literal:
+  // replacement tokens ($&, $`, $') and braces in user data are not syntax.
+  return branded.replace(/\{([^{}]+)\}/g, (placeholder, name: string) =>
+    name !== "lng" && Object.hasOwn(params, name) ? String(params[name]) : placeholder,
+  );
 };
 
 /**
@@ -304,6 +303,8 @@ export const t = (
  * we no longer ship fails the guard and falls back to detection.
  * Call this during app initialization.
  */
+const listeningWindows = new WeakSet<Window>();
+
 export const initLocale = (): Language => {
   if (typeof window === "undefined") {
     return "en";
@@ -316,12 +317,28 @@ export const initLocale = (): Language => {
     console.warn("Failed to read language preference:", e);
   }
 
+  const previousPreference = preferenceValue;
   preferenceValue = isLanguagePreference(stored) ? stored : SYSTEM_LANGUAGE;
   const resolved = preferenceValue === SYSTEM_LANGUAGE ? detectSystemLanguage() : preferenceValue;
+  applyLocale(resolved);
+  if (previousPreference !== preferenceValue) notify();
 
-  localeValue = resolved;
-  if (typeof document !== "undefined") {
-    document.documentElement.setAttribute("lang", resolved);
+  if (!listeningWindows.has(window)) {
+    listeningWindows.add(window);
+    window.addEventListener("languagechange", () => {
+      if (preferenceValue === SYSTEM_LANGUAGE) applyLocale(detectSystemLanguage());
+    });
+    window.addEventListener("storage", (event) => {
+      if (event.key !== null && event.key !== LANGUAGE_PREF_KEY) return;
+      // A different Electron window can change the same UI preference. Re-read
+      // storage without writing it back, so the event cannot form a loop.
+      try {
+        if (event.storageArea !== null && event.storageArea !== window.localStorage) return;
+        initLocale();
+      } catch {
+        // Some browser privacy modes deny access to localStorage.
+      }
+    });
   }
 
   return resolved;

@@ -234,19 +234,27 @@ export function useOkfOverview(connection: OkfConnection | null, workspace: Rout
 // ── zobrazenie ────────────────────────────────────────────────────────────
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
-const dayFormat = new Intl.DateTimeFormat("sk-SK", { weekday: "short", day: "numeric", month: "numeric" });
-const longFormat = new Intl.DateTimeFormat("sk-SK", { weekday: "long", day: "numeric", month: "long" });
-
-/** `2026-09-12` → „so 12. 9."; nevalidný dátum sa vypíše, ako je zapísaný. */
-export function formatDay(iso: string): string {
-  return ISO_DAY.test(iso) ? dayFormat.format(new Date(`${iso}T00:00:00`)) : iso;
+/** Date-only values are calendar days, independent of the machine's time zone. */
+function calendarDay(iso: string): Date | null {
+  if (!ISO_DAY.test(iso)) return null;
+  const date = new Date(`${iso}T00:00:00Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === iso ? date : null;
 }
 
-/** `2026-09-12` → „Sobota 12. septembra". */
-export function formatLongDay(iso: string): string {
-  if (!ISO_DAY.test(iso)) return iso;
-  const s = longFormat.format(new Date(`${iso}T00:00:00`));
-  return s.charAt(0).toUpperCase() + s.slice(1);
+export function formatDay(iso: string, locale = "sk"): string {
+  const date = calendarDay(iso);
+  return date ? new Intl.DateTimeFormat(locale, {
+    weekday: "short", day: "numeric", month: "numeric", timeZone: "UTC",
+  }).format(date) : iso;
+}
+
+export function formatLongDay(iso: string, locale = "sk"): string {
+  const date = calendarDay(iso);
+  if (!date) return iso;
+  const value = new Intl.DateTimeFormat(locale, {
+    weekday: "long", day: "numeric", month: "long", timeZone: "UTC",
+  }).format(date);
+  return value.charAt(0).toLocaleUpperCase(locale) + value.slice(1);
 }
 
 /** Trieda `lw-d` podľa blízkosti termínu. */

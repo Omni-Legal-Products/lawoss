@@ -1,9 +1,19 @@
+import { setupEn } from "../../lawoss/i18n/setup";
+import { initialEn } from "../../lawoss/i18n/initial";
+import { mattersEn } from "../../lawoss/i18n/matters";
+import { integrationsEn } from "../../lawoss/i18n/integrations";
+import { shellEn } from "../../lawoss/i18n/shell";
 /**
  * English translations
  * Professional terms (Skills, Plugins, Commands, Sessions, OpenCode, OpenPackage, LegalWork) are NOT translated
  */
 
 export default {
+  ...setupEn,
+  ...initialEn,
+  ...mattersEn,
+  ...integrationsEn,
+  ...shellEn,
   "storage.oauth_provider": "Cloud storage",
   "storage.oauth_description": "Browse, search and edit connected files.",
   "storage.oauth_personal": "Each person signs in with their own account. Your sign-in is saved on this device.",

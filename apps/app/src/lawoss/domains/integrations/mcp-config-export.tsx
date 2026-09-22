@@ -1,4 +1,6 @@
 /** @jsxImportSource react */
+import { t, type Language } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
 import { useEffect, useReducer } from "react";
 import { Download } from "lucide-react";
 
@@ -157,9 +159,9 @@ export function runMcpConfigExportDownload(options: {
   filename: string;
   download: LocalDownload;
 }): McpConfigExport {
-  if (!options.state.open || !options.state.confirmed) throw new Error("Confirm the MCP export first");
+  if (!options.state.open || !options.state.confirmed) throw new Error(t("lawoss.integrations.mcp.confirm_first"));
   if (!mcpConfigExportApprovalIsCurrent(options.state, options.entries, options.workspaceIdentity)) {
-    throw new Error("MCP export approval is stale");
+    throw new Error(t("lawoss.integrations.mcp.stale"));
   }
   const result = buildMcpConfigExport(options.entries, options.state.selectedNames);
   options.download({ filename: options.filename, content: result.json, mimeType: "application/json" });
@@ -177,17 +179,17 @@ export function mcpConfigExportFilename(workspaceLabel: string): string {
   return `${slug || "workspace"}-mcp.json`;
 }
 
-function sourceLabel(source: McpServerSource | undefined): string {
-  if (source === "config.project") return "Konfigurácia workspace";
-  if (source === "config.global") return "Globálna OpenCode konfigurácia";
-  if (source === "config.remote") return "Spravovaný runtime (rozsah nie je overený)";
-  return "Neznámy zdroj";
+function sourceLabel(source: McpServerSource | undefined, locale: Language): string {
+  if (source === "config.project") return t("lawoss.integrations.mcp.project", locale);
+  if (source === "config.global") return t("lawoss.integrations.mcp.global", locale);
+  if (source === "config.remote") return t("lawoss.integrations.mcp.remote", locale);
+  return t("lawoss.integrations.mcp.unknown", locale);
 }
 
-function disabledLabel(entry: McpServerEntry): string | null {
+function disabledLabel(entry: McpServerEntry, locale: Language): string | null {
   const reasons: string[] = [];
-  if (entry.config.enabled === false) reasons.push("vypnutý v konfigurácii");
-  if (entry.disabledByTools === true) reasons.push("vypnutý pravidlami tools");
+  if (entry.config.enabled === false) reasons.push(t("lawoss.integrations.mcp.disabled_config", locale));
+  if (entry.disabledByTools === true) reasons.push(t("lawoss.integrations.mcp.disabled_tools", locale));
   if (!reasons.length) return null;
   return reasons.join(", ");
 }
@@ -197,13 +199,14 @@ export function McpConfigExportDialog(props: {
   workspaceIdentity: string;
   download?: LocalDownload;
 }) {
+  const locale = useLocale();
   const [state, dispatch] = useReducer(mcpConfigExportDialogReducer, initialMcpConfigExportDialogState);
   useEffect(() => dispatch({ type: "reset" }), [props.workspaceIdentity, props.entries]);
 
   const selectedSet = new Set(state.selectedNames);
   const sourceCounts = state.selectedNames.reduce<Record<string, number>>((counts, name) => {
     const entry = props.entries.find((candidate) => candidate.name === name);
-    const label = sourceLabel(entry?.source);
+    const label = sourceLabel(entry?.source, locale);
     counts[label] = (counts[label] ?? 0) + 1;
     return counts;
   }, {});
@@ -223,7 +226,7 @@ export function McpConfigExportDialog(props: {
     } catch (error) {
       dispatch({
         type: "error",
-        message: error instanceof Error ? error.message : "Export MCP konfigurácie zlyhal.",
+        message: error instanceof Error ? error.message : t("lawoss.integrations.mcp.failed", locale),
       });
     }
   };
@@ -232,7 +235,7 @@ export function McpConfigExportDialog(props: {
     <>
       <Button variant="outline" size="sm" onClick={() => dispatch({ type: "open" })}>
         <Download size={14} />
-        Exportovať MCP
+        {t("lawoss.integrations.mcp.export", locale)}
       </Button>
       <Dialog
         open={state.open}
@@ -240,16 +243,16 @@ export function McpConfigExportDialog(props: {
       >
         <DialogContent className="max-w-xl sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>Exportovať MCP konfiguráciu</DialogTitle>
+            <DialogTitle>{t("lawoss.integrations.mcp.title", locale)}</DialogTitle>
             <DialogDescription>
-              Vyberte konektory, ktoré sa majú uložiť do lokálneho OpenCode JSON súboru.
+              {t("lawoss.integrations.mcp.description", locale)}
             </DialogDescription>
           </DialogHeader>
 
           <div className="max-h-64 space-y-2 overflow-y-auto">
             {props.entries.length ? props.entries.map((entry) => {
               const effectiveStateKnown = typeof entry.disabledByTools === "boolean";
-              const disabled = disabledLabel(entry);
+              const disabled = disabledLabel(entry, locale);
               return (
                 <label key={entry.name} className="flex items-start gap-3 rounded-xl border border-dls-border p-3">
                   <input
@@ -261,28 +264,27 @@ export function McpConfigExportDialog(props: {
                   />
                   <span className="min-w-0">
                     <span className="block break-all text-sm font-medium text-dls-text">{entry.name}</span>
-                    <span className="block text-xs text-dls-secondary">{sourceLabel(entry.source)}</span>
-                    {disabled ? <span className="block text-xs text-amber-11">{disabled}; export zostane vypnutý</span> : null}
+                    <span className="block text-xs text-dls-secondary">{sourceLabel(entry.source, locale)}</span>
+                    {disabled ? <span className="block text-xs text-amber-11">{t("lawoss.integrations.mcp.stays_disabled", locale, { reason: disabled })}</span> : null}
                     {!effectiveStateKnown ? (
-                      <span className="block text-xs text-red-11">Neoverený efektívny stav — export nie je dostupný.</span>
+                      <span className="block text-xs text-red-11">{t("lawoss.integrations.mcp.unverified", locale)}</span>
                     ) : null}
                   </span>
                 </label>
               );
             }) : (
-              <p className="text-sm text-dls-secondary">Nie sú dostupné žiadne MCP konektory.</p>
+              <p className="text-sm text-dls-secondary">{t("lawoss.integrations.mcp.empty", locale)}</p>
             )}
           </div>
 
           <div className="rounded-xl border border-amber-6 bg-amber-2 p-3 text-xs leading-relaxed text-amber-11">
-            Export môže obsahovať tajomstvá v URL, hlavičkách, premenných prostredia, OAuth clientSecret alebo argumentoch príkazu.
-            OAuth prístupové a obnovovacie tokeny sa neexportujú; po obnove môže byť potrebné nové prihlásenie.
+            {t("lawoss.integrations.mcp.secrets", locale)}
           </div>
 
           <div className="space-y-1 text-xs text-dls-secondary">
-            <p>Vybrané konektory: {state.selectedNames.length}</p>
+            <p>{t("lawoss.integrations.mcp.selected", locale, { number: state.selectedNames.length })}</p>
             {Object.entries(sourceCounts).map(([source, count]) => <p key={source}>{source}: {count}</p>)}
-            <p>Konektor vypnutý pravidlami tools sa uloží so štandardným enabled: false; samotné tools pravidlá nie sú súčasťou exportu.</p>
+            <p>{t("lawoss.integrations.mcp.tools_note", locale)}</p>
           </div>
 
           <label className="flex items-start gap-3 text-sm text-dls-text">
@@ -301,14 +303,14 @@ export function McpConfigExportDialog(props: {
                 },
               } : { type: "confirm", value: false })}
             />
-            Rozumiem, že súbor môže obsahovať citlivé konfiguračné hodnoty.
+            {t("lawoss.integrations.mcp.confirm", locale)}
           </label>
           {state.error ? <p role="alert" className="text-sm text-red-11">{state.error}</p> : null}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => dispatch({ type: "reset" })}>Zrušiť</Button>
+            <Button variant="outline" onClick={() => dispatch({ type: "reset" })}>{t("lawoss.integrations.cancel", locale)}</Button>
             <Button disabled={!approvalCurrent || state.selectedNames.length === 0} onClick={submit}>
-              Stiahnuť vybrané MCP
+              {t("lawoss.integrations.mcp.download", locale)}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,4 +1,5 @@
-import { afterEach, expect, test } from "bun:test";
+import { currentLanguagePreference, setLanguagePreference, setLocale } from "../src/i18n";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -8,6 +9,10 @@ import { FileMemoryIntegrationCard, MemoryProfileEditor, MemoryPreflight } from 
 import { checkMemoryProfile, loadMemoryProfile, previewMemoryProfile, saveMemoryProfile, MEMORY_PROFILE_PATH, parseWorkspaceMemoryProfileText } from "../src/lawoss/okf/workspace-memory-profile";
 import type { ExtensionsViewProps } from "../src/react-app/domains/settings/pages/extensions-view";
 import { memoryFixture } from "./lawoss-memory-fixture";
+
+const previousLanguage = currentLanguagePreference();
+beforeEach(() => setLocale("sk"));
+afterEach(() => setLanguagePreference(previousLanguage));
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -50,22 +55,22 @@ test("live server status separates grants, missing sources, read-only writes and
   const ready = await checkMemoryProfile(f.client, "matter", snapshot);
   expect(ready.complete).toBe(true); expect(ready.grants.authority).toBe("runtime");
   expect(ready.profileHash).toBe(createHash("sha256").update(f.content).digest("hex"));
-  expect(renderToStaticMarkup(<MemoryPreflight status={ready} dirty={false} />)).toContain("Pamäť je pripravená");
+  expect(renderToStaticMarkup(<MemoryPreflight status={ready} dirty={false} />)).toContain("Memory is ready");
   const dirty = renderToStaticMarkup(<MemoryPreflight status={ready} dirty />);
-  expect(dirty).not.toContain("Pamäť je pripravená"); expect(dirty).toContain("Neuložený návrh");
+  expect(dirty).not.toContain("Memory is ready"); expect(dirty).toContain("The unsaved draft");
   await f.client.setAuthorizedFolders("matter", []);
   expect((await checkMemoryProfile(f.client, "matter", snapshot)).complete).toBe(false);
   f.config.readOnly = true;
   await expect(saveMemoryProfile(f.client, "matter", snapshot, snapshot.profile)).rejects.toThrow("iba čítanie");
   const html = renderToStaticMarkup(<MemoryRouter><MemoryProfileEditor client={f.client} workspaceId="matter" initial={snapshot} writable={false} onReload={() => {}} /></MemoryRouter>);
-  expect(html).toContain('fieldset disabled=""'); expect(html).toContain("Náhľad JSON a zmien"); expect(html).toContain("Spravovať oprávnenia");
+  expect(html).toContain('fieldset disabled=""'); expect(html).toContain("JSON and changes preview"); expect(html).toContain("Manage folder permissions");
   expect(html).toContain('/workspace/matter/settings/permissions');
 });
 test("native card refuses disconnected, absent and remote workspaces", async () => {
   const f = await fixture();
   for (const props of [{ client: null, workspaceId: "matter", workspacePath: f.matter }, { client: f.client, workspaceId: null, workspacePath: "" }, { client: f.client, workspaceId: "matter", workspacePath: f.matter, remote: true }]) {
     const html = renderToStaticMarkup(<FileMemoryIntegrationCard {...props} workspaceName="Synthetic" />);
-    expect(html).toContain("Vyberte pripojený lokálny workspace"); expect(html).not.toContain("Uložiť mapovanie");
+    expect(html).toContain("Select a connected local matter workspace"); expect(html).not.toContain("Save mapping");
   }
 });
 test("native Integrations entry renders file memory only in Connectors and preserves existing MCP content", async () => {
@@ -75,8 +80,8 @@ test("native Integrations entry renders file memory only in Connectors and prese
     pluginScope: "project", setPluginScope: () => {}, refreshPlugins: () => {}, pluginConfigPath: () => null, pluginConfig: () => null, pluginList: () => [], pluginInput: () => "", setPluginInput: () => {}, pluginStatus: () => null, addPlugin: () => {}, removePlugin: () => {}, isPluginInstalledByName: () => false, activePluginGuide: () => null, setActivePluginGuide: () => {},
   }, fileMemoryView: <FileMemoryIntegrationCard client={null} workspaceId={null} workspacePath="" workspaceName="" /> };
   const render = (initialSection: "mcp" | "skills") => renderToStaticMarkup(<QueryClientProvider client={new QueryClient()}><MemoryRouter><ExtensionsView {...props} initialSection={initialSection} /></MemoryRouter></QueryClientProvider>);
-  const html = render("mcp"); expect(html).toContain("Súborová pamäť spisu"); expect(html).toContain("Existing native MCP");
-  expect(render("skills")).not.toContain("Súborová pamäť spisu");
+  const html = render("mcp"); expect(html).toContain("Case file memory"); expect(html).toContain("Existing native MCP");
+  expect(render("skills")).not.toContain("Case file memory");
 });
 
 test("oversized draft is rejected before native CAS writes any profile bytes", async () => {

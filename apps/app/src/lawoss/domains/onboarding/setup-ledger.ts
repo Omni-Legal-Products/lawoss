@@ -1,3 +1,4 @@
+import { t, type Language } from "@/i18n";
 /**
  * Stavový register prvého nastavenia (spec MF, bod 3.1).
  *
@@ -57,14 +58,14 @@ export type SetupLedgerInput = {
   postup: OnboardingProgress;
 };
 
-function priecinok(input: SetupLedgerInput): SetupLedgerRiadok {
-  const zaklad = { id: "priecinok", poradie: "01", nazov: "Pracovný priečinok" } as const;
+function priecinok(input: SetupLedgerInput, locale: Language): SetupLedgerRiadok {
+  const zaklad = { id: "priecinok", poradie: "01", nazov: t("lawoss.initial.folder", locale) } as const;
   if (input.workspaceChyba) {
     return {
       ...zaklad,
       stav: "chyba",
-      detail: `Pracovné miesto sa nepodarilo načítať: ${input.workspaceChyba}`,
-      akcia: "Skúste priečinok vybrať znova — kým sa to nepodarí, LAWOSS nič nečíta ani nezapisuje.",
+      detail: t("lawoss.initial.workspace_error", { error: input.workspaceChyba, lng: locale }),
+      akcia: t("lawoss.initial.retry_folder", locale),
     };
   }
   if (!input.workspace) {
@@ -73,83 +74,88 @@ function priecinok(input: SetupLedgerInput): SetupLedgerRiadok {
       stav: "caka",
       detail:
         input.postup.step === "folder"
-          ? "Nastavenie ste prerušili pri výbere priečinka. Uložený krok ostáva v tomto počítači, pokračuje sa odtiaľ a nič sa nestratilo."
-          : "Priečinok ešte nie je vybraný. Až do výberu LAWOSS nepracuje so žiadnymi súbormi.",
-      akcia: "Vybrať pracovný priečinok",
+          ? t("lawoss.initial.folder_paused", locale)
+          : t("lawoss.initial.folder_missing", locale),
+      akcia: t("lawoss.initial.select_folder", locale),
     };
   }
   return {
     ...zaklad,
     stav: "pripravene",
     detail: input.workspace.cesta
-      ? `Súbory sa ukladajú do ${input.workspace.cesta} · ${input.workspace.nazov}.`
-      : `Pracovné miesto ${input.workspace.nazov} beží mimo tohto počítača, lokálna cesta k súborom nie je známa.`,
+      ? t("lawoss.initial.folder_local", { path: input.workspace.cesta, name: input.workspace.nazov, lng: locale })
+      : t("lawoss.initial.folder_remote", { name: input.workspace.nazov, lng: locale }),
   };
 }
 
-function model(input: SetupLedgerInput): SetupLedgerRiadok {
-  const zaklad = { id: "model", poradie: "02", nazov: "AI model" } as const;
+function model(input: SetupLedgerInput, locale: Language): SetupLedgerRiadok {
+  const zaklad = { id: "model", poradie: "02", nazov: t("lawoss.initial.model", locale) } as const;
   if (!input.model) {
     return {
       ...zaklad,
       stav: "caka",
-      detail: "Model ešte nie je vybraný. Kým si ho nevyberiete, dokumenty neodchádzajú nikam.",
-      akcia: "Vybrať model v Nastavenia → AI",
+      detail: t("lawoss.initial.model_missing", locale),
+      akcia: t("lawoss.initial.select_model", locale),
     };
   }
   return {
     ...zaklad,
     stav: "pripravene",
-    detail: `Použije sa ${input.model.poskytovatel} / ${input.model.model}. Dokumenty idú iba k tomuto modelu.`,
+    detail: t("lawoss.initial.model_selected", { provider: input.model.poskytovatel, model: input.model.model, lng: locale }),
   };
 }
 
-function ochrana(input: SetupLedgerInput): SetupLedgerRiadok {
-  const zaklad = { id: "ochrana", poradie: "03", nazov: "Ochrana pri úpravách" } as const;
+function ochrana(input: SetupLedgerInput, locale: Language): SetupLedgerRiadok {
+  const zaklad = { id: "ochrana", poradie: "03", nazov: t("lawoss.initial.safeguards", locale) } as const;
   if (input.ochranaChyba) {
     return {
       ...zaklad,
       stav: "chyba",
-      detail: `Nastavenie ochrany sa nepodarilo prečítať: ${input.ochranaChyba}`,
-      akcia: "Otvorte Nastavenia → Povolenia nástrojov a skontrolujte potvrdzovanie úprav.",
+      detail: t("lawoss.initial.safeguards_error", { error: input.ochranaChyba, lng: locale }),
+      akcia: t("lawoss.initial.check_permissions", locale),
     };
   }
   switch (input.ochranaUprav) {
     case "ask":
-      return { ...zaklad, stav: "pripravene", detail: "Zmenu, uloženie aj odstránenie súboru vždy potvrdzuje človek." };
+      return { ...zaklad, stav: "pripravene", detail: t("lawoss.initial.ask", locale) };
     case "deny":
-      return { ...zaklad, stav: "pripravene", detail: "Agent nesmie meniť súbory. Úpravy robíte vy." };
+      return { ...zaklad, stav: "pripravene", detail: t("lawoss.initial.deny", locale) };
     case "allow":
       return {
         ...zaklad,
         stav: "caka",
-        detail: "Agent smie meniť súbory bez potvrdenia.",
-        akcia: "Zapnúť potvrdzovanie v Nastavenia → Povolenia nástrojov",
+        detail: t("lawoss.initial.allow", locale),
+        akcia: t("lawoss.initial.enable_confirmation", locale),
       };
     default:
       return {
         ...zaklad,
         stav: "caka",
-        detail: "Ochrana pri úpravách zatiaľ nie je nastavená, platí predvolené správanie pracovného prostredia.",
-        akcia: "Nastaviť potvrdzovanie úprav v Nastavenia → Povolenia nástrojov",
+        detail: t("lawoss.initial.unset", locale),
+        akcia: t("lawoss.initial.set_confirmation", locale),
       };
   }
 }
 
-function prvaUloha(input: SetupLedgerInput): SetupLedgerRiadok {
-  const zaklad = { id: "prva-uloha", poradie: "04", nazov: "Prvá úloha" } as const;
+function prvaUloha(input: SetupLedgerInput, locale: Language): SetupLedgerRiadok {
+  const zaklad = { id: "prva-uloha", poradie: "04", nazov: t("lawoss.initial.first_task", locale) } as const;
   if (input.prvaUlohaHotova) {
-    return { ...zaklad, stav: "pripravene", detail: "Prvá úloha už prebehla. Register ostáva dostupný aj neskôr." };
+    return { ...zaklad, stav: "pripravene", detail: t("lawoss.initial.task_done", locale) };
   }
   return {
     ...zaklad,
     stav: "volitelne",
-    detail: "Prvú úlohu môžete preskočiť. Vyskúšajte ju na neklientskom testovacom súbore alebo na dokumente, ktorý sami vyberiete.",
-    akcia: "Spustiť prvú úlohu",
+    detail: t("lawoss.initial.task_optional", locale),
+    akcia: t("lawoss.initial.start_task", locale),
   };
 }
 
 /** Štyri riadky registra v poradí 01 – 04. */
-export function buildSetupLedger(input: SetupLedgerInput): SetupLedgerRiadok[] {
-  return [priecinok(input), model(input), ochrana(input), prvaUloha(input)];
+export function buildSetupLedger(input: SetupLedgerInput, locale: Language = "sk"): SetupLedgerRiadok[] {
+  return [priecinok(input, locale), model(input, locale), ochrana(input, locale), prvaUloha(input, locale)];
+}
+
+export function setupStatusLabel(status: SetupLedgerStav, locale: Language): string {
+  const keys = { pripravene: "ready", caka: "waiting", volitelne: "optional", chyba: "error" };
+  return t(`lawoss.initial.${keys[status]}`, locale);
 }

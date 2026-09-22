@@ -1,4 +1,5 @@
-import { afterEach, expect, test } from "bun:test";
+import { currentLanguagePreference, setLanguagePreference, setLocale } from "../src/i18n";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { join } from "node:path";
 import { buildOverview } from "../../../lawoss/okf/read";
 import { workspaceBootstrap } from "../src/app/lib/desktop";
@@ -7,6 +8,10 @@ import { getSessionDraft, saveSessionDraft } from "../src/react-app/domains/sess
 import { readActiveWorkspaceId, readLastSessionFor } from "../src/react-app/shell/session-memory";
 import { mapDesktopWorkspace, mergeRouteWorkspaces, type RouteWorkspace } from "../src/react-app/shell/route-workspaces";
 import { memoryFixture } from "./lawoss-memory-fixture";
+
+const previousLanguage = currentLanguagePreference();
+beforeEach(() => setLocale("sk"));
+afterEach(() => setLanguagePreference(previousLanguage));
 
 const cleanups: (() => Promise<void>)[] = [];
 const priorWindow = Object.getOwnPropertyDescriptor(globalThis, "window");

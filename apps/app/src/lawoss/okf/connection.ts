@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 /**
  * Prístup k serveru a k workspace-om mimo session-route — rovnaký recept, aký
  * používa settings-route, len bez jej stavu. Nič z toho nie je nové API:
@@ -59,7 +60,7 @@ export async function openSessionWithPrompt(
   prompt: string,
 ): Promise<string> {
   const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl: connection.baseUrl, token: connection.token });
-  if (!endpoint) throw new Error("Workspace nie je dostupný — server nebeží alebo chýba token.");
+  if (!endpoint) throw new Error(t("lawoss.integrations.error.workspace_unavailable"));
   const opencode = createClient(endpoint.opencodeBaseUrl, workspace.path || undefined, {
     token: endpoint.token,
     mode: "legalwork",

@@ -1,3 +1,4 @@
+import { t } from "../src/i18n";
 import { expect, test } from "bun:test";
 import { parseOfficeWorkingProfile, workingProfile } from "../../../lawoss/okf/src/profile";
 import { readOfficeProfile, updateOfficeProfile } from "../src/lawoss/okf/office-profile";
@@ -53,9 +54,9 @@ test("office profile uses the selected workspace and refuses ambiguous office or
   expect((await loadOfficeProfile(client, "selected", "/office-root")).path).toBe("_kancelaria/okf.config");
   expect(new Set(requests)).toEqual(new Set(["selected"]));
   entries.set("Office", "dir");
-  await expect(loadOfficeProfile(client, "selected", "/office-root")).rejects.toThrow("aj _kancelaria");
+  await expect(loadOfficeProfile(client, "selected", "/office-root")).rejects.toThrow(t("lawoss.setup.error.twoOffices"));
   entries.delete("Office"); entries.set("matter.md", "file");
-  await expect(loadOfficeProfile(client, "selected", "/office-root/matter")).rejects.toThrow("klient, vec alebo projekt");
+  await expect(loadOfficeProfile(client, "selected", "/office-root/matter")).rejects.toThrow(t("lawoss.setup.error.officeRoot"));
   entries.clear();
   expect((await loadOfficeProfile(client, "selected", "/office-root/Office")).path).toBe("okf.config");
 });
