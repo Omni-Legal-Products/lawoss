@@ -19,7 +19,7 @@
 import type { OkfRecord } from "./record.ts";
 import {
   AML_REQUIRED, PERSON_KINDS, SENSITIVE_FIELDS, EVIDENCE_KINDS,
-  fieldLabel, needleFields, truthDigest, FIELDS, EVENT_KINDS,
+  fieldLabel, needleFields, truthDigest, FIELDS, EVENT_KINDS, canonicalEventKind,
   type FieldDef, type Jurisdiction,
 } from "./schema.ts";
 
@@ -316,6 +316,49 @@ function amlCompleteness(r: OkfRecord): Finding | undefined {
   };
 }
 
+/**
+ * N5 — do L3 sa nezapisuje bez overeného prameňa.
+ *
+ * `authority` bez `source` / `verified_via` / `verified_at` nie je prameň,
+ * je to navigačný nález (napr. z komentárového korpusu) — a ten sa musí
+ * najprv doveriť v primárnom prameni, inak sa v podaní citovala domnienka.
+ * Chyba, nie varovanie: `write` túto istú kontrolu používa ako bránu.
+ *
+ * `subject` bez `source` je iba varovanie — protistrany a klienti sa
+ * zakladajú aj z ústneho podania a domýšľať im zdroj by bol šum.
+ */
+const L3_SOURCE_FIELDS = ["source", "verified_via", "verified_at"] as const;
+
+export function checkL3Sources(records: readonly OkfRecord[]): Finding[] {
+  const out: Finding[] = [];
+  for (const r of records) {
+    if (r.type === "authority") {
+      const missing = L3_SOURCE_FIELDS.filter(
+        (f) => !String(r[f] ?? "").trim(),
+      );
+      if (missing.length) {
+        out.push({
+          severity: "error",
+          code: "L3_SOURCE_MISSING",
+          recordId: r.id,
+          message:
+            `authority ${r.id}: chýba ${missing.join(", ")} — do L3 sa nezapisuje ` +
+            `bez overeného prameňa (navigácia → dooverenie v primárnom prameni)`,
+        });
+      }
+    }
+    if (r.type === "subject" && !String(r.source ?? "").trim()) {
+      out.push({
+        severity: "warning",
+        code: "SUBJECT_SOURCE_MISSING",
+        recordId: r.id,
+        message: `subject ${r.id}: bez zdroja overenia (OR/ARES/register) — údaje môžu byť zastarané`,
+      });
+    }
+  }
+  return out;
+}
+
 export function validateStore(
   records: readonly OkfRecord[],
   opts: ValidateOptions = {},
@@ -395,7 +438,7 @@ export function validateStore(
       });
     }
     for (const e of r.timeline) {
-      if (!e.kind || (EVENT_KINDS as readonly string[]).includes(e.kind)) continue;
+      if (!e.kind || (EVENT_KINDS as readonly string[]).includes(canonicalEventKind(e.kind))) continue;
       findings.push({
         severity: "warning",
         code: "UNKNOWN_VALUE",
@@ -532,6 +575,9 @@ export function validateStore(
       });
     }
   }
+
+  findings.push(...checkL3Sources(records));
+
   const screenings = records.filter((r) => r.type === "screening");
 
   // § 9 — priebežná kontrola. Preverenie s uplynutou platnosťou treba zopakovať.

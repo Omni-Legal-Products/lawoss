@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Info } from "lucide-react";
 
 import {
@@ -59,6 +59,7 @@ function describeError(error: unknown): string {
 
 export type PersonalisationViewProps = {
   client: LegalworkServerClient | null;
+  officeProfileView?: ReactNode;
   onSettingsApplied: () => void;
   onOpenLink: (url: string) => void;
 };
@@ -204,10 +205,9 @@ export function PersonalisationView(props: PersonalisationViewProps) {
           <LayoutSectionHeader>
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1">
-                <LayoutSectionTitle>Document author</LayoutSectionTitle>
+                <LayoutSectionTitle>Meno advokáta a autor dokumentov</LayoutSectionTitle>
                 <LayoutSectionDescription>
-                  New tracked changes and comments in the in-app DOCX editor use this name. Existing documents are not
-                  rewritten.
+                  Spoločné meno pre nové veci, komentáre a revízie v DOCX editore LAWOSS. Existujúce karty a dokumenty sa nemenia.
                 </LayoutSectionDescription>
               </div>
               <Button
@@ -216,10 +216,10 @@ export function PersonalisationView(props: PersonalisationViewProps) {
                 onClick={() => {
                   local.setPrefs((previous) => ({ ...previous, documentAuthor: normalizedDocumentAuthor }));
                   setDocumentAuthorDraft(normalizedDocumentAuthor);
-                  toast.success("Document author saved.");
+                  toast.success("Meno advokáta je uložené.");
                 }}
               >
-                Save
+                Uložiť meno
               </Button>
             </div>
           </LayoutSectionHeader>
@@ -228,7 +228,7 @@ export function PersonalisationView(props: PersonalisationViewProps) {
             maxLength={MAX_DOCUMENT_AUTHOR_LENGTH}
             onChange={(event) => setDocumentAuthorDraft(event.currentTarget.value)}
             placeholder="LegalWork"
-            aria-label="Document author"
+            aria-label="Meno advokáta a autor dokumentov"
             className="rounded-2xl bg-surface px-4 py-3.5"
           />
           <SettingsNotice>
@@ -236,6 +236,8 @@ export function PersonalisationView(props: PersonalisationViewProps) {
             Office konta; toto nastavenie sa týka nových úprav v DOCX editore LAWOSS a kompatibilného redline fallbacku.
           </SettingsNotice>
         </LayoutSection>
+
+        {props.officeProfileView}
 
         <LayoutSection>
           <LayoutSectionHeader>

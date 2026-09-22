@@ -80,6 +80,7 @@ describe("legalwork runtime config file", () => {
     // The Anthropic auth plugin must be wired so "Sign in with Anthropic"
     // (Claude Pro/Max + Console API-key OAuth) methods are offered by the engine.
     expect(parsed.plugin as string[]).toContain("opencode-anthropic-auth");
+    expect((parsed.plugin as string[]).some((spec) => /^file:\/\//.test(spec) && /lawoss-okf-handoff\.(?:js|ts)$/.test(spec))).toBe(true);
     // No server-injected provider blocks: the engine treats any config-defined
     // provider as always-connected, so the eigenwelt provider only exists when
     // written into the per-workspace runtime config at connect time.

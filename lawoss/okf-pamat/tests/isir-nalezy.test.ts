@@ -18,7 +18,11 @@ const D = { today: "2026-09-03" };
 const T = "2026-09-03";
 const rec = (id: string, type: OkfRecord["type"], title: string, over: Partial<OkfRecord> = {}): OkfRecord => ({
   ...newRecord({ id, type, jurisdiction: "cz", title, description: "d", created: T, updated: T, truth: "t",
-    timeline: [{ date: T, text: "z" }] }), ...over });
+    timeline: [{ date: T, text: "z" }],
+    // N5: authority/subject v týchto testoch preveruje niečo iné (jehly,
+    // smerovanie do kancelárie, kolízie id) — zdroj je tu vyplnený naschvál
+    // neutrálne, aby brána L3_SOURCE_MISSING tie testy nezakryla.
+    source: "test", verified_via: "test", verified_at: T }), ...over });
 
 /** kancelária → klient → spis, s trvalým poverením pre L1/L3 */
 function kancelaria(): { root: string; klient: string; spis: string } {
@@ -182,10 +186,12 @@ test("uprava toho isteho pramena z inej veci prejde — created sedi", () => {
   const subor = readdirSync(officeMem).find((x) => x.startsWith("A-001-")) ?? "";
   const ulozeny = parseRecord(readFileSync(join(officeMem, subor), "utf8"));
   // Uložený záznam má `updated` na dni audit riadku; zmena obsahu ho musí posunúť.
-  const p2 = { ...ulozeny, truth: "doplnené", updated: "2026-09-04",
+  const p2 = { ...ulozeny, truth: "doplnené", updated: new Date().toISOString(),
     timeline: [...ulozeny.timeline, { date: "2026-09-04", text: "doplnené z inej veci" }] };
   const f = join(ina, "navrh.md"); writeFileSync(f, serializeRecord(p2));
-  const r = runCli(["write", ina, "--file", f, "--reason", "x", "--apply"]);
+  const revision = /Revision A-001: ([a-f0-9]{64})/.exec(runCli(["read", ina]).out)?.[1];
+  assert.ok(revision);
+  const r = runCli(["write", ina, "--file", f, "--reason", "x", "--if-revision", revision, "--apply"]);
   assert.equal(r.code, 0, r.out);
   assert.equal(readdirSync(join(root, OFFICE_DIR, MEMORY_DIR)).filter((x) => x.startsWith("A-")).length, 1);
 });

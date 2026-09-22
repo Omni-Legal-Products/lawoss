@@ -304,9 +304,9 @@ function appendBlock(text: string, b: BlockName, body: string, j: Jurisdiction):
 export function statusSkeleton(j: Jurisdiction): string {
   const head =
     j === "cz"
-      ? "# Status věci\n\n> **Fáze:** \n> **Další krok:** \n"
-      : "# Status veci\n\n> **Fáza:** \n> **Ďalší krok:** \n";
-  return BLOCKS.reduce((t, b) => appendBlock(t, b, EMPTY[j], j), head);
+      ? "# Status věci\n\n> **Fáze:**\n> **Další krok:**\n"
+      : "# Status veci\n\n> **Fáza:**\n> **Ďalší krok:**\n";
+  return BLOCKS.reduce((t, b) => appendBlock(t, b, EMPTY[j], j), `---\ntype: status\nmanual_updated: ""\n---\n\n${head}`);
 }
 
 export class RenderConflictError extends Error {}
@@ -431,4 +431,27 @@ export function renderStatus(
     out = appendBlock(out, b, body, j);
   }
   return out;
+}
+
+/** Všetko mimo projekcií ostáva v kontexte vrátane vlastných poznámok.
+ * Odstránenie odvodených nadpisov udrží read stabilné pri prvom syncu. */
+export function manualStatusContent(text: string): string {
+  let out = text;
+  for (const block of BLOCKS) {
+    const start = startMarker(block);
+    const end = endMarker(block);
+    if (!out.includes(start) && !out.includes(end)) continue;
+    const first = out.indexOf(start);
+    const last = out.indexOf(end);
+    if (first < 0 || last < first || out.indexOf(start, first + start.length) >= 0 || out.indexOf(end, last + end.length) >= 0) {
+      throw new RenderConflictError(`Neúplné alebo duplicitné markery ${block} v _STATUS.md; otvor celý súbor.`);
+    }
+    let prefix = out.slice(0, first);
+    for (const heading of BLOCK_HEADING_ALIASES[block]) {
+      prefix = prefix.replace(new RegExp(`(?:^|\\n)##[ \t]*(?:\\d+\\.[ \t]*)?${heading}[ \t]*\\r?\\n[ \t]*$`, "i"), "\n");
+    }
+    out = prefix + out.slice(last + end.length);
+  }
+  // Sync smie zmeniť oddeľovacie prázdne riadky, nie ručný obsah.
+  return out.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }

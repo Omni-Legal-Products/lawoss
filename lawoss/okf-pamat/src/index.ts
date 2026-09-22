@@ -13,7 +13,7 @@ export {
   FIELDS, RECORD_TYPES, LAYER_OF, SENSITIVE_FIELDS, AML_REQUIRED,
   STATUS, PERSON_KINDS, ROLES, RISK, CONCLUSION, SCREENING_MODES,
   PROOF_STATUS, CONFIDENCE, EVIDENCE_STRENGTH, PROCEDURAL_STATUS, TASK_STATES,
-  EVIDENCE_KINDS, EVIDENCE_KIND_PROVISION, SCREENING_PROVISION, EVENT_KINDS,
+  EVIDENCE_KINDS, EVIDENCE_KIND_PROVISION, SCREENING_PROVISION, EVENT_KINDS, EVENT_KIND_ALIASES, canonicalEventKind,
   fieldLabel, canonicalField, typeLabel, truthDigest, OKF_VERSION, isRecordType, isJurisdiction, needleFields,
   type Jurisdiction, type Layer, type RecordType, type FieldDef, type NeedleStrength,
   type Status, type PersonKind, type Role, type Risk, type Conclusion, type ScreeningMode,
@@ -26,12 +26,12 @@ export {
 } from "./record.ts";
 
 export {
-  planWrite, authorize, ApprovalRequiredError, TimelineIntegrityError, StaleUpdatedError,
+  planWrite, authorize, assertHasSource, ApprovalRequiredError, TimelineIntegrityError, StaleUpdatedError, L3SourceMissingError,
   type Approval, type WriteDiff, type WriteKind,
 } from "./write.ts";
 
 export { renderStatus, retrofitStatus, RenderConflictError, statusSkeleton, BLOCKS, MARKER_ONLY, SOFT_HEADING, type BlockName, type LinkResolver } from "./render.ts";
-export { validateStore, type Finding, type Severity, type ValidateOptions } from "./validate.ts";
+export { validateStore, checkL3Sources, type Finding, type Severity, type ValidateOptions } from "./validate.ts";
 export { maskValue, maskRecord } from "./mask.ts";
 export {
   readStandingAuthorization, inspectStandingAuthorization, isIsoDate, readNameLeakSeverity, covers, isExpired, CONFIG_FILE,
@@ -139,6 +139,8 @@ export interface NewRecordInit {
   procedural_status?: string;
   effective_from?: string;
   effective_to?: string;
+  source?: string;
+  verified_via?: string;
   verified_at?: string;
   verified_against?: string;
   procedural_role?: string;

@@ -8,7 +8,6 @@ import {
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { LAWOSS_ROUTES } from "../../lawoss/shell/routes";
-import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
 import { TasksPane } from "../domains/tasks/tasks-pane";
@@ -87,6 +86,7 @@ import {
   safeStringify,
 } from "@/app/utils";
 import { t } from "@/i18n";
+import { isCommercialSurfaceHidden, isHiddenSettingsTab } from "@/lawoss/feature-flags";
 import {
   type RouteWorkspace,
   type RouteSession,
@@ -122,6 +122,7 @@ import { runFusionSend } from "@/react-app/domains/session/fusion/fusion-control
 import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/session/fusion/fusion-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
+import { NovySpisPanel } from "@/lawoss/domains/novy-spis/novy-spis-page";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import { AiPlansOverlay } from "@/react-app/domains/onboarding/ai-plans-overlay";
@@ -832,6 +833,13 @@ export function SessionRoute() {
     },
     [setOnboardingStage],
   );
+
+  // LAWOSS: krok „audio" zapína prepis a diktovanie, ale záložka recorder je
+  // skrytá — používateľ by zapol funkciu, ku ktorej sa potom nikde nedostane.
+  // Preskočiť aj uložený stav "audio", aby v ňom nikto neuviazol.
+  useEffect(() => {
+    if (onboardingStage === "audio" && isHiddenSettingsTab("recorder")) setOnboardingStage("permissions");
+  }, [onboardingStage, setOnboardingStage]);
   const { store: sessionProviderAuthStore, snapshot: sessionProviderAuthSnapshot } =
     useSessionProviderAuth({
       opencodeClient,
@@ -2025,6 +2033,12 @@ export function SessionRoute() {
       const createdId = resolveWorkspaceListSelectedId(list) || list.workspaces[list.workspaces.length - 1]?.id || "";
       let targetWorkspaceId = createdId;
       let targetWorkspace = list.workspaces.find((workspace: WorkspaceInfo) => workspace.id === createdId) ?? null;
+      // A fresh profile can have an HTTP server before its first engine exists.
+      const localInfo = isDesktopRuntime() && targetWorkspace
+        ? await ensureDesktopLocalLegalworkConnection({ route: "session", workspace: targetWorkspace, allWorkspaces: list.workspaces })
+        : null;
+      const sessionBaseUrl = localInfo?.baseUrl || baseUrl;
+      const sessionToken = localInfo?.ownerToken || localInfo?.clientToken || token;
       if (createdId) {
         await workspaceSetSelected(createdId).catch(() => undefined);
         await workspaceSetRuntimeActive(createdId).catch(() => undefined);
@@ -2035,11 +2049,11 @@ export function SessionRoute() {
       await refreshRouteState();
       if (targetWorkspaceId) {
         const workspacePath = targetWorkspace?.path?.trim() || folder;
-        const session = createdOnServer && baseUrl && token
+        const session = createdOnServer && sessionBaseUrl && sessionToken
           ? unwrap(await createClient(
-              `${(buildLegalworkWorkspaceBaseUrl(baseUrl, targetWorkspaceId) ?? baseUrl).replace(/\/+$/, "")}/opencode`,
+              `${(buildLegalworkWorkspaceBaseUrl(sessionBaseUrl, targetWorkspaceId) ?? sessionBaseUrl).replace(/\/+$/, "")}/opencode`,
               workspacePath || undefined,
-              { token, mode: "legalwork" },
+              { token: sessionToken, mode: "legalwork" },
             ).session.create({ directory: workspacePath || undefined }))
           : null;
         setLegacySelectedWorkspaceId(targetWorkspaceId);
@@ -2119,7 +2133,7 @@ export function SessionRoute() {
         }}
       />
     ) : null}
-    {onboardingStage === "audio" ? (
+    {onboardingStage === "audio" && !isHiddenSettingsTab("recorder") ? (
       // One action: turn on transcription & dictation.
       <AudioStep
         legalworkClient={client}
@@ -2151,7 +2165,9 @@ export function SessionRoute() {
           isDesktopRuntime()
             ? () => {
                 onboardingWentBack.current = true;
-                setOnboardingStage("audio");
+                // LAWOSS: krok „audio" je preskočený, keď je recorder skrytý —
+                // späť sa ide rovno na „office", inak by krok problikol.
+                setOnboardingStage(isHiddenSettingsTab("recorder") ? "office" : "audio");
               }
             : undefined
         }
@@ -2508,6 +2524,22 @@ export function SessionRoute() {
     />
     <CreateWorkspaceModal
       open={createWorkspaceOpen}
+      additionalContent={createWorkspaceOpen && !createWorkspaceBusy && selectedWorkspace && selectedWorkspace.workspaceType !== "remote" && selectedWorkspace.path && selectedWorkspaceEndpoint && !selectedWorkspaceError && !selectedWorkspaceIsLoading ? (
+        <details className="rounded-xl border border-dls-border p-4">
+          <summary className="cursor-pointer text-sm font-medium">Pripraviť nový spis podľa OKF</summary>
+          <NovySpisPanel
+            documentAuthor={local.prefs.documentAuthor}
+            key={selectedWorkspace.id}
+            connection={selectedWorkspaceEndpoint}
+            workspace={selectedWorkspace}
+            onOpenSession={(route) => {
+              setCreateWorkspaceOpen(false);
+              navigate(route);
+              void refreshRouteState();
+            }}
+          />
+        </details>
+      ) : undefined}
       onClose={() => {
         setCreateWorkspaceOpen(false);
         setCreateWorkspaceError(null);

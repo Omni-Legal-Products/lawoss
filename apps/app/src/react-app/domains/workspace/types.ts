@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { WorkspacePreset } from "../../../app/types";
 
 export type CreateWorkspaceProgress = {
@@ -16,6 +17,7 @@ export type CreateWorkspaceProgress = {
 
 export type CreateWorkspaceModalProps = {
   open: boolean;
+  additionalContent?: ReactNode;
   onClose: () => void;
   onConfirm: (preset: WorkspacePreset, folder: string | null) => void;
   onConfirmWorker?: (preset: WorkspacePreset, folder: string | null) => void;

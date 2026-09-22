@@ -3,10 +3,10 @@ name: OKF pamäť
 on:
   pull_request:
     branches: [dev]
-    paths: ["lawoss/okf-pamat/**", ".github/workflows/ci-okf-pamat.yml"]
+    paths: ["lawoss/okf-pamat/**", "lawoss/okf-handoff/**", ".github/workflows/ci-okf-pamat.yml"]
   push:
     branches: [dev]
-    paths: ["lawoss/okf-pamat/**", ".github/workflows/ci-okf-pamat.yml"]
+    paths: ["lawoss/okf-pamat/**", "lawoss/okf-handoff/**", ".github/workflows/ci-okf-pamat.yml"]
 
 permissions:
   contents: read
@@ -37,13 +37,29 @@ jobs:
         with:
           version: 11.4.0
 
-      # Balíček stojí mimo pnpm workspace — inštaluje sa samostatne,
-      # aby fork nepribral ďalší uzol do upstream stromu.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      # OKF patrí do pnpm workspace; používame koreňový lockfile.
       - name: Install
-        run: pnpm install --ignore-workspace --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter @lawoss/okf-pamat
 
       - name: Typecheck
         run: pnpm typecheck
 
       - name: Test
         run: pnpm test
+
+      - name: Natívny handoff
+        working-directory: .
+        run: bun test lawoss/okf-handoff/
+
+      - name: Bundle je čerstvý
+        # `bundle/okf-memory.js` sa inštaluje do workspace-u ako CLI skillu
+        # `/okf-pamat`, takže zastaraný bundle znamená, že agent v appke beží
+        # na inom kóde než repozitár.
+        run: |
+          bun run build
+          git diff --exit-code bundle/

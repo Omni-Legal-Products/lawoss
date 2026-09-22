@@ -63,6 +63,7 @@ export type OpencodeAuth = {
 };
 
 const DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS = 10_000;
+const SESSION_CREATE_TIMEOUT_MS = 60_000;
 const OAUTH_OPENCODE_REQUEST_TIMEOUT_MS = 5 * 60_000;
 const MCP_AUTH_OPENCODE_REQUEST_TIMEOUT_MS = 90_000;
 const SESSION_LONG_RUNNING_URL_RE = /\/session\/[^/?#]+\/(?:command|prompt_async|summarize)(?:[?#]|$)/;
@@ -74,8 +75,14 @@ function getRequestUrl(input: RequestInfo | URL): string {
   return String(input);
 }
 
-function resolveRequestTimeoutMs(input: RequestInfo | URL, fallbackMs: number): number {
+function resolveRequestTimeoutMs(input: RequestInfo | URL, fallbackMs: number, init?: RequestInit): number {
   const url = getRequestUrl(input);
+  const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+  // The first session waits for workspace/plugin initialization on a cold engine.
+  // Keep a bounded wait; retrying this POST could create a duplicate session.
+  if (method === "POST" && /\/session\/?(?:[?#]|$)/.test(url)) {
+    return Math.max(fallbackMs, SESSION_CREATE_TIMEOUT_MS);
+  }
   if (SESSION_LONG_RUNNING_URL_RE.test(url)) {
     return 0;
   }
@@ -222,7 +229,7 @@ async function fetchWithTimeout(
   init: RequestInit | undefined,
   timeoutMs: number,
 ) {
-  const effectiveTimeoutMs = resolveRequestTimeoutMs(input, timeoutMs);
+  const effectiveTimeoutMs = resolveRequestTimeoutMs(input, timeoutMs, init);
   if (!Number.isFinite(effectiveTimeoutMs) || effectiveTimeoutMs <= 0) {
     return fetchImpl(input, init);
   }

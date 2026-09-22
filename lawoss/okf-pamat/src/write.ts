@@ -1,22 +1,27 @@
 /**
  * Brány zápisu do pamäte.
  *
- * Dve pravidlá, ktoré nejde obísť promptom, lebo nie sú v prompte:
+ * Pravidlá, ktoré nejde obísť promptom, lebo nie sú v prompte:
  *
  *  1. ATOMICITA PRAVDY — zmena sekcie „Truth" musí v tom istom zápise
  *     pridať riadok do „History". Zmena pravdy bez stopy je nemožná.
  *  2. HUMAN GATE — do L1 a L3 a pri mazaní kdekoľvek zapíše iba človek.
  *     Agent smie navrhnúť (planWrite), nesmie vykonať (authorize zlyhá).
+ *  3. PRAMEŇ (N5) — `authority` bez source/verified_via/verified_at sa do
+ *     L3 nezapíše (assertHasSource zlyhá). Nie je to schválenie, je to
+ *     kvalita dát — beží popri authorize, nie namiesto neho.
  *
- * planWrite aj authorize sú čisté funkcie — nesiahajú na disk.
+ * planWrite, authorize aj assertHasSource sú čisté funkcie — nesiahajú na disk.
  */
 
-import type { OkfRecord, TimelineEntry } from "./record.ts";
+import { canonicalValue, type OkfRecord, type TimelineEntry } from "./record.ts";
 import type { Layer } from "./schema.ts";
+import { checkL3Sources } from "./validate.ts";
 
 export class TimelineIntegrityError extends Error {}
 export class ApprovalRequiredError extends Error {}
 export class StaleUpdatedError extends Error {}
+export class L3SourceMissingError extends Error {}
 
 export interface Approval {
   readonly by: string;
@@ -34,6 +39,18 @@ export interface WriteDiff {
   readonly before: OkfRecord | undefined;
   readonly after: OkfRecord | undefined;
   readonly lines: readonly string[];
+}
+
+function changedFields(before: OkfRecord, after: OkfRecord): string[] {
+  const previous = new Map(Object.entries(before));
+  const next = new Map(Object.entries(after));
+  return [...new Set([...previous.keys(), ...next.keys()])].filter((key) =>
+    key !== "truth_digest" && key !== "timeline" &&
+    canonicalValue(previous.get(key)) !== canonicalValue(next.get(key)));
+}
+
+function contentChanged(before: OkfRecord, after: OkfRecord): boolean {
+  return changedFields(before, after).some((key) => key !== "updated");
 }
 
 function sameEntry(a: TimelineEntry | undefined, b: TimelineEntry | undefined): boolean {
@@ -70,25 +87,25 @@ function assertUpdatedBumped(
   today: string = new Date().toISOString().slice(0, 10),
 ): void {
   const obsahSaZmenil =
-    before.truth !== after.truth || after.timeline.length > before.timeline.length;
+    contentChanged(before, after) || after.timeline.length > before.timeline.length;
   if (!obsahSaZmenil) return;
-  if (after.updated !== before.updated) return;
+  if (after.updated > before.updated) return;
   // Rovnaké `updated` je v poriadku vtedy, keď už nesie dnešok: zmena sa deje
   // dnes a dátum ju opisuje verne. Bez tejto výnimky sa záznam nedá zmeniť
   // druhýkrát v ten istý deň — pri schválenom zápise mu CLI opečiatkuje
   // `updated` dňom schválenia, takže druhá zmena už nemá čo posunúť.
-  if (after.updated === today) return;
+  if (after.updated === before.updated && after.updated === today) return;
   throw new StaleUpdatedError(
     `Záznam ${before.id}: zmena obsahu musí posunúť updated (teraz ${before.updated})`,
   );
 }
 
-/** Zmena pravdy si vyžaduje nový riadok histórie v tom istom zápise. */
+/** Zmena pravdy alebo vecných metadát musí zanechať stopu v histórii. */
 function assertTruthTraced(before: OkfRecord, after: OkfRecord): void {
-  if (before.truth === after.truth) return;
+  if (!contentChanged(before, after)) return;
   if (after.timeline.length === before.timeline.length) {
     throw new TimelineIntegrityError(
-      `Záznam ${before.id}: zmena sekcie „Truth" musí pridať riadok do „History" v tom istom zápise`,
+      `Záznam ${before.id}: zmena sekcie „Truth" alebo metadát musí pridať riadok do „History" v tom istom zápise`,
     );
   }
 }
@@ -110,8 +127,11 @@ function describe(before: OkfRecord | undefined, after: OkfRecord | undefined): 
     lines.push(`~ Truth: ${before.truth}`);
     lines.push(`~ Truth → ${after.truth}`);
   }
-  for (const key of ["title", "description", "status", "updated"] as const) {
-    if (before[key] !== after[key]) lines.push(`~ ${key}: ${before[key]} → ${after[key]}`);
+  const previous = new Map(Object.entries(before));
+  const next = new Map(Object.entries(after));
+  for (const key of changedFields(before, after)) {
+    if (key === "truth") continue;
+    lines.push(`~ ${key}: ${canonicalValue(previous.get(key)) ?? "∅"} → ${canonicalValue(next.get(key)) ?? "∅"}`);
   }
   for (const e of after.timeline.slice(before.timeline.length)) {
     lines.push(`+ History: ${e.date} — ${e.text}`);
@@ -179,4 +199,18 @@ export function authorize(diff: WriteDiff, approval: Approval | undefined): void
   throw new ApprovalRequiredError(
     `${why} (${diff.id}) vyžaduje schválenie človekom — agent smie iba navrhnúť`,
   );
+}
+
+/**
+ * Brána N5. `authority` bez `source` / `verified_via` / `verified_at` sa do
+ * L3 nezapíše — nie je to schválenie (to rieši `authorize`), ale kvalita
+ * dát: navigačný nález nie je prameň, kým sa nedoverí v primárnom prameni.
+ * Rovnaká kontrola beží aj vo `validate` (`checkL3Sources`), aby zápis
+ * a validácia nemohli tichým behom rozísť.
+ */
+export function assertHasSource(after: OkfRecord | undefined): void {
+  if (!after || after.type !== "authority") return;
+  const chyby = checkL3Sources([after]).filter((f) => f.code === "L3_SOURCE_MISSING");
+  if (chyby.length === 0) return;
+  throw new L3SourceMissingError(chyby.map((f) => `${f.code}: ${f.message}`).join(" "));
 }

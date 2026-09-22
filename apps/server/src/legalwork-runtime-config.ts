@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import {
+  legalworkPluginPath,
   legalworkExtensionsPreviewPluginPath,
   legalworkCapabilitiesKnowledgePluginPath,
   legalworkLegalMemoryKnowledgePluginPath,
@@ -198,6 +199,7 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkPowerPointToolsPluginPath()),
       bundledPluginSpec(legalworkBenchmarkToolsPluginPath()),
       bundledPluginSpec(legalworkSkillToolsPluginPath()),
+      bundledPluginSpec(legalworkPluginPath("lawoss-okf-handoff")),
       bundledPluginSpec(legalworkStorageToolsPluginPath()),
       bundledPluginSpec(legalworkTaskToolsPluginPath()),
       ...(personalization?.localMemoriesEnabled ? [AGENT_MEMORY_PLUGIN_SPEC] : []),

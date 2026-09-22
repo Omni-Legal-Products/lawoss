@@ -912,8 +912,9 @@ export function McpView(props: McpViewProps) {
             onClose={() => setDetailPlugin(null)}
             name={detailPlugin.name}
             description={detailPlugin.description ?? t("mcp.marketplace_installed")}
-            kind="extension"
+            kind="plugin"
             connected={true}
+            connectedLabel={t("skills.installed_status")}
             hidden={hidden}
             onUninstall={props.removeCloudPlugin ? () => {
               void props.removeCloudPlugin?.(detailPlugin.pluginId);

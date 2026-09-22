@@ -17,7 +17,9 @@ import type { OkfRecord } from "../src/record.ts";
 const T = "2026-09-11";
 const rec = (id: string, type: OkfRecord["type"], title: string, over: Partial<OkfRecord> = {}): OkfRecord => ({
   ...newRecord({ id, type, jurisdiction: "sk", title, description: "d", created: T, updated: T, truth: "t",
-    timeline: [{ date: T, text: "založené" }] }), ...over });
+    timeline: [{ date: T, text: "založené" }],
+    // N5: tieto testy preverujú smerovanie do kancelárie, nie pramene.
+    source: "test", verified_via: "test", verified_at: T }), ...over });
 
 /** Šablóna Fázy A: číslované sekcie, bez markerov, s vlastným textom advokáta. */
 const SABLONA_A = `# Vec — Status

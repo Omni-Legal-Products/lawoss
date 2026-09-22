@@ -2047,7 +2047,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         hostToken,
         method: "POST",
         body: payload,
-        timeoutMs: timeouts.config,
+        timeoutMs: 360_000,
       }),
     readOpencodeConfigFile: (workspaceId: string, scope: "project" | "global" = "project") => {
       const query = `?scope=${scope}`;
@@ -2800,7 +2800,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
 
     writeWorkspaceFile: (
       workspaceId: string,
-      payload: { path: string; content: string; baseUpdatedAt?: number | null; force?: boolean },
+      payload: { path: string; content: string; baseUpdatedAt?: number | null; force?: boolean; expectedContent?: string | null },
     ) =>
       requestJson<LegalworkWorkspaceFileWriteResult>(
         baseUrl,

@@ -63,8 +63,13 @@ export const LAYER_OF: Record<RecordType, Layer> = {
 /** `map` = ploché mapovanie, `maplist` = zoznam plochých mapovaní (OKF `sources`, `verified`). */
 export type FieldKind = "string" | "number" | "list" | "map" | "maplist";
 
-/** Stav záznamu. `superseded` = prekonaný novším, `void` = zrušený ako omyl. */
-export const STATUS = ["active", "superseded", "void"] as const;
+/**
+ * Stav záznamu. `superseded` = prekonaný novším, `void` = zrušený ako omyl.
+ * `banned`/`deprecated` (N4) patria k `authority` — prameň, ktorý sa už
+ * necituje (napr. rozhodnutie, ktoré NS neskôr korigoval), ale zostáva
+ * v pamäti ako ban-list, nie zmazaný.
+ */
+export const STATUS = ["active", "superseded", "void", "banned", "deprecated"] as const;
 export type Status = (typeof STATUS)[number];
 
 /** Druh osoby. Rozlíšenie fyzická × právnická je v CZ aj SK rovnaké. */
@@ -87,10 +92,21 @@ export type Conclusion = (typeof CONCLUSION)[number];
  * Druhy udalosti v histórii záznamu. Slovník je **otvorený** — neznámy druh
  * sa nepremenúva a nebráni zápisu; advokát smie zapísať aj to, čo slovník
  * nepozná. Slúži na filtrovanie chronológie, nie na výpočet lehôt.
+ *
+ * Hodnoty sú anglické ako každý strojový kľúč (O6, rozhodnutie 1 z callu 11. 9. 2026).
+ * Staré slovenské hodnoty sa pri čítaní prevedú cez EVENT_KIND_ALIASES, aby existujúce
+ * spisy čítali ďalej; späť sa zapisujú už anglicky.
  */
 export const EVENT_KINDS = [
-  "dorucenie", "podanie", "pojednavanie", "rozhodnutie", "vyzva", "hovor", "email",
+  "delivery", "filing", "hearing", "decision", "request", "call", "email",
 ] as const;
+export const EVENT_KIND_ALIASES: Readonly<Record<string, EventKind>> = {
+  dorucenie: "delivery", podanie: "filing", pojednavanie: "hearing", rozhodnutie: "decision", vyzva: "request", hovor: "call",
+};
+/** Kanonický druh udalosti; neznámu hodnotu nechá tak, nech ju validácia pomenuje. */
+export function canonicalEventKind(kind: string): string {
+  return EVENT_KIND_ALIASES[kind] ?? kind;
+}
 export type EventKind = (typeof EVENT_KINDS)[number];
 
 /** Stav úlohy. `blocked` znamená, že čaká na inú úlohu — nie „nechce sa mi". */
@@ -201,6 +217,12 @@ export const FIELDS: readonly FieldDef[] = [
     values: STATUS },
   { canonical: "created", cz: "vznik", sk: "vznik", kind: "string", required: true },
   { canonical: "updated", cz: "změna", sk: "zmena", kind: "string", required: true },
+  // N5: prameň, ktorým sa `authority` opiera o niečo overiteľné (ECLI / § so
+  // znením k dátumu) a stopa, ktorým konektorom sa to overilo. Strojové kľúče
+  // sú anglické (O6) — `verified_at` už v schéme je (časová platnosť prameňa),
+  // tu sa iba dopĺňajú súrodenci, ktorých mu N5 pridáva.
+  { canonical: "source", cz: "pramen", sk: "prameň", kind: "string", required: false },
+  { canonical: "verified_via", cz: "ověřeno přes", sk: "overené cez", kind: "string", required: false },
   { canonical: "sources", cz: "zdroje", sk: "zdroje", kind: "maplist", required: false },
   { canonical: "related", cz: "souvisí", sk: "súvisí", kind: "list", required: false },
   { canonical: "tags", cz: "štítky", sk: "štítky", kind: "list", required: false },
@@ -410,6 +432,8 @@ const VALUE_LABELS: Record<string, Record<string, Record<Jurisdiction, string>>>
     active: { cz: "platný", sk: "platný" },
     superseded: { cz: "překonaný", sk: "prekonaný" },
     void: { cz: "zrušený", sk: "zrušený" },
+    banned: { cz: "zakázaný — necitovat", sk: "zakázaný — necitovať" },
+    deprecated: { cz: "překonaný — necitovat", sk: "prekonaný — necitovať" },
   },
   role: {
     client: { cz: "klient", sk: "klient" },
@@ -456,12 +480,12 @@ const VALUE_LABELS: Record<string, Record<string, Record<Jurisdiction, string>>>
     taken: { cz: "proveden", sk: "vykonaný" },
   },
   event_kind: {
-    dorucenie: { cz: "doručení", sk: "doručenie" },
-    podanie: { cz: "podání", sk: "podanie" },
-    pojednavanie: { cz: "jednání", sk: "pojednávanie" },
-    rozhodnutie: { cz: "rozhodnutí", sk: "rozhodnutie" },
-    vyzva: { cz: "výzva", sk: "výzva" },
-    hovor: { cz: "hovor", sk: "hovor" },
+    delivery: { cz: "doručení", sk: "doručenie" },
+    filing: { cz: "podání", sk: "podanie" },
+    hearing: { cz: "jednání", sk: "pojednávanie" },
+    decision: { cz: "rozhodnutí", sk: "rozhodnutie" },
+    request: { cz: "výzva", sk: "výzva" },
+    call: { cz: "hovor", sk: "hovor" },
     email: { cz: "e-mail", sk: "e-mail" },
   },
   state: {

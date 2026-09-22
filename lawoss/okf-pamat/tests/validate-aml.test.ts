@@ -18,6 +18,7 @@ function subjekt(over: Partial<OkfRecord> = {}): OkfRecord {
       citizenship: "CR", residence: "Krátká 12, 110 00 Praha 1",
       id_document_type: "obcansky prukaz", id_document_number: "123456789",
       id_document_issuer: "MC Praha 1", id_document_valid_to: "2032-05-14",
+      source: "OR",
     }),
     ...over,
   };
@@ -43,7 +44,7 @@ function pramen(truth: string, id = "J-001"): OkfRecord {
     title: "Právní věta", description: "pramen",
     created: "2026-08-31", updated: "2026-08-31", truth,
     timeline: [{ date: "2026-08-31", text: "z" }],
-    verified_at: "2026-08-31",
+    source: "test", verified_via: "test", verified_at: "2026-08-31",
   });
 }
 
@@ -150,6 +151,7 @@ test("subjekt bez typ_osoby v neoverenej jurisdikcii varovanie nesposobi", () =>
     id: "S-010", type: "subject", jurisdiction: "sk",
     title: "Protistrana s.r.o.", description: "protistrana", created: "2026-08-31",
     updated: "2026-08-31", truth: "t", timeline: [{ date: "2026-08-31", text: "x" }],
+    source: "OR",
   });
   assert.deepEqual(validateStore([sk], DNES), [],
     "bez AML identifikácie sa nemá čo hlásiť — inak je to šum, nie signál");

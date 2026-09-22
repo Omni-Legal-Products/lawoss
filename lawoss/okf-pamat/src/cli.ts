@@ -6,16 +6,19 @@
  * nič neprepíše.
  */
 
+import { readManualStatus } from "./manual-status.ts";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
-  readStore, readScope, writeIndex, writeLog, syncStatus, retrofitStatusFile, ensureBrain, applyRecordWrite, standingApproval,
+  readStore, readScope, syncProjections, ProjectionWriteError, retrofitStatusFile, ensureBrain, applyRecordWrite, standingApproval,
   findOfficeDir, OFFICE_DIR,
   jurisdictionFromCard, MEMORY_DIR, statusLinkResolver, findClientDir, STATUS_FILE,
 } from "./store.ts";
-import { parseRecord, type OkfRecord } from "./record.ts";
-import { planWrite, type Approval, type WriteDiff } from "./write.ts";
+import { parseRecord, serializeRecord, recordRevision, type OkfRecord } from "./record.ts";
+import { planWrite, assertHasSource, type Approval, type WriteDiff } from "./write.ts";
 import { maskRecord } from "./mask.ts";
+import { composePreamble } from "./preamble.ts";
 import { fieldLabel, typeLabel, SCREENING_PROVISION, type Jurisdiction } from "./schema.ts";
 import { renderStatus, RenderConflictError, statusSkeleton } from "./render.ts";
 import { validateStore } from "./validate.ts";
@@ -32,12 +35,14 @@ const USAGE = [
   "okf-memory — pamäť spisu (OKF)",
   "",
   "  okf-memory read     <spis>            prehľad pamäte",
+  "  okf-memory preamble <spis>            pravidlá, poučenia a ban-list na začiatok session",
   "  okf-memory validate <spis>            kontrola schémy, únikov L2→L3 a odkazov",
   "  okf-memory sync     <spis> [--apply]  projekcia do _STATUS.md, index.md a log.md",
   "  okf-memory retrofit <spis> [--apply]  doplní markery do existujúcich sekcií _STATUS.md",
   "  okf-memory aml      <spis>            subjekty a stav AML preverenia",
   "  okf-memory write    <spis> --file <záznam.md> --reason \"…\" [--apply] [--approve-as \"meno\"]",
   "",
+  "  Pri úprave existujúceho záznamu: --if-revision <SHA256 z read>",
   "  --approve-as sa nevyžaduje, keď zápis kryje trvalé poverenie advokáta",
   `  v ${OFFICE_DIR}/${CONFIG_FILE} — viď AGENTNI-ZAPISY.md`,
   "  okf-memory init     <spis> [--sk] [--apply]   BRAIN.md a adresár pamäte",
@@ -53,6 +58,11 @@ function flagValue(rest: readonly string[], name: string): string | undefined {
   return v === undefined || v.startsWith("--") ? undefined : v;
 }
 
+/** Token for the unmasked canonical persisted record; no secret or user identity. */
+function revisionHash(record: OkfRecord): string {
+  return createHash("sha256").update(recordRevision(record) ?? "").digest("hex");
+}
+
 function ok(out: string): CliResult {
   return { code: 0, out };
 }
@@ -61,7 +71,7 @@ function ok(out: string): CliResult {
 function problemLines(problems: readonly { file: string; message: string }[]): string[] {
   if (problems.length === 0) return [];
   return [
-    "Nečitateľné súbory (preskočené):",
+    "NEÚPLNÉ ČÍTANIE — nečitateľné súbory:",
     ...problems.map((p) => `  ERROR PARSE_ERROR ${p.file}: ${p.message}`),
     "",
   ];
@@ -98,18 +108,54 @@ export function runCli(argv: readonly string[]): CliResult {
   switch (cmd) {
     case "read": {
       const scope = readScope(dir);
+      const problems = [...scope.problems];
+      const inputs: string[] = [];
+      try {
+        const status = readManualStatus(readFileSync(join(dir, STATUS_FILE), "utf8"), scope.records);
+        if (status.content) inputs.push(`## Ručný stav — ${join(dir, STATUS_FILE)}`, status.message, status.content);
+      } catch (error) {
+        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+          problems.push({ file: join(dir, STATUS_FILE), message: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      const contextFiles = [
+        { path: join(dir, "VSTUPY.md"), title: "Evidencia vstupov" },
+        { path: join(dir, "KOMUNIKACNE-KANALY.md"), title: "Komunikačné kanály veci" },
+        ...(scope.clientDir ? [{ path: join(scope.clientDir, "KOMUNIKACNE-KANALY.md"), title: "Komunikačné kanály klienta" }] : []),
+      ];
+      for (const { path, title } of contextFiles) {
+        try {
+          inputs.push(`## ${title} — ${path}`, readFileSync(path, "utf8"));
+        } catch (error) {
+          if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+            problems.push({ file: path, message: error instanceof Error ? error.message : String(error) });
+          }
+        }
+      }
       const lines = [
-        ...problemLines(scope.problems),
+        ...problemLines(problems),
         `Spis: ${dir}`,
         `Jurisdikcia: ${scope.matter.jurisdiction}   Záznamov: ${scope.records.length}` +
           (scope.clientDir ? `, u klienta ${scope.clientRecords.length}` : "") +
           (scope.officeDir ? `, v kancelárii ${scope.officeRecords.length}` : ""),
         "",
-        ...scope.records
-          .map(maskRecord)
-          .map((r) => `  ${r.id.padEnd(8)} ${r.layer}  ${typeLabel(r.type, r.jurisdiction).padEnd(12)} ${r.description}`),
+        composePreamble(scope.records.map(maskRecord)),
+        "",
+        ...scope.records.map((r) => `## ${r.id} — ${typeLabel(r.type, r.jurisdiction)}\n\nRevision ${r.id}: ${revisionHash(r)}\n\n${serializeRecord(maskRecord(r))}`),
+        ...inputs,
       ];
-      return ok(lines.join("\n"));
+      return { code: problems.length ? 1 : 0, out: lines.join("\n") };
+    }
+
+    case "preamble": {
+      const scope = readScope(dir);
+      // Rovnaká hláška ako `read` — rozbitý súbor sa nesmie stratiť potichu.
+      // Ban-list je záväzný (SKILL.md); ak z neho vinou parse chyby vypadne
+      // prameň bez jediného varovania, agent cituje niečo, čo bolo zakázané.
+      const problems = problemLines(scope.problems);
+      const body = composePreamble(scope.records);
+      const lines = body ? [...problems, body] : problems;
+      return { code: scope.problems.length ? 1 : 0, out: lines.join("\n") };
     }
 
     case "validate": {
@@ -158,7 +204,9 @@ export function runCli(argv: readonly string[]): CliResult {
     }
 
     case "sync": {
-      const s = readStore(dir);
+      const scope = readScope(dir);
+      if (scope.problems.length) return { code: 1, out: problemLines(scope.problems).join("\n") };
+      const s = { records: scope.records, jurisdiction: scope.matter.jurisdiction };
       try {
         if (!apply) {
           const statusPath = join(dir, "_STATUS.md");
@@ -169,15 +217,8 @@ export function runCli(argv: readonly string[]): CliResult {
           const zmena = before === after ? "bez zmeny" : "_STATUS.md by sa zmenil";
           return ok(`dry-run: ${zmena}; INDEX.md by dostal ${riadkov(s.records.length)}. Zapíš s --apply.`);
         }
-        syncStatus(dir);
-        writeIndex(dir);
-        writeLog(dir);
-        // Klientský `memory/` je tiež bundle a doteraz nedostal index ani log.
+        syncProjections(dir);
         const klient = findClientDir(dir);
-        if (klient) {
-          writeIndex(klient);
-          writeLog(klient);
-        }
         return ok(
           `Zapísané: _STATUS.md, index.md a log.md (${zaznamov(s.records.length)})` +
             `${klient ? " + index.md a log.md u klienta" : ""}.`,
@@ -186,6 +227,7 @@ export function runCli(argv: readonly string[]): CliResult {
         // Konflikt sekcií je stav spisu, nie chyba programu — advokát dostane
         // vetu, čo urobiť, nie výpis interpretu.
         if (e instanceof RenderConflictError) return { code: 1, out: `KONFLIKT: ${e.message}` };
+        if (e instanceof ProjectionWriteError) return { code: 1, out: `ODMIETNUTÉ: ${e.message}` };
         throw e;
       }
     }
@@ -205,7 +247,7 @@ export function runCli(argv: readonly string[]): CliResult {
 
       if (subjekty.length === 0) {
         lines.push("Žiadne subjekty — AML evidencia je prázdna.");
-        return ok(lines.join("\n"));
+        return { code: scope.problems.length ? 1 : 0, out: lines.join("\n") };
       }
 
       for (const raw of subjekty) {
@@ -244,13 +286,15 @@ export function runCli(argv: readonly string[]): CliResult {
       } else {
         lines.push("AML evidencia bez nálezov.");
       }
-      return ok(lines.join("\n"));
+      return { code: scope.problems.length ? 1 : 0, out: lines.join("\n") };
     }
 
     case "write": {
       const file = flagValue(rest, "--file");
       const reason = flagValue(rest, "--reason");
       const approveAs = flagValue(rest, "--approve-as");
+      const expectedRevision = flagValue(rest, "--if-revision");
+      if (rest.includes("--if-revision") && !expectedRevision) return { code: 2, out: "Prepínač --if-revision vyžaduje SHA256 z príkazu read." };
 
       if (!file || !reason) {
         return { code: 2, out: `Príkaz write vyžaduje --file a --reason.\n\n${USAGE}` };
@@ -294,8 +338,16 @@ export function runCli(argv: readonly string[]): CliResult {
         };
       }
 
+      if (before && expectedRevision === undefined) {
+        return { code: 1, out: `ODMIETNUTÉ: úprava ${after.id} vyžaduje --if-revision <SHA256 z read>. Načítaj záznam a priprav návrh z jeho aktuálneho stavu.` };
+      }
+      if (expectedRevision !== undefined && (!before || revisionHash(before) !== expectedRevision)) {
+        return { code: 1, out: `ODMIETNUTÉ: revízia ${after.id} sa nezhoduje alebo záznam už neexistuje. Načítaj ho znova, zosúlaď zmeny a priprav nový návrh; neopakuj starý zápis.` };
+      }
+
       let diff: WriteDiff;
       try {
+        assertHasSource(after);
         diff = planWrite(before, after, reason);
       } catch (e) {
         return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };

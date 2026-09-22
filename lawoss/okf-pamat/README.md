@@ -1,7 +1,7 @@
 # OKF pamäťové jadro (`@lawoss/okf-pamat`)
 
 Pamäť spisu, ktorú vie čítať aj zapisovať agent, a ktorú zároveň otvorí
-a upraví advokát. Žiadna databáza, žiadny index, žiadne embeddingy —
+a upraví advokát. Žiadna databáza ani embeddingy —
 markdown v spise, presne tam, kde spis leží.
 
 Implementuje pamäťovú časť [spec 0002 — OKF](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/blob/main/specs/0002-okf-operacny-system-praxe.md).
@@ -93,8 +93,9 @@ záznam — archivovateľný 10 rokov podľa § 16 a opakovateľný podľa § 9.
 
 Identifikácia sa robí raz pri vzniku obchodného vzťahu, nie pri každej kauze. Preto
 `subject` a `screening` žijú v **zložke klienta** a spis na ne odkazuje `[[S-001]]`.
-`readScope()` prečíta oboje naraz; zložku klienta hľadá podľa `client.md` (aj legacy `klient.md`) až štyri
-úrovne nad spisom, takže MČ profil A (klient → oblasť → spis) sedí.
+`readScope()` prečíta vec, klienta aj kanceláriu. Zložku klienta hľadá podľa
+`client.md` (aj legacy `klient.md`) medzi predkami veci, bez pôvodného obmedzenia
+na štyri úrovne; bez karty použije `client_path` v konfigurácii kancelárie.
 
 ### Citlivé údaje
 
@@ -121,6 +122,8 @@ Rodné číslo, číslo dokladu, trvalý pobyt a dátum narodenia sú v tabuľke
 | `STANDING_AUTH_INVALID` | poverenie v `okf.config` sa nedá použiť (dátum nie je `RRRR-MM-DD`, `granted_at` po `expires_at`, chýba pole) — zápisy do L1/L3 vyžadujú `--approve-as` | varovanie |
 | `CITATION_UNRESOLVED` | `[^id]` v texte bez položky v `sources` — veta vyzerá podložene a nie je | **chyba** |
 | `SOURCE_ID_DUPLICATE` | to isté `id` prameňa dvakrát | **chyba** |
+| `L3_SOURCE_MISSING` | `authority` bez `source`/`verified_via`/`verified_at` — do L3 sa nezapíše ani nevaliduje bez overeného prameňa | **chyba** |
+| `SUBJECT_SOURCE_MISSING` | `subject` bez `source` (zdroja overenia — OR/ARES/register) | varovanie |
 | `AML_MISSING` | subjekt v role `klient` nemá žiadne preverenie | varovanie |
 | `AML_EXPIRED` | `platnost_do` preverenia je v minulosti (§ 9) | varovanie |
 | `AML_INCOMPLETE` | FO, PO alebo podnikateľ nemá kompletnú sadu podľa predpisu svojej jurisdikcie | varovanie |
@@ -181,7 +184,9 @@ Miestnu príslušnosť nenapádame.
 - 2026-09-01 — rozhodnuté po porade s klientom
 ```
 
-**Truth** je aktuálny overený stav a prepisuje sa. **History** je append-only.
+**Truth** je aktuálny zapísaný obsah; názov sekcie sám nepotvrdzuje jeho správnosť.
+**History** sa cez zápisové API iba rozširuje. Prístup k súborom cez iný editor
+nie je nezmeniteľný auditný archív.
 
 ### Prečo anglicky
 
@@ -203,16 +208,16 @@ používateľa; markery sú kanonické.
 
 ## Štyri brány, ktoré nie sú v prompte
 
-1. **Atomicita pravdy** — zápis, ktorý zmení `## Pravda` a nepridá riadok do
-   `## Historie`, je odmietnutý. Zmena pravdy bez stopy je nemožná.
+1. **Stopa vecnej zmeny** — zmena `## Truth` alebo vecných metadát (napríklad
+   `deadlines`, stav, zdroje, overenia) musí v tom istom zápise pridať riadok
+   do `## History` a aktualizovať `updated`. Diff zahŕňa aj zmenené metadáta.
 2. **Append-only história** — stará história musí byť doslovnou predponou novej.
-   Prepísať ani skrátiť sa nedá.
-3. **Human gate** — do L1, do L3 a pri mazaní kdekoľvek zapíše iba človek.
-   Agent dostane `WriteDiff` a `authorize()` mu bez schválenia zápis odmietne.
-   Schválenie musí niesť meno a **platný časový údaj** a zapíše sa do append-only
-   histórie záznamu — kto ho vydal, zostane trvalo viditeľné. Je to hranica
-   **procesná, nie kryptografická**: knižnica nevie rozlíšiť, kto ju volá, ale
-   podpis sa nedá zmazať. Zápisy preto veď cez `okf-memory write`, nie cez API.
+   Zápisové API odmietne jej prepísanie alebo skrátenie.
+3. **Human gate** — L1 a L3 vyžadujú platné schválenie alebo existujúce trvalé
+   poverenie v jeho rozsahu; mazanie potrebuje výslovné schválenie človeka.
+   CLI zaznamená meno a platný čas schválenia do histórie. Ide o procesnú
+   evidenciu, nie autentifikáciu človeka ani kryptografický podpis. Priamy
+   editor môže zmeniť súbor mimo brán; agent preto zapisuje cez `okf-memory write`.
 4. **Zákaz úniku L2 → L3** — právny prameň nesmie obsahovať identifikátor
    klienta zo subjektov spisu. Hľadá sa aj v histórii záznamu, bez ohľadu na
    diakritiku a veľkosť písmen, a **podľa sily zhody** — falošný poplach
@@ -240,7 +245,8 @@ používateľa; markery sú kanonické.
    varovanie. IČO, rodné číslo a dátum narodenia sa zmäkčiť nedajú: to nie je
    prah, to je únik.
 
-Zápis vedie výhradne cez `planWrite() → applyRecordWrite()`. Iná cesta na disk nie je.
+Podporovaná zápisová cesta je `planWrite() → applyRecordWrite()`. Nechráni pred
+úpravami vykonanými mimo nej priamo v súboroch.
 
 ### Zhoda s Open Knowledge Format
 
@@ -265,7 +271,8 @@ o „nedopísanú znalosť", ale o vadu.
 Pamäť je markdown v priečinku spisu, vault je priečinok markdownu — napojenie
 je preto konfigurácia, nie most. Stačí `Office/memory/` v koreni vaultu
 a jeden riadok `client_path: AK/*/*` v `okf.config`; karty `klient.md` sa doň
-nesypú. `[[wiki-odkazy]]` v projekcii fungujú natívne a graf ukáže pamäť spisu.
+nesypú. Projekcie používajú prenosné Markdown odkazy na súbory. Obsidian je voliteľný
+editor; čítanie a zápis CLI ho nevyžadujú.
 
 Overené na vaulte s 88 908 súbormi. Podrobne: [`OBSIDIAN-VAULT.md`](OBSIDIAN-VAULT.md).
 
@@ -297,7 +304,7 @@ klient/
 ├── client.md
 ├── memory/          ← subjekty a AML preverenia
 └── <oblasť>/spis/
-    ├── spis.md      ← karta veci (novy-spis) — iba čítame
+    ├── matter.md    ← karta veci (staršie spis.md) (novy-spis) — iba čítame
 ├── _STATUS.md       ← ľudské rozhranie; prepisujeme LEN medzi markermi
 ├── BRAIN.md         ← vstupný bod pre agentov (nikdy neprepíšeme existujúci)
     ├── _STATUS.md   ← ľudské rozhranie; prepisujeme LEN medzi markermi
@@ -327,25 +334,93 @@ ktorý zmení jazyk, si projekciu neroztrhá.
 Bez `--apply` je každý príkaz iba náhľad.
 
 ```bash
-node bin/okf-memory.ts read     <spis>
+node bin/okf-memory.ts read     <spis>           # plný kontext + Revision ID: sha256
 node bin/okf-memory.ts aml      <spis>            # subjekty a stav preverenia
 node bin/okf-memory.ts validate <spis>            # exit 1 pri chybe
-node bin/okf-memory.ts sync     <spis> [--apply]  # projekcia do _STATUS.md a index.md
+node bin/okf-memory.ts sync     <spis> [--apply]  # projekcia do _STATUS.md, index.md a log.md
 node bin/okf-memory.ts init     <spis> [--sk] [--apply]
 
 # Zápis záznamu — jediná zápisová hranica pre agenta
 node bin/okf-memory.ts write <spis> --file navrh.md --reason "…" [--apply] [--approve-as "meno"]
+
+# Úprava: povinná pôvodná revízia z read, aj pri náhľade bez --apply
+node bin/okf-memory.ts write <spis> --file navrh.md --reason "…" --if-revision <sha256> [--apply]
 ```
+
+### Úplné čítanie a odovzdanie kontextu
+
+Na začiatku čítaj `BRAIN.md`, `_STATUS.md` a `okf-memory read <spis>`.
+`read` vypisuje celý obsah záznamov všetkých typov v rozsahu vec + klient +
+kancelária, revíziu každého záznamu a prípadný `VSTUPY.md`. Index a status sú
+pomocné projekcie, nie úplné odovzdanie. Nespracované riadky `pending`, chyby
+čítania a zdroje odovzdaj ďalšiemu agentovi výslovne. Citácie overuj v origináloch.
+Maskujú sa vybrané štruktúrované polia; voľný text nie je automaticky anonymizovaný.
+
+`read`, `aml` a `validate` pri neúplnej pamäti vracajú kód **1** s problémami.
+`sync` ani jednotlivé projekčné API neprepíšu výstup z rozsahu s nečitateľným
+záznamom alebo kolíziou ID. Dostupné záznamy možno čítať, ale neúplný výsledok
+neznamená „žiadne ďalšie úlohy“. Po oprave zopakuj čítanie, validáciu a synchronizáciu.
+
+### Revízia návrhu a súbeh zápisov
+
+Pred prípravou úpravy si uchovaj `Revision <ID>: <sha256>` z `read` a načítaj
+zdrojový súbor. Návrh nerob z maskovaného výpisu. Hash pokrýva kanonický obsah
+záznamu vrátane metadát a histórie, okrem odvodeného `truth_digest`.
+Existujúci záznam možno cez CLI upraviť iba s jeho pôvodným `--if-revision`;
+nový záznam token nepotrebuje. Pod zámkom sa pred uložením opäť porovná celý
+pôvodný obsah. Samotný deň `updated` už nerozhoduje o konflikte.
+
+Pri odmietnutí načítaj nový stav, zosúlaď vecné zmeny a priprav nový návrh a diff.
+Nevymeň iba revízny token na starom návrhu. `updated` neposúvaj späť; opakovaná
+úprava v dnešný deň môže ponechať dnešný dátum. CLI neposkytuje mazanie; knižničný
+delete diff kontroluje pôvodný obsah a vyžaduje výslovné schválenie človeka.
+
+### Overenie v kokpite
+
+Chýbajúce `generated`, obyčajné `verified` ani úspešný validátor nie sú potvrdenie
+človekom. `verified[].type` rozlišuje `human` a `machine`; staré overenie bez typu
+sa zobrazuje ako neurčené. Schválenie zápisu alebo trvalé poverenie nie je overenie
+obsahu ani potvrdenie lehoty.
+
+Pre potvrdenie konkrétneho termínu vyžaduje kokpit jedno overenie s `type: human`,
+neprázdnym `by`, platným ISO `at`, presným `deadline` z `deadlines` a `truth`
+zhodným s aktuálnym parsovaným textom Truth. Deň `at` nesmie predchádzať dňu
+`updated`. Ďalšie termíny tým potvrdené nie sú. Po zmene textu alebo dátumu sa
+staré potvrdenie na nový údaj neprenesie. Príklad polí je v [SKILL.md](SKILL.md#overenie-a-potvrdenie-konkrétnej-lehoty).
+Tieto polia zachytávajú deklarované overenie, neautentifikujú človeka.
 
 ## Vývoj
 
-Balíček je **bez runtime závislostí** a nie je súčasťou pnpm workspace —
-inštaluje sa samostatne, aby fork nepribral ďalší uzol do upstream stromu.
+Balíček je **bez runtime závislostí** a je členom pnpm workspace (`lawoss/*`
+v `pnpm-workspace.yaml`) — závislosti drží koreňový `pnpm-lock.yaml`.
 
 ```bash
-pnpm install --ignore-workspace
-pnpm test        # node --test, 318 testov
+pnpm install --filter @lawoss/okf-pamat   # z koreňa repa alebo z tohto priečinka
+pnpm test        # node --test
 pnpm typecheck
 ```
 
 Beží na Node 24+ (natívne spúšťanie TypeScriptu, žiadny build krok).
+
+
+### Integrácia preambuly (21. 9. 2026)
+
+`preamble` vypíše pravidlá, poučenia a zakázané/prekonané pramene; pri neúplnom
+čítaní vráti kód 1. Rovnaký prehľad je na začiatku `read`, po ňom zostáva celý
+obsah všetkých záznamov. Existujúci natívny handoff ho tak prenesie bez ďalšieho
+hooku či paralelnej pamäte. Opis je pomôcka na orientáciu, nie filter čítania.
+
+Nové a upravované `authority` potrebujú `source`, `verified_via`, `verified_at`;
+kontrola platí aj pre náhľad a schválenie ju neobíde. Sú to tvrdenia o preverení,
+CLI samo nevolá register ani neoveruje obsah citácie. Staršie záznamy bez polí
+zostávajú čitateľné a synchronizovateľné; `validate` ich označí na doplnenie.
+Prameň doplň až po skutočnom overení, s novým riadkom histórie a aktuálnou revíziou.
+
+
+### Ručný stav a aktuálnosť
+
+`okf-memory read` prenáša aj ručné časti `_STATUS.md` (Fázu, Ďalší krok a vlastné poznámky), takže sa dostanú do natívneho checkpointu. Generované bloky sa v tomto výpise neopakujú; plné zdrojové záznamy zostávajú súčasťou čítania. Neúplné/duplicitné markery vyvolajú viditeľnú chybu čítania.
+
+Pole `manual_updated: YYYY-MM-DD` vo frontmatteri označuje deklarovaný dátum poslednej vecnej kontroly ručného obsahu. Aktualizuje ho autor pri kontrole Fázy a Ďalšieho kroku. `sync` ho nemení; pôvodný `updated` ani čas zmeny súboru ho nenahrádzajú. Nová šablóna má prázdne `manual_updated`; existujúci súbor sa automaticky nedatuje.
+
+Chýbajúci, neplatný či budúci dátum znamená neznámu aktuálnosť. Novší dátum `updated` v načítanej pamäti znamená starší ručný stav. Ani platný dátum nedokazuje ľudské schválenie alebo kontrolu všetkých externých podkladov; zmeny v ten istý deň a plná rekonciliácia vstupov zostávajú mimo tejto kontroly. Kokpit upozorňuje na neznámy/starší ručný stav a odkazuje na `_STATUS.md`.

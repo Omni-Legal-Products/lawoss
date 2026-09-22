@@ -270,6 +270,9 @@ export async function resolveClaudePluginBundle(input: { url: string; ref?: stri
   const root = locatePluginRoot(tree, dir);
   const treeByPath = new Map(tree.map((entry) => [entry.path, entry]));
   const warnings: string[] = [];
+  // LAWOSS Node bundles resolve their runtime from import.meta.url, so a
+  // pinned absolute entrypoint works independently of the engine's cwd.
+  const bundledNode = treeByPath.has(`${root}runtime-config.json`) && treeByPath.has(`${root}scripts/run.mjs`);
 
   const manifestPath = `${root}.claude-plugin/plugin.json`;
   const manifestText = await fetchGithubText(rawFileUrl(source, ref, manifestPath));
@@ -345,7 +348,11 @@ export async function resolveClaudePluginBundle(input: { url: string; ref?: stri
         warnings.push(`MCP server "${name}" uses \${CLAUDE_PLUGIN_ROOT} (a plugin-local command), which LegalWork does not support yet. It was skipped.`);
         continue;
       }
-      mcpServers[name] = config;
+      if (bundledNode && config.command === "node" && Array.isArray(config.args) && config.args[0] === "scripts/run.mjs") {
+        mcpServers[name] = { ...config, args: ["${CLAUDE_PLUGIN_ROOT}/scripts/run.mjs", ...config.args.slice(1)] };
+      } else {
+        mcpServers[name] = config;
+      }
     }
   };
 
@@ -424,6 +431,27 @@ export async function resolveClaudePluginBundle(input: { url: string; ref?: stri
       },
     },
   }));
+
+  if (bundledNode) {
+    const resources = tree.filter((entry) => entry.path.startsWith(root)).map((entry) => ({ ...entry, relative: entry.path.slice(root.length) }));
+    if (resources.length > 128 || resources.some((entry) => entry.relative.includes("\\") || entry.relative.split("/").some((part) => !part || part === "." || part === "..") || !/(?:\.(?:json|js|mjs|cjs|md)|(?:^|\/)LICENSE)$/.test(entry.relative))) {
+      throw new ApiError(400, "unsupported_plugin_resources", "Node plugin contains unsupported resources or exceeds 128 files");
+    }
+    const contents = await mapWithConcurrency(resources, 6, async (entry) => {
+      const content = await fetchGithubText(rawFileUrl(source, ref, entry.path));
+      if (content.includes("\0") || Buffer.byteLength(content) > 1024 * 1024) throw new ApiError(400, "unsupported_plugin_resources", "Plugin resource is binary or exceeds 1 MiB");
+      return { ...entry, content };
+    });
+    if (contents.reduce((bytes, entry) => bytes + Buffer.byteLength(entry.content), 0) > 8 * 1024 * 1024) throw new ApiError(400, "unsupported_plugin_resources", "Plugin resources exceed 8 MiB");
+    memberships.unshift(...contents.map((entry) => ({
+      configObjectId: entry.path + ":resource",
+      configObject: {
+        id: entry.path + ":resource", objectType: "resource" as const, title: entry.relative,
+        description: null, currentRelativePath: entry.relative, status: "active", updatedAt: null,
+        latestVersion: { id: entry.sha, rawSourceText: entry.content, normalizedPayloadJson: null },
+      },
+    })));
+  }
 
   if (Object.keys(mcpServers).length > 0) {
     memberships.push({

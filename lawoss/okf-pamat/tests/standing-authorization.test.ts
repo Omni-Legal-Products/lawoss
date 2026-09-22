@@ -182,7 +182,9 @@ test("poverenie neoslabuje atomicitu Pravdy a Historie", () => {
   runCli(["write", spis, "--file", navrh(spis, p), "--reason", "založenie", "--apply"]);
 
   const bezStopy = { ...p, truth: "Úplne inak." };
-  const r = runCli(["write", spis, "--file", navrh(spis, bezStopy), "--reason", "obrat", "--apply"]);
+  const token = /Revision L-001: ([a-f0-9]{64})/.exec(runCli(["read", spis]).out)?.[1];
+  assert.ok(token);
+  const r = runCli(["write", spis, "--file", navrh(spis, bezStopy), "--reason", "obrat", "--apply", "--if-revision", token]);
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /Historie|História/);
 });

@@ -6,6 +6,7 @@ import {
   hideCommercialTabs,
   isCommercialSurfaceHidden,
   isHiddenQuickConnect,
+  isHiddenSettingsTab,
 } from "../src/lawoss/feature-flags";
 
 describe("LAWOSS feature flags", () => {
@@ -33,10 +34,22 @@ describe("LAWOSS feature flags", () => {
 
   test("firemné zdieľanie a trial oznámenie sú skryté", () => {
     expect(isCommercialSurfaceHidden("firm-hub")).toBe(true);
+    expect(isCommercialSurfaceHidden("ai-plans")).toBe(true);
     expect(isCommercialSurfaceHidden("trial-notice")).toBe(true);
   });
 
-  test("obrazovka s plánmi Eigenwelt je skrytá", () => {
-    expect(isCommercialSurfaceHidden("ai-plans")).toBe(true);
+  test("ponuka Plus, prihlásenie do Eigenweltu a výzvy na skúšobnú verziu sú skryté", () => {
+    expect(isCommercialSurfaceHidden("premium-upsell")).toBe(true);
+    expect(isCommercialSurfaceHidden("eigenwelt-sign-in")).toBe(true);
+    expect(isCommercialSurfaceHidden("eigenwelt-trial")).toBe(true);
+  });
+});
+
+describe("onboarding nesmie zapínať to, čo je skryté", () => {
+  test("recorder je skrytá záložka, takže krok prepisu sa preskočí", () => {
+    expect(isHiddenSettingsTab("recorder")).toBe(true);
+    expect(isHiddenSettingsTab("account")).toBe(true);
+    expect(isHiddenSettingsTab("ai")).toBe(false);
+    expect(isHiddenSettingsTab("extensions")).toBe(false);
   });
 });

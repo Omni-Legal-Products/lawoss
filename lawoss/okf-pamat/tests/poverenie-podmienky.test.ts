@@ -25,7 +25,9 @@ const D = { today: "2026-09-11" };
 const T = "2026-09-11";
 const rec = (id: string, type: OkfRecord["type"], title: string, over: Partial<OkfRecord> = {}): OkfRecord => ({
   ...newRecord({ id, type, jurisdiction: "cz", title, description: "d", created: T, updated: T, truth: "t",
-    timeline: [{ date: T, text: "z" }] }), ...over });
+    timeline: [{ date: T, text: "z" }],
+    // N5: tieto testy preverujú poverenie a bránu úniku, nie pramene.
+    source: "test", verified_via: "test", verified_at: T }), ...over });
 
 const PLATNE = "client_path: AK/*/*\nstanding_authorization: JUDr. Vojtěch Říha\ngranted_at: 2026-09-01\nexpires_at: 2026-12-31\nscope: [L1, L3]\nreason: test\n";
 

@@ -2,43 +2,48 @@
 type: status
 title: {{TITLE}} — Status
 updated: {{DATE}}
+manual_updated: ""
 ---
 
-# {{TITLE}} — Status (SSOT)
+# {{TITLE}} — Status (projekcia pamäte)
+
+<!-- manual_updated: dátum YYYY-MM-DD poslednej vecnej kontroly ručných častí; sync ho nemení. Prázdny = aktuálnosť neznáma. -->
 
 > **Fáza:** _(jedna veta — kde vec práve stojí)_
 > **Ďalší krok:** _(čo sa má stať najbližšie + kto to má urobiť + dokedy)_
 
 ## 1. Strany
-| Rola | Subjekt | IČO | Kontakt |
-|---|---|---|---|
-| Klient | {{KLIENT}} | {{KLIENT_ICO}} | |
-| Protistrana | {{PROTISTRANA}} | {{PROTISTRANA_ICO}} | |
+<!-- okf:render:parties:start -->
+<!-- okf:render:parties:end -->
+
 
 ## 2. Fakty veci
-*(každý fakt zistený pri práci — tvrdenia strán, zistenia z dokumentov, priznania, technický stav)*
+<!-- okf:render:facts:start -->
+<!-- okf:render:facts:end -->
 
-| # | Fakt | Zdroj | Zistené | Dopad na vec |
-|---|---|---|---|---|
+
 
 ## 3. Lehoty
-| Dátum | Typ | Zdroj | Stav |
-|---|---|---|---|
+<!-- okf:render:deadlines:start -->
+<!-- okf:render:deadlines:end -->
+
 
 ## 4. Chronológia
-| Dátum | Udalosť | Zdroj |
-|---|---|---|
+<!-- okf:render:timeline:start -->
+<!-- okf:render:timeline:end -->
+
 
 ## 5. Otvorené úlohy
-| # | Úloha | Termín | Status | Kto |
-|---|---|---|---|---|
+<!-- okf:render:tasks:start -->
+<!-- okf:render:tasks:end -->
+
 
 ## 6. Kľúčové dokumenty
-| Typ | Lokácia |
-|---|---|
+<!-- okf:render:documents:start -->
+<!-- okf:render:documents:end -->
+
 
 ## 7. Komunikácia
-*(Gmail thread ID / spisová značka podania / tel. — aby budúci agent našiel kontext)*
 
-| Kanál | Identifikátor | Téma | Posledná aktivita |
-|---|---|---|---|
+
+Komunikáciu a doručené podklady eviduj v [VSTUPY.md](./VSTUPY.md); tento prehľad obnovuje `okf-memory sync`.

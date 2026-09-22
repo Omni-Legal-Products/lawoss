@@ -110,7 +110,7 @@ test("druha zmena v ten isty den prejde, ked updated uz nesie dnesok", () => {
 
 test("zmena, ktora obsah nemeni, bump nevyzaduje", () => {
   const before = zaznam();
-  assert.doesNotThrow(() => planWrite(before, zaznam({ description: "presnejší popis" }), "spresnenie"));
+  assert.doesNotThrow(() => planWrite(before, zaznam(), "Bez vecnej zmeny"));
 });
 
 test("zalozenie zaznamu bump nevyzaduje", () => {

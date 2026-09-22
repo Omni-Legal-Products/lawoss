@@ -107,3 +107,23 @@ Pri hlásení uveďte:
 - **Nie je notarizovaná.** OS pri spustení ukáže varovanie; to nie je chyba appky.
 - **Nemá automatické aktualizácie.** Nový build znamená nové klonovanie a nový `pnpm install && pnpm build`. Updater má vlastnú logiku pre budúce release buildy, ale lokálny nestampnutý build (`0.0.0`) kontrolu aktualizácií preskakuje zámerne.
 - **Nepatria do nej skutočné klientske dáta.** Je to testovací build bez bezpečnostného auditu produkčnej prevádzky — nepoužívajte ho so spismi, osobnými údajmi klientov ani inak citlivým obsahom. Na testovanie použite vymyslené alebo verejne dostupné dokumenty.
+
+## Ladiaci port Electronu
+
+`pnpm dev` už nevnucuje port 9823. Bez premennej ostáva upstream správanie:
+Electron hľadá voľný port 9223–9227 pre vstavaný prehliadač. Kto sa na CDP
+pripojí, riadi okno aplikácie aj jej session.
+
+Ak vstavaný prehliadač nepotrebujete, port úplne vypnete:
+
+```bash
+LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT=off pnpm dev
+```
+
+Konkrétny port pre ladenie nastavíte takto:
+
+```bash
+LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT=9823 pnpm dev
+```
+
+Skript `scripts/legalwork-debug.sh` si port nastavuje sám.

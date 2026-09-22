@@ -1,3 +1,4 @@
+import communicationRegister from "../templates/spis/KOMUNIKACNE-KANALY.md" with { type: "text" };
 /** Šablóny OKF v0.1 (autor MČ, prevzaté zo skillu novy-spis) ako text — pre CLI a testy. */
 import klientAgents from "../templates/klient/AGENTS.md" with { type: "text" };
 import klientMemory from "../templates/klient/MEMORY.md" with { type: "text" };
@@ -10,10 +11,12 @@ import projektAgents from "../templates/projekt/AGENTS.md" with { type: "text" }
 import projektMemory from "../templates/projekt/MEMORY.md" with { type: "text" };
 import projektCard from "../templates/projekt/projekt.md" with { type: "text" };
 
+import spisInputs from "../templates/spis/VSTUPY.md" with { type: "text" };
+
 import type { TemplateSet } from "./core.ts";
 
 export const TEMPLATES: TemplateSet = {
-  klient: { "klient.md": klientCard, "AGENTS.md": klientAgents, "MEMORY.md": klientMemory },
-  spis: { "spis.md": spisCard, "_STATUS.md": spisStatus, "AGENTS.md": spisAgents, "MEMORY.md": spisMemory },
-  projekt: { "projekt.md": projektCard, "AGENTS.md": projektAgents, "MEMORY.md": projektMemory },
+  klient: { "KOMUNIKACNE-KANALY.md": communicationRegister, "VSTUPY.md": spisInputs, "client.md": klientCard, "AGENTS.md": klientAgents, "MEMORY.md": klientMemory },
+  spis: { "KOMUNIKACNE-KANALY.md": communicationRegister, "VSTUPY.md": spisInputs, "matter.md": spisCard, "_STATUS.md": spisStatus, "AGENTS.md": spisAgents, "MEMORY.md": spisMemory },
+  projekt: { "project.md": projektCard, "AGENTS.md": projektAgents, "MEMORY.md": projektMemory },
 };
