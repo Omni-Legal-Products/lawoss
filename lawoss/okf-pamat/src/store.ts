@@ -11,12 +11,13 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
-import { parseRecord, recordRevision, serializeRecord, type OkfRecord } from "./record.ts";
+import { parseRecord, parseFrontmatter, recordRevision, serializeRecord, type OkfRecord } from "./record.ts";
 import { renderStatus, retrofitStatus, type LinkResolver, type BlockName } from "./render.ts";
 import { validateStore } from "./validate.ts";
 import { authorize, assertHasSource, type Approval, type WriteDiff } from "./write.ts";
 import { readStandingAuthorization, covers, readClientPath, matchesClientPath, readNameLeakSeverity } from "./config.ts";
-import { typeLabel, valueLabel, truthDigest, OKF_VERSION, type Jurisdiction } from "./schema.ts";
+import { truthDigest, OKF_VERSION, type Jurisdiction } from "./schema.ts";
+import { documentTypeLabel, documentValueLabel, isDocumentLanguage, renderLanguage, type DocumentLanguage, type RenderLanguage } from "./document-language.ts";
 
 /**
  * Rezervované názvy Open Knowledge Format. Musia byť **malými písmenami** —
@@ -46,6 +47,26 @@ export function jurisdictionFromCard(dir: string): Jurisdiction | undefined {
     if (!existsSync(path)) continue;
     const m = /^jurisdiction:\s*(cz|sk)\s*$/m.exec(readFileSync(path, "utf8"));
     if (m?.[1] === "cz" || m?.[1] === "sk") return m[1];
+  }
+  return undefined;
+}
+
+/** UI language is persisted at creation; changing the UI later does not rewrite a matter. */
+export function documentLanguageFromCard(dir: string): DocumentLanguage | undefined {
+  for (const name of [...MATTER_CARDS, "client.md", "klient.md"]) {
+    const path = join(dir, name);
+    if (!existsSync(path)) continue;
+    const header = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(readFileSync(path, "utf8"))?.[1];
+    if (!header) continue;
+    // Cards may contain valid multiline YAML or custom nested fields unsupported by
+    // the intentionally strict memory-record parser. Inspect only our top-level scalar.
+    const languageLines = header.split(/\r?\n/).filter(line => /^language[ \t]*:/.test(line));
+    if (languageLines.length > 1) throw new Error(`Duplicate document language in ${name}.`);
+    const languageLine = languageLines[0];
+    if (languageLine === undefined) continue;
+    const value = parseFrontmatter(languageLine).get("language");
+    if (!isDocumentLanguage(value)) throw new Error(`Unsupported document language in ${name}; use cs, sk or en.`);
+    return value;
   }
   return undefined;
 }
@@ -402,6 +423,8 @@ function writeProjection(path: string, content: string, root: string): void {
 /** Preflight every matter/client destination before the first sync mutation. */
 export function syncProjections(dir: string): void {
   const clientDir = findClientDir(dir);
+  documentLanguageFromCard(dir);
+  if (clientDir) documentLanguageFromCard(clientDir);
   assertProjectionDirectory(dir, clientDir ?? dir);
   assertProjectionFile(join(dir, STATUS_FILE), dir);
   preflightBundleProjections(dir);
@@ -420,24 +443,24 @@ export function writeIndex(dir: string): void {
   const scope = completeScope(dir);
   const store = scope.matter;
   if (!existsSync(store.memoryDir)) return;
-  const j = store.jurisdiction;
+  const j = renderLanguage(documentLanguageFromCard(dir), store.jurisdiction);
   const href = scopeLinkResolver(dir, true);
 
   // Tvar podľa OKF: sekcie s odrážkami `* [Titul](cesta) - popis`, nie tabuľka.
   // Frontmatter smie mať iba koreňový index, a iba `okf_version`.
-  const nadpis: Record<string, Record<Jurisdiction, string>> = {
-    L1: { cz: "Kancelář (L1)", sk: "Kancelária (L1)" },
-    L2: { cz: "Spis (L2)", sk: "Spis (L2)" },
-    L3: { cz: "Právo (L3)", sk: "Právo (L3)" },
+  const nadpis: Record<string, Record<RenderLanguage, string>> = {
+    L1: { cz: "Kancelář (L1)", sk: "Kancelária (L1)", en: "Office (L1)" },
+    L2: { cz: "Spis (L2)", sk: "Spis (L2)", en: "Matter (L2)" },
+    L3: { cz: "Právo (L3)", sk: "Právo (L3)", en: "Law (L3)" },
   };
   const lines: string[] = [
     "---",
     `okf_version: "${OKF_VERSION}"`,
     "---",
     "",
-    `# ${j === "cz" ? "Rejstřík paměti" : "Register pamäte"}`,
+    `# ${j === "en" ? "Memory index" : j === "cz" ? "Rejstřík paměti" : "Register pamäte"}`,
     "",
-    j === "cz"
+    j === "en" ? "> Generated. Do not edit manually; this file is regenerated." : j === "cz"
       ? "> Generováno. Needituj ručně — přepíše se."
       : "> Generované. Needituj ručne — prepíše sa.",
   ];
@@ -448,7 +471,7 @@ export function writeIndex(dir: string): void {
     for (const r of vo) {
       const cesta = href(r.id);
       const odkaz = cesta ? `[${r.id}](${cesta})` : r.id;
-      lines.push(`* ${odkaz} — ${typeLabel(r.type, j)} — ${r.description}`);
+      lines.push(`* ${odkaz} — ${documentTypeLabel(r.type, j)} — ${r.description}`);
     }
   }
   // Starý `INDEX.md` sa musí zmazať PRED zápisom, nie po ňom.
@@ -477,7 +500,7 @@ export function writeLog(dir: string): void {
   const scope = completeScope(dir);
   const store = scope.matter;
   if (!existsSync(store.memoryDir)) return;
-  const j = store.jurisdiction;
+  const j = renderLanguage(documentLanguageFromCard(dir), store.jurisdiction);
   const href = scopeLinkResolver(dir, true);
 
   const podlaDatumu = new Map<string, string[]>();
@@ -485,14 +508,14 @@ export function writeLog(dir: string): void {
     for (const e of r.timeline) {
       const cesta = href(r.id);
       const odkaz = cesta ? `[${r.id}](${cesta})` : r.id;
-      const druh = e.kind ? `**${valueLabel("event_kind", e.kind, j)}**: ` : "";
+      const druh = e.kind ? `**${documentValueLabel("event_kind", e.kind, j)}**: ` : "";
       const zoznam = podlaDatumu.get(e.date) ?? [];
       zoznam.push(`* ${druh}${e.text} — ${odkaz}`);
       podlaDatumu.set(e.date, zoznam);
     }
   }
 
-  const lines: string[] = [`# ${j === "cz" ? "Historie spisu" : "História spisu"}`, ""];
+  const lines: string[] = [`# ${j === "en" ? "Matter history" : j === "cz" ? "Historie spisu" : "História spisu"}`, ""];
   for (const datum of [...podlaDatumu.keys()].sort().reverse()) {
     lines.push(`## ${datum}`, "", ...(podlaDatumu.get(datum) ?? []), "");
   }
@@ -503,6 +526,7 @@ export function writeLog(dir: string): void {
 export function ensureBrain(dir: string, j: Jurisdiction): void {
   const path = join(dir, BRAIN_FILE);
   if (existsSync(path)) return;
+  const language = renderLanguage(documentLanguageFromCard(dir), j);
   const mem = MEMORY_DIR;
   const cz = [
     "# BRAIN.md — protokol paměti spisu",
@@ -512,7 +536,7 @@ export function ensureBrain(dir: string, j: Jurisdiction): void {
     "1. `matter.md` (dříve `spis.md`) — karta věci",
     `2. \`${STATUS_FILE}\` — **Fáze** a **Další krok** nahoře; tabulky mezi markery generuje paměť`,
     "3. `okf-memory read <spis>` — celý obsah všech typů záznamů věci, klienta a kanceláře včetně revizí",
-    "4. `VSTUPY.md` — nespracované vstupy pending; chyby čtení a neúplnost předej dál",
+    "4. `VSTUPY.md` — nezpracované vstupy pending; chyby čtení a neúplnost předej dál",
     "5. `memory/index.md` — pomocná mapa, nenahrazuje úplný kontext",
     "",
     "## Zápisová disciplína",
@@ -582,7 +606,32 @@ export function ensureBrain(dir: string, j: Jurisdiction): void {
     "znamenajú dve pravdy a jedna z nich bude ticho zastaraná.",
     "",
   ];
-  writeFileSync(path, (j === "cz" ? cz : sk).join("\n"), "utf8");
+  const en = [
+    "# BRAIN.md — matter memory protocol", "",
+    "Entry point for agents. Read the complete memory context, then original sources relevant to the task.", "",
+    "1. `matter.md` (formerly `spis.md`) — matter card",
+    `2. \`${STATUS_FILE}\` — **Phase** and **Next step** at the top; memory generates tables between markers`,
+    "3. `okf-memory read <matter>` — full records for the matter, client and office, including revision tokens",
+    "4. `VSTUPY.md` — pending inputs; report incomplete reads and errors",
+    "5. `memory/index.md` — navigation only, never a substitute for complete context", "",
+    "## Write discipline", "",
+    "- Each record has **Truth** (current state) and **History** (append-only).",
+    "- Changes to Truth or substantive metadata must append History and update updated.",
+    "- Before editing, retain the Revision ID: sha256 from read; write requires --if-revision. On conflict, read again and reconcile the content, not just the token.",
+    "- Incomplete reads fail; sync must not overwrite projections. Missing generated or machine verified metadata does not establish human confirmation of a deadline.",
+    "- Agents may write L2 (matter). **L1** (rules and lessons), **L3** (legal authorities), and **deletions** require human approval; the tool rejects unapproved writes.",
+    `- Content outside markers in \`${STATUS_FILE}\` belongs to the lawyer. Do not edit it.`, "",
+    "## Three memory layers", "",
+    `- \`${mem}/\` in this matter — matter content (L2)`,
+    "- `memory/` in the identified client directory — shared subjects and screening",
+    `- \`${OFFICE_DIR}/memory/\` — rules and lessons (L1), legal authorities (L3)`, "",
+    "Legal authorities belong to the office, not individual matters; copying them across matters creates duplicates and repeated leak checks.", "",
+    "## One matter memory", "",
+    `This directory (\`${mem}/\`) is the **only** destination for memory writes.`,
+    "Treat legacy `_memory.md`, `lrd.json`, `progress.txt`, `LEARNINGS.md`, or `facts/`, `research/`, `strategy/` memory records as an archive.",
+    "Original documents and current research remain working sources. Two memory stores create two competing versions of the matter.", "",
+  ];
+  writeFileSync(path, (language === "en" ? en : language === "cz" ? cz : sk).join("\n"), "utf8");
 }
 
 /** Premietne pamäť do blokov _STATUS.md. Mimo markerov nemení nič. */
@@ -592,7 +641,7 @@ export function syncStatus(dir: string): void {
   const store = scope.matter;
   const path = join(dir, STATUS_FILE);
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
-  const next = renderStatus(existing, scope.records, store.jurisdiction, statusLinkResolver(dir));
+  const next = renderStatus(existing, scope.records, store.jurisdiction, statusLinkResolver(dir), documentLanguageFromCard(dir));
   if (next !== existing) writeProjection(path, next, dir);
 }
 
@@ -603,7 +652,7 @@ export function retrofitStatusFile(dir: string, apply: boolean): BlockName[] {
   const path = join(dir, STATUS_FILE);
   if (!existsSync(path)) return [];
   const existing = readFileSync(path, "utf8");
-  const { text, inserted } = retrofitStatus(existing, store.records, store.jurisdiction, linkResolver(store, false));
+  const { text, inserted } = retrofitStatus(existing, store.records, store.jurisdiction, linkResolver(store, false), documentLanguageFromCard(dir));
   if (apply && inserted.length > 0) writeProjection(path, text, dir);
   return inserted;
 }

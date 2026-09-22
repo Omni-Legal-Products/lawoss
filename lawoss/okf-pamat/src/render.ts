@@ -10,7 +10,8 @@
  */
 
 import type { OkfRecord } from "./record.ts";
-import { typeLabel, valueLabel, type Jurisdiction } from "./schema.ts";
+import type { Jurisdiction } from "./schema.ts";
+import { documentTypeLabel as typeLabel, documentValueLabel as valueLabel, renderLanguage, type DocumentLanguage, type RenderLanguage } from "./document-language.ts";
 import { maskValue } from "./mask.ts";
 
 /**
@@ -44,20 +45,21 @@ function odkaz(id: string, href?: LinkResolver): string {
 export const BLOCKS = ["parties", "facts", "deadlines", "timeline", "tasks", "documents", "records", "evidence_matrix"] as const;
 export type BlockName = (typeof BLOCKS)[number];
 
-const BLOCK_HEADINGS: Record<BlockName, Record<Jurisdiction, string>> = {
-  deadlines: { cz: "Lhůty", sk: "Lehoty" },
-  timeline: { cz: "Chronologie", sk: "Chronológia" },
-  records: { cz: "Záznamy paměti", sk: "Záznamy pamäte" },
-  evidence_matrix: { cz: "Dokazování", sk: "Dokazovanie" },
-  tasks: { cz: "Otevřené úkoly", sk: "Otvorené úlohy" },
-  parties: { cz: "Strany", sk: "Strany" },
-  facts: { cz: "Fakta věci", sk: "Fakty veci" },
-  documents: { cz: "Klíčové dokumenty", sk: "Kľúčové dokumenty" },
+const BLOCK_HEADINGS: Record<BlockName, Record<RenderLanguage, string>> = {
+  deadlines: { cz: "Lhůty", sk: "Lehoty", en: "Deadlines" },
+  timeline: { cz: "Chronologie", sk: "Chronológia", en: "Timeline" },
+  records: { cz: "Záznamy paměti", sk: "Záznamy pamäte", en: "Memory records" },
+  evidence_matrix: { cz: "Dokazování", sk: "Dokazovanie", en: "Evidence assessment" },
+  tasks: { cz: "Otevřené úkoly", sk: "Otvorené úlohy", en: "Open tasks" },
+  parties: { cz: "Strany", sk: "Strany", en: "Parties" },
+  facts: { cz: "Fakta věci", sk: "Fakty veci", en: "Matter facts" },
+  documents: { cz: "Klíčové dokumenty", sk: "Kľúčové dokumenty", en: "Key documents" },
 };
 
-const EMPTY: Record<Jurisdiction, string> = {
+const EMPTY: Record<RenderLanguage, string> = {
   cz: "_(zatím nic)_",
   sk: "_(zatiaľ nič)_",
+  en: "_(nothing yet)_",
 };
 
 function startMarker(b: BlockName): string {
@@ -67,7 +69,7 @@ function endMarker(b: BlockName): string {
   return `<!-- okf:render:${b}:end -->`;
 }
 
-function renderDeadlines(records: readonly OkfRecord[], j: Jurisdiction, href?: LinkResolver): string {
+function renderDeadlines(records: readonly OkfRecord[], j: RenderLanguage, href?: LinkResolver): string {
   const rows: string[] = [];
   for (const r of records) {
     for (const d of r.deadlines ?? []) rows.push(`| ${d} | ${r.title} | ${odkaz(r.id, href)} |`);
@@ -75,11 +77,11 @@ function renderDeadlines(records: readonly OkfRecord[], j: Jurisdiction, href?: 
   if (rows.length === 0) return EMPTY[j];
   rows.sort();
   const head =
-    j === "cz" ? "| Datum | Věc | Záznam |" : "| Dátum | Vec | Záznam |";
+    j === "en" ? "| Date | Matter | Record |" : j === "cz" ? "| Datum | Věc | Záznam |" : "| Dátum | Vec | Záznam |";
   return [head, "|---|---|---|", ...rows].join("\n");
 }
 
-function renderTimeline(records: readonly OkfRecord[], j: Jurisdiction, href?: LinkResolver): string {
+function renderTimeline(records: readonly OkfRecord[], j: RenderLanguage, href?: LinkResolver): string {
   const rows: { date: string; line: string }[] = [];
   for (const r of records) {
     for (const e of r.timeline) {
@@ -92,13 +94,13 @@ function renderTimeline(records: readonly OkfRecord[], j: Jurisdiction, href?: L
   if (rows.length === 0) return EMPTY[j];
   rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   const head =
-    j === "cz" ? "| Datum | Druh | Událost | Záznam |" : "| Dátum | Druh | Udalosť | Záznam |";
+    j === "en" ? "| Date | Kind | Event | Record |" : j === "cz" ? "| Datum | Druh | Událost | Záznam |" : "| Dátum | Druh | Udalosť | Záznam |";
   return [head, "|---|---|---|---|", ...rows.map((r) => r.line)].join("\n");
 }
 
-function renderRecords(records: readonly OkfRecord[], j: Jurisdiction, href?: LinkResolver): string {
+function renderRecords(records: readonly OkfRecord[], j: RenderLanguage, href?: LinkResolver): string {
   if (records.length === 0) return EMPTY[j];
-  const head = "| Záznam | Typ | Popis |";
+  const head = j === "en" ? "| Record | Type | Description |" : "| Záznam | Typ | Popis |";
   const rows = [...records]
     .sort((a, b) => (a.id < b.id ? -1 : 1))
     .map((r) => `| ${odkaz(r.id, href)} | ${typeLabel(r.type, j)} | ${r.description} |`);
@@ -118,7 +120,9 @@ function cellMark(claim: OkfRecord, e: OkfRecord): string {
   return "✓";
 }
 
-const MATRIX_LABELS: Record<Jurisdiction, Record<string, string>> = {
+const MATRIX_LABELS: Record<RenderLanguage, Record<string, string>> = {
+  en: { claim: "Claim", state: "State", burden: "Burden rests on", credibility: "Credibility",
+    legend: "✓✓ direct and reliable · ✓ supporting · ~ indirect · ✗ contradicts · – unrelated", burdenHead: "Burden of proof" },
   cz: {
     claim: "Tvrzení", state: "Stav", burden: "Břemeno nese", credibility: "Věrohodnost",
     legend: "✓✓ přímý a spolehlivý · ✓ podpůrný · ~ nepřímý · ✗ vyvrací · – nesouvisí",
@@ -131,7 +135,7 @@ const MATRIX_LABELS: Record<Jurisdiction, Record<string, string>> = {
   },
 };
 
-function renderEvidenceMatrix(records: readonly OkfRecord[], j: Jurisdiction, _href?: LinkResolver): string {
+function renderEvidenceMatrix(records: readonly OkfRecord[], j: RenderLanguage, _href?: LinkResolver): string {
   const claims = records.filter((r) => r.type === "claim").sort((a, b) => (a.id < b.id ? -1 : 1));
   if (claims.length === 0) return EMPTY[j];
   const evidence = records.filter((r) => r.type === "evidence").sort((a, b) => (a.id < b.id ? -1 : 1));
@@ -172,13 +176,13 @@ function renderEvidenceMatrix(records: readonly OkfRecord[], j: Jurisdiction, _h
  * Prehľad otvorených úloh. `due` je interný záväzok — do tabuľky lehôt
  * nepatrí. Zmeškaný interný termín sa dá dohnať, zmeškaná procesná lehota nie.
  */
-function renderTasks(records: readonly OkfRecord[], j: Jurisdiction, href?: LinkResolver): string {
+function renderTasks(records: readonly OkfRecord[], j: RenderLanguage, href?: LinkResolver): string {
   const open = records
     .filter((r) => r.type === "task" && r.state !== "done")
     .sort((a, b) => (a.id < b.id ? -1 : 1));
   if (open.length === 0) return EMPTY[j];
   const head =
-    j === "cz" ? "| Úkol | Věc | Řeší | Stav | Termín |" : "| Úloha | Vec | Rieši | Stav | Termín |";
+    j === "en" ? "| Task | Matter | Assignee | State | Due date |" : j === "cz" ? "| Úkol | Věc | Řeší | Stav | Termín |" : "| Úloha | Vec | Rieši | Stav | Termín |";
   const rows = open.map(
     (t) =>
       `| ${odkaz(t.id, href)} | ${t.title} | ${t.assignee ?? "—"} | ` +
@@ -203,12 +207,12 @@ function sourceLink(s: { id?: string; title?: string; resource?: string }): stri
 const ROLE_ORDER = ["client", "counterparty", "representative", "ubo"];
 
 /** Strany zo subjektov. Rodné číslo maskované — status číta aj ten, kto AML evidenciu vidieť nemá. */
-function renderParties(records: readonly OkfRecord[], j: Jurisdiction, href?: LinkResolver): string {
+function renderParties(records: readonly OkfRecord[], j: RenderLanguage, href?: LinkResolver): string {
   const subjects = records
     .filter((r) => r.type === "subject")
     .sort((a, b) => ROLE_ORDER.indexOf(a.role ?? "") - ROLE_ORDER.indexOf(b.role ?? "") || (a.id < b.id ? -1 : 1));
   if (subjects.length === 0) return EMPTY[j];
-  const head = j === "cz" ? "| Role | Subjekt | IČO / RČ | Záznam |" : "| Rola | Subjekt | IČO / RČ | Záznam |";
+  const head = j === "en" ? "| Role | Subject | Registry / personal ID | Record |" : j === "cz" ? "| Role | Subjekt | IČO / RČ | Záznam |" : "| Rola | Subjekt | IČO / RČ | Záznam |";
   const rows = subjects.map((s) => {
     const ident = s.registry_id ?? (s.birth_number ? maskValue("birth_number", s.birth_number) : "—");
     return `| ${valueLabel("role", s.role ?? "—", j)} | ${cell(s.title)} | ${ident} | ${odkaz(s.id, href)} |`;
@@ -221,7 +225,7 @@ function renderParties(records: readonly OkfRecord[], j: Jurisdiction, href?: Li
  * čiarou `[^id]` sa premení na odkaz na prameň. Tvrdenia strán (claim) idú
  * za nimi so svojím pôvodcom — sú to tvrdenia, nie zistenia.
  */
-function renderFacts(records: readonly OkfRecord[], j: Jurisdiction, href?: LinkResolver): string {
+function renderFacts(records: readonly OkfRecord[], j: RenderLanguage, href?: LinkResolver): string {
   const rows: string[] = [];
   let n = 0;
   const byId = (a: OkfRecord, b: OkfRecord) => (a.id < b.id ? -1 : 1);
@@ -238,19 +242,19 @@ function renderFacts(records: readonly OkfRecord[], j: Jurisdiction, href?: Link
     }
   }
   for (const c of records.filter((x) => x.type === "claim").sort(byId)) {
-    const kto = c.claimed_by ? (j === "cz" ? `tvrdí ${c.claimed_by}` : `tvrdí ${c.claimed_by}`) : "—";
+    const kto = c.claimed_by ? (j === "en" ? `claimed by ${c.claimed_by}` : `tvrdí ${c.claimed_by}`) : "—";
     rows.push(`| ${++n} | ${cell(c.title)} | ${cell(kto)} | ${c.claimed_at ?? c.updated} | ${odkaz(c.id, href)} |`);
   }
   if (rows.length === 0) return EMPTY[j];
-  const head = j === "cz" ? "| # | Fakt | Zdroj | Zjištěno | Záznam |" : "| # | Fakt | Zdroj | Zistené | Záznam |";
+  const head = j === "en" ? "| # | Fact | Source | Recorded | Record |" : j === "cz" ? "| # | Fakt | Zdroj | Zjištěno | Záznam |" : "| # | Fakt | Zdroj | Zistené | Záznam |";
   return [head, "|---|---|---|---|---|", ...rows].join("\n");
 }
 
 /** Kľúčové dokumenty z dôkazov: kde listina leží — URL registra alebo súbor vo veci. */
-function renderDocuments(records: readonly OkfRecord[], j: Jurisdiction, href?: LinkResolver): string {
+function renderDocuments(records: readonly OkfRecord[], j: RenderLanguage, href?: LinkResolver): string {
   const docs = records.filter((r) => r.type === "evidence").sort((a, b) => (a.id < b.id ? -1 : 1));
   if (docs.length === 0) return EMPTY[j];
-  const head = j === "cz" ? "| Dokument | Druh | Datum | Umístění | Záznam |" : "| Dokument | Druh | Dátum | Umiestnenie | Záznam |";
+  const head = j === "en" ? "| Document | Kind | Date | Location | Record |" : j === "cz" ? "| Dokument | Druh | Datum | Umístění | Záznam |" : "| Dokument | Druh | Dátum | Umiestnenie | Záznam |";
   const rows = docs.map((e) => {
     const kde = (e.sources ?? []).filter((s) => s.resource).map(sourceLink).join(", ") || "—";
     return `| ${cell(e.title)} | ${valueLabel("evidence_kind", e.evidence_kind ?? "—", j)} | ${e.origin_date ?? "—"} | ${kde} | ${odkaz(e.id, href)} |`;
@@ -258,7 +262,7 @@ function renderDocuments(records: readonly OkfRecord[], j: Jurisdiction, href?: 
   return [head, "|---|---|---|---|---|", ...rows].join("\n");
 }
 
-const RENDERERS: Record<BlockName, (r: readonly OkfRecord[], j: Jurisdiction, href?: LinkResolver) => string> = {
+const RENDERERS: Record<BlockName, (r: readonly OkfRecord[], j: RenderLanguage, href?: LinkResolver) => string> = {
   parties: renderParties,
   facts: renderFacts,
   documents: renderDocuments,
@@ -280,7 +284,7 @@ function replaceBlock(text: string, b: BlockName, body: string): string | undefi
   return text.slice(0, afterStart) + "\n" + body + "\n" + text.slice(end);
 }
 
-function appendBlock(text: string, b: BlockName, body: string, j: Jurisdiction): string {
+function appendBlock(text: string, b: BlockName, body: string, j: RenderLanguage): string {
   const section = [
     "",
     `## ${BLOCK_HEADINGS[b][j]}`,
@@ -301,12 +305,13 @@ function appendBlock(text: string, b: BlockName, body: string, j: Jurisdiction):
  * neukázali nikdy — desať vecí z ISIR malo tvrdenia, dôkazy aj úlohy, a
  * `_STATUS.md` ukazoval len lehoty a chronológiu. Kostru vlastní `init`.
  */
-export function statusSkeleton(j: Jurisdiction): string {
+export function statusSkeleton(j: Jurisdiction, language?: DocumentLanguage): string {
+  const locale = renderLanguage(language, j);
   const head =
-    j === "cz"
+    locale === "en" ? "# Matter status\n\n> **Phase:**\n> **Next step:**\n" : locale === "cz"
       ? "# Status věci\n\n> **Fáze:**\n> **Další krok:**\n"
       : "# Status veci\n\n> **Fáza:**\n> **Ďalší krok:**\n";
-  return BLOCKS.reduce((t, b) => appendBlock(t, b, EMPTY[j], j), `---\ntype: status\nmanual_updated: ""\n---\n\n${head}`);
+  return BLOCKS.reduce((t, b) => appendBlock(t, b, EMPTY[locale], locale), `---\ntype: status\nmanual_updated: ""\n---\n\n${head}`);
 }
 
 export class RenderConflictError extends Error {}
@@ -316,15 +321,15 @@ export class RenderConflictError extends Error {}
  * číslovania zo šablóny `mc-novy-spis` (`## 3. Lehoty`).
  */
 const BLOCK_HEADING_ALIASES: Record<BlockName, readonly string[]> = {
-  deadlines: ["Lhůty", "Lehoty"],
-  timeline: ["Chronologie", "Chronológia"],
-  records: ["Záznamy paměti", "Záznamy pamäte", "Záznamy"],
-  evidence_matrix: ["Dokazování", "Dokazovanie"],
-  tasks: ["Otevřené úkoly", "Otvorené úlohy", "Úkoly", "Úlohy"],
+  deadlines: ["Deadlines", "Lhůty", "Lehoty"],
+  timeline: ["Timeline", "Chronologie", "Chronológia"],
+  records: ["Memory records", "Záznamy paměti", "Záznamy pamäte", "Záznamy"],
+  evidence_matrix: ["Evidence assessment", "Dokazování", "Dokazovanie"],
+  tasks: ["Open tasks", "Otevřené úkoly", "Otvorené úlohy", "Úkoly", "Úlohy"],
   // Sekcie 1, 2 a 6 šablóny Fázy A.
-  parties: ["Strany", "Strany věci", "Strany veci", "Účastníci", "Účastníci řízení"],
-  facts: ["Fakta věci", "Fakty veci", "Fakta", "Fakty", "Skutkový stav"],
-  documents: ["Klíčové dokumenty", "Kľúčové dokumenty", "Dokumenty", "Listiny"],
+  parties: ["Parties", "Strany", "Strany věci", "Strany veci", "Účastníci", "Účastníci řízení"],
+  facts: ["Matter facts", "Fakta věci", "Fakty veci", "Fakta", "Fakty", "Skutkový stav"],
+  documents: ["Key documents", "Klíčové dokumenty", "Kľúčové dokumenty", "Dokumenty", "Listiny"],
 };
 
 /**
@@ -379,14 +384,16 @@ export function retrofitStatus(
   records: readonly OkfRecord[],
   j: Jurisdiction,
   href?: LinkResolver,
+  language?: DocumentLanguage,
 ): { text: string; inserted: BlockName[] } {
+  const locale = renderLanguage(language, j);
   let out = existing;
   const inserted: BlockName[] = [];
   for (const b of BLOCKS) {
     if (out.includes(startMarker(b))) continue;
     const hit = findBareHeading(out, b);
     if (!hit) continue;
-    const body = RENDERERS[b](records, j, href);
+    const body = RENDERERS[b](records, locale, href);
     out = out.slice(0, hit.end) + `\n${startMarker(b)}\n${body}\n${endMarker(b)}\n` + out.slice(hit.end);
     inserted.push(b);
   }
@@ -406,10 +413,12 @@ export function renderStatus(
   records: readonly OkfRecord[],
   j: Jurisdiction,
   href?: LinkResolver,
+  language?: DocumentLanguage,
 ): string {
+  const locale = renderLanguage(language, j);
   let out = existing;
   for (const b of BLOCKS) {
-    const body = RENDERERS[b](records, j, href);
+    const body = RENDERERS[b](records, locale, href);
 
     const replaced = replaceBlock(out, b, body);
     if (replaced !== undefined) {
@@ -428,7 +437,7 @@ export function renderStatus(
     }
 
     if (MARKER_ONLY.includes(b)) continue;
-    out = appendBlock(out, b, body, j);
+    out = appendBlock(out, b, body, locale);
   }
   return out;
 }

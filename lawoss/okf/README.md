@@ -12,6 +12,24 @@ Automatické premenovanie existujúcich klientskych súborov nie je súčasťou 
 
 Ručný stav používa `manual_updated` a je opísaný v [pamäťovom jadre](../okf-pamat/README.md#ručný-stav-a-aktuálnosť).
 
+## Jazyk generovaných dokumentov
+
+Jazyk dokumentov je samostatný údaj `language: cs|sk|en` v novej karte klienta, veci alebo projektu. Nie je to jurisdikcia: česká jurisdikcia ostáva `jurisdiction: cz`, slovenská `jurisdiction: sk`. Anglický dokument môže patriť do ktorejkoľvek z nich. UI odovzdáva vybraný jazyk explicitne; CLI používa `--language cs|sk|en`:
+
+```sh
+okf plan spis /cesta/k/veci --title "Nová vec" --cz --language cs --json
+# Po potvrdení plánu použite apply s rovnakými argumentmi.
+okf plan klient /cesta/ku/klientovi --title "Klient" --language en --json
+```
+
+Prednosť má explicitný jazyk, potom jazyk existujúcej karty pri dopĺňaní štruktúry, potom jurisdikcia (`cz` → `cs`, `sk` → `sk`). Bez jazyka aj jurisdikcie ostáva pôvodný slovenský default pre starších volajúcich. `cz` nie je platný jazyk. Chýbajúca hodnota, nepodporovaný jazyk alebo opakovaný `--language` sa odmietnu pred zápisom. `render` číta jazyk karty pre odvodený index; `--language` ho môže pre tento render explicitne zmeniť bez zmeny karty.
+
+Prekladajú sa nové karty, AGENTS/CLAUDE, archívna pamäť, ručný stav, vstupný a komunikačný register, klientsky index a opis pracovného profilu. Nový predvolený profil má české alebo anglické pracovné priečinky podľa jazyka; napríklad `03_Navrhy`, resp. `03_Drafts`, a `05_Komunikace/Dulezita_posta`, resp. `05_Communication/Important_mail`. Stabilné roly ako `drafts`, názvy vyhradených súborov, priečinok `Spisy`, markery projekcií a strojový token `bez-datumu` sa nemenia. Výslovne nakonfigurované priečinky/roly/naming a existujúci snapshot profilu majú vždy prednosť pred jazykovým defaultom.
+
+`plan`/`apply` neprekladajú ani neprepisujú existujúce súbory a nepresúvajú ich. Zmena jazyka preto nie je migrácia už založeného spisu. Taká oprava vyžaduje samostatný porovnávací plán: odlíšiť nezmenené generované šablóny od klientskych údajov, zachovať originály a ručné úpravy a presuny skontrolovať podľa uložených rolí. Jazykové varianty šablón nemenia právny režim veci. Text používateľa a zdrojové dokumenty sa automaticky neprekladajú.
+
+Pre priamych volajúcich je určené `PlanInput.language` a `LOCALIZED_TEMPLATES` (CLI) alebo zodpovedajúca sada v aplikácii. `planEntity` stále prijíma aj pôvodný `TemplateSet` ako už vybranú vlastnú sadu; jej jazyk musí zabezpečiť volajúci. Konzolové diagnostiky CLI nie sú súčasťou prekladu uložených dokumentov.
+
 ### Kancelársky profil v aplikácii
 
 V natívnych **Nastavenia → Prispôsobenie** je kancelársky profil vybraného lokálneho workspace. Upravuje pracovné priečinky, priradenie rolí, vzor názvu dokumentov a voliteľný `client_path` v `Office/okf.config` (alebo existujúcom `_kancelaria/okf.config`). Ostatné položky vrátane trvalého oprávnenia zostanú zachované. Pri súbežnej zmene sa uloženie odmietne; načítajte profil znova a zopakujte úpravu. Otvorený klient či vec nie je koreň kancelárie — editor vtedy vyzve otvoriť kancelársky workspace.

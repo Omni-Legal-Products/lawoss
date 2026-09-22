@@ -819,6 +819,23 @@ function recordRevision(record) {
   return canonicalValue(parseRecord(serializeRecord(content)));
 }
 
+// src/document-language.ts
+function isDocumentLanguage(value) {
+  return value === "cs" || value === "sk" || value === "en";
+}
+function renderLanguage(language, jurisdiction) {
+  return language === "cs" ? "cz" : language ?? jurisdiction;
+}
+function documentTypeLabel(type, language) {
+  return language === "en" ? type : typeLabel(type, language);
+}
+function documentValueLabel(field, value, language) {
+  if (language !== "en")
+    return valueLabel(field, value, language);
+  const label = valueLabel(field, value, "cz");
+  return label === value ? value : value.replaceAll("_", " ");
+}
+
 // src/mask.ts
 var DOT = "•";
 function maskDigits(value) {
@@ -868,18 +885,19 @@ function odkaz(id, href) {
 }
 var BLOCKS = ["parties", "facts", "deadlines", "timeline", "tasks", "documents", "records", "evidence_matrix"];
 var BLOCK_HEADINGS = {
-  deadlines: { cz: "Lhůty", sk: "Lehoty" },
-  timeline: { cz: "Chronologie", sk: "Chronológia" },
-  records: { cz: "Záznamy paměti", sk: "Záznamy pamäte" },
-  evidence_matrix: { cz: "Dokazování", sk: "Dokazovanie" },
-  tasks: { cz: "Otevřené úkoly", sk: "Otvorené úlohy" },
-  parties: { cz: "Strany", sk: "Strany" },
-  facts: { cz: "Fakta věci", sk: "Fakty veci" },
-  documents: { cz: "Klíčové dokumenty", sk: "Kľúčové dokumenty" }
+  deadlines: { cz: "Lhůty", sk: "Lehoty", en: "Deadlines" },
+  timeline: { cz: "Chronologie", sk: "Chronológia", en: "Timeline" },
+  records: { cz: "Záznamy paměti", sk: "Záznamy pamäte", en: "Memory records" },
+  evidence_matrix: { cz: "Dokazování", sk: "Dokazovanie", en: "Evidence assessment" },
+  tasks: { cz: "Otevřené úkoly", sk: "Otvorené úlohy", en: "Open tasks" },
+  parties: { cz: "Strany", sk: "Strany", en: "Parties" },
+  facts: { cz: "Fakta věci", sk: "Fakty veci", en: "Matter facts" },
+  documents: { cz: "Klíčové dokumenty", sk: "Kľúčové dokumenty", en: "Key documents" }
 };
 var EMPTY = {
   cz: "_(zatím nic)_",
-  sk: "_(zatiaľ nič)_"
+  sk: "_(zatiaľ nič)_",
+  en: "_(nothing yet)_"
 };
 function startMarker(b) {
   return `<!-- okf:render:${b}:start -->`;
@@ -896,7 +914,7 @@ function renderDeadlines(records, j, href) {
   if (rows.length === 0)
     return EMPTY[j];
   rows.sort();
-  const head = j === "cz" ? "| Datum | Věc | Záznam |" : "| Dátum | Vec | Záznam |";
+  const head = j === "en" ? "| Date | Matter | Record |" : j === "cz" ? "| Datum | Věc | Záznam |" : "| Dátum | Vec | Záznam |";
   return [head, "|---|---|---|", ...rows].join(`
 `);
 }
@@ -906,22 +924,22 @@ function renderTimeline(records, j, href) {
     for (const e of r.timeline) {
       rows.push({
         date: e.date,
-        line: `| ${e.date} | ${e.kind ? valueLabel("event_kind", e.kind, j) : ""} | ${e.text} | ${odkaz(r.id, href)} |`
+        line: `| ${e.date} | ${e.kind ? documentValueLabel("event_kind", e.kind, j) : ""} | ${e.text} | ${odkaz(r.id, href)} |`
       });
     }
   }
   if (rows.length === 0)
     return EMPTY[j];
   rows.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
-  const head = j === "cz" ? "| Datum | Druh | Událost | Záznam |" : "| Dátum | Druh | Udalosť | Záznam |";
+  const head = j === "en" ? "| Date | Kind | Event | Record |" : j === "cz" ? "| Datum | Druh | Událost | Záznam |" : "| Dátum | Druh | Udalosť | Záznam |";
   return [head, "|---|---|---|---|", ...rows.map((r) => r.line)].join(`
 `);
 }
 function renderRecords(records, j, href) {
   if (records.length === 0)
     return EMPTY[j];
-  const head = "| Záznam | Typ | Popis |";
-  const rows = [...records].sort((a, b) => a.id < b.id ? -1 : 1).map((r) => `| ${odkaz(r.id, href)} | ${typeLabel(r.type, j)} | ${r.description} |`);
+  const head = j === "en" ? "| Record | Type | Description |" : "| Záznam | Typ | Popis |";
+  const rows = [...records].sort((a, b) => a.id < b.id ? -1 : 1).map((r) => `| ${odkaz(r.id, href)} | ${documentTypeLabel(r.type, j)} | ${r.description} |`);
   return [head, "|---|---|---|", ...rows].join(`
 `);
 }
@@ -937,6 +955,14 @@ function cellMark(claim, e) {
   return "✓";
 }
 var MATRIX_LABELS = {
+  en: {
+    claim: "Claim",
+    state: "State",
+    burden: "Burden rests on",
+    credibility: "Credibility",
+    legend: "✓✓ direct and reliable · ✓ supporting · ~ indirect · ✗ contradicts · – unrelated",
+    burdenHead: "Burden of proof"
+  },
   cz: {
     claim: "Tvrzení",
     state: "Stav",
@@ -964,12 +990,12 @@ function renderEvidenceMatrix(records, j, _href) {
   const rows = claims.map((c) => [
     c.id,
     ...evidence.map((e) => cellMark(c, e)),
-    valueLabel("proof_status", c.proof_status ?? "—", j)
+    documentValueLabel("proof_status", c.proof_status ?? "—", j)
   ]);
   const bremeno = [
     `| ${L.claim} | ${L.burden} | ${L.state} | ${L.credibility} |`,
     "|---|---|---|---|",
-    ...claims.map((c) => `| ${c.id} | ${c.burden_of_proof ?? "—"} | ` + `${valueLabel("proof_status", c.proof_status ?? "—", j)} | ` + `${valueLabel("credibility", c.credibility ?? "—", j)} |`)
+    ...claims.map((c) => `| ${c.id} | ${c.burden_of_proof ?? "—"} | ` + `${documentValueLabel("proof_status", c.proof_status ?? "—", j)} | ` + `${documentValueLabel("credibility", c.credibility ?? "—", j)} |`)
   ];
   return [
     `| ${head.join(" | ")} |`,
@@ -988,8 +1014,8 @@ function renderTasks(records, j, href) {
   const open = records.filter((r) => r.type === "task" && r.state !== "done").sort((a, b) => a.id < b.id ? -1 : 1);
   if (open.length === 0)
     return EMPTY[j];
-  const head = j === "cz" ? "| Úkol | Věc | Řeší | Stav | Termín |" : "| Úloha | Vec | Rieši | Stav | Termín |";
-  const rows = open.map((t) => `| ${odkaz(t.id, href)} | ${t.title} | ${t.assignee ?? "—"} | ` + `${valueLabel("state", t.state ?? "—", j)} | ${t.due ?? "—"} |`);
+  const head = j === "en" ? "| Task | Matter | Assignee | State | Due date |" : j === "cz" ? "| Úkol | Věc | Řeší | Stav | Termín |" : "| Úloha | Vec | Rieši | Stav | Termín |";
+  const rows = open.map((t) => `| ${odkaz(t.id, href)} | ${t.title} | ${t.assignee ?? "—"} | ` + `${documentValueLabel("state", t.state ?? "—", j)} | ${t.due ?? "—"} |`);
   return [head, "|---|---|---|---|---|", ...rows].join(`
 `);
 }
@@ -1008,10 +1034,10 @@ function renderParties(records, j, href) {
   const subjects = records.filter((r) => r.type === "subject").sort((a, b) => ROLE_ORDER.indexOf(a.role ?? "") - ROLE_ORDER.indexOf(b.role ?? "") || (a.id < b.id ? -1 : 1));
   if (subjects.length === 0)
     return EMPTY[j];
-  const head = j === "cz" ? "| Role | Subjekt | IČO / RČ | Záznam |" : "| Rola | Subjekt | IČO / RČ | Záznam |";
+  const head = j === "en" ? "| Role | Subject | Registry / personal ID | Record |" : j === "cz" ? "| Role | Subjekt | IČO / RČ | Záznam |" : "| Rola | Subjekt | IČO / RČ | Záznam |";
   const rows = subjects.map((s) => {
     const ident = s.registry_id ?? (s.birth_number ? maskValue("birth_number", s.birth_number) : "—");
-    return `| ${valueLabel("role", s.role ?? "—", j)} | ${cell(s.title)} | ${ident} | ${odkaz(s.id, href)} |`;
+    return `| ${documentValueLabel("role", s.role ?? "—", j)} | ${cell(s.title)} | ${ident} | ${odkaz(s.id, href)} |`;
   });
   return [head, "|---|---|---|---|", ...rows].join(`
 `);
@@ -1038,12 +1064,12 @@ function renderFacts(records, j, href) {
     }
   }
   for (const c of records.filter((x) => x.type === "claim").sort(byId)) {
-    const kto = c.claimed_by ? j === "cz" ? `tvrdí ${c.claimed_by}` : `tvrdí ${c.claimed_by}` : "—";
+    const kto = c.claimed_by ? j === "en" ? `claimed by ${c.claimed_by}` : `tvrdí ${c.claimed_by}` : "—";
     rows.push(`| ${++n} | ${cell(c.title)} | ${cell(kto)} | ${c.claimed_at ?? c.updated} | ${odkaz(c.id, href)} |`);
   }
   if (rows.length === 0)
     return EMPTY[j];
-  const head = j === "cz" ? "| # | Fakt | Zdroj | Zjištěno | Záznam |" : "| # | Fakt | Zdroj | Zistené | Záznam |";
+  const head = j === "en" ? "| # | Fact | Source | Recorded | Record |" : j === "cz" ? "| # | Fakt | Zdroj | Zjištěno | Záznam |" : "| # | Fakt | Zdroj | Zistené | Záznam |";
   return [head, "|---|---|---|---|---|", ...rows].join(`
 `);
 }
@@ -1051,10 +1077,10 @@ function renderDocuments(records, j, href) {
   const docs = records.filter((r) => r.type === "evidence").sort((a, b) => a.id < b.id ? -1 : 1);
   if (docs.length === 0)
     return EMPTY[j];
-  const head = j === "cz" ? "| Dokument | Druh | Datum | Umístění | Záznam |" : "| Dokument | Druh | Dátum | Umiestnenie | Záznam |";
+  const head = j === "en" ? "| Document | Kind | Date | Location | Record |" : j === "cz" ? "| Dokument | Druh | Datum | Umístění | Záznam |" : "| Dokument | Druh | Dátum | Umiestnenie | Záznam |";
   const rows = docs.map((e) => {
     const kde = (e.sources ?? []).filter((s) => s.resource).map(sourceLink).join(", ") || "—";
-    return `| ${cell(e.title)} | ${valueLabel("evidence_kind", e.evidence_kind ?? "—", j)} | ${e.origin_date ?? "—"} | ${kde} | ${odkaz(e.id, href)} |`;
+    return `| ${cell(e.title)} | ${documentValueLabel("evidence_kind", e.evidence_kind ?? "—", j)} | ${e.origin_date ?? "—"} | ${kde} | ${odkaz(e.id, href)} |`;
   });
   return [head, "|---|---|---|---|---|", ...rows].join(`
 `);
@@ -1095,8 +1121,13 @@ function appendBlock(text, b, body, j) {
   return text.replace(/\n*$/, `
 `) + section;
 }
-function statusSkeleton(j) {
-  const head = j === "cz" ? `# Status věci
+function statusSkeleton(j, language) {
+  const locale = renderLanguage(language, j);
+  const head = locale === "en" ? `# Matter status
+
+> **Phase:**
+> **Next step:**
+` : locale === "cz" ? `# Status věci
 
 > **Fáze:**
 > **Další krok:**
@@ -1105,7 +1136,7 @@ function statusSkeleton(j) {
 > **Fáza:**
 > **Ďalší krok:**
 `;
-  return BLOCKS.reduce((t, b) => appendBlock(t, b, EMPTY[j], j), `---
+  return BLOCKS.reduce((t, b) => appendBlock(t, b, EMPTY[locale], locale), `---
 type: status
 manual_updated: ""
 ---
@@ -1116,14 +1147,14 @@ ${head}`);
 class RenderConflictError extends Error {
 }
 var BLOCK_HEADING_ALIASES = {
-  deadlines: ["Lhůty", "Lehoty"],
-  timeline: ["Chronologie", "Chronológia"],
-  records: ["Záznamy paměti", "Záznamy pamäte", "Záznamy"],
-  evidence_matrix: ["Dokazování", "Dokazovanie"],
-  tasks: ["Otevřené úkoly", "Otvorené úlohy", "Úkoly", "Úlohy"],
-  parties: ["Strany", "Strany věci", "Strany veci", "Účastníci", "Účastníci řízení"],
-  facts: ["Fakta věci", "Fakty veci", "Fakta", "Fakty", "Skutkový stav"],
-  documents: ["Klíčové dokumenty", "Kľúčové dokumenty", "Dokumenty", "Listiny"]
+  deadlines: ["Deadlines", "Lhůty", "Lehoty"],
+  timeline: ["Timeline", "Chronologie", "Chronológia"],
+  records: ["Memory records", "Záznamy paměti", "Záznamy pamäte", "Záznamy"],
+  evidence_matrix: ["Evidence assessment", "Dokazování", "Dokazovanie"],
+  tasks: ["Open tasks", "Otevřené úkoly", "Otvorené úlohy", "Úkoly", "Úlohy"],
+  parties: ["Parties", "Strany", "Strany věci", "Strany veci", "Účastníci", "Účastníci řízení"],
+  facts: ["Matter facts", "Fakta věci", "Fakty veci", "Fakta", "Fakty", "Skutkový stav"],
+  documents: ["Key documents", "Klíčové dokumenty", "Kľúčové dokumenty", "Dokumenty", "Listiny"]
 };
 var MARKER_ONLY = ["records", "evidence_matrix", "tasks", "parties", "facts", "documents"];
 var SOFT_HEADING = ["parties", "facts", "documents"];
@@ -1139,7 +1170,8 @@ function findBareHeading(text, b) {
   }
   return;
 }
-function retrofitStatus(existing, records, j, href) {
+function retrofitStatus(existing, records, j, href, language) {
+  const locale = renderLanguage(language, j);
   let out = existing;
   const inserted = [];
   for (const b of BLOCKS) {
@@ -1148,7 +1180,7 @@ function retrofitStatus(existing, records, j, href) {
     const hit = findBareHeading(out, b);
     if (!hit)
       continue;
-    const body = RENDERERS[b](records, j, href);
+    const body = RENDERERS[b](records, locale, href);
     out = out.slice(0, hit.end) + `
 ${startMarker(b)}
 ${body}
@@ -1158,10 +1190,11 @@ ${endMarker(b)}
   }
   return { text: out, inserted };
 }
-function renderStatus(existing, records, j, href) {
+function renderStatus(existing, records, j, href, language) {
+  const locale = renderLanguage(language, j);
   let out = existing;
   for (const b of BLOCKS) {
-    const body = RENDERERS[b](records, j, href);
+    const body = RENDERERS[b](records, locale, href);
     const replaced = replaceBlock(out, b, body);
     if (replaced !== undefined) {
       out = replaced;
@@ -1175,7 +1208,7 @@ function renderStatus(existing, records, j, href) {
     }
     if (MARKER_ONLY.includes(b))
       continue;
-    out = appendBlock(out, b, body, j);
+    out = appendBlock(out, b, body, locale);
   }
   return out;
 }
@@ -2001,6 +2034,27 @@ function jurisdictionFromCard(dir) {
   }
   return;
 }
+function documentLanguageFromCard(dir) {
+  for (const name of [...MATTER_CARDS, "client.md", "klient.md"]) {
+    const path = join2(dir, name);
+    if (!existsSync2(path))
+      continue;
+    const header = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(readFileSync2(path, "utf8"))?.[1];
+    if (!header)
+      continue;
+    const languageLines = header.split(/\r?\n/).filter((line) => /^language[ \t]*:/.test(line));
+    if (languageLines.length > 1)
+      throw new Error(`Duplicate document language in ${name}.`);
+    const languageLine = languageLines[0];
+    if (languageLine === undefined)
+      continue;
+    const value = parseFrontmatter(languageLine).get("language");
+    if (!isDocumentLanguage(value))
+      throw new Error(`Unsupported document language in ${name}; use cs, sk or en.`);
+    return value;
+  }
+  return;
+}
 function hasUnparsedBody(text) {
   const lines = text.split(`
 `);
@@ -2260,6 +2314,9 @@ function writeProjection(path, content, root) {
 }
 function syncProjections(dir) {
   const clientDir = findClientDir(dir);
+  documentLanguageFromCard(dir);
+  if (clientDir)
+    documentLanguageFromCard(clientDir);
   assertProjectionDirectory(dir, clientDir ?? dir);
   assertProjectionFile(join2(dir, STATUS_FILE), dir);
   preflightBundleProjections(dir);
@@ -2279,21 +2336,21 @@ function writeIndex(dir) {
   const store = scope.matter;
   if (!existsSync2(store.memoryDir))
     return;
-  const j = store.jurisdiction;
+  const j = renderLanguage(documentLanguageFromCard(dir), store.jurisdiction);
   const href = scopeLinkResolver(dir, true);
   const nadpis = {
-    L1: { cz: "Kancelář (L1)", sk: "Kancelária (L1)" },
-    L2: { cz: "Spis (L2)", sk: "Spis (L2)" },
-    L3: { cz: "Právo (L3)", sk: "Právo (L3)" }
+    L1: { cz: "Kancelář (L1)", sk: "Kancelária (L1)", en: "Office (L1)" },
+    L2: { cz: "Spis (L2)", sk: "Spis (L2)", en: "Matter (L2)" },
+    L3: { cz: "Právo (L3)", sk: "Právo (L3)", en: "Law (L3)" }
   };
   const lines = [
     "---",
     `okf_version: "${OKF_VERSION}"`,
     "---",
     "",
-    `# ${j === "cz" ? "Rejstřík paměti" : "Register pamäte"}`,
+    `# ${j === "en" ? "Memory index" : j === "cz" ? "Rejstřík paměti" : "Register pamäte"}`,
     "",
-    j === "cz" ? "> Generováno. Needituj ručně — přepíše se." : "> Generované. Needituj ručne — prepíše sa."
+    j === "en" ? "> Generated. Do not edit manually; this file is regenerated." : j === "cz" ? "> Generováno. Needituj ručně — přepíše se." : "> Generované. Needituj ručne — prepíše sa."
   ];
   for (const layer of ["L2", "L1", "L3"]) {
     const vo = [...scope.records].filter((r) => r.layer === layer).sort((a, b) => a.id < b.id ? -1 : 1);
@@ -2303,7 +2360,7 @@ function writeIndex(dir) {
     for (const r of vo) {
       const cesta = href(r.id);
       const odkaz = cesta ? `[${r.id}](${cesta})` : r.id;
-      lines.push(`* ${odkaz} — ${typeLabel(r.type, j)} — ${r.description}`);
+      lines.push(`* ${odkaz} — ${documentTypeLabel(r.type, j)} — ${r.description}`);
     }
   }
   if (readdirSync(store.memoryDir).includes(LEGACY_INDEX_FILE)) {
@@ -2319,20 +2376,20 @@ function writeLog(dir) {
   const store = scope.matter;
   if (!existsSync2(store.memoryDir))
     return;
-  const j = store.jurisdiction;
+  const j = renderLanguage(documentLanguageFromCard(dir), store.jurisdiction);
   const href = scopeLinkResolver(dir, true);
   const podlaDatumu = new Map;
   for (const r of scope.records) {
     for (const e of r.timeline) {
       const cesta = href(r.id);
       const odkaz = cesta ? `[${r.id}](${cesta})` : r.id;
-      const druh = e.kind ? `**${valueLabel("event_kind", e.kind, j)}**: ` : "";
+      const druh = e.kind ? `**${documentValueLabel("event_kind", e.kind, j)}**: ` : "";
       const zoznam = podlaDatumu.get(e.date) ?? [];
       zoznam.push(`* ${druh}${e.text} — ${odkaz}`);
       podlaDatumu.set(e.date, zoznam);
     }
   }
-  const lines = [`# ${j === "cz" ? "Historie spisu" : "História spisu"}`, ""];
+  const lines = [`# ${j === "en" ? "Matter history" : j === "cz" ? "Historie spisu" : "História spisu"}`, ""];
   for (const datum of [...podlaDatumu.keys()].sort().reverse()) {
     lines.push(`## ${datum}`, "", ...podlaDatumu.get(datum) ?? [], "");
   }
@@ -2343,6 +2400,7 @@ function ensureBrain(dir, j) {
   const path = join2(dir, BRAIN_FILE);
   if (existsSync2(path))
     return;
+  const language = renderLanguage(documentLanguageFromCard(dir), j);
   const mem = MEMORY_DIR;
   const cz = [
     "# BRAIN.md — protokol paměti spisu",
@@ -2352,7 +2410,7 @@ function ensureBrain(dir, j) {
     "1. `matter.md` (dříve `spis.md`) — karta věci",
     `2. \`${STATUS_FILE}\` — **Fáze** a **Další krok** nahoře; tabulky mezi markery generuje paměť`,
     "3. `okf-memory read <spis>` — celý obsah všech typů záznamů věci, klienta a kanceláře včetně revizí",
-    "4. `VSTUPY.md` — nespracované vstupy pending; chyby čtení a neúplnost předej dál",
+    "4. `VSTUPY.md` — nezpracované vstupy pending; chyby čtení a neúplnost předej dál",
     "5. `memory/index.md` — pomocná mapa, nenahrazuje úplný kontext",
     "",
     "## Zápisová disciplína",
@@ -2422,7 +2480,42 @@ function ensureBrain(dir, j) {
     "znamenajú dve pravdy a jedna z nich bude ticho zastaraná.",
     ""
   ];
-  writeFileSync(path, (j === "cz" ? cz : sk).join(`
+  const en = [
+    "# BRAIN.md — matter memory protocol",
+    "",
+    "Entry point for agents. Read the complete memory context, then original sources relevant to the task.",
+    "",
+    "1. `matter.md` (formerly `spis.md`) — matter card",
+    `2. \`${STATUS_FILE}\` — **Phase** and **Next step** at the top; memory generates tables between markers`,
+    "3. `okf-memory read <matter>` — full records for the matter, client and office, including revision tokens",
+    "4. `VSTUPY.md` — pending inputs; report incomplete reads and errors",
+    "5. `memory/index.md` — navigation only, never a substitute for complete context",
+    "",
+    "## Write discipline",
+    "",
+    "- Each record has **Truth** (current state) and **History** (append-only).",
+    "- Changes to Truth or substantive metadata must append History and update updated.",
+    "- Before editing, retain the Revision ID: sha256 from read; write requires --if-revision. On conflict, read again and reconcile the content, not just the token.",
+    "- Incomplete reads fail; sync must not overwrite projections. Missing generated or machine verified metadata does not establish human confirmation of a deadline.",
+    "- Agents may write L2 (matter). **L1** (rules and lessons), **L3** (legal authorities), and **deletions** require human approval; the tool rejects unapproved writes.",
+    `- Content outside markers in \`${STATUS_FILE}\` belongs to the lawyer. Do not edit it.`,
+    "",
+    "## Three memory layers",
+    "",
+    `- \`${mem}/\` in this matter — matter content (L2)`,
+    "- `memory/` in the identified client directory — shared subjects and screening",
+    `- \`${OFFICE_DIR}/memory/\` — rules and lessons (L1), legal authorities (L3)`,
+    "",
+    "Legal authorities belong to the office, not individual matters; copying them across matters creates duplicates and repeated leak checks.",
+    "",
+    "## One matter memory",
+    "",
+    `This directory (\`${mem}/\`) is the **only** destination for memory writes.`,
+    "Treat legacy `_memory.md`, `lrd.json`, `progress.txt`, `LEARNINGS.md`, or `facts/`, `research/`, `strategy/` memory records as an archive.",
+    "Original documents and current research remain working sources. Two memory stores create two competing versions of the matter.",
+    ""
+  ];
+  writeFileSync(path, (language === "en" ? en : language === "cz" ? cz : sk).join(`
 `), "utf8");
 }
 function syncStatus(dir) {
@@ -2431,7 +2524,7 @@ function syncStatus(dir) {
   const store = scope.matter;
   const path = join2(dir, STATUS_FILE);
   const existing = existsSync2(path) ? readFileSync2(path, "utf8") : "";
-  const next = renderStatus(existing, scope.records, store.jurisdiction, statusLinkResolver(dir));
+  const next = renderStatus(existing, scope.records, store.jurisdiction, statusLinkResolver(dir), documentLanguageFromCard(dir));
   if (next !== existing)
     writeProjection(path, next, dir);
 }
@@ -2443,7 +2536,7 @@ function retrofitStatusFile(dir, apply) {
   if (!existsSync2(path))
     return [];
   const existing = readFileSync2(path, "utf8");
-  const { text, inserted } = retrofitStatus(existing, store.records, store.jurisdiction, linkResolver(store, false));
+  const { text, inserted } = retrofitStatus(existing, store.records, store.jurisdiction, linkResolver(store, false), documentLanguageFromCard(dir));
   if (apply && inserted.length > 0)
     writeProjection(path, text, dir);
   return inserted;
@@ -3375,7 +3468,7 @@ ${serializeRecord(maskRecord(r))}`),
         if (!apply) {
           const statusPath = join5(dir, "_STATUS.md");
           const before = existsSync3(statusPath) ? readFileSync3(statusPath, "utf8") : "";
-          const after = renderStatus(before, s.records, s.jurisdiction, statusLinkResolver(dir));
+          const after = renderStatus(before, s.records, s.jurisdiction, statusLinkResolver(dir), documentLanguageFromCard(dir));
           const zmena = before === after ? "bez zmeny" : "_STATUS.md by sa zmenil";
           return ok(`dry-run: ${zmena}; INDEX.md by dostal ${riadkov(s.records.length)}. Zapíš s --apply.`);
         }
@@ -3533,6 +3626,12 @@ ${USAGE}` };
     }
     case "init": {
       const zKarty = jurisdictionFromCard(dir);
+      let language;
+      try {
+        language = documentLanguageFromCard(dir);
+      } catch (error) {
+        return { code: 2, out: error instanceof Error ? error.message : String(error) };
+      }
       const jurisdiction = rest.includes("--sk") ? "sk" : rest.includes("--cz") ? "cz" : zKarty ?? "cz";
       const zdroj = rest.includes("--sk") || rest.includes("--cz") ? "prepínač" : zKarty ? "karta veci" : "predvolené";
       if (zdroj === "predvolené") {
@@ -3549,7 +3648,7 @@ ${USAGE}` };
       const status = join5(dir, STATUS_FILE);
       const kostra = !existsSync3(status);
       if (kostra)
-        writeFileSync3(status, statusSkeleton(jurisdiction), "utf8");
+        writeFileSync3(status, statusSkeleton(jurisdiction, language), "utf8");
       return ok(`Založené: ${MEMORY_DIR}/, BRAIN.md${kostra ? ` a ${STATUS_FILE} so všetkými blokmi` : ""} ` + `(jurisdikcia ${jurisdiction}, zdroj: ${zdroj}).`);
     }
     default:

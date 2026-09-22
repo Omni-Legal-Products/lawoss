@@ -4,7 +4,7 @@
  *
  *   okf detect <dir> [--type klient|spis|projekt] [--json]
  *   okf plan <typ> <dir> --title "…" --sk|--cz [--ico X] [--klient X] [--protistrana X]
- *            [--protistrana-ico X] [--oblast X] [--desc X] [--advokat X] [--json]
+ *            [--protistrana-ico X] [--oblast X] [--desc X] [--advokat X] [--language cs|sk|en] [--json]
  *   okf apply <typ> <dir> --title "…" --sk|--cz [rovnaké flagy]        ← až po potvrdení človekom
  *   okf validate <dir> [--json]                                 exit 1 pri chybe
  *   okf render <dir> [--json]
@@ -17,7 +17,7 @@
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { ENTITY_TYPES, type ClientType, type MatterKind, type MatterMode, type EntityType, type Jurisdiction, type PlanInput } from "./core.ts";
+import { resolveDocumentLanguage, type DocumentLanguage, ENTITY_TYPES, type ClientType, type MatterKind, type MatterMode, type EntityType, type Jurisdiction, type PlanInput } from "./core.ts";
 import { apply, detect, plan, render, validate } from "./fs.ts";
 import { NamingSchemaError, isNamingSchemaError, parseNamingRequest, applyDocumentNaming, parseNamingPlan, planDocumentNaming, readNamingJson, writeNamingPlanOutsideMatter } from "./naming-fs.ts";
 
@@ -48,6 +48,11 @@ function choice<T extends string>(flags: Flags, key: string, values: readonly T[
   const match = values.find((item) => item === value);
   if (!match) throw new Error(`--${key}: vyber ${values.join(" | ")}`);
   return match;
+}
+
+function languageFrom(flags: Flags): DocumentLanguage | undefined {
+  if (flags.language === undefined) return undefined;
+  return resolveDocumentLanguage(flags.language);
 }
 
 function entityType(value: string | undefined): EntityType {
@@ -86,7 +91,7 @@ function inputFrom(positional: string[], flags: Flags): PlanInput {
   if (!dir) throw new Error("chýba <dir>");
   const title = str(flags, "title") ?? dir.split(/[\\/]/).filter(Boolean).pop() ?? "";
   return {
-    type, dir, title,
+    type, dir, title, language: languageFrom(flags),
     clientType: choice(flags, "client-type", ["fo", "fo-podnikatel", "po", "iny"] satisfies ClientType[]),
     country: str(flags, "country"), citizenship: str(flags, "citizenship"), residenceCountry: str(flags, "residence-country"), identifierType: str(flags, "identifier-type"), identifier: str(flags, "identifier"),
     matterKind: choice(flags, "matter-kind", ["dispute", "advisory", "transaction", "other"] satisfies MatterKind[]),
@@ -104,6 +109,7 @@ export function run(argv: string[], out: (line: string) => void = console.log): 
   const json = flags.json === true;
   const cmd = positional[0];
   try {
+    if (argv.filter((arg) => arg === "--language").length > 1) throw new Error("--language must be specified once");
     switch (cmd) {
       case "naming": {
         const dir = positional[1];
@@ -156,14 +162,14 @@ export function run(argv: string[], out: (line: string) => void = console.log): 
       }
       case "render": {
         const dir = positional[1]; if (!dir) throw new Error("chýba <dir>");
-        const result = render(dir);
+        const result = render(dir, languageFrom(flags));
         if (json) { out(JSON.stringify(result, null, 2)); return 0; }
         for (const f of result.written) out(`~ ${f}   (pregenerované)`);
         for (const f of result.kept) out(`= ${f}`);
         return 0;
       }
       default:
-        out("okf detect|plan|apply|validate|render|naming — pozri hlavičku src/cli.ts");
+        out("okf detect|plan|apply|validate|render|naming — plan/apply/render: --language cs|sk|en; pozri hlavičku src/cli.ts");
         return cmd ? 2 : 0;
     }
   } catch (error) {

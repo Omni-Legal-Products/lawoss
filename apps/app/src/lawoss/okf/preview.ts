@@ -8,12 +8,13 @@ import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import type { WorkingProfile } from "../../../../../lawoss/okf/src/profile";
 import { CARD_ALIASES, planEntity, type PlanEntry, type PlanInput } from "../../../../../lawoss/okf/src/core";
 import { clientTypeFor, entityTypeFor, targetDir, type NovySpisForm } from "./compose-prompt";
-import { OKF_TEMPLATES } from "./templates";
+import { LOCALIZED_OKF_TEMPLATES } from "./templates";
 
 export function previewPlan(form: NovySpisForm, exists: (relativePath: string) => boolean = () => false, workingProfile?: WorkingProfile): PlanEntry[] {
   const input: PlanInput = {
     type: entityTypeFor(form.subject),
     workingProfile,
+    language: form.documentLanguage,
     advokat: form.advokat?.trim() || undefined,
     dir: targetDir(form),
     title: form.title.trim() || "[názov]",
@@ -25,7 +26,7 @@ export function previewPlan(form: NovySpisForm, exists: (relativePath: string) =
     identifierType: form.identifierType, identifier: form.ico.trim(),
     matterKind: form.matterKind, mode: form.matterMode, klient: form.clientName,
   };
-  return planEntity(input, OKF_TEMPLATES, exists).entries;
+  return planEntity(input, LOCALIZED_OKF_TEMPLATES, exists).entries;
 }
 
 /** Zistí existujúce súbory vrátane vnorených pracovných ciest. */

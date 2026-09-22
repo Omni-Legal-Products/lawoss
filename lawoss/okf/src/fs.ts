@@ -4,6 +4,8 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
 
 import {
   CARD_ALIASES,
+  resolveDocumentLanguage,
+  type DocumentLanguage,
   existingCard,
   WORKING_FOLDERS,
   ENTITY_TYPES,
@@ -16,7 +18,7 @@ import {
   planEntity,
   validateMarkdown,
 } from "./core.ts";
-import { TEMPLATES } from "./templates.ts";
+import { LOCALIZED_TEMPLATES } from "./templates.ts";
 import { readConfiguredLawyerName } from "../../okf-pamat/src/config.ts";
 import { findOfficeDir } from "../../okf-pamat/src/store.ts";
 import { PROFILE_FILE, parseOfficeWorkingProfile, parseWorkingProfile, type WorkingProfile } from "./profile.ts";
@@ -31,12 +33,12 @@ function storedProfile(dir: string): WorkingProfile | undefined {
   return parseWorkingProfile(readText(path));
 }
 
-function officeProfile(dir: string): WorkingProfile | undefined {
+function officeProfile(dir: string, language: DocumentLanguage): WorkingProfile | undefined {
   const office = findOfficeDir(dir);
   if (!office || !existsSync(join(office, "okf.config"))) return undefined;
   const path = join(office, "okf.config");
   if (!statSync(path).isFile()) return undefined;
-  return parseOfficeWorkingProfile(readText(path));
+  return parseOfficeWorkingProfile(readText(path), language);
 }
 
 /** Všetky .md pod `root`, relatívne cesty, bez šablón a skrytých priečinkov. */
@@ -81,9 +83,12 @@ export function detect(dir: string, hint?: EntityType): DetectResult {
 
 export function plan(input: PlanInput): Plan {
   const agents = join(input.dir, "AGENTS.md");
-  const templates = existsSync(agents) ? { ...TEMPLATES, [input.type]: { ...TEMPLATES[input.type], "AGENTS.md": readText(agents) } } : TEMPLATES;
+  const card = existingCard(input.type, (name) => existsSync(join(input.dir, name)));
+  const existing = card ? parseFrontmatter(readText(join(input.dir, card))) : null;
+  const language = resolveDocumentLanguage(input.language ?? existing?.language, existing?.jurisdiction || input.jurisdiction);
+  const templates = LOCALIZED_TEMPLATES[language];
   const advokat = input.advokat?.trim() || (input.type === "spis" ? readConfiguredLawyerName(findOfficeDir(input.dir)) : undefined);
-  const profile = storedProfile(input.dir) ?? input.workingProfile ?? (input.type === "spis" ? officeProfile(input.dir) : undefined);
+  const profile = storedProfile(input.dir) ?? input.workingProfile ?? (input.type === "spis" ? officeProfile(input.dir, language) : undefined);
   let clientCardPath: string | undefined;
   if (input.type === "spis") {
     for (let parent = dirname(resolve(input.dir)); ; parent = dirname(parent)) {
@@ -92,7 +97,7 @@ export function plan(input: PlanInput): Plan {
       if (dirname(parent) === parent) break;
     }
   }
-  const result = planEntity({ ...input, advokat, workingProfile: profile, clientCardPath }, templates, (p) => existsSync(join(input.dir, p)));
+  const result = planEntity({ ...input, language, advokat, workingProfile: profile, clientCardPath }, templates, (p) => existsSync(join(input.dir, p)));
   if (existsSync(agents)) {
     const mirror = result.entries.find((entry) => entry.path === "CLAUDE.md" && entry.action === "create");
     if (mirror) mirror.content = readText(agents);
@@ -155,7 +160,11 @@ export function validate(root: string): ValidationError[] {
  * alebo sa líši — pôvodný obsah sa pred synchronizáciou zálohuje) a
  * zoznam entít v index.md (iba telo pod frontmatterom, ak index existuje).
  */
-export function render(root: string): { written: string[]; kept: string[] } {
+export function render(root: string, selectedLanguage?: DocumentLanguage): { written: string[]; kept: string[] } {
+  const cards = ENTITY_TYPES.flatMap((type) => CARD_ALIASES[type]).filter((name) => existsSync(join(root, name)));
+  if (cards.length > 1) throw new Error(`Viac kariet entity: ${cards.join(", ")}. Najprv zosúlaď ich obsah.`);
+  const metadata = cards[0] ? parseFrontmatter(readText(join(root, cards[0]))) : null;
+  const language = resolveDocumentLanguage(selectedLanguage ?? metadata?.language, metadata?.jurisdiction);
   const written: string[] = [];
   const kept: string[] = [];
   const agents = join(root, "AGENTS.md");
@@ -179,8 +188,8 @@ export function render(root: string): { written: string[]; kept: string[] } {
     const cards = listMarkdown(root).filter((rel) => rel.includes("/") && /\/(matter|spis|project|projekt|client|klient)\.md$/.test(rel));
     const body = cards.length
       ? cards.map((rel) => `- [${rel.split("/").slice(0, -1).join("/")}](./${rel})`).join("\n")
-      : "_(zatiaľ žiadne)_";
-    const next = `${head}\n\n# Obsah\n\n${body}\n`;
+      : { cs: "_(zatím žádné)_", sk: "_(zatiaľ žiadne)_", en: "_(none yet)_" }[language];
+    const next = `${head}\n\n# ${{ cs: "Obsah", sk: "Obsah", en: "Contents" }[language]}\n\n${body}\n`;
     if (next !== text) { writeFileSync(index, next, "utf8"); written.push("index.md"); } else kept.push("index.md");
   }
   return { written, kept };

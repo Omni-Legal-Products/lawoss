@@ -14,11 +14,11 @@ import { readOfficeProfile, updateOfficeProfile } from "../src/lawoss/okf/office
 const form: NovySpisForm = {
   mode: "okf", subject: "spis", title: "Původní název / pôvodné meno", ico: "12345678", root: "/office/Client/Spisy",
   jurisdikcia: "CZ", country: "CZ", identifierType: "ICO", protistrana: "Protistrana pôvodná",
-  matterKind: "advisory", matterMode: "ongoing", clientName: "Původní klient", advokat: "Test Advokát",
+  matterKind: "advisory", matterMode: "ongoing", clientName: "Původní klient", advokat: "Test Advokát", documentLanguage: "cs",
 };
 
 // SSR uses the hook's English snapshot. Root browser checks cover an actual
-// mounted wizard with dirty values and a fetched plan through language changes.
+// mounted wizard with dirty values; a changed document language now requires a new plan.
 test("welcome exposes pre-workspace language choice and localized onboarding content", () => {
   let calls = 0;
   const html = renderToStaticMarkup(<MemoryRouter><LawossWelcomePage onGetStarted={() => { calls++; }} analyticsEnabled={false} onAnalyticsChange={() => { calls++; }} /></MemoryRouter>);
@@ -59,7 +59,7 @@ test("plan groups translate presentation metadata and preserve actual filenames 
   expect(JSON.stringify(groups)).toBe(before);
 });
 
-test("switching UI language leaves prompt, planned artifact bytes and persisted profile unchanged", async () => {
+test("ambient UI language leaves an explicitly supplied document language, artifact bytes and persisted profile unchanged", async () => {
   const previous = currentLanguagePreference();
   const profileText = 'custom_setting: "původní hodnota"\nmatter_folders: ["MojeDrafty"]\nfolder_roles:\n  drafts: "MojeDrafty"\ndocument_naming: "{date}_{description}"\nclient_path: "Klienti/*"\n';
   const stored = readOfficeProfile(profileText);

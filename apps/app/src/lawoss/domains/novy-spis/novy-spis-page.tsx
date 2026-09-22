@@ -12,7 +12,7 @@ import { pickDirectory } from "@/app/lib/desktop";
 import { isDesktopRuntime } from "@/app/utils";
 
 import { LawossLayout } from "../../shell/layout";
-import { composePrompt, targetDir, type Jurisdikcia, type NovySpisForm, type SubjectKind } from "../../okf/compose-prompt";
+import { composePrompt, documentLanguageForLocale, targetDir, type Jurisdikcia, type NovySpisForm, type SubjectKind } from "../../okf/compose-prompt";
 import { loadOkfConnection, openSessionWithPrompt, type OkfConnection } from "../../okf/connection";
 import { groupPlan, workspaceRelativePath, type PlanGroupItem } from "../../okf/plan-groups";
 import { loadProfilePreview, type ProfilePreview } from "../../okf/load-profile";
@@ -39,6 +39,11 @@ function useSetupText() {
 }
 /** Obsah cieľového priečinka zistený pri „Zobraziť plán“, viazaný na cestu, pre ktorú platí. */
 type Probe = { dir: string; names: string[]; formKey: string; profile: ProfilePreview };
+
+/** A confirmed preview is bound to generation inputs, including document language. */
+export function isCurrentCreationPlan(probe: Pick<Probe, "dir" | "formKey"> | null, form: NovySpisForm): boolean {
+  return probe?.dir === targetDir(form) && probe.formKey === JSON.stringify(form);
+}
 
 export function PlanGroup({ title, items, empty, tone }: { title: string; items: PlanGroupItem[]; empty: string; tone?: "warn" }) {
   const locale = useLocale();
@@ -94,7 +99,7 @@ export function NovySpisPanel({ connection, workspace, onOpenSession, documentAu
   const [rootOverride, setRootOverride] = useState("");
 
   const effectiveRoot = rootOverride.trim() || workspace?.path || "";
-  const effectiveForm = useMemo<NovySpisForm>(() => ({ ...form, root: effectiveRoot, advokat: lawyerName(documentAuthor) }), [form, effectiveRoot, documentAuthor]);
+  const effectiveForm = useMemo<NovySpisForm>(() => ({ ...form, root: effectiveRoot, advokat: lawyerName(documentAuthor), documentLanguage: documentLanguageForLocale(locale) }), [form, effectiveRoot, documentAuthor, locale]);
   const rootOutsideWorkspace = !okfTargetWithinWorkspace(targetDir(effectiveForm), workspace);
   useEffect(() => {
     setProbe(null);
@@ -113,20 +118,20 @@ export function NovySpisPanel({ connection, workspace, onOpenSession, documentAu
   const dir = useMemo(() => targetDir(effectiveForm), [effectiveForm]);
   // Zistený obsah platí len pre cestu, pri ktorej sa zisťoval — po zmene názvu
   // alebo koreňa je plán opäť „všetko nové“, kým advokát nestlačí Zobraziť plán.
-  const existing = useMemo(() => new Set(probe?.dir === dir && probe.formKey === JSON.stringify(effectiveForm) ? probe.names : []), [probe, dir, effectiveForm]);
+  const existing = useMemo(() => new Set(probe && isCurrentCreationPlan(probe, effectiveForm) ? probe.names : []), [probe, dir, effectiveForm]);
   const rows = useMemo(() => previewPlan(effectiveForm, (path) => existing.has(path), probe?.profile.profile), [effectiveForm, existing, probe]);
   const groups = useMemo(
     () => groupPlan(rows, { form: effectiveForm, workspacePath: workspace?.path ?? "" }),
     [rows, effectiveForm, workspace],
   );
-  const prompt = useMemo(() => composePrompt(effectiveForm, probe?.dir === dir && probe.formKey === JSON.stringify(effectiveForm)
+  const prompt = useMemo(() => composePrompt(effectiveForm, probe && isCurrentCreationPlan(probe, effectiveForm)
     ? { source: probe.profile.source, warning: probe.profile.warning, profile: probe.profile.profile, paths: rows.map((row) => row.path) } : undefined), [effectiveForm, probe, dir, rows]);
   const set = <K extends keyof NovySpisForm>(key: K, value: NovySpisForm[K]) => setForm((current) => ({ ...current, [key]: value }));
 
   const canAct = Boolean(connection.client && canWrite && workspace.workspaceType !== "remote" && workspace.path && !rootOutsideWorkspace && form.title.trim() && form.mode === "okf");
   // Plán platí len pre cestu, pre ktorú sa zisťoval. Premenovaním veci sa schová
   // a „Potvrdiť“ zhasne — advokát nepotvrdí plán, ktorý sa medzitým zmenil.
-  const planShown = probe?.dir === dir && probe.formKey === JSON.stringify(effectiveForm);
+  const planShown = isCurrentCreationPlan(probe, effectiveForm);
 
   /**
    * Krok „03 Návrh štruktúry“. Pýta sa servera, čo v cieľovom priečinku už je —
@@ -152,7 +157,7 @@ export function NovySpisPanel({ connection, workspace, onOpenSession, documentAu
     }
     try {
       if (relative === null) throw new Error(text("error.outsideWorkspace"));
-      const profile = await loadProfilePreview(connection.client, workspace.id, relative, form.subject === "spis");
+      const profile = await loadProfilePreview(connection.client, workspace.id, relative, form.subject === "spis", effectiveForm.documentLanguage);
       // Root listings omit nested .keep files; probe every planned path before calling it new.
       names = await probePlanFiles(connection.client, workspace.id, relative, effectiveForm, profile.profile);
       setProbe({ dir, names, formKey: JSON.stringify(effectiveForm), profile });
@@ -293,6 +298,12 @@ export function NovySpisPanel({ connection, workspace, onOpenSession, documentAu
               </button>
             ))}
           </div>
+        </div>
+
+        <div className="lw-field" data-lawoss-document-language={effectiveForm.documentLanguage}>
+          <span className="lw-sc">{text("wizard.documentLanguage")}</span>
+          <span>{text(`wizard.documentLanguage_${effectiveForm.documentLanguage ?? "en"}`)}</span>
+          <small>{text("wizard.documentLanguageHint")}</small>
         </div>
 
         <label className="lw-field">
