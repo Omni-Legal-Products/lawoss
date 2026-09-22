@@ -2509,6 +2509,7 @@ export default {
   "artifact.save_failed": "Dokument se nepodařilo uložit.",
   "artifact.open_failed": "Dokument se nepodařilo otevřít.",
   "artifact.discard_changes": "Zahodit změny",
+  "artifact.confirm_discard_unsaved": "Zahodit neuložené změny v souboru {names}? Chcete-li změny zachovat, nejprve dokument uložte.",
   "artifact.save_changes": "Uložit změny",
   "artifact.edit": "Upravit artefakt",
   "artifact.save_changes_tooltip": "Uložit změny do dokumentu",

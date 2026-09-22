@@ -288,3 +288,13 @@ Doménové obrazovky, slovníky, viditeľný prepínač a regresie zostávajú v
 ### Jazyk nových generovaných súborov (2026-09-22)
 
 [Samostatné zadanie a plán](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/blob/specs/interface-languages/specs/2026-09-22-jazyk-generovanych-suborov.md) rozširujú pôvodný UI rozsah: zelené `apps/app/src/lawoss/**` odovzdajú vyriešený jazyk do náhľadu a CLI príkazu nového spisu. `lawoss/okf/**` a `lawoss/okf-pamat/**` ukladajú jazyk oddelene od jurisdikcie a lokalizujú vlastné šablóny. Existujúce záznamy, používateľské texty a explicitné profily sa automaticky neprekladajú. Zmena nevyžaduje nový upstream hook; oba prenosné CLI bundles sú regenerované spolu so zdrojmi.
+
+### Markdown bez falošných zmien (2026-09-22)
+
+[Zadanie a plán opravy](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/blob/specs/interface-languages/specs/2026-09-22-markdown-bez-falosnych-zmien.md).
+
+| Súbory upstreamu | Úprava a dôvod |
+|---|---|
+| `apps/app/src/react-app/domains/session/artifacts/artifact-markdown-editor.tsx` | `linkPlugin({ disableAutoLink: true })` vypína dodatočný automatický prepis holých URL/e-mailov pri načítaní. Ten prichádzal po počiatočnej normalizácii a falošne označoval otvorený dokument ako upravený. Explicitné Markdown odkazy a dialóg vloženia odkazu zostávajú; ochrana skutočných úprav sa nevypína. |
+| `apps/app/src/react-app/domains/session/artifacts/docx-document-state.ts` | Spoločná výzva na zahodenie skutočných neuložených zmien používa aktuálny jazyk UI. Výber dirty dokumentov, zrušenie akcie a discard callbacks zostávajú pôvodné. |
+| `apps/app/src/i18n/locales/en.ts`, `de.ts`, `cs.ts`, `sk.ts` | Jeden zhodný kľúč `artifact.confirm_discard_unsaved`; doslovné názvy súborov sú parametrom existujúcej interpolácie. |

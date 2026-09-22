@@ -25,7 +25,9 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
   const initial = useRef(value);
   const lastValue = useRef(value);
   const plugins = useMemo(() => [
-    headingsPlugin(), listsPlugin(), quotePlugin(), linkPlugin(), linkDialogPlugin(),
+    // AutoLink runs after initial normalization and dirties untouched files containing bare URLs.
+    // Existing Markdown links and explicit CreateLink actions remain available.
+    headingsPlugin(), listsPlugin(), quotePlugin(), linkPlugin({ disableAutoLink: true }), linkDialogPlugin(),
     imagePlugin({ imageUploadHandler: imageUpload, imagePreviewHandler: imagePreview }),
     tablePlugin(), thematicBreakPlugin(), frontmatterPlugin(),
     codeBlockPlugin({ defaultCodeBlockLanguage: "txt" }),

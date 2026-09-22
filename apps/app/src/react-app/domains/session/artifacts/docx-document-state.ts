@@ -1,3 +1,5 @@
+import { t } from "@/i18n";
+
 export type DocxSnapshot = {
   kind: "binary";
   data: ArrayBuffer;
@@ -43,7 +45,7 @@ export function confirmDiscardDocuments(key?: string, confirm?: (message: string
   const names = entries.map(([, entry]) => entry.name);
   if (!names.length) return true;
   const ask = confirm ?? ((message: string) => window.confirm(message));
-  if (!ask(`Discard unsaved changes to ${names.join(", ")}? Save the document first to keep your changes.`)) return false;
+  if (!ask(t("artifact.confirm_discard_unsaved", { names: names.join(", ") }))) return false;
   for (const [, entry] of entries) entry.discard?.();
   return true;
 }
