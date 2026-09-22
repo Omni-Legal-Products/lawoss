@@ -1,15 +1,20 @@
 #!/usr/bin/env node
 /**
- * release:prepare [patch|minor|major] [--set x.y.z]
+ * release:prepare [--set x.y.z-lawoss.N]
  *
  * Tags the current dev HEAD for release — no version-bump commit. The git tag
  * is the single source of truth for the version; CI stamps it into the build
  * (scripts/release/apply-version.mjs), so dev stays untouched and protected.
  *
- * The next version is derived from the latest v* tag reachable from HEAD.
+ * LAWOSS releases are versioned `v<upstream>-lawoss.<n>` (AGENTS.md): the
+ * base is the merged upstream release, `n` counts LAWOSS builds on top of it.
+ * A bare vX.Y.Z would collide with the upstream tag of the same name, which
+ * this checkout also carries. Without --set the next version keeps the base
+ * of the latest v*-lawoss.* tag reachable from HEAD and bumps `n`; a new
+ * upstream base is always set explicitly after a sync.
  *
  * Flags:
- *   --set x.y.z  Use an explicit version instead of bumping the latest tag.
+ *   --set x.y.z-lawoss.N  Use an explicit version instead of bumping `n`.
  *   --dry-run    Print what would happen without mutating anything.
  *   --ci         Skip interactive-safety checks (branch, clean-tree).
  */
@@ -22,7 +27,6 @@ const args = process.argv.slice(2);
 
 const dryRun = args.includes("--dry-run");
 const ci = args.includes("--ci");
-const bumpType = args.find((a) => ["patch", "minor", "major"].includes(a)) ?? "patch";
 const setIndex = args.indexOf("--set");
 const explicitVersion = setIndex >= 0 ? (args[setIndex + 1] ?? "") : null;
 
@@ -61,7 +65,18 @@ if (dirty && !ci) fail(`Working tree is dirty:\n${dirty}`);
 success(dirty ? "Working tree dirty (allowed with --ci)" : "Working tree clean");
 
 heading("Syncing with origin/dev");
-run("git fetch origin dev --tags", { readOnly: true });
+// Only LAWOSS release tags: `--tags` would try to overwrite the upstream
+// tags this checkout keeps for syncs (origin's legacy v0.1.14 differs from
+// upstream's) and abort the fetch.
+run("git fetch origin dev", { readOnly: true });
+const lawossTagRefs = run('git ls-remote --tags origin "refs/tags/v*-lawoss.*"', { readOnly: true, allowFail: true })
+  .split("\n")
+  .map((line) => line.split("\t")[1])
+  .filter((ref) => ref && !ref.endsWith("^{}"));
+if (lawossTagRefs.length > 0) {
+  run(`git fetch origin ${lawossTagRefs.map((ref) => `${ref}:${ref}`).join(" ")}`, { readOnly: true });
+}
+success(`Fetched ${lawossTagRefs.length} LAWOSS release tag(s) from origin`);
 const behind = run("git rev-list HEAD..origin/dev --count", { readOnly: true });
 if (behind !== "0" && !dryRun) {
   log(`Behind origin/dev by ${behind} commits — pulling…`);
@@ -82,33 +97,31 @@ success(ahead === "0" ? "HEAD matches origin/dev" : "HEAD ahead of origin/dev (a
 // ── Step 2: Resolve next version ────────────────────────────────────
 heading("Resolving next version");
 
-const semverPattern = /^\d+\.\d+\.\d+$/;
-
-const bump = (value, mode) => {
-  const [major, minor, patch] = value.split(".").map(Number);
-  if (mode === "major") return `${major + 1}.0.0`;
-  if (mode === "minor") return `${major}.${minor + 1}.0`;
-  return `${major}.${minor}.${patch + 1}`;
-};
+// `n` has no leading zero: apply-version.mjs rejects such identifiers because
+// pnpm would not treat the stamped version as valid semver.
+const lawossPattern = /^(\d+\.\d+\.\d+)-lawoss\.([1-9]\d*)$/;
 
 let version;
 if (explicitVersion !== null) {
-  if (!semverPattern.test(explicitVersion)) {
-    fail(`--set requires a version like 0.1.21 (got '${explicitVersion || "nothing"}')`);
+  if (!lawossPattern.test(explicitVersion)) {
+    fail(`--set requires a version like 0.1.21-lawoss.1 (got '${explicitVersion || "nothing"}')`);
   }
   version = explicitVersion;
   success(`Using explicit version ${version}`);
 } else {
-  const latestTag = run('git describe --tags --match "v*" --abbrev=0', {
+  const latestTag = run('git describe --tags --match "v*-lawoss.*" --abbrev=0', {
     readOnly: true,
     allowFail: true,
   });
-  const base = latestTag ? latestTag.replace(/^v/, "").replace(/[-+].*$/, "") : "0.0.0";
-  if (!semverPattern.test(base)) {
-    fail(`Latest tag '${latestTag}' does not look like vX.Y.Z`);
+  const parsed = latestTag ? latestTag.replace(/^v/, "").match(lawossPattern) : null;
+  if (!parsed) {
+    fail(
+      `No v<upstream>-lawoss.<n> tag reachable from HEAD${latestTag ? ` ('${latestTag}' does not match)` : ""}.\n` +
+      "  Pass the first version of this upstream base explicitly: --set x.y.z-lawoss.1",
+    );
   }
-  version = bump(base, bumpType);
-  success(`Latest release tag: ${latestTag || "(none)"} → next ${bumpType}: ${version}`);
+  version = `${parsed[1]}-lawoss.${Number(parsed[2]) + 1}`;
+  success(`Latest LAWOSS release tag: ${latestTag} → next: ${version}`);
 }
 
 const tag = `v${version}`;
@@ -137,7 +150,7 @@ success(`Tagged ${tag} at ${run("git rev-parse --short HEAD", { readOnly: true }
 console.log("\n" + "─".repeat(50));
 console.log(`  Release prepared: ${tag}`);
 console.log(`  Version:          ${version}`);
-console.log(`  Bump type:        ${explicitVersion !== null ? "explicit (--set)" : bumpType}`);
+console.log(`  Source:           ${explicitVersion !== null ? "explicit (--set)" : "next n of latest v*-lawoss.* tag"}`);
 console.log("  No commit needed — CI stamps the version from the tag.");
 if (dryRun) {
   console.log("  Mode:             DRY RUN (nothing was changed)");
