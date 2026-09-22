@@ -1,18 +1,16 @@
 /** @jsxImportSource react */
 import { Languages } from "lucide-react";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { LANGUAGE_OPTIONS, SYSTEM_LANGUAGE, detectSystemLanguage, isLanguagePreference, setLanguagePreference, t } from "@/i18n";
+import { LANGUAGE_OPTIONS, SYSTEM_LANGUAGE, isLanguagePreference, setLanguagePreference, t } from "@/i18n";
 import { useLanguagePreference, useLocale } from "@/i18n/use-locale";
 
 /** The header and native Settings share one persisted language preference. */
 export function LanguageSwitcher() {
   const preference = useLanguagePreference();
   const locale = useLocale();
-  const detected = detectSystemLanguage();
-  const detectedName = LANGUAGE_OPTIONS.find((option) => option.value === detected)?.nativeName ?? detected;
   const items = [
     ...LANGUAGE_OPTIONS.map((option) => ({ value: option.value, label: option.nativeName })),
-    { value: SYSTEM_LANGUAGE, label: t("settings.language_system", { language: detectedName, lng: locale }) },
+    { value: SYSTEM_LANGUAGE, label: t("settings.language_system", locale) },
   ];
   return (
     <div className="w-40 max-w-[42vw] shrink-0 mac:titlebar-no-drag" data-lawoss-language-switcher>

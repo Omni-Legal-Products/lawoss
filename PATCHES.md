@@ -280,3 +280,7 @@ Skutočný Windows beh po `82712b8` odhalil odmietanie natívneho absolútneho k
 | `apps/app/src/react-app/shell/session-route.tsx` | Vstup do sprievodcu spisom v natívnom dialógu priečinka používa spoločný preklad a explicitný odber locale. |
 
 Doménové obrazovky, slovníky, viditeľný prepínač a regresie zostávajú v `apps/app/src/lawoss/**` a `apps/app/tests/lawoss-*`. Zelený `lawoss/theme/bootstrap.ts` prestáva vydávať detekovaný jazyk systému za explicitnú používateľskú voľbu; detekciu vlastní pôvodný initLocale. Zmena jazyka nemení jurisdikciu, profil spisu, granty, konfiguračný JSON ani CLI/prompt výstupy.
+
+### Zrozumiteľná systémová voľba jazyka (2026-09-22)
+
+`apps/app/src/react-app/domains/settings/appearance/language-section.tsx` používa rovnaký jednoznačný popis systémovej voľby ako hlavička a explicitné locale. `settings.language_system` v EN/DE/CS/SK nezopakuje názov detegovaného jazyka; vysvetlenie zostáva v existujúcom popise nastavenia. Režim system, detekcia aj uložená voľba sa nemenia.
