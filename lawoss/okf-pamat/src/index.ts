@@ -6,7 +6,8 @@
  *   L2 spis        — obsah veci (`matter`, `decision`, `subject`, `question`)
  *   L3 právo       — zdieľateľné pramene z verejných zdrojov (`authority`)
  *
- * Zápis vedie vždy cez planWrite → applyRecordWrite. Iná cesta na disk nie je.
+ * Typované zápisy vedú cez planWrite → applyRecordWrite.
+ * Explicitné súborové profily používajú samostatné saveWorkspaceMemory.
  */
 
 export {
@@ -183,3 +184,6 @@ export function newRecord(init: NewRecordInit): OkfRecord {
   }
   return rec;
 }
+
+/** Explicit file profiles are a separate adapter, without typed record conversion. */
+export * from "./workspace-memory.ts";

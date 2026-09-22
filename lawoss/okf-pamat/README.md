@@ -8,6 +8,40 @@ Implementuje pamäťovú časť [spec 0002 — OKF](https://github.com/Omni-Lega
 Štruktúru spisu (profily A/B/C, karty, retrofit) **nezakladá ani nemení** —
 to zostáva skillu `novy-spis`. Toto jadro vlastní iba pamäť.
 
+## Existujúca pamäť a karta bez migrácie
+
+Opt-in `.lawoss/memory-profile.json` mapuje existujúcu Markdown pamäť, kartu,
+pracovnú poznámku a denník aj v oddelených koreňoch. `read` dá profilu prednosť;
+neplatný profil je neúplné čítanie. `workspace-read` načíta celé texty s cestami,
+rolami a SHA-256. `workspace-save --file request.json` pripraví náhľad celej sady;
+až `--apply` uloží zmeny s kontrolou revízií a snapshotmi.
+
+[Špecifikácia a hranice](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/blob/06aba22/specs/2026-09-21-riha-memory-parity.md),
+[presný profil, schéma SAVE, shell príkazy a obnova](SKILL.md#existujúca-súborová-pamäť-profil-má-prednosť).
+Nevzniká `memory/`, `_STATUS.md` ani druhá karta. Typované mutácie aj `validate`,
+`preamble`, `aml` sa odmietnu. Dokumentácia typovaných vrstiev nižšie platí bez profilu.
+
+```sh
+node bin/okf-memory.ts workspace-read /absolute/workspace --matter synthetic-01 --allow-root /absolute/vault --json
+node bin/okf-memory.ts workspace-save /absolute/workspace --allow-root /absolute/vault --file /absolute/private-work/request.json --json
+node bin/okf-memory.ts workspace-save /absolute/workspace --allow-root /absolute/vault --file /absolute/private-work/request.json --apply --json
+```
+
+`--allow-root` opakuj pre všetky schválené externé korene. Zápis pokrýva všetky
+`writable` zdroje; povolené sú iba `case_memory`, `case_card`, `work_note`, `task_log`.
+Ostatné roly sú read-only. Frontmatter ostáva doslovný, denník append-only,
+pôvodné dátumy sa načítaním neposúvajú. Konflikt potrebuje nový LOAD a zosúladenie.
+Snapshoty a journal sú v `.lawoss/memory-history/`; nedokončená obnova blokuje
+ďalšie úplné čítanie/zápis a potrebuje ručné riešenie podľa skillu.
+
+[Natívny handoff](../okf-handoff/README.md) používa rovnaký reader. Externé korene
+mu povoľuje host prostredím `LAWOSS_MEMORY_ALLOWED_ROOTS='["/absolute/vault"]'`;
+profil ani shell agenta už bežiacej appky si grant neudelia. Nevzniká GUI výber
+koreňov ani záznam externej pamäte v existujúcom prehľade aplikácie. Session pripne
+sémantickú väzbu, obsahové revízie ostávajú prípustné. Chyba zachová posledný dobrý
+checkpoint a označí ho za neaktuálny. Adaptér nespracúva ISIR/JSON/PDF ani sa
+sám neučí pravidlá. Čas LOAD nepotvrdzuje právne overenie.
+
 ## Tri vrstvy
 
 | Vrstva | Typy záznamov | Kto smie zapísať |
