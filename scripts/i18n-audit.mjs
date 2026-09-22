@@ -48,12 +48,37 @@ const shouldRun = (...modes) => (isAll && !modes.some((m) => EXCLUDED_FROM_ALL.h
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * LAWOSS locale files spread domain dictionaries imported from
+ * `apps/app/src/lawoss/i18n/*` (`...setupEn`). Resolve each spread identifier
+ * to the object literal exported under that name, so the eval below sees the
+ * same keys the app does. Type annotations between the name and `=` are skipped.
+ */
+function resolveSpreadImports(content, filePath) {
+  const imports = new Map();
+  for (const m of content.matchAll(/import\s*\{([^}]+)\}\s*from\s*"([^"]+)";/g)) {
+    for (const name of m[1].split(",").map((n) => n.trim()).filter(Boolean)) imports.set(name, m[2]);
+  }
+  const prelude = [];
+  for (const m of content.matchAll(/^\s*\.\.\.([A-Za-z_$][\w$]*),?\s*$/gm)) {
+    const name = m[1];
+    const source = imports.get(name);
+    if (!source) throw new Error(`${filePath}: spread ${name} has no matching import`);
+    const modulePath = resolve(dirname(filePath), source.endsWith(".ts") ? source : `${source}.ts`);
+    const moduleContent = readFileSync(modulePath, "utf-8");
+    const exported = moduleContent.match(new RegExp(`export const ${name}\\b[^=]*=\\s*\\{([\\s\\S]*?)\\n\\}[^\\n]*;`));
+    if (!exported) throw new Error(`${modulePath}: could not find export const ${name}`);
+    prelude.push(`const ${name} = {${exported[1]}};`);
+  }
+  return prelude.join("\n");
+}
+
 /** Parse a locale .ts file into a JS object via eval. */
 function parseLocale(filePath) {
   const content = readFileSync(filePath, "utf-8");
   const match = content.match(/export default \{([\s\S]*?)\} as const;/);
   if (!match) throw new Error(`Could not parse ${filePath}`);
-  return new Function(`return {${match[1]}}`)();
+  return new Function(`${resolveSpreadImports(content, filePath)}\nreturn {${match[1]}}`)();
 }
 
 /** Extract translation keys from a locale .ts file (as a Set). */
@@ -311,18 +336,42 @@ if (shouldRun("--dangling")) {
   // --- 7. Dynamic t() calls (keys built at runtime) ---
   console.log("=== Dynamic t() calls (keys built at runtime) ===");
   const dynamicPattern = /\b(?:t|translate|tr)\(\s*(`[^`]*\$\{|[^"'][^,)]*\+)/g;
+  // LAWOSS screens (`apps/app/src/lawoss/**`) build keys from a static prefix
+  // and a key typed against the domain dictionaries (`keyof typeof setupEn`),
+  // so TypeScript already rejects a key that does not exist. The audit accepts
+  // such a template when its static prefix matches at least one en.ts key;
+  // upstream code stays strict.
+  const LAWOSS_ZONE = join(APP_SRC, "lawoss") + "/";
+  const templatePrefixPattern = /\b(?:t|translate|tr)\(\s*`([a-z][a-z0-9_.]*)\$\{/g;
+  const prefixResolves = (prefix) => {
+    for (const key of enKeys) if (key.startsWith(prefix)) return true;
+    return false;
+  };
   const dynamicHits = [];
+  let lawossTyped = 0;
   for (const file of sourceFiles) {
     const content = readFileSync(file, "utf-8");
     const lines = content.split("\n");
     for (let i = 0; i < lines.length; i++) {
       if (dynamicPattern.test(lines[i])) {
-        dynamicHits.push({ file: file.replace(REPO_ROOT + "/", ""), line: i + 1, text: lines[i].trim() });
+        const prefixes = file.startsWith(LAWOSS_ZONE)
+          ? [...lines[i].matchAll(templatePrefixPattern)].map((m) => m[1])
+          : [];
+        const dynamicCount = lines[i].match(dynamicPattern)?.length ?? 0;
+        if (prefixes.length === dynamicCount && prefixes.every(prefixResolves)) {
+          lawossTyped += prefixes.length;
+        } else {
+          dynamicHits.push({ file: file.replace(REPO_ROOT + "/", ""), line: i + 1, text: lines[i].trim() });
+        }
       }
       dynamicPattern.lastIndex = 0;
+      templatePrefixPattern.lastIndex = 0;
     }
   }
 
+  if (lawossTyped > 0) {
+    console.log(`  ℹ ${lawossTyped} LAWOSS template keys with a static prefix present in en.ts (typed against the dictionaries)`);
+  }
   if (dynamicHits.length === 0) {
     console.log("  ✓ no dynamic key construction");
   } else {
