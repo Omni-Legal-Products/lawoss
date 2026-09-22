@@ -1,5 +1,11 @@
 /** UI copy only. Persisted identifiers, profile contents and tool contracts stay unchanged. */
 export const integrationsEn = {
+  "lawoss.integrations.author.title": "Lawyer name and document author",
+  "lawoss.integrations.author.description": "Shared name for new matters, comments and tracked changes in the LAWOSS DOCX editor. Existing case cards and documents remain unchanged.",
+  "lawoss.integrations.author.saved": "Lawyer name saved.",
+  "lawoss.integrations.author.save": "Save name",
+  "lawoss.integrations.author.word_hint": "In a document open in Word, Word identifies comments and native tracked changes using the current Office account. This setting applies to new changes in the LAWOSS DOCX editor and the compatible redline fallback.",
+  "lawoss.integrations.author.instructions_saved": "System prompt additions saved.",
   "lawoss.integrations.memory.title": "Case file memory",
   "lawoss.integrations.memory.description": "Connect existing memory files to the selected matter. Saving the mapping does not create a case card or grant access.",
   "lawoss.integrations.memory.select_local": "Select a connected local matter workspace. Remote workspaces cannot be edited here.",
@@ -161,6 +167,12 @@ export const integrationsEn = {
   "lawoss.integrations.error.workspace_unavailable": "Workspace is unavailable: the server is not running or a token is missing.",
 };
 export const integrationsCs = {
+  "lawoss.integrations.author.title": "Jméno advokáta a autor dokumentů",
+  "lawoss.integrations.author.description": "Společné jméno pro nové věci, komentáře a revize v DOCX editoru LAWOSS. Existující karty a dokumenty se nemění.",
+  "lawoss.integrations.author.saved": "Jméno advokáta je uloženo.",
+  "lawoss.integrations.author.save": "Uložit jméno",
+  "lawoss.integrations.author.word_hint": "V dokumentu otevřeném ve Wordu označuje komentáře i nativní revize samotný Word podle aktuálního účtu Office. Toto nastavení se týká nových úprav v DOCX editoru LAWOSS a kompatibilního záložního způsobu revizí.",
+  "lawoss.integrations.author.instructions_saved": "Doplnění systémových pokynů je uloženo.",
   "lawoss.integrations.memory.title": "Souborová paměť spisu",
   "lawoss.integrations.memory.description": "Připojte existující paměťové soubory k vybranému spisu. Uložení mapování nevytváří kartu ani neuděluje přístup.",
   "lawoss.integrations.memory.select_local": "Vyberte připojený lokální pracovní prostor spisu. Vzdálený pracovní prostor zde nelze upravovat.",
@@ -322,6 +334,12 @@ export const integrationsCs = {
   "lawoss.integrations.error.workspace_unavailable": "Pracovní prostor není dostupný: server neběží nebo chybí token.",
 } satisfies Record<keyof typeof integrationsEn, string>;
 export const integrationsSk = {
+  "lawoss.integrations.author.title": "Meno advokáta a autor dokumentov",
+  "lawoss.integrations.author.description": "Spoločné meno pre nové veci, komentáre a revízie v DOCX editore LAWOSS. Existujúce karty a dokumenty sa nemenia.",
+  "lawoss.integrations.author.saved": "Meno advokáta je uložené.",
+  "lawoss.integrations.author.save": "Uložiť meno",
+  "lawoss.integrations.author.word_hint": "V otvorenom dokumente vo Worde komentáre aj natívne revízie identifikuje samotný Word podľa aktuálneho Office konta; toto nastavenie sa týka nových úprav v DOCX editore LAWOSS a kompatibilného redline fallbacku.",
+  "lawoss.integrations.author.instructions_saved": "Doplnenia systémových pokynov sú uložené.",
   "lawoss.integrations.memory.title": "Súborová pamäť spisu",
   "lawoss.integrations.memory.description": "Pripojte existujúce súbory pamäte k vybranému spisu. Uloženie mapovania nevytvára kartu ani neudeľuje prístup.",
   "lawoss.integrations.memory.select_local": "Vyberte pripojený lokálny workspace spisu. Vzdialený workspace tu nemožno upravovať.",
@@ -483,6 +501,12 @@ export const integrationsSk = {
   "lawoss.integrations.error.workspace_unavailable": "Workspace nie je dostupný — server nebeží alebo chýba token.",
 } satisfies Record<keyof typeof integrationsEn, string>;
 export const integrationsDe = {
+  "lawoss.integrations.author.title": "Anwaltsname und Dokumentautor",
+  "lawoss.integrations.author.description": "Gemeinsamer Name für neue Akten, Kommentare und nachverfolgte Änderungen im LAWOSS-DOCX-Editor. Vorhandene Aktenkarten und Dokumente bleiben unverändert.",
+  "lawoss.integrations.author.saved": "Anwaltsname gespeichert.",
+  "lawoss.integrations.author.save": "Namen speichern",
+  "lawoss.integrations.author.word_hint": "In einem in Word geöffneten Dokument kennzeichnet Word Kommentare und native nachverfolgte Änderungen anhand des aktuellen Office-Kontos. Diese Einstellung gilt für neue Änderungen im LAWOSS-DOCX-Editor und das kompatible Ersatzverfahren für Änderungsmarkierungen.",
+  "lawoss.integrations.author.instructions_saved": "Ergänzungen der Systemanweisung gespeichert.",
   "lawoss.integrations.memory.title": "Dateibasierte Aktenhistorie",
   "lawoss.integrations.memory.description": "Verknüpfen Sie vorhandene Speicherdateien mit der ausgewählten Akte. Das Speichern der Zuordnung erstellt keine Aktenkarte und erteilt keinen Zugriff.",
   "lawoss.integrations.memory.select_local": "Wählen Sie einen verbundenen lokalen Arbeitsbereich der Akte aus. Entfernte Arbeitsbereiche können hier nicht bearbeitet werden.",

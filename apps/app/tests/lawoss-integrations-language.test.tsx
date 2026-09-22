@@ -1,6 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
+import { PersonalisationView } from "../src/react-app/domains/settings/pages/personalisation-view";
+import { LocalProvider } from "../src/react-app/kernel/local-provider";
+import { DEFAULT_DOCUMENT_AUTHOR } from "../src/app/lib/document-author";
 import { currentLanguagePreference, setLanguagePreference, setLocale, t } from "../src/i18n";
 import { integrationsEn, integrationsCs, integrationsSk, integrationsDe } from "../src/lawoss/i18n/integrations";
 import { getMarketplaceCatalog, MARKETPLACE_CATALOG } from "../src/lawoss/domains/marketplace/catalog";
@@ -91,4 +94,17 @@ test("profile preview exposes reactive display keys without translating the sour
     if (baseline) expect(result).toEqual(baseline);
     baseline = result;
   }
+});
+
+
+test("native personalization localizes author controls without changing the stored author or Word attribution boundary", () => {
+  const html = renderToStaticMarkup(<LocalProvider><PersonalisationView client={null} onSettingsApplied={() => {}} onOpenLink={() => {}} /></LocalProvider>);
+  expect(html).toContain('aria-label="Lawyer name and document author"');
+  expect(html).toContain("Save name");
+  expect(html).toContain("Word identifies comments and native tracked changes using the current Office account");
+  expect(html).toContain(`value="${DEFAULT_DOCUMENT_AUTHOR}"`);
+  expect(html).toContain("Delete memories");
+  expect(html).not.toContain(">Delete<");
+  expect(html).not.toContain("Meno advokáta");
+  expect(html).not.toContain("lawoss.integrations.");
 });
