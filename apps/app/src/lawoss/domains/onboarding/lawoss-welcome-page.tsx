@@ -8,6 +8,8 @@ import { useState } from "react";
 import lawossMark from "../../../../../../lawoss/brand/lawoss-mark.svg";
 import { LawossWordmark } from "../../shell/wordmark";
 import "../../shell/lawoss.css";
+import { AiGuidancePanel } from "../ai-guidance/ai-guidance-panel";
+import type { AiDataRegime, SubscriptionDetection } from "../ai-guidance/ai-guidance-state";
 import {
   DEFAULT_ONBOARDING_PROGRESS,
   readOnboardingProgress,
@@ -39,6 +41,11 @@ type LawossWelcomePageProps = {
   showManualFolder?: boolean;
   analyticsEnabled: boolean;
   onAnalyticsChange: (enabled: boolean) => void;
+  aiDataRegime: AiDataRegime | null;
+  aiGuidanceAcknowledged: boolean;
+  onAiDataRegimeChange: (regime: AiDataRegime) => void;
+  onAiGuidanceAcknowledgedChange: (acknowledged: boolean) => void;
+  subscription: SubscriptionDetection;
 };
 
 export function LawossWelcomePage({
@@ -52,6 +59,11 @@ export function LawossWelcomePage({
   error,
   analyticsEnabled,
   onAnalyticsChange,
+  aiDataRegime,
+  aiGuidanceAcknowledged,
+  onAiDataRegimeChange,
+  onAiGuidanceAcknowledgedChange,
+  subscription,
 }: LawossWelcomePageProps) {
   const [progress, setProgress] = useState<OnboardingProgress>(() => {
     if (typeof window === "undefined") return DEFAULT_ONBOARDING_PROGRESS;
@@ -134,6 +146,17 @@ export function LawossWelcomePage({
                       </div>
                     </div>
                   ))}
+                </div>
+
+                <div className="mt-6">
+                  <AiGuidancePanel
+                    variant="onboarding"
+                    regime={aiDataRegime}
+                    onRegimeChange={onAiDataRegimeChange}
+                    acknowledged={aiGuidanceAcknowledged}
+                    onAcknowledgedChange={onAiGuidanceAcknowledgedChange}
+                    subscription={subscription}
+                  />
                 </div>
 
                 <div className="lw-welcome-actions">

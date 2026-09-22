@@ -55,6 +55,8 @@ import { createProviderAuthStore, useProviderAuthStoreSnapshot, EIGENWELT_PROVID
 import ProviderAuthModal from "@/react-app/domains/connections/provider-auth/provider-auth-modal";
 import ConnectionsModals from "@/react-app/domains/connections/modals";
 import { AiSettingsView } from "@/react-app/domains/settings/pages/ai-view";
+import { AiGuidancePanel } from "@/lawoss/domains/ai-guidance/ai-guidance-panel";
+import { detectSubscriptionType, type AiDataRegime } from "@/lawoss/domains/ai-guidance/ai-guidance-state";
 import { EigenweltAccountView } from "@/react-app/domains/settings/pages/eigenwelt-account-view";
 import { HubDownloadSection } from "@/react-app/domains/settings/pages/hub-download-section";
 import { HubShareDialog } from "@/react-app/domains/settings/pages/hub-share-dialog";
@@ -1595,6 +1597,47 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       editableAsCustom: provider.source === "custom" || hasBaseURL,
     }];
   });
+  const aiSubscription = detectSubscriptionType({
+    eigenweltConnected,
+    plan: eigenweltAccount?.entitlements?.plan ?? null,
+    subscriptionStatus: eigenweltAccount?.entitlements?.subscriptionStatus ?? null,
+    premiumModels: hasEigenweltFeature(eigenweltAccount?.entitlements, "premium_models"),
+    connectedProviderIds: connectedProviders.map((provider) => provider.id),
+  });
+  const handleAiDataRegimeChange = useCallback(
+    (regime: AiDataRegime) => {
+      local.setPrefs((prev) => ({ ...prev, aiDataRegime: regime, aiGuidanceAcknowledgedAt: null }));
+    },
+    [local],
+  );
+  const handleAiGuidanceAcknowledgedChange = useCallback(
+    (acknowledged: boolean) => {
+      local.setPrefs((prev) => ({
+        ...prev,
+        aiGuidanceAcknowledgedAt: acknowledged ? new Date().toISOString() : null,
+      }));
+    },
+    [local],
+  );
+  const aiGuidanceView = (
+    <AiGuidancePanel
+      regime={local.prefs.aiDataRegime}
+      onRegimeChange={handleAiDataRegimeChange}
+      acknowledged={Boolean(local.prefs.aiGuidanceAcknowledgedAt)}
+      onAcknowledgedChange={handleAiGuidanceAcknowledgedChange}
+      subscription={aiSubscription}
+    />
+  );
+  const aiPolicyNotice = (
+    <AiGuidancePanel
+      variant="compact"
+      regime={local.prefs.aiDataRegime}
+      onRegimeChange={handleAiDataRegimeChange}
+      acknowledged={Boolean(local.prefs.aiGuidanceAcknowledgedAt)}
+      onAcknowledgedChange={handleAiGuidanceAcknowledgedChange}
+      subscription={aiSubscription}
+    />
+  );
   const mcpConnectedAppsCount = connectionsSnapshot.mcpServers.length;
 
   // Build enablement context from all available runtime state.
@@ -1970,6 +2013,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onEditProvider={handleEditCustomProvider}
             canDisconnectProvider={(source) => source !== "env"}
             eigenweltConnected={eigenweltConnected}
+            aiGuidanceView={aiGuidanceView}
             fusionView={
               <FusionSettingsSection
                 fusionModels={local.prefs.fusionModels ?? []}
@@ -2165,6 +2209,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             suggestedPlugins={SUGGESTED_PLUGINS}
             extensions={extensionsStore}
             mcpConnectedAppsCount={mcpConnectedAppsCount}
+            aiPolicyNotice={aiPolicyNotice}
             initialSection={route.extensionsSection}
             setSectionRoute={(section) => {
               const path = `extensions/${section}`;

@@ -19,6 +19,7 @@ import { resolveLegalworkConnection } from "../shell/legalwork-connection";
 import type { ModelRef, ReleaseChannel, SettingsTab, View } from "../../app/types";
 import { DEFAULT_DOCUMENT_AUTHOR, normalizeDocumentAuthor } from "../../app/lib/document-author";
 import { readStoredDefaultModel } from "./model-config";
+import { normalizeAiDataRegime, type AiDataRegime } from "../../lawoss/domains/ai-guidance/ai-guidance-state";
 
 export type LocalUIState = {
   view: View;
@@ -92,6 +93,10 @@ export type LocalPreferences = {
   analyticsEnabled: boolean | null;
   /** Name stamped on new in-app DOCX tracked changes. */
   documentAuthor: string;
+  /** Lawyer-selected data handling regime for protected legal information. */
+  aiDataRegime: AiDataRegime | null;
+  /** ISO timestamp of the last explicit acknowledgement of the AI guidance. */
+  aiGuidanceAcknowledgedAt: string | null;
   /**
    * Fusion mode defaults: up to three candidate models preselected in the
    * chat's fusion picker when fusion is turned on. The session's default
@@ -140,6 +145,8 @@ const INITIAL_PREFS: LocalPreferences = {
   // never made, defeating the welcome toggle's default.
   analyticsEnabled: null,
   documentAuthor: DEFAULT_DOCUMENT_AUTHOR,
+  aiDataRegime: null,
+  aiGuidanceAcknowledgedAt: null,
   fusionModels: [],
 };
 
@@ -194,6 +201,11 @@ export function LocalProvider({ children }: LocalProviderProps) {
     return {
       ...persisted,
       documentAuthor: normalizeDocumentAuthor(persisted.documentAuthor),
+      aiDataRegime: normalizeAiDataRegime(persisted.aiDataRegime),
+      aiGuidanceAcknowledgedAt:
+        typeof persisted.aiGuidanceAcknowledgedAt === "string" && persisted.aiGuidanceAcknowledgedAt.trim()
+          ? persisted.aiGuidanceAcknowledgedAt
+          : null,
       defaultModel: persisted.defaultModel ?? readStoredDefaultModel(),
     };
   });

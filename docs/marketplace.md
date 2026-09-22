@@ -47,6 +47,19 @@ The app currently ships a deterministic bundled catalog and renders an
 installation preview only. Opening a detail or preview does not install,
 connect, update or execute anything.
 
+## Current private Gravity entry
+
+The latest LAWOSS catalog includes the private, review-state entry
+`gravity-legal-mcp-suite`, pinned to `BiggusDicckkus/MCP-05.2026@e21e2d7`.
+It is explicitly limited to read-only and network capabilities and requires
+an administrator to review source, secrets, scopes and data flows. The
+organisation registry manifest is now published at
+`Omni-Legal-Products/lawoss-registry@e53f7a6` in
+`manifests/gravity-legal-mcp-suite.json`. It remains a review-state manifest:
+the app shows a preview and does not install or activate the servers.
+Activation should use the authenticated Firm Hub share flow from
+**Settings → Integrations** after administrator review.
+
 ## Future GitHub registry flow
 
 The planned registry flow is:
@@ -60,10 +73,11 @@ GitHub marketplace manifest
   → deterministic installer
 ```
 
-The future registry may be hosted in the LAWOSS GitHub organisation and should
-keep stable, lab, community and private sources distinguishable. The app must
-cache the last valid catalog for offline discovery and must not silently replace
-a pinned version.
+The registry is hosted in the LAWOSS GitHub organisation and keeps stable, lab,
+community and private sources distinguishable. The app must cache the last
+valid catalog for offline discovery and must not silently replace a pinned
+version. Deterministic installation remains a future step behind explicit
+human confirmation.
 
 ## Safety boundaries
 

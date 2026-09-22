@@ -53,6 +53,8 @@ export type AiSettingsViewProps = {
   fusionView?: ReactNode;
   /** Firm Hub: "share current settings as preset" section (shown only when entitled). */
   presetShareView?: ReactNode;
+  /** LAWOSS practice guidance for protected legal information. */
+  aiGuidanceView?: ReactNode;
 };
 
 function providerSourceLabel(source?: ConnectedProvider["source"]) {
@@ -199,6 +201,8 @@ export function AiSettingsView(props: AiSettingsViewProps) {
           <LayoutSectionItemFootnote>{t("settings.api_keys_info")}</LayoutSectionItemFootnote>
         )}
       </LayoutSection>
+
+      {props.aiGuidanceView}
 
       {props.cloudProvidersView}
 

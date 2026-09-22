@@ -58,6 +58,8 @@ export type ExtensionsViewProps = {
   /** Shares one installed OpenCode plugin with the firm. */
   canShareWithFirm?: boolean;
   onSharePluginWithFirm?: (pluginRef: string) => void | Promise<void>;
+  /** Compact reminder that connector choices must follow the practice's AI data rule. */
+  aiPolicyNotice?: ReactNode;
   /** Preview a Claude Code plugin bundle from a GitHub URL. */
   previewClaudePlugin?: (url: string) => Promise<LegalworkClaudePluginPreview>;
   /** Install a Claude Code plugin bundle from a GitHub URL. */
@@ -144,6 +146,8 @@ export function ExtensionsView(props: ExtensionsViewProps) {
           <p className="max-w-xl text-[14px] leading-[1.65] text-dls-secondary">{activeTab.subtitle}</p>
         </div>
       ) : null}
+
+      {props.aiPolicyNotice ? <div className="max-w-3xl">{props.aiPolicyNotice}</div> : null}
 
       <HubScopeContext.Provider value={hubScope}>
       {tab === "connectors" ? (
