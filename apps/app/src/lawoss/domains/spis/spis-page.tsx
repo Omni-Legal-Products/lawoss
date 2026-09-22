@@ -1,6 +1,9 @@
 /** @jsxImportSource react */
 import { useQuery } from "@tanstack/react-query";
-import { Link, useSearchParams } from "react-router-dom";
+import { useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { openMatterSession } from "../../okf/matter-session";
 
 import { LawossLayout } from "../../shell/layout";
 import {
@@ -31,6 +34,10 @@ import {
  */
 export function SpisPage() {
   const [params] = useSearchParams();
+  const navigate = useNavigate();
+  const opening = useRef(false);
+  const [openingSession, setOpeningSession] = useState(false);
+  const [sessionError, setSessionError] = useState("");
   const vec = params.get("vec");
   const { connection, error } = useOkfConnection();
   const workspace = activeWorkspace(connection);
@@ -39,6 +46,13 @@ export function SpisPage() {
   const now = today();
   const cockpit = data ? buildCockpit(data, vec, now) : null;
   const raw = useRawFiles(connection?.client ?? null, workspace?.id ?? "", cockpit?.unreadable.map((p) => p.path) ?? []);
+  async function openTask() {
+    if (opening.current || !connection || !workspace || !cockpit || !data || query.error) return;
+    opening.current = true; setOpeningSession(true); setSessionError("");
+    try { navigate(await openMatterSession(connection, workspace, cockpit.matter, data.matters)); }
+    catch (failure) { setSessionError(failure instanceof Error ? failure.message : String(failure)); }
+    finally { opening.current = false; setOpeningSession(false); }
+  }
 
   return (
     <LawossLayout>
@@ -56,7 +70,14 @@ export function SpisPage() {
           <p className="lw-lead">Načítavam pamäť spisov z workspace-u „{workspace?.displayNameResolved || workspace?.name}“…</p>
         </>
       ) : cockpit ? (
-        <MatterCockpit cockpit={cockpit} now={now} raw={raw.data ?? {}} />
+        <>
+          <div className="mb-5 space-y-2">
+            <p className="break-all text-sm">Vybraný spis: {cockpit.matter.title} · {cockpit.matter.matterRef ?? "bez značky"}<br />{workspace?.path} · {cockpit.matter.path || "koreň workspace"}</p>
+            <Button disabled={openingSession || !connection?.client || !workspace || workspace.workspaceType === "remote" || Boolean(query.error)} onClick={() => void openTask()}>{openingSession ? "Otváram nový rozhovor…" : "Otvoriť úlohu v tomto spise"}</Button>
+            {sessionError ? <p role="alert">{sessionError}</p> : null}
+          </div>
+          <MatterCockpit cockpit={cockpit} now={now} raw={raw.data ?? {}} />
+        </>
       ) : (
         <NotFound found={data ? data.matters.map((m) => ({ path: m.path, title: m.title })) : []} vec={vec} />
       )}

@@ -299,6 +299,7 @@ export function createConnectionsStore(options: {
       name: entry.name,
       config: entry.config as McpServerEntry["config"],
       source: entry.source,
+      disabledByTools: entry.disabledByTools === true,
     }));
     const engineSync = response.engineSync ?? null;
 
@@ -464,10 +465,14 @@ export function createConnectionsStore(options: {
         ? parseMcpServersFromContent(globalConfig.content).map((entry) => ({
           ...entry,
           source: "config.global" as const,
+          disabledByTools: undefined,
         }))
         : [];
       const projectServers = projectConfig.exists && projectConfig.content
-        ? parseMcpServersFromContent(projectConfig.content)
+        ? parseMcpServersFromContent(projectConfig.content).map((entry) => ({
+          ...entry,
+          disabledByTools: undefined,
+        }))
         : [];
       const projectNames = new Set(projectServers.map((entry) => entry.name));
       const fileServers = [
@@ -481,7 +486,7 @@ export function createConnectionsStore(options: {
       const fileNames = new Set(fileServers.map((entry) => entry.name));
       const runtimeServers = state.mcpServers.filter(
         (entry) => entry.source === "config.remote" && !fileNames.has(entry.name),
-      );
+      ).map((entry) => ({ ...entry, disabledByTools: undefined }));
       const next = [...fileServers, ...runtimeServers];
 
       recordPerfLog(options.developerMode(), "mcp.refresh", "desktop-project-fallback-result", {

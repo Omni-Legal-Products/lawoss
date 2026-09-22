@@ -13,7 +13,7 @@ import { isDesktopRuntime } from "@/app/utils";
 import { saveSessionDraft } from "@/react-app/domains/session/sync/draft-store";
 import { resolveLegalworkConnection } from "@/react-app/shell/legalwork-connection";
 import { mapDesktopWorkspace, mergeRouteWorkspaces, type RouteWorkspace } from "@/react-app/shell/route-workspaces";
-import { readActiveWorkspaceId } from "@/react-app/shell/session-memory";
+import { readActiveWorkspaceId, writeLastSessionFor } from "@/react-app/shell/session-memory";
 import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 
 export type OkfConnection = {
@@ -67,5 +67,6 @@ export async function openSessionWithPrompt(
   const directory = toSessionTransportDirectory(workspace.path) || undefined;
   const session = unwrap(await opencode.session.create({ directory }));
   saveSessionDraft(workspace.id, session.id, { text: prompt, mode: "prompt" });
+  writeLastSessionFor(workspace.id, session.id);
   return workspaceSessionRoute(workspace.id, session.id);
 }

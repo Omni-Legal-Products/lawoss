@@ -17,8 +17,8 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 | `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx` | Brand mark import → `lawoss/brand/lawoss-mark.svg` (1 line); recorder nav položka zaguardovaná `HIDDEN_SETTINGS_TABS.has("recorder")` (+1 import, +1 podmienka) | LAWOSS branding; recorder je skrytá komerčná plocha — skrytá bola len záložka v nastaveniach, samotná funkcia ostávala jeden klik od session | MČ | design/faza-b0-branding; plan/branding-pass-a-alfa |
 | `apps/app/src/react-app/domains/settings/shell/settings-page.tsx` | `getGlobalSettingsTabs()`: +`"appearance"` v zozname (1 riadok + komentár); vracia `hideCommercialTabs(tabs)` (+1 import, +1 riadok) | Appearance/Language je pre LAWOSS core (dark téma + sk/cs locale); skryť účet a recorder bez mazania upstream kódu | MČ | design/faza-b1-registre; plan/branding-pass-a-alfa |
 | `apps/app/src/react-app/shell/welcome-route.tsx` | Import `WelcomePage` presmerovaný na `lawoss/domains/onboarding/lawoss-welcome-page` (1 riadok) | Uvítacia obrazovka v LAWOSS farbách a po slovensky; upstream stránka ostáva nedotknutá | MF | feat/uvitacia-obrazovka |
-| `apps/desktop/electron/updater.mjs` | Feedy: stable → `lawoss.app/update`, alpha + fallback → `Omni-Legal-Products/lawoss` releases; `isUnstampedLocalBuild()` preskočí kontrolu pri verzii `0.0.0` | Upstream feed by fork prepísal LegalWorkom (rovnaké appId); lokálny build videl každý release ako novší | MČ | fix/experimenty-layout-a-updater |
-| `apps/desktop/electron/updater.test.mjs` | Tracked feed sa číta z `ELECTRON_UPDATER_FEEDS.stable` namiesto literálu (+1 test na `0.0.0`) | Aby presmerovanie feedu nerozbilo upstream testy | MČ | fix/experimenty-layout-a-updater |
+| `apps/desktop/electron/updater.mjs` | Stable feed → `lawoss.app/update`; pri chybe alebo zastaranom výsledku jediný bounded GitHub API výber stabilného app releasu a presný tagový generic provider; uložený check sleduje verziu aj zdroj, takže zlyhaný retained fallback download sa neopakuje; alpha ostáva rolling feed; `0.0.0` sa nekontroluje | `releases/latest` môže patriť orchestrátoru; updater musí vybrať novší publikovaný app release s manifestom a inštalátorom, zachovať provider pre explicitný download, neopakovať mŕtvy fallback a pravdivo odmietnuť chýbajúci stable release ([spec/plan PR #83](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/83)) | MČ, VŘ | fix/experimenty-layout-a-updater; feat/internal-candidate-followup |
+| `apps/desktop/electron/updater.test.mjs` | Syntetické regresie pre app-release selection fallback, stale primary, konečný počet pokusov, stable prerelease zákaz, alpha/`0.0.0`; registrované IPC overuje retained aj implicitný fallback download, povolený jeden primary→fallback pokus a reset kanála | Aby sa updater nemohol vrátiť k sidecar `latest`, downgrade alebo opakovanému mŕtvemu fallbacku | MČ, VŘ | fix/experimenty-layout-a-updater; feat/internal-candidate-followup |
 | `apps/app/index.html` | `<title>` `LegalWork` → `LAWOSS` | LAWOSS branding | MČ | design/faza-b0-branding |
 | `apps/desktop/electron-builder.yml` | `productName` → `LAWOSS`; publisher → `Omni-Legal-Products/lawoss`; icon files in `resources/icons/**` replaced by LAWOSS badge (binary); `artifactName` `legalwork-` → `lawoss-` (value-only) | LAWOSS branding and fork-owned updater metadata; `appId` intentionally unchanged (keychain/user-data continuity — separate ADR if ever) | MČ | fix/updater-release-assets; plan/branding-pass-a-alfa |
 | `scripts/release/ship.mjs` | Default GitHub repository → `Omni-Legal-Products/lawoss` in release links and workflow watch | Release helper must ship and monitor the LAWOSS fork, not upstream LegalWork | MF | fix/updater-release-assets |
@@ -55,7 +55,7 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 | `apps/app/src/react-app/infra/provider-list-query.ts` | Telo `getDefaultModelForSingleConnectedProvider()` nahradené delegáciou na `pickDefaultModel()` z LAWOSS súboru `apps/app/src/lawoss/shell/default-model-pick.ts` (+1 import, −9 riadkov) | Automatický výber predvoleného modelu bral prvý záznam katalógu bez ohľadu na schopnosti — u OpenRouteru obrázkový `google/gemini-3-pro-image-preview` bez nástrojov, každý prompt padal na HTTP 404 „No endpoints found that support tool use“; teraz sa vyberá len model s `capabilities.toolcall` a id bez `image/audio/tts/transcribe/realtime/embed` | VŘ | fix/predvoleny-model-s-nastrojmi |
 | `apps/app/tests/model-connect-notice.test.ts` | Fixture modelu doplnená o `capabilities: { toolcall: true }` (1 riadok) | Fixture bez schopností by po sprísnení výberu nezodpovedala reálnemu katalógu enginu a upstream testy predvoleného modelu by padli | VŘ | fix/predvoleny-model-s-nastrojmi |
 | `apps/desktop/electron/main.mjs` | +1 import (`isAllowedNavigation`, `guardNavigation`, `originAllowlistEntry`, `describeBlockedUrl`), `startUrl` vytiahnutý na úroveň modulu, +`OWN_ORIGINS`/`NAVIGATION_ALLOWLIST`, +1 funkcia `guardAppWindow()`; dva duplicitné bloky `setWindowOpenHandler`/`will-navigate`/`did-start-navigation` (hlavné okno + odpojené okno session) nahradené jej volaním; samotná logika je v LAWOSS súbore `window-allowlist.mjs` | Hlavné okno pustilo ľubovoľnú localhost adresu (`browserPanel.isMainWindowAllowedNavigation`) a vykreslil sa v ňom cudzí dev server (#47); teraz iba vlastný origin dev servera alebo `file://`, `will-redirect` a `window.open` mimo allowlistu sú blokované a logované | VŘ | fix/okno-len-vlastna-adresa |
-| `apps/desktop/electron/main.mjs` | +1 import z `update-feed.mjs`; telo `resolveCorrectArchitectureDownloadUrl()` deleguje na `resolveArchitectureDownloadUrl()` (sledovaný feed potichu, fallback na `releases/download/v<verzia>/<asset>`); statický `downloadUrl` v `resolveArchitectureInfo()` cez `releaseAssetUrl()` namiesto `legalwork-*` na `releases/latest` (−1 riadok `assetName`); hľadanie adresy beží len pri nezhode architektúr | Sledovaný feed `lawoss.app/update` nebeží (404) a `releases/latest` forku drží orchestrátorový sidecar — rozlíšenie architektúry zlyhávalo na oboch feedoch a zahlcovalo log (issue #51); logika je v novom LAWOSS súbore, upstream pomocné funkcie ostávajú | VŘ | fix/updater-feed-fork |
+| `apps/desktop/electron/main.mjs` | Import z `update-feed.mjs`; `resolveCorrectArchitectureDownloadUrl()` používa sledovaný feed a presný `releases/download/v<verzia>/<asset>`; odstránený nepoužitý import/alias starého `releases/latest` fallbacku; hľadanie adresy beží len pri nezhode architektúr | `releases/latest` forku môže držať orchestrátorový sidecar; architektúrny tok aj self-updater používajú iba konkrétny app tag ([spec/plan PR #83](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/83)) | VŘ | fix/updater-feed-fork; feat/internal-candidate-followup |
 | `apps/desktop/package.json` | +1 súbor v skripte `test` (`electron/update-feed.test.mjs`) | Testy feedu forku bežia v `pnpm --filter @legalwork/desktop test` | VŘ | fix/updater-feed-fork |
 
 ## Review checklist for upstream sync
@@ -185,3 +185,81 @@ Prepublikačné review OKF (20. 9. 2026): `ci-okf-pamat.yml` spúšťa aj regres
 - `apps/app/src/react-app/shell/session-route.tsx`: pass the existing document-author preference to the native OKF creation panel. Preview and CLI handoff receive the same explicit lawyer name.
 - `apps/app/src/app/lib/legalwork-server.ts`: optional `expectedContent` precondition on the existing text write API; null means the file must still be absent.
 - `apps/server/src/routes/files.ts`: retain native authorization, read-only, approval, audit and file events; delegate text replacement to a small LAWOSS helper that serializes text saves and checks the optional exact-content precondition after approval and immediately before replacement. Guarded writes reject symlink components. This is a conflict guard against stale editor saves, not an OS transaction with uncooperative external writers.
+
+### Živé hostiteľské oprávnenia pamäte (2026-09-21, Task 2)
+
+Rozhodnutie: [spec/plan PR #83](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/83).
+
+| Súbory upstreamu | Úprava a dôvod |
+|---|---|
+| `apps/server/src/server.ts` | Dva autentifikované read-only hooky `/workspace/:id/lawoss/memory` a `/lawoss/memory/grants`; explicitné `bootstrap: false` v spoločnom resolveri zachová lookup/alias/authorized-root kontrolu bez inicializácie alebo opravy `.opencode`; ostatné route-y si ponechávajú pôvodný bootstrap; zelený resolver používa iba existujúci runtime store, nikdy workspace-authored config. Natívny Authorized Folders PUT ostáva správcom oprávnení. |
+| `apps/server/package.json` | Výslovný Bun Node bundle pre `src/lawoss/workspace-memory-runtime.ts` → `dist/lawoss/workspace-memory-runtime.js`, portable reader za deklarovaným `.mjs` seamom; runtime store zostáva pôvodným modulom servera. Tým endpoint funguje aj mimo Bun/checkoutu a TypeScript rootDir ostáva `src`. |
+| `apps/app/src/app/lib/legalwork-server.ts` | Typovaný `getWorkspaceMemoryStatus(workspaceId)` používa read-only endpoint; shared strict status kontrakt nemá telá zdrojov ani anchors. |
+
+Natívny LAWOSS plugin wrapper výslovne vyberá native režim a exportuje iba plugin. Pri synce zachovať obidva runtime-only endpointy, explicitný build seam a zákaz environment fallbacku pri nedostupnom hoste. Skryté/custom/deny runtime pravidlá konzervatívne odoberú všetky externé grants; samotný profil alebo file config prístup neposkytuje.
+
+### Pamäť v Integrations a nový rozhovor v existujúcom spise (2026-09-21, Task 3)
+
+Rozhodnutie: [spec/plan PR #83](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/83).
+
+| Súbory upstreamu | Úprava a dôvod |
+|---|---|
+| `apps/app/src/react-app/shell/settings-route.tsx` | Pripája zelenú kartu súborovej pamäte k vybranému endpointu, workspace ID, koreňu a remote príznaku. Žiadna nová settings route ani grant store. |
+| `apps/app/src/react-app/domains/settings/pages/extensions-view.tsx` | Voliteľný `fileMemoryView` slot iba v lokálnej záložke Connectors, popri pôvodných Autogram/MCP kartách. |
+| `apps/app/src/app/lib/legalwork-server.ts` | Voliteľný boolean `registerExisting` na pôvodnom host-authenticated `createLocalWorkspace`; ostatné volania ostávajú bez zmeny. |
+| `apps/server/src/routes/workspaces.ts` | `registerExisting: true` vyžaduje existujúci absolútny kanonický adresár bez symlink aliasov; preskočí mkdir a starter inicializáciu. Pôvodný registry, deterministické ID, persistencia, autorizované korene a audit zostávajú. Bežné vytváranie workspace inicializuje pôvodným spôsobom. |
+
+Profil používa zdieľaný browser-safe parser, native file API a exact-content CAS (null pri vytvorení). Stav pripravenosti pochádza iba zo serverovej kontroly zhodného uloženého obsahu, nikdy z JSON parsera alebo rozpracovaného návrhu. Oprávnenia sa zobrazujú z runtime-only statusu; spravuje ich existujúca Permissions obrazovka. Pri synce zachovať oddelenie mapovania od oprávnení a oddelenie uloženého profilu od návrhu. Existujúci file API/activation bootstrap ostáva pôvodný; nulová zmena stromu súborov je garantovaná testom pre samotnú registráciu, nie pre následnú bežnú inicializáciu session.
+
+Zelená akcia v cockpite vychádza z konkrétneho discovered record (nie len query stringu alebo názvu), použije desktop path helper a native registry, aktivuje/vyberie presný child workspace a vytvorí jeden nový rozhovor s canonical transport directory a neodoslaným draftom. Existujúci kancelársky rozhovor nemení. HTTP regresie: `apps/server/src/lawoss-register-existing.e2e.test.ts`, `apps/app/tests/lawoss-file-memory.test.tsx`, `apps/app/tests/lawoss-matter-session.test.ts`; posledný test používa skutočný server a klienta, iba desktop IPC a modelový engine sú syntetické.
+
+## Internal candidate: document naming (Task 4)
+
+Portable naming and the third native OKF skill `/usporiadaj-spis` are implemented only in LAWOSS-owned `lawoss/okf/**`, `lawoss/skills/usporiadaj-spis/**`, `apps/app/src/lawoss/okf/skill-bundle.ts`, `apps/app/src/lawoss/domains/marketplace/{use-native-integrations.ts,native-catalog.tsx}` and their LAWOSS tests. No upstream file hook, server file manager or new dependency is introduced. Native install/badge now cover all three skills; the new-matter draft flow keeps its two required skills. [Authorizing spec/plan, Task 4](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/83).
+
+Final review I1/I2: the unsupported-link guard decodes percent-byte runs independently and recognizes CommonMark punctuation escapes for refusal. Unrelated percent prose cannot hide an encoded selected path; uncertain UTF-8 encoding fails closed. Escaped affected destinations remain unsupported and cause refusal before preview/apply creates files or control artifacts. Synthetic whole-tree assertions cover source and distributed Node CLI paths; supported link rewriting and the existing CAS/journal/original-copy transaction are unchanged.
+
+## Internal candidate: explicit local MCP export (Task 5)
+
+[Authorizing spec/plan](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/83).
+
+| Súbory upstreamu | Úprava a dôvod |
+|---|---|
+| `apps/app/src/app/types.ts` | Natívny MCP záznam zachováva lokálne `cwd` z pripnutej OpenCode v2 schémy a explicitný efektívny príznak `disabledByTools`. |
+| `apps/app/src/react-app/domains/connections/store.ts` | Existujúci serverový zoznam prenesie vyhodnotený tools stav ako boolean; file fallback ho na všetkých záznamoch zruší, aby lokálny export nemohol vydávať neoverený stav za efektívny. Nevzniká druhý config store ani credential reader. |
+| `apps/app/src/react-app/domains/settings/pages/mcp-view.tsx` | Jeden zelený dialóg exportu je pripojený k existujúcemu natívnemu zoznamu MCP a identity workspace; zmena zoznamu alebo workspace ruší staré potvrdenie. |
+| `apps/server/src/runtime-config-migrate.e2e.test.ts` | Syntetická regresia preukazuje precedence global/project/runtime, zachovanie v2 polí konektorov pred a po migrácii a absenciu obnovy OAuth tokenov. Produkčný serverový kód sa nemení. |
+
+Samotný builder, dialóg a testy sú v zelených `apps/app/src/lawoss/**` a `apps/app/tests/lawoss-mcp-config-export.test.tsx`. Export vyžaduje výslovný výber a potvrdenie, vytvorí iba lokálny Blob download a nikdy nečíta OAuth credential store. Runtime zdroj sa v UI neprezentuje ako dôkaz globálneho alebo klientského rozsahu.
+
+## Internal candidate: persistent native matter registration (Task 6)
+
+[Authorizing spec/plan](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/83).
+
+| Súbory upstreamu | Úprava a dôvod |
+|---|---|
+| `packages/types/src/desktop-ipc.ts` | Pôvodný `workspaceCreate` prijíma voliteľný boolean `registerExisting`; nevzniká nový IPC príkaz ani druhá registračná cesta. |
+| `apps/desktop/electron/workspace-store.mjs`, `workspace-store.test.mjs` | Režim `registerExisting: true` prijme iba existujúci absolútny kanonický adresár, nevytvorí ani nezmení jeho súbory a atómovo ho uloží do natívneho zoznamu spolu s selected/active/watched ID. Bežná tvorba bez príznaku alebo s `false` ostáva pôvodná. Regresia overuje bajtovo nezmenený syntetický spis, idempotentný retry, nový store nad rovnakým userData a odmietnutie neplatných vstupov. |
+
+Zelený orchestrátor `apps/app/src/lawoss/okf/matter-session.ts` po serverom potvrdenej registrácii vyžaduje zhodnú natívnu registráciu ešte pred štartom enginu a vytvorením jedinej session. Zlyhanie alebo rozpor sa zastaví bez session; už platný serverový záznam a kancelársky draft ostávajú zachované.
+
+## Internal candidate: prenosné záverečné kontroly (Task 7)
+
+[Authorizing spec/plan](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/83).
+
+| Súbory upstreamu | Úprava a dôvod |
+|---|---|
+| `apps/app/tests/opencode-session-timeout.test.ts` | Deterministický fetch-start deferred a ručne spúšťané transportné deadline callbacks overujú pôvodný 10-sekundový health limit, 60-sekundový session limit, chybu po timeout-e a jediný create POST. Produkčné timeouty sa nemenia. |
+| `apps/desktop/electron/workspace-store.test.mjs` | Symlink/junction capability probe má vlastný pomenovaný subtest s explicitným dôvodom skipu; zvyšok perzistencie a neplatných vstupov vždy beží. Relatívny negatívny vstup vzniká na rovnakom disku ako fixture a test výslovne overuje, že nie je absolútny; Windows `path.relative` medzi diskami inak vracia platnú absolútnu cestu. |
+| `.github/workflows/ci-tests.yml`, `ci-okf.yml`, `ci-okf-pamat.yml`, nový `ci-windows-portable.yml` | Testy zahŕňajú nadväzujúce PR. Bun 1.4.2, samostatný strict OKF typecheck a Linux/macOS bundle freshness; Windows spúšťa source naming/memory/handoff/updater/native registry regresie bez balenia alebo podpisovania. Filtre zahŕňajú spoločný testovací helper a workspace-store. |
+| `pnpm-lock.yaml` | Nový importer pre existujúce dev nástroje OKF TypeScript 5.9.3 a bun-types 1.3.6; pamäťové dev typy sú zjednotené na už zamknuté @types/node 25.6.0, ktoré používa bun-types. Čisté CI inak načítalo súčasne deklarácie Node 24 aj 25. Runtime zostáva Node 24, žiadna runtime závislosť ani oslabenie strict kontrol. |
+
+Windows symlink prípady sa vynechajú iba po neúspešnom capability probe s dôvodom; obsah, CAS, hardlinky a ostatné ochrany zostávajú aktívne. POSIX mode assertions nepredstierajú kontrolu Windows ACL. Pri pôvodnom odovzdaní po `3789e8f` bola jedinou produkčnou zdrojovou úpravou explicitná anotácia `Jurisdiction | undefined` v zelenom pamäťovom store; oba CLI bundles boli vtedy bajtovo nezmenené. Následné opravy potvrdené skutočným Windows CI a ich regenerované bundles sú opísané nižšie.
+
+### Oprava potvrdená Windows CI (Task 7)
+
+Prenosný validator v zelenom `lawoss/okf/src/fs.ts` klasifikuje rodičovský priečinok pamäte cez natívne `basename(parent) === "memory"`; pôvodné `endsWith("/memory")` odmietalo platný `memory/index.md` na Windows. Bežné vnorené indexy naďalej nesmú mať frontmatter a pamäťový index smie niesť iba `okf_version`. Regresie v `lawoss/okf/test/okf.test.ts` pokrývajú oba prípady a explicitné LF aj CRLF šablóny so zachovaním pôvodného používateľského textu a presného zrkadla AGENTS/CLAUDE. Produkčné konce riadkov sa nemenia. Pre túto overenú opravu sa regeneruje iba OKF bundle; pamäťový bundle zostáva bajtovo nezmenený.
+
+### Natívne Windows cesty pamäte (Task 7, fix round 2)
+
+Skutočný Windows beh po `82712b8` odhalil odmietanie natívneho absolútneho koreňa profilu a vynechanie klientskej pamäte z rozsahu L3. Zelený `lawoss/okf-pamat/src/workspace-memory-profile.ts` povoľuje spätné lomky iba v drive-absolute koreňoch; traversal odmieta pri oboch oddeľovačoch. Relatívne zdroje, caller grants, kontrola symlinkov a containment zostávajú prísne. `src/config.ts` normalizuje iba natívny oddeľovač kandidátskej cesty; na POSIX zostáva doslovná spätná lomka súčasťou mena. `src/store.ts` rozpoznáva samotnú kanceláriu cez natívne basename. Regresie profilu a klientskeho scope zachovávajú negatívne prípady aj všetky kontroly úniku; test dvoch procesov používa natívne dirname/basename pre svoj rendezvous. Pre tieto opravy sa regenerujú oba CLI bundles: OKF tiež zahŕňa zdieľané pamäťové moduly config/store/profile. Kontrola čerstvosti zostavuje oba balíčky pred porovnaním s Gitom. Žiadny ďalší funkčný test sa nevynecháva.

@@ -6,11 +6,10 @@ name: OKF CLI
 
 on:
   pull_request:
-    branches: [dev]
-    paths: ["lawoss/okf/**", ".github/workflows/ci-okf.yml"]
+    paths: ["lawoss/okf/**", "lawoss/okf-pamat/**", "lawoss/tests/**", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".github/workflows/ci-okf.yml"]
   push:
     branches: [dev]
-    paths: ["lawoss/okf/**", ".github/workflows/ci-okf.yml"]
+    paths: ["lawoss/okf/**", "lawoss/okf-pamat/**", "lawoss/tests/**", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".github/workflows/ci-okf.yml"]
 
 permissions:
   contents: read
@@ -31,9 +30,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
 
-      # Balíček má nulové závislosti — inštalácia by nemala čo robiť.
+      - name: Install locked typecheck tools
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter @lawoss/okf --filter @lawoss/okf-pamat
+
+      - name: Typecheck
+        run: pnpm typecheck
+
       - name: Test
         run: bun test test/
+
+      - name: Bundle je čerstvý
+        run: |
+          bun run build
+          git diff --exit-code bundle/

@@ -62,6 +62,7 @@ import {
   type McpViewLocalState,
 } from "./mcp-view-state";
 import { HubScopeToggle, useHubScope } from "./hub-scope-context";
+import { McpConfigExportDialog } from "../../../../lawoss/domains/integrations/mcp-config-export";
 
 export type ReactMcpStatus =
   | "connected"
@@ -751,6 +752,12 @@ export function McpView(props: McpViewProps) {
         canShareWithFirm={props.canShareWithFirm}
         onShareWithFirm={props.onShareWithFirm}
       />
+      <div className="flex justify-end">
+        <McpConfigExportDialog
+          entries={props.mcpServers}
+          workspaceIdentity={props.workspaceKey?.trim() || props.selectedWorkspaceRoot.split(/[\\/]/).filter(Boolean).pop() || "workspace"}
+        />
+      </div>
       </>
       ) : null}
 

@@ -1,6 +1,6 @@
 /** Súborová vrstva OKF — jediné miesto, ktoré číta a píše na disk. */
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 
 import {
   CARD_ALIASES,
@@ -143,7 +143,7 @@ export function validate(root: string): ValidationError[] {
     // Source documents and the generated agent entry point are not memory concepts.
     if (workingPaths.some((path) => rel.startsWith(path)) || rel.split("/").some((part) => WORKING_FOLDERS.some((folder) => folder === part)) || rel.split("/").pop() === "BRAIN.md") continue;
     const parent = dirname(join(root, rel));
-    const bundleRoot = !rel.includes("/") || parent.endsWith("/memory") || ENTITY_TYPES.some((type) => CARD_ALIASES[type].some((name) => existsSync(join(parent, name))));
+    const bundleRoot = !rel.includes("/") || basename(parent) === "memory" || ENTITY_TYPES.some((type) => CARD_ALIASES[type].some((name) => existsSync(join(parent, name))));
     const error = validateMarkdown(rel, readText(join(root, rel)), bundleRoot);
     if (error) errors.push(error);
   }

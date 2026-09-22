@@ -48,8 +48,8 @@ function atomic(path, text) {
 }
 
 /** Only a workspace that IS a matter is eligible. Never scan or choose a descendant. */
-export function createHandoff(directory, { cli = runCli, now = () => new Date().toISOString() } = {}) {
-  if (workspaceProfilePresent(directory) || hasWorkspaceBinding(directory)) return createWorkspaceHandoff(directory, { now });
+export function createHandoff(directory, { cli = runCli, now = () => new Date().toISOString(), resolveAllowedRoots } = {}) {
+  if (workspaceProfilePresent(directory) || hasWorkspaceBinding(directory)) return createWorkspaceHandoff(directory, { now, resolveAllowedRoots });
   const binding = matterBinding(directory);
   if (!binding) return null;
   const lastGood = new Map();

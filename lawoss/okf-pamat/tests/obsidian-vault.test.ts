@@ -143,3 +143,18 @@ test("cesta s ceskou diakritikou sa rozpozna", () => {
   assert.equal(findClientDir(spis), klient);
   assert.match(klient, /Říhová/);
 });
+
+test("native client separators preserve wildcard depth and POSIX literal backslashes", () => {
+  if (process.platform === "win32") {
+    assert.ok(matchesClientPath(String.raw`AK\R\Říhová Veronika`, "AK/*/*"));
+    assert.ok(matchesClientPath(String.raw`AK\R/Říhová Veronika`, "AK/R/*"));
+    assert.ok(!matchesClientPath(String.raw`AK\R\Říhová Veronika\Vec`, "AK/*/*"));
+    assert.ok(!matchesClientPath(String.raw`AK\R`, "AK/*/*"));
+    assert.ok(!matchesClientPath(String.raw`Iné\R\Říhová Veronika`, "AK/*/*"));
+    assert.ok(!matchesClientPath(String.raw`AK\S\Říhová Veronika`, "AK/R/*"));
+  } else {
+    assert.ok(!matchesClientPath(String.raw`AK\R\Říhová Veronika`, "AK/*/*"));
+    assert.ok(matchesClientPath(String.raw`AK/R/Říhová\Veronika`, "AK/*/*"));
+    assert.ok(!matchesClientPath(String.raw`AK/R/Říhová\Veronika/Vec`, "AK/*/*"));
+  }
+});

@@ -4,6 +4,7 @@
  * dostávajú cez Vite `?raw`, takže inštalácia nepotrebuje sieť.
  */
 import skillMarkdown from "../../../../../lawoss/skills/novy-spis/SKILL.md?raw";
+import namingSkillMarkdown from "../../../../../lawoss/skills/usporiadaj-spis/SKILL.md?raw";
 import okfCli from "../../../../../lawoss/okf/bundle/okf.js?raw";
 import pamatSkillMarkdown from "../../../../../lawoss/okf-pamat/SKILL.md?raw";
 import okfMemoryCli from "../../../../../lawoss/okf-pamat/bundle/okf-memory.js?raw";
@@ -32,4 +33,9 @@ export function pamatSkillBody(): { description: string; content: string } {
 
 export function okfMemoryCliSource(): string {
   return okfMemoryCli;
+}
+
+export const USPORIADAJ_SPIS_SKILL_NAME = "usporiadaj-spis";
+export function usporiadajSpisSkillBody(): { description: string; content: string } {
+  return skillBody(namingSkillMarkdown);
 }

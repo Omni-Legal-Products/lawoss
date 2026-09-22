@@ -1,3 +1,5 @@
+import type { WorkspaceMemoryStatus } from "../../../../../lawoss/okf-handoff/workspace-memory-status.mjs";
+export type { WorkspaceMemoryStatus as LegalworkWorkspaceMemoryStatus } from "../../../../../lawoss/okf-handoff/workspace-memory-status.mjs";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
 import type { StorageInput, StorageTeamStatus, StorageWorkingCopy, StorageConnection, StorageRoot, StoragePage, StorageFilenameSearch, StorageFilenameSearchPage, StorageFile } from "@legalwork/types/file-storage";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
@@ -1617,7 +1619,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/recorder/live-transcript`,
         { token, hostToken, method: "POST", body: { enabled }, timeoutMs: timeouts.status },
       ),
-    createLocalWorkspace: (payload: { folderPath: string; name: string; preset: string }) =>
+    createLocalWorkspace: (payload: { folderPath: string; name: string; preset: string; registerExisting?: boolean }) =>
       requestJson<WorkspaceList>(baseUrl, "/workspaces/local", {
         token,
         hostToken,
@@ -1964,6 +1966,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${workspaceId}/config`,
         { token, hostToken, timeoutMs: timeouts.config },
       ),
+    getWorkspaceMemoryStatus: (workspaceId: string) =>
+      requestJson<WorkspaceMemoryStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/memory`, { token, hostToken, timeoutMs: timeouts.config }),
+
     listAuthorizedFolders: (workspaceId: string) =>
       requestJson<LegalworkAuthorizedFoldersResponse>(
         baseUrl,

@@ -3,6 +3,28 @@ import { readFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveGitHubAppFeed } from "./update-feed.mjs";
+
+/** @typedef {{ bytesPerSecond?: number, percent?: number, transferred?: number, total?: number, delta?: number }} UpdaterEvent */
+/** @typedef {{
+ * autoDownload?: boolean,
+ * autoInstallOnAppQuit?: boolean,
+ * disableDifferentialDownload?: boolean,
+ * allowPrerelease?: boolean,
+ * allowDowngrade?: boolean,
+ * on(event: string, listener: (info: UpdaterEvent) => void): void,
+ * setFeedURL(input: { provider: "generic", url: string }): void,
+ * checkForUpdates(): Promise<object | null>,
+ * downloadUpdate(): Promise<unknown>,
+ * quitAndInstall(isSilent: boolean, isForceRunAfter: boolean): void,
+ * }} AutoUpdaterLike */
+/** @typedef {() => Promise<{ autoUpdater?: AutoUpdaterLike, default?: { autoUpdater?: AutoUpdaterLike } }>} ElectronUpdaterLoader */
+/** @typedef {(options: object) => Promise<{ feedUrl: string }>} GitHubFeedResolver */
+
+/** @type {ElectronUpdaterLoader} */
+const defaultLoadElectronUpdater = () => import("electron-updater");
+/** @type {GitHubFeedResolver} */
+const defaultResolveGitHubFeed = resolveGitHubAppFeed;
 
 const ELECTRON_UPDATER_CHANNEL_FILENAME = "electron-updater-channel.v1.json";
 const MISSING_UPDATER_CONFIG_MESSAGE =
@@ -38,8 +60,8 @@ function resolveAppVersion(app) {
   }
   return _cachedAppVersion;
 }
-// Exported (with the fallback map below) so main.mjs's arch-mismatch download
-// flow resolves against the exact same feeds — one definition per URL.
+// Exported so main.mjs's arch-mismatch download flow resolves against the same
+// tracked feed. Stable GitHub fallback is selected dynamically in update-feed.mjs.
 export const ELECTRON_UPDATER_FEEDS = Object.freeze({
   // Stable is served via our domain; the route (eigenwelt-website
   // app/legalwork/update/[file]/route.ts) redirects every file to the same
@@ -57,14 +79,6 @@ export const ELECTRON_UPDATER_FEEDS = Object.freeze({
     process.platform === "win32"
       ? "https://github.com/Omni-Legal-Products/lawoss/releases/download/alpha-windows-latest"
       : "https://github.com/Omni-Legal-Products/lawoss/releases/download/alpha-macos-latest",
-});
-
-// Safety net: if the tracked feed host is unreachable (outage, or the domain
-// is gone entirely), checks retry directly against GitHub so shipped apps can
-// ALWAYS self-update as long as releases exist. Alpha already points at
-// GitHub, so only stable needs a fallback.
-export const ELECTRON_UPDATER_FALLBACK_FEEDS = Object.freeze({
-  stable: "https://github.com/Omni-Legal-Products/lawoss/releases/latest/download",
 });
 
 // 🟡 LAWOSS: lokálny build bez stampnutej verzie (package.json = 0.0.0) by
@@ -216,49 +230,32 @@ async function applyElectronUpdaterFeed(app, updater) {
    downloadUpdate() resolves installer files against the feed the update info
    actually came from.
    Exported for tests — a broken update path is the app's worst failure mode. */
-export async function checkForUpdatesWithFeedFallback(app, updater) {
+export async function checkForUpdatesWithFeedFallback(app, updater, options = {}) {
   const channelState = await applyElectronUpdaterFeed(app, updater);
   if (isUnstampedLocalBuild(app)) {
     console.warn("[updater] lokálny build 0.0.0 — kontrola aktualizácií preskočená");
     return { channelState: { ...channelState, feedFallback: false }, result: null };
   }
-  const fallbackUrl = ELECTRON_UPDATER_FALLBACK_FEEDS[channelState.channel];
+  const canUseGitHubFallback = channelState.channel === "stable" && updater?.setFeedURL;
+  const resolveFallback = () => (options.resolveGitHubFeed ?? resolveGitHubAppFeed)({
+    platform: options.platform ?? process.platform,
+    arch: options.arch ?? process.arch,
+    currentVersion: resolveAppVersion(app),
+    channel: channelState.channel,
+    fetch: options.fetch ?? globalThis.fetch,
+  });
+  let result;
   try {
-    const result = await updater.checkForUpdates();
-    const version = result?.updateInfo?.version;
-    if (
-      fallbackUrl &&
-      updater?.setFeedURL &&
-      !(version && isVersionNewer(version, resolveAppVersion(app)))
-    ) {
-      // "No update" from the tracked feed: confirm against GitHub and prefer
-      // whichever feed advertises the newer version. Costs one extra request
-      // on up-to-date checks; buys immunity against a stale tracked feed.
-      try {
-        updater.setFeedURL({ provider: "generic", url: fallbackUrl });
-        const crossResult = await updater.checkForUpdates();
-        const crossVersion = crossResult?.updateInfo?.version;
-        if (crossVersion && isVersionNewer(crossVersion, resolveAppVersion(app))) {
-          console.warn("[updater] tracked feed is stale, using GitHub", { version, crossVersion });
-          return {
-            channelState: { ...channelState, feedUrl: fallbackUrl, feedFallback: true },
-            result: crossResult,
-          };
-        }
-      } catch {
-        // Best-effort freshness check; the tracked feed already answered.
-      }
-      updater.setFeedURL({ provider: "generic", url: channelState.feedUrl });
-    }
-    return { channelState: { ...channelState, feedFallback: false }, result };
+    result = await updater.checkForUpdates();
   } catch (error) {
-    if (!fallbackUrl || !updater?.setFeedURL) throw error;
+    if (!canUseGitHubFallback) throw error;
     console.warn("[updater] feed check failed, retrying via GitHub", error?.message ?? error);
-    updater.setFeedURL({ provider: "generic", url: fallbackUrl });
     try {
+      const fallback = await resolveFallback();
+      updater.setFeedURL({ provider: "generic", url: fallback.feedUrl });
       const result = await updater.checkForUpdates();
       return {
-        channelState: { ...channelState, feedUrl: fallbackUrl, feedFallback: true },
+        channelState: { ...channelState, feedUrl: fallback.feedUrl, feedFallback: true },
         result,
       };
     } catch (fallbackError) {
@@ -270,6 +267,41 @@ export async function checkForUpdatesWithFeedFallback(app, updater) {
       throw fallbackError;
     }
   }
+
+  const version = result?.updateInfo?.version;
+  if (
+    canUseGitHubFallback &&
+    !(version && isVersionNewer(version, resolveAppVersion(app)))
+  ) {
+    // "No update" from the tracked feed: confirm against GitHub and prefer
+    // whichever feed advertises the newer version. Costs one API request plus
+    // one manifest check; a failure never discards the valid primary result.
+    let fallbackApplied = false;
+    try {
+      const fallback = await resolveFallback();
+      updater.setFeedURL({ provider: "generic", url: fallback.feedUrl });
+      fallbackApplied = true;
+      const crossResult = await updater.checkForUpdates();
+      const crossVersion = crossResult?.updateInfo?.version;
+      if (crossVersion && isVersionNewer(crossVersion, resolveAppVersion(app))) {
+        console.warn("[updater] tracked feed is stale, using GitHub", { version, crossVersion });
+        return {
+          channelState: { ...channelState, feedUrl: fallback.feedUrl, feedFallback: true },
+          result: crossResult,
+        };
+      }
+    } catch {
+      // Best-effort freshness check; the tracked feed already answered.
+    }
+    if (fallbackApplied) {
+      try {
+        updater.setFeedURL({ provider: "generic", url: channelState.feedUrl });
+      } catch (restoreError) {
+        console.warn("[updater] failed to restore tracked feed after cross-check", restoreError?.message ?? restoreError);
+      }
+    }
+  }
+  return { channelState: { ...channelState, feedFallback: false }, result };
 }
 
 function runDefaults(args) {
@@ -324,10 +356,45 @@ async function cleanStaleUpdaterState(app) {
 
 // electron-updater wiring. Packaged-only; dev builds skip this so the
 // updater doesn't try to probe a non-existent release channel.
-export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
+export function registerUpdaterIpc({
+  app,
+  ipcMain,
+  getMainWindow,
+  loadElectronUpdater = defaultLoadElectronUpdater,
+  prepareUpdaterInstall = enableSquirrelDirectContentsWrite,
+  resolveGitHubFeed = defaultResolveGitHubFeed,
+}) {
   let autoUpdaterInstance = null;
   let autoUpdaterLoaded = false;
   let checkedUpdateVersion = null;
+  let checkedUpdateSource = null;
+
+  function clearCheckedUpdate() {
+    checkedUpdateVersion = null;
+    checkedUpdateSource = null;
+  }
+
+  function rememberCheckedUpdate(info, channelState) {
+    const version = info?.version;
+    const available = Boolean(version && isVersionNewer(version, resolveAppVersion(app)));
+    checkedUpdateVersion = available ? version : null;
+    checkedUpdateSource = available
+      ? (channelState?.feedFallback ? "github-fallback" : "primary")
+      : null;
+    return available;
+  }
+
+  async function checkStableGitHubFallback(updater) {
+    const fallback = await resolveGitHubFeed({
+      platform: process.platform,
+      arch: process.arch,
+      currentVersion: resolveAppVersion(app),
+      channel: "stable",
+    });
+    updater.setFeedURL({ provider: "generic", url: fallback.feedUrl });
+    const result = await updater.checkForUpdates();
+    return { fallback, result };
+  }
 
   function sendToRenderer(channel, data) {
     try {
@@ -345,7 +412,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
     if (autoUpdaterLoaded) return autoUpdaterInstance;
     autoUpdaterLoaded = true;
     try {
-      const mod = await import("electron-updater");
+      const mod = await loadElectronUpdater();
       autoUpdaterInstance = mod.autoUpdater ?? mod.default?.autoUpdater ?? null;
       if (autoUpdaterInstance) {
         autoUpdaterInstance.autoDownload = false;
@@ -358,7 +425,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
         autoUpdaterInstance.disableDifferentialDownload = true;
         // Make Squirrel.Mac write contents in place rather than moving whole
         // bundles (see enableSquirrelDirectContentsWrite for why).
-        await enableSquirrelDirectContentsWrite();
+        await prepareUpdaterInstall();
         autoUpdaterInstance.on("error", (err) => {
           console.warn("[updater] error", err);
         });
@@ -389,7 +456,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
 
   ipcMain.handle("legalwork:updater:setChannel", async (_event, rawChannel) => {
     const channel = await writeElectronUpdaterChannel(app, rawChannel);
-    checkedUpdateVersion = null;
+    clearCheckedUpdate();
     const updater = await ensureAutoUpdater();
     if (updater) {
       return applyElectronUpdaterFeed(app, updater);
@@ -400,16 +467,17 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
   ipcMain.handle("legalwork:updater:check", async (_event, rawChannel) => {
     if (rawChannel !== undefined) {
       await writeElectronUpdaterChannel(app, rawChannel);
+      clearCheckedUpdate();
     }
     const updater = await ensureAutoUpdater();
     if (!updater) {
+      clearCheckedUpdate();
       const channelState = updaterChannelState(app, await readElectronUpdaterChannel(app));
       return { available: false, reason: "unavailable", ...channelState };
     }
     const shapeCheckResult = (info, channelState) => {
       const currentVersion = resolveAppVersion(app);
-      const available = Boolean(info?.version && isVersionNewer(info.version, currentVersion));
-      checkedUpdateVersion = available ? info.version : null;
+      const available = rememberCheckedUpdate(info, channelState);
       return {
         available,
         currentVersion,
@@ -420,7 +488,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       };
     };
     try {
-      const { channelState, result } = await checkForUpdatesWithFeedFallback(app, updater);
+      const { channelState, result } = await checkForUpdatesWithFeedFallback(app, updater, { resolveGitHubFeed });
       return shapeCheckResult(result?.updateInfo ?? null, channelState);
     } catch (error) {
       /* Last-ditch recovery, deliberately dumb: if anything above threw before
@@ -435,11 +503,10 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       const channel = await readElectronUpdaterChannel(app);
       if (channel === "stable" && !error?.githubFallbackAttempted) {
         try {
-          updater.setFeedURL({ provider: "generic", url: ELECTRON_UPDATER_FALLBACK_FEEDS.stable });
-          const result = await updater.checkForUpdates();
+          const { fallback, result } = await checkStableGitHubFallback(updater);
           return shapeCheckResult(result?.updateInfo ?? null, {
             channel: "stable",
-            feedUrl: ELECTRON_UPDATER_FALLBACK_FEEDS.stable,
+            feedUrl: fallback.feedUrl,
             currentVersion: resolveAppVersion(app),
             feedFallback: true,
           });
@@ -447,7 +514,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
           // Fall through to the error result below.
         }
       }
-      checkedUpdateVersion = null;
+      clearCheckedUpdate();
       return { available: false, reason: formatUpdaterErrorReason(error), ...updaterChannelState(app, channel) };
     }
   });
@@ -461,13 +528,12 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       // update info came from, and channel switches clear the cache below.
       const currentVersion = resolveAppVersion(app);
       if (!checkedUpdateVersion || !isVersionNewer(checkedUpdateVersion, currentVersion)) {
-        const { result } = await checkForUpdatesWithFeedFallback(app, updater);
+        const { channelState, result } = await checkForUpdatesWithFeedFallback(app, updater, { resolveGitHubFeed });
         const info = result?.updateInfo ?? null;
-        checkedUpdateVersion = info?.version && isVersionNewer(info.version, currentVersion)
-          ? info.version
-          : null;
+        rememberCheckedUpdate(info, channelState);
       }
       if (!checkedUpdateVersion) {
+        clearCheckedUpdate();
         return { ok: false, reason: "No update available." };
       }
       // Clear any stuck ShipIt state from a prior aborted install so this
@@ -476,6 +542,9 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
       await updater.downloadUpdate();
       return { ok: true };
     } catch (error) {
+      if (checkedUpdateSource === "github-fallback") {
+        return { ok: false, reason: formatUpdaterErrorReason(error) };
+      }
       /* Last-ditch mirror of the check path: one raw GitHub check + download
          with no helpers, so a bug in our plumbing can't block updates. Same
          guards as the check path: stable channel only (a transient alpha
@@ -486,13 +555,12 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
         if (channel !== "stable" || error?.githubFallbackAttempted) {
           return { ok: false, reason: formatUpdaterErrorReason(error) };
         }
-        updater.setFeedURL({ provider: "generic", url: ELECTRON_UPDATER_FALLBACK_FEEDS.stable });
-        const result = await updater.checkForUpdates();
+        const { result } = await checkStableGitHubFallback(updater);
         const info = result?.updateInfo ?? null;
         if (!info?.version || !isVersionNewer(info.version, resolveAppVersion(app))) {
           return { ok: false, reason: formatUpdaterErrorReason(error) };
         }
-        checkedUpdateVersion = info.version;
+        rememberCheckedUpdate(info, { feedFallback: true });
         // Same stuck-ShipIt hygiene as the happy path — the throw above may
         // have happened before that cleanStaleUpdaterState() ran.
         await cleanStaleUpdaterState(app);
@@ -510,7 +578,7 @@ export function registerUpdaterIpc({ app, ipcMain, getMainWindow }) {
     try {
       // Re-assert the in-place-write default right before the swap; the ShipIt
       // defaults domain may have been wiped when stale state was cleaned.
-      await enableSquirrelDirectContentsWrite();
+      await prepareUpdaterInstall();
       updater.quitAndInstall(false, true);
       return { ok: true };
     } catch (error) {

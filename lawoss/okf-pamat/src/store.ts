@@ -10,7 +10,7 @@
 
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { parseRecord, recordRevision, serializeRecord, type OkfRecord } from "./record.ts";
 import { renderStatus, retrofitStatus, type LinkResolver, type BlockName } from "./render.ts";
 import { validateStore } from "./validate.ts";
@@ -116,7 +116,7 @@ export function readStore(dir: string): Store {
   }
   // Jurisdikcia slúži už len na lokalizáciu výstupu. Berie sa zo záznamov;
   // prázdny spis ju má na karte veci, inak sa predpokladá česká.
-  let j = records[0]?.jurisdiction;
+  let j: Jurisdiction | undefined = records[0]?.jurisdiction;
   if (!j) {
     try {
       j = jurisdictionFromCard(dir);
@@ -662,7 +662,7 @@ export function findOfficeDir(startDir: string, maxUp = 8): string | undefined {
   let dir = resolve(startDir);
   // Z kancelárie samotnej je kanceláriou ona sama. Inak by zápis L1 priamo
   // do kancelárie nikdy nedostal trvalé poverenie — konfig leží práve tam.
-  if (OFFICE_DIRS.some((n) => dir.endsWith(`/${n}`))) return dir;
+  if (OFFICE_DIRS.some((n) => basename(dir) === n)) return dir;
   for (let i = 0; i < maxUp; i++) {
     const candidate = OFFICE_DIRS.map((n) => join(dir, n)).find((c) => existsSync(c));
     if (candidate) return candidate;

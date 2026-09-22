@@ -8,6 +8,8 @@
  *   okf apply <typ> <dir> --title "…" --sk|--cz [rovnaké flagy]        ← až po potvrdení človekom
  *   okf validate <dir> [--json]                                 exit 1 pri chybe
  *   okf render <dir> [--json]
+ *   okf naming <dir> --manifest request.json [--out plan.json] [--json]
+ *   okf naming <dir> --plan plan.json --apply [--json]
  *
  * Ľudská brána je ZÁMERNE mimo CLI: `plan` nič nezapíše; `apply` volá ten,
  * kto plán ukázal advokátovi a dostal súhlas.
@@ -17,6 +19,7 @@ import { fileURLToPath } from "node:url";
 
 import { ENTITY_TYPES, type ClientType, type MatterKind, type MatterMode, type EntityType, type Jurisdiction, type PlanInput } from "./core.ts";
 import { apply, detect, plan, render, validate } from "./fs.ts";
+import { NamingSchemaError, isNamingSchemaError, parseNamingRequest, applyDocumentNaming, parseNamingPlan, planDocumentNaming, readNamingJson, writeNamingPlanOutsideMatter } from "./naming-fs.ts";
 
 type Flags = Record<string, string | boolean>;
 
@@ -102,6 +105,21 @@ export function run(argv: string[], out: (line: string) => void = console.log): 
   const cmd = positional[0];
   try {
     switch (cmd) {
+      case "naming": {
+        const dir = positional[1];
+        const namingKeys = argv.filter(arg => arg.startsWith("--"));
+        if (!dir || positional.length !== 2 || new Set(namingKeys).size !== namingKeys.length || Object.keys(flags).some(key => !["manifest", "plan", "apply", "out", "json"].includes(key)) || (flags.json !== undefined && flags.json !== true)) throw new NamingSchemaError("Usage: okf naming <dir> --manifest request.json [--out plan.json] [--json] OR --plan plan.json --apply [--json]");
+        if (flags.apply === true && str(flags, "plan") && flags.manifest === undefined && flags.out === undefined) {
+          const result = applyDocumentNaming(dir, parseNamingPlan(readNamingJson(str(flags, "plan")!)));
+          out(JSON.stringify(result, null, 2));
+          return result.status === "applied" || result.status === "already-applied" ? 0 : 1;
+        }
+        if (!str(flags, "manifest") || flags.plan !== undefined || flags.apply !== undefined || (flags.out !== undefined && !str(flags, "out"))) throw new NamingSchemaError("Preview requires --manifest; apply requires the exact approved --plan and --apply");
+        const result = planDocumentNaming(dir, parseNamingRequest(readNamingJson(str(flags, "manifest")!)));
+        const output = str(flags, "out"); if (output) writeNamingPlanOutsideMatter(dir, output, result);
+        if (!json) out(`Preview: no writes inside the matter. Link scope: selected files only; unselected links are not verified.${output ? ` New external plan: ${output}` : ""}`);
+        out(JSON.stringify(result, null, 2)); return 0;
+      }
       case "detect": {
         const dir = positional[1]; if (!dir) throw new Error("chýba <dir>");
         const hint = str(flags, "type"); const result = detect(dir, hint ? entityType(hint) : undefined);
@@ -145,12 +163,12 @@ export function run(argv: string[], out: (line: string) => void = console.log): 
         return 0;
       }
       default:
-        out("okf detect|plan|apply|validate|render — pozri hlavičku src/cli.ts");
+        out("okf detect|plan|apply|validate|render|naming — pozri hlavičku src/cli.ts");
         return cmd ? 2 : 0;
     }
   } catch (error) {
     out(`okf: ${error instanceof Error ? error.message : String(error)}`);
-    return 2;
+    return cmd === "naming" && !isNamingSchemaError(error) && !(error instanceof SyntaxError) ? 1 : 2;
   }
 }
 

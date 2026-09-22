@@ -72,10 +72,11 @@ export function createWorkspaceHandoff(directory, {
   now = () => new Date().toISOString(),
   read = readWorkspaceMemory,
   allowedRootsJson = process.env.LAWOSS_MEMORY_ALLOWED_ROOTS,
+  resolveAllowedRoots,
 } = {}) {
   let root = resolve(directory), startupError;
   let allowedRoots = [];
-  try { root = checkedDirectory(directory); allowedRoots = hostGrants(allowedRootsJson); }
+  try { root = checkedDirectory(directory); if (!resolveAllowedRoots) allowedRoots = hostGrants(allowedRootsJson); }
   catch (error) { startupError = error instanceof Error ? error.message : String(error); }
   const bindings = new Map();
   const lastGood = new Map();
@@ -95,7 +96,7 @@ export function createWorkspaceHandoff(directory, {
         checkedPath(markerPath, "file", true);
         atomic(statusPath, `# Memory handoff\n\nstate: pending\nsession: ${sessionId}\ntrigger: ${trigger}\nat: ${now()}\n`);
         if (startupError) throw new Error(startupError);
-        const report = read(root, { allowedRoots });
+        const report = read(root, { allowedRoots: resolveAllowedRoots ? await resolveAllowedRoots() : allowedRoots });
         if (!report.present || !report.complete) throw new Error(`Incomplete file memory: ${report.problems.map(p => `${p.code}: ${p.message}`).join("; ") || "profile absent"}`);
         const current = { version: 1, root, matterId: report.matterId, bindingHash: report.bindingHash };
         let pinned = bindings.get(sessionId);
@@ -108,7 +109,7 @@ export function createWorkspaceHandoff(directory, {
         if (pinned && (pinned.bindingHash !== current.bindingHash || pinned.matterId !== current.matterId)) throw new Error("Workspace memory binding changed; start a new session before continuing");
         const context = renderWorkspaceMemory(report);
         if (Buffer.byteLength(context, "utf8") > MAX_CONTEXT_BYTES) throw new Error("File memory context exceeds the 2 MiB checkpoint limit; read sources directly");
-        const check = read(root, { allowedRoots });
+        const check = read(root, { allowedRoots: resolveAllowedRoots ? await resolveAllowedRoots() : allowedRoots });
         if (!check.present || !check.complete || check.directory !== root || check.bindingHash !== report.bindingHash || check.contextHash !== report.contextHash) throw new Error("Workspace sources changed during checkpoint; read again before continuing");
         if (!pinned) atomic(markerPath, JSON.stringify(current, null, 2) + "\n");
         bindings.set(sessionId, current);

@@ -27,7 +27,7 @@ export function NativeCatalog(props: Props) {
     <div className="grid gap-3 sm:grid-cols-2">
       {MARKETPLACE_CATALOG.map((entry) => <CatalogCard key={entry.id} entry={entry} context={props}
         installed={entry.install.action === "okf"
-          ? ["novy-spis", "okf-pamat"].every((name) => props.skills.some((skill) => skill.name === name))
+          ? ["novy-spis", "okf-pamat", "usporiadaj-spis"].every((name) => props.skills.some((skill) => skill.name === name))
           : !props.error && props.plugins.some((plugin) => plugin.pluginId === catalogPluginId(entry))} />)}
     </div>
   </section>;
@@ -64,7 +64,7 @@ function CatalogCard({ entry, context, installed }: { entry: MarketplaceEntry; c
         <p className="break-all">Zdroj: {entry.source.repository}@{entry.source.ref}</p>
         <p>Vyžaduje: {entry.dependencies.join(", ")}.</p>
         <p>{entry.humanGate}</p>
-        {entry.install.action === "okf" ? <p>Uloží alebo aktualizuje skilly /novy-spis a /okf-pamat a ich CLI resources. Samotná inštalácia nevytvára vec.</p> : <>
+        {entry.install.action === "okf" ? <p>Uloží alebo aktualizuje tri skilly /novy-spis, /okf-pamat a /usporiadaj-spis a ich CLI resources. Samotná inštalácia nevytvára vec.</p> : <>
           <Button variant="outline" disabled={working || context.busy || !context.workspaceId} onClick={() => void showPreview()}>Načítať obsah balíka</Button>
           {preview ? <div>
             <ul className="list-disc pl-5">{preview.components.map((component) => <li key={`${component.type}:${component.name}`}>{component.name} ({component.type})</li>)}</ul>

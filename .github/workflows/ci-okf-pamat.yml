@@ -3,10 +3,10 @@ name: OKF pamäť
 on:
   pull_request:
     # Test aj pri nadväzujúcom PR do integračnej vetvy, nie až pri merge do dev.
-    paths: ["lawoss/okf-pamat/**", "lawoss/okf-handoff/**", ".github/workflows/ci-okf-pamat.yml"]
+    paths: ["lawoss/okf-pamat/**", "lawoss/okf-handoff/**", "lawoss/tests/**", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".github/workflows/ci-okf-pamat.yml"]
   push:
     branches: [dev]
-    paths: ["lawoss/okf-pamat/**", "lawoss/okf-handoff/**", ".github/workflows/ci-okf-pamat.yml"]
+    paths: ["lawoss/okf-pamat/**", "lawoss/okf-handoff/**", "lawoss/tests/**", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".github/workflows/ci-okf-pamat.yml"]
 
 permissions:
   contents: read

@@ -1,9 +1,11 @@
+import { symlinkSkipReason } from "../tests/symlink-capability.mts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHandoff } from "./checkpoint.mjs";
 import { newRecord, serializeRecord } from "../okf-pamat/src/index.ts";
+const fileSymlinkSkip = symlinkSkipReason("file");
 const roots: string[] = [];
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "okf-handoff-")); roots.push(root);
@@ -73,7 +75,7 @@ test("changed matter binding after good checkpoint reports error without overwri
 });
 
 
-test("automatic handoff refuses a projection symlink without touching its external referent", async () => {
+test.skipIf(Boolean(fileSymlinkSkip))(`automatic handoff refuses a projection symlink without touching its external referent${fileSymlinkSkip ? ` (${fileSymlinkSkip})` : ""}`, async () => {
   const root = fixture();
   const outside = mkdtempSync(join(tmpdir(), "okf-handoff-external-")); roots.push(outside);
   const original = join(outside, "original.txt"); writeFileSync(original, "external original");

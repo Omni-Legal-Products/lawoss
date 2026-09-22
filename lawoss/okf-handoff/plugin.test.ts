@@ -1,8 +1,10 @@
+import { symlinkSkipReason } from "../tests/symlink-capability.mts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LawossOkfHandoff } from "./plugin.mjs";
+const dirSymlinkSkip = symlinkSkipReason("dir");
 const roots: string[] = [];
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "okf-hook-")); roots.push(root);
@@ -43,8 +45,8 @@ describe("native engine handoff hooks", () => {
     await hooks["experimental.session.compacting"]!({ sessionID: "ses_error" }, output);
     expect(output.context[0]).toContain("FAILED"); expect(readFileSync(path, "utf8")).toBe(good);
   });
-  test("symlink handoff directory cannot send data outside the matter", async () => {
-    const root = fixture(); const external = fixture(); symlinkSync(external, join(root, ".lawoss"));
+  test.skipIf(Boolean(dirSymlinkSkip))(`symlink handoff directory cannot send data outside the matter${dirSymlinkSkip ? ` (${dirSymlinkSkip})` : ""}`, async () => {
+    const root = fixture(); const external = fixture(); symlinkSync(external, join(root, ".lawoss"), "dir");
     const hooks = await LawossOkfHandoff({ directory: root }); const output = { context: [] as string[] };
     await hooks["experimental.session.compacting"]!({ sessionID: "ses_link" }, output);
     expect(output.context[0]).toContain("FAILED"); expect(existsSync(join(external, "handoff"))).toBe(false);

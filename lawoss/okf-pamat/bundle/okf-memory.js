@@ -1224,7 +1224,7 @@ import { isAbsolute as isAbsolute3, join as join5, resolve as resolve4 } from "n
 // src/store.ts
 import { existsSync as existsSync2, lstatSync, mkdirSync, readFileSync as readFileSync2, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { dirname, join as join2, relative, resolve, sep } from "node:path";
+import { basename, dirname, join as join2, relative, resolve, sep as sep2 } from "node:path";
 
 // src/validate.ts
 var MIN_NAME_LENGTH = 4;
@@ -1906,7 +1906,7 @@ function assertHasSource(after) {
 
 // src/config.ts
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 var CONFIG_FILE = "okf.config";
 function text(v) {
   return typeof v === "string" ? v.trim() : "";
@@ -1924,7 +1924,7 @@ function readClientPath(officeDir) {
   return typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
 }
 function matchesClientPath(relative, pattern) {
-  const seg = relative.split("/").filter((x) => x !== "");
+  const seg = relative.split(sep).join("/").split("/").filter((x) => x !== "");
   const pat = pattern.split("/").filter((x) => x !== "");
   if (seg.length !== pat.length)
     return false;
@@ -2205,7 +2205,7 @@ function scopeLinkResolver(dir, insideMemory) {
     for (const source of sources) {
       const href = source.href(id);
       if (href)
-        return "./" + relative(insideMemory ? join2(dir, MEMORY_DIR) : dir, join2(source.memoryDir, href)).split(sep).join("/");
+        return "./" + relative(insideMemory ? join2(dir, MEMORY_DIR) : dir, join2(source.memoryDir, href)).split(sep2).join("/");
     }
     return;
   };
@@ -2454,7 +2454,7 @@ var LEGACY_OFFICE_DIR = "_kancelaria";
 var OFFICE_DIRS = [OFFICE_DIR, LEGACY_OFFICE_DIR];
 function findOfficeDir(startDir, maxUp = 8) {
   let dir = resolve(startDir);
-  if (OFFICE_DIRS.some((n) => dir.endsWith(`/${n}`)))
+  if (OFFICE_DIRS.some((n) => basename(dir) === n))
     return dir;
   for (let i = 0;i < maxUp; i++) {
     const candidate = OFFICE_DIRS.map((n) => join2(dir, n)).find((c) => existsSync2(c));
@@ -2549,12 +2549,12 @@ function composePreamble(records) {
 var WORKSPACE_MEMORY_LIMITS = Object.freeze({ profileBytes: 256 * 1024, journalBytes: 4 * 1024 * 1024, sourceBytes: 2 * 1024 * 1024, totalBytes: 16 * 1024 * 1024, sources: 256 });
 // src/workspace-memory-reader.ts
 import { readdirSync as readdirSync2, realpathSync as realpathSync2 } from "node:fs";
-import { isAbsolute as isAbsolute2, join as join3, resolve as resolve3, sep as sep3 } from "node:path";
+import { isAbsolute as isAbsolute2, join as join3, resolve as resolve3, sep as sep4 } from "node:path";
 
 // src/workspace-memory-fs.ts
 import { createHash } from "node:crypto";
 import { closeSync, constants, fstatSync, lstatSync as lstatSync2, openSync, readSync, realpathSync } from "node:fs";
-import { isAbsolute, parse, relative as relative2, resolve as resolve2, sep as sep2 } from "node:path";
+import { isAbsolute, parse, relative as relative2, resolve as resolve2, sep as sep3 } from "node:path";
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -2575,14 +2575,11 @@ function missing(error) {
 }
 function contained(root, target) {
   const rel = relative2(root, target);
-  return rel === "" || !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep2}`);
-}
-function relativeFile(value) {
-  return typeof value === "string" && value.length > 0 && !isAbsolute(value) && !value.includes("\\") && !value.includes("\x00") && !/^[A-Za-z]:/.test(value) && value.split("/").every((part) => part !== "" && part !== "." && part !== "..");
+  return rel === "" || !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep3}`);
 }
 function checkedPath(path, kind, allowMissing = false) {
   const full = resolve2(path), root = parse(full).root;
-  const parts = relative2(root, full).split(sep2).filter(Boolean);
+  const parts = relative2(root, full).split(sep3).filter(Boolean);
   let current = root;
   for (let i = 0;i < parts.length; i++) {
     current = resolve2(current, parts[i]);
@@ -2639,17 +2636,67 @@ function jsonText(path, limit) {
   return JSON.parse(readText(path, limit).content);
 }
 
-// src/workspace-memory-reader.ts
+// src/workspace-memory-profile.ts
 var roles = ["case_memory", "case_card", "work_note", "task_log", "rules", "lessons", "source_index", "evidence"];
 var writableRoles = new Set(["case_memory", "case_card", "work_note", "task_log"]);
-function isControlPath(path) {
-  return path.split(sep3).some((component) => component.toLowerCase() === ".lawoss");
+function object(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-function byId(a, b) {
-  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+function id(value) {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/.test(value);
 }
 function role(value) {
   return typeof value === "string" && roles.some((r) => r === value);
+}
+function file(value) {
+  return typeof value === "string" && value.length > 0 && !value.includes("\\") && !value.includes("\x00") && !/^[A-Za-z]:/.test(value) && value.split("/").every((part) => part !== "" && part !== "." && part !== "..");
+}
+function parseWorkspaceMemoryProfile(value) {
+  if (!object(value) || value.version !== 1 || !id(value.matterId) || !Array.isArray(value.roots) || !Array.isArray(value.sources))
+    throw new Error("Invalid version 1 memory profile.");
+  if (value.sources.length === 0 || value.sources.length > WORKSPACE_MEMORY_LIMITS.sources || value.roots.length === 0 || value.roots.length > WORKSPACE_MEMORY_LIMITS.sources)
+    throw new Error("Invalid profile source/root count.");
+  const rootIds = new Set, sourceIds = new Set;
+  const roots = value.roots.map((root) => {
+    if (!object(root) || !id(root.id) || rootIds.has(root.id) || typeof root.path !== "string" || root.path.length === 0 || root.path.includes("\x00") || root.path.includes("\\") && !/^[A-Za-z]:[\\/]/.test(root.path) || root.path.split(/[\\/]/).includes(".."))
+      throw new Error("Invalid or duplicate root.");
+    rootIds.add(root.id);
+    return { id: root.id, path: root.path };
+  });
+  const sources = value.sources.map((source) => {
+    if (!object(source) || !id(source.id) || sourceIds.has(source.id.toLowerCase()) || typeof source.root !== "string" || !rootIds.has(source.root) || !file(source.path) || !role(source.role) || typeof source.required !== "boolean" || typeof source.writable !== "boolean")
+      throw new Error("Invalid or duplicate source.");
+    if (source.writable && !writableRoles.has(source.role))
+      throw new Error(`Role ${source.role} cannot be writable.`);
+    const anchors = [];
+    if (source.anchors !== undefined) {
+      if (!Array.isArray(source.anchors) || source.anchors.some((a) => typeof a !== "string" || a.trim().length === 0))
+        throw new Error(`Invalid identity anchors: ${source.id}`);
+      for (const anchor of source.anchors)
+        if (typeof anchor === "string")
+          anchors.push(anchor);
+    }
+    sourceIds.add(source.id.toLowerCase());
+    return { id: source.id, root: source.root, path: source.path, role: source.role, required: source.required, writable: source.writable, ...source.anchors !== undefined ? { anchors } : {} };
+  });
+  if (!sources.some((s) => s.role === "case_memory" && s.required))
+    throw new Error("At least one case_memory source must be required.");
+  if (!sources.some((s) => s.required && (s.anchors?.length ?? 0) > 0))
+    throw new Error("At least one required source must have identity anchors.");
+  return { version: 1, matterId: value.matterId, roots, sources };
+}
+function parseWorkspaceMemoryProfileText(text) {
+  if (new TextEncoder().encode(text).byteLength > WORKSPACE_MEMORY_LIMITS.profileBytes)
+    throw new Error("Memory profile byte limit exceeded.");
+  return parseWorkspaceMemoryProfile(JSON.parse(text));
+}
+
+// src/workspace-memory-reader.ts
+function isControlPath(path) {
+  return path.split(sep4).some((component) => component.toLowerCase() === ".lawoss");
+}
+function byId(a, b) {
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 function checkHistory(workspace, report, ownOperation) {
   const history = join3(workspace, ".lawoss", "memory-history");
@@ -2690,14 +2737,10 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
     report.directory = checkedDirectory(report.directory);
     const profileText = readText(profilePath, WORKSPACE_MEMORY_LIMITS.profileBytes);
     report.profileHash = profileText.sha256;
-    const profile = JSON.parse(profileText.content);
-    if (!isObject(profile) || profile.version !== 1 || !safeId(profile.matterId) || !Array.isArray(profile.roots) || !Array.isArray(profile.sources))
-      throw new Error("Invalid version 1 memory profile.");
+    const profile = parseWorkspaceMemoryProfileText(profileText.content);
     report.matterId = profile.matterId;
     if (options.matterId !== undefined && options.matterId !== profile.matterId)
       throw new Error("Caller matterId does not match the profile.");
-    if (profile.sources.length === 0 || profile.sources.length > WORKSPACE_MEMORY_LIMITS.sources || profile.roots.length === 0 || profile.roots.length > WORKSPACE_MEMORY_LIMITS.sources)
-      throw new Error("Invalid profile source/root count.");
     const grants = [...new Set((options.allowedRoots ?? []).map((grant) => {
       if (typeof grant !== "string" || !isAbsolute2(grant))
         throw new Error("Caller grants must be absolute directory paths.");
@@ -2706,8 +2749,6 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
     const roots = new Map;
     const rootProblems = new Map;
     for (const root of profile.roots) {
-      if (!isObject(root) || !safeId(root.id) || roots.has(root.id) || typeof root.path !== "string" || root.path.length === 0 || root.path.includes("\x00") || root.path.includes("\\") || root.path.split("/").includes(".."))
-        throw new Error("Invalid or duplicate root.");
       const path = resolve3(report.directory, root.path);
       roots.set(root.id, path);
       if (!contained(report.directory, path) && !grants.some((grant) => contained(grant, path)))
@@ -2720,22 +2761,9 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
         }
       }
     }
-    const ids = new Set;
     const sourceProblems = new Map;
     for (const source of profile.sources) {
-      if (!isObject(source) || !safeId(source.id) || ids.has(source.id.toLowerCase()) || typeof source.root !== "string" || !roots.has(source.root) || !relativeFile(source.path) || !role(source.role) || typeof source.required !== "boolean" || typeof source.writable !== "boolean")
-        throw new Error("Invalid or duplicate source.");
-      if (source.writable && !writableRoles.has(source.role))
-        throw new Error(`Role ${source.role} cannot be writable.`);
-      const anchors = [];
-      if (source.anchors !== undefined) {
-        if (!Array.isArray(source.anchors) || source.anchors.some((a) => typeof a !== "string" || a.trim().length === 0))
-          throw new Error(`Invalid identity anchors: ${source.id}`);
-        for (const anchor of source.anchors)
-          if (typeof anchor === "string")
-            anchors.push(anchor);
-      }
-      ids.add(source.id.toLowerCase());
+      const anchors = source.anchors ?? [];
       let path = resolve3(roots.get(source.root), source.path);
       if (isControlPath(path))
         throw new Error("Memory sources cannot alias reserved .lawoss control files.");
@@ -2751,10 +2779,6 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
       }
       report.sources.push({ id: source.id, root: source.root, path, role: source.role, required: source.required, writable: source.writable, anchors, sha256: null, bytes: 0, content: null, status: "error" });
     }
-    if (!report.sources.some((s) => s.role === "case_memory" && s.required))
-      throw new Error("At least one case_memory source must be required.");
-    if (!report.sources.some((s) => s.required && s.anchors.length > 0))
-      throw new Error("At least one required source must have identity anchors.");
     const semanticRoots = [...roots].map(([id, path]) => ({ id, path })).sort(byId);
     const semanticSources = report.sources.map(({ id, root, path, role, required, writable, anchors }) => ({ id, root, path, role, required, writable, anchors: [...new Set(anchors)].sort() })).sort(byId);
     report.bindingHash = sha256(JSON.stringify({ version: 1, directory: report.directory, matterId: report.matterId, grants, roots: semanticRoots, sources: semanticSources }));

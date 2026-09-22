@@ -1,3 +1,4 @@
+import { symlinkSkipReason } from "../../tests/symlink-capability.mts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -5,6 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../src/cli.ts";
 import { newRecord, serializeRecord, statusSkeleton, syncStatus, writeIndex, writeLog } from "../src/index.ts";
+const fileSymlinkSkip = symlinkSkipReason("file");
+const dirSymlinkSkip = symlinkSkipReason("dir");
 
 function setup(t: { after(fn: () => void): void }) {
   const root = mkdtempSync(join(tmpdir(), "okf-safe-projections-"));
@@ -25,7 +28,7 @@ function setup(t: { after(fn: () => void): void }) {
 }
 
 for (const targetIndex of [0, 1, 2, 3, 4]) {
-  test(`sync rejects projection symlink ${targetIndex} before mutating any matter or client projection`, (t) => {
+  test(`sync rejects projection symlink ${targetIndex} before mutating any matter or client projection`, { skip: fileSymlinkSkip }, (t) => {
     const { matter, targets, external } = setup(t);
     const target = targets[targetIndex]!;
     rmSync(target);
@@ -50,7 +53,7 @@ for (const projection of ["index.md", "log.md"]) {
   });
 }
 
-test("sync rejects a symlinked memory directory before any writes", (t) => {
+test("sync rejects a symlinked memory directory before any writes", { skip: dirSymlinkSkip }, (t) => {
   const { matter, client, targets, external } = setup(t);
   const externalMemory = join(client, "external-memory");
   mkdirSync(externalMemory);
@@ -67,7 +70,7 @@ test("sync rejects a symlinked memory directory before any writes", (t) => {
 });
 
 for (const [name, write] of [["_STATUS.md", syncStatus], ["memory/index.md", writeIndex], ["memory/log.md", writeLog]] as const) {
-  test(`standalone ${name} writer rejects dangling symlinks`, (t) => {
+  test(`standalone ${name} writer rejects dangling symlinks`, { skip: fileSymlinkSkip }, (t) => {
     const { matter, external } = setup(t);
     const missing = external + ".missing";
     const target = join(matter, name);
@@ -84,7 +87,7 @@ test("ordinary regular projection files continue to sync successfully", (t) => {
   assert.match(readFileSync(targets[1]!, "utf8"), /Q-001/);
 });
 
-test("sync rejects an intermediate matter directory symlink beneath the client", (t) => {
+test("sync rejects an intermediate matter directory symlink beneath the client", { skip: dirSymlinkSkip }, (t) => {
   const { client, matter, targets } = setup(t);
   const externalSpisy = join(client, "ExternalSpisy");
   renameSync(join(client, "Spisy"), externalSpisy);
@@ -96,7 +99,7 @@ test("sync rejects an intermediate matter directory symlink beneath the client",
   assert.deepEqual(targets.map((path) => readFileSync(path, "utf8")), before);
 });
 
-test("sync refuses a legacy uppercase index symlink before deleting or updating projections", (t) => {
+test("sync refuses a legacy uppercase index symlink before deleting or updating projections", { skip: fileSymlinkSkip }, (t) => {
   const { matter, targets, external } = setup(t);
   rmSync(join(matter, "memory", "index.md"));
   symlinkSync(external, join(matter, "memory", "INDEX.md"));

@@ -1,3 +1,4 @@
+// POSIX mode assertions below do not model Windows ACLs; content/CAS checks run on every OS.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -51,7 +52,7 @@ test("real CLI/native pilot persists only copied full sources, snapshots and fre
   assert.equal(report.status, "PASS"); assert.equal(report.totals.cases, 1); assert.equal(report.totals.sources, 6);
   assert.equal(report.totals.passedProbes, report.totals.probes); assert.equal(report.cases[0].originalsUnchanged, true);
   assert.equal(report.legal_review, "NOT_RUN"); assert.equal(report.gui, "NOT_RUN");
-  assert.equal(lstatSync(path).mode & 0o777, 0o600); assert.equal(lstatSync(dirname(path)).mode & 0o777, 0o700);
+  if (process.platform !== "win32") assert.equal(lstatSync(path).mode & 0o777, 0o600); if (process.platform !== "win32") assert.equal(lstatSync(dirname(path)).mode & 0o777, 0o700);
   const copies = join(dirname(path), "case-good", "copies");
   assert.equal(existsSync(join(copies, "root1/unlisted-secret.txt")), false);
   assert.equal(existsSync(join(copies, "root0/memory")), false); assert.equal(existsSync(join(copies, "root0/_STATUS.md")), false);
