@@ -49,6 +49,10 @@ await repairAllWorkspaceRuntimeProviders(config);
 await importConnectorsIntoSharedRow(config, {
   runtimeConfigFile: legalworkRuntimeConfigFilePath(config),
   globalOpencodeConfigFile: globalOpenCodeConfigPath(),
+}).then((result) => {
+  if (result.backups.length > 0) {
+    console.warn(`[legalwork-server] connector files backed up before the move: ${result.backups.join(", ")}`);
+  }
 }).catch((error: unknown) => {
   console.warn(`[legalwork-server] connector import skipped: ${error instanceof Error ? error.message : String(error)}`);
 });

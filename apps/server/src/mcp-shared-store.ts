@@ -20,6 +20,7 @@
  * shared entry or resurrect a disconnected connector on an engine rebuild.
  * Other configuration and comments stay intact.
  */
+import { constants, copyFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { installedCloudPluginMcpNames } from "./cloud-plugins.js";
 import { readJsoncFile, updateJsoncPath } from "./jsonc.js";
@@ -67,13 +68,35 @@ function usable(name: string, entry: Record<string, unknown>): boolean {
   }
 }
 
+/**
+ * The move out of a file is one-way: a pre-sync LAWOSS build and the
+ * standalone `opencode` CLI read only the file, never the shared row. Keep the
+ * file as it was next to it, so the entries can be put back after a downgrade
+ * (`docs/rollback-v0.1.21.md`). Written once per file: after the move the file
+ * holds no `mcp` entries, so nothing triggers another copy.
+ */
+async function backupBeforeMove(path: string): Promise<string> {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
+  const backup = `${path}.bak-${stamp}`;
+  try {
+    await copyFile(path, backup, constants.COPYFILE_EXCL);
+    return backup;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    const unique = `${backup}-${process.pid}`;
+    await copyFile(path, unique, constants.COPYFILE_EXCL);
+    return unique;
+  }
+}
+
 export async function importConnectorsIntoSharedRow(
   config: ServerConfig,
   sources: ConnectorImportSources,
-): Promise<{ imported: string[] }> {
-  if (config.readOnly) return { imported: [] };
+): Promise<{ imported: string[]; backups: string[] }> {
+  if (config.readOnly) return { imported: [], backups: [] };
   const shared: McpMap = { ...(await readGlobalMcpMap(config)) };
   const imported: string[] = [];
+  const backups: string[] = [];
   const sourceEntries: Array<{ path: string; name: string }> = [];
   const take = (name: string, entry: Record<string, unknown>) => {
     if (Object.prototype.hasOwnProperty.call(shared, name) || !usable(name, entry)) return;
@@ -120,8 +143,11 @@ export async function importConnectorsIntoSharedRow(
   if (imported.length > 0) {
     await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, (current) => ({ ...current, mcp: shared }));
   }
+  for (const path of new Set(sourceEntries.map((entry) => entry.path))) {
+    backups.push(await backupBeforeMove(path));
+  }
   for (const { path, name } of sourceEntries) {
     await updateJsoncPath(path, ["mcp", name], undefined);
   }
-  return { imported };
+  return { imported, backups };
 }

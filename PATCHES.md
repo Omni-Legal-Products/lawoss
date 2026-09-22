@@ -6,6 +6,7 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 
 | Upstream file | LAWOSS change | Reason | Owner | PR |
 |---|---|---|---|---|
+| `apps/server/src/mcp-shared-store.ts` | `backupBeforeMove()`: pred prvým odstránením `mcp` položiek zo zdrojového súboru kópia `<súbor>.bak-<dátum>` (`COPYFILE_EXCL`); návratová hodnota +`backups: string[]`; `embedded.ts` a `cli.ts` cesty zalogujú (+3 / +5 riadkov); test +6 riadkov | Presun konektorov z upstream #136 je jednosmerný a revert kódu súbory nevráti; záloha umožňuje návrat na starší build (`docs/rollback-v0.1.21.md`) | MČ | sync/upstream-v0.1.21 |
 | `README.md` | LAWOSS project presentation, roadmap, team, safety notes, and upstream attribution; +1 link to the alpha tester build guide (`docs/lawoss-build-pre-testerov.md`); sekcia Autogram (samostatná macOS appka) s ikonkou | Product identity and contributor orientation; alpha is distributed as a self-compiled build, not a signed artifact | MČ | Initial setup PR; PR #39 adds the handoff index; plan/branding-pass-a-alfa |
 | `AGENTS.md` | LAWOSS workflow, three-zone model, CZ/SK legal constraints, and upstream sync rules | Sustainable fork governance | MČ | Initial setup PR |
 | `apps/app/src/app/index.css` | +1 `@import` (LAWOSS token override after upstream tokens); +3 fontsource imports (Plex Mono 400/500, Playfair); `--chart-1..5` values remapped to brand palette; `--radius` 0.625rem → 0.25rem (squared, issue #22) | Fáza A reskin via cascade, zero structural change | MČ | design/faza-a-tokeny |

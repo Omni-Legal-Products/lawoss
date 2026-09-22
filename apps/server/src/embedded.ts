@@ -81,8 +81,11 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     globalOpencodeConfigFile: globalOpenCodeConfigPath(),
   }).catch((error: unknown) => {
     console.warn(`[embedded] connector import skipped: ${error instanceof Error ? error.message : String(error)}`);
-    return { imported: [] as string[] };
+    return { imported: [] as string[], backups: [] as string[] };
   });
+  if (connectorImport.backups.length > 0) {
+    console.log(`[embedded] connector files backed up before the move: ${connectorImport.backups.join(", ")}`);
+  }
   if (connectorImport.imported.length > 0) {
     console.log(`[embedded] moved connectors into the shared store: ${connectorImport.imported.join(", ")}`);
   }
