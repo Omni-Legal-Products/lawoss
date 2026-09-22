@@ -52,6 +52,15 @@ describe("LAWOSS alpha preflight", () => {
     expect(strict.errors.some((error) => error.includes("Node 24"))).toBe(true);
   });
 
+  test("does not call a warning-bearing normal run cleanly ready", async () => {
+    const root = await createFixture();
+    const result = runPreflight({ root, nodeVersion: "v26.0.0", pnpmVersion: "11.4.0" });
+    const output = renderPreflight(result);
+
+    expect(output).toContain("Result: READY WITH WARNINGS");
+    expect(output).not.toContain("Result: READY FOR THE CHECKED SCOPE");
+  });
+
   test("reports missing files and malformed package metadata without printing secrets", async () => {
     const root = await createFixture({
       buildGuide: false,

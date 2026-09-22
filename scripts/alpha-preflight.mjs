@@ -137,7 +137,12 @@ export function renderPreflight(result) {
     const marker = check.status === "pass" ? "PASS" : check.status === "warn" ? "WARN" : "FAIL";
     lines.push(`[${marker}] ${check.name}: ${check.message}`);
   }
-  lines.push(result.ok ? "Result: READY FOR THE CHECKED SCOPE" : "Result: NOT READY FOR THE CHECKED SCOPE");
+  const resultLine = result.errors.length > 0
+    ? "Result: NOT READY FOR THE CHECKED SCOPE"
+    : result.warnings.length > 0
+      ? "Result: READY WITH WARNINGS — USE STRICT MODE BEFORE CONTINUING"
+      : "Result: READY FOR THE CHECKED SCOPE";
+  lines.push(resultLine);
   lines.push("This is a technical preflight, not legal, security or production approval.");
   return lines.join("\n");
 }
