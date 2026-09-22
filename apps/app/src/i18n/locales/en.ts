@@ -2837,6 +2837,7 @@ export default {
   "artifact.save_failed": "Failed to save document.",
   "artifact.open_failed": "Could not open the document.",
   "artifact.discard_changes": "Discard changes",
+  "artifact.confirm_discard_unsaved": "Discard unsaved changes to {names}? Save the document first to keep your changes.",
   "artifact.save_changes": "Save changes",
   "artifact.edit": "Edit artifact",
   "artifact.save_changes_tooltip": "Save changes to the document",

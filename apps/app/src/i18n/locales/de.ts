@@ -3154,6 +3154,7 @@ const de = {
   "artifact.save_failed": "Das Dokument konnte nicht gespeichert werden.",
   "artifact.open_failed": "Das Dokument konnte nicht geöffnet werden.",
   "artifact.discard_changes": "Änderungen verwerfen",
+  "artifact.confirm_discard_unsaved": "Nicht gespeicherte Änderungen an {names} verwerfen? Speichern Sie das Dokument zuerst, um Ihre Änderungen zu behalten.",
   "artifact.save_changes": "Änderungen speichern",
   "artifact.edit": "Artefakt bearbeiten",
   "artifact.save_changes_tooltip": "Änderungen am Dokument speichern",
