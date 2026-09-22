@@ -336,18 +336,42 @@ if (shouldRun("--dangling")) {
   // --- 7. Dynamic t() calls (keys built at runtime) ---
   console.log("=== Dynamic t() calls (keys built at runtime) ===");
   const dynamicPattern = /\b(?:t|translate|tr)\(\s*(`[^`]*\$\{|[^"'][^,)]*\+)/g;
+  // LAWOSS screens (`apps/app/src/lawoss/**`) build keys from a static prefix
+  // and a key typed against the domain dictionaries (`keyof typeof setupEn`),
+  // so TypeScript already rejects a key that does not exist. The audit accepts
+  // such a template when its static prefix matches at least one en.ts key;
+  // upstream code stays strict.
+  const LAWOSS_ZONE = join(APP_SRC, "lawoss") + "/";
+  const templatePrefixPattern = /\b(?:t|translate|tr)\(\s*`([a-z][a-z0-9_.]*)\$\{/g;
+  const prefixResolves = (prefix) => {
+    for (const key of enKeys) if (key.startsWith(prefix)) return true;
+    return false;
+  };
   const dynamicHits = [];
+  let lawossTyped = 0;
   for (const file of sourceFiles) {
     const content = readFileSync(file, "utf-8");
     const lines = content.split("\n");
     for (let i = 0; i < lines.length; i++) {
       if (dynamicPattern.test(lines[i])) {
-        dynamicHits.push({ file: file.replace(REPO_ROOT + "/", ""), line: i + 1, text: lines[i].trim() });
+        const prefixes = file.startsWith(LAWOSS_ZONE)
+          ? [...lines[i].matchAll(templatePrefixPattern)].map((m) => m[1])
+          : [];
+        const dynamicCount = lines[i].match(dynamicPattern)?.length ?? 0;
+        if (prefixes.length === dynamicCount && prefixes.every(prefixResolves)) {
+          lawossTyped += prefixes.length;
+        } else {
+          dynamicHits.push({ file: file.replace(REPO_ROOT + "/", ""), line: i + 1, text: lines[i].trim() });
+        }
       }
       dynamicPattern.lastIndex = 0;
+      templatePrefixPattern.lastIndex = 0;
     }
   }
 
+  if (lawossTyped > 0) {
+    console.log(`  ℹ ${lawossTyped} LAWOSS template keys with a static prefix present in en.ts (typed against the dictionaries)`);
+  }
   if (dynamicHits.length === 0) {
     console.log("  ✓ no dynamic key construction");
   } else {
