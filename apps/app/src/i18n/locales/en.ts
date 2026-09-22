@@ -1,9 +1,19 @@
+import { setupEn } from "../../lawoss/i18n/setup";
+import { initialEn } from "../../lawoss/i18n/initial";
+import { mattersEn } from "../../lawoss/i18n/matters";
+import { integrationsEn } from "../../lawoss/i18n/integrations";
+import { shellEn } from "../../lawoss/i18n/shell";
 /**
  * English translations
  * Professional terms (Skills, Plugins, Commands, Sessions, OpenCode, OpenPackage, LegalWork) are NOT translated
  */
 
 export default {
+  ...setupEn,
+  ...initialEn,
+  ...mattersEn,
+  ...integrationsEn,
+  ...shellEn,
   "storage.oauth_provider": "Cloud storage",
   "storage.oauth_description": "Browse, search and edit connected files.",
   "storage.oauth_personal": "Each person signs in with their own account. Your sign-in is saved on this device.",
@@ -1477,8 +1487,8 @@ export default {
   "settings.hide_titlebar_desc": "Hide the window titlebar. Useful for tiling window",
   "settings.join_discord": "Join Discord",
   "settings.language": "Language",
-  "settings.language.description": "Choose your preferred language",
-  "settings.language_system": "System ({language})",
+  "settings.language.description": "Choose the interface language. System default automatically follows the language of your computer.",
+  "settings.language_system": "System default",
   "settings.language_section_desc": "LegalWork follows your system language until you pick one here.",
   "settings.language_display": "Display language",
   "settings.customization.branding_title": "Branding",

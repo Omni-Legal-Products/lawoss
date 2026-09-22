@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { OkfPage } from "../okf-page";
+import { OkfPage, useMatterText } from "../okf-page";
 import {
   dayClass,
   formatDay,
@@ -10,23 +10,24 @@ import type { UpcomingDeadline } from "../../../../../../lawoss/okf/read";
 
 /** Iba skutočné údaje zo spisov; chýbajúce údaje nenahrádza ukážka. */
 export function LehotyPage() {
-  return <OkfPage title="Lehoty">{(data) => <RealRegister data={data} />}</OkfPage>;
+  const { text } = useMatterText();
+  return <OkfPage title={text("deadlinesTitle")}>{(data) => <RealRegister data={data} />}</OkfPage>;
 }
 
-function RealRegister({ data }: { data: OkfReadResult }) {
+export function RealRegister({ data }: { data: OkfReadResult }) {
+  const { text } = useMatterText();
   const now = today();
   return (
     <>
       <p className="lw-lead">
-        Register lehôt zo všetkých spisov v pamäti. Zobrazuje sa dátum tak, ako je zapísaný v zázname — výpočet
-        lehôt nie je súčasťou tejto fázy a nič sa nezapisuje.
+        {text("deadlinesLead")}
       </p>
 
       {data.overdue.length > 0 ? (
         <div className="lw-reg">
           <div className="lw-reg-h">
-            <h2>Po termíne</h2>
-            <span className="lw-meta">{data.overdue.length} · dátum pred dneškom, stav v zázname neoverený</span>
+            <h2>{text("overdueTitle")}</h2>
+            <span className="lw-meta">{text("overdueNote", { count: data.overdue.length })}</span>
           </div>
           {data.overdue.map((d, i) => <DeadlineRow key={rowKey(d)} d={d} index={i} now={now} />)}
         </div>
@@ -34,14 +35,13 @@ function RealRegister({ data }: { data: OkfReadResult }) {
 
       <div className="lw-reg">
         <div className="lw-reg-h">
-          <h2>Nadchádzajúce</h2>
+          <h2>{text("upcoming")}</h2>
           <span className="lw-meta">
-            {data.upcomingDeadlines.length} · {data.totals.deadlinesWithin7Days} do 7 dní · {data.matters.length}{" "}
-            {data.matters.length === 1 ? "spis" : data.matters.length <= 4 ? "spisy" : "spisov"}
+            {text("upcomingSummary", { total: data.upcomingDeadlines.length, soon: data.totals.deadlinesWithin7Days, matters: text("matters", { count: data.matters.length }) })}
           </span>
         </div>
         {data.upcomingDeadlines.length === 0 ? (
-          <p className="lw-empty">V pamäti spisov nie je zapísaná žiadna nadchádzajúca lehota.</p>
+          <p className="lw-empty">{text("noUpcoming")}</p>
         ) : (
           data.upcomingDeadlines.map((d, i) => <DeadlineRow key={rowKey(d)} d={d} index={i} now={now} />)
         )}
@@ -49,14 +49,13 @@ function RealRegister({ data }: { data: OkfReadResult }) {
 
       {data.truncated ? (
         <div className="lw-status warn">
-          Workspace má viac spisov, než sa číta naraz — register je z prvých {data.matters.length} spisov a lehoty
-          zvyšných tu nie sú.
+          {text("truncatedRegister", { count: data.matters.length })}
         </div>
       ) : null}
 
       {data.problems.length > 0 ? (
         <div className="lw-status warn">
-          {data.problems.length} súborov pamäte sa nedalo prečítať — ich lehoty tu chýbajú:{" "}
+          {text("missingDeadlines", { files: text("filesUnreadable", { count: data.problems.length }) })}{" "}
           {data.problems.slice(0, 3).map((p) => p.path).join(", ")}
           {data.problems.length > 3 ? ", …" : ""}
         </div>
@@ -64,11 +63,10 @@ function RealRegister({ data }: { data: OkfReadResult }) {
 
       <div className="lw-note">
         <span>
-          Zdroj: pole <span className="lw-mono">deadlines</span> záznamov v <span className="lw-mono">memory/</span> každej veci.
-          Odkiaľ lehota plynie a koľko dní má, záznam zatiaľ nenesie.
+          {text("deadlineSource")}
         </span>
         <span>
-          Iba čítanie. Zmena lehoty sa robí v zázname, nie tu.
+          {text("deadlineReadOnly")}
         </span>
       </div>
     </>
@@ -78,10 +76,11 @@ function RealRegister({ data }: { data: OkfReadResult }) {
 const rowKey = (d: UpcomingDeadline): string => `${d.matter.path}/${d.recordId}/${d.date}`;
 
 function DeadlineRow({ d, index, now }: { d: UpcomingDeadline; index: number; now: string }) {
+  const { locale } = useMatterText();
   return (
     <div className="lw-row lw-cols-leh">
       <span className="lw-no">{index + 1}.</span>
-      <span className={dayClass(d.date, now)}>{formatDay(d.date)}</span>
+      <span className={dayClass(d.date, now)}>{formatDay(d.date, locale)}</span>
       <span className="lw-t">
         {d.title}
         <small>

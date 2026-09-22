@@ -1,3 +1,8 @@
+import { setupDe } from "../../lawoss/i18n/setup";
+import { initialDe } from "../../lawoss/i18n/initial";
+import { mattersDe } from "../../lawoss/i18n/matters";
+import { integrationsDe } from "../../lawoss/i18n/integrations";
+import { shellDe } from "../../lawoss/i18n/shell";
 /**
  * German translations (Deutsch)
  *
@@ -14,6 +19,11 @@
  */
 
 const de = {
+  ...setupDe,
+  ...initialDe,
+  ...mattersDe,
+  ...integrationsDe,
+  ...shellDe,
   "storage.oauth_provider": "Cloud-Speicher",
   "storage.oauth_description": "Verbundene Dateien durchsuchen, öffnen und bearbeiten.",
   "storage.oauth_personal": "Jede Person meldet sich mit dem eigenen Konto an. Die Anmeldung wird auf diesem Gerät gespeichert.",
@@ -1665,8 +1675,8 @@ const de = {
   "settings.hide_titlebar_desc": "Blendet die Fenstertitelleiste aus. Nützlich für kachelnde Fenster",
   "settings.join_discord": "Discord beitreten",
   "settings.language": "Sprache",
-  "settings.language.description": "Wählen Sie Ihre bevorzugte Sprache",
-  "settings.language_system": "System ({language})",
+  "settings.language.description": "Wählen Sie die Sprache der Benutzeroberfläche. Systemsprache übernimmt automatisch die Sprache Ihres Computers.",
+  "settings.language_system": "Systemsprache",
   "settings.language_section_desc": "LegalWork folgt Ihrer Systemsprache, solange Sie hier keine auswählen.",
   "settings.language_display": "Anzeigesprache",
   "settings.customization.branding_title": "Branding",

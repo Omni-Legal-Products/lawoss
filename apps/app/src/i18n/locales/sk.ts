@@ -1,9 +1,19 @@
+import { setupSk } from "../../lawoss/i18n/setup";
+import { initialSk } from "../../lawoss/i18n/initial";
+import { mattersSk } from "../../lawoss/i18n/matters";
+import { integrationsSk } from "../../lawoss/i18n/integrations";
+import { shellSk } from "../../lawoss/i18n/shell";
 /**
  * LAWOSS slovenská lokalizácia — celé rozhranie. Právne názvoslovie podľa slovenského práva (SAK, CSP, ZKR);
  * nikdy neprekladať české pojmy do slovenčiny zámenou písmen (AGENTS.md). Chýbajúce kľúče padajú v t() na angličtinu.
  * Produktové pojmy (Skills, Plugins, Commands, Sessions, OpenCode, OpenPackage, LegalWork) sa neprekladajú.
  */
 export default {
+  ...setupSk,
+  ...initialSk,
+  ...mattersSk,
+  ...integrationsSk,
+  ...shellSk,
   "office_addins.tab_label": "Doplnky Office",
   "office_addins.tab_description": "LegalWork v aplikáciách Word, Excel a PowerPoint",
   "office_addins.about_title": "LegalWork v Microsoft Office",
@@ -1296,8 +1306,8 @@ export default {
   "settings.hide_titlebar_desc": "Skryť záhlavie okna. Užitočné pre dlaždicové usporiadanie okien",
   "settings.join_discord": "Pripojiť sa na Discord",
   "settings.language": "Jazyk",
-  "settings.language.description": "Zvoľte preferovaný jazyk",
-  "settings.language_system": "Systémový ({language})",
+  "settings.language.description": "Zvoľte jazyk rozhrania. Voľba Podľa systému automaticky preberá jazyk počítača.",
+  "settings.language_system": "Podľa systému",
   "settings.language_section_desc": "LegalWork sa riadi jazykom systému, kým si tu nevyberiete iný.",
   "settings.language_display": "Jazyk rozhrania",
   "settings.customization.branding_title": "Branding",

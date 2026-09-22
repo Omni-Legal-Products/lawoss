@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { parseFrontmatter } from "../../../../../lawoss/okf-pamat/src/record";
 import { parseOfficeWorkingProfile, workingProfile, type WorkingProfile } from "../../../../../lawoss/okf/src/profile";
@@ -8,7 +9,7 @@ const editableKeys = new Set(["matter_folders", "folder_roles", "document_naming
 function validateClientPath(value: string): string {
   if (value && !value.split("/").every((part) => part === "*" ||
     part !== "." && part !== ".." && /^[^*\\<>:"|?\u0000-\u001f]+$/.test(part) && part.trim() === part && !/[. ]$/.test(part))) {
-    throw new Error("Cesta ku klientom musí byť relatívna; * zastupuje jeden priečinok, napr. Klienti/*.");
+    throw new Error(t("lawoss.setup.error.clientPath"));
   }
   return value;
 }
@@ -18,11 +19,11 @@ export function readOfficeProfile(content: string): OfficeProfile {
   for (const line of content.split("\n")) {
     const key = /^([^\s#][^:]*):/.exec(line)?.[1];
     if (!key || !editableKeys.has(key.trim())) continue;
-    if (key !== key.trim() || seen.has(key)) throw new Error("Nejednoznačný kľúč kancelárskeho profilu.");
+    if (key !== key.trim() || seen.has(key)) throw new Error(t("lawoss.setup.error.ambiguousProfile"));
     seen.add(key);
   }
   const path = fields.get("client_path") ?? "";
-  if (typeof path !== "string") throw new Error("Cesta ku klientom musí byť text.");
+  if (typeof path !== "string") throw new Error(t("lawoss.setup.error.clientPathText"));
   return { profile: parseOfficeWorkingProfile(content) ?? workingProfile(), clientPath: validateClientPath(path) };
 }
 
@@ -53,14 +54,14 @@ export async function loadOfficeProfile(client: ProfileClient, workspaceId: stri
   if (basename !== "Office" && basename !== "_kancelaria") {
     const paths = ["Office", "_kancelaria", "client.md", "klient.md", "matter.md", "spis.md", "project.md", "projekt.md"];
     const stats = await Promise.all(paths.map((name) => client.statWorkspaceFile(workspaceId, name)));
-    if (stats.slice(2).some((item) => item.exists)) throw new Error("Otvorte koreň kancelárie obsahujúci Office; vybraný priečinok je klient, vec alebo projekt.");
-    if (stats[0].exists && stats[1].exists) throw new Error("Workspace obsahuje Office aj _kancelaria. Otvorte konkrétny kancelársky priečinok.");
+    if (stats.slice(2).some((item) => item.exists)) throw new Error(t("lawoss.setup.error.officeRoot"));
+    if (stats[0].exists && stats[1].exists) throw new Error(t("lawoss.setup.error.twoOffices"));
     const index = stats[1].exists ? 1 : 0;
-    if (stats[index].exists && stats[index].kind !== "dir") throw new Error("Kancelárska cesta nie je priečinok.");
+    if (stats[index].exists && stats[index].kind !== "dir") throw new Error(t("lawoss.setup.error.officeNotFolder"));
     path = `${paths[index]}/okf.config`;
   }
   const state = await client.statWorkspaceFile(workspaceId, path);
-  if (state.exists && state.kind !== "file") throw new Error("Konfigurácia nie je súbor.");
+  if (state.exists && state.kind !== "file") throw new Error(t("lawoss.setup.error.configNotFile"));
   const content = state.exists ? (await client.readWorkspaceFile(workspaceId, path)).content : null;
   return { path, content, value: readOfficeProfile(content ?? "") };
 }

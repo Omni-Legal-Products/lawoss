@@ -31,7 +31,8 @@ import {
   LayoutStack,
 } from "../settings-layout";
 import { SettingsNotice } from "../settings-section";
-import { t } from "@/i18n";
+import { t, type Language } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
 
 const DEFAULT_SETTINGS: LegalworkPersonalizationSettings = {
   customInstructions: "",
@@ -41,12 +42,12 @@ const DEFAULT_SETTINGS: LegalworkPersonalizationSettings = {
 };
 
 // Built per render, not once at import: `t()` reads the current language.
-const personalityLabels = (): Record<LegalworkPersonality, string> => ({
-  default: t("personalisation.personality_default"),
-  pragmatic: t("personalisation.personality_pragmatic"),
-  professional: t("personalisation.personality_professional"),
-  friendly: t("personalisation.personality_friendly"),
-  candid: t("personalisation.personality_candid"),
+const personalityLabels = (locale: Language): Record<LegalworkPersonality, string> => ({
+  default: t("personalisation.personality_default", locale),
+  pragmatic: t("personalisation.personality_pragmatic", locale),
+  professional: t("personalisation.personality_professional", locale),
+  friendly: t("personalisation.personality_friendly", locale),
+  candid: t("personalisation.personality_candid", locale),
 });
 
 function isPersonality(value: unknown): value is LegalworkPersonality {
@@ -65,6 +66,7 @@ export type PersonalisationViewProps = {
 };
 
 export function PersonalisationView(props: PersonalisationViewProps) {
+  const locale = useLocale();
   const local = useLocal();
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [instructionsDraft, setInstructionsDraft] = useState("");
@@ -130,7 +132,7 @@ export function PersonalisationView(props: PersonalisationViewProps) {
 
   // Not memoised on []: the labels come from `t()`, so they must rebuild when
   // the language changes.
-  const labels = personalityLabels();
+  const labels = personalityLabels(locale);
   const personalityItems = LEGALWORK_PERSONALITY_VALUES.map((value) => ({
     value,
     label: labels[value],
@@ -143,7 +145,7 @@ export function PersonalisationView(props: PersonalisationViewProps) {
     setError(null);
     try {
       await props.client.deleteLocalMemories();
-      toast.success(t("personalisation.memories_deleted"));
+      toast.success(t("personalisation.memories_deleted", locale));
     } catch (deleteError) {
       const message = describeError(deleteError);
       setError(message);
@@ -158,7 +160,7 @@ export function PersonalisationView(props: PersonalisationViewProps) {
       <LayoutStack>
         {!props.client ? (
           <SettingsNotice tone="warning">
-            {t("personalisation.server_required")}
+            {t("personalisation.server_required", locale)}
           </SettingsNotice>
         ) : null}
         {error ? <SettingsNotice tone="error">{error}</SettingsNotice> : null}
@@ -167,9 +169,9 @@ export function PersonalisationView(props: PersonalisationViewProps) {
           <LayoutSectionHeader>
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1">
-                <LayoutSectionTitle>{t("personalisation.system_prompt_title")}</LayoutSectionTitle>
+                <LayoutSectionTitle>{t("personalisation.system_prompt_title", locale)}</LayoutSectionTitle>
                 <LayoutSectionDescription>
-                  {t("personalisation.system_prompt_desc")}
+                  {t("personalisation.system_prompt_desc", locale)}
                 </LayoutSectionDescription>
               </div>
               <Button
@@ -177,10 +179,10 @@ export function PersonalisationView(props: PersonalisationViewProps) {
                 disabled={disabled || !instructionsChanged || remainingCharacters < 0}
                 onClick={() => void persist(
                   { ...settings, customInstructions: instructionsDraft },
-                  "System prompt additions saved.",
+                  t("lawoss.integrations.author.instructions_saved", locale),
                 )}
               >
-                {t("common.save")}
+                {t("common.save", locale)}
               </Button>
             </div>
           </LayoutSectionHeader>
@@ -191,12 +193,12 @@ export function PersonalisationView(props: PersonalisationViewProps) {
               maxLength={12_000}
               disabled={disabled}
               onChange={(event) => setInstructionsDraft(event.currentTarget.value)}
-              placeholder={t("personalisation.system_prompt_placeholder")}
-              aria-label={t("personalisation.system_prompt_title")}
+              placeholder={t("personalisation.system_prompt_placeholder", locale)}
+              aria-label={t("personalisation.system_prompt_title", locale)}
               className="min-h-52 resize-y rounded-2xl bg-surface px-4 py-3.5"
             />
             <div className="text-right text-xs text-muted-foreground">
-              {t("personalisation.characters_remaining", { count: remainingCharacters.toLocaleString() })}
+              {t("personalisation.characters_remaining", locale, { count: remainingCharacters.toLocaleString() })}
             </div>
           </div>
         </LayoutSection>
@@ -205,9 +207,9 @@ export function PersonalisationView(props: PersonalisationViewProps) {
           <LayoutSectionHeader>
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1">
-                <LayoutSectionTitle>Meno advokáta a autor dokumentov</LayoutSectionTitle>
+                <LayoutSectionTitle>{t("lawoss.integrations.author.title", locale)}</LayoutSectionTitle>
                 <LayoutSectionDescription>
-                  Spoločné meno pre nové veci, komentáre a revízie v DOCX editore LAWOSS. Existujúce karty a dokumenty sa nemenia.
+                  {t("lawoss.integrations.author.description", locale)}
                 </LayoutSectionDescription>
               </div>
               <Button
@@ -216,10 +218,10 @@ export function PersonalisationView(props: PersonalisationViewProps) {
                 onClick={() => {
                   local.setPrefs((previous) => ({ ...previous, documentAuthor: normalizedDocumentAuthor }));
                   setDocumentAuthorDraft(normalizedDocumentAuthor);
-                  toast.success("Meno advokáta je uložené.");
+                  toast.success(t("lawoss.integrations.author.saved", locale));
                 }}
               >
-                Uložiť meno
+                {t("lawoss.integrations.author.save", locale)}
               </Button>
             </div>
           </LayoutSectionHeader>
@@ -228,12 +230,11 @@ export function PersonalisationView(props: PersonalisationViewProps) {
             maxLength={MAX_DOCUMENT_AUTHOR_LENGTH}
             onChange={(event) => setDocumentAuthorDraft(event.currentTarget.value)}
             placeholder="LegalWork"
-            aria-label="Meno advokáta a autor dokumentov"
+            aria-label={t("lawoss.integrations.author.title", locale)}
             className="rounded-2xl bg-surface px-4 py-3.5"
           />
           <SettingsNotice>
-            V otvorenom dokumente vo Worde komentáre aj natívne revízie identifikuje samotný Word podľa aktuálneho
-            Office konta; toto nastavenie sa týka nových úprav v DOCX editore LAWOSS a kompatibilného redline fallbacku.
+            {t("lawoss.integrations.author.word_hint", locale)}
           </SettingsNotice>
         </LayoutSection>
 
@@ -241,28 +242,28 @@ export function PersonalisationView(props: PersonalisationViewProps) {
 
         <LayoutSection>
           <LayoutSectionHeader>
-            <LayoutSectionTitle>{t("personalisation.memory_title")}</LayoutSectionTitle>
+            <LayoutSectionTitle>{t("personalisation.memory_title", locale)}</LayoutSectionTitle>
             <LayoutSectionDescription>
-              {t("personalisation.memory_desc")}{" "}
+              {t("personalisation.memory_desc", locale)}{" "}
               <button
                 type="button"
                 className="text-primary hover:underline"
                 onClick={() => props.onOpenLink("https://www.opencode.asia/ecosystem/plugins/agent-memory/")}
               >
-                {t("personalisation.learn_more")}
+                {t("personalisation.learn_more", locale)}
               </button>
             </LayoutSectionDescription>
           </LayoutSectionHeader>
 
           <LayoutSectionItem>
             <LayoutSectionItemHeader>
-              <LayoutSectionItemTitle>{t("personalisation.enable_memories")}</LayoutSectionItemTitle>
+              <LayoutSectionItemTitle>{t("personalisation.enable_memories", locale)}</LayoutSectionItemTitle>
               <LayoutSectionItemDescription>
-                {t("personalisation.enable_memories_desc")}
+                {t("personalisation.enable_memories_desc", locale)}
               </LayoutSectionItemDescription>
               <LayoutSectionItemHeaderActions>
                 <Switch
-                  aria-label={t("personalisation.enable_memories")}
+                  aria-label={t("personalisation.enable_memories", locale)}
                   checked={settings.localMemoriesEnabled}
                   disabled={disabled}
                   onCheckedChange={(checked) => void persist({ ...settings, localMemoriesEnabled: checked })}
@@ -273,13 +274,13 @@ export function PersonalisationView(props: PersonalisationViewProps) {
 
           <LayoutSectionItem>
             <LayoutSectionItemHeader>
-              <LayoutSectionItemTitle>{t("personalisation.allow_tool_memories")}</LayoutSectionItemTitle>
+              <LayoutSectionItemTitle>{t("personalisation.allow_tool_memories", locale)}</LayoutSectionItemTitle>
               <LayoutSectionItemDescription>
-                {t("personalisation.allow_tool_memories_desc")}
+                {t("personalisation.allow_tool_memories_desc", locale)}
               </LayoutSectionItemDescription>
               <LayoutSectionItemHeaderActions>
                 <Switch
-                  aria-label={t("personalisation.allow_tool_memories")}
+                  aria-label={t("personalisation.allow_tool_memories", locale)}
                   checked={settings.allowToolAssistedMemory}
                   disabled={disabled}
                   onCheckedChange={(checked) => void persist({ ...settings, allowToolAssistedMemory: checked })}
@@ -290,13 +291,13 @@ export function PersonalisationView(props: PersonalisationViewProps) {
 
           <LayoutSectionItem>
             <LayoutSectionItemHeader>
-              <LayoutSectionItemTitle>{t("personalisation.delete_memories")}</LayoutSectionItemTitle>
+              <LayoutSectionItemTitle>{t("personalisation.delete_memories", locale)}</LayoutSectionItemTitle>
               <LayoutSectionItemDescription>
-                {t("personalisation.delete_memories_desc")}
+                {t("personalisation.delete_memories_desc", locale)}
               </LayoutSectionItemDescription>
               <LayoutSectionItemHeaderActions>
                 <Button variant="destructive" size="sm" disabled={disabled} onClick={() => setDeleteOpen(true)}>
-                  Delete
+                  {t("personalisation.delete_confirm_label", locale)}
                 </Button>
               </LayoutSectionItemHeaderActions>
             </LayoutSectionItemHeader>
@@ -306,15 +307,15 @@ export function PersonalisationView(props: PersonalisationViewProps) {
         <div className="flex items-start gap-3 rounded-2xl border border-amber-7/30 bg-amber-2/30 px-4 py-3 text-sm text-amber-12">
           <Info className="mt-0.5 size-4 shrink-0 text-amber-10" />
           <span>
-            {t("personalisation.personality_note")}
+            {t("personalisation.personality_note", locale)}
           </span>
         </div>
 
         <LayoutSection>
           <LayoutSectionItem>
             <LayoutSectionItemHeader>
-              <LayoutSectionItemTitle>{t("personalisation.personality")}</LayoutSectionItemTitle>
-              <LayoutSectionItemDescription>{t("personalisation.tone_desc")}</LayoutSectionItemDescription>
+              <LayoutSectionItemTitle>{t("personalisation.personality", locale)}</LayoutSectionItemTitle>
+              <LayoutSectionItemDescription>{t("personalisation.tone_desc", locale)}</LayoutSectionItemDescription>
               <LayoutSectionItemHeaderActions>
                 <Select
                   value={settings.personality}
@@ -326,7 +327,7 @@ export function PersonalisationView(props: PersonalisationViewProps) {
                     if (isPersonality(value)) void persist({ ...settings, personality: value });
                   }}
                 >
-                  <SelectTrigger className="w-44" aria-label={t("personalisation.personality")}>
+                  <SelectTrigger className="w-44" aria-label={t("personalisation.personality", locale)}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -343,10 +344,10 @@ export function PersonalisationView(props: PersonalisationViewProps) {
 
       <ConfirmModal
         open={deleteOpen}
-        title={t("personalisation.delete_confirm_title")}
-        message={t("personalisation.delete_confirm_message")}
-        confirmLabel={t("personalisation.delete_confirm_label")}
-        cancelLabel={t("personalisation.cancel")}
+        title={t("personalisation.delete_confirm_title", locale)}
+        message={t("personalisation.delete_confirm_message", locale)}
+        confirmLabel={t("personalisation.delete_confirm_label", locale)}
+        cancelLabel={t("personalisation.cancel", locale)}
         variant="danger"
         onConfirm={() => void deleteMemories()}
         onCancel={() => setDeleteOpen(false)}

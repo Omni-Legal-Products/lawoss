@@ -41,6 +41,7 @@ New LAWOSS-owned files do not need an entry. Every pull request that changes an 
 | `apps/app/scripts/i18n-check.ts` | `"autogram.title"` pridaný do `GERMAN_KEEPS_ENGLISH` (produktový názov) | „Autogram“ je názov produktu tretej strany, nemá nemecký preklad | MČ | feat/autogram-teaser |
 | `.github/workflows/dco.yml` | Job `dco` beží len pri `github.repository == 'eigenweltlabs/legalwork'` (+1 komentár, +1 riadok `if:`) | Upstream DCO kontrola (#140, `--check-merge-commits`) by zhodila každé PR forku: žiadny LAWOSS commit nemá `Signed-off-by`. Príspevky posielané do upstreamu podpisujeme `git commit -s` podľa jeho `CONTRIBUTING.md` | MČ | sync/upstream-v0.1.21 |
 | `apps/app/src/react-app/shell/session-route.tsx` | Obrazovka s plánmi (`ai-plans`): brána `aiPlansGateEnabled` a `aiPlansScreenVisible` zohľadňujú `isCommercialSurfaceHidden("ai-plans")` (+1 import, 2 podmienky); +4-riadkový efekt, ktorý krok onboardingu `"ai"` hneď dokončí | Plány Eigenwelt Plus/Pro LAWOSS neponúka (rozhodnutie MČ 17. 9.); bez efektu by onboarding ostal visieť v kroku `"ai"` a nastavenia by boli nedostupné | MČ | sync/upstream-v0.1.21 |
+| `apps/app/src/react-app/domains/settings/pages/personalisation-view.tsx` | Názov autora, vysvetlenia a potvrdenia používajú doménový slovník; pôvodné popisky nastavení a osobnosti výslovne odoberajú locale. Odstránenie pamäte používa existujúci preklad bez zmeny potvrdzovacieho dialógu, uloženého mena alebo predvolieb. |
 | `apps/server/src/tasks-api.ts` | `connectedTaskOrgId()` vráti `null`, kým nie je `LAWOSS_EIGENWELT_FIRM_SERVICES=1` (+1 import, +1 riadok) | Úlohy, poznámky a prílohy nesmú po prihlásení do Eigenwelt odísť na ich platformu; tým sa vypne sync, členovia firmy aj zmazanie pri odhlásení. Lokálne úlohy fungujú ďalej | MČ | sync/upstream-v0.1.21 |
 | `apps/server/src/file-storage/team.ts` | `TeamStorage.identity()` vráti `null` bez `LAWOSS_EIGENWELT_FIRM_SERVICES=1` (+1 import, +1 riadok) | Tímové pripojenia úložísk by posielali prístupové údaje na platformu Eigenwelt; lokálny rozsah funguje ďalej | MČ | sync/upstream-v0.1.21 |
 | `apps/server/src/routes/file-storage.ts` | Zoznam OAuth poskytovateľov filtruje `storageOAuthProviderAllowed()` (+1 import, 1 podmienka): Box len s vlastným `LEGALWORK_STORAGE_BOX_OAUTH_URL` | Box ide pri prihlásení aj pri každom obnovení tokenu cez broker Eigenwelt | MČ | sync/upstream-v0.1.21 |
@@ -263,3 +264,24 @@ Prenosný validator v zelenom `lawoss/okf/src/fs.ts` klasifikuje rodičovský pr
 ### Natívne Windows cesty pamäte (Task 7, fix round 2)
 
 Skutočný Windows beh po `82712b8` odhalil odmietanie natívneho absolútneho koreňa profilu a vynechanie klientskej pamäte z rozsahu L3. Zelený `lawoss/okf-pamat/src/workspace-memory-profile.ts` povoľuje spätné lomky iba v drive-absolute koreňoch; traversal odmieta pri oboch oddeľovačoch. Relatívne zdroje, caller grants, kontrola symlinkov a containment zostávajú prísne. `src/config.ts` normalizuje iba natívny oddeľovač kandidátskej cesty; na POSIX zostáva doslovná spätná lomka súčasťou mena. `src/store.ts` rozpoznáva samotnú kanceláriu cez natívne basename. Regresie profilu a klientskeho scope zachovávajú negatívne prípady aj všetky kontroly úniku; test dvoch procesov používa natívne dirname/basename pre svoj rendezvous. Pre tieto opravy sa regenerujú oba CLI bundles: OKF tiež zahŕňa zdieľané pamäťové moduly config/store/profile. Kontrola čerstvosti zostavuje oba balíčky pred porovnaním s Gitom. Žiadny ďalší funkčný test sa nevynecháva.
+
+
+## Jazykové prepínanie rozhrania CS / SK / EN (2026-09-22)
+
+[Zadanie a akceptácia](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/blob/specs/interface-languages/specs/2026-09-22-jazyky-rozhrania.md). Výslovné zadanie VŘ nad interným kandidátom #86.
+
+| Súbory upstreamu | Úprava a dôvod |
+|---|---|
+| `apps/app/src/i18n/index.ts` | Pôvodná preferencia sa bez zápisu navyše obnoví aj pri storage udalosti z iného okna; systémová voľba reaguje na languagechange. Explicitná voľba má prednosť. Interpolácia používa jediný callback priechod, aby dolárové tokeny a zátvorky v názvoch/cestách zostali doslovné. |
+| `apps/app/src/i18n/locales/en.ts`, `de.ts`, `cs.ts`, `sk.ts` | Importujú samostatné doménové slovníky LAWOSS so zhodnými kľúčmi a placeholdermi. Žiadny druhý runtime prekladový systém. |
+| `apps/app/src/i18n/README.md` | Dokumentuje štyri skutočne registrované jazyky, jeden store a hranicu medzi UI a spisovými údajmi. |
+| `apps/app/src/react-app/domains/session/chat/session-page.tsx`, `apps/app/src/react-app/domains/settings/shell/settings-shell.tsx` | Dva malé hooky v hlavičkách každého súboru zobrazujú spoločný zelený LanguageSwitcher aj bez rozbaleného sidebaru. |
+| `apps/app/src/react-app/domains/session/surface/scroll-overlay.tsx`, `apps/app/src/react-app/design-system/extension-detail-modal.tsx` | Memoizované ovládacie prvky odoberajú locale a výslovne ho odovzdávajú prekladom, aby po zmene jazyka nezostali staré popisky. |
+| `apps/app/tests/okf-native-panel.test.tsx`, `apps/app/tests/okf-page-states.test.tsx` | SSR používa anglický snapshot hooku; očakávania vrátane negatívnych tvrdení sledujú preložené UI. Surová diagnostika a kontroly nezapisovania ostávajú zachované. |
+| `apps/app/src/react-app/shell/session-route.tsx` | Vstup do sprievodcu spisom v natívnom dialógu priečinka používa spoločný preklad a explicitný odber locale. |
+
+Doménové obrazovky, slovníky, viditeľný prepínač a regresie zostávajú v `apps/app/src/lawoss/**` a `apps/app/tests/lawoss-*`. Zelený `lawoss/theme/bootstrap.ts` prestáva vydávať detekovaný jazyk systému za explicitnú používateľskú voľbu; detekciu vlastní pôvodný initLocale. Zmena jazyka nemení jurisdikciu, profil spisu, granty, konfiguračný JSON ani CLI/prompt výstupy.
+
+### Zrozumiteľná systémová voľba jazyka (2026-09-22)
+
+`apps/app/src/react-app/domains/settings/appearance/language-section.tsx` používa rovnaký jednoznačný popis systémovej voľby ako hlavička a explicitné locale. `settings.language_system` v EN/DE/CS/SK nezopakuje názov detegovaného jazyka; vysvetlenie zostáva v existujúcom popise nastavenia. Režim system, detekcia aj uložená voľba sa nemenia.

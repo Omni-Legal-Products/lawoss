@@ -1,7 +1,8 @@
+import { t } from "@/i18n";
 import type { MarketplaceEntry } from "./catalog";
 import { workspaceSettingsRoute } from "../../../react-app/shell/workspace-routes";
 
-export type InstallResult = { ok: boolean; message: string };
+export type InstallResult = { ok: boolean; message: string; messageKey?: string };
 export type CatalogActions = {
   workspaceId: string;
   canInstallPlugin: boolean;
@@ -18,7 +19,7 @@ export function nativeIntegrationRoute(path: "/marketplace" | "/konektory", work
 
 export function catalogPluginUrl(entry: MarketplaceEntry) {
   if (entry.install.action !== "plugin" || !entry.install.path || !/^[a-f0-9]{40}$/.test(entry.source.ref)) {
-    throw new Error("Táto položka nemá podporovaný pripnutý balík.");
+    throw new Error(t("lawoss.integrations.catalog.unsupported_package"));
   }
   return `https://github.com/${entry.source.repository}/tree/${entry.source.ref}/${entry.install.path}`;
 }
@@ -35,10 +36,10 @@ export async function refreshIntegrationState(refreshers: Array<() => void | Pro
 }
 
 export async function installCatalogEntry(entry: MarketplaceEntry, actions: CatalogActions): Promise<InstallResult> {
-  if (!actions.workspaceId || entry.install.scope !== "workspace") throw new Error("Vyberte pracovný priečinok.");
+  if (!actions.workspaceId || entry.install.scope !== "workspace") throw new Error(t("lawoss.integrations.catalog.select_workspace"));
   const allowed = entry.install.action === "okf" ? actions.canInstallSkills : actions.canInstallPlugin;
-  if (!allowed) throw new Error("V tomto priečinku nemáte oprávnenie na inštaláciu.");
-  if (entry.install.action !== "okf" && entry.install.action !== "plugin") throw new Error("Táto položka nepodporuje inštaláciu.");
+  if (!allowed) throw new Error(t("lawoss.integrations.catalog.install_denied"));
+  if (entry.install.action !== "okf" && entry.install.action !== "plugin") throw new Error(t("lawoss.integrations.catalog.unsupported_install"));
   const url = entry.install.action === "plugin" ? catalogPluginUrl(entry) : null;
   return installWithRefresh(() => url ? actions.installPlugin(url) : actions.installOkf(), actions.refresh);
 }
@@ -56,7 +57,7 @@ export async function installWithRefresh(install: () => Promise<InstallResult>, 
     await refresh();
   } catch (error) {
     if (!result.ok) return result;
-    return { ok: false, message: `${result.message} Stav sa nepodarilo obnoviť: ${error instanceof Error ? error.message : String(error)}` };
+    return { ok: false, message: t("lawoss.integrations.catalog.refresh_failed", { message: result.message, detail: error instanceof Error ? error.message : String(error) }) };
   }
   return result;
 }
@@ -68,7 +69,7 @@ export async function removeImportedPlugin(
   canRemove: boolean,
   refresh: () => Promise<void>,
 ) {
-  if (!workspaceId || !canRemove) throw new Error("V tomto priečinku nemáte oprávnenie na odinštalovanie.");
+  if (!workspaceId || !canRemove) throw new Error(t("lawoss.integrations.catalog.remove_denied"));
   try {
     await client.removeCloudPlugin(workspaceId, pluginId);
   } catch (error) {

@@ -1,3 +1,4 @@
+import { t } from "../src/i18n";
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { NovySpisPanel } from "../src/lawoss/domains/novy-spis/novy-spis-page";
@@ -9,10 +10,10 @@ const workspace = { id: "local-one", name: "Moje spisy", displayNameResolved: "M
 test("shared panel uses supplied workspace, without experimental navigation or a creation claim", () => {
   const html = renderToStaticMarkup(<NovySpisPanel connection={{ client: null, baseUrl: "", token: "" }} workspace={workspace} onOpenSession={() => {}} />);
   expect(html).toContain("Moje spisy");
-  expect(html).toContain("Názov priečinka");
-  expect(html).toContain("Pripraviť návrh rozhovoru");
-  expect(html).not.toContain('aria-label="Experimenty"');
-  expect(html).not.toContain("Potvrdiť vytvorenie");
+  expect(html).toContain("Folder name");
+  expect(html).toContain("Prepare conversation draft");
+  expect(html).not.toContain('aria-label="Experiments"');
+  expect(html).not.toContain("Confirm creation");
 });
 
 function clientFor(writable: boolean, calls: string[], failResource = false): Pick<LegalworkServerClient, "capabilities" | "upsertSkill" | "upsertSkillResource"> {
@@ -25,7 +26,7 @@ function clientFor(writable: boolean, calls: string[], failResource = false): Pi
 
 test("read-only permission prevents every mutation and draft creation", async () => {
   const calls: string[] = [];
-  await expect(prepareOkfDraft(clientFor(false, calls), workspace, async () => { calls.push("draft"); return "/session"; })).rejects.toThrow("zápis");
+  await expect(prepareOkfDraft(clientFor(false, calls), workspace, async () => { calls.push("draft"); return "/session"; })).rejects.toThrow(t("lawoss.setup.error.skillWrite"));
   expect(calls).toEqual([]);
 });
 
@@ -43,7 +44,7 @@ test("failed skill resource write cannot open a misleading ready draft", async (
 
 test("remote workspace is rejected before capability checks or writes", async () => {
   const calls: string[] = [];
-  await expect(prepareOkfDraft(clientFor(true, calls), { ...workspace, workspaceType: "remote" }, async () => "/session")).rejects.toThrow("lokálny");
+  await expect(prepareOkfDraft(clientFor(true, calls), { ...workspace, workspaceType: "remote" }, async () => "/session")).rejects.toThrow(t("lawoss.setup.error.localWorkspace"));
   expect(calls).toEqual([]);
 });
 

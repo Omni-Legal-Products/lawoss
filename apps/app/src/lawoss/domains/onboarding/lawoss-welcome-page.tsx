@@ -1,4 +1,8 @@
 /** @jsxImportSource react */
+import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
+import { LanguageSwitcher } from "../../shell/language-switcher";
+import type { SetupTextKey } from "../../i18n/setup";
 import { Page, PageTitlebarRegion } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
@@ -18,15 +22,13 @@ import {
 } from "./onboarding-state";
 
 /** What onboarding sets up, per the design's "Obrazovka 1: Začnime". */
-const NASTAVIME = [
-  { title: "Pracovné dokumenty", desc: "Priečinok, s ktorým bude LAWOSS pracovať. Pred úpravou alebo odstránením súboru si vypýta potvrdenie." },
-  { title: "AI model", desc: "Vyberiete si ho vy. Dokumenty môžu ísť iba k modelu, ktorý zvolíte." },
-  { title: "Ochrana pri úpravách", desc: "Zmenu, uloženie aj odstránenie súboru vždy potvrdzuje človek." },
-  { title: "Office a hlasová transkripcia", desc: "Voliteľné doplnky. Nikdy neblokujú prvé použitie." },
+const NASTAVIME: ReadonlyArray<{ title: SetupTextKey; desc: SetupTextKey }> = [
+  { title: "welcome.documents", desc: "welcome.documentsDesc" },
+  { title: "welcome.model", desc: "welcome.modelDesc" },
+  { title: "welcome.safeguards", desc: "welcome.safeguardsDesc" },
+  { title: "welcome.extras", desc: "welcome.extrasDesc" },
 ];
-
-/** First-task suggestions from the design's "Prvá úloha" section. */
-const PRVA_ULOHA = ["Zhrnúť dokument", "Skontrolovať zmluvu", "Porovnať dva dokumenty"];
+const PRVA_ULOHA: readonly SetupTextKey[] = ["welcome.summarize", "welcome.review", "welcome.compare"];
 
 type LawossWelcomePageProps = {
   onGetStarted: () => void;
@@ -54,6 +56,8 @@ export function LawossWelcomePage({
   analyticsEnabled,
   onAnalyticsChange,
 }: LawossWelcomePageProps) {
+  const locale = useLocale();
+  const text = (key: SetupTextKey): string => t(`lawoss.setup.${key}`, locale);
   const [progress, setProgress] = useState<OnboardingProgress>(() => {
     if (typeof window === "undefined") return DEFAULT_ONBOARDING_PROGRESS;
     return readOnboardingProgress(window.localStorage);
@@ -97,21 +101,22 @@ export function LawossWelcomePage({
                       <small>CZECHIA SLOVAKIA AND BEYOND</small>
                     </div>
                   </div>
-                  <span className="lw-sc lw-welcome-eyebrow">Advokátska prax · Slovensko a Česko</span>
-                  <h1 className="lw-h1 lw-welcome-h1">Pripravme LAWOSS na vašu prácu</h1>
+                  <div className="mb-5 flex justify-end"><LanguageSwitcher /></div>
+                  <span className="lw-sc lw-welcome-eyebrow">{text("welcome.practice")}</span>
+                  <h1 className="lw-h1 lw-welcome-h1">{text("welcome.title")}</h1>
                   <p className="lw-lead">
-                    Nastavíme pracovný priečinok, AI model a základné doplnky. Väčšinu nastavení môžete neskôr zmeniť.
+                    {text("welcome.intro")}
                   </p>
 
-                  <div className="lw-welcome-lanes" role="group" aria-label="Spôsob nastavenia">
+                  <div className="lw-welcome-lanes" role="group" aria-label={text("welcome.setupMethod")}>
                     <button
                       type="button"
                       className={`lw-welcome-lane ${!detailed ? "active" : ""}`}
                       aria-pressed={!detailed}
                       onClick={() => chooseLane("recommended")}
                     >
-                      <span className="lw-welcome-lane-title">Odporúčané nastavenie</span>
-                      <span className="lw-welcome-lane-desc">Bezpečné predvolené hodnoty, pripravené na prvú úlohu.</span>
+                      <span className="lw-welcome-lane-title">{text("welcome.recommended")}</span>
+                      <span className="lw-welcome-lane-desc">{text("welcome.recommendedDesc")}</span>
                     </button>
                     <button
                       type="button"
@@ -119,8 +124,8 @@ export function LawossWelcomePage({
                       aria-pressed={detailed}
                       onClick={() => chooseLane("detailed")}
                     >
-                      <span className="lw-welcome-lane-title">Nastaviť podrobne</span>
-                      <span className="lw-welcome-lane-desc">Najprv zvoľte priečinok a upravte voľby podľa svojej praxe.</span>
+                      <span className="lw-welcome-lane-title">{text("welcome.detailed")}</span>
+                      <span className="lw-welcome-lane-desc">{text("welcome.detailedDesc")}</span>
                     </button>
                   </div>
                 </div>
@@ -130,8 +135,8 @@ export function LawossWelcomePage({
                     <div key={item.title} className={`lw-welcome-step ${index > 0 ? "sep" : ""}`}>
                       <span className="lw-welcome-no">{String(index + 1).padStart(2, "0")}</span>
                       <div>
-                        <div className="lw-welcome-step-t">{item.title}</div>
-                        <div className="lw-welcome-step-d">{item.desc}</div>
+                        <div className="lw-welcome-step-t">{text(item.title)}</div>
+                        <div className="lw-welcome-step-d">{text(item.desc)}</div>
                       </div>
                     </div>
                   ))}
@@ -140,7 +145,7 @@ export function LawossWelcomePage({
                 <div className="lw-welcome-actions">
                   {detailed && showManualFolder ? (
                     <div className="lw-welcome-manual">
-                      <label htmlFor="lw-manual-folder">Cesta k pracovnému priečinku</label>
+                      <label htmlFor="lw-manual-folder">{text("welcome.folderPath")}</label>
                       <div className="lw-welcome-manual-row">
                         <input
                           id="lw-manual-folder"
@@ -150,29 +155,28 @@ export function LawossWelcomePage({
                           autoComplete="off"
                         />
                         <Button variant="outline" onClick={useManualFolder} disabled={busy || !manualFolder.trim()}>
-                          Použiť cestu
+                          {text("welcome.usePath")}
                         </Button>
                       </div>
                     </div>
                   ) : null}
                   <Button size="lg" className="w-full" onClick={continueOnboarding} disabled={busy}>
-                    {busy ? busyPhase === "engine" ? "Spúšťame pracovné prostredie…" : busyPhase === "session" ? "Pripravujeme prvú úlohu…" : "Vytvárame pracovné miesto…" : detailed ? "Vybrať priečinok a pokračovať" : "Použiť odporúčané nastavenie"}
+                    {busy ? busyPhase === "engine" ? text("welcome.startingEngine") : busyPhase === "session" ? text("welcome.preparingTask") : text("welcome.creatingWorkspace") : detailed ? text("welcome.pickAndContinue") : text("welcome.useRecommended")}
                   </Button>
                   {error ? <p className="lw-welcome-err">{error}</p> : null}
                   <p className="lw-welcome-fine">
-                    Beží na tomto počítači. Dokumenty sa zdieľajú iba s modelom, ktorý si vyberiete.
+                    {text("welcome.localNote")}
                   </p>
 
                   <div className="lw-welcome-analytics">
                     <div>
-                      <div className="lw-welcome-step-t">Pomôžte nám aplikáciu zlepšovať</div>
+                      <div className="lw-welcome-step-t">{text("welcome.improve")}</div>
                       <p className="lw-welcome-step-d">
-                        Anonymné údaje o používaní — ktoré funkcie používate, chyby a výkon. Nikdy nie vaše dokumenty,
-                        prompty ani obsah spisov. Kedykoľvek zmeníte v Nastaveniach.
+                        {text("welcome.analyticsDesc")}
                       </p>
                     </div>
                     <Switch
-                      aria-label="Zdieľať anonymné údaje o používaní"
+                      aria-label={text("welcome.analyticsLabel")}
                       checked={analyticsEnabled}
                       onCheckedChange={onAnalyticsChange}
                       className="data-checked:bg-foreground data-checked:border-transparent"
@@ -185,31 +189,30 @@ export function LawossWelcomePage({
             <div className="lw-welcome-panel-wrap">
               <div className="lw-welcome-panel">
                 <div>
-                  <span className="lw-sc lw-welcome-eyebrow">Prvá úloha</span>
-                  <h2 className="lw-welcome-h2">Otvorte priečinok a povedzte, čo treba.</h2>
+                  <span className="lw-sc lw-welcome-eyebrow">{text("welcome.firstTask")}</span>
+                  <h2 className="lw-welcome-h2">{text("welcome.taskTitle")}</h2>
                 </div>
 
                 <div className="lw-welcome-tasks">
                   {PRVA_ULOHA.map((task) => (
                     <div key={task} className="lw-welcome-task">
                       <span className="lw-welcome-dot" />
-                      {task}
+                      {text(task)}
                     </div>
                   ))}
                 </div>
 
                 <div className="lw-welcome-todo">
-                  <b>Čo bude nasledovať</b>
+                  <b>{text("welcome.next")}</b>
                   <p>
-                    Najprv vytvoríme pracovné miesto bez úprav vašich dokumentov. Potom pripojíte AI model a môžete
-                    voliteľne zapnúť Office alebo hlasovú transkripciu.
+                    {text("welcome.nextDesc")}
                   </p>
                   <p>
-                    Ak onboarding prerušíte, zvolený spôsob nastavenia a posledný krok zostanú uložené v tomto počítači.
+                    {text("welcome.resume")}
                   </p>
                   <p>
-                    Čo už vzniklo a čo ešte chýba, ukáže register{" "}
-                    <Link to="/experimenty/prve-nastavenie">Prvé nastavenie</Link>. Otvoríte ho aj neskôr.
+                    {text("welcome.ledgerBefore")}{" "}
+                    <Link to="/experimenty/prve-nastavenie">{text("welcome.ledger")}</Link>. {text("welcome.ledgerAfter")}
                   </p>
                 </div>
               </div>

@@ -12,6 +12,10 @@ export type PlanGroupItem = {
   label: string;
   /** Prečo je položka práve v tejto skupine. */
   note: string;
+  /** UI-only keys; raw labels and notes stay independent of language. */
+  labelKey?: string;
+  noteKey?: string;
+  noteParams?: Record<string, string>;
 };
 
 export type PlanGroups = {
@@ -47,9 +51,9 @@ export function groupPlan(rows: readonly PlanEntry[], context: PlanGroupContext)
 
   for (const row of rows) {
     if (row.action === "skip") {
-      groups.zostava.push({ label: row.path, note: "už existuje — plán ho neprepisuje" });
+      groups.zostava.push({ label: row.path, note: "už existuje — plán ho neprepisuje", noteKey: "lawoss.setup.plan.exists" });
     } else {
-      groups.prida.push({ label: row.path, note: "vznikne" });
+      groups.prida.push({ label: row.path, note: "vznikne", noteKey: "lawoss.setup.plan.create" });
     }
   }
 
@@ -58,24 +62,24 @@ export function groupPlan(rows: readonly PlanEntry[], context: PlanGroupContext)
   const title = form.title.trim();
 
   if (!title) {
-    groups.pozornost.push({ label: "Názov", note: "prázdne povinné pole — priečinok by vznikol ako „[názov]“" });
+    groups.pozornost.push({ label: "Názov", labelKey: "lawoss.setup.wizard.name", noteKey: "lawoss.setup.plan.missingTitle", note: "prázdne povinné pole — priečinok by vznikol ako „[názov]“" });
   } else if (folder !== title) {
     // Spisová značka má lomítko (`MSPH 79 INS 1/2026`); názov priečinka je jeden
     // segment, názov veci v karte ostáva pôvodný. Advokát musí vidieť oboje.
-    groups.pozornost.push({ label: folder, note: `názov priečinka sa líši od názvu veci „${title}“ — upravený na jeden segment` });
+    groups.pozornost.push({ label: folder, noteKey: "lawoss.setup.plan.sanitized", noteParams: { title }, note: `názov priečinka sa líši od názvu veci „${title}“ — upravený na jeden segment` });
   }
 
   if (form.subject === "pravnicka-osoba" || form.subject === "fyzicka-osoba-podnikatel") {
-    if (!form.ico.trim()) groups.pozornost.push({ label: form.identifierType || "Identifikátor", note: "chýba registračný identifikátor klienta" });
+    if (!form.ico.trim()) groups.pozornost.push({ label: form.identifierType || "Identifikátor", labelKey: form.identifierType ? undefined : "lawoss.setup.plan.identifier", noteKey: "lawoss.setup.plan.missingId", note: "chýba registračný identifikátor klienta" });
   }
 
   if (form.subject !== "spis" && form.subject !== "projekt") {
-    if (!form.country?.trim()) groups.pozornost.push({ label: "Krajina klienta", note: "doplň krajinu; jurisdikcia veci ju nenahrádza" });
-    groups.pozornost.push({ label: "Overenie subjektu", note: "zatiaľ neoverené — preverenie sa vykoná pri inicializácii; samotná požiadavka nie je výsledkom" });
+    if (!form.country?.trim()) groups.pozornost.push({ label: "Krajina klienta", labelKey: "lawoss.setup.plan.country", noteKey: "lawoss.setup.plan.missingCountry", note: "doplň krajinu; jurisdikcia veci ju nenahrádza" });
+    groups.pozornost.push({ label: "Overenie subjektu", labelKey: "lawoss.setup.plan.verification", noteKey: "lawoss.setup.plan.unverified", note: "zatiaľ neoverené — preverenie sa vykoná pri inicializácii; samotná požiadavka nie je výsledkom" });
   }
 
   if (workspacePath && workspaceRelativePath(dir, workspacePath) === null) {
-    groups.pozornost.push({ label: dir, note: "cesta mimo workspace — agent na ňu potrebuje povolenie (Tool Permissions)" });
+    groups.pozornost.push({ label: dir, noteKey: "lawoss.setup.plan.outsideWorkspace", note: "cesta mimo workspace — agent na ňu potrebuje povolenie (Tool Permissions)" });
   }
 
   return groups;

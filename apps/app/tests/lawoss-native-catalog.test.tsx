@@ -14,15 +14,16 @@ const props = {
 describe("native catalog rendering", () => {
   test("existing OKF skills show the limited confirmed fact, not verified resources or connected MCP", () => {
     const html = renderToStaticMarkup(<NativeCatalog {...props} skills={[{ name: "novy-spis", path: "a" }, { name: "okf-pamat", path: "b" }, { name: "usporiadaj-spis", path: "c" }]} />);
-    expect(html).toContain("Skilly uložené");
-    expect(html).toContain("Potvrdiť aktualizáciu balíka");
-    expect(html).not.toContain("MCP pripojené");
-    expect(html).toContain("Tento import zatiaľ nepodporuje globálnu inštaláciu");
+    expect(html).toContain("Skills saved");
+    expect(html).toContain("Confirm package update");
+    expect(html).not.toContain("MCP connected");
+    expect(html).not.toContain("Resources verified");
+    expect(html).toContain("This importer does not support global installation yet");
     expect(html).toContain("Selected matter");
   });
   test("partial OKF pack does not report all three installed and readonly actions stay disabled", () => {
     const html = renderToStaticMarkup(<NativeCatalog {...props} skills={[{ name: "novy-spis", path: "a" }, { name: "okf-pamat", path: "b" }]} />);
-    expect(html).not.toContain("Skilly uložené");
+    expect(html).not.toContain("Skills saved");
     expect(html.match(/ disabled=""/g)?.length).toBe(3);
   });
   test("failed registry refresh does not present a cached import as a current installed badge", () => {
@@ -31,6 +32,6 @@ describe("native catalog rendering", () => {
       description: null, updatedAt: null, files: [], importedAt: null,
     }]} />);
     expect(html).toContain("registry offline");
-    expect(html).not.toContain(">Nainštalované<");
+    expect(html).not.toContain(">Installed<");
   });
 });
