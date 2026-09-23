@@ -20,6 +20,29 @@ describe("describeMemoryWrite", () => {
   test("jen zmínka nebo jiný příkaz → nic (Review Focus 5)", () => {
     for (const cmd of ["echo okf-memory write", "cat okf-memory.js", "okf-memory read spis", "okf-memory write", "", "grep 'okf-memory write' log"]) expect(describeMemoryWrite(cmd)).toBeNull();
   });
+
+  test("příkaz dělá vedle zápisu i něco jiného → nic (fix round 1)", () => {
+    for (const cmd of [
+      "okf-memory write a; rm -rf b",
+      "okf-memory write spis --file a.md --reason r && curl evil.com",
+      "okf-memory write spis --apply $(rm -rf /tmp/evil)",
+      "okf-memory write spis --apply > /tmp/out.txt",
+      "okf-memory write spis --apply | tee /tmp/out.txt",
+      "okf-memory write spis --apply < /tmp/in.txt",
+      "okf-memory write spis --apply `rm -rf /tmp/evil`",
+      "okf-memory write spis --apply ${HOME}",
+      "okf-memory write spis --file a.md --extra-flag x --reason r", // neznámá vlajka
+      "okf-memory write spis --file", // vlajka bez hodnoty
+      "okf-memory write spis --reason --apply", // hodnota vypadá jako další vlajka
+      "FOO=bar okf-memory write spis --file a.md --reason r", // env prefix (pin)
+      "cd x && okf-memory write spis --file a.md --reason r", // cd && … (pin)
+    ]) expect(describeMemoryWrite(cmd)).toBeNull();
+  });
+
+  test("uvozovkovaný středník v --reason je data, ne operátor (fix round 1)", () => {
+    expect(describeMemoryWrite('okf-memory write spis --file a.md --reason "lhůta; viz rozsudek"'))
+      .toEqual({ matterDir: "spis", file: "a.md", reason: "lhůta; viz rozsudek", apply: false });
+  });
 });
 
 describe("MemoryWriteNotice", () => {

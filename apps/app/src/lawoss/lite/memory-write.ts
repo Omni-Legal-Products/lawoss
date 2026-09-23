@@ -1,10 +1,17 @@
 /**
  * Rozpozná návrh zápisu do paměti věci (`okf-memory write …`) v příkazu bash
  * permission requestu, aby se v lite zobrazila srozumitelná karta místo
- * syrového shellu. Cokoli mimo přesný tvar `[node|bun] <cesta k okf-memory>
- * write <spis> [--file …] [--reason …] [--apply] [--approve-as …]`
- * (zmínka v jiném příkazu, jiný podpříkaz, chybějící spis) vrací `null` —
- * karta se pak nezobrazí a panel zůstane beze změny (Review Focus 5).
+ * syrového shellu. Vrací proposal jen když je celý příkaz PŘESNĚ jedno
+ * volání `[node|bun] <cesta k okf-memory> write <spis> [--file …]
+ * [--reason …] [--apply] [--approve-as …]` — nic jiného vedle toho.
+ * Cokoli jiné vrací `null` (karta se nezobrazí, panel beze změny):
+ * zmínka v jiném příkazu, jiný podpříkaz, chybějící spis (Review Focus 5);
+ * jakýkoli neuvozovkovaný shell operátor (`;`, `&`, `|`, `<`, `>`, zpětné
+ * apostrofy, `$(`, `${`, konec řádku) kdekoli v příkazu — schválený příkaz
+ * by jinak dělal i něco jiného, než co karta popisuje; nerozpoznaný nebo
+ * přebytečný token po vlajkách; vlajka vyžadující hodnotu bez ní. Uvozovky
+ * dělají z metaznaků uvnitř data, ne operátor (`--reason "a; b"` je v
+ * pořádku) — vždy raději `null` než hádat (fix round 1).
  */
 
 export type MemoryWriteProposal = {
@@ -15,7 +22,16 @@ export type MemoryWriteProposal = {
   approvedBy?: string;
 };
 
-/** Rozdělí příkaz na tokeny; uvozovky `"…"`/`'…'` drží obsah pohromadě. */
+/** Neuvozovkovaný shell operátor/metaznak — příkaz dělá i něco jiného než navržený zápis. */
+const UNQUOTED_METACHAR = /[;&|<>`\n\r]/;
+
+/**
+ * Rozdělí příkaz na tokeny; uvozovky `"…"`/`'…'` drží obsah pohromadě (uvnitř
+ * uvozovek jsou metaznaky data, ne operátor — např. `--reason "a; b"` je v
+ * pořádku). Neuvozovkovaný `;`, `&`, `|`, `<`, `>`, zpětné apostrofy, konec
+ * řádku nebo `$(`/`${` znamenají, že příkaz dělá vedle zápisu i něco jiného
+ * → `null`, karta se nezobrazí (nikdy nehádat, viz fix round 1).
+ */
 function tokenize(command: string): string[] | null {
   const tokens: string[] = [];
   let i = 0;
@@ -30,7 +46,12 @@ function tokenize(command: string): string[] | null {
       i = end + 1;
     } else {
       const start = i;
-      while (i < command.length && !/\s/.test(command[i]!)) i++;
+      while (i < command.length && !/\s/.test(command[i]!)) {
+        const c = command[i]!;
+        if (UNQUOTED_METACHAR.test(c)) return null;
+        if (c === "$" && (command[i + 1] === "(" || command[i + 1] === "{")) return null;
+        i++;
+      }
       tokens.push(command.slice(start, i));
     }
   }
@@ -66,11 +87,17 @@ export function describeMemoryWrite(command: string): MemoryWriteProposal | null
     let approvedBy: string | undefined;
     for (; i < tokens.length; i++) {
       const tok = tokens[i];
-      if (tok === "--file") file = tokens[++i];
-      else if (tok === "--reason") reason = tokens[++i];
-      else if (tok === "--apply") apply = true;
-      else if (tok === "--approve-as") approvedBy = tokens[++i];
-      else if (tok === "--if-revision") i++; // cíl úpravy, nepotřebné pro kartu
+      if (tok === "--apply") { apply = true; continue; }
+      if (tok === "--file" || tok === "--reason" || tok === "--approve-as" || tok === "--if-revision") {
+        const value = tokens[++i];
+        if (value === undefined || value.startsWith("--")) return null; // flag bez hodnoty
+        if (tok === "--file") file = value;
+        else if (tok === "--reason") reason = value;
+        else if (tok === "--approve-as") approvedBy = value;
+        // --if-revision: cíl úpravy, hodnota se jen spotřebuje, do karty nepatří
+        continue;
+      }
+      return null; // neznámý/přebytečný token — příkaz dělá i něco jiného, nikdy nehádat
     }
 
     return { matterDir, file, reason, apply, approvedBy };
