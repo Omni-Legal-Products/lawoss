@@ -37,8 +37,8 @@ const output = readFileSync(process.argv[2], "utf8");
 const match = /^### Result\r?\n([^\r\n]+)/m.exec(output);
 assert.ok(match, "No completed browser result; CLI exit 0 alone is not a PASS");
 const result = JSON.parse(match[1]);
-assert.equal(result.checks, 18, "All 18 regression assertions must finish");
-assert.equal(result.results.length, 18);
+assert.equal(result.checks, 19, "All 19 regression assertions must finish");
+assert.equal(result.results.length, 19);
 console.log(JSON.stringify(result, null, 2));
 JS
 pnpm dlx @playwright/cli --session lawoss-markdown-regression close
@@ -51,24 +51,21 @@ only while moving between its independent synthetic scenarios.
 
 ## Expected results and limits
 
-The current fix passes **18 assertions**: exact clean open; explicit links;
+The current fix passes **19 assertions**: exact clean open; explicit links;
 focus, toolbar Tab navigation, source/rich switching and prop refresh; real
 typing, undo/redo content protection and save; CreateLink; exact source whitespace
 edits and restoration; read-only behavior; full-panel open, focus refetch,
 external updates, draft preservation and source save.
 
-**Known limitation, not a passing clean-state assertion:** after real rich-text
-editing, Undo can restore canonical Markdown rather than the original byte
-representation. Original bullet formatting, bracket escaping and final blank
-lines can therefore leave `dirty=true`. This predates and is separate from
-the automatic-link clean-open bug, tracked in [issue #90](https://github.com/Omni-Legal-Products/lawoss/issues/90). The JSON result records it under
-`knownLimitations`; it must not be described as successful exact-byte undo.
-Restoring the exact original text in Source mode does return to clean.
-
-To reproduce that separate limitation as a failing assertion, open the same
-fixture with `?strictUndo=1` in the dedicated session and run the same script.
-It must currently fail with `Known limitation: undo leaves canonical Markdown
-dirty instead of restoring exact original bytes`.
+**Undo back to the original (#90):** after real rich-text editing MDXEditor
+serializes the whole document canonically (bracket escaping, bullet marker,
+final blank lines). Undo history is per typed character, so the regression
+undoes until the typed text is gone and then asserts `dirty=false` with the
+exact original bytes. The editor maps its canonical form of the untouched
+document back to the original source, in rich-text mode only
+(`apps/app/src/lawoss/markdown/pristine.ts`); Source-mode edits are never
+remapped. A single Undo step leaves the rest of the edit in place and is
+correctly dirty.
 
 Tab inside editable rich text can insert an actual tab character. The clean
 navigation assertion therefore uses toolbar Tab navigation; real text input
