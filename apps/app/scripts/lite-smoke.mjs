@@ -7,69 +7,138 @@
  * Usage: node scripts/lite-smoke.mjs [--cdp-url http://127.0.0.1:9223]
  * Env:   CDP_URL overrides the same way; otherwise probes 127.0.0.1:9223-9227.
  *
- * Never leaves the app in a different UI mode than it found it in (finally),
- * and never writes anything else — no chat, no memory, no files.
+ * Never leaves the app in a different UI mode than it found it in — restored
+ * both on normal completion and on SIGINT/SIGTERM, through a single guarded
+ * restore path (see `createModeRestoreGuard`) so the two can't double-restore
+ * or race on the exit code. Never writes anything else — no chat, no memory,
+ * no files.
  */
 
 const DEFAULT_PORTS = [9223, 9224, 9225, 9226, 9227];
 const WAIT_TIMEOUT_MS = 15000;
 const POLL_MS = 150;
 const PROBE_TIMEOUT_MS = 1500;
+const RESTORE_TIMEOUT_MS = 5000;
 
 const args = parseArgs(process.argv.slice(2));
 const explicitCdpUrl = args.cdpUrl ?? process.env.CDP_URL ?? "";
 
 const checks = [];
 
-async function main() {
-  let client = null;
-  let originalMode = null;
+// ---------------------------------------------------------------------------
+// Single-restore guard, shared by the normal `finally` path and the signal
+// handlers below, so a SIGINT/SIGTERM arriving mid-run restores the original
+// mode at most once — never twice, never racing the normal exit.
+// ---------------------------------------------------------------------------
 
+let activeClient = null;
+let originalUiMode = null;
+
+const restoreOriginalModeOnce = createModeRestoreGuard({
+  getClient: () => activeClient,
+  getOriginalMode: () => originalUiMode,
+  restore: (client, mode) => setMode(client, mode),
+  timeoutMs: RESTORE_TIMEOUT_MS,
+});
+
+/** Pure factory so the once-only + bounded behavior is unit-testable without CDP. */
+export function createModeRestoreGuard({ getClient, getOriginalMode, restore, timeoutMs }) {
+  let promise = null;
+  return function restoreOnce() {
+    if (!promise) {
+      promise = (async () => {
+        const client = getClient();
+        const mode = getOriginalMode();
+        if (!client || !mode) return { attempted: false };
+        try {
+          await withTimeout(restore(client, mode), timeoutMs, "restore mode timed out");
+          return { attempted: true, ok: true };
+        } catch (error) {
+          return { attempted: true, ok: false, error: error instanceof Error ? error.message : String(error) };
+        }
+      })();
+    }
+    return promise;
+  };
+}
+
+function withTimeout(promise, ms, message) {
+  let timer;
+  const timeout = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+let exitCode = null;
+/** Guards `process.exit` itself so the normal-completion path and a signal handler can't both decide the exit code. */
+function exitOnce(code) {
+  if (exitCode !== null) return;
+  exitCode = code;
+  process.exit(code);
+}
+
+async function handleSignal(signal, code) {
+  console.log(`\n${signal} received — restoring original UI mode (bounded, ≤${RESTORE_TIMEOUT_MS}ms) before exit…`);
+  const outcome = await restoreOriginalModeOnce();
+  if (outcome.attempted) {
+    console.log(outcome.ok ? "Restored original UI mode." : `Failed to restore original UI mode: ${outcome.error}`);
+  } else {
+    console.log("Nothing to restore (mode was not read/changed yet).");
+  }
+  exitOnce(code);
+}
+
+process.on("SIGINT", () => { void handleSignal("SIGINT", 130); });
+process.on("SIGTERM", () => { void handleSignal("SIGTERM", 143); });
+
+async function main() {
   try {
     const resolved = await step("connect to a running LAWOSS app via CDP", () => resolveTarget());
-    client = resolved.client;
+    activeClient = resolved.client;
     console.log(`Connected to ${resolved.baseUrl} (${resolved.target.url})`);
 
     await step("control API ready (window.__legalworkControl)", () =>
-      waitFor(client, "Boolean(window.__legalworkControl)", WAIT_TIMEOUT_MS));
+      waitFor(activeClient, "Boolean(window.__legalworkControl)", WAIT_TIMEOUT_MS));
 
-    originalMode = await step("read original UI mode (lawoss.lite.mode.get)", () => getMode(client));
-    console.log(`Original UI mode: ${originalMode}`);
+    originalUiMode = await step("read original UI mode (lawoss.lite.mode.get)", () => getMode(activeClient));
+    console.log(`Original UI mode: ${originalUiMode}`);
 
-    await step("lawoss.lite.mode.set → lite", () => setMode(client, "lite"));
+    await step("lawoss.lite.mode.set → lite", () => setMode(activeClient, "lite"));
 
-    await step("lawoss.lite.route.today", () => executeAction(client, "lawoss.lite.route.today"));
+    await step("lawoss.lite.route.today", () => executeAction(activeClient, "lawoss.lite.route.today"));
     await step('route.today shows [data-lawoss-lite="today"]', () =>
-      waitFor(client, 'Boolean(document.querySelector(\'[data-lawoss-lite="today"]\'))', WAIT_TIMEOUT_MS));
+      waitFor(activeClient, 'Boolean(document.querySelector(\'[data-lawoss-lite="today"]\'))', WAIT_TIMEOUT_MS));
 
-    await step('sidebar shows [data-lawoss-lite-nav="today"]', () =>
-      waitFor(client, 'Boolean(document.querySelector(\'[data-lawoss-lite-nav="today"]\'))', WAIT_TIMEOUT_MS));
-
-    await step("sidebar hides pro-only items (Workflows/Evaluations) in lite mode", async () => {
-      const probe = await evaluate(client, sidebarProbeExpression());
-      assertTrue(probe.present, "sidebar ([data-slot=\"sidebar\"]) not found");
-      assertTrue(!/Workflows|Evaluations/.test(probe.text), `sidebar text still mentions Workflows/Evaluations: ${probe.text.slice(0, 200)}`);
+    await step("sidebar reflects lite mode (today nav present, experiments marker absent)", async () => {
+      const probe = await evaluate(activeClient, sidebarProbeExpression());
+      assertTrue(probe.present, 'sidebar ([data-slot="sidebar"]) not found');
+      assertTrue(probe.hasLiteToday, 'sidebar does not show [data-lawoss-lite-nav="today"] in lite mode');
+      assertTrue(!probe.hasExperiments, 'sidebar still shows [data-lawoss-nav="experiments"] in lite mode');
     });
 
-    await step("lawoss.lite.route.clients", () => executeAction(client, "lawoss.lite.route.clients"));
+    await step("lawoss.lite.route.clients", () => executeAction(activeClient, "lawoss.lite.route.clients"));
     await step('route.clients shows [data-lawoss-lite="clients"]', () =>
-      waitFor(client, 'Boolean(document.querySelector(\'[data-lawoss-lite="clients"]\'))', WAIT_TIMEOUT_MS));
+      waitFor(activeClient, 'Boolean(document.querySelector(\'[data-lawoss-lite="clients"]\'))', WAIT_TIMEOUT_MS));
 
-    await step("lawoss.lite.mode.set → pro", () => setMode(client, "pro"));
+    await step("lawoss.lite.mode.set → pro", () => setMode(activeClient, "pro"));
 
-    await step('sidebar shows [data-lawoss-nav="experiments"] (pro) and hides lite nav', async () => {
-      await waitFor(client, 'Boolean(document.querySelector(\'[data-lawoss-nav="experiments"]\'))', WAIT_TIMEOUT_MS);
-      const probe = await evaluate(client, sidebarProbeExpression());
-      assertTrue(probe.hasExperiments, "sidebar does not show [data-lawoss-nav=\"experiments\"] in pro mode");
+    await step("sidebar reflects pro mode (experiments marker present, lite nav absent)", async () => {
+      await waitFor(activeClient, 'Boolean(document.querySelector(\'[data-lawoss-nav="experiments"]\'))', WAIT_TIMEOUT_MS);
+      const probe = await evaluate(activeClient, sidebarProbeExpression());
+      assertTrue(probe.hasExperiments, 'sidebar does not show [data-lawoss-nav="experiments"] in pro mode');
       assertTrue(!probe.hasLiteNavAny, "sidebar still shows a [data-lawoss-lite-nav] item in pro mode");
     });
   } catch {
     // Already recorded by step(); fall through to restore + report.
   } finally {
-    if (client && originalMode) {
-      await step(`restore original UI mode (${originalMode})`, () => setMode(client, originalMode)).catch(() => {});
+    if (activeClient && originalUiMode) {
+      await step(`restore original UI mode (${originalUiMode})`, async () => {
+        const outcome = await restoreOriginalModeOnce();
+        if (outcome.attempted && !outcome.ok) throw new Error(outcome.error);
+      }).catch(() => {});
     }
-    client?.close();
+    activeClient?.close();
   }
 
   return report();
@@ -128,13 +197,19 @@ async function executeAction(client, actionId, actionArgs = undefined) {
   return result;
 }
 
+/**
+ * Locale-independent: checks structural `data-*` markers only (no sidebar
+ * text/word matching — the app renders in Czech/Slovak/English depending on
+ * the user's locale, so "Workflows"/"Evaluations" would never match a
+ * Czech-locale run and the check would pass vacuously).
+ */
 function sidebarProbeExpression() {
   return `(() => {
     const sidebar = document.querySelector('[data-slot="sidebar"]');
-    if (!sidebar) return { present: false, text: "", hasLiteNavAny: false, hasExperiments: false };
+    if (!sidebar) return { present: false, hasLiteToday: false, hasLiteNavAny: false, hasExperiments: false };
     return {
       present: true,
-      text: sidebar.innerText || "",
+      hasLiteToday: Boolean(sidebar.querySelector('[data-lawoss-lite-nav="today"]')),
       hasLiteNavAny: Boolean(sidebar.querySelector('[data-lawoss-lite-nav]')),
       hasExperiments: Boolean(sidebar.querySelector('[data-lawoss-nav="experiments"]')),
     };
@@ -286,9 +361,14 @@ function parseArgs(values) {
   return parsed;
 }
 
-main().then((ok) => {
-  process.exit(ok ? 0 : 1);
-}).catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+// Only run when executed directly (`node scripts/lite-smoke.mjs`), not when
+// imported by a unit test for `createModeRestoreGuard`.
+const isMainModule = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
+if (isMainModule) {
+  main().then((ok) => {
+    exitOnce(ok ? 0 : 1);
+  }).catch((error) => {
+    console.error(error);
+    exitOnce(1);
+  });
+}
