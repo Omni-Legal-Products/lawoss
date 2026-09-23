@@ -9,7 +9,7 @@ export function pendingInputs(input: MatterInput): PendingInput[] {
   const rows: PendingInput[] = [];
   for (const line of (input.intake ?? "").split("\n")) {
     const cells = line.trim().split("|").slice(1, -1).map((cell) => cell.trim());
-    if (cells[4] !== "pending" || !cells[0]) continue;
+    if (cells[4] !== "pending") continue; // prázdné ID zůstává "" — kokpit ho ukazoval vždy
     rows.push({ id: cells[0], received: cells[1] ?? "", source: cells[2] ?? "", original: cells[3] ?? "", matterPath: input.path, file });
   }
   return rows;

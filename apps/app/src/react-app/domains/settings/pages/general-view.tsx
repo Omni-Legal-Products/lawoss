@@ -142,9 +142,11 @@ export function GeneralSettingsView(props: GeneralSettingsViewProps) {
     <div className="w-full max-w-3xl space-y-9">
       <SettingsGroup label={t("settings.group_workspace")} items={workspaceItems().filter((item) => isSettingsTabVisible(item.tab, currentUiMode()))} onNavigateTab={props.onNavigateTab} />
       <SettingsGroup label={t("settings.group_global")} items={resolveGlobalItems()} onNavigateTab={props.onNavigateTab} />
-      <p className="px-1 text-[11px] text-muted-foreground/70">
-        {t("settings.tab_description_general")}
-      </p>
+      {currentUiMode() === "lite" ? null : ( // LAWOSS-lite: patička mluví o workspace
+        <p className="px-1 text-[11px] text-muted-foreground/70">
+          {t("settings.tab_description_general")}
+        </p>
+      )}
     </div>
   );
 }

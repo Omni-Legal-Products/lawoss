@@ -12,6 +12,8 @@ import { LiteNav, LiteNavView } from "../src/lawoss/lite/lite-nav";
 import { UiModeSwitchView } from "../src/lawoss/lite/ui-mode-switch";
 import { LawossNav, LawossLayout } from "../src/lawoss/shell/layout";
 import { liteMatterLink } from "../src/lawoss/lite/links";
+import { GeneralSettingsView } from "../src/react-app/domains/settings/pages/general-view";
+import { currentUiMode, setUiMode } from "../src/lawoss/lite/ui-mode";
 
 const html = (node: ReactElement) => renderToStaticMarkup(
   <QueryClientProvider client={new QueryClient()}>
@@ -81,6 +83,16 @@ describe("boční panel LAWOSS-lite", () => {
 });
 
 describe("nastavení LAWOSS-lite: přepínač workspace", () => {
+  test("Nastavení → Obecné: lite skryje patičku s „workspace“, pro ji ukáže (final review I4)", () => {
+    const before = currentUiMode();
+    const footer = t("settings.tab_description_general");
+    try {
+      setUiMode("lite");
+      expect(html(<GeneralSettingsView onNavigateTab={() => {}} developerMode={false} />)).not.toContain(footer);
+      setUiMode("pro");
+      expect(html(<GeneralSettingsView onNavigateTab={() => {}} developerMode={false} />)).toContain(footer);
+    } finally { setUiMode(before); }
+  });
   test("lite přepínač workspace skryje, pro ho ukáže", () => {
     expect(isWorkspaceSwitcherVisible("lite")).toBe(false);
     expect(isWorkspaceSwitcherVisible("pro")).toBe(true);

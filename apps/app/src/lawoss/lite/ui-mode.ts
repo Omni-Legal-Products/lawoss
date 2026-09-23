@@ -8,6 +8,13 @@ export type UiMode = "lite" | "pro";
 export const UI_MODE_STORAGE_KEY = "lawoss.uiMode";
 /** Existence aktivního workspace = aplikace už byla používána (session-memory.ts). */
 const ACTIVE_WORKSPACE_KEY = "legalwork.react.activeWorkspace";
+/**
+ * Značka, kterou `bootstrapLawoss()` (lawoss/theme/bootstrap.ts, MIGRATION_KEY) zapíše při
+ * každém startu. Přežije smazání vybraného workspace, takže i takový uživatel zůstane v pro.
+ * Tento modul se vyhodnotí při importu, tedy dřív než bootstrap — čistá instalace ji ještě nemá.
+ * Kopie řetězce, ne import: bootstrap sám importuje tento modul.
+ */
+const BOOTSTRAPPED_KEY = "lawoss.theme-migrated-to-dark";
 
 const listeners = new Set<() => void>();
 
@@ -26,7 +33,7 @@ function resolve(): UiMode {
   try {
     const stored = store.getItem(UI_MODE_STORAGE_KEY);
     if (isUiMode(stored)) return stored;
-    const derived: UiMode = store.getItem(ACTIVE_WORKSPACE_KEY) ? "pro" : "lite";
+    const derived: UiMode = store.getItem(ACTIVE_WORKSPACE_KEY) || store.getItem(BOOTSTRAPPED_KEY) ? "pro" : "lite";
     store.setItem(UI_MODE_STORAGE_KEY, derived);
     return derived;
   } catch {
@@ -39,7 +46,6 @@ let state: UiMode = resolve();
 function notify(): void { for (const listener of listeners) listener(); }
 
 export function currentUiMode(): UiMode { return state; }
-export function isLite(): boolean { return state === "lite"; }
 
 export function setUiMode(mode: UiMode): void {
   if (!isUiMode(mode) || mode === state) return;

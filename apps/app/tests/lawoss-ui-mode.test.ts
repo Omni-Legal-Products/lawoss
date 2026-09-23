@@ -37,6 +37,14 @@ describe("režim zobrazení lite/pro", () => {
     expect(storage.get(mode.UI_MODE_STORAGE_KEY)).toBe("pro");
   });
 
+  test("existující instalace po smazání vybraného workspace (jen značka bootstrapu) zůstane v pro — final review I2", () => {
+    storage.delete(mode.UI_MODE_STORAGE_KEY);
+    storage.set("lawoss.theme-migrated-to-dark", "1");
+    mode.reloadUiModeFromStorage();
+    expect(mode.currentUiMode()).toBe("pro");
+    expect(storage.get(mode.UI_MODE_STORAGE_KEY)).toBe("pro");
+  });
+
   test("uložená volba má přednost", () => {
     storage.set(ACTIVE_WORKSPACE_KEY, "ws_1");
     storage.set(mode.UI_MODE_STORAGE_KEY, "lite");
@@ -60,7 +68,7 @@ describe("režim zobrazení lite/pro", () => {
     mode.setUiMode("pro");
     expect(calls).toBe(1);
     expect(storage.get(mode.UI_MODE_STORAGE_KEY)).toBe("pro");
-    expect(mode.isLite()).toBe(false);
+    expect(mode.currentUiMode()).toBe("pro");
     off();
   });
 });

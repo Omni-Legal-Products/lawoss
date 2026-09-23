@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { pendingInputs } from "../../../lawoss/okf/inputs";
+import { attention } from "../../../lawoss/okf/cockpit";
 import { buildToday, groupByClient } from "../src/lawoss/lite/today-model";
 import type { MatterInput, MatterOverview, UpcomingDeadline } from "../../../lawoss/okf/read";
 import { LAYER_OF } from "../../../lawoss/okf-pamat/src/schema.ts";
@@ -26,6 +27,14 @@ describe("pendingInputs", () => {
       { id: "IN-1", received: "2026-09-22", source: "datová schránka", original: "zprava.pdf", matterPath: "Klienti/X", file: "Klienti/X/VSTUPY.md" }]);
   });
   test("bez VSTUPY.md nic", () => expect(pendingInputs(input("Klienti/X", ""))).toEqual([]));
+  test("řádek pending s prázdným ID zůstane (pro kokpit ho vždy ukazoval) — final review I1", () => {
+    const intake = "| ID | Přijato | Zdroj | Originál | Stav | Výsledné záznamy |\n|---|---|---|---|---|---|\n|  | 2026-09-22 | e-mail | dopis.pdf | pending | |\n";
+    const inp = input("AK/N/Novák Jan/Spisy/Odvolání", intake);
+    expect(pendingInputs(inp)).toEqual([
+      { id: "", received: "2026-09-22", source: "e-mail", original: "dopis.pdf", matterPath: inp.path, file: `${inp.path}/VSTUPY.md` }]);
+    const rows = attention(novak, inp, [], "2026-09-23").filter((row) => row.id.startsWith("vstup:"));
+    expect(rows).toEqual([{ id: "vstup:", kind: "záznam", state: "nespracované", title: "Nespracovaný vstup ", detail: "e-mail · dopis.pdf", file: `${inp.path}/VSTUPY.md` }]);
+  });
 });
 
 describe("buildToday", () => {
