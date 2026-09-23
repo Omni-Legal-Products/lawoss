@@ -1,0 +1,4 @@
+.lw-lite-tabs { display: flex; gap: 6px; margin: 16px 0 8px; }
+.lw-lite-tabs [role="tab"][aria-selected="true"] { border-color: var(--lw-accent); color: var(--lw-accent); }
+.lw-lite-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.lw-lite-actions .lw-btn:disabled { opacity: 0.5; cursor: default; }
