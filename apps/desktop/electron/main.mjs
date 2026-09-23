@@ -53,7 +53,7 @@ import { createApplicationMenu } from "./app-menu.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
-import { describeBlockedUrl, guardNavigation, isAllowedNavigation, originAllowlistEntry } from "./window-allowlist.mjs";
+import { describeBlockedUrl, fileDirectoryEntry, guardNavigation, isAllowedNavigation, isOpenableDocument, isSafeExternalUrl, originAllowlistEntry } from "./window-allowlist.mjs";
 
 const mcpOAuthCallbacks = createMcpOAuthCallbackBroker();
 const mcpOAuthOwners = new WeakSet();
@@ -106,7 +106,22 @@ const startUrl = process.env.LEGALWORK_ELECTRON_START_URL?.trim() || process.env
 // App windows show only their own document (#47): the dev server origin from
 // the start URL or the packaged file:// bundle; data: carries the shutdown screen.
 const OWN_ORIGINS = originAllowlistEntry(startUrl);
-const NAVIGATION_ALLOWLIST = ["file:", "data:", ...OWN_ORIGINS];
+// LAWOSS: file: only inside the app's own bundle, not arbitrary local files.
+const APP_DOCUMENT_ENTRIES = [
+  fileDirectoryEntry(path.join(process.resourcesPath ?? "", "app-dist")),
+  fileDirectoryEntry(path.resolve(__dirname, "../../app/dist")),
+];
+const NAVIGATION_ALLOWLIST = [...APP_DOCUMENT_ENTRIES, "data:", ...OWN_ORIGINS];
+// Who may call the desktop bridge: the app document only (not data: screens).
+const IPC_SENDER_ALLOWLIST = [...APP_DOCUMENT_ENTRIES, ...OWN_ORIGINS];
+
+/** @param {import("electron").IpcMainInvokeEvent} event */
+function assertTrustedSender(event) {
+  const url = event.senderFrame?.url ?? "";
+  if (!isAllowedNavigation(url, IPC_SENDER_ALLOWLIST)) {
+    throw new Error(`Desktop bridge call refused from untrusted frame: ${describeBlockedUrl(url)}`);
+  }
+}
 const isDevMode = process.env.LEGALWORK_DEV_MODE === "1";
 const APP_NAME =
   process.env.LEGALWORK_ELECTRON_APP_NAME?.trim() ||
@@ -2711,6 +2726,7 @@ const desktopCommandHandlers = {
 };
 
 async function handleDesktopInvoke(event, command, ...args) {
+  assertTrustedSender(event);
   const handler = desktopCommandHandlers[command];
   if (!handler) {
     throw new Error(`Electron desktop bridge method is not implemented yet: ${command}`);
@@ -2728,13 +2744,20 @@ function guardAppWindow(contents) {
   contents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith("file://")) {
       try {
-        void shell.openPath(fileURLToPath(url));
+        const filePath = fileURLToPath(url);
+        // LAWOSS: open known document types; reveal anything else in the file manager.
+        if (isOpenableDocument(filePath)) void shell.openPath(filePath);
+        else shell.showItemInFolder(filePath);
       } catch {
-        void shell.openExternal(url);
+        console.warn(`[window] refused file link: ${describeBlockedUrl(url)}`);
       }
       return { action: "deny" };
     }
     if (isAllowedNavigation(url, OWN_ORIGINS)) return { action: "allow" };
+    if (!isSafeExternalUrl(url)) {
+      console.warn(`[window] refused window.open with unsafe scheme: ${describeBlockedUrl(url)}`);
+      return { action: "deny" };
+    }
     console.warn(`[window] window.open outside allowlist, opening in system browser: ${describeBlockedUrl(url)}`);
     void shell.openExternal(url);
     return { action: "deny" };
@@ -2870,10 +2893,10 @@ async function createMainWindow() {
 }
 
 ipcMain.handle("legalwork:desktop", handleDesktopInvoke);
-ipcMain.handle("legalwork:shell:openExternal", async (_event, url) => {
-  if (typeof url === "string" && url.trim().length > 0) {
-    await shell.openExternal(url);
-  }
+ipcMain.handle("legalwork:shell:openExternal", async (event, url) => {
+  assertTrustedSender(event);
+  if (!isSafeExternalUrl(url)) throw new Error("openExternal accepts only http(s) and mailto URLs");
+  await shell.openExternal(url);
 });
 ipcMain.handle("legalwork:shell:relaunch", async () => {
   app.relaunch();

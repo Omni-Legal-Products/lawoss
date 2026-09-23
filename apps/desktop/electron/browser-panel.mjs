@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { app, WebContentsView, clipboard, session, shell } from "electron";
+import { isSafeExternalUrl } from "./window-allowlist.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BROWSER_SESSION_PARTITION = "persist:legalwork-browser";
@@ -517,7 +518,8 @@ export function createBrowserPanel({ getWindow, getWindowForEvent, remoteDebugPo
     // Cookies live on the session object, not the document — they survive this.
     view.webContents.loadURL("about:blank");
     view.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
-      void shell.openExternal(targetUrl);
+      // LAWOSS: only http(s)/mailto leave the embedded browser.
+      if (isSafeExternalUrl(targetUrl)) void shell.openExternal(targetUrl);
       return { action: "deny" };
     });
     view.webContents.on("did-start-navigation", (_event, targetUrl, isInPlace, isMainFrame) => {

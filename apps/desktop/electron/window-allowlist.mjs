@@ -1,3 +1,5 @@
+import { pathToFileURL } from "node:url";
+
 /**
  * Which URLs an app window (main window, detached session windows) may show.
  *
@@ -19,7 +21,62 @@ export function isAllowedNavigation(url, allowlist) {
   } catch {
     return false;
   }
-  return allowlist.some((entry) => (entry.endsWith(":") ? target.protocol === entry : target.origin === entry));
+  return allowlist.some((entry) => {
+    if (entry.startsWith("file://")) return target.protocol === "file:" && target.href.startsWith(entry);
+    return entry.endsWith(":") ? target.protocol === entry : target.origin === entry;
+  });
+}
+
+/**
+ * Allowlist entry for one directory on disk (the app's own bundle), so app
+ * windows only show the app's own documents. `new URL` resolves `..`, so the
+ * prefix check stays inside the directory.
+ *
+ * @param {string} dir
+ * @returns {string}
+ */
+export function fileDirectoryEntry(dir) {
+  const href = pathToFileURL(dir).href;
+  return href.endsWith("/") ? href : `${href}/`;
+}
+
+const EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
+
+/**
+ * Only these schemes go to `shell.openExternal`; anything else would be
+ * handed to whatever handler the OS has registered for it.
+ *
+ * @param {unknown} url
+ * @returns {boolean}
+ */
+export function isSafeExternalUrl(url) {
+  if (typeof url !== "string") return false;
+  try {
+    return EXTERNAL_PROTOCOLS.has(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+}
+
+// ponytail: allowlist prípon; rozšíriť, keď advokát narazí na ďalší bežný formát
+const DOCUMENT_EXTENSIONS = new Set([
+  "pdf", "doc", "docx", "odt", "rtf", "txt", "md", "xls", "xlsx", "ods", "csv",
+  "ppt", "pptx", "odp", "png", "jpg", "jpeg", "gif", "heic", "tif", "tiff",
+  "eml", "msg", "zfo", "xml", "json", "html", "htm", "mp3", "m4a", "wav",
+]);
+
+/**
+ * `shell.openPath` launches executables and app bundles, so a `file://` link
+ * in rendered content only opens known document types; anything else is
+ * revealed in Finder/Explorer instead.
+ *
+ * @param {string} filePath
+ * @returns {boolean}
+ */
+export function isOpenableDocument(filePath) {
+  const name = filePath.split(/[\\/]/).pop() ?? "";
+  const dot = name.lastIndexOf(".");
+  return dot > 0 && DOCUMENT_EXTENSIONS.has(name.slice(dot + 1).toLowerCase());
 }
 
 /**

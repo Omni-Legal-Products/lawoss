@@ -451,16 +451,16 @@ function parseBlock(block, firstLineNo) {
       const body = t.slice(2).trim();
       const idx = body.indexOf(":");
       if (idx === -1 || body.startsWith('"') || body.startsWith("'") || body.startsWith("[") || body.startsWith("{")) {
-        const v = parseScalar(body);
-        if (typeof v === "object" && !Array.isArray(v)) {
-          cur = v;
+        const v2 = parseScalar(body);
+        if (typeof v2 === "object" && !Array.isArray(v2)) {
+          cur = v2;
           items.push(cur);
           return;
         }
-        if (Array.isArray(v))
+        if (Array.isArray(v2))
           throw new Error(`Riadok ${firstLineNo + k}: zoznam v zozname sa nepodporuje`);
         cur = undefined;
-        items.push(v);
+        items.push(v2);
         return;
       }
       if (body.slice(idx + 1).trim() === "") {
@@ -1778,9 +1778,9 @@ function plan(input) {
   let clientCardPath;
   if (input.type === "spis") {
     for (let parent = dirname2(resolve2(input.dir));; parent = dirname2(parent)) {
-      const card = existingCard("klient", (name) => existsSync3(join3(parent, name)));
-      if (card) {
-        clientCardPath = relative2(input.dir, join3(parent, card)).split("\\").join("/");
+      const card2 = existingCard("klient", (name) => existsSync3(join3(parent, name)));
+      if (card2) {
+        clientCardPath = relative2(input.dir, join3(parent, card2)).split("\\").join("/");
         break;
       }
       if (dirname2(parent) === parent)
@@ -1861,6 +1861,12 @@ function render(root, selectedLanguage) {
   const kept = [];
   const agents = join3(root, "AGENTS.md");
   const claude = join3(root, "CLAUDE.md");
+  const index = join3(root, "index.md");
+  for (const derived of [agents, claude, index]) {
+    if (lstatSync2(derived, { throwIfNoEntry: false })?.isSymbolicLink()) {
+      throw new Error(`Odvodený súbor je symbolický odkaz, nezapisujem: ${basename2(derived)}`);
+    }
+  }
   if (existsSync3(agents)) {
     const a = readText(agents);
     if (!existsSync3(claude)) {
@@ -1875,14 +1881,13 @@ function render(root, selectedLanguage) {
       written.push(backup, "CLAUDE.md");
     }
   }
-  const index = join3(root, "index.md");
   if (existsSync3(index)) {
     const text = readText(index);
     const fm = parseFrontmatter(text);
     const head = fm ? text.slice(0, text.indexOf(`
 ---`, 3) + 4) : "";
-    const cards = listMarkdown(root).filter((rel) => rel.includes("/") && /\/(matter|spis|project|projekt|client|klient)\.md$/.test(rel));
-    const body = cards.length ? cards.map((rel) => `- [${rel.split("/").slice(0, -1).join("/")}](./${rel})`).join(`
+    const cards2 = listMarkdown(root).filter((rel) => rel.includes("/") && /\/(matter|spis|project|projekt|client|klient)\.md$/.test(rel));
+    const body = cards2.length ? cards2.map((rel) => `- [${rel.split("/").slice(0, -1).join("/")}](./${rel})`).join(`
 `) : { cs: "_(zatím žádné)_", sk: "_(zatiaľ žiadne)_", en: "_(none yet)_" }[language];
     const next = `${head}
 
@@ -2153,14 +2158,14 @@ function rewriteSelectedMarkdownLinks(markdownPath, content, moves) {
       if (decoded.includes("\\"))
         continue;
       const resolved = posix.normalize(posix.join(posix.dirname(markdownPath), decoded));
-      const matches = moves.filter((move) => move.from === resolved || kind === "wikilink" && move.from === decoded);
+      const matches = moves.filter((move2) => move2.from === resolved || kind === "wikilink" && move2.from === decoded);
       const unique = [...new Set(matches)];
       if (unique.length > 1)
         fail("Ambiguous affected wikilink");
       if (unique.length === 0) {
-        if (kind === "wikilink" && moves.some((move) => fold(posix.basename(move.from, posix.extname(move.from))) === fold(posix.basename(decoded, posix.extname(decoded)))))
+        if (kind === "wikilink" && moves.some((move2) => fold(posix.basename(move2.from, posix.extname(move2.from))) === fold(posix.basename(decoded, posix.extname(decoded)))))
           fail("Ambiguous affected wikilink; use an exact relative path");
-        if (moves.some((move) => fold(move.from) === fold(resolved)))
+        if (moves.some((move2) => fold(move2.from) === fold(resolved)))
           fail("Ambiguous affected link case");
         covered.push({ start, end });
         continue;
@@ -2189,8 +2194,8 @@ function rewriteSelectedMarkdownLinks(markdownPath, content, moves) {
       continue;
     if (m[2] === undefined && /[(:\[]/.test(content[end] ?? ""))
       continue;
-    const id = fold((m[2] || m[1]).trim().replace(/\s+/g, " "));
-    if (referenceIds.includes(id)) {
+    const id2 = fold((m[2] || m[1]).trim().replace(/\s+/g, " "));
+    if (referenceIds.includes(id2)) {
       if (covered.length >= 20000)
         fail("Selected Markdown exceeds bounded link count");
       covered.push({ start, end });
@@ -2433,16 +2438,16 @@ function controlDirectory(path) {
   }
   checkedPath(path, "directory");
 }
-function profileCAS(root, plan) {
-  assertPin(root, plan.profile, PROFILE_LIMIT);
+function profileCAS(root, plan2) {
+  assertPin(root, plan2.profile, PROFILE_LIMIT);
   const current = memoryProtection(root);
-  if (namingFingerprint(current.source) !== namingFingerprint(plan.memoryProfile))
+  if (namingFingerprint(current.source) !== namingFingerprint(plan2.memoryProfile))
     conflict("Memory profile presence/content/identity changed");
 }
-function finalStates(root, plan) {
-  profileCAS(root, plan);
+function finalStates(root, plan2) {
+  profileCAS(root, plan2);
   const files = [];
-  for (const doc of plan.documents) {
+  for (const doc of plan2.documents) {
     const targetPath = join4(root, doc.target.path);
     checkedPath(dirname3(targetPath), "directory");
     if (physical(lstatSync4(dirname3(targetPath))) !== doc.target.parentPhysical)
@@ -2457,7 +2462,7 @@ function finalStates(root, plan) {
     else if (exists(join4(root, doc.source.path)))
       conflict(`Working source reappeared: ${doc.source.path}`);
   }
-  for (const m of plan.markdown) {
+  for (const m of plan2.markdown) {
     const read = readNamingBinary(join4(root, m.source.path), NAMING_LIMITS.markdownBytes);
     if (read.sha256 !== m.afterSha256)
       conflict(`Final Markdown changed: ${m.source.path}`);
@@ -2466,24 +2471,24 @@ function finalStates(root, plan) {
   return files;
 }
 function applyDocumentNaming(matterDir, input, hooks = {}) {
-  const plan = parseNamingPlan(input), root = rootDirectory(matterDir);
-  const report = (status, message) => ({ status, operationId: plan.operationId, fingerprint: plan.fingerprint, ...message ? { message } : {} });
-  if (root.path !== plan.matterRootPhysical || root.identity !== plan.rootIdentity)
+  const plan2 = parseNamingPlan(input), root = rootDirectory(matterDir);
+  const report = (status, message) => ({ status, operationId: plan2.operationId, fingerprint: plan2.fingerprint, ...message ? { message } : {} });
+  if (root.path !== plan2.matterRootPhysical || root.identity !== plan2.rootIdentity)
     return report("conflict", "Matter root physical identity differs");
-  const history = join4(root.path, ".lawoss/naming-history"), operation = join4(history, plan.operationId), journal = join4(operation, "journal.json"), lock = join4(history, "apply.lock");
+  const history = join4(root.path, ".lawoss/naming-history"), operation = join4(history, plan2.operationId), journal = join4(operation, "journal.json"), lock = join4(history, "apply.lock");
   let lockIdentity;
   const created = [], installed = [], removed = [];
   let prepared = false;
   try {
     if (!exists(operation, "directory")) {
-      const fresh = planDocumentNaming(root.path, plan.request);
-      if (fresh.fingerprint !== plan.fingerprint)
+      const fresh2 = planDocumentNaming(root.path, plan2.request);
+      if (fresh2.fingerprint !== plan2.fingerprint)
         conflict("Preview is stale; create and approve a new plan");
     }
     controlDirectory(join4(root.path, ".lawoss"));
     controlDirectory(history);
     checkCase(operation, exists(operation, "directory"));
-    lockIdentity = exclusive(lock, JSON.stringify({ operationId: plan.operationId, fingerprint: plan.fingerprint }));
+    lockIdentity = exclusive(lock, JSON.stringify({ operationId: plan2.operationId, fingerprint: plan2.fingerprint }));
     assertRoot(root);
     if (exists(operation, "directory")) {
       const recovery = (message) => ({ ...report("recovery-required", message), journal });
@@ -2497,45 +2502,45 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
         const priorPlan = parseNamingPlan(prior.plan);
         if (priorPlan.fingerprint !== prior.fingerprint)
           return recovery("Journal plan fingerprint is inconsistent");
-        if (prior.fingerprint !== plan.fingerprint)
+        if (prior.fingerprint !== plan2.fingerprint)
           return report("conflict", "Operation ID belongs to a different plan");
-        if (namingFingerprint(prior.plan) !== namingFingerprint(plan))
+        if (namingFingerprint(prior.plan) !== namingFingerprint(plan2))
           return recovery("Journal plan is inconsistent");
         if (!exists(join4(operation, "committed.json")))
           return recovery("Incomplete operation; retain journal and snapshots for human recovery");
         const receipt = readNamingJson(join4(operation, "committed.json"));
-        if (!object2(receipt) || receipt.version !== 1 || receipt.status !== "committed" || typeof receipt.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(receipt.fingerprint) || !Array.isArray(receipt.finalFiles) || !receipt.finalFiles.every((file) => isPin(file) && safeRelativePath(file.path)))
+        if (!object2(receipt) || receipt.version !== 1 || receipt.status !== "committed" || typeof receipt.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(receipt.fingerprint) || !Array.isArray(receipt.finalFiles) || !receipt.finalFiles.every((file2) => isPin(file2) && safeRelativePath(file2.path)))
           return recovery("Incomplete or invalid committed receipt");
-        if (receipt.fingerprint !== plan.fingerprint)
+        if (receipt.fingerprint !== plan2.fingerprint)
           return report("conflict", "Committed receipt belongs to a different plan");
-        if (receipt.finalFiles.length !== plan.documents.length + plan.documents.filter((d) => d.treatment === "copy-original-to-drafts").length + plan.markdown.length)
+        if (receipt.finalFiles.length !== plan2.documents.length + plan2.documents.filter((d) => d.treatment === "copy-original-to-drafts").length + plan2.markdown.length)
           return recovery("Incomplete committed final states");
         committed = receipt;
       } catch (error) {
         return recovery(`Unreadable operation records; retain evidence: ${error instanceof Error ? error.message : String(error)}`);
       }
-      if (namingFingerprint(finalStates(root.path, plan)) !== namingFingerprint(committed.finalFiles))
+      if (namingFingerprint(finalStates(root.path, plan2)) !== namingFingerprint(committed.finalFiles))
         conflict("Committed physical final states changed");
       return { ...report("already-applied"), journal };
     }
-    const fresh = planDocumentNaming(root.path, plan.request);
-    if (fresh.fingerprint !== plan.fingerprint)
+    const fresh = planDocumentNaming(root.path, plan2.request);
+    if (fresh.fingerprint !== plan2.fingerprint)
       conflict("Preview changed while acquiring lock");
     mkdirSync3(operation, { mode: 448 });
     prepared = true;
-    exclusive(journal, JSON.stringify({ version: 1, status: "prepared", fingerprint: plan.fingerprint, plan }, null, 2));
+    exclusive(journal, JSON.stringify({ version: 1, status: "prepared", fingerprint: plan2.fingerprint, plan: plan2 }, null, 2));
     const snapshots = new Map;
-    for (const [i, source] of [...plan.documents.map((d) => d.source), ...plan.markdown.map((m) => m.source)].entries()) {
-      const read = assertPin(root.path, source, i < plan.documents.length ? NAMING_LIMITS.documentBytes : NAMING_LIMITS.markdownBytes);
+    for (const [i, source] of [...plan2.documents.map((d) => d.source), ...plan2.markdown.map((m) => m.source)].entries()) {
+      const read = assertPin(root.path, source, i < plan2.documents.length ? NAMING_LIMITS.documentBytes : NAMING_LIMITS.markdownBytes);
       const backup = join4(operation, `before-${i}.bin`);
       exclusive(backup, read.data);
       snapshots.set(source.path, { backup, mode: read.mode, beforeSha256: read.sha256 });
     }
     hooks.checkpoint?.("prepared");
-    profileCAS(root.path, plan);
-    for (const document of plan.documents) {
+    profileCAS(root.path, plan2);
+    for (const document of plan2.documents) {
       assertRoot(root);
-      profileCAS(root.path, plan);
+      profileCAS(root.path, plan2);
       targetAbsent(root.path, document.target);
       const source = assertPin(root.path, document.source, NAMING_LIMITS.documentBytes), path = join4(root.path, document.target.path);
       const identity = exclusive(path, source.data, source.mode);
@@ -2545,8 +2550,8 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
       exclusive(join4(operation, `target-${created.length}.json`), JSON.stringify(created.at(-1)));
       hooks.checkpoint?.("target-created", document.target.path);
     }
-    const moves = plan.documents.filter((d) => d.treatment === "rename-working").map((d) => ({ from: d.source.path, to: d.target.path }));
-    for (const [i, markdown] of plan.markdown.entries()) {
+    const moves = plan2.documents.filter((d) => d.treatment === "rename-working").map((d) => ({ from: d.source.path, to: d.target.path }));
+    for (const [i, markdown] of plan2.markdown.entries()) {
       const before = assertPin(root.path, markdown.source, NAMING_LIMITS.markdownBytes);
       const rewritten = rewriteSelectedMarkdownLinks(markdown.source.path, utf8(before.data), moves);
       if (hash(rewritten.content) !== markdown.afterSha256)
@@ -2557,7 +2562,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
       if (readNamingBinary(staged, NAMING_LIMITS.markdownBytes).sha256 !== markdown.afterSha256)
         conflict("Staged Markdown differs");
       assertRoot(root);
-      profileCAS(root.path, plan);
+      profileCAS(root.path, plan2);
       assertPin(root.path, markdown.source, NAMING_LIMITS.markdownBytes);
       const path = join4(root.path, markdown.source.path);
       exclusive(join4(operation, `markdown-${i}-intent.json`), JSON.stringify({ path: markdown.source.path, stagedPhysical: identity }));
@@ -2565,10 +2570,10 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
       installed.push({ path, physical: identity, sha256: markdown.afterSha256, ...snapshots.get(markdown.source.path) });
       hooks.checkpoint?.("markdown-installed", markdown.source.path);
     }
-    for (const document of plan.documents.filter((d) => d.treatment === "rename-working")) {
+    for (const document of plan2.documents.filter((d) => d.treatment === "rename-working")) {
       assertRoot(root);
-      profileCAS(root.path, plan);
-      for (const m of plan.markdown)
+      profileCAS(root.path, plan2);
+      for (const m of plan2.markdown)
         if (readNamingBinary(join4(root.path, m.source.path), NAMING_LIMITS.markdownBytes).sha256 !== m.afterSha256)
           conflict("Selected links changed before source removal");
       const target = readNamingBinary(join4(root.path, document.target.path), NAMING_LIMITS.documentBytes);
@@ -2583,11 +2588,11 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
     }
     hooks.checkpoint?.("before-commit");
     assertRoot(root);
-    const finalFiles = finalStates(root.path, plan);
-    for (const file of [...created, ...installed])
-      if (readNamingBinary(file.path, NAMING_LIMITS.documentBytes).physical !== file.physical)
+    const finalFiles = finalStates(root.path, plan2);
+    for (const file2 of [...created, ...installed])
+      if (readNamingBinary(file2.path, NAMING_LIMITS.documentBytes).physical !== file2.physical)
         conflict("Written file physical identity changed before commit");
-    exclusive(join4(operation, "committed.json"), JSON.stringify({ version: 1, status: "committed", fingerprint: plan.fingerprint, finalFiles }));
+    exclusive(join4(operation, "committed.json"), JSON.stringify({ version: 1, status: "committed", fingerprint: plan2.fingerprint, finalFiles }));
     return { ...report("applied"), journal };
   } catch (error) {
     const recovery = prepared;
@@ -2654,14 +2659,14 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
       } catch {}
   }
 }
-function writeNamingPlanOutsideMatter(matterDir, output, plan) {
+function writeNamingPlanOutsideMatter(matterDir, output, plan2) {
   const root = rootDirectory(matterDir), path = resolve4(output);
   checkedPath(dirname3(path), "directory");
   const parent = realpathSync2(dirname3(path)), physicalOutput = join4(parent, basename3(path));
   if (contained(root.path, physicalOutput) || !safeRelativePath(basename3(path)))
     throw new NamingSchemaError("--out must be a new portable filename outside the matter root");
   checkCase(physicalOutput, false);
-  exclusive(physicalOutput, JSON.stringify(plan, null, 2) + `
+  exclusive(physicalOutput, JSON.stringify(plan2, null, 2) + `
 `);
 }
 
@@ -2769,9 +2774,9 @@ function run(argv, out = console.log) {
         if (!dir || positional.length !== 2 || new Set(namingKeys).size !== namingKeys.length || Object.keys(flags).some((key) => !["manifest", "plan", "apply", "out", "json"].includes(key)) || flags.json !== undefined && flags.json !== true)
           throw new NamingSchemaError("Usage: okf naming <dir> --manifest request.json [--out plan.json] [--json] OR --plan plan.json --apply [--json]");
         if (flags.apply === true && str(flags, "plan") && flags.manifest === undefined && flags.out === undefined) {
-          const result = applyDocumentNaming(dir, parseNamingPlan(readNamingJson(str(flags, "plan"))));
-          out(JSON.stringify(result, null, 2));
-          return result.status === "applied" || result.status === "already-applied" ? 0 : 1;
+          const result2 = applyDocumentNaming(dir, parseNamingPlan(readNamingJson(str(flags, "plan"))));
+          out(JSON.stringify(result2, null, 2));
+          return result2.status === "applied" || result2.status === "already-applied" ? 0 : 1;
         }
         if (!str(flags, "manifest") || flags.plan !== undefined || flags.apply !== undefined || flags.out !== undefined && !str(flags, "out"))
           throw new NamingSchemaError("Preview requires --manifest; apply requires the exact approved --plan and --apply");

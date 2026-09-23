@@ -44,7 +44,7 @@ import { ReloadEventStore } from "./events.js";
 import { computeReloadFingerprint } from "./reload-fingerprint.js";
 import { startReloadWatchers } from "./reload-watcher.js";
 import { globalSkillsDir, opencodeConfigPath, legalworkConfigPath, projectCommandsDir, projectPluginsDir, projectSkillsDir } from "./workspace-files.js";
-import { ensureDir, exists, hashToken, shortId } from "./utils.js";
+import { ensureDir, exists, hashToken, shortId, tokensEqual } from "./utils.js";
 import { ensureWorkspaceFiles, readRawOpencodeConfig } from "./workspace-init.js";
 import { sanitizeCommandName, validateMcpConfig, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
@@ -1151,7 +1151,7 @@ async function requireClient(request: Request, config: ServerConfig, tokens: Tok
 
 function requireHostToken(request: Request, config: ServerConfig): Actor {
   const hostToken = request.headers.get("x-legalwork-host-token");
-  if (hostToken && hostToken === config.hostToken) {
+  if (hostToken && config.hostToken && tokensEqual(hostToken, config.hostToken)) {
     return { type: "host", tokenHash: hashToken(hostToken), scope: "owner" };
   }
   throw new ApiError(401, "unauthorized", "Invalid host token");
@@ -1159,7 +1159,7 @@ function requireHostToken(request: Request, config: ServerConfig): Actor {
 
 async function requireHost(request: Request, config: ServerConfig, tokens: TokenService): Promise<Actor> {
   const hostToken = request.headers.get("x-legalwork-host-token");
-  if (hostToken && hostToken === config.hostToken) {
+  if (hostToken && config.hostToken && tokensEqual(hostToken, config.hostToken)) {
     return { type: "host", tokenHash: hashToken(hostToken), scope: "owner" };
   }
 
