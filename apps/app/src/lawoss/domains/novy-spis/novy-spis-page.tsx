@@ -2,7 +2,7 @@
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import type { SetupTextKey } from "../../i18n/setup";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { lawyerName } from "../../okf/lawyer-name";
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
@@ -12,7 +12,7 @@ import { pickDirectory } from "@/app/lib/desktop";
 import { isDesktopRuntime } from "@/app/utils";
 
 import { LawossLayout } from "../../shell/layout";
-import { composePrompt, documentLanguageForLocale, targetDir, type Jurisdikcia, type NovySpisForm, type SubjectKind } from "../../okf/compose-prompt";
+import { composePrompt, defaultJurisdictionForLocale, documentLanguageForLocale, targetDir, type Jurisdikcia, type NovySpisForm, type SubjectKind } from "../../okf/compose-prompt";
 import { loadOkfConnection, openSessionWithPrompt, type OkfConnection } from "../../okf/connection";
 import { groupPlan, workspaceRelativePath, type PlanGroupItem } from "../../okf/plan-groups";
 import { loadProfilePreview, type ProfilePreview } from "../../okf/load-profile";
@@ -93,13 +93,24 @@ export function NovySpisPanel({ connection, workspace, onOpenSession, documentAu
   const [probe, setProbe] = useState<Probe | null>(null);
   const [result, setResult] = useState<{ dir: string; route: string } | null>(null);
   const [form, setForm] = useState<NovySpisForm>({
-    mode: "okf", subject: "pravnicka-osoba", title: "", ico: "", jurisdikcia: "SK", root: "", protistrana: "", country: "SK", identifierType: "ICO", matterKind: "dispute", matterMode: "bounded", clientName: "",
+    mode: "okf", subject: "pravnicka-osoba", title: "", ico: "", jurisdikcia: defaultJurisdictionForLocale(locale), root: "", protistrana: "", country: defaultJurisdictionForLocale(locale), identifierType: "ICO", matterKind: "dispute", matterMode: "bounded", clientName: "",
   });
+  // Jurisdikcia a krajina klienta idú za jazykom rozhrania, kým ich advokát sám nezmení.
+  const jurisdictionChosen = useRef(false);
+  const countryChosen = useRef(false);
+  useEffect(() => {
+    const fallback = defaultJurisdictionForLocale(locale);
+    setForm((current) => ({
+      ...current,
+      ...(jurisdictionChosen.current ? {} : { jurisdikcia: fallback }),
+      ...(countryChosen.current ? {} : { country: fallback }),
+    }));
+  }, [locale]);
   /** Koreň zadaný ručne alebo cez dialóg; prázdny = koreň workspace-u. */
   const [rootOverride, setRootOverride] = useState("");
 
   const effectiveRoot = rootOverride.trim() || workspace?.path || "";
-  const effectiveForm = useMemo<NovySpisForm>(() => ({ ...form, root: effectiveRoot, advokat: lawyerName(documentAuthor), documentLanguage: documentLanguageForLocale(locale) }), [form, effectiveRoot, documentAuthor, locale]);
+  const effectiveForm = useMemo<NovySpisForm>(() => ({ ...form, root: effectiveRoot, advokat: lawyerName(documentAuthor), documentLanguage: documentLanguageForLocale(locale), promptLanguage: locale }), [form, effectiveRoot, documentAuthor, locale]);
   const rootOutsideWorkspace = !okfTargetWithinWorkspace(targetDir(effectiveForm), workspace);
   useEffect(() => {
     setProbe(null);
@@ -125,7 +136,12 @@ export function NovySpisPanel({ connection, workspace, onOpenSession, documentAu
     [rows, effectiveForm, workspace],
   );
   const prompt = useMemo(() => composePrompt(effectiveForm, probe && isCurrentCreationPlan(probe, effectiveForm)
-    ? { source: probe.profile.source, warning: probe.profile.warning, profile: probe.profile.profile, paths: rows.map((row) => row.path) } : undefined), [effectiveForm, probe, dir, rows]);
+    ? {
+      // Preview data in the UI language, like the instructions around it.
+      source: probe.profile.sourceKey ? t(probe.profile.sourceKey, locale, probe.profile.sourceParams) : probe.profile.source,
+      warning: probe.profile.warningKey ? t(probe.profile.warningKey, locale) : probe.profile.warning,
+      profile: probe.profile.profile, paths: rows.map((row) => row.path),
+    } : undefined), [effectiveForm, probe, dir, rows, locale]);
   const set = <K extends keyof NovySpisForm>(key: K, value: NovySpisForm[K]) => setForm((current) => ({ ...current, [key]: value }));
 
   const canAct = Boolean(connection.client && canWrite && workspace.workspaceType !== "remote" && workspace.path && !rootOutsideWorkspace && form.title.trim() && form.mode === "okf");
@@ -174,7 +190,7 @@ export function NovySpisPanel({ connection, workspace, onOpenSession, documentAu
     try {
       const route = await prepareOkfDraft(connection.client, workspace, () => openSessionWithPrompt(
         { ...connection, workspaces: [workspace], activeWorkspaceId: workspace.id }, workspace, prompt,
-      ));
+      ), locale);
       setResult({ dir, route });
       setStatus({
         tone: "ok",
@@ -251,7 +267,7 @@ export function NovySpisPanel({ connection, workspace, onOpenSession, documentAu
         {form.subject !== "spis" && form.subject !== "projekt" ? <>
           <label className="lw-field">
             <span className="lw-sc">{text("wizard.country")}</span>
-            <input className="lw-input" value={form.country ?? ""} onChange={(event) => set("country", event.target.value.toUpperCase())} placeholder="SK, CZ, AT…" maxLength={2} />
+            <input className="lw-input" value={form.country ?? ""} onChange={(event) => { countryChosen.current = true; set("country", event.target.value.toUpperCase()); }} placeholder="SK, CZ, AT…" maxLength={2} />
           </label>
           <label className="lw-field">
             <span className="lw-sc">{text("wizard.idType")}</span>
@@ -293,7 +309,7 @@ export function NovySpisPanel({ connection, workspace, onOpenSession, documentAu
           <span className="lw-sc">{text("wizard.jurisdiction")}</span>
           <div className="lw-seg">
             {(["SK", "CZ"] as Jurisdikcia[]).map((value) => (
-              <button key={value} type="button" className={`lw-seg-item ${form.jurisdikcia === value ? "on" : ""}`} onClick={() => set("jurisdikcia", value)}>
+              <button key={value} type="button" className={`lw-seg-item ${form.jurisdikcia === value ? "on" : ""}`} onClick={() => { jurisdictionChosen.current = true; set("jurisdikcia", value); }}>
                 {value === "SK" ? text("wizard.slovakia") : text("wizard.czechia")}
               </button>
             ))}
