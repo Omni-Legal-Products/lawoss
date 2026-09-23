@@ -14,6 +14,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import type { PendingPermission } from "@/app/types";
+import { useUiMode } from "@/lawoss/lite/ui-mode";
+import { describeMemoryWrite } from "@/lawoss/lite/memory-write";
+import { MemoryWriteNotice } from "@/lawoss/lite/memory-write-notice";
 
 type PermissionPresentation = {
   title: string;
@@ -203,6 +206,8 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
       : {};
   const hasMetadata = Object.keys(metadata).length > 0;
   const detailRows = permissionDetailRows(metadata);
+  const lite = useUiMode() === "lite";
+  const memoryWriteProposal = describeMemoryWrite(String(metadata.command ?? ""));
   const Icon = presentation.isDoomLoop ? RefreshCcw : ShieldCheck;
   const iconClass = presentation.isDoomLoop
     ? "bg-amber-3/30 text-amber-11"
@@ -298,6 +303,8 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
             </div>
           </div>
 
+          {lite && memoryWriteProposal ? <MemoryWriteNotice proposal={memoryWriteProposal} /> : null}
+
           {detailRows.length > 0 ? (
             <div className="rounded-[20px] border border-dls-border bg-dls-surface p-4">
               <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-dls-secondary">
@@ -377,6 +384,8 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
       : {};
   const hasMetadata = Object.keys(metadata).length > 0;
   const Icon = presentation.isDoomLoop ? RefreshCcw : ShieldCheck;
+  const lite = useUiMode() === "lite";
+  const memoryWriteProposal = describeMemoryWrite(String(metadata.command ?? ""));
 
   return (
     <div className="overflow-hidden border-b border-dls-border bg-transparent">
@@ -427,6 +436,12 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
             </Button>
           </div>
         </div>
+
+        {lite && memoryWriteProposal ? (
+          <div className="border-t border-dls-border px-4 pt-3">
+            <MemoryWriteNotice proposal={memoryWriteProposal} />
+          </div>
+        ) : null}
 
         <div className="border-t border-dls-border px-4 py-3">
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
