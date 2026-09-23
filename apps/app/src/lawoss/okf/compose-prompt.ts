@@ -42,6 +42,14 @@ export function documentLanguageForLocale(locale: Language): DocumentLanguage {
   return locale === "cs" || locale === "sk" ? locale : "en";
 }
 
+/**
+ * Default jurisdiction offered in the form: Czech UI starts with CZ, otherwise SK.
+ * Only a default — the lawyer's explicit choice always wins and goes to the CLI flag.
+ */
+export function defaultJurisdictionForLocale(locale: Language): Jurisdikcia {
+  return locale === "cs" ? "CZ" : "SK";
+}
+
 export function clientTypeFor(subject: SubjectKind): ClientType {
   return subject === "pravnicka-osoba" ? "po" : subject === "fyzicka-osoba" ? "fo" : subject === "fyzicka-osoba-podnikatel" ? "fo-podnikatel" : "iny";
 }

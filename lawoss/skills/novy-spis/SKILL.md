@@ -1,6 +1,6 @@
 ---
 name: novy-spis
-description: Založenie alebo retrofit priečinka klienta / spisu / projektu podľa OKF cez `okf` CLI. Spúšťače (SK) — „nový spis“, „nový klient“, „založ spis“, „založ projekt“, „sprav z toho spis“, „skontroluj spis“; (EN) — „new matter“, „new client folder“, „scaffold“, „retrofit“.
+description: Založenie alebo retrofit priečinka klienta / spisu / projektu podľa OKF cez `okf` CLI. Spúšťače (SK) — „nový spis“, „nový klient“, „založ spis“, „založ projekt“, „sprav z toho spis“, „skontroluj spis“; (CZ) — „nová věc“, „založ věc“, „udělej z toho spis“, „zkontroluj spis“; (EN) — „new matter“, „new client folder“, „scaffold“, „retrofit“.
 ---
 
 # novy-spis — spis podľa OKF cez `okf` CLI (LAWOSS, Fáza A)
@@ -28,7 +28,7 @@ Ak `node` ani `bun` nie sú k dispozícii, **zastav sa a povedz to** — nesnaž
 
 `--advokat "Meno"` je ten, kto za spis zodpovedá, a má prednosť pred konfiguráciou. Bez flagu CLI predvyplní meno z `standing_authorization` v najbližšom nadradenom `Office/okf.config`; ak chýba alebo je neplatné, ostane `advokat: "[DOPLNIT]"` — nehádaj ho, spýtaj sa. Predvyplnenie mena neudeľuje poverenie na zápis. Prepojenie s identitou v natívnom UI a sledovaných zmenách zostáva samostatnou úlohou #6.
 
-**Pri `spis` je `--sk` alebo `--cz` povinné** a odmietne to už `plan`. Jurisdikcia sa zapíše do karty veci ako `jurisdiction:` a `okf-memory` ju odtiaľ číta — bez nej pamäť spisu nezaloží. Nehádaj ju: ak ti ju advokát nepovedal, spýtaj sa.
+**Pri `spis` je `--sk` alebo `--cz` povinné** a odmietne to už `plan`. Jurisdikcia sa zapíše do karty veci ako `jurisdiction:` a `okf-memory` ju odtiaľ číta — bez nej pamäť spisu nezaloží. Nehádaj ju: ak ti ju advokát nepovedal, spýtaj sa. Jazyk rozhrania ani jazyk dokumentov jurisdikciu neurčujú.
 
 ## Postup — vždy rovnaký
 1. **Zisti profil.** Klient pre právne veci → `klient` (a pod ním `Spisy/<spis>` ako `spis`). Firma s priebežnou korporátnou agendou → tiež `klient`, spisy tematicky. Interná vec bez klienta → `projekt`. Daňové a účtovné veci sem nepatria.

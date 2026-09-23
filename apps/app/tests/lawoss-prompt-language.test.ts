@@ -54,3 +54,30 @@ describe("požiadavka pre asistenta podľa jazyka rozhrania", () => {
     expect(text).toContain(JSON.stringify(preview));
   });
 });
+
+describe("skill /novy-spis a jurisdikcia podľa jazyka rozhrania", () => {
+  test("predvolená jurisdikcia: čeština → CZ, inak SK", async () => {
+    const { defaultJurisdictionForLocale } = await import("../src/lawoss/okf/compose-prompt");
+    expect(defaultJurisdictionForLocale("cs")).toBe("CZ");
+    for (const locale of ["sk", "en", "de"] as const) expect(defaultJurisdictionForLocale(locale)).toBe("SK");
+  });
+
+  test("české rozhranie dostane český skill, ostatné slovenský", async () => {
+    const { novySpisSkillBody } = await import("../src/lawoss/okf/skill-bundle");
+    const cs = novySpisSkillBody("cs");
+    expect(cs.content).toContain("Postup — vždy stejný");
+    expect(cs.description).toContain("„nová věc“");
+    for (const slovak of ["Postup — vždy rovnaký", "Nehádaj", "priečinok", "preverenie", "spýtaj"]) expect(cs.content).not.toContain(slovak);
+    expect(novySpisSkillBody("sk").content).toContain("Postup — vždy rovnaký");
+    expect(novySpisSkillBody("sk").description).toContain("„nová věc“");
+  });
+
+  test("česká a slovenská verzia skillu majú rovnaké príkazy, flagy a strojové hodnoty", async () => {
+    const { novySpisSkillBody } = await import("../src/lawoss/okf/skill-bundle");
+    // Machine tokens: flags, okf commands, file names and status values must match exactly.
+    const tokens = (text: string) => [...new Set(text.match(/--[a-z][a-z-]*|\bokf(?:-memory)? [a-z]+|[A-Za-z_.-]+\.(?:md|js|sh|config)\b|registry_status: unverified|\/okf-pamat|\b(?:dispute|advisory|transaction|ongoing|bounded|fo-podnikatel|screening|pending|standing_authorization)\b/g) ?? [])].sort();
+    const sk = tokens(novySpisSkillBody("sk").content);
+    expect(sk.length).toBeGreaterThan(30);
+    expect(tokens(novySpisSkillBody("cs").content)).toEqual(sk);
+  });
+});

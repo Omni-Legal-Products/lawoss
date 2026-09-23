@@ -1,4 +1,4 @@
-import { t } from "@/i18n";
+import { t, type Language } from "@/i18n";
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import type { LegalworkServerClient } from "../../../app/lib/legalwork-server";
 import { refreshIntegrationState, removeImportedPlugin, type InstallResult } from "./native-actions";
@@ -51,10 +51,10 @@ export function useNativeIntegrations(options: {
 }
 
 /** Shared native install action; each resource follows its skill in the captured workspace. */
-export async function installNativeOkfPack(client: Pick<LegalworkServerClient, "upsertSkill" | "upsertSkillResource">, workspaceId: string): Promise<InstallResult> {
+export async function installNativeOkfPack(client: Pick<LegalworkServerClient, "upsertSkill" | "upsertSkillResource">, workspaceId: string, locale?: Language): Promise<InstallResult> {
   const bundle = await import("../../okf/skill-bundle");
   for (const skill of [
-    { name: bundle.NOVY_SPIS_SKILL_NAME, body: bundle.skillBody(), resource: bundle.OKF_CLI_RESOURCE_NAME, content: bundle.okfCliSource() },
+    { name: bundle.NOVY_SPIS_SKILL_NAME, body: bundle.novySpisSkillBody(locale), resource: bundle.OKF_CLI_RESOURCE_NAME, content: bundle.okfCliSource() },
     { name: bundle.OKF_PAMAT_SKILL_NAME, body: bundle.pamatSkillBody(), resource: bundle.OKF_MEMORY_CLI_RESOURCE_NAME, content: bundle.okfMemoryCliSource() },
     { name: bundle.USPORIADAJ_SPIS_SKILL_NAME, body: bundle.usporiadajSpisSkillBody(), resource: bundle.OKF_CLI_RESOURCE_NAME, content: bundle.okfCliSource() },
   ]) {
