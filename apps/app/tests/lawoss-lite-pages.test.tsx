@@ -8,6 +8,15 @@ import { LiteMatterView } from "../src/lawoss/lite/pages/matter-page";
 import { liteMatterLink } from "../src/lawoss/lite/links";
 import type { TodayModel } from "../src/lawoss/lite/today-model";
 import type { Cockpit } from "../../../lawoss/okf/cockpit";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { OkfPageState } from "../src/lawoss/domains/okf-page";
+import { liteStateText } from "../src/lawoss/lite/state-text";
+import { TodayPage } from "../src/lawoss/lite/pages/today-page";
+import { ClientsPage } from "../src/lawoss/lite/pages/clients-page";
+import { LiteMatterPage } from "../src/lawoss/lite/pages/matter-page";
+import { buildOverview } from "../../../lawoss/okf/read";
+
+const BANNED = /workspace|session|skill|\bMCP\b|\bOKF\b|opencode|plugin/i;
 
 const matter = { path: "Klienti/Novák/Spisy/Odvolání", title: "Novák — 14 C 101/2025", matterRef: "14 C 101/2025", court: "OS Praha 2",
   deadlines: [], openTasks: [], counts: { records: 2, evidence: 0, subjects: 1 } };
@@ -62,7 +71,8 @@ describe("stránky LAWOSS-lite", () => {
   test("Věc: běžící akce vypne tlačítka, chyba se ukáže srozumitelně", () => {
     const out = html(<LiteMatterView matter={matter} cockpit={null} busy="summarize" error="boom" onAction={() => {}} />);
     expect(out.match(/<button[^>]*disabled=""[^>]*>(Summarise|Check|Prepare|Add|Verify)/g)?.length).toBe(5);
-    expect(out).toContain("The conversation could not be opened: boom");
+    expect(out).toContain("The conversation could not be opened. Try again, or use the advanced mode.");
+    expect(out).not.toContain("boom");
   });
   test("Věc: přehled ukáže lhůty s označením neověřených a úkoly z paměti", () => {
     const cockpit: Pick<Cockpit, "deadlines" | "tasks" | "attention" | "facts"> = {
@@ -82,5 +92,48 @@ describe("stránky LAWOSS-lite", () => {
     expect(out).toContain("What we know");
     expect(out).toContain("Rozsudek doručen 10. 9.");
     expect(out).not.toContain("Nothing recorded yet.");
+  });
+});
+
+describe("stavy stránek LAWOSS-lite", () => {
+  const empty = { ...buildOverview([], "2026-09-20"), problems: [], truncated: false, inputs: [] };
+  type StateProps = Omit<Parameters<typeof OkfPageState>[0], "children">;
+  const base: StateProps = { connection: "ready", workspace: "Kancelář", error: null, data: empty, loading: false };
+  const lite = (props: Partial<StateProps>) => html(<OkfPageState {...base} {...props} stateText={liteStateText("en")}>{() => "dashboard"}</OkfPageState>);
+
+  test("celé lite stránky při startu: načítání a znovu, bez technických pojmů", () => {
+    for (const Page of [TodayPage, ClientsPage, LiteMatterPage]) {
+      const out = renderToStaticMarkup(<QueryClientProvider client={new QueryClient()}><MemoryRouter><Page /></MemoryRouter></QueryClientProvider>);
+      expect(out).toContain("Loading your matters…");
+      expect(out).toContain("Try again");
+      // Navigace LawossLayout je pro chrome (lite shell řeší Task 6); kontrolujeme obsah stránky.
+      const sheet = out.slice(out.indexOf('<section class="lw-sheet">'));
+      expect(sheet).toContain("Loading your matters…");
+      expect(sheet).not.toMatch(BANNED);
+    }
+  });
+  test("načítání / bez připojení / bez složky / prázdná složka / chyba", () => {
+    const cases: [Partial<StateProps>, string][] = [
+      [{ connection: "loading" }, "Loading your matters…"],
+      [{ data: undefined }, "Loading your matters…"],
+      [{ connection: "unavailable" }, "Your matters could not be loaded."],
+      [{ workspace: null }, "No office folder is open."],
+      [{}, "The office folder has no matters yet."],
+      [{ error: new Error("workspace ws-1 unreachable") }, "Your matters could not be loaded."],
+      [{ data: { ...empty, problems: [{ path: "AK", message: "Přístup odepřen" }] } }, "Your matters could not be loaded."],
+    ];
+    for (const [props, expected] of cases) {
+      const out = lite(props);
+      expect(out).toContain(expected);
+      expect(out).not.toContain("dashboard");
+      expect(out).not.toMatch(BANNED);
+    }
+    expect(lite({ workspace: null })).toContain("Open the office folder");
+    expect(lite({})).toContain("New matter");
+  });
+  test("pro stav zůstává beze změny", () => {
+    const out = html(<OkfPageState {...base} workspace={null}>{() => "dashboard"}</OkfPageState>);
+    expect(out).toContain("No workspace is open.");
+    expect(out).toContain("Open a workspace");
   });
 });

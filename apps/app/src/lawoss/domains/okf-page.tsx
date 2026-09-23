@@ -16,26 +16,29 @@ export function useMatterText() {
   return { locale, text };
 }
 
-type PageProps = { title: string; children: (data: OkfReadResult) => ReactNode };
+/** Caller-supplied state copy (lite); defaults to `lawoss.matters.*`. */
+export type StateText = (key: MatterTextKey, params?: Record<string, string | number>) => string;
+type PageProps = { title: string; children: (data: OkfReadResult) => ReactNode; stateText?: StateText };
 
 /** Retry also reloads the desktop connection, which may be absent during startup. */
-export function OkfPage({ title, children }: PageProps) {
-  const { text } = useMatterText();
+export function OkfPage({ title, children, stateText }: PageProps) {
+  const text = useMatterText().text;
+  const label = stateText ?? text;
   const [attempt, setAttempt] = useState(0);
   const cache = useQueryClient();
   return (
     <LawossLayout>
       <h1 className="lw-h1">{title}</h1>
-      <OkfPageQuery key={attempt}>{children}</OkfPageQuery>
+      <OkfPageQuery key={attempt} stateText={stateText}>{children}</OkfPageQuery>
       <button type="button" className="lw-btn" onClick={() => {
         void cache.invalidateQueries({ queryKey: ["okf-overview"], refetchType: "none" });
         setAttempt((value) => value + 1);
-      }}>{text("retry")}</button>
+      }}>{label("retry")}</button>
     </LawossLayout>
   );
 }
 
-function OkfPageQuery({ children }: Pick<PageProps, "children">) {
+function OkfPageQuery({ children, stateText }: Pick<PageProps, "children" | "stateText">) {
   const { connection, error } = useOkfConnection();
   const workspace = activeWorkspace(connection);
   const query = useOkfOverview(connection, workspace);
@@ -45,6 +48,7 @@ function OkfPageQuery({ children }: Pick<PageProps, "children">) {
     error={error || query.error}
     data={query.data}
     loading={query.isFetching}
+    stateText={stateText}
   >{children}</OkfPageState>;
 }
 
@@ -56,8 +60,10 @@ export function OkfPageState(props: {
   data: OkfReadResult | undefined;
   loading: boolean;
   children: (data: OkfReadResult) => ReactNode;
+  stateText?: StateText;
 }) {
-  const { text } = useMatterText();
+  const matterText = useMatterText().text;
+  const text = props.stateText ?? matterText;
   if (props.error) return <div className="lw-status err" role="alert">{text("memoryError", { error: props.error instanceof Error ? props.error.message : String(props.error) })}</div>;
   if (props.connection === "loading") return <p className="lw-lead" role="status">{text("connectionLoading")}</p>;
   if (props.connection === "unavailable") return <div className="lw-status warn" role="alert">{text("serverUnavailable")}</div>;

@@ -3,13 +3,14 @@ import { Link } from "react-router-dom";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { OkfPage } from "../../domains/okf-page";
+import { liteStateText } from "../state-text";
 import { formatDay } from "../../okf/read-model";
 import { groupByClient, type ClientGroup } from "../today-model";
 import { liteMatterLink, NEW_MATTER_PATH } from "../links";
 
 export function ClientsPage() {
   const locale = useLocale();
-  return <OkfPage title={t("lawoss.lite.clients_title", locale)}>{(data) => <ClientsView groups={groupByClient(data.matters)} />}</OkfPage>;
+  return <OkfPage title={t("lawoss.lite.clients_title", locale)} stateText={liteStateText(locale)}>{(data) => <ClientsView groups={groupByClient(data.matters)} />}</OkfPage>;
 }
 
 export function ClientsView({ groups }: { groups: readonly ClientGroup[] }) {

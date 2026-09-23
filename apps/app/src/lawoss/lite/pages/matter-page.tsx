@@ -6,6 +6,7 @@ import { useLocale } from "@/i18n/use-locale";
 import type { MatterOverview } from "../../../../../../lawoss/okf/read";
 import { buildCockpit, selectMatter, type Cockpit, type CockpitDeadline } from "../../../../../../lawoss/okf/cockpit";
 import { OkfPage } from "../../domains/okf-page";
+import { liteStateText } from "../state-text";
 import { openMatterSession } from "../../okf/matter-session";
 import { activeWorkspace, dayClass, formatDay, today, useOkfConnection, type OkfReadResult } from "../../okf/read-model";
 import { composeQuickAction, QUICK_ACTIONS } from "../quick-actions";
@@ -18,7 +19,7 @@ export type LiteCockpit = Pick<Cockpit, "deadlines" | "tasks" | "attention" | "f
 
 export function LiteMatterPage() {
   const locale = useLocale();
-  return <OkfPage title={t("lawoss.lite.clients_title", locale)}>{(data) => <LiteMatterBody data={data} />}</OkfPage>;
+  return <OkfPage title={t("lawoss.lite.clients_title", locale)} stateText={liteStateText(locale)}>{(data) => <LiteMatterBody data={data} />}</OkfPage>;
 }
 
 function LiteMatterBody({ data }: { data: OkfReadResult }) {
@@ -44,6 +45,8 @@ function LiteMatterBody({ data }: { data: OkfReadResult }) {
       // Jen připraví koncept v nové konverzaci nad věcí; nic se neodesílá.
       navigate(await openMatterSession(connection, activeWorkspace(connection), matter, data.matters, prompt));
     } catch (failure) {
+      // Surová hláška může obsahovat interní pojmy; advokát vidí obecný text, diagnostika jde do konzole.
+      console.warn("LAWOSS-lite: quick action failed", failure);
       setError(failure instanceof Error ? failure.message : String(failure));
     } finally { running.current = false; setBusy(null); }
   }
@@ -83,7 +86,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction }: {
           </button>
         ))}
       </div>
-      {error ? <div className="lw-status err" role="alert">{text("action_error", { error })}</div> : null}
+      {error ? <div className="lw-status err" role="alert">{text("action_error_generic")}</div> : null}
 
       <div className="lw-lite-tabs" role="tablist">
         {tabs.map(([id, key]) => (
