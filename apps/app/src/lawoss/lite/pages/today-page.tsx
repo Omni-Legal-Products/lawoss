@@ -18,7 +18,8 @@ export function TodayPage() {
 function dueLabel(d: TodayDeadline, locale: Language): string {
   if (d.tier === "overdue") return t("lawoss.lite.overdue", locale);
   if (d.daysLeft === 0) return t("lawoss.lite.due_today", locale);
-  return t("lawoss.lite.due_in_days", locale, { days: d.daysLeft });
+  if (d.daysLeft === 1) return t("lawoss.lite.due_tomorrow", locale);
+  return t("lawoss.lite.due_in_days", locale, { count: d.daysLeft }); // _one/_few/_many/_other podle jazyka
 }
 
 /** Ranní otázka „co mi dnes hoří": lhůty → k zařazení → úkoly. Jen čte, nic nezapisuje. */
@@ -42,9 +43,9 @@ export function TodayView({ model, locale }: { model: TodayModel; locale: Langua
 
       <div className="lw-reg">
         <div className="lw-reg-h"><h2>{text("inputs_title")}</h2></div>
-        {model.inputs.length === 0 ? <p className="lw-empty">{text("inputs_empty")}</p> : model.inputs.map((input) => (
-          <Link key={`${input.file}/${input.id}`} className="lw-row lw-cols-leh" to={liteMatterLink(input.matterPath)}>
-            <span className="lw-no">{input.id}</span>
+        {model.inputs.length === 0 ? <p className="lw-empty">{text("inputs_empty")}</p> : model.inputs.map((input, index) => (
+          <Link key={`${input.file}/${input.id}/${index}`} className="lw-row lw-cols-leh" to={liteMatterLink(input.matterPath)}>
+            <span className="lw-no">{input.id || "—"}</span>
             <span className="lw-d">{formatDay(input.received.slice(0, 10), locale)}</span>
             <span className="lw-t">{input.source}<small>{input.original}</small></span>
             <span className="lw-ref" />
@@ -68,11 +69,7 @@ export function TodayView({ model, locale }: { model: TodayModel; locale: Langua
         ))}
       </div>
 
-      <p className="flex gap-2">
-        {/* ponytail: nový klient vede na tentýž formulář jako nová věc; předvolba subjektu přijde s vlastním formulářem. */}
-        <Link className="lw-btn" to={NEW_MATTER_PATH}>+ {text("new_matter")}</Link>
-        <Link className="lw-btn" to={NEW_MATTER_PATH}>+ {text("new_client")}</Link>
-      </p>
+      <p><Link className="lw-btn" to={NEW_MATTER_PATH}>+ {text("new_matter")}</Link></p>
     </div>
   );
 }

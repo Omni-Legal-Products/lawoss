@@ -34,7 +34,7 @@ export function ClientsView({ groups }: { groups: readonly ClientGroup[] }) {
           })}
         </div>
       ))}
-      <p><Link className="lw-btn" to={NEW_MATTER_PATH}>+ {t("lawoss.lite.new_client", locale)}</Link></p>
+      <p><Link className="lw-btn" to={NEW_MATTER_PATH}>+ {t("lawoss.lite.new_matter", locale)}</Link></p>
     </div>
   );
 }

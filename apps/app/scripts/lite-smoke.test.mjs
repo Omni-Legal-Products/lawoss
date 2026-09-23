@@ -70,3 +70,12 @@ describe("lite-smoke: createModeRestoreGuard", () => {
     expect(outcome).toEqual({ attempted: true, ok: false, error: "mode.set rejected" });
   });
 });
+
+describe("lite-smoke: import bez vedlejších efektů (final review M3)", () => {
+  test("import modulu neinstaluje obsluhu SIGINT/SIGTERM", () => {
+    const code = 'const b = [process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")]; await import("./scripts/lite-smoke.mjs"); console.log(JSON.stringify([b, [process.listenerCount("SIGINT"), process.listenerCount("SIGTERM")]]));';
+    const run = Bun.spawnSync([process.execPath, "-e", code], { cwd: new URL("..", import.meta.url).pathname });
+    const [before, after] = JSON.parse(run.stdout.toString().trim().split("\n").pop());
+    expect(after).toEqual(before);
+  });
+});

@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import type { ReactElement } from "react";
 import { TodayView } from "../src/lawoss/lite/pages/today-page";
 import { ClientsView } from "../src/lawoss/lite/pages/clients-page";
-import { LiteMatterView } from "../src/lawoss/lite/pages/matter-page";
+import { LiteMatterView, matterFromParams } from "../src/lawoss/lite/pages/matter-page";
 import { liteMatterLink } from "../src/lawoss/lite/links";
 import type { TodayModel } from "../src/lawoss/lite/today-model";
 import type { Cockpit } from "../../../lawoss/okf/cockpit";
@@ -43,6 +43,39 @@ describe("stránky LAWOSS-lite", () => {
     // pořadí: Lhůty → K zařazení → Úkoly
     expect(out.indexOf("Odvolání")).toBeLessThan(out.indexOf("IN-1"));
     expect(out.indexOf("IN-1")).toBeLessThan(out.indexOf("Podepsat plnou moc"));
+  });
+  test("Dnes: vstup bez ID ukáže pomlčku (final review I1)", () => {
+    const out = html(<TodayView model={{ ...model, inputs: [{ ...model.inputs[0]!, id: "" }] }} locale="en" />);
+    expect(out).toContain('<span class="lw-no">—</span>');
+  });
+  test("Dnes a Klienti: jediný vstup „+ New matter“, žádný duplicitní „New client“ (final review I4)", () => {
+    for (const out of [html(<TodayView model={model} locale="en" />), html(<ClientsView groups={[]} />)]) {
+      expect(out.split(href("/experimenty/novy-spis")).length - 1).toBe(1);
+      expect(out).toContain("+ New matter");
+      expect(out).not.toContain("New client");
+    }
+  });
+  test("Dnes: lhůta za 1/2/5 dní gramaticky v en/cs/sk (final review I6)", () => {
+    const due = (locale: "en" | "cs" | "sk", daysLeft: number) =>
+      html(<TodayView model={{ ...model, deadlines: [{ ...model.deadlines[0]!, daysLeft }] }} locale={locale} />);
+    const expected = {
+      en: ["tomorrow", "in 2 days", "in 5 days"],
+      cs: ["zítra", "za 2 dny", "za 5 dní"],
+      sk: ["zajtra", "o 2 dni", "o 5 dní"],
+    } as const;
+    for (const [locale, [one, two, five]] of Object.entries(expected) as [keyof typeof expected, readonly string[]][]) {
+      expect(due(locale, 1)).toContain(`>${one}<`);
+      expect(due(locale, 2)).toContain(`>${two}<`);
+      expect(due(locale, 5)).toContain(`>${five}<`);
+    }
+  });
+  test("Věc: /vec bez parametru nebo s neznámou cestou nikdy nevybere jinou věc (final review M1)", () => {
+    const other = { ...matter, path: "Klienti/Svoboda/Spisy/Nájem", title: "Svoboda — nájem" };
+    const matters = [other, matter];
+    expect(matterFromParams(matters, new URLSearchParams(""))).toBeNull();
+    expect(matterFromParams(matters, new URLSearchParams("vec="))).toBeNull();
+    expect(matterFromParams(matters, new URLSearchParams("vec=Klienti/Neexistuje"))).toBeNull();
+    expect(matterFromParams(matters, new URLSearchParams(`vec=${encodeURIComponent(matter.path)}`))).toBe(matter);
   });
   test("Dnes: prázdné stavy", () => {
     const out = html(<TodayView model={{ deadlines: [], tasks: [], inputs: [], recent: [] }} locale="en" />);

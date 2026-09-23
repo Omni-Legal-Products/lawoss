@@ -4,7 +4,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import type { MatterOverview } from "../../../../../../lawoss/okf/read";
-import { buildCockpit, selectMatter, type Cockpit, type CockpitDeadline } from "../../../../../../lawoss/okf/cockpit";
+import { buildCockpit, type Cockpit, type CockpitDeadline } from "../../../../../../lawoss/okf/cockpit";
 import { OkfPage } from "../../domains/okf-page";
 import { liteStateText } from "../state-text";
 import { openMatterSession } from "../../okf/matter-session";
@@ -22,6 +22,12 @@ export function LiteMatterPage() {
   return <OkfPage title={t("lawoss.lite.clients_title", locale)} stateText={liteStateText(locale)}>{(data) => <LiteMatterBody data={data} />}</OkfPage>;
 }
 
+/** Jen přesná shoda `?vec=`; na rozdíl od `selectMatter` nikdy nespadne na první věc (akce by běžely nad jinou). */
+export function matterFromParams(matters: readonly MatterOverview[], params: URLSearchParams): MatterOverview | null {
+  const path = params.get("vec");
+  return path === null ? null : matters.find((m) => m.path === path) ?? null;
+}
+
 function LiteMatterBody({ data }: { data: OkfReadResult }) {
   const locale = useLocale();
   const [params] = useSearchParams();
@@ -30,9 +36,8 @@ function LiteMatterBody({ data }: { data: OkfReadResult }) {
   const running = useRef(false);
   const [busy, setBusy] = useState<ActionId | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const path = params.get("vec");
-  const matter = selectMatter(data.matters, path);
-  // Neznámá cesta (smazaná nebo přejmenovaná věc) → zpět na seznam, nikdy jiná věc.
+  const matter = matterFromParams(data.matters, params);
+  // Chybějící nebo neznámá cesta (smazaná nebo přejmenovaná věc) → zpět na seznam, nikdy jiná věc.
   if (!matter) return <p className="lw-empty"><Link to={LITE_CLIENTS_PATH}>{t("lawoss.lite.clients_title", locale)}</Link></p>;
   const cockpit = buildCockpit(data, matter.path, today());
 

@@ -89,8 +89,6 @@ async function handleSignal(signal, code) {
   exitOnce(code);
 }
 
-process.on("SIGINT", () => { void handleSignal("SIGINT", 130); });
-process.on("SIGTERM", () => { void handleSignal("SIGTERM", 143); });
 
 async function main() {
   try {
@@ -365,6 +363,9 @@ function parseArgs(values) {
 // imported by a unit test for `createModeRestoreGuard`.
 const isMainModule = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
 if (isMainModule) {
+  // Obsluha signálů jen při přímém spuštění — import z unit testu nesmí měnit chování procesu.
+  process.on("SIGINT", () => { void handleSignal("SIGINT", 130); });
+  process.on("SIGTERM", () => { void handleSignal("SIGTERM", 143); });
   main().then((ok) => {
     exitOnce(ok ? 0 : 1);
   }).catch((error) => {
