@@ -76,7 +76,9 @@ test("production matter orchestration supports native engine startup and creates
   expect(selected).toEqual([{ command: "workspaceSetSelected", id: child!.id }, { command: "workspaceSetRuntimeActive", id: child!.id }]);
   expect(readActiveWorkspaceId()).toBe(child!.id); expect(readLastSessionFor(child!.id)).toBe("synthetic-session");
   expect(f.engineCalls.filter(call => call.path === "/session" && call.method === "POST")).toEqual([{ method: "POST", path: "/session", directory: f.matter }]);
-  expect(getSessionDraft(child!.id, "synthetic-session").text).toContain(f.matter);
+  // Výchozí prompt (composeQuickAction) nese relativní cestu věci, ne absolutní kořen
+  // workspace-u (ten byl jen v předchozím ad hoc slovenském textu) — ověřit tu.
+  expect(getSessionDraft(child!.id, "synthetic-session").text).toContain(records[0]!.path);
   expect(getSessionDraft(child!.id, "synthetic-session").text).toContain("CASE-A");
   expect(getSessionDraft("office", "existing-office-session").text).toBe("untouched office draft");
 
