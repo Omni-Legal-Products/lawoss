@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { describeBlockedUrl, guardNavigation, isAllowedNavigation, originAllowlistEntry } from "./window-allowlist.mjs";
+import { describeBlockedUrl, fileDirectoryEntry, guardNavigation, isAllowedNavigation, isOpenableDocument, isSafeExternalUrl, originAllowlistEntry } from "./window-allowlist.mjs";
 
 const DEV = ["file:", "data:", "http://localhost:5173"];
 const PACKAGED = ["file:", "data:"];
@@ -127,5 +127,37 @@ describe("guardNavigation", () => {
 
     assert.deepEqual(stops, [true]);
     assert.deepEqual(blocked, ["http://localhost:5174/transfers/0361bbfc"]);
+  });
+});
+
+describe("file: len v adresári appky", () => {
+  const APP = fileDirectoryEntry("/Applications/LAWOSS.app/Contents/Resources/app-dist");
+  const LOCKED = [APP, "data:"];
+
+  it("pustí index appky vrátane hash routy", () => {
+    assert.equal(isAllowedNavigation("file:///Applications/LAWOSS.app/Contents/Resources/app-dist/index.html#/w/1", LOCKED), true);
+  });
+
+  it("nepustí cudzí lokálny HTML súbor ani únik cez ..", () => {
+    assert.equal(isAllowedNavigation("file:///Users/advokat/Spisy/Klient/priloha.html", LOCKED), false);
+    assert.equal(isAllowedNavigation("file:///Applications/LAWOSS.app/Contents/Resources/app-dist/../evil.html", LOCKED), false);
+    assert.equal(isAllowedNavigation("file:///Applications/LAWOSS.app/Contents/Resources/app-dist-evil/index.html", LOCKED), false);
+  });
+});
+
+describe("isSafeExternalUrl", () => {
+  it("do systémového prehliadača pustí len http(s) a mailto", () => {
+    assert.equal(isSafeExternalUrl("https://example.test/a?b=1"), true);
+    assert.equal(isSafeExternalUrl("mailto:podatelna@example.test"), true);
+    for (const bad of ["file:///Applications/Calculator.app", "smb://server/share", "javascript:alert(1)", "vscode://x", "", "nie je url"]) {
+      assert.equal(isSafeExternalUrl(bad), false, bad);
+    }
+  });
+});
+
+describe("isOpenableDocument", () => {
+  it("otvorí dokumenty, spustiteľné veci nie", () => {
+    for (const ok of ["/s/podanie.docx", "/s/Rozsudek.PDF", "/s/tabulka.xlsx", "/s/poznamka.md"]) assert.equal(isOpenableDocument(ok), true, ok);
+    for (const bad of ["/Applications/Calculator.app", "/s/run.command", "/s/x.sh", "/s/setup.exe", "/s/a.bat", "/s/bez-pripony", "/s/x.pdf.app"]) assert.equal(isOpenableDocument(bad), false, bad);
   });
 });
