@@ -99,7 +99,7 @@ export function NovySpisPanel({ connection, workspace, onOpenSession, documentAu
   const [rootOverride, setRootOverride] = useState("");
 
   const effectiveRoot = rootOverride.trim() || workspace?.path || "";
-  const effectiveForm = useMemo<NovySpisForm>(() => ({ ...form, root: effectiveRoot, advokat: lawyerName(documentAuthor), documentLanguage: documentLanguageForLocale(locale) }), [form, effectiveRoot, documentAuthor, locale]);
+  const effectiveForm = useMemo<NovySpisForm>(() => ({ ...form, root: effectiveRoot, advokat: lawyerName(documentAuthor), documentLanguage: documentLanguageForLocale(locale), promptLanguage: locale }), [form, effectiveRoot, documentAuthor, locale]);
   const rootOutsideWorkspace = !okfTargetWithinWorkspace(targetDir(effectiveForm), workspace);
   useEffect(() => {
     setProbe(null);
@@ -125,7 +125,12 @@ export function NovySpisPanel({ connection, workspace, onOpenSession, documentAu
     [rows, effectiveForm, workspace],
   );
   const prompt = useMemo(() => composePrompt(effectiveForm, probe && isCurrentCreationPlan(probe, effectiveForm)
-    ? { source: probe.profile.source, warning: probe.profile.warning, profile: probe.profile.profile, paths: rows.map((row) => row.path) } : undefined), [effectiveForm, probe, dir, rows]);
+    ? {
+      // Preview data in the UI language, like the instructions around it.
+      source: probe.profile.sourceKey ? t(probe.profile.sourceKey, locale, probe.profile.sourceParams) : probe.profile.source,
+      warning: probe.profile.warningKey ? t(probe.profile.warningKey, locale) : probe.profile.warning,
+      profile: probe.profile.profile, paths: rows.map((row) => row.path),
+    } : undefined), [effectiveForm, probe, dir, rows, locale]);
   const set = <K extends keyof NovySpisForm>(key: K, value: NovySpisForm[K]) => setForm((current) => ({ ...current, [key]: value }));
 
   const canAct = Boolean(connection.client && canWrite && workspace.workspaceType !== "remote" && workspace.path && !rootOutsideWorkspace && form.title.trim() && form.mode === "okf");
