@@ -11,7 +11,9 @@
  * by jinak dělal i něco jiného, než co karta popisuje; nerozpoznaný nebo
  * přebytečný token po vlajkách; vlajka vyžadující hodnotu bez ní. Uvozovky
  * dělají z metaznaků uvnitř data, ne operátor (`--reason "a; b"` je v
- * pořádku) — vždy raději `null` než hádat (fix round 1).
+ * pořádku) — ale v `"…"` shell stále provádí `$`, zpětné apostrofy a `\`,
+ * proto tam vedou na `null`; jen `'…'` je čistě literál. Vždy raději `null`
+ * než hádat (fix round 1, final review C1).
  */
 
 export type MemoryWriteProposal = {
@@ -22,8 +24,12 @@ export type MemoryWriteProposal = {
   approvedBy?: string;
 };
 
-/** Neuvozovkovaný shell operátor/metaznak — příkaz dělá i něco jiného než navržený zápis. */
-const UNQUOTED_METACHAR = /[;&|<>`\n\r]/;
+/**
+ * Neuvozovkovaný shell operátor/metaznak — příkaz dělá i něco jiného než navržený
+ * zápis. Patří sem i `$` (expanze), `\` a uvozovka uprostřed slova (`a"x y"`
+ * je pro shell jeden argument, pro tokenizer dva) — nikdy nehádat.
+ */
+const UNQUOTED_METACHAR = /[;&|<>`\n\r$\\"']/;
 
 /**
  * Rozdělí příkaz na tokeny; uvozovky `"…"`/`'…'` drží obsah pohromadě (uvnitř
@@ -42,14 +48,16 @@ function tokenize(command: string): string[] | null {
     if (ch === '"' || ch === "'") {
       const end = command.indexOf(ch, i + 1);
       if (end === -1) return null; // nevyvážené uvozovky — nikdy nehádat
-      tokens.push(command.slice(i + 1, end));
+      const body = command.slice(i + 1, end);
+      // V "…" shell dál provádí $(…), `…`, $PROMĚNNÉ a \-escape — karta by lhala. V '…' je vše text.
+      if (ch === '"' && /[$`\\]/.test(body)) return null;
+      tokens.push(body);
       i = end + 1;
     } else {
       const start = i;
       while (i < command.length && !/\s/.test(command[i]!)) {
         const c = command[i]!;
         if (UNQUOTED_METACHAR.test(c)) return null;
-        if (c === "$" && (command[i + 1] === "(" || command[i + 1] === "{")) return null;
         i++;
       }
       tokens.push(command.slice(start, i));
@@ -58,9 +66,9 @@ function tokenize(command: string): string[] | null {
   return tokens;
 }
 
+/** Holé `okf-memory`/`okf-memory.js`, nebo cesta do adresáře `resources` skillu — ne libovolný stejnojmenný skript. */
 function isOkfMemoryBinary(token: string): boolean {
-  const base = token.split("/").pop() ?? token;
-  return base === "okf-memory" || base === "okf-memory.js";
+  return /^(?:(?:.*\/)?resources\/)?okf-memory(?:\.js)?$/.test(token);
 }
 
 export function describeMemoryWrite(command: string): MemoryWriteProposal | null {

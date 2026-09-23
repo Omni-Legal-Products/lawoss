@@ -17,14 +17,22 @@ export function MemoryWriteNotice({ proposal }: { proposal: MemoryWriteProposal 
       <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-dls-secondary">
         {t("lawoss.lite.memory_write_title")}
       </div>
+      <div className="mt-2">
+        <span className="font-medium">{t("lawoss.lite.memory_write_matter")}:</span> {proposal.matterDir}
+      </div>
       {proposal.file ? (
-        <div className="mt-2">
+        <div className="mt-1">
           <span className="font-medium">{t("lawoss.lite.memory_write_record")}:</span> {proposal.file}
         </div>
       ) : null}
       {proposal.reason ? (
         <div className="mt-1">
           <span className="font-medium">{t("lawoss.lite.memory_write_reason")}:</span> {proposal.reason}
+        </div>
+      ) : null}
+      {proposal.approvedBy ? (
+        <div className="mt-1">
+          <span className="font-medium">{t("lawoss.lite.memory_write_approved_by")}:</span> {proposal.approvedBy}
         </div>
       ) : null}
       <div className="mt-2">
