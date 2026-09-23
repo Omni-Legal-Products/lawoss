@@ -46,8 +46,8 @@ import {
 import { t } from "../../../../i18n";
 import { isDesktopRuntime } from "../../../../app/utils";
 import { hideCommercialTabs } from "@/lawoss/feature-flags";
-import { currentUiMode } from "@/lawoss/lite/ui-mode";
-import { liteSettingsTabs } from "@/lawoss/lite/visibility";
+import { currentUiMode, useUiMode } from "@/lawoss/lite/ui-mode";
+import { isWorkspaceSwitcherVisible, liteSettingsTabs } from "@/lawoss/lite/visibility";
 import type { SettingsTab } from "../../../../app/types";
 import {
   SettingsContent,
@@ -277,6 +277,7 @@ type SettingsSidebarProps = Pick<SettingsPageProps, "activeTab" | "onSelectTab" 
 export function SettingsSidebar(props: SettingsSidebarProps) {
   const workspaceTabs = getWorkspaceSettingsTabs();
   const globalTabs = getGlobalSettingsTabs(props.developerMode);
+  const showWorkspace = isWorkspaceSwitcherVisible(useUiMode()); // LAWOSS-lite: bez přepínače workspace
 
   return (
     <Sidebar aria-label={t("settings.navigation")} className="mac:**:data-[sidebar=sidebar]:bg-transparent">
@@ -289,7 +290,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
               <span>{t("dashboard.back_to_app")}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
-          <SidebarMenuItem>
+          {showWorkspace && <SidebarMenuItem>
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
@@ -318,7 +319,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
-          </SidebarMenuItem>
+          </SidebarMenuItem>}
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent className="gap-1 px-1 pb-4 pt-2">

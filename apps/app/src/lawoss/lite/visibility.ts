@@ -22,5 +22,8 @@ export type SidebarItem = (typeof LITE_HIDDEN_SIDEBAR)[number];
 export const isSidebarItemVisible = (item: SidebarItem, mode: UiMode): boolean =>
   mode === "pro" || !LITE_HIDDEN_SIDEBAR.includes(item);
 
+/** Přepínač workspace v nastavení: jen pro (lite nesmí ukázat pojem „workspace“). */
+export const isWorkspaceSwitcherVisible = (mode: UiMode): boolean => mode === "pro";
+
 /** Úvodní stránka: pro zůstává na přehledu spisů. */
 export const landingPath = (mode: UiMode): string => (mode === "lite" ? LITE_TODAY_PATH : "/prehlad");

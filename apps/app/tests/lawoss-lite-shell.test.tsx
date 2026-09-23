@@ -4,7 +4,9 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
-import { liteSettingsTabs, isSidebarItemVisible, landingPath } from "../src/lawoss/lite/visibility";
+import { liteSettingsTabs, isSidebarItemVisible, isWorkspaceSwitcherVisible, landingPath } from "../src/lawoss/lite/visibility";
+import { SettingsSidebar } from "../src/react-app/domains/settings/shell/settings-page";
+import { t } from "@/i18n";
 import { LAWOSS_ROUTES } from "../src/lawoss/shell/routes";
 import { LiteNav, LiteNavView } from "../src/lawoss/lite/lite-nav";
 import { UiModeSwitchView } from "../src/lawoss/lite/ui-mode-switch";
@@ -75,5 +77,20 @@ describe("boční panel LAWOSS-lite", () => {
     expect(out).toMatch(/<button[^>]*aria-pressed="true"[^>]*>Simple<\/button>/);
     expect(out).toMatch(/<button[^>]*aria-pressed="false"[^>]*>Advanced<\/button>/);
     expect(out).toContain("Same data in both modes");
+  });
+});
+
+describe("nastavení LAWOSS-lite: přepínač workspace", () => {
+  test("lite přepínač workspace skryje, pro ho ukáže", () => {
+    expect(isWorkspaceSwitcherVisible("lite")).toBe(false);
+    expect(isWorkspaceSwitcherVisible("pro")).toBe(true);
+  });
+  test("pro: boční panel nastavení dál vykreslí přepínač s popiskem skupiny", () => {
+    // SSR snapshot režimu je "pro".
+    const out = html(<SettingsSidebar activeTab="general" onSelectTab={() => {}} developerMode={false} onClose={() => {}}
+      selectedWorkspaceId="ws_fiktivni" selectedWorkspaceName="Kancelář Vzorová" selectedWorkspaceColor="#888"
+      workspaces={[{ id: "ws_fiktivni", name: "Kancelář Vzorová", color: "#888" }]} onSelectWorkspace={() => {}} />);
+    expect(out).toContain("Kancelář Vzorová");
+    expect(out).toContain(t("settings.group_workspace"));
   });
 });
