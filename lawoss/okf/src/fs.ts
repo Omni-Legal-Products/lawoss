@@ -169,6 +169,14 @@ export function render(root: string, selectedLanguage?: DocumentLanguage): { wri
   const kept: string[] = [];
   const agents = join(root, "AGENTS.md");
   const claude = join(root, "CLAUDE.md");
+  const index = join(root, "index.md");
+  // Odvodené súbory sa prepisujú celé; symlink by presmeroval zápis mimo entity
+  // (napr. podhodený v zdieľanom priečinku klienta).
+  for (const derived of [agents, claude, index]) {
+    if (lstatSync(derived, { throwIfNoEntry: false })?.isSymbolicLink()) {
+      throw new Error(`Odvodený súbor je symbolický odkaz, nezapisujem: ${basename(derived)}`);
+    }
+  }
   if (existsSync(agents)) {
     const a = readText(agents);
     if (!existsSync(claude)) { writeFileSync(claude, a, "utf8"); written.push("CLAUDE.md"); }
@@ -180,7 +188,6 @@ export function render(root: string, selectedLanguage?: DocumentLanguage): { wri
       written.push(backup, "CLAUDE.md");
     }
   }
-  const index = join(root, "index.md");
   if (existsSync(index)) {
     const text = readText(index);
     const fm = parseFrontmatter(text);
