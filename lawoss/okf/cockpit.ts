@@ -9,6 +9,7 @@
  */
 import type { OkfRecord } from "../okf-pamat/src/record.ts";
 import type { RecordType } from "../okf-pamat/src/schema.ts";
+import { pendingInputs } from "./inputs.ts";
 import { deadlineTier, type MatterInput, type MatterOverview } from "./read.ts";
 
 /** Odkiaľ údaj pochádza. Slovo, nie farba — stav musí byť čitateľný aj bez nej. */
@@ -253,12 +254,9 @@ export function attention(
       title: "Ručný stav veci", detail: input.manualStatus.message,
       file: input.path ? `${input.path}/_STATUS.md` : "_STATUS.md" });
   }
-  for (const line of (input.intake ?? "").split("\n")) {
-    const cells = line.trim().split("|").slice(1, -1).map((cell) => cell.trim());
-    if (cells[4] !== "pending") continue;
-    rows.push({ id: `vstup:${cells[0]}`, kind: "záznam", state: "nespracované",
-      title: `Nespracovaný vstup ${cells[0]}`, detail: `${cells[2]} · ${cells[3]}`,
-      file: `${input.path}/VSTUPY.md` });
+  for (const row of pendingInputs(input)) {
+    rows.push({ id: `vstup:${row.id}`, kind: "záznam", state: "nespracované",
+      title: `Nespracovaný vstup ${row.id}`, detail: `${row.received} · ${row.source}`, file: row.file });
   }
 
 
