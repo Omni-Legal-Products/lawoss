@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { pendingInputs } from "../../../lawoss/okf/inputs";
 import { buildToday, groupByClient } from "../src/lawoss/lite/today-model";
 import type { MatterInput, MatterOverview, UpcomingDeadline } from "../../../lawoss/okf/read";
+import { LAYER_OF } from "../../../lawoss/okf-pamat/src/schema.ts";
+import type { OkfRecord } from "../../../lawoss/okf-pamat/src/record.ts";
 
 const m = (path: string, title: string, extra: Partial<MatterOverview> = {}): MatterOverview => ({
   path, title, deadlines: [], openTasks: [], counts: { records: 0, evidence: 0, subjects: 0 }, ...extra,
@@ -18,10 +20,10 @@ const dl = (date: string, matter: MatterOverview): UpcomingDeadline => ({ date, 
 const input = (path: string, intake: string): MatterInput => ({ path, records: [], intake });
 
 describe("pendingInputs", () => {
-  test("vezme jen řádky se stavem pending", () => {
-    const intake = "| ID | typ | přijato | zdroj | stav |\n|---|---|---|---|---|\n| IN-1 | email | 2026-09-22 | datová schránka | pending |\n| IN-2 | email | 2026-09-21 | e-mail | done |\n";
+  test("vezme jen řádky se stavem pending (sloupce dle templates/spis/VSTUPY.md)", () => {
+    const intake = "| ID | Přijato | Zdroj | Originál | Stav | Výsledné záznamy |\n|---|---|---|---|---|---|\n| IN-1 | 2026-09-22 | datová schránka | zprava.pdf | pending | |\n| IN-2 | 2026-09-21 | e-mail | stary.pdf | processed | Q-001 |\n";
     expect(pendingInputs(input("Klienti/X", intake))).toEqual([
-      { id: "IN-1", received: "2026-09-22", source: "datová schránka", matterPath: "Klienti/X", file: "Klienti/X/VSTUPY.md" }]);
+      { id: "IN-1", received: "2026-09-22", source: "datová schránka", original: "zprava.pdf", matterPath: "Klienti/X", file: "Klienti/X/VSTUPY.md" }]);
   });
   test("bez VSTUPY.md nic", () => expect(pendingInputs(input("Klienti/X", ""))).toEqual([]));
 });
@@ -51,5 +53,29 @@ describe("buildToday", () => {
 describe("groupByClient", () => {
   test("seskupí věci podle klienta, klienti abecedně", () => {
     expect(groupByClient([acme, novak, pracovni]).map((g) => [g.client, g.matters.length])).toEqual([["ACME s.r.o.", 1], ["Novák Jan", 2]]);
+  });
+});
+
+describe("buildToday — úkoly se zrušeným záznamem (Review Focus 3)", () => {
+  const taskRecord = (id: string, status: string): OkfRecord => ({
+    okf: 1, id, type: "task", title: `task ${id}`, description: "syntetický záznam",
+    layer: LAYER_OF.task, jurisdiction: "cz", status, created: "2026-09-20", updated: "2026-09-20", truth: "", timeline: [],
+  });
+  const retired = m("AK/S/Superseded s.r.o./Spisy/Vec", "Superseded — vec", {
+    openTasks: [
+      { id: "T-SUP", title: "Úkol nahrazený novým" },
+      { id: "T-VOID", title: "Úkol zrušený jako omyl" },
+      { id: "T-ACT", title: "Úkol platný" },
+    ],
+  });
+  const result = {
+    matters: [retired],
+    upcomingDeadlines: [],
+    overdue: [],
+    inputs: [{ path: retired.path, records: [taskRecord("T-SUP", "superseded"), taskRecord("T-VOID", "void"), taskRecord("T-ACT", "active")] }],
+  };
+
+  test("superseded a void úkoly se nezobrazí, aktivní ano", () => {
+    expect(buildToday(result, "2026-09-23").tasks.map((t) => t.id)).toEqual(["T-ACT"]);
   });
 });

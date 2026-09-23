@@ -256,7 +256,7 @@ export function attention(
   }
   for (const row of pendingInputs(input)) {
     rows.push({ id: `vstup:${row.id}`, kind: "záznam", state: "nespracované",
-      title: `Nespracovaný vstup ${row.id}`, detail: `${row.received} · ${row.source}`, file: row.file });
+      title: `Nespracovaný vstup ${row.id}`, detail: `${row.source} · ${row.original}`, file: row.file });
   }
 
 
