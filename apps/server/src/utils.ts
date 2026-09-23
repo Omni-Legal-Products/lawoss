@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, stat } from "node:fs/promises";
 
 export async function exists(path: string): Promise<boolean> {
@@ -25,6 +25,11 @@ export async function readJsonFile<T>(path: string): Promise<T | null> {
 
 export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
+}
+
+/** Constant-time token comparison (hash first, so lengths never leak or throw). */
+export function tokensEqual(a: string, b: string): boolean {
+  return timingSafeEqual(createHash("sha256").update(a).digest(), createHash("sha256").update(b).digest());
 }
 
 export function shortId(): string {

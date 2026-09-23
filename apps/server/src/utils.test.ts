@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { hashToken, shortId, parseList, ensureDir, exists } from "./utils.js";
+import { hashToken, shortId, parseList, ensureDir, exists, tokensEqual } from "./utils.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -62,4 +62,11 @@ describe("ensureDir + exists", () => {
     await ensureDir(nested);
     expect(await exists(nested)).toBe(true);
   });
+});
+
+test("tokensEqual porovná tokeny v konštantnom čase bez výnimky pri rôznej dĺžke", () => {
+  expect(tokensEqual("abc", "abc")).toBe(true);
+  expect(tokensEqual("abc", "abd")).toBe(false);
+  expect(tokensEqual("abc", "abcd")).toBe(false);
+  expect(tokensEqual("", "x")).toBe(false);
 });

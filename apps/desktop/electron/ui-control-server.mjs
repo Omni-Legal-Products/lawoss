@@ -3,9 +3,9 @@
 // surface via executeJavaScript. Consumed over HTTP by legalwork-ui-mcp.
 // Extracted from main.mjs; state and lifecycle live in this factory
 // (createRuntimeManager pattern).
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
-import { rm, writeFile } from "node:fs/promises";
+import { chmod, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export function createUiControlServer({ appName, appIdentifier, getWindow, getUserDataDir }) {
@@ -48,8 +48,9 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
   }
 
   function authorizedUiControlRequest(request) {
-    const auth = request.headers.authorization ?? "";
-    return auth === `Bearer ${uiControlToken}`;
+    const auth = Buffer.from(request.headers.authorization ?? "");
+    const expected = Buffer.from(`Bearer ${uiControlToken}`);
+    return auth.length === expected.length && timingSafeEqual(auth, expected);
   }
 
   function jsonForJavaScript(value) {
@@ -141,8 +142,11 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
     await writeFile(
       uiControlDiscoveryPath,
       `${JSON.stringify({ version: 1, app: appName, identifier: appIdentifier, platform: process.platform, baseUrl: `http://127.0.0.1:${port}`, token: uiControlToken }, null, 2)}\n`,
-      "utf8",
+      { encoding: "utf8", mode: 0o600 },
     );
+    // LAWOSS: the file holds a bearer token that drives the app window; a file
+    // left by an older build keeps its old mode, so tighten it explicitly.
+    await chmod(uiControlDiscoveryPath, 0o600);
     // Make the discovery path available to child processes (server → managed OpenCode → plugin).
     process.env.LEGALWORK_UI_CONTROL_DISCOVERY = uiControlDiscoveryPath;
   }
