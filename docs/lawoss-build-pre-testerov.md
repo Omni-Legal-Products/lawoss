@@ -88,8 +88,62 @@ Voliteľné, ale užitočné pred hlásením problému — overí, že TypeScrip
 
    > Pozor, ak používate aj samostatný `opencode` CLI: build od upstream v0.1.21 pri každom spustení presunie MCP konektory z `~/.config/opencode/opencode.json` (aj z `opencode.json` v pracovných priečinkoch) do vlastnej databázy v `~/.config/legalwork/` a z pôvodného súboru ich zmaže. Server si pred prvým presunom uloží kópiu každého dotknutého súboru ako `<súbor>.bak-<dátum>` vedľa neho; napriek tomu si ho pred prvým spustením zálohujte aj sami a konektory odvtedy pridávajte v appke. Starší LAWOSS build po návrate konektory neuvidí — postup obnovy je v [docs/rollback-v0.1.21.md](rollback-v0.1.21.md).
 2. **Založte testovací priečinok.** Pri prvom spustení appka ponúkne výber pracovného priečinka. Vytvorte si na to nový, prázdny priečinok mimo akéhokoľvek reálneho spisu — **nepoužívajte priečinok so skutočnými klientskymi dátami** (dôvod je v sekcii 6).
-3. **Prepnite jazyk.** V **Settings → Language** (SK/CZ lokalizácia je súčasťou LAWOSS jadra) zvoľte preferovaný jazyk rozhrania.
+3. **Prepnite jazyk.** Prepínač jazyka je v hlavičke rozhovoru aj v **Settings** (obe miesta zdieľajú jednu voľbu). Zvoľte slovenčinu, češtinu alebo angličtinu; predvolený je jazyk systému.
 4. Vyskúšajte appku na neškodnej úlohe — napríklad nechajte ju zhrnúť testovací dokument, ktorý ste sami vložili do testovacieho priečinka.
+
+## 5a. Pripojenie modelu
+
+LAWOSS nemá vlastný model ani vlastný kľúč — pripájate si svojho poskytovateľa.
+Všetko ide cez **Settings → AI Providers**.
+
+### Anthropic
+
+Dve cesty, obe funkčné:
+
+- **Predplatné Claude (Pro/Max)** — „Sign in with Anthropic". Otvorí sa prehliadač,
+  po prihlásení sa vrátite do appky. Kľúč nikam nezadávate.
+- **API kľúč** — vložíte `sk-ant-…` z console.anthropic.com. Kľúč sa ukladá lokálne
+  do `auth.json` enginu, neodchádza nikam inam.
+
+### OpenRouter, OpenAI, ostatní
+
+Rovnaká obrazovka, rovnaký postup: vložíte API kľúč poskytovateľa. OpenRouter je
+rozcestník k mnohým modelom pod jedným kľúčom.
+
+### Výber modelu
+
+Po pripojení si appka vyberie východiskový model sama. **Vyberá len spomedzi
+modelov, ktoré vedia volať nástroje** — agent bez nástrojov nevie čítať súbory ani
+zapisovať do spisu, takže obrázkové, hlasové a prepisovacie modely sa ako
+východiskové neponúkajú. Model kedykoľvek zmeníte v lište nad vstupným poľom.
+
+> Ak vám odpoveď skončí chybou `No endpoints found that support tool use`,
+> máte vybraný model bez nástrojov — prepnite ho v pickeri.
+
+### Ladiaci port
+
+Appka otvára ladiaci port (CDP) na loopbacku — používa ho vstavaný prehliadač a
+vyberá si ho sama z rozsahu 9223–9227. Konkrétny port si vypýtate cez
+`LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT=9823 pnpm dev`, **úplne ho zavriete** cez
+`LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT=off pnpm dev`. Kto sa naň pripojí, riadi
+okno aj session, takže na cudzom stroji ho zavrite.
+
+## 5b. Smoke scenár alfy
+
+Prejdite po zostavení týchto šesť krokov. Pri každom je uvedené, čo má nastať;
+ak nastane niečo iné, je to nález do issues (krok 6 nižšie).
+
+| # | Krok | Očakávaný výsledok |
+|---|---|---|
+| 1 | Prvé spustenie a onboarding | Appka sa otvorí, prejdete výberom pracovného priečinka bez chyby. Priečinok je prázdny a mimo klientskych dát. |
+| 2 | Pripojenie modelu | Po vložení kľúča je poskytovateľ v zozname ako pripojený a v lište nad vstupným poľom je vybraný model (nie „No AI model connected"). |
+| 3 | Jazyk | Prepínač jazyka v hlavičke rozhovoru (alebo v **Settings**) → slovenčina alebo čeština. Rozhranie sa prepne celé, vrátane nastavení a bočného panela; nikde neostane anglická veta. Po reštarte appky voľba zostane. |
+| 4 | Založenie spisu | V **Settings → Integrácie** pri karte **OKF — klienti, veci a pamäť** potvrďte inštaláciu (uloží skilly `/novy-spis`, `/okf-pamat` a `/usporiadaj-spis`; samotná inštalácia vec nezakladá). Potom v rozhovore nad pracovným priečinkom zadajte `/novy-spis`. Agent ukáže **plán** a čaká na potvrdenie; až potom vzniknú súbory. |
+| 5 | Zápis do pamäte | Požiadajte agenta o zápis (napr. úlohu s termínom). Záznam vznikne v `memory/`, `_STATUS.md` ho ukáže v sekcii Lehoty alebo Otvorené úlohy a v histórii záznamu je, kto zápis schválil. |
+| 6 | Reštart | Zavrieť a znova otvoriť appku: workspace, model, jazyk aj spis ostávajú. Prehľad a Lehoty ukazujú skutočné údaje zo spisu, nie ukážku. |
+
+Čo v alfe **nefunguje zámerne**: notarizované buildy (kompilujete si sami),
+automatické aktualizácie, nahrávanie a prepis (skryté), platené plochy upstreamu.
 
 ## 6. Čo hlásiť a kam
 
