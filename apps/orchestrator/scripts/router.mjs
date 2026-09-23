@@ -28,7 +28,9 @@ async function findFreePort() {
   });
 }
 
-async function waitFor(url, timeoutMs = 10_000, pollMs = 250) {
+// A first-run daemon may download a large OpenCode sidecar before it can
+// expose /health. Keep the integration gate tolerant of that cold start.
+async function waitFor(url, timeoutMs = 60_000, pollMs = 250) {
   const start = Date.now();
   let lastError;
   while (Date.now() - start < timeoutMs) {
