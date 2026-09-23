@@ -46,6 +46,8 @@ import {
 import { t } from "../../../../i18n";
 import { isDesktopRuntime } from "../../../../app/utils";
 import { hideCommercialTabs } from "@/lawoss/feature-flags";
+import { currentUiMode } from "@/lawoss/lite/ui-mode";
+import { liteSettingsTabs } from "@/lawoss/lite/visibility";
 import type { SettingsTab } from "../../../../app/types";
 import {
   SettingsContent,
@@ -227,7 +229,7 @@ export function getSettingsTabDescription(tab: SettingsTab) {
 export function getWorkspaceSettingsTabs(): SettingsTab[] {
   // Skills and plugins live in Settings > Integrations.
   // Workspace-specific access is configured here.
-  return ["permissions"];
+  return liteSettingsTabs<SettingsTab>(["permissions"], currentUiMode());
 }
 
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
@@ -244,7 +246,7 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   if (isDesktopRuntime()) tabs.splice(2, 0, "recorder");
   if (developerMode) tabs.push("debug");
   // LAWOSS: účet a recorder sú komerčné plochy upstreamu — skryté, nie zmazané.
-  return hideCommercialTabs(tabs);
+  return liteSettingsTabs(hideCommercialTabs(tabs), currentUiMode()); // LAWOSS-lite: jen AI, kancelář, vzhled
 }
 
 type SettingsPageProps = {
@@ -339,7 +341,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup>
+        <SidebarGroup hidden={workspaceTabs.length === 0}>
           <SidebarGroupLabel>{t("settings.group_workspace")}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>

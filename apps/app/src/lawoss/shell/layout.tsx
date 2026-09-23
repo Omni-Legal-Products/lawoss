@@ -20,6 +20,8 @@ import {
 } from "@/components/ui/sidebar";
 
 import { EXPERIMENT_VIEWS } from "../experiments/registry";
+import { LiteNav } from "../lite/lite-nav";
+import { useUiMode } from "../lite/ui-mode";
 import "./lawoss.css";
 
 export const EXPERIMENTY_PATH = "/experimenty";
@@ -48,6 +50,10 @@ export function experimentyNavItems(): { to: string; label: string }[] {
  * small window heights. A menu takes no vertical space regardless of count.
  */
 export function LawossNav(props: { activePane?: boolean } = {}) {
+  return useUiMode() === "lite" ? <LiteNav activePane={props.activePane} /> : <ExperimentsNav {...props} />;
+}
+
+function ExperimentsNav(props: { activePane?: boolean }) {
   const locale = useLocale();
   const navigate = useNavigate();
   const location = useLocation();
@@ -91,13 +97,15 @@ export function LawossNav(props: { activePane?: boolean } = {}) {
 /** Experiment content shares the persistent session shell and its sidebar. */
 export function LawossLayout(props: { children: ReactNode }) {
   const locale = useLocale();
+  // Lite: jen list — experimentální lišta (i „Nový spis (OKF)“) patří do pro.
+  const lite = useUiMode() === "lite";
   return (
     <div className="lw-experiment-content">
-      <nav className="lw-experiment-nav" aria-label={t("lawoss.shell.experiments", locale)}>
+      {lite ? null : <nav className="lw-experiment-nav" aria-label={t("lawoss.shell.experiments", locale)}>
         {experimentyNavItems().map((item) => (
           <NavLink key={item.to} to={item.to} end>{item.label}</NavLink>
         ))}
-      </nav>
+      </nav>}
       <section className="lw-sheet">{props.children}</section>
     </div>
   );

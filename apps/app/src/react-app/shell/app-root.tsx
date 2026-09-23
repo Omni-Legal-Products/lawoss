@@ -21,6 +21,7 @@ import { StealthMode } from "./stealth-mode";
 import { TaskNotificationsListener } from "./task-notifications-listener";
 import { WelcomeRoute } from "./welcome-route";
 import { LAWOSS_ROUTES } from "../../lawoss/shell/routes";
+import { LawossLanding } from "../../lawoss/lite/landing";
 
 
 let appOpenedCaptured = false;
@@ -146,7 +147,7 @@ export function AppRoot() {
               {LAWOSS_ROUTES.map((route) => (
                 <Route key={route.path} path={route.path} element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               ))}
-              <Route path="/" element={<Navigate to="/prehlad" replace />} />
+              <Route path="/" element={<LawossLanding />} />
               <Route path="*" element={<Navigate to="/session" replace />} />
           </Routes>
         </LegalworkControlProvider>

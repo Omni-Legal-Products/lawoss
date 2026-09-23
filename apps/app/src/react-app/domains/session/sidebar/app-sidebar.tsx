@@ -40,6 +40,8 @@ import {
 } from "../../../../app/utils";
 import { t } from "../../../../i18n";
 import { HIDDEN_SETTINGS_TABS } from "@/lawoss/feature-flags";
+import { useUiMode } from "@/lawoss/lite/ui-mode";
+import { isSidebarItemVisible, type SidebarItem } from "@/lawoss/lite/visibility";
 
 import {
   Sidebar,
@@ -525,6 +527,8 @@ export function AppSidebar(props: AppSidebarProps) {
   const { config: shellConfig } = useShellConfig();
   const navigate = useNavigate();
   const unreadTasks = useUnreadTaskCount();
+  const uiMode = useUiMode(); // LAWOSS-lite: technické položky skryté, v pro beze změny
+  const shown = (item: SidebarItem) => isSidebarItemVisible(item, uiMode);
   const showUnreadTasks = unreadTasks > 0 && props.activeNav !== "tasks";
   const goSettings = React.useCallback(
     (tab: string) => {
@@ -693,7 +697,7 @@ export function AppSidebar(props: AppSidebarProps) {
         </div>
         <LawossNav activePane={Boolean(props.activeNav)} />
         <SidebarMenu className={cn("gap-0.5 px-2 mac:titlebar-no-drag", showSidebarBrandName ? "pt-1" : "pt-1")}>
-          <SidebarMenuItem>
+          {shown("new_task") && <SidebarMenuItem>
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
@@ -721,8 +725,8 @@ export function AppSidebar(props: AppSidebarProps) {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          </SidebarMenuItem>
-          {props.onShowTasks ? (
+          </SidebarMenuItem>}
+          {props.onShowTasks && shown("tasks") ? (
             <SidebarMenuItem>
               <SidebarMenuButton
                 className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
@@ -745,7 +749,7 @@ export function AppSidebar(props: AppSidebarProps) {
               ) : null}
             </SidebarMenuItem>
           ) : null}
-          <SidebarMenuItem>
+          {shown("workflows") && <SidebarMenuItem>
             <SidebarMenuButton
               className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
               isActive={props.activeNav === "workflows"}
@@ -754,9 +758,9 @@ export function AppSidebar(props: AppSidebarProps) {
               <Workflow className="size-[18px]" strokeWidth={1.5} />
               <span>{t("sidebar.workflows")}</span>
             </SidebarMenuButton>
-          </SidebarMenuItem>
+          </SidebarMenuItem>}
           {/* LAWOSS: recorder je skrytý aj v hlavnom sidebare, nielen v nastaveniach. */}
-          {HIDDEN_SETTINGS_TABS.has("recorder") ? null : (
+          {HIDDEN_SETTINGS_TABS.has("recorder") || !shown("recorder") ? null : (
             <SidebarMenuItem>
               <SidebarMenuButton
                 className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[18px]")}
@@ -768,7 +772,7 @@ export function AppSidebar(props: AppSidebarProps) {
               </SidebarMenuButton>
             </SidebarMenuItem>
           )}
-          <SidebarMenuItem>
+          {shown("evals") && <SidebarMenuItem>
             <SidebarMenuButton
               className={cn(NAV_ITEM_CLASS, "[&_svg]:size-[19px]")}
               isActive={props.activeNav === "evals"}
@@ -777,7 +781,7 @@ export function AppSidebar(props: AppSidebarProps) {
               <FlaskConical className="size-[19px]" strokeWidth={1.5} />
               <span>{t("sidebar.evals")}</span>
             </SidebarMenuButton>
-          </SidebarMenuItem>
+          </SidebarMenuItem>}
         </SidebarMenu>
         {/* Flows directly under the last nav item, with a little breathing room. */}
         <div className="mt-3">
@@ -788,6 +792,7 @@ export function AppSidebar(props: AppSidebarProps) {
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col border-t border-sidebar-border/70 pt-1">
+          {shown("folders") && <>
           <div className="lw-sidebar-folders-header flex h-10 shrink-0 items-center gap-2 px-5 mac:titlebar-no-drag">
             <span className="lw-section-eyebrow">{t("sidebar.folders")}</span>
             <span className="ml-auto text-[11px] tabular-nums text-muted-foreground" aria-label={t("sidebar.folder_count", { count: props.workspaceSessionGroups.length })}>
@@ -821,6 +826,7 @@ export function AppSidebar(props: AppSidebarProps) {
               </Reorder.Group>
             </m.div>
           </LazyMotion>
+          </>}
           <SidebarUpdateBadge onOpenUpdatesSettings={() => navigate("/settings/updates")} />
         </div>
         <SidebarRail
