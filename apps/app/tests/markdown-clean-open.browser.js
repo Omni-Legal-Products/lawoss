@@ -8,7 +8,6 @@ async (page) => {
   const origin = page.url().split("/").slice(0, 3).join("/");
   const results = [];
   const knownLimitations = [];
-  const strictUndo = page.url().includes("strictUndo=1");
   // Only this isolated fixture page is navigated between independent scenarios.
   page.on("dialog", dialog => dialog.type() === "beforeunload" ? dialog.accept() : dialog.dismiss());
   const snapshot = () => page.evaluate(() => window.markdownCleanOpen.snapshot());
@@ -41,16 +40,20 @@ async (page) => {
   await settle();
   state = await snapshot();
   check(state.dirty && state.value.includes("Actual user edit"), "real rich-text editing is dirty and retained");
-  await page.getByRole("radio", { name: /Undo/ }).click();
-  await settle();
-  state = await snapshot();
-  check(!state.value.includes("Actual user edit"), "undo removes the real user edit");
-  if (state.dirty || state.value !== state.original) {
-    knownLimitations.push({ name: "undo exact-byte restoration after a real edit", expectedDirty: false, actualDirty: state.dirty, originalBytesRestored: state.value === state.original });
-    if (strictUndo) throw Error("Known limitation: undo leaves canonical Markdown dirty instead of restoring exact original bytes");
+  // History steps are per typed character; undo back to the untouched document (#90).
+  let undos = 0;
+  while (undos < 40 && state.value.includes("original bulletA")) {
+    await page.getByRole("radio", { name: /Undo/ }).click();
+    await settle();
+    state = await snapshot();
+    undos++;
   }
-  await page.getByRole("radio", { name: /Redo/ }).click();
-  await settle();
+  check(!state.value.includes("original bulletA"), "undo removes the real user edit");
+  check(!state.dirty && state.value === state.original, "undo back to the original restores exact source bytes and a clean state (#90)");
+  for (let i = 0; i < undos; i++) {
+    await page.getByRole("radio", { name: /Redo/ }).click();
+    await settle();
+  }
   state = await snapshot();
   check(state.dirty && state.value.includes("Actual user edit"), "redo restores the edit and dirty protection");
   await page.evaluate(() => window.markdownCleanOpen.save());
