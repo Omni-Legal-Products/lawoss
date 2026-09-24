@@ -264,12 +264,13 @@ export function attention(
 
 
   for (const d of deadlines(input, todayIso)) {
-    const tier = deadlineTier(d.date, todayIso);
+    // Neplatné datum sa nedá porovnať s dneškom — ukázať ho na overenie, nikdy ho neradiť ani nezahodiť.
+    const tier = d.invalid ? null : deadlineTier(d.date, todayIso);
     if (tier === "later") continue;
     rows.push({
       id: `lehota:${d.recordId}:${d.date}`,
       kind: "lehota",
-      state: tier === "overdue" ? "po termíne" : "blíži sa",
+      state: tier === null ? "neparsovateľné" : tier === "overdue" ? "po termíne" : "blíži sa",
       title: d.title,
       detail: d.source ?? `záznam ${d.recordId}`,
       date: d.date,

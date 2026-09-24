@@ -103,3 +103,18 @@ describe("6: neúplné načtení se v lite ohlásí i nad načtenými věcmi", (
     expect(out).toContain("dashboard");
   });
 });
+
+describe("ultrareview 3–4: neplatné datum není „po lhůtě“ ani v barvě, ani v pozornosti", () => {
+  const inputs: MatterInput[] = [{ path: "AK/A/A/Spisy/A", records: [rec("Q-X", ["15.3.2026"])] }];
+  const overview = buildOverview(inputs, TODAY);
+  test("Dnes: buňka data bez barvy naléhavosti", () => {
+    const out = html(<TodayView model={buildToday({ ...overview, inputs }, TODAY)} locale="en" />);
+    expect(out).toContain("15.3.2026");
+    expect(out).not.toMatch(/lw-d urg[^>]*>15\.3\.2026/);
+  });
+  test("pozornost věci: stav „neparsovateľné“, ne „po termíne“", () => {
+    const cockpit = buildCockpit({ ...overview, inputs, problems: [] }, "AK/A/A/Spisy/A", TODAY)!;
+    const row = cockpit.attention.find((r) => r.kind === "lehota");
+    expect(row?.state).toBe("neparsovateľné");
+  });
+});

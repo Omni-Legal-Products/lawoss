@@ -20,7 +20,8 @@ export type LiteCockpit = Pick<Cockpit, "deadlines" | "tasks" | "attention" | "f
 
 export function LiteMatterPage() {
   const locale = useLocale();
-  return <OkfPage title={t("lawoss.lite.clients_title", locale)} {...litePageProps(locale)}>{(data) => <LiteMatterBody data={data} />}</OkfPage>;
+  // Bez nadpisu stránky: hlavním nadpisem je název věci (LiteMatterView), ne „Klienti a věci“.
+  return <OkfPage {...litePageProps(locale)}>{(data) => <LiteMatterBody data={data} />}</OkfPage>;
 }
 
 /** Jen přesná shoda `?vec=`; na rozdíl od `selectMatter` nikdy nespadne na první věc (akce by běžely nad jinou). */
@@ -83,7 +84,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction }: {
 
   return (
     <div data-lawoss-lite="matter">
-      <h2 className="lw-h1">{matter.title}</h2>
+      <h1 className="lw-h1">{matter.title}</h1>
       <p className="lw-lead">{[matter.matterRef, matter.court, next ? text("matter_next_deadline", { date: formatDay(next, locale) }) : null].filter(Boolean).join(" · ")}</p>
 
       <div className="lw-lite-actions">

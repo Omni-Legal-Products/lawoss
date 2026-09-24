@@ -153,3 +153,16 @@ describe("integrace do PermissionApprovalPanel/Modal (upstream)", () => {
     ).not.toThrow();
   });
 });
+
+describe("ultrareview 2: dialog oprávnění v češtině a slovenštině bez technických pojmů", () => {
+  test("cs/sk texty dialogu neobsahují session, skill, OpenCode, Doom Loop, diff", async () => {
+    const { default: cs } = await import("../src/i18n/locales/cs");
+    const { default: sk } = await import("../src/i18n/locales/sk");
+    const keys = ["session.allow_for_session", "session.permission_decision_hint", "session.permission_kind_skill", "session.permission_message",
+      "session.permission_message_bash", "session.permission_message_edit", "session.permission_message_external_directory", "session.permission_title_bash",
+      "session.doom_loop_title", "session.doom_loop_label", "session.doom_loop_message", "session.doom_loop_note", "session.permission_detail_diff", "session.permission_detail_agent"];
+    for (const locale of [cs, sk] as Record<string, string>[]) {
+      for (const key of keys) expect(locale[key]).not.toMatch(/session|skill|opencode|doom loop|diff|agent\b|shell|pracovní prostor|pracovného priestoru/i);
+    }
+  });
+});

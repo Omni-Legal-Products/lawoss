@@ -21,7 +21,7 @@ export type StateText = (key: MatterTextKey, params?: Record<string, string | nu
 /** Which workspace the page reads; lite passes `officeWorkspace`, pro keeps the active one. */
 type PickWorkspace = typeof activeWorkspace;
 /** `rawProblems: false` (lite) hides per-file read errors — they carry internal names like "Workspace not found". */
-type PageProps = { title: string; children: (data: OkfReadResult) => ReactNode; stateText?: StateText; pickWorkspace?: PickWorkspace; rawProblems?: boolean };
+type PageProps = { title?: string; children: (data: OkfReadResult) => ReactNode; stateText?: StateText; pickWorkspace?: PickWorkspace; rawProblems?: boolean };
 
 /** Retry also reloads the desktop connection, which may be absent during startup. */
 export function OkfPage({ title, children, stateText, pickWorkspace, rawProblems }: PageProps) {
@@ -31,7 +31,7 @@ export function OkfPage({ title, children, stateText, pickWorkspace, rawProblems
   const cache = useQueryClient();
   return (
     <LawossLayout>
-      <h1 className="lw-h1">{title}</h1>
+      {title ? <h1 className="lw-h1">{title}</h1> : null}
       <OkfPageQuery key={attempt} stateText={stateText} pickWorkspace={pickWorkspace} rawProblems={rawProblems}>{children}</OkfPageQuery>
       <button type="button" className="lw-btn" onClick={() => {
         void cache.invalidateQueries({ queryKey: ["okf-overview"], refetchType: "none" });

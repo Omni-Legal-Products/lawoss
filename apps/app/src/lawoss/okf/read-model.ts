@@ -303,6 +303,8 @@ export function formatLongDay(iso: string, locale = "sk"): string {
 
 /** Trieda `lw-d` podľa blízkosti termínu. */
 export function dayClass(date: string, todayIso: string): string {
+  // Neplatné datum (ne RRRR-MM-DD) nemá barvu naléhavosti — porovnání textu by lhalo.
+  if (!ISO_DAY.test(date)) return "lw-d";
   const tier: DeadlineTier = deadlineTier(date, todayIso);
   return tier === "overdue" || tier === "today" ? "lw-d urg" : tier === "soon" ? "lw-d soon" : "lw-d";
 }

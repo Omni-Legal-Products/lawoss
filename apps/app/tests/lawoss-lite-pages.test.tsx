@@ -145,6 +145,13 @@ describe("stavy stránek LAWOSS-lite", () => {
       expect(sheet).not.toMatch(BANNED);
     }
   });
+  test("Věc: žádný nadpis „Clients and matters“ — hlavní nadpis je až název věci (ultrareview 1)", () => {
+    const out = renderToStaticMarkup(<QueryClientProvider client={new QueryClient()}><MemoryRouter><LiteMatterPage /></MemoryRouter></QueryClientProvider>);
+    expect(out).not.toContain("Clients and matters</h1>");
+    const view = html(<LiteMatterView matter={matter} cockpit={null} busy={null} error={null} onAction={() => {}} />);
+    expect(view.match(/<h1/g) ?? []).toHaveLength(1);
+    expect(view).toContain(`<h1 class="lw-h1">${matter.title}</h1>`);
+  });
   test("načítání / bez připojení / bez složky / prázdná složka / chyba", () => {
     const cases: [Partial<StateProps>, string][] = [
       [{ connection: "loading" }, "Loading your matters…"],

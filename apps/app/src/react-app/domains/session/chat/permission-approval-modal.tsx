@@ -14,7 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import type { PendingPermission } from "@/app/types";
-import { useUiMode } from "@/lawoss/lite/ui-mode";
+import { currentUiMode, useUiMode } from "@/lawoss/lite/ui-mode";
 import { describeMemoryWrite } from "@/lawoss/lite/memory-write";
 import { MemoryWriteNotice } from "@/lawoss/lite/memory-write-notice";
 
@@ -59,7 +59,7 @@ const metadataDetailKeys: Array<{ key: string; labelKey: string; multiline?: boo
 ];
 
 function readablePermissionLabel(permission: string): string {
-  if (permission === "bash") return "Bash";
+  if (permission === "bash") return currentUiMode() === "lite" ? t("lawoss.lite.permission_command") : "Bash"; // LAWOSS-lite: bez technických pojmů
   if (permission === "edit") return t("session.permission_kind_edit");
   if (permission === "read") return t("session.permission_kind_read");
   if (permission === "external_directory") return t("session.permission_kind_external_directory");
@@ -67,7 +67,7 @@ function readablePermissionLabel(permission: string): string {
   if (permission === "todowrite") return t("session.permission_kind_todowrite");
   if (permission === "question") return t("session.permission_kind_question");
   if (permission === "skill") return t("session.permission_kind_skill");
-  return permission;
+  return currentUiMode() === "lite" ? t("lawoss.lite.permission_other") : permission; // LAWOSS-lite: žádný surový identifikátor
 }
 
 function permissionCopy(permission: string): Pick<PermissionPresentation, "title" | "message"> {
