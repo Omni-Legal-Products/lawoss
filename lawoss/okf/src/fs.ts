@@ -42,7 +42,7 @@ function officeProfile(dir: string, language: DocumentLanguage): WorkingProfile 
 }
 
 /** Všetky .md pod `root`, relatívne cesty, bez šablón a skrytých priečinkov. */
-export function listMarkdown(root: string): string[] {
+function listMarkdown(root: string): string[] {
   const out: string[] = [];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

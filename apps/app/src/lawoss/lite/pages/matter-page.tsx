@@ -20,7 +20,7 @@ import "./lite.css";
 
 type ActionId = (typeof QUICK_ACTIONS)[number]["id"] | (typeof MORE_ACTIONS)[number]["id"];
 /** Z cockpitu stačí to, co lite ukazuje; zbytek zůstává v pro. */
-export type LiteCockpit = Pick<Cockpit, "deadlines" | "tasks" | "attention" | "facts">;
+type LiteCockpit = Pick<Cockpit, "deadlines" | "tasks" | "attention" | "facts">;
 
 export function LiteMatterPage() {
   const locale = useLocale();

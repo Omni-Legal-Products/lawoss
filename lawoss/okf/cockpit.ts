@@ -13,12 +13,12 @@ import { pendingInputs } from "./inputs.ts";
 import { deadlineTier, isOpenTask, recordDeadlines, type MatterInput, type MatterOverview } from "./read.ts";
 
 /** Odkiaľ údaj pochádza. Slovo, nie farba — stav musí byť čitateľný aj bez nej. */
-export type Provenance = "overené" | "AI návrh" | "zapísané" | "overenie neurčené" | "strojovo overené";
+type Provenance = "overené" | "AI návrh" | "zapísané" | "overenie neurčené" | "strojovo overené";
 
 /** Prečo riadok čaká na advokáta. Opäť slovo, nie farba. */
-export type AttentionState = "po termíne" | "blíži sa" | "neparsovateľné" | "chýba údaj" | "bez prameňa" | "nespracované";
+type AttentionState = "po termíne" | "blíži sa" | "neparsovateľné" | "chýba údaj" | "bez prameňa" | "nespracované";
 
-export type MatterProblem = { path: string; message: string };
+type MatterProblem = { path: string; message: string };
 
 export type CockpitInput = {
   matters: readonly MatterOverview[];
@@ -27,8 +27,8 @@ export type CockpitInput = {
   problems: readonly MatterProblem[];
 };
 
-export type CockpitField = { label: string; value: string; missing: boolean };
-export type CockpitFact = {
+type CockpitField = { label: string; value: string; missing: boolean };
+type CockpitFact = {
   id: string;
   title: string;
   kind: string;
@@ -38,7 +38,7 @@ export type CockpitFact = {
   provenance: Provenance;
   file: string;
 };
-export type CockpitTask = { id: string; title: string; assignee?: string; due?: string; overdue: boolean; file: string };
+type CockpitTask = { id: string; title: string; assignee?: string; due?: string; overdue: boolean; file: string };
 export type CockpitDeadline = {
   date: string;
   title: string;
@@ -62,11 +62,11 @@ export type AttentionRow = {
   /** Zdrojový súbor, z ktorého riadok pochádza. */
   file: string;
 };
-export type CockpitEvent = { date: string; text: string; kind?: string; recordId: string; file: string };
+type CockpitEvent = { date: string; text: string; kind?: string; recordId: string; file: string };
 
 export const REGISTER_ORDER = ["obal", "fakty", "ulohy", "lehoty"] as const;
 export type RegisterId = (typeof REGISTER_ORDER)[number];
-export type CockpitRegister = { id: RegisterId; label: string; note: string; count: number };
+type CockpitRegister = { id: RegisterId; label: string; note: string; count: number };
 
 export type Cockpit = {
   matter: MatterOverview;
@@ -122,7 +122,7 @@ export function provenance(record: OkfRecord): Provenance {
 }
 
 /** Confirmation applies only to this date and the exact reviewed Truth. */
-export function deadlineConfirmed(record: OkfRecord, date: string): boolean {
+function deadlineConfirmed(record: OkfRecord, date: string): boolean {
   return record.verified?.some((v) => v.type === "human" && typeof v.by === "string" && Boolean(v.by.trim()) && validVerificationTime(v.at) && v.at.slice(0, 10) >= record.updated.slice(0, 10) &&
     v.deadline === date && v.truth === record.truth) ?? false;
 }

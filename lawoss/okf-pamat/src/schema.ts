@@ -61,7 +61,7 @@ export const LAYER_OF: Record<RecordType, Layer> = {
 };
 
 /** `map` = ploché mapovanie, `maplist` = zoznam plochých mapovaní (OKF `sources`, `verified`). */
-export type FieldKind = "string" | "number" | "list" | "map" | "maplist";
+type FieldKind = "string" | "number" | "list" | "map" | "maplist";
 
 /**
  * Stav záznamu. `superseded` = prekonaný novším, `void` = zrušený ako omyl.
@@ -351,7 +351,7 @@ export function needleFields(): readonly FieldDef[] {
  * dokladu a jeho platnosť, ktoré SK nežiada; SK žiada označenie registra
  * a číslo zápisu u právnickej osoby, ktoré CZ nežiada. Preto dve sady, nie jedna.
  */
-export type AmlRequirement =
+type AmlRequirement =
   | string
   | {
       /** Údaj, ktorý stačí sám o sebe. */

@@ -20,13 +20,13 @@ import {
   type McpConfigExportEntry,
 } from "../../okf/mcp-config-export";
 
-export type LocalDownloadFile = {
+type LocalDownloadFile = {
   filename: string;
   content: string;
   mimeType: "application/json";
 };
 
-export type LocalDownload = (file: LocalDownloadFile) => void;
+type LocalDownload = (file: LocalDownloadFile) => void;
 
 type DownloadAnchor = {
   href: string;
@@ -69,7 +69,7 @@ export function downloadMcpConfigJson(file: LocalDownloadFile, port: BrowserDown
   }
 }
 
-export type McpConfigExportDialogState = {
+type McpConfigExportDialogState = {
   open: boolean;
   selectedNames: string[];
   confirmed: boolean;
@@ -95,7 +95,7 @@ type McpConfigExportApproval = {
   selectionKey: string;
 };
 
-export type McpConfigExportDialogAction =
+type McpConfigExportDialogAction =
   | { type: "open" }
   | { type: "reset" }
   | { type: "toggle"; name: string }

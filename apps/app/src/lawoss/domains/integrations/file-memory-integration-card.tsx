@@ -9,9 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { workspaceSettingsRoute } from "@/react-app/shell/workspace-routes";
 import { checkMemoryProfile, loadMemoryProfile, previewMemoryProfile, saveMemoryProfile, MEMORY_PROFILE_PATH, type MemoryProfileClient, type MemoryProfileSnapshot, type WorkspaceMemoryProfile } from "../../okf/workspace-memory-profile";
+import { message } from "../../okf/read-model";
 
 type Props = { client: MemoryProfileClient | null; workspaceId: string | null; workspacePath: string; workspaceName: string; remote?: boolean };
-const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 export function FileMemoryIntegrationCard(props: Props) {
   const locale = useLocale();

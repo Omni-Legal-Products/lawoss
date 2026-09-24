@@ -4,11 +4,12 @@
  * Obrazovka Dnes ho pak ukáže „K zařazení“. Nic se neodesílá, nic se nemaže.
  */
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { missing, today } from "../okf/read-model";
 
-export const INTAKE_DIR = "00_K_zarazeni";
-export const INTAKE_SOURCE = "ruční vložení (LAWOSS)";
+const INTAKE_DIR = "00_K_zarazeni";
+const INTAKE_SOURCE = "ruční vložení (LAWOSS)";
 /** Horní mez jednoho souboru — přenáší se jako base64 v JSON. */
-export const MAX_INTAKE_BYTES = 50 * 1024 * 1024;
+const MAX_INTAKE_BYTES = 50 * 1024 * 1024;
 
 const TABLE_HEADER = "| ID | Přijato | Zdroj | Originál | Stav | Výsledné záznamy |";
 const TABLE_RULE = "|---|---|---|---|---|---|";
@@ -24,7 +25,7 @@ export function receivedStamp(now: Date): string {
   const pad = (n: number) => String(Math.abs(n)).padStart(2, "0");
   const offset = -now.getTimezoneOffset();
   const zone = `${offset >= 0 ? "+" : "-"}${pad(Math.trunc(offset / 60))}:${pad(offset % 60)}`;
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}${zone}`;
+  return `${today(now)}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}${zone}`;
 }
 
 /** Název souboru bez cesty a znaků, které by rozbily cestu nebo tabulku. */
@@ -56,9 +57,7 @@ export function appendInputRow(intake: string | null, row: string, title: string
 }
 
 type IntakeClient = Pick<LegalworkServerClient, "readWorkspaceFile" | "writeWorkspaceFile" | "writeWorkspaceBinaryFile">;
-export type SavedInput = { id: string; name: string; path: string };
-
-const notFound = (error: unknown) => /\b404\b|not[_ ]found|ENOENT/i.test(error instanceof Error ? error.message : String(error));
+type SavedInput = { id: string; name: string; path: string };
 
 /**
  * Uloží soubory do věci jeden po druhém. Registr se zapisuje s kontrolou verze
@@ -73,7 +72,7 @@ export async function saveDocumentsToMatter(
     if (file.size > MAX_INTAKE_BYTES) throw new Error(`file too large: ${file.name}`);
     let register: { content: string; updatedAt: number } | null = null;
     try { register = await client.readWorkspaceFile(workspaceId, registerPath); }
-    catch (error) { if (!notFound(error)) throw error; }
+    catch (error) { if (!missing(error)) throw error; }
     const id = nextInputId(register?.content ?? null);
     const name = safeFileName(file.name);
     const original = `${INTAKE_DIR}/${id}/${name}`;

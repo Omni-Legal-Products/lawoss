@@ -11,7 +11,7 @@ function isControlPath(path: string): boolean { return path.split(sep).some(comp
 function byId(a: { id: string }, b: { id: string }): number { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; }
 
 /** Any orphan operation directory is unresolved too: a crash can precede the first journal. */
-export function checkHistory(workspace: string, report: WorkspaceMemoryReport, ownOperation?: string): void {
+function checkHistory(workspace: string, report: WorkspaceMemoryReport, ownOperation?: string): void {
   const history = join(workspace, ".lawoss", "memory-history");
   try {
     if (!checkedPath(history, "directory", true)) return;

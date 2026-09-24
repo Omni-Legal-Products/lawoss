@@ -2,19 +2,17 @@
  * Datový model obrazovky „Dnes" a seskupení věcí podle klienta pro LAWOSS-lite.
  * Čistá funkce nad již načteným přehledem (`OkfReadResult`) — nesiaha na disk.
  */
-import { addDays, deadlineTier, recordKey, type DeadlineTier, type MatterInput, type MatterOverview, type UpcomingDeadline } from "../../../../../lawoss/okf/read";
+import { addDays, daysBetween, deadlineTier, lastSegment, recordKey, type DeadlineTier, type MatterInput, type MatterOverview, type UpcomingDeadline } from "../../../../../lawoss/okf/read";
 import { pendingInputs, type PendingInput } from "../../../../../lawoss/okf/inputs";
 import { clientFromPath } from "../../../../../lawoss/okf/cockpit";
 import type { OkfReadResult } from "../okf/read-model";
 
 /** `alsoIn`: další věci, do kterých patří tatáž lhůta ze sdíleného souboru (klient, kancelář). */
 export type TodayDeadline = UpcomingDeadline & { tier: DeadlineTier; daysLeft: number; alsoIn?: { path: string; title: string }[] };
-export type TodayTask = { key: string; id: string; title: string; due?: string; matters: { path: string; title: string }[] };
+type TodayTask = { key: string; id: string; title: string; due?: string; matters: { path: string; title: string }[] };
 export type TodayModel = { deadlines: TodayDeadline[]; tasks: TodayTask[]; inputs: PendingInput[]; recent: MatterOverview[] };
 export type ClientGroup = { client: string; matters: MatterOverview[] };
 
-const DAY = 86_400_000;
-const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY);
 
 export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDeadlines" | "overdue" | "inputs">, todayIso: string, horizonDays = 14): TodayModel {
   const horizon = addDays(todayIso, horizonDays);
@@ -56,7 +54,6 @@ export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDead
 }
 
 const OFFICE_DIR = /(^|\/)(Office|_kancelaria)$/;
-const lastSegment = (path: string) => path.split("/").filter(Boolean).pop() ?? path;
 
 /**
  * Klient věci: složka klienta, kterou už našlo čtení paměti (`client.md`/`klient.md` nebo

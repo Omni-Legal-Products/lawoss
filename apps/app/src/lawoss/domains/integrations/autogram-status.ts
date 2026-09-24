@@ -17,19 +17,19 @@ export function shouldShowAutogramCard(params: { desktopRuntime: boolean; isMac:
   return params.desktopRuntime === true && params.isMac === true;
 }
 
-export type AutogramCardStatus = {
+type AutogramCardStatus = {
   installed: boolean;
   path: string | null;
 };
 
-export type AutogramCardAction = "open" | "download";
+type AutogramCardAction = "open" | "download";
 
 /** Installed -> offer to open it. Not (yet) found -> send the lawyer to the releases page. */
 export function resolveAutogramCardAction(status: AutogramCardStatus | null | undefined): AutogramCardAction {
   return status?.installed === true ? "open" : "download";
 }
 
-export type AutogramStatusLine = "loading" | "error" | "installed" | "not_installed";
+type AutogramStatusLine = "loading" | "error" | "installed" | "not_installed";
 
 /**
  * The status line's i18n key depends on whether detection itself failed, not
