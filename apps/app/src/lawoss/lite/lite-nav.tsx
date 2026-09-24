@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 import { CalendarDays, FolderOpen, MessageSquare } from "lucide-react";
-import { Link, NavLink, useLocation } from "react-router-dom";
+import { useEffect } from "react";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import {
@@ -14,10 +15,12 @@ import {
 import { officeWorkspace, today, useOkfConnection, useOkfOverview } from "../okf/read-model";
 import { buildToday } from "./today-model";
 import { LITE_CLIENTS_PATH, LITE_MATTER_PATH, LITE_TODAY_PATH, liteMatterLink } from "./links";
+import { openOfficeChat, restoreOfficeScope } from "./office-scope";
 
 const RECENT_LIMIT = 5;
-/** „Zeptat se“ = upstream nový chat bez věci. */
+/** „Zeptat se“ = nová konverzace v kanceláři (`openOfficeChat`); `/session` jen jako záloha při chybě. */
 const ASK_PATH = "/session";
+const OFFICE_PAGES = new Set([LITE_TODAY_PATH, LITE_CLIENTS_PATH, LITE_MATTER_PATH]);
 
 type RecentMatter = { path: string; title: string };
 
@@ -26,10 +29,23 @@ export function LiteNav(props: { activePane?: boolean }) {
   const { connection } = useOkfConnection();
   const query = useOkfOverview(connection, officeWorkspace(connection));
   const recent = query.data ? buildToday(query.data, today()).recent : [];
-  return <LiteNavView recent={recent} activePane={props.activePane} />;
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  // Návrat z konverzace na stránku kanceláře vrátí rozsah na kancelář (nová věc, nastavení, Zeptat se).
+  useEffect(() => {
+    if (!OFFICE_PAGES.has(pathname)) return;
+    restoreOfficeScope().catch((failure: unknown) => console.warn("LAWOSS-lite: office scope", failure));
+  }, [pathname]);
+  const onAsk = () => {
+    openOfficeChat().then(navigate).catch((failure: unknown) => {
+      console.warn("LAWOSS-lite: ask", failure);
+      navigate(ASK_PATH);
+    });
+  };
+  return <LiteNavView recent={recent} activePane={props.activePane} onAsk={onAsk} />;
 }
 
-export function LiteNavView(props: { recent: readonly RecentMatter[]; activePane?: boolean }) {
+export function LiteNavView(props: { recent: readonly RecentMatter[]; activePane?: boolean; onAsk?: () => void }) {
   const locale = useLocale();
   const { pathname, search } = useLocation();
   const items = [
@@ -49,7 +65,7 @@ export function LiteNavView(props: { recent: readonly RecentMatter[]; activePane
                 <SidebarMenuButton
                   isActive={!props.activePane && item.active}
                   className="gap-3 text-sidebar-foreground/80 [&_svg]:size-[18px]"
-                  render={<NavLink to={item.to} end data-lawoss-lite-nav={item.key} />}
+                  render={<NavLink to={item.to} end data-lawoss-lite-nav={item.key} onClick={item.key === "ask" && props.onAsk ? (event) => { event.preventDefault(); props.onAsk?.(); } : undefined} />}
                 >
                   <item.icon strokeWidth={1.5} />
                   <span>{t(`lawoss.lite.nav_${item.key}`, locale)}</span>

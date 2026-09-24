@@ -16,3 +16,17 @@ test("lite reads the office even after a quick action activated the matter folde
   expect(officeWorkspace(conn("matter", [ws("r", "/k/Kancelar", "remote"), matter]))?.id).toBe("matter");
   expect(officeWorkspace(null)).toBeNull();
 });
+
+test("settings in lite redirect a matter folder to the office; pro and the office itself stay (review PR #100)", async () => {
+  const { setUiMode, currentUiMode } = await import("../src/lawoss/lite/ui-mode");
+  const { liteSettingsWorkspace } = await import("../src/lawoss/lite/office-scope");
+  const before = currentUiMode();
+  try {
+    setUiMode("lite");
+    expect(liteSettingsWorkspace("matter", [office, client, matter])).toBe("office");
+    expect(liteSettingsWorkspace("office", [office, matter])).toBeNull();
+    expect(liteSettingsWorkspace("matter", [sibling, matter])).toBeNull();
+    setUiMode("pro");
+    expect(liteSettingsWorkspace("matter", [office, matter])).toBeNull();
+  } finally { setUiMode(before); }
+});

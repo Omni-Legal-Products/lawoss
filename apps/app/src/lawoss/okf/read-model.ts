@@ -226,10 +226,14 @@ export function activeWorkspace(connection: OkfConnection | null): RouteWorkspac
  * Pro zůstává na `activeWorkspace` — tam je výběr složky v postranním panelu záměrný.
  */
 export function officeWorkspace(connection: OkfConnection | null): RouteWorkspace | null {
-  const active = activeWorkspace(connection);
-  if (!connection || !active?.path || active.workspaceType === "remote") return active;
+  return officeOf(connection?.workspaces ?? [], activeWorkspace(connection));
+}
+
+/** Nejvzdálenější registrovaná lokální složka, která `active` obsahuje; jinak `active` samo. */
+export function officeOf(workspaces: readonly RouteWorkspace[], active: RouteWorkspace | null): RouteWorkspace | null {
+  if (!active?.path || active.workspaceType === "remote") return active;
   const inner = normalizeDirectoryPath(active.path);
-  const ancestors = connection.workspaces.filter((w) => {
+  const ancestors = workspaces.filter((w) => {
     if (w.id === active.id || !w.path || w.workspaceType === "remote") return false;
     const outer = normalizeDirectoryPath(w.path);
     return inner.startsWith(outer.endsWith("/") ? outer : `${outer}/`);

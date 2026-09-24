@@ -161,6 +161,7 @@ import { notifyAlert } from "./notifications";
 import { ROUTE_LEGALWORK_CAPABILITIES } from "./legalwork-capabilities";
 import { useReloadCoordinator } from "./reload-coordinator";
 import { readActiveWorkspaceId, writeActiveWorkspaceId } from "./session-memory";
+import { liteSettingsWorkspace } from "@/lawoss/lite/office-scope";
 import { workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { refreshProviderListQueries } from "@/react-app/infra/provider-list-query";
@@ -1939,6 +1940,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   if (!props.embedded && !routeWorkspaceId && selectedWorkspaceId) {
     return <Navigate to={workspaceSettingsRoute(selectedWorkspaceId, settingsPathForRoute(route))} replace state={location.state} />;
   }
+
+  // LAWOSS-lite: nastavení patří kanceláři, ne složce věci aktivní po konverzaci (PATCHES.md).
+  const liteOfficeId = props.embedded ? null : liteSettingsWorkspace(selectedWorkspaceId, workspaces);
+  if (liteOfficeId) return <Navigate to={workspaceSettingsRoute(liteOfficeId, settingsPathForRoute(route))} replace state={location.state} />;
 
   const settingsView = (() => {
     switch (route.tab) {

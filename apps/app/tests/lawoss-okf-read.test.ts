@@ -148,8 +148,8 @@ describe("readWorkspaceMemory — čítanie cez server API", () => {
     const [m] = out.matters;
     expect(m).toMatchObject({ path: MATTER, title: "Novák Jan — insolvence", matterRef: "MSPH 79 INS 1/2026", court: "Městský soud v Praze", state: "aktivní" });
     expect(m.counts).toEqual({ records: 4, evidence: 1, subjects: 0 });
-    expect(m.openTasks).toEqual([{ id: "T-001", title: "task T-001", assignee: "VR", due: undefined }]);
-    expect(out.upcomingDeadlines).toEqual([{ date: "2026-09-15", title: "evidence E-001", recordId: "E-001", matter: { path: MATTER, title: "Novák Jan — insolvence", matterRef: "MSPH 79 INS 1/2026", court: "Městský soud v Praze" } }]);
+    expect(m.openTasks).toEqual([{ id: "T-001", title: "task T-001", assignee: "VR", due: undefined, file: "AK/N/Novák Jan/Spisy/MSPH 79 INS 1-2026/memory/T-001-uloha.md" }]);
+    expect(out.upcomingDeadlines).toEqual([{ date: "2026-09-15", title: "evidence E-001", recordId: "E-001", file: "AK/N/Novák Jan/Spisy/MSPH 79 INS 1-2026/memory/E-001-usneseni.md", matter: { path: MATTER, title: "Novák Jan — insolvence", matterRef: "MSPH 79 INS 1/2026", court: "Městský soud v Praze" } }]);
     expect(out.problems).toEqual([{ path: `${MATTER}/memory/Z-999-rozbity.md`, message: expect.stringContaining("frontmatter") }]);
     expect(out.truncated).toBe(false);
     // index.md, log.md a skryté priečinky sa nečítajú; Office patrí rozsahu.

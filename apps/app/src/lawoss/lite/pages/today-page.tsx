@@ -35,7 +35,7 @@ export function TodayView({ model, locale }: { model: TodayModel; locale: Langua
           <Link key={`${d.matter.path}/${d.recordId}/${d.date}`} className="lw-row lw-cols-leh" to={liteMatterLink(d.matter.path)}>
             <span className="lw-no" />
             <span className={dayClass(d.date, now)}>{formatDay(d.date, locale)}</span>
-            <span className="lw-t">{d.title}<small>{d.matter.title}</small></span>
+            <span className="lw-t">{d.title}<small>{[d.matter, ...(d.alsoIn ?? [])].map((m) => m.title).join(" · ")}</small></span>
             <span className="lw-ref">{d.matter.matterRef ?? ""}</span>
             <span className={`lw-st${d.tier === "overdue" || d.tier === "today" ? " warn" : ""}`}>{dueLabel(d, locale)}</span>
           </Link>

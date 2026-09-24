@@ -10,7 +10,7 @@ import { liteMatterLink, NEW_MATTER_PATH } from "../links";
 
 export function ClientsPage() {
   const locale = useLocale();
-  return <OkfPage title={t("lawoss.lite.clients_title", locale)} {...litePageProps(locale)}>{(data) => <ClientsView groups={groupByClient(data.matters)} />}</OkfPage>;
+  return <OkfPage title={t("lawoss.lite.clients_title", locale)} {...litePageProps(locale)}>{(data) => <ClientsView groups={groupByClient(data.matters, data.inputs)} />}</OkfPage>;
 }
 
 export function ClientsView({ groups }: { groups: readonly ClientGroup[] }) {

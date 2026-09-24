@@ -12,9 +12,9 @@ const m = (path: string, title: string, extra: Partial<MatterOverview> = {}): Ma
 // Cesty ve tvaru AK/<písmeno>/<klient>/Spisy/<vec> — jediný tvar, který `clientFromPath`
 // (lawoss/okf/cockpit.ts) skutečně rozpozná (ověřeno; brief použil neplatný tvar "Klienti/...").
 const novak = m("AK/N/Novák Jan/Spisy/Odvolání", "Novák — 14 C 101/2025", {
-  openTasks: [{ id: "T-1", title: "Podepsat plnou moc", due: "2026-09-30" }], lastEvent: { date: "2026-09-20", text: "rozsudek" } });
+  openTasks: [{ id: "T-1", title: "Podepsat plnou moc", due: "2026-09-30", file: "AK/N/Novák Jan/memory/T-1.md" }], lastEvent: { date: "2026-09-20", text: "rozsudek" } });
 const pracovni = m("AK/N/Novák Jan/Spisy/Pracovní", "Novák — pracovní smlouva", {
-  openTasks: [{ id: "T-1", title: "Podepsat plnou moc", due: "2026-09-30" }], lastEvent: { date: "2026-09-22", text: "e-mail" } });
+  openTasks: [{ id: "T-1", title: "Podepsat plnou moc", due: "2026-09-30", file: "AK/N/Novák Jan/memory/T-1.md" }], lastEvent: { date: "2026-09-22", text: "e-mail" } });
 const acme = m("AK/A/ACME s.r.o./Spisy/Převod", "ACME — převod podílu");
 const dl = (date: string, matter: MatterOverview): UpcomingDeadline => ({ date, title: "Odvolání", recordId: "D-1",
   matter: { path: matter.path, title: matter.title } });
@@ -72,15 +72,15 @@ describe("buildToday — úkoly se zrušeným záznamem (Review Focus 3)", () =>
   });
   const records = [taskRecord("T-SUP", "superseded"), taskRecord("T-VOID", "void"), taskRecord("T-DONE", "active", "done"), taskRecord("T-ACT", "active")];
   const inputs: MatterInput[] = [
-    { path: "AK/S/Superseded s.r.o./Spisy/A", records },
-    { path: "AK/S/Superseded s.r.o./Spisy/B", records: [taskRecord("T-ACT", "active")] },
+    { path: "AK/S/Superseded s.r.o./Spisy/A", records, recordFiles: { "T-ACT": "AK/S/Superseded s.r.o./memory/T-ACT.md" } },
+    { path: "AK/S/Superseded s.r.o./Spisy/B", records: [taskRecord("T-ACT", "active")], recordFiles: { "T-ACT": "AK/S/Superseded s.r.o./memory/T-ACT.md" } },
   ];
   const overview = buildOverview(inputs, "2026-09-23");
 
   test("superseded, void a hotové úkoly se nezobrazí ani v lite, ani v součtu pro", () => {
     expect(buildToday({ ...overview, inputs }, "2026-09-23").tasks.map((t) => t.id)).toEqual(["T-ACT"]);
     expect(overview.matters[0]!.openTasks.map((t) => t.id)).toEqual(["T-ACT"]);
-    // Sdílený úkol ve dvou věcech je v součtu jeden úkol.
+    // Úkol z jednoho sdíleného souboru (klient) ve dvou věcech je v součtu jeden úkol.
     expect(overview.totals.openTasks).toBe(1);
   });
 });
