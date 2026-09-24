@@ -10,14 +10,15 @@ import { OkfPage } from "../../domains/okf-page";
 import { litePageProps } from "../state-text";
 import { openMatterSession } from "../../okf/matter-session";
 import { addDays, dayClass, officeWorkspace, formatDay, today, useOkfConnection, type OkfReadResult } from "../../okf/read-model";
-import { composeQuickAction, QUICK_ACTIONS } from "../quick-actions";
+import { composeQuickAction, MORE_ACTIONS, QUICK_ACTIONS } from "../quick-actions";
+import { POSTPROCESS_RESOURCE_NAME, postprocessSource, VYSTUP_SKILL_NAME, vystupSkillBody } from "../../okf/skill-bundle";
 import { nextDeadline } from "../today-model";
 import { LITE_CLIENTS_PATH } from "../links";
 import { listMatterConversations, openMatterConversation, type MatterConversation } from "../matter-conversations";
 import { saveDocumentsToMatter } from "../matter-intake";
 import "./lite.css";
 
-type ActionId = (typeof QUICK_ACTIONS)[number]["id"];
+type ActionId = (typeof QUICK_ACTIONS)[number]["id"] | (typeof MORE_ACTIONS)[number]["id"];
 /** Z cockpitu stačí to, co lite ukazuje; zbytek zůstává v pro. */
 export type LiteCockpit = Pick<Cockpit, "deadlines" | "tasks" | "attention" | "facts">;
 
@@ -65,7 +66,7 @@ function LiteMatterBody({ data }: { data: OkfReadResult }) {
       // Jen připraví koncept v nové konverzaci nad věcí; nic se neodesílá.
       // Paměť klienta a kanceláře leží mimo složku věci — povolit čtení předem (bez dotazu u každého čtení).
       const readScope = data.inputs.find((input) => input.path === matter.path)?.scopePaths?.slice(1) ?? [];
-      navigate(await openMatterSession(connection, officeWorkspace(connection), matter, data.matters, prompt, readScope));
+      navigate(await openMatterSession(connection, officeWorkspace(connection), matter, data.matters, prompt, readScope, id === "document" ? installVystupSkill : undefined));
     } catch (failure) {
       // Surová hláška může obsahovat interní pojmy; advokát vidí obecný text, diagnostika jde do konzole.
       console.warn("LAWOSS-lite: quick action failed", failure);
@@ -151,6 +152,13 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
         {QUICK_ACTIONS.map((action) => (
           <button key={action.id} type="button" className="lw-btn" disabled={busy !== null} aria-busy={busy === action.id}
             onClick={() => action.id === "add_document" && onFiles ? fileInput.current?.click() : onAction(action.id)}>
+            {t(action.labelKey, locale)}
+          </button>
+        ))}
+      </div>
+      <div className="lw-lite-actions lw-lite-more" aria-label={text("more_actions")}>
+        {MORE_ACTIONS.map((action) => (
+          <button key={action.id} type="button" className="lw-btn" disabled={busy !== null} aria-busy={busy === action.id} onClick={() => onAction(action.id)}>
             {t(action.labelKey, locale)}
           </button>
         ))}
@@ -244,4 +252,11 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
 /** Den a čas poslední změny konverzace, např. „čt 24. 9. 14:32“. */
 function formatStamp(ms: number, locale: string): string {
   return ms ? new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(ms)) : "—";
+}
+
+/** Skill vyhotovení dokumentu do složky věci — konverzace nad věcí běží v ní. */
+async function installVystupSkill(client: Parameters<NonNullable<Parameters<typeof openMatterSession>[6]>>[0], workspaceId: string): Promise<void> {
+  const body = vystupSkillBody();
+  await client.upsertSkill(workspaceId, { name: VYSTUP_SKILL_NAME, content: body.content, description: body.description });
+  await client.upsertSkillResource(workspaceId, VYSTUP_SKILL_NAME, { name: POSTPROCESS_RESOURCE_NAME, content: postprocessSource() });
 }

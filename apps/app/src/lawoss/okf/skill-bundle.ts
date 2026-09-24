@@ -8,6 +8,8 @@ import namingSkillMarkdown from "../../../../../lawoss/skills/usporiadaj-spis/SK
 import okfCli from "../../../../../lawoss/okf/bundle/okf.js?raw";
 import pamatSkillMarkdown from "../../../../../lawoss/okf-pamat/SKILL.md?raw";
 import okfMemoryCli from "../../../../../lawoss/okf-pamat/bundle/okf-memory.js?raw";
+import vystupSkillMarkdown from "../../../../../lawoss/skills/vystup-dokumentu/SKILL.md?raw";
+import postprocessScript from "../../../../../lawoss/skills/vystup-dokumentu/postprocess_docx.py?raw";
 
 export const NOVY_SPIS_SKILL_NAME = "novy-spis";
 export const OKF_CLI_RESOURCE_NAME = "okf.js";
@@ -38,4 +40,15 @@ export function okfMemoryCliSource(): string {
 export const USPORIADAJ_SPIS_SKILL_NAME = "usporiadaj-spis";
 export function usporiadajSpisSkillBody(): { description: string; content: string } {
   return skillBody(namingSkillMarkdown);
+}
+
+// Vyhotovení dokumentu: návrh → .docx podle šablony kanceláře → PDF z téhož .docx.
+
+export const VYSTUP_SKILL_NAME = "vystup-dokumentu";
+export const POSTPROCESS_RESOURCE_NAME = "postprocess_docx.py";
+export function vystupSkillBody(): { description: string; content: string } {
+  return skillBody(vystupSkillMarkdown);
+}
+export function postprocessSource(): string {
+  return postprocessScript;
 }

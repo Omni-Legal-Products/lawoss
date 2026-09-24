@@ -103,7 +103,8 @@ describe("stránky LAWOSS-lite", () => {
   });
   test("Věc: běžící akce vypne tlačítka, chyba se ukáže srozumitelně", () => {
     const out = html(<LiteMatterView matter={matter} cockpit={null} busy="summarize" error="boom" onAction={() => {}} />);
-    expect(out.match(/<button[^>]*disabled=""[^>]*>(Summarise|Check|Prepare|Add|Verify)/g)?.length).toBe(5);
+    // Hlavních 5 akcí + 6 dalších (typy práce z /legal): během běžící akce jsou vypnuté všechny.
+    expect(out.match(/<button[^>]*disabled=""[^>]*>(Summarise|Check|Prepare|Add|Verify|Legal research|Strategy|Revise|Letter|Produce)/g)?.length).toBe(11);
     expect(out).toContain("The conversation could not be opened. Try again, or use the advanced mode.");
     expect(out).not.toContain("boom");
   });

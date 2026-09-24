@@ -10,3 +10,7 @@
 /* Vkládání dokumentů do věci přetažením. */
 .lw-lite-hint { margin: 4px 0 12px; font-size: 12px; opacity: 0.7; }
 [data-lawoss-lite="matter"][data-dragging] { outline: 2px dashed currentColor; outline-offset: 8px; border-radius: 8px; }
+
+/* Druhá řada akcí (typy práce z /legal) — méně výrazná než hlavní akce. */
+.lw-lite-more { margin-top: -4px; }
+.lw-lite-more .lw-btn { font-size: 12px; padding: 4px 10px; opacity: 0.85; }

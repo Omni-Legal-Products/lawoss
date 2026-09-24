@@ -5,7 +5,8 @@
  */
 import type { Language } from "@/i18n";
 
-export type QuickActionId = "open" | "summarize" | "deadlines" | "reply" | "add_document" | "verify_client";
+export type QuickActionId = "open" | "summarize" | "deadlines" | "reply" | "add_document" | "verify_client"
+  | "hearing" | "research" | "strategy" | "redline" | "client_letter" | "document";
 export type QuickActionMatter = { title: string; matterRef?: string; path: string };
 
 export const QUICK_ACTIONS = [
@@ -14,6 +15,16 @@ export const QUICK_ACTIONS = [
   { id: "reply", labelKey: "lawoss.lite.action_reply" },
   { id: "add_document", labelKey: "lawoss.lite.action_add_document" },
   { id: "verify_client", labelKey: "lawoss.lite.action_verify_client" },
+] as const satisfies readonly { id: Exclude<QuickActionId, "open">; labelKey: string }[];
+
+/** Další práce na věci (typy práce ze skillu /legal) — druhá řada pod hlavními akcemi. */
+export const MORE_ACTIONS = [
+  { id: "hearing", labelKey: "lawoss.lite.action_hearing" },
+  { id: "research", labelKey: "lawoss.lite.action_research" },
+  { id: "strategy", labelKey: "lawoss.lite.action_strategy" },
+  { id: "redline", labelKey: "lawoss.lite.action_redline" },
+  { id: "client_letter", labelKey: "lawoss.lite.action_client_letter" },
+  { id: "document", labelKey: "lawoss.lite.action_document" },
 ] as const satisfies readonly { id: Exclude<QuickActionId, "open">; labelKey: string }[];
 
 type Text = { head: (m: string) => string; rules: string; actions: Record<QuickActionId, string> };
@@ -29,6 +40,12 @@ const TEXT: Record<Language, Text> = {
       reply: "Připrav návrh odpovědi nebo podání na poslední došlý dokument do složky návrhů. Nic neodesílej.",
       add_document: "Pomoz zařadit nový dokument: zeptej se na soubor, zapiš ho do VSTUPY.md se zdrojem, časem a stavem pending a navrhni, kam patří.",
       verify_client: "Ověř klienta v příslušném rejstříku podle země (ARES a veřejný rejstřík pro CZ, ORSR/RPO pro SK, jinak národní rejstřík nebo BRIS). Neověřený výsledek zůstane unverified s důvodem.",
+      hearing: "Připrav podklad na jednání: skutkový stav, sporné body, důkazy s odkazy na dokumenty, naše argumenty, očekávané námitky protistrany a otázky pro účastníky a svědky. Ulož ho jako návrh do složky návrhů.",
+      research: "Proveď právní rešerši: nejdřív se zeptej na přesnou právní otázku. Ustanovení a rozhodnutí cituj jen z ověřeného pramene (znění předpisu, spisová značka); co neověříš, výslovně označ jako neověřené a nevydávej za citaci.",
+      strategy: "Navrhni strategii: cíl klienta, varianty postupu, u každé rizika, šance a náklady, a doporučení s odůvodněním. Odhady označ jako odhady.",
+      redline: "Připrav revizi dokumentu: zeptej se, který dokument, navrhni změny s odůvodněním a zapiš je jako sledované změny do kopie v návrzích. Originál neměň.",
+      client_letter: "Připrav dopis klientovi srozumitelným jazykem: co se stalo, co to znamená, co navrhujeme a co od klienta potřebujeme. Ulož ho jako návrh. Nic neodesílej.",
+      document: "Vyhotov finální dokument skillem /vystup-dokumentu: vezmi návrh, který určím (jinak se zeptej), převeď ho do Wordu podle šablony kanceláře a vytvoř PDF ze stejného souboru. Neověřené údaje nech jako [DOPLNIT] a vyjmenuj je. Nic neodesílej.",
     },
   },
   sk: {
@@ -41,6 +58,12 @@ const TEXT: Record<Language, Text> = {
       reply: "Priprav návrh odpovede alebo podania na posledný došlý dokument do priečinka návrhov. Nič neodosielaj.",
       add_document: "Pomôž zaradiť nový dokument: opýtaj sa na súbor, zapíš ho do VSTUPY.md so zdrojom, časom a stavom pending a navrhni, kam patrí.",
       verify_client: "Over klienta v príslušnom registri podľa krajiny (ORSR/RPO pre SK, ARES a verejný register pre CZ, inak národný register alebo BRIS). Neoverený výsledok ostane unverified s dôvodom.",
+      hearing: "Priprav podklad na pojednávanie: skutkový stav, sporné body, dôkazy s odkazmi na dokumenty, naše argumenty, očakávané námietky protistrany a otázky pre účastníkov a svedkov. Ulož ho ako návrh do priečinka návrhov.",
+      research: "Vykonaj právnu rešerš: najprv sa opýtaj na presnú právnu otázku. Ustanovenia a rozhodnutia cituj len z overeného prameňa (znenie predpisu, spisová značka); čo neoveríš, výslovne označ ako neoverené a nevydávaj za citáciu.",
+      strategy: "Navrhni stratégiu: cieľ klienta, varianty postupu, pri každej riziká, šance a náklady, a odporúčanie s odôvodnením. Odhady označ ako odhady.",
+      redline: "Priprav revíziu dokumentu: opýtaj sa, ktorý dokument, navrhni zmeny s odôvodnením a zapíš ich ako sledované zmeny do kópie v návrhoch. Originál nemeň.",
+      client_letter: "Priprav list klientovi zrozumiteľným jazykom: čo sa stalo, čo to znamená, čo navrhujeme a čo od klienta potrebujeme. Ulož ho ako návrh. Nič neodosielaj.",
+      document: "Vyhotov finálny dokument skillom /vystup-dokumentu: vezmi návrh, ktorý určím (inak sa opýtaj), preveď ho do Wordu podľa šablóny kancelárie a vytvor PDF z toho istého súboru. Neoverené údaje nechaj ako [DOPLNIT] a vymenuj ich. Nič neodosielaj.",
     },
   },
   en: {
@@ -53,6 +76,12 @@ const TEXT: Record<Language, Text> = {
       reply: "Draft a reply or filing to the latest received document into the drafts folder. Send nothing.",
       add_document: "Help file a new document: ask for the file, record it in VSTUPY.md with source, time and status pending, and suggest where it belongs.",
       verify_client: "Verify the client in the relevant register by country (ARES and the public register for CZ, ORSR/RPO for SK, otherwise the national register or BRIS). An unverified result stays unverified with a reason.",
+      hearing: "Prepare a hearing brief: facts, disputed points, evidence with references to documents, our arguments, the other side's expected objections and questions for parties and witnesses. Save it as a draft in the drafts folder.",
+      research: "Do legal research: first ask for the exact legal question. Cite provisions and decisions only from a verified source (text of the law, case number); anything you cannot verify, mark explicitly as unverified and do not present it as a citation.",
+      strategy: "Propose a strategy: the client's goal, options, the risks, chances and costs of each, and a reasoned recommendation. Mark estimates as estimates.",
+      redline: "Prepare a document revision: ask which document, propose changes with reasons and record them as tracked changes in a copy among the drafts. Do not change the original.",
+      client_letter: "Draft a letter to the client in plain language: what happened, what it means, what we propose and what we need from the client. Save it as a draft. Send nothing.",
+      document: "Produce the final document with the /vystup-dokumentu skill: take the draft I specify (otherwise ask), convert it to Word with the office template and create the PDF from the same file. Leave unverified data as [DOPLNIT] and list it. Send nothing.",
     },
   },
   de: {
@@ -65,6 +94,12 @@ const TEXT: Record<Language, Text> = {
       reply: "Entwirf eine Antwort oder einen Schriftsatz auf das zuletzt eingegangene Dokument in den Entwurfsordner. Sende nichts.",
       add_document: "Hilf beim Zuordnen eines neuen Dokuments: frage nach der Datei, erfasse sie in VSTUPY.md mit Quelle, Zeit und Status pending und schlage vor, wohin sie gehört.",
       verify_client: "Prüfe den Mandanten im zuständigen Register nach Land (ARES und öffentliches Register für CZ, ORSR/RPO für SK, sonst nationales Register oder BRIS). Ein ungeprüftes Ergebnis bleibt unverified mit Begründung.",
+      hearing: "Bereite eine Verhandlungsunterlage vor: Sachverhalt, Streitpunkte, Beweise mit Verweisen auf Dokumente, unsere Argumente, erwartete Einwände der Gegenseite und Fragen an Parteien und Zeugen. Speichere sie als Entwurf im Entwurfsordner.",
+      research: "Führe eine Rechtsrecherche durch: frage zuerst nach der genauen Rechtsfrage. Zitiere Vorschriften und Entscheidungen nur aus einer geprüften Quelle (Normtext, Aktenzeichen); was du nicht prüfen kannst, kennzeichne ausdrücklich als ungeprüft und gib es nicht als Zitat aus.",
+      strategy: "Schlage eine Strategie vor: Ziel des Mandanten, Vorgehensvarianten, jeweils Risiken, Chancen und Kosten, und eine begründete Empfehlung. Kennzeichne Schätzungen als Schätzungen.",
+      redline: "Bereite eine Dokumentrevision vor: frage, welches Dokument, schlage Änderungen mit Begründung vor und erfasse sie als nachverfolgte Änderungen in einer Kopie bei den Entwürfen. Das Original nicht ändern.",
+      client_letter: "Entwirf einen Brief an den Mandanten in verständlicher Sprache: was geschehen ist, was es bedeutet, was wir vorschlagen und was wir vom Mandanten brauchen. Speichere ihn als Entwurf. Sende nichts.",
+      document: "Erstelle das endgültige Dokument mit dem Skill /vystup-dokumentu: nimm den Entwurf, den ich angebe (sonst frage), wandle ihn mit der Kanzleivorlage in Word um und erzeuge das PDF aus derselben Datei. Ungeprüfte Angaben bleiben [DOPLNIT] und werden aufgelistet. Sende nichts.",
     },
   },
 };
