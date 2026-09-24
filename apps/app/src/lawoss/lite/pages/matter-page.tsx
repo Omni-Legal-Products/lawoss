@@ -60,7 +60,9 @@ function LiteMatterBody({ data }: { data: OkfReadResult }) {
       if (!connection) throw new Error(t("lawoss.integrations.error.registration_denied", locale));
       const prompt = composeQuickAction(id, { title: matter.title, matterRef: matter.matterRef, path: matter.path }, locale);
       // Jen připraví koncept v nové konverzaci nad věcí; nic se neodesílá.
-      navigate(await openMatterSession(connection, officeWorkspace(connection), matter, data.matters, prompt));
+      // Paměť klienta a kanceláře leží mimo složku věci — povolit čtení předem (bez dotazu u každého čtení).
+      const readScope = data.inputs.find((input) => input.path === matter.path)?.scopePaths?.slice(1) ?? [];
+      navigate(await openMatterSession(connection, officeWorkspace(connection), matter, data.matters, prompt, readScope));
     } catch (failure) {
       // Surová hláška může obsahovat interní pojmy; advokát vidí obecný text, diagnostika jde do konzole.
       console.warn("LAWOSS-lite: quick action failed", failure);
