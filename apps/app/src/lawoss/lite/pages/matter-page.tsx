@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
@@ -12,6 +13,7 @@ import { addDays, dayClass, officeWorkspace, formatDay, today, useOkfConnection,
 import { composeQuickAction, QUICK_ACTIONS } from "../quick-actions";
 import { nextDeadline } from "../today-model";
 import { LITE_CLIENTS_PATH } from "../links";
+import { listMatterConversations, openMatterConversation, type MatterConversation } from "../matter-conversations";
 import "./lite.css";
 
 type ActionId = (typeof QUICK_ACTIONS)[number]["id"];
@@ -39,6 +41,14 @@ function LiteMatterBody({ data }: { data: OkfReadResult }) {
   const [busy, setBusy] = useState<ActionId | null>(null);
   const [error, setError] = useState<string | null>(null);
   const matter = matterFromParams(data.matters, params);
+  const conversations = useQuery({
+    queryKey: ["lite-matter-conversations", matter?.path ?? "", connection?.baseUrl ?? "", connection?.token ?? ""],
+    enabled: Boolean(connection?.client && matter),
+    queryFn: () => {
+      if (!connection || !matter) throw new Error("no connection");
+      return listMatterConversations(connection, matter.path);
+    },
+  });
   // Chybějící nebo neznámá cesta (smazaná nebo přejmenovaná věc) → zpět na seznam, nikdy jiná věc.
   if (!matter) return <p className="lw-empty"><Link to={LITE_CLIENTS_PATH}>{t("lawoss.lite.clients_title", locale)}</Link></p>;
   const cockpit = buildCockpit(data, matter.path, today());
@@ -58,15 +68,30 @@ function LiteMatterBody({ data }: { data: OkfReadResult }) {
     } finally { running.current = false; setBusy(null); }
   }
 
-  return <LiteMatterView matter={matter} cockpit={cockpit} busy={busy} error={error} onAction={(id) => void onAction(id)} />;
+  async function onContinue(conversation: MatterConversation) {
+    if (running.current || !connection) return;
+    running.current = true; setError(null);
+    try {
+      navigate(await openMatterConversation(connection, conversation));
+    } catch (failure) {
+      console.warn("LAWOSS-lite: continue conversation failed", failure);
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally { running.current = false; }
+  }
+
+  return <LiteMatterView matter={matter} cockpit={cockpit} busy={busy} error={error} onAction={(id) => void onAction(id)}
+    conversations={conversations.data ?? []} onContinue={(c) => void onContinue(c)} />;
 }
 
-export function LiteMatterView({ matter, cockpit, busy, error, onAction }: {
+export function LiteMatterView({ matter, cockpit, busy, error, onAction, conversations = [], onContinue }: {
   matter: MatterOverview;
   cockpit: LiteCockpit | null;
   busy: ActionId | null;
   error: string | null;
   onAction: (id: ActionId) => void;
+  /** Rozpracované konverzace nad věcí, nejnovější první. */
+  conversations?: readonly MatterConversation[];
+  onContinue?: (conversation: MatterConversation) => void;
 }) {
   const locale = useLocale();
   const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.lite.${key}`, locale, params);
@@ -95,6 +120,21 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction }: {
         ))}
       </div>
       {error ? <div className="lw-status err" role="alert">{text("action_error_generic")}</div> : null}
+
+      {conversations.length > 0 ? (
+        <div className="lw-reg lw-lite-conversations" data-lawoss-lite="conversations">
+          <div className="lw-reg-h"><h2>{text("conversations_title")}</h2></div>
+          {conversations.map((c) => (
+            <button key={c.id} type="button" className="lw-row lw-cols-leh" disabled={busy !== null} onClick={() => onContinue?.(c)}>
+              <span className="lw-no" />
+              <span className="lw-d">{formatStamp(c.updated, locale)}</span>
+              <span className="lw-t">{c.title ?? text("conversation_untitled")}</span>
+              <span className="lw-ref" />
+              <span className="lw-st">{text("conversation_continue")}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <div className="lw-lite-tabs" role="tablist">
         {tabs.map(([id, key]) => (
@@ -159,4 +199,9 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction }: {
       </div>
     </div>
   );
+}
+
+/** Den a čas poslední změny konverzace, např. „čt 24. 9. 14:32“. */
+function formatStamp(ms: number, locale: string): string {
+  return ms ? new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(ms)) : "—";
 }

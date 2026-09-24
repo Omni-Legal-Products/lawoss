@@ -2,3 +2,7 @@
 .lw-lite-tabs [role="tab"][aria-selected="true"] { border-color: var(--lw-accent); color: var(--lw-accent); }
 .lw-lite-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .lw-lite-actions .lw-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* Rozpracované konverzace: řádky jako tlačítka, vzhledem stejné jako odkazy v registru. */
+.lw-lite-conversations button.lw-row { width: 100%; text-align: left; background: none; border: 0; font: inherit; color: inherit; cursor: pointer; }
+.lw-lite-conversations button.lw-row:disabled { cursor: default; opacity: 0.6; }
