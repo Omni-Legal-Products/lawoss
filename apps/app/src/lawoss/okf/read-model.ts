@@ -15,7 +15,7 @@ import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import { normalizeDirectoryPath } from "@/app/utils";
 
 import { addDays, buildOverview, deadlineTier, type DeadlineTier, type MatterInput, type Overview } from "../../../../../lawoss/okf/read";
-import { parseFrontmatter, today } from "../../../../../lawoss/okf/src/core";
+import { parseFrontmatter } from "../../../../../lawoss/okf/src/core";
 import { parseRecord, parseFrontmatter as parseMemoryFrontmatter } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { loadOkfConnection, type OkfConnection } from "./connection";
 
@@ -261,8 +261,10 @@ function calendarDay(iso: string): Date | null {
 
 export function formatDay(iso: string, locale = "sk"): string {
   const date = calendarDay(iso);
+  // Jiný rok než letošní se píše — lhůta za rok nesmí vypadat jako příští týden.
   return date ? new Intl.DateTimeFormat(locale, {
     weekday: "short", day: "numeric", month: "numeric", timeZone: "UTC",
+    ...(iso.slice(0, 4) === today().slice(0, 4) ? {} : { year: "numeric" }),
   }).format(date) : iso;
 }
 
@@ -281,4 +283,10 @@ export function dayClass(date: string, todayIso: string): string {
   return tier === "overdue" || tier === "today" ? "lw-d urg" : tier === "soon" ? "lw-d soon" : "lw-d";
 }
 
-export { addDays, today };
+export { addDays };
+
+/** Kalendářní den podle hodin počítače, ne UTC — „dnes / zítra / po lhůtě“ se po půlnoci neposouvá o den. */
+export function today(now = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}

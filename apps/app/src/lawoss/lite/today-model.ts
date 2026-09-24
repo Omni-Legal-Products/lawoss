@@ -17,9 +17,13 @@ const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T
 
 export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDeadlines" | "overdue" | "inputs">, todayIso: string, horizonDays = 14): TodayModel {
   const horizon = addDays(todayIso, horizonDays);
-  const deadlines = [...result.overdue, ...result.upcomingDeadlines.filter((d) => d.date <= horizon)]
+  const all = [...result.overdue, ...result.upcomingDeadlines];
+  // Neplatné datum nejde zařadit do 14 dnů ani spočítat — ukáže se vždy a nahoře, k ověření.
+  const invalid = all.filter((d) => d.invalid).map((d) => ({ ...d, tier: "today" as const, daysLeft: 0 }));
+  const dated = all.filter((d) => !d.invalid && d.date <= horizon)
     .map((d) => ({ ...d, tier: deadlineTier(d.date, todayIso), daysLeft: daysBetween(todayIso, d.date) }))
     .sort((a, b) => a.date.localeCompare(b.date));
+  const deadlines = [...invalid, ...dated];
   // Úkol sdílený klientem se objeví ve více věcech: identita = id + název + termín.
   const tasks = new Map<string, TodayTask>();
   for (const matter of result.matters) {
@@ -48,4 +52,9 @@ export function groupByClient(matters: readonly MatterOverview[]): ClientGroup[]
   }
   return [...groups.entries()].map(([client, list]) => ({ client, matters: list }))
     .sort((a, b) => a.client.localeCompare(b.client, "cs"));
+}
+
+/** Nejbližší lhůta dnes nebo později — prošlá ani neplatná se jako „další“ neukazuje. */
+export function nextDeadline(deadlines: readonly { date: string; invalid?: true }[], todayIso: string): string | undefined {
+  return deadlines.filter((d) => !d.invalid && d.date >= todayIso).map((d) => d.date).sort()[0];
 }

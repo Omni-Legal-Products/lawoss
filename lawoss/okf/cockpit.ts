@@ -10,7 +10,7 @@
 import type { OkfRecord } from "../okf-pamat/src/record.ts";
 import type { RecordType } from "../okf-pamat/src/schema.ts";
 import { pendingInputs } from "./inputs.ts";
-import { deadlineTier, isOpenTask, type MatterInput, type MatterOverview } from "./read.ts";
+import { deadlineTier, isOpenTask, recordDeadlines, type MatterInput, type MatterOverview } from "./read.ts";
 
 /** Odkiaľ údaj pochádza. Slovo, nie farba — stav musí byť čitateľný aj bez nej. */
 export type Provenance = "overené" | "AI návrh" | "zapísané" | "overenie neurčené" | "strojovo overené";
@@ -48,6 +48,8 @@ export type CockpitDeadline = {
   file: string;
   overdue: boolean;
   confirmed: boolean;
+  /** Datum nemá tvar RRRR-MM-DD — ukázat k ověření. */
+  invalid?: true;
 };
 export type AttentionRow = {
   id: string;
@@ -185,16 +187,17 @@ function tasks(input: MatterInput, todayIso: string): CockpitTask[] {
 function deadlines(input: MatterInput, todayIso: string): CockpitDeadline[] {
   const out: CockpitDeadline[] = [];
   for (const r of input.records) {
-    for (const date of r.deadlines ?? []) {
+    for (const { date, raw, invalid } of recordDeadlines(r)) {
       const item: CockpitDeadline = {
         date,
         title: r.title,
         recordId: r.id,
         provenance: provenance(r),
         file: fileOf(input, r),
-        overdue: deadlineTier(date, todayIso) === "overdue",
-        confirmed: deadlineConfirmed(r, date),
+        overdue: !invalid && deadlineTier(date, todayIso) === "overdue",
+        confirmed: deadlineConfirmed(r, raw),
       };
+      if (invalid) item.invalid = invalid;
       const src = firstSource(r);
       if (src?.title) item.source = src.title;
       out.push(item);

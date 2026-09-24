@@ -4,8 +4,8 @@ import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { OkfPage } from "../../domains/okf-page";
 import { litePageProps } from "../state-text";
-import { formatDay } from "../../okf/read-model";
-import { groupByClient, type ClientGroup } from "../today-model";
+import { formatDay, today } from "../../okf/read-model";
+import { groupByClient, nextDeadline, type ClientGroup } from "../today-model";
 import { liteMatterLink, NEW_MATTER_PATH } from "../links";
 
 export function ClientsPage() {
@@ -15,13 +15,14 @@ export function ClientsPage() {
 
 export function ClientsView({ groups }: { groups: readonly ClientGroup[] }) {
   const locale = useLocale();
+  const now = today();
   return (
     <div data-lawoss-lite="clients">
       {groups.length === 0 ? <p className="lw-empty">{t("lawoss.lite.clients_empty", locale)}</p> : groups.map((group) => (
         <div key={group.client} className="lw-reg">
           <div className="lw-reg-h"><h2>{group.client}</h2></div>
           {group.matters.map((m) => {
-            const next = m.deadlines.map((d) => d.date).sort()[0];
+            const next = nextDeadline(m.deadlines, now);
             return (
               <Link key={m.path} className="lw-row lw-cols-leh" to={liteMatterLink(m.path)}>
                 <span className="lw-no" />

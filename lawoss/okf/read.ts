@@ -10,7 +10,8 @@
 import type { ManualStatus } from "../okf-pamat/src/manual-status.ts";
 import type { OkfRecord } from "../okf-pamat/src/record.ts";
 
-export type OverviewDeadline = { date: string; title: string; recordId: string };
+/** `invalid`: datum lhůty nemá tvar RRRR-MM-DD — UI ho ukáže k ověření, nikdy ho tiše nezahodí. */
+export type OverviewDeadline = { date: string; title: string; recordId: string; invalid?: true };
 export type OverviewTask = { id: string; title: string; assignee?: string; due?: string };
 
 export type MatterOverview = {
@@ -57,9 +58,29 @@ export type Overview = {
   totals: { matters: number; deadlinesWithin7Days: number; openTasks: number; overdue: number; records: number };
 };
 
-/** Otvorená úloha: nie je hotová ani vyradená (nahradená/zrušená). Zdieľa prehľad, cockpit aj lite. */
-export const isOpenTask = (r: OkfRecord): boolean =>
-  r.type === "task" && r.state !== "done" && r.status !== "superseded" && r.status !== "void";
+/** Vyradený záznam (nahradený, zrušený, zakázaný, prekonaný) už nenesie živé lehoty ani úlohy — ako validátor. */
+const RETIRED_STATUS = new Set(["superseded", "void", "banned", "deprecated"]);
+export const isRetired = (r: OkfRecord): boolean => RETIRED_STATUS.has(r.status);
+
+/** Otvorená úloha: nie je hotová ani vyradená. Zdieľa prehľad, cockpit aj lite. */
+export const isOpenTask = (r: OkfRecord): boolean => r.type === "task" && r.state !== "done" && !isRetired(r);
+
+const isCalendarDay = (day: string): boolean => {
+  const d = new Date(`${day}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === day;
+};
+
+/**
+ * Lehoty záznamu pre prehľad a cockpit: vyradený záznam žiadne nemá; `RRRR-MM-DD` s časom
+ * sa oreže na deň; iný tvar ostáva ako text s `invalid` (`raw` = pôvodná hodnota pre potvrdenie).
+ */
+export function recordDeadlines(r: OkfRecord): { date: string; raw: string; invalid?: true }[] {
+  if (isRetired(r)) return [];
+  return (r.deadlines ?? []).map((raw) => {
+    const day = /^(\d{4}-\d{2}-\d{2})(?:[T ].*)?$/.exec(raw.trim())?.[1];
+    return day && isCalendarDay(day) ? { date: day, raw } : { date: raw, raw, invalid: true as const };
+  });
+}
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -92,7 +113,7 @@ function matterOverview(input: MatterInput): MatterOverview {
   const deadlines: OverviewDeadline[] = [];
   let lastEvent: MatterOverview["lastEvent"];
   for (const r of input.records) {
-    for (const date of r.deadlines ?? []) deadlines.push({ date, title: r.title, recordId: r.id });
+    for (const d of recordDeadlines(r)) deadlines.push({ date: d.date, title: r.title, recordId: r.id, ...(d.invalid ? { invalid: d.invalid } : {}) });
     for (const e of r.timeline) {
       if (!lastEvent || e.date > lastEvent.date) lastEvent = { date: e.date, text: e.text };
     }
@@ -134,15 +155,16 @@ export function buildOverview(matters: readonly MatterInput[], today: string): O
   );
   all.sort(byDate);
   const week = addDays(today, 7);
-  const upcomingDeadlines = all.filter((d) => d.date >= today);
-  const overdue = all.filter((d) => d.date < today);
+  // Neplatné datum sa nedá porovnať s dneškom: nikdy nie „po lehote“, ostáva medzi nadchádzajúcimi.
+  const upcomingDeadlines = all.filter((d) => d.invalid || d.date >= today);
+  const overdue = all.filter((d) => !d.invalid && d.date < today);
   return {
     matters: overviews,
     upcomingDeadlines,
     overdue,
     totals: {
       matters: overviews.length,
-      deadlinesWithin7Days: upcomingDeadlines.filter((d) => d.date <= week).length,
+      deadlinesWithin7Days: upcomingDeadlines.filter((d) => !d.invalid && d.date <= week).length,
       // Úloha zdieľaná klientom leží vo viacerých spisoch; v súčte je to jedna úloha.
       openTasks: new Set(overviews.flatMap((m) => m.openTasks.map((t) => `${t.id}\u0000${t.title}\u0000${t.due ?? ""}`))).size,
       overdue: overdue.length,

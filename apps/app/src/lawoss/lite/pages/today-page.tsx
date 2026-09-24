@@ -16,6 +16,7 @@ export function TodayPage() {
 }
 
 function dueLabel(d: TodayDeadline, locale: Language): string {
+  if (d.invalid) return t("lawoss.lite.due_invalid", locale);
   if (d.tier === "overdue") return t("lawoss.lite.overdue", locale);
   if (d.daysLeft === 0) return t("lawoss.lite.due_today", locale);
   if (d.daysLeft === 1) return t("lawoss.lite.due_tomorrow", locale);

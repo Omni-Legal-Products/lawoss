@@ -74,7 +74,13 @@ export function OkfPageState(props: {
   if (props.connection === "unavailable") return <div className="lw-status warn" role="alert">{text("serverUnavailable")}</div>;
   if (props.workspace === null) return <p className="lw-empty">{text("noWorkspace")} <Link to="/welcome">{text("openWorkspace")}</Link>.</p>;
   if (!props.data) return <p className="lw-lead" role="status">{text("memoryLoading", { workspace: props.workspace })}</p>;
-  if (props.data.matters.length > 0) return <>{props.loading ? <p role="status">{text("refreshing")}</p> : null}{props.children(props.data)}</>;
+  // Lite: část souborů nešla načíst, ale věci ano — bez upozornění by Dnes tvrdilo „žádné lhůty“ (review PR #100, 6).
+  const partial = props.rawProblems === false && (props.data.problems.length > 0 || props.data.truncated);
+  if (props.data.matters.length > 0) return <>
+    {props.loading ? <p role="status">{text("refreshing")}</p> : null}
+    {partial ? <div className="lw-status warn" role="alert">{text("partialRead")}</div> : null}
+    {props.children(props.data)}
+  </>;
   if (props.data.problems.length || props.data.truncated) return <div className="lw-status err" role="alert">
     {text("incompleteRead")}
     {props.rawProblems !== false && props.data.problems.slice(0, 3).map((problem, index) => <p key={`${problem.path}/${index}`}>{problem.path || props.workspace}: {problem.message}</p>)}

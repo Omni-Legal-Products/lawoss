@@ -12,6 +12,7 @@ const LITE_KEY: Partial<Record<MatterTextKey, string>> = {
   memoryError: "state_error",
   serverUnavailable: "state_error",
   incompleteRead: "state_error",
+  partialRead: "state_partial",
   connectionLoading: "state_loading",
   memoryLoading: "state_loading",
   refreshing: "state_loading",

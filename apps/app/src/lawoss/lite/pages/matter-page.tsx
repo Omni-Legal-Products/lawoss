@@ -8,8 +8,9 @@ import { buildCockpit, type Cockpit, type CockpitDeadline } from "../../../../..
 import { OkfPage } from "../../domains/okf-page";
 import { litePageProps } from "../state-text";
 import { openMatterSession } from "../../okf/matter-session";
-import { dayClass, officeWorkspace, formatDay, today, useOkfConnection, type OkfReadResult } from "../../okf/read-model";
+import { addDays, dayClass, officeWorkspace, formatDay, today, useOkfConnection, type OkfReadResult } from "../../okf/read-model";
 import { composeQuickAction, QUICK_ACTIONS } from "../quick-actions";
+import { nextDeadline } from "../today-model";
 import { LITE_CLIENTS_PATH } from "../links";
 import "./lite.css";
 
@@ -70,11 +71,12 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction }: {
   const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.lite.${key}`, locale, params);
   const [tab, setTab] = useState<"overview" | "known">("overview");
   const now = today();
-  const upcoming = cockpit
-    ? [...cockpit.deadlines.confirmed, ...cockpit.deadlines.candidates].filter((d) => !d.overdue).map((d) => d.date)
-    : matter.deadlines.map((d) => d.date);
-  const next = upcoming.sort()[0];
-  const deadlines: CockpitDeadline[] = cockpit ? [...cockpit.deadlines.confirmed, ...cockpit.deadlines.candidates].sort((a, b) => a.date.localeCompare(b.date)) : [];
+  const all: CockpitDeadline[] = cockpit ? [...cockpit.deadlines.confirmed, ...cockpit.deadlines.candidates] : [];
+  const next = nextDeadline(cockpit ? all : matter.deadlines, now);
+  // Stejný výřez jako Dnes: po lhůtě + příštích 14 dnů; neplatné datum vždy (k ověření).
+  const horizon = addDays(now, 14);
+  const deadlines = all.filter((d) => d.invalid || d.date <= horizon)
+    .sort((a, b) => Number(Boolean(b.invalid)) - Number(Boolean(a.invalid)) || a.date.localeCompare(b.date));
   // Lhůty a úkoly mají vlastní sekce; z pozornosti zbývají jen záznamy, které čekají na advokáta.
   const attention = cockpit?.attention.filter((row) => row.kind !== "lehota" && row.kind !== "úloha") ?? [];
   const tabs = [["overview", "tab_overview"], ["known", "tab_known"]] as const;
@@ -110,7 +112,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction }: {
               <span className={dayClass(d.date, now)}>{formatDay(d.date, locale)}</span>
               <span className="lw-t">{d.title}{d.source ? <small>{d.source}</small> : null}</span>
               <span className="lw-ref" />
-              <span className={`lw-st${d.confirmed ? "" : " warn"}`}>{d.overdue ? text("overdue") : d.confirmed ? "" : text("verify")}</span>
+              <span className={`lw-st${d.confirmed && !d.invalid ? "" : " warn"}`}>{d.invalid ? text("due_invalid") : d.overdue ? text("overdue") : d.confirmed ? "" : text("verify")}</span>
             </div>
           ))}
         </div>
