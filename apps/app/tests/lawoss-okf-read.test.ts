@@ -319,3 +319,33 @@ test("read model reports an old manual date despite fresh projection mtime", asy
   expect(result.inputs[0]?.manualStatus).toMatchObject({ state: "stale", updated: "2026-08-01" });
   expect(result.inputs[0]?.manualStatus?.content).toContain("Stále čakáme.");
 });
+
+test("vault RIHA legal bez karet: AK/<písmeno>/<klient>/<věc> se najde, pracovní složky ne", async () => {
+  const out = await readWorkspaceMemory(fakeClient({
+    // věci v podsložkách klienta
+    "AK/B/Barakat Jalal/2026-09-16_Stepanska_27_najem/smlouva.docx": "x",
+    "AK/B/Barakat Jalal/2026-08-01_jina_vec/poznamka.md": "x",
+    // klient bez podsložek = věc sama
+    "AK/B/Brázdil Vladimír/11C164-2026_zaloba_vyklizeni_spis.md": "x",
+    // klient s volnými soubory i věcí: obojí
+    "AK/Z/Zárybnický/poznamky.md": "x",
+    "AK/Z/Zárybnický/byt České Budějovice/kupni_smlouva.md": "x",
+    // pracovní složky nejsou věci
+    "AK/S/STAV group/research/a.md": "x",
+    "AK/S/STAV group/drafts/b.md": "x",
+    "AK/S/STAV group/DS/zprava.zfo": "x",
+    "AK/S/STAV group/00_K_zarazeni/c.pdf": "x",
+    // mimo AK se nic nehádá
+    "Know-how/téma/poznamka.md": "x",
+  }), "ws", TODAY);
+  expect(out.matters.map((m) => m.path).sort()).toEqual([
+    "AK/B/Barakat Jalal/2026-08-01_jina_vec",
+    "AK/B/Barakat Jalal/2026-09-16_Stepanska_27_najem",
+    "AK/B/Brázdil Vladimír",
+    "AK/S/STAV group",
+    "AK/Z/Zárybnický",
+    "AK/Z/Zárybnický/byt České Budějovice",
+  ]);
+  expect(out.problems).toEqual([]);
+  expect(out.truncated).toBe(false);
+});

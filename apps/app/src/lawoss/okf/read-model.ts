@@ -39,6 +39,11 @@ const MATTERS_DIR = "Spisy";
 const MEMORY_DIR = "memory";
 const CARD_FILES = ["matter.md", "spis.md", "project.md", "projekt.md"];
 const CLIENT_CARDS = ["client.md", "klient.md"];
+/** Klient ve tvaru kanceláře `AK/<písmeno>/<klient>` (vault bez karet a bez `Spisy/`). */
+const AK_CLIENT = /^AK\/[^/]+\/[^/]+$/;
+/** Pracovní podsložky uvnitř klienta nebo věci — nejsou to samostatné věci. */
+const WORK_DIRS = new Set(["DS", "Prilohy", "Přílohy", "research", "drafts", "final", "analysis", "sources", "qa", "logs"]);
+const isWorkDir = (name: string): boolean => WORK_DIRS.has(name) || /^\d{2}_/.test(name) || name.startsWith("_");
 const RESERVED = new Set(["index.md", "log.md", "INDEX.md"]);
 const missing = (e: unknown): boolean => /(?:\b404\b|\bENOENT\b|not found)/i.test(message(e));
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -97,6 +102,20 @@ export async function readWorkspaceMemory(
       return;
     }
     const clientFolder = insideClient || entries.some((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name));
+    // Vault vedený bez karet (AK/<písmeno>/<klient>/<věc>): podsložky klienta jsou věci; klient bez nich
+    // (nebo s vlastními soubory) je věcí sám — z přehledu se nic neztratí. Tvar se `Spisy/` platí dál.
+    // Klient s kartou (client.md/klient.md) je OKF klient — i bez věcí zůstává klientem, ne věcí.
+    const hasClientCard = entries.some((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name));
+    if (AK_CLIENT.test(path) && !hasClientCard && !entries.some((e) => e.kind === "dir" && [MATTERS_DIR, "Veci"].includes(e.name))) {
+      const matters = entries.filter((e) => e.kind === "dir" && !e.name.startsWith(".") && !SKIP_DIRECTORIES.has(e.name) && !isWorkDir(e.name));
+      const ownFiles = entries.some((e) => e.kind === "file" && !e.name.startsWith("."));
+      if (matters.length === 0 || ownFiles) paths.push(path);
+      for (const matter of matters) {
+        if (paths.length >= MAX_MATTERS) { truncated = true; break; }
+        await discover(matter.path, true, depth + 1, true);
+      }
+      return;
+    }
     for (const child of entries.filter((e) => e.kind === "dir" && !e.name.startsWith(".") && !SKIP_DIRECTORIES.has(e.name))) {
       if (scanned >= MAX_DISCOVERY_DIRECTORIES || paths.length >= MAX_MATTERS) { truncated = true; break; }
       // Preserve empty legacy matters only inside a recognised client or the existing AK profile.
