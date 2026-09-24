@@ -6,7 +6,7 @@
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import { loadOkfConnection, openSessionWithPrompt, type OkfConnection } from "../okf/connection";
 import { activateLocalWorkspace } from "../okf/matter-session";
-import { activeWorkspace, officeOf, officeWorkspace } from "../okf/read-model";
+import { activeWorkspace, officeOf, officeWorkspace, OFFICE_SCOPE_RESTORED } from "../okf/read-model";
 import { currentUiMode } from "./ui-mode";
 
 let pending: Promise<OkfConnection> | null = null;
@@ -21,7 +21,10 @@ export function restoreOfficeScope(): Promise<OkfConnection> {
     const active = activeWorkspace(connection);
     const office = officeWorkspace(connection);
     if (!connection.client || !office || !active || office.id === active.id) return connection;
-    return activateLocalWorkspace({ ...connection, client: connection.client }, office, connection.workspaces);
+    const restored = await activateLocalWorkspace({ ...connection, client: connection.client }, office, connection.workspaces);
+    // Stránky načtené během přepínání četly ještě starý stav — ať se načtou znovu.
+    window.dispatchEvent(new CustomEvent(OFFICE_SCOPE_RESTORED));
+    return restored;
   })().finally(() => { pending = null; });
   return pending;
 }

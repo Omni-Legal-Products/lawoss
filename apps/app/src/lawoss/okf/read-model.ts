@@ -7,7 +7,7 @@
  * nezhodí celé čítanie — skončí v `problems` a zvyšok sa spracuje.
  */
 import { readManualStatus } from "../../../../../lawoss/okf-pamat/src/manual-status.ts";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -202,16 +202,35 @@ export async function readWorkspaceMemory(
 }
 
 /** Spojenie na server rovnako ako v Novom spise, len ako hook. */
+const SERVER_SETTINGS_CHANGED = "legalwork-server-settings-changed";
+
+/** LAWOSS: rozsah kanceláře byl obnoven (lite/office-scope) — stránky načtou spojení i data znovu. */
+export const OFFICE_SCOPE_RESTORED = "lawoss-office-scope-restored";
+
 export function useOkfConnection(): { connection: OkfConnection | null; error: string | null } {
   const [connection, setConnection] = useState<OkfConnection | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Server může po přepnutí složky vydat nové spojení (adresa, token) — upstream to ohlásí
+  // událostí; bez nového načtení by stránka četla starým tokenem a hlásila chybu.
+  const queries = useQueryClient();
+  const [generation, setGeneration] = useState(0);
+  useEffect(() => {
+    const onChange = () => setGeneration((value) => value + 1);
+    for (const name of [SERVER_SETTINGS_CHANGED, OFFICE_SCOPE_RESTORED]) window.addEventListener(name, onChange);
+    return () => { for (const name of [SERVER_SETTINGS_CHANGED, OFFICE_SCOPE_RESTORED]) window.removeEventListener(name, onChange); };
+  }, []);
   useEffect(() => {
     let cancelled = false;
     loadOkfConnection()
-      .then((next) => { if (!cancelled) setConnection(next); })
+      .then((next) => {
+        if (cancelled) return;
+        setConnection(next); setError(null);
+        // Po změně spojení i čtení se stejným klíčem (token beze změny) musí proběhnout znovu.
+        if (generation > 0) void queries.invalidateQueries({ queryKey: ["okf-overview"] });
+      })
       .catch((e: unknown) => { if (!cancelled) setError(message(e)); });
     return () => { cancelled = true; };
-  }, []);
+  }, [generation]);
   return { connection, error };
 }
 
@@ -244,7 +263,8 @@ export function officeOf(workspaces: readonly RouteWorkspace[], active: RouteWor
 export function useOkfOverview(connection: OkfConnection | null, workspace: RouteWorkspace | null) {
   const client = connection?.client ?? null;
   return useQuery({
-    queryKey: ["okf-overview", workspace?.id ?? ""],
+    // Adresa a token v klíči: nové spojení = nové čtení (cache je jen v paměti, nikam se neukládá).
+    queryKey: ["okf-overview", workspace?.id ?? "", connection?.baseUrl ?? "", connection?.token ?? ""],
     enabled: Boolean(client && workspace),
     queryFn: () => {
       if (!client || !workspace) throw new Error("Server LegalWork nebeží alebo chýba workspace.");
