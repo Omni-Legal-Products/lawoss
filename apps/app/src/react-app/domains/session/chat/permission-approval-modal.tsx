@@ -361,14 +361,17 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
               <Clock3 data-icon="inline-start" />
               {t("session.allow_once")}
             </AlertDialogAction>
-            <AlertDialogAction
-              variant="outline"
-              onClick={() => props.respondPermission?.(props.permission.id, "always")}
-              disabled={props.busy || !props.respondPermission}
-            >
-              <Check data-icon="inline-start" />
-              {t("session.allow_for_session")}
-            </AlertDialogAction>
+            {/* LAWOSS-lite: pravidlo „pro session“ by povolilo i pozdější zápis s --apply bez karty. */}
+            {lite && memoryWriteProposal ? null : (
+              <AlertDialogAction
+                variant="outline"
+                onClick={() => props.respondPermission?.(props.permission.id, "always")}
+                disabled={props.busy || !props.respondPermission}
+              >
+                <Check data-icon="inline-start" />
+                {t("session.allow_for_session")}
+              </AlertDialogAction>
+            )}
           </div>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -424,16 +427,19 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               <Clock3 data-icon="inline-start" />
               {t("session.allow_once")}
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => props.respondPermission?.(props.permission.id, "always")}
-              disabled={props.busy || !props.respondPermission}
-            >
-              <Check data-icon="inline-start" />
-              {t("session.allow_for_session")}
-            </Button>
+            {/* LAWOSS-lite: pravidlo „pro session“ by povolilo i pozdější zápis s --apply bez karty. */}
+            {lite && memoryWriteProposal ? null : (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => props.respondPermission?.(props.permission.id, "always")}
+                disabled={props.busy || !props.respondPermission}
+              >
+                <Check data-icon="inline-start" />
+                {t("session.allow_for_session")}
+              </Button>
+            )}
           </div>
         </div>
 

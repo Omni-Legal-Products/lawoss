@@ -11,7 +11,7 @@ import type { PendingPermission } from "../src/app/types";
 
 describe("describeMemoryWrite", () => {
   test("dry-run přes node a cestu k CLI", () => {
-    expect(describeMemoryWrite('node "/x/resources/okf-memory.js" write "Klienti/Novák/Spisy/Odvolání" --file navrh.md --reason "lhůta k odvolání"'))
+    expect(describeMemoryWrite('node "/x/.opencode/skills/okf-pamat/resources/okf-memory.js" write "Klienti/Novák/Spisy/Odvolání" --file navrh.md --reason "lhůta k odvolání"'))
       .toEqual({ matterDir: "Klienti/Novák/Spisy/Odvolání", file: "navrh.md", reason: "lhůta k odvolání", apply: false });
   });
   test("apply se schválením", () => {
@@ -61,13 +61,35 @@ describe("describeMemoryWrite — expanze uvnitř dvojitých uvozovek (final rev
     expect(describeMemoryWrite("okf-memory write spis --reason 'lhůta $(x)'"))
       .toEqual({ matterDir: "spis", reason: "lhůta $(x)", apply: false });
   });
-  test("CLI jen jako holé jméno nebo z adresáře resources skillu", () => {
-    for (const bin of ["okf-memory", "okf-memory.js", "node /a/okf-pamat/resources/okf-memory.js", "node resources/okf-memory.js", "/x/resources/okf-memory"]) {
+  test("CLI jen jako holé jméno nebo ze složky skillu okf-pamat (review PR #100, 4)", () => {
+    for (const bin of ["okf-memory", "node /a/.opencode/skills/okf-pamat/resources/okf-memory.js", "bun /Users/x/kancelar/.opencode/skills/okf-pamat/resources/okf-memory.js", "node .opencode/skills/okf-pamat/resources/okf-memory.js"]) {
       expect(describeMemoryWrite(`${bin} write spis`)).not.toBeNull();
     }
-    for (const bin of ["node /tmp/evil/okf-memory.js", "/tmp/evil/okf-memory", "node ./okf-memory.js", "node /x/myresources/okf-memory.js"]) {
+    for (const bin of ["okf-memory.js", "node resources/okf-memory.js", "node /tmp/x/resources/okf-memory.js", "/x/resources/okf-memory", "node /tmp/evil/okf-memory.js",
+      "node ./okf-memory.js", "node /a/skills/okf-pamat/../evil/skills/okf-pamat/resources/okf-memory.js", "node skills/okf-pamat/resources/okf-memory.js", "node /a/myskills/okf-pamat/resources/okf-memory.js"]) {
       expect(describeMemoryWrite(`${bin} write spis`)).toBeNull();
     }
+  });
+});
+
+describe("describeMemoryWrite — shell by udělal něco jiného než karta (review PR #100)", () => {
+  const cli = "okf-memory write spis";
+  test("1: konec řádku kdekoli → nic (druhý příkaz)", () => {
+    for (const cmd of [`okf-memory write spisA --file\n/tmp/evil.sh`, `${cli}\r\nrm -rf x`, `${cli} --reason 'a\nb'`, `${cli}\u0000`]) expect(describeMemoryWrite(cmd)).toBeNull();
+  });
+  test("2: expanze shellu (složené závorky, glob, ~, #, !) → nic", () => {
+    for (const arg of ["{x,--apply,--approve-as,JUDr.X}", "*.md", "a?", "[ab]", "~/a.md", "#--apply", "!x", "a\u00a0b"]) {
+      expect(describeMemoryWrite(`${cli} --reason ${arg}`)).toBeNull();
+    }
+    expect(describeMemoryWrite(`${cli} --reason '{x,--apply}'`)).toMatchObject({ reason: "{x,--apply}", apply: false }); // v '…' literál
+    expect(describeMemoryWrite(`${cli} --file Věřitel/a-1_b.md`)).toMatchObject({ file: "Věřitel/a-1_b.md" });
+  });
+  test("uvozovka nalepená na slovo je pro shell jeden argument → nic", () => {
+    for (const cmd of [`${cli} --reason "a"--apply`, `${cli} --reason 'a'b`, `${cli} --reason a"b"`]) expect(describeMemoryWrite(cmd)).toBeNull();
+  });
+  test("3: opakovaný --file/--reason/--approve-as/--if-revision → nic (CLI bere první)", () => {
+    expect(describeMemoryWrite(`${cli} --file a.md --approve-as "JUDr. X" --file b.md --approve-as "Mgr. Y" --apply`)).toBeNull();
+    for (const flag of ["--file", "--reason", "--approve-as", "--if-revision"]) expect(describeMemoryWrite(`${cli} ${flag} a ${flag} b`)).toBeNull();
   });
 });
 
@@ -109,7 +131,7 @@ describe("integrace do PermissionApprovalPanel/Modal (upstream)", () => {
   // testu (renderToStaticMarkup) tedy vždy vykreslí pro cestu. To je přesně
   // důkaz, že pro zůstává beze změny: i příkaz odpovídající okf-memory write
   // kartu nezobrazí a detail příkazu se vykreslí jako dřív.
-  const memoryWriteCommand = 'node "/x/resources/okf-memory.js" write "spis" --file navrh.md --reason "lhůta"';
+  const memoryWriteCommand = 'node "/x/.opencode/skills/okf-pamat/resources/okf-memory.js" write "spis" --file navrh.md --reason "lhůta"';
 
   test("pro beze změny: karta se nezobrazí, detail příkazu je stejný jako dřív", () => {
     const permission = pendingPermission({ metadata: { command: memoryWriteCommand } });
@@ -119,6 +141,7 @@ describe("integrace do PermissionApprovalPanel/Modal (upstream)", () => {
     expect(panelHtml).not.toContain('data-lawoss-lite="memory-write"');
     expect(panelHtml).not.toContain("The assistant wants to record to the matter memory");
     expect(panelHtml).toContain("okf-memory write"); // scope/detail rows render as before
+    expect(panelHtml).toContain("Allow for session"); // pro: „pro session“ zůstává, skrývá se jen v lite u karty
 
     // AlertDialogContent renders via a Portal, which is a no-op under
     // renderToStaticMarkup (SSR) — this only proves the modal doesn't throw
