@@ -18,10 +18,12 @@ export function useMatterText() {
 
 /** Caller-supplied state copy (lite); defaults to `lawoss.matters.*`. */
 export type StateText = (key: MatterTextKey, params?: Record<string, string | number>) => string;
-type PageProps = { title: string; children: (data: OkfReadResult) => ReactNode; stateText?: StateText };
+/** Which workspace the page reads; lite passes `officeWorkspace`, pro keeps the active one. */
+type PickWorkspace = typeof activeWorkspace;
+type PageProps = { title: string; children: (data: OkfReadResult) => ReactNode; stateText?: StateText; pickWorkspace?: PickWorkspace };
 
 /** Retry also reloads the desktop connection, which may be absent during startup. */
-export function OkfPage({ title, children, stateText }: PageProps) {
+export function OkfPage({ title, children, stateText, pickWorkspace }: PageProps) {
   const text = useMatterText().text;
   const label = stateText ?? text;
   const [attempt, setAttempt] = useState(0);
@@ -29,7 +31,7 @@ export function OkfPage({ title, children, stateText }: PageProps) {
   return (
     <LawossLayout>
       <h1 className="lw-h1">{title}</h1>
-      <OkfPageQuery key={attempt} stateText={stateText}>{children}</OkfPageQuery>
+      <OkfPageQuery key={attempt} stateText={stateText} pickWorkspace={pickWorkspace}>{children}</OkfPageQuery>
       <button type="button" className="lw-btn" onClick={() => {
         void cache.invalidateQueries({ queryKey: ["okf-overview"], refetchType: "none" });
         setAttempt((value) => value + 1);
@@ -38,9 +40,9 @@ export function OkfPage({ title, children, stateText }: PageProps) {
   );
 }
 
-function OkfPageQuery({ children, stateText }: Pick<PageProps, "children" | "stateText">) {
+function OkfPageQuery({ children, stateText, pickWorkspace = activeWorkspace }: Pick<PageProps, "children" | "stateText" | "pickWorkspace">) {
   const { connection, error } = useOkfConnection();
-  const workspace = activeWorkspace(connection);
+  const workspace = pickWorkspace(connection);
   const query = useOkfOverview(connection, workspace);
   return <OkfPageState
     connection={connection === null ? "loading" : connection.client ? "ready" : "unavailable"}

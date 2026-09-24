@@ -8,7 +8,7 @@ import { buildCockpit, type Cockpit, type CockpitDeadline } from "../../../../..
 import { OkfPage } from "../../domains/okf-page";
 import { liteStateText } from "../state-text";
 import { openMatterSession } from "../../okf/matter-session";
-import { activeWorkspace, dayClass, formatDay, today, useOkfConnection, type OkfReadResult } from "../../okf/read-model";
+import { dayClass, officeWorkspace, formatDay, today, useOkfConnection, type OkfReadResult } from "../../okf/read-model";
 import { composeQuickAction, QUICK_ACTIONS } from "../quick-actions";
 import { LITE_CLIENTS_PATH } from "../links";
 import "./lite.css";
@@ -19,7 +19,7 @@ export type LiteCockpit = Pick<Cockpit, "deadlines" | "tasks" | "attention" | "f
 
 export function LiteMatterPage() {
   const locale = useLocale();
-  return <OkfPage title={t("lawoss.lite.clients_title", locale)} stateText={liteStateText(locale)}>{(data) => <LiteMatterBody data={data} />}</OkfPage>;
+  return <OkfPage title={t("lawoss.lite.clients_title", locale)} stateText={liteStateText(locale)} pickWorkspace={officeWorkspace}>{(data) => <LiteMatterBody data={data} />}</OkfPage>;
 }
 
 /** Jen přesná shoda `?vec=`; na rozdíl od `selectMatter` nikdy nespadne na první věc (akce by běžely nad jinou). */
@@ -48,7 +48,7 @@ function LiteMatterBody({ data }: { data: OkfReadResult }) {
       if (!connection) throw new Error(t("lawoss.integrations.error.registration_denied", locale));
       const prompt = composeQuickAction(id, { title: matter.title, matterRef: matter.matterRef, path: matter.path }, locale);
       // Jen připraví koncept v nové konverzaci nad věcí; nic se neodesílá.
-      navigate(await openMatterSession(connection, activeWorkspace(connection), matter, data.matters, prompt));
+      navigate(await openMatterSession(connection, officeWorkspace(connection), matter, data.matters, prompt));
     } catch (failure) {
       // Surová hláška může obsahovat interní pojmy; advokát vidí obecný text, diagnostika jde do konzole.
       console.warn("LAWOSS-lite: quick action failed", failure);

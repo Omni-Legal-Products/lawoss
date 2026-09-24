@@ -4,13 +4,13 @@ import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { OkfPage } from "../../domains/okf-page";
 import { liteStateText } from "../state-text";
-import { dayClass, formatDay, today } from "../../okf/read-model";
+import { dayClass, formatDay, officeWorkspace, today } from "../../okf/read-model";
 import { buildToday, type TodayDeadline, type TodayModel } from "../today-model";
 import { liteMatterLink, NEW_MATTER_PATH } from "../links";
 
 export function TodayPage() {
   const locale = useLocale();
-  return <OkfPage title={t("lawoss.lite.today_title", locale)} stateText={liteStateText(locale)}>
+  return <OkfPage title={t("lawoss.lite.today_title", locale)} stateText={liteStateText(locale)} pickWorkspace={officeWorkspace}>
     {(data) => <TodayView model={buildToday(data, today())} locale={locale} />}
   </OkfPage>;
 }

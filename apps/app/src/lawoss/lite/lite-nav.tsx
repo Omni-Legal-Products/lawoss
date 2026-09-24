@@ -11,7 +11,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { activeWorkspace, today, useOkfConnection, useOkfOverview } from "../okf/read-model";
+import { officeWorkspace, today, useOkfConnection, useOkfOverview } from "../okf/read-model";
 import { buildToday } from "./today-model";
 import { LITE_CLIENTS_PATH, LITE_MATTER_PATH, LITE_TODAY_PATH, liteMatterLink } from "./links";
 
@@ -24,7 +24,7 @@ type RecentMatter = { path: string; title: string };
 /** Boční panel v lite: Dnes · Klienti a věci · Zeptat se + „Poslední věci“. */
 export function LiteNav(props: { activePane?: boolean }) {
   const { connection } = useOkfConnection();
-  const query = useOkfOverview(connection, activeWorkspace(connection));
+  const query = useOkfOverview(connection, officeWorkspace(connection));
   const recent = query.data ? buildToday(query.data, today()).recent : [];
   return <LiteNavView recent={recent} activePane={props.activePane} />;
 }

@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
+import { normalizeDirectoryPath } from "@/app/utils";
 
 import { addDays, buildOverview, deadlineTier, type DeadlineTier, type MatterInput, type Overview } from "../../../../../lawoss/okf/read";
 import { parseFrontmatter, today } from "../../../../../lawoss/okf/src/core";
@@ -217,6 +218,23 @@ export function useOkfConnection(): { connection: OkfConnection | null; error: s
 export function activeWorkspace(connection: OkfConnection | null): RouteWorkspace | null {
   if (!connection) return null;
   return connection.workspaces.find((w) => w.id === connection.activeWorkspaceId) ?? connection.workspaces[0] ?? null;
+}
+
+/**
+ * Lite: kancelář = nejvzdálenější registrovaná lokální složka, která aktivní složku obsahuje.
+ * Rychlá akce aktivuje složku spisu (konverzace běží nad ním), ale Dnes a Klienti mají dál ukazovat celou kancelář.
+ * Pro zůstává na `activeWorkspace` — tam je výběr složky v postranním panelu záměrný.
+ */
+export function officeWorkspace(connection: OkfConnection | null): RouteWorkspace | null {
+  const active = activeWorkspace(connection);
+  if (!connection || !active?.path || active.workspaceType === "remote") return active;
+  const inner = normalizeDirectoryPath(active.path);
+  const ancestors = connection.workspaces.filter((w) => {
+    if (w.id === active.id || !w.path || w.workspaceType === "remote") return false;
+    const outer = normalizeDirectoryPath(w.path);
+    return inner.startsWith(outer.endsWith("/") ? outer : `${outer}/`);
+  });
+  return ancestors.sort((a, b) => normalizeDirectoryPath(a.path).length - normalizeDirectoryPath(b.path).length)[0] ?? active;
 }
 
 export function useOkfOverview(connection: OkfConnection | null, workspace: RouteWorkspace | null) {
