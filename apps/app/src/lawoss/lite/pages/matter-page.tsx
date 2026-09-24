@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
@@ -14,6 +14,7 @@ import { composeQuickAction, QUICK_ACTIONS } from "../quick-actions";
 import { nextDeadline } from "../today-model";
 import { LITE_CLIENTS_PATH } from "../links";
 import { listMatterConversations, openMatterConversation, type MatterConversation } from "../matter-conversations";
+import { saveDocumentsToMatter } from "../matter-intake";
 import "./lite.css";
 
 type ActionId = (typeof QUICK_ACTIONS)[number]["id"];
@@ -40,6 +41,8 @@ function LiteMatterBody({ data }: { data: OkfReadResult }) {
   const running = useRef(false);
   const [busy, setBusy] = useState<ActionId | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
+  const queries = useQueryClient();
   const matter = matterFromParams(data.matters, params);
   const conversations = useQuery({
     queryKey: ["lite-matter-conversations", matter?.path ?? "", connection?.baseUrl ?? "", connection?.token ?? ""],
@@ -81,11 +84,28 @@ function LiteMatterBody({ data }: { data: OkfReadResult }) {
     } finally { running.current = false; }
   }
 
+  async function onFiles(files: File[]) {
+    const office = officeWorkspace(connection);
+    if (running.current || !matter || files.length === 0) return;
+    running.current = true; setBusy("add_document"); setError(null); setSaved(null);
+    try {
+      if (!connection?.client || !office) throw new Error(t("lawoss.integrations.error.registration_denied", locale));
+      const result = await saveDocumentsToMatter(connection.client, office.id, matter, files);
+      setSaved(result.map((r) => `${r.name} (${r.id})`).join(", "));
+      // Dnes a „K zařazení“ mají nový vstup ukázat hned.
+      void queries.invalidateQueries({ queryKey: ["okf-overview"] });
+    } catch (failure) {
+      console.warn("LAWOSS-lite: document intake failed", failure);
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally { running.current = false; setBusy(null); }
+  }
+
   return <LiteMatterView matter={matter} cockpit={cockpit} busy={busy} error={error} onAction={(id) => void onAction(id)}
-    conversations={conversations.data ?? []} onContinue={(c) => void onContinue(c)} />;
+    conversations={conversations.data ?? []} onContinue={(c) => void onContinue(c)}
+    onFiles={(files) => void onFiles(files)} saved={saved} />;
 }
 
-export function LiteMatterView({ matter, cockpit, busy, error, onAction, conversations = [], onContinue }: {
+export function LiteMatterView({ matter, cockpit, busy, error, onAction, conversations = [], onContinue, onFiles, saved = null }: {
   matter: MatterOverview;
   cockpit: LiteCockpit | null;
   busy: ActionId | null;
@@ -94,10 +114,16 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
   /** Rozpracované konverzace nad věcí, nejnovější první. */
   conversations?: readonly MatterConversation[];
   onContinue?: (conversation: MatterConversation) => void;
+  /** Přetažené nebo vybrané soubory — uloží se do věci jako vstupy k zařazení. */
+  onFiles?: (files: File[]) => void;
+  /** Co se právě uložilo (pro potvrzení advokátovi). */
+  saved?: string | null;
 }) {
   const locale = useLocale();
   const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.lite.${key}`, locale, params);
   const [tab, setTab] = useState<"overview" | "known">("overview");
+  const [dragging, setDragging] = useState(false);
+  const fileInput = useRef<HTMLInputElement | null>(null);
   const now = today();
   const all: CockpitDeadline[] = cockpit ? [...cockpit.deadlines.confirmed, ...cockpit.deadlines.candidates] : [];
   const next = nextDeadline(cockpit ? all : matter.deadlines, now);
@@ -110,17 +136,29 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
   const tabs = [["overview", "tab_overview"], ["known", "tab_known"]] as const;
 
   return (
-    <div data-lawoss-lite="matter">
+    <div data-lawoss-lite="matter" data-dragging={dragging || undefined}
+      onDragOver={(event) => { if (onFiles && event.dataTransfer.types.includes("Files")) { event.preventDefault(); setDragging(true); } }}
+      onDragLeave={(event) => { if (event.currentTarget === event.target) setDragging(false); }}
+      onDrop={(event) => {
+        if (!onFiles || !event.dataTransfer.files.length) return;
+        event.preventDefault(); setDragging(false);
+        onFiles([...event.dataTransfer.files]);
+      }}>
       <h1 className="lw-h1">{matter.title}</h1>
       <p className="lw-lead">{[matter.matterRef, matter.court, next ? text("matter_next_deadline", { date: formatDay(next, locale) }) : null].filter(Boolean).join(" · ")}</p>
 
       <div className="lw-lite-actions">
         {QUICK_ACTIONS.map((action) => (
-          <button key={action.id} type="button" className="lw-btn" disabled={busy !== null} aria-busy={busy === action.id} onClick={() => onAction(action.id)}>
+          <button key={action.id} type="button" className="lw-btn" disabled={busy !== null} aria-busy={busy === action.id}
+            onClick={() => action.id === "add_document" && onFiles ? fileInput.current?.click() : onAction(action.id)}>
             {t(action.labelKey, locale)}
           </button>
         ))}
       </div>
+      {onFiles ? <input ref={fileInput} type="file" multiple hidden data-lawoss-lite="intake-input"
+        onChange={(event) => { const files = [...(event.target.files ?? [])]; event.target.value = ""; onFiles(files); }} /> : null}
+      {onFiles ? <p className="lw-lite-hint">{text(dragging ? "intake_drop" : "intake_hint")}</p> : null}
+      {saved ? <div className="lw-status ok" role="status">{text("intake_saved", { names: saved })}</div> : null}
       {error ? <div className="lw-status err" role="alert">{text("action_error_generic")}</div> : null}
 
       {conversations.length > 0 ? (
