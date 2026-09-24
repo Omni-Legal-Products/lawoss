@@ -57,6 +57,10 @@ export type Overview = {
   totals: { matters: number; deadlinesWithin7Days: number; openTasks: number; overdue: number; records: number };
 };
 
+/** Otvorená úloha: nie je hotová ani vyradená (nahradená/zrušená). Zdieľa prehľad, cockpit aj lite. */
+export const isOpenTask = (r: OkfRecord): boolean =>
+  r.type === "task" && r.state !== "done" && r.status !== "superseded" && r.status !== "void";
+
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** `RRRR-MM-DD` + n dní; nevalidný vstup vráti nezmenený. */
@@ -95,7 +99,7 @@ function matterOverview(input: MatterInput): MatterOverview {
   }
   deadlines.sort(byDate);
   const openTasks = input.records
-    .filter((r) => r.type === "task" && r.state !== "done")
+    .filter(isOpenTask)
     .sort((a, b) => (a.id < b.id ? -1 : 1))
     .map((t) => ({ id: t.id, title: t.title, assignee: t.assignee, due: t.due }));
 
@@ -139,7 +143,8 @@ export function buildOverview(matters: readonly MatterInput[], today: string): O
     totals: {
       matters: overviews.length,
       deadlinesWithin7Days: upcomingDeadlines.filter((d) => d.date <= week).length,
-      openTasks: overviews.reduce((n, m) => n + m.openTasks.length, 0),
+      // Úloha zdieľaná klientom leží vo viacerých spisoch; v súčte je to jedna úloha.
+      openTasks: new Set(overviews.flatMap((m) => m.openTasks.map((t) => `${t.id}\u0000${t.title}\u0000${t.due ?? ""}`))).size,
       overdue: overdue.length,
       records: overviews.reduce((n, m) => n + m.counts.records, 0),
     },

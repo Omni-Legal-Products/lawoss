@@ -6,7 +6,7 @@ import { useLocale } from "@/i18n/use-locale";
 import type { MatterOverview } from "../../../../../../lawoss/okf/read";
 import { buildCockpit, type Cockpit, type CockpitDeadline } from "../../../../../../lawoss/okf/cockpit";
 import { OkfPage } from "../../domains/okf-page";
-import { liteStateText } from "../state-text";
+import { litePageProps } from "../state-text";
 import { openMatterSession } from "../../okf/matter-session";
 import { dayClass, officeWorkspace, formatDay, today, useOkfConnection, type OkfReadResult } from "../../okf/read-model";
 import { composeQuickAction, QUICK_ACTIONS } from "../quick-actions";
@@ -19,7 +19,7 @@ export type LiteCockpit = Pick<Cockpit, "deadlines" | "tasks" | "attention" | "f
 
 export function LiteMatterPage() {
   const locale = useLocale();
-  return <OkfPage title={t("lawoss.lite.clients_title", locale)} stateText={liteStateText(locale)} pickWorkspace={officeWorkspace}>{(data) => <LiteMatterBody data={data} />}</OkfPage>;
+  return <OkfPage title={t("lawoss.lite.clients_title", locale)} {...litePageProps(locale)}>{(data) => <LiteMatterBody data={data} />}</OkfPage>;
 }
 
 /** Jen přesná shoda `?vec=`; na rozdíl od `selectMatter` nikdy nespadne na první věc (akce by běžely nad jinou). */

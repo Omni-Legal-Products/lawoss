@@ -4,6 +4,7 @@
  */
 import { t, type Language } from "@/i18n";
 import type { StateText } from "../domains/okf-page";
+import { officeWorkspace } from "../okf/read-model";
 import type { MatterTextKey } from "../i18n/matters";
 
 const LITE_KEY: Partial<Record<MatterTextKey, string>> = {
@@ -25,4 +26,9 @@ export function liteStateText(locale: Language): StateText {
     const lite = LITE_KEY[key];
     return lite ? t(`lawoss.lite.${lite}`, locale) : t(`lawoss.matters.${key}`, locale, params);
   };
+}
+
+/** Společné nastavení OkfPage pro lite stránky: prostý jazyk, celá kancelář, bez surových chyb. */
+export function litePageProps(locale: Language) {
+  return { stateText: liteStateText(locale), pickWorkspace: officeWorkspace, rawProblems: false } as const;
 }

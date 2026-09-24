@@ -15,24 +15,16 @@ export type ClientGroup = { client: string; matters: MatterOverview[] };
 const DAY = 86_400_000;
 const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY);
 
-/** Task states a proposal, never final: superseded/void records nesmí do dnešní úlohy. */
-const RETIRED_STATUS = new Set(["superseded", "void"]);
-
 export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDeadlines" | "overdue" | "inputs">, todayIso: string, horizonDays = 14): TodayModel {
   const horizon = addDays(todayIso, horizonDays);
   const deadlines = [...result.overdue, ...result.upcomingDeadlines.filter((d) => d.date <= horizon)]
     .map((d) => ({ ...d, tier: deadlineTier(d.date, todayIso), daysLeft: daysBetween(todayIso, d.date) }))
     .sort((a, b) => a.date.localeCompare(b.date));
-  const recordsByPath = new Map(result.inputs.map((i) => [i.path, i.records]));
   // Úkol sdílený klientem se objeví ve více věcech: identita = id + název + termín.
   const tasks = new Map<string, TodayTask>();
   for (const matter of result.matters) {
-    const records = recordsByPath.get(matter.path);
+    // openTasks už vylučuje hotové i nahrazené/zrušené úkoly (isOpenTask v read.ts).
     for (const task of matter.openTasks) {
-      // Review Focus 3: read.ts vylučuje z openTasks jen `state === "done"`, nikoli
-      // záznam se `status` superseded/void — takový úkol tu odfiltrujeme podle záznamu.
-      const record = records?.find((r) => r.type === "task" && r.id === task.id);
-      if (record && RETIRED_STATUS.has(record.status)) continue;
       const key = `${task.id}\u0000${task.title}\u0000${task.due ?? ""}`;
       const entry = tasks.get(key) ?? { key, id: task.id, title: task.title, due: task.due, matters: [] };
       entry.matters.push({ path: matter.path, title: matter.title });

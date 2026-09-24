@@ -10,7 +10,7 @@
 import type { OkfRecord } from "../okf-pamat/src/record.ts";
 import type { RecordType } from "../okf-pamat/src/schema.ts";
 import { pendingInputs } from "./inputs.ts";
-import { deadlineTier, type MatterInput, type MatterOverview } from "./read.ts";
+import { deadlineTier, isOpenTask, type MatterInput, type MatterOverview } from "./read.ts";
 
 /** Odkiaľ údaj pochádza. Slovo, nie farba — stav musí byť čitateľný aj bez nej. */
 export type Provenance = "overené" | "AI návrh" | "zapísané" | "overenie neurčené" | "strojovo overené";
@@ -167,7 +167,7 @@ function facts(input: MatterInput): CockpitFact[] {
 
 function tasks(input: MatterInput, todayIso: string): CockpitTask[] {
   return input.records
-    .filter((r) => r.type === "task" && r.state !== "done")
+    .filter(isOpenTask)
     .sort((a, b) => (a.id < b.id ? -1 : 1))
     .map((r) => {
       const task: CockpitTask = {

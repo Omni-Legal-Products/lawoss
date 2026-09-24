@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { pendingInputs } from "../../../lawoss/okf/inputs";
 import { attention } from "../../../lawoss/okf/cockpit";
 import { buildToday, groupByClient } from "../src/lawoss/lite/today-model";
-import type { MatterInput, MatterOverview, UpcomingDeadline } from "../../../lawoss/okf/read";
+import { buildOverview, type MatterInput, type MatterOverview, type UpcomingDeadline } from "../../../lawoss/okf/read";
 import { LAYER_OF } from "../../../lawoss/okf-pamat/src/schema.ts";
 import type { OkfRecord } from "../../../lawoss/okf-pamat/src/record.ts";
 
@@ -66,25 +66,21 @@ describe("groupByClient", () => {
 });
 
 describe("buildToday — úkoly se zrušeným záznamem (Review Focus 3)", () => {
-  const taskRecord = (id: string, status: string): OkfRecord => ({
+  const taskRecord = (id: string, status: string, state?: string): OkfRecord => ({
     okf: 1, id, type: "task", title: `task ${id}`, description: "syntetický záznam",
-    layer: LAYER_OF.task, jurisdiction: "cz", status, created: "2026-09-20", updated: "2026-09-20", truth: "", timeline: [],
+    layer: LAYER_OF.task, jurisdiction: "cz", status, created: "2026-09-20", updated: "2026-09-20", truth: "", timeline: [], ...(state ? { state } : {}),
   });
-  const retired = m("AK/S/Superseded s.r.o./Spisy/Vec", "Superseded — vec", {
-    openTasks: [
-      { id: "T-SUP", title: "Úkol nahrazený novým" },
-      { id: "T-VOID", title: "Úkol zrušený jako omyl" },
-      { id: "T-ACT", title: "Úkol platný" },
-    ],
-  });
-  const result = {
-    matters: [retired],
-    upcomingDeadlines: [],
-    overdue: [],
-    inputs: [{ path: retired.path, records: [taskRecord("T-SUP", "superseded"), taskRecord("T-VOID", "void"), taskRecord("T-ACT", "active")] }],
-  };
+  const records = [taskRecord("T-SUP", "superseded"), taskRecord("T-VOID", "void"), taskRecord("T-DONE", "active", "done"), taskRecord("T-ACT", "active")];
+  const inputs: MatterInput[] = [
+    { path: "AK/S/Superseded s.r.o./Spisy/A", records },
+    { path: "AK/S/Superseded s.r.o./Spisy/B", records: [taskRecord("T-ACT", "active")] },
+  ];
+  const overview = buildOverview(inputs, "2026-09-23");
 
-  test("superseded a void úkoly se nezobrazí, aktivní ano", () => {
-    expect(buildToday(result, "2026-09-23").tasks.map((t) => t.id)).toEqual(["T-ACT"]);
+  test("superseded, void a hotové úkoly se nezobrazí ani v lite, ani v součtu pro", () => {
+    expect(buildToday({ ...overview, inputs }, "2026-09-23").tasks.map((t) => t.id)).toEqual(["T-ACT"]);
+    expect(overview.matters[0]!.openTasks.map((t) => t.id)).toEqual(["T-ACT"]);
+    // Sdílený úkol ve dvou věcech je v součtu jeden úkol.
+    expect(overview.totals.openTasks).toBe(1);
   });
 });
