@@ -9,9 +9,6 @@ export function isHash(value: unknown): value is string { return typeof value ==
 export function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 export function missing(error: unknown): boolean { return isObject(error) && error.code === "ENOENT"; }
 export function contained(root: string, target: string): boolean { const rel = relative(root, target); return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`)); }
-export function relativeFile(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0 && !isAbsolute(value) && !value.includes("\\") && !value.includes("\0") && !/^[A-Za-z]:/.test(value) && value.split("/").every(part => part !== "" && part !== "." && part !== "..");
-}
 /** Check every existing component, including ancestors; never resolve through a symlink. */
 export function checkedPath(path: string, kind: "file" | "directory", allowMissing = false): boolean {
   const full = resolve(path), root = parse(full).root;
@@ -28,7 +25,7 @@ export function checkedPath(path: string, kind: "file" | "directory", allowMissi
   return true;
 }
 export function checkedDirectory(path: string): string { checkedPath(path, "directory"); return realpathSync(path); }
-export interface ReadText { content: string; sha256: string; bytes: number; physical: string; mode: number }
+interface ReadText { content: string; sha256: string; bytes: number; physical: string; mode: number }
 export function readText(path: string, limit: number): ReadText {
   checkedPath(path, "file");
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);

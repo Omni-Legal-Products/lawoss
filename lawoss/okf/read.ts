@@ -12,8 +12,8 @@ import type { OkfRecord } from "../okf-pamat/src/record.ts";
 
 /** `invalid`: datum lhůty nemá tvar RRRR-MM-DD — UI ho ukáže k ověření, nikdy ho tiše nezahodí. */
 /** `file`: skutočný súbor záznamu — totožnosť zdieľaného záznamu (ID sa razia per spis, nie sú jedinečné). */
-export type OverviewDeadline = { date: string; title: string; recordId: string; invalid?: true; file?: string };
-export type OverviewTask = { id: string; title: string; assignee?: string; due?: string; file?: string };
+type OverviewDeadline = { date: string; title: string; recordId: string; invalid?: true; file?: string };
+type OverviewTask = { id: string; title: string; assignee?: string; due?: string; file?: string };
 
 export type MatterOverview = {
   /** Cesta priečinka veci relatívne ku koreňu workspace-u. */
@@ -61,7 +61,7 @@ export type Overview = {
 
 /** Vyradený záznam (nahradený, zrušený, zakázaný, prekonaný) už nenesie živé lehoty ani úlohy — ako validátor. */
 const RETIRED_STATUS = new Set(["superseded", "void", "banned", "deprecated"]);
-export const isRetired = (r: OkfRecord): boolean => RETIRED_STATUS.has(r.status);
+const isRetired = (r: OkfRecord): boolean => RETIRED_STATUS.has(r.status);
 
 /** Otvorená úloha: nie je hotová ani vyradená. Zdieľa prehľad, cockpit aj lite. */
 export const isOpenTask = (r: OkfRecord): boolean => r.type === "task" && r.state !== "done" && !isRetired(r);
@@ -69,10 +69,20 @@ export const isOpenTask = (r: OkfRecord): boolean => r.type === "task" && r.stat
 /** Totožnosť záznamu naprieč spismi: jeho súbor; bez súboru (testy, staršie vstupy) len v rámci spisu. */
 export const recordKey = (matterPath: string, r: { id: string; file?: string }): string => r.file ?? `${matterPath}\u0000${r.id}`;
 
-const isCalendarDay = (day: string): boolean => {
+export const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** `RRRR-MM-DD`, ktorý je skutočným kalendárnym dňom (nie 2026-02-30). */
+export const isCalendarDay = (day: string): boolean => {
+  if (!ISO_DAY.test(day)) return false;
   const d = new Date(`${day}T00:00:00Z`);
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === day;
 };
+
+/** Počet dní medzi dvomi `RRRR-MM-DD`; nevalidný vstup → 0. */
+export function daysBetween(from: string, to: string): number {
+  if (!ISO_DAY.test(from) || !ISO_DAY.test(to)) return 0;
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
 
 /**
  * Lehoty záznamu pre prehľad a cockpit: vyradený záznam žiadne nemá; `RRRR-MM-DD` s časom
@@ -86,7 +96,6 @@ export function recordDeadlines(r: OkfRecord): { date: string; raw: string; inva
   });
 }
 
-const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** `RRRR-MM-DD` + n dní; nevalidný vstup vráti nezmenený. */
 export function addDays(iso: string, days: number): string {
@@ -109,7 +118,7 @@ export function deadlineTier(date: string, today: string): DeadlineTier {
 const byDate = (a: OverviewDeadline, b: OverviewDeadline): number =>
   a.date < b.date ? -1 : a.date > b.date ? 1 : a.title.localeCompare(b.title);
 
-const lastSegment = (path: string): string => path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path;
+export const lastSegment = (path: string): string => path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path;
 
 function matterOverview(input: MatterInput): MatterOverview {
   const card = input.cardFrontmatter ?? {};

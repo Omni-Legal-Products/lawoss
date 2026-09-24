@@ -39,7 +39,7 @@ import spisInputs from "../../../../../lawoss/okf/templates/spis/VSTUPY.md?raw";
 
 import type { LocalizedTemplateSet, TemplateSet } from "../../../../../lawoss/okf/src/core";
 
-export const OKF_TEMPLATES: TemplateSet = {
+const OKF_TEMPLATES: TemplateSet = {
   klient: { "KOMUNIKACNE-KANALY.md": communicationRegister, "VSTUPY.md": spisInputs, "client.md": klientCard, "AGENTS.md": klientAgents, "MEMORY.md": klientMemory },
   spis: { "KOMUNIKACNE-KANALY.md": communicationRegister, "VSTUPY.md": spisInputs, "matter.md": spisCard, "_STATUS.md": spisStatus, "AGENTS.md": spisAgents, "MEMORY.md": spisMemory },
   projekt: { "project.md": projektCard, "AGENTS.md": projektAgents, "MEMORY.md": projektMemory },

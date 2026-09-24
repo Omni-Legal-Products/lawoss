@@ -1,9 +1,9 @@
 import { currentLocale, t, type Language } from "@/i18n";
 
-export type MarketplaceKind = "mcp" | "skill" | "cli" | "workflow" | "plugin";
-export type MarketplaceChannel = "stable" | "lab" | "community" | "private";
-export type MarketplaceRisk = "read-only" | "local-write" | "network" | "external-action";
-export type MarketplaceVerificationStatus = "verified" | "review" | "unverified";
+type MarketplaceKind = "mcp" | "skill" | "cli" | "workflow" | "plugin";
+type MarketplaceChannel = "stable" | "lab" | "community" | "private";
+type MarketplaceRisk = "read-only" | "local-write" | "network" | "external-action";
+type MarketplaceVerificationStatus = "verified" | "review" | "unverified";
 
 export type MarketplaceEntry = {
   id: string;
@@ -28,19 +28,6 @@ export type MarketplaceEntry = {
     action: "preview-only" | "plugin" | "okf";
     path?: string;
   };
-};
-
-export type MarketplaceFilters = {
-  kind?: MarketplaceKind | "all";
-  channel?: MarketplaceChannel | "all";
-};
-
-export type InstallationPreview = {
-  scope: MarketplaceEntry["install"]["scope"];
-  source: string;
-  capabilities: readonly MarketplaceRisk[];
-  humanGate: string;
-  status: "preview-only";
 };
 
 export const MARKETPLACE_CATALOG: readonly MarketplaceEntry[] = [
@@ -77,28 +64,4 @@ export function getMarketplaceCatalog(locale: Language = currentLocale()): reado
     source: entry.install.action === "okf" ? { ...entry.source, ref: t("lawoss.integrations.catalog.bundled", locale) } : entry.source,
     dependencies: entry.install.action === "okf" ? entry.dependencies : ["Node.js 22.14+", t("lawoss.integrations.catalog.npm", locale), t("lawoss.integrations.catalog.internet", locale)],
   }));
-}
-
-export function filterMarketplaceEntries(
-  entries: readonly MarketplaceEntry[],
-  filters: MarketplaceFilters,
-): MarketplaceEntry[] {
-  const kind = filters.kind && filters.kind !== "all" ? filters.kind : undefined;
-  const channel = filters.channel && filters.channel !== "all" ? filters.channel : undefined;
-
-  return entries.filter((entry) => {
-    if (kind && entry.kind !== kind) return false;
-    if (channel && entry.channel !== channel) return false;
-    return true;
-  });
-}
-
-export function installationPreview(entry: MarketplaceEntry): InstallationPreview {
-  return {
-    scope: entry.install.scope,
-    source: `${entry.source.repository}@${entry.source.ref}`,
-    capabilities: entry.capabilities,
-    humanGate: entry.humanGate,
-    status: "preview-only",
-  };
 }

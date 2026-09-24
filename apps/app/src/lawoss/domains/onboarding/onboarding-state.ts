@@ -1,6 +1,6 @@
 /** Small, versioned persistence seam for the LAWOSS welcome flow. */
 
-export const ONBOARDING_PROGRESS_STORAGE_KEY = "legalwork.lawoss.onboarding.v1";
+const ONBOARDING_PROGRESS_STORAGE_KEY = "legalwork.lawoss.onboarding.v1";
 
 export type OnboardingLane = "recommended" | "detailed";
 export type OnboardingStep = "welcome" | "folder";

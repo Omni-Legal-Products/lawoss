@@ -28,7 +28,7 @@ import {
 export const HEADINGS = { truth: "Truth", timeline: "History" } as const;
 
 /** Skalár frontmatteru. */
-export type FmScalar = string | number;
+type FmScalar = string | number;
 /** Ploché mapovanie — jeden prameň, jedno overenie. */
 export type FmMap = Record<string, FmScalar>;
 /**

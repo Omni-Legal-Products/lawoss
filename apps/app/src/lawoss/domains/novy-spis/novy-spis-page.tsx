@@ -63,7 +63,7 @@ export function PlanGroup({ title, items, empty, tone }: { title: string; items:
   );
 }
 
-export type NovySpisPanelProps = {
+type NovySpisPanelProps = {
   connection: Pick<OkfConnection, "client" | "baseUrl" | "token">;
   workspace: RouteWorkspace;
   onOpenSession: (route: string) => void;

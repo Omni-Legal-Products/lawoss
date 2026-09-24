@@ -14,9 +14,9 @@ import type { OnboardingProgress } from "./onboarding-state";
 
 export type SetupLedgerStav = "pripravene" | "caka" | "volitelne" | "chyba";
 
-export type SetupLedgerRiadokId = "priecinok" | "model" | "ochrana" | "prva-uloha";
+type SetupLedgerRiadokId = "priecinok" | "model" | "ochrana" | "prva-uloha";
 
-export type SetupLedgerRiadok = {
+type SetupLedgerRiadok = {
   id: SetupLedgerRiadokId;
   /** „01“ … „04“ — poradie je súčasť registra, nie číslo na počítanie. */
   poradie: string;
@@ -40,7 +40,7 @@ export const SETUP_LEDGER_STAV_TEXT: Record<SetupLedgerStav, string> = {
  * Akcia nástroja `edit` z opencode konfigurácie (rovnaká trojica, akú používa
  * panel Povolenia nástrojov). `null` = v konfigurácii nie je nastavená.
  */
-export type OchranaUprav = "ask" | "allow" | "deny";
+type OchranaUprav = "ask" | "allow" | "deny";
 
 export type SetupLedgerInput = {
   /** Aktívny workspace; `cesta` je prázdna pri vzdialenom pracovnom mieste. */

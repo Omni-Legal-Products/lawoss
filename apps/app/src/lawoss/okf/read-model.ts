@@ -14,13 +14,13 @@ import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import { normalizeDirectoryPath } from "@/app/utils";
 
-import { addDays, buildOverview, deadlineTier, type DeadlineTier, type MatterInput, type Overview } from "../../../../../lawoss/okf/read";
+import { addDays, buildOverview, deadlineTier, ISO_DAY, isCalendarDay, type DeadlineTier, type MatterInput, type Overview } from "../../../../../lawoss/okf/read";
 import { parseFrontmatter } from "../../../../../lawoss/okf/src/core";
 import { parseRecord, parseFrontmatter as parseMemoryFrontmatter } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { loadOkfConnection, type OkfConnection } from "./connection";
 
 export type OkfReadClient = Pick<LegalworkServerClient, "listWorkspaceDirectory" | "readWorkspaceFile">;
-export type ReadProblem = { path: string; message: string };
+type ReadProblem = { path: string; message: string };
 export type OkfReadResult = Overview & {
   problems: ReadProblem[];
   /** Workspace má viac vecí než `MAX_MATTERS`; prehľad je čiastočný. */
@@ -45,8 +45,8 @@ const AK_CLIENT = /^AK\/[^/]+\/[^/]+$/;
 const WORK_DIRS = new Set(["DS", "Prilohy", "Přílohy", "research", "drafts", "final", "analysis", "sources", "qa", "logs"]);
 const isWorkDir = (name: string): boolean => WORK_DIRS.has(name) || /^\d{2}_/.test(name) || name.startsWith("_");
 const RESERVED = new Set(["index.md", "log.md", "INDEX.md"]);
-const missing = (e: unknown): boolean => /(?:\b404\b|\bENOENT\b|not found)/i.test(message(e));
-const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+export const missing = (e: unknown): boolean => /(?:\b404\b|\bENOENT\b|not found)/i.test(message(e));
+export const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /** `Promise.all` s hornou hranicou súbežnosti; výsledky v poradí vstupu. */
 async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
@@ -294,13 +294,8 @@ export function useOkfOverview(connection: OkfConnection | null, workspace: Rout
 
 // ── zobrazenie ────────────────────────────────────────────────────────────
 
-const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 /** Date-only values are calendar days, independent of the machine's time zone. */
-function calendarDay(iso: string): Date | null {
-  if (!ISO_DAY.test(iso)) return null;
-  const date = new Date(`${iso}T00:00:00Z`);
-  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === iso ? date : null;
-}
+const calendarDay = (iso: string): Date | null => isCalendarDay(iso) ? new Date(`${iso}T00:00:00Z`) : null;
 
 export function formatDay(iso: string, locale = "sk"): string {
   const date = calendarDay(iso);

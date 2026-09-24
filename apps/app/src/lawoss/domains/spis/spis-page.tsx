@@ -25,6 +25,7 @@ import {
   type CockpitDeadline,
   type RegisterId,
 } from "../../../../../../lawoss/okf/cockpit";
+import { daysBetween, ISO_DAY } from "../../../../../../lawoss/okf/read";
 
 /**
  * Spisový prehľad — read-only cockpit jednej veci (spec MF, bod 3.3).
@@ -381,14 +382,6 @@ function DeadlineGroup({ title, rows, now, empty }: { title: string; rows: reado
 
 // ── pás lehôt ─────────────────────────────────────────────────────────────
 
-const MS_DAY = 86_400_000;
-const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
-
-/** Počet dní medzi dvomi `RRRR-MM-DD`; nevalidný vstup → 0. */
-function daysBetween(from: string, to: string): number {
-  if (!ISO_DAY.test(from) || !ISO_DAY.test(to)) return 0;
-  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / MS_DAY);
-}
 
 /**
  * Jediný obrázok obrazovky: pás lehôt veci. Okno je od najstaršej lehoty (alebo
