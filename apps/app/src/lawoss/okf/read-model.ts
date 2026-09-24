@@ -7,14 +7,15 @@
  * nezhodí celé čítanie — skončí v `problems` a zvyšok sa spracuje.
  */
 import { readManualStatus } from "../../../../../lawoss/okf-pamat/src/manual-status.ts";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
+import { normalizeDirectoryPath } from "@/app/utils";
 
 import { addDays, buildOverview, deadlineTier, type DeadlineTier, type MatterInput, type Overview } from "../../../../../lawoss/okf/read";
-import { parseFrontmatter, today } from "../../../../../lawoss/okf/src/core";
+import { parseFrontmatter } from "../../../../../lawoss/okf/src/core";
 import { parseRecord, parseFrontmatter as parseMemoryFrontmatter } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { loadOkfConnection, type OkfConnection } from "./connection";
 
@@ -38,6 +39,11 @@ const MATTERS_DIR = "Spisy";
 const MEMORY_DIR = "memory";
 const CARD_FILES = ["matter.md", "spis.md", "project.md", "projekt.md"];
 const CLIENT_CARDS = ["client.md", "klient.md"];
+/** Klient ve tvaru kanceláře `AK/<písmeno>/<klient>` (vault bez karet a bez `Spisy/`). */
+const AK_CLIENT = /^AK\/[^/]+\/[^/]+$/;
+/** Pracovní podsložky uvnitř klienta nebo věci — nejsou to samostatné věci. */
+const WORK_DIRS = new Set(["DS", "Prilohy", "Přílohy", "research", "drafts", "final", "analysis", "sources", "qa", "logs"]);
+const isWorkDir = (name: string): boolean => WORK_DIRS.has(name) || /^\d{2}_/.test(name) || name.startsWith("_");
 const RESERVED = new Set(["index.md", "log.md", "INDEX.md"]);
 const missing = (e: unknown): boolean => /(?:\b404\b|\bENOENT\b|not found)/i.test(message(e));
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -96,6 +102,20 @@ export async function readWorkspaceMemory(
       return;
     }
     const clientFolder = insideClient || entries.some((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name));
+    // Vault vedený bez karet (AK/<písmeno>/<klient>/<věc>): podsložky klienta jsou věci; klient bez nich
+    // (nebo s vlastními soubory) je věcí sám — z přehledu se nic neztratí. Tvar se `Spisy/` platí dál.
+    // Klient s kartou (client.md/klient.md) je OKF klient — i bez věcí zůstává klientem, ne věcí.
+    const hasClientCard = entries.some((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name));
+    if (AK_CLIENT.test(path) && !hasClientCard && !entries.some((e) => e.kind === "dir" && [MATTERS_DIR, "Veci"].includes(e.name))) {
+      const matters = entries.filter((e) => e.kind === "dir" && !e.name.startsWith(".") && !SKIP_DIRECTORIES.has(e.name) && !isWorkDir(e.name));
+      const ownFiles = entries.some((e) => e.kind === "file" && !e.name.startsWith("."));
+      if (matters.length === 0 || ownFiles) paths.push(path);
+      for (const matter of matters) {
+        if (paths.length >= MAX_MATTERS) { truncated = true; break; }
+        await discover(matter.path, true, depth + 1, true);
+      }
+      return;
+    }
     for (const child of entries.filter((e) => e.kind === "dir" && !e.name.startsWith(".") && !SKIP_DIRECTORIES.has(e.name))) {
       if (scanned >= MAX_DISCOVERY_DIRECTORIES || paths.length >= MAX_MATTERS) { truncated = true; break; }
       // Preserve empty legacy matters only inside a recognised client or the existing AK profile.
@@ -201,16 +221,35 @@ export async function readWorkspaceMemory(
 }
 
 /** Spojenie na server rovnako ako v Novom spise, len ako hook. */
+const SERVER_SETTINGS_CHANGED = "legalwork-server-settings-changed";
+
+/** LAWOSS: rozsah kanceláře byl obnoven (lite/office-scope) — stránky načtou spojení i data znovu. */
+export const OFFICE_SCOPE_RESTORED = "lawoss-office-scope-restored";
+
 export function useOkfConnection(): { connection: OkfConnection | null; error: string | null } {
   const [connection, setConnection] = useState<OkfConnection | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Server může po přepnutí složky vydat nové spojení (adresa, token) — upstream to ohlásí
+  // událostí; bez nového načtení by stránka četla starým tokenem a hlásila chybu.
+  const queries = useQueryClient();
+  const [generation, setGeneration] = useState(0);
+  useEffect(() => {
+    const onChange = () => setGeneration((value) => value + 1);
+    for (const name of [SERVER_SETTINGS_CHANGED, OFFICE_SCOPE_RESTORED]) window.addEventListener(name, onChange);
+    return () => { for (const name of [SERVER_SETTINGS_CHANGED, OFFICE_SCOPE_RESTORED]) window.removeEventListener(name, onChange); };
+  }, []);
   useEffect(() => {
     let cancelled = false;
     loadOkfConnection()
-      .then((next) => { if (!cancelled) setConnection(next); })
+      .then((next) => {
+        if (cancelled) return;
+        setConnection(next); setError(null);
+        // Po změně spojení i čtení se stejným klíčem (token beze změny) musí proběhnout znovu.
+        if (generation > 0) void queries.invalidateQueries({ queryKey: ["okf-overview"] });
+      })
       .catch((e: unknown) => { if (!cancelled) setError(message(e)); });
     return () => { cancelled = true; };
-  }, []);
+  }, [generation]);
   return { connection, error };
 }
 
@@ -219,10 +258,32 @@ export function activeWorkspace(connection: OkfConnection | null): RouteWorkspac
   return connection.workspaces.find((w) => w.id === connection.activeWorkspaceId) ?? connection.workspaces[0] ?? null;
 }
 
+/**
+ * Lite: kancelář = nejvzdálenější registrovaná lokální složka, která aktivní složku obsahuje.
+ * Rychlá akce aktivuje složku spisu (konverzace běží nad ním), ale Dnes a Klienti mají dál ukazovat celou kancelář.
+ * Pro zůstává na `activeWorkspace` — tam je výběr složky v postranním panelu záměrný.
+ */
+export function officeWorkspace(connection: OkfConnection | null): RouteWorkspace | null {
+  return officeOf(connection?.workspaces ?? [], activeWorkspace(connection));
+}
+
+/** Nejvzdálenější registrovaná lokální složka, která `active` obsahuje; jinak `active` samo. */
+export function officeOf(workspaces: readonly RouteWorkspace[], active: RouteWorkspace | null): RouteWorkspace | null {
+  if (!active?.path || active.workspaceType === "remote") return active;
+  const inner = normalizeDirectoryPath(active.path);
+  const ancestors = workspaces.filter((w) => {
+    if (w.id === active.id || !w.path || w.workspaceType === "remote") return false;
+    const outer = normalizeDirectoryPath(w.path);
+    return inner.startsWith(outer.endsWith("/") ? outer : `${outer}/`);
+  });
+  return ancestors.sort((a, b) => normalizeDirectoryPath(a.path).length - normalizeDirectoryPath(b.path).length)[0] ?? active;
+}
+
 export function useOkfOverview(connection: OkfConnection | null, workspace: RouteWorkspace | null) {
   const client = connection?.client ?? null;
   return useQuery({
-    queryKey: ["okf-overview", workspace?.id ?? ""],
+    // Adresa a token v klíči: nové spojení = nové čtení (cache je jen v paměti, nikam se neukládá).
+    queryKey: ["okf-overview", workspace?.id ?? "", connection?.baseUrl ?? "", connection?.token ?? ""],
     enabled: Boolean(client && workspace),
     queryFn: () => {
       if (!client || !workspace) throw new Error("Server LegalWork nebeží alebo chýba workspace.");
@@ -243,8 +304,10 @@ function calendarDay(iso: string): Date | null {
 
 export function formatDay(iso: string, locale = "sk"): string {
   const date = calendarDay(iso);
+  // Jiný rok než letošní se píše — lhůta za rok nesmí vypadat jako příští týden.
   return date ? new Intl.DateTimeFormat(locale, {
     weekday: "short", day: "numeric", month: "numeric", timeZone: "UTC",
+    ...(iso.slice(0, 4) === today().slice(0, 4) ? {} : { year: "numeric" }),
   }).format(date) : iso;
 }
 
@@ -259,8 +322,16 @@ export function formatLongDay(iso: string, locale = "sk"): string {
 
 /** Trieda `lw-d` podľa blízkosti termínu. */
 export function dayClass(date: string, todayIso: string): string {
+  // Neplatné datum (ne RRRR-MM-DD) nemá barvu naléhavosti — porovnání textu by lhalo.
+  if (!ISO_DAY.test(date)) return "lw-d";
   const tier: DeadlineTier = deadlineTier(date, todayIso);
   return tier === "overdue" || tier === "today" ? "lw-d urg" : tier === "soon" ? "lw-d soon" : "lw-d";
 }
 
-export { addDays, today };
+export { addDays };
+
+/** Kalendářní den podle hodin počítače, ne UTC — „dnes / zítra / po lhůtě“ se po půlnoci neposouvá o den. */
+export function today(now = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}

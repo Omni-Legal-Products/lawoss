@@ -1,5 +1,8 @@
 /** @jsxImportSource react */
 import { LanguageSwitcher } from "@/lawoss/shell/language-switcher";
+import { useUiMode } from "@/lawoss/lite/ui-mode";
+import { UiModeSwitch } from "@/lawoss/lite/ui-mode-switch";
+import { isWorkspaceSwitcherVisible } from "@/lawoss/lite/visibility";
 import type * as React from "react";
 import { ChevronDown, X } from "lucide-react";
 
@@ -50,6 +53,7 @@ export type SettingsShellProps = SettingsPageFrameProps & {
 };
 
 export function SettingsShell(props: SettingsShellProps) {
+  const uiMode = useUiMode(); // LAWOSS-lite: přepnutí režimu překreslí seznamy záložek
   const title = getSettingsTabLabel(props.activeTab);
 
   if (props.compact) {
@@ -62,14 +66,15 @@ export function SettingsShell(props: SettingsShellProps) {
               developerMode={props.developerMode}
               onSelectTab={props.onSelectTab}
             />
-            <WorkspaceMenu
+            {isWorkspaceSwitcherVisible(uiMode) && <WorkspaceMenu
               selectedWorkspaceId={props.selectedWorkspaceId}
               selectedWorkspaceName={props.selectedWorkspaceName}
               workspaces={props.workspaces}
               onSelectWorkspace={props.onSelectWorkspace}
-            />
+            />}
           </div>
           <div className="flex shrink-0 items-center gap-1 mac:titlebar-no-drag">
+            <UiModeSwitch />
             <LanguageSwitcher />
                   <NotificationBell />
             <Button
@@ -135,6 +140,7 @@ export function SettingsShell(props: SettingsShellProps) {
                 ) : null}
               </div>
               <div className="flex items-center gap-1.5 text-gray-10 mac:titlebar-no-drag">
+                <UiModeSwitch />
                 <LanguageSwitcher />
                   <NotificationBell />
                 <Button

@@ -12,6 +12,7 @@ import { toSessionTransportDirectory } from "@/app/lib/session-scope";
 import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import { isDesktopRuntime } from "@/app/utils";
 import { saveSessionDraft } from "@/react-app/domains/session/sync/draft-store";
+import { useComposerStateStore } from "@/react-app/domains/session/surface/composer-state-store";
 import { resolveLegalworkConnection } from "@/react-app/shell/legalwork-connection";
 import { mapDesktopWorkspace, mergeRouteWorkspaces, type RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import { readActiveWorkspaceId, writeLastSessionFor } from "@/react-app/shell/session-memory";
@@ -68,6 +69,8 @@ export async function openSessionWithPrompt(
   const directory = toSessionTransportDirectory(workspace.path) || undefined;
   const session = unwrap(await opencode.session.create({ directory }));
   saveSessionDraft(workspace.id, session.id, { text: prompt, mode: "prompt" });
+  // Pole pro zprávu čte koncept z paměťového úložiště composeru, ne z draft-store (ten nikdo nečte).
+  useComposerStateStore.getState().setDraft(session.id, prompt);
   writeLastSessionFor(workspace.id, session.id);
   return workspaceSessionRoute(workspace.id, session.id);
 }

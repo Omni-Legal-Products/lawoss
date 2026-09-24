@@ -19,6 +19,8 @@ import {
 import { t } from "../../../../i18n";
 import { isDesktopRuntime } from "../../../../app/utils";
 import { HIDDEN_SETTINGS_TABS } from "@/lawoss/feature-flags";
+import { currentUiMode, useUiMode } from "@/lawoss/lite/ui-mode";
+import { isSettingsTabVisible } from "@/lawoss/lite/visibility";
 import type { SettingsTab } from "../../../../app/types";
 import { IconTile, Surface } from "@/react-app/design-system/surface";
 
@@ -89,7 +91,7 @@ function resolveGlobalItems(): SettingsItem[] {
     // After Account and AI Providers, mirroring getGlobalSettingsTabs.
     return [...items.slice(0, 2), recorderItem, officeAddinsItem, ...items.slice(2)];
   })();
-  return withDesktopItems.filter((item) => !HIDDEN_SETTINGS_TABS.has(item.tab));
+  return withDesktopItems.filter((item) => !HIDDEN_SETTINGS_TABS.has(item.tab) && isSettingsTabVisible(item.tab, currentUiMode()));
 }
 
 function SettingsRow(props: { icon: LucideIcon; title: string; desc: string; onClick: () => void }) {
@@ -115,6 +117,7 @@ function SettingsRow(props: { icon: LucideIcon; title: string; desc: string; onC
 }
 
 function SettingsGroup(props: { label: string; items: SettingsItem[]; onNavigateTab: (tab: SettingsTab) => void }) {
+  if (props.items.length === 0) return null; // LAWOSS-lite: prázdná skupina bez nadpisu
   return (
     <section className="space-y-2.5">
       <div className="lw-section-eyebrow px-1">{props.label}</div>
@@ -134,13 +137,16 @@ function SettingsGroup(props: { label: string; items: SettingsItem[]; onNavigate
 }
 
 export function GeneralSettingsView(props: GeneralSettingsViewProps) {
+  useUiMode(); // LAWOSS-lite: překreslit po přepnutí režimu
   return (
     <div className="w-full max-w-3xl space-y-9">
-      <SettingsGroup label={t("settings.group_workspace")} items={workspaceItems()} onNavigateTab={props.onNavigateTab} />
+      <SettingsGroup label={t("settings.group_workspace")} items={workspaceItems().filter((item) => isSettingsTabVisible(item.tab, currentUiMode()))} onNavigateTab={props.onNavigateTab} />
       <SettingsGroup label={t("settings.group_global")} items={resolveGlobalItems()} onNavigateTab={props.onNavigateTab} />
-      <p className="px-1 text-[11px] text-muted-foreground/70">
-        {t("settings.tab_description_general")}
-      </p>
+      {currentUiMode() === "lite" ? null : ( // LAWOSS-lite: patička mluví o workspace
+        <p className="px-1 text-[11px] text-muted-foreground/70">
+          {t("settings.tab_description_general")}
+        </p>
+      )}
     </div>
   );
 }

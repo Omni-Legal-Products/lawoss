@@ -18,6 +18,8 @@ import { groupPlan, workspaceRelativePath, type PlanGroupItem } from "../../okf/
 import { loadProfilePreview, type ProfilePreview } from "../../okf/load-profile";
 import { previewPlan, probePlanFiles } from "../../okf/preview";
 import { NOVY_SPIS_SKILL_NAME } from "../../okf/skill-bundle";
+import { officeWorkspace } from "../../okf/read-model";
+import { currentUiMode } from "../../lite/ui-mode";
 import { prepareOkfDraft, okfTargetWithinWorkspace } from "./prepare-draft";
 
 const SUBJECTS: Array<{ id: SubjectKind; label: SetupTextKey }> = [
@@ -383,7 +385,8 @@ export function NovySpisPage() {
     loadOkfConnection().then((next) => {
       if (cancelled) return;
       setConnection(next);
-      setWorkspaceId(next.activeWorkspaceId);
+      // Lite: nová věc vždy v kanceláři, i když je po konverzaci aktivní složka jiné věci.
+      setWorkspaceId((currentUiMode() === "lite" ? officeWorkspace(next)?.id : undefined) ?? next.activeWorkspaceId);
     }).catch((value: unknown) => {
       if (!cancelled) setError(value instanceof Error ? value.message : String(value));
     });

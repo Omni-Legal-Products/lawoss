@@ -46,6 +46,14 @@ test("failed discovery never claims that the folder has no matters", () => {
   expect(html).not.toContain("Create a new matter");
 });
 
+test("lite hides raw per-file read errors but still reports the incomplete read", () => {
+  const data = { ...empty, problems: [{ path: "", message: "Workspace not found" }] };
+  const html = renderToStaticMarkup(<MemoryRouter><OkfPageState connection="ready" workspace="Testovací kancelář" error={null} data={data} loading={false} rawProblems={false}>{() => "dashboard"}</OkfPageState></MemoryRouter>);
+  expect(html).not.toContain("Workspace not found");
+  expect(html).toContain("cannot establish whether the workspace contains matters");
+  expect(html).not.toContain("dashboard");
+});
+
 test("query failure suppresses cached overview rather than presenting it as current", () => {
   const data = { ...empty, ...buildOverview([{ path: "case", records: [] }], "2026-09-20") };
   const html = renderToStaticMarkup(<MemoryRouter><OkfPageState connection="ready" workspace="Moje spisy" error={new Error("Connection lost")} data={data} loading={false}>{() => "dashboard"}</OkfPageState></MemoryRouter>);

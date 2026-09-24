@@ -25,3 +25,16 @@ describe("portable naming native skill", () => {
     await expect(installNativeOkfPack({ ...client, upsertSkillResource: async () => { throw new Error("resource denied"); } }, "selected-matter")).rejects.toThrow("resource denied");
   });
 });
+
+describe("skill vyhotovení dokumentu", () => {
+  test("SKILL.md a skript jsou v balíčku; PDF jen z téhož .docx, bez přepisu, bez odesílání", async () => {
+    const bundle = await import("../src/lawoss/okf/skill-bundle");
+    const body = bundle.vystupSkillBody();
+    expect(bundle.VYSTUP_SKILL_NAME).toBe("vystup-dokumentu");
+    expect(body.content.startsWith("---")).toBe(false);
+    for (const phrase of ["--reference-doc", "postprocess_docx.py", "nikdy nepřepisuj", "[DOPLNIT]", "LaTeX", "Nic se neodesílá"]) expect(body.content).toContain(phrase);
+    expect(bundle.POSTPROCESS_RESOURCE_NAME).toBe("postprocess_docx.py");
+    expect(bundle.postprocessSource()).toContain("LAWOSS_DOCX_FONT");
+    expect(bundle.postprocessSource()).not.toMatch(/\/Users\/|vojte|token|password/i);
+  });
+});

@@ -11,6 +11,7 @@ import {
   type OkfReadResult,
 } from "../../okf/read-model";
 import { matterLink } from "../spis/spis-page";
+import { recordKey } from "../../../../../../lawoss/okf/read";
 
 /** Iba skutočné údaje zo spisov; chýbajúce údaje nenahrádza ukážka. */
 export function PrehladPage() {
@@ -24,7 +25,8 @@ export function RealOverview({ data }: { data: OkfReadResult }) {
   const fortnight = addDays(now, 14);
   const soon = data.upcomingDeadlines.filter((d) => d.date <= fortnight);
   const dueToday = data.upcomingDeadlines.filter((d) => d.date === now).length;
-  const withDue = data.matters.reduce((n, m) => n + m.openTasks.filter((t) => t.due).length, 0);
+  // Stejná totožnost jako v součtu úkolů: sdílený soubor = jedna úloha.
+  const withDue = new Set(data.matters.flatMap((m) => m.openTasks.filter((t) => t.due).map((t) => recordKey(m.path, t)))).size;
   const t = data.totals;
 
   return (
