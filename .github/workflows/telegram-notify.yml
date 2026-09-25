@@ -2,6 +2,11 @@ name: LAWOSS Telegram notifications
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Published release tag to share (e.g. v0.1.14)"
+        required: false
+        type: string
   release:
     types: [published]
   issues:
@@ -64,8 +69,21 @@ jobs:
 
           case "$GITHUB_EVENT_NAME" in
             workflow_dispatch)
-              url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-              text=$(printf '🧪 <b>Telegram test</b>\nRepo: <b>%s</b>\nSpustil: %s\n\n<a href="%s">Otvoriť workflow</a>' "$repository" "$actor" "$url")
+              release_tag=$(jq -r '.inputs.release_tag // empty' "$event")
+              if [ -n "$release_tag" ]; then
+                if ! [[ "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                  echo "release_tag must match vMAJOR.MINOR.PATCH" >&2
+                  exit 1
+                fi
+                version="${release_tag#v}"
+                tag=$(printf '%s' "$release_tag" | escape_html)
+                base_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${release_tag}"
+                release_url="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${release_tag}"
+                text=$(printf '⬇️ <b>LegalWork %s</b>\nRepo: <b>%s</b>\n\n🍎 <a href="%s/legalwork-mac-arm64-%s.dmg">macOS Apple Silicon (.dmg)</a>\n🍎 <a href="%s/legalwork-mac-x64-%s.dmg">macOS Intel (.dmg)</a>\n🪟 <a href="%s/legalwork-win-x64-%s.exe">Windows (.exe)</a>\n🐧 <a href="%s/legalwork-linux-x86_64-%s.AppImage">Linux x64 (.AppImage)</a>\n🐧 <a href="%s/legalwork-linux-arm64-%s.AppImage">Linux arm64 (.AppImage)</a>\n\n<a href="%s">All release assets</a>' "$tag" "$repository" "$base_url" "$version" "$base_url" "$version" "$base_url" "$version" "$base_url" "$version" "$base_url" "$version" "$release_url")
+              else
+                url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+                text=$(printf '🧪 <b>Telegram test</b>\nRepo: <b>%s</b>\nSpustil: %s\n\n<a href="%s">Otvoriť workflow</a>' "$repository" "$actor" "$url")
+              fi
               ;;
 
             release)
