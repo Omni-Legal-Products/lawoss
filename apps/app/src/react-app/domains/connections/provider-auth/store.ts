@@ -1,3 +1,4 @@
+import type { SystemOneConfiguration } from "@legalwork/types/systemone";
 import { useSyncExternalStore } from "react";
 
 import { applyEdits, modify, parse } from "jsonc-parser";
@@ -1044,6 +1045,15 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     };
   }
 
+  async function fetchCustomProviderModels(input: { baseURL: string; apiKey: string }): Promise<string[]> {
+    const { legalworkClient, legalworkWorkspaceId, hasLegalworkTarget } = await resolveLegalworkConfigTarget("read");
+    if (!hasLegalworkTarget || !legalworkClient || !legalworkWorkspaceId) {
+      throw new Error("Connect to the LegalWork worker to fetch models, or enter model IDs manually.");
+    }
+    const result = await legalworkClient.discoverProviderModels(legalworkWorkspaceId, input);
+    return result.models;
+  }
+
   async function submitCustomProvider(input: CustomProviderInstallInput) {
     setStateField("providerAuthError", null);
     const c = options.client();
@@ -1079,6 +1089,9 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       name,
       options: { baseURL },
       models: modelsConfig,
+      // The engine merges configured providers with its built-in catalog.
+      // LM Studio must only offer the IDs selected for this endpoint.
+      ...(providerId === "lmstudio" ? { whitelist: Object.keys(modelsConfig) } : {}),
     };
 
     try {
@@ -1122,6 +1135,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
    * workspaces), store the API key in the engine auth store, then reload.
    */
   const finalizeEigenweltConnect = async (payload: {
+    systemOne?: SystemOneConfiguration;
     apiKey: string;
     baseURL: string;
     models: EigenweltManifestModel[];
@@ -1159,6 +1173,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
       try {
         await legalworkClient.eigenweltSaveConnection(legalworkWorkspaceId, {
+          systemOne: payload.systemOne,
           account: payload.account ?? null,
           entitlements: payload.entitlements ?? null,
           platformURL: payload.platformURL ?? null,
@@ -1373,6 +1388,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     completeProviderAuthOAuth,
     submitProviderApiKey,
     submitCustomProvider,
+    fetchCustomProviderModels,
     startEigenweltSignIn,
     completeEigenweltSignIn,
     readCustomProviderForEdit,

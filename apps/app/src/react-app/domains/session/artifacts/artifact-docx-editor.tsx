@@ -3,20 +3,34 @@ import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import { DocxEditor, type DocxEditorRef, type EditorMode } from "@eigenpal/docx-editor-react";
 import { DocxReviewer } from "@eigenpal/docx-editor-agents";
 import { useDocxAgentTools } from "@eigenpal/docx-editor-agents/react";
+import { setGoogleFontsEnabled } from "@eigenpal/docx-editor-core";
 import { acceptChangeById, rejectChangeById } from "@eigenpal/docx-editor-core/prosemirror/commands";
 import { extractTrackedChanges } from "@eigenpal/docx-editor-core/prosemirror/utils/extractTrackedChanges";
 import "@eigenpal/docx-editor-react/styles.css";
+import "./office-fonts.css";
 
 import { getInitialThemeMode, subscribeToTheme, type ThemeMode } from "@/app/theme";
 import { normalizeDocumentAuthor, readStoredDocumentAuthor } from "@/app/lib/document-author";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
+import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
+import { loadFontsFromGoogle, rememberFontDecision, unresolvedDocumentFonts } from "./docx-font-consent";
 import { keepDocxVersion, readDocxRecovery, removeDocxRecovery, writeDocxRecovery, type DocxRecovery } from "./docx-recovery";
 import { useDocxPageFit } from "./use-docx-page-fit";
 import { useDocxReviewCard } from "./use-docx-review-card";
 import "./docx-editor-layout.css";
 import { useControlActions } from "../../../shell/control/control-provider";
 import { t } from "@/i18n";
+
+// The editor otherwise injects a fonts.googleapis.com stylesheet for any font a
+// document names that isn't installed locally — which would tell Google the
+// typefaces used in a client's file. office-fonts.css bundles the substitutes
+// it used to fetch, so nothing is disclosed and nothing changes about how a
+// document renders. Calibri, Cambria, Arial, Helvetica, Times New Roman and
+// Courier New keep Word's pagination, being metric compatible; the other
+// families are look-alikes and can re-wrap. Page-global, so it is set once at
+// import, before any document.
+setGoogleFontsEnabled(false);
 
 export type DocxEditorApi = {
   /** Serialize and persist the current document. Never clears edits made during a save. */
@@ -157,6 +171,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
   const editorRef = useRef<DocxEditorRef>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [missingFonts, setMissingFonts] = useState<string[]>([]);
   const fitPage = useDocxPageFit(containerRef, editorRef, commentsOpen);
   const onReviewClick = useDocxReviewCard(containerRef, editorRef);
   const recoveryFailed = useRef(false);
@@ -177,6 +192,40 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
       checkpointTimer.current = setTimeout(() => { void checkpoint.current(); }, 1000);
     }
   }, [readOnly, onDirtyChange, recoveryKey]);
+
+  // Ask before fetching a font the document needs and this machine lacks — the
+  // one case office-fonts.css cannot cover locally. Runs once the editor has
+  // rendered, so canRenderFont() sees the faces the document embedded.
+  const askAboutFonts = useCallback(() => {
+    void unresolvedDocumentFonts(documentBuffer)
+      .then((families) => { if (families.length > 0) setMissingFonts(families); })
+      .catch(() => {});
+  }, [documentBuffer]);
+
+  const fontsUnavailable = useCallback((families: string[]) => {
+    // Say so rather than leaving a pressed button looking like it did nothing.
+    // Remember the answer too, so the same dead end is not offered again — but
+    // not when this machine was simply offline, where a later open can still
+    // succeed.
+    if (navigator.onLine !== false) rememberFontDecision(families, false);
+    toast.error(t("docx.font_download_failed", { count: families.length, fonts: families.join(", ") }));
+  }, []);
+
+  const resolveFonts = useCallback((allowed: boolean) => {
+    const families = missingFonts;
+    setMissingFonts([]);
+    if (!allowed) {
+      rememberFontDecision(families, false);
+      return;
+    }
+    void loadFontsFromGoogle(families)
+      .then((failed) => {
+        fitPage();
+        rememberFontDecision(families.filter((family) => !failed.includes(family)), true);
+        if (failed.length > 0) fontsUnavailable(failed);
+      })
+      .catch(() => fontsUnavailable(families));
+  }, [missingFonts, fitPage, fontsUnavailable]);
 
   const checkDocument = useCallback(() => {
     const document = editorRef.current?.getDocument();
@@ -290,15 +339,26 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
 
   useControlActions([
     {
+      id: "document.read_metadata", label: "Read document status and page count", sideEffect: "none",
+      description: "Read the open DOCX name, revision, unsaved-edit status and rendered page count without serializing its text. pageCount is null while pagination is unavailable. Use for report delivery checks; wait for a stable revision/page count.",
+      execute: () => {
+        const pages = containerRef.current?.querySelectorAll(".layout-page").length ?? 0;
+        return { name, documentId, draftRevision: revision.current, saved: !dirty.current,
+          pageCount: ready.current && pages > 0 ? pages : null };
+      },
+    },
+    {
       id: "document.read_draft", label: "Read the open document draft", sideEffect: "none",
-      description: "Read the live DOCX, including unsaved edits, paragraph handles, comments and redlines. Use this instead of reading the older workspace file.",
+      description: "Read the live DOCX, including unsaved edits, rendered page count, paragraph handles, comments and redlines. pageCount is null while pagination is unavailable. Use this instead of reading the older workspace file.",
       execute: async () => {
         const draftRevision = revision.current;
         const buffer = await getBuffer();
         if (!buffer) throw new Error(t("docx.still_loading"));
         const draft = await DocxReviewer.fromBuffer(buffer);
         if (draftRevision !== revision.current) throw new Error(t("docx.draft_changed_while_reading"));
-        return { name, documentId, draftRevision, text: draft.getContentAsText(), comments: draft.getComments(), changes: draft.getChanges() };
+        const pages = containerRef.current?.querySelectorAll(".layout-page").length ?? 0;
+        return { name, documentId, draftRevision, pageCount: ready.current && pages > 0 ? pages : null,
+          text: draft.getContentAsText(), comments: draft.getComments(), changes: draft.getChanges() };
       },
     },
     {
@@ -362,6 +422,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
               if (ready.current) return;
               lastDocument.current = editorRef.current?.getDocument() ?? null;
               ready.current = true;
+              askAboutFonts();
               if (recovered) { dirty.current = true; onDirtyChange?.(true); }
             });
           }}
@@ -373,6 +434,16 @@ function LiveDocxEditor({ name, content, author, readOnly = false, onSave, onDir
           onError={(error) => toast.error(error.message)}
         />
       </div>
+      <ConfirmModal
+        open={missingFonts.length > 0}
+        title={t("docx.font_missing_title", { count: missingFonts.length })}
+        message={t("docx.font_missing_body", { count: missingFonts.length, fonts: missingFonts.join(", ") })}
+        confirmLabel={t("docx.font_missing_confirm", { count: missingFonts.length })}
+        cancelLabel={t("docx.font_missing_cancel", { count: missingFonts.length })}
+        confirmButtonVariant="secondary"
+        onConfirm={() => resolveFonts(true)}
+        onCancel={() => resolveFonts(false)}
+      />
     </div>
   );
 }

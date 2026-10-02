@@ -1,5 +1,22 @@
 import type { WorkspaceMemoryStatus } from "../../../../../lawoss/okf-handoff/workspace-memory-status.mjs";
 export type { WorkspaceMemoryStatus as LegalworkWorkspaceMemoryStatus } from "../../../../../lawoss/okf-handoff/workspace-memory-status.mjs";
+import type { RemoteFolderSelection, ProjectRemoteFolderStatus } from "@legalwork/types/workspace";
+import type { SearchSourceReference, SearchSourcePage } from "@legalwork/types/search";
+import type { ContentSearchResponse } from "@legalwork/types/search";
+import type { JevSearchProgress, JevSearchResults } from "@legalwork/types/corpus";
+import { applyReviewUpdate, type ReviewUpdate, type QueryReviewResults, type CreateReview, type EditReview, type RunReview, type SavedReview, type ReviewSummary, type ReviewSettings, type ReviewCapabilities, type ReviewLibraryEntry, type SaveReviewLibrary, type ReviewSourceReference, type ReviewSourcePage, type ReviewRecognitionPage } from "@legalwork/types/reviews";
+import type {
+  ProjectContents,
+  ProjectContentKind,
+  ProjectDetails,
+  ProjectField,
+  ProjectSyncOverview,
+  ProjectSyncSettings,
+  ProjectSyncStatus,
+} from "@legalwork/types/workspace";
+import type { SystemOneConfiguration, SystemOneOptions, SystemOneProviderInput, SystemOneQuestions, SystemOneRequest, SystemOneResult, SystemOneSelection, SystemOneSettings } from "@legalwork/types/systemone";
+import type { OcrServerInput, OcrSettingsView } from "@legalwork/types/ocr";
+import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sync-events";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
 import type { StorageInput, StorageTeamStatus, StorageWorkingCopy, StorageConnection, StorageRoot, StoragePage, StorageFilenameSearch, StorageFilenameSearchPage, StorageFile } from "@legalwork/types/file-storage";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
@@ -212,6 +229,8 @@ export type EigenweltEntitlementsView = {
   platformURL: string | null;
   /** Signed in with an Eigenwelt account — independent of the served model list. */
   connected: boolean;
+  /** Temporary refresh failure; the saved account remains connected. */
+  reconnecting?: boolean;
   /**
    * Fingerprint of the model list the server currently serves (admins turn
    * models on and off on the platform); null when not connected. Only the
@@ -224,6 +243,7 @@ export type EigenweltEntitlementsView = {
 
 /** Payload delivered once "Sign in with Eigenwelt" completes in the browser. */
 export type EigenweltSignInPayload = {
+  systemOne?: SystemOneConfiguration;
   apiKey: string;
   baseURL: string;
   orgId?: string;
@@ -244,6 +264,7 @@ export type EigenweltSignInPayload = {
 export type EigenweltSignInWaitResult = EigenweltSignInPayload | { pending: true };
 
 export type EigenweltManifest = {
+  systemOne?: SystemOneConfiguration;
   baseURL: string;
   models: EigenweltManifestModel[];
 };
@@ -254,7 +275,8 @@ export type EigenweltHubKind =
   | "mcp"
   | "plugin"
   | "integration"
-  | "preset";
+  | "preset"
+  | "review_set";
 
 /** One shared item in the firm hub (list view — no payload). */
 export type EigenweltHubItem = {
@@ -332,6 +354,7 @@ export type LegalworkTaskSync = {
 };
 
 export type LegalworkTask = {
+  projectId?: string | null;
   id: string;
   origin: LegalworkTaskOrigin;
   title: string;
@@ -383,11 +406,18 @@ export type LegalworkTaskMember = {
   role: string;
 };
 
+export type LegalworkTaskEndpoint = { id: string; name: string };
+
 export type LegalworkTaskListParams = {
+  projectId?: string;
   assignee?: string;
+  assignees?: string[];
   status?: LegalworkTaskStatus;
+  statuses?: LegalworkTaskStatus[];
   endpointId?: string;
+  endpointIds?: string[];
   tag?: string;
+  tags?: string[];
   sort?: "created" | "updated" | "due" | "priority";
   order?: "asc" | "desc";
   limit?: number;
@@ -397,6 +427,7 @@ export type LegalworkTaskListParams = {
 };
 
 export type LegalworkTaskCreate = {
+  projectId?: string | null;
   title: string;
   description?: string;
   priority?: LegalworkTaskPriority;
@@ -407,6 +438,7 @@ export type LegalworkTaskCreate = {
 };
 
 export type LegalworkTaskPatch = {
+  projectId?: string | null;
   title?: string;
   description?: string;
   status?: LegalworkTaskStatus;
@@ -435,7 +467,10 @@ export type LegalworkTaskNote = {
   createdAt: string;
 };
 
-export type LegalworkTaskDetail = { task: LegalworkTask; submission: unknown; notes: LegalworkTaskNote[] };
+/** A title or description a colleague changed in the same words: theirs stayed, `mine` is what this member wrote. */
+export type LegalworkTaskTextConflict = { field: "title" | "description"; mine: string; theirs: string; at: string };
+export type LegalworkTaskConflictChoice = { field: "title" | "description"; keep: "mine" | "theirs"; note?: string };
+export type LegalworkTaskDetail = { task: LegalworkTask; submission: unknown; notes: LegalworkTaskNote[]; conflicts: LegalworkTaskTextConflict[] };
 
 /** Where the local store stands against the platform. */
 export type LegalworkTaskSyncStatus = {
@@ -451,7 +486,7 @@ export type LegalworkTaskSyncStatus = {
 };
 
 /** Something to announce about a task (the server's task-notifications.ts). */
-export type LegalworkTaskNotificationKind = "new" | "assigned" | "due_today" | "overdue";
+export type LegalworkTaskNotificationKind = "new" | "assigned" | "due_today" | "overdue" | "conflict";
 
 /**
  * Whose the task is, for the signed-in member: `mine` (assigned to them, or
@@ -585,7 +620,15 @@ export type LegalworkWorkspaceFileWriteResult = {
   bytes: number;
   updatedAt: number;
   revision?: string;
+  /** The file had changed since it was loaded, and was merged: `content` is what was written. */
+  merged?: boolean;
+  content?: string;
 };
+
+export type LegalworkWorkspaceFileOperation =
+  | { type: "mkdir"; path: string; exclusive?: boolean }
+  | { type: "rename"; from: string; to: string; overwrite?: boolean }
+  | { type: "delete"; path: string; recursive?: boolean };
 
 export type LegalworkWorkspaceFileDeleteResult = {
   ok: boolean;
@@ -1374,7 +1417,35 @@ const DEFAULT_LEGALWORK_SERVER_TIMEOUT_MS = 10_000;
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
+// The desktop app keeps this window's console warnings in main.log, which
+// support collects. A timeout or an unreachable server never reaches the
+// server's own log, so every failed request is reported here.
 async function fetchWithTimeout(
+  fetchImpl: FetchLike,
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+) {
+  const startedAt = Date.now();
+  const describe = () => `[legalwork-server] ${init.method ?? "GET"} ${url.split("?")[0]} failed after ${Date.now() - startedAt}ms:`;
+  try {
+    const response = await fetchWithDeadline(fetchImpl, url, init, timeoutMs);
+    if (!response.ok) {
+      const label = describe();
+      void response.clone().text().then(
+        (body) => console.warn(label, response.status, body.slice(0, 1000)),
+        () => console.warn(label, response.status),
+      );
+    }
+    return response;
+  } catch (error) {
+    // A caller that cancels on purpose (init.signal) is not a failure.
+    if (!init.signal?.aborted) console.warn(describe(), error instanceof Error ? error.message : error);
+    throw error;
+  }
+}
+
+async function fetchWithDeadline(
   fetchImpl: FetchLike,
   url: string,
   init: RequestInit,
@@ -1544,11 +1615,33 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     workspaceExport: 30_000,
     // A dragged folder is many downloads behind one call.
     legalMemoryFolderExport: 300_000,
+    // A big repo is many GitHub downloads behind one call.
+    githubSkills: 300_000,
     workspaceImport: 30_000,
     binary: 60_000,
     benchmark: 15_000,
     benchmarkCatalog: 45_000,
   };
+
+  async function applyWorkspaceFileOperations(workspaceId: string, operations: LegalworkWorkspaceFileOperation[]) {
+    if (!operations.length) return [];
+    const created = await requestJson<{ session: { id: string } }>(
+      baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/files/sessions`,
+      { token, hostToken, method: "POST", body: { write: true } },
+    );
+    const sessionPath = `/files/sessions/${encodeURIComponent(created.session.id)}`;
+    try {
+      const result = await requestJson<{ items: Array<{ ok?: boolean; path?: string; code?: string; message?: string }> }>(
+        baseUrl, `${sessionPath}/ops`,
+        { token, hostToken, method: "POST", body: { operations }, timeoutMs: 60_000 },
+      );
+      return result.items;
+    } finally {
+      await requestJson<{ ok: boolean }>(baseUrl, sessionPath, {
+        token, hostToken, method: "DELETE",
+      }).catch(() => undefined);
+    }
+  }
 
   return {
     baseUrl,
@@ -1574,6 +1667,13 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         hostToken,
         timeoutMs: timeouts.config,
       }),
+    getOcrSettings: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/settings", { token, hostToken, timeoutMs: timeouts.config }),
+    setDefaultOcrEngine: (engineId: string) => requestJson<OcrSettingsView>(baseUrl, "/ocr/default", { token, hostToken, method: "PUT", body: { engineId }, timeoutMs: timeouts.config }),
+    saveOcrServer: (input: OcrServerInput, id?: string) => requestJson<OcrSettingsView>(baseUrl, id ? `/ocr/servers/${encodeURIComponent(id)}` : "/ocr/servers", { token, hostToken, method: id ? "PUT" : "POST", body: input, timeoutMs: timeouts.config }),
+    removeOcrServer: (id: string) => requestJson<OcrSettingsView>(baseUrl, `/ocr/servers/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
+    installOcrEngine: (id: string) => requestJson<OcrSettingsView>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/install`, { token, hostToken, method: "POST", timeoutMs: timeouts.config }),
+    cancelOcrInstall: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/install", { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
+    testOcrEngine: (id: string) => requestJson<{ ok: boolean }>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/test`, { token, hostToken, method: "POST", timeoutMs: 130_000 }),
     setPersonalization: (settings: LegalworkPersonalizationSettings) =>
       requestJson<{ settings: LegalworkPersonalizationSettings; updatedAt: number }>(baseUrl, "/personalization", {
         token,
@@ -1619,13 +1719,47 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/recorder/live-transcript`,
         { token, hostToken, method: "POST", body: { enabled }, timeoutMs: timeouts.status },
       ),
-    createLocalWorkspace: (payload: { folderPath: string; name: string; preset: string; registerExisting?: boolean }) =>
+    getProjectDefaults: () => requestJson<{ folderPath: string }>(baseUrl, "/workspaces/project-defaults", { token, hostToken }),
+    getProjectContents: (workspaceId: string, input: { kind?: ProjectContentKind; path?: string; cursor?: string; limit?: number } = {}) => {
+      const query = new URLSearchParams();
+      for (const [key, value] of Object.entries(input)) if (value !== undefined) query.set(key, String(value));
+      return requestJson<ProjectContents>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/contents?${query}`, { token, hostToken });
+    },
+    listReviews: (workspaceId: string) => requestJson<{ reviews: ReviewSummary[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews`, { token, hostToken }),
+    getReview: async (workspaceId: string, reviewId: string, previous?: SavedReview) => {
+      const path = `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}`;
+      const update = await requestJson<ReviewUpdate>(baseUrl, `${path}/updates${previous ? `?revision=${previous.revision}` : ""}`, { token, hostToken });
+      return applyReviewUpdate(previous, update) ?? requestJson<SavedReview>(baseUrl, path, { token, hostToken });
+    },
+    getJevSearchProgress: (workspaceId: string, jobId: string) => requestJson<JevSearchProgress>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/corpus/${encodeURIComponent(jobId)}`, { token, hostToken }),
+    getJevSearchResults: (workspaceId: string, jobId: string, answer: string, offset = 0) => requestJson<JevSearchResults>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/corpus/${encodeURIComponent(jobId)}/results?${new URLSearchParams({ answer, offset: String(offset) })}`, { token, hostToken }),
+    queryReviewRows: (workspaceId: string, reviewId: string, input: Omit<QueryReviewResults, "cursor" | "limit" | "view">) => requestJson<{ revision: number; documentIds: string[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/rows/query`, { token, hostToken, method: "POST", body: input }),
+    deleteReview: (workspaceId: string, reviewId: string, revision: number) => requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}`, { token, hostToken, method: "DELETE", body: { revision } }),
+    createReview: (workspaceId: string, input: CreateReview) => requestJson<SavedReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews`, { token, hostToken, method: "POST", body: input }),
+    editReview: (workspaceId: string, reviewId: string, input: EditReview) => requestJson<SavedReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}`, { token, hostToken, method: "PATCH", body: input }),
+    getReviewSession: (workspaceId: string, reviewId: string) => requestJson<{ sessionId: string | null }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/session`, { token, hostToken }),
+    openReviewSession: (workspaceId: string, reviewId: string) => requestJson<{ sessionId: string; prefill: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/session`, { token, hostToken, method: "POST" }),
+    startReview: (workspaceId: string, reviewId: string, input: RunReview) => requestJson<SavedReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/start`, { token, hostToken, method: "POST", body: input }),
+    cancelReview: (workspaceId: string, reviewId: string) => requestJson<SavedReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/cancel`, { token, hostToken, method: "POST" }),
+    reviewCapabilities: (workspaceId: string, reviewId?: string) => requestJson<ReviewCapabilities>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews${reviewId ? `/${encodeURIComponent(reviewId)}` : ""}/settings`, { token, hostToken }),
+    saveReviewSettings: (workspaceId: string, settings: ReviewSettings, review?: Pick<SavedReview, "id" | "revision">) => requestJson<ReviewSettings | SavedReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews${review ? `/${encodeURIComponent(review.id)}` : ""}/settings`, { token, hostToken, method: "PUT", body: review ? { settings, revision: review.revision } : settings }),
+    resetReviewDefaults: (workspaceId: string) => requestJson<ReviewCapabilities>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/settings`, { token, hostToken, method: "DELETE" }),
+    reviewLibrary: (workspaceId: string, language: "en" | "de") => requestJson<{ entries: ReviewLibraryEntry[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/library?language=${language}`, { token, hostToken }),
+    saveReviewLibrary: (workspaceId: string, input: SaveReviewLibrary) => requestJson<ReviewLibraryEntry>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/library`, { token, hostToken, method: "POST", body: input }),
+    removeReviewLibrary: (workspaceId: string, id: string) => requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/library/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE" }),
+    reviewCitationPage: (workspaceId: string, citation: ReviewSourceReference, page?: number) => requestJson<ReviewSourcePage>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(citation.reviewId)}/source/${encodeURIComponent(citation.documentId)}/${encodeURIComponent(citation.columnKey)}/${citation.citationIndex}?completedAt=${citation.completedAt}${page === undefined ? "" : `&page=${encodeURIComponent(page)}`}`, { token, hostToken }),
+    reviewRecognitionPage: (workspaceId: string, reviewId: string, documentId: string, page?: number) => requestJson<ReviewRecognitionPage>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/recognition/${encodeURIComponent(documentId)}${page === undefined ? "" : `?page=${encodeURIComponent(page)}`}`, { token, hostToken }),
+    reviewSource: (workspaceId: string, reviewId: string, documentId: string, sourceHash?: string) => requestJson<{ path: string; sourceHash: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reviews/${encodeURIComponent(reviewId)}/source/${encodeURIComponent(documentId)}${sourceHash ? `?sourceHash=${encodeURIComponent(sourceHash)}` : ""}`, { token, hostToken }),
+    getProjectDetails: (workspaceId: string) => requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken }),
+    updateProjectDetails: (workspaceId: string, payload: { revision: number; fields: ProjectField[] }) =>
+      requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken, method: "PATCH", body: payload }),
+    createLocalWorkspace: (payload: { folderPath?: string; folderMode?: "default" | "selected"; name: string; preset: string; registerExisting?: boolean; projectFields?: ProjectField[]; remoteFolders?: RemoteFolderSelection[]; initializeFromFolders?: boolean; fromRemoteFolder?: boolean }) =>
       requestJson<WorkspaceList>(baseUrl, "/workspaces/local", {
         token,
         hostToken,
         method: "POST",
         body: payload,
-        timeoutMs: timeouts.activateWorkspace,
+        timeoutMs: payload.remoteFolders?.length ? 180_000 : timeouts.activateWorkspace,
       }),
     // Long timeout: the server shows a native dialog and waits for the human.
     pickWorkspaceFolder: (payload?: { title?: string; defaultPath?: string; returnFocusTo?: string }) =>
@@ -1888,6 +2022,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken },
       );
     },
+    searchSourcePage: (workspaceId: string, source: SearchSourceReference) => requestJson<SearchSourcePage>(baseUrl,
+      `/workspace/${encodeURIComponent(workspaceId)}/search-source`, { method: "POST", body: source, token, hostToken }),
+    searchContents: (workspaceId: string, kind: "sessions" | "tasks" | "files", query: string, signal?: AbortSignal, options?: { projectOnly?: boolean; retry?: boolean }) =>
+      requestJson<ContentSearchResponse>(baseUrl,
+        kind === "tasks" ? `/tasks/search?${new URLSearchParams({ q: query, ...(options?.projectOnly ? { projectId: workspaceId } : {}) })}` : `/workspace/${encodeURIComponent(workspaceId)}/search/${kind}?${new URLSearchParams({ q: query, ...(options?.retry ? { retry: "true" } : {}) })}`,
+        { token, hostToken, signal, timeoutMs: 60_000 }),
     getSession: (workspaceId: string, sessionId: string) =>
       requestJson<{ item: Session }>(
         baseUrl,
@@ -1960,6 +2100,14 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
           timeoutMs: timeouts.workspaceImport,
         },
       ),
+    discoverProviderModels: (workspaceId: string, input: { baseURL: string; apiKey: string }) =>
+      requestJson<{ models: string[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/provider-models`, {
+        token,
+        hostToken,
+        method: "POST",
+        body: input,
+        timeoutMs: 15_000,
+      }),
     getConfig: (workspaceId: string) =>
       requestJson<{ opencode: Record<string, unknown>; legalwork: Record<string, unknown>; updatedAt?: number | null }>(
         baseUrl,
@@ -2095,6 +2243,13 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/api/eigenwelt/oauth/wait/${encodeURIComponent(sessionId)}`,
         { token, hostToken, timeoutMs: 130_000 },
       ),
+    systemOneSettings: () => requestJson<SystemOneSettings>(baseUrl, "/systemone/settings", { token, hostToken, timeoutMs: 30_000 }),
+    systemOneSaveProvider: (provider: SystemOneProviderInput) => requestJson<{ ok: true }>(baseUrl, "/systemone/providers", { token, hostToken, method: "PUT", body: provider }),
+    systemOneDeleteProvider: (providerId: string) => requestJson<{ ok: true }>(baseUrl, `/systemone/providers/${encodeURIComponent(providerId)}`, { token, hostToken, method: "DELETE" }),
+    systemOneSelect: (selection: SystemOneSelection) => requestJson<{ ok: true }>(baseUrl, "/systemone/selection", { token, hostToken, method: "PUT", body: selection, timeoutMs: 30_000 }),
+    systemOneTest: (selection: SystemOneSelection, signal?: AbortSignal) => requestJson<{ ok: true }>(baseUrl, "/systemone/test", { token, hostToken, method: "POST", body: selection, signal, timeoutMs: 150_000 }),
+    systemOne: <const Q extends SystemOneQuestions>(request: Omit<SystemOneRequest, "questions"> & { questions: Q }, options: SystemOneOptions = {}) =>
+      requestJson<SystemOneResult<Q>>(baseUrl, "/systemone", { token, hostToken, method: "POST", body: { request, providerId: options.providerId }, signal: options.signal, timeoutMs: 150_000 }),
     eigenweltModels: () =>
       requestJson<EigenweltManifest>(baseUrl, "/api/eigenwelt/models", {
         token,
@@ -2118,6 +2273,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         baseURL?: string;
         apiKey?: string;
         models?: EigenweltManifestModel[];
+        systemOne?: SystemOneConfiguration;
         // Sign-out: clears the connection + the global manifest, and removes
         // the firm's tasks from this machine after a last push. Answers 409
         // `tasks_pending` (details.pending) while changes could not be
@@ -2224,6 +2380,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/team`, { token, hostToken, method: "POST", body: input, timeoutMs: 30_000 }),
     setTeamStorageInstalled: (workspaceId: string, id: string, installed: boolean) =>
       requestJson<{ ok: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/installation`, { token, hostToken, method: "POST", body: { installed }, timeoutMs: 30_000 }),
+    projectFolderSources: () => requestJson<{ sources: (Omit<RemoteFolderSelection, "path"> & { name: string })[]; error?: string }>(baseUrl, "/storage/project-sources", { token, hostToken, timeoutMs: 60_000 }),
+    projectRemoteFolders: (workspaceId: string) => requestJson<{ revision: number; initialization: string; folders: ProjectRemoteFolderStatus[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/remote-folders`, { token, hostToken, timeoutMs: 120_000 }),
+    linkProjectFolders: (workspaceId: string, revision: number, folders: RemoteFolderSelection[]) => requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/remote-folders`, { token, hostToken, method: "POST", body: { revision, folders }, timeoutMs: 120_000 }),
+    unlinkProjectFolder: (workspaceId: string, revision: number, folderId: string) => requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/remote-folders/${encodeURIComponent(folderId)}`, { token, hostToken, method: "DELETE", body: { revision }, timeoutMs: 30_000 }),
     storageRoots: (workspaceId: string) =>
       requestJson<{ roots: StorageRoot[]; teamError?: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/roots`, { token, hostToken, timeoutMs: 30_000 }),
     storageChildren: (workspaceId: string, id: string, path: string, cursor?: string) =>
@@ -2346,10 +2506,15 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     // workspace in the path only scopes the request — tasks are the machine's.
     listTasks: (workspaceId: string, params?: LegalworkTaskListParams) => {
       const query = new URLSearchParams();
+      if (params?.projectId) query.set("projectId", params.projectId);
       if (params?.assignee) query.set("assignee", params.assignee);
+      for (const assignee of params?.assignees ?? []) query.append("assignee", assignee);
       if (params?.status) query.set("status", params.status);
+      for (const status of params?.statuses ?? []) query.append("status", status);
       if (params?.endpointId) query.set("endpointId", params.endpointId);
+      for (const endpointId of params?.endpointIds ?? []) query.append("endpointId", endpointId);
       if (params?.tag) query.set("tag", params.tag);
+      for (const tag of params?.tags ?? []) query.append("tag", tag);
       if (params?.sort) query.set("sort", params.sort);
       if (params?.order) query.set("order", params.order);
       if (params?.limit !== undefined) query.set("limit", String(params.limit));
@@ -2367,6 +2532,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}`,
         { token, hostToken, timeoutMs: timeouts.config },
+      ),
+    resolveTaskConflict: (workspaceId: string, taskId: string, choice: LegalworkTaskConflictChoice) =>
+      requestJson<LegalworkTaskDetail>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}/conflicts`,
+        { token, hostToken, method: "POST", body: choice, timeoutMs: timeouts.config },
       ),
     createTask: (workspaceId: string, payload: LegalworkTaskCreate) =>
       requestJson<{ ok: boolean; task: LegalworkTask }>(
@@ -2444,10 +2615,79 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/task-members`,
         { token, hostToken, timeoutMs: timeouts.config },
       ),
+    /** Every synced project's state, and a revision that moves when projects arrive, leave or are renamed. */
+    projectSyncOverview: () =>
+      requestJson<ProjectSyncOverview>(baseUrl, "/project-sync", { token, hostToken, timeoutMs: timeouts.status }),
+    /**
+     * Hear this server's sync events (GET /sync/events), each handed to
+     * `onPoke` as it comes, until the stream ends or `signal` aborts.
+     */
+    syncEvents: async (onPoke: (poke: SyncPoke) => void, signal: AbortSignal) => {
+      const url = `${baseUrl}/sync/events`;
+      const response = await resolveFetch(url)(url, {
+        headers: buildAuthHeaders(token, hostToken, { Accept: "text/event-stream" }),
+        signal,
+      });
+      if (!response.ok || !response.body) throw new LegalworkServerError(response.status, "request_failed", response.statusText);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      const feed = serverSentEvents((data) => {
+        const poke = syncPokeOf(data);
+        if (poke) onPoke(poke);
+      });
+      for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+        feed(decoder.decode(chunk.value, { stream: true }));
+      }
+    },
+    runProjectSync: () =>
+      requestJson<ProjectSyncOverview>(baseUrl, "/project-sync", { token, hostToken, method: "POST", timeoutMs: timeouts.binary }),
+    projectSyncStatus: (workspaceId: string) =>
+      requestJson<ProjectSyncStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/sync`, {
+        token,
+        hostToken,
+        timeoutMs: timeouts.config,
+      }),
+    /** Turn sync on, or change who sees the project and what it syncs (its owner). */
+    saveProjectSync: (workspaceId: string, settings: ProjectSyncSettings) =>
+      requestJson<ProjectSyncStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/sync`, {
+        token,
+        hostToken,
+        method: "PUT",
+        body: settings,
+        timeoutMs: timeouts.config,
+      }),
+    /** The owner stops syncing: the project stays here, and leaves the firm. */
+    stopProjectSync: (workspaceId: string) =>
+      requestJson<ProjectSyncStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/sync`, {
+        token,
+        hostToken,
+        method: "DELETE",
+        timeoutMs: timeouts.config,
+      }),
+    resolveProjectSync: (
+      workspaceId: string,
+      input:
+        | { action: "keep_local" | "delete_files" | "restore_files" | "use_folder" | "keep_apart" }
+        | { action: "remove"; force?: boolean }
+        | { action: "dismiss_conflict" | "use_theirs" | "keep_mine"; copyPath: string },
+    ) =>
+      requestJson<ProjectSyncStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/sync/resolve`, {
+        token,
+        hostToken,
+        method: "POST",
+        body: input,
+        timeoutMs: timeouts.config,
+      }),
     listTaskTags: (workspaceId: string) =>
       requestJson<{ tags: string[] }>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/task-tags`,
+        { token, hostToken, timeoutMs: timeouts.config },
+      ),
+    listTaskEndpoints: (workspaceId: string) =>
+      requestJson<{ endpoints: LegalworkTaskEndpoint[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/task-endpoints`,
         { token, hostToken, timeoutMs: timeouts.config },
       ),
     taskSyncStatus: (workspaceId: string) =>
@@ -2510,7 +2750,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       ),
     listSkills: (workspaceId: string, options?: { includeGlobal?: boolean }) => {
       const query = options?.includeGlobal ? "?includeGlobal=true" : "";
-      return requestJson<{ items: LegalworkSkillItem[] }>(
+      return requestJson<{ items: LegalworkSkillItem[]; skipped: Array<{ path: string; reason: string }> }>(
         baseUrl,
         `/workspace/${workspaceId}/skills${query}`,
         { token, hostToken },
@@ -2552,7 +2792,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<{ ref: string; skills: Array<{ dir: string; name: string; description: string }> }>(
         baseUrl,
         `/workspace/${workspaceId}/github-skills/scan`,
-        { token, hostToken, method: "POST", body: payload },
+        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.githubSkills },
       ),
     installGithubSkills: (
       workspaceId: string,
@@ -2566,6 +2806,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         hostToken,
         method: "POST",
         body: payload,
+        timeoutMs: timeouts.githubSkills,
       }),
     promoteSkillToWorkflow: (workspaceId: string, name: string) =>
       requestJson<{ ok: boolean; name: string; path: string; alreadyWorkflow: boolean }>(
@@ -2581,7 +2822,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken },
       );
     },
-    upsertSkill: (workspaceId: string, payload: { name: string; content: string; description?: string }) =>
+    upsertSkill: (workspaceId: string, payload: { name: string; content: string; description?: string; scope?: "project" | "global" }) =>
       requestJson<LegalworkSkillItem>(baseUrl, `/workspace/${workspaceId}/skills`, {
         token,
         hostToken,
@@ -2604,10 +2845,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${workspaceId}/skills/${encodeURIComponent(skill)}/resources`,
         { token, hostToken },
       ),
-    getSkillResource: (workspaceId: string, skill: string, name: string) =>
+    getSkillResource: (workspaceId: string, skill: string, name: string, encoding: "utf8" | "base64" = "utf8") =>
       requestJson<LegalworkSkillResourceContent>(
         baseUrl,
-        `/workspace/${workspaceId}/skills/${encodeURIComponent(skill)}/resources/${encodeURIComponent(name)}`,
+        `/workspace/${workspaceId}/skills/${encodeURIComponent(skill)}/resources/${encodeURIComponent(name)}?encoding=${encoding}`,
         { token, hostToken },
       ),
     upsertSkillResource: (
@@ -2805,7 +3046,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
 
     writeWorkspaceFile: (
       workspaceId: string,
-      payload: { path: string; content: string; baseUpdatedAt?: number | null; force?: boolean; expectedContent?: string | null },
+      /** `baseContent`: the text as loaded, so a file changed since is merged with it rather than refused. */
+      payload: { path: string; content: string; baseUpdatedAt?: number | null; baseContent?: string; force?: boolean; expectedContent?: string | null },
     ) =>
       requestJson<LegalworkWorkspaceFileWriteResult>(
         baseUrl,
@@ -2821,46 +3063,20 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     copyWorkspaceFile: (workspaceId: string, path: string, targetPath: string) =>
       requestJson<{ ok: true; path: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/files/copy`, { token, hostToken, method: "POST", body: { path, targetPath }, timeoutMs: 900_000 }),
 
+    applyWorkspaceFileOperations,
+
     deleteWorkspaceFiles: async (
       workspaceId: string,
       files: Array<{ path: string; recursive?: boolean }>,
     ): Promise<LegalworkWorkspaceFileDeleteResult[]> => {
-      if (files.length === 0) return [];
-      const created = await requestJson<{ session: { id: string } }>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/files/sessions`,
-        { token, hostToken, method: "POST", body: { write: true } },
-      );
-      const sessionId = created.session.id;
-      try {
-        const result = await requestJson<{ items: Array<{ ok?: boolean; path?: string; code?: string }> }>(
-          baseUrl,
-          `/files/sessions/${encodeURIComponent(sessionId)}/ops`,
-          {
-            token,
-            hostToken,
-            method: "POST",
-            body: {
-              operations: files.map((file) => ({
-                type: "delete",
-                path: file.path,
-                recursive: file.recursive === true,
-              })),
-            },
-          },
-        );
-        return result.items.map((item, index) => ({
-          ok: item.ok === true,
-          path: typeof item.path === "string" ? item.path : files[index]?.path ?? "",
-          ...(typeof item.code === "string" ? { code: item.code } : {}),
-        }));
-      } finally {
-        await requestJson<{ ok: boolean }>(baseUrl, `/files/sessions/${encodeURIComponent(sessionId)}`, {
-          token,
-          hostToken,
-          method: "DELETE",
-        }).catch(() => undefined);
-      }
+      const items = await applyWorkspaceFileOperations(workspaceId, files.map((file) => ({
+        type: "delete", path: file.path, recursive: file.recursive === true,
+      })));
+      return items.map((item, index) => ({
+        ok: item.ok === true,
+        path: typeof item.path === "string" ? item.path : files[index]?.path ?? "",
+        ...(typeof item.code === "string" ? { code: item.code } : {}),
+      }));
     },
 
     writeWorkspaceBinaryFile: (

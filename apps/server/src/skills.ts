@@ -8,6 +8,9 @@ import { exists } from "./utils.js";
 import { validateDescription, validateSkillName } from "./validators.js";
 import { ApiError } from "./errors.js";
 import { globalSkillsDir, projectSkillsDir } from "./workspace-files.js";
+import { BUNDLED_WORKFLOW_NAMES } from "./bundled-workflows.js";
+
+export type SkippedSkill = { path: string; reason: string };
 
 async function findWorkspaceRoots(workspaceRoot: string): Promise<string[]> {
   const roots: string[] = [];
@@ -65,25 +68,22 @@ async function parseSkillEntry(
   skillPath: string,
   entryName: string,
   scope: "project" | "global",
+  skipped?: SkippedSkill[],
 ): Promise<SkillItem | null> {
-  // LAWOSS: jeden cudzí SKILL.md s chybným frontmatterom (napr. neuvodzovkovaný
-  // `description` s dvojbodkou) inak vyhodí YAMLParseError a zhodí celý výpis
-  // skillov vrátane endpointu, ktorý používa `legalwork_skill_create`.
-  // Chybný súbor sa preskočí a zapíše sa do logu; ostatné skilly sa vrátia.
   let parsed: ReturnType<typeof parseFrontmatter>;
   try {
     parsed = parseFrontmatter(await readFile(skillPath, "utf8"));
   } catch (error) {
-    console.warn(`[skills] preskočený neplatný SKILL.md: ${skillPath}`, error);
+    console.warn("[skills] Skipped unreadable or malformed skill:", skillPath, error);
+    skipped?.push({ path: skillPath, reason: error instanceof Error ? error.message.split("\n")[0]! : "Could not read or parse SKILL.md" });
     return null;
   }
   const { data, body } = parsed;
   const name = typeof data.name === "string" ? data.name : entryName;
   const description = typeof data.description === "string" ? data.description : "";
-  const kind = data.kind === "workflow" ? "workflow" : undefined;
-  const workflowType = data.workflow_type === "tabular" || data.workflow_type === "assistant"
-    ? data.workflow_type
-    : undefined;
+  // Legacy tabular workflows remain callable under their original names and paths.
+  const kind = data.kind === "workflow" || data.workflow_type === "tabular" || name.startsWith("workflow-") ? "workflow" : undefined;
+  const workflowType = kind === "workflow" ? "assistant" : undefined;
   const trigger =
     typeof data.trigger === "string"
       ? data.trigger
@@ -93,10 +93,11 @@ async function parseSkillEntry(
   try {
     validateSkillName(name);
     validateDescription(description);
-  } catch {
+  } catch (error) {
+    console.warn("[skills] Skipped invalid skill:", skillPath, error instanceof Error ? error.message : error);
+    skipped?.push({ path: skillPath, reason: error instanceof Error ? error.message : "Invalid skill metadata" });
     return null;
   }
-  if (name !== entryName) return null;
   return {
     name,
     description,
@@ -108,7 +109,7 @@ async function parseSkillEntry(
   };
 }
 
-async function listSkillsInDir(dir: string, scope: "project" | "global"): Promise<SkillItem[]> {
+async function listSkillsInDir(dir: string, scope: "project" | "global", skipped?: SkippedSkill[]): Promise<SkillItem[]> {
   if (!(await exists(dir))) return [];
   const entries = await readdir(dir, { withFileTypes: true });
   const items: SkillItem[] = [];
@@ -117,7 +118,7 @@ async function listSkillsInDir(dir: string, scope: "project" | "global"): Promis
     const skillPath = join(dir, entry.name, "SKILL.md");
     if (await exists(skillPath)) {
       // Direct skill: <dir>/<name>/SKILL.md
-      const item = await parseSkillEntry(skillPath, entry.name, scope);
+      const item = await parseSkillEntry(skillPath, entry.name, scope, skipped);
       if (item) items.push(item);
     } else {
       // Domain/category folder: <dir>/<domain>/<name>/SKILL.md – scan one level deeper.
@@ -128,14 +129,15 @@ async function listSkillsInDir(dir: string, scope: "project" | "global"): Promis
       let subEntries: Dirent[];
       try {
         subEntries = await readdir(domainDir, { withFileTypes: true });
-      } catch {
+      } catch (error) {
+        console.warn("[skills] Could not read skill folder:", domainDir, error);
         continue;
       }
       for (const subEntry of subEntries) {
         if (!subEntry.isDirectory()) continue;
         const subSkillPath = join(domainDir, subEntry.name, "SKILL.md");
         if (!(await exists(subSkillPath))) continue;
-        const item = await parseSkillEntry(subSkillPath, subEntry.name, scope);
+        const item = await parseSkillEntry(subSkillPath, subEntry.name, scope, skipped);
         if (item) items.push(item);
       }
     }
@@ -143,27 +145,34 @@ async function listSkillsInDir(dir: string, scope: "project" | "global"): Promis
   return items;
 }
 
-export async function listSkills(workspaceRoot: string, includeGlobal: boolean): Promise<SkillItem[]> {
+export async function listSkills(workspaceRoot: string, includeGlobal: boolean, skipped?: SkippedSkill[]): Promise<SkillItem[]> {
   const roots = await findWorkspaceRoots(workspaceRoot);
   const items: SkillItem[] = [];
   for (const root of roots) {
     const opencodeDir = join(root, ".opencode", "skills");
     const claudeDir = join(root, ".claude", "skills");
-    items.push(...(await listSkillsInDir(opencodeDir, "project")));
-    items.push(...(await listSkillsInDir(claudeDir, "project")));
+    items.push(...(await listSkillsInDir(opencodeDir, "project", skipped)));
+    items.push(...(await listSkillsInDir(claudeDir, "project", skipped)));
   }
 
   if (includeGlobal) {
-    // Respect XDG_CONFIG_HOME so the server sees the same global skills dir as the engine.
-    const configHome = process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
-    const globalLegalWork = join(configHome, "opencode", "skills");
+    const globalLegalWork = globalSkillsDir();
     const globalClaude = join(homedir(), ".claude", "skills");
     const globalAgents = join(homedir(), ".agents", "skills");
     const globalAgentLegacy = join(homedir(), ".agent", "skills");
-    items.push(...(await listSkillsInDir(globalLegalWork, "global")));
-    items.push(...(await listSkillsInDir(globalClaude, "global")));
-    items.push(...(await listSkillsInDir(globalAgents, "global")));
-    items.push(...(await listSkillsInDir(globalAgentLegacy, "global")));
+    items.push(...(await listSkillsInDir(globalLegalWork, "global", skipped)));
+    items.push(...(await listSkillsInDir(globalClaude, "global", skipped)));
+    items.push(...(await listSkillsInDir(globalAgents, "global", skipped)));
+    items.push(...(await listSkillsInDir(globalAgentLegacy, "global", skipped)));
+  } else {
+    // Remote clients also get shipped workflows, without listing the host's
+    // other personal workflows or skills.
+    for (const name of BUNDLED_WORKFLOW_NAMES) {
+      const path = join(globalSkillsDir(), name, "SKILL.md");
+      if (!(await exists(path))) continue;
+      const item = await parseSkillEntry(path, name, "global", skipped);
+      if (item) items.push(item);
+    }
   }
 
   const seen = new Set<string>();

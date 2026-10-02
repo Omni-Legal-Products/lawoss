@@ -2,15 +2,22 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+export function globalOpencodeConfigDir(): string {
+  return join(process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config"), "opencode");
+}
+
 /**
- * The GLOBAL skills dir the desktop app reads from and installs into
- * ($XDG_CONFIG_HOME/opencode/skills). On desktop skills/workflows live here and
- * are synced into projects automatically, so hub installs must land here (not in
- * a single project's .opencode/skills, which the desktop list never scans).
+ * Global library shared with desktop import/listing and available in every workspace.
+ * The desktop passes XDG_CONFIG_HOME after migrating its former Windows
+ * APPDATA library. Standalone Windows servers retain their existing library
+ * until they can run that migration too.
  */
 export function globalSkillsDir(): string {
-  const configHome = process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
-  return join(configHome, "opencode", "skills");
+  if (process.env.XDG_CONFIG_HOME?.trim() || process.platform !== "win32") {
+    return join(globalOpencodeConfigDir(), "skills");
+  }
+  const appData = process.env.APPDATA?.trim();
+  return appData ? join(appData, "opencode", "skills") : join(globalOpencodeConfigDir(), "skills");
 }
 
 export function opencodeConfigPath(workspaceRoot: string): string {

@@ -14,6 +14,15 @@ export const HIDDEN_SETTINGS_TABS: ReadonlySet<string> = new Set<string>([
   "recorder",
 ]);
 
+/** Navigačné položky, ktoré nepatria do LAWOSS rozhrania. */
+export const HIDDEN_SIDEBAR_ITEMS: ReadonlySet<string> = new Set<string>([
+  "navRecorder",
+]);
+
+/** Odstráni skryté navigačné položky a poradie zvyšku zachová. */
+export const hideCommercialSidebarItems = <T extends string>(items: T[]): T[] =>
+  items.filter((item) => !HIDDEN_SIDEBAR_ITEMS.has(item));
+
 /** Odstráni skryté záložky a poradie zvyšku zachová. */
 export const hideCommercialTabs = <T extends string>(tabs: T[]): T[] =>
   tabs.filter((tab) => !HIDDEN_SETTINGS_TABS.has(tab));
@@ -44,6 +53,7 @@ export type CommercialSurface =
   | "firm-hub"
   | "trial-notice"
   | "premium-upsell"
+  | "eigenwelt-account"
   | "eigenwelt-sign-in"
   | "eigenwelt-trial";
 
@@ -52,6 +62,7 @@ export const HIDDEN_COMMERCIAL_SURFACES: ReadonlySet<CommercialSurface> = new Se
   "firm-hub",
   "trial-notice",
   "premium-upsell",
+  "eigenwelt-account",
   "eigenwelt-sign-in",
   "eigenwelt-trial",
 ]);

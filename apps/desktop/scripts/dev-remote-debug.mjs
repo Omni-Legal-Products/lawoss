@@ -1,7 +1,7 @@
 /**
  * LAWOSS: dev launcher no longer forces port 9823. Without an override,
- * main.mjs retains upstream automatic CDP for the built-in browser;
- * the explicit setting `off` disables it entirely.
+ * upstream leaves application-wide CDP disabled. Only an explicit valid port
+ * enables it in an unpackaged development process; releases always disable it.
  */
 
 /** Port musí byť celé číslo 1–65535; čokoľvek iné sa ignoruje. */

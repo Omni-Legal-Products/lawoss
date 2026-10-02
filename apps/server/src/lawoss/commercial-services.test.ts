@@ -13,6 +13,8 @@ const SIGNED_IN = {
   platformURL: "https://platform.example.test",
   platformToken: "token",
   refreshToken: "refresh",
+  refreshRequestId: null,
+  refreshError: null,
   platformTokenExpiresAt: null,
 };
 
@@ -37,6 +39,7 @@ describe("LAWOSS: firemné služby Eigenwelt", () => {
   test("Box je dostupný len s vlastným OAuth brokerom", () => {
     expect(storageOAuthProviderAllowed("box", {})).toBe(false);
     expect(storageOAuthProviderAllowed("box", { LEGALWORK_STORAGE_BOX_OAUTH_URL: "https://broker.kancelaria.test/box/" })).toBe(true);
+    expect(storageOAuthProviderAllowed("dropbox", {})).toBe(true);
     expect(storageOAuthProviderAllowed("webdav", {})).toBe(true);
   });
 });

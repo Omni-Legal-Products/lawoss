@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import {
   HIDDEN_QUICK_CONNECT_SERVERS,
+  HIDDEN_SIDEBAR_ITEMS,
   HIDDEN_SETTINGS_TABS,
+  hideCommercialSidebarItems,
   hideCommercialTabs,
   isCommercialSurfaceHidden,
   isHiddenQuickConnect,
@@ -26,6 +28,12 @@ describe("LAWOSS feature flags", () => {
     expect(HIDDEN_SETTINGS_TABS.has("ai")).toBe(false);
   });
 
+  test("recorder sa neponúka ani v prispôsobení navigácie", () => {
+    const items = ["navHome", "navRecorder", "navProjects"];
+    expect(HIDDEN_SIDEBAR_ITEMS.has("navRecorder")).toBe(true);
+    expect(hideCommercialSidebarItems(items)).toEqual(["navHome", "navProjects"]);
+  });
+
   test("LegalMemory sa neponúka v rýchlom pripojení", () => {
     expect(HIDDEN_QUICK_CONNECT_SERVERS.has("legalmemory")).toBe(true);
     expect(isHiddenQuickConnect("legalmemory")).toBe(true);
@@ -40,6 +48,7 @@ describe("LAWOSS feature flags", () => {
 
   test("ponuka Plus, prihlásenie do Eigenweltu a výzvy na skúšobnú verziu sú skryté", () => {
     expect(isCommercialSurfaceHidden("premium-upsell")).toBe(true);
+    expect(isCommercialSurfaceHidden("eigenwelt-account")).toBe(true);
     expect(isCommercialSurfaceHidden("eigenwelt-sign-in")).toBe(true);
     expect(isCommercialSurfaceHidden("eigenwelt-trial")).toBe(true);
   });

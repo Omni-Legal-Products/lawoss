@@ -2,7 +2,8 @@
 /**
  * Multi-select "Share with your firm" dialog. Lists this workspace's local
  * skills (plus the user's global skill library on local workspaces, where
- * generated workflows live), MCP servers and plugins with checkboxes
+ * generated workflows live), MCP servers, plugins and the user's own
+ * Tabular Review prompt sets (sets only, never single prompts) with checkboxes
  * (+ select-all) and pushes the selected items to the team hub in one batch.
  * MCP servers that carry a key get
  * an "Include key" switch — when on, the fully-configured entry is shared
@@ -25,17 +26,33 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/sonner";
+import { reviewLibraryKind } from "@legalwork/types/reviews";
 import type {
   EigenweltHubShareItem,
   LegalworkServerClient,
 } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
+import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
+import { reviewLibraryLanguage } from "@/lawoss/i18n/review-library-language";
 
 type Selectable = {
   ref: string;
   label: string;
-  kind: "skill" | "workflow" | "mcp" | "plugin";
+  kind: "skill" | "workflow" | "mcp" | "plugin" | "review_set";
   hasSecret?: boolean;
+};
+
+type HubShareDialogProps = {
+  client: LegalworkServerClient | null;
+  workspaceId: string | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  initialSelection?: { kind: Selectable["kind"]; ref: string } | null;
+  /** Also offer the user's global skill library used by generated workflows. */
+  includeGlobalSkills?: boolean;
+  /** Offer only these kinds when the caller shares a specific library type. */
+  kinds?: Selectable["kind"][] | null;
+  onShared?: () => void;
 };
 
 /** An MCP config carries a secret if it has non-empty env/headers or a secret-shaped key. */
@@ -73,28 +90,21 @@ function mcpHasSecret(config: Record<string, unknown>): boolean {
   return scan(config, false);
 }
 
-export function HubShareDialog(props: {
-  client: LegalworkServerClient | null;
-  workspaceId: string | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  initialSelection?: { kind: Selectable["kind"]; ref: string } | null;
-  /**
-   * Also offer the user's global skill library (~/.config/opencode/skills).
-   * Must match what the Skills/Workflows pages list, or an item shown there
-   * comes up as "no longer available" here: generated workflows are imported
-   * into the global library, not into the workspace.
-   */
-  includeGlobalSkills?: boolean;
-  onShared?: () => void;
-}) {
+export function HubShareDialog(props: HubShareDialogProps) {
+  if (isCommercialSurfaceHidden("firm-hub")) return null;
+  return <HubShareDialogContent {...props} />;
+}
+
+function HubShareDialogContent(props: HubShareDialogProps) {
   const { client, workspaceId, includeGlobalSkills = false } = props;
   const initialSelection = props.initialSelection;
+  const kinds = props.kinds ?? null;
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [skills, setSkills] = useState<Selectable[]>([]);
   const [mcps, setMcps] = useState<Selectable[]>([]);
   const [plugins, setPlugins] = useState<Selectable[]>([]);
+  const [reviewSets, setReviewSets] = useState<Selectable[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [includeKey, setIncludeKey] = useState<Set<string>>(new Set());
   const [acknowledged, setAcknowledged] = useState(false);
@@ -114,15 +124,17 @@ export function HubShareDialog(props: {
     setSkills([]);
     setMcps([]);
     setPlugins([]);
+    setReviewSets([]);
     setLoading(true);
     void (async () => {
       try {
-        const loadSkills = !initialSelection
-          || initialSelection.kind === "skill"
-          || initialSelection.kind === "workflow";
-        const loadMcps = !initialSelection || initialSelection.kind === "mcp";
-        const loadPlugins = !initialSelection || initialSelection.kind === "plugin";
-        const [s, m, p] = await Promise.all([
+        const wanted = (...options: Selectable["kind"][]) =>
+          options.some((kind) => (!initialSelection || initialSelection.kind === kind) && (!kinds || kinds.includes(kind)));
+        const loadSkills = wanted("skill", "workflow");
+        const loadMcps = wanted("mcp");
+        const loadPlugins = wanted("plugin");
+        const loadReviewSets = wanted("review_set");
+        const [s, m, p, r] = await Promise.all([
           loadSkills
             ? client.listSkills(workspaceId, { includeGlobal: includeGlobalSkills })
             : Promise.resolve(null),
@@ -130,6 +142,7 @@ export function HubShareDialog(props: {
           loadPlugins
             ? client.listPlugins(workspaceId, { includeGlobal: initialSelection?.kind === "plugin" })
             : Promise.resolve(null),
+          loadReviewSets ? client.reviewLibrary(workspaceId, reviewLibraryLanguage()) : Promise.resolve(null),
         ]);
         if (cancelled) return;
         setSkills(s ? s.items.filter((it) => !initialSelection || it.name === initialSelection.ref).map((it) => {
@@ -149,6 +162,10 @@ export function HubShareDialog(props: {
         setPlugins(p ? p.items
           .filter((it) => !initialSelection || it.spec === initialSelection.ref || it.path === initialSelection.ref)
           .map((it) => ({ ref: it.spec, label: it.path ?? it.spec, kind: "plugin" as const })) : []);
+        setReviewSets(r ? r.entries
+          .filter((entry) => entry.source === "personal" && reviewLibraryKind(entry) === "set")
+          .filter((entry) => !initialSelection || entry.id === initialSelection.ref)
+          .map((entry) => ({ ref: entry.id, label: entry.name, kind: "review_set" as const })) : []);
       } catch (err) {
         toast.error(err instanceof Error ? err.message : t("hub_share.load_failed"));
       } finally {
@@ -158,9 +175,9 @@ export function HubShareDialog(props: {
     return () => {
       cancelled = true;
     };
-  }, [props.open, initialSelection, client, workspaceId, includeGlobalSkills]);
+  }, [props.open, initialSelection, kinds, client, workspaceId, includeGlobalSkills]);
 
-  const all = useMemo(() => [...skills, ...mcps, ...plugins], [skills, mcps, plugins]);
+  const all = useMemo(() => [...skills, ...mcps, ...plugins, ...reviewSets], [skills, mcps, plugins, reviewSets]);
   const key = (it: Selectable) => `${it.kind}:${it.ref}`;
   const singleItem = initialSelection
     ? all.find((it) => key(it) === `${initialSelection.kind}:${initialSelection.ref}`)
@@ -269,7 +286,9 @@ export function HubShareDialog(props: {
                     ? "MCP server"
                     : singleItem.kind === "plugin"
                       ? "Plugin"
-                      : "Skill"}
+                      : singleItem.kind === "review_set"
+                        ? t("hub_share.review_set")
+                        : "Skill"}
               </Badge>
               {singleItem.kind === "mcp" && singleItem.hasSecret ? (
                 <span className="flex items-center gap-1.5 text-2xs text-subtext">
@@ -309,6 +328,7 @@ export function HubShareDialog(props: {
             <Section title={t("hub_share.skills")} items={skills} />
             <Section title={t("hub_share.mcp_servers")} items={mcps} />
             <Section title={t("hub_share.plugins")} items={plugins} />
+            <Section title={t("hub_share.review_sets")} items={reviewSets} />
             <label className="flex items-start gap-2 rounded-lg border border-dls-border p-3 text-xs text-subtext">
               <Checkbox
                 checked={acknowledged}

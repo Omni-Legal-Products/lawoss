@@ -1,3 +1,4 @@
+import { projectErrorMessage } from "../domains/workspace/project-errors";
 /** @jsxImportSource react */
 import {
   useCallback,
@@ -9,6 +10,7 @@ import {
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useLocale } from "@/i18n/use-locale";
 import { LAWOSS_ROUTES } from "../../lawoss/shell/routes";
+import { useDetachedWindow } from "./use-detached-window";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
 import { TasksPane } from "../domains/tasks/tasks-pane";
@@ -79,6 +81,7 @@ import type {
 import {
   getWorkspaceTaskLoadErrorDisplay,
   isDesktopRuntime,
+  isElectronRuntime,
   isOfficeAddinRuntime,
   isSandboxWorkspace,
   normalizeDirectoryPath,
@@ -108,7 +111,10 @@ import {
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { useNotificationStore } from "@/react-app/kernel/notification-store";
 import { usePlatform } from "@/react-app/kernel/platform";
+import { onSyncPoke, useSyncEvents } from "@/react-app/kernel/sync-events";
 import { SessionPage, type OpenSessionTab } from "@/react-app/domains/session/chat/session-page";
+import { AppHome } from "@/react-app/domains/session/home/app-home";
+import { submitHomeMessage, type PendingHomeMessage } from "@/react-app/domains/session/home/home-submission";
 import type { ConnectAiAction } from "@/react-app/domains/session/surface/session-surface";
 import { ReactSessionRuntime } from "@/react-app/domains/session/sync/runtime-sync";
 import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store";
@@ -124,7 +130,8 @@ import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/se
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { NovySpisPanel } from "@/lawoss/domains/novy-spis/novy-spis-page";
-import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
+import { newProjectFields } from "@/react-app/domains/workspace/project-defaults-store";
+import { CreateProjectModal, type CreateProjectInput } from "@/react-app/domains/workspace/create-project-modal";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
 import { AiPlansOverlay } from "@/react-app/domains/onboarding/ai-plans-overlay";
 import { AudioStep } from "@/react-app/domains/onboarding/audio-step";
@@ -137,9 +144,13 @@ import {
 } from "@/react-app/domains/settings/state/template-workflow-generation";
 import { useMcpConnectedCount } from "@/react-app/domains/connections/use-mcp-connected-count";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
+import { useProjectSyncPoller } from "@/react-app/domains/workspace/project-sync-store";
+import { refreshTaskQueries } from "@/react-app/domains/tasks/tasks-queries";
+import { ProjectShareHost } from "@/react-app/domains/workspace/project-sync";
 import { ModelPickerModal } from "@/react-app/domains/session/modals/model-picker-modal";
-import { CommandPalette, type PaletteItem, type SessionGroupOption, type SessionOption as PaletteSessionOption } from "./command-palette";
-import { SessionSearchDialog } from "./session-search-dialog";
+import { CommandPalette, type SearchWorkspace, type SessionOption as PaletteSessionOption } from "./command-palette";
+import type { ContentSearchResult } from "@legalwork/types/search";
+import { useSearchNavigation } from "./search-navigation";
 import {
   eigenweltBillingUrl,
   hasEigenweltFeature,
@@ -149,7 +160,6 @@ import {
 import { FreeRetiredDialog, markFreeRetiredNoticePending } from "./free-retired-dialog";
 import { WhatsNewDialog } from "./whats-new";
 import { TranscriptionIntroDialog } from "./transcription-intro";
-import type { SessionMessageFetcher } from "@/react-app/domains/session/search/session-search";
 import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import { useBootState } from "./boot-state";
 import {
@@ -188,10 +198,9 @@ import { useSessionGroupSync } from "./use-session-group-sync";
 import { useWorkspaceRouteState } from "./use-workspace-route-state";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { useSessionControlActions } from "@/react-app/domains/session/control/session-control-actions";
-import { legacySessionRoute, workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
+import { homeRoute, homeProjectIdFromSearch, isSessionIndexRoute, workspaceProjectRoute, workspaceSessionRoute, workspaceSettingsRoute, workspaceTasksRoute } from "./workspace-routes";
 import { SettingsSurface } from "./settings-route";
 import { WorkspaceProvider } from "./workspace-provider";
-import type { OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
 import {
   countConnectedProviders,
   ensureProviderListQuery,
@@ -350,17 +359,16 @@ export function SessionRoute() {
   const navigate = useNavigate();
   const location = useLocation();
   const experimentView = LAWOSS_ROUTES.find((route) => route.path === location.pathname)?.element;
-  const detached = useMemo(
-    () => new URLSearchParams(location.search).get("detached") === "1",
-    [location.search],
-  );
-  const [showEvals, setShowEvals] = useState(false);
+  const detached = useDetachedWindow();
+  const [showEvals, setShowEvals] = useState(location.pathname.endsWith("/evals"));
   // Top-level pages that live in the main shell (sidebar stays, main pane swaps),
   // same mechanism as Evals. Mutually exclusive — only one main pane at a time.
-  const [showWorkflows, setShowWorkflows] = useState(false);
+  const [showWorkflows, setShowWorkflows] = useState(location.pathname === "/workflows");
   const [showExtensions, setShowExtensions] = useState(false);
-  const [showRecorder, setShowRecorder] = useState(false);
-  const [showTasks, setShowTasks] = useState(false);
+  const [showRecorder, setShowRecorder] = useState(location.pathname === "/recorder");
+  const [recorderProject, setRecorderProject] = useState<{ id: string; name: string } | null>(null);
+  const recordingSessionStarting = useRef(false);
+  const [showTasks, setShowTasks] = useState(location.pathname === "/tasks");
   // A task a notification asked to show: the pane opens on it (see
   // TASKS_PANE_OPEN_EVENT); a null id opens the task list. Chat chips open
   // their task in the side panel instead.
@@ -370,33 +378,38 @@ export function SessionRoute() {
   // not close the pane it opened (see the pane-closing effect below).
   const keepTasksPaneUntil = useRef(0);
   const showEvalsPane = useCallback(() => {
+    navigate("/evals");
     setShowEvals(true);
     setShowWorkflows(false);
     setShowExtensions(false);
     setShowRecorder(false);
     setShowTasks(false);
-  }, []);
+  }, [navigate]);
   const showWorkflowsPane = useCallback(() => {
+    navigate("/workflows");
     setShowWorkflows(true);
     setShowEvals(false);
     setShowExtensions(false);
     setShowRecorder(false);
     setShowTasks(false);
-  }, []);
+  }, [navigate]);
   const showRecorderPane = useCallback(() => {
+    navigate("/recorder");
+    setRecorderProject(null);
     setShowRecorder(true);
     setShowEvals(false);
     setShowWorkflows(false);
     setShowExtensions(false);
     setShowTasks(false);
-  }, []);
+  }, [navigate]);
   const showTasksPane = useCallback(() => {
+    navigate("/tasks");
     setShowTasks(true);
     setShowEvals(false);
     setShowWorkflows(false);
     setShowExtensions(false);
     setShowRecorder(false);
-  }, []);
+  }, [navigate]);
   // The Tasks pane is where task announcements are read — once the user looks
   // at it: while it is open AND the window is in front, the counts next to
   // Tasks and on the app icon stay clear. An announcement that arrives while
@@ -488,12 +501,37 @@ export function SessionRoute() {
     refreshRouteState,
     loadWorkspaceSessionsInBackground,
     rememberPendingCreatedSession,
+    handleRuntimeSessionLoaded,
     handleRuntimeSessionUpdated,
   } = useWorkspaceRouteState({
     preserveRoute: Boolean(experimentView),
     onServerSettingsChanged: () => setLegalworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setLegalworkServerHostInfoState,
   });
+  // Projects synced with the firm arrive, leave and get renamed in the background.
+  useProjectSyncPoller(client, () => void refreshRouteState(), (workspaceIds) => {
+    // Sync changed files of these projects here: whatever shows them reloads.
+    for (const id of workspaceIds) {
+      void getReactQueryClient().invalidateQueries({ predicate: (query) => query.queryKey.includes(id) });
+    }
+  }, (workspaceIds) => {
+    // Sync took these projects off this computer (access ended, or removed from Home).
+    void Promise.all(workspaceIds.map((id) => forgetWorkspaceHere(id))).then(() => refreshRouteState());
+  });
+  // The server says when projects or tasks changed here: what shows them re-reads.
+  useSyncEvents(client);
+  useEffect(() => onSyncPoke((poke) => {
+    if (poke.projects || poke.resync) void getReactQueryClient().invalidateQueries({ queryKey: ["project-sync"] });
+    if (poke.tasks || poke.resync) refreshTaskQueries(getReactQueryClient());
+  }), []);
+  useEffect(() => {
+    if (!routeWorkspaceId || !location.pathname.endsWith("/project")) return;
+    const search = new URLSearchParams(location.search);
+    const oldTab = search.get("tab");
+    if (!oldTab) return;
+    search.delete("tab");
+    navigate({ pathname: oldTab === "tasks" ? workspaceTasksRoute(routeWorkspaceId) : location.pathname, search: search.toString(), hash: location.hash }, { replace: true });
+  }, [location.pathname, location.search, location.hash, routeWorkspaceId, navigate]);
   // Agent selection is persisted in local prefs (like the model variant) so
   // it survives reloads instead of silently falling back to "build" (#2101).
   const selectedAgent = local.prefs.selectedAgent;
@@ -511,20 +549,16 @@ export function SessionRoute() {
   const [renameWorkspaceId, setRenameWorkspaceId] = useState<string | null>(null);
   const [renameWorkspaceTitle, setRenameWorkspaceTitle] = useState("");
   const [renameWorkspaceBusy, setRenameWorkspaceBusy] = useState(false);
-  const [developerMode, setDeveloperMode] = useState(() => {
+  const [developerMode] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("legalwork.developerMode") === "1";
   });
-  const [paletteAccessibleTargets, setPaletteAccessibleTargets] = useState<OpenTarget[]>([]);
   const [providers, setProviders] = useState<ProviderListItem[]>([]);
   const [providerDefaults, setProviderDefaults] = useState<Record<string, string>>({});
   const [providerConnectedIds, setProviderConnectedIds] = useState<string[]>([]);
   const [disabledProviderIds, setDisabledProviderIds] = useState<string[]>([]);
 
   // Provider IDs that were just added — used to highlight them as
-  useEffect(() => {
-    setPaletteAccessibleTargets([]);
-  }, [selectedSessionId, selectedWorkspaceId]);
 
   // Provider catalog cache. Used to compute the reasoning/thinking variant
   // options for whichever model is currently selected so the composer's
@@ -611,10 +645,6 @@ export function SessionRoute() {
     [errorsByWorkspaceId, retryingWorkspaceIds, sessionsByWorkspaceId, sidebarWorkspaces],
   );
   useSessionGroupSync({ workspaces, endpointForWorkspace });
-  const selectedWorkspaceGroupState = sessionManagementStore((state) => (
-    selectedWorkspaceId ? state.groupsByWorkspace[selectedWorkspaceId] : undefined
-  ));
-  const assignSessionToGroup = sessionManagementStore((state) => state.assignGroup);
   const seedWorkspaceActivitySessions = useSessionActivityStore((state) => state.seedWorkspaceSessions);
   const sessionActivityByWorkspaceId = useSessionActivityStore((state) => state.statusesByWorkspaceId);
 
@@ -832,8 +862,9 @@ export function SessionRoute() {
     (ai: "connected" | "own_model" | "existing") => {
       captureAnalyticsEvent("onboarding_completed", { ai });
       setOnboardingStage("done");
+      navigate(homeRoute(homeProjectIdFromSearch(location.search) || selectedWorkspaceId), { replace: true });
     },
-    [setOnboardingStage],
+    [location.search, navigate, selectedWorkspaceId, setOnboardingStage],
   );
 
   // LAWOSS: krok „audio" zapína prepis a diktovanie, ale záložka recorder je
@@ -995,15 +1026,17 @@ export function SessionRoute() {
   }, [disabledProviderIds, providerListQuery.data]);
   const aiAccess = aiAccessState({
     connectedProviders: accessProviders,
-    eigenwelt: eigenweltView ?? (eigenweltEntitlementsQuery.isError ? null : undefined),
+    eigenwelt: eigenweltView,
     signedInBefore: rememberedEigenweltAccount !== null,
   });
   const aiPlansVariant = isAiPlansVariant(aiAccess) ? aiAccess : null;
   // Not in the Office task pane: it shares this computer's connection, and
   // its composer notice keeps the ways out in the space it has.
   const aiPlansGateEnabled = !isOfficeAddinRuntime() && !isCommercialSurfaceHidden("ai-plans");
+  // Organizing local project files, notes and tasks does not need an AI model.
   const aiPlansGateVisible =
-    aiPlansGateEnabled && onboardingStage === "done" && aiPlansVariant !== null;
+    aiPlansGateEnabled && onboardingStage === "done" && aiPlansVariant !== null &&
+    location.pathname !== "/projects" && !location.pathname.endsWith("/project") && !location.pathname.endsWith("/tasks") && !createWorkspaceOpen;
   const aiPlansScreenVisible = (onboardingStage === "ai" && !isCommercialSurfaceHidden("ai-plans")) || aiPlansGateVisible;
   // Announcements wait until it is clear whether the plan screen shows, and
   // until it is gone: they never stack on top of it.
@@ -1342,7 +1375,7 @@ export function SessionRoute() {
       onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "providers") => {
         handleOpenSettings(section === "skills" ? "/settings/extensions/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : section === "providers" ? "/settings/ai" : "/settings/general");
       },
-      onSendDraft: async (draft: ComposerDraft, sessionId: string) => {
+      onSendDraft: async (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean }) => {
         const targetSessionId = sessionId.trim() || selectedSessionId;
         if (!targetSessionId) return;
         const text = (draft.resolvedText ?? draft.text).trim();
@@ -1410,7 +1443,7 @@ export function SessionRoute() {
             // the message is handed off, not when the whole fusion turn
             // (task calls + synthesis) finishes. Progress streams
             // through the fusion store; failures surface as a session error.
-            void runFusionSend({
+            const run = runFusionSend({
               client: opencodeClient,
               directory: selectedWorkspaceRoot || undefined,
               mainSessionId: targetSessionId,
@@ -1425,21 +1458,29 @@ export function SessionRoute() {
               const message = error instanceof Error ? error.message : String(error);
               toast.error(t("fusion.turn_failed"), { description: message });
               useSessionActivityStore.getState().setError(selectedWorkspaceId, targetSessionId, message);
+              if (options?.waitForCompletion) throw error;
             });
+            if (options?.waitForCompletion) await run;
             return;
           }
         }
 
-        const result = await opencodeClient.session.promptAsync({
+        const request = {
           sessionID: targetSessionId,
           parts,
           model: local.prefs.defaultModel ?? undefined,
           agent: selectedAgent ?? undefined,
           ...(modelVariantValue ? { variant: modelVariantValue } : {}),
           ...(turnSystemContext ? { system: turnSystemContext } : {}),
-        });
-        if (result.error) {
-          throw new Error(serializeSDKError(result.error));
+        };
+        if (options?.waitForCompletion) {
+          // The queue advances after the engine's whole loop, not after a tool
+          // step, a streamed assistant message, or the prompt_async HTTP 204.
+          const result = unwrap(await opencodeClient.session.prompt(request));
+          if (result.info.error) throw new Error(serializeSDKError(result.info.error));
+        } else {
+          const result = await opencodeClient.session.promptAsync(request);
+          if (result.error) throw new Error(serializeSDKError(result.error));
         }
       },
       onDraftChange: () => {
@@ -1572,28 +1613,40 @@ export function SessionRoute() {
     );
   }, [workspaces]);
 
-  const handleSaveRenameWorkspace = useCallback(async () => {
-    if (!renameWorkspaceId) return;
-    const trimmed = renameWorkspaceTitle.trim();
-    if (!trimmed) return;
-    setRenameWorkspaceBusy(true);
+  const handleRenameWorkspace = useCallback(async (workspaceId: string, title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) return false;
     try {
       if (!client) {
         toast.error(t("session_route.rename_server_unavailable"));
-        return;
+        return false;
       }
-      await client.updateWorkspaceDisplayName(renameWorkspaceId, trimmed);
-      setRenameWorkspaceId(null);
-      setRenameWorkspaceTitle("");
+      await client.updateWorkspaceDisplayName(workspaceId, trimmed);
+      setWorkspaces((current) => current.map((workspace) => workspace.id === workspaceId
+        ? { ...workspace, displayName: trimmed, displayNameResolved: trimmed, name: trimmed }
+        : workspace));
       await refreshRouteState();
+      return true;
     } catch (error) {
       toast.error(t("session_route.rename_failed"), {
         description: describeRouteError(error),
       });
+      return false;
+    }
+  }, [client, refreshRouteState, setWorkspaces]);
+
+  const handleSaveRenameWorkspace = useCallback(async () => {
+    if (!renameWorkspaceId || !renameWorkspaceTitle.trim()) return;
+    setRenameWorkspaceBusy(true);
+    try {
+      if (await handleRenameWorkspace(renameWorkspaceId, renameWorkspaceTitle)) {
+        setRenameWorkspaceId(null);
+        setRenameWorkspaceTitle("");
+      }
     } finally {
       setRenameWorkspaceBusy(false);
     }
-  }, [client, refreshRouteState, renameWorkspaceId, renameWorkspaceTitle]);
+  }, [handleRenameWorkspace, renameWorkspaceId, renameWorkspaceTitle]);
 
   const handleRevealWorkspace = useCallback(async (workspaceId: string) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
@@ -1606,6 +1659,26 @@ export function SessionRoute() {
     }
   }, [workspaces]);
 
+  // Gone from the server (removed from the sidebar, or taken off this
+  // computer by project sync): the desktop's own list and this window forget
+  // it too, so the next refresh can't resurrect the row from whichever list
+  // wins the merge.
+  const forgetWorkspaceHere = useCallback(
+    async (workspaceId: string) => {
+      if (isDesktopRuntime()) {
+        await workspaceForget(workspaceId).catch(() => undefined);
+      }
+      if (selectedWorkspaceId === workspaceId) {
+        setLegacySelectedWorkspaceId("");
+        writeActiveWorkspaceId(null);
+        navigate("/home");
+      }
+      forgetWorkspaceMemory(workspaceId);
+      sessionManagementStore.getState().forgetWorkspace(workspaceId);
+    },
+    [navigate, selectedWorkspaceId],
+  );
+
   const handleForgetWorkspace = useCallback(
     async (workspaceId: string) => {
       if (typeof window !== "undefined") {
@@ -1614,28 +1687,17 @@ export function SessionRoute() {
           "Remove this workspace from the sidebar?";
         if (!window.confirm(message)) return;
       }
-      // Remove from both stores so the next refresh can't resurrect the row
-      // from whichever list wins the merge.
       if (client) {
         await client.deleteWorkspace(workspaceId).catch(() => undefined);
       }
-      if (isDesktopRuntime()) {
-        await workspaceForget(workspaceId).catch(() => undefined);
-      }
-      if (selectedWorkspaceId === workspaceId) {
-        setLegacySelectedWorkspaceId("");
-        writeActiveWorkspaceId(null);
-        navigate(legacySessionRoute());
-      }
-      forgetWorkspaceMemory(workspaceId);
-      sessionManagementStore.getState().forgetWorkspace(workspaceId);
+      await forgetWorkspaceHere(workspaceId);
       await refreshRouteState();
     },
-    [client, navigate, refreshRouteState, selectedWorkspaceId],
+    [client, forgetWorkspaceHere, refreshRouteState],
   );
 
 
-  const handleCreateChatInWorkspace = useCallback(async (workspaceId: string) => {
+  const handleCreateChatInWorkspace = useCallback(async (workspaceId: string, options?: { shareRecordingId: string }) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
     if (
       !workspace ||
@@ -1678,6 +1740,16 @@ export function SessionRoute() {
         sessionsByWorkspaceIdRef.current = next;
         return next;
       });
+      const recorder = useRecorderStore.getState();
+      if (options?.shareRecordingId && recorder.recording?.id === options.shareRecordingId) {
+        const shared = await recorder.startLiveTranscriptShare(
+          session.id,
+          workspace.path?.trim() || "",
+          workspace.path?.trim() || undefined,
+          workspaceClient,
+        );
+        if (!shared) toast.error(useRecorderStore.getState().error || t("recorder.live_transcript_failed"));
+      }
       navigateToWorkspaceSession(workspaceId, session.id);
       focusPromptSoon();
       void refreshRouteState();
@@ -1689,7 +1761,7 @@ export function SessionRoute() {
         description: message,
         action: {
           label: "Retry",
-          onClick: () => void handleCreateChatInWorkspace(workspaceId),
+          onClick: () => void handleCreateChatInWorkspace(workspaceId, options),
         },
         duration: Infinity,
       });
@@ -1738,14 +1810,14 @@ export function SessionRoute() {
   const {
     commandPaletteOpen,
     setCommandPaletteOpen,
-    sessionSearchOpen,
-    setSessionSearchOpen,
     terminalOpen,
     setTerminalOpen,
   } = useShellShortcuts({
-    canCreateChat,
-    workspaceId: selectedWorkspaceId,
-    onCreateChat: handleCreateChatInWorkspace,
+    onCreateChat: () => {
+      const openProjectId = routeWorkspaceId || (selectedSessionId ? selectedWorkspaceId : null);
+      if (openProjectId) void handleCreateChatInWorkspace(openProjectId);
+      else navigate("/home");
+    },
     onNextSessionTab: goToNextSessionTab,
     onPrevSessionTab: goToPrevSessionTab,
   });
@@ -1767,8 +1839,8 @@ export function SessionRoute() {
   }, [navigateToWorkspaceSession, selectedWorkspaceId, sessionsByWorkspaceId]);
 
   const navigateToSessionRootForControl = useCallback(() => {
-    navigateToWorkspaceSession(selectedWorkspaceId);
-  }, [navigateToWorkspaceSession, selectedWorkspaceId]);
+    navigate("/home");
+  }, [navigate]);
 
   const openModelPickerForControl = useCallback(() => {
     modelPicker.setOpen(true);
@@ -1831,6 +1903,7 @@ export function SessionRoute() {
         t("session.workspace_fallback");
       const list = sessionsByWorkspaceId[workspace.id] ?? [];
       for (const session of list) {
+        if (session.time?.archived) continue;
         const sessionId = (session as { id?: string }).id?.trim() ?? "";
         if (!sessionId) continue;
         const title = getDisplaySessionTitle(
@@ -1869,101 +1942,40 @@ export function SessionRoute() {
     navigate: navigateToWorkspaceSession,
   };
 
-  const paletteSessionGroups = useMemo<SessionGroupOption[]>(
-    () => selectedWorkspaceGroupState?.groups ?? [],
-    [selectedWorkspaceGroupState?.groups],
-  );
+  const searchWorkspaces = useMemo<SearchWorkspace[]>(() => sidebarWorkspaces.map(workspace => ({
+    id: workspace.id, title: workspace.displayNameResolved, local: workspace.workspaceType !== "remote",
+    server: endpointForWorkspace(workspace)?.baseUrl ?? workspace.id,
+  })), [sidebarWorkspaces, endpointForWorkspace]);
 
-  const currentSessionForGroupMove = useMemo(() => {
-    if (!selectedWorkspaceId || !selectedSessionId) return null;
-    return paletteSessionOptions.find(
-      (session) => session.workspaceId === selectedWorkspaceId && session.sessionId === selectedSessionId,
-    ) ?? null;
-  }, [paletteSessionOptions, selectedSessionId, selectedWorkspaceId]);
+  const searchContents = useCallback(async (workspaceId: string, kind: "sessions" | "tasks" | "files", query: string, signal: AbortSignal, options?: { projectOnly?: boolean; retry?: boolean }) => {
+    const workspace = workspaces.find(item => item.id === workspaceId);
+    const endpoint = workspace ? endpointForWorkspace(workspace) : null;
+    if (!endpoint) throw new Error("Project is unavailable.");
+    const response = await endpoint.client.searchContents(endpoint.workspaceId, kind, query, signal, options);
+    return { ...response, items: response.items.map(item => ({ ...item,
+      workspaceId: item.workspaceId === endpoint.workspaceId ? workspaceId : item.workspaceId,
+      title: item.kind === "sessions" ? getDisplaySessionTitle(item.title) : item.title,
+    })) };
+  }, [workspaces, endpointForWorkspace]);
 
-  const currentSessionGroupId = selectedSessionId
-    ? selectedWorkspaceGroupState?.assignments[selectedSessionId] ?? null
-    : null;
+  const searchProject = useCallback(async (workspaceId: string) => {
+    const workspace = workspaces.find(item => item.id === workspaceId);
+    const endpoint = workspace ? endpointForWorkspace(workspace) : null;
+    if (!endpoint) throw new Error("Project is unavailable.");
+    return endpoint.client.getProjectDetails(endpoint.workspaceId);
+  }, [workspaces, endpointForWorkspace]);
 
-  const handleMoveCurrentSessionToGroup = useCallback((groupId: string) => {
-    if (!selectedWorkspaceId || !selectedSessionId) return;
-    assignSessionToGroup(selectedWorkspaceId, selectedSessionId, groupId);
-  }, [assignSessionToGroup, selectedSessionId, selectedWorkspaceId]);
-
-  const sessionSearchFetcher = useMemo<SessionMessageFetcher | null>(() => {
-    if (!client) return null;
-    // Cap the transcript fetch to keep multi-workspace scans fast; matches in
-    // anything older than the most recent 400 messages are traded away for
-    // responsiveness.
-    return async (workspaceId: string, sessionId: string) =>
-      (await client.getSessionMessages(workspaceId, sessionId, { limit: 400 })).items;
-  }, [client]);
-
-  const sessionSearchPaletteItem = useMemo<PaletteItem>(() => ({
-    id: "session-search.open",
-    title: t("session_route.search_messages_title"),
-    detail: t("session_route.search_messages_detail"),
-    meta: "Cmd/Ctrl+Shift+F",
-    searchText: "search find sessions messages history transcript content",
-    action: () => {
-      setCommandPaletteOpen(false);
-      setSessionSearchOpen(true);
-    },
-  }), []);
-
-  const terminalPaletteItems = useMemo<PaletteItem[]>(() => [
-    {
-      id: "terminal.toggle",
-      title: terminalOpen ? "Hide terminal" : "Show terminal",
-      detail: t("session_route.terminal_detail"),
-      meta: "Cmd/Ctrl+J",
-      searchText: "terminal shell command line console show hide toggle",
-      action: () => {
-        setCommandPaletteOpen(false);
-        setTerminalOpen((value) => !value);
-      },
-    },
-  ], [terminalOpen]);
-
-  const developerModePaletteItem = useMemo<PaletteItem>(() => ({
-    id: "developer-mode.toggle",
-    title: developerMode ? t("settings.disable_developer_mode") : t("settings.enable_developer_mode"),
-    detail: t("settings.developer_mode_desc"),
-    meta: developerMode ? "On" : "Off",
-    searchText: "developer dev mode debug diagnostics toggle enable disable",
-    action: () => {
-      setCommandPaletteOpen(false);
-      setDeveloperMode((current) => {
-        const next = !current;
-        try { window.localStorage.setItem("legalwork.developerMode", next ? "1" : "0"); } catch {}
-        return next;
-      });
-    },
-  }), [developerMode]);
-
-  const nextSessionTabPaletteItem = useMemo<PaletteItem>(() => ({
-    id: "session-tab.next",
-    title: t("session_route.next_tab_title"),
-    detail: t("session_route.next_tab_detail"),
-    meta: "Cmd/Ctrl+T",
-    searchText: "next session tab switch forward",
-    action: () => {
-      setCommandPaletteOpen(false);
-      goToNextSessionTab();
-    },
-  }), [goToNextSessionTab]);
-
-  const prevSessionTabPaletteItem = useMemo<PaletteItem>(() => ({
-    id: "session-tab.previous",
-    title: t("session_route.prev_tab_title"),
-    detail: t("session_route.prev_tab_detail"),
-    meta: "Cmd/Ctrl+Shift+T",
-    searchText: "previous session tab switch back",
-    action: () => {
-      setCommandPaletteOpen(false);
-      goToPrevSessionTab();
-    },
-  }), [goToPrevSessionTab]);
+  const openSearchResult = useCallback((result: ContentSearchResult) => {
+    setShowEvals(false); setShowWorkflows(false); setShowExtensions(false); setShowRecorder(false); setShowTasks(false);
+    if (result.kind === "tasks") {
+      setOpenTask({ id: result.id, at: Date.now() });
+      setShowTasks(true);
+      return;
+    }
+    useSearchNavigation.getState().setTarget(result.messageId || result.kind === "files" ? result : null);
+    if (result.kind === "sessions") navigateToWorkspaceSession(result.workspaceId, result.id);
+    else navigate(workspaceProjectRoute(result.workspaceId));
+  }, [navigate, navigateToWorkspaceSession]);
 
   const handleReorderWorkspaces = useCallback((workspaceIds: string[]) => {
     const activeWorkspaceIds = new Set(workspacesRef.current.map((workspace) => workspace.id));
@@ -1988,16 +2000,21 @@ export function SessionRoute() {
     setWorkspaces((current) => orderRouteWorkspaces(current, nextOrderIds));
   }, []);
 
+  const sessionTarget = useCallback((sessionId: string) => {
+    const owner = Object.entries(sessionsByWorkspaceId).find(([, sessions]) => sessions.some(session => session.id === sessionId));
+    const workspace = workspaces.find(workspace => workspace.id === (owner?.[0] ?? selectedWorkspaceId));
+    const endpoint = workspace ? endpointForWorkspace(workspace) : null;
+    if (!workspace || !endpoint) throw new Error(t("sidebar.sessions_unavailable"));
+    return { workspace, endpoint, client: createClient(endpoint.opencodeBaseUrl, workspace.path?.trim() || undefined, { token: endpoint.token, mode: "legalwork" }) };
+  }, [sessionsByWorkspaceId, workspaces, selectedWorkspaceId, endpointForWorkspace]);
+
   const handleArchiveSession = useCallback(
     async (sessionId: string, archived: boolean) => {
       if (!opencodeClient) return;
       try {
-        await setSessionArchived(
-          opencodeClient,
-          sessionId,
-          archived,
-          selectedWorkspaceRoot || undefined,
-        );
+        const target = sessionTarget(sessionId);
+        await setSessionArchived(target.client, sessionId, archived, target.workspace.path || undefined);
+        await loadWorkspaceSessionsInBackground([target.workspace]);
         await refreshRouteState();
       } catch (error) {
         console.error("[session-route] archive session failed", error);
@@ -2009,7 +2026,7 @@ export function SessionRoute() {
         );
       }
     },
-    [opencodeClient, refreshRouteState, selectedWorkspaceRoot],
+    [opencodeClient, refreshRouteState, sessionTarget, loadWorkspaceSessionsInBackground],
   );
 
   const handleCreateWorkspace = useCallback(async (preset: WorkspacePreset, folder: string | null) => {
@@ -2022,7 +2039,7 @@ export function SessionRoute() {
       let createdOnServer = false;
       if (client) {
         list = await client
-          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset })
+          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset, projectFields: newProjectFields() })
           .then((serverList) => {
             createdOnServer = true;
             return serverList;
@@ -2087,6 +2104,50 @@ export function SessionRoute() {
     }
   }, [baseUrl, client, local, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, token]);
 
+  const handleCreateProject = async (input: CreateProjectInput) => {
+    if (!client || createWorkspaceBusy) return;
+    setCreateWorkspaceBusy(true);
+    setCreateWorkspaceError(null);
+    try {
+      const list = await client.createLocalWorkspace({ ...input, preset: "starter", projectFields: newProjectFields() });
+      const id = resolveWorkspaceListSelectedId(list);
+      if (!id) throw new Error(t("session_route.create_server_unavailable"));
+      setLegacySelectedWorkspaceId(id);
+      writeActiveWorkspaceId(id);
+      if (isDesktopRuntime()) {
+        await workspaceSetSelected(id).catch(() => undefined);
+        await workspaceSetRuntimeActive(id).catch(() => undefined);
+      }
+      local.setPrefs((prev) => ({ ...prev, hasCompletedOnboarding: true }));
+      await refreshRouteState();
+      setCreateWorkspaceOpen(false);
+      navigate(workspaceProjectRoute(id));
+      if (input.initializeFromFolders) {
+        try {
+          if (!baseUrl || !token) throw new Error(t("session_route.create_server_unavailable"));
+          const workspacePath = list.workspaces.find((workspace) => workspace.id === id)?.path;
+          const firstClient = createClient(`${(buildLegalworkWorkspaceBaseUrl(baseUrl, id) ?? baseUrl).replace(/\/+$/, "")}/opencode`, workspacePath, { token, mode: "legalwork" });
+          const session = unwrap(await firstClient.session.create({ directory: workspacePath }));
+          rememberPendingCreatedSession(id, session.id);
+          writeLastSessionFor(id, session.id);
+          setSessionsByWorkspaceId((current) => {
+            const next = { ...current, [id]: [session, ...(current[id] ?? [])] };
+            sessionsByWorkspaceIdRef.current = next;
+            return next;
+          });
+          navigateToWorkspaceSession(id, session.id, { replace: true });
+          const result = await firstClient.session.promptAsync({ sessionID: session.id, parts: [{ type: "text", text: t("projects.setup.initial_prompt") }], model: local.prefs.defaultModel ?? undefined, agent: selectedAgent ?? undefined });
+          if (result.error) throw new Error(serializeSDKError(result.error));
+        } catch (error) {
+          toast.error(t("projects.setup.session_failed"), { description: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      captureAnalyticsEvent("workspace_created", { surface: analyticsSurface() });
+    } catch (error) {
+      setCreateWorkspaceError(projectErrorMessage(error, true));
+    } finally { setCreateWorkspaceBusy(false); }
+  };
+
   const handleCreateChatInNewWorkspace = useCallback(async () => {
     if (createWorkspaceBusy) return;
     const folder = (await pickDirectory({ title: t("onboarding.authorize_folder") })) as string | null;
@@ -2094,15 +2155,107 @@ export function SessionRoute() {
     await handleCreateWorkspace("starter", folder);
   }, [createWorkspaceBusy, handleCreateWorkspace]);
 
-  // Leaving a top-level pane (Evals/Skills/Integrations): any session/workspace
-  // navigation drops back to the session view.
+  const homePage = location.pathname === "/home" || (!selectedSessionId && isSessionIndexRoute(location.pathname));
+  const homeEntryProjectId = routeWorkspaceId || homeProjectIdFromSearch(location.search);
+  const [homeProjectId, setHomeProjectId] = useState<string | null>(homeEntryProjectId);
+  const homeSending = useRef(false);
+  const pendingHomeMessage = useRef<PendingHomeMessage & { workspaceId: string } | null>(null);
   useEffect(() => {
-    setShowEvals(false);
-    setShowWorkflows(false);
+    if (!homePage) return;
+    setHomeProjectId(homeEntryProjectId);
+    pendingHomeMessage.current = null;
+  }, [homePage, homeEntryProjectId]);
+
+  const handleHomeSend = async (text: string, files: File[]) => {
+    if (homeSending.current) return;
+    if (!client) throw new Error(t("session_route.create_server_unavailable"));
+    const model = local.prefs.defaultModel;
+    if (!model) throw new Error(t("session_route.no_model"));
+    if (selectedModelUnavailable) throw new Error(t("session_route.model_unavailable"));
+    homeSending.current = true;
+    try {
+      let workspace = homeProjectId ? workspaces.find((item) => item.id === homeProjectId) : null;
+      if (homeProjectId && !workspace) throw new Error(t("workspace.not_found"));
+      if (!workspace) {
+        const name = text.trim().split(/\r?\n/)[0].slice(0, 80) || files[0]?.name || t("home.new_project");
+        const list = await client.createLocalWorkspace({ name, folderMode: "default", preset: "starter", projectFields: newProjectFields() });
+        const createdId = resolveWorkspaceListSelectedId(list);
+        const created = list.workspaces.find((item) => item.id === createdId);
+        if (!created) throw new Error(t("session_route.create_server_unavailable"));
+        const createdWorkspace = mapDesktopWorkspace(created);
+        workspace = createdWorkspace;
+        // Expose the saved project immediately, even if copying a file fails.
+        setHomeProjectId(created.id);
+        setWorkspaces((current) => [createdWorkspace, ...current.filter((item) => item.id !== created.id)]);
+        captureAnalyticsEvent("workspace_created", { source: "home", surface: analyticsSurface() });
+      }
+      const targetWorkspace = workspace;
+      const endpoint = resolveWorkspaceEndpoint(targetWorkspace, { baseUrl, token });
+      if (!endpoint?.token) throw new Error(t("session_route.create_server_unavailable"));
+      await endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true });
+      if (isDesktopRuntime() && !endpoint.isRemote) {
+        await workspaceSetSelected(targetWorkspace.id).catch(() => undefined);
+        await workspaceSetRuntimeActive(targetWorkspace.id).catch(() => undefined);
+      }
+      const workspaceClient = createClient(endpoint.opencodeBaseUrl, targetWorkspace.path || undefined, { token: endpoint.token, mode: "legalwork" });
+      let pending = pendingHomeMessage.current;
+      if (!pending || pending.workspaceId !== targetWorkspace.id) {
+        pending = { workspaceId: targetWorkspace.id, sessionId: null, uploads: new Map() };
+        pendingHomeMessage.current = pending;
+      }
+      const sessionId = await submitHomeMessage({
+        workspaceId: endpoint.workspaceId,
+        text,
+        files,
+        pending,
+        client: endpoint.client,
+        createSession: async () => {
+          const session = unwrap(await workspaceClient.session.create({ directory: targetWorkspace.path || undefined }));
+          rememberPendingCreatedSession(targetWorkspace.id, session.id);
+          setSessionsByWorkspaceId((current) => {
+            const next = { ...current, [targetWorkspace.id]: [session, ...(current[targetWorkspace.id] ?? [])] };
+            sessionsByWorkspaceIdRef.current = next;
+            return next;
+          });
+          captureAnalyticsEvent("task_created", { source: "home", surface: analyticsSurface() });
+          return session;
+        },
+        sendPrompt: async (sessionId, prompt, fileContext) => {
+          const environmentContext = await buildLegalworkEnvSystemContext(endpoint.client, { cacheKey: sessionId });
+          const system = [environmentContext, fileContext].filter(Boolean).join("\n\n");
+          const result = await workspaceClient.session.promptAsync({
+            sessionID: sessionId,
+            parts: [{ type: "text", text: prompt }],
+            model,
+            agent: selectedAgent ?? undefined,
+            ...(modelVariantValue ? { variant: modelVariantValue } : {}),
+            ...(system ? { system } : {}),
+          });
+          if (result.error) throw new Error(serializeSDKError(result.error));
+          markTaskRunStart(sessionId);
+          captureAnalyticsEvent("task_message_sent", { session_id: sessionId, provider_id: model.providerID, model_id: model.modelID, surface: analyticsSurface() });
+        },
+      });
+      pendingHomeMessage.current = null;
+      setLegacySelectedWorkspaceId(targetWorkspace.id);
+      writeActiveWorkspaceId(targetWorkspace.id);
+      writeLastSessionFor(targetWorkspace.id, sessionId);
+      navigateToWorkspaceSession(targetWorkspace.id, sessionId);
+      void refreshRouteState();
+    } finally {
+      homeSending.current = false;
+    }
+  };
+
+  // Main pages can also be reached from Settings or browser history.
+  // Keep the selected pane in step with the route after workspace hydration.
+  useEffect(() => {
+    setShowEvals(location.pathname.endsWith("/evals"));
+    setShowWorkflows(location.pathname === "/workflows");
     setShowExtensions(false);
-    setShowRecorder(false);
-    if (Date.now() >= keepTasksPaneUntil.current) setShowTasks(false);
-  }, [selectedSessionId, selectedWorkspaceId, location.key]);
+    setShowRecorder(location.pathname === "/recorder" && !isHiddenSettingsTab("recorder"));
+    if (Date.now() >= keepTasksPaneUntil.current) setShowTasks(location.pathname === "/tasks");
+  }, [location.pathname, location.key, selectedSessionId, selectedWorkspaceId]);
 
   return (
     <WorkspaceProvider
@@ -2121,6 +2274,7 @@ export function SessionRoute() {
         activeSessionIds={activeSelectedWorkspaceSessionIds}
         opencodeBaseUrl={opencodeBaseUrl}
         legalworkToken={selectedWorkspaceServerToken}
+        onSessionLoaded={handleRuntimeSessionLoaded}
         onSessionUpdated={handleRuntimeSessionUpdated}
       />
     ) : null}
@@ -2226,12 +2380,13 @@ export function SessionRoute() {
     </Dialog>
     <SessionPage
       detached={detached}
+      homePage={homePage}
       selectedSessionId={selectedSessionId}
       selectedWorkspaceId={selectedWorkspaceId}
       selectedWorkspaceDisplay={selectedWorkspace ? {
         id: selectedWorkspace.id,
         name: selectedWorkspace.name ?? undefined,
-        displayName: selectedWorkspace.displayNameResolved,
+        displayName: workspaceLabel(selectedWorkspace),
         workspaceType: selectedWorkspace.workspaceType,
       } : { workspaceType: "local" }}
       selectedWorkspaceRoot={selectedWorkspaceRoot}
@@ -2274,6 +2429,8 @@ export function SessionRoute() {
           return result;
         },
         onSubmitCustomProvider: sessionProviderAuthStore.submitCustomProvider,
+        onFetchCustomModels: sessionProviderAuthStore.fetchCustomProviderModels,
+        onReadCustomProvider: sessionProviderAuthStore.readCustomProviderForEdit,
         // From the plan screen's "own model" card: providers only.
         onEigenweltSignIn: providerModalFromPlans ? undefined : sessionProviderAuthStore.startEigenweltSignIn,
         onEigenweltWait: providerModalFromPlans ? undefined : sessionProviderAuthStore.completeEigenweltSignIn,
@@ -2281,11 +2438,92 @@ export function SessionRoute() {
         onRefreshProviders: sessionProviderAuthStore.refreshProviders,
         onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),
       } : null}
+      projectsPage={location.pathname === "/projects" && !showWorkflows && !showExtensions && !showEvals && !showTasks && !showRecorder}
+      projectPage={(location.pathname.endsWith("/project") || location.pathname.endsWith("/tasks") || location.pathname.endsWith("/reviews")) && !showWorkflows && !showExtensions && !showEvals && !showTasks && !showRecorder ? location.pathname.endsWith("/reviews") ? "reviews" : location.pathname.endsWith("/tasks") ? "tasks" : "home" : undefined}
+      onRenameProject={(name) => handleRenameWorkspace(selectedWorkspaceId, name)}
+      onCreateProjectSession={async (shareRecording) => {
+        if (recordingSessionStarting.current) return;
+        recordingSessionStarting.current = true;
+        const recorder = useRecorderStore.getState();
+        const recording = recorder.recording;
+        try {
+          await handleCreateChatInWorkspace(selectedWorkspaceId,
+            shareRecording && recording && recording.id !== recorder.dictationRecordingId && !recorder.finalizing
+              ? { shareRecordingId: recording.id }
+              : undefined,
+          );
+        } finally { recordingSessionStarting.current = false; }
+      }}
+      projectTasksView={
+        <TasksPane embedded={location.pathname.endsWith("/project")} onViewAll={() => navigate(workspaceTasksRoute(selectedWorkspaceId))} client={selectedWorkspaceEndpoint?.client ?? client} workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} projectId={selectedWorkspaceEndpoint?.workspaceId ?? selectedWorkspaceId} detailMode="panel" baseUrl={baseUrl} token={token} workspaces={sidebarWorkspaces} defaultModel={local.prefs.defaultModel} onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
+      }
+      onStartProjectRecording={() => {
+        const recorder = useRecorderStore.getState();
+        if (recorder.recording) {
+          void recorder.stopRecording().then(() => {
+            const error = useRecorderStore.getState().error;
+            if (error) toast.error(error);
+          });
+          return;
+        }
+        if (recorder.starting || recorder.importing) return;
+        const project = { id: selectedWorkspaceId, name: selectedWorkspace?.displayNameResolved || selectedWorkspaceId };
+        const setupAction = {
+          label: t("recorder.open"),
+          onClick: () => {
+            showRecorderPane();
+            setRecorderProject(project);
+          },
+        };
+        if (!isElectronRuntime()) {
+          toast.info(t("recorder.desktop_required_body"));
+          return;
+        }
+        void recorder.init().then(async () => {
+          const ready = useRecorderStore.getState();
+          if (!ready.bootstrap?.models.some((model) => model.id === ready.modelId && model.state === "installed")) {
+            toast.info(t("recorder.install_model_first"), { action: setupAction });
+            return;
+          }
+          await ready.startRecording(undefined, { projectId: project.id });
+          const started = useRecorderStore.getState();
+          if (started.permissionsNeeded.length) {
+            toast.info(t("recorder.setup_subtitle_flow"), { action: setupAction });
+          } else if (started.error) {
+            toast.error(started.error);
+          }
+        }).catch(() => {
+          toast.error(t("recorder.transcriber_start_failed"));
+        });
+      }}
       mainView={
         // One reused SettingsSurface instance across the pages — it follows `initialPath`
         // via an effect, so switching Workflows <-> Integrations is instant and doesn't
         // re-fetch the workspace/stores.
-        showWorkflows ? (
+        homePage ? (
+          <AppHome
+            workspaces={sidebarWorkspaces}
+            projectId={homeProjectId}
+            onProjectChange={(id) => {
+              if (id === homeProjectId) return;
+              setHomeProjectId(id);
+              pendingHomeMessage.current = null;
+              if (id) setLegacySelectedWorkspaceId(id);
+              if (location.pathname === "/home") navigate(homeRoute(id), { replace: true });
+            }}
+            onSend={handleHomeSend}
+            disabled={effectiveLoading || createWorkspaceBusy || !client}
+            providerConnectedCount={usableProviderCount}
+            onConnect={() => void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" })}
+            selectedModel={local.prefs.defaultModel}
+            modelLocked={soloEigenweltModel}
+            onModelChange={(model) => local.setPrefs((previous) => ({ ...previous, defaultModel: model, modelVariant: null }))}
+            modelVariant={modelVariantValue}
+            modelVariantLabel={modelVariantLabel}
+            modelBehaviorOptions={modelBehaviorOptions}
+            onModelVariantChange={(modelVariant) => local.setPrefs((previous) => ({ ...previous, modelVariant }))}
+          />
+        ) : showWorkflows ? (
           // onClose drops the pane so actions that navigate to a session (e.g.
           // opening the workflow-generation session) always reveal the chat —
           // even when the target session is already the selected one and the
@@ -2295,7 +2533,7 @@ export function SessionRoute() {
             singleView
             initialPath="workflows"
             workspaceId={selectedWorkspaceId}
-            onClose={() => setShowWorkflows(false)}
+            onClose={() => { setShowWorkflows(false); navigate(workspaceSessionRoute(selectedWorkspaceId, selectedSessionId)); }}
           />
         ) : showExtensions ? (
           <SettingsSurface embedded singleView initialPath="extensions" workspaceId={selectedWorkspaceId} />
@@ -2319,6 +2557,7 @@ export function SessionRoute() {
           />
         ) : showRecorder ? (
           <RecorderPane
+            project={recorderProject}
             workspacePath={selectedWorkspaceRoot ?? null}
             workspaceTargets={workspaces
               .filter((workspace) => workspace.workspaceType !== "remote" && workspace.path?.trim())
@@ -2334,6 +2573,7 @@ export function SessionRoute() {
               // unmounted while this pane is the main view — swap back to the
               // session first, then dispatch once it has remounted.
               setShowRecorder(false);
+              navigate(workspaceSessionRoute(selectedWorkspaceId, selectedSessionId));
               window.setTimeout(() => {
                 window.dispatchEvent(new CustomEvent(RECORDER_TRANSCRIPT_EVENT, { detail: { text } }));
               }, 350);
@@ -2347,6 +2587,15 @@ export function SessionRoute() {
         sessionTabNavRef.current = { ...sessionTabNavRef.current, options: tabs };
       }}
       sidebar={{
+        onOpenSearch: () => setCommandPaletteOpen(true),
+        onShowChats: () => {
+          setShowEvals(false); setShowWorkflows(false); setShowExtensions(false); setShowRecorder(false); setShowTasks(false);
+          navigate("/home");
+        },
+        onShowProjects: () => {
+          setShowEvals(false); setShowWorkflows(false); setShowExtensions(false); setShowRecorder(false); setShowTasks(false);
+          navigate("/projects");
+        },
         onShowEvals: showEvalsPane,
         onShowWorkflows: showWorkflowsPane,
         onShowExtensions: () => navigate(`/workspace/${encodeURIComponent(selectedWorkspaceId)}/settings/extensions/mcp`),
@@ -2367,7 +2616,12 @@ export function SessionRoute() {
         sidebarHydratedFromCache: Object.values(sessionsByWorkspaceId).some((list) => list.length > 0),
         startupPhase: effectiveLoading ? "nativeInit" : "ready",
         onSelectWorkspace: async (workspaceId) => {
-          if (workspaceId === selectedWorkspaceId) return true;
+          setShowEvals(false);
+          setShowWorkflows(false);
+          setShowExtensions(false);
+          setShowRecorder(false);
+          setShowTasks(false);
+          if (workspaceId === selectedWorkspaceId) { navigate(workspaceProjectRoute(workspaceId)); return true; }
           setLegacySelectedWorkspaceId(workspaceId);
           writeActiveWorkspaceId(workspaceId || null);
           const workspace = workspaces.find((item) => item.id === workspaceId);
@@ -2394,19 +2648,7 @@ export function SessionRoute() {
               void endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true }).catch(() => undefined);
             }
           }
-          // If we remember what the user last opened here and that session
-          // still exists in our local list, navigate. Otherwise stay put.
-          const remembered = readLastSessionFor(workspaceId);
-          if (remembered && remembered !== selectedSessionId) {
-            const known = sessionsByWorkspaceId[workspaceId];
-            if (known?.some((session) => session?.id === remembered)) {
-              navigateToWorkspaceSession(workspaceId, remembered);
-            } else {
-              navigateToWorkspaceSession(workspaceId);
-            }
-          } else {
-            navigateToWorkspaceSession(workspaceId);
-          }
+          navigate(workspaceProjectRoute(workspaceId));
           return true;
         },
         onOpenSession: (workspaceId, sessionId) => {
@@ -2497,11 +2739,9 @@ export function SessionRoute() {
           ? async (sessionId, nextTitle) => {
               const trimmed = nextTitle.trim();
               if (!trimmed) return;
-              await opencodeClient.session.update({
-                sessionID: sessionId,
-                title: trimmed,
-                directory: selectedWorkspaceRoot || undefined,
-              });
+              const target = sessionTarget(sessionId);
+              await target.client.session.update({ sessionID: sessionId, title: trimmed, directory: target.workspace.path || undefined });
+              await loadWorkspaceSessionsInBackground([target.workspace]);
               await refreshRouteState();
             }
           : undefined
@@ -2509,11 +2749,12 @@ export function SessionRoute() {
       onDeleteSession={
         client && selectedWorkspaceId
           ? async (sessionId) => {
-              const endpoint = endpointForWorkspace(selectedWorkspace);
-              if (!endpoint) return;
+              const { workspace, endpoint } = sessionTarget(sessionId);
               await endpoint.client.deleteSession(endpoint.workspaceId, sessionId);
+              await loadWorkspaceSessionsInBackground([workspace]);
               if (selectedSessionId === sessionId) {
-                navigateToWorkspaceSession(selectedWorkspaceId);
+                writeLastSessionFor(selectedWorkspaceId, null);
+                navigate("/home");
               }
               await refreshRouteState();
             }
@@ -2522,9 +2763,9 @@ export function SessionRoute() {
       onArchiveSession={opencodeClient ? handleArchiveSession : undefined}
       statusBar={{ loading: showPreparingStatus }}
       notFoundMessage={routeNotFoundMessage}
-      onAccessibleTargetsChange={setPaletteAccessibleTargets}
     />
-    <CreateWorkspaceModal
+    <CreateProjectModal
+      client={client}
       open={createWorkspaceOpen}
       additionalContent={createWorkspaceOpen && !createWorkspaceBusy && selectedWorkspace && selectedWorkspace.workspaceType !== "remote" && selectedWorkspace.path && selectedWorkspaceEndpoint && !selectedWorkspaceError && !selectedWorkspaceIsLoading ? (
         <details className="rounded-xl border border-dls-border p-4">
@@ -2546,10 +2787,13 @@ export function SessionRoute() {
         setCreateWorkspaceOpen(false);
         setCreateWorkspaceError(null);
       }}
-      onConfirm={handleCreateWorkspace}
-      onPickFolder={() => pickDirectory({ title: t("onboarding.authorize_folder") }) as Promise<string | null>}
+      onConfirm={handleCreateProject}
+      onPickFolder={async () => {
+        const result = await pickDirectory({ title: t("onboarding.authorize_folder") });
+        return typeof result === "string" ? result : null;
+      }}
       submitting={createWorkspaceBusy}
-      localError={createWorkspaceError}
+      error={createWorkspaceError}
     />
     <RenameWorkspaceModal
       open={renameWorkspaceId !== null}
@@ -2567,43 +2811,11 @@ export function SessionRoute() {
     <CommandPalette
       open={commandPaletteOpen}
       onClose={() => setCommandPaletteOpen(false)}
-      onCreateNewSession={() => {
-        if (selectedWorkspaceId) {
-          void handleCreateChatInWorkspace(selectedWorkspaceId);
-        }
-      }}
-      onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)}
-      onOpenSettings={(route) => handleOpenSettings(route ?? "/settings/general")}
-      onOpenModelPicker={() => {
-        modelPicker.setQuery("");
-        modelPicker.setRecentProviderIds(new Set());
-        window.requestAnimationFrame(() => modelPicker.setOpen(true));
-      }}
-      selectedModelLabel={modelLabel}
-      accessibleTargets={paletteAccessibleTargets}
-      onOpenAccessibleTarget={(target) => {
-        try {
-          window.dispatchEvent(new CustomEvent("legalwork-open-accessible-target", { detail: target }));
-        } catch {
-          // ignore event dispatch failures
-        }
-      }}
-      onHideAccessibleTarget={(target) => {
-        try {
-          window.dispatchEvent(new CustomEvent("legalwork-hide-accessible-target", { detail: target }));
-        } catch {
-          // ignore event dispatch failures
-        }
-      }}
+      workspaces={searchWorkspaces}
       sessions={paletteSessionOptions}
-      sessionGroups={paletteSessionGroups}
-      currentSessionForGroupMove={currentSessionForGroupMove}
-      currentSessionGroupId={currentSessionGroupId}
-      onMoveCurrentSessionToGroup={handleMoveCurrentSessionToGroup}
-      extraItems={[sessionSearchPaletteItem, ...terminalPaletteItems, developerModePaletteItem, nextSessionTabPaletteItem, prevSessionTabPaletteItem]}
-      listAgents={listAgents}
-      selectedAgent={selectedAgent}
-      onSelectAgent={setSelectedAgent}
+      search={searchContents}
+      project={searchProject}
+      onOpenResult={openSearchResult}
     />
     <FreeRetiredDialog workspacesReady={!effectiveLoading} onStartTrial={() => void startEigenweltTrial()} />
     <WhatsNewDialog hasWorkspaces={workspaces.length > 0} workspacesReady={announcementsReady} />
@@ -2623,13 +2835,6 @@ export function SessionRoute() {
           return false;
         }
       }}
-    />
-    <SessionSearchDialog
-      open={sessionSearchOpen}
-      onClose={() => setSessionSearchOpen(false)}
-      sessions={paletteSessionOptions}
-      fetchMessages={sessionSearchFetcher}
-      onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)}
     />
     <ModelPickerModal
       open={modelPicker.open}
@@ -2670,6 +2875,7 @@ export function SessionRoute() {
       }}
       onClose={() => { modelPicker.setOpen(false); modelPicker.setRecentProviderIds(new Set()); }}
     />
+    {client ? <ProjectShareHost client={client} /> : null}
     </WorkspaceProvider>
   );
 }

@@ -25,7 +25,7 @@ async function fixture() {
   process.env.LEGALWORK_DATA_DIR = join(base, "data"); process.env.LEGALWORK_TOKEN_STORE = join(base, "tokens.json");
   const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(base, "server.json"), token: "client", hostToken: "host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [{ id: "office", name: "Office", preset: "starter", path: office, workspaceType: "local" }], authorizedRoots: [office], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
   const server = await startServer(config); cleanups.push(async () => { await server.stop(); });
-  const register = (folderPath: string, registerExisting: unknown = true, token = "host") => fetch(`http://127.0.0.1:${server.port}/workspaces/local`, { method: "POST", headers: { "x-legalwork-host-token": token, "content-type": "application/json" }, body: JSON.stringify({ folderPath, name: "Same title", preset: "starter", registerExisting }) });
+  const register = (folderPath: string, registerExisting: unknown = true, token = "host", extra: Record<string, unknown> = {}) => fetch(`http://127.0.0.1:${server.port}/workspaces/local`, { method: "POST", headers: { "x-legalwork-host-token": token, "content-type": "application/json" }, body: JSON.stringify({ folderPath, name: "Same title", preset: "starter", registerExisting, ...extra }) });
   return { base, config, office, matter, register };
 }
 async function snapshot(root: string) {
@@ -74,4 +74,23 @@ test.skipIf(!symlinksAvailable)("existing registration rejects a symlink alias w
   await symlink(f.matter, alias, "dir");
   expect((await f.register(alias)).status).toBe(400);
   expect(await snapshot(f.matter)).toEqual(before);
+});
+
+
+test("existing matter registration rejects project initialization options before any filesystem change", async () => {
+  const f = await fixture();
+  f.config.projectsDirectory = join(f.base, "default-projects");
+  const before = await snapshot(f.office);
+  for (const extra of [
+    { folderMode: "default" },
+    { projectFields: [] },
+    { remoteFolders: [] },
+    { initializeFromFolders: true },
+    { fromRemoteFolder: true },
+  ]) {
+    expect((await f.register(f.matter, true, "host", extra)).status).toBe(400);
+    expect(await snapshot(f.office)).toEqual(before);
+    expect((await readdir(f.base)).includes("default-projects")).toBe(false);
+    expect(f.config.workspaces).toHaveLength(1);
+  }
 });
