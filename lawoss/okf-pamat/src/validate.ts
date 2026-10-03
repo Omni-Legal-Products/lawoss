@@ -19,7 +19,7 @@
 import type { OkfRecord } from "./record.ts";
 import {
   AML_REQUIRED, PERSON_KINDS, SENSITIVE_FIELDS, EVIDENCE_KINDS,
-  fieldLabel, needleFields, truthDigest, FIELDS, EVENT_KINDS, canonicalEventKind,
+  fieldLabel, needleFields, truthDigest, FIELDS, EVENT_KINDS, canonicalEventKind, isRecordType, isIsoDate,
   type FieldDef, type Jurisdiction,
 } from "./schema.ts";
 
@@ -153,6 +153,15 @@ function clientNeedles(records: readonly OkfRecord[]): Needle[] {
       if (n) out.push(n);
     }
   }
+  // Zapojené subjekty sú údaje klientskej veci rovnako ako subjekty — ich
+  // mená do zdieľateľnej L3 nesmú. Berú sa len zo spisu (L2), nie z L3 samej.
+  for (const r of records) {
+    if (r.layer !== "L2") continue;
+    for (const p of r.participants ?? []) {
+      const n = p.name ? nameNeedle(p.name, r.id) : undefined;
+      if (n) out.push(n);
+    }
+  }
   // Rodné číslo vo voľnom texte. Polia sú strážené z tabuľky, ale výrok
   // opísaný do Pravdy otázky nesie rodné číslo tretej osoby a pole preň
   // niet — prameň L3 s ním prešiel bránou. Vzor je dosť špecifický na to,
@@ -160,8 +169,7 @@ function clientNeedles(records: readonly OkfRecord[]): Needle[] {
   // číslic je v spise všade.
   for (const r of records) {
     if (r.layer !== "L2") continue;
-    const text = [r.truth, ...r.timeline.map((e) => e.text)].join("\n");
-    for (const m of text.matchAll(BIRTH_NUMBER_PATTERN_G)) {
+    for (const m of bodyText(r).matchAll(BIRTH_NUMBER_PATTERN_G)) {
       const n = exactNeedle(m[0], r.id, "rodné číslo v texte záznamu");
       if (n) out.push(n);
     }
@@ -169,9 +177,37 @@ function clientNeedles(records: readonly OkfRecord[]): Needle[] {
   return out;
 }
 
-function recordText(r: OkfRecord): string {
-  return [r.title, r.description, r.truth, ...r.timeline.map((e) => `${e.date} ${e.text}`)].join("\n");
+/** Voľný text tela: Truth, História a vlastné sekcie — tie nesmú byť slepou škvrnou brány. */
+function bodyText(r: OkfRecord): string {
+  return [r.truth, ...r.timeline.map((e) => e.text), ...(r.sections ?? []).map((s) => `${s.heading}\n${s.body}`)].join("\n");
 }
+
+function recordText(r: OkfRecord): string {
+  return [r.title, r.description, r.truth, ...r.timeline.map((e) => `${e.date} ${e.text}`),
+    ...(r.sections ?? []).map((s) => `${s.heading}\n${s.body}`)].join("\n");
+}
+
+/**
+ * Lehota a termín sú kritické údaje a porovnávajú sa ako dátumy, nie text —
+ * `31.12.2026` by sa textovo vyhodnotil zle. Prijme sa ISO deň, za ním smie
+ * ísť čas alebo poznámka (`2026-10-01 odvolanie`), rovnako ako v čítacom
+ * modeli appky. Vráti deň, alebo `undefined` pri neplatnej hodnote.
+ */
+export function isoDay(value: string): string | undefined {
+  const day = /^(\d{4}-\d{2}-\d{2})(?:[T ].*)?$/.exec(value.trim())?.[1];
+  return day && isIsoDate(day) ? day : undefined;
+}
+
+/**
+ * Tvar českej alebo slovenskej spisovej značky. Zámerne zhovievavý — chytá
+ * preklep a iný údaj v poli (interné číslo spisu, dátum), nie každú odchýlku:
+ *   CZ  `22 Cdo 2886/2023`, `91 INS 5855/2024`, `MSPH 91 INS 5855/2024-C1`,
+ *       `KSBR 39 INS 1234/2020-B-5`, `I. ÚS 1234/20`, `Pl. ÚS 5/20`
+ *   SK  `1Cdo/12/2024`, `8Co/123/2019`, `31K/12/2019`
+ * Voliteľná skratka súdu veľkými písmenami vpredu, voliteľné `-C1` vzadu.
+ */
+export const CASE_NUMBER_PATTERN =
+  /^(?:\p{Lu}{2,6}\s+)?(?:\d{1,3}\s*\p{L}{1,6}\s*\d{1,6}\s*\/\s*\d{2,4}|\d{1,3}\s*\p{L}{1,6}\s*\/\s*\d{1,6}\s*\/\s*\d{4}|(?:Pl|IV|I{1,3})\.\s*ÚS\s*\d{1,5}\s*\/\s*\d{2,4})(?:\s*-\s*[\p{L}\d]+)*$/u;
 
 function linkTargets(r: OkfRecord): string[] {
   const out = [
@@ -418,6 +454,53 @@ export function validateStore(
     if (f) findings.push(f);
   }
 
+  // Vlastný typ agenta je legitímny, ale kontroly viazané na známe typy
+  // (AML, matica dôkazov, ban-list) ho obídu. Preklep `subjekt` by inak
+  // ticho vypol AML kontrolu — preto varovanie, nie mlčanie.
+  for (const r of records) {
+    if (isRecordType(r.type)) continue;
+    findings.push({
+      severity: "warning",
+      code: "AGENT_TYPE",
+      recordId: r.id,
+      message: `Záznam ${r.id} má vlastný typ „${r.type}" (vrstva L2). Kontroly známych typov sa naň nevzťahujú — ak ide o preklep, oprav typ.`,
+    });
+  }
+
+  for (const r of records) {
+    (r.participants ?? []).forEach((p, i) => {
+      if (p.name?.trim()) return;
+      findings.push({
+        severity: "error",
+        code: "PARTICIPANT_NAME_MISSING",
+        recordId: r.id,
+        message: `Zapojený subjekt č. ${i + 1} záznamu ${r.id} nemá meno (name).`,
+      });
+    });
+  }
+
+  // Kritické údaje sú deterministické: lehota a termín sú dátum, nie text.
+  for (const r of records) {
+    const dates = [...(r.deadlines ?? []).map((d) => ["deadlines", d] as const), ...(r.due !== undefined ? [["due", r.due] as const] : [])];
+    for (const [field, value] of dates) {
+      if (isoDay(value)) continue;
+      findings.push({
+        severity: "error",
+        code: "DATE_INVALID",
+        recordId: r.id,
+        message: `Pole ${field} záznamu ${r.id} má hodnotu „${value}", ktorá nie je platný dátum RRRR-MM-DD. Lehota sa bez neho nevyhodnotí.`,
+      });
+    }
+    if (r.matter_ref?.trim() && !CASE_NUMBER_PATTERN.test(r.matter_ref.trim())) {
+      findings.push({
+        severity: "warning",
+        code: "CASE_NUMBER_FORMAT",
+        recordId: r.id,
+        message: `Spisová značka „${r.matter_ref}" záznamu ${r.id} nemá tvar spisovej značky súdu (napr. 22 Cdo 2886/2023, 1Cdo/12/2024). Over ju.`,
+      });
+    }
+  }
+
   // Hodnoty mimo výpočet. Varovanie, nie chyba — OKF žiada dokument s neznámou
   // hodnotou neodmietať. Ticho sa ale stratiť nesmie: neplatný `person_type`
   // by inak bez slova vypol AML kontrolu pre ten subjekt. Našlo sa na dátach
@@ -527,7 +610,8 @@ export function validateStore(
         });
       }
     }
-    if (t.due && t.due < today && t.state !== "done") {
+    const due = t.due ? isoDay(t.due) : undefined;
+    if (due && due < today && t.state !== "done") {
       findings.push({
         severity: "warning",
         code: "TASK_OVERDUE",
@@ -599,7 +683,7 @@ export function validateStore(
   // neoverených prameňov — veta vyzerá podložene a nie je. Preto chyba.
   for (const r of records) {
     const ids = new Set((r.sources ?? []).map((z) => z.id).filter((x): x is string => !!x));
-    const text = [r.truth, ...r.timeline.map((e) => e.text)].join("\n");
+    const text = bodyText(r);
     const pouzite = new Set([...text.matchAll(/\[\^([^\]\s]+)\]/g)].map((m) => m[1] ?? ""));
     for (const label of pouzite) {
       if (ids.has(label)) continue;
@@ -630,7 +714,8 @@ export function validateStore(
   for (const r of records) {
     if (r.status !== "active") continue;
     for (const d of r.deadlines ?? []) {
-      if (d >= today) continue;
+      const day = isoDay(d);
+      if (!day || day >= today) continue; // neplatný dátum hlási DATE_INVALID
       findings.push({
         severity: "warning",
         code: "DEADLINE_PASSED",
