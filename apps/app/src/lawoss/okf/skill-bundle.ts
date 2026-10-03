@@ -3,7 +3,9 @@
  * jeden súbor, priložený ako resource). Obidve žijú v repe forku; sem sa
  * dostávajú cez Vite `?raw`, takže inštalácia nepotrebuje sieť.
  */
+import { currentLocale, type Language } from "@/i18n";
 import skillMarkdown from "../../../../../lawoss/skills/novy-spis/SKILL.md?raw";
+import skillMarkdownCs from "../../../../../lawoss/skills/novy-spis/SKILL.cs.md?raw";
 import namingSkillMarkdown from "../../../../../lawoss/skills/usporiadaj-spis/SKILL.md?raw";
 import okfCli from "../../../../../lawoss/okf/bundle/okf.js?raw";
 import pamatSkillMarkdown from "../../../../../lawoss/okf-pamat/SKILL.md?raw";
@@ -21,6 +23,11 @@ export function skillBody(markdown: string = skillMarkdown): { description: stri
   const front = match?.[1] ?? "";
   const description = /^description:\s*(.*)$/m.exec(front)?.[1]?.trim() ?? "";
   return { description, content: (match?.[2] ?? markdown).trim() + "\n" };
+}
+
+/** /novy-spis in the UI language: Czech UI gets the Czech text; commands and flags are identical. */
+export function novySpisSkillBody(locale: Language = currentLocale()): { description: string; content: string } {
+  return skillBody(locale === "cs" ? skillMarkdownCs : skillMarkdown);
 }
 
 export function okfCliSource(): string {
