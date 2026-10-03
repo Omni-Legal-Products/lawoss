@@ -326,6 +326,12 @@ Doménové obrazovky, slovníky, viditeľný prepínač a regresie zostávajú v
 | `apps/app/src/react-app/domains/session/artifacts/docx-document-state.ts` | Spoločná výzva na zahodenie skutočných neuložených zmien používa aktuálny jazyk UI. Výber dirty dokumentov, zrušenie akcie a discard callbacks zostávajú pôvodné. |
 | `apps/app/src/i18n/locales/en.ts`, `de.ts`, `cs.ts`, `sk.ts` | Jeden zhodný kľúč `artifact.confirm_discard_unsaved`; doslovné názvy súborov sú parametrom existujúcej interpolácie. |
 
+### Izolácia OCR modelových testov (2026-10-03)
+
+| Súbory upstreamu | Úprava a dôvod |
+|---|---|
+| `apps/server/src/ocr/models.test.ts` | Lokálny HTTP server nahrádza globálny fetch mock, ktorý zachytával súbežné synchronizačné požiadavky enginu a opakovane vracal už spotrebovaný Response. Regresia overuje súbežnú požiadavku, cache, checksum, limit chunkovaného prenosu a zrušenie. Produkčný downloader sa nemení. |
+
 ## Upstream sync v0.2.1 (2026-10-02)
 
 Windows CI follow-up: `.github/workflows/ci-desktop-packaging.yml` používa `win-unpacked/LAWOSS.exe`, zhodne s existujúcim `productName`. Upstream cesta `LegalWork.exe` zlyhala po úspešnom vytvorení LAWOSS balíka. Kontroly poistiek, natívnych modulov, náhľadu a štartu sa zachovávajú.
