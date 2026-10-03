@@ -1,6 +1,13 @@
 /** Opt-in legacy Markdown workspace memory. No source text is interpreted as authority. */
 export type WorkspaceMemoryRole = "case_memory" | "case_card" | "work_note" | "task_log" | "rules" | "lessons" | "source_index" | "evidence";
-export interface WorkspaceMemoryOptions { matterId?: string; allowedRoots?: string[] }
+export interface WorkspaceMemoryOptions {
+  matterId?: string;
+  allowedRoots?: string[];
+  /** Host-owned profile location. An external profile also needs its canonical identity and grants. */
+  profilePath?: string;
+  profileIdentity?: string;
+  profileGrants?: string[];
+}
 export interface WorkspaceMemoryProblem { code: string; message: string; sourceId?: string }
 export interface WorkspaceMemorySource {
   id: string; role: WorkspaceMemoryRole; path: string; root: string;

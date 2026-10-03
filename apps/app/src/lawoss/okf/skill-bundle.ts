@@ -3,11 +3,15 @@
  * jeden súbor, priložený ako resource). Obidve žijú v repe forku; sem sa
  * dostávajú cez Vite `?raw`, takže inštalácia nepotrebuje sieť.
  */
+import { currentLocale, type Language } from "@/i18n";
 import skillMarkdown from "../../../../../lawoss/skills/novy-spis/SKILL.md?raw";
+import skillMarkdownCs from "../../../../../lawoss/skills/novy-spis/SKILL.cs.md?raw";
 import namingSkillMarkdown from "../../../../../lawoss/skills/usporiadaj-spis/SKILL.md?raw";
 import okfCli from "../../../../../lawoss/okf/bundle/okf.js?raw";
 import pamatSkillMarkdown from "../../../../../lawoss/okf-pamat/SKILL.md?raw";
 import okfMemoryCli from "../../../../../lawoss/okf-pamat/bundle/okf-memory.js?raw";
+import vystupSkillMarkdown from "../../../../../lawoss/skills/vystup-dokumentu/SKILL.md?raw";
+import postprocessScript from "../../../../../lawoss/skills/vystup-dokumentu/postprocess_docx.py?raw";
 
 export const NOVY_SPIS_SKILL_NAME = "novy-spis";
 export const OKF_CLI_RESOURCE_NAME = "okf.js";
@@ -21,6 +25,11 @@ export function skillBody(markdown: string = skillMarkdown): { description: stri
   const front = match?.[1] ?? "";
   const description = /^description:\s*(.*)$/m.exec(front)?.[1]?.trim() ?? "";
   return { description, content: (match?.[2] ?? markdown).trim() + "\n" };
+}
+
+/** /novy-spis in the UI language: Czech UI gets the Czech text; commands and flags are identical. */
+export function novySpisSkillBody(locale: Language = currentLocale()): { description: string; content: string } {
+  return skillBody(locale === "cs" ? skillMarkdownCs : skillMarkdown);
 }
 
 export function okfCliSource(): string {
@@ -38,4 +47,15 @@ export function okfMemoryCliSource(): string {
 export const USPORIADAJ_SPIS_SKILL_NAME = "usporiadaj-spis";
 export function usporiadajSpisSkillBody(): { description: string; content: string } {
   return skillBody(namingSkillMarkdown);
+}
+
+// Vyhotovení dokumentu: návrh → .docx podle šablony kanceláře → PDF z téhož .docx.
+
+export const VYSTUP_SKILL_NAME = "vystup-dokumentu";
+export const POSTPROCESS_RESOURCE_NAME = "postprocess_docx.py";
+export function vystupSkillBody(): { description: string; content: string } {
+  return skillBody(vystupSkillMarkdown);
+}
+export function postprocessSource(): string {
+  return postprocessScript;
 }

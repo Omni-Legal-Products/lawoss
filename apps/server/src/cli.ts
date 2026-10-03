@@ -5,7 +5,7 @@ import { mkdir } from "node:fs/promises";
 import { parseCliArgs, printHelp, resolveServerConfig } from "./config.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer } from "./managed-opencode.js";
 import { createServerLogger, startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
-import { ensureWorkspaceFiles } from "./workspace-init.js";
+import { ensureWorkspaceFilesForBootstrap } from "./workspace-init.js";
 import { globalSkillsDir } from "./workspace-files.js";
 import { ensureBundledWorkflows } from "./bundled-workflows.js";
 import { retireSharedLegacyReview } from "./reviews/retire-legacy.js";
@@ -42,7 +42,7 @@ if (!config.readOnly) {
   await retireSharedLegacyReview(globalSkillsDir());
   await ensureBundledWorkflows();
   for (const workspace of config.workspaces) {
-    await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
+    await ensureWorkspaceFilesForBootstrap(workspace);
   }
 }
 // Drop retired / unparsable provider blocks from the runtime DB BEFORE the

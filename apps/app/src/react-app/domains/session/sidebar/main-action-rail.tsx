@@ -3,6 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { t } from "@/i18n";
 import { hideCommercialSidebarItems } from "@/lawoss/feature-flags";
+import { useUiMode } from "@/lawoss/lite/ui-mode";
+import { isMainRailItemVisible } from "@/lawoss/lite/visibility";
 import { cn } from "@/lib/utils";
 import { useShellConfig, type ShellNavKey } from "../../../shell/shell-config";
 import { SIDEBAR_ITEMS } from "./sidebar-customization";
@@ -19,7 +21,8 @@ export function MainActionRail({ actions, unreadTasks = 0, children }: {
   children: ReactNode;
 }) {
   const { config } = useShellConfig();
-  const items = hideCommercialSidebarItems(config.navOrder).filter(key => config[key] && actions[key].available !== false);
+  const mode = useUiMode();
+  const items = hideCommercialSidebarItems(config.navOrder).filter(key => isMainRailItemVisible(key, mode) && config[key] && actions[key].available !== false);
 
   return (
     <nav aria-label={t("sidebar.main_actions")} className="flex w-[var(--lw-window-left-rail-width)] shrink-0 flex-col items-center gap-1.5 px-1 py-2 mac:titlebar-no-drag">

@@ -12,6 +12,7 @@ type ReactSessionRuntimeProps = {
   activeSessionIds?: string[];
   opencodeBaseUrl: string;
   legalworkToken: string;
+  directory?: string;
   onSessionLoaded?: (session: Session) => void;
   onSessionUpdated?: (update: { sessionId: string; info: Record<string, unknown> }) => void;
   onSessionStatus?: (update: { sessionId: string; status: SessionStatus }) => void;
@@ -23,6 +24,7 @@ export function ReactSessionRuntime(props: ReactSessionRuntimeProps) {
       workspaceId: props.workspaceId,
       baseUrl: props.opencodeBaseUrl,
       legalworkToken: props.legalworkToken,
+      directory: props.directory,
       onSessionUpdated: props.onSessionUpdated,
       onSessionStatus: props.onSessionStatus,
     };
@@ -32,7 +34,7 @@ export function ReactSessionRuntime(props: ReactSessionRuntimeProps) {
       releaseSessions();
       releaseWorkspace();
     };
-  }, [props.workspaceId, props.sessionId, props.activeSessionIds, props.opencodeBaseUrl, props.legalworkToken, props.onSessionUpdated, props.onSessionStatus]);
+  }, [props.workspaceId, props.sessionId, props.activeSessionIds, props.opencodeBaseUrl, props.legalworkToken, props.directory, props.onSessionUpdated, props.onSessionStatus]);
 
   // The open chat's snapshot is authoritative even when the sidebar's
   // paginated session list is stale or does not contain this conversation.

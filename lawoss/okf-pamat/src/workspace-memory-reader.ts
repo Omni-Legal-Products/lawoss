@@ -9,6 +9,24 @@ export { writableRoles } from "./workspace-memory-profile.ts";
 // Reserve control metadata in every workspace, even through external grants or case aliases.
 function isControlPath(path: string): boolean { return path.split(sep).some(component => component.toLowerCase() === ".lawoss"); }
 function byId(a: { id: string }, b: { id: string }): number { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; }
+function profileLocation(directory: string, options: WorkspaceMemoryOptions): { path: string; external: boolean } {
+  const path = options.profilePath ?? join(directory, ".lawoss", "memory-profile.json");
+  if (options.profilePath !== undefined && !isAbsolute(path)) throw new Error("Host profile path must be absolute.");
+  if (!checkedPath(path, "file", true)) {
+    if (options.profilePath !== undefined) throw new Error("Host profile path is missing or unsafe.");
+    return { path, external: false };
+  }
+  const canonical = realpathSync(path);
+  const external = !contained(directory, canonical);
+  if (external) {
+    if (options.profileIdentity !== canonical) throw new Error("External profile identity must equal its canonical path.");
+    const grants = options.profileGrants ?? [];
+    if (!grants.some(grant => typeof grant === "string" && isAbsolute(grant) && contained(checkedDirectory(grant), canonical))) {
+      throw new Error("External profile requires a host grant covering its canonical path.");
+    }
+  }
+  return { path: canonical, external };
+}
 
 /** Any orphan operation directory is unresolved too: a crash can precede the first journal. */
 export function checkHistory(workspace: string, report: WorkspaceMemoryReport, ownOperation?: string): void {
@@ -34,9 +52,12 @@ export function readWorkspaceMemory(directory: string, options: WorkspaceMemoryO
 /** Internal writer read: only the owned operation/lock is excluded from journal checks. */
 export function readWorkspaceMemorySnapshot(directory: string, options: WorkspaceMemoryOptions = {}, ownOperation?: string): WorkspaceMemoryReport {
   const report: WorkspaceMemoryReport = { present: false, complete: false, directory: resolve(directory), loadedAt: new Date().toISOString(), matterId: null, bindingHash: null, profileHash: null, contextHash: null, sources: [], problems: [] };
-  const profilePath = join(report.directory, ".lawoss", "memory-profile.json");
+  let profilePath = join(report.directory, ".lawoss", "memory-profile.json");
+  let externalProfile = false;
   try {
     // Failure of an existing unsafe parent must not masquerade as profile absence.
+    const location = profileLocation(report.directory, options);
+    profilePath = location.path; externalProfile = location.external;
     if (!checkedPath(profilePath, "file", true)) return report;
     report.present = true;
     report.directory = checkedDirectory(report.directory);
@@ -66,12 +87,12 @@ export function readWorkspaceMemorySnapshot(directory: string, options: Workspac
           if (isControlPath(path)) throw new Error("Memory sources cannot alias reserved .lawoss control files.");
         } catch (error) { sourceProblems.set(source.id, message(error)); }
       }
-      report.sources.push({ id: source.id, root: source.root, path, role: source.role, required: source.required, writable: source.writable, anchors, sha256: null, bytes: 0, content: null, status: "error" });
+      report.sources.push({ id: source.id, root: source.root, path, role: source.role, required: source.required, writable: externalProfile ? false : source.writable, anchors, sha256: null, bytes: 0, content: null, status: "error" });
     }
     // Raw profileHash is provenance. Binding describes normalized identity, mapping and authority.
     const semanticRoots = [...roots].map(([id, path]) => ({ id, path })).sort(byId);
     const semanticSources = report.sources.map(({ id, root, path, role, required, writable, anchors }) => ({ id, root, path, role, required, writable, anchors: [...new Set(anchors)].sort() })).sort(byId);
-    report.bindingHash = sha256(JSON.stringify({ version: 1, directory: report.directory, matterId: report.matterId, grants, roots: semanticRoots, sources: semanticSources }));
+    report.bindingHash = sha256(JSON.stringify({ version: 1, directory: report.directory, profilePath, externalProfile, matterId: report.matterId, grants, roots: semanticRoots, sources: semanticSources }));
     const physical = new Set<string>(); let total = 0;
     for (const source of report.sources) {
       try {
