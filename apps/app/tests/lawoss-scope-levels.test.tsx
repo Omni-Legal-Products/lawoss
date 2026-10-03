@@ -32,6 +32,12 @@ describe("8: Pro súčty počítajú zdieľaný záznam raz", () => {
     expect(totals.overdue).toBe(1);
     expect(totals.records).toBe(3);
   });
+
+  test("dve lehoty jedného záznamu v ten istý deň sú dve lehoty", () => {
+    const r = rec("Q-001", ["2026-10-06 09:00 jednanie", "2026-10-06 odvolanie"]);
+    const { totals } = buildOverview([{ path: "Klienti/ACME/Spisy/A", records: [r] }], TODAY);
+    expect(totals.deadlinesWithin7Days).toBe(2);
+  });
 });
 
 describe("9: úrovne rozsahu vec / klient / kancelária", () => {

@@ -12,7 +12,7 @@ import type { OkfRecord } from "../okf-pamat/src/record.ts";
 
 /** `invalid`: datum lhůty nemá tvar RRRR-MM-DD - UI ho ukáže k ověření, nikdy ho tiše nezahodí. */
 /** `file`: skutočný súbor záznamu - totožnosť zdieľaného záznamu (ID sa razia per spis, nie sú jedinečné). */
-export type OverviewDeadline = { date: string; title: string; recordId: string; invalid?: true; file?: string };
+export type OverviewDeadline = { date: string; title: string; recordId: string; invalid?: true; file?: string; /** Pôvodný zápis lehoty: dve lehoty toho istého záznamu v jeden deň sú dve lehoty. */ raw?: string };
 export type OverviewTask = { id: string; title: string; assignee?: string; due?: string; file?: string };
 
 export type MatterOverview = {
@@ -74,7 +74,7 @@ export const isOpenTask = (r: OkfRecord): boolean => r.type === "task" && r.stat
 export const recordKey = (matterPath: string, r: { id: string; file?: string }): string => r.file ?? `${matterPath}\u0000${r.id}`;
 
 /** Totožnosť lehoty naprieč spismi: záznam + dátum (jeden záznam môže niesť viac lehôt). */
-export const deadlineKey = (d: UpcomingDeadline): string => `${recordKey(d.matter.path, { id: d.recordId, file: d.file })}\u0000${d.date}`;
+export const deadlineKey = (d: UpcomingDeadline): string => `${recordKey(d.matter.path, { id: d.recordId, file: d.file })}\u0000${d.raw ?? d.date}`;
 
 export type ScopeLevel = "matter" | "client" | "office";
 const OFFICE_DIR = /(^|\/)(Office|_kancelaria)$/;
@@ -132,7 +132,7 @@ function matterOverview(input: MatterInput): MatterOverview {
   let lastEvent: MatterOverview["lastEvent"];
   for (const r of input.records) {
     const file = input.recordFiles?.[r.id];
-    for (const d of recordDeadlines(r)) deadlines.push({ date: d.date, title: r.title, recordId: r.id, ...(d.invalid ? { invalid: d.invalid } : {}), ...(file ? { file } : {}) });
+    for (const d of recordDeadlines(r)) deadlines.push({ date: d.date, ...(d.raw !== d.date ? { raw: d.raw } : {}), title: r.title, recordId: r.id, ...(d.invalid ? { invalid: d.invalid } : {}), ...(file ? { file } : {}) });
     for (const e of r.timeline) {
       if (!lastEvent || e.date > lastEvent.date) lastEvent = { date: e.date, text: e.text };
     }
