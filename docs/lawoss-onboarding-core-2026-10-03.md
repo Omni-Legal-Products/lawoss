@@ -69,3 +69,11 @@ Windows CI pri skúšobnej kópii odhalilo delenie cesty iba na `/` a synchroniz
 ## Dodatočné Windows packaging overenie
 
 Po retargete #104 na `dev` sa spustila aj plná packaging matica. Windows zlyhal pred buildom na novom runtime teste: POSIX fixture `/Users/...` v očakávaní neobsahovala drive, zatiaľ čo runtime správne normalizoval cestu pomocou `path.resolve`. Fixture teraz používa absolútnu cestu odvodenú od `os.tmpdir()`; ďalší test overuje normalizáciu relatívneho configu aj workspace. Produkčný kód sa nemení. Príkaz `node --test apps/desktop/electron/opencode-config-migration.test.mjs apps/desktop/electron/runtime.test.mjs apps/desktop/electron/ui-control-server.test.mjs apps/desktop/electron/safe-open.test.mjs` na Node 24.19.0: 51 pass, 0 fail. Výsledok nového Windows CI sa vyhodnocuje samostatne.
+
+## Kontrola po PR audite
+
+Safari MCP už bol dostupný. V syntetickej kancelárii prešiel sidebar Add client, preview klienta, reload a potvrdenie uloženého preview, vytvorenie spornej veci bez subjektu, nový subjekt a nesporná vec. Server evidoval jeden klientsky workspace a žiadne vnorené matter workspaces. Zaznamenaných 16 onboarding požiadaviek malo HTTP 200. Fixture nemá OpenCode engine: jeho session/provider polling 400/500 nie je modelový E2E test.
+
+Kontrola výstupných súborov odhalila starší default `matter_kind: dispute` aj pri `kind: non_contentious`. Explicitné mapovanie teraz používa `dispute` pre spornú vec a neutrálny `other` pre nespornú; neodhaduje poradenský ani transakčný podtyp. Regresia pred opravou zlyhala, po oprave prešlo 206 OKF testov, typecheck aj build.
+
+Do vetvy boli prenesené aj spoločné opravy z diagnostiky #101: presné bigint identity pamäťových súborov na Windows a izolovaný HTTP server OCR testov namiesto globálneho fetch mocku. Lokálne nad #104: deterministická regresia veľkých ID 1 pass, handoff 43 pass, OCR 2 pass, memory typecheck a deterministické zostavenie bundle úspešné. Nová plná CI matica sa vyhodnocuje na aktuálnom heade; starší zelený beh 88d842b9 nepotvrdzuje tieto dodatočné zmeny.
