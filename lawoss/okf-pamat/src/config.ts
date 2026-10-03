@@ -92,8 +92,6 @@ export function matchesClientPath(relative: string, pattern: string): boolean {
   return pat.every((p, i) => p === "*" || p === seg[i]);
 }
 
-// Žije v schéme, aby ho validácia mohla použiť bez node:fs (beží aj v prehliadači).
-export { isIsoDate };
 
 export interface StandingAuthorizationCheck {
   readonly auth?: StandingAuthorization;

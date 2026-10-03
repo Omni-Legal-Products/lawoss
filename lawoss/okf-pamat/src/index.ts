@@ -11,8 +11,7 @@
  */
 
 export {
-  FIELDS, RECORD_TYPES, LAYER_OF, layerOf, AGENT_TYPE_PATTERN, SENSITIVE_FIELDS, AML_REQUIRED,
-  FULFILLMENT_STATUS, INSTRUMENT_FORMS, INSTRUMENT_STATUS, RELATION_KINDS,
+  FIELDS, RECORD_TYPES, LAYER_OF, SENSITIVE_FIELDS, AML_REQUIRED, isIsoDate,
   STATUS, PERSON_KINDS, ROLES, RISK, CONCLUSION, SCREENING_MODES,
   PROOF_STATUS, CONFIDENCE, EVIDENCE_STRENGTH, PROCEDURAL_STATUS, TASK_STATES,
   EVIDENCE_KINDS, EVIDENCE_KIND_PROVISION, SCREENING_PROVISION, EVENT_KINDS, EVENT_KIND_ALIASES, canonicalEventKind,
@@ -24,7 +23,7 @@ export {
 
 export {
   parseRecord, serializeRecord, parseFrontmatter, HEADINGS,
-  type OkfRecord, type Participant, type BodySection, type TimelineEntry, type Source, type Verification, type FmValue, type FmMap,
+  type OkfRecord, type TimelineEntry, type Source, type Verification, type FmValue, type FmMap,
 } from "./record.ts";
 
 export {
@@ -37,7 +36,7 @@ export { validateStore, checkL3Sources, type Finding, type Severity, type Valida
 export { maskValue, maskRecord } from "./mask.ts";
 export { type DocumentLanguage } from "./document-language.ts";
 export {
-  readStandingAuthorization, inspectStandingAuthorization, isIsoDate, readNameLeakSeverity, covers, isExpired, CONFIG_FILE,
+  readStandingAuthorization, inspectStandingAuthorization, readNameLeakSeverity, covers, isExpired, CONFIG_FILE,
   type StandingAuthorizationCheck, type NameLeakSeverity,
   readClientPath, matchesClientPath,
   type StandingAuthorization,

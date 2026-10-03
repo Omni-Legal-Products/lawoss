@@ -20,7 +20,7 @@ import "./lite.css";
 
 type ActionId = (typeof QUICK_ACTIONS)[number]["id"] | (typeof MORE_ACTIONS)[number]["id"];
 /** Z cockpitu stačí to, co lite ukazuje; zbytek zůstává v pro. */
-export type LiteCockpit = Pick<Cockpit, "deadlines" | "tasks" | "attention" | "facts"> & Partial<Pick<Cockpit, "parties">>;
+export type LiteCockpit = Pick<Cockpit, "deadlines" | "tasks" | "attention" | "facts" | "parties">;
 
 export function LiteMatterPage() {
   const locale = useLocale();
@@ -220,7 +220,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
             </div>
           ))}
         </div>
-        <MatterParties parties={cockpit?.parties ?? []} />
+        {cockpit ? <MatterParties parties={cockpit.parties} /> : null}
         {attention.length > 0 ? (
           <div className="lw-reg">
             {attention.map((row) => (

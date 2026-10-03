@@ -505,6 +505,10 @@ function isIsoDate(s) {
   const d = new Date(`${s}T00:00:00Z`);
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
 }
+function isoDay(value) {
+  const day = /^(\d{4}-\d{2}-\d{2})(?:[T ].*)?$/.exec(value.trim())?.[1];
+  return day && isIsoDate(day) ? day : undefined;
+}
 function truthDigest(truth) {
   let h = 2166136261;
   const s = truth.trim().replace(/\r\n/g, `
@@ -1488,19 +1492,11 @@ function clientNeedles(records) {
       if (n)
         out.push(n);
     }
-  }
-  for (const r of records) {
-    if (r.layer !== "L2")
-      continue;
     for (const p of r.participants ?? []) {
       const n = p.name && !PUBLIC_BODY.test(normalize(p.name)) ? nameNeedle(p.name, r.id) : undefined;
       if (n)
         out.push(n);
     }
-  }
-  for (const r of records) {
-    if (r.layer !== "L2")
-      continue;
     for (const m of bodyText(r).matchAll(BIRTH_NUMBER_PATTERN_G)) {
       const n = exactNeedle(m[0], r.id, "rodné číslo v texte záznamu");
       if (n)
@@ -1539,10 +1535,6 @@ function recordText(r) {
 ${s.body}`)
   ].join(`
 `);
-}
-function isoDay(value) {
-  const day = /^(\d{4}-\d{2}-\d{2})(?:[T ].*)?$/.exec(value.trim())?.[1];
-  return day && isIsoDate(day) ? day : undefined;
 }
 var CASE_NUMBER_PATTERN = /^(?:\p{Lu}{2,6}\s+)?(?:\d{1,3}\s*\p{L}{1,6}\s*\d{1,6}\s*\/\s*\d{2,4}|\d{1,3}\s*\p{L}{1,6}\s*\/\s*\d{1,6}\s*\/\s*\d{4}|(?:Pl|IV|I{1,3})\.\s*ÚS\s*\d{1,5}\s*\/\s*\d{2,4})(?:\s*-\s*[\p{L}\d]+)*$/u;
 function linkTargets(r) {

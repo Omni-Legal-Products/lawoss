@@ -9,6 +9,7 @@
  */
 import type { ManualStatus } from "../okf-pamat/src/manual-status.ts";
 import type { OkfRecord } from "../okf-pamat/src/record.ts";
+import { isoDay } from "../okf-pamat/src/schema.ts";
 
 /** `invalid`: datum lhůty nemá tvar RRRR-MM-DD - UI ho ukáže k ověření, nikdy ho tiše nezahodí. */
 /** `file`: skutočný súbor záznamu - totožnosť zdieľaného záznamu (ID sa razia per spis, nie sú jedinečné). */
@@ -83,11 +84,6 @@ const OFFICE_DIR = /(^|\/)(Office|_kancelaria)$/;
 export const scopeLevels = (scopePaths: readonly string[]): { path: string; level: ScopeLevel }[] =>
   scopePaths.map((path, i) => ({ path, level: i === 0 ? "matter" : OFFICE_DIR.test(path) ? "office" : "client" }));
 
-const isCalendarDay = (day: string): boolean => {
-  const d = new Date(`${day}T00:00:00Z`);
-  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === day;
-};
-
 /**
  * Lehoty záznamu pre prehľad a cockpit: vyradený záznam žiadne nemá; `RRRR-MM-DD` s časom
  * sa oreže na deň; iný tvar ostáva ako text s `invalid` (`raw` = pôvodná hodnota pre potvrdenie).
@@ -95,8 +91,8 @@ const isCalendarDay = (day: string): boolean => {
 export function recordDeadlines(r: OkfRecord): { date: string; raw: string; invalid?: true }[] {
   if (isRetired(r)) return [];
   return (r.deadlines ?? []).map((raw) => {
-    const day = /^(\d{4}-\d{2}-\d{2})(?:[T ].*)?$/.exec(raw.trim())?.[1];
-    return day && isCalendarDay(day) ? { date: day, raw } : { date: raw, raw, invalid: true as const };
+    const day = isoDay(raw);
+    return day ? { date: day, raw } : { date: raw, raw, invalid: true as const };
   });
 }
 

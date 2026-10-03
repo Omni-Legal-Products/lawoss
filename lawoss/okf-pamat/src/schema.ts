@@ -651,6 +651,17 @@ export function isIsoDate(s: string): boolean {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
 }
 
+/**
+ * Lehota a termín sú kritické údaje a porovnávajú sa ako dátumy, nie text —
+ * `31.12.2026` by sa textovo vyhodnotil zle. Prijme sa ISO deň, za ním smie
+ * ísť čas alebo poznámka (`2026-10-01 odvolanie`). Vráti deň, alebo
+ * `undefined` pri neplatnej hodnote.
+ */
+export function isoDay(value: string): string | undefined {
+  const day = /^(\d{4}-\d{2}-\d{2})(?:[T ].*)?$/.exec(value.trim())?.[1];
+  return day && isIsoDate(day) ? day : undefined;
+}
+
 
 /**
  * Odtlačok Pravdy — detekcia zmeny mimo nástroja.

@@ -19,7 +19,7 @@
 import type { OkfRecord } from "./record.ts";
 import {
   AML_REQUIRED, PERSON_KINDS, SENSITIVE_FIELDS, EVIDENCE_KINDS,
-  fieldLabel, needleFields, truthDigest, FIELDS, EVENT_KINDS, canonicalEventKind, isRecordType, isIsoDate,
+  fieldLabel, needleFields, truthDigest, FIELDS, EVENT_KINDS, canonicalEventKind, isRecordType, isoDay,
   type FieldDef, type Jurisdiction,
 } from "./schema.ts";
 
@@ -154,25 +154,16 @@ function clientNeedles(records: readonly OkfRecord[]): Needle[] {
       const n = nameNeedle(r.title, r.id);
       if (n) out.push(n);
     }
-  }
-  // Zapojené subjekty sú údaje klientskej veci rovnako ako subjekty — ich
-  // mená do zdieľateľnej L3 nesmú. Berú sa len zo spisu (L2), nie z L3 samej.
-  for (const r of records) {
-    if (r.layer !== "L2") continue;
+    // Zapojené subjekty sú údaje klientskej veci rovnako ako subjekty. Súd,
+    // úrad či polícia sú ale verejné inštitúcie — ako jehla by zablokovali
+    // každý L3 prameň, ktorý ich cituje.
     for (const p of r.participants ?? []) {
-      // Súd, úrad či polícia sú verejné inštitúcie, nie údaj klienta — ako
-      // jehla by zablokovali každý L3 prameň, ktorý ich cituje.
       const n = p.name && !PUBLIC_BODY.test(normalize(p.name)) ? nameNeedle(p.name, r.id) : undefined;
       if (n) out.push(n);
     }
-  }
-  // Rodné číslo vo voľnom texte. Polia sú strážené z tabuľky, ale výrok
-  // opísaný do Pravdy otázky nesie rodné číslo tretej osoby a pole preň
-  // niet — prameň L3 s ním prešiel bránou. Vzor je dosť špecifický na to,
-  // aby vo voľnom texte nefalošil. Sumy ani IČO sa takto nehľadajú: osem
-  // číslic je v spise všade.
-  for (const r of records) {
-    if (r.layer !== "L2") continue;
+    // Rodné číslo vo voľnom texte. Polia sú strážené z tabuľky, ale výrok
+    // opísaný do Pravdy otázky nesie rodné číslo tretej osoby a pole preň
+    // niet. Sumy ani IČO sa takto nehľadajú: osem číslic je v spise všade.
     for (const m of bodyText(r).matchAll(BIRTH_NUMBER_PATTERN_G)) {
       const n = exactNeedle(m[0], r.id, "rodné číslo v texte záznamu");
       if (n) out.push(n);
@@ -215,17 +206,6 @@ function recordText(r: OkfRecord): string {
 }
 
 /**
- * Lehota a termín sú kritické údaje a porovnávajú sa ako dátumy, nie text —
- * `31.12.2026` by sa textovo vyhodnotil zle. Prijme sa ISO deň, za ním smie
- * ísť čas alebo poznámka (`2026-10-01 odvolanie`), rovnako ako v čítacom
- * modeli appky. Vráti deň, alebo `undefined` pri neplatnej hodnote.
- */
-export function isoDay(value: string): string | undefined {
-  const day = /^(\d{4}-\d{2}-\d{2})(?:[T ].*)?$/.exec(value.trim())?.[1];
-  return day && isIsoDate(day) ? day : undefined;
-}
-
-/**
  * Tvar českej alebo slovenskej spisovej značky. Zámerne zhovievavý — chytá
  * preklep a iný údaj v poli (interné číslo spisu, dátum), nie každú odchýlku:
  *   CZ  `22 Cdo 2886/2023`, `91 INS 5855/2024`, `MSPH 91 INS 5855/2024-C1`,
@@ -233,7 +213,7 @@ export function isoDay(value: string): string | undefined {
  *   SK  `1Cdo/12/2024`, `8Co/123/2019`, `31K/12/2019`
  * Voliteľná skratka súdu veľkými písmenami vpredu, voliteľné `-C1` vzadu.
  */
-export const CASE_NUMBER_PATTERN =
+const CASE_NUMBER_PATTERN =
   /^(?:\p{Lu}{2,6}\s+)?(?:\d{1,3}\s*\p{L}{1,6}\s*\d{1,6}\s*\/\s*\d{2,4}|\d{1,3}\s*\p{L}{1,6}\s*\/\s*\d{1,6}\s*\/\s*\d{4}|(?:Pl|IV|I{1,3})\.\s*ÚS\s*\d{1,5}\s*\/\s*\d{2,4})(?:\s*-\s*[\p{L}\d]+)*$/u;
 
 function linkTargets(r: OkfRecord): string[] {
