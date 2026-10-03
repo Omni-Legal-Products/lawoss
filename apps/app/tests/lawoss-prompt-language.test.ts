@@ -7,7 +7,7 @@ const client: NovySpisForm = {
   jurisdikcia: "CZ", root: "/Users/x/Klienti", protistrana: "",
 };
 const person: NovySpisForm = { ...client, subject: "fyzicka-osoba", citizenship: "cz", residenceCountry: "at" };
-const matter: NovySpisForm = { ...client, subject: "spis", title: "Novák — 14 C 101/2025", protistrana: "Beta a.s." };
+const matter: NovySpisForm = { ...client, subject: "spis", title: "Novák - 14 C 101/2025", protistrana: "Beta a.s." };
 const forms = [client, person, matter];
 
 /** The machine part: CLI command and flags must not depend on the UI language. */
@@ -65,10 +65,10 @@ describe("skill /novy-spis a jurisdikcia podľa jazyka rozhrania", () => {
   test("české rozhranie dostane český skill, ostatné slovenský", async () => {
     const { novySpisSkillBody } = await import("../src/lawoss/okf/skill-bundle");
     const cs = novySpisSkillBody("cs");
-    expect(cs.content).toContain("Postup — vždy stejný");
+    expect(cs.content).toContain("Postup - vždy stejný");
     expect(cs.description).toContain("„nová věc“");
-    for (const slovak of ["Postup — vždy rovnaký", "Nehádaj", "priečinok", "preverenie", "spýtaj"]) expect(cs.content).not.toContain(slovak);
-    expect(novySpisSkillBody("sk").content).toContain("Postup — vždy rovnaký");
+    for (const slovak of ["Postup - vždy rovnaký", "Nehádaj", "priečinok", "preverenie", "spýtaj"]) expect(cs.content).not.toContain(slovak);
+    expect(novySpisSkillBody("sk").content).toMatch(/Postup . vždy rovnaký/);
     expect(novySpisSkillBody("sk").description).toContain("„nová věc“");
   });
 

@@ -7,20 +7,27 @@ import { createWorkspaceHandoff, hasWorkspaceBinding, workspaceProfilePresent } 
 
 const digest = (text) => createHash("sha256").update(text).digest("hex");
 const MAX_CONTEXT_BYTES = 2 * 1024 * 1024;
+const MATTER_CARD_TYPES = {
+  "matter.md": /^(?:spis|matter)$/,
+  "spis.md": /^(?:spis|matter)$/,
+  "project.md": /^(?:projekt|project)$/,
+  "projekt.md": /^(?:projekt|project)$/,
+};
 
 function matterBinding(directory) {
   try {
     const root = realpathSync(directory);
-    const cards = ["matter.md", "spis.md"].filter((name) => existsSync(join(root, name)));
+    const cards = Object.keys(MATTER_CARD_TYPES).filter((name) => existsSync(join(root, name)));
     if (!cards.length) return null;
     const contents = cards.map((name) => {
       const path = join(root, name);
       if (!lstatSync(path).isFile()) throw new Error("Matter card must be a regular file");
       return readFileSync(path, "utf8");
     });
-    if (contents.some((text) => {
+    if (contents.some((text, index) => {
       const header = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text)?.[1];
-      return !header || !/^type:[ \t]*(?:spis|matter)[ \t]*\r?$/m.test(header);
+      const type = /^type:[ \t]*([^\r\n]+)[ \t]*\r?$/m.exec(header ?? "")?.[1];
+      return !type || !MATTER_CARD_TYPES[cards[index]]?.test(type);
     })) return null;
     if (contents.some((text) => text !== contents[0])) return null;
     if (!lstatSync(join(root, "memory")).isDirectory()) return null;

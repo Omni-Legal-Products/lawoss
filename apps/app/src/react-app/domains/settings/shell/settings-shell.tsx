@@ -1,5 +1,8 @@
 /** @jsxImportSource react */
 import { LanguageSwitcher } from "@/lawoss/shell/language-switcher";
+import { useUiMode } from "@/lawoss/lite/ui-mode";
+import { UiModeSwitch } from "@/lawoss/lite/ui-mode-switch";
+import { isWorkspaceSwitcherVisible } from "@/lawoss/lite/visibility";
 import type * as React from "react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -62,6 +65,7 @@ export type SettingsShellProps = SettingsPageFrameProps & {
 };
 
 export function SettingsShell(props: SettingsShellProps) {
+  const uiMode = useUiMode(); // LAWOSS-lite: přepnutí režimu překreslí seznamy záložek
   const title = getSettingsTabLabel(props.activeTab);
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -91,14 +95,15 @@ export function SettingsShell(props: SettingsShellProps) {
               developerMode={props.developerMode}
               onSelectTab={props.onSelectTab}
             />
-            <WorkspaceMenu
+            {isWorkspaceSwitcherVisible(uiMode) && <WorkspaceMenu
               selectedWorkspaceId={props.selectedWorkspaceId}
               selectedWorkspaceName={props.selectedWorkspaceName}
               workspaces={props.workspaces}
               onSelectWorkspace={props.onSelectWorkspace}
-            />
+            />}
           </div>
           <div className="flex shrink-0 items-center gap-1 mac:titlebar-no-drag">
+            <UiModeSwitch />
             <LanguageSwitcher />
             <NotificationBell />
             <Button
@@ -143,6 +148,7 @@ export function SettingsShell(props: SettingsShellProps) {
             {props.developerMode && props.headerStatus && <span className="hidden truncate text-xs text-muted-foreground lg:inline">{props.headerStatus}</span>}
           </div>
           <div className="flex items-center gap-1.5 titlebar-no-drag">
+            <UiModeSwitch />
             <LanguageSwitcher />
             <NotificationBell />
             <Button variant="ghost" size="icon-sm" className="text-muted-foreground" onClick={props.onClose} title={t("dashboard.close_settings")} aria-label={t("dashboard.close_settings")}><X className="size-4" /></Button>
