@@ -10,7 +10,16 @@ import { resolveServerConfig, type CliArgs } from "./config.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer, type OpencodeExecutionSnapshot } from "./managed-opencode.js";
 import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
-import { keepLegalworkRuntimeConfigFileFresh, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
+import { globalSkillsDir } from "./workspace-files.js";
+import { ensureBundledWorkflows } from "./bundled-workflows.js";
+import { retireSharedLegacyReview } from "./reviews/retire-legacy.js";
+import {
+  keepLegalworkRuntimeConfigFileFresh,
+  legalworkRuntimeConfigFilePath,
+  writeLegalworkRuntimeConfigFile,
+} from "./legalwork-runtime-config.js";
+import { globalOpenCodeConfigPath } from "./mcp.js";
+import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
 import { repairAllWorkspaceRuntimeProviders } from "./runtime-provider-repair.js";
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
@@ -19,12 +28,18 @@ import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
 
 export type EmbeddedServerOptions = CliArgs & {
+  /** Fallback only; explicit CLI, environment and file approval settings take precedence. */
+  defaultApprovalMode?: ServerConfig["approval"]["mode"];
+  /** Host-owned approval presentation for manual mode. */
+  requestHostApproval?: ServerConfig["requestHostApproval"];
   /** When true, spawn a managed OpenCode child process. */
   manageOpencode?: boolean;
   /** Path to the OpenCode binary. Falls back to LEGALWORK_OPENCODE_BIN env. */
   opencodeBin?: string;
   /** Working directory for the managed OpenCode process. */
   opencodeCwd?: string;
+  /** OS-resolved Documents project root provided by the desktop host. */
+  projectsDirectory?: string;
   /** Native folder-picker hook, forwarded to ServerConfig.pickDirectory. */
   pickDirectory?: ServerConfig["pickDirectory"];
   /** Desktop recorder hook, forwarded to Office add-in API routes. */
@@ -40,26 +55,31 @@ export type EmbeddedServerHandle = {
   config: ServerConfig;
   /** Redacted details for the managed OpenCode child process, when spawned. */
   managedOpencodeExecution: OpencodeExecutionSnapshot | null;
+  managedOpencodeStatus: () => { running: boolean; pid: number | null } | null;
   /** Stop the HTTP server and managed OpenCode (if any). */
   stop: () => Promise<void>;
 };
 
 export async function startEmbeddedServer(options: EmbeddedServerOptions): Promise<EmbeddedServerHandle> {
-  const config = await resolveServerConfig(options);
+  const config = await resolveServerConfig(options, { approvalMode: options.defaultApprovalMode });
+  config.requestHostApproval = options.requestHostApproval;
   config.pickDirectory = options.pickDirectory ?? null;
+  config.projectsDirectory = options.projectsDirectory;
   config.recorder = options.recorder ?? null;
   const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
   // No trailing slash: the engine appends "/api.json" to this value, so a
   // trailing slash produces the malformed "https://…com//api.json" seen in
   // user-reported engine logs.
-  const opencodeModelsUrl = process.env.LEGALWORK_DEV_MODE === "1"
+  const opencodeModelsUrl = process.env.OPENCODE_MODELS_URL?.trim().replace(/\/+$/, "") || (process.env.LEGALWORK_DEV_MODE === "1"
     ? "http://localhost:8791/models"
-    : "https://models.eigenweltlabs.com";
+    : "https://models.eigenweltlabs.com");
 
   // Spawn managed OpenCode if requested and no explicit base URL was provided.
   let managedOpencode: ManagedOpencodeServer | null = null;
 
   if (!config.readOnly) {
+    await retireSharedLegacyReview(globalSkillsDir());
+    await ensureBundledWorkflows();
     for (const workspace of config.workspaces) {
       await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
     }
@@ -67,6 +87,22 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   // Drop retired / unparsable provider blocks from the runtime DB BEFORE the
   // engine config file is built: one bad stored block takes the engine down.
   await repairAllWorkspaceRuntimeProviders(config);
+  // Desktop connectors are shared by every workspace. Fold what earlier builds
+  // stored per workspace or in files into the shared row before the engine
+  // config file is built from it, so nothing already connected disappears.
+  const connectorImport = await importConnectorsIntoSharedRow(config, {
+    runtimeConfigFile: legalworkRuntimeConfigFilePath(config),
+    globalOpencodeConfigFile: globalOpenCodeConfigPath(),
+  }).catch((error: unknown) => {
+    console.warn(`[embedded] connector import skipped: ${error instanceof Error ? error.message : String(error)}`);
+    return { imported: [] as string[], backups: [] as string[] };
+  });
+  if (connectorImport.backups.length > 0) {
+    console.log(`[embedded] connector files backed up before the move: ${connectorImport.backups.join(", ")}`);
+  }
+  if (connectorImport.imported.length > 0) {
+    console.log(`[embedded] moved connectors into the shared store: ${connectorImport.imported.join(", ")}`);
+  }
 
   if (!config.opencodeBaseUrl && options.manageOpencode) {
     const workspace = config.workspaces[0];
@@ -80,7 +116,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       // the kept key (no-op when not signed in) with the firm's access token,
       // so the list reflects the admin's on/off choices, then rewrite the
       // engine config so the current models appear across every workspace.
-      void ensureFreshPlatformToken(config, workspace.id)
+      void ensureFreshPlatformToken(config)
         .catch(() => null)
         .then((platformToken) => refreshEigenweltPaidManifest(config, { platformToken }))
         .then((r) => (r.changed ? writeLegalworkRuntimeConfigFile(config, workspace.id) : undefined))
@@ -147,6 +183,9 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     url: `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${server.port}`,
     config,
     managedOpencodeExecution: managedOpencode?.execution ?? null,
+    managedOpencodeStatus: () => managedOpencode
+      ? { running: managedOpencode.running(), pid: managedOpencode.pid }
+      : null,
     async stop() {
       await managedOpencode?.close();
       await server.stop();

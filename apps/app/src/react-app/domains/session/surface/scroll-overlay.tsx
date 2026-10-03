@@ -6,6 +6,7 @@ import {
   useSessionScrollStore,
 } from "./scroll-store";
 import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
 
 function useSessionScrollOverlayState(sessionId: string) {
   const isAtBottom = useSessionScrollStore((state) => selectSessionIsStickyBottom(state.sessions, sessionId));
@@ -21,6 +22,7 @@ type JumpToStartButtonProps = {
 const JumpToStartButton = memo(function JumpToStartButton({
   onJumpToStartOfMessage,
 }: JumpToStartButtonProps) {
+  const locale = useLocale();
   const handleClick = useCallback(() => {
     onJumpToStartOfMessage("smooth");
   }, [onJumpToStartOfMessage]);
@@ -31,7 +33,7 @@ const JumpToStartButton = memo(function JumpToStartButton({
       className="rounded-full px-3 py-1.5 text-xs text-dls-text transition-colors hover:bg-dls-hover"
       onClick={handleClick}
     >
-      {t("session.jump_to_start")}
+      {t("session.jump_to_start", locale)}
     </button>
   );
 });
@@ -43,6 +45,7 @@ type JumpToLatestButtonProps = {
 const JumpToLatestButton = memo(function JumpToLatestButton({
   onJumpToLatest,
 }: JumpToLatestButtonProps) {
+  const locale = useLocale();
   const handleClick = useCallback(() => {
     onJumpToLatest("smooth");
   }, [onJumpToLatest]);
@@ -53,7 +56,7 @@ const JumpToLatestButton = memo(function JumpToLatestButton({
       className="rounded-full px-3 py-1.5 text-xs text-dls-text transition-colors hover:bg-dls-hover"
       onClick={handleClick}
     >
-      {t("session.jump_to_latest")}
+      {t("session.jump_to_latest", locale)}
     </button>
   );
 });

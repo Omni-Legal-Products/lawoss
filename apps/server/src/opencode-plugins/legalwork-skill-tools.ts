@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 import { basename, isAbsolute, join } from "node:path";
 import { z } from "zod";
 
+import { buildSkillMarkdown, resolveSkillName } from "../skill-tool-content.js";
+
 import { resolveWorkspaceId, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
 
 /**
@@ -20,12 +22,10 @@ import { resolveWorkspaceId, serverToken, serverUrl, type OpenCodeContext } from
 const REQUEST_TIMEOUT_MS = 30_000;
 /** Per-file cap for attached templates (base64 inflates the JSON body). */
 const MAX_RESOURCE_BYTES = 20 * 1024 * 1024;
-// A skill is exposed to the model as a tool, and providers reject tool names
-// longer than 64 chars (Anthropic: `^[a-zA-Z0-9_-]{1,64}$`).
-const MAX_SKILL_NAME_LENGTH = 64;
 
 const SKILL_TOOLS_INSTRUCTION = `## Creating skills and workflows
 When the user asks you to create, save, or "remember" a reusable skill or workflow (a repeatable drafting/review task, a firm playbook, a checklist they want to run again), create it with legalwork_skill_create. That is the only way it lands in the firm's library and shows up in the LegalWork app under Settings > Skills and Settings > Workflows. Writing a SKILL.md yourself with the file tools leaves it as a loose file the app never lists.
+Exception: tabular-review prompts and sets are structured library entries. Load author-review-prompts and use legalwork_review_library_save for those; never create new tabular workflow skills. Existing tabular workflows remain ordinary workflows.
 Use kind "workflow" for a legal task the user runs on documents (drafting from a template, a review pass); use kind "skill" for knowledge or capability the assistant should pick up automatically. Attach the firm's template with resourcePaths when the task drafts from one. Call legalwork_skill_list first if you need to check what already exists.`;
 
 const createArgs = z.object({
@@ -57,10 +57,10 @@ const createArgs = z.object({
       "'workflow' (shown under Settings > Workflows) for a legal task the user runs on documents; 'skill' (Settings > Skills) for knowledge the assistant loads on its own. Defaults to 'skill'.",
     ),
   workflowType: z
-    .enum(["assistant", "tabular"])
+    .literal("assistant")
     .optional()
     .describe(
-      "Workflows only. 'assistant' (default) drafts or reviews a document; 'tabular' extracts fields across many documents into a sourced review grid.",
+      "Workflows only. Ordinary workflows use assistant. For tabular-review prompts or sets, load author-review-prompts and use legalwork_review_library_save instead.",
     ),
   resourcePaths: z
     .array(z.string().min(1).max(1_024))
@@ -78,86 +78,6 @@ const createArgs = z.object({
 const listArgs = z.object({});
 
 type SkillListItem = { name?: unknown; description?: unknown; kind?: unknown; scope?: unknown };
-
-/**
- * Coerce a free-text name into a valid kebab-case slug of at most 64 chars,
- * dropping whole trailing words rather than cutting mid-word (same rule the
- * desktop import uses, so a name behaves identically whichever path created it).
- */
-export function fitSkillName(raw: string): string {
-  const cleaned = raw
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/ä/g, "ae")
-    .replace(/ö/g, "oe")
-    .replace(/ü/g, "ue")
-    .replace(/ß/g, "ss")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  if (!cleaned) return "";
-  if (cleaned.length <= MAX_SKILL_NAME_LENGTH) return cleaned;
-  const words = cleaned.split("-");
-  let candidate = words[0]!.slice(0, MAX_SKILL_NAME_LENGTH);
-  for (let index = 1; index < words.length; index += 1) {
-    const next = `${candidate}-${words[index]}`;
-    if (next.length > MAX_SKILL_NAME_LENGTH) break;
-    candidate = next;
-  }
-  return candidate.replace(/-+$/g, "");
-}
-
-/**
- * Workflows are marked by a `workflow-<type>-` name prefix, not by frontmatter:
- * the app detects them by it, and the engine skips a SKILL.md that carries
- * non-standard frontmatter keys. Mirrors the Workflows view's naming.
- */
-export function resolveSkillName(input: { name: string; kind: "skill" | "workflow"; workflowType: "assistant" | "tabular" }): string {
-  const slug = fitSkillName(input.name);
-  if (!slug) return "";
-  if (input.kind !== "workflow") return slug;
-  const bare = slug.replace(/^workflow-(?:assistant|tabular)-/, "").replace(/^workflow-/, "");
-  return fitSkillName(`workflow-${input.workflowType}-${bare}`);
-}
-
-function titleFromName(name: string): string {
-  return name
-    .replace(/^workflow-(?:assistant|tabular)-/, "")
-    .replace(/-/g, " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
-}
-
-/**
- * Build the SKILL.md. Frontmatter stays standard (name + description only) so
- * the engine loads it as an ordinary skill; a tabular workflow's body carries
- * the instruction to run through the bundled `tabular-review` skill.
- */
-export function buildSkillMarkdown(input: {
-  fullName: string;
-  description: string;
-  instructions: string;
-  kind: "skill" | "workflow";
-  workflowType: "assistant" | "tabular";
-}): string {
-  const frontmatter = `---\nname: ${input.fullName}\ndescription: ${JSON.stringify(input.description.trim())}\n---\n`;
-  const body = input.instructions.trim();
-  if (input.kind !== "workflow" || input.workflowType === "assistant") {
-    return `${frontmatter}\n${body}\n`;
-  }
-  const title = titleFromName(input.fullName);
-  return `${frontmatter}\n${[
-    `# ${title}`,
-    ``,
-    "This is a **tabular review workflow**. To run it, load the **`tabular-review`** skill",
-    "and build a review grid over the user's documents — one row per document, with a",
-    "source citation in every cell — extracting the fields described below.",
-    ``,
-    `## What to extract`,
-    ``,
-    body,
-    ``,
-    `When the user asks to run "${title}", use the \`tabular-review\` skill.`,
-  ].join("\n")}\n`;
-}
 
 async function requestJson(
   path: string,
@@ -236,13 +156,13 @@ export const LegalWorkSkillTools = async () => ({
   tool: {
     legalwork_skill_create: {
       description:
-        "Add a skill or workflow to the firm's LegalWork library so it appears in Settings > Skills / Settings > Workflows and loads in every workspace. Use whenever the user asks to create, save, or reuse a repeatable task — 'make a workflow for this', 'save this as a skill', 'remember how we draft these'. This is the only way a new skill/workflow reaches the app: writing a SKILL.md yourself with the file tools leaves it as a loose file the app never lists.",
+        "Add a skill or workflow to the firm's LegalWork library so it appears in Settings > Skills / Settings > Workflows and loads in every workspace. Use whenever the user asks to create, save, or reuse a repeatable task — 'make a workflow for this', 'save this as a skill', 'remember how we draft these'. For tabular-review prompts and sets, use the author-review-prompts skill and legalwork_review_library_save instead. This is the only way a new skill/workflow reaches the app: writing a SKILL.md yourself with the file tools leaves it as a loose file the app never lists.",
       args: createArgs.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = createArgs.parse(rawArgs);
         const kind = args.kind ?? "skill";
         const workflowType = args.workflowType ?? "assistant";
-        const fullName = resolveSkillName({ name: args.name, kind, workflowType });
+        let fullName = resolveSkillName({ name: args.name, kind, workflowType });
         if (!fullName) {
           return JSON.stringify({ ok: false, error: `"${args.name}" has no usable characters for a skill name.` });
         }
@@ -251,8 +171,11 @@ export const LegalWorkSkillTools = async () => ({
           const existing = await requestJson(
             `/workspace/${encodeURIComponent(workspaceId)}/skills?includeGlobal=true`,
           );
+          const items = existing.ok ? (existing.payload as { items?: SkillListItem[] } | null)?.items ?? [] : [];
+          const original = items.find(item => item.name === args.name);
+          // Existing workflow IDs remain stable even after their type is retired.
+          if (kind === "workflow" && original && (args.name.startsWith("workflow-") || original.kind === "workflow")) fullName = args.name;
           if (existing.ok && !args.overwrite) {
-            const items = (existing.payload as { items?: SkillListItem[] } | null)?.items ?? [];
             if (items.some((item) => item.name === fullName)) {
               return JSON.stringify({
                 ok: false,

@@ -1,8 +1,11 @@
+import type { SearchSourceReference } from "@legalwork/types/search";
 import { create } from "zustand";
+import type { ReviewSourceReference } from "@legalwork/types/reviews";
 import { confirmDiscardDocuments } from "../artifacts/docx-document-state";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { isCollectibleArtifactTarget, type OpenTarget, type OpenTargetPreview } from "../artifacts/open-target";
+import type { StorageFileSource } from "./storage-file-tab";
 
 export const PERSISTED_PANEL_TAB_STORE_KEY = "legalwork:panel-tabs:v1";
 
@@ -12,7 +15,10 @@ export const PERSISTED_PANEL_TAB_STORE_KEY = "legalwork:panel-tabs:v1";
  */
 export const EVALS_PANEL_SESSION_ID = "__evals__";
 
-export type PanelTabType = "artifact" | "browser";
+// Asking for a tab lives in its own module, so asking does not create this store.
+export { PANEL_OPEN_TAB_EVENT, requestPanelTab } from "./panel-tab-request";
+
+export type PanelTabType = "artifact" | "browser" | "task" | "workflow" | "workflow-resource";
 
 export type { BrowserPanelTab } from "../../../../app/lib/desktop-types";
 import type { BrowserPanelTab } from "../../../../app/lib/desktop-types";
@@ -27,9 +33,25 @@ export type ArtifactPanelTab = {
   value?: string;
   size?: number;
   updatedAt?: number;
+  storage?: StorageFileSource;
+  sourcePage?: number;
+  searchSources?: SearchSourceReference[];
+  reviewCitation?: ReviewSourceReference;
+  /** A review document's recognized pages; without a page, the first page that needs review. */
+  reviewRecognition?: { reviewId: string; documentId: string; page?: number };
 }
 
-export type PanelTab = BrowserPanelTab | ArtifactPanelTab;
+export type TaskPanelTab = {
+  id: string;
+  type: "task";
+  taskId: string;
+  label: string;
+};
+
+export type WorkflowPanelTab = { id: string; type: "workflow"; label: string };
+export type WorkflowResourcePanelTab = { id: string; type: "workflow-resource"; label: string };
+
+export type PanelTab = BrowserPanelTab | ArtifactPanelTab | TaskPanelTab | WorkflowPanelTab | WorkflowResourcePanelTab;
 
 export type SessionPanelState = {
   tabs: PanelTab[];
@@ -54,6 +76,7 @@ export type PanelTabStore = {
   sessions: Record<string, SessionPanelState>;
   transcriptArtifactTargets: Record<string, OpenTarget[]>;
   openTab: (sessionId: string, tab: PanelTab) => void;
+  setStorageWorkingPath: (sessionId: string, tabId: string, path: string) => void;
   closeTab: (sessionId: string, tabId: string) => void;
   selectTab: (sessionId: string, tabId: string) => void;
   reorderTabs: (sessionId: string, tabIds: string[]) => void;
@@ -103,10 +126,9 @@ function reconcileOpenArtifactTabs(
       const target = targetMap.get(tab.id);
 
       if (!target) {
-        // Tabs opened from the workspace file browser carry their own path and
-        // are not derived from the transcript — reconciling against transcript
-        // targets must not close them.
-        return tab.value ? tab : null;
+        // Workspace and connected-storage tabs carry their own source. A
+        // transcript update must not close directly opened files.
+        return tab.value || tab.storage ? tab : null;
       }
 
       return {
@@ -150,7 +172,8 @@ function isSameTab(left: PanelTab, right: PanelTab) {
     return (
       left.label === right.label &&
       left.preview === right.preview &&
-      left.value === right.value
+      left.value === right.value &&
+      left.storage === right.storage
     );
   }
 
@@ -164,6 +187,13 @@ function isSameTab(left: PanelTab, right: PanelTab) {
       left.canGoForward === right.canGoForward
     );
   }
+
+  if (left.type === "task" && right.type === "task") {
+    return left.label === right.label && left.taskId === right.taskId;
+  }
+
+  if (left.type === "workflow" && right.type === "workflow") return left.label === right.label;
+  if (left.type === "workflow-resource" && right.type === "workflow-resource") return left.label === right.label;
 
   return false;
 }
@@ -223,9 +253,15 @@ export const usePanelTabStore = create<PanelTabStore>()(
     (set, get) => ({
       sessions: {},
       transcriptArtifactTargets: {},
+      setStorageWorkingPath: (sessionId, tabId, path) => set((state) => {
+        const session = getWritableSession(state, sessionId);
+        const tab = session.tabs.find((item) => item.id === tabId);
+        if (tab?.type !== "artifact" || !tab.storage || tab.value === path) return state;
+        return updateSession(state, sessionId, { ...session, tabs: session.tabs.map((item) => item.id === tabId ? { ...tab, value: path } : item) });
+      }),
       openTab: (sessionId, tab) => set((state) => {
         const session = getWritableSession(state, sessionId);
-        if (session.activeTabId !== tab.id && !confirmDiscardDocuments()) return state;
+        if (session.activeTabId !== tab.id && !confirmDiscardDocuments(undefined, undefined, true)) return state;
         const existingIndex = session.tabs.findIndex((entry) => entry.id === tab.id);
 
         if (existingIndex >= 0) {
@@ -250,7 +286,10 @@ export const usePanelTabStore = create<PanelTabStore>()(
           return state;
         }
 
-        if (session.activeTabId === tabId && !confirmDiscardDocuments()) return state;
+        const closing = session.tabs[index];
+        if (closing.type === "workflow" || closing.type === "workflow-resource") {
+          if (!confirmDiscardDocuments(tabId)) return state;
+        } else if (session.activeTabId === tabId && !confirmDiscardDocuments(undefined, undefined, true)) return state;
         const tabs = session.tabs.filter((tab) => tab.id !== tabId);
         const activeTabId = session.activeTabId === tabId
           ? resolveActiveTabId(tabs, tabs[index]?.id ?? tabs[index - 1]?.id ?? null)
@@ -268,7 +307,7 @@ export const usePanelTabStore = create<PanelTabStore>()(
           return state;
         }
 
-        if (!confirmDiscardDocuments()) return state;
+        if (!confirmDiscardDocuments(undefined, undefined, true)) return state;
         return updateSession(state, sessionId, {
           ...session,
           activeTabId: tabId,
@@ -297,7 +336,7 @@ export const usePanelTabStore = create<PanelTabStore>()(
         const mergedTabs: PanelTab[] = [];
 
         for (const tab of session.tabs) {
-          if (tab.type === "artifact") {
+          if (tab.type !== "browser") {
             mergedTabs.push(tab);
             continue;
           }

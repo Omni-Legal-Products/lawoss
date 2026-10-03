@@ -3,14 +3,12 @@
 // surface via executeJavaScript. Consumed over HTTP by legalwork-ui-mcp.
 // Extracted from main.mjs; state and lifecycle live in this factory
 // (createRuntimeManager pattern).
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
-import { rm, writeFile } from "node:fs/promises";
+import { rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { app } from "electron";
-
-export function createUiControlServer({ appName, appIdentifier, getWindow }) {
+export function createUiControlServer({ appName, appIdentifier, getWindow, getUserDataDir }) {
   let uiControlServer = null;
   let uiControlDiscoveryPath = null;
   const uiControlToken = randomBytes(32).toString("hex");
@@ -49,9 +47,15 @@ export function createUiControlServer({ appName, appIdentifier, getWindow }) {
     });
   }
 
+  // Hashed before comparing so the check takes the same time whatever the
+  // caller sends, and so mismatched lengths do not throw.
   function authorizedUiControlRequest(request) {
-    const auth = request.headers.authorization ?? "";
-    return auth === `Bearer ${uiControlToken}`;
+    const auth = String(request.headers.authorization ?? "");
+    if (!auth) return false;
+    return timingSafeEqual(
+      createHash("sha256").update(auth).digest(),
+      createHash("sha256").update(`Bearer ${uiControlToken}`).digest(),
+    );
   }
 
   function jsonForJavaScript(value) {
@@ -65,7 +69,7 @@ export function createUiControlServer({ appName, appIdentifier, getWindow }) {
       if (win.isMinimized()) win.restore();
       win.focus();
     }
-    return win.webContents.executeJavaScript(expression, true);
+    return win.webContents.executeJavaScript(expression, options.focus === true);
   }
 
   async function runLegalworkControlCommand(command, args = {}) {
@@ -87,6 +91,7 @@ export function createUiControlServer({ appName, appIdentifier, getWindow }) {
       })()`);
     }
     if (command === "execute") {
+      // Agent edits run in the background. Raising the app requires an explicit request.
       return evaluateLegalworkControl(`(async () => {
         const control = window.__legalworkControl;
         const input = JSON.parse(${argsJsonLiteral});
@@ -96,7 +101,7 @@ export function createUiControlServer({ appName, appIdentifier, getWindow }) {
         }
         control.setEnabled?.(true);
         return control.execute(input.actionId, input.args ?? {});
-      })()`, { focus: true });
+      })()`, { focus: args.focus === true });
     }
     return { ok: false, error: `Unknown LegalWork control command: ${command}` };
   }
@@ -138,12 +143,25 @@ export function createUiControlServer({ appName, appIdentifier, getWindow }) {
     const address = uiControlServer.address();
     const port = typeof address === "object" && address ? address.port : null;
     if (!port) throw new Error("Could not start LegalWork UI control bridge.");
-    uiControlDiscoveryPath = path.join(app.getPath("userData"), "legalwork-ui-control.json");
-    await writeFile(
-      uiControlDiscoveryPath,
-      `${JSON.stringify({ version: 1, app: appName, identifier: appIdentifier, platform: process.platform, baseUrl: `http://127.0.0.1:${port}`, token: uiControlToken }, null, 2)}\n`,
-      "utf8",
-    );
+    const discoveryPath = path.join(getUserDataDir(), "legalwork-ui-control.json");
+    const temporaryPath = `${discoveryPath}.${randomBytes(16).toString("hex")}.tmp`;
+    // Never put a fresh token in an existing inode: older releases created this
+    // file with wider permissions. Publish a new owner-only file atomically.
+    try {
+      await writeFile(
+        temporaryPath,
+        `${JSON.stringify({ version: 1, app: appName, identifier: appIdentifier, platform: process.platform, baseUrl: `http://127.0.0.1:${port}`, token: uiControlToken }, null, 2)}\n`,
+        { encoding: "utf8", mode: 0o600, flag: "wx" },
+      );
+      await rename(temporaryPath, discoveryPath);
+      uiControlDiscoveryPath = discoveryPath;
+    } catch (error) {
+      await new Promise((resolve) => uiControlServer.close(() => resolve(undefined)));
+      uiControlServer = null;
+      throw error;
+    } finally {
+      await rm(temporaryPath, { force: true });
+    }
     // Make the discovery path available to child processes (server → managed OpenCode → plugin).
     process.env.LEGALWORK_UI_CONTROL_DISCOVERY = uiControlDiscoveryPath;
   }

@@ -13,14 +13,14 @@ v ňom beží tak, ako je. Chýbali presne dve veci a obe sú konfiguráciou.
 
 ### 1. Koreň kancelárie
 
-V koreni vaultu vytvor `_kancelaria/memory/`. Tam žijú pravidlá praxe (L1)
+V koreni vaultu vytvor `Office/memory/`. Tam žijú pravidlá praxe (L1)
 a právne pramene (L3) — teda to, čo neprináleží jednému spisu.
 
 ### 2. Kde leží klient
 
 Vault, ktorý vznikol pred OKF, karty `klient.md` nemá. Nasypať ich doň 52 je
 zásah do cudzieho poriadku — objavili by sa vo vyhľadávaní, v grafe aj
-v quick-switcheri. Vzor sa preto zapíše **raz** do `_kancelaria/okf.config`:
+v quick-switcheri. Vzor sa preto zapíše **raz** do `Office/okf.config`:
 
 ```
 client_path: AK/*/*
@@ -28,7 +28,7 @@ client_path: AK/*/*
 
 Hviezdička je **práve jeden segment cesty**, nie ľubovoľná hĺbka — inak by za
 klienta prešiel aj priečinok veci. Cesta je relatívna ku koreňu vaultu (rodič
-`_kancelaria/`). Karta v priečinku má prednosť: keď niekde `klient.md` je,
+`Office/`). Karta v priečinku má prednosť: keď niekde `klient.md` je,
 vyhrá nad vzorom.
 
 > [!WARNING]
@@ -183,6 +183,6 @@ Testy napojenia sú v [`tests/obsidian-vault.test.ts`](tests/obsidian-vault.test
 vrátane regresného dôkazu, že bez `client_path` je brána úniku slepá.
 Prechody medzi systémami drží [`tests/prechod-obsidian.test.ts`](tests/prechod-obsidian.test.ts).
 
-Ručne, nad kópiou vaultu (nikdy nad ostrým): založ `_kancelaria/`, zapíš
+Ručne, nad kópiou vaultu (nikdy nad ostrým): založ `Office/`, zapíš
 `client_path`, spusti `init` a `read` nad jedným spisom a over, že výpis hlási
 `u klienta N` — to je znak, že klientská úroveň naozaj vznikla.

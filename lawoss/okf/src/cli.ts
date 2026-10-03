@@ -3,11 +3,13 @@
  * okf — CLI nad priečinkom klienta. Súbory dnu, súbory von. Žiadny server.
  *
  *   okf detect <dir> [--type klient|spis|projekt] [--json]
- *   okf plan <typ> <dir> --title "…" [--ico X] [--klient X] [--protistrana X]
- *            [--protistrana-ico X] [--oblast X] [--desc X] [--json]
- *   okf apply <typ> <dir> --title "…" [rovnaké flagy]        ← až po potvrdení človekom
+ *   okf plan <typ> <dir> --title "…" --sk|--cz [--ico X] [--klient X] [--protistrana X]
+ *            [--protistrana-ico X] [--oblast X] [--desc X] [--advokat X] [--language cs|sk|en] [--json]
+ *   okf apply <typ> <dir> --title "…" --sk|--cz [rovnaké flagy]        ← až po potvrdení človekom
  *   okf validate <dir> [--json]                                 exit 1 pri chybe
  *   okf render <dir> [--json]
+ *   okf naming <dir> --manifest request.json [--out plan.json] [--json]
+ *   okf naming <dir> --plan plan.json --apply [--json]
  *
  * Ľudská brána je ZÁMERNE mimo CLI: `plan` nič nezapíše; `apply` volá ten,
  * kto plán ukázal advokátovi a dostal súhlas.
@@ -15,8 +17,9 @@
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { ENTITY_TYPES, type EntityType, type PlanInput } from "./core.ts";
+import { resolveDocumentLanguage, type DocumentLanguage, ENTITY_TYPES, type ClientType, type MatterKind, type MatterMode, type EntityType, type Jurisdiction, type PlanInput } from "./core.ts";
 import { apply, detect, plan, render, validate } from "./fs.ts";
+import { NamingSchemaError, isNamingSchemaError, parseNamingRequest, applyDocumentNaming, parseNamingPlan, planDocumentNaming, readNamingJson, writeNamingPlanOutsideMatter } from "./naming-fs.ts";
 
 type Flags = Record<string, string | boolean>;
 
@@ -39,9 +42,47 @@ function str(flags: Flags, key: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function choice<T extends string>(flags: Flags, key: string, values: readonly T[]): T | undefined {
+  const value = str(flags, key);
+  if (value === undefined) return undefined;
+  const match = values.find((item) => item === value);
+  if (!match) throw new Error(`--${key}: vyber ${values.join(" | ")}`);
+  return match;
+}
+
+function languageFrom(flags: Flags): DocumentLanguage | undefined {
+  if (flags.language === undefined) return undefined;
+  return resolveDocumentLanguage(flags.language);
+}
+
 function entityType(value: string | undefined): EntityType {
   if (value && (ENTITY_TYPES as readonly string[]).includes(value)) return value as EntityType;
   throw new Error(`typ musí byť ${ENTITY_TYPES.join(" | ")}; dostal som: ${value ?? "(nič)"}`);
+}
+
+/**
+ * Jurisdikcia z prepínača `--sk` / `--cz`.
+ *
+ * Pri `spis` je povinná a odmietame už pri `plan`, nie až pri `apply` — advokát
+ * vidí plán prvý, takže odmietnutie musí prísť tam. Dôvod je vecný: `okf-pamat`
+ * si jurisdikciu číta z karty veci a bez nej pamäť spisu nezaloží. Spis, ktorý
+ * by tu vznikol bez nej, by sa o krok neskôr zasekol — a to je horšie než
+ * nevzniknúť vôbec. Tiché predvolenie `cz` je presne tá chyba, ktorú `okf-pamat`
+ * práve odstránil; nezavádzame ju späť na druhom konci.
+ */
+function jurisdictionFrom(flags: Flags, type: EntityType): Jurisdiction | undefined {
+  const sk = flags.sk === true;
+  const cz = flags.cz === true;
+  if (sk && cz) throw new Error("naraz --sk aj --cz; vyber jednu jurisdikciu");
+  if (sk) return "sk";
+  if (cz) return "cz";
+  if (type === "spis") {
+    throw new Error(
+      "Spis potrebuje jurisdikciu: uveď --sk alebo --cz. Zapíše sa do karty veci " +
+        "ako `jurisdiction:` a `okf-memory` ju odtiaľ prečíta.",
+    );
+  }
+  return undefined;
 }
 
 function inputFrom(positional: string[], flags: Flags): PlanInput {
@@ -50,10 +91,16 @@ function inputFrom(positional: string[], flags: Flags): PlanInput {
   if (!dir) throw new Error("chýba <dir>");
   const title = str(flags, "title") ?? dir.split(/[\\/]/).filter(Boolean).pop() ?? "";
   return {
-    type, dir, title,
+    type, dir, title, language: languageFrom(flags),
+    clientType: choice(flags, "client-type", ["fo", "fo-podnikatel", "po", "iny"] satisfies ClientType[]),
+    country: str(flags, "country"), citizenship: str(flags, "citizenship"), residenceCountry: str(flags, "residence-country"), identifierType: str(flags, "identifier-type"), identifier: str(flags, "identifier"),
+    matterKind: choice(flags, "matter-kind", ["dispute", "advisory", "transaction", "other"] satisfies MatterKind[]),
+    mode: choice(flags, "mode", ["bounded", "ongoing"] satisfies MatterMode[]),
     description: str(flags, "desc"), ico: str(flags, "ico"), klient: str(flags, "klient"),
     protistrana: str(flags, "protistrana"), protistranaIco: str(flags, "protistrana-ico"),
     oblast: str(flags, "oblast"), spzn: str(flags, "spzn"), sud: str(flags, "sud"), date: str(flags, "date"),
+    advokat: str(flags, "advokat"),
+    jurisdiction: jurisdictionFrom(flags, type),
   };
 }
 
@@ -62,7 +109,23 @@ export function run(argv: string[], out: (line: string) => void = console.log): 
   const json = flags.json === true;
   const cmd = positional[0];
   try {
+    if (argv.filter((arg) => arg === "--language").length > 1) throw new Error("--language must be specified once");
     switch (cmd) {
+      case "naming": {
+        const dir = positional[1];
+        const namingKeys = argv.filter(arg => arg.startsWith("--"));
+        if (!dir || positional.length !== 2 || new Set(namingKeys).size !== namingKeys.length || Object.keys(flags).some(key => !["manifest", "plan", "apply", "out", "json"].includes(key)) || (flags.json !== undefined && flags.json !== true)) throw new NamingSchemaError("Usage: okf naming <dir> --manifest request.json [--out plan.json] [--json] OR --plan plan.json --apply [--json]");
+        if (flags.apply === true && str(flags, "plan") && flags.manifest === undefined && flags.out === undefined) {
+          const result = applyDocumentNaming(dir, parseNamingPlan(readNamingJson(str(flags, "plan")!)));
+          out(JSON.stringify(result, null, 2));
+          return result.status === "applied" || result.status === "already-applied" ? 0 : 1;
+        }
+        if (!str(flags, "manifest") || flags.plan !== undefined || flags.apply !== undefined || (flags.out !== undefined && !str(flags, "out"))) throw new NamingSchemaError("Preview requires --manifest; apply requires the exact approved --plan and --apply");
+        const result = planDocumentNaming(dir, parseNamingRequest(readNamingJson(str(flags, "manifest")!)));
+        const output = str(flags, "out"); if (output) writeNamingPlanOutsideMatter(dir, output, result);
+        if (!json) out(`Preview: no writes inside the matter. Link scope: selected files only; unselected links are not verified.${output ? ` New external plan: ${output}` : ""}`);
+        out(JSON.stringify(result, null, 2)); return 0;
+      }
       case "detect": {
         const dir = positional[1]; if (!dir) throw new Error("chýba <dir>");
         const hint = str(flags, "type"); const result = detect(dir, hint ? entityType(hint) : undefined);
@@ -99,19 +162,19 @@ export function run(argv: string[], out: (line: string) => void = console.log): 
       }
       case "render": {
         const dir = positional[1]; if (!dir) throw new Error("chýba <dir>");
-        const result = render(dir);
+        const result = render(dir, languageFrom(flags));
         if (json) { out(JSON.stringify(result, null, 2)); return 0; }
         for (const f of result.written) out(`~ ${f}   (pregenerované)`);
         for (const f of result.kept) out(`= ${f}`);
         return 0;
       }
       default:
-        out("okf detect|plan|apply|validate|render — pozri hlavičku src/cli.ts");
+        out("okf detect|plan|apply|validate|render|naming — plan/apply/render: --language cs|sk|en; pozri hlavičku src/cli.ts");
         return cmd ? 2 : 0;
     }
   } catch (error) {
     out(`okf: ${error instanceof Error ? error.message : String(error)}`);
-    return 2;
+    return cmd === "naming" && !isNamingSchemaError(error) && !(error instanceof SyntaxError) ? 1 : 2;
   }
 }
 

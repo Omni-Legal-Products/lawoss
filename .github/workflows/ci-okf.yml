@@ -1,0 +1,60 @@
+# Testy Fázy A (`okf` CLI a šablóny). Vlastný workflow, lebo `ci-okf-pamat.yml`
+# sa spúšťa len na `lawoss/okf-pamat/**` a `pnpm --filter @legalwork/app test`
+# vidí iba `apps/app/tests/` — `lawoss/okf/test/` tak doteraz v CI nebežal
+# vôbec. Test, ktorý nikde nebeží, nie je test.
+name: OKF CLI
+
+on:
+  pull_request:
+    paths: ["lawoss/okf/**", "lawoss/okf-pamat/**", "lawoss/tests/**", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".github/workflows/ci-okf.yml"]
+  push:
+    branches: [dev]
+    paths: ["lawoss/okf/**", "lawoss/okf-pamat/**", "lawoss/tests/**", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".github/workflows/ci-okf.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  okf:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
+
+    defaults:
+      run:
+        working-directory: lawoss/okf
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Install locked typecheck tools
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter @lawoss/okf --filter @lawoss/okf-pamat
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: bun test test/
+
+      - name: Bundle je čerstvý
+        run: |
+          bun run build
+          git diff --exit-code bundle/

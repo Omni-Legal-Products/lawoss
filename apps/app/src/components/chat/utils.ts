@@ -1,4 +1,7 @@
-import { isReasoningUIPart, isToolUIPart, type DynamicToolUIPart, type FileUIPart, type ToolUIPart, type UIMessage } from "ai"
+import { shouldRenderJevSearchCard, jevSearchIdentity, withLatestJevSearchProgress } from "./review/jev-search-card";
+import { isReviewCardTool, reviewCardIdentity } from "./review/review-tool";
+import { isProjectListTool, suppressProjectCard } from "./project/project-tool";
+import { isReasoningUIPart, isToolUIPart, type DynamicToolUIPart, type FileUIPart, type ReasoningUIPart, type ToolUIPart, type UIMessage } from "ai"
 import type { ThreadStatus } from "@/lib/messages"
 import { t } from "@/i18n";
 
@@ -84,6 +87,13 @@ export function isMessageGroup(item: MessageListItem): item is MessageGroup {
   return "messages" in item
 }
 
+export function isCompactionMessage(message: UIMessage) {
+  const metadata: unknown = message.metadata;
+  if (!metadata || typeof metadata !== "object" || !("opencode" in metadata)) return false;
+  const opencode: unknown = metadata.opencode;
+  return Boolean(opencode && typeof opencode === "object" && "summary" in opencode && opencode.summary === true);
+}
+
 export function groupMessages(messages: UIMessage[], status: ThreadStatus): MessageListItem[] {
   const items: MessageListItem[] = []
   let index = 0
@@ -100,11 +110,12 @@ export function groupMessages(messages: UIMessage[], status: ThreadStatus): Mess
     const assistantMessages: UIMessageWithIndex[] = []
 
     while (index < messages.length && messages[index].role === "assistant") {
-      assistantMessages.push({ message: messages[index], index });
+      // Compaction notes remain in engine history, not the user's answer.
+      if (!isCompactionMessage(messages[index])) assistantMessages.push({ message: messages[index], index });
       index++
     }
 
-    items.push({ messages: assistantMessages });
+    if (assistantMessages.length) items.push({ messages: assistantMessages });
   }
 
   return items
@@ -114,7 +125,80 @@ type AssistantRenderGroup =
   | { kind: "text"; text: string }
   | { kind: "reasoning"; text: string; isStreaming: boolean }
   | { kind: "file"; part: FileUIPart }
-  | { kind: "tool"; part: ToolUIPart | DynamicToolUIPart }
+  | { kind: "jev-search"; part: ToolUIPart | DynamicToolUIPart }
+  | { kind: "review"; part: ToolUIPart | DynamicToolUIPart }
+  | { kind: "reviews"; parts: Array<ToolUIPart | DynamicToolUIPart> }
+  | { kind: "project"; part: ToolUIPart | DynamicToolUIPart }
+  | { kind: "tools"; parts: Array<ToolUIPart | DynamicToolUIPart | ReasoningUIPart> }
+
+/** Combine consecutive activity across engine messages, retaining prose boundaries. */
+export function groupAssistantToolRuns(items: UIMessageWithIndex[], showThinking: boolean): UIMessageWithIndex[] {
+  const reviewSetup = items.some(item => item.message.parts.some(part => isToolUIPart(part) && isReviewCardTool(part)));
+  // A create → prose → start sequence still represents one live review card.
+  const latestReviewActions = new Map<string, string>();
+  const searchCards = new Map<string, ToolUIPart | DynamicToolUIPart>();
+  for (const item of items) for (const part of item.message.parts) {
+    if (!isToolUIPart(part)) continue;
+    const searchId = jevSearchIdentity(part);
+    const identity = reviewCardIdentity(part) ?? searchId;
+    // Keep the original search card mounted, with the latest saved progress.
+    if (searchId) {
+      const first = searchCards.get(searchId);
+      searchCards.set(searchId, first ? withLatestJevSearchProgress(first, part) : part);
+    }
+    if (identity && (!searchId || !latestReviewActions.has(identity))) latestReviewActions.set(identity, part.toolCallId);
+  }
+  const result: UIMessageWithIndex[] = []
+  const reviewParts = items.flatMap(item => item.message.parts.filter(isToolUIPart))
+    .filter(part => { const id = reviewCardIdentity(part); return id && latestReviewActions.get(id) === part.toolCallId; });
+  let reviewsPlaced = false;
+  let activity: UIMessageWithIndex | undefined
+  let activityHasTool = false
+  for (const item of items) {
+    let prose: UIMessageWithIndex | undefined
+    for (const [index, part] of item.message.parts.entries()) {
+      if (isToolUIPart(part)) {
+        const identity = reviewCardIdentity(part) ?? jevSearchIdentity(part);
+        if (identity && latestReviewActions.get(identity) !== part.toolCallId) continue;
+        if (reviewCardIdentity(part) && reviewParts.length > 1 && reviewsPlaced) continue;
+      }
+      if (isReasoningUIPart(part) && !showThinking) continue
+      if (part.type === "step-start") continue
+      if (part.type === "text" && !part.text.trim()) {
+        if (prose) prose.message.parts.push(part)
+        continue
+      }
+      if (isToolUIPart(part) || isReasoningUIPart(part)) {
+        prose = undefined
+        if (!activity) {
+          activity = { ...item, message: { ...item.message, id: `${item.message.id}:activity:${index}`, parts: [] } }
+          activityHasTool = false
+          result.push(activity)
+        }
+        // Stable even when streamed reasoning/step markers are inserted before the first tool.
+        if (isToolUIPart(part) && !activityHasTool) {
+          activity.message.id = `tool-run:${part.toolCallId}`
+          activityHasTool = true
+        }
+        const searchId = isToolUIPart(part) ? jevSearchIdentity(part) : null;
+        if (isToolUIPart(part) && reviewCardIdentity(part) && reviewParts.length > 1) {
+          if (!reviewsPlaced) { activity.message.parts.push(...reviewParts); reviewsPlaced = true; }
+          continue;
+        }
+        activity.message.parts.push(searchId ? searchCards.get(searchId) ?? part
+          : reviewSetup && isToolUIPart(part) && isProjectListTool(part) ? suppressProjectCard(part) : part)
+      } else {
+        activity = undefined
+        if (!prose) {
+          prose = { ...item, message: { ...item.message, id: index ? `${item.message.id}:part:${index}` : item.message.id, parts: [] } }
+          result.push(prose)
+        }
+        prose.message.parts.push(part)
+      }
+    }
+  }
+  return result
+}
 
 export function getAssistantRenderGroups(
   parts: UIMessage["parts"],
@@ -145,6 +229,10 @@ export function getAssistantRenderGroups(
     }
 
     const previous = groups.at(-1)
+    if (previous?.kind === "tools") {
+      previous.parts.push(part)
+      return
+    }
     if (previous?.kind === "reasoning") {
       previous.text += part.text
       previous.isStreaming = previous.isStreaming || part.state === "streaming"
@@ -177,7 +265,36 @@ export function getAssistantRenderGroups(
     }
 
     if (isToolUIPart(part)) {
-      groups.push({ kind: "tool", part })
+      if (shouldRenderJevSearchCard(part)) {
+        const id = jevSearchIdentity(part);
+        const existing = id ? groups.findIndex(group => group.kind === "jev-search" && jevSearchIdentity(group.part) === id) : -1;
+        const previous = groups[existing];
+        if (previous?.kind === "jev-search") { previous.part = withLatestJevSearchProgress(previous.part, part); continue; }
+        groups.push({ kind: "jev-search", part }); continue;
+      }
+      if (isReviewCardTool(part)) {
+        const id = reviewCardIdentity(part);
+        const containing = id ? groups.find(group => group.kind === "reviews" && group.parts.some(part => reviewCardIdentity(part) === id)) : undefined;
+        if (containing?.kind === "reviews") { containing.parts = containing.parts.map(previous => reviewCardIdentity(previous) === id ? part : previous); continue; }
+        const existing = id ? groups.findIndex(group => group.kind === "review" && reviewCardIdentity(group.part) === id) : -1;
+        if (existing >= 0) groups.splice(existing, 1);
+        const previous = groups.at(-1);
+        // Successful launches in one turn form a compact live review list.
+        // Keep pending actions and failures separately readable.
+        if (id && previous?.kind === "reviews") { previous.parts.push(part); continue; }
+        if (id && previous?.kind === "review" && reviewCardIdentity(previous.part)) {
+          groups.pop(); groups.push({ kind: "reviews", parts: [previous.part, part] }); continue;
+        }
+        groups.push({ kind: "review", part }); continue;
+      }
+      if (isProjectListTool(part)) { groups.push({ kind: "project", part }); continue; }
+      const previous = groups.at(-1)
+      if (previous?.kind === "tools") previous.parts.push(part)
+      else if (previous?.kind === "reasoning") {
+        groups.pop()
+        groups.push({ kind: "tools", parts: [{ type: "reasoning", text: previous.text, state: previous.isStreaming ? "streaming" : "done" }, part] })
+      }
+      else groups.push({ kind: "tools", parts: [part] })
     }
   }
 

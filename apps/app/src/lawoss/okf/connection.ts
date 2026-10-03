@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 /**
  * Prístup k serveru a k workspace-om mimo session-route — rovnaký recept, aký
  * používa settings-route, len bez jej stavu. Nič z toho nie je nové API:
@@ -13,7 +14,7 @@ import { isDesktopRuntime } from "@/app/utils";
 import { saveSessionDraft } from "@/react-app/domains/session/sync/draft-store";
 import { resolveLegalworkConnection } from "@/react-app/shell/legalwork-connection";
 import { mapDesktopWorkspace, mergeRouteWorkspaces, type RouteWorkspace } from "@/react-app/shell/route-workspaces";
-import { readActiveWorkspaceId } from "@/react-app/shell/session-memory";
+import { readActiveWorkspaceId, writeLastSessionFor } from "@/react-app/shell/session-memory";
 import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 
 export type OkfConnection = {
@@ -59,7 +60,7 @@ export async function openSessionWithPrompt(
   prompt: string,
 ): Promise<string> {
   const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl: connection.baseUrl, token: connection.token });
-  if (!endpoint) throw new Error("Workspace nie je dostupný — server nebeží alebo chýba token.");
+  if (!endpoint) throw new Error(t("lawoss.integrations.error.workspace_unavailable"));
   const opencode = createClient(endpoint.opencodeBaseUrl, workspace.path || undefined, {
     token: endpoint.token,
     mode: "legalwork",
@@ -67,5 +68,6 @@ export async function openSessionWithPrompt(
   const directory = toSessionTransportDirectory(workspace.path) || undefined;
   const session = unwrap(await opencode.session.create({ directory }));
   saveSessionDraft(workspace.id, session.id, { text: prompt, mode: "prompt" });
+  writeLastSessionFor(workspace.id, session.id);
   return workspaceSessionRoute(workspace.id, session.id);
 }

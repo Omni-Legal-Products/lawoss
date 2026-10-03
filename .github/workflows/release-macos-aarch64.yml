@@ -138,8 +138,11 @@ jobs:
           # Download links go at the top of every release body so visitors
           # can download the installers directly from this fork's release.
           printf -v RELEASE_BODY '%s\n\n%s' \
-            "**Download the latest version:** [macOS (Apple Silicon)](${RELEASE_DOWNLOAD_BASE}/lawoss-mac-arm64-${VERSION}.dmg) · [macOS (Intel)](${RELEASE_DOWNLOAD_BASE}/lawoss-mac-x64-${VERSION}.dmg) · [Windows](${RELEASE_DOWNLOAD_BASE}/lawoss-win-x64-${VERSION}.exe) · [Linux x64](${RELEASE_DOWNLOAD_BASE}/lawoss-linux-x64-${VERSION}.AppImage) · [Linux arm64](${RELEASE_DOWNLOAD_BASE}/lawoss-linux-arm64-${VERSION}.AppImage)" \
+            "**Download the latest version:** [macOS (Apple Silicon)](${RELEASE_DOWNLOAD_BASE}/lawoss-mac-arm64-${VERSION}.dmg) · [macOS (Intel)](${RELEASE_DOWNLOAD_BASE}/lawoss-mac-x64-${VERSION}.dmg) · [Windows](${RELEASE_DOWNLOAD_BASE}/lawoss-win-x64-${VERSION}.exe) · [Linux x64](${RELEASE_DOWNLOAD_BASE}/lawoss-linux-x86_64-${VERSION}.AppImage) · [Linux arm64](${RELEASE_DOWNLOAD_BASE}/lawoss-linux-arm64-${VERSION}.AppImage)" \
             "$RELEASE_BODY"
+
+          printf -v RELEASE_BODY '%s\n\n%s' "$RELEASE_BODY" \
+            "**Verify downloads:** [SHA256SUMS](https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/SHA256SUMS) · [Verification instructions](https://github.com/$GITHUB_REPOSITORY/blob/$TAG/docs/verify-downloads.md)"
 
           draft="${INPUT_DRAFT:-}"
           if [ -z "$draft" ]; then
@@ -284,12 +287,12 @@ jobs:
             artifact: electron-macos-x64
             electron_args: "--mac --x64"
             target_triple: x86_64-apple-darwin
-          - platform: ubuntu-22.04
+          - platform: ubuntu-24.04
             os_type: linux
             artifact: electron-linux-x64
             electron_args: "--linux --x64"
             target_triple: x86_64-unknown-linux-gnu
-          - platform: ubuntu-22.04-arm
+          - platform: ubuntu-24.04-arm
             os_type: linux
             artifact: electron-linux-arm64
             electron_args: "--linux --arm64"
@@ -325,7 +328,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.9
+          bun-version: 1.4.2
 
       - name: Get pnpm store path
         id: pnpm-store
@@ -578,11 +581,17 @@ jobs:
           fi
           gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
 
+      - name: Checksum final Electron release assets
+        shell: bash
+        run: node scripts/release/checksums.mjs apps/desktop/dist-electron
+
       - name: Upload Electron updater manifest artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: apps/desktop/dist-electron/latest*.yml
+          path: |
+            apps/desktop/dist-electron/latest*.yml
+            apps/desktop/dist-electron/SHA256SUMS
           if-no-files-found: error
 
   publish-electron-assets:
@@ -649,7 +658,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1
         with:
-          bun-version: "1.3.6"
+          bun-version: "1.4.2"
 
       - name: Get pnpm store path
         id: pnpm-store
@@ -768,7 +777,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1
         with:
-          bun-version: "1.3.6"
+          bun-version: "1.4.2"
 
       - name: Get pnpm store path
         id: pnpm-store

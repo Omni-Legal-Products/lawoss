@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
@@ -10,9 +11,36 @@ test("stable release automation uses LAWOSS public branding and fork download li
   assert.match(workflow, /RELEASE_NAME="LAWOSS \$TAG"/);
   assert.match(workflow, /releases\/download\/\$\{TAG\}/);
   assert.match(workflow, /lawoss-mac-arm64-\$\{VERSION\}\.dmg/);
-  assert.match(workflow, /lawoss-linux-x64-\$\{VERSION\}\.AppImage/);
-  assert.doesNotMatch(workflow, /lawoss-linux-x86_64-\$\{VERSION\}\.AppImage/);
+  assert.match(workflow, /lawoss-linux-x86_64-\$\{VERSION\}\.AppImage/);
+  assert.doesNotMatch(workflow, /lawoss-linux-x64-\$\{VERSION\}\.AppImage/);
   assert.doesNotMatch(workflow, /eigenweltlabs\.com\/legalwork/);
+});
+
+test("release notes link Linux x64 to the AppImage filename produced by packaging", () => {
+  const workflow = read(".github/workflows/release-macos-aarch64.yml");
+  const command = workflow.match(
+    /printf -v RELEASE_BODY '%s\\n\\n%s' \\\n\s+"\*\*Download[^\n]+\n\s+"\$RELEASE_BODY"/,
+  )[0];
+  const result = spawnSync(
+    "bash",
+    ["-c", `${command}\nprintf '%s' "$RELEASE_BODY"`],
+    {
+      encoding: "utf8",
+      env: {
+        PATH: process.env.PATH,
+        VERSION: "0.2.1-lawoss.1",
+        RELEASE_DOWNLOAD_BASE:
+          "https://github.com/Omni-Legal-Products/lawoss/releases/download/v0.2.1-lawoss.1",
+        RELEASE_BODY: "Release notes fixture",
+      },
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(
+    result.stdout,
+    /\[Linux x64\]\(https:\/\/github\.com\/Omni-Legal-Products\/lawoss\/releases\/download\/v0\.2\.1-lawoss\.1\/lawoss-linux-x86_64-0\.2\.1-lawoss\.1\.AppImage\)/,
+  );
+  assert.match(result.stdout, /Release notes fixture$/);
 });
 
 test("alpha workflows publish LAWOSS assets from the fork", () => {
@@ -53,7 +81,7 @@ test("Electron packaging exposes LAWOSS filenames while preserving update identi
   );
   assert.match(
     main,
-    /const RELEASE_PAGE_URL = "https:\/\/github\.com\/Omni-Legal-Products\/lawoss\/releases\/latest"/,
+    /const RELEASE_PAGE_URL = "https:\/\/github\.com\/Omni-Legal-Products\/lawoss\/releases"/,
   );
   assert.doesNotMatch(
     updater,

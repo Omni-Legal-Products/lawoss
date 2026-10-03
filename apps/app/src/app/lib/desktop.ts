@@ -1,3 +1,4 @@
+import { openOfficeBrowserWindow } from "@/word-addin/office";
 import { nativeDeepLinkEvent } from "./deep-link-bridge";
 
 export type * from "./desktop-types";
@@ -53,6 +54,9 @@ declare global {
         command: C,
         ...args: DesktopCommandArgs<C>
       ) => Promise<DesktopCommandResult<C>>;
+      files?: {
+        copyIntoProject?: (workspaceId: string, files: File[], folder?: string) => Promise<import("@legalwork/types/desktop-ipc").WorkspaceCopyFilesResult>;
+      };
       shell?: {
         openExternal?: (url: string) => Promise<void>;
         relaunch?: () => Promise<void>;
@@ -343,6 +347,8 @@ export async function openDesktopUrl(url: string): Promise<void> {
     await openExternal(url);
     return;
   }
+  // The Office task pane: its webview blocks window.open.
+  if (openOfficeBrowserWindow(url)) return;
   if (typeof window !== "undefined") {
     window.open(url, "_blank", "noopener,noreferrer");
   }
@@ -472,7 +478,6 @@ const {
   updaterEnvironment,
   readOpencodeConfig,
   writeOpencodeConfig,
-  mergeRuntimeMcpServer,
   resetLegalworkState,
   resetOpencodeCache,
   opencodeMcpAuth,
@@ -504,6 +509,7 @@ const {
   audioRecordingGet,
   audioRecordingDelete,
   audioRecordingRename,
+  audioRecordingSetProject,
   audioRecordingRetain,
   audioRecordingSaveToWorkspace,
   audioLiveTranscriptStart,
@@ -528,6 +534,8 @@ const {
   audioSystemDictationRepairPermission,
   desktopLoginItemGet,
   desktopLoginItemSet,
+  desktopNotificationShow,
+  desktopBadgeSet,
 } = desktopBridge;
 
 export {
@@ -583,7 +591,6 @@ export {
   updaterEnvironment,
   readOpencodeConfig,
   writeOpencodeConfig,
-  mergeRuntimeMcpServer,
   resetLegalworkState,
   resetOpencodeCache,
   opencodeMcpAuth,
@@ -615,6 +622,7 @@ export {
   audioRecordingGet,
   audioRecordingDelete,
   audioRecordingRename,
+  audioRecordingSetProject,
   audioRecordingRetain,
   audioRecordingSaveToWorkspace,
   audioLiveTranscriptStart,
@@ -639,4 +647,6 @@ export {
   audioSystemDictationRepairPermission,
   desktopLoginItemGet,
   desktopLoginItemSet,
+  desktopNotificationShow,
+  desktopBadgeSet,
 };

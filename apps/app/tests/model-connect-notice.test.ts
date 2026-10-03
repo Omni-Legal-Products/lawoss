@@ -37,7 +37,7 @@ const providerList = (input: {
     npm: undefined,
     source: "api" as const,
     models: Object.fromEntries(
-      modelIds.map((modelId) => [modelId, { id: modelId, name: modelId }]),
+      modelIds.map((modelId) => [modelId, { id: modelId, name: modelId, capabilities: { toolcall: true } }]),
     ),
   })),
   connected: input.connected,

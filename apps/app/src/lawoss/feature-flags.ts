@@ -1,0 +1,78 @@
+/**
+ * LAWOSS: plochy zdedené z LegalWorku, ktoré v našom produkte nedávajú zmysel.
+ *
+ * Zámerne **skrývame, nemažeme**. Upstream kód ostáva na disku nedotknutý,
+ * takže sync z upstreamu nemá na čom konfliktovať a prípadný návrat je zmena
+ * jedného riadku tu.
+ */
+
+/** Záložky nastavení, ktoré sa nezobrazia. */
+export const HIDDEN_SETTINGS_TABS: ReadonlySet<string> = new Set<string>([
+  // Prihlásenie, plán a fakturácia dodávateľa upstreamu.
+  "account",
+  // Ich lokálny prepis reči; LAWOSS použije vlastné riešenie.
+  "recorder",
+]);
+
+/** Navigačné položky, ktoré nepatria do LAWOSS rozhrania. */
+export const HIDDEN_SIDEBAR_ITEMS: ReadonlySet<string> = new Set<string>([
+  "navRecorder",
+]);
+
+/** Odstráni skryté navigačné položky a poradie zvyšku zachová. */
+export const hideCommercialSidebarItems = <T extends string>(items: T[]): T[] =>
+  items.filter((item) => !HIDDEN_SIDEBAR_ITEMS.has(item));
+
+/** Odstráni skryté záložky a poradie zvyšku zachová. */
+export const hideCommercialTabs = <T extends string>(tabs: T[]): T[] =>
+  tabs.filter((tab) => !HIDDEN_SETTINGS_TABS.has(tab));
+
+/** MCP servery, ktoré sa neponúkajú v rýchlom pripojení. */
+export const HIDDEN_QUICK_CONNECT_SERVERS: ReadonlySet<string> = new Set<string>([
+  // LegalMemory je pamäťová appliance dodávateľa upstreamu. Naša pamäť je OKF.
+  // Keď sa neponúkne na pripojenie, celý jeho subsystém ostane nečinný a
+  // nemusíme strážiť ~25 miest, kde sa inak renderuje.
+  "legalmemory",
+]);
+
+export const isHiddenQuickConnect = (serverName: string): boolean =>
+  HIDDEN_QUICK_CONNECT_SERVERS.has(serverName);
+
+/**
+ * Komerčné plochy upstreamu, ktoré prerastajú do záložiek, ktoré si necháme.
+ * `firm-hub` je platené firemné zdieľanie, `trial-notice` je výzva na
+ * predplatné nad session, `premium-upsell` je ponuka Eigenwelt Plus
+ * (prémiové modely prepisu reči), `eigenwelt-sign-in` je položka
+ * „Eigenwelt Subscription" vo výbere poskytovateľov a `eigenwelt-trial` sú
+ * výzvy na skúšobnú verziu / prihlásenie do platformy dodávateľa (lišta nad
+ * composerom, migračný dialóg zrušenej bezplatnej vrstvy, posledný krok
+ * onboardingu). Pripojenie vlastného modelu (Anthropic, OpenRouter, …) ostáva.
+ */
+export type CommercialSurface =
+  | "ai-plans"
+  | "firm-hub"
+  | "trial-notice"
+  | "premium-upsell"
+  | "eigenwelt-account"
+  | "eigenwelt-sign-in"
+  | "eigenwelt-trial";
+
+export const HIDDEN_COMMERCIAL_SURFACES: ReadonlySet<CommercialSurface> = new Set<CommercialSurface>([
+  "ai-plans",
+  "firm-hub",
+  "trial-notice",
+  "premium-upsell",
+  "eigenwelt-account",
+  "eigenwelt-sign-in",
+  "eigenwelt-trial",
+]);
+
+export const isCommercialSurfaceHidden = (surface: CommercialSurface): boolean =>
+  HIDDEN_COMMERCIAL_SURFACES.has(surface);
+
+/**
+ * Je záložka nastavení skrytá? Onboarding sa pýta rovnako ako zoznam záložiek:
+ * krok, ktorý zapína funkciu, ku ktorej sa používateľ potom nikde nedostane,
+ * je slepá ulička.
+ */
+export const isHiddenSettingsTab = (tab: string): boolean => HIDDEN_SETTINGS_TABS.has(tab);

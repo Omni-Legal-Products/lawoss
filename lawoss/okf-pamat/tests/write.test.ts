@@ -23,6 +23,11 @@ function rec(over: Partial<OkfRecord> = {}): OkfRecord {
 
 const SCHVALENIE = { by: "JUDr. Vojtěch Říha", at: "2026-08-29T10:00:00Z" };
 
+function describe(before: OkfRecord): OkfRecord {
+  return { ...before, description: "iny popis", updated: "2026-08-30",
+    timeline: [...before.timeline, { date: "2026-08-30", text: "Spresnenie popisu" }] };
+}
+
 test("zmena pravdy bez noveho riadku historie je odmietnuta", () => {
   const before = rec();
   const after = rec({ truth: "nova pravda" });
@@ -63,27 +68,28 @@ test("zapis bez dovodu je odmietnuty", () => {
 });
 
 test("agent smie zapisat do L2 bez schvalenia", () => {
-  const d = planWrite(rec(), rec({ description: "iny popis" }), "spresnenie");
+  const before = rec();
+  const d = planWrite(before, describe(before), "spresnenie");
   assert.equal(d.requiresApproval, false);
   assert.doesNotThrow(() => authorize(d, undefined));
 });
 
 test("zapis do L1 bez schvalenia cloveka je odmietnuty", () => {
   const before = rec({ id: "P-001", type: "lesson", layer: "L1" });
-  const d = planWrite(before, rec({ id: "P-001", type: "lesson", layer: "L1", description: "iny" }), "povysenie");
+  const d = planWrite(before, describe(before), "povysenie");
   assert.equal(d.requiresApproval, true);
   assert.throws(() => authorize(d, undefined), ApprovalRequiredError);
 });
 
 test("zapis do L3 bez schvalenia cloveka je odmietnuty", () => {
   const before = rec({ id: "J-001", type: "authority", layer: "L3" });
-  const d = planWrite(before, rec({ id: "J-001", type: "authority", layer: "L3", description: "iny" }), "x");
+  const d = planWrite(before, describe(before), "x");
   assert.throws(() => authorize(d, undefined), ApprovalRequiredError);
 });
 
 test("zapis do L1 so schvalenim prejde", () => {
   const before = rec({ id: "P-001", type: "lesson", layer: "L1" });
-  const d = planWrite(before, rec({ id: "P-001", type: "lesson", layer: "L1", description: "iny" }), "x");
+  const d = planWrite(before, describe(before), "x");
   assert.doesNotThrow(() => authorize(d, SCHVALENIE));
 });
 

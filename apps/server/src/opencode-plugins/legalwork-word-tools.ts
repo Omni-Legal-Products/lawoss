@@ -7,6 +7,7 @@ import {
   officePaneForHost,
   type OpenCodeContext,
 } from "./office-plugin-shared.js";
+import { decodedDocumentUrl, isOpenWordFilePipelineCall } from "./legalwork-word-tools-shared.js";
 
 /**
  * Agent tools for editing the Microsoft Word document that is open next to
@@ -110,36 +111,6 @@ const runCodeArgs = z.object({
       "Body of a Word.run batch. In scope: context (Word.RequestContext), the Office/Word globals, and console.log for debugging. Load properties before reading them and await context.sync(); a final sync runs automatically. End with `return <json-serializable summary>`.",
     ),
 });
-
-const FILE_BACKEND_MARKERS = ["docx-agent.mjs", "docx-redliner", ".redlined.docx"];
-
-function decodedDocumentUrl(documentUrl: string): string {
-  try {
-    return decodeURIComponent(documentUrl);
-  } catch {
-    return documentUrl;
-  }
-}
-
-function documentName(documentUrl: string): string {
-  const normalized = decodedDocumentUrl(documentUrl).replace(/\\/g, "/");
-  return normalized.split("/").pop()?.trim().toLowerCase() ?? "";
-}
-
-/** Prevent the FILE backend from touching the document currently open in Word. */
-export function isOpenWordFilePipelineCall(
-  tool: string,
-  args: Record<string, unknown>,
-  documentUrl: string | null,
-): boolean {
-  if (!documentUrl || (tool !== "bash" && tool !== "task")) return false;
-  const text = JSON.stringify(args).toLowerCase();
-  if (!FILE_BACKEND_MARKERS.some((marker) => text.includes(marker))) return false;
-
-  const decodedUrl = decodedDocumentUrl(documentUrl).toLowerCase();
-  const name = documentName(documentUrl);
-  return text.includes(documentUrl.toLowerCase()) || text.includes(decodedUrl) || Boolean(name && text.includes(name));
-}
 
 export const LegalWorkWordTools = async (pluginInput?: { directory?: string }) => ({
   "experimental.chat.system.transform": async (

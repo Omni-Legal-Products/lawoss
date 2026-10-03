@@ -1,0 +1,72 @@
+/** @jsxImportSource react */
+import { useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
+import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
+import type { MatterTextKey } from "../i18n/matters";
+import { LawossLayout } from "../shell/layout";
+import { activeWorkspace, useOkfConnection, useOkfOverview, type OkfReadResult } from "../okf/read-model";
+
+/** Subscribe each UI island; translating never changes the underlying matter data. */
+export function useMatterText() {
+  const locale = useLocale();
+  const text = (key: MatterTextKey, params?: Record<string, string | number>): string =>
+    t(`lawoss.matters.${key}`, locale, params);
+  return { locale, text };
+}
+
+type PageProps = { title: string; children: (data: OkfReadResult) => ReactNode };
+
+/** Retry also reloads the desktop connection, which may be absent during startup. */
+export function OkfPage({ title, children }: PageProps) {
+  const { text } = useMatterText();
+  const [attempt, setAttempt] = useState(0);
+  const cache = useQueryClient();
+  return (
+    <LawossLayout>
+      <h1 className="lw-h1">{title}</h1>
+      <OkfPageQuery key={attempt}>{children}</OkfPageQuery>
+      <button type="button" className="lw-btn" onClick={() => {
+        void cache.invalidateQueries({ queryKey: ["okf-overview"], refetchType: "none" });
+        setAttempt((value) => value + 1);
+      }}>{text("retry")}</button>
+    </LawossLayout>
+  );
+}
+
+function OkfPageQuery({ children }: Pick<PageProps, "children">) {
+  const { connection, error } = useOkfConnection();
+  const workspace = activeWorkspace(connection);
+  const query = useOkfOverview(connection, workspace);
+  return <OkfPageState
+    connection={connection === null ? "loading" : connection.client ? "ready" : "unavailable"}
+    workspace={workspace ? workspace.displayNameResolved || workspace.name || workspace.path : null}
+    error={error || query.error}
+    data={query.data}
+    loading={query.isFetching}
+  >{children}</OkfPageState>;
+}
+
+/** Keep empty memory distinct from failed or incomplete reads. */
+export function OkfPageState(props: {
+  connection: "loading" | "ready" | "unavailable";
+  workspace: string | null;
+  error: unknown;
+  data: OkfReadResult | undefined;
+  loading: boolean;
+  children: (data: OkfReadResult) => ReactNode;
+}) {
+  const { text } = useMatterText();
+  if (props.error) return <div className="lw-status err" role="alert">{text("memoryError", { error: props.error instanceof Error ? props.error.message : String(props.error) })}</div>;
+  if (props.connection === "loading") return <p className="lw-lead" role="status">{text("connectionLoading")}</p>;
+  if (props.connection === "unavailable") return <div className="lw-status warn" role="alert">{text("serverUnavailable")}</div>;
+  if (props.workspace === null) return <p className="lw-empty">{text("noWorkspace")} <Link to="/welcome">{text("openWorkspace")}</Link>.</p>;
+  if (!props.data) return <p className="lw-lead" role="status">{text("memoryLoading", { workspace: props.workspace })}</p>;
+  if (props.data.matters.length > 0) return <>{props.loading ? <p role="status">{text("refreshing")}</p> : null}{props.children(props.data)}</>;
+  if (props.data.problems.length || props.data.truncated) return <div className="lw-status err" role="alert">
+    {text("incompleteRead")}
+    {props.data.problems.slice(0, 3).map((problem, index) => <p key={`${problem.path}/${index}`}>{problem.path || props.workspace}: {problem.message}</p>)}
+  </div>;
+  return <p className="lw-empty">{text("noMatterMemory", { workspace: props.workspace })} <Link to="/experimenty/novy-spis">{text("newMatter")}</Link>.</p>;
+}

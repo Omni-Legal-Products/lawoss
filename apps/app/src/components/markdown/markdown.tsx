@@ -1,7 +1,6 @@
 /** @jsxImportSource react */
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
-import DOMPurify from "dompurify";
 import { Marked, type Tokens } from "marked";
 import { markedEmoji } from "marked-emoji";
 import markedShiki from "marked-shiki";
@@ -18,6 +17,7 @@ import {
 import { bundledLanguages, codeToHtml } from "shiki";
 
 import { cn } from "@/lib/utils";
+import { sanitizeMarkdownHtml } from "@/lib/sanitize-markdown";
 import { useOpenTargets } from "@/lib/target-provider";
 import { resolvePathOpenTarget, type OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
 
@@ -31,6 +31,7 @@ import {
   parseLegalMemoryRef,
 } from "./legalmemory-ref";
 import { t } from "@/i18n";
+import { parseTaskLink, requestOpenTask } from "@/react-app/domains/tasks/task-reference";
 
 function escapeHtml(value: string) {
   return value
@@ -179,30 +180,6 @@ function syncMarkdownImagePreviews(root: HTMLElement) {
   }
 }
 
-function sanitizeMarkdownHtml(value: string) {
-  return DOMPurify.sanitize(value, {
-    ADD_ATTR: [
-      "checked",
-      "class",
-      "data-legalwork-image-preview",
-      "data-legalwork-image-toggle",
-      "data-legalwork-image-toggle-label",
-      "data-legalwork-legalmemory-ref",
-      "data-legalwork-link-href",
-      "data-legalwork-link-chevron",
-      "data-legalwork-shiki",
-      "decoding",
-      "disabled",
-      "hidden",
-      "loading",
-      "rel",
-      "start",
-      "style",
-      "target",
-    ],
-  });
-}
-
 const baseMarkedOptions = {
   async: false,
   breaks: false,
@@ -251,7 +228,7 @@ const baseMarkedOptions = {
       return `<pre class="my-4 overflow-x-auto rounded-[18px] border border-border/70 bg-gray-1/80 px-4 py-3 text-xs leading-6 text-muted-foreground"><code${codeLanguageClass(lang)}>${escapeHtml(text)}</code></pre>`;
     },
     codespan({ text }) {
-      return `<code class="rounded-md bg-gray-2/70 px-1.5 py-0.5 font-mono text-sm text-foreground">${escapeHtml(text)}</code>`;
+      return `<code class="rounded-sm bg-foreground/4 px-1 py-0.5 [font:inherit] text-inherit">${escapeHtml(text)}</code>`;
     },
     del({ raw, tokens }) {
       if (!raw.startsWith("~~")) {
@@ -272,6 +249,15 @@ const baseMarkedOptions = {
       if (parseLegalMemoryRef(href)) {
         const memoryIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 text-indigo-10"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>`;
         return `<span class="inline-flex items-stretch overflow-hidden rounded-md border border-indigo-6/60 bg-indigo-2/40 text-xs font-medium text-foreground align-middle"><a href="#" data-legalwork-legalmemory-ref="${originalHref}"${titleAttr} class="inline-flex items-center gap-1 px-1.5 py-0.5 no-underline transition-colors hover:bg-indigo-3/50">${memoryIcon}${this.parser.parseInline(tokens)}</a></span>`;
+      }
+
+      // A task chip: the agent links a task it filed or worked on the way it
+      // links a document, and the click opens it in the Tasks pane.
+      const taskLink = parseTaskLink(href);
+      if (taskLink) {
+        const inboxIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`;
+        const openTaskLabel = escapeAttribute(t("message_list.open_task"));
+        return `<span class="inline-flex items-stretch overflow-hidden rounded-md border border-blue-6/35 bg-blue-3/20 text-xs font-medium text-blue-11 align-middle"><a href="#" data-legalwork-task-ref="${escapeAttribute(taskLink.taskId)}" title="${openTaskLabel}" class="inline-flex items-center gap-1 px-1.5 py-0.5 no-underline transition-colors hover:bg-blue-3/40">${inboxIcon}${this.parser.parseInline(tokens)}</a></span>`;
       }
 
       const isFilePath = !/^(https?|wss?|ftp|mailto|tel|file):/i.test(href);
@@ -475,6 +461,15 @@ function MarkdownBlockInner({
               : new CustomEvent(LEGALMEMORY_REF_EVENT, { detail: { prompt: buildLegalMemoryRefPrompt(ref, label) } }),
           );
         }
+        return;
+      }
+
+      const taskRefLink = event.target.closest("[data-legalwork-task-ref]");
+      if (taskRefLink instanceof HTMLElement) {
+        event.preventDefault();
+        event.stopPropagation();
+        const taskId = taskRefLink.dataset.legalworkTaskRef ?? "";
+        if (taskId) requestOpenTask(taskId, taskRefLink.textContent?.trim() || undefined);
         return;
       }
 

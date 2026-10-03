@@ -2,10 +2,12 @@ import { spawn, spawnSync } from "node:child_process";
 import net from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { describeForeignDevServer, identifyDevServer } from "./dev-server-identity.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(__dirname, "..");
 const repoRoot = resolve(desktopRoot, "../..");
+const appRoot = resolve(repoRoot, "apps", "app");
 const electronSidecarDir = resolve(desktopRoot, "resources", "sidecars");
 const electronHelperDir = resolve(desktopRoot, "resources", "helpers");
 const defaultDevDataDir = resolve(
@@ -76,15 +78,13 @@ async function probeHost(host, port) {
   });
 }
 
-async function looksLikeVite(url) {
-  try {
-    const response = await fetchWithTimeout(`${url}/@vite/client`);
-    if (!response.ok) return false;
-    const body = await response.text();
-    return body.includes("@vite/client") || body.includes("import.meta.hot");
-  } catch {
-    return false;
-  }
+// Only this checkout's Vite counts (`/__legalwork_dev_server_id`), never any Vite on the port (#47).
+async function identifyServer(url) {
+  return identifyDevServer(url, { appRoot, fetchImpl: fetchWithTimeout });
+}
+
+async function looksLikeOurVite(url) {
+  return (await identifyServer(url)).status === "ours";
 }
 
 async function portIsOpenForVite(url) {
@@ -103,12 +103,7 @@ async function waitForVite(url, timeoutMs = 60_000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     for (const candidate of [url, ...viteProbeUrls].filter(Boolean)) {
-      if (await looksLikeVite(candidate)) {
-        return candidate;
-      }
-    }
-    for (const candidate of [url, ...viteProbeUrls].filter(Boolean)) {
-      if (await portIsOpenForVite(candidate)) {
+      if (await looksLikeOurVite(candidate)) {
         return candidate;
       }
     }
@@ -203,6 +198,10 @@ if (process.env.LEGALWORK_ELECTRON_SKIP_SHARED_PREPARE !== "1") {
   runSync(nodeCmd, [resolve(__dirname, "build-key-monitor.mjs")], { cwd: desktopRoot });
 }
 
+// pnpm installs native modules for the host Node.js version. Rebuild them for
+// Electron before the embedded server opens SQLite or the renderer uses a PTY.
+runSync(pnpmCmd, ["exec", "electron-builder", "install-app-deps"], { cwd: desktopRoot });
+
 // Build the server TS → JS so Electron can import it in-process
 console.log("[electron-dev] Building legalwork-server (tsc)...");
 runSync(pnpmCmd, ["--filter", "legalwork-server", "build"], { cwd: repoRoot });
@@ -226,18 +225,14 @@ if (officeAddinEnabled) {
 const initialProbeUrls = [startUrl, ...viteProbeUrls].filter(Boolean);
 let viteReady = false;
 for (const candidate of initialProbeUrls) {
-  if (await looksLikeVite(candidate)) {
+  const identity = await identifyServer(candidate);
+  if (identity.status === "ours") {
     viteReady = true;
     break;
   }
-}
-
-if (!viteReady) {
-  for (const candidate of initialProbeUrls) {
-    if (await portIsOpenForVite(candidate)) {
-      viteReady = true;
-      break;
-    }
+  if (identity.status === "foreign" || (await portIsOpenForVite(candidate))) {
+    console.error(describeForeignDevServer({ url: candidate, port: devPort, reportedAppRoot: identity.reportedAppRoot }));
+    process.exit(1);
   }
 }
 
@@ -255,9 +250,8 @@ if (!viteReady) {
 
 const resolvedStartUrl = await waitForVite(startUrl);
 
-// Optional Electron CDP for external debugging / raw CDP clients.
-// NOT required for the built-in browser (uses native webContents APIs).
-// Set LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT=9823 to enable.
+// Override upstream automatic CDP for the built-in browser.
+// Use a port such as 9823 for debugging, or `off` to disable CDP.
 const cdpPortRaw = process.env.LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT?.trim() ?? "";
 const cdpPort = cdpPortRaw === "" || cdpPortRaw === "0" ? "" : cdpPortRaw;
 
@@ -273,7 +267,7 @@ electronChild = run(pnpmCmd, ["exec", "electron", "./electron/main.mjs"], {
   },
 });
 
-if (cdpPort) {
+if (cdpPort && cdpPort.toLowerCase() !== "off") {
   console.log(`[legalwork] Electron CDP exposed at http://127.0.0.1:${cdpPort}`);
 }
 

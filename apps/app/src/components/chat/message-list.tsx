@@ -1,4 +1,8 @@
+import { JevSearchCard } from "./review/jev-search-card";
+import { ReviewToolCard, ReviewToolGroup } from "./review/review-card";
 "use memo";
+
+import { ProjectContentsTool } from "./project/project-contents-card";
 
 import * as React from "react"
 import { useQuery } from "@tanstack/react-query"
@@ -8,15 +12,16 @@ import {
   Check,
   Copy,
   FileIcon,
+  Inbox,
   LoaderCircle,
   Pencil,
   Split,
   Undo2,
 } from "lucide-react"
-import { PaperGrainGradient } from "@legalwork/ui/react"
 import {
   DynamicToolUIPart,
   isFileUIPart,
+  isToolUIPart,
   ToolUIPart,
   type FileUIPart,
   type UIMessage,
@@ -48,7 +53,9 @@ import { TodoWriteTool } from "@/components/tools/todowrite"
 import { WebfetchTool } from "@/components/tools/webfetch"
 import { WebsearchTool } from "@/components/tools/websearch"
 import { useMessageList, useSessionErrorMessage } from "@/components/chat/message-list-provider"
+import { ToolRun } from "./tool-run"
 import { ArtifactList } from "@/components/chat/artifact"
+import { filedTasksOf } from "@/components/chat/filed-tasks"
 import { collectLegalMemoryDocuments } from "@/lib/legalmemory-documents"
 import { LegalMemoryMatterGraph } from "@/components/chat/legalmemory-matter-graph"
 import { LegalMemorySourcesCard } from "@/components/chat/legalmemory-sources-card"
@@ -94,16 +101,16 @@ import {
   isWriteToolPart,
 } from "@/lib/build-in-tools"
 import type { ThreadStatus } from "@/lib/messages"
-import {
-  collectToolParts,
-  getActiveToolLabel,
-} from "@/lib/tool-activity"
+import { collectToolParts, isToolPartInFlight } from "@/lib/tool-activity"
 import { cn } from "@/lib/utils"
 import { useOpenTargets } from "@/lib/target-provider"
 import { resolveFilePartOpenTarget, resolvePathOpenTarget } from "@/react-app/domains/session/artifacts/open-target"
 import { WORKSPACE_ATTACHMENT_LINK_SOURCE, parseWorkspaceAttachmentLink } from "@/react-app/domains/session/surface/composer/workspace-attachment"
+import { TASK_REFERENCE_SOURCE, parseTaskReference, requestOpenTask } from "@/react-app/domains/tasks/task-reference"
+import { useTaskRunStore } from "@/react-app/domains/tasks/task-run-store"
 import { LEGALMEMORY_OPEN_EVENT, parseLegalMemoryRef } from "@/components/markdown/legalmemory-ref"
-import { groupMessages, isMessageGroup, getLastTextPart, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
+import { STORAGE_LINK_SOURCE, STORAGE_OPEN_EVENT, parseStorageRefLink, type StorageRef } from "@/components/markdown/storage-ref"
+import { groupMessages, isMessageGroup, getLastTextPart, getAssistantRenderGroups, groupAssistantToolRuns, getFileTitle, getMediaBadge, getMessageCreated, formatMessageTimestamp, type UIMessageWithIndex, getMessagesText } from "./utils"
 import { t } from "@/i18n";
 
 function MessageTimestamp({ message, className }: { message: UIMessage; className?: string }) {
@@ -314,23 +321,6 @@ function FileMessage({ part }: FileMessageProps) {
   return <div className={baseClassName}>{inner}</div>
 }
 
-function EmptyMessage({
-  className,
-  ...props
-}: React.ComponentProps<"div">) {
-  return (
-    <div
-      className={cn(
-        "mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-2 md:px-10 text-muted-foreground",
-        className
-      )}
-      {...props}
-    >
-      {t("message_list.empty_message")}
-    </div>
-  )
-}
-
 interface CopyMessageButtonProps {
   messages: UIMessage[]
 }
@@ -379,7 +369,7 @@ type AssistantMessageProps = {
 }
 
 const AssistantMessage = React.memo(
-  ({ message }: AssistantMessageProps) => {
+  ({ message, isStreaming }: AssistantMessageProps) => {
     const { showThinking } = useMessageList()
     const assistantRenderGroups = React.useMemo(
       () => getAssistantRenderGroups(message.parts, showThinking),
@@ -388,7 +378,7 @@ const AssistantMessage = React.memo(
 
     return (
       <Message
-        className="mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-2 md:px-10"
+        className="flex w-full min-w-0 flex-col items-start gap-2"
         data-message-id={message.id}
         data-message-role={message.role}
       >
@@ -420,6 +410,12 @@ const AssistantMessage = React.memo(
               )
             }
 
+            if (group.kind === "jev-search") return <JevSearchCard key={group.part.toolCallId} part={group.part} />;
+            if (group.kind === "review") return <ReviewToolCard key={group.part.toolCallId} part={group.part} />;
+            if (group.kind === "reviews") return <ReviewToolGroup key={group.parts[0].toolCallId} parts={group.parts} />;
+
+            if (group.kind === "project") return <ProjectContentsTool key={group.part.toolCallId} part={group.part} />;
+
             if (group.kind === "file") {
               return (
                 <div key={`file-${index}`} className="w-full">
@@ -429,9 +425,7 @@ const AssistantMessage = React.memo(
             }
 
             return (
-              <div key={`tool-${index}`} className="w-full">
-                <ToolMessage part={group.part} />
-              </div>
+              <ToolRun key={group.parts.find(isToolUIPart)?.toolCallId ?? `tools-${index}`} parts={group.parts} active={isStreaming && index === assistantRenderGroups.length - 1} showDetails={showThinking} renderTool={(part) => <ToolMessage part={part} />} />
             )
           })}
         </div>
@@ -448,7 +442,7 @@ type UserMessageProps = {
 }
 
 const LEGACY_USER_MEMORY_INSTRUCTION_RE = /Read the downloaded LegalMemory copy at workspace path "[^"]+" before answering\. It is "([^"]+)" \((legalmemory:\/\/document\/[\w.:-]+), document_id [^)]+\)\. Use a document-capable tool appropriate for its format \(for example, extract or convert DOCX rather than reading it as plain text\)\. This is a local path reference, not a binary chat attachment\.\s*/g
-const USER_RICH_TOKEN_RE = new RegExp(String.raw`(Load \[skill [^\]]+\] and follow its instructions\.|\[skill [^\]]+\]|\[[^\]\n]+\]\(legalmemory:\/\/document\/[\w.:-]+\)|${WORKSPACE_ATTACHMENT_LINK_SOURCE})`)
+const USER_RICH_TOKEN_RE = new RegExp(String.raw`(Load \[skill [^\]]+\] and follow its instructions\.|\[skill [^\]]+\]|\[[^\]\n]+\]\(legalmemory:\/\/document\/[\w.:-]+\)|${STORAGE_LINK_SOURCE}|${WORKSPACE_ATTACHMENT_LINK_SOURCE}|${TASK_REFERENCE_SOURCE})`)
 
 function cleanUserMessageText(text: string) {
   return text.replace(
@@ -462,6 +456,26 @@ function UserSkillChip(props: { name: string }) {
     <span className="mx-0.5 inline-flex items-center rounded-full border border-violet-6/35 bg-violet-3/20 px-2.5 py-1 text-xs font-medium text-violet-11 align-middle" title={t("message_list.skill_badge", { name: props.name })}>
       {props.name}
     </span>
+  )
+}
+
+/** A task the message refers to by id. The title comes from this machine's
+ *  run record, not from the message: the message carries only the id. A click
+ *  opens the task in the side panel. */
+function UserTaskChip(props: { taskId: string }) {
+  const title = useTaskRunStore((state) => state.runsByTaskId[props.taskId]?.taskTitle)
+  return (
+    <button
+      type="button"
+      className="mx-0.5 inline-flex max-w-72 items-center gap-1.5 rounded-full border border-blue-6/35 bg-blue-3/20 px-2.5 py-1 text-xs font-medium text-blue-11 align-middle transition-colors hover:bg-blue-3/40"
+      title={t("message_list.open_task")}
+      aria-label={t("message_list.task_badge", { id: props.taskId })}
+      onClick={() => requestOpenTask(props.taskId, title ?? t("message_list.task_badge_fallback"))}
+    >
+      <Inbox className="size-3.5 shrink-0" />
+      <span className="truncate">{title ?? t("message_list.task_badge_fallback")}</span>
+      <ArrowUpRight className="size-3.5 shrink-0 opacity-70" />
+    </button>
   )
 }
 
@@ -479,6 +493,34 @@ function UserLegalMemoryChip(props: { label: string; documentId: string }) {
     >
       <FileIcon className="size-3.5 shrink-0" />
       <span className="truncate">{props.label}</span>
+      <ArrowUpRight className="size-3.5 shrink-0 opacity-70" />
+    </button>
+  )
+}
+
+function UserStorageChip(props: { refItem: StorageRef }) {
+  const { openTargets, onOpenTarget } = useOpenTargets()
+  const { refItem } = props
+  return (
+    <button
+      type="button"
+      className="mx-0.5 inline-flex max-w-72 items-center gap-1.5 rounded-full border border-indigo-6/60 bg-indigo-2/55 px-2.5 py-1 text-xs font-medium text-indigo-11 align-middle transition-colors hover:bg-indigo-3/70"
+      title={t("message_list.open_item", { label: refItem.label })}
+      onClick={() => {
+        // Prefer the copy already checked out into the workspace; fall back to
+        // asking the surface to open it from the connection.
+        const target = refItem.localPath ? resolvePathOpenTarget(refItem.localPath, openTargets, "attachment") : null
+        if (target) {
+          onOpenTarget?.(target)
+          return
+        }
+        window.dispatchEvent(new CustomEvent(STORAGE_OPEN_EVENT, {
+          detail: { connectionId: refItem.connectionId, path: refItem.path, label: refItem.label },
+        }))
+      }}
+    >
+      <FileIcon className="size-3.5 shrink-0" />
+      <span className="truncate">{refItem.label}</span>
       <ArrowUpRight className="size-3.5 shrink-0 opacity-70" />
     </button>
   )
@@ -512,8 +554,12 @@ function renderUserTextWithReferenceChips(rawText: string) {
     offset += segment.length
     const attachment = parseWorkspaceAttachmentLink(segment)
     if (attachment) return <UserWorkspaceAttachmentChip key={key} {...attachment} />
+    const taskReference = parseTaskReference(segment)
+    if (taskReference) return <UserTaskChip key={key} taskId={taskReference.taskId} />
     const skillMatch = segment.match(/^(?:Load )?\[skill ([^\]]+)\](?: and follow its instructions\.)?$/)
     if (skillMatch?.[1]) return <UserSkillChip key={key} name={skillMatch[1]} />
+    const storageRef = parseStorageRefLink(segment)
+    if (storageRef) return <UserStorageChip key={key} refItem={storageRef} />
     const memoryMatch = segment.match(/^\[([^\]\n]+)\]\((legalmemory:\/\/document\/[\w.:-]+)\)$/)
     if (memoryMatch?.[1] && memoryMatch[2]) {
       const ref = parseLegalMemoryRef(memoryMatch[2])
@@ -532,7 +578,7 @@ const UserMessage = React.memo(
 
     return (
       <Message
-        className="mx-auto flex w-full max-w-3xl flex-col items-end gap-2 px-2 md:px-10"
+        className="flex w-full min-w-0 flex-col items-end gap-2"
         data-message-id={message.id}
         data-message-role={message.role}
       >
@@ -639,14 +685,7 @@ const MessageComponent = React.memo(
       return <ErrorMessage error={getMessagesText([message]) || t("session.failed")} />
     }
 
-    if (isEmptyMessage(message) && !isStreaming) {
-      return (
-        <EmptyMessage
-          data-message-id={message.id}
-          data-message-role={message.role}
-        />
-      )
-    }
+    if (isEmptyMessage(message) && !isStreaming) return null
 
     if (message.role === "assistant") {
       return (
@@ -671,22 +710,10 @@ const MessageComponent = React.memo(
 MessageComponent.displayName = "MessageComponent"
 
 const LoadingMessage = React.memo(({ label }: { label?: string }) => (
-  <Message className="mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-2 md:px-10">
+  <Message className="flex w-full min-w-0 flex-col items-start gap-2">
     <div className="group flex w-full flex-col gap-0">
       <div className="flex items-center gap-1.5 px-1 py-1 text-sm text-muted-foreground">
-        <div style={{ width: 20, height: 20, borderRadius: "50%", overflow: "hidden" }}>
-          <PaperGrainGradient
-            speed={12}
-            softness={0.1}
-            intensity={1}
-            noise={0.05}
-            shape="sphere"
-            colors={["#818cf8", "#fb7185", "#fbbf24", "#34d399"]}
-            colorBack="#ffffff00"
-            style={{ backgroundColor: "#818cf8", width: "100%", height: "100%", borderRadius: "50%" }}
-          />
-        </div>
-        <span>{label ?? t("session.thinking")}</span>
+        <span className="lw-tool-shimmer">{label ?? t("session.thinking")}</span>
       </div>
     </div>
   </Message>
@@ -704,7 +731,7 @@ function ErrorMessage({ error }: ErrorMessageProps) {
     return <BudgetExceededMessage plan={eigenweltPlan} />
   }
   return (
-    <Message className="not-prose mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-0 md:px-10">
+    <Message className="not-prose flex w-full min-w-0 flex-col items-start gap-2">
       <div className="group flex w-full flex-col items-start gap-0">
         <div className="text-foreground flex min-w-0 flex-1 flex-row items-start gap-2 rounded-lg border-2 border-red-300 bg-red-300/20 px-2 py-1">
           <AlertTriangle size={16} className="mt-0.5 shrink-0 text-destructive" />
@@ -723,7 +750,7 @@ function ErrorMessage({ error }: ErrorMessageProps) {
 function BudgetExceededMessage({ plan }: { plan: EigenweltBudgetPlan }) {
   const display = eigenweltBudgetLimitDisplay(plan)
   return (
-    <Message className="not-prose mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-0 md:px-10">
+    <Message className="not-prose flex w-full min-w-0 flex-col items-start gap-2">
       <div className="flex w-full min-w-0 flex-col gap-2 rounded-lg border border-dls-border bg-dls-surface px-4 py-3">
         <div className="flex items-start gap-2">
           <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-700" />
@@ -783,7 +810,7 @@ const RetryMessage = React.memo(({ status }: RetryMessageProps) => {
   const action = status.action
 
   return (
-    <Message className="not-prose mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-0 md:px-10">
+    <Message className="not-prose flex w-full min-w-0 flex-col items-start gap-2">
       <div className="group flex w-full flex-col items-start gap-0">
         <div className="text-foreground flex min-w-0 flex-1 flex-col gap-2 rounded-lg border-2 border-amber-300 bg-amber-300/20 px-3 py-2">
           <div className="flex items-start gap-2">
@@ -830,6 +857,9 @@ function MessageArtifacts(props: { message: UIMessage }) {
   return <ArtifactList messages={[props.message]} includeTargetFallbacks={false} />;
 }
 
+/** A stable empty list, so a tasks-only strip does not re-derive artifacts on every render. */
+const EMPTY_MESSAGES: UIMessage[] = []
+
 interface AssistantMessageGroupProps {
   items: UIMessageWithIndex[]
   messages: UIMessage[]
@@ -841,8 +871,10 @@ function MessageGroup({
   messages,
   isStreaming,
 }: AssistantMessageGroupProps) {
-  const { onRevertToUserMessage, onForkAtMessage, legalworkClient, workspaceId } = useMessageList()
+  const { onRevertToUserMessage, onForkAtMessage, legalworkClient, workspaceId, showThinking } = useMessageList()
+  const displayItems = React.useMemo(() => groupAssistantToolRuns(items, showThinking), [items, showThinking])
   const lastItem = items[items.length - 1]
+  const isLiveGroup = isStreaming && lastItem?.index === messages.length - 1
   // Every document this turn's LegalMemory calls returned, read from the tool
   // results rather than from anything the model wrote.
   const legalMemoryDocuments = React.useMemo(
@@ -854,6 +886,14 @@ function MessageGroup({
             .map((part) => (part as { output?: unknown }).output),
         ),
       ),
+    [items],
+  )
+  // The tasks this turn filed, likewise read off the tool results and shown
+  // once, under the finished answer — the tool call and the prose that
+  // follows it are separate messages, so a per-message strip would put the
+  // task under the step that ran the tool rather than at the end.
+  const filedTasks = React.useMemo(
+    () => filedTasksOf(items.flatMap((item) => item.message.parts)),
     [items],
   )
   // Matter titles, resolved once and reused. A hit names its matter only by id.
@@ -868,37 +908,10 @@ function MessageGroup({
   // client-side messages (e.g. session errors) don't exist on the server and
   // silently corrupt fork/revert boundaries.
   const lastRealItem = items.findLast((item) => !isSessionErrorMessage(item.message))
-  const isLiveGroup = isStreaming && lastItem !== undefined && lastItem.index === messages.length - 1
-  const stepsRef = React.useRef<HTMLDivElement>(null)
-
-  // Keep the capped step run pinned to the latest step while streaming.
-  React.useEffect(() => {
-    const node = stepsRef.current
-    if (node && isLiveGroup) {
-      node.scrollTop = node.scrollHeight
-    }
-  })
-
-  if (!lastItem || isMessageEmptyGroup(items)) {
-    if (isStreaming) {
-      return null;
-    }
-
-    return <EmptyMessage />
-  }
+  if (!lastItem || isMessageEmptyGroup(items)) return null
 
   const renderableItems = getRenderableMessages(items)
   const lastTextMessage = getLastTextPart(lastItem.message)
-
-  // Leading messages without prose (tool/reasoning steps) render inside a
-  // height-capped scroll area so long runs stay compact; messages with text
-  // or files render inline below it.
-  let stepCount = 0
-  while (stepCount < items.length && !getRenderableMessage(items[stepCount].message)) {
-    stepCount += 1
-  }
-  const stepItems = items.slice(0, stepCount)
-  const proseItems = items.slice(stepCount)
 
   const renderItem = (item: UIMessageWithIndex, groupIndex: number) => {
     const isLastMessage = item.index === messages.length - 1
@@ -908,7 +921,7 @@ function MessageGroup({
         <MessageComponent
           message={item.message}
           isLastMessage={isLastMessage}
-          isStreaming={isLastMessage && isStreaming}
+          isStreaming={isLiveGroup && item === displayItems.at(-1)}
           isLastStep={groupIndex === items.length - 1}
         />
         <MessageArtifacts message={item.message} />
@@ -918,19 +931,12 @@ function MessageGroup({
 
   return (
       <div className="flex flex-col gap-2 group/message-group">
-      {stepItems.length > 0 ? (
-        // data-scrollable: the transcript's scroll controller must not treat
-        // gestures inside this nested scroller as transcript browsing, or
-        // autoscroll disengages whenever the user wheels over tool output.
-        <div ref={stepsRef} data-scrollable className="max-h-[520px] overflow-y-auto">
-          {stepItems.map((item, groupIndex) => renderItem(item, groupIndex))}
-        </div>
-      ) : null}
-      {proseItems.map((item, groupIndex) => renderItem(item, stepItems.length + groupIndex))}
+      {displayItems.map(renderItem)}
+      {filedTasks.length > 0 ? <ArtifactList messages={EMPTY_MESSAGES} tasks={filedTasks} /> : null}
       {/* The graph and the sources belong under the finished answer, not among
           the retrieval steps. They are collected across the whole turn, since
           the tool calls and the prose that follows them are separate messages. */}
-      <div className="mx-auto w-full max-w-3xl px-2 md:px-10">
+      <div className="w-full min-w-0">
         <LegalMemoryMatterGraph
           rootDocumentId={legalMemoryDocuments[0]?.documentId ?? null}
           streaming={isStreaming}
@@ -944,7 +950,7 @@ function MessageGroup({
         />
       </div>
       {lastTextMessage && !isStreaming && (
-        <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-2 px-2 opacity-0 transition-opacity duration-150 group-hover/message-group:opacity-100 md:px-8">
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 opacity-0 transition-opacity duration-150 group-hover/message-group:opacity-100">
           <MessageActions className="flex gap-0">
             <CopyMessageButton messages={renderableItems.map((item) => item.message)} />
             {lastRealItem ? (
@@ -976,7 +982,6 @@ function MessageGroup({
           {/* <MessageSources messages={items.map((item) => item.message)} /> */}
         </div>
       )}
-      {renderableItems.length === 0 && !isStreaming ? <EmptyMessage /> : null}
       </div>
   )
 }
@@ -993,9 +998,13 @@ export function MessageList({ eigenweltPlan = null, messages, status, retryStatu
   const items = React.useMemo(() => groupMessages(messages, status), [messages, status]);
   const error = useSessionErrorMessage();
   const hasSessionErrorMessage = React.useMemo(() => messages.some(isSessionErrorMessage), [messages])
-  const liveActionLabel = isStreaming
-    ? getActiveToolLabel(collectToolParts(messages))
-    : null
+  const hasLiveTool = isStreaming && collectToolParts(messages).some(isToolPartInFlight)
+  const hasActivityTail = React.useMemo(() => {
+    const last = items.at(-1)
+    if (!last || !isMessageGroup(last)) return false
+    const tail = groupAssistantToolRuns(last.messages, false).at(-1)
+    return tail?.message.parts.some(isToolUIPart) ?? false
+  }, [items])
 
   return (
     <EigenweltBudgetPlanContext.Provider value={eigenweltPlan}>
@@ -1032,7 +1041,7 @@ export function MessageList({ eigenweltPlan = null, messages, status, retryStatu
         )
       })}
 
-      {status === "streaming" && <LoadingMessage label={liveActionLabel ?? undefined} />}
+      {status === "streaming" && !hasLiveTool && !hasActivityTail && <LoadingMessage />}
       {retryStatus ? <RetryMessage status={retryStatus} /> : null}
       {error && !hasSessionErrorMessage ? <ErrorMessage error={error} /> : null}
     </div>

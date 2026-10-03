@@ -16,6 +16,7 @@ function subjekt(): OkfRecord {
     title: "Jan Novák", description: "klient", created: "2026-09-02", updated: "2026-09-02",
     truth: "t", timeline: [{ date: "2026-09-02", text: "x" }],
     role: "counterparty", registry_id: "12345678",
+    source: "OR",
   });
 }
 

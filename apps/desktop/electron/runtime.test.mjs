@@ -2,9 +2,15 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import path from "node:path";
+import os from "node:os";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 
 import {
+  alignWindowsOpencodeConfigEnv,
+  desktopProjectsDirectory,
   commandMatchesPackagedSidecar,
+  mergeRuntimeMcpConfig,
+  bundledNodeDirectory,
   nodeShimFileName,
   nodeShimScriptContent,
   opencodeHomeEnvFromRoot,
@@ -13,6 +19,31 @@ import {
   seedWorkspacePathsForEmbeddedServer,
   selectStickyLegalworkPortWorkspace,
 } from "./runtime.mjs";
+
+describe("alignWindowsOpencodeConfigEnv", () => {
+  it("keeps the engine and LegalWork on OpenCode's existing Windows config root", () => {
+    const env = { APPDATA: "C:\\Users\\lawyer\\AppData\\Roaming" };
+    assert.equal(alignWindowsOpencodeConfigEnv(env, "win32", "C:\\Users\\lawyer").XDG_CONFIG_HOME, path.join("C:\\Users\\lawyer", ".config"));
+    assert.equal(env.OPENCODE_CONFIG_DIR, undefined);
+  });
+
+  it("preserves an explicit XDG config home", () => {
+    const env = { APPDATA: "C:\\Users\\lawyer\\AppData\\Roaming", XDG_CONFIG_HOME: "D:\\opencode" };
+    assert.equal(alignWindowsOpencodeConfigEnv(env, "win32").XDG_CONFIG_HOME, "D:\\opencode");
+    assert.equal(env.OPENCODE_CONFIG_DIR, undefined);
+  });
+
+  it("preserves an explicit OpenCode config directory", () => {
+    const env = { APPDATA: "C:\\Users\\lawyer\\AppData\\Roaming", OPENCODE_CONFIG_DIR: "D:\\opencode" };
+    assert.equal(alignWindowsOpencodeConfigEnv(env, "win32").OPENCODE_CONFIG_DIR, "D:\\opencode");
+    assert.equal(env.XDG_CONFIG_HOME, path.join(os.homedir(), ".config"));
+  });
+
+  it("does not change Unix config paths", () => {
+    const env = { APPDATA: "/other" };
+    assert.equal(alignWindowsOpencodeConfigEnv(env, "darwin").XDG_CONFIG_HOME, undefined);
+  });
+});
 
 describe("opencodeHomeEnvFromRoot", () => {
   it("points every OpenCode dir under the app-owned root", () => {
@@ -102,7 +133,7 @@ describe("resolveLegalworkServerConfigPath", () => {
   it("respects explicit server config path", () => {
     assert.equal(
       resolveLegalworkServerConfigPath({ LEGALWORK_SERVER_CONFIG: "/tmp/legalwork/server.json" }),
-      "/tmp/legalwork/server.json",
+      path.resolve("/tmp/legalwork/server.json"),
     );
   });
 
@@ -112,6 +143,23 @@ describe("resolveLegalworkServerConfigPath", () => {
       resolveLegalworkServerConfigPath({ XDG_CONFIG_HOME: "/tmp/xdg" }),
       "/tmp/xdg/legalwork/server.json",
     );
+  });
+});
+
+describe("packaged Node runtime", () => {
+  it("requires the bundled executable on every platform", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "legalwork-node-runtime-"));
+    try {
+      assert.throws(() => bundledNodeDirectory(root), /Bundled Node runtime is missing/);
+      await mkdir(path.join(root, "node"));
+      await writeFile(path.join(root, "node", "node"), "fixture");
+      await writeFile(path.join(root, "node", "node.exe"), "fixture");
+      /** @type {NodeJS.Platform[]} */
+      const platforms = ["darwin", "linux", "win32"];
+      for (const platform of platforms) assert.equal(bundledNodeDirectory(root, platform), path.join(root, "node"));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -134,5 +182,54 @@ describe("node shim", () => {
       nodeShimScriptContent("C:\\Program Files\\LegalWork\\LegalWork.exe", "win32"),
       '@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"C:\\Program Files\\LegalWork\\LegalWork.exe" %*\r\n',
     );
+  });
+});
+
+
+describe("runtime MCP config removal", () => {
+  for (const kind of ["xdg", "config", "database"]) {
+    it(`removes from the engine's ${kind} path and preserves other settings`, async () => {
+      const root = await mkdtemp(path.join(os.tmpdir(), "legalwork-mcp-profile-"));
+      const env = kind === "database"
+        ? { LEGALWORK_RUNTIME_DB: path.join(root, "runtime.sqlite") }
+        : kind === "config"
+          ? { LEGALWORK_SERVER_CONFIG: path.join(root, "server.json") }
+          : process.platform === "win32" ? { APPDATA: root } : { XDG_CONFIG_HOME: root };
+      try {
+        const file = await mergeRuntimeMcpConfig("legalmemory", { type: "remote", url: "https://example.test/mcp", enabled: true }, env);
+        assert.equal(file, path.join(root, ...(kind === "xdg" ? ["legalwork"] : []), "runtime-opencode-config.json"));
+        const current = JSON.parse(await readFile(file, "utf8"));
+        current.plugin = ["file:///test/plugin.js"];
+        current.mcp.other = { type: "remote", url: "https://other.test/mcp" };
+        await writeFile(file, JSON.stringify(current));
+        await mergeRuntimeMcpConfig("legalmemory", null, env);
+        const result = JSON.parse(await readFile(file, "utf8"));
+        assert.equal(result.mcp.legalmemory, undefined);
+        assert.deepEqual(result.mcp.other, current.mcp.other);
+        assert.deepEqual(result.plugin, current.plugin);
+        // Retrying a removal must stay disconnected.
+        await mergeRuntimeMcpConfig("legalmemory", null, env);
+        assert.deepEqual(JSON.parse(await readFile(file, "utf8")), result);
+        await writeFile(file, "{broken");
+        await assert.rejects(mergeRuntimeMcpConfig("legalmemory", null, env));
+        assert.equal(await readFile(file, "utf8"), "{broken");
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+
+describe("desktop project storage", () => {
+  it("keeps macOS projects in Documents outside the app installation and engine home", () => {
+    assert.equal(desktopProjectsDirectory("/Users/chris/Documents", false, "darwin"), "/Users/chris/Documents/LegalWork/Projects");
+  });
+  it("uses the exact Windows known-folder location, including redirected Documents", () => {
+    assert.equal(desktopProjectsDirectory("D:\\OneDrive - Firm\\Documents", false, "win32"), "D:\\OneDrive - Firm\\Documents\\LegalWork\\Projects");
+    assert.equal(desktopProjectsDirectory("\\\\fileserver\\users\\chris\\Documents", false, "win32"), "\\\\fileserver\\users\\chris\\Documents\\LegalWork\\Projects");
+  });
+  it("keeps development-created projects separate from released app projects", () => {
+    assert.equal(desktopProjectsDirectory("/Users/chris/Documents", true, "darwin"), "/Users/chris/Documents/LegalWork Dev/Projects");
   });
 });

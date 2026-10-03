@@ -1,9 +1,12 @@
 /** @jsxImportSource react */
-import { useMemo, useState, type ReactNode } from "react";
-import { Blocks, Cpu, Download, Package, Plug, type LucideIcon } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Blocks, Cpu, Download, HardDrive, Package, Plug, type LucideIcon } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
+import { SectionHeading } from "@/react-app/design-system/surface";
+
+import { AutogramIntegrationCard } from "@/lawoss/domains/integrations/autogram-integration-card";
 
 import { ClaudePluginImportModal } from "../../connections/modals/claude-plugin-import-modal";
 import type { LegalworkClaudePluginPreview } from "../../../../app/lib/legalwork-server";
@@ -12,9 +15,9 @@ import { BUNDLED_PLUGINS } from "../bundled-plugins";
 import { HubTabs } from "../segmented-tabs";
 import { HubScopeContext, HubScopeToggle, type HubScope } from "./hub-scope-context";
 
-export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins";
+export type ExtensionsSection = "all" | "mcp" | "skills" | "plugins" | "storage";
 
-type ExtensionsTab = "connectors" | "skills" | "plugins";
+type ExtensionsTab = "connectors" | "skills" | "plugins" | "storage";
 
 type SuggestedPlugin = {
   name: string;
@@ -45,10 +48,15 @@ export type ExtensionsViewProps = {
   mcpConnectedAppsCount: number;
   /** Connectors tab — the MCP quick-connect grid + configured servers + built-ins. */
   mcpView: ReactNode;
+  /** Local selected-workspace file memory; grants remain in native Permissions. */
+  fileMemoryView?: ReactNode;
+  storageView?: ReactNode;
   /** Skills tab — bundled + installed skills, with add/import. */
   skillsView: ReactNode;
   /** Team ("shared with your firm") view for the Plugins tab. */
   pluginsFirmView?: ReactNode;
+  /** Optional downstream catalog; installation stays in the native workspace lifecycle. */
+  catalogView?: ReactNode;
   /** Whether the firm is connected + entitled (shows the Local/Team toggle). */
   hasTeamHub?: boolean;
   /** Opens the multi-select "Share with your firm" dialog. */
@@ -62,38 +70,39 @@ export type ExtensionsViewProps = {
   installClaudePlugin?: (url: string) => Promise<{ ok: boolean; message: string }>;
   onRefresh: () => void;
   initialSection?: ExtensionsSection;
-  setSectionRoute?: (tab: "mcp" | "skills" | "plugins") => void;
+  setSectionRoute?: (tab: "mcp" | "skills" | "plugins" | "storage") => void;
   showHeader?: boolean;
 };
 
-// The Integrations page covers connectors (MCP), skills, and plugins.
+// The Integrations page covers connectors (MCP), file storage, skills, and plugins.
 // Built per render, not once at import: `t()` reads the current language, so a
 // module-level constant would freeze the tabs in whatever language loaded first.
 const tabs = (): Array<{ id: ExtensionsTab; label: string; icon: LucideIcon; subtitle: string }> => [
   { id: "connectors", label: t("extensions.connectors_label"), icon: Plug, subtitle: t("extensions.apps_subtitle_short") },
+  { id: "storage", label: t("storage.tab"), icon: HardDrive, subtitle: t("storage.intro") },
   { id: "skills", label: "Skills", icon: Blocks, subtitle: t("extensions.skills_subtitle") },
   { id: "plugins", label: "Plugins", icon: Package, subtitle: t("extensions.plugins_subtitle") },
 ];
-
-const pageTitleClass = "text-[34px] font-medium leading-[1.04] tracking-[-0.035em] text-dls-text";
 
 // Neutral segmented control matching the reference: a soft gray track with a
 // white active pill (no accent fill). Shared by the tab switcher.
 
 export function ExtensionsView(props: ExtensionsViewProps) {
   const initialTab: ExtensionsTab =
-    props.initialSection === "plugins"
+    props.initialSection === "storage" ? "storage" : props.initialSection === "plugins"
       ? "plugins"
       : props.initialSection === "skills"
         ? "skills"
         : "connectors";
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
+  useEffect(() => setTab(initialTab), [initialTab]);
   const [importOpen, setImportOpen] = useState(false);
   // Local | Team is the OUTER toggle for the whole Integrations page; the
   // Connectors/Skills/Plugins tabs sit inside it. The sub-views follow this
   // scope via HubScopeContext.
-  const [hubScope, setHubScope] = useState<HubScope>("local");
+  const [selectedScope, setHubScope] = useState<HubScope>("local");
   const teamHub = props.hasTeamHub === true;
+  const hubScope = teamHub || tab === "storage" ? selectedScope : "local";
   const pluginCount = useMemo(() => props.extensions.pluginList().length, [props.extensions]);
 
   const selectTab = (next: ExtensionsTab) => {
@@ -105,12 +114,16 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const activeTab = TABS.find((entry) => entry.id === tab) ?? TABS[0];
 
   return (
-    <section className="space-y-7 max-w-5xl w-full animate-in fade-in duration-300">
+    <section className="w-full min-w-0 space-y-6">
+      {props.showHeader !== false ? <SectionHeading size="page" title={t("extensions.eyebrow_integrations")} description={tab !== "storage" ? activeTab.subtitle : undefined} action={teamHub || tab === "storage" ? <>
+        <HubScopeToggle scope={hubScope} onChange={setHubScope} />
+        {hubScope === "team" && tab !== "storage" && props.onOpenTeamShare ? <Button variant="outline" onClick={props.onOpenTeamShare}>{t("extensions.share_with_firm")}</Button> : null}
+      </> : undefined} /> : null}
       {/* Local | Team is the page-level toggle; Connectors/Skills/Plugins sit inside it. */}
-      {teamHub ? (
+      {(teamHub || tab === "storage") && props.showHeader === false ? (
         <div className="flex items-center justify-between gap-3">
           <HubScopeToggle scope={hubScope} onChange={setHubScope} />
-          {hubScope === "team" && props.onOpenTeamShare ? (
+          {hubScope === "team" && tab !== "storage" && props.onOpenTeamShare ? (
             <Button variant="outline" onClick={props.onOpenTeamShare}>
               {t("extensions.share_with_firm")}
             </Button>
@@ -135,16 +148,16 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         </div>
       </div>
 
-      {props.showHeader !== false ? (
-        <div className="space-y-3">
-          <span className="lw-section-eyebrow uppercase text-dls-secondary">{t("extensions.eyebrow_integrations")}</span>
-          <h2 className={pageTitleClass}>{activeTab.label}</h2>
-          <p className="max-w-xl text-[14px] leading-[1.65] text-dls-secondary">{activeTab.subtitle}</p>
+      <HubScopeContext.Provider value={hubScope}>
+      {tab === "connectors" ? (
+        <div className="space-y-4">
+          {hubScope === "local" ? props.fileMemoryView : null}
+          <AutogramIntegrationCard />
+          {props.mcpView}
         </div>
       ) : null}
 
-      <HubScopeContext.Provider value={hubScope}>
-      {tab === "connectors" ? props.mcpView : null}
+      {tab === "storage" ? props.storageView : null}
 
       {tab === "skills" ? props.skillsView : null}
 
@@ -153,6 +166,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
           props.pluginsFirmView ?? null
         ) : (
         <div className="space-y-6">
+          {props.catalogView}
           <div className={`flex flex-wrap items-start gap-3 ${props.showHeader !== false ? "justify-end" : "justify-between"}`}>
             {props.showHeader === false ? (
               <p className="max-w-prose text-sm text-dls-secondary">

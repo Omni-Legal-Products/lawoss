@@ -41,6 +41,13 @@ const placeholders = (value: string): string[] =>
  * Everything else matching English is an untranslated string.
  */
 const GERMAN_KEEPS_ENGLISH = new Set<string>([
+  "review.status", // Identical German and English noun.
+  "sidebar.project_name", "project_filters.title", // "Name" and "Filter" are identical German nouns.
+  "review.mixed", // Product model names: JEV + LLM.
+  "review.sets", "review.prompts", "workflows.workflow", // Established product terminology in both languages.
+  "systemone.typesafe",
+  // Storage protocol names and the shared technical term "Port".
+  "storage.provider_webdav", "storage.provider_sftp", "storage.provider_ftp", "storage.field_port",
   // Tool transcript: loanwords and identical tokens
   "terminal.region_label", "message_list.skill_badge", "benchmark.run_name_placeholder",
   "provider_auth.name", "hub_share.skills", "hub_share.plugins",
@@ -48,11 +55,14 @@ const GERMAN_KEEPS_ENGLISH = new Set<string>([
   "tool.generic", "tool.detail_in_path", "tool_activity.agent_prefix",
   "reload.label_skill", "reload.label_plugin", "reload.label_mcp", "reload.label_agent",
   // Product and brand names
+  "autogram.title",
+  "ocr.api_paddle", "ocr.api_mistral",
   "benchmark.onboarding_eyebrow", "benchmark.import_title", "settings.tab_benchmark",
-  "account.plan_hub", "premium_upsell.eyebrow", "onboarding_ai.panel_eyebrow",
+  "premium_upsell.eyebrow",
   "recorder.tier_premium_name", "recorder.tier_premium_locked", "recorder.tier_max_name",
   "skills.cloud_org_fallback", "mcp.quick_connect_featured",
   // Professional terms LegalWork deliberately leaves untranslated
+  "projects.sessions",
   "composer.agent_label", "composer.agents_label", "composer.mcps_label", "composer.skill_source",
   "composer.app_kind", "session.permission_detail_agent", "session.permission_detail_tool",
   "session.permission_detail_diff", "session.permission_detail_url", "session.doom_loop_tool_label",
@@ -138,9 +148,9 @@ const AGENT_FACING = new Set<string>([
   "xlsx.sheet_not_found",
   // Starter prompts the user sends to the agent.
   "task_suggestions.grid_prompt", "task_suggestions.redline_prompt",
-  "task_suggestions.summary_prompt",
+  "task_suggestions.summary_prompt", "projects.setup.initial_prompt",
   // Sample chat content and quoted example prompts.
-  "onboarding_ai.chat_user", "mcp.quick_connect_legalwork_ui_desc",
+  "mcp.quick_connect_legalwork_ui_desc",
   "mcp.quick_connect_legalwork_cloud_desc", "mcp.quick_connect_legalwork_admin_desc",
 ]);
 
@@ -196,17 +206,21 @@ for (const language of LANGUAGES) {
   if (language === "en") continue;
   const dict = LOCALES[language];
 
-  // LAWOSS locales intentionally retain English fallback while translation progresses.
-  // Validate their supplied placeholders below without claiming full coverage.
-  const partial = language === "sk" || language === "cs";
+  // LAWOSS: sk and cs are complete since 2026-09-13 and are checked like de.
+  // Czech and Slovak have CLDR plural categories English does not (`few`, `many`),
+  // so `X_few`/`X_many` are legitimate as long as en.ts has the family's `X_other`.
+  const extraPluralOfKnownFamily = (key: string): boolean => {
+    const base = key.replace(/_(few|many)$/, "");
+    return base !== key && (`${base}_other` in SOURCE || base in SOURCE);
+  };
 
   const missing = Object.keys(SOURCE).filter((key) => !(key in dict));
-  if (missing.length && !partial) {
+  if (missing.length) {
     fail(`${language}: ${missing.length} key(s) missing, first: ${missing.slice(0, 5).join(", ")}`);
   }
 
-  const extra = Object.keys(dict).filter((key) => !(key in SOURCE));
-  if (extra.length && !partial) {
+  const extra = Object.keys(dict).filter((key) => !(key in SOURCE) && !extraPluralOfKnownFamily(key));
+  if (extra.length) {
     fail(`${language}: ${extra.length} key(s) not in en.ts, first: ${extra.slice(0, 5).join(", ")}`);
   }
 
@@ -231,7 +245,7 @@ for (const language of LANGUAGES) {
     if (base !== key) families.add(base);
   }
   for (const base of families) {
-    if (!partial && !(`${base}_other` in dict) && !(base in dict)) {
+    if (!(`${base}_other` in dict) && !(base in dict)) {
       fail(`${language}: plural family "${base}" resolves to nothing (no "${base}_other", no "${base}")`);
     }
   }
@@ -360,5 +374,5 @@ if (failures.length) {
 
 const total = Object.keys(SOURCE).length;
 console.log(
-  `i18n check passed: ${total} English keys; en/de complete; sk/cs use English fallback with placeholder validation.`,
+  `i18n check passed: ${total} English keys; en/de complete; sk/cs complete.`,
 );

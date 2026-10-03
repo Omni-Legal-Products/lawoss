@@ -8,7 +8,9 @@
 
 **Tech Stack:** GitHub Actions YAML, Electron Builder YAML, Node.js ESM tests, pnpm workspace.
 
-**Spec:** User-approved phase 1 scope in the task conversation on 2026-09-11.
+**Decision:** [ADR 0004: Forkujeme LegalWork pod vlastným brandingom](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/blob/main/decisions/0004-ako-rozsirit-legalwork.md). Phase 1 scope was approved in the task conversation on 2026-09-11.
+
+**Update 2026-10-03:** Preserve the current updater and attribution from `dev`. Linux AppImage links use `x86_64`. Release statistics require both `LAWOSS_POSTHOG_KEY` and `LAWOSS_POSTHOG_HOST`; absent configuration skips all HTTP and no upstream defaults are inherited.
 
 ## Global Constraints
 
@@ -148,13 +150,13 @@ Set `REPO` to `Omni-Legal-Products/lawoss` and classify new `lawoss-` installer 
 
 - [ ] **Step 2: Update workflow comments**
 
-Describe the PostHog variables as LAWOSS statistics while leaving the existing `LEGALWORK_*` variable names as compatibility aliases so configured repository variables do not silently stop working.
+Require explicit `LAWOSS_POSTHOG_KEY` and `LAWOSS_POSTHOG_HOST`. Ignore legacy variables and upstream defaults. Skip all HTTP when either required value is absent. Do not change repository variables or secrets as part of this code update.
 
 - [ ] **Step 3: Run the statistics dry run**
 
-Run: `node scripts/release/report-download-stats.mjs --dry-run`
+Run: `node --test scripts/release/report-download-stats.test.mjs`
 
-Expected: the script reaches the GitHub API using `Omni-Legal-Products/lawoss` and prints `Dry run — nothing sent.`; network/API failure must be reported separately from code verification.
+Expected: synthetic CLI tests verify the fork URL, configured destination, dry run, and zero HTTP without configuration. No real statistics are sent.
 
 - [ ] **Step 4: Commit**
 

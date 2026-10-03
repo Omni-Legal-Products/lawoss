@@ -52,16 +52,3 @@ describe("LAWOSS marketplace catalog", () => {
     expect(preview.humanGate).toBe(entry.humanGate);
   });
 });
-
-describe("Marketplace page contract", () => {
-  test("renders the catalog data and preview language", async () => {
-    const source = await Bun.file(
-      new URL("../src/lawoss/domains/marketplace/marketplace-page.tsx", import.meta.url),
-    ).text();
-
-    expect(source).toContain("MARKETPLACE_CATALOG");
-    expect(source).toContain("installationPreview");
-    expect(source).toContain("preview-only");
-    expect(source).not.toContain("const REGISTRY: RegistryRow[]");
-  });
-});

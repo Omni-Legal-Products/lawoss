@@ -124,7 +124,7 @@ test("audit riadok nenahradi stopu zmeny Pravdy", () => {
   // pridáva samo, to nesmie zachrániť.
   const bezStopy = { ...p, truth: "Uplne inak." };
   const r = runCli(["write", dir, "--file", navrh(dir, bezStopy), "--reason", "obrat",
-                    "--apply", "--approve-as", "JUDr. Vojtěch Říha"]);
+                    "--apply", "--approve-as", "JUDr. Vojtěch Říha", "--if-revision", revision(dir, p.id)]);
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /Historie|História/);
 });
@@ -174,7 +174,47 @@ test("hlavicka diffu je gramaticky spravna pre kazdy druh zapisu", () => {
     timeline: [...r.timeline, { date: "2026-09-02", text: "obrat" }],
   };
   assert.match(
-    runCli(["write", dir, "--file", navrh(dir, zmeneny), "--reason", "obrat"]).out,
+    runCli(["write", dir, "--file", navrh(dir, zmeneny), "--reason", "obrat", "--if-revision", revision(dir, r.id)]).out,
     /^Zmena záznamu D-001/m,
   );
+});
+
+function revision(dir: string, id: string): string {
+  const token = new RegExp(`Revision ${id}: ([a-f0-9]{64})`).exec(runCli(["read", dir]).out)?.[1];
+  assert.ok(token, `read must return revision for ${id}`);
+  return token;
+}
+
+test("updating a record requires the exact revision from read", () => {
+  const dir = spis();
+  const original = rozhodnutie({ updated: new Date().toISOString().slice(0, 10), deadlines: ["2026-09-30"] });
+  assert.equal(runCli(["write", dir, "--file", navrh(dir, original), "--reason", "create", "--apply"]).code, 0);
+  const next = { ...original, deadlines: ["2026-10-31"], timeline: [...original.timeline, { date: original.updated, text: "termín opravený" }] };
+  const file = navrh(dir, next);
+  const noToken = runCli(["write", dir, "--file", file, "--reason", "update", "--apply"]);
+  assert.equal(noToken.code, 1);
+  assert.match(noToken.out, /--if-revision/);
+  const token = revision(dir, original.id);
+  assert.equal(runCli(["write", dir, "--file", file, "--reason", "update", "--if-revision", token, "--apply"]).code, 0);
+  assert.notEqual(revision(dir, original.id), token);
+  const stale = { ...next, deadlines: ["2026-11-30"], timeline: [...next.timeline, { date: original.updated, text: "ďalší návrh" }] };
+  const result = runCli(["write", dir, "--file", navrh(dir, stale), "--reason", "stale", "--if-revision", token, "--apply"]);
+  assert.equal(result.code, 1);
+  assert.match(result.out, /revízi|revision/);
+  assert.match(runCli(["read", dir]).out, /2026-10-31/);
+  assert.doesNotMatch(runCli(["read", dir]).out, /2026-11-30/);
+});
+
+test("external same-day edit without history is still detected by proposal revision", () => {
+  const dir = spis();
+  const original = rozhodnutie();
+  assert.equal(runCli(["write", dir, "--file", navrh(dir, original), "--reason", "create", "--apply"]).code, 0);
+  const token = revision(dir, original.id);
+  const name = readdirSync(join(dir, MEMORY_DIR)).find((name) => name.startsWith(original.id));
+  assert.ok(name);
+  writeFileSync(join(dir, MEMORY_DIR, name), serializeRecord({ ...original, deadlines: ["2026-11-30"] }));
+  const next = { ...original, updated: "2026-09-02", timeline: [...original.timeline, { date: "2026-09-02", text: "poznámka" }] };
+  const result = runCli(["write", dir, "--file", navrh(dir, next), "--reason", "update", "--if-revision", token, "--apply"]);
+  assert.equal(result.code, 1);
+  assert.match(runCli(["read", dir]).out, /2026-11-30/);
 });

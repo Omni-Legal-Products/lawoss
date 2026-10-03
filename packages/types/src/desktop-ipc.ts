@@ -111,6 +111,15 @@ export type WorkspaceList = {
   workspaces: WorkspaceWire[];
 };
 
+export type WorkspaceCopyFilesResult = {
+  files: Array<{
+    name: string;
+    path?: string;
+    status: "copied" | "already_here" | "failed";
+    error?: "file_only" | "recursive" | "changed" | "unavailable" | "failed";
+  }>;
+};
+
 export type WorkspaceExportSummary = {
   outputPath: string;
   included: number;
@@ -285,6 +294,7 @@ export type WorkspaceCreateInput = {
   folderPath: string;
   name?: string | null;
   preset?: string | null;
+  registerExisting?: boolean;
 };
 
 export type WorkspaceCreateRemoteInput = {
@@ -369,6 +379,21 @@ export type OfficeAddinOpenAppResult = {
   error?: string;
 };
 
+// LAWOSS: Autogram (github.com/originalmagneto/autogram-macOS) is a separate
+// native signing app by the same author. This is presence detection only —
+// LAWOSS does not launch or drive Autogram, it just offers to open it.
+export type AutogramStatus = {
+  /** Autogram.app was found in /Applications or ~/Applications. */
+  installed: boolean;
+  /** Absolute path to the found Autogram.app bundle, when installed. */
+  path: string | null;
+};
+
+export type AutogramOpenResult = {
+  ok: boolean;
+  error?: string;
+};
+
 // ---------------------------------------------------------------------------
 // The command map
 // ---------------------------------------------------------------------------
@@ -379,12 +404,20 @@ export type DesktopCommandMap = {
     args: [input: { workspaceId: string; sessionId: string; title?: string }];
     result: boolean;
   };
+  openProjectWindow: {
+    args: [input: { workspaceId: string; page: "home" | "reviews" | "tasks" | "files"; title?: string }];
+    result: boolean;
+  };
 
   // Workspace state
   workspaceBootstrap: { args: []; result: WorkspaceList };
   workspaceSetSelected: { args: [workspaceId: string]; result: WorkspaceList };
   workspaceSetRuntimeActive: { args: [workspaceId: string | null]; result: WorkspaceList };
   workspaceCreate: { args: [input: WorkspaceCreateInput]; result: WorkspaceList };
+  workspaceCopyFiles: {
+    args: [input: { workspaceId: string; paths: string[]; folder?: string }];
+    result: WorkspaceCopyFilesResult;
+  };
   workspaceCreateRemote: { args: [input: WorkspaceCreateRemoteInput]; result: WorkspaceList };
   workspaceUpdateRemote: { args: [input: WorkspaceUpdateRemoteInput]; result: WorkspaceList };
   workspaceUpdateDisplayName: {
@@ -488,6 +521,10 @@ export type DesktopCommandMap = {
   officeAddinUninstall: { args: [app: OfficeAddinAppId]; result: OfficeAddinActionResult };
   officeAddinOpenApp: { args: [app: OfficeAddinAppId]; result: OfficeAddinOpenAppResult };
 
+  // LAWOSS: Autogram teaser card (Integrations settings) — presence check + open.
+  autogramStatus: { args: []; result: AutogramStatus };
+  autogramOpen: { args: []; result: AutogramOpenResult };
+
   // Dialogs
   pickDirectory: {
     args: [options?: { title?: string; defaultPath?: string; multiple?: boolean }];
@@ -529,7 +566,7 @@ export type DesktopCommandMap = {
     ];
     result: ExecResult;
   };
-  listLocalSkills: { args: [projectDir: string]; result: LocalSkillCard[] };
+  listLocalSkills: { args: [projectDir: string]; result: { items: LocalSkillCard[]; skipped: Array<{ path: string; reason: string }> } };
   // Import every <dir>/SKILL.md skill folder found directly inside sourceDir into
   // the global skills dir, skipping names that already exist. Used to move
   // agent-staged workflows (generated inside a workspace, where the agent needs
@@ -571,13 +608,6 @@ export type DesktopCommandMap = {
   readOpencodeConfig: { args: [scope: string, projectDir?: string]; result: OpencodeConfigFile };
   writeOpencodeConfig: {
     args: [scope: string, projectDir: string, content: string];
-    result: ExecResult;
-  };
-  /** Merge (config given) or delete (null) one MCP server in the runtime
-   * opencode config — the file the packaged engine loads for EVERY workspace
-   * instance, which makes a connector global across old and new workspaces. */
-  mergeRuntimeMcpServer: {
-    args: [name: string, config: Record<string, unknown> | null];
     result: ExecResult;
   };
   /**
@@ -654,6 +684,7 @@ export type DesktopCommandMap = {
   audioRecordingDelete: { args: [recordingId: string]; result: AudioRecordingMeta[] };
   /** Rename a recording (active or on disk); returns the refreshed list. */
   audioRecordingRename: { args: [recordingId: string, title: string]; result: AudioRecordingMeta[] };
+  audioRecordingSetProject: { args: [recordingId: string, projectId: string, linked: boolean]; result: AudioRecordingMeta[] };
   /**
    * Flip an ephemeral recording (system dictation) to retained. Used when the
    * paste failed so the spoken text stays recoverable in Recorder history.
@@ -749,6 +780,28 @@ export type DesktopCommandMap = {
   desktopLoginItemSet: {
     args: [openAtLogin: boolean];
     result: { openAtLogin: boolean; requiresApproval: boolean };
+  };
+  /**
+   * A system notification (task announcements while the app is in the
+   * background). Shown by the main process, so a click can bring the window
+   * back — restored, shown and focused — which the page itself cannot; the
+   * click is then reported to the page as `legalwork:desktop-notification-click`
+   * with the notification's id. Resolves false where the system cannot show one.
+   */
+  desktopNotificationShow: {
+    args: [notification: { id: string; title: string; body?: string }];
+    result: boolean;
+  };
+  /**
+   * The count on the app icon: the Dock badge on macOS, the launcher badge on
+   * Linux. Windows has no count, so there the page draws one
+   * (`overlayDataUrl`, a PNG) and it is laid over the taskbar icon, with
+   * `description` for screen readers. 0 clears it. Resolves false where the
+   * system shows none.
+   */
+  desktopBadgeSet: {
+    args: [badge: { count: number; overlayDataUrl?: string | null; description?: string }];
+    result: boolean;
   };
 
   // Window / OS utilities (dunder commands)

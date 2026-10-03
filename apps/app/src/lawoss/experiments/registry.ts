@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 /**
  * LAWOSS experiments — the single list behind the "Experimenty" sidebar item.
  *
@@ -33,47 +34,48 @@ export const EXPERIMENTS: readonly Experiment[] = [
     kind: "view",
     id: "view-novy-spis",
     to: "/experimenty/novy-spis",
-    label: "Nový spis (OKF)",
-    note: "Fáza A: dialóg zloží požiadavku, agent cez skill /novy-spis zavolá okf CLI a plán ti ukáže pred zápisom. Nainštaluje skill aj CLI do workspace.",
+    get label() { return t("lawoss.shell.new_matter"); },
+    get note() { return t("lawoss.shell.new_matter_note"); },
     owner: "MČ",
+    stav: "v testovaní",
+  },
+  {
+    kind: "view",
+    id: "view-prve-nastavenie",
+    to: "/experimenty/prve-nastavenie",
+    get label() { return t("lawoss.shell.setup"); },
+    get note() { return t("lawoss.shell.setup_note"); },
+    owner: "VŘ",
     stav: "v testovaní",
   },
   {
     kind: "view",
     id: "view-prehlad",
     to: "/prehlad",
-    label: "Prehľad",
-    note: "Denný prehľad praxe — fiktívne dáta, čaká na lawoss/okf/read.ts (fáza C1).",
+    get label() { return t("lawoss.shell.overview"); },
+    get note() { return t("lawoss.shell.overview_note"); },
     owner: "MČ",
-    stav: "návrh",
+    stav: "v testovaní",
+  },
+  {
+    kind: "view",
+    id: "view-spis",
+    to: "/spis",
+    get label() { return t("lawoss.shell.matter"); },
+    get note() { return t("lawoss.shell.matter_note"); },
+    owner: "MF",
+    stav: "v testovaní",
   },
   {
     kind: "view",
     id: "view-lehoty",
     to: "/lehoty",
-    label: "Lehoty",
-    note: "Počítanie a sledovanie lehôt — fiktívne dáta, SK a CZ sa musia modelovať zvlášť.",
+    get label() { return t("lawoss.shell.deadlines"); },
+    get note() { return t("lawoss.shell.deadlines_note"); },
     owner: "MČ",
-    stav: "návrh",
+    stav: "v testovaní",
   },
-  {
-    kind: "view",
-    id: "view-konektory",
-    to: "/konektory",
-    label: "Konektory",
-    note: "Stav pripojených MCP a skills — fiktívne dáta.",
-    owner: "MČ",
-    stav: "návrh",
-  },
-  {
-    kind: "view",
-    id: "view-marketplace",
-    to: "/marketplace",
-    label: "Marketplace",
-    note: "Katalóg z lawoss-registry s pinnutými verziami — fiktívne dáta, fáza C7.",
-    owner: "MČ",
-    stav: "návrh",
-  },
+
 ];
 
 export const EXPERIMENT_FLAGS = EXPERIMENTS.filter((item) => item.kind === "flag");

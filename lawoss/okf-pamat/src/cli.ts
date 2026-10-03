@@ -6,20 +6,26 @@
  * nič neprepíše.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { readManualStatus } from "./manual-status.ts";
+import { createHash } from "node:crypto";
+import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
 import {
-  readStore, readScope, writeIndex, writeLog, syncStatus, ensureBrain, applyRecordWrite, standingApproval,
+  readStore, readScope, syncProjections, ProjectionWriteError, retrofitStatusFile, ensureBrain, applyRecordWrite, standingApproval,
   findOfficeDir, OFFICE_DIR,
-  jurisdictionFromCard, MEMORY_DIR, statusLinkResolver, findClientDir, STATUS_FILE,
+  jurisdictionFromCard, documentLanguageFromCard, MEMORY_DIR, statusLinkResolver, findClientDir, STATUS_FILE,
 } from "./store.ts";
-import { parseRecord, type OkfRecord } from "./record.ts";
-import { planWrite, type Approval, type WriteDiff } from "./write.ts";
+import { parseRecord, serializeRecord, recordRevision, type OkfRecord } from "./record.ts";
+import { planWrite, assertHasSource, type Approval, type WriteDiff } from "./write.ts";
 import { maskRecord } from "./mask.ts";
+import { composePreamble } from "./preamble.ts";
 import { fieldLabel, typeLabel, SCREENING_PROVISION, type Jurisdiction } from "./schema.ts";
 import { renderStatus, RenderConflictError, statusSkeleton } from "./render.ts";
+import type { DocumentLanguage } from "./document-language.ts";
 import { validateStore } from "./validate.ts";
-import { readStandingAuthorization, isExpired, CONFIG_FILE } from "./config.ts";
+import { inspectStandingAuthorization, isExpired, readNameLeakSeverity, CONFIG_FILE } from "./config.ts";
+
+import { readWorkspaceMemory, renderWorkspaceMemory, saveWorkspaceMemory, type WorkspaceMemorySaveRequest } from "./workspace-memory.ts";
 
 const dnes = (): string => new Date().toISOString().slice(0, 10);
 
@@ -31,12 +37,17 @@ export interface CliResult {
 const USAGE = [
   "okf-memory — pamäť spisu (OKF)",
   "",
-  "  okf-memory read     <spis>            prehľad pamäte",
+  "  okf-memory read     <spis>            prehľad pamäte (profil má prednosť)",
+  "  okf-memory workspace-read <spis> [--json] [--matter id] [--allow-root /absolute]…",
+  "  okf-memory workspace-save <spis> --file request.json [--apply] [--json] [--matter id] [--allow-root /absolute]…",
+  "  okf-memory preamble <spis>            pravidlá, poučenia a ban-list na začiatok session",
   "  okf-memory validate <spis>            kontrola schémy, únikov L2→L3 a odkazov",
-  "  okf-memory sync     <spis> [--apply]  projekcia do _STATUS.md a INDEX.md",
+  "  okf-memory sync     <spis> [--apply]  projekcia do _STATUS.md, index.md a log.md",
+  "  okf-memory retrofit <spis> [--apply]  doplní markery do existujúcich sekcií _STATUS.md",
   "  okf-memory aml      <spis>            subjekty a stav AML preverenia",
   "  okf-memory write    <spis> --file <záznam.md> --reason \"…\" [--apply] [--approve-as \"meno\"]",
   "",
+  "  Pri úprave existujúceho záznamu: --if-revision <SHA256 z read>",
   "  --approve-as sa nevyžaduje, keď zápis kryje trvalé poverenie advokáta",
   `  v ${OFFICE_DIR}/${CONFIG_FILE} — viď AGENTNI-ZAPISY.md`,
   "  okf-memory init     <spis> [--sk] [--apply]   BRAIN.md a adresár pamäte",
@@ -52,6 +63,11 @@ function flagValue(rest: readonly string[], name: string): string | undefined {
   return v === undefined || v.startsWith("--") ? undefined : v;
 }
 
+/** Token for the unmasked canonical persisted record; no secret or user identity. */
+function revisionHash(record: OkfRecord): string {
+  return createHash("sha256").update(recordRevision(record) ?? "").digest("hex");
+}
+
 function ok(out: string): CliResult {
   return { code: 0, out };
 }
@@ -60,7 +76,7 @@ function ok(out: string): CliResult {
 function problemLines(problems: readonly { file: string; message: string }[]): string[] {
   if (problems.length === 0) return [];
   return [
-    "Nečitateľné súbory (preskočené):",
+    "NEÚPLNÉ ČÍTANIE — nečitateľné súbory:",
     ...problems.map((p) => `  ERROR PARSE_ERROR ${p.file}: ${p.message}`),
     "",
   ];
@@ -86,6 +102,47 @@ function zaznamov(n: number): string {
   return `${n} záznamov`;
 }
 
+/** Detect the opt-in entry before running its stricter reader, preserving canonical paths. */
+function workspaceProfilePresent(directory: string): boolean {
+  try {
+    const control = join(directory, ".lawoss");
+    let stat;
+    try { stat = lstatSync(control); }
+    catch (error) { if (error instanceof Error && "code" in error && error.code === "ENOENT") return false; throw error; }
+    if (!stat.isDirectory()) return true;
+    try { lstatSync(join(control, "memory-profile.json")); return true; }
+    catch (error) { if (error instanceof Error && "code" in error && error.code === "ENOENT") return false; throw error; }
+  } catch { return true; }
+}
+
+/** Strict opt-in arguments: a missing/duplicate value must never broaden authority. */
+function workspaceArguments(rest: readonly string[], save: boolean) {
+  const allowedRoots: string[] = [];
+  const values = new Map<string, string>();
+  const switches = new Set<string>();
+  for (let i = 0; i < rest.length; i++) {
+    const flag = rest[i]!;
+    if (flag === "--json" || (save && flag === "--apply")) {
+      if (switches.has(flag)) throw new Error(`Duplicate flag: ${flag}`);
+      switches.add(flag); continue;
+    }
+    if (flag !== "--allow-root" && flag !== "--matter" && !(save && flag === "--file")) throw new Error(`Unknown argument: ${flag}`);
+    const value = rest[++i];
+    if (!value || value.startsWith("--")) throw new Error(`Missing value: ${flag}`);
+    if (flag === "--allow-root") {
+      if (!isAbsolute(value) || value.includes("\0")) throw new Error("--allow-root requires an absolute directory path");
+      allowedRoots.push(value);
+    } else {
+      if (values.has(flag)) throw new Error(`Duplicate flag: ${flag}`);
+      values.set(flag, value);
+    }
+  }
+  if (save && !values.has("--file")) throw new Error("workspace-save requires --file request.json");
+  const matterId = values.get("--matter");
+  return { options: { allowedRoots, ...(matterId !== undefined ? { matterId } : {}) },
+    json: switches.has("--json"), apply: switches.has("--apply"), file: values.get("--file") };
+}
+
 export function runCli(argv: readonly string[]): CliResult {
   const [cmd, dir, ...rest] = argv;
   const apply = rest.includes("--apply");
@@ -94,36 +151,109 @@ export function runCli(argv: readonly string[]): CliResult {
   if (!cmd || !dir) return { code: 2, out: USAGE };
   if (!existsSync(dir)) return { code: 2, out: `Cesta neexistuje: ${dir}\n\n${USAGE}` };
 
+  if (["workspace-read", "workspace-save", "read"].includes(cmd)) {
+    let args;
+    try { args = workspaceArguments(rest, cmd === "workspace-save"); }
+    catch (error) { return { code: 2, out: `Invalid arguments: ${error instanceof Error ? error.message : String(error)}` }; }
+    if (cmd === "workspace-save") {
+      let request: WorkspaceMemorySaveRequest;
+      try {
+        // The writer validates the entire runtime schema; never reconstruct or weaken it here.
+        request = JSON.parse(readFileSync(args.file!, "utf8"));
+      } catch (error) { return { code: 2, out: `Invalid request file: ${error instanceof Error ? error.message : String(error)}` }; }
+      const report = saveWorkspaceMemory(dir, request, { ...args.options, apply: args.apply });
+      return { code: ["preview", "committed", "already-applied"].includes(report.status) ? 0 : 1,
+        out: args.json ? JSON.stringify(report, null, 2) : [
+          `Workspace SAVE: ${report.status}`, ...report.problems.map(p => `${p.code}: ${p.message}`),
+          ...report.changes.map(c => `${c.sourceId}: ${c.beforeSha256} → ${c.afterSha256} (${c.path})`),
+          ...(report.historyPath ? [`History: ${report.historyPath}`] : []),
+          ...(report.status === "preview" ? ["Preview only; nothing written. Apply explicitly with --apply."] : []),
+        ].join("\n") };
+    }
+    if (cmd === "workspace-read" || workspaceProfilePresent(dir)) {
+      const report = readWorkspaceMemory(dir, args.options);
+      return { code: report.complete ? 0 : 1, out: args.json ? JSON.stringify(report, null, 2) : renderWorkspaceMemory(report) };
+    }
+    if (rest.length) return { code: 2, out: "Workspace flags require .lawoss/memory-profile.json; use workspace-read to inspect an absent profile." };
+  } else if (["write", "init", "sync", "retrofit", "validate", "preamble", "aml"].includes(cmd) && workspaceProfilePresent(dir)) {
+    return { code: 1, out: `ODMIETNUTÉ: ${cmd} uses typed OKF memory, but .lawoss/memory-profile.json is present. Use workspace-read / workspace-save; repair an invalid profile before continuing.` };
+  }
+
   switch (cmd) {
     case "read": {
       const scope = readScope(dir);
+      const problems = [...scope.problems];
+      const inputs: string[] = [];
+      try {
+        const status = readManualStatus(readFileSync(join(dir, STATUS_FILE), "utf8"), scope.records);
+        if (status.content) inputs.push(`## Ručný stav — ${join(dir, STATUS_FILE)}`, status.message, status.content);
+      } catch (error) {
+        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+          problems.push({ file: join(dir, STATUS_FILE), message: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      const contextFiles = [
+        { path: join(dir, "VSTUPY.md"), title: "Evidencia vstupov" },
+        { path: join(dir, "KOMUNIKACNE-KANALY.md"), title: "Komunikačné kanály veci" },
+        ...(scope.clientDir ? [{ path: join(scope.clientDir, "KOMUNIKACNE-KANALY.md"), title: "Komunikačné kanály klienta" }] : []),
+      ];
+      for (const { path, title } of contextFiles) {
+        try {
+          inputs.push(`## ${title} — ${path}`, readFileSync(path, "utf8"));
+        } catch (error) {
+          if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+            problems.push({ file: path, message: error instanceof Error ? error.message : String(error) });
+          }
+        }
+      }
       const lines = [
-        ...problemLines(scope.problems),
+        ...problemLines(problems),
         `Spis: ${dir}`,
         `Jurisdikcia: ${scope.matter.jurisdiction}   Záznamov: ${scope.records.length}` +
           (scope.clientDir ? `, u klienta ${scope.clientRecords.length}` : "") +
           (scope.officeDir ? `, v kancelárii ${scope.officeRecords.length}` : ""),
         "",
-        ...scope.records
-          .map(maskRecord)
-          .map((r) => `  ${r.id.padEnd(8)} ${r.layer}  ${typeLabel(r.type, r.jurisdiction).padEnd(12)} ${r.description}`),
+        composePreamble(scope.records.map(maskRecord)),
+        "",
+        ...scope.records.map((r) => `## ${r.id} — ${typeLabel(r.type, r.jurisdiction)}\n\nRevision ${r.id}: ${revisionHash(r)}\n\n${serializeRecord(maskRecord(r))}`),
+        ...inputs,
       ];
-      return ok(lines.join("\n"));
+      return { code: problems.length ? 1 : 0, out: lines.join("\n") };
+    }
+
+    case "preamble": {
+      const scope = readScope(dir);
+      // Rovnaká hláška ako `read` — rozbitý súbor sa nesmie stratiť potichu.
+      // Ban-list je záväzný (SKILL.md); ak z neho vinou parse chyby vypadne
+      // prameň bez jediného varovania, agent cituje niečo, čo bolo zakázané.
+      const problems = problemLines(scope.problems);
+      const body = composePreamble(scope.records);
+      const lines = body ? [...problems, body] : problems;
+      return { code: scope.problems.length ? 1 : 0, out: lines.join("\n") };
     }
 
     case "validate": {
       const scope = readScope(dir);
-      const findings = validateStore(scope.records);
+      const office = findOfficeDir(dir);
+      const findings = validateStore(scope.records, { nameLeakSeverity: readNameLeakSeverity(office) });
       const problems = problemLines(scope.problems);
-      // Prepadnuté poverenie sa inak prejaví až tým, že agentovi prestanú
-      // prechádzať zápisy — a to vyzerá ako porucha, nie ako uplynutie lehoty.
-      const auth = readStandingAuthorization(findOfficeDir(dir));
-      const poverenie =
-        auth && isExpired(auth, dnes())
-          ? [`WARNING STANDING_AUTH_EXPIRED ${OFFICE_DIR}/${CONFIG_FILE}: ` +
-             `trvalé poverenie (${auth.by}) uplynulo ${auth.expiresAt} — ` +
-             `zápisy do ${auth.scope.join(", ")} znova vyžadujú --approve-as.`]
-          : [];
+      // Prepadnuté alebo chybne zapísané poverenie sa inak prejaví až tým, že
+      // agentovi prestanú prechádzať zápisy — a to vyzerá ako porucha, nie ako
+      // uplynutie lehoty či preklep v dátume.
+      const kontrola = inspectStandingAuthorization(office);
+      const poverenie: string[] = [];
+      if (kontrola.problem) {
+        poverenie.push(
+          `WARNING STANDING_AUTH_INVALID ${OFFICE_DIR}/${CONFIG_FILE}: ${kontrola.problem} — ` +
+            `poverenie neplatí a zápisy do L1/L3 vyžadujú --approve-as.`,
+        );
+      } else if (kontrola.auth && isExpired(kontrola.auth, dnes())) {
+        poverenie.push(
+          `WARNING STANDING_AUTH_EXPIRED ${OFFICE_DIR}/${CONFIG_FILE}: ` +
+            `trvalé poverenie (${kontrola.auth.by}) uplynulo ${kontrola.auth.expiresAt} — ` +
+            `zápisy do ${kontrola.auth.scope.join(", ")} znova vyžadujú --approve-as.`,
+        );
+      }
       if (findings.length === 0 && problems.length === 0 && poverenie.length === 0) {
         return ok("OK — pamäť je konzistentná.");
       }
@@ -136,27 +266,33 @@ export function runCli(argv: readonly string[]): CliResult {
       return { code: hasError ? 1 : 0, out: lines.join("\n") };
     }
 
+    case "retrofit": {
+      // Sekcia bez markerov je advokátova; `sync` na nej zámerne končí konfliktom.
+      // Retrofit je ten výslovný krok, na ktorý konflikt odkazuje.
+      const bloky = retrofitStatusFile(dir, apply);
+      if (bloky.length === 0) return ok("Nič na doplnenie — každá známa sekcia už markery má, alebo v súbore nie je.");
+      return ok(
+        `${apply ? "Doplnené" : "dry-run: doplnil by som"} markery do ${bloky.length} sekcií: ${bloky.join(", ")}` +
+          `${apply ? ". Spusti sync." : ". Zapíš s --apply."}`,
+      );
+    }
+
     case "sync": {
-      const s = readStore(dir);
+      const scope = readScope(dir);
+      if (scope.problems.length) return { code: 1, out: problemLines(scope.problems).join("\n") };
+      const s = { records: scope.records, jurisdiction: scope.matter.jurisdiction };
       try {
         if (!apply) {
           const statusPath = join(dir, "_STATUS.md");
           const before = existsSync(statusPath) ? readFileSync(statusPath, "utf8") : "";
           // Rovnaký resolver ako pri zápise — inak by náhľad hlásil zmenu,
           // ktorá vzniká len tým, že náhľad odkazy nepozná.
-          const after = renderStatus(before, s.records, s.jurisdiction, statusLinkResolver(dir));
+          const after = renderStatus(before, s.records, s.jurisdiction, statusLinkResolver(dir), documentLanguageFromCard(dir));
           const zmena = before === after ? "bez zmeny" : "_STATUS.md by sa zmenil";
           return ok(`dry-run: ${zmena}; INDEX.md by dostal ${riadkov(s.records.length)}. Zapíš s --apply.`);
         }
-        syncStatus(dir);
-        writeIndex(dir);
-        writeLog(dir);
-        // Klientský `memory/` je tiež bundle a doteraz nedostal index ani log.
+        syncProjections(dir);
         const klient = findClientDir(dir);
-        if (klient) {
-          writeIndex(klient);
-          writeLog(klient);
-        }
         return ok(
           `Zapísané: _STATUS.md, index.md a log.md (${zaznamov(s.records.length)})` +
             `${klient ? " + index.md a log.md u klienta" : ""}.`,
@@ -165,6 +301,7 @@ export function runCli(argv: readonly string[]): CliResult {
         // Konflikt sekcií je stav spisu, nie chyba programu — advokát dostane
         // vetu, čo urobiť, nie výpis interpretu.
         if (e instanceof RenderConflictError) return { code: 1, out: `KONFLIKT: ${e.message}` };
+        if (e instanceof ProjectionWriteError) return { code: 1, out: `ODMIETNUTÉ: ${e.message}` };
         throw e;
       }
     }
@@ -173,7 +310,7 @@ export function runCli(argv: readonly string[]): CliResult {
       const scope = readScope(dir);
       const subjekty = scope.records.filter((r) => r.type === "subject");
       const preverenia = scope.records.filter((r) => r.type === "screening");
-      const findings = validateStore(scope.records);
+      const findings = validateStore(scope.records, { nameLeakSeverity: readNameLeakSeverity(findOfficeDir(dir)) });
 
       const lines: string[] = [
         ...problemLines(scope.problems),
@@ -184,7 +321,7 @@ export function runCli(argv: readonly string[]): CliResult {
 
       if (subjekty.length === 0) {
         lines.push("Žiadne subjekty — AML evidencia je prázdna.");
-        return ok(lines.join("\n"));
+        return { code: scope.problems.length ? 1 : 0, out: lines.join("\n") };
       }
 
       for (const raw of subjekty) {
@@ -223,13 +360,15 @@ export function runCli(argv: readonly string[]): CliResult {
       } else {
         lines.push("AML evidencia bez nálezov.");
       }
-      return ok(lines.join("\n"));
+      return { code: scope.problems.length ? 1 : 0, out: lines.join("\n") };
     }
 
     case "write": {
       const file = flagValue(rest, "--file");
       const reason = flagValue(rest, "--reason");
       const approveAs = flagValue(rest, "--approve-as");
+      const expectedRevision = flagValue(rest, "--if-revision");
+      if (rest.includes("--if-revision") && !expectedRevision) return { code: 2, out: "Prepínač --if-revision vyžaduje SHA256 z príkazu read." };
 
       if (!file || !reason) {
         return { code: 2, out: `Príkaz write vyžaduje --file a --reason.\n\n${USAGE}` };
@@ -273,8 +412,16 @@ export function runCli(argv: readonly string[]): CliResult {
         };
       }
 
+      if (before && expectedRevision === undefined) {
+        return { code: 1, out: `ODMIETNUTÉ: úprava ${after.id} vyžaduje --if-revision <SHA256 z read>. Načítaj záznam a priprav návrh z jeho aktuálneho stavu.` };
+      }
+      if (expectedRevision !== undefined && (!before || revisionHash(before) !== expectedRevision)) {
+        return { code: 1, out: `ODMIETNUTÉ: revízia ${after.id} sa nezhoduje alebo záznam už neexistuje. Načítaj ho znova, zosúlaď zmeny a priprav nový návrh; neopakuj starý zápis.` };
+      }
+
       let diff: WriteDiff;
       try {
+        assertHasSource(after);
         diff = planWrite(before, after, reason);
       } catch (e) {
         return { code: 1, out: `ODMIETNUTÉ: ${e instanceof Error ? e.message : String(e)}` };
@@ -288,6 +435,10 @@ export function runCli(argv: readonly string[]): CliResult {
         "",
       ];
       if (cielovy !== dir) out.push(`Cieľ: ${OFFICE_DIR}/ — vrstva ${diff.layer} patrí kancelárii, nie spisu.`, "");
+      // Bez kancelárie ostáva L1/L3 v spise ako pred smerovaním — ale nahlas.
+      // Potichu to skončilo prameňom v spise a prázdnou kanceláriou.
+      if (after.layer !== "L2" && !office)
+        out.push(`Upozornenie: nad spisom sa nenašla kancelária (${OFFICE_DIR}/) — vrstva ${after.layer} ostáva v spise.`, "");
 
       // Trvalé poverenie je schválenie udelené vopred písomne. Agent si ho
       // nekonštruuje — číta ho zo súboru, ktorý napísal advokát.
@@ -356,6 +507,9 @@ export function runCli(argv: readonly string[]): CliResult {
       // Jurisdikcia ide z karty veci; prepínač ju iba prebíja. Default zo
       // switcha bol v SK spisoch častý omyl (N8).
       const zKarty = jurisdictionFromCard(dir);
+      let language: DocumentLanguage | undefined;
+      try { language = documentLanguageFromCard(dir); }
+      catch (error) { return { code: 2, out: error instanceof Error ? error.message : String(error) }; }
       const jurisdiction: Jurisdiction = rest.includes("--sk")
         ? "sk"
         : rest.includes("--cz")
@@ -366,6 +520,16 @@ export function runCli(argv: readonly string[]): CliResult {
         : zKarty
           ? "karta veci"
           : "predvolené";
+      // Tichý default „cz" bol v SK spisoch častý omyl a české a slovenské
+      // právo sa modeluje zvlášť. Bez výslovnej jurisdikcie sa spis nezakladá.
+      if (zdroj === "predvolené") {
+        return {
+          code: 2,
+          out:
+            "Spis nemá jurisdikciu: uveď --cz alebo --sk, alebo `jurisdiction: cz|sk` " +
+            "v karte veci (matter.md / spis.md). Bez nej sa pamäť nezaloží.",
+        };
+      }
 
       if (!apply) {
         return ok(
@@ -379,7 +543,7 @@ export function runCli(argv: readonly string[]): CliResult {
       // advokátov a nerozširuje sa — to je zmysel MARKER_ONLY.
       const status = join(dir, STATUS_FILE);
       const kostra = !existsSync(status);
-      if (kostra) writeFileSync(status, statusSkeleton(jurisdiction), "utf8");
+      if (kostra) writeFileSync(status, statusSkeleton(jurisdiction, language), "utf8");
       return ok(
         `Založené: ${MEMORY_DIR}/, BRAIN.md${kostra ? ` a ${STATUS_FILE} so všetkými blokmi` : ""} ` +
           `(jurisdikcia ${jurisdiction}, zdroj: ${zdroj}).`,

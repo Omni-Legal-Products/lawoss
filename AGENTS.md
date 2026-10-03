@@ -35,6 +35,8 @@ Rules:
 - **Portable domain layer:** LAWOSS prompts, skills, templates, and MCP configuration must remain usable outside this fork where practical.
 - **Upstream-first:** offer generally useful fixes and localization improvements to LegalWork upstream.
 - **Small downstream diff:** prefer adding files to modifying upstream files.
+- **Native UI first:** integrate LAWOSS capabilities into existing upstream views and screens wherever possible. MCP, skills, plugins, providers, and settings belong in the native Settings / Integrations flows, using their existing state, permissions, and lifecycle. Do not maintain parallel LAWOSS settings or connector management.
+- **Experiments are provisional:** separate experimental screens can validate behavior, but sharing an upstream backend alone does not count as completed production UI integration. Move validated capabilities into native screens through small documented hooks; add a dedicated domain view only where upstream has no suitable surface.
 - **Preserve syncability:** every change must keep future release-tag merges practical. During syncs preserve LAWOSS UI, branding, CZ/SK locales and domain behavior; adopt upstream improvements around the smallest documented downstream hooks. Verify the integrated UI, not only conflict-free text.
 
 ## Three change zones

@@ -212,6 +212,7 @@ test("vec 7 — pramen L3: overenie a ucinnost sa zapisu", () => {
               "lehota beží od rozhodnutia o úpadku"),
     truth: "Pohľadávku možno prihlásiť v lehote určenej rozhodnutím o úpadku.",
     sources: ["zák. č. 182/2006 Sb., § 173"],
+    source: "zák. č. 182/2006 Sb., § 173", verified_via: "codexis",
     effective_from: "2008-01-01", verified_at: D, verified_against: "úplné znenie",
   }), "právna veta");
 

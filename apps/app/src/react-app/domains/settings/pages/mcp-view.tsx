@@ -27,7 +27,7 @@ import { evaluateEnablement } from "../../../../app/enablement";
 import type { EnablementResult } from "../../../../app/extensions";
 import type { ImportedPlugin } from "../../../../app/lib/extension-imports";
 import { ExtensionDetailModal } from "../../../design-system/extension-detail-modal";
-import { resolveExtensionIconSrc } from "../../../design-system/extension-icon-src";
+import { resolveBrandIconSrc } from "../../../design-system/extension-icon-src";
 import { ExtensionMeshAvatar } from "../../../design-system/extension-mesh-avatar";
 import {
   openDesktopPath,
@@ -46,6 +46,7 @@ import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { AddMcpModal } from "../../connections/modals/add-mcp-modal";
+import type { LegalworkMcpProbeResult, LegalworkMcpRegisterClientResult } from "../../../../app/lib/legalwork-server";
 import { McpConnectorSetupModal } from "../../connections/modals/mcp-connector-setup-modal";
 import {
   isLegalWorkExtensionEnabled,
@@ -61,6 +62,7 @@ import {
   type McpViewLocalState,
 } from "./mcp-view-state";
 import { HubScopeToggle, useHubScope } from "./hub-scope-context";
+import { McpConfigExportDialog } from "../../../../lawoss/domains/integrations/mcp-config-export";
 
 export type ReactMcpStatus =
   | "connected"
@@ -105,6 +107,10 @@ export type McpViewProps = {
   setSelectedMcp: (name: string | null) => void;
   quickConnect: McpDirectoryInfo[];
   connectMcp: (entry: McpDirectoryInfo) => boolean | void | Promise<boolean | void>;
+  /** Check how a remote MCP server signs in before it is added (custom connectors). */
+  probeMcp?: (url: string, headers?: Record<string, string>) => Promise<LegalworkMcpProbeResult>;
+  /** Register with the sign-in provider when a custom connector is added with automatic OAuth. */
+  registerMcpClient?: (url: string, headers?: Record<string, string>) => Promise<LegalworkMcpRegisterClientResult>;
   cancelPendingMcpAuth?: () => void;
   authorizeMcp: (entry: McpServerEntry) => void;
   logoutMcpAuth: (name: string) => Promise<void> | void;
@@ -239,7 +245,7 @@ const serviceIconBg = (name: string) => {
 };
 
 // Inline brand icon for ledger rows — reproduces ExtensionCard's icon resolution
-// (direct iconSrc → Simple Icons CDN slug → MarbleAvatar fallback) without
+// (direct iconSrc → bundled Simple Icons slug → MarbleAvatar fallback) without
 // importing the card component itself.
 function LedgerBrandIcon(props: {
   name: string;
@@ -248,7 +254,7 @@ function LedgerBrandIcon(props: {
   kind: ExtensionKind;
   connecting?: boolean;
 }) {
-  const resolvedIconSrc = props.iconSrc ? resolveExtensionIconSrc(props.iconSrc) : undefined;
+  const resolvedIconSrc = resolveBrandIconSrc(props.iconSrc, props.iconSlug);
   return (
     <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-dls-border bg-dls-hover">
       {props.connecting ? (
@@ -256,10 +262,6 @@ function LedgerBrandIcon(props: {
       ) : resolvedIconSrc ? (
         <div className="flex size-6 items-center justify-center rounded-md bg-white">
           <img src={resolvedIconSrc} alt="" width={16} height={16} loading="lazy" style={{ display: "block" }} />
-        </div>
-      ) : props.iconSlug ? (
-        <div className="flex size-6 items-center justify-center rounded-md bg-white">
-          <img src={`https://cdn.simpleicons.org/${props.iconSlug}`} alt="" width={16} height={16} loading="lazy" style={{ display: "block" }} />
         </div>
       ) : (
         <ExtensionMeshAvatar name={props.name} category={props.kind} className="size-6 rounded-md shadow-inner" />
@@ -746,6 +748,12 @@ export function McpView(props: McpViewProps) {
         canShareWithFirm={props.canShareWithFirm}
         onShareWithFirm={props.onShareWithFirm}
       />
+      <div className="flex justify-end">
+        <McpConfigExportDialog
+          entries={props.mcpServers}
+          workspaceIdentity={props.workspaceKey?.trim() || props.selectedWorkspaceRoot.split(/[\\/]/).filter(Boolean).pop() || "workspace"}
+        />
+      </div>
       </>
       ) : null}
 
@@ -788,6 +796,8 @@ export function McpView(props: McpViewProps) {
         open={addMcpModalOpen}
         onClose={() => setAddMcpModalOpen(false)}
         onAdd={(entry) => props.connectMcp(entry)}
+        onProbe={props.probeMcp}
+        onRegisterClient={props.registerMcpClient}
         busy={props.busy}
         isRemoteWorkspace={props.isRemoteWorkspace}
       />
@@ -905,8 +915,9 @@ export function McpView(props: McpViewProps) {
             onClose={() => setDetailPlugin(null)}
             name={detailPlugin.name}
             description={detailPlugin.description ?? t("mcp.marketplace_installed")}
-            kind="extension"
+            kind="plugin"
             connected={true}
+            connectedLabel={t("skills.installed_status")}
             hidden={hidden}
             onUninstall={props.removeCloudPlugin ? () => {
               void props.removeCloudPlugin?.(detailPlugin.pluginId);

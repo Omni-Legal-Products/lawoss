@@ -1,3 +1,4 @@
+import type { SystemOneConfiguration } from "@legalwork/types/systemone";
 import { useSyncExternalStore } from "react";
 
 import { applyEdits, modify, parse } from "jsonc-parser";
@@ -24,7 +25,7 @@ import {
   filterProviderList,
 } from "../../../../app/utils/providers";
 import { getReactQueryClient } from "../../../infra/query-client";
-import { ensureProviderListQuery } from "../../../infra/provider-list-query";
+import { ensureProviderListQuery, refreshProviderListQueries } from "../../../infra/provider-list-query";
 import type { LegalworkServerStoreSnapshot } from "../legalwork-server-store";
 import type {
   EigenweltAccountIdentity,
@@ -33,6 +34,7 @@ import type {
   EigenweltSignInPayload,
 } from "../../../../app/lib/legalwork-server";
 import { invalidateEigenweltEntitlements } from "../eigenwelt-entitlements";
+import type { EigenweltPlanId } from "../../../../app/lib/eigenwelt-plans";
 
 /**
  * The slice of the legalwork-server store this store actually consumes.
@@ -48,11 +50,7 @@ export type ProviderAuthLegalworkServer = {
   };
 };
 import { dispatchNewProviders } from "../../../../app/lib/provider-events";
-import {
-  customProviderModelEntry,
-  customProviderModelFromEntry,
-  DEFAULT_MODEL_OUTPUT_LIMIT,
-} from "./custom-provider-config";
+import { customProviderModelEntry, customProviderModelFromEntry } from "./custom-provider-config";
 
 type ProviderReturnFocusTarget = "none" | "composer";
 
@@ -112,34 +110,6 @@ export const CUSTOM_PROVIDER_NPM: Record<CustomProviderApiType, string> = {
 export const EIGENWELT_PROVIDER_ID = "eigenwelt";
 
 export type { EigenweltManifestModel } from "../../../../app/lib/legalwork-server";
-
-/**
- * Build the runtime-config provider block for the Eigenwelt Model API from a
- * platform manifest. Mirrors the server's buildEigenweltModelsMap — keep both
- * in sync. NOTE: `limit` MUST carry BOTH context and output — the engine
- * schema rejects the whole config otherwise (verified).
- */
-export function buildEigenweltProviderBlock(
-  baseURL: string,
-  models: EigenweltManifestModel[],
-): Record<string, unknown> {
-  return {
-    npm: "@ai-sdk/openai-compatible",
-    name: "Eigenwelt Subscription",
-    options: { baseURL },
-    models: Object.fromEntries(
-      models.map((model) => [
-        model.id,
-        {
-          name: model.name ?? model.id,
-          tool_call: model.toolCall ?? true,
-          reasoning: model.reasoning ?? false,
-          limit: { context: model.contextLength ?? 128000, output: DEFAULT_MODEL_OUTPUT_LIMIT },
-        },
-      ]),
-    ),
-  };
-}
 
 /**
  * Input for adding a user-defined provider that speaks the OpenAI API spec.
@@ -798,6 +768,10 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       } catch {
         // ignore health wait failures and still attempt provider reads
       }
+      // The composer and model picker cache the list under a key that carries
+      // the engine URL, which this store does not know. Refetch every cached
+      // list, or they keep showing the engine as it was before the reload.
+      await refreshProviderListQueries(getReactQueryClient()).catch(() => undefined);
     }
 
     const activeClient = options.client() ?? c;
@@ -1071,6 +1045,15 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     };
   }
 
+  async function fetchCustomProviderModels(input: { baseURL: string; apiKey: string }): Promise<string[]> {
+    const { legalworkClient, legalworkWorkspaceId, hasLegalworkTarget } = await resolveLegalworkConfigTarget("read");
+    if (!hasLegalworkTarget || !legalworkClient || !legalworkWorkspaceId) {
+      throw new Error("Connect to the LegalWork worker to fetch models, or enter model IDs manually.");
+    }
+    const result = await legalworkClient.discoverProviderModels(legalworkWorkspaceId, input);
+    return result.models;
+  }
+
   async function submitCustomProvider(input: CustomProviderInstallInput) {
     setStateField("providerAuthError", null);
     const c = options.client();
@@ -1106,6 +1089,9 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       name,
       options: { baseURL },
       models: modelsConfig,
+      // The engine merges configured providers with its built-in catalog.
+      // LM Studio must only offer the IDs selected for this endpoint.
+      ...(providerId === "lmstudio" ? { whitelist: Object.keys(modelsConfig) } : {}),
     };
 
     try {
@@ -1149,6 +1135,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
    * workspaces), store the API key in the engine auth store, then reload.
    */
   const finalizeEigenweltConnect = async (payload: {
+    systemOne?: SystemOneConfiguration;
     apiKey: string;
     baseURL: string;
     models: EigenweltManifestModel[];
@@ -1186,6 +1173,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
       try {
         await legalworkClient.eigenweltSaveConnection(legalworkWorkspaceId, {
+          systemOne: payload.systemOne,
           account: payload.account ?? null,
           entitlements: payload.entitlements ?? null,
           platformURL: payload.platformURL ?? null,
@@ -1194,7 +1182,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
           accessTokenExpiresAt: payload.accessTokenExpiresAt ?? null,
           ...(baseURL && payload.apiKey ? { baseURL, apiKey: payload.apiKey, models } : {}),
         });
-        invalidateEigenweltEntitlements(legalworkWorkspaceId);
+        invalidateEigenweltEntitlements();
       } catch {
         // ignore: best-effort — a persistence failure must not fail the sign-in.
       }
@@ -1208,6 +1196,8 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
    *  loopback and returns the platform authorize URL for the app to open. */
   async function startEigenweltSignIn(opts?: {
     intent?: "sign-in";
+    /** The plan picked on the plan screen: its checkout opens in the browser. */
+    plan?: EigenweltPlanId;
   }): Promise<{ authorizeUrl: string; sessionId: string }> {
     setStateField("providerAuthError", null);
     try {
@@ -1398,6 +1388,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     completeProviderAuthOAuth,
     submitProviderApiKey,
     submitCustomProvider,
+    fetchCustomProviderModels,
     startEigenweltSignIn,
     completeEigenweltSignIn,
     readCustomProviderForEdit,
