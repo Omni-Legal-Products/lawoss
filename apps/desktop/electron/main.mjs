@@ -1,6 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
-import net from "node:net";
 import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { Readable } from "node:stream";
 import {
@@ -18,8 +17,10 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse as parseYaml } from "yaml";
 
-import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, session, shell, systemPreferences } from "electron";
+import { configureRemoteDebugging } from "./remote-debugging.mjs";
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { appendLoopbackFeatureFlags, disableLoopbackAudio, enableLoopbackAudio, isLoopbackCaptureArmed } from "./audio/loopback.mjs";
 import { captureAuthStatus, openCapturePermissionSettings, requestCapturePermission } from "./audio/capture-permissions.mjs";
@@ -37,6 +38,7 @@ import { registerMigrationIpc } from "./migration.mjs";
 import { createRuntimeManager, resolveLegalworkServerConfigPath } from "./runtime.mjs";
 import { createMcpOAuthCallbackBroker, watchMcpOAuthOwner } from "./mcp-oauth-callback.mjs";
 import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
+import { installMainErrorLog, logWindowErrors } from "./main-error-log.mjs";
 import {
   ELECTRON_UPDATER_FEEDS,
   registerUpdaterIpc,
@@ -51,9 +53,16 @@ import {
 import { createUiControlServer } from "./ui-control-server.mjs";
 import { createApplicationMenu } from "./app-menu.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
+import { createAppUrlMatcher, guardIpcMain, guardPreviewNavigation } from "./app-url.mjs";
+import { createSafeOpen } from "./safe-open.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
+import { copyFilesIntoProject, resolveProjectFolder } from "./project-file-copy.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
-import { describeBlockedUrl, fileDirectoryEntry, guardNavigation, isAllowedNavigation, isOpenableDocument, isSafeExternalUrl, originAllowlistEntry } from "./window-allowlist.mjs";
+import { describeBlockedUrl, guardNavigation } from "./window-allowlist.mjs";
+import { extractDescription } from "./skill-description.mjs";
+import { parseSkillFrontmatter } from "./skill-frontmatter.mjs";
+import { normalizeImportedSkill } from "./skill-import.mjs";
+import { migrateInstalledWorkflows } from "./skill-migration.mjs";
 
 const mcpOAuthCallbacks = createMcpOAuthCallbackBroker();
 const mcpOAuthOwners = new WeakSet();
@@ -66,7 +75,7 @@ const RECORDING_AUDIO_SCHEME = "lw-recording";
 protocol.registerSchemesAsPrivileged([
   {
     scheme: RECORDING_AUDIO_SCHEME,
-    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: true },
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
   },
 ]);
 
@@ -96,32 +105,50 @@ function recordingAudioContentType(filePath) {
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Where the app UI is served from: the dev server, or the built app folder.
+const APP_START_URL = process.env.LEGALWORK_ELECTRON_START_URL?.trim() || process.env.ELECTRON_START_URL?.trim();
+const APP_ROOT = app.isPackaged ? path.join(process.resourcesPath, "app-dist") : path.resolve(__dirname, "../../app/dist");
+const isAppUrl = createAppUrlMatcher({ devServerUrl: APP_START_URL, appRoot: APP_ROOT });
+
+// Only LegalWork's own pages may use the desktop bridge. Browser tabs send
+// menu-overlay:dismiss so a click in a web page closes an open menu.
+const ipcMain = guardIpcMain(electronIpcMain, {
+  isTrustedUrl: isAppUrl,
+  openChannels: ["legalwork:menu-overlay:dismiss"],
+  onRejected: (channel, event) => console.warn(`[security] refused ${channel} from ${event?.senderFrame?.url ?? "an unknown page"}`),
+});
+
+/**
+ * What an app window does with `window.open(url)`. Only LegalWork's own pages
+ * may open as a window (they carry the desktop bridge); a local file goes to
+ * its default app, and anything else to the safe external opener.
+ * @param {string} url
+ * @returns {import("electron").WindowOpenHandlerResponse}
+ */
+function openWindowDecision(url) {
+  if (isAppUrl(url)) return { action: "allow" };
+  if (String(url).startsWith("file://")) {
+    try {
+      void safeOpen.openPath(fileURLToPath(url));
+    } catch {
+      // Not a usable file URL (e.g. a host component) — nothing to open.
+    }
+    return { action: "deny" };
+  }
+  void safeOpen.openExternal(url);
+  return { action: "deny" };
+}
+
+// Untrusted links may open only web/mail URLs. Files outside the document
+// allowlist are revealed without launching their associated application.
+const safeOpen = createSafeOpen({ shell });
 const require = createRequire(import.meta.url);
 const pty = require(["node", "pty"].join("-"));
 const NATIVE_DEEP_LINK_EVENT = "legalwork:deep-link-native";
 const APP_BUNDLE_IDENTIFIER = "com.eigenweltlabs.legalwork";
 const DEV_APP_IDENTIFIER = "com.eigenweltlabs.legalwork.dev";
 const DESKTOP_PROTOCOL_SCHEME = "legalwork";
-const startUrl = process.env.LEGALWORK_ELECTRON_START_URL?.trim() || process.env.ELECTRON_START_URL?.trim();
-// App windows show only their own document (#47): the dev server origin from
-// the start URL or the packaged file:// bundle; data: carries the shutdown screen.
-const OWN_ORIGINS = originAllowlistEntry(startUrl);
-// LAWOSS: file: only inside the app's own bundle, not arbitrary local files.
-const APP_DOCUMENT_ENTRIES = [
-  fileDirectoryEntry(path.join(process.resourcesPath ?? "", "app-dist")),
-  fileDirectoryEntry(path.resolve(__dirname, "../../app/dist")),
-];
-const NAVIGATION_ALLOWLIST = [...APP_DOCUMENT_ENTRIES, "data:", ...OWN_ORIGINS];
-// Who may call the desktop bridge: the app document only (not data: screens).
-const IPC_SENDER_ALLOWLIST = [...APP_DOCUMENT_ENTRIES, ...OWN_ORIGINS];
-
-/** @param {import("electron").IpcMainInvokeEvent} event */
-function assertTrustedSender(event) {
-  const url = event.senderFrame?.url ?? "";
-  if (!isAllowedNavigation(url, IPC_SENDER_ALLOWLIST)) {
-    throw new Error(`Desktop bridge call refused from untrusted frame: ${describeBlockedUrl(url)}`);
-  }
-}
 const isDevMode = process.env.LEGALWORK_DEV_MODE === "1";
 const APP_NAME =
   process.env.LEGALWORK_ELECTRON_APP_NAME?.trim() ||
@@ -324,8 +351,21 @@ async function collectSupportLogsAndReveal() {
     // Give the progress window one paint before the synchronous diagnostics
     // snapshot starts probing binaries and reading log tails.
     await new Promise((resolve) => setTimeout(resolve, 80));
+    // The embedded server's own requests (e.g. to GitHub) ignore the system
+    // proxy that the app window uses, so record it to tell a proxy network
+    // from a flaky connection.
+    const network = {
+      systemProxyForGithub: await session.defaultSession
+        .resolveProxy("https://api.github.com")
+        .catch((error) => `unknown (${error.message})`),
+      proxyEnv: Object.fromEntries(
+        Object.entries(process.env)
+          .filter(([name]) => /^(https?|all|no)_proxy$/i.test(name))
+          .map(([name, value]) => [name, String(value).replace(/\/\/[^/@]*@/, "//<redacted>@")]),
+      ),
+    };
     // Build after the dialog so the diagnostics snapshot is as fresh as possible.
-    writeFileSync(filePath, buildSupportBundleText({ app, runtimeManager }), "utf8");
+    writeFileSync(filePath, buildSupportBundleText({ app, runtimeManager, network }), "utf8");
   } finally {
     if (!progressWindow.isDestroyed()) progressWindow.close();
   }
@@ -400,10 +440,11 @@ app.setAppUserModelId(APP_IDENTIFIER);
 if (process.platform === "darwin") {
   app.setActivationPolicy("regular");
 }
-if (app.isPackaged) {
+const userDataOverride = process.env.LEGALWORK_ELECTRON_USERDATA?.trim();
+// Isolated test profiles must not take over the installed app's deep links.
+if (app.isPackaged && !userDataOverride) {
   app.setAsDefaultProtocolClient(DESKTOP_PROTOCOL_SCHEME);
 }
-const userDataOverride = process.env.LEGALWORK_ELECTRON_USERDATA?.trim();
 if (userDataOverride) {
   app.setPath("userData", userDataOverride);
 } else {
@@ -412,6 +453,9 @@ if (userDataOverride) {
     path.join(app.getPath("appData"), APP_IDENTIFIER),
   );
 }
+// After setName/setPath: the logs folder derives from the app name (macOS)
+// or userData (Windows/Linux).
+installMainErrorLog(() => app.getPath("logs"));
 
 // Resolve and cache the app icon (reused for BrowserWindow + mac dock).
 // Packaged builds ship icons via electron-builder config, but for `dev:electron`
@@ -615,46 +659,6 @@ if (process.platform === "darwin") {
 }
 nativeTheme.on("updated", applyDockIcon);
 
-// Expose Chrome DevTools Protocol so the opencode-chrome-devtools plugin can
-// drive the built-in browser panel.  Use LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT to
-// pin a specific port; otherwise probe for a free one starting at 9223.
-// Must resolve before app.commandLine.appendSwitch (before `ready`).
-function probePort(port) {
-  return new Promise((resolve) => {
-    const srv = net.createServer();
-    srv.once("error", () => resolve(false));
-    srv.listen({ port, host: "127.0.0.1" }, () => {
-      srv.close(() => resolve(true));
-    });
-  });
-}
-
-async function findFreeCdpPort(candidates) {
-  for (const port of candidates) {
-    if (await probePort(port)) return port;
-  }
-  return 0;
-}
-
-const cdpPortSetting = process.env.LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT?.trim() ?? "";
-// LAWOSS: `off` zavrie ladiaci port úplne. Kto sa naň pripojí, riadi okno appky
-// aj jej session, takže advokát, ktorý vstavaný prehliadač nepoužíva, ho má
-// vedieť vypnúť. Bez tejto hodnoty ostáva správanie upstreamu.
-const cdpDisabled = cdpPortSetting.toLowerCase() === "off";
-const explicitCdpPort = Number.parseInt(cdpPortSetting, 10);
-const remoteDebugPort = cdpDisabled
-  ? 0
-  : Number.isFinite(explicitCdpPort) && explicitCdpPort > 0
-    ? explicitCdpPort
-    : await findFreeCdpPort([9223, 9224, 9225, 9226, 9227]);
-if (remoteDebugPort > 0) {
-  app.commandLine.appendSwitch("remote-debugging-port", String(remoteDebugPort));
-  app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
-}
-// Make the resolved port available to the embedded server so it flows into
-// agent instructions via ensureLegalworkAgent → resolveAgentTemplate.
-process.env.LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT = String(remoteDebugPort);
-
 // Apply extra Chromium flags from ELECTRON_EXTRA_LAUNCH_ARGS.
 // Used in headless environments to pass e.g. --disable-gpu.
 const extraLaunchArgs = (process.env.ELECTRON_EXTRA_LAUNCH_ARGS ?? "").trim();
@@ -670,6 +674,8 @@ if (extraLaunchArgs) {
     }
   }
 }
+// Browser automation uses the per-tab broker, not Chromium's global listener.
+configureRemoteDebugging(app);
 configureFakeMediaForTests(app, envFlagEnabled("LEGALWORK_ELECTRON_FAKE_MEDIA"));
 // System-audio loopback (Recorder tab) needs Chromium feature flags on
 // macOS/Linux before app-ready; Windows WASAPI loopback works out of the box.
@@ -761,13 +767,20 @@ function relayAppError(source, error, service, exitCode = null) {
 }
 // `uncaughtExceptionMonitor` reports without suppressing Electron's default
 // crash behavior (unlike `uncaughtException`).
-process.on("uncaughtExceptionMonitor", (error) => relayAppError("main_uncaught", error, "server"));
-process.on("unhandledRejection", (reason) => relayAppError("main_unhandledrejection", reason, "server"));
+process.on("uncaughtExceptionMonitor", (error) => {
+  console.error("[main] Uncaught exception:", error);
+  relayAppError("main_uncaught", error, "server");
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[main] Unhandled rejection:", reason);
+  relayAppError("main_unhandledrejection", reason, "server");
+});
 
 const browserPanel = createBrowserPanel({
-  remoteDebugPort,
   getWindow: () => mainWindow,
   getWindowForEvent: (event) => BrowserWindow.fromWebContents(event?.sender) ?? null,
+  isAllowedAppNavigation: (url) => isAppUrl(url) || url === SHUTDOWN_SCREEN_URL,
+  safeOpen,
 });
 
 const workspaceStore = createWorkspaceStore({
@@ -1011,14 +1024,13 @@ function configHomePath() {
   if (process.env.XDG_CONFIG_HOME?.trim()) {
     return process.env.XDG_CONFIG_HOME.trim();
   }
-  if (process.platform === "win32" && process.env.APPDATA?.trim()) {
-    return process.env.APPDATA.trim();
-  }
   return path.join(os.homedir(), ".config");
 }
 
+let preparedOpencodeConfigRoot = null;
+
 function globalOpencodeRoot() {
-  return path.join(configHomePath(), "opencode");
+  return preparedOpencodeConfigRoot ?? path.join(configHomePath(), "opencode");
 }
 
 function execResult(ok, stdout = "", stderr = "", status = ok ? 0 : 1) {
@@ -1086,13 +1098,11 @@ function validateSkillName(raw) {
   return trimmed;
 }
 
-// The 64-char cap is not ours to relax: a skill is exposed to the model as a
-// tool, and the LLM providers reject tool names longer than 64 chars
-// (Anthropic: `^[a-zA-Z0-9_-]{1,64}$`). Rather than fail an over-long import,
-// coerce the name into a valid, <=64-char kebab-case slug by dropping whole
-// trailing words — so a too-long workflow still lands (and stays meaningful)
-// instead of being rejected. Returns null only when nothing valid remains.
-const MAX_SKILL_NAME_LENGTH = 64;
+// Same 200-char cap as the server's validateSkillName. Rather than fail an
+// over-long import, coerce the name into a valid, <=200-char kebab-case slug by
+// dropping whole trailing words — so a too-long workflow still lands (and stays
+// meaningful) instead of being rejected. Returns null only when nothing valid remains.
+const MAX_SKILL_NAME_LENGTH = 200;
 function fitSkillName(raw) {
   const cleaned = String(raw ?? "")
     .toLowerCase()
@@ -1110,29 +1120,27 @@ function fitSkillName(raw) {
   return candidate.replace(/-+$/g, "") || null;
 }
 
-// When we shorten a folder name to fit, keep the SKILL.md frontmatter `name` in
-// sync so the engine loads the skill under the same (valid) name it now lives
-// in. Only the leading frontmatter block is touched, never a `name:` in the
-// body. Best-effort: a copied folder that imported is not un-imported on error.
-async function syncSkillFrontmatterName(skillMdPath, name) {
-  try {
-    const raw = await readFile(skillMdPath, "utf8");
-    if (!raw.startsWith("---")) return;
-    const end = raw.indexOf("\n---", 3);
-    if (end === -1) return;
-    const header = raw.slice(0, end).replace(/^name:[ \t]*.*$/m, `name: ${name}`);
-    const patched = header + raw.slice(end);
-    if (patched !== raw) await writeFile(skillMdPath, patched, "utf8");
-  } catch {
-    // Non-fatal — the folder still imported.
-  }
-}
-
 const runtimeManager = createRuntimeManager({
   app,
+  getApprovalWindow: () => mainWindow,
   desktopRoot: path.resolve(__dirname, ".."),
   listLocalWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),
   recorder: {
+    listProjectRecordings: async (projectId) => (await recorderService().listRecordings())
+      .filter((recording) => recording.projectIds?.includes(projectId))
+      .map(({ id, title, durationMs, status, segmentCount }) => ({ id, title, durationMs, status, segmentCount })),
+    readProjectRecording: async (projectId, id) => {
+      if (!/^[a-zA-Z0-9_-]+$/.test(id)) return null;
+      const linked = (await recorderService().listRecordings()).some((recording) => recording.id === id && recording.projectIds?.includes(projectId));
+      if (!linked) return null;
+      const detail = await recorderService().getRecording(id);
+      return detail ? { segments: detail.segments } : null;
+    },
+    exportProjectRecording: async (projectId, id, projectRoot) => {
+      if (!/^[a-zA-Z0-9_-]+$/.test(id)) return false;
+      const linked = (await recorderService().listRecordings()).some((recording) => recording.id === id && recording.projectIds?.includes(projectId));
+      return linked && (await recorderService().exportToProject(id, projectRoot)) !== null;
+    },
     status: (workspacePath) => recorderService().liveTranscriptStatus(workspacePath),
     setLiveTranscript: (enabled, workspacePath) => recorderService().setLiveTranscript(enabled, workspacePath),
   },
@@ -1146,12 +1154,9 @@ let runtimeDisposedForQuit = false;
 let runtimeDisposeInProgress = false;
 let runtimeBootstrapPromise = null;
 
-function showShutdownScreen() {
-  const win = mainWindow;
-  if (!win || win.isDestroyed()) return;
-  try {
-    win.show();
-    win.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
+// The only non-app page the main window may show (allowed by name in the
+// navigation guard).
+const SHUTDOWN_SCREEN_URL = `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
@@ -1172,7 +1177,14 @@ function showShutdownScreen() {
       <div class="body">Closing local workers and background services...</div>
     </main>
   </body>
-</html>`)}`);
+</html>`)}`;
+
+function showShutdownScreen() {
+  const win = mainWindow;
+  if (!win || win.isDestroyed()) return;
+  try {
+    win.show();
+    win.webContents.loadURL(SHUTDOWN_SCREEN_URL);
   } catch {
     // Ignore renderer teardown races during quit.
   }
@@ -1479,7 +1491,10 @@ async function findSkillDirsInRoot(root) {
       continue;
     }
 
-    const nestedEntries = await readdir(direct, { withFileTypes: true }).catch(() => []);
+    const nestedEntries = await readdir(direct, { withFileTypes: true }).catch((error) => {
+      console.warn("[skills] Could not read skill folder:", direct, error);
+      return [];
+    });
     for (const nested of nestedEntries) {
       if (!nested.isDirectory()) continue;
       const nestedDir = path.join(direct, nested.name);
@@ -1510,49 +1525,49 @@ function extractTrigger(raw) {
   return extractFrontmatterValue(raw, ["trigger", "when"]);
 }
 
-function extractDescription(raw) {
-  let inFrontmatter = false;
-  for (const line of raw.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    if (trimmed === "---") {
-      inFrontmatter = !inFrontmatter;
-      continue;
-    }
-    if (inFrontmatter || trimmed.startsWith("#")) continue;
-    const cleaned = trimmed.replace(/`/g, "");
-    return cleaned.length > 180 ? `${cleaned.slice(0, 180)}...` : cleaned;
-  }
-  return null;
-}
-
 async function listLocalSkills(projectDir) {
   // Empty projectDir → global skills only (workspace-independent). With a projectDir,
   // includes both project and global roots (collectSkillRoots handles the empty case).
   const seen = new Set();
   const out = [];
+  const skipped = [];
   for (const root of await collectSkillRoots(projectDir)) {
     for (const skillDir of await findSkillDirsInRoot(root)) {
       const name = path.basename(skillDir);
       if (seen.has(name)) continue;
-      seen.add(name);
+      const skillPath = path.join(skillDir, "SKILL.md");
       let raw = "";
+      let description = "";
       try {
-        raw = await readFile(path.join(skillDir, "SKILL.md"), "utf8");
-      } catch {
-        raw = "";
+        raw = await readFile(skillPath, "utf8");
+        if (!/^---\r?\n[\s\S]*?\r?\n---/.test(raw)) throw new Error("Missing YAML frontmatter");
+        const parsed = parseSkillFrontmatter(raw);
+        const data = parsed.data;
+        if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid skill frontmatter");
+        const declaredName = typeof data.name === "string" ? data.name : name;
+        description = typeof data.description === "string" ? data.description : "";
+        if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(declaredName) || declaredName.length > 200) {
+          throw new Error("Skill name must be kebab-case (1-200 chars)");
+        }
+        if (!description || description.length > 1024) throw new Error("Description must be 1-1024 characters");
+      } catch (error) {
+        const reason = error instanceof Error ? error.message.split("\n")[0] : "Could not read or parse SKILL.md";
+        console.warn("[skills] Skipped unreadable or malformed skill:", skillPath, error);
+        skipped.push({ path: skillPath, reason });
+        continue;
       }
+      seen.add(name);
       out.push({
         name,
         path: skillDir,
-        description: extractDescription(raw) ?? undefined,
+        description,
         trigger: extractTrigger(raw) ?? undefined,
         kind: extractFrontmatterValue(raw, ["kind"]) ?? undefined,
         workflowType: extractFrontmatterValue(raw, ["workflow_type", "workflow-type", "workflowtype"]) ?? undefined,
       });
     }
   }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
+  return { items: out.sort((a, b) => a.name.localeCompare(b.name)), skipped };
 }
 
 async function findSkillFile(projectDir, name) {
@@ -1561,7 +1576,10 @@ async function findSkillFile(projectDir, name) {
     const direct = path.join(root, safeName, "SKILL.md");
     if (await pathExists(direct)) return direct;
 
-    const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+    const entries = await readdir(root, { withFileTypes: true }).catch((error) => {
+      console.warn("[skills] Could not read skill folder:", root, error);
+      return [];
+    });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const nested = path.join(root, entry.name, safeName, "SKILL.md");
@@ -1639,7 +1657,21 @@ async function openDetachedSessionWindow(event, input = {}) {
     throw new Error("A workspace and chat session are required to open a new window.");
   }
 
-  const key = `${workspaceId}:${sessionId}`;
+  return openDetachedWindow(event, `${workspaceId}:${sessionId}`, sessionWindowRoute(workspaceId, sessionId), input.title);
+}
+
+async function openDetachedProjectWindow(event, input) {
+  const workspaceId = String(input?.workspaceId ?? "").trim();
+  const page = input?.page;
+  if (!workspaceId || !["home", "reviews", "tasks", "files"].includes(page)) {
+    throw new Error("A workspace and valid project page are required to open a new window.");
+  }
+  const path = page === "home" || page === "files" ? "project" : page;
+  const route = `/workspace/${encodeURIComponent(workspaceId)}/${path}?detached=1${page === "files" ? "&panel=files" : ""}`;
+  return openDetachedWindow(event, `project:${workspaceId}:${page}`, route, input.title);
+}
+
+async function openDetachedWindow(event, key, route, title) {
   const existing = detachedSessionWindows.get(key);
   if (existing && !existing.isDestroyed()) {
     if (existing.isMinimized()) existing.restore();
@@ -1648,7 +1680,7 @@ async function openDetachedSessionWindow(event, input = {}) {
     return true;
   }
 
-  const preloadPath = path.join(__dirname, "preload.mjs");
+  const preloadPath = path.join(__dirname, "preload.cjs");
   const windowAppearanceOptions = {};
   if (process.platform === "darwin") {
     Object.assign(windowAppearanceOptions, {
@@ -1664,7 +1696,7 @@ async function openDetachedSessionWindow(event, input = {}) {
     height: 760,
     minWidth: 640,
     minHeight: 480,
-    title: detachedWindowTitle(input?.title),
+    title: detachedWindowTitle(title),
     show: false,
     ...windowAppearanceOptions,
     ...(APP_ICON_IMAGE && !APP_ICON_IMAGE.isEmpty() ? { icon: APP_ICON_IMAGE } : {}),
@@ -1673,17 +1705,18 @@ async function openDetachedSessionWindow(event, input = {}) {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       plugins: true,
     },
   });
   detachedSessionWindows.set(key, sessionWindow);
   applicationMenu.applyVisibility(sessionWindow);
   recorderServiceInstance?.subscribe(sessionWindow.webContents);
+  logWindowErrors(sessionWindow.webContents);
 
-  sessionWindow.on("page-title-updated", (pageTitleEvent, title) => {
+  sessionWindow.on("page-title-updated", (pageTitleEvent, pageTitle) => {
     pageTitleEvent.preventDefault();
-    sessionWindow.setTitle(detachedWindowTitle(title || input?.title));
+    sessionWindow.setTitle(detachedWindowTitle(pageTitle || title));
   });
   sessionWindow.once("ready-to-show", () => {
     sessionWindow.show();
@@ -1699,7 +1732,7 @@ async function openDetachedSessionWindow(event, input = {}) {
 
   const sourceUrl = event.sender.getURL();
   const appDocumentUrl = sourceUrl.split("#", 1)[0];
-  await sessionWindow.loadURL(`${appDocumentUrl}#${sessionWindowRoute(workspaceId, sessionId)}`);
+  await sessionWindow.loadURL(`${appDocumentUrl}#${route}`);
   return true;
 }
 
@@ -1715,6 +1748,7 @@ const desktopCommandHandlers = {
   "openSessionWindow": async (event, ...args) => {
       return openDetachedSessionWindow(event, args[0] ?? {});
   },
+  "openProjectWindow": async (event, input) => openDetachedProjectWindow(event, input),
   "workspaceBootstrap": async (event, ...args) => {
       return workspaceStore.readWorkspaceState();
   },
@@ -1726,6 +1760,12 @@ const desktopCommandHandlers = {
   },
   "workspaceCreate": async (event, ...args) => {
       return workspaceStore.createWorkspace(args[0] ?? {});
+  },
+  "workspaceCopyFiles": async (event, ...args) => {
+      const input = args[0];
+      const state = await workspaceStore.readWorkspaceState();
+      const root = await resolveProjectFolder(input.workspaceId, state.workspaces, await runtimeManager.legalworkServerInfo());
+      return copyFilesIntoProject(root, input.paths, undefined, input.folder);
   },
   "workspaceCreateRemote": async (event, ...args) => {
       return workspaceStore.createRemoteWorkspace(args[0] ?? {});
@@ -1966,9 +2006,19 @@ const desktopCommandHandlers = {
         if (!overwrite) {
           return execResult(false, "", `Skill already exists at ${destination}`);
         }
+      }
+      const content = normalizeImportedSkill(await readFile(path.join(sourceDir, "SKILL.md"), "utf8"), name);
+      if (overwrite) {
         await rm(destination, { recursive: true, force: true });
       }
-      await cp(sourceDir, destination, { recursive: true });
+      try {
+        await cp(sourceDir, destination, { recursive: true });
+        await rm(path.join(destination, "SKILL.md"), { force: true });
+        await writeFile(path.join(destination, "SKILL.md"), content, "utf8");
+      } catch (error) {
+        await rm(destination, { recursive: true, force: true });
+        throw error;
+      }
       return execResult(true, `Imported skill to ${destination}`);
   },
   "installSkillTemplate": async (event, ...args) => {
@@ -2033,15 +2083,17 @@ const desktopCommandHandlers = {
         return { imported, skipped, failed };
       }
       const root = await ensureGlobalSkillRoot();
-      const entries = await readdir(sourceDir, { withFileTypes: true }).catch(() => []);
+      const entries = await readdir(sourceDir, { withFileTypes: true }).catch((error) => {
+        console.warn("[skills] Could not read import folder:", sourceDir, error);
+        return [];
+      });
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
         const name = entry.name;
         const from = path.join(sourceDir, name);
         if (!(await pathExists(path.join(from, "SKILL.md")))) continue;
         try {
-          // Coerce (don't reject) an over-long or lightly-malformed name into a
-          // valid <=64-char slug; keep the SKILL.md name in sync if we changed it.
+          // Coerce an over-long folder name, then make SKILL.md loadable under it.
           const targetName = fitSkillName(name);
           if (!targetName) throw new Error("skill name is empty or has no usable characters");
           const destination = path.join(root, targetName);
@@ -2049,12 +2101,18 @@ const desktopCommandHandlers = {
             skipped.push(targetName);
             continue;
           }
-          await cp(from, destination, { recursive: true });
-          if (targetName !== name) {
-            await syncSkillFrontmatterName(path.join(destination, "SKILL.md"), targetName);
+          const content = normalizeImportedSkill(await readFile(path.join(from, "SKILL.md"), "utf8"), targetName);
+          try {
+            await cp(from, destination, { recursive: true });
+            await rm(path.join(destination, "SKILL.md"), { force: true });
+            await writeFile(path.join(destination, "SKILL.md"), content, "utf8");
+          } catch (error) {
+            await rm(destination, { recursive: true, force: true });
+            throw error;
           }
           imported.push(targetName);
         } catch (error) {
+          console.warn("[skills] Folder import failed:", from, error);
           failed.push({ name, error: error?.message ?? String(error) });
         }
       }
@@ -2078,9 +2136,9 @@ const desktopCommandHandlers = {
       // zip's own file name. Slugified so hand-named zips still validate.
       const rawName = archive.folderName ?? path.basename(archivePath).replace(/\.zip$/i, "");
       const slug = rawName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-      let name = validateSkillName(slug);
+      let name = validateSkillName(fitSkillName(slug));
       if (asWorkflow && !name.startsWith("workflow-")) {
-        name = validateSkillName(`workflow-assistant-${name}`);
+        name = validateSkillName(fitSkillName(`workflow-assistant-${name}`));
       }
       const skillRoot = projectDir ? await ensureProjectSkillRoot(projectDir) : await ensureGlobalSkillRoot();
       const destination = path.join(skillRoot, name);
@@ -2088,29 +2146,30 @@ const desktopCommandHandlers = {
         if (!overwrite) {
           return execResult(false, "", `Skill already exists at ${destination}`);
         }
+      }
+      const sourceSkill = archive.files.find((file) => file.rel.replace(/\\/g, "/") === "SKILL.md");
+      if (!sourceSkill) throw new Error("Archive has no SKILL.md");
+      const content = normalizeImportedSkill(sourceSkill.data.toString("utf8"), name);
+      if (overwrite) {
         await rm(destination, { recursive: true, force: true });
       }
-      await mkdir(destination, { recursive: true });
-      const destRoot = path.resolve(destination);
       let written = 0;
-      for (const file of archive.files) {
-        const rel = file.rel.replace(/\\/g, "/").replace(/^\/+/, "");
-        if (!rel || rel.split("/").includes("..")) continue; // never escape the skill dir
-        const dest = path.join(destination, rel);
-        if (!path.resolve(dest).startsWith(destRoot + path.sep)) continue;
-        await mkdir(path.dirname(dest), { recursive: true });
-        let data = file.data;
-        // Installed under a different name (slugified/workflow-prefixed) — keep
-        // the SKILL.md frontmatter name in sync so the engine loads it.
-        if (rel === "SKILL.md" && name !== rawName) {
-          const content = data.toString("utf8");
-          const tagged = /(^|\n)name:\s*.*$/m.test(content)
-            ? content.replace(/(^|\n)name:\s*.*$/m, `$1name: ${name}`)
-            : content;
-          data = Buffer.from(tagged, "utf8");
+      try {
+        await mkdir(destination, { recursive: true });
+        const destRoot = path.resolve(destination);
+        for (const file of archive.files) {
+          const rel = file.rel.replace(/\\/g, "/").replace(/^\/+/, "");
+          if (!rel || rel.split("/").includes("..")) continue; // never escape the skill dir
+          const dest = path.join(destination, rel);
+          if (!path.resolve(dest).startsWith(destRoot + path.sep)) continue;
+          await mkdir(path.dirname(dest), { recursive: true });
+          const data = rel === "SKILL.md" ? Buffer.from(content, "utf8") : file.data;
+          await writeFile(dest, data);
+          written += 1;
         }
-        await writeFile(dest, data);
-        written += 1;
+      } catch (error) {
+        await rm(destination, { recursive: true, force: true });
+        throw error;
       }
       return execResult(true, `Imported ${name} (${written} file${written === 1 ? "" : "s"})`);
   },
@@ -2376,6 +2435,9 @@ const desktopCommandHandlers = {
   "audioRecordingRename": async (event, ...args) => {
       return recorderService().renameRecording(String(args[0] ?? ""), String(args[1] ?? ""));
   },
+  "audioRecordingSetProject": async (event, ...args) => {
+      return recorderService().setRecordingProject(String(args[0] ?? ""), String(args[1] ?? ""), args[2] === true);
+  },
   "audioRecordingRetain": async (event, ...args) => {
       return recorderService().retainRecording(String(args[0] ?? ""));
   },
@@ -2544,12 +2606,12 @@ const desktopCommandHandlers = {
   "__openPath": async (event, ...args) => {
       const target = String(args[0] ?? "").trim();
       if (!target) return "Path is required.";
-      return shell.openPath(target);
+      return safeOpen.openPath(target);
   },
   "__revealItemInDir": async (event, ...args) => {
       const target = String(args[0] ?? "").trim();
       if (!target) return undefined;
-      shell.showItemInFolder(target);
+      safeOpen.showItemInFolder(target);
       return undefined;
   },
   "__getFileIcon": async (event, ...args) => {
@@ -2726,12 +2788,16 @@ const desktopCommandHandlers = {
 };
 
 async function handleDesktopInvoke(event, command, ...args) {
-  assertTrustedSender(event);
   const handler = desktopCommandHandlers[command];
   if (!handler) {
     throw new Error(`Electron desktop bridge method is not implemented yet: ${command}`);
   }
-  return handler(event, ...args);
+  const result = await handler(event, ...args);
+  // Electron logs a handler that throws; a failure returned as { ok: false }
+  // with a reason (e.g. "Skill already exists") would otherwise leave no trace
+  // in main.log. Status results such as missing permissions carry no reason.
+  if (result?.ok === false && (result.stderr || result.error)) console.warn(`[desktop] ${command} failed:`, result);
+  return result;
 }
 
 
@@ -2741,37 +2807,18 @@ async function handleDesktopInvoke(event, command, ...args) {
 // into the built-in browser panel (window-allowlist.mjs, #47).
 /** @param {import("electron").WebContents} contents */
 function guardAppWindow(contents) {
-  contents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("file://")) {
-      try {
-        const filePath = fileURLToPath(url);
-        // LAWOSS: open known document types; reveal anything else in the file manager.
-        if (isOpenableDocument(filePath)) void shell.openPath(filePath);
-        else shell.showItemInFolder(filePath);
-      } catch {
-        console.warn(`[window] refused file link: ${describeBlockedUrl(url)}`);
-      }
-      return { action: "deny" };
-    }
-    if (isAllowedNavigation(url, OWN_ORIGINS)) return { action: "allow" };
-    if (!isSafeExternalUrl(url)) {
-      console.warn(`[window] refused window.open with unsafe scheme: ${describeBlockedUrl(url)}`);
-      return { action: "deny" };
-    }
-    console.warn(`[window] window.open outside allowlist, opening in system browser: ${describeBlockedUrl(url)}`);
-    void shell.openExternal(url);
-    return { action: "deny" };
-  });
-  guardNavigation(contents, NAVIGATION_ALLOWLIST, (url) => {
+  guardPreviewNavigation(contents);
+  contents.setWindowOpenHandler(({ url }) => openWindowDecision(url));
+  guardNavigation(contents, [], (url) => {
     console.warn(`[window] blocked navigation outside allowlist: ${describeBlockedUrl(url)}`);
     browserPanel.routeBlockedMainWindowNavigation(url);
-  });
+  }, isAppUrl);
 }
 
 async function createMainWindow() {
   if (mainWindow) return mainWindow;
 
-  const preloadPath = path.join(__dirname, "preload.mjs");
+  const preloadPath = path.join(__dirname, "preload.cjs");
   const windowAppearanceOptions = {};
   if (process.platform === "darwin") {
     Object.assign(windowAppearanceOptions, {
@@ -2796,9 +2843,9 @@ async function createMainWindow() {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       // Enable Chromium's built-in PDF viewer (PDFium) so the in-app artifact
-      // panel can render PDFs inline in a (non-sandboxed) iframe.
+      // panel can render PDFs inline in an iframe.
       plugins: true,
     },
   });
@@ -2863,6 +2910,8 @@ async function createMainWindow() {
     mainWindow = null;
   });
 
+  logWindowErrors(mainWindow.webContents);
+
   // A crashed renderer takes the dictation capture pipeline with it; reload
   // so the hotkey keeps working. Repeated crashes stop the loop.
   let rendererReloads = 0;
@@ -2881,22 +2930,20 @@ async function createMainWindow() {
 
   guardAppWindow(mainWindow.webContents);
 
-  if (startUrl) {
-    await mainWindow.loadURL(startUrl);
+  if (APP_START_URL) {
+    await mainWindow.loadURL(APP_START_URL);
   } else {
-    const packagedIndexPath = path.join(process.resourcesPath, "app-dist", "index.html");
-    const devIndexPath = path.resolve(__dirname, "../../app/dist/index.html");
-    await mainWindow.loadFile(app.isPackaged ? packagedIndexPath : devIndexPath);
+    await mainWindow.loadFile(path.join(APP_ROOT, "index.html"));
   }
 
   return mainWindow;
 }
 
 ipcMain.handle("legalwork:desktop", handleDesktopInvoke);
-ipcMain.handle("legalwork:shell:openExternal", async (event, url) => {
-  assertTrustedSender(event);
-  if (!isSafeExternalUrl(url)) throw new Error("openExternal accepts only http(s) and mailto URLs");
-  await shell.openExternal(url);
+ipcMain.handle("legalwork:shell:openExternal", async (_event, url) => {
+  if (typeof url === "string" && url.trim().length > 0) {
+    await safeOpen.openExternal(url);
+  }
 });
 ipcMain.handle("legalwork:shell:relaunch", async () => {
   app.relaunch();
@@ -3105,6 +3152,47 @@ if (!app.requestSingleInstanceLock()) {
     // Electron see the same workspace list. Import the short-lived
     // Electron-only filename only when the shared file is missing.
     await workspaceStore.migrateLegacyElectronWorkspaceStateIfNeeded();
+
+    let installedWorkflowRoot = path.join(globalOpencodeRoot(), "skills");
+    try {
+      const prepared = await runtimeManager.prepareOpencodeConfig();
+      if (prepared) {
+        preparedOpencodeConfigRoot = prepared.target;
+        installedWorkflowRoot = path.join(prepared.target, "skills");
+        if (prepared.result && (prepared.result.copied || prepared.result.merged)) {
+          console.info(`[skills] Migrated ${prepared.result.copied} Windows config file(s) and ${prepared.result.merged} setting(s)`);
+        }
+        for (const conflict of prepared.result?.conflicts.slice(0, 10) ?? []) {
+          console.warn(`[skills] Kept existing OpenCode config; legacy AppData copy remains at ${conflict}`);
+        }
+        if ((prepared.result?.conflicts.length ?? 0) > 10) {
+          console.warn(`[skills] ${prepared.result.conflicts.length - 10} more config conflicts are recorded in the migration report`);
+        }
+        if (prepared.result?.skipped.length) {
+          console.info(`[skills] Left ${prepared.result.skipped.length} OpenCode database file(s) in the old AppData location`);
+        }
+        for (const failure of prepared.result?.failed.slice(0, 10) ?? []) {
+          console.warn(`[skills] Could not migrate ${failure.path}: ${failure.reason}`);
+        }
+        if ((prepared.result?.failed.length ?? 0) > 10) {
+          console.warn(`[skills] ${prepared.result.failed.length - 10} more config files could not be migrated`);
+        }
+      }
+    } catch (error) {
+      console.warn("[skills] Could not migrate the Windows OpenCode config", error);
+    }
+
+    // Repair workflows imported by older builds before OpenCode discovers its
+    // global skill library. Leave files we cannot safely normalize untouched.
+    try {
+      const result = await migrateInstalledWorkflows(installedWorkflowRoot);
+      if (result.migrated) console.info(`[skills] Repaired ${result.migrated} installed workflow(s)`);
+      for (const failure of result.failed) {
+        console.warn(`[skills] Could not repair ${failure.file}: ${failure.reason}`);
+      }
+    } catch (error) {
+      console.warn("[skills] Could not scan installed workflows for repair", error);
+    }
 
     // Remove the analytics identity file persisted by earlier builds (the
     // identity is now in-memory only).

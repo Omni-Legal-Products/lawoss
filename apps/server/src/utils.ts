@@ -27,9 +27,17 @@ export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
-/** Constant-time token comparison (hash first, so lengths never leak or throw). */
-export function tokensEqual(a: string, b: string): boolean {
-  return timingSafeEqual(createHash("sha256").update(a).digest(), createHash("sha256").update(b).digest());
+/**
+ * Compares two secrets without leaking how much of a guess was correct.
+ * Both sides are hashed first so the comparison length never varies, and an
+ * empty expected secret never matches.
+ */
+export function tokensMatch(candidate: string, expected: string): boolean {
+  if (!candidate || !expected) return false;
+  return timingSafeEqual(
+    createHash("sha256").update(candidate).digest(),
+    createHash("sha256").update(expected).digest(),
+  );
 }
 
 export function shortId(): string {

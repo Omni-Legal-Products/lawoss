@@ -3,9 +3,9 @@
 // surface via executeJavaScript. Consumed over HTTP by legalwork-ui-mcp.
 // Extracted from main.mjs; state and lifecycle live in this factory
 // (createRuntimeManager pattern).
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
-import { chmod, rm, writeFile } from "node:fs/promises";
+import { rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export function createUiControlServer({ appName, appIdentifier, getWindow, getUserDataDir }) {
@@ -47,10 +47,15 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
     });
   }
 
+  // Hashed before comparing so the check takes the same time whatever the
+  // caller sends, and so mismatched lengths do not throw.
   function authorizedUiControlRequest(request) {
-    const auth = Buffer.from(request.headers.authorization ?? "");
-    const expected = Buffer.from(`Bearer ${uiControlToken}`);
-    return auth.length === expected.length && timingSafeEqual(auth, expected);
+    const auth = String(request.headers.authorization ?? "");
+    if (!auth) return false;
+    return timingSafeEqual(
+      createHash("sha256").update(auth).digest(),
+      createHash("sha256").update(`Bearer ${uiControlToken}`).digest(),
+    );
   }
 
   function jsonForJavaScript(value) {
@@ -138,15 +143,25 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
     const address = uiControlServer.address();
     const port = typeof address === "object" && address ? address.port : null;
     if (!port) throw new Error("Could not start LegalWork UI control bridge.");
-    uiControlDiscoveryPath = path.join(getUserDataDir(), "legalwork-ui-control.json");
-    await writeFile(
-      uiControlDiscoveryPath,
-      `${JSON.stringify({ version: 1, app: appName, identifier: appIdentifier, platform: process.platform, baseUrl: `http://127.0.0.1:${port}`, token: uiControlToken }, null, 2)}\n`,
-      { encoding: "utf8", mode: 0o600 },
-    );
-    // LAWOSS: the file holds a bearer token that drives the app window; a file
-    // left by an older build keeps its old mode, so tighten it explicitly.
-    await chmod(uiControlDiscoveryPath, 0o600);
+    const discoveryPath = path.join(getUserDataDir(), "legalwork-ui-control.json");
+    const temporaryPath = `${discoveryPath}.${randomBytes(16).toString("hex")}.tmp`;
+    // Never put a fresh token in an existing inode: older releases created this
+    // file with wider permissions. Publish a new owner-only file atomically.
+    try {
+      await writeFile(
+        temporaryPath,
+        `${JSON.stringify({ version: 1, app: appName, identifier: appIdentifier, platform: process.platform, baseUrl: `http://127.0.0.1:${port}`, token: uiControlToken }, null, 2)}\n`,
+        { encoding: "utf8", mode: 0o600, flag: "wx" },
+      );
+      await rename(temporaryPath, discoveryPath);
+      uiControlDiscoveryPath = discoveryPath;
+    } catch (error) {
+      await new Promise((resolve) => uiControlServer.close(() => resolve(undefined)));
+      uiControlServer = null;
+      throw error;
+    } finally {
+      await rm(temporaryPath, { force: true });
+    }
     // Make the discovery path available to child processes (server → managed OpenCode → plugin).
     process.env.LEGALWORK_UI_CONTROL_DISCOVERY = uiControlDiscoveryPath;
   }

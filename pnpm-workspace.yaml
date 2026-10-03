@@ -1,6 +1,8 @@
 minimumReleaseAge: 4320
 minimumReleaseAgeExclude:
   - "@opencode-ai/sdk"
+  # Explicitly allow the reviewed Electron security update.
+  - "electron@43.7.5"
 
 packages:
   - "apps/*"
@@ -15,11 +17,6 @@ catalogs:
   react18:
     react: 18.2.0
     react-dom: 18.2.0
-# LAWOSS: bezpečnostné minimá tranzitívnych závislostí (audit 2026-09-23).
-# docxtemplater parsuje DOCX cez xmldom; axios ide cez @slack/web-api.
-overrides:
-  "@xmldom/xmldom@>=0.9.0 <0.9.12": "^0.9.12"
-  "axios@>=1.0.0 <1.16.0": "^1.16.0"
 linkWorkspacePackages: true
 preferWorkspacePackages: true
 # pnpm 11 re-verifies manifests vs lockfile before every `pnpm run` and
@@ -40,6 +37,16 @@ allowBuilds:
   node-pty: true
   protobufjs: true
   sharp: true
+  # CPU binaries already ship in the package; do not download optional CUDA libraries.
+  onnxruntime-node: false
+  # Windows releases use NSIS, not the optional Squirrel installer.
+  electron-winstaller: false
+# Keep document parsers patched even when a transitive dependency pins an older patch.
+overrides:
+  # GHSA-3pq3-5fj3-cg6v and GHSA-542g-h47m-68v8, Slack HTTP client.
+  'axios@>=1.0.0 <1.20.0': 1.20.0
+  '@xmldom/xmldom@>=0.9.0 <0.9.12': 0.9.12
+  '@xmldom/xmldom@>=0.8.0 <0.8.15': 0.8.15
 patchedDependencies:
   '@eigenpal/docx-editor-core@1.8.3': patches/@eigenpal__docx-editor-core@1.8.3.patch
   '@eigenpal/docx-editor-react@1.8.3': patches/@eigenpal__docx-editor-react@1.8.3.patch

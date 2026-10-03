@@ -1,11 +1,25 @@
 import type { SettingsTab } from "../../app/types";
 
+export function homeRoute(projectId?: string | null) {
+  const project = projectId?.trim();
+  return project ? `/home?project=${encodeURIComponent(project)}` : "/home";
+}
+
+export function homeProjectIdFromSearch(search: string) {
+  return new URLSearchParams(search).get("project")?.trim() || null;
+}
+
 export function workspaceSessionRoute(workspaceId: string, sessionId?: string | null) {
   const workspace = encodeURIComponent(workspaceId.trim());
   const session = sessionId?.trim();
   return session
     ? `/workspace/${workspace}/session/${encodeURIComponent(session)}`
     : `/workspace/${workspace}/session`;
+}
+
+/** Last-session restoration belongs only to an empty chat route, never a project page. */
+export function isSessionIndexRoute(pathname: string) {
+  return /^(?:\/workspace\/[^/]+)?\/session\/?$/.test(pathname);
 }
 
 export function workspaceSettingsRoute(
@@ -22,4 +36,16 @@ export function globalSettingsRoute(tab: SettingsTab) {
 export function legacySessionRoute(sessionId?: string | null) {
   const session = sessionId?.trim();
   return session ? `/session/${encodeURIComponent(session)}` : "/session";
+}
+
+export function workspaceProjectRoute(workspaceId: string) {
+  return `/workspace/${encodeURIComponent(workspaceId.trim())}/project`;
+}
+
+export function workspaceTasksRoute(workspaceId: string) {
+  return `/workspace/${encodeURIComponent(workspaceId.trim())}/tasks`;
+}
+
+export function workspaceReviewsRoute(workspaceId: string, reviewId?: string) {
+  return `/workspace/${encodeURIComponent(workspaceId.trim())}/reviews${reviewId ? `?review=${encodeURIComponent(reviewId)}` : ""}`;
 }

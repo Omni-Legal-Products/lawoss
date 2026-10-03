@@ -1,6 +1,6 @@
 import { symlinkSkipReason } from "../../tests/symlink-capability.mts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
+import { realpathSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,7 +12,7 @@ import { readStandingAuthorization } from "../../okf-pamat/src/config.ts";
 const dirSymlinkSkip = symlinkSkipReason("dir");
 
 let root = "";
-beforeEach(() => { root = mkdtempSync(join(tmpdir(), "okf-")); });
+beforeEach(() => { root = realpathSync(mkdtempSync(join(tmpdir(), "okf-"))); });
 afterEach(() => { rmSync(root, { recursive: true, force: true }); });
 
 describe("core", () => {

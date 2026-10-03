@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { applyEdits, modify } from "jsonc-parser";
 
+import { toast } from "@/components/ui/sonner";
 import { t } from "../../../../i18n";
 import type {
   Client,
@@ -13,7 +14,9 @@ import type {
   SkillCard,
   SkillResourceCard,
 } from "../../../../app/types";
-import { addOpencodeCacheHint, isDesktopRuntime, normalizeDirectoryPath } from "../../../../app/utils";
+import { addOpencodeCacheHint, fitSkillNameLength, isDesktopRuntime, normalizeDirectoryPath } from "../../../../app/utils";
+import { describeImportFailures, type ImportFailure } from "./import-failures";
+import { createSkippedSkillsTracker } from "./skipped-skills-tracker";
 import skillCreatorTemplate from "../../../../app/data/skill-creator.md?raw";
 import {
   isPluginInstalled,
@@ -57,6 +60,7 @@ const OPENCODE_MCP_NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]*$/;
 const OPENCODE_MCP_IMPORT_PATH_PREFIX = "opencode.jsonc#mcp.";
 const DEFAULT_HUB_REF = "main";
 const HUB_REPOS_STORAGE_KEY = "legalwork.skills.hubRepos.v1";
+const newlySkippedSkills = createSkippedSkillsTracker();
 
 type SetStateAction<T> = T | ((current: T) => T);
 
@@ -116,6 +120,19 @@ type MutableState = {
 export type ExtensionsStore = ReturnType<typeof createExtensionsStore>;
 
 export type GithubSkillItem = { dir: string; name: string; description: string };
+
+function notifySkippedSkills(source: string, skipped: Array<{ path: string; reason: string }>) {
+  const newErrors = newlySkippedSkills(source, skipped);
+  if (!newErrors.length) return;
+  const first = newErrors[0]!;
+  const skill = first.path.split(/[\\/]/).slice(-2).join("/");
+  const description = `${skill}: ${first.reason}${newErrors.length > 1 ? ` ${t("skills.skipped_toast_more", { count: newErrors.length - 1 })}` : ""}`;
+  toast.error(t("skills.skipped_toast_title", { count: newErrors.length }), {
+    id: "skills-skipped",
+    description,
+    duration: 10_000,
+  });
+}
 
 // Decode base64 (from the GitHub-skills server payload) into a UTF-8 string.
 function base64ToUtf8(b64: string): string {
@@ -649,7 +666,7 @@ export function createExtensionsStore(options: {
       const desktop = isDesktopRuntime();
       let installed = 0;
       let skipped = 0;
-      const writeFailed: string[] = [];
+      const writeFailed: ImportFailure[] = [];
       for (const skill of resolved.skills) {
         try {
           if (desktop) {
@@ -662,25 +679,34 @@ export function createExtensionsStore(options: {
             // files aren't supported on that path).
             const md = skill.files.find((file) => file.path === "SKILL.md");
             if (md) {
-              await legalworkClient.upsertSkill(legalworkWorkspaceId, { name: skill.name, content: base64ToUtf8(md.contentBase64) });
+              // Keep bundled license and attribution text even on the single-file remote path.
+              const notices = skill.files.filter((file) => /(^|\/)(licen[cs]e|notice|copying)(\.[^/]*)?$/i.test(file.path));
+              const content = [
+                base64ToUtf8(md.contentBase64),
+                ...notices.map((file) => `\n\n## ${file.path}\n\n${base64ToUtf8(file.contentBase64)}`),
+              ].join("");
+              await legalworkClient.upsertSkill(legalworkWorkspaceId, { name: skill.name, content });
               installed += 1;
             } else {
-              writeFailed.push(skill.name);
+              writeFailed.push({ name: skill.name, reason: "No SKILL.md in that folder" });
             }
           }
-        } catch {
-          writeFailed.push(skill.name);
+        } catch (error) {
+          writeFailed.push({ name: skill.name, reason: error instanceof Error ? error.message : t("skills.unknown_error") });
         }
       }
       if (installed > 0) {
         options.markReloadRequired?.("skills", { type: "skill", name: resolved.skills[0]!.name, action: "added" });
         await refreshSkills({ force: true });
       }
-      const failedCount = resolved.failed.length + writeFailed.length;
+      const failed = describeImportFailures([
+        ...resolved.failed.map((item) => ({ name: item.path, reason: item.error })),
+        ...writeFailed,
+      ]);
       const parts: string[] = [];
       if (installed) parts.push(`Imported ${installed}`);
       if (skipped) parts.push(`${skipped} already installed`);
-      if (failedCount) parts.push(`${failedCount} failed`);
+      if (failed) parts.push(failed);
       return {
         ok: installed > 0,
         message: parts.length ? `${parts.join(", ")}.` : t("extensions.nothing_to_import"),
@@ -737,8 +763,9 @@ export function createExtensionsStore(options: {
         setStateField("skillsStatus", null);
         const local = await listLocalSkills("");
         if (refreshSkillsAborted) return;
-        const next: SkillCard[] = Array.isArray(local)
-          ? local.map((entry) => ({
+        notifySkippedSkills("desktop-global", local.skipped);
+        const next: SkillCard[] = Array.isArray(local.items)
+          ? local.items.map((entry) => ({
               name: entry.name,
               description: entry.description,
               path: entry.path,
@@ -789,6 +816,7 @@ export function createExtensionsStore(options: {
         setStateField("skillsStatus", null);
         const response = await legalworkClient.listSkills(legalworkWorkspaceId, { includeGlobal: isLocalWorkspace });
         if (refreshSkillsAborted) return;
+        notifySkippedSkills(`server:${skillCacheKey}`, response.skipped ?? []);
         let next: SkillCard[] = Array.isArray(response.items)
           ? response.items.map((entry) => ({
               name: entry.name,
@@ -805,8 +833,8 @@ export function createExtensionsStore(options: {
         if (isDesktopRuntime() && root) {
           try {
             const localMeta = await listLocalSkills(root);
-            if (!refreshSkillsAborted && Array.isArray(localMeta)) {
-              const byName = new Map(localMeta.map((s) => [s.name, s as { kind?: string; workflowType?: string }]));
+            if (!refreshSkillsAborted && Array.isArray(localMeta.items)) {
+              const byName = new Map(localMeta.items.map((s) => [s.name, s as { kind?: string; workflowType?: string }]));
               next = next.map((card) => {
                 const meta = byName.get(card.name);
                 return meta ? { ...card, kind: meta.kind ?? card.kind, workflowType: meta.workflowType ?? card.workflowType } : card;
@@ -857,8 +885,9 @@ export function createExtensionsStore(options: {
         setStateField("skillsStatus", null);
         const local = await listLocalSkills(root);
         if (refreshSkillsAborted) return;
-        const next: SkillCard[] = Array.isArray(local)
-          ? local.map((entry) => ({
+        notifySkippedSkills(`desktop:${root}`, local.skipped);
+        const next: SkillCard[] = Array.isArray(local.items)
+          ? local.items.map((entry) => ({
               name: entry.name,
               description: entry.description,
               path: entry.path,
@@ -963,10 +992,21 @@ export function createExtensionsStore(options: {
     return { legalworkClient, legalworkWorkspaceId, canUse };
   };
 
+  let skillResourcesRequest = 0;
+  let activeResourcesSkill = "";
+  let activeResourcesContext = "";
   async function refreshSkillResources(skillName: string) {
     const skill = skillName.trim();
     if (!skill) return;
+    const request = ++skillResourcesRequest;
+    const context = getWorkspaceContextKey();
+    if (activeResourcesSkill !== skill || activeResourcesContext !== context) {
+      activeResourcesContext = context;
+      activeResourcesSkill = skill;
+      mutateState((current) => ({ ...current, skillResources: [], skillResourcesStatus: null }));
+    }
     const { legalworkClient, legalworkWorkspaceId, canUse } = await resolveSkillResourcesTarget();
+    if (request !== skillResourcesRequest || context !== getWorkspaceContextKey()) return;
     if (!canUse || !legalworkClient || !legalworkWorkspaceId) {
       mutateState((current) => ({
         ...current,
@@ -977,6 +1017,7 @@ export function createExtensionsStore(options: {
     }
     try {
       const response = await legalworkClient.listSkillResources(legalworkWorkspaceId, skill);
+      if (request !== skillResourcesRequest || context !== getWorkspaceContextKey()) return;
       const next: SkillResourceCard[] = Array.isArray(response.items)
         ? response.items.map((item) => ({
             name: item.name,
@@ -987,6 +1028,7 @@ export function createExtensionsStore(options: {
         : [];
       mutateState((current) => ({ ...current, skillResources: next, skillResourcesStatus: null }));
     } catch (error) {
+      if (request !== skillResourcesRequest || context !== getWorkspaceContextKey()) return;
       mutateState((current) => ({
         ...current,
         skillResources: [],
@@ -998,6 +1040,7 @@ export function createExtensionsStore(options: {
   async function readSkillResource(
     skillName: string,
     fileName: string,
+    encoding: "utf8" | "base64" = "utf8",
   ): Promise<{ name: string; path: string; content: string } | null> {
     const skill = skillName.trim();
     const name = fileName.trim();
@@ -1008,7 +1051,7 @@ export function createExtensionsStore(options: {
       return null;
     }
     try {
-      const result = await legalworkClient.getSkillResource(legalworkWorkspaceId, skill, name);
+      const result = await legalworkClient.getSkillResource(legalworkWorkspaceId, skill, name, encoding);
       return { name: result.item.name, path: result.item.path, content: result.content };
     } catch (error) {
       setStateField(
@@ -1039,7 +1082,7 @@ export function createExtensionsStore(options: {
           ? { contentBase64: input.contentBase64 }
           : { content: input.content ?? "" }),
       });
-      await refreshSkillResources(skill);
+      if (activeResourcesSkill === skill) await refreshSkillResources(skill);
       return {
         ok: true,
         message: result.action === "added" ? t("skill_resources.added") : t("skill_resources.updated"),
@@ -1065,7 +1108,7 @@ export function createExtensionsStore(options: {
     options.setError(null);
     try {
       await legalworkClient.deleteSkillResource(legalworkWorkspaceId, skill, name);
-      await refreshSkillResources(skill);
+      if (activeResourcesSkill === skill) await refreshSkillResources(skill);
       return { ok: true, message: t("skill_resources.removed") };
     } catch (error) {
       const message = error instanceof Error ? error.message : t("skills.unknown_error");
@@ -1469,12 +1512,13 @@ export function createExtensionsStore(options: {
       // Desktop skills are GLOBAL — copy into the shared skills dir ("" projectDir),
       // the same place the list reads, so the import shows up immediately. The whole
       // folder is copied recursively, so supporting files come along. For a workflow
-      // import, copy straight under the `workflow-` prefix the Workflows view detects
-      // (so siblings are preserved) and rewrite only the SKILL.md name to match.
-      const targetName =
+      // import, copy straight under the `workflow-` prefix the Workflows view detects.
+      // The desktop import normalizes SKILL.md to the destination name.
+      const prefixed =
         opts?.asWorkflow && inferredName && !inferredName.startsWith("workflow-")
           ? `workflow-assistant-${inferredName}`
           : inferredName;
+      const targetName = prefixed && fitSkillNameLength(prefixed);
       const renamed = Boolean(targetName && targetName !== inferredName);
       const result = (await importSkill("", sourceDir, {
         overwrite: false,
@@ -1488,19 +1532,6 @@ export function createExtensionsStore(options: {
       if (!result.ok) {
         setStateField("skillsStatus", result.stderr || result.stdout || t("skills.import_failed").replace("{status}", String(result.status)));
       } else {
-        if (renamed && targetName) {
-          try {
-            const read = await readLocalSkill("", targetName);
-            const content = read?.content ?? "";
-            const tagged = /(^|\n)name:\s*.*$/m.test(content)
-              ? content.replace(/(^|\n)name:\s*.*$/m, `$1name: ${targetName}`)
-              : content.replace(/^---\n/, `---\nname: ${targetName}\n`);
-            if (tagged !== content) await writeLocalSkill("", targetName, tagged);
-          } catch {
-            // best-effort: the folder is already named as a workflow even if the
-            // SKILL.md name rewrite fails (parseSkillEntry falls back to the folder).
-          }
-        }
         setStateField("skillsStatus", result.stdout || t("skills.imported"));
         options.markReloadRequired?.("skills", { type: "skill", name: targetName, action: "added" });
       }
@@ -1758,7 +1789,7 @@ export function createExtensionsStore(options: {
 
   async function saveSkill(input: { name: string; content: string; description?: string }) {
     const trimmed = input.name.trim();
-    if (!trimmed) return;
+    if (!trimmed) throw new Error(t("extensions.skill_name_required"));
     const root = options.selectedWorkspaceRoot().trim();
     const isRemoteWorkspace = options.workspaceType() === "remote";
     const isLocalWorkspace = options.workspaceType() === "local";
@@ -1777,6 +1808,7 @@ export function createExtensionsStore(options: {
           name: trimmed,
           content: input.content,
           description: input.description,
+          scope: isDesktopRuntime() && isLocalWorkspace ? "global" : "project",
         });
         options.markReloadRequired?.("skills", { type: "skill", name: trimmed, action: "updated" });
         await refreshSkills({ force: true });
@@ -1784,6 +1816,7 @@ export function createExtensionsStore(options: {
       } catch (error) {
         const message = error instanceof Error ? error.message : t("skills.unknown_error");
         options.setError(addOpencodeCacheHint(message));
+        throw error;
       } finally {
         options.setBusy(false);
       }
@@ -1792,25 +1825,25 @@ export function createExtensionsStore(options: {
 
     if (hasLegalworkTarget) {
       setStateField("skillsStatus", t("extensions.server_cannot_write_skills"));
-      return;
+      throw new Error(t("extensions.server_cannot_write_skills"));
     }
 
     if (!root) {
       setStateField("skillsStatus", t("skills.pick_workspace_first"));
-      return;
+      throw new Error(t("skills.pick_workspace_first"));
     }
 
     if (isRemoteWorkspace) {
       setStateField("skillsStatus", "LegalWork server unavailable. Connect to edit skills.");
-      return;
+      throw new Error("LegalWork server unavailable. Connect to edit skills.");
     }
     if (!isDesktopRuntime()) {
       setStateField("skillsStatus", t("skills.desktop_required"));
-      return;
+      throw new Error(t("skills.desktop_required"));
     }
     if (!isLocalWorkspace) {
       setStateField("skillsStatus", "Local workers are required to edit skills.");
-      return;
+      throw new Error("Local workers are required to edit skills.");
     }
 
     options.setBusy(true);
@@ -1819,7 +1852,7 @@ export function createExtensionsStore(options: {
     try {
       const result = (await writeLocalSkill("", trimmed, input.content)) as { ok: boolean; stderr?: string; stdout?: string };
       if (!result.ok) {
-        setStateField("skillsStatus", result.stderr || result.stdout || t("skills.unknown_error"));
+        throw new Error(result.stderr || result.stdout || t("skills.unknown_error"));
       } else {
         setStateField("skillsStatus", result.stdout || "Saved.");
         options.markReloadRequired?.("skills", { type: "skill", name: trimmed, action: "updated" });
@@ -1828,6 +1861,7 @@ export function createExtensionsStore(options: {
     } catch (error) {
       const message = error instanceof Error ? error.message : t("skills.unknown_error");
       options.setError(addOpencodeCacheHint(message));
+      throw error;
     } finally {
       options.setBusy(false);
     }

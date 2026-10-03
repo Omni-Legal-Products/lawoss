@@ -21,6 +21,7 @@ import {
 import { LOCALIZED_TEMPLATES } from "./templates.ts";
 import { readConfiguredLawyerName } from "../../okf-pamat/src/config.ts";
 import { findOfficeDir } from "../../okf-pamat/src/store.ts";
+import { checkedPath } from "../../okf-pamat/src/workspace-memory-fs.ts";
 import { PROFILE_FILE, parseOfficeWorkingProfile, parseWorkingProfile, type WorkingProfile } from "./profile.ts";
 
 function readText(path: string): string {
@@ -161,6 +162,11 @@ export function validate(root: string): ValidationError[] {
  * zoznam entít v index.md (iba telo pod frontmatterom, ak index existuje).
  */
 export function render(root: string, selectedLanguage?: DocumentLanguage): { written: string[]; kept: string[] } {
+  // Reject redirects before reading inputs or writing any derived file.
+  checkedPath(root, "directory");
+  for (const name of ["AGENTS.md", "CLAUDE.md", "index.md"]) {
+    checkedPath(join(root, name), "file", true);
+  }
   const cards = ENTITY_TYPES.flatMap((type) => CARD_ALIASES[type]).filter((name) => existsSync(join(root, name)));
   if (cards.length > 1) throw new Error(`Viac kariet entity: ${cards.join(", ")}. Najprv zosúlaď ich obsah.`);
   const metadata = cards[0] ? parseFrontmatter(readText(join(root, cards[0]))) : null;
@@ -170,13 +176,6 @@ export function render(root: string, selectedLanguage?: DocumentLanguage): { wri
   const agents = join(root, "AGENTS.md");
   const claude = join(root, "CLAUDE.md");
   const index = join(root, "index.md");
-  // Odvodené súbory sa prepisujú celé; symlink by presmeroval zápis mimo entity
-  // (napr. podhodený v zdieľanom priečinku klienta).
-  for (const derived of [agents, claude, index]) {
-    if (lstatSync(derived, { throwIfNoEntry: false })?.isSymbolicLink()) {
-      throw new Error(`Odvodený súbor je symbolický odkaz, nezapisujem: ${basename(derived)}`);
-    }
-  }
   if (existsSync(agents)) {
     const a = readText(agents);
     if (!existsSync(claude)) { writeFileSync(claude, a, "utf8"); written.push("CLAUDE.md"); }

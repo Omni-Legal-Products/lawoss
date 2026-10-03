@@ -451,16 +451,16 @@ function parseBlock(block, firstLineNo) {
       const body = t.slice(2).trim();
       const idx = body.indexOf(":");
       if (idx === -1 || body.startsWith('"') || body.startsWith("'") || body.startsWith("[") || body.startsWith("{")) {
-        const v2 = parseScalar(body);
-        if (typeof v2 === "object" && !Array.isArray(v2)) {
-          cur = v2;
+        const v = parseScalar(body);
+        if (typeof v === "object" && !Array.isArray(v)) {
+          cur = v;
           items.push(cur);
           return;
         }
-        if (Array.isArray(v2))
+        if (Array.isArray(v))
           throw new Error(`Riadok ${firstLineNo + k}: zoznam v zozname sa nepodporuje`);
         cur = undefined;
-        items.push(v2);
+        items.push(v);
         return;
       }
       if (body.slice(idx + 1).trim() === "") {
@@ -694,8 +694,8 @@ ${copy.originals}
 var ENTITY_TYPES = ["klient", "spis", "projekt"];
 
 // src/fs.ts
-import { existsSync as existsSync3, lstatSync as lstatSync2, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync3, statSync, writeFileSync as writeFileSync2 } from "node:fs";
-import { basename as basename2, dirname as dirname2, join as join3, relative as relative2, resolve as resolve2, sep as sep3 } from "node:path";
+import { existsSync as existsSync3, lstatSync as lstatSync3, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync3, statSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { basename as basename2, dirname as dirname2, join as join3, relative as relative3, resolve as resolve3, sep as sep4 } from "node:path";
 // src/core.ts
 var OKF_VERSION = "0.1";
 var ENTITY_TYPES2 = ["klient", "spis", "projekt"];
@@ -1704,6 +1704,44 @@ function findOfficeDir(startDir, maxUp = 8) {
   return;
 }
 
+// ../okf-pamat/src/workspace-memory-fs.ts
+import { closeSync, constants, fstatSync, lstatSync as lstatSync2, openSync, readSync, realpathSync } from "node:fs";
+import { isAbsolute, parse, relative as relative2, resolve as resolve2, sep as sep3 } from "node:path";
+function isObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function missing(error) {
+  return isObject(error) && error.code === "ENOENT";
+}
+function contained(root, target) {
+  const rel = relative2(root, target);
+  return rel === "" || !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep3}`);
+}
+function checkedPath(path, kind, allowMissing = false) {
+  const full = resolve2(path), root = parse(full).root;
+  const parts = relative2(root, full).split(sep3).filter(Boolean);
+  let current = root;
+  for (let i = 0;i < parts.length; i++) {
+    current = resolve2(current, parts[i]);
+    let stat;
+    try {
+      stat = lstatSync2(current);
+    } catch (error) {
+      if (allowMissing && missing(error))
+        return false;
+      throw error;
+    }
+    if (stat.isSymbolicLink())
+      throw new Error(`Symlink is not allowed: ${current}`);
+    if (i < parts.length - 1 || kind === "directory") {
+      if (!stat.isDirectory())
+        throw new Error(`Not a directory: ${current}`);
+    } else if (!stat.isFile())
+      throw new Error(`Not a regular file: ${current}`);
+  }
+  return true;
+}
+
 // src/fs.ts
 function readText(path) {
   return readFileSync3(path, "utf8");
@@ -1735,7 +1773,7 @@ function listMarkdown(root) {
           continue;
         walk(full);
       } else if (entry.name.endsWith(".md")) {
-        out.push(relative2(root, full).split("\\").join("/"));
+        out.push(relative3(root, full).split("\\").join("/"));
       }
     }
   };
@@ -1777,10 +1815,10 @@ function plan(input) {
   const profile = storedProfile(input.dir) ?? input.workingProfile ?? (input.type === "spis" ? officeProfile(input.dir, language) : undefined);
   let clientCardPath;
   if (input.type === "spis") {
-    for (let parent = dirname2(resolve2(input.dir));; parent = dirname2(parent)) {
-      const card2 = existingCard("klient", (name) => existsSync3(join3(parent, name)));
-      if (card2) {
-        clientCardPath = relative2(input.dir, join3(parent, card2)).split("\\").join("/");
+    for (let parent = dirname2(resolve3(input.dir));; parent = dirname2(parent)) {
+      const card = existingCard("klient", (name) => existsSync3(join3(parent, name)));
+      if (card) {
+        clientCardPath = relative3(input.dir, join3(parent, card)).split("\\").join("/");
         break;
       }
       if (dirname2(parent) === parent)
@@ -1798,17 +1836,17 @@ function plan(input) {
 function apply(p) {
   const created = [];
   const skipped = [];
-  const root = resolve2(p.dir);
+  const root = resolve3(p.dir);
   const card = existingCard(p.type, (name) => existsSync3(join3(root, name)));
   const plannedCard = p.entries.find((entry) => CARD_ALIASES[p.type].includes(entry.path));
   if (plannedCard && (card || plannedCard.action === "skip") && card !== plannedCard.path)
     throw new Error("Karta entity sa od náhľadu zmenila; načítaj nový plán.");
   for (const entry of p.entries.filter((item) => item.action === "create")) {
-    const target = resolve2(root, entry.path);
-    if (!target.startsWith(root + sep3))
+    const target = resolve3(root, entry.path);
+    if (!target.startsWith(root + sep4))
       throw new Error(`Cesta opúšťa priečinok entity: ${entry.path}`);
     for (let part = target;part !== root; part = dirname2(part)) {
-      if (lstatSync2(part, { throwIfNoEntry: false })?.isSymbolicLink())
+      if (lstatSync3(part, { throwIfNoEntry: false })?.isSymbolicLink())
         throw new Error(`Cesta vedie cez symbolický odkaz: ${entry.path}`);
     }
   }
@@ -1835,7 +1873,7 @@ function validate(root) {
     try {
       const scope = dirname2(join3(root, rel));
       for (const folder of storedProfile(scope)?.folders ?? [])
-        workingPaths.push(relative2(root, join3(scope, folder)).split("\\").join("/") + "/");
+        workingPaths.push(relative3(root, join3(scope, folder)).split("\\").join("/") + "/");
     } catch (error) {
       errors.push({ path: rel, message: error instanceof Error ? error.message : String(error) });
     }
@@ -1852,6 +1890,10 @@ function validate(root) {
   return errors;
 }
 function render(root, selectedLanguage) {
+  checkedPath(root, "directory");
+  for (const name of ["AGENTS.md", "CLAUDE.md", "index.md"]) {
+    checkedPath(join3(root, name), "file", true);
+  }
   const cards = ENTITY_TYPES2.flatMap((type) => CARD_ALIASES[type]).filter((name) => existsSync3(join3(root, name)));
   if (cards.length > 1)
     throw new Error(`Viac kariet entity: ${cards.join(", ")}. Najprv zosúlaď ich obsah.`);
@@ -1862,11 +1904,6 @@ function render(root, selectedLanguage) {
   const agents = join3(root, "AGENTS.md");
   const claude = join3(root, "CLAUDE.md");
   const index = join3(root, "index.md");
-  for (const derived of [agents, claude, index]) {
-    if (lstatSync2(derived, { throwIfNoEntry: false })?.isSymbolicLink()) {
-      throw new Error(`Odvodený súbor je symbolický odkaz, nezapisujem: ${basename2(derived)}`);
-    }
-  }
   if (existsSync3(agents)) {
     const a = readText(agents);
     if (!existsSync3(claude)) {
@@ -1886,8 +1923,8 @@ function render(root, selectedLanguage) {
     const fm = parseFrontmatter(text);
     const head = fm ? text.slice(0, text.indexOf(`
 ---`, 3) + 4) : "";
-    const cards2 = listMarkdown(root).filter((rel) => rel.includes("/") && /\/(matter|spis|project|projekt|client|klient)\.md$/.test(rel));
-    const body = cards2.length ? cards2.map((rel) => `- [${rel.split("/").slice(0, -1).join("/")}](./${rel})`).join(`
+    const cards = listMarkdown(root).filter((rel) => rel.includes("/") && /\/(matter|spis|project|projekt|client|klient)\.md$/.test(rel));
+    const body = cards.length ? cards.map((rel) => `- [${rel.split("/").slice(0, -1).join("/")}](./${rel})`).join(`
 `) : { cs: "_(zatím žádné)_", sk: "_(zatiaľ žiadne)_", en: "_(none yet)_" }[language];
     const next = `${head}
 
@@ -1907,44 +1944,6 @@ ${body}
 // src/naming-fs.ts
 import { closeSync as closeSync2, constants as constants2, fstatSync as fstatSync2, fsyncSync, lstatSync as lstatSync4, mkdirSync as mkdirSync3, openSync as openSync2, opendirSync, readSync as readSync2, realpathSync as realpathSync2, renameSync as renameSync2, unlinkSync, writeSync } from "node:fs";
 import { basename as basename3, dirname as dirname3, extname, isAbsolute as isAbsolute2, join as join4, relative as relative4, resolve as resolve4, sep as sep5 } from "node:path";
-
-// ../okf-pamat/src/workspace-memory-fs.ts
-import { closeSync, constants, fstatSync, lstatSync as lstatSync3, openSync, readSync, realpathSync } from "node:fs";
-import { isAbsolute, parse, relative as relative3, resolve as resolve3, sep as sep4 } from "node:path";
-function isObject(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function missing(error) {
-  return isObject(error) && error.code === "ENOENT";
-}
-function contained(root, target) {
-  const rel = relative3(root, target);
-  return rel === "" || !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep4}`);
-}
-function checkedPath(path, kind, allowMissing = false) {
-  const full = resolve3(path), root = parse(full).root;
-  const parts = relative3(root, full).split(sep4).filter(Boolean);
-  let current = root;
-  for (let i = 0;i < parts.length; i++) {
-    current = resolve3(current, parts[i]);
-    let stat;
-    try {
-      stat = lstatSync3(current);
-    } catch (error) {
-      if (allowMissing && missing(error))
-        return false;
-      throw error;
-    }
-    if (stat.isSymbolicLink())
-      throw new Error(`Symlink is not allowed: ${current}`);
-    if (i < parts.length - 1 || kind === "directory") {
-      if (!stat.isDirectory())
-        throw new Error(`Not a directory: ${current}`);
-    } else if (!stat.isFile())
-      throw new Error(`Not a regular file: ${current}`);
-  }
-  return true;
-}
 
 // ../okf-pamat/src/workspace-memory-types.ts
 var WORKSPACE_MEMORY_LIMITS = Object.freeze({ profileBytes: 256 * 1024, journalBytes: 4 * 1024 * 1024, sourceBytes: 2 * 1024 * 1024, totalBytes: 16 * 1024 * 1024, sources: 256 });
@@ -2158,14 +2157,14 @@ function rewriteSelectedMarkdownLinks(markdownPath, content, moves) {
       if (decoded.includes("\\"))
         continue;
       const resolved = posix.normalize(posix.join(posix.dirname(markdownPath), decoded));
-      const matches = moves.filter((move2) => move2.from === resolved || kind === "wikilink" && move2.from === decoded);
+      const matches = moves.filter((move) => move.from === resolved || kind === "wikilink" && move.from === decoded);
       const unique = [...new Set(matches)];
       if (unique.length > 1)
         fail("Ambiguous affected wikilink");
       if (unique.length === 0) {
-        if (kind === "wikilink" && moves.some((move2) => fold(posix.basename(move2.from, posix.extname(move2.from))) === fold(posix.basename(decoded, posix.extname(decoded)))))
+        if (kind === "wikilink" && moves.some((move) => fold(posix.basename(move.from, posix.extname(move.from))) === fold(posix.basename(decoded, posix.extname(decoded)))))
           fail("Ambiguous affected wikilink; use an exact relative path");
-        if (moves.some((move2) => fold(move2.from) === fold(resolved)))
+        if (moves.some((move) => fold(move.from) === fold(resolved)))
           fail("Ambiguous affected link case");
         covered.push({ start, end });
         continue;
@@ -2194,8 +2193,8 @@ function rewriteSelectedMarkdownLinks(markdownPath, content, moves) {
       continue;
     if (m[2] === undefined && /[(:\[]/.test(content[end] ?? ""))
       continue;
-    const id2 = fold((m[2] || m[1]).trim().replace(/\s+/g, " "));
-    if (referenceIds.includes(id2)) {
+    const id = fold((m[2] || m[1]).trim().replace(/\s+/g, " "));
+    if (referenceIds.includes(id)) {
       if (covered.length >= 20000)
         fail("Selected Markdown exceeds bounded link count");
       covered.push({ start, end });
@@ -2240,23 +2239,23 @@ function exists(path, kind = "file") {
 function rootDirectory(directory) {
   checkedPath(directory, "directory");
   const path = realpathSync2(directory);
-  return { path, identity: physical(lstatSync4(path)) };
+  return { path, identity: physical(lstatSync4(path, { bigint: true })) };
 }
 function assertRoot(root) {
   checkedPath(root.path, "directory");
-  if (realpathSync2(root.path) !== root.path || physical(lstatSync4(root.path)) !== root.identity)
+  if (realpathSync2(root.path) !== root.path || physical(lstatSync4(root.path, { bigint: true })) !== root.identity)
     conflict("Matter root changed");
 }
 function readNamingBinary(path, limit) {
   checkedPath(path, "file");
   const fd = openSync2(path, constants2.O_RDONLY | constants2.O_NOFOLLOW | constants2.O_NONBLOCK);
   try {
-    const before = fstatSync2(fd);
-    if (!before.isFile() || before.nlink !== 1)
+    const before = fstatSync2(fd, { bigint: true });
+    if (!before.isFile() || before.nlink !== 1n)
       conflict(`Regular single-link file required: ${path}`);
     if (before.size > limit)
       conflict(`Byte limit exceeded: ${path}`);
-    const data = Buffer.alloc(Math.min(before.size + 1, limit + 1));
+    const data = Buffer.alloc(Math.min(Number(before.size) + 1, limit + 1));
     let count = 0;
     while (count < data.length) {
       const n = readSync2(fd, data, count, data.length - count, null);
@@ -2264,11 +2263,11 @@ function readNamingBinary(path, limit) {
         break;
       count += n;
     }
-    const after = fstatSync2(fd), named = lstatSync4(path);
-    if (count !== before.size || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || physical(before) !== physical(after) || physical(before) !== physical(named) || named.isSymbolicLink() || named.nlink !== 1)
+    const after = fstatSync2(fd, { bigint: true }), named = lstatSync4(path, { bigint: true });
+    if (BigInt(count) !== before.size || before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs || physical(before) !== physical(after) || physical(before) !== physical(named) || named.isSymbolicLink() || named.nlink !== 1n)
       conflict(`File changed during read: ${path}`);
     const bytes = data.subarray(0, count);
-    return { data: bytes, bytes: count, sha256: hash(bytes), physical: physical(before), mode: before.mode & 511 };
+    return { data: bytes, bytes: count, sha256: hash(bytes), physical: physical(before), mode: Number(before.mode & 0o777n) };
   } finally {
     closeSync2(fd);
   }
@@ -2334,7 +2333,7 @@ function memoryProtection(root) {
 function targetAbsent(root, target) {
   const path = join4(root, target.path);
   checkedPath(dirname3(path), "directory");
-  if (physical(lstatSync4(dirname3(path))) !== target.parentPhysical)
+  if (physical(lstatSync4(dirname3(path), { bigint: true })) !== target.parentPhysical)
     conflict(`Target directory changed: ${target.path}`);
   checkCase(path, false);
   if (exists(path))
@@ -2360,7 +2359,7 @@ function planDocumentNaming(matterDir, input) {
     if (selected.has(fold(targetPath)) || targets.has(fold(targetPath)))
       conflict(`Source/target or target overlap: ${targetPath}`);
     targets.add(fold(targetPath));
-    const target = { path: targetPath, mustBeAbsent: true, parentPhysical: physical(lstatSync4(dirname3(absoluteTarget))) };
+    const target = { path: targetPath, mustBeAbsent: true, parentPhysical: physical(lstatSync4(dirname3(absoluteTarget), { bigint: true })) };
     targetAbsent(root.path, target);
     totalBytes += sourceRead.bytes;
     if (totalBytes > NAMING_LIMITS.totalBytes)
@@ -2424,7 +2423,7 @@ function exclusive(path, data, mode = 384) {
     while (count < buffer.length)
       count += writeSync(fd, buffer, count, buffer.length - count);
     fsyncSync(fd);
-    return physical(fstatSync2(fd));
+    return physical(fstatSync2(fd, { bigint: true }));
   } finally {
     closeSync2(fd);
   }
@@ -2438,19 +2437,19 @@ function controlDirectory(path) {
   }
   checkedPath(path, "directory");
 }
-function profileCAS(root, plan2) {
-  assertPin(root, plan2.profile, PROFILE_LIMIT);
+function profileCAS(root, plan) {
+  assertPin(root, plan.profile, PROFILE_LIMIT);
   const current = memoryProtection(root);
-  if (namingFingerprint(current.source) !== namingFingerprint(plan2.memoryProfile))
+  if (namingFingerprint(current.source) !== namingFingerprint(plan.memoryProfile))
     conflict("Memory profile presence/content/identity changed");
 }
-function finalStates(root, plan2) {
-  profileCAS(root, plan2);
+function finalStates(root, plan) {
+  profileCAS(root, plan);
   const files = [];
-  for (const doc of plan2.documents) {
+  for (const doc of plan.documents) {
     const targetPath = join4(root, doc.target.path);
     checkedPath(dirname3(targetPath), "directory");
-    if (physical(lstatSync4(dirname3(targetPath))) !== doc.target.parentPhysical)
+    if (physical(lstatSync4(dirname3(targetPath), { bigint: true })) !== doc.target.parentPhysical)
       conflict("Final target directory changed");
     checkCase(targetPath, true);
     const target = readNamingBinary(targetPath, NAMING_LIMITS.documentBytes);
@@ -2462,7 +2461,7 @@ function finalStates(root, plan2) {
     else if (exists(join4(root, doc.source.path)))
       conflict(`Working source reappeared: ${doc.source.path}`);
   }
-  for (const m of plan2.markdown) {
+  for (const m of plan.markdown) {
     const read = readNamingBinary(join4(root, m.source.path), NAMING_LIMITS.markdownBytes);
     if (read.sha256 !== m.afterSha256)
       conflict(`Final Markdown changed: ${m.source.path}`);
@@ -2471,24 +2470,24 @@ function finalStates(root, plan2) {
   return files;
 }
 function applyDocumentNaming(matterDir, input, hooks = {}) {
-  const plan2 = parseNamingPlan(input), root = rootDirectory(matterDir);
-  const report = (status, message) => ({ status, operationId: plan2.operationId, fingerprint: plan2.fingerprint, ...message ? { message } : {} });
-  if (root.path !== plan2.matterRootPhysical || root.identity !== plan2.rootIdentity)
+  const plan = parseNamingPlan(input), root = rootDirectory(matterDir);
+  const report = (status, message) => ({ status, operationId: plan.operationId, fingerprint: plan.fingerprint, ...message ? { message } : {} });
+  if (root.path !== plan.matterRootPhysical || root.identity !== plan.rootIdentity)
     return report("conflict", "Matter root physical identity differs");
-  const history = join4(root.path, ".lawoss/naming-history"), operation = join4(history, plan2.operationId), journal = join4(operation, "journal.json"), lock = join4(history, "apply.lock");
+  const history = join4(root.path, ".lawoss/naming-history"), operation = join4(history, plan.operationId), journal = join4(operation, "journal.json"), lock = join4(history, "apply.lock");
   let lockIdentity;
   const created = [], installed = [], removed = [];
   let prepared = false;
   try {
     if (!exists(operation, "directory")) {
-      const fresh2 = planDocumentNaming(root.path, plan2.request);
-      if (fresh2.fingerprint !== plan2.fingerprint)
+      const fresh = planDocumentNaming(root.path, plan.request);
+      if (fresh.fingerprint !== plan.fingerprint)
         conflict("Preview is stale; create and approve a new plan");
     }
     controlDirectory(join4(root.path, ".lawoss"));
     controlDirectory(history);
     checkCase(operation, exists(operation, "directory"));
-    lockIdentity = exclusive(lock, JSON.stringify({ operationId: plan2.operationId, fingerprint: plan2.fingerprint }));
+    lockIdentity = exclusive(lock, JSON.stringify({ operationId: plan.operationId, fingerprint: plan.fingerprint }));
     assertRoot(root);
     if (exists(operation, "directory")) {
       const recovery = (message) => ({ ...report("recovery-required", message), journal });
@@ -2502,45 +2501,45 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
         const priorPlan = parseNamingPlan(prior.plan);
         if (priorPlan.fingerprint !== prior.fingerprint)
           return recovery("Journal plan fingerprint is inconsistent");
-        if (prior.fingerprint !== plan2.fingerprint)
+        if (prior.fingerprint !== plan.fingerprint)
           return report("conflict", "Operation ID belongs to a different plan");
-        if (namingFingerprint(prior.plan) !== namingFingerprint(plan2))
+        if (namingFingerprint(prior.plan) !== namingFingerprint(plan))
           return recovery("Journal plan is inconsistent");
         if (!exists(join4(operation, "committed.json")))
           return recovery("Incomplete operation; retain journal and snapshots for human recovery");
         const receipt = readNamingJson(join4(operation, "committed.json"));
-        if (!object2(receipt) || receipt.version !== 1 || receipt.status !== "committed" || typeof receipt.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(receipt.fingerprint) || !Array.isArray(receipt.finalFiles) || !receipt.finalFiles.every((file2) => isPin(file2) && safeRelativePath(file2.path)))
+        if (!object2(receipt) || receipt.version !== 1 || receipt.status !== "committed" || typeof receipt.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(receipt.fingerprint) || !Array.isArray(receipt.finalFiles) || !receipt.finalFiles.every((file) => isPin(file) && safeRelativePath(file.path)))
           return recovery("Incomplete or invalid committed receipt");
-        if (receipt.fingerprint !== plan2.fingerprint)
+        if (receipt.fingerprint !== plan.fingerprint)
           return report("conflict", "Committed receipt belongs to a different plan");
-        if (receipt.finalFiles.length !== plan2.documents.length + plan2.documents.filter((d) => d.treatment === "copy-original-to-drafts").length + plan2.markdown.length)
+        if (receipt.finalFiles.length !== plan.documents.length + plan.documents.filter((d) => d.treatment === "copy-original-to-drafts").length + plan.markdown.length)
           return recovery("Incomplete committed final states");
         committed = receipt;
       } catch (error) {
         return recovery(`Unreadable operation records; retain evidence: ${error instanceof Error ? error.message : String(error)}`);
       }
-      if (namingFingerprint(finalStates(root.path, plan2)) !== namingFingerprint(committed.finalFiles))
+      if (namingFingerprint(finalStates(root.path, plan)) !== namingFingerprint(committed.finalFiles))
         conflict("Committed physical final states changed");
       return { ...report("already-applied"), journal };
     }
-    const fresh = planDocumentNaming(root.path, plan2.request);
-    if (fresh.fingerprint !== plan2.fingerprint)
+    const fresh = planDocumentNaming(root.path, plan.request);
+    if (fresh.fingerprint !== plan.fingerprint)
       conflict("Preview changed while acquiring lock");
     mkdirSync3(operation, { mode: 448 });
     prepared = true;
-    exclusive(journal, JSON.stringify({ version: 1, status: "prepared", fingerprint: plan2.fingerprint, plan: plan2 }, null, 2));
+    exclusive(journal, JSON.stringify({ version: 1, status: "prepared", fingerprint: plan.fingerprint, plan }, null, 2));
     const snapshots = new Map;
-    for (const [i, source] of [...plan2.documents.map((d) => d.source), ...plan2.markdown.map((m) => m.source)].entries()) {
-      const read = assertPin(root.path, source, i < plan2.documents.length ? NAMING_LIMITS.documentBytes : NAMING_LIMITS.markdownBytes);
+    for (const [i, source] of [...plan.documents.map((d) => d.source), ...plan.markdown.map((m) => m.source)].entries()) {
+      const read = assertPin(root.path, source, i < plan.documents.length ? NAMING_LIMITS.documentBytes : NAMING_LIMITS.markdownBytes);
       const backup = join4(operation, `before-${i}.bin`);
       exclusive(backup, read.data);
       snapshots.set(source.path, { backup, mode: read.mode, beforeSha256: read.sha256 });
     }
     hooks.checkpoint?.("prepared");
-    profileCAS(root.path, plan2);
-    for (const document of plan2.documents) {
+    profileCAS(root.path, plan);
+    for (const document of plan.documents) {
       assertRoot(root);
-      profileCAS(root.path, plan2);
+      profileCAS(root.path, plan);
       targetAbsent(root.path, document.target);
       const source = assertPin(root.path, document.source, NAMING_LIMITS.documentBytes), path = join4(root.path, document.target.path);
       const identity = exclusive(path, source.data, source.mode);
@@ -2550,8 +2549,8 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
       exclusive(join4(operation, `target-${created.length}.json`), JSON.stringify(created.at(-1)));
       hooks.checkpoint?.("target-created", document.target.path);
     }
-    const moves = plan2.documents.filter((d) => d.treatment === "rename-working").map((d) => ({ from: d.source.path, to: d.target.path }));
-    for (const [i, markdown] of plan2.markdown.entries()) {
+    const moves = plan.documents.filter((d) => d.treatment === "rename-working").map((d) => ({ from: d.source.path, to: d.target.path }));
+    for (const [i, markdown] of plan.markdown.entries()) {
       const before = assertPin(root.path, markdown.source, NAMING_LIMITS.markdownBytes);
       const rewritten = rewriteSelectedMarkdownLinks(markdown.source.path, utf8(before.data), moves);
       if (hash(rewritten.content) !== markdown.afterSha256)
@@ -2562,7 +2561,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
       if (readNamingBinary(staged, NAMING_LIMITS.markdownBytes).sha256 !== markdown.afterSha256)
         conflict("Staged Markdown differs");
       assertRoot(root);
-      profileCAS(root.path, plan2);
+      profileCAS(root.path, plan);
       assertPin(root.path, markdown.source, NAMING_LIMITS.markdownBytes);
       const path = join4(root.path, markdown.source.path);
       exclusive(join4(operation, `markdown-${i}-intent.json`), JSON.stringify({ path: markdown.source.path, stagedPhysical: identity }));
@@ -2570,10 +2569,10 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
       installed.push({ path, physical: identity, sha256: markdown.afterSha256, ...snapshots.get(markdown.source.path) });
       hooks.checkpoint?.("markdown-installed", markdown.source.path);
     }
-    for (const document of plan2.documents.filter((d) => d.treatment === "rename-working")) {
+    for (const document of plan.documents.filter((d) => d.treatment === "rename-working")) {
       assertRoot(root);
-      profileCAS(root.path, plan2);
-      for (const m of plan2.markdown)
+      profileCAS(root.path, plan);
+      for (const m of plan.markdown)
         if (readNamingBinary(join4(root.path, m.source.path), NAMING_LIMITS.markdownBytes).sha256 !== m.afterSha256)
           conflict("Selected links changed before source removal");
       const target = readNamingBinary(join4(root.path, document.target.path), NAMING_LIMITS.documentBytes);
@@ -2588,11 +2587,11 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
     }
     hooks.checkpoint?.("before-commit");
     assertRoot(root);
-    const finalFiles = finalStates(root.path, plan2);
-    for (const file2 of [...created, ...installed])
-      if (readNamingBinary(file2.path, NAMING_LIMITS.documentBytes).physical !== file2.physical)
+    const finalFiles = finalStates(root.path, plan);
+    for (const file of [...created, ...installed])
+      if (readNamingBinary(file.path, NAMING_LIMITS.documentBytes).physical !== file.physical)
         conflict("Written file physical identity changed before commit");
-    exclusive(join4(operation, "committed.json"), JSON.stringify({ version: 1, status: "committed", fingerprint: plan2.fingerprint, finalFiles }));
+    exclusive(join4(operation, "committed.json"), JSON.stringify({ version: 1, status: "committed", fingerprint: plan.fingerprint, finalFiles }));
     return { ...report("applied"), journal };
   } catch (error) {
     const recovery = prepared;
@@ -2654,19 +2653,19 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
     if (lockIdentity)
       try {
         checkedPath(lock, "file");
-        if (physical(lstatSync4(lock)) === lockIdentity)
+        if (physical(lstatSync4(lock, { bigint: true })) === lockIdentity)
           unlinkSync(lock);
       } catch {}
   }
 }
-function writeNamingPlanOutsideMatter(matterDir, output, plan2) {
+function writeNamingPlanOutsideMatter(matterDir, output, plan) {
   const root = rootDirectory(matterDir), path = resolve4(output);
   checkedPath(dirname3(path), "directory");
   const parent = realpathSync2(dirname3(path)), physicalOutput = join4(parent, basename3(path));
   if (contained(root.path, physicalOutput) || !safeRelativePath(basename3(path)))
     throw new NamingSchemaError("--out must be a new portable filename outside the matter root");
   checkCase(physicalOutput, false);
-  exclusive(physicalOutput, JSON.stringify(plan2, null, 2) + `
+  exclusive(physicalOutput, JSON.stringify(plan, null, 2) + `
 `);
 }
 
@@ -2774,9 +2773,9 @@ function run(argv, out = console.log) {
         if (!dir || positional.length !== 2 || new Set(namingKeys).size !== namingKeys.length || Object.keys(flags).some((key) => !["manifest", "plan", "apply", "out", "json"].includes(key)) || flags.json !== undefined && flags.json !== true)
           throw new NamingSchemaError("Usage: okf naming <dir> --manifest request.json [--out plan.json] [--json] OR --plan plan.json --apply [--json]");
         if (flags.apply === true && str(flags, "plan") && flags.manifest === undefined && flags.out === undefined) {
-          const result2 = applyDocumentNaming(dir, parseNamingPlan(readNamingJson(str(flags, "plan"))));
-          out(JSON.stringify(result2, null, 2));
-          return result2.status === "applied" || result2.status === "already-applied" ? 0 : 1;
+          const result = applyDocumentNaming(dir, parseNamingPlan(readNamingJson(str(flags, "plan"))));
+          out(JSON.stringify(result, null, 2));
+          return result.status === "applied" || result.status === "already-applied" ? 0 : 1;
         }
         if (!str(flags, "manifest") || flags.plan !== undefined || flags.apply !== undefined || flags.out !== undefined && !str(flags, "out"))
           throw new NamingSchemaError("Preview requires --manifest; apply requires the exact approved --plan and --apply");
