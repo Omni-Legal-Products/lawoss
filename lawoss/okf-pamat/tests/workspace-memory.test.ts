@@ -8,6 +8,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readWorkspaceMemory, renderWorkspaceMemory, saveWorkspaceMemory, WORKSPACE_MEMORY_LIMITS, type WorkspaceMemorySaveRequest } from "../src/workspace-memory.ts";
+import { readScope } from "../src/store.ts";
 const fileSymlinkSkip = symlinkSkipReason("file");
 const dirSymlinkSkip = symlinkSkipReason("dir");
 
@@ -45,6 +46,30 @@ test("absent profile has no effects; full legacy two-root load requires a caller
   assert.equal(r.contextHash, f.load().contextHash);
   rmSync(f.profilePath); const absent = f.load(); assert.equal(absent.present, false); assert.equal(absent.complete, false);
   assert.deepEqual(readdirSync(join(f.workspace, ".lawoss")), []);
+});
+
+test("host-owned external profile needs canonical identity and grants and maps sources read-only", t => {
+  const f = fixture(t); const externalProfile = join(f.vault, "external-profile.json"); const original = readFileSync(f.profilePath);
+  writeFileSync(externalProfile, original); rmSync(f.profilePath);
+  const options = { allowedRoots: [f.vault], profilePath: externalProfile, profileIdentity: realpathSync(externalProfile), profileGrants: [f.vault] };
+  const report = readWorkspaceMemory(f.workspace, options);
+  assert.equal(report.complete, true, JSON.stringify(report.problems));
+  assert.ok(report.sources.every(source => !source.writable));
+  assert.equal(saveWorkspaceMemory(f.workspace, { version: 1, matterId: report.matterId!, operationId: "external-map", reason: "must not write", expectedBindingHash: report.bindingHash!, expectedContextHash: report.contextHash!, updates: [] }, { ...options, apply: true }).status, "conflict");
+  assert.deepEqual(readFileSync(externalProfile), original);
+  assert.equal(readWorkspaceMemory(f.workspace, { ...options, profileIdentity: "wrong" }).complete, false);
+  assert.equal(readWorkspaceMemory(f.workspace, { ...options, profileGrants: [] }).complete, false);
+});
+
+test("subject scope stays inside its client for contentious and non-contentious matters", t => {
+  const base = mkdtempSync(join(realpathSync(tmpdir()), "matter-scope-")); t.after(() => rmSync(base, { recursive: true, force: true }));
+  const office = join(base, "Office"), client = join(base, "Client"), subject = join(client, "Personal"), other = join(base, "Other");
+  for (const dir of [office, client, subject, other]) mkdirSync(join(dir, "memory"), { recursive: true });
+  writeFileSync(join(client, "client.md"), "---\ntype: client\n---\n"); writeFileSync(join(subject, "subject.md"), "---\ntype: subject\n---\n"); writeFileSync(join(other, "client.md"), "---\ntype: client\n---\n");
+  for (const kind of ["contentious", "non_contentious"]) {
+    const matter = join(subject, kind); mkdirSync(join(matter, "memory"), { recursive: true }); writeFileSync(join(matter, "matter.md"), `---\ntype: matter\nkind: ${kind}\n---\n`);
+    const scope = readScope(matter); assert.equal(scope.subjectDir, subject); assert.equal(scope.clientDir, client); assert.equal(scope.records.length, 0);
+  }
 });
 
 test("wrong caller matter and wrong literal anchor fail", t => {

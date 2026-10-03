@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveHostMemoryGrants } from "./host-memory-grants.mjs";
+import { resolveHostMemoryContext, resolveHostMemoryGrants } from "./host-memory-grants.mjs";
 import { LawossOkfHandoff } from "../../apps/server/src/opencode-plugins/lawoss-okf-handoff.ts";
 const roots: string[] = [];
 const prior = { url: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_SERVER_TOKEN, grants: process.env.LAWOSS_MEMORY_ALLOWED_ROOTS };
@@ -57,4 +57,55 @@ test("unrelated remote registration without a local directory does not block loc
   const f = fixture();
   const items = [...f.workspaces.items, { id: "remote", path: "", workspaceType: "remote" }];
   expect(await resolveHostMemoryGrants({ ...f.options, fetch: async (url: string) => Response.json(url.endsWith("/workspaces") ? { items } : f.grants) })).toEqual([f.vault]);
+});
+
+
+test("host memory context shares bounded host selection and validates outside profile authority", async () => {
+  const f = fixture();
+  const appRoot = join(f.root, "host-app-files"); mkdirSync(appRoot);
+  const profilePath = join(appRoot, "memory-profile.json"); writeFileSync(profilePath, "{}");
+  writeFileSync(join(f.child, "client-profile.json"), "{}");
+  const context = {
+    ...f.grants,
+    profile: { profilePath, profileIdentity: realpathSync(profilePath), profileGrants: [appRoot] },
+    handoffRoot: appRoot,
+  };
+  const requests: string[] = [];
+  const fetcher = async (url: string, init: RequestInit) => {
+    requests.push(url); expect(init.redirect).toBe("error");
+    return Response.json(url.endsWith("/workspaces") ? f.workspaces : url.endsWith("/grants") ? f.grants : context);
+  };
+  expect(await resolveHostMemoryContext({ ...f.options, fetch: fetcher })).toEqual({
+    allowedRoots: [f.child, f.vault], profilePath: realpathSync(profilePath), profileIdentity: realpathSync(profilePath), profileGrants: [realpathSync(appRoot)], handoffRoot: realpathSync(appRoot),
+  });
+  expect(requests).toEqual(["http://localhost:4321/workspaces", "http://localhost:4321/workspace/child/lawoss/memory/grants", "http://localhost:4321/workspace/child/lawoss/memory/context"]);
+
+  await expect(resolveHostMemoryContext({ ...f.options, fetch: async (url: string) => Response.json(url.endsWith("/workspaces") ? f.workspaces : url.endsWith("/grants") ? f.grants : { ...context, handoffRoot: appRoot }) })).resolves.toBeDefined();
+  for (const invalid of [
+    { ...context, workspaceRoot: f.root },
+    { ...context, hiddenCount: -1 },
+    { ...context, folders: ["relative"] },
+    { ...context, handoffRoot: appRoot, profile: undefined },
+    { ...context, handoffRoot: f.child },
+    { ...context, profile: { ...context.profile, profileIdentity: "wrong" } },
+    { ...context, profile: { ...context.profile, profilePath: join(f.child, "client-profile.json"), profileIdentity: join(f.child, "client-profile.json"), profileGrants: [f.child] } },
+  ]) {
+    await expect(resolveHostMemoryContext({ ...f.options, fetch: async (url: string) => Response.json(url.endsWith("/workspaces") ? f.workspaces : url.endsWith("/grants") ? f.grants : invalid) })).rejects.toThrow("Host memory permissions unavailable");
+  }
+});
+
+test("host memory context rejects redirect, oversized and timed-out context responses, and skips unrelated missing workspaces", async () => {
+  const f = fixture();
+  const valid = { ...f.grants, workspaceRoot: f.child };
+  const responseFor = (context: Response, items = f.workspaces.items) => async (url: string) => {
+    if (url.endsWith("/workspaces")) return Response.json({ items });
+    if (url.endsWith("/grants")) return Response.json(f.grants);
+    return context;
+  };
+  for (const response of [new Response(null, { status: 302 }), new Response("x".repeat(1024 * 1024 + 1))]) {
+    await expect(resolveHostMemoryContext({ ...f.options, fetch: responseFor(response) })).rejects.toThrow("Host memory permissions unavailable");
+  }
+  await expect(resolveHostMemoryContext({ ...f.options, timeoutMs: 5, fetch: async (url: string) => url.endsWith("/lawoss/memory/context") ? new Promise(() => {}) : url.endsWith("/workspaces") ? Response.json(f.workspaces) : Response.json(f.grants) })).rejects.toThrow("Host memory permissions unavailable");
+  const stale = { id: "stale", path: join(f.root, "missing") };
+  await expect(resolveHostMemoryContext({ ...f.options, fetch: responseFor(Response.json(valid), [...f.workspaces.items, stale]) })).resolves.toEqual({ allowedRoots: [f.child, f.vault] });
 });

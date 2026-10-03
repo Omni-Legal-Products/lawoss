@@ -14,6 +14,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import type { PendingPermission } from "@/app/types";
+import { currentUiMode, useUiMode } from "@/lawoss/lite/ui-mode";
+import { describeMemoryWrite } from "@/lawoss/lite/memory-write";
+import { MemoryWriteNotice } from "@/lawoss/lite/memory-write-notice";
 
 type PermissionPresentation = {
   title: string;
@@ -56,7 +59,7 @@ const metadataDetailKeys: Array<{ key: string; labelKey: string; multiline?: boo
 ];
 
 function readablePermissionLabel(permission: string): string {
-  if (permission === "bash") return "Bash";
+  if (permission === "bash") return currentUiMode() === "lite" ? t("lawoss.lite.permission_command") : "Bash"; // LAWOSS-lite: bez technických pojmů
   if (permission === "edit") return t("session.permission_kind_edit");
   if (permission === "read") return t("session.permission_kind_read");
   if (permission === "external_directory") return t("session.permission_kind_external_directory");
@@ -64,7 +67,7 @@ function readablePermissionLabel(permission: string): string {
   if (permission === "todowrite") return t("session.permission_kind_todowrite");
   if (permission === "question") return t("session.permission_kind_question");
   if (permission === "skill") return t("session.permission_kind_skill");
-  return permission;
+  return currentUiMode() === "lite" ? t("lawoss.lite.permission_other") : permission; // LAWOSS-lite: žádný surový identifikátor
 }
 
 function permissionCopy(permission: string): Pick<PermissionPresentation, "title" | "message"> {
@@ -203,6 +206,8 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
       : {};
   const hasMetadata = Object.keys(metadata).length > 0;
   const detailRows = permissionDetailRows(metadata);
+  const lite = useUiMode() === "lite";
+  const memoryWriteProposal = describeMemoryWrite(String(metadata.command ?? ""));
   const Icon = presentation.isDoomLoop ? RefreshCcw : ShieldCheck;
   const iconClass = presentation.isDoomLoop
     ? "bg-amber-3/30 text-amber-11"
@@ -298,6 +303,8 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
             </div>
           </div>
 
+          {lite && memoryWriteProposal ? <MemoryWriteNotice proposal={memoryWriteProposal} /> : null}
+
           {detailRows.length > 0 ? (
             <div className="rounded-[20px] border border-dls-border bg-dls-surface p-4">
               <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-dls-secondary">
@@ -354,14 +361,17 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
               <Clock3 data-icon="inline-start" />
               {t("session.allow_once")}
             </AlertDialogAction>
-            <AlertDialogAction
-              variant="outline"
-              onClick={() => props.respondPermission?.(props.permission.id, "always")}
-              disabled={props.busy || !props.respondPermission}
-            >
-              <Check data-icon="inline-start" />
-              {t("session.allow_for_session")}
-            </AlertDialogAction>
+            {/* LAWOSS-lite: pravidlo „pro session“ by povolilo i pozdější zápis s --apply bez karty. */}
+            {lite && memoryWriteProposal ? null : (
+              <AlertDialogAction
+                variant="outline"
+                onClick={() => props.respondPermission?.(props.permission.id, "always")}
+                disabled={props.busy || !props.respondPermission}
+              >
+                <Check data-icon="inline-start" />
+                {t("session.allow_for_session")}
+              </AlertDialogAction>
+            )}
           </div>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -377,6 +387,8 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
       : {};
   const hasMetadata = Object.keys(metadata).length > 0;
   const Icon = presentation.isDoomLoop ? RefreshCcw : ShieldCheck;
+  const lite = useUiMode() === "lite";
+  const memoryWriteProposal = describeMemoryWrite(String(metadata.command ?? ""));
 
   return (
     <div className="overflow-hidden border-b border-dls-border bg-transparent">
@@ -415,18 +427,27 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               <Clock3 data-icon="inline-start" />
               {t("session.allow_once")}
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => props.respondPermission?.(props.permission.id, "always")}
-              disabled={props.busy || !props.respondPermission}
-            >
-              <Check data-icon="inline-start" />
-              {t("session.allow_for_session")}
-            </Button>
+            {/* LAWOSS-lite: pravidlo „pro session“ by povolilo i pozdější zápis s --apply bez karty. */}
+            {lite && memoryWriteProposal ? null : (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => props.respondPermission?.(props.permission.id, "always")}
+                disabled={props.busy || !props.respondPermission}
+              >
+                <Check data-icon="inline-start" />
+                {t("session.allow_for_session")}
+              </Button>
+            )}
           </div>
         </div>
+
+        {lite && memoryWriteProposal ? (
+          <div className="border-t border-dls-border px-4 pt-3">
+            <MemoryWriteNotice proposal={memoryWriteProposal} />
+          </div>
+        ) : null}
 
         <div className="border-t border-dls-border px-4 py-3">
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">

@@ -10,12 +10,14 @@
  *   okf render <dir> [--json]
  *   okf naming <dir> --manifest request.json [--out plan.json] [--json]
  *   okf naming <dir> --plan plan.json --apply [--json]
+ *   okf onboard classify|plan|apply|recover ...             explicit onboarding preview and recovery
  *
  * Ľudská brána je ZÁMERNE mimo CLI: `plan` nič nezapíše; `apply` volá ten,
  * kto plán ukázal advokátovi a dostal súhlas.
  */
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { runOnboarding } from "./onboarding/cli.ts";
 
 import { resolveDocumentLanguage, type DocumentLanguage, ENTITY_TYPES, type ClientType, type MatterKind, type MatterMode, type EntityType, type Jurisdiction, type PlanInput } from "./core.ts";
 import { apply, detect, plan, render, validate } from "./fs.ts";
@@ -169,7 +171,7 @@ export function run(argv: string[], out: (line: string) => void = console.log): 
         return 0;
       }
       default:
-        out("okf detect|plan|apply|validate|render|naming — plan/apply/render: --language cs|sk|en; pozri hlavičku src/cli.ts");
+        out("okf detect|plan|apply|validate|render|naming|onboard; plan/apply/render: --language cs|sk|en; pozri hlavičku src/cli.ts");
         return cmd ? 2 : 0;
     }
   } catch (error) {
@@ -188,4 +190,7 @@ const isMain = (() => {
     return false;
   }
 })();
-if (isMain) process.exit(run(process.argv.slice(2)));
+if (isMain) {
+  const args = process.argv.slice(2);
+  process.exit(args[0] === "onboard" ? await runOnboarding(args.slice(1)) : run(args));
+}

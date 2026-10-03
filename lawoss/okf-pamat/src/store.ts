@@ -666,6 +666,8 @@ export function retrofitStatusFile(dir: string, apply: boolean): BlockName[] {
  */
 export interface Scope {
   readonly matter: Store;
+  readonly subjectDir: string | undefined;
+  readonly subjectRecords: OkfRecord[];
   readonly clientDir: string | undefined;
   readonly clientRecords: OkfRecord[];
   readonly officeDir: string | undefined;
@@ -681,6 +683,22 @@ export interface Scope {
  * fungovať priečinky založené skriptami `novy-spis`.
  */
 const CLIENT_CARDS = ["client.md", "klient.md"];
+const SUBJECT_CARDS = ["subject.md"];
+
+/** Finds the nearest subject below the same client, never crossing a client boundary. */
+export function findSubjectDir(matterDir: string): string | undefined {
+  const clientDir = findClientDir(matterDir);
+  if (!clientDir) return undefined;
+  const client = resolve(clientDir);
+  let dir = resolve(matterDir);
+  for (;;) {
+    const parent = dirname(dir);
+    if (parent === dir || parent === client) return undefined;
+    if (!parent.startsWith(`${client}${sep}`)) return undefined;
+    if (SUBJECT_CARDS.some(card => existsSync(join(parent, card)))) return parent;
+    dir = parent;
+  }
+}
 
 /**
  * Zložka kancelárie. Býva v koreni spisov vedľa priečinkov klientov a drží
@@ -768,6 +786,9 @@ function findClientByPath(matterDir: string, maxUp: number): string | undefined 
 export function readScope(matterDir: string): Scope {
   const matter = readStore(matterDir);
   const clientDir = findClientDir(matterDir);
+  const subjectDir = findSubjectDir(matterDir);
+  const subject = subjectDir ? readStore(subjectDir) : undefined;
+  const subjectRecords = subject?.records ?? [];
   const client = clientDir ? readStore(clientDir) : undefined;
   const clientRecords = client?.records ?? [];
   // Kancelária ako „spis" nesmie čítať samu seba dvakrát.
@@ -775,8 +796,8 @@ export function readScope(matterDir: string): Scope {
   const officeDir = najdena && resolve(najdena) !== resolve(matterDir) ? najdena : undefined;
   const office = officeDir ? readStore(officeDir) : undefined;
   const officeRecords = office?.records ?? [];
-  const records = [...matter.records, ...clientRecords, ...officeRecords];
-  const problems = [...matter.problems, ...(client?.problems ?? []), ...(office?.problems ?? [])];
+  const records = [...matter.records, ...subjectRecords, ...clientRecords, ...officeRecords];
+  const problems = [...matter.problems, ...(subject?.problems ?? []), ...(client?.problems ?? []), ...(office?.problems ?? [])];
   const seen = new Set<string>();
   for (const record of records) {
     if (seen.has(record.id)) problems.push({ file: matterDir, message: `Duplicitné ID ${record.id} v rozsahu pamäte.` });
@@ -784,6 +805,8 @@ export function readScope(matterDir: string): Scope {
   }
   return {
     matter,
+    subjectDir,
+    subjectRecords,
     clientDir,
     clientRecords,
     officeDir,

@@ -58,6 +58,7 @@ export function buildWorkspaceInfos(
       baseUrl: workspace.baseUrl,
       directory: workspace.directory,
       displayName: workspace.displayName,
+      ...(workspaceType === "local" ? { appFiles: workspace.appFiles === "outside" ? "outside" : "inside" } : {}),
       legalworkHostUrl: workspace.legalworkHostUrl,
       legalworkToken: workspace.legalworkToken,
       legalworkWorkspaceId: workspace.legalworkWorkspaceId,

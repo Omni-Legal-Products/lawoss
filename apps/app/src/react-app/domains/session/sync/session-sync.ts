@@ -25,6 +25,7 @@ type SyncOptions = {
   workspaceId: string;
   baseUrl: string;
   legalworkToken: string;
+  directory?: string;
   onSessionUpdated?: (update: { sessionId: string; info: Record<string, unknown> }) => void;
   onSessionStatus?: (update: { sessionId: string; status: SessionStatus }) => void;
 };
@@ -75,7 +76,7 @@ export const questionKey = (workspaceId: string, sessionId: string) =>
   ["react-session-questions", workspaceId, sessionId] as const;
 
 function syncKey(input: SyncOptions) {
-  return `${input.workspaceId}:${input.baseUrl}:${input.legalworkToken}`;
+  return `${input.workspaceId}:${input.baseUrl}:${input.legalworkToken}:${input.directory ?? ""}`;
 }
 
 function getErrorStatus(error: unknown) {
@@ -1158,7 +1159,7 @@ function flushDeltas(entry: SyncEntry, workspaceId: string) {
 }
 
 function startSync(input: SyncOptions) {
-  const client = createClient(input.baseUrl, undefined, { token: input.legalworkToken, mode: "legalwork" });
+  const client = createClient(input.baseUrl, input.directory, { token: input.legalworkToken, mode: "legalwork" });
   const controller = new AbortController();
   const entry = syncs.get(syncKey(input));
   let disposed = false;

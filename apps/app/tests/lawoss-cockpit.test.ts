@@ -171,6 +171,14 @@ for (const shared of ["Office", "AK/N/Novák Jan"]) {
   });
 }
 
+test("failed client intake reaches the cockpit", () => {
+  const m = { ...matter([rec("matter", "M-001")]), scopePaths: [PATH, "AK/N/Novák Jan", "Office"] };
+  const problem = { path: "AK/N/Novák Jan/VSTUPY.md", message: "EACCES", scope: "client" as const };
+  const c = buildCockpit(input([m], [problem]), PATH, TODAY)!;
+  expect(c.unreadable).toEqual([problem]);
+  expect(c.attention).toContainEqual(expect.objectContaining({ file: problem.path, scope: "client" }));
+});
+
 for (const at of ["2026-99-99", "2026-02-30", "2026-09-12Tgarbage", "2026-09-12T25:00:00Z"]) {
   test(`invalid verification timestamp cannot confirm a deadline: ${at}`, () => {
     const r = rec("question", "Q-INVALID", { deadlines: ["2026-10-01"], verified: [{ by: "VR", at, type: "human", deadline: "2026-10-01", truth: "" }] });
