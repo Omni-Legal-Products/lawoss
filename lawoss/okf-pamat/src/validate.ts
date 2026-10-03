@@ -140,7 +140,9 @@ function needleForField(f: FieldDef, value: string, source: string): Needle | un
 function clientNeedles(records: readonly OkfRecord[]): Needle[] {
   const out: Needle[] = [];
   for (const r of records) {
-    if (r.type !== "subject") continue;
+    // Identifikátory sa berú z každého záznamu spisu, nie len zo `subject` —
+    // vlastný typ agenta (`person`) by inak IČO a rodné číslo prepašoval do L3.
+    if (r.layer !== "L2") continue;
     const raw = r as unknown as Record<string, unknown>;
     for (const f of needleFields()) {
       const v = raw[f.canonical];
@@ -148,7 +150,7 @@ function clientNeedles(records: readonly OkfRecord[]): Needle[] {
       const n = needleForField(f, v, r.id);
       if (n) out.push(n);
     }
-    if (r.title) {
+    if (r.type === "subject" && r.title) {
       const n = nameNeedle(r.title, r.id);
       if (n) out.push(n);
     }
@@ -158,7 +160,9 @@ function clientNeedles(records: readonly OkfRecord[]): Needle[] {
   for (const r of records) {
     if (r.layer !== "L2") continue;
     for (const p of r.participants ?? []) {
-      const n = p.name ? nameNeedle(p.name, r.id) : undefined;
+      // Súd, úrad či polícia sú verejné inštitúcie, nie údaj klienta — ako
+      // jehla by zablokovali každý L3 prameň, ktorý ich cituje.
+      const n = p.name && !PUBLIC_BODY.test(normalize(p.name)) ? nameNeedle(p.name, r.id) : undefined;
       if (n) out.push(n);
     }
   }
@@ -177,9 +181,32 @@ function clientNeedles(records: readonly OkfRecord[]): Needle[] {
   return out;
 }
 
+/**
+ * Názov verejnej inštitúcie (normalizovaný, bez diakritiky).
+ * ponytail: slovník slov, nie register orgánov — orgán mimo zoznamu ostane
+ * jehlou (prísnejšie, nie únik); doplniť slovo, ak blokuje bežný prameň.
+ */
+const PUBLIC_BODY =
+  /(?<![\p{L}\p{N}])(?:soud|sud|urad|policie|policia|prokuratura|zastupitelstvi|ministerstvo|magistrat|sprava)(?![\p{L}\p{N}])/u;
+
 /** Voľný text tela: Truth, História a vlastné sekcie — tie nesmú byť slepou škvrnou brány. */
 function bodyText(r: OkfRecord): string {
   return [r.truth, ...r.timeline.map((e) => e.text), ...(r.sections ?? []).map((s) => `${s.heading}\n${s.body}`)].join("\n");
+}
+
+/**
+ * Všetky reťazce záznamu — telo aj frontmatter (`participants`, vlastné polia,
+ * `extra`). Brána úniku nesmie mať slepú škvrnu v poli, ktoré nikto nečakal.
+ */
+function leakText(r: OkfRecord): string {
+  const out: string[] = [];
+  const walk = (v: unknown): void => {
+    if (typeof v === "string") out.push(v);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (typeof v === "object" && v !== null) Object.values(v).forEach(walk);
+  };
+  walk(r);
+  return out.join("\n");
 }
 
 function recordText(r: OkfRecord): string {
@@ -418,7 +445,7 @@ export function validateStore(
   const needles = clientNeedles(records);
   for (const r of records) {
     if (r.layer !== "L3") continue;
-    const haystack = normalize(recordText(r));
+    const haystack = normalize(leakText(r));
     for (const n of needles) {
       if (n.pattern.test(haystack)) findings.push(leakFinding(r, n, opts.nameLeakSeverity));
     }

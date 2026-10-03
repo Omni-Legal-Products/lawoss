@@ -275,7 +275,9 @@ Typy vyššie sú ponuka, nie klietka. Čo sa do nich nehodí, zapíš tak, ako 
 
   `name` je povinné (`PARTICIPANT_NAME_MISSING`). Blok „Zapojené subjekty" /
   „Zúčastnené subjekty" sa vyrenderuje v `_STATUS.md` pod stranami. **Mená
-  z `participants` sú jehlami brány úniku do L3** rovnako ako mená subjektov.
+  z `participants` sú jehlami brány úniku do L3** rovnako ako mená subjektov —
+  okrem verejných inštitúcií (súd, úrad, polícia, prokuratúra, zastupiteľstvo,
+  ministerstvo, magistrát, správa), ktoré smie L3 prameň citovať.
 
 **Čo ostáva deterministické — tu sa neimprovizuje:**
 

@@ -1472,7 +1472,7 @@ function needleForField(f, value, source) {
 function clientNeedles(records) {
   const out = [];
   for (const r of records) {
-    if (r.type !== "subject")
+    if (r.layer !== "L2")
       continue;
     const raw = r;
     for (const f of needleFields()) {
@@ -1483,7 +1483,7 @@ function clientNeedles(records) {
       if (n)
         out.push(n);
     }
-    if (r.title) {
+    if (r.type === "subject" && r.title) {
       const n = nameNeedle(r.title, r.id);
       if (n)
         out.push(n);
@@ -1493,7 +1493,7 @@ function clientNeedles(records) {
     if (r.layer !== "L2")
       continue;
     for (const p of r.participants ?? []) {
-      const n = p.name ? nameNeedle(p.name, r.id) : undefined;
+      const n = p.name && !PUBLIC_BODY.test(normalize(p.name)) ? nameNeedle(p.name, r.id) : undefined;
       if (n)
         out.push(n);
     }
@@ -1509,9 +1509,24 @@ function clientNeedles(records) {
   }
   return out;
 }
+var PUBLIC_BODY = /(?<![\p{L}\p{N}])(?:soud|sud|urad|policie|policia|prokuratura|zastupitelstvi|ministerstvo|magistrat|sprava)(?![\p{L}\p{N}])/u;
 function bodyText(r) {
   return [r.truth, ...r.timeline.map((e) => e.text), ...(r.sections ?? []).map((s) => `${s.heading}
 ${s.body}`)].join(`
+`);
+}
+function leakText(r) {
+  const out = [];
+  const walk = (v) => {
+    if (typeof v === "string")
+      out.push(v);
+    else if (Array.isArray(v))
+      v.forEach(walk);
+    else if (typeof v === "object" && v !== null)
+      Object.values(v).forEach(walk);
+  };
+  walk(r);
+  return out.join(`
 `);
 }
 function recordText(r) {
@@ -1687,7 +1702,7 @@ function validateStore(records, opts = {}) {
   for (const r of records) {
     if (r.layer !== "L3")
       continue;
-    const haystack = normalize(recordText(r));
+    const haystack = normalize(leakText(r));
     for (const n of needles) {
       if (n.pattern.test(haystack))
         findings.push(leakFinding(r, n, opts.nameLeakSeverity));
@@ -2113,7 +2128,7 @@ function planWrite(before, after, reason) {
   const subject = after ?? before;
   if (!subject)
     throw new Error("Prázdny zápis");
-  const layer = subject.layer;
+  const layer = before?.layer === "L1" || before?.layer === "L3" ? before.layer : subject.layer;
   const requiresApproval = kind === "delete" || layer === "L1" || layer === "L3";
   return {
     kind,

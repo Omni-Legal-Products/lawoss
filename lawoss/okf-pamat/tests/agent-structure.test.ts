@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../src/cli.ts";
 import { parseRecord, serializeRecord, type OkfRecord } from "../src/record.ts";
-import { newRecord, readStore, renderStatus, statusSkeleton, validateStore, MEMORY_DIR } from "../src/index.ts";
+import { authorize, newRecord, planWrite, readStore, renderStatus, statusSkeleton, validateStore, ApprovalRequiredError, MEMORY_DIR } from "../src/index.ts";
 
 const D = { today: "2026-10-04" };
 
@@ -167,6 +167,46 @@ test("meno zapojeneho subjektu je jehlou uniku do L3", () => {
   const leak = validateStore([m, a], D).find((f) => f.code === "L3_LEAK");
   assert.ok(leak, "meno zo participants musí byť chytené");
   assert.match(leak.message, /Petr Svoboda/);
+});
+
+const prameň = (over: Partial<OkfRecord> = {}): OkfRecord => ({
+  ...newRecord({ id: "A-001", type: "authority", jurisdiction: "cz", title: "Veta", description: "d",
+    created: "2026-10-01", updated: "2026-10-01", truth: "Obecná veta.", timeline: [] }),
+  ...over,
+});
+
+test("participants samotneho L3 zaznamu su v kope brany uniku", () => {
+  const m = zaznam({ type: "matter", id: "M-001", participants: [{ name: "Jaroslav Kopřivník" }] });
+  const a = prameň({ participants: [{ name: "Jaroslav Kopřivník", contact: "+420 777 111 222" }] });
+  assert.ok(validateStore([m, a], D).some((f) => f.code === "L3_LEAK" && f.recordId === "A-001"));
+});
+
+test("identifikatory z vlastneho typu agenta su jehlami uniku", () => {
+  const p = zaznam({ type: "person", id: "P-001", registry_id: "29139643", birth_number: "750101/1234" });
+  const a = prameň({ truth: "IČO 29139643, RČ 750101/1234." });
+  const leaks = validateStore([p, a], D).filter((f) => f.code === "L3_LEAK");
+  assert.ok(leaks.some((f) => /29139643/.test(f.message)), JSON.stringify(leaks));
+});
+
+test("verejna institucia v participants nie je jehlou, sukromna osoba ano", () => {
+  const m = zaznam({ type: "matter", id: "M-001", participants: [
+    { name: "Nejvyšší soud", role: "dovolací soud" }, { name: "Finanční úřad pro hl. m. Prahu" },
+    { name: "Policie ČR" }, { name: "Okresná prokuratúra Bratislava" }, { name: "Petr Svoboda" }] });
+  const a = prameň({ title: "Nejvyšší soud 22 Cdo 2886/2023",
+    truth: "Nejvyšší soud dovodil, že Finanční úřad pro hl. m. Prahu, Policie ČR ani Okresná prokuratúra Bratislava nerozhodují." });
+  assert.ok(!validateStore([m, a], D).some((f) => f.code === "L3_LEAK"));
+  assert.ok(validateStore([m, prameň({ truth: "Petr Svoboda" })], D).some((f) => f.code === "L3_LEAK"));
+});
+
+test("zmena L1 zaznamu na vlastny typ stale vyzaduje schvalenie", () => {
+  const pravidlo = newRecord({ id: "R-001", type: "rule", jurisdiction: "cz", title: "Pravidlo", description: "d",
+    created: "2026-10-01", updated: "2026-10-01", truth: "Platí.", timeline: [{ date: "2026-10-01", text: "Založeno." }] });
+  const prepis: OkfRecord = { ...pravidlo, type: "note_x", layer: "L2", truth: "Pravidlo zrušeno agentem.", updated: "2026-10-02",
+    timeline: [...pravidlo.timeline, { date: "2026-10-02", text: "Zrušeno." }] };
+  const diff = planWrite(pravidlo, prepis, "test");
+  assert.equal(diff.requiresApproval, true);
+  assert.equal(diff.layer, "L1");
+  assert.throws(() => authorize(diff, undefined), ApprovalRequiredError);
 });
 
 // --- 4. nesporné typy ---
