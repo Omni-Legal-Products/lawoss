@@ -1,0 +1,30 @@
+name: Telegram release fixtures
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - .github/scripts/telegram_release.py
+      - .github/scripts/test_telegram_release.py
+      - .github/workflows/telegram-notify.yml
+      - .github/workflows/ci-telegram.yml
+  push:
+    branches: [dev]
+    paths:
+      - .github/scripts/telegram_release.py
+      - .github/scripts/test_telegram_release.py
+      - .github/workflows/telegram-notify.yml
+      - .github/workflows/ci-telegram.yml
+
+permissions:
+  contents: read
+
+jobs:
+  release-fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Test release lookup, rendering and stubbed delivery
+        run: python3 -m unittest discover -s .github/scripts -p 'test_telegram_release.py' -v
