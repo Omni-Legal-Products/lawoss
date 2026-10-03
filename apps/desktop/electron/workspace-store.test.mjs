@@ -244,6 +244,7 @@ test("registers an existing canonical workspace without changing its files and p
     baseUrl: null,
     directory: null,
     displayName: "Same title",
+    appFiles: "inside",
     legalworkHostUrl: null,
     legalworkToken: null,
     legalworkClientToken: null,
@@ -268,6 +269,16 @@ test("registers an existing canonical workspace without changing its files and p
   assert.equal(persisted.watchedId, matterId);
   assert.equal(persisted.watchedWorkspaceId, matterId);
 
+  const renamed = await store.updateWorkspaceDisplayName({
+    workspaceId: matterId,
+    displayName: "Renamed matter",
+  });
+  const renamedWorkspace = renamed.workspaces.find((workspace) => workspace.id === matterId);
+  assert.deepEqual(
+    { name: renamedWorkspace?.name, displayName: renamedWorkspace?.displayName },
+    { name: "Same title", displayName: "Renamed matter" },
+  );
+
   const restarted = createTestStore(root, userData);
   const afterRestart = await restarted.readWorkspaceState();
   assert.deepEqual(afterRestart.workspaces.map((workspace) => workspace.id), [officeId, matterId]);
@@ -275,8 +286,12 @@ test("registers an existing canonical workspace without changing its files and p
   assert.equal(afterRestart.activeId, matterId);
   assert.equal(afterRestart.watchedId, matterId);
 
-  const retry = await restarted.createWorkspace({ folderPath: matterRealPath, name: "Same title", preset: "starter", registerExisting: true });
+  const retry = await restarted.createWorkspace({ folderPath: matterRealPath, name: "Replacement title", preset: "starter", registerExisting: true });
   assert.equal(retry.workspaces.filter((workspace) => workspace.id === matterId).length, 1);
+  assert.deepEqual(
+    retry.workspaces.find((workspace) => workspace.id === matterId),
+    renamedWorkspace,
+  );
   assert.deepEqual(await snapshotTree(matterRealPath), matterBefore);
 
   const stateBeforeInvalidInputs = await readFile(statePath, "utf8");
@@ -319,6 +334,61 @@ test("registers an existing canonical workspace without changing its files and p
   const falseCreatePath = path.join(root, "false-create");
   await restarted.createWorkspace({ folderPath: falseCreatePath, name: "False", registerExisting: false });
   assert.equal((await snapshotTree(falseCreatePath)).some(([entry]) => entry === ".opencode"), true);
+});
+
+test("outside app files persist across native registration and restart", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "legalwork-workspace-app-files-"));
+  const userData = path.join(root, "userData");
+  const client = path.join(root, "client");
+  await mkdir(userData, { recursive: true });
+  await mkdir(client, { recursive: true });
+  const clientRealPath = await realpath(client);
+  await writeFile(path.join(clientRealPath, "brief.txt"), "Original client data", "utf8");
+
+  const store = createTestStore(root, userData);
+  const created = await store.createWorkspace({
+    folderPath: clientRealPath,
+    name: "Existing client",
+    preset: "starter",
+    registerExisting: true,
+    appFiles: "outside",
+  });
+  const id = workspaceIdForPath(clientRealPath);
+  assert.equal(created.workspaces.find((workspace) => workspace.id === id)?.appFiles, "outside");
+  assert.deepEqual(await snapshotTree(clientRealPath), [["brief.txt", "file", Buffer.from("Original client data").toString("hex")]]);
+  await assert.rejects(
+    () => store.readWorkspaceLegalworkConfig(clientRealPath),
+    /unsupported in outside app-files mode/,
+  );
+  await assert.rejects(
+    () => store.writeWorkspaceLegalworkConfig(clientRealPath, { version: 1 }),
+    /unsupported in outside app-files mode/,
+  );
+  await assert.rejects(
+    () => store.createWorkspace({ folderPath: clientRealPath, name: "Unsafe initializer" }),
+    /registered without initialization/,
+  );
+  assert.deepEqual(await snapshotTree(clientRealPath), [["brief.txt", "file", Buffer.from("Original client data").toString("hex")]]);
+
+  await store.updateWorkspaceDisplayName({ workspaceId: id, displayName: "Mapped client" });
+
+  const restarted = createTestStore(root, userData);
+  const state = await restarted.readWorkspaceState();
+  assert.deepEqual(
+    state.workspaces.find((workspace) => workspace.id === id)?.appFiles,
+    "outside",
+  );
+  const repeated = await restarted.createWorkspace({
+    folderPath: clientRealPath,
+    name: "Replacement client name",
+    preset: "starter",
+    registerExisting: true,
+  });
+  assert.deepEqual(
+    repeated.workspaces.find((workspace) => workspace.id === id),
+    state.workspaces.find((workspace) => workspace.id === id),
+  );
+  assert.deepEqual(await snapshotTree(clientRealPath), [["brief.txt", "file", Buffer.from("Original client data").toString("hex")]]);
 });
 
 test("selecting a server-created project persists it across desktop restart without replacing project metadata", async () => {
