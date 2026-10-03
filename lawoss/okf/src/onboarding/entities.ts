@@ -75,7 +75,7 @@ export async function planNewMatter(request: MatterRequest): Promise<CreatePrevi
   if (existingArea && existingArea.kind !== "directory") throw new Error("Matter area is blocked by a non-directory.");
   const office = findOfficeDir(request.parent);
   const workingProfile = office ? parseOfficeWorkingProfile(await readFile(join(office, "okf.config"), "utf8"), request.language ?? "sk") : undefined;
-  const generated = planEntity({ type: "spis", dir: target, title: request.title, language: request.language, jurisdiction: request.jurisdiction, date: request.date, workingProfile }, LOCALIZED_TEMPLATES, () => false);
+  const generated = planEntity({ type: "spis", dir: target, title: request.title, language: request.language, jurisdiction: request.jurisdiction, date: request.date, workingProfile, matterKind: request.kind === "contentious" ? "dispute" : "other" }, LOCALIZED_TEMPLATES, () => false);
   const template = templateOperations(`${area}/${name}`, generated.entries).filter(operation => operation.path !== `${area}/${name}`);
   const operations = [ ...(existingArea ? [] : [directory(area)]), directory(`${area}/${name}`), ...template.map(operation => operation.path === `${area}/${name}/matter.md` && operation.kind === "file" ? file(operation.path, (operation.content ?? "").replace("type: spis", `type: matter\nkind: ${request.kind}\narea: ${yaml(area)}\nsubject: ${yaml(request.subject ?? "")}`)) : operation) ];
   return { mode: "new", appFiles: "inside", target, clientRoot: request.clientRoot, plan: await rootPlan(request.parent, operations) };

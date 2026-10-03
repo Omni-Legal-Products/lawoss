@@ -41,6 +41,7 @@ test("subject and both matter kinds carry additive identity fields", async () =>
     if (preview.mode !== "new") throw new Error("Expected matter plan.");
     const card = await readFile(join(preview.target, "matter.md"), "utf8");
     expect(card).toContain(`kind: ${kind}`);
+    expect(card).toContain(`matter_kind: ${kind === "contentious" ? "dispute" : "other"}`);
     expect(card).toContain('area: "IP"');
     expect(card).toContain('subject: "Personal"');
     expect(result.clientRoot).toBe(client);
