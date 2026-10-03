@@ -25,7 +25,7 @@ jobs:
           - os: windows-2022
             target: x86_64-pc-windows-msvc
             platform: win
-            executable: win-unpacked/LegalWork.exe
+            executable: win-unpacked/LAWOSS.exe
     defaults:
       run:
         shell: bash

@@ -306,6 +306,8 @@ Doménové obrazovky, slovníky, viditeľný prepínač a regresie zostávajú v
 
 ## Upstream sync v0.2.1 (2026-10-02)
 
+Windows CI follow-up: `.github/workflows/ci-desktop-packaging.yml` používa `win-unpacked/LAWOSS.exe`, zhodne s existujúcim `productName`. Upstream cesta `LegalWork.exe` zlyhala po úspešnom vytvorení LAWOSS balíka. Kontroly poistiek, natívnych modulov, náhľadu a štartu sa zachovávajú.
+
 Baseline `8858366578b506bc3c83f39072e3c0a2ddbbee00`, upstream `v0.2.1` `2019dc65b45860fdd76ff3addf7a1524bbf3c6a6`. Merge má 32 textových konfliktov. Tabuľka zachytáva aktívne downstream adaptácie v resolved tree; historické záznamy vyššie ostávajú zachované.
 
 | Súbory upstreamu | Adaptácia LAWOSS v synce |

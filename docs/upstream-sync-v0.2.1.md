@@ -63,6 +63,8 @@ The Electron smoke had no renderer page exceptions. Observed network noise inclu
 
 ### Remaining review and release gates
 
+The initial Windows packaging CI built `LAWOSS.exe` successfully, then failed because the inherited smoke matrix looked for `LegalWork.exe`. The matrix now uses the actual LAWOSS product name. A fresh GitHub run must verify the full packaged startup and security steps with this correction.
+
 - PR CI and one human approval are required before merging. Local test results do not substitute for those gates.
 - A signed/notarized installer, Windows/Linux UI, real external provider authentication/inference, live cloud storage and native OCR model downloads were not exercised.
 - The built-in review prompt library remains EN/DE content with English fallback for SK/CS UI.
