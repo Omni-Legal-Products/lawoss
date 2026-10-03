@@ -5,8 +5,17 @@ import { mkdir } from "node:fs/promises";
 import { parseCliArgs, printHelp, resolveServerConfig } from "./config.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer } from "./managed-opencode.js";
 import { createServerLogger, startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
-import { ensureWorkspaceFiles } from "./workspace-init.js";
-import { keepLegalworkRuntimeConfigFileFresh, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
+import { ensureWorkspaceFilesForBootstrap } from "./workspace-init.js";
+import { globalSkillsDir } from "./workspace-files.js";
+import { ensureBundledWorkflows } from "./bundled-workflows.js";
+import { retireSharedLegacyReview } from "./reviews/retire-legacy.js";
+import {
+  keepLegalworkRuntimeConfigFileFresh,
+  legalworkRuntimeConfigFilePath,
+  writeLegalworkRuntimeConfigFile,
+} from "./legalwork-runtime-config.js";
+import { globalOpenCodeConfigPath } from "./mcp.js";
+import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
 import { repairAllWorkspaceRuntimeProviders } from "./runtime-provider-repair.js";
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
@@ -30,13 +39,28 @@ const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.hos
 let managedOpencode: ManagedOpencodeServer | null = null;
 
 if (!config.readOnly) {
+  await retireSharedLegacyReview(globalSkillsDir());
+  await ensureBundledWorkflows();
   for (const workspace of config.workspaces) {
-    await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
+    await ensureWorkspaceFilesForBootstrap(workspace);
   }
 }
 // Drop retired / unparsable provider blocks from the runtime DB BEFORE the
 // engine config file is built: one bad stored block takes the engine down.
 await repairAllWorkspaceRuntimeProviders(config);
+// Connectors are shared by every workspace; fold what earlier builds stored
+// per workspace or in files into the shared row before the engine config
+// file is built from it.
+await importConnectorsIntoSharedRow(config, {
+  runtimeConfigFile: legalworkRuntimeConfigFilePath(config),
+  globalOpencodeConfigFile: globalOpenCodeConfigPath(),
+}).then((result) => {
+  if (result.backups.length > 0) {
+    console.warn(`[legalwork-server] connector files backed up before the move: ${result.backups.join(", ")}`);
+  }
+}).catch((error: unknown) => {
+  console.warn(`[legalwork-server] connector import skipped: ${error instanceof Error ? error.message : String(error)}`);
+});
 
 if (!config.opencodeBaseUrl && process.env.LEGALWORK_MANAGE_OPENCODE === "1") {
   const workspace = config.workspaces[0];

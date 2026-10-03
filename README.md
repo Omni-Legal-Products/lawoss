@@ -66,6 +66,31 @@ LegalWork už poskytuje chat, lokálneho agenta, Office add-iny, transkripciu a 
 
 Podrobný scope, ADR a špecifikácie sú v [koordinačnom repozitári](https://github.com/originalmagneto/lawOSS-like-SK-CZ).
 
+## Autogram — podpisovanie a zaručená konverzia
+
+<table>
+<tr>
+<td width="120" valign="top"><img src="lawoss/brand/autogram-icon.png" alt="Autogram" width="100"></td>
+<td valign="top">
+
+**[Autogram macOS](https://github.com/originalmagneto/autogram-macOS)** je samostatná natívna aplikácia v SwiftUI od rovnakého autora. **Funguje už dnes a používa sa nezávisle od LAWOSS** — nie je to pripravovaná funkcia tohto projektu.
+
+| Modul | Čo rieši |
+|---|---|
+| **Podpisovanie** | KEP, PAdES, ASiC-E, kvalifikovaná časová pečiatka, grafický podpis, dávkové spracovanie |
+| **Zaručená konverzia** | Postup podľa zák. č. 305/2013 Z. z. s detekciou bezpečnostných prvkov, osvedčovacou doložkou a autorizáciou mandátnym certifikátom |
+| **Štátne weby** | Rozšírenie do Safari, ktoré podpisovanie na portáloch obslúži cez aplikáciu — potvrdenie kartou alebo mobilom |
+| **Register** | Lokálna evidencia konverzií, stavy, vyhľadávanie a CSV export |
+
+</td>
+</tr>
+</table>
+
+**Čo z toho má LAWOSS dnes:** v nastaveniach v sekcii *Integrations* je karta, ktorá na macOS zistí, či máte Autogram nainštalovaný, a podľa toho ho otvorí alebo odkáže na jeho vydania. **Hlbšie prepojenie sa pripravuje** — LAWOSS zatiaľ Autogramu neodovzdáva dokumenty ani neriadi jeho beh.
+
+> [!NOTE]
+> Autogram je samostatný projekt s vlastným repozitárom a vlastným životným cyklom. Nie je súčasťou tohto forku a nevzťahuje sa naň licencia LAWOSS.
+
 ## Vizuálny smer
 
 > [!NOTE]
@@ -107,9 +132,9 @@ Pracujeme v troch zónach:
 | Člen | Zameranie |
 |---|---|
 | [Marián Čuprík](https://github.com/originalmagneto) | SK jurisdikcia, integrácie a upstream sync |
-| [Martin Friedrich](https://github.com/LexaurinTheDog) | Lehoty, právne workflowy a bezpečnostné brány |
+| [Vojta Říha](https://github.com/LexaurinTheDog) | CZ jurisdikcia, lokalizácia a technické návrhy |
 | [Igor Ribár](https://github.com/igorribar) | Advokátska prax a produktové overovanie |
-| [Vojta Říha](https://github.com/BiggusDicckkus) | CZ jurisdikcia, lokalizácia a technické návrhy |
+| [Martin Friedrich](https://github.com/BiggusDicckkus) | Lehoty, právne workflowy a bezpečnostné brány |
 
 ## Vývoj
 
@@ -128,6 +153,9 @@ pnpm test:e2e
 ```
 
 Prečítajte si [`AGENTS.md`](AGENTS.md). Každá zmena ide cez krátku vetvu, pull request, jedno schválenie a zelené CI. Pri zásahu do upstream súboru aktualizujte v tom istom PR aj [`PATCHES.md`](PATCHES.md).
+
+- [Build pre alfa testerov](docs/lawoss-build-pre-testerov.md) — ako si aplikáciu skompilovať a čo hlásiť
+- [Akceptačný protokol pre alfu](docs/lawoss-alpha-acceptance.md) — zlatá cesta, provider matica a bezpečné hlásenie výsledku
 
 ## Bezpečnosť a modely
 

@@ -1,7 +1,15 @@
+import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
+import { SystemOneSettingsSection } from "../domains/settings/pages/systemone-view";
+import { TabularReviewSettingsView } from "../domains/settings/pages/tabular-review-view";
 /** @jsxImportSource react */
+import { OfficeProfileView } from "@/lawoss/domains/settings/office-profile-view";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "@/components/ui/sonner";
+
+import { NativeCatalog } from "@/lawoss/domains/marketplace/native-catalog";
+import { useNativeIntegrations } from "@/lawoss/domains/marketplace/use-native-integrations";
+import { installWithRefresh } from "@/lawoss/domains/marketplace/native-actions";
 
 import { SUGGESTED_PLUGINS } from "@/app/constants";
 import type { EnablementContext } from "@/app/enablement";
@@ -9,6 +17,7 @@ import { createClient } from "@/app/lib/opencode";
 import {
   createLegalworkServerClient,
   isLoopbackLegalworkServerUrl,
+  LegalworkServerError,
   readLegalworkServerSettings,
   type LegalworkServerCapabilities,
   type LegalworkServerClient,
@@ -66,6 +75,7 @@ import {
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
 import { PremiumUpsellHost } from "@/react-app/domains/recorder/premium-upsell-context";
 import { FusionSettingsSection } from "@/react-app/domains/settings/pages/fusion-settings-section";
+import { OcrSettingsSection } from "@/react-app/domains/settings/pages/ocr-settings-section";
 import { BenchmarkView } from "@/react-app/domains/benchmark/benchmark-view";
 // Side-effect imports: register extension config components into the registry.
 import "@/react-app/domains/settings/computer-use-config";
@@ -73,6 +83,7 @@ import "@/react-app/domains/settings/google-workspace-config";
 import { useSettingsExtensionController } from "@/react-app/domains/settings/settings-extension-controller";
 import { buildExtensionItems } from "@/react-app/domains/settings/extension-items";
 import { isLegalWorkExtensionEnabled, LEGALWORK_EXTENSION_STATE_CHANGED, setLegalWorkExtensionEnabled } from "@/react-app/domains/settings/extension-state";
+import { NotificationsView } from "@/react-app/domains/settings/pages/notifications-view";
 import { PreferencesView } from "@/react-app/domains/settings/pages/preferences-view";
 import { PersonalisationView } from "@/react-app/domains/settings/pages/personalisation-view";
 import { ShellCustomizationView } from "@/react-app/domains/settings/pages/shell-view";
@@ -82,16 +93,20 @@ import { ToolPermissionsPanel } from "@/react-app/domains/settings/panels/tool-p
 import { SettingsStack } from "@/react-app/domains/settings/settings-section";
 import { AdvancedView } from "@/react-app/domains/settings/pages/advanced-view";
 import { AppearanceView } from "@/react-app/domains/settings/pages/appearance-view";
-import { captureAnalyticsEvent, captureAnalyticsOptOut } from "@/app/lib/analytics";
+import { captureAnalyticsEvent, discardPendingAnalytics } from "@/app/lib/analytics";
 import { DebugView } from "@/react-app/domains/settings/pages/debug-view";
 import { EnvironmentView } from "@/react-app/domains/settings/pages/environment-view";
+import { FileStorageView } from "@/react-app/domains/settings/pages/file-storage-view";
+import { STORAGE_CHANGED_EVENT } from "@/react-app/domains/settings/pages/storage-providers";
 import { ExtensionsView } from "@/react-app/domains/settings/pages/extensions-view";
+import { FileMemoryIntegrationCard } from "@/lawoss/domains/integrations/file-memory-integration-card";
 import { McpView } from "@/react-app/domains/settings/pages/mcp-view";
 import { RecoveryView } from "@/react-app/domains/settings/pages/recovery-view";
 import { OfficeAddinsView } from "@/react-app/domains/settings/pages/office-addins-view";
 import { RecorderSettingsView } from "@/react-app/domains/settings/pages/recorder-view";
 import { MessagingView } from "@/react-app/domains/settings/pages/messaging-view";
 import { SkillsView } from "@/react-app/domains/settings/pages/skills-view";
+import { WorkflowsView } from "@/react-app/domains/settings/pages/workflows-view";
 import { UpdatesView } from "@/react-app/domains/settings/pages/updates-view";
 import { useDebugViewModel } from "@/react-app/domains/settings/state/debug-view-model";
 import { useMessagingViewProps } from "@/react-app/domains/settings/state/messaging-view-state";
@@ -106,6 +121,7 @@ import {
 } from "@/react-app/domains/settings/state/template-workflow-generation";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { useLocal } from "@/react-app/kernel/local-provider";
+import { useNotificationStore } from "@/react-app/kernel/notification-store";
 import {
   legalworkServerInfo,
   legalworkServerRestart,
@@ -134,6 +150,7 @@ import {
 } from "@/app/utils";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
+import { newProjectFields } from "@/react-app/domains/workspace/project-defaults-store";
 import {
   diagnoseRemoteWorkspaceTaskLoadFailure,
   getRemoteWorkspaceConnectionKey,
@@ -150,6 +167,7 @@ import { notifyAlert } from "./notifications";
 import { ROUTE_LEGALWORK_CAPABILITIES } from "./legalwork-capabilities";
 import { useReloadCoordinator } from "./reload-coordinator";
 import { readActiveWorkspaceId, writeActiveWorkspaceId } from "./session-memory";
+import { liteSettingsWorkspace } from "@/lawoss/lite/office-scope";
 import { workspaceSessionRoute, workspaceSettingsRoute } from "./workspace-routes";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { refreshProviderListQueries } from "@/react-app/infra/provider-list-query";
@@ -204,7 +222,7 @@ const SETTINGS_UPDATE_AUTO_DOWNLOAD_KEY = "legalwork.react.settings.update-auto-
 function parseSettingsPath(pathname: string): {
   tab: SettingsTab;
   redirectPath: string | null;
-  extensionsSection?: "all" | "mcp" | "skills" | "plugins";
+  extensionsSection?: "all" | "mcp" | "skills" | "plugins" | "storage";
   benchmarkRunId?: string;
   benchmarkTaskId?: string;
   benchmarkItemId?: string;
@@ -222,8 +240,10 @@ function parseSettingsPath(pathname: string): {
   switch (head) {
     case "general":
     case "ai":
+    case "tabular-review":
     case "account":
     case "personalisation":
+    case "notifications":
     case "preferences":
     case "permissions":
     case "safety":
@@ -258,6 +278,7 @@ function parseSettingsPath(pathname: string): {
       return { tab: "benchmark", redirectPath: null };
     }
     case "extensions":
+      if (tail === "storage") return { tab: "extensions", redirectPath: null, extensionsSection: "storage" };
       if (tail === "mcp") return { tab: "extensions", redirectPath: null, extensionsSection: "mcp" };
       if (tail === "skills") return { tab: "extensions", redirectPath: null, extensionsSection: "skills" };
       if (tail === "plugins") return { tab: "extensions", redirectPath: null, extensionsSection: "plugins" };
@@ -829,14 +850,17 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const firmEntitlementsQuery = useEigenweltEntitlements({
     client: legalworkClient,
     workspaceId: hubWorkspaceId,
+    enabled: !isCommercialSurfaceHidden("firm-hub"),
   });
-  const canShareWithFirm = hasEigenweltFeature(firmEntitlementsQuery.data?.entitlements, "admin_hub");
+  const canShareWithFirm = !isCommercialSurfaceHidden("firm-hub") && hasEigenweltFeature(firmEntitlementsQuery.data?.entitlements, "admin_hub");
   // Multi-select "Share with your firm" dialog, opened from the Team scope pills.
   const [teamShareOpen, setTeamShareOpen] = useState(false);
   const [teamShareInitial, setTeamShareInitial] = useState<{
-    kind: "skill" | "workflow" | "mcp" | "plugin";
+    kind: "skill" | "workflow" | "mcp" | "plugin" | "review_set";
     ref: string;
   } | null>(null);
+  // The prompt library shares prompt sets only; every other entry point offers all kinds.
+  const [teamShareKinds, setTeamShareKinds] = useState<Array<"review_set"> | null>(null);
   // The recorder's premium gate + upsell challenge for the Settings surface (the
   // model-manager download list) is owned by <PremiumUpsellHost/>, mounted in the
   // JSX below with the same client + workspace.
@@ -848,6 +872,19 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         return;
       }
       setTeamShareInitial({ kind, ref: skillName });
+      setTeamShareOpen(true);
+    },
+    [legalworkClient, hubWorkspaceId],
+  );
+
+  const shareReviewSetWithFirm = useCallback(
+    (id: string) => {
+      if (!legalworkClient || !hubWorkspaceId) {
+        toast.error(t("app.error_connect_first"));
+        return;
+      }
+      setTeamShareKinds(["review_set"]);
+      setTeamShareInitial({ kind: "review_set", ref: id });
       setTeamShareOpen(true);
     },
     [legalworkClient, hubWorkspaceId],
@@ -881,17 +918,25 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   // AND the global provider manifest server-side (revoking the refresh-token
   // family), then reloads the engine so the eigenwelt provider drops from every
   // workspace. Errors propagate to the account view, which surfaces a toast.
-  const disconnectEigenwelt = useCallback(async () => {
+  const disconnectEigenwelt = useCallback(async (options?: { force?: boolean }) => {
     setDisconnectingProviderId(EIGENWELT_PROVIDER_ID);
     try {
       if (legalworkClient && hubWorkspaceId) {
         try {
-          await legalworkClient.eigenweltSaveConnection(hubWorkspaceId, { disconnect: true });
-        } catch {
-          // best-effort: still reset the local view + engine below.
+          await legalworkClient.eigenweltSaveConnection(hubWorkspaceId, {
+            disconnect: true,
+            ...(options?.force ? { force: true } : {}),
+          });
+        } catch (error) {
+          // The server refuses while changes made here have not reached the
+          // firm: the account view asks the user, nothing is reset yet.
+          if (error instanceof LegalworkServerError && error.code === "tasks_pending") throw error;
+          // Anything else is best-effort: still reset the local view + engine below.
         }
-        invalidateEigenweltEntitlements(hubWorkspaceId);
+        invalidateEigenweltEntitlements();
       }
+      // The firm's tasks left this machine: so do the announcements naming them.
+      useNotificationStore.getState().removeKind("tasks");
       // Await a FULL provider refresh (dispose → re-read the rebuilt
       // engine config → setProviders / setProviderConnectedIds) so the account
       // view's providers-derived state (model count + connected id set) drops
@@ -1537,6 +1582,26 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     !isRemoteWorkspace || legalworkServerSnapshot.legalworkServerCanWriteSkills;
   const canWriteWorkspacePlugins =
     !isRemoteWorkspace || legalworkServerSnapshot.legalworkServerCanWritePlugins;
+  const canInstallWorkspaceBundle = canWriteWorkspacePlugins && canWriteWorkspaceSkills &&
+    (!isRemoteWorkspace || (legalworkServerSnapshot.legalworkServerCapabilities?.mcp?.write === true &&
+      legalworkServerSnapshot.legalworkServerCapabilities?.skillResources?.write === true));
+  const canInstallOkfSkills = canWriteWorkspaceSkills &&
+    (!isRemoteWorkspace || legalworkServerSnapshot.legalworkServerCapabilities?.skillResources?.write === true);
+  const nativeIntegrations = useNativeIntegrations({
+    client: selectedWorkspaceEndpoint?.client ?? legalworkClient,
+    endpoint: selectedWorkspaceEndpoint?.baseUrl ?? baseUrl,
+    workspaceId: runtimeWorkspaceId,
+    enabled: route.tab === "extensions",
+    canRemove: canInstallWorkspaceBundle,
+    canInstallSkills: canInstallOkfSkills,
+    refreshSkills: () => extensionsStore.refreshSkills({ force: true }),
+    refreshPlugins: () => extensionsStore.refreshPlugins(),
+    refreshMcp: () => connectionsStore.refreshMcpServers(),
+  });
+  const refreshNativeIntegrations = () => {
+    window.dispatchEvent(new Event(STORAGE_CHANGED_EVENT));
+    void nativeIntegrations.refresh().catch((error) => toast.error(describeRouteError(error)));
+  };
   const skillsAccessHint =
     isRemoteWorkspace && !canWriteWorkspaceSkills ? t("app.skills_hint_readonly") : null;
   const pluginsAccessHint =
@@ -1562,8 +1627,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     ? t("status.providers_connected", { count: providerConnectedIds.length })
     : t("settings.no_providers_connected");
   const providerConnectedIdSet = new Set(providerConnectedIds);
-  // Eigenwelt is managed from its own "Eigenwelt" account tab, not as a model
-  // provider — hide it from the AI providers list (a footnote points there).
+  // Eigenwelt has a dedicated managed account row that links to the Account tab;
+  // exclude it from the API-key provider rows below.
   //
   // Connecting is OAuth-only (the bare API-key path was removed), so a signed-in
   // account ALWAYS carries a rotating token and the server reports
@@ -1675,6 +1740,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const extensionItems = useMemo(
     () => buildExtensionItems({
       quickConnect: connectionsStore.quickConnect,
+      platform: window.__LEGALWORK_ELECTRON__?.meta?.platform ?? "web",
       mcpServers: connectionsSnapshot.mcpServers,
       installedSkills: extensionsStore.skills(),
       enablementContext,
@@ -1828,7 +1894,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       let list: WorkspaceList | null = null;
       if (legalworkClient) {
         list = await legalworkClient
-          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset })
+          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset, projectFields: newProjectFields() })
           .catch(() => null);
       }
       if (!list) {
@@ -1899,6 +1965,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     return <Navigate to={workspaceSettingsRoute(selectedWorkspaceId, settingsPathForRoute(route))} replace state={location.state} />;
   }
 
+  // LAWOSS-lite: nastavení patří kanceláři, ne složce věci aktivní po konverzaci (PATCHES.md).
+  const liteOfficeId = props.embedded ? null : liteSettingsWorkspace(selectedWorkspaceId, workspaces);
+  if (liteOfficeId) return <Navigate to={workspaceSettingsRoute(liteOfficeId, settingsPathForRoute(route))} replace state={location.state} />;
+
   const settingsView = (() => {
     switch (route.tab) {
       case "general":
@@ -1951,6 +2021,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             />
           </SettingsStack>
         );
+      case "tabular-review":
+        return <TabularReviewSettingsView client={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient} workspaceId={runtimeWorkspaceId} onManageProviders={() => navigateSettingsPath("ai")} />;
       case "ai":
         return (
           <AiSettingsView
@@ -1970,6 +2042,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onEditProvider={handleEditCustomProvider}
             canDisconnectProvider={(source) => source !== "env"}
             eigenweltConnected={eigenweltConnected}
+            onManageEigenweltAccount={() => navigateSettingsPath("account")}
+            systemOneView={<SystemOneSettingsSection client={legalworkClient} onManageSubscription={() => navigateSettingsPath("account")} />}
+            ocrView={<OcrSettingsSection client={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient} />}
             fusionView={
               <FusionSettingsSection
                 fusionModels={local.prefs.fusionModels ?? []}
@@ -2023,6 +2098,14 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       case "personalisation":
         return (
           <PersonalisationView
+            officeProfileView={<OfficeProfileView
+              key={`${selectedWorkspace?.id}:${selectedWorkspaceEndpoint?.baseUrl}`}
+              client={selectedWorkspaceEndpoint?.client ?? null}
+              workspaceId={selectedWorkspaceEndpoint?.workspaceId ?? null}
+              workspacePath={selectedWorkspace?.path ?? ""}
+              workspaceName={selectedWorkspaceDisplay.displayName ?? selectedWorkspaceDisplay.name}
+              remote={selectedWorkspace?.workspaceType === "remote"}
+            />}
             client={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient}
             onSettingsApplied={() => {
               reloadCoordinator.markReloadRequired("config", {
@@ -2059,6 +2142,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onBackToList={() => navigateSettingsPath("benchmark")}
           />
         );
+      case "notifications":
+        return <NotificationsView />;
       case "preferences":
         return (
           <PreferencesView
@@ -2076,11 +2161,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onToggleAutoCompactContext={toggleAutoCompactContext}
             analyticsEnabled={local.prefs.analyticsEnabled === true}
             onToggleAnalytics={() => {
-              // Turning OFF sends the one anonymous opted-out marker (and
-              // purges the queue) so opt-out rates stay measurable.
               const turningOff = local.prefs.analyticsEnabled === true;
+              if (turningOff) discardPendingAnalytics();
               local.setPrefs((previous) => ({ ...previous, analyticsEnabled: !previous.analyticsEnabled }));
-              if (turningOff) captureAnalyticsOptOut("settings");
             }}
             hideAppMode={local.prefs.hideAppMode}
             onChangeHideAppMode={(mode) => {
@@ -2091,9 +2174,30 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       case "shell":
         return <ShellCustomizationView />;
       case "skills":
-      case "workflows":
+      case "workflows": {
+        const View = route.tab === "workflows" ? WorkflowsView : SkillsView;
         return (
-          <SkillsView
+          <View
+            workspaceId={selectedWorkspaceId}
+            reviewClient={legalworkClient}
+            reviewWorkspaceId={hubWorkspaceId}
+            onShareReviewSet={shareReviewSetWithFirm}
+            onOpenReviewSetShare={canShareWithFirm ? () => {
+              setTeamShareKinds(["review_set"]);
+              setTeamShareInitial(null);
+              setTeamShareOpen(true);
+            } : undefined}
+            firmReviewSetsView={
+              <HubDownloadSection
+                legalworkClient={legalworkClient}
+                workspaceId={hubWorkspaceId}
+                kind="review_set"
+                onConfigApplied={() => {
+                  void getReactQueryClient().invalidateQueries({ queryKey: ["review-library"] });
+                }}
+              />
+            }
+            inlineEditor={props.singleView !== true}
             kind={route.tab === "workflows" ? "workflows" : "skills"}
             workspaceName={selectedWorkspaceName}
             busy={busy}
@@ -2152,10 +2256,19 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             }}
           />
         );
+      }
       case "extensions":
         return (
           <ExtensionsView
+            key={`${selectedWorkspaceEndpoint?.baseUrl ?? baseUrl}:${runtimeWorkspaceId}`}
             busy={busy}
+            fileMemoryView={<FileMemoryIntegrationCard
+              client={selectedWorkspaceEndpoint?.client ?? legalworkClient}
+              workspaceId={runtimeWorkspaceId}
+              workspacePath={selectedWorkspaceRoot}
+              workspaceName={selectedWorkspaceName}
+              remote={isRemoteWorkspace}
+            />}
             showHeader={props.singleView}
             selectedWorkspaceRoot={selectedWorkspaceRoot}
             isRemoteWorkspace={isRemoteWorkspace}
@@ -2170,13 +2283,29 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
               const path = `extensions/${section}`;
               navigateSettingsPath(path);
             }}
-            onRefresh={() => {
-              void connectionsStore.refreshMcpServers();
-              void extensionsStore.refreshPlugins();
-            }}
+            onRefresh={refreshNativeIntegrations}
             previewClaudePlugin={(url) => extensionsStore.previewClaudePlugin(url)}
-            installClaudePlugin={(url) => extensionsStore.installClaudePlugin(url)}
-            mcpView={
+            installClaudePlugin={canInstallWorkspaceBundle ? (url) => installWithRefresh(
+              () => extensionsStore.installClaudePlugin(url), nativeIntegrations.refresh,
+            ) : undefined}
+            catalogView={<NativeCatalog
+              workspaceId={runtimeWorkspaceId ?? ""}
+              workspaceName={selectedWorkspaceName}
+              busy={busy}
+              loading={nativeIntegrations.loading}
+              error={nativeIntegrations.error}
+              plugins={nativeIntegrations.plugins}
+              skills={extensionsStore.skills()}
+              canInstallPlugin={Boolean(legalworkClient) && canInstallWorkspaceBundle}
+              canInstallSkills={Boolean(legalworkClient) && canInstallOkfSkills}
+              installPlugin={(url) => extensionsStore.installClaudePlugin(url)}
+              previewPlugin={(url) => extensionsStore.previewClaudePlugin(url)}
+              installOkf={nativeIntegrations.installOkf}
+              refresh={nativeIntegrations.refresh}
+            />}
+            storageView={<FileStorageView client={isRemoteWorkspace ? selectedWorkspaceEndpoint?.client ?? legalworkClient : legalworkClient} workspaceId={runtimeWorkspaceId || selectedWorkspaceId || null} />}
+            mcpView={<>
+              {nativeIntegrations.error ? <p role="alert" className="text-sm text-red-11">{describeRouteError(nativeIntegrations.error)}</p> : null}
               <McpView
                 busy={busy}
                 workspaceKey={selectedWorkspace?.id}
@@ -2193,6 +2322,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 enablementContext={enablementContext}
                 builtInExtensionsDisabled={builtInExtensionsDisabled}
                 connectMcp={connectionsStore.connectMcp}
+                probeMcp={connectionsStore.probeMcp}
+                registerMcpClient={connectionsStore.registerMcpClient}
                 cancelPendingMcpAuth={connectionsStore.cancelPendingMcpAuth}
                 configSlotForEntry={extensionController.configSlotForEntry}
                 isExtensionConnected={extensionController.isConnected}
@@ -2209,9 +2340,10 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                     : undefined
                 }
                 readConfigFile={(scope) => connectionsStore.readMcpConfigFile(scope)}
-                installedSkills={[]}
-                installedPlugins={[]}
-                uninstallSkill={(name) => { void extensionsStore.uninstallSkill(name); }}
+                installedSkills={extensionsStore.skills()}
+                installedPlugins={nativeIntegrations.plugins}
+                removeCloudPlugin={canInstallWorkspaceBundle ? (id) => nativeIntegrations.removePlugin(id).catch((error) => toast.error(describeRouteError(error))) : undefined}
+                uninstallSkill={canWriteWorkspaceSkills ? (name) => { void extensionsStore.uninstallSkill(name); } : undefined}
                 readSkill={(name) => extensionsStore.readSkill(name)}
                 showHeader={false}
                 canShareWithFirm={canShareWithFirm}
@@ -2233,7 +2365,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                   />
                 }
               />
-            }
+            </>}
             skillsView={
               <SkillsView
                 workspaceName={selectedWorkspaceName}
@@ -2387,14 +2519,16 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   return (
     <>
       {props.singleView ? (
-        // Standalone page (Skills / Integrations) hosted in the main app shell: render
-        // just the active view, no settings nav chrome. Matches SettingsContent's padding
-        // and centering so the view sits where it does inside Settings.
-        <div className="min-w-0 min-h-0 flex-1 overflow-y-auto flex flex-col items-center gap-6 p-4 md:gap-8 md:p-6 lg:p-8 bg-background">
-          {settingsView}
+        // Standalone pages use the same pane-relative gutters and content width.
+        // Workflows owns its frame so its list and editor can scroll independently.
+        <div className={route.tab === "workflows"
+          ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
+          : "@container/page min-w-0 min-h-0 flex-1 overflow-y-auto bg-background"}>
+          {route.tab === "workflows" ? settingsView : <div className="lw-page-content lw-page-top flex flex-col gap-6 pb-8">{settingsView}</div>}
         </div>
       ) : (
         <SettingsShell
+          accountClient={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient}
           activeTab={route.tab}
           onSelectTab={(tab) => navigateSettingsPath(tab)}
           developerMode={developerMode}
@@ -2425,6 +2559,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         onSelect={providerAuthStore.startProviderAuth}
         onSubmitApiKey={providerAuthStore.submitProviderApiKey}
         onSubmitCustomProvider={providerAuthStore.submitCustomProvider}
+        onFetchCustomModels={providerAuthStore.fetchCustomProviderModels}
+        onReadCustomProvider={providerAuthStore.readCustomProviderForEdit}
         customEdit={customProviderEdit}
         onSubmitOAuth={providerAuthStore.completeProviderAuthOAuth}
         onRefreshProviders={providerAuthStore.refreshProviders}
@@ -2542,10 +2678,14 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         workspaceId={hubWorkspaceId}
         open={teamShareOpen}
         initialSelection={teamShareInitial}
+        kinds={teamShareKinds}
         includeGlobalSkills={(selectedWorkspace?.workspaceType ?? "local") !== "remote"}
         onOpenChange={(open) => {
           setTeamShareOpen(open);
-          if (!open) setTeamShareInitial(null);
+          if (!open) {
+            setTeamShareInitial(null);
+            setTeamShareKinds(null);
+          }
         }}
         onShared={() => {
           void getReactQueryClient().invalidateQueries({ queryKey: ["eigenwelt-hub"] });

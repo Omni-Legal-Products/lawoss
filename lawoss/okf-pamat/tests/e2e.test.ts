@@ -33,6 +33,7 @@ for (const j of ["cz", "sk"] as const) {
       id: "S-001", type: "subject", jurisdiction: j,
       title: "Stavby Modrý Kámen s.r.o.", description: "protistrana, overena v registri",
       registry_id: "12345678", created: "2026-08-29", updated: "2026-08-29",
+      source: "OR",
       truth: "Protistrana, zapisana v registri.",
       timeline: [{ date: "2026-08-29", text: "overene v obchodnom registri" }],
     });
@@ -84,7 +85,8 @@ for (const j of ["cz", "sk"] as const) {
     // 6. Klientsky udaj sa do zdielatelnej pravnej vrstvy nedostane —
     //    brana ho zastavi uz pri zapise, nie az pri samostatnej validacii.
     const spinavy = newRecord({
-      id: "J-001", type: "authority", jurisdiction: j, verified_at: "2026-09-02",
+      id: "J-001", type: "authority", jurisdiction: j,
+      source: "test", verified_via: "test", verified_at: "2026-09-02",
       title: "K miestnej prislusnosti", description: "pravny pramen",
       created: "2026-08-30", updated: "2026-08-30",
       truth: "Vec sa tykala spolocnosti s ICO 12345678.",
@@ -103,7 +105,9 @@ for (const j of ["cz", "sk"] as const) {
     };
     applyRecordWrite(dir, planWrite(undefined, cisty, "pravna veta"), ADVOKAT);
     assert.equal(readStore(dir).records.length, 4);
-    assert.deepEqual(validateStore(readStore(dir).records), []);
+    // `today` vstupuje zvonka: bez neho by test po 12. 9. 2026 padal na DEADLINE_PASSED,
+    // teda by závisel na dni, kedy sa spustí.
+    assert.deepEqual(validateStore(readStore(dir).records, { today: "2026-09-01" }), []);
 
     // 8. Projekcia: bloky sa naplnia, ludsky text zostane, druhy beh nic nezmeni.
     writeIndex(dir);

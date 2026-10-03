@@ -39,7 +39,16 @@
       "development": "./src/audio.ts",
       "default": "./src/audio.ts"
     },
-    "./office-editor": "./src/office-editor.ts"
+    "./office-editor": "./src/office-editor.ts",
+    "./file-storage": "./src/file-storage.ts",
+    "./model-limits": "./src/model-limits.ts",
+    "./systemone": "./src/systemone.ts",
+    "./ocr": "./src/ocr.ts",
+    "./document-structure": "./src/document-structure.ts",
+    "./reviews": "./src/reviews.ts",
+    "./corpus": "./src/corpus.ts",
+    "./search": "./src/search.ts",
+    "./sync-events": "./src/sync-events.ts"
   },
   "files": [
     "src",

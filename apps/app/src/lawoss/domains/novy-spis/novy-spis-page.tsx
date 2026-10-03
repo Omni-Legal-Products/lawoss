@@ -1,87 +1,204 @@
 /** @jsxImportSource react */
-import { useEffect, useMemo, useState } from "react";
+import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
+import type { SetupTextKey } from "../../i18n/setup";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocal } from "@/react-app/kernel/local-provider";
+import { lawyerName } from "../../okf/lawyer-name";
+import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import { useNavigate } from "react-router-dom";
 
 import { pickDirectory } from "@/app/lib/desktop";
 import { isDesktopRuntime } from "@/app/utils";
 
 import { LawossLayout } from "../../shell/layout";
-import { composePrompt, targetDir, type Jurisdikcia, type NovySpisForm, type SubjectKind } from "../../okf/compose-prompt";
+import { composePrompt, defaultJurisdictionForLocale, documentLanguageForLocale, targetDir, type Jurisdikcia, type NovySpisForm, type SubjectKind } from "../../okf/compose-prompt";
 import { loadOkfConnection, openSessionWithPrompt, type OkfConnection } from "../../okf/connection";
-import { previewPlan } from "../../okf/preview";
-import { NOVY_SPIS_SKILL_NAME, OKF_CLI_RESOURCE_NAME, okfCliSource, skillBody } from "../../okf/skill-bundle";
+import { groupPlan, workspaceRelativePath, type PlanGroupItem } from "../../okf/plan-groups";
+import { loadProfilePreview, type ProfilePreview } from "../../okf/load-profile";
+import { previewPlan, probePlanFiles } from "../../okf/preview";
+import { NOVY_SPIS_SKILL_NAME } from "../../okf/skill-bundle";
+import { officeWorkspace } from "../../okf/read-model";
+import { currentUiMode } from "../../lite/ui-mode";
+import { prepareOkfDraft, okfTargetWithinWorkspace } from "./prepare-draft";
 
-const SUBJECTS: Array<{ id: SubjectKind; label: string }> = [
-  { id: "pravnicka-osoba", label: "Právnická osoba" },
-  { id: "fyzicka-osoba", label: "Fyzická osoba" },
-  { id: "spis", label: "Spis (pod existujúcim klientom)" },
-  { id: "projekt", label: "Interný projekt" },
+const SUBJECTS: Array<{ id: SubjectKind; label: SetupTextKey }> = [
+  { id: "pravnicka-osoba", label: "subject.company" },
+  { id: "fyzicka-osoba", label: "subject.individual" },
+  { id: "fyzicka-osoba-podnikatel", label: "subject.soleTrader" },
+  { id: "iny-subjekt", label: "subject.other" },
+  { id: "spis", label: "subject.matter" },
+  { id: "projekt", label: "subject.project" },
 ];
 
-type Status = { tone: "ok" | "warn" | "err"; text: string } | null;
+type Notice = { key: SetupTextKey; params?: Record<string, string | number> } | { text: string };
+type Status = ({ tone: "ok" | "warn" | "err" } & Notice) | null;
+function useSetupText() {
+  const locale = useLocale();
+  const text = (key: SetupTextKey, params?: Record<string, string | number>): string => t(`lawoss.setup.${key}`, locale, params);
+  const notice = (value: Notice): string => "key" in value ? text(value.key, value.params) : value.text;
+  return { locale, text, notice };
+}
+/** Obsah cieľového priečinka zistený pri „Zobraziť plán“, viazaný na cestu, pre ktorú platí. */
+type Probe = { dir: string; names: string[]; formKey: string; profile: ProfilePreview };
 
-/**
- * Nový spis — Fáza A. Nič nezakladá sám: pripraví skill + CLI vo workspace a
- * odovzdá požiadavku agentovi, ktorý plán ukáže advokátovi pred zápisom.
- * Žije pod Experimentmi; upstream „Add folder“ ostáva nedotknuté.
- */
-export function NovySpisPage() {
-  const navigate = useNavigate();
-  const [connection, setConnection] = useState<OkfConnection | null>(null);
-  const [connError, setConnError] = useState<string | null>(null);
-  const [workspaceId, setWorkspaceId] = useState("");
-  const [busy, setBusy] = useState<"skill" | "session" | null>(null);
+/** A confirmed preview is bound to generation inputs, including document language. */
+export function isCurrentCreationPlan(probe: Pick<Probe, "dir" | "formKey"> | null, form: NovySpisForm): boolean {
+  return probe?.dir === targetDir(form) && probe.formKey === JSON.stringify(form);
+}
+
+export function PlanGroup({ title, items, empty, tone }: { title: string; items: PlanGroupItem[]; empty: string; tone?: "warn" }) {
+  const locale = useLocale();
+  return (
+    <div className={`lw-plan-group ${tone ?? ""}`}>
+      <span className="lw-sc">{title}</span>
+      {items.length === 0 ? <p className="lw-plan-empty">{empty}</p> : null}
+      {items.map((item) => (
+        <div className="lw-plan-row" key={`${title}:${item.label}`}>
+          <b>{item.labelKey ? t(item.labelKey, locale) : item.label}</b>
+          <span>{item.noteKey ? t(item.noteKey, locale, item.noteParams) : item.note}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export type NovySpisPanelProps = {
+  connection: Pick<OkfConnection, "client" | "baseUrl" | "token">;
+  workspace: RouteWorkspace;
+  onOpenSession: (route: string) => void;
+  documentAuthor?: string;
+};
+
+/** The native dialog and the legacy route share this workspace-bound form. */
+export function NovySpisPanel({ connection, workspace, onOpenSession, documentAuthor }: NovySpisPanelProps) {
+  const { locale, text, notice } = useSetupText();
+  const [canWrite, setCanWrite] = useState(false);
+  const [permissionError, setPermissionError] = useState<Notice | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setCanWrite(false);
+    setPermissionError(null);
+    if (!connection.client) return;
+    connection.client.capabilities().then((capabilities) => {
+      if (cancelled) return;
+      const allowed = capabilities.skills.write && Boolean(capabilities.skillResources?.write);
+      setCanWrite(allowed);
+      if (!allowed) setPermissionError({ key: "error.skillWrite" });
+    }).catch((error: unknown) => {
+      if (!cancelled) setPermissionError({ text: error instanceof Error ? error.message : String(error) });
+    });
+    return () => { cancelled = true; };
+  }, [connection.client]);
+  const [busy, setBusy] = useState<"plan" | "confirm" | null>(null);
   const [status, setStatus] = useState<Status>(null);
+  const [probe, setProbe] = useState<Probe | null>(null);
+  const [result, setResult] = useState<{ dir: string; route: string } | null>(null);
   const [form, setForm] = useState<NovySpisForm>({
-    mode: "okf", subject: "pravnicka-osoba", title: "", ico: "", jurisdikcia: "SK", verify: true, root: "", protistrana: "",
+    mode: "okf", subject: "pravnicka-osoba", title: "", ico: "", jurisdikcia: defaultJurisdictionForLocale(locale), root: "", protistrana: "", country: defaultJurisdictionForLocale(locale), identifierType: "ICO", matterKind: "dispute", matterMode: "bounded", clientName: "",
   });
+  // Jurisdikcia a krajina klienta idú za jazykom rozhrania, kým ich advokát sám nezmení.
+  const jurisdictionChosen = useRef(false);
+  const countryChosen = useRef(false);
+  useEffect(() => {
+    const fallback = defaultJurisdictionForLocale(locale);
+    setForm((current) => ({
+      ...current,
+      ...(jurisdictionChosen.current ? {} : { jurisdikcia: fallback }),
+      ...(countryChosen.current ? {} : { country: fallback }),
+    }));
+  }, [locale]);
   /** Koreň zadaný ručne alebo cez dialóg; prázdny = koreň workspace-u. */
   const [rootOverride, setRootOverride] = useState("");
 
-  useEffect(() => {
-    let cancelled = false;
-    loadOkfConnection()
-      .then((next) => {
-        if (cancelled) return;
-        setConnection(next);
-        setWorkspaceId((current) => current || next.activeWorkspaceId);
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) setConnError(error instanceof Error ? error.message : String(error));
-      });
-    return () => { cancelled = true; };
-  }, []);
-
-  const workspace = useMemo(
-    () => connection?.workspaces.find((item) => item.id === workspaceId) ?? null,
-    [connection, workspaceId],
-  );
   const effectiveRoot = rootOverride.trim() || workspace?.path || "";
-  const effectiveForm = useMemo<NovySpisForm>(() => ({ ...form, root: effectiveRoot }), [form, effectiveRoot]);
-  const rootOutsideWorkspace = Boolean(workspace?.path && effectiveRoot && !effectiveRoot.startsWith(workspace.path));
+  const effectiveForm = useMemo<NovySpisForm>(() => ({ ...form, root: effectiveRoot, advokat: lawyerName(documentAuthor), documentLanguage: documentLanguageForLocale(locale), promptLanguage: locale }), [form, effectiveRoot, documentAuthor, locale]);
+  const rootOutsideWorkspace = !okfTargetWithinWorkspace(targetDir(effectiveForm), workspace);
+  useEffect(() => {
+    setProbe(null);
+    setResult(null);
+    setStatus(null);
+  }, [effectiveForm, workspace.id]);
 
   async function pickRoot() {
     try {
-      const picked = (await pickDirectory({ title: "Koreňový priečinok pre nový spis" })) as string | null;
+      const picked = (await pickDirectory({ title: text("wizard.root") })) as string | null;
       if (picked) setRootOverride(picked);
     } catch (error) {
       setStatus({ tone: "err", text: error instanceof Error ? error.message : String(error) });
     }
   }
-  const preview = useMemo(() => previewPlan(effectiveForm), [effectiveForm]);
-  const prompt = useMemo(() => composePrompt(effectiveForm), [effectiveForm]);
+  const dir = useMemo(() => targetDir(effectiveForm), [effectiveForm]);
+  // Zistený obsah platí len pre cestu, pri ktorej sa zisťoval — po zmene názvu
+  // alebo koreňa je plán opäť „všetko nové“, kým advokát nestlačí Zobraziť plán.
+  const existing = useMemo(() => new Set(probe && isCurrentCreationPlan(probe, effectiveForm) ? probe.names : []), [probe, dir, effectiveForm]);
+  const rows = useMemo(() => previewPlan(effectiveForm, (path) => existing.has(path), probe?.profile.profile), [effectiveForm, existing, probe]);
+  const groups = useMemo(
+    () => groupPlan(rows, { form: effectiveForm, workspacePath: workspace?.path ?? "" }),
+    [rows, effectiveForm, workspace],
+  );
+  const prompt = useMemo(() => composePrompt(effectiveForm, probe && isCurrentCreationPlan(probe, effectiveForm)
+    ? {
+      // Preview data in the UI language, like the instructions around it.
+      source: probe.profile.sourceKey ? t(probe.profile.sourceKey, locale, probe.profile.sourceParams) : probe.profile.source,
+      warning: probe.profile.warningKey ? t(probe.profile.warningKey, locale) : probe.profile.warning,
+      profile: probe.profile.profile, paths: rows.map((row) => row.path),
+    } : undefined), [effectiveForm, probe, dir, rows, locale]);
   const set = <K extends keyof NovySpisForm>(key: K, value: NovySpisForm[K]) => setForm((current) => ({ ...current, [key]: value }));
 
-  const canAct = Boolean(connection?.client && workspace && form.mode === "okf");
+  const canAct = Boolean(connection.client && canWrite && workspace.workspaceType !== "remote" && workspace.path && !rootOutsideWorkspace && form.title.trim() && form.mode === "okf");
+  // Plán platí len pre cestu, pre ktorú sa zisťoval. Premenovaním veci sa schová
+  // a „Potvrdiť“ zhasne — advokát nepotvrdí plán, ktorý sa medzitým zmenil.
+  const planShown = isCurrentCreationPlan(probe, effectiveForm);
 
-  async function installSkill() {
-    if (!connection?.client || !workspace) return;
-    setBusy("skill"); setStatus(null);
+  /**
+   * Krok „03 Návrh štruktúry“. Pýta sa servera, čo v cieľovom priečinku už je —
+   * bez toho by skupina ZOSTÁVA bola vždy prázdna a plán by tvrdil, že existujúce
+   * súbory vznikajú nanovo. Neexistujúci priečinok nie je chyba, len prázdny výsledok.
+   */
+  async function showPlan() {
+    if (!connection.client || rootOutsideWorkspace || workspace.workspaceType === "remote") return;
+    setBusy("plan"); setStatus(null); setResult(null);
+    const relative = workspace ? workspaceRelativePath(dir.replaceAll("\\", "/"), workspace.path.replaceAll("\\", "/")) : null;
+    let names: string[] = [];
+    if (connection?.client && workspace && relative !== null) {
+      try {
+        const list = await connection.client.listWorkspaceDirectory(workspace.id, relative);
+        names = list.entries.map((entry) => entry.name);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/404|not found|ENOENT/i.test(message)) {
+          setStatus({ tone: "err", key: "status.directoryError", params: { error: message } });
+          setProbe(null); setBusy(null); return;
+        }
+      }
+    }
     try {
-      const body = skillBody();
-      await connection.client.upsertSkill(workspace.id, { name: NOVY_SPIS_SKILL_NAME, content: body.content, description: body.description });
-      await connection.client.upsertSkillResource(workspace.id, NOVY_SPIS_SKILL_NAME, { name: OKF_CLI_RESOURCE_NAME, content: okfCliSource() });
-      setStatus({ tone: "ok", text: `Skill /${NOVY_SPIS_SKILL_NAME} a ${OKF_CLI_RESOURCE_NAME} sú v .opencode/skills/ workspace-u „${workspace.name}“.` });
+      if (relative === null) throw new Error(text("error.outsideWorkspace"));
+      const profile = await loadProfilePreview(connection.client, workspace.id, relative, form.subject === "spis", effectiveForm.documentLanguage);
+      // Root listings omit nested .keep files; probe every planned path before calling it new.
+      names = await probePlanFiles(connection.client, workspace.id, relative, effectiveForm, profile.profile);
+      setProbe({ dir, names, formKey: JSON.stringify(effectiveForm), profile });
+    } catch (error) {
+      setProbe(null);
+      setStatus({ tone: "err", key: "status.profileError", params: { error: error instanceof Error ? error.message : String(error) } });
+    }
+    setBusy(null);
+  }
+
+  async function confirmCreate() {
+    if (!connection.client || !canAct || !planShown) return;
+    setBusy("confirm"); setStatus(null);
+    try {
+      const route = await prepareOkfDraft(connection.client, workspace, () => openSessionWithPrompt(
+        { ...connection, workspaces: [workspace], activeWorkspaceId: workspace.id }, workspace, prompt,
+      ), locale);
+      setResult({ dir, route });
+      setStatus({
+        tone: "ok",
+        key: "status.ready", params: { workspace: workspace.name },
+      });
+
     } catch (error) {
       setStatus({ tone: "err", text: error instanceof Error ? error.message : String(error) });
     } finally {
@@ -89,145 +206,217 @@ export function NovySpisPage() {
     }
   }
 
-  async function openAssistant() {
-    if (!connection || !workspace) return;
-    setBusy("session"); setStatus(null);
-    try {
-      const route = await openSessionWithPrompt(connection, workspace, prompt);
-      navigate(route);
-    } catch (error) {
-      setStatus({ tone: "err", text: error instanceof Error ? error.message : String(error) });
-      setBusy(null);
-    }
-  }
-
   return (
-    <LawossLayout>
-      <h1 className="lw-h1">Nový spis</h1>
+    <section aria-label={text("wizard.title")}>
+      <h2 className="text-lg font-medium">{text("wizard.title")}</h2>
       <p className="lw-lead">
-        Založíme priečinok klienta tak, aby sa v ňom vyznal agent aj bez LAWOSS. Originály ostávajú, pridáva sa iba to,
-        čo chýba. Fáza A: požiadavku dostane asistent, plán ti ukáže pred zápisom.
+        {text("wizard.intro")}
       </p>
 
-      <div className="lw-form">
+      <fieldset className="lw-form" disabled={busy !== null}>
         <div className="lw-field lw-field-wide">
-          <span className="lw-sc">Ako založiť</span>
-          <div className="lw-choice">
-            <button type="button" className={`lw-choice-item ${form.mode === "okf" ? "on" : ""}`} onClick={() => set("mode", "okf")}>
-              <b>Spis podľa OKF</b><small>AGENTS.md, karta, MEMORY.md, CLAUDE.md mirror. Predvolené.</small>
-            </button>
-            <button type="button" className={`lw-choice-item ${form.mode === "plain" ? "on" : ""}`} onClick={() => set("mode", "plain")}>
-              <b>Obyčajný priečinok</b><small>Presne to, čo robí LegalWork dnes — použi „Add folder“ v sidebare.</small>
-            </button>
-          </div>
+          <span className="lw-sc">{text("wizard.workspace")}</span>
+          <p>{workspace.displayNameResolved || workspace.name} — {workspace.path}</p>
         </div>
 
-        <label className="lw-field">
-          <span className="lw-sc">Workspace (kde beží agent)</span>
-          <select className="lw-input" value={workspaceId} onChange={(event) => setWorkspaceId(event.target.value)} disabled={!connection}>
-            {!connection ? <option value="">načítavam…</option> : null}
-            {connection && connection.workspaces.length === 0 ? <option value="">žiadny workspace</option> : null}
-            {connection?.workspaces.map((item) => (
-              <option key={item.id} value={item.id}>{item.displayNameResolved || item.name} — {item.path}</option>
-            ))}
-          </select>
-        </label>
-
         <div className="lw-field">
-          <span className="lw-sc">Koreňový priečinok (kam vznikne)</span>
+          <span className="lw-sc">{text("wizard.root")}</span>
           <div className="lw-inline">
             <input
               className="lw-input lw-mono"
               value={rootOverride}
               onChange={(event) => setRootOverride(event.target.value)}
-              placeholder={workspace?.path || "predvolene koreň workspace-u"}
+              placeholder={workspace?.path || text("wizard.rootPlaceholder")}
             />
             {isDesktopRuntime() ? (
-              <button type="button" className="lw-btn-secondary" onClick={() => void pickRoot()}>Vybrať…</button>
+              <button type="button" className="lw-btn-secondary" onClick={() => void pickRoot()}>{text("wizard.browse")}</button>
             ) : null}
           </div>
           {rootOutsideWorkspace ? (
-            <small className="lw-hint-warn">Mimo workspace-u — agent naň potrebuje povolenie (Tool Permissions).</small>
+            <small className="lw-hint-warn">{text("wizard.outsideHint")}</small>
           ) : null}
         </div>
 
+        <div className="lw-field lw-field-wide">
+          <span className="lw-sc">{text("wizard.author")}</span>
+          <p>{effectiveForm.advokat || text("wizard.authorMissing")}</p>
+          <small>{text("wizard.authorNote")}</small>
+        </div>
+
         <label className="lw-field">
-          <span className="lw-sc">Typ subjektu</span>
+          <span className="lw-sc">{text("wizard.subject")}</span>
           <select className="lw-input" value={form.subject} onChange={(event) => set("subject", event.target.value as SubjectKind)}>
-            {SUBJECTS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+            {SUBJECTS.map((item) => <option key={item.id} value={item.id}>{text(item.label)}</option>)}
           </select>
         </label>
 
         <label className="lw-field">
-          <span className="lw-sc">Názov</span>
+          <span className="lw-sc">{text("wizard.name")}</span>
           <input className="lw-input" value={form.title} onChange={(event) => set("title", event.target.value)} placeholder="ACME s.r.o." />
         </label>
 
         <label className="lw-field">
-          <span className="lw-sc">IČO</span>
-          <input className="lw-input lw-mono" value={form.ico} onChange={(event) => set("ico", event.target.value)} placeholder="12345678" />
+          <span className="lw-sc">{text("wizard.folderName")}</span>
+          <input className="lw-input" value={form.slug ?? ""} onChange={(event) => set("slug", event.target.value)} placeholder={form.title || text("wizard.fromName")} />
+          <small>{text("wizard.cardNameUnchanged")}</small>
         </label>
 
+        <label className="lw-field">
+          <span className="lw-sc">{text("wizard.clientId")}</span>
+          <input className="lw-input lw-mono" value={form.ico} onChange={(event) => set("ico", event.target.value)} placeholder={form.subject === "fyzicka-osoba" ? text("wizard.optionalInternalId") : text("wizard.registrationExample")} />
+        </label>
+
+        {form.subject !== "spis" && form.subject !== "projekt" ? <>
+          <label className="lw-field">
+            <span className="lw-sc">{text("wizard.country")}</span>
+            <input className="lw-input" value={form.country ?? ""} onChange={(event) => { countryChosen.current = true; set("country", event.target.value.toUpperCase()); }} placeholder="SK, CZ, AT…" maxLength={2} />
+          </label>
+          <label className="lw-field">
+            <span className="lw-sc">{text("wizard.idType")}</span>
+            <input className="lw-input" value={form.identifierType ?? ""} onChange={(event) => set("identifierType", event.target.value)} placeholder={text("wizard.idTypeExample")} />
+          </label>
+        </> : null}
+        {form.subject === "fyzicka-osoba" || form.subject === "fyzicka-osoba-podnikatel" ? <>
+          <label className="lw-field">
+            <span className="lw-sc">{text("wizard.citizenship")}</span>
+            <input className="lw-input" value={form.citizenship ?? ""} onChange={(event) => set("citizenship", event.target.value.toUpperCase())} placeholder={text("wizard.citizenshipExample")} />
+          </label>
+          <label className="lw-field">
+            <span className="lw-sc">{text("wizard.residence")}</span>
+            <input className="lw-input" value={form.residenceCountry ?? ""} onChange={(event) => set("residenceCountry", event.target.value.toUpperCase())} placeholder="SK, CZ, AT…" maxLength={2} />
+          </label>
+          <p className="lw-hint">{text("wizard.individualHint")}</p>
+        </> : null}
+        {form.subject === "spis" ? <>
+          <label className="lw-field">
+            <span className="lw-sc">{text("wizard.client")}</span>
+            <input className="lw-input" value={form.clientName ?? ""} onChange={(event) => set("clientName", event.target.value)} placeholder={text("wizard.existingClient")} />
+            <small>{text("wizard.clientRootHint")}</small>
+          </label>
+          <label className="lw-field">
+            <span className="lw-sc">{text("wizard.matterKind")}</span>
+            <select className="lw-input" value={form.matterKind ?? "dispute"} onChange={(event) => set("matterKind", event.target.value === "advisory" ? "advisory" : event.target.value === "transaction" ? "transaction" : event.target.value === "other" ? "other" : "dispute")}>
+              <option value="dispute">{text("wizard.dispute")}</option><option value="advisory">{text("wizard.advisory")}</option><option value="transaction">{text("wizard.transaction")}</option><option value="other">{text("wizard.otherMatter")}</option>
+            </select>
+          </label>
+          <label className="lw-field">
+            <span className="lw-sc">{text("wizard.workMode")}</span>
+            <select className="lw-input" value={form.matterMode ?? "bounded"} onChange={(event) => set("matterMode", event.target.value === "ongoing" ? "ongoing" : "bounded")}>
+              <option value="bounded">{text("wizard.bounded")}</option><option value="ongoing">{text("wizard.ongoing")}</option>
+            </select>
+          </label>
+        </> : null}
+
         <div className="lw-field">
-          <span className="lw-sc">Jurisdikcia</span>
+          <span className="lw-sc">{text("wizard.jurisdiction")}</span>
           <div className="lw-seg">
             {(["SK", "CZ"] as Jurisdikcia[]).map((value) => (
-              <button key={value} type="button" className={`lw-seg-item ${form.jurisdikcia === value ? "on" : ""}`} onClick={() => set("jurisdikcia", value)}>
-                {value === "SK" ? "Slovensko" : "Česko"}
+              <button key={value} type="button" className={`lw-seg-item ${form.jurisdikcia === value ? "on" : ""}`} onClick={() => { jurisdictionChosen.current = true; set("jurisdikcia", value); }}>
+                {value === "SK" ? text("wizard.slovakia") : text("wizard.czechia")}
               </button>
             ))}
           </div>
         </div>
 
-        <label className="lw-field">
-          <span className="lw-sc">Protistrana (pri spise)</span>
-          <input className="lw-input" value={form.protistrana} onChange={(event) => set("protistrana", event.target.value)} placeholder="voliteľné" />
-        </label>
-
-        <label className="lw-field lw-field-row">
-          <span>Overiť subjekt v registri pri založení (ORSR · RPO)</span>
-          <button type="button" role="switch" aria-checked={form.verify} className={`lw-switch ${form.verify ? "on" : ""}`} onClick={() => set("verify", !form.verify)}>
-            <span className="lw-switch-knob" />
-          </button>
-        </label>
-      </div>
-
-      <div className="lw-reg">
-        <div className="lw-reg-h">
-          <h2>Čo vznikne — dry-run</h2>
-          <span className="lw-meta">nič sa ešte nezapísalo</span>
+        <div className="lw-field" data-lawoss-document-language={effectiveForm.documentLanguage}>
+          <span className="lw-sc">{text("wizard.documentLanguage")}</span>
+          <span>{text(`wizard.documentLanguage_${effectiveForm.documentLanguage ?? "en"}`)}</span>
+          <small>{text("wizard.documentLanguageHint")}</small>
         </div>
-        <pre className="lw-pre lw-mono">{`${targetDir(effectiveForm)}/\n${preview.map((path, index) => `${index === preview.length - 1 ? "└──" : "├──"} ${path}`).join("\n")}`}</pre>
+
+        <label className="lw-field">
+          <span className="lw-sc">{text("wizard.opposingParty")}</span>
+          <input className="lw-input" value={form.protistrana} onChange={(event) => set("protistrana", event.target.value)} placeholder={text("wizard.optional")} />
+        </label>
+
+        {form.subject !== "spis" && form.subject !== "projekt" ? <p className="lw-hint">
+          {text("wizard.screeningHint")}
+        </p> : null}
+      </fieldset>
+
+      <div className="lw-reg">
+        <div className="lw-reg-h">
+          <h2>{text("wizard.structure")}</h2>
+          <span className="lw-meta">{planShown ? text("wizard.noWrites", { path: dir }) : text("wizard.planNotShown")}</span>
+        </div>
+        {planShown ? (
+          <>
+            <p className="lw-plan-empty">{text("wizard.profile", { source: probe?.profile.sourceKey ? t(probe.profile.sourceKey, locale, probe.profile.sourceParams) : probe?.profile.source ?? "" })}</p>
+            {probe?.profile.warning ? <p className="lw-hint-warn">{probe.profile.warningKey ? t(probe.profile.warningKey, locale) : probe.profile.warning}</p> : null}
+            <PlanGroup title={text("wizard.added")} items={groups.prida} empty={text("wizard.noAdded")} />
+            <PlanGroup title={text("wizard.kept")} items={groups.zostava} empty={text("wizard.noKept")} />
+            <PlanGroup title={text("wizard.attention")} items={groups.pozornost} empty={text("wizard.noAttention")} tone="warn" />
+          </>
+        ) : (
+          <p className="lw-plan-empty">{text("wizard.planHint")}</p>
+        )}
       </div>
 
       <div className="lw-reg">
         <div className="lw-reg-h">
-          <h2>Požiadavka pre asistenta</h2>
-          <span className="lw-meta">toto dostane agent — skill /novy-spis, potom okf CLI</span>
+          <h2>{text("wizard.request")}</h2>
+          <span className="lw-meta">{text("wizard.requestNote")}</span>
         </div>
         <pre className="lw-pre">{prompt}</pre>
       </div>
 
-      {connError ? <div className="lw-status err">{connError}</div> : null}
+      {permissionError ? <div role="alert" className="lw-status err">{notice(permissionError)}</div> : null}
       {connection && !connection.client ? (
-        <div className="lw-status warn">Server LegalWork nebeží alebo chýba token — náhľad funguje, inštalácia a asistent nie.</div>
+        <div className="lw-status warn">{text("wizard.disconnected")}</div>
       ) : null}
-      {status ? <div className={`lw-status ${status.tone}`}>{status.text}</div> : null}
+      {status ? <div className={`lw-status ${status.tone}`}>{notice(status)}</div> : null}
 
       <div className="lw-actions">
-        <button type="button" className="lw-btn-secondary" disabled={!canAct || busy !== null} onClick={() => void installSkill()}>
-          {busy === "skill" ? "Inštalujem…" : "1 · Pripraviť skill a CLI vo workspace"}
+        <button type="button" className="lw-btn-secondary" disabled={!connection.client || rootOutsideWorkspace || workspace.workspaceType === "remote" || !form.title.trim() || busy !== null} onClick={() => void showPlan()}>
+          {busy === "plan" ? text("wizard.checking") : text("wizard.showPlan")}
         </button>
-        <button type="button" className="lw-btn" disabled={!canAct || busy !== null} onClick={() => void openAssistant()}>
-          {busy === "session" ? "Otváram…" : "2 · Založiť cez asistenta"}
-        </button>
+        {result ? (
+          <button type="button" className="lw-btn" onClick={() => onOpenSession(result.route)}>{text("wizard.openConversation")}</button>
+        ) : (
+          <button type="button" className="lw-btn" disabled={!canAct || !planShown || busy !== null} onClick={() => void confirmCreate()}>
+            {busy === "confirm" ? text("wizard.handingOff") : text("wizard.prepareDraft")}
+          </button>
+        )}
       </div>
 
       <div className="lw-note">
-        <span>Krok 1 stačí raz na workspace — skill je súbor v <span className="lw-mono">.opencode/skills/</span>.</span>
-        <span>Krok 2 otvorí session s požiadavkou. Agent spustí <b>plan</b> a čaká na tvoje áno.</span>
-        <span>CLI beží cez <span className="lw-mono">node</span> alebo <span className="lw-mono">bun</span> na tvojom stroji — Fáza B to presunie na server.</span>
+        <span>{text("wizard.planNote")}</span>
+        <span>{text("wizard.draftNote", { skill: NOVY_SPIS_SKILL_NAME })}</span>
+        <span>{text("wizard.amlNote")}</span>
       </div>
-    </LawossLayout>
+    </section>
   );
+}
+
+/** Compatibility route; native Add folder supplies its existing connection directly. */
+export function NovySpisPage() {
+  const { text } = useSetupText();
+  const local = useLocal();
+  const navigate = useNavigate();
+  const [connection, setConnection] = useState<OkfConnection | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [workspaceId, setWorkspaceId] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    loadOkfConnection().then((next) => {
+      if (cancelled) return;
+      setConnection(next);
+      // Lite: nová věc vždy v kanceláři, i když je po konverzaci aktivní složka jiné věci.
+      setWorkspaceId((currentUiMode() === "lite" ? officeWorkspace(next)?.id : undefined) ?? next.activeWorkspaceId);
+    }).catch((value: unknown) => {
+      if (!cancelled) setError(value instanceof Error ? value.message : String(value));
+    });
+    return () => { cancelled = true; };
+  }, []);
+  const workspaces = connection?.workspaces.filter((item) => item.workspaceType !== "remote" && item.path) ?? [];
+  const workspace = workspaces.find((item) => item.id === workspaceId) ?? workspaces[0];
+  return <LawossLayout>
+    {error ? <p role="alert">{error}</p> : null}
+    {!connection && !error ? <p>{text("wizard.loadingWorkspace")}</p> : null}
+    {connection && !workspace ? <p>{text("wizard.openLocalFirst")}</p> : null}
+    {workspaces.length > 1 ? <label>{text("wizard.workspaceLabel")} <select value={workspace?.id ?? ""} onChange={(event) => setWorkspaceId(event.target.value)}>
+      {workspaces.map((item) => <option key={item.id} value={item.id}>{item.displayNameResolved || item.name}</option>)}
+    </select></label> : null}
+    {connection && workspace ? <NovySpisPanel documentAuthor={local.prefs.documentAuthor} key={workspace.id} connection={connection} workspace={workspace} onOpenSession={navigate} /> : null}
+  </LawossLayout>;
 }

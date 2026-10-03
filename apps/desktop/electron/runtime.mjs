@@ -1,7 +1,7 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -10,6 +10,8 @@ import { pathToFileURL } from "node:url";
 
 import { createOfficeAddinManager } from "./office-addin-manager.mjs";
 import { ensureOpencodeStateDir } from "./opencode-state-dir.mjs";
+import { createHostApprovalHandler } from "./host-approvals.mjs";
+import { migrateLegacyWindowsOpenCodeConfig } from "./opencode-config-migration.mjs";
 
 const __runtimeDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -69,6 +71,11 @@ export function prioritizeWorkspacePaths(preferredPath, workspacePaths = []) {
   return paths;
 }
 
+/** Honor the workspace policy persisted by the host. */
+export function usesExternalWorkspaceAppFiles(workspace) {
+  return workspace?.appFiles === "outside";
+}
+
 export function resolveLegalworkServerConfigPath(env = process.env) {
   const override = String(env.LEGALWORK_SERVER_CONFIG ?? "").trim();
   if (override) return path.resolve(override);
@@ -80,6 +87,50 @@ export function resolveLegalworkServerConfigPath(env = process.env) {
   const xdgConfigHome = String(env.XDG_CONFIG_HOME ?? "").trim();
   const root = xdgConfigHome || path.join(os.homedir(), ".config");
   return path.join(root, "legalwork", "server.json");
+}
+
+/** Matches the server's outside-mode app-files root for a canonical workspace. */
+export function externalWorkspaceAppFilesRoot(serverConfigPath, workspacePath) {
+  const hash = createHash("sha256").update(path.resolve(String(workspacePath))).digest("hex");
+  return path.join(path.dirname(path.resolve(String(serverConfigPath))), "workspace-app-files", hash);
+}
+
+// Use the same location as the embedded server, including the dev profile,
+// explicit config path and runtime DB override. os.homedir() alone points at
+// a different file in dev mode and leaves removed connections enabled.
+export async function mergeRuntimeMcpConfig(name, config, env = process.env) {
+  const dbPath = String(env.LEGALWORK_RUNTIME_DB ?? "").trim();
+  const dir = path.dirname(dbPath ? path.resolve(dbPath) : resolveLegalworkServerConfigPath(env));
+  const file = path.join(dir, "runtime-opencode-config.json");
+  /** @type {{ mcp?: Record<string, unknown> } & Record<string, unknown>} */
+  let current = {};
+  try {
+    current = JSON.parse(await readFile(file, "utf8"));
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  if (!current || typeof current !== "object" || Array.isArray(current)) {
+    throw new Error("Invalid runtime configuration");
+  }
+  const mcp = { ...current.mcp };
+  if (config) mcp[name] = config;
+  else delete mcp[name];
+  await mkdir(dir, { recursive: true });
+  const tmp = `${file}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(tmp, `${JSON.stringify({ ...current, mcp }, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    await rename(tmp, file);
+  } finally {
+    await rm(tmp, { force: true });
+  }
+  return file;
+}
+
+// Documents is supplied by Electron's OS known-folder API, including redirected
+// Windows/OneDrive folders. Never derive user documents from the engine's HOME.
+export function desktopProjectsDirectory(documentsDirectory, development = false, platform = process.platform) {
+  const paths = platform === "win32" ? path.win32 : path.posix;
+  return paths.join(documentsDirectory, development ? "LegalWork Dev" : "LegalWork", "Projects");
 }
 
 export function seedWorkspacePathsForEmbeddedServer(workspacePaths, serverConfigExists) {
@@ -108,6 +159,13 @@ export function opencodeHomeEnvFromRoot(root) {
   };
 }
 
+export function alignWindowsOpencodeConfigEnv(env, platform = process.platform, home = os.homedir()) {
+  if (platform === "win32" && !String(env.XDG_CONFIG_HOME ?? "").trim()) {
+    env.XDG_CONFIG_HOME = path.join(home, ".config");
+  }
+  return env;
+}
+
 export function commandMatchesPackagedSidecar(command, sidecarDirs = []) {
   const value = String(command ?? "");
   if (!sidecarDirs.some((dir) => String(dir ?? "").trim() && value.includes(dir))) {
@@ -128,6 +186,7 @@ function createEngineState() {
     childExited: true,
     runtime: DIRECT_RUNTIME,
     projectDir: null,
+    appFiles: "inside",
     hostname: null,
     port: null,
     baseUrl: null,
@@ -141,10 +200,10 @@ function createEngineState() {
   };
 }
 
-function snapshotEngineState(state) {
+function snapshotEngineState(state, managedStatus = null) {
   const child = state.childExited ? null : state.child;
   return {
-    running: Boolean(child && child.exitCode === null && !child.killed),
+    running: managedStatus?.running ?? Boolean(child && child.exitCode === null && !child.killed),
     runtime: state.runtime,
     baseUrl: state.baseUrl,
     projectDir: state.projectDir,
@@ -154,7 +213,7 @@ function snapshotEngineState(state) {
     opencodePassword: state.opencodePassword,
     opencodeBinPath: state.opencodeBinPath,
     opencodeBinSource: state.opencodeBinSource,
-    pid: child?.pid ?? null,
+    pid: managedStatus ? managedStatus.pid : child?.pid ?? null,
     lastStdout: state.lastStdout,
     lastStderr: state.lastStderr,
     execution: state.execution,
@@ -413,13 +472,20 @@ function enrichedPath(sidecarDirs, currentPath, fallbackDirs = []) {
   return deduped.length > 0 ? deduped.join(path.delimiter) : null;
 }
 
+export function bundledNodeDirectory(resourcesRoot, platform = process.platform) {
+  const directory = path.join(resourcesRoot, "node");
+  const executable = path.join(directory, platform === "win32" ? "node.exe" : "node");
+  if (!existsSync(executable)) throw new Error(`Bundled Node runtime is missing: ${executable}`);
+  return directory;
+}
+
 export function nodeShimFileName(platform = process.platform) {
   return platform === "win32" ? "node.cmd" : "node";
 }
 
-// A `node` that re-execs this app's own binary in Node mode. Electron ships a
+// Development-only fallback that re-execs Electron in Node mode. Electron ships a
 // full Node runtime, so machines without a system Node.js can still run the
-// bundled workspace skills (docx-edit, pdf-tools, tabular-review), which shell
+// bundled workspace skills (docx-edit, pdf-tools), which shell
 // out to `node`. The shim directory is appended LAST to the child PATH, so any
 // real Node installation always wins.
 export function nodeShimScriptContent(execPath, platform = process.platform) {
@@ -537,7 +603,15 @@ function loadUserEnvFile() {
   }
 }
 
-export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, recorder, onSidecarExit }) {
+export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, listLocalWorkspaceAppFiles, recorder, onSidecarExit, getApprovalWindow }) {
+  const requestHostApproval = createHostApprovalHandler({
+    getWindow: getApprovalWindow,
+    showMessageBox: async (window, options) => {
+      const { dialog } = await import("electron");
+      if (options.signal.aborted || window.isDestroyed()) return { response: 0, checkboxChecked: false };
+      return dialog.showMessageBox(window, options);
+    },
+  });
   const engineState = createEngineState();
   const legalworkServerState = createLegalworkServerState();
   const orchestratorState = createOrchestratorState();
@@ -583,6 +657,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   }
 
   const userDataDir = app.getPath("userData");
+  const projectsDirectory = desktopProjectsDirectory(app.getPath("documents"), process.env.LEGALWORK_DEV_MODE === "1");
   const sidecarDirs = [
     path.join(desktopRoot, "resources", "sidecars"),
     process.resourcesPath ? path.join(process.resourcesPath, "sidecars") : null,
@@ -831,6 +906,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   // fall back to whatever `node` the PATH provides.
   let nodeShimDirPromise = null;
   function ensureNodeShimDir() {
+    // Packaged Electron has RunAsNode fused off. Append our standalone Node
+    // directory so document tools also work without a system Node installation.
+    if (app.isPackaged) return bundledNodeDirectory(process.resourcesPath);
     nodeShimDirPromise ??= (async () => {
       const shimDir = path.join(userDataDir, "node-shim");
       const shimPath = path.join(shimDir, nodeShimFileName());
@@ -842,6 +920,28 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       return shimDir;
     })().catch(() => null);
     return nodeShimDirPromise;
+  }
+
+  const windowsConfigMigrations = new Map();
+  async function prepareOpencodeConfig(env) {
+    if (process.env.LEGALWORK_DEV_MODE === "1") {
+      const devPaths = await ensureDevModePaths();
+      return { target: path.join(devPaths.xdgConfigHome, "opencode"), result: null };
+    }
+    if (process.platform !== "win32") return null;
+    alignWindowsOpencodeConfigEnv(env);
+    const appData = String(env.APPDATA ?? "").trim() || app.getPath("appData");
+    const source = path.join(appData, "opencode");
+    const target = path.join(env.XDG_CONFIG_HOME, "opencode");
+    const key = `${source}\0${target}`;
+    if (!windowsConfigMigrations.has(key)) {
+      const migration = migrateLegacyWindowsOpenCodeConfig(source, target).catch((error) => {
+        windowsConfigMigrations.delete(key);
+        throw error;
+      });
+      windowsConfigMigrations.set(key, migration);
+    }
+    return { target, result: await windowsConfigMigrations.get(key) };
   }
 
   async function buildChildEnv(extra = {}) {
@@ -877,12 +977,21 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       env.OPENCODE_CONFIG_DIR = devPaths.opencodeConfigDir;
       env.OPENCODE_TEST_HOME = devPaths.homeDir;
     } else {
-      // Production uses opencode's standard per-platform config/data locations
-      // (unix: $XDG_DATA_HOME|~/.local/share/opencode + ~/.config/opencode;
-      // Windows: %LOCALAPPDATA%\opencode) rather than a LegalWork-specific dir.
-      // The one exception: if those locations aren't writable (e.g. ~/.config
-      // owned by root), opencode fails to start with EACCES, so transparently
-      // redirect it to an app-owned dir. No-op on healthy machines and Windows.
+      // Use OpenCode's native config root as the only global config root.
+      // Import the previous LegalWork AppData library before any child starts.
+      try {
+        const prepared = await prepareOpencodeConfig(env);
+        if (prepared?.result?.failed.length) {
+          console.warn("[runtime] Some Windows OpenCode config files could not be migrated", prepared.result.failed);
+        }
+      } catch (error) {
+        // The native OpenCode config remains usable if importing the old
+        // LegalWork library fails. The untouched AppData copy can be retried.
+        console.warn("[runtime] Windows OpenCode config migration will retry on the next launch", error);
+      }
+      // Production keeps OpenCode's native data paths and uses its XDG config
+      // root. On Windows we pin that root to ~/.config/opencode after migration.
+      // On Unix only, an unwritable standard location redirects to app data.
       const opencodeHomeOverride = await ensureWritableOpencodeHome();
       if (opencodeHomeOverride) Object.assign(env, opencodeHomeOverride);
     }
@@ -1212,7 +1321,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     }
   }
 
-  async function ensureOpencodeConfig(projectDir) {
+  async function ensureOpencodeConfig(projectDir, appFiles = "inside") {
+    if (appFiles === "outside") return;
     // First, and regardless of which config wins below: the engine needs
     // .opencode to be a directory or its instance bootstrap dies, taking every
     // route for this workspace with it (issue #62). This must run before the
@@ -1271,6 +1381,10 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   // In-process server handle. Kept alive across restarts so we can stop it.
   let inProcessServer = null;
 
+  function engineSnapshot() {
+    return snapshotEngineState(engineState, inProcessServer?.managedOpencodeStatus?.() ?? null);
+  }
+
   async function startLegalworkServer(options) {
     const currentPort = legalworkServerState.port;
     // Stop any previously running in-process server
@@ -1304,6 +1418,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       requestedWorkspacePaths,
       existsSync(serverConfigPath),
     );
+    const hostWorkspaceAppFiles = (await listLocalWorkspaceAppFiles?.() ?? [])
+      .filter((workspace) => workspace?.appFiles === "outside" && String(workspace?.path ?? "").trim())
+      .map((workspace) => ({ path: String(workspace.path).trim(), appFiles: "outside" }));
     const activeWorkspace = selectStickyLegalworkPortWorkspace(requestedWorkspacePaths, workspacePaths);
     const portSelection = await resolveLegalworkPort(host, activeWorkspace, currentPort);
     const tokens = await loadOrCreateWorkspaceTokens(activeWorkspace);
@@ -1328,12 +1445,17 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // into EADDRINUSE (see apps/server/src/serve-node.ts), so the bound port
     // below is authoritative.
     const handle = await startEmbeddedServer({
+      projectsDirectory,
       host,
       port: portSelection.port,
       corsOrigins: ["*"],
-      approvalMode: "auto",
+      // Preserve the local convenience default without overriding an explicit
+      // LEGALWORK_APPROVAL_MODE or server.json approval.mode setting.
+      defaultApprovalMode: "auto",
+      requestHostApproval,
       configPath: serverConfigPath,
       workspaces: workspacePaths,
+      hostWorkspaceAppFiles,
       token: tokens.clientToken,
       hostToken: tokens.hostToken,
       opencodeBaseUrl: options.opencodeBaseUrl ?? undefined,
@@ -1520,7 +1642,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     engineState.opencodeBinPath = opencodeBinary.path;
     engineState.opencodeBinSource = opencodeBinary.source;
 
-    return snapshotEngineState(engineState);
+    return engineSnapshot();
   }
 
   async function startDirectRuntime(projectDir, options = {}) {
@@ -1564,7 +1686,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     engineState.opencodeBinSource = opencodeBinary.source;
 
     await waitForHttpOk(`${engineState.baseUrl}/health`, 10_000).catch(() => undefined);
-    return snapshotEngineState(engineState);
+    return engineSnapshot();
   }
 
   async function stopAllRuntimeChildren() {
@@ -1626,20 +1748,25 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // the sticky preferred port, racing the not-yet-released socket into
     // EADDRINUSE and leaving the runtime in error -> boot screen.
     const requestedRemoteAccess = options.legalworkRemoteAccess === true;
+    const appFiles = options.appFiles === "outside" ? "outside" : "inside";
     if (
       legalworkServerState.inProcess &&
       lifecycleState === "healthy" &&
       normalizeWorkspaceKey(engineState.projectDir) === normalizeWorkspaceKey(safeProjectDir) &&
-      legalworkServerState.remoteAccessEnabled === requestedRemoteAccess
+      legalworkServerState.remoteAccessEnabled === requestedRemoteAccess &&
+      engineState.appFiles === appFiles
     ) {
       const existing = snapshotLegalworkServerState(legalworkServerState);
-      if (existing.running && existing.baseUrl && (existing.ownerToken || existing.clientToken)) {
-        return snapshotEngineState(engineState);
+      const managedEngine = inProcessServer?.managedOpencodeStatus?.();
+      if (existing.running && existing.baseUrl && (existing.ownerToken || existing.clientToken) && managedEngine?.running !== false) {
+        return engineSnapshot();
       }
     }
 
-    await mkdir(safeProjectDir, { recursive: true });
-    await ensureOpencodeConfig(safeProjectDir);
+    if (appFiles === "inside") {
+      await mkdir(safeProjectDir, { recursive: true });
+      await ensureOpencodeConfig(safeProjectDir, appFiles);
+    }
     await prepareFreshRuntime();
 
     const workspacePaths = [safeProjectDir, ...((options.workspacePaths ?? []).filter(Boolean))].filter(
@@ -1651,6 +1778,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       lifecycleState = "starting";
       engineState.runtime = runtime;
       engineState.projectDir = safeProjectDir;
+      engineState.appFiles = appFiles;
       engineState.child = null;
       engineState.childExited = true;
 
@@ -1663,7 +1791,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       });
 
       lifecycleState = "healthy";
-      return snapshotEngineState(engineState);
+      return engineSnapshot();
     } catch (error) {
       lifecycleState = "error";
       // Surface the *real* reason to the main-process log before the generic
@@ -1686,7 +1814,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     lifecycleState = "stopping";
     await stopAllRuntimeChildren();
     lifecycleState = "idle";
-    return snapshotEngineState(engineState);
+    return engineSnapshot();
   }
 
   async function engineRestart(options = {}) {
@@ -1697,13 +1825,14 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     return engineStart(projectDir, {
       runtime: engineState.runtime,
       workspacePaths: [projectDir],
+      appFiles: engineState.appFiles,
       opencodeEnableExa: options.opencodeEnableExa,
       legalworkRemoteAccess: options.legalworkRemoteAccess,
     });
   }
 
   async function engineInfo() {
-    return { ...snapshotEngineState(engineState), lifecycleState };
+    return { ...engineSnapshot(), lifecycleState };
   }
 
   async function runtimeStatus() {
@@ -1726,7 +1855,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       if (!text) return null;
       return text.length <= limit ? text : text.slice(text.length - limit);
     };
-    const engine = snapshotEngineState(engineState);
+    const engine = engineSnapshot();
     const server = snapshotLegalworkServerState(legalworkServerState);
     let opencode = null;
     try {
@@ -1798,7 +1927,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   }
 
   async function orchestratorStatus() {
-    const engine = snapshotEngineState(engineState);
+    const engine = engineSnapshot();
     const legalworkServer = snapshotLegalworkServerState(legalworkServerState);
     const workspaces = engine.projectDir
       ? [{ id: normalizeWorkspaceKey(engine.projectDir), path: engine.projectDir, name: path.basename(engine.projectDir) || "Workspace" }]
@@ -1828,10 +1957,15 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       throw new Error("workspacePath is required");
     }
     const resolved = path.resolve(workspacePath);
-    if (normalizeWorkspaceKey(engineState.projectDir) !== normalizeWorkspaceKey(resolved)) {
+    const appFiles = input?.appFiles === "outside" ? "outside" : "inside";
+    if (
+      normalizeWorkspaceKey(engineState.projectDir) !== normalizeWorkspaceKey(resolved)
+      || engineState.appFiles !== appFiles
+    ) {
       await engineStart(resolved, {
         runtime: DIRECT_RUNTIME,
         workspacePaths: [resolved],
+        appFiles,
       });
     }
     return {
@@ -2198,6 +2332,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     engineStop: () => withRuntimeLifecycle(() => engineStop()),
     engineRestart: (options) => withRuntimeLifecycle(() => engineRestart(options)),
     prepareFreshRuntime: () => withRuntimeLifecycle(() => prepareFreshRuntime()),
+    prepareOpencodeConfig: async () => prepareOpencodeConfig({ ...loadUserEnvFile(), ...process.env }),
     dispose: () => withRuntimeLifecycle(() => stopAllRuntimeChildren()),
     runtimeStatus,
     collectRuntimeDiagnostics,

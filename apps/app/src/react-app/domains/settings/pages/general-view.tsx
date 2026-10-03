@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 import {
   ArrowRight,
+  Bell,
   FileStack,
   FolderLock,
   KeyRound,
@@ -10,6 +11,7 @@ import {
   RefreshCcw,
   ShieldCheck,
   Sparkles,
+  Table2,
   UserCircle,
   Zap,
   type LucideIcon,
@@ -17,6 +19,9 @@ import {
 
 import { t } from "../../../../i18n";
 import { isDesktopRuntime } from "../../../../app/utils";
+import { HIDDEN_SETTINGS_TABS } from "@/lawoss/feature-flags";
+import { currentUiMode, useUiMode } from "@/lawoss/lite/ui-mode";
+import { isSettingsTabVisible } from "@/lawoss/lite/visibility";
 import type { SettingsTab } from "../../../../app/types";
 import { IconTile, Surface } from "@/react-app/design-system/surface";
 
@@ -40,12 +45,19 @@ const globalItems = (): SettingsItem[] => [
     desc: t("settings.tab_description_account"),
   },
   { tab: "ai", icon: Zap, title: t("settings.tab_ai"), desc: `${t("settings.tab_description_ai")}.` },
+  { tab: "tabular-review", icon: Table2, title: t("review.title"), desc: t("review.defaults_scope") },
   { tab: "extensions", icon: Puzzle, title: t("sidebar.integrations"), desc: `${t("settings.tab_description_extensions")}.` },
   {
     tab: "personalisation",
     icon: Sparkles,
     title: t("settings.tab_personalisation"),
     desc: `${t("settings.tab_description_personalisation")}.`,
+  },
+  {
+    tab: "notifications",
+    icon: Bell,
+    title: t("settings.tab_notifications"),
+    desc: `${t("settings.tab_description_notifications")}.`,
   },
   { tab: "safety", icon: ShieldCheck, title: t("settings.tab_safety"), desc: `${t("settings.tab_description_safety")}.` },
   { tab: "shell", icon: Layout, title: t("settings.tab_shell"), desc: `${t("settings.tab_description_shell")}.` },
@@ -58,23 +70,30 @@ const globalItems = (): SettingsItem[] => [
 // their placement in getGlobalSettingsTabs.
 function resolveGlobalItems(): SettingsItem[] {
   const items = globalItems();
-  if (!isDesktopRuntime()) return items;
-  const recorderItem: SettingsItem = {
-    tab: "recorder",
-    icon: Mic,
-    title: t("recorder.settings_tab_label"),
-    desc: `${t("recorder.settings_tab_description")}.`,
-  };
-  const officeAddinsItem: SettingsItem = {
-    tab: "office-addins",
-    icon: FileStack,
-    title: t("office_addins.tab_label"),
-    // Trailing period to match the other overview rows; the shared i18n value
-    // omits it because the settings-page tab header uses no trailing period.
-    desc: `${t("office_addins.tab_description")}.`,
-  };
-  // After Account and AI Providers, mirroring getGlobalSettingsTabs.
-  return [...items.slice(0, 2), recorderItem, officeAddinsItem, ...items.slice(2)];
+  // LAWOSS: getGlobalSettingsTabs() filters HIDDEN_SETTINGS_TABS through
+  // hideCommercialTabs(); this list builds its own entries with a direct
+  // onNavigateTab link into the same tabs, so it needs the same filter or a
+  // hidden tab (account, recorder) stays one click away here.
+  const withDesktopItems = (() => {
+    if (!isDesktopRuntime()) return items;
+    const recorderItem: SettingsItem = {
+      tab: "recorder",
+      icon: Mic,
+      title: t("recorder.settings_tab_label"),
+      desc: `${t("recorder.settings_tab_description")}.`,
+    };
+    const officeAddinsItem: SettingsItem = {
+      tab: "office-addins",
+      icon: FileStack,
+      title: t("office_addins.tab_label"),
+      // Trailing period to match the other overview rows; the shared i18n value
+      // omits it because the settings-page tab header uses no trailing period.
+      desc: `${t("office_addins.tab_description")}.`,
+    };
+    // After Account and AI Providers, mirroring getGlobalSettingsTabs.
+    return [...items.slice(0, 2), recorderItem, officeAddinsItem, ...items.slice(2)];
+  })();
+  return withDesktopItems.filter((item) => !HIDDEN_SETTINGS_TABS.has(item.tab) && isSettingsTabVisible(item.tab, currentUiMode()));
 }
 
 function SettingsRow(props: { icon: LucideIcon; title: string; desc: string; onClick: () => void }) {
@@ -100,6 +119,7 @@ function SettingsRow(props: { icon: LucideIcon; title: string; desc: string; onC
 }
 
 function SettingsGroup(props: { label: string; items: SettingsItem[]; onNavigateTab: (tab: SettingsTab) => void }) {
+  if (props.items.length === 0) return null; // LAWOSS-lite: prázdná skupina bez nadpisu
   return (
     <section className="space-y-2.5">
       <div className="lw-section-eyebrow px-1">{props.label}</div>
@@ -119,13 +139,16 @@ function SettingsGroup(props: { label: string; items: SettingsItem[]; onNavigate
 }
 
 export function GeneralSettingsView(props: GeneralSettingsViewProps) {
+  useUiMode(); // LAWOSS-lite: překreslit po přepnutí režimu
   return (
     <div className="w-full max-w-3xl space-y-9">
-      <SettingsGroup label={t("settings.group_workspace")} items={workspaceItems()} onNavigateTab={props.onNavigateTab} />
+      <SettingsGroup label={t("settings.group_workspace")} items={workspaceItems().filter((item) => isSettingsTabVisible(item.tab, currentUiMode()))} onNavigateTab={props.onNavigateTab} />
       <SettingsGroup label={t("settings.group_global")} items={resolveGlobalItems()} onNavigateTab={props.onNavigateTab} />
-      <p className="px-1 text-[11px] text-muted-foreground/70">
-        {t("settings.tab_description_general")}
-      </p>
+      {currentUiMode() === "lite" ? null : ( // LAWOSS-lite: patička mluví o workspace
+        <p className="px-1 text-[11px] text-muted-foreground/70">
+          {t("settings.tab_description_general")}
+        </p>
+      )}
     </div>
   );
 }

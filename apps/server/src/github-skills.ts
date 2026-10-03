@@ -17,6 +17,7 @@ import { exists } from "./utils.js";
 import { validateDescription, validateSkillName } from "./validators.js";
 import { projectSkillsDir } from "./workspace-files.js";
 import { parseClaudePluginSource, type ClaudePluginSource } from "./claude-plugin-bundle.js";
+import { fitSkillName } from "./skill-tool-content.js";
 
 const GH_API = (process.env.LEGALWORK_GITHUB_API_BASE?.trim() || "https://api.github.com").replace(/\/+$/, "");
 const GH_RAW = (process.env.LEGALWORK_GITHUB_RAW_BASE?.trim() || "https://raw.githubusercontent.com").replace(/\/+$/, "");
@@ -41,44 +42,79 @@ function rawUrl(source: ClaudePluginSource, ref: string, path: string): string {
   return `${GH_RAW}/${enc(source.owner)}/${enc(source.repo)}/${refSegs}/${segs}`;
 }
 
-async function ghJson(url: string): Promise<any> {
-  const res = await fetch(url, {
-    headers: { Accept: "application/vnd.github+json", "User-Agent": "legalwork-server" },
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new ApiError(502, "github_fetch_failed", `Failed to read from GitHub (${res.status}): ${text || url}`);
-  }
-  return res.json();
+// `signal` is the app's request: when the app stops waiting (e.g. its timeout
+// on a big repo), stop fetching instead of scanning on for nobody.
+function throwIfCancelled(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new ApiError(499, "request_cancelled", "The app stopped waiting for GitHub");
 }
 
-async function ghText(url: string): Promise<string> {
-  const res = await fetch(url, {
-    headers: { Accept: "text/plain", "User-Agent": "legalwork-server" },
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new ApiError(502, "github_fetch_failed", `Failed to read from GitHub (${res.status}): ${text || url}`);
-  }
-  return res.text();
+// No answer from GitHub (connect timeout, dropped connection) as a clear error.
+// Node only says "fetch failed" and keeps the reason in `cause`.
+function unreachable(url: string, error: unknown): ApiError {
+  const cause = error instanceof Error && error.cause instanceof Error ? error.cause : error;
+  const reason = cause instanceof Error ? (cause.name === "TimeoutError" ? "no answer within 20 s" : cause.message) : String(cause);
+  return new ApiError(502, "github_unreachable", `Couldn't reach GitHub (${new URL(url).host}): ${reason}. Check the connection and try again.`);
 }
 
-async function ghBuffer(url: string): Promise<Buffer> {
-  const res = await fetch(url, {
-    headers: { "User-Agent": "legalwork-server" },
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new ApiError(502, "github_fetch_failed", `Failed to read from GitHub (${res.status}): ${text || url}`);
+const GH_ATTEMPTS = 3;
+
+// Each GitHub call gets 20 s per attempt. No answer or a 5xx is tried again:
+// on a flaky connection most calls get through on a later attempt (EIG-200).
+async function ghRequest<T>(
+  url: string,
+  headers: Record<string, string>,
+  signal: AbortSignal | undefined,
+  read: (res: Response) => Promise<T>,
+): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    let failure: ApiError;
+    try {
+      const timeout = AbortSignal.timeout(20_000);
+      const res = await fetch(url, { headers, signal: signal ? AbortSignal.any([timeout, signal]) : timeout });
+      if (res.ok) return await read(res);
+      const text = await res.text().catch(() => "");
+      failure = new ApiError(502, "github_fetch_failed", `Failed to read from GitHub (${res.status}): ${text || url}`);
+      if (res.status < 500) throw failure;
+    } catch (error) {
+      throwIfCancelled(signal);
+      if (error instanceof ApiError) throw error;
+      failure = unreachable(url, error);
+    }
+    if (attempt === GH_ATTEMPTS) throw failure;
+    console.warn(`[github-skills] ${url} failed (attempt ${attempt} of ${GH_ATTEMPTS}), retrying: ${failure.message}`);
+    await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+    throwIfCancelled(signal);
   }
-  return Buffer.from(await res.arrayBuffer());
 }
 
-async function fetchRepoTree(source: ClaudePluginSource, ref: string): Promise<TreeBlob[]> {
-  const tree = await ghJson(`${GH_API}/repos/${enc(source.owner)}/${enc(source.repo)}/git/trees/${enc(ref)}?recursive=1`);
+async function ghJson(url: string, signal?: AbortSignal): Promise<any> {
+  return ghRequest(url, { Accept: "application/vnd.github+json", "User-Agent": "legalwork-server" }, signal, (res) => res.json());
+}
+
+async function ghText(url: string, signal?: AbortSignal): Promise<string> {
+  return ghRequest(url, { Accept: "text/plain", "User-Agent": "legalwork-server" }, signal, (res) => res.text());
+}
+
+async function ghBuffer(url: string, signal?: AbortSignal): Promise<Buffer> {
+  return ghRequest(url, { "User-Agent": "legalwork-server" }, signal, async (res) => Buffer.from(await res.arrayBuffer()));
+}
+
+// The import that follows a scan needs the same file list. Reusing it spares
+// the import an api.github.com call, the one that failed twice on a flaky
+// connection in EIG-200 although the scan had just fetched the list.
+const SCAN_REUSE_MS = 10 * 60_000;
+let lastScan: { key: string; tree: TreeBlob[]; at: number } | null = null;
+
+const treeKey = (source: ClaudePluginSource, ref: string) => `${source.owner}/${source.repo}@${ref}`;
+
+function scannedTree(source: ClaudePluginSource, ref: string, skillDirs: string[]): TreeBlob[] | null {
+  if (!lastScan || lastScan.key !== treeKey(source, ref) || Date.now() - lastScan.at > SCAN_REUSE_MS) return null;
+  const { tree } = lastScan;
+  return skillDirs.every((dir) => tree.some((entry) => entry.path === `${dir}/SKILL.md`)) ? tree : null;
+}
+
+async function fetchRepoTree(source: ClaudePluginSource, ref: string, signal?: AbortSignal): Promise<TreeBlob[]> {
+  const tree = await ghJson(`${GH_API}/repos/${enc(source.owner)}/${enc(source.repo)}/git/trees/${enc(ref)}?recursive=1`, signal);
   const entries = Array.isArray(tree?.tree) ? tree.tree : [];
   return entries.flatMap((entry: any) =>
     entry && entry.type === "blob" && typeof entry.path === "string"
@@ -87,9 +123,9 @@ async function fetchRepoTree(source: ClaudePluginSource, ref: string): Promise<T
   );
 }
 
-async function resolveDefaultBranch(source: ClaudePluginSource): Promise<string> {
+async function resolveDefaultBranch(source: ClaudePluginSource, signal?: AbortSignal): Promise<string> {
   try {
-    const info = await ghJson(`${GH_API}/repos/${enc(source.owner)}/${enc(source.repo)}`);
+    const info = await ghJson(`${GH_API}/repos/${enc(source.owner)}/${enc(source.repo)}`, signal);
     if (info && typeof info.default_branch === "string" && info.default_branch.trim()) {
       return info.default_branch.trim();
     }
@@ -105,6 +141,7 @@ async function resolveDefaultBranch(source: ClaudePluginSource): Promise<string>
 async function resolveRefAndTree(
   source: ClaudePluginSource,
   explicitRef?: string,
+  signal?: AbortSignal,
 ): Promise<{ ref: string; dir: string | null; tree: TreeBlob[] }> {
   const candidates: Array<{ ref: string; dir: string | null }> = [];
   if (explicitRef?.trim()) {
@@ -117,13 +154,13 @@ async function resolveRefAndTree(
       });
     }
   } else {
-    candidates.push({ ref: await resolveDefaultBranch(source), dir: null });
+    candidates.push({ ref: await resolveDefaultBranch(source, signal), dir: null });
   }
 
   let lastError: unknown = null;
   for (const candidate of candidates) {
     try {
-      const tree = await fetchRepoTree(source, candidate.ref);
+      const tree = await fetchRepoTree(source, candidate.ref, signal);
       return { ref: candidate.ref, dir: candidate.dir, tree };
     } catch (error) {
       lastError = error;
@@ -133,11 +170,17 @@ async function resolveRefAndTree(
   throw new ApiError(404, "github_ref_not_found", "Could not resolve the requested branch or tag.");
 }
 
-async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+  signal?: AbortSignal,
+): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let idx = 0;
   const workers = new Array(Math.min(limit, items.length || 1)).fill(0).map(async () => {
     while (idx < items.length) {
+      throwIfCancelled(signal);
       const current = idx++;
       results[current] = await fn(items[current]!);
     }
@@ -149,44 +192,71 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T)
 function deriveSkillName(skillDir: string, asWorkflow: boolean): string {
   const folder = skillDir.split("/").filter(Boolean).pop() ?? "";
   const base = folder.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  const name = asWorkflow ? `workflow-assistant-${base}` : base;
+  // Shorten rather than reject a name over the 200-char cap, dropping whole
+  // trailing words like the desktop folder import.
+  const name = fitSkillName(asWorkflow ? `workflow-assistant-${base}` : base);
   validateSkillName(name);
   return name;
+}
+
+// Some repos ship a SKILL.md without frontmatter, and the engine skips a skill
+// with no description, so fall back to the first line of prose in the body
+// (the rule the desktop skill list uses, see skill-description.mjs).
+function skillDescription(data: Record<string, unknown>, body: string): string {
+  if (typeof data.description === "string" && data.description.trim()) return data.description.trim();
+  const line = body
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .split("\n")
+    .map((text) => text.trim())
+    .find((text) => text && !text.startsWith("#") && text !== "---");
+  return (line ?? "").slice(0, 1024);
 }
 
 // `kind`/`workflow_type` frontmatter keys make opencode skip a skill, so strip
 // them on import; workflow-ness is carried by the `workflow-` folder/name prefix.
 function rewriteSkillFrontmatter(md: string, finalName: string): string {
   const { data, body } = parseFrontmatter(md);
-  const description = typeof data.description === "string" ? data.description.trim() : "";
+  const description = skillDescription(data, body);
   validateDescription(description);
   const { kind: _kind, workflow_type: _workflowType, name: _name, ...rest } = data as Record<string, unknown>;
-  const content = buildFrontmatter({ ...rest, name: finalName, description }) + body.replace(/^\n/, "");
+  const content = buildFrontmatter({ ...rest, name: finalName, description }) +
+    "<!-- Modified by LegalWork: skill name and workflow metadata adapted for import. -->\n" + body.replace(/^\n/, "");
   return content.endsWith("\n") ? content : `${content}\n`;
 }
 
-export async function scanGithubSkills(input: { url: string; ref?: string }): Promise<{ ref: string; skills: GithubSkillItem[] }> {
+export async function scanGithubSkills(input: {
+  url: string;
+  ref?: string;
+  signal?: AbortSignal;
+}): Promise<{ ref: string; skills: GithubSkillItem[] }> {
   const source = parseClaudePluginSource(input.url);
-  const { ref, dir, tree } = await resolveRefAndTree(source, input.ref);
+  const { ref, dir, tree } = await resolveRefAndTree(source, input.ref, input.signal);
+  lastScan = { key: treeKey(source, ref), tree, at: Date.now() };
   const prefix = dir ? `${dir.replace(/\/+$/, "")}/` : "";
   const skillMdPaths = tree
     .filter((entry) => entry.path.endsWith(SKILL_MD_SUFFIX) && entry.path.startsWith(prefix))
     .map((entry) => entry.path);
   if (!skillMdPaths.length) return { ref, skills: [] };
 
+  const unreadable: string[] = [];
   const skills = await mapWithConcurrency(skillMdPaths, 8, async (path): Promise<GithubSkillItem> => {
     const skillDir = path.slice(0, -SKILL_MD_SUFFIX.length);
     const folder = skillDir.split("/").filter(Boolean).pop() ?? skillDir;
     try {
-      const md = await ghText(rawUrl(source, ref, path));
-      const { data } = parseFrontmatter(md);
+      const md = await ghText(rawUrl(source, ref, path), input.signal);
+      const { data, body } = parseFrontmatter(md);
       const name = typeof data.name === "string" && data.name.trim() ? data.name.trim() : folder;
-      const description = (typeof data.description === "string" ? data.description : "").replace(/\s+/g, " ").trim();
+      const description = skillDescription(data, body).replace(/\s+/g, " ");
       return { dir: skillDir, name, description };
-    } catch {
+    } catch (error) {
+      unreadable.push(`${path}: ${error instanceof Error ? error.message : String(error)}`);
       return { dir: skillDir, name: folder, description: "" };
     }
-  });
+  }, input.signal);
+  throwIfCancelled(input.signal);
+  if (unreadable.length) {
+    console.warn(`[github-skills] Could not read ${unreadable.length} of ${skillMdPaths.length} SKILL.md files in ${input.url}:`, unreadable.slice(0, 20));
+  }
   return { ref, skills: skills.sort((a, b) => a.dir.localeCompare(b.dir)) };
 }
 
@@ -199,15 +269,18 @@ export async function installGithubSkills(input: {
   ref?: string;
   paths: string[];
   asWorkflow?: boolean;
+  signal?: AbortSignal;
 }): Promise<InstallGithubResult> {
   const source = parseClaudePluginSource(input.url);
-  const ref = input.ref?.trim() || (await resolveDefaultBranch(source));
-  const tree = await fetchRepoTree(source, ref);
+  const ref = input.ref?.trim() || (await resolveDefaultBranch(source, input.signal));
+  const skillDirs = input.paths.map((path) => path.replace(/^\/+|\/+$/g, ""));
+  const tree = scannedTree(source, ref, skillDirs) ?? (await fetchRepoTree(source, ref, input.signal));
 
   const skills: ResolvedGithubSkill[] = [];
   const failed: InstallGithubResult["failed"] = [];
 
   for (const rawDir of input.paths) {
+    throwIfCancelled(input.signal);
     try {
       const skillDir = rawDir.replace(/^\/+|\/+$/g, "");
       if (!skillDir) {
@@ -226,18 +299,20 @@ export async function installGithubSkills(input: {
         const rel = blob.path.slice(prefix.length);
         const executable = blob.mode === "100755";
         if (rel === "SKILL.md") {
-          const md = await ghText(rawUrl(source, ref, blob.path));
+          const md = await ghText(rawUrl(source, ref, blob.path), input.signal);
           return { path: rel, contentBase64: Buffer.from(rewriteSkillFrontmatter(md, finalName), "utf8").toString("base64"), executable: false };
         }
-        const buf = await ghBuffer(rawUrl(source, ref, blob.path));
+        const buf = await ghBuffer(rawUrl(source, ref, blob.path), input.signal);
         return { path: rel, contentBase64: buf.toString("base64"), executable };
-      });
+      }, input.signal);
       skills.push({ name: finalName, files });
     } catch (error) {
       failed.push({ path: rawDir, error: error instanceof Error ? error.message : String(error) });
     }
   }
 
+  throwIfCancelled(input.signal);
+  if (failed.length) console.warn(`[github-skills] Could not import ${failed.length} of ${input.paths.length} skills from ${input.url}:`, failed);
   return { skills, failed };
 }
 
@@ -258,7 +333,7 @@ export async function promoteSkillToWorkflow(
   if (name.startsWith("workflow-")) {
     return { name, path: fromDir, alreadyWorkflow: true };
   }
-  const toName = `workflow-assistant-${name}`;
+  const toName = fitSkillName(`workflow-assistant-${name}`);
   validateSkillName(toName);
   const toDir = join(base, toName);
   if (await exists(toDir)) {

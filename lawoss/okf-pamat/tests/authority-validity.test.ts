@@ -15,6 +15,7 @@ function pramen(over: Partial<OkfRecord> = {}): OkfRecord {
       truth: "Podmínky § 348 odst. 1 IZ jsou kumulativní.",
       timeline: [{ date: "2026-09-02", text: "ověřeno" }],
       sources: ["NS ČR, 29 NSČR 73/2024, 12. 6. 2026"],
+      source: "29 NSČR 73/2024", verified_via: "codexis",
       verified_at: "2026-09-02", verified_against: "Salvia, plný text",
       effective_from: "2026-06-12",
     }),

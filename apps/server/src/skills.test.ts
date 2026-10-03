@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deleteSkill, listSkills, resolveHubSkillKind, skillsDirForScope, upsertSkill } from "./skills.js";
 import { exists } from "./utils.js";
 
 let workspace: string;
+let configHome: string;
+let savedConfigHome: string | undefined;
 
 async function writeSkill(dir: string, name: string, metadata = "") {
   await mkdir(dir, { recursive: true });
@@ -15,10 +17,32 @@ async function writeSkill(dir: string, name: string, metadata = "") {
 beforeEach(async () => {
   workspace = await mkdtemp(join(tmpdir(), "legalwork-skills-"));
   await mkdir(join(workspace, ".git"), { recursive: true });
+  savedConfigHome = process.env.XDG_CONFIG_HOME;
+  configHome = join(workspace, "global-config");
+  process.env.XDG_CONFIG_HOME = configHome;
 });
 
 afterEach(async () => {
+  if (savedConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+  else process.env.XDG_CONFIG_HOME = savedConfigHome;
   await rm(workspace, { recursive: true, force: true });
+});
+
+describe("listSkills: odolnosť voči chybnému SKILL.md", () => {
+  test("chybný frontmatter jedného skillu nezhodí výpis ostatných", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lawoss-skills-"));
+    const skills = join(root, ".opencode", "skills");
+    await mkdir(join(skills, "dobry"), { recursive: true });
+    await writeFile(join(skills, "dobry", "SKILL.md"), "---\nname: dobry\ndescription: Funkčný skill.\n---\n\nTelo.\n");
+    await mkdir(join(skills, "chybny"), { recursive: true });
+    // Malformed extra YAML is rejected; unquoted description colons are supported upstream.
+    await writeFile(join(skills, "chybny", "SKILL.md"), "---\nname: chybny\ndescription: Zápis z jednania: lehoty do kalendára.\nmetadata: [broken\n---\n\nTelo.\n");
+
+    const items = await listSkills(root, false);
+
+    expect(items.map((item) => item.name)).toEqual(["dobry"]);
+    await rm(root, { recursive: true, force: true });
+  });
 });
 
 describe("deleteSkill", () => {
@@ -47,21 +71,6 @@ describe("deleteSkill", () => {
 });
 
 describe("upsertSkill", () => {
-  let configHome: string;
-  let savedConfigHome: string | undefined;
-
-  beforeEach(async () => {
-    savedConfigHome = process.env.XDG_CONFIG_HOME;
-    configHome = await mkdtemp(join(tmpdir(), "legalwork-skills-config-"));
-    process.env.XDG_CONFIG_HOME = configHome;
-  });
-
-  afterEach(async () => {
-    if (savedConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
-    else process.env.XDG_CONFIG_HOME = savedConfigHome;
-    await rm(configHome, { recursive: true, force: true });
-  });
-
   test("defaults to the workspace's own skills dir", async () => {
     const result = await upsertSkill(workspace, {
       name: "matter-intake",
@@ -103,6 +112,49 @@ describe("upsertSkill", () => {
 });
 
 describe("listSkills", () => {
+  test("accepts OpenCode-style colons and skips other malformed Claude skills", async () => {
+    const claudeSkills = join(workspace, ".claude", "skills");
+    const compatible = join(claudeSkills, "compatible-skill");
+    await mkdir(compatible, { recursive: true });
+    await writeFile(
+      join(compatible, "SKILL.md"),
+      "---\nname: compatible-skill\ndescription: Review: client documents\n---\n\nBody\n",
+      "utf8",
+    );
+    const malformed = join(claudeSkills, "broken-skill");
+    await mkdir(malformed, { recursive: true });
+    await writeFile(join(malformed, "SKILL.md"), "---\nname: broken-skill\ndescription: [unterminated\n---\n\nBody\n", "utf8");
+    await writeSkill(join(claudeSkills, "valid-skill"), "valid-skill");
+    await writeSkill(join(workspace, ".opencode", "skills", "valid-workflow"), "valid-workflow");
+
+    const skipped: Array<{ path: string; reason: string }> = [];
+    const listed = await listSkills(workspace, false, skipped);
+
+    expect(listed.map((skill) => skill.name).sort()).toEqual(["compatible-skill", "valid-skill", "valid-workflow"]);
+    expect(listed.find((skill) => skill.name === "compatible-skill")?.description).toBe("Review: client documents");
+    expect(skipped).toEqual([{ path: join(malformed, "SKILL.md"), reason: expect.any(String) }]);
+    expect(skipped[0]?.reason).not.toContain("description: [unterminated");
+  });
+
+  test("lists a Claude skill when its frontmatter name differs from its folder", async () => {
+    const dir = join(workspace, ".claude", "skills", "vendor-caption-templates");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "SKILL.md"),
+      "---\nname: caption-templates\ndescription: Caption presets\n---\n\nBody\n",
+      "utf8",
+    );
+
+    const skipped: Array<{ path: string; reason: string }> = [];
+    const listed = await listSkills(workspace, false, skipped);
+
+    expect(listed.find((skill) => skill.name === "caption-templates")).toMatchObject({
+      description: "Caption presets",
+      path: join(dir, "SKILL.md"),
+    });
+    expect(skipped).toEqual([]);
+  });
+
   test("preserves workflow metadata used by firm Hub sharing", async () => {
     await writeSkill(
       join(workspace, ".opencode", "skills", "asset-review"),
@@ -134,4 +186,15 @@ describe("listSkills", () => {
     expect(resolveHubSkillKind(undefined, "skill", "workflow-legacy-review")).toBe("workflow");
     expect(resolveHubSkillKind(undefined, "skill", "ordinary-skill")).toBe("skill");
   });
+});
+
+test("legacy tabular workflows are normal workflows without renaming or rewriting user content", async () => {
+  for (const [name, metadata] of [["workflow-tabular-commercial", ""], ["private-review", "workflow_type: tabular\n"]]) {
+    const dir = join(workspace, ".opencode", "skills", name);
+    await writeSkill(dir, name, metadata);
+    const path = join(dir, "SKILL.md"), before = await readFile(path, "utf8");
+    const item = (await listSkills(workspace, false)).find(item => item.name === name);
+    expect(item).toMatchObject({ name, path, kind: "workflow", workflowType: "assistant" });
+    expect(await readFile(path, "utf8")).toBe(before);
+  }
 });

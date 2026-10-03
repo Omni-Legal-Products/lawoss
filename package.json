@@ -27,6 +27,7 @@
     "test:fs-engine": "pnpm --filter @legalwork/app test:fs-engine",
     "test:e2e": "pnpm --filter @legalwork/app test:e2e",
     "test:orchestrator": "pnpm --filter legalwork-orchestrator test:router",
+    "test:alpha-preflight": "node scripts/alpha-preflight.mjs",
     "release:review": "node scripts/release/review.mjs",
     "release:prepare": "node scripts/release/prepare.mjs",
     "release:prepare:dry": "node scripts/release/prepare.mjs --dry-run",
@@ -34,5 +35,8 @@
     "release:ship:watch": "node scripts/release/ship.mjs --watch",
     "office:sideload": "pnpm --filter @legalwork/desktop office:sideload"
   },
-  "packageManager": "pnpm@11.4.0"
+  "packageManager": "pnpm@11.4.0",
+  "engines": {
+    "node": ">=24.0.0 <25.0.0"
+  }
 }

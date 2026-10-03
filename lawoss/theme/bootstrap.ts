@@ -2,10 +2,10 @@
  * LAWOSS boot shims that must run before the upstream theme/locale bootstrap.
  * Kept in the green zone; the only upstream touch is one import in the entry.
  */
+import { initUiMode } from "../../apps/app/src/lawoss/lite/ui-mode";
 
 const THEME_PREF_KEY = "legalwork.react.settings.theme-mode";
 const MIGRATION_KEY = "lawoss.theme-migrated-to-dark";
-const LANGUAGE_PREF_KEY = "legalwork.language";
 
 /**
  * One-time migration: profiles created before the LAWOSS fork stored the old
@@ -14,6 +14,8 @@ const LANGUAGE_PREF_KEY = "legalwork.language";
  */
 export function bootstrapLawoss(): void {
   if (typeof window === "undefined") return;
+  // Režim lite/pro přepnutý v jiném okně (odpojená konverzace) platí i tady.
+  initUiMode();
   try {
     if (window.localStorage.getItem(MIGRATION_KEY) === "1") return;
     window.localStorage.setItem(MIGRATION_KEY, "1");
@@ -23,15 +25,5 @@ export function bootstrapLawoss(): void {
   } catch {
     // storage unavailable (private mode, capture) — nothing to migrate
   }
-  try {
-    // First run: default the UI language from the OS (sk/cs), otherwise keep
-    // the upstream English default. A stored choice always wins.
-    if (!window.localStorage.getItem(LANGUAGE_PREF_KEY)) {
-      const system = (navigator.language || "").toLowerCase();
-      if (system.startsWith("sk")) window.localStorage.setItem(LANGUAGE_PREF_KEY, "sk");
-      else if (system.startsWith("cs")) window.localStorage.setItem(LANGUAGE_PREF_KEY, "cs");
-    }
-  } catch {
-    // ignore
-  }
+  // initLocale owns language detection; only an explicit user selection is persisted.
 }

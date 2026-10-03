@@ -1,9 +1,8 @@
 name: LegalWork Tests
 
 on:
+  # Include stacked feature PRs as well as dev.
   pull_request:
-    branches:
-      - dev
   push:
     branches:
       - dev
@@ -113,9 +112,17 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Typecheck app and build server
+        if: runner.os == 'Linux'
+        run: |
+          pnpm --filter @legalwork/app typecheck
+          pnpm --filter legalwork-server build
 
       - name: Run app unit tests
         run: pnpm --filter @legalwork/app test
@@ -123,8 +130,22 @@ jobs:
       - name: Run server unit tests
         run: pnpm --filter legalwork-server test
 
+      - name: Verify report source evidence checks
+        run: |
+          python3 -m venv "$RUNNER_TEMP/legalwork-report-tests"
+          "$RUNNER_TEMP/legalwork-report-tests/bin/python" -m pip install python-docx==1.2.0
+          "$RUNNER_TEMP/legalwork-report-tests/bin/python" apps/server/scripts/test-report-evidence.py
+          "$RUNNER_TEMP/legalwork-report-tests/bin/python" apps/server/scripts/test-report-from-reviews.py
+
       - name: Run desktop unit tests
         run: pnpm --filter @legalwork/desktop test
+
+      - name: Verify HTML preview isolation in Electron
+        if: runner.os == 'macOS'
+        run: pnpm --filter @legalwork/desktop test:preview-security
+
+      - name: Run release tooling tests
+        run: node --test scripts/release/*.test.mjs
 
       - name: Typecheck Electron main against the IPC contract
         run: pnpm --filter @legalwork/desktop typecheck:electron

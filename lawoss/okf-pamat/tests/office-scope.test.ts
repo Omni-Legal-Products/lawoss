@@ -8,7 +8,7 @@ import { serializeRecord } from "../src/record.ts";
 import { newRecord, validateStore } from "../src/index.ts";
 import type { OkfRecord } from "../src/record.ts";
 
-/** Koreň spisov: _kancelaria/ vedľa priečinkov klientov. */
+/** Koreň spisov: Office/ vedľa priečinkov klientov. */
 function kancelaria(): { root: string; office: string; klient: string; spis: string } {
   const root = mkdtempSync(join(tmpdir(), "okf-office-"));
   const office = join(root, OFFICE_DIR);

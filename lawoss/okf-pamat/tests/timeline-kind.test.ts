@@ -40,13 +40,14 @@ test("stary riadok bez druhu sa cita ako doteraz", () => {
 });
 
 test("riadok s druhom sa precita", () => {
+  // Starý súbor so slovenským druhom sa číta ďalej — kanonicky anglicky.
   const r = parseRecord(STARY.replace("- 2026-09-02 —", "- 2026-09-02 [dorucenie] —"));
-  assert.equal(r.timeline[0]?.kind, "dorucenie");
+  assert.equal(r.timeline[0]?.kind, "delivery");
   assert.equal(r.timeline[0]?.text, "rozhodnuto po porade");
 });
 
 test("druh prezije round-trip", () => {
-  const r = zaznam([{ date: "2026-09-02", text: "výpověď doručena", kind: "dorucenie" }]);
+  const r = zaznam([{ date: "2026-09-02", text: "výpověď doručena", kind: "delivery" }]);
   assert.deepEqual(parseRecord(serializeRecord(r)), r);
 });
 
@@ -59,23 +60,23 @@ test("zaznam bez druhu sa serializuje ako doteraz", () => {
 test("zmena druhu existujuceho riadku je prepis historie", () => {
   // sameEntry musí porovnávať aj druh — inak by šlo ticho prepísať, čím
   // udalosť bola, a append-only záruka by tam mala dieru.
-  const pred = zaznam([{ date: "2026-09-02", text: "x", kind: "dorucenie" }]);
-  const po = zaznam([{ date: "2026-09-02", text: "x", kind: "podanie" }]);
+  const pred = zaznam([{ date: "2026-09-02", text: "x", kind: "delivery" }]);
+  const po = zaznam([{ date: "2026-09-02", text: "x", kind: "filing" }]);
   assert.throws(() => planWrite(pred, po, "oprava"), TimelineIntegrityError);
 });
 
 test("slovnik druhov je otvoreny a lokalizovany", () => {
-  assert.ok(EVENT_KINDS.includes("dorucenie"));
-  assert.ok(EVENT_KINDS.includes("pojednavanie"));
-  assert.equal(valueLabel("event_kind", "dorucenie", "cz"), "doručení");
-  assert.equal(valueLabel("event_kind", "dorucenie", "sk"), "doručenie");
+  assert.ok(EVENT_KINDS.includes("delivery"));
+  assert.ok(EVENT_KINDS.includes("hearing"));
+  assert.equal(valueLabel("event_kind", "delivery", "cz"), "doručení");
+  assert.equal(valueLabel("event_kind", "delivery", "sk"), "doručenie");
   assert.equal(valueLabel("event_kind", "vlastni", "cz"), "vlastni", "neznámy druh sa nepremenuje");
 });
 
 test("chronologia ukazuje druh vo vlastnom stlpci", () => {
   const s = "# Status\n\n## Chronologie\n<!-- okf:render:timeline:start -->\n<!-- okf:render:timeline:end -->\n";
   const out = renderStatus(s, [zaznam([
-    { date: "2026-09-02", text: "výpověď doručena", kind: "dorucenie" },
+    { date: "2026-09-02", text: "výpověď doručena", kind: "delivery" },
     { date: "2026-09-03", text: "poznámka bez druhu" },
   ])], "cz");
   assert.match(out, /doručení/);

@@ -1,0 +1,116 @@
+name: Alpha test report
+description: Nahláste reprodukovateľný výsledok interného alfa testu bez chránených dát.
+title: "[alpha] "
+labels:
+  - alpha
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Použite iba syntetické alebo verejné dáta. Do issue nevkladajte API keys, tokens, client identifiers, client documents alebo prompts. Logy a screenshoty pred odoslaním redigujte.
+
+  - type: checkboxes
+    id: data_safety
+    attributes:
+      label: Data-safety confirmation
+      options:
+        - label: Použil/a som iba syntetické alebo verejné dáta.
+          required: true
+        - label: Odstránil/a som API keys, tokens, client identifiers, client documents a prompts.
+          required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - blocker
+        - high
+        - normal
+        - low
+    validations:
+      required: true
+
+  - type: input
+    id: operating_system
+    attributes:
+      label: Operating system
+      placeholder: macOS 15.6, Windows 11, Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: input
+    id: architecture
+    attributes:
+      label: Architecture
+      placeholder: arm64 or x64
+    validations:
+      required: true
+
+  - type: input
+    id: node_version
+    attributes:
+      label: Node version
+      placeholder: 24.11.1
+    validations:
+      required: true
+
+  - type: input
+    id: pnpm_version
+    attributes:
+      label: pnpm version
+      placeholder: 11.4.0
+    validations:
+      required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit
+      description: Git commit SHA, never an API key or other credential.
+      placeholder: 40-character commit SHA
+    validations:
+      required: true
+
+  - type: textarea
+    id: scenario
+    attributes:
+      label: Scenario
+      description: Describe the tested step and provider name, without prompts, documents or client data.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproducible steps
+      description: List the shortest safe sequence to reproduce the behavior.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs
+      description: Paste only redacted logs; never paste API keys, tokens, client identifiers, client documents or prompts.
+    validations:
+      required: false

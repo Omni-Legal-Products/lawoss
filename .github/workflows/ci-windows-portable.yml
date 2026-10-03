@@ -1,0 +1,73 @@
+name: LAWOSS Windows source tests
+
+on:
+  pull_request:
+    # Include stacked feature PRs; no release or signing workflow is involved.
+    paths:
+      - lawoss/okf/**
+      - lawoss/okf-pamat/**
+      - lawoss/okf-handoff/**
+      - lawoss/tests/**
+      - apps/desktop/electron/update-feed.mjs
+      - apps/desktop/electron/update-feed.test.mjs
+      - apps/desktop/electron/updater.mjs
+      - apps/desktop/electron/updater.test.mjs
+      - apps/desktop/electron/workspace-store.mjs
+      - apps/desktop/electron/workspace-store.test.mjs
+      - apps/desktop/package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/ci-windows-portable.yml
+  push:
+    branches: [dev]
+    paths:
+      - lawoss/okf/**
+      - lawoss/okf-pamat/**
+      - lawoss/okf-handoff/**
+      - lawoss/tests/**
+      - apps/desktop/electron/update-feed.mjs
+      - apps/desktop/electron/update-feed.test.mjs
+      - apps/desktop/electron/updater.mjs
+      - apps/desktop/electron/updater.test.mjs
+      - apps/desktop/electron/workspace-store.mjs
+      - apps/desktop/electron/workspace-store.test.mjs
+      - apps/desktop/package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/ci-windows-portable.yml
+
+permissions:
+  contents: read
+
+jobs:
+  portable-windows:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Install source test and typecheck dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter @lawoss/okf --filter @lawoss/okf-pamat --filter @legalwork/desktop
+      - name: OKF typecheck
+        run: pnpm --filter @lawoss/okf typecheck
+      - name: OKF and naming
+        run: bun test lawoss/okf/test/
+      - name: Memory typecheck
+        run: pnpm --filter @lawoss/okf-pamat typecheck
+      - name: Memory tests
+        run: pnpm --filter @lawoss/okf-pamat test
+      - name: Native handoff source tests
+        run: bun test lawoss/okf-handoff/
+      - name: Updater and persistent native registration
+        run: node --test apps/desktop/electron/update-feed.test.mjs apps/desktop/electron/updater.test.mjs apps/desktop/electron/workspace-store.test.mjs

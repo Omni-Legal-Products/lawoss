@@ -17,6 +17,7 @@ function subjekt(over: Partial<OkfRecord> = {}): OkfRecord {
       procedural_role: "žalovaný",
       representation: "JUDr. X, plná moc ze dne 1. 9. 2026",
       legal_capacity: "ano",
+      source: "OR",
     }),
     ...over,
   };

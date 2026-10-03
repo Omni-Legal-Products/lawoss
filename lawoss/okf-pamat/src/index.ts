@@ -6,14 +6,15 @@
  *   L2 spis        — obsah veci (`matter`, `decision`, `subject`, `question`)
  *   L3 právo       — zdieľateľné pramene z verejných zdrojov (`authority`)
  *
- * Zápis vedie vždy cez planWrite → applyRecordWrite. Iná cesta na disk nie je.
+ * Typované zápisy vedú cez planWrite → applyRecordWrite.
+ * Explicitné súborové profily používajú samostatné saveWorkspaceMemory.
  */
 
 export {
   FIELDS, RECORD_TYPES, LAYER_OF, SENSITIVE_FIELDS, AML_REQUIRED,
   STATUS, PERSON_KINDS, ROLES, RISK, CONCLUSION, SCREENING_MODES,
   PROOF_STATUS, CONFIDENCE, EVIDENCE_STRENGTH, PROCEDURAL_STATUS, TASK_STATES,
-  EVIDENCE_KINDS, EVIDENCE_KIND_PROVISION, SCREENING_PROVISION, EVENT_KINDS,
+  EVIDENCE_KINDS, EVIDENCE_KIND_PROVISION, SCREENING_PROVISION, EVENT_KINDS, EVENT_KIND_ALIASES, canonicalEventKind,
   fieldLabel, canonicalField, typeLabel, truthDigest, OKF_VERSION, isRecordType, isJurisdiction, needleFields,
   type Jurisdiction, type Layer, type RecordType, type FieldDef, type NeedleStrength,
   type Status, type PersonKind, type Role, type Risk, type Conclusion, type ScreeningMode,
@@ -26,21 +27,24 @@ export {
 } from "./record.ts";
 
 export {
-  planWrite, authorize, ApprovalRequiredError, TimelineIntegrityError, StaleUpdatedError,
+  planWrite, authorize, assertHasSource, ApprovalRequiredError, TimelineIntegrityError, StaleUpdatedError, L3SourceMissingError,
   type Approval, type WriteDiff, type WriteKind,
 } from "./write.ts";
 
-export { renderStatus, RenderConflictError, statusSkeleton, BLOCKS, MARKER_ONLY, type BlockName, type LinkResolver } from "./render.ts";
-export { validateStore, type Finding, type Severity, type ValidateOptions } from "./validate.ts";
+export { renderStatus, retrofitStatus, RenderConflictError, statusSkeleton, BLOCKS, MARKER_ONLY, SOFT_HEADING, type BlockName, type LinkResolver } from "./render.ts";
+export { validateStore, checkL3Sources, type Finding, type Severity, type ValidateOptions } from "./validate.ts";
 export { maskValue, maskRecord } from "./mask.ts";
+export { type DocumentLanguage } from "./document-language.ts";
 export {
-  readStandingAuthorization, covers, isExpired, CONFIG_FILE,
+  readStandingAuthorization, inspectStandingAuthorization, isIsoDate, readNameLeakSeverity, covers, isExpired, CONFIG_FILE,
+  type StandingAuthorizationCheck, type NameLeakSeverity,
   readClientPath, matchesClientPath,
   type StandingAuthorization,
 } from "./config.ts";
 export {
-  readStore, readScope, findClientDir, findOfficeDir, MEMORY_DIR, OFFICE_DIR, STATUS_FILE, applyRecordWrite, LeakBlockedError, ConcurrentWriteError,
-  writeIndex, writeLog, ensureBrain, syncStatus, standingApproval, statusLinkResolver,
+  readStore, readScope, findClientDir, findOfficeDir, documentLanguageFromCard, MEMORY_DIR, OFFICE_DIR, LEGACY_OFFICE_DIR, STATUS_FILE, applyRecordWrite, LeakBlockedError, ConcurrentWriteError,
+  writeIndex, writeLog, ensureBrain, syncStatus, retrofitStatusFile, standingApproval, statusLinkResolver, STANDING,
+  type ApprovalInput,
   type Store, type Scope, type StoreProblem,
 } from "./store.ts";
 
@@ -137,6 +141,8 @@ export interface NewRecordInit {
   procedural_status?: string;
   effective_from?: string;
   effective_to?: string;
+  source?: string;
+  verified_via?: string;
   verified_at?: string;
   verified_against?: string;
   procedural_role?: string;
@@ -179,3 +185,6 @@ export function newRecord(init: NewRecordInit): OkfRecord {
   }
   return rec;
 }
+
+/** Explicit file profiles are a separate adapter, without typed record conversion. */
+export * from "./workspace-memory.ts";

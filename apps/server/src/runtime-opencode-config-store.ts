@@ -16,6 +16,10 @@ export type RuntimeOpencodeConfig = {
   };
   provider?: Record<string, unknown>;
   agent?: Record<string, Record<string, unknown>>;
+  /** OpenCode v1 config: additional skill directories or URLs. */
+  skills?: string[];
+  /** Additional ambient instruction files supplied to the managed engine. */
+  instructions?: string[];
   personalization?: PersonalizationSettings;
 };
 
@@ -105,6 +109,8 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
   const permission = isRecord(value.permission) && Object.keys(value.permission).length ? value.permission : undefined;
   const provider = isRecord(value.provider) ? value.provider : undefined;
   const agent = recordRecordMap(value.agent);
+  const skills = Array.isArray(value.skills) ? value.skills.filter((item) => typeof item === "string") : undefined;
+  const instructions = Array.isArray(value.instructions) ? value.instructions.filter((item) => typeof item === "string") : undefined;
   const personalization = isRecord(value.personalization)
     ? normalizePersonalizationSettings(value.personalization)
     : undefined;
@@ -116,6 +122,8 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
     ...(permission ? { permission } : {}),
     ...(provider ? { provider } : {}),
     ...(agent ? { agent } : {}),
+    ...(skills ? { skills } : {}),
+    ...(instructions ? { instructions } : {}),
     ...(personalization ? { personalization } : {}),
   };
 }
@@ -212,6 +220,21 @@ export const GLOBAL_TOOL_PERMISSIONS_ID = "__global_tool_permissions__";
 
 /** Host-wide personalisation shared by every workspace served on this device. */
 export const GLOBAL_PERSONALIZATION_ID = "__global_personalization__";
+
+/**
+ * Connectors (MCP servers) shared by every workspace this server hosts. On
+ * desktop a connected app is meant to be available everywhere, and the
+ * engine's OAuth tokens for it are already global (keyed by server name), so
+ * the configuration lives in one row too: the runtime config file the engine
+ * reads on every instance build is derived from this row plus the
+ * workspace's own row, and the same map is hot-added into running instances.
+ */
+export const GLOBAL_MCP_ID = "__global_mcp__";
+
+/** The shared connector map, keyed by server name. */
+export async function readGlobalMcpMap(config: ServerConfig): Promise<Record<string, Record<string, unknown>>> {
+  return runtimeMcpMap(await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID));
+}
 
 export async function readGlobalPersonalizationSettings(
   config: ServerConfig,

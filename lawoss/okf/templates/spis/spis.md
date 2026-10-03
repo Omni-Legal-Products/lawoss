@@ -10,12 +10,15 @@ protistrana_ico: "{{PROTISTRANA_ICO}}"
 oblast_prava: [{{OBLAST}}]
 spisova_znacka: "{{SPZN}}"
 sud: "{{SUD}}"
+jurisdiction: {{JURISDICTION}}
+matter_kind: {{MATTER_KIND}}
+mode: {{MODE}}
 status: aktívny
-lehoty: []
-advokat: Marián Čuprík
+advokat: "{{ADVOKAT}}"
 tags: []
 timestamp: {{DATE}}
 updated: {{DATE}}
+language: {{LANGUAGE}}
 ---
 
 # {{TITLE}}
@@ -23,6 +26,8 @@ updated: {{DATE}}
 {{DESCRIPTION}}
 
 ## Navigácia
-- SSOT: [`_STATUS.md`](./_STATUS.md)
-- Pamäť: [`MEMORY.md`](./MEMORY.md)
-- Klient: [`../../klient.md`](../../klient.md)
+- Prehľad (generovaný z pamäte): [`_STATUS.md`](./_STATUS.md)
+- Zápisový protokol: [`BRAIN.md`](./BRAIN.md) po `okf-memory init`
+- Nespracované vstupy: [`VSTUPY.md`](./VSTUPY.md)
+- Priečinky a názvy dokumentov: [`PRACOVNY-PROFIL.md`](./PRACOVNY-PROFIL.md)
+- Klient: {{CLIENT_LINK}}

@@ -49,7 +49,7 @@ test("read rozbity subor nahlasi, ale zvysok vypise", () => {
 
 test("aml rozbity subor nezhodi", () => {
   const r = runCli(["aml", spis()]);
-  assert.equal(r.code, 0);
+  assert.equal(r.code, 1);
   assert.match(r.out, /R-002-rozbity\.md/);
 });
 
@@ -57,4 +57,20 @@ test("spis bez rozbitych suborov ziadne problemy nehlasi", () => {
   const dir = mkdtempSync(join(tmpdir(), "okf-ok-"));
   mkdirSync(join(dir, MEMORY_DIR));
   assert.deepEqual(readStore(dir).problems, []);
+});
+
+test("partial read and AML are unsuccessful; sync keeps existing projections", () => {
+  const dir = spis();
+  assert.equal(runCli(["read", dir]).code, 1);
+  assert.equal(runCli(["aml", dir]).code, 1);
+  assert.equal(runCli(["sync", dir, "--apply"]).code, 1);
+});
+
+test("read includes full content irrespective of classification", () => {
+  const dir = spis();
+  writeFileSync(join(dir, MEMORY_DIR, "Q-001.md"), serializeRecord(newRecord({
+    id: "Q-001", type: "question", jurisdiction: "sk", title: "Otázka", description: "Všeobecné",
+    created: "2026-09-20", updated: "2026-09-20", timeline: [], truth: "Klient odvolal pokyn uzavrieť dohodu. Lehota je 2026-09-30.",
+  })));
+  assert.match(runCli(["read", dir]).out, /Klient odvolal pokyn uzavrieť dohodu/);
 });

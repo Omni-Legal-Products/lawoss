@@ -2,16 +2,16 @@
 /**
  * The premium upsell "challenge" modal. Three phases, driven by
  * PremiumUpsellProvider:
- *   pitch   → the Plus benefits (7-day trial, €69/seat) + "Upgrade to Plus" CTA (reuses the app's
+ *   pitch   → the Plus/Pro benefits (7-day trial, from €29/seat) + the CTA (reuses the app's
  *             feature-announcement shell so it matches the what's-new modals).
  *   waiting → checkout is open in the browser; a spinner + "Continue in your
  *             browser" while the provider polls for the subscription.
  *   success → a checkmark confirmation before the provider auto-closes.
  *   timeout → the poll gave up; it still unlocks on its own once active.
  *
- * The three benefits are exactly what the €69 Plus plan (7-day free trial) unlocks: premium audio
- * transcription models, included EU/ZDR AI usage, and firm-wide sharing of
- * workflows & integrations.
+ * The three benefits are what both plans (Plus €29, Pro €69, 7-day free trial)
+ * unlock: premium audio transcription models, included EU/ZDR AI usage (€30 or
+ * €70 per seat and month), and firm-wide sharing of workflows & integrations.
  */
 import { useState } from "react";
 import { Check, CheckCircle2, Copy, ExternalLink, Loader2 } from "lucide-react";
@@ -21,6 +21,7 @@ import { openDesktopUrl } from "@/app/lib/desktop";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { t } from "@/i18n";
+import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import { FeatureAnnouncementModal } from "@/react-app/design-system/modals/feature-announcement-modal";
 import { eigenweltBillingUrl } from "@/react-app/domains/connections/eigenwelt-entitlements";
 
@@ -64,7 +65,7 @@ export function PremiumUpsellModal(props: {
   onUpgrade: () => void;
   onClose: () => void;
   /**
-   * The firm is subscribed to the Knowledge Hub (no models in the plan): the
+   * The firm is subscribed to a plan without models (none today): the
    * pitch is an upgrade, not a trial, and the billing page does the switch.
    */
   planWithoutModels?: boolean;
@@ -72,6 +73,8 @@ export function PremiumUpsellModal(props: {
   const platformURL = eigenweltPremiumPlatformUrl();
   const checkoutUrl = eigenweltBillingUrl(platformURL);
   const [copied, setCopied] = useState(false);
+  // LAWOSS: ponuka Eigenwelt Plus nepatrí do LAWOSS; lokálny prepis ostáva.
+  if (isCommercialSurfaceHidden("premium-upsell")) return null;
 
   const copyCheckoutUrl = async () => {
     try {

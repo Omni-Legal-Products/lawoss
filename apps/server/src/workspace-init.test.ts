@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile, mkdir, stat } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { ensureWorkspaceFiles } from "./workspace-init.js";
+import { ensureWorkspaceFiles, ensureWorkspaceFilesForBootstrap } from "./workspace-init.js";
 import { legalworkExtensionsPreviewPluginPath, legalworkPluginPath } from "./legalwork-extensions-plugin-path.js";
 
 async function withWorkspace(fn: (root: string) => Promise<void>) {
@@ -16,6 +16,32 @@ async function withWorkspace(fn: (root: string) => Promise<void>) {
 }
 
 describe("ensureWorkspaceFiles", () => {
+  test("outside app files leave an existing client folder byte-for-byte unchanged", async () => {
+    await withWorkspace(async (root) => {
+      await mkdir(join(root, "client", "existing"), { recursive: true });
+      await writeFile(join(root, "client", "existing", "brief.txt"), "Original client data", "utf8");
+      const client = join(root, "client");
+      const before = await readFile(join(client, "existing", "brief.txt"), "utf8");
+
+      const result = await ensureWorkspaceFilesForBootstrap({
+        path: client,
+        preset: "starter",
+        appFiles: "outside",
+      });
+
+      expect(result).toEqual({ changed: false, reloadReasons: [] });
+      expect(await readFile(join(client, "existing", "brief.txt"), "utf8")).toBe(before);
+      await expect(stat(join(client, ".opencode"))).rejects.toThrow();
+    });
+  });
+
+  test("startup leaves a disconnected project folder missing", async () => {
+    await withWorkspace(async (root) => {
+      const disconnected = join(root, "Disconnected project");
+      expect(await ensureWorkspaceFiles(disconnected, "starter")).toEqual({ changed: false, reloadReasons: [] });
+      expect(await stat(disconnected).catch(() => null)).toBeNull();
+    });
+  });
   test("creates LegalWork workspace config and seeds bundled-core skills", async () => {
     await withWorkspace(async (root) => {
       const result = await ensureWorkspaceFiles(root, "starter");
@@ -23,12 +49,14 @@ describe("ensureWorkspaceFiles", () => {
       await expect(readFile(join(root, "opencode.jsonc"), "utf8")).rejects.toThrow();
       expect(legalwork).toContain('"authorizedRoots"');
 
-      // bundled-core: the tabular-review engine + its HTML template + the extractor agent
-      const skill = await readFile(join(root, ".opencode", "skills", "tabular-review", "SKILL.md"), "utf8");
-      expect(skill).toContain("name: tabular-review");
-      await expect(
-        stat(join(root, ".opencode", "skills", "tabular-review", "assets", "review-template.html")),
-      ).resolves.toBeDefined();
+      await expect(stat(join(root, ".opencode", "skills", "tabular-review"))).rejects.toThrow();
+      const reviewSkill = await readFile(join(root, ".opencode", "skills", "start-tabular-review", "SKILL.md"), "utf8");
+      expect(reviewSkill).toContain("name: start-tabular-review");
+      const authoring = await readFile(join(root, ".opencode", "skills", "author-review-prompts", "SKILL.md"), "utf8");
+      expect(authoring).toContain("legalwork_review_library_save");
+      expect(authoring).toContain('kind: "set"');
+      expect(reviewSkill).toContain("legalwork_review_start");
+      await expect(stat(join(root, ".opencode", "skills", "pdf-tools", "assets", "vendor", "pdf.min.js"))).resolves.toBeDefined();
       await expect(stat(join(root, ".opencode", "agents", "document-extractor.md"))).resolves.toBeDefined();
       await expect(stat(join(root, ".opencode", "agents", "fusion-candidate.md"))).resolves.toBeDefined();
       expect([...result.reloadReasons].sort()).toEqual(["agents", "commands", "skills"]);
@@ -89,19 +117,37 @@ describe("ensureWorkspaceFiles", () => {
 
   test("refreshes a stale bundled-core file (older copy, no stamp)", async () => {
     await withWorkspace(async (root) => {
-      const tpl = join(root, ".opencode", "skills", "tabular-review", "assets", "review-template.html");
+      const tpl = join(root, ".opencode", "skills", "pdf-tools", "SKILL.md");
       await mkdir(dirname(tpl), { recursive: true });
       await writeFile(tpl, "OLD UGLY TEMPLATE", "utf8");
 
       const result = await ensureWorkspaceFiles(root, "starter");
       const after = await readFile(tpl, "utf8");
       expect(after).not.toBe("OLD UGLY TEMPLATE");
-      expect(after).toContain("__REVIEW_DATA__"); // refreshed to the current bundled template
+      expect(after).toContain("pdf-tools");
       expect(result.reloadReasons).toContain("skills");
 
       // now stamped at the current bundle — a second ensure is a no-op
       const second = await ensureWorkspaceFiles(root, "starter");
       expect(second).toEqual({ changed: false, reloadReasons: [] });
+    });
+  });
+
+  test("upgrades the offline Word parser in already-stamped workspaces", async () => {
+    await withWorkspace(async (root) => {
+      const engine = join(root, ".opencode", "skills", "docx-edit", "assets", "vendor", "docx-engine.mjs");
+      await mkdir(dirname(engine), { recursive: true });
+      await writeFile(engine, "// old @xmldom/xmldom@0.9.10 engine", "utf8");
+      await writeFile(join(root, ".opencode", ".legalwork-core"), "previous-release-bundle", "utf8");
+      const result = await ensureWorkspaceFiles(root, "starter");
+      const updated = await readFile(engine, "utf8");
+      expect(updated).toContain("@xmldom+xmldom@0.9.12/");
+      expect(updated).not.toContain("@xmldom+xmldom@0.9.10/");
+      const assets = join(root, ".opencode", "skills", "docx-edit", "assets");
+      expect(await readFile(join(assets, "populate-template.py"), "utf8")).toContain("def populate(");
+      expect(await readFile(join(assets, "verify-evidence.py"), "utf8")).toContain("def verify(");
+      expect(result.reloadReasons).toContain("skills");
+      expect(await ensureWorkspaceFiles(root, "starter")).toEqual({ changed: false, reloadReasons: [] });
     });
   });
 

@@ -18,8 +18,10 @@ import { SessionRoute } from "./session-route";
 import { SettingsRoute } from "./settings-route";
 import { ShellConfigProvider } from "./shell-config";
 import { StealthMode } from "./stealth-mode";
+import { TaskNotificationsListener } from "./task-notifications-listener";
 import { WelcomeRoute } from "./welcome-route";
 import { LAWOSS_ROUTES } from "../../lawoss/shell/routes";
+import { LawossLanding } from "../../lawoss/lite/landing";
 
 
 let appOpenedCaptured = false;
@@ -65,6 +67,17 @@ export function AppRoot() {
                   </DevProfiler>
                 }
               />
+              {/* Tasks is GLOBAL only: intake is org-level, while workspaces
+                  are folders on this machine, so there is no
+                  /workspace/:id/tasks sibling. */}
+              <Route
+                path="/tasks"
+                element={
+                  <DevProfiler id="SessionRoute">
+                    <SessionRoute />
+                  </DevProfiler>
+                }
+              />
               <Route
                 path="/evals"
                 element={
@@ -89,6 +102,7 @@ export function AppRoot() {
                   </DevProfiler>
                 }
               />
+              <Route path="/home" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route
                 path="/session/:sessionId"
                 element={
@@ -97,6 +111,12 @@ export function AppRoot() {
                   </DevProfiler>
                 }
               />
+              <Route path="/projects" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/workflows" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/recorder" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/workspace/:workspaceId/project" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/workspace/:workspaceId/reviews" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/workspace/:workspaceId/tasks" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route
                 path="/workspace/:workspaceId/session"
                 element={
@@ -134,8 +154,8 @@ export function AppRoot() {
               {LAWOSS_ROUTES.map((route) => (
                 <Route key={route.path} path={route.path} element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               ))}
-              <Route path="/" element={<Navigate to="/prehlad" replace />} />
-              <Route path="*" element={<Navigate to="/session" replace />} />
+              <Route path="/" element={<LawossLanding />} />
+              <Route path="*" element={<Navigate to="/home" replace />} />
           </Routes>
         </LegalworkControlProvider>
         </AppMenuProvider>
@@ -152,6 +172,7 @@ export function AppRoot() {
         true app-level signal.
       */}
       <NewProvidersListener />
+      <TaskNotificationsListener />
       <StealthMode />
       <DevProfilerOverlay />
       <ReactRenderWatchdogOverlay />

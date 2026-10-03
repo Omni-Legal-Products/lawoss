@@ -14,17 +14,20 @@ import { t } from "@/i18n";
 type Props = {
   value: string;
   baseline: string;
+  readOnly?: boolean;
   onChange: (value: string) => void;
   imageUpload: (file: File) => Promise<string>;
   imagePreview: (source: string) => Promise<string>;
 };
 
-export function ArtifactMarkdownEditor({ value, baseline, onChange, imageUpload, imagePreview }: Props) {
+export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onChange, imageUpload, imagePreview }: Props) {
   const editor = useRef<MDXEditorMethods>(null);
   const initial = useRef(value);
   const lastValue = useRef(value);
   const plugins = useMemo(() => [
-    headingsPlugin(), listsPlugin(), quotePlugin(), linkPlugin(), linkDialogPlugin(),
+    // AutoLink runs after initial normalization and dirties untouched files containing bare URLs.
+    // Existing Markdown links and explicit CreateLink actions remain available.
+    headingsPlugin(), listsPlugin(), quotePlugin(), linkPlugin({ disableAutoLink: true }), linkDialogPlugin(),
     imagePlugin({ imageUploadHandler: imageUpload, imagePreviewHandler: imagePreview }),
     tablePlugin(), thematicBreakPlugin(), frontmatterPlugin(),
     codeBlockPlugin({ defaultCodeBlockLanguage: "txt" }),
@@ -48,10 +51,16 @@ export function ArtifactMarkdownEditor({ value, baseline, onChange, imageUpload,
 
   return <MDXEditor
     ref={editor}
+    translation={(key, defaultValue, interpolations) => {
+      const translationKey = `markdown.${key}`;
+      const translated = t(translationKey, Object.fromEntries(Object.entries(interpolations ?? {}).map(([name, value]) => [name, String(value)])));
+      return translated === translationKey ? defaultValue : translated;
+    }}
     className="lw-markdown-editor"
     contentEditableClassName="lw-markdown-page"
     markdown={initial.current}
     trim={false}
+    readOnly={readOnly}
     plugins={plugins}
     placeholder={t("artifact.start_writing")}
     onChange={(markdown, initialNormalize) => {

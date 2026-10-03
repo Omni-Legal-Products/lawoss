@@ -184,8 +184,10 @@ export type OnboardingStep = "welcome" | "local" | "server" | "connecting";
 export const SETTINGS_TAB_VALUES = [
   "general",
   "ai",
+  "tabular-review",
   "account",
   "personalisation",
+  "notifications",
   "benchmark",
   "preferences",
   "permissions",
@@ -349,6 +351,7 @@ export type McpServerConfig = {
   type: "remote" | "local";
   url?: string;
   command?: string[];
+  cwd?: string;
   enabled?: boolean;
   headers?: Record<string, string>;
   environment?: Record<string, string>;
@@ -360,6 +363,7 @@ export type McpServerEntry = {
   name: string;
   config: McpServerConfig;
   source?: McpServerSource;
+  disabledByTools?: boolean;
 };
 
 export type McpStatus =

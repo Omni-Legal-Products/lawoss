@@ -30,6 +30,7 @@ function run(command, args, cwd, env) {
   }
 }
 
+run(nodeCmd, [resolve(__dirname, "prepare-node-runtime.mjs")], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--force", "--outdir", electronSidecarDir], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "prepare-computer-use-helper.mjs"), "--force", "--outdir", electronHelperDir], desktopRoot);
 run(nodeCmd, [resolve(__dirname, "build-key-monitor.mjs")], desktopRoot);
@@ -73,12 +74,18 @@ for (const jsFile of ["server.js"]) {
 rmSync(packagedServerRoot, { recursive: true, force: true });
 cpSync(serverDistDir, resolve(packagedServerRoot, "dist"), { recursive: true });
 copyFileSync(resolve(repoRoot, "apps", "server", "package.json"), resolve(packagedServerRoot, "package.json"));
-for (const fileName of readdirSync(electronRoot).filter((name) => name.endsWith(".mjs")).sort()) {
+for (const fileName of readdirSync(electronRoot).filter((name) => /\.(mjs|cjs)$/.test(name)).sort()) {
   run(nodeCmd, ["--check", resolve(electronRoot, fileName)], repoRoot);
 }
 run(nodeCmd, [resolve(__dirname, "check-electron-bridge.mjs")], repoRoot);
 run(nodeCmd, [resolve(__dirname, "check-server-deps.mjs")], repoRoot);
 run(nodeCmd, [resolve(__dirname, "check-plugin-bundles.mjs")], repoRoot);
+// pnpm installs for host Node; packaging needs the Electron native ABI.
+// Respect cross-architecture release builds (for example x64 on an arm64 Mac).
+const targetTriple = process.env.CARGO_CFG_TARGET_TRIPLE ?? process.env.TARGET;
+const nativeArch = targetTriple?.startsWith("aarch64-") ? "arm64"
+  : targetTriple?.startsWith("x86_64-") ? "x64" : process.arch;
+run(pnpmCmd, ["exec", "electron-builder", "install-app-deps", `--arch=${nativeArch}`], desktopRoot);
 
 process.stdout.write(
   `${JSON.stringify(
@@ -87,7 +94,7 @@ process.stdout.write(
       renderer: "apps/app/dist",
       wordAddin: "apps/app/dist-word-addin",
       electronMain: "apps/desktop/electron/main.mjs",
-      electronPreload: "apps/desktop/electron/preload.mjs",
+      electronPreload: "apps/desktop/electron/preload.cjs",
     },
     null,
     2,

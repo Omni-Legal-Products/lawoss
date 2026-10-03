@@ -1,7 +1,9 @@
 ---
 type: memory
-title: {{KLIENT}} — Memory
+title: {{KLIENT}} — Archív
 updated: {{DATE}}
 ---
 
-# MEMORY.md — durable fakty o klientovi ({{KLIENT}})
+# Staršia pamäť
+
+Aktívne záznamy patria do `memory/` cez `okf-memory`. Tento súbor slúži iba ako archív starších poznámok; nové fakty sem nezapisuj.

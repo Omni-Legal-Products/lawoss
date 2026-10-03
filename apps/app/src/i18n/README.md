@@ -1,7 +1,7 @@
 # Translations
 
 Every user-facing string lives in a locale file; nothing renders literal
-English from a component. **English and German ship, and both are complete** —
+English from a component. **English, German, Czech and Slovak ship with complete key coverage** —
 a language only enters `LANGUAGES` once it is finished, so a half-translated
 one can never reach the Settings picker or auto-detection.
 
@@ -25,7 +25,7 @@ delete the file if it is not wanted.
 ## Language resolution
 
 1. `localStorage["legalwork.language"]`, written only when someone picks a
-   language in Settings,
+   language in the header or Settings,
 2. otherwise the OS/browser language via `navigator.languages` (this is the
    auto-detection: `de-AT` and `de-CH` both resolve to `de`),
 3. otherwise English.
@@ -33,7 +33,13 @@ delete the file if it is not wanted.
 Picking **System** in Settings → Customization stores `"system"`, so the app
 follows the OS again. `setLanguagePreference` notifies subscribers, and
 `AppRoot` subscribes through `useLocale()`, so a switch repaints immediately
-with no reload.
+with no reload. The header and Settings use the same preference. Other windows
+receive storage changes, and System follows browser language-change events.
+
+LAWOSS dictionaries live in `../lawoss/i18n/` and are spread into each shipped
+locale. Components subscribe with `useLocale()` and pass its value to lookup
+functions, including memoized islands. UI language never changes matter
+jurisdiction, persisted identifiers, source documents or agent prompts.
 
 ## Adding a language
 

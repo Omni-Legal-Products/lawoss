@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 /**
  * Prístup k serveru a k workspace-om mimo session-route — rovnaký recept, aký
  * používa settings-route, len bez jej stavu. Nič z toho nie je nové API:
@@ -7,13 +8,14 @@ import { workspaceBootstrap } from "@/app/lib/desktop";
 import type { WorkspaceInfo } from "@/app/lib/desktop-types";
 import { createLegalworkServerClient, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { createClient, unwrap } from "@/app/lib/opencode";
-import { toSessionTransportDirectory } from "@/app/lib/session-scope";
+import { toSessionTransportDirectory, type TransportDirectory } from "@/app/lib/session-scope";
 import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import { isDesktopRuntime } from "@/app/utils";
 import { saveSessionDraft } from "@/react-app/domains/session/sync/draft-store";
+import { useComposerStateStore } from "@/react-app/domains/session/surface/composer-state-store";
 import { resolveLegalworkConnection } from "@/react-app/shell/legalwork-connection";
 import { mapDesktopWorkspace, mergeRouteWorkspaces, type RouteWorkspace } from "@/react-app/shell/route-workspaces";
-import { readActiveWorkspaceId } from "@/react-app/shell/session-memory";
+import { readActiveWorkspaceId, writeLastSessionFor } from "@/react-app/shell/session-memory";
 import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 
 export type OkfConnection = {
@@ -57,15 +59,19 @@ export async function openSessionWithPrompt(
   connection: OkfConnection,
   workspace: RouteWorkspace,
   prompt: string,
+  sessionDirectory?: TransportDirectory,
 ): Promise<string> {
   const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl: connection.baseUrl, token: connection.token });
-  if (!endpoint) throw new Error("Workspace nie je dostupný — server nebeží alebo chýba token.");
-  const opencode = createClient(endpoint.opencodeBaseUrl, workspace.path || undefined, {
+  if (!endpoint) throw new Error(t("lawoss.integrations.error.workspace_unavailable"));
+  const directory = sessionDirectory ?? toSessionTransportDirectory(workspace.path);
+  const opencode = createClient(endpoint.opencodeBaseUrl, directory || undefined, {
     token: endpoint.token,
     mode: "legalwork",
   });
-  const directory = toSessionTransportDirectory(workspace.path) || undefined;
-  const session = unwrap(await opencode.session.create({ directory }));
+  const session = unwrap(await opencode.session.create({ directory: directory || undefined }));
   saveSessionDraft(workspace.id, session.id, { text: prompt, mode: "prompt" });
+  // Pole pro zprávu čte koncept z paměťového úložiště composeru, ne z draft-store (ten nikdo nečte).
+  useComposerStateStore.getState().setDraft(session.id, prompt);
+  writeLastSessionFor(workspace.id, session.id);
   return workspaceSessionRoute(workspace.id, session.id);
 }

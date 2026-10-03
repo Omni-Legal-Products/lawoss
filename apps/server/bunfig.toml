@@ -1,0 +1,2 @@
+[test]
+preload = ["./test-preload.ts", "./test-preload-lawoss.ts"]

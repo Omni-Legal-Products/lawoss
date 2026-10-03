@@ -61,7 +61,8 @@ const PLUGIN_FILES: Record<string, string> = {
   "README.md": "# Slack plugin",
 };
 
-function startMockGithub(options?: { branch?: string }) {
+function startMockGithub(options?: { branch?: string; files?: Record<string, string> }) {
+  const files = options?.files ?? PLUGIN_FILES;
   const branch = options?.branch ?? "main";
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -78,14 +79,14 @@ function startMockGithub(options?: { branch?: string }) {
         const ref = decodeURIComponent(url.pathname.slice(treePrefix.length));
         if (ref !== branch) return Response.json({ message: "not found" }, { status: 404 });
         return Response.json({
-          tree: Object.keys(PLUGIN_FILES).map((path) => ({ path, type: "blob", sha: `sha-${path}` })),
+          tree: Object.keys(files).map((path) => ({ path, type: "blob", sha: `sha-${path}` })),
         });
       }
       // Raw files (slash-branch refs appear as literal path segments)
       const rawPrefix = `/slackapi/slack-mcp-plugin/${branch}/`;
       if (url.pathname.startsWith(rawPrefix)) {
         const path = decodeURIComponent(url.pathname.slice(rawPrefix.length));
-        const content = PLUGIN_FILES[path];
+        const content = files[path];
         if (content !== undefined) return new Response(content);
       }
       return Response.json({ message: "not found" }, { status: 404 });
@@ -110,7 +111,7 @@ function startMockOpencode() {
   return { server, requests };
 }
 
-async function startLegalwork(options?: { branch?: string }) {
+async function startLegalwork(options?: { branch?: string; files?: Record<string, string> }) {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "legalwork-claude-plugin-"));
   roots.push(workspaceRoot);
   setEnv("LEGALWORK_RUNTIME_DB", join(workspaceRoot, "runtime.sqlite"));
@@ -279,4 +280,34 @@ describe("claude plugin bundles", () => {
     const afterRemoveBody = await afterRemove.json() as { items: Array<{ name: string }> };
     expect(afterRemoveBody.items.some((entry) => entry.name === "slack")).toBe(false);
   });
+});
+
+
+test("bundled Node MCP installs runtime and runs outside plugin cwd", async () => {
+  const files = {
+    ".claude-plugin/plugin.json": JSON.stringify({ name: "registry", version: "1.0.0" }),
+    ".mcp.json": JSON.stringify({ mcpServers: { registry: { command: "node", args: ["scripts/run.mjs", "mcp"], cwd: ".", startup_timeout_sec: 300 } } }),
+    "scripts/run.mjs": "import {readFileSync} from 'node:fs'; process.stdout.write(readFileSync(new URL('../runtime/data.json', import.meta.url),'utf8'));",
+    "runtime-config.json": '{"name":"registry"}',
+    "runtime/data.json": '{"ok":true}',
+    "skills/registry/SKILL.md": "---\nname: registry\ndescription: Read registry\n---\nUse registry MCP.",
+  };
+  const app = await startLegalwork({ files });
+  const response = await fetch(`${app.base}/workspace/ws_1/claude-plugins`, { method: "POST", headers: app.headers, body: JSON.stringify({ url: "https://github.com/slackapi/slack-mcp-plugin" }) });
+  expect(response.status).toBe(200);
+  const imported = await response.json();
+  const mcpResponse = await fetch(`${app.base}/workspace/ws_1/mcp`, { headers: app.headers });
+  const mcps = await mcpResponse.json();
+  const config = mcps.items.find((item: {name: string}) => item.name === "registry").config;
+  expect(config.timeout).toBe(300000);
+  const command = config.command;
+  const execution = Bun.spawnSync(command, { cwd: tmpdir(), stdout: "pipe", stderr: "pipe" });
+  expect(execution.exitCode).toBe(0);
+  expect(execution.stdout.toString()).toBe('{"ok":true}');
+  const runtime = imported.item.files.find((file: {path: string}) => file.path.endsWith("runtime/data.json"));
+  expect(runtime).toBeDefined();
+  expect(await readFile(join(app.workspaceRoot, runtime.path), "utf8")).toBe('{"ok":true}');
+  const removed = await fetch(`${app.base}/workspace/ws_1/cloud-plugins/${encodeURIComponent(imported.item.pluginId)}`, { method: "DELETE", headers: app.headers });
+  expect(removed.status).toBe(200);
+  expect(existsSync(join(app.workspaceRoot, runtime.path))).toBe(false);
 });

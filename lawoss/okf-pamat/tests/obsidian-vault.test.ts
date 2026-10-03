@@ -124,6 +124,7 @@ test("bez client_path by tá istá brána bola slepá — regresný dôkaz", () 
     title: "Veta", description: "p", created: "2026-09-02", updated: "2026-09-02",
     truth: "Vec spoločnosti s IČO 29139643.",
     timeline: [{ date: "2026-09-02", text: "z" }],
+    source: "test", verified_via: "test", verified_at: "2026-09-02",
   });
   // Prejde — a presne preto sa client_path musí nastaviť pri napojení vaultu.
   assert.doesNotThrow(() =>
@@ -141,4 +142,19 @@ test("cesta s ceskou diakritikou sa rozpozna", () => {
   const { klient, spis } = vault();
   assert.equal(findClientDir(spis), klient);
   assert.match(klient, /Říhová/);
+});
+
+test("native client separators preserve wildcard depth and POSIX literal backslashes", () => {
+  if (process.platform === "win32") {
+    assert.ok(matchesClientPath(String.raw`AK\R\Říhová Veronika`, "AK/*/*"));
+    assert.ok(matchesClientPath(String.raw`AK\R/Říhová Veronika`, "AK/R/*"));
+    assert.ok(!matchesClientPath(String.raw`AK\R\Říhová Veronika\Vec`, "AK/*/*"));
+    assert.ok(!matchesClientPath(String.raw`AK\R`, "AK/*/*"));
+    assert.ok(!matchesClientPath(String.raw`Iné\R\Říhová Veronika`, "AK/*/*"));
+    assert.ok(!matchesClientPath(String.raw`AK\S\Říhová Veronika`, "AK/R/*"));
+  } else {
+    assert.ok(!matchesClientPath(String.raw`AK\R\Říhová Veronika`, "AK/*/*"));
+    assert.ok(matchesClientPath(String.raw`AK/R/Říhová\Veronika`, "AK/*/*"));
+    assert.ok(!matchesClientPath(String.raw`AK/R/Říhová\Veronika/Vec`, "AK/*/*"));
+  }
 });

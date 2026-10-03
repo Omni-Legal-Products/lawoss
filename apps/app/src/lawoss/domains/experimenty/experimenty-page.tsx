@@ -1,5 +1,7 @@
 /** @jsxImportSource react */
 import { Link } from "react-router-dom";
+import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
 
 import { LawossLayout } from "../../shell/layout";
 import { EXPERIMENT_FLAGS, EXPERIMENT_VIEWS } from "../../experiments/registry";
@@ -7,6 +9,7 @@ import { resetExperiments, setExperiment, useExperiment } from "../../experiment
 
 function FlagRow(props: { id: string; label: string; note: string; owner: string; stav: string }) {
   const on = useExperiment(props.id);
+  const locale = useLocale();
   return (
     <div className="lw-row lw-cols-exp">
       <span className="lw-no">{on ? "●" : "○"}</span>
@@ -15,7 +18,7 @@ function FlagRow(props: { id: string; label: string; note: string; owner: string
         <small>{props.note}</small>
       </span>
       <span className="lw-ref">{props.owner}</span>
-      <span className="lw-st">{props.stav}</span>
+      <span className="lw-st">{t(statusKey(props.stav), locale)}</span>
       <span className="lw-go">
         <button
           className={`lw-switch ${on ? "on" : ""}`}
@@ -37,29 +40,24 @@ function FlagRow(props: { id: string; label: string; note: string; owner: string
  * listed. Everything here is off by default and local to this machine.
  */
 export function ExperimentyPage() {
+  const locale = useLocale();
   return (
     <LawossLayout>
-      <h1 className="lw-h1">Experimenty</h1>
-      <p className="lw-lead">
-        Všetko rozpracované je tu, aby zvyšok aplikácie ostal taký, aký je. Prepínače vedia pridať nedokončené
-        správanie, zoznam nižšie vedie na obrazovky, ktoré sú zatiaľ len návrh. Nič odtiaľto sa nesynchronizuje.
-      </p>
+      <h1 className="lw-h1">{t("lawoss.shell.experiments", locale)}</h1>
+      <p className="lw-lead">{t("lawoss.shell.intro", locale)}</p>
 
       <div className="lw-reg">
         <div className="lw-reg-h">
-          <h2>Prepínače</h2>
+          <h2>{t("lawoss.shell.switches", locale)}</h2>
           <span className="lw-meta">
-            default vypnuté · uložené lokálne
+            {t("lawoss.shell.local_defaults", locale)}
             <button className="lw-reset" type="button" onClick={resetExperiments}>
-              Vypnúť všetko
+              {t("lawoss.shell.disable_all", locale)}
             </button>
           </span>
         </div>
         {EXPERIMENT_FLAGS.length === 0 ? (
-          <p className="lw-empty">
-            Žiadny prepínač zatiaľ nie je. Prepínač smie iba <b>pridať</b> nedokončené správanie — nikdy neskryť to,
-            čo v LegalWorku funguje.
-          </p>
+          <p className="lw-empty">{t("lawoss.shell.no_switches", locale)}</p>
         ) : (
           EXPERIMENT_FLAGS.map((flag) => (
             <FlagRow key={flag.id} id={flag.id} label={flag.label} note={flag.note} owner={flag.owner} stav={flag.stav} />
@@ -69,8 +67,8 @@ export function ExperimentyPage() {
 
       <div className="lw-reg">
         <div className="lw-reg-h">
-          <h2>Rozpracované pohľady</h2>
-          <span className="lw-meta">nie sú napojené na spisy</span>
+          <h2>{t("lawoss.shell.views", locale)}</h2>
+          <span className="lw-meta">{t("lawoss.shell.views_note", locale)}</span>
         </div>
         {EXPERIMENT_VIEWS.map((view) => (
           <Link key={view.id} to={view.to} className="lw-row lw-cols-exp-view">
@@ -80,21 +78,17 @@ export function ExperimentyPage() {
               <small>{view.note}</small>
             </span>
             <span className="lw-ref">{view.owner}</span>
-            <span className="lw-st">{view.stav}</span>
-            <span className="lw-go">otvoriť</span>
+            <span className="lw-st">{t(statusKey(view.stav), locale)}</span>
+            <span className="lw-go">{t("lawoss.shell.open", locale)}</span>
           </Link>
         ))}
       </div>
 
-      <div className="lw-note">
-        <span>
-          Nový experiment = <b>jeden riadok</b> v <span className="lw-mono">lawoss/experiments/registry.ts</span>.
-        </span>
-        <span>
-          Zapnutie sa číta cez <span className="lw-mono">useExperiment(id)</span>.
-        </span>
-        <span>Zmazaný riadok = správanie sa už nedá oživiť zo starého profilu.</span>
-      </div>
+      <div className="lw-note"><span>{t("lawoss.shell.registry_note", locale)}</span></div>
     </LawossLayout>
   );
+}
+
+function statusKey(value: string): string {
+  return value === "v testovaní" ? "lawoss.shell.testing" : value === "na zlúčenie" ? "lawoss.shell.merge" : "lawoss.shell.draft";
 }
