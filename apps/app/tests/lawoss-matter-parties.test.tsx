@@ -103,7 +103,7 @@ test("vec s typom agenta a vlastnou sekciou sa prečíta bez problémov; AGENT_T
   expect(out.totals.records).toBe(2);
   const c = buildCockpit(out, MATTER, TODAY);
   expect(c?.okfValid).toBe(true);
-  expect(c?.facts).toEqual([]);
+  expect(c?.facts.map((f) => [f.id, f.kind])).toEqual([["G-001", "garancia"]]);
   expect(c?.events).toHaveLength(2);
   expect(c?.parties.map((p) => p.name)).toEqual(["Finanční úřad pro Jihomoravský kraj"]);
 });

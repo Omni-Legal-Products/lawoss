@@ -8,7 +8,7 @@
  * nezmizne.
  */
 import type { OkfRecord } from "../okf-pamat/src/record.ts";
-import { valueLabel, type RecordType } from "../okf-pamat/src/schema.ts";
+import { isRecordType, valueLabel, type KnownRecordType, type RecordType } from "../okf-pamat/src/schema.ts";
 import { pendingInputs } from "./inputs.ts";
 import { deadlineTier, isOpenTask, isRetired, recordDeadlines, type MatterInput, type MatterOverview } from "./read.ts";
 
@@ -92,7 +92,8 @@ export type Cockpit = {
   okfValid: boolean;
 };
 
-const KIND_LABEL: Record<RecordType, string> = {
+// Kľúč je známy typ — nový známy typ bez popisky je chyba kompilácie.
+const KIND_LABEL: Record<KnownRecordType, string> = {
   matter: "spis",
   decision: "rozhodnutie",
   subject: "subjekt",
@@ -104,10 +105,16 @@ const KIND_LABEL: Record<RecordType, string> = {
   rule: "pravidlo",
   lesson: "poučenie",
   authority: "prameň",
+  requirement: "požiadavka",
+  instrument: "listina",
+  relation: "vzťah",
 };
 
-/** Typy, ktoré patria do registra FAKTY — spis je obal a úloha má vlastný register. */
-const FACT_TYPES = new Set<RecordType>(["decision", "subject", "question", "screening", "claim", "evidence", "authority", "rule", "lesson"]);
+/** Vlastný typ agenta nemá popisku — ukáže sa jeho názov. */
+const kindLabel = (t: RecordType): string => (isRecordType(t) ? KIND_LABEL[t] : t);
+
+/** Do registra FAKTY patrí všetko okrem obalu (spis) a úloh — aj nové a vlastné typy agenta. */
+const isFact = (t: RecordType): boolean => t !== "matter" && t !== "task";
 
 /** Fakt bez prameňa je nález validácie; pri týchto typoch prameň chýbať nesmie. */
 const NEEDS_SOURCE = new Set<RecordType>(["claim", "evidence", "decision"]);
@@ -155,13 +162,13 @@ export function clientFromPath(path: string): string | undefined {
 
 function facts(input: MatterInput): CockpitFact[] {
   return input.records
-    .filter((r) => FACT_TYPES.has(r.type))
+    .filter((r) => isFact(r.type))
     .map((r) => {
       const src = firstSource(r);
       const fact: CockpitFact = {
         id: r.id,
         title: r.title,
-        kind: KIND_LABEL[r.type],
+        kind: kindLabel(r.type),
         provenance: provenance(r),
         file: fileOf(input, r),
       };
@@ -334,7 +341,7 @@ export function attention(
       kind: "nález",
       state: "bez prameňa",
       title: r.title,
-      detail: `${KIND_LABEL[r.type]} bez poľa sources — tvrdenie bez prameňa sa nedá overiť`,
+      detail: `${kindLabel(r.type)} bez poľa sources — tvrdenie bez prameňa sa nedá overiť`,
       provenance: provenance(r),
       file: fileOf(input, r),
     });
