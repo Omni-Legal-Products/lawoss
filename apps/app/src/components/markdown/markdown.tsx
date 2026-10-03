@@ -1,7 +1,6 @@
 /** @jsxImportSource react */
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
-import DOMPurify from "dompurify";
 import { Marked, type Tokens } from "marked";
 import { markedEmoji } from "marked-emoji";
 import markedShiki from "marked-shiki";
@@ -18,6 +17,7 @@ import {
 import { bundledLanguages, codeToHtml } from "shiki";
 
 import { cn } from "@/lib/utils";
+import { sanitizeMarkdownHtml } from "@/lib/sanitize-markdown";
 import { useOpenTargets } from "@/lib/target-provider";
 import { resolvePathOpenTarget, type OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
 
@@ -180,31 +180,6 @@ function syncMarkdownImagePreviews(root: HTMLElement) {
   }
 }
 
-function sanitizeMarkdownHtml(value: string) {
-  return DOMPurify.sanitize(value, {
-    ADD_ATTR: [
-      "checked",
-      "class",
-      "data-legalwork-image-preview",
-      "data-legalwork-image-toggle",
-      "data-legalwork-image-toggle-label",
-      "data-legalwork-legalmemory-ref",
-      "data-legalwork-link-href",
-      "data-legalwork-link-chevron",
-      "data-legalwork-shiki",
-      "data-legalwork-task-ref",
-      "decoding",
-      "disabled",
-      "hidden",
-      "loading",
-      "rel",
-      "start",
-      "style",
-      "target",
-    ],
-  });
-}
-
 const baseMarkedOptions = {
   async: false,
   breaks: false,
@@ -253,7 +228,7 @@ const baseMarkedOptions = {
       return `<pre class="my-4 overflow-x-auto rounded-[18px] border border-border/70 bg-gray-1/80 px-4 py-3 text-xs leading-6 text-muted-foreground"><code${codeLanguageClass(lang)}>${escapeHtml(text)}</code></pre>`;
     },
     codespan({ text }) {
-      return `<code class="rounded-md bg-gray-2/70 px-1.5 py-0.5 font-mono text-sm text-foreground">${escapeHtml(text)}</code>`;
+      return `<code class="rounded-sm bg-foreground/4 px-1 py-0.5 [font:inherit] text-inherit">${escapeHtml(text)}</code>`;
     },
     del({ raw, tokens }) {
       if (!raw.startsWith("~~")) {

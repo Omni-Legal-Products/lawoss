@@ -10,9 +10,10 @@
  * attachments, sessions, history, the original message, details — is folded
  * when a task opens, so what is asked is the first and only thing in view.
  */
-import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import DOMPurify from "dompurify";
 import {
+  AlertTriangle,
   ArrowLeft,
   ArchiveRestore,
   Bot,
@@ -60,11 +61,16 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import type {
   LegalworkTask,
   LegalworkTaskAttachment,
+  LegalworkTaskConflictChoice,
   LegalworkTaskMember,
   LegalworkTaskNote,
   LegalworkTaskPatch,
   LegalworkTaskSessionLink,
+  LegalworkTaskTextConflict,
 } from "@/app/lib/legalwork-server";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { hasStorageFileDrag, readStorageFileDrag, type StorageFileDragItem } from "@/app/lib/storage-file-drag";
+import { writeTaskAttachmentDrag } from "@/app/lib/task-attachment-drag";
 import { formatBytes } from "@/app/utils";
 import { t } from "@/i18n";
 import { getArtifactType } from "@/lib/artifacts";
@@ -127,10 +133,35 @@ function documentIconKind(filename: string): DocumentIconKind {
 }
 
 /** A folded block of the task; every one starts closed, so a task opens on its ask alone. */
-function Section(props: { title: string; children: ReactNode; icon: ReactNode; actions?: ReactNode }) {
+function Section(props: {
+  title: string;
+  children: ReactNode;
+  icon: ReactNode;
+  actions?: ReactNode;
+  dropZone?: {
+    active: boolean;
+    label: string;
+    onDragOver: (event: DragEvent<HTMLDetailsElement>) => void;
+    onDragLeave: (event: DragEvent<HTMLDetailsElement>) => void;
+    onDrop: (event: DragEvent<HTMLDetailsElement>) => void;
+  };
+}) {
   return (
-    <details className="group/section border-t border-border">
-      <summary className="flex cursor-pointer list-none items-center gap-3 rounded-md py-4 text-sm font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/30 [&::-webkit-details-marker]:hidden">
+    <details
+      className={cn(
+        "group/section border-t border-border",
+        props.dropZone?.active && "rounded-[var(--lw-radius-lg)] ring-2 ring-primary/35",
+      )}
+      onDragOver={props.dropZone?.onDragOver}
+      onDragLeave={props.dropZone?.onDragLeave}
+      onDrop={props.dropZone?.onDrop}
+    >
+      <summary className="relative flex cursor-pointer list-none items-center gap-3 rounded-md py-4 text-sm font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/30 [&::-webkit-details-marker]:hidden">
+        {props.dropZone?.active ? (
+          <span className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[var(--lw-radius-lg)] bg-background/90">
+            {props.dropZone.label}
+          </span>
+        ) : null}
         {props.icon}
         <h2 className="flex-1">{props.title}</h2>
         {props.actions}
@@ -267,6 +298,7 @@ function Fact(props: { label: string; children: ReactNode }) {
 }
 
 export type TaskDetailProps = {
+  projects?: { id: string; name: string }[];
   task: LegalworkTask;
   /** Raw `submission` half of the detail; shape is not pinned by the contract. */
   submission: unknown;
@@ -281,6 +313,8 @@ export type TaskDetailProps = {
   accountUserId: string | null;
   /** Closes the task, back to the list alone: the back arrow in one column, the cross in two. */
   onBack: () => void;
+  /** Panel tabs already provide navigation and a close button. */
+  inPanel?: boolean;
   /** Every in-place change goes through here; it resolves when the store has it. */
   onPatch: (patch: LegalworkTaskPatch) => Promise<unknown>;
   onDelete: () => void;
@@ -294,11 +328,61 @@ export type TaskDetailProps = {
   /** Shows the attachment in the side panel's viewer. */
   onOpenAttachment: (attachment: LegalworkTaskAttachment) => Promise<void>;
   onUploadAttachments: (files: File[]) => Promise<unknown>;
+  onUploadStorageAttachment: (file: StorageFileDragItem) => Promise<unknown>;
   onRemoveAttachment: (attachment: LegalworkTaskAttachment) => Promise<unknown>;
+  /** Title or description a colleague changed in the same words: which version stays is this member's. */
+  conflicts?: LegalworkTaskTextConflict[];
+  onResolveConflict?: (choice: LegalworkTaskConflictChoice) => Promise<unknown>;
 };
+
+/** Both versions, and the member picks which stays; keeping both puts theirs in the history. */
+function TaskConflictNotice(props: {
+  conflict: LegalworkTaskTextConflict;
+  busy: boolean;
+  onResolve: (choice: LegalworkTaskConflictChoice) => Promise<unknown>;
+}) {
+  const { conflict } = props;
+  const [working, setWorking] = useState(false);
+  const choose = async (keep: "mine" | "theirs", both = false) => {
+    setWorking(true);
+    try {
+      const label = t(conflict.field === "title" ? "tasks.conflict_note_title" : "tasks.conflict_note_description");
+      await props.onResolve({ field: conflict.field, keep, ...(both ? { note: `${label}\n\n${conflict.mine}` } : {}) });
+    } catch (error) {
+      toast.error(t("tasks.conflict_failed"), { description: error instanceof Error ? error.message : undefined });
+    } finally {
+      setWorking(false);
+    }
+  };
+  const disabled = props.busy || working;
+  const version = (label: string, text: string) => (
+    <div>
+      <dt className="font-medium text-foreground">{label}</dt>
+      <dd className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap rounded-md bg-muted/50 px-2 py-1.5">{text}</dd>
+    </div>
+  );
+  return (
+    <Alert className="mb-4">
+      <AlertTriangle className="text-warning" />
+      <AlertDescription className="space-y-3">
+        <p>{t(conflict.field === "title" ? "tasks.conflict_title" : "tasks.conflict_description")}</p>
+        <dl className="grid gap-2 text-xs">
+          {version(t("tasks.conflict_theirs"), conflict.theirs)}
+          {version(t("tasks.conflict_mine"), conflict.mine)}
+        </dl>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" disabled={disabled} onClick={() => void choose("theirs", true)}>{t("tasks.conflict_keep_both")}</Button>
+          <Button size="sm" variant="ghost" disabled={disabled} onClick={() => void choose("theirs")}>{t("tasks.conflict_use_theirs")}</Button>
+          <Button size="sm" variant="ghost" disabled={disabled} onClick={() => void choose("mine")}>{t("tasks.conflict_keep_mine")}</Button>
+        </div>
+      </AlertDescription>
+    </Alert>
+  );
+}
 
 export function TaskDetail(props: TaskDetailProps) {
   const { task } = props;
+  const resolveConflict = props.onResolveConflict;
   // The newest run started from the task on this machine, for the toolbar's
   // "Open run"; the session that filed the task is not a run of it.
   const latestRun = task.sessions.find((link) => link.kind !== "created") ?? null;
@@ -306,6 +390,7 @@ export function TaskDetail(props: TaskDetailProps) {
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [draggingAttachment, setDraggingAttachment] = useState(false);
   const [draftTitle, setDraftTitle] = useState(task.title);
   const [draftDescription, setDraftDescription] = useState(task.description);
   const [draftTags, setDraftTags] = useState(task.tags);
@@ -446,6 +531,20 @@ export function TaskDetail(props: TaskDetailProps) {
     }
   };
 
+  const uploadStorageAttachment = async (file: StorageFileDragItem) => {
+    setUploading(true);
+    try {
+      await props.onUploadStorageAttachment(file);
+    } catch (error) {
+      toast.error(t("tasks.upload_failed"), { description: error instanceof Error ? error.message : undefined });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const dragHasAttachment = (dataTransfer: DataTransfer) =>
+    Array.from(dataTransfer.types).includes("Files") || hasStorageFileDrag(dataTransfer);
+
   const noteAuthor = (note: LegalworkTaskNote): string => {
     if (note.authorUserId && props.accountUserId && note.authorUserId === props.accountUserId) return t("tasks.assignee_you");
     if (note.authorName || note.authorEmail) return note.authorName ?? note.authorEmail ?? "";
@@ -456,8 +555,9 @@ export function TaskDetail(props: TaskDetailProps) {
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <header className="shrink-0 border-b border-border py-3">
-        <div className="mx-auto flex w-full max-w-2xl flex-wrap items-center justify-between gap-2 px-4 sm:px-6">
-          <div className="flex min-w-0 items-center gap-2">
+        <div className={cn("mx-auto flex w-full max-w-2xl flex-wrap items-center gap-2 px-4 sm:px-6", props.inPanel ? "justify-end" : "justify-between")}>
+          {(!props.inPanel || inTrash) && <div className="flex min-w-0 items-center gap-2">
+            {!props.inPanel && <>
             <Button variant="ghost" size="icon-sm" className="@min-[880px]/tasks:hidden" aria-label={t("tasks.back_to_list")} onClick={props.onBack}>
               <ArrowLeft />
             </Button>
@@ -485,14 +585,15 @@ export function TaskDetail(props: TaskDetailProps) {
                 <TooltipContent>{sessionLinkLabel(task.createdSession)}</TooltipContent>
               </Tooltip>
             ) : null}
+            </>}
             {inTrash ? (
               <span className="inline-flex h-6 items-center gap-1 rounded-full border border-border bg-muted/40 px-2 text-[11px] font-medium text-muted-foreground">
                 <Trash2 aria-hidden className="size-3" />
                 {t("tasks.in_trash")}
               </span>
             ) : null}
-          </div>
-          <div className="grid w-full gap-2 @min-[360px]/tasks:flex @min-[360px]/tasks:w-auto @min-[360px]/tasks:flex-wrap @min-[360px]/tasks:items-center">
+          </div>}
+          <div className={props.inPanel ? "flex flex-wrap items-center gap-2" : "grid w-full gap-2 @min-[360px]/tasks:flex @min-[360px]/tasks:w-auto @min-[360px]/tasks:flex-wrap @min-[360px]/tasks:items-center"}>
             {inTrash ? (
               <Button size="sm" disabled={props.busy} aria-busy={props.busy} onClick={props.onRestore}>
                 {props.busy ? <Loader2 className="animate-spin" /> : <ArchiveRestore />}
@@ -569,7 +670,7 @@ export function TaskDetail(props: TaskDetailProps) {
                 <TooltipContent>{t("tasks.delete")}</TooltipContent>
               </Tooltip>
             )}
-            <Button
+            {!props.inPanel && <Button
               variant="ghost"
               size="icon-sm"
               className="hidden @min-[880px]/tasks:inline-flex"
@@ -577,13 +678,18 @@ export function TaskDetail(props: TaskDetailProps) {
               onClick={props.onBack}
             >
               <X />
-            </Button>
+            </Button>}
           </div>
         </div>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-2xl flex-col px-4 py-6 sm:px-6">
+          {resolveConflict
+            ? (props.conflicts ?? []).map((conflict) => (
+                <TaskConflictNotice key={conflict.field} conflict={conflict} busy={props.busy} onResolve={resolveConflict} />
+              ))
+            : null}
           <>
               <div className="space-y-4 pb-6">
                 <Input
@@ -630,6 +736,9 @@ export function TaskDetail(props: TaskDetailProps) {
                       if (next !== undefined && next !== task.priority) void patch({ priority: next }, t("tasks.update_failed"));
                     }}
                   />
+                  {props.projects ? <PropertyChip label={t("projects.project")} value={task.projectId ?? "__none__"}
+                    items={[{ value: "__none__", label: t("projects.no_project"), leading: null }, ...props.projects.map((project) => ({ value: project.id, label: project.name, leading: null }))]}
+                    disabled={locked} onChange={(value) => void patch({ projectId: value === "__none__" ? null : value }, t("tasks.update_failed"))} /> : null}
                   <DueDateChip
                     value={task.dueDate}
                     disabled={locked}
@@ -669,6 +778,34 @@ export function TaskDetail(props: TaskDetailProps) {
           <Section
             title={task.attachments.length ? t("tasks.attachments_count", { count: task.attachments.length }) : t("tasks.attachments_empty")}
             icon={<Paperclip aria-hidden className="size-4 text-muted-foreground" />}
+            dropZone={{
+              active: draggingAttachment,
+              label: t("tasks.drop_attachments"),
+              onDragOver: (event) => {
+                if (locked || uploading || !dragHasAttachment(event.dataTransfer)) return;
+                event.preventDefault();
+                event.stopPropagation();
+                event.dataTransfer.dropEffect = "copy";
+                setDraggingAttachment(true);
+              },
+              onDragLeave: (event) => {
+                const next = event.relatedTarget;
+                if (next instanceof Node && event.currentTarget.contains(next)) return;
+                setDraggingAttachment(false);
+              },
+              onDrop: (event) => {
+                if (locked || uploading || !dragHasAttachment(event.dataTransfer)) return;
+                event.preventDefault();
+                event.stopPropagation();
+                setDraggingAttachment(false);
+                const storageFile = readStorageFileDrag(event.dataTransfer);
+                if (storageFile) {
+                  void uploadStorageAttachment(storageFile);
+                  return;
+                }
+                void upload(Array.from(event.dataTransfer.files));
+              },
+            }}
             actions={
               inTrash ? null : (
                 <Button
@@ -709,11 +846,13 @@ export function TaskDetail(props: TaskDetailProps) {
                   >
                     <button
                       type="button"
+                      draggable
                       className="flex min-w-0 flex-1 items-center gap-3 rounded-[var(--lw-radius-md)] text-start outline-none focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-progress"
                       title={t("tasks.open_attachment")}
                       aria-label={`${t("tasks.open_attachment")}: ${attachment.filename}`}
                       aria-busy={openingId === attachment.id}
                       disabled={openingId === attachment.id}
+                      onDragStart={(event) => writeTaskAttachmentDrag(event.dataTransfer, task.id, attachment)}
                       onClick={() => void open(attachment)}
                     >
                       {openingId === attachment.id ? (

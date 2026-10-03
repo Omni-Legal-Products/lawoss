@@ -31,6 +31,46 @@ function supportsSymlinks(): boolean {
   finally { rmSync(base, { recursive: true, force: true }); }
 }
 describe("naming filesystem transaction", () => {
+  test("file identities above the safe integer limit remain distinct in the Node runtime", async () => {
+    const f = fixture(), entry = join(f.base, "identity-entry.ts"), bundle = join(f.base, "identity.mjs");
+    writeFileSync(entry, `export { readNamingBinary } from ${JSON.stringify(fileURLToPath(new URL("../src/naming-fs.ts", import.meta.url)))};`);
+    const build = await Bun.build({ entrypoints: [entry], target: "node", format: "esm" });
+    expect(build.success).toBe(true);
+    await Bun.write(bundle, build.outputs[0]!);
+    // Isolate filesystem mocking in a child process so no other tests observe it.
+    const result = spawnSync("node", ["--input-type=module", "-e", `
+      import fs from "node:fs";
+      import { syncBuiltinESMExports } from "node:module";
+      import { pathToFileURL } from "node:url";
+      import assert from "node:assert/strict";
+      const ids = new Map();
+      let next = 9007199254740992n;
+      for (const path of process.argv.slice(2)) {
+        const stat = fs.lstatSync(path, { bigint: true });
+        ids.set(String(stat.dev) + ":" + String(stat.ino), next++);
+      }
+      for (const name of ["lstatSync", "fstatSync"]) {
+        const original = fs[name];
+        fs[name] = (target, options) => {
+          const exact = original(target, { bigint: true });
+          const key = String(exact.dev) + ":" + String(exact.ino);
+          if (!ids.has(key)) ids.set(key, next++);
+          const stat = original(target, options);
+          stat.ino = options?.bigint ? ids.get(key) : Number(ids.get(key));
+          return stat;
+        };
+      }
+      syncBuiltinESMExports();
+      const { readNamingBinary } = await import(pathToFileURL(process.argv[1]).href);
+      const a = readNamingBinary(process.argv[2], 1024);
+      const b = readNamingBinary(process.argv[3], 1024);
+      assert.equal(a.physical.split(":")[1], "9007199254740992");
+      assert.equal(b.physical.split(":")[1], "9007199254740993");
+      assert.notEqual(a.physical, b.physical);
+    `, bundle, join(f.root, "03_Drafty/old.PDF"), join(f.root, "01_Podklady/original.pdf")], { encoding: "utf8" });
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+  });
   test("preview has zero writes; binary originals copied, working links updated and replay verified", () => {
     const f = fixture(); writeFileSync(join(f.root, "notes/unselected.md"), "[old](../03_Drafty/old.PDF)");
     const before = tree(f.root), plan = planDocumentNaming(f.root, f.request); expect(tree(f.root)).toEqual(before); expect(plan.linkScope).toContain("unselected");

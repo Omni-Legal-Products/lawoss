@@ -101,6 +101,7 @@ export function AppRoot() {
                   </DevProfiler>
                 }
               />
+              <Route path="/home" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route
                 path="/session/:sessionId"
                 element={
@@ -109,6 +110,12 @@ export function AppRoot() {
                   </DevProfiler>
                 }
               />
+              <Route path="/projects" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/workflows" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/recorder" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/workspace/:workspaceId/project" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/workspace/:workspaceId/reviews" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/workspace/:workspaceId/tasks" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route
                 path="/workspace/:workspaceId/session"
                 element={
@@ -146,8 +153,8 @@ export function AppRoot() {
               {LAWOSS_ROUTES.map((route) => (
                 <Route key={route.path} path={route.path} element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               ))}
-              <Route path="/" element={<Navigate to="/prehlad" replace />} />
-              <Route path="*" element={<Navigate to="/session" replace />} />
+              <Route path="/" element={<Navigate to="/home" replace />} />
+              <Route path="*" element={<Navigate to="/home" replace />} />
           </Routes>
         </LegalworkControlProvider>
         </AppMenuProvider>

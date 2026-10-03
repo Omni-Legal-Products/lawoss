@@ -110,15 +110,13 @@ Pri hlásení uveďte:
 
 ## Ladiaci port Electronu
 
-`pnpm dev` už nevnucuje port 9823. Bez premennej ostáva upstream správanie:
-Electron hľadá voľný port 9223–9227 pre vstavaný prehliadač. Kto sa na CDP
-pripojí, riadi okno aplikácie aj jej session.
+Od upstream syncu v0.2.1 je aplikačný CDP port predvolene vypnutý.
+Zabalená aplikácia ho nepovolí ani pri nastavenej premennej. Nezabalený
+vývojový beh ho otvorí iba na výslovne zadanom porte. Kto sa na CDP pripojí,
+riadi okno aplikácie aj jej session.
 
-Ak vstavaný prehliadač nepotrebujete, port úplne vypnete:
-
-```bash
-LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT=off pnpm dev
-```
+Hodnota `LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT=off` ostáva kompatibilná,
+ale pre predvolené vypnutie už nie je potrebná.
 
 Konkrétny port pre ladenie nastavíte takto:
 
