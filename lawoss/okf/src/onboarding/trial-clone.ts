@@ -96,7 +96,8 @@ export async function applyTrialClone(preview: TrialClone, journalDirectory: str
           if (await realpath(sourcePath) !== sourcePath || !(await lstat(sourcePath)).isFile()) throw new Error("Trial source entry changed.");
           await copyFile(sourcePath, target, constants.COPYFILE_EXCL);
           if (await fileDigest(target) !== entry.digest) throw new Error("Trial copy digest mismatch.");
-          const handle = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW); try { await handle.sync(); } finally { await handle.close(); }
+          // Windows FlushFileBuffers requires a handle opened with write access.
+          const handle = await open(target, (process.platform === "win32" ? constants.O_RDWR : constants.O_RDONLY) | constants.O_NOFOLLOW); try { await handle.sync(); } finally { await handle.close(); }
         }
         journal.owned.push({ path: entry.path, kind: entry.kind, identity: await identity(target, entry.kind), digest: entry.digest, size: entry.size });
         delete journal.intent; await save();

@@ -32,7 +32,7 @@ Desktop pred štartom runtime odovzdá výber externého app storage a natívny 
 
 PR #88 ostáva samostatný rozsah pravidiel AI a nie je splnený týmto onboardingom. Safari MCP vrátil `Transport closed`, preto Safari kompatibilita nie je overená. Kontrola v Codex Browser prešla nad syntetickou kanceláriou: Office, klient, subjekt, oba druhy veci, návrat z natívnych AI nastavení, obnova náhľadu po reload/reštarte a opakovaný vstup z bočného panela. Pri šírke 860 px nebol horizontálny overflow. Fixture nemá bežiaci modelový engine, takže polling enginu hlásil nedostupnosť; tento priechod nedokazuje odpoveď modelu. Žiadny poskytovateľ ani platená inferencia sa neaktivovali.
 
-Zabalený lokálny build ešte podlieha izolovanej štartovacej kontrole. Nainštalovaná aplikácia ani produkčný profil neboli zmenené. Zmiešaný import workspace zostáva pre outside odmietnutý, pretože môže kombinovať aplikačné a dokumentové zápisy. Cloudové placeholdery, všetci poskytovatelia cloudu a odolnosť proti výpadku napájania nie sú akceptačne overené.
+Lokálny arm64 balík bol zostavený, ad-hoc podpísaný a izolovaný štartovací test aplikácie aj rendereru prešiel. Ide o lokálny testovací podpis, nie distribuovaný notarizovaný release. Nainštalovaná aplikácia ani produkčný profil neboli zmenené. Zmiešaný import workspace zostáva pre outside odmietnutý, pretože môže kombinovať aplikačné a dokumentové zápisy. Cloudové placeholdery, všetci poskytovatelia cloudu a odolnosť proti výpadku napájania nie sú akceptačne overené.
 
 ## Overenie
 
@@ -49,6 +49,7 @@ Node 24.19.0, pnpm 11.4.0, Bun 1.4.2. Testy používajú syntetické údaje.
 | Typecheck app, server, Electron, OKF a pamäte | PASS |
 | Build oboch prenosných CLI balíkov | PASS |
 | `pnpm --dir apps/app test:i18n` | PASS, 5 665 EN kľúčov, SK/CS/DE úplné |
+| `node scripts/i18n-audit.mjs --ci` | PASS |
 | `git diff --check`, root AGENTS/CLAUDE | PASS |
 
 Prvý serverový beh mal timeout štartu reálneho OAuth sidecar testu. Izolovaný test opakovane prešiel a následný celý serverový beh bol zelený. Po poslednom úzkom doplnení návratového subjektu boli znovu overené API testy a typecheck.
@@ -58,3 +59,9 @@ Prvý serverový beh mal timeout štartu reálneho OAuth sidecar testu. Izolovan
 ![Klient a obe veci po dokončení](evidence/onboarding-client-2026-10-03.jpg)
 
 Pokrytie zahŕňa klasifikáciu, stale tree, kolízie, recovery a rollback, binárny trial clone, mapovanie bez zápisu originálu, serverový trvalý ticket, scope profilov, presný Office grant, klientsku registráciu po recovery, externé app storage a scoped sessions.
+
+## Reprodukcia lokálneho balíka
+
+Použiť `pnpm --filter @legalwork/desktop build:electron`. Pri samostatnej obnove rendereru musí byť `LEGALWORK_ELECTRON_BUILD=1`; obyčajný webový build používa absolútne asset cesty, ktoré sa cez `file://` nenačítajú. Lokálne balenie používa `CSC_IDENTITY_AUTO_DISCOVERY=false` a explicitný ad-hoc podpis testovacieho artefaktu. `apps/desktop/scripts/packaged-startup-regression.mjs` vytvorí vlastný profil a workspace, overí rendererové ovládanie a odstráni iba svoj testovací profil.
+
+Windows CI pri skúšobnej kópii odhalilo delenie cesty iba na `/` a synchronizáciu súboru cez read-only handle. Názov teraz používa platformový `basename`; Windows otvára skopírovaný súbor na synchronizáciu aj so zápisovým prístupom. Testy sa neobchádzajú.

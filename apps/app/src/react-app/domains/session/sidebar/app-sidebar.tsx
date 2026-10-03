@@ -797,7 +797,8 @@ export function AppSidebar(props: AppSidebarProps) {
             </Button>
           </div>
         </div>
-        <div className="flex items-center px-2"><LawossNav activePane={Boolean(props.activeNav)} /><OnboardingEntryActions compact /></div>
+        <LawossNav activePane={Boolean(props.activeNav)} />
+        <div className="flex justify-end px-2 pb-2"><OnboardingEntryActions compact /></div>
         <SidebarWorkflowGenerationBadge onOpenSession={(workspaceId, sessionId) => navigate(workspaceSessionRoute(workspaceId, sessionId))} />
         {!lite && newChatSection && <SidebarMenu className="px-2.5 pb-3 pt-1">{newChatSection}</SidebarMenu>}
         </div>

@@ -1,6 +1,6 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { inspectOnboardingRoot } from "./classify.ts";
 import { applyOnboardingPlan, type ApplyResult, type CreateOperation, type OnboardingPlan } from "./transaction.ts";
 import { planEntity } from "../core.ts";
@@ -95,6 +95,6 @@ export async function planExistingClient(root: string, mode: "map" | "trial_clon
     return { mode, appFiles: "outside", root: inspection.root, sourceDigest: inspection.digest, externalProfile: { version: 1, matterId, roots: [{ id: "client", path: inspection.root }], sources: [{ id: "existing_memory", root: "client", path: map.memoryPath, role: "case_memory", required: true, writable: false, anchors: [map.identityAnchor] }] } };
   }
   if (!cloneParent) throw new Error("Trial clone parent is required.");
-  const target = join(cloneParent, `${safeSegment(inspection.root.split("/").pop() ?? "client")} (trial ${new Date().toISOString().slice(0, 10)})`);
+  const target = join(cloneParent, `${safeSegment(basename(inspection.root) || "client")} (trial ${new Date().toISOString().slice(0, 10)})`);
   return { mode, appFiles: "inside", source: inspection.root, sourceDigest: inspection.digest, target, trial: true };
 }
