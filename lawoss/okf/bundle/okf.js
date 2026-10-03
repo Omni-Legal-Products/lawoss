@@ -251,6 +251,26 @@ var EVIDENCE_KINDS = [
   "party_examination",
   "inspection"
 ];
+var FULFILLMENT_STATUS = ["open", "met", "waived", "failed"];
+var INSTRUMENT_FORMS = ["plain", "certified_signature", "notarial_deed", "attorney_declaration"];
+var INSTRUMENT_STATUS = [
+  "draft",
+  "negotiated",
+  "final",
+  "signed",
+  "effective",
+  "registered",
+  "superseded"
+];
+var RELATION_KINDS = [
+  "executive",
+  "board_member",
+  "shareholder",
+  "representative",
+  "attorney_in_fact",
+  "beneficial_owner",
+  "pledgee"
+];
 var SCREENING_MODES = ["light", "medium", "hard"];
 var FIELDS = [
   { canonical: "okf", cz: "okf", sk: "okf", kind: "number", required: true },
@@ -287,6 +307,7 @@ var FIELDS = [
   { canonical: "parties", cz: "strany", sk: "strany", kind: "list", required: false },
   { canonical: "matter_ref", cz: "spisová značka", sk: "spisová značka", kind: "string", required: false },
   { canonical: "court", cz: "soud", sk: "súd", kind: "string", required: false },
+  { canonical: "participants", cz: "Zapojené subjekty", sk: "Zúčastnené subjekty", kind: "maplist", required: false },
   { canonical: "area", cz: "oblast práva", sk: "oblasť práva", kind: "list", required: false },
   {
     canonical: "role",
@@ -435,7 +456,44 @@ var FIELDS = [
     required: false,
     values: TASK_STATES
   },
-  { canonical: "due", cz: "termín", sk: "termín", kind: "string", required: false }
+  { canonical: "due", cz: "termín", sk: "termín", kind: "string", required: false },
+  { canonical: "demanded_by", cz: "požaduje", sk: "požaduje", kind: "string", required: false },
+  { canonical: "demanded_from", cz: "požadováno od", sk: "požadované od", kind: "string", required: false },
+  {
+    canonical: "fulfillment_status",
+    cz: "stav splnění",
+    sk: "stav splnenia",
+    kind: "string",
+    required: false,
+    values: FULFILLMENT_STATUS
+  },
+  { canonical: "version", cz: "verze", sk: "verzia", kind: "string", required: false },
+  { canonical: "file_hash", cz: "otisk souboru", sk: "odtlačok súboru", kind: "string", required: false },
+  { canonical: "form", cz: "forma", sk: "forma", kind: "string", required: false, values: INSTRUMENT_FORMS },
+  { canonical: "signed_by", cz: "podepsal", sk: "podpísal", kind: "list", required: false },
+  { canonical: "signed_at", cz: "podepsáno dne", sk: "podpísané dňa", kind: "string", required: false },
+  { canonical: "effect", cz: "účinek", sk: "účinok", kind: "string", required: false },
+  {
+    canonical: "instrument_status",
+    cz: "stav listiny",
+    sk: "stav listiny",
+    kind: "string",
+    required: false,
+    values: INSTRUMENT_STATUS
+  },
+  { canonical: "from_subject", cz: "subjekt", sk: "subjekt", kind: "string", required: false },
+  { canonical: "to_subject", cz: "ve vztahu k", sk: "vo vzťahu k", kind: "string", required: false },
+  {
+    canonical: "relation_kind",
+    cz: "druh vztahu",
+    sk: "druh vzťahu",
+    kind: "string",
+    required: false,
+    values: RELATION_KINDS
+  },
+  { canonical: "share", cz: "podíl", sk: "podiel", kind: "string", required: false },
+  { canonical: "valid_from", cz: "platí od", sk: "platí od", kind: "string", required: false },
+  { canonical: "valid_to", cz: "platí do", sk: "platí do", kind: "string", required: false }
 ];
 var SENSITIVE_FIELDS = FIELDS.filter((f) => f.sensitive).map((f) => f.canonical);
 var CZ_FO = [

@@ -702,16 +702,16 @@ function parseBlock(block, firstLineNo) {
       const body = t.slice(2).trim();
       const idx = body.indexOf(":");
       if (idx === -1 || body.startsWith('"') || body.startsWith("'") || body.startsWith("[") || body.startsWith("{")) {
-        const v2 = parseScalar(body);
-        if (typeof v2 === "object" && !Array.isArray(v2)) {
-          cur = v2;
+        const v = parseScalar(body);
+        if (typeof v === "object" && !Array.isArray(v)) {
+          cur = v;
           items.push(cur);
           return;
         }
-        if (Array.isArray(v2))
+        if (Array.isArray(v))
           throw new Error(`Riadok ${firstLineNo + k}: zoznam v zozname sa nepodporuje`);
         cur = undefined;
-        items.push(v2);
+        items.push(v);
         return;
       }
       if (body.slice(idx + 1).trim() === "") {
@@ -1935,11 +1935,11 @@ function validateStore(records, opts = {}) {
     }
   }
   for (const r of records) {
-    const ids2 = new Set((r.sources ?? []).map((z) => z.id).filter((x) => !!x));
+    const ids = new Set((r.sources ?? []).map((z) => z.id).filter((x) => !!x));
     const text = bodyText(r);
     const pouzite = new Set([...text.matchAll(/\[\^([^\]\s]+)\]/g)].map((m) => m[1] ?? ""));
     for (const label of pouzite) {
-      if (ids2.has(label))
+      if (ids.has(label))
         continue;
       findings.push({
         severity: "error",
@@ -2273,8 +2273,8 @@ function documentLanguageFromCard(dir) {
   }
   return;
 }
-function hasUnparsedBody(text2) {
-  const lines = text2.split(`
+function hasUnparsedBody(text) {
+  const lines = text.split(`
 `);
   const body = lines.slice(lines.indexOf("---", 1) + 1);
   let section = "";
@@ -2578,8 +2578,8 @@ function writeIndex(dir) {
     lines.push("", `## ${nadpis[layer]?.[j] ?? layer}`, "");
     for (const r of vo) {
       const cesta = href(r.id);
-      const odkaz2 = cesta ? `[${r.id}](${cesta})` : r.id;
-      lines.push(`* ${odkaz2} — ${documentTypeLabel(r.type, j)} — ${r.description}`);
+      const odkaz = cesta ? `[${r.id}](${cesta})` : r.id;
+      lines.push(`* ${odkaz} — ${documentTypeLabel(r.type, j)} — ${r.description}`);
     }
   }
   if (readdirSync(store.memoryDir).includes(LEGACY_INDEX_FILE)) {
@@ -2601,10 +2601,10 @@ function writeLog(dir) {
   for (const r of scope.records) {
     for (const e of r.timeline) {
       const cesta = href(r.id);
-      const odkaz2 = cesta ? `[${r.id}](${cesta})` : r.id;
+      const odkaz = cesta ? `[${r.id}](${cesta})` : r.id;
       const druh = e.kind ? `**${documentValueLabel("event_kind", e.kind, j)}**: ` : "";
       const zoznam = podlaDatumu.get(e.date) ?? [];
-      zoznam.push(`* ${druh}${e.text} — ${odkaz2}`);
+      zoznam.push(`* ${druh}${e.text} — ${odkaz}`);
       podlaDatumu.set(e.date, zoznam);
     }
   }
@@ -2755,9 +2755,9 @@ function retrofitStatusFile(dir, apply) {
   if (!existsSync2(path))
     return [];
   const existing = readFileSync2(path, "utf8");
-  const { text: text2, inserted } = retrofitStatus(existing, store.records, store.jurisdiction, linkResolver(store, false), documentLanguageFromCard(dir));
+  const { text, inserted } = retrofitStatus(existing, store.records, store.jurisdiction, linkResolver(store, false), documentLanguageFromCard(dir));
   if (apply && inserted.length > 0)
-    writeProjection(path, text2, dir);
+    writeProjection(path, text, dir);
   return inserted;
 }
 var CLIENT_CARDS = ["client.md", "klient.md"];
@@ -3020,10 +3020,10 @@ function parseWorkspaceMemoryProfile(value) {
     throw new Error("At least one required source must have identity anchors.");
   return { version: 1, matterId: value.matterId, roots, sources };
 }
-function parseWorkspaceMemoryProfileText(text2) {
-  if (new TextEncoder().encode(text2).byteLength > WORKSPACE_MEMORY_LIMITS.profileBytes)
+function parseWorkspaceMemoryProfileText(text) {
+  if (new TextEncoder().encode(text).byteLength > WORKSPACE_MEMORY_LIMITS.profileBytes)
     throw new Error("Memory profile byte limit exceeded.");
-  return parseWorkspaceMemoryProfile(JSON.parse(text2));
+  return parseWorkspaceMemoryProfile(JSON.parse(text));
 }
 
 // src/workspace-memory-reader.ts
@@ -3139,8 +3139,8 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
       }
       report.sources.push({ id: source.id, root: source.root, path, role: source.role, required: source.required, writable: externalProfile ? false : source.writable, anchors, sha256: null, bytes: 0, content: null, status: "error" });
     }
-    const semanticRoots = [...roots].map(([id2, path]) => ({ id: id2, path })).sort(byId);
-    const semanticSources = report.sources.map(({ id: id2, root, path, role: role2, required, writable, anchors }) => ({ id: id2, root, path, role: role2, required, writable, anchors: [...new Set(anchors)].sort() })).sort(byId);
+    const semanticRoots = [...roots].map(([id, path]) => ({ id, path })).sort(byId);
+    const semanticSources = report.sources.map(({ id, root, path, role, required, writable, anchors }) => ({ id, root, path, role, required, writable, anchors: [...new Set(anchors)].sort() })).sort(byId);
     report.bindingHash = sha256(JSON.stringify({ version: 1, directory: report.directory, profilePath, externalProfile, matterId: report.matterId, grants, roots: semanticRoots, sources: semanticSources }));
     const physical = new Set;
     let total = 0;
@@ -3150,16 +3150,16 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
           throw new Error(rootProblems.get(source.root));
         if (sourceProblems.has(source.id))
           throw new Error(sourceProblems.get(source.id));
-        const text2 = readText(source.path, Math.min(WORKSPACE_MEMORY_LIMITS.sourceBytes, WORKSPACE_MEMORY_LIMITS.totalBytes - total));
-        total += text2.bytes;
-        if (physical.has(text2.physical))
+        const text = readText(source.path, Math.min(WORKSPACE_MEMORY_LIMITS.sourceBytes, WORKSPACE_MEMORY_LIMITS.totalBytes - total));
+        total += text.bytes;
+        if (physical.has(text.physical))
           throw new Error("Duplicate physical source (alias or hardlink).");
-        physical.add(text2.physical);
-        source.sha256 = text2.sha256;
-        source.bytes = text2.bytes;
-        source.content = text2.content;
+        physical.add(text.physical);
+        source.sha256 = text.sha256;
+        source.bytes = text.bytes;
+        source.content = text.content;
         source.status = "loaded";
-        if (source.anchors.some((anchor) => !text2.content.includes(anchor)))
+        if (source.anchors.some((anchor) => !text.content.includes(anchor)))
           throw new Error("Exact matter identity anchor not found in source.");
       } catch (error) {
         source.status = missing(error) ? "missing" : "error";
@@ -3178,7 +3178,7 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
     if (readText(profilePath, WORKSPACE_MEMORY_LIMITS.profileBytes).sha256 !== report.profileHash)
       throw new Error("Profile changed during snapshot load.");
     checkHistory(report.directory, report, ownOperation);
-    report.contextHash = sha256(JSON.stringify({ bindingHash: report.bindingHash, sources: report.sources.map(({ id: id2, sha256: sha2562, status }) => ({ id: id2, sha256: sha2562, status })).sort(byId) }));
+    report.contextHash = sha256(JSON.stringify({ bindingHash: report.bindingHash, sources: report.sources.map(({ id, sha256, status }) => ({ id, sha256, status })).sort(byId) }));
     report.complete = report.problems.every((p) => p.code === "missing-source" && report.sources.some((s) => s.id === p.sourceId && !s.required && !s.writable));
   } catch (error) {
     report.present = true;
@@ -3801,22 +3801,22 @@ ${serializeRecord(maskRecord(r))}`),
 `) };
     }
     case "write": {
-      const file2 = flagValue(rest, "--file");
+      const file = flagValue(rest, "--file");
       const reason = flagValue(rest, "--reason");
       const approveAs = flagValue(rest, "--approve-as");
       const expectedRevision = flagValue(rest, "--if-revision");
       if (rest.includes("--if-revision") && !expectedRevision)
         return { code: 2, out: "Prepínač --if-revision vyžaduje SHA256 z príkazu read." };
-      if (!file2 || !reason) {
+      if (!file || !reason) {
         return { code: 2, out: `Príkaz write vyžaduje --file a --reason.
 
 ${USAGE}` };
       }
-      if (!existsSync3(file2))
-        return { code: 2, out: `Súbor návrhu neexistuje: ${file2}` };
+      if (!existsSync3(file))
+        return { code: 2, out: `Súbor návrhu neexistuje: ${file}` };
       let after;
       try {
-        after = parseRecord(readFileSync3(file2, "utf8"));
+        after = parseRecord(readFileSync3(file, "utf8"));
       } catch (e) {
         return { code: 2, out: `Návrh sa nedá prečítať: ${e instanceof Error ? e.message : String(e)}` };
       }
