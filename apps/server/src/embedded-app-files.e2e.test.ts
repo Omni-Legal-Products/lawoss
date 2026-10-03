@@ -139,4 +139,5 @@ process.on("SIGTERM", () => process.exit(0));
     else process.env.FAKE_ENGINE_ENV_PATH = originalEngineEnvPath;
     await rm(directory, { recursive: true, force: true });
   }
-});
+// Two process starts, two bounded 3s synchronization waits, and shutdown exceed the default 5s budget.
+}, 15_000);
