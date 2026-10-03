@@ -323,6 +323,10 @@ Doménové obrazovky, slovníky, viditeľný prepínač a regresie zostávajú v
 |---|---|
 | `apps/server/src/ocr/models.test.ts` | Lokálny HTTP server nahrádza globálny fetch mock, ktorý zachytával súbežné synchronizačné požiadavky enginu a opakovane vracal už spotrebovaný Response. Regresia overuje súbežnú požiadavku, cache, checksum, limit chunkovaného prenosu a zrušenie. Produkčný downloader sa nemení. |
 
+### Dokončenie inicializácie testovacieho enginu (2026-10-03)
+
+`apps/server/src/embedded-app-files.e2e.test.ts` pred zastavením falošného enginu čaká na úvodné synchronizačné požiadavky oboch workspaceov. Engine ohlási pripravenosť až po otvorení HTTP portu. Predčasné ukončenie predtým ponechalo retry požiadavky aktívne počas ďalších testov a kontaminovalo globálne fetch mocky OCR a Gmailu. Produkčný runtime ani Google Workspace adaptér sa nemenia.
+
 ## Upstream sync v0.2.1 (2026-10-02)
 
 Windows CI follow-up: `.github/workflows/ci-desktop-packaging.yml` používa `win-unpacked/LAWOSS.exe`, zhodne s existujúcim `productName`. Upstream cesta `LegalWork.exe` zlyhala po úspešnom vytvorení LAWOSS balíka. Kontroly poistiek, natívnych modulov, náhľadu a štartu sa zachovávajú.
