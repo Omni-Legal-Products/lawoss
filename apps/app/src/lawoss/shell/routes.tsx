@@ -26,7 +26,7 @@ export const LAWOSS_ROUTES: ReadonlyArray<{ path: string; element: ReactElement 
   { path: "/experimenty", element: <ExperimentyPage /> },
   { path: "/experimenty/novy-spis", element: <NovySpisPage /> },
   { path: "/experimenty/prve-nastavenie", element: <PrveNastaveniePage /> },
-  // LAWOSS-lite — dostupné v obou režimech, v lite jsou výchozí navigací.
+  // LAWOSS-lite - dostupné v obou režimech, v lite jsou výchozí navigací.
   { path: LITE_TODAY_PATH, element: <TodayPage /> },
   { path: LITE_CLIENTS_PATH, element: <ClientsPage /> },
   { path: LITE_MATTER_PATH, element: <LiteMatterPage /> },

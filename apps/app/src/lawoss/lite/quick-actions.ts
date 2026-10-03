@@ -1,7 +1,7 @@
 /**
  * Rychlé akce LAWOSS-lite: tlačítko pro advokáta, lokalizovaný prompt pro agenta.
  * Akce jen připraví koncept v konverzaci nad věcí; nic neodesílá ani nezapisuje.
- * Identita věci jde do textu jako JSON — název nesmí přidat pokyn (Review Focus 4).
+ * Identita věci jde do textu jako JSON - název nesmí přidat pokyn (Review Focus 4).
  */
 import type { Language } from "@/i18n";
 
@@ -17,7 +17,7 @@ export const QUICK_ACTIONS = [
   { id: "verify_client", labelKey: "lawoss.lite.action_verify_client" },
 ] as const satisfies readonly { id: Exclude<QuickActionId, "open">; labelKey: string }[];
 
-/** Další práce na věci (typy práce ze skillu /legal) — druhá řada pod hlavními akcemi. */
+/** Další práce na věci (typy práce ze skillu /legal) - druhá řada pod hlavními akcemi. */
 export const MORE_ACTIONS = [
   { id: "hearing", labelKey: "lawoss.lite.action_hearing" },
   { id: "research", labelKey: "lawoss.lite.action_research" },

@@ -1,6 +1,6 @@
 /**
  * „Pokračovat, kde jsem skončil“: konverzace nad věcí žijí ve složce věci (rychlá akce
- * ji registruje). Tady je najdeme a znovu otevřeme — bez nové konverzace.
+ * ji registruje). Tady je najdeme a znovu otevřeme - bez nové konverzace.
  */
 import { normalizeDirectoryPath } from "@/app/utils";
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
@@ -18,7 +18,7 @@ export function matterWorkspace(workspaces: readonly RouteWorkspace[], office: R
   return workspaces.find((w) => w.workspaceType !== "remote" && w.path && normalizeDirectoryPath(w.path) === target) ?? null;
 }
 
-/** Výchozí název upstreamu („New session - …“) není název — UI ukáže „Konverzace bez názvu“. */
+/** Výchozí název upstreamu („New session - …“) není název - UI ukáže „Konverzace bez názvu“. */
 const untitled = (title: string | undefined): boolean => !title?.trim() || /^new session\b/i.test(title.trim());
 
 export async function listMatterConversations(connection: OkfConnection, matterPath: string, limit = 5): Promise<MatterConversation[]> {

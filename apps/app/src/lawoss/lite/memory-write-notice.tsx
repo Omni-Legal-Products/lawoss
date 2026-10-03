@@ -4,7 +4,7 @@ import type { MemoryWriteProposal } from "./memory-write";
 
 /**
  * Srozumitelná karta nad povolovacím panelem/modalem, když asistent navrhuje
- * `okf-memory write …`. Jen informuje — tlačítka schválit/zamítnout patří
+ * `okf-memory write …`. Jen informuje - tlačítka schválit/zamítnout patří
  * beze změny existujícímu panelu (viz `describeMemoryWrite`).
  */
 export function MemoryWriteNotice({ proposal }: { proposal: MemoryWriteProposal }) {

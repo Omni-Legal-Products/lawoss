@@ -26,7 +26,7 @@ export function ClientsView({ groups }: { groups: readonly ClientGroup[] }) {
             return (
               <Link key={m.path} className="lw-row lw-cols-leh" to={liteMatterLink(m.path)}>
                 <span className="lw-no" />
-                <span className="lw-d">{m.lastEvent ? formatDay(m.lastEvent.date, locale) : "—"}</span>
+                <span className="lw-d">{m.lastEvent ? formatDay(m.lastEvent.date, locale) : "-"}</span>
                 <span className="lw-t">{m.title}<small>{[m.court, next ? t("lawoss.lite.matter_next_deadline", locale, { date: formatDay(next, locale) }) : null].filter(Boolean).join(" · ")}</small></span>
                 <span className="lw-ref">{m.matterRef ?? ""}</span>
                 <span className="lw-st" />

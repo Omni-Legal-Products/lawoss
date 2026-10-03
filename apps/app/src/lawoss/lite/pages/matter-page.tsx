@@ -64,9 +64,8 @@ function LiteMatterBody({ data }: { data: OkfReadResult }) {
       if (!connection) throw new Error(t("lawoss.integrations.error.registration_denied", locale));
       const prompt = composeQuickAction(id, { title: matter.title, matterRef: matter.matterRef, path: matter.path }, locale);
       // Jen připraví koncept v nové konverzaci nad věcí; nic se neodesílá.
-      // Paměť klienta a kanceláře leží mimo složku věci — povolit čtení předem (bez dotazu u každého čtení).
-      const readScope = data.inputs.find((input) => input.path === matter.path)?.scopePaths?.slice(1) ?? [];
-      navigate(await openMatterSession(connection, officeWorkspace(connection), matter, data.matters, prompt, readScope, id === "document" ? installVystupSkill : undefined));
+      // Shared client and office access remains controlled by native Permissions.
+      navigate(await openMatterSession(connection, officeWorkspace(connection), matter, data.matters, prompt, id === "document" ? installVystupSkill : undefined));
     } catch (failure) {
       // Surová hláška může obsahovat interní pojmy; advokát vidí obecný text, diagnostika jde do konzole.
       console.warn("LAWOSS-lite: quick action failed", failure);
@@ -103,11 +102,15 @@ function LiteMatterBody({ data }: { data: OkfReadResult }) {
 
   return <LiteMatterView matter={matter} cockpit={cockpit} busy={busy} error={error} onAction={(id) => void onAction(id)}
     conversations={conversations.data ?? []} onContinue={(c) => void onContinue(c)}
-    onFiles={(files) => void onFiles(files)} saved={saved} />;
+    onFiles={(files) => void onFiles(files)} saved={saved}
+    scopePaths={data.inputs.find((input) => input.path === matter.path)?.scopePaths}
+    existingMemorySources={data.inputs.find((input) => input.path === matter.path)?.existingMemorySources} />;
 }
 
-export function LiteMatterView({ matter, cockpit, busy, error, onAction, conversations = [], onContinue, onFiles, saved = null }: {
+export function LiteMatterView({ matter, cockpit, busy, error, onAction, conversations = [], onContinue, onFiles, saved = null, scopePaths = [], existingMemorySources = [] }: {
   matter: MatterOverview;
+  scopePaths?: readonly string[];
+  existingMemorySources?: readonly string[];
   cockpit: LiteCockpit | null;
   busy: ActionId | null;
   error: string | null;
@@ -115,7 +118,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
   /** Rozpracované konverzace nad věcí, nejnovější první. */
   conversations?: readonly MatterConversation[];
   onContinue?: (conversation: MatterConversation) => void;
-  /** Přetažené nebo vybrané soubory — uloží se do věci jako vstupy k zařazení. */
+  /** Přetažené nebo vybrané soubory - uloží se do věci jako vstupy k zařazení. */
   onFiles?: (files: File[]) => void;
   /** Co se právě uložilo (pro potvrzení advokátovi). */
   saved?: string | null;
@@ -210,7 +213,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
           {(cockpit?.tasks.length ?? 0) === 0 ? <p className="lw-empty">{text("tasks_empty")}</p> : cockpit?.tasks.map((task) => (
             <div key={task.id} className="lw-row lw-cols-leh">
               <span className="lw-no" />
-              <span className={task.due ? dayClass(task.due, now) : "lw-d"}>{task.due ? formatDay(task.due, locale) : "—"}</span>
+              <span className={task.due ? dayClass(task.due, now) : "lw-d"}>{task.due ? formatDay(task.due, locale) : "-"}</span>
               <span className="lw-t">{task.title}{task.assignee ? <small>{task.assignee}</small> : null}</span>
               <span className="lw-ref" />
               <span className={`lw-st${task.overdue ? " warn" : ""}`}>{task.overdue ? text("overdue") : ""}</span>
@@ -222,7 +225,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
             {attention.map((row) => (
               <div key={`${row.kind}/${row.id}`} className="lw-row lw-cols-leh">
                 <span className="lw-no" />
-                <span className="lw-d">{row.date ? formatDay(row.date, locale) : "—"}</span>
+                <span className="lw-d">{row.date ? formatDay(row.date, locale) : "-"}</span>
                 <span className="lw-t">{row.title}</span>
                 <span className="lw-ref" />
                 <span className="lw-st warn">{text("verify")}</span>
@@ -232,12 +235,23 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
         ) : null}
       </div>
 
+      {scopePaths.length > 0 ? <details className="lw-reg p-3">
+        <summary>{text("memory_scope")}</summary>
+        <ul>{scopePaths.map((path) => <li className="break-all" key={path}>{path || "."}</li>)}</ul>
+      </details> : null}
+      {existingMemorySources.length > 0 ? <div className="lw-reg p-3" role="note">
+        <h2>{text("additional_memory")}</h2>
+        <p>{text("additional_memory_note")}</p>
+        <ul>{existingMemorySources.map((path) => <li className="break-all" key={path}>{path}</li>)}</ul>
+        <Link className="underline" to="/settings/extensions">{text("memory_integrations")}</Link>
+      </div> : null}
+
       <div id="lite-panel-known" role="tabpanel" aria-labelledby="lite-tab-known" hidden={tab !== "known"}>
         <div className="lw-reg">
           {(cockpit?.facts.length ?? 0) === 0 ? <p className="lw-empty">{text("known_empty")}</p> : cockpit?.facts.map((fact) => (
             <div key={fact.id} className="lw-row lw-cols-leh">
               <span className="lw-no" />
-              <span className="lw-d">{fact.date ? formatDay(fact.date.slice(0, 10), locale) : "—"}</span>
+              <span className="lw-d">{fact.date ? formatDay(fact.date.slice(0, 10), locale) : "-"}</span>
               <span className="lw-t">{fact.title}{fact.source ? <small>{fact.source}{fact.locator ? ` · ${fact.locator}` : ""}</small> : null}</span>
               <span className="lw-ref" />
               <span className={`lw-st${fact.provenance === "overené" ? "" : " warn"}`}>{fact.provenance === "overené" ? "" : text("verify")}</span>
@@ -251,11 +265,11 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
 
 /** Den a čas poslední změny konverzace, např. „čt 24. 9. 14:32“. */
 function formatStamp(ms: number, locale: string): string {
-  return ms ? new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(ms)) : "—";
+  return ms ? new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(ms)) : "-";
 }
 
-/** Skill vyhotovení dokumentu do složky věci — konverzace nad věcí běží v ní. */
-async function installVystupSkill(client: Parameters<NonNullable<Parameters<typeof openMatterSession>[6]>>[0], workspaceId: string): Promise<void> {
+/** Skill vyhotovení dokumentu do složky věci - konverzace nad věcí běží v ní. */
+async function installVystupSkill(client: Parameters<NonNullable<Parameters<typeof openMatterSession>[5]>>[0], workspaceId: string): Promise<void> {
   const body = vystupSkillBody();
   await client.upsertSkill(workspaceId, { name: VYSTUP_SKILL_NAME, content: body.content, description: body.description });
   await client.upsertSkillResource(workspaceId, VYSTUP_SKILL_NAME, { name: POSTPROCESS_RESOURCE_NAME, content: postprocessSource() });

@@ -8,7 +8,7 @@ import { workspaceBootstrap } from "@/app/lib/desktop";
 import type { WorkspaceInfo } from "@/app/lib/desktop-types";
 import { createLegalworkServerClient, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { createClient, unwrap } from "@/app/lib/opencode";
-import { toSessionTransportDirectory } from "@/app/lib/session-scope";
+import { toSessionTransportDirectory, type TransportDirectory } from "@/app/lib/session-scope";
 import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import { isDesktopRuntime } from "@/app/utils";
 import { saveSessionDraft } from "@/react-app/domains/session/sync/draft-store";
@@ -59,15 +59,16 @@ export async function openSessionWithPrompt(
   connection: OkfConnection,
   workspace: RouteWorkspace,
   prompt: string,
+  sessionDirectory?: TransportDirectory,
 ): Promise<string> {
   const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl: connection.baseUrl, token: connection.token });
   if (!endpoint) throw new Error(t("lawoss.integrations.error.workspace_unavailable"));
-  const opencode = createClient(endpoint.opencodeBaseUrl, workspace.path || undefined, {
+  const directory = sessionDirectory ?? toSessionTransportDirectory(workspace.path);
+  const opencode = createClient(endpoint.opencodeBaseUrl, directory || undefined, {
     token: endpoint.token,
     mode: "legalwork",
   });
-  const directory = toSessionTransportDirectory(workspace.path) || undefined;
-  const session = unwrap(await opencode.session.create({ directory }));
+  const session = unwrap(await opencode.session.create({ directory: directory || undefined }));
   saveSessionDraft(workspace.id, session.id, { text: prompt, mode: "prompt" });
   // Pole pro zprávu čte koncept z paměťového úložiště composeru, ne z draft-store (ten nikdo nečte).
   useComposerStateStore.getState().setDraft(session.id, prompt);

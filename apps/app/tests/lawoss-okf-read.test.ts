@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import { LAYER_OF, type RecordType } from "../../../lawoss/okf-pamat/src/schema.ts";
 import type { OkfRecord } from "../../../lawoss/okf-pamat/src/record.ts";
 import { addDays, buildOverview, deadlineTier, type MatterInput } from "../../../lawoss/okf/read";
+import { pendingInputs } from "../../../lawoss/okf/inputs";
+import { buildCockpit } from "../../../lawoss/okf/cockpit";
 import { MAX_DISCOVERY_DIRECTORIES, MAX_MATTERS, readWorkspaceMemory, type OkfReadClient } from "../src/lawoss/okf/read-model";
 
 const TODAY = "2026-09-12";
@@ -125,6 +127,74 @@ function fakeClient(files: Record<string, string>, log: string[] = []): OkfReadC
   };
 }
 
+test("canonical validator exposes a broken related link with its source file and keeps OKF invalid", async () => {
+  const file = `${MATTER}/memory/Q-001-question.md`;
+  const out = await readWorkspaceMemory(fakeClient({
+    [`${MATTER}/matter.md`]: "---\ntitle: Poradenstvo\nmatter_kind: advisory\n---\n",
+    [file]: record("Q-001", "question", "related: [Q-missing]\n"),
+  }), "ws", TODAY);
+
+  expect(out.problems).toContainEqual({
+    path: file,
+    message: expect.stringContaining("Q-missing"),
+    kind: "validation",
+    scope: "matter",
+  });
+  expect(buildCockpit(out, MATTER, TODAY)?.okfValid).toBe(false);
+});
+
+test("inherited client intake stays pending with client scope instead of becoming matter-owned", async () => {
+  const client = "AK/N/Novák Jan";
+  const out = await readWorkspaceMemory(fakeClient({
+    [`${MATTER}/matter.md`]: "---\ntitle: Poradenstvo\nmatter_kind: advisory\n---\n",
+    [`${MATTER}/memory/M-001.md`]: record("M-001", "matter"),
+    [`${client}/client.md`]: "---\ntype: client\n---\n",
+    [`${client}/VSTUPY.md`]: "| ID | Prijaté | Zdroj | Originál | Stav | Výsledné záznamy |\n| --- | --- | --- | --- | --- | --- |\n| IN-CLIENT | 2026-09-12 | e-mail | klient.eml | pending | |\n",
+  }), "ws", TODAY);
+
+  expect(pendingInputs(out.inputs[0]!)).toEqual([
+    { id: "IN-CLIENT", received: "2026-09-12", source: "e-mail", original: "klient.eml", matterPath: client, file: `${client}/VSTUPY.md`, scope: "client" },
+  ]);
+});
+
+test("client_path configuration reads shared client intake without a client card", async () => {
+  const client = "AK/N/Novák Jan";
+  const out = await readWorkspaceMemory(fakeClient({
+    [`${MATTER}/memory/M-001.md`]: record("M-001", "matter"),
+    [`${client}/VSTUPY.md`]: "| ID | Prijaté | Zdroj | Originál | Stav | Výsledné záznamy |\n| --- | --- | --- | --- | --- | --- |\n| IN-CLIENT | 2026-09-12 | e-mail | klient.eml | pending | |\n",
+    "Office/okf.config": "client_path: AK/*/*\n",
+  }), "ws", TODAY);
+
+  expect(pendingInputs(out.inputs[0]!)).toEqual([
+    { id: "IN-CLIENT", received: "2026-09-12", source: "e-mail", original: "klient.eml", matterPath: client, file: `${client}/VSTUPY.md`, scope: "client" },
+  ]);
+});
+
+test("mapped legacy memory remains an explicit source without becoming typed OKF data", async () => {
+  const client = "AK/N/Novák Jan";
+  const out = await readWorkspaceMemory(fakeClient({
+    [`${MATTER}/matter.md`]: "---\ntitle: Poradenstvo\nmatter_kind: advisory\n---\n",
+    [`${MATTER}/memory/M-001.md`]: record("M-001", "matter"),
+    [`${client}/client.md`]: "---\ntype: client\n---\n",
+    [`${client}/MEMORY.md`]: "Historická voľná pamäť bez typovaných záznamov.",
+    [`${client}/.lawoss/memory-profile.json`]: '{"version":1}',
+  }), "ws", TODAY);
+
+  expect(out.inputs[0]!.existingMemorySources).toEqual([
+    `${client}/MEMORY.md`,
+    `${client}/.lawoss/memory-profile.json`,
+  ]);
+  expect(out.inputs[0]!.records.map((entry) => entry.id)).toEqual(["M-001"]);
+});
+
+test("root matter validation diagnostics retain matter scope", async () => {
+  const out = await readWorkspaceMemory(fakeClient({
+    "matter.md": "---\ntitle: Root\n---\n",
+    "memory/Q-001.md": record("Q-001", "question", "related: [Q-missing]\n"),
+  }), "ws", TODAY);
+  expect(out.problems).toContainEqual(expect.objectContaining({ path: "memory/Q-001.md", kind: "validation", scope: "matter" }));
+});
+
 describe("readWorkspaceMemory — čítanie cez server API", () => {
   const files: Record<string, string> = {
     [`${MATTER}/spis.md`]: `---\ntype: spis\ntitle: "Novák Jan — insolvence"\nspisova_znacka: MSPH 79 INS 1/2026\nsud: Městský soud v Praze\nstatus: aktivní\n---\n`,
@@ -149,7 +219,7 @@ describe("readWorkspaceMemory — čítanie cez server API", () => {
     expect(m).toMatchObject({ path: MATTER, title: "Novák Jan — insolvence", matterRef: "MSPH 79 INS 1/2026", court: "Městský soud v Praze", state: "aktivní" });
     expect(m.counts).toEqual({ records: 4, evidence: 1, subjects: 0 });
     expect(m.openTasks).toEqual([{ id: "T-001", title: "task T-001", assignee: "VR", due: undefined, file: "AK/N/Novák Jan/Spisy/MSPH 79 INS 1-2026/memory/T-001-uloha.md" }]);
-    expect(out.upcomingDeadlines).toEqual([{ date: "2026-09-15", title: "evidence E-001", recordId: "E-001", file: "AK/N/Novák Jan/Spisy/MSPH 79 INS 1-2026/memory/E-001-usneseni.md", matter: { path: MATTER, title: "Novák Jan — insolvence", matterRef: "MSPH 79 INS 1/2026", court: "Městský soud v Praze" } }]);
+    expect(out.upcomingDeadlines).toEqual([{ date: "2026-09-15", title: "evidence E-001", recordId: "E-001", file: "AK/N/Novák Jan/Spisy/MSPH 79 INS 1-2026/memory/E-001-usneseni.md", matter: { path: MATTER, title: "Novák Jan \u2014 insolvence", matterRef: "MSPH 79 INS 1/2026", court: "Městský soud v Praze" } }]);
     expect(out.problems).toEqual([{ path: `${MATTER}/memory/Z-999-rozbity.md`, message: expect.stringContaining("frontmatter") }]);
     expect(out.truncated).toBe(false);
     // index.md, log.md a skryté priečinky sa nečítajú; Office patrí rozsahu.

@@ -15,27 +15,28 @@ type Binary = { data: Buffer; sha256: string; bytes: number; physical: string; m
 type NamingApplyReport = { status: "applied" | "already-applied" | "conflict" | "recovery-required"; operationId: string; fingerprint: string; message?: string; journal?: string };
 /** Test-only injection seam; CLI never accepts hooks or environment fault flags. */
 type NamingApplyHooks = { checkpoint?: (stage: "prepared" | "target-created" | "markdown-installed" | "source-removed" | "before-commit", path?: string) => void };
-const physical = (stat: { dev: number; ino: number }) => `${stat.dev}:${stat.ino}`;
+// NTFS file IDs can exceed Number.MAX_SAFE_INTEGER; preserve exact identity in plans and CAS.
+const physical = (stat: { dev: bigint; ino: bigint }) => `${stat.dev}:${stat.ino}`;
 const utf8 = (data: Buffer) => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(data);
 function conflict(message: string): never { throw new NamingConflict(message); }
 function exists(path: string, kind: "file" | "directory" = "file"): boolean { return checkedPath(path, kind, true); }
 function rootDirectory(directory: string): { path: string; identity: string } {
-  checkedPath(directory, "directory"); const path = realpathSync(directory); return { path, identity: physical(lstatSync(path)) };
+  checkedPath(directory, "directory"); const path = realpathSync(directory); return { path, identity: physical(lstatSync(path, { bigint: true })) };
 }
-function assertRoot(root: { path: string; identity: string }): void { checkedPath(root.path, "directory"); if (realpathSync(root.path) !== root.path || physical(lstatSync(root.path)) !== root.identity) conflict("Matter root changed"); }
+function assertRoot(root: { path: string; identity: string }): void { checkedPath(root.path, "directory"); if (realpathSync(root.path) !== root.path || physical(lstatSync(root.path, { bigint: true })) !== root.identity) conflict("Matter root changed"); }
 /** No decoding, bounded allocation/read even if the file grows, and no multiply-linked inputs. */
-function readNamingBinary(path: string, limit: number): Binary {
+export function readNamingBinary(path: string, limit: number): Binary {
   checkedPath(path, "file");
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
-    const before = fstatSync(fd);
-    if (!before.isFile() || before.nlink !== 1) conflict(`Regular single-link file required: ${path}`);
+    const before = fstatSync(fd, { bigint: true });
+    if (!before.isFile() || before.nlink !== 1n) conflict(`Regular single-link file required: ${path}`);
     if (before.size > limit) conflict(`Byte limit exceeded: ${path}`);
-    const data = Buffer.alloc(Math.min(before.size + 1, limit + 1)); let count = 0;
+    const data = Buffer.alloc(Math.min(Number(before.size) + 1, limit + 1)); let count = 0;
     while (count < data.length) { const n = readSync(fd, data, count, data.length - count, null); if (!n) break; count += n; }
-    const after = fstatSync(fd), named = lstatSync(path);
-    if (count !== before.size || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || physical(before) !== physical(after) || physical(before) !== physical(named) || named.isSymbolicLink() || named.nlink !== 1) conflict(`File changed during read: ${path}`);
-    const bytes = data.subarray(0, count); return { data: bytes, bytes: count, sha256: hash(bytes), physical: physical(before), mode: before.mode & 0o777 };
+    const after = fstatSync(fd, { bigint: true }), named = lstatSync(path, { bigint: true });
+    if (BigInt(count) !== before.size || before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs || physical(before) !== physical(after) || physical(before) !== physical(named) || named.isSymbolicLink() || named.nlink !== 1n) conflict(`File changed during read: ${path}`);
+    const bytes = data.subarray(0, count); return { data: bytes, bytes: count, sha256: hash(bytes), physical: physical(before), mode: Number(before.mode & 0o777n) };
   } finally { closeSync(fd); }
 }
 export function readNamingJson(path: string, limit = JSON_LIMIT): unknown { return JSON.parse(utf8(readNamingBinary(path, limit).data)); }
@@ -80,7 +81,7 @@ function memoryProtection(root: string): { source: FilePin | null; mapped: Set<s
 }
 function targetAbsent(root: string, target: NamingPlanV1["documents"][number]["target"]): void {
   const path = join(root, target.path); checkedPath(dirname(path), "directory");
-  if (physical(lstatSync(dirname(path))) !== target.parentPhysical) conflict(`Target directory changed: ${target.path}`);
+  if (physical(lstatSync(dirname(path), { bigint: true })) !== target.parentPhysical) conflict(`Target directory changed: ${target.path}`);
   checkCase(path, false); if (exists(path)) conflict(`Target exists: ${target.path}`);
 }
 export function planDocumentNaming(matterDir: string, input: NamingRequestV1): NamingPlanV1 {
@@ -96,7 +97,7 @@ export function planDocumentNaming(matterDir: string, input: NamingRequestV1): N
     const targetPath = `${rolePath}/${renderDocumentName(profile, document.metadata, extname(document.path))}`;
     const absoluteTarget = contentPath(root.path, targetPath, protection.mapped);
     if (selected.has(fold(targetPath)) || targets.has(fold(targetPath))) conflict(`Source/target or target overlap: ${targetPath}`); targets.add(fold(targetPath));
-    const target = { path: targetPath, mustBeAbsent: true as const, parentPhysical: physical(lstatSync(dirname(absoluteTarget))) };
+    const target = { path: targetPath, mustBeAbsent: true as const, parentPhysical: physical(lstatSync(dirname(absoluteTarget), { bigint: true })) };
     targetAbsent(root.path, target); totalBytes += sourceRead.bytes;
     if (totalBytes > NAMING_LIMITS.totalBytes) conflict("Total byte limit exceeded");
     return { id: document.id, treatment: document.treatment, source: pin(document.path, sourceRead), target, normalizedMetadata: normalizedMetadata(document.metadata) };
@@ -140,7 +141,7 @@ export function parseNamingPlan(value: unknown): NamingPlanV1 {
 function exclusive(path: string, data: Buffer | string, mode = 0o600): string {
   checkedPath(dirname(path), "directory");
   const fd = openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, mode);
-  try { const buffer = typeof data === "string" ? Buffer.from(data) : data; let count = 0; while (count < buffer.length) count += writeSync(fd, buffer, count, buffer.length - count); fsyncSync(fd); return physical(fstatSync(fd)); }
+  try { const buffer = typeof data === "string" ? Buffer.from(data) : data; let count = 0; while (count < buffer.length) count += writeSync(fd, buffer, count, buffer.length - count); fsyncSync(fd); return physical(fstatSync(fd, { bigint: true })); }
   finally { closeSync(fd); }
 }
 function controlDirectory(path: string): void { try { mkdirSync(path, { mode: 0o700 }); } catch (error) { if (!object(error) || error.code !== "EEXIST") throw error; } checkedPath(path, "directory"); }
@@ -153,7 +154,7 @@ function finalStates(root: string, plan: NamingPlanV1): FilePin[] {
   for (const doc of plan.documents) {
     const targetPath = join(root, doc.target.path);
     checkedPath(dirname(targetPath), "directory");
-    if (physical(lstatSync(dirname(targetPath))) !== doc.target.parentPhysical) conflict("Final target directory changed");
+    if (physical(lstatSync(dirname(targetPath), { bigint: true })) !== doc.target.parentPhysical) conflict("Final target directory changed");
     checkCase(targetPath, true);
     const target = readNamingBinary(targetPath, NAMING_LIMITS.documentBytes);
     files.push(pin(doc.target.path, target));
@@ -287,7 +288,7 @@ export function applyDocumentNaming(matterDir: string, input: NamingPlanV1, hook
     }
     return { ...report(recovery ? "recovery-required" : "conflict", error instanceof Error ? error.message : String(error)), ...(prepared ? { journal } : {}) };
   } finally {
-    if (lockIdentity) try { checkedPath(lock, "file"); if (physical(lstatSync(lock)) === lockIdentity) unlinkSync(lock); } catch { /* A replaced lock belongs to another writer. */ }
+    if (lockIdentity) try { checkedPath(lock, "file"); if (physical(lstatSync(lock, { bigint: true })) === lockIdentity) unlinkSync(lock); } catch { /* A replaced lock belongs to another writer. */ }
   }
 }
 

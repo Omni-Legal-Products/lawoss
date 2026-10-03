@@ -1,7 +1,6 @@
 /** @jsxImportSource react */
 import type * as React from "react";
 import {
-  ArrowLeft,
   Bell,
   Bug,
   ChevronDown,
@@ -21,13 +20,13 @@ import {
   ShieldCheck,
   Sparkles,
   Store,
+  Table2,
   UserCircle,
   Wrench,
   Zap,
 } from "lucide-react";
 
 import {
-  Sidebar,
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
@@ -67,6 +66,8 @@ export function getSettingsTabIcon(tab: SettingsTab) {
   switch (tab) {
     case "ai":
       return Zap;
+    case "tabular-review":
+      return Table2;
     case "account":
       return UserCircle;
     case "personalisation":
@@ -120,6 +121,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
   switch (tab) {
     case "ai":
       return t("settings.tab_ai");
+    case "tabular-review":
+      return t("review.title");
     case "account":
       return t("settings.tab_account");
     case "personalisation":
@@ -173,6 +176,8 @@ export function getSettingsTabLabel(tab: SettingsTab) {
 
 export function getSettingsTabDescription(tab: SettingsTab) {
   switch (tab) {
+    case "tabular-review":
+      return t("review.defaults_scope");
     case "ai":
       return t("settings.tab_description_ai");
     case "account":
@@ -238,7 +243,7 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   // "benchmark" is not listed here: it lives on the Evals page in the main
   // app shell (embedded singleView surface), not in the settings sidebar.
   // Account leads: it is the firm's sign-in, plan and billing home.
-  const tabs: SettingsTab[] = ["account", "ai", "extensions", "personalisation", "appearance", "notifications", "safety", "shell", "environment", "preferences", "updates"];
+  const tabs: SettingsTab[] = ["account", "ai", "tabular-review", "extensions", "personalisation", "appearance", "notifications", "safety", "shell", "environment", "preferences", "updates"];
   // Office add-ins install into local desktop apps, so the tab is desktop-only.
   // Placed right after AI Providers.
   if (isDesktopRuntime()) tabs.splice(2, 0, "office-addins");
@@ -266,7 +271,6 @@ type SettingsPageProps = {
 };
 
 type SettingsSidebarProps = Pick<SettingsPageProps, "activeTab" | "onSelectTab" | "developerMode"> & {
-  onClose: () => void;
   selectedWorkspaceId: string;
   selectedWorkspaceName: string;
   selectedWorkspaceColor: string;
@@ -280,16 +284,9 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
   const showWorkspace = isWorkspaceSwitcherVisible(useUiMode()); // LAWOSS-lite: bez přepínače workspace
 
   return (
-    <Sidebar aria-label={t("settings.navigation")} className="mac:**:data-[sidebar=sidebar]:bg-transparent">
-      <div className="hidden h-10 mac:block mac:titlebar-drag" />
+    <nav aria-label={t("settings.navigation")} className="lw-chat-sidebar flex min-h-0 min-w-0 flex-1 flex-col group-data-[collapsible=icon]:hidden">
       <SidebarHeader className="gap-3 border-b border-sidebar-border/60 px-3 pb-4 pt-3">
         <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton type="button" onClick={props.onClose} className="mb-2 text-muted-foreground">
-              <ArrowLeft size={14} />
-              <span>{t("dashboard.back_to_app")}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
           {showWorkspace && <SidebarMenuItem>
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -390,7 +387,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-    </Sidebar>
+    </nav>
   );
 }
 

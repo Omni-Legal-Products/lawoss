@@ -6,6 +6,7 @@ import type {
   EigenweltFeature,
   LegalworkServerClient,
 } from "../../../app/lib/legalwork-server";
+import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import { getReactQueryClient } from "../../infra/query-client";
 
 /**
@@ -48,9 +49,10 @@ export function useEigenweltEntitlements(input: {
   workspaceId: string | null;
   enabled?: boolean;
 }) {
+  const hidden = isCommercialSurfaceHidden("eigenwelt-account");
   return useQuery({
     queryKey: eigenweltEntitlementsQueryKey(),
-    enabled: Boolean(input.enabled !== false && input.client && input.workspaceId),
+    enabled: Boolean(!hidden && input.enabled !== false && input.client && input.workspaceId),
     staleTime: 20_000,
     // Keep entitlements live: each read makes the server opportunistically
     // refresh its access token (rotating) and pull the current plan/usage AND
@@ -58,9 +60,9 @@ export function useEigenweltEntitlements(input: {
     // off on the platform propagates without re-signing-in. Short staleness so
     // switching back to the app after a change on the platform picks it up.
     refetchOnWindowFocus: true,
-    refetchInterval: 5 * 60_000,
+    refetchInterval: (query) => query.state.data?.reconnecting ? 15_000 : 5 * 60_000,
     queryFn: async (): Promise<EigenweltEntitlementsView> => {
-      if (!input.client || !input.workspaceId) {
+      if (hidden || !input.client || !input.workspaceId) {
         return { entitlements: null, account: null, platformURL: null, connected: false };
       }
       return input.client.eigenweltEntitlements(input.workspaceId);

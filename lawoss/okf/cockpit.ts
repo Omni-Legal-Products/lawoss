@@ -18,7 +18,7 @@ type Provenance = "overené" | "AI návrh" | "zapísané" | "overenie neurčené
 /** Prečo riadok čaká na advokáta. Opäť slovo, nie farba. */
 type AttentionState = "po termíne" | "blíži sa" | "neparsovateľné" | "chýba údaj" | "bez prameňa" | "nespracované";
 
-type MatterProblem = { path: string; message: string };
+type MatterProblem = { path: string; message: string; kind?: "validation"; scope?: "matter" | "client" | "office" };
 
 export type CockpitInput = {
   matters: readonly MatterOverview[];
@@ -48,7 +48,7 @@ export type CockpitDeadline = {
   file: string;
   overdue: boolean;
   confirmed: boolean;
-  /** Datum nemá tvar RRRR-MM-DD — ukázat k ověření. */
+  /** Datum nemá tvar RRRR-MM-DD - ukázat k ověření. */
   invalid?: true;
 };
 export type AttentionRow = {
@@ -61,6 +61,8 @@ export type AttentionRow = {
   provenance?: Provenance;
   /** Zdrojový súbor, z ktorého riadok pochádza. */
   file: string;
+  /** Rozsah zdrojového súboru, ak sa líši od otvorenej veci. */
+  scope?: "client" | "office";
 };
 type CockpitEvent = { date: string; text: string; kind?: string; recordId: string; file: string };
 
@@ -81,6 +83,8 @@ export type Cockpit = {
   attention: readonly AttentionRow[];
   events: readonly CockpitEvent[];
   unreadable: readonly MatterProblem[];
+  /** Nálezy kanonického validátora, oddelené od súborov, ktoré sa nedali načítať. */
+  diagnostics: readonly MatterProblem[];
   /** Žiaden nález validácie — hlavička ukáže „OKF validné". */
   okfValid: boolean;
 };
@@ -259,12 +263,13 @@ export function attention(
   }
   for (const row of pendingInputs(input)) {
     rows.push({ id: `vstup:${row.id}`, kind: "záznam", state: "nespracované",
-      title: `Nespracovaný vstup ${row.id}`, detail: `${row.source} · ${row.original}`, file: row.file });
+      title: `Nespracovaný vstup ${row.id}`, detail: `${row.source} · ${row.original}`, file: row.file,
+      ...(row.scope ? { scope: row.scope } : {}) });
   }
 
 
   for (const d of deadlines(input, todayIso)) {
-    // Neplatné datum sa nedá porovnať s dneškom — ukázať ho na overenie, nikdy ho neradiť ani nezahodiť.
+    // Neplatné datum sa nedá porovnať s dneškom - ukázať ho na overenie, nikdy ho neradiť ani nezahodiť.
     const tier = d.invalid ? null : deadlineTier(d.date, todayIso);
     if (tier === "later") continue;
     rows.push({
@@ -295,11 +300,12 @@ export function attention(
   for (const p of problems) {
     rows.push({
       id: `zaznam:${p.path}`,
-      kind: "záznam",
-      state: "neparsovateľné",
-      title: p.path.split("/").pop() ?? p.path,
+      kind: p.kind === "validation" ? "nález" : "záznam",
+      state: p.kind === "validation" ? "chýba údaj" : "neparsovateľné",
+      title: p.kind === "validation" ? "Kontrola pamäte" : p.path.split("/").pop() ?? p.path,
       detail: p.message,
       file: p.path,
+      ...(p.scope === "client" || p.scope === "office" ? { scope: p.scope } : {}),
     });
   }
 
@@ -357,7 +363,9 @@ export function buildCockpit(data: CockpitInput, path: string | null, todayIso: 
   const matter = selectMatter(data.matters, path);
   if (!matter) return null;
   const input = data.inputs.find((i) => i.path === matter.path) ?? { path: matter.path, records: [] };
-  const unreadable = data.problems.filter((p) => (input.scopePaths ?? [matter.path]).some((dir) => p.path === dir || p.path === (dir ? `${dir}/memory` : "memory") || p.path.startsWith(dir ? `${dir}/memory/` : "memory/") || (dir === matter.path && p.path.startsWith(`${dir}/`))));
+  const relevantProblems = data.problems.filter((p) => (input.scopePaths ?? [matter.path]).some((dir) => dir === "" || p.path === dir || p.path.startsWith(`${dir}/`)));
+  const unreadable = relevantProblems.filter((p) => p.kind !== "validation");
+  const diagnostics = relevantProblems.filter((p) => p.kind === "validation");
   const jurisdiction = input.records.find((r) => r.type === "matter")?.jurisdiction ?? input.cardFrontmatter?.jurisdiction;
 
   const all = deadlines(input, todayIso);
@@ -365,7 +373,7 @@ export function buildCockpit(data: CockpitInput, path: string | null, todayIso: 
   const confirmed = all.filter((d) => d.confirmed);
   const factRows = facts(input);
   const taskRows = tasks(input, todayIso);
-  const attentionRows = attention(matter, input, unreadable, todayIso);
+  const attentionRows = attention(matter, input, relevantProblems, todayIso);
   const fields = obal(matter, jurisdiction);
 
   const cockpit: Cockpit = {
@@ -383,6 +391,7 @@ export function buildCockpit(data: CockpitInput, path: string | null, todayIso: 
     attention: attentionRows,
     events: events(input),
     unreadable,
+    diagnostics,
     okfValid: attentionRows.every((r) => r.kind !== "nález" && r.state !== "neparsovateľné"),
   };
   const client = clientFromPath(matter.path);

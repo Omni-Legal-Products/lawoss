@@ -37,7 +37,7 @@ describe("režim zobrazení lite/pro", () => {
     expect(storage.get(mode.UI_MODE_STORAGE_KEY)).toBe("pro");
   });
 
-  test("existující instalace po smazání vybraného workspace (jen značka bootstrapu) zůstane v pro — final review I2", () => {
+  test("existující instalace po smazání vybraného workspace (jen značka bootstrapu) zůstane v pro - final review I2", () => {
     storage.delete(mode.UI_MODE_STORAGE_KEY);
     storage.set("lawoss.theme-migrated-to-dark", "1");
     mode.reloadUiModeFromStorage();

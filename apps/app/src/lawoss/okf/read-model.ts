@@ -17,10 +17,11 @@ import { normalizeDirectoryPath } from "@/app/utils";
 import { addDays, buildOverview, deadlineTier, ISO_DAY, isCalendarDay, type DeadlineTier, type MatterInput, type Overview } from "../../../../../lawoss/okf/read";
 import { parseFrontmatter } from "../../../../../lawoss/okf/src/core";
 import { parseRecord, parseFrontmatter as parseMemoryFrontmatter } from "../../../../../lawoss/okf-pamat/src/record.ts";
+import { validateStore } from "../../../../../lawoss/okf-pamat/src/validate.ts";
 import { loadOkfConnection, type OkfConnection } from "./connection";
 
 export type OkfReadClient = Pick<LegalworkServerClient, "listWorkspaceDirectory" | "readWorkspaceFile">;
-type ReadProblem = { path: string; message: string };
+type ReadProblem = { path: string; message: string; kind?: "validation"; scope?: "matter" | "client" | "office" };
 export type OkfReadResult = Overview & {
   problems: ReadProblem[];
   /** Workspace má viac vecí než `MAX_MATTERS`; prehľad je čiastočný. */
@@ -41,11 +42,11 @@ const CARD_FILES = ["matter.md", "spis.md", "project.md", "projekt.md"];
 const CLIENT_CARDS = ["client.md", "klient.md"];
 /** Klient ve tvaru kanceláře `AK/<písmeno>/<klient>` (vault bez karet a bez `Spisy/`). */
 const AK_CLIENT = /^AK\/[^/]+\/[^/]+$/;
-/** Pracovní podsložky uvnitř klienta nebo věci — nejsou to samostatné věci. */
+/** Pracovní podsložky uvnitř klienta nebo věci - nejsou to samostatné věci. */
 const WORK_DIRS = new Set(["DS", "Prilohy", "Přílohy", "research", "drafts", "final", "analysis", "sources", "qa", "logs"]);
 const isWorkDir = (name: string): boolean => WORK_DIRS.has(name) || /^\d{2}_/.test(name) || name.startsWith("_");
 const RESERVED = new Set(["index.md", "log.md", "INDEX.md"]);
-export const missing = (e: unknown): boolean => /(?:\b404\b|\bENOENT\b|not found)/i.test(message(e));
+export const missing = (e: unknown): boolean => /(?:\b404\b|\bENOENT\b|not[_ ]found)/i.test(message(e));
 export const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /** `Promise.all` s hornou hranicou súbežnosti; výsledky v poradí vstupu. */
@@ -103,8 +104,8 @@ export async function readWorkspaceMemory(
     }
     const clientFolder = insideClient || entries.some((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name));
     // Vault vedený bez karet (AK/<písmeno>/<klient>/<věc>): podsložky klienta jsou věci; klient bez nich
-    // (nebo s vlastními soubory) je věcí sám — z přehledu se nic neztratí. Tvar se `Spisy/` platí dál.
-    // Klient s kartou (client.md/klient.md) je OKF klient — i bez věcí zůstává klientem, ne věcí.
+    // (nebo s vlastními soubory) je věcí sám - z přehledu se nic neztratí. Tvar se `Spisy/` platí dál.
+    // Klient s kartou (client.md/klient.md) je OKF klient - i bez věcí zůstává klientem, ne věcí.
     const hasClientCard = entries.some((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name));
     if (AK_CLIENT.test(path) && !hasClientCard && !entries.some((e) => e.kind === "dir" && [MATTERS_DIR, "Veci"].includes(e.name))) {
       const matters = entries.filter((e) => e.kind === "dir" && !e.name.startsWith(".") && !SKIP_DIRECTORIES.has(e.name) && !isWorkDir(e.name));
@@ -172,9 +173,11 @@ export async function readWorkspaceMemory(
       catch (e) { problems.push({ path: childPath(path, "VSTUPY.md"), message: message(e) }); }
     }
     const ancestors = path.split("/").map((_, i, parts) => parts.slice(0, parts.length - 1 - i).join("/"));
+    let clientPath: string | undefined;
     for (const ancestor of ancestors) {
       if ((await list(ancestor)).some((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name))) {
         scopePaths.push(ancestor);
+        clientPath = ancestor;
         break;
       }
     }
@@ -194,7 +197,10 @@ export async function readWorkspaceMemory(
                 const expected = pattern.split("/").filter(Boolean);
                 return parts.length === expected.length && expected.every((part, i) => part === "*" || part === parts[i]);
               });
-              if (found) scopePaths.push(found);
+              if (found) {
+                scopePaths.push(found);
+                clientPath = found;
+              }
             }
           } catch (e) { problems.push({ path: `${officePath}/okf.config`, message: message(e) }); }
         }
@@ -210,6 +216,40 @@ export async function readWorkspaceMemory(
         input.records.push(record);
       }
     }
+    if (clientPath !== undefined && (await list(clientPath)).some((entry) => entry.name === "VSTUPY.md" && entry.kind === "file")) {
+      const intakePath = childPath(clientPath, "VSTUPY.md");
+      try {
+        input.inheritedIntakes = [{ content: (await client.readWorkspaceFile(workspaceId, intakePath)).content, path: intakePath, scope: "client" }];
+      } catch (e) { problems.push({ path: intakePath, message: message(e), scope: "client" }); }
+    }
+    const existingMemorySources: string[] = [];
+    for (const dir of scopePaths) {
+      const entries = await list(dir);
+      for (const name of ["MEMORY.md", "_memory.md"]) {
+        if (entries.some((entry) => entry.name === name && entry.kind === "file")) existingMemorySources.push(childPath(dir, name));
+      }
+      if (entries.some((entry) => entry.name === ".lawoss" && entry.kind === "dir")) {
+        const profilePath = childPath(childPath(dir, ".lawoss"), "memory-profile.json");
+        if ((await list(childPath(dir, ".lawoss"), true)).some((entry) => entry.path === profilePath && entry.kind === "file")) existingMemorySources.push(profilePath);
+      }
+    }
+    if (existingMemorySources.length) input.existingMemorySources = existingMemorySources;
+    const isIn = (file: string | undefined, directory: string): boolean => directory === "" || file === directory || file?.startsWith(`${directory}/`) === true;
+    const scopeOf = (file: string | undefined): "matter" | "client" | "office" => {
+      if (isIn(file, path)) return "matter";
+      if (clientPath !== undefined && isIn(file, clientPath)) return "client";
+      return "office";
+    };
+    for (const finding of validateStore(input.records, { today: todayIso })) {
+      if (finding.severity !== "error") continue;
+      const source = recordFiles[finding.recordId];
+      problems.push({
+        path: source ?? path,
+        message: finding.message,
+        kind: "validation",
+        scope: scopeOf(source),
+      });
+    }
     if (entries.some((entry) => entry.name === "_STATUS.md" && entry.kind === "file")) {
       const statusPath = childPath(path, "_STATUS.md");
       try { input.manualStatus = readManualStatus((await client.readWorkspaceFile(workspaceId, statusPath)).content, input.records, todayIso); }
@@ -223,13 +263,13 @@ export async function readWorkspaceMemory(
 /** Spojenie na server rovnako ako v Novom spise, len ako hook. */
 const SERVER_SETTINGS_CHANGED = "legalwork-server-settings-changed";
 
-/** LAWOSS: rozsah kanceláře byl obnoven (lite/office-scope) — stránky načtou spojení i data znovu. */
+/** LAWOSS: rozsah kanceláře byl obnoven (lite/office-scope) - stránky načtou spojení i data znovu. */
 export const OFFICE_SCOPE_RESTORED = "lawoss-office-scope-restored";
 
 export function useOkfConnection(): { connection: OkfConnection | null; error: string | null } {
   const [connection, setConnection] = useState<OkfConnection | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Server může po přepnutí složky vydat nové spojení (adresa, token) — upstream to ohlásí
+  // Server může po přepnutí složky vydat nové spojení (adresa, token) - upstream to ohlásí
   // událostí; bez nového načtení by stránka četla starým tokenem a hlásila chybu.
   const queries = useQueryClient();
   const [generation, setGeneration] = useState(0);
@@ -261,7 +301,7 @@ export function activeWorkspace(connection: OkfConnection | null): RouteWorkspac
 /**
  * Lite: kancelář = nejvzdálenější registrovaná lokální složka, která aktivní složku obsahuje.
  * Rychlá akce aktivuje složku spisu (konverzace běží nad ním), ale Dnes a Klienti mají dál ukazovat celou kancelář.
- * Pro zůstává na `activeWorkspace` — tam je výběr složky v postranním panelu záměrný.
+ * Pro zůstává na `activeWorkspace` - tam je výběr složky v postranním panelu záměrný.
  */
 export function officeWorkspace(connection: OkfConnection | null): RouteWorkspace | null {
   return officeOf(connection?.workspaces ?? [], activeWorkspace(connection));
@@ -299,7 +339,7 @@ const calendarDay = (iso: string): Date | null => isCalendarDay(iso) ? new Date(
 
 export function formatDay(iso: string, locale = "sk"): string {
   const date = calendarDay(iso);
-  // Jiný rok než letošní se píše — lhůta za rok nesmí vypadat jako příští týden.
+  // Jiný rok než letošní se píše - lhůta za rok nesmí vypadat jako příští týden.
   return date ? new Intl.DateTimeFormat(locale, {
     weekday: "short", day: "numeric", month: "numeric", timeZone: "UTC",
     ...(iso.slice(0, 4) === today().slice(0, 4) ? {} : { year: "numeric" }),
@@ -317,7 +357,7 @@ export function formatLongDay(iso: string, locale = "sk"): string {
 
 /** Trieda `lw-d` podľa blízkosti termínu. */
 export function dayClass(date: string, todayIso: string): string {
-  // Neplatné datum (ne RRRR-MM-DD) nemá barvu naléhavosti — porovnání textu by lhalo.
+  // Neplatné datum (ne RRRR-MM-DD) nemá barvu naléhavosti - porovnání textu by lhalo.
   if (!ISO_DAY.test(date)) return "lw-d";
   const tier: DeadlineTier = deadlineTier(date, todayIso);
   return tier === "overdue" || tier === "today" ? "lw-d urg" : tier === "soon" ? "lw-d soon" : "lw-d";
@@ -325,7 +365,7 @@ export function dayClass(date: string, todayIso: string): string {
 
 export { addDays };
 
-/** Kalendářní den podle hodin počítače, ne UTC — „dnes / zítra / po lhůtě“ se po půlnoci neposouvá o den. */
+/** Kalendářní den podle hodin počítače, ne UTC - „dnes / zítra / po lhůtě“ se po půlnoci neposouvá o den. */
 export function today(now = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;

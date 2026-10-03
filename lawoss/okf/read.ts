@@ -10,8 +10,8 @@
 import type { ManualStatus } from "../okf-pamat/src/manual-status.ts";
 import type { OkfRecord } from "../okf-pamat/src/record.ts";
 
-/** `invalid`: datum lhůty nemá tvar RRRR-MM-DD — UI ho ukáže k ověření, nikdy ho tiše nezahodí. */
-/** `file`: skutočný súbor záznamu — totožnosť zdieľaného záznamu (ID sa razia per spis, nie sú jedinečné). */
+/** `invalid`: datum lhůty nemá tvar RRRR-MM-DD - UI ho ukáže k ověření, nikdy ho tiše nezahodí. */
+/** `file`: skutočný súbor záznamu - totožnosť zdieľaného záznamu (ID sa razia per spis, nie sú jedinečné). */
 type OverviewDeadline = { date: string; title: string; recordId: string; invalid?: true; file?: string };
 type OverviewTask = { id: string; title: string; assignee?: string; due?: string; file?: string };
 
@@ -41,6 +41,10 @@ export type MatterInput = {
   /** All directories contributing to this matter, including shared client and office. */
   scopePaths?: string[];
   intake?: string;
+  /** Pending intake inherited from the client scope, kept separate from the matter's own VSTUPY.md. */
+  inheritedIntakes?: readonly { content: string; path: string; scope: "client" }[];
+  /** Mapped legacy-memory files visible to the user but never converted into typed records. */
+  existingMemorySources?: readonly string[];
   manualStatus?: ManualStatus;
   /** `id` záznamu → cesta jeho súboru. Prehľad ju nepotrebuje, detail veci ňou odkazuje na zdroj. */
   recordFiles?: Record<string, string>;
@@ -59,7 +63,7 @@ export type Overview = {
   totals: { matters: number; deadlinesWithin7Days: number; openTasks: number; overdue: number; records: number };
 };
 
-/** Vyradený záznam (nahradený, zrušený, zakázaný, prekonaný) už nenesie živé lehoty ani úlohy — ako validátor. */
+/** Vyradený záznam (nahradený, zrušený, zakázaný, prekonaný) už nenesie živé lehoty ani úlohy - ako validátor. */
 const RETIRED_STATUS = new Set(["superseded", "void", "banned", "deprecated"]);
 const isRetired = (r: OkfRecord): boolean => RETIRED_STATUS.has(r.status);
 

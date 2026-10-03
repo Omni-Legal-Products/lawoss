@@ -1,6 +1,6 @@
 /**
  * Datový model obrazovky „Dnes" a seskupení věcí podle klienta pro LAWOSS-lite.
- * Čistá funkce nad již načteným přehledem (`OkfReadResult`) — nesiaha na disk.
+ * Čistá funkce nad již načteným přehledem (`OkfReadResult`) - nesiaha na disk.
  */
 import { addDays, daysBetween, deadlineTier, lastSegment, recordKey, type DeadlineTier, type MatterInput, type MatterOverview, type UpcomingDeadline } from "../../../../../lawoss/okf/read";
 import { pendingInputs, type PendingInput } from "../../../../../lawoss/okf/inputs";
@@ -27,7 +27,7 @@ export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDead
     byKey.set(key, entry);
     all.push(entry);
   }
-  // Neplatné datum nejde zařadit do 14 dnů ani spočítat — ukáže se vždy a nahoře, k ověření.
+  // Neplatné datum nejde zařadit do 14 dnů ani spočítat - ukáže se vždy a nahoře, k ověření.
   const invalid = all.filter((d) => d.invalid).map((d) => ({ ...d, tier: "today" as const, daysLeft: 0 }));
   const dated = all.filter((d) => !d.invalid && d.date <= horizon)
     .map((d) => ({ ...d, tier: deadlineTier(d.date, todayIso), daysLeft: daysBetween(todayIso, d.date) }))
@@ -48,7 +48,10 @@ export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDead
   return {
     deadlines,
     tasks: [...tasks.values()].sort((a, b) => (a.due ?? "9999").localeCompare(b.due ?? "9999")),
-    inputs: result.inputs.flatMap(pendingInputs),
+    inputs: [...new Map(result.inputs.flatMap(pendingInputs).map((entry) => [
+      entry.scope === "client" ? `${entry.scope}\u0000${entry.file}\u0000${entry.id}` : `${entry.matterPath}\u0000${entry.file}\u0000${entry.id}`,
+      entry,
+    ])).values()],
     recent,
   };
 }
@@ -57,7 +60,7 @@ const OFFICE_DIR = /(^|\/)(Office|_kancelaria)$/;
 
 /**
  * Klient věci: složka klienta, kterou už našlo čtení paměti (`client.md`/`klient.md` nebo
- * `client_path` v okf.config) — funguje pro `Klienti/Novák/…` i `AK/N/Novák/…`.
+ * `client_path` v okf.config) - funguje pro `Klienti/Novák/…` i `AK/N/Novák/…`.
  * Bez ní tvar cesty `AK/<písmeno>/<klient>`, jinak věc sama.
  */
 export function groupByClient(matters: readonly MatterOverview[], inputs: readonly Pick<MatterInput, "path" | "scopePaths">[] = []): ClientGroup[] {
@@ -74,7 +77,7 @@ export function groupByClient(matters: readonly MatterOverview[], inputs: readon
   return [...groups.values()].sort((a, b) => a.client.localeCompare(b.client, "cs"));
 }
 
-/** Nejbližší lhůta dnes nebo později — prošlá ani neplatná se jako „další“ neukazuje. */
+/** Nejbližší lhůta dnes nebo později - prošlá ani neplatná se jako „další“ neukazuje. */
 export function nextDeadline(deadlines: readonly { date: string; invalid?: true }[], todayIso: string): string | undefined {
   return deadlines.filter((d) => !d.invalid && d.date >= todayIso).map((d) => d.date).sort()[0];
 }

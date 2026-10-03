@@ -1,12 +1,12 @@
 /**
- * Co LAWOSS-lite skryje. Stejný vzor jako `feature-flags.ts`: skrývá, nemaže —
+ * Co LAWOSS-lite skryje. Stejný vzor jako `feature-flags.ts`: skrývá, nemaže -
  * v pro vše zůstává přesně jako dnes.
  */
 import type { UiMode } from "./ui-mode";
 import { LITE_TODAY_PATH } from "./links";
 
-/** Záložky nastavení v lite: přehled, AI, kancelář (personalizace) a vzhled. */
-const LITE_SETTINGS_TABS: ReadonlySet<string> = new Set(["general", "ai", "personalisation", "appearance"]);
+/** Keep native integrations and permission controls accessible in both modes. */
+const LITE_SETTINGS_TABS: ReadonlySet<string> = new Set(["general", "ai", "extensions", "permissions", "personalisation", "appearance", "updates"]);
 
 /** V pro vrací `tabs` beze změny (stejné pole). */
 export const liteSettingsTabs = <T extends string>(tabs: T[], mode: UiMode): T[] =>
@@ -22,8 +22,12 @@ export type SidebarItem = (typeof LITE_HIDDEN_SIDEBAR)[number];
 export const isSidebarItemVisible = (item: SidebarItem, mode: UiMode): boolean =>
   mode === "pro" || !LITE_HIDDEN_SIDEBAR.includes(item);
 
-/** Přepínač workspace v nastavení: jen pro (lite nesmí ukázat pojem „workspace“). */
-export const isWorkspaceSwitcherVisible = (mode: UiMode): boolean => mode === "pro";
+/** Always identify the workspace whose settings and permissions are being edited. */
+export const isWorkspaceSwitcherVisible = (_mode: UiMode): boolean => true;
 
-/** Úvodní stránka: pro zůstává na přehledu spisů. */
-export const landingPath = (mode: UiMode): string => (mode === "lite" ? LITE_TODAY_PATH : "/prehlad");
+/** Preserve the upstream home destination in advanced mode. */
+export const landingPath = (mode: UiMode): string => (mode === "lite" ? LITE_TODAY_PATH : "/home");
+
+/** Apply Lite filtering to the v0.2.1 native action rail. */
+export const isMainRailItemVisible = (key: string, mode: UiMode): boolean =>
+  mode === "pro" || !["navTasks", "navWorkflows", "navRecorder", "navEvaluations"].includes(key);

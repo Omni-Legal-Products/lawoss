@@ -7,7 +7,7 @@ import type { LegalworkControlHelpers } from "../src/react-app/shell/control/con
 
 // `useControlActions`/`registerAction` only fire inside `useEffect`, so a DOM
 // mount (React Testing Library / happy-dom) would be needed to assert actual
-// registration — neither is a dependency of this repo, and adding one for a
+// registration - neither is a dependency of this repo, and adding one for a
 // single test is disproportionate (ledger: task-8-report.md). Instead this
 // tests the action list `LawossNav` registers: right ids, and each one's
 // `execute()` does what the CDP smoke test (scripts/lite-smoke.mjs) expects

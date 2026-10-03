@@ -73,7 +73,7 @@ function priecinok(input: SetupLedgerInput, locale: Language): SetupLedgerRiadok
       ...zaklad,
       stav: "caka",
       detail:
-        input.postup.step === "folder"
+        input.postup.step === "office" || String(input.postup.step) === "folder"
           ? t("lawoss.initial.folder_paused", locale)
           : t("lawoss.initial.folder_missing", locale),
       akcia: t("lawoss.initial.select_folder", locale),

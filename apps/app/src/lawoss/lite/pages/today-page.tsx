@@ -6,7 +6,7 @@ import { OkfPage } from "../../domains/okf-page";
 import { litePageProps } from "../state-text";
 import { dayClass, formatDay, today } from "../../okf/read-model";
 import { buildToday, type TodayDeadline, type TodayModel } from "../today-model";
-import { liteMatterLink, NEW_MATTER_PATH } from "../links";
+import { LITE_CLIENTS_PATH, liteMatterLink, NEW_MATTER_PATH } from "../links";
 
 export function TodayPage() {
   const locale = useLocale();
@@ -45,12 +45,12 @@ export function TodayView({ model, locale }: { model: TodayModel; locale: Langua
       <div className="lw-reg">
         <div className="lw-reg-h"><h2>{text("inputs_title")}</h2></div>
         {model.inputs.length === 0 ? <p className="lw-empty">{text("inputs_empty")}</p> : model.inputs.map((input, index) => (
-          <Link key={`${input.file}/${input.id}/${index}`} className="lw-row lw-cols-leh" to={liteMatterLink(input.matterPath)}>
-            <span className="lw-no">{input.id || "—"}</span>
+          <Link key={`${input.file}/${input.id}/${index}`} className="lw-row lw-cols-leh" to={input.scope === "client" ? LITE_CLIENTS_PATH : liteMatterLink(input.matterPath)} data-lawoss-scope={input.scope}>
+            <span className="lw-no">{input.id || "-"}</span>
             <span className="lw-d">{formatDay(input.received.slice(0, 10), locale)}</span>
             <span className="lw-t">{input.source}<small>{input.original}</small></span>
             <span className="lw-ref" />
-            <span className="lw-st">{text("inputs_file")}</span>
+            <span className="lw-st">{text(input.scope === "client" ? "inputs_client" : "inputs_file")}</span>
           </Link>
         ))}
       </div>
@@ -60,7 +60,7 @@ export function TodayView({ model, locale }: { model: TodayModel; locale: Langua
         {model.tasks.length === 0 ? <p className="lw-empty">{text("tasks_empty")}</p> : model.tasks.map((task) => (
           <div key={task.key} className="lw-row lw-cols-leh">
             <span className="lw-no" />
-            <span className="lw-d">{task.due ? formatDay(task.due, locale) : "—"}</span>
+            <span className="lw-d">{task.due ? formatDay(task.due, locale) : "-"}</span>
             <span className="lw-t">{task.title}<small>{task.matters.map((m, i) => (
               <span key={m.path}>{i > 0 ? " · " : ""}<Link to={liteMatterLink(m.path)}>{m.title}</Link></span>
             ))}</small></span>

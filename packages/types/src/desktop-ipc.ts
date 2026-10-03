@@ -111,6 +111,15 @@ export type WorkspaceList = {
   workspaces: WorkspaceWire[];
 };
 
+export type WorkspaceCopyFilesResult = {
+  files: Array<{
+    name: string;
+    path?: string;
+    status: "copied" | "already_here" | "failed";
+    error?: "file_only" | "recursive" | "changed" | "unavailable" | "failed";
+  }>;
+};
+
 export type WorkspaceExportSummary = {
   outputPath: string;
   included: number;
@@ -286,6 +295,7 @@ export type WorkspaceCreateInput = {
   name?: string | null;
   preset?: string | null;
   registerExisting?: boolean;
+  appFiles?: "inside" | "outside";
 };
 
 export type WorkspaceCreateRemoteInput = {
@@ -395,12 +405,20 @@ export type DesktopCommandMap = {
     args: [input: { workspaceId: string; sessionId: string; title?: string }];
     result: boolean;
   };
+  openProjectWindow: {
+    args: [input: { workspaceId: string; page: "home" | "reviews" | "tasks" | "files"; title?: string }];
+    result: boolean;
+  };
 
   // Workspace state
   workspaceBootstrap: { args: []; result: WorkspaceList };
   workspaceSetSelected: { args: [workspaceId: string]; result: WorkspaceList };
   workspaceSetRuntimeActive: { args: [workspaceId: string | null]; result: WorkspaceList };
   workspaceCreate: { args: [input: WorkspaceCreateInput]; result: WorkspaceList };
+  workspaceCopyFiles: {
+    args: [input: { workspaceId: string; paths: string[]; folder?: string }];
+    result: WorkspaceCopyFilesResult;
+  };
   workspaceCreateRemote: { args: [input: WorkspaceCreateRemoteInput]; result: WorkspaceList };
   workspaceUpdateRemote: { args: [input: WorkspaceUpdateRemoteInput]; result: WorkspaceList };
   workspaceUpdateDisplayName: {
@@ -549,7 +567,7 @@ export type DesktopCommandMap = {
     ];
     result: ExecResult;
   };
-  listLocalSkills: { args: [projectDir: string]; result: LocalSkillCard[] };
+  listLocalSkills: { args: [projectDir: string]; result: { items: LocalSkillCard[]; skipped: Array<{ path: string; reason: string }> } };
   // Import every <dir>/SKILL.md skill folder found directly inside sourceDir into
   // the global skills dir, skipping names that already exist. Used to move
   // agent-staged workflows (generated inside a workspace, where the agent needs
@@ -667,6 +685,7 @@ export type DesktopCommandMap = {
   audioRecordingDelete: { args: [recordingId: string]; result: AudioRecordingMeta[] };
   /** Rename a recording (active or on disk); returns the refreshed list. */
   audioRecordingRename: { args: [recordingId: string, title: string]; result: AudioRecordingMeta[] };
+  audioRecordingSetProject: { args: [recordingId: string, projectId: string, linked: boolean]; result: AudioRecordingMeta[] };
   /**
    * Flip an ephemeral recording (system dictation) to retained. Used when the
    * paste failed so the spoken text stays recoverable in Recorder history.

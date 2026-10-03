@@ -13,7 +13,7 @@ let pending: Promise<OkfConnection> | null = null;
 
 /**
  * Je-li aktivní složka uvnitř kanceláře, aktivuje zpět kancelář; jinak nic nedělá.
- * Spojení se načítá vždy znovu — aktivní složku mezitím změnila konverzace a seznam složek nová věc.
+ * Spojení se načítá vždy znovu - aktivní složku mezitím změnila konverzace a seznam složek nová věc.
  */
 export function restoreOfficeScope(): Promise<OkfConnection> {
   pending ??= (async () => {
@@ -22,14 +22,14 @@ export function restoreOfficeScope(): Promise<OkfConnection> {
     const office = officeWorkspace(connection);
     if (!connection.client || !office || !active || office.id === active.id) return connection;
     const restored = await activateLocalWorkspace({ ...connection, client: connection.client }, office, connection.workspaces);
-    // Stránky načtené během přepínání četly ještě starý stav — ať se načtou znovu.
+    // Stránky načtené během přepínání četly ještě starý stav - ať se načtou znovu.
     window.dispatchEvent(new CustomEvent(OFFICE_SCOPE_RESTORED));
     return restored;
   })().finally(() => { pending = null; });
   return pending;
 }
 
-/** „Zeptat se“: nová konverzace v kanceláři, bez věci — ne poslední konverzace naposledy otevřené věci. */
+/** „Zeptat se“: nová konverzace v kanceláři, bez věci - ne poslední konverzace naposledy otevřené věci. */
 export async function openOfficeChat(): Promise<string> {
   const connection = await restoreOfficeScope();
   const office = officeWorkspace(connection);

@@ -1,3 +1,4 @@
+import type { AudioRecordingDetail, AudioRecordingMeta } from "@legalwork/types/audio";
 import type { WorkspaceWire } from "@legalwork/types/workspace";
 
 export type WorkspaceType = "local" | "remote";
@@ -24,6 +25,7 @@ export interface WorkspaceConfig {
   baseUrl?: string;
   directory?: string;
   displayName?: string;
+  appFiles?: "inside" | "outside";
   legalworkHostUrl?: string;
   legalworkToken?: string;
   legalworkWorkspaceId?: string;
@@ -45,6 +47,7 @@ export interface WorkspaceInfo {
   baseUrl?: string;
   directory?: string;
   displayName?: string;
+  appFiles?: "inside" | "outside";
   legalworkHostUrl?: string;
   legalworkToken?: string;
   legalworkWorkspaceId?: string;
@@ -103,6 +106,10 @@ export interface RecorderLiveTranscriptStatus {
 }
 
 export interface RecorderBridge {
+  listProjectRecordings?: (projectId: string) => Promise<Pick<AudioRecordingMeta, "id" | "title" | "durationMs" | "status" | "segmentCount">[]>;
+  readProjectRecording?: (projectId: string, id: string) => Promise<Pick<AudioRecordingDetail, "segments"> | null>;
+  /** Copy a finished recording linked to the project into its `recordings/` folder, for project sync; false when not written. */
+  exportProjectRecording?: (projectId: string, id: string, projectRoot: string) => Promise<boolean>;
   status: (workspacePath: string) => RecorderLiveTranscriptStatus | Promise<RecorderLiveTranscriptStatus>;
   setLiveTranscript: (
     enabled: boolean,
@@ -117,6 +124,8 @@ export interface ServerConfig {
   hostToken: string;
   configPath?: string;
   wordAddin?: WordAddinConfig;
+  /** Native host default for new project folders; existing workspace paths stay authoritative. */
+  projectsDirectory?: string;
   /**
    * Host-app hook that opens a native "choose folder" dialog. Set by the
    * desktop app (which owns OS dialogs); null when the server runs
@@ -128,6 +137,8 @@ export interface ServerConfig {
   pickDirectory?: ((options: { title?: string; defaultPath?: string; returnFocusTo?: string }) => Promise<string | null>) | null;
   /** Desktop-owned recorder controls used by browser-hosted Office add-ins. */
   recorder?: RecorderBridge | null;
+  /** In-process host confirmation. Never set from client input or persisted config. */
+  requestHostApproval?: HostApprovalHandler;
   opencodeBaseUrl?: string;
   opencodeDirectory?: string;
   opencodeUsername?: string;
@@ -137,6 +148,8 @@ export interface ServerConfig {
   workspaces: WorkspaceInfo[];
   authorizedRoots: string[];
   readOnly: boolean;
+  /** Background setup of the layout model and the small OCR model when selected; enabled by resolved host config. */
+  autoDownloadOcr?: boolean;
   startedAt: number;
   tokenSource: "cli" | "env" | "file" | "generated";
   hostTokenSource: "cli" | "env" | "file" | "generated";
@@ -271,6 +284,11 @@ export interface ApprovalRequest {
   createdAt: number;
   actor: Actor;
 }
+
+export type HostApprovalHandler = (
+  request: ApprovalRequest,
+  signal: AbortSignal,
+) => Promise<"allow" | "deny">;
 
 export interface AuditEntry {
   id: string;

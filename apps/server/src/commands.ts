@@ -1,10 +1,9 @@
 import { readdir, readFile, writeFile, rm, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import type { CommandItem } from "./types.js";
 import { parseFrontmatter, buildFrontmatter } from "./frontmatter.js";
 import { exists } from "./utils.js";
-import { projectCommandsDir } from "./workspace-files.js";
+import { globalOpencodeConfigDir, projectCommandsDir } from "./workspace-files.js";
 import { validateCommandName, sanitizeCommandName } from "./validators.js";
 import { ApiError } from "./errors.js";
 
@@ -29,7 +28,11 @@ async function repairLegacyCommandFile(filePath: string, content: string): Promi
   };
 }
 
-async function listCommandsInDir(dir: string, scope: "workspace" | "global"): Promise<CommandItem[]> {
+async function listCommandsInDir(
+  dir: string,
+  scope: "workspace" | "global",
+  repairLegacy: boolean,
+): Promise<CommandItem[]> {
   if (!(await exists(dir))) return [];
   const entries = await readdir(dir, { withFileTypes: true });
   const items: CommandItem[] = [];
@@ -38,7 +41,9 @@ async function listCommandsInDir(dir: string, scope: "workspace" | "global"): Pr
     if (!entry.name.endsWith(".md")) continue;
     const filePath = join(dir, entry.name);
     const content = await readFile(filePath, "utf8");
-    const { data, body } = await repairLegacyCommandFile(filePath, content);
+    const { data, body } = repairLegacy
+      ? await repairLegacyCommandFile(filePath, content)
+      : parseFrontmatter(content);
     const name = typeof data.name === "string" ? data.name : entry.name.replace(/\.md$/, "");
     try {
       validateCommandName(name);
@@ -58,12 +63,17 @@ async function listCommandsInDir(dir: string, scope: "workspace" | "global"): Pr
   return items;
 }
 
-export async function listCommands(workspaceRoot: string, scope: "workspace" | "global"): Promise<CommandItem[]> {
+export async function listCommands(
+  workspaceRoot: string,
+  scope: "workspace" | "global",
+  options: { repairLegacy?: boolean } = {},
+): Promise<CommandItem[]> {
+  const repairLegacy = options.repairLegacy ?? true;
   if (scope === "global") {
-    const dir = join(homedir(), ".config", "opencode", "commands");
-    return listCommandsInDir(dir, "global");
+    const dir = join(globalOpencodeConfigDir(), "commands");
+    return listCommandsInDir(dir, "global", repairLegacy);
   }
-  return listCommandsInDir(projectCommandsDir(workspaceRoot), "workspace");
+  return listCommandsInDir(projectCommandsDir(workspaceRoot), "workspace", repairLegacy);
 }
 
 export type UpsertCommandPayload = {

@@ -11,7 +11,7 @@ const ACTIVE_WORKSPACE_KEY = "legalwork.react.activeWorkspace";
 /**
  * Značka, kterou `bootstrapLawoss()` (lawoss/theme/bootstrap.ts, MIGRATION_KEY) zapíše při
  * každém startu. Přežije smazání vybraného workspace, takže i takový uživatel zůstane v pro.
- * Tento modul se vyhodnotí při importu, tedy dřív než bootstrap — čistá instalace ji ještě nemá.
+ * Tento modul se vyhodnotí při importu, tedy dřív než bootstrap - čistá instalace ji ještě nemá.
  * Kopie řetězce, ne import: bootstrap sám importuje tento modul.
  */
 const BOOTSTRAPPED_KEY = "lawoss.theme-migrated-to-dark";

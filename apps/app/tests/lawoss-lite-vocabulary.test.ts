@@ -6,7 +6,7 @@ const REQUIRED = ["nav_today", "nav_clients", "nav_ask", "today_title", "deadlin
   "inputs_title", "clients_title", "tab_overview", "tab_known", "action_summarize",
   "action_deadlines", "action_reply", "action_add_document", "action_verify_client", "mode_title",
   "mode_lite", "mode_pro", "memory_write_title", "memory_write_matter", "memory_write_approved_by"];
-/** Nepoužívané klíče odstraněné při finální revizi (M2) — nesmí se vrátit. */
+/** Nepoužívané klíče odstraněné při finální revizi (M2) - nesmí se vrátit. */
 const REMOVED = ["open_conversation", "advanced", "matter_counterparty", "new_client", "due_in_days"];
 
 const dictionaries = { en: shellEn, cs: shellCs, sk: shellSk, de: shellDe } as const;
@@ -17,7 +17,7 @@ describe("slovník LAWOSS-lite", () => {
 
     test(`${language}: obsahuje všechny povinné klíče`, () => {
       // Pole s jedním prvkem = literální plochý klíč. Bun (na rozdíl od záměru testu)
-      // řetězec s tečkami bere jako vnořenou cestu, ne jako plochý klíč se znaky "." —
+      // řetězec s tečkami bere jako vnořenou cestu, ne jako plochý klíč se znaky "." -
       // stejné ploché klíče se ale používají v celém shell.ts i v testu níže.
       for (const key of REQUIRED) expect(dict).toHaveProperty([`lawoss.lite.${key}`]);
     });

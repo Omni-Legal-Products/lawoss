@@ -18,8 +18,8 @@ export function runtimeMemoryGrants(directory, externalDirectory) {
 }
 
 /** Whitelist fields; no source bodies, anchors or raw filesystem error strings leave the reader. */
-export function workspaceMemoryStatus(directory, grants) {
-  const report = readWorkspaceMemory(directory, { allowedRoots: grants.folders });
+export function workspaceMemoryStatus(directory, grants, profileOptions = {}) {
+  const report = readWorkspaceMemory(directory, { allowedRoots: grants.folders, ...profileOptions });
   const problems = report.problems.map(({ code, sourceId }) => ({ code, ...(sourceId ? { sourceId } : {}), message: code === "invalid-source" ? "Source unavailable, unsafe or not authorized by the host." : code === "missing-source" ? "Source file is missing." : "Memory validation failed; check the profile and source status." }));
   if (grants.hiddenCount > 0) problems.push({ code: "host-grants-restricted", message: "Custom, denied or invalid host folder rules prevent external memory access." });
   return {
@@ -28,4 +28,8 @@ export function workspaceMemoryStatus(directory, grants) {
     grants: { authority: "runtime", folders: grants.folders, hiddenCount: grants.hiddenCount },
     sources: report.sources.map(({ id, root, role, required, writable, status, sha256, bytes }) => ({ id, root, role, required, writable, status, sha256, bytes })), problems,
   };
+}
+
+export function workspaceMemoryStatusWithProfile(directory, grants, profileOptions) {
+  return workspaceMemoryStatus(directory, grants, profileOptions);
 }

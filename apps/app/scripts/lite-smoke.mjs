@@ -7,10 +7,10 @@
  * Usage: node scripts/lite-smoke.mjs [--cdp-url http://127.0.0.1:9223]
  * Env:   CDP_URL overrides the same way; otherwise probes 127.0.0.1:9223-9227.
  *
- * Never leaves the app in a different UI mode than it found it in — restored
+ * Never leaves the app in a different UI mode than it found it in - restored
  * both on normal completion and on SIGINT/SIGTERM, through a single guarded
  * restore path (see `createModeRestoreGuard`) so the two can't double-restore
- * or race on the exit code. Never writes anything else — no chat, no memory,
+ * or race on the exit code. Never writes anything else - no chat, no memory,
  * no files.
  */
 
@@ -28,7 +28,7 @@ const checks = [];
 // ---------------------------------------------------------------------------
 // Single-restore guard, shared by the normal `finally` path and the signal
 // handlers below, so a SIGINT/SIGTERM arriving mid-run restores the original
-// mode at most once — never twice, never racing the normal exit.
+// mode at most once - never twice, never racing the normal exit.
 // ---------------------------------------------------------------------------
 
 let activeClient = null;
@@ -79,7 +79,7 @@ function exitOnce(code) {
 }
 
 async function handleSignal(signal, code) {
-  console.log(`\n${signal} received — restoring original UI mode (bounded, ≤${RESTORE_TIMEOUT_MS}ms) before exit…`);
+  console.log(`\n${signal} received - restoring original UI mode (bounded, ≤${RESTORE_TIMEOUT_MS}ms) before exit…`);
   const outcome = await restoreOriginalModeOnce();
   if (outcome.attempted) {
     console.log(outcome.ok ? "Restored original UI mode." : `Failed to restore original UI mode: ${outcome.error}`);
@@ -163,7 +163,7 @@ function assertTrue(condition, message) {
 
 function report() {
   for (const check of checks) {
-    console.log(`${check.ok ? "PASS" : "FAIL"} — ${check.label}${check.error ? `: ${check.error}` : ""}`);
+    console.log(`${check.ok ? "PASS" : "FAIL"} - ${check.label}${check.error ? `: ${check.error}` : ""}`);
   }
   const passed = checks.filter((check) => check.ok).length;
   const allPassed = passed === checks.length && checks.length > 0;
@@ -197,7 +197,7 @@ async function executeAction(client, actionId, actionArgs = undefined) {
 
 /**
  * Locale-independent: checks structural `data-*` markers only (no sidebar
- * text/word matching — the app renders in Czech/Slovak/English depending on
+ * text/word matching - the app renders in Czech/Slovak/English depending on
  * the user's locale, so "Workflows"/"Evaluations" would never match a
  * Czech-locale run and the check would pass vacuously).
  */
@@ -215,7 +215,7 @@ function sidebarProbeExpression() {
 }
 
 // ---------------------------------------------------------------------------
-// CDP target discovery — mirrors scripts/voice-cdp.mjs
+// CDP target discovery - mirrors scripts/voice-cdp.mjs
 // ---------------------------------------------------------------------------
 
 async function resolveTarget() {
@@ -280,7 +280,7 @@ async function fetchJson(url) {
 }
 
 // ---------------------------------------------------------------------------
-// CDP plumbing — copied from scripts/voice-cdp.mjs
+// CDP plumbing - copied from scripts/voice-cdp.mjs
 // ---------------------------------------------------------------------------
 
 function connectCdp(webSocketDebuggerUrl) {
@@ -363,7 +363,7 @@ function parseArgs(values) {
 // imported by a unit test for `createModeRestoreGuard`.
 const isMainModule = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
 if (isMainModule) {
-  // Obsluha signálů jen při přímém spuštění — import z unit testu nesmí měnit chování procesu.
+  // Obsluha signálů jen při přímém spuštění - import z unit testu nesmí měnit chování procesu.
   process.on("SIGINT", () => { void handleSignal("SIGINT", 130); });
   process.on("SIGTERM", () => { void handleSignal("SIGTERM", 143); });
   main().then((ok) => {

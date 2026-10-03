@@ -263,6 +263,23 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     return trimmed ? path.resolve(trimmed).replace(/\\/g, "/").toLowerCase() : "";
   }
 
+  async function workspaceUsesExternalAppFiles(workspacePath) {
+    const workspaceKey = normalizeWorkspacePathKey(workspacePath);
+    if (!workspaceKey) return false;
+    const state = await readWorkspaceState();
+    return state.workspaces.some((workspace) =>
+      workspace.appFiles === "outside" && normalizeWorkspacePathKey(workspace.path) === workspaceKey,
+    );
+  }
+
+  async function assertWorkspaceAppFilesSupported(workspacePath) {
+    if (await workspaceUsesExternalAppFiles(workspacePath)) {
+      throw new Error(
+        "Workspace LegalWork configuration is unsupported in outside app-files mode.",
+      );
+    }
+  }
+
   function normalizeRecoveredWorkspacePath(value) {
     const trimmed = String(value ?? "").trim();
     if (!trimmed) return "";
@@ -463,6 +480,7 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
       baseUrl: input.baseUrl ?? null,
       directory: input.directory ?? null,
       displayName: input.displayName ?? null,
+      appFiles: input.appFiles === "outside" ? "outside" : "inside",
       legalworkHostUrl: input.legalworkHostUrl ?? null,
       legalworkToken: input.legalworkToken ?? null,
       legalworkClientToken: input.legalworkClientToken ?? null,
@@ -476,6 +494,7 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
   }
 
   async function readWorkspaceLegalworkConfig(workspacePath) {
+    await assertWorkspaceAppFilesSupported(workspacePath);
     const legalworkPath = path.join(workspacePath, ".opencode", "legalwork.json");
     if (!(await pathExists(legalworkPath))) {
       return defaultWorkspaceLegalworkConfig(workspacePath);
@@ -485,6 +504,7 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
   }
 
   async function writeWorkspaceLegalworkConfig(workspacePath, config) {
+    await assertWorkspaceAppFilesSupported(workspacePath);
     const legalworkPath = path.join(workspacePath, ".opencode", "legalwork.json");
     // A stray file named .opencode makes this mkdir throw EEXIST (and breaks
     // the engine the same way) — repair it rather than failing the write.
@@ -631,7 +651,13 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
   }
 
   async function setSelectedWorkspace(workspaceId) {
-    return mutateWorkspaceState((state) => {
+    return mutateWorkspaceState(async (state) => {
+      // Projects created through the server must also survive a desktop restart.
+      // Register the selected project without recreating its folder or metadata.
+      if (workspaceId && !state.workspaces.some((entry) => entry.id === workspaceId)) {
+        const created = (await recoverWorkspacesFromServerConfig()).find((entry) => entry.id === workspaceId);
+        if (created) state.workspaces.unshift(created);
+      }
       state.selectedId = workspaceId;
       state.activeId = workspaceId || null;
       return state;
@@ -651,7 +677,16 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     if (input.registerExisting !== undefined && typeof input.registerExisting !== "boolean") {
       throw new Error("registerExisting must be boolean");
     }
+    if (input.appFiles !== undefined && input.appFiles !== "inside" && input.appFiles !== "outside") {
+      throw new Error("appFiles must be inside or outside");
+    }
     const registerExisting = input.registerExisting === true;
+    const requestedAppFiles = input.appFiles === undefined
+      ? null
+      : input.appFiles === "outside" ? "outside" : "inside";
+    if (requestedAppFiles === "outside" && !registerExisting) {
+      throw new Error("outside app files require an existing directory");
+    }
     let folderPath;
     if (registerExisting) {
       const resolvedPath = path.resolve(rawFolderPath);
@@ -665,6 +700,13 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
       folderPath = resolvedPath;
     } else {
       folderPath = await normalizeLocalWorkspacePath(rawFolderPath);
+      const state = await readWorkspaceState();
+      const existing = state.workspaces.find(
+        (entry) => normalizeWorkspacePathKey(entry.path) === normalizeWorkspacePathKey(folderPath),
+      );
+      if (existing?.appFiles === "outside") {
+        throw new Error("Existing outside-mode workspaces must be registered without initialization");
+      }
       await mkdir(folderPath, { recursive: true });
     }
     const preset = String(input.preset ?? "starter");
@@ -675,6 +717,7 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
       path: folderPath,
       preset,
       workspaceType: "local",
+      appFiles: requestedAppFiles ?? "inside",
     });
     if (!registerExisting) {
       await mkdir(path.join(folderPath, ".opencode"), { recursive: true });
@@ -682,14 +725,26 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     }
 
     return mutateWorkspaceState((state) => {
+      const existing = state.workspaces.find(
+        (entry) => entry.id === workspace.id || normalizeWorkspacePathKey(entry.path) === workspacePathKey(workspace),
+      );
+      const persistedAppFiles = existing?.appFiles === "outside" ? "outside" : "inside";
+      const nextWorkspace = {
+        ...workspace,
+        appFiles: requestedAppFiles ?? persistedAppFiles,
+        ...(registerExisting && existing ? {
+          name: existing.name,
+          displayName: existing.displayName,
+        } : {}),
+      };
       const key = workspacePathKey(workspace);
       state.workspaces = state.workspaces.filter(
         (entry) => entry.id !== workspace.id && normalizeWorkspacePathKey(entry.path) !== key,
       );
-      state.workspaces.push(workspace);
-      state.selectedId = workspace.id;
-      state.activeId = workspace.id;
-      state.watchedId = workspace.id;
+      state.workspaces.push(nextWorkspace);
+      state.selectedId = nextWorkspace.id;
+      state.activeId = nextWorkspace.id;
+      state.watchedId = nextWorkspace.id;
       return state;
     });
   }

@@ -3,15 +3,15 @@
  * permission requestu, aby se v lite zobrazila srozumitelná karta místo
  * syrového shellu. Vrací proposal jen když je celý příkaz PŘESNĚ jedno
  * volání `[node|bun] <cesta k okf-memory> write <spis> [--file …]
- * [--reason …] [--apply] [--approve-as …]` — nic jiného vedle toho.
+ * [--reason …] [--apply] [--approve-as …]` - nic jiného vedle toho.
  * Cokoli jiné vrací `null` (karta se nezobrazí, panel beze změny):
  * zmínka v jiném příkazu, jiný podpříkaz, chybějící spis (Review Focus 5);
  * jakýkoli znak mimo doslovný výčet (operátory, expanze, glob, složené závorky,
- * řídicí znaky vč. konce řádku) kdekoli v příkazu; opakovaný flag — schválený příkaz
+ * řídicí znaky vč. konce řádku) kdekoli v příkazu; opakovaný flag - schválený příkaz
  * by jinak dělal i něco jiného, než co karta popisuje; nerozpoznaný nebo
  * přebytečný token po vlajkách; vlajka vyžadující hodnotu bez ní. Uvozovky
  * dělají z metaznaků uvnitř data, ne operátor (`--reason "a; b"` je v
- * pořádku) — ale v `"…"` shell stále provádí `$`, zpětné apostrofy a `\`,
+ * pořádku) - ale v `"…"` shell stále provádí `$`, zpětné apostrofy a `\`,
  * proto tam vedou na `null`; jen `'…'` je čistě literál. Vždy raději `null`
  * než hádat (fix round 1, final review C1).
  */
@@ -25,19 +25,19 @@ export type MemoryWriteProposal = {
 };
 
 /**
- * Povolené znaky neuvozovkovaného slova — výčet toho, co shell bere doslova
+ * Povolené znaky neuvozovkovaného slova - výčet toho, co shell bere doslova
  * (písmena vč. diakritiky, číslice, `_ . / @ % + = , : -`). Cokoli jiného
  * (operátory, `$`, `\`, `~`, `#`, `!`, glob `* ? [ ]`, složené závorky
  * `{a,b}`, uvozovka uprostřed slova, nezlomitelná mezera) → `null`.
  * Výčet místo zákazu: zákaz vždy něco vynechá (review PR #100: `{x,--apply}`).
  */
 const LITERAL_WORD = /^[\p{L}\p{M}\p{N}_./@%+=,:-]+$/u;
-/** Řídicí znak kdekoli — i uvnitř uvozovek (konec řádku = druhý příkaz). */
+/** Řídicí znak kdekoli - i uvnitř uvozovek (konec řádku = druhý příkaz). */
 const CONTROL_CHAR = /[\u0000-\u0008\u000a-\u001f\u007f]/;
 const SEPARATOR = /[ \t]/;
 
 /**
- * Rozdělí příkaz na tokeny jako shell — nebo vrátí `null`, kdykoli by se
+ * Rozdělí příkaz na tokeny jako shell - nebo vrátí `null`, kdykoli by se
  * výklad shellu mohl lišit od karty. `'…'` je literál; `"…"` jen bez `$`,
  * zpětných apostrofů a `\`; po uzavírací uvozovce musí následovat oddělovač
  * (`"a"b` je pro shell jeden argument).
@@ -52,7 +52,7 @@ function tokenize(command: string): string[] | null {
     const ch = command[i]!;
     if (ch === '"' || ch === "'") {
       const end = command.indexOf(ch, i + 1);
-      if (end === -1) return null; // nevyvážené uvozovky — nikdy nehádat
+      if (end === -1) return null; // nevyvážené uvozovky - nikdy nehádat
       const body = command.slice(i + 1, end);
       if (ch === '"' && /[$`\\]/.test(body)) return null;
       i = end + 1;
@@ -72,7 +72,7 @@ function tokenize(command: string): string[] | null {
 /**
  * CLI skillu `okf-pamat`: holé `okf-memory` (z PATH), nebo `…/skills/okf-pamat/resources/okf-memory.js`
  * absolutně či `.opencode/skills/okf-pamat/…` relativně, bez `.`/`..` segmentů.
- * ponytail: shoda podle cesty, ne podle obsahu souboru — asistent se zápisem do složky skillu
+ * ponytail: shoda podle cesty, ne podle obsahu souboru - asistent se zápisem do složky skillu
  * by kartu dostal i pro podvržený skript; pevně to řeší jen předání kořene pracovní složky do karty.
  */
 function isOkfMemoryBinary(token: string): boolean {
@@ -111,7 +111,7 @@ export function describeMemoryWrite(command: string): MemoryWriteProposal | null
       if (tok === "--file" || tok === "--reason" || tok === "--approve-as" || tok === "--if-revision") {
         const value = tokens[++i];
         if (value === undefined || value.startsWith("--")) return null; // flag bez hodnoty
-        // Opakovaný flag: CLI bere první výskyt, karta by ukázala jiný — nikdy nehádat.
+        // Opakovaný flag: CLI bere první výskyt, karta by ukázala jiný - nikdy nehádat.
         if (seen.has(tok)) return null;
         seen.add(tok);
         if (tok === "--file") file = value;
@@ -120,7 +120,7 @@ export function describeMemoryWrite(command: string): MemoryWriteProposal | null
         // --if-revision: cíl úpravy, hodnota se jen spotřebuje, do karty nepatří
         continue;
       }
-      return null; // neznámý/přebytečný token — příkaz dělá i něco jiného, nikdy nehádat
+      return null; // neznámý/přebytečný token - příkaz dělá i něco jiného, nikdy nehádat
     }
 
     return { matterDir, file, reason, apply, approvedBy };

@@ -65,7 +65,7 @@ export function LawossNav(props: { activePane?: boolean } = {}) {
  * Pure builder for the UI-mode control actions, kept separate from the
  * `useControlActions` wiring so unit tests can check ids/args/execute
  * behavior without a DOM (`useEffect`-based registration needs a real
- * mount — see `lawoss-lite-control-actions.test.ts`).
+ * mount - see `lawoss-lite-control-actions.test.ts`).
  */
 export function liteControlActions(navigate: (path: string) => void): LegalworkControlAction[] {
   return [
@@ -112,7 +112,7 @@ export function liteControlActions(navigate: (path: string) => void): LegalworkC
 
 /**
  * Control-mode actions for the UI-mode bridge (lawoss-smoke.mjs over CDP,
- * `window.__legalworkControl`). Registered here — not in `LiteNav` — because
+ * `window.__legalworkControl`). Registered here - not in `LiteNav` - because
  * `LawossNav` mounts in both lite and pro, so `mode.set` can flip pro→lite too.
  */
 function LiteControlActions() {
@@ -167,7 +167,7 @@ function ExperimentsNav(props: { activePane?: boolean }) {
 /** Experiment content shares the persistent session shell and its sidebar. */
 export function LawossLayout(props: { children: ReactNode }) {
   const locale = useLocale();
-  // Lite: jen list — experimentální lišta (i „Nový spis (OKF)“) patří do pro.
+  // Lite: jen list - experimentální lišta (i „Nový spis (OKF)“) patří do pro.
   const lite = useUiMode() === "lite";
   return (
     <div className="lw-experiment-content">

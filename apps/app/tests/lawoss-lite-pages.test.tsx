@@ -14,11 +14,12 @@ import { liteStateText } from "../src/lawoss/lite/state-text";
 import { TodayPage } from "../src/lawoss/lite/pages/today-page";
 import { ClientsPage } from "../src/lawoss/lite/pages/clients-page";
 import { LiteMatterPage } from "../src/lawoss/lite/pages/matter-page";
+import { addDays, today } from "../src/lawoss/okf/read-model";
 import { buildOverview } from "../../../lawoss/okf/read";
 
 const BANNED = /workspace|session|skill|\bMCP\b|\bOKF\b|opencode|plugin/i;
 
-const matter = { path: "Klienti/Novák/Spisy/Odvolání", title: "Novák — 14 C 101/2025", matterRef: "14 C 101/2025", court: "OS Praha 2",
+const matter = { path: "Klienti/Novák/Spisy/Odvolání", title: "Novák - 14 C 101/2025", matterRef: "14 C 101/2025", court: "OS Praha 2",
   deadlines: [], openTasks: [], counts: { records: 2, evidence: 0, subjects: 1 } };
 const model: TodayModel = {
   deadlines: [{ date: "2026-09-25", title: "Odvolání", recordId: "D-1", matter, tier: "soon", daysLeft: 2 }],
@@ -46,7 +47,12 @@ describe("stránky LAWOSS-lite", () => {
   });
   test("Dnes: vstup bez ID ukáže pomlčku (final review I1)", () => {
     const out = html(<TodayView model={{ ...model, inputs: [{ ...model.inputs[0]!, id: "" }] }} locale="en" />);
-    expect(out).toContain('<span class="lw-no">—</span>');
+    expect(out).toContain('<span class="lw-no">-</span>');
+  });
+  test("Dnes: zdieľaný klientsky vstup vedie na klientov, nie na prvú vec", () => {
+    const out = html(<TodayView model={{ ...model, inputs: [{ ...model.inputs[0]!, scope: "client", matterPath: "Klienti/Novák" }] }} locale="en" />);
+    expect(out).toContain(href("/klienti"));
+    expect(out).not.toContain(href(liteMatterLink("Klienti/Novák")));
   });
   test("Dnes a Klienti: jediný vstup „+ New matter“, žádný duplicitní „New client“ (final review I4)", () => {
     for (const out of [html(<TodayView model={model} locale="en" />), html(<ClientsView groups={[]} />)]) {
@@ -70,7 +76,7 @@ describe("stránky LAWOSS-lite", () => {
     }
   });
   test("Věc: /vec bez parametru nebo s neznámou cestou nikdy nevybere jinou věc (final review M1)", () => {
-    const other = { ...matter, path: "Klienti/Svoboda/Spisy/Nájem", title: "Svoboda — nájem" };
+    const other = { ...matter, path: "Klienti/Svoboda/Spisy/Nájem", title: "Svoboda - nájem" };
     const matters = [other, matter];
     expect(matterFromParams(matters, new URLSearchParams(""))).toBeNull();
     expect(matterFromParams(matters, new URLSearchParams("vec="))).toBeNull();
@@ -111,8 +117,8 @@ describe("stránky LAWOSS-lite", () => {
   test("Věc: přehled ukáže lhůty s označením neověřených a úkoly z paměti", () => {
     const cockpit: Pick<Cockpit, "deadlines" | "tasks" | "attention" | "facts"> = {
       deadlines: {
-        confirmed: [{ date: "2026-09-25", title: "Odvolání", recordId: "D-1", provenance: "overené", file: "f", overdue: false, confirmed: true }],
-        candidates: [{ date: "2026-09-30", title: "Vyjádření", recordId: "D-2", provenance: "AI návrh", file: "f", overdue: false, confirmed: false }],
+        confirmed: [{ date: addDays(today(), 1), title: "Odvolání", recordId: "D-1", provenance: "overené", file: "f", overdue: false, confirmed: true }],
+        candidates: [{ date: addDays(today(), 6), title: "Vyjádření", recordId: "D-2", provenance: "AI návrh", file: "f", overdue: false, confirmed: false }],
       },
       tasks: [{ id: "T-9", title: "Zavolat klientovi", overdue: false, file: "f" }],
       attention: [],
@@ -146,7 +152,7 @@ describe("stavy stránek LAWOSS-lite", () => {
       expect(sheet).not.toMatch(BANNED);
     }
   });
-  test("Věc: žádný nadpis „Clients and matters“ — hlavní nadpis je až název věci (ultrareview 1)", () => {
+  test("Věc: žádný nadpis „Clients and matters“ - hlavní nadpis je až název věci (ultrareview 1)", () => {
     const out = renderToStaticMarkup(<QueryClientProvider client={new QueryClient()}><MemoryRouter><LiteMatterPage /></MemoryRouter></QueryClientProvider>);
     expect(out).not.toContain("Clients and matters</h1>");
     const view = html(<LiteMatterView matter={matter} cockpit={null} busy={null} error={null} onAction={() => {}} />);
@@ -177,4 +183,14 @@ describe("stavy stránek LAWOSS-lite", () => {
     expect(out).toContain("No workspace is open.");
     expect(out).toContain("Open a workspace");
   });
+});
+
+
+test("existing memory files remain visible beside the typed view", () => {
+  const out = html(<LiteMatterView matter={matter} cockpit={null} busy={null} error={null} onAction={() => {}}
+    scopePaths={["Klienti/ACME/Spisy/A", "Klienti/ACME", "Office"]}
+    existingMemorySources={["Klienti/ACME/Spisy/A/MEMORY.md"]} />);
+  expect(out).toContain("Klienti/ACME/Spisy/A/MEMORY.md");
+  expect(out).toContain("Additional memory files");
+  expect(out).toContain('href="/settings/extensions"');
 });

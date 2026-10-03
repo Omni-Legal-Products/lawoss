@@ -1,6 +1,7 @@
+import { retireLegacyReview } from "./reviews/retire-legacy.js";
 import { createHash } from "node:crypto";
 import { basename, dirname, join } from "node:path";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 
 import { ensureDir, exists } from "./utils.js";
 import { ApiError } from "./errors.js";
@@ -8,6 +9,7 @@ import { CORE_OPENCODE_FILES } from "./core-skills.js";
 import { legalworkConfigPath, opencodeConfigPath } from "./workspace-files.js";
 import { readJsoncFile } from "./jsonc.js";
 import { ensureOpencodeStateDir } from "./opencode-state-dir.js";
+import { usesExternalWorkspaceAppFiles, type WorkspaceAppFilesTarget } from "./lawoss/workspace-app-files.js";
 import type { ReloadReason } from "./types.js";
 
 // One hash over all bundled-core file contents. Bumps whenever the app ships a new
@@ -35,24 +37,38 @@ type EnsureWorkspaceFilesResult = {
   reloadReasons: ReloadReason[];
 };
 
+export type WorkspaceFileBootstrapTarget = WorkspaceAppFilesTarget & {
+  path: string;
+  preset?: string | null;
+};
+
+const NO_WORKSPACE_FILE_CHANGES: EnsureWorkspaceFilesResult = {
+  changed: false,
+  reloadReasons: [],
+};
+
 function normalizePreset(preset: string | null | undefined): string {
   const trimmed = preset?.trim() ?? "";
   if (!trimmed) return "starter";
   return trimmed;
 }
 
-async function ensureWorkspaceLegalworkConfig(workspaceRoot: string, preset: string): Promise<boolean> {
+async function ensureWorkspaceLegalworkConfig(
+  workspaceRoot: string,
+  preset: string,
+  workspaceMetadata: { root: string; name?: string | null } = { root: workspaceRoot },
+): Promise<boolean> {
   const path = legalworkConfigPath(workspaceRoot);
   if (await exists(path)) return false;
   const now = Date.now();
   const config: WorkspaceLegalworkConfig = {
     version: 1,
     workspace: {
-      name: basename(workspaceRoot) || "Workspace",
+      name: workspaceMetadata.name?.trim() || basename(workspaceMetadata.root) || "Workspace",
       createdAt: now,
       preset,
     },
-    authorizedRoots: [workspaceRoot],
+    authorizedRoots: [workspaceMetadata.root],
     reload: null,
   };
   await ensureDir(join(workspaceRoot, ".opencode"));
@@ -61,15 +77,14 @@ async function ensureWorkspaceLegalworkConfig(workspaceRoot: string, preset: str
 }
 
 /**
- * Seed the "bundled-core" skills/agents (the tabular-review engine, its HTML template,
- * the builder, and the document-extractor agent) into the workspace. These are
+ * Seed the bundled document tools and internal inference agents into the workspace. These are
  * APP-MANAGED: a hash stamp (`.opencode/.legalwork-core`) records the bundle version,
  * and when the app ships a new bundle the stale copies are refreshed in place. Between
  * versions it is a no-op (and a core file the user deletes simply comes back). Files for
  * OTHER skills are never touched. Returns the reload reasons for any files written.
  */
 async function ensureCoreOpencodeFiles(workspaceRoot: string): Promise<ReloadReason[]> {
-  const reasons = new Set<ReloadReason>();
+  const reasons = new Set<ReloadReason>(await retireLegacyReview(workspaceRoot));
   const stampPath = join(workspaceRoot, ".opencode", ".legalwork-core");
   const prev = (await exists(stampPath)) ? (await readFile(stampPath, "utf8")).trim() : "";
   // Refresh when the bundle changed (or this workspace was never stamped). This overwrites
@@ -102,12 +117,21 @@ async function ensureOpencodeConfig(workspaceRoot: string): Promise<boolean> {
   return false;
 }
 
-export async function ensureWorkspaceFiles(workspaceRoot: string, presetInput: string): Promise<EnsureWorkspaceFilesResult> {
+export async function ensureWorkspaceFiles(
+  workspaceRoot: string,
+  presetInput: string,
+  workspaceMetadata: { root: string; name?: string | null } = { root: workspaceRoot },
+): Promise<EnsureWorkspaceFilesResult> {
   const preset = normalizePreset(presetInput);
   if (!workspaceRoot.trim()) {
     throw new ApiError(400, "invalid_workspace_path", "workspace path is required");
   }
-  await ensureDir(workspaceRoot);
+  // Creation explicitly creates the root before calling us. At startup an
+  // existing registered folder may be disconnected: keep its registration,
+  // but never recreate it and make missing documents look like an empty project.
+  if (!(await stat(workspaceRoot).catch(() => null))?.isDirectory()) {
+    return { changed: false, reloadReasons: [] };
+  }
   // Before anything writes into .opencode: a stray file of that name makes the
   // engine's instance bootstrap throw EEXIST, which 500s every route for this
   // workspace (issue #62).
@@ -119,12 +143,24 @@ export async function ensureWorkspaceFiles(workspaceRoot: string, presetInput: s
   }
   const reloadReasons = new Set<ReloadReason>();
   if (await ensureOpencodeConfig(workspaceRoot)) reloadReasons.add("config");
-  const legalworkConfigChanged = await ensureWorkspaceLegalworkConfig(workspaceRoot, preset);
+  const legalworkConfigChanged = await ensureWorkspaceLegalworkConfig(workspaceRoot, preset, workspaceMetadata);
   for (const reason of await ensureCoreOpencodeFiles(workspaceRoot)) reloadReasons.add(reason);
   return {
     changed: legalworkConfigChanged || reloadReasons.size > 0,
     reloadReasons: Array.from(reloadReasons),
   };
+}
+
+/**
+ * Initialize app-managed project files only when the workspace keeps them
+ * inside its directory. `outside` is intentionally a no-op: runtime setup is
+ * owned by the desktop/server runtime store instead.
+ */
+export async function ensureWorkspaceFilesForBootstrap(
+  workspace: WorkspaceFileBootstrapTarget,
+): Promise<EnsureWorkspaceFilesResult> {
+  if (usesExternalWorkspaceAppFiles(workspace)) return NO_WORKSPACE_FILE_CHANGES;
+  return ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
 }
 
 export async function readRawOpencodeConfig(path: string): Promise<{ exists: boolean; content: string | null }> {

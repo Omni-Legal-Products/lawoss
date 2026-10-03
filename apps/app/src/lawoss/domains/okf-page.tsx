@@ -20,7 +20,7 @@ export function useMatterText() {
 export type StateText = (key: MatterTextKey, params?: Record<string, string | number>) => string;
 /** Which workspace the page reads; lite passes `officeWorkspace`, pro keeps the active one. */
 type PickWorkspace = typeof activeWorkspace;
-/** `rawProblems: false` (lite) hides per-file read errors — they carry internal names like "Workspace not found". */
+/** `rawProblems: false` (lite) hides per-file read errors - they carry internal names like "Workspace not found". */
 type PageProps = { title?: string; children: (data: OkfReadResult) => ReactNode; stateText?: StateText; pickWorkspace?: PickWorkspace; rawProblems?: boolean };
 
 /** Retry also reloads the desktop connection, which may be absent during startup. */
@@ -74,7 +74,7 @@ export function OkfPageState(props: {
   if (props.connection === "unavailable") return <div className="lw-status warn" role="alert">{text("serverUnavailable")}</div>;
   if (props.workspace === null) return <p className="lw-empty">{text("noWorkspace")} <Link to="/welcome">{text("openWorkspace")}</Link>.</p>;
   if (!props.data) return <p className="lw-lead" role="status">{text("memoryLoading", { workspace: props.workspace })}</p>;
-  // Lite: část souborů nešla načíst, ale věci ano — bez upozornění by Dnes tvrdilo „žádné lhůty“ (review PR #100, 6).
+  // Lite: část souborů nešla načíst, ale věci ano - bez upozornění by Dnes tvrdilo „žádné lhůty“ (review PR #100, 6).
   const partial = props.rawProblems === false && (props.data.problems.length > 0 || props.data.truncated);
   if (props.data.matters.length > 0) return <>
     {props.loading ? <p role="status">{text("refreshing")}</p> : null}

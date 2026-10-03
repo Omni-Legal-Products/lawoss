@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { ListTodo, Loader2 } from "lucide-react";
 
 import type { LegalworkTaskAttachment, LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { storageFileDragToFile } from "@/app/lib/storage-file-drag";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
@@ -18,11 +19,13 @@ import {
   useTaskAccess,
   useTaskMembers,
   useTaskTags,
+  useResolveTaskConflict,
   useUpdateTask,
   useUploadTaskAttachments,
 } from "./tasks-queries";
 
 type TaskPanelProps = {
+  projects?: { id: string; name: string }[];
   sessionId: string;
   tab: TaskPanelTab;
   client: LegalworkServerClient | null;
@@ -38,6 +41,7 @@ export function TaskPanel(props: TaskPanelProps) {
   const tagsQuery = useTaskTags(context);
   const access = useTaskAccess(context);
   const updateTask = useUpdateTask(context);
+  const resolveConflict = useResolveTaskConflict(context);
   const deleteTask = useDeleteTask(context);
   const restoreTask = useRestoreTask(context);
   const uploadAttachments = useUploadTaskAttachments(context);
@@ -100,6 +104,8 @@ export function TaskPanel(props: TaskPanelProps) {
 
   return (
     <TaskDetail
+      inPanel
+      projects={props.projects}
       task={task}
       submission={detailQuery.data?.submission}
       notes={detailQuery.data?.notes ?? []}
@@ -110,6 +116,8 @@ export function TaskPanel(props: TaskPanelProps) {
       accountUserId={access.accountUserId}
       onBack={props.onClose}
       onPatch={(patch) => updateTask.mutateAsync({ taskId: task.id, patch })}
+      conflicts={detailQuery.data?.conflicts}
+      onResolveConflict={(choice) => resolveConflict.mutateAsync({ taskId: task.id, choice })}
       onDelete={() => {
         deleteTask.mutate(task.id, {
           onSuccess: () => {
@@ -127,6 +135,10 @@ export function TaskPanel(props: TaskPanelProps) {
       onDownloadAttachment={downloadAttachment}
       onOpenAttachment={openAttachment}
       onUploadAttachments={(files) => uploadAttachments.mutateAsync({ taskId: task.id, files })}
+      onUploadStorageAttachment={async (storageFile) => {
+        const file = await storageFileDragToFile(client, workspaceId, storageFile);
+        return uploadAttachments.mutateAsync({ taskId: task.id, files: [file] });
+      }}
       onRemoveAttachment={(attachment) => deleteAttachment.mutateAsync({ taskId: task.id, attachmentId: attachment.id })}
     />
   );

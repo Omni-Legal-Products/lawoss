@@ -63,7 +63,7 @@ def left_align_hardbreak_paras(doc):
 def fix_compact_numbered_paras(doc):
     """Past č. 8: pandoc dává jednopoložkovým („tight") číslovaným seznamům pStyle
     „Compact". LibreOffice u kombinace pStyle=Compact + přímé numPr číslování při
-    renderu PDF zahodí (Word ne) — odstavec ztratí číslo. Oprava: pStyle odstranit,
+    renderu PDF zahodí (Word ne) - odstavec ztratí číslo. Oprava: pStyle odstranit,
     přímé numPr zůstává (loose položky pandocu pStyle také nemají)."""
     for p in doc.paragraphs:
         ppr = p._p.find(qn('w:pPr'))
@@ -112,7 +112,7 @@ def export_pdf(docx_path):
     """
     soffice = find_soffice()
     if not soffice:
-        print("VAROVÁNÍ: soffice nenalezen — PDF nevygenerováno (.docx je hotový).")
+        print("VAROVÁNÍ: soffice nenalezen - PDF nevygenerováno (.docx je hotový).")
         return None
     outdir = os.path.dirname(os.path.abspath(docx_path)) or "."
     profile = "file://" + os.path.join(

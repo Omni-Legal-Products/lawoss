@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { createModeRestoreGuard } from "./lite-smoke.mjs";
 
 // Covers the fix for review finding #1: SIGINT/SIGTERM and the normal
-// `finally` path both call the same guard — it must restore at most once
+// `finally` path both call the same guard - it must restore at most once
 // (no double restore / no race), and never hang past its timeout.
 
 describe("lite-smoke: createModeRestoreGuard", () => {

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { LayoutSection, LayoutSectionDescription, LayoutSectionHeader, LayoutSectionTitle } from "@/react-app/domains/settings/settings-layout";
+import { OnboardingEntryActions } from "../onboarding/entry-actions";
 import { loadOfficeProfile, saveOfficeProfile, type OfficeProfileSnapshot } from "../../okf/office-profile";
 import { message } from "../../okf/read-model";
 
@@ -36,6 +37,7 @@ export function OfficeProfileView({ client, workspaceId, workspacePath, workspac
       <LayoutSectionDescription>
         {t("lawoss.integrations.office.description", locale)}
       </LayoutSectionDescription>
+      {client && workspaceId ? <OnboardingEntryActions /> : null}
     </LayoutSectionHeader>
     {!client || !workspaceId || !workspacePath || remote ? <p>{t("lawoss.integrations.office.select_local", locale)}</p>
       : <>

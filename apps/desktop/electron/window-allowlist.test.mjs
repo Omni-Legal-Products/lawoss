@@ -129,3 +129,25 @@ describe("guardNavigation", () => {
     assert.deepEqual(blocked, ["http://localhost:5174/transfers/0361bbfc"]);
   });
 });
+
+
+describe("upstream app URL matcher integration", () => {
+  it("rejects file and data documents outside the app while preserving redirects and CDP guards", async () => {
+    const { createAppUrlMatcher } = await import("./app-url.mjs");
+    const isTrusted = createAppUrlMatcher({ appRoot: "/tmp/lawoss-app" });
+    const { contents, stops } = fakeContents();
+    const blocked = [];
+    guardNavigation(contents, ["file:", "data:"], url => blocked.push(url), isTrusted);
+    const own = navigationEvent("file:///tmp/lawoss-app/index.html#/home");
+    contents.emit("will-navigate", own);
+    assert.equal(own.prevented, false);
+    for (const url of ["file:///tmp/foreign.html", "data:text/html,foreign", "http://localhost:5174/"]) {
+      const redirect = navigationEvent(url);
+      contents.emit("will-redirect", redirect);
+      assert.equal(redirect.prevented, true);
+      contents.emit("did-start-navigation", navigationEvent(url));
+    }
+    assert.equal(stops.length, 3);
+    assert.equal(blocked.length, 6);
+  });
+});
