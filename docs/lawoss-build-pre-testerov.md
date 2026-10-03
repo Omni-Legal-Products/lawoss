@@ -138,7 +138,7 @@ Vývojové zapnutie na explicitnom porte opisuje [Ladiaci port Electronu](#ladia
 > pripravenú v [PR #104](https://github.com/Omni-Legal-Products/lawoss/pull/104)
 > nad [PR #103](https://github.com/Omni-Legal-Products/lawoss/pull/103).
 > Tieto PR ešte nie sú súčasťou `dev`. Kroky nového onboardingu preto skúšajte
-> až v builde, ktorý ich obsahuje. [Implementačný záznam #104](https://github.com/Omni-Legal-Products/lawoss/blob/93dd8ab657e62c41a04b3b8c7b9ad5912ec6aac1/docs/lawoss-onboarding-core-2026-10-03.md)
+> až v builde, ktorý ich obsahuje. [Implementačný záznam #104](https://github.com/Omni-Legal-Products/lawoss/blob/f42099964e93ffdd835d0922338d8d65b6c8f945/docs/lawoss-onboarding-core-2026-10-03.md)
 > uvádza overený rozsah aj zostávajúce obmedzenia. Tento návod sám nepotvrdzuje
 > úspešný živý priechod scenárom.
 
