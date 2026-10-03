@@ -69,7 +69,18 @@ test('an incomplete scan keeps a recognized card only as an unconfirmed candidat
   expect(result).toMatchObject({ level: 'client', confidence: 'unknown', complete: false, digest: null });
   expect(result.issues).toContainEqual({ path: 'z.pdf', code: 'entry_limit' });
 });
-test('symlinks and unsupported entries consume the entry budget without being followed', async () => {
+test('symlinks consume the entry budget without being followed', async () => {
+  const root = await fixture({ 'z-client.md': card('client') });
+  await symlink(root, join(root, 'a-link'), 'dir');
+  await symlink(root, join(root, 'b-link'), 'dir');
+  const result = await inspectOnboardingRoot(root, { maxEntries: 2 });
+  expect(result.complete).toBe(false);
+  expect(result.digest).toBeNull();
+  expect(result.entries.filter(entry => entry.kind === 'symlink')).toHaveLength(2);
+  expect(result.issues).toContainEqual({ path: 'z-client.md', code: 'entry_limit' });
+});
+// Windows named pipes are not filesystem entries; this fixture exercises Unix sockets.
+test.skipIf(process.platform === 'win32')('unsupported socket entries consume the entry budget', async () => {
   const root = await fixture({ 'z-client.md': card('client') });
   const socketPath = join(root, 'b.socket');
   const server = createServer();

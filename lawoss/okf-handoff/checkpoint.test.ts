@@ -1,6 +1,6 @@
 import { symlinkSkipReason } from "../tests/symlink-capability.mts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, symlinkSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHandoff } from "./checkpoint.mjs";
@@ -124,4 +124,48 @@ test("native checkpoint carries the ban-list followed by the complete source rec
   expect(checkpoint).toContain(source.truth);
   expect(checkpoint).toContain("status: banned");
   expect(checkpoint.indexOf("## Necitovať (ban-list)")).toBeLessThan(checkpoint.indexOf(source.truth));
+});
+
+function scopedMatterFixture() {
+  const base = mkdtempSync(join(tmpdir(), "okf-handoff-scope-")); roots.push(base);
+  const office = join(base, "Office");
+  const client = join(office, "Klienti", "Client");
+  const subject = join(client, "Subject");
+  const matter = join(subject, "Matter");
+  const sibling = join(office, "Klienti", "Sibling");
+  for (const directory of [office, client, subject, matter, sibling]) mkdirSync(join(directory, "memory"), { recursive: true });
+  writeFileSync(join(office, "okf.config"), "version: 1\n");
+  writeFileSync(join(client, "client.md"), "---\ntype: client\n---\n");
+  writeFileSync(join(subject, "subject.md"), "---\ntype: subject\n---\n");
+  writeFileSync(join(matter, "matter.md"), "---\ntype: spis\n---\n");
+  writeFileSync(join(sibling, "client.md"), "---\ntype: client\n---\n");
+  writeFileSync(join(sibling, "memory", "sibling.md"), "sibling must not become a scope root");
+  return { office, client, subject, matter, sibling };
+}
+
+test("native typed-matter handoff gates every read scope root before invoking the CLI", async () => {
+  const f = scopedMatterFixture();
+  let calls = 0;
+  const denied = createHandoff(f.matter, {
+    resolveAllowedRoots: async () => [f.matter, f.subject, f.client].map(path => realpathSync(path)),
+    cli: () => { calls += 1; return { code: 0, out: "must not read" }; },
+  })!;
+  const result = await denied.checkpoint("ses_scope_denied", "before-turn");
+  expect(result.ok).toBe(false);
+  expect(result.error).toContain("do not allow every matter scope root");
+  expect(calls).toBe(0);
+});
+
+test("native typed-matter handoff accepts the granted office scope without requiring a sibling client", async () => {
+  const f = scopedMatterFixture();
+  const granted = [f.matter, f.subject, f.client, f.office].map(path => realpathSync(path));
+  expect(granted).not.toContain(realpathSync(f.sibling));
+  const calls: string[] = [];
+  const handoff = createHandoff(f.matter, {
+    resolveAllowedRoots: async () => granted,
+    cli: (args: string[]) => { calls.push(args[0]!); return { code: 0, out: args[0] === "read" ? "authorized scope" : "synced" }; },
+  })!;
+  const result = await handoff.checkpoint("ses_scope_granted", "before-turn");
+  expect(result.ok).toBe(true);
+  expect(calls).toEqual(["read", "sync", "read"]);
 });

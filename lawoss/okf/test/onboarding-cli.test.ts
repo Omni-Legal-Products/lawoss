@@ -51,3 +51,22 @@ test("CLI rejects ambiguous and unsupported options", async () => {
   const f = await fixture();
   for (const args of [["plan", f.client, ...planFlags, "--mode", "map"], ["plan", f.client, ...planFlags, "--title", "Duplicate"], ["classify", f.client, "--unknown", "x"]]) expect((await run(args)).code).toBe(1);
 });
+
+test("CLI plans aggregate office and matter requests without writing their roots", async () => {
+  const f = await fixture(), request = join(await realpath(join(f.client, "..")), "office-request.json");
+  await writeFile(request, JSON.stringify({ action: "office", parent: f.client, title: "Synthetic office", jurisdiction: "sk", language: "sk", lawyerName: "Lawyer" }));
+  const before = await inspectOnboardingRoot(f.client);
+  const result = await run(["request", "--request", request]);
+  expect(result.code).toBe(0);
+  expect(JSON.parse(result.output)).toMatchObject({ version: 1, preview: { action: "office", mode: "new", appFiles: "inside" } });
+  expect((await inspectOnboardingRoot(f.client)).digest).toBe(before.digest);
+});
+
+test("saved aggregate preview is the confirmation artifact for idempotent apply", async () => {
+  const f = await fixture(), request = join(await realpath(join(f.client, "..")), "aggregate-request.json"), saved = join(await realpath(join(f.client, "..")), "aggregate-preview.json");
+  await writeFile(request, JSON.stringify({ action: "office", parent: f.client, title: "Office", jurisdiction: "sk", language: "sk", lawyerName: "Lawyer" }));
+  expect((await run(["request", "--request", request, "--out", saved])).code).toBe(0);
+  const args = ["apply", "--plan", saved, "--journal", f.journal, "--external-profile", f.journal, "--confirm"];
+  expect(JSON.parse((await run(args)).output).status).toBe("applied");
+  expect(JSON.parse((await run(args)).output).status).toBe("already_applied");
+});

@@ -3,6 +3,7 @@ import * as React from "react";
 import legalworkMarkDark from "../../../../../../../lawoss/brand/lawoss-mark.svg";
 import { LawossWordmark } from "../../../../lawoss/shell/wordmark";
 import { LawossNav } from "../../../../lawoss/shell/layout";
+import { OnboardingEntryActions } from "@/lawoss/domains/onboarding/entry-actions";
 import {
   Search,
   House,
@@ -796,7 +797,7 @@ export function AppSidebar(props: AppSidebarProps) {
             </Button>
           </div>
         </div>
-        <LawossNav activePane={Boolean(props.activeNav)} />
+        <div className="flex items-center px-2"><LawossNav activePane={Boolean(props.activeNav)} /><OnboardingEntryActions compact /></div>
         <SidebarWorkflowGenerationBadge onOpenSession={(workspaceId, sessionId) => navigate(workspaceSessionRoute(workspaceId, sessionId))} />
         {!lite && newChatSection && <SidebarMenu className="px-2.5 pb-3 pt-1">{newChatSection}</SidebarMenu>}
         </div>

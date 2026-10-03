@@ -295,6 +295,7 @@ export type WorkspaceCreateInput = {
   name?: string | null;
   preset?: string | null;
   registerExisting?: boolean;
+  appFiles?: "inside" | "outside";
 };
 
 export type WorkspaceCreateRemoteInput = {

@@ -35,7 +35,7 @@ import { PowerLifecycle, PowerSessions } from "./power-lifecycle.mjs";
 import { AppTray } from "./tray.mjs";
 import { pinWindowsProcessQoS } from "./windows-qos.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
-import { createRuntimeManager, resolveLegalworkServerConfigPath } from "./runtime.mjs";
+import { createRuntimeManager, externalWorkspaceAppFilesRoot, resolveLegalworkServerConfigPath } from "./runtime.mjs";
 import { createMcpOAuthCallbackBroker, watchMcpOAuthOwner } from "./mcp-oauth-callback.mjs";
 import { buildSupportBundleText, defaultSupportBundleFileName } from "./support-bundle.mjs";
 import { installMainErrorLog, logWindowErrors } from "./main-error-log.mjs";
@@ -1336,9 +1336,6 @@ function ensureRuntimeBootstrap() {
   return runtimeBootstrapPromise;
 }
 
-const EXTERNAL_APP_FILES_UNSUPPORTED =
-  "Project-scoped OpenCode config, commands, and skills are unsupported in outside app-files mode.";
-
 async function projectUsesExternalAppFiles(projectDir) {
   const requestedPath = String(projectDir ?? "").trim();
   if (!requestedPath) return false;
@@ -1352,10 +1349,11 @@ async function projectUsesExternalAppFiles(projectDir) {
   });
 }
 
-async function assertProjectAppFilesSupported(projectDir) {
-  if (await projectUsesExternalAppFiles(projectDir)) {
-    throw new Error(EXTERNAL_APP_FILES_UNSUPPORTED);
-  }
+async function projectAppFilesRoot(projectDir) {
+  const requestedPath = String(projectDir ?? "").trim();
+  if (!requestedPath || !(await projectUsesExternalAppFiles(requestedPath))) return requestedPath;
+  const serverConfigPath = resolveLegalworkServerConfigPath(process.env);
+  return externalWorkspaceAppFilesRoot(serverConfigPath, requestedPath);
 }
 
 // Ordered config file candidates for a scope; the first existing one is used.
@@ -1394,8 +1392,8 @@ async function chooseOpencodeConfigPath(scope, projectDir) {
 }
 
 async function readOpencodeConfig(scope, projectDir) {
-  if (scope === "project") await assertProjectAppFilesSupported(projectDir);
-  const chosenPath = await chooseOpencodeConfigPath(scope, projectDir);
+  const fileRoot = scope === "project" ? await projectAppFilesRoot(projectDir) : projectDir;
+  const chosenPath = await chooseOpencodeConfigPath(scope, fileRoot);
   const exists = await pathExists(chosenPath);
   return {
     path: chosenPath,
@@ -1405,8 +1403,8 @@ async function readOpencodeConfig(scope, projectDir) {
 }
 
 async function writeOpencodeConfig(scope, projectDir, content) {
-  if (scope === "project") await assertProjectAppFilesSupported(projectDir);
-  const targetPath = await chooseOpencodeConfigPath(scope, projectDir);
+  const fileRoot = scope === "project" ? await projectAppFilesRoot(projectDir) : projectDir;
+  const targetPath = await chooseOpencodeConfigPath(scope, fileRoot);
   await mkdir(path.dirname(targetPath), { recursive: true });
   await writeFile(targetPath, content, "utf8");
   return execResult(true, `Wrote ${targetPath}`);
@@ -1426,8 +1424,8 @@ function resolveCommandsDir(scope, projectDir) {
 }
 
 async function listCommandNames(scope, projectDir) {
-  if (scope === "workspace") await assertProjectAppFilesSupported(projectDir);
-  const commandsDir = resolveCommandsDir(scope, projectDir);
+  const fileRoot = scope === "workspace" ? await projectAppFilesRoot(projectDir) : projectDir;
+  const commandsDir = resolveCommandsDir(scope, fileRoot);
   if (!(await isDirectory(commandsDir))) {
     return [];
   }
@@ -1443,8 +1441,8 @@ async function writeCommandFile(scope, projectDir, command) {
   if (!safeName) {
     throw new Error("command.name is required");
   }
-  if (scope === "workspace") await assertProjectAppFilesSupported(projectDir);
-  const commandsDir = resolveCommandsDir(scope, projectDir);
+  const fileRoot = scope === "workspace" ? await projectAppFilesRoot(projectDir) : projectDir;
+  const commandsDir = resolveCommandsDir(scope, fileRoot);
   await mkdir(commandsDir, { recursive: true });
   const filePath = path.join(commandsDir, `${safeName}.md`);
   await writeFile(filePath, serializeCommandFrontmatter({ ...command, name: safeName }), "utf8");
@@ -1456,8 +1454,8 @@ async function deleteCommandFile(scope, projectDir, name) {
   if (!safeName) {
     throw new Error("name is required");
   }
-  if (scope === "workspace") await assertProjectAppFilesSupported(projectDir);
-  const commandsDir = resolveCommandsDir(scope, projectDir);
+  const fileRoot = scope === "workspace" ? await projectAppFilesRoot(projectDir) : projectDir;
+  const commandsDir = resolveCommandsDir(scope, fileRoot);
   const filePath = path.join(commandsDir, `${safeName}.md`);
   if (await pathExists(filePath)) {
     await rm(filePath, { force: true });
@@ -1468,7 +1466,14 @@ async function deleteCommandFile(scope, projectDir, name) {
 async function collectProjectSkillRoots(projectDir) {
   const roots = [];
   if (!String(projectDir ?? "").trim()) return roots;
-  await assertProjectAppFilesSupported(projectDir);
+  if (await projectUsesExternalAppFiles(projectDir)) {
+    const externalRoot = await projectAppFilesRoot(projectDir);
+    for (const name of ["skills", "skill"]) {
+      const candidate = path.join(externalRoot, ".opencode", name);
+      if (await isDirectory(candidate)) roots.push(candidate);
+    }
+    return roots;
+  }
   let current = path.resolve(projectDir);
 
   while (true) {
@@ -1630,8 +1635,8 @@ async function ensureProjectSkillRoot(projectDir) {
   if (!String(projectDir ?? "").trim()) {
     throw new Error("projectDir is required");
   }
-  await assertProjectAppFilesSupported(projectDir);
-  const opencodeRoot = path.join(projectDir, ".opencode");
+  const appFilesRoot = await projectAppFilesRoot(projectDir);
+  const opencodeRoot = path.join(appFilesRoot, ".opencode");
   const legacy = path.join(opencodeRoot, "skill");
   const modern = path.join(opencodeRoot, "skills");
   if ((await isDirectory(legacy)) && !(await pathExists(modern))) {

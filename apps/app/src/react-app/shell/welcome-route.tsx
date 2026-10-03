@@ -1,144 +1,65 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-
-import { t } from "../../i18n";
-import { pickDirectory, resolveWorkspaceListSelectedId, workspaceSetRuntimeActive, workspaceSetSelected } from "../../app/lib/desktop";
-import { isDesktopRuntime } from "../../app/utils";
-import { useLocal } from "../kernel/local-provider";
-// 🟡 LAWOSS: our welcome screen instead of the upstream one (PATCHES.md).
-import { LawossWelcomePage as WelcomePage } from "../../lawoss/domains/onboarding/lawoss-welcome-page";
-import { CreateProjectModal, type CreateProjectInput } from "../domains/workspace/create-project-modal";
-import { newProjectFields } from "../domains/workspace/project-defaults-store";
-import { projectErrorMessage } from "../domains/workspace/project-errors";
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { createLegalworkServerClient, type LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { workspaceCreate, workspaceSetRuntimeActive, workspaceSetSelected } from "@/app/lib/desktop";
+import { pickDirectory } from "@/app/lib/desktop";
+import { isDesktopRuntime } from "@/app/utils";
 import { resolveLegalworkConnection } from "./legalwork-connection";
-import { analyticsSurface, captureAnalyticsEvent, discardPendingAnalytics, getStoredAnalyticsConsent } from "../../app/lib/analytics";
-import { captureAppError } from "../../app/lib/app-error";
-import { createLegalworkServerClient, type LegalworkServerClient } from "../../app/lib/legalwork-server";
-import { writeActiveWorkspaceId } from "./session-memory";
-import { homeRoute } from "./workspace-routes";
+import { installMissingOnboardingSkills } from "@/lawoss/domains/onboarding/install-pack";
 import { ensureDesktopLocalLegalworkConnection } from "./desktop-local-legalwork";
-import { markTranscriptionIntroSeen } from "./transcription-intro";
-import { markAllWhatsNewSeen } from "./whats-new";
+import { homeRoute } from "./workspace-routes";
+import { writeActiveWorkspaceId } from "./session-memory";
+import { useLocal } from "../kernel/local-provider";
+import { LawossWelcomePage } from "@/lawoss/domains/onboarding/lawoss-welcome-page";
+import type { OnboardingStep } from "@/lawoss/domains/onboarding/api";
 
-/** First launch creates a named project, then continues the in-app setup. */
+const continuationStep = (value: string | null): OnboardingStep | undefined => value === "client" || value === "matter" ? value : undefined;
+
+/** Native LAWOSS onboarding. Office is configuration only, client is always the workspace. */
 export function WelcomeRoute() {
   const navigate = useNavigate();
+  const location = useLocation();
   const local = useLocal();
-  const creating = useRef(false);
-  const createdProjectId = useRef<string | null>(null);
-  const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [client, setClient] = useState<LegalworkServerClient | null>(null);
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // LAWOSS starts with anonymous analytics disabled. A prior decision wins.
-  const [analyticsEnabled, setAnalyticsEnabled] = useState(() => getStoredAnalyticsConsent() ?? false);
+  const initialStep = continuationStep(new URLSearchParams(location.search).get("continue"));
 
   useEffect(() => {
-    // React Router may commit navigation after the preferences update. Do not
-    // replace the new project's destination with the returning-user redirect.
-    if (local.prefs.hasCompletedOnboarding && !createdProjectId.current) {
-      navigate("/home", { replace: true });
-    }
-  }, [local.prefs.hasCompletedOnboarding, navigate]);
-
-  useEffect(() => {
-    if (local.prefs.hasCompletedOnboarding) return;
-    if (analyticsEnabled) {
-      captureAnalyticsEvent("onboarding_welcome_viewed", { surface: analyticsSurface() });
-    }
-    // Mount-only: one view event per visit to the screen.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let cancelled = false;
+    void resolveLegalworkConnection().then(({ normalizedBaseUrl, resolvedToken, resolvedHostToken }) => {
+      if (!normalizedBaseUrl || !(resolvedToken || resolvedHostToken)) throw new Error("LAWOSS server is unavailable");
+      if (!cancelled) setClient(createLegalworkServerClient({ baseUrl: normalizedBaseUrl, token: resolvedToken || undefined, hostToken: resolvedHostToken || undefined }));
+    }).catch((reason: unknown) => { if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason)); });
+    return () => { cancelled = true; };
   }, []);
 
-  const handleGetStarted = useCallback(() => {
-    setError(null);
-    setClient(null);
-    setProjectModalOpen(true);
-    void resolveLegalworkConnection()
-      .then(({ normalizedBaseUrl, resolvedToken, resolvedHostToken }) => {
-        if (!normalizedBaseUrl || !(resolvedToken || resolvedHostToken)) {
-          throw new Error(t("welcome.project_server_unavailable"));
-        }
-        setClient(createLegalworkServerClient({
-          baseUrl: normalizedBaseUrl,
-          token: resolvedToken || undefined,
-          hostToken: resolvedHostToken || undefined,
-        }));
-      })
-      .catch((connectionError: unknown) => {
-        setError(projectErrorMessage(connectionError, true));
-      });
-  }, []);
-
-  const handleCreateProject = useCallback(async (input: CreateProjectInput) => {
-    if (!client || creating.current) return;
-    creating.current = true;
-    setSubmitting(true);
-    setError(null);
-    if (analyticsEnabled) {
-      captureAnalyticsEvent("onboarding_started", { surface: analyticsSurface() });
+  if (error) return <main className="mx-auto max-w-xl p-10"><p role="alert">{error}</p><Button className="mt-4" onClick={() => navigate("/settings/advanced")}>Open Settings</Button></main>;
+  if (!client) return <main className="mx-auto max-w-xl p-10" role="status">Connecting LAWOSS…</main>;
+  return <LawossWelcomePage api={client} initialStep={initialStep} pickDirectory={async () => { const result = await pickDirectory({ title: "Select LAWOSS folder" }); return typeof result === "string" ? result : null; }} onOpenAiSettings={() => navigate("/settings/ai")} onComplete={async (result) => {
+    const status = await client.onboardingStatus();
+    const list = await client.listWorkspaces();
+    const workspace = result?.workspace ?? list.items.find(item => item.path === status.profile?.clientRoot);
+    let activeId = workspace?.id;
+    if (workspace && isDesktopRuntime()) {
+      const existing = list.items.find(item => item.id === workspace.id);
+      const nativeList = await workspaceCreate({ folderPath: workspace.path, name: workspace.displayName ?? existing?.name ?? workspace.path.split(/[\\/]/).pop() ?? "Client", preset: "starter", registerExisting: true, appFiles: result?.appFiles ?? existing?.appFiles });
+      const native = nativeList.workspaces.find(item => item.path === workspace.path);
+      if (!native || native.id !== workspace.id) throw new Error("Client registration did not preserve workspace identity.");
+      await workspaceSetSelected(native.id);
+      await workspaceSetRuntimeActive(native.id);
+      await ensureDesktopLocalLegalworkConnection({ route: "session", workspace: native, allWorkspaces: nativeList.workspaces });
+      activeId = native.id;
     }
-    try {
-      const list = await client.createLocalWorkspace({ ...input, preset: "starter", projectFields: newProjectFields() });
-      const createdId = resolveWorkspaceListSelectedId(list);
-      const workspace = list.workspaces.find((item) => item.id === createdId);
-      if (!createdId || !workspace) throw new Error("Created project missing from server response");
-      writeActiveWorkspaceId(createdId);
-      if (isDesktopRuntime()) {
-        await workspaceSetSelected(createdId).catch(() => undefined);
-        await workspaceSetRuntimeActive(createdId).catch(() => undefined);
-        // The project is already saved; startup can be retried by the session route.
-        await ensureDesktopLocalLegalworkConnection({ route: "session", workspace, allWorkspaces: list.workspaces }).catch(() => undefined);
-      }
-      if (analyticsEnabled) {
-        captureAnalyticsEvent("workspace_created", { source: "onboarding", surface: analyticsSurface() });
-      }
-      if (!analyticsEnabled) discardPendingAnalytics();
-      createdProjectId.current = createdId;
-      local.setPrefs((prev) => ({
-        ...prev,
-        analyticsEnabled,
-        hasCompletedOnboarding: true,
-        onboardingStage: isDesktopRuntime() ? "office" : "permissions",
-      }));
-      markAllWhatsNewSeen();
-      markTranscriptionIntroSeen();
-      navigate(homeRoute(createdId), { replace: true });
-    } catch (createError) {
-      captureAppError("workspace_create", createError);
-      setError(projectErrorMessage(createError, true));
-    } finally {
-      creating.current = false;
-      setSubmitting(false);
+    if (activeId) {
+      const connection = await resolveLegalworkConnection();
+      const activeClient = createLegalworkServerClient({ baseUrl: connection.normalizedBaseUrl, token: connection.resolvedToken, hostToken: connection.resolvedHostToken });
+      await activeClient.activateWorkspace(activeId, { persist: true });
+      await installMissingOnboardingSkills(activeClient, activeId, status.profile?.language ?? "sk");
+      writeActiveWorkspaceId(activeId);
     }
-  }, [analyticsEnabled, client, local, navigate]);
-
-  return (
-    <>
-      <WelcomePage
-        onGetStarted={handleGetStarted}
-        busy={submitting}
-        error={!projectModalOpen ? error : null}
-        analyticsEnabled={analyticsEnabled}
-        onAnalyticsChange={setAnalyticsEnabled}
-      />
-      <CreateProjectModal
-        client={client}
-        open={projectModalOpen}
-        onClose={() => {
-          if (submitting) return;
-          setProjectModalOpen(false);
-          setError(null);
-        }}
-        onConfirm={handleCreateProject}
-        onPickFolder={async () => {
-          const picked = await pickDirectory({ title: t("projects.location") });
-          return typeof picked === "string" ? picked : null;
-        }}
-        submitting={submitting}
-        error={error}
-      />
-    </>
-  );
+    local.setPrefs((previous) => ({ ...previous, hasCompletedOnboarding: true }));
+    navigate(activeId ? homeRoute(activeId) : "/home", { replace: true });
+  }} />;
 }

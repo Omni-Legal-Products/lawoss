@@ -1,72 +1,60 @@
-# Onboarding: jadro a ochrana priečinka klienta
+# LAWOSS onboarding #85: implementovaný rozsah
 
-Implementačný záznam k [návrhu MČ, koordinačné PR #85](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/85), nad [integráciou #103](https://github.com/Omni-Legal-Products/lawoss/pull/103). Rozhodnutia zostávajú v koordinačnom repozitári. Tento záznam opisuje rozsah kódu a jeho overenie.
+Implementačný záznam k [koordinačnému PR #85](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/85) nad integráciou LAWOSS. Neopisuje návrh ani nenahrádza rozhodnutia v koordinačnom repozitári. Zachytáva hotové správanie a jeho hranice k 3. októbru 2026.
 
-## Implementované
+## Onboarding a bezpečný zápis
 
-- `okf onboard classify` rozpozná kanceláriu, klienta, subjekt a vec vrátane pôvodných aliasov kariet. Číta lokálny strom bez zápisu, s limitmi počtu položiek, objemu a hĺbky. Neúplný alebo konfliktný výsledok neposkytne použiteľný hash pre zápis. Symlinky a nepodporované typy zastavia použiteľnosť výsledku.
-- `okf onboard plan` pripraví doplnenie jedného existujúceho klienta v režime `convert`. Nerozpoznaný priečinok vyžaduje výslovné označenie ako klient. Kanceláriu ani vec nemožno týmto príkazom pretypovať na klienta.
-- Náhľad používa existujúce lokalizované OKF šablóny. Dopĺňa iba chýbajúce súbory a priečinky, existujúce karty a archívy pamäte zachováva. Jediný existujúci `AGENTS.md` alebo `CLAUDE.md` slúži ako zdroj chýbajúceho zrkadla. Rozdielne existujúce zrkadlá sú konflikt.
-- `apply` číta presný uložený plán, vyžaduje `--confirm`, znovu overuje strom a vytvára súbory výhradne cez exkluzívne vytvorenie. Žurnál sa ukladá do samostatného lokálneho priečinka mimo klienta. Opakovanie overuje vlastníctvo a obsah vytvorených položiek.
-- `recover` rozlišuje dokončenie a vrátenie prerušeného zápisu. Nejasný stav medzi vytvorením súboru a záznamom jeho vlastníctva sa automaticky nepreberá ani nemaže.
-- Server aj desktop zachovajú zobrazované meno a `appFiles` pri opätovnej registrácii. Režim `outside` vynechá inicializáciu projektového `.opencode` pri štarte a aktivácii. Nepodporované projektové zápisy nastavení, skillov a príkazov skončia chybou. Globálne nastavenia a runtime konfigurácia zostávajú dostupné.
-- Desktop odovzdá uloženú voľbu vstavanému serveru ešte pred inicializáciou prvého priečinka. Zmena voľby zneplatní cache inicializácie; opätovné použitie bežiaceho enginu rešpektuje rovnakú voľbu.
+- Natívny onboarding má päť krokov: identita, kancelária, AI, klient a vec. Uložený stav sa obnoví po návrate do aplikácie; bočný panel vedie na rovnaké akcie pre klienta a vec.
+- Plánovač vytvára novú kanceláriu, klienta, subjekt alebo vec. Vec používa samostatný `kind` `contentious` alebo `non_contentious`, oblasť, jurisdikciu, dátum a voliteľný subjekt. Priečinok existujúcej oblasti sa znovu použije, šablóna karty veci a nakonfigurované priečinky kancelárie zostanú zachované.
+- Konverzia existujúceho klienta je aditívna. Klasifikátor odmieta konflikt, kanceláriu, vec, symlink a neúplný strom. Zápis vytvára len chýbajúce položky a nikdy neprepisuje originál.
+- Režim `map` iba navrhne a následne mimo klienta uloží pamäťový profil. Overuje vybraný zdroj pamäte, identity anchor a nezmenený zdroj pred každým zápisom. Neudeľuje nové oprávnenia mimo potvrdeného runtime kroku.
+- `trial_clone` vytvorí oddelenú skúšobnú kópiu so značkou trial, binárne kopíruje zdroj bez zmeny originálu a potom na kópiu aplikuje konverzný plán. Prenos a obnova pokrývajú aj binárne súbory väčšie než 4 MiB.
 
-## Použitie nad syntetickým klientom
+Každý zápis vychádza z kanonického, nemenného náhľadu. Server uloží hostiteľský ticket s fingerprintom, aplikácia potvrdzuje iba jeho `id`, fingerprint a `confirm: true`, nikdy zoznam operácií od klienta. Žurnál je mimo koreňa, má obsahovo viazanú identitu, zaznamenáva zámer pred vytvorením položky a umožňuje `finish` alebo konzervatívny `rollback`. Dokončený ticket už recovery nevráti späť. Po `finish` registruje klienta obyčajné idempotentné `apply`.
 
-Všetky cesty nižšie musia byť kanonické lokálne cesty. Klient aj samostatný priečinok žurnálov už musia existovať. Jeden stabilný priečinok žurnálov sa používa pre všetky operácie tejto inštalácie. Náhľad obsahuje celý text nových súborov a možno ho skontrolovať pred potvrdením.
+Kontroly cesty, symlinkov, identity a zámku pre rovnaký koreň zužujú preteky na dôveryhodnom lokálnom súborovom systéme. Nemôžu vytvoriť atómový snapshot proti nepriateľskému operačnému systému alebo súborovému systému.
 
-```sh
-node lawoss/okf/bundle/okf.js onboard classify "$CLIENT" --json
-node lawoss/okf/bundle/okf.js onboard plan "$CLIENT" \
-  --title "Testovací klient" --client-type po \
-  --language sk --jurisdiction sk --date 2026-10-03 \
-  --confirm-client --out "$PREVIEW"
+## Kancelária, pamäť a runtime
 
-# Až po schválení obsahu náhľadu:
-node lawoss/okf/bundle/okf.js onboard apply \
-  --plan "$PREVIEW" --journal "$JOURNALS" --confirm
+Kancelária nie je samostatný workspace. Klient je registrovaný workspace a subjekt alebo vec zostávajú jeho kanonickým podpriečinkom, takže jedna klientská registrácia nevytvára paralelné workspaces. Zmena klienta v profile vymaže vybraný subjekt, vec a trial stav. Server odmieta nekánonické a symlinkované scope cesty.
 
-# Obnova prerušeného zápisu, opäť po rozhodnutí používateľa:
-node lawoss/okf/bundle/okf.js onboard recover \
-  --plan "$PREVIEW" --journal "$JOURNALS" --action finish --confirm
-```
+Pre potvrdeného klienta môže hostiteľ pridať jediný externý grant `Office/*`. Rozsah je zámerný: runtime synchronizácia číta `Office/okf.config` pre client path, standing authorization a kontroly úniku mien. Grant neobsahuje rodičovský vault, iného klienta ani súrodeneckú kanceláriu.
 
-`--action rollback` je alternatívou k dokončeniu. Originály ani zmenené vytvorené súbory sa nemažú. Stav, pri ktorom nemožno vlastníctvo preukázať, vyžaduje manuálne vyriešenie.
+Režim `outside` používa app-owned externé úložisko pre profil pamäte, OpenCode konfiguráciu, skills a commands. Kontrola proti OpenCode 1.18.29 potvrdila externé skill a command cesty bez zápisu do pripojeného klienta. Runtime synchronizácia drží session vo vybranej veci, ale zachováva klientsky workspace a jeho potvrdené externé oprávnenia.
 
-## Hranica tejto implementácie
+## Server, desktop a prenos
 
-| Požiadavka #85 | Stav |
-|---|---|
-| Klasifikácia a aditívny retrofit existujúceho klienta | CLI a deterministické jadro |
-| Zachovanie mena a voľby appFiles | Server a desktop, vrátane persistencie |
-| `map`, externé projektové skilly a profil pamäte | Nesprístupnené. `outside` je ochranný predpoklad, nepredstavuje hotový režim mapovania |
-| `trial_clone` | Neimplementované |
-| Nová kancelária, nový klient, subjekt a jednotná vec `kind` | Neimplementované v novom jadre; existujúce správanie #103 zostáva zachované |
-| Päť krokov v natívnom welcome a bočnom paneli | Zatiaľ nenapojené |
-| Serverové endpointy classify/plan/apply | Zatiaľ nenapojené |
-| Dáta a AI, návrh #88 | Samostatný nadväzujúci rozsah |
-| Akceptácia nainštalovanej alfy nad syntetickou kanceláriou | Nevykonaná |
+Host-only endpointy poskytujú classify, plan, apply a recover. Persistovaný profil, ticket, receipt a runtime konfigurácia prežijú nový proces po načítaní serializovanej konfigurácie. Poškodený ticket sa odmietne pred zápisom. Režim mapovania uchováva metadata mimo klienta; pripojený existujúci klient sa registruje s `appFiles: outside` bez inicializácie jeho vlastného `.opencode`.
 
-Čítanie cloudových placeholderov závisí od lokálneho poskytovateľa súborov. Chyba alebo čiastočný sken nikdy neznamenajú prázdny priečinok. Neoverili sme správanie všetkých cloudových poskytovateľov ani pád operačného systému či výpadok napájania. Kontroly ciest a identity zužujú súbežné zmeny, neposkytujú atómový snapshot cudzieho súborového systému.
+Desktop pred štartom runtime odovzdá výber externého app storage a natívny bridge prenáša registrovaný klientsky workspace aj konkrétny priečinok veci. IPC typy, session synchronizácia a route state nevracajú používateľa z veci do nesúvisiaceho workspace.
+
+## Hranice a ďalšie overenie
+
+PR #88 ostáva samostatný rozsah pravidiel AI a nie je splnený týmto onboardingom. Safari MCP vrátil `Transport closed`, preto Safari kompatibilita nie je overená. Kontrola v Codex Browser prešla nad syntetickou kanceláriou: Office, klient, subjekt, oba druhy veci, návrat z natívnych AI nastavení, obnova náhľadu po reload/reštarte a opakovaný vstup z bočného panela. Pri šírke 860 px nebol horizontálny overflow. Fixture nemá bežiaci modelový engine, takže polling enginu hlásil nedostupnosť; tento priechod nedokazuje odpoveď modelu. Žiadny poskytovateľ ani platená inferencia sa neaktivovali.
+
+Zabalený lokálny build ešte podlieha izolovanej štartovacej kontrole. Nainštalovaná aplikácia ani produkčný profil neboli zmenené. Zmiešaný import workspace zostáva pre outside odmietnutý, pretože môže kombinovať aplikačné a dokumentové zápisy. Cloudové placeholdery, všetci poskytovatelia cloudu a odolnosť proti výpadku napájania nie sú akceptačne overené.
 
 ## Overenie
 
-Lokálne overené na Node 24.19.0, pnpm 11.4.0 a Bun 1.4.2:
+Node 24.19.0, pnpm 11.4.0, Bun 1.4.2. Testy používajú syntetické údaje.
 
-| Príkaz alebo skúška | Výsledok |
+| Kontrola | Výsledok |
 |---|---|
-| `pnpm --dir apps/server test` | 1 343 pass, 26 skip, 0 fail, 173 súborov |
-| `pnpm --dir lawoss/okf test` | 194 pass, 0 fail, 10 súborov |
-| `node --test apps/desktop/electron/runtime.test.mjs apps/desktop/electron/workspace-store.test.mjs` | 33 pass, 0 fail |
-| `pnpm --dir apps/server typecheck` | PASS |
-| `pnpm --dir apps/app typecheck` | PASS |
-| `pnpm --dir apps/desktop typecheck:electron` | PASS |
-| `pnpm --dir lawoss/okf typecheck` | PASS |
-| `pnpm --dir lawoss/okf build` | PASS, distribučný bundle obnovený |
-| Zostavený CLI cez Node 24: PO/SK, FO/CZ, podnikateľ/EN | Klasifikácia, nezapisujúci náhľad, apply, rovnaké bajty originálu a opakované apply PASS |
-| `git diff --check`, zhoda root AGENTS/CLAUDE | PASS |
+| `pnpm --dir apps/app test` | 1 141 pass, 0 fail |
+| `pnpm --dir apps/server test` | 1 363 pass, 15 skip, 0 fail |
+| `pnpm --dir lawoss/okf test` | 206 pass, 0 fail |
+| `pnpm --dir lawoss/okf-pamat test` | 605 pass, 0 fail |
+| `bun test lawoss/okf-handoff/` | 43 pass, 0 fail |
+| `pnpm --dir apps/desktop test` | 251 pass, 1 skip, 0 fail |
+| Typecheck app, server, Electron, OKF a pamäte | PASS |
+| Build oboch prenosných CLI balíkov | PASS |
+| `pnpm --dir apps/app test:i18n` | PASS, 5 665 EN kľúčov, SK/CS/DE úplné |
+| `git diff --check`, root AGENTS/CLAUDE | PASS |
 
-Obnova sa testuje nad žurnálmi simulujúcimi konkrétne body prerušenia, vrátane odstránenia súboru pred dokončením záznamu rollbacku. Nejde o test výpadku napájania. Samostatný zámok pre koreň klienta zabraňuje súbežným zápisom toho istého OS používateľa aj pri rozdielnych priečinkoch žurnálov. Windows podporuje obnovu po páde procesu; synchronizácia metadát adresárov pri výpadku napájania závisí od súborového systému.
+Prvý serverový beh mal timeout štartu reálneho OAuth sidecar testu. Izolovaný test opakovane prešiel a následný celý serverový beh bol zelený. Po poslednom úzkom doplnení návratového subjektu boli znovu overené API testy a typecheck.
 
-Nezávislá kontrola jadra bola zopakovaná po opravách súbehu žurnálov a čítania inštrukčných súborov. Browserové UI sa v tomto kroku nemení; Safari kontrola sa na čisto backendové a CLI zmeny nevzťahuje. Test vstavaného servera používa syntetický klientsky priečinok a vypnutý engine, nenahrádza akceptáciu nainštalovanej alfy.
+![Náhľad novej veci](evidence/onboarding-preview-2026-10-03.jpg)
+
+![Klient a obe veci po dokončení](evidence/onboarding-client-2026-10-03.jpg)
+
+Pokrytie zahŕňa klasifikáciu, stale tree, kolízie, recovery a rollback, binárny trial clone, mapovanie bez zápisu originálu, serverový trvalý ticket, scope profilov, presný Office grant, klientsku registráciu po recovery, externé app storage a scoped sessions.

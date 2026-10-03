@@ -370,16 +370,24 @@ test("outside app files persist across native registration and restart", async (
   );
   assert.deepEqual(await snapshotTree(clientRealPath), [["brief.txt", "file", Buffer.from("Original client data").toString("hex")]]);
 
+  await store.updateWorkspaceDisplayName({ workspaceId: id, displayName: "Mapped client" });
+
   const restarted = createTestStore(root, userData);
   const state = await restarted.readWorkspaceState();
-  assert.equal(state.workspaces.find((workspace) => workspace.id === id)?.appFiles, "outside");
+  assert.deepEqual(
+    state.workspaces.find((workspace) => workspace.id === id)?.appFiles,
+    "outside",
+  );
   const repeated = await restarted.createWorkspace({
     folderPath: clientRealPath,
-    name: "Existing client",
+    name: "Replacement client name",
     preset: "starter",
     registerExisting: true,
   });
-  assert.equal(repeated.workspaces.find((workspace) => workspace.id === id)?.appFiles, "outside");
+  assert.deepEqual(
+    repeated.workspaces.find((workspace) => workspace.id === id),
+    state.workspaces.find((workspace) => workspace.id === id),
+  );
   assert.deepEqual(await snapshotTree(clientRealPath), [["brief.txt", "file", Buffer.from("Original client data").toString("hex")]]);
 });
 

@@ -8,6 +8,7 @@ import { auditLogPath } from "./audit.js";
 import { renameRegisteredWorkspace } from "./routes/workspaces.js";
 import { workspaceIdForPath } from "./workspaces.js";
 import type { ServerConfig } from "./types.js";
+import { externalAppFilesRoot } from "./lawoss/workspace-app-files.js";
 
 const previous = { data: process.env.LEGALWORK_DATA_DIR, tokens: process.env.LEGALWORK_TOKEN_STORE };
 const cleanups: (() => Promise<void>)[] = [];
@@ -69,6 +70,57 @@ test("outside app files persist and activation does not bootstrap an existing cl
   expect((await f.register(f.matter, false)).status).toBe(400);
   expect(await snapshot(f.matter)).toEqual(before);
 });
+test("outside workspace HTTP config, skill, and command writes use app-owned storage", async () => {
+  const f = await fixture(), before = await snapshot(f.matter);
+  expect((await f.register(f.matter, true, "host", { appFiles: "outside" })).status).toBe(201);
+  const id = workspaceIdForPath(f.matter);
+  const headers = { authorization: "Bearer client", "content-type": "application/json" };
+
+  const configWrite = await fetch(`${f.url}/workspace/${id}/opencode-config`, {
+    method: "POST", headers, body: JSON.stringify({ scope: "project", content: '{"model":"test/model"}' }),
+  });
+  expect(configWrite.status).toBe(200);
+  const skillWrite = await fetch(`${f.url}/workspace/${id}/skills`, {
+    method: "POST", headers,
+    body: JSON.stringify({ name: "outside-skill", description: "External workspace skill", content: "External skill body." }),
+  });
+  expect(skillWrite.status).toBe(200);
+  const commandWrite = await fetch(`${f.url}/workspace/${id}/commands`, {
+    method: "POST", headers,
+    body: JSON.stringify({ name: "outside-command", description: "External workspace command", template: "External command body." }),
+  });
+  expect(commandWrite.status).toBe(200);
+
+  const [configRead, skillsRead, commandsRead] = await Promise.all([
+    fetch(`${f.url}/workspace/${id}/opencode-config?scope=project`, { headers: { authorization: "Bearer client" } }),
+    fetch(`${f.url}/workspace/${id}/skills`, { headers: { authorization: "Bearer client" } }),
+    fetch(`${f.url}/workspace/${id}/commands`, { headers: { authorization: "Bearer client" } }),
+  ]);
+  expect((await configRead.json()).content).toContain('"test/model"');
+  expect((await skillsRead.json()).items).toEqual(expect.arrayContaining([expect.objectContaining({ name: "outside-skill" })]));
+  expect((await commandsRead.json()).items).toEqual(expect.arrayContaining([expect.objectContaining({ name: "outside-command" })]));
+
+  const workspace = f.config.workspaces.find((entry) => entry.id === id)!;
+  const appFilesRoot = externalAppFilesRoot(f.config, workspace);
+  expect(await readFile(join(appFilesRoot, ".opencode", "opencode.jsonc"), "utf8")).toContain('"test/model"');
+  expect(await readFile(join(appFilesRoot, ".opencode", "skills", "outside-skill", "SKILL.md"), "utf8")).toContain("External skill body.");
+  expect(await readFile(join(appFilesRoot, ".opencode", "commands", "outside-command.md"), "utf8")).toContain("External command body.");
+  expect(await snapshot(f.matter)).toEqual(before);
+
+  const restartedConfig = await resolveServerConfig({ configPath: f.config.configPath, workspaces: [] });
+  const restartedServer = await startServer(restartedConfig);
+  cleanups.push(async () => { await restartedServer.stop(); });
+  const restartedUrl = `http://127.0.0.1:${restartedServer.port}`;
+  const restartedConfigRead = await fetch(`${restartedUrl}/workspace/${id}/opencode-config?scope=project`, {
+    headers: { authorization: `Bearer ${restartedConfig.token}` },
+  });
+  const restartedSkillsRead = await fetch(`${restartedUrl}/workspace/${id}/skills`, { headers: { authorization: `Bearer ${restartedConfig.token}` } });
+  const restartedCommandsRead = await fetch(`${restartedUrl}/workspace/${id}/commands`, { headers: { authorization: `Bearer ${restartedConfig.token}` } });
+  expect((await restartedConfigRead.json()).content).toContain('"test/model"');
+  expect((await restartedSkillsRead.json()).items).toEqual(expect.arrayContaining([expect.objectContaining({ name: "outside-skill" })]));
+  expect((await restartedCommandsRead.json()).items).toEqual(expect.arrayContaining([expect.objectContaining({ name: "outside-command" })]));
+  expect(await snapshot(f.matter)).toEqual(before);
+});
 test("re-registering an existing matter retains its user-selected display name", async () => {
   const f = await fixture(), before = await snapshot(f.matter);
   const first = await f.register(f.matter);
@@ -91,12 +143,12 @@ test("re-registering an existing matter retains its user-selected display name",
   });
   expect(await snapshot(f.matter)).toEqual(before);
 });
-test("changing app-files policy invalidates the lazy bootstrap cache", async () => {
+test("changing app-files policy moves lazy bootstrap commands outside the client folder", async () => {
   const f = await fixture();
   await f.register(f.matter, true, "host", { appFiles: "outside" });
   const id = workspaceIdForPath(f.matter);
   const commands = () => fetch(`${f.url}/workspace/${id}/commands`, { headers: { authorization: "Bearer client" } });
-  expect((await commands()).status).toBe(409);
+  expect((await commands()).status).toBe(200);
   expect((await snapshot(f.matter)).some(entry => entry.path.startsWith(".opencode/"))).toBe(false);
   expect((await f.register(f.matter, true, "host", { appFiles: "inside" })).status).toBe(201);
   expect((await commands()).status).toBe(200);

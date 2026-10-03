@@ -352,3 +352,5 @@ export async function recoverOnboardingPlan(plan: OnboardingPlan, journalDirecto
 }
 
 export type { OnboardingInspection, TreeEntry };
+// Binary trial copying uses the same process-safe root coordinator.
+export { lock as acquireOnboardingLock };

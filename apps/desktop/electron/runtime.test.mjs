@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 
 import path from "node:path";
 import os from "node:os";
@@ -8,6 +9,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import {
   alignWindowsOpencodeConfigEnv,
   desktopProjectsDirectory,
+  externalWorkspaceAppFilesRoot,
   commandMatchesPackagedSidecar,
   mergeRuntimeMcpConfig,
   bundledNodeDirectory,
@@ -26,6 +28,18 @@ describe("workspace app files policy", () => {
     assert.equal(usesExternalWorkspaceAppFiles({ appFiles: "outside" }), true);
     assert.equal(usesExternalWorkspaceAppFiles({ appFiles: "inside" }), false);
     assert.equal(usesExternalWorkspaceAppFiles({}), false);
+  });
+});
+
+describe("outside app-files root", () => {
+  it("uses the same config-directory and canonical-path hash contract as the server", () => {
+    const configPath = path.join("/Users", "lawyer", ".config", "legalwork", "server.json");
+    const workspace = path.join("/Users", "lawyer", "Cases", "Matter");
+    const hash = createHash("sha256").update(path.resolve(workspace)).digest("hex");
+    assert.equal(
+      externalWorkspaceAppFilesRoot(configPath, workspace),
+      path.join(path.dirname(configPath), "workspace-app-files", hash),
+    );
   });
 });
 

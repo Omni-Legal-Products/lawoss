@@ -10,7 +10,8 @@ import { relative, resolve, sep } from "node:path";
 import { resolveServerConfig, type CliArgs } from "./config.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer, type OpencodeExecutionSnapshot } from "./managed-opencode.js";
 import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
-import { ensureWorkspaceFilesForBootstrap } from "./workspace-init.js";
+import { ensureWorkspaceFiles, ensureWorkspaceFilesForBootstrap } from "./workspace-init.js";
+import { externalOpencodeConfigDir, workspaceAppFilesRoot, usesExternalWorkspaceAppFiles } from "./lawoss/workspace-app-files.js";
 import { globalSkillsDir } from "./workspace-files.js";
 import { ensureBundledWorkflows } from "./bundled-workflows.js";
 import { retireSharedLegacyReview } from "./reviews/retire-legacy.js";
@@ -112,7 +113,16 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     await retireSharedLegacyReview(globalSkillsDir());
     await ensureBundledWorkflows();
     for (const workspace of config.workspaces) {
-      await ensureWorkspaceFilesForBootstrap(workspace);
+      if (usesExternalWorkspaceAppFiles(workspace)) {
+        const appFilesRoot = workspaceAppFilesRoot(config, workspace);
+        await mkdir(appFilesRoot, { recursive: true });
+        await ensureWorkspaceFiles(appFilesRoot, workspace.preset, {
+          root: workspace.path,
+          name: workspace.displayName ?? workspace.name,
+        });
+      } else {
+        await ensureWorkspaceFilesForBootstrap(workspace);
+      }
     }
   }
   // Drop retired / unparsable provider blocks from the runtime DB BEFORE the
@@ -136,7 +146,14 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   }
 
   if (!config.opencodeBaseUrl && options.manageOpencode) {
-    const workspace = config.workspaces[0];
+    // One managed engine has one process-wide OPENCODE_CONFIG_DIR. Select the
+    // workspace requested by the embedding host, not merely the first
+    // persisted registry item, so a restart on workspace activation isolates
+    // its external config, commands and skills from another matter.
+    const requestedDirectory = options.opencodeDirectory?.trim();
+    const workspace = requestedDirectory
+      ? config.workspaces.find((entry) => resolve(entry.path) === resolve(requestedDirectory)) ?? config.workspaces[0]
+      : config.workspaces[0];
     if (workspace?.path) {
       // Server-managed config file: the engine re-reads it from disk on every
       // instance rebuild, and keepLegalworkRuntimeConfigFileFresh rewrites it
@@ -176,6 +193,15 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
           LEGALWORK_SERVER_URL: serverUrl,
           LEGALWORK_SERVER_TOKEN: config.token,
           OPENCODE_CONFIG: runtimeConfigPath,
+          // OpenCode v1.18.29 discovers commands and skills from this
+          // directory. It is deliberately set only for the active managed
+          // workspace because the engine exposes one process-wide config root.
+          ...(externalOpencodeConfigDir(config, workspace)
+            ? {
+                OPENCODE_CONFIG_DIR: externalOpencodeConfigDir(config, workspace)!,
+                OPENCODE_DISABLE_PROJECT_CONFIG: "true",
+              }
+            : {}),
           OPENCODE_MODELS_URL: opencodeModelsUrl,
           ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
         },

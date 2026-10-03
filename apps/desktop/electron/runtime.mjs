@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -87,6 +87,12 @@ export function resolveLegalworkServerConfigPath(env = process.env) {
   const xdgConfigHome = String(env.XDG_CONFIG_HOME ?? "").trim();
   const root = xdgConfigHome || path.join(os.homedir(), ".config");
   return path.join(root, "legalwork", "server.json");
+}
+
+/** Matches the server's outside-mode app-files root for a canonical workspace. */
+export function externalWorkspaceAppFilesRoot(serverConfigPath, workspacePath) {
+  const hash = createHash("sha256").update(path.resolve(String(workspacePath))).digest("hex");
+  return path.join(path.dirname(path.resolve(String(serverConfigPath))), "workspace-app-files", hash);
 }
 
 // Use the same location as the embedded server, including the dev profile,
