@@ -51,3 +51,5 @@ Final CI after the shared fix is still pending; the successful local checks abov
 - OCR test isolation fix `409447c3` was cherry-picked as `5173133d`: the model download test uses a local HTTP server instead of intercepting unrelated engine traffic through a global fetch mock. Both focused OCR tests passed; production download behavior is unchanged.
 
 These are the shared commits supplied by the coordinating chats. No independent competing handoff or OCR implementation was introduced in #44. The final GitHub CI matrix, including Windows and Linux packaging, must still finish on the pushed head; its final result is recorded in the coordinating report and PR description.
+
+The final shared test-fixture follow-up also includes `f055592a` (locally `7397a01b`) and `3e6f0630` (locally `29aec64a`). The embedded app-files fixture waits for both workspace MCP synchronizations before stopping its fake engine; its two process starts, bounded synchronization waits and shutdown receive an explicit 15-second test budget. The combined embedded/OCR run passed all four tests after this final follow-up. These changes affect tests only.
