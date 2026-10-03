@@ -7,7 +7,7 @@ import { setLanguagePreference } from "../../src/i18n";
 import { ArtifactMarkdownEditor } from "../../src/react-app/domains/session/artifacts/artifact-markdown-editor";
 import { ArtifactMarkdownPanel } from "../../src/react-app/domains/session/artifacts/artifact-markdown-panel";
 import { confirmDiscardDocuments } from "../../src/react-app/domains/session/artifacts/docx-document-state";
-import type { LegalworkServerClient } from "../../src/app/lib/legalwork-server";
+import { LegalworkServerError, type LegalworkServerClient } from "../../src/app/lib/legalwork-server";
 
 // Handwritten test data only. Bare URL/email trigger MDXEditor's late AutoLink transform.
 const original = "---\nid: SYNTHETIC\ntype: fact\nsources:\n  - title: Test source\n    status: unverified\n---\n\n## Truth\n\nTest www.example.org and sample@example.org.[reference]\n\n[Explicit link](https://example.org/explicit)\n\n* original bullet\n\n## History\n\n";
@@ -18,7 +18,10 @@ let writes = 0;
 let revision = 1;
 const client = {
   readWorkspaceFile: async () => { reads++; return { content: disk, updatedAt: revision }; },
-  writeWorkspaceFile: async (_workspace: string, input: { content: string }) => {
+  writeWorkspaceFile: async (_workspace: string, input: { content: string; baseUpdatedAt?: number | null }) => {
+    if (input.baseUpdatedAt !== undefined && input.baseUpdatedAt !== revision) {
+      throw new LegalworkServerError(409, "conflict", "Synthetic overlap", { reason: "overlap", current: { content: disk, updatedAt: revision } });
+    }
     writes++; disk = input.content; revision++;
     return { ok: true, content: disk, updatedAt: revision };
   },
@@ -41,7 +44,7 @@ function Fixture() {
     refresh: () => setVersion(n => n + 1),
     replace: (next: string) => { observed.value = next; observed.baseline = next; setValue(next); setBaseline(next); },
     save: () => { observed.baseline = observed.value; setBaseline(observed.value); },
-    replaceDisk: async (next: string) => { disk = next; revision++; await queryClient.invalidateQueries({ queryKey: ["markdown-editor"] }); },
+    replaceDisk: async (next: string, refetch = true) => { disk = next; revision++; if (refetch) await queryClient.invalidateQueries({ queryKey: ["markdown-editor"] }); },
   } });
   return <div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
     <header style={{ padding: 16 }}><strong>Syntetický Markdown · žádná klientská data</strong></header>

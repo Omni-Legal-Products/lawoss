@@ -37,8 +37,8 @@ const output = readFileSync(process.argv[2], "utf8");
 const match = /^### Result\r?\n([^\r\n]+)/m.exec(output);
 assert.ok(match, "No completed browser result; CLI exit 0 alone is not a PASS");
 const result = JSON.parse(match[1]);
-assert.equal(result.checks, 19, "All 19 regression assertions must finish");
-assert.equal(result.results.length, 19);
+assert.equal(result.checks, 33, "All 33 regression assertions must finish");
+assert.equal(result.results.length, 33);
 console.log(JSON.stringify(result, null, 2));
 JS
 pnpm dlx @playwright/cli --session lawoss-markdown-regression close
@@ -51,11 +51,11 @@ only while moving between its independent synthetic scenarios.
 
 ## Expected results and limits
 
-The current fix passes **19 assertions**: exact clean open; explicit links;
+The current fix passes **33 assertions**: exact clean open; explicit links;
 focus, toolbar Tab navigation, source/rich switching and prop refresh; real
 typing, undo/redo content protection and save; CreateLink; exact source whitespace
 edits and restoration; read-only behavior; full-panel open, focus refetch,
-external updates, draft preservation and source save.
+external updates, draft preservation, source save, edit/Undo after refetch/save/conflict, intentional source syntax followed by rich-text Undo, and whitespace-only baseline replacement. The fixture stays in Czech to cover the translated toolbar introduced by the upstream sync.
 
 **Undo back to the original (#90):** after real rich-text editing MDXEditor
 serializes the whole document canonically (bracket escaping, bullet marker,
@@ -64,7 +64,7 @@ undoes until the typed text is gone and then asserts `dirty=false` with the
 exact original bytes. The editor maps its canonical form of the untouched
 document back to the original source, in rich-text mode only
 (`apps/app/src/lawoss/markdown/pristine.ts`); Source-mode edits are never
-remapped. A single Undo step leaves the rest of the edit in place and is
+remapped. Imports after refetch, save and conflict resolution refresh the exact-source mapping, including whitespace-only imports. Visiting Source without editing preserves the original mapping; an intentional syntax edit becomes the next imported source. A single Undo step leaves the rest of the edit in place and is
 correctly dirty.
 
 Tab inside editable rich text can insert an actual tab character. The clean
