@@ -13,7 +13,10 @@ var RECORD_TYPES = [
   "task",
   "rule",
   "lesson",
-  "authority"
+  "authority",
+  "requirement",
+  "instrument",
+  "relation"
 ];
 var LAYER_OF = {
   matter: "L2",
@@ -26,8 +29,15 @@ var LAYER_OF = {
   task: "L2",
   rule: "L1",
   lesson: "L1",
-  authority: "L3"
+  authority: "L3",
+  requirement: "L2",
+  instrument: "L2",
+  relation: "L2"
 };
+function layerOf(type) {
+  return isRecordType(type) ? LAYER_OF[type] : "L2";
+}
+var AGENT_TYPE_PATTERN = /^[a-z][a-z0-9_]*$/;
 var STATUS = ["active", "superseded", "void", "banned", "deprecated"];
 var PERSON_KINDS = ["natural_person", "legal_person", "sole_trader"];
 var ROLES = ["client", "counterparty", "representative", "ubo"];
@@ -68,6 +78,26 @@ var EVIDENCE_KINDS = [
 var SCREENING_PROVISION = {
   cz: "§ 9 zák. č. 253/2008 Sb."
 };
+var FULFILLMENT_STATUS = ["open", "met", "waived", "failed"];
+var INSTRUMENT_FORMS = ["plain", "certified_signature", "notarial_deed", "attorney_declaration"];
+var INSTRUMENT_STATUS = [
+  "draft",
+  "negotiated",
+  "final",
+  "signed",
+  "effective",
+  "registered",
+  "superseded"
+];
+var RELATION_KINDS = [
+  "executive",
+  "board_member",
+  "shareholder",
+  "representative",
+  "attorney_in_fact",
+  "beneficial_owner",
+  "pledgee"
+];
 var SCREENING_MODES = ["light", "medium", "hard"];
 var FIELDS = [
   { canonical: "okf", cz: "okf", sk: "okf", kind: "number", required: true },
@@ -104,6 +134,7 @@ var FIELDS = [
   { canonical: "parties", cz: "strany", sk: "strany", kind: "list", required: false },
   { canonical: "matter_ref", cz: "spisová značka", sk: "spisová značka", kind: "string", required: false },
   { canonical: "court", cz: "soud", sk: "súd", kind: "string", required: false },
+  { canonical: "participants", cz: "Zapojené subjekty", sk: "Zúčastnené subjekty", kind: "maplist", required: false },
   { canonical: "area", cz: "oblast práva", sk: "oblasť práva", kind: "list", required: false },
   {
     canonical: "role",
@@ -252,7 +283,44 @@ var FIELDS = [
     required: false,
     values: TASK_STATES
   },
-  { canonical: "due", cz: "termín", sk: "termín", kind: "string", required: false }
+  { canonical: "due", cz: "termín", sk: "termín", kind: "string", required: false },
+  { canonical: "demanded_by", cz: "požaduje", sk: "požaduje", kind: "string", required: false },
+  { canonical: "demanded_from", cz: "požadováno od", sk: "požadované od", kind: "string", required: false },
+  {
+    canonical: "fulfillment_status",
+    cz: "stav splnění",
+    sk: "stav splnenia",
+    kind: "string",
+    required: false,
+    values: FULFILLMENT_STATUS
+  },
+  { canonical: "version", cz: "verze", sk: "verzia", kind: "string", required: false },
+  { canonical: "file_hash", cz: "otisk souboru", sk: "odtlačok súboru", kind: "string", required: false },
+  { canonical: "form", cz: "forma", sk: "forma", kind: "string", required: false, values: INSTRUMENT_FORMS },
+  { canonical: "signed_by", cz: "podepsal", sk: "podpísal", kind: "list", required: false },
+  { canonical: "signed_at", cz: "podepsáno dne", sk: "podpísané dňa", kind: "string", required: false },
+  { canonical: "effect", cz: "účinek", sk: "účinok", kind: "string", required: false },
+  {
+    canonical: "instrument_status",
+    cz: "stav listiny",
+    sk: "stav listiny",
+    kind: "string",
+    required: false,
+    values: INSTRUMENT_STATUS
+  },
+  { canonical: "from_subject", cz: "subjekt", sk: "subjekt", kind: "string", required: false },
+  { canonical: "to_subject", cz: "ve vztahu k", sk: "vo vzťahu k", kind: "string", required: false },
+  {
+    canonical: "relation_kind",
+    cz: "druh vztahu",
+    sk: "druh vzťahu",
+    kind: "string",
+    required: false,
+    values: RELATION_KINDS
+  },
+  { canonical: "share", cz: "podíl", sk: "podiel", kind: "string", required: false },
+  { canonical: "valid_from", cz: "platí od", sk: "platí od", kind: "string", required: false },
+  { canonical: "valid_to", cz: "platí do", sk: "platí do", kind: "string", required: false }
 ];
 var SENSITIVE_FIELDS = FIELDS.filter((f) => f.sensitive).map((f) => f.canonical);
 function needleFields() {
@@ -300,7 +368,10 @@ var TYPE_LABELS = {
   task: { cz: "úkol", sk: "úloha" },
   rule: { cz: "pravidlo", sk: "pravidlo" },
   lesson: { cz: "poučení", sk: "poučenie" },
-  authority: { cz: "pramen", sk: "prameň" }
+  authority: { cz: "pramen", sk: "prameň" },
+  requirement: { cz: "požadavek", sk: "požiadavka" },
+  instrument: { cz: "listina", sk: "listina" },
+  relation: { cz: "vztah", sk: "vzťah" }
 };
 var VALUE_LABELS = {
   status: {
@@ -369,6 +440,36 @@ var VALUE_LABELS = {
     blocked: { cz: "blokován", sk: "blokovaná" },
     done: { cz: "hotovo", sk: "hotové" }
   },
+  fulfillment_status: {
+    open: { cz: "nesplněno", sk: "nesplnené" },
+    met: { cz: "splněno", sk: "splnené" },
+    waived: { cz: "upuštěno", sk: "upustené" },
+    failed: { cz: "zmařeno", sk: "zmarené" }
+  },
+  form: {
+    plain: { cz: "prostá písemná forma", sk: "jednoduchá písomná forma" },
+    certified_signature: { cz: "úředně ověřený podpis", sk: "úradne osvedčený podpis" },
+    notarial_deed: { cz: "notářský zápis", sk: "notárska zápisnica" },
+    attorney_declaration: { cz: "prohlášení advokáta o pravosti podpisu" }
+  },
+  instrument_status: {
+    draft: { cz: "návrh", sk: "návrh" },
+    negotiated: { cz: "vyjednáno", sk: "vyjednané" },
+    final: { cz: "finální znění", sk: "finálne znenie" },
+    signed: { cz: "podepsáno", sk: "podpísané" },
+    effective: { cz: "účinné", sk: "účinné" },
+    registered: { cz: "zapsáno", sk: "zapísané" },
+    superseded: { cz: "nahrazeno", sk: "nahradené" }
+  },
+  relation_kind: {
+    executive: { cz: "statutární orgán", sk: "štatutárny orgán" },
+    board_member: { cz: "člen orgánu", sk: "člen orgánu" },
+    shareholder: { cz: "společník / akcionář", sk: "spoločník / akcionár" },
+    representative: { cz: "zástupce", sk: "zástupca" },
+    attorney_in_fact: { cz: "zmocněnec", sk: "splnomocnenec" },
+    beneficial_owner: { cz: "skutečný majitel", sk: "konečný užívateľ výhod" },
+    pledgee: { cz: "zástavní věřitel", sk: "záložný veriteľ" }
+  },
   evidence_kind: {
     document: { cz: "listina", sk: "listina" },
     witness: { cz: "výslech svědka", sk: "výsluch svedka" },
@@ -390,13 +491,19 @@ function canonicalField(key) {
   return FIELDS.find((x) => x.canonical === key || x.aliases?.includes(key))?.canonical;
 }
 function typeLabel(t, j) {
-  return TYPE_LABELS[t][j];
+  return isRecordType(t) ? TYPE_LABELS[t][j] : t;
 }
 function isRecordType(value) {
   return RECORD_TYPES.includes(value);
 }
 function isJurisdiction(value) {
   return value === "cz" || value === "sk";
+}
+function isIsoDate(s) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s))
+    return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
 }
 function truthDigest(truth) {
   let h = 2166136261;
@@ -595,16 +702,16 @@ function parseBlock(block, firstLineNo) {
       const body = t.slice(2).trim();
       const idx = body.indexOf(":");
       if (idx === -1 || body.startsWith('"') || body.startsWith("'") || body.startsWith("[") || body.startsWith("{")) {
-        const v = parseScalar(body);
-        if (typeof v === "object" && !Array.isArray(v)) {
-          cur = v;
+        const v2 = parseScalar(body);
+        if (typeof v2 === "object" && !Array.isArray(v2)) {
+          cur = v2;
           items.push(cur);
           return;
         }
-        if (Array.isArray(v))
+        if (Array.isArray(v2))
           throw new Error(`Riadok ${firstLineNo + k}: zoznam v zozname sa nepodporuje`);
         cur = undefined;
-        items.push(v);
+        items.push(v2);
         return;
       }
       if (body.slice(idx + 1).trim() === "") {
@@ -667,6 +774,24 @@ function sectionBody(body, heading) {
   const next = /^##\s+/m.exec(rest);
   return (next ? rest.slice(0, next.index) : rest).trim();
 }
+var HEADING_LINE = /^##\s+(.+?)\s*$/;
+function parseSections(body) {
+  const out = [];
+  let cur;
+  for (const line of body.split(`
+`)) {
+    const heading = HEADING_LINE.exec(line)?.[1];
+    if (heading !== undefined) {
+      cur = heading === HEADINGS.truth || heading === HEADINGS.timeline ? undefined : { heading, lines: [] };
+      if (cur)
+        out.push(cur);
+      continue;
+    }
+    cur?.lines.push(line);
+  }
+  return out.map((x) => ({ heading: x.heading, body: x.lines.join(`
+`).replace(/^(?:[ \t]*\n)+/, "").trimEnd() }));
+}
 function parseTimeline(raw) {
   if (!raw)
     return [];
@@ -699,13 +824,14 @@ function parseRecord(text) {
   if (chyba.length > 1)
     throw new Error(`Chýbajú povinné polia: ${chyba.join(", ")}`);
   const j = readJurisdiction(canon);
-  const typeRaw = String(canon.get("type"));
-  if (!isRecordType(typeRaw))
-    throw new Error(`Neznámy typ záznamu: ${typeRaw}`);
-  const type = typeRaw;
-  const layer = String(canon.get("layer"));
-  if (layer !== LAYER_OF[type]) {
-    throw new Error(`Typ ${typeRaw} patrí do vrstvy ${LAYER_OF[type]}, nie ${layer}`);
+  const type = String(canon.get("type"));
+  if (!isRecordType(type) && !AGENT_TYPE_PATTERN.test(type)) {
+    throw new Error(`Neplatný typ záznamu: ${type} — vlastný typ píš malými písmenami, číslicami a _`);
+  }
+  const layer = layerOf(type);
+  const declared = String(canon.get("layer"));
+  if (declared !== layer) {
+    throw new Error(isRecordType(type) ? `Typ ${type} patrí do vrstvy ${layer}, nie ${declared}` : `Vlastný typ ${type} patrí vždy do vrstvy L2, nie ${declared} — L1/L3 majú iba známe typy`);
   }
   const rec = {
     okf: Number(canon.get("okf")),
@@ -732,6 +858,9 @@ function parseRecord(text) {
   }
   if (Object.keys(extra).length > 0)
     rec.extra = extra;
+  const sections = parseSections(body);
+  if (sections.length > 0)
+    rec.sections = sections;
   return rec;
 }
 function coerceField(kind, v, key) {
@@ -745,7 +874,7 @@ function coerceField(kind, v, key) {
       throw new Error(`Pole ${key} má byť mapovanie`);
     case "maplist": {
       const items = Array.isArray(v) ? v : [v];
-      return items.map((x) => isMap(x) ? stringifyMap(x) : { title: String(x) });
+      return items.map((x) => isMap(x) ? stringifyMap(x) : { [key === "participants" ? "name" : "title"]: String(x) });
     }
     default:
       if (typeof v === "object")
@@ -806,6 +935,8 @@ function serializeRecord(r) {
   for (const e of r.timeline) {
     lines.push(`- ${e.date}${e.kind ? ` [${canonicalEventKind(e.kind)}]` : ""} — ${e.text}`);
   }
+  for (const sec of r.sections ?? [])
+    lines.push("", `## ${sec.heading}`, "", sec.body);
   return lines.join(`
 `) + `
 `;
@@ -1030,16 +1161,26 @@ function sourceLink(s) {
   return `[${cell(name)}](${s.resource})`;
 }
 var ROLE_ORDER = ["client", "counterparty", "representative", "ubo"];
+function renderParticipants(records, j, href) {
+  const rows = [...records].sort((a, b) => a.id < b.id ? -1 : 1).flatMap((r) => (r.participants ?? []).map((p) => `| ${cell(p.role ?? "—")} | ${cell(p.name ?? "—")} | ${cell(p.contact ?? "—")} | ${cell(p.ref ?? "—")} | ${cell(p.note ?? "—")} | ${odkaz(r.id, href)} |`));
+  if (rows.length === 0)
+    return [];
+  const title = j === "en" ? "Involved parties" : fieldLabel("participants", j);
+  const head = j === "en" ? "| Role | Name | Contact | Reference | Note | Record |" : j === "cz" ? "| Role | Název | Kontakt | Odkaz | Poznámka | Záznam |" : "| Rola | Názov | Kontakt | Odkaz | Poznámka | Záznam |";
+  return [`**${title}**`, "", head, "|---|---|---|---|---|---|", ...rows];
+}
 function renderParties(records, j, href) {
   const subjects = records.filter((r) => r.type === "subject").sort((a, b) => ROLE_ORDER.indexOf(a.role ?? "") - ROLE_ORDER.indexOf(b.role ?? "") || (a.id < b.id ? -1 : 1));
-  if (subjects.length === 0)
+  const participants = renderParticipants(records, j, href);
+  if (subjects.length === 0 && participants.length === 0)
     return EMPTY[j];
   const head = j === "en" ? "| Role | Subject | Registry / personal ID | Record |" : j === "cz" ? "| Role | Subjekt | IČO / RČ | Záznam |" : "| Rola | Subjekt | IČO / RČ | Záznam |";
   const rows = subjects.map((s) => {
     const ident = s.registry_id ?? (s.birth_number ? maskValue("birth_number", s.birth_number) : "—");
     return `| ${documentValueLabel("role", s.role ?? "—", j)} | ${cell(s.title)} | ${ident} | ${odkaz(s.id, href)} |`;
   });
-  return [head, "|---|---|---|---|", ...rows].join(`
+  const table = subjects.length ? [head, "|---|---|---|---|", ...rows] : [];
+  return [...table, ...table.length && participants.length ? [""] : [], ...participants].join(`
 `);
 }
 function renderFacts(records, j, href) {
@@ -1351,9 +1492,16 @@ function clientNeedles(records) {
   for (const r of records) {
     if (r.layer !== "L2")
       continue;
-    const text = [r.truth, ...r.timeline.map((e) => e.text)].join(`
-`);
-    for (const m of text.matchAll(BIRTH_NUMBER_PATTERN_G)) {
+    for (const p of r.participants ?? []) {
+      const n = p.name ? nameNeedle(p.name, r.id) : undefined;
+      if (n)
+        out.push(n);
+    }
+  }
+  for (const r of records) {
+    if (r.layer !== "L2")
+      continue;
+    for (const m of bodyText(r).matchAll(BIRTH_NUMBER_PATTERN_G)) {
       const n = exactNeedle(m[0], r.id, "rodné číslo v texte záznamu");
       if (n)
         out.push(n);
@@ -1361,10 +1509,27 @@ function clientNeedles(records) {
   }
   return out;
 }
-function recordText(r) {
-  return [r.title, r.description, r.truth, ...r.timeline.map((e) => `${e.date} ${e.text}`)].join(`
+function bodyText(r) {
+  return [r.truth, ...r.timeline.map((e) => e.text), ...(r.sections ?? []).map((s) => `${s.heading}
+${s.body}`)].join(`
 `);
 }
+function recordText(r) {
+  return [
+    r.title,
+    r.description,
+    r.truth,
+    ...r.timeline.map((e) => `${e.date} ${e.text}`),
+    ...(r.sections ?? []).map((s) => `${s.heading}
+${s.body}`)
+  ].join(`
+`);
+}
+function isoDay(value) {
+  const day = /^(\d{4}-\d{2}-\d{2})(?:[T ].*)?$/.exec(value.trim())?.[1];
+  return day && isIsoDate(day) ? day : undefined;
+}
+var CASE_NUMBER_PATTERN = /^(?:\p{Lu}{2,6}\s+)?(?:\d{1,3}\s*\p{L}{1,6}\s*\d{1,6}\s*\/\s*\d{2,4}|\d{1,3}\s*\p{L}{1,6}\s*\/\s*\d{1,6}\s*\/\s*\d{4}|(?:Pl|IV|I{1,3})\.\s*ÚS\s*\d{1,5}\s*\/\s*\d{2,4})(?:\s*-\s*[\p{L}\d]+)*$/u;
 function linkTargets(r) {
   const out = [
     ...r.related ?? [],
@@ -1556,6 +1721,49 @@ function validateStore(records, opts = {}) {
     if (f)
       findings.push(f);
   }
+  for (const r of records) {
+    if (isRecordType(r.type))
+      continue;
+    findings.push({
+      severity: "warning",
+      code: "AGENT_TYPE",
+      recordId: r.id,
+      message: `Záznam ${r.id} má vlastný typ „${r.type}" (vrstva L2). Kontroly známych typov sa naň nevzťahujú — ak ide o preklep, oprav typ.`
+    });
+  }
+  for (const r of records) {
+    (r.participants ?? []).forEach((p, i) => {
+      if (p.name?.trim())
+        return;
+      findings.push({
+        severity: "error",
+        code: "PARTICIPANT_NAME_MISSING",
+        recordId: r.id,
+        message: `Zapojený subjekt č. ${i + 1} záznamu ${r.id} nemá meno (name).`
+      });
+    });
+  }
+  for (const r of records) {
+    const dates = [...(r.deadlines ?? []).map((d) => ["deadlines", d]), ...r.due !== undefined ? [["due", r.due]] : []];
+    for (const [field, value] of dates) {
+      if (isoDay(value))
+        continue;
+      findings.push({
+        severity: "error",
+        code: "DATE_INVALID",
+        recordId: r.id,
+        message: `Pole ${field} záznamu ${r.id} má hodnotu „${value}", ktorá nie je platný dátum RRRR-MM-DD. Lehota sa bez neho nevyhodnotí.`
+      });
+    }
+    if (r.matter_ref?.trim() && !CASE_NUMBER_PATTERN.test(r.matter_ref.trim())) {
+      findings.push({
+        severity: "warning",
+        code: "CASE_NUMBER_FORMAT",
+        recordId: r.id,
+        message: `Spisová značka „${r.matter_ref}" záznamu ${r.id} nemá tvar spisovej značky súdu (napr. 22 Cdo 2886/2023, 1Cdo/12/2024). Over ju.`
+      });
+    }
+  }
   const povolene = (values) => values.join(", ");
   for (const r of records) {
     const raw = r;
@@ -1656,7 +1864,8 @@ function validateStore(records, opts = {}) {
         });
       }
     }
-    if (t.due && t.due < today && t.state !== "done") {
+    const due = t.due ? isoDay(t.due) : undefined;
+    if (due && due < today && t.state !== "done") {
       findings.push({
         severity: "warning",
         code: "TASK_OVERDUE",
@@ -1711,12 +1920,11 @@ function validateStore(records, opts = {}) {
     }
   }
   for (const r of records) {
-    const ids = new Set((r.sources ?? []).map((z) => z.id).filter((x) => !!x));
-    const text = [r.truth, ...r.timeline.map((e) => e.text)].join(`
-`);
+    const ids2 = new Set((r.sources ?? []).map((z) => z.id).filter((x) => !!x));
+    const text = bodyText(r);
     const pouzite = new Set([...text.matchAll(/\[\^([^\]\s]+)\]/g)].map((m) => m[1] ?? ""));
     for (const label of pouzite) {
-      if (ids.has(label))
+      if (ids2.has(label))
         continue;
       findings.push({
         severity: "error",
@@ -1739,7 +1947,8 @@ function validateStore(records, opts = {}) {
     if (r.status !== "active")
       continue;
     for (const d of r.deadlines ?? []) {
-      if (d >= today)
+      const day = isoDay(d);
+      if (!day || day >= today)
         continue;
       findings.push({
         severity: "warning",
@@ -1963,12 +2172,6 @@ function matchesClientPath(relative, pattern) {
     return false;
   return pat.every((p, i) => p === "*" || p === seg[i]);
 }
-function isIsoDate(s) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s))
-    return false;
-  const d = new Date(`${s}T00:00:00Z`);
-  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
-}
 function inspectStandingAuthorization(officeDir) {
   const kv = readConfig(officeDir);
   if (!kv || !kv.has("standing_authorization"))
@@ -2055,8 +2258,8 @@ function documentLanguageFromCard(dir) {
   }
   return;
 }
-function hasUnparsedBody(text) {
-  const lines = text.split(`
+function hasUnparsedBody(text2) {
+  const lines = text2.split(`
 `);
   const body = lines.slice(lines.indexOf("---", 1) + 1);
   let section = "";
@@ -2066,11 +2269,12 @@ function hasUnparsedBody(text) {
       continue;
     if (/^##\s+/.test(line)) {
       const heading = /^##\s+(Truth|History)\s*$/.exec(line)?.[1];
-      if (!heading || seen.has(heading))
+      if (heading && seen.has(heading))
         return true;
-      seen.add(heading);
-      section = heading;
-    } else if (section === "Truth") {
+      if (heading)
+        seen.add(heading);
+      section = heading ?? "custom";
+    } else if (section === "Truth" || section === "custom") {
       continue;
     } else if (section !== "History" || !/^-\s*\d{4}-\d{2}-\d{2}\s*(?:\[[a-z_]+\]\s*)?[—-]\s*.*$/.test(line.trim())) {
       return true;
@@ -2097,7 +2301,7 @@ function readStore(dir) {
         const source = readFileSync2(join2(memoryDir, name), "utf8");
         records.push(parseRecord(source));
         if (hasUnparsedBody(source)) {
-          problems.push({ file: join2(memoryDir, name), message: "Časť obsahu mimo podporovaných sekcií Truth/History alebo riadkov History sa nedá načítať. Otvor celý zdrojový súbor; tento výpis nie je úplný." });
+          problems.push({ file: join2(memoryDir, name), message: "Časť obsahu (text pred prvou sekciou, zdvojená Truth/History alebo riadok History mimo tvaru udalosti) sa nedá načítať. Otvor celý zdrojový súbor; tento výpis nie je úplný." });
         }
       } catch (e) {
         problems.push({ file: name, message: e instanceof Error ? e.message : String(e) });
@@ -2359,8 +2563,8 @@ function writeIndex(dir) {
     lines.push("", `## ${nadpis[layer]?.[j] ?? layer}`, "");
     for (const r of vo) {
       const cesta = href(r.id);
-      const odkaz = cesta ? `[${r.id}](${cesta})` : r.id;
-      lines.push(`* ${odkaz} — ${documentTypeLabel(r.type, j)} — ${r.description}`);
+      const odkaz2 = cesta ? `[${r.id}](${cesta})` : r.id;
+      lines.push(`* ${odkaz2} — ${documentTypeLabel(r.type, j)} — ${r.description}`);
     }
   }
   if (readdirSync(store.memoryDir).includes(LEGACY_INDEX_FILE)) {
@@ -2382,10 +2586,10 @@ function writeLog(dir) {
   for (const r of scope.records) {
     for (const e of r.timeline) {
       const cesta = href(r.id);
-      const odkaz = cesta ? `[${r.id}](${cesta})` : r.id;
+      const odkaz2 = cesta ? `[${r.id}](${cesta})` : r.id;
       const druh = e.kind ? `**${documentValueLabel("event_kind", e.kind, j)}**: ` : "";
       const zoznam = podlaDatumu.get(e.date) ?? [];
-      zoznam.push(`* ${druh}${e.text} — ${odkaz}`);
+      zoznam.push(`* ${druh}${e.text} — ${odkaz2}`);
       podlaDatumu.set(e.date, zoznam);
     }
   }
@@ -2536,9 +2740,9 @@ function retrofitStatusFile(dir, apply) {
   if (!existsSync2(path))
     return [];
   const existing = readFileSync2(path, "utf8");
-  const { text, inserted } = retrofitStatus(existing, store.records, store.jurisdiction, linkResolver(store, false), documentLanguageFromCard(dir));
+  const { text: text2, inserted } = retrofitStatus(existing, store.records, store.jurisdiction, linkResolver(store, false), documentLanguageFromCard(dir));
   if (apply && inserted.length > 0)
-    writeProjection(path, text, dir);
+    writeProjection(path, text2, dir);
   return inserted;
 }
 var CLIENT_CARDS = ["client.md", "klient.md"];
@@ -2801,10 +3005,10 @@ function parseWorkspaceMemoryProfile(value) {
     throw new Error("At least one required source must have identity anchors.");
   return { version: 1, matterId: value.matterId, roots, sources };
 }
-function parseWorkspaceMemoryProfileText(text) {
-  if (new TextEncoder().encode(text).byteLength > WORKSPACE_MEMORY_LIMITS.profileBytes)
+function parseWorkspaceMemoryProfileText(text2) {
+  if (new TextEncoder().encode(text2).byteLength > WORKSPACE_MEMORY_LIMITS.profileBytes)
     throw new Error("Memory profile byte limit exceeded.");
-  return parseWorkspaceMemoryProfile(JSON.parse(text));
+  return parseWorkspaceMemoryProfile(JSON.parse(text2));
 }
 
 // src/workspace-memory-reader.ts
@@ -2920,8 +3124,8 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
       }
       report.sources.push({ id: source.id, root: source.root, path, role: source.role, required: source.required, writable: externalProfile ? false : source.writable, anchors, sha256: null, bytes: 0, content: null, status: "error" });
     }
-    const semanticRoots = [...roots].map(([id, path]) => ({ id, path })).sort(byId);
-    const semanticSources = report.sources.map(({ id, root, path, role, required, writable, anchors }) => ({ id, root, path, role, required, writable, anchors: [...new Set(anchors)].sort() })).sort(byId);
+    const semanticRoots = [...roots].map(([id2, path]) => ({ id: id2, path })).sort(byId);
+    const semanticSources = report.sources.map(({ id: id2, root, path, role: role2, required, writable, anchors }) => ({ id: id2, root, path, role: role2, required, writable, anchors: [...new Set(anchors)].sort() })).sort(byId);
     report.bindingHash = sha256(JSON.stringify({ version: 1, directory: report.directory, profilePath, externalProfile, matterId: report.matterId, grants, roots: semanticRoots, sources: semanticSources }));
     const physical = new Set;
     let total = 0;
@@ -2931,16 +3135,16 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
           throw new Error(rootProblems.get(source.root));
         if (sourceProblems.has(source.id))
           throw new Error(sourceProblems.get(source.id));
-        const text = readText(source.path, Math.min(WORKSPACE_MEMORY_LIMITS.sourceBytes, WORKSPACE_MEMORY_LIMITS.totalBytes - total));
-        total += text.bytes;
-        if (physical.has(text.physical))
+        const text2 = readText(source.path, Math.min(WORKSPACE_MEMORY_LIMITS.sourceBytes, WORKSPACE_MEMORY_LIMITS.totalBytes - total));
+        total += text2.bytes;
+        if (physical.has(text2.physical))
           throw new Error("Duplicate physical source (alias or hardlink).");
-        physical.add(text.physical);
-        source.sha256 = text.sha256;
-        source.bytes = text.bytes;
-        source.content = text.content;
+        physical.add(text2.physical);
+        source.sha256 = text2.sha256;
+        source.bytes = text2.bytes;
+        source.content = text2.content;
         source.status = "loaded";
-        if (source.anchors.some((anchor) => !text.content.includes(anchor)))
+        if (source.anchors.some((anchor) => !text2.content.includes(anchor)))
           throw new Error("Exact matter identity anchor not found in source.");
       } catch (error) {
         source.status = missing(error) ? "missing" : "error";
@@ -2959,7 +3163,7 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
     if (readText(profilePath, WORKSPACE_MEMORY_LIMITS.profileBytes).sha256 !== report.profileHash)
       throw new Error("Profile changed during snapshot load.");
     checkHistory(report.directory, report, ownOperation);
-    report.contextHash = sha256(JSON.stringify({ bindingHash: report.bindingHash, sources: report.sources.map(({ id, sha256, status }) => ({ id, sha256, status })).sort(byId) }));
+    report.contextHash = sha256(JSON.stringify({ bindingHash: report.bindingHash, sources: report.sources.map(({ id: id2, sha256: sha2562, status }) => ({ id: id2, sha256: sha2562, status })).sort(byId) }));
     report.complete = report.problems.every((p) => p.code === "missing-source" && report.sources.some((s) => s.id === p.sourceId && !s.required && !s.writable));
   } catch (error) {
     report.present = true;
@@ -3268,7 +3472,7 @@ var USAGE = [
   "  Pri úprave existujúceho záznamu: --if-revision <SHA256 z read>",
   "  --approve-as sa nevyžaduje, keď zápis kryje trvalé poverenie advokáta",
   `  v ${OFFICE_DIR}/${CONFIG_FILE} — viď AGENTNI-ZAPISY.md`,
-  "  okf-memory init     <spis> [--sk] [--apply]   BRAIN.md a adresár pamäte",
+  "  okf-memory init     <spis> [--sk|--cz] [--apply]   BRAIN.md a adresár pamäte",
   "",
   "Bez --apply sa nič nezapisuje."
 ].join(`
@@ -3440,7 +3644,10 @@ ${USAGE}` };
       const contextFiles = [
         { path: join5(dir, "VSTUPY.md"), title: "Evidencia vstupov" },
         { path: join5(dir, "KOMUNIKACNE-KANALY.md"), title: "Komunikačné kanály veci" },
-        ...scope.clientDir ? [{ path: join5(scope.clientDir, "KOMUNIKACNE-KANALY.md"), title: "Komunikačné kanály klienta" }] : []
+        ...scope.clientDir ? [
+          { path: join5(scope.clientDir, "VSTUPY.md"), title: "Evidencia vstupov klienta" },
+          { path: join5(scope.clientDir, "KOMUNIKACNE-KANALY.md"), title: "Komunikačné kanály klienta" }
+        ] : []
       ];
       for (const { path, title } of contextFiles) {
         try {
@@ -3579,22 +3786,22 @@ ${serializeRecord(maskRecord(r))}`),
 `) };
     }
     case "write": {
-      const file = flagValue(rest, "--file");
+      const file2 = flagValue(rest, "--file");
       const reason = flagValue(rest, "--reason");
       const approveAs = flagValue(rest, "--approve-as");
       const expectedRevision = flagValue(rest, "--if-revision");
       if (rest.includes("--if-revision") && !expectedRevision)
         return { code: 2, out: "Prepínač --if-revision vyžaduje SHA256 z príkazu read." };
-      if (!file || !reason) {
+      if (!file2 || !reason) {
         return { code: 2, out: `Príkaz write vyžaduje --file a --reason.
 
 ${USAGE}` };
       }
-      if (!existsSync3(file))
-        return { code: 2, out: `Súbor návrhu neexistuje: ${file}` };
+      if (!existsSync3(file2))
+        return { code: 2, out: `Súbor návrhu neexistuje: ${file2}` };
       let after;
       try {
-        after = parseRecord(readFileSync3(file, "utf8"));
+        after = parseRecord(readFileSync3(file2, "utf8"));
       } catch (e) {
         return { code: 2, out: `Návrh sa nedá prečítať: ${e instanceof Error ? e.message : String(e)}` };
       }
