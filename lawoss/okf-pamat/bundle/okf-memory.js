@@ -2542,6 +2542,24 @@ function retrofitStatusFile(dir, apply) {
   return inserted;
 }
 var CLIENT_CARDS = ["client.md", "klient.md"];
+var SUBJECT_CARDS = ["subject.md"];
+function findSubjectDir(matterDir) {
+  const clientDir = findClientDir(matterDir);
+  if (!clientDir)
+    return;
+  const client = resolve(clientDir);
+  let dir = resolve(matterDir);
+  for (;; ) {
+    const parent = dirname(dir);
+    if (parent === dir || parent === client)
+      return;
+    if (!parent.startsWith(`${client}${sep2}`))
+      return;
+    if (SUBJECT_CARDS.some((card) => existsSync2(join2(parent, card))))
+      return parent;
+    dir = parent;
+  }
+}
 var OFFICE_DIR = "Office";
 var LEGACY_OFFICE_DIR = "_kancelaria";
 var OFFICE_DIRS = [OFFICE_DIR, LEGACY_OFFICE_DIR];
@@ -2595,14 +2613,17 @@ function findClientByPath(matterDir, maxUp) {
 function readScope(matterDir) {
   const matter = readStore(matterDir);
   const clientDir = findClientDir(matterDir);
+  const subjectDir = findSubjectDir(matterDir);
+  const subject = subjectDir ? readStore(subjectDir) : undefined;
+  const subjectRecords = subject?.records ?? [];
   const client = clientDir ? readStore(clientDir) : undefined;
   const clientRecords = client?.records ?? [];
   const najdena = findOfficeDir(matterDir);
   const officeDir = najdena && resolve(najdena) !== resolve(matterDir) ? najdena : undefined;
   const office = officeDir ? readStore(officeDir) : undefined;
   const officeRecords = office?.records ?? [];
-  const records = [...matter.records, ...clientRecords, ...officeRecords];
-  const problems = [...matter.problems, ...client?.problems ?? [], ...office?.problems ?? []];
+  const records = [...matter.records, ...subjectRecords, ...clientRecords, ...officeRecords];
+  const problems = [...matter.problems, ...subject?.problems ?? [], ...client?.problems ?? [], ...office?.problems ?? []];
   const seen = new Set;
   for (const record of records) {
     if (seen.has(record.id))
@@ -2611,6 +2632,8 @@ function readScope(matterDir) {
   }
   return {
     matter,
+    subjectDir,
+    subjectRecords,
     clientDir,
     clientRecords,
     officeDir,
@@ -2791,6 +2814,27 @@ function isControlPath(path) {
 function byId(a, b) {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
+function profileLocation(directory, options) {
+  const path = options.profilePath ?? join3(directory, ".lawoss", "memory-profile.json");
+  if (options.profilePath !== undefined && !isAbsolute2(path))
+    throw new Error("Host profile path must be absolute.");
+  if (!checkedPath(path, "file", true)) {
+    if (options.profilePath !== undefined)
+      throw new Error("Host profile path is missing or unsafe.");
+    return { path, external: false };
+  }
+  const canonical = realpathSync2(path);
+  const external = !contained(directory, canonical);
+  if (external) {
+    if (options.profileIdentity !== canonical)
+      throw new Error("External profile identity must equal its canonical path.");
+    const grants = options.profileGrants ?? [];
+    if (!grants.some((grant) => typeof grant === "string" && isAbsolute2(grant) && contained(checkedDirectory(grant), canonical))) {
+      throw new Error("External profile requires a host grant covering its canonical path.");
+    }
+  }
+  return { path: canonical, external };
+}
 function checkHistory(workspace, report, ownOperation) {
   const history = join3(workspace, ".lawoss", "memory-history");
   try {
@@ -2822,8 +2866,12 @@ function readWorkspaceMemory(directory, options = {}) {
 }
 function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
   const report = { present: false, complete: false, directory: resolve3(directory), loadedAt: new Date().toISOString(), matterId: null, bindingHash: null, profileHash: null, contextHash: null, sources: [], problems: [] };
-  const profilePath = join3(report.directory, ".lawoss", "memory-profile.json");
+  let profilePath = join3(report.directory, ".lawoss", "memory-profile.json");
+  let externalProfile = false;
   try {
+    const location = profileLocation(report.directory, options);
+    profilePath = location.path;
+    externalProfile = location.external;
     if (!checkedPath(profilePath, "file", true))
       return report;
     report.present = true;
@@ -2870,11 +2918,11 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
           sourceProblems.set(source.id, message(error));
         }
       }
-      report.sources.push({ id: source.id, root: source.root, path, role: source.role, required: source.required, writable: source.writable, anchors, sha256: null, bytes: 0, content: null, status: "error" });
+      report.sources.push({ id: source.id, root: source.root, path, role: source.role, required: source.required, writable: externalProfile ? false : source.writable, anchors, sha256: null, bytes: 0, content: null, status: "error" });
     }
     const semanticRoots = [...roots].map(([id, path]) => ({ id, path })).sort(byId);
     const semanticSources = report.sources.map(({ id, root, path, role, required, writable, anchors }) => ({ id, root, path, role, required, writable, anchors: [...new Set(anchors)].sort() })).sort(byId);
-    report.bindingHash = sha256(JSON.stringify({ version: 1, directory: report.directory, matterId: report.matterId, grants, roots: semanticRoots, sources: semanticSources }));
+    report.bindingHash = sha256(JSON.stringify({ version: 1, directory: report.directory, profilePath, externalProfile, matterId: report.matterId, grants, roots: semanticRoots, sources: semanticSources }));
     const physical = new Set;
     let total = 0;
     for (const source of report.sources) {

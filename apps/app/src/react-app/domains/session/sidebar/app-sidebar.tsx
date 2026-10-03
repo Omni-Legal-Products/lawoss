@@ -3,6 +3,7 @@ import * as React from "react";
 import legalworkMarkDark from "../../../../../../../lawoss/brand/lawoss-mark.svg";
 import { LawossWordmark } from "../../../../lawoss/shell/wordmark";
 import { LawossNav } from "../../../../lawoss/shell/layout";
+import { OnboardingEntryActions } from "@/lawoss/domains/onboarding/entry-actions";
 import {
   Search,
   House,
@@ -50,6 +51,7 @@ import {
   isMacPlatform,
 } from "../../../../app/utils";
 import { t } from "../../../../i18n";
+import { useUiMode } from "@/lawoss/lite/ui-mode";
 import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 
 import {
@@ -572,6 +574,7 @@ export function AppSidebar(props: AppSidebarProps) {
   const { workspaceId: routeWorkspaceId } = useParams();
   const openProjectId = routeWorkspaceId || (props.selectedSessionId ? props.selectedWorkspaceId : null);
   const unreadTasks = useUnreadTaskCount();
+  const lite = useUiMode() === "lite";
   const goSettings = React.useCallback(
     (tab: string) => {
       const ws = props.selectedWorkspaceId.trim();
@@ -795,11 +798,12 @@ export function AppSidebar(props: AppSidebarProps) {
           </div>
         </div>
         <LawossNav activePane={Boolean(props.activeNav)} />
+        <div className="flex justify-end px-2 pb-2"><OnboardingEntryActions compact /></div>
         <SidebarWorkflowGenerationBadge onOpenSession={(workspaceId, sessionId) => navigate(workspaceSessionRoute(workspaceId, sessionId))} />
-        {newChatSection && <SidebarMenu className="px-2.5 pb-3 pt-1">{newChatSection}</SidebarMenu>}
+        {!lite && newChatSection && <SidebarMenu className="px-2.5 pb-3 pt-1">{newChatSection}</SidebarMenu>}
         </div>
         <div data-slot="sidebar-content" data-sidebar="content" className="no-scrollbar min-h-0 flex-1 overflow-y-auto pt-1 mac:titlebar-no-drag">
-          {shellConfig.chatSectionOrder.filter(key => key !== "navNewChat").filter(key => shellConfig[key]).map(key => {
+          {!lite && shellConfig.chatSectionOrder.filter(key => key !== "navNewChat").filter(key => shellConfig[key]).map(key => {
             if (key !== "sectionProjects") return sessionSection(key);
             return <section key={key} className="pb-3">
               <div className="flex h-9 items-center gap-1 px-4">

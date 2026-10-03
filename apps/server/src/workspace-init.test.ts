@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile, mkdir, stat } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { ensureWorkspaceFiles } from "./workspace-init.js";
+import { ensureWorkspaceFiles, ensureWorkspaceFilesForBootstrap } from "./workspace-init.js";
 import { legalworkExtensionsPreviewPluginPath, legalworkPluginPath } from "./legalwork-extensions-plugin-path.js";
 
 async function withWorkspace(fn: (root: string) => Promise<void>) {
@@ -16,6 +16,25 @@ async function withWorkspace(fn: (root: string) => Promise<void>) {
 }
 
 describe("ensureWorkspaceFiles", () => {
+  test("outside app files leave an existing client folder byte-for-byte unchanged", async () => {
+    await withWorkspace(async (root) => {
+      await mkdir(join(root, "client", "existing"), { recursive: true });
+      await writeFile(join(root, "client", "existing", "brief.txt"), "Original client data", "utf8");
+      const client = join(root, "client");
+      const before = await readFile(join(client, "existing", "brief.txt"), "utf8");
+
+      const result = await ensureWorkspaceFilesForBootstrap({
+        path: client,
+        preset: "starter",
+        appFiles: "outside",
+      });
+
+      expect(result).toEqual({ changed: false, reloadReasons: [] });
+      expect(await readFile(join(client, "existing", "brief.txt"), "utf8")).toBe(before);
+      await expect(stat(join(client, ".opencode"))).rejects.toThrow();
+    });
+  });
+
   test("startup leaves a disconnected project folder missing", async () => {
     await withWorkspace(async (root) => {
       const disconnected = join(root, "Disconnected project");

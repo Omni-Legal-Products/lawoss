@@ -8,3 +8,4 @@ export interface WorkspaceMemoryStatus {
 }
 export function runtimeMemoryGrants(directory: string, externalDirectory: unknown): MemoryGrants;
 export function workspaceMemoryStatus(directory: string, grants: MemoryGrants): WorkspaceMemoryStatus;
+export function workspaceMemoryStatusWithProfile(directory: string, grants: MemoryGrants, profile: { profilePath: string; profileIdentity: string; profileGrants: string[] }): WorkspaceMemoryStatus;

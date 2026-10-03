@@ -45,6 +45,8 @@ import {
 import { t } from "../../../../i18n";
 import { isDesktopRuntime } from "../../../../app/utils";
 import { hideCommercialTabs } from "@/lawoss/feature-flags";
+import { currentUiMode, useUiMode } from "@/lawoss/lite/ui-mode";
+import { isWorkspaceSwitcherVisible, liteSettingsTabs } from "@/lawoss/lite/visibility";
 import type { SettingsTab } from "../../../../app/types";
 import {
   SettingsContent,
@@ -232,7 +234,7 @@ export function getSettingsTabDescription(tab: SettingsTab) {
 export function getWorkspaceSettingsTabs(): SettingsTab[] {
   // Skills and plugins live in Settings > Integrations.
   // Workspace-specific access is configured here.
-  return ["permissions"];
+  return liteSettingsTabs<SettingsTab>(["permissions"], currentUiMode());
 }
 
 export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
@@ -249,7 +251,7 @@ export function getGlobalSettingsTabs(developerMode: boolean): SettingsTab[] {
   if (isDesktopRuntime()) tabs.splice(2, 0, "recorder");
   if (developerMode) tabs.push("debug");
   // LAWOSS: účet a recorder sú komerčné plochy upstreamu — skryté, nie zmazané.
-  return hideCommercialTabs(tabs);
+  return liteSettingsTabs(hideCommercialTabs(tabs), currentUiMode()); // LAWOSS-lite: jen AI, kancelář, vzhled
 }
 
 type SettingsPageProps = {
@@ -279,12 +281,13 @@ type SettingsSidebarProps = Pick<SettingsPageProps, "activeTab" | "onSelectTab" 
 export function SettingsSidebar(props: SettingsSidebarProps) {
   const workspaceTabs = getWorkspaceSettingsTabs();
   const globalTabs = getGlobalSettingsTabs(props.developerMode);
+  const showWorkspace = isWorkspaceSwitcherVisible(useUiMode()); // LAWOSS-lite: bez přepínače workspace
 
   return (
     <nav aria-label={t("settings.navigation")} className="lw-chat-sidebar flex min-h-0 min-w-0 flex-1 flex-col group-data-[collapsible=icon]:hidden">
       <SidebarHeader className="gap-3 border-b border-sidebar-border/60 px-3 pb-4 pt-3">
         <SidebarMenu>
-          <SidebarMenuItem>
+          {showWorkspace && <SidebarMenuItem>
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
@@ -313,7 +316,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
-          </SidebarMenuItem>
+          </SidebarMenuItem>}
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent className="gap-1 px-1 pb-4 pt-2">
@@ -336,7 +339,7 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup>
+        <SidebarGroup hidden={workspaceTabs.length === 0}>
           <SidebarGroupLabel>{t("settings.group_workspace")}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>

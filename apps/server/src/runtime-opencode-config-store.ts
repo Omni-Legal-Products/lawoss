@@ -16,6 +16,10 @@ export type RuntimeOpencodeConfig = {
   };
   provider?: Record<string, unknown>;
   agent?: Record<string, Record<string, unknown>>;
+  /** OpenCode v1 config: additional skill directories or URLs. */
+  skills?: string[];
+  /** Additional ambient instruction files supplied to the managed engine. */
+  instructions?: string[];
   personalization?: PersonalizationSettings;
 };
 
@@ -105,6 +109,8 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
   const permission = isRecord(value.permission) && Object.keys(value.permission).length ? value.permission : undefined;
   const provider = isRecord(value.provider) ? value.provider : undefined;
   const agent = recordRecordMap(value.agent);
+  const skills = Array.isArray(value.skills) ? value.skills.filter((item) => typeof item === "string") : undefined;
+  const instructions = Array.isArray(value.instructions) ? value.instructions.filter((item) => typeof item === "string") : undefined;
   const personalization = isRecord(value.personalization)
     ? normalizePersonalizationSettings(value.personalization)
     : undefined;
@@ -116,6 +122,8 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
     ...(permission ? { permission } : {}),
     ...(provider ? { provider } : {}),
     ...(agent ? { agent } : {}),
+    ...(skills ? { skills } : {}),
+    ...(instructions ? { instructions } : {}),
     ...(personalization ? { personalization } : {}),
   };
 }

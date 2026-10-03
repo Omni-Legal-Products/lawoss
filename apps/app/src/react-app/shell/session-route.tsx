@@ -490,6 +490,7 @@ export function SessionRoute() {
     selectedWorkspaceId,
     selectedWorkspace,
     selectedWorkspaceRoot,
+    selectedSessionDirectory,
     selectedWorkspaceEndpoint,
     selectedWorkspaceServerToken,
     opencodeBaseUrl,
@@ -508,6 +509,18 @@ export function SessionRoute() {
     onServerSettingsChanged: () => setLegalworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setLegalworkServerHostInfoState,
   });
+  // Providers and workspace configuration remain scoped to the client root.
+  // Only a selected chat follows its recorded matter directory.
+  const sessionOpencodeClient = useMemo(
+    () =>
+      opencodeBaseUrl && selectedWorkspaceServerToken && !selectedWorkspaceError
+        ? createClient(opencodeBaseUrl, selectedSessionDirectory || selectedWorkspaceRoot || undefined, {
+            token: selectedWorkspaceServerToken,
+            mode: "legalwork",
+          })
+        : null,
+    [opencodeBaseUrl, selectedSessionDirectory, selectedWorkspaceError, selectedWorkspaceRoot, selectedWorkspaceServerToken],
+  );
   // Projects synced with the firm arrive, leave and get renamed in the background.
   useProjectSyncPoller(client, () => void refreshRouteState(), (workspaceIds) => {
     // Sync changed files of these projects here: whatever shows them reloads.
@@ -1199,10 +1212,10 @@ export function SessionRoute() {
     respondQuestion,
     todos,
   } = useSessionInteractions({
-    client: opencodeClient,
+    client: sessionOpencodeClient,
     workspaceId: selectedWorkspaceId,
     sessionId: selectedSessionId,
-    workspaceRoot: selectedWorkspaceRoot,
+    workspaceRoot: selectedSessionDirectory || selectedWorkspaceRoot,
   });
   const showPreparingStatus =
     effectiveLoading ||
@@ -1302,7 +1315,7 @@ export function SessionRoute() {
   }, [navigate, selectedSessionId, sidebarActiveWorkspaceId]);
 
   const surfaceProps = useMemo(() => {
-    if (!client || !selectedWorkspaceId || !selectedSessionId || !opencodeBaseUrl || !token || !opencodeClient) {
+    if (!client || !selectedWorkspaceId || !selectedSessionId || !opencodeBaseUrl || !token || !sessionOpencodeClient) {
       return null;
     }
 
@@ -1332,7 +1345,7 @@ export function SessionRoute() {
     // local server's, and remote workspaces silently end up calling the
     // local server with the local `rem_*` id.
     return {
-      workspaceRoot: selectedWorkspaceRoot,
+      workspaceRoot: selectedSessionDirectory || selectedWorkspaceRoot,
       developerMode: false,
       modelLabel,
       onModelClick: () => {
@@ -1402,12 +1415,12 @@ export function SessionRoute() {
         markTaskRunStart(targetSessionId);
 
         if (draft.mode === "shell") {
-          await shellInSession(opencodeClient, targetSessionId, text);
+          await shellInSession(sessionOpencodeClient, targetSessionId, text);
           return;
         }
 
         if (draft.command) {
-          const result = await opencodeClient.session.command({
+          const result = await sessionOpencodeClient.session.command({
             sessionID: targetSessionId,
             command: draft.command.name,
             arguments: draft.command.arguments,
@@ -1423,7 +1436,7 @@ export function SessionRoute() {
           return;
         }
 
-        const parts = await draftToParts(draft, selectedWorkspaceRoot);
+        const parts = await draftToParts(draft, selectedSessionDirectory || selectedWorkspaceRoot);
         const envSystemContext = await buildLegalworkEnvSystemContext(client, {
           cacheKey: targetSessionId,
           runtimeKey: environmentRuntimeKey,
@@ -1444,8 +1457,8 @@ export function SessionRoute() {
             // (task calls + synthesis) finishes. Progress streams
             // through the fusion store; failures surface as a session error.
             const run = runFusionSend({
-              client: opencodeClient,
-              directory: selectedWorkspaceRoot || undefined,
+              client: sessionOpencodeClient,
+              directory: selectedSessionDirectory || selectedWorkspaceRoot || undefined,
               mainSessionId: targetSessionId,
               parts,
               userText: text,
@@ -1476,10 +1489,10 @@ export function SessionRoute() {
         if (options?.waitForCompletion) {
           // The queue advances after the engine's whole loop, not after a tool
           // step, a streamed assistant message, or the prompt_async HTTP 204.
-          const result = unwrap(await opencodeClient.session.prompt(request));
+          const result = unwrap(await sessionOpencodeClient.session.prompt(request));
           if (result.info.error) throw new Error(serializeSDKError(result.info.error));
         } else {
-          const result = await opencodeClient.session.promptAsync(request);
+          const result = await sessionOpencodeClient.session.promptAsync(request);
           if (result.error) throw new Error(serializeSDKError(result.error));
         }
       },
@@ -1504,11 +1517,11 @@ export function SessionRoute() {
         const trimmed = query.trim();
         if (!trimmed) return [];
         const result = unwrap(
-          await opencodeClient.find.files({
+          await sessionOpencodeClient.find.files({
             query: trimmed,
             dirs: "true",
             limit: 50,
-            directory: selectedWorkspaceRoot || undefined,
+            directory: selectedSessionDirectory || selectedWorkspaceRoot || undefined,
           }),
         );
         return result;
@@ -1520,8 +1533,8 @@ export function SessionRoute() {
         if (!targetSessionId) return false;
         try {
           // Abort any running generation first; OpenCode rejects revert on busy sessions.
-          await abortSessionSafe(opencodeClient, targetSessionId, selectedWorkspaceRoot || undefined);
-          const reverted = await revertSession(opencodeClient, targetSessionId, messageId);
+          await abortSessionSafe(sessionOpencodeClient, targetSessionId, selectedSessionDirectory || selectedWorkspaceRoot || undefined);
+          const reverted = await revertSession(sessionOpencodeClient, targetSessionId, messageId);
           // Stamp the revert cursor into the local caches so the transcript
           // rewinds immediately instead of waiting for a full reload.
           applySessionRevert(selectedWorkspaceId, reverted);
@@ -1537,7 +1550,7 @@ export function SessionRoute() {
           const targetSessionId = sessionId.trim() || selectedSessionId;
           if (!targetSessionId) return;
           try {
-            const forked = await forkSession(opencodeClient, targetSessionId, messageId ?? undefined);
+            const forked = await forkSession(sessionOpencodeClient, targetSessionId, messageId ?? undefined);
             writeLastSessionFor(selectedWorkspaceId, forked.id);
             rememberPendingCreatedSession(selectedWorkspaceId, forked.id);
             setSessionsByWorkspaceId((current) => ({
@@ -1585,9 +1598,10 @@ export function SessionRoute() {
     modelVariantValue,
     navigate,
     opencodeBaseUrl,
-    opencodeClient,
+    sessionOpencodeClient,
     selectedAgent,
     selectedSessionId,
+    selectedSessionDirectory,
     selectedModelUnavailable,
     soloEigenweltModel,
     selectedWorkspace,
@@ -2271,6 +2285,7 @@ export function SessionRoute() {
         // the UI never sees them and gets stuck on "thinking".
         workspaceId={selectedWorkspaceEndpoint.workspaceId}
         sessionId={selectedSessionId}
+        directory={selectedSessionDirectory || selectedWorkspaceRoot || undefined}
         activeSessionIds={activeSelectedWorkspaceSessionIds}
         opencodeBaseUrl={opencodeBaseUrl}
         legalworkToken={selectedWorkspaceServerToken}

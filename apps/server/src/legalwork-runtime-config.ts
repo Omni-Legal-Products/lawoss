@@ -14,7 +14,7 @@ import { readSystemOneSettings } from "./systemone.js";
  * which was frozen at spawn and reverted MCP state on each dispose.
  */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createHash, randomUUID } from "node:crypto";
@@ -64,6 +64,7 @@ import {
 import { eigenweltHasPremiumModels } from "./eigenwelt-auth.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { repairRuntimeProviders } from "./runtime-provider-repair.js";
+import { externalOpencodeConfigDir } from "./lawoss/workspace-app-files.js";
 
 const LEGALWORK_AGENT_PROMPT = `You are LegalWork — an AI agent that works alongside legal professionals inside a law firm.
 
@@ -186,6 +187,17 @@ export async function buildLegalworkRuntimeConfigObject(
         await readGlobalToolPermissions(config),
       )
     : {};
+  const workspace = config && workspaceId
+    ? config.workspaces.find((entry) => entry.id === workspaceId)
+    : undefined;
+  const externalConfigDir = config && workspace ? externalOpencodeConfigDir(config, workspace) : null;
+  const externalSkillsDir = externalConfigDir ? join(externalConfigDir, "skills") : null;
+  // Outside mode disables OpenCode's project discovery so it cannot load
+  // client-local app config. Preserve the user's workspace instructions as an
+  // explicit, read-only runtime input instead.
+  const clientInstructions = externalConfigDir && workspace
+    ? [join(workspace.path, "AGENTS.md")].filter((file) => existsSync(file))
+    : [];
   const personalization = config
     ? await readGlobalPersonalizationSettings(config)
     : null;
@@ -272,6 +284,12 @@ export async function buildLegalworkRuntimeConfigObject(
     ])).filter((item, index, list) => list.indexOf(item) === index),
     ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
     mcp: { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) },
+    ...(externalSkillsDir
+      ? { skills: [...new Set([...(runtimeConfig.skills ?? []), externalSkillsDir])] }
+      : runtimeConfig.skills?.length ? { skills: runtimeConfig.skills } : {}),
+    ...((runtimeConfig.instructions?.length || clientInstructions.length)
+      ? { instructions: [...new Set([...(runtimeConfig.instructions ?? []), ...clientInstructions])] }
+      : {}),
   };
 }
 
