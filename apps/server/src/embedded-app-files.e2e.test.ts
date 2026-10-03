@@ -5,6 +5,17 @@ import { dirname, join } from "node:path";
 import { startEmbeddedServer } from "./embedded.js";
 import { externalAppFilesRoot } from "./lawoss/workspace-app-files.js";
 
+async function waitForEngineWorkspaces(requestsPath: string, workspaces: string[]) {
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline) {
+    const requests = (await readFile(requestsPath, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
+    const directories = requests.map(request => new URL(request, "http://localhost").searchParams.get("directory"));
+    if (workspaces.every(workspace => directories.includes(workspace))) return;
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  throw new Error("Engine fixture did not finish startup synchronization for every workspace");
+}
+
 test("embedded startup applies host outside policy before seeding an unconfigured workspace", async () => {
   const directory = await mkdtemp(join(tmpdir(), "legalwork-embedded-app-files-"));
   const workspace = join(directory, "client");
@@ -70,8 +81,14 @@ const fs = require("node:fs");
 const http = require("node:http");
 fs.writeFileSync(process.env.FAKE_ENGINE_ENV_PATH, JSON.stringify({ configDir: process.env.OPENCODE_CONFIG_DIR, disableProjectConfig: process.env.OPENCODE_DISABLE_PROJECT_CONFIG }));
 const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
-process.stdout.write("opencode server listening on http://127.0.0.1:" + port + "\\n");
-http.createServer((request, response) => response.end("ok")).listen(port, "127.0.0.1");
+const requestsPath = process.env.FAKE_ENGINE_ENV_PATH + ".requests";
+fs.writeFileSync(requestsPath, "");
+http.createServer((request, response) => {
+  response.end("ok");
+  fs.appendFileSync(requestsPath, request.url + "\\n");
+}).listen(port, "127.0.0.1", () => {
+  process.stdout.write("opencode server listening on http://127.0.0.1:" + port + "\\n");
+});
 process.on("SIGTERM", () => process.exit(0));
 `, "utf8");
   await chmod(bin, 0o755);
@@ -95,6 +112,8 @@ process.on("SIGTERM", () => process.exit(0));
     expect(runtimeConfig.instructions).toContain(join(workspace, "AGENTS.md"));
     expect((await readdir(workspace)).sort()).toEqual(["AGENTS.md", "original.txt"]);
     expect(await readdir(firstWorkspace)).toEqual(["original.txt"]);
+    // Finish startup before terminating the engine, otherwise its retry loop leaks into later tests.
+    await waitForEngineWorkspaces(`${envPath}.requests`, [firstWorkspace, workspace]);
     await server.stop();
     server = await startEmbeddedServer({
       host: "127.0.0.1", port: 0, configPath, workspaces: [firstWorkspace, workspace],
@@ -111,6 +130,7 @@ process.on("SIGTERM", () => process.exit(0));
     expect(JSON.parse(await readFile(envPath, "utf8"))).toEqual({ configDir: firstExpected, disableProjectConfig: "true" });
     const restartedRuntimeConfig = JSON.parse(await readFile(join(dirname(configPath), "runtime-opencode-config.json"), "utf8")) as { skills?: string[] };
     expect(restartedRuntimeConfig.skills).toContain(join(firstExpected, "skills"));
+    await waitForEngineWorkspaces(`${envPath}.requests`, [firstWorkspace, workspace]);
   } finally {
     await server?.stop();
     if (originalDataDir === undefined) delete process.env.LEGALWORK_DATA_DIR;
