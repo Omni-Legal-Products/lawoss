@@ -6,6 +6,7 @@ import { startServer } from "./server.js";
 import { writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 import type { WorkspaceMemoryStatus } from "../../../lawoss/okf-handoff/workspace-memory-status.mjs";
+import { externalAppFilesRoot, externalMemoryProfilePath } from "./lawoss/workspace-app-files.js";
 const priorData = process.env.LEGALWORK_DATA_DIR, priorTokens = process.env.LEGALWORK_TOKEN_STORE;
 const roots: string[] = [], stops: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const stop of stops.splice(0)) await stop(); for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); if (priorData === undefined) delete process.env.LEGALWORK_DATA_DIR; else process.env.LEGALWORK_DATA_DIR = priorData; if (priorTokens === undefined) delete process.env.LEGALWORK_TOKEN_STORE; else process.env.LEGALWORK_TOKEN_STORE = priorTokens; });
@@ -40,6 +41,44 @@ test("runtime broad allow cannot bypass narrow deny/custom or invalid grants", a
     await writeRuntimeOpencodeConfig(f.config, "synthetic", () => ({ permission: { external_directory: rules } }));
     const status = await f.status(); expect(status.complete).toBe(false); expect(status.grants.folders).toEqual([]); expect(status.grants.hiddenCount).toBeGreaterThan(0); expect(status.sources[0]?.sha256).toBeNull();
   }
+});
+
+test("outside workspace reads its host-owned mapped profile across restart without changing the client tree", async () => {
+  const f = await fixture();
+  f.config.workspaces[0]!.appFiles = "outside";
+  await rm(join(f.root, ".lawoss", "memory-profile.json"));
+  await writeFile(join(f.root, "mapped-memory.md"), "MAPPED-ANCHOR client source");
+  const profilePath = externalMemoryProfilePath(f.config, f.config.workspaces[0]!);
+  if (!profilePath) throw new Error("outside workspace did not resolve a host profile path");
+  await mkdir(join(profilePath, ".."), { recursive: true });
+  await writeFile(profilePath, JSON.stringify({ version: 1, matterId: "mapped", roots: [{ id: "client", path: "." }], sources: [{ id: "memory", root: "client", path: "mapped-memory.md", role: "case_memory", required: true, writable: true, anchors: ["MAPPED-ANCHOR"] }] }));
+  const before = await workspaceSnapshot(f.root);
+  expect((await f.status()).complete).toBe(true);
+  expect(await workspaceSnapshot(f.root)).toEqual(before);
+  for (const stop of stops.splice(0)) await stop();
+  const restarted = await startServer(f.config); stops.push(() => restarted.stop());
+  const response = await fetch(`http://127.0.0.1:${restarted.port}/workspace/synthetic/lawoss/memory`, { headers: f.headers });
+  expect(response.status).toBe(200); expect((await response.json() as WorkspaceMemoryStatus).complete).toBe(true);
+  expect(await workspaceSnapshot(f.root)).toEqual(before);
+});
+
+test("mapped production hook checkpoints outside the client and preserves it across restart", async () => {
+  const f = await fixture(); f.config.workspaces[0]!.appFiles = "outside";
+  await rm(join(f.root, ".lawoss", "memory-profile.json")); await writeFile(join(f.root, "mapped-memory.md"), "MAPPED-HOOK-ANCHOR source");
+  const profilePath = externalMemoryProfilePath(f.config, f.config.workspaces[0]!); const appRoot = externalAppFilesRoot(f.config, f.config.workspaces[0]!);
+  if (!profilePath) throw new Error("missing host profile path");
+  await mkdir(appRoot, { recursive: true }); await mkdir(join(profilePath, ".."), { recursive: true });
+  await writeFile(profilePath, JSON.stringify({ version: 1, matterId: "mapped-hook", roots: [{ id: "client", path: "." }], sources: [{ id: "memory", root: "client", path: "mapped-memory.md", role: "case_memory", required: true, writable: false, anchors: ["MAPPED-HOOK-ANCHOR"] }] }));
+  const before = await workspaceSnapshot(f.root), previous = { url: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_SERVER_TOKEN };
+  try {
+    process.env.LEGALWORK_SERVER_URL = new URL(f.url).origin; process.env.LEGALWORK_SERVER_TOKEN = "synthetic-client";
+    const { LawossOkfHandoff } = await import("./opencode-plugins/lawoss-okf-handoff.js");
+    const first = { system: [] as string[] }; await (await LawossOkfHandoff({ directory: f.root }))["experimental.chat.system.transform"]!({ sessionID: "mapped" }, first); expect(first.system[0]).not.toContain("FAILED");
+    const checkpoint = join(appRoot, ".lawoss", "handoff", "mapped.md"); expect(await readdir(appRoot, { recursive: true })).toContain(".lawoss/handoff/mapped.md"); const good = await readFile(checkpoint, "utf8"); expect(good).toContain("MAPPED-HOOK-ANCHOR"); expect(await workspaceSnapshot(f.root)).toEqual(before);
+    for (const stop of stops.splice(0)) await stop(); const restarted = await startServer(f.config); stops.push(() => restarted.stop()); process.env.LEGALWORK_SERVER_URL = `http://127.0.0.1:${restarted.port}`;
+    const fresh = { system: [] as string[] }; await (await LawossOkfHandoff({ directory: f.root }))["experimental.chat.system.transform"]!({ sessionID: "mapped" }, fresh); expect(fresh.system[0]).not.toContain("FAILED"); const afterRestart = await readFile(checkpoint, "utf8"); expect(afterRestart).toContain("MAPPED-HOOK-ANCHOR");
+    await rm(profilePath); const revoked = { system: [] as string[] }; await (await LawossOkfHandoff({ directory: f.root }))["experimental.chat.system.transform"]!({ sessionID: "mapped" }, revoked); expect(revoked.system[0]).toContain("FAILED"); expect(await readFile(checkpoint, "utf8")).toBe(afterRestart);
+  } finally { if (previous.url === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previous.url; if (previous.token === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = previous.token; }
 });
 
 test("production plugin resolves real HTTP grants on each hook and preserves revoked checkpoint", async () => {

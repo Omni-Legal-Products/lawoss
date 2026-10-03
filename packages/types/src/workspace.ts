@@ -181,6 +181,8 @@ export type WorkspaceWire = {
   baseUrl?: string | null;
   directory?: string | null;
   displayName?: string | null;
+  /** Whether LegalWork-managed project files are stored in this workspace. */
+  appFiles?: "inside" | "outside";
   legalworkHostUrl?: string | null;
   legalworkToken?: string | null;
   /** Desktop IPC only: tokens for desktop-managed remote workspaces. */

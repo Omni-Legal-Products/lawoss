@@ -61,6 +61,29 @@ export type UseWorkspaceRouteStateInput = {
   onHostInfo: (info: LegalworkServerInfo | null) => void;
 };
 
+/** A local session may run in a matter folder, but it remains owned by its client workspace. */
+export function sessionDirectoryWithinWorkspace(workspace: RouteWorkspace | null | undefined, session?: Pick<RouteSession, "directory"> | null) {
+  const root = workspace?.path?.trim() ?? "";
+  const directory = session?.directory?.trim() ?? "";
+  if (!root || !directory || workspace?.workspaceType === "remote") return root;
+  const normalizedRoot = normalizeDirectoryPath(root);
+  const normalizedDirectory = normalizeDirectoryPath(directory);
+  if (normalizedDirectory === normalizedRoot || normalizedDirectory.startsWith(`${normalizedRoot}/`)) return directory;
+  return root;
+}
+
+/** Keep sessions in client subdirectories, while rejecting an untrusted escaped directory. */
+export function sessionsWithinWorkspace(workspace: RouteWorkspace, sessions: RouteSession[]) {
+  if (workspace.workspaceType === "remote") return sessions;
+  const root = normalizeDirectoryPath(workspace.path ?? "");
+  if (!root) return sessions;
+  return sessions.filter((session) => {
+    const directory = session?.directory?.trim() ?? "";
+    const normalizedDirectory = normalizeDirectoryPath(directory);
+    return normalizedDirectory === root || normalizedDirectory.startsWith(`${root}/`);
+  });
+}
+
 export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const { onServerSettingsChanged, onHostInfo, preserveRoute = false } = input;
   const navigate = useNavigate();
@@ -248,12 +271,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         try {
           const response = await endpoint.client.listSessions(endpoint.workspaceId, { limit: 200 });
           const fetchedItems = response.items ?? [];
-          const workspaceRoot = normalizeDirectoryPath(workspace.path ?? "");
-          const items = workspaceRoot && !isRemoteLegalworkWorkspace
-            ? fetchedItems.filter((session) =>
-                normalizeDirectoryPath(session?.directory ?? "") === workspaceRoot,
-              )
-            : fetchedItems;
+          const items = sessionsWithinWorkspace(workspace, fetchedItems);
           setSessionsByWorkspaceId((current) => {
             const nextItems = mergeFetchedSessionsWithPending(workspace.id, items, current[workspace.id] ?? []);
             const next = { ...current, [workspace.id]: nextItems };
@@ -761,6 +779,10 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   }, [client, loading, selectedWorkspace, workspaces]);
 
   const selectedWorkspaceRoot = selectedWorkspace?.path?.trim() || "";
+  const selectedSession = selectedSessionId
+    ? (sessionsByWorkspaceId[selectedWorkspaceId] ?? []).find((session) => session?.id === selectedSessionId) ?? null
+    : null;
+  const selectedSessionDirectory = sessionDirectoryWithinWorkspace(selectedWorkspace, selectedSession);
   // Single source of truth for the selected workspace's server URL/token/id.
   // For remote workspaces this is the worker that owns the workspace; for
   // local workspaces it's the user's local LegalWork server.
@@ -891,6 +913,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     selectedWorkspaceId,
     selectedWorkspace,
     selectedWorkspaceRoot,
+    selectedSessionDirectory,
     selectedWorkspaceEndpoint,
     selectedWorkspaceServerToken,
     opencodeBaseUrl,

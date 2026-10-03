@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -71,6 +71,11 @@ export function prioritizeWorkspacePaths(preferredPath, workspacePaths = []) {
   return paths;
 }
 
+/** Honor the workspace policy persisted by the host. */
+export function usesExternalWorkspaceAppFiles(workspace) {
+  return workspace?.appFiles === "outside";
+}
+
 export function resolveLegalworkServerConfigPath(env = process.env) {
   const override = String(env.LEGALWORK_SERVER_CONFIG ?? "").trim();
   if (override) return path.resolve(override);
@@ -82,6 +87,12 @@ export function resolveLegalworkServerConfigPath(env = process.env) {
   const xdgConfigHome = String(env.XDG_CONFIG_HOME ?? "").trim();
   const root = xdgConfigHome || path.join(os.homedir(), ".config");
   return path.join(root, "legalwork", "server.json");
+}
+
+/** Matches the server's outside-mode app-files root for a canonical workspace. */
+export function externalWorkspaceAppFilesRoot(serverConfigPath, workspacePath) {
+  const hash = createHash("sha256").update(path.resolve(String(workspacePath))).digest("hex");
+  return path.join(path.dirname(path.resolve(String(serverConfigPath))), "workspace-app-files", hash);
 }
 
 // Use the same location as the embedded server, including the dev profile,
@@ -175,6 +186,7 @@ function createEngineState() {
     childExited: true,
     runtime: DIRECT_RUNTIME,
     projectDir: null,
+    appFiles: "inside",
     hostname: null,
     port: null,
     baseUrl: null,
@@ -591,7 +603,7 @@ function loadUserEnvFile() {
   }
 }
 
-export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, recorder, onSidecarExit, getApprovalWindow }) {
+export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, listLocalWorkspaceAppFiles, recorder, onSidecarExit, getApprovalWindow }) {
   const requestHostApproval = createHostApprovalHandler({
     getWindow: getApprovalWindow,
     showMessageBox: async (window, options) => {
@@ -1309,7 +1321,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     }
   }
 
-  async function ensureOpencodeConfig(projectDir) {
+  async function ensureOpencodeConfig(projectDir, appFiles = "inside") {
+    if (appFiles === "outside") return;
     // First, and regardless of which config wins below: the engine needs
     // .opencode to be a directory or its instance bootstrap dies, taking every
     // route for this workspace with it (issue #62). This must run before the
@@ -1405,6 +1418,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       requestedWorkspacePaths,
       existsSync(serverConfigPath),
     );
+    const hostWorkspaceAppFiles = (await listLocalWorkspaceAppFiles?.() ?? [])
+      .filter((workspace) => workspace?.appFiles === "outside" && String(workspace?.path ?? "").trim())
+      .map((workspace) => ({ path: String(workspace.path).trim(), appFiles: "outside" }));
     const activeWorkspace = selectStickyLegalworkPortWorkspace(requestedWorkspacePaths, workspacePaths);
     const portSelection = await resolveLegalworkPort(host, activeWorkspace, currentPort);
     const tokens = await loadOrCreateWorkspaceTokens(activeWorkspace);
@@ -1439,6 +1455,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       requestHostApproval,
       configPath: serverConfigPath,
       workspaces: workspacePaths,
+      hostWorkspaceAppFiles,
       token: tokens.clientToken,
       hostToken: tokens.hostToken,
       opencodeBaseUrl: options.opencodeBaseUrl ?? undefined,
@@ -1731,11 +1748,13 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // the sticky preferred port, racing the not-yet-released socket into
     // EADDRINUSE and leaving the runtime in error -> boot screen.
     const requestedRemoteAccess = options.legalworkRemoteAccess === true;
+    const appFiles = options.appFiles === "outside" ? "outside" : "inside";
     if (
       legalworkServerState.inProcess &&
       lifecycleState === "healthy" &&
       normalizeWorkspaceKey(engineState.projectDir) === normalizeWorkspaceKey(safeProjectDir) &&
-      legalworkServerState.remoteAccessEnabled === requestedRemoteAccess
+      legalworkServerState.remoteAccessEnabled === requestedRemoteAccess &&
+      engineState.appFiles === appFiles
     ) {
       const existing = snapshotLegalworkServerState(legalworkServerState);
       const managedEngine = inProcessServer?.managedOpencodeStatus?.();
@@ -1744,8 +1763,10 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       }
     }
 
-    await mkdir(safeProjectDir, { recursive: true });
-    await ensureOpencodeConfig(safeProjectDir);
+    if (appFiles === "inside") {
+      await mkdir(safeProjectDir, { recursive: true });
+      await ensureOpencodeConfig(safeProjectDir, appFiles);
+    }
     await prepareFreshRuntime();
 
     const workspacePaths = [safeProjectDir, ...((options.workspacePaths ?? []).filter(Boolean))].filter(
@@ -1757,6 +1778,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       lifecycleState = "starting";
       engineState.runtime = runtime;
       engineState.projectDir = safeProjectDir;
+      engineState.appFiles = appFiles;
       engineState.child = null;
       engineState.childExited = true;
 
@@ -1803,6 +1825,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     return engineStart(projectDir, {
       runtime: engineState.runtime,
       workspacePaths: [projectDir],
+      appFiles: engineState.appFiles,
       opencodeEnableExa: options.opencodeEnableExa,
       legalworkRemoteAccess: options.legalworkRemoteAccess,
     });
@@ -1934,10 +1957,15 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       throw new Error("workspacePath is required");
     }
     const resolved = path.resolve(workspacePath);
-    if (normalizeWorkspaceKey(engineState.projectDir) !== normalizeWorkspaceKey(resolved)) {
+    const appFiles = input?.appFiles === "outside" ? "outside" : "inside";
+    if (
+      normalizeWorkspaceKey(engineState.projectDir) !== normalizeWorkspaceKey(resolved)
+      || engineState.appFiles !== appFiles
+    ) {
       await engineStart(resolved, {
         runtime: DIRECT_RUNTIME,
         workspacePaths: [resolved],
+        appFiles,
       });
     }
     return {
