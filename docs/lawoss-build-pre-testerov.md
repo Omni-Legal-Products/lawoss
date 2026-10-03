@@ -87,63 +87,79 @@ Voliteľné, ale užitočné pred hlásením problému — overí, že TypeScrip
 1. **Pripojte model.** V appke choďte na **Settings → AI Providers** a pripojte AI model, ktorý chcete používať (vlastný API kľúč alebo iný podporovaný spôsob pripojenia). Appka bez pripojeného modelu nemá s čím pracovať. Kým model nie je pripojený, odosielanie je zamknuté a nad poľom na písanie je lišta s tlačidlom **Connect a provider**. LAWOSS žiadne predplatné nepredáva: tlačidlá na skúšobnú verziu alebo prihlásenie (Eigenwelt, dodávateľ upstreamu) nepoužívajte.
 
    > Pozor, ak používate aj samostatný `opencode` CLI: build od upstream v0.1.21 pri každom spustení presunie MCP konektory z `~/.config/opencode/opencode.json` (aj z `opencode.json` v pracovných priečinkoch) do vlastnej databázy v `~/.config/legalwork/` a z pôvodného súboru ich zmaže. Server si pred prvým presunom uloží kópiu každého dotknutého súboru ako `<súbor>.bak-<dátum>` vedľa neho; napriek tomu si ho pred prvým spustením zálohujte aj sami a konektory odvtedy pridávajte v appke. Starší LAWOSS build po návrate konektory neuvidí — postup obnovy je v [docs/rollback-v0.1.21.md](rollback-v0.1.21.md).
-2. **Založte testovací priečinok.** Pri prvom spustení appka ponúkne výber pracovného priečinka. Vytvorte si na to nový, prázdny priečinok mimo akéhokoľvek reálneho spisu — **nepoužívajte priečinok so skutočnými klientskymi dátami** (dôvod je v sekcii 6).
+2. **Pripravte testovací priečinok.** Použite nový, prázdny priečinok mimo reálnych spisov. **Nepoužívajte skutočné klientske dáta** (dôvod je v sekcii 7). Postup pre nový onboarding kancelárie, klienta a veci je v sekcii 5b vrátane stavu jeho začlenenia.
 3. **Prepnite jazyk.** Prepínač jazyka je v hlavičke rozhovoru aj v **Settings** (obe miesta zdieľajú jednu voľbu). Zvoľte slovenčinu, češtinu alebo angličtinu; predvolený je jazyk systému.
 4. Vyskúšajte appku na neškodnej úlohe — napríklad nechajte ju zhrnúť testovací dokument, ktorý ste sami vložili do testovacieho priečinka.
 
 ## 5a. Pripojenie modelu
 
-LAWOSS nemá vlastný model ani vlastný kľúč — pripájate si svojho poskytovateľa.
-Všetko ide cez **Settings → AI Providers**.
+LAWOSS nemá vlastný model ani vlastný kľúč. Svojho poskytovateľa pripojíte cez
+**Settings → AI Providers**; názov položky sa môže líšiť podľa jazyka rozhrania.
 
 ### Anthropic
 
-Dve cesty, obe funkčné:
+Odporúčaný postup podľa [ADR 0003](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/blob/main/decisions/0003-legal-work-ako-zaklad.md)
+je **API kľúč** z [Anthropic Console](https://console.anthropic.com/).
+V dialógu poskytovateľa zvoľte pripojenie kľúčom a zadajte ho do určeného poľa.
+Kľúč nevkladajte do rozhovoru, screenshotov ani hlásenia chyby.
 
-- **Predplatné Claude (Pro/Max)** — „Sign in with Anthropic". Otvorí sa prehliadač,
-  po prihlásení sa vrátite do appky. Kľúč nikam nezadávate.
-- **API kľúč** — vložíte `sk-ant-…` z console.anthropic.com. Kľúč sa ukladá lokálne
-  do `auth.json` enginu, neodchádza nikam inam.
+Ak engine ponúkne prihlásenie cez **Claude Pro/Max**, aplikácia pri tejto voľbe
+zobrazuje upozornenie na podmienky spotrebiteľského predplatného. Tento návod
+nepotvrdzuje úspešné prihlásenie ani odpoveď modelu cez túto možnosť. Pri príprave
+tejto dokumentácie sa živý test Anthropicu nevykonal.
 
 ### OpenRouter, OpenAI, ostatní
 
-Rovnaká obrazovka, rovnaký postup: vložíte API kľúč poskytovateľa. OpenRouter je
-rozcestník k mnohým modelom pod jedným kľúčom.
+V tej istej obrazovke vyberte poskytovateľa a dostupný spôsob pripojenia.
+Pri API pripojení vložte jeho kľúč; ďalšie ponúkané spôsoby závisia od enginu
+a poskytovateľa. OpenRouter sprostredkuje výber viacerých modelov.
 
 ### Výber modelu
 
-Po pripojení si appka vyberie východiskový model sama. **Vyberá len spomedzi
-modelov, ktoré vedia volať nástroje** — agent bez nástrojov nevie čítať súbory ani
-zapisovať do spisu, takže obrázkové, hlasové a prepisovacie modely sa ako
-východiskové neponúkajú. Model kedykoľvek zmeníte v lište nad vstupným poľom.
+Ak je pripojený **presne jeden poskytovateľ**, automatický výber použije jeho
+predvolený model, ak podporuje nástroje; inak prvý vhodný chatový model z jeho
+katalógu. Obrázkové, hlasové, prepisovacie a embedding modely tento výber vylúči.
+Pri **viacerých pripojených poskytovateľoch** tento automatický výber model
+neurčí. Skontrolujte uloženú voľbu alebo vyberte poskytovateľa a model v lište
+nad vstupným poľom. Ak vhodný model chýba, doplňte poskytovateľa, ktorý ho ponúka.
 
-> Ak vám odpoveď skončí chybou `No endpoints found that support tool use`,
-> máte vybraný model bez nástrojov — prepnite ho v pickeri.
+> Pri chybe `No endpoints found that support tool use` overte, či vybraný model
+> a jeho endpoint podporujú nástroje, a skúste vhodný model v pickeri.
 
 ### Ladiaci port
 
-Appka otvára ladiaci port (CDP) na loopbacku — používa ho vstavaný prehliadač a
-vyberá si ho sama z rozsahu 9223–9227. Konkrétny port si vypýtate cez
-`LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT=9823 pnpm dev`, **úplne ho zavriete** cez
-`LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT=off pnpm dev`. Kto sa naň pripojí, riadi
-okno aj session, takže na cudzom stroji ho zavrite.
+Aplikačný CDP port je od upstream syncu v0.2.1 **predvolene vypnutý**.
+V zabalenom builde zostáva vypnutý aj pri nastavenej premennej prostredia.
+Vývojové zapnutie na explicitnom porte opisuje [Ladiaci port Electronu](#ladiaci-port-electronu).
 
 ## 5b. Smoke scenár alfy
 
-Prejdite po zostavení týchto šesť krokov. Pri každom je uvedené, čo má nastať;
-ak nastane niečo iné, je to nález do issues (krok 6 nižšie).
+> **Čaká na merge, stav k 3. 10. 2026:** nasledujúci onboarding opisuje implementáciu
+> pripravenú v [PR #104](https://github.com/Omni-Legal-Products/lawoss/pull/104)
+> nad [PR #103](https://github.com/Omni-Legal-Products/lawoss/pull/103).
+> Tieto PR ešte nie sú súčasťou `dev`. Kroky nového onboardingu preto skúšajte
+> až v builde, ktorý ich obsahuje. [Implementačný záznam #104](https://github.com/Omni-Legal-Products/lawoss/blob/93dd8ab657e62c41a04b3b8c7b9ad5912ec6aac1/docs/lawoss-onboarding-core-2026-10-03.md)
+> uvádza overený rozsah aj zostávajúce obmedzenia. Tento návod sám nepotvrdzuje
+> úspešný živý priechod scenárom.
+
+Použite syntetické údaje a zaznamenajte commit buildu aj režim Lite/Pro.
+Tento krátky scenár dopĺňa [alfa akceptačný protokol](lawoss-alpha-acceptance.md),
+kde sú preflight, matica poskytovateľov a kritériá PASS/FAIL. Odchýlku hláste
+podľa sekcie 6.
 
 | # | Krok | Očakávaný výsledok |
 |---|---|---|
-| 1 | Prvé spustenie a onboarding | Appka sa otvorí, prejdete výberom pracovného priečinka bez chyby. Priečinok je prázdny a mimo klientskych dát. |
-| 2 | Pripojenie modelu | Po vložení kľúča je poskytovateľ v zozname ako pripojený a v lište nad vstupným poľom je vybraný model (nie „No AI model connected"). |
-| 3 | Jazyk | Prepínač jazyka v hlavičke rozhovoru (alebo v **Settings**) → slovenčina alebo čeština. Rozhranie sa prepne celé, vrátane nastavení a bočného panela; nikde neostane anglická veta. Po reštarte appky voľba zostane. |
-| 4 | Založenie spisu | V **Settings → Integrácie** pri karte **OKF — klienti, veci a pamäť** potvrďte inštaláciu (uloží skilly `/novy-spis`, `/okf-pamat` a `/usporiadaj-spis`; samotná inštalácia vec nezakladá). Potom v rozhovore nad pracovným priečinkom zadajte `/novy-spis`. Agent ukáže **plán** a čaká na potvrdenie; až potom vzniknú súbory. |
-| 5 | Zápis do pamäte | Požiadajte agenta o zápis (napr. úlohu s termínom). Záznam vznikne v `memory/`, `_STATUS.md` ho ukáže v sekcii Lehoty alebo Otvorené úlohy a v histórii záznamu je, kto zápis schválil. |
-| 6 | Reštart | Zavrieť a znova otvoriť appku: workspace, model, jazyk aj spis ostávajú. Prehľad a Lehoty ukazujú skutočné údaje zo spisu, nie ukážku. |
+| 1 | Identita a kancelária | V novom onboardingu vyplňte testovaciu identitu a kanceláriu. Pred zápisom skontrolujte náhľad a výslovne ho potvrďte. Kancelária nie je klientsky workspace. |
+| 2 | AI | V kroku AI otvorte nastavenia a pripojte dostupného poskytovateľa podľa sekcie 5a. Overte pripojený stav, vhodný model a návrat do onboardingu. Odpoveď modelu overte samostatnou neškodnou otázkou; samotný stav „pripojený“ ju nedokazuje. |
+| 3 | Klient a vec | Dokončite kroky klient a vec, vždy s kontrolou náhľadu a potvrdením zápisu. **Klient je workspace**, vec je jeho podpriečinok. Rozhovor otvorte vo vybranej veci a skontrolujte jeho kontext; nevytvárajte pre tú istú vec druhý workspace. |
+| 4 | Jazyk a režim | V Settings alebo prepínači v hlavičke rozhovoru zvoľte SK alebo CS. Overte preklad používaných obrazoviek a zachovanie voľby po reštarte. Zaznamenajte Lite/Pro; nový profil začína v Lite, existujúci profil bez uloženej voľby zostáva v Pro. |
+| 5 | Dokument, pamäť a nový rozhovor | Vo veci použite syntetický dokument a uložte jednu testovaciu informáciu do pamäte. V novom rozhovore tej istej veci overte očakávaný kontext a podľa alfa protokolu skontrolujte, že sa neprenesie do inej veci alebo k inému klientovi. |
+| 6 | Reštart a návrat k veci | Zavrite a otvorte appku. Skontrolujte klientsky workspace, vybranú vec, model, jazyk a uloženú informáciu. Prehľad má zodpovedať testovacím dátam. |
 
-Čo v alfe **nefunguje zámerne**: notarizované buildy (kompilujete si sami),
-automatické aktualizácie, nahrávanie a prepis (skryté), platené plochy upstreamu.
+V pokročilom postupe môžete cez **Settings → Integrácie** potvrdiť inštaláciu
+OKF skillov a použiť `/novy-spis` v rozhovore. Inštalácia skillov sama vec
+nevytvorí. Aj pri tejto ceste kontrolujte plán pred zápisom a kontext rozhovoru.
+Hranice lokálneho alfa buildu sú v sekcii 7.
 
 ## 6. Čo hlásiť a kam
 

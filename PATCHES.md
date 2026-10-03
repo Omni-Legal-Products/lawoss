@@ -333,3 +333,7 @@ Baseline `8858366578b506bc3c83f39072e3c0a2ddbbee00`, upstream `v0.2.1` `2019dc65
 ### Windows file identity correction during v0.2.1 CI
 
 `lawoss/okf/src/naming-fs.ts` now reads exact BigInt filesystem identities throughout document naming, apply, replay and rollback. Windows source CI exposed collisions caused by rounding large inode values to JavaScript numbers. The existing plan format retains string identities. The Node regression reproduces two colliding numeric IDs and passes only with exact reads. The OKF bundle is regenerated; no naming, hardlink, compare-and-swap or recovery guard is removed.
+
+### Tester documentation follow-up (#73)
+
+`docs/lawoss-build-pre-testerov.md` aligns provider setup and CDP instructions with the v0.2.1 sync. It documents automatic model selection for one connected provider and manual selection when several are connected. The smoke scenario links the existing alpha acceptance protocol and explicitly marks the client-workspace and matter-scope onboarding from #104 over #103 as pending merge. This follow-up changes documentation only; it adds no runtime patch or live-provider validation.
