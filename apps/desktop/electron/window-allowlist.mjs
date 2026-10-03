@@ -70,11 +70,12 @@ export function describeBlockedUrl(url) {
  * @param {import("node:events").EventEmitter & { stop(): void }} contents Electron WebContents
  * @param {readonly string[]} allowlist
  * @param {(url: string) => void} onBlocked
+ * @param {(url: string) => boolean} [isTrustedUrl]
  */
-export function guardNavigation(contents, allowlist, onBlocked) {
+export function guardNavigation(contents, allowlist, onBlocked, isTrustedUrl = (url) => isAllowedNavigation(url, allowlist)) {
   /** @param {{ url: string; isMainFrame: boolean; preventDefault(): void }} event */
   const cancel = (event) => {
-    if (!event.isMainFrame || isAllowedNavigation(event.url, allowlist)) return;
+    if (!event.isMainFrame || isTrustedUrl(event.url)) return;
     event.preventDefault();
     onBlocked(event.url);
   };
@@ -82,7 +83,7 @@ export function guardNavigation(contents, allowlist, onBlocked) {
   contents.on("will-redirect", cancel);
   /** @param {{ url: string; isMainFrame: boolean; isSameDocument: boolean }} event */
   const stop = (event) => {
-    if (!event.isMainFrame || event.isSameDocument || isAllowedNavigation(event.url, allowlist)) return;
+    if (!event.isMainFrame || event.isSameDocument || isTrustedUrl(event.url)) return;
     try {
       contents.stop();
     } catch {

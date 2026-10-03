@@ -156,8 +156,8 @@ PR #63 rieši len vyhľadanie inštalátora pri nezhode architektúry. Prevádzk
 
 | Súbory upstreamu | Úprava a dôvod |
 |---|---|
-| `apps/app/src/react-app/domains/workspace/create-workspace-modal.tsx`, `types.ts` | Voliteľný `ReactNode` slot pre doplnkový obsah; bez slotu ostáva pôvodný tok otvorenia lokálneho priečinka. |
-| `apps/app/src/react-app/shell/session-route.tsx` | Rozbaliteľný spoločný panel OKF pre dostupný vybraný lokálny workspace; dostáva existujúci endpoint, klienta a oprávnenia, pri zatvorení sa odpojí. Bez workspace zostáva obyčajné Pridať priečinok. Panel overí právo zápisu skillov a pripraví neodoslaný návrh rozhovoru; nepotvrdzuje vznik cieľových súborov ani neregistruje neoverený priečinok. Staršia experimentálna adresa používa rovnaký panel bez duplikácie formulára. |
+| `apps/app/src/react-app/domains/workspace/create-project-modal.tsx` | Od v0.2.1 voliteľný `ReactNode` slot `additionalContent` pokračuje pod formulárom natívneho projektu. Nahrádza historický slot `create-workspace-modal.tsx`; bez obsahu ostáva upstream create-project tok nezmenený. |
+| `apps/app/src/react-app/shell/session-route.tsx` | Rozbaliteľný spoločný panel OKF pre dostupný vybraný lokálny projekt používa nový slot `CreateProjectModal`; dostáva existujúci endpoint, klienta a oprávnenia, pri zatvorení sa odpojí. Bez projektu ostáva pôvodný upstream tok. Panel overí právo zápisu skillov a pripraví neodoslaný návrh rozhovoru; nepotvrdzuje vznik cieľových súborov ani neregistruje neoverený priečinok. Staršia experimentálna adresa používa rovnaký panel bez duplikácie formulára. |
 
 ### LAWOSS katalóg v natívnych Integrations (2026-09-20)
 
@@ -303,3 +303,33 @@ Doménové obrazovky, slovníky, viditeľný prepínač a regresie zostávajú v
 | `apps/app/src/react-app/domains/session/artifacts/artifact-markdown-editor.tsx` | `linkPlugin({ disableAutoLink: true })` vypína dodatočný automatický prepis holých URL/e-mailov pri načítaní. Ten prichádzal po počiatočnej normalizácii a falošne označoval otvorený dokument ako upravený. Explicitné Markdown odkazy a dialóg vloženia odkazu zostávajú; ochrana skutočných úprav sa nevypína. |
 | `apps/app/src/react-app/domains/session/artifacts/docx-document-state.ts` | Spoločná výzva na zahodenie skutočných neuložených zmien používa aktuálny jazyk UI. Výber dirty dokumentov, zrušenie akcie a discard callbacks zostávajú pôvodné. |
 | `apps/app/src/i18n/locales/en.ts`, `de.ts`, `cs.ts`, `sk.ts` | Jeden zhodný kľúč `artifact.confirm_discard_unsaved`; doslovné názvy súborov sú parametrom existujúcej interpolácie. |
+
+## Upstream sync v0.2.1 (2026-10-02)
+
+Windows CI follow-up: `.github/workflows/ci-desktop-packaging.yml` používa `win-unpacked/LAWOSS.exe`, zhodne s existujúcim `productName`. Upstream cesta `LegalWork.exe` zlyhala po úspešnom vytvorení LAWOSS balíka. Kontroly poistiek, natívnych modulov, náhľadu a štartu sa zachovávajú.
+
+Baseline `8858366578b506bc3c83f39072e3c0a2ddbbee00`, upstream `v0.2.1` `2019dc65b45860fdd76ff3addf7a1524bbf3c6a6`. Merge má 32 textových konfliktov. Tabuľka zachytáva aktívne downstream adaptácie v resolved tree; historické záznamy vyššie ostávajú zachované.
+
+| Súbory upstreamu | Adaptácia LAWOSS v synce |
+|---|---|
+| `apps/app/src/react-app/shell/app-root.tsx`, `session-route.tsx`, `use-workspace-route-state.ts` | LAWOSS routes zostávajú v spoločnom SessionRoute shelli. `experimentView` a `preserveRoute` chránia ich adresu pred obnovením session a prvým redirectom. |
+| `apps/app/src/react-app/shell/welcome-route.tsx`, `domains/workspace/create-project-modal.tsx` | Branded welcome s prepínačom jazyka otvára nový upstream named-project modal. Predvolená analytika je vypnutá. Slot `additionalContent` zachováva natívny OKF vstup. |
+| `apps/app/src/react-app/shell/settings-route.tsx`, `domains/settings/pages/extensions-view.tsx`, `domains/settings/pages/mcp-view.tsx` | Natívne Integrations naďalej obsahujú LAWOSS file-memory kartu, NativeCatalog, OKF inštaláciu a existujúce MCP actions. |
+| `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx`, `main-action-rail.tsx`, `sidebar-customization.tsx`, `domains/session/chat/session-page.tsx` | LAWOSS značka, navigácia a prepínač jazyka ostávajú. Skryté komerčné položky sa filtrujú aj v hlavnej lište aj v nastavení navigácie. |
+| `apps/app/src/react-app/domains/settings/shell/settings-page.tsx`, `shell/settings-shell.tsx` | Appearance a Language ostávajú viditeľné; account a recorder ostávajú filtrované bez odstránenia upstream implementácie. |
+| `apps/app/src/react-app/domains/connections/eigenwelt-entitlements.ts` | Skrytý účet Eigenwelt vypne query aj jeho `queryFn`; ani manuálny `refetch()` potom nevolá endpoint s entitlements. |
+| `apps/server/src/routes/files.ts`, `routes/workspaces.ts`, `server.ts`, `runtime-config.ts`, `skills.ts` | Zachované sú LAWOSS read-only memory endpointy, register-existing bezpečnostná hranica, OKF runtime hook, conditional text write a odolný výpis skillov spolu s upstream serverovými zmenami. |
+| `apps/desktop/electron/updater.mjs`, `main.mjs`, `electron-builder.yml` | LAWOSS názov, ikony, attribution, updater feed a window allowlist ostávajú popri upstream desktop runtime a packaging zmenách. |
+| `apps/app/src/i18n/locales/en.ts`, `de.ts`, `cs.ts`, `sk.ts`, `i18n/index.ts` | EN/DE katalógový fallback a SK/CS UI slovníky, registrácia a spoločný LanguageSwitcher ostávajú. Prepnutie UI neprepisuje existujúce spisové dáta. Existujúca voľba jazyka nových OKF súborov ostáva zachovaná. |
+
+| `apps/app/src/react-app/domains/session/sidebar/eigenwelt-account-menu.tsx`, `domains/workspace/project-sync.tsx`, `domains/settings/pages/hub-share-dialog.tsx`, `skills-view.tsx`, `domains/reviews/review-prompt-library.tsx` | Skryté účet/zdieľanie majú guard pred hookmi alebo pri jednotlivých akciách; vlastné modely, MCP a lokálne skilly zostávajú dostupné. |
+| `apps/app/src/react-app/domains/reviews/review-columns.tsx`, `review-library-editor.tsx`, `review-library-picker.tsx`, `review-prompt-library.tsx`, `domains/settings/pages/hub-share-dialog.tsx` | Malý zelený helper mapuje iba jazyk EN/DE knižnice zadaní. SK/CS UI používa anglický katalóg bez prepnutia rozhrania. |
+| `apps/server/src/opencode-plugins/legalwork-skill-tools.ts`, `legalwork-skill-tools.test.ts` | Upstream `../skill-tool-content.js` nahrádza aktívny import historického LAWOSS shared helpera. Regresia načítania každého exportu ako pluginu ostáva. Historický shared súbor sa už nepoužíva. |
+| `apps/server/src/skills.test.ts`, `runtime-config.test.ts`, `lawoss-register-existing.e2e.test.ts` | Fixture chybného YAML zodpovedá tolerantnému upstream parseru; plugin URL sa kontroluje aj s novým cache query. Registrácia existujúceho spisu odmieta vytváracie voľby bez zápisu do spisu alebo default priečinka. |
+| `apps/app/src/app/lib/opencode.ts`, `legalwork-server.ts`, `domains/session/artifacts/artifact-panel.tsx` | Zachovaný 60-sekundový limit vytvorenia session popri upstream streaming výnimkách; memory/registerExisting/CAS kontrakty sú spojené s upstream API; autor dokumentu naďalej pochádza z lokálnej preferencie. |
+| `apps/desktop/electron/main.mjs`, `scripts/dev-remote-debug.mjs`, `docs/lawoss-build-pre-testerov.md` | Nový upstream CDP režim je predvolene vypnutý a v balenej aplikácii vždy vypnutý. LAWOSS navigation guard používa presný upstream `isAppUrl` a naďalej kontroluje redirecty; Autogram a fork updater hooks ostávajú. |
+| `apps/server/package.json`, `bunfig.toml`, `apps/desktop/package.json`, `apps/app/package.json`, `pnpm-lock.yaml`, `.github/workflows/ci-tests.yml` | Spojené build entrypoints, test preloads, desktop testy a fonty; CI naďalej overuje všetky PR. Lockfile bol regenerovaný bez širšej zmeny upstream dependency resolutions. |
+
+### Windows file identity correction during v0.2.1 CI
+
+`lawoss/okf/src/naming-fs.ts` now reads exact BigInt filesystem identities throughout document naming, apply, replay and rollback. Windows source CI exposed collisions caused by rounding large inode values to JavaScript numbers. The existing plan format retains string identities. The Node regression reproduces two colliding numeric IDs and passes only with exact reads. The OKF bundle is regenerated; no naming, hardlink, compare-and-swap or recovery guard is removed.
