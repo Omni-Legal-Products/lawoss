@@ -81,6 +81,14 @@ function parseAssignee(value: unknown): string | null {
   return value.trim() || null;
 }
 
+function parseProjectId(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string" || !value.trim() || value.length > 200) {
+    throw new ApiError(400, "invalid_task_project", "projectId must be a project id or null.");
+  }
+  return value.trim();
+}
+
 function parseTags(value: unknown): string[] {
   if (!Array.isArray(value) || value.some((tag) => typeof tag !== "string")) {
     throw new ApiError(400, "invalid_task_tags", "tags must be a list of text values.");
@@ -94,17 +102,20 @@ function parseTags(value: unknown): string[] {
 /** The list filter/sort/paging params off a request's query. */
 export function parseTaskListParams(search: URLSearchParams): TaskListParams {
   const params: TaskListParams = {};
-  const assignee = search.get("assignee")?.trim();
-  if (assignee) params.assignee = assignee;
-  const status = search.get("status")?.trim();
-  if (status) params.status = parseStatus(status);
-  const endpointId = search.get("endpointId")?.trim();
-  if (endpointId) params.endpointId = endpointId;
-  const tag = search.get("tag")?.trim();
-  if (tag) {
-    if (tag.length > TASK_TAG_MAX_CHARS) throw new ApiError(400, "invalid_task_tag", "tag is too long.");
-    params.tag = tag;
-  }
+  if (search.has("projectId")) params.projectId = parseProjectId(search.get("projectId")) ?? undefined;
+  const assignees = search.getAll("assignee").map((value) => value.trim()).filter(Boolean);
+  if (assignees.length === 1) params.assignee = assignees[0];
+  else if (assignees.length > 1) params.assignees = assignees;
+  const statuses = search.getAll("status").map((value) => value.trim()).filter(Boolean).map(parseStatus);
+  if (statuses.length === 1) params.status = statuses[0];
+  else if (statuses.length > 1) params.statuses = statuses;
+  const endpointIds = search.getAll("endpointId").map((value) => value.trim()).filter(Boolean);
+  if (endpointIds.length === 1) params.endpointId = endpointIds[0];
+  else if (endpointIds.length > 1) params.endpointIds = endpointIds;
+  const tags = search.getAll("tag").map((value) => value.trim()).filter(Boolean);
+  if (tags.some((tag) => tag.length > TASK_TAG_MAX_CHARS)) throw new ApiError(400, "invalid_task_tag", "tag is too long.");
+  if (tags.length === 1) params.tag = tags[0];
+  else if (tags.length > 1) params.tags = tags;
   const sort = search.get("sort")?.trim();
   if (sort) {
     if (sort !== "created" && sort !== "updated" && sort !== "due" && sort !== "priority") {
@@ -148,6 +159,7 @@ export function parseTaskCreate(body: Record<string, unknown>, workspaceId?: str
   const title = typeof body.title === "string" ? body.title.trim() : "";
   if (!title) throw new ApiError(400, "invalid_task_title", "A task needs a title.");
   const create: TaskCreate = { title };
+  if (body.projectId !== undefined) create.projectId = parseProjectId(body.projectId);
   if (body.sessionId !== undefined) {
     if (typeof body.sessionId !== "string" || !body.sessionId.trim() || body.sessionId.length > 200) {
       throw new ApiError(400, "invalid_task_session", "sessionId must be a session id.");
@@ -209,6 +221,7 @@ export function parseTaskSessionLink(body: Record<string, unknown>): {
 /** A PATCH body. Only the keys sent are applied; an empty patch is refused. */
 export function parseTaskPatch(body: Record<string, unknown>): TaskPatch {
   const patch: TaskPatch = {};
+  if (body.projectId !== undefined) patch.projectId = parseProjectId(body.projectId);
   if (body.title !== undefined) {
     if (typeof body.title !== "string" || !body.title.trim()) {
       throw new ApiError(400, "invalid_task_title", "A task needs a title.");

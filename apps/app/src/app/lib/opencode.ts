@@ -75,7 +75,7 @@ function getRequestUrl(input: RequestInfo | URL): string {
   return String(input);
 }
 
-function resolveRequestTimeoutMs(input: RequestInfo | URL, fallbackMs: number, init?: RequestInit): number {
+export function resolveRequestTimeoutMs(input: RequestInfo | URL, fallbackMs: number, init?: RequestInit): number {
   const url = getRequestUrl(input);
   const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
   // The first session waits for workspace/plugin initialization on a cold engine.
@@ -83,10 +83,12 @@ function resolveRequestTimeoutMs(input: RequestInfo | URL, fallbackMs: number, i
   if (method === "POST" && /\/session\/?(?:[?#]|$)/.test(url)) {
     return Math.max(fallbackMs, SESSION_CREATE_TIMEOUT_MS);
   }
-  if (SESSION_LONG_RUNNING_URL_RE.test(url)) {
+  if (SESSION_LONG_RUNNING_URL_RE.test(url) || (input instanceof Request && input.method === "POST" && /\/session\/[^/?#]+\/message(?:[?#]|$)/.test(url))) {
     return 0;
   }
-  if (/\/provider\/oauth\//.test(url) || /\/mcp\/auth\/callback\b/.test(url)) {
+  // The OAuth callback long-polls until the user finishes signing in. Cut
+  // short, the app reloads the engine, which drops the pending sign-in.
+  if (/\/provider\/[^/]+\/oauth\//.test(url) || /\/mcp\/auth\/callback\b/.test(url)) {
     return Math.max(fallbackMs, OAUTH_OPENCODE_REQUEST_TIMEOUT_MS);
   }
   if (/\/mcp\/.*auth\b/.test(url)) {
@@ -367,10 +369,33 @@ export function createClient(baseUrl: string, directory?: string, auth?: Opencod
     }
   }
 
-  const fetchImpl = isDesktopRuntime()
+  const transportFetch = isDesktopRuntime()
     ? createDesktopFetch(auth)
     : (input: RequestInfo | URL, init?: RequestInit) =>
         fetchWithTimeout(globalThis.fetch, input, init, DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS);
+  const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request && !init ? input : new Request(input, init);
+    const url = new URL(request.url);
+    const messagePath = url.pathname.match(/^(.*\/session\/[^/]+)\/(?:message|prompt_async|command|shell)$/);
+    if (request.method === "POST" && messagePath) {
+      // Resuming a conversation restores it before sending, including queued
+      // prompts, steering, commands and direct OpenCode connections. Reads and
+      // opening an archived chat must leave its archive state unchanged.
+      url.pathname = messagePath[1];
+      const restoreHeaders = new Headers(request.headers);
+      restoreHeaders.set("Content-Type", "application/json");
+      restoreHeaders.delete("Content-Length");
+      const restored = await transportFetch(new Request(url, {
+        method: "PATCH",
+        headers: restoreHeaders,
+        body: JSON.stringify({ time: { archived: 0 } }),
+        signal: request.signal,
+      }));
+      if (!restored.ok) return restored;
+      await restored.body?.cancel();
+    }
+    return transportFetch(input, init);
+  };
   const client = createOpencodeClient({
     baseUrl,
     directory,
