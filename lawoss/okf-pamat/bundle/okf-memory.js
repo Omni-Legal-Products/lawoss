@@ -2725,12 +2725,12 @@ function readText(path, limit) {
   checkedPath(path, "file");
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
-    const before = fstatSync(fd);
+    const before = fstatSync(fd, { bigint: true });
     if (!before.isFile())
       throw new Error(`Not a regular file: ${path}`);
-    if (before.size > limit)
+    if (before.size > BigInt(limit))
       throw new Error(`Byte limit ${limit} exceeded: ${path}`);
-    const buffer = Buffer.alloc(Math.min(before.size + 1, limit + 1));
+    const buffer = Buffer.alloc(Math.min(Number(before.size) + 1, limit + 1));
     let count = 0;
     while (count < buffer.length) {
       const n = readSync(fd, buffer, count, buffer.length - count, null);
@@ -2738,12 +2738,12 @@ function readText(path, limit) {
         break;
       count += n;
     }
-    const after = fstatSync(fd), named = lstatSync2(path);
-    if (count !== before.size || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || named.isSymbolicLink() || before.ino !== named.ino || before.dev !== named.dev)
+    const after = fstatSync(fd, { bigint: true }), named = lstatSync2(path, { bigint: true });
+    if (BigInt(count) !== before.size || before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs || named.isSymbolicLink() || before.ino !== named.ino || before.dev !== named.dev)
       throw new Error(`Source changed during read: ${path}`);
     const bytes = buffer.subarray(0, count);
     const content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
-    return { content, sha256: sha256(bytes), bytes: count, physical: `${before.dev}:${before.ino}`, mode: before.mode & 511 };
+    return { content, sha256: sha256(bytes), bytes: count, physical: `${before.dev}:${before.ino}`, mode: Number(before.mode & 0o777n) };
   } finally {
     closeSync(fd);
   }
