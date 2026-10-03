@@ -71,7 +71,11 @@ const http = require("node:http");
 fs.writeFileSync(process.env.FAKE_ENGINE_ENV_PATH, JSON.stringify({ configDir: process.env.OPENCODE_CONFIG_DIR, disableProjectConfig: process.env.OPENCODE_DISABLE_PROJECT_CONFIG }));
 const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
 process.stdout.write("opencode server listening on http://127.0.0.1:" + port + "\\n");
-http.createServer((request, response) => response.end("ok")).listen(port, "127.0.0.1");
+http.createServer((request, response) => {
+  const url = new URL(request.url, "http://127.0.0.1");
+  if (url.pathname === "/mcp") fs.appendFileSync(process.env.FAKE_ENGINE_ENV_PATH + ".mcp", url.searchParams.get("directory") + "\\n");
+  response.end("ok");
+}).listen(port, "127.0.0.1");
 process.on("SIGTERM", () => process.exit(0));
 `, "utf8");
   await chmod(bin, 0o755);
@@ -96,6 +100,9 @@ process.on("SIGTERM", () => process.exit(0));
     expect((await readdir(workspace)).sort()).toEqual(["AGENTS.md", "original.txt"]);
     expect(await readdir(firstWorkspace)).toEqual(["original.txt"]);
     await server.stop();
+    // Shutdown must join the initial sync before terminating its engine.
+    expect((await readFile(envPath + ".mcp", "utf8")).trim().split("\n")).toEqual([firstWorkspace, workspace]);
+    await rm(envPath + ".mcp");
     server = await startEmbeddedServer({
       host: "127.0.0.1", port: 0, configPath, workspaces: [firstWorkspace, workspace],
       token: "client-token", hostToken: "host-token", logRequests: false, wordAddin: false,
@@ -111,6 +118,9 @@ process.on("SIGTERM", () => process.exit(0));
     expect(JSON.parse(await readFile(envPath, "utf8"))).toEqual({ configDir: firstExpected, disableProjectConfig: "true" });
     const restartedRuntimeConfig = JSON.parse(await readFile(join(dirname(configPath), "runtime-opencode-config.json"), "utf8")) as { skills?: string[] };
     expect(restartedRuntimeConfig.skills).toContain(join(firstExpected, "skills"));
+    await server.stop();
+    server = null;
+    expect((await readFile(envPath + ".mcp", "utf8")).trim().split("\n")).toEqual([firstWorkspace, workspace]);
   } finally {
     await server?.stop();
     if (originalDataDir === undefined) delete process.env.LEGALWORK_DATA_DIR;

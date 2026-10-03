@@ -231,9 +231,9 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   // The runtime config file above only covers workspaces[0]. Push every
   // workspace's runtime-DB MCPs into the engine so they aren't invisible
   // until a manual reload. Best-effort.
-  if (managedOpencode) {
-    void syncAllWorkspacesRuntimeMcpToEngine(config);
-  }
+  const initialMcpSync = managedOpencode
+    ? syncAllWorkspacesRuntimeMcpToEngine(config).catch(() => undefined)
+    : Promise.resolve();
 
   return {
     port: server.port,
@@ -244,6 +244,8 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
       ? { running: managedOpencode.running(), pid: managedOpencode.pid }
       : null,
     async stop() {
+      // Keep the engine alive until startup sync has stopped issuing requests.
+      await initialMcpSync;
       await managedOpencode?.close();
       await server.stop();
     },
