@@ -65,3 +65,7 @@ Pokrytie zahŕňa klasifikáciu, stale tree, kolízie, recovery a rollback, bin�
 Použiť `pnpm --filter @legalwork/desktop build:electron`. Pri samostatnej obnove rendereru musí byť `LEGALWORK_ELECTRON_BUILD=1`; obyčajný webový build používa absolútne asset cesty, ktoré sa cez `file://` nenačítajú. Lokálne balenie používa `CSC_IDENTITY_AUTO_DISCOVERY=false` a explicitný ad-hoc podpis testovacieho artefaktu. `apps/desktop/scripts/packaged-startup-regression.mjs` vytvorí vlastný profil a workspace, overí rendererové ovládanie a odstráni iba svoj testovací profil.
 
 Windows CI pri skúšobnej kópii odhalilo delenie cesty iba na `/` a synchronizáciu súboru cez read-only handle. Názov teraz používa platformový `basename`; Windows otvára skopírovaný súbor na synchronizáciu aj so zápisovým prístupom. Testy sa neobchádzajú.
+
+## Dodatočné Windows packaging overenie
+
+Po retargete #104 na `dev` sa spustila aj plná packaging matica. Windows zlyhal pred buildom na novom runtime teste: POSIX fixture `/Users/...` v očakávaní neobsahovala drive, zatiaľ čo runtime správne normalizoval cestu pomocou `path.resolve`. Fixture teraz používa absolútnu cestu odvodenú od `os.tmpdir()`; ďalší test overuje normalizáciu relatívneho configu aj workspace. Produkčný kód sa nemení. Príkaz `node --test apps/desktop/electron/opencode-config-migration.test.mjs apps/desktop/electron/runtime.test.mjs apps/desktop/electron/ui-control-server.test.mjs apps/desktop/electron/safe-open.test.mjs` na Node 24.19.0: 51 pass, 0 fail. Výsledok nového Windows CI sa vyhodnocuje samostatne.
