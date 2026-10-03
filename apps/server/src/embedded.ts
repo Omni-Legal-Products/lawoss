@@ -6,10 +6,11 @@
  * of owning the process lifecycle.
  */
 import { mkdir } from "node:fs/promises";
+import { relative, resolve, sep } from "node:path";
 import { resolveServerConfig, type CliArgs } from "./config.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer, type OpencodeExecutionSnapshot } from "./managed-opencode.js";
 import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
-import { ensureWorkspaceFiles } from "./workspace-init.js";
+import { ensureWorkspaceFilesForBootstrap } from "./workspace-init.js";
 import { globalSkillsDir } from "./workspace-files.js";
 import { ensureBundledWorkflows } from "./bundled-workflows.js";
 import { retireSharedLegacyReview } from "./reviews/retire-legacy.js";
@@ -26,6 +27,11 @@ import { refreshEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
 import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
+
+export type HostWorkspaceAppFilesPolicy = {
+  path: string;
+  appFiles: "outside";
+};
 
 export type EmbeddedServerOptions = CliArgs & {
   /** Fallback only; explicit CLI, environment and file approval settings take precedence. */
@@ -44,7 +50,31 @@ export type EmbeddedServerOptions = CliArgs & {
   pickDirectory?: ServerConfig["pickDirectory"];
   /** Desktop recorder hook, forwarded to Office add-in API routes. */
   recorder?: ServerConfig["recorder"];
+  /** Outside-mode policy supplied by the embedding host before workspace initialization. */
+  hostWorkspaceAppFiles?: readonly HostWorkspaceAppFilesPolicy[];
 };
+
+function isPathInside(parent: string, candidate: string): boolean {
+  const path = relative(parent, candidate);
+  return path === "" || (!path.startsWith(`..${sep}`) && path !== ".." && !path.includes(`..${sep}`));
+}
+
+function applyHostWorkspaceAppFilesPolicy(
+  config: ServerConfig,
+  policies: readonly HostWorkspaceAppFilesPolicy[] | undefined,
+): void {
+  const outsideRoots = (policies ?? [])
+    .filter((policy) => policy.appFiles === "outside" && policy.path.trim())
+    .map((policy) => resolve(policy.path));
+  if (outsideRoots.length === 0) return;
+  for (const workspace of config.workspaces) {
+    if (workspace.workspaceType === "remote") continue;
+    const workspacePath = resolve(workspace.path);
+    if (outsideRoots.some((root) => isPathInside(root, workspacePath))) {
+      workspace.appFiles = "outside";
+    }
+  }
+}
 
 export type EmbeddedServerHandle = {
   /** Bound port the HTTP server is listening on. */
@@ -62,6 +92,7 @@ export type EmbeddedServerHandle = {
 
 export async function startEmbeddedServer(options: EmbeddedServerOptions): Promise<EmbeddedServerHandle> {
   const config = await resolveServerConfig(options, { approvalMode: options.defaultApprovalMode });
+  applyHostWorkspaceAppFilesPolicy(config, options.hostWorkspaceAppFiles);
   config.requestHostApproval = options.requestHostApproval;
   config.pickDirectory = options.pickDirectory ?? null;
   config.projectsDirectory = options.projectsDirectory;
@@ -81,7 +112,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     await retireSharedLegacyReview(globalSkillsDir());
     await ensureBundledWorkflows();
     for (const workspace of config.workspaces) {
-      await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
+      await ensureWorkspaceFilesForBootstrap(workspace);
     }
   }
   // Drop retired / unparsable provider blocks from the runtime DB BEFORE the

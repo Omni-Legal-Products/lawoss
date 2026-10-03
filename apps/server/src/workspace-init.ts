@@ -9,6 +9,7 @@ import { CORE_OPENCODE_FILES } from "./core-skills.js";
 import { legalworkConfigPath, opencodeConfigPath } from "./workspace-files.js";
 import { readJsoncFile } from "./jsonc.js";
 import { ensureOpencodeStateDir } from "./opencode-state-dir.js";
+import { usesExternalWorkspaceAppFiles, type WorkspaceAppFilesTarget } from "./lawoss/workspace-app-files.js";
 import type { ReloadReason } from "./types.js";
 
 // One hash over all bundled-core file contents. Bumps whenever the app ships a new
@@ -34,6 +35,16 @@ type WorkspaceLegalworkConfig = {
 type EnsureWorkspaceFilesResult = {
   changed: boolean;
   reloadReasons: ReloadReason[];
+};
+
+export type WorkspaceFileBootstrapTarget = WorkspaceAppFilesTarget & {
+  path: string;
+  preset?: string | null;
+};
+
+const NO_WORKSPACE_FILE_CHANGES: EnsureWorkspaceFilesResult = {
+  changed: false,
+  reloadReasons: [],
 };
 
 function normalizePreset(preset: string | null | undefined): string {
@@ -130,6 +141,18 @@ export async function ensureWorkspaceFiles(workspaceRoot: string, presetInput: s
     changed: legalworkConfigChanged || reloadReasons.size > 0,
     reloadReasons: Array.from(reloadReasons),
   };
+}
+
+/**
+ * Initialize app-managed project files only when the workspace keeps them
+ * inside its directory. `outside` is intentionally a no-op: runtime setup is
+ * owned by the desktop/server runtime store instead.
+ */
+export async function ensureWorkspaceFilesForBootstrap(
+  workspace: WorkspaceFileBootstrapTarget,
+): Promise<EnsureWorkspaceFilesResult> {
+  if (usesExternalWorkspaceAppFiles(workspace)) return NO_WORKSPACE_FILE_CHANGES;
+  return ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
 }
 
 export async function readRawOpencodeConfig(path: string): Promise<{ exists: boolean; content: string | null }> {

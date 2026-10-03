@@ -3,7 +3,9 @@ import { mkdtemp, mkdir, realpath, rm, writeFile, readdir, readFile, lstat, syml
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "./server.js";
+import { resolveServerConfig } from "./config.js";
 import { auditLogPath } from "./audit.js";
+import { renameRegisteredWorkspace } from "./routes/workspaces.js";
 import { workspaceIdForPath } from "./workspaces.js";
 import type { ServerConfig } from "./types.js";
 
@@ -26,7 +28,7 @@ async function fixture() {
   const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(base, "server.json"), token: "client", hostToken: "host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [{ id: "office", name: "Office", preset: "starter", path: office, workspaceType: "local" }], authorizedRoots: [office], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
   const server = await startServer(config); cleanups.push(async () => { await server.stop(); });
   const register = (folderPath: string, registerExisting: unknown = true, token = "host", extra: Record<string, unknown> = {}) => fetch(`http://127.0.0.1:${server.port}/workspaces/local`, { method: "POST", headers: { "x-legalwork-host-token": token, "content-type": "application/json" }, body: JSON.stringify({ folderPath, name: "Same title", preset: "starter", registerExisting, ...extra }) });
-  return { base, config, office, matter, register };
+  return { base, url: `http://127.0.0.1:${server.port}`, config, office, matter, register };
 }
 async function snapshot(root: string) {
   return Promise.all((await readdir(root, { recursive: true })).sort().map(async path => ({ path, bytes: (await lstat(join(root, path))).isFile() ? (await readFile(join(root, path))).toString("hex") : null })));
@@ -44,11 +46,69 @@ test("host registers exact existing child with deterministic ID, persistence, au
   expect(f.config.workspaces.filter(entry => entry.id === id)).toHaveLength(1);
   expect(await snapshot(f.matter)).toEqual(before);
 });
+test("outside app files persist and activation does not bootstrap an existing client folder", async () => {
+  const f = await fixture(), before = await snapshot(f.matter);
+  const response = await f.register(f.matter, true, "host", { appFiles: "outside" });
+  expect(response.status).toBe(201);
+  const id = workspaceIdForPath(f.matter);
+  expect((await response.json()).workspaces.find((entry: { id: string }) => entry.id === id)).toMatchObject({ appFiles: "outside" });
+
+  const activated = await fetch(`${f.url}/workspaces/${id}/activate?persist=true`, {
+    method: "POST",
+    headers: { "x-legalwork-host-token": "host" },
+  });
+  expect(activated.status).toBe(200);
+  expect((await activated.json()).workspace).toMatchObject({ appFiles: "outside" });
+  const repeated = await f.register(f.matter);
+  expect(repeated.status).toBe(201);
+  expect((await repeated.json()).workspaces.find((entry: { id: string }) => entry.id === id)).toMatchObject({ appFiles: "outside" });
+  expect(await snapshot(f.matter)).toEqual(before);
+  expect(JSON.parse(await readFile(f.config.configPath!, "utf8")).workspaces.find((entry: { id: string }) => entry.id === id)).toMatchObject({ appFiles: "outside" });
+  const restarted = await resolveServerConfig({ configPath: f.config.configPath, workspaces: [] });
+  expect(restarted.workspaces.find((entry) => entry.id === id)).toMatchObject({ appFiles: "outside" });
+  expect((await f.register(f.matter, false)).status).toBe(400);
+  expect(await snapshot(f.matter)).toEqual(before);
+});
+test("re-registering an existing matter retains its user-selected display name", async () => {
+  const f = await fixture(), before = await snapshot(f.matter);
+  const first = await f.register(f.matter);
+  expect(first.status).toBe(201);
+  const id = workspaceIdForPath(f.matter);
+
+  expect(await renameRegisteredWorkspace(f.config, id, "Client matter, renamed by lawyer")).toBe(true);
+
+  const repeated = await f.register(f.matter);
+  expect(repeated.status).toBe(201);
+  const result = await repeated.json();
+  expect(result.workspaces.find((entry: { id: string }) => entry.id === id)).toMatchObject({
+    name: "Client matter, renamed by lawyer",
+    displayName: "Client matter, renamed by lawyer",
+  });
+  const persisted = JSON.parse(await readFile(f.config.configPath!, "utf8"));
+  expect(persisted.workspaces.find((entry: { id: string }) => entry.id === id)).toMatchObject({
+    name: "Client matter, renamed by lawyer",
+    displayName: "Client matter, renamed by lawyer",
+  });
+  expect(await snapshot(f.matter)).toEqual(before);
+});
+test("changing app-files policy invalidates the lazy bootstrap cache", async () => {
+  const f = await fixture();
+  await f.register(f.matter, true, "host", { appFiles: "outside" });
+  const id = workspaceIdForPath(f.matter);
+  const commands = () => fetch(`${f.url}/workspace/${id}/commands`, { headers: { authorization: "Bearer client" } });
+  expect((await commands()).status).toBe(409);
+  expect((await snapshot(f.matter)).some(entry => entry.path.startsWith(".opencode/"))).toBe(false);
+  expect((await f.register(f.matter, true, "host", { appFiles: "inside" })).status).toBe(201);
+  expect((await commands()).status).toBe(200);
+  expect((await snapshot(f.matter)).some(entry => entry.path.startsWith(".opencode/"))).toBe(true);
+});
 test("existing registration rejects missing/file/relative/invalid flag and retains host/read-only gates", async () => {
   const f = await fixture(), before = await snapshot(f.office);
   expect((await f.register(f.matter, true, "client")).status).toBe(401);
   for (const path of [join(f.office, "absent"), join(f.matter, "matter.md"), "relative"]) expect((await f.register(path)).status).toBe(400);
   expect((await f.register(f.matter, "true")).status).toBe(400);
+  expect((await f.register(f.matter, true, "host", { appFiles: "external" })).status).toBe(400);
+  expect((await f.register(f.matter, false, "host", { appFiles: "outside" })).status).toBe(400);
   expect(await snapshot(f.office)).toEqual(before);
   f.config.readOnly = true; expect((await f.register(f.matter)).status).toBe(403);
   expect(await snapshot(f.office)).toEqual(before);

@@ -55,7 +55,8 @@ import { computeReloadFingerprint } from "./reload-fingerprint.js";
 import { startReloadWatchers } from "./reload-watcher.js";
 import { globalOpencodeConfigDir, globalSkillsDir, opencodeConfigPath, legalworkConfigPath, projectCommandsDir, projectPluginsDir, projectSkillsDir } from "./workspace-files.js";
 import { ensureDir, exists, hashToken, shortId, tokensMatch } from "./utils.js";
-import { ensureWorkspaceFiles, readRawOpencodeConfig } from "./workspace-init.js";
+import { ensureWorkspaceFilesForBootstrap, readRawOpencodeConfig } from "./workspace-init.js";
+import { requireProjectAppFilesInside, usesExternalWorkspaceAppFiles } from "./lawoss/workspace-app-files.js";
 import { sanitizeCommandName, validateMcpConfig, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
 import { EnvService } from "./env-file.js";
@@ -1983,6 +1984,7 @@ function createRoutes(
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
+    requireProjectAppFilesInside(workspace);
     const configPath = legalworkConfigPath(workspace.path);
 
     await requireApproval(ctx, {
@@ -2110,6 +2112,7 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const scope = normalizeOpencodeScope(typeof body.scope === "string" ? body.scope : null);
+    if (scope === "project") requireProjectAppFilesInside(workspace);
     const content = typeof body.content === "string" ? body.content : null;
     if (content === null) {
       throw new ApiError(400, "invalid_payload", "content must be a string");
@@ -3747,6 +3750,7 @@ function createRoutes(
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
+    requireProjectAppFilesInside(workspace);
     const name = String(ctx.params.name ?? "").trim();
     if (!name) {
       throw new ApiError(400, "invalid_skill_name", "Skill name is required");
@@ -3821,6 +3825,7 @@ function createRoutes(
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
+    requireProjectAppFilesInside(workspace);
     const name = String(ctx.params.name ?? "").trim();
     if (!name) throw new ApiError(400, "invalid_skill_name", "Skill name is required");
     await requireApproval(ctx, {
@@ -3866,6 +3871,7 @@ function createRoutes(
     // "global" writes into the shared library the desktop Skills/Workflows
     // screens list; the default stays project-scoped for existing callers.
     const scope = body.scope === "global" ? "global" : "project";
+    if (scope === "project") requireProjectAppFilesInside(workspace);
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.upsert",
@@ -3895,6 +3901,7 @@ function createRoutes(
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
+    requireProjectAppFilesInside(workspace);
     const name = String(ctx.params.name ?? "").trim();
     if (!name) {
       throw new ApiError(400, "invalid_skill_name", "Skill name is required");
@@ -3949,6 +3956,7 @@ function createRoutes(
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
+    requireProjectAppFilesInside(workspace);
     const skill = String(ctx.params.skill ?? "").trim();
     const body = await readJsonBody(ctx.request);
     const name = String(body.name ?? "").trim();
@@ -3987,6 +3995,7 @@ function createRoutes(
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
+    requireProjectAppFilesInside(workspace);
     const skill = String(ctx.params.skill ?? "").trim();
     const name = String(ctx.params.name ?? "").trim();
     validateResourceName(name);
@@ -4240,6 +4249,7 @@ function createRoutes(
       await requireHost(ctx.request, config, tokens);
     }
     const workspace = await resolveWorkspace(config, ctx.params.id);
+    if (scope === "workspace") requireProjectAppFilesInside(workspace);
     const items = await listCommands(workspace.path, scope);
     return jsonResponse({ items });
   });
@@ -4248,6 +4258,7 @@ function createRoutes(
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
+    requireProjectAppFilesInside(workspace);
     const body = await readJsonBody(ctx.request);
     const name = String(body.name ?? "");
     const template = String(body.template ?? "");
@@ -4289,6 +4300,7 @@ function createRoutes(
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
+    requireProjectAppFilesInside(workspace);
     const name = ctx.params.name ?? "";
     await requireApproval(ctx, {
       workspaceId: workspace.id,
@@ -4338,6 +4350,11 @@ function createRoutes(
     const body = await readJsonBody(ctx.request);
     const expectedFingerprint = parseWorkspaceImportPreviewFingerprint(body);
     const preview = await buildWorkspaceImportPreview(workspace.path, body);
+    if (preview.changes.some((change) => (
+      change.action !== "unchanged" && ["opencode", "legalwork", "skill", "command"].includes(change.kind)
+    ))) {
+      requireProjectAppFilesInside(workspace);
+    }
     if (expectedFingerprint && expectedFingerprint !== preview.fingerprint) {
       return jsonResponse(
         {
@@ -4403,6 +4420,7 @@ function createRoutes(
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
+    requireProjectAppFilesInside(workspace);
     const result = await materializeBlueprintSessions(config, workspace);
     await recordAudit(workspace.path, {
       id: shortId(),
@@ -4449,13 +4467,14 @@ async function resolveWorkspace(config: ServerConfig, id: string, options: { boo
       workspaceBootstrapPromises.set(config, bootstraps);
     }
 
-    const bootstrapKey = `${workspace.id}:${resolvedWorkspace}`;
+    const bootstrapKey = `${workspace.id}:${resolvedWorkspace}:${usesExternalWorkspaceAppFiles(workspace) ? "outside" : "inside"}`;
     let bootstrap = bootstraps.get(bootstrapKey);
     if (!bootstrap) {
       bootstrap = (async () => {
-        const ensured = await ensureWorkspaceFiles(resolvedWorkspace, workspace.preset ?? "starter");
+        const bootstrapWorkspace = { ...workspace, path: resolvedWorkspace };
+        const ensured = await ensureWorkspaceFilesForBootstrap(bootstrapWorkspace);
         const bootstrapReloadReasons = new Set<ReloadReason>(ensured.reloadReasons);
-        if (await repairCommands(resolvedWorkspace)) {
+        if (!usesExternalWorkspaceAppFiles(bootstrapWorkspace) && await repairCommands(resolvedWorkspace)) {
           bootstrapReloadReasons.add("commands");
         }
         if (bootstrapReloadReasons.size > 0) {
@@ -5097,7 +5116,9 @@ async function exportWorkspace(
   let opencode = sanitizePortableOpencodeConfig(rawOpencode);
   const legalwork = sanitizeLegalworkTemplateConfig(await readLegalworkConfig(workspace.path));
   const skills = await listSkills(workspace.path, false);
-  const commands = await listCommands(workspace.path, "workspace");
+  const commands = await listCommands(workspace.path, "workspace", {
+    repairLegacy: !usesExternalWorkspaceAppFiles(workspace),
+  });
   let files = await listPortableFiles(workspace.path);
   const warnings = collectWorkspaceExportWarnings({ opencode: rawOpencode, files });
   if (warnings.length && sensitiveMode === "auto") {

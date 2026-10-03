@@ -18,7 +18,16 @@ import {
   resolveLegalworkServerConfigPath,
   seedWorkspacePathsForEmbeddedServer,
   selectStickyLegalworkPortWorkspace,
+  usesExternalWorkspaceAppFiles,
 } from "./runtime.mjs";
+
+describe("workspace app files policy", () => {
+  it("requires an explicit outside policy before skipping project setup", () => {
+    assert.equal(usesExternalWorkspaceAppFiles({ appFiles: "outside" }), true);
+    assert.equal(usesExternalWorkspaceAppFiles({ appFiles: "inside" }), false);
+    assert.equal(usesExternalWorkspaceAppFiles({}), false);
+  });
+});
 
 describe("alignWindowsOpencodeConfigEnv", () => {
   it("keeps the engine and LegalWork on OpenCode's existing Windows config root", () => {

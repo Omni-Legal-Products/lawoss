@@ -171,6 +171,68 @@ describe("runtime OpenCode config store", () => {
     });
   });
 
+  test("refuses project OpenCode writes when app files are external while runtime settings remain available", async () => {
+    await withWorkspace(async ({ root, config }) => {
+      config.workspaces[0]!.appFiles = "outside";
+      const projectConfigPath = join(root, ".opencode", "opencode.jsonc");
+      const originalProjectConfig = '{ "original": true }\n';
+      await mkdir(join(root, ".opencode"), { recursive: true });
+      await writeFile(projectConfigPath, originalProjectConfig, "utf8");
+
+      const server = await startServer(config) as Served;
+      try {
+        const request = (path: string, body: Record<string, unknown>) => fetch(`http://127.0.0.1:${server.port}${path}`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+
+        for (const response of await Promise.all([
+          request(`/workspace/${WORKSPACE_ID}/opencode-config`, { scope: "project", content: '{ "changed": true }' }),
+          request(`/workspace/${WORKSPACE_ID}/skills`, { name: "blocked-skill", content: "# blocked" }),
+          request(`/workspace/${WORKSPACE_ID}/commands`, { name: "blocked-command", template: "Blocked" }),
+        ])) {
+          expect(response.status).toBe(409);
+          expect(await response.json()).toMatchObject({ code: "workspace_app_files_outside" });
+        }
+        const commandList = await fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/commands`, {
+          headers: { authorization: `Bearer ${config.token}` },
+        });
+        expect(commandList.status).toBe(409);
+
+        expect(await readFile(projectConfigPath, "utf8")).toBe(originalProjectConfig);
+        await expectMissing(join(root, ".opencode", "skills"));
+        await expectMissing(join(root, ".opencode", "commands"));
+
+        const previousConfigHome = process.env.XDG_CONFIG_HOME;
+        process.env.XDG_CONFIG_HOME = join(root, "global-config");
+        try {
+          const globalResponse = await request(`/workspace/${WORKSPACE_ID}/opencode-config`, {
+            scope: "global",
+            content: '{ "global": true }',
+          });
+          expect(globalResponse.status).toBe(200);
+          expect(await readFile(join(root, "global-config", "opencode", "opencode.jsonc"), "utf8")).toBe('{ "global": true }\n');
+        } finally {
+          if (previousConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+          else process.env.XDG_CONFIG_HOME = previousConfigHome;
+        }
+
+        const runtimeResponse = await fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/config`, {
+          method: "PATCH",
+          headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
+          body: JSON.stringify({ opencode: { provider: { synthetic: { name: "Synthetic" } } } }),
+        });
+        expect(runtimeResponse.status).toBe(200);
+        expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).provider).toEqual({
+          synthetic: { name: "Synthetic" },
+        });
+      } finally {
+        await server.stop(true);
+      }
+    });
+  });
+
   test("patches tool permissions globally while external_directory stays workspace-scoped", async () => {
     await withWorkspace(async ({ config }) => {
       await writeRuntimeOpencodeConfig(config, WORKSPACE_ID, (current) => ({

@@ -25,6 +25,7 @@ export interface WorkspaceConfig {
   baseUrl?: string;
   directory?: string;
   displayName?: string;
+  appFiles?: "inside" | "outside";
   legalworkHostUrl?: string;
   legalworkToken?: string;
   legalworkWorkspaceId?: string;
@@ -46,6 +47,7 @@ export interface WorkspaceInfo {
   baseUrl?: string;
   directory?: string;
   displayName?: string;
+  appFiles?: "inside" | "outside";
   legalworkHostUrl?: string;
   legalworkToken?: string;
   legalworkWorkspaceId?: string;

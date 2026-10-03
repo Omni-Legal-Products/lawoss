@@ -1125,6 +1125,12 @@ const runtimeManager = createRuntimeManager({
   getApprovalWindow: () => mainWindow,
   desktopRoot: path.resolve(__dirname, ".."),
   listLocalWorkspacePaths: () => workspaceStore.listLocalWorkspacePaths(),
+  listLocalWorkspaceAppFiles: async () => {
+    const state = await workspaceStore.readWorkspaceState();
+    return state.workspaces
+      .filter((workspace) => workspace.workspaceType === "local")
+      .map((workspace) => ({ path: workspace.path, appFiles: workspace.appFiles }));
+  },
   recorder: {
     listProjectRecordings: async (projectId) => (await recorderService().listRecordings())
       .filter((recording) => recording.projectIds?.includes(projectId))
@@ -1283,6 +1289,7 @@ async function bootRuntimeForSelectedWorkspace() {
     engine = await runtimeManager.engineStart(workspaceRoot, {
       runtime: "direct",
       workspacePaths,
+      appFiles: workspace.appFiles,
     });
   } catch (error) {
     const fallback = list.workspaces.find((entry) => {
@@ -1303,6 +1310,7 @@ async function bootRuntimeForSelectedWorkspace() {
     engine = await runtimeManager.engineStart(fallbackRoot, {
       runtime: "direct",
       workspacePaths: fallbackWorkspacePaths,
+      appFiles: fallback.appFiles,
     });
     bootWorkspace = fallback;
     bootWorkspaceRoot = fallbackRoot;
@@ -1315,6 +1323,7 @@ async function bootRuntimeForSelectedWorkspace() {
   await runtimeManager.orchestratorWorkspaceActivate({
     workspacePath: bootWorkspaceRoot,
     name: bootWorkspace.name ?? bootWorkspace.displayName ?? null,
+    appFiles: bootWorkspace.appFiles,
   }).catch(() => undefined);
   const legalworkServer = assertLegalworkServerReady(await runtimeManager.legalworkServerInfo());
   return { ok: true, skipped: false, engine, legalworkServer, workspaceId: bootWorkspace.id ?? null };
@@ -1325,6 +1334,28 @@ function ensureRuntimeBootstrap() {
     runtimeBootstrapPromise = bootRuntimeForSelectedWorkspace().catch(describeRuntimeBootFailure);
   }
   return runtimeBootstrapPromise;
+}
+
+const EXTERNAL_APP_FILES_UNSUPPORTED =
+  "Project-scoped OpenCode config, commands, and skills are unsupported in outside app-files mode.";
+
+async function projectUsesExternalAppFiles(projectDir) {
+  const requestedPath = String(projectDir ?? "").trim();
+  if (!requestedPath) return false;
+  const resolvedProjectPath = path.resolve(requestedPath).replace(/\\/g, "/").toLowerCase();
+  const state = await workspaceStore.readWorkspaceState();
+  return state.workspaces.some((workspace) => {
+    if (workspace.workspaceType === "remote" || workspace.appFiles !== "outside") return false;
+    const workspacePath = path.resolve(String(workspace.path ?? "")).replace(/\\/g, "/").toLowerCase();
+    return resolvedProjectPath === workspacePath
+      || resolvedProjectPath.startsWith(`${workspacePath}/`);
+  });
+}
+
+async function assertProjectAppFilesSupported(projectDir) {
+  if (await projectUsesExternalAppFiles(projectDir)) {
+    throw new Error(EXTERNAL_APP_FILES_UNSUPPORTED);
+  }
 }
 
 // Ordered config file candidates for a scope; the first existing one is used.
@@ -1363,6 +1394,7 @@ async function chooseOpencodeConfigPath(scope, projectDir) {
 }
 
 async function readOpencodeConfig(scope, projectDir) {
+  if (scope === "project") await assertProjectAppFilesSupported(projectDir);
   const chosenPath = await chooseOpencodeConfigPath(scope, projectDir);
   const exists = await pathExists(chosenPath);
   return {
@@ -1373,6 +1405,7 @@ async function readOpencodeConfig(scope, projectDir) {
 }
 
 async function writeOpencodeConfig(scope, projectDir, content) {
+  if (scope === "project") await assertProjectAppFilesSupported(projectDir);
   const targetPath = await chooseOpencodeConfigPath(scope, projectDir);
   await mkdir(path.dirname(targetPath), { recursive: true });
   await writeFile(targetPath, content, "utf8");
@@ -1393,6 +1426,7 @@ function resolveCommandsDir(scope, projectDir) {
 }
 
 async function listCommandNames(scope, projectDir) {
+  if (scope === "workspace") await assertProjectAppFilesSupported(projectDir);
   const commandsDir = resolveCommandsDir(scope, projectDir);
   if (!(await isDirectory(commandsDir))) {
     return [];
@@ -1409,6 +1443,7 @@ async function writeCommandFile(scope, projectDir, command) {
   if (!safeName) {
     throw new Error("command.name is required");
   }
+  if (scope === "workspace") await assertProjectAppFilesSupported(projectDir);
   const commandsDir = resolveCommandsDir(scope, projectDir);
   await mkdir(commandsDir, { recursive: true });
   const filePath = path.join(commandsDir, `${safeName}.md`);
@@ -1421,6 +1456,7 @@ async function deleteCommandFile(scope, projectDir, name) {
   if (!safeName) {
     throw new Error("name is required");
   }
+  if (scope === "workspace") await assertProjectAppFilesSupported(projectDir);
   const commandsDir = resolveCommandsDir(scope, projectDir);
   const filePath = path.join(commandsDir, `${safeName}.md`);
   if (await pathExists(filePath)) {
@@ -1432,6 +1468,7 @@ async function deleteCommandFile(scope, projectDir, name) {
 async function collectProjectSkillRoots(projectDir) {
   const roots = [];
   if (!String(projectDir ?? "").trim()) return roots;
+  await assertProjectAppFilesSupported(projectDir);
   let current = path.resolve(projectDir);
 
   while (true) {
@@ -1593,6 +1630,7 @@ async function ensureProjectSkillRoot(projectDir) {
   if (!String(projectDir ?? "").trim()) {
     throw new Error("projectDir is required");
   }
+  await assertProjectAppFilesSupported(projectDir);
   const opencodeRoot = path.join(projectDir, ".opencode");
   const legacy = path.join(opencodeRoot, "skill");
   const modern = path.join(opencodeRoot, "skills");
@@ -1817,7 +1855,8 @@ const desktopCommandHandlers = {
   "engineStart": async (event, ...args) => {
       const projectDir = String(args[0] ?? "").trim();
       const options = args[1] ?? {};
-      return runtimeManager.engineStart(projectDir, options);
+      const appFiles = (await projectUsesExternalAppFiles(projectDir)) ? "outside" : options.appFiles;
+      return runtimeManager.engineStart(projectDir, { ...options, ...(appFiles ? { appFiles } : {}) });
   },
   "prepareFreshRuntime": async (event, ...args) => {
       return runtimeManager.prepareFreshRuntime();
@@ -1851,7 +1890,9 @@ const desktopCommandHandlers = {
       return runtimeManager.orchestratorStatus();
   },
   "orchestratorWorkspaceActivate": async (event, ...args) => {
-      return runtimeManager.orchestratorWorkspaceActivate(args[0] ?? {});
+      const input = args[0] ?? {};
+      const appFiles = (await projectUsesExternalAppFiles(input.workspacePath)) ? "outside" : input.appFiles;
+      return runtimeManager.orchestratorWorkspaceActivate({ ...input, ...(appFiles ? { appFiles } : {}) });
   },
   "orchestratorInstanceDispose": async (event, ...args) => {
       return runtimeManager.orchestratorInstanceDispose(String(args[0] ?? "").trim());
