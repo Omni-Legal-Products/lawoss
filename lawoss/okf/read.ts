@@ -73,6 +73,16 @@ export const isOpenTask = (r: OkfRecord): boolean => r.type === "task" && r.stat
 /** Totožnosť záznamu naprieč spismi: jeho súbor; bez súboru (testy, staršie vstupy) len v rámci spisu. */
 export const recordKey = (matterPath: string, r: { id: string; file?: string }): string => r.file ?? `${matterPath}\u0000${r.id}`;
 
+/** Totožnosť lehoty naprieč spismi: záznam + dátum (jeden záznam môže niesť viac lehôt). */
+export const deadlineKey = (d: UpcomingDeadline): string => `${recordKey(d.matter.path, { id: d.recordId, file: d.file })}\u0000${d.date}`;
+
+export type ScopeLevel = "matter" | "client" | "office";
+const OFFICE_DIR = /(^|\/)(Office|_kancelaria)$/;
+
+/** Úroveň každej cesty rozsahu: prvá je vec, `Office`/`_kancelaria` kancelária, ostatné klient. */
+export const scopeLevels = (scopePaths: readonly string[]): { path: string; level: ScopeLevel }[] =>
+  scopePaths.map((path, i) => ({ path, level: i === 0 ? "matter" : OFFICE_DIR.test(path) ? "office" : "client" }));
+
 const isCalendarDay = (day: string): boolean => {
   const d = new Date(`${day}T00:00:00Z`);
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === day;
@@ -173,11 +183,11 @@ export function buildOverview(matters: readonly MatterInput[], today: string): O
     overdue,
     totals: {
       matters: overviews.length,
-      deadlinesWithin7Days: upcomingDeadlines.filter((d) => !d.invalid && d.date <= week).length,
-      // Úloha zo zdieľaného súboru (klient, kancelária) je v súčte jedna; rovnaké ID v dvoch spisoch sú dve úlohy.
+      // Záznam zo zdieľaného súboru (klient, kancelária) je v súčte jeden; rovnaké ID v dvoch spisoch sú dva.
+      deadlinesWithin7Days: new Set(upcomingDeadlines.filter((d) => !d.invalid && d.date <= week).map(deadlineKey)).size,
       openTasks: new Set(overviews.flatMap((m) => m.openTasks.map((t) => recordKey(m.path, t)))).size,
-      overdue: overdue.length,
-      records: overviews.reduce((n, m) => n + m.counts.records, 0),
+      overdue: new Set(overdue.map(deadlineKey)).size,
+      records: new Set(matters.flatMap((m) => m.records.map((r) => recordKey(m.path, { id: r.id, file: m.recordFiles?.[r.id] })))).size,
     },
   };
 }
