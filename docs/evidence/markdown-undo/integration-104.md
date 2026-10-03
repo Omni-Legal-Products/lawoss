@@ -8,6 +8,7 @@ Overené 3. 10. 2026 v izolovanom `LAWOSS-pr-097`.
 - Začlenený presný head #104: `f42099964e93ffdd835d0922338d8d65b6c8f945`, vrátane predchádzajúcej integrácie #103.
 - Merge bez konfliktov: `bafcf85d8fcacb0631f699848b7a10ac70de6e1a`.
 - Spoločná oprava životného cyklu testovacej fixture `f055592a39444559ae23408888154f3f81ba6f81` je začlenená cherry-pickom `476b4277`. Čaká na synchronizáciu oboch workspaceov pred zastavením náhradného enginu, nemení produkčný kód.
+- Dodatočný focused commit `3e6f0630e8a4a692e082ff9334e45f6d293b788b` je začlenený ako `ea9050c8`. Iba druhý embedded test má odôvodnený limit 15 sekúnd pre dva štarty, ohraničené synchronizácie a ukončenia. Globálny CLI timeout sa nemení.
 - `dev` sa nemenilo; publikovaná história #97 zostáva zachovaná.
 
 ## Nové lokálne výsledky
@@ -20,10 +21,10 @@ Node 24.19.0, pnpm 11.4.0, Bun 1.4.2, inštalácia cez frozen lockfile bez zmeny
 | `cd apps/app && pnpm exec bun test tests/lawoss-markdown-pristine.test.ts tests/markdown-draft.test.ts` | 8 PASS, 0 FAIL |
 | `pnpm --filter @legalwork/app typecheck` | PASS |
 | `pnpm --filter @legalwork/app test:i18n` | PASS, 5665 kľúčov |
-| `pnpm exec bun test apps/server/src/embedded-app-files.e2e.test.ts` | 2 PASS, 0 FAIL, 12 assertions, bez požiadaviek po ukončení enginu |
+| `bun test apps/server/src/embedded-app-files.e2e.test.ts apps/server/src/ocr/models.test.ts` | 4 PASS, 0 FAIL, 21 assertions, bez CLI timeout override a bez požiadaviek po ukončení enginu |
 | `git diff --check` a zhoda `AGENTS.md`/`CLAUDE.md` | PASS |
 
-App testy a typecheck bežali po merge #104; následný cherry-pick mení len serverovú fixture a `PATCHES.md`. Zmenená fixture bola následne samostatne otestovaná. Celé CI sa musí vzťahovať na nový publikovaný head, nie na predchádzajúce zelené CI `b8580307`.
+App testy a typecheck bežali po merge #104; následný cherry-pick mení len serverovú fixture a `PATCHES.md`. Po následnej oprave limitu druhého testu bola zmenená fixture overená spoločne s OCR testmi priamym `bun test` bez CLI timeout override (2,58 s). Celé CI sa musí vzťahovať na nový publikovaný head, nie na predchádzajúce zelené CI `b8580307`.
 
 ## Browser a Safari evidencia zostáva historicky presná
 
