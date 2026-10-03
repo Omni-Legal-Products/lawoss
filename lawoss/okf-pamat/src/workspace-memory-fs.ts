@@ -30,19 +30,20 @@ export function readText(path: string, limit: number): ReadText {
   checkedPath(path, "file");
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
-    const before = fstatSync(fd);
+    // NTFS file IDs can exceed Number.MAX_SAFE_INTEGER; distinct sources must stay distinct.
+    const before = fstatSync(fd, { bigint: true });
     if (!before.isFile()) throw new Error(`Not a regular file: ${path}`);
-    if (before.size > limit) throw new Error(`Byte limit ${limit} exceeded: ${path}`);
+    if (before.size > BigInt(limit)) throw new Error(`Byte limit ${limit} exceeded: ${path}`);
     // Bounded even when a writer grows the file during the read.
-    const buffer = Buffer.alloc(Math.min(before.size + 1, limit + 1));
+    const buffer = Buffer.alloc(Math.min(Number(before.size) + 1, limit + 1));
     let count = 0;
     while (count < buffer.length) { const n = readSync(fd, buffer, count, buffer.length - count, null); if (n === 0) break; count += n; }
-    const after = fstatSync(fd), named = lstatSync(path);
-    if (count !== before.size || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || named.isSymbolicLink() || before.ino !== named.ino || before.dev !== named.dev) throw new Error(`Source changed during read: ${path}`);
+    const after = fstatSync(fd, { bigint: true }), named = lstatSync(path, { bigint: true });
+    if (BigInt(count) !== before.size || before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs || named.isSymbolicLink() || before.ino !== named.ino || before.dev !== named.dev) throw new Error(`Source changed during read: ${path}`);
     const bytes = buffer.subarray(0, count);
     // ignoreBOM keeps a UTF-8 BOM in the returned text for exact round trips.
     const content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
-    return { content, sha256: sha256(bytes), bytes: count, physical: `${before.dev}:${before.ino}`, mode: before.mode & 0o777 };
+    return { content, sha256: sha256(bytes), bytes: count, physical: `${before.dev}:${before.ino}`, mode: Number(before.mode & 0o777n) };
   } finally { closeSync(fd); }
 }
 export function jsonText(path: string, limit: number): unknown { return JSON.parse(readText(path, limit).content); }
