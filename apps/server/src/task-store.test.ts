@@ -26,6 +26,7 @@ function remoteTask(overrides: Partial<RemoteTask> = {}): RemoteTask {
   return {
     id: "11111111-1111-4111-8111-111111111111",
     origin: "intake",
+    projectId: null,
     title: "Fristverlängerung Meier",
     description: "Bis Freitag.",
     status: "open",
@@ -184,6 +185,7 @@ describe("task-store: local tasks", () => {
     expect(first.tags).toEqual(["Project Alpha", "Urgent"]);
     expect(store.listTags()).toEqual(["Project Alpha", "Project Beta", "Urgent"]);
     expect(store.listTasks({ tag: "Project Alpha" }).tasks.map((task) => task.id)).toEqual([first.id]);
+    expect(store.listTasks({ tags: ["Project Alpha", "Project Beta"] }).tasks.map((task) => task.title)).toEqual(["Project Beta", "Project Alpha"]);
 
     const updated = store.patchTask(first.id, { tags: ["Urgent", "Client"] }, ANON, 3_000);
     expect(updated.tags).toEqual(["Urgent", "Client"]);
@@ -259,6 +261,8 @@ describe("task-store: listing", () => {
     expect(store.listTasks({ sort: "due" }).tasks.map((row) => row.title)).toEqual(["low", "urgent", "none"]);
     expect(store.listTasks({ status: "done" }).tasks.map((row) => row.id)).toEqual([low.id]);
     expect(store.listTasks({ assignee: "user_ada" }).tasks.map((row) => row.id)).toEqual([urgent.id]);
+    expect(store.listTasks({ statuses: ["open", "done"] }).tasks.map((row) => row.id)).toEqual([urgent.id, low.id, none.id]);
+    expect(store.listTasks({ assignees: ["user_ada", "user_bob"] }).tasks.map((row) => row.id)).toEqual([urgent.id, low.id]);
     // Newest first by default.
     expect(store.listTasks().tasks.map((row) => row.id)).toEqual([urgent.id, low.id, none.id]);
   });
@@ -284,11 +288,12 @@ describe("task-store: listing", () => {
 
   test("shows another firm's intake tasks only while that firm is connected", async () => {
     const { store } = await makeStore();
-    store.applyRemoteTask(remoteTask({ id: "a-task" }), "org_a");
-    store.applyRemoteTask(remoteTask({ id: "b-task" }), "org_b");
+    store.applyRemoteTask(remoteTask({ id: "a-task", endpointId: "ep-a", endpointName: "A intake" }), "org_a");
+    store.applyRemoteTask(remoteTask({ id: "b-task", endpointId: "ep-b", endpointName: "B intake" }), "org_b");
     const local = store.createTask({ title: "mine" }, ANON);
 
     expect(store.listTasks({}, "org_a").tasks.map((row) => row.id).sort()).toEqual(["a-task", local.id].sort());
+    expect(store.listEndpoints("org_a")).toEqual([{ id: "ep-a", name: "A intake" }]);
     expect(store.listTasks({}, null).tasks).toHaveLength(3);
   });
 });
@@ -511,4 +516,48 @@ describe("task-store: signing out of a firm", () => {
     store.clearSignedOut();
     expect(store.signedOutBefore()).toBe(false);
   });
+});
+
+describe("task-store: project links", () => {
+  test("creates, reassigns and unlinks tasks; links survive reopening and pagination filters correctly", async () => {
+    const { store, dir } = await makeStore();
+    const first = store.createTask({ title: "First", projectId: "project-a" }, ANON, 1000);
+    const second = store.createTask({ title: "Second", projectId: "project-a" }, ANON, 2000);
+    const other = store.createTask({ title: "Other", projectId: "project-b" }, ANON, 3000);
+    const page = store.listTasks({ projectId: "project-a", limit: 1 });
+    expect(page.tasks.map((task) => task.id)).toEqual([second.id]);
+    expect(store.listTasks({ projectId: "project-a", cursor: page.nextCursor!, limit: 1 }).tasks.map((task) => task.id)).toEqual([first.id]);
+    store.patchTask(first.id, { projectId: "project-b" }, ANON, 4000);
+    expect(store.listTasks({ projectId: "project-a" }).tasks.map((task) => task.id)).toEqual([second.id]);
+    expect(store.listTasks({ projectId: "project-b" }).tasks.map((task) => task.id)).toEqual([other.id, first.id]);
+    const reopened = await TaskStore.open(join(dir, "runtime.sqlite"), join(dir, "task-attachments"));
+    expect(reopened.getTask(first.id)?.projectId).toBe("project-b");
+    reopened.patchTask(first.id, { projectId: null }, ANON, 5000);
+    expect(reopened.getTask(first.id)?.projectId).toBeNull();
+    expect(reopened.listTasks().tasks).toHaveLength(3);
+    // Tasks of projects that stay on this machine are not queued for the firm;
+    // the one moved out of every project now is, whole.
+    expect(store.listOutbox().map((item) => [item.taskId, item.op.kind])).toEqual([[first.id, "create"]]);
+  });
+});
+
+test("search returns recent tasks without a query and limits linked tasks to the selected project", async () => {
+  const { store } = await makeStore();
+  const first = store.createTask({ title: "Prepare escrow agreement", projectId: "a" }, ANON, 1000);
+  const second = store.createTask({ title: "Review escrow terms", projectId: "b" }, ANON, 2000);
+  const unlinked = store.createTask({ title: "Other task" }, ANON, 3000);
+  expect(store.searchTasks("", null, "a").map(task => task.id)).toEqual([unlinked.id, second.id, first.id]);
+  expect(store.searchTasks("escrow", null, "a", true).map(task => task.id)).toEqual([first.id]);
+  expect(store.searchTasks("", null, "b", true).map(task => task.id)).toEqual([second.id]);
+  expect(store.searchTasks("", null, "a").find(task => task.id === unlinked.id)?.workspaceId).toBe("");
+});
+
+test("completed tasks remain searchable and follow active tasks even when more recently updated", async () => {
+  const { store } = await makeStore();
+  const active = store.createTask({ title: "Review escrow" }, ANON, 1000);
+  const done = store.createTask({ title: "Review escrow" }, ANON, 2000);
+  store.patchTask(done.id, { status: "done" }, ANON, 3000);
+  const results = store.searchTasks("escrow", null, "a");
+  expect(results.map(task => task.id)).toEqual([active.id, done.id]);
+  expect(results.map(task => task.completed)).toEqual([false, true]);
 });

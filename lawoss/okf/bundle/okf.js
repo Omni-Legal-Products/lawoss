@@ -2235,23 +2235,23 @@ function exists(path, kind = "file") {
 function rootDirectory(directory) {
   checkedPath(directory, "directory");
   const path = realpathSync2(directory);
-  return { path, identity: physical(lstatSync4(path)) };
+  return { path, identity: physical(lstatSync4(path, { bigint: true })) };
 }
 function assertRoot(root) {
   checkedPath(root.path, "directory");
-  if (realpathSync2(root.path) !== root.path || physical(lstatSync4(root.path)) !== root.identity)
+  if (realpathSync2(root.path) !== root.path || physical(lstatSync4(root.path, { bigint: true })) !== root.identity)
     conflict("Matter root changed");
 }
 function readNamingBinary(path, limit) {
   checkedPath(path, "file");
   const fd = openSync2(path, constants2.O_RDONLY | constants2.O_NOFOLLOW | constants2.O_NONBLOCK);
   try {
-    const before = fstatSync2(fd);
-    if (!before.isFile() || before.nlink !== 1)
+    const before = fstatSync2(fd, { bigint: true });
+    if (!before.isFile() || before.nlink !== 1n)
       conflict(`Regular single-link file required: ${path}`);
     if (before.size > limit)
       conflict(`Byte limit exceeded: ${path}`);
-    const data = Buffer.alloc(Math.min(before.size + 1, limit + 1));
+    const data = Buffer.alloc(Math.min(Number(before.size) + 1, limit + 1));
     let count = 0;
     while (count < data.length) {
       const n = readSync2(fd, data, count, data.length - count, null);
@@ -2259,11 +2259,11 @@ function readNamingBinary(path, limit) {
         break;
       count += n;
     }
-    const after = fstatSync2(fd), named = lstatSync4(path);
-    if (count !== before.size || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || physical(before) !== physical(after) || physical(before) !== physical(named) || named.isSymbolicLink() || named.nlink !== 1)
+    const after = fstatSync2(fd, { bigint: true }), named = lstatSync4(path, { bigint: true });
+    if (BigInt(count) !== before.size || before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs || physical(before) !== physical(after) || physical(before) !== physical(named) || named.isSymbolicLink() || named.nlink !== 1n)
       conflict(`File changed during read: ${path}`);
     const bytes = data.subarray(0, count);
-    return { data: bytes, bytes: count, sha256: hash(bytes), physical: physical(before), mode: before.mode & 511 };
+    return { data: bytes, bytes: count, sha256: hash(bytes), physical: physical(before), mode: Number(before.mode & 0o777n) };
   } finally {
     closeSync2(fd);
   }
@@ -2329,7 +2329,7 @@ function memoryProtection(root) {
 function targetAbsent(root, target) {
   const path = join4(root, target.path);
   checkedPath(dirname3(path), "directory");
-  if (physical(lstatSync4(dirname3(path))) !== target.parentPhysical)
+  if (physical(lstatSync4(dirname3(path), { bigint: true })) !== target.parentPhysical)
     conflict(`Target directory changed: ${target.path}`);
   checkCase(path, false);
   if (exists(path))
@@ -2355,7 +2355,7 @@ function planDocumentNaming(matterDir, input) {
     if (selected.has(fold(targetPath)) || targets.has(fold(targetPath)))
       conflict(`Source/target or target overlap: ${targetPath}`);
     targets.add(fold(targetPath));
-    const target = { path: targetPath, mustBeAbsent: true, parentPhysical: physical(lstatSync4(dirname3(absoluteTarget))) };
+    const target = { path: targetPath, mustBeAbsent: true, parentPhysical: physical(lstatSync4(dirname3(absoluteTarget), { bigint: true })) };
     targetAbsent(root.path, target);
     totalBytes += sourceRead.bytes;
     if (totalBytes > NAMING_LIMITS.totalBytes)
@@ -2419,7 +2419,7 @@ function exclusive(path, data, mode = 384) {
     while (count < buffer.length)
       count += writeSync(fd, buffer, count, buffer.length - count);
     fsyncSync(fd);
-    return physical(fstatSync2(fd));
+    return physical(fstatSync2(fd, { bigint: true }));
   } finally {
     closeSync2(fd);
   }
@@ -2445,7 +2445,7 @@ function finalStates(root, plan) {
   for (const doc of plan.documents) {
     const targetPath = join4(root, doc.target.path);
     checkedPath(dirname3(targetPath), "directory");
-    if (physical(lstatSync4(dirname3(targetPath))) !== doc.target.parentPhysical)
+    if (physical(lstatSync4(dirname3(targetPath), { bigint: true })) !== doc.target.parentPhysical)
       conflict("Final target directory changed");
     checkCase(targetPath, true);
     const target = readNamingBinary(targetPath, NAMING_LIMITS.documentBytes);
@@ -2649,7 +2649,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
     if (lockIdentity)
       try {
         checkedPath(lock, "file");
-        if (physical(lstatSync4(lock)) === lockIdentity)
+        if (physical(lstatSync4(lock, { bigint: true })) === lockIdentity)
           unlinkSync(lock);
       } catch {}
   }

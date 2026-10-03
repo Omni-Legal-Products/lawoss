@@ -15,6 +15,7 @@ import {
 } from "@shikijs/transformers";
 import { bundledLanguages, codeToHtml } from "shiki";
 
+import { sanitizeMarkdownHtml } from "@/lib/sanitize-markdown";
 import { applyTextHighlights } from "./text-highlights";
 
 function escapeHtml(value: string) {
@@ -82,6 +83,9 @@ const baseMarkedOptions = {
   pedantic: false,
   silent: true,
   renderer: {
+    // Raw HTML in the source is dropped unless it is our own shiki block —
+    // a rendering choice, not a security boundary, since anyone can write
+    // that marker. sanitizeMarkdownHtml() is what makes the output safe.
     html({ text }) {
       return text.includes('data-legalwork-shiki="true"') ? text : "";
     },
@@ -117,7 +121,7 @@ const baseMarkedOptions = {
       return `<pre class="my-4 overflow-x-auto rounded-[18px] border border-dls-border/70 bg-gray-1/80 px-4 py-3 text-xs leading-6 text-muted-foreground"><code${codeLanguageClass(lang)}>${escapeHtml(text)}</code></pre>`;
     },
     codespan({ text }) {
-      return `<code class="rounded-md bg-gray-2/70 px-1.5 py-0.5 font-mono text-sm text-foreground">${escapeHtml(text)}</code>`;
+      return `<code class="rounded-sm bg-foreground/4 px-1 py-0.5 [font:inherit] text-inherit">${escapeHtml(text)}</code>`;
     },
     del({ raw, tokens }) {
       if (!raw.startsWith("~~")) return escapeHtml(raw);
@@ -199,7 +203,7 @@ function MarkdownBlockInner(props: {
   const rootRef = useRef<HTMLDivElement>(null);
   const syncHtml = useMemo(() => {
     if (!props.text.trim()) return "";
-    return markdownParser.parse(props.text, { async: false });
+    return sanitizeMarkdownHtml(markdownParser.parse(props.text, { async: false }));
   }, [props.text]);
   const [highlightedHtml, setHighlightedHtml] = useState<{ text: string; html: string } | null>(null);
 
@@ -211,7 +215,8 @@ function MarkdownBlockInner(props: {
 
     let cancelled = false;
     void highlightedMarkdownParser.parse(props.text, { async: true }).then((html) => {
-      if (!cancelled && html.trim()) setHighlightedHtml({ text: props.text, html });
+      const sanitized = sanitizeMarkdownHtml(html);
+      if (!cancelled && sanitized.trim()) setHighlightedHtml({ text: props.text, html: sanitized });
     }).catch(() => {
       if (!cancelled) setHighlightedHtml(null);
     });

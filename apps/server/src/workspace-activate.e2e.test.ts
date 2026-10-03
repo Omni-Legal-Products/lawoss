@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -148,6 +149,7 @@ async function startLegalworkServerWithWorkspaces(input: {
   configPath: string;
   workspaces: ServerConfig["workspaces"];
   authorizedRoots: string[];
+  projectsDirectory?: string;
   opencodeBaseUrl?: string;
   opencodeUsername?: string;
   opencodePassword?: string;
@@ -158,6 +160,7 @@ async function startLegalworkServerWithWorkspaces(input: {
     token: "owt_test_token",
     hostToken: "owt_host_token",
     configPath: input.configPath,
+    projectsDirectory: input.projectsDirectory,
     approval: { mode: "auto", timeoutMs: 1000 },
     corsOrigins: ["*"],
     workspaces: input.workspaces,
@@ -203,6 +206,79 @@ describe("workspace activation", () => {
     expect(reloadRequest?.search).toContain(
       `directory=${encodeURIComponent(workspaceRoot)}`,
     );
+  });
+
+  test("retries activation while the engine listener is starting", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const probe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("ok") });
+    const port = probe.port;
+    await probe.stop(true);
+    const legalwork = await startLegalworkServer({
+      workspaceRoot,
+      opencodeBaseUrl: `http://127.0.0.1:${port}`,
+    });
+    const mockReady = new Promise<void>((resolve) => {
+      setTimeout(() => {
+        const engine = Bun.serve({
+          hostname: "127.0.0.1",
+          port,
+          fetch: () => Response.json({ disposed: true }),
+        });
+        stops.push(() => engine.stop(true));
+        resolve();
+      }, 250);
+    });
+
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspaces/ws_1/activate`, {
+      method: "POST",
+      headers: hostAuth(legalwork.hostToken),
+    });
+    await mockReady;
+    expect(response.status).toBe(200);
+  });
+
+  test("reports an engine that stays unreachable as unavailable", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const probe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("ok") });
+    const port = probe.port;
+    await probe.stop(true);
+    const legalwork = await startLegalworkServer({
+      workspaceRoot,
+      opencodeBaseUrl: `http://127.0.0.1:${port}`,
+    });
+
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspaces/ws_1/activate`, {
+      method: "POST",
+      headers: hostAuth(legalwork.hostToken),
+    });
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({ code: "opencode_unavailable" });
+  });
+
+  test("does not repeat a reload after the engine accepts and drops the connection", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    let attempts = 0;
+    const engine = createServer((request) => {
+      attempts += 1;
+      request.socket.destroy();
+    });
+    await new Promise<void>((resolve) => engine.listen(0, "127.0.0.1", resolve));
+    stops.push(() => new Promise<void>((resolve, reject) => {
+      engine.close((error) => error ? reject(error) : resolve());
+    }));
+    const address = engine.address();
+    if (!address || typeof address === "string") throw new Error("Missing engine port");
+    const legalwork = await startLegalworkServer({
+      workspaceRoot,
+      opencodeBaseUrl: `http://127.0.0.1:${address.port}`,
+    });
+
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspaces/ws_1/activate`, {
+      method: "POST",
+      headers: hostAuth(legalwork.hostToken),
+    });
+    expect(response.status).toBe(503);
+    expect(attempts).toBe(1);
   });
 
   test("persists activation order only when requested", async () => {
@@ -428,4 +504,107 @@ describe("workspace lifecycle registry", () => {
     expect(workspaceIdsFromConfig(persisted)).toEqual(["rem_ws_two"]);
     expect(authorizedRootsFromConfig(persisted)).toEqual([]);
   });
+});
+
+test("selected-folder project preserves files, persists metadata and rejects stale writes", async () => {
+  const root = await createWorkspaceRoot();
+  const selected = join(root, "client-selected");
+  await mkdir(selected);
+  await writeFile(join(selected, "contract.txt"), "Original terms");
+  const legalwork = await startLegalworkServerWithWorkspaces({ configPath: join(root, "server.json"), workspaces: [], authorizedRoots: [] });
+  const base = `http://127.0.0.1:${legalwork.server.port}`;
+  const headers = { ...hostAuth(legalwork.hostToken), Authorization: "Bearer owt_test_token", "Content-Type": "application/json" };
+  const created = await fetch(`${base}/workspaces/local`, { method: "POST", headers, body: JSON.stringify({ folderPath: selected, folderMode: "selected", name: "Matter Alpha" }) });
+  expect(created.status).toBe(201);
+  const list = await created.json();
+  const id = list.activeId;
+  expect(list.workspaces[0].path).toBe(selected);
+  const endpoint = `${base}/workspace/${id}/project`;
+  expect(await (await fetch(endpoint, { headers })).json()).toEqual({ version: 1, revision: 0, fields: [] });
+  const payload = { revision: 0, fields: [{ id: "client", label: "Client", type: "text", value: "Acme" }] };
+  const saved = await fetch(endpoint, { method: "PATCH", headers: { Authorization: "Bearer owt_test_token", "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  expect(saved.status).toBe(200);
+  expect((await (await fetch(endpoint, { headers })).json()).fields[0].value).toBe("Acme");
+  const stale = await fetch(endpoint, { method: "PATCH", headers, body: JSON.stringify(payload) });
+  expect(stale.status).toBe(409);
+  expect(await readFile(join(selected, "contract.txt"), "utf8")).toBe("Original terms");
+  expect(await readPersistedWorkspaceIds(join(root, "server.json"))).toEqual([id]);
+});
+
+
+test("local folder setup discovers custom defaults, saves values and finishes setup without a remote link", async () => {
+  const root = await createWorkspaceRoot();
+  const selected = join(root, "existing-matter");
+  await mkdir(selected);
+  await writeFile(join(selected, "brief.txt"), "Budget: 3500");
+  const legalwork = await startLegalworkServerWithWorkspaces({ configPath: join(root, "server.json"), workspaces: [], authorizedRoots: [] });
+  const base = `http://127.0.0.1:${legalwork.server.port}`;
+  const headers = { ...hostAuth(legalwork.hostToken), Authorization: "Bearer owt_test_token", "Content-Type": "application/json" };
+  const created = await fetch(`${base}/workspaces/local`, { method: "POST", headers, body: JSON.stringify({
+    name: "Existing matter", folderPath: selected, folderMode: "selected", initializeFromFolders: true,
+    projectFields: [{ id: "budget", label: "Our budget", labelSource: "custom", type: "number", value: null }],
+  }) });
+  expect(created.status).toBe(201);
+  const { activeId } = await created.json();
+  const endpoint = `${base}/workspace/${activeId}/project`;
+  const context = await (await fetch(`${endpoint}/setup`, { headers })).json();
+  expect(context).not.toHaveProperty("context");
+  expect((await fetch(`${endpoint}/context`, { headers })).status).toBe(404);
+  expect(context).toMatchObject({ localFolder: selected, initialization: "pending", remote: { folders: [] }, fields: [{ id: "budget", label: "Our budget", value: null }] });
+  const metadata = await fetch(`${endpoint}/metadata`, { method: "PATCH", headers, body: JSON.stringify({ revision: context.revision, values: { budget: 3500 } }) });
+  expect(metadata.status).toBe(200);
+  const updated = await metadata.json();
+  expect(updated.fields[0]).toMatchObject({ id: "budget", label: "Our budget", type: "number", value: 3500 });
+  const completed = await fetch(`${endpoint}/setup`, { method: "PATCH", headers, body: JSON.stringify({ revision: updated.revision, name: "Reviewed matter" }) });
+  expect(completed.status).toBe(200);
+  expect((await completed.json()).remote).toMatchObject({ folders: [], initialization: "ready" });
+  expect(await readFile(join(selected, "brief.txt"), "utf8")).toBe("Budget: 3500");
+  const noSource = await fetch(`${base}/workspaces/local`, { method: "POST", headers, body: JSON.stringify({ name: "Empty", folderMode: "default", initializeFromFolders: true }) });
+  expect(noSource.status).toBe(400);
+});
+
+test("new default projects use the native host root without relocating existing projects", async () => {
+  const root = await createWorkspaceRoot();
+  const projectsDirectory = join(root, "Redirected Documents", "LegalWork", "Projects");
+  const legalwork = await startLegalworkServerWithWorkspaces({ configPath: join(root, "server.json"), workspaces: [], authorizedRoots: [], projectsDirectory });
+  const base = `http://127.0.0.1:${legalwork.server.port}`;
+  const headers = { ...hostAuth(legalwork.hostToken), Authorization: "Bearer owt_test_token", "Content-Type": "application/json" };
+  expect(await (await fetch(`${base}/workspaces/project-defaults`, { headers })).json()).toEqual({ folderPath: projectsDirectory });
+  for (const expected of ["Matter", "Matter (2)"]) {
+    const response = await fetch(`${base}/workspaces/local`, { method: "POST", headers, body: JSON.stringify({ folderMode: "default", name: "Matter", projectFields: [{ id: "client", label: "Mandant", type: "text", value: null }] }) });
+    expect(response.status).toBe(201);
+    const list = await response.json();
+    expect(list.workspaces[0].path).toBe(join(projectsDirectory, expected));
+    const details = await (await fetch(`${base}/workspace/${list.workspaces[0].id}/project`, { headers })).json();
+    expect(details.fields).toEqual([{ id: "client", label: "Mandant", type: "text", value: null }]);
+  }
+  const persisted = await readPersistedConfig(join(root, "server.json"));
+  expect(workspacesFromConfig(persisted).map((workspace) => workspace.path)).toEqual([join(projectsDirectory, "Matter (2)"), join(projectsDirectory, "Matter")]);
+});
+
+
+test("missing project folders are never recreated and recover with the same identity and values", async () => {
+  const root = await createWorkspaceRoot();
+  const selected = join(root, "Selected");
+  const moved = join(root, "Disconnected");
+  await mkdir(selected);
+  const legalwork = await startLegalworkServerWithWorkspaces({ configPath: join(root, "server.json"), workspaces: [], authorizedRoots: [] });
+  const base = `http://127.0.0.1:${legalwork.server.port}`;
+  const headers = { ...hostAuth(legalwork.hostToken), Authorization: "Bearer owt_test_token", "Content-Type": "application/json" };
+  const created = await fetch(`${base}/workspaces/local`, { method: "POST", headers, body: JSON.stringify({ folderPath: selected, name: "Matter", projectFields: [{ id: "client", label: "Client", type: "text", value: null }] }) });
+  const { activeId } = await created.json();
+  const endpoint = `${base}/workspace/${activeId}/project`;
+  await rename(selected, moved);
+  const activation = await fetch(`${base}/workspaces/${activeId}/activate`, { method: "POST", headers });
+  expect(activation.status).toBe(404);
+  expect((await activation.json()).code).toBe("project_folder_unavailable");
+  const unavailable = await fetch(endpoint, { headers });
+  expect(unavailable.status).toBe(404);
+  expect((await unavailable.json()).code).toBe("project_folder_unavailable");
+  expect(await stat(selected).catch(() => null)).toBeNull();
+  await rename(moved, selected);
+  const restored = await fetch(endpoint, { headers });
+  expect(restored.status).toBe(200);
+  expect((await restored.json()).fields[0].id).toBe("client");
+  expect(await readPersistedWorkspaceIds(join(root, "server.json"))).toEqual([activeId]);
 });

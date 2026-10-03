@@ -1,3 +1,6 @@
+import { registerProjectFolderRoutes } from "./project-folders.js";
+import { readProjectDetails } from "../project-store.js";
+import { connectionFingerprint, projectFolderScopes } from "../file-storage/project-folders.js";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -35,6 +38,8 @@ import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from ".
 import { addRoute, type RequestContext, type Route } from "./registry.js";
 
 type Options = {
+  onProjectFoldersChanged?: (workspaceId: string) => Promise<void>;
+  onProjectRenamed?: (workspaceId: string, name: string) => Promise<void>;
   routes: Route[];
   config: ServerConfig;
   jsonResponse: (data: unknown, status?: number) => Response;
@@ -57,6 +62,7 @@ const writeSchema = z.object({
 });
 
 export function registerStorageRoutes({
+  onProjectFoldersChanged, onProjectRenamed,
   routes,
   config,
   jsonResponse,
@@ -94,7 +100,12 @@ export function registerStorageRoutes({
       throw new ApiError(404, "storage_not_found", "This team connection is unavailable. Refresh Memory Drive.");
     return item;
   };
+  const projectFolders = registerProjectFolderRoutes({ routes, config, storagePath: store.path, oauth, lookup, resolveWorkspace, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, onChanged: onProjectFoldersChanged, onRenamed: onProjectRenamed });
   const selected = async (ctx: RequestContext, writing = false) => {
+    if (ctx.params.storageId.startsWith("project:")) {
+      if (writing) throw new ApiError(403, "storage_read_only", "Linked project folders are read-only references.");
+      return projectFolders.selected(await workspace(ctx), ctx.params.storageId);
+    }
     const item = await lookup(await workspace(ctx), ctx.params.storageId);
     if (item.team?.installed === false)
       throw new ApiError(409, "storage_not_installed", "Add this connection from the Team tab in File storage first.");
@@ -126,6 +137,24 @@ export function registerStorageRoutes({
     if (id) oauth.bind(await workspace(ctx), id, input);
     return input;
   };
+  addRoute(routes, "GET", "/storage/project-sources", "host", async () => {
+    const sources: { sourceWorkspaceId: string; connectionId: string; name: string }[] = [];
+    const seen = new Set<string>();
+    let error: string | undefined;
+    const available = await Promise.all(config.workspaces.filter((item) => item.workspaceType === "local").map(async (workspace) => ({
+      workspace, shared: await team.list(workspace.id), personal: await store.list(workspace.id),
+    })));
+    for (const { workspace, shared, personal } of available) {
+      if (shared.status.error) error = shared.status.error;
+      for (const item of [...personal, ...shared.connections]) {
+        if (!item.enabled || item.team?.installed === false || seen.has(item.id)) continue;
+        if (item.config.kind === "oauth" && !(await oauth.status(oauth.key(workspace.id, item.id, item))).connected) continue;
+        seen.add(item.id);
+        sources.push({ sourceWorkspaceId: workspace.id, connectionId: item.id, name: item.name });
+      }
+    }
+    return jsonResponse({ sources, ...(error ? { error } : {}) });
+  });
   addRoute(routes, "GET", `${base}/oauth/providers`, "host", async (ctx) => {
     requireClientScope(ctx, "owner");
     return jsonResponse({ providers: oauthProviders.filter((p) => p.clientId && storageOAuthProviderAllowed(p.id)).map(({ id, name, rootHint }) => ({ id, name, rootHint })) });
@@ -169,18 +198,26 @@ export function registerStorageRoutes({
   addRoute(routes, "GET", `${base}/roots`, "client", async (ctx) => {
     const workspaceId = await workspace(ctx);
     const shared = await team.list(workspaceId);
-    const connections = [...(await store.list(workspaceId)), ...shared.connections];
+    const connections = [...(await store.list(workspaceId)), ...shared.connections]
+      .filter((item) => item.enabled && item.team?.installed !== false);
+    const details = await readProjectDetails((await resolveWorkspace(config, workspaceId)).path);
+    const linkedRoots = (details.remote?.folders ?? []).map((folder) => {
+      const source = connections.find((item) => item.id === folder.connectionId && item.team?.orgId === folder.organizationId && connectionFingerprint(item) === folder.connectionFingerprint);
+      return {
+        id: `project:${folder.id}`, name: folder.folder.name, kind: "linked", writable: false,
+        ...(source ? { sourceConnectionId: source.id } : {}),
+      };
+    });
     return jsonResponse({
       ...(shared.status.error ? { teamError: shared.status.error } : {}),
-      roots: connections
-        .filter((item) => item.enabled && item.team?.installed !== false)
+      roots: [...linkedRoots, ...connections
         .map((item) => ({
           id: item.id,
           name: item.name,
           revision: item.team ? `${item.team.orgId}:${item.team.version}` : String(item.updatedAt),
           kind: item.config.kind,
           writable: !item.readOnly && canWrite(ctx),
-        })),
+        }))],
     });
   });
   for (const method of ["POST", "PUT"]) {
@@ -285,7 +322,7 @@ export function registerStorageRoutes({
   });
   addRoute(routes, "GET", `${base}/:storageId/capabilities`, "client", async (ctx) => {
     const connection = await selected(ctx);
-    const writable = !connection.readOnly && canWrite(ctx);
+    const writable = !projectFolderScopes.has(connection) && !connection.readOnly && canWrite(ctx);
     return jsonResponse(await withStorage(connection, async (adapter) => ({
       read: true, write: writable, createFolder: writable,
       rename: writable && Boolean(adapter.rename), deleteFile: writable && Boolean(adapter.deleteFile),
@@ -321,7 +358,7 @@ export function registerStorageRoutes({
     storagePath(parsed.data.path);
     return jsonResponse(
       await withStorage(connection, (adapter) =>
-        searchFilenames(adapter, parsed.data, `${connection.id}:${connection.updatedAt}`, ctx.request.signal),
+        searchFilenames(adapter, parsed.data, `${ctx.params.storageId}:${connection.updatedAt}`, ctx.request.signal),
       ),
     );
   });
@@ -334,7 +371,7 @@ export function registerStorageRoutes({
       contentType: result.contentType ?? "application/octet-stream",
       version: result.version,
       writable:
-        !connection.readOnly &&
+        !projectFolderScopes.has(connection) && !connection.readOnly &&
         canWrite(ctx) &&
         !result.version.startsWith("sha256:") &&
         !result.version.startsWith("W/"),
@@ -356,7 +393,7 @@ export function registerStorageRoutes({
         contentType: file.contentType ?? "application/octet-stream",
         updatedAt: (await stat(copy.path)).mtimeMs,
         writable:
-          !connection.readOnly &&
+          !projectFolderScopes.has(connection) && !connection.readOnly &&
           canWrite(ctx) &&
           !file.version.startsWith("sha256:") &&
           !file.version.startsWith("W/"),
@@ -585,4 +622,5 @@ export function registerStorageRoutes({
     });
     return jsonResponse({ ok: true });
   });
+  return projectFolders;
 }

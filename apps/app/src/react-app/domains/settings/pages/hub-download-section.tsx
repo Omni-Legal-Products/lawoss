@@ -1,8 +1,9 @@
 /** @jsxImportSource react */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Blocks,
+  BookOpen,
   Check,
   Download,
   Loader2,
@@ -29,6 +30,7 @@ import {
   useEigenweltEntitlements,
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
 import { usePremiumUpsell } from "@/react-app/domains/recorder/premium-upsell-context";
+import { WORKFLOWS_PER_PAGE, WorkflowPagination } from "./workflow-pagination";
 
 /**
  * Firm-hub "download" surface for a single kind. Lists the items your firm has
@@ -51,8 +53,9 @@ function sortHubItems(items: EigenweltHubItem[]): EigenweltHubItem[] {
   return [...items].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
 }
 
-/** Human title from a hub slug: "nda-review" -> "Nda Review". */
-function prettifyName(slug: string): string {
+/** Human title from a hub slug: "nda-review" -> "Nda Review". A prompt set is named by a person already. */
+function prettifyName(slug: string, kind?: EigenweltHubKind): string {
+  if (kind === "review_set") return slug;
   const words = slug.replace(/[-_]+/g, " ").trim();
   return words.replace(/\b\w/g, (c) => c.toUpperCase());
 }
@@ -79,6 +82,14 @@ function kindMeta(kind: EigenweltHubKind): {
         title: t("firm_hub.integrations"),
         description: t("firm_hub.integrations_desc"),
         empty: t("firm_hub.empty_integrations"),
+      };
+    case "review_set":
+      return {
+        feature: "admin_hub",
+        icon: <BookOpen className="size-4" />,
+        title: t("firm_hub.review_sets"),
+        description: t("firm_hub.review_sets_desc"),
+        empty: t("firm_hub.empty_review_sets"),
       };
     case "preset":
       return {
@@ -137,6 +148,14 @@ export function HubDownloadSection({
   const items = sortHubItems(
     memberFilter ? rawItems.filter((it) => it.createdByUserId === memberFilter) : rawItems,
   );
+  const [page, setPage] = useState(0);
+  const listRef = useRef<HTMLDivElement>(null);
+  const lastPage = Math.max(0, Math.ceil(items.length / WORKFLOWS_PER_PAGE) - 1);
+  const currentPage = Math.min(page, lastPage);
+  const visibleItems = kind === "workflow" ? items.slice(currentPage * WORKFLOWS_PER_PAGE, (currentPage + 1) * WORKFLOWS_PER_PAGE) : items;
+  useEffect(() => { setPage(0); }, [workspaceId, kind, memberFilter]);
+  useEffect(() => { setPage((value) => Math.min(value, lastPage)); }, [lastPage]);
+  useEffect(() => { if (listRef.current) listRef.current.scrollTop = 0; }, [currentPage, memberFilter]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingInstall, setPendingInstall] = useState<{
     item: EigenweltHubItem;
@@ -237,7 +256,7 @@ export function HubDownloadSection({
   }
 
   return (
-    <div className="space-y-2">
+    <div className={kind === "workflow" ? "flex h-full min-h-0 flex-col gap-2" : "space-y-2"}>
       <div className="flex items-center gap-2 text-ink">
         {meta.icon}
         <h3 className="text-md font-semibold">{meta.title}</h3>
@@ -260,6 +279,7 @@ export function HubDownloadSection({
           </select>
         </div>
       ) : null}
+      <div ref={listRef} className={kind === "workflow" ? "min-h-0 flex-1 overflow-y-auto" : undefined}>
       <Card padding="none">
         {listQuery.isLoading ? (
           <div className="flex items-center gap-2 px-4 py-6 text-subtext">
@@ -269,9 +289,11 @@ export function HubDownloadSection({
           <div className="px-4 py-6 text-base text-subtext">{meta.empty}</div>
         ) : (
           <div className="divide-y divide-subtle">
-            {items.map((item) => {
+            {visibleItems.map((item) => {
               const { record, updateAvailable } = installStateFor(item);
               const isPreset = kind === "preset";
+              // A prompt set is text, not code: it is added as the member's own copy, without the executable warning.
+              const isReviewSet = kind === "review_set";
               return (
                 <HubItemRow
                   key={item.id}
@@ -281,11 +303,12 @@ export function HubDownloadSection({
                   updateAvailable={updateAvailable}
                   installedLabel={isPreset ? t("firm_hub.applied_badge") : t("firm_hub.installed_badge")}
                   actionIcon={<Download className="size-4" />}
-                  actionLabel={item.kind === "plugin" && !item.pinned ? t("hub_download.admin_approval") : isPreset ? t("firm_hub.apply") : t("firm_hub.install")}
+                  actionLabel={item.kind === "plugin" && !item.pinned ? t("hub_download.admin_approval") : isPreset ? t("firm_hub.apply") : isReviewSet ? t("firm_hub.add_review_set") : t("firm_hub.install")}
                   actionDisabled={item.kind === "plugin" && !item.pinned}
                   reactionLabel={isPreset ? t("firm_hub.reapply") : t("firm_hub.reinstall")}
                   onAction={() => {
                     if (isPreset) void applyPreset(item, Boolean(record));
+                    else if (isReviewSet) void runInstall(item, Boolean(record));
                     else setPendingInstall({ item, wasInstalled: Boolean(record) });
                   }}
                   onDelete={() => void runDelete(item)}
@@ -295,6 +318,8 @@ export function HubDownloadSection({
           </div>
         )}
       </Card>
+      </div>
+      {kind === "workflow" ? <WorkflowPagination page={currentPage} total={items.length} onPageChange={setPage} /> : null}
       <ConfirmModal
         open={pendingInstall !== null}
         title={pendingInstall?.wasInstalled ? t("hub_download.review_update") : t("hub_download.review_install")}
@@ -361,7 +386,7 @@ function HubItemRow(props: {
     <Row
       title={
         <span className="flex items-center gap-2">
-          {prettifyName(item.name)}
+          {prettifyName(item.name, item.kind)}
           {item.pinned ? (
             <Badge tone="accent" size="sm">
               <Pin className="size-3" /> {t("firm_hub.pinned")}
