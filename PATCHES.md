@@ -329,3 +329,7 @@ Baseline `8858366578b506bc3c83f39072e3c0a2ddbbee00`, upstream `v0.2.1` `2019dc65
 | `apps/app/src/app/lib/opencode.ts`, `legalwork-server.ts`, `domains/session/artifacts/artifact-panel.tsx` | Zachovaný 60-sekundový limit vytvorenia session popri upstream streaming výnimkách; memory/registerExisting/CAS kontrakty sú spojené s upstream API; autor dokumentu naďalej pochádza z lokálnej preferencie. |
 | `apps/desktop/electron/main.mjs`, `scripts/dev-remote-debug.mjs`, `docs/lawoss-build-pre-testerov.md` | Nový upstream CDP režim je predvolene vypnutý a v balenej aplikácii vždy vypnutý. LAWOSS navigation guard používa presný upstream `isAppUrl` a naďalej kontroluje redirecty; Autogram a fork updater hooks ostávajú. |
 | `apps/server/package.json`, `bunfig.toml`, `apps/desktop/package.json`, `apps/app/package.json`, `pnpm-lock.yaml`, `.github/workflows/ci-tests.yml` | Spojené build entrypoints, test preloads, desktop testy a fonty; CI naďalej overuje všetky PR. Lockfile bol regenerovaný bez širšej zmeny upstream dependency resolutions. |
+
+### Windows file identity correction during v0.2.1 CI
+
+`lawoss/okf/src/naming-fs.ts` now reads exact BigInt filesystem identities throughout document naming, apply, replay and rollback. Windows source CI exposed collisions caused by rounding large inode values to JavaScript numbers. The existing plan format retains string identities. The Node regression reproduces two colliding numeric IDs and passes only with exact reads. The OKF bundle is regenerated; no naming, hardlink, compare-and-swap or recovery guard is removed.

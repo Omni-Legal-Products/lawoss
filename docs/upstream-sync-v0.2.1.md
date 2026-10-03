@@ -39,10 +39,10 @@ Local validation on macOS arm64 with Node 24.19.0, pnpm 11.4.0 and Bun 1.4.2:
 | `pnpm --filter @legalwork/app test` | 1,001 passed, 0 failed. |
 | `pnpm --filter legalwork-server test` | 1,344 passed, 15 skipped, 0 failed. Skips require optional storage services or native OCR installations. |
 | `pnpm --filter @legalwork/desktop test` | 248 passed, 1 skipped, 0 failed. The skip checks non-macOS behavior while this run is on macOS. |
-| `pnpm --filter @lawoss/okf test` | 154 passed, 0 failed. |
+| `pnpm --filter @lawoss/okf test` | 155 passed, 0 failed after the Windows identity correction. |
 | `pnpm --filter @lawoss/okf-pamat test` | 603 passed, 0 failed. |
 | LAWOSS handoff tests | 38 passed, 0 failed. |
-| Both portable CLI builds | Passed and byte-identical to the baseline bundles. |
+| Both portable CLI builds | Initially byte-identical to baseline. The OKF bundle was subsequently rebuilt for the exact Windows file-identity correction; the memory bundle remains unchanged. |
 | `pnpm test:e2e` | Passed with the pinned real OpenCode v1.18.29 engine in an isolated HOME/XDG profile. Includes sessions, switch, filesystem engine and browser-entry flows. |
 | `pnpm --filter @legalwork/app test:i18n`; `node scripts/i18n-audit.mjs --ci` | Passed: 5,593 English keys; EN/DE/SK/CS complete, matching placeholders. New SK/CS text also received a language correction pass. This is not a professional linguistic certification. |
 | `pnpm build` | Full renderer, Office pane, server/plugin and desktop resource build passed. Renderer (`LEGALWORK_ELECTRON_BUILD=1 pnpm build:ui`) and Word pane were rebuilt after the final locale and entitlement guard changes. |
@@ -60,6 +60,12 @@ A custom OpenAI-compatible provider at loopback was added through the native UI.
 Safari MCP checked the built renderer welcome, live language switching, disabled analytics, project modal opening, and wide/narrow layouts. The standalone preview intentionally had no connected backend: project submission was disabled and the UI displayed its connection error. Its repeated localhost connection warnings are recorded as this test limitation, not a successful Safari backend workflow. Full project creation/model/MCP flows were exercised in Electron.
 
 The Electron smoke had no renderer page exceptions. Observed network noise included a transient local analytics identity connection refusal during startup, canceled event streams during route/engine transitions, and an optional `/env/keys` host-token 401 in Integrations. Core custom model, MCP and OKF installation flows succeeded. These warnings are not evidence of external analytics submission; renderer request inspection found no external request during the tested setup and mock-chat sequence.
+
+### Windows source CI follow-up
+
+The repeated Windows source run exposed collisions between numeric file identities in document naming. The module now requests BigInt filesystem metadata and serializes exact device/inode identities into the existing string fields. Single-link checks, bounded reads, root/target checks, replay and rollback retain their safeguards. Existing previews with a rounded identity must be regenerated rather than trusted.
+
+A Node subprocess regression injects distinct inode values 9007199254740992 and 9007199254740993. It fails with the old implementation and passes with the fix. The full local OKF suite passes (155 tests), strict typecheck passes, and the portable OKF bundle was regenerated. Windows CI must also pass before merge.
 
 ### Remaining review and release gates
 
