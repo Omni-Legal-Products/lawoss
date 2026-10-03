@@ -33,12 +33,22 @@ describe("workspace app files policy", () => {
 
 describe("outside app-files root", () => {
   it("uses the same config-directory and canonical-path hash contract as the server", () => {
-    const configPath = path.join("/Users", "lawyer", ".config", "legalwork", "server.json");
-    const workspace = path.join("/Users", "lawyer", "Cases", "Matter");
+    const configPath = path.resolve(os.tmpdir(), "lawyer", ".config", "legalwork", "server.json");
+    const workspace = path.resolve(os.tmpdir(), "lawyer", "Cases", "Matter");
     const hash = createHash("sha256").update(path.resolve(workspace)).digest("hex");
     assert.equal(
       externalWorkspaceAppFilesRoot(configPath, workspace),
       path.join(path.dirname(configPath), "workspace-app-files", hash),
+    );
+  });
+
+  it("resolves relative config and workspace paths before deriving the external root", () => {
+    const configPath = path.join("config", "server.json");
+    const workspace = path.join("Cases", "Matter");
+    const hash = createHash("sha256").update(path.resolve(workspace)).digest("hex");
+    assert.equal(
+      externalWorkspaceAppFilesRoot(configPath, workspace),
+      path.join(process.cwd(), "config", "workspace-app-files", hash),
     );
   });
 });
