@@ -6,7 +6,7 @@ import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { scopeLevels, type MatterOverview } from "../../../../../../lawoss/okf/read";
 import { buildCockpit, type Cockpit, type CockpitDeadline } from "../../../../../../lawoss/okf/cockpit";
-import { OkfPage } from "../../domains/okf-page";
+import { MatterParties, OkfPage } from "../../domains/okf-page";
 import { litePageProps } from "../state-text";
 import { openMatterSession } from "../../okf/matter-session";
 import { addDays, dayClass, officeWorkspace, formatDay, today, useOkfConnection, type OkfReadResult } from "../../okf/read-model";
@@ -20,7 +20,7 @@ import "./lite.css";
 
 type ActionId = (typeof QUICK_ACTIONS)[number]["id"] | (typeof MORE_ACTIONS)[number]["id"];
 /** Z cockpitu stačí to, co lite ukazuje; zbytek zůstává v pro. */
-export type LiteCockpit = Pick<Cockpit, "deadlines" | "tasks" | "attention" | "facts">;
+export type LiteCockpit = Pick<Cockpit, "deadlines" | "tasks" | "attention" | "facts"> & Partial<Pick<Cockpit, "parties">>;
 
 export function LiteMatterPage() {
   const locale = useLocale();
@@ -220,6 +220,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
             </div>
           ))}
         </div>
+        <MatterParties parties={cockpit?.parties ?? []} />
         {attention.length > 0 ? (
           <div className="lw-reg">
             {attention.map((row) => (

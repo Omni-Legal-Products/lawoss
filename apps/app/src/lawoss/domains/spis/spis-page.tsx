@@ -2,7 +2,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { useMatterText } from "../okf-page";
+import { MatterParties, useMatterText } from "../okf-page";
 import type { MatterTextKey } from "../../i18n/matters";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
@@ -199,6 +199,8 @@ export function MatterCockpit({ cockpit, now, raw, scopePaths = [] }: { cockpit:
           cockpit.attention.map((row, i) => <AttentionLine key={row.id} row={row} cockpit={cockpit} index={i} now={now} />)
         )}
       </div>
+
+      <MatterParties parties={cockpit.parties} />
 
       {cockpit.registers.map((reg) => (
         <div className="lw-reg" key={reg.id}>

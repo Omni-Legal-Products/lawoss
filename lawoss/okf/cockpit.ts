@@ -8,9 +8,9 @@
  * nezmizne.
  */
 import type { OkfRecord } from "../okf-pamat/src/record.ts";
-import type { RecordType } from "../okf-pamat/src/schema.ts";
+import { valueLabel, type RecordType } from "../okf-pamat/src/schema.ts";
 import { pendingInputs } from "./inputs.ts";
-import { deadlineTier, isOpenTask, recordDeadlines, type MatterInput, type MatterOverview } from "./read.ts";
+import { deadlineTier, isOpenTask, isRetired, recordDeadlines, type MatterInput, type MatterOverview } from "./read.ts";
 
 /** Odkiaľ údaj pochádza. Slovo, nie farba — stav musí byť čitateľný aj bez nej. */
 export type Provenance = "overené" | "AI návrh" | "zapísané" | "overenie neurčené" | "strojovo overené";
@@ -64,6 +64,8 @@ export type AttentionRow = {
   /** Rozsah zdrojového súboru, ak sa líši od otvorenej veci. */
   scope?: "client" | "office";
 };
+/** Zapojený subjekt: záznam `subject` alebo položka `participants`. Rola ostáva v jazyku záznamu. */
+export type CockpitParty = { name: string; role?: string; contact?: string; recordId: string; file: string };
 export type CockpitEvent = { date: string; text: string; kind?: string; recordId: string; file: string };
 
 export const REGISTER_ORDER = ["obal", "fakty", "ulohy", "lehoty"] as const;
@@ -81,6 +83,7 @@ export type Cockpit = {
   tasks: readonly CockpitTask[];
   deadlines: { confirmed: readonly CockpitDeadline[]; candidates: readonly CockpitDeadline[] };
   attention: readonly AttentionRow[];
+  parties: readonly CockpitParty[];
   events: readonly CockpitEvent[];
   unreadable: readonly MatterProblem[];
   /** Nálezy kanonického validátora, oddelené od súborov, ktoré sa nedali načítať. */
@@ -208,6 +211,21 @@ function deadlines(input: MatterInput, todayIso: string): CockpitDeadline[] {
     }
   }
   return out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.title.localeCompare(b.title)));
+}
+
+/** Subjekty a `participants` zo živých záznamov; bez mena sa nič neukáže (validátor to hlási). */
+function parties(input: MatterInput): CockpitParty[] {
+  const out: CockpitParty[] = [];
+  for (const r of input.records) {
+    if (isRetired(r)) continue;
+    const file = fileOf(input, r);
+    if (r.type === "subject") out.push({ name: r.title, ...(r.role ? { role: valueLabel("role", r.role, r.jurisdiction) } : {}), recordId: r.id, file });
+    for (const p of r.participants ?? []) {
+      const name = p.name?.trim();
+      if (name) out.push({ name, ...(p.role ? { role: p.role } : {}), ...(p.contact ? { contact: p.contact } : {}), recordId: r.id, file });
+    }
+  }
+  return out;
 }
 
 function events(input: MatterInput): CockpitEvent[] {
@@ -389,6 +407,7 @@ export function buildCockpit(data: CockpitInput, path: string | null, todayIso: 
     tasks: taskRows,
     deadlines: { confirmed, candidates },
     attention: attentionRows,
+    parties: parties(input),
     events: events(input),
     unreadable,
     diagnostics,
