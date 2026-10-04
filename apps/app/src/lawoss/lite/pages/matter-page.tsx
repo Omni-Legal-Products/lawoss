@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
-import { scopeLevels, type MatterOverview } from "../../../../../../lawoss/okf/read";
+import { missingScopeLevels, scopeLevels, type MatterOverview } from "../../../../../../lawoss/okf/read";
 import { buildCockpit, type Cockpit, type CockpitDeadline } from "../../../../../../lawoss/okf/cockpit";
 import { MatterParties, OkfPage } from "../../domains/okf-page";
 import { litePageProps } from "../state-text";
@@ -238,7 +238,8 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
 
       {scopePaths.length > 0 ? <details className="lw-reg p-3">
         <summary>{text("memory_scope")}</summary>
-        <ul>{scopeLevels(scopePaths).map(({ path, level }) => <li className="break-all" key={path} data-lawoss-scope={level}><b>{text(`scope_${level}`)}</b> {path || "."}</li>)}</ul>
+        <ul>{scopeLevels(scopePaths).map(({ path, level }) => <li className="break-all" key={path} data-lawoss-scope={level}><b>{text(`scope_${level}`)}</b> {path || "."}</li>)}
+          {missingScopeLevels(scopePaths).map((level) => <li key={level} data-lawoss-scope-missing={level}><b>{text(`scope_${level}`)}:</b> {text(`scope_${level}_missing`)}</li>)}</ul>
       </details> : null}
       {existingMemorySources.length > 0 ? <div className="lw-reg p-3" role="note">
         <h2>{text("additional_memory")}</h2>

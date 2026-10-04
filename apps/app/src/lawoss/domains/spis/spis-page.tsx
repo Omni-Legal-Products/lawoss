@@ -26,7 +26,7 @@ import {
   type CockpitDeadline,
   type RegisterId,
 } from "../../../../../../lawoss/okf/cockpit";
-import { scopeLevels } from "../../../../../../lawoss/okf/read";
+import { missingScopeLevels, scopeLevels } from "../../../../../../lawoss/okf/read";
 
 /**
  * Spisový prehľad — read-only cockpit jednej veci (spec MF, bod 3.3).
@@ -261,6 +261,8 @@ export function MatterCockpit({ cockpit, now, raw, scopePaths = [] }: { cockpit:
         </span>
         {scopePaths.length > 0 ? <ul data-lawoss-scopes>{scopeLevels(scopePaths).map(({ path, level }) => (
           <li className="break-all" key={path} data-lawoss-scope={level}><b>{t(`lawoss.lite.scope_${level}`, locale)}</b> <span className="lw-mono">{path || "."}</span></li>
+        ))}{missingScopeLevels(scopePaths).map((level) => (
+          <li key={level} data-lawoss-scope-missing={level}><b>{t(`lawoss.lite.scope_${level}`, locale)}:</b> {t(`lawoss.lite.scope_${level}_missing`, locale)}</li>
         ))}</ul> : null}
       </div>
     </>

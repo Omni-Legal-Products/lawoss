@@ -307,7 +307,7 @@ var FIELDS = [
   { canonical: "parties", cz: "strany", sk: "strany", kind: "list", required: false },
   { canonical: "matter_ref", cz: "spisová značka", sk: "spisová značka", kind: "string", required: false },
   { canonical: "court", cz: "soud", sk: "súd", kind: "string", required: false },
-  { canonical: "participants", cz: "Zapojené subjekty", sk: "Zúčastnené subjekty", kind: "maplist", required: false },
+  { canonical: "participants", cz: "Zapojené subjekty", sk: "Zapojené subjekty", kind: "maplist", required: false },
   { canonical: "area", cz: "oblast práva", sk: "oblasť práva", kind: "list", required: false },
   {
     canonical: "role",
@@ -2535,11 +2535,14 @@ function findOfficeDir(startDir, maxUp = 8) {
   return;
 }
 
+// src/onboarding/messages.ts
+var UNSAFE_FOLDER_NAME_MESSAGE = "A safe non-empty folder name is required.";
+
 // src/onboarding/entities.ts
 var safeSegment = (value) => {
-  const trimmed = value.trim();
-  if (!trimmed || trimmed.length > 120 || /[\\/:\0]|^\.|[. ]$/.test(trimmed))
-    throw new Error("A safe non-empty folder name is required.");
+  const trimmed = value.trim().replace(/[. ]+$/, "");
+  if (!trimmed || trimmed.length > 120 || /[\\/:\0<>"|?*]|^\./.test(trimmed))
+    throw new Error(UNSAFE_FOLDER_NAME_MESSAGE);
   return trimmed;
 };
 var yaml = (value) => JSON.stringify(value);

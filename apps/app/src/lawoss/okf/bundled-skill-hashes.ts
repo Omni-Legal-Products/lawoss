@@ -21,6 +21,7 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "1aa12936d3e1c74377808cf4e32e2fdb843323ebbdcefe73199cd91e783f80fe", // lawoss/skills/novy-spis/SKILL.md @ bb5e869c
   "216dc56f9257ad5681d74935f6b2954ed6d56d6d5008ebc361985ac9e0fd9178", // lawoss/skills/novy-spis/SKILL.md @ caacdf9c
   "2571048a4af6d4375faf682a0f4b67c4c21bd78483d3d1e7e7ef76fe768edef0", // lawoss/okf-pamat/SKILL.md @ 0fa9dfbb
+  "2ee9a6e11908e90e2df487bff8aff1edfb2be968aae61fb01e1bbff0f748f1b8", // lawoss/okf-pamat/SKILL.md @ PR B, jedna popiska Zapojené subjekty
   "31056d6d659154f8d5b18f5a4c4a80b674725eb28b62dbea730ef6d7b82a44a3", // lawoss/okf-pamat/SKILL.md @ 540df6cc
   "376b579194aa6b8f484050dd2fba08161a417c0c19831f2016852e33e16b70c0", // lawoss/okf-pamat/SKILL.md @ 55159fbb
   "38b1727bbee79e01ca9a5b8852adbe954937815248c132691ebc6f9c34323b18", // lawoss/skills/novy-spis/SKILL.md @ f8153756

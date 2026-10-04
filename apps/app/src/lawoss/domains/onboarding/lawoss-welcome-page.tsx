@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Check, ExternalLink, FileWarning, ShieldCheck } from "lucide-react";
+import { Check, FileWarning, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLocale } from "@/i18n/use-locale";
@@ -35,6 +35,8 @@ import {
   visibleOnboardingSteps,
   writeOnboardingProgress,
 } from "./onboarding-state";
+import { OnboardingAiPanel } from "./ai-step";
+import { UNSAFE_FOLDER_NAME_MESSAGE } from "../../../../../../lawoss/okf/src/onboarding/messages";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const documentLanguage = (language: Language): DocumentLanguage =>
@@ -43,7 +45,7 @@ const errorMessage = (error: unknown, fallback: string) =>
   error instanceof Error && error.message.trim() ? error.message : fallback;
 const text: Record<Language, Record<string, string>> = {
   en: {
-    title: "Set up your legal practice",
+    title: "Set up your practice",
     identity: "You and jurisdiction",
     okf: "Matter organisation",
     office: "Office",
@@ -55,7 +57,7 @@ const text: Record<Language, Record<string, string>> = {
     save: "Save and continue",
     preview: "Preview changes",
     apply: "Confirm and apply",
-    lawyer: "Lawyer name",
+    lawyer: "Your name",
     jurisdiction: "Jurisdiction",
     language: "Interface language",
     new: "Create new",
@@ -65,8 +67,6 @@ const text: Record<Language, Record<string, string>> = {
     path: "Folder path",
     aiText:
       "Choose a provider and model in the existing AI settings. This onboarding does not create a separate AI configuration.",
-    aiOpen: "Open AI settings",
-    aiDone: "I have reviewed my AI settings",
     type: "Client type",
     company: "Company",
     person: "Person",
@@ -97,7 +97,7 @@ const text: Record<Language, Record<string, string>> = {
     error: "This step could not be completed.",
   },
   sk: {
-    title: "Nastavte advokátsku prax",
+    title: "Nastavte svoju prax",
     identity: "Vy a jurisdikcia",
     okf: "Organizácia spisov",
     office: "Kancelária",
@@ -109,7 +109,7 @@ const text: Record<Language, Record<string, string>> = {
     save: "Uložiť a pokračovať",
     preview: "Náhľad zmien",
     apply: "Potvrdiť a vykonať",
-    lawyer: "Meno advokáta",
+    lawyer: "Vaše meno",
     jurisdiction: "Jurisdikcia",
     language: "Jazyk rozhrania",
     new: "Vytvoriť novú",
@@ -119,8 +119,6 @@ const text: Record<Language, Record<string, string>> = {
     path: "Cesta k priečinku",
     aiText:
       "Poskytovateľa a model vyberte v pôvodných nastaveniach AI. Tento onboarding nevytvára samostatnú konfiguráciu AI.",
-    aiOpen: "Otvoriť nastavenia AI",
-    aiDone: "Skontroloval som nastavenia AI",
     type: "Typ klienta",
     company: "Právnická osoba",
     person: "Fyzická osoba",
@@ -151,7 +149,7 @@ const text: Record<Language, Record<string, string>> = {
     error: "Tento krok sa nepodarilo dokončiť.",
   },
   cs: {
-    title: "Nastavte advokátní praxi",
+    title: "Nastavte svou praxi",
     identity: "Vy a jurisdikce",
     okf: "Organizace spisů",
     office: "Kancelář",
@@ -163,7 +161,7 @@ const text: Record<Language, Record<string, string>> = {
     save: "Uložit a pokračovat",
     preview: "Náhled změn",
     apply: "Potvrdit a provést",
-    lawyer: "Jméno advokáta",
+    lawyer: "Vaše jméno",
     jurisdiction: "Jurisdikce",
     language: "Jazyk rozhraní",
     new: "Vytvořit novou",
@@ -173,8 +171,6 @@ const text: Record<Language, Record<string, string>> = {
     path: "Cesta ke složce",
     aiText:
       "Poskytovatele a model zvolte v původním nastavení AI. Tento onboarding nevytváří samostatnou konfiguraci AI.",
-    aiOpen: "Otevřít nastavení AI",
-    aiDone: "Zkontroloval jsem nastavení AI",
     type: "Typ klienta",
     company: "Právnická osoba",
     person: "Fyzická osoba",
@@ -204,7 +200,7 @@ const text: Record<Language, Record<string, string>> = {
     error: "Tento krok se nepodařilo dokončit.",
   },
   de: {
-    title: "Richten Sie Ihre Kanzlei ein",
+    title: "Richten Sie Ihre Praxis ein",
     identity: "Sie und die Jurisdiktion",
     okf: "Aktenorganisation",
     office: "Kanzlei",
@@ -216,7 +212,7 @@ const text: Record<Language, Record<string, string>> = {
     save: "Speichern und weiter",
     preview: "Änderungen prüfen",
     apply: "Bestätigen und ausführen",
-    lawyer: "Name der Rechtsanwältin oder des Rechtsanwalts",
+    lawyer: "Ihr Name",
     jurisdiction: "Jurisdiktion",
     language: "Sprache der Oberfläche",
     new: "Neu erstellen",
@@ -226,8 +222,6 @@ const text: Record<Language, Record<string, string>> = {
     path: "Ordnerpfad",
     aiText:
       "Wählen Sie Anbieter und Modell in den vorhandenen KI-Einstellungen. Dieses Onboarding erstellt keine getrennte KI-Konfiguration.",
-    aiOpen: "KI-Einstellungen öffnen",
-    aiDone: "Ich habe die KI-Einstellungen geprüft",
     type: "Mandantentyp",
     company: "Unternehmen",
     person: "Person",
@@ -259,6 +253,17 @@ const text: Record<Language, Record<string, string>> = {
     error: "Dieser Schritt konnte nicht abgeschlossen werden.",
   },
 };
+const unsafeFolderName: Record<Language, string> = {
+  sk: "Názov priečinka nesmie byť prázdny, začínať bodkou, obsahovať znaky / \\ : < > \" | ? * ani mať viac ako 120 znakov. Bodky vnútri názvu, napríklad „s. r. o.“, sú v poriadku.",
+  cs: "Název složky nesmí být prázdný, začínat tečkou, obsahovat znaky / \\ : < > \" | ? * ani mít více než 120 znaků. Tečky uvnitř názvu, například „s. r. o.“, jsou v pořádku.",
+  en: "The folder name must not be empty, start with a dot, contain / \\ : < > \" | ? * or be longer than 120 characters. Dots inside the name, such as \"s. r. o.\", are fine.",
+  de: "Der Ordnername darf nicht leer sein, nicht mit einem Punkt beginnen, keine Zeichen / \\ : < > \" | ? * enthalten und nicht länger als 120 Zeichen sein. Punkte im Namen, etwa „s. r. o.“, sind zulässig.",
+};
+/** Server errors in the UI language where the app knows them; other messages stay as sent. */
+export const onboardingErrorMessage = (error: unknown, locale: Language) =>
+  error instanceof Error && error.message === UNSAFE_FOLDER_NAME_MESSAGE
+    ? unsafeFolderName[locale]
+    : errorMessage(error, text[locale].error);
 const field = (label: string, child: ReactNode) => (
   <label className="grid gap-1.5 text-sm font-medium">
     <span>{label}</span>
@@ -614,7 +619,7 @@ export function LawossWelcomePage({
       setStep(next);
       if (next === "done") await onComplete(completedResult, completion());
     } catch (reason) {
-      setError(errorMessage(reason, tr("error")));
+      setError(onboardingErrorMessage(reason, locale));
     } finally {
       setBusy(false);
     }
@@ -627,7 +632,7 @@ export function LawossWelcomePage({
       setPreview(pending);
       writePendingOnboarding(window.localStorage, pending);
     } catch (reason) {
-      setError(errorMessage(reason, tr("error")));
+      setError(onboardingErrorMessage(reason, locale));
     } finally {
       setBusy(false);
     }
@@ -672,7 +677,7 @@ export function LawossWelcomePage({
       writePendingOnboarding(window.localStorage, null);
       if (next === "done") await onComplete(result);
     } catch (reason) {
-      setError(errorMessage(reason, tr("error")));
+      setError(onboardingErrorMessage(reason, locale));
     } finally {
       setBusy(false);
     }
@@ -694,7 +699,7 @@ export function LawossWelcomePage({
         writePendingOnboarding(window.localStorage, null);
       }
     } catch (reason) {
-      setError(errorMessage(reason, tr("error")));
+      setError(onboardingErrorMessage(reason, locale));
     } finally {
       setBusy(false);
     }
@@ -705,7 +710,7 @@ export function LawossWelcomePage({
     try {
       await onComplete(completedResult, completion());
     } catch (reason) {
-      setError(errorMessage(reason, tr("error")));
+      setError(onboardingErrorMessage(reason, locale));
     } finally {
       setBusy(false);
     }
@@ -772,7 +777,7 @@ export function LawossWelcomePage({
                   setProfile(await api.updateOnboardingProfile(next));
                   await move("okf");
                 } catch (reason) {
-                  setError(errorMessage(reason, tr("error")));
+                  setError(onboardingErrorMessage(reason, locale));
                 } finally {
                   setBusy(false);
                 }
@@ -805,7 +810,7 @@ export function LawossWelcomePage({
                   setProfile(await api.updateOnboardingProfile({ officeRoot }));
                   await move("ai");
                 } catch (reason) {
-                  setError(errorMessage(reason, tr("error")));
+                  setError(onboardingErrorMessage(reason, locale));
                 }
               }}
             />
@@ -814,17 +819,16 @@ export function LawossWelcomePage({
             <>
               <h2 className="text-xl font-semibold">{tr("ai")}</h2>
               <p className="text-muted-foreground">{tr("aiText")}</p>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={onOpenAiSettings}>
-                  <ExternalLink />
-                  {tr("aiOpen")}
-                </Button>
-                {okfEnabled === false ? null : (
-                  <Button onClick={() => void move(stepAfterAi(okfEnabled))}>
-                    {tr("aiDone")}
-                  </Button>
-                )}
-              </div>
+              <OnboardingAiPanel
+                locale={locale}
+                busy={busy}
+                onOpenAiSettings={onOpenAiSettings}
+                onContinue={
+                  okfEnabled === false
+                    ? undefined
+                    : () => void move(stepAfterAi(okfEnabled))
+                }
+              />
               {okfEnabled === false ? (
                 <WorkingFolderStep
                   tr={tr}
@@ -863,7 +867,7 @@ export function LawossWelcomePage({
                     }),
                   );
                 } catch (reason) {
-                  setError(errorMessage(reason, tr("error")));
+                  setError(onboardingErrorMessage(reason, locale));
                 } finally {
                   setBusy(false);
                 }
@@ -879,7 +883,7 @@ export function LawossWelcomePage({
                     }),
                   );
                 } catch (reason) {
-                  setError(errorMessage(reason, tr("error")));
+                  setError(onboardingErrorMessage(reason, locale));
                 } finally {
                   setBusy(false);
                 }

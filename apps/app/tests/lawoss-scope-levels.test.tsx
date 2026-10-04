@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
-import { buildOverview, scopeLevels, type MatterInput } from "../../../lawoss/okf/read";
+import { buildOverview, missingScopeLevels, scopeLevels, type MatterInput } from "../../../lawoss/okf/read";
 import { buildCockpit } from "../../../lawoss/okf/cockpit";
 import { LAYER_OF } from "../../../lawoss/okf-pamat/src/schema.ts";
 import type { OkfRecord } from "../../../lawoss/okf-pamat/src/record.ts";
@@ -69,5 +69,39 @@ describe("9: úrovne rozsahu vec / klient / kancelária", () => {
     expect(out).toContain('data-lawoss-scope="client"><b>Client</b>');
     expect(out).toContain('data-lawoss-scope="office"><b>Office</b>');
     expect(out).toMatch(/IN-7.*· Client<\/small>/);
+  });
+});
+
+describe("PR B bod 10: nenačítané úrovne rozsahu sa uvedú výslovne", () => {
+  test("missingScopeLevels vráti klienta a kanceláriu, ktoré v rozsahu chýbajú", () => {
+    expect(missingScopeLevels(["Spisy/A"])).toEqual(["client", "office"]);
+    expect(missingScopeLevels(["Klienti/ACME/Spisy/A", "Klienti/ACME"])).toEqual(["office"]);
+    expect(missingScopeLevels(["Vec", "_kancelaria"])).toEqual(["client"]);
+    expect(missingScopeLevels(["Klienti/ACME/Spisy/A", "Klienti/ACME", "Office"])).toEqual([]);
+  });
+
+  const alone = ["Spisy/A"];
+  const inputs: MatterInput[] = [{ path: alone[0]!, records: [], scopePaths: alone }];
+  const cockpit = buildCockpit({ ...buildOverview(inputs, TODAY), inputs, problems: [] }, alone[0]!, TODAY);
+  if (!cockpit) throw new Error("cockpit missing");
+
+  test("Lite: samostatne otvorená vec uvedie klienta aj kanceláriu ako nenačítané", () => {
+    const out = renderToStaticMarkup(<MemoryRouter><LiteMatterView matter={cockpit.matter} cockpit={cockpit} busy={null} error={null} onAction={() => {}} scopePaths={alone} /></MemoryRouter>);
+    expect(out).toContain('data-lawoss-scope-missing="client"><b>Client:</b> not loaded');
+    expect(out).toContain('data-lawoss-scope-missing="office"><b>Office:</b> not loaded');
+  });
+
+  test("Pro: rovnaké úrovne pri spise", () => {
+    const out = renderToStaticMarkup(<MatterCockpit cockpit={cockpit} now={TODAY} raw={{}} scopePaths={alone} />);
+    expect(out).toContain('data-lawoss-scope-missing="client"><b>Client:</b> not loaded');
+    expect(out).toContain('data-lawoss-scope-missing="office"><b>Office:</b> not loaded');
+  });
+
+  test("úplný rozsah nič nenačítané neuvádza", () => {
+    const paths = ["Klienti/ACME/Spisy/A", "Klienti/ACME", "Office"];
+    const full: MatterInput[] = [{ path: paths[0]!, records: [], scopePaths: paths }];
+    const fullCockpit = buildCockpit({ ...buildOverview(full, TODAY), inputs: full, problems: [] }, paths[0]!, TODAY);
+    if (!fullCockpit) throw new Error("cockpit missing");
+    expect(renderToStaticMarkup(<MatterCockpit cockpit={fullCockpit} now={TODAY} raw={{}} scopePaths={paths} />)).not.toContain("data-lawoss-scope-missing");
   });
 });
