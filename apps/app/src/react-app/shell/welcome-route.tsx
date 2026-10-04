@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { createLegalworkServerClient, type LegalworkServerClient } from "@/app/lib/legalwork-server";
-import { workspaceCreate, workspaceSetRuntimeActive, workspaceSetSelected } from "@/app/lib/desktop";
+import { resolveWorkspaceListSelectedId, workspaceCreate, workspaceSetRuntimeActive, workspaceSetSelected } from "@/app/lib/desktop";
 import { pickDirectory } from "@/app/lib/desktop";
 import { isDesktopRuntime } from "@/app/utils";
 import { resolveLegalworkConnection } from "./legalwork-connection";
@@ -15,7 +15,14 @@ import { useLocal } from "../kernel/local-provider";
 import { LawossWelcomePage } from "@/lawoss/domains/onboarding/lawoss-welcome-page";
 import type { OnboardingStep } from "@/lawoss/domains/onboarding/api";
 
-const continuationStep = (value: string | null): OnboardingStep | undefined => value === "client" || value === "matter" ? value : undefined;
+const continuationStep = (value: string | null): OnboardingStep | undefined => value === "client" || value === "matter" || value === "okf" ? value : undefined;
+
+async function registerWorkingFolder(client: LegalworkServerClient, folderPath: string) {
+  const list = await client.createLocalWorkspace({ folderPath, name: folderPath.split(/[\\/]/).filter(Boolean).pop() ?? folderPath, preset: "starter", registerExisting: true });
+  const workspace = list.workspaces.find(item => item.path === folderPath) ?? list.workspaces.find(item => item.id === resolveWorkspaceListSelectedId(list));
+  if (!workspace) throw new Error("Working folder registration did not return a workspace.");
+  return { id: workspace.id, path: workspace.path, displayName: workspace.displayName ?? workspace.name };
+}
 
 /** Native LAWOSS onboarding. Office is configuration only, client is always the workspace. */
 export function WelcomeRoute() {
@@ -37,10 +44,13 @@ export function WelcomeRoute() {
 
   if (error) return <main className="mx-auto max-w-xl p-10"><p role="alert">{error}</p><Button className="mt-4" onClick={() => navigate("/settings/advanced")}>Open Settings</Button></main>;
   if (!client) return <main className="mx-auto max-w-xl p-10" role="status">Connecting LAWOSS…</main>;
-  return <LawossWelcomePage api={client} initialStep={initialStep} pickDirectory={async () => { const result = await pickDirectory({ title: "Select LAWOSS folder" }); return typeof result === "string" ? result : null; }} onOpenAiSettings={() => navigate("/settings/ai")} onComplete={async (result) => {
+  return <LawossWelcomePage api={client} initialStep={initialStep} pickDirectory={async () => { const result = await pickDirectory({ title: "Select LAWOSS folder" }); return typeof result === "string" ? result : null; }} onOpenAiSettings={() => navigate("/settings/ai")} onComplete={async (result, completion) => {
     const status = await client.onboardingStatus();
+    const okf = status.profile?.okf?.enabled === true;
     const list = await client.listWorkspaces();
-    const workspace = result?.workspace ?? list.items.find(item => item.path === status.profile?.clientRoot);
+    // LAWOSS: without OKF the optional working folder is registered as is, with no OKF structure or skills.
+    const plain = !okf && !result?.workspace && completion?.workingFolder ? await registerWorkingFolder(client, completion.workingFolder) : undefined;
+    const workspace = result?.workspace ?? plain ?? list.items.find(item => item.path === status.profile?.clientRoot);
     let activeId = workspace?.id;
     if (workspace && isDesktopRuntime()) {
       const existing = list.items.find(item => item.id === workspace.id);
@@ -56,7 +66,7 @@ export function WelcomeRoute() {
       const connection = await resolveLegalworkConnection();
       const activeClient = createLegalworkServerClient({ baseUrl: connection.normalizedBaseUrl, token: connection.resolvedToken, hostToken: connection.resolvedHostToken });
       await activeClient.activateWorkspace(activeId, { persist: true });
-      await installMissingOnboardingSkills(activeClient, activeId, status.profile?.language ?? "sk");
+      if (okf) await installMissingOnboardingSkills(activeClient, activeId, status.profile?.language ?? "sk");
       writeActiveWorkspaceId(activeId);
     }
     local.setPrefs((previous) => ({ ...previous, hasCompletedOnboarding: true }));

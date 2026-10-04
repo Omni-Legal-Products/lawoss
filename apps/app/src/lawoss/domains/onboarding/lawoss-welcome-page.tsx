@@ -27,17 +27,15 @@ import {
   readPendingOnboarding,
   writePendingOnboarding,
   DEFAULT_ONBOARDING_PROGRESS,
+  okfChoice,
   readOnboardingProgress,
+  stepAfterAi,
+  stepAfterOkfChoice,
+  visibleOnboardingStep,
+  visibleOnboardingSteps,
   writeOnboardingProgress,
 } from "./onboarding-state";
 
-const steps: readonly OnboardingStep[] = [
-  "identity",
-  "office",
-  "ai",
-  "client",
-  "matter",
-];
 const today = () => new Date().toISOString().slice(0, 10);
 const documentLanguage = (language: Language): DocumentLanguage =>
   language === "de" ? "en" : language;
@@ -47,6 +45,7 @@ const text: Record<Language, Record<string, string>> = {
   en: {
     title: "Set up your legal practice",
     identity: "You and jurisdiction",
+    okf: "Matter organisation",
     office: "Office",
     ai: "Data and AI",
     client: "First client",
@@ -100,6 +99,7 @@ const text: Record<Language, Record<string, string>> = {
   sk: {
     title: "Nastavte advokátsku prax",
     identity: "Vy a jurisdikcia",
+    okf: "Organizácia spisov",
     office: "Kancelária",
     ai: "Dáta a AI",
     client: "Prvý klient",
@@ -153,6 +153,7 @@ const text: Record<Language, Record<string, string>> = {
   cs: {
     title: "Nastavte advokátní praxi",
     identity: "Vy a jurisdikce",
+    okf: "Organizace spisů",
     office: "Kancelář",
     ai: "Data a AI",
     client: "První klient",
@@ -205,6 +206,7 @@ const text: Record<Language, Record<string, string>> = {
   de: {
     title: "Richten Sie Ihre Kanzlei ein",
     identity: "Sie und die Jurisdiktion",
+    okf: "Aktenorganisation",
     office: "Kanzlei",
     ai: "Daten und KI",
     client: "Erster Mandant",
@@ -309,6 +311,10 @@ const extraText: Record<Language, Record<string, string>> = {
     recoverFinish: "Dokončiť prerušený zápis",
     recoverRollback: "Vrátiť prerušený zápis",
     pack: "Pri dokončení doplníme chýbajúce skills OKF pre klienta. Existujúce úpravy zachováme.",
+    continue: "Pokračovať",
+    workingFolder: "Pracovný priečinok (voliteľné)",
+    workingFolderHelp: "Priečinok pridáme ako pracovný priestor. Nevytvoríme v ňom štruktúru OKF ani skills OKF.",
+    finish: "Dokončiť",
   },
   cs: {
     documentLanguage: "Jazyk dokumentů",
@@ -320,6 +326,10 @@ const extraText: Record<Language, Record<string, string>> = {
     recoverFinish: "Dokončit přerušený zápis",
     recoverRollback: "Vrátit přerušený zápis",
     pack: "Při dokončení doplníme chybějící skills OKF pro klienta. Existující úpravy zachováme.",
+    continue: "Pokračovat",
+    workingFolder: "Pracovní složka (volitelné)",
+    workingFolderHelp: "Složku přidáme jako pracovní prostor. Nevytvoříme v ní strukturu OKF ani skills OKF.",
+    finish: "Dokončit",
   },
   en: {
     documentLanguage: "Document language",
@@ -331,6 +341,10 @@ const extraText: Record<Language, Record<string, string>> = {
     recoverFinish: "Finish interrupted changes",
     recoverRollback: "Roll back interrupted changes",
     pack: "Completion adds missing OKF skills for this client and preserves existing customizations.",
+    continue: "Continue",
+    workingFolder: "Working folder (optional)",
+    workingFolderHelp: "The folder is added as a workspace. No OKF structure or OKF skills are created in it.",
+    finish: "Finish",
   },
   de: {
     documentLanguage: "Dokumentsprache",
@@ -343,8 +357,169 @@ const extraText: Record<Language, Record<string, string>> = {
     recoverFinish: "Unterbrochene Änderungen abschließen",
     recoverRollback: "Unterbrochene Änderungen zurücknehmen",
     pack: "Beim Abschluss werden fehlende OKF-Skills ergänzt. Bestehende Anpassungen bleiben erhalten.",
+    continue: "Weiter",
+    workingFolder: "Arbeitsordner (optional)",
+    workingFolderHelp: "Der Ordner wird als Arbeitsbereich hinzugefügt. Es werden darin keine OKF-Struktur und keine OKF-Skills angelegt.",
+    finish: "Abschließen",
   },
 };
+/** OKF notice, version `OKF_NOTICE_VERSION`. Changing the text needs a new version. */
+type OkfNotice = {
+  title: string;
+  intro: string;
+  points: readonly string[];
+  use: string;
+  notNow: string;
+  acknowledge: string;
+};
+const okfNotice: Record<Language, OkfNotice> = {
+  sk: {
+    title: "Organizácia spisov (OKF)",
+    intro:
+      "LAWOSS môže viesť kanceláriu, klientov a veci v jednotnej štruktúre OKF. Sú to obyčajné priečinky a textové súbory na vašom počítači, ktoré si viete otvoriť aj bez LAWOSS.",
+    points: [
+      "Asistent číta a zapisuje pamäť veci: lehoty, zapojené subjekty, fakty a stav. Zápisy ostávajú v priečinku klienta.",
+      "Ak používate model v cloude, časti spisu sa posielajú poskytovateľovi modelu ako súčasť otázky. Mlčanlivosť a zmluvu o spracúvaní údajov (DPA) s poskytovateľom máte vo svojej zodpovednosti.",
+      "V alfa verzii pracujte len s vymyslenými alebo verejnými údajmi, nie so skutočnými spismi.",
+      "OKF môžete zapnúť aj neskôr.",
+    ],
+    use: "Používať OKF",
+    notNow: "Zatiaľ bez OKF",
+    acknowledge: "Beriem na vedomie, ako OKF pracuje s údajmi spisu.",
+  },
+  cs: {
+    title: "Organizace spisů (OKF)",
+    intro:
+      "LAWOSS může vést kancelář, klienty a věci v jednotné struktuře OKF. Jsou to obyčejné složky a textové soubory ve vašem počítači, které otevřete i bez LAWOSS.",
+    points: [
+      "Asistent čte a zapisuje paměť věci: lhůty, zapojené subjekty, fakta a stav. Zápisy zůstávají ve složce klienta.",
+      "Pokud používáte model v cloudu, části spisu se posílají poskytovateli modelu jako součást dotazu. Mlčenlivost a smlouvu o zpracování údajů (DPA) s poskytovatelem máte ve své odpovědnosti.",
+      "V alfa verzi pracujte jen s vymyšlenými nebo veřejnými údaji, ne se skutečnými spisy.",
+      "OKF můžete zapnout i později.",
+    ],
+    use: "Používat OKF",
+    notNow: "Zatím bez OKF",
+    acknowledge: "Beru na vědomí, jak OKF pracuje s údaji spisu.",
+  },
+  en: {
+    title: "Matter organisation (OKF)",
+    intro:
+      "LAWOSS can keep your office, clients and matters in one OKF structure. These are ordinary folders and text files on your computer that you can open without LAWOSS.",
+    points: [
+      "The assistant reads and writes matter memory: deadlines, involved parties, facts and status. Entries stay in the client folder.",
+      "If you use a cloud model, parts of the matter are sent to the model provider as part of a question. Confidentiality and a data processing agreement (DPA) with the provider remain your responsibility.",
+      "In the alpha, work only with invented or public data, not with real matters.",
+      "You can turn OKF on later.",
+    ],
+    use: "Use OKF",
+    notNow: "Not now",
+    acknowledge: "I acknowledge how OKF handles matter data.",
+  },
+  de: {
+    title: "Aktenorganisation (OKF)",
+    intro:
+      "LAWOSS kann Kanzlei, Mandanten und Angelegenheiten in einer einheitlichen OKF-Struktur führen. Das sind gewöhnliche Ordner und Textdateien auf Ihrem Computer, die Sie auch ohne LAWOSS öffnen können.",
+    points: [
+      "Der Assistent liest und schreibt das Gedächtnis der Angelegenheit: Fristen, beteiligte Personen und Stellen, Fakten und Stand. Einträge bleiben im Mandantenordner.",
+      "Wenn Sie ein Cloud-Modell verwenden, werden Teile der Akte als Teil einer Frage an den Modellanbieter gesendet. Verschwiegenheit und ein Auftragsverarbeitungsvertrag (DPA) mit dem Anbieter liegen in Ihrer Verantwortung.",
+      "Arbeiten Sie in der Alpha nur mit erfundenen oder öffentlichen Daten, nicht mit echten Akten.",
+      "Sie können OKF auch später einschalten.",
+    ],
+    use: "OKF verwenden",
+    notNow: "Vorerst ohne OKF",
+    acknowledge: "Ich nehme zur Kenntnis, wie OKF mit Aktendaten umgeht.",
+  },
+};
+/** Two equal choices, none preselected on first visit; enabling requires the acknowledgement. */
+export function OkfChoiceStep({
+  locale,
+  initial,
+  busy,
+  continueLabel,
+  onChoose,
+}: {
+  locale: Language;
+  initial: boolean | undefined;
+  busy: boolean;
+  continueLabel: string;
+  onChoose: (enabled: boolean) => Promise<void>;
+}) {
+  const notice = okfNotice[locale];
+  const [choice, setChoice] = useState<boolean | undefined>(initial);
+  const [acknowledged, setAcknowledged] = useState(false);
+  const ready = choice === false || (choice === true && acknowledged);
+  return (
+    <>
+      <h2 className="text-xl font-semibold">{notice.title}</h2>
+      <p>{notice.intro}</p>
+      <ul className="list-disc grid gap-2 pl-5 text-sm">
+        {notice.points.map((point) => (
+          <li key={point}>{point}</li>
+        ))}
+      </ul>
+      <div className="grid gap-2 sm:grid-cols-2" role="group" aria-label={notice.title}>
+        <Button
+          type="button"
+          variant={choice === true ? "default" : "outline"}
+          aria-pressed={choice === true}
+          onClick={() => setChoice(true)}
+        >
+          {notice.use}
+        </Button>
+        <Button
+          type="button"
+          variant={choice === false ? "default" : "outline"}
+          aria-pressed={choice === false}
+          onClick={() => setChoice(false)}
+        >
+          {notice.notNow}
+        </Button>
+      </div>
+      {choice === true ? (
+        <label className="flex gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={acknowledged}
+            onChange={(event) => setAcknowledged(event.target.checked)}
+          />
+          {notice.acknowledge}
+        </label>
+      ) : null}
+      <Button
+        disabled={busy || !ready}
+        onClick={() => {
+          if (choice !== undefined) void onChoose(choice);
+        }}
+      >
+        {continueLabel}
+      </Button>
+    </>
+  );
+}
+/** Optional working folder for the path without OKF; registered as a plain workspace. */
+export function WorkingFolderStep({
+  tr,
+  busy,
+  folder,
+  onFolderChange,
+  onFinish,
+}: {
+  tr: (key: string) => string;
+  busy: boolean;
+  folder: string;
+  onFolderChange: (value: string) => void;
+  onFinish: () => void;
+}) {
+  return (
+    <>
+      {field(tr("workingFolder"), <PathInput value={folder} onChange={onFolderChange} />)}
+      <p className="text-sm text-muted-foreground">{tr("workingFolderHelp")}</p>
+      <Button disabled={busy} onClick={onFinish}>
+        {tr("finish")}
+      </Button>
+    </>
+  );
+}
 function DocumentLanguageSelect({
   value,
   onChange,
@@ -364,10 +539,15 @@ function DocumentLanguageSelect({
     </select>
   );
 }
+/** Completion details that are not an onboarding apply result. */
+export type OnboardingCompletion = { workingFolder?: string };
 type Props = {
   api: OnboardingApi;
   initialStep?: OnboardingStep;
-  onComplete: (result?: OnboardingApplyResult) => void | Promise<void>;
+  onComplete: (
+    result?: OnboardingApplyResult,
+    completion?: OnboardingCompletion,
+  ) => void | Promise<void>;
   onOpenAiSettings: () => void;
   pickDirectory: () => Promise<string | null>;
 };
@@ -394,6 +574,9 @@ export function LawossWelcomePage({
   >();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [workingFolder, setWorkingFolder] = useState("");
+  const completion = (): OnboardingCompletion | undefined =>
+    workingFolder.trim() ? { workingFolder: workingFolder.trim() } : undefined;
   useEffect(() => {
     void api
       .onboardingStatus()
@@ -405,11 +588,19 @@ export function LawossWelcomePage({
           typeof window === "undefined"
             ? DEFAULT_ONBOARDING_PROGRESS
             : readOnboardingProgress(window.localStorage);
-        setStep(initialStep ?? status.profile?.step ?? saved.step);
+        setStep(
+          visibleOnboardingStep(
+            initialStep ?? status.profile?.step ?? saved.step,
+            status.profile?.okf?.enabled,
+          ),
+        );
       })
       .catch(() => setError(tr("error")));
   }, [api, initialStep]);
-  const move = async (next: OnboardingStep) => {
+  const move = async (
+    next: OnboardingStep,
+    patch: Pick<Partial<OnboardingProfile>, "okf"> = {},
+  ) => {
     setBusy(true);
     setError(null);
     try {
@@ -418,10 +609,10 @@ export function LawossWelcomePage({
           lane: "detailed",
           step: next,
         });
-      const saved = await api.updateOnboardingProfile({ step: next });
+      const saved = await api.updateOnboardingProfile({ ...patch, step: next });
       setProfile(saved);
       setStep(next);
-      if (next === "done") await onComplete(completedResult);
+      if (next === "done") await onComplete(completedResult, completion());
     } catch (reason) {
       setError(errorMessage(reason, tr("error")));
     } finally {
@@ -512,13 +703,15 @@ export function LawossWelcomePage({
     setBusy(true);
     setError(null);
     try {
-      await onComplete(completedResult);
+      await onComplete(completedResult, completion());
     } catch (reason) {
       setError(errorMessage(reason, tr("error")));
     } finally {
       setBusy(false);
     }
   };
+  const okfEnabled = profile?.okf?.enabled;
+  const steps = visibleOnboardingSteps(okfEnabled);
   const idx = steps.indexOf(step);
   const base = profile ?? {
     version: 1,
@@ -535,7 +728,12 @@ export function LawossWelcomePage({
         <header>
           <p className="text-sm text-muted-foreground">LAWOSS</p>
           <h1 className="mt-1 text-3xl font-semibold">{tr("title")}</h1>
-          <ol className="mt-6 grid grid-cols-5 gap-2">
+          <ol
+            className="mt-6 grid gap-2"
+            style={{
+              gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))`,
+            }}
+          >
             {steps.map((item, i) => (
               <li
                 key={item}
@@ -572,13 +770,27 @@ export function LawossWelcomePage({
                 try {
                   setLanguagePreference(next.language);
                   setProfile(await api.updateOnboardingProfile(next));
-                  await move("office");
+                  await move("okf");
                 } catch (reason) {
                   setError(errorMessage(reason, tr("error")));
                 } finally {
                   setBusy(false);
                 }
               }}
+            />
+          ) : null}
+          {step === "okf" ? (
+            <OkfChoiceStep
+              key={String(okfEnabled)}
+              locale={locale}
+              initial={okfEnabled}
+              busy={busy}
+              continueLabel={tr("continue")}
+              onChoose={(enabled) =>
+                move(stepAfterOkfChoice(enabled, initialStep), {
+                  okf: okfChoice(enabled, new Date()),
+                })
+              }
             />
           ) : null}
           {step === "office" ? (
@@ -607,10 +819,21 @@ export function LawossWelcomePage({
                   <ExternalLink />
                   {tr("aiOpen")}
                 </Button>
-                <Button onClick={() => void move("client")}>
-                  {tr("aiDone")}
-                </Button>
+                {okfEnabled === false ? null : (
+                  <Button onClick={() => void move(stepAfterAi(okfEnabled))}>
+                    {tr("aiDone")}
+                  </Button>
+                )}
               </div>
+              {okfEnabled === false ? (
+                <WorkingFolderStep
+                  tr={tr}
+                  busy={busy}
+                  folder={workingFolder}
+                  onFolderChange={setWorkingFolder}
+                  onFinish={() => void move("done")}
+                />
+              ) : null}
             </>
           ) : null}
           {step === "client" ? (

@@ -3,7 +3,6 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { NovySpisPanel } from "../src/lawoss/domains/novy-spis/novy-spis-page";
 import { prepareOkfDraft, okfTargetWithinWorkspace } from "../src/lawoss/domains/novy-spis/prepare-draft";
-import type { LegalworkServerClient } from "../src/app/lib/legalwork-server";
 
 const workspace = { id: "local-one", name: "Moje spisy", displayNameResolved: "Moje spisy", path: "/office", workspaceType: "local" as const };
 
@@ -16,8 +15,12 @@ test("shared panel uses supplied workspace, without experimental navigation or a
   expect(html).not.toContain("Confirm creation");
 });
 
-function clientFor(writable: boolean, calls: string[], failResource = false): Pick<LegalworkServerClient, "capabilities" | "upsertSkill" | "upsertSkillResource"> {
+function clientFor(writable: boolean, calls: string[], failResource = false): Parameters<typeof prepareOkfDraft>[0] {
   return {
+    listSkills: async () => ({ items: [], skipped: [] }),
+    getSkill: async () => { throw new Error("no installed skill in this fixture"); },
+    listSkillResources: async () => ({ items: [] }),
+    getSkillResource: async () => { throw new Error("no installed resource in this fixture"); },
     capabilities: async () => ({ skills: { read: true, write: writable, source: "legalwork" }, skillResources: { read: true, write: writable }, plugins: { read: true, write: writable }, mcp: { read: true, write: writable }, commands: { read: true, write: writable }, config: { read: true, write: writable } }),
     upsertSkill: async (id: string) => { calls.push(`skill:${id}`); return { name: "skill", path: "/skill", description: "", scope: "project" }; },
     upsertSkillResource: async (id: string) => { calls.push(`resource:${id}`); if (failResource) throw new Error("resource denied"); return { ok: true, name: "resource", path: "/resource", action: "added" }; },
