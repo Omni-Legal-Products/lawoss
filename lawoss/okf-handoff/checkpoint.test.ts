@@ -29,6 +29,25 @@ describe("durable local OKF handoff", () => {
     writeFileSync(join(root, "spis.md"), "---\ntype: spis\n---\n# different\n");
     expect(createHandoff(root)).toBeNull();
   });
+  test("canonical and legacy project cards bind only when they are the single consistent project card", () => {
+    for (const [name, type] of [["project.md", "projekt"], ["projekt.md", "project"]]) {
+      const root = fixture();
+      rmSync(join(root, "matter.md"));
+      writeFileSync(join(root, name), `---\ntype: ${type}\n---\n# Synthetic project\n`);
+      expect(createHandoff(root)).not.toBeNull();
+    }
+
+    const root = fixture();
+    rmSync(join(root, "matter.md"));
+    writeFileSync(join(root, "project.md"), "---\ntype: projekt\n---\n# Canonical project\n");
+    writeFileSync(join(root, "projekt.md"), "---\ntype: projekt\n---\n# Different legacy project\n");
+    expect(createHandoff(root)).toBeNull();
+
+    const wrongType = fixture();
+    rmSync(join(wrongType, "matter.md"));
+    writeFileSync(join(wrongType, "project.md"), "---\ntype: spis\n---\n# Wrong card type\n");
+    expect(createHandoff(wrongType)).toBeNull();
+  });
   test("writes full CLI context and hash atomically, deduplicates unchanged idle", async () => {
     const root = fixture(); const calls: string[][] = [];
     const handoff = createHandoff(root, { cli: (args: string[]) => { calls.push(args); return { code: 0, out: args[0] === "read" ? "Full source context\nRevision U-1: abc\nPending input" : "synced" }; } })!;
