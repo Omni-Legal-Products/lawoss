@@ -39,6 +39,17 @@ describe("onboarding AI step", () => {
     expect(view({ state: "unavailable" })).toContain("Pokračovať bez modelu");
   });
 
+  test("before the first folder there are no AI settings to open, only the way forward", () => {
+    const html = view({ state: "no-workspace" });
+    expect(html).toContain('data-lawoss-ai-model="no-workspace"');
+    expect(html).toContain("Model pripojíte, keď bude otvorený prvý priečinok");
+    expect(html).not.toContain("Otvoriť nastavenia AI");
+    expect(html).toContain("Pokračovať bez modelu");
+    expect(view({ state: "no-workspace" }, { locale: "cs" })).toContain("Poskytovatelé AI");
+    expect(view({ state: "no-workspace" }, { locale: "en" })).toContain("Settings → AI Providers");
+    expect(view({ state: "no-workspace" }, { locale: "de" })).toContain("KI-Provider");
+  });
+
   test("continuing waits for the check", () => {
     expect(view({ state: "checking" })).toMatch(/<button[^>]*disabled=""[^>]*>Pokračovať bez modelu<\/button>/);
   });
