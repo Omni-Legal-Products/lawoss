@@ -153,6 +153,9 @@ const isDevMode = process.env.LEGALWORK_DEV_MODE === "1";
 const APP_NAME =
   process.env.LEGALWORK_ELECTRON_APP_NAME?.trim() ||
   (isDevMode ? "LegalWork - Dev" : "LegalWork");
+// LAWOSS: viditeľný názov v menu a v tray. APP_NAME ostáva identitou appky (userData, keychain),
+// jeho zmena by presunula údaje existujúcich inštalácií.
+const DISPLAY_NAME = isDevMode ? "LAWOSS - Dev" : "LAWOSS";
 const APP_IDENTIFIER =
   process.env.LEGALWORK_ELECTRON_APP_IDENTIFIER?.trim() ||
   (isDevMode ? DEV_APP_IDENTIFIER : APP_BUNDLE_IDENTIFIER);
@@ -375,7 +378,7 @@ async function collectSupportLogsAndReveal() {
 }
 
 const applicationMenu = createApplicationMenu({
-  appName: APP_NAME,
+  appName: DISPLAY_NAME,
   getWindow: () => createMainWindow(),
   collectSupportLogs: () => {
     void collectSupportLogsAndReveal().catch((error) => {
@@ -890,7 +893,7 @@ let windowsCloseHintShown = false;
 let startHiddenPending = process.argv.includes("--hidden");
 
 const appTray = new AppTray({
-  appName: APP_NAME,
+  appName: DISPLAY_NAME,
   icon: APP_ICON_IMAGE,
   onOpen: () => {
     void createMainWindow().then((win) => {
