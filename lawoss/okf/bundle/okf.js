@@ -9,7 +9,7 @@ import { fileURLToPath } from "url";
 // src/onboarding/cli.ts
 import { constants as constants5 } from "node:fs";
 import { lstat as lstat7, open as open5, realpath as realpath7 } from "node:fs/promises";
-import { dirname as dirname5, isAbsolute as isAbsolute5, relative as relative5, resolve as resolve7, sep as sep6 } from "node:path";
+import { dirname as dirname5, isAbsolute as isAbsolute5, relative as relative6, resolve as resolve7, sep as sep7 } from "node:path";
 
 // src/onboarding/classify.ts
 import { createHash } from "node:crypto";
@@ -2461,12 +2461,12 @@ async function recoverOnboardingPlan(plan, journalDirectory, action) {
 
 // src/onboarding/onboarding.ts
 import { lstat as lstat6, mkdir as mkdir3, readFile as readFile4, realpath as realpath6, writeFile } from "node:fs/promises";
-import { dirname as dirname4, isAbsolute as isAbsolute4, join as join8, relative as relative4, resolve as resolve6, sep as sep5 } from "node:path";
+import { dirname as dirname4, isAbsolute as isAbsolute4, join as join8, relative as relative5, resolve as resolve6, sep as sep6 } from "node:path";
 
 // src/onboarding/entities.ts
 import { lstat as lstat4, readFile as readFile2, realpath as realpath4 } from "node:fs/promises";
 import { createHash as createHash4 } from "node:crypto";
-import { basename as basename3, join as join6, resolve as resolve4 } from "node:path";
+import { basename as basename3, join as join6, relative as relative3, resolve as resolve4, sep as sep4 } from "node:path";
 
 // ../okf-pamat/src/store.ts
 import { existsSync as existsSync2, lstatSync, mkdirSync, readFileSync as readFileSync2, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -2610,10 +2610,25 @@ title: ${yaml(request.title)}
 `;
   return { mode: "new", appFiles: "inside", target, clientRoot: request.clientRoot, plan: await rootPlan(request.clientRoot, [directory(name), file(`${name}/subject.md`, card), directory(`${name}/memory`), file(`${name}/memory/.keep`, "")]) };
 }
+var MATTERS_DIR = "Spisy";
+var CLIENT_CARDS = ["client.md", "klient.md"];
+async function clientCard(clientRoot) {
+  for (const name of CLIENT_CARDS) {
+    const file = join6(clientRoot, name);
+    const content = await readFile2(file, "utf8").catch(() => {
+      return;
+    });
+    if (content === undefined)
+      continue;
+    const title = parseFrontmatter(content)?.title?.trim();
+    return title ? { file, title } : { file };
+  }
+  return;
+}
 async function planNewMatter(request) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(request.date) || !["contentious", "non_contentious"].includes(request.kind))
     throw new Error("Valid date and matter kind are required.");
-  const area = safeSegment(request.area), name = `${request.date.slice(0, 7)} ${safeSegment(request.title)}`, target = join6(request.parent, area, name);
+  const area = safeSegment(request.area), name = `${request.date.slice(0, 7)} ${safeSegment(request.title)}`, target = join6(request.parent, MATTERS_DIR, name);
   const clientRoot = await realpath4(request.clientRoot), parentRoot = await realpath4(request.parent);
   if (parentRoot !== clientRoot && !parentRoot.startsWith(`${clientRoot}/`))
     throw new Error("Matter parent must be within the inspected client root.");
@@ -2623,14 +2638,17 @@ async function planNewMatter(request) {
   const inspected = await inspectOnboardingRoot(request.parent);
   if (!inspected.complete)
     throw new Error("Matter parent could not be inspected completely.");
-  const existingArea = inspected.entries.find((entry) => entry.path === area);
-  if (existingArea && existingArea.kind !== "directory")
-    throw new Error("Matter area is blocked by a non-directory.");
+  const existingMatters = inspected.entries.find((entry) => entry.path === MATTERS_DIR);
+  if (existingMatters && existingMatters.kind !== "directory")
+    throw new Error("Matter folder is blocked by a non-directory.");
   const office = findOfficeDir(request.parent);
   const workingProfile = office ? parseOfficeWorkingProfile(await readFile2(join6(office, "okf.config"), "utf8"), request.language ?? "sk") : undefined;
-  const generated = planEntity({ type: "spis", dir: target, title: request.title, language: request.language, jurisdiction: request.jurisdiction, date: request.date, workingProfile, matterKind: request.kind === "contentious" ? "dispute" : "other" }, LOCALIZED_TEMPLATES, () => false);
-  const template = templateOperations(`${area}/${name}`, generated.entries).filter((operation) => operation.path !== `${area}/${name}`);
-  const operations = [...existingArea ? [] : [directory(area)], directory(`${area}/${name}`), ...template.map((operation) => operation.path === `${area}/${name}/matter.md` && operation.kind === "file" ? file(operation.path, (operation.content ?? "").replace("type: spis", `type: matter
+  const card = await clientCard(clientRoot);
+  const clientCardPath = card ? relative3(join6(parentRoot, MATTERS_DIR, name), card.file).split(sep4).join("/") : undefined;
+  const generated = planEntity({ type: "spis", dir: target, title: request.title, language: request.language, jurisdiction: request.jurisdiction, date: request.date, workingProfile, matterKind: request.kind === "contentious" ? "dispute" : "other", ...card?.title ? { klient: card.title } : {}, ...clientCardPath ? { clientCardPath } : {} }, LOCALIZED_TEMPLATES, () => false);
+  const folder = `${MATTERS_DIR}/${name}`;
+  const template = templateOperations(folder, generated.entries).filter((operation) => operation.path !== folder);
+  const operations = [...existingMatters ? [] : [directory(MATTERS_DIR)], directory(folder), ...template.map((operation) => operation.path === `${folder}/matter.md` && operation.kind === "file" ? file(operation.path, (operation.content ?? "").replace("type: spis", `type: matter
 kind: ${request.kind}
 area: ${yaml(area)}
 subject: ${yaml(request.subject ?? "")}`)) : operation)];
@@ -2667,11 +2685,11 @@ async function planExistingClient(root, mode, cloneParent, map) {
 import { createHash as createHash5, randomUUID } from "node:crypto";
 import { constants as constants4 } from "node:fs";
 import { copyFile, lstat as lstat5, mkdir as mkdir2, open as open4, readFile as readFile3, realpath as realpath5, rename, rmdir as rmdir2, unlink } from "node:fs/promises";
-import { dirname as dirname3, isAbsolute as isAbsolute3, join as join7, relative as relative3, resolve as resolve5, sep as sep4 } from "node:path";
+import { dirname as dirname3, isAbsolute as isAbsolute3, join as join7, relative as relative4, resolve as resolve5, sep as sep5 } from "node:path";
 var hash = (value) => createHash5("sha256").update(value).digest("hex");
 var within = (root, path) => {
-  const rel = relative3(root, path);
-  return !isAbsolute3(rel) && rel !== ".." && !rel.startsWith(`..${sep4}`);
+  const rel = relative4(root, path);
+  return !isAbsolute3(rel) && rel !== ".." && !rel.startsWith(`..${sep5}`);
 };
 var missing = (error) => error instanceof Error && ("code" in error) && error.code === "ENOENT";
 async function identity(path, kind) {
@@ -2942,8 +2960,8 @@ async function externalProfileDirectory(clientRoot, input) {
   if (!isAbsolute4(input))
     throw new Error("External profile directory must be absolute.");
   const directory = resolve6(input);
-  const fromClient = relative4(clientRoot, directory);
-  if (fromClient !== ".." && !fromClient.startsWith(`..${sep5}`) && !isAbsolute4(fromClient)) {
+  const fromClient = relative5(clientRoot, directory);
+  if (fromClient !== ".." && !fromClient.startsWith(`..${sep6}`) && !isAbsolute4(fromClient)) {
     throw new Error("External profile directory must be outside the mapped client directory.");
   }
   let ancestor = directory;
@@ -3040,7 +3058,7 @@ async function planOnboarding(request) {
     return { action: request.action, ...await planNewSubject(request) };
   if (request.action === "matter") {
     const client = await realpath6(request.clientRoot), parent = await realpath6(request.parent);
-    if (parent !== client && relative4(client, parent).startsWith(".."))
+    if (parent !== client && relative5(client, parent).startsWith(".."))
       throw new Error("Matter parent must be within client root.");
     return { action: request.action, ...await planNewMatter(request) };
   }
@@ -3186,8 +3204,8 @@ async function readPlan(path) {
 }
 async function savePlanOutside(root, path, content) {
   const target = resolve7(path), parent = dirname5(target);
-  const rel = relative5(root, target);
-  if (!rel || !isAbsolute5(rel) && rel !== ".." && !rel.startsWith(`..${sep6}`))
+  const rel = relative6(root, target);
+  if (!rel || !isAbsolute5(rel) && rel !== ".." && !rel.startsWith(`..${sep7}`))
     throw new Error("Save the preview outside the client directory.");
   if (await realpath7(parent) !== parent || !(await lstat7(parent)).isDirectory())
     throw new Error("Plan output needs an existing canonical parent directory.");
@@ -3281,7 +3299,7 @@ var ENTITY_TYPES2 = ["klient", "spis", "projekt"];
 
 // src/fs.ts
 import { existsSync as existsSync3, lstatSync as lstatSync2, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync3, statSync, writeFileSync as writeFileSync2 } from "node:fs";
-import { basename as basename4, dirname as dirname6, join as join9, relative as relative6, resolve as resolve8, sep as sep7 } from "node:path";
+import { basename as basename4, dirname as dirname6, join as join9, relative as relative7, resolve as resolve8, sep as sep8 } from "node:path";
 function readText(path) {
   return readFileSync3(path, "utf8");
 }
@@ -3312,7 +3330,7 @@ function listMarkdown(root) {
           continue;
         walk(full);
       } else if (entry.name.endsWith(".md")) {
-        out.push(relative6(root, full).split("\\").join("/"));
+        out.push(relative7(root, full).split("\\").join("/"));
       }
     }
   };
@@ -3357,7 +3375,7 @@ function plan(input) {
     for (let parent = dirname6(resolve8(input.dir));; parent = dirname6(parent)) {
       const card = existingCard("klient", (name) => existsSync3(join9(parent, name)));
       if (card) {
-        clientCardPath = relative6(input.dir, join9(parent, card)).split("\\").join("/");
+        clientCardPath = relative7(input.dir, join9(parent, card)).split("\\").join("/");
         break;
       }
       if (dirname6(parent) === parent)
@@ -3382,7 +3400,7 @@ function apply(p) {
     throw new Error("Karta entity sa od náhľadu zmenila; načítaj nový plán.");
   for (const entry of p.entries.filter((item) => item.action === "create")) {
     const target = resolve8(root, entry.path);
-    if (!target.startsWith(root + sep7))
+    if (!target.startsWith(root + sep8))
       throw new Error(`Cesta opúšťa priečinok entity: ${entry.path}`);
     for (let part = target;part !== root; part = dirname6(part)) {
       if (lstatSync2(part, { throwIfNoEntry: false })?.isSymbolicLink())
@@ -3412,7 +3430,7 @@ function validate(root) {
     try {
       const scope = dirname6(join9(root, rel));
       for (const folder of storedProfile(scope)?.folders ?? [])
-        workingPaths.push(relative6(root, join9(scope, folder)).split("\\").join("/") + "/");
+        workingPaths.push(relative7(root, join9(scope, folder)).split("\\").join("/") + "/");
     } catch (error) {
       errors.push({ path: rel, message: error instanceof Error ? error.message : String(error) });
     }
@@ -3478,11 +3496,11 @@ ${body}
 
 // src/naming-fs.ts
 import { closeSync as closeSync2, constants as constants7, fstatSync as fstatSync2, fsyncSync, lstatSync as lstatSync4, mkdirSync as mkdirSync3, openSync as openSync2, opendirSync, readSync as readSync2, realpathSync as realpathSync2, renameSync as renameSync2, unlinkSync, writeSync } from "node:fs";
-import { basename as basename5, dirname as dirname7, extname, isAbsolute as isAbsolute7, join as join10, relative as relative8, resolve as resolve10, sep as sep9 } from "node:path";
+import { basename as basename5, dirname as dirname7, extname, isAbsolute as isAbsolute7, join as join10, relative as relative9, resolve as resolve10, sep as sep10 } from "node:path";
 
 // ../okf-pamat/src/workspace-memory-fs.ts
 import { closeSync, constants as constants6, fstatSync, lstatSync as lstatSync3, openSync, readSync, realpathSync } from "node:fs";
-import { isAbsolute as isAbsolute6, parse as parse2, relative as relative7, resolve as resolve9, sep as sep8 } from "node:path";
+import { isAbsolute as isAbsolute6, parse as parse2, relative as relative8, resolve as resolve9, sep as sep9 } from "node:path";
 function isObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -3490,12 +3508,12 @@ function missing2(error) {
   return isObject(error) && error.code === "ENOENT";
 }
 function contained(root, target) {
-  const rel = relative7(root, target);
-  return rel === "" || !isAbsolute6(rel) && rel !== ".." && !rel.startsWith(`..${sep8}`);
+  const rel = relative8(root, target);
+  return rel === "" || !isAbsolute6(rel) && rel !== ".." && !rel.startsWith(`..${sep9}`);
 }
 function checkedPath(path, kind, allowMissing = false) {
   const full = resolve9(path), root = parse2(full).root;
-  const parts = relative7(root, full).split(sep8).filter(Boolean);
+  const parts = relative8(root, full).split(sep9).filter(Boolean);
   let current = root;
   for (let i = 0;i < parts.length; i++) {
     current = resolve9(current, parts[i]);
@@ -3899,7 +3917,7 @@ function memoryProtection(root) {
     const location = profile.roots.find((r) => r.id === source.root);
     const full = resolve10(root, location.path, source.path);
     if (contained(root, full))
-      mapped.add(fold(relative8(root, full).split(sep9).join("/")));
+      mapped.add(fold(relative9(root, full).split(sep10).join("/")));
   }
   return { source: pin(path, read), mapped };
 }
