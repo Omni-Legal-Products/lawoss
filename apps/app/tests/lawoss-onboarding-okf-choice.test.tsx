@@ -56,6 +56,11 @@ describe("OKF choice step", () => {
     expect(html).not.toContain("grid-cols-5");
   });
 
+  test("the welcome flow scrolls inside its own area because the app root does not scroll", () => {
+    const html = renderToStaticMarkup(<MemoryRouter><LawossWelcomePage api={api} initialStep="okf" pickDirectory={async () => null} onOpenAiSettings={() => {}} onComplete={() => {}} /></MemoryRouter>);
+    expect(html).toMatch(/<div class="h-screen overflow-y-auto" data-lawoss-onboarding-scroll="true"><main/);
+  });
+
   test("the path without OKF offers an optional working folder", () => {
     const html = renderToStaticMarkup(<WorkingFolderStep tr={(key) => key} busy={false} folder="" onFolderChange={() => {}} onFinish={() => {}} />);
     expect(html).toContain("workingFolder");

@@ -3,6 +3,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -624,6 +625,13 @@ export function LawossWelcomePage({
       setBusy(false);
     }
   };
+  // Náhľad zmien sa po vytvorení posunie do zorného poľa, aby jeho potvrdenie nebolo pod okrajom okna.
+  const previewSection = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!preview) return;
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    previewSection.current?.scrollIntoView?.({ block: "start", behavior: reduced ? "auto" : "smooth" });
+  }, [preview]);
   const plan = async (request: OnboardingPlanRequest) => {
     setBusy(true);
     setError(null);
@@ -726,8 +734,11 @@ export function LawossWelcomePage({
   };
   return (
     <DirectoryPickerContext.Provider value={pickDirectory}>
+      {/* Koreň appky má overflow: hidden; bez vlastnej posúvateľnej oblasti by náhľad zmien a jeho
+          potvrdenie v nižšom okne neboli dosiahnuteľné (D1 na zabalenej appke). */}
+      <div className="h-screen overflow-y-auto" data-lawoss-onboarding-scroll>
       <main
-        className="mx-auto min-h-screen max-w-3xl px-5 py-10"
+        className="mx-auto min-h-full max-w-3xl px-5 py-10"
         data-lawoss-onboarding-step={step}
       >
         <header>
@@ -901,7 +912,7 @@ export function LawossWelcomePage({
           ) : null}
         </section>
         {preview ? (
-          <section className="mt-7 rounded-lg border border-primary/30 bg-primary/5 p-5">
+          <section ref={previewSection} className="mt-7 rounded-lg border border-primary/30 bg-primary/5 p-5" data-lawoss-onboarding-preview>
             <h2 className="flex gap-2 font-semibold">
               <ShieldCheck className="size-5" />
               {tr("changes")}
@@ -988,6 +999,7 @@ export function LawossWelcomePage({
           </footer>
         ) : null}
       </main>
+      </div>
     </DirectoryPickerContext.Provider>
   );
 }
