@@ -10,7 +10,7 @@
  */
 
 import type { OkfRecord } from "./record.ts";
-import type { Jurisdiction } from "./schema.ts";
+import { fieldLabel, type Jurisdiction } from "./schema.ts";
 import { documentTypeLabel as typeLabel, documentValueLabel as valueLabel, renderLanguage, type DocumentLanguage, type RenderLanguage } from "./document-language.ts";
 import { maskValue } from "./mask.ts";
 
@@ -206,18 +206,36 @@ function sourceLink(s: { id?: string; title?: string; resource?: string }): stri
 
 const ROLE_ORDER = ["client", "counterparty", "representative", "ubo"];
 
+/**
+ * Zapojené subjekty (`participants`) zo všetkých záznamov — súd, úrad, polícia,
+ * kontakt. Rolu píše agent voľne, preto sa nepreberá cez výpočet hodnôt.
+ */
+function renderParticipants(records: readonly OkfRecord[], j: RenderLanguage, href?: LinkResolver): string[] {
+  const rows = [...records]
+    .sort((a, b) => (a.id < b.id ? -1 : 1))
+    .flatMap((r) => (r.participants ?? []).map((p) =>
+      `| ${cell(p.role ?? "—")} | ${cell(p.name ?? "—")} | ${cell(p.contact ?? "—")} | ${cell(p.ref ?? "—")} | ${cell(p.note ?? "—")} | ${odkaz(r.id, href)} |`));
+  if (rows.length === 0) return [];
+  const title = j === "en" ? "Involved parties" : fieldLabel("participants", j);
+  const head = j === "en" ? "| Role | Name | Contact | Reference | Note | Record |"
+    : j === "cz" ? "| Role | Název | Kontakt | Odkaz | Poznámka | Záznam |" : "| Rola | Názov | Kontakt | Odkaz | Poznámka | Záznam |";
+  return [`**${title}**`, "", head, "|---|---|---|---|---|---|", ...rows];
+}
+
 /** Strany zo subjektov. Rodné číslo maskované — status číta aj ten, kto AML evidenciu vidieť nemá. */
 function renderParties(records: readonly OkfRecord[], j: RenderLanguage, href?: LinkResolver): string {
   const subjects = records
     .filter((r) => r.type === "subject")
     .sort((a, b) => ROLE_ORDER.indexOf(a.role ?? "") - ROLE_ORDER.indexOf(b.role ?? "") || (a.id < b.id ? -1 : 1));
-  if (subjects.length === 0) return EMPTY[j];
+  const participants = renderParticipants(records, j, href);
+  if (subjects.length === 0 && participants.length === 0) return EMPTY[j];
   const head = j === "en" ? "| Role | Subject | Registry / personal ID | Record |" : j === "cz" ? "| Role | Subjekt | IČO / RČ | Záznam |" : "| Rola | Subjekt | IČO / RČ | Záznam |";
   const rows = subjects.map((s) => {
     const ident = s.registry_id ?? (s.birth_number ? maskValue("birth_number", s.birth_number) : "—");
     return `| ${valueLabel("role", s.role ?? "—", j)} | ${cell(s.title)} | ${ident} | ${odkaz(s.id, href)} |`;
   });
-  return [head, "|---|---|---|---|", ...rows].join("\n");
+  const table = subjects.length ? [head, "|---|---|---|---|", ...rows] : [];
+  return [...table, ...(table.length && participants.length ? [""] : []), ...participants].join("\n");
 }
 
 /**

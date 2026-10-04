@@ -115,7 +115,7 @@ describe("stránky LAWOSS-lite", () => {
     expect(out).not.toContain("boom");
   });
   test("Věc: přehled ukáže lhůty s označením neověřených a úkoly z paměti", () => {
-    const cockpit: Pick<Cockpit, "deadlines" | "tasks" | "attention" | "facts"> = {
+    const cockpit: Pick<Cockpit, "deadlines" | "tasks" | "attention" | "facts" | "parties"> = {
       deadlines: {
         confirmed: [{ date: addDays(today(), 1), title: "Odvolání", recordId: "D-1", provenance: "overené", file: "f", overdue: false, confirmed: true }],
         candidates: [{ date: addDays(today(), 6), title: "Vyjádření", recordId: "D-2", provenance: "AI návrh", file: "f", overdue: false, confirmed: false }],
@@ -123,6 +123,7 @@ describe("stránky LAWOSS-lite", () => {
       tasks: [{ id: "T-9", title: "Zavolat klientovi", overdue: false, file: "f" }],
       attention: [],
       facts: [{ id: "E-1", title: "Rozsudek doručen 10. 9.", kind: "dôkaz", provenance: "zapísané", file: "f", source: "Rozsudek.pdf" }],
+      parties: [],
     };
     const out = html(<LiteMatterView matter={matter} cockpit={cockpit} busy={null} error={null} onAction={() => {}} />);
     expect(out).toContain("Vyjádření");

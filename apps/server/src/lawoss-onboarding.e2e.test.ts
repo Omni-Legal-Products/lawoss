@@ -4,7 +4,7 @@ import { lstat, mkdtemp, mkdir, readFile, readdir, realpath, rm, symlink, writeF
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveServerConfig } from "./config.js";
-import { readRuntimeOpencodeConfig, runtimeExternalDirectory } from "./runtime-opencode-config-store.js";
+import { readRuntimeOpencodeConfig, runtimeExternalDirectory, runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 
@@ -184,4 +184,24 @@ test("finish recovery completes the durable plan, then ordinary apply registers 
   expect(applied.result).toBe("already_applied");
   expect(applied.root).toContain("Recovered");
   expect(f.config.workspaces).toHaveLength(1);
+});
+
+test("OKF choice is optional, acknowledged when enabled, and older profiles still load", async () => {
+  const f = await fixture();
+  const storage = runtimeStorageDir(f.config);
+  await f.success("profile", { lawyerName: "Synthetic lawyer", jurisdiction: "sk", language: "sk", step: "ai" });
+  const legacy = JSON.parse(await readFile(join(storage, "lawoss-onboarding", "profile.json"), "utf8"));
+  expect(legacy.okf).toBeUndefined();
+  await f.restartFromDisk();
+  expect((await f.success("status")).profile).toMatchObject({ lawyerName: "Synthetic lawyer", step: "ai" });
+  expect((await f.call("profile", { okf: { enabled: true } })).status).toBe(400);
+  expect((await f.call("profile", { okf: { enabled: true, acknowledgedAt: "yesterday", noticeVersion: "2026-10-04-alfa-1" } })).status).toBe(400);
+  expect((await f.call("profile", { okf: { enabled: false, acknowledgedAt: "2026-10-04T10:00:00.000Z" } })).status).toBe(400);
+  expect((await f.call("profile", { okf: { enabled: true, acknowledgedAt: "2026-10-04T10:00:00.000Z", noticeVersion: "2026-10-04-alfa-1", extra: 1 } })).status).toBe(400);
+  const enabled = await f.success("profile", { okf: { enabled: true, acknowledgedAt: "2026-10-04T10:00:00.000Z", noticeVersion: "2026-10-04-alfa-1" }, step: "okf" });
+  expect(enabled).toMatchObject({ step: "okf", okf: { enabled: true, noticeVersion: "2026-10-04-alfa-1" } });
+  const disabled = await f.success("profile", { okf: { enabled: false } });
+  expect(disabled.okf).toEqual({ enabled: false });
+  await f.restartFromDisk();
+  expect((await f.success("status")).profile).toMatchObject({ lawyerName: "Synthetic lawyer", okf: { enabled: false } });
 });

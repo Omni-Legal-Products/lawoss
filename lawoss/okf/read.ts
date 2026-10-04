@@ -9,10 +9,11 @@
  */
 import type { ManualStatus } from "../okf-pamat/src/manual-status.ts";
 import type { OkfRecord } from "../okf-pamat/src/record.ts";
+import { isoDay } from "../okf-pamat/src/schema.ts";
 
 /** `invalid`: datum lhůty nemá tvar RRRR-MM-DD - UI ho ukáže k ověření, nikdy ho tiše nezahodí. */
 /** `file`: skutočný súbor záznamu - totožnosť zdieľaného záznamu (ID sa razia per spis, nie sú jedinečné). */
-export type OverviewDeadline = { date: string; title: string; recordId: string; invalid?: true; file?: string };
+export type OverviewDeadline = { date: string; title: string; recordId: string; invalid?: true; file?: string; /** Pôvodný zápis lehoty: dve lehoty toho istého záznamu v jeden deň sú dve lehoty. */ raw?: string };
 export type OverviewTask = { id: string; title: string; assignee?: string; due?: string; file?: string };
 
 export type MatterOverview = {
@@ -73,9 +74,20 @@ export const isOpenTask = (r: OkfRecord): boolean => r.type === "task" && r.stat
 /** Totožnosť záznamu naprieč spismi: jeho súbor; bez súboru (testy, staršie vstupy) len v rámci spisu. */
 export const recordKey = (matterPath: string, r: { id: string; file?: string }): string => r.file ?? `${matterPath}\u0000${r.id}`;
 
-const isCalendarDay = (day: string): boolean => {
-  const d = new Date(`${day}T00:00:00Z`);
-  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === day;
+/** Totožnosť lehoty naprieč spismi: záznam + dátum (jeden záznam môže niesť viac lehôt). */
+export const deadlineKey = (d: UpcomingDeadline): string => `${recordKey(d.matter.path, { id: d.recordId, file: d.file })}\u0000${d.raw ?? d.date}`;
+
+export type ScopeLevel = "matter" | "client" | "office";
+const OFFICE_DIR = /(^|\/)(Office|_kancelaria)$/;
+
+/** Úroveň každej cesty rozsahu: prvá je vec, `Office`/`_kancelaria` kancelária, ostatné klient. */
+export const scopeLevels = (scopePaths: readonly string[]): { path: string; level: ScopeLevel }[] =>
+  scopePaths.map((path, i) => ({ path, level: i === 0 ? "matter" : OFFICE_DIR.test(path) ? "office" : "client" }));
+
+/** Úrovne nad vecou, ktoré sa nenačítali (napr. vec otvorená samostatne, bez klienta a kancelárie vo workspace). */
+export const missingScopeLevels = (scopePaths: readonly string[]): Exclude<ScopeLevel, "matter">[] => {
+  const present = new Set(scopeLevels(scopePaths).map((s) => s.level));
+  return (["client", "office"] as const).filter((level) => !present.has(level));
 };
 
 /**
@@ -85,8 +97,8 @@ const isCalendarDay = (day: string): boolean => {
 export function recordDeadlines(r: OkfRecord): { date: string; raw: string; invalid?: true }[] {
   if (isRetired(r)) return [];
   return (r.deadlines ?? []).map((raw) => {
-    const day = /^(\d{4}-\d{2}-\d{2})(?:[T ].*)?$/.exec(raw.trim())?.[1];
-    return day && isCalendarDay(day) ? { date: day, raw } : { date: raw, raw, invalid: true as const };
+    const day = isoDay(raw);
+    return day ? { date: day, raw } : { date: raw, raw, invalid: true as const };
   });
 }
 
@@ -122,7 +134,7 @@ function matterOverview(input: MatterInput): MatterOverview {
   let lastEvent: MatterOverview["lastEvent"];
   for (const r of input.records) {
     const file = input.recordFiles?.[r.id];
-    for (const d of recordDeadlines(r)) deadlines.push({ date: d.date, title: r.title, recordId: r.id, ...(d.invalid ? { invalid: d.invalid } : {}), ...(file ? { file } : {}) });
+    for (const d of recordDeadlines(r)) deadlines.push({ date: d.date, ...(d.raw !== d.date ? { raw: d.raw } : {}), title: r.title, recordId: r.id, ...(d.invalid ? { invalid: d.invalid } : {}), ...(file ? { file } : {}) });
     for (const e of r.timeline) {
       if (!lastEvent || e.date > lastEvent.date) lastEvent = { date: e.date, text: e.text };
     }
@@ -173,11 +185,11 @@ export function buildOverview(matters: readonly MatterInput[], today: string): O
     overdue,
     totals: {
       matters: overviews.length,
-      deadlinesWithin7Days: upcomingDeadlines.filter((d) => !d.invalid && d.date <= week).length,
-      // Úloha zo zdieľaného súboru (klient, kancelária) je v súčte jedna; rovnaké ID v dvoch spisoch sú dve úlohy.
+      // Záznam zo zdieľaného súboru (klient, kancelária) je v súčte jeden; rovnaké ID v dvoch spisoch sú dva.
+      deadlinesWithin7Days: new Set(upcomingDeadlines.filter((d) => !d.invalid && d.date <= week).map(deadlineKey)).size,
       openTasks: new Set(overviews.flatMap((m) => m.openTasks.map((t) => recordKey(m.path, t)))).size,
-      overdue: overdue.length,
-      records: overviews.reduce((n, m) => n + m.counts.records, 0),
+      overdue: new Set(overdue.map(deadlineKey)).size,
+      records: new Set(matters.flatMap((m) => m.records.map((r) => recordKey(m.path, { id: r.id, file: m.recordFiles?.[r.id] })))).size,
     },
   };
 }

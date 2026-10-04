@@ -4,9 +4,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
-import type { MatterOverview } from "../../../../../../lawoss/okf/read";
+import { missingScopeLevels, scopeLevels, type MatterOverview } from "../../../../../../lawoss/okf/read";
 import { buildCockpit, type Cockpit, type CockpitDeadline } from "../../../../../../lawoss/okf/cockpit";
-import { OkfPage } from "../../domains/okf-page";
+import { MatterParties, OkfPage } from "../../domains/okf-page";
 import { litePageProps } from "../state-text";
 import { openMatterSession } from "../../okf/matter-session";
 import { addDays, dayClass, officeWorkspace, formatDay, today, useOkfConnection, type OkfReadResult } from "../../okf/read-model";
@@ -20,7 +20,7 @@ import "./lite.css";
 
 type ActionId = (typeof QUICK_ACTIONS)[number]["id"] | (typeof MORE_ACTIONS)[number]["id"];
 /** Z cockpitu stačí to, co lite ukazuje; zbytek zůstává v pro. */
-export type LiteCockpit = Pick<Cockpit, "deadlines" | "tasks" | "attention" | "facts">;
+export type LiteCockpit = Pick<Cockpit, "deadlines" | "tasks" | "attention" | "facts" | "parties">;
 
 export function LiteMatterPage() {
   const locale = useLocale();
@@ -220,14 +220,15 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
             </div>
           ))}
         </div>
+        {cockpit ? <MatterParties parties={cockpit.parties} /> : null}
         {attention.length > 0 ? (
           <div className="lw-reg">
             {attention.map((row) => (
-              <div key={`${row.kind}/${row.id}`} className="lw-row lw-cols-leh">
+              <div key={`${row.kind}/${row.id}`} className="lw-row lw-cols-leh" data-lawoss-scope={row.scope}>
                 <span className="lw-no" />
                 <span className="lw-d">{row.date ? formatDay(row.date, locale) : "-"}</span>
                 <span className="lw-t">{row.title}</span>
-                <span className="lw-ref" />
+                <span className="lw-ref">{row.scope ? text(`scope_${row.scope}`) : null}</span>
                 <span className="lw-st warn">{text("verify")}</span>
               </div>
             ))}
@@ -237,7 +238,8 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
 
       {scopePaths.length > 0 ? <details className="lw-reg p-3">
         <summary>{text("memory_scope")}</summary>
-        <ul>{scopePaths.map((path) => <li className="break-all" key={path}>{path || "."}</li>)}</ul>
+        <ul>{scopeLevels(scopePaths).map(({ path, level }) => <li className="break-all" key={path} data-lawoss-scope={level}><b>{text(`scope_${level}`)}</b> {path || "."}</li>)}
+          {missingScopeLevels(scopePaths).map((level) => <li key={level} data-lawoss-scope-missing={level}><b>{text(`scope_${level}`)}:</b> {text(`scope_${level}_missing`)}</li>)}</ul>
       </details> : null}
       {existingMemorySources.length > 0 ? <div className="lw-reg p-3" role="note">
         <h2>{text("additional_memory")}</h2>
