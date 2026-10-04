@@ -1,5 +1,9 @@
+@import "./lawoss-components.css";
+
 /* ============================================================================
-   LAWOSS token override — „podací denník na tmavom stole“
+   LAWOSS token override — jazyk pohľadov z OKF a webu lawoss.app
+   (zjednotené 5. 10. 2026: zaoblené plochy, tmavé sklo, kovové zlato).
+   Pôvodne „podací denník na tmavom stole“ s hranatými rohmi (28. 8.).
    Value-only override of @legalwork/ui tokens. Imported from app index.css
    AFTER the upstream tokens import; the cascade re-themes every derived
    semantic token (shadcn, --dls-*) without touching upstream files.
@@ -15,14 +19,28 @@
   --lw-font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
 
   /* LAWOSS extras */
-  /* shape — squared corners (call 28. 8., fork issue #22, design-system §2) */
-  --lw-radius-xs: 2px;
-  --lw-radius-sm: 2px;
-  --lw-radius-md: 3px;
-  --lw-radius-lg: 4px;
-  --lw-radius-xl: 4px;
-  --lw-radius-2xl: 6px;
-  --lw-radius-3xl: 6px;
+  /* shape — zaoblené ako Dnes, detail veci a Klienti (5. 10. 2026, nahrádza hranaté rohy z 28. 8.) */
+  --lw-radius-xs: 6px;
+  --lw-radius-sm: 8px;
+  --lw-radius-md: 10px;
+  --lw-radius-lg: 12px;
+  --lw-radius-xl: 14px;
+  --lw-radius-2xl: 18px;
+  --lw-radius-3xl: 22px;
+  --lw-radius-panel: 14px;
+
+  /* jazyk lawoss.app: kovové zlato pre jedinú hlavnú akciu, sklo pre plochy, žiara len jemne */
+  --lw-gold: #c9a24a;
+  --lw-gold-hi: #f2d788;
+  --lw-on-gold: #1a1408;
+  --lw-metal: linear-gradient(100deg, #b98d3f 0%, #e7c46a 38%, #f7de94 50%, #d0a24b 64%, #aa8039 100%);
+  --lw-gold-glow: 0 8px 28px -10px rgba(201, 162, 74, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  --lw-gold-glow-hover: 0 12px 34px -10px rgba(201, 162, 74, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  --lw-hot: #b3261e;
+  --lw-panel: linear-gradient(180deg, rgba(13, 27, 42, 0.035), rgba(13, 27, 42, 0.012)), var(--lw-surface);
+  --lw-panel-hairline: linear-gradient(90deg, transparent, rgba(201, 162, 74, 0.55), transparent);
+  --lw-panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 18px 40px -30px rgba(13, 27, 42, 0.35);
+  --lw-ease-expo: cubic-bezier(0.22, 1, 0.36, 1);
 
   --lw-gold-ink: rgba(201, 162, 74, 0.18);
   --lw-duration-seal: 550ms;
@@ -62,6 +80,12 @@
 
 .dark,
 [data-theme="dark"] {
+  --lw-gold: #c9a24a;
+  --lw-gold-hi: #f2d788;
+  --lw-hot: #e8836b;
+  --lw-panel: linear-gradient(180deg, rgba(233, 228, 218, 0.045), rgba(233, 228, 218, 0.015)), var(--lw-surface);
+  --lw-panel-shadow: inset 0 1px 0 rgba(233, 228, 218, 0.06), 0 18px 40px -28px rgba(0, 0, 0, 0.6);
+
   /* desk / sheet / well */
   --lw-canvas: #0a0e14;
   --lw-surface: #10171f;
