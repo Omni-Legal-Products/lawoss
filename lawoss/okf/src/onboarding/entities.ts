@@ -7,6 +7,7 @@ import { planEntity } from "../core.ts";
 import { LOCALIZED_TEMPLATES } from "../templates.ts";
 import { parseOfficeWorkingProfile } from "../profile.ts";
 import { findOfficeDir } from "../../../okf-pamat/src/store.ts";
+import { UNSAFE_FOLDER_NAME_MESSAGE } from "./messages.ts";
 
 export type MatterKind = "contentious" | "non_contentious";
 export type AppFiles = "inside" | "outside";
@@ -18,9 +19,16 @@ export type ClientRequest = { parent: string; name: string; title: string; clien
 export type SubjectRequest = { clientRoot: string; name: string; title: string };
 export type MatterRequest = { clientRoot: string; parent: string; title: string; date: string; kind: MatterKind; area: string; jurisdiction: "sk" | "cz"; subject?: string; language?: "sk" | "cs" | "en" };
 
+/**
+ * Folder name from a name the user typed. Inner dots stay ("Novák s. r. o."
+ * becomes the folder "Novák s. r. o"); trailing dots and spaces are dropped,
+ * because Windows strips them silently and the created path would no longer
+ * match the planned one. The title keeps the full name. Still rejected: empty,
+ * ".", "..", a leading dot (hidden), separators, ":" and NUL, over 120 characters.
+ */
 const safeSegment = (value: string) => {
-  const trimmed = value.trim();
-  if (!trimmed || trimmed.length > 120 || /[\\/:\0]|^\.|[. ]$/.test(trimmed)) throw new Error("A safe non-empty folder name is required.");
+  const trimmed = value.trim().replace(/[. ]+$/, "");
+  if (!trimmed || trimmed.length > 120 || /[\\/:\0]|^\./.test(trimmed)) throw new Error(UNSAFE_FOLDER_NAME_MESSAGE);
   return trimmed;
 };
 const yaml = (value: string) => JSON.stringify(value);

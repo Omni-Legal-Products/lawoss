@@ -83,3 +83,23 @@ test("trial clone preserves binary bytes, records provenance, and rejects stale 
   await expect(applyOnboarding(stale, await options())).rejects.toThrow("changed since planning");
   expect(await readFile(join(source, "original.bin"))).toEqual(bytes);
 });
+
+test("company names with inner dots are safe folder names; a trailing dot is dropped from the folder only", async () => {
+  const parent = await directory("okf-dots-");
+  const preview = await planOnboarding(parseOnboardingRequest({ action: "client", parent, name: "Novák s. r. o.", title: "Novák s. r. o.", clientType: "po", jurisdiction: "sk", date: "2026-10-04", language: "sk" }));
+  if (preview.mode !== "new") throw new Error("Expected new client plan.");
+  expect(preview.target).toBe(join(parent, "Novák s. r. o"));
+  await applyOnboarding(preview, await options());
+  expect(await readFile(join(parent, "Novák s. r. o", "client.md"), "utf8")).toContain("Novák s. r. o.");
+  const matter = await planOnboarding(parseOnboardingRequest({ action: "matter", clientRoot: preview.target, parent: preview.target, title: "Zmluva s ABC a. s.", date: "2026-10-04", kind: "non_contentious", area: "Obch. právo", jurisdiction: "sk" }));
+  if (matter.mode !== "new") throw new Error("Expected matter plan.");
+  expect(matter.target).toBe(join(preview.target, "Obch. právo", "2026-10 Zmluva s ABC a. s"));
+});
+
+test("unsafe folder names are still rejected", async () => {
+  const parent = await directory("okf-unsafe-");
+  const request = (name: string) => parseOnboardingRequest({ action: "client", parent, name, title: "T", clientType: "po", jurisdiction: "sk", date: "2026-10-04", language: "sk" });
+  for (const name of [" ", ".", "..", "...", ". .", ".skryty", "a/b", "a\\b", "C:x", "a\0b", "x".repeat(121)]) {
+    await expect(planOnboarding(request(name))).rejects.toThrow("A safe non-empty folder name is required.");
+  }
+});

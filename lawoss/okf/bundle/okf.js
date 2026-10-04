@@ -2535,11 +2535,14 @@ function findOfficeDir(startDir, maxUp = 8) {
   return;
 }
 
+// src/onboarding/messages.ts
+var UNSAFE_FOLDER_NAME_MESSAGE = "A safe non-empty folder name is required.";
+
 // src/onboarding/entities.ts
 var safeSegment = (value) => {
-  const trimmed = value.trim();
-  if (!trimmed || trimmed.length > 120 || /[\\/:\0]|^\.|[. ]$/.test(trimmed))
-    throw new Error("A safe non-empty folder name is required.");
+  const trimmed = value.trim().replace(/[. ]+$/, "");
+  if (!trimmed || trimmed.length > 120 || /[\\/:\0]|^\./.test(trimmed))
+    throw new Error(UNSAFE_FOLDER_NAME_MESSAGE);
   return trimmed;
 };
 var yaml = (value) => JSON.stringify(value);
