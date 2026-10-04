@@ -1,14 +1,20 @@
-import { resolveHostMemoryGrants } from "./host-memory-grants.mjs";
+import { resolveHostMemoryContext } from "./host-memory-grants.mjs";
 import { createHandoff } from "./checkpoint.mjs";
 
 /** Native lifecycle hooks; native mode refreshes authenticated host permissions. */
 export async function LawossOkfHandoff(input, { mode = "standalone" } = {}) {
-  const handoff = createHandoff(input.directory, mode === "native" ? { resolveAllowedRoots: () => resolveHostMemoryGrants({ directory: input.directory, serverUrl: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_SERVER_TOKEN }) } : {});
-  if (!handoff) return {};
+  let handoff = mode === "native" ? null : createHandoff(input.directory);
+  if (mode !== "native" && !handoff) return {};
   const checkpoint = async (sessionId, trigger) => {
+    try { if (mode === "native") {
+      const context = await resolveHostMemoryContext({ directory: input.directory, serverUrl: process.env.LEGALWORK_SERVER_URL, token: process.env.LEGALWORK_SERVER_TOKEN });
+      handoff = createHandoff(input.directory, { ...context, resolveAllowedRoots: () => context.allowedRoots });
+      if (!handoff) throw new Error("Host memory profile is unavailable");
+    }
     const result = await handoff.checkpoint(sessionId, trigger);
     if (!result.ok) console.warn(`[Memory handoff] checkpoint failed: ${result.error}; the previous checkpoint is not current. Inspect .lawoss/handoff/${sessionId}.status.md`);
     return result;
+    } catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) }; }
   };
   return {
     async event({ event }) {

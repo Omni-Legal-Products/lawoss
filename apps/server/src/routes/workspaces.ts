@@ -204,6 +204,7 @@ function serializeWorkspaceConfigEntry(workspace: WorkspaceInfo): Record<string,
     ...(!isLocalWorkspace && workspace.baseUrl ? { baseUrl: workspace.baseUrl } : {}),
     ...(!isLocalWorkspace && workspace.directory ? { directory: workspace.directory } : {}),
     ...(workspace.displayName ? { displayName: workspace.displayName } : {}),
+    ...(isLocalWorkspace ? { appFiles: workspace.appFiles === "outside" ? "outside" : "inside" } : {}),
     ...(workspace.legalworkHostUrl ? { legalworkHostUrl: workspace.legalworkHostUrl } : {}),
     ...(workspace.legalworkToken ? { legalworkToken: workspace.legalworkToken } : {}),
     ...(workspace.legalworkWorkspaceId ? { legalworkWorkspaceId: workspace.legalworkWorkspaceId } : {}),
@@ -256,9 +257,15 @@ export async function registerLocalProject(
     projectFields?: ReturnType<typeof parseProjectFieldDefaults> | null;
     position?: "first" | "last";
     registerExisting?: boolean;
+    appFiles?: "inside" | "outside";
   },
 ): Promise<{ workspace: WorkspaceInfo; persisted: boolean }> {
   const workspacePath = resolve(input.folderPath);
+  const workspaceId = workspaceIdForPath(workspacePath);
+  const registered = config.workspaces.find((entry) => entry.id === workspaceId);
+  if ((input.appFiles === "outside" || registered?.appFiles === "outside") && !input.registerExisting) {
+    throw new ApiError(400, "invalid_payload", "outside app files require an existing directory");
+  }
   if (input.registerExisting) {
     try {
       if (!isAbsolute(input.folderPath) || !(await lstat(workspacePath)).isDirectory() || await realpath(workspacePath) !== workspacePath) {
@@ -273,12 +280,16 @@ export async function registerLocalProject(
     if (input.projectFields) await initializeProjectFields(workspacePath, input.projectFields);
   }
 
+  const displayName = registered?.displayName?.trim() || undefined;
+  const appFiles = input.appFiles ?? registered?.appFiles ?? "inside";
   const workspace: WorkspaceInfo = {
-    id: workspaceIdForPath(workspacePath),
-    name: input.name,
+    id: workspaceId,
+    name: displayName ?? input.name,
     path: workspacePath,
     preset: input.preset,
     workspaceType: "local",
+    appFiles,
+    ...(displayName ? { displayName } : {}),
     ...inheritWorkspaceOpencodeConnection(config),
   };
   const others = config.workspaces.filter((entry) => entry.id !== workspace.id);
@@ -398,6 +409,12 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     if (body.registerExisting !== undefined && typeof body.registerExisting !== "boolean") {
       throw new ApiError(400, "invalid_payload", "registerExisting must be boolean");
     }
+    if (body.appFiles !== undefined && body.appFiles !== "inside" && body.appFiles !== "outside") {
+      throw new ApiError(400, "invalid_payload", "appFiles must be inside or outside");
+    }
+    if (body.appFiles === "outside" && body.registerExisting !== true) {
+      throw new ApiError(400, "invalid_payload", "outside app files require an existing directory");
+    }
     if (body.registerExisting === true && (body.folderMode === "default" || body.remoteFolders !== undefined || body.projectFields !== undefined || body.initializeFromFolders || body.fromRemoteFolder)) {
       throw new ApiError(400, "invalid_payload", "Existing matter registration cannot initialize project files");
     }
@@ -424,7 +441,14 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       throw new ApiError(400, "invalid_payload", "folderPath is required");
     }
 
-    const { workspace, persisted } = await registerLocalProject(config, { folderPath, name, preset, projectFields, registerExisting: body.registerExisting === true });
+    const { workspace, persisted } = await registerLocalProject(config, {
+      folderPath,
+      name,
+      preset,
+      projectFields,
+      registerExisting: body.registerExisting === true,
+      appFiles: body.appFiles,
+    });
     if (preparedFolders?.length || initializeFromFolders)
       await options.projectFolders?.attach(workspace, preparedFolders ?? [], initializeFromFolders);
     onWorkspacesChanged();
