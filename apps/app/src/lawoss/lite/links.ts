@@ -2,7 +2,8 @@
 export const LITE_TODAY_PATH = "/dnes";
 export const LITE_CLIENTS_PATH = "/klienti";
 export const LITE_MATTER_PATH = "/vec";
-export const NEW_MATTER_PATH = "/experimenty/novy-spis";
+/** Nová vec cez ten istý formulár s náhľadom a potvrdením ako bočný panel (nie technický Nový spis). */
+export const NEW_MATTER_PATH = "/welcome?continue=matter";
 
 export const liteMatterLink = (path: string): string => `${LITE_MATTER_PATH}?vec=${encodeURIComponent(path)}`;
 

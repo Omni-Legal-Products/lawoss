@@ -85,6 +85,8 @@ export const shellEn = {
   "lawoss.lite.state_no_folder": "No office folder is open.",
   "lawoss.lite.state_open_folder": "Open the office folder",
   "lawoss.lite.state_empty": "The office folder has no matters yet.",
+  "lawoss.lite.state_off": "Today, deadlines and clients are built from matter organisation, which is off. Once it is on, deadlines, parties and tasks are kept as files in your client folders.",
+  "lawoss.lite.state_turn_on": "Turn on matter organisation",
   "lawoss.lite.state_error": "Your matters could not be loaded.",
   "lawoss.lite.state_partial": "Some files could not be read - their deadlines and tasks may be missing here.",
   "lawoss.lite.state_retry": "Try again",
@@ -130,7 +132,8 @@ export const shellEn = {
   "lawoss.lite.kind_other": "Other records",
   "lawoss.lite.more_items": "+{count} more",
   "lawoss.lite.urgent": "urgent deadline",
-  "lawoss.lite.client_unnamed": "Client"
+  "lawoss.lite.client_unnamed": "Client",
+  "lawoss.lite.client_no_matters": "No matters yet."
 };
 
 /** Čeština a slovenština potřebují navíc tvary few/many (Intl.PluralRules, viz `t()` v i18n/index.ts). */
@@ -225,6 +228,8 @@ export const shellCs = {
   "lawoss.lite.state_no_folder": "Není otevřená složka kanceláře.",
   "lawoss.lite.state_open_folder": "Otevřít složku kanceláře",
   "lawoss.lite.state_empty": "Ve složce kanceláře zatím nejsou žádné věci.",
+  "lawoss.lite.state_off": "Přehled dne, lhůty a klienti se skládají z organizace věcí, která je vypnutá. Po zapnutí se lhůty, zapojené subjekty a úkoly ukládají jako soubory ve složkách klientů.",
+  "lawoss.lite.state_turn_on": "Zapnout organizaci věcí",
   "lawoss.lite.state_error": "Vaše věci se nepodařilo načíst.",
   "lawoss.lite.state_partial": "Některé soubory se nepodařilo načíst - jejich lhůty a úkoly tu mohou chybět.",
   "lawoss.lite.state_retry": "Zkusit znovu",
@@ -270,7 +275,8 @@ export const shellCs = {
   "lawoss.lite.kind_other": "Ostatní záznamy",
   "lawoss.lite.more_items": "+{count} další",
   "lawoss.lite.urgent": "naléhavá lhůta",
-  "lawoss.lite.client_unnamed": "Klient"
+  "lawoss.lite.client_unnamed": "Klient",
+  "lawoss.lite.client_no_matters": "Zatím bez věcí."
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellSk = {
@@ -362,6 +368,8 @@ export const shellSk = {
   "lawoss.lite.state_no_folder": "Nie je otvorený priečinok kancelárie.",
   "lawoss.lite.state_open_folder": "Otvoriť priečinok kancelárie",
   "lawoss.lite.state_empty": "V priečinku kancelárie zatiaľ nie sú žiadne veci.",
+  "lawoss.lite.state_off": "Prehľad dňa, lehoty a klienti sa skladajú z organizácie vecí, ktorá je vypnutá. Po zapnutí sa lehoty, zapojené subjekty a úlohy ukladajú ako súbory v priečinkoch klientov.",
+  "lawoss.lite.state_turn_on": "Zapnúť organizáciu vecí",
   "lawoss.lite.state_error": "Vaše veci sa nepodarilo načítať.",
   "lawoss.lite.state_partial": "Niektoré súbory sa nepodarilo načítať - ich lehoty a úlohy tu môžu chýbať.",
   "lawoss.lite.state_retry": "Skúsiť znova",
@@ -407,7 +415,8 @@ export const shellSk = {
   "lawoss.lite.kind_other": "Ostatné záznamy",
   "lawoss.lite.more_items": "+{count} ďalšie",
   "lawoss.lite.urgent": "naliehavá lehota",
-  "lawoss.lite.client_unnamed": "Klient"
+  "lawoss.lite.client_unnamed": "Klient",
+  "lawoss.lite.client_no_matters": "Zatiaľ bez vecí."
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellDe = {
@@ -497,6 +506,8 @@ export const shellDe = {
   "lawoss.lite.state_no_folder": "Es ist kein Kanzleiordner geöffnet.",
   "lawoss.lite.state_open_folder": "Kanzleiordner öffnen",
   "lawoss.lite.state_empty": "Im Kanzleiordner gibt es noch keine Akten.",
+  "lawoss.lite.state_off": "Tagesübersicht, Fristen und Mandanten entstehen aus der Aktenorganisation, die ausgeschaltet ist. Sobald sie eingeschaltet ist, werden Fristen, Beteiligte und Aufgaben als Dateien in den Mandantenordnern gespeichert.",
+  "lawoss.lite.state_turn_on": "Aktenorganisation einschalten",
   "lawoss.lite.state_error": "Ihre Akten konnten nicht geladen werden.",
   "lawoss.lite.state_partial": "Einige Dateien konnten nicht gelesen werden; ihre Fristen und Aufgaben fehlen hier möglicherweise.",
   "lawoss.lite.state_retry": "Erneut versuchen",
@@ -542,5 +553,6 @@ export const shellDe = {
   "lawoss.lite.kind_other": "Weitere Einträge",
   "lawoss.lite.more_items": "+{count} weitere",
   "lawoss.lite.urgent": "dringende Frist",
-  "lawoss.lite.client_unnamed": "Mandant"
+  "lawoss.lite.client_unnamed": "Mandant",
+  "lawoss.lite.client_no_matters": "Noch keine Akten."
 } satisfies Record<keyof typeof shellEn, string>;

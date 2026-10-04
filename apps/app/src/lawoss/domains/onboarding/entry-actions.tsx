@@ -17,7 +17,7 @@ export function offersOkf(status: { profile: { okf?: OkfChoice } | null } | null
 }
 
 /** `undefined` while the onboarding status is loading. */
-function useOkfOffered(skip: boolean): boolean | undefined {
+export function useOkfOffered(skip: boolean): boolean | undefined {
   const [offered, setOffered] = useState<boolean | undefined>(undefined);
   useEffect(() => {
     if (skip) return;

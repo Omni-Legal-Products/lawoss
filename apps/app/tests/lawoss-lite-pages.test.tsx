@@ -5,7 +5,7 @@ import type { ReactElement } from "react";
 import { TodayView } from "../src/lawoss/lite/pages/today-page";
 import { ClientsView } from "../src/lawoss/lite/pages/clients-page";
 import { LiteMatterView, matterFromParams } from "../src/lawoss/lite/pages/matter-page";
-import { liteMatterLink } from "../src/lawoss/lite/links";
+import { liteMatterLink, NEW_MATTER_PATH } from "../src/lawoss/lite/links";
 import type { TodayModel } from "../src/lawoss/lite/today-model";
 import type { Cockpit } from "../../../lawoss/okf/cockpit";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -40,7 +40,7 @@ describe("stránky LAWOSS-lite", () => {
     expect(out).toContain("Podepsat plnou moc");
     expect(out).toContain("IN-1");
     expect(out).toContain(href(liteMatterLink(matter.path)));
-    expect(out).toContain(href("/experimenty/novy-spis"));
+    expect(out).toContain(href(NEW_MATTER_PATH));
     // pořadí: Lhůty → K zařazení → Úkoly
     expect(out.indexOf("Odvolání")).toBeLessThan(out.indexOf("IN-1"));
     expect(out.indexOf("IN-1")).toBeLessThan(out.indexOf("Podepsat plnou moc"));
@@ -56,7 +56,7 @@ describe("stránky LAWOSS-lite", () => {
   });
   test("Dnes a Klienti: jediný vstup „+ New matter“, žádný duplicitní „New client“ (final review I4)", () => {
     for (const out of [html(<TodayView model={model} locale="en" />), html(<ClientsView groups={[]} />)]) {
-      expect(out.split(href("/experimenty/novy-spis")).length - 1).toBe(1);
+      expect(out.split(href(NEW_MATTER_PATH)).length - 1).toBe(1);
       expect(out).toContain("+ New matter");
       expect(out).not.toContain("New client");
     }
@@ -178,6 +178,28 @@ describe("stavy stránek LAWOSS-lite", () => {
     }
     expect(lite({ workspace: null })).toContain("Open the office folder");
     expect(lite({})).toContain("New matter");
+  });
+  test("bez OKF prázdná stránka vysvětlí proč a nabídne zapnutí, bez „Try again“ (D1 2026-10-04)", () => {
+    const retry = <button type="button">Try again</button>;
+    const off = html(<OkfPageState {...base} okfOff retry={retry} stateText={liteStateText("en")}>{() => "dashboard"}</OkfPageState>);
+    expect(off).toContain("built from matter organisation, which is off");
+    expect(off).toContain('href="/welcome?continue=okf"');
+    expect(off).toContain("Turn on matter organisation");
+    expect(off).not.toContain("The office folder has no matters yet.");
+    expect(off).not.toContain("Try again");
+    // Odkaz na trasu zapnutí smí obsahovat „okf“; čtený text ne.
+    expect(off.replace(/<[^>]+>/g, " ")).not.toMatch(BANNED);
+    // Pro smí jmenovat OKF.
+    expect(html(<OkfPageState {...base} okfOff>{() => "dashboard"}</OkfPageState>)).toContain("Turn on OKF");
+    // Prázdná paměť s OKF: nová věc stejnou cestou jako boční panel, bez „Try again“.
+    const noMatters = html(<OkfPageState {...base} retry={retry} stateText={liteStateText("en")}>{() => "dashboard"}</OkfPageState>);
+    expect(noMatters).toContain('href="/welcome?continue=matter"');
+    expect(noMatters).not.toContain("Try again");
+    expect(html(<OkfPageState {...base} workspace={null} retry={retry} stateText={liteStateText("en")}>{() => "dashboard"}</OkfPageState>)).not.toContain("Try again");
+    // Chyba a čekání „Try again“ nabízejí dál.
+    expect(html(<OkfPageState {...base} error={new Error("x")} retry={retry} stateText={liteStateText("en")}>{() => "dashboard"}</OkfPageState>)).toContain("Try again");
+    expect(html(<OkfPageState {...base} connection="loading" retry={retry} stateText={liteStateText("en")}>{() => "dashboard"}</OkfPageState>)).toContain("Try again");
+    expect(html(<OkfPageState {...base} data={{ ...empty, problems: [{ path: "AK", message: "x" }] }} retry={retry} stateText={liteStateText("en")}>{() => "dashboard"}</OkfPageState>)).toContain("Try again");
   });
   test("pro stav zůstává beze změny", () => {
     const out = html(<OkfPageState {...base} workspace={null}>{() => "dashboard"}</OkfPageState>);

@@ -9,6 +9,8 @@ import type { MatterTextKey } from "../i18n/matters";
 import { LawossLayout } from "../shell/layout";
 import { activeWorkspace, useOkfConnection, useOkfOverview, type OkfReadResult } from "../okf/read-model";
 import type { CockpitParty } from "../../../../../lawoss/okf/cockpit";
+import { ENABLE_OKF_ROUTE, useOkfOffered } from "./onboarding/entry-actions";
+import { NEW_MATTER_PATH } from "../lite/links";
 import "../lite/pages/okf-glass.css";
 
 /** Subscribe each UI island; translating never changes the underlying matter data. */
@@ -26,10 +28,13 @@ type PickWorkspace = typeof activeWorkspace;
 /** `rawProblems: false` (lite) hides per-file read errors - they carry internal names like "Workspace not found". */
 /** Kedy sa pamäť naposledy overila a kedy sa jej obsah naozaj zmenil (indikátor živosti). */
 export type OkfPageMeta = { checkedAt: number; changedAt: number; failed?: boolean };
-type PageProps = { title?: string; children: (data: OkfReadResult, meta: OkfPageMeta) => ReactNode; stateText?: StateText; pickWorkspace?: PickWorkspace; rawProblems?: boolean };
+/** Kedy má stránka čo ukázať; predvolene keď sú veci (Klienti ukážu aj klientov bez vecí). */
+type HasContent = (data: OkfReadResult) => boolean;
+const hasMatters: HasContent = (data) => data.matters.length > 0;
+type PageProps = { title?: string; children: (data: OkfReadResult, meta: OkfPageMeta) => ReactNode; stateText?: StateText; pickWorkspace?: PickWorkspace; rawProblems?: boolean; hasContent?: HasContent };
 
 /** Retry also reloads the desktop connection, which may be absent during startup. */
-export function OkfPage({ title, children, stateText, pickWorkspace, rawProblems }: PageProps) {
+export function OkfPage({ title, children, stateText, pickWorkspace, rawProblems, hasContent }: PageProps) {
   const text = useMatterText().text;
   const label = stateText ?? text;
   const [attempt, setAttempt] = useState(0);
@@ -37,7 +42,7 @@ export function OkfPage({ title, children, stateText, pickWorkspace, rawProblems
   return (
     <LawossLayout>
       {title ? <h1 className="lw-h1">{title}</h1> : null}
-      <OkfPageQuery key={attempt} stateText={stateText} pickWorkspace={pickWorkspace} rawProblems={rawProblems} retry={<button type="button" className="lw-btn" onClick={() => {
+      <OkfPageQuery key={attempt} stateText={stateText} pickWorkspace={pickWorkspace} rawProblems={rawProblems} hasContent={hasContent} retry={<button type="button" className="lw-btn" onClick={() => {
         void cache.invalidateQueries({ queryKey: ["okf-overview"], refetchType: "none" });
         setAttempt((value) => value + 1);
       }}>{label("retry")}</button>}>{children}</OkfPageQuery>
@@ -45,7 +50,7 @@ export function OkfPage({ title, children, stateText, pickWorkspace, rawProblems
   );
 }
 
-function OkfPageQuery({ children, stateText, pickWorkspace = activeWorkspace, rawProblems, retry }: Pick<PageProps, "children" | "stateText" | "pickWorkspace" | "rawProblems"> & { retry: ReactNode }) {
+function OkfPageQuery({ children, stateText, pickWorkspace = activeWorkspace, rawProblems, hasContent, retry }: Pick<PageProps, "children" | "stateText" | "pickWorkspace" | "rawProblems" | "hasContent"> & { retry: ReactNode }) {
   const { connection, error } = useOkfConnection();
   const workspace = pickWorkspace(connection);
   const query = useOkfOverview(connection, workspace);
@@ -55,7 +60,10 @@ function OkfPageQuery({ children, stateText, pickWorkspace = activeWorkspace, ra
   const firstRun = Boolean(connection?.client && local) && workspace === null && !local?.prefs.hasCompletedOnboarding;
   // Zdieľanie štruktúry v react-query drží rovnaký objekt, kým sa obsah nezmení; nový objekt = nový zápis.
   const changedAt = useMemo(() => query.dataUpdatedAt, [query.data]);
+  // Bez OKF nie je z čoho skladať prehľady: prázdna stránka to povie a ponúkne zapnutie, nie „žiadne veci“.
+  const okfOffered = useOkfOffered(false);
   return <OkfPageState
+    okfOff={okfOffered === true}
     meta={{ checkedAt: query.dataUpdatedAt, changedAt, failed: query.isRefetchError }}
     firstRun={firstRun}
     connection={connection === null ? "loading" : connection.client ? "ready" : "unavailable"}
@@ -67,6 +75,7 @@ function OkfPageQuery({ children, stateText, pickWorkspace = activeWorkspace, ra
     loading={query.isFetching && !query.isRefetching}
     stateText={stateText}
     rawProblems={rawProblems}
+    hasContent={hasContent}
     retry={retry}
   >{children}</OkfPageState>;
 }
@@ -86,11 +95,15 @@ export function OkfPageState(props: {
   meta?: OkfPageMeta;
   /** Žiaden workspace a nedokončený onboarding: namiesto prázdnej stránky otvoriť onboarding. */
   firstRun?: boolean;
+  /** OKF nie je zapnuté: prázdna pamäť je očakávaná, stránka ponúkne zapnutie. */
+  okfOff?: boolean;
+  hasContent?: HasContent;
 }) {
   const matterText = useMatterText().text;
   const node = okfStateNode(props, props.stateText ?? matterText);
-  const ready = Boolean(!props.error && props.connection === "ready" && props.workspace !== null && props.data && props.data.matters.length > 0);
-  return ready ? node : <>{node}{props.retry}</>;
+  // „Skúsiť znova“ len tam, kde sa čaká alebo zlyhalo; pri načítaných veciach, prázdnej pamäti a bez priečinka nie je čo opakovať.
+  const settled = !props.error && props.connection === "ready" && (props.workspace === null || Boolean(props.data && ((props.hasContent ?? hasMatters)(props.data) || !(props.data.problems.length || props.data.truncated))));
+  return settled ? node : <>{node}{props.retry}</>;
 }
 
 function okfStateNode(props: Parameters<typeof OkfPageState>[0], text: StateText): ReactNode {
@@ -102,7 +115,7 @@ function okfStateNode(props: Parameters<typeof OkfPageState>[0], text: StateText
   if (!props.data) return <OkfSkeleton label={text("memoryLoading", { workspace: props.workspace })} />;
   // Lite: část souborů nešla načíst, ale věci ano - bez upozornění by Dnes tvrdilo „žádné lhůty“ (review PR #100, 6).
   const partial = props.rawProblems === false && (props.data.problems.length > 0 || props.data.truncated);
-  if (props.data.matters.length > 0) return <>
+  if ((props.hasContent ?? hasMatters)(props.data)) return <>
     {props.loading ? <p role="status">{text("refreshing")}</p> : null}
     {partial ? <div className="lw-status warn" role="alert">{text("partialRead")}</div> : null}
     {props.children(props.data, props.meta ?? { checkedAt: 0, changedAt: 0 })}
@@ -111,7 +124,12 @@ function okfStateNode(props: Parameters<typeof OkfPageState>[0], text: StateText
     {text("incompleteRead")}
     {props.rawProblems !== false && props.data.problems.slice(0, 3).map((problem, index) => <p key={`${problem.path}/${index}`}>{problem.path || props.workspace}: {problem.message}</p>)}
   </div>;
-  return <p className="lw-empty">{text("noMatterMemory", { workspace: props.workspace })} <Link to="/experimenty/novy-spis">{text("newMatter")}</Link>.</p>;
+  if (props.okfOff) return <div className="lw-empty" data-lawoss-empty="off">
+    <p>{text("okfOff")}</p>
+    <Link className="lw-btn" to={ENABLE_OKF_ROUTE}>{text("turnOnOkf")}</Link>
+  </div>;
+  // Rovnaká cesta k novej veci ako v bočnom paneli.
+  return <p className="lw-empty">{text("noMatterMemory", { workspace: props.workspace })} <Link to={NEW_MATTER_PATH}>{text("newMatter")}</Link>.</p>;
 }
 
 /** Kostra namiesto holého textu: obrys úvodu, pásu a panelov, kým sa pamäť načíta. */

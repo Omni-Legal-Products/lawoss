@@ -20,6 +20,8 @@ const LITE_KEY: Partial<Record<MatterTextKey, string>> = {
   openWorkspace: "state_open_folder",
   noMatterMemory: "state_empty",
   newMatter: "new_matter",
+  okfOff: "state_off",
+  turnOnOkf: "state_turn_on",
 };
 
 export function liteStateText(locale: Language): StateText {
