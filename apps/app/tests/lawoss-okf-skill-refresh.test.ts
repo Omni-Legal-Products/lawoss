@@ -105,4 +105,12 @@ describe("OKF bundle refresh in an existing workspace", () => {
     expect(f.writes).toEqual([`resource:${novy.name}/${novy.resource}`]);
     expect(f.installed[novy.name]?.resources.get(novy.resource)).toBe(novy.source);
   });
+
+  test("the server's managed resources block is not a customization (D1 2026-10-05)", async () => {
+    const block = "\n\n<!-- legalwork:resources:start -->\n## Attached resources\n\n- `resources/okf.js`\n<!-- legalwork:resources:end -->\n";
+    expect(BUNDLED_OKF_SKILL_HASHES.has(await okfSkillBodyHash(stored(novy.body.content) + block))).toBe(true);
+    const f = fixture({ [novy.name]: { content: stored(novy.body.content) + block, resources: new Map([[novy.resource, novy.source]]) } });
+    await expect(refreshOkfSkills(f.client, "ws", [novy])).resolves.toEqual({ modified: [] });
+    expect(f.writes).toEqual([]);
+  });
 });

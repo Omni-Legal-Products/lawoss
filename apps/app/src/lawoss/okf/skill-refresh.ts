@@ -19,9 +19,17 @@ export type BundledOkfSkill = {
 /** `modified`: skills whose customized SKILL.md was kept although the bundle differs. */
 export type OkfSkillRefresh = { modified: string[] };
 
-/** Body of a stored SKILL.md as the server writes it: frontmatter removed, LF, trimmed. */
+/**
+ * The server appends an auto-managed "Attached resources" block to SKILL.md whenever a
+ * resource is stored (`apps/server/src/skill-resources.ts`). It is not a customization:
+ * without removing it every installed OKF skill looked modified, was never refreshed and
+ * triggered a false notice (D1 2026-10-05).
+ */
+const MANAGED_RESOURCES_BLOCK = /(?:\n)*<!-- legalwork:resources:start -->[\s\S]*?<!-- legalwork:resources:end -->(?:\n)*/g;
+
+/** Body of a stored SKILL.md as the server writes it: frontmatter and the managed resources block removed, LF, trimmed. */
 export function installedSkillBody(content: string): string {
-  return content.replace(/\r\n/g, "\n").replace(/^---\n[\s\S]*?\n---\n/, "").trim() + "\n";
+  return content.replace(/\r\n/g, "\n").replace(/^---\n[\s\S]*?\n---\n/, "").replace(MANAGED_RESOURCES_BLOCK, "\n").trim() + "\n";
 }
 
 export async function okfSkillBodyHash(content: string): Promise<string> {
