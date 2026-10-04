@@ -10,7 +10,7 @@
 import type { OkfRecord } from "../okf-pamat/src/record.ts";
 import { isRecordType, valueLabel, type KnownRecordType, type RecordType } from "../okf-pamat/src/schema.ts";
 import { pendingInputs } from "./inputs.ts";
-import { deadlineTier, isOpenTask, isRetired, recordDeadlines, type MatterInput, type MatterOverview } from "./read.ts";
+import { deadlineLabel, deadlineTier, isOpenTask, isRetired, recordDeadlines, type MatterInput, type MatterOverview } from "./read.ts";
 
 /** Odkiaľ údaj pochádza. Slovo, nie farba — stav musí byť čitateľný aj bez nej. */
 export type Provenance = "overené" | "AI návrh" | "zapísané" | "overenie neurčené" | "strojovo overené";
@@ -42,6 +42,8 @@ export type CockpitTask = { id: string; title: string; assignee?: string; due?: 
 export type CockpitDeadline = {
   date: string;
   title: string;
+  /** Text lehoty za dátumom, ak ho zápis má; inak sa ukazuje názov záznamu. */
+  label?: string;
   recordId: string;
   provenance: Provenance;
   source?: string;
@@ -212,6 +214,8 @@ function deadlines(input: MatterInput, todayIso: string): CockpitDeadline[] {
         confirmed: deadlineConfirmed(r, raw),
       };
       if (invalid) item.invalid = invalid;
+      const label = invalid ? undefined : deadlineLabel(raw);
+      if (label) item.label = label;
       const src = firstSource(r);
       if (src?.title) item.source = src.title;
       out.push(item);

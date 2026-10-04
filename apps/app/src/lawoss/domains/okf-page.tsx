@@ -50,7 +50,8 @@ function OkfPageQuery({ children, stateText, pickWorkspace = activeWorkspace, ra
     workspace={workspace ? workspace.displayNameResolved || workspace.name || workspace.path : null}
     error={error || query.error}
     data={query.data}
-    loading={query.isFetching}
+    // Tiché obnovenie na pozadí nič neohlasuje; stav „obnovujem" len pri prvom alebo vyžiadanom čítaní.
+    loading={query.isFetching && !query.isRefetching}
     stateText={stateText}
     rawProblems={rawProblems}
     retry={retry}

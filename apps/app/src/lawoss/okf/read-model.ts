@@ -319,6 +319,9 @@ export function officeOf(workspaces: readonly RouteWorkspace[], active: RouteWor
   return ancestors.sort((a, b) => normalizeDirectoryPath(a.path).length - normalizeDirectoryPath(b.path).length)[0] ?? active;
 }
 
+/** Ako často sa pohľady z OKF ticho obnovujú, kým je okno aktívne. */
+export const OKF_REFRESH_MS = 15_000;
+
 export function useOkfOverview(connection: OkfConnection | null, workspace: RouteWorkspace | null) {
   const client = connection?.client ?? null;
   return useQuery({
@@ -329,6 +332,11 @@ export function useOkfOverview(connection: OkfConnection | null, workspace: Rout
       if (!client || !workspace) throw new Error("Server LegalWork nebeží alebo chýba workspace.");
       return readWorkspaceMemory(client, workspace.id);
     },
+    // Pohľady sú živé: zápis agenta alebo advokáta do OKF súborov sa ukáže bez reštartu.
+    // Obnovuje sa pri návrate do okna a v tichosti na pozadí; zmena sa prekreslí len pri inom obsahu.
+    refetchOnWindowFocus: true,
+    refetchInterval: OKF_REFRESH_MS,
+    refetchIntervalInBackground: false,
   });
 }
 

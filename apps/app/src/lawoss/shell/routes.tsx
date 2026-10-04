@@ -30,7 +30,7 @@ export const LAWOSS_ROUTES: ReadonlyArray<{ path: string; element: ReactElement;
   // LAWOSS-lite - dostupné v obou režimech, v lite jsou výchozí navigací.
   { path: LITE_TODAY_PATH, element: <TodayPage />, title: "lawoss.lite.nav_today" },
   { path: LITE_CLIENTS_PATH, element: <ClientsPage />, title: "lawoss.lite.nav_clients" },
-  { path: LITE_MATTER_PATH, element: <LiteMatterPage />, title: "lawoss.shell.matter" },
+  { path: LITE_MATTER_PATH, element: <LiteMatterPage />, title: "lawoss.lite.nav_clients" },
 ];
 
 /** Header title for a LAWOSS screen in the shared shell, so it never reads as a chat. */

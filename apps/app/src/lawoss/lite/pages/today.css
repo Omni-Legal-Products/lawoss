@@ -4,16 +4,6 @@
  * Barvy jdou přes tokeny LAWOSS, takže světlý motiv zůstává čitelný.
  */
 .lw-today {
-  --td-gold: #c9a24a;
-  --td-gold-hi: #f2d788;
-  --td-metal: linear-gradient(100deg, #b98d3f 0%, #e7c46a 38%, #f7de94 50%, #d0a24b 64%, #aa8039 100%);
-  --td-hot: #e8836b;
-  --td-near: var(--td-gold);
-  --td-calm: var(--lw-text-tertiary, #75808c);
-  --td-line: var(--lw-border-subtle, rgba(233, 228, 218, 0.08));
-  --td-glass: linear-gradient(180deg, color-mix(in srgb, var(--lw-text-primary, #e9e4da) 4.5%, transparent), color-mix(in srgb, var(--lw-text-primary, #e9e4da) 1.5%, transparent));
-  --td-radius: 14px;
-  --td-ease: cubic-bezier(0.22, 1, 0.36, 1);
   position: relative;
   container-type: inline-size;
   min-width: 0;
@@ -24,7 +14,6 @@
   padding: 8px 0 40px;
   color: var(--lw-text-primary);
 }
-:root:not(.dark):not([data-theme="dark"]) .lw-today { --td-hot: var(--lw-danger, #b3261e); --td-gold: #a8832e; --td-gold-hi: #7a5b12; }
 
 /* Jemná zlatá záře za úvodem, jako horizont na webu. */
 .lw-today::before {
@@ -43,12 +32,8 @@
 
 /* Postupné odhalení; bez pohybu, když si to systém nepřeje. */
 .lw-today-hero, .lw-today-strip, .lw-today-panel, .lw-today-matters {
-  animation: lw-today-rise 620ms var(--td-ease) both;
+  animation: lw-okf-rise 620ms var(--td-ease) both;
   animation-delay: calc(var(--lw-i, 0) * 70ms);
-}
-@keyframes lw-today-rise {
-  from { opacity: 0; transform: translateY(10px); filter: blur(3px); }
-  to { opacity: 1; transform: none; filter: none; }
 }
 
 /* Úvod */
@@ -172,8 +157,7 @@
 .lw-today-dots i[data-kind="task"] { background: transparent; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--td-gold) 75%, transparent); }
 .lw-today-tip span[data-kind="task"] b::before { content: "○ "; color: var(--td-gold); }
 .lw-today-dots i[data-urgency="near"] { background: var(--td-near); box-shadow: 0 0 10px color-mix(in srgb, var(--td-near) 80%, transparent); }
-.lw-today-dots i[data-urgency="hot"] { background: var(--td-hot); box-shadow: 0 0 10px color-mix(in srgb, var(--td-hot) 80%, transparent); animation: lw-today-pulse 2.4s ease-in-out infinite; }
-@keyframes lw-today-pulse { 50% { box-shadow: 0 0 2px color-mix(in srgb, var(--td-hot) 40%, transparent); } }
+.lw-today-dots i[data-urgency="hot"] { background: var(--td-hot); box-shadow: 0 0 10px color-mix(in srgb, var(--td-hot) 80%, transparent); animation: lw-okf-pulse 2.4s ease-in-out infinite; }
 
 /* Bublina nad dnem s lhůtami */
 .lw-today-tip {

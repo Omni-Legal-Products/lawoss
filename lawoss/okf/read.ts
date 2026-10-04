@@ -104,6 +104,12 @@ export function recordDeadlines(r: OkfRecord): { date: string; raw: string; inva
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
+/** Text lehoty za dátumom („2026-10-09 Lehota na vyjadrenie" → „Lehota na vyjadrenie"); bez textu `undefined`. */
+export function deadlineLabel(raw: string | undefined): string | undefined {
+  const rest = /^\d{4}-\d{2}-\d{2}(?:T\S*)?(.*)$/s.exec(raw?.trim() ?? "")?.[1]?.replace(/^[\s:,;\u2013-]+/, "").trim();
+  return rest || undefined;
+}
+
 /** `RRRR-MM-DD` + n dní; nevalidný vstup vráti nezmenený. */
 export function addDays(iso: string, days: number): string {
   if (!ISO_DAY.test(iso)) return iso;

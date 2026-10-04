@@ -112,7 +112,12 @@ export const shellEn = {
   "lawoss.lite.next_deadline": "Next deadline",
   "lawoss.lite.no_next_deadline": "No upcoming deadline",
   "lawoss.lite.tasks_short": "Tasks",
-  "lawoss.lite.all_clear": "All clear"
+  "lawoss.lite.all_clear": "All clear",
+  "lawoss.lite.matter_timeline": "Timeline",
+  "lawoss.lite.matter_timeline_empty": "No events recorded yet.",
+  "lawoss.lite.matter_waiting": "Waiting for you",
+  "lawoss.lite.matter_more": "More",
+  "lawoss.lite.matter_upcoming": "upcoming"
 };
 
 /** Čeština a slovenština potřebují navíc tvary few/many (Intl.PluralRules, viz `t()` v i18n/index.ts). */
@@ -234,7 +239,12 @@ export const shellCs = {
   "lawoss.lite.next_deadline": "Nejbližší lhůta",
   "lawoss.lite.no_next_deadline": "Bez blížící se lhůty",
   "lawoss.lite.tasks_short": "Úkoly",
-  "lawoss.lite.all_clear": "Vše v pořádku"
+  "lawoss.lite.all_clear": "Vše v pořádku",
+  "lawoss.lite.matter_timeline": "Časová osa",
+  "lawoss.lite.matter_timeline_empty": "Zatím žádné zaznamenané události.",
+  "lawoss.lite.matter_waiting": "Čeká na vás",
+  "lawoss.lite.matter_more": "Další",
+  "lawoss.lite.matter_upcoming": "blíží se"
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellSk = {
@@ -353,7 +363,12 @@ export const shellSk = {
   "lawoss.lite.next_deadline": "Najbližšia lehota",
   "lawoss.lite.no_next_deadline": "Bez blížiacej sa lehoty",
   "lawoss.lite.tasks_short": "Úlohy",
-  "lawoss.lite.all_clear": "Všetko v poriadku"
+  "lawoss.lite.all_clear": "Všetko v poriadku",
+  "lawoss.lite.matter_timeline": "Časová os",
+  "lawoss.lite.matter_timeline_empty": "Zatiaľ žiadne zaznamenané udalosti.",
+  "lawoss.lite.matter_waiting": "Čaká na vás",
+  "lawoss.lite.matter_more": "Ďalšie",
+  "lawoss.lite.matter_upcoming": "blíži sa"
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellDe = {
@@ -470,5 +485,10 @@ export const shellDe = {
   "lawoss.lite.next_deadline": "Nächste Frist",
   "lawoss.lite.no_next_deadline": "Keine anstehende Frist",
   "lawoss.lite.tasks_short": "Aufgaben",
-  "lawoss.lite.all_clear": "Alles erledigt"
+  "lawoss.lite.all_clear": "Alles erledigt",
+  "lawoss.lite.matter_timeline": "Zeitachse",
+  "lawoss.lite.matter_timeline_empty": "Noch keine Ereignisse erfasst.",
+  "lawoss.lite.matter_waiting": "Wartet auf Sie",
+  "lawoss.lite.matter_more": "Mehr",
+  "lawoss.lite.matter_upcoming": "steht bevor"
 } satisfies Record<keyof typeof shellEn, string>;

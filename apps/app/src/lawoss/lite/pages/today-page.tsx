@@ -7,8 +7,10 @@ import { useLocale } from "@/i18n/use-locale";
 import { OkfPage } from "../../domains/okf-page";
 import { litePageProps } from "../state-text";
 import { addDays, formatDay, today } from "../../okf/read-model";
+import { deadlineText, urgencyOf, type Urgency } from "../../okf/view-rules";
 import { buildToday, nextDeadline, type TodayDeadline, type TodayModel, type TodayTask } from "../today-model";
 import { LITE_CLIENTS_PATH, liteMatterLink, NEW_MATTER_PATH } from "../links";
+import "./okf-glass.css";
 import "./today.css";
 
 const STRIP_DAYS = 14;
@@ -32,17 +34,8 @@ function dueLabel(d: TodayDeadline, text: Text): string {
   return text("due_in_days", { count: d.daysLeft }); // _one/_few/_many/_other podle jazyka
 }
 
-/** Text lhůty za datem („2026-10-09 Lhůta na vyjádření"), jinak název záznamu. */
-function deadlineText(d: Pick<TodayDeadline, "raw" | "title" | "invalid">): string {
-  if (d.invalid || !d.raw) return d.title;
-  return d.raw.slice(10).replace(/^[\s:,-]+/, "").trim() || d.title;
-}
-
-/** Naléhavost pro barvu: po lhůtě a dnes hoří, do tří dnů blízko, zbytek klid. */
-function urgency(d: Pick<TodayDeadline, "tier" | "daysLeft" | "invalid">): "hot" | "near" | "calm" {
-  if (d.invalid || d.tier === "overdue" || d.daysLeft <= 0) return "hot";
-  return d.daysLeft <= 3 ? "near" : "calm";
-}
+/** Naléhavost lhůty podle společných pravidel (view-rules), stejně jako v detailu věci. */
+const urgency = (d: Pick<TodayDeadline, "date" | "invalid">, todayIso: string): Urgency => urgencyOf(d.date, todayIso, d.invalid);
 
 function greetingKey(hour: number): string {
   if (hour < 10) return "greeting_morning";
@@ -77,7 +70,7 @@ export function TodayView({ model, locale, now = new Date() }: { model: TodayMod
         </div>
         <Link className="lw-today-primary" to={NEW_MATTER_PATH}>+ {text("new_matter")}</Link>
         <dl className="lw-today-stats">
-          <Stat label={text("stat_week")} value={thisWeek.length} hot={thisWeek.some((d) => urgency(d) === "hot")} />
+          <Stat label={text("stat_week")} value={thisWeek.length} hot={thisWeek.some((d) => urgency(d, todayIso) === "hot")} />
           <Stat label={text("tasks_title")} value={model.tasks.length} />
           <Stat label={text("inputs_title")} value={model.inputs.length} />
         </dl>
@@ -90,7 +83,7 @@ export function TodayView({ model, locale, now = new Date() }: { model: TodayMod
           {model.deadlines.length === 0 ? <Empty text={text("deadlines_empty")} /> : <ul className="lw-today-list">
             {model.deadlines.map((d) => (
               <li key={`${d.matter.path}/${d.recordId}/${d.date}`}>
-                <Link className="lw-today-deadline" data-urgency={urgency(d)} to={liteMatterLink(d.matter.path)}>
+                <Link className="lw-today-deadline" data-urgency={urgency(d, todayIso)} to={liteMatterLink(d.matter.path)}>
                   <span className="lw-today-cal" aria-hidden>
                     <span>{d.invalid ? "?" : weekdayShort(d.date, locale)}</span>
                     <strong>{d.invalid ? "!" : dayOfMonth(d.date)}</strong>
@@ -134,7 +127,7 @@ export function TodayView({ model, locale, now = new Date() }: { model: TodayMod
                       <span key={m.path}>{i > 0 ? " · " : ""}<Link to={liteMatterLink(m.path)}>{m.title}</Link></span>
                     ))}</small>
                   </span>
-                  {task.due ? <span className="lw-today-chip" data-urgency={task.due < todayIso ? "hot" : task.due <= addDays(todayIso, 3) ? "near" : "calm"}>{formatDay(task.due, locale)}</span> : null}
+                  {task.due ? <span className="lw-today-chip" data-urgency={urgencyOf(task.due, todayIso)}>{formatDay(task.due, locale)}</span> : null}
                 </li>
               ))}
             </ul>}
@@ -209,7 +202,7 @@ function DeadlineStrip({ deadlines, tasks, todayIso, locale, text }: { deadlines
             <span className="lw-today-dow">{cell.label}</span>
             <span className="lw-today-dom">{cell.day}</span>
             <span className="lw-today-dots" aria-hidden>
-              {cell.items.slice(0, 3).map((d) => <i key={`${d.matter.path}/${d.recordId}/${d.raw ?? d.date}`} data-urgency={urgency(d)} />)}
+              {cell.items.slice(0, 3).map((d) => <i key={`${d.matter.path}/${d.recordId}/${d.raw ?? d.date}`} data-urgency={urgency(d, todayIso)} />)}
               {cell.due.slice(0, 2).map((task) => <i key={task.key} data-kind="task" />)}
             </span>
             {cell.items.length + cell.due.length ? <span className="lw-today-tip" role="tooltip">

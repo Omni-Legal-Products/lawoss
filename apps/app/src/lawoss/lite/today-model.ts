@@ -6,6 +6,7 @@ import { addDays, deadlineKey, deadlineTier, recordKey, scopeLevels, type Deadli
 import { pendingInputs, type PendingInput } from "../../../../../lawoss/okf/inputs";
 import { clientFromPath } from "../../../../../lawoss/okf/cockpit";
 import type { OkfReadResult } from "../okf/read-model";
+import { HORIZON_DAYS } from "../okf/view-rules";
 
 /** `alsoIn`: další věci, do kterých patří tatáž lhůta ze sdíleného souboru (klient, kancelář). */
 export type TodayDeadline = UpcomingDeadline & { tier: DeadlineTier; daysLeft: number; alsoIn?: { path: string; title: string }[] };
@@ -16,7 +17,7 @@ export type ClientGroup = { client: string; matters: MatterOverview[] };
 const DAY = 86_400_000;
 const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY);
 
-export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDeadlines" | "overdue" | "inputs">, todayIso: string, horizonDays = 14): TodayModel {
+export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDeadlines" | "overdue" | "inputs">, todayIso: string, horizonDays = HORIZON_DAYS): TodayModel {
   const horizon = addDays(todayIso, horizonDays);
   // Lhůta ze sdíleného souboru přijde jednou za každou věc; ukázat ji jednou a vyjmenovat věci.
   const all: (UpcomingDeadline & { alsoIn?: { path: string; title: string }[] })[] = [];
