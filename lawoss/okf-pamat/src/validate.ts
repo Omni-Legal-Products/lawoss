@@ -19,7 +19,7 @@
 import type { OkfRecord } from "./record.ts";
 import {
   AML_REQUIRED, PERSON_KINDS, SENSITIVE_FIELDS, EVIDENCE_KINDS,
-  fieldLabel, needleFields, truthDigest, FIELDS, EVENT_KINDS, canonicalEventKind,
+  fieldLabel, needleFields, truthDigest, FIELDS, EVENT_KINDS, canonicalEventKind, isRecordType, isoDay,
   type FieldDef, type Jurisdiction,
 } from "./schema.ts";
 
@@ -140,7 +140,9 @@ function needleForField(f: FieldDef, value: string, source: string): Needle | un
 function clientNeedles(records: readonly OkfRecord[]): Needle[] {
   const out: Needle[] = [];
   for (const r of records) {
-    if (r.type !== "subject") continue;
+    // Identifikátory sa berú z každého záznamu spisu, nie len zo `subject` —
+    // vlastný typ agenta (`person`) by inak IČO a rodné číslo prepašoval do L3.
+    if (r.layer !== "L2") continue;
     const raw = r as unknown as Record<string, unknown>;
     for (const f of needleFields()) {
       const v = raw[f.canonical];
@@ -148,20 +150,21 @@ function clientNeedles(records: readonly OkfRecord[]): Needle[] {
       const n = needleForField(f, v, r.id);
       if (n) out.push(n);
     }
-    if (r.title) {
+    if (r.type === "subject" && r.title) {
       const n = nameNeedle(r.title, r.id);
       if (n) out.push(n);
     }
-  }
-  // Rodné číslo vo voľnom texte. Polia sú strážené z tabuľky, ale výrok
-  // opísaný do Pravdy otázky nesie rodné číslo tretej osoby a pole preň
-  // niet — prameň L3 s ním prešiel bránou. Vzor je dosť špecifický na to,
-  // aby vo voľnom texte nefalošil. Sumy ani IČO sa takto nehľadajú: osem
-  // číslic je v spise všade.
-  for (const r of records) {
-    if (r.layer !== "L2") continue;
-    const text = [r.truth, ...r.timeline.map((e) => e.text)].join("\n");
-    for (const m of text.matchAll(BIRTH_NUMBER_PATTERN_G)) {
+    // Zapojené subjekty sú údaje klientskej veci rovnako ako subjekty. Súd,
+    // úrad či polícia sú ale verejné inštitúcie — ako jehla by zablokovali
+    // každý L3 prameň, ktorý ich cituje.
+    for (const p of r.participants ?? []) {
+      const n = p.name && !PUBLIC_BODY.test(normalize(p.name)) ? nameNeedle(p.name, r.id) : undefined;
+      if (n) out.push(n);
+    }
+    // Rodné číslo vo voľnom texte. Polia sú strážené z tabuľky, ale výrok
+    // opísaný do Pravdy otázky nesie rodné číslo tretej osoby a pole preň
+    // niet. Sumy ani IČO sa takto nehľadajú: osem číslic je v spise všade.
+    for (const m of bodyText(r).matchAll(BIRTH_NUMBER_PATTERN_G)) {
       const n = exactNeedle(m[0], r.id, "rodné číslo v texte záznamu");
       if (n) out.push(n);
     }
@@ -169,9 +172,49 @@ function clientNeedles(records: readonly OkfRecord[]): Needle[] {
   return out;
 }
 
-function recordText(r: OkfRecord): string {
-  return [r.title, r.description, r.truth, ...r.timeline.map((e) => `${e.date} ${e.text}`)].join("\n");
+/**
+ * Názov verejnej inštitúcie (normalizovaný, bez diakritiky).
+ * ponytail: slovník slov, nie register orgánov — orgán mimo zoznamu ostane
+ * jehlou (prísnejšie, nie únik); doplniť slovo, ak blokuje bežný prameň.
+ */
+const PUBLIC_BODY =
+  /(?<![\p{L}\p{N}])(?:soud|sud|urad|policie|policia|prokuratura|zastupitelstvi|ministerstvo|magistrat|sprava)(?![\p{L}\p{N}])/u;
+
+/** Voľný text tela: Truth, História a vlastné sekcie — tie nesmú byť slepou škvrnou brány. */
+function bodyText(r: OkfRecord): string {
+  return [r.truth, ...r.timeline.map((e) => e.text), ...(r.sections ?? []).map((s) => `${s.heading}\n${s.body}`)].join("\n");
 }
+
+/**
+ * Všetky reťazce záznamu — telo aj frontmatter (`participants`, vlastné polia,
+ * `extra`). Brána úniku nesmie mať slepú škvrnu v poli, ktoré nikto nečakal.
+ */
+function leakText(r: OkfRecord): string {
+  const out: string[] = [];
+  const walk = (v: unknown): void => {
+    if (typeof v === "string") out.push(v);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (typeof v === "object" && v !== null) Object.values(v).forEach(walk);
+  };
+  walk(r);
+  return out.join("\n");
+}
+
+function recordText(r: OkfRecord): string {
+  return [r.title, r.description, r.truth, ...r.timeline.map((e) => `${e.date} ${e.text}`),
+    ...(r.sections ?? []).map((s) => `${s.heading}\n${s.body}`)].join("\n");
+}
+
+/**
+ * Tvar českej alebo slovenskej spisovej značky. Zámerne zhovievavý — chytá
+ * preklep a iný údaj v poli (interné číslo spisu, dátum), nie každú odchýlku:
+ *   CZ  `22 Cdo 2886/2023`, `91 INS 5855/2024`, `MSPH 91 INS 5855/2024-C1`,
+ *       `KSBR 39 INS 1234/2020-B-5`, `I. ÚS 1234/20`, `Pl. ÚS 5/20`
+ *   SK  `1Cdo/12/2024`, `8Co/123/2019`, `31K/12/2019`
+ * Voliteľná skratka súdu veľkými písmenami vpredu, voliteľné `-C1` vzadu.
+ */
+const CASE_NUMBER_PATTERN =
+  /^(?:\p{Lu}{2,6}\s+)?(?:\d{1,3}\s*\p{L}{1,6}\s*\d{1,6}\s*\/\s*\d{2,4}|\d{1,3}\s*\p{L}{1,6}\s*\/\s*\d{1,6}\s*\/\s*\d{4}|(?:Pl|IV|I{1,3})\.\s*ÚS\s*\d{1,5}\s*\/\s*\d{2,4})(?:\s*-\s*[\p{L}\d]+)*$/u;
 
 function linkTargets(r: OkfRecord): string[] {
   const out = [
@@ -382,7 +425,7 @@ export function validateStore(
   const needles = clientNeedles(records);
   for (const r of records) {
     if (r.layer !== "L3") continue;
-    const haystack = normalize(recordText(r));
+    const haystack = normalize(leakText(r));
     for (const n of needles) {
       if (n.pattern.test(haystack)) findings.push(leakFinding(r, n, opts.nameLeakSeverity));
     }
@@ -416,6 +459,53 @@ export function validateStore(
   for (const r of records) {
     const f = sensitiveInSummary(r);
     if (f) findings.push(f);
+  }
+
+  // Vlastný typ agenta je legitímny, ale kontroly viazané na známe typy
+  // (AML, matica dôkazov, ban-list) ho obídu. Preklep `subjekt` by inak
+  // ticho vypol AML kontrolu — preto varovanie, nie mlčanie.
+  for (const r of records) {
+    if (isRecordType(r.type)) continue;
+    findings.push({
+      severity: "warning",
+      code: "AGENT_TYPE",
+      recordId: r.id,
+      message: `Záznam ${r.id} má vlastný typ „${r.type}" (vrstva L2). Kontroly známych typov sa naň nevzťahujú — ak ide o preklep, oprav typ.`,
+    });
+  }
+
+  for (const r of records) {
+    (r.participants ?? []).forEach((p, i) => {
+      if (p.name?.trim()) return;
+      findings.push({
+        severity: "error",
+        code: "PARTICIPANT_NAME_MISSING",
+        recordId: r.id,
+        message: `Zapojený subjekt č. ${i + 1} záznamu ${r.id} nemá meno (name).`,
+      });
+    });
+  }
+
+  // Kritické údaje sú deterministické: lehota a termín sú dátum, nie text.
+  for (const r of records) {
+    const dates = [...(r.deadlines ?? []).map((d) => ["deadlines", d] as const), ...(r.due !== undefined ? [["due", r.due] as const] : [])];
+    for (const [field, value] of dates) {
+      if (isoDay(value)) continue;
+      findings.push({
+        severity: "error",
+        code: "DATE_INVALID",
+        recordId: r.id,
+        message: `Pole ${field} záznamu ${r.id} má hodnotu „${value}", ktorá nie je platný dátum RRRR-MM-DD. Lehota sa bez neho nevyhodnotí.`,
+      });
+    }
+    if (r.matter_ref?.trim() && !CASE_NUMBER_PATTERN.test(r.matter_ref.trim())) {
+      findings.push({
+        severity: "warning",
+        code: "CASE_NUMBER_FORMAT",
+        recordId: r.id,
+        message: `Spisová značka „${r.matter_ref}" záznamu ${r.id} nemá tvar spisovej značky súdu (napr. 22 Cdo 2886/2023, 1Cdo/12/2024). Over ju.`,
+      });
+    }
   }
 
   // Hodnoty mimo výpočet. Varovanie, nie chyba — OKF žiada dokument s neznámou
@@ -527,7 +617,8 @@ export function validateStore(
         });
       }
     }
-    if (t.due && t.due < today && t.state !== "done") {
+    const due = t.due ? isoDay(t.due) : undefined;
+    if (due && due < today && t.state !== "done") {
       findings.push({
         severity: "warning",
         code: "TASK_OVERDUE",
@@ -599,7 +690,7 @@ export function validateStore(
   // neoverených prameňov — veta vyzerá podložene a nie je. Preto chyba.
   for (const r of records) {
     const ids = new Set((r.sources ?? []).map((z) => z.id).filter((x): x is string => !!x));
-    const text = [r.truth, ...r.timeline.map((e) => e.text)].join("\n");
+    const text = bodyText(r);
     const pouzite = new Set([...text.matchAll(/\[\^([^\]\s]+)\]/g)].map((m) => m[1] ?? ""));
     for (const label of pouzite) {
       if (ids.has(label)) continue;
@@ -630,7 +721,8 @@ export function validateStore(
   for (const r of records) {
     if (r.status !== "active") continue;
     for (const d of r.deadlines ?? []) {
-      if (d >= today) continue;
+      const day = isoDay(d);
+      if (!day || day >= today) continue; // neplatný dátum hlási DATE_INVALID
       findings.push({
         severity: "warning",
         code: "DEADLINE_PASSED",

@@ -70,8 +70,20 @@ test("unreadable input ledger reports incomplete context while retaining every r
   assert.ok(result.out.includes(record.truth));
 });
 
+test("agent section is preserved and part of a successful full read", (t) => {
+  const { matter } = setup(t);
+  const record = newRecord({ id: "S-001", type: "subject", jurisdiction: "sk", title: "Klient", description: "p",
+    truth: "Čitateľný obsah.", created: "2026-09-20", updated: "2026-09-20",
+    timeline: [{ date: "2026-09-20", text: "Zaznamenaný pokyn." }] });
+  const path = join(matter, "memory", "source.md");
+  writeFileSync(path, serializeRecord(record) + "\n## Pokyn klienta\nNesmie sa uzavrieť zmier.\n");
+  const result = runCli(["read", matter]);
+  assert.equal(result.code, 0, result.out);
+  assert.match(result.out, /## Pokyn klienta\n\nNesmie sa uzavrieť zmier\./);
+});
+
 for (const [name, extra] of [
-  ["unknown section", "\n## Pokyn klienta\nNesmie sa uzavrieť zmier.\n"],
+  ["text before first section", ""],
   ["multiline history", "\n  Pokračovanie: klient odvolal súhlas.\n"],
 ]) {
   test(`${name} cannot silently vanish from a successful full read`, (t) => {
@@ -80,7 +92,8 @@ for (const [name, extra] of [
       truth: "Čitateľný obsah.", birth_number: "800101/1234", created: "2026-09-20", updated: "2026-09-20",
       timeline: [{ date: "2026-09-20", text: "Zaznamenaný pokyn." }] });
     const path = join(matter, "memory", "source.md");
-    const source = serializeRecord(record) + extra;
+    const source = extra ? serializeRecord(record) + extra
+      : serializeRecord(record).replace("---\n\n## Truth", "---\nPokyn pred sekciou: nesmie sa uzavrieť zmier.\n\n## Truth");
     writeFileSync(path, source);
     const result = runCli(["read", matter]);
     assert.equal(result.code, 1, result.out);

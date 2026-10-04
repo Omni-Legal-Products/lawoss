@@ -7,6 +7,7 @@ import { useLocale } from "@/i18n/use-locale";
 import type { MatterTextKey } from "../i18n/matters";
 import { LawossLayout } from "../shell/layout";
 import { activeWorkspace, useOkfConnection, useOkfOverview, type OkfReadResult } from "../okf/read-model";
+import type { CockpitParty } from "../../../../../lawoss/okf/cockpit";
 
 /** Subscribe each UI island; translating never changes the underlying matter data. */
 export function useMatterText() {
@@ -86,4 +87,22 @@ export function OkfPageState(props: {
     {props.rawProblems !== false && props.data.problems.slice(0, 3).map((problem, index) => <p key={`${problem.path}/${index}`}>{problem.path || props.workspace}: {problem.message}</p>)}
   </div>;
   return <p className="lw-empty">{text("noMatterMemory", { workspace: props.workspace })} <Link to="/experimenty/novy-spis">{text("newMatter")}</Link>.</p>;
+}
+
+/** Zapojené subjekty veci (Lite aj Pro); bez nich sa sekcia neukáže. Meno a rola ostávajú ako v zázname. */
+export function MatterParties({ parties }: { parties: readonly CockpitParty[] }) {
+  const { text } = useMatterText();
+  if (parties.length === 0) return null;
+  return <div className="lw-reg" data-lawoss-parties>
+    <div className="lw-reg-h"><h2>{text("parties")}</h2></div>
+    {parties.map((p, i) => (
+      <div key={`${p.file}/${p.recordId}/${i}`} className="lw-row lw-cols-leh">
+        <span className="lw-no">{i + 1}.</span>
+        <span className="lw-d">{p.role ?? "-"}</span>
+        <span className="lw-t">{p.name}{p.contact ? <small>{p.contact}</small> : null}</span>
+        <span className="lw-ref" title={p.file}>{p.recordId}</span>
+        <span className="lw-st" />
+      </div>
+    ))}
+  </div>;
 }
