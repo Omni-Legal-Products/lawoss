@@ -97,4 +97,27 @@ Bestätigung: **Ich nehme zur Kenntnis, wie OKF mit Aktendaten umgeht.**
 
 ## Overenie
 
-Doplní sa po implementácii: príkazy testov, výsledky a snímky obrazovky oboch ciest.
+### Testy (Node 24)
+
+- `cd apps/app && bun test tests/`: 1177 pass, 0 fail (základ #105: 1153).
+- `cd apps/server && bun test src/lawoss-onboarding.e2e.test.ts`: 10 pass. Starší profil bez `okf` sa načíta, zapnutie bez potvrdenia a verzie textu server odmietne, voľba „bez OKF“ s potvrdením tiež.
+- `pnpm typecheck` v `apps/app` aj `apps/server`: čisté. `bun scripts/i18n-check.ts`: prešiel.
+
+### Prehliadač, 4. 10. 2026
+
+Izolované prostredie: `scripts/dev-headless-web.ts` s dočasnými `HOME` a `XDG_*`, syntetické priečinky, bez modelu a bez reálnych profilov.
+
+- **Voľba OKF:** krok sa zobrazí po identite, žiadna voľba nie je predvolená, „Pokračovať“ je zablokované. Pri „Používať OKF“ je potvrdenie povinné. Server uložil `okf: { enabled: true, acknowledgedAt, noticeVersion: "2026-10-04-alfa-1" }`.
+- **Cesta s OKF:** šesť krokov. Kancelária, klient a vec sa vytvorili, skilly `novy-spis`, `okf-pamat` a `usporiadaj-spis` sa nainštalovali do klienta, appka otvorila `/home?project=…`.
+- **Cesta bez OKF:** tri kroky, voliteľný pracovný priečinok. Profil má `okf: { enabled: false }`. Priečinok má len bežné súbory `.opencode` bez skillov a štruktúry OKF. Lite `/home` sa otvorí s týmto priečinkom.
+- **Zapnúť OKF:** tlačidlo v bočnom paneli otvorí `/welcome?continue=okf`.
+
+Snímky: [voľba](evidence/okf-volba/1-volba-okf.jpg), [potvrdenie](evidence/okf-volba/2-okf-beriem-na-vedomie.jpg), [cesta s OKF](evidence/okf-volba/3-cesta-s-okf-kancelaria.jpg), [cesta bez OKF](evidence/okf-volba/4-cesta-bez-okf-ai.jpg), [Lite bez OKF](evidence/okf-volba/5-bez-okf-home-lite.jpg).
+
+**Nález mimo tohto PR:** v tomto prostredí `/home` padal na „Maximum update depth exceeded“ v Select. Príčina je v `dev`: automatický výber modelu vybral zrušenú bezplatnú vrstvu `opencode`, ktorú session-route hneď zmazal. Oprava je samostatné PR nad `dev`. Snímky `/home` vznikli s touto opravou dočasne aplikovanou.
+
+### Neoverené
+
+- Zabalená desktopová appka, registrácia priečinka cez natívny `workspaceCreate` a reštart.
+- Upozornenie na upravený SKILL.md v živej appke.
+- Názov klienta s bodkami („s. r. o.“) neprejde validáciou a chyba je po anglicky. Patrí do PR B.
