@@ -44,7 +44,7 @@ const errorMessage = (error: unknown, fallback: string) =>
   error instanceof Error && error.message.trim() ? error.message : fallback;
 const text: Record<Language, Record<string, string>> = {
   en: {
-    title: "Set up your legal practice",
+    title: "Set up your practice",
     identity: "You and jurisdiction",
     okf: "Matter organisation",
     office: "Office",
@@ -56,7 +56,7 @@ const text: Record<Language, Record<string, string>> = {
     save: "Save and continue",
     preview: "Preview changes",
     apply: "Confirm and apply",
-    lawyer: "Lawyer name",
+    lawyer: "Your name",
     jurisdiction: "Jurisdiction",
     language: "Interface language",
     new: "Create new",
@@ -96,7 +96,7 @@ const text: Record<Language, Record<string, string>> = {
     error: "This step could not be completed.",
   },
   sk: {
-    title: "Nastavte advokátsku prax",
+    title: "Nastavte svoju prax",
     identity: "Vy a jurisdikcia",
     okf: "Organizácia spisov",
     office: "Kancelária",
@@ -108,7 +108,7 @@ const text: Record<Language, Record<string, string>> = {
     save: "Uložiť a pokračovať",
     preview: "Náhľad zmien",
     apply: "Potvrdiť a vykonať",
-    lawyer: "Meno advokáta",
+    lawyer: "Vaše meno",
     jurisdiction: "Jurisdikcia",
     language: "Jazyk rozhrania",
     new: "Vytvoriť novú",
@@ -148,7 +148,7 @@ const text: Record<Language, Record<string, string>> = {
     error: "Tento krok sa nepodarilo dokončiť.",
   },
   cs: {
-    title: "Nastavte advokátní praxi",
+    title: "Nastavte svou praxi",
     identity: "Vy a jurisdikce",
     okf: "Organizace spisů",
     office: "Kancelář",
@@ -160,7 +160,7 @@ const text: Record<Language, Record<string, string>> = {
     save: "Uložit a pokračovat",
     preview: "Náhled změn",
     apply: "Potvrdit a provést",
-    lawyer: "Jméno advokáta",
+    lawyer: "Vaše jméno",
     jurisdiction: "Jurisdikce",
     language: "Jazyk rozhraní",
     new: "Vytvořit novou",
@@ -199,7 +199,7 @@ const text: Record<Language, Record<string, string>> = {
     error: "Tento krok se nepodařilo dokončit.",
   },
   de: {
-    title: "Richten Sie Ihre Kanzlei ein",
+    title: "Richten Sie Ihre Praxis ein",
     identity: "Sie und die Jurisdiktion",
     okf: "Aktenorganisation",
     office: "Kanzlei",
@@ -211,7 +211,7 @@ const text: Record<Language, Record<string, string>> = {
     save: "Speichern und weiter",
     preview: "Änderungen prüfen",
     apply: "Bestätigen und ausführen",
-    lawyer: "Name der Rechtsanwältin oder des Rechtsanwalts",
+    lawyer: "Ihr Name",
     jurisdiction: "Jurisdiktion",
     language: "Sprache der Oberfläche",
     new: "Neu erstellen",

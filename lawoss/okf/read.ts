@@ -84,6 +84,12 @@ const OFFICE_DIR = /(^|\/)(Office|_kancelaria)$/;
 export const scopeLevels = (scopePaths: readonly string[]): { path: string; level: ScopeLevel }[] =>
   scopePaths.map((path, i) => ({ path, level: i === 0 ? "matter" : OFFICE_DIR.test(path) ? "office" : "client" }));
 
+/** Úrovne nad vecou, ktoré sa nenačítali (napr. vec otvorená samostatne, bez klienta a kancelárie vo workspace). */
+export const missingScopeLevels = (scopePaths: readonly string[]): Exclude<ScopeLevel, "matter">[] => {
+  const present = new Set(scopeLevels(scopePaths).map((s) => s.level));
+  return (["client", "office"] as const).filter((level) => !present.has(level));
+};
+
 /**
  * Lehoty záznamu pre prehľad a cockpit: vyradený záznam žiadne nemá; `RRRR-MM-DD` s časom
  * sa oreže na deň; iný tvar ostáva ako text s `invalid` (`raw` = pôvodná hodnota pre potvrdenie).

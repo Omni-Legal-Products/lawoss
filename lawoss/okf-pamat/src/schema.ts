@@ -279,7 +279,7 @@ export const FIELDS: readonly FieldDef[] = [
   { canonical: "court", cz: "soud", sk: "súd", kind: "string", required: false },
   // Zapojené subjekty — voľný zoznam (súd, úrad, polícia, kontakt…), rolu určuje agent.
   // Meno je jehlou úniku do L3 rovnako ako názov subjektu (validate.ts).
-  { canonical: "participants", cz: "Zapojené subjekty", sk: "Zúčastnené subjekty", kind: "maplist", required: false },
+  { canonical: "participants", cz: "Zapojené subjekty", sk: "Zapojené subjekty", kind: "maplist", required: false },
   { canonical: "area", cz: "oblast práva", sk: "oblasť práva", kind: "list", required: false },
 
   // --- identifikácia subjektu (zoznam údajov § 5 zák. č. 253/2008 Sb.) ---

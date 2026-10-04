@@ -156,7 +156,8 @@ test("_STATUS.md ukaze zapojene subjekty spolu so subjektmi, CZ aj SK", () => {
   assert.match(cz, /\*\*Zapojené subjekty\*\*/);
   assert.match(cz, /\| soud \| Krajský soud v Brně \| — \| KSBR 39 INS 1234\/2020 \| — \| M-001 \|/);
   const sk = renderStatus(statusSkeleton("sk"), [{ ...m, jurisdiction: "sk" }], "sk");
-  assert.match(sk, /\*\*Zúčastnené subjekty\*\*/);
+  assert.match(sk, /\*\*Zapojené subjekty\*\*/);
+  assert.doesNotMatch(sk, /Zúčastnené/, "slovenská popiska je všade Zapojené subjekty");
   assert.doesNotMatch(sk, /\| Rola \| Subjekt \| IČO/, "bez subjektov sa tabuľka strán nekreslí");
 });
 

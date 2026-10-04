@@ -428,7 +428,7 @@ export const mattersSk: Record<keyof typeof mattersEn, string> = {
   "lawoss.matters.attention": "Čaká na pozornosť advokáta",
   "lawoss.matters.attentionNote": "uplynuté a blížiace sa lehoty, nálezy, nečitateľné záznamy",
   "lawoss.matters.noAttention": "Nič nečaká: žiadna lehota do 7 dní, žiaden nález a každý záznam sa dal prečítať.",
-  "lawoss.matters.parties": "Zúčastnené subjekty",
+  "lawoss.matters.parties": "Zapojené subjekty",
   "lawoss.matters.recentEvents": "Posledné udalosti",
   "lawoss.matters.eventsNote": "chronológia zo sekcií History záznamov · {count} celkom",
   "lawoss.matters.noEvents": "Záznamy veci nemajú v sekcii History žiadny riadok.",

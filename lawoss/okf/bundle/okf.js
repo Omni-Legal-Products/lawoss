@@ -307,7 +307,7 @@ var FIELDS = [
   { canonical: "parties", cz: "strany", sk: "strany", kind: "list", required: false },
   { canonical: "matter_ref", cz: "spisová značka", sk: "spisová značka", kind: "string", required: false },
   { canonical: "court", cz: "soud", sk: "súd", kind: "string", required: false },
-  { canonical: "participants", cz: "Zapojené subjekty", sk: "Zúčastnené subjekty", kind: "maplist", required: false },
+  { canonical: "participants", cz: "Zapojené subjekty", sk: "Zapojené subjekty", kind: "maplist", required: false },
   { canonical: "area", cz: "oblast práva", sk: "oblasť práva", kind: "list", required: false },
   {
     canonical: "role",
