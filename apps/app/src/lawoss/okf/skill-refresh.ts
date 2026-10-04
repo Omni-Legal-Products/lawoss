@@ -45,8 +45,11 @@ async function refreshSkillMarkdown(
 async function refreshResource(client: OkfSkillClient, workspaceId: string, skill: BundledOkfSkill): Promise<void> {
   const resources = await client.listSkillResources(workspaceId, skill.name);
   if (resources.items.some((item) => item.name === skill.resource)) {
-    const installed = await client.getSkillResource(workspaceId, skill.name, skill.resource);
-    if (installed.content === skill.source) return;
+    // Server číta cez editor len textové zdroje (.md, .txt, .csv) a CLI `okf.js` odmietne (415).
+    // Zdroj je náš pribalený CLI, nie úprava advokáta: nečitateľný sa prepíše aktuálnou verziou
+    // namiesto toho, aby zhodil celé dokončenie onboardingu (D1 2026-10-05).
+    const installed = await client.getSkillResource(workspaceId, skill.name, skill.resource).catch(() => undefined);
+    if (installed?.content === skill.source) return;
   }
   await client.upsertSkillResource(workspaceId, skill.name, { name: skill.resource, content: skill.source });
 }

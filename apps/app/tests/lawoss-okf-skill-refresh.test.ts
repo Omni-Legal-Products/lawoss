@@ -97,4 +97,12 @@ describe("OKF bundle refresh in an existing workspace", () => {
     expect(await refreshOkfSkills(f.client, "w", [pamat])).toEqual({ modified: [] });
     expect(f.writes).toEqual([]);
   });
+
+  test("a resource the server will not read as text (okf.js, 415) is rewritten instead of failing (D1 2026-10-05)", async () => {
+    const f = fixture({ [novy.name]: current(novy, "old cli") });
+    f.client.getSkillResource = async () => { throw new Error('415 {"code":"resource_not_text"}'); };
+    await expect(refreshOkfSkills(f.client, "ws", [novy])).resolves.toEqual({ modified: [] });
+    expect(f.writes).toEqual([`resource:${novy.name}/${novy.resource}`]);
+    expect(f.installed[novy.name]?.resources.get(novy.resource)).toBe(novy.source);
+  });
 });
