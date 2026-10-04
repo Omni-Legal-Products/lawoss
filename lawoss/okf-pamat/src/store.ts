@@ -85,7 +85,11 @@ export interface Store {
   readonly problems: StoreProblem[];
 }
 
-/** Detect body content the canonical parser cannot preserve, without printing raw personal data. */
+/**
+ * Detect body content the canonical parser cannot preserve, without printing raw personal data.
+ * Vlastné sekcie agenta sa zachovávajú doslovne, preto problémom nie sú; problémom ostáva
+ * text pred prvou sekciou, zdvojená Truth/History a riadok History mimo tvaru udalosti.
+ */
 function hasUnparsedBody(text: string): boolean {
   const lines = text.split("\n");
   const body = lines.slice(lines.indexOf("---", 1) + 1);
@@ -95,10 +99,10 @@ function hasUnparsedBody(text: string): boolean {
     if (!line.trim()) continue;
     if (/^##\s+/.test(line)) {
       const heading = /^##\s+(Truth|History)\s*$/.exec(line)?.[1];
-      if (!heading || seen.has(heading)) return true;
-      seen.add(heading);
-      section = heading;
-    } else if (section === "Truth") {
+      if (heading && seen.has(heading)) return true;
+      if (heading) seen.add(heading);
+      section = heading ?? "custom";
+    } else if (section === "Truth" || section === "custom") {
       continue;
     } else if (section !== "History" || !/^-\s*\d{4}-\d{2}-\d{2}\s*(?:\[[a-z_]+\]\s*)?[—-]\s*.*$/.test(line.trim())) {
       return true;
@@ -124,7 +128,7 @@ export function readStore(dir: string): Store {
         const source = readFileSync(join(memoryDir, name), "utf8");
         records.push(parseRecord(source));
         if (hasUnparsedBody(source)) {
-          problems.push({ file: join(memoryDir, name), message: "Časť obsahu mimo podporovaných sekcií Truth/History alebo riadkov History sa nedá načítať. Otvor celý zdrojový súbor; tento výpis nie je úplný." });
+          problems.push({ file: join(memoryDir, name), message: "Časť obsahu (text pred prvou sekciou, zdvojená Truth/History alebo riadok History mimo tvaru udalosti) sa nedá načítať. Otvor celý zdrojový súbor; tento výpis nie je úplný." });
         }
       } catch (e) {
         problems.push({ file: name, message: e instanceof Error ? e.message : String(e) });

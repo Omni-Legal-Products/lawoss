@@ -11,12 +11,12 @@
  */
 
 export {
-  FIELDS, RECORD_TYPES, LAYER_OF, SENSITIVE_FIELDS, AML_REQUIRED,
+  FIELDS, RECORD_TYPES, LAYER_OF, SENSITIVE_FIELDS, AML_REQUIRED, isIsoDate,
   STATUS, PERSON_KINDS, ROLES, RISK, CONCLUSION, SCREENING_MODES,
   PROOF_STATUS, CONFIDENCE, EVIDENCE_STRENGTH, PROCEDURAL_STATUS, TASK_STATES,
   EVIDENCE_KINDS, EVIDENCE_KIND_PROVISION, SCREENING_PROVISION, EVENT_KINDS, EVENT_KIND_ALIASES, canonicalEventKind,
   fieldLabel, canonicalField, typeLabel, truthDigest, OKF_VERSION, isRecordType, isJurisdiction, needleFields,
-  type Jurisdiction, type Layer, type RecordType, type FieldDef, type NeedleStrength,
+  type Jurisdiction, type Layer, type RecordType, type KnownRecordType, type FieldDef, type NeedleStrength,
   type Status, type PersonKind, type Role, type Risk, type Conclusion, type ScreeningMode,
   type ProofStatus, type Confidence, type EvidenceStrength, type ProceduralStatus, type EvidenceKind, type TaskState, type EventKind,
 } from "./schema.ts";
@@ -36,7 +36,7 @@ export { validateStore, checkL3Sources, type Finding, type Severity, type Valida
 export { maskValue, maskRecord } from "./mask.ts";
 export { type DocumentLanguage } from "./document-language.ts";
 export {
-  readStandingAuthorization, inspectStandingAuthorization, isIsoDate, readNameLeakSeverity, covers, isExpired, CONFIG_FILE,
+  readStandingAuthorization, inspectStandingAuthorization, readNameLeakSeverity, covers, isExpired, CONFIG_FILE,
   type StandingAuthorizationCheck, type NameLeakSeverity,
   readClientPath, matchesClientPath,
   type StandingAuthorization,
@@ -48,7 +48,7 @@ export {
   type Store, type Scope, type StoreProblem,
 } from "./store.ts";
 
-import { FIELDS, LAYER_OF, type Jurisdiction, type RecordType } from "./schema.ts";
+import { FIELDS, layerOf, type Jurisdiction, type RecordType } from "./schema.ts";
 import { coerceField, type FmValue } from "./record.ts";
 
 /** Polia, ktoré newRecord priraďuje výslovne; zvyšok sa berie z tabuľky. */
@@ -56,7 +56,7 @@ const CORE_INIT_FIELDS = new Set([
   "okf", "id", "type", "title", "description",
   "layer", "jurisdiction", "status", "created", "updated",
 ]);
-import type { OkfRecord, TimelineEntry, Source, Verification } from "./record.ts";
+import type { OkfRecord, TimelineEntry, Source, Verification, Participant, BodySection } from "./record.ts";
 
 export interface NewRecordInit {
   id: string;
@@ -87,6 +87,9 @@ export interface NewRecordInit {
   proves?: string[];
   depends_on?: string[];
   acceptance?: string[];
+  signed_by?: string[];
+  participants?: Participant[];
+  sections?: BodySection[];
 
   truth_digest?: string;
   matter_ref?: string;
@@ -153,6 +156,22 @@ export interface NewRecordInit {
   priority?: string;
   state?: string;
   due?: string;
+
+  demanded_by?: string;
+  demanded_from?: string;
+  fulfillment_status?: string;
+  version?: string;
+  file_hash?: string;
+  form?: string;
+  signed_at?: string;
+  effect?: string;
+  instrument_status?: string;
+  from_subject?: string;
+  to_subject?: string;
+  relation_kind?: string;
+  share?: string;
+  valid_from?: string;
+  valid_to?: string;
 }
 
 /**
@@ -166,7 +185,7 @@ export function newRecord(init: NewRecordInit): OkfRecord {
     type: init.type,
     title: init.title,
     description: init.description,
-    layer: LAYER_OF[init.type],
+    layer: layerOf(init.type),
     jurisdiction: init.jurisdiction,
     status: init.status ?? "active",
     created: init.created,
@@ -183,6 +202,7 @@ export function newRecord(init: NewRecordInit): OkfRecord {
     const v = src[f.canonical];
     if (v !== undefined) dst[f.canonical] = coerceField(f.kind, v, f.canonical);
   }
+  if (init.sections?.length) rec.sections = init.sections;
   return rec;
 }
 
