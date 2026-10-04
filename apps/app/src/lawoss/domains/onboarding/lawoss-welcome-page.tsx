@@ -11,7 +11,7 @@ import { Check, FileWarning, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLocale } from "@/i18n/use-locale";
-import { setLanguagePreference, type Language } from "@/i18n";
+import { LANGUAGE_OPTIONS, setLanguagePreference, type Language } from "@/i18n";
 import type {
   ClientType,
   DocumentLanguage,
@@ -38,6 +38,10 @@ import {
 } from "./onboarding-state";
 import { OnboardingAiPanel } from "./ai-step";
 import { UNSAFE_FOLDER_NAME_MESSAGE } from "../../../../../../lawoss/okf/src/onboarding/messages";
+
+/** Jazyky rozhrania v poradí LAWOSS (SK, CS, EN, DE) s pôvodnými názvami namiesto kódov. */
+const UI_LANGUAGE_ORDER: readonly Language[] = ["sk", "cs", "en", "de"];
+const UI_LANGUAGES = UI_LANGUAGE_ORDER.flatMap((code) => LANGUAGE_OPTIONS.filter((option) => option.value === code));
 
 const today = () => new Date().toISOString().slice(0, 10);
 const documentLanguage = (language: Language): DocumentLanguage =>
@@ -70,6 +74,8 @@ const text: Record<Language, Record<string, string>> = {
       "Choose a provider and model in the existing AI settings. This onboarding does not create a separate AI configuration.",
     type: "Client type",
     company: "Company",
+    jurisdictionSk: "Slovakia",
+    jurisdictionCz: "Czech Republic",
     person: "Person",
     mode: "Connection mode",
     convert: "Convert safely",
@@ -122,6 +128,8 @@ const text: Record<Language, Record<string, string>> = {
       "Poskytovateľa a model vyberte v pôvodných nastaveniach AI. Tento onboarding nevytvára samostatnú konfiguráciu AI.",
     type: "Typ klienta",
     company: "Právnická osoba",
+    jurisdictionSk: "Slovensko",
+    jurisdictionCz: "Česko",
     person: "Fyzická osoba",
     mode: "Režim pripojenia",
     convert: "Bezpečne doplniť",
@@ -174,6 +182,8 @@ const text: Record<Language, Record<string, string>> = {
       "Poskytovatele a model zvolte v původním nastavení AI. Tento onboarding nevytváří samostatnou konfiguraci AI.",
     type: "Typ klienta",
     company: "Právnická osoba",
+    jurisdictionSk: "Slovensko",
+    jurisdictionCz: "Česko",
     person: "Fyzická osoba",
     mode: "Režim připojení",
     convert: "Bezpečně doplnit",
@@ -225,6 +235,8 @@ const text: Record<Language, Record<string, string>> = {
       "Wählen Sie Anbieter und Modell in den vorhandenen KI-Einstellungen. Dieses Onboarding erstellt keine getrennte KI-Konfiguration.",
     type: "Mandantentyp",
     company: "Unternehmen",
+    jurisdictionSk: "Slowakei",
+    jurisdictionCz: "Tschechien",
     person: "Person",
     mode: "Verbindungsmodus",
     convert: "Sicher ergänzen",
@@ -1034,8 +1046,8 @@ function Identity({
           value={jurisdiction}
           onChange={(e) => setJurisdiction(e.target.value as "sk" | "cz")}
         >
-          <option value="sk">Slovakia</option>
-          <option value="cz">Czechia</option>
+          <option value="sk">{tr("jurisdictionSk")}</option>
+          <option value="cz">{tr("jurisdictionCz")}</option>
         </select>,
       )}
       {field(
@@ -1045,8 +1057,8 @@ function Identity({
           value={language}
           onChange={(e) => setLanguage(e.target.value as Language)}
         >
-          {["sk", "cs", "en", "de"].map((x) => (
-            <option key={x}>{x}</option>
+          {UI_LANGUAGES.map((x) => (
+            <option key={x.value} value={x.value}>{x.nativeName}</option>
           ))}
         </select>,
       )}
