@@ -120,7 +120,7 @@ Snímky: [voľba](evidence/okf-volba/1-volba-okf.jpg), [potvrdenie](evidence/okf
 
 - Zabalená desktopová appka, registrácia priečinka cez natívny `workspaceCreate` a reštart.
 - Upozornenie na upravený SKILL.md v živej appke.
-- Názov klienta s bodkami („s. r. o.“) neprejde validáciou a chyba je po anglicky. Patrí do PR B.
+- Názov klienta s bodkami („s. r. o.“) neprejde validáciou a chyba je po anglicky. Patrí do PR B. Vyriešené v PR B (commit 0f29f8c9).
 
 ### PR B: overenie
 
