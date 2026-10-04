@@ -93,10 +93,11 @@
 }
 
 /* ── Home: druhá časť pozdravu ako v Dnes (sivá), nie modrá z ikony Wordu ── */
-.lw-session-welcome-title {
+/* Vyššia špecificita: v produkčnom bundli je session-surfaces.css zoradené až za týmto súborom. */
+.lw-session-welcome .lw-session-welcome-heading .lw-session-welcome-title {
   font-weight: 600;
   letter-spacing: -0.02em;
 }
-.lw-session-welcome-title span {
+.lw-session-welcome .lw-session-welcome-heading .lw-session-welcome-title span {
   color: var(--lw-text-secondary);
 }
