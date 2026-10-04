@@ -43,6 +43,18 @@ import { UNSAFE_FOLDER_NAME_MESSAGE } from "../../../../../../lawoss/okf/src/onb
 const UI_LANGUAGE_ORDER: readonly Language[] = ["sk", "cs", "en", "de"];
 const UI_LANGUAGES = UI_LANGUAGE_ORDER.flatMap((code) => LANGUAGE_OPTIONS.filter((option) => option.value === code));
 
+/**
+ * Priečinok klientov vedľa kancelárie: založenie kancelárie vytvorí `<rodič>/Office` a `<rodič>/Klienti`
+ * (`client_path: "Klienti/*"`), takže krok klienta ho len predvyplní. Bez kancelárie ostane prázdny.
+ */
+export function clientsFolderOf(officeRoot: string | undefined): string {
+  const root = officeRoot?.trim().replace(/[\\/]+$/, "");
+  if (!root) return "";
+  const cut = Math.max(root.lastIndexOf("/"), root.lastIndexOf("\\"));
+  if (cut < 0) return "";
+  return `${root.slice(0, cut)}${root[cut]}Klienti`;
+}
+
 const today = () => new Date().toISOString().slice(0, 10);
 const documentLanguage = (language: Language): DocumentLanguage =>
   language === "de" ? "en" : language;
@@ -92,7 +104,7 @@ const text: Record<Language, Record<string, string>> = {
     contentious: "Case (contentious)",
     non_contentious: "Matter (non-contentious)",
     noOffice:
-      "No office workspace is created. The active workspace is always the client folder.",
+      "The office is only a folder with settings and shared memory. You always work inside a specific client's folder.",
     mapHelp:
       "Mapping stays read-only. Both fields are required and must refer to existing client memory.",
     trial: "This is a trial clone. Confirm before creating work in it.",
@@ -146,7 +158,7 @@ const text: Record<Language, Record<string, string>> = {
     contentious: "Spis (konanie)",
     non_contentious: "Vec (nesporová agenda)",
     noOffice:
-      "Pre kanceláriu nevznikne pracovný priestor. Aktívnym pracovným priestorom je vždy priečinok klienta.",
+      "Kancelária je len priečinok s nastaveniami a spoločnou pamäťou. Pracujete vždy v priečinku konkrétneho klienta.",
     mapHelp:
       "Mapovanie je iba na čítanie. Oba údaje sú povinné a musia odkazovať na existujúcu pamäť klienta.",
     trial: "Ide o skúšobný klon. Pred vytvorením práce ho potvrďte.",
@@ -200,7 +212,7 @@ const text: Record<Language, Record<string, string>> = {
     contentious: "Spis (řízení)",
     non_contentious: "Věc",
     noOffice:
-      "Pro kancelář nevznikne pracovní prostor. Aktivním pracovním prostorem je vždy složka klienta.",
+      "Kancelář je jen složka s nastavením a společnou pamětí. Pracujete vždy ve složce konkrétního klienta.",
     mapHelp:
       "Mapování je pouze pro čtení. Oba údaje jsou povinné a musí odkazovat na existující paměť klienta.",
     trial: "Jde o zkušební klon. Před vytvořením práce jej potvrďte.",
@@ -253,7 +265,7 @@ const text: Record<Language, Record<string, string>> = {
     contentious: "Akte (streitig)",
     non_contentious: "Angelegenheit (nicht streitig)",
     noOffice:
-      "Für die Kanzlei wird kein Arbeitsbereich erstellt. Der aktive Arbeitsbereich ist immer der Mandantenordner.",
+      "Die Kanzlei ist nur ein Ordner mit Einstellungen und gemeinsamem Gedächtnis. Sie arbeiten immer im Ordner eines bestimmten Mandanten.",
     mapHelp:
       "Die Abbildung bleibt schreibgeschützt. Beide Felder sind erforderlich und müssen auf den vorhandenen Mandantenspeicher verweisen.",
     trial:
@@ -1214,7 +1226,7 @@ function Client({
 }) {
   const [existing, setExisting] = useState(false);
   const [value, setValue] = useState("");
-  const [clientParent, setClientParent] = useState("");
+  const [clientParent, setClientParent] = useState(() => clientsFolderOf(base.officeRoot));
   const [docLanguage, setDocLanguage] = useState<DocumentLanguage>(
     documentLanguage(locale),
   );
