@@ -59,6 +59,23 @@ describe("buildCockpit — výber veci a poradie registrov", () => {
   });
 });
 
+describe("buildCockpit — FAKTY berú nové aj vlastné typy", () => {
+  test("instrument, requirement, relation a vlastný typ agenta sú vo FAKTOCH s popiskou", () => {
+    const c = buildCockpit(input([matter([
+      rec("matter", "M-001"),
+      rec("instrument", "IN-001", { title: "Kupní smlouva" }),
+      rec("requirement", "RQ-001"),
+      rec("relation", "RL-001"),
+      rec("task", "T-001", { state: "open" }),
+      { ...rec("matter", "X-001"), type: "hearing_note", layer: "L2" },
+    ])]), PATH, TODAY);
+    if (!c) throw new Error("cockpit chýba");
+    expect(c.facts.map((f) => [f.id, f.kind])).toEqual([
+      ["IN-001", "listina"], ["RL-001", "vzťah"], ["RQ-001", "požiadavka"], ["X-001", "hearing_note"],
+    ]);
+  });
+});
+
 describe("buildCockpit — čaká na pozornosť advokáta", () => {
   test("vec s uplynulou lehotou ju dá na prvé miesto a označí slovom", () => {
     const c = buildCockpit(

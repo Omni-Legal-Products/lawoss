@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../src/cli.ts";
@@ -80,4 +80,19 @@ test("pocet zaznamov sa sklonuje spravne", () => {
   assert.match(jeden.out, /1 riadok/, jeden.out);
   const dva = runCli(["sync", spis(true)]);
   assert.match(dva.out, /2 riadky/, dva.out);
+});
+
+test("read vypise aj klientsky VSTUPY.md a USAGE pozna init --cz", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "okf-agent-client-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const client = join(root, "Klient");
+  const matter = join(client, "Vec");
+  mkdirSync(join(matter, MEMORY_DIR), { recursive: true });
+  writeFileSync(join(client, "client.md"), "---\ntype: client\n---\n");
+  writeFileSync(join(client, "VSTUPY.md"), "| pending | e-mail klienta k celé klientele |");
+  const out = runCli(["read", matter]);
+  assert.equal(out.code, 0, out.out);
+  assert.ok(out.out.includes(`## Evidencia vstupov klienta — ${join(client, "VSTUPY.md")}`));
+  assert.match(out.out, /e-mail klienta k celé klientele/);
+  assert.match(runCli([]).out, /init\s+<spis> \[--sk\|--cz\]/);
 });

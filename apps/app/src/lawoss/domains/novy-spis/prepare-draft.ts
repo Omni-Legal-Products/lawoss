@@ -1,12 +1,17 @@
-import { t, type Language } from "@/i18n";
+import { currentLocale, t, type Language } from "@/i18n";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { workspaceRelativePath } from "../../okf/plan-groups";
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import { NOVY_SPIS_SKILL_NAME, OKF_CLI_RESOURCE_NAME, OKF_MEMORY_CLI_RESOURCE_NAME, OKF_PAMAT_SKILL_NAME, novySpisSkillBody, okfCliSource, okfMemoryCliSource, pamatSkillBody } from "../../okf/skill-bundle";
+import { refreshOkfSkills, type OkfSkillClient } from "../../okf/skill-refresh";
+import { notifyModifiedOkfSkills } from "../../okf/skill-refresh-notice";
 
-/** Install the local skills before opening an unsent draft; never create/register the target folder. */
+/**
+ * Install or refresh the local OKF skills before opening an unsent draft; never create/register the
+ * target folder. A customized SKILL.md is kept and reported, the CLI resources always match the bundle.
+ */
 export async function prepareOkfDraft(
-  client: Pick<LegalworkServerClient, "capabilities" | "upsertSkill" | "upsertSkillResource">,
+  client: Pick<LegalworkServerClient, "capabilities"> & OkfSkillClient,
   workspace: RouteWorkspace,
   openDraft: () => Promise<string>,
   locale?: Language,
@@ -14,12 +19,11 @@ export async function prepareOkfDraft(
   if (workspace.workspaceType === "remote" || !workspace.path) throw new Error(t("lawoss.setup.error.localWorkspace"));
   const capabilities = await client.capabilities();
   if (!capabilities.skills.write || !capabilities.skillResources?.write) throw new Error(t("lawoss.setup.error.skillWrite"));
-  const body = novySpisSkillBody(locale);
-  await client.upsertSkill(workspace.id, { name: NOVY_SPIS_SKILL_NAME, content: body.content, description: body.description });
-  await client.upsertSkillResource(workspace.id, NOVY_SPIS_SKILL_NAME, { name: OKF_CLI_RESOURCE_NAME, content: okfCliSource() });
-  const pamat = pamatSkillBody();
-  await client.upsertSkill(workspace.id, { name: OKF_PAMAT_SKILL_NAME, content: pamat.content, description: pamat.description });
-  await client.upsertSkillResource(workspace.id, OKF_PAMAT_SKILL_NAME, { name: OKF_MEMORY_CLI_RESOURCE_NAME, content: okfMemoryCliSource() });
+  const { modified } = await refreshOkfSkills(client, workspace.id, [
+    { name: NOVY_SPIS_SKILL_NAME, body: novySpisSkillBody(locale), resource: OKF_CLI_RESOURCE_NAME, source: okfCliSource() },
+    { name: OKF_PAMAT_SKILL_NAME, body: pamatSkillBody(), resource: OKF_MEMORY_CLI_RESOURCE_NAME, source: okfMemoryCliSource() },
+  ]);
+  notifyModifiedOkfSkills(modified, locale ?? currentLocale());
   return openDraft();
 }
 

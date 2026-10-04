@@ -1,5 +1,5 @@
 /** Small, versioned persistence seam for the LAWOSS welcome flow. */
-import type { OnboardingPlanRequest, OnboardingPreview } from "./api";
+import type { OkfChoice, OnboardingPlanRequest, OnboardingPreview } from "./api";
 
 export type PendingOnboarding = {
   request: Pick<OnboardingPlanRequest, "action">;
@@ -70,6 +70,7 @@ const ONBOARDING_PROGRESS_STORAGE_KEY = "legalwork.lawoss.onboarding.v1";
 export type OnboardingLane = "recommended" | "detailed";
 export type OnboardingStep =
   | "identity"
+  | "okf"
   | "office"
   | "ai"
   | "client"
@@ -93,6 +94,7 @@ function isLane(value: unknown): value is OnboardingLane {
 function isStep(value: unknown): value is OnboardingStep {
   return (
     value === "identity" ||
+    value === "okf" ||
     value === "office" ||
     value === "ai" ||
     value === "client" ||
@@ -129,4 +131,40 @@ export function writeOnboardingProgress(
   } catch {
     // localStorage can be unavailable or quota-limited; in-memory UI still works.
   }
+}
+
+/** Version of the OKF notice text; a new version asks for a new acknowledgement. */
+export const OKF_NOTICE_VERSION = "2026-10-04-alfa-1";
+
+/** `undefined` means the user has not chosen yet. */
+export type OkfEnabled = boolean | undefined;
+
+const OKF_PATH: readonly OnboardingStep[] = ["identity", "okf", "office", "ai", "client", "matter"];
+const PLAIN_PATH: readonly OnboardingStep[] = ["identity", "okf", "ai"];
+const UNDECIDED_PATH: readonly OnboardingStep[] = ["identity", "okf"];
+
+/** Steps shown, numbered and used by "Back" for the current OKF choice. */
+export function visibleOnboardingSteps(okf: OkfEnabled): readonly OnboardingStep[] {
+  return okf === true ? OKF_PATH : okf === false ? PLAIN_PATH : UNDECIDED_PATH;
+}
+
+/** A saved or requested step outside the chosen path returns to the OKF choice. */
+export function visibleOnboardingStep(step: OnboardingStep, okf: OkfEnabled): OnboardingStep {
+  return step === "done" || visibleOnboardingSteps(okf).includes(step) ? step : "okf";
+}
+
+export function stepAfterAi(okf: OkfEnabled): OnboardingStep {
+  return okf === true ? "client" : okf === false ? "done" : "okf";
+}
+
+/** After the choice, a requested client or matter (`?continue=`) is honoured when OKF is on. */
+export function stepAfterOkfChoice(enabled: boolean, requested: OnboardingStep | undefined): OnboardingStep {
+  if (!enabled) return "ai";
+  return requested === "client" || requested === "matter" ? requested : "office";
+}
+
+export function okfChoice(enabled: boolean, now: Date): OkfChoice {
+  return enabled
+    ? { enabled: true, acknowledgedAt: now.toISOString(), noticeVersion: OKF_NOTICE_VERSION }
+    : { enabled: false };
 }

@@ -2,7 +2,7 @@
  * Datový model obrazovky „Dnes" a seskupení věcí podle klienta pro LAWOSS-lite.
  * Čistá funkce nad již načteným přehledem (`OkfReadResult`) - nesiaha na disk.
  */
-import { addDays, daysBetween, deadlineTier, lastSegment, recordKey, type DeadlineTier, type MatterInput, type MatterOverview, type UpcomingDeadline } from "../../../../../lawoss/okf/read";
+import { addDays, daysBetween, deadlineKey, deadlineTier, lastSegment, recordKey, scopeLevels, type DeadlineTier, type MatterInput, type MatterOverview, type UpcomingDeadline } from "../../../../../lawoss/okf/read";
 import { pendingInputs, type PendingInput } from "../../../../../lawoss/okf/inputs";
 import { clientFromPath } from "../../../../../lawoss/okf/cockpit";
 import type { OkfReadResult } from "../okf/read-model";
@@ -20,7 +20,7 @@ export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDead
   const all: (UpcomingDeadline & { alsoIn?: { path: string; title: string }[] })[] = [];
   const byKey = new Map<string, (typeof all)[number]>();
   for (const d of [...result.overdue, ...result.upcomingDeadlines]) {
-    const key = `${recordKey(d.matter.path, { id: d.recordId, file: d.file })}\u0000${d.date}`;
+    const key = deadlineKey(d);
     const seen = byKey.get(key);
     if (seen) { (seen.alsoIn ??= []).push({ path: d.matter.path, title: d.matter.title }); continue; }
     const entry = { ...d };
@@ -56,7 +56,6 @@ export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDead
   };
 }
 
-const OFFICE_DIR = /(^|\/)(Office|_kancelaria)$/;
 
 /**
  * Klient věci: složka klienta, kterou už našlo čtení paměti (`client.md`/`klient.md` nebo
@@ -64,10 +63,10 @@ const OFFICE_DIR = /(^|\/)(Office|_kancelaria)$/;
  * Bez ní tvar cesty `AK/<písmeno>/<klient>`, jinak věc sama.
  */
 export function groupByClient(matters: readonly MatterOverview[], inputs: readonly Pick<MatterInput, "path" | "scopePaths">[] = []): ClientGroup[] {
-  const scopes = new Map(inputs.map((i) => [i.path, i.scopePaths ?? []]));
+  const scopes = new Map(inputs.map((i) => [i.path, scopeLevels(i.scopePaths ?? [])]));
   const groups = new Map<string, ClientGroup>();
   for (const matter of matters) {
-    const clientDir = scopes.get(matter.path)?.slice(1).find((dir) => dir && !OFFICE_DIR.test(dir));
+    const clientDir = scopes.get(matter.path)?.find((s) => s.level === "client" && s.path)?.path;
     const client = clientDir ? lastSegment(clientDir) : clientFromPath(matter.path) ?? matter.title;
     const key = clientDir ?? client;
     const group = groups.get(key) ?? { client, matters: [] };
