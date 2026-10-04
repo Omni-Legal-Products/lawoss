@@ -15,6 +15,7 @@ import { useLocal } from "../kernel/local-provider";
 import { LawossWelcomePage } from "@/lawoss/domains/onboarding/lawoss-welcome-page";
 import type { OnboardingStep } from "@/lawoss/domains/onboarding/api";
 import { authorAfterOnboarding } from "@/lawoss/okf/lawyer-name";
+import { markAllWhatsNewSeen } from "./whats-new";
 
 const continuationStep = (value: string | null): OnboardingStep | undefined => value === "client" || value === "matter" || value === "okf" ? value : undefined;
 
@@ -33,6 +34,8 @@ export function WelcomeRoute() {
   const [client, setClient] = useState<LegalworkServerClient | null>(null);
   const [error, setError] = useState<string | null>(null);
   const initialStep = continuationStep(new URLSearchParams(location.search).get("continue"));
+  // LAWOSS: ako upstream pri štarte onboardingu; novému používateľovi je nové všetko, „What's new“ nie.
+  useEffect(() => { if (!local.prefs.hasCompletedOnboarding) markAllWhatsNewSeen(); }, []);
 
   useEffect(() => {
     let cancelled = false;
