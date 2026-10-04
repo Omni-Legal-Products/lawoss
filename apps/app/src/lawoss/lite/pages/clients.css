@@ -40,6 +40,9 @@
 .lw-clients-card-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
 .lw-clients-card-head h2 { flex: 1; margin: 0; font-size: 16px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
 
+.lw-clients-none { margin: 0; padding: 4px 8px 6px; font-size: 13px; color: var(--lw-text-tertiary); }
+.lw-clients-none a { color: var(--td-gold); text-decoration: none; }
+.lw-clients-none a:hover { text-decoration: underline; }
 .lw-clients-matters { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .lw-clients-matter {
   display: grid;

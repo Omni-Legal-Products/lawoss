@@ -67,7 +67,11 @@ const lastSegment = (path: string) => path.split("/").filter(Boolean).pop() ?? p
  * `client_path` v okf.config) - funguje pro `Klienti/Novák/…` i `AK/N/Novák/…`.
  * Bez ní tvar cesty `AK/<písmeno>/<klient>`, jinak věc sama.
  */
-export function groupByClient(matters: readonly MatterOverview[], inputs: readonly Pick<MatterInput, "path" | "scopePaths" | "clientTitle">[] = []): ClientGroup[] {
+export function groupByClient(
+  matters: readonly MatterOverview[],
+  inputs: readonly Pick<MatterInput, "path" | "scopePaths" | "clientTitle">[] = [],
+  clients: readonly { path: string; title?: string }[] = [],
+): ClientGroup[] {
   const byPath = new Map(inputs.map((i) => [i.path, i]));
   const groups = new Map<string, ClientGroup>();
   for (const matter of matters) {
@@ -75,6 +79,11 @@ export function groupByClient(matters: readonly MatterOverview[], inputs: readon
     const group = groups.get(key) ?? { key, client: name ?? "", matters: [] };
     group.matters.push(matter);
     groups.set(key, group);
+  }
+  // Klient s kartou, ale zatiaľ bez vecí: rovnaký kľúč ako `clientOf`, aby sa s vecami nezdvojil.
+  for (const client of clients) {
+    const key = `client:${client.path}`;
+    if (!groups.has(key)) groups.set(key, { key, client: client.title?.trim() || (client.path ? lastSegment(client.path) : ""), matters: [] });
   }
   return [...groups.values()].sort((a, b) => a.client.localeCompare(b.client, "cs") || a.key.localeCompare(b.key));
 }

@@ -17,13 +17,13 @@ import "./clients.css";
 
 export function ClientsPage() {
   const locale = useLocale();
-  return <OkfPage {...litePageProps(locale)}>{(data, meta) => <ClientsLive data={data} meta={meta} locale={locale} />}</OkfPage>;
+  return <OkfPage {...litePageProps(locale)} hasContent={(data) => data.matters.length > 0 || (data.clients?.length ?? 0) > 0}>{(data, meta) => <ClientsLive data={data} meta={meta} locale={locale} />}</OkfPage>;
 }
 
 function ClientsLive({ data, meta, locale }: { data: OkfReadResult; meta: OkfPageMeta; locale: Language }) {
   useMinuteTick();
   useHotTitle(hotDeadlineCount(data, today()));
-  return <ClientsView groups={groupByClient(data.matters, data.inputs)} meta={meta} locale={locale} />;
+  return <ClientsView groups={groupByClient(data.matters, data.inputs, data.clients)} meta={meta} locale={locale} />;
 }
 
 const reveal = (index: number): CSSProperties & Record<"--lw-i", number> => ({ "--lw-i": index });
@@ -58,6 +58,7 @@ export function ClientsView({ groups, meta, locale: forced }: { groups: readonly
                 <h2>{group.client || text("client_unnamed")}</h2>
                 <span className="lw-matter-count">{group.matters.length}</span>
               </header>
+              {group.matters.length === 0 ? <p className="lw-clients-none">{text("client_no_matters")} <Link to={NEW_MATTER_PATH}>{text("new_matter")}</Link></p> : null}
               <ul className="lw-clients-matters">
                 {group.matters.map((m) => {
                   const own = m.deadlines.filter((d) => !isOfficeFile(d.file));

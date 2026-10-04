@@ -122,6 +122,11 @@ describe("dynamické pohľady z OKF", () => {
     const nav = html(<SidebarProvider><LiteNavView recent={[{ path: "a", title: "Vec A", deadlines: [{ date: addDays(NOW, 1) }] }, { path: "b", title: "Vec B", deadlines: [] }]} /></SidebarProvider>);
     expect(nav.match(/lw-nav-urgency/g) ?? []).toHaveLength(1);
     const clients = html(<ClientsView locale="en" groups={[{ key: "client:Novák", client: "Novák", matters: [{ ...matter, deadlines: [{ date: addDays(NOW, 3), title: "x", recordId: "M-1" }] }] }]} />);
+    // Klient bez vecí má kartu s výzvou na novú vec, nie prázdny zoznam.
+    const lonely = html(<ClientsView locale="en" groups={[{ key: "client:Prázdny", client: "Prázdny s. r. o.", matters: [] }]} />);
+    expect(lonely).toContain("Prázdny s. r. o.");
+    expect(lonely).toContain("No matters yet.");
+    expect(lonely).toContain('href="/welcome?continue=matter"');
     expect(clients).toContain("Novák");
     expect(clients).toContain('data-urgency="near"');
     // Detail: deadline má kotvu, dlhá história sa skryje za „Show older“.

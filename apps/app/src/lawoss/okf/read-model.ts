@@ -28,7 +28,10 @@ export type OkfReadResult = Overview & {
   truncated: boolean;
   /** Prečítané záznamy po veciach — detail veci ich potrebuje, prehľad ich ignoruje. */
   inputs: MatterInput[];
+  /** Priečinky s kartou klienta (`client.md`/`klient.md`) vrátane klientov bez vecí; názov z karty. */
+  clients?: OkfClient[];
 };
+export type OkfClient = { path: string; title?: string };
 
 export const MAX_MATTERS = 200;
 const CONCURRENCY = 6;
@@ -93,6 +96,7 @@ export async function readWorkspaceMemory(
   const dirs = async (path: string): Promise<string[]> => (await list(path))
     .filter((e) => e.kind === "dir" && !e.name.startsWith(".") && !SKIP_DIRECTORIES.has(e.name)).map((e) => e.path);
   const paths: string[] = [];
+  const clientPaths: string[] = [];
   let scanned = 0;
   const discover = async (path: string, directMatter = false, depth = 0, insideClient = false): Promise<void> => {
     if (scanned >= MAX_DISCOVERY_DIRECTORIES || paths.length >= MAX_MATTERS || depth > MAX_DISCOVERY_DEPTH) { truncated = true; return; }
@@ -107,6 +111,7 @@ export async function readWorkspaceMemory(
     // (nebo s vlastními soubory) je věcí sám - z přehledu se nic neztratí. Tvar se `Spisy/` platí dál.
     // Klient s kartou (client.md/klient.md) je OKF klient - i bez věcí zůstává klientem, ne věcí.
     const hasClientCard = entries.some((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name));
+    if (hasClientCard) clientPaths.push(path);
     if (AK_CLIENT.test(path) && !hasClientCard && !entries.some((e) => e.kind === "dir" && [MATTERS_DIR, "Veci"].includes(e.name))) {
       const matters = entries.filter((e) => e.kind === "dir" && !e.name.startsWith(".") && !SKIP_DIRECTORIES.has(e.name) && !isWorkDir(e.name));
       const ownFiles = entries.some((e) => e.kind === "file" && !e.name.startsWith("."));
@@ -277,8 +282,13 @@ export async function readWorkspaceMemory(
   });
   // Súbežné čítanie pridáva problémy v náhodnom poradí; zoradené sa nemenia, kým sa nezmenia súbory
   // (inak by zdieľanie štruktúry v react-query hlásilo zmenu a pohľad by sa zbytočne prekreslil).
+  // Klient bez vecí je stále klient: Klienti a veci ho ukážu (D1 2026-10-04). Poradie podľa cesty kvôli zdieľaniu štruktúry.
+  const clients = (await mapLimit([...clientPaths].sort(), CONCURRENCY, async (clientPath): Promise<OkfClient> => {
+    const title = await clientTitle(clientPath);
+    return title ? { path: clientPath, title } : { path: clientPath };
+  }));
   problems.sort((a, b) => a.path.localeCompare(b.path) || a.message.localeCompare(b.message));
-  return { ...buildOverview(matters, todayIso), problems, truncated, inputs: matters };
+  return { ...buildOverview(matters, todayIso), problems, truncated, inputs: matters, clients };
 }
 
 /** Spojenie na server rovnako ako v Novom spise, len ako hook. */
