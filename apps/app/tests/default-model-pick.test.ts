@@ -89,6 +89,31 @@ describe("getDefaultModelForSingleConnectedProvider", () => {
       modelID: "anthropic/claude-sonnet-4.5",
     });
   });
+
+  // session-route clears a retired free-tier selection and then auto-picks
+  // again. Picking the retired provider back made the two effects rewrite
+  // the default model forever and Home crashed in a Select (max update depth).
+  test.each(["opencode", "eigenwelt-free"])("never picks the retired %s provider", (id) => {
+    const retired = provider(id, { "big-pickle": { toolcall: true } });
+    const list = {
+      all: [retired],
+      connected: [id],
+      default: { [id]: "big-pickle" },
+    } as unknown as ProviderListResponse;
+    expect(getDefaultModelForSingleConnectedProvider(list)).toBeNull();
+  });
+
+  test("ignores a retired provider next to the one real provider", () => {
+    const list = {
+      all: [provider("opencode", { "big-pickle": { toolcall: true } }), openrouter],
+      connected: ["opencode", "openrouter"],
+      default: {},
+    } as unknown as ProviderListResponse;
+    expect(getDefaultModelForSingleConnectedProvider(list)).toEqual({
+      providerID: "openrouter",
+      modelID: "anthropic/claude-sonnet-4.5",
+    });
+  });
 });
 
 describe("isAgentCapableModel", () => {
