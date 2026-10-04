@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Check, ExternalLink, FileWarning, ShieldCheck } from "lucide-react";
+import { Check, FileWarning, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLocale } from "@/i18n/use-locale";
@@ -35,6 +35,7 @@ import {
   visibleOnboardingSteps,
   writeOnboardingProgress,
 } from "./onboarding-state";
+import { OnboardingAiPanel } from "./ai-step";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const documentLanguage = (language: Language): DocumentLanguage =>
@@ -65,8 +66,6 @@ const text: Record<Language, Record<string, string>> = {
     path: "Folder path",
     aiText:
       "Choose a provider and model in the existing AI settings. This onboarding does not create a separate AI configuration.",
-    aiOpen: "Open AI settings",
-    aiDone: "I have reviewed my AI settings",
     type: "Client type",
     company: "Company",
     person: "Person",
@@ -119,8 +118,6 @@ const text: Record<Language, Record<string, string>> = {
     path: "Cesta k priečinku",
     aiText:
       "Poskytovateľa a model vyberte v pôvodných nastaveniach AI. Tento onboarding nevytvára samostatnú konfiguráciu AI.",
-    aiOpen: "Otvoriť nastavenia AI",
-    aiDone: "Skontroloval som nastavenia AI",
     type: "Typ klienta",
     company: "Právnická osoba",
     person: "Fyzická osoba",
@@ -173,8 +170,6 @@ const text: Record<Language, Record<string, string>> = {
     path: "Cesta ke složce",
     aiText:
       "Poskytovatele a model zvolte v původním nastavení AI. Tento onboarding nevytváří samostatnou konfiguraci AI.",
-    aiOpen: "Otevřít nastavení AI",
-    aiDone: "Zkontroloval jsem nastavení AI",
     type: "Typ klienta",
     company: "Právnická osoba",
     person: "Fyzická osoba",
@@ -226,8 +221,6 @@ const text: Record<Language, Record<string, string>> = {
     path: "Ordnerpfad",
     aiText:
       "Wählen Sie Anbieter und Modell in den vorhandenen KI-Einstellungen. Dieses Onboarding erstellt keine getrennte KI-Konfiguration.",
-    aiOpen: "KI-Einstellungen öffnen",
-    aiDone: "Ich habe die KI-Einstellungen geprüft",
     type: "Mandantentyp",
     company: "Unternehmen",
     person: "Person",
@@ -814,17 +807,16 @@ export function LawossWelcomePage({
             <>
               <h2 className="text-xl font-semibold">{tr("ai")}</h2>
               <p className="text-muted-foreground">{tr("aiText")}</p>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={onOpenAiSettings}>
-                  <ExternalLink />
-                  {tr("aiOpen")}
-                </Button>
-                {okfEnabled === false ? null : (
-                  <Button onClick={() => void move(stepAfterAi(okfEnabled))}>
-                    {tr("aiDone")}
-                  </Button>
-                )}
-              </div>
+              <OnboardingAiPanel
+                locale={locale}
+                busy={busy}
+                onOpenAiSettings={onOpenAiSettings}
+                onContinue={
+                  okfEnabled === false
+                    ? undefined
+                    : () => void move(stepAfterAi(okfEnabled))
+                }
+              />
               {okfEnabled === false ? (
                 <WorkingFolderStep
                   tr={tr}

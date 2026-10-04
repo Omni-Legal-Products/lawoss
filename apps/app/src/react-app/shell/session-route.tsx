@@ -202,15 +202,14 @@ import { homeRoute, homeProjectIdFromSearch, isSessionIndexRoute, workspaceProje
 import { SettingsSurface } from "./settings-route";
 import { WorkspaceProvider } from "./workspace-provider";
 import {
-  countConnectedProviders,
   ensureProviderListQuery,
   getConnectedProviderItems,
   getDefaultModelForSingleConnectedProvider,
-  isModelAvailableInConnectedProviders,
   refreshProviderListQueries,
   RETIRED_FREE_PROVIDER_IDS,
   useProviderListQuery,
 } from "@/react-app/infra/provider-list-query";
+import { modelReadiness } from "@/lawoss/shell/model-readiness";
 
 /** How long a task opened on arrival from another screen outlasts the route settling. */
 const TASK_OPEN_SETTLE_MS = 4_000;
@@ -745,11 +744,12 @@ export function SessionRoute() {
     baseUrl: opencodeBaseUrl,
     workspaceRoot: selectedWorkspaceRoot,
   });
-  const selectedModelUnavailable = Boolean(
-    local.prefs.defaultModel &&
-      providerListQuery.data &&
-      !isModelAvailableInConnectedProviders(providerListQuery.data, local.prefs.defaultModel),
+  // LAWOSS: one computation shared with the onboarding AI step (see the count below).
+  const readiness = useMemo(
+    () => modelReadiness({ defaultModel: local.prefs.defaultModel, providerList: providerListQuery.data, disabledProviderIds, fallbackConnectedCount: providerConnectedIds.length }),
+    [disabledProviderIds, local.prefs.defaultModel, providerConnectedIds, providerListQuery.data],
   );
+  const selectedModelUnavailable = readiness.modelUnavailable;
   // Eigenwelt is the only connected provider and serves exactly one model:
   // there is nothing to pick and nothing to fuse, so the composer shows a
   // plain model label and hides the Fusion toggle.
@@ -760,7 +760,6 @@ export function SessionRoute() {
     if (connected.length !== 1 || connected[0]?.id !== "eigenwelt") return false;
     return Object.keys(connected[0]?.models ?? {}).length === 1;
   }, [providerListQuery.data]);
-  const hasUsableModel = Boolean(local.prefs.defaultModel && !selectedModelUnavailable);
   // How many providers are actually connected, read from the SAME provider
   // list that decides `selectedModelUnavailable`. The composer's red "model
   // no longer available" label is hidden in favour of the connect-AI bar only
@@ -769,13 +768,7 @@ export function SessionRoute() {
   // signing out of Eigenwelt flash the red label first (the query had already
   // dropped the provider while that state still listed it). Falls back to the
   // state only before the query has resolved.
-  const usableProviderCount = useMemo(() => {
-    // A usable selection guarantees a connected provider even before the query
-    // resolves on a cold start.
-    if (hasUsableModel) return 1;
-    if (!providerListQuery.data) return providerConnectedIds.length;
-    return countConnectedProviders(providerListQuery.data, disabledProviderIds);
-  }, [disabledProviderIds, hasUsableModel, providerConnectedIds, providerListQuery.data]);
+  const usableProviderCount = readiness.providerConnectedCount;
   // Free-tier retirement: older installs persisted a selection on the retired
   // free providers ("eigenwelt-free" / the built-in zen "opencode"). Clear it
   // once and mark the migration dialog pending (marker first, so a crash in
