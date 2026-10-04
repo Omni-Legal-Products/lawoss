@@ -65,6 +65,7 @@ var CARD_TYPES = {
   "project.md": ["project", "projekt"],
   "projekt.md": ["project", "projekt"]
 };
+var APP_FILE_DIRECTORIES = new Set([".opencode"]);
 var MEMORY_FILES = new Set(["MEMORY.md", "_memory.md", "_STATUS.md", "BRAIN.md", ".lawoss/memory-profile.json"]);
 var sha = (value) => createHash("sha256").update(value).digest("hex");
 var errorCode = (error) => error && typeof error === "object" && ("code" in error) ? String(error.code) : "read_failed";
@@ -123,7 +124,8 @@ async function inspectOnboardingRoot(root, limits = {}) {
         }
         if (state.isDirectory()) {
           result.entries.push({ path, kind: "directory", digest: null, size: 0 });
-          await visit(path, depth + 1);
+          if (!APP_FILE_DIRECTORIES.has(name))
+            await visit(path, depth + 1);
         } else if (state.isFile()) {
           if (bytes + state.size > maxBytes) {
             problem(path, "byte_limit");

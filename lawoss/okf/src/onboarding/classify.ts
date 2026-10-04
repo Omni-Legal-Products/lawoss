@@ -31,6 +31,12 @@ const CARD_TYPES: Record<string, readonly string[]> = {
   "matter.md": ["matter", "spis"], "spis.md": ["matter", "spis"],
   "project.md": ["project", "projekt"], "projekt.md": ["project", "projekt"],
 };
+/**
+ * Súbory appky v otvorenom priečinku (OpenCode, jeho skilly a node_modules so symlinkami v `.bin`).
+ * Mení ich engine, nie advokát, takže nepatria do identity klienta ani veci; bez tohto pravidla
+ * nešlo pridať vec k už otvorenému klientovi (D1 2026-10-05).
+ */
+const APP_FILE_DIRECTORIES = new Set([".opencode"]);
 const MEMORY_FILES = new Set(["MEMORY.md", "_memory.md", "_STATUS.md", "BRAIN.md", ".lawoss/memory-profile.json"]);
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 const errorCode = (error: unknown): string => error && typeof error === "object" && "code" in error ? String(error.code) : "read_failed";
@@ -72,7 +78,7 @@ export async function inspectOnboardingRoot(root: string, limits: InspectionLimi
         }
         if (state.isDirectory()) {
           result.entries.push({ path, kind: "directory", digest: null, size: 0 });
-          await visit(path, depth + 1);
+          if (!APP_FILE_DIRECTORIES.has(name)) await visit(path, depth + 1);
         } else if (state.isFile()) {
           if (bytes + state.size > maxBytes) { problem(path, "byte_limit"); exhausted = true; break; }
           // Verify identity again after opening and after reading to reject changes during inspection.
