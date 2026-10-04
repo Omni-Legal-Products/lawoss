@@ -176,6 +176,7 @@ import {
   OPENAI_IMAGE_MODEL,
 } from "@/react-app/domains/settings/openai-image-extension";
 import { OLLAMA_PROVIDER_CONFIG, type LocalProviderInstallInput } from "@/react-app/domains/settings/openai-image-extension";
+import { localProviderTimeouts } from "@/lawoss/providers/local-timeouts";
 
 function normalizeComputerUsePermissions(value: unknown) {
   if (typeof value !== "object" || value === null) return null;
@@ -1150,7 +1151,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             [input.providerId]: {
               npm: "@ai-sdk/openai-compatible",
               name: input.name,
-              options: { baseURL: input.baseURL },
+              options: { baseURL: input.baseURL, ...localProviderTimeouts(input.baseURL) },
               models: { [modelId]: { name: input.modelName.trim() || modelId } },
             },
           },
