@@ -5,6 +5,7 @@ import {
   okfChoice,
   readOnboardingProgress,
   stepAfterAi,
+  stepAfterOkfChoice,
   visibleOnboardingStep,
   visibleOnboardingSteps,
 } from "../src/lawoss/domains/onboarding/onboarding-state";
@@ -20,6 +21,15 @@ describe("OKF choice in the LAWOSS welcome flow", () => {
     expect(stepAfterAi(true)).toBe("client");
     expect(stepAfterAi(false)).toBe("done");
     expect(stepAfterAi(undefined)).toBe("okf");
+  });
+
+  test("choosing OKF continues to a requested client or matter, otherwise to the next path step", () => {
+    expect(stepAfterOkfChoice(true, "client")).toBe("client");
+    expect(stepAfterOkfChoice(true, "matter")).toBe("matter");
+    expect(stepAfterOkfChoice(true, undefined)).toBe("office");
+    expect(stepAfterOkfChoice(true, "okf")).toBe("office");
+    expect(stepAfterOkfChoice(false, "client")).toBe("ai");
+    expect(stepAfterOkfChoice(false, undefined)).toBe("ai");
   });
 
   test("a step outside the chosen path falls back to the OKF choice", () => {

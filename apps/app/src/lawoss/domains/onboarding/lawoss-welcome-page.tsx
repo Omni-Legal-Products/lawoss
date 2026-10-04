@@ -30,6 +30,7 @@ import {
   okfChoice,
   readOnboardingProgress,
   stepAfterAi,
+  stepAfterOkfChoice,
   visibleOnboardingStep,
   visibleOnboardingSteps,
   writeOnboardingProgress,
@@ -786,7 +787,7 @@ export function LawossWelcomePage({
               busy={busy}
               continueLabel={tr("continue")}
               onChoose={(enabled) =>
-                move(enabled ? "office" : "ai", {
+                move(stepAfterOkfChoice(enabled, initialStep), {
                   okf: okfChoice(enabled, new Date()),
                 })
               }

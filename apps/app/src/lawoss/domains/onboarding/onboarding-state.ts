@@ -157,6 +157,12 @@ export function stepAfterAi(okf: OkfEnabled): OnboardingStep {
   return okf === true ? "client" : okf === false ? "done" : "okf";
 }
 
+/** After the choice, a requested client or matter (`?continue=`) is honoured when OKF is on. */
+export function stepAfterOkfChoice(enabled: boolean, requested: OnboardingStep | undefined): OnboardingStep {
+  if (!enabled) return "ai";
+  return requested === "client" || requested === "matter" ? requested : "office";
+}
+
 export function okfChoice(enabled: boolean, now: Date): OkfChoice {
   return enabled
     ? { enabled: true, acknowledgedAt: now.toISOString(), noticeVersion: OKF_NOTICE_VERSION }
