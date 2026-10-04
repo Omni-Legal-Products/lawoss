@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useLocale } from "@/i18n/use-locale";
-import { LAWOSS_ROUTES } from "../../lawoss/shell/routes";
+import { LAWOSS_ROUTES, lawossRouteTitle } from "../../lawoss/shell/routes";
 import { useDetachedWindow } from "./use-detached-window";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
@@ -2504,6 +2504,7 @@ export function SessionRoute() {
           toast.error(t("recorder.transcriber_start_failed"));
         });
       }}
+      mainViewTitle={experimentView ? lawossRouteTitle(location.pathname) : undefined}
       mainView={
         // One reused SettingsSurface instance across the pages — it follows `initialPath`
         // via an effect, so switching Workflows <-> Integrations is instant and doesn't

@@ -33,16 +33,15 @@ export function OkfPage({ title, children, stateText, pickWorkspace, rawProblems
   return (
     <LawossLayout>
       {title ? <h1 className="lw-h1">{title}</h1> : null}
-      <OkfPageQuery key={attempt} stateText={stateText} pickWorkspace={pickWorkspace} rawProblems={rawProblems}>{children}</OkfPageQuery>
-      <button type="button" className="lw-btn" onClick={() => {
+      <OkfPageQuery key={attempt} stateText={stateText} pickWorkspace={pickWorkspace} rawProblems={rawProblems} retry={<button type="button" className="lw-btn" onClick={() => {
         void cache.invalidateQueries({ queryKey: ["okf-overview"], refetchType: "none" });
         setAttempt((value) => value + 1);
-      }}>{label("retry")}</button>
+      }}>{label("retry")}</button>}>{children}</OkfPageQuery>
     </LawossLayout>
   );
 }
 
-function OkfPageQuery({ children, stateText, pickWorkspace = activeWorkspace, rawProblems }: Pick<PageProps, "children" | "stateText" | "pickWorkspace" | "rawProblems">) {
+function OkfPageQuery({ children, stateText, pickWorkspace = activeWorkspace, rawProblems, retry }: Pick<PageProps, "children" | "stateText" | "pickWorkspace" | "rawProblems"> & { retry: ReactNode }) {
   const { connection, error } = useOkfConnection();
   const workspace = pickWorkspace(connection);
   const query = useOkfOverview(connection, workspace);
@@ -54,6 +53,7 @@ function OkfPageQuery({ children, stateText, pickWorkspace = activeWorkspace, ra
     loading={query.isFetching}
     stateText={stateText}
     rawProblems={rawProblems}
+    retry={retry}
   >{children}</OkfPageState>;
 }
 
@@ -67,9 +67,16 @@ export function OkfPageState(props: {
   children: (data: OkfReadResult) => ReactNode;
   stateText?: StateText;
   rawProblems?: boolean;
+  /** Shown with every state except loaded matters, so a working page is not followed by a stray retry. */
+  retry?: ReactNode;
 }) {
   const matterText = useMatterText().text;
-  const text = props.stateText ?? matterText;
+  const node = okfStateNode(props, props.stateText ?? matterText);
+  const ready = Boolean(!props.error && props.connection === "ready" && props.workspace !== null && props.data && props.data.matters.length > 0);
+  return ready ? node : <>{node}{props.retry}</>;
+}
+
+function okfStateNode(props: Parameters<typeof OkfPageState>[0], text: StateText): ReactNode {
   if (props.error) return <div className="lw-status err" role="alert">{text("memoryError", { error: props.error instanceof Error ? props.error.message : String(props.error) })}</div>;
   if (props.connection === "loading") return <p className="lw-lead" role="status">{text("connectionLoading")}</p>;
   if (props.connection === "unavailable") return <div className="lw-status warn" role="alert">{text("serverUnavailable")}</div>;

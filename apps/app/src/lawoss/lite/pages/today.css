@@ -1,0 +1,317 @@
+/*
+ * LAWOSS-lite „Dnes": ranní přehled z paměti OKF.
+ * Vizuální jazyk webu lawoss.app: tmavé sklo, kovové zlato, jemné světelné přechody.
+ * Barvy jdou přes tokeny LAWOSS, takže světlý motiv zůstává čitelný.
+ */
+.lw-today {
+  --td-gold: #c9a24a;
+  --td-gold-hi: #f2d788;
+  --td-metal: linear-gradient(100deg, #b98d3f 0%, #e7c46a 38%, #f7de94 50%, #d0a24b 64%, #aa8039 100%);
+  --td-hot: #e8836b;
+  --td-near: var(--td-gold);
+  --td-calm: var(--lw-text-tertiary, #75808c);
+  --td-line: var(--lw-border-subtle, rgba(233, 228, 218, 0.08));
+  --td-glass: linear-gradient(180deg, color-mix(in srgb, var(--lw-text-primary, #e9e4da) 4.5%, transparent), color-mix(in srgb, var(--lw-text-primary, #e9e4da) 1.5%, transparent));
+  --td-radius: 14px;
+  --td-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  position: relative;
+  container-type: inline-size;
+  min-width: 0;
+  display: grid;
+  gap: 18px;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 8px 0 40px;
+  color: var(--lw-text-primary);
+}
+:root:not(.dark):not([data-theme="dark"]) .lw-today { --td-hot: var(--lw-danger, #b3261e); --td-gold: #a8832e; --td-gold-hi: #7a5b12; }
+
+/* Jemná zlatá záře za úvodem, jako horizont na webu. */
+.lw-today::before {
+  content: "";
+  position: absolute;
+  inset: -40px -24px auto;
+  height: 320px;
+  pointer-events: none;
+  background:
+    radial-gradient(520px 220px at 82% 0%, color-mix(in srgb, var(--td-gold) 22%, transparent), transparent 70%),
+    radial-gradient(420px 180px at 12% 10%, color-mix(in srgb, var(--td-gold) 8%, transparent), transparent 70%);
+  filter: blur(4px);
+  z-index: 0;
+}
+.lw-today > * { position: relative; z-index: 1; }
+
+/* Postupné odhalení; bez pohybu, když si to systém nepřeje. */
+.lw-today-hero, .lw-today-strip, .lw-today-panel, .lw-today-matters {
+  animation: lw-today-rise 620ms var(--td-ease) both;
+  animation-delay: calc(var(--lw-i, 0) * 70ms);
+}
+@keyframes lw-today-rise {
+  from { opacity: 0; transform: translateY(10px); filter: blur(3px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+/* Úvod */
+.lw-today-hero {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: 18px 24px;
+  padding: 22px 4px 6px;
+}
+.lw-today-date {
+  margin: 0 0 6px;
+  font-family: var(--lw-font-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--td-gold);
+}
+.lw-today-date::first-letter { text-transform: uppercase; }
+.lw-today-greeting {
+  margin: 0;
+  font-size: clamp(30px, 3.4vw, 42px);
+  line-height: 1.05;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  background: linear-gradient(180deg, var(--lw-text-primary) 30%, color-mix(in srgb, var(--lw-text-primary) 62%, var(--td-gold)));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.lw-today-lead { margin: 10px 0 0; max-width: 62ch; color: var(--lw-text-secondary); font-size: 15px; line-height: 1.5; }
+.lw-today-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: var(--td-metal);
+  background-size: 180% 100%;
+  color: #1a1408;
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+  box-shadow: 0 8px 28px -10px color-mix(in srgb, var(--td-gold) 70%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  transition: background-position 600ms var(--td-ease), transform 200ms var(--td-ease), box-shadow 300ms var(--td-ease);
+}
+.lw-today-primary:hover { background-position: 100% 0; transform: translateY(-1px); box-shadow: 0 12px 34px -10px color-mix(in srgb, var(--td-gold) 85%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.55); }
+.lw-today-primary:focus-visible, .lw-today a:focus-visible { outline: 2px solid var(--td-gold); outline-offset: 3px; }
+
+.lw-today-stats { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 10px; margin: 6px 0 0; }
+.lw-today-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 14px;
+  border: 1px solid var(--td-line);
+  border-radius: 999px;
+  background: var(--td-glass);
+}
+.lw-today-stat dt { order: 2; font-size: 13px; color: var(--lw-text-secondary); }
+.lw-today-stat dd { margin: 0; font-family: var(--lw-font-mono); font-size: 15px; font-weight: 600; color: var(--lw-text-primary); }
+.lw-today-stat[data-hot] { border-color: color-mix(in srgb, var(--td-hot) 45%, transparent); }
+.lw-today-stat[data-hot] dd { color: var(--td-hot); }
+
+/* Sklo: panely, pás a karty */
+.lw-today-strip, .lw-today-panel, .lw-today-card {
+  position: relative;
+  border: 1px solid var(--td-line);
+  border-radius: var(--td-radius);
+  background: var(--td-glass), var(--lw-surface);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--lw-text-primary) 6%, transparent), 0 18px 40px -28px rgba(0, 0, 0, 0.6);
+}
+.lw-today-strip::after, .lw-today-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0 20% auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--td-gold) 55%, transparent), transparent);
+  opacity: 0.7;
+}
+.lw-today-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--lw-text-secondary);
+}
+.lw-today-section-title svg { color: var(--td-gold); }
+
+/* Pás 14 dní */
+.lw-today-strip { padding: 16px 16px 14px; }
+.lw-today-days::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: 12px; height: 1px; background: linear-gradient(90deg, color-mix(in srgb, var(--td-gold) 50%, transparent), var(--td-line) 30%, var(--td-line)); z-index: -1; }
+.lw-today-days { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px; margin: 0; padding: 0; list-style: none; }
+.lw-today-day > a, .lw-today-day > span {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 10px 4px 9px;
+  border-radius: 10px;
+  color: inherit;
+  text-decoration: none;
+  transition: background 200ms var(--td-ease), transform 200ms var(--td-ease);
+}
+.lw-today-day > a:hover { background: color-mix(in srgb, var(--td-gold) 9%, transparent); transform: translateY(-2px); }
+.lw-today-dow { font-size: 11px; color: var(--lw-text-tertiary); text-transform: lowercase; }
+.lw-today-dom { font-family: var(--lw-font-mono); font-size: 16px; font-weight: 500; color: var(--lw-text-secondary); }
+.lw-today-day[data-weekend] .lw-today-dom { color: var(--lw-text-tertiary); opacity: 0.7; }
+.lw-today-day[data-busy] .lw-today-dom { color: var(--lw-text-primary); font-weight: 600; }
+.lw-today-day[data-today] > a, .lw-today-day[data-today] > span {
+  background: color-mix(in srgb, var(--td-gold) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--td-gold) 55%, transparent), 0 0 24px -6px color-mix(in srgb, var(--td-gold) 55%, transparent);
+}
+.lw-today-day[data-today] .lw-today-dow { color: var(--td-gold); font-weight: 600; }
+.lw-today-day[data-today] .lw-today-dom { color: var(--td-gold-hi); }
+.lw-today-day[data-overdue] .lw-today-dow, .lw-today-day[data-overdue] .lw-today-dom { color: var(--td-hot); }
+.lw-today-dots { display: flex; gap: 4px; min-height: 7px; }
+.lw-today-dots i { width: 7px; height: 7px; border-radius: 50%; background: color-mix(in srgb, var(--td-gold) 55%, var(--td-calm)); }
+.lw-today-dots i[data-kind="task"] { background: transparent; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--td-gold) 75%, transparent); }
+.lw-today-tip span[data-kind="task"] b::before { content: "○ "; color: var(--td-gold); }
+.lw-today-dots i[data-urgency="near"] { background: var(--td-near); box-shadow: 0 0 10px color-mix(in srgb, var(--td-near) 80%, transparent); }
+.lw-today-dots i[data-urgency="hot"] { background: var(--td-hot); box-shadow: 0 0 10px color-mix(in srgb, var(--td-hot) 80%, transparent); animation: lw-today-pulse 2.4s ease-in-out infinite; }
+@keyframes lw-today-pulse { 50% { box-shadow: 0 0 2px color-mix(in srgb, var(--td-hot) 40%, transparent); } }
+
+/* Bublina nad dnem s lhůtami */
+.lw-today-tip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  z-index: 5;
+  display: grid;
+  gap: 6px;
+  min-width: 200px;
+  max-width: 280px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--td-gold) 35%, transparent);
+  border-radius: 10px;
+  background: var(--lw-overlay, #141c26);
+  box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.7);
+  text-align: left;
+  font-size: 12px;
+  color: var(--lw-text-secondary);
+  opacity: 0;
+  transform: translate(-50%, 4px);
+  pointer-events: none;
+  transition: opacity 160ms var(--td-ease), transform 160ms var(--td-ease);
+}
+.lw-today-tip span { display: grid; gap: 1px; }
+.lw-today-tip b { font-weight: 600; color: var(--lw-text-primary); }
+.lw-today-day > a:hover .lw-today-tip, .lw-today-day > a:focus-visible .lw-today-tip { opacity: 1; transform: translate(-50%, 0); }
+
+/* Mriežka panelov */
+.lw-today-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.lw-today-side { display: grid; gap: 18px; }
+.lw-today-panel { padding: 16px; }
+.lw-today-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.lw-today-deadline, .lw-today-input, .lw-today-task {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  color: inherit;
+  text-decoration: none;
+  transition: background 180ms var(--td-ease);
+}
+.lw-today-deadline:hover, .lw-today-input:hover { background: color-mix(in srgb, var(--lw-text-primary) 5%, transparent); }
+.lw-today-main { display: grid; gap: 2px; min-width: 0; }
+.lw-today-title { font-size: 14px; font-weight: 500; color: var(--lw-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lw-today-main small { display: flex; flex-wrap: wrap; gap: 0 8px; font-size: 12px; color: var(--lw-text-tertiary); }
+.lw-today-main small a { color: inherit; }
+.lw-today-main small a:hover { color: var(--lw-text-secondary); }
+.lw-today-ref { font-family: var(--lw-font-mono); font-size: 11px; color: var(--lw-text-tertiary); letter-spacing: 0.02em; }
+.lw-today-when { display: grid; justify-items: end; gap: 2px; text-align: right; }
+.lw-today-date-short { font-family: var(--lw-font-mono); font-size: 12px; color: var(--lw-text-secondary); }
+.lw-today-due { font-size: 12px; color: var(--lw-text-tertiary); }
+.lw-today-deadline[data-urgency="hot"] .lw-today-due { color: var(--td-hot); font-weight: 600; }
+.lw-today-deadline[data-urgency="near"] .lw-today-due { color: var(--td-gold); font-weight: 600; }
+
+/* Kalendárny lístok pri lehote */
+.lw-today-cal {
+  display: grid;
+  justify-items: center;
+  width: 44px;
+  padding: 5px 0 6px;
+  border-radius: 9px;
+  border: 1px solid var(--td-line);
+  background: color-mix(in srgb, var(--lw-text-primary) 3%, transparent);
+}
+.lw-today-cal span { font-size: 10px; color: var(--lw-text-tertiary); text-transform: lowercase; }
+.lw-today-cal strong { font-family: var(--lw-font-mono); font-size: 18px; line-height: 1.1; font-weight: 600; }
+.lw-today-deadline[data-urgency="hot"] .lw-today-cal { border-color: color-mix(in srgb, var(--td-hot) 55%, transparent); background: color-mix(in srgb, var(--td-hot) 10%, transparent); }
+.lw-today-deadline[data-urgency="hot"] .lw-today-cal strong { color: var(--td-hot); }
+.lw-today-deadline[data-urgency="near"] .lw-today-cal { border-color: color-mix(in srgb, var(--td-gold) 55%, transparent); background: color-mix(in srgb, var(--td-gold) 10%, transparent); box-shadow: 0 0 18px -6px color-mix(in srgb, var(--td-gold) 60%, transparent); }
+.lw-today-deadline[data-urgency="near"] .lw-today-cal strong { color: var(--td-gold-hi); }
+
+/* Úlohy */
+.lw-today-ring { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--td-gold) 70%, transparent); }
+.lw-today-chip { padding: 3px 9px; border-radius: 999px; font-family: var(--lw-font-mono); font-size: 11px; border: 1px solid var(--td-line); color: var(--lw-text-secondary); white-space: nowrap; }
+.lw-today-chip[data-urgency="near"] { color: var(--td-gold-hi); border-color: color-mix(in srgb, var(--td-gold) 50%, transparent); background: color-mix(in srgb, var(--td-gold) 10%, transparent); }
+.lw-today-chip[data-urgency="hot"] { color: var(--td-hot); border-color: color-mix(in srgb, var(--td-hot) 50%, transparent); background: color-mix(in srgb, var(--td-hot) 10%, transparent); }
+
+/* Na zaradenie */
+.lw-today-input .lw-no { font-family: var(--lw-font-mono); font-size: 11px; color: var(--td-gold); min-width: 34px; }
+
+.lw-today-empty { display: flex; align-items: center; gap: 8px; margin: 4px 2px 2px; font-size: 13px; color: var(--lw-text-tertiary); }
+.lw-today-empty svg { color: var(--lw-success, #7fb38a); }
+
+/* Karty vecí */
+.lw-today-matters { display: grid; }
+.lw-today-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.lw-today-card {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  color: inherit;
+  text-decoration: none;
+  overflow: hidden;
+  transition: transform 260ms var(--td-ease), border-color 260ms var(--td-ease), box-shadow 260ms var(--td-ease);
+}
+.lw-today-card::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(140deg, color-mix(in srgb, var(--td-gold) 70%, transparent), transparent 45%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 260ms var(--td-ease);
+}
+.lw-today-card:hover { transform: translateY(-3px); box-shadow: 0 24px 50px -28px color-mix(in srgb, var(--td-gold) 45%, rgba(0, 0, 0, 0.8)); }
+.lw-today-card:hover::before { opacity: 1; }
+.lw-today-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.lw-today-card-top .lw-today-title { white-space: normal; font-size: 15px; }
+.lw-today-card-arrow { flex: none; color: var(--lw-text-tertiary); transition: color 200ms, transform 260ms var(--td-ease); }
+.lw-today-card:hover .lw-today-card-arrow { color: var(--td-gold); transform: translate(2px, -2px); }
+.lw-today-card-meta { display: flex; gap: 18px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--td-line); font-family: var(--lw-font-mono); font-size: 13px; color: var(--lw-text-primary); }
+.lw-today-card-meta span { display: grid; gap: 2px; }
+.lw-today-card-meta small { font-family: var(--lw-font-sans); font-size: 11px; color: var(--lw-text-tertiary); }
+
+
+.lw-today-grid > *, .lw-today-strip, .lw-today-panel { min-width: 0; }
+
+@container (max-width: 860px) {
+  .lw-today-grid { grid-template-columns: 1fr; }
+  .lw-today-hero { grid-template-columns: 1fr; }
+  .lw-today-primary { justify-self: start; }
+}
+/* Úzky obsah: dva týždne pod sebou namiesto jedného riadku. */
+@container (max-width: 640px) {
+  .lw-today-days { grid-auto-flow: row; grid-template-columns: repeat(7, minmax(0, 1fr)); row-gap: 8px; }
+  .lw-today-days::after { display: none; }
+  .lw-today-tip { min-width: 170px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lw-today-hero, .lw-today-strip, .lw-today-panel, .lw-today-matters { animation: none; }
+  .lw-today-dots i[data-urgency="hot"] { animation: none; }
+  .lw-today-card, .lw-today-primary, .lw-today-day > a { transition: none; }
+}

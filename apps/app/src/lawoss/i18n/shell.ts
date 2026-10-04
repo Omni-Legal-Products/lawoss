@@ -99,7 +99,20 @@ export const shellEn = {
   "lawoss.lite.memory_write_reason": "Reason",
   "lawoss.lite.memory_write_apply": "Will be written after your approval.",
   "lawoss.lite.memory_write_preview": "Preview only - nothing is written yet.",
-  "lawoss.lite.memory_write_note": "Deadlines always need your confirmation."
+  "lawoss.lite.memory_write_note": "Deadlines always need your confirmation.",
+  "lawoss.lite.greeting_morning": "Good morning",
+  "lawoss.lite.greeting_day": "Good afternoon",
+  "lawoss.lite.greeting_evening": "Good evening",
+  "lawoss.lite.hero_calm": "Nothing is due this week. A good time to get ahead.",
+  "lawoss.lite.hero_next": "Next deadline: {title}, {when}.",
+  "lawoss.lite.stat_week": "Deadlines this week",
+  "lawoss.lite.strip_title": "Next 14 days",
+  "lawoss.lite.strip_today": "Today",
+  "lawoss.lite.matters_title": "Your matters",
+  "lawoss.lite.next_deadline": "Next deadline",
+  "lawoss.lite.no_next_deadline": "No upcoming deadline",
+  "lawoss.lite.tasks_short": "Tasks",
+  "lawoss.lite.all_clear": "All clear"
 };
 
 /** Čeština a slovenština potřebují navíc tvary few/many (Intl.PluralRules, viz `t()` v i18n/index.ts). */
@@ -208,7 +221,20 @@ export const shellCs = {
   "lawoss.lite.memory_write_reason": "Důvod",
   "lawoss.lite.memory_write_apply": "Zapíše se až po vašem schválení.",
   "lawoss.lite.memory_write_preview": "Jen náhled - zatím se nic nezapisuje.",
-  "lawoss.lite.memory_write_note": "Lhůty vždy potvrzujete vy."
+  "lawoss.lite.memory_write_note": "Lhůty vždy potvrzujete vy.",
+  "lawoss.lite.greeting_morning": "Dobré ráno",
+  "lawoss.lite.greeting_day": "Dobrý den",
+  "lawoss.lite.greeting_evening": "Dobrý večer",
+  "lawoss.lite.hero_calm": "Tento týden nic nehoří. Dobrá chvíle předběhnout práci.",
+  "lawoss.lite.hero_next": "Nejbližší lhůta: {title}, {when}.",
+  "lawoss.lite.stat_week": "Lhůty tento týden",
+  "lawoss.lite.strip_title": "Příštích 14 dní",
+  "lawoss.lite.strip_today": "Dnes",
+  "lawoss.lite.matters_title": "Vaše věci",
+  "lawoss.lite.next_deadline": "Nejbližší lhůta",
+  "lawoss.lite.no_next_deadline": "Bez blížící se lhůty",
+  "lawoss.lite.tasks_short": "Úkoly",
+  "lawoss.lite.all_clear": "Vše v pořádku"
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellSk = {
@@ -314,7 +340,20 @@ export const shellSk = {
   "lawoss.lite.memory_write_reason": "Dôvod",
   "lawoss.lite.memory_write_apply": "Zapíše sa až po vašom schválení.",
   "lawoss.lite.memory_write_preview": "Len náhľad - zatiaľ sa nič nezapisuje.",
-  "lawoss.lite.memory_write_note": "Lehoty vždy potvrdzujete vy."
+  "lawoss.lite.memory_write_note": "Lehoty vždy potvrdzujete vy.",
+  "lawoss.lite.greeting_morning": "Dobré ráno",
+  "lawoss.lite.greeting_day": "Dobrý deň",
+  "lawoss.lite.greeting_evening": "Dobrý večer",
+  "lawoss.lite.hero_calm": "Tento týždeň nič nehorí. Dobrá chvíľa predbehnúť prácu.",
+  "lawoss.lite.hero_next": "Najbližšia lehota: {title}, {when}.",
+  "lawoss.lite.stat_week": "Lehoty tento týždeň",
+  "lawoss.lite.strip_title": "Najbližších 14 dní",
+  "lawoss.lite.strip_today": "Dnes",
+  "lawoss.lite.matters_title": "Vaše veci",
+  "lawoss.lite.next_deadline": "Najbližšia lehota",
+  "lawoss.lite.no_next_deadline": "Bez blížiacej sa lehoty",
+  "lawoss.lite.tasks_short": "Úlohy",
+  "lawoss.lite.all_clear": "Všetko v poriadku"
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellDe = {
@@ -418,5 +457,18 @@ export const shellDe = {
   "lawoss.lite.memory_write_reason": "Grund",
   "lawoss.lite.memory_write_apply": "Wird erst nach Ihrer Freigabe geschrieben.",
   "lawoss.lite.memory_write_preview": "Nur Vorschau - noch wird nichts geschrieben.",
-  "lawoss.lite.memory_write_note": "Fristen bestätigen immer Sie."
+  "lawoss.lite.memory_write_note": "Fristen bestätigen immer Sie.",
+  "lawoss.lite.greeting_morning": "Guten Morgen",
+  "lawoss.lite.greeting_day": "Guten Tag",
+  "lawoss.lite.greeting_evening": "Guten Abend",
+  "lawoss.lite.hero_calm": "Diese Woche ist nichts fällig. Ein guter Moment, um vorzuarbeiten.",
+  "lawoss.lite.hero_next": "Nächste Frist: {title}, {when}.",
+  "lawoss.lite.stat_week": "Fristen diese Woche",
+  "lawoss.lite.strip_title": "Nächste 14 Tage",
+  "lawoss.lite.strip_today": "Heute",
+  "lawoss.lite.matters_title": "Ihre Angelegenheiten",
+  "lawoss.lite.next_deadline": "Nächste Frist",
+  "lawoss.lite.no_next_deadline": "Keine anstehende Frist",
+  "lawoss.lite.tasks_short": "Aufgaben",
+  "lawoss.lite.all_clear": "Alles erledigt"
 } satisfies Record<keyof typeof shellEn, string>;

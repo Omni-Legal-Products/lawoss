@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import type { ReactElement } from "react";
+import { t } from "@/i18n";
 
 import { ExperimentyPage } from "../domains/experimenty/experimenty-page";
 import { NativeIntegrationsRedirect } from "../domains/marketplace/native-redirect";
@@ -17,17 +18,23 @@ import { LITE_CLIENTS_PATH, LITE_MATTER_PATH, LITE_TODAY_PATH } from "../lite/li
  * LAWOSS routes (fáza B) — mapped directly in the upstream app-root
  * (`LAWOSS_ROUTES.map(...)`, one 🟡 block) so upstream fallbacks keep working.
  */
-export const LAWOSS_ROUTES: ReadonlyArray<{ path: string; element: ReactElement }> = [
-  { path: "/prehlad", element: <PrehladPage /> },
-  { path: "/spis", element: <SpisPage /> },
-  { path: "/lehoty", element: <LehotyPage /> },
+export const LAWOSS_ROUTES: ReadonlyArray<{ path: string; element: ReactElement; title?: string }> = [
+  { path: "/prehlad", element: <PrehladPage />, title: "lawoss.shell.overview" },
+  { path: "/spis", element: <SpisPage />, title: "lawoss.shell.matter" },
+  { path: "/lehoty", element: <LehotyPage />, title: "lawoss.shell.deadlines" },
   { path: "/konektory", element: <NativeIntegrationsRedirect from="/konektory" /> },
   { path: "/marketplace", element: <NativeIntegrationsRedirect from="/marketplace" /> },
-  { path: "/experimenty", element: <ExperimentyPage /> },
-  { path: "/experimenty/novy-spis", element: <NovySpisPage /> },
-  { path: "/experimenty/prve-nastavenie", element: <PrveNastaveniePage /> },
+  { path: "/experimenty", element: <ExperimentyPage />, title: "lawoss.shell.experiments" },
+  { path: "/experimenty/novy-spis", element: <NovySpisPage />, title: "lawoss.shell.new_matter" },
+  { path: "/experimenty/prve-nastavenie", element: <PrveNastaveniePage />, title: "lawoss.shell.setup" },
   // LAWOSS-lite - dostupné v obou režimech, v lite jsou výchozí navigací.
-  { path: LITE_TODAY_PATH, element: <TodayPage /> },
-  { path: LITE_CLIENTS_PATH, element: <ClientsPage /> },
-  { path: LITE_MATTER_PATH, element: <LiteMatterPage /> },
+  { path: LITE_TODAY_PATH, element: <TodayPage />, title: "lawoss.lite.nav_today" },
+  { path: LITE_CLIENTS_PATH, element: <ClientsPage />, title: "lawoss.lite.nav_clients" },
+  { path: LITE_MATTER_PATH, element: <LiteMatterPage />, title: "lawoss.shell.matter" },
 ];
+
+/** Header title for a LAWOSS screen in the shared shell, so it never reads as a chat. */
+export function lawossRouteTitle(pathname: string): string | undefined {
+  const key = LAWOSS_ROUTES.find((route) => route.path === pathname)?.title;
+  return key ? t(key) : undefined;
+}
