@@ -120,7 +120,9 @@ export function countConnectedProviders(
 export function getDefaultModelForSingleConnectedProvider(
   value: ProviderListResponse | null | undefined,
 ): ModelRef | null {
-  return pickDefaultModel(getConnectedProviderItems(value), value?.default ?? {});
+  // LAWOSS: a retired free tier is never picked; session-route clears it again (endless loop).
+  const providers = getConnectedProviderItems(value).filter((provider) => !RETIRED_FREE_PROVIDER_IDS.has(provider.id));
+  return pickDefaultModel(providers, value?.default ?? {});
 }
 
 /** The built-in OpenCode Zen provider id. Retired as a fallback: the server

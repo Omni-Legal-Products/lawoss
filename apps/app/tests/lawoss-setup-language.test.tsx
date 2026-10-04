@@ -28,7 +28,9 @@ const onboardingApi: OnboardingApi = {
 
 test("welcome exposes the first native identity step with all UI languages", () => {
   const html = renderToStaticMarkup(<MemoryRouter><LawossWelcomePage api={onboardingApi} pickDirectory={async () => null} onOpenAiSettings={() => {}} onComplete={() => {}} /></MemoryRouter>);
-  expect(html).toContain("Set up your legal practice");
+  expect(html).toContain("Set up your practice");
+  expect(html).toContain("Your name");
+  expect(html).not.toContain("legal practice");
   expect(html).toContain("You and jurisdiction");
   expect(html).toContain('value="sk"');
   expect(html).toContain(">de</option>");

@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, sep } from "node:path";
 import { parseFrontmatter, type FmValue } from "./record.ts";
 import type { WriteDiff } from "./write.ts";
+import { isIsoDate } from "./schema.ts";
 
 export const CONFIG_FILE = "okf.config";
 
@@ -91,12 +92,6 @@ export function matchesClientPath(relative: string, pattern: string): boolean {
   return pat.every((p, i) => p === "*" || p === seg[i]);
 }
 
-/** `RRRR-MM-DD` a zároveň skutočný deň — `2026-02-30` neprejde. */
-export function isIsoDate(s: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
-  const d = new Date(`${s}T00:00:00Z`);
-  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
-}
 
 export interface StandingAuthorizationCheck {
   readonly auth?: StandingAuthorization;

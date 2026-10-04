@@ -50,7 +50,7 @@ const USAGE = [
   "  Pri úprave existujúceho záznamu: --if-revision <SHA256 z read>",
   "  --approve-as sa nevyžaduje, keď zápis kryje trvalé poverenie advokáta",
   `  v ${OFFICE_DIR}/${CONFIG_FILE} — viď AGENTNI-ZAPISY.md`,
-  "  okf-memory init     <spis> [--sk] [--apply]   BRAIN.md a adresár pamäte",
+  "  okf-memory init     <spis> [--sk|--cz] [--apply]   BRAIN.md a adresár pamäte",
   "",
   "Bez --apply sa nič nezapisuje.",
 ].join("\n");
@@ -195,7 +195,10 @@ export function runCli(argv: readonly string[]): CliResult {
       const contextFiles = [
         { path: join(dir, "VSTUPY.md"), title: "Evidencia vstupov" },
         { path: join(dir, "KOMUNIKACNE-KANALY.md"), title: "Komunikačné kanály veci" },
-        ...(scope.clientDir ? [{ path: join(scope.clientDir, "KOMUNIKACNE-KANALY.md"), title: "Komunikačné kanály klienta" }] : []),
+        ...(scope.clientDir ? [
+          { path: join(scope.clientDir, "VSTUPY.md"), title: "Evidencia vstupov klienta" },
+          { path: join(scope.clientDir, "KOMUNIKACNE-KANALY.md"), title: "Komunikačné kanály klienta" },
+        ] : []),
       ];
       for (const { path, title } of contextFiles) {
         try {
