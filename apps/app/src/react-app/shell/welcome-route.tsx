@@ -14,6 +14,7 @@ import { writeActiveWorkspaceId } from "./session-memory";
 import { useLocal } from "../kernel/local-provider";
 import { LawossWelcomePage } from "@/lawoss/domains/onboarding/lawoss-welcome-page";
 import type { OnboardingStep } from "@/lawoss/domains/onboarding/api";
+import { authorAfterOnboarding } from "@/lawoss/okf/lawyer-name";
 
 const continuationStep = (value: string | null): OnboardingStep | undefined => value === "client" || value === "matter" || value === "okf" ? value : undefined;
 
@@ -69,7 +70,7 @@ export function WelcomeRoute() {
       if (okf) await installMissingOnboardingSkills(activeClient, activeId, status.profile?.language ?? "sk");
       writeActiveWorkspaceId(activeId);
     }
-    local.setPrefs((previous) => ({ ...previous, hasCompletedOnboarding: true }));
+    local.setPrefs((previous) => ({ ...previous, documentAuthor: authorAfterOnboarding(previous.documentAuthor, status.profile?.lawyerName), hasCompletedOnboarding: true }));
     navigate(activeId ? homeRoute(activeId) : "/home", { replace: true });
   }} />;
 }
