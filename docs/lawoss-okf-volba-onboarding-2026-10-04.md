@@ -121,3 +121,27 @@ Snímky: [voľba](evidence/okf-volba/1-volba-okf.jpg), [potvrdenie](evidence/okf
 - Zabalená desktopová appka, registrácia priečinka cez natívny `workspaceCreate` a reštart.
 - Upozornenie na upravený SKILL.md v živej appke.
 - Názov klienta s bodkami („s. r. o.“) neprejde validáciou a chyba je po anglicky. Patrí do PR B.
+
+### PR B: overenie
+
+Testy (Node 24, `bun` 1.4.2), 4. 10. 2026:
+
+- `cd apps/app && bun test tests/`: 1198 pass, 0 fail (základ #106: 1177). Nové: `lawoss-model-readiness.test.ts`, `lawoss-onboarding-ai-step.test.tsx`, `lawoss-onboarding-folder-name.test.ts`, rozšírené `lawoss-scope-levels.test.tsx` a `lawoss-setup-language.test.tsx`.
+- `cd apps/app && pnpm typecheck`: čisté. `bun scripts/i18n-check.ts`: prešiel (5671 kľúčov, en/de aj sk/cs úplné).
+- `cd apps/server && pnpm typecheck`: čisté. `bun test src/lawoss-onboarding.e2e.test.ts`: 10 pass.
+- `cd lawoss/okf && bun test`: 208 pass, 0 fail (základ 206). `pnpm typecheck`: čisté. `bun run build` a `git diff --exit-code bundle/`: bundle čerstvý, dva behy dávajú rovnaký výstup.
+- `cd lawoss/okf-pamat && pnpm test`: 630 pass, 0 fail. `pnpm typecheck`: čisté. `bun run build` a `git diff --exit-code bundle/`: bundle čerstvý.
+- `bun test scripts/alpha-hardening-contract.test.mjs`: 2 pass (akceptačný protokol obsahuje povinné frázy).
+
+Rozhodnutia:
+
+- **Bod 8.** Výpočet stavu modelu z `session-route` je v `apps/app/src/lawoss/shell/model-readiness.ts`; `session-route` ho volá bez zmeny správania (riadok v `PATCHES.md`). Onboarding k nemu pridáva len vylúčenie zrušenej bezplatnej vrstvy (`opencode`, `eigenwelt-free`). Zoznam poskytovateľov sa číta z aktívneho alebo prvého lokálneho workspace; bez workspace platí náhradný výpočet composera pred načítaním zoznamu.
+- **Bod 9.** Voľba analytiky sa zapisuje do uloženej preferencie, ktorú používa aj prepínač v Nastaveniach. `setAnalyticsConsentOverride` sa nevolá: má prednosť pred uloženou voľbou a nedá sa zrušiť, takže neskoršie vypnutie v Nastaveniach by v tom istom behu nezabralo. Nedotknutý prepínač nechá voľbu prázdnu.
+- **Názov s bodkami.** Validátor odreže koncové bodky a medzery z názvu priečinka (Windows ich ticho odstráni), vnútorné bodky ponechá. Odmieta ďalej prázdny názov, „.“, „..“, úvodnú bodku, oddeľovače, dvojbodku, NUL a viac ako 120 znakov; vtedy appka ukáže vysvetlenie v jazyku rozhrania.
+
+Neoverené:
+
+- Krok AI v živej appke so skutočným poskytovateľom, bez workspace a po návrate z nastavení AI.
+- Či sú nastavenia AI použiteľné pri prvom spustení s OKF, keď ešte neexistuje žiadny workspace (kancelária workspace nevytvára).
+- Názov s bodkami na Windows a obnovenie zmeneného `okf-memory.js` a SKILL.md v existujúcom workspace.
+- Validátor stále prijíma znaky `< > " | ? *`, ktoré Windows v názve nepovolí.
