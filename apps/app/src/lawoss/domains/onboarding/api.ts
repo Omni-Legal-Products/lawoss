@@ -2,6 +2,7 @@ import type { Language } from "@/i18n";
 
 export type OnboardingStep =
   | "identity"
+  | "okf"
   | "office"
   | "ai"
   | "client"
@@ -12,6 +13,11 @@ export type MatterKind = "contentious" | "non_contentious";
 export type ExistingClientMode = "convert" | "map" | "trial_clone";
 export type ClientType = "fo" | "fo-podnikatel" | "po" | "iny";
 export type DocumentLanguage = "sk" | "cs" | "en";
+
+/** Opt-in OKF choice; enabling stores a dated acknowledgement of a notice version. */
+export type OkfChoice =
+  | { enabled: true; acknowledgedAt: string; noticeVersion: string }
+  | { enabled: false };
 
 export type OnboardingProfile = {
   version: 1;
@@ -24,6 +30,7 @@ export type OnboardingProfile = {
   matterRoot?: string;
   /** Server-persisted marker for an active trial-clone client workspace. */
   trial?: boolean;
+  okf?: OkfChoice;
   step?: OnboardingStep;
 };
 
