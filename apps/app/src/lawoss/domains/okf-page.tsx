@@ -9,7 +9,7 @@ import type { MatterTextKey } from "../i18n/matters";
 import { LawossLayout } from "../shell/layout";
 import { activeWorkspace, useOkfConnection, useOkfOverview, type OkfReadResult } from "../okf/read-model";
 import type { CockpitParty } from "../../../../../lawoss/okf/cockpit";
-import { ENABLE_OKF_ROUTE, useOkfOffered } from "./onboarding/entry-actions";
+import { ENABLE_OKF_ROUTE, useOkfChoice } from "./onboarding/entry-actions";
 import { NEW_MATTER_PATH } from "../lite/links";
 import "../lite/pages/okf-glass.css";
 
@@ -61,9 +61,10 @@ function OkfPageQuery({ children, stateText, pickWorkspace = activeWorkspace, ra
   // Zdieľanie štruktúry v react-query drží rovnaký objekt, kým sa obsah nezmení; nový objekt = nový zápis.
   const changedAt = useMemo(() => query.dataUpdatedAt, [query.data]);
   // Bez OKF nie je z čoho skladať prehľady: prázdna stránka to povie a ponúkne zapnutie, nie „žiadne veci“.
-  const okfOffered = useOkfOffered(false);
+  // Len skutočne prečítaný stav: nečitateľný stav pri štarte nesmie tvrdiť, že OKF je vypnuté.
+  const okfChoice = useOkfChoice(false);
   return <OkfPageState
-    okfOff={okfOffered === true}
+    okfOff={okfChoice.known && okfChoice.offered === true}
     meta={{ checkedAt: query.dataUpdatedAt, changedAt, failed: query.isRefetchError }}
     firstRun={firstRun}
     connection={connection === null ? "loading" : connection.client ? "ready" : "unavailable"}

@@ -16,25 +16,47 @@ export function offersOkf(status: { profile: { okf?: OkfChoice } | null } | null
   return status?.profile?.okf?.enabled !== true;
 }
 
-/** `undefined` while the onboarding status is loading. */
-export function useOkfOffered(skip: boolean): boolean | undefined {
-  const [offered, setOffered] = useState<boolean | undefined>(undefined);
+/** Koľkokrát a ako často čítať stav, kým server pri štarte ešte nemá adresu. */
+const STATUS_ATTEMPTS = 8;
+const STATUS_RETRY_MS = 750;
+
+/**
+ * Voľba OKF zo stavu onboardingu. `known` je true len pri skutočne prečítanom stave: pri štarte
+ * appky ešte spojenie nemá adresu servera a prvé čítania zlyhajú (D1 2026-10-04), preto sa skúša
+ * znova. Až keď zlyhajú všetky pokusy, `offered` platí ako pri neznámom stave (`offersOkf(null)`).
+ */
+export function useOkfChoice(skip: boolean): { offered: boolean | undefined; known: boolean } {
+  const [choice, setChoice] = useState<{ offered: boolean | undefined; known: boolean }>({ offered: undefined, known: false });
   useEffect(() => {
     if (skip) return;
     let cancelled = false;
-    void resolveLegalworkConnection()
-      .then(({ normalizedBaseUrl, resolvedToken, resolvedHostToken }) =>
-        createLegalworkServerClient({
-          baseUrl: normalizedBaseUrl,
-          token: resolvedToken || undefined,
-          hostToken: resolvedHostToken || undefined,
-        }).onboardingStatus(),
-      )
-      .then((status) => { if (!cancelled) setOffered(offersOkf(status)); })
-      .catch(() => { if (!cancelled) setOffered(offersOkf(null)); });
-    return () => { cancelled = true; };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const attempt = (left: number) => {
+      void resolveLegalworkConnection()
+        .then(({ normalizedBaseUrl, resolvedToken, resolvedHostToken }) => {
+          if (!normalizedBaseUrl) throw new Error("server address not ready");
+          return createLegalworkServerClient({
+            baseUrl: normalizedBaseUrl,
+            token: resolvedToken || undefined,
+            hostToken: resolvedHostToken || undefined,
+          }).onboardingStatus();
+        })
+        .then((status) => { if (!cancelled) setChoice({ offered: offersOkf(status), known: true }); })
+        .catch(() => {
+          if (cancelled) return;
+          if (left > 1) timer = setTimeout(() => attempt(left - 1), STATUS_RETRY_MS);
+          else setChoice({ offered: offersOkf(null), known: false });
+        });
+    };
+    attempt(STATUS_ATTEMPTS);
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, [skip]);
-  return offered;
+  return choice;
+}
+
+/** `undefined` while the onboarding status is loading. */
+export function useOkfOffered(skip: boolean): boolean | undefined {
+  return useOkfChoice(skip).offered;
 }
 
 const labels = {
