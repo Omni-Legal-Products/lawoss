@@ -245,3 +245,4 @@
 .lw-matter-countdown-overdue { margin-top: 6px; padding: 2px 8px; border-radius: 999px; font-style: normal; font-size: 11px; font-weight: 600; color: var(--td-hot); background: color-mix(in srgb, var(--td-hot) 12%, transparent); }
 .lw-matter-copy[data-copied="failed"] { border-color: color-mix(in srgb, var(--td-hot) 55%, transparent); }
 .lw-matter-copy[data-copied="failed"] .lw-matter-copy-state { color: var(--td-hot); }
+.lw-matter .lw-h1 { overflow-wrap: anywhere; }

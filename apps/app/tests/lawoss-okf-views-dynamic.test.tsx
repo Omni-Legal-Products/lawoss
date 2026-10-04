@@ -13,7 +13,7 @@ import { okfRefreshInterval } from "../src/lawoss/okf/read-model";
 import { deadlineTier } from "../../../lawoss/okf/read";
 import { liteDeadlineLink } from "../src/lawoss/lite/links";
 import { addDays, today } from "../src/lawoss/okf/read-model";
-import { buildOverview, deadlineLabel, type MatterInput } from "../../../lawoss/okf/read";
+import { buildOverview, deadlineLabel, recordDeadlines, type MatterInput } from "../../../lawoss/okf/read";
 import { buildCockpit } from "../../../lawoss/okf/cockpit";
 import { buildToday, groupByClient } from "../src/lawoss/lite/today-model";
 import { LAYER_OF } from "../../../lawoss/okf-pamat/src/schema.ts";
@@ -120,7 +120,7 @@ describe("dynamické pohľady z OKF", () => {
     expect(matterUrgency([{ date: addDays(NOW, 10) }], NOW)).toBeUndefined();
     const nav = html(<SidebarProvider><LiteNavView recent={[{ path: "a", title: "Vec A", deadlines: [{ date: addDays(NOW, 1) }] }, { path: "b", title: "Vec B", deadlines: [] }]} /></SidebarProvider>);
     expect(nav.match(/lw-nav-urgency/g) ?? []).toHaveLength(1);
-    const clients = html(<ClientsView locale="en" groups={[{ client: "Novák", matters: [{ ...matter, deadlines: [{ date: addDays(NOW, 3), title: "x", recordId: "M-1" }] }] }]} />);
+    const clients = html(<ClientsView locale="en" groups={[{ key: "client:Novák", client: "Novák", matters: [{ ...matter, deadlines: [{ date: addDays(NOW, 3), title: "x", recordId: "M-1" }] }] }]} />);
     expect(clients).toContain("Novák");
     expect(clients).toContain('data-urgency="near"');
     // Detail: deadline má kotvu, dlhá história sa skryje za „Show older“.
@@ -194,5 +194,53 @@ describe("dynamické pohľady z OKF", () => {
     expect(out).toContain("Past due: Zmeškaná.");
     expect(out).toContain("+6");
     expect(out).toContain("+3 more");
+  });
+
+  test("review: lehota kancelárie nerozsvieti každú vec, v Dnes je raz ako „Office“", () => {
+    expect(matterUrgency([{ date: addDays(NOW, 1), file: "Office/memory/T-1.md" }], NOW)).toBeUndefined();
+    expect(matterUrgency([{ date: addDays(NOW, 1), file: "Klienti/A/memory/T-1.md" }], NOW)).toBe("hot");
+    const m = (i: number) => ({ ...matter, path: `Klienti/K/V${i}`, title: `Vec ${i}` });
+    const out = html(<TodayView locale="en" model={{
+      deadlines: [{ date: addDays(NOW, 3), title: "DPH", raw: `${addDays(NOW, 3)} Daňové priznanie`, recordId: "O-1", file: "Office/memory/O-1.md", matter: m(0), alsoIn: [m(1), m(2), m(3)], tier: "soon", daysLeft: 3 }],
+      tasks: [{ key: "t", id: "T-1", title: "Spoločná úloha", matters: [m(0), m(1), m(2), m(3)].map((x) => ({ path: x.path, title: x.title })) }],
+      inputs: [], recent: [],
+    }} />);
+    expect(out).toContain(">Office");
+    expect(out).not.toContain("Vec 3</");
+    expect(out).toContain("+2 more");
+  });
+
+  test("review: hotová úloha už nenesie lehotu, ktorá by navždy horela", () => {
+    const task = { okf: 1 as const, id: "T-1", type: "task" as const, title: "Podať", description: "d", layer: LAYER_OF.task, jurisdiction: "sk" as const, status: "active" as const,
+      created: NOW, updated: NOW, truth: "", timeline: [], deadlines: [`${addDays(NOW, -5)} Podanie`] };
+    expect(recordDeadlines({ ...task, state: "done" } as OkfRecord)).toEqual([]);
+    expect(recordDeadlines({ ...task, state: "open" } as OkfRecord)).toHaveLength(1);
+  });
+
+  test("review: dvaja klienti s rovnakým menom ostanú dve karty s rôznym kľúčom", () => {
+    const a = { ...matter, path: "Klienti/Novák/A", title: "A" };
+    const b = { ...matter, path: "Archiv/Novák/B", title: "B" };
+    const groups = groupByClient([a, b], [
+      { path: a.path, scopePaths: [a.path, "Klienti/Novák"] },
+      { path: b.path, scopePaths: [b.path, "Archiv/Novák"] },
+    ]);
+    expect(groups.map((g) => g.client)).toEqual(["Novák", "Novák"]);
+    expect(new Set(groups.map((g) => g.key)).size).toBe(2);
+    // Klient v koreni bez názvu v karte nedostane meno podľa veci.
+    const root = groupByClient([a], [{ path: a.path, scopePaths: [a.path, ""] }]);
+    expect(root[0]?.client).toBe("");
+    expect(html(<ClientsView locale="en" groups={root} />)).toContain(">Client</h2>");
+  });
+
+  test("review: lehota so zdrojom ukazuje aj dátum, text lehoty bez dlhej pomlčky na začiatku", () => {
+    const cockpit: LiteCockpit = { deadlines: { confirmed: [deadline("M-1", 12, { label: "Pojednávanie", source: "Predvolanie.pdf" })], candidates: [] }, tasks: [], attention: [], facts: [], parties: [], events: [] };
+    const page = html(<LiteMatterView matter={matter} cockpit={cockpit} busy={null} error={null} onAction={() => {}} />);
+    expect(page).toMatch(/\d+\/\d+ · Predvolanie\.pdf|\d+\. \d+\. · Predvolanie\.pdf|· Predvolanie\.pdf/);
+    expect(deadlineLabel("2026-10-09 \u2014 Pojednávanie")).toBe("Pojednávanie");
+  });
+
+  test("review: názov veci z medzier padne na názov priečinka", () => {
+    const overview = buildOverview([{ path: "Klienti/K/Vec X", records: [], cardFrontmatter: { title: "   " } }], NOW);
+    expect(overview.matters[0]?.title).toBe("Vec X");
   });
 });

@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import type { CSSProperties, ReactNode } from "react";
+import { useMemo, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ArrowUpRight, CalendarClock, Check, FolderOpen, Inbox, ListChecks } from "lucide-react";
 import { t, type Language } from "@/i18n";
@@ -8,7 +8,8 @@ import { useQuery } from "@tanstack/react-query";
 import { OkfPage, type OkfPageMeta } from "../../domains/okf-page";
 import { litePageProps } from "../state-text";
 import { addDays, formatDay, today, useOkfConnection, type OkfReadResult } from "../../okf/read-model";
-import { deadlineKey, deadlineText, urgencyOf, type Urgency } from "../../okf/view-rules";
+import { deadlineKey, deadlineText, isCalendarDay, urgencyOf, type Urgency } from "../../okf/view-rules";
+import { isOfficeFile } from "../../../../../../lawoss/okf/read";
 import { buildToday, nextDeadline, type TodayDeadline, type TodayModel, type TodayTask } from "../today-model";
 import { LITE_CLIENTS_PATH, liteDeadlineLink, liteMatterLink, NEW_MATTER_PATH } from "../links";
 import { hotDeadlineCount, LiveStamp, useHotTitle, useMinuteTick } from "../live";
@@ -19,6 +20,8 @@ const STRIP_DAYS = 14;
 const STRIP_DOTS = 3;
 const STRIP_TASK_DOTS = 2;
 const TIP_ITEMS = 6;
+/** Lehota alebo úloha zdieľaná viacerými vecami ukáže dve a „+N ďalšie". */
+const MATTERS_SHOWN = 2;
 const MATTER_CARDS = 6;
 
 export function TodayPage() {
@@ -40,8 +43,10 @@ export function TodayPage() {
 function TodayLive({ data, meta, locale, name }: { data: OkfReadResult; meta: OkfPageMeta; locale: Language; name?: string }) {
   useMinuteTick(); // o polnoci nový „dnes", počas dňa nový pozdrav
   const now = today();
+  // Model len pri novom obsahu pamäte alebo novom dni, nie pri každom tichom obnovení.
+  const model = useMemo(() => buildToday(data, now), [data, now]);
   useHotTitle(hotDeadlineCount(data, now));
-  return <TodayView model={buildToday(data, now)} locale={locale} meta={meta} name={name} />;
+  return <TodayView model={model} locale={locale} meta={meta} name={name} />;
 }
 
 type Text = (key: string, params?: Record<string, string | number>) => string;
@@ -112,10 +117,11 @@ export function TodayView({ model, locale, now = new Date(), meta, name }: { mod
                     <strong>{d.invalid ? "!" : dayOfMonth(d.date)}</strong>
                   </span>
                   <span className="lw-today-main">
-                    <span className="lw-today-title">{deadlineText(d)}</span>
-                    <small>{[d.matter, ...(d.alsoIn ?? [])].map((m) => m.title).join(" · ")}{d.matter.matterRef ? <span className="lw-today-ref">{d.matter.matterRef}</span> : null}</small>
+                    <span className="lw-today-title" title={deadlineText(d)}>{deadlineText(d)}</span>
+                    <small>{isOfficeFile(d.file) ? text("scope_office") : matterList([d.matter, ...(d.alsoIn ?? [])], text)}
+                      {d.invalid ? <span className="lw-today-raw">{d.raw ?? d.date}</span> : d.matter.matterRef && !isOfficeFile(d.file) ? <span className="lw-today-ref">{d.matter.matterRef}</span> : null}</small>
                   </span>
-                  <span className="lw-today-when"><span className="lw-today-date-short">{formatDay(d.date, locale)}</span><span className="lw-today-due">{dueLabel(d, text)}</span></span>
+                  <span className="lw-today-when"><span className="lw-today-date-short">{d.invalid ? "?" : formatDay(d.date, locale)}</span><span className="lw-today-due">{dueLabel(d, text)}</span></span>
                 </Link>
               </li>
             ))}
@@ -145,12 +151,14 @@ export function TodayView({ model, locale, now = new Date(), meta, name }: { mod
                 <li key={task.key} className="lw-today-task">
                   <span className="lw-today-ring" aria-hidden />
                   <span className="lw-today-main">
-                    <span className="lw-today-title">{task.title}</span>
-                    <small>{task.matters.map((m, i) => (
+                    <span className="lw-today-title" title={task.title}>{task.title}</span>
+                    <small>{task.matters.slice(0, MATTERS_SHOWN).map((m, i) => (
                       <span key={m.path}>{i > 0 ? " · " : ""}<Link to={liteMatterLink(m.path)}>{m.title}</Link></span>
-                    ))}</small>
+                    ))}{task.matters.length > MATTERS_SHOWN ? <span> · {text("more_items", { count: task.matters.length - MATTERS_SHOWN })}</span> : null}</small>
                   </span>
-                  {task.due ? <span className="lw-today-chip" data-urgency={urgencyOf(task.due, todayIso)}>{formatDay(task.due, locale)}</span> : null}
+                  {task.due ? <span className="lw-today-chip" data-urgency={urgencyOf(task.due, todayIso)}>
+                    {formatDay(task.due, locale)}{isCalendarDay(task.due) && task.due < todayIso ? ` · ${text("overdue")}` : !isCalendarDay(task.due) ? ` · ${text("due_invalid")}` : ""}
+                  </span> : null}
                 </li>
               ))}
             </ul>}
@@ -251,4 +259,9 @@ function DeadlineStrip({ deadlines, tasks, todayIso, locale, text }: { deadlines
       </ol>
     </section>
   );
+}
+
+function matterList(matters: readonly { title: string }[], text: Text): string {
+  const shown = matters.slice(0, MATTERS_SHOWN).map((m) => m.title).join(" · ");
+  return matters.length > MATTERS_SHOWN ? `${shown} · ${text("more_items", { count: matters.length - MATTERS_SHOWN })}` : shown;
 }

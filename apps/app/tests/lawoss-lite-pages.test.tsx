@@ -90,7 +90,7 @@ describe("stránky LAWOSS-lite", () => {
     expect(out).toContain("Nothing waiting to be filed.");
   });
   test("Klienti a věci", () => {
-    const out = html(<ClientsView groups={[{ client: "Novák Jan", matters: [matter] }]} />);
+    const out = html(<ClientsView groups={[{ key: "client:Novák Jan", client: "Novák Jan", matters: [matter] }]} />);
     expect(out).toContain('data-lawoss-lite="clients"');
     expect(out).toContain("Novák Jan");
     expect(out).toContain(matter.title);

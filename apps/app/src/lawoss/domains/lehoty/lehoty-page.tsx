@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { deadlineText } from "../../okf/view-rules";
 import { OkfPage, useMatterText } from "../okf-page";
 import {
   dayClass,
@@ -82,7 +83,7 @@ function DeadlineRow({ d, index, now }: { d: UpcomingDeadline; index: number; no
       <span className="lw-no">{index + 1}.</span>
       <span className={dayClass(d.date, now)}>{formatDay(d.date, locale)}</span>
       <span className="lw-t">
-        {d.title}
+        {deadlineText(d)}
         <small>
           {d.matter.title}
           {d.matter.matterRef ? ` · ${d.matter.matterRef}` : ""}

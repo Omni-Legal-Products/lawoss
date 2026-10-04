@@ -105,7 +105,7 @@ export const shellEn = {
   "lawoss.lite.greeting_evening": "Good evening",
   "lawoss.lite.hero_calm": "Nothing is due this week. A good time to get ahead.",
   "lawoss.lite.hero_next": "Next deadline: {title}, {when}.",
-  "lawoss.lite.stat_week": "Deadlines this week",
+  "lawoss.lite.stat_week": "Urgent deadlines",
   "lawoss.lite.strip_title": "Next 14 days",
   "lawoss.lite.strip_today": "Today",
   "lawoss.lite.matters_title": "Your matters",
@@ -128,7 +128,9 @@ export const shellEn = {
   "lawoss.lite.hero_invalid": "Check the date of: {title}.",
   "lawoss.lite.copy_failed": "Couldn't copy",
   "lawoss.lite.kind_other": "Other records",
-  "lawoss.lite.more_items": "+{count} more"
+  "lawoss.lite.more_items": "+{count} more",
+  "lawoss.lite.urgent": "urgent deadline",
+  "lawoss.lite.client_unnamed": "Client"
 };
 
 /** Čeština a slovenština potřebují navíc tvary few/many (Intl.PluralRules, viz `t()` v i18n/index.ts). */
@@ -243,7 +245,7 @@ export const shellCs = {
   "lawoss.lite.greeting_evening": "Dobrý večer",
   "lawoss.lite.hero_calm": "Tento týden nic nehoří. Dobrá chvíle předběhnout práci.",
   "lawoss.lite.hero_next": "Nejbližší lhůta: {title}, {when}.",
-  "lawoss.lite.stat_week": "Lhůty tento týden",
+  "lawoss.lite.stat_week": "Naléhavé lhůty",
   "lawoss.lite.strip_title": "Příštích 14 dní",
   "lawoss.lite.strip_today": "Dnes",
   "lawoss.lite.matters_title": "Vaše věci",
@@ -266,7 +268,9 @@ export const shellCs = {
   "lawoss.lite.hero_invalid": "Ověřte datum lhůty: {title}.",
   "lawoss.lite.copy_failed": "Nepodařilo se zkopírovat",
   "lawoss.lite.kind_other": "Ostatní záznamy",
-  "lawoss.lite.more_items": "+{count} další"
+  "lawoss.lite.more_items": "+{count} další",
+  "lawoss.lite.urgent": "naléhavá lhůta",
+  "lawoss.lite.client_unnamed": "Klient"
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellSk = {
@@ -378,7 +382,7 @@ export const shellSk = {
   "lawoss.lite.greeting_evening": "Dobrý večer",
   "lawoss.lite.hero_calm": "Tento týždeň nič nehorí. Dobrá chvíľa predbehnúť prácu.",
   "lawoss.lite.hero_next": "Najbližšia lehota: {title}, {when}.",
-  "lawoss.lite.stat_week": "Lehoty tento týždeň",
+  "lawoss.lite.stat_week": "Naliehavé lehoty",
   "lawoss.lite.strip_title": "Najbližších 14 dní",
   "lawoss.lite.strip_today": "Dnes",
   "lawoss.lite.matters_title": "Vaše veci",
@@ -401,7 +405,9 @@ export const shellSk = {
   "lawoss.lite.hero_invalid": "Overte dátum lehoty: {title}.",
   "lawoss.lite.copy_failed": "Nepodarilo sa skopírovať",
   "lawoss.lite.kind_other": "Ostatné záznamy",
-  "lawoss.lite.more_items": "+{count} ďalšie"
+  "lawoss.lite.more_items": "+{count} ďalšie",
+  "lawoss.lite.urgent": "naliehavá lehota",
+  "lawoss.lite.client_unnamed": "Klient"
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellDe = {
@@ -511,7 +517,7 @@ export const shellDe = {
   "lawoss.lite.greeting_evening": "Guten Abend",
   "lawoss.lite.hero_calm": "Diese Woche ist nichts fällig. Ein guter Moment, um vorzuarbeiten.",
   "lawoss.lite.hero_next": "Nächste Frist: {title}, {when}.",
-  "lawoss.lite.stat_week": "Fristen diese Woche",
+  "lawoss.lite.stat_week": "Dringende Fristen",
   "lawoss.lite.strip_title": "Nächste 14 Tage",
   "lawoss.lite.strip_today": "Heute",
   "lawoss.lite.matters_title": "Ihre Angelegenheiten",
@@ -534,5 +540,7 @@ export const shellDe = {
   "lawoss.lite.hero_invalid": "Datum prüfen: {title}.",
   "lawoss.lite.copy_failed": "Kopieren fehlgeschlagen",
   "lawoss.lite.kind_other": "Weitere Einträge",
-  "lawoss.lite.more_items": "+{count} weitere"
+  "lawoss.lite.more_items": "+{count} weitere",
+  "lawoss.lite.urgent": "dringende Frist",
+  "lawoss.lite.client_unnamed": "Mandant"
 } satisfies Record<keyof typeof shellEn, string>;

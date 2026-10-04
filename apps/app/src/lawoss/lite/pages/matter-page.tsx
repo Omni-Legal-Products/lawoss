@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { t } from "@/i18n";
@@ -14,7 +14,7 @@ import { officeWorkspace, formatDay, today, useOkfConnection, type OkfReadResult
 import { daysUntil, deadlineKey, deadlineText, inHorizon, urgencyOf } from "../../okf/view-rules";
 import { composeQuickAction, MORE_ACTIONS, QUICK_ACTIONS } from "../quick-actions";
 import { POSTPROCESS_RESOURCE_NAME, postprocessSource, VYSTUP_SKILL_NAME, vystupSkillBody } from "../../okf/skill-bundle";
-import { nextDeadline } from "../today-model";
+import { clientOf, nextDeadline } from "../today-model";
 import { LITE_CLIENTS_PATH } from "../links";
 import { listMatterConversations, openMatterConversation, type MatterConversation } from "../matter-conversations";
 import { saveDocumentsToMatter } from "../matter-intake";
@@ -29,7 +29,9 @@ export type LiteCockpit = Pick<Cockpit, "deadlines" | "tasks" | "attention" | "f
 export function LiteMatterPage() {
   const locale = useLocale();
   // Bez nadpisu stránky: hlavním nadpisem je název věci (LiteMatterView), ne „Klienti a věci“.
-  return <OkfPage {...litePageProps(locale)}>{(data, meta) => <LiteMatterBody data={data} meta={meta} />}</OkfPage>;
+  const [params] = useSearchParams();
+  // Kľúč podľa veci: pri prechode na inú vec sa vynulujú aj stavy akcií, potvrdenia a chyby.
+  return <OkfPage {...litePageProps(locale)}>{(data, meta) => <LiteMatterBody key={params.get("vec") ?? ""} data={data} meta={meta} />}</OkfPage>;
 }
 
 /** Jen přesná shoda `?vec=`; na rozdíl od `selectMatter` nikdy nespadne na první věc (akce by běžely nad jinou). */
@@ -44,6 +46,9 @@ function LiteMatterBody({ data, meta }: { data: OkfReadResult; meta: OkfPageMeta
   const navigate = useNavigate();
   const { connection } = useOkfConnection();
   const running = useRef(false);
+  // Akcia dobehne až po prechode na inú vec: výsledok staršej veci už nesmie nikam presmerovať.
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const [busy, setBusy] = useState<ActionId | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -72,7 +77,8 @@ function LiteMatterBody({ data, meta }: { data: OkfReadResult; meta: OkfPageMeta
       const prompt = composeQuickAction(id, { title: matter.title, matterRef: matter.matterRef, path: matter.path }, locale);
       // Jen připraví koncept v nové konverzaci nad věcí; nic se neodesílá.
       // Shared client and office access remains controlled by native Permissions.
-      navigate(await openMatterSession(connection, officeWorkspace(connection), matter, data.matters, prompt, id === "document" ? installVystupSkill : undefined));
+      const target = await openMatterSession(connection, officeWorkspace(connection), matter, data.matters, prompt, id === "document" ? installVystupSkill : undefined);
+      if (alive.current) navigate(target);
     } catch (failure) {
       // Surová hláška může obsahovat interní pojmy; advokát vidí obecný text, diagnostika jde do konzole.
       console.warn("LAWOSS-lite: quick action failed", failure);
@@ -84,7 +90,8 @@ function LiteMatterBody({ data, meta }: { data: OkfReadResult; meta: OkfPageMeta
     if (running.current || !connection) return;
     running.current = true; setError(null);
     try {
-      navigate(await openMatterConversation(connection, conversation));
+      const target = await openMatterConversation(connection, conversation);
+      if (alive.current) navigate(target);
     } catch (failure) {
       console.warn("LAWOSS-lite: continue conversation failed", failure);
       setError(failure instanceof Error ? failure.message : String(failure));
@@ -114,7 +121,7 @@ function LiteMatterBody({ data, meta }: { data: OkfReadResult; meta: OkfPageMeta
     scopePaths={input?.scopePaths}
     existingMemorySources={input?.existingMemorySources}
     truths={Object.fromEntries((input?.records ?? []).map((record) => [record.id, record.truth]))}
-    client={input?.clientTitle ?? cockpit?.client ?? clientName(input?.scopePaths)}
+    client={clientCrumb(matter, input)}
     meta={meta} focusDeadline={params.get("lehota")} />;
 }
 
@@ -199,7 +206,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
     document.addEventListener("keydown", close);
     return () => { document.removeEventListener("pointerdown", close); document.removeEventListener("keydown", close); };
   }, []);
-  const onTabKey = (event: KeyboardEvent<HTMLDivElement>) => {
+  const onTabKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "ArrowRight" && event.key !== "ArrowLeft" && event.key !== "Home" && event.key !== "End") return;
     event.preventDefault();
     const ids = tabs.map(([id]) => id);
@@ -321,7 +328,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
                     <span className="lw-matter-cal" aria-hidden><span>{d.invalid ? "?" : weekdayShort(d.date, locale)}</span><strong>{d.invalid ? "!" : dayOfMonth(d.date)}</strong></span>
                     <span className="lw-matter-item-main">
                       <span className="lw-matter-item-title">{deadlineText(d)}</span>
-                      {d.source ? <small>{d.source}</small> : <small>{formatDay(d.date, locale)}</small>}
+                      <small>{[d.invalid ? d.date : formatDay(d.date, locale), d.source].filter(Boolean).join(" · ")}</small>
                     </span>
                     {d.invalid ? <span className="lw-matter-flag">{text("due_invalid")}</span> : d.overdue ? <span className="lw-matter-flag">{text("overdue")}</span> : !d.confirmed ? <span className="lw-matter-flag">{text("verify")}</span> : null}
                   </li>
@@ -487,8 +494,8 @@ async function installVystupSkill(client: Parameters<NonNullable<Parameters<type
   await client.upsertSkillResource(workspaceId, VYSTUP_SKILL_NAME, { name: POSTPROCESS_RESOURCE_NAME, content: postprocessSource() });
 }
 
-/** Klient z ciest rozsahu pamäte (`Klienti/Novák s. r. o/...`), ak ho cesta má. */
-function clientName(scopePaths: readonly string[] | undefined): string | undefined {
-  const client = scopeLevels(scopePaths ?? []).find((s) => s.level === "client" && s.path)?.path;
-  return client ? client.split("/").filter(Boolean).pop() : undefined;
+/** Drobček: meno klienta z tej istej funkcie ako stránka Klienti; vec bez klienta nemá drobček s menom. */
+function clientCrumb(matter: MatterOverview, input: Parameters<typeof clientOf>[1]): string | undefined {
+  const client = clientOf(matter, input);
+  return client.key.startsWith("matter:") ? undefined : client.name;
 }

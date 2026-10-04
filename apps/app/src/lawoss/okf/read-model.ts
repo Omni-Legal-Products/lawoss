@@ -275,6 +275,9 @@ export async function readWorkspaceMemory(
     }
     return input;
   });
+  // Súbežné čítanie pridáva problémy v náhodnom poradí; zoradené sa nemenia, kým sa nezmenia súbory
+  // (inak by zdieľanie štruktúry v react-query hlásilo zmenu a pohľad by sa zbytočne prekreslil).
+  problems.sort((a, b) => a.path.localeCompare(b.path) || a.message.localeCompare(b.message));
   return { ...buildOverview(matters, todayIso), problems, truncated, inputs: matters };
 }
 

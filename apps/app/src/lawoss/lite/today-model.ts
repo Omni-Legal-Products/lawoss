@@ -12,7 +12,8 @@ import { HORIZON_DAYS } from "../okf/view-rules";
 export type TodayDeadline = UpcomingDeadline & { tier: DeadlineTier; daysLeft: number; alsoIn?: { path: string; title: string }[] };
 export type TodayTask = { key: string; id: string; title: string; due?: string; matters: { path: string; title: string }[] };
 export type TodayModel = { deadlines: TodayDeadline[]; tasks: TodayTask[]; inputs: PendingInput[]; recent: MatterOverview[] };
-export type ClientGroup = { client: string; matters: MatterOverview[] };
+/** `key` je jedinečný aj pri dvoch klientoch s rovnakým menom; `client` "" = klient bez názvu v karte. */
+export type ClientGroup = { key: string; client: string; matters: MatterOverview[] };
 
 const DAY = 86_400_000;
 const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY);
@@ -70,17 +71,24 @@ export function groupByClient(matters: readonly MatterOverview[], inputs: readon
   const byPath = new Map(inputs.map((i) => [i.path, i]));
   const groups = new Map<string, ClientGroup>();
   for (const matter of matters) {
-    const input = byPath.get(matter.path);
-    // Klient je aj koreň priečinka (cesta ""): názov vtedy nesie len jeho karta.
-    const clientScope = scopeLevels(input?.scopePaths ?? []).find((s) => s.level === "client");
-    const clientDir = clientScope?.path;
-    const client = input?.clientTitle ?? (clientDir ? lastSegment(clientDir) : clientFromPath(matter.path) ?? matter.title);
-    const key = clientScope ? `client:${clientDir}` : client;
-    const group = groups.get(key) ?? { client, matters: [] };
+    const { key, name } = clientOf(matter, byPath.get(matter.path));
+    const group = groups.get(key) ?? { key, client: name ?? "", matters: [] };
     group.matters.push(matter);
     groups.set(key, group);
   }
-  return [...groups.values()].sort((a, b) => a.client.localeCompare(b.client, "cs"));
+  return [...groups.values()].sort((a, b) => a.client.localeCompare(b.client, "cs") || a.key.localeCompare(b.key));
+}
+
+/**
+ * Jediné miesto, ktoré určuje klienta veci (Klienti aj drobček v detaile): karta klienta,
+ * jeho priečinok, tvar cesty `AK/<písmeno>/<klient>`. Klient v koreni priečinka bez názvu
+ * v karte ostane bez mena (`name` undefined) - nikdy sa nepomenuje podľa veci.
+ */
+export function clientOf(matter: Pick<MatterOverview, "path" | "title">, input?: Pick<MatterInput, "scopePaths" | "clientTitle">): { key: string; name?: string } {
+  const scope = scopeLevels(input?.scopePaths ?? []).find((s) => s.level === "client");
+  if (scope) return { key: `client:${scope.path}`, name: input?.clientTitle?.trim() || (scope.path ? lastSegment(scope.path) : undefined) };
+  const fromPath = clientFromPath(matter.path);
+  return fromPath ? { key: `path:${fromPath}`, name: fromPath } : { key: `matter:${matter.path}`, name: matter.title };
 }
 
 /** Nejbližší lhůta dnes nebo později - prošlá ani neplatná se jako „další“ neukazuje. */

@@ -8,6 +8,7 @@ import { t, type Language } from "@/i18n";
 import type { OkfReadResult } from "../okf/read-model";
 import type { OkfPageMeta } from "../domains/okf-page";
 import { urgencyOf, type Urgency } from "../okf/view-rules";
+import { isOfficeFile } from "../../../../../lawoss/okf/read";
 import { buildToday } from "./today-model";
 
 const MINUTE = 60_000;
@@ -71,7 +72,8 @@ export const deadlineAnchor = (recordId: string, date: string): string =>
   `lehota-${`${recordId}-${date}`.replace(/[^\p{L}\p{N}_-]+/gu, "-")}`;
 
 /** Najvyššia naliehavosť lehôt veci (rovnaké pravidlo ako všade), alebo nič, ak je všetko v pokoji. */
-export function matterUrgency(deadlines: readonly { date: string; invalid?: true }[], todayIso: string): Exclude<Urgency, "calm"> | undefined {
-  const levels = new Set(deadlines.map((d) => urgencyOf(d.date, todayIso, d.invalid)));
+export function matterUrgency(deadlines: readonly { date: string; invalid?: true; file?: string }[], todayIso: string): Exclude<Urgency, "calm"> | undefined {
+  // Lehota kancelárie patrí kancelárii: nerozsvieti bod pri každej veci, ukáže sa raz v Dnes.
+  const levels = new Set(deadlines.filter((d) => !isOfficeFile(d.file)).map((d) => urgencyOf(d.date, todayIso, d.invalid)));
   return levels.has("hot") ? "hot" : levels.has("near") ? "near" : undefined;
 }

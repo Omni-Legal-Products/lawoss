@@ -290,3 +290,7 @@
 .lw-today-dots-more { font-style: normal; font-family: var(--lw-font-mono); font-size: 9px; line-height: 7px; color: var(--lw-text-tertiary); }
 .lw-today-tip-more { font-size: 11px; color: var(--td-gold); }
 .lw-today-name { overflow-wrap: anywhere; }
+
+/* Neplatný dátum: pôvodný zápis pod názvom, nie v úzkom stĺpci dátumu */
+.lw-today-raw { font-family: var(--lw-font-mono); font-size: 11px; color: var(--td-hot); overflow-wrap: anywhere; }
+.lw-today-when { max-width: 16ch; }

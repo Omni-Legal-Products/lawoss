@@ -1,8 +1,8 @@
 /** @jsxImportSource react */
 import { CalendarDays, FolderOpen, MessageSquare } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
-import { t } from "@/i18n";
+import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import {
   SidebarGroup,
@@ -24,14 +24,15 @@ const ASK_PATH = "/session";
 const OFFICE_PAGES = new Set([LITE_TODAY_PATH, LITE_CLIENTS_PATH, LITE_MATTER_PATH]);
 
 /** `deadlines` z pamäte OKF: bod pri veci ukáže naliehavosť jej najbližšej lehoty. */
-type RecentMatter = { path: string; title: string; deadlines?: readonly { date: string; invalid?: true }[] };
+type RecentMatter = { path: string; title: string; deadlines?: readonly { date: string; invalid?: true; file?: string }[] };
 
 /** Boční panel v lite: Dnes · Klienti a věci · Zeptat se + „Poslední věci“. */
 export function LiteNav(props: { activePane?: boolean }) {
   useMinuteTick(); // body naliehavosti sa o polnoci prepočítajú aj bez nového čítania
   const { connection } = useOkfConnection();
   const query = useOkfOverview(connection, officeWorkspace(connection));
-  const recent = query.data ? buildToday(query.data, today()).recent : [];
+  const day = today();
+  const recent = useMemo(() => (query.data ? buildToday(query.data, day).recent : []), [query.data, day]);
   const { pathname } = useLocation();
   const navigate = useNavigate();
   // Návrat z konverzace na stránku kanceláře vrátí rozsah na kancelář (nová věc, nastavení, Zeptat se).
@@ -94,7 +95,7 @@ export function LiteNavView(props: { recent: readonly RecentMatter[]; activePane
                     render={<Link to={liteMatterLink(matter.path)} aria-current={active ? "page" : undefined} data-lawoss-lite-recent="" title={matter.title} />}
                   >
                     <span className="truncate">{matter.title}</span>
-                    {urgencyDot(matter, now)}
+                    {urgencyDot(matter, now, locale)}
                   </SidebarMenuButton>
                 </SidebarMenuItem>;
               })}
@@ -107,7 +108,10 @@ export function LiteNavView(props: { recent: readonly RecentMatter[]; activePane
 }
 
 /** Bod pri poslednej veci: červený, keď lehota horí, zlatý, keď sa blíži; inak nič. */
-function urgencyDot(matter: RecentMatter, todayIso: string) {
+function urgencyDot(matter: RecentMatter, todayIso: string, locale: Language) {
   const urgency = matter.deadlines ? matterUrgency(matter.deadlines, todayIso) : undefined;
-  return urgency ? <span className="lw-nav-urgency" data-urgency={urgency} aria-hidden /> : null;
+  return urgency ? <>
+    <span className="lw-nav-urgency" data-urgency={urgency} aria-hidden />
+    <span className="sr-only">{t(urgency === "hot" ? "lawoss.lite.urgent" : "lawoss.lite.matter_upcoming", locale)}</span>
+  </> : null;
 }
