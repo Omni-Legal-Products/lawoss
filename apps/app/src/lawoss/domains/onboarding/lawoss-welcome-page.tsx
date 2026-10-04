@@ -83,7 +83,7 @@ const text: Record<Language, Record<string, string>> = {
     name: "Name",
     path: "Folder path",
     aiText:
-      "Choose a provider and model in the existing AI settings. This onboarding does not create a separate AI configuration.",
+      "The assistant answers through a model you connect in the AI settings. Onboarding does not create a separate AI configuration.",
     type: "Client type",
     company: "Company",
     jurisdictionSk: "Slovakia",
@@ -137,7 +137,7 @@ const text: Record<Language, Record<string, string>> = {
     name: "Názov",
     path: "Cesta k priečinku",
     aiText:
-      "Poskytovateľa a model vyberte v pôvodných nastaveniach AI. Tento onboarding nevytvára samostatnú konfiguráciu AI.",
+      "Asistent odpovedá cez model, ktorý pripojíte v nastaveniach AI. Onboarding nevytvára samostatnú konfiguráciu AI.",
     type: "Typ klienta",
     company: "Právnická osoba",
     jurisdictionSk: "Slovensko",
@@ -191,7 +191,7 @@ const text: Record<Language, Record<string, string>> = {
     name: "Název",
     path: "Cesta ke složce",
     aiText:
-      "Poskytovatele a model zvolte v původním nastavení AI. Tento onboarding nevytváří samostatnou konfiguraci AI.",
+      "Asistent odpovídá přes model, který připojíte v nastavení AI. Onboarding nevytváří samostatnou konfiguraci AI.",
     type: "Typ klienta",
     company: "Právnická osoba",
     jurisdictionSk: "Slovensko",
@@ -244,7 +244,7 @@ const text: Record<Language, Record<string, string>> = {
     name: "Name",
     path: "Ordnerpfad",
     aiText:
-      "Wählen Sie Anbieter und Modell in den vorhandenen KI-Einstellungen. Dieses Onboarding erstellt keine getrennte KI-Konfiguration.",
+      "Der Assistent antwortet über ein Modell, das Sie in den KI-Einstellungen verbinden. Das Onboarding erstellt keine getrennte KI-Konfiguration.",
     type: "Mandantentyp",
     company: "Unternehmen",
     jurisdictionSk: "Slowakei",
@@ -343,7 +343,7 @@ const extraText: Record<Language, Record<string, string>> = {
     pack: "Pri dokončení doplníme chýbajúce skills OKF pre klienta. Existujúce úpravy zachováme.",
     continue: "Pokračovať",
     workingFolder: "Pracovný priečinok (voliteľné)",
-    workingFolderHelp: "Priečinok pridáme ako pracovný priestor. Nevytvoríme v ňom štruktúru OKF ani skills OKF.",
+    workingFolderHelp: "LAWOSS bude pracovať v tomto priečinku. Nevytvorí v ňom priečinky ani súbory OKF.",
     finish: "Dokončiť",
   },
   cs: {
@@ -358,7 +358,7 @@ const extraText: Record<Language, Record<string, string>> = {
     pack: "Při dokončení doplníme chybějící skills OKF pro klienta. Existující úpravy zachováme.",
     continue: "Pokračovat",
     workingFolder: "Pracovní složka (volitelné)",
-    workingFolderHelp: "Složku přidáme jako pracovní prostor. Nevytvoříme v ní strukturu OKF ani skills OKF.",
+    workingFolderHelp: "LAWOSS bude pracovat v této složce. Nevytvoří v ní složky ani soubory OKF.",
     finish: "Dokončit",
   },
   en: {
@@ -373,7 +373,7 @@ const extraText: Record<Language, Record<string, string>> = {
     pack: "Completion adds missing OKF skills for this client and preserves existing customizations.",
     continue: "Continue",
     workingFolder: "Working folder (optional)",
-    workingFolderHelp: "The folder is added as a workspace. No OKF structure or OKF skills are created in it.",
+    workingFolderHelp: "LAWOSS will work in this folder. It creates no OKF folders or files in it.",
     finish: "Finish",
   },
   de: {
@@ -389,7 +389,7 @@ const extraText: Record<Language, Record<string, string>> = {
     pack: "Beim Abschluss werden fehlende OKF-Skills ergänzt. Bestehende Anpassungen bleiben erhalten.",
     continue: "Weiter",
     workingFolder: "Arbeitsordner (optional)",
-    workingFolderHelp: "Der Ordner wird als Arbeitsbereich hinzugefügt. Es werden darin keine OKF-Struktur und keine OKF-Skills angelegt.",
+    workingFolderHelp: "LAWOSS arbeitet in diesem Ordner. Es legt darin keine OKF-Ordner oder -Dateien an.",
     finish: "Abschließen",
   },
 };
@@ -651,6 +651,11 @@ export function LawossWelcomePage({
   };
   // Náhľad zmien sa po vytvorení posunie do zorného poľa, aby jeho potvrdenie nebolo pod okrajom okna.
   const previewSection = useRef<HTMLElement | null>(null);
+  // Nový krok začína hore; inak by po dlhom náhľade ostal posunutý a jeho nadpis by nebolo vidieť.
+  const scrollArea = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    scrollArea.current?.scrollTo?.({ top: 0 });
+  }, [step]);
   useEffect(() => {
     if (!preview) return;
     const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -760,7 +765,7 @@ export function LawossWelcomePage({
     <DirectoryPickerContext.Provider value={pickDirectory}>
       {/* Koreň appky má overflow: hidden; bez vlastnej posúvateľnej oblasti by náhľad zmien a jeho
           potvrdenie v nižšom okne neboli dosiahnuteľné (D1 na zabalenej appke). */}
-      <div className="h-screen overflow-y-auto" data-lawoss-onboarding-scroll>
+      <div ref={scrollArea} className="h-screen overflow-y-auto" data-lawoss-onboarding-scroll>
       <main
         className="mx-auto min-h-full max-w-3xl px-5 py-10"
         data-lawoss-onboarding-step={step}
