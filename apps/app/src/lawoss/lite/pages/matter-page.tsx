@@ -11,7 +11,7 @@ import { deadlineAnchor, hotDeadlineCount, LiveStamp, useHotTitle, useMinuteTick
 import { litePageProps } from "../state-text";
 import { openMatterSession } from "../../okf/matter-session";
 import { officeWorkspace, formatDay, today, useOkfConnection, type OkfReadResult } from "../../okf/read-model";
-import { daysUntil, deadlineKey, deadlineText, inHorizon, urgencyOf } from "../../okf/view-rules";
+import { daysUntil, deadlineKey, deadlineText, dueText, inHorizon, urgencyOf } from "../../okf/view-rules";
 import { composeQuickAction, MORE_ACTIONS, QUICK_ACTIONS } from "../quick-actions";
 import { POSTPROCESS_RESOURCE_NAME, postprocessSource, VYSTUP_SKILL_NAME, vystupSkillBody } from "../../okf/skill-bundle";
 import { clientOf, nextDeadline } from "../today-model";
@@ -253,7 +253,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
           <div className="lw-matter-countdown" data-urgency={urgencyOf(next, now)} role="group" aria-label={`${text("next_deadline")}: ${formatDay(next, locale)}${nextEntry ? `, ${deadlineText(nextEntry)}` : ""}`}>
             <span className="lw-matter-countdown-label">{text("next_deadline")}</span>
             <strong>{daysToNext <= 0 ? formatDay(next, locale) : daysToNext}</strong>
-            <span>{daysToNext <= 0 ? text(daysToNext < 0 ? "overdue" : "due_today") : text("due_in_days", { count: daysToNext })}</span>
+            <span>{dueText(next, now, locale)}</span>
             {nextEntry ? <small>{deadlineText(nextEntry)}</small> : null}
             {overdueCount > 0 ? <em className="lw-matter-countdown-overdue">+{overdueCount} {text("overdue")}</em> : null}
           </div>

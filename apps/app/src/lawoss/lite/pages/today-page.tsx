@@ -8,7 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { OkfPage, type OkfPageMeta } from "../../domains/okf-page";
 import { litePageProps } from "../state-text";
 import { addDays, formatDay, today, useOkfConnection, type OkfReadResult } from "../../okf/read-model";
-import { deadlineKey, deadlineText, isCalendarDay, urgencyOf, type Urgency } from "../../okf/view-rules";
+import { deadlineKey, deadlineText, dueTextFromDays, isCalendarDay, urgencyOf, type Urgency } from "../../okf/view-rules";
 import { isOfficeFile } from "../../../../../../lawoss/okf/read";
 import { buildToday, nextDeadline, type TodayDeadline, type TodayModel, type TodayTask } from "../today-model";
 import { LITE_CLIENTS_PATH, liteDeadlineLink, liteMatterLink, NEW_MATTER_PATH } from "../links";
@@ -51,13 +51,6 @@ function TodayLive({ data, meta, locale, name }: { data: OkfReadResult; meta: Ok
 
 type Text = (key: string, params?: Record<string, string | number>) => string;
 
-function dueLabel(d: TodayDeadline, text: Text): string {
-  if (d.invalid) return text("due_invalid");
-  if (d.tier === "overdue") return text("overdue");
-  if (d.daysLeft === 0) return text("due_today");
-  if (d.daysLeft === 1) return text("due_tomorrow");
-  return text("due_in_days", { count: d.daysLeft }); // _one/_few/_many/_other podle jazyka
-}
 
 /** Naléhavost lhůty podle společných pravidel (view-rules), stejně jako v detailu věci. */
 const urgency = (d: Pick<TodayDeadline, "date" | "invalid">, todayIso: string): Urgency => urgencyOf(d.date, todayIso, d.invalid);
@@ -87,7 +80,7 @@ export function TodayView({ model, locale, now = new Date(), meta, name }: { mod
   const lead = !first || thisWeek.length === 0 ? text("hero_calm")
     : first.invalid ? text("hero_invalid", { title: deadlineText(first) })
     : first.tier === "overdue" ? text("hero_overdue", { title: deadlineText(first) })
-    : text("hero_next", { title: deadlineText(first), when: dueLabel(first, text) });
+    : text("hero_next", { title: deadlineText(first), when: dueTextFromDays(first.daysLeft, locale) });
   return (
     <div className="lw-today" data-lawoss-lite="today">
       <header className="lw-today-hero" style={reveal(0)}>
@@ -121,7 +114,7 @@ export function TodayView({ model, locale, now = new Date(), meta, name }: { mod
                     <small>{isOfficeFile(d.file) ? text("scope_office") : matterList([d.matter, ...(d.alsoIn ?? [])], text)}
                       {d.invalid ? <span className="lw-today-raw">{d.raw ?? d.date}</span> : d.matter.matterRef && !isOfficeFile(d.file) ? <span className="lw-today-ref">{d.matter.matterRef}</span> : null}</small>
                   </span>
-                  <span className="lw-today-when"><span className="lw-today-date-short">{d.invalid ? "?" : formatDay(d.date, locale)}</span><span className="lw-today-due">{dueLabel(d, text)}</span></span>
+                  <span className="lw-today-when"><span className="lw-today-date-short">{d.invalid ? "?" : formatDay(d.date, locale)}</span><span className="lw-today-due">{dueTextFromDays(d.tier === "overdue" ? -1 : d.daysLeft, locale, d.invalid)}</span></span>
                 </Link>
               </li>
             ))}

@@ -243,4 +243,19 @@ describe("dynamické pohľady z OKF", () => {
     const overview = buildOverview([{ path: "Klienti/K/Vec X", records: [], cardFrontmatter: { title: "   " } }], NOW);
     expect(overview.matters[0]?.title).toBe("Vec X");
   });
+
+  test("review: lehota na zajtra má ten istý slovný termín v Dnes aj v odpočte detailu", () => {
+    const record: OkfRecord = {
+      okf: 1, id: "M-1", type: "matter", title: "Vec", description: "d", layer: LAYER_OF.matter, jurisdiction: "sk", status: "active",
+      created: NOW, updated: NOW, truth: "", timeline: [], deadlines: [`${addDays(NOW, 1)} Odvolanie`],
+    };
+    const inputs: MatterInput[] = [{ path: "K/A", records: [record] }];
+    const overview = buildOverview(inputs, NOW);
+    const data = { ...overview, inputs, problems: [], truncated: false };
+    const today = html(<TodayView locale="en" model={buildToday(data, NOW)} />);
+    const page = html(<LiteMatterView matter={overview.matters[0]!} cockpit={buildCockpit(data, "K/A", NOW)!} busy={null} error={null} onAction={() => {}} />);
+    expect(today).toContain(">tomorrow<");
+    expect(page).toContain(">tomorrow<");
+    expect(page).not.toContain("in 1 day");
+  });
 });
