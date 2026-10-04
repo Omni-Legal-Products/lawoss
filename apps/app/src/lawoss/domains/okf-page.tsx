@@ -1,7 +1,8 @@
 /** @jsxImportSource react */
 import { useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
+import { useOptionalLocal } from "@/react-app/kernel/local-provider";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import type { MatterTextKey } from "../i18n/matters";
@@ -48,10 +49,15 @@ function OkfPageQuery({ children, stateText, pickWorkspace = activeWorkspace, ra
   const { connection, error } = useOkfConnection();
   const workspace = pickWorkspace(connection);
   const query = useOkfOverview(connection, workspace);
+  // Prvé spustenie: Lite začína na „Dnes", ktoré si chráni trasu, takže upstream presmerovanie na
+  // onboarding by sa nespustilo. Rovnaké pravidlo ako upstream: žiaden workspace a onboarding nedokončený.
+  const local = useOptionalLocal();
+  const firstRun = Boolean(connection?.client && local) && workspace === null && !local?.prefs.hasCompletedOnboarding;
   // Zdieľanie štruktúry v react-query drží rovnaký objekt, kým sa obsah nezmení; nový objekt = nový zápis.
   const changedAt = useMemo(() => query.dataUpdatedAt, [query.data]);
   return <OkfPageState
     meta={{ checkedAt: query.dataUpdatedAt, changedAt, failed: query.isRefetchError }}
+    firstRun={firstRun}
     connection={connection === null ? "loading" : connection.client ? "ready" : "unavailable"}
     workspace={workspace ? workspace.displayNameResolved || workspace.name || workspace.path : null}
     // Zlyhané obnovenie na pozadí nezahodí stránku: ostanú posledné údaje a indikátor povie, z kedy sú.
@@ -78,6 +84,8 @@ export function OkfPageState(props: {
   /** Shown with every state except loaded matters, so a working page is not followed by a stray retry. */
   retry?: ReactNode;
   meta?: OkfPageMeta;
+  /** Žiaden workspace a nedokončený onboarding: namiesto prázdnej stránky otvoriť onboarding. */
+  firstRun?: boolean;
 }) {
   const matterText = useMatterText().text;
   const node = okfStateNode(props, props.stateText ?? matterText);
@@ -89,6 +97,7 @@ function okfStateNode(props: Parameters<typeof OkfPageState>[0], text: StateText
   if (props.error) return <div className="lw-status err" role="alert">{text("memoryError", { error: props.error instanceof Error ? props.error.message : String(props.error) })}</div>;
   if (props.connection === "loading") return <OkfSkeleton label={text("connectionLoading")} />;
   if (props.connection === "unavailable") return <div className="lw-status warn" role="alert">{text("serverUnavailable")}</div>;
+  if (props.workspace === null && props.firstRun) return <Navigate to="/welcome" replace />;
   if (props.workspace === null) return <p className="lw-empty">{text("noWorkspace")} <Link to="/welcome">{text("openWorkspace")}</Link>.</p>;
   if (!props.data) return <OkfSkeleton label={text("memoryLoading", { workspace: props.workspace })} />;
   // Lite: část souborů nešla načíst, ale věci ano - bez upozornění by Dnes tvrdilo „žádné lhůty“ (review PR #100, 6).

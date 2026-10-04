@@ -6,6 +6,7 @@ import { buildTimeline, groupFacts, LiteMatterView, type LiteCockpit } from "../
 import { TodayView } from "../src/lawoss/lite/pages/today-page";
 import { ClientsView } from "../src/lawoss/lite/pages/clients-page";
 import { LiteNavView } from "../src/lawoss/lite/lite-nav";
+import { OkfPageState } from "../src/lawoss/domains/okf-page";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { deadlineAnchor, LiveStamp, matterUrgency } from "../src/lawoss/lite/live";
 import { daysUntil, deadlineText, isCalendarDay, urgencyOf } from "../src/lawoss/okf/view-rules";
@@ -257,5 +258,14 @@ describe("dynamické pohľady z OKF", () => {
     expect(today).toContain(">tomorrow<");
     expect(page).toContain(">tomorrow<");
     expect(page).not.toContain("in 1 day");
+  });
+
+  test("D1: prvé spustenie bez workspace otvorí onboarding, vracajúci sa používateľ vidí výzvu", () => {
+    const base = { connection: "ready" as const, workspace: null, error: null, data: undefined, loading: false };
+    const first = html(<OkfPageState {...base} firstRun>{() => "dashboard"}</OkfPageState>);
+    expect(first).not.toContain("lw-empty");
+    const back = html(<OkfPageState {...base} firstRun={false}>{() => "dashboard"}</OkfPageState>);
+    expect(back).toContain("lw-empty");
+    expect(back).toContain('href="/welcome"');
   });
 });
