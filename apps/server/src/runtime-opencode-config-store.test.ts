@@ -15,6 +15,7 @@ import {
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
 import { startServer } from "./server.js";
+import { externalAppFilesRoot } from "./lawoss/workspace-app-files.js";
 import type { ServerConfig } from "./types.js";
 
 const WORKSPACE_ID = "ws_runtime_test";
@@ -164,6 +165,77 @@ describe("runtime OpenCode config store", () => {
               },
             },
           },
+        });
+      } finally {
+        await server.stop(true);
+      }
+    });
+  });
+
+  test("redirects project OpenCode writes to external app files while runtime settings remain available", async () => {
+    await withWorkspace(async ({ root, config }) => {
+      config.workspaces[0]!.appFiles = "outside";
+      const projectConfigPath = join(root, ".opencode", "opencode.jsonc");
+      const originalProjectConfig = '{ "original": true }\n';
+      await mkdir(join(root, ".opencode"), { recursive: true });
+      await writeFile(projectConfigPath, originalProjectConfig, "utf8");
+      await writeFile(join(root, "client-record.txt"), "original client record", "utf8");
+      const appFilesRoot = externalAppFilesRoot(config, config.workspaces[0]!);
+
+      const server = await startServer(config) as Served;
+      try {
+        const request = (path: string, body: Record<string, unknown>) => fetch(`http://127.0.0.1:${server.port}${path}`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+
+        const [configResponse, skillResponse, commandResponse] = await Promise.all([
+          request(`/workspace/${WORKSPACE_ID}/opencode-config`, { scope: "project", content: '{ "changed": true }' }),
+          request(`/workspace/${WORKSPACE_ID}/skills`, { name: "external-skill", description: "External skill", content: "# external" }),
+          request(`/workspace/${WORKSPACE_ID}/commands`, { name: "external-command", description: "External command", template: "External" }),
+        ]);
+        for (const response of [configResponse, skillResponse, commandResponse]) expect(response.status).toBe(200);
+
+        const [configRead, commandList, skillList] = await Promise.all([
+          fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/opencode-config?scope=project`, { headers: { authorization: `Bearer ${config.token}` } }),
+          fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/commands`, { headers: { authorization: `Bearer ${config.token}` } }),
+          fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/skills`, { headers: { authorization: `Bearer ${config.token}` } }),
+        ]);
+        expect((await configRead.json()).content).toContain('"changed": true');
+        expect((await commandList.json()).items).toEqual(expect.arrayContaining([expect.objectContaining({ name: "external-command" })]));
+        expect((await skillList.json()).items).toEqual(expect.arrayContaining([expect.objectContaining({ name: "external-skill" })]));
+        expect(await readFile(join(appFilesRoot, ".opencode", "opencode.jsonc"), "utf8")).toContain('"changed": true');
+        expect(await readFile(join(appFilesRoot, ".opencode", "commands", "external-command.md"), "utf8")).toContain("External");
+        expect(await readFile(join(appFilesRoot, ".opencode", "skills", "external-skill", "SKILL.md"), "utf8")).toContain("# external");
+
+        expect(await readFile(projectConfigPath, "utf8")).toBe(originalProjectConfig);
+        expect(await readFile(join(root, "client-record.txt"), "utf8")).toBe("original client record");
+        await expectMissing(join(root, ".opencode", "skills"));
+        await expectMissing(join(root, ".opencode", "commands"));
+
+        const previousConfigHome = process.env.XDG_CONFIG_HOME;
+        process.env.XDG_CONFIG_HOME = join(root, "global-config");
+        try {
+          const globalResponse = await request(`/workspace/${WORKSPACE_ID}/opencode-config`, {
+            scope: "global",
+            content: '{ "global": true }',
+          });
+          expect(globalResponse.status).toBe(200);
+          expect(await readFile(join(root, "global-config", "opencode", "opencode.jsonc"), "utf8")).toBe('{ "global": true }\n');
+        } finally {
+          if (previousConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+          else process.env.XDG_CONFIG_HOME = previousConfigHome;
+        }
+
+        const runtimeResponse = await fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/config`, {
+          method: "PATCH",
+          headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
+          body: JSON.stringify({ opencode: { provider: { synthetic: { name: "Synthetic" } } } }),
+        });
+        expect(runtimeResponse.status).toBe(200);
+        expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).provider).toEqual({
+          synthetic: { name: "Synthetic" },
         });
       } finally {
         await server.stop(true);

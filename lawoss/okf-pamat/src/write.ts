@@ -165,7 +165,9 @@ export function planWrite(
   const kind: WriteKind = !before ? "create" : !after ? "delete" : "update";
   const subject = after ?? before;
   if (!subject) throw new Error("Prázdny zápis");
-  const layer = subject.layer;
+  // Vrstva pred zmenou rozhoduje tiež: inak by agent prepísal L1/L3 záznam na
+  // vlastný (L2) typ a zmenil ho bez človeka. Diff nesie prísnejšiu vrstvu.
+  const layer = before?.layer === "L1" || before?.layer === "L3" ? before.layer : subject.layer;
   const requiresApproval = kind === "delete" || layer === "L1" || layer === "L3";
 
   return {

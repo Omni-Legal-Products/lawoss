@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { currentLanguagePreference, setLanguagePreference, setLocale, t } from "../src/i18n";
 import { setupEn, setupCs, setupSk, setupDe } from "../src/lawoss/i18n/setup";
 import { LawossWelcomePage } from "../src/lawoss/domains/onboarding/lawoss-welcome-page";
+import type { OnboardingApi } from "../src/lawoss/domains/onboarding/api";
 import { NovySpisPanel, PlanGroup } from "../src/lawoss/domains/novy-spis/novy-spis-page";
 import { composePrompt, targetDir, type NovySpisForm } from "../src/lawoss/okf/compose-prompt";
 import { previewPlan } from "../src/lawoss/okf/preview";
@@ -17,18 +18,21 @@ const form: NovySpisForm = {
   matterKind: "advisory", matterMode: "ongoing", clientName: "Původní klient", advokat: "Test Advokát", documentLanguage: "cs",
 };
 
-// SSR uses the hook's English snapshot. Root browser checks cover an actual
-// mounted wizard with dirty values; a changed document language now requires a new plan.
-test("welcome exposes pre-workspace language choice and localized onboarding content", () => {
-  let calls = 0;
-  const html = renderToStaticMarkup(<MemoryRouter><LawossWelcomePage onGetStarted={() => { calls++; }} analyticsEnabled={false} onAnalyticsChange={() => { calls++; }} /></MemoryRouter>);
-  expect(html).toContain("data-lawoss-language-switcher");
-  expect(html).toContain("Let’s prepare LAWOSS for your work");
-  expect(html).toContain("Recommended setup");
-  expect(html).toContain("Compare two documents");
+const onboardingApi: OnboardingApi = {
+  onboardingStatus: async () => ({ profile: null, capabilities: { map: true, trialClone: true } }),
+  updateOnboardingProfile: async (profile) => ({ version: 1, lawyerName: "", jurisdiction: "sk", language: "en", ...profile }),
+  classifyOnboarding: async () => ({ level: "unknown", confidence: "unknown", complete: false }),
+  planOnboarding: async () => ({ id: "plan", fingerprint: "fingerprint", preview: {} }),
+  applyOnboarding: async () => ({ result: "applied" }),
+};
+
+test("welcome exposes the first native identity step with all UI languages", () => {
+  const html = renderToStaticMarkup(<MemoryRouter><LawossWelcomePage api={onboardingApi} pickDirectory={async () => null} onOpenAiSettings={() => {}} onComplete={() => {}} /></MemoryRouter>);
+  expect(html).toContain("Set up your legal practice");
+  expect(html).toContain("You and jurisdiction");
+  expect(html).toContain('value="sk"');
+  expect(html).toContain(">de</option>");
   expect(html).not.toContain("lawoss.setup.");
-  expect(html).not.toContain("Pripravme LAWOSS");
-  expect(calls).toBe(0);
 });
 
 test("native wizard uses translated UI while keeping jurisdiction values and raw prompt", () => {

@@ -85,7 +85,11 @@ export interface Store {
   readonly problems: StoreProblem[];
 }
 
-/** Detect body content the canonical parser cannot preserve, without printing raw personal data. */
+/**
+ * Detect body content the canonical parser cannot preserve, without printing raw personal data.
+ * Vlastné sekcie agenta sa zachovávajú doslovne, preto problémom nie sú; problémom ostáva
+ * text pred prvou sekciou, zdvojená Truth/History a riadok History mimo tvaru udalosti.
+ */
 function hasUnparsedBody(text: string): boolean {
   const lines = text.split("\n");
   const body = lines.slice(lines.indexOf("---", 1) + 1);
@@ -95,10 +99,10 @@ function hasUnparsedBody(text: string): boolean {
     if (!line.trim()) continue;
     if (/^##\s+/.test(line)) {
       const heading = /^##\s+(Truth|History)\s*$/.exec(line)?.[1];
-      if (!heading || seen.has(heading)) return true;
-      seen.add(heading);
-      section = heading;
-    } else if (section === "Truth") {
+      if (heading && seen.has(heading)) return true;
+      if (heading) seen.add(heading);
+      section = heading ?? "custom";
+    } else if (section === "Truth" || section === "custom") {
       continue;
     } else if (section !== "History" || !/^-\s*\d{4}-\d{2}-\d{2}\s*(?:\[[a-z_]+\]\s*)?[—-]\s*.*$/.test(line.trim())) {
       return true;
@@ -124,7 +128,7 @@ export function readStore(dir: string): Store {
         const source = readFileSync(join(memoryDir, name), "utf8");
         records.push(parseRecord(source));
         if (hasUnparsedBody(source)) {
-          problems.push({ file: join(memoryDir, name), message: "Časť obsahu mimo podporovaných sekcií Truth/History alebo riadkov History sa nedá načítať. Otvor celý zdrojový súbor; tento výpis nie je úplný." });
+          problems.push({ file: join(memoryDir, name), message: "Časť obsahu (text pred prvou sekciou, zdvojená Truth/History alebo riadok History mimo tvaru udalosti) sa nedá načítať. Otvor celý zdrojový súbor; tento výpis nie je úplný." });
         }
       } catch (e) {
         problems.push({ file: name, message: e instanceof Error ? e.message : String(e) });
@@ -666,6 +670,8 @@ export function retrofitStatusFile(dir: string, apply: boolean): BlockName[] {
  */
 export interface Scope {
   readonly matter: Store;
+  readonly subjectDir: string | undefined;
+  readonly subjectRecords: OkfRecord[];
   readonly clientDir: string | undefined;
   readonly clientRecords: OkfRecord[];
   readonly officeDir: string | undefined;
@@ -681,6 +687,22 @@ export interface Scope {
  * fungovať priečinky založené skriptami `novy-spis`.
  */
 const CLIENT_CARDS = ["client.md", "klient.md"];
+const SUBJECT_CARDS = ["subject.md"];
+
+/** Finds the nearest subject below the same client, never crossing a client boundary. */
+export function findSubjectDir(matterDir: string): string | undefined {
+  const clientDir = findClientDir(matterDir);
+  if (!clientDir) return undefined;
+  const client = resolve(clientDir);
+  let dir = resolve(matterDir);
+  for (;;) {
+    const parent = dirname(dir);
+    if (parent === dir || parent === client) return undefined;
+    if (!parent.startsWith(`${client}${sep}`)) return undefined;
+    if (SUBJECT_CARDS.some(card => existsSync(join(parent, card)))) return parent;
+    dir = parent;
+  }
+}
 
 /**
  * Zložka kancelárie. Býva v koreni spisov vedľa priečinkov klientov a drží
@@ -768,6 +790,9 @@ function findClientByPath(matterDir: string, maxUp: number): string | undefined 
 export function readScope(matterDir: string): Scope {
   const matter = readStore(matterDir);
   const clientDir = findClientDir(matterDir);
+  const subjectDir = findSubjectDir(matterDir);
+  const subject = subjectDir ? readStore(subjectDir) : undefined;
+  const subjectRecords = subject?.records ?? [];
   const client = clientDir ? readStore(clientDir) : undefined;
   const clientRecords = client?.records ?? [];
   // Kancelária ako „spis" nesmie čítať samu seba dvakrát.
@@ -775,8 +800,8 @@ export function readScope(matterDir: string): Scope {
   const officeDir = najdena && resolve(najdena) !== resolve(matterDir) ? najdena : undefined;
   const office = officeDir ? readStore(officeDir) : undefined;
   const officeRecords = office?.records ?? [];
-  const records = [...matter.records, ...clientRecords, ...officeRecords];
-  const problems = [...matter.problems, ...(client?.problems ?? []), ...(office?.problems ?? [])];
+  const records = [...matter.records, ...subjectRecords, ...clientRecords, ...officeRecords];
+  const problems = [...matter.problems, ...(subject?.problems ?? []), ...(client?.problems ?? []), ...(office?.problems ?? [])];
   const seen = new Set<string>();
   for (const record of records) {
     if (seen.has(record.id)) problems.push({ file: matterDir, message: `Duplicitné ID ${record.id} v rozsahu pamäte.` });
@@ -784,6 +809,8 @@ export function readScope(matterDir: string): Scope {
   }
   return {
     matter,
+    subjectDir,
+    subjectRecords,
     clientDir,
     clientRecords,
     officeDir,

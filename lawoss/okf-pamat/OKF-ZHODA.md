@@ -60,13 +60,16 @@ Spec je pri čítaní zámerne zhovievavá. Dve jej pravidlá **nedodržiavame**
 
 V katalógu dát to sedí. **V spise nie.** Tvrdenie, ktoré sa odvoláva na dôkaz `E-007`, a ten dôkaz v spise nie je, nie je nedopísaná znalosť — je to vada, ktorú protistrana nájde skôr než my. `BROKEN_LINK` preto zostáva **chybou**.
 
-### 2. Neznámy `type` sa nečíta ako koncept
+### 2. Neznámy `type` je vlastný typ agenta — vždy L2
 
 > „Consumers MUST NOT reject a bundle because of… Unknown `type` values."
 
-Vrstva (L1/L2/L3) sa u nás **odvodzuje z typu**. Neznámy typ teda nemá kam patriť a nedá sa preň rozhodnúť, či ho smie agent zapísať sám. Súbor sa preskočí a ohlási ako nečitateľný.
-
-**Bundle sa tým neodmieta** — zvyšok pamäte sa načíta a funguje. Odmieta sa jeden dokument, nie celý priečinok, čo je práve to, čo spec chráni.
+Od 4. 10. 2026 (rozhodnutie 3 z 25. 9.: štruktúru riadi agent) to **dodržiavame**.
+Neznámy `type` sa načíta ako vlastný typ agenta, validátor ho označí varovaním
+`AGENT_TYPE` a zápis neblokuje. Vrstva (L1/L2/L3) sa u nás **odvodzuje z typu**,
+preto má vlastný typ vrstvu pevnú: **L2**. Vlastný typ s inou vrstvou je chyba —
+inak by sa ním dala obísť brána L1/L3. Rovnako sa zachovajú vlastné sekcie tela
+mimo `## Truth` a `## History`.
 
 ## Čo dodržiavame aj tam, kde by sa nám to nehodilo
 
