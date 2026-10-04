@@ -24,7 +24,7 @@ export type StateText = (key: MatterTextKey, params?: Record<string, string | nu
 type PickWorkspace = typeof activeWorkspace;
 /** `rawProblems: false` (lite) hides per-file read errors - they carry internal names like "Workspace not found". */
 /** Kedy sa pamäť naposledy overila a kedy sa jej obsah naozaj zmenil (indikátor živosti). */
-export type OkfPageMeta = { checkedAt: number; changedAt: number };
+export type OkfPageMeta = { checkedAt: number; changedAt: number; failed?: boolean };
 type PageProps = { title?: string; children: (data: OkfReadResult, meta: OkfPageMeta) => ReactNode; stateText?: StateText; pickWorkspace?: PickWorkspace; rawProblems?: boolean };
 
 /** Retry also reloads the desktop connection, which may be absent during startup. */
@@ -51,10 +51,11 @@ function OkfPageQuery({ children, stateText, pickWorkspace = activeWorkspace, ra
   // Zdieľanie štruktúry v react-query drží rovnaký objekt, kým sa obsah nezmení; nový objekt = nový zápis.
   const changedAt = useMemo(() => query.dataUpdatedAt, [query.data]);
   return <OkfPageState
-    meta={{ checkedAt: query.dataUpdatedAt, changedAt }}
+    meta={{ checkedAt: query.dataUpdatedAt, changedAt, failed: query.isRefetchError }}
     connection={connection === null ? "loading" : connection.client ? "ready" : "unavailable"}
     workspace={workspace ? workspace.displayNameResolved || workspace.name || workspace.path : null}
-    error={error || query.error}
+    // Zlyhané obnovenie na pozadí nezahodí stránku: ostanú posledné údaje a indikátor povie, z kedy sú.
+    error={error || (query.data ? null : query.error)}
     data={query.data}
     // Tiché obnovenie na pozadí nič neohlasuje; stav „obnovujem" len pri prvom alebo vyžiadanom čítaní.
     loading={query.isFetching && !query.isRefetching}

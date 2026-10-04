@@ -8,18 +8,38 @@ import { t, type Language } from "@/i18n";
 import type { OkfReadResult } from "../okf/read-model";
 import type { OkfPageMeta } from "../domains/okf-page";
 import { urgencyOf, type Urgency } from "../okf/view-rules";
-import { buildToday, nextDeadline } from "./today-model";
+import { buildToday } from "./today-model";
 
 const MINUTE = 60_000;
 
-/** „Aktualizované práve teraz"; bod krátko zabliká, keď sa obsah pamäte naozaj zmenil. */
-export function LiveStamp({ meta, locale }: { meta: OkfPageMeta; locale: Language }) {
-  const [now, setNow] = useState(() => Date.now());
+/**
+ * Prekreslí stránku každú minútu: „dnes" sa zmení o polnoci a pozdrav podľa dennej doby,
+ * aj keď sa pamäť nezmenila a react-query by nič neprekreslil.
+ */
+export function useMinuteTick(): number {
+  const [tick, setTick] = useState(() => Date.now());
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    const timer = window.setInterval(() => setTick(Date.now()), MINUTE);
     return () => window.clearInterval(timer);
   }, []);
+  return tick;
+}
+
+const clock = (ms: number, locale: Language) => new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(new Date(ms));
+
+/**
+ * „Aktualizované práve teraz"; bod krátko zabliká, keď sa obsah pamäte naozaj zmenil.
+ * Keď obnovenie zlyhá, stránka ostane s poslednými údajmi a povie, z kedy sú.
+ */
+export function LiveStamp({ meta, locale }: { meta: OkfPageMeta; locale: Language }) {
+  const now = useMinuteTick();
   if (!meta.checkedAt) return null;
+  if (meta.failed) {
+    return <span className="lw-live" data-stale role="status" aria-live="polite">
+      <span className="lw-live-dot" aria-hidden />
+      {t("lawoss.lite.live_stale", locale, { time: clock(meta.checkedAt, locale) })}
+    </span>;
+  }
   const minutes = Math.floor(Math.max(0, now - meta.checkedAt) / MINUTE);
   return (
     <span className="lw-live" role="status" aria-live="polite">
@@ -50,11 +70,8 @@ export function useHotTitle(count: number): void {
 export const deadlineAnchor = (recordId: string, date: string): string =>
   `lehota-${`${recordId}-${date}`.replace(/[^\p{L}\p{N}_-]+/gu, "-")}`;
 
-/** Naliehavosť najbližšej lehoty veci, alebo nič, ak nič nehorí ani sa neblíži. */
+/** Najvyššia naliehavosť lehôt veci (rovnaké pravidlo ako všade), alebo nič, ak je všetko v pokoji. */
 export function matterUrgency(deadlines: readonly { date: string; invalid?: true }[], todayIso: string): Exclude<Urgency, "calm"> | undefined {
-  if (deadlines.some((d) => d.invalid || (d.date < todayIso))) return "hot";
-  const next = nextDeadline(deadlines, todayIso);
-  if (!next) return undefined;
-  const urgency = urgencyOf(next, todayIso);
-  return urgency === "calm" ? undefined : urgency;
+  const levels = new Set(deadlines.map((d) => urgencyOf(d.date, todayIso, d.invalid)));
+  return levels.has("hot") ? "hot" : levels.has("near") ? "near" : undefined;
 }

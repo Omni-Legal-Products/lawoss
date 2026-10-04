@@ -217,7 +217,7 @@
 .lw-matter-copy:focus-visible { outline: 2px solid var(--td-gold); outline-offset: 2px; }
 .lw-matter-copy-state:empty { display: none; }
 .lw-matter-copy-state { font-family: var(--lw-font-sans); font-size: 11px; color: var(--lw-success, #7fb38a); animation: lw-okf-rise 260ms var(--td-ease) both; }
-.lw-matter-copy[data-copied] { border-color: color-mix(in srgb, var(--lw-success, #7fb38a) 55%, transparent); }
+.lw-matter-copy[data-copied="ok"] { border-color: color-mix(in srgb, var(--lw-success, #7fb38a) 55%, transparent); }
 
 /* Lehota otvorená z Dnes sa krátko rozsvieti */
 .lw-matter-item[data-highlight] { animation: lw-okf-focus 2.2s var(--td-ease) 1; }
@@ -240,3 +240,8 @@
 @media (prefers-reduced-motion: reduce) {
   .lw-matter-item[data-highlight] { animation: none; background: color-mix(in srgb, var(--td-gold) 14%, transparent); }
 }
+
+/* Odpočet: počet lehôt po termíne alebo s neplatným dátumom */
+.lw-matter-countdown-overdue { margin-top: 6px; padding: 2px 8px; border-radius: 999px; font-style: normal; font-size: 11px; font-weight: 600; color: var(--td-hot); background: color-mix(in srgb, var(--td-hot) 12%, transparent); }
+.lw-matter-copy[data-copied="failed"] { border-color: color-mix(in srgb, var(--td-hot) 55%, transparent); }
+.lw-matter-copy[data-copied="failed"] .lw-matter-copy-state { color: var(--td-hot); }

@@ -272,6 +272,9 @@
   .lw-today-days { grid-auto-flow: row; grid-template-columns: repeat(7, minmax(0, 1fr)); row-gap: 8px; }
   .lw-today-days::after { display: none; }
   .lw-today-tip { min-width: 170px; }
+  /* Bunka „po lehote" je na úzkom obsahu samostatný riadok, nie ôsmy deň týždňa. */
+  .lw-today-day[data-overdue] { grid-column: 1 / -1; }
+  .lw-today-day[data-overdue] > a { grid-auto-flow: column; justify-content: start; gap: 10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -282,3 +285,8 @@
 
 /* Meno z onboardingu v pozdrave */
 .lw-today-name { color: var(--lw-text-secondary); -webkit-text-fill-color: currentColor; font-weight: 500; }
+
+/* Viac lehôt v jeden deň: tri body a počet zvyšku; bublina najviac šesť položiek */
+.lw-today-dots-more { font-style: normal; font-family: var(--lw-font-mono); font-size: 9px; line-height: 7px; color: var(--lw-text-tertiary); }
+.lw-today-tip-more { font-size: 11px; color: var(--td-gold); }
+.lw-today-name { overflow-wrap: anywhere; }

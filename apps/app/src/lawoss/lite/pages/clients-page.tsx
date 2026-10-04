@@ -10,7 +10,7 @@ import { formatDay, today, type OkfReadResult } from "../../okf/read-model";
 import { urgencyOf } from "../../okf/view-rules";
 import { groupByClient, nextDeadline, type ClientGroup } from "../today-model";
 import { liteMatterLink, NEW_MATTER_PATH } from "../links";
-import { hotDeadlineCount, LiveStamp, matterUrgency, useHotTitle } from "../live";
+import { hotDeadlineCount, LiveStamp, matterUrgency, useHotTitle, useMinuteTick } from "../live";
 import "./okf-glass.css";
 import "./clients.css";
 
@@ -20,6 +20,7 @@ export function ClientsPage() {
 }
 
 function ClientsLive({ data, meta, locale }: { data: OkfReadResult; meta: OkfPageMeta; locale: Language }) {
+  useMinuteTick();
   useHotTitle(hotDeadlineCount(data, today()));
   return <ClientsView groups={groupByClient(data.matters, data.inputs)} meta={meta} locale={locale} />;
 }

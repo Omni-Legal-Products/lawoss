@@ -8,15 +8,17 @@ import { useQuery } from "@tanstack/react-query";
 import { OkfPage, type OkfPageMeta } from "../../domains/okf-page";
 import { litePageProps } from "../state-text";
 import { addDays, formatDay, today, useOkfConnection, type OkfReadResult } from "../../okf/read-model";
-import { deadlineText, urgencyOf, type Urgency } from "../../okf/view-rules";
+import { deadlineKey, deadlineText, urgencyOf, type Urgency } from "../../okf/view-rules";
 import { buildToday, nextDeadline, type TodayDeadline, type TodayModel, type TodayTask } from "../today-model";
 import { LITE_CLIENTS_PATH, liteDeadlineLink, liteMatterLink, NEW_MATTER_PATH } from "../links";
-import { hotDeadlineCount, LiveStamp, useHotTitle } from "../live";
+import { hotDeadlineCount, LiveStamp, useHotTitle, useMinuteTick } from "../live";
 import "./okf-glass.css";
 import "./today.css";
 
 const STRIP_DAYS = 14;
-const WEEK_DAYS = 7;
+const STRIP_DOTS = 3;
+const STRIP_TASK_DOTS = 2;
+const TIP_ITEMS = 6;
 const MATTER_CARDS = 6;
 
 export function TodayPage() {
@@ -36,6 +38,7 @@ export function TodayPage() {
 }
 
 function TodayLive({ data, meta, locale, name }: { data: OkfReadResult; meta: OkfPageMeta; locale: Language; name?: string }) {
+  useMinuteTick(); // o polnoci nový „dnes", počas dňa nový pozdrav
   const now = today();
   useHotTitle(hotDeadlineCount(data, now));
   return <TodayView model={buildToday(data, now)} locale={locale} meta={meta} name={name} />;
@@ -73,17 +76,20 @@ const reveal = (index: number): CSSProperties & Record<"--lw-i", number> => ({ "
 export function TodayView({ model, locale, now = new Date(), meta, name }: { model: TodayModel; locale: Language; now?: Date; meta?: OkfPageMeta; name?: string }) {
   const text: Text = (key, params) => t(`lawoss.lite.${key}`, locale, params);
   const todayIso = today(now);
-  const thisWeek = model.deadlines.filter((d) => d.invalid || d.tier === "overdue" || d.daysLeft < WEEK_DAYS);
+  // „Tento týždeň" = všetko, čo nie je v pokoji (po lehote, neplatné, do 7 dní) - rovnaké pravidlo ako farby.
+  const thisWeek = model.deadlines.filter((d) => urgency(d, todayIso) !== "calm");
   const first = model.deadlines[0];
+  const lead = !first || thisWeek.length === 0 ? text("hero_calm")
+    : first.invalid ? text("hero_invalid", { title: deadlineText(first) })
+    : first.tier === "overdue" ? text("hero_overdue", { title: deadlineText(first) })
+    : text("hero_next", { title: deadlineText(first), when: dueLabel(first, text) });
   return (
     <div className="lw-today" data-lawoss-lite="today">
       <header className="lw-today-hero" style={reveal(0)}>
         <div className="lw-today-hero-copy">
           <p className="lw-today-date">{longDate(todayIso, locale)}{meta ? <LiveStamp meta={meta} locale={locale} /> : null}</p>
           <h1 className="lw-today-greeting">{text(greetingKey(now.getHours()))}{name ? <span className="lw-today-name">, {name}</span> : null}</h1>
-          <p className="lw-today-lead">{first && thisWeek.length > 0
-            ? text("hero_next", { title: deadlineText(first), when: dueLabel(first, text) })
-            : text("hero_calm")}</p>
+          <p className="lw-today-lead">{lead}</p>
         </div>
         <Link className="lw-today-primary" to={NEW_MATTER_PATH}>+ {text("new_matter")}</Link>
         <dl className="lw-today-stats">
@@ -98,8 +104,8 @@ export function TodayView({ model, locale, now = new Date(), meta, name }: { mod
       <div className="lw-today-grid">
         <Panel index={2} icon={<CalendarClock aria-hidden size={16} />} title={text("deadlines_title")} className="lw-today-deadlines">
           {model.deadlines.length === 0 ? <Empty text={text("deadlines_empty")} /> : <ul className="lw-today-list">
-            {model.deadlines.map((d) => (
-              <li key={`${d.matter.path}/${d.recordId}/${d.date}`}>
+            {model.deadlines.map((d, index) => (
+              <li key={`${d.matter.path}/${deadlineKey(d, index)}`}>
                 <Link className="lw-today-deadline" data-urgency={urgency(d, todayIso)} to={d.invalid ? liteMatterLink(d.matter.path) : liteDeadlineLink(d.matter.path, d.recordId, d.date)}>
                   <span className="lw-today-cal" aria-hidden>
                     <span>{d.invalid ? "?" : weekdayShort(d.date, locale)}</span>
@@ -215,16 +221,22 @@ function DeadlineStrip({ deadlines, tasks, todayIso, locale, text }: { deadlines
       <h2 className="lw-today-section-title">{text("strip_title")}</h2>
       <ol className="lw-today-days">
         {cells.map((cell) => {
+          const hidden = Math.max(0, cell.items.length - STRIP_DOTS) + Math.max(0, cell.due.length - STRIP_TASK_DOTS);
+          const tips = [
+            ...cell.items.map((d, i) => <span key={`${d.matter.path}/${deadlineKey(d, i)}`}><b>{deadlineText(d)}</b>{d.matter.title}</span>),
+            ...cell.due.map((task) => <span key={task.key} data-kind="task"><b>{task.title}</b>{task.matters.map((m) => m.title).join(" · ")}</span>),
+          ];
           const body = <>
             <span className="lw-today-dow">{cell.label}</span>
             <span className="lw-today-dom">{cell.day}</span>
             <span className="lw-today-dots" aria-hidden>
-              {cell.items.slice(0, 3).map((d) => <i key={`${d.matter.path}/${d.recordId}/${d.raw ?? d.date}`} data-urgency={urgency(d, todayIso)} />)}
-              {cell.due.slice(0, 2).map((task) => <i key={task.key} data-kind="task" />)}
+              {cell.items.slice(0, STRIP_DOTS).map((d, i) => <i key={`${d.matter.path}/${deadlineKey(d, i)}`} data-urgency={urgency(d, todayIso)} />)}
+              {cell.due.slice(0, STRIP_TASK_DOTS).map((task) => <i key={task.key} data-kind="task" />)}
+              {hidden > 0 ? <em className="lw-today-dots-more">+{hidden}</em> : null}
             </span>
-            {cell.items.length + cell.due.length ? <span className="lw-today-tip" role="tooltip">
-              {cell.items.map((d) => <span key={`${d.matter.path}/${d.recordId}/${d.raw ?? d.date}`}><b>{deadlineText(d)}</b>{d.matter.title}</span>)}
-              {cell.due.map((task) => <span key={task.key} data-kind="task"><b>{task.title}</b>{task.matters.map((m) => m.title).join(" · ")}</span>)}
+            {tips.length ? <span className="lw-today-tip" role="tooltip">
+              {tips.slice(0, TIP_ITEMS)}
+              {tips.length > TIP_ITEMS ? <span className="lw-today-tip-more">{text("more_items", { count: tips.length - TIP_ITEMS })}</span> : null}
             </span> : null}
           </>;
           const lead = cell.items[0];

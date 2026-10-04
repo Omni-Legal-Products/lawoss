@@ -122,7 +122,13 @@ export const shellEn = {
   "lawoss.lite.live_minutes": "Updated {count} min ago",
   "lawoss.lite.copy_ref": "Copy case number",
   "lawoss.lite.copied": "Copied",
-  "lawoss.lite.timeline_more": "Show older ({count})"
+  "lawoss.lite.timeline_more": "Show older ({count})",
+  "lawoss.lite.live_stale": "Couldn't refresh, showing data from {time}",
+  "lawoss.lite.hero_overdue": "Past due: {title}.",
+  "lawoss.lite.hero_invalid": "Check the date of: {title}.",
+  "lawoss.lite.copy_failed": "Couldn't copy",
+  "lawoss.lite.kind_other": "Other records",
+  "lawoss.lite.more_items": "+{count} more"
 };
 
 /** Čeština a slovenština potřebují navíc tvary few/many (Intl.PluralRules, viz `t()` v i18n/index.ts). */
@@ -254,7 +260,13 @@ export const shellCs = {
   "lawoss.lite.live_minutes": "Aktualizováno před {count} min",
   "lawoss.lite.copy_ref": "Zkopírovat spisovou značku",
   "lawoss.lite.copied": "Zkopírováno",
-  "lawoss.lite.timeline_more": "Zobrazit starší ({count})"
+  "lawoss.lite.timeline_more": "Zobrazit starší ({count})",
+  "lawoss.lite.live_stale": "Nepodařilo se obnovit, údaje z {time}",
+  "lawoss.lite.hero_overdue": "Po lhůtě: {title}.",
+  "lawoss.lite.hero_invalid": "Ověřte datum lhůty: {title}.",
+  "lawoss.lite.copy_failed": "Nepodařilo se zkopírovat",
+  "lawoss.lite.kind_other": "Ostatní záznamy",
+  "lawoss.lite.more_items": "+{count} další"
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellSk = {
@@ -383,7 +395,13 @@ export const shellSk = {
   "lawoss.lite.live_minutes": "Aktualizované pred {count} min",
   "lawoss.lite.copy_ref": "Skopírovať spisovú značku",
   "lawoss.lite.copied": "Skopírované",
-  "lawoss.lite.timeline_more": "Zobraziť staršie ({count})"
+  "lawoss.lite.timeline_more": "Zobraziť staršie ({count})",
+  "lawoss.lite.live_stale": "Nepodarilo sa obnoviť, údaje z {time}",
+  "lawoss.lite.hero_overdue": "Po lehote: {title}.",
+  "lawoss.lite.hero_invalid": "Overte dátum lehoty: {title}.",
+  "lawoss.lite.copy_failed": "Nepodarilo sa skopírovať",
+  "lawoss.lite.kind_other": "Ostatné záznamy",
+  "lawoss.lite.more_items": "+{count} ďalšie"
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellDe = {
@@ -510,5 +528,11 @@ export const shellDe = {
   "lawoss.lite.live_minutes": "Vor {count} Min. aktualisiert",
   "lawoss.lite.copy_ref": "Aktenzeichen kopieren",
   "lawoss.lite.copied": "Kopiert",
-  "lawoss.lite.timeline_more": "Ältere anzeigen ({count})"
+  "lawoss.lite.timeline_more": "Ältere anzeigen ({count})",
+  "lawoss.lite.live_stale": "Aktualisierung fehlgeschlagen, Stand {time}",
+  "lawoss.lite.hero_overdue": "Überfällig: {title}.",
+  "lawoss.lite.hero_invalid": "Datum prüfen: {title}.",
+  "lawoss.lite.copy_failed": "Kopieren fehlgeschlagen",
+  "lawoss.lite.kind_other": "Weitere Einträge",
+  "lawoss.lite.more_items": "+{count} weitere"
 } satisfies Record<keyof typeof shellEn, string>;

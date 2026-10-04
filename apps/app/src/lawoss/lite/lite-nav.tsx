@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/sidebar";
 import { officeWorkspace, today, useOkfConnection, useOkfOverview } from "../okf/read-model";
 import { buildToday } from "./today-model";
-import { matterUrgency } from "./live";
+import { matterUrgency, useMinuteTick } from "./live";
 import { LITE_CLIENTS_PATH, LITE_MATTER_PATH, LITE_TODAY_PATH, liteMatterLink } from "./links";
 import { openOfficeChat, restoreOfficeScope } from "./office-scope";
 
@@ -28,6 +28,7 @@ type RecentMatter = { path: string; title: string; deadlines?: readonly { date: 
 
 /** Boční panel v lite: Dnes · Klienti a věci · Zeptat se + „Poslední věci“. */
 export function LiteNav(props: { activePane?: boolean }) {
+  useMinuteTick(); // body naliehavosti sa o polnoci prepočítajú aj bez nového čítania
   const { connection } = useOkfConnection();
   const query = useOkfOverview(connection, officeWorkspace(connection));
   const recent = query.data ? buildToday(query.data, today()).recent : [];

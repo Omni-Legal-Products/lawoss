@@ -50,6 +50,8 @@
 /* Indikátor živosti: bod zabliká, keď sa obsah pamäte zmenil */
 .lw-live { display: inline-flex; align-items: center; gap: 6px; margin-left: 12px; font-family: var(--lw-font-sans); font-size: 11px; letter-spacing: 0; color: var(--lw-text-tertiary); vertical-align: middle; }
 .lw-live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--lw-success, #7fb38a); animation: lw-okf-blink 1.6s var(--td-ease, ease) 1; }
+.lw-live[data-stale] { color: #e0a458; }
+.lw-live[data-stale] .lw-live-dot { background: #e0a458; animation: none; }
 @keyframes lw-okf-blink { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--lw-success, #7fb38a) 80%, transparent); transform: scale(1.6); } 100% { box-shadow: 0 0 0 8px transparent; transform: scale(1); } }
 
 /* Kostra pri načítaní */

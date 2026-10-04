@@ -7,7 +7,10 @@ import { TodayView } from "../src/lawoss/lite/pages/today-page";
 import { ClientsView } from "../src/lawoss/lite/pages/clients-page";
 import { LiteNavView } from "../src/lawoss/lite/lite-nav";
 import { SidebarProvider } from "@/components/ui/sidebar";
-import { deadlineAnchor, matterUrgency } from "../src/lawoss/lite/live";
+import { deadlineAnchor, LiveStamp, matterUrgency } from "../src/lawoss/lite/live";
+import { daysUntil, deadlineText, isCalendarDay, urgencyOf } from "../src/lawoss/okf/view-rules";
+import { okfRefreshInterval } from "../src/lawoss/okf/read-model";
+import { deadlineTier } from "../../../lawoss/okf/read";
 import { liteDeadlineLink } from "../src/lawoss/lite/links";
 import { addDays, today } from "../src/lawoss/okf/read-model";
 import { buildOverview, deadlineLabel, type MatterInput } from "../../../lawoss/okf/read";
@@ -117,7 +120,7 @@ describe("dynamické pohľady z OKF", () => {
     expect(matterUrgency([{ date: addDays(NOW, 10) }], NOW)).toBeUndefined();
     const nav = html(<SidebarProvider><LiteNavView recent={[{ path: "a", title: "Vec A", deadlines: [{ date: addDays(NOW, 1) }] }, { path: "b", title: "Vec B", deadlines: [] }]} /></SidebarProvider>);
     expect(nav.match(/lw-nav-urgency/g) ?? []).toHaveLength(1);
-    const clients = html(<ClientsView locale="en" groups={[{ client: "Novák", matters: [{ ...matter, deadlines: [{ date: addDays(NOW, 1), title: "x", recordId: "M-1" }] }] }]} />);
+    const clients = html(<ClientsView locale="en" groups={[{ client: "Novák", matters: [{ ...matter, deadlines: [{ date: addDays(NOW, 3), title: "x", recordId: "M-1" }] }] }]} />);
     expect(clients).toContain("Novák");
     expect(clients).toContain('data-urgency="near"');
     // Detail: deadline má kotvu, dlhá história sa skryje za „Show older“.
@@ -134,5 +137,62 @@ describe("dynamické pohľady z OKF", () => {
     const inputs = [a, b].map((m) => ({ path: m.path, scopePaths: [m.path, "", "Office"], clientTitle: "Novák s. r. o." }));
     const groups = groupByClient([a, b], inputs);
     expect(groups.map((g) => [g.client, g.matters.length])).toEqual([["Novák s. r. o.", 2]]);
+  });
+
+  test("hraničné prípady: pravidlá naliehavosti sú tie isté ako vrstva OKF a režim Pro", () => {
+    for (const days of [-30, -1, 0, 1, 2, 7, 8, 40]) {
+      const date = addDays(NOW, days);
+      const tier = deadlineTier(date, NOW);
+      const expected = tier === "overdue" || tier === "today" ? "hot" : tier === "soon" ? "near" : "calm";
+      expect(urgencyOf(date, NOW)).toBe(expected);
+    }
+    // Nemožný dátum nie je 2. marec, ale lehota na overenie.
+    expect(isCalendarDay("2026-02-30")).toBe(false);
+    expect(isCalendarDay("2028-02-29")).toBe(true);
+    expect(urgencyOf("2026-02-30", NOW)).toBe("hot");
+    expect(urgencyOf("budúci týždeň", NOW)).toBe("hot");
+    expect(Number.isNaN(daysUntil(NOW, "2026-02-30"))).toBe(true);
+    // Prázdny alebo len medzerový text lehoty nikdy neukáže prázdny riadok.
+    expect(deadlineText({ title: "  ", raw: "2026-10-09   ", recordId: "Q-9" })).toBe("Q-9");
+    expect(deadlineText({ title: "Spis", raw: "2026-10-09 ", recordId: "Q-9" })).toBe("Spis");
+  });
+
+  test("hraničné prípady: obnova sa pri pomalom čítaní predĺži, najviac na 2 minúty", () => {
+    expect(okfRefreshInterval(undefined)).toBe(15_000);
+    expect(okfRefreshInterval(800)).toBe(15_000);
+    expect(okfRefreshInterval(4_000)).toBe(40_000);
+    expect(okfRefreshInterval(60_000)).toBe(120_000);
+  });
+
+  test("hraničné prípady: zlyhané obnovenie povie, z kedy sú údaje", () => {
+    const out = html(<LiveStamp locale="en" meta={{ checkedAt: Date.UTC(2026, 9, 4, 8, 5), changedAt: 1, failed: true }} />);
+    expect(out).toContain("Couldn&#x27;t refresh, showing data from");
+    expect(out).toContain("data-stale");
+    expect(html(<LiveStamp locale="en" meta={{ checkedAt: 0, changedAt: 0 }} />)).toBe("");
+  });
+
+  test("hraničné prípady: dve rovnaké lehoty v jeden deň, prázdny typ, lehota po termíne v odpočte", () => {
+    const twice = deadline("M-1", 2, { label: "Vyjadrenie" });
+    const cockpit: LiteCockpit = {
+      deadlines: { confirmed: [twice, { ...twice, label: "Plná moc" }, deadline("M-1", -3, { label: "Zmeškaná" })], candidates: [] },
+      tasks: [], attention: [], facts: [fact("Z-1", "", "Bez typu")], parties: [], events: [],
+    };
+    const page = html(<LiteMatterView matter={matter} cockpit={cockpit} busy={null} error={null} onAction={() => {}} />);
+    expect(page.split(`id="${deadlineAnchor("M-1", addDays(NOW, 2))}"`).length - 1).toBe(1);
+    expect(page).toContain("Other records");
+    expect(page).toContain("+1 overdue");
+  });
+
+  test("hraničné prípady: Dnes s lehotou po termíne a s veľa lehotami v jeden deň", () => {
+    const m = { ...matter };
+    const day = addDays(NOW, 4);
+    const many = Array.from({ length: 9 }, (_, i) => ({ date: day, title: "Spis", raw: `${day} Lehota ${i}`, recordId: `D-${i}`, matter: m, tier: "soon" as const, daysLeft: 4 }));
+    const out = html(<TodayView locale="en" model={{
+      deadlines: [{ date: addDays(NOW, -2), title: "Spis", raw: `${addDays(NOW, -2)} Zmeškaná`, recordId: "O-1", matter: m, tier: "overdue", daysLeft: -2 }, ...many],
+      tasks: [], inputs: [], recent: [m],
+    }} />);
+    expect(out).toContain("Past due: Zmeškaná.");
+    expect(out).toContain("+6");
+    expect(out).toContain("+3 more");
   });
 });

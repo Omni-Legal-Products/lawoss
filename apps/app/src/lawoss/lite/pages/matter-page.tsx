@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { t } from "@/i18n";
@@ -7,11 +7,11 @@ import { useLocale } from "@/i18n/use-locale";
 import { missingScopeLevels, scopeLevels, type MatterOverview } from "../../../../../../lawoss/okf/read";
 import { buildCockpit, type Cockpit, type CockpitDeadline, type CockpitEvent, type CockpitFact } from "../../../../../../lawoss/okf/cockpit";
 import { OkfPage, type OkfPageMeta } from "../../domains/okf-page";
-import { deadlineAnchor, hotDeadlineCount, LiveStamp, useHotTitle } from "../live";
+import { deadlineAnchor, hotDeadlineCount, LiveStamp, useHotTitle, useMinuteTick } from "../live";
 import { litePageProps } from "../state-text";
 import { openMatterSession } from "../../okf/matter-session";
 import { officeWorkspace, formatDay, today, useOkfConnection, type OkfReadResult } from "../../okf/read-model";
-import { daysUntil, deadlineText, inHorizon, urgencyOf } from "../../okf/view-rules";
+import { daysUntil, deadlineKey, deadlineText, inHorizon, urgencyOf } from "../../okf/view-rules";
 import { composeQuickAction, MORE_ACTIONS, QUICK_ACTIONS } from "../quick-actions";
 import { POSTPROCESS_RESOURCE_NAME, postprocessSource, VYSTUP_SKILL_NAME, vystupSkillBody } from "../../okf/skill-bundle";
 import { nextDeadline } from "../today-model";
@@ -49,6 +49,7 @@ function LiteMatterBody({ data, meta }: { data: OkfReadResult; meta: OkfPageMeta
   const [saved, setSaved] = useState<string | null>(null);
   const queries = useQueryClient();
   const matter = matterFromParams(data.matters, params);
+  useMinuteTick(); // o polnoci sa posunie „dnes" aj odpočet
   useHotTitle(hotDeadlineCount(data, today()));
   const conversations = useQuery({
     queryKey: ["lite-matter-conversations", matter?.path ?? "", connection?.baseUrl ?? "", connection?.token ?? ""],
@@ -106,7 +107,8 @@ function LiteMatterBody({ data, meta }: { data: OkfReadResult; meta: OkfPageMeta
     } finally { running.current = false; setBusy(null); }
   }
 
-  return <LiteMatterView matter={matter} cockpit={cockpit} busy={busy} error={error} onAction={(id) => void onAction(id)}
+  // Kľúč podľa veci: pri prechode na inú vec sa záložka, zvýraznenie aj potvrdenia vynulujú.
+  return <LiteMatterView key={matter.path} matter={matter} cockpit={cockpit} busy={busy} error={error} onAction={(id) => void onAction(id)}
     conversations={conversations.data ?? []} onContinue={(c) => void onContinue(c)}
     onFiles={(files) => void onFiles(files)} saved={saved}
     scopePaths={input?.scopePaths}
@@ -158,7 +160,9 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
   const timeline = buildTimeline(cockpit?.events ?? [], all, now);
   const tabs = [["overview", "tab_overview"], ["known", "tab_known"]] as const;
   const daysToNext = next ? daysUntil(now, next) : undefined;
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"ok" | "failed" | null>(null);
+  const copyTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(copyTimer.current), []);
   const focused = focusDeadline ? deadlineAnchor(...splitFocus(focusDeadline)) : null;
   const [highlight, setHighlight] = useState<string | null>(null);
   useEffect(() => {
@@ -172,11 +176,46 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
     return () => { window.cancelAnimationFrame(frame); window.clearTimeout(timer); };
   }, [focused]);
   const copyRef = () => {
-    if (!matter.matterRef) return;
-    void navigator.clipboard?.writeText(matter.matterRef).then(() => {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
-    });
+    const ref = matter.matterRef;
+    if (!ref) return;
+    const done = (state: "ok" | "failed") => {
+      setCopied(state);
+      window.clearTimeout(copyTimer.current);
+      copyTimer.current = window.setTimeout(() => setCopied(null), 1800);
+    };
+    // Schránka nemusí byť dostupná (oprávnenie, nezabezpečený kontext): advokát sa to dozvie, nič nespadne.
+    if (!navigator.clipboard?.writeText) { done("failed"); return; }
+    navigator.clipboard.writeText(ref).then(() => done("ok"), () => done("failed"));
+  };
+  const moreMenu = useRef<HTMLDetailsElement | null>(null);
+  useEffect(() => {
+    // „Ďalšie" sa zavrie klikom mimo a klávesom Escape, ako bežná ponuka.
+    const close = (event: Event) => {
+      const menu = moreMenu.current;
+      if (!menu?.open) return;
+      if (event instanceof KeyboardEvent ? event.key === "Escape" : !menu.contains(event.target instanceof Node ? event.target : null)) menu.open = false;
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", close);
+    return () => { document.removeEventListener("pointerdown", close); document.removeEventListener("keydown", close); };
+  }, []);
+  const onTabKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft" && event.key !== "Home" && event.key !== "End") return;
+    event.preventDefault();
+    const ids = tabs.map(([id]) => id);
+    const index = ids.indexOf(tab);
+    const next = event.key === "Home" ? 0 : event.key === "End" ? ids.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + ids.length) % ids.length;
+    setTab(ids[next]!);
+    document.getElementById(`lite-tab-${ids[next]}`)?.focus();
+  };
+  const overdueCount = all.filter((d) => d.invalid || d.date < now).length;
+  // Kotvu (id) dostane len prvý výskyt lehoty; dve rovnaké lehoty v jeden deň nesmú mať rovnaké id.
+  const anchored = new Set<string>();
+  const anchorFor = (d: CockpitDeadline): string | undefined => {
+    const anchor = deadlineAnchor(d.recordId, d.date);
+    if (anchored.has(anchor)) return undefined;
+    anchored.add(anchor);
+    return anchor;
   };
   const recentPast = timeline.findIndex((entry) => entry.kind === "today");
   const visibleTimeline = recentPast < 0 ? timeline : timeline.slice(0, recentPast + 1 + TIMELINE_PAST_LIMIT);
@@ -196,19 +235,20 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
           <p className="lw-matter-topline"><Link className="lw-matter-crumb" to={LITE_CLIENTS_PATH}>{client ?? text("clients_title")}</Link>{meta ? <LiveStamp meta={meta} locale={locale} /> : null}</p>
           <h1 className="lw-h1">{matter.title}</h1>
           <p className="lw-matter-meta">
-            {matter.matterRef ? <button type="button" className="lw-matter-ref lw-matter-copy" onClick={copyRef} title={text("copy_ref")} aria-label={`${text("copy_ref")}: ${matter.matterRef}`} data-copied={copied || undefined}>
-              {matter.matterRef}<span className="lw-matter-copy-state" aria-live="polite">{copied ? text("copied") : ""}</span>
+            {matter.matterRef ? <button type="button" className="lw-matter-ref lw-matter-copy" onClick={copyRef} title={text("copy_ref")} aria-label={`${text("copy_ref")}: ${matter.matterRef}`} data-copied={copied ?? undefined}>
+              {matter.matterRef}<span className="lw-matter-copy-state" aria-live="polite">{copied === "ok" ? text("copied") : copied === "failed" ? text("copy_failed") : ""}</span>
             </button> : null}
             {matter.court ? <span>{matter.court}</span> : null}
             {next ? <span className="lw-matter-next-inline">{text("matter_next_deadline", { date: formatDay(next, locale) })}</span> : null}
           </p>
         </div>
         {next && daysToNext !== undefined ? (
-          <div className="lw-matter-countdown" data-urgency={urgencyOf(next, now)}>
+          <div className="lw-matter-countdown" data-urgency={urgencyOf(next, now)} role="group" aria-label={`${text("next_deadline")}: ${formatDay(next, locale)}${nextEntry ? `, ${deadlineText(nextEntry)}` : ""}`}>
             <span className="lw-matter-countdown-label">{text("next_deadline")}</span>
             <strong>{daysToNext <= 0 ? formatDay(next, locale) : daysToNext}</strong>
             <span>{daysToNext <= 0 ? text(daysToNext < 0 ? "overdue" : "due_today") : text("due_in_days", { count: daysToNext })}</span>
             {nextEntry ? <small>{deadlineText(nextEntry)}</small> : null}
+            {overdueCount > 0 ? <em className="lw-matter-countdown-overdue">+{overdueCount} {text("overdue")}</em> : null}
           </div>
         ) : null}
       </header>
@@ -219,11 +259,11 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
             <button key={action.id} type="button" className={index === 0 ? "lw-matter-action is-primary" : "lw-matter-action"} disabled={busy !== null} aria-busy={busy === action.id}
               onClick={() => action.id === "add_document" && onFiles ? fileInput.current?.click() : onAction(action.id)}>{t(action.labelKey, locale)}</button>
           ))}
-          <details className="lw-matter-more">
+          <details className="lw-matter-more" ref={moreMenu}>
             <summary>{text("matter_more")}</summary>
             <div className="lw-matter-more-list" aria-label={text("more_actions")}>
               {MORE_ACTIONS.map((action) => (
-                <button key={action.id} type="button" className="lw-matter-action" disabled={busy !== null} aria-busy={busy === action.id} onClick={() => onAction(action.id)}>{t(action.labelKey, locale)}</button>
+                <button key={action.id} type="button" className="lw-matter-action" disabled={busy !== null} aria-busy={busy === action.id} onClick={() => { if (moreMenu.current) moreMenu.current.open = false; onAction(action.id); }}>{t(action.labelKey, locale)}</button>
               ))}
             </div>
           </details>
@@ -249,9 +289,9 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
         </section>
       ) : null}
 
-      <div className="lw-matter-tabs" role="tablist" style={reveal(3)}>
+      <div className="lw-matter-tabs" role="tablist" style={reveal(3)} onKeyDown={onTabKey}>
         {tabs.map(([id, key]) => (
-          <button key={id} id={`lite-tab-${id}`} type="button" role="tab" className="lw-matter-tab" aria-selected={tab === id} aria-controls={`lite-panel-${id}`} onClick={() => setTab(id)}>
+          <button key={id} id={`lite-tab-${id}`} type="button" role="tab" className="lw-matter-tab" aria-selected={tab === id} tabIndex={tab === id ? 0 : -1} aria-controls={`lite-panel-${id}`} onClick={() => setTab(id)}>
             {text(key)}{id === "known" && groups.length > 0 ? <span className="lw-matter-count">{groups.reduce((sum, g) => sum + g.facts.length, 0)}</span> : null}
           </button>
         ))}
@@ -274,8 +314,10 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
             <section className="lw-matter-panel" style={reveal(5)}>
               <h2 className="lw-matter-section">{text("deadlines_title")}</h2>
               {deadlines.length === 0 ? <p className="lw-matter-empty">{text("deadlines_empty")}</p> : <ul className="lw-matter-list">
-                {deadlines.map((d) => (
-                  <li key={`${d.recordId}/${d.date}`} id={deadlineAnchor(d.recordId, d.date)} className="lw-matter-item" data-urgency={urgencyOf(d.date, now, d.invalid)} data-highlight={highlight === deadlineAnchor(d.recordId, d.date) || undefined}>
+                {deadlines.map((d, index) => {
+                  const anchor = anchorFor(d);
+                  return (
+                  <li key={deadlineKey(d, index)} id={anchor} className="lw-matter-item" data-urgency={urgencyOf(d.date, now, d.invalid)} data-highlight={(anchor && highlight === anchor) || undefined}>
                     <span className="lw-matter-cal" aria-hidden><span>{d.invalid ? "?" : weekdayShort(d.date, locale)}</span><strong>{d.invalid ? "!" : dayOfMonth(d.date)}</strong></span>
                     <span className="lw-matter-item-main">
                       <span className="lw-matter-item-title">{deadlineText(d)}</span>
@@ -283,7 +325,8 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
                     </span>
                     {d.invalid ? <span className="lw-matter-flag">{text("due_invalid")}</span> : d.overdue ? <span className="lw-matter-flag">{text("overdue")}</span> : !d.confirmed ? <span className="lw-matter-flag">{text("verify")}</span> : null}
                   </li>
-                ))}
+                  );
+                })}
               </ul>}
             </section>
 
@@ -291,7 +334,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
               <h2 className="lw-matter-section">{text("tasks_title")}</h2>
               {(cockpit?.tasks.length ?? 0) === 0 ? <p className="lw-matter-empty">{text("tasks_empty")}</p> : <ul className="lw-matter-list">
                 {cockpit?.tasks.map((task) => (
-                  <li key={task.id} className="lw-matter-item lw-matter-task" data-urgency={task.due ? urgencyOf(task.due, now) : "calm"}>
+                  <li key={`${task.file}/${task.id}`} className="lw-matter-item lw-matter-task" data-urgency={task.due ? urgencyOf(task.due, now) : "calm"}>
                     <span className="lw-matter-ring" aria-hidden />
                     <span className="lw-matter-item-main">
                       <span className="lw-matter-item-title">{task.title}</span>
@@ -342,10 +385,10 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
         {groups.length === 0 ? <p className="lw-matter-empty">{text("known_empty")}</p> : <div className="lw-matter-known">
           {groups.map((group, index) => (
             <section key={group.kind} className="lw-matter-panel" style={reveal(4 + index)}>
-              <h2 className="lw-matter-section">{group.label}<span className="lw-matter-count">{group.facts.length}</span></h2>
+              <h2 className="lw-matter-section">{group.label || text("kind_other")}<span className="lw-matter-count">{group.facts.length}</span></h2>
               <ul className="lw-matter-facts">
                 {group.facts.map((fact) => (
-                  <li key={fact.id} className="lw-matter-fact">
+                  <li key={`${fact.file}/${fact.id}`} className="lw-matter-fact">
                     <span className="lw-matter-fact-head">
                       <span className="lw-matter-item-title">{fact.title}</span>
                       {fact.provenance === "overené" ? <span className="lw-matter-ok" aria-hidden>✓</span> : <span className="lw-matter-flag">{text("verify")}</span>}
@@ -402,13 +445,13 @@ const initials = (name: string) => name.split(/\s+/).filter((part) => /\p{L}/u.t
 export function groupFacts(facts: readonly CockpitFact[]): { kind: string; label: string; facts: CockpitFact[] }[] {
   const groups = new Map<string, CockpitFact[]>();
   for (const fact of facts) groups.set(fact.kind, [...(groups.get(fact.kind) ?? []), fact]);
-  return [...groups].map(([kind, items]) => ({ kind, label: kindTitle(kind), facts: items }));
+  return [...groups].map(([kind, items]) => ({ kind, label: kindTitle(kind) ?? "", facts: items }));
 }
 
-/** „hearing_note" → „Hearing note"; známa popiska len s veľkým začiatočným písmenom. */
-function kindTitle(kind: string): string {
+/** „hearing_note" → „Hearing note"; známa popiska len s veľkým začiatočným písmenom; prázdny typ = „ostatné". */
+function kindTitle(kind: string): string | undefined {
   const spaced = kind.replace(/[_-]+/g, " ").trim();
-  return spaced ? spaced[0].toUpperCase() + spaced.slice(1) : kind;
+  return spaced ? spaced[0].toUpperCase() + spaced.slice(1) : undefined;
 }
 
 type TimelineEntry = { kind: "event"; key: string; date: string; text: string; future: boolean; urgency?: "hot" | "near" | "calm" } | { kind: "today" };
@@ -421,12 +464,12 @@ export function buildTimeline(events: readonly CockpitEvent[], deadlines: readon
   const dated = deadlines.filter((d) => !d.invalid && inHorizon(d.date, todayIso));
   const future: TimelineEntry[] = dated.filter((d) => d.date >= todayIso)
     .sort((a, b) => b.date.localeCompare(a.date))
-    .map((d) => ({ kind: "event", key: `d/${d.recordId}/${d.date}`, date: d.date, text: deadlineText(d), future: true, urgency: urgencyOf(d.date, todayIso) }));
+    .map((d, i) => ({ kind: "event", key: `d/${deadlineKey(d, i)}`, date: d.date, text: deadlineText(d), future: true, urgency: urgencyOf(d.date, todayIso) }));
   const past = [
     ...events.filter((e) => e.date.slice(0, 10) <= todayIso)
       .map((e, i) => ({ kind: "event" as const, key: `e/${e.recordId}/${e.date}/${i}`, date: e.date.slice(0, 10), text: e.text, future: false })),
     ...dated.filter((d) => d.date < todayIso)
-      .map((d) => ({ kind: "event" as const, key: `d/${d.recordId}/${d.date}`, date: d.date, text: deadlineText(d), future: false, urgency: "hot" as const })),
+      .map((d, i) => ({ kind: "event" as const, key: `p/${deadlineKey(d, i)}`, date: d.date, text: deadlineText(d), future: false, urgency: "hot" as const })),
   ].sort((a, b) => b.date.localeCompare(a.date));
   if (future.length === 0 && past.length === 0) return [];
   return [...future, { kind: "today" }, ...past];

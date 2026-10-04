@@ -339,6 +339,15 @@ export function officeOf(workspaces: readonly RouteWorkspace[], active: RouteWor
 
 /** Ako často sa pohľady z OKF ticho obnovujú, kým je okno aktívne. */
 export const OKF_REFRESH_MS = 15_000;
+/** Strop pre veľkú kanceláriu: obnova nesmie bežať dlhšie, než trvá samotné čítanie. */
+const OKF_REFRESH_MAX_MS = 120_000;
+/** Posledná dĺžka čítania podľa workspace; dlhé čítanie predĺži interval. */
+const readDurations = new Map<string, number>();
+
+/** 15 s, alebo desaťnásobok posledného čítania, najviac 2 minúty. */
+export function okfRefreshInterval(lastReadMs: number | undefined): number {
+  return Math.min(OKF_REFRESH_MAX_MS, Math.max(OKF_REFRESH_MS, Math.round((lastReadMs ?? 0) * 10)));
+}
 
 export function useOkfOverview(connection: OkfConnection | null, workspace: RouteWorkspace | null) {
   const client = connection?.client ?? null;
@@ -346,14 +355,16 @@ export function useOkfOverview(connection: OkfConnection | null, workspace: Rout
     // Adresa a token v klíči: nové spojení = nové čtení (cache je jen v paměti, nikam se neukládá).
     queryKey: ["okf-overview", workspace?.id ?? "", connection?.baseUrl ?? "", connection?.token ?? ""],
     enabled: Boolean(client && workspace),
-    queryFn: () => {
+    queryFn: async () => {
       if (!client || !workspace) throw new Error("Server LegalWork nebeží alebo chýba workspace.");
-      return readWorkspaceMemory(client, workspace.id);
+      const started = Date.now();
+      try { return await readWorkspaceMemory(client, workspace.id); }
+      finally { readDurations.set(workspace.id, Date.now() - started); }
     },
     // Pohľady sú živé: zápis agenta alebo advokáta do OKF súborov sa ukáže bez reštartu.
     // Obnovuje sa pri návrate do okna a v tichosti na pozadí; zmena sa prekreslí len pri inom obsahu.
     refetchOnWindowFocus: true,
-    refetchInterval: OKF_REFRESH_MS,
+    refetchInterval: () => okfRefreshInterval(workspace ? readDurations.get(workspace.id) : undefined),
     refetchIntervalInBackground: false,
   });
 }
