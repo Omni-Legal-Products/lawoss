@@ -38,6 +38,9 @@ import {
 } from "./onboarding-state";
 import { OnboardingAiPanel } from "./ai-step";
 import { UNSAFE_FOLDER_NAME_MESSAGE } from "../../../../../../lawoss/okf/src/onboarding/messages";
+import { LawossWordmark } from "../../shell/wordmark";
+import lawossMark from "../../../../../../lawoss/brand/lawoss-mark.svg";
+import "./onboarding.css";
 
 /** Jazyky rozhrania v poradí LAWOSS (SK, CS, EN, DE) s pôvodnými názvami namiesto kódov. */
 const UI_LANGUAGE_ORDER: readonly Language[] = ["sk", "cs", "en", "de"];
@@ -559,7 +562,7 @@ function DocumentLanguageSelect({
 }) {
   return (
     <select
-      className="h-9 rounded border px-3"
+      className="lw-onb-select"
       value={value}
       onChange={(event) => onChange(event.target.value as DocumentLanguage)}
     >
@@ -765,16 +768,20 @@ export function LawossWelcomePage({
     <DirectoryPickerContext.Provider value={pickDirectory}>
       {/* Koreň appky má overflow: hidden; bez vlastnej posúvateľnej oblasti by náhľad zmien a jeho
           potvrdenie v nižšom okne neboli dosiahnuteľné (D1 na zabalenej appke). */}
-      <div ref={scrollArea} className="h-screen overflow-y-auto" data-lawoss-onboarding-scroll>
+      <div ref={scrollArea} className="lw-onb h-screen overflow-y-auto" data-lawoss-onboarding-scroll>
       <main
-        className="mx-auto min-h-full max-w-3xl px-5 py-10"
+        className="lw-onb-main mx-auto min-h-full max-w-3xl px-6 py-12"
         data-lawoss-onboarding-step={step}
       >
         <header>
-          <p className="text-sm text-muted-foreground">LAWOSS</p>
-          <h1 className="mt-1 text-3xl font-semibold">{tr("title")}</h1>
+          <p className="lw-onb-brand">
+            <img src={lawossMark} alt="" aria-hidden />
+            <LawossWordmark className="lw-onb-wordmark" />
+            <span className="sr-only">LAWOSS</span>
+          </p>
+          <h1 className="lw-onb-title">{tr("title")}</h1>
           <ol
-            className="mt-6 grid gap-2"
+            className="lw-onb-steps"
             style={{
               gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))`,
             }}
@@ -782,12 +789,11 @@ export function LawossWelcomePage({
             {steps.map((item, i) => (
               <li
                 key={item}
-                className={
-                  i <= idx ? "text-foreground" : "text-muted-foreground"
-                }
+                data-state={i < idx ? "done" : i === idx ? "current" : "next"}
+                aria-current={i === idx ? "step" : undefined}
               >
-                <span className="mb-1 block h-1 rounded bg-current" />
-                <span className="text-xs">
+                <span className="lw-onb-step-bar" />
+                <span className="lw-onb-step-label">
                   {i + 1}. {tr(item)}
                 </span>
               </li>
@@ -797,12 +803,12 @@ export function LawossWelcomePage({
         {error ? (
           <p
             role="alert"
-            className="mt-5 rounded border border-destructive p-3"
+            className="lw-status err"
           >
             {error}
           </p>
         ) : null}
-        <section className="mt-8 grid gap-5">
+        <section className="lw-onb-panel grid gap-5">
           {step === "identity" ? (
             <Identity
               base={base}
@@ -932,7 +938,7 @@ export function LawossWelcomePage({
           ) : null}
           {step === "done" ? (
             <>
-              <Check className="size-8 text-green-600" />
+              <Check className="lw-onb-done size-8" />
               <p>{tr("done")}</p>
               <Button disabled={busy} onClick={() => void complete()}>
                 {tr("open")}
@@ -941,7 +947,7 @@ export function LawossWelcomePage({
           ) : null}
         </section>
         {preview ? (
-          <section ref={previewSection} className="mt-7 rounded-lg border border-primary/30 bg-primary/5 p-5" data-lawoss-onboarding-preview>
+          <section ref={previewSection} className="lw-onb-panel lw-onb-preview" data-lawoss-onboarding-preview>
             <h2 className="flex gap-2 font-semibold">
               <ShieldCheck className="size-5" />
               {tr("changes")}
@@ -970,7 +976,7 @@ export function LawossWelcomePage({
               ))}
             </ul>
             {(preview.value.preview.warnings ?? []).map((item) => (
-              <p key={item} className="mt-2 text-sm text-amber-800">
+              <p key={item} className="mt-2 text-sm text-[var(--lw-warning)]">
                 {item}
               </p>
             ))}
@@ -1059,7 +1065,7 @@ function Identity({
       {field(
         tr("jurisdiction"),
         <select
-          className="h-9 rounded border px-3"
+          className="lw-onb-select"
           value={jurisdiction}
           onChange={(e) => setJurisdiction(e.target.value as "sk" | "cz")}
         >
@@ -1070,7 +1076,7 @@ function Identity({
       {field(
         tr("language"),
         <select
-          className="h-9 rounded border px-3"
+          className="lw-onb-select"
           value={language}
           onChange={(e) => setLanguage(e.target.value as Language)}
         >
@@ -1323,7 +1329,7 @@ function Client({
       {field(
         tr("type"),
         <select
-          className="h-9 rounded border px-3"
+          className="lw-onb-select"
           value={type}
           onChange={(e) => setType(e.target.value as ClientType)}
         >
@@ -1338,7 +1344,7 @@ function Client({
           {field(
             tr("mode"),
             <select
-              className="h-9 rounded border px-3"
+              className="lw-onb-select"
               value={mode}
               onChange={(e) => setMode(e.target.value as ExistingClientMode)}
             >
@@ -1350,7 +1356,7 @@ function Client({
             </select>,
           )}
           {mode === "map" ? (
-            <div className="grid gap-3 rounded border p-4">
+            <div className="lw-onb-inset grid gap-3">
               <p className="text-sm text-muted-foreground">{tr("mapHelp")}</p>
               {field(
                 tr("memory"),
@@ -1482,7 +1488,7 @@ function Matter({
         </div>,
       )}
       {trial ? (
-        <div className="rounded border border-amber-500 bg-amber-50 p-4">
+        <div className="lw-status warn">
           <FileWarning className="mb-2 size-5" />
           <p>{tr("trial")}</p>
           <label className="mt-3 flex gap-2 text-sm">
@@ -1507,7 +1513,7 @@ function Matter({
         tr("subject"),
         <div className="grid gap-2">
           <select
-            className="h-9 rounded border px-3"
+            className="lw-onb-select"
             value={subjectMode}
             onChange={(event) =>
               chooseSubjectMode(
@@ -1534,7 +1540,7 @@ function Matter({
       {field(
         tr("documentLanguage"),
         <select
-          className="h-9 rounded border px-3"
+          className="lw-onb-select"
           value={documentLanguage}
           onChange={(e) =>
             setDocumentLanguage(e.target.value as DocumentLanguage)
@@ -1548,7 +1554,7 @@ function Matter({
       {field(
         tr("kind"),
         <select
-          className="h-9 rounded border px-3"
+          className="lw-onb-select"
           value={kind}
           onChange={(e) => setKind(e.target.value as MatterKind)}
         >
