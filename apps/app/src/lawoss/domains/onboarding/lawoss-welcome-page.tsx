@@ -254,10 +254,10 @@ const text: Record<Language, Record<string, string>> = {
   },
 };
 const unsafeFolderName: Record<Language, string> = {
-  sk: "Názov priečinka nesmie byť prázdny, začínať bodkou, obsahovať znaky / \\ : ani mať viac ako 120 znakov. Bodky vnútri názvu, napríklad „s. r. o.“, sú v poriadku.",
-  cs: "Název složky nesmí být prázdný, začínat tečkou, obsahovat znaky / \\ : ani mít více než 120 znaků. Tečky uvnitř názvu, například „s. r. o.“, jsou v pořádku.",
-  en: "The folder name must not be empty, start with a dot, contain / \\ : or be longer than 120 characters. Dots inside the name, such as \"s. r. o.\", are fine.",
-  de: "Der Ordnername darf nicht leer sein, nicht mit einem Punkt beginnen, keine Zeichen / \\ : enthalten und nicht länger als 120 Zeichen sein. Punkte im Namen, etwa „s. r. o.“, sind zulässig.",
+  sk: "Názov priečinka nesmie byť prázdny, začínať bodkou, obsahovať znaky / \\ : < > \" | ? * ani mať viac ako 120 znakov. Bodky vnútri názvu, napríklad „s. r. o.“, sú v poriadku.",
+  cs: "Název složky nesmí být prázdný, začínat tečkou, obsahovat znaky / \\ : < > \" | ? * ani mít více než 120 znaků. Tečky uvnitř názvu, například „s. r. o.“, jsou v pořádku.",
+  en: "The folder name must not be empty, start with a dot, contain / \\ : < > \" | ? * or be longer than 120 characters. Dots inside the name, such as \"s. r. o.\", are fine.",
+  de: "Der Ordnername darf nicht leer sein, nicht mit einem Punkt beginnen, keine Zeichen / \\ : < > \" | ? * enthalten und nicht länger als 120 Zeichen sein. Punkte im Namen, etwa „s. r. o.“, sind zulässig.",
 };
 /** Server errors in the UI language where the app knows them; other messages stay as sent. */
 export const onboardingErrorMessage = (error: unknown, locale: Language) =>

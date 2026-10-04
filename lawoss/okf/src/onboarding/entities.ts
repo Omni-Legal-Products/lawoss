@@ -28,7 +28,7 @@ export type MatterRequest = { clientRoot: string; parent: string; title: string;
  */
 const safeSegment = (value: string) => {
   const trimmed = value.trim().replace(/[. ]+$/, "");
-  if (!trimmed || trimmed.length > 120 || /[\\/:\0]|^\./.test(trimmed)) throw new Error(UNSAFE_FOLDER_NAME_MESSAGE);
+  if (!trimmed || trimmed.length > 120 || /[\\/:\0<>"|?*]|^\./.test(trimmed)) throw new Error(UNSAFE_FOLDER_NAME_MESSAGE);
   return trimmed;
 };
 const yaml = (value: string) => JSON.stringify(value);

@@ -120,7 +120,7 @@ Snímky: [voľba](evidence/okf-volba/1-volba-okf.jpg), [potvrdenie](evidence/okf
 
 - Zabalená desktopová appka, registrácia priečinka cez natívny `workspaceCreate` a reštart.
 - Upozornenie na upravený SKILL.md v živej appke.
-- Názov klienta s bodkami („s. r. o.“) neprejde validáciou a chyba je po anglicky. Patrí do PR B. Vyriešené v PR B (commit 0f29f8c9).
+- Názov klienta s bodkami („s. r. o.“) neprejde validáciou a chyba je po anglicky. Vyriešené v PR B.
 
 ### PR B: overenie
 
@@ -137,11 +137,18 @@ Rozhodnutia:
 
 - **Bod 8.** Výpočet stavu modelu z `session-route` je v `apps/app/src/lawoss/shell/model-readiness.ts`; `session-route` ho volá bez zmeny správania (riadok v `PATCHES.md`). Onboarding k nemu pridáva len vylúčenie zrušenej bezplatnej vrstvy (`opencode`, `eigenwelt-free`). Zoznam poskytovateľov sa číta z aktívneho alebo prvého lokálneho workspace; bez workspace platí náhradný výpočet composera pred načítaním zoznamu.
 - **Bod 9.** Voľba analytiky sa zapisuje do uloženej preferencie, ktorú používa aj prepínač v Nastaveniach. `setAnalyticsConsentOverride` sa nevolá: má prednosť pred uloženou voľbou a nedá sa zrušiť, takže neskoršie vypnutie v Nastaveniach by v tom istom behu nezabralo. Nedotknutý prepínač nechá voľbu prázdnu.
-- **Názov s bodkami.** Validátor odreže koncové bodky a medzery z názvu priečinka (Windows ich ticho odstráni), vnútorné bodky ponechá. Odmieta ďalej prázdny názov, „.“, „..“, úvodnú bodku, oddeľovače, dvojbodku, NUL a viac ako 120 znakov; vtedy appka ukáže vysvetlenie v jazyku rozhrania.
+- **Názov s bodkami.** Validátor odreže koncové bodky a medzery z názvu priečinka (Windows ich ticho odstráni), vnútorné bodky ponechá. Odmieta ďalej prázdny názov, „.“, „..“, úvodnú bodku, oddeľovače, dvojbodku, NUL, znaky `< > " | ? *`, ktoré Windows v názve nepovolí, a viac ako 120 znakov; vtedy appka ukáže vysvetlenie v jazyku rozhrania.
 
 Neoverené:
 
 - Krok AI v živej appke so skutočným poskytovateľom, bez workspace a po návrate z nastavení AI.
 - Či sú nastavenia AI použiteľné pri prvom spustení s OKF, keď ešte neexistuje žiadny workspace (kancelária workspace nevytvára).
 - Názov s bodkami na Windows a obnovenie zmeneného `okf-memory.js` a SKILL.md v existujúcom workspace.
-- Validátor stále prijíma znaky `< > " | ? *`, ktoré Windows v názve nepovolí.
+
+Prehliadač, 4. 10. 2026 (izolované prostredie ako pri PR A, s dočasne aplikovanou opravou #107):
+
+- Krok AI bez modelu ukáže „Zatiaľ nemáte pripojený model“ a tlačidlo „Pokračovať bez modelu“. Zrušenú vrstvu `opencode`, ktorú headless engine hlási, nepovažuje za model. Prepínač analytiky je vypnutý.
+- Nadpis „Nastavte svoju prax“. Klient „Novák s. r. o.“ prejde; náhľad ukáže priečinok „Novák s. r. o“, workspace má plný názov.
+- Cesta s OKF skončí na Lite `/home`, detail veci sa otvorí.
+
+Snímky: [krok AI](evidence/okf-volba/6-krok-ai-bez-modelu.jpg), [klient s bodkami](evidence/okf-volba/7-klient-s-bodkami.jpg), [vec v Lite](evidence/okf-volba/8-vec-lite.jpg).

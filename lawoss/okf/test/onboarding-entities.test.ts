@@ -99,7 +99,7 @@ test("company names with inner dots are safe folder names; a trailing dot is dro
 test("unsafe folder names are still rejected", async () => {
   const parent = await directory("okf-unsafe-");
   const request = (name: string) => parseOnboardingRequest({ action: "client", parent, name, title: "T", clientType: "po", jurisdiction: "sk", date: "2026-10-04", language: "sk" });
-  for (const name of [" ", ".", "..", "...", ". .", ".skryty", "a/b", "a\\b", "C:x", "a\0b", "x".repeat(121)]) {
+  for (const name of [" ", ".", "..", "...", ". .", ".skryty", "a/b", "a\\b", "C:x", "a\0b", "a<b", "a>b", "a\"b", "a|b", "a?b", "a*b", "x".repeat(121)]) {
     await expect(planOnboarding(request(name))).rejects.toThrow("A safe non-empty folder name is required.");
   }
 });
