@@ -87,7 +87,7 @@ Voliteľné, ale užitočné pred hlásením problému — overí, že TypeScrip
 1. **Pripojte model.** V appke choďte na **Settings → AI Providers** a pripojte AI model, ktorý chcete používať (vlastný API kľúč alebo iný podporovaný spôsob pripojenia). Appka bez pripojeného modelu nemá s čím pracovať. Kým model nie je pripojený, odosielanie je zamknuté a nad poľom na písanie je lišta s tlačidlom **Connect a provider**. LAWOSS žiadne predplatné nepredáva: tlačidlá na skúšobnú verziu alebo prihlásenie (Eigenwelt, dodávateľ upstreamu) nepoužívajte.
 
    > Pozor, ak používate aj samostatný `opencode` CLI: build od upstream v0.1.21 pri každom spustení presunie MCP konektory z `~/.config/opencode/opencode.json` (aj z `opencode.json` v pracovných priečinkoch) do vlastnej databázy v `~/.config/legalwork/` a z pôvodného súboru ich zmaže. Server si pred prvým presunom uloží kópiu každého dotknutého súboru ako `<súbor>.bak-<dátum>` vedľa neho; napriek tomu si ho pred prvým spustením zálohujte aj sami a konektory odvtedy pridávajte v appke. Starší LAWOSS build po návrate konektory neuvidí — postup obnovy je v [docs/rollback-v0.1.21.md](rollback-v0.1.21.md).
-2. **Pripravte testovací priečinok.** Použite nový, prázdny priečinok mimo reálnych spisov. **Nepoužívajte skutočné klientske dáta** (dôvod je v sekcii 7). Postup pre nový onboarding kancelárie, klienta a veci je v sekcii 5b vrátane stavu jeho začlenenia.
+2. **Pripravte testovací priečinok.** Použite nový, prázdny priečinok mimo reálnych spisov. **Nepoužívajte skutočné klientske dáta** (dôvod je v sekcii 7). Onboarding (voľba OKF, kancelária, AI, klient a vec) prejdite podľa sekcie 5b.
 3. **Prepnite jazyk.** Prepínač jazyka je v hlavičke rozhovoru aj v **Settings** (obe miesta zdieľajú jednu voľbu). Zvoľte slovenčinu, češtinu alebo angličtinu; predvolený je jazyk systému.
 4. Vyskúšajte appku na neškodnej úlohe — napríklad nechajte ju zhrnúť testovací dokument, ktorý ste sami vložili do testovacieho priečinka.
 
@@ -134,32 +134,23 @@ Vývojové zapnutie na explicitnom porte opisuje [Ladiaci port Electronu](#ladia
 
 ## 5b. Smoke scenár alfy
 
-> **Čaká na merge, stav k 3. 10. 2026:** nasledujúci onboarding opisuje implementáciu
-> pripravenú v [PR #104](https://github.com/Omni-Legal-Products/lawoss/pull/104)
-> nad [PR #103](https://github.com/Omni-Legal-Products/lawoss/pull/103).
-> Tieto PR ešte nie sú súčasťou `dev`. Kroky nového onboardingu preto skúšajte
-> až v builde, ktorý ich obsahuje. [Implementačný záznam #104](https://github.com/Omni-Legal-Products/lawoss/blob/f42099964e93ffdd835d0922338d8d65b6c8f945/docs/lawoss-onboarding-core-2026-10-03.md)
-> uvádza overený rozsah aj zostávajúce obmedzenia. Tento návod sám nepotvrdzuje
-> úspešný živý priechod scenárom.
-
-Použite syntetické údaje a zaznamenajte commit buildu aj režim Lite/Pro.
-Tento krátky scenár dopĺňa [alfa akceptačný protokol](lawoss-alpha-acceptance.md),
-kde sú preflight, matica poskytovateľov a kritériá PASS/FAIL. Odchýlku hláste
-podľa sekcie 6.
+Krátka verzia [alfa akceptačného protokolu](lawoss-alpha-acceptance.md), ktorý
+obsahuje preflight, maticu poskytovateľov a kritériá PASS/FAIL. Onboarding
+z #103, #104, #106 a #108 je súčasťou `dev` od 4. 10. 2026. Použite syntetické
+údaje, zaznamenajte commit buildu aj režim Lite/Pro a odchýlku hláste podľa sekcie 6.
 
 | # | Krok | Očakávaný výsledok |
 |---|---|---|
-| 1 | Identita a kancelária | V novom onboardingu vyplňte testovaciu identitu a kanceláriu. Pred zápisom skontrolujte náhľad a výslovne ho potvrďte. Kancelária nie je klientsky workspace. |
-| 2 | AI | V kroku AI otvorte nastavenia a pripojte dostupného poskytovateľa podľa sekcie 5a. Overte pripojený stav, vhodný model a návrat do onboardingu. Odpoveď modelu overte samostatnou neškodnou otázkou; samotný stav „pripojený“ ju nedokazuje. |
-| 3 | Klient a vec | Dokončite kroky klient a vec, vždy s kontrolou náhľadu a potvrdením zápisu. **Klient je workspace**, vec je jeho podpriečinok. Rozhovor otvorte vo vybranej veci a skontrolujte jeho kontext; nevytvárajte pre tú istú vec druhý workspace. |
-| 4 | Jazyk a režim | V Settings alebo prepínači v hlavičke rozhovoru zvoľte SK alebo CS. Overte preklad používaných obrazoviek a zachovanie voľby po reštarte. Zaznamenajte Lite/Pro; nový profil začína v Lite, existujúci profil bez uloženej voľby zostáva v Pro. |
-| 5 | Dokument, pamäť a nový rozhovor | Vo veci použite syntetický dokument a uložte jednu testovaciu informáciu do pamäte. V novom rozhovore tej istej veci overte očakávaný kontext a podľa alfa protokolu skontrolujte, že sa neprenesie do inej veci alebo k inému klientovi. |
-| 6 | Reštart a návrat k veci | Zavrite a otvorte appku. Skontrolujte klientsky workspace, vybranú vec, model, jazyk a uloženú informáciu. Prehľad má zodpovedať testovacím dátam. |
+| 1 | Vy a voľba OKF | „Nastavte svoju prax“ → vymyslené meno, jurisdikcia, jazyk. V kroku „Organizácia spisov“ nie je nič predvolené. Pri „Používať OKF“ sa pokračuje až po zaškrtnutí „Beriem na vedomie…“; text nehovorí o súhlase. |
+| 2 | Kancelária | Nová kancelária v testovacom priečinku. Pred zápisom „Náhľad zmien“, potom „Potvrdiť a vykonať“. Vznikne `okf.config`, kancelária nie je pracovný priestor. |
+| 3 | Dáta a AI | Krok výslovne uvedie stav modelu („Model je pripojený:“ alebo „Zatiaľ nemáte pripojený model“). Poskytovateľa pripojte podľa sekcie 5a. Analytika je predvolene vypnutá. Bez modelu tlačidlo znie „Pokračovať bez modelu“. |
+| 4 | Klient a vec | Klient s bodkami (`Testovací klient s. r. o.`) prejde, priečinok je bez koncovej bodky. **Klient je workspace**, vec jeho podpriečinok so skillmi `novy-spis`, `okf-pamat`, `usporiadaj-spis`. |
+| 5 | Dokument, pamäť a nový rozhovor | Otázka k syntetickému dokumentu uvedie zdroj. Uložená testovacia informácia (lehota alebo zapojený subjekt) sa zobrazí v detaile veci a rozsah pamäte uvedie vec, klienta aj kanceláriu. Nový rozhovor tej istej veci ju pozná, iná vec nie. |
+| 6 | Reštart | Klient, vec, model, jazyk aj uložená informácia ostávajú. |
 
-V pokročilom postupe môžete cez **Settings → Integrácie** potvrdiť inštaláciu
-OKF skillov a použiť `/novy-spis` v rozhovore. Inštalácia skillov sama vec
-nevytvorí. Aj pri tejto ceste kontrolujte plán pred zápisom a kontext rozhovoru.
-Hranice lokálneho alfa buildu sú v sekcii 7.
+Kratšiu cestu **bez OKF** (voľba „Zatiaľ bez OKF“ → AI → voliteľný pracovný
+priečinok, bez štruktúry a skillov OKF, v bočnom paneli „Zapnúť OKF“) opisuje
+protokol v sekcii 2a. Hranice lokálneho alfa buildu sú v sekcii 7.
 
 ## 6. Čo hlásiť a kam
 

@@ -359,4 +359,4 @@ Baseline `8858366578b506bc3c83f39072e3c0a2ddbbee00`, upstream `v0.2.1` `2019dc65
 
 ### Tester documentation follow-up (#73)
 
-`docs/lawoss-build-pre-testerov.md` aligns provider setup and CDP instructions with the v0.2.1 sync. It documents automatic model selection for one connected provider and manual selection when several are connected. The smoke scenario links the existing alpha acceptance protocol and explicitly marks the client-workspace and matter-scope onboarding from #104 over #103 as pending merge. This follow-up changes documentation only; it adds no runtime patch or live-provider validation.
+`docs/lawoss-build-pre-testerov.md` aligns provider setup and CDP instructions with the v0.2.1 sync. It documents automatic model selection for one connected provider and manual selection when several are connected. The smoke scenario is a short version of the alpha acceptance protocol and follows the onboarding merged in #103, #104, #106 and #108 (OKF choice, office, AI step, client and matter). This follow-up changes documentation only; it adds no runtime patch or live-provider validation.
