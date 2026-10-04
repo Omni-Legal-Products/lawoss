@@ -2,7 +2,7 @@
  * Spoločný vizuálny jazyk pohľadov z OKF (Dnes, detail veci): tmavé sklo, kovové zlato,
  * naliehavosť farbou. Vychádza z webu lawoss.app; farby idú cez tokeny LAWOSS.
  */
-.lw-today, .lw-matter {
+.lw-today, .lw-matter, .lw-clients {
   --td-gold: #c9a24a;
   --td-gold-hi: #f2d788;
   --td-metal: linear-gradient(100deg, #b98d3f 0%, #e7c46a 38%, #f7de94 50%, #d0a24b 64%, #aa8039 100%);
@@ -14,10 +14,52 @@
   --td-radius: 14px;
   --td-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
-:root:not(.dark):not([data-theme="dark"]) .lw-today, :root:not(.dark):not([data-theme="dark"]) .lw-matter { --td-hot: var(--lw-danger, #b3261e); --td-gold: #a8832e; --td-gold-hi: #7a5b12; }
+:root:not(.dark):not([data-theme="dark"]) .lw-today, :root:not(.dark):not([data-theme="dark"]) .lw-matter, :root:not(.dark):not([data-theme="dark"]) .lw-clients { --td-hot: var(--lw-danger, #b3261e); --td-gold: #a8832e; --td-gold-hi: #7a5b12; }
 
 @keyframes lw-okf-rise {
   from { opacity: 0; transform: translateY(10px); filter: blur(3px); }
   to { opacity: 1; transform: none; filter: none; }
 }
 @keyframes lw-okf-pulse { 50% { box-shadow: 0 0 2px color-mix(in srgb, var(--td-hot) 40%, transparent); } }
+
+/* Spoločné prvky všetkých troch pohľadov */
+.lw-today-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: var(--td-metal);
+  background-size: 180% 100%;
+  color: #1a1408;
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+  box-shadow: 0 8px 28px -10px color-mix(in srgb, var(--td-gold) 70%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  transition: background-position 600ms var(--td-ease), transform 200ms var(--td-ease), box-shadow 300ms var(--td-ease);
+}
+.lw-today-primary:hover { background-position: 100% 0; transform: translateY(-1px); box-shadow: 0 12px 34px -10px color-mix(in srgb, var(--td-gold) 85%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.55); }
+.lw-today-primary:focus-visible, .lw-today a:focus-visible { outline: 2px solid var(--td-gold); outline-offset: 3px; }
+.lw-today-chip { padding: 3px 9px; border-radius: 999px; font-family: var(--lw-font-mono); font-size: 11px; border: 1px solid var(--td-line); color: var(--lw-text-secondary); white-space: nowrap; }
+.lw-today-chip[data-urgency="near"] { color: var(--td-gold-hi); border-color: color-mix(in srgb, var(--td-gold) 50%, transparent); background: color-mix(in srgb, var(--td-gold) 10%, transparent); }
+.lw-today-chip[data-urgency="hot"] { color: var(--td-hot); border-color: color-mix(in srgb, var(--td-hot) 50%, transparent); background: color-mix(in srgb, var(--td-hot) 10%, transparent); }
+.lw-matter-avatar { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; font-size: 12px; font-weight: 600; color: var(--td-gold-hi); background: radial-gradient(circle at 30% 25%, color-mix(in srgb, var(--td-gold) 35%, transparent), color-mix(in srgb, var(--td-gold) 8%, transparent)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--td-gold) 45%, transparent); }
+.lw-matter-count { margin-left: 6px; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--td-gold) 14%, transparent); color: var(--td-gold-hi); font-family: var(--lw-font-mono); font-size: 11px; font-weight: 600; }
+.lw-today a:focus-visible, .lw-clients a:focus-visible { outline: 2px solid var(--td-gold); outline-offset: 3px; }
+
+/* Indikátor živosti: bod zabliká, keď sa obsah pamäte zmenil */
+.lw-live { display: inline-flex; align-items: center; gap: 6px; margin-left: 12px; font-family: var(--lw-font-sans); font-size: 11px; letter-spacing: 0; color: var(--lw-text-tertiary); vertical-align: middle; }
+.lw-live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--lw-success, #7fb38a); animation: lw-okf-blink 1.6s var(--td-ease, ease) 1; }
+@keyframes lw-okf-blink { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--lw-success, #7fb38a) 80%, transparent); transform: scale(1.6); } 100% { box-shadow: 0 0 0 8px transparent; transform: scale(1); } }
+
+/* Kostra pri načítaní */
+.lw-mem-loading { display: grid; gap: 14px; max-width: 1180px; margin: 0 auto; padding: 12px 0; }
+.lw-mem-loading .lw-lead { margin: 0; font-size: 12px; color: var(--lw-text-tertiary); }
+.lw-mem-skeleton { display: grid; grid-template-columns: 1.55fr 1fr; gap: 16px; }
+.lw-mem-skeleton span { display: block; border-radius: 12px; background: linear-gradient(100deg, color-mix(in srgb, var(--lw-text-primary, #e9e4da) 4%, transparent) 30%, color-mix(in srgb, var(--lw-text-primary, #e9e4da) 9%, transparent) 50%, color-mix(in srgb, var(--lw-text-primary, #e9e4da) 4%, transparent) 70%); background-size: 300% 100%; animation: lw-okf-shimmer 1.6s ease-in-out infinite; }
+.lw-mem-skeleton .is-title { grid-column: 1 / -1; width: 40%; height: 40px; }
+.lw-mem-skeleton .is-line { grid-column: 1 / -1; width: 60%; height: 14px; }
+.lw-mem-skeleton .is-strip { grid-column: 1 / -1; height: 92px; }
+.lw-mem-skeleton .is-panel { height: 180px; }
+@keyframes lw-okf-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@media (prefers-reduced-motion: reduce) { .lw-mem-skeleton span, .lw-live-dot { animation: none; } }

@@ -5,3 +5,7 @@ export const LITE_MATTER_PATH = "/vec";
 export const NEW_MATTER_PATH = "/experimenty/novy-spis";
 
 export const liteMatterLink = (path: string): string => `${LITE_MATTER_PATH}?vec=${encodeURIComponent(path)}`;
+
+/** Odkaz na konkrétnu lehotu v detaile veci: otvorí vec, posunie sa na lehotu a krátko ju zvýrazní. */
+export const liteDeadlineLink = (path: string, recordId: string, date: string): string =>
+  `${liteMatterLink(path)}&lehota=${encodeURIComponent(`${recordId}@${date}`)}`;

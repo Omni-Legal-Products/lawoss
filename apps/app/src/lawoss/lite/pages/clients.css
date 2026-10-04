@@ -1,0 +1,78 @@
+/* LAWOSS-lite „Klienti a veci": karty klientov z pamäte OKF, rovnaký jazyk ako Dnes a detail veci. */
+.lw-clients {
+  position: relative;
+  container-type: inline-size;
+  min-width: 0;
+  display: grid;
+  gap: 18px;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 8px 0 40px;
+  color: var(--lw-text-primary);
+}
+.lw-clients::before {
+  content: "";
+  position: absolute;
+  inset: -40px -24px auto;
+  height: 280px;
+  pointer-events: none;
+  background: radial-gradient(520px 220px at 85% 0%, color-mix(in srgb, var(--td-gold) 18%, transparent), transparent 70%);
+  filter: blur(4px);
+}
+.lw-clients > * { position: relative; }
+.lw-clients-hero, .lw-clients-card, .lw-clients-empty { animation: lw-okf-rise 620ms var(--td-ease) both; animation-delay: calc(var(--lw-i, 0) * 60ms); }
+
+.lw-clients-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding: 20px 4px 2px; }
+.lw-clients-topline { margin: 0 0 8px; min-height: 16px; }
+.lw-clients .lw-h1 { margin: 0; font-size: clamp(28px, 3vw, 38px); line-height: 1.05; font-weight: 600; letter-spacing: -0.02em; }
+
+.lw-clients-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 18px; align-items: start; }
+.lw-clients-card {
+  position: relative;
+  padding: 16px;
+  border: 1px solid var(--td-line);
+  border-radius: var(--td-radius);
+  background: var(--td-glass), var(--lw-surface);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--lw-text-primary) 6%, transparent), 0 18px 40px -28px rgba(0, 0, 0, 0.6);
+}
+.lw-clients-card::after { content: ""; position: absolute; inset: 0 20% auto; height: 1px; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--td-gold) 55%, transparent), transparent); opacity: 0.7; }
+.lw-clients-card[data-urgency="hot"] { border-color: color-mix(in srgb, var(--td-hot) 35%, transparent); }
+.lw-clients-card-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.lw-clients-card-head h2 { flex: 1; margin: 0; font-size: 16px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+
+.lw-clients-matters { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.lw-clients-matter {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 8px;
+  border-radius: 10px;
+  color: inherit;
+  text-decoration: none;
+  transition: background 180ms var(--td-ease);
+}
+.lw-clients-matter:hover { background: color-mix(in srgb, var(--lw-text-primary) 5%, transparent); }
+.lw-clients-matter:focus-visible { outline: 2px solid var(--td-gold); outline-offset: 2px; }
+.lw-clients-matter-main { display: grid; gap: 2px; min-width: 0; }
+.lw-clients-matter-title { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lw-clients-matter-main small { font-family: var(--lw-font-mono); font-size: 11px; color: var(--lw-text-tertiary); }
+.lw-clients-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--td-line); }
+.lw-clients-matter[data-urgency="near"] .lw-clients-dot { background: var(--td-gold); box-shadow: 0 0 10px color-mix(in srgb, var(--td-gold) 70%, transparent); }
+.lw-clients-matter[data-urgency="hot"] .lw-clients-dot { background: var(--td-hot); box-shadow: 0 0 10px color-mix(in srgb, var(--td-hot) 70%, transparent); animation: lw-okf-pulse 2.4s ease-in-out infinite; }
+.lw-clients-arrow { color: var(--lw-text-tertiary); transition: color 200ms, transform 240ms var(--td-ease); }
+.lw-clients-matter:hover .lw-clients-arrow { color: var(--td-gold); transform: translate(2px, -2px); }
+
+.lw-clients-empty { display: grid; justify-items: center; gap: 10px; padding: 48px 16px; border: 1px dashed var(--td-line); border-radius: var(--td-radius); color: var(--lw-text-tertiary); text-align: center; }
+.lw-clients-empty svg { color: var(--td-gold); }
+.lw-clients-empty p { margin: 0; font-size: 14px; }
+
+@container (max-width: 560px) {
+  .lw-clients-hero { flex-direction: column; align-items: flex-start; }
+  .lw-clients-matter { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .lw-clients-matter .lw-today-chip { grid-column: 2; justify-self: start; }
+  .lw-clients-arrow { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lw-clients-hero, .lw-clients-card, .lw-clients-empty, .lw-clients-matter[data-urgency="hot"] .lw-clients-dot { animation: none; }
+}

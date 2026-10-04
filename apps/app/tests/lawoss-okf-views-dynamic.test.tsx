@@ -4,10 +4,15 @@ import { MemoryRouter } from "react-router-dom";
 import type { ReactElement } from "react";
 import { buildTimeline, groupFacts, LiteMatterView, type LiteCockpit } from "../src/lawoss/lite/pages/matter-page";
 import { TodayView } from "../src/lawoss/lite/pages/today-page";
+import { ClientsView } from "../src/lawoss/lite/pages/clients-page";
+import { LiteNavView } from "../src/lawoss/lite/lite-nav";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { deadlineAnchor, matterUrgency } from "../src/lawoss/lite/live";
+import { liteDeadlineLink } from "../src/lawoss/lite/links";
 import { addDays, today } from "../src/lawoss/okf/read-model";
 import { buildOverview, deadlineLabel, type MatterInput } from "../../../lawoss/okf/read";
 import { buildCockpit } from "../../../lawoss/okf/cockpit";
-import { buildToday } from "../src/lawoss/lite/today-model";
+import { buildToday, groupByClient } from "../src/lawoss/lite/today-model";
 import { LAYER_OF } from "../../../lawoss/okf-pamat/src/schema.ts";
 import type { OkfRecord } from "../../../lawoss/okf-pamat/src/record.ts";
 import type { CockpitDeadline, CockpitEvent, CockpitFact } from "../../../lawoss/okf/cockpit";
@@ -100,5 +105,34 @@ describe("dynamické pohľady z OKF", () => {
     const urgencyNear = (out: string, label: string) => new RegExp(`data-urgency="near"[^]*?${label}`).test(out);
     expect(urgencyNear(today, "Lehota na vyjadrenie")).toBe(true);
     expect(urgencyNear(detail, "Lehota na vyjadrenie")).toBe(true);
+  });
+
+  test("rýchle vylepšenia: odkaz na lehotu, body naliehavosti, karty klientov, staršia história", () => {
+    // Odkaz z Dnes nesie lehotu a cieľ v detaile má tú istú kotvu.
+    expect(liteDeadlineLink("Klienti/A", "M-1", "2026-10-09")).toContain("&lehota=M-1%402026-10-09");
+    expect(deadlineAnchor("M-1", "2026-10-09")).toBe("lehota-M-1-2026-10-09");
+    // Naliehavosť veci pre bočný panel a klientov: po lehote horí, o 2 dni sa blíži, o 10 dní nič.
+    expect(matterUrgency([{ date: addDays(NOW, -1) }], NOW)).toBe("hot");
+    expect(matterUrgency([{ date: addDays(NOW, 2) }], NOW)).toBe("near");
+    expect(matterUrgency([{ date: addDays(NOW, 10) }], NOW)).toBeUndefined();
+    const nav = html(<SidebarProvider><LiteNavView recent={[{ path: "a", title: "Vec A", deadlines: [{ date: addDays(NOW, 1) }] }, { path: "b", title: "Vec B", deadlines: [] }]} /></SidebarProvider>);
+    expect(nav.match(/lw-nav-urgency/g) ?? []).toHaveLength(1);
+    const clients = html(<ClientsView locale="en" groups={[{ client: "Novák", matters: [{ ...matter, deadlines: [{ date: addDays(NOW, 1), title: "x", recordId: "M-1" }] }] }]} />);
+    expect(clients).toContain("Novák");
+    expect(clients).toContain('data-urgency="near"');
+    // Detail: deadline má kotvu, dlhá história sa skryje za „Show older“.
+    const events: CockpitEvent[] = Array.from({ length: 11 }, (_, i) => ({ date: addDays(NOW, -i - 1), text: `Udalosť ${i}`, recordId: "M-1", file: "f" }));
+    const cockpit: LiteCockpit = { deadlines: { confirmed: [deadline("M-1", 2)], candidates: [] }, tasks: [], attention: [], facts: [], parties: [], events };
+    const page = html(<LiteMatterView matter={matter} cockpit={cockpit} busy={null} error={null} onAction={() => {}} />);
+    expect(page).toContain(`id="${deadlineAnchor("M-1", addDays(NOW, 2))}"`);
+    expect(page).toContain("Show older (3)");
+  });
+
+  test("Klienti: klient v koreni priečinka sa volá podľa svojej karty, veci sú pod ním spolu", () => {
+    const a = { ...matter, path: "Obchodné právo/A", title: "Vec A" };
+    const b = { ...matter, path: "Obchodné právo/B", title: "Vec B" };
+    const inputs = [a, b].map((m) => ({ path: m.path, scopePaths: [m.path, "", "Office"], clientTitle: "Novák s. r. o." }));
+    const groups = groupByClient([a, b], inputs);
+    expect(groups.map((g) => [g.client, g.matters.length])).toEqual([["Novák s. r. o.", 2]]);
   });
 });

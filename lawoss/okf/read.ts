@@ -44,6 +44,8 @@ export type MatterInput = {
   intake?: string;
   /** Pending intake inherited from the client scope, kept separate from the matter's own VSTUPY.md. */
   inheritedIntakes?: readonly { content: string; path: string; scope: "client" }[];
+  /** Názov klienta z jeho karty (`client.md`/`klient.md`, pole `title`), ak vec patrí klientovi. */
+  clientTitle?: string;
   /** Mapped legacy-memory files visible to the user but never converted into typed records. */
   existingMemorySources?: readonly string[];
   manualStatus?: ManualStatus;

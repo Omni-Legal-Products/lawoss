@@ -499,3 +499,7 @@
   overflow-x: auto;
   max-height: 40vh;
 }
+
+/* Lite bočný panel: naliehavosť najbližšej lehoty pri „Posledných veciach“ (rovnaké pravidlá ako Dnes). */
+.lw-nav-urgency { flex: none; width: 6px; height: 6px; margin-left: auto; border-radius: 50%; background: #c9a24a; box-shadow: 0 0 8px rgba(201, 162, 74, 0.8); }
+.lw-nav-urgency[data-urgency="hot"] { background: #e8836b; box-shadow: 0 0 8px rgba(232, 131, 107, 0.85); }

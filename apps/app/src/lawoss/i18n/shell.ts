@@ -117,7 +117,12 @@ export const shellEn = {
   "lawoss.lite.matter_timeline_empty": "No events recorded yet.",
   "lawoss.lite.matter_waiting": "Waiting for you",
   "lawoss.lite.matter_more": "More",
-  "lawoss.lite.matter_upcoming": "upcoming"
+  "lawoss.lite.matter_upcoming": "upcoming",
+  "lawoss.lite.live_now": "Updated just now",
+  "lawoss.lite.live_minutes": "Updated {count} min ago",
+  "lawoss.lite.copy_ref": "Copy case number",
+  "lawoss.lite.copied": "Copied",
+  "lawoss.lite.timeline_more": "Show older ({count})"
 };
 
 /** Čeština a slovenština potřebují navíc tvary few/many (Intl.PluralRules, viz `t()` v i18n/index.ts). */
@@ -244,7 +249,12 @@ export const shellCs = {
   "lawoss.lite.matter_timeline_empty": "Zatím žádné zaznamenané události.",
   "lawoss.lite.matter_waiting": "Čeká na vás",
   "lawoss.lite.matter_more": "Další",
-  "lawoss.lite.matter_upcoming": "blíží se"
+  "lawoss.lite.matter_upcoming": "blíží se",
+  "lawoss.lite.live_now": "Aktualizováno právě teď",
+  "lawoss.lite.live_minutes": "Aktualizováno před {count} min",
+  "lawoss.lite.copy_ref": "Zkopírovat spisovou značku",
+  "lawoss.lite.copied": "Zkopírováno",
+  "lawoss.lite.timeline_more": "Zobrazit starší ({count})"
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellSk = {
@@ -368,7 +378,12 @@ export const shellSk = {
   "lawoss.lite.matter_timeline_empty": "Zatiaľ žiadne zaznamenané udalosti.",
   "lawoss.lite.matter_waiting": "Čaká na vás",
   "lawoss.lite.matter_more": "Ďalšie",
-  "lawoss.lite.matter_upcoming": "blíži sa"
+  "lawoss.lite.matter_upcoming": "blíži sa",
+  "lawoss.lite.live_now": "Aktualizované práve teraz",
+  "lawoss.lite.live_minutes": "Aktualizované pred {count} min",
+  "lawoss.lite.copy_ref": "Skopírovať spisovú značku",
+  "lawoss.lite.copied": "Skopírované",
+  "lawoss.lite.timeline_more": "Zobraziť staršie ({count})"
 } satisfies Record<keyof typeof shellEn | SlavicPluralKey, string>;
 
 export const shellDe = {
@@ -490,5 +505,10 @@ export const shellDe = {
   "lawoss.lite.matter_timeline_empty": "Noch keine Ereignisse erfasst.",
   "lawoss.lite.matter_waiting": "Wartet auf Sie",
   "lawoss.lite.matter_more": "Mehr",
-  "lawoss.lite.matter_upcoming": "steht bevor"
+  "lawoss.lite.matter_upcoming": "steht bevor",
+  "lawoss.lite.live_now": "Gerade aktualisiert",
+  "lawoss.lite.live_minutes": "Vor {count} Min. aktualisiert",
+  "lawoss.lite.copy_ref": "Aktenzeichen kopieren",
+  "lawoss.lite.copied": "Kopiert",
+  "lawoss.lite.timeline_more": "Ältere anzeigen ({count})"
 } satisfies Record<keyof typeof shellEn, string>;

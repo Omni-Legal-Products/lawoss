@@ -4,12 +4,14 @@ import { Link } from "react-router-dom";
 import { ArrowUpRight, CalendarClock, Check, FolderOpen, Inbox, ListChecks } from "lucide-react";
 import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
-import { OkfPage } from "../../domains/okf-page";
+import { useQuery } from "@tanstack/react-query";
+import { OkfPage, type OkfPageMeta } from "../../domains/okf-page";
 import { litePageProps } from "../state-text";
-import { addDays, formatDay, today } from "../../okf/read-model";
+import { addDays, formatDay, today, useOkfConnection, type OkfReadResult } from "../../okf/read-model";
 import { deadlineText, urgencyOf, type Urgency } from "../../okf/view-rules";
 import { buildToday, nextDeadline, type TodayDeadline, type TodayModel, type TodayTask } from "../today-model";
-import { LITE_CLIENTS_PATH, liteMatterLink, NEW_MATTER_PATH } from "../links";
+import { LITE_CLIENTS_PATH, liteDeadlineLink, liteMatterLink, NEW_MATTER_PATH } from "../links";
+import { hotDeadlineCount, LiveStamp, useHotTitle } from "../live";
 import "./okf-glass.css";
 import "./today.css";
 
@@ -19,9 +21,24 @@ const MATTER_CARDS = 6;
 
 export function TodayPage() {
   const locale = useLocale();
+  const { connection } = useOkfConnection();
+  // Meno z onboardingu do pozdravu; bez neho ostáva pozdrav bez mena.
+  const profile = useQuery({
+    queryKey: ["lawoss-lawyer-name", connection?.baseUrl ?? ""],
+    enabled: Boolean(connection?.client),
+    retry: false,
+    staleTime: 5 * 60_000,
+    queryFn: async () => (await connection?.client?.onboardingStatus())?.profile?.lawyerName ?? "",
+  });
   return <OkfPage {...litePageProps(locale)}>
-    {(data) => <TodayView model={buildToday(data, today())} locale={locale} />}
+    {(data, meta) => <TodayLive data={data} meta={meta} locale={locale} name={profile.data || undefined} />}
   </OkfPage>;
+}
+
+function TodayLive({ data, meta, locale, name }: { data: OkfReadResult; meta: OkfPageMeta; locale: Language; name?: string }) {
+  const now = today();
+  useHotTitle(hotDeadlineCount(data, now));
+  return <TodayView model={buildToday(data, now)} locale={locale} meta={meta} name={name} />;
 }
 
 type Text = (key: string, params?: Record<string, string | number>) => string;
@@ -53,7 +70,7 @@ const isWeekend = (iso: string) => [0, 6].includes(parseDay(iso).getUTCDay());
 const reveal = (index: number): CSSProperties & Record<"--lw-i", number> => ({ "--lw-i": index });
 
 /** Ranní otázka „co mi dnes hoří": přehled, pás lhůt, lhůty, úkoly, k zařazení a věci. Jen čte, nic nezapisuje. */
-export function TodayView({ model, locale, now = new Date() }: { model: TodayModel; locale: Language; now?: Date }) {
+export function TodayView({ model, locale, now = new Date(), meta, name }: { model: TodayModel; locale: Language; now?: Date; meta?: OkfPageMeta; name?: string }) {
   const text: Text = (key, params) => t(`lawoss.lite.${key}`, locale, params);
   const todayIso = today(now);
   const thisWeek = model.deadlines.filter((d) => d.invalid || d.tier === "overdue" || d.daysLeft < WEEK_DAYS);
@@ -62,8 +79,8 @@ export function TodayView({ model, locale, now = new Date() }: { model: TodayMod
     <div className="lw-today" data-lawoss-lite="today">
       <header className="lw-today-hero" style={reveal(0)}>
         <div className="lw-today-hero-copy">
-          <p className="lw-today-date">{longDate(todayIso, locale)}</p>
-          <h1 className="lw-today-greeting">{text(greetingKey(now.getHours()))}</h1>
+          <p className="lw-today-date">{longDate(todayIso, locale)}{meta ? <LiveStamp meta={meta} locale={locale} /> : null}</p>
+          <h1 className="lw-today-greeting">{text(greetingKey(now.getHours()))}{name ? <span className="lw-today-name">, {name}</span> : null}</h1>
           <p className="lw-today-lead">{first && thisWeek.length > 0
             ? text("hero_next", { title: deadlineText(first), when: dueLabel(first, text) })
             : text("hero_calm")}</p>
@@ -83,7 +100,7 @@ export function TodayView({ model, locale, now = new Date() }: { model: TodayMod
           {model.deadlines.length === 0 ? <Empty text={text("deadlines_empty")} /> : <ul className="lw-today-list">
             {model.deadlines.map((d) => (
               <li key={`${d.matter.path}/${d.recordId}/${d.date}`}>
-                <Link className="lw-today-deadline" data-urgency={urgency(d, todayIso)} to={liteMatterLink(d.matter.path)}>
+                <Link className="lw-today-deadline" data-urgency={urgency(d, todayIso)} to={d.invalid ? liteMatterLink(d.matter.path) : liteDeadlineLink(d.matter.path, d.recordId, d.date)}>
                   <span className="lw-today-cal" aria-hidden>
                     <span>{d.invalid ? "?" : weekdayShort(d.date, locale)}</span>
                     <strong>{d.invalid ? "!" : dayOfMonth(d.date)}</strong>
@@ -210,11 +227,12 @@ function DeadlineStrip({ deadlines, tasks, todayIso, locale, text }: { deadlines
               {cell.due.map((task) => <span key={task.key} data-kind="task"><b>{task.title}</b>{task.matters.map((m) => m.title).join(" · ")}</span>)}
             </span> : null}
           </>;
-          const target = cell.items[0]?.matter.path ?? cell.due[0]?.matters[0]?.path;
+          const lead = cell.items[0];
+          const target = lead ? liteDeadlineLink(lead.matter.path, lead.recordId, lead.date) : cell.due[0]?.matters[0] ? liteMatterLink(cell.due[0].matters[0].path) : undefined;
           const names = [...cell.items.map(deadlineText), ...cell.due.map((task) => task.title)];
           return (
             <li key={cell.key} className="lw-today-day" data-today={cell.today || undefined} data-weekend={cell.weekend || undefined} data-overdue={cell.overdue || undefined} data-busy={names.length > 0 || undefined}>
-              {target ? <Link to={liteMatterLink(target)} aria-label={`${cell.label} ${cell.day}: ${names.join(", ")}`}>{body}</Link> : <span>{body}</span>}
+              {target ? <Link to={target} aria-label={`${cell.label} ${cell.day}: ${names.join(", ")}`}>{body}</Link> : <span>{body}</span>}
             </li>
           );
         })}

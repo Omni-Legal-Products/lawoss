@@ -1,12 +1,13 @@
 /** @jsxImportSource react */
-import { useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { missingScopeLevels, scopeLevels, type MatterOverview } from "../../../../../../lawoss/okf/read";
 import { buildCockpit, type Cockpit, type CockpitDeadline, type CockpitEvent, type CockpitFact } from "../../../../../../lawoss/okf/cockpit";
-import { OkfPage } from "../../domains/okf-page";
+import { OkfPage, type OkfPageMeta } from "../../domains/okf-page";
+import { deadlineAnchor, hotDeadlineCount, LiveStamp, useHotTitle } from "../live";
 import { litePageProps } from "../state-text";
 import { openMatterSession } from "../../okf/matter-session";
 import { officeWorkspace, formatDay, today, useOkfConnection, type OkfReadResult } from "../../okf/read-model";
@@ -28,7 +29,7 @@ export type LiteCockpit = Pick<Cockpit, "deadlines" | "tasks" | "attention" | "f
 export function LiteMatterPage() {
   const locale = useLocale();
   // Bez nadpisu stránky: hlavním nadpisem je název věci (LiteMatterView), ne „Klienti a věci“.
-  return <OkfPage {...litePageProps(locale)}>{(data) => <LiteMatterBody data={data} />}</OkfPage>;
+  return <OkfPage {...litePageProps(locale)}>{(data, meta) => <LiteMatterBody data={data} meta={meta} />}</OkfPage>;
 }
 
 /** Jen přesná shoda `?vec=`; na rozdíl od `selectMatter` nikdy nespadne na první věc (akce by běžely nad jinou). */
@@ -37,7 +38,7 @@ export function matterFromParams(matters: readonly MatterOverview[], params: URL
   return path === null ? null : matters.find((m) => m.path === path) ?? null;
 }
 
-function LiteMatterBody({ data }: { data: OkfReadResult }) {
+function LiteMatterBody({ data, meta }: { data: OkfReadResult; meta: OkfPageMeta }) {
   const locale = useLocale();
   const [params] = useSearchParams();
   const navigate = useNavigate();
@@ -48,6 +49,7 @@ function LiteMatterBody({ data }: { data: OkfReadResult }) {
   const [saved, setSaved] = useState<string | null>(null);
   const queries = useQueryClient();
   const matter = matterFromParams(data.matters, params);
+  useHotTitle(hotDeadlineCount(data, today()));
   const conversations = useQuery({
     queryKey: ["lite-matter-conversations", matter?.path ?? "", connection?.baseUrl ?? "", connection?.token ?? ""],
     enabled: Boolean(connection?.client && matter),
@@ -110,10 +112,11 @@ function LiteMatterBody({ data }: { data: OkfReadResult }) {
     scopePaths={input?.scopePaths}
     existingMemorySources={input?.existingMemorySources}
     truths={Object.fromEntries((input?.records ?? []).map((record) => [record.id, record.truth]))}
-    client={cockpit?.client ?? clientName(input?.scopePaths)} />;
+    client={input?.clientTitle ?? cockpit?.client ?? clientName(input?.scopePaths)}
+    meta={meta} focusDeadline={params.get("lehota")} />;
 }
 
-export function LiteMatterView({ matter, cockpit, busy, error, onAction, conversations = [], onContinue, onFiles, saved = null, scopePaths = [], existingMemorySources = [], truths = {}, client }: {
+export function LiteMatterView({ matter, cockpit, busy, error, onAction, conversations = [], onContinue, onFiles, saved = null, scopePaths = [], existingMemorySources = [], truths = {}, client, meta, focusDeadline = null }: {
   matter: MatterOverview;
   scopePaths?: readonly string[];
   existingMemorySources?: readonly string[];
@@ -132,6 +135,10 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
   truths?: Readonly<Record<string, string>>;
   /** Meno klienta, ak ho cesta alebo pamäť pozná. */
   client?: string;
+  /** Kedy sa pamäť overila a zmenila (indikátor živosti). */
+  meta?: OkfPageMeta;
+  /** `záznam@dátum` z odkazu na lehotu: posunie sa na ňu a krátko ju zvýrazní. */
+  focusDeadline?: string | null;
 }) {
   const locale = useLocale();
   const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.lite.${key}`, locale, params);
@@ -151,6 +158,29 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
   const timeline = buildTimeline(cockpit?.events ?? [], all, now);
   const tabs = [["overview", "tab_overview"], ["known", "tab_known"]] as const;
   const daysToNext = next ? daysUntil(now, next) : undefined;
+  const [copied, setCopied] = useState(false);
+  const focused = focusDeadline ? deadlineAnchor(...splitFocus(focusDeadline)) : null;
+  const [highlight, setHighlight] = useState<string | null>(null);
+  useEffect(() => {
+    if (!focused) return;
+    setTab("overview");
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(focused)?.scrollIntoView({ block: "center", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      setHighlight(focused);
+    });
+    const timer = window.setTimeout(() => setHighlight(null), 2200);
+    return () => { window.cancelAnimationFrame(frame); window.clearTimeout(timer); };
+  }, [focused]);
+  const copyRef = () => {
+    if (!matter.matterRef) return;
+    void navigator.clipboard?.writeText(matter.matterRef).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    });
+  };
+  const recentPast = timeline.findIndex((entry) => entry.kind === "today");
+  const visibleTimeline = recentPast < 0 ? timeline : timeline.slice(0, recentPast + 1 + TIMELINE_PAST_LIMIT);
+  const olderTimeline = recentPast < 0 ? [] : timeline.slice(recentPast + 1 + TIMELINE_PAST_LIMIT);
 
   return (
     <div className="lw-matter" data-lawoss-lite="matter" data-dragging={dragging || undefined}
@@ -163,10 +193,12 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
       }}>
       <header className="lw-matter-hero" style={reveal(0)}>
         <div className="lw-matter-hero-copy">
-          <Link className="lw-matter-crumb" to={LITE_CLIENTS_PATH}>{client ?? text("clients_title")}</Link>
+          <p className="lw-matter-topline"><Link className="lw-matter-crumb" to={LITE_CLIENTS_PATH}>{client ?? text("clients_title")}</Link>{meta ? <LiveStamp meta={meta} locale={locale} /> : null}</p>
           <h1 className="lw-h1">{matter.title}</h1>
           <p className="lw-matter-meta">
-            {matter.matterRef ? <span className="lw-matter-ref">{matter.matterRef}</span> : null}
+            {matter.matterRef ? <button type="button" className="lw-matter-ref lw-matter-copy" onClick={copyRef} title={text("copy_ref")} aria-label={`${text("copy_ref")}: ${matter.matterRef}`} data-copied={copied || undefined}>
+              {matter.matterRef}<span className="lw-matter-copy-state" aria-live="polite">{copied ? text("copied") : ""}</span>
+            </button> : null}
             {matter.court ? <span>{matter.court}</span> : null}
             {next ? <span className="lw-matter-next-inline">{text("matter_next_deadline", { date: formatDay(next, locale) })}</span> : null}
           </p>
@@ -229,14 +261,13 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
         <div className="lw-matter-grid">
           <section className="lw-matter-panel lw-matter-timeline" style={reveal(4)}>
             <h2 className="lw-matter-section">{text("matter_timeline")}</h2>
-            {timeline.length === 0 ? <p className="lw-matter-empty">{text("matter_timeline_empty")}</p> : <ol className="lw-matter-axis">
-              {timeline.map((entry) => entry.kind === "today"
-                ? <li key="today" className="lw-matter-axis-today"><span>{text("strip_today")}</span></li>
-                : <li key={entry.key} data-future={entry.future || undefined} data-urgency={entry.urgency}>
-                  <span className="lw-matter-axis-date">{formatDay(entry.date, locale)}</span>
-                  <span className="lw-matter-axis-text">{entry.text}{entry.future ? <small>{text("matter_upcoming")}</small> : null}</span>
-                </li>)}
-            </ol>}
+            {timeline.length === 0 ? <p className="lw-matter-empty">{text("matter_timeline_empty")}</p> : <>
+              <TimelineList entries={visibleTimeline} locale={locale} text={text} />
+              {olderTimeline.length > 0 ? <details className="lw-matter-older">
+                <summary>{text("timeline_more", { count: olderTimeline.length })}</summary>
+                <TimelineList entries={olderTimeline} locale={locale} text={text} />
+              </details> : null}
+            </>}
           </section>
 
           <div className="lw-matter-side">
@@ -244,7 +275,7 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
               <h2 className="lw-matter-section">{text("deadlines_title")}</h2>
               {deadlines.length === 0 ? <p className="lw-matter-empty">{text("deadlines_empty")}</p> : <ul className="lw-matter-list">
                 {deadlines.map((d) => (
-                  <li key={`${d.recordId}/${d.date}`} className="lw-matter-item" data-urgency={urgencyOf(d.date, now, d.invalid)}>
+                  <li key={`${d.recordId}/${d.date}`} id={deadlineAnchor(d.recordId, d.date)} className="lw-matter-item" data-urgency={urgencyOf(d.date, now, d.invalid)} data-highlight={highlight === deadlineAnchor(d.recordId, d.date) || undefined}>
                     <span className="lw-matter-cal" aria-hidden><span>{d.invalid ? "?" : weekdayShort(d.date, locale)}</span><strong>{d.invalid ? "!" : dayOfMonth(d.date)}</strong></span>
                     <span className="lw-matter-item-main">
                       <span className="lw-matter-item-title">{deadlineText(d)}</span>
@@ -334,17 +365,34 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
         <ul>{scopeLevels(scopePaths).map(({ path, level }) => <li className="break-all" key={path} data-lawoss-scope={level}><b>{text(`scope_${level}`)}</b> {path || "."}</li>)}
           {missingScopeLevels(scopePaths).map((level) => <li key={level} data-lawoss-scope-missing={level}><b>{text(`scope_${level}`)}:</b> {text(`scope_${level}_missing`)}</li>)}</ul>
       </details> : null}
-      {existingMemorySources.length > 0 ? <div className="lw-matter-panel lw-matter-note" role="note">
-        <h2 className="lw-matter-section">{text("additional_memory")}</h2>
+      {existingMemorySources.length > 0 ? <details className="lw-matter-scope lw-matter-note" role="note">
+        <summary>{text("additional_memory")} <span className="lw-matter-count">{existingMemorySources.length}</span></summary>
         <p>{text("additional_memory_note")}</p>
         <ul>{existingMemorySources.map((path) => <li className="break-all" key={path}>{path}</li>)}</ul>
         <Link className="underline" to="/settings/extensions">{text("memory_integrations")}</Link>
-      </div> : null}
+      </details> : null}
     </div>
   );
 }
 
+const TIMELINE_PAST_LIMIT = 8;
 const parseDay = (iso: string) => new Date(`${iso}T00:00:00Z`);
+/** `záznam@dátum` → [záznam, dátum]; ID záznamu môže obsahovať aj `@`, dátum je za posledným. */
+const splitFocus = (value: string): [string, string] => {
+  const at = value.lastIndexOf("@");
+  return at < 0 ? [value, ""] : [value.slice(0, at), value.slice(at + 1)];
+};
+
+function TimelineList({ entries, locale, text }: { entries: readonly TimelineEntry[]; locale: string; text: (key: string, params?: Record<string, string | number>) => string }) {
+  return <ol className="lw-matter-axis">
+    {entries.map((entry) => entry.kind === "today"
+      ? <li key="today" className="lw-matter-axis-today"><span>{text("strip_today")}</span></li>
+      : <li key={entry.key} data-future={entry.future || undefined} data-urgency={entry.urgency}>
+        <span className="lw-matter-axis-date">{formatDay(entry.date, locale)}</span>
+        <span className="lw-matter-axis-text">{entry.text}{entry.future ? <small>{text("matter_upcoming")}</small> : null}</span>
+      </li>)}
+  </ol>;
+}
 const weekdayShort = (iso: string, locale: string) => new Intl.DateTimeFormat(locale, { weekday: "short", timeZone: "UTC" }).format(parseDay(iso)).replace(".", "");
 const dayOfMonth = (iso: string) => parseDay(iso).getUTCDate();
 const reveal = (index: number): CSSProperties & Record<"--lw-i", number> => ({ "--lw-i": index });

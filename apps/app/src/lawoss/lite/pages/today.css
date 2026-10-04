@@ -64,23 +64,6 @@
   color: transparent;
 }
 .lw-today-lead { margin: 10px 0 0; max-width: 62ch; color: var(--lw-text-secondary); font-size: 15px; line-height: 1.5; }
-.lw-today-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 18px;
-  border-radius: 999px;
-  background: var(--td-metal);
-  background-size: 180% 100%;
-  color: #1a1408;
-  font-weight: 600;
-  font-size: 14px;
-  text-decoration: none;
-  box-shadow: 0 8px 28px -10px color-mix(in srgb, var(--td-gold) 70%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.45);
-  transition: background-position 600ms var(--td-ease), transform 200ms var(--td-ease), box-shadow 300ms var(--td-ease);
-}
-.lw-today-primary:hover { background-position: 100% 0; transform: translateY(-1px); box-shadow: 0 12px 34px -10px color-mix(in srgb, var(--td-gold) 85%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.55); }
-.lw-today-primary:focus-visible, .lw-today a:focus-visible { outline: 2px solid var(--td-gold); outline-offset: 3px; }
 
 .lw-today-stats { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 10px; margin: 6px 0 0; }
 .lw-today-stat {
@@ -234,9 +217,6 @@
 
 /* Úlohy */
 .lw-today-ring { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--td-gold) 70%, transparent); }
-.lw-today-chip { padding: 3px 9px; border-radius: 999px; font-family: var(--lw-font-mono); font-size: 11px; border: 1px solid var(--td-line); color: var(--lw-text-secondary); white-space: nowrap; }
-.lw-today-chip[data-urgency="near"] { color: var(--td-gold-hi); border-color: color-mix(in srgb, var(--td-gold) 50%, transparent); background: color-mix(in srgb, var(--td-gold) 10%, transparent); }
-.lw-today-chip[data-urgency="hot"] { color: var(--td-hot); border-color: color-mix(in srgb, var(--td-hot) 50%, transparent); background: color-mix(in srgb, var(--td-hot) 10%, transparent); }
 
 /* Na zaradenie */
 .lw-today-input .lw-no { font-family: var(--lw-font-mono); font-size: 11px; color: var(--td-gold); min-width: 34px; }
@@ -299,3 +279,6 @@
   .lw-today-dots i[data-urgency="hot"] { animation: none; }
   .lw-today-card, .lw-today-primary, .lw-today-day > a { transition: none; }
 }
+
+/* Meno z onboardingu v pozdrave */
+.lw-today-name { color: var(--lw-text-secondary); -webkit-text-fill-color: currentColor; font-weight: 500; }

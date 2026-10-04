@@ -66,13 +66,16 @@ const lastSegment = (path: string) => path.split("/").filter(Boolean).pop() ?? p
  * `client_path` v okf.config) - funguje pro `Klienti/Novák/…` i `AK/N/Novák/…`.
  * Bez ní tvar cesty `AK/<písmeno>/<klient>`, jinak věc sama.
  */
-export function groupByClient(matters: readonly MatterOverview[], inputs: readonly Pick<MatterInput, "path" | "scopePaths">[] = []): ClientGroup[] {
-  const scopes = new Map(inputs.map((i) => [i.path, scopeLevels(i.scopePaths ?? [])]));
+export function groupByClient(matters: readonly MatterOverview[], inputs: readonly Pick<MatterInput, "path" | "scopePaths" | "clientTitle">[] = []): ClientGroup[] {
+  const byPath = new Map(inputs.map((i) => [i.path, i]));
   const groups = new Map<string, ClientGroup>();
   for (const matter of matters) {
-    const clientDir = scopes.get(matter.path)?.find((s) => s.level === "client" && s.path)?.path;
-    const client = clientDir ? lastSegment(clientDir) : clientFromPath(matter.path) ?? matter.title;
-    const key = clientDir ?? client;
+    const input = byPath.get(matter.path);
+    // Klient je aj koreň priečinka (cesta ""): názov vtedy nesie len jeho karta.
+    const clientScope = scopeLevels(input?.scopePaths ?? []).find((s) => s.level === "client");
+    const clientDir = clientScope?.path;
+    const client = input?.clientTitle ?? (clientDir ? lastSegment(clientDir) : clientFromPath(matter.path) ?? matter.title);
+    const key = clientScope ? `client:${clientDir}` : client;
     const group = groups.get(key) ?? { client, matters: [] };
     group.matters.push(matter);
     groups.set(key, group);

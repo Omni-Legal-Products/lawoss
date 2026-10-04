@@ -129,6 +129,20 @@ export async function readWorkspaceMemory(
 
   type Bundle = { records: MatterInput["records"]; files: Record<string, string> };
   const bundles = new Map<string, Promise<Bundle>>();
+  // Názov klienta z jeho karty; jedna karta sa číta raz, aj keď má klient veľa vecí.
+  const clientTitles = new Map<string, Promise<string | undefined>>();
+  const clientTitle = (clientPath: string): Promise<string | undefined> => {
+    const cached = clientTitles.get(clientPath);
+    if (cached) return cached;
+    const pending = (async () => {
+      const card = (await list(clientPath)).find((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name));
+      if (!card) return undefined;
+      const title = parseFrontmatter((await client.readWorkspaceFile(workspaceId, childPath(clientPath, card.name))).content)?.title;
+      return typeof title === "string" && title.trim() ? title.trim() : undefined;
+    })().catch((e: unknown) => { problems.push({ path: clientPath, message: message(e), scope: "client" }); return undefined; });
+    clientTitles.set(clientPath, pending);
+    return pending;
+  };
   const readBundle = (dir: string): Promise<Bundle> => {
     let pending = bundles.get(dir);
     if (!pending) {
@@ -215,6 +229,10 @@ export async function readWorkspaceMemory(
         recordFiles[record.id] ??= bundle.files[record.id];
         input.records.push(record);
       }
+    }
+    if (clientPath !== undefined) {
+      const title = await clientTitle(clientPath);
+      if (title) input.clientTitle = title;
     }
     if (clientPath !== undefined && (await list(clientPath)).some((entry) => entry.name === "VSTUPY.md" && entry.kind === "file")) {
       const intakePath = childPath(clientPath, "VSTUPY.md");
