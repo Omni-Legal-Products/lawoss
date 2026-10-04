@@ -37,6 +37,7 @@ Akceptačný beh alfy 1 s vetvou `feat/dnes-prehlad` ([lawoss#109](https://githu
 | P1 | Stav OKF sa pri štarte čítal bez adresy servera, po reštarte „OKF vypnuté“ | `99f24fc8` |
 | P1 | K otvorenému klientovi sa nedala pridať vec (symlinky v `.opencode/node_modules/.bin`) | `5eea22c7` |
 | P1 | Opakované dokončenie onboardingu spadlo na obnove skillov (415 na `okf.js`) | `1ee95bc7` |
+| P1 | Nainštalované skilly OKF sa po prvej inštalácii už nikdy neaktualizovali a ukazovali falošné „obsahuje vaše úpravy“ (riadený blok zdrojov v `SKILL.md`) | `2f225f0f` |
 | P2 | Jazyky ako kódy, jurisdikcia vždy po anglicky | `fe27af33` |
 | P2 | Klient bez vecí v Klientoch chýbal | `36f9b4c4` |
 | P2 | Vec z onboardingu v `<klient>/<oblasť>/` s prázdnym `klient:` | `02453d32` |
