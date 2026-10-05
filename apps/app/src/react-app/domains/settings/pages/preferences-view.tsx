@@ -3,6 +3,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { t } from "@/i18n";
+import { isAnalyticsChoiceHidden } from "@/lawoss/feature-flags";
 import type { HideAppMode } from "@/react-app/kernel/local-provider";
 
 import {
@@ -70,7 +71,7 @@ export function PreferencesView(props: PreferencesViewProps) {
           </LayoutSectionItemHeader>
         </LayoutSectionItem>
 
-        <LayoutSectionItem>
+        {isAnalyticsChoiceHidden() ? null : <LayoutSectionItem>
           <LayoutSectionItemHeader>
             <LayoutSectionItemTitle>{t("settings.analytics_toggle")}</LayoutSectionItemTitle>
             <LayoutSectionItemDescription>{t("settings.analytics_toggle_desc")}</LayoutSectionItemDescription>
@@ -83,7 +84,7 @@ export function PreferencesView(props: PreferencesViewProps) {
               />
             </LayoutSectionItemHeaderActions>
           </LayoutSectionItemHeader>
-        </LayoutSectionItem>
+        </LayoutSectionItem>}
       </LayoutSection>
     </LayoutStack>
   );

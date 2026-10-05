@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { deadlineText } from "../../okf/view-rules";
 import { Link } from "react-router-dom";
 
 import { OkfPage, useMatterText } from "../okf-page";
@@ -95,7 +96,7 @@ export function RealOverview({ data }: { data: OkfReadResult }) {
               <span className="lw-no">{i + 1}.</span>
               <span className={dayClass(d.date, now)}>{formatDay(d.date, locale)}</span>
               <span className="lw-t">
-                {d.title}
+                {deadlineText(d)}
                 <small>
                   {d.matter.title}
                   {d.matter.court ? ` · ${d.matter.court}` : ""}

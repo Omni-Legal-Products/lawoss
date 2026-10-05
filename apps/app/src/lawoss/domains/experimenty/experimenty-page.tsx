@@ -4,7 +4,7 @@ import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 
 import { LawossLayout } from "../../shell/layout";
-import { EXPERIMENT_FLAGS, EXPERIMENT_VIEWS } from "../../experiments/registry";
+import { EXPERIMENT_FLAGS, VISIBLE_EXPERIMENT_VIEWS } from "../../experiments/registry";
 import { resetExperiments, setExperiment, useExperiment } from "../../experiments/store";
 
 function FlagRow(props: { id: string; label: string; note: string; owner: string; stav: string }) {
@@ -70,7 +70,7 @@ export function ExperimentyPage() {
           <h2>{t("lawoss.shell.views", locale)}</h2>
           <span className="lw-meta">{t("lawoss.shell.views_note", locale)}</span>
         </div>
-        {EXPERIMENT_VIEWS.map((view) => (
+        {VISIBLE_EXPERIMENT_VIEWS.map((view) => (
           <Link key={view.id} to={view.to} className="lw-row lw-cols-exp-view">
             <span className="lw-no">—</span>
             <span className="lw-t">

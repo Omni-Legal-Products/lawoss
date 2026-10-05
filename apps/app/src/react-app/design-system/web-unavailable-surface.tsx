@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 import type { ReactNode } from "react";
 import { ArrowUpRight } from "lucide-react";
+import { BRAND_NAME, FORK_RELEASES_URL } from "@/lawoss/branding";
 
 export type WebUnavailableSurfaceProps = {
   unavailable: boolean;
@@ -11,7 +12,7 @@ export type WebUnavailableSurfaceProps = {
 };
 
 const MESSAGE =
-  "This feature is currently unavailable in LegalWork Web, check LegalWork Desktop for full functionality.";
+  `This feature is currently unavailable in ${BRAND_NAME} Web, check ${BRAND_NAME} Desktop for full functionality.`;
 
 export function WebUnavailableSurface(props: WebUnavailableSurfaceProps) {
   const innerProps = props.unavailable
@@ -37,12 +38,12 @@ export function WebUnavailableSurface(props: WebUnavailableSurfaceProps) {
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span>{MESSAGE}</span>
             <a
-              href="https://legalwork.app"
+              href={FORK_RELEASES_URL}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1 underline underline-offset-2 hover:no-underline"
             >
-              <span>Download LegalWork Desktop</span>
+              <span>Download {BRAND_NAME} Desktop</span>
               <ArrowUpRight size={props.compact ? 12 : 14} />
             </a>
           </div>

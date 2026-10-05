@@ -118,3 +118,12 @@ test('symlinks do not read or follow another client', async () => {
   expect(result.digest).toBeNull();
   expect(result.entries.some(entry=>entry.path.includes('private'))).toBe(false);
 });
+test('an opened client stays a confirmed client despite app files with symlinks in .opencode', async () => {
+  const root = await fixture({ 'client.md': card('client'), 'Spisy/.keep': '', '.opencode/node_modules/pkg/index.js': 'x' });
+  await mkdir(join(root, '.opencode/node_modules/.bin'), { recursive: true });
+  await symlink('../pkg/index.js', join(root, '.opencode/node_modules/.bin/pkg'));
+  const result = await inspectOnboardingRoot(root);
+  expect(result).toMatchObject({ level: 'client', confidence: 'confirmed', complete: true });
+  expect(result.entries).toContainEqual(expect.objectContaining({ path: '.opencode', kind: 'directory' }));
+  expect(result.entries.some(entry => entry.path.startsWith('.opencode/'))).toBe(false);
+});

@@ -57,6 +57,9 @@ jobs:
         run: pnpm --filter @legalwork/desktop build:electron
       - name: Package desktop app
         run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --${{ matrix.platform }} --x64 --dir --publish never
+      # LAWOSS: importuje každý modul servera priamo zo zabaleného app.asar (Electron ako Node).
+      - name: Verify packaged server modules load from app.asar
+        run: node apps/desktop/scripts/check-packaged-server-imports.mjs "apps/desktop/dist-electron/$(dirname "${{ matrix.executable }}")/resources/app.asar"
       - name: Verify Linux AppImage packaging
         if: runner.os == 'Linux'
         run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --linux AppImage --x64 --publish never

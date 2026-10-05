@@ -10,6 +10,7 @@ import {
   okfMemoryCliSource,
   pamatSkillBody,
   usporiadajSpisSkillBody,
+  roztriedSpisSkillBody,
 } from "../src/lawoss/okf/skill-bundle";
 import { okfSkillBodyHash, refreshOkfSkills, type OkfSkillClient } from "../src/lawoss/okf/skill-refresh";
 
@@ -46,7 +47,7 @@ const current = (skill: typeof novy, resource = skill.source): Installed => ({ c
 
 describe("OKF bundle refresh in an existing workspace", () => {
   test("every currently bundled SKILL.md body is a known bundled version", async () => {
-    for (const body of [novySpisSkillBody("sk"), novySpisSkillBody("cs"), pamatSkillBody(), usporiadajSpisSkillBody()]) {
+    for (const body of [novySpisSkillBody("sk"), novySpisSkillBody("cs"), pamatSkillBody(), usporiadajSpisSkillBody(), roztriedSpisSkillBody("sk"), roztriedSpisSkillBody("cs")]) {
       const hash = await okfSkillBodyHash(stored(body.content));
       expect({ hash, known: BUNDLED_OKF_SKILL_HASHES.has(hash) }).toEqual({ hash, known: true });
     }
@@ -58,13 +59,13 @@ describe("OKF bundle refresh in an existing workspace", () => {
 
   test("installs a missing skill with its resource", async () => {
     const f = fixture({});
-    expect(await refreshOkfSkills(f.client, "w", [novy])).toEqual({ modified: [] });
+    expect(await refreshOkfSkills(f.client, "w", [novy])).toEqual({ modified: [], written: ["novy-spis"] });
     expect(f.writes).toEqual(["skill:novy-spis", "resource:novy-spis/okf.js"]);
   });
 
   test("leaves an up-to-date skill untouched", async () => {
     const f = fixture({ "novy-spis": current(novy), "okf-pamat": current(pamat) });
-    expect(await refreshOkfSkills(f.client, "w", [novy, pamat])).toEqual({ modified: [] });
+    expect(await refreshOkfSkills(f.client, "w", [novy, pamat])).toEqual({ modified: [], written: [] });
     expect(f.writes).toEqual([]);
   });
 
@@ -79,7 +80,7 @@ describe("OKF bundle refresh in an existing workspace", () => {
     const previous = "# okf-pamat\nOlder bundled text.\n";
     const known = new Set([await okfSkillBodyHash(previous)]);
     const f = fixture({ "okf-pamat": { ...current(pamat), content: stored(previous) } });
-    expect(await refreshOkfSkills(f.client, "w", [pamat], known)).toEqual({ modified: [] });
+    expect(await refreshOkfSkills(f.client, "w", [pamat], known)).toEqual({ modified: [], written: ["okf-pamat"] });
     expect(f.writes).toEqual(["skill:okf-pamat"]);
     expect(await okfSkillBodyHash(f.installed["okf-pamat"]?.content ?? "")).toBe(await okfSkillBodyHash(pamat.body.content));
   });
@@ -87,14 +88,30 @@ describe("OKF bundle refresh in an existing workspace", () => {
   test("keeps a customized SKILL.md, reports it, and still refreshes its resource", async () => {
     const custom = stored("# okf-pamat\nMy own instructions.\n");
     const f = fixture({ "okf-pamat": { content: custom, resources: new Map([["okf-memory.js", "old"]]) } });
-    expect(await refreshOkfSkills(f.client, "w", [pamat])).toEqual({ modified: ["okf-pamat"] });
+    expect(await refreshOkfSkills(f.client, "w", [pamat])).toEqual({ modified: ["okf-pamat"], written: [] });
     expect(f.installed["okf-pamat"]?.content).toBe(custom);
     expect(f.writes).toEqual(["resource:okf-pamat/okf-memory.js"]);
   });
 
   test("never touches a global skill", async () => {
     const f = fixture({ "okf-pamat": { ...current(pamat, "old"), scope: "global" } });
-    expect(await refreshOkfSkills(f.client, "w", [pamat])).toEqual({ modified: [] });
+    expect(await refreshOkfSkills(f.client, "w", [pamat])).toEqual({ modified: [], written: [] });
+    expect(f.writes).toEqual([]);
+  });
+
+  test("a resource the server will not read as text (okf.js, 415) is rewritten instead of failing (D1 2026-10-05)", async () => {
+    const f = fixture({ [novy.name]: current(novy, "old cli") });
+    f.client.getSkillResource = async () => { throw new Error('415 {"code":"resource_not_text"}'); };
+    await expect(refreshOkfSkills(f.client, "ws", [novy])).resolves.toEqual({ modified: [], written: [] });
+    expect(f.writes).toEqual([`resource:${novy.name}/${novy.resource}`]);
+    expect(f.installed[novy.name]?.resources.get(novy.resource)).toBe(novy.source);
+  });
+
+  test("the server's managed resources block is not a customization (D1 2026-10-05)", async () => {
+    const block = "\n\n<!-- legalwork:resources:start -->\n## Attached resources\n\n- `resources/okf.js`\n<!-- legalwork:resources:end -->\n";
+    expect(BUNDLED_OKF_SKILL_HASHES.has(await okfSkillBodyHash(stored(novy.body.content) + block))).toBe(true);
+    const f = fixture({ [novy.name]: { content: stored(novy.body.content) + block, resources: new Map([[novy.resource, novy.source]]) } });
+    await expect(refreshOkfSkills(f.client, "ws", [novy])).resolves.toEqual({ modified: [], written: [] });
     expect(f.writes).toEqual([]);
   });
 });

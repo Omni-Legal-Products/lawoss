@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
-import { LawossWelcomePage, OkfChoiceStep, WorkingFolderStep } from "../src/lawoss/domains/onboarding/lawoss-welcome-page";
+import { clientsFolderOf, LawossWelcomePage, OkfChoiceStep, WorkingFolderStep } from "../src/lawoss/domains/onboarding/lawoss-welcome-page";
 import type { OnboardingApi } from "../src/lawoss/domains/onboarding/api";
 
 const api: OnboardingApi = {
@@ -54,6 +54,21 @@ describe("OKF choice step", () => {
     expect(html).toContain('data-lawoss-onboarding-step="okf"');
     expect(html).toContain("repeat(2, minmax(0, 1fr))");
     expect(html).not.toContain("grid-cols-5");
+  });
+
+  test("the welcome flow scrolls inside its own area because the app root does not scroll", () => {
+    const html = renderToStaticMarkup(<MemoryRouter><LawossWelcomePage api={api} initialStep="okf" pickDirectory={async () => null} onOpenAiSettings={() => {}} onComplete={() => {}} /></MemoryRouter>);
+    expect(html).toMatch(/<div class="lw-onb h-screen overflow-y-auto" data-lawoss-onboarding-scroll="true"><main/);
+  });
+
+  test("the client step suggests the Klienti folder created next to the office", () => {
+    expect(clientsFolderOf("/Users/a/LAWOSS/Office")).toBe("/Users/a/LAWOSS/Klienti");
+    expect(clientsFolderOf("/Users/a/LAWOSS/Office/")).toBe("/Users/a/LAWOSS/Klienti");
+    expect(clientsFolderOf("C:\\Data\\Office")).toBe("C:\\Data\\Klienti");
+    expect(clientsFolderOf("/Office")).toBe("/Klienti");
+    expect(clientsFolderOf(undefined)).toBe("");
+    expect(clientsFolderOf("  ")).toBe("");
+    expect(clientsFolderOf("Office")).toBe("");
   });
 
   test("the path without OKF offers an optional working folder", () => {

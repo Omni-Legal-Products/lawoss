@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { LegalworkServerError } from "@/app/lib/legalwork-server";
 import type { ReviewCell, ReviewResult } from "@legalwork/types/reviews";
 import { reviewDecisionProbabilities, selectedReviewDecisionProbability } from "@legalwork/types/reviews";
+import { localizedDocumentError } from "@/lawoss/domains/settings/ocr-opt-in";
 
 export function reviewProbabilityRows(result: ReviewResult) {
   if (!result.decision) return [];
@@ -43,7 +44,7 @@ export function ReviewStatus({ status }: { status: string }) {
 export function reviewCellError(cell: ReviewCell) {
   if (cell.status === "blocked" && cell.blockedBy === "jev_mode") return new Error(t("review.jev_excluded_reason"));
   if (cell.status === "blocked" && cell.blockedBy) return new Error(t(cell.blockedBy === "llm" ? "review.llm_required" : "review.jev_required"));
-  return cell.error ? new Error(cell.error) : null;
+  return cell.error ? new Error(localizedDocumentError(cell.error)) : null;
 }
 export function ReviewSelect({ value, onChange, options, label, disabled }: {
   value: string; onChange: (value: string) => void; options: { value: string; label: string }[]; label: string; disabled?: boolean;
