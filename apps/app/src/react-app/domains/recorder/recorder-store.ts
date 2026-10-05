@@ -1006,8 +1006,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         options?.diarize !== false &&
         options?.systemDictation !== true &&
         bootstrap?.diarization.installed === true;
-      // LAWOSS: first use of a retained recording fetches the speaker models for the next recordings.
-      if (options?.diarize !== false && options?.systemDictation !== true) void get().ensureDiarizationReady();
+      // LAWOSS: speaker models download only on an explicit request, never when a recording starts (MČ 5. 10. 2026).
       // The start window (model cold-load + getUserMedia + track settle) is
       // seconds wide; if the machine sleeps inside it, roll the whole thing
       // back instead of latching a recording nobody can see.
