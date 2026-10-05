@@ -365,3 +365,13 @@ Baseline `8858366578b506bc3c83f39072e3c0a2ddbbee00`, upstream `v0.2.1` `2019dc65
 ### Windows file identity correction during v0.2.1 CI
 
 `lawoss/okf/src/naming-fs.ts` now reads exact BigInt filesystem identities throughout document naming, apply, replay and rollback. Windows source CI exposed collisions caused by rounding large inode values to JavaScript numbers. The existing plan format retains string identities. The Node regression reproduces two colliding numeric IDs and passes only with exact reads. The OKF bundle is regenerated; no naming, hardlink, compare-and-swap or recovery guard is removed.
+
+## Bez Eigenweltu a analytiky (2026-10-05)
+
+Rozhodnutie MČ 5. 10. 2026: Eigenwelt nesmie byť aktívne pripojený na appku a analytika je vypnutá natrvalo. Poistky stráži `node lawoss/scripts/check-no-eigenwelt.mjs` v jobe `legalwork-tests`; postup pri synci je v `docs/upstream-sync-checklist.md`.
+
+| Upstream súbor | Zmena LAWOSS | Dôvod |
+|---|---|---|
+| `apps/server/src/managed-opencode.ts` | Prostredie enginu dostane ako posledné `lawossEngineEnv()` z `apps/server/src/lawoss/engine-network.ts` (+1 import, +2 riadky, 2 spready): `OPENCODE_DISABLE_MODELS_FETCH`, `OPENCODE_DISABLE_SHARE`, `OPENCODE_DISABLE_AUTOUPDATE` a `OPENCODE_MODELS_PATH` na pribalený katalóg | Engine pri každom štarte a potom každú hodinu sťahoval katalóg modelov z `models.eigenweltlabs.com`. Jedno miesto pokryje desktop (`embedded.ts`) aj samostatný server (`cli.ts`) |
+| `apps/server/src/embedded.ts` | Odstránená predvolená adresa `https://models.eigenweltlabs.com` a riadok `OPENCODE_MODELS_URL` v prostredí enginu (−6 riadkov, +2 komentár) | Katalóg je pribalený v `lawoss/models-catalog/api.json`, obnovuje ho `lawoss/scripts/update-models-catalog.mjs` |
+| `apps/desktop/electron-builder.yml` | `extraResources`: `../../lawoss/models-catalog/api.json` → `Resources/lawoss-models/api.json` (+6 riadkov) | Engine je samostatný proces a do `app.asar` nevidí |

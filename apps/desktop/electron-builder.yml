@@ -37,6 +37,12 @@ extraResources:
       - runtime.json
   - from: ../server/resources/ocr
     to: ocr
+  # LAWOSS: pribalený katalóg modelov. Engine je samostatný proces a do app.asar
+  # nevidí, preto leží vedľa neho (apps/server/src/lawoss/engine-network.ts).
+  - from: ../../lawoss/models-catalog
+    to: lawoss-models
+    filter:
+      - api.json
   - from: ../app/dist
     to: app-dist
   - from: ../app/dist-word-addin
