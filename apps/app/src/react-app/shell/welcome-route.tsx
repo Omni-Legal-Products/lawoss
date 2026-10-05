@@ -17,7 +17,8 @@ import type { OnboardingStep } from "@/lawoss/domains/onboarding/api";
 import { authorAfterOnboarding } from "@/lawoss/okf/lawyer-name";
 import { markAllWhatsNewSeen } from "./whats-new";
 
-const continuationStep = (value: string | null): OnboardingStep | undefined => value === "client" || value === "matter" || value === "okf" ? value : undefined;
+// LAWOSS: `existing` otvorí krok klienta rovno v pripojení existujúceho priečinka.
+const continuationStep = (value: string | null): OnboardingStep | undefined => value === "existing" ? "client" : value === "client" || value === "matter" || value === "okf" ? value : undefined;
 
 async function registerWorkingFolder(client: LegalworkServerClient, folderPath: string) {
   const list = await client.createLocalWorkspace({ folderPath, name: folderPath.split(/[\\/]/).filter(Boolean).pop() ?? folderPath, preset: "starter", registerExisting: true });
@@ -33,7 +34,8 @@ export function WelcomeRoute() {
   const local = useLocal();
   const [client, setClient] = useState<LegalworkServerClient | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const initialStep = continuationStep(new URLSearchParams(location.search).get("continue"));
+  const continuation = new URLSearchParams(location.search).get("continue");
+  const initialStep = continuationStep(continuation);
   // LAWOSS: ako upstream pri štarte onboardingu; novému používateľovi je nové všetko, „What's new“ nie.
   useEffect(() => { if (!local.prefs.hasCompletedOnboarding) markAllWhatsNewSeen(); }, []);
 
@@ -48,7 +50,7 @@ export function WelcomeRoute() {
 
   if (error) return <main className="mx-auto max-w-xl p-10"><p role="alert">{error}</p><Button className="mt-4" onClick={() => navigate("/settings/advanced")}>Open Settings</Button></main>;
   if (!client) return <main className="mx-auto max-w-xl p-10" role="status">Connecting LAWOSS…</main>;
-  return <LawossWelcomePage api={client} initialStep={initialStep} pickDirectory={async () => { const result = await pickDirectory({ title: "Select LAWOSS folder" }); return typeof result === "string" ? result : null; }} onOpenAiSettings={() => navigate("/settings/ai")} onComplete={async (result, completion) => {
+  return <LawossWelcomePage api={client} initialStep={initialStep} attachExisting={continuation === "existing"} pickDirectory={async () => { const result = await pickDirectory({ title: "Select LAWOSS folder" }); return typeof result === "string" ? result : null; }} onOpenAiSettings={() => navigate("/settings/ai")} onComplete={async (result, completion) => {
     const status = await client.onboardingStatus();
     const okf = status.profile?.okf?.enabled === true;
     const list = await client.listWorkspaces();

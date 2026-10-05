@@ -98,3 +98,14 @@ export const ALPHA_HIDDEN_EXPERIMENTS: ReadonlySet<string> = new Set<string>([
 ]);
 
 export const isExperimentHidden = (id: string): boolean => ALPHA_HIDDEN_EXPERIMENTS.has(id);
+
+/**
+ * Alfa: režim „Mapovať bez zápisu“ pri pripojení existujúceho priečinka klienta sa nezobrazuje
+ * (MČ 5. 10. 2026). Testeri vyberajú medzi skúšobným klonom (predvolený) a bezpečným doplnením.
+ * Kód aj serverová cesta ostávajú. Návrat: `false`.
+ */
+export const ALPHA_HIDE_MAP_WITHOUT_WRITING = true;
+
+/** Režimy pripojenia existujúceho priečinka v poradí ponuky; predvolený je prvý (skúšobný klon). */
+export const visibleExistingClientModes = <T extends string>(modes: readonly T[]): T[] =>
+  modes.filter((mode) => !(ALPHA_HIDE_MAP_WITHOUT_WRITING && mode === "map"));

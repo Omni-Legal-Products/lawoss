@@ -60,3 +60,32 @@ Nastavenia → AI Providers → Add provider. Model sa potom vyberá dole v okne
 
 - **Cloud** (OpenAI, Anthropic, OpenRouter, …): vybrať providera a prihlásiť sa alebo vložiť vlastný API kľúč. V alfe len vymyslené alebo verejné údaje.
 - **Lokálny model:** Local model → Ollama alebo LM Studio → Fetch from endpoint → vybrať model. Bez kľúča. Odporúčame aspoň `gemma4:12b`; prvá odpoveď trvá minúty.
+
+## Klienti, veci a skilly (pre testerov)
+
+Platí pri zapnutom OKF. V alfe len vymyslené alebo verejné údaje.
+
+### Nová vec
+
+1. Klienti → „+ Nová vec“ (alebo ikona „Nová vec“ v bočnom paneli).
+2. Formulár ukáže, pod ktorým klientom vec vznikne. Predvolený je klient práve otvoreného pracovného priestoru, inak naposledy použitý. Iného klienta vyberiete v poli „Iný klient (priečinok)“ a tlačidlom „Použiť tohto klienta“.
+3. Vyplňte názov, oblasť a druh veci → „Náhľad zmien“ → skontrolujte zoznam → „Potvrdiť a vykonať“. Vec vznikne v `Spisy/` u klienta.
+
+### Pripojenie existujúceho priečinka klienta
+
+1. Klienti → „Pripojiť existujúci priečinok klienta“ (v bočnom paneli ikona s rovnakým názvom, aj v Nastaveniach → Prispôsobenie).
+2. Vyberte pôvodný priečinok klienta a zvoľte, čo sa s ním stane:
+   - **Skúšobný klon** (predvolený): LAWOSS vytvorí kópiu s menom `<priečinok> (trial <dátum>)`, predvolene vedľa originálu, a pracuje len v nej. Originál ostane nedotknutý.
+   - **Bezpečne doplniť**: LAWOSS zapíše priamo do originálu. Doplní chýbajúce súbory (karta klienta, pokyny pre asistenta, pamäť), existujúce súbory neprepíše, nepresunie ani nezmaže. Treba výslovne potvrdiť zápis do originálu.
+3. Potvrďte, že priečinok patrí jednému klientovi → „Náhľad zmien“ → „Potvrdiť a vykonať“.
+4. Kontrola priečinka má limity: najviac 1 GiB obsahu, 10 000 položiek a hĺbka 32 úrovní. Väčší alebo hlbší priečinok sa nepripojí; vyskúšajte menší výber.
+
+### Rýchle akcie a skilly
+
+- Rýchle akcie vo veci aj skilly potrebujú pripojený model (pozri vyššie). Bez modelu asistent neodpovie.
+- Pri otvorení klienta appka doplní chýbajúce skilly `novy-spis`, `okf-pamat` a `usporiadaj-spis`. Vaše úpravy skillu neprepíše a raz na ne upozorní.
+- **Usporiadanie dokumentov:** v okne chatu napíšte `/`, vyberte `usporiadaj-spis` a uveďte, ktoré dokumenty sa majú pomenovať. Skill pripraví plán s náhľadom; nič sa nepremenuje ani neskopíruje bez vášho schválenia.
+
+### Automatické roztriedenie dokumentov (pripravuje sa)
+
+> **Pripravuje sa.** Samostatná funkcia, v alfe 1 ešte nie je. Postup pre testerov doplníme sem.

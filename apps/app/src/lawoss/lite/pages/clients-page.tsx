@@ -10,7 +10,7 @@ import { formatDay, today, type OkfReadResult } from "../../okf/read-model";
 import { isOfficeFile } from "../../../../../../lawoss/okf/read";
 import { urgencyOf } from "../../okf/view-rules";
 import { groupByClient, nextDeadline, type ClientGroup } from "../today-model";
-import { liteMatterLink, NEW_MATTER_PATH } from "../links";
+import { ATTACH_EXISTING_CLIENT_PATH, liteMatterLink, NEW_MATTER_PATH } from "../links";
 import { hotDeadlineCount, LiveStamp, matterUrgency, useHotTitle, useMinuteTick } from "../live";
 import "./okf-glass.css";
 import "./clients.css";
@@ -42,7 +42,10 @@ export function ClientsView({ groups, meta, locale: forced }: { groups: readonly
           {meta ? <p className="lw-clients-topline"><LiveStamp meta={meta} locale={locale} /></p> : null}
           <h1 className="lw-h1">{text("clients_title")}</h1>
         </div>
-        <Link className="lw-today-primary" to={NEW_MATTER_PATH}>+ {text("new_matter")}</Link>
+        <div className="lw-clients-actions">
+          <Link className="lw-btn" to={ATTACH_EXISTING_CLIENT_PATH}>{text("attach_existing_client")}</Link>
+          <Link className="lw-today-primary" to={NEW_MATTER_PATH}>+ {text("new_matter")}</Link>
+        </div>
       </header>
 
       {groups.length === 0 ? <div className="lw-clients-empty" style={reveal(1)}>
