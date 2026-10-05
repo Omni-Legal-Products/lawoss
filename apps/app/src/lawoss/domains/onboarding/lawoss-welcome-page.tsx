@@ -47,6 +47,7 @@ import lawossMark from "../../../../../../lawoss/brand/lawoss-mark.svg";
 import "./onboarding.css";
 import { TriageEntry } from "../roztriedenie/triage-entry";
 import { PacksStep } from "./packs-step";
+import { canonicalPathRejection } from "./typed-paths";
 
 /** Jazyky rozhrania v poradí LAWOSS (SK, CS, EN, DE) s pôvodnými názvami namiesto kódov. */
 const UI_LANGUAGE_ORDER: readonly Language[] = ["sk", "cs", "en", "de"];
@@ -297,7 +298,7 @@ const unsafeFolderName: Record<Language, string> = {
 export const onboardingErrorMessage = (error: unknown, locale: Language) =>
   error instanceof Error && error.message === UNSAFE_FOLDER_NAME_MESSAGE
     ? unsafeFolderName[locale]
-    : errorMessage(error, text[locale].error);
+    : canonicalPathRejection(error, locale) ?? errorMessage(error, text[locale].error);
 const field = (label: string, child: ReactNode) => (
   <label className="grid gap-1.5 text-sm font-medium">
     <span>{label}</span>
