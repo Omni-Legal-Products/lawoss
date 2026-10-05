@@ -54,6 +54,40 @@ Akceptačný beh alfy 1 s vetvou `feat/dnes-prehlad` ([lawoss#109](https://githu
 - **OpenAI cez ChatGPT účet:** rýchly výber modelov ponúka `gpt-5.4` a `gpt-5.3-codex-spark`, ktoré tento typ účtu odmietne (400 „not supported when using Codex with a ChatGPT account“). Funguje napríklad `gpt-5.6-luna` z „All models“. Zoznam pochádza z katalógu OpenCode.
 - **Jednotnosť UI:** onboarding, nastavenia a Home používajú iné prvky a písmo ako pohľady z OKF. Rieši sa samostatne.
 
+## Windows: inštalácia a aktualizácie (pre testerov)
+
+Akceptačný beh D1 vyššie prebehol na macOS. Postup pre Windows x64 vychádza z workflowu `alpha-windows-x64.yml`, z konfigurácie a šablón `electron-builder` 26.16.1 a z kódu appky. Štruktúru releasov sme overili cez GitHub API 5. 10. 2026. Body označené *neoverené na skutočnom Windows* zatiaľ nikto neprešiel na skutočnom počítači s Windows; hláste, ak sa líšia.
+
+### Kde stiahnuť inštalátor
+
+1. [Releasy forku](https://github.com/Omni-Legal-Products/lawoss/releases) → prerelease `alpha-windows-v<základ>-alpha.<beh>-<sha>`, napríklad `alpha-windows-v0.1.15-alpha.2-65ba399`. Každý beh alfy má vlastný.
+2. Stiahnite `lawoss-win-x64-<verzia>.exe`, napríklad `lawoss-win-x64-0.1.15-alpha.2.g65ba399.exe`. Súbory `.blockmap` a `latest.yml` sú pre updater.
+3. Release `alpha-windows-latest` inštalátor nemá. Obsahuje len `latest.yml`, podľa ktorého updater hľadá najnovšiu alfu.
+4. Kontrolný súčet SHA-256 je v popise releasu. V PowerShelli v priečinku so stiahnutým súborom: `Get-FileHash .\lawoss-win-x64-<verzia>.exe` a hodnotu `Hash` porovnajte s popisom.
+
+Release, ktorého názov začína **„NEPODPÍSANÉ – len interný tím“**, je len pre interný tím. Ďalej ho nešírte a nepracujte v ňom s klientskymi ani inými dôvernými údajmi. Verejné binárky budú len podpísané (rozhodnutie Q06/U6).
+
+Testovací build bez releasu (spustený s vypnutým `publish`) je v behu workflowu „Alpha Channel (Windows x64)“ na záložke Actions, časť Artifacts: `lawoss-alpha-windows-<verzia>`, nepodpísaný s príponou `-NEPODPISANE`. Je to ZIP s inštalátorom, vydrží 7 dní a updater ho neponúka. Repo je verejné, takže ho po prihlásení do GitHubu stiahne každý, kto má k repu prístup na čítanie.
+
+### SmartScreen
+
+Kým inštalátor nie je podpísaný, Windows SmartScreen pri spustení ukáže „Windows protected your PC“. Kliknite na **More info** → **Run anyway**. V slovenskom a českom Windows sú tlačidlá preložené; presné znenie je *neoverené na skutočnom Windows*.
+
+### Inštalácia
+
+- Inštalátor je jednokrokový NSIS a inštaluje len pre prihláseného používateľa, bez práv správcu. `electron-builder.yml` nemení predvolené `oneClick` ani `perMachine` a šablóna inštalátora má pre tento režim `RequestExecutionLevel user`.
+- Predvolený priečinok podľa pravidiel `electron-builder` 26.16.1 je `%LOCALAPPDATA%\Programs\@legalworkdesktop`. Názov sa odvodzuje z balíka `@legalwork/desktop`, nie z „LAWOSS“. Spúšťací súbor je `LAWOSS.exe`. *Neoverené na skutočnom Windows.*
+- Po inštalácii sa appka sama spustí a pridá skratku „LAWOSS“ na plochu a do ponuky Štart. *Neoverené na skutočnom Windows.*
+- Nastavenia a dáta appky sú v `%APPDATA%\com.eigenweltlabs.legalwork` (`userData` v `apps/desktop/electron/main.mjs`). *Neoverené na skutočnom Windows.*
+
+### Aktualizácie
+
+Nastavenia → Aktualizácie → **Kanál vydaní: Alpha**. Build z alfa workflowu (verzia `X.Y.Z-alpha.N.g<sha>`) na kanáli Alpha zostáva sám (`isAlphaBuild` v `apps/desktop/electron/updater.mjs`), prepínač len skontrolujte. V tej istej časti je Aktuálna verzia; uveďte ju pri hlásení chyby. Updater číta `latest.yml` z `alpha-windows-latest`. Stiahnutie a inštalácia aktualizácie sú *neoverené na skutočnom Windows*.
+
+### Odinštalovanie
+
+Nastavenia systému Windows → Aplikácie → Nainštalované aplikácie → LAWOSS → Odinštalovať. Ak ste používali doplnok pre Word, Excel alebo PowerPoint, odinštalátor zruší aj jeho registráciu a odstráni lokálnu certifikačnú autoritu „LegalWork Local CA“; Windows sa pri tom raz opýta na odstránenie certifikátu (`apps/desktop/build/installer.nsh`). Pracovné priečinky klientov ani `%APPDATA%\com.eigenweltlabs.legalwork` nemaže. *Neoverené na skutočnom Windows.*
+
 ## Ako pripojiť model (pre testerov)
 
 Nastavenia → AI Providers → Add provider. Model sa potom vyberá dole v okne chatu.
