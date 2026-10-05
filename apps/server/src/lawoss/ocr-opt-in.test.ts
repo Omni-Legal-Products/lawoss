@@ -83,7 +83,10 @@ test("vypnuté OCR: príprava číta len textovú vrstvu, sken označí a nič n
     expect(layoutCalls).toEqual([]);
     expect(install).not.toHaveBeenCalled();
     expect(installLayout).not.toHaveBeenCalled();
-    expect(fetched).not.toHaveBeenCalled();
+    // Spy vidí každý fetch v procese, aj dobiehajúce volania lokálnych serverov z predchádzajúcich
+    // testov (pod záťažou raz 2 volania, 5. 10. 2026). Model sa nikdy nesťahuje z loopbacku.
+    const urls = fetched.mock.calls.map(([input]) => String(input instanceof Request ? input.url : input));
+    expect(urls.filter(url => !/^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])[:/]/.test(url))).toEqual([]);
   } finally { install.mockRestore(); installLayout.mockRestore(); fetched.mockRestore(); }
 });
 
