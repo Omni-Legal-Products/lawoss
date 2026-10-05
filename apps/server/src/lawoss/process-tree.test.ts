@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import type { Readable } from "node:stream";
 
 import { killProcessTree, taskkillPath } from "./process-tree.js";
@@ -82,6 +83,28 @@ describe("killProcessTree", () => {
     expect(taskkillPath({ windir: "E:\\Win" })).toBe("E:\\Win\\System32\\taskkill.exe");
     expect(taskkillPath({})).toBe("C:\\Windows\\System32\\taskkill.exe");
   });
+});
+
+/** Zdroj funkcie od hlavičky po zatváraciu zátvorku s rovnakým odsadením. */
+function functionSource(file: string, signature: string): string {
+  const source = readFileSync(new URL(file, import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  const start = source.indexOf(signature);
+  expect(start).not.toBe(-1);
+  const indent = source.slice(source.lastIndexOf("\n", start) + 1, start);
+  const end = source.indexOf(`\n${indent}}\n`, start);
+  expect(end).not.toBe(-1);
+  return source.slice(start, end);
+}
+
+// makeTerminator sa neexportuje a strom sa reálne overuje len na Windows. Preto aspoň
+// všade overíme poradie: taskkill /T hľadá potomkov podľa PID enginu, takže musí
+// bežať pred prvým child.kill, kým engine ešte žije.
+test("makeTerminator zhodí na Windows strom pred prvým child.kill", () => {
+  const makeTerminator = functionSource("../managed-opencode.ts", "function makeTerminator(");
+  expect(makeTerminator.slice(0, makeTerminator.indexOf("child.kill("))).toMatch(
+    /if \(process\.platform === "win32"\) await killProcessTree\(child\.pid\);\s*try \{\s*$/,
+  );
+  expect(makeTerminator).toMatch(/await killProcessTree\(child\.pid\);\s*try \{\s*child\.kill\("SIGTERM"\);/);
 });
 
 // Skutočný strom procesov na Windows: rodič (node) spustí vnúča (node), ktoré len

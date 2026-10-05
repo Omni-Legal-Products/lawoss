@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { killProcessTree, taskkillPath } from "./lawoss-process-tree.mjs";
@@ -73,6 +74,32 @@ test("taskkill.exe sa hľadá v SystemRoot, nie v PATH", () => {
   assert.equal(taskkillPath({ SystemRoot: "D:\\WINDOWS" }), "D:\\WINDOWS\\System32\\taskkill.exe");
   assert.equal(taskkillPath({ windir: "E:\\Win" }), "E:\\Win\\System32\\taskkill.exe");
   assert.equal(taskkillPath({}), "C:\\Windows\\System32\\taskkill.exe");
+});
+
+/**
+ * Zdroj funkcie od hlavičky po zatváraciu zátvorku s rovnakým odsadením.
+ * @param {string} file @param {string} signature
+ */
+function functionSource(file, signature) {
+  const source = readFileSync(new URL(file, import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  const start = source.indexOf(signature);
+  assert.notEqual(start, -1, `v ${file} chýba ${signature}`);
+  const indent = source.slice(source.lastIndexOf("\n", start) + 1, start);
+  const end = source.indexOf(`\n${indent}}\n`, start);
+  assert.notEqual(end, -1, `v ${file} chýba koniec ${signature}`);
+  return source.slice(start, end);
+}
+
+// stopChild je vnútri createRuntimeManager, ktorý test bez Electronu nespustí, a strom
+// sa reálne overuje len na Windows. Preto aspoň všade overíme poradie: taskkill /T
+// hľadá potomkov podľa PID rodiča, takže musí bežať pred prvým child.kill.
+test("stopChild zhodí na Windows strom pred prvým child.kill", () => {
+  const stopChild = functionSource("./runtime.mjs", "async function stopChild(");
+  assert.match(
+    stopChild.slice(0, stopChild.indexOf("child.kill(")),
+    /if \(process\.platform === "win32"\) await killProcessTree\(child\.pid\);\s*$/,
+  );
+  assert.match(stopChild, /await killProcessTree\(child\.pid\);\s*child\.kill\("SIGTERM"\);/);
 });
 
 // Skutočný strom procesov na Windows: rodič (node) spustí vnúča (node), ktoré len
