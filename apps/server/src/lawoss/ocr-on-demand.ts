@@ -1,14 +1,17 @@
 /**
- * LAWOSS: lokálny model rozpoznávania textu sa sťahuje až pri prvom skutočnom použití.
+ * LAWOSS: lokálny model rozpoznávania textu sa sťahuje len po výslovnom zapnutí OCR.
  *
- * Rozhodnutie MČ 5. 10. 2026: appka nerobí sieťové spojenia bez akcie používateľa.
+ * Rozhodnutie MČ 5. 10. 2026: model OCR sa nesťahuje automaticky, ani pri prvom použití.
+ * Kým advokát nezapne „Rozpoznávanie textu zo skenov (OCR)“ v Nastaveniach → Poskytovatelia AI
+ * (`ocr-opt-in.ts`), príprava dokumentu číta len textovú vrstvu a nič nesťahuje.
  * Upstream pri každom štarte servera spúšťal `OcrManager.downloadDefaultIfNeeded()`
- * (sťahovanie z huggingface.co). LAWOSS ho predvolene vypína (`autoDownloadOcr`
- * v `apps/server/src/config.ts`, zapnúť ho dá len používateľ premennou prostredia
- * `LEGALWORK_OCR_AUTO_DOWNLOAD` alebo voľbou `autoDownloadOcr` v konfigurácii servera) a rýchly lokálny model
- * stiahne až príprava dokumentu, ktorá ho naozaj potrebuje: revízia so skenom,
- * hľadanie v naskenovaných PDF, korpus alebo nástroj agenta
- * (`apps/server/src/document-preparation/service.ts`, `snapshot()` a `run()`).
+ * (sťahovanie z huggingface.co); LAWOSS ho predvolene vypína (`autoDownloadOcr`
+ * v `apps/server/src/config.ts`) a aj zapnuté ho `LawossOcrManager` pustí len so zapnutou voľbou.
+ *
+ * Po zapnutí voľby rýchly lokálny model stiahne tlačidlo v nastaveniach, alebo príprava
+ * dokumentu, ktorá ho naozaj potrebuje: kontrola so skenom, hľadanie v naskenovaných PDF,
+ * korpus alebo `/document-preparations` (`apps/server/src/document-preparation/service.ts`,
+ * `snapshot()` a `run()`). `firstUseOcrDownload()` voľbu overuje znova.
  *
  * Sťahuje sa len rýchly model (`pp-ocrv6-small`) a model rozloženia dokumentu, ktorý
  * upstream inštaluje v tom istom kroku. Kvalitný model (asi 1,8 GB) sa nikdy
@@ -17,12 +20,11 @@
  */
 import { ApiError } from "../errors.js";
 import type { OcrManager } from "../ocr/manager.js";
-import { layoutModelAsset, smallModelAssets } from "../ocr/models.js";
 import type { LocalEngineSettings } from "../ocr/settings.js";
+import { OCR_LAYOUT_BYTES, OCR_MODEL_BYTES, requireOcrEnabled } from "./ocr-opt-in.js";
 
+export { OCR_LAYOUT_BYTES, OCR_MODEL_BYTES };
 const megabytes = (bytes: number) => Math.round(bytes / 1_000_000);
-export const OCR_MODEL_BYTES = smallModelAssets.reduce((total, asset) => total + asset.bytes, 0);
-export const OCR_LAYOUT_BYTES = layoutModelAsset.bytes;
 
 /** Text pre agenta a záznam prípravy. Appka ukazuje preložený text (`lawoss.ocr.*`). */
 export const OCR_DOWNLOAD_NOTICE = `LAWOSS is downloading the text recognition model once: about ${megabytes(OCR_MODEL_BYTES)} MB for text recognition and ${megabytes(OCR_LAYOUT_BYTES)} MB for document layout, from huggingface.co (PaddlePaddle). Scanned pages are then read on this computer.`;
@@ -34,6 +36,7 @@ const POLL_MS = 500;
 const BUSY_LIMIT_MS = 5 * 60_000;
 
 export type FirstUseDownload = { notice: string; wait: (signal: AbortSignal) => Promise<void> };
+export const OCR_DOWNLOADING_CODE = "ocr_downloading";
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 const busyError = (error: unknown) => error instanceof ApiError && (error.code === "ocr_busy" || error.code === "ocr_install_busy");
@@ -74,11 +77,13 @@ function abortable(work: Promise<void>, signal: AbortSignal) {
 }
 
 /**
- * Pre nepripravený lokálny model vráti sťahovanie pri prvom použití. Keď sa model
+ * Pre nepripravený lokálny model a zapnuté OCR vráti sťahovanie pri prvom použití. Keď sa model
  * stiahnuť nedá (kvalitný model, chýba pribalený runtime), vyhodí pôvodnú chybu upstreamu.
  * Zrušenie prípravy len prestane čakať; začaté sťahovanie dobehne, aby sa nezačínalo znova.
  */
 export async function firstUseOcrDownload(ocr: OcrManager, engine: LocalEngineSettings): Promise<FirstUseDownload> {
+  // Bez výslovného zapnutia OCR sa nesťahuje nič (ocr-opt-in.ts).
+  await requireOcrEnabled(ocr.runtime.root);
   if (engine.model !== "pp-ocrv6-small" || !await ocr.runtime.available()) throw new ApiError(400, "ocr_not_ready", NOT_READY);
   return {
     notice: OCR_DOWNLOAD_NOTICE,
