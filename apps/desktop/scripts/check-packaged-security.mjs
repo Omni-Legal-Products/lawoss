@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { checkOkfCliWithNode } from "../electron/lawoss-okf-cli-smoke.mjs"; // 🟡 LAWOSS: kontrola bundlov OKF na konci
 const require = createRequire(import.meta.url);
 const builderRequire = createRequire(require.resolve("electron-builder"));
 const libRequire = createRequire(builderRequire.resolve("app-builder-lib"));
@@ -73,3 +74,8 @@ try {
 } finally {
   await rm(temporary, { recursive: true, force: true });
 }
+
+// 🟡 LAWOSS: skill kopíruje okf.js a okf-memory.js do workspace bez package.json;
+// pribalený Node ich musí spustiť ako ESM aj v ceste s medzerou a diakritikou.
+await checkOkfCliWithNode({ nodeDirectory });
+console.log("PASS: OKF CLI bundles create a client, a matter and its memory with bundled Node in a path with spaces");
