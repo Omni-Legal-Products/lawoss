@@ -453,6 +453,8 @@ if (app.isPackaged && !userDataOverride) {
 }
 if (userDataOverride) {
   app.setPath("userData", userDataOverride);
+  // LAWOSS: izolovaný profil nesmie písať do ~/Library/Logs/<názov appky>.
+  app.setAppLogsPath(path.join(userDataOverride, "logs"));
 } else {
   app.setPath(
     "userData",
