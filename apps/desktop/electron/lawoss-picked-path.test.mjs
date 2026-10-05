@@ -135,8 +135,14 @@ test("Windows: namapovaný sieťový disk (net use) prejde kontrolou až po výb
     const canonical = await canonicalPickedDirectory(picked);
     assert.notEqual(canonical, picked);
     assert.equal(await accepted(canonical), true);
+    // Koreň zdieľania (klient priamo v `\\nas\Klienti`): len záznam do logu, kým ho
+    // neoverí reálny NAS; parentFolderOf mu pridáva koncovú lomku.
+    for (const value of [share, `${share}\\`]) {
+      const real = await realpath(value).catch((error) => `chyba ${error.code}`);
+      t.diagnostic(`koreň zdieľania ${JSON.stringify(value)}: realpath ${JSON.stringify(real)}, resolve ${JSON.stringify(path.resolve(value))}`);
+    }
   } finally {
-    execFileSync("net", ["use", `${letter}:`, "/delete", "/y"], { stdio: "ignore", timeout: 30_000 });
+    execFileSync("net",["use", `${letter}:`, "/delete", "/y"], { stdio: "ignore", timeout: 30_000 });
     await rm(root, { recursive: true, force: true, maxRetries: 10 });
   }
 });

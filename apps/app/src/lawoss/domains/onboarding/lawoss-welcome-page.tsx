@@ -1352,7 +1352,15 @@ function Office({
 export function parentFolderOf(path: string): string {
   const trimmed = path.trim().replace(/[\\/]+$/, "");
   const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
-  return cut > 0 ? trimmed.slice(0, cut) : "";
+  if (cut <= 0) return "";
+  const parent = trimmed.slice(0, cut);
+  // Windows: `D:` bez lomky je aktuálny priečinok disku, nie jeho koreň, a server ho
+  // odmietne; to isté platí pre koreň zdieľania `\\nas\Klienti`. Samotný server
+  // (`\\nas`) priečinok nie je, kópiu treba umiestniť ručne.
+  if (/^[A-Za-z]:$/.test(parent)) return `${parent}\\`;
+  if (/^(?:\\\\|\/\/)[^\\/]+$/.test(parent)) return "";
+  if (/^(?:\\\\|\/\/)[^\\/]+[\\/][^\\/]+$/.test(parent)) return `${parent}${trimmed[cut]}`;
+  return parent;
 }
 const folderName = (path: string) => path.trim().replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
 /** Názov kópie tak, ako ho vytvorí server (`planExistingClient`). */
