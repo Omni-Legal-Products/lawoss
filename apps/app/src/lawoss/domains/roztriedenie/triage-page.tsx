@@ -12,6 +12,9 @@ import { openSessionWithPrompt, type OkfConnection } from "../../okf/connection"
 import { AI_SETTINGS_PATH, useMatterModelGap } from "../../lite/matter-model";
 import { LITE_CLIENTS_PATH } from "../../lite/links";
 import { installMissingOnboardingSkills } from "../onboarding/install-pack";
+import { ensureSkillAvailable, workspaceSkillEngine } from "../../okf/skill-availability";
+
+const ROZTRIED_SPIS_SKILL = "roztried-spis";
 import { triageApply, triagePlan, triageReplan, triageStatus, triageUndo, type TriageClient, type TriageMoveView, type TriagePreview, type TriageRun, type TriageStatus } from "./api";
 import "../../lite/pages/okf-glass.css";
 import "./triage.css";
@@ -189,7 +192,12 @@ function ModelPanel({ root, connection, locale, preview, busy, onOpen, onError }
     setOpening(true);
     try {
       await installMissingOnboardingSkills(connection.client, workspace.id, locale);
-      onOpen(await openSessionWithPrompt(connection, workspace, text("model_prompt", { root })));
+      // Engine musí skill vidieť skôr, než sa rozhovor otvorí; inak prvá správa skončí „Command not found“.
+      const engine = workspaceSkillEngine(connection, workspace);
+      const availability = engine ? await ensureSkillAvailable(engine, ROZTRIED_SPIS_SKILL) : "missing";
+      if (availability === "busy" || availability === "missing") { onError(text(availability === "busy" ? "model_skill_busy" : "model_skill_missing")); return; }
+      // Advokát vidí meno klona; cestu si skill zistí sám (`triage status` v priečinku rozhovoru).
+      onOpen(await openSessionWithPrompt(connection, workspace, text("model_prompt", { client: lastSegment(root) })));
     } catch (failure) { onError(friendlyError(failure, text)); }
     finally { setOpening(false); }
   }
@@ -213,7 +221,7 @@ function ModelPanel({ root, connection, locale, preview, busy, onOpen, onError }
 }
 
 const ROLE_KEYS = ["inbox", "client_documents", "research", "drafts", "outputs", "correspondence", "important_mail"] as const;
-const RULE_KEYS = new Set(["email_file", "data_box", "power_of_attorney", "court_decision", "draft_marker", "filing_final", "filing_draft", "contract", "invoice", "registry_extract", "research", "final_output", "folder_hint", "unknown"]);
+const RULE_KEYS = new Set(["email_file", "data_box", "power_of_attorney", "court_decision", "demand_letter", "draft_marker", "filing_final", "filing_draft", "contract", "invoice", "registry_extract", "research", "final_output", "folder_hint", "unknown"]);
 
 function reasonOf(move: TriageMoveView, text: Text): string {
   if (move.source === "user") return text("reason_user");

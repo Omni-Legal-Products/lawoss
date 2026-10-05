@@ -53,4 +53,6 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "f872ac3d24a2b2bc2ce83a12c086fae5358ad8c64f66eb6c757adcf6d3c84191", // lawoss/skills/novy-spis/SKILL.cs.md @ caacdf9c
   "aab723e10fcc234db66e51f3020d498e7eb1409b30e22a81e7bd8a5f1822646e", // lawoss/skills/roztried-spis/SKILL.md @ feat/alfa-roztriedenie-spisu
   "64de8e0c8d2a02e2cce88cc66fa40a157eae8a20f35430128927f5aba2e2b62d", // lawoss/skills/roztried-spis/SKILL.cs.md @ feat/alfa-roztriedenie-spisu
+  "e1dd31551fc99c2ce420e0ef98f559d9fe996554cb78c8008794dc7100b0f123", // lawoss/skills/roztried-spis/SKILL.md @ fix/alfa-roztriedenie-po-teste
+  "1d9b2412ad972be0f75cba45a6bc2f2a370c48cd1eb75eab8405891a13a8d69d", // lawoss/skills/roztried-spis/SKILL.cs.md @ fix/alfa-roztriedenie-po-teste
 ]);
