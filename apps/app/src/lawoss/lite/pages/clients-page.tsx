@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ArrowUpRight, FolderOpen } from "lucide-react";
 import { t, type Language } from "@/i18n";
@@ -11,6 +11,7 @@ import { isOfficeFile } from "../../../../../../lawoss/okf/read";
 import { urgencyOf } from "../../okf/view-rules";
 import { groupByClient, nextDeadline, type ClientGroup } from "../today-model";
 import { liteMatterLink, NEW_MATTER_PATH } from "../links";
+import { TriageEntry } from "../../domains/roztriedenie/triage-entry";
 import { hotDeadlineCount, LiveStamp, matterUrgency, useHotTitle, useMinuteTick } from "../live";
 import "./okf-glass.css";
 import "./clients.css";
@@ -23,14 +24,15 @@ export function ClientsPage() {
 function ClientsLive({ data, meta, locale }: { data: OkfReadResult; meta: OkfPageMeta; locale: Language }) {
   useMinuteTick();
   useHotTitle(hotDeadlineCount(data, today()));
-  return <ClientsView groups={groupByClient(data.matters, data.inputs, data.clients)} meta={meta} locale={locale} />;
+  return <ClientsView groups={groupByClient(data.matters, data.inputs, data.clients)} meta={meta} locale={locale} actions={<TriageEntry />} />;
 }
 
 const reveal = (index: number): CSSProperties & Record<"--lw-i", number> => ({ "--lw-i": index });
 const initials = (name: string) => name.split(/\s+/).filter((part) => /\p{L}/u.test(part[0] ?? "")).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "·";
 
 /** Klienti ako karty s ich vecami; najbližšia lehota a jej naliehavosť z tej istej pamäte ako Dnes. */
-export function ClientsView({ groups, meta, locale: forced }: { groups: readonly ClientGroup[]; meta?: OkfPageMeta; locale?: Language }) {
+/** `actions`: ďalšie vstupy vedľa novej veci (roztriedenie skúšobného klona). */
+export function ClientsView({ groups, meta, locale: forced, actions }: { groups: readonly ClientGroup[]; meta?: OkfPageMeta; locale?: Language; actions?: ReactNode }) {
   const current = useLocale();
   const locale = forced ?? current;
   const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.lite.${key}`, locale, params);
@@ -42,7 +44,10 @@ export function ClientsView({ groups, meta, locale: forced }: { groups: readonly
           {meta ? <p className="lw-clients-topline"><LiveStamp meta={meta} locale={locale} /></p> : null}
           <h1 className="lw-h1">{text("clients_title")}</h1>
         </div>
-        <Link className="lw-today-primary" to={NEW_MATTER_PATH}>+ {text("new_matter")}</Link>
+        <div className="lw-clients-actions">
+          {actions}
+          <Link className="lw-today-primary" to={NEW_MATTER_PATH}>+ {text("new_matter")}</Link>
+        </div>
       </header>
 
       {groups.length === 0 ? <div className="lw-clients-empty" style={reveal(1)}>
