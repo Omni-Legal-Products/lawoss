@@ -22,6 +22,7 @@ import { LOCALIZED_TEMPLATES } from "./templates.ts";
 import { readConfiguredLawyerName } from "../../okf-pamat/src/config.ts";
 import { findOfficeDir } from "../../okf-pamat/src/store.ts";
 import { contained, missing } from "../../okf-pamat/src/workspace-memory-fs.ts";
+import { decodeText } from "../../okf-pamat/src/text-decode.ts";
 import { PROFILE_FILE, parseOfficeWorkingProfile, parseWorkingProfile, type WorkingProfile } from "./profile.ts";
 
 function readText(path: string): string {
@@ -39,7 +40,8 @@ function officeProfile(dir: string, language: DocumentLanguage): WorkingProfile 
   if (!office || !existsSync(join(office, "okf.config"))) return undefined;
   const path = join(office, "okf.config");
   if (!statSync(path).isFile()) return undefined;
-  return parseOfficeWorkingProfile(readText(path), language);
+  // Konfig píše advokát ručne; na Windows s BOM alebo v UTF-16 — rovnako ako okf-memory.
+  return parseOfficeWorkingProfile(decodeText(readFileSync(path)), language);
 }
 
 /** Všetky .md pod `root`, relatívne cesty, bez šablón a skrytých priečinkov. */

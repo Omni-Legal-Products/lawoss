@@ -1,6 +1,7 @@
 /** Ručný obsah a jeho deklarovaný dátum sú nezávislé od mtime projekcie. */
 import { parseFrontmatter, type OkfRecord } from "./record.ts";
 import { manualStatusContent } from "./render.ts";
+import { stripBom } from "./text-decode.ts";
 
 export type ManualStatus = {
   content: string;
@@ -9,7 +10,9 @@ export type ManualStatus = {
   message: string;
 };
 
-export function readManualStatus(text: string, records: readonly OkfRecord[], today = new Date().toISOString().slice(0, 10)): ManualStatus {
+export function readManualStatus(raw: string, records: readonly OkfRecord[], today = new Date().toISOString().slice(0, 10)): ManualStatus {
+  // _STATUS.md uložený na Windows „s BOM“ by inak stratil hlavičku a s ňou manual_updated.
+  const text = stripBom(raw);
   const content = manualStatusContent(text);
   const header = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text)?.[1];
   const value = header ? parseFrontmatter(header).get("manual_updated") : undefined;

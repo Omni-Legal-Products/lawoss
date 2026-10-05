@@ -603,6 +603,22 @@ var AML_REQUIRED = {
   }
 };
 
+// ../okf-pamat/src/text-decode.ts
+function decodeText(bytes) {
+  if (bytes[0] === 254 && bytes[1] === 255) {
+    const swapped = Uint8Array.from(bytes);
+    for (let i = 0;i + 1 < swapped.length; i += 2) {
+      swapped[i] = bytes[i + 1];
+      swapped[i + 1] = bytes[i];
+    }
+    return new TextDecoder("utf-16le").decode(swapped);
+  }
+  return new TextDecoder(bytes[0] === 255 && bytes[1] === 254 ? "utf-16le" : "utf-8").decode(bytes);
+}
+function stripBom(text) {
+  return text.charCodeAt(0) === 65279 ? text.slice(1) : text;
+}
+
 // ../okf-pamat/src/record.ts
 var CORE_FIELDS = new Set([
   "okf",
@@ -694,7 +710,7 @@ function unquote(v) {
 var indentOf = (line) => line.length - line.trimStart().length;
 function parseFrontmatter2(fm) {
   const out = new Map;
-  const lines = fm.split(`
+  const lines = stripBom(fm).split(`
 `);
   let i = 0;
   while (i < lines.length) {
@@ -834,7 +850,8 @@ function parseWorkingProfile(content) {
     throw new Error(`Neplatný ${PROFILE_FILE}`);
   return workingProfile(JSON.parse(fields.folders), JSON.parse(fields.folder_roles), fields.document_naming);
 }
-function parseOfficeWorkingProfile(content, language = "sk") {
+function parseOfficeWorkingProfile(text, language = "sk") {
+  const content = stripBom(text);
   if (!/^\s*(?:matter_folders|folder_roles|document_naming):/m.test(content))
     return;
   const keys = [...content.matchAll(/^(matter_folders|folder_roles|document_naming):/gm)].map((match) => match[1]);
@@ -854,6 +871,10 @@ function parseOfficeWorkingProfile(content, language = "sk") {
   if (new Set(roleNames).size !== roleNames.length)
     throw new Error("Duplicitná rola pracovného profilu");
   const fields = parseFrontmatter2(content);
+  for (const key of ["matter_folders", "folder_roles", "document_naming"]) {
+    if (JSON.stringify(fields.get(key) ?? null).includes("�"))
+      throw new Error(`${key} obsahuje poškodený znak (U+FFFD): Office/okf.config nie je v UTF-8 ani v UTF-16 s BOM (napr. ANSI); ulož ho ako UTF-8`);
+  }
   return workingProfile(fields.get("matter_folders"), fields.get("folder_roles"), fields.get("document_naming"), language);
 }
 var slovakRoles = {
@@ -2571,11 +2592,14 @@ var BIRTH_NUMBER_PATTERN_G = new RegExp(BIRTH_NUMBER_PATTERN.source, "g");
 import { existsSync, readFileSync } from "node:fs";
 import { join as join4, sep as sep2 } from "node:path";
 var CONFIG_FILE = "okf.config";
+function readConfigText(path) {
+  return decodeText(readFileSync(path));
+}
 function readConfiguredLawyerName(officeDir) {
   if (!officeDir)
     return;
   try {
-    const contents = readFileSync(join4(officeDir, CONFIG_FILE), "utf8");
+    const contents = readConfigText(join4(officeDir, CONFIG_FILE));
     const value = parseFrontmatter2(contents).get("standing_authorization");
     if (typeof value !== "string")
       return;
@@ -2597,7 +2621,7 @@ function readConfiguredLawyerName(officeDir) {
       name = scalar.slice(1, -1).replace(/''/g, "'");
     } else if (/^[!&*>|%@`\[{}]|^(?:null|true|false|~)$/i.test(scalar))
       return;
-    if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(name))
+    if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029\uFFFD]/.test(name))
       return;
     return name.trim() || undefined;
   } catch {
@@ -2787,7 +2811,7 @@ async function planNewMatter(request) {
   if (existingMatters && existingMatters.kind !== "directory")
     throw new Error("Matter folder is blocked by a non-directory.");
   const office = findOfficeDir(request.parent);
-  const workingProfile = office ? parseOfficeWorkingProfile(await readFile2(join6(office, "okf.config"), "utf8"), request.language ?? "sk") : undefined;
+  const workingProfile = office ? parseOfficeWorkingProfile(decodeText(await readFile2(join6(office, "okf.config"))), request.language ?? "sk") : undefined;
   const card = await clientCard(clientRoot);
   const clientCardPath = card ? relative4(join6(parentRoot, MATTERS_DIR, name), card.file).split(sep5).join("/") : undefined;
   const built = buildMatterOperations({ ...request, workingProfile, clientTitle: card?.title, clientCardPath });
@@ -3685,7 +3709,7 @@ async function scanTriage(rootInput, options = {}) {
   const card = parseFrontmatter(await readSmall(clone.root, clientCard) ?? "") ?? {};
   const language = resolveDocumentLanguage(["sk", "cs", "en"].includes(card.language ?? "") ? card.language : undefined, card.jurisdiction);
   const office = findOfficeDir(clone.root);
-  const config = office ? await readFile5(join9(office, "okf.config"), "utf8").catch(() => {
+  const config = office ? await readFile5(join9(office, "okf.config")).then(decodeText, () => {
     return;
   }) : undefined;
   const officeJurisdiction = /^jurisdiction:\s*(sk|cz)\s*$/m.exec(config ?? "")?.[1];
@@ -4738,7 +4762,7 @@ function officeProfile(dir, language) {
   const path = join13(office, "okf.config");
   if (!statSync(path).isFile())
     return;
-  return parseOfficeWorkingProfile(readText(path), language);
+  return parseOfficeWorkingProfile(decodeText(readFileSync3(path)), language);
 }
 function listMarkdown(root) {
   const out = [];
@@ -5007,7 +5031,7 @@ function parseWorkspaceMemoryProfile(value) {
 function parseWorkspaceMemoryProfileText(text) {
   if (new TextEncoder().encode(text).byteLength > WORKSPACE_MEMORY_LIMITS.profileBytes)
     throw new Error("Memory profile byte limit exceeded.");
-  return parseWorkspaceMemoryProfile(JSON.parse(text));
+  return parseWorkspaceMemoryProfile(JSON.parse(stripBom(text)));
 }
 
 // src/naming-core.ts

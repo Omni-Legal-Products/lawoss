@@ -209,6 +209,8 @@ export async function readWorkspaceMemory(
           try {
             const config = parseMemoryFrontmatter((await client.readWorkspaceFile(workspaceId, `${officePath}/okf.config`)).content);
             const pattern = config.get("client_path");
+            // Ako `readClientPath` v CLI: vzor s U+FFFD (ANSI z Windows) nesedí na nič a klient by potichu zmizol.
+            if (typeof pattern === "string" && pattern.includes("\uFFFD")) throw new Error("client_path obsahuje poškodený znak (U+FFFD) — súbor nie je v UTF-8 ani v UTF-16 s BOM (napr. ANSI); ulož ho ako UTF-8");
             if (typeof pattern === "string" && pattern.trim()) {
               const found = ancestors.filter(Boolean).find((candidate) => {
                 const relative = ancestor ? candidate.slice(ancestor.length + 1) : candidate;

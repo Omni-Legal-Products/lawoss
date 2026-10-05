@@ -12,6 +12,7 @@ import { lstat, open, readFile } from "node:fs/promises";
 import { realpath } from "../canonical-path.ts";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { findOfficeDir } from "../../../okf-pamat/src/store.ts";
+import { decodeText } from "../../../okf-pamat/src/text-decode.ts";
 import { parseFrontmatter } from "../frontmatter.ts";
 import { resolveDocumentLanguage } from "../language.ts";
 import { parseOfficeWorkingProfile, parseWorkingProfile, PROFILE_FILE, workingProfile } from "../profile.ts";
@@ -110,7 +111,8 @@ export async function scanTriage(rootInput: string, options: { trialJournalDirec
   const card = parseFrontmatter((await readSmall(clone.root, clientCard)) ?? "") ?? {};
   const language = resolveDocumentLanguage(["sk", "cs", "en"].includes(card.language ?? "") ? card.language : undefined, card.jurisdiction);
   const office = findOfficeDir(clone.root);
-  const config = office ? await readFile(join(office, "okf.config"), "utf8").catch(() => undefined) : undefined;
+  // okf.config z Windows (BOM, UTF-16) dekódovaný ako v CLI (lawoss/okf/src/fs.ts).
+  const config = office ? await readFile(join(office, "okf.config")).then(decodeText, () => undefined) : undefined;
   // Karta klienta jurisdikciu nenesie; poradie: volajúci (profil onboardingu), karta, kancelária, jazyk.
   const officeJurisdiction = /^jurisdiction:\s*(sk|cz)\s*$/m.exec(config ?? "")?.[1];
   const jurisdiction = options.jurisdiction ?? (card.jurisdiction === "cz" || card.jurisdiction === "sk" ? card.jurisdiction : officeJurisdiction === "cz" || officeJurisdiction === "sk" ? officeJurisdiction : language === "cs" ? "cz" : "sk");
