@@ -1,6 +1,7 @@
 name: LegalWork Tests
 
 on:
+  workflow_dispatch:
   # Include stacked feature PRs as well as dev.
   pull_request:
   push:
@@ -167,7 +168,9 @@ jobs:
 
 
   orchestrator-tests:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       LEGALWORK_DEV_MODE: "1"
       LEGALWORK_OPENCODE_SOURCE: downloaded

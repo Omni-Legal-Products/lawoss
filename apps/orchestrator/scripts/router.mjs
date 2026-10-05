@@ -7,6 +7,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { stopProcessTree } from "./router-process.mjs";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const cliPath = resolve(__dirname, "..", "dist", "cli.js");
 
@@ -109,11 +111,14 @@ const daemon = spawn(
     String(opencodePort),
   ],
   {
+    // Keep the daemon and its sidecars in one process group so failure cleanup
+    // can stop them even when /health never becomes available.
+    detached: true,
     env: {
       ...process.env,
       LEGALWORK_DATA_DIR: dataDir,
     },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["ignore", "inherit", "inherit"],
   },
 );
 
@@ -145,7 +150,6 @@ try {
   assert.equal(await canonicalPath(pathA2.path.directory), await canonicalPath(workspaceA));
 
   await runCli(["daemon", "stop", "--json"], dataDir);
-  await Promise.race([once(daemon, "exit"), new Promise((resolve) => setTimeout(resolve, 3000))]);
 
   console.log(JSON.stringify({ ok: true, dataDir, daemonUrl, workspaces: [idA, idB] }, null, 2));
 } catch (error) {
@@ -157,11 +161,7 @@ try {
     ),
   );
   process.exitCode = 1;
-  try {
-    await runCli(["daemon", "stop", "--json"], dataDir);
-  } catch {
-    // ignore
-  }
 } finally {
+  await stopProcessTree(daemon);
   await rm(root, { recursive: true, force: true });
 }
