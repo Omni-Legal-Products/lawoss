@@ -9,7 +9,7 @@ import { dirname, join, resolve } from "node:path";
 import { after, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { STRUCTURE, checkBuild, checkCatalog, checkRepo, checkSources, checkStructure } from "./check-no-eigenwelt.mjs";
+import { MARKETPLACE_CHECK_FILE, STRUCTURE, checkBuild, checkCatalog, checkMarketplaceNetwork, checkRepo, checkSources, checkStructure } from "./check-no-eigenwelt.mjs";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const temporary = [];
@@ -160,6 +160,44 @@ describe("LAWOSS stráž Eigenweltu a analytiky", () => {
     assert.ok(fails("apps/app/src/lawoss/domains/marketplace/base-pack.ts", (text) => `${text}\nexport const SK = ["slovlex", "orsr"];\n`));
     assert.ok(fails("apps/app/src/lawoss/domains/marketplace/catalog.ts", (text) => text.replace('import snapshotJson from "./marketplace-snapshot.json";', 'const snapshotJson = { plugins: [{ name: "orsr" }] };')));
     assert.ok(fails("apps/app/src/app/constants.ts", (text) => text.replace("(entry) => !isHiddenQuickConnect(entry.serverName ?? \"\"),", "() => true,")));
+  });
+
+  test("LAWOSS Marketplace: týždenná kontrola len na lawoss-marketplace, presne 7 dní, nie pri štarte, nič neinštaluje", () => {
+    const fails = (file, change) => checkStructure(structureWith(file, change)).some((line) => line.startsWith(file));
+    const check = MARKETPLACE_CHECK_FILE;
+    // Iný repozitár, iná adresa alebo iný interval.
+    assert.ok(fails(check, (text) => text.replace('MARKETPLACE_REPO = "lawoss-marketplace"', 'MARKETPLACE_REPO = "iny-repozitar"')));
+    assert.ok(fails(check, (text) => text.replace('"https://api.github.com"', '"https://api.example.com"')));
+    assert.ok(fails(check, (text) => text.replace("7 * 24 * 60 * 60 * 1000", "24 * 60 * 60 * 1000")));
+    // Kontrola hneď pri štarte (bez začiatku týždňa), bez vypínača alebo bez oneskorenia.
+    assert.ok(fails(check, (text) => text.replace('return "anchored";', 'return "checked";')));
+    assert.ok(fails(check, (text) => text.replace("if (!state.weeklyCheck) return false;", "")));
+    assert.ok(fails(check, (text) => text.replace("const first = setTimeout(() => {\n    tick();", "tick();\n  const first = setTimeout(() => {")));
+    assert.ok(fails(check, (text) => text.replace(' || process.env.LAWOSS_MARKETPLACE_WEEKLY_CHECK === "0"', "")));
+    // Kontrola sama inštaluje.
+    assert.ok(fails(check, (text) => `${text}\nimport { updateGlobalPlugin } from "./marketplace-global.js";\n`));
+    // Inštalácia pre všetkých klientov z iného repozitára, upozornenie so sieťou, onboarding so sieťou pri otvorení.
+    assert.ok(fails("apps/server/src/lawoss/marketplace-global.ts", (text) => text.replace("/tree/[a-f0-9]{40}/", "/tree/[^/]+/")));
+    assert.ok(fails("apps/app/src/lawoss/domains/marketplace/update-notifier.tsx", (text) => text.replace("const view = await api.view()", 'await api.check("manual");\n      const view = await api.view()')));
+    assert.ok(fails("apps/app/src/lawoss/domains/onboarding/packs-step.tsx", (text) => text.replace("useLawossMarketplace({ api })", "useLawossMarketplace({ api, checkOnOpen: true })")));
+    assert.ok(fails("apps/server/src/server.ts", (text) => text.replace("const stopMarketplaceCheck = startWeeklyMarketplaceCheck(config);", "const stopMarketplaceCheck = () => undefined;")));
+
+    // Nová adresa, druhý časovač alebo priamy fetch v module kontroly.
+    const source = readFileSync(join(repo, check), "utf8");
+    assert.deepEqual(checkMarketplaceNetwork(fixture({ [check]: source })), []);
+    assert.equal(checkMarketplaceNetwork(fixture({ [check]: `${source}\nconst x = "https://telemetry.example.com/ping";\n` })).length, 1);
+    assert.equal(checkMarketplaceNetwork(fixture({ [check]: `${source}\nsetInterval(() => undefined, 1000);\n` })).length, 1);
+    assert.equal(checkMarketplaceNetwork(fixture({ [check]: `${source}\nvoid fetch("https://api.github.com");\n` })).length, 1);
+
+    // GitHub alebo plánovaná sieť inde v kóde LAWOSS.
+    const files = {
+      "apps/app/src/lawoss/domains/x/poll.ts": 'setInterval(() => fetch("https://api.github.com/repos/a/b"), 1000);',
+      "apps/server/src/lawoss/other.ts": "setTimeout(() => void fetch(url), 10);",
+      "apps/server/src/lawoss/fine.ts": "setTimeout(() => undefined, 10);",
+    };
+    const problems = checkSources(fixture(files), Object.keys(files));
+    assert.equal(problems.length, 3, problems.join("\n"));
+    assert.ok(!problems.some((line) => line.startsWith("apps/server/src/lawoss/fine.ts")));
   });
 
   test("buildnutý výstup s kľúčom analytiky zlyhá", () => {

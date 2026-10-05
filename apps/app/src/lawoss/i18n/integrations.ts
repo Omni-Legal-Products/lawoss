@@ -244,7 +244,7 @@ export const integrationsEn = {
   "lawoss.marketplace.notice.body": "Nothing is installed until you confirm.",
   "lawoss.marketplace.notice.decision": "Not updated yet: {names}. You changed some of their files or the download failed; decide in LAWOSS Marketplace.",
   "lawoss.marketplace.notice.open": "Open LAWOSS Marketplace",
-  "lawoss.marketplace.onboarding.intro": "Public registers and tools for legal work, installed once for all your clients. Nothing is downloaded until you click Install.",
+  "lawoss.marketplace.onboarding.intro": "Public registers and tools for your practice, installed once for all your clients. Nothing is downloaded until you click Install.",
   "lawoss.marketplace.onboarding.later": "You can add or remove bundles later in Settings, Integrations, LAWOSS Marketplace.",
   "lawoss.marketplace.onboarding.continue": "Continue",
 };
