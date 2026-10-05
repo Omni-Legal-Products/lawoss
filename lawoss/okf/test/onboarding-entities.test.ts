@@ -49,6 +49,20 @@ test("subject and both matter kinds carry additive identity fields", async () =>
   }
 });
 
+test("a matter under an existing subject stays inside the client; a sibling folder is refused", async () => {
+  const client = await directory("okf-client-subject-");
+  await writeFile(join(client, "client.md"), "---\ntype: client\n---\n");
+  await applyOnboarding(await planOnboarding(parseOnboardingRequest({ action: "subject", clientRoot: client, name: "Novak Jan", title: "Novák Jan" })), await options());
+  const subjectRoot = join(client, "Novak Jan");
+  const preview = await planOnboarding(parseOnboardingRequest({ action: "matter", clientRoot: client, parent: subjectRoot, title: "Zmluva", date: "2026-10-05", kind: "non_contentious", area: "IP", jurisdiction: "cz" }));
+  if (preview.mode !== "new") throw new Error("Expected matter plan.");
+  expect(preview.target).toBe(join(subjectRoot, "Spisy", "2026-10 Zmluva"));
+  await applyOnboarding(preview, await options());
+  expect(await readFile(join(preview.target, "matter.md"), "utf8")).toContain("kind: non_contentious");
+  const sibling = await directory("okf-client-sibling-");
+  await expect(planOnboarding(parseOnboardingRequest({ action: "matter", clientRoot: client, parent: sibling, title: "Mimo", date: "2026-10-05", kind: "contentious", area: "IP", jurisdiction: "cz" }))).rejects.toThrow(/within/);
+});
+
 test("map is read-only and only accepts a selected inspected memory source", async () => {
   const root = await directory("okf-map-");
   const externalParent = await directory("okf-map-external-");

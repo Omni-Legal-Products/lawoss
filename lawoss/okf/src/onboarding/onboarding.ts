@@ -5,6 +5,7 @@ import { inspectOnboardingRoot } from "./classify.ts";
 import { executeCreate, planExistingClient, planNewClient, planNewMatter, planNewSubject, planOffice, type AppFiles, type CreatePreview, type MapPreview, type TrialClonePreview } from "./entities.ts";
 import { applyTrialClone, recoverTrialClone } from "./trial-clone.ts";
 import { recoverOnboardingPlan } from "./transaction.ts";
+import { contained } from "../../../okf-pamat/src/workspace-memory-fs.ts";
 
 export type OnboardingRequest =
   | { action: "office"; parent: string; title: string; jurisdiction: "sk" | "cz"; language: "sk" | "cs" | "en"; lawyerName: string; name?: string }
@@ -94,7 +95,7 @@ export async function planOnboarding(request: OnboardingRequest): Promise<Onboar
   if (request.action === "office") return { action: request.action, ...await planOffice(request) };
   if (request.action === "client") return { action: request.action, ...await planNewClient(request) };
   if (request.action === "subject") return { action: request.action, ...await planNewSubject(request) };
-  if (request.action === "matter") { const client = await realpath(request.clientRoot), parent = await realpath(request.parent); if (parent !== client && relative(client, parent).startsWith("..")) throw new Error("Matter parent must be within client root."); return { action: request.action, ...await planNewMatter(request) }; }
+  if (request.action === "matter") { const client = await realpath(request.clientRoot), parent = await realpath(request.parent); if (!contained(client, parent)) throw new Error("Matter parent must be within client root."); return { action: request.action, ...await planNewMatter(request) }; }
   if (request.mode === "convert") { const preview = await planClientConversion(request.root, request); return { action: "existing", mode: "new", appFiles: "inside", target: request.root, clientRoot: request.root, plan: preview.plan }; }
   const preview = await planExistingClient(request.root, request.mode, request.mode === "trial_clone" ? request.cloneParent : undefined, request.mode === "map" ? request : undefined);
   if (request.mode === "trial_clone") {

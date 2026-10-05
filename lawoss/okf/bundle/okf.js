@@ -7,9 +7,9 @@ import { realpathSync as realpathSync4 } from "fs";
 import { fileURLToPath } from "url";
 
 // src/onboarding/cli.ts
-import { constants as constants5 } from "node:fs";
+import { constants as constants6 } from "node:fs";
 import { lstat as lstat7, open as open5, realpath as realpath7 } from "node:fs/promises";
-import { dirname as dirname5, isAbsolute as isAbsolute5, relative as relative6, resolve as resolve7, sep as sep7 } from "node:path";
+import { dirname as dirname5, isAbsolute as isAbsolute6, relative as relative7, resolve as resolve8, sep as sep8 } from "node:path";
 
 // src/onboarding/classify.ts
 import { createHash } from "node:crypto";
@@ -2463,12 +2463,12 @@ async function recoverOnboardingPlan(plan, journalDirectory, action) {
 
 // src/onboarding/onboarding.ts
 import { lstat as lstat6, mkdir as mkdir3, readFile as readFile4, realpath as realpath6, writeFile } from "node:fs/promises";
-import { dirname as dirname4, isAbsolute as isAbsolute4, join as join8, relative as relative5, resolve as resolve6, sep as sep6 } from "node:path";
+import { dirname as dirname4, isAbsolute as isAbsolute5, join as join8, relative as relative6, resolve as resolve7, sep as sep7 } from "node:path";
 
 // src/onboarding/entities.ts
 import { lstat as lstat4, readFile as readFile2, realpath as realpath4 } from "node:fs/promises";
 import { createHash as createHash4 } from "node:crypto";
-import { basename as basename3, join as join6, relative as relative3, resolve as resolve4, sep as sep4 } from "node:path";
+import { basename as basename3, join as join6, relative as relative4, resolve as resolve5, sep as sep5 } from "node:path";
 
 // ../okf-pamat/src/store.ts
 import { existsSync as existsSync2, lstatSync, mkdirSync, readFileSync as readFileSync2, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -2537,6 +2537,44 @@ function findOfficeDir(startDir, maxUp = 8) {
   return;
 }
 
+// ../okf-pamat/src/workspace-memory-fs.ts
+import { closeSync, constants as constants4, fstatSync, lstatSync as lstatSync2, openSync, readSync, realpathSync } from "node:fs";
+import { isAbsolute as isAbsolute3, parse, relative as relative3, resolve as resolve4, sep as sep4 } from "node:path";
+function isObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function missing(error) {
+  return isObject(error) && error.code === "ENOENT";
+}
+function contained(root, target) {
+  const rel = relative3(root, target);
+  return rel === "" || !isAbsolute3(rel) && rel !== ".." && !rel.startsWith(`..${sep4}`);
+}
+function checkedPath(path, kind, allowMissing = false) {
+  const full = resolve4(path), root = parse(full).root;
+  const parts = relative3(root, full).split(sep4).filter(Boolean);
+  let current = root;
+  for (let i = 0;i < parts.length; i++) {
+    current = resolve4(current, parts[i]);
+    let stat;
+    try {
+      stat = lstatSync2(current);
+    } catch (error) {
+      if (allowMissing && missing(error))
+        return false;
+      throw error;
+    }
+    if (stat.isSymbolicLink())
+      throw new Error(`Symlink is not allowed: ${current}`);
+    if (i < parts.length - 1 || kind === "directory") {
+      if (!stat.isDirectory())
+        throw new Error(`Not a directory: ${current}`);
+    } else if (!stat.isFile())
+      throw new Error(`Not a regular file: ${current}`);
+  }
+  return true;
+}
+
 // src/onboarding/messages.ts
 var UNSAFE_FOLDER_NAME_MESSAGE = "A safe non-empty folder name is required.";
 
@@ -2550,7 +2588,7 @@ var safeSegment = (value) => {
 var yaml = (value) => JSON.stringify(value);
 async function rootPlan(root, operations) {
   const canonical = await realpath4(root);
-  if (canonical !== resolve4(root) || !(await lstat4(canonical)).isDirectory())
+  if (canonical !== resolve5(root) || !(await lstat4(canonical)).isDirectory())
     throw new Error("Parent must be a canonical existing directory.");
   const inspection = await inspectOnboardingRoot(canonical);
   if (!inspection.complete || !inspection.digest)
@@ -2649,7 +2687,7 @@ async function planNewMatter(request) {
   safeSegment(request.area);
   const name = `${request.date.slice(0, 7)} ${safeSegment(request.title)}`, target = join6(request.parent, MATTERS_DIR, name);
   const clientRoot = await realpath4(request.clientRoot), parentRoot = await realpath4(request.parent);
-  if (parentRoot !== clientRoot && !parentRoot.startsWith(`${clientRoot}/`))
+  if (!contained(clientRoot, parentRoot))
     throw new Error("Matter parent must be within the inspected client root.");
   const client = await inspectOnboardingRoot(clientRoot);
   if (!client.complete || client.level !== "client")
@@ -2663,7 +2701,7 @@ async function planNewMatter(request) {
   const office = findOfficeDir(request.parent);
   const workingProfile = office ? parseOfficeWorkingProfile(await readFile2(join6(office, "okf.config"), "utf8"), request.language ?? "sk") : undefined;
   const card = await clientCard(clientRoot);
-  const clientCardPath = card ? relative3(join6(parentRoot, MATTERS_DIR, name), card.file).split(sep4).join("/") : undefined;
+  const clientCardPath = card ? relative4(join6(parentRoot, MATTERS_DIR, name), card.file).split(sep5).join("/") : undefined;
   const built = buildMatterOperations({ ...request, workingProfile, clientTitle: card?.title, clientCardPath });
   const operations = [...existingMatters ? [] : [directory(MATTERS_DIR)], ...built.operations];
   return { mode: "new", appFiles: "inside", target, clientRoot: request.clientRoot, plan: await rootPlan(request.parent, operations) };
@@ -2697,15 +2735,15 @@ async function planExistingClient(root, mode, cloneParent, map) {
 
 // src/onboarding/trial-clone.ts
 import { createHash as createHash5, randomUUID } from "node:crypto";
-import { constants as constants4 } from "node:fs";
+import { constants as constants5 } from "node:fs";
 import { copyFile, lstat as lstat5, mkdir as mkdir2, open as open4, readFile as readFile3, realpath as realpath5, rename, rmdir as rmdir2, unlink } from "node:fs/promises";
-import { dirname as dirname3, isAbsolute as isAbsolute3, join as join7, relative as relative4, resolve as resolve5, sep as sep5 } from "node:path";
+import { dirname as dirname3, isAbsolute as isAbsolute4, join as join7, relative as relative5, resolve as resolve6, sep as sep6 } from "node:path";
 var hash = (value) => createHash5("sha256").update(value).digest("hex");
 var within = (root, path) => {
-  const rel = relative4(root, path);
-  return !isAbsolute3(rel) && rel !== ".." && !rel.startsWith(`..${sep5}`);
+  const rel = relative5(root, path);
+  return !isAbsolute4(rel) && rel !== ".." && !rel.startsWith(`..${sep6}`);
 };
-var missing = (error) => error instanceof Error && ("code" in error) && error.code === "ENOENT";
+var missing2 = (error) => error instanceof Error && ("code" in error) && error.code === "ENOENT";
 async function identity(path, kind) {
   const stat = await lstat5(path, { bigint: true });
   if (stat.isSymbolicLink() || (kind === "directory" ? !stat.isDirectory() : !stat.isFile()))
@@ -2713,7 +2751,7 @@ async function identity(path, kind) {
   return `${stat.dev}:${stat.ino}${kind === "file" ? `:${stat.ctimeNs}` : ""}`;
 }
 async function fileDigest(path) {
-  const file = await open4(path, constants4.O_RDONLY | constants4.O_NOFOLLOW);
+  const file = await open4(path, constants5.O_RDONLY | constants5.O_NOFOLLOW);
   try {
     const h = createHash5("sha256"), buffer = Buffer.alloc(65536);
     while (true) {
@@ -2729,7 +2767,7 @@ async function fileDigest(path) {
 }
 async function durableWrite(path, content, replace = false) {
   const temporary = replace ? `${path}.${randomUUID()}.tmp` : path;
-  const handle = await open4(temporary, constants4.O_WRONLY | constants4.O_CREAT | constants4.O_EXCL | constants4.O_NOFOLLOW, 384);
+  const handle = await open4(temporary, constants5.O_WRONLY | constants5.O_CREAT | constants5.O_EXCL | constants5.O_NOFOLLOW, 384);
   try {
     await handle.writeFile(content);
     await handle.sync();
@@ -2741,7 +2779,7 @@ async function durableWrite(path, content, replace = false) {
 }
 async function context2(preview, journalDirectory) {
   for (const path of [preview.source, dirname3(preview.target), journalDirectory]) {
-    if (!isAbsolute3(path) || await realpath5(path) !== resolve5(path) || !(await lstat5(path)).isDirectory())
+    if (!isAbsolute4(path) || await realpath5(path) !== resolve6(path) || !(await lstat5(path)).isDirectory())
       throw new Error("Trial cloning requires existing canonical directories.");
   }
   if (within(preview.source, preview.target) || within(preview.target, preview.source) || within(preview.source, journalDirectory) || within(journalDirectory, preview.source) || within(preview.target, journalDirectory) || within(journalDirectory, preview.target))
@@ -2760,7 +2798,7 @@ async function readJournal(path, fingerprint) {
       throw new Error("Invalid trial journal.");
     return value;
   } catch (error) {
-    if (missing(error))
+    if (missing2(error))
       return null;
     throw error;
   }
@@ -2804,7 +2842,7 @@ async function applyTrialClone(preview, journalDirectory, resume = false) {
         await lstat5(preview.target);
         throw new Error("Trial destination already exists.");
       } catch (error) {
-        if (!missing(error))
+        if (!missing2(error))
           throw error;
       }
       journal = { version: 1, fingerprint, preview, sourceEntries: source.entries, owned: [], phase: "copying" };
@@ -2818,7 +2856,7 @@ async function applyTrialClone(preview, journalDirectory, resume = false) {
         await lstat5(join7(preview.target, journal.intent));
         throw new Error("Uncertain trial entry ownership; preserve for manual recovery.");
       } catch (error) {
-        if (!missing(error))
+        if (!missing2(error))
           throw error;
       }
     }
@@ -2838,10 +2876,10 @@ async function applyTrialClone(preview, journalDirectory, resume = false) {
           const sourcePath = join7(preview.source, entry.path);
           if (await realpath5(sourcePath) !== sourcePath || !(await lstat5(sourcePath)).isFile())
             throw new Error("Trial source entry changed.");
-          await copyFile(sourcePath, target, constants4.COPYFILE_EXCL);
+          await copyFile(sourcePath, target, constants5.COPYFILE_EXCL);
           if (await fileDigest(target) !== entry.digest)
             throw new Error("Trial copy digest mismatch.");
-          const handle = await open4(target, (process.platform === "win32" ? constants4.O_RDWR : constants4.O_RDONLY) | constants4.O_NOFOLLOW);
+          const handle = await open4(target, (process.platform === "win32" ? constants5.O_RDWR : constants5.O_RDONLY) | constants5.O_NOFOLLOW);
           try {
             await handle.sync();
           } finally {
@@ -2879,7 +2917,7 @@ async function applyTrialClone(preview, journalDirectory, resume = false) {
         try {
           await lstat5(conversionJournal);
         } catch (error) {
-          if (missing(error))
+          if (missing2(error))
             hasConversionJournal = false;
           else
             throw error;
@@ -2911,7 +2949,7 @@ async function recoverTrialClone(preview, journalDirectory, action) {
       try {
         await lstat5(join7(preview.target, journal.removal));
       } catch (error) {
-        if (!missing(error))
+        if (!missing2(error))
           throw error;
         journal.owned = journal.owned.filter((entry) => entry.path !== journal.removal);
         delete journal.removal;
@@ -2923,7 +2961,7 @@ async function recoverTrialClone(preview, journalDirectory, action) {
         await lstat5(preview.target);
         throw new Error("Uncertain trial root ownership.");
       } catch (error) {
-        if (!missing(error))
+        if (!missing2(error))
           throw error;
       }
     } else
@@ -2971,11 +3009,11 @@ var isoDate = (value) => {
   return date;
 };
 async function externalProfileDirectory(clientRoot, input) {
-  if (!isAbsolute4(input))
+  if (!isAbsolute5(input))
     throw new Error("External profile directory must be absolute.");
-  const directory = resolve6(input);
-  const fromClient = relative5(clientRoot, directory);
-  if (fromClient !== ".." && !fromClient.startsWith(`..${sep6}`) && !isAbsolute4(fromClient)) {
+  const directory = resolve7(input);
+  const fromClient = relative6(clientRoot, directory);
+  if (fromClient !== ".." && !fromClient.startsWith(`..${sep7}`) && !isAbsolute5(fromClient)) {
     throw new Error("External profile directory must be outside the mapped client directory.");
   }
   let ancestor = directory;
@@ -3072,7 +3110,7 @@ async function planOnboarding(request) {
     return { action: request.action, ...await planNewSubject(request) };
   if (request.action === "matter") {
     const client = await realpath6(request.clientRoot), parent = await realpath6(request.parent);
-    if (parent !== client && relative5(client, parent).startsWith(".."))
+    if (!contained(client, parent))
       throw new Error("Matter parent must be within client root.");
     return { action: request.action, ...await planNewMatter(request) };
   }
@@ -3125,7 +3163,7 @@ async function recoverOnboarding(preview, options, action) {
 // src/onboarding/cli.ts
 var usage = "okf onboard classify <dir> | plan <dir> --title NAME --client-type po|fo|fo-podnikatel|iny --language sk|cs|en --jurisdiction sk|cz --date YYYY-MM-DD [--confirm-client] [--out FILE] | request --request FILE [--out FILE] | create --request FILE --journal DIR --external-profile DIR --confirm | apply --plan FILE --journal DIR --confirm | recover --plan FILE --journal DIR --action finish|rollback --confirm";
 var maxPlanBytes = 4 * 1024 * 1024;
-function parse(argv) {
+function parse2(argv) {
   const args = [], flags = new Map;
   for (let i = 0;i < argv.length; i++) {
     const value = argv[i];
@@ -3196,7 +3234,7 @@ async function aggregateEnvelope(value) {
   return { version: 1, request, preview };
 }
 async function readPlan(path) {
-  const handle = await open5(path, constants5.O_RDONLY | constants5.O_NOFOLLOW);
+  const handle = await open5(path, constants6.O_RDONLY | constants6.O_NOFOLLOW);
   try {
     const stat = await handle.stat();
     if (!stat.isFile() || stat.size > maxPlanBytes)
@@ -3217,13 +3255,13 @@ async function readPlan(path) {
   }
 }
 async function savePlanOutside(root, path, content) {
-  const target = resolve7(path), parent = dirname5(target);
-  const rel = relative6(root, target);
-  if (!rel || !isAbsolute5(rel) && rel !== ".." && !rel.startsWith(`..${sep7}`))
+  const target = resolve8(path), parent = dirname5(target);
+  const rel = relative7(root, target);
+  if (!rel || !isAbsolute6(rel) && rel !== ".." && !rel.startsWith(`..${sep8}`))
     throw new Error("Save the preview outside the client directory.");
   if (await realpath7(parent) !== parent || !(await lstat7(parent)).isDirectory())
     throw new Error("Plan output needs an existing canonical parent directory.");
-  const handle = await open5(target, constants5.O_WRONLY | constants5.O_CREAT | constants5.O_EXCL | constants5.O_NOFOLLOW, 384);
+  const handle = await open5(target, constants6.O_WRONLY | constants6.O_CREAT | constants6.O_EXCL | constants6.O_NOFOLLOW, 384);
   try {
     await handle.writeFile(content);
     await handle.sync();
@@ -3233,7 +3271,7 @@ async function savePlanOutside(root, path, content) {
 }
 async function runOnboarding(argv, out = console.log) {
   try {
-    const { args, flags } = parse(argv);
+    const { args, flags } = parse2(argv);
     const command = args[0];
     if (command === "classify") {
       only(flags, ["--json"]);
@@ -3310,19 +3348,19 @@ async function runOnboarding(argv, out = console.log) {
 }
 
 // src/triage/cli.ts
-import { existsSync as existsSync3, realpathSync } from "node:fs";
-import { dirname as dirname7, join as join12, resolve as resolve10 } from "node:path";
+import { existsSync as existsSync3, realpathSync as realpathSync2 } from "node:fs";
+import { dirname as dirname7, join as join12, resolve as resolve11 } from "node:path";
 
 // src/triage/files.ts
-import { constants as constants7 } from "node:fs";
+import { constants as constants8 } from "node:fs";
 import { lstat as lstat9, mkdir as mkdir4, open as open7, readdir as readdir3, realpath as realpath9 } from "node:fs/promises";
 import { join as join10 } from "node:path";
 
 // src/triage/scan.ts
 import { createHash as createHash6 } from "node:crypto";
-import { constants as constants6 } from "node:fs";
+import { constants as constants7 } from "node:fs";
 import { lstat as lstat8, open as open6, readFile as readFile5, realpath as realpath8 } from "node:fs/promises";
-import { basename as basename4, isAbsolute as isAbsolute6, join as join9, relative as relative7, resolve as resolve8, sep as sep8 } from "node:path";
+import { basename as basename4, isAbsolute as isAbsolute7, join as join9, relative as relative8, resolve as resolve9, sep as sep9 } from "node:path";
 
 // src/triage/rules.ts
 var TRIAGE_ROLES = ["inbox", "client_documents", "research", "drafts", "outputs", "correspondence", "important_mail"];
@@ -3418,12 +3456,12 @@ class TrialCloneError extends Error {
 var sha3 = (value) => createHash6("sha256").update(value).digest("hex");
 var record2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 var overlaps = (a, b) => {
-  const rel = relative7(a, b);
-  return rel === "" || !isAbsolute6(rel) && rel !== ".." && !rel.startsWith(`..${sep8}`);
+  const rel = relative8(a, b);
+  return rel === "" || !isAbsolute7(rel) && rel !== ".." && !rel.startsWith(`..${sep9}`);
 };
-var missing2 = (error) => error instanceof Error && ("code" in error) && error.code === "ENOENT";
+var missing3 = (error) => error instanceof Error && ("code" in error) && error.code === "ENOENT";
 async function readBounded(path, max) {
-  const handle = await open6(path, constants6.O_RDONLY | constants6.O_NOFOLLOW);
+  const handle = await open6(path, constants7.O_RDONLY | constants7.O_NOFOLLOW);
   try {
     const stat = await handle.stat();
     if (!stat.isFile() || stat.size > max)
@@ -3444,9 +3482,9 @@ async function readBounded(path, max) {
   }
 }
 async function verifyTrialClone(rootInput, trialJournalDirectory) {
-  if (!isAbsolute6(rootInput))
+  if (!isAbsolute7(rootInput))
     throw new TrialCloneError("Cesta ku klonu musí byť absolútna.");
-  const root = resolve8(rootInput);
+  const root = resolve9(rootInput);
   try {
     if (await realpath8(root) !== root || !(await lstat8(root)).isDirectory())
       throw new TrialCloneError("Klon musí byť existujúci priečinok bez symbolických odkazov.");
@@ -3461,12 +3499,12 @@ async function verifyTrialClone(rootInput, trialJournalDirectory) {
   } catch (error) {
     if (error instanceof TrialCloneError)
       throw error;
-    throw new TrialCloneError(missing2(error) ? "Toto nie je skúšobný klon. Dokumenty sa presúvajú len v skúšobnom klone, nikdy v origináli." : "Značka skúšobného klona je poškodená.");
+    throw new TrialCloneError(missing3(error) ? "Toto nie je skúšobný klon. Dokumenty sa presúvajú len v skúšobnom klone, nikdy v origináli." : "Značka skúšobného klona je poškodená.");
   }
-  if (!record2(marker) || marker.version !== 1 || marker.trial !== true || typeof marker.source !== "string" || !isAbsolute6(marker.source) || typeof marker.sourceDigest !== "string" || !/^[a-f0-9]{64}$/.test(marker.sourceDigest) || typeof marker.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(marker.fingerprint)) {
+  if (!record2(marker) || marker.version !== 1 || marker.trial !== true || typeof marker.source !== "string" || !isAbsolute7(marker.source) || typeof marker.sourceDigest !== "string" || !/^[a-f0-9]{64}$/.test(marker.sourceDigest) || typeof marker.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(marker.fingerprint)) {
     throw new TrialCloneError("Značka skúšobného klona má neplatný tvar.");
   }
-  const source = resolve8(marker.source);
+  const source = resolve9(marker.source);
   if (overlaps(source, root) || overlaps(root, source))
     throw new TrialCloneError("Klon sa prekrýva so svojím originálom.");
   let journalVerified = false;
@@ -3493,7 +3531,7 @@ async function readSmall(root, path) {
   try {
     return await readBounded(join9(root, path), 1024 * 1024);
   } catch (error) {
-    if (missing2(error))
+    if (missing3(error))
       return;
     throw error;
   }
@@ -3581,7 +3619,7 @@ async function scanTriage(rootInput, options = {}) {
 var MAX_JSON_BYTES = 4 * 1024 * 1024;
 var errorCode2 = (error) => error instanceof Error && ("code" in error) ? String(error.code) : "";
 async function readJsonFile(path, max = MAX_JSON_BYTES) {
-  const handle = await open7(path, constants7.O_RDONLY | constants7.O_NOFOLLOW);
+  const handle = await open7(path, constants8.O_RDONLY | constants8.O_NOFOLLOW);
   try {
     const stat = await handle.stat();
     if (!stat.isFile() || stat.size > max)
@@ -3626,7 +3664,7 @@ async function triageSubdirectory(root, name, create) {
   return current;
 }
 async function writeNewJson(path, value) {
-  const handle = await open7(path, constants7.O_WRONLY | constants7.O_CREAT | constants7.O_EXCL | constants7.O_NOFOLLOW, 384);
+  const handle = await open7(path, constants8.O_WRONLY | constants8.O_CREAT | constants8.O_EXCL | constants8.O_NOFOLLOW, 384);
   try {
     await handle.writeFile(JSON.stringify(value, null, 2) + `
 `);
@@ -3952,14 +3990,14 @@ function buildTriagePlan(inventory, options) {
 
 // src/triage/apply.ts
 import { createHash as createHash8 } from "node:crypto";
-import { constants as constants8 } from "node:fs";
+import { constants as constants9 } from "node:fs";
 import { appendFile, copyFile as copyFile2, link, lstat as lstat10, mkdir as mkdir5, open as open8, readdir as readdir4, readFile as readFile6, realpath as realpath10, rmdir as rmdir3, unlink as unlink2 } from "node:fs/promises";
-import { dirname as dirname6, isAbsolute as isAbsolute7, join as join11, resolve as resolve9 } from "node:path";
+import { dirname as dirname6, isAbsolute as isAbsolute8, join as join11, resolve as resolve10 } from "node:path";
 class TriageConflictError extends Error {
   code = "triage_conflict";
 }
 var record4 = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
-var missing3 = (error) => error instanceof Error && ("code" in error) && error.code === "ENOENT";
+var missing4 = (error) => error instanceof Error && ("code" in error) && error.code === "ENOENT";
 var errorCode3 = (error) => error instanceof Error && ("code" in error) ? String(error.code) : "";
 var RUN_ID = /^triage-[0-9]{8}-[0-9]{6}-[a-f0-9]{6}$/;
 var reserved3 = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
@@ -3967,7 +4005,7 @@ function invalid(message) {
   throw new Error(`Neplatný plán roztriedenia: ${message}`);
 }
 function safeRelative(value, where, allowKeep = false) {
-  if (typeof value !== "string" || !value || value.length > 1024 || value.includes("\x00") || value.includes("\\") || isAbsolute7(value) || /^[a-z]:/i.test(value))
+  if (typeof value !== "string" || !value || value.length > 1024 || value.includes("\x00") || value.includes("\\") || isAbsolute8(value) || /^[a-z]:/i.test(value))
     invalid(`${where} nie je bezpečná relatívna cesta`);
   const parts = value.split("/");
   if (parts.some((part, index) => !part || part.length > 255 || part === "." || part === ".." || part.startsWith(".") && !(allowKeep && part === ".keep" && index === parts.length - 1) || /[<>:"|?*\u0000-\u001f\u007f-\u009f]/.test(part) || /[. ]$/.test(part) || reserved3.test(part)))
@@ -3979,7 +4017,7 @@ function parseTriagePlan(value) {
     invalid("schema");
   if (typeof value.runId !== "string" || !RUN_ID.test(value.runId))
     invalid("runId");
-  if (typeof value.root !== "string" || !isAbsolute7(value.root) || resolve9(value.root) !== value.root)
+  if (typeof value.root !== "string" || !isAbsolute8(value.root) || resolve10(value.root) !== value.root)
     invalid("root");
   if (typeof value.treeDigest !== "string" || !/^[a-f0-9]{64}$/.test(value.treeDigest))
     invalid("treeDigest");
@@ -4021,7 +4059,7 @@ var EVENT_TYPES = new Set(["intent", "created", "move_intent", "moved", "complet
 async function durableDirectory2(path) {
   if (process.platform === "win32")
     return;
-  const handle = await open8(path, constants8.O_RDONLY);
+  const handle = await open8(path, constants9.O_RDONLY);
   try {
     await handle.sync();
   } finally {
@@ -4029,7 +4067,7 @@ async function durableDirectory2(path) {
   }
 }
 async function appendEvent2(path, event) {
-  const handle = await open8(path, constants8.O_WRONLY | constants8.O_APPEND | constants8.O_CREAT | constants8.O_NOFOLLOW, 384);
+  const handle = await open8(path, constants9.O_WRONLY | constants9.O_APPEND | constants9.O_CREAT | constants9.O_NOFOLLOW, 384);
   try {
     await handle.writeFile(`${JSON.stringify(event)}
 `);
@@ -4043,7 +4081,7 @@ async function readEvents2(path) {
   try {
     raw = await readFile6(path, "utf8");
   } catch (error) {
-    if (missing3(error))
+    if (missing4(error))
       return [];
     throw error;
   }
@@ -4094,9 +4132,9 @@ async function safeParent(root, relativePath) {
 async function fileDigest2(path) {
   let handle;
   try {
-    handle = await open8(path, constants8.O_RDONLY | constants8.O_NOFOLLOW);
+    handle = await open8(path, constants9.O_RDONLY | constants9.O_NOFOLLOW);
   } catch (error) {
-    if (missing3(error))
+    if (missing4(error))
       return null;
     if (errorCode3(error) === "ELOOP")
       throw new TriageConflictError(`Symbolický odkaz: ${path}`);
@@ -4126,8 +4164,8 @@ async function moveExclusive(source, target, digest) {
       throw new TriageConflictError(`Cieľ už existuje: ${target}`);
     if (!["EXDEV", "EPERM", "ENOTSUP", "EOPNOTSUPP", "EMLINK", "ENOSYS", "EACCES"].includes(code))
       throw error;
-    await copyFile2(source, target, constants8.COPYFILE_EXCL);
-    const handle = await open8(target, (process.platform === "win32" ? constants8.O_RDWR : constants8.O_RDONLY) | constants8.O_NOFOLLOW);
+    await copyFile2(source, target, constants9.COPYFILE_EXCL);
+    const handle = await open8(target, (process.platform === "win32" ? constants9.O_RDWR : constants9.O_RDONLY) | constants9.O_NOFOLLOW);
     try {
       await handle.sync();
     } finally {
@@ -4147,7 +4185,7 @@ async function createOperation(root, operation) {
   if (operation.kind === "directory")
     await mkdir5(full);
   else {
-    const handle = await open8(full, constants8.O_WRONLY | constants8.O_CREAT | constants8.O_EXCL | constants8.O_NOFOLLOW, 420);
+    const handle = await open8(full, constants9.O_WRONLY | constants9.O_CREAT | constants9.O_EXCL | constants9.O_NOFOLLOW, 420);
     try {
       await handle.writeFile(operation.content ?? "");
       await handle.sync();
@@ -4163,7 +4201,7 @@ async function operationState(root, operation) {
   try {
     state = await lstat10(full);
   } catch (error) {
-    if (missing3(error))
+    if (missing4(error))
       return "missing";
     throw error;
   }
@@ -4185,7 +4223,7 @@ async function applyTriagePlan(input, options = {}) {
     try {
       stored = JSON.parse(await readFile6(planPath, "utf8"));
     } catch (error) {
-      if (!missing3(error))
+      if (!missing4(error))
         throw error;
     }
     let events = await readEvents2(eventsPath);
@@ -4219,7 +4257,7 @@ async function applyTriagePlan(input, options = {}) {
         if (parent && paths.get(parent)?.kind !== "directory" && !plannedDirectories.has(parent))
           throw new TriageConflictError(`Chýba cieľový priečinok: ${move.to}`);
       }
-      const handle = await open8(planPath, constants8.O_WRONLY | constants8.O_CREAT | constants8.O_EXCL | constants8.O_NOFOLLOW, 384);
+      const handle = await open8(planPath, constants9.O_WRONLY | constants9.O_CREAT | constants9.O_EXCL | constants9.O_NOFOLLOW, 384);
       try {
         await handle.writeFile(JSON.stringify(plan, null, 2) + `
 `);
@@ -4276,7 +4314,7 @@ async function readRun(root, runId) {
   try {
     dir = await runDirectory(root, runId, false);
   } catch (error) {
-    if (missing3(error))
+    if (missing4(error))
       throw new Error("Takýto beh roztriedenia v klone nie je.");
     throw error;
   }
@@ -4369,7 +4407,7 @@ async function undoTriage(rootInput, runId, options = {}) {
   }
 }
 async function listTriageRuns(rootInput) {
-  const root = resolve9(rootInput);
+  const root = resolve10(rootInput);
   const runs = join11(root, TRIAGE_DIR, "runs");
   let names;
   try {
@@ -4378,7 +4416,7 @@ async function listTriageRuns(rootInput) {
       return [];
     names = await readdir4(runs);
   } catch (error) {
-    if (missing3(error))
+    if (missing4(error))
       return [];
     throw error;
   }
@@ -4436,7 +4474,7 @@ async function prepareTriage(root, options = {}) {
 
 // src/triage/cli.ts
 var usage2 = "okf triage status [<klon>] | scan [<klon>] [--out FILE] | plan [<klon>] [--classification FILE] [--keep-in-inbox ID,ID] [--today RRRR-MM-DD] | apply [<klon>] --plan FILE --confirm | undo [<klon>] --run RUN_ID --confirm  (bez <klon> klon v aktuálnom priečinku; voliteľne --trial-journal DIR)";
-function parse2(argv) {
+function parse3(argv) {
   const args = [], flags = new Map;
   for (let i = 0;i < argv.length; i++) {
     const value = argv[i];
@@ -4467,8 +4505,8 @@ var value = (flags, name) => {
   return typeof item === "string" ? item : undefined;
 };
 function resolveCloneRoot(argument, cwd = process.cwd()) {
-  const start = resolve10(cwd, argument ?? ".");
-  const canonical = existsSync3(start) ? realpathSync(start) : start;
+  const start = resolve11(cwd, argument ?? ".");
+  const canonical = existsSync3(start) ? realpathSync2(start) : start;
   if (argument !== undefined)
     return canonical;
   for (let dir = canonical, depth = 0;depth < 16; depth++) {
@@ -4483,7 +4521,7 @@ function resolveCloneRoot(argument, cwd = process.cwd()) {
 }
 async function runTriage(argv, out = console.log) {
   try {
-    const { args, flags } = parse2(argv);
+    const { args, flags } = parse3(argv);
     const [command, rootArgument] = args;
     if (!command || args.length > 2)
       throw new Error(usage2);
@@ -4552,8 +4590,8 @@ async function runTriage(argv, out = console.log) {
 var ENTITY_TYPES2 = ["klient", "spis", "projekt"];
 
 // src/fs.ts
-import { existsSync as existsSync4, lstatSync as lstatSync2, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync3, statSync, writeFileSync as writeFileSync2 } from "node:fs";
-import { basename as basename6, dirname as dirname8, join as join13, relative as relative8, resolve as resolve11, sep as sep9 } from "node:path";
+import { existsSync as existsSync4, lstatSync as lstatSync3, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync3, statSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { basename as basename6, dirname as dirname8, join as join13, relative as relative9, resolve as resolve12, sep as sep10 } from "node:path";
 function readText(path) {
   return readFileSync3(path, "utf8");
 }
@@ -4584,7 +4622,7 @@ function listMarkdown(root) {
           continue;
         walk(full);
       } else if (entry.name.endsWith(".md")) {
-        out.push(relative8(root, full).split("\\").join("/"));
+        out.push(relative9(root, full).split("\\").join("/"));
       }
     }
   };
@@ -4626,10 +4664,10 @@ function plan(input) {
   const profile = storedProfile(input.dir) ?? input.workingProfile ?? (input.type === "spis" ? officeProfile(input.dir, language) : undefined);
   let clientCardPath;
   if (input.type === "spis") {
-    for (let parent = dirname8(resolve11(input.dir));; parent = dirname8(parent)) {
+    for (let parent = dirname8(resolve12(input.dir));; parent = dirname8(parent)) {
       const card = existingCard("klient", (name) => existsSync4(join13(parent, name)));
       if (card) {
-        clientCardPath = relative8(input.dir, join13(parent, card)).split("\\").join("/");
+        clientCardPath = relative9(input.dir, join13(parent, card)).split("\\").join("/");
         break;
       }
       if (dirname8(parent) === parent)
@@ -4647,17 +4685,17 @@ function plan(input) {
 function apply(p) {
   const created = [];
   const skipped = [];
-  const root = resolve11(p.dir);
+  const root = resolve12(p.dir);
   const card = existingCard(p.type, (name) => existsSync4(join13(root, name)));
   const plannedCard = p.entries.find((entry) => CARD_ALIASES[p.type].includes(entry.path));
   if (plannedCard && (card || plannedCard.action === "skip") && card !== plannedCard.path)
     throw new Error("Karta entity sa od náhľadu zmenila; načítaj nový plán.");
   for (const entry of p.entries.filter((item) => item.action === "create")) {
-    const target = resolve11(root, entry.path);
-    if (!target.startsWith(root + sep9))
+    const target = resolve12(root, entry.path);
+    if (!target.startsWith(root + sep10))
       throw new Error(`Cesta opúšťa priečinok entity: ${entry.path}`);
     for (let part = target;part !== root; part = dirname8(part)) {
-      if (lstatSync2(part, { throwIfNoEntry: false })?.isSymbolicLink())
+      if (lstatSync3(part, { throwIfNoEntry: false })?.isSymbolicLink())
         throw new Error(`Cesta vedie cez symbolický odkaz: ${entry.path}`);
     }
   }
@@ -4684,7 +4722,7 @@ function validate(root) {
     try {
       const scope = dirname8(join13(root, rel));
       for (const folder of storedProfile(scope)?.folders ?? [])
-        workingPaths.push(relative8(root, join13(scope, folder)).split("\\").join("/") + "/");
+        workingPaths.push(relative9(root, join13(scope, folder)).split("\\").join("/") + "/");
     } catch (error) {
       errors.push({ path: rel, message: error instanceof Error ? error.message : String(error) });
     }
@@ -4751,44 +4789,6 @@ ${body}
 // src/naming-fs.ts
 import { closeSync as closeSync2, constants as constants10, fstatSync as fstatSync2, fsyncSync, lstatSync as lstatSync4, mkdirSync as mkdirSync3, openSync as openSync2, opendirSync, readSync as readSync2, realpathSync as realpathSync3, renameSync as renameSync2, unlinkSync, writeSync } from "node:fs";
 import { basename as basename7, dirname as dirname9, extname, isAbsolute as isAbsolute9, join as join14, relative as relative10, resolve as resolve13, sep as sep11 } from "node:path";
-
-// ../okf-pamat/src/workspace-memory-fs.ts
-import { closeSync, constants as constants9, fstatSync, lstatSync as lstatSync3, openSync, readSync, realpathSync as realpathSync2 } from "node:fs";
-import { isAbsolute as isAbsolute8, parse as parse3, relative as relative9, resolve as resolve12, sep as sep10 } from "node:path";
-function isObject(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function missing4(error) {
-  return isObject(error) && error.code === "ENOENT";
-}
-function contained(root, target) {
-  const rel = relative9(root, target);
-  return rel === "" || !isAbsolute8(rel) && rel !== ".." && !rel.startsWith(`..${sep10}`);
-}
-function checkedPath(path, kind, allowMissing = false) {
-  const full = resolve12(path), root = parse3(full).root;
-  const parts = relative9(root, full).split(sep10).filter(Boolean);
-  let current = root;
-  for (let i = 0;i < parts.length; i++) {
-    current = resolve12(current, parts[i]);
-    let stat;
-    try {
-      stat = lstatSync3(current);
-    } catch (error) {
-      if (allowMissing && missing4(error))
-        return false;
-      throw error;
-    }
-    if (stat.isSymbolicLink())
-      throw new Error(`Symlink is not allowed: ${current}`);
-    if (i < parts.length - 1 || kind === "directory") {
-      if (!stat.isDirectory())
-        throw new Error(`Not a directory: ${current}`);
-    } else if (!stat.isFile())
-      throw new Error(`Not a regular file: ${current}`);
-  }
-  return true;
-}
 
 // ../okf-pamat/src/workspace-memory-types.ts
 var WORKSPACE_MEMORY_LIMITS = Object.freeze({ profileBytes: 256 * 1024, journalBytes: 4 * 1024 * 1024, sourceBytes: 2 * 1024 * 1024, totalBytes: 16 * 1024 * 1024, sources: 256 });

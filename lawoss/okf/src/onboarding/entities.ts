@@ -7,6 +7,7 @@ import { planEntity } from "../core.ts";
 import { LOCALIZED_TEMPLATES } from "../templates.ts";
 import { DEFAULT_FOLDER_ROLES, parseOfficeWorkingProfile, type WorkingProfile } from "../profile.ts";
 import { findOfficeDir } from "../../../okf-pamat/src/store.ts";
+import { contained } from "../../../okf-pamat/src/workspace-memory-fs.ts";
 import { UNSAFE_FOLDER_NAME_MESSAGE } from "./messages.ts";
 import { parseFrontmatter } from "../frontmatter.ts";
 
@@ -117,7 +118,8 @@ export async function planNewMatter(request: MatterRequest): Promise<CreatePrevi
   safeSegment(request.area);
   const name = `${request.date.slice(0, 7)} ${safeSegment(request.title)}`, target = join(request.parent, MATTERS_DIR, name);
   const clientRoot = await realpath(request.clientRoot), parentRoot = await realpath(request.parent);
-  if (parentRoot !== clientRoot && !parentRoot.startsWith(`${clientRoot}/`)) throw new Error("Matter parent must be within the inspected client root.");
+  // Windows: realpath vracia `\`, porovnanie s `${clientRoot}/` by odmietlo každý subjekt klienta.
+  if (!contained(clientRoot, parentRoot)) throw new Error("Matter parent must be within the inspected client root.");
   const client = await inspectOnboardingRoot(clientRoot);
   if (!client.complete || client.level !== "client") throw new Error("Matter client root must be an inspected client.");
   const inspected = await inspectOnboardingRoot(request.parent);
