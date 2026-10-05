@@ -170,6 +170,18 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     expect(await readFile(result.backups[0]!, "utf8")).toBe("Moja úprava.\n");
   });
 
+  test("zlyhanie zálohy zastaví aktualizáciu pred prepísaním úpravy", async () => {
+    const config = serverConfig(root);
+    await installGlobalPlugin(config, url(SHA1));
+    const state = await runMarketplaceCheck(marketplaceStatePath(config), "manual");
+    await writeFile(skillPath(), "Moja úprava.\n");
+    // Na mieste priečinka záloh je súbor, záloha sa nedá vytvoriť.
+    await writeFile(join(root, "config", "opencode", "lawoss-zalohy"), "blokuje");
+    await expect(updateGlobalPlugin(config, PLUGIN_ID, state, { ".opencode/skills/demo-plugin/demo/SKILL.md": "backup" })).rejects.toThrow();
+    expect(await readFile(skillPath(), "utf8")).toBe("Moja úprava.\n");
+    expect((await readInstalledCloudPlugins(config, globalPluginTarget().recordId)).plugins[PLUGIN_ID]?.provenance?.version).toBe("1.0.0");
+  });
+
   test("zlyhanie GitHubu pri aktualizácii nič nezmení", async () => {
     const config = serverConfig(root);
     await installGlobalPlugin(config, url(SHA1));

@@ -104,7 +104,9 @@ async function backupFiles(source: PluginInstallTarget, paths: readonly string[]
     const relative = path.slice(".opencode/".length);
     const to = join(root, dirname(relative), backupName(relative));
     await mkdir(dirname(to), { recursive: true });
-    await copyFile(from, to).then(() => saved.push(to)).catch(() => undefined);
+    // Zlyhanie zálohy zastaví celú akciu ešte pred zápisom: úprava advokáta sa nesmie stratiť.
+    await copyFile(from, to);
+    saved.push(to);
   }
   return saved;
 }
