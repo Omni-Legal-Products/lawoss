@@ -24,6 +24,11 @@ scope: [L1, L3]
 reason: agentné vedenie spisov v rozsahu odsúhlasenom na porade 2. 9. 2026
 ```
 
+Na Windows ulož súbor ako UTF-8; prejde aj „UTF-8 s BOM“ a Unicode (UTF-16).
+ANSI — napr. `Set-Content` bez `-Encoding` v PowerShelli 5.1 — sa neprečíta:
+diakritika v mene by sa v histórii záznamov poškodila, preto `validate` ohlási
+`STANDING_AUTH_INVALID` a zápisy chcú `--approve-as`.
+
 | Pole | Význam | Povinné |
 |---|---|---|
 | `standing_authorization` | meno advokáta, ktorý poverenie udelil — objaví sa v histórii každého záznamu | ✅ |

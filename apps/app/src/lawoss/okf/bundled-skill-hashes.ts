@@ -57,4 +57,5 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "1d9b2412ad972be0f75cba45a6bc2f2a370c48cd1eb75eab8405891a13a8d69d", // lawoss/skills/roztried-spis/SKILL.cs.md @ fix/alfa-roztriedenie-po-teste
   "152fecaf602851be77270294701c310927577193fc124c1478cee9a864f36568", // lawoss/skills/vystup-dokumentu/SKILL.md @ 617dc380 (jediná verzia)
   "abc25c4e6616b015914984d57d0da8b8a3eb7e17a509c011138da879461e4b7e", // lawoss/skills/vystup-dokumentu/SKILL.md @ fix/windows-alfa (py -3 a LibreOffice na Windows)
+  "78766cf84f65d426c39274d59d0b6238259102b8c1798e990c0d0cb093ec6ae2", // lawoss/okf-pamat/SKILL.md @ win/g2-encoding (%TEMP% a PowerShell 5.1 pri snapshote)
 ]);

@@ -17,9 +17,9 @@ Kancelária je priečinok `Office/` s `okf.config` (trvalé poverenie advokáta)
 `AK/<písmeno>/<klient>/Spisy/<vec>` je predvolený profil. Klienta určuje karta
 `client.md` / `klient.md` v nadradenom priečinku alebo `client_path` v konfigurácii.
 Skill aj CLI fungujú nad obyčajnými Markdown súbormi bez LAWOSS aj bez Obsidianu. Návrh
-záznamu (`--file`) píš mimo spis (napr. do `/tmp`) alebo ho po zápise zmaž — do
-spisu patrí iba to, čo prešlo bránou. Ak `node` nie je k dispozícii, **zastav sa
-a povedz to**.
+záznamu (`--file`) píš mimo spis (do dočasného priečinka systému, na Windows `%TEMP%`)
+alebo ho po zápise zmaž — do spisu patrí iba to, čo prešlo bránou. Ak `node` nie je
+k dispozícii, **zastav sa a povedz to**.
 
 ## Existujúca súborová pamäť: profil má prednosť
 
@@ -67,6 +67,11 @@ node lawoss/okf-pamat/bin/okf-memory.ts workspace-read /absolute/workspace --mat
 node lawoss/okf-pamat/bin/okf-memory.ts workspace-save /absolute/workspace --matter synthetic-01 --allow-root /absolute/synthetic-vault --file /absolute/private-work/request.json --json
 node lawoss/okf-pamat/bin/okf-memory.ts workspace-save /absolute/workspace --matter synthetic-01 --allow-root /absolute/synthetic-vault --file /absolute/private-work/request.json --apply --json
 ```
+
+Windows PowerShell 5.1 zapíše `> snapshot.json` v UTF-16LE a výstup CLI pred zápisom
+prevedie na text, takže sa diakritika v `content` môže poškodiť. V ňom snapshot
+nepresmerúvaj: čítaj výstup príkazu priamo a `request.json` zapíš súborovým nástrojom.
+CLI prečíta `--file`, `okf.config` aj `_STATUS.md` v UTF-8 (aj s BOM) aj v UTF-16 s BOM.
 
 Report: `present`, `complete`, `matterId`, `profileHash`, `bindingHash`,
 `contextHash`, `loadedAt`, `sources`, `problems`. Zdroj má `id`, `role`, `path`,
