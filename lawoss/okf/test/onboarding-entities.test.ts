@@ -65,6 +65,13 @@ test("Windows device names and control characters are refused already in the pre
   expect(ok.mode).toBe("new");
 });
 
+test("volatile Windows and Office names are refused already in the preview", async () => {
+  const parent = await directory("okf-parent-volatile-");
+  for (const name of ["Thumbs.db", "desktop.ini", "~$Novak", "~WRL0001.tmp"]) {
+    await expect(planOnboarding(parseOnboardingRequest({ action: "client", parent, name, title: name, clientType: "po", jurisdiction: "sk", date: "2026-10-05", language: "sk" }))).rejects.toThrow("A safe non-empty folder name is required.");
+  }
+});
+
 test("subject and both matter kinds carry additive identity fields", async () => {
   const client = await directory("okf-client-");
   await writeFile(join(client, "client.md"), "---\ntype: client\n---\n");

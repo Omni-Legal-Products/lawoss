@@ -6,6 +6,8 @@ export interface Inspection {
   digest: string | null;
   memorySources: string[];
   issues: { path: string; code: string }[];
+  /** Prchavé súbory Windows a Office (`~$…`, `Thumbs.db`, `desktop.ini`) mimo otlačku. */
+  ignored?: string[];
 }
 export interface OnboardingPreview {
   action: "office" | "client" | "subject" | "matter" | "existing";

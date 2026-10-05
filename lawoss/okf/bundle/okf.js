@@ -79,6 +79,8 @@ var CARD_TYPES = {
 };
 var APP_FILE_DIRECTORIES = new Set([".opencode"]);
 var MEMORY_FILES = new Set(["MEMORY.md", "_memory.md", "_STATUS.md", "BRAIN.md", ".lawoss/memory-profile.json"]);
+var VOLATILE_ENTRY = /^(?:~\$.*|~WRL\d+\.tmp|thumbs\.db|desktop\.ini)$/i;
+var LOCK_CODES = new Set(["EBUSY", "EPERM", "EACCES"]);
 var sha = (value) => createHash("sha256").update(value).digest("hex");
 var errorCode = (error) => error && typeof error === "object" && ("code" in error) ? String(error.code) : "read_failed";
 async function inspectOnboardingParent(root, limits = {}) {
@@ -101,13 +103,17 @@ async function inspectOnboardingParent(root, limits = {}) {
       return result;
     }
     for (const name of names) {
+      if (VOLATILE_ENTRY.test(name)) {
+        (result.ignored ??= []).push(name);
+        continue;
+      }
       try {
         const state = await lstat(join(result.root, name));
         const kind = state.isSymbolicLink() ? "symlink" : state.isDirectory() ? "directory" : state.isFile() ? "file" : "unsupported";
         result.entries.push({ path: name, kind, digest: null, size: 0 });
       } catch (error) {
         const code = errorCode(error);
-        if (code === "EPERM" || code === "EACCES" || code === "EBUSY")
+        if (LOCK_CODES.has(code))
           result.entries.push({ path: name, kind: "unsupported", digest: null, size: 0 });
         else
           problem(name, code);
@@ -121,7 +127,7 @@ async function inspectOnboardingParent(root, limits = {}) {
     result.digest = sha(JSON.stringify(result.entries));
   return result;
 }
-async function inspectOnboardingRoot(root, limits = {}) {
+async function inspectOnboardingRoot(root, limits = {}, hooks = {}) {
   const maxEntries = limits.maxEntries ?? 1e4;
   const maxBytes = limits.maxBytes ?? 1024 * 1024 * 1024;
   const maxDepth = limits.maxDepth ?? 32;
@@ -161,6 +167,10 @@ async function inspectOnboardingRoot(root, limits = {}) {
       }
       for (const name of (await readdir(dir)).sort()) {
         const path = relative ? `${relative}/${name}` : name;
+        if (VOLATILE_ENTRY.test(name)) {
+          (result.ignored ??= []).push(path);
+          continue;
+        }
         if (seenEntries >= maxEntries) {
           problem(path, "entry_limit");
           exhausted = true;
@@ -168,69 +178,80 @@ async function inspectOnboardingRoot(root, limits = {}) {
         }
         seenEntries += 1;
         const full = join(result.root, path);
-        const state = await lstat(full);
-        if (state.isSymbolicLink()) {
-          result.entries.push({ path, kind: "symlink", digest: null, size: 0 });
-          problem(path, "symlink_not_followed");
-          continue;
-        }
-        if (state.isDirectory()) {
-          result.entries.push({ path, kind: "directory", digest: null, size: 0 });
-          if (!APP_FILE_DIRECTORIES.has(name))
-            await visit(path, depth + 1);
-        } else if (state.isFile()) {
-          if (bytes + state.size > maxBytes) {
-            problem(path, "byte_limit");
-            exhausted = true;
-            break;
+        try {
+          const state = await lstat(full);
+          if (state.isSymbolicLink()) {
+            result.entries.push({ path, kind: "symlink", digest: null, size: 0 });
+            problem(path, "symlink_not_followed");
+            continue;
           }
-          const handle = await open(full, constants.O_RDONLY | constants.O_NOFOLLOW);
-          try {
-            const opened = await handle.stat({ bigint: true });
-            const current = await lstat(full, { bigint: true });
-            if (!opened.isFile() || current.isSymbolicLink() || opened.ino !== current.ino || opened.dev !== current.dev) {
-              problem(path, "changed_during_read");
-              continue;
+          if (state.isDirectory()) {
+            result.entries.push({ path, kind: "directory", digest: null, size: 0 });
+            if (!APP_FILE_DIRECTORIES.has(name))
+              await visit(path, depth + 1);
+          } else if (state.isFile()) {
+            if (bytes + state.size > maxBytes) {
+              problem(path, "byte_limit");
+              exhausted = true;
+              break;
             }
-            const hash = createHash("sha256");
-            const buffer = Buffer.alloc(64 * 1024);
-            const parts = [];
-            let count = 0;
-            while (true) {
-              const read = await handle.read(buffer, 0, buffer.length, null);
-              if (!read.bytesRead)
-                break;
-              count += read.bytesRead;
-              bytes += read.bytesRead;
-              if (bytes > maxBytes) {
-                problem(path, "byte_limit");
-                exhausted = true;
-                break;
+            const handle = await (hooks.open ?? open)(full, constants.O_RDONLY | constants.O_NOFOLLOW);
+            try {
+              const opened = await handle.stat({ bigint: true });
+              const current = await lstat(full, { bigint: true });
+              if (!opened.isFile() || current.isSymbolicLink() || opened.ino !== current.ino || opened.dev !== current.dev) {
+                problem(path, "changed_during_read");
+                continue;
               }
-              const chunk = buffer.subarray(0, read.bytesRead);
-              hash.update(chunk);
-              if (CARD_LEVELS[path] && count <= 64 * 1024)
-                parts.push(Buffer.from(chunk));
+              const hash = createHash("sha256");
+              const buffer = Buffer.alloc(64 * 1024);
+              const parts = [];
+              let count = 0;
+              while (true) {
+                const read = await handle.read(buffer, 0, buffer.length, null);
+                if (!read.bytesRead)
+                  break;
+                count += read.bytesRead;
+                bytes += read.bytesRead;
+                if (bytes > maxBytes) {
+                  problem(path, "byte_limit");
+                  exhausted = true;
+                  break;
+                }
+                const chunk = buffer.subarray(0, read.bytesRead);
+                hash.update(chunk);
+                if (CARD_LEVELS[path] && count <= 64 * 1024)
+                  parts.push(Buffer.from(chunk));
+              }
+              const after = await handle.stat({ bigint: true });
+              const linked = await lstat(full, { bigint: true });
+              if (after.size !== opened.size || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs || linked.ino !== opened.ino || linked.dev !== opened.dev || linked.isSymbolicLink())
+                problem(path, "changed_during_read");
+              if (CARD_LEVELS[path]) {
+                if (count > 64 * 1024)
+                  problem(path, "card_size_limit");
+                else
+                  cardText.set(path, Buffer.concat(parts).toString("utf8"));
+              }
+              result.entries.push({ path, kind: "file", digest: hash.digest("hex"), size: count });
+              if (MEMORY_FILES.has(path))
+                result.memorySources.push(path);
+            } finally {
+              await handle.close();
             }
-            const after = await handle.stat({ bigint: true });
-            const linked = await lstat(full, { bigint: true });
-            if (after.size !== opened.size || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs || linked.ino !== opened.ino || linked.dev !== opened.dev || linked.isSymbolicLink())
-              problem(path, "changed_during_read");
-            if (CARD_LEVELS[path]) {
-              if (count > 64 * 1024)
-                problem(path, "card_size_limit");
-              else
-                cardText.set(path, Buffer.concat(parts).toString("utf8"));
-            }
-            result.entries.push({ path, kind: "file", digest: hash.digest("hex"), size: count });
-            if (MEMORY_FILES.has(path))
-              result.memorySources.push(path);
-          } finally {
-            await handle.close();
+          } else {
+            result.entries.push({ path, kind: "unsupported", digest: null, size: 0 });
+            problem(path, "unsupported_file_type");
           }
-        } else {
-          result.entries.push({ path, kind: "unsupported", digest: null, size: 0 });
-          problem(path, "unsupported_file_type");
+        } catch (error) {
+          const code = errorCode(error);
+          if (!LOCK_CODES.has(code))
+            problem(path, code);
+          else {
+            if (result.entries.at(-1)?.path !== path)
+              result.entries.push({ path, kind: "unsupported", digest: null, size: 0 });
+            problem(path, "locked_file");
+          }
         }
         if (exhausted)
           break;
@@ -1931,6 +1952,20 @@ var EN_TEMPLATES = {
 };
 var LOCALIZED_TEMPLATES = { cs: CS_TEMPLATES, sk: TEMPLATES, en: EN_TEMPLATES };
 
+// src/onboarding/messages.ts
+var UNSAFE_FOLDER_NAME_MESSAGE = "A safe non-empty folder name is required.";
+var LOCKED_FILES_MESSAGE_PREFIX = "Files are open in another application:";
+var LOCKED_FILE_CODE = "locked_file";
+function incompleteInspectionMessage(message, issues) {
+  if (!issues.length)
+    return message;
+  const locked = issues.filter((issue) => issue.code === LOCKED_FILE_CODE);
+  const ordered = locked.length ? [...locked, ...issues.filter((issue) => issue.code !== LOCKED_FILE_CODE)] : issues;
+  const listed = ordered.slice(0, 5).map((issue) => `${issue.path || "."}: ${issue.code}`).join("; ");
+  const more = issues.length > 5 ? ` (+${issues.length - 5} more)` : "";
+  return `${locked.length ? LOCKED_FILES_MESSAGE_PREFIX : message.replace(/\.$/, ":")} ${listed}${more}`;
+}
+
 // src/onboarding/plan.ts
 function validateInput(input) {
   if (!input || typeof input.title !== "string" || !input.title.trim() || input.title.length > 500 || /[\u0000-\u001f]/.test(input.title))
@@ -1974,7 +2009,7 @@ async function planClientConversion(root, input) {
   validateInput(input);
   const inspection = await inspectOnboardingRoot(root);
   if (!inspection.complete || !inspection.digest || inspection.level === "conflict")
-    throw new Error("The directory could not be inspected completely and unambiguously.");
+    throw new Error(incompleteInspectionMessage("The directory could not be inspected completely and unambiguously.", inspection.issues));
   if (inspection.level !== "client" && !(inspection.level === "unknown" && input.confirmUnknownClient === true))
     throw new Error("Select a client directory or explicitly confirm an unrecognized directory as a client.");
   const existing = new Map(inspection.entries.map((entry) => [entry.path, entry]));
@@ -2051,7 +2086,7 @@ function safePath(value) {
   if (typeof value !== "string" || !value || value.length > 1024 || value.includes("\x00") || value.includes("\\") || isAbsolute2(value) || /^[a-z]:/i.test(value))
     fail("unsafe operation path");
   const parts = value.split("/");
-  if (parts.some((part) => !part || part.length > 255 || part === "." || part === ".." || /[<>:"|?*\u0000-\u001f\u007f-\u009f]/.test(part) || /[. ]$/.test(part) || reserved2.test(part)))
+  if (parts.some((part) => !part || part.length > 255 || part === "." || part === ".." || /[<>:"|?*\u0000-\u001f\u007f-\u009f]/.test(part) || /[. ]$/.test(part) || reserved2.test(part) || VOLATILE_ENTRY.test(part)))
     fail("unsafe operation path");
   return parts.join("/");
 }
@@ -2629,13 +2664,10 @@ function checkedPath(path, kind, allowMissing = false) {
   return true;
 }
 
-// src/onboarding/messages.ts
-var UNSAFE_FOLDER_NAME_MESSAGE = "A safe non-empty folder name is required.";
-
 // src/onboarding/entities.ts
 var safeSegment = (value) => {
   const trimmed = value.trim().replace(/[. ]+$/, "");
-  if (!trimmed || trimmed.length > 120 || /[\\/:\0<>"|?*\u0001-\u001f\u007f-\u009f]|^\./.test(trimmed) || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(trimmed))
+  if (!trimmed || trimmed.length > 120 || /[\\/:\0<>"|?*\u0001-\u001f\u007f-\u009f]|^\./.test(trimmed) || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(trimmed) || VOLATILE_ENTRY.test(trimmed))
     throw new Error(UNSAFE_FOLDER_NAME_MESSAGE);
   return trimmed;
 };
@@ -2646,7 +2678,7 @@ async function rootPlan(root, operations) {
     throw new Error("Parent must be a canonical existing directory.");
   const inspection = await inspectOnboardingParent(canonical);
   if (!inspection.complete || !inspection.digest)
-    throw new Error("Parent could not be inspected completely.");
+    throw new Error(incompleteInspectionMessage("Parent could not be inspected completely.", inspection.issues));
   return { version: 1, root: canonical, treeDigest: inspection.digest, operations, scope: "parent" };
 }
 var directory = (path) => ({ path, kind: "directory" });
@@ -2698,7 +2730,7 @@ async function planNewSubject(request) {
   const name = safeSegment(request.name), target = join6(request.clientRoot, name);
   const client = await inspectOnboardingRoot(request.clientRoot);
   if (!client.complete || client.level !== "client")
-    throw new Error("Subject parent must be an inspected client root.");
+    throw new Error(incompleteInspectionMessage("Subject parent must be an inspected client root.", client.issues));
   const card = `---
 type: subject
 title: ${yaml(request.title)}
@@ -2747,10 +2779,10 @@ async function planNewMatter(request) {
     throw new Error("Matter parent must be within the inspected client root.");
   const client = await inspectOnboardingRoot(clientRoot);
   if (!client.complete || client.level !== "client")
-    throw new Error("Matter client root must be an inspected client.");
+    throw new Error(incompleteInspectionMessage("Matter client root must be an inspected client.", client.issues));
   const inspected = await inspectOnboardingParent(request.parent);
   if (!inspected.complete)
-    throw new Error("Matter parent could not be inspected completely.");
+    throw new Error(incompleteInspectionMessage("Matter parent could not be inspected completely.", inspected.issues));
   const existingMatters = inspected.entries.find((entry) => entry.path === MATTERS_DIR);
   if (existingMatters && existingMatters.kind !== "directory")
     throw new Error("Matter folder is blocked by a non-directory.");
@@ -2768,7 +2800,7 @@ async function executeCreate(preview, journalDirectory) {
 async function planExistingClient(root, mode, cloneParent, map) {
   const inspection = await inspectOnboardingRoot(root);
   if (!inspection.complete || !inspection.digest)
-    throw new Error("Source client could not be inspected completely.");
+    throw new Error(incompleteInspectionMessage("Source client could not be inspected completely.", inspection.issues));
   if (["office", "matter", "conflict"].includes(inspection.level))
     throw new Error("Source must be a client or an explicitly confirmed unknown directory.");
   if (mode === "map") {

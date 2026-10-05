@@ -41,7 +41,11 @@ import { visibleExistingClientModes } from "../../feature-flags";
 import { clientTitleOf, resolveOpenClient, type OpenClientReader } from "../../okf/open-client";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { readActiveWorkspaceId } from "@/react-app/shell/session-memory";
-import { UNSAFE_FOLDER_NAME_MESSAGE } from "../../../../../../lawoss/okf/src/onboarding/messages";
+import {
+  LOCKED_FILE_CODE,
+  LOCKED_FILES_MESSAGE_PREFIX,
+  UNSAFE_FOLDER_NAME_MESSAGE,
+} from "../../../../../../lawoss/okf/src/onboarding/messages";
 import { LawossWordmark } from "../../shell/wordmark";
 import lawossMark from "../../../../../../lawoss/brand/lawoss-mark.svg";
 import "./onboarding.css";
@@ -293,11 +297,32 @@ const unsafeFolderName: Record<Language, string> = {
   en: "The folder name must not be empty, start with a dot, contain / \\ : < > \" | ? * or be longer than 120 characters. Dots inside the name, such as \"s. r. o.\", are fine.",
   de: "Der Ordnername darf nicht leer sein, nicht mit einem Punkt beginnen, keine Zeichen / \\ : < > \" | ? * enthalten und nicht länger als 120 Zeichen sein. Punkte im Namen, etwa „s. r. o.“, sind zulässig.",
 };
+/** Zamknutý súbor z neúplnej inšpekcie (Windows: dokument otvorený vo Worde); cesty sú zo správy servera. */
+const lockedFiles: Record<Language, (paths: string) => string> = {
+  sk: (paths) =>
+    `Súbor je otvorený v inej aplikácii (napríklad vo Worde) alebo k nemu nie je prístup: ${paths}. Zatvorte ho a skúste to znova.`,
+  cs: (paths) =>
+    `Soubor je otevřený v jiné aplikaci (například ve Wordu) nebo k němu není přístup: ${paths}. Zavřete ho a zkuste to znovu.`,
+  en: (paths) =>
+    `A file is open in another application (for example Word) or cannot be accessed: ${paths}. Close it and try again.`,
+  de: (paths) =>
+    `Eine Datei ist in einer anderen Anwendung geöffnet (zum Beispiel in Word) oder nicht zugänglich: ${paths}. Schließen Sie sie und versuchen Sie es erneut.`,
+};
+const lockedFilesMessage = (error: unknown, locale: Language) => {
+  if (!(error instanceof Error) || !error.message.startsWith(LOCKED_FILES_MESSAGE_PREFIX)) return undefined;
+  // Zamknuté súbory sú v zozname vpredu; „; “ môže byť aj v názve súboru, preto rozhoduje kód za cestou.
+  const list = error.message
+    .slice(LOCKED_FILES_MESSAGE_PREFIX.length)
+    .trim()
+    .replace(/ \(\+\d+ more\)$/, "");
+  const paths = [...list.matchAll(new RegExp(`(?:^|; )(.+?): ${LOCKED_FILE_CODE}(?=; |$)`, "g"))].map((match) => match[1] ?? "");
+  return paths.length ? lockedFiles[locale](paths.join(", ")) : undefined;
+};
 /** Server errors in the UI language where the app knows them; other messages stay as sent. */
 export const onboardingErrorMessage = (error: unknown, locale: Language) =>
   error instanceof Error && error.message === UNSAFE_FOLDER_NAME_MESSAGE
     ? unsafeFolderName[locale]
-    : errorMessage(error, text[locale].error);
+    : (lockedFilesMessage(error, locale) ?? errorMessage(error, text[locale].error));
 const field = (label: string, child: ReactNode) => (
   <label className="grid gap-1.5 text-sm font-medium">
     <span>{label}</span>

@@ -53,6 +53,20 @@ test("trial clone copies a >4 MiB binary, applies conversion metadata, and is id
   expect(await readFile(join(preview.target, "evidence.bin"))).toEqual(binary);
 });
 
+test("trial clone leaves out volatile Windows and Office artefacts", async () => {
+  const source = await directory("okf-trial-source-volatile-");
+  const parent = await directory("okf-trial-parent-volatile-");
+  const journal = await directory("okf-trial-journal-volatile-");
+  await mkdir(join(source, "Spisy"));
+  for (const [path, content] of [["zmluva.docx", "docx"], ["~$zmluva.docx", "owner"], ["Thumbs.db", "thumbs"], ["Spisy/desktop.ini", "ini"], ["Spisy/podanie.pdf", "pdf"]]) await writeFile(join(source, path!), content!);
+  const preview = await simplePreview(source, parent, "volatile");
+  await applyTrialClone(preview, journal);
+  expect(await readFile(join(preview.target, "zmluva.docx"), "utf8")).toBe("docx");
+  expect(await readFile(join(preview.target, "Spisy/podanie.pdf"), "utf8")).toBe("pdf");
+  for (const path of ["~$zmluva.docx", "Thumbs.db", "Spisy/desktop.ini"]) await expect(lstat(join(preview.target, path))).rejects.toThrow();
+  expect(await digest(source)).toBe(preview.sourceDigest);
+});
+
 test("trial clone never overwrites an existing target and rejects every containment overlap", async () => {
   const source = await directory("okf-trial-source-");
   const parent = await directory("okf-trial-parent-");

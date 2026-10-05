@@ -1,9 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, open, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { inspectOnboardingRoot } from "../src/onboarding/classify.ts";
+import { inspectOnboardingParent, inspectOnboardingRoot } from "../src/onboarding/classify.ts";
+import { planClientConversion } from "../src/onboarding/plan.ts";
+import { incompleteInspectionMessage, LOCKED_FILES_MESSAGE_PREFIX } from "../src/onboarding/messages.ts";
+import { holdWindowsFileLock } from "./windows-file-lock.ts";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
@@ -127,3 +130,69 @@ test('an opened client stays a confirmed client despite app files with symlinks 
   expect(result.entries).toContainEqual(expect.objectContaining({ path: '.opencode', kind: 'directory' }));
   expect(result.entries.some(entry => entry.path.startsWith('.opencode/'))).toBe(false);
 });
+
+// Windows a Office zakladajú tieto súbory samy (otvorený dokument vo Worde, Prieskumník);
+// otlačok ani skúšobný klon ich nesmú vidieť, inak otvorený Word zablokuje apply.
+test('volatile Windows and Office artefacts never enter entries or the digest', async () => {
+  const files = { 'client.md': card('client'), 'zmluva.docx': 'docx', 'Spisy/2026-10 Vec/podanie.docx': 'podanie' };
+  const clean = await inspectOnboardingRoot(await fixture(files));
+  const root = await fixture({ ...files, '~$zmluva.docx': 'owner', 'Thumbs.db': 'thumbs', 'desktop.ini': '[.ShellClassInfo]', 'Spisy/2026-10 Vec/~WRL0001.tmp': 'tmp', 'Spisy/2026-10 Vec/DESKTOP.INI': 'ini', 'Spisy/~$podanie.docx': 'owner' });
+  const result = await inspectOnboardingRoot(root);
+  expect(result).toMatchObject({ level: 'client', complete: true, confidence: 'confirmed' });
+  expect(result.digest).toBe(clean.digest);
+  expect(result.entries).toEqual(clean.entries);
+  expect(result.ignored?.sort()).toEqual(['Spisy/2026-10 Vec/DESKTOP.INI', 'Spisy/2026-10 Vec/~WRL0001.tmp', 'Spisy/~$podanie.docx', 'Thumbs.db', 'desktop.ini', '~$zmluva.docx']);
+  const parent = await inspectOnboardingParent(root);
+  expect(parent.entries.map(entry => entry.path)).toEqual(['Spisy', 'client.md', 'zmluva.docx']);
+  expect(parent.ignored).toEqual(['Thumbs.db', 'desktop.ini', '~$zmluva.docx']);
+  expect(parent.digest).toBe((await inspectOnboardingParent(await fixture(files))).digest);
+  // Podobné, ale bežné mená ostávajú dokumentmi.
+  const ordinary = await inspectOnboardingRoot(await fixture({ 'client.md': card('client'), 'zmluva~$.docx': 'x', 'Thumbs.db.bak': 'x', 'WRL0001.tmp': 'x' }));
+  expect(ordinary.entries.map(entry => entry.path)).toEqual(['Thumbs.db.bak', 'WRL0001.tmp', 'client.md', 'zmluva~$.docx']);
+  expect(ordinary.ignored).toBeUndefined();
+});
+
+test('a locked file is recorded per file, later siblings are still read and apply stays impossible', async () => {
+  const root = await fixture({ 'client.md': card('client'), 'a.pdf': 'first', 'b-locked.docx': 'locked', 'c.pdf': 'after', 'd-broken.pdf': 'io' });
+  const result = await inspectOnboardingRoot(root, {}, {
+    open: (async (path: Parameters<typeof open>[0], flags?: string | number) => {
+      if (String(path).endsWith('b-locked.docx')) throw Object.assign(new Error('EBUSY: resource busy or locked, open'), { code: 'EBUSY' });
+      if (String(path).endsWith('d-broken.pdf')) throw Object.assign(new Error('EIO: i/o error, open'), { code: 'EIO' });
+      return open(path, flags);
+    }) as typeof open,
+  });
+  expect(result).toMatchObject({ complete: false, digest: null, confidence: 'unknown' });
+  expect(result.issues).toEqual([{ path: 'b-locked.docx', code: 'locked_file' }, { path: 'd-broken.pdf', code: 'EIO' }]);
+  expect(result.entries).toContainEqual({ path: 'b-locked.docx', kind: 'unsupported', digest: null, size: 0 });
+  expect(result.entries.find(entry => entry.path === 'c.pdf')).toMatchObject({ kind: 'file', size: 5 });
+  expect(result.entries.find(entry => entry.path === 'c.pdf')?.digest).toMatch(/^[a-f0-9]{64}$/);
+});
+
+test('incomplete inspection message lists five issues, locked files first', () => {
+  const issues = [{ path: '', code: 'changed_during_read' }, { path: 'a.pdf', code: 'EIO' }, { path: 'b.docx', code: 'locked_file' }, ...['c', 'd', 'e', 'f'].map(path => ({ path, code: 'EIO' }))];
+  expect(incompleteInspectionMessage('Source client could not be inspected completely.', issues)).toBe(`${LOCKED_FILES_MESSAGE_PREFIX} b.docx: locked_file; .: changed_during_read; a.pdf: EIO; c: EIO; d: EIO (+2 more)`);
+  expect(incompleteInspectionMessage('Source client could not be inspected completely.', issues.slice(0, 2))).toBe('Source client could not be inspected completely: .: changed_during_read; a.pdf: EIO');
+  expect(incompleteInspectionMessage('Subject parent must be an inspected client root.', [])).toBe('Subject parent must be an inspected client root.');
+});
+
+test('incomplete conversion names the first issues', async () => {
+  const root = await fixture({ 'client.md': card('client'), 'a.pdf': 'first' });
+  try { await symlink(join(root, 'a.pdf'), join(root, 'link.pdf')); }
+  catch (error) { if (error && typeof error === 'object' && 'code' in error && ['EPERM', 'EACCES', 'ENOSYS'].includes(String(error.code))) return; throw error; }
+  await expect(planClientConversion(root, { title: 'Synthetic', clientType: 'po', language: 'sk', jurisdiction: 'sk', date: '2026-10-05' })).rejects.toThrow('The directory could not be inspected completely and unambiguously: link.pdf: symlink_not_followed');
+});
+
+// Skutočný zámok Windows: súbor otvorený bez zdieľania, ako ho drží Outlook či antivírus.
+test.skipIf(process.platform !== 'win32')('Windows: a file held open without sharing is locked_file and siblings are still listed', async () => {
+  const root = await fixture({ 'client.md': card('client'), 'a.pdf': 'first', 'b-zmluva.docx': 'locked', 'c.pdf': 'after' });
+  const release = await holdWindowsFileLock(join(root, 'b-zmluva.docx'));
+  try {
+    const result = await inspectOnboardingRoot(root);
+    expect(result).toMatchObject({ complete: false, digest: null });
+    expect(result.issues).toContainEqual({ path: 'b-zmluva.docx', code: 'locked_file' });
+    expect(result.entries.find(entry => entry.path === 'c.pdf')).toMatchObject({ kind: 'file', size: 5 });
+    const error = await planClientConversion(root, { title: 'Synthetic', clientType: 'po', language: 'sk', jurisdiction: 'sk', date: '2026-10-05' }).then(() => undefined, (reason: unknown) => reason);
+    expect(error instanceof Error ? error.message : '').toStartWith(`${LOCKED_FILES_MESSAGE_PREFIX} b-zmluva.docx: locked_file`);
+  } finally { await release(); }
+  expect((await inspectOnboardingRoot(root)).complete).toBe(true);
+}, 60_000);
