@@ -18,6 +18,8 @@ on:
       - apps/desktop/electron/updater.test.mjs
       - apps/desktop/electron/workspace-store.mjs
       - apps/desktop/electron/workspace-store.test.mjs
+      - apps/desktop/electron/lawoss-picked-path.mjs
+      - apps/desktop/electron/lawoss-picked-path.test.mjs
       - apps/desktop/package.json
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
@@ -39,6 +41,8 @@ on:
       - apps/desktop/electron/updater.test.mjs
       - apps/desktop/electron/workspace-store.mjs
       - apps/desktop/electron/workspace-store.test.mjs
+      - apps/desktop/electron/lawoss-picked-path.mjs
+      - apps/desktop/electron/lawoss-picked-path.test.mjs
       - apps/desktop/package.json
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
@@ -79,8 +83,8 @@ jobs:
         run: pnpm --filter @lawoss/okf-pamat test
       - name: Native handoff source tests
         run: bun test lawoss/okf-handoff/
-      - name: Updater and persistent native registration
-        run: node --test apps/desktop/electron/update-feed.test.mjs apps/desktop/electron/updater.test.mjs apps/desktop/electron/workspace-store.test.mjs
+      - name: Updater, persistent native registration and picked folders
+        run: node --test apps/desktop/electron/update-feed.test.mjs apps/desktop/electron/updater.test.mjs apps/desktop/electron/workspace-store.test.mjs apps/desktop/electron/lawoss-picked-path.test.mjs
       # Pohľady z OKF (Dnes, Klienti, detail veci), onboarding a Lite dostávajú na
       # Windows cesty v tvare C:\...; bez tohto kroku tu nebežal žiadny ich test.
       # Filtre bez lomky, aby sedeli aj na cestách so spätnou lomkou.

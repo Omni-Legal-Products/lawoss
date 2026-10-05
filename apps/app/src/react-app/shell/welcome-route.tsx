@@ -50,7 +50,7 @@ export function WelcomeRoute() {
 
   if (error) return <main className="mx-auto max-w-xl p-10"><p role="alert">{error}</p><Button className="mt-4" onClick={() => navigate("/settings/advanced")}>Open Settings</Button></main>;
   if (!client) return <main className="mx-auto max-w-xl p-10" role="status">Connecting LAWOSS…</main>;
-  return <LawossWelcomePage api={client} initialStep={initialStep} attachExisting={continuation === "existing"} pickDirectory={async () => { const result = await pickDirectory({ title: "Select LAWOSS folder" }); return typeof result === "string" ? result : null; }} onOpenAiSettings={() => navigate("/settings/ai")} onComplete={async (result, completion) => {
+  return <LawossWelcomePage api={client} initialStep={initialStep} attachExisting={continuation === "existing"} pickDirectory={async () => { const result = await pickDirectory({ title: "Select LAWOSS folder", canonical: true }); return typeof result === "string" ? result : null; }} onOpenAiSettings={() => navigate("/settings/ai")} onComplete={async (result, completion) => {
     const status = await client.onboardingStatus();
     const okf = status.profile?.okf?.enabled === true;
     const list = await client.listWorkspaces();
