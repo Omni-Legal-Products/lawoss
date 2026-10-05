@@ -294,10 +294,12 @@ jobs:
           const fs = require("node:fs");
           const manifestPath = "apps/desktop/dist-electron/latest.yml";
           const releaseTag = process.env.ALPHA_RUN_RELEASE_TAG;
-          const baseUrl = `https://github.com/eigenweltlabs/legalwork/releases/download/${releaseTag}`;
+          // LAWOSS: the pointer must reference the repository the assets were
+          // just uploaded to, and the lawoss- artifactName from electron-builder.yml.
+          const baseUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/releases/download/${releaseTag}`;
           const rewritten = fs.readFileSync(manifestPath, "utf8")
-            .replace(/(url:\s*)(legalwork-[^\n]+)/g, `$1${baseUrl}/$2`)
-            .replace(/(path:\s*)(legalwork-[^\n]+)/g, `$1${baseUrl}/$2`);
+            .replace(/(url:\s*)(lawoss-[^\n]+)/g, `$1${baseUrl}/$2`)
+            .replace(/(path:\s*)(lawoss-[^\n]+)/g, `$1${baseUrl}/$2`);
           fs.writeFileSync(process.env.POINTER_MANIFEST, rewritten);
           NODE
 
