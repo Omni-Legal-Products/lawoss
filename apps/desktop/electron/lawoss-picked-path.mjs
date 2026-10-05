@@ -84,8 +84,10 @@ const MAX_TYPED_PATH = 4096;
  * Prieskumník pri „Kopírovať ako cestu“ vloží cestu v úvodzovkách a pri vkladaní často
  * pribudne medzera alebo nový riadok na okraji. Úvodzovky ani riadiace znaky Windows
  * v názve nedovolí a medzery na konci cesty sám zahodí, preto odstránime okraje a jeden
- * pár úvodzoviek. Osamotnú úvodzovku na okraji tiež: tú nechá napr. rodič kópie odvodený
- * z cesty v úvodzovkách (`"C:\Klienti`). Inde sú to platné znaky názvu: cesta ostane, ako je.
+ * pár úvodzoviek. Osamotnú úvodzovku na okraji tiež: tú nechá ručne skrátená cesta
+ * v úvodzovkách (`"C:\Klienti`). Inde sú to platné znaky názvu: cesta ostane, ako je.
+ * Samotné `Z:` je aktuálny priečinok disku, relatívna cesta, ktorú by sme neprevideli;
+ * v poli s priečinkom ním advokát myslí koreň disku, preto dostane lomku (`Z:\`).
  *
  * @param {string} value
  * @param {NodeJS.Platform} [platform]
@@ -94,7 +96,8 @@ const MAX_TYPED_PATH = 4096;
 export function typedDirectoryInput(value, platform = process.platform) {
   if (platform !== "win32") return value;
   const edges = /^[ \t\r\n]+|[ \t\r\n]+$/g;
-  return value.replace(edges, "").replace(/^"/, "").replace(/"$/, "").replace(edges, "");
+  const typed = value.replace(edges, "").replace(/^"/, "").replace(/"$/, "").replace(edges, "");
+  return /^[A-Za-z]:$/.test(typed) ? `${typed}\\` : typed;
 }
 
 /**

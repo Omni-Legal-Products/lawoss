@@ -134,10 +134,25 @@ test("napísaná cesta: na Windows zmiznú úvodzovky z Prieskumníka a medzery 
   assert.equal(typedDirectoryInput('""C:\\Klienti""', "win32"), '"C:\\Klienti"');
   assert.equal(typedDirectoryInput("C:\\Klienti\\Novák a spol", "win32"), "C:\\Klienti\\Novák a spol");
   assert.equal(typedDirectoryInput("", "win32"), "");
+  // Samotné písmeno disku je koreň disku, nie jeho aktuálny priečinok (relatívne `Z:`).
+  assert.equal(typedDirectoryInput("Z:", "win32"), "Z:\\");
+  assert.equal(typedDirectoryInput(' "z:\r\n', "win32"), "z:\\");
+  assert.equal(typedDirectoryInput('"Z:\\"', "win32"), "Z:\\");
+  assert.equal(typedDirectoryInput("Z:Klienti", "win32"), "Z:Klienti");
   // Mimo Windows sú úvodzovky aj medzery platné znaky názvu.
   for (const platform of /** @type {NodeJS.Platform[]} */ (["darwin", "linux"])) {
     assert.equal(typedDirectoryInput('"/Volumes/NAS/Kancelaria"', platform), '"/Volumes/NAS/Kancelaria"');
     assert.equal(typedDirectoryInput(" /Users/advokat/Klienti ", platform), " /Users/advokat/Klienti ");
+    assert.equal(typedDirectoryInput("Z:", platform), "Z:");
+  }
+});
+
+test("napísané písmeno disku (aj rodič kópie z cesty v úvodzovkách) dostane tvar koreňa z dialógu", async () => {
+  const { fs } = fakeFs({ "\\\\nas\\Kancelaria\\": "dir" }, { "Z:\\": "\\\\nas\\Kancelaria" });
+  const picked = await canonicalPickedDirectory("Z:\\", { platform: "win32", fs });
+  assert.equal(picked, "\\\\nas\\Kancelaria\\");
+  for (const typed of ["Z:", '"Z:', '"Z:\\"', " Z:\\\r\n"]) {
+    assert.equal(await canonicalTypedDirectory(typed, { platform: "win32", fs }), picked, typed);
   }
 });
 
@@ -256,6 +271,16 @@ test("Windows: disk zo subst prejde kontrolou kanonickej cesty až po výbere", 
     const lower = `${root[0].toLowerCase()}${root.slice(1)}`;
     assert.equal(await accepted(lower), false);
     assert.equal(await canonicalTypedDirectory(`"${lower}"`), root);
+    // Klient priamo v koreni disku, vložený v úvodzovkách (napr. `"P:\Klienti"`): rodič kópie je koreň
+    // disku (`P:\` zo stránky, `"P:` zo staršej verzie aj samotné `P:`) a dostane tvar koreňa z dialógu.
+    const driveRoot = await canonicalPickedDirectory(`${letter}:\\`);
+    assert.equal(await canonicalTypedDirectory(`"${letter}:\\Klienti"`), path.join(office, "Klienti"));
+    for (const typed of [`${letter}:\\`, `"${letter}:`, `${letter}:`, `"${letter}:\\"`]) {
+      assert.equal(await canonicalTypedDirectory(typed), driveRoot, typed);
+    }
+    assert.equal(await accepted(driveRoot), true);
+    // Skúšobný klon overuje rodiča cieľa kópie (`dirname(target)` v trial-clone.ts).
+    assert.equal(await accepted(path.dirname(path.join(driveRoot, "Klienti (trial 2026-10-05)"))), true);
     // Junction ostane aj v napísanej ceste (len bez úvodzoviek) a kontrola ju odmietne ako doteraz.
     assert.equal(await canonicalTypedDirectory(`"${letter}:\\Odkaz"`), `${letter}:\\Odkaz`);
     assert.equal(await canonicalTypedDirectory(` ${path.join(office, "Odkaz")} `), path.join(office, "Odkaz"));
