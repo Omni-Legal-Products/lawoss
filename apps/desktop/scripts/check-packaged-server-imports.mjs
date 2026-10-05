@@ -145,6 +145,8 @@ export function checkPackagedServerImports(target = desktopRoot, { timeoutMs = 1
     }
     return JSON.parse(readFileSync(resultFile, "utf8"));
   } finally {
+    // Odkaz na node_modules (na Windows junction) odpojiť samostatne, nech upratovanie nikdy nesiahne do cieľa.
+    rmSync(join(temp, "Resources", "app", "node_modules"), { force: true });
     rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 }
