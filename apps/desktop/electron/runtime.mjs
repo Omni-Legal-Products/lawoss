@@ -473,6 +473,15 @@ function enrichedPath(sidecarDirs, currentPath, fallbackDirs = []) {
   return deduped.length > 0 ? deduped.join(path.delimiter) : null;
 }
 
+// 🟡 LAWOSS: zabalená appka dáva pribalený Node hneď za sidecary. Na konci PATH by
+// vyhral starý systémový Node (pod 20.19, 21.x, 22.0–22.6), ktorý ESM bundle OKF
+// (okf.js, okf-memory.js) bez package.json nespustí: nerozpozná syntax modulu.
+// Vo vývoji ostáva shim Electronu na konci ako v upstreame.
+export function childProcessPath(sidecarDirs, currentPath, nodeDir, packaged) {
+  const nodeDirs = nodeDir ? [nodeDir] : [];
+  return packaged ? enrichedPath([...sidecarDirs, ...nodeDirs], currentPath) : enrichedPath(sidecarDirs, currentPath, nodeDirs);
+}
+
 export function bundledNodeDirectory(resourcesRoot, platform = process.platform) {
   const directory = path.join(resourcesRoot, "node");
   const executable = path.join(directory, platform === "win32" ? "node.exe" : "node");
@@ -489,6 +498,7 @@ export function nodeShimFileName(platform = process.platform) {
 // bundled workspace skills (docx-edit, pdf-tools), which shell
 // out to `node`. The shim directory is appended LAST to the child PATH, so any
 // real Node installation always wins.
+// 🟡 LAWOSS: len vo vývoji; pribalený Node zabalenej appky ide dopredu (childProcessPath).
 export function nodeShimScriptContent(execPath, platform = process.platform) {
   if (platform === "win32") {
     return `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"${execPath}" %*\r\n`;
@@ -909,6 +919,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   function ensureNodeShimDir() {
     // Packaged Electron has RunAsNode fused off. Append our standalone Node
     // directory so document tools also work without a system Node installation.
+    // 🟡 LAWOSS: nie na koniec, ale hneď za sidecary (childProcessPath).
     if (app.isPackaged) return bundledNodeDirectory(process.resourcesPath);
     nodeShimDirPromise ??= (async () => {
       const shimDir = path.join(userDataDir, "node-shim");
@@ -962,7 +973,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
         ? "PATH"
         : "Path";
     const nodeShimDir = await ensureNodeShimDir();
-    const pathEnv = enrichedPath(sidecarDirs, env[pathKey], nodeShimDir ? [nodeShimDir] : []);
+    // 🟡 LAWOSS: zabalená appka dáva pribalený Node pred systémový (childProcessPath).
+    const pathEnv = childProcessPath(sidecarDirs, env[pathKey], nodeShimDir, app.isPackaged);
     if (pathEnv) {
       env[pathKey] = pathEnv;
     }

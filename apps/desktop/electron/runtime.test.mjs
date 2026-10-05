@@ -13,6 +13,7 @@ import {
   commandMatchesPackagedSidecar,
   mergeRuntimeMcpConfig,
   bundledNodeDirectory,
+  childProcessPath,
   nodeShimFileName,
   nodeShimScriptContent,
   opencodeHomeEnvFromRoot,
@@ -215,6 +216,74 @@ describe("node shim", () => {
       nodeShimScriptContent("C:\\Program Files\\LegalWork\\LegalWork.exe", "win32"),
       '@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"C:\\Program Files\\LegalWork\\LegalWork.exe" %*\r\n',
     );
+  });
+});
+
+// 🟡 LAWOSS: pribalený Node musí v zabalenej appke vyhrať nad starým systémovým,
+// inak ESM bundle OKF (okf.js, okf-memory.js) bez package.json nenaštartuje.
+describe("PATH potomkov a pribalený Node", () => {
+  async function layout() {
+    const root = await mkdtemp(path.join(os.tmpdir(), "lawoss-child-path-"));
+    const dirs = {
+      root,
+      sidecars: path.join(root, "sidecars"),
+      node: path.join(root, "node"),
+      shim: path.join(root, "node-shim"),
+      systemNode: path.join(root, "system-node"),
+      other: path.join(root, "other"),
+    };
+    for (const dir of [dirs.sidecars, dirs.node, dirs.shim, dirs.systemNode, dirs.other]) await mkdir(dir);
+    return dirs;
+  }
+
+  it("zabalená appka dá pribalený Node hneď za sidecary, pred systémový PATH", async () => {
+    const dirs = await layout();
+    try {
+      const missing = path.join(dirs.root, "missing-sidecars");
+      const systemPath = [dirs.systemNode, dirs.other].join(path.delimiter);
+      const entries = childProcessPath([missing, dirs.sidecars], systemPath, dirs.node, true).split(path.delimiter);
+      assert.deepEqual(entries.slice(0, 2), [dirs.sidecars, dirs.node]);
+      assert.ok(entries.indexOf(dirs.systemNode) > entries.indexOf(dirs.node));
+      assert.ok(entries.includes(dirs.other));
+      assert.ok(!entries.includes(missing));
+    } finally {
+      await rm(dirs.root, { recursive: true, force: true });
+    }
+  });
+
+  it("pribalený Node už v PATH používateľa sa neopakuje", async () => {
+    const dirs = await layout();
+    try {
+      const systemPath = [dirs.systemNode, dirs.node].join(path.delimiter);
+      const entries = childProcessPath([dirs.sidecars], systemPath, dirs.node, true).split(path.delimiter);
+      assert.equal(entries.indexOf(dirs.node), 1);
+      assert.equal(entries.filter((entry) => entry === dirs.node).length, 1);
+    } finally {
+      await rm(dirs.root, { recursive: true, force: true });
+    }
+  });
+
+  it("vo vývoji ostáva shim Electronu na konci ako v upstreame", async () => {
+    const dirs = await layout();
+    try {
+      const entries = childProcessPath([dirs.sidecars], dirs.systemNode, dirs.shim, false).split(path.delimiter);
+      assert.equal(entries[0], dirs.sidecars);
+      assert.equal(entries.at(-1), dirs.shim);
+      assert.ok(entries.indexOf(dirs.systemNode) < entries.indexOf(dirs.shim));
+    } finally {
+      await rm(dirs.root, { recursive: true, force: true });
+    }
+  });
+
+  it("bez shimu vo vývoji pridá len sidecary", async () => {
+    const dirs = await layout();
+    try {
+      const entries = childProcessPath([dirs.sidecars], dirs.systemNode, null, false).split(path.delimiter);
+      assert.equal(entries[0], dirs.sidecars);
+      assert.equal(entries.at(-1), dirs.systemNode);
+    } finally {
+      await rm(dirs.root, { recursive: true, force: true });
+    }
   });
 });
 
