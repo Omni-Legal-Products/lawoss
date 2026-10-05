@@ -11,7 +11,7 @@ import { SystemOneConfigurationSchema } from "./systemone-schema.js";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, realpath, writeFile, rm, stat } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { LEGALMEMORY_EXPORT_DIR, safeExportFilename, safeExportRelativePath } from "./legalmemory-export.js";
 import {
   collectLegalMemoryFolderFiles,
@@ -58,6 +58,7 @@ import { globalOpencodeConfigDir, globalSkillsDir, opencodeConfigPath, legalwork
 import { ensureDir, exists, hashToken, shortId, tokensMatch } from "./utils.js";
 import { ensureWorkspaceFiles, ensureWorkspaceFilesForBootstrap, readRawOpencodeConfig } from "./workspace-init.js";
 import { requireProjectAppFilesInside, usesExternalWorkspaceAppFiles, workspaceAppFilesRoot } from "./lawoss/workspace-app-files.js";
+import { isPathWithin } from "./lawoss/path-within.js";
 import { sanitizeCommandName, validateMcpConfig, validateMcpName } from "./validators.js";
 import { TokenService } from "./tokens.js";
 import { EnvService } from "./env-file.js";
@@ -4580,7 +4581,8 @@ async function isAuthorizedRoot(workspacePath: string, roots: string[]): Promise
   for (const root of roots) {
     const resolvedRoot = resolve(root);
     if (resolvedWorkspace === resolvedRoot) return true;
-    if (resolvedWorkspace.startsWith(resolvedRoot + sep)) return true;
+    // 🟡 LAWOSS: povolený koreň disku alebo zdieľania (`D:\`, `\\nas\share\`) končí lomkou, prefix `root + sep` nesedel.
+    if (isPathWithin(resolvedRoot, resolvedWorkspace)) return true;
   }
   return false;
 }

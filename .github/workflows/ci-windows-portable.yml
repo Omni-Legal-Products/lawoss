@@ -27,6 +27,9 @@ on:
       - apps/server/src/reload-watcher.ts
       - apps/server/src/reload-watcher.test.ts
       - apps/server/src/routes/workspaces.ts
+      - apps/server/src/routes/files.ts
+      - apps/server/src/paths.ts
+      - apps/server/src/server.ts
       - apps/server/src/embedded.ts
       - apps/server/src/cloud-plugins.ts
       - apps/server/src/opencode-plugins/office-plugin-shared.ts
@@ -60,6 +63,9 @@ on:
       - apps/server/src/reload-watcher.ts
       - apps/server/src/reload-watcher.test.ts
       - apps/server/src/routes/workspaces.ts
+      - apps/server/src/routes/files.ts
+      - apps/server/src/paths.ts
+      - apps/server/src/server.ts
       - apps/server/src/embedded.ts
       - apps/server/src/cloud-plugins.ts
       - apps/server/src/opencode-plugins/office-plugin-shared.ts
@@ -114,6 +120,7 @@ jobs:
       # Server s onboardingom, registráciou existujúceho priečinka, roztriedením,
       # pamäťou a kanonickými cestami beží na Windows prvýkrát; dist sa tu nestavia,
       # takže filter zachytí len zdrojové testy (bez lomky kvôli cestám s `\`).
-      - name: LAWOSS server (onboarding, register existing, triage, memory, paths, reload watcher)
+      # lawoss-path-containment: workspace v koreni disku (subst) a zdieľania (net share).
+      - name: LAWOSS server (onboarding, register existing, triage, memory, paths, containment, reload watcher)
         working-directory: apps/server
         run: bun test lawoss reload-watcher

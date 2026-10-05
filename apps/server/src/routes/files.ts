@@ -1,4 +1,5 @@
 import { writeConditionalText } from "../lawoss/conditional-text-write.js";
+import { childPathWithin } from "../lawoss/path-within.js";
 import { createReadStream } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -129,7 +130,9 @@ function resolveSafeChildPath(root: string, child: string): string {
   if (candidate === rootResolved) {
     throw new ApiError(400, "invalid_path", "Path must point to a file");
   }
-  if (!candidate.startsWith(rootResolved + sep)) {
+  // 🟡 LAWOSS: pri koreni disku alebo zdieľania (`D:\`, `\\nas\share\`) končí rootResolved lomkou
+  // a prefix `rootResolved + sep` odmietal každý súbor.
+  if (!childPathWithin(rootResolved, child)) {
     throw new ApiError(400, "invalid_path", "Path traversal is not allowed");
   }
   return candidate;

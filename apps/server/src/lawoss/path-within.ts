@@ -15,6 +15,19 @@ export function isPathWithin(root: string, candidate: string, api: PathApi = pat
   return rel === "" || (!api.isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${api.sep}`));
 }
 
+/**
+ * `child` vyriešený voči `root`, ak leží vnútri a nie je to `root` sám; inak `null`.
+ * Nahrádza `resolve(root, child)` + prefix `root + sep`, ktorý pri koreni disku
+ * (`D:\`) alebo zdieľania (`\\nas\share\`) odmietal všetko, lebo koreň už lomkou končí.
+ * Koreň zapísaný inou veľkosťou písmen (`c:/klienti/novak`) ostáva odmietnutý ako
+ * predtým — súborové operácie by ho inak brali ako súbor vo vnútri.
+ */
+export function childPathWithin(root: string, child: string, api: PathApi = path): string | null {
+  const resolvedRoot = api.resolve(root);
+  const candidate = api.resolve(resolvedRoot, child);
+  return api.relative(resolvedRoot, candidate) !== "" && isPathWithin(resolvedRoot, candidate, api) ? candidate : null;
+}
+
 /** Najkonkrétnejší (najdlhší) priečinok zo zoznamu, v ktorom `candidate` leží. */
 export function deepestContaining<T extends { path: string }>(items: readonly T[], candidate: string, api: PathApi = path): T | undefined {
   return [...items]
