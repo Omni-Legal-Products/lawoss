@@ -10,7 +10,7 @@ import { formatDay, today, type OkfReadResult } from "../../okf/read-model";
 import { isOfficeFile } from "../../../../../../lawoss/okf/read";
 import { urgencyOf } from "../../okf/view-rules";
 import { groupByClient, nextDeadline, type ClientGroup } from "../today-model";
-import { liteMatterLink, NEW_MATTER_PATH } from "../links";
+import { ATTACH_EXISTING_CLIENT_PATH, liteMatterLink, NEW_MATTER_PATH } from "../links";
 import { TriageEntry } from "../../domains/roztriedenie/triage-entry";
 import { hotDeadlineCount, LiveStamp, matterUrgency, useHotTitle, useMinuteTick } from "../live";
 import "./okf-glass.css";
@@ -46,6 +46,7 @@ export function ClientsView({ groups, meta, locale: forced, actions }: { groups:
         </div>
         <div className="lw-clients-actions">
           {actions}
+          <Link className="lw-btn" to={ATTACH_EXISTING_CLIENT_PATH}>{text("attach_existing_client")}</Link>
           <Link className="lw-today-primary" to={NEW_MATTER_PATH}>+ {text("new_matter")}</Link>
         </div>
       </header>
