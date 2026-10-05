@@ -1359,6 +1359,12 @@ const folderName = (path: string) => path.trim().replace(/[\\/]+$/, "").split(/[
 export const trialCloneName = (original: string, date: string) => `${folderName(original) || "client"} (trial ${date})`;
 /** Režimy pripojenia v poradí ponuky; skúšobný klon je prvý a predvolený, mapovanie skryje alfa prepínač. */
 const EXISTING_MODES = visibleExistingClientModes(["trial_clone", "convert", "map"] as const);
+/** Statické kľúče pomocných textov režimov, aby i18n audit nevidel dynamicky skladaný kľúč. */
+const EXISTING_MODE_HELP: Record<ExistingClientMode, string> = {
+  trial_clone: "trial_cloneHelp",
+  convert: "convertHelp",
+  map: "mapHelp",
+};
 export function Client({
   base,
   locale,
@@ -1466,7 +1472,7 @@ export function Client({
               />
               <span className="grid gap-1">
                 <span className="font-medium">{tr(x)}</span>
-                <span className="text-muted-foreground">{tr(`${x}Help`)}</span>
+                <span className="text-muted-foreground">{tr(EXISTING_MODE_HELP[x])}</span>
               </span>
             </label>
           ))}
