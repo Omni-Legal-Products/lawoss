@@ -407,8 +407,15 @@ test("Windows PowerShell 5.1: okf.config cez Set-Content -Encoding UTF8, Out-Fil
   assert.match(inspectStandingAuthorization(office).problem ?? "", /nie je v UTF-8 ani v UTF-16/);
 });
 
-test("Windows PowerShell 5.1: `workspace-read --json > snapshot.json` a request.json cez > prejdú", { skip: !hasWindowsPowerShell }, () => {
+test("Windows PowerShell 5.1: `> snapshot.json` je UTF-16LE a verný len pre ASCII obsah; request.json s diakritikou z Get-Content -Encoding UTF8 sa zapíše bez straty", { skip: !hasWindowsPowerShell }, () => {
   const { root, request } = workspace();
+  // PowerShell 5.1 dekóduje stdout node cez kódovú stránku konzoly (OEM, na windows-2022 437):
+  // diakritika by bola v `content` snapshotu mojibake a workspace-save by ju zapísal späť do
+  // pamäte. Preto SKILL.md snapshot v PS 5.1 presmerovať nedovolí a test cez `>` posiela iba
+  // ASCII obsah, ktorý žiadna kódová stránka nezmení. Diakritika ide len cez request.json.
+  const memory = join(root, "_memory.md");
+  writeFileSync(memory, "SYNTHETIC-01 memory\n");
+  const original = readFileSync(memory, "utf8");
   const cli = fileURLToPath(new URL("../bin/okf-memory.ts", import.meta.url));
   const snapshotFile = join(root, "snapshot.json");
   runWindowsPowerShell(`& ${psQuote(process.execPath)} ${psQuote(cli)} workspace-read ${psQuote(root)} --json > ${psQuote(snapshotFile)}`);
@@ -416,11 +423,16 @@ test("Windows PowerShell 5.1: `workspace-read --json > snapshot.json` a request.
   assert.deepEqual([...bytes.subarray(0, 2)], [0xff, 0xfe], "PowerShell 5.1 má pri > zapísať UTF-16LE");
   const snapshot = JSON.parse(decodeText(bytes)) as WorkspaceMemoryReport;
   assert.equal(snapshot.complete, true, JSON.stringify(snapshot.problems));
+  assert.equal(snapshot.sources[0]?.content, original, "obsah snapshotu sa musí zhodovať so súborom");
   const utf8 = join(root, "request-utf8.json"), file = join(root, "request.json");
   writeFileSync(utf8, request(snapshot));
   runWindowsPowerShell(`Get-Content -Raw -Encoding UTF8 -LiteralPath ${psQuote(utf8)} > ${psQuote(file)}`);
   assert.deepEqual([...readFileSync(file).subarray(0, 2)], [0xff, 0xfe]);
-  const save = runCli(["workspace-save", root, "--file", file, "--json"]);
+  const preview = runCli(["workspace-save", root, "--file", file, "--json"]);
+  assert.equal(preview.code, 0, preview.out);
+  assert.equal(JSON.parse(preview.out).status, "preview");
+  const save = runCli(["workspace-save", root, "--file", file, "--apply", "--json"]);
   assert.equal(save.code, 0, save.out);
-  assert.equal(JSON.parse(save.out).status, "preview");
+  assert.equal(JSON.parse(save.out).status, "committed");
+  assert.equal(readFileSync(memory, "utf8"), `${original}nová práca\n`);
 });
