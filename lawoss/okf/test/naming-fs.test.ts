@@ -354,14 +354,16 @@ describe("naming filesystem transaction", () => {
     expect(calls).toBe(1);
   });
   // Skutočný zámok Windows: Word nechá dokument čítať (`Read`), zapisovať ani mazať nie; Outlook ani čítať (`None`).
+  // Súbor so zámkom `None` nevie prečítať ani `tree()`, preto sa strom porovná až po uvoľnení zámku.
   for (const share of ["Read", "None"] as const) test.skipIf(process.platform !== "win32")(`Windows: a document held open (share ${share}) is a conflict with zero writes`, async () => {
     const f = fixture(), plan = planDocumentNaming(f.root, f.request), before = tree(f.base);
     const release = await holdWindowsFileLock(join(f.root, "03_Drafty/old.PDF"), share);
     try {
       const result = applyDocumentNaming(f.root, plan);
-      expect(result.status).toBe("conflict"); expect(result.message).toContain("03_Drafty/old.PDF");
-      expect(tree(f.base)).toEqual(before);
+      expect(result.status).toBe("conflict"); expect(result.message).toBe("File is open in another program (for example Word) or is read-only: 03_Drafty/old.PDF. Close it or allow writing, then create a new preview.");
+      expect(existsSync(join(f.root, ".lawoss"))).toBe(false);
     } finally { await release(); }
+    expect(tree(f.base)).toEqual(before);
     expect(applyDocumentNaming(f.root, plan).status).toBe("applied");
   }, 60_000);
 
