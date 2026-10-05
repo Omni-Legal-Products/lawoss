@@ -7,6 +7,7 @@ import { Page, PageTitlebarRegion } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { isAnalyticsChoiceHidden } from "@/lawoss/feature-flags";
 import { folderNameFromPath } from "@/react-app/shell/route-workspaces";
 import type { CreateProjectInput } from "../workspace/create-project-modal";
 import { StepDots } from "./onboarding-cover";
@@ -98,12 +99,12 @@ export function WelcomePage(props: WelcomePageProps) {
             </form>
           </div>
         </main>
-        <footer className="flex justify-center">
+        {isAnalyticsChoiceHidden() ? null : <footer className="flex justify-center">
           <label className="flex cursor-pointer items-start gap-3 text-xs leading-5 text-muted-foreground">
             <Switch aria-label={t("welcome.analytics_aria")} checked={props.analyticsEnabled} onCheckedChange={props.onAnalyticsChange} disabled={disabled} className="data-checked:border-transparent data-checked:bg-foreground" />
             {t("welcome.analytics_body")}
           </label>
-        </footer>
+        </footer>}
       </div>
     </Page>
   );

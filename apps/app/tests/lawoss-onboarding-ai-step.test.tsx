@@ -2,14 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AiStepView, type AiModelView } from "../src/lawoss/domains/onboarding/ai-step";
 
-const view = (model: AiModelView, options: { locale?: "sk" | "cs" | "en" | "de"; analytics?: boolean; withContinue?: boolean } = {}) =>
+const view = (model: AiModelView, options: { locale?: "sk" | "cs" | "en" | "de"; withContinue?: boolean } = {}) =>
   renderToStaticMarkup(
     <AiStepView
       locale={options.locale ?? "sk"}
       model={model}
-      analyticsEnabled={options.analytics ?? false}
       busy={false}
-      onAnalyticsChange={() => {}}
       onOpenAiSettings={() => {}}
       onContinue={options.withContinue === false ? undefined : () => {}}
     />,
@@ -60,18 +58,17 @@ describe("onboarding AI step", () => {
     expect(html).toContain("Zatiaľ nemáte pripojený model.");
   });
 
-  test("analytics is a switch, off unless chosen", () => {
-    expect(view({ state: "ready" })).toMatch(/role="switch"[^>]*aria-checked="false"|aria-checked="false"[^>]*role="switch"/);
-    expect(view({ state: "ready" }, { analytics: true })).toMatch(/role="switch"[^>]*aria-checked="true"|aria-checked="true"[^>]*role="switch"/);
-    expect(view({ state: "ready" })).toContain("Predvolene vypnuté");
+  test("analytics has no choice here: LAWOSS keeps it off permanently", () => {
+    for (const locale of ["sk", "cs", "en", "de"] as const) {
+      const html = view({ state: "ready" }, { locale });
+      expect(html).not.toContain('role="switch"');
+      expect(html).not.toMatch(/anonym/i);
+    }
   });
 
   test("every UI language carries the AI step texts", () => {
     expect(view({ state: "no-model" }, { locale: "cs" })).toContain("Pokračovat bez modelu");
-    expect(view({ state: "no-model" }, { locale: "cs" })).toContain("Sdílet anonymní údaje o používání");
     expect(view({ state: "no-model" }, { locale: "en" })).toContain("Continue without a model");
-    expect(view({ state: "ready" }, { locale: "en" })).toContain("Share anonymous usage data");
     expect(view({ state: "no-model" }, { locale: "de" })).toContain("Ohne Modell fortfahren");
-    expect(view({ state: "ready" }, { locale: "de" })).toContain("Anonyme Nutzungsdaten teilen");
   });
 });

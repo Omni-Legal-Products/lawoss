@@ -2,10 +2,8 @@
 import { useEffect, useState } from "react";
 import { CircleAlert, CircleCheck, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import type { Language } from "@/i18n";
 import type { Client } from "@/app/types";
-import { discardPendingAnalytics, getStoredAnalyticsConsent } from "@/app/lib/analytics";
 import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
 import { createClient } from "@/app/lib/opencode";
 import { formatModelLabel } from "@/app/utils";
@@ -29,8 +27,6 @@ type AiStepText = {
   open: string;
   continueReady: string;
   continueWithout: string;
-  analyticsLabel: string;
-  analyticsBody: string;
 };
 
 const aiStepText: Record<Language, AiStepText> = {
@@ -44,8 +40,6 @@ const aiStepText: Record<Language, AiStepText> = {
     open: "Otvoriť nastavenia AI",
     continueReady: "Pokračovať",
     continueWithout: "Pokračovať bez modelu",
-    analyticsLabel: "Zdieľať anonymné údaje o používaní",
-    analyticsBody: "Používané funkcie, chyby a výkon. Nikdy vaše dokumenty, prompty ani obsah spisov. Predvolene vypnuté, voľbu môžete kedykoľvek zmeniť v Nastaveniach.",
   },
   cs: {
     checking: "Ověřuji připojení modelu…",
@@ -57,8 +51,6 @@ const aiStepText: Record<Language, AiStepText> = {
     open: "Otevřít nastavení AI",
     continueReady: "Pokračovat",
     continueWithout: "Pokračovat bez modelu",
-    analyticsLabel: "Sdílet anonymní údaje o používání",
-    analyticsBody: "Používané funkce, chyby a výkon. Nikdy vaše dokumenty, prompty ani obsah spisů. Ve výchozím stavu vypnuto, volbu můžete kdykoli změnit v Nastavení.",
   },
   en: {
     checking: "Checking the model connection…",
@@ -70,8 +62,6 @@ const aiStepText: Record<Language, AiStepText> = {
     open: "Open AI settings",
     continueReady: "Continue",
     continueWithout: "Continue without a model",
-    analyticsLabel: "Share anonymous usage data",
-    analyticsBody: "Features you use, errors and performance. Never your documents, prompts or matter content. Off by default, you can change this in Settings at any time.",
   },
   de: {
     checking: "Modellverbindung wird geprüft…",
@@ -83,29 +73,26 @@ const aiStepText: Record<Language, AiStepText> = {
     open: "KI-Einstellungen öffnen",
     continueReady: "Weiter",
     continueWithout: "Ohne Modell fortfahren",
-    analyticsLabel: "Anonyme Nutzungsdaten teilen",
-    analyticsBody: "Verwendete Funktionen, Fehler und Leistung. Niemals Ihre Dokumente, Prompts oder Akteninhalte. Standardmäßig aus, Sie können dies jederzeit in den Einstellungen ändern.",
   },
 };
 
 /** `no-workspace`: before the first folder exists there is no engine whose providers could be listed or configured. */
 export type AiModelView = { state: ComposerModelState | "checking" | "no-workspace"; modelLabel?: string };
 
-/** Pure view of the AI step: model state, the way to AI settings, continue and the analytics choice. */
+/**
+ * Pure view of the AI step: model state, the way to AI settings and continue.
+ * Bez voľby analytiky: analytika je v LAWOSS natrvalo vypnutá (`isAnalyticsChoiceHidden`).
+ */
 export function AiStepView({
   locale,
   model,
-  analyticsEnabled,
   busy,
-  onAnalyticsChange,
   onOpenAiSettings,
   onContinue,
 }: {
   locale: Language;
   model: AiModelView;
-  analyticsEnabled: boolean;
   busy: boolean;
-  onAnalyticsChange: (enabled: boolean) => void;
   onOpenAiSettings: () => void;
   /** Absent on the path without OKF, where the working folder step finishes onboarding. */
   onContinue?: () => void;
@@ -152,18 +139,6 @@ export function AiStepView({
           </Button>
         ) : null}
       </div>
-      <label className="flex cursor-pointer items-start gap-3 text-sm">
-        <Switch
-          aria-label={text.analyticsLabel}
-          checked={analyticsEnabled}
-          onCheckedChange={onAnalyticsChange}
-          disabled={busy}
-        />
-        <span className="grid gap-1">
-          <span className="font-medium">{text.analyticsLabel}</span>
-          <span className="text-muted-foreground">{text.analyticsBody}</span>
-        </span>
-      </label>
     </>
   );
 }
@@ -229,23 +204,13 @@ function useOnboardingModel(): AiModelView {
     : { state };
 }
 
-/**
- * AI step with live state. The analytics choice is written to the stored
- * preference the Settings toggle uses; an untouched switch leaves it unset.
- */
+/** AI step with live state. */
 export function OnboardingAiPanel(props: {
   locale: Language;
   busy: boolean;
   onOpenAiSettings: () => void;
   onContinue?: () => void;
 }) {
-  const local = useLocal();
   const model = useOnboardingModel();
-  const [analyticsEnabled, setAnalyticsEnabled] = useState(() => getStoredAnalyticsConsent() === true);
-  const onAnalyticsChange = (enabled: boolean) => {
-    if (!enabled) discardPendingAnalytics();
-    setAnalyticsEnabled(enabled);
-    local.setPrefs((previous) => ({ ...previous, analyticsEnabled: enabled }));
-  };
-  return <AiStepView {...props} model={model} analyticsEnabled={analyticsEnabled} onAnalyticsChange={onAnalyticsChange} />;
+  return <AiStepView {...props} model={model} />;
 }

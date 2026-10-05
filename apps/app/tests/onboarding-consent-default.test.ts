@@ -92,10 +92,11 @@ describe("onboarding consent default", () => {
     expect(isAnalyticsEnabled()).toBe(false);
   });
 
-  test("explicit opt-in is honoured", () => {
+  test("explicit opt-in is read back, but LAWOSS never enables analytics", () => {
     persistPrefs({ hasCompletedOnboarding: true, analyticsEnabled: true });
     expect(getStoredAnalyticsConsent()).toBe(true);
     expect(welcomeToggleDefault()).toBe(true);
-    expect(isAnalyticsEnabled()).toBe(true);
+    // LAWOSS: analytika je natrvalo vypnutá (apps/app/src/app/lib/analytics.ts).
+    expect(isAnalyticsEnabled()).toBe(false);
   });
 });

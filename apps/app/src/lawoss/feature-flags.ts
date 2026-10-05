@@ -71,6 +71,14 @@ export const isCommercialSurfaceHidden = (surface: CommercialSurface): boolean =
   HIDDEN_COMMERCIAL_SURFACES.has(surface);
 
 /**
+ * Analytika je natrvalo vypnutá (MČ 5. 10. 2026). `app/lib/analytics.ts` nemá
+ * kľúč, adresu ani sieťové volanie a prepínač sa nezobrazí nikde: v onboardingu,
+ * v Nastaveniach > Súkromie ani na upstream uvítacej obrazovke. Nie je to voľba
+ * na jeden riadok: návrat by vyžadoval nové rozhodnutie a vrátenie `analytics.ts`.
+ */
+export const isAnalyticsChoiceHidden = (): boolean => true;
+
+/**
  * Je záložka nastavení skrytá? Onboarding sa pýta rovnako ako zoznam záložiek:
  * krok, ktorý zapína funkciu, ku ktorej sa používateľ potom nikde nedostane,
  * je slepá ulička.
