@@ -19,6 +19,17 @@ const CLASSIFY_PATHS = ["root"] as const;
 const PLAN_PATHS = ["parent", "root", "cloneParent", "clientRoot"] as const;
 const PROFILE_PATHS = ["officeRoot", "clientRoot", "subjectRoot", "matterRoot"] as const;
 
+/**
+ * Cesta bez okrajov a úvodzoviek z „Kopírovať ako cestu“ (jedna na začiatku, jedna na konci, ako
+ * `typedDirectoryInput` v desktope). Iba pre hodnoty, ktoré stránka z cesty odvodí: názov klienta,
+ * rodiča a názov kópie. Samotné pole ide na server, ako je, a úvodzovky z neho zoberie most (iba Windows).
+ * Mimo Windows je to bezpečné: absolútna cesta úvodzovkou nezačína, kópiu s úvodzovkou v názve server
+ * odmietne (`safeSegment`) a predvolený názov klienta nanajvýš stratí úvodzovku na konci.
+ */
+export function unquotedTypedPath(value: string): string {
+  return value.trim().replace(/^"/, "").replace(/"$/, "").trim();
+}
+
 /** Prevedená cesta; keď most zlyhá alebo nič nevráti, ide na server pôvodná a odmietne ju ako doteraz. */
 export async function canonicalPathOf(value: string, canonicalize: CanonicalizePath): Promise<string> {
   try {

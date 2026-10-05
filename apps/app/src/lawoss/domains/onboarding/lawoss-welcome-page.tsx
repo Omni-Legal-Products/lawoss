@@ -47,7 +47,7 @@ import lawossMark from "../../../../../../lawoss/brand/lawoss-mark.svg";
 import "./onboarding.css";
 import { TriageEntry } from "../roztriedenie/triage-entry";
 import { PacksStep } from "./packs-step";
-import { canonicalPathRejection } from "./typed-paths";
+import { canonicalPathRejection, unquotedTypedPath } from "./typed-paths";
 
 /** Jazyky rozhrania v poradí LAWOSS (SK, CS, EN, DE) s pôvodnými názvami namiesto kódov. */
 const UI_LANGUAGE_ORDER: readonly Language[] = ["sk", "cs", "en", "de"];
@@ -1362,9 +1362,9 @@ function Office({
     </>
   );
 }
-/** Rodičovský priečinok cesty; kópia skúšobného klonu vznikne predvolene vedľa originálu. */
+/** Rodičovský priečinok cesty (aj vloženej v úvodzovkách); kópia skúšobného klonu vznikne predvolene vedľa originálu. */
 export function parentFolderOf(path: string): string {
-  const trimmed = path.trim().replace(/[\\/]+$/, "");
+  const trimmed = unquotedTypedPath(path).replace(/[\\/]+$/, "");
   const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
   if (cut <= 0) return "";
   const parent = trimmed.slice(0, cut);
@@ -1377,9 +1377,14 @@ export function parentFolderOf(path: string): string {
   if (/^(?:\\\\|\/\/)[^\\/]+[\\/][^\\/]+$/.test(parent)) return `${parent}${trimmed[cut]}`;
   return parent;
 }
-const folderName = (path: string) => path.trim().replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
+const folderName = (path: string) => unquotedTypedPath(path).replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
+/** Názov klienta pripájaného priečinka (karta klienta, pracovný priestor). */
+export const existingClientTitle = (root: string) => folderName(root) || "Client";
 /** Názov kópie tak, ako ho vytvorí server (`planExistingClient`). */
 export const trialCloneName = (original: string, date: string) => `${folderName(original) || "client"} (trial ${date})`;
+/** Cieľ kópie pod poľom „Kam uložiť kópiu“. */
+export const cloneTargetOf = (cloneParent: string, original: string, date: string) =>
+  `${unquotedTypedPath(cloneParent).replace(/[\\/]+$/, "")}/${trialCloneName(original, date)}`;
 /** Režimy pripojenia v poradí ponuky; skúšobný klon je prvý a predvolený, mapovanie skryje alfa prepínač. */
 const EXISTING_MODES = visibleExistingClientModes(["trial_clone", "convert", "map"] as const);
 /** Statické kľúče pomocných textov režimov, aby i18n audit nevidel dynamicky skladaný kľúč. */
@@ -1424,7 +1429,7 @@ export function Client({
           action: "existing",
           root: value,
           mode,
-          title: folderName(value) || "Client",
+          title: existingClientTitle(value),
           clientType: type,
           jurisdiction: base.jurisdiction,
           date: today(),
@@ -1509,7 +1514,7 @@ export function Client({
           )}
           {value.trim() && cloneParent.trim() ? (
             <p className="break-all text-sm text-muted-foreground" data-lawoss-clone-target>
-              {tr("cloneTarget")}: {cloneParent.replace(/[\\/]+$/, "")}/{trialCloneName(value, today())}
+              {tr("cloneTarget")}: {cloneTargetOf(cloneParent, value, today())}
             </p>
           ) : null}
         </div>

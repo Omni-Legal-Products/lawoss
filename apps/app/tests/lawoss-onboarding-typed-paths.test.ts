@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import type { Language } from "../src/i18n";
 import type { OnboardingApi, OnboardingPlanRequest } from "../src/lawoss/domains/onboarding/api";
-import { onboardingErrorMessage } from "../src/lawoss/domains/onboarding/lawoss-welcome-page";
-import { canonicalPathOf, canonicalPathRejection, withCanonicalPaths } from "../src/lawoss/domains/onboarding/typed-paths";
+import { cloneTargetOf, existingClientTitle, onboardingErrorMessage, parentFolderOf, trialCloneName } from "../src/lawoss/domains/onboarding/lawoss-welcome-page";
+import { canonicalPathOf, canonicalPathRejection, unquotedTypedPath, withCanonicalPaths } from "../src/lawoss/domains/onboarding/typed-paths";
+import { canonicalTypedDirectory } from "../../desktop/electron/lawoss-picked-path.mjs";
 
 const repo = join(import.meta.dir, "../../..");
 const source = (path: string) => readFileSync(join(repo, path), "utf8");
@@ -94,6 +95,65 @@ describe("typed and pasted onboarding paths", () => {
     const bridge = source("apps/app/src/app/lib/desktop.ts");
     expect(bridge.match(/^ {2}canonicalDirectoryPath,$/gm)?.length).toBe(2);
     expect(source("packages/types/src/desktop-ipc.ts")).toContain("canonicalDirectoryPath: { args: [value: string]; result: string };");
+  });
+});
+
+describe("an existing client folder pasted in quotes (Explorer „Copy as path“)", () => {
+  const date = "2026-10-05";
+
+  test("the clone parent, client title and copy name are derived without the quotes", () => {
+    expect(parentFolderOf('"Z:\\Novák"')).toBe("Z:\\");
+    expect(parentFolderOf('"C:\\Klienti\\Novák s. r. o."')).toBe("C:\\Klienti");
+    expect(parentFolderOf(' "\\\\nas\\Klienti\\ACME"\r\n')).toBe("\\\\nas\\Klienti\\");
+    expect(existingClientTitle('"C:\\Klienti\\Novák s. r. o."')).toBe("Novák s. r. o.");
+    expect(existingClientTitle('"C:\\Klienti\\ACME\\"')).toBe("ACME");
+    expect(existingClientTitle('""')).toBe("Client");
+    expect(trialCloneName('"Z:\\Novák a spol"', date)).toBe("Novák a spol (trial 2026-10-05)");
+    expect(cloneTargetOf(parentFolderOf('"Z:\\Novák a spol"'), '"Z:\\Novák a spol"', date)).toBe("Z:/Novák a spol (trial 2026-10-05)");
+    expect(cloneTargetOf('"D:\\Kopie"', "C:\\Klienti\\ACME", date)).toBe("D:\\Kopie/ACME (trial 2026-10-05)");
+    // Rovnaké pravidlo ako `typedDirectoryInput` v desktope: okraje a jedna úvodzovka na každej strane.
+    expect(unquotedTypedPath('  " C:\\Klienti "\n')).toBe("C:\\Klienti");
+    expect(unquotedTypedPath('"C:\\Klienti')).toBe("C:\\Klienti");
+    expect(unquotedTypedPath('""C:\\Klienti""')).toBe('"C:\\Klienti"');
+    expect(unquotedTypedPath("C:\\Klienti\\Novák a spol")).toBe("C:\\Klienti\\Novák a spol");
+  });
+
+  test("the existing-client request and the copy preview use the derived values", () => {
+    const page = source("apps/app/src/lawoss/domains/onboarding/lawoss-welcome-page.tsx");
+    const client = page.slice(page.indexOf("export function Client("), page.indexOf("export function Matter("));
+    expect(client).toContain("const cloneParent = cloneParentChoice ?? parentFolderOf(value);");
+    expect(client).toContain("title: existingClientTitle(value),");
+    expect(client).toContain("{cloneTargetOf(cloneParent, value, today())}");
+    // Pole s cestou ide na server, ako je; úvodzovky zoberie most v desktope (iba Windows).
+    expect(client).toContain("root: value,");
+  });
+
+  test("Windows: a client directly in the root of a mapped drive gets a canonical clone parent and a clean title", async () => {
+    // Disk `Z:` namapovaný priamo na zdieľanie `\\nas\Kancelaria` (path.win32 v desktope, súborový systém simulovaný).
+    const real: Record<string, string> = { "Z:\\": "\\\\nas\\Kancelaria", "Z:\\Novák a spol": "\\\\nas\\Kancelaria\\Novák a spol" };
+    const directories = new Set(["Z:\\Novák a spol", "\\\\nas\\Kancelaria\\", "\\\\nas\\Kancelaria\\Novák a spol"]);
+    const missing = (value: string) => Object.assign(new Error(`ENOENT ${value}`), { code: "ENOENT" });
+    const fs = {
+      lstat: async (value: string) => {
+        if (!directories.has(value)) throw missing(value);
+        return { isSymbolicLink: () => false, isDirectory: () => true };
+      },
+      realpath: async (value: string) => {
+        if (!(value in real)) throw missing(value);
+        return real[value];
+      },
+    };
+    const bridge = (value: string) => canonicalTypedDirectory(value, { platform: "win32", fs });
+    const { api, sent } = recordingApi();
+    const root = '"Z:\\Novák a spol"';
+    const request: OnboardingPlanRequest = {
+      action: "existing", root, mode: "trial_clone", title: existingClientTitle(root), clientType: "po", jurisdiction: "sk",
+      date, language: "sk", confirmUnknownClient: true, cloneParent: parentFolderOf(root),
+    };
+    await withCanonicalPaths(api, bridge).planOnboarding(request);
+    expect(sent).toEqual([{ ...request, root: "\\\\nas\\Kancelaria\\Novák a spol", cloneParent: "\\\\nas\\Kancelaria\\", title: "Novák a spol" }]);
+    // Kópia (`join` v `planExistingClient`) vznikne v kanonickom koreni zdieľania, nie v `Z:\`, ktorý kontrola pri skúšobnom klone odmietne.
+    expect(win32.join("\\\\nas\\Kancelaria\\", trialCloneName(root, date))).toBe("\\\\nas\\Kancelaria\\Novák a spol (trial 2026-10-05)");
   });
 });
 
