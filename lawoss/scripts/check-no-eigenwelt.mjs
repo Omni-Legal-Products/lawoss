@@ -21,7 +21,9 @@
  *    automaticky, ani pri štarte, ani pri prvom použití; OCR je voľba, ktorú advokát zapne;
  * 7. zdroj integrácií LegalWork nie je predvolene vypnutý, LegalMemory sa dá odkryť
  *    prepínačom, LegalQuants skenuje GitHub bez zapnutého zdroja alebo `constants.ts`
- *    prestane vystavovať katalógy, ktoré prepínač mení (rozhodnutie MČ 5. 10. 2026).
+ *    prestane vystavovať katalógy, ktoré prepínač mení (rozhodnutie MČ 5. 10. 2026);
+ * 8. sa zoznam pluginov alebo balíkov LAWOSS Marketplace vráti do kódu appky namiesto
+ *    pribalenej kópie katalógu z marketplace.
  *
  * Spolu s ňou beží stráž značky `check-branding.mjs` (LAWOSS namiesto LegalWork,
  * nemenný APP_IDENTIFIER, releasy forku), aby stačil jeden krok v CI.
@@ -327,6 +329,17 @@ STRUCTURE.push(
     file: "apps/app/src/react-app/domains/settings/pages/legalquants-import.tsx",
     must: [/if \(!useLegalworkSource\(\)\) return null;\s*return <>[\s\S]*<LegalQuantsImportModal /],
     why: "LegalQuants (sken GitHubu pri otvorení) sa bez zapnutého zdroja LegalWork nevykreslí.",
+  },
+  {
+    file: "apps/app/src/lawoss/domains/marketplace/catalog.ts",
+    must: [/import snapshotJson from "\.\/marketplace-snapshot\.json";/],
+    mustNot: [/"(?:slovlex|orsr|judikaty|kalkulacky|ruz|rpo|crz|ov|rpvs|ru|disq|uvo|cz-agents|eurlex-celex|fs-opendata-mcp|google-workspace-gog)"/, /\bfetch\s*\(/],
+    why: "Zoznam pluginov, kategórie a balíky nesie LAWOSS Marketplace (pribalená kópia marketplace-snapshot.json), nie kód appky; katalóg nič nesťahuje.",
+  },
+  {
+    file: "apps/app/src/lawoss/domains/marketplace/base-pack.ts",
+    mustNot: [/"(?:slovlex|orsr|judikaty|kalkulacky|ruz|rpo|cz-agents|eurlex-celex)"/],
+    why: "Odporúčané balíky (SK základ, CZ základ) sú definované v marketplace, nie v kóde appky.",
   },
   {
     file: "apps/app/src/react-app/domains/settings/pages/workflows-view.tsx",

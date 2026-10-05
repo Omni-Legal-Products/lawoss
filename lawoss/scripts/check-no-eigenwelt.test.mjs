@@ -156,6 +156,9 @@ describe("LAWOSS stráž Eigenweltu a analytiky", () => {
     assert.ok(fails("apps/app/src/react-app/domains/settings/pages/legalquants-import.tsx", (text) => text.replace("  if (!useLegalworkSource()) return null;\n", "")));
     assert.ok(fails("apps/app/src/react-app/domains/settings/pages/workflows-view.tsx", (text) => text.replace("{isLegalQuantsHidden() ? null : <DropdownMenuItem", "{<DropdownMenuItem")));
     // Upstream sync zmrazí katalóg alebo obíde filter.
+    // Zoznam pluginov alebo balíkov späť v kóde appky.
+    assert.ok(fails("apps/app/src/lawoss/domains/marketplace/base-pack.ts", (text) => `${text}\nexport const SK = ["slovlex", "orsr"];\n`));
+    assert.ok(fails("apps/app/src/lawoss/domains/marketplace/catalog.ts", (text) => text.replace('import snapshotJson from "./marketplace-snapshot.json";', 'const snapshotJson = { plugins: [{ name: "orsr" }] };')));
     assert.ok(fails("apps/app/src/app/constants.ts", (text) => text.replace("(entry) => !isHiddenQuickConnect(entry.serverName ?? \"\"),", "() => true,")));
   });
 
