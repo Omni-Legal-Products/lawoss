@@ -522,16 +522,16 @@ function truthDigest(truth) {
 var OKF_VERSION = "0.2";
 
 // src/text-decode.ts
-function decodeText(bytes, fatal = false) {
+function decodeText(bytes) {
   if (bytes[0] === 254 && bytes[1] === 255) {
     const swapped = Uint8Array.from(bytes);
     for (let i = 0;i + 1 < swapped.length; i += 2) {
       swapped[i] = bytes[i + 1];
       swapped[i + 1] = bytes[i];
     }
-    return new TextDecoder("utf-16le", { fatal }).decode(swapped);
+    return new TextDecoder("utf-16le").decode(swapped);
   }
-  return new TextDecoder(bytes[0] === 255 && bytes[1] === 254 ? "utf-16le" : "utf-8", { fatal }).decode(bytes);
+  return new TextDecoder(bytes[0] === 255 && bytes[1] === 254 ? "utf-16le" : "utf-8").decode(bytes);
 }
 function stripBom(text) {
   return text.charCodeAt(0) === 65279 ? text.slice(1) : text;
@@ -2181,19 +2181,22 @@ function text(v) {
 
 class ConfigReadError extends Error {
   file;
-  constructor(file, cause) {
-    super(`súbor sa nedá prečítať — ${cause instanceof Error ? cause.message : String(cause)}`);
+  constructor(file, cause, what = "súbor sa nedá prečítať") {
+    super(`${what} — ${cause instanceof Error ? cause.message : String(cause)}`);
     this.name = "ConfigReadError";
     this.file = file;
   }
 }
 function readConfigText(path) {
-  const bytes = readFileSync(path);
-  try {
-    return decodeText(bytes, true);
-  } catch {
-    throw new Error("nie je v UTF-8 ani v UTF-16 s BOM (napr. ANSI); ulož ho ako UTF-8");
-  }
+  return decodeText(readFileSync(path));
+}
+var NOT_UTF8 = "súbor nie je v UTF-8 ani v UTF-16 s BOM (napr. ANSI); ulož ho ako UTF-8";
+function damaged(value) {
+  if (typeof value === "string")
+    return value.includes("�");
+  if (Array.isArray(value))
+    return value.some((item) => damaged(item));
+  return typeof value === "object" && Object.values(value).some((item) => damaged(item));
 }
 function readConfig(officeDir) {
   if (!officeDir)
@@ -2202,13 +2205,16 @@ function readConfig(officeDir) {
   if (!existsSync(path))
     return;
   try {
-    return parseFrontmatter(readConfigText(path));
+    return { path, kv: parseFrontmatter(readConfigText(path)) };
   } catch (error) {
     throw new ConfigReadError(path, error);
   }
 }
 function readClientPath(officeDir) {
-  const v = readConfig(officeDir)?.get("client_path");
+  const config = readConfig(officeDir);
+  const v = config?.kv.get("client_path");
+  if (config && damaged(v))
+    throw new ConfigReadError(config.path, NOT_UTF8, "client_path obsahuje poškodený znak (U+FFFD)");
   return typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
 }
 function matchesClientPath(relative, pattern) {
@@ -2218,10 +2224,11 @@ function matchesClientPath(relative, pattern) {
     return false;
   return pat.every((p, i) => p === "*" || p === seg[i]);
 }
+var AUTHORIZATION_FIELDS = ["standing_authorization", "expires_at", "granted_at", "reason", "scope"];
 function inspectStandingAuthorization(officeDir) {
   let kv;
   try {
-    kv = readConfig(officeDir);
+    kv = readConfig(officeDir)?.kv;
   } catch (error) {
     if (error instanceof ConfigReadError)
       return { problem: error.message };
@@ -2229,6 +2236,9 @@ function inspectStandingAuthorization(officeDir) {
   }
   if (!kv || !kv.has("standing_authorization"))
     return {};
+  const poskodene = AUTHORIZATION_FIELDS.find((key) => damaged(kv.get(key)));
+  if (poskodene)
+    return { problem: `${poskodene} obsahuje poškodený znak (U+FFFD) — ${NOT_UTF8}` };
   const by = text(kv.get("standing_authorization"));
   const expiresAt = text(kv.get("expires_at"));
   const grantedAt = text(kv.get("granted_at"));
@@ -2257,12 +2267,14 @@ function readStandingAuthorization(officeDir) {
 function readNameLeakSeverity(officeDir) {
   let kv;
   try {
-    kv = readConfig(officeDir);
+    kv = readConfig(officeDir)?.kv;
   } catch (error) {
     if (error instanceof ConfigReadError)
       return "error";
     throw error;
   }
+  if (damaged(kv?.get("leak_name_severity")) || damaged(kv?.get("leak_name_reason")))
+    return "error";
   const sev = text(kv?.get("leak_name_severity"));
   const reason = text(kv?.get("leak_name_reason"));
   return sev === "warning" && reason !== "" ? "warning" : "error";

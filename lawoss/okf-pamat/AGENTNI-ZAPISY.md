@@ -25,9 +25,12 @@ reason: agentné vedenie spisov v rozsahu odsúhlasenom na porade 2. 9. 2026
 ```
 
 Na Windows ulož súbor ako UTF-8; prejde aj „UTF-8 s BOM“ a Unicode (UTF-16).
-ANSI — napr. `Set-Content` bez `-Encoding` v PowerShelli 5.1 — sa neprečíta:
-diakritika v mene by sa v histórii záznamov poškodila, preto `validate` ohlási
-`STANDING_AUTH_INVALID` a zápisy chcú `--approve-as`.
+V ANSI — napr. `Set-Content` bez `-Encoding` v PowerShelli 5.1 — sa diakritika
+neprečíta. V komentári to nevadí; v poli poverenia (meno, `reason`, `scope`,
+dátumy) by sa v histórii záznamov poškodila, preto `validate` ohlási
+`STANDING_AUTH_INVALID` a zápisy chcú `--approve-as`. Poškodený `client_path`
+skončí ako `NEÚPLNÉ ČÍTANIE` a poškodený `leak_name_reason` zmäkčenie zhody
+mien neudelí.
 
 | Pole | Význam | Povinné |
 |---|---|---|

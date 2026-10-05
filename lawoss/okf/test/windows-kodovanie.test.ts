@@ -43,6 +43,26 @@ for (const [name, encode] of Object.entries(ENCODINGS)) {
   });
 }
 
+test("an ANSI byte only in a comment of okf.config keeps the office profile and the lawyer name", () => {
+  mkdirSync(join(root, "Office"));
+  writeFileSync(join(root, "Office", "okf.config"), Buffer.concat([
+    Buffer.from(CONFIG.join("\r\n") + "\r\n", "utf8"),
+    Buffer.from("# poznámka kancelárie\r\n", "latin1"),
+  ]));
+  expectOfficeProfile(join(root, "client", "matter"));
+});
+
+test("an ANSI lawyer name is not prefilled damaged; the rest of the office profile still applies", () => {
+  mkdirSync(join(root, "Office"));
+  writeFileSync(join(root, "Office", "okf.config"), Buffer.from(CONFIG.join("\r\n") + "\r\n", "latin1"));
+  const p = plan({ type: "spis", dir: join(root, "client", "matter"), title: "Synthetic", jurisdiction: "sk" });
+  expect(p.entries.some((entry) => entry.path === "Drafty/.keep")).toBe(true);
+  const card = p.entries.find((entry) => entry.path === "matter.md")?.content ?? "";
+  expect(card).not.toContain("�");
+  // Bez mena ostáva v karte zástupný text, nie „J\uFFFDn Novák“.
+  expect(parseFrontmatter(card)?.advokat).toBe("[DOPLNIT]");
+});
+
 test("bundled okf.js reads a UTF-16LE office okf.config", () => {
   mkdirSync(join(root, "Office"));
   writeFileSync(join(root, "Office", "okf.config"), ENCODINGS["UTF-16LE with BOM"]!(CONFIG.join("\r\n") + "\r\n"));

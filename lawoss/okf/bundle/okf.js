@@ -583,16 +583,16 @@ var AML_REQUIRED = {
 };
 
 // ../okf-pamat/src/text-decode.ts
-function decodeText(bytes, fatal = false) {
+function decodeText(bytes) {
   if (bytes[0] === 254 && bytes[1] === 255) {
     const swapped = Uint8Array.from(bytes);
     for (let i = 0;i + 1 < swapped.length; i += 2) {
       swapped[i] = bytes[i + 1];
       swapped[i + 1] = bytes[i];
     }
-    return new TextDecoder("utf-16le", { fatal }).decode(swapped);
+    return new TextDecoder("utf-16le").decode(swapped);
   }
-  return new TextDecoder(bytes[0] === 255 && bytes[1] === 254 ? "utf-16le" : "utf-8", { fatal }).decode(bytes);
+  return new TextDecoder(bytes[0] === 255 && bytes[1] === 254 ? "utf-16le" : "utf-8").decode(bytes);
 }
 function stripBom(text) {
   return text.charCodeAt(0) === 65279 ? text.slice(1) : text;
@@ -2553,12 +2553,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join as join4, sep as sep2 } from "node:path";
 var CONFIG_FILE = "okf.config";
 function readConfigText(path) {
-  const bytes = readFileSync(path);
-  try {
-    return decodeText(bytes, true);
-  } catch {
-    throw new Error("nie je v UTF-8 ani v UTF-16 s BOM (napr. ANSI); ulož ho ako UTF-8");
-  }
+  return decodeText(readFileSync(path));
 }
 function readConfiguredLawyerName(officeDir) {
   if (!officeDir)
@@ -2586,7 +2581,7 @@ function readConfiguredLawyerName(officeDir) {
       name = scalar.slice(1, -1).replace(/''/g, "'");
     } else if (/^[!&*>|%@`\[{}]|^(?:null|true|false|~)$/i.test(scalar))
       return;
-    if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(name))
+    if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029\uFFFD]/.test(name))
       return;
     return name.trim() || undefined;
   } catch {

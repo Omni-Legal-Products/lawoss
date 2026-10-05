@@ -19,7 +19,7 @@ import { readManualStatus } from "../src/manual-status.ts";
 import { statusSkeleton } from "../src/render.ts";
 import { decodeText, stripBom } from "../src/text-decode.ts";
 import { inspectStandingAuthorization, readClientPath, readConfiguredLawyerName } from "../src/config.ts";
-import { jurisdictionFromCard } from "../src/store.ts";
+import { jurisdictionFromCard, readScope } from "../src/store.ts";
 import {
   newRecord, planWrite, applyRecordWrite, readStandingAuthorization, readNameLeakSeverity, documentLanguageFromCard,
   readWorkspaceMemory, MEMORY_DIR, OFFICE_DIR, CONFIG_FILE, LeakBlockedError, type WorkspaceMemoryReport,
@@ -92,7 +92,6 @@ test("decodeText: UTF-8 bez BOM aj s BOM, UTF-16LE a UTF-16BE s BOM dajú ten is
 test("decodeText: bez BOM sa UTF-16 neháda a neplatné UTF-8 dopadne ako pri readFileSync", () => {
   const invalid = Buffer.from([0x61, 0xc3, 0x28, 0x62, 0xff]);
   assert.equal(decodeText(invalid), invalid.toString("utf8"));
-  assert.throws(() => decodeText(invalid, true));
   assert.equal(decodeText(Buffer.from("ab", "utf16le")), "a\u0000b\u0000");
   assert.equal(decodeText(new Uint8Array()), "");
   assert.equal(stripBom("﻿---"), "---");
@@ -146,12 +145,98 @@ test("nečitateľný okf.config: validate hlási STANDING_AUTH_INVALID, write ch
 test("okf.config v ANSI (Set-Content bez -Encoding) poverenie nedá: meno v podpise by bolo poškodené", () => {
   // Windows-1250: „ě“ = 0xEC, „Ř“ = 0xD8, „í“ = 0xED — v UTF-8 neplatné bajty.
   const { office, spis } = kancelaria(Buffer.from(CRLF.replace("Vojtěch Říha", "Vojt\u00ECch \u00D8\u00EDha"), "latin1"));
-  assert.match(inspectStandingAuthorization(office).problem ?? "", /nie je v UTF-8 ani v UTF-16/);
+  assert.match(inspectStandingAuthorization(office).problem ?? "", /^standing_authorization obsahuje poškodený znak.*nie je v UTF-8 ani v UTF-16/);
   assert.equal(readConfiguredLawyerName(office), undefined);
+  // Poškodené je iba meno; vzor klienta zo zvyšku konfigu platí ďalej.
+  assert.equal(readClientPath(office), "AK/*");
   const validate = runCli(["validate", spis]);
   assert.equal(validate.code, 0, validate.out);
   assert.match(validate.out, /STANDING_AUTH_INVALID.*ulož ho ako UTF-8/);
   assert.equal(runCli(["write", spis, "--file", navrh(spis, serializeRecord(poucenie())), "--reason", "z veci", "--apply"]).code, 1);
+});
+
+/** Riadky v ANSI (Windows-1250 = latin1 pre „á“) za inak platným UTF-8 konfigom. */
+const ANSI_POZNAMKA = Buffer.from("# poznámka kancelárie\r\npoznamka: z porady v kancelárii\r\n", "latin1");
+
+test("ANSI znak iba v komentári a v nepoužitom kľúči: poverenie, prah mien, meno aj vzor klienta platia", () => {
+  const { root, office, spis } = kancelaria(Buffer.concat([Buffer.from(CRLF, "utf8"), ANSI_POZNAMKA]));
+  assert.equal(inspectStandingAuthorization(office).problem, undefined);
+  assert.equal(readStandingAuthorization(office)?.by, "JUDr. Vojtěch Říha, Ph.D.");
+  assert.equal(readNameLeakSeverity(office), "warning");
+  assert.equal(readClientPath(office), "AK/*");
+  assert.equal(readConfiguredLawyerName(office), "JUDr. Vojtěch Říha, Ph.D.");
+  const validate = runCli(["validate", spis]);
+  assert.equal(validate.code, 0, validate.out);
+  assert.doesNotMatch(validate.out, /STANDING_AUTH/);
+  const write = runCli(["write", spis, "--file", navrh(spis, serializeRecord(poucenie())), "--reason", "z veci", "--apply"]);
+  assert.equal(write.code, 0, write.out);
+  assert.match(write.out, /trvalé poverenie do 2099-12-31/);
+  assert.equal(pocet(join(root, OFFICE_DIR)), 1);
+});
+
+test("ANSI znak iba v komentári: client_path bez karty klienta určí klienta, read aj validate prejdú", () => {
+  const root = temp("okf-win-kod-");
+  const klient = join(root, "AK", "Novák Jan");
+  const spis = join(klient, "vec");
+  mkdirSync(join(spis, MEMORY_DIR), { recursive: true });
+  mkdirSync(join(klient, MEMORY_DIR), { recursive: true });
+  mkdirSync(join(root, OFFICE_DIR, MEMORY_DIR), { recursive: true });
+  writeFileSync(join(root, OFFICE_DIR, CONFIG_FILE), Buffer.from("client_path: AK/*\r\n# poznámka kancelárie\r\n", "latin1"));
+  writeFileSync(join(spis, "_STATUS.md"), "# Status\n");
+  writeFileSync(join(klient, MEMORY_DIR, "F-101.md"), serializeRecord(newRecord({
+    id: "F-101", type: "fact", jurisdiction: "cz", title: "Klient", description: "syntetické",
+    created: "2026-09-02", updated: "2026-09-02", truth: "Klient platí zálohy včas.", timeline: [{ date: "2026-09-02", text: "Vzniklo" }],
+  })));
+  assert.equal(readScope(spis).clientDir, klient);
+  const read = runCli(["read", spis]);
+  assert.equal(read.code, 0, read.out);
+  assert.doesNotMatch(read.out, /NEÚPLNÉ ČÍTANIE/);
+  assert.match(read.out, /Klient platí zálohy včas\./);
+  const validate = runCli(["validate", spis]);
+  assert.equal(validate.code, 0, validate.out);
+  // Bez standing_authorization niet čo vyhlásiť za neplatné.
+  assert.doesNotMatch(validate.out, /STANDING_AUTH/);
+  assert.equal(runCli(["preamble", spis]).code, 0);
+  const sync = runCli(["sync", spis, "--apply"]);
+  assert.equal(sync.code, 0, sync.out);
+});
+
+test("U+FFFD v client_path je nečitateľný vzor, nie spis bez klienta", () => {
+  const root = temp("okf-win-kod-");
+  const spis = join(root, "Kliénti", "Novák Jan", "vec");
+  mkdirSync(join(spis, MEMORY_DIR), { recursive: true });
+  mkdirSync(join(root, OFFICE_DIR, MEMORY_DIR), { recursive: true });
+  const config = join(root, OFFICE_DIR, CONFIG_FILE);
+  // „Kliénti/*“ v ANSI: vzor by nesedel na žiadny priečinok a klient by potichu zmizol.
+  writeFileSync(config, Buffer.from("client_path: Kliénti/*\r\n", "latin1"));
+  writeFileSync(join(spis, "_STATUS.md"), "# Status\n");
+  assert.throws(() => readClientPath(join(root, OFFICE_DIR)), /client_path obsahuje poškodený znak \(U\+FFFD\).*ulož ho ako UTF-8/);
+  for (const cmd of ["read", "validate"]) {
+    const result = runCli([cmd, spis]);
+    assert.equal(result.code, 1, `${cmd}: ${result.out}`);
+    assert.match(result.out, /NEÚPLNÉ ČÍTANIE/, cmd);
+    assert.ok(result.out.includes(`${config}: client_path obsahuje poškodený znak`), cmd);
+  }
+  const pramen = newRecord({
+    id: "A-001", type: "authority", jurisdiction: "cz", title: "Právna veta", description: "prameň",
+    created: "2026-09-02", updated: "2026-09-02", truth: "Veta.", timeline: [{ date: "2026-09-02", text: "z" }],
+  });
+  assert.throws(() => applyRecordWrite(spis, planWrite(undefined, pramen, "veta"), { by: "Test Advokát", at: "2026-10-05T10:00:00Z" }), LeakBlockedError);
+});
+
+test("U+FFFD v reason alebo v scope poverenie nedá; v leak_name_reason zmäkčenie neudelí", () => {
+  for (const line of ["reason: agentné vedenie spisov", "scope: [L1, L3, á]"]) {
+    const key = line.slice(0, line.indexOf(":"));
+    const config = POVERENIE.filter((l) => !l.startsWith(`${key}:`)).join("\r\n") + "\r\n";
+    const { office } = kancelaria(Buffer.concat([Buffer.from(config, "utf8"), Buffer.from(`${line}\r\n`, "latin1")]));
+    assert.equal(readStandingAuthorization(office), undefined, key);
+    assert.match(inspectStandingAuthorization(office).problem ?? "", new RegExp(`^${key} obsahuje poškodený znak \\(U\\+FFFD\\)`), key);
+  }
+  const config = POVERENIE.filter((l) => !l.startsWith("leak_name_reason:")).join("\r\n") + "\r\n";
+  const { office } = kancelaria(Buffer.concat([Buffer.from(config, "utf8"), Buffer.from("leak_name_reason: verejné mená\r\n", "latin1")]));
+  assert.equal(readNameLeakSeverity(office), "error");
+  // Poverenie samo je čitateľné; poškodený je iba dôvod zmäkčenia.
+  assert.equal(readStandingAuthorization(office)?.by, "JUDr. Vojtěch Říha, Ph.D.");
 });
 
 test("nečitateľný okf.config so vzorom klienta je nečitateľný súbor v dosahu, nie spis bez klienta", () => {

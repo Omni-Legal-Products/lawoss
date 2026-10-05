@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHandoff } from "./checkpoint.mjs";
@@ -51,6 +51,28 @@ test("the same card in two encodings is one consistent card", () => {
   const root = matter(ENCODINGS["UTF-16LE with BOM"]!(CARD));
   writeFileSync(join(root, "spis.md"), ENCODINGS["UTF-8 with BOM"]!(CARD));
   expect(createHandoff(root)).not.toBeNull();
+});
+
+test("an ANSI byte only in a comment of okf.config keeps client_path scope in the checkpoint", async () => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), "okf-handoff-ansi-"))); roots.push(base);
+  const client = join(base, "AK", "Novák Jan");
+  const root = join(client, "vec");
+  mkdirSync(join(root, "memory"), { recursive: true });
+  mkdirSync(join(client, "memory"), { recursive: true });
+  mkdirSync(join(base, "Office", "memory"), { recursive: true });
+  // PowerShell 5.1 `Set-Content` bez -Encoding: ANSI „á“ v poznámke, vzor klienta je ASCII.
+  writeFileSync(join(base, "Office", "okf.config"), Buffer.from("client_path: AK/*\r\n# poznámka kancelárie\r\n", "latin1"));
+  writeFileSync(join(root, "matter.md"), CARD);
+  writeFileSync(join(client, "memory", "F-101.md"), serializeRecord(newRecord({
+    id: "F-101", type: "fact", jurisdiction: "sk", title: "Klient", description: "syntetické",
+    created: "2026-09-02", updated: "2026-09-02", truth: "Klient platí zálohy včas.", timeline: [{ date: "2026-09-02", text: "Vzniklo" }],
+  })));
+  const handoff = createHandoff(root, { resolveAllowedRoots: async () => [base] });
+  expect(handoff).not.toBeNull();
+  const result = await handoff!.checkpoint("ses_ansi", "before-compaction");
+  expect(result.error).toBeUndefined();
+  expect(result.ok).toBe(true);
+  expect(result.context).toContain("Klient platí zálohy včas.");
 });
 
 test.skipIf(!hasWindowsPowerShell)("Windows PowerShell 5.1: card written by Set-Content -Encoding UTF8 and by > binds", async () => {

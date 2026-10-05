@@ -80,6 +80,25 @@ test("read model: okf.config a _STATUS.md s BOM — vzor klienta platí a manual
   expect(input?.inheritedIntakes?.[0]?.path).toBe("AK/N/Novák Jan/VSTUPY.md");
 });
 
+test("read model: ANSI znak z okf.config ako CLI — v komentári nevadí, v client_path je problém, nie spis bez klienta", async () => {
+  const matter = "AK/N/Novák Jan/vec";
+  const intake = "| ID | Prijaté | Zdroj | Originál | Stav | Výsledné záznamy |\n| --- | --- | --- | --- | --- | --- |\n| IN-001 | 2026-09-12 | e-mail | klient.eml | pending | |\n";
+  const read = (config: string) => readWorkspaceMemory(files({
+    [`${matter}/matter.md`]: "---\r\ntype: matter\r\ntitle: Synthetic\r\n---\r\n",
+    "AK/N/Novák Jan/VSTUPY.md": intake,
+    // Server dekóduje ANSI bajt ako U+FFFD (readFile(…, "utf8")).
+    "Office/okf.config": config,
+  }), "ws", TODAY);
+  const comment = await read("client_path: AK/*/*\r\n# pozn�mka kancel�rie\r\n");
+  expect(comment.problems).toEqual([]);
+  expect(comment.inputs.find((entry) => entry.path === matter)?.inheritedIntakes?.[0]?.path).toBe("AK/N/Novák Jan/VSTUPY.md");
+  const damaged = await read("client_path: AK/*/Nov�k Jan\r\n");
+  // VSTUPY.md robí z priečinka klienta ďalší vstup, preto sa problém konfigu hlási pri každom.
+  expect([...new Set(damaged.problems.map((problem) => `${problem.path}: ${problem.message}`))]).toEqual([
+    "Office/okf.config: client_path obsahuje poškodený znak (U+FFFD) — súbor nie je v UTF-8 ani v UTF-16 s BOM (napr. ANSI); ulož ho ako UTF-8",
+  ]);
+});
+
 const temporary: string[] = [];
 afterEach(() => { for (const dir of temporary.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
