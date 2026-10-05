@@ -2950,6 +2950,12 @@ async function verifyOwned(preview, journal, allowConversion = false) {
     if (await identity(path, owned.kind) !== owned.identity || owned.kind === "file" && await fileDigest(path) !== owned.digest)
       throw new Error(`Trial entry changed; preserving ${owned.path || "root"}.`);
   }
+  return current;
+}
+function assertNoVolatileEntries(inspection) {
+  const ignored = inspection.ignored ?? [];
+  if (ignored.length)
+    throw new Error(`Close open documents in the trial clone and remove leftover Windows or Office files, then retry rollback: ${ignored.slice(0, 5).join(", ")}${ignored.length > 5 ? ` (+${ignored.length - 5} more)` : ""}.`);
 }
 async function applyTrialClone(preview, journalDirectory, resume = false) {
   const { fingerprint, journalPath } = await context2(preview, journalDirectory);
@@ -3094,13 +3100,13 @@ async function recoverTrialClone(preview, journalDirectory, action) {
           throw error;
       }
     } else
-      await verifyOwned(preview, journal, true);
+      assertNoVolatileEntries(await verifyOwned(preview, journal, true));
     if (journal.conversionPlan)
       await recoverOnboardingPlan(journal.conversionPlan, journalDirectory, "rollback");
     journal.phase = "rollback";
     await save();
     if (journal.owned.length)
-      await verifyOwned(preview, journal);
+      assertNoVolatileEntries(await verifyOwned(preview, journal));
     while (journal.owned.length) {
       const owned = journal.owned[journal.owned.length - 1];
       journal.removal = owned.path;

@@ -104,6 +104,27 @@ test("trial rollback removes only unchanged owned output and stops for a foreign
   expect(await readFile(join(guarded.target, "original.txt"), "utf8")).toBe("original");
 });
 
+// Otvorený dokument vo Worde nechá v klone vlastnícky súbor `~$…`; inšpekcia ho vynechá, rmdir by na ňom
+// zlyhal až po zmazaní časti klonu. Rollback preto stojí skôr, než čokoľvek zmaže.
+test("trial rollback stops before removing anything while a volatile Office file is in the clone", async () => {
+  const source = await directory("okf-trial-source-volatile-rollback-");
+  const parent = await directory("okf-trial-parent-volatile-rollback-");
+  const journal = await directory("okf-trial-journal-volatile-rollback-");
+  await mkdir(join(source, "Spisy"));
+  for (const [path, content] of [["a.docx", "a"], ["Spisy/b.docx", "b"], ["Spisy/c.docx", "c"]]) await writeFile(join(source, path!), content!);
+  const preview = await simplePreview(source, parent, "volatile-rollback");
+  await applyTrialClone(preview, journal);
+  await writeFile(join(preview.target, "Spisy/~$b.docx"), "owner");
+  await expect(recoverTrialClone(preview, journal, "rollback")).rejects.toThrow("Close open documents in the trial clone and remove leftover Windows or Office files, then retry rollback: Spisy/~$b.docx.");
+  for (const path of ["", "a.docx", "Spisy", "Spisy/b.docx", "Spisy/c.docx", ".lawoss-trial.json"]) expect((await lstat(join(preview.target, path))).isDirectory()).toBe(path === "" || path === "Spisy");
+  // Journal ostal dokončený: klon sa dá znova overiť a po zatvorení dokumentu celý vrátiť.
+  await applyTrialClone(preview, journal);
+  await rm(join(preview.target, "Spisy/~$b.docx"));
+  await recoverTrialClone(preview, journal, "rollback");
+  await expect(lstat(preview.target)).rejects.toThrow();
+  expect(await readFile(join(source, "Spisy/b.docx"), "utf8")).toBe("b");
+});
+
 // Windows: CopyFileW skopíruje aj atribút „iba na čítanie“ a fsync potrebuje handle s
 // právom zápisu; DeleteFileW taký súbor odmietne. Na Windows test spustí portable-windows.
 test("trial clone and rollback handle a read-only document", async () => {
