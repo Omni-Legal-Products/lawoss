@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { spawn, type SpawnOptions } from "node:child_process";
+import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { EventEmitter } from "node:events";
 import type { Readable } from "node:stream";
 
@@ -108,6 +108,18 @@ async function waitUntilGone(pid: number, timeoutMs = 10_000): Promise<boolean> 
   return !isAlive(pid);
 }
 
+// Koniec rodiča podľa jeho handle; holé PID po skončení procesu môže patriť inému.
+function waitForExit(child: ChildProcess, timeoutMs = 10_000): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), timeoutMs);
+    child.once("exit", () => {
+      clearTimeout(timer);
+      resolve(true);
+    });
+  });
+}
+
 function firstLine(stream: Readable): Promise<string> {
   return new Promise((resolve, reject) => {
     let buffer = "";
@@ -125,22 +137,29 @@ test.skipIf(process.platform !== "win32")("na Windows zhodí aj vnúča, ktoré 
   const node = process.versions.bun ? "node" : process.execPath;
   const parent = spawn(node, ["-e", PARENT_SCRIPT], { stdio: ["ignore", "pipe", "inherit"], windowsHide: true });
   let grandchild = 0;
+  let grandchildGone = false;
   try {
     if (!parent.stdout) throw new Error("rodič nemá stdout");
     grandchild = Number(await firstLine(parent.stdout));
     expect(Number.isInteger(grandchild) && grandchild > 0).toBe(true);
-    expect(isAlive(grandchild)).toBe(true);
+    grandchildGone = !isAlive(grandchild);
+    expect(grandchildGone).toBe(false);
 
     // Návratovú hodnotu netestujeme: conhost.exe v strome môže skončiť sám počas
     // taskkill a ten potom hlási chybu, hoci strom už nebeží. Rozhoduje vnúča.
     await killProcessTree(parent.pid);
 
-    expect(await waitUntilGone(grandchild)).toBe(true);
-    expect(await waitUntilGone(parent.pid ?? 0)).toBe(true);
+    grandchildGone = await waitUntilGone(grandchild);
+    expect(grandchildGone).toBe(true);
+    expect(await waitForExit(parent)).toBe(true);
   } finally {
-    for (const pid of [grandchild, parent.pid ?? 0]) {
+    // Windows pridelí PID skončeného procesu rýchlo inému a bun test v CI beží vedľa
+    // iných procesov. Rodiča preto zhodí jeho handle, ktorý po skončení nič nezabije,
+    // a holé PID vnúčaťa len vtedy, keď sme jeho koniec nepotvrdili.
+    parent.kill();
+    if (grandchild && !grandchildGone) {
       try {
-        if (pid) process.kill(pid);
+        process.kill(grandchild);
       } catch {
         // Už neexistuje.
       }

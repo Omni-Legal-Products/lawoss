@@ -99,6 +99,18 @@ async function waitUntilGone(pid, timeoutMs = 10_000) {
   return !isAlive(pid);
 }
 
+// Koniec rodiča podľa jeho handle; holé PID po skončení procesu môže patriť inému.
+function waitForExit(child, timeoutMs = 10_000) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), timeoutMs);
+    child.once("exit", () => {
+      clearTimeout(timer);
+      resolve(true);
+    });
+  });
+}
+
 function firstLine(stream) {
   return new Promise((resolve, reject) => {
     let buffer = "";
@@ -114,21 +126,28 @@ function firstLine(stream) {
 test("na Windows zhodí aj vnúča, ktoré by child.kill nechal bežať", { skip: process.platform !== "win32", timeout: 30_000 }, async () => {
   const parent = spawn(process.execPath, ["-e", PARENT_SCRIPT], { stdio: ["ignore", "pipe", "inherit"], windowsHide: true });
   let grandchild = 0;
+  let grandchildGone = false;
   try {
     grandchild = Number(await firstLine(parent.stdout));
     assert.ok(Number.isInteger(grandchild) && grandchild > 0, `PID vnúčaťa: ${grandchild}`);
-    assert.equal(isAlive(grandchild), true, "vnúča pred ukončením nebeží");
+    grandchildGone = !isAlive(grandchild);
+    assert.equal(grandchildGone, false, "vnúča pred ukončením nebeží");
 
     // Návratovú hodnotu netestujeme: conhost.exe v strome môže skončiť sám počas
     // taskkill a ten potom hlási chybu, hoci strom už nebeží. Rozhoduje vnúča.
     await killProcessTree(parent.pid);
 
-    assert.equal(await waitUntilGone(grandchild), true, "vnúča po taskkill /T stále beží");
-    assert.equal(await waitUntilGone(parent.pid), true, "rodič po taskkill /T stále beží");
+    grandchildGone = await waitUntilGone(grandchild);
+    assert.equal(grandchildGone, true, "vnúča po taskkill /T stále beží");
+    assert.equal(await waitForExit(parent), true, "rodič po taskkill /T stále beží");
   } finally {
-    for (const pid of [grandchild, parent.pid]) {
+    // Windows pridelí PID skončeného procesu rýchlo inému a node --test púšťa súbory
+    // súbežne. Rodiča preto zhodí jeho handle, ktorý po skončení nič nezabije, a holé
+    // PID vnúčaťa len vtedy, keď sme jeho koniec nepotvrdili.
+    parent.kill();
+    if (grandchild && !grandchildGone) {
       try {
-        if (pid) process.kill(pid);
+        process.kill(grandchild);
       } catch {
         // Už neexistuje.
       }
