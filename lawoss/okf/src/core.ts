@@ -241,14 +241,22 @@ export type DetectResult = {
 };
 
 /** Jeden bezpečný segment cesty z ľudského názvu veci. Lomítko je v spisovej
- *  značke vždy (`43 INS 8294/2021`) — bez tohto by sa ročník stal priečinkom. */
+ *  značke vždy (`43 INS 8294/2021`) — bez tohto by sa ročník stal priečinkom.
+ *  Názov platí na Windows na každej platforme (Q18) podľa pravidiel `safeSegment`
+ *  onboardingu, len sa namiesto odmietnutia opraví: znaky `< > : " | ? *` nahradí pomlčka,
+ *  koncové bodky a medzery zmiznú (Windows ich ticho odreže, „ACME s. r. o.“ → „ACME s. r. o“),
+ *  meno zariadenia (CON, NUL, COM1, … aj s príponou) dostane `_` a dĺžka je najviac 120 znakov. */
 export function sanitizeSegment(raw: string, fallback = "bez-nazvu"): string {
-  const cleaned = raw
-    .replace(/[\u0000-\u001f]/g, "")
-    .replace(/[\\/]+/g, "-")
+  let cleaned = raw
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, "")
+    .replace(/[\\/<>:"|?*]+/g, "-")
     .replace(/\.{2,}/g, ".")
     .replace(/^[.\s-]+/, "")
     .replace(/\s+/g, " ")
-    .trim();
+    .trim()
+    .slice(0, 120);
+  // Neodrezať polovicu znaku mimo BMP (emoji) na hranici dĺžky.
+  if (/[\ud800-\udbff]$/.test(cleaned)) cleaned = cleaned.slice(0, -1);
+  cleaned = cleaned.replace(/[. ]+$/, "").replace(/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i, "$1_$2");
   return cleaned || fallback;
 }
