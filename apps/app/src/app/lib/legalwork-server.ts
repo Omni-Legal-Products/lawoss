@@ -1,6 +1,7 @@
 import type { OnboardingApi } from "../../lawoss/domains/onboarding/api";
 import type { TriageApiPath } from "../../lawoss/domains/roztriedenie/api";
 import type { LawossOcrView } from "../../lawoss/domains/settings/ocr-opt-in";
+import { lawossMarketplaceMethods } from "../../lawoss/domains/marketplace/marketplace-api";
 import type { WorkspaceMemoryStatus } from "../../../../../lawoss/okf-handoff/workspace-memory-status.mjs";
 export type { WorkspaceMemoryStatus as LegalworkWorkspaceMemoryStatus } from "../../../../../lawoss/okf-handoff/workspace-memory-status.mjs";
 import type { RemoteFolderSelection, ProjectRemoteFolderStatus } from "@legalwork/types/workspace";
@@ -1681,6 +1682,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     setLawossOcr: (enabled: boolean) => requestJson<LawossOcrView>(baseUrl, "/lawoss/ocr", { token, hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.config }),
     downloadLawossOcrModel: () => requestJson<LawossOcrView>(baseUrl, "/lawoss/ocr/model", { token, hostToken, method: "POST", timeoutMs: timeouts.config }),
     removeLawossOcrModel: () => requestJson<LawossOcrView>(baseUrl, "/lawoss/ocr/model", { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
+    // LAWOSS: LAWOSS Marketplace pre všetkých klientov a aktualizácie (lawoss/domains/marketplace/marketplace-api.ts).
+    lawossMarketplace: lawossMarketplaceMethods(<T,>(path: string, init: { method?: string; body?: unknown } = {}) => requestJson<T>(baseUrl, path, { token, hostToken, timeoutMs: 300_000, ...init })),
     testOcrEngine: (id: string) => requestJson<{ ok: boolean }>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/test`, { token, hostToken, method: "POST", timeoutMs: 130_000 }),
     setPersonalization: (settings: LegalworkPersonalizationSettings) =>
       requestJson<{ settings: LegalworkPersonalizationSettings; updatedAt: number }>(baseUrl, "/personalization", {

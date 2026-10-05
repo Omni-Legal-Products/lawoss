@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/sidebar";
 import { useControlActions, type LegalworkControlAction } from "@/react-app/shell/control/control-provider";
 
+import { MarketplaceUpdateNotifier } from "../domains/marketplace/update-notifier";
 import { VISIBLE_EXPERIMENT_VIEWS } from "../experiments/registry";
 import { LiteNav } from "../lite/lite-nav";
 import { LITE_CLIENTS_PATH, LITE_TODAY_PATH } from "../lite/links";
@@ -56,6 +57,7 @@ export function LawossNav(props: { activePane?: boolean } = {}) {
   return (
     <>
       <LiteControlActions />
+      <MarketplaceUpdateNotifier />
       {lite ? <LiteNav activePane={props.activePane} /> : <ExperimentsNav {...props} />}
     </>
   );

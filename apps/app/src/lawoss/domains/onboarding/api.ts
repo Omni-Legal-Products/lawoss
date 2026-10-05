@@ -4,6 +4,7 @@ export type OnboardingStep =
   | "identity"
   | "okf"
   | "office"
+  | "packs"
   | "ai"
   | "client"
   | "matter"

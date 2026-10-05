@@ -114,6 +114,8 @@ import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { registerOnboardingRoutes } from "./lawoss/onboarding.js";
 import { LawossOcrManager, registerLawossOcrRoutes } from "./lawoss/ocr-opt-in.js";
+import { registerLawossMarketplaceRoutes } from "./lawoss/marketplace-routes.js";
+import { startWeeklyMarketplaceCheck } from "./lawoss/marketplace-updates.js";
 import {
   applyGlobalToolPermissions,
   GLOBAL_PERSONALIZATION_ID,
@@ -792,6 +794,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   const stopSyncEvents = startSyncEvents(config);
   // Due days are checked every minute, connected or not, for the app to announce.
   const stopTaskReminders = startTaskReminderTimer(config);
+  // LAWOSS: týždenná kontrola vydaní LAWOSS Marketplace, nikdy hneď pri štarte (lawoss/marketplace-updates.ts).
+  const stopMarketplaceCheck = startWeeklyMarketplaceCheck(config);
   const officeTools = new OfficeToolRelay();
   const benchmarkRunner = new BenchmarkRunner({
     config,
@@ -1037,6 +1041,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       stopProjectSyncTimer();
       stopSyncEvents();
       stopTaskReminders();
+      stopMarketplaceCheck();
       benchmarkRunner.dispose();
       watcherHandle.close();
       workspaceBootstrapPromises.delete(config);
@@ -1645,6 +1650,20 @@ function createRoutes(
   });
 
   registerOnboardingRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, onWorkspacesChanged, serializeWorkspace });
+  // LAWOSS: LAWOSS Marketplace pre všetkých klientov a aktualizácie (lawoss/marketplace-routes.ts).
+  // Po zmene globálnych pluginov sa nečinné inštancie enginu obnovia (nové skilly a MCP), pri bežiacej úlohe len MCP a výzva na obnovu.
+  registerLawossMarketplaceRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, resolveWorkspace: (id) => resolveWorkspace(config, id), afterChange: async (ctx) => {
+    const local = config.workspaces.filter((item) => item.workspaceType !== "remote");
+    idleWorkspaceReloads = idleWorkspaceReloads.then(async () => {
+      for (const workspace of local) {
+        try {
+          if (!(await workspaceEngineBusy(config, workspace))) { await reloadOpencodeEngine(config, workspace); continue; }
+          await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
+          emitReloadEvent(ctx.reloadEvents, workspace, "skills", { type: "skill", name: "LAWOSS Marketplace", action: "updated" });
+        } catch { /* Best-effort: zastavený engine si pri štarte prečíta aktuálny stav. */ }
+      }
+    });
+  } });
 
   registerWorkspaceRoutes({
     projectFolders,
@@ -1880,6 +1899,7 @@ function createRoutes(
       workspaceRoot: workspaceAppFilesRoot(config, workspace),
       marketplaceId: null,
       resolved: bundle.resolved,
+      provenance: { source: bundle.preview.source, version: bundle.preview.version },
     });
 
     await recordAudit(workspaceAppFilesRoot(config, workspace), {

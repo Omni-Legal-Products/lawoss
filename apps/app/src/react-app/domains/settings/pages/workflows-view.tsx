@@ -22,6 +22,7 @@ import { bindWorkflowServices, discardWorkflow, openWorkflow, showWorkflow, useW
 import { isWorkflowCard, workflowDisplayName, type WorkflowType } from "../state/workflow-document";
 import { ImportSkillsButton, TemplateGenerationRow, type SkillsViewProps } from "./skills-view";
 import { LegalQuantsImportButton } from "./legalquants-import";
+import { isLegalQuantsHidden } from "@/lawoss/feature-flags";
 import { WorkflowEditorPanel } from "./workflow-editor-panel";
 import { HubTabs } from "../segmented-tabs";
 import { NewWorkflowDialog } from "./new-workflow-dialog";
@@ -191,7 +192,7 @@ export function WorkflowsView(props: WorkflowsViewProps) {
             {props.onGenerateFromTemplates ? <DropdownMenuItem disabled={!canEdit || !props.canUseDesktopTools || templateRun?.status === "running"} onClick={() => void generate()}><Wand2 />{t("skills.generate_from_templates")}</DropdownMenuItem> : null}
             <DropdownMenuSeparator />
             <DropdownMenuItem disabled={!canEdit} onClick={() => setImportOpen(true)}><Download />{t("skills.import")}</DropdownMenuItem>
-            <DropdownMenuItem disabled={!canEdit} onClick={() => setLegalQuantsOpen(true)}><Download />LegalQuants</DropdownMenuItem>
+            {isLegalQuantsHidden() ? null : <DropdownMenuItem disabled={!canEdit} onClick={() => setLegalQuantsOpen(true)}><Download />LegalQuants</DropdownMenuItem>}
           </DropdownMenuContent>
         </DropdownMenu>
       </div></>}

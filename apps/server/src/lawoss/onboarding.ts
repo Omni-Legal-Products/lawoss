@@ -28,7 +28,7 @@ const profileSchema = z.strictObject({
   matterRoot: z.string().min(1).max(4096).optional(),
   trial: z.boolean().optional(),
   okf: okfChoiceSchema.optional(),
-  step: z.enum(["identity", "okf", "office", "ai", "client", "matter", "done"]).optional(),
+  step: z.enum(["identity", "okf", "office", "packs", "ai", "client", "matter", "done"]).optional(),
 });
 type Profile = z.infer<typeof profileSchema>;
 const previewSchema = z.looseObject({

@@ -11,6 +11,7 @@ import {
   pamatSkillBody,
   usporiadajSpisSkillBody,
   roztriedSpisSkillBody,
+  vystupSkillBody,
 } from "../src/lawoss/okf/skill-bundle";
 import { okfSkillBodyHash, refreshOkfSkills, type OkfSkillClient } from "../src/lawoss/okf/skill-refresh";
 
@@ -47,7 +48,7 @@ const current = (skill: typeof novy, resource = skill.source): Installed => ({ c
 
 describe("OKF bundle refresh in an existing workspace", () => {
   test("every currently bundled SKILL.md body is a known bundled version", async () => {
-    for (const body of [novySpisSkillBody("sk"), novySpisSkillBody("cs"), pamatSkillBody(), usporiadajSpisSkillBody(), roztriedSpisSkillBody("sk"), roztriedSpisSkillBody("cs")]) {
+    for (const body of [novySpisSkillBody("sk"), novySpisSkillBody("cs"), pamatSkillBody(), usporiadajSpisSkillBody(), roztriedSpisSkillBody("sk"), roztriedSpisSkillBody("cs"), vystupSkillBody()]) {
       const hash = await okfSkillBodyHash(stored(body.content));
       expect({ hash, known: BUNDLED_OKF_SKILL_HASHES.has(hash) }).toEqual({ hash, known: true });
     }

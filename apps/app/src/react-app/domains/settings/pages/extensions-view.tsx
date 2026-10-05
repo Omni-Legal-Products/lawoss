@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { SectionHeading } from "@/react-app/design-system/surface";
 
 import { Chevron7IntegrationCard } from "@/lawoss/domains/integrations/chevron7-integration-card";
+import { IntegrationSourcesCard } from "@/lawoss/domains/integrations/integration-sources-card";
 
 import { ClaudePluginImportModal } from "../../connections/modals/claude-plugin-import-modal";
 import type { LegalworkClaudePluginPreview } from "../../../../app/lib/legalwork-server";
@@ -131,6 +132,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
         </div>
       ) : null}
 
+      {hubScope === "local" ? <IntegrationSourcesCard /> : null}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <HubTabs items={TABS} value={tab} onChange={selectTab} />
         <div className="flex items-center gap-2">

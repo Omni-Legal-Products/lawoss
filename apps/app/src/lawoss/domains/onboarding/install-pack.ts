@@ -4,7 +4,7 @@ import { refreshOkfSkills, type BundledOkfSkill, type OkfSkillClient, type OkfSk
 import { reloadAfterSkillWrites } from "../../okf/skill-availability";
 import { notifyModifiedOkfSkills } from "../../okf/skill-refresh-notice";
 
-/** OKF skills every OKF client gets: /novy-spis, /okf-pamat, /usporiadaj-spis and /roztried-spis with their CLI resources. */
+/** OKF skills every OKF client gets: /novy-spis, /okf-pamat, /usporiadaj-spis, /roztried-spis and /vystup-dokumentu with their resources. */
 export async function okfSkillPack(locale: Language): Promise<BundledOkfSkill[]> {
   const bundle = await import("../../okf/skill-bundle");
   return [
@@ -12,6 +12,8 @@ export async function okfSkillPack(locale: Language): Promise<BundledOkfSkill[]>
     { name: bundle.OKF_PAMAT_SKILL_NAME, body: bundle.pamatSkillBody(), resource: bundle.OKF_MEMORY_CLI_RESOURCE_NAME, source: bundle.okfMemoryCliSource() },
     { name: bundle.USPORIADAJ_SPIS_SKILL_NAME, body: bundle.usporiadajSpisSkillBody(), resource: bundle.OKF_CLI_RESOURCE_NAME, source: bundle.okfCliSource() },
     { name: bundle.ROZTRIED_SPIS_SKILL_NAME, body: bundle.roztriedSpisSkillBody(locale), resource: bundle.OKF_CLI_RESOURCE_NAME, source: bundle.okfCliSource() },
+    // Základný balík alfy (MČ 5. 10. 2026): vyhotovenie dokumentu je vždy zapnuté ako ostatné skilly OKF.
+    { name: bundle.VYSTUP_SKILL_NAME, body: bundle.vystupSkillBody(), resource: bundle.POSTPROCESS_RESOURCE_NAME, source: bundle.postprocessSource() },
   ];
 }
 
