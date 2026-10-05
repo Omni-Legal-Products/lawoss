@@ -1,16 +1,16 @@
 import { describe, expect, test } from "bun:test";
 
-import { getMcpServerName, MCP_QUICK_CONNECT, MCP_QUICK_CONNECT_ALL } from "../src/app/constants";
+import { getMcpServerName, MCP_QUICK_CONNECT_ALL } from "../src/app/constants";
 
 describe("MCP catalog authentication", () => {
   test("each server has one setup policy, so catalog lookup cannot select a conflicting entry", () => {
-    const keys = MCP_QUICK_CONNECT.map((entry) => entry.id ?? getMcpServerName(entry));
+    const keys = MCP_QUICK_CONNECT_ALL.map((entry) => entry.id ?? getMcpServerName(entry));
     const duplicates = keys.filter((key, index) => keys.indexOf(key) !== index);
     expect(duplicates).toEqual([]);
   });
 
   test("Dropbox collects its registered app credentials before trying to open OAuth", () => {
-    const dropbox = MCP_QUICK_CONNECT.find((entry) => entry.serverName === "dropbox");
+    const dropbox = MCP_QUICK_CONNECT_ALL.find((entry) => entry.serverName === "dropbox");
     expect(dropbox?.oauth).toBe(true);
     expect(dropbox?.requiresOauthClient).toBe(true);
     expect(dropbox?.requiresToken).not.toBe(true);
@@ -21,7 +21,7 @@ describe("MCP catalog authentication", () => {
 
   test("interactive CourtListener and Everlaw connectors use OAuth rather than token-only setup", () => {
     for (const name of ["courtlistener", "everlaw"]) {
-      const entry = MCP_QUICK_CONNECT.find((entry) => entry.serverName === name);
+      const entry = MCP_QUICK_CONNECT_ALL.find((entry) => entry.serverName === name);
       expect(entry?.oauth).toBe(true);
       expect(entry?.requiresToken).not.toBe(true);
     }

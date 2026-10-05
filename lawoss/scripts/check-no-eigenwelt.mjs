@@ -18,7 +18,10 @@
  * 6. sa modely stiahnu bez výslovného zapnutia: model OCR z huggingface.co bez voľby
  *    „Rozpoznávanie textu zo skenov (OCR)“ (`apps/server/src/lawoss/ocr-opt-in.ts`), alebo
  *    modely rečníkov pre prepis automaticky. Rozhodnutie MČ 5. 10. 2026: nič sa nesťahuje
- *    automaticky, ani pri štarte, ani pri prvom použití; OCR je voľba, ktorú advokát zapne.
+ *    automaticky, ani pri štarte, ani pri prvom použití; OCR je voľba, ktorú advokát zapne;
+ * 7. zdroj integrácií LegalWork nie je predvolene vypnutý, LegalMemory sa dá odkryť
+ *    prepínačom, LegalQuants skenuje GitHub bez zapnutého zdroja alebo `constants.ts`
+ *    prestane vystavovať katalógy, ktoré prepínač mení (rozhodnutie MČ 5. 10. 2026).
  *
  * Spolu s ňou beží stráž značky `check-branding.mjs` (LAWOSS namiesto LegalWork,
  * nemenný APP_IDENTIFIER, releasy forku), aby stačil jeden krok v CI.
@@ -65,7 +68,7 @@ export const ALLOWED = {
   },
   "apps/app/src/app/constants.ts": {
     matches: ["eigenweltlabs.com"],
-    reason: "Odkaz „Viac o LegalMemory“; rýchle pripojenie LegalMemory je skryté (HIDDEN_QUICK_CONNECT_SERVERS).",
+    reason: "Odkaz „Viac o LegalMemory“; LegalMemory je v HIDDEN_QUICK_CONNECT_SERVERS a isHiddenQuickConnect ho skryje aj pri zapnutom zdroji LegalWork.",
   },
   "apps/app/src/app/lib/eigenwelt-budget.ts": {
     matches: ["platform.eigenweltlabs.com"],
@@ -278,6 +281,59 @@ export const STRUCTURE = [
     why: "Modely rozpoznania rečníkov sa nesťahujú automaticky, ani pri štarte appky, ani pri nahrávaní (jediné volanie je v nevolanom ensureDiarizationReady).",
   },
 ];
+
+// Zdroje integrácií (MČ 5. 10. 2026): LAWOSS predvolený, LegalWork voliteľný a predvolene vypnutý, LegalMemory nikdy.
+STRUCTURE.push(
+  {
+    file: "apps/app/src/lawoss/feature-flags.ts",
+    must: [
+      /HIDDEN_QUICK_CONNECT_SERVERS: ReadonlySet<string> = new Set<string>\(\[[^\]]*"legalmemory",[^\]]*\]\);/,
+      /export const isHiddenQuickConnect = \(serverName: string\): boolean =>\s*HIDDEN_QUICK_CONNECT_SERVERS\.has\(serverName\) \|\|\s*\(!LAWOSS_QUICK_CONNECT_ALLOWLIST\.has\(serverName\) && !isLegalworkSourceEnabled\(\)\);/,
+      /export const isLegalQuantsHidden = \(\): boolean => !isLegalworkSourceEnabled\(\);/,
+    ],
+    mustNot: [/LAWOSS_QUICK_CONNECT_ALLOWLIST[^=]*=\s*new Set<string>\(\[[^\]]*"legalmemory"/],
+    why: "LegalMemory je skrytý bez ohľadu na prepínač; upstream položky len z allowlistu LAWOSS alebo so zapnutým zdrojom LegalWork; LegalQuants len so zdrojom.",
+  },
+  {
+    file: "apps/app/src/lawoss/domains/integrations/legalwork-source.ts",
+    must: [
+      /const ENABLED_VALUE = "on";/,
+      /return storage\(\)\?\.getItem\(LEGALWORK_SOURCE_STORAGE_KEY\) === ENABLED_VALUE;\s*\} catch \{\s*return false;/,
+      /let enabled = read\(\);/,
+    ],
+    mustNot: [/\bfetch\s*\(/, /https?:\/\//, /^import /m],
+    why: "Zdroj LegalWork je predvolene vypnutý (chýbajúca alebo iná hodnota = vypnuté) a voľba nevolá sieť.",
+  },
+  {
+    file: "apps/app/src/lawoss/domains/integrations/legalwork-source-sync.ts",
+    must: [/MCP_QUICK_CONNECT_ALL\.filter\(\(entry\) => !isHiddenQuickConnect\(entry\.serverName \?\? ""\)\)/],
+    mustNot: [/\bfetch\s*\(/, /https?:\/\//, /connectMcp|probeMcp|scanGithubSkills/],
+    why: "Prepnutie zdroja len zobrazí alebo skryje položky; nič nepripája, neskúša ani neskenuje.",
+  },
+  {
+    file: "apps/app/src/lawoss/domains/integrations/integration-sources-card.tsx",
+    mustNot: [/\bfetch\s*\(/, /useQuery/, /https?:\/\//],
+    why: "Karta zdrojov nevolá sieť ani server.",
+  },
+  {
+    file: "apps/app/src/app/constants.ts",
+    must: [
+      /export const MCP_QUICK_CONNECT: McpDirectoryInfo\[\] = MCP_QUICK_CONNECT_ALL\.filter\(\s*\(entry\) => !isHiddenQuickConnect\(entry\.serverName \?\? ""\),\s*\);/,
+      /export const LEGALWORK_EXTENSION_CATALOG = MCP_QUICK_CONNECT\.filter\(/,
+    ],
+    why: "Katalóg rýchleho pripojenia ide cez isHiddenQuickConnect a ostáva meniteľné pole, ktoré prepínač zdroja LegalWork prepisuje na mieste.",
+  },
+  {
+    file: "apps/app/src/react-app/domains/settings/pages/legalquants-import.tsx",
+    must: [/if \(!useLegalworkSource\(\)\) return null;\s*return <>[\s\S]*<LegalQuantsImportModal /],
+    why: "LegalQuants (sken GitHubu pri otvorení) sa bez zapnutého zdroja LegalWork nevykreslí.",
+  },
+  {
+    file: "apps/app/src/react-app/domains/settings/pages/workflows-view.tsx",
+    must: [/\{isLegalQuantsHidden\(\) \? null : <DropdownMenuItem[^\n]*setLegalQuantsOpen\(true\)/],
+    why: "Položka LegalQuants v ponuke Workflows sa bez zdroja LegalWork neponúka.",
+  },
+);
 
 /** Zapnutie sťahovania modelu OCR pri štarte v kóde (mimo testov). Používateľ ho smie zapnúť len sám. */
 export const MODEL_DOWNLOAD_AT_STARTUP = /LEGALWORK_OCR_AUTO_DOWNLOAD\s*[:=]\s*["'`]?(?:1|true)\b|autoDownloadOcr\s*[:=]\s*true\b/;

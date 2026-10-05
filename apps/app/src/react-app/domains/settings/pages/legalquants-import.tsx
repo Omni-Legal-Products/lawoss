@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { t } from "@/i18n";
 import type { SkillsExtensionsStore } from "./skills-view";
+import { useLegalworkSource } from "@/lawoss/domains/integrations/use-legalwork-source";
 
 const SOURCE = "https://github.com/LegalQuants/lq-plugin-oss/tree/main/skills";
 type Catalog = Awaited<ReturnType<SkillsExtensionsStore["scanGithubSkills"]>>;
@@ -21,6 +22,7 @@ export function LegalQuantsImportButton(props: Props) {
   const [internalOpen, setInternalOpen] = useState(false);
   const open = props.open ?? internalOpen;
   const setOpen = props.onOpenChange ?? setInternalOpen;
+  if (!useLegalworkSource()) return null;
   return <>
     <button hidden={props.open !== undefined} type="button" className={props.className} disabled={props.busy} onClick={() => setOpen(true)}>
       <Download size={14} /> LegalQuants

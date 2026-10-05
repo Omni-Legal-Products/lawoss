@@ -1,6 +1,6 @@
 /**
  * SHA-256 of every SKILL.md body LAWOSS has ever bundled for the OKF skills
- * (novy-spis SK and CS, okf-pamat, usporiadaj-spis, roztried-spis SK and CS), including `dev` 39a27747
+ * (novy-spis SK and CS, okf-pamat, usporiadaj-spis, roztried-spis SK and CS, vystup-dokumentu), including `dev` 39a27747
  * and #105. An installed body with one of these hashes is unmodified and may be
  * replaced by the current bundle; any other body is a user customization.
  *
@@ -55,4 +55,5 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "64de8e0c8d2a02e2cce88cc66fa40a157eae8a20f35430128927f5aba2e2b62d", // lawoss/skills/roztried-spis/SKILL.cs.md @ feat/alfa-roztriedenie-spisu
   "e1dd31551fc99c2ce420e0ef98f559d9fe996554cb78c8008794dc7100b0f123", // lawoss/skills/roztried-spis/SKILL.md @ fix/alfa-roztriedenie-po-teste
   "1d9b2412ad972be0f75cba45a6bc2f2a370c48cd1eb75eab8405891a13a8d69d", // lawoss/skills/roztried-spis/SKILL.cs.md @ fix/alfa-roztriedenie-po-teste
+  "152fecaf602851be77270294701c310927577193fc124c1478cee9a864f36568", // lawoss/skills/vystup-dokumentu/SKILL.md @ 617dc380 (jediná verzia)
 ]);
