@@ -75,7 +75,7 @@ import {
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
 import { PremiumUpsellHost } from "@/react-app/domains/recorder/premium-upsell-context";
 import { FusionSettingsSection } from "@/react-app/domains/settings/pages/fusion-settings-section";
-import { OcrSettingsSection } from "@/react-app/domains/settings/pages/ocr-settings-section";
+import { LawossOcrSettings } from "@/lawoss/domains/settings/ocr-opt-in-section";
 import { BenchmarkView } from "@/react-app/domains/benchmark/benchmark-view";
 // Side-effect imports: register extension config components into the registry.
 import "@/react-app/domains/settings/computer-use-config";
@@ -176,6 +176,7 @@ import {
   OPENAI_IMAGE_MODEL,
 } from "@/react-app/domains/settings/openai-image-extension";
 import { OLLAMA_PROVIDER_CONFIG, type LocalProviderInstallInput } from "@/react-app/domains/settings/openai-image-extension";
+import { localProviderTimeouts } from "@/lawoss/providers/local-timeouts";
 
 function normalizeComputerUsePermissions(value: unknown) {
   if (typeof value !== "object" || value === null) return null;
@@ -1150,7 +1151,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             [input.providerId]: {
               npm: "@ai-sdk/openai-compatible",
               name: input.name,
-              options: { baseURL: input.baseURL },
+              options: { baseURL: input.baseURL, ...localProviderTimeouts(input.baseURL) },
               models: { [modelId]: { name: input.modelName.trim() || modelId } },
             },
           },
@@ -2044,7 +2045,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             eigenweltConnected={eigenweltConnected}
             onManageEigenweltAccount={() => navigateSettingsPath("account")}
             systemOneView={<SystemOneSettingsSection client={legalworkClient} onManageSubscription={() => navigateSettingsPath("account")} />}
-            ocrView={<OcrSettingsSection client={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient} />}
+            ocrView={<LawossOcrSettings client={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient} />}
             fusionView={
               <FusionSettingsSection
                 fusionModels={local.prefs.fusionModels ?? []}

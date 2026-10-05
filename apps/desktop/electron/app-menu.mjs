@@ -66,7 +66,7 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
             {
               label: appName,
               submenu: [
-                { role: "about" },
+                { role: "about", label: `About ${appName}` },
                 {
                   label: "Check for Updates...",
                   click: () => {
@@ -84,11 +84,11 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
                 { type: "separator" },
                 { role: "services" },
                 { type: "separator" },
-                { role: "hide" },
+                { role: "hide", label: `Hide ${appName}` },
                 { role: "hideOthers" },
                 { role: "unhide" },
                 { type: "separator" },
-                { role: "quit" },
+                { role: "quit", label: `Quit ${appName}` },
               ],
             },
           ]

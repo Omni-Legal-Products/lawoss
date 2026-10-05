@@ -3,6 +3,7 @@ import { initialEn } from "../../lawoss/i18n/initial";
 import { mattersEn } from "../../lawoss/i18n/matters";
 import { integrationsEn } from "../../lawoss/i18n/integrations";
 import { shellEn } from "../../lawoss/i18n/shell";
+import { ocrEn } from "../../lawoss/i18n/ocr";
 /**
  * English translations
  * Professional terms (Skills, Plugins, Commands, Sessions, OpenCode, OpenPackage, LegalWork) are NOT translated
@@ -14,6 +15,7 @@ export default {
   ...mattersEn,
   ...integrationsEn,
   ...shellEn,
+  ...ocrEn,
   "home.nav_label": "Home",
   "home.placeholder": "Work with LegalWork",
   "home.prompt_label": "Message LegalWork",

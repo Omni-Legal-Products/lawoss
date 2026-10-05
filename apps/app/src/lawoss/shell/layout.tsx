@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/sidebar";
 import { useControlActions, type LegalworkControlAction } from "@/react-app/shell/control/control-provider";
 
-import { EXPERIMENT_VIEWS } from "../experiments/registry";
+import { VISIBLE_EXPERIMENT_VIEWS } from "../experiments/registry";
 import { LiteNav } from "../lite/lite-nav";
 import { LITE_CLIENTS_PATH, LITE_TODAY_PATH } from "../lite/links";
 import { currentUiMode, setUiMode, useUiMode } from "../lite/ui-mode";
@@ -36,7 +36,7 @@ export const EXPERIMENTY_PATH = "/experimenty";
 export function experimentyNavItems(): { to: string; label: string }[] {
   return [
     { to: EXPERIMENTY_PATH, label: t("lawoss.shell.switches_status") },
-    ...EXPERIMENT_VIEWS.map((view) => ({ to: view.to, label: view.label })),
+    ...VISIBLE_EXPERIMENT_VIEWS.map((view) => ({ to: view.to, label: view.label })),
   ];
 }
 

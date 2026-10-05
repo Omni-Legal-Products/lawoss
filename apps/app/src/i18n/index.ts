@@ -2,6 +2,7 @@ import en from "./locales/en";
 import de from "./locales/de";
 import sk from "./locales/sk";
 import cs from "./locales/cs";
+import { BRAND_NAME, UPSTREAM_BRAND_NAME } from "../lawoss/branding";
 export const LANGUAGE_PREF_KEY = "legalwork.language";
 
 /**
@@ -245,7 +246,7 @@ const resolvePluralKey = (loc: Language, key: string, count: number): string => 
  * `legalwork-server` alebo `LEGALWORK_DEV_MODE` sa v UI nezobrazujú a ich
  * prepis by rozbil beh.
  */
-export const applyBrandName = (text: string): string => text.replaceAll("LegalWork", "LAWOSS");
+export const applyBrandName = (text: string): string => text.replaceAll(UPSTREAM_BRAND_NAME, BRAND_NAME);
 
 /**
  * Kľúče, kde `LegalWork` popisuje **cudzí produkt alebo jeho autora**, nie náš.

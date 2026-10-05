@@ -53,7 +53,7 @@ jobs:
         with:
           name: storage-review-${{ matrix.os }}-${{ github.sha }}
           path: |
-            apps/desktop/dist-electron/legalwork-*.zip
-            apps/desktop/dist-electron/legalwork-*.tar.gz
+            apps/desktop/dist-electron/lawoss-*.zip
+            apps/desktop/dist-electron/lawoss-*.tar.gz
           if-no-files-found: error
           retention-days: 14

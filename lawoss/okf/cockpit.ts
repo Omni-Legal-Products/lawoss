@@ -10,7 +10,7 @@
 import type { OkfRecord } from "../okf-pamat/src/record.ts";
 import { isRecordType, valueLabel, type KnownRecordType, type RecordType } from "../okf-pamat/src/schema.ts";
 import { pendingInputs } from "./inputs.ts";
-import { deadlineTier, isOpenTask, isRetired, recordDeadlines, type MatterInput, type MatterOverview } from "./read.ts";
+import { deadlineLabel, deadlineTier, isOpenTask, isRetired, recordDeadlines, type MatterInput, type MatterOverview } from "./read.ts";
 
 /** Odkiaľ údaj pochádza. Slovo, nie farba — stav musí byť čitateľný aj bez nej. */
 type Provenance = "overené" | "AI návrh" | "zapísané" | "overenie neurčené" | "strojovo overené";
@@ -28,7 +28,7 @@ export type CockpitInput = {
 };
 
 type CockpitField = { label: string; value: string; missing: boolean };
-type CockpitFact = {
+export type CockpitFact = {
   id: string;
   title: string;
   kind: string;
@@ -42,6 +42,8 @@ type CockpitTask = { id: string; title: string; assignee?: string; due?: string;
 export type CockpitDeadline = {
   date: string;
   title: string;
+  /** Text lehoty za dátumom, ak ho zápis má; inak sa ukazuje názov záznamu. */
+  label?: string;
   recordId: string;
   provenance: Provenance;
   source?: string;
@@ -66,7 +68,7 @@ export type AttentionRow = {
 };
 /** Zapojený subjekt: záznam `subject` alebo položka `participants`. Rola ostáva v jazyku záznamu. */
 export type CockpitParty = { name: string; role?: string; contact?: string; recordId: string; file: string };
-type CockpitEvent = { date: string; text: string; kind?: string; recordId: string; file: string };
+export type CockpitEvent = { date: string; text: string; kind?: string; recordId: string; file: string };
 
 export const REGISTER_ORDER = ["obal", "fakty", "ulohy", "lehoty"] as const;
 export type RegisterId = (typeof REGISTER_ORDER)[number];
@@ -212,6 +214,8 @@ function deadlines(input: MatterInput, todayIso: string): CockpitDeadline[] {
         confirmed: deadlineConfirmed(r, raw),
       };
       if (invalid) item.invalid = invalid;
+      const label = invalid ? undefined : deadlineLabel(raw);
+      if (label) item.label = label;
       const src = firstSource(r);
       if (src?.title) item.source = src.title;
       out.push(item);

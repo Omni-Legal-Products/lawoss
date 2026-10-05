@@ -1,7 +1,10 @@
 /** @jsxImportSource react */
+import { deadlineText } from "../../okf/view-rules";
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { isExperimentHidden } from "../../feature-flags";
+import { NEW_MATTER_PATH } from "../../lite/links";
 import { MatterParties, useMatterText } from "../okf-page";
 import type { MatterTextKey } from "../../i18n/matters";
 import { Button } from "@/components/ui/button";
@@ -123,7 +126,7 @@ function NotFound({ found, vec }: { found: { path: string; title: string }[]; ve
           </>
         ) : (
           <>
-            {text("noMatters")} <Link to="/experimenty/novy-spis">{text("newMatter")}</Link>.
+            {text("noMatters")} <Link to={isExperimentHidden("view-novy-spis") ? NEW_MATTER_PATH : "/experimenty/novy-spis"}>{text("newMatter")}</Link>.
           </>
         )}
       </p>
@@ -376,7 +379,7 @@ function DeadlineGroup({ title, rows, now, empty }: { title: string; rows: reado
           <span className="lw-no">{i + 1}.</span>
           <span className={dayClass(d.date, now)}>{formatDay(d.date, locale)}</span>
           <span className="lw-t">
-            {d.title}
+            {deadlineText(d)}
             <small>
               {d.source ?? text("noSource")} · <span className="lw-mono">{d.file}</span>
             </small>
@@ -439,7 +442,7 @@ function DeadlineStrip({ deadlines: unsorted, now }: { deadlines: readonly Cockp
               />
               <circle cx={x(d.date)} cy="92" r="4.5" fill={d.overdue ? color : "var(--lw-surface)"} stroke={color} strokeWidth="1.5" />
               <text x={label} y={top + 4} textAnchor={anchor} fill={color} fontWeight="500">
-                {d.title}
+                {deadlineText(d)}
               </text>
               <text x={label} y={top + 17} textAnchor={anchor} fontSize="11" fill="var(--lw-text-secondary)">
                 {formatDay(d.date, locale)} · {d.overdue ? text("overdue") : cockpitLabel(d.provenance, text)}

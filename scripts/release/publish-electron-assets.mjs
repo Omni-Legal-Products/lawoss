@@ -14,9 +14,10 @@ if (!distRootArg || !releaseTag) {
   process.exit(2);
 }
 
-const repo = process.env.GITHUB_REPOSITORY;
+// RELEASE_REPOSITORY lets the release workflow publish outside the source repository.
+const repo = process.env.RELEASE_REPOSITORY || process.env.GITHUB_REPOSITORY;
 if (!repo) {
-  console.error("GITHUB_REPOSITORY is required.");
+  console.error("RELEASE_REPOSITORY or GITHUB_REPOSITORY is required.");
   process.exit(2);
 }
 

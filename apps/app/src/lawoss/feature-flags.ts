@@ -71,8 +71,41 @@ export const isCommercialSurfaceHidden = (surface: CommercialSurface): boolean =
   HIDDEN_COMMERCIAL_SURFACES.has(surface);
 
 /**
+ * Analytika je natrvalo vypnutá (MČ 5. 10. 2026). `app/lib/analytics.ts` nemá
+ * kľúč, adresu ani sieťové volanie a prepínač sa nezobrazí nikde: v onboardingu,
+ * v Nastaveniach > Súkromie ani na upstream uvítacej obrazovke. Nie je to voľba
+ * na jeden riadok: návrat by vyžadoval nové rozhodnutie a vrátenie `analytics.ts`.
+ */
+export const isAnalyticsChoiceHidden = (): boolean => true;
+
+/**
  * Je záložka nastavení skrytá? Onboarding sa pýta rovnako ako zoznam záložiek:
  * krok, ktorý zapína funkciu, ku ktorej sa používateľ potom nikde nedostane,
  * je slepá ulička.
  */
 export const isHiddenSettingsTab = (tab: string): boolean => HIDDEN_SETTINGS_TABS.has(tab);
+
+/**
+ * Alfa: experimenty, ktoré testeri nevidia (MČ 5. 10. 2026). „Nový spis“ (U1):
+ * k novej veci vedie len formulár z onboardingu (`NEW_MATTER_PATH`), agentový
+ * sprievodca je skrytý v bočnom paneli, v zozname experimentov, v dialógu
+ * „Pridať priečinok“ aj v prázdnom stave stránky Spis. „Prvé nastavenie“ (U2)
+ * sa ruší, kód ostáva do neskoršieho upratania. Návrat: vyprázdniť množinu.
+ */
+export const ALPHA_HIDDEN_EXPERIMENTS: ReadonlySet<string> = new Set<string>([
+  "view-novy-spis",
+  "view-prve-nastavenie",
+]);
+
+export const isExperimentHidden = (id: string): boolean => ALPHA_HIDDEN_EXPERIMENTS.has(id);
+
+/**
+ * Alfa: režim „Mapovať bez zápisu“ pri pripojení existujúceho priečinka klienta sa nezobrazuje
+ * (MČ 5. 10. 2026). Testeri vyberajú medzi skúšobným klonom (predvolený) a bezpečným doplnením.
+ * Kód aj serverová cesta ostávajú. Návrat: `false`.
+ */
+export const ALPHA_HIDE_MAP_WITHOUT_WRITING = true;
+
+/** Režimy pripojenia existujúceho priečinka v poradí ponuky; predvolený je prvý (skúšobný klon). */
+export const visibleExistingClientModes = <T extends string>(modes: readonly T[]): T[] =>
+  modes.filter((mode) => !(ALPHA_HIDE_MAP_WITHOUT_WRITING && mode === "map"));

@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { createChecksums } from "./checksums.mjs";
 
 test("publishes one checksum list for all platforms and rejects incomplete artifacts", async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), "legalwork-release-publish-"));
+  const dir = await mkdtemp(join(tmpdir(), "lawoss-release-publish-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const dist = join(dir, "dist");
   const log = join(dir, "uploads.jsonl");
@@ -20,7 +20,7 @@ require('node:fs').appendFileSync(process.env.UPLOAD_LOG, JSON.stringify(process
   for (const arch of ["arm64", "x64"]) {
     const platform = join(dist, arch);
     await mkdir(platform, { recursive: true });
-    const name = `legalwork-mac-${arch}-1.0.0.zip`;
+    const name = `lawoss-mac-${arch}-1.0.0.zip`;
     const file = join(platform, name);
     assetFiles.push(file);
     await writeFile(file, `final ${arch} bytes`);
@@ -28,10 +28,10 @@ require('node:fs').appendFileSync(process.env.UPLOAD_LOG, JSON.stringify(process
     await writeFile(join(platform, "latest-mac.yml"), `version: 1.0.0\nfiles:\n  - url: ${name}\n    sha512: fixture\n`);
   }
   const script = fileURLToPath(new URL("./publish-electron-assets.mjs", import.meta.url));
-  const run = () => spawnSync(process.execPath, [script, "--manifests-only", dist, "v1.0.0"], {
+  const run = (extraEnv = {}) => spawnSync(process.execPath, [script, "--manifests-only", dist, "v1.0.0"], {
     encoding: "utf8",
-    env: { ...process.env, PATH: `${dir}${delimiter}${process.env.PATH}`, RUNNER_TEMP: dir,
-      GITHUB_REPOSITORY: "fixture/legalwork", UPLOAD_LOG: log },
+    env: { ...process.env, RELEASE_REPOSITORY: "", PATH: `${dir}${delimiter}${process.env.PATH}`, RUNNER_TEMP: dir,
+      GITHUB_REPOSITORY: "fixture/legalwork", UPLOAD_LOG: log, ...extraEnv },
   });
   const result = run();
   assert.equal(result.status, 0, result.stderr);
@@ -45,7 +45,7 @@ require('node:fs').appendFileSync(process.env.UPLOAD_LOG, JSON.stringify(process
   await writeFile(join(dist, "x64", "SHA256SUMS"), await createChecksums([assetFiles[0]]));
   const stale = run();
   assert.notEqual(stale.status, 0);
-  assert.match(stale.stderr, /Missing SHA256SUMS entry for legalwork-mac-x64/);
+  assert.match(stale.stderr, /Missing SHA256SUMS entry for lawoss-mac-x64/);
   assert.equal((await readFile(log, "utf8")).trim().split("\n").length, 2);
 
   await rm(join(dist, "x64", "SHA256SUMS"));
@@ -53,4 +53,14 @@ require('node:fs').appendFileSync(process.env.UPLOAD_LOG, JSON.stringify(process
   assert.notEqual(incomplete.status, 0);
   assert.match(incomplete.stderr, /Missing SHA256SUMS alongside/);
   assert.equal((await readFile(log, "utf8")).trim().split("\n").length, 2);
+
+  // RELEASE_REPOSITORY moves the upload target without touching the source repository.
+  await writeFile(join(dist, "x64", "SHA256SUMS"), await createChecksums([assetFiles[1]]));
+  const moved = run({ RELEASE_REPOSITORY: "fixture/lawoss-releases" });
+  assert.equal(moved.status, 0, moved.stderr);
+  const movedUploads = (await readFile(log, "utf8")).trim().split("\n").map(JSON.parse).slice(2);
+  assert.equal(movedUploads.length, 2);
+  for (const upload of movedUploads) {
+    assert.equal(upload[upload.indexOf("--repo") + 1], "fixture/lawoss-releases");
+  }
 });

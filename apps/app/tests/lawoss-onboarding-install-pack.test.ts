@@ -27,9 +27,9 @@ test("onboarding skill pack preserves installed workspace skills and resources",
     [{ name: "novy-spis", scope: "project", content: novySpisSkillBody("sk").content }, { name: "okf-pamat", scope: "global", content: "global" }],
     new Map([["novy-spis", new Map([["okf.js", okfCliSource()]])]]),
   );
-  expect(await installMissingOnboardingSkills(f.client, "workspace", "sk")).toEqual({ modified: [] });
-  expect(f.calls.skill).toEqual(["usporiadaj-spis"]);
-  expect(f.calls.resource).toEqual(["usporiadaj-spis/okf.js"]);
+  expect(await installMissingOnboardingSkills(f.client, "workspace", "sk")).toEqual({ modified: [], written: ["usporiadaj-spis", "roztried-spis"] });
+  expect(f.calls.skill).toEqual(["usporiadaj-spis", "roztried-spis"]);
+  expect(f.calls.resource).toEqual(["usporiadaj-spis/okf.js", "roztried-spis/okf.js"]);
   expect([...(f.resources.get("novy-spis")?.keys() ?? [])]).toEqual(["okf.js"]);
 });
 
@@ -44,8 +44,8 @@ test("onboarding skill pack resumes a partial install without replacing complete
   await expect(installMissingOnboardingSkills(f.client, "workspace", "sk")).rejects.toThrow("interrupted");
   expect([...(f.resources.get("novy-spis")?.keys() ?? [])]).toEqual(["okf.js"]);
   await installMissingOnboardingSkills(f.client, "workspace", "sk");
-  expect(f.calls.skill).toEqual(["novy-spis", "okf-pamat", "usporiadaj-spis"]);
-  expect(f.calls.resource).toEqual(["novy-spis/okf.js", "okf-pamat/okf-memory.js", "usporiadaj-spis/okf.js"]);
+  expect(f.calls.skill).toEqual(["novy-spis", "okf-pamat", "usporiadaj-spis", "roztried-spis"]);
+  expect(f.calls.resource).toEqual(["novy-spis/okf.js", "okf-pamat/okf-memory.js", "usporiadaj-spis/okf.js", "roztried-spis/okf.js"]);
   expect([...(f.resources.get("okf-pamat")?.keys() ?? [])]).toEqual(["okf-memory.js"]);
 });
 

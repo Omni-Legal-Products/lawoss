@@ -1,4 +1,7 @@
 /**
+ * LAWOSS: analytika je natrvalo vypnutá, takže ani uložená voľba „zapnuté“ nič
+ * neodošle; upstream scenáre ostávajú, očakávanie je vždy prázdne odoslanie.
+ *
  * Consent gating for the analytics send queue — opt-OUT model:
  * - pending choice (null, the welcome screen with the toggle showing on):
  *   events queue but are held — nothing is sent until the choice commits on;
@@ -81,7 +84,7 @@ describe("analytics consent gating", () => {
     globalThis.fetch = originalFetch;
   });
 
-  test("pending choice holds the queue until the choice commits on", async () => {
+  test("pending choice holds the queue, and committing on sends nothing in LAWOSS", async () => {
     setConsent(null);
     captureAnalyticsEvent("welcome_window_event");
     await flushAnalytics();
@@ -89,10 +92,10 @@ describe("analytics consent gating", () => {
 
     setConsent(true);
     await flushAnalytics();
-    expect(sentEvents()).toEqual(["welcome_window_event"]);
+    expect(sentEvents()).toEqual([]);
   });
 
-  test("pending choice holds at most one batch, keeping the earliest events", async () => {
+  test("many captures before the choice send nothing in LAWOSS", async () => {
     setConsent(null);
     for (let index = 0; index < 60; index += 1) captureAnalyticsEvent(`held_${index}`);
     expect(sentEvents()).toEqual([]);
@@ -100,8 +103,7 @@ describe("analytics consent gating", () => {
     setConsent(true);
     await flushAnalytics();
     await flushAnalytics();
-    expect(sentEvents()).toHaveLength(50);
-    expect(sentEvents()[0]).toBe("held_0");
+    expect(sentEvents()).toEqual([]);
   });
 
   test("opt-out purges the queue and silences later captures", async () => {
@@ -135,10 +137,10 @@ describe("analytics consent gating", () => {
     expect(sentEvents()).toEqual([]);
   });
 
-  test("enabled analytics sends captures on flush", async () => {
+  test("LAWOSS: a stored opt-in sends nothing on flush", async () => {
     setConsent(true);
     captureAnalyticsEvent("normal_event");
     await flushAnalytics();
-    expect(sentEvents()).toContain("normal_event");
+    expect(sentEvents()).toEqual([]);
   });
 });
