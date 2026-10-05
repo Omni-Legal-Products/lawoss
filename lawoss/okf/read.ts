@@ -9,12 +9,12 @@
  */
 import type { ManualStatus } from "../okf-pamat/src/manual-status.ts";
 import type { OkfRecord } from "../okf-pamat/src/record.ts";
-import { isoDay } from "../okf-pamat/src/schema.ts";
+import { isIsoDate, isoDay } from "../okf-pamat/src/schema.ts";
 
 /** `invalid`: datum lhůty nemá tvar RRRR-MM-DD - UI ho ukáže k ověření, nikdy ho tiše nezahodí. */
 /** `file`: skutočný súbor záznamu - totožnosť zdieľaného záznamu (ID sa razia per spis, nie sú jedinečné). */
-export type OverviewDeadline = { date: string; title: string; recordId: string; invalid?: true; file?: string; /** Pôvodný zápis lehoty: dve lehoty toho istého záznamu v jeden deň sú dve lehoty. */ raw?: string };
-export type OverviewTask = { id: string; title: string; assignee?: string; due?: string; file?: string };
+type OverviewDeadline = { date: string; title: string; recordId: string; invalid?: true; file?: string; /** Pôvodný zápis lehoty: dve lehoty toho istého záznamu v jeden deň sú dve lehoty. */ raw?: string };
+type OverviewTask = { id: string; title: string; assignee?: string; due?: string; file?: string };
 
 export type MatterOverview = {
   /** Cesta priečinka veci relatívne ku koreňu workspace-u. */
@@ -76,6 +76,11 @@ export const isOpenTask = (r: OkfRecord): boolean => r.type === "task" && r.stat
 /** Totožnosť záznamu naprieč spismi: jeho súbor; bez súboru (testy, staršie vstupy) len v rámci spisu. */
 export const recordKey = (matterPath: string, r: { id: string; file?: string }): string => r.file ?? `${matterPath}\u0000${r.id}`;
 
+export const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** `RRRR-MM-DD`, ktorý je skutočným kalendárnym dňom (nie 2026-02-30). */
+export const isCalendarDay = isIsoDate;
+
 /** Totožnosť lehoty naprieč spismi: záznam + dátum (jeden záznam môže niesť viac lehôt). */
 export const deadlineKey = (d: UpcomingDeadline): string => `${recordKey(d.matter.path, { id: d.recordId, file: d.file })}\u0000${d.raw ?? d.date}`;
 
@@ -94,6 +99,12 @@ export const missingScopeLevels = (scopePaths: readonly string[]): Exclude<Scope
   return (["client", "office"] as const).filter((level) => !present.has(level));
 };
 
+/** Počet dní medzi dvomi `RRRR-MM-DD`; nevalidný vstup → 0. */
+export function daysBetween(from: string, to: string): number {
+  if (!ISO_DAY.test(from) || !ISO_DAY.test(to)) return 0;
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
 /**
  * Lehoty záznamu pre prehľad a cockpit: vyradený záznam žiadne nemá; `RRRR-MM-DD` s časom
  * sa oreže na deň; iný tvar ostáva ako text s `invalid` (`raw` = pôvodná hodnota pre potvrdenie).
@@ -107,7 +118,6 @@ export function recordDeadlines(r: OkfRecord): { date: string; raw: string; inva
   });
 }
 
-const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Text lehoty za dátumom („2026-10-09 Lehota na vyjadrenie" → „Lehota na vyjadrenie"); bez textu `undefined`. */
 export function deadlineLabel(raw: string | undefined): string | undefined {
@@ -136,7 +146,7 @@ export function deadlineTier(date: string, today: string): DeadlineTier {
 const byDate = (a: OverviewDeadline, b: OverviewDeadline): number =>
   a.date < b.date ? -1 : a.date > b.date ? 1 : a.title.localeCompare(b.title);
 
-const lastSegment = (path: string): string => path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path;
+export const lastSegment = (path: string): string => path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path;
 
 function matterOverview(input: MatterInput): MatterOverview {
   const card = input.cardFrontmatter ?? {};

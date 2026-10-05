@@ -7,9 +7,9 @@ export type McpConfigExportEntry = {
   disabledByTools?: boolean;
 };
 
-export type McpExportDisabledReason = "config" | "tools";
+type McpExportDisabledReason = "config" | "tools";
 
-export type McpLocalConfigExport = {
+type McpLocalConfigExport = {
   type: "local";
   command: string[];
   cwd?: string;
@@ -18,7 +18,7 @@ export type McpLocalConfigExport = {
   timeout?: number;
 };
 
-export type McpRemoteConfigExport = {
+type McpRemoteConfigExport = {
   type: "remote";
   url: string;
   enabled?: boolean;

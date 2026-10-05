@@ -12,9 +12,9 @@ export { NamingSchemaError, isNamingSchemaError, parseNamingRequest } from "./na
 const PROFILE_LIMIT = 256 * 1024, JSON_LIMIT = 4 * 1024 * 1024;
 const reserved = /^(?:memory|spisy|office|_kancelaria|agents\.md|claude\.md|brain\.md|memory\.md|_memory\.md|client\.md|klient\.md|matter\.md|spis\.md|project\.md|projekt\.md|index\.md|log\.md|_status\.md|vstupy\.md|pracovny-profil\.md|komunikacne-kanaly\.md|okf\.config)$/i;
 type Binary = { data: Buffer; sha256: string; bytes: number; physical: string; mode: number };
-export type NamingApplyReport = { status: "applied" | "already-applied" | "conflict" | "recovery-required"; operationId: string; fingerprint: string; message?: string; journal?: string };
+type NamingApplyReport = { status: "applied" | "already-applied" | "conflict" | "recovery-required"; operationId: string; fingerprint: string; message?: string; journal?: string };
 /** Test-only injection seam; CLI never accepts hooks or environment fault flags. */
-export type NamingApplyHooks = { checkpoint?: (stage: "prepared" | "target-created" | "markdown-installed" | "source-removed" | "before-commit", path?: string) => void };
+type NamingApplyHooks = { checkpoint?: (stage: "prepared" | "target-created" | "markdown-installed" | "source-removed" | "before-commit", path?: string) => void };
 // NTFS file IDs can exceed Number.MAX_SAFE_INTEGER; preserve exact identity in plans and CAS.
 const physical = (stat: { dev: bigint; ino: bigint }) => `${stat.dev}:${stat.ino}`;
 const utf8 = (data: Buffer) => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(data);

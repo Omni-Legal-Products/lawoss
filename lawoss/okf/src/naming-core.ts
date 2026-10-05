@@ -10,10 +10,10 @@ export function isNamingSchemaError(error: unknown): error is NamingSchemaError 
   return error instanceof Error && "code" in error && error.code === "LAWOSS_NAMING_SCHEMA";
 }
 export class NamingConflict extends Error {}
-export type NamingMetadata = { date: string; kind?: string; client?: string; description?: string; version?: string };
-export type NamingDocument = { id: string; path: string; treatment: "rename-working" | "copy-original-to-drafts"; destinationRole: string; metadata: NamingMetadata };
+type NamingMetadata = { date: string; kind?: string; client?: string; description?: string; version?: string };
+type NamingDocument = { id: string; path: string; treatment: "rename-working" | "copy-original-to-drafts"; destinationRole: string; metadata: NamingMetadata };
 export type NamingRequestV1 = { schema: "lawoss.document-naming.request/v1"; operationId: string; documents: NamingDocument[]; markdownFiles: string[] };
-export type LinkRewrite = { from: string; to: string; kind: "inline" | "reference" | "wikilink" };
+type LinkRewrite = { from: string; to: string; kind: "inline" | "reference" | "wikilink" };
 export type FilePin = { path: string; sha256: string; bytes: number; physical: string };
 export type NamingPlanV1 = {
   schema: "lawoss.document-naming.plan/v1"; operationId: string; fingerprint: string;
@@ -33,7 +33,7 @@ export function safeId(value: unknown): value is string { return typeof value ==
 export function safeRelativePath(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 1024 && value.split("/").every(p => p.length > 0 && p.length <= 240 && p === p.normalize("NFC") && !p.startsWith(".") && p.trim() === p && !/[. ]$/.test(p) && !/[\\<>:"|?*\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(p) && !/^(?:con|conin\$|conout\$|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(p));
 }
-export function validateDate(value: unknown): value is string {
+function validateDate(value: unknown): value is string {
   if (value === "bez-datumu") return true;
   if (typeof value !== "string" || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(value) || value.startsWith("0000")) return false;
   const date = new Date(`${value}T00:00:00Z`); return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
@@ -63,7 +63,7 @@ export function parseNamingRequest(value: unknown): NamingRequestV1 {
   }).sort(order);
   return { schema: "lawoss.document-naming.request/v1", operationId: value.operationId, documents, markdownFiles };
 }
-export function normalizeNamingValue(value: string): { input: string; normalized: string } {
+function normalizeNamingValue(value: string): { input: string; normalized: string } {
   const normalized = value.normalize("NFC").replace(/[\s\\/<>:"|?*`\u0000-\u001f\u007f-\u009f\u2028\u2029]+/gu, "-").replace(/-+/g, "-").replace(/^[. -]+|[. -]+$/g, "");
   if (!normalized) fail("Metadata becomes empty after normalization");
   return { input: value, normalized };

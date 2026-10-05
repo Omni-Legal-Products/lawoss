@@ -15,19 +15,22 @@ test("parses only complete typed public requests", () => {
   expect(() => parseOnboardingRequest({ action: "existing", root: "/x", mode: "map", memoryPath: "MEMORY.md" })).toThrow();
 });
 
-test("plans and applies new office and every client type without overwrite operations", async () => {
+test("plans and applies a new office", async () => {
   const parent = await directory("okf-parent-");
   const office = await planOnboarding(parseOnboardingRequest({ action: "office", parent, title: "Office", jurisdiction: "sk", language: "sk", lawyerName: "M" }));
   expect(office.mode).toBe("new");
   await applyOnboarding(office, await options());
   expect(await readFile(join(parent, "Office/okf.config"), "utf8")).toContain("jurisdiction: sk");
-  for (const clientType of ["fo", "fo-podnikatel", "po", "iny"] as const) {
-    const preview = await planOnboarding(parseOnboardingRequest({ action: "client", parent, name: clientType, title: clientType, clientType, jurisdiction: "sk", date: "2026-10-03", language: "sk" }));
-    if (preview.mode !== "new") throw new Error("Expected new client plan.");
-    expect(preview.plan.operations.every(operation => operation.kind === "directory" || typeof operation.content === "string")).toBe(true);
-    await applyOnboarding(preview, await options());
-    expect(await readFile(join(parent, clientType, "client.md"), "utf8")).toContain(`client_type: ${clientType}`);
-  }
+});
+
+// Each durable filesystem transaction gets its own timeout and cleanup boundary.
+test.each(["fo", "fo-podnikatel", "po", "iny"] as const)("plans and applies client type %s without overwrite operations", async clientType => {
+  const parent = await directory("okf-parent-");
+  const preview = await planOnboarding(parseOnboardingRequest({ action: "client", parent, name: clientType, title: clientType, clientType, jurisdiction: "sk", date: "2026-10-03", language: "sk" }));
+  if (preview.mode !== "new") throw new Error("Expected new client plan.");
+  expect(preview.plan.operations.every(operation => operation.kind === "directory" || typeof operation.content === "string")).toBe(true);
+  await applyOnboarding(preview, await options());
+  expect(await readFile(join(parent, clientType, "client.md"), "utf8")).toContain(`client_type: ${clientType}`);
 });
 
 test("subject and both matter kinds carry additive identity fields", async () => {
