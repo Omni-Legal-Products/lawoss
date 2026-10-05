@@ -89,3 +89,13 @@ Platí pri zapnutom OKF. V alfe len vymyslené alebo verejné údaje.
 ### Automatické roztriedenie dokumentov (pripravuje sa)
 
 > **Pripravuje sa.** Samostatná funkcia, v alfe 1 ešte nie je. Postup pre testerov doplníme sem.
+
+## Oficiálne odkazy na DPA
+
+Zoznam je abecedný podľa poskytovateľa a bez poradia podľa vhodnosti. Odkaz sám osebe nepotvrdzuje, že DPA pokrýva konkrétny plán, účet, spôsob prihlásenia, API, model alebo účel. Pred použitím overte podmienky zvoleného produktu a účtu. V alfe používajte iba vymyslené alebo verejné údaje.
+
+| Poskytovateľ | Oficiálne dokumenty | Rozsah, ktorý treba overiť |
+| --- | --- | --- |
+| Anthropic | [Data Processing Addendum](https://www.anthropic.com/legal/data-processing-addendum) | DPA je súčasťou komerčných podmienok alebo inej zmluvy, ktorá naň odkazuje; overte konkrétnu zmluvu a produkt. |
+| OpenAI | [Data Processing Addendum](https://openai.com/policies/data-processing-addendum/) | DPA dopĺňa OpenAI Services Agreement; overte, či sa táto zmluva vzťahuje na konkrétny účet a službu. |
+| OpenRouter | [Data Processing Agreement](https://openrouter.ai/data-processing-agreement) · [Terms of Service](https://openrouter.ai/terms) | Podmienky začleňujú DPA pri organizačnom alebo komerčnom použití. Pri poskytovateľovi modelu treba overiť aj jeho vlastné podmienky. |
