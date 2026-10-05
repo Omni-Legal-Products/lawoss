@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveGitHubAppFeed } from "./update-feed.mjs";
+import { alphaReleaseDownloadUrl } from "./lawoss-branding.mjs";
 
 /** @typedef {{ bytesPerSecond?: number, percent?: number, transferred?: number, total?: number, delta?: number }} UpdaterEvent */
 /** @typedef {{
@@ -66,7 +67,7 @@ export const ELECTRON_UPDATER_FEEDS = Object.freeze({
   // Stable is served via our domain; the route (eigenwelt-website
   // app/legalwork/update/[file]/route.ts) redirects every file to the same
   // GitHub release assets this URL used to point at:
-  //   https://github.com/eigenweltlabs/legalwork/releases/latest/download
+  //   https://github.com/Omni-Legal-Products/lawoss/releases/latest/download
   // 🟡 LAWOSS: feed forku — upstream feed by ponúkal LegalWork a prepísal by
   // fork (rovnaké appId). Tracked feed ostáva na vlastnej doméne (rovnaký
   // vzor ako upstream), GitHub je fallback. Kým fork nemá releasy, oba feedy
@@ -75,10 +76,7 @@ export const ELECTRON_UPDATER_FEEDS = Object.freeze({
   // Alpha is a per-platform rolling release: each platform's alpha workflow
   // (alpha-macos-aarch64.yml / alpha-windows-x64.yml) refreshes its own
   // updater manifest on its own tag.
-  alpha:
-    process.platform === "win32"
-      ? "https://github.com/Omni-Legal-Products/lawoss/releases/download/alpha-windows-latest"
-      : "https://github.com/Omni-Legal-Products/lawoss/releases/download/alpha-macos-latest",
+  alpha: alphaReleaseDownloadUrl(process.platform === "win32" ? "windows" : "macos"),
 });
 
 // 🟡 LAWOSS: lokálny build bez stampnutej verzie (package.json = 0.0.0) by

@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -132,7 +132,10 @@ test("bounds workspace sources and output paths, rejects missing model and suppo
   await expect(documentPath(root, "outside.pdf")).rejects.toThrow("outside");
   await expect(documentPath(root, join(other, "contract.pdf"))).rejects.toThrow("outside");
   const manager = new OcrManager(join(root, "ocr"));
+  // LAWOSS: with the bundled runtime a missing model downloads on first use (lawoss/ocr-on-demand.test.ts); without it the error stays.
+  const available = spyOn(manager.runtime, "available").mockResolvedValue(false);
   await expect(new DocumentPreparation(manager).start(root, { files: ["contract.pdf"] })).rejects.toThrow("Download");
+  available.mockRestore();
   const image = await openDocument(new Uint8Array(await readFile(new URL("../ocr/fixtures/bilingual.png", import.meta.url))), "image");
   expect(image.pageCount).toBe(1); expect((await image.page(1, new AbortController().signal)).nativeText).toBe(""); await image.close();
   await symlink(other, join(root, ".opencode"));

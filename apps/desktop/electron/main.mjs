@@ -63,6 +63,8 @@ import { extractDescription } from "./skill-description.mjs";
 import { parseSkillFrontmatter } from "./skill-frontmatter.mjs";
 import { normalizeImportedSkill } from "./skill-import.mjs";
 import { migrateInstalledWorkflows } from "./skill-migration.mjs";
+// LAWOSS: značka a releasy forku z jedného miesta (kópia lawoss/branding.mjs).
+import { FORK_RELEASES_URL, brandAppName } from "./lawoss-branding.mjs";
 
 const mcpOAuthCallbacks = createMcpOAuthCallbackBroker();
 const mcpOAuthOwners = new WeakSet();
@@ -150,19 +152,20 @@ const APP_BUNDLE_IDENTIFIER = "com.eigenweltlabs.legalwork";
 const DEV_APP_IDENTIFIER = "com.eigenweltlabs.legalwork.dev";
 const DESKTOP_PROTOCOL_SCHEME = "legalwork";
 const isDevMode = process.env.LEGALWORK_DEV_MODE === "1";
+// LAWOSS: APP_NAME (app.setName) aj DISPLAY_NAME (menu, tray) sú LAWOSS. APP_NAME určuje na
+// macOS priečinok logov a meno v support bundle; userData sa odvodzuje od APP_IDENTIFIER,
+// ktorý sa nemení (stráž lawoss/scripts/check-branding.mjs).
 const APP_NAME =
   process.env.LEGALWORK_ELECTRON_APP_NAME?.trim() ||
-  (isDevMode ? "LegalWork - Dev" : "LegalWork");
-// LAWOSS: viditeľný názov v menu a v tray. APP_NAME (app.setName) ostáva „LegalWork“: userData
-// sa odvodzuje od APP_IDENTIFIER, APP_NAME určuje na macOS priečinok logov a support bundle.
-const DISPLAY_NAME = isDevMode ? "LAWOSS - Dev" : "LAWOSS";
+  brandAppName(isDevMode);
+const DISPLAY_NAME = brandAppName(isDevMode);
 const APP_IDENTIFIER =
   process.env.LEGALWORK_ELECTRON_APP_IDENTIFIER?.trim() ||
   (isDevMode ? DEV_APP_IDENTIFIER : APP_BUNDLE_IDENTIFIER);
 // The architecture-mismatch helper checks this tracked feed first and then a
 // version-specific GitHub release path in update-feed.mjs.
 const RELEASE_DOWNLOAD_BASE_URL = ELECTRON_UPDATER_FEEDS.stable;
-const RELEASE_PAGE_URL = "https://github.com/eigenweltlabs/legalwork/releases/latest";
+const RELEASE_PAGE_URL = FORK_RELEASES_URL;
 
 const WINDOWS_PASTE_SCRIPT = `
 $source = @'
@@ -1182,7 +1185,7 @@ const SHUTDOWN_SCREEN_URL = `data:text/html;charset=utf-8,${encodeURIComponent(`
   <body>
     <main>
       <div class="spinner" aria-hidden="true"></div>
-      <div class="title">Stopping LegalWork services</div>
+      <div class="title">Stopping ${DISPLAY_NAME} services</div>
       <div class="body">Closing local workers and background services...</div>
     </main>
   </body>

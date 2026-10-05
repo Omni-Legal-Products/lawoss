@@ -1,5 +1,7 @@
 // LAWOSS: test stráže proti Eigenweltu a analytike. Spúšťa sa v CI:
 // node --test lawoss/scripts/check-no-eigenwelt.test.mjs
+// Import nižšie pridá aj testy stráže značky do toho istého behu.
+import "./check-branding.test.mjs";
 import assert from "node:assert/strict";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -83,6 +85,26 @@ describe("LAWOSS stráž Eigenweltu a analytiky", () => {
     assert.ok(checkStructure(surface).some((line) => line.includes("feature-flags.ts")));
     const server = structureWith("apps/server/src/lawoss/commercial-services.ts", (text) => text.replace('env[EIGENWELT_ACCOUNT_ENV] === "1";', 'env[EIGENWELT_ACCOUNT_ENV] !== "0";'));
     assert.ok(checkStructure(server).some((line) => line.includes("commercial-services.ts")));
+  });
+
+  test("sťahovanie modelov pri štarte zlyhá", () => {
+    const config = structureWith("apps/server/src/config.ts", (text) => text.replace("fileConfig.autoDownloadOcr ?? false,", "fileConfig.autoDownloadOcr ?? true,"));
+    assert.ok(checkStructure(config).some((line) => line.startsWith("apps/server/src/config.ts")));
+    const server = structureWith("apps/server/src/server.ts", (text) => text.replace("if (config.autoDownloadOcr && !config.readOnly) void ocr.downloadDefaultIfNeeded();", "void ocr.downloadDefaultIfNeeded();"));
+    assert.ok(checkStructure(server).some((line) => line.startsWith("apps/server/src/server.ts")));
+    const prefetch = structureWith("apps/server/src/server.ts", (text) => `${text}\nvoid prepareLayoutModel(dir, signal);\n`);
+    assert.ok(checkStructure(prefetch).some((line) => line.startsWith("apps/server/src/server.ts")));
+    const firstUse = structureWith("apps/server/src/document-preparation/service.ts", (text) => text.replace("await selected.download?.wait(job.controller.signal);", ""));
+    assert.ok(checkStructure(firstUse).some((line) => line.startsWith("apps/server/src/document-preparation/service.ts")));
+    const recorder = structureWith("apps/app/src/react-app/domains/recorder/recorder-store.ts", (text) => text.replace("      void get().prewarm();\n", "      void get().prewarm();\n      void get().ensureDiarizationReady();\n"));
+    assert.ok(checkStructure(recorder).some((line) => line.includes("recorder-store.ts")));
+    const files = {
+      "apps/desktop/electron/server-env.mjs": 'const env = { LEGALWORK_OCR_AUTO_DOWNLOAD: "1" };',
+      "apps/server/src/embedded-config.ts": "config.autoDownloadOcr = true;",
+      "apps/server/src/ocr/auto-download.test.ts": 'process.env.LEGALWORK_OCR_AUTO_DOWNLOAD = "1";',
+    };
+    const problems = checkSources(fixture(files), Object.keys(files));
+    assert.equal(problems.length, 2, problems.join("\n"));
   });
 
   test("katalóg bez odporúčaného modelu ChatGPT zlyhá", () => {

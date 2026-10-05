@@ -1,5 +1,5 @@
 /**
- * Release-channel concept for LegalWork desktop builds.
+ * Release-channel concept for LAWOSS desktop builds.
  *
  * There are two channels users can opt into:
  *
@@ -17,17 +17,16 @@
  */
 
 import type { ReleaseChannel } from "../types";
+import { ALPHA_RELEASE_TAGS, FORK_RELEASES_URL, alphaReleaseDownloadUrl } from "@/lawoss/branding";
 
 /** Stable channel's Tauri updater manifest URL. */
-export const STABLE_UPDATER_ENDPOINT =
-  "https://github.com/eigenweltlabs/legalwork/releases/latest/download/latest.json";
+export const STABLE_UPDATER_ENDPOINT = `${FORK_RELEASES_URL}/latest/download/latest.json`;
 
 /** Alpha channel's Tauri updater manifest URL (macOS-only, rolling). */
-export const ALPHA_UPDATER_ENDPOINT =
-  "https://github.com/eigenweltlabs/legalwork/releases/download/alpha-macos-latest/latest.json";
+export const ALPHA_UPDATER_ENDPOINT = `${alphaReleaseDownloadUrl("macos")}/latest.json`;
 
 /** Rolling GitHub release tag that alpha macOS artifacts are published to. */
-export const ALPHA_MACOS_RELEASE_TAG = "alpha-macos-latest";
+export const ALPHA_MACOS_RELEASE_TAG = ALPHA_RELEASE_TAGS.macos;
 
 export type PlatformKind = "darwin" | "linux" | "windows" | "web" | "unknown";
 

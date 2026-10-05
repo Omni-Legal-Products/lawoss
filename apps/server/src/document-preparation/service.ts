@@ -14,6 +14,7 @@ import { LayoutRuntime } from "./layout-runtime.js";
 import { assemblePageStructure, pageReviewReasons, unavailableStructure, type DocumentLayout, type LayoutDetection } from "./structure.js";
 import { linkDocumentStructure } from "./relations.js";
 import { openDocument, type RenderedDocument } from "./render.js";
+import { firstUseFailure, firstUseOcrDownload, type FirstUseDownload } from "../lawoss/ocr-on-demand.js";
 
 import { pageSchema, preparedSchema, type PreparedDocument } from "./schema.js";
 export { preparedSchema, type PreparedDocument } from "./schema.js";
@@ -32,8 +33,8 @@ export const prepareInput = z.strictObject({
 const hasOwnText = (text: string) => (text.match(/[\p{L}\p{N}]/gu)?.length ?? 0) >= 100;
 
 type Entry = { file: string; status: "queued" | "running" | "complete" | "needs-review" | "error"; completedPages: number; pageCount: number; preparationPath?: string; error?: string };
-type Job = { id: string; workspace: string; engine: OcrEngineInfo; status: "queued" | "running" | "complete" | "needs-review" | "cancelled"; documents: Entry[]; controller: AbortController; createdAt: number };
-type Snapshot = { service: OcrService; fingerprint: string };
+type Job = { id: string; workspace: string; engine: OcrEngineInfo; status: "queued" | "running" | "complete" | "needs-review" | "cancelled"; documents: Entry[]; controller: AbortController; createdAt: number; notice?: string };
+type Snapshot = { service: OcrService; fingerprint: string; download?: FirstUseDownload };
 const digest = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
 const within = (root: string, path: string) => { const part = relative(root, path); return part !== ".." && !part.startsWith(`..${sep}`) && !isAbsolute(part); };
 
@@ -55,8 +56,8 @@ async function snapshot(ocr: OcrManager): Promise<Snapshot> {
   const settings = await ocr.store.read();
   const engine = settings.engines.find(engine => engine.id === settings.defaultEngineId);
   if (!engine) throw new ApiError(400, "ocr_not_ready", "Choose an OCR model in Settings → AI Providers.");
-  if (engine.kind === "local" && (ocr.runtime.busy || !await ocr.runtime.ready(engine.model)))
-    throw new ApiError(400, "ocr_not_ready", "Download the selected OCR model in Settings → AI Providers, then retry the review.");
+  // LAWOSS: a missing local model downloads on first use, not at startup (lawoss/ocr-on-demand.ts).
+  const download = engine.kind === "local" && (ocr.runtime.busy || !await ocr.runtime.ready(engine.model)) ? await firstUseOcrDownload(ocr, engine) : undefined;
   const key = engine.kind !== "local" && engine.apiKeyRef !== null ? await ocr.vault.get(engine.apiKeyRef) : undefined;
   if (engine.kind !== "local" && engine.apiKeyRef !== null && !key)
     throw new ApiError(400, "ocr_key_required", "Add the selected model's API key in Settings → AI Providers, then retry.");
@@ -64,6 +65,7 @@ async function snapshot(ocr: OcrManager): Promise<Snapshot> {
     service: createConfiguredOcrService({ ...settings, engines: [engine] }, { localRuntime: ocr.runtime.local, resolveApiKey: async () => key }),
     // Native preprocessing/decoding changes evidence; do not reuse Python OCR pages.
     fingerprint: digest(JSON.stringify(engine) + (engine.kind === "local" && engine.model === "pp-ocrv6-small" ? ":native-ocr-1" : "")),
+    download,
   };
 }
 
@@ -94,7 +96,7 @@ export class DocumentPreparation {
     const selected = await (this.options.snapshot ? this.options.snapshot() : snapshot(this.ocr));
     const engine = selected.service.listEngines()[0];
     if (!engine) throw new Error("Missing OCR engine");
-    const job: Job = { id: randomUUID(), workspace: root, engine, status: "queued", documents: sources.map(source => ({ file: source.file, status: "queued", completedPages: 0, pageCount: 0 })), controller: new AbortController(), createdAt: Date.now() };
+    const job: Job = { id: randomUUID(), workspace: root, engine, status: "queued", documents: sources.map(source => ({ file: source.file, status: "queued", completedPages: 0, pageCount: 0 })), controller: new AbortController(), createdAt: Date.now(), notice: selected.download?.notice };
     this.jobs.set(job.id, job);
     this.pending = this.pending.catch(() => undefined).then(() => this.run(job, root, sources, input, selected, engine))
       // Model processes stay loaded across the job's pages and documents, and stop with it.
@@ -105,6 +107,12 @@ export class DocumentPreparation {
   private async run(job: Job, root: string, sources: Awaited<ReturnType<typeof documentPath>>[], input: z.infer<typeof prepareInput>, selected: Snapshot, engine: OcrEngineInfo) {
     if (job.controller.signal.aborted) return;
     job.status = "running";
+    try { await selected.download?.wait(job.controller.signal); } catch (error) {
+      // LAWOSS: the first-use model download failed or was cancelled; nothing was read.
+      for (const entry of job.documents) Object.assign(entry, { status: "error", error: job.controller.signal.aborted ? "Preparation was cancelled. Retry to resume completed pages." : firstUseFailure(error) });
+      job.status = job.controller.signal.aborted ? "cancelled" : "needs-review"; job.notice = undefined; return;
+    }
+    job.notice = undefined;
     let layoutUnavailable = false;
     for (let index = 0; index < sources.length; index++) {
       if (job.controller.signal.aborted) break;
@@ -250,7 +258,7 @@ export class DocumentPreparation {
   }
   async status(workspace: string, id: string) {
     const job = await this.job(workspace, id);
-    return { id: job.id, engine: job.engine, status: job.status, documents: job.documents.map(document => ({ ...document })) };
+    return { id: job.id, engine: job.engine, status: job.status, documents: job.documents.map(document => ({ ...document })), ...job.notice ? { notice: job.notice } : {} };
   }
   async cancel(workspace: string, id: string) {
     const job = await this.job(workspace, id);
