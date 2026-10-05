@@ -1,4 +1,4 @@
-/* LAWOSS shell — „podací denník na tmavom stole“.
+/* LAWOSS shell — jazyk pohľadov z OKF a webu lawoss.app (zjednotené 5. 10. 2026; predtým „podací denník“).
    Builds only on --lw-* tokens (lawoss-tokens.css); no raw hex.
    Design source of truth: coordination repo docs/design/ (v2) + hifi prototype. */
 
@@ -30,7 +30,7 @@
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   height: 38px; padding: 0 12px 0 14px; margin-left: 6px;
   color: var(--lw-text-secondary); font-size: 13.5px;
-  border: 1px solid transparent; border-right: 0; border-radius: 3px 0 0 3px;
+  border: 1px solid transparent; border-right: 0; border-radius: var(--lw-radius-md) 0 0 var(--lw-radius-md);
   position: relative; text-decoration: none;
   transition: color 160ms var(--lw-ease-standard), background 160ms var(--lw-ease-standard), transform 220ms var(--lw-ease-standard);
 }
@@ -67,7 +67,7 @@
   content: ""; position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(180deg, color-mix(in srgb, var(--lw-text-primary) 2.5%, transparent), transparent 240px);
 }
-.lw-h1 { font-size: 26px; font-weight: 500; letter-spacing: -0.015em; line-height: 1.15; }
+.lw-h1 { font-size: clamp(28px, 3vw, 38px); font-weight: 600; letter-spacing: -0.02em; line-height: 1.08; }
 .lw-lead { color: var(--lw-text-secondary); margin-top: 6px; max-width: 70ch; }
 .lw-mono { font-family: var(--lw-font-mono); font-size: 0.93em; }
 .lw-note {
@@ -79,7 +79,7 @@
 /* mockup ribbon */
 .lw-mockup {
   position: absolute; right: 44px; top: 30px; transform: rotate(-4deg);
-  border: 1.5px solid var(--lw-accent); border-radius: 3px; padding: 6px 10px;
+  border: 1.5px solid var(--lw-accent); border-radius: var(--lw-radius-md); padding: 6px 10px;
   font-family: var(--lw-font-mono); font-size: 11px; letter-spacing: 0.06em;
   color: var(--lw-accent); opacity: 0.55; text-align: center; line-height: 1.35; pointer-events: none;
 }
@@ -89,7 +89,7 @@
 .lw-obal { display: flex; flex-wrap: wrap; margin-top: 26px; border-top: 1px solid var(--lw-border-strong); border-bottom: 1px solid var(--lw-border); }
 .lw-obal > div { padding: 12px 22px 12px 0; margin-right: 22px; border-right: 1px solid var(--lw-border-subtle); display: flex; flex-direction: column; gap: 2px; }
 .lw-obal > div:last-child { border-right: 0; margin-right: 0; }
-.lw-sc { font-variant-caps: all-small-caps; letter-spacing: 0.07em; color: var(--lw-text-tertiary); font-weight: 500; }
+.lw-sc { font-size: 12px; letter-spacing: 0; color: var(--lw-text-tertiary); font-weight: 500; }
 .lw-obal .lw-v { font-size: 16px; font-weight: 500; }
 .lw-obal .lw-v small { font-size: 12.5px; color: var(--lw-text-tertiary); font-weight: 400; margin-left: 6px; }
 .lw-obal .lw-v.warn { color: var(--lw-warning); }
@@ -173,7 +173,7 @@
   height: 32px;
   padding: 0 28px 0 9px;
   border: 1px solid var(--lw-border);
-  border-radius: 3px;
+  border-radius: var(--lw-radius-md);
   background: var(--lw-sunken);
   color: var(--lw-text-primary);
   font: inherit;
@@ -203,7 +203,7 @@
 .lw-marketplace-tag {
   padding: 4px 7px;
   border: 1px solid var(--lw-border);
-  border-radius: 3px;
+  border-radius: var(--lw-radius-md);
   color: var(--lw-text-secondary);
   font-family: var(--lw-font-mono);
   font-size: 10.5px;
@@ -231,14 +231,16 @@
 
 /* buttons */
 .lw-btn {
-  height: 34px; padding: 0 14px; border: 1px solid var(--lw-border); border-radius: 3px;
-  font-weight: 500; font-size: 13px; color: var(--lw-text-primary); background: none; cursor: pointer;
-  display: inline-flex; align-items: center; white-space: nowrap; text-decoration: none;
-  transition: all 140ms;
+  height: 36px; padding: 0 16px; border: 1px solid var(--lw-border); border-radius: 999px;
+  font-weight: 500; font-size: 13px; color: var(--lw-text-primary); cursor: pointer;
+  background: color-mix(in srgb, var(--lw-text-primary) 3.5%, transparent);
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; text-decoration: none;
+  transition: border-color 180ms var(--lw-ease-expo), background 180ms var(--lw-ease-expo), transform 200ms var(--lw-ease-expo);
 }
-.lw-btn:hover { border-color: var(--lw-border-strong); background: var(--lw-hover); }
-.lw-btn.gold { background: var(--lw-accent); color: var(--lw-accent-fg); border-color: var(--lw-accent); padding: 0 18px; }
-.lw-btn.gold:hover { background: var(--lw-accent-hover); border-color: var(--lw-accent-hover); }
+.lw-btn:hover { border-color: color-mix(in srgb, var(--lw-gold) 50%, transparent); background: color-mix(in srgb, var(--lw-gold) 8%, transparent); }
+/* Hlavná akcia ako „+ Nová vec“ v Dnes: kovové zlato. */
+.lw-btn.gold { border-color: transparent; background: var(--lw-metal); background-size: 180% 100%; color: var(--lw-on-gold); font-weight: 600; padding: 0 20px; box-shadow: var(--lw-gold-glow); transition: background-position 600ms var(--lw-ease-expo), box-shadow 300ms var(--lw-ease-expo); }
+.lw-btn.gold:hover { background-position: 100% 0; box-shadow: var(--lw-gold-glow-hover); }
 
 /* diagrams */
 .lw-strip { margin-top: 16px; }
@@ -279,7 +281,7 @@
   letter-spacing: 0.14em;
   color: var(--lw-warning);
   border: 1px solid var(--lw-warning);
-  border-radius: 2px;
+  border-radius: var(--lw-radius-md);
   padding: 1px 4px;
   margin-left: 6px;
   flex: 0 0 auto;
@@ -350,7 +352,7 @@
 .lw-welcome-lanes { display: flex; flex-direction: column; gap: 8px; margin-top: 22px; }
 .lw-welcome-lane {
   display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 11px 13px;
-  border: 1px solid var(--lw-border); border-radius: 3px; background: transparent; color: var(--lw-text-primary);
+  border: 1px solid var(--lw-border); border-radius: var(--lw-radius-md); background: transparent; color: var(--lw-text-primary);
   text-align: left; font: inherit; cursor: pointer; transition: border-color 140ms, background 140ms;
 }
 .lw-welcome-lane:hover { border-color: var(--lw-border-strong); background: var(--lw-hover); }
@@ -362,7 +364,7 @@
 .lw-welcome-manual-row { display: flex; gap: 8px; }
 .lw-welcome-manual-row input {
   min-width: 0; flex: 1; height: 36px; padding: 0 10px; border: 1px solid var(--lw-border);
-  border-radius: 3px; background: var(--lw-sunken); color: var(--lw-text-primary); font: inherit; font-size: 12.5px;
+  border-radius: var(--lw-radius-md); background: var(--lw-sunken); color: var(--lw-text-primary); font: inherit; font-size: 12.5px;
 }
 .lw-welcome-manual-row input:focus { outline: none; border-color: var(--lw-accent-border); }
 .lw-welcome-manual-row input::placeholder { color: var(--lw-text-placeholder); }
@@ -374,7 +376,7 @@
 }
 .lw-welcome-panel {
   position: relative; display: flex; flex-direction: column; justify-content: space-between; gap: 34px;
-  width: 100%; max-height: 780px; height: 100%; padding: 40px; border-radius: 4px;
+  width: 100%; max-height: 780px; height: 100%; padding: 40px; border-radius: var(--lw-radius-md);
   background: var(--lw-surface); border: 1px solid var(--lw-border-strong);
   box-shadow: 0 30px 80px -40px rgb(0 0 0 / 0.55);
 }
@@ -390,7 +392,7 @@
 }
 .lw-welcome-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--lw-accent); flex: 0 0 auto; }
 .lw-welcome-todo {
-  border: 1px solid var(--lw-warning); border-left-width: 2px; border-radius: 3px;
+  border: 1px solid var(--lw-warning); border-left-width: 2px; border-radius: var(--lw-radius-md);
   background: var(--lw-warning-soft); padding: 14px 16px;
 }
 .lw-welcome-todo > b {
@@ -433,23 +435,23 @@
 .lw-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .lw-field-wide { grid-column: 1 / -1; }
 .lw-field-row { flex-direction: row; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 0; border-top: 1px solid var(--lw-border); grid-column: 1 / -1; }
-.lw-input { height: 34px; padding: 0 10px; border: 1px solid var(--lw-border); border-radius: 3px; background: var(--lw-sunken); color: var(--lw-text-primary); font: inherit; font-size: 13.5px; }
+.lw-input { height: 34px; padding: 0 10px; border: 1px solid var(--lw-border); border-radius: var(--lw-radius-md); background: var(--lw-sunken); color: var(--lw-text-primary); font: inherit; font-size: 13.5px; }
 .lw-input:focus { outline: none; border-color: var(--lw-accent-border); }
 .lw-input::placeholder { color: var(--lw-text-placeholder); }
 .lw-choice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.lw-choice-item { text-align: left; padding: 10px 12px; border: 1px solid var(--lw-border); border-radius: 3px; background: transparent; color: var(--lw-text-primary); font: inherit; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.lw-choice-item { text-align: left; padding: 10px 12px; border: 1px solid var(--lw-border); border-radius: var(--lw-radius-md); background: transparent; color: var(--lw-text-primary); font: inherit; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
 .lw-choice-item small { color: var(--lw-text-secondary); font-size: 12.5px; }
 .lw-choice-item.on { border-color: var(--lw-accent-border); background: var(--lw-accent-soft); }
 .lw-seg { display: flex; gap: 6px; }
-.lw-seg-item { flex: 1; height: 34px; border: 1px solid var(--lw-border); border-radius: 3px; background: transparent; color: var(--lw-text-secondary); font: inherit; cursor: pointer; }
+.lw-seg-item { flex: 1; height: 36px; border: 1px solid var(--lw-border); border-radius: 999px; background: transparent; color: var(--lw-text-secondary); font: inherit; cursor: pointer; }
 .lw-seg-item.on { border-color: var(--lw-accent-border); background: var(--lw-accent-soft); color: var(--lw-text-primary); font-weight: 500; }
-.lw-pre { margin: 10px 0 0; padding: 12px 14px; background: var(--lw-sunken); border: 1px solid var(--lw-border-subtle); border-radius: 3px; font-size: 12.5px; line-height: 1.55; color: var(--lw-text-secondary); white-space: pre-wrap; }
-.lw-status { margin-top: 18px; padding: 10px 12px; border-radius: 3px; font-size: 13px; border: 1px solid var(--lw-border); }
+.lw-pre { margin: 10px 0 0; padding: 12px 14px; background: var(--lw-sunken); border: 1px solid var(--lw-border-subtle); border-radius: var(--lw-radius-md); font-size: 12.5px; line-height: 1.55; color: var(--lw-text-secondary); white-space: pre-wrap; }
+.lw-status { margin-top: 18px; padding: 12px 14px; border-radius: var(--lw-radius-lg); font-size: 13px; border: 1px solid var(--lw-border); }
 .lw-status.ok { border-color: var(--lw-success); color: var(--lw-success); background: var(--lw-success-soft); }
 .lw-status.warn { border-color: var(--lw-warning); color: var(--lw-warning); background: var(--lw-warning-soft); }
 .lw-status.err { border-color: var(--lw-danger); color: var(--lw-danger); background: var(--lw-danger-soft); }
 .lw-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
-.lw-btn-secondary { height: 36px; padding: 0 16px; border: 1px solid var(--lw-border-strong); border-radius: 3px; background: transparent; color: var(--lw-text-primary); font: inherit; cursor: pointer; }
+.lw-btn-secondary { height: 36px; padding: 0 16px; border: 1px solid var(--lw-border-strong); border-radius: 999px; background: transparent; color: var(--lw-text-primary); font: inherit; cursor: pointer; }
 .lw-btn:disabled, .lw-btn-secondary:disabled { opacity: 0.45; cursor: default; }
 
 .lw-inline { display: flex; gap: 8px; }
@@ -503,3 +505,37 @@
 /* Lite bočný panel: naliehavosť najbližšej lehoty pri „Posledných veciach“ (rovnaké pravidlá ako Dnes). */
 .lw-nav-urgency { flex: none; width: 6px; height: 6px; margin-left: auto; border-radius: 50%; background: #c9a24a; box-shadow: 0 0 8px rgba(201, 162, 74, 0.8); }
 .lw-nav-urgency[data-urgency="hot"] { background: #e8836b; box-shadow: 0 0 8px rgba(232, 131, 107, 0.85); }
+
+
+/* ── zjednotenie s pohľadmi z OKF (5. 10. 2026) ────────────────────────────
+   Registre, obal veci a formuláre stránok Pro, Nového spisu a marketplace
+   ako sklenené panely z Dnes: 14 px, jemná zlatá linka, mono na čísla. */
+.lw-reg, .lw-obal, .lw-plan-group {
+  position: relative;
+  padding: 14px 16px 10px;
+  border: 1px solid var(--lw-border-subtle);
+  border-radius: var(--lw-radius-panel);
+  background: var(--lw-panel);
+  box-shadow: var(--lw-panel-shadow);
+}
+.lw-reg::after, .lw-obal::after, .lw-plan-group::after {
+  content: ""; position: absolute; inset: 0 20% auto; height: 1px;
+  background: var(--lw-panel-hairline); opacity: 0.6; pointer-events: none;
+}
+.lw-obal { border-top-color: var(--lw-border-subtle); border-bottom-color: var(--lw-border-subtle); }
+.lw-reg-h { border-bottom-color: var(--lw-border-subtle); }
+.lw-reg-h h2 { font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
+.lw-row { border-radius: var(--lw-radius-md); padding-left: 6px; padding-right: 6px; transition: background 180ms var(--lw-ease-expo); }
+.lw-row:last-child { border-bottom-color: transparent; }
+.lw-input { height: 36px; border-radius: var(--lw-radius-md); }
+.lw-input:focus, .lw-marketplace-filters select:focus { border-color: color-mix(in srgb, var(--lw-gold) 60%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lw-gold) 18%, transparent); }
+.lw-note { border-top-color: var(--lw-border-subtle); }
+.lw-form {
+  position: relative; margin-top: 22px; padding: 22px 24px;
+  border: 1px solid var(--lw-border-subtle); border-radius: var(--lw-radius-panel);
+  background: var(--lw-panel); box-shadow: var(--lw-panel-shadow);
+}
+.lw-form::after { content: ""; position: absolute; inset: 0 20% auto; height: 1px; background: var(--lw-panel-hairline); opacity: 0.6; pointer-events: none; }
+.lw-plan-group > .lw-sc { border-bottom-color: var(--lw-border-subtle); }
+/* Upstream má vlastnú triedu .lw-field (výplň vstupného poľa); v LAWOSS formulári je to len obal popisu a poľa. */
+.lw-form .lw-field { background: none; box-shadow: none; }

@@ -3,16 +3,17 @@
  * naliehavosť farbou. Vychádza z webu lawoss.app; farby idú cez tokeny LAWOSS.
  */
 .lw-today, .lw-matter, .lw-clients {
-  --td-gold: #c9a24a;
-  --td-gold-hi: #f2d788;
-  --td-metal: linear-gradient(100deg, #b98d3f 0%, #e7c46a 38%, #f7de94 50%, #d0a24b 64%, #aa8039 100%);
-  --td-hot: #e8836b;
+  /* Globálne tokeny LAWOSS (lawoss-tokens.css); pohľady z OKF sú ich vzor pre celú appku. */
+  --td-gold: var(--lw-gold, #c9a24a);
+  --td-gold-hi: var(--lw-gold-hi, #f2d788);
+  --td-metal: var(--lw-metal);
+  --td-hot: var(--lw-hot, #e8836b);
   --td-near: var(--td-gold);
   --td-calm: var(--lw-text-tertiary, #75808c);
   --td-line: var(--lw-border-subtle, rgba(233, 228, 218, 0.08));
   --td-glass: linear-gradient(180deg, color-mix(in srgb, var(--lw-text-primary, #e9e4da) 4.5%, transparent), color-mix(in srgb, var(--lw-text-primary, #e9e4da) 1.5%, transparent));
-  --td-radius: 14px;
-  --td-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --td-radius: var(--lw-radius-panel, 14px);
+  --td-ease: var(--lw-ease-expo, cubic-bezier(0.22, 1, 0.36, 1));
 }
 :root:not(.dark):not([data-theme="dark"]) .lw-today, :root:not(.dark):not([data-theme="dark"]) .lw-matter, :root:not(.dark):not([data-theme="dark"]) .lw-clients { --td-hot: var(--lw-danger, #b3261e); --td-gold: #8c6a1f; --td-gold-hi: #6e5214; }
 

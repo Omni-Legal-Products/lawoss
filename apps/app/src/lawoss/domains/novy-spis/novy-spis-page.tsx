@@ -208,7 +208,7 @@ export function NovySpisPanel({ connection, workspace, onOpenSession, documentAu
 
   return (
     <section aria-label={text("wizard.title")}>
-      <h2 className="text-lg font-medium">{text("wizard.title")}</h2>
+      <h2 className="lw-h1">{text("wizard.title")}</h2>
       <p className="lw-lead">
         {text("wizard.intro")}
       </p>
