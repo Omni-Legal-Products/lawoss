@@ -5,6 +5,23 @@ import { startServer } from "../../server/src/server";
 import type { ServerConfig } from "../../server/src/types";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 
+/**
+ * Windows uvoľní priečinok sledovaný cez fs.watch až chvíľu po close() pri
+ * server.stop(); rm medzitým hlási EBUSY/EPERM. Na macOS a Linuxe prejde hneď.
+ */
+async function removeTree(path: string): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await rm(path, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = error instanceof Error && "code" in error ? error.code : undefined;
+      if (attempt >= 20 || (code !== "EBUSY" && code !== "EPERM" && code !== "ENOTEMPTY")) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+}
+
 export async function memoryFixture() {
   const base = await realpath(await mkdtemp(join(tmpdir(), "lawoss-ui-")));
   const prior = { data: process.env.LEGALWORK_DATA_DIR, tokens: process.env.LEGALWORK_TOKEN_STORE };
@@ -29,7 +46,7 @@ export async function memoryFixture() {
   const server = await startServer(config), baseUrl = `http://127.0.0.1:${server.port}`;
   const client = createLegalworkServerClient({ baseUrl, token: "synthetic-client", hostToken: "synthetic-host" });
   return { base, root, matter, vault, content, profile, config, client, baseUrl, engineUrl, engineCalls, cleanup: async () => {
-    await server.stop(); engine.stop(true); await rm(base, { recursive: true, force: true });
+    await server.stop(); engine.stop(true); await removeTree(base);
     for (const [key, value] of Object.entries({ LEGALWORK_DATA_DIR: prior.data, LEGALWORK_TOKEN_STORE: prior.tokens })) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
   } };
 }
