@@ -107,34 +107,33 @@ describe("inštalácia odporúčaných balíkov a pôvod inštalácie", () => {
 });
 
 describe("panel Odporúčané balíky LAWOSS", () => {
-  const props = {
-    workspaceId: "selected", workspaceName: "Vec Novák", busy: false, loading: false, error: null,
-    plugins: [], skills: [], canInstallPlugin: true, canInstallSkills: true,
-    installPlugin: async () => { throw new Error("vykreslenie nesmie inštalovať"); },
-    installOkf: async () => ({ ok: true, message: "ok" }), refresh: async () => {},
-    previewPlugin: async () => { throw new Error("vykreslenie nesmie načítať náhľad"); },
-  };
+  const panel = (jurisdiction: "sk" | "cz", installed: Set<string> = new Set()) => renderToStaticMarkup(
+    <RecommendedBundlesPanel jurisdiction={jurisdiction} installed={installed} permitted
+      install={async () => { throw new Error("vykreslenie nesmie inštalovať"); }} />);
 
   test("slovenská kancelária: SK základ zaškrtnutý, CZ základ sa dá pridať", () => {
-    const html = renderToStaticMarkup(<RecommendedBundlesPanel context={{ ...props, jurisdiction: "sk" }} />);
+    const html = panel("sk");
     expect(html).toContain('data-lawoss-recommended="sk"');
     expect(html).toContain('data-lawoss-bundle="sk-zaklad"');
     expect(html).toContain('data-lawoss-bundle="cz-zaklad"');
     expect(html.match(/type="checkbox"/g)).toHaveLength(8);
     expect(html.match(/checked=""/g)).toHaveLength(6);
     expect(html).toContain("Recommended LAWOSS bundles");
+    // Jasný text: raz pre všetkých klientov, až tlačidlom, z GitHubu Omni Legal Products.
+    expect(html).toContain("installed once for all your clients, only after you click the button");
+    expect(html).toContain("public repository of Omni Legal Products (Omni-Legal-Products/lawoss-marketplace)");
+    expect(html).toContain("Install for all clients");
   });
 
   test("česká kancelária: CZ základ zaškrtnutý a označený ako predbežný", () => {
-    const html = renderToStaticMarkup(<RecommendedBundlesPanel context={{ ...props, jurisdiction: "cz" }} />);
+    const html = panel("cz");
     expect(html.match(/checked=""/g)).toHaveLength(2);
     expect(html).toContain("Provisional");
   });
 
   test("všetko nainštalované: nič sa neponúka", () => {
-    const all = recommendedBundles().flatMap((bundle) => bundle.plugins).map((id) => imported(id));
-    const html = renderToStaticMarkup(<RecommendedBundlesPanel context={{ ...props, jurisdiction: "sk", plugins: all }} />);
-    expect(html).toContain("All recommended bundles are installed in this folder.");
-    expect(html).not.toContain("Install selected");
+    const html = panel("sk", new Set(recommendedBundles().flatMap((bundle) => bundle.plugins)));
+    expect(html).toContain("All recommended bundles are installed for all your clients.");
+    expect(html).not.toContain("Install for all clients");
   });
 });

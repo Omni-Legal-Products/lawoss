@@ -72,6 +72,7 @@ export type OnboardingStep =
   | "identity"
   | "okf"
   | "office"
+  | "packs"
   | "ai"
   | "client"
   | "matter"
@@ -96,6 +97,7 @@ function isStep(value: unknown): value is OnboardingStep {
     value === "identity" ||
     value === "okf" ||
     value === "office" ||
+    value === "packs" ||
     value === "ai" ||
     value === "client" ||
     value === "matter" ||
@@ -139,8 +141,9 @@ export const OKF_NOTICE_VERSION = "2026-10-04-alfa-1";
 /** `undefined` means the user has not chosen yet. */
 export type OkfEnabled = boolean | undefined;
 
-const OKF_PATH: readonly OnboardingStep[] = ["identity", "okf", "office", "ai", "client", "matter"];
-const PLAIN_PATH: readonly OnboardingStep[] = ["identity", "okf", "ai"];
+// „Odporúčané balíky LAWOSS“ (packs) idú po kancelárii; bez OKF hneď po voľbe (MČ 5. 10. 2026).
+const OKF_PATH: readonly OnboardingStep[] = ["identity", "okf", "office", "packs", "ai", "client", "matter"];
+const PLAIN_PATH: readonly OnboardingStep[] = ["identity", "okf", "packs", "ai"];
 const UNDECIDED_PATH: readonly OnboardingStep[] = ["identity", "okf"];
 
 /** Steps shown, numbered and used by "Back" for the current OKF choice. */
@@ -159,7 +162,7 @@ export function stepAfterAi(okf: OkfEnabled): OnboardingStep {
 
 /** After the choice, a requested client or matter (`?continue=`) is honoured when OKF is on. */
 export function stepAfterOkfChoice(enabled: boolean, requested: OnboardingStep | undefined): OnboardingStep {
-  if (!enabled) return "ai";
+  if (!enabled) return "packs";
   return requested === "client" || requested === "matter" ? requested : "office";
 }
 
