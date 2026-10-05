@@ -1,5 +1,6 @@
 import { writeConditionalText } from "../lawoss/conditional-text-write.js";
 import { childPathWithin } from "../lawoss/path-within.js";
+import { readWorkspaceText } from "../lawoss/workspace-text.js";
 import { createReadStream } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -1102,7 +1103,8 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       throw new ApiError(413, "file_too_large", "File exceeds size limit", { maxBytes, size: info.size });
     }
 
-    const content = await readFile(absPath, "utf8");
+    // 🟡 LAWOSS: okf.config z Windows (BOM, UTF-16) ako v CLI OKF; ostatné súbory UTF-8 ako doteraz.
+    const content = await readWorkspaceText(absPath);
     return jsonResponse({ path: relativePath, content, bytes: info.size, updatedAt: info.mtimeMs });
   });
 
