@@ -87,24 +87,49 @@ describe("LAWOSS stráž Eigenweltu a analytiky", () => {
     assert.ok(checkStructure(server).some((line) => line.includes("commercial-services.ts")));
   });
 
-  test("sťahovanie modelov pri štarte zlyhá", () => {
-    const config = structureWith("apps/server/src/config.ts", (text) => text.replace("fileConfig.autoDownloadOcr ?? false,", "fileConfig.autoDownloadOcr ?? true,"));
-    assert.ok(checkStructure(config).some((line) => line.startsWith("apps/server/src/config.ts")));
-    const server = structureWith("apps/server/src/server.ts", (text) => text.replace("if (config.autoDownloadOcr && !config.readOnly) void ocr.downloadDefaultIfNeeded();", "void ocr.downloadDefaultIfNeeded();"));
-    assert.ok(checkStructure(server).some((line) => line.startsWith("apps/server/src/server.ts")));
-    const prefetch = structureWith("apps/server/src/server.ts", (text) => `${text}\nvoid prepareLayoutModel(dir, signal);\n`);
-    assert.ok(checkStructure(prefetch).some((line) => line.startsWith("apps/server/src/server.ts")));
-    const firstUse = structureWith("apps/server/src/document-preparation/service.ts", (text) => text.replace("await selected.download?.wait(job.controller.signal);", ""));
-    assert.ok(checkStructure(firstUse).some((line) => line.startsWith("apps/server/src/document-preparation/service.ts")));
-    const recorder = structureWith("apps/app/src/react-app/domains/recorder/recorder-store.ts", (text) => text.replace("      void get().prewarm();\n", "      void get().prewarm();\n      void get().ensureDiarizationReady();\n"));
-    assert.ok(checkStructure(recorder).some((line) => line.includes("recorder-store.ts")));
+  /** Zmena musí niečo zmeniť a stráž ju musí nahlásiť pri tom istom súbore. */
+  function assertCaught(file, change) {
+    const original = readFileSync(join(repo, file), "utf8");
+    assert.notEqual(change(original), original, `${file}: zmena v teste už nesedí na súbor`);
+    assert.ok(checkStructure(structureWith(file, change)).some((line) => line.startsWith(file)), `${file}: stráž zmenu nenahlásila`);
+  }
+
+  test("sťahovanie modelov bez zapnutia OCR zlyhá (štart, route, prvé použitie)", () => {
+    assertCaught("apps/server/src/config.ts", (text) => text.replace("fileConfig.autoDownloadOcr ?? false,", "fileConfig.autoDownloadOcr ?? true,"));
+    assertCaught("apps/server/src/server.ts", (text) => text.replace("if (config.autoDownloadOcr && !config.readOnly) void ocr.downloadDefaultIfNeeded();", "void ocr.downloadDefaultIfNeeded();"));
+    assertCaught("apps/server/src/server.ts", (text) => `${text}\nvoid prepareLayoutModel(dir, signal);\n`);
+    assertCaught("apps/server/src/server.ts", (text) => text.replace("const ocr = new LawossOcrManager(", "const ocr = new OcrManager("));
+    assertCaught("apps/server/src/lawoss/ocr-opt-in.ts", (text) => text.replace('Reflect.get(value, "enabled") === true', 'Reflect.get(value, "enabled") !== false'));
+    assertCaught("apps/server/src/lawoss/ocr-opt-in.ts", (text) => text.replace("    await requireOcrEnabled(this.runtime.root);\n    return super.install(id, automatic);", "    return super.install(id, automatic);"));
+    assertCaught("apps/server/src/lawoss/ocr-opt-in.ts", (text) => text.replace("return ocrEnabledNow(this.runtime.root) ? super.downloadDefaultIfNeeded() : Promise.resolve();", "return super.downloadDefaultIfNeeded();"));
+    assertCaught("apps/server/src/lawoss/ocr-opt-in.ts", (text) => text.replace("export async function downloadLocalOcrModel(ocr: OcrManager) {\n  await requireOcrEnabled(ocr.runtime.root);", "export async function downloadLocalOcrModel(ocr: OcrManager) {"));
+    assertCaught("apps/server/src/lawoss/ocr-on-demand.ts", (text) => text.replace("  await requireOcrEnabled(ocr.runtime.root);\n  if (engine.model", "  if (engine.model"));
+    assertCaught("apps/server/src/document-preparation/service.ts", (text) => text.replace("  if (!await ocrEnabled(ocr.runtime.root)) return textLayerSnapshot();\n", ""));
+    assertCaught("apps/server/src/document-preparation/service.ts", (text) => text.replace("} else if (selected.textOnly) {", "} else if (false) {"));
+    assertCaught("apps/server/src/document-preparation/service.ts", (text) => text.replace("await selected.download?.wait(job.controller.signal);", ""));
+  });
+
+  test("appka bez zapnutia nesťahuje model OCR ani modely rečníkov", () => {
+    assertCaught("apps/app/src/react-app/shell/settings-route.tsx", (text) => text.replace("ocrView={<LawossOcrSettings ", "ocrView={<OcrSettingsSection "));
+    assertCaught("apps/app/src/lawoss/domains/settings/ocr-opt-in-section.tsx", (text) => text.replace("{view?.enabled && client ? <OcrSettingsSection ", "{client ? <OcrSettingsSection "));
+    assertCaught("apps/app/src/react-app/domains/recorder/recorder-store.ts", (text) => text.replace("      void get().prewarm();\n", "      void get().prewarm();\n      void get().ensureDiarizationReady();\n"));
+    assertCaught("apps/app/src/react-app/domains/recorder/recorder-store.ts", (text) => text.replace("      void get().prewarm();\n", "      void get().prewarm();\n      void get().downloadDiarization();\n"));
     const files = {
       "apps/desktop/electron/server-env.mjs": 'const env = { LEGALWORK_OCR_AUTO_DOWNLOAD: "1" };',
       "apps/server/src/embedded-config.ts": "config.autoDownloadOcr = true;",
       "apps/server/src/ocr/auto-download.test.ts": 'process.env.LEGALWORK_OCR_AUTO_DOWNLOAD = "1";',
+      "apps/server/src/lawoss/prefetch.ts": "await ocr.runtime.install(engine);",
+      "apps/server/src/reviews/warmup.ts": "await prepareSmallModel(directory, signal);",
+      "apps/app/src/react-app/domains/reviews/auto-ocr.tsx": "useEffect(() => { void client.installOcrEngine(\"local-fast\"); }, []);",
+      "apps/app/src/lawoss/lite/today.tsx": "void client.downloadLawossOcrModel();",
+      "apps/app/src/react-app/shell/session-route.tsx": "void useRecorderStore.getState().ensureDiarizationReady();",
+      "apps/app/src/react-app/domains/recorder/recorder-pane.tsx": "void store.downloadDiarization();",
+      "apps/server/src/ocr/manager.ts": "await this.runtime.install(engine);",
+      "apps/app/src/react-app/domains/settings/pages/ocr-settings-section.tsx": "client.installOcrEngine(engine.id)",
     };
     const problems = checkSources(fixture(files), Object.keys(files));
-    assert.equal(problems.length, 2, problems.join("\n"));
+    assert.equal(problems.length, 8, problems.join("\n"));
+    for (const allowed of ["manager.ts", "ocr-settings-section.tsx", "auto-download.test.ts"]) assert.ok(!problems.some((line) => line.includes(allowed)), allowed);
   });
 
   test("katalóg bez odporúčaného modelu ChatGPT zlyhá", () => {
