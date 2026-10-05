@@ -371,3 +371,4 @@ Baseline `8858366578b506bc3c83f39072e3c0a2ddbbee00`, upstream `v0.2.1` `2019dc65
 | Súbory upstreamu | Zmena LAWOSS | Dôvod |
 |---|---|---|
 | `apps/app/src/react-app/shell/welcome-route.tsx` | `?continue=existing` otvorí krok klienta (`continuationStep`) a odovzdá `attachExisting` do `LawossWelcomePage` (+5 / −3 riadky). | Tlačidlo „Pripojiť existujúci priečinok klienta“ otvorí rovno pripojenie existujúceho priečinka so skúšobným klonom (rozhodnutie MČ 5. 10. 2026, bod 22). |
+| `apps/app/src/react-app/domains/session/sidebar/app-sidebar.tsx` | Vedľa `OnboardingEntryActions` neviditeľný `OkfWorkspaceSkillSync` s `props.selectedWorkspaceId` (+2 / −1 riadky). | Pri otvorení OKF klienta (alebo veci pod ním) sa doplnia chýbajúce a obnovia zastarané skilly OKF bez prepisu úprav advokáta (bod 24). Bočný panel je pri každom otvorenom pracovnom priestore. |
