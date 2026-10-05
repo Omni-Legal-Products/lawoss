@@ -8,6 +8,7 @@ import { planEntity } from "../core.ts";
 import { LOCALIZED_TEMPLATES } from "../templates.ts";
 import { DEFAULT_FOLDER_ROLES, parseOfficeWorkingProfile, type WorkingProfile } from "../profile.ts";
 import { findOfficeDir } from "../../../okf-pamat/src/store.ts";
+import { decodeText } from "../../../okf-pamat/src/text-decode.ts";
 import { contained } from "../../../okf-pamat/src/workspace-memory-fs.ts";
 import { UNSAFE_FOLDER_NAME_MESSAGE } from "./messages.ts";
 import { parseFrontmatter } from "../frontmatter.ts";
@@ -134,7 +135,8 @@ export async function planNewMatter(request: MatterRequest): Promise<CreatePrevi
   const existingMatters = inspected.entries.find(entry => entry.path === MATTERS_DIR);
   if (existingMatters && existingMatters.kind !== "directory") throw new Error("Matter folder is blocked by a non-directory.");
   const office = findOfficeDir(request.parent);
-  const workingProfile = office ? parseOfficeWorkingProfile(await readFile(join(office, "okf.config"), "utf8"), request.language ?? "sk") : undefined;
+  // okf.config z Windows (BOM, UTF-16) dekódovaný ako v CLI (lawoss/okf/src/fs.ts).
+  const workingProfile = office ? parseOfficeWorkingProfile(decodeText(await readFile(join(office, "okf.config"))), request.language ?? "sk") : undefined;
   const card = await clientCard(clientRoot);
   const clientCardPath = card ? relative(join(parentRoot, MATTERS_DIR, name), card.file).split(sep).join("/") : undefined;
   const built = buildMatterOperations({ ...request, workingProfile, clientTitle: card?.title, clientCardPath });

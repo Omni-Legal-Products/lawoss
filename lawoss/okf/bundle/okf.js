@@ -829,7 +829,8 @@ function parseWorkingProfile(content) {
     throw new Error(`Neplatný ${PROFILE_FILE}`);
   return workingProfile(JSON.parse(fields.folders), JSON.parse(fields.folder_roles), fields.document_naming);
 }
-function parseOfficeWorkingProfile(content, language = "sk") {
+function parseOfficeWorkingProfile(text, language = "sk") {
+  const content = stripBom(text);
   if (!/^\s*(?:matter_folders|folder_roles|document_naming):/m.test(content))
     return;
   const keys = [...content.matchAll(/^(matter_folders|folder_roles|document_naming):/gm)].map((match) => match[1]);
@@ -849,6 +850,10 @@ function parseOfficeWorkingProfile(content, language = "sk") {
   if (new Set(roleNames).size !== roleNames.length)
     throw new Error("Duplicitná rola pracovného profilu");
   const fields = parseFrontmatter2(content);
+  for (const key of ["matter_folders", "folder_roles", "document_naming"]) {
+    if (JSON.stringify(fields.get(key) ?? null).includes("�"))
+      throw new Error(`${key} obsahuje poškodený znak (U+FFFD): Office/okf.config nie je v UTF-8 ani v UTF-16 s BOM (napr. ANSI); ulož ho ako UTF-8`);
+  }
   return workingProfile(fields.get("matter_folders"), fields.get("folder_roles"), fields.get("document_naming"), language);
 }
 var slovakRoles = {
@@ -2774,7 +2779,7 @@ async function planNewMatter(request) {
   if (existingMatters && existingMatters.kind !== "directory")
     throw new Error("Matter folder is blocked by a non-directory.");
   const office = findOfficeDir(request.parent);
-  const workingProfile = office ? parseOfficeWorkingProfile(await readFile2(join6(office, "okf.config"), "utf8"), request.language ?? "sk") : undefined;
+  const workingProfile = office ? parseOfficeWorkingProfile(decodeText(await readFile2(join6(office, "okf.config"))), request.language ?? "sk") : undefined;
   const card = await clientCard(clientRoot);
   const clientCardPath = card ? relative4(join6(parentRoot, MATTERS_DIR, name), card.file).split(sep5).join("/") : undefined;
   const built = buildMatterOperations({ ...request, workingProfile, clientTitle: card?.title, clientCardPath });
@@ -3666,7 +3671,7 @@ async function scanTriage(rootInput, options = {}) {
   const card = parseFrontmatter(await readSmall(clone.root, clientCard) ?? "") ?? {};
   const language = resolveDocumentLanguage(["sk", "cs", "en"].includes(card.language ?? "") ? card.language : undefined, card.jurisdiction);
   const office = findOfficeDir(clone.root);
-  const config = office ? await readFile5(join9(office, "okf.config"), "utf8").catch(() => {
+  const config = office ? await readFile5(join9(office, "okf.config")).then(decodeText, () => {
     return;
   }) : undefined;
   const officeJurisdiction = /^jurisdiction:\s*(sk|cz)\s*$/m.exec(config ?? "")?.[1];

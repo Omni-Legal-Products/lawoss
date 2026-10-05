@@ -364,16 +364,24 @@ describe("CLI", () => {
 
 describe("po teste so skutočným modelom (5. 10. 2026)", () => {
   /** Kancelária zo staršieho vzoru: `matter_folders` bez `folder_roles`, klon v jej priečinku Klienti. */
-  async function officeClone(files: Readonly<Record<string, string>>) {
+  async function officeClone(files: Readonly<Record<string, string>>, encode: (text: string) => string | Buffer = (text) => text) {
     const base = await directory("okf-triage-office-");
     const source = join(base, "povodne", "Horizont"), clients = join(base, "praca", "Klienti"), journal = join(base, "journal"), external = join(base, "external");
     for (const dir of [source, clients, join(base, "praca", "Office"), journal, external]) await mkdir(dir, { recursive: true });
-    await writeFile(join(base, "praca", "Office", "okf.config"), 'version: 1\njurisdiction: sk\nlanguage: sk\nmatter_folders: ["00_Na_zatriedenie", "01_Podklady", "02_Resers", "03_Drafty", "04_Vystupy", "05_Komunikacia"]\n');
+    await writeFile(join(base, "praca", "Office", "okf.config"), encode('version: 1\njurisdiction: sk\nlanguage: sk\nmatter_folders: ["00_Na_zatriedenie", "01_Podklady", "02_Resers", "03_Drafty", "04_Vystupy", "05_Komunikacia"]\n'));
     await writeTriageFixture(source, files);
     const preview = await planOnboarding(parseOnboardingRequest({ action: "existing", root: source, mode: "trial_clone", cloneParent: clients, title: "Horizont Stavby s. r. o.", clientType: "po", language: "sk", jurisdiction: "sk", date: "2026-10-05", confirmUnknownClient: true }));
     const result = await applyOnboarding(preview, { journalDirectory: journal, externalProfileDirectory: external });
     return { root: result.root, journal };
   }
+
+  test("okf.config kancelárie v UTF-16 s BOM (PowerShell 5.1) číta roztriedenie rovnako ako CLI", async () => {
+    const utf16 = (text: string) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text.replaceAll("\n", "\r\n"), "utf16le")]);
+    const clone = await officeClone({ "sken001.pdf": "a" }, utf16);
+    const { inventory } = await prepareTriage(clone.root, { trialJournalDirectory: clone.journal, now: NOW });
+    // Kancelária bez rolí: nová vec dostane profil klienta, ako pri UTF-8 v teste nižšie.
+    expect(inventory.newMatterProfile?.roles.drafts).toBe("03_Drafty");
+  });
 
   test("nové veci od modelu dostanú dokumenty do svojich priečinkov aj pri kancelárii bez rolí", async () => {
     const clone = await officeClone({ "sken001.pdf": "a", "sken002.pdf": "b", "Re_ zmier.eml": "c", "Odvolanie_v2.docx": "d", "dokument (3).docx": "e", "IMG_2041.jpg": "f" });

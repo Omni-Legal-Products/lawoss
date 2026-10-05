@@ -6,6 +6,8 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseFrontmatter } from "../src/core.ts";
 import { plan } from "../src/fs.ts";
+import { parseOfficeWorkingProfile } from "../src/profile.ts";
+import { parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
 import { hasWindowsPowerShell, WINDOWS_POWERSHELL_TIMEOUT_MS, writeWithWindowsPowerShell } from "../../tests/windows-powershell.mts";
 
 // Kancelársky profil v okf.config z Poznámkového bloku alebo PowerShellu 5.1 (BOM, UTF-16, CRLF)
@@ -61,6 +63,35 @@ test("an ANSI lawyer name is not prefilled damaged; the rest of the office profi
   expect(card).not.toContain("\uFFFD");
   // Bez mena ostáva v karte zástupný text, nie „J\uFFFDn Novák“.
   expect(parseFrontmatter(card)?.advokat).toBe("[DOPLNIT]");
+});
+
+test("an ANSI diacritic in matter_folders stops the plan instead of creating a damaged folder", () => {
+  // Windows-1250 „á“ = 0xE1: bez kontroly by vznikol priečinok „N\uFFFDvrhy“.
+  mkdirSync(join(root, "Office"));
+  writeFileSync(join(root, "Office", "okf.config"), Buffer.from('matter_folders: ["Podklady", "Návrhy"]\r\nfolder_roles:\r\n  drafts: Návrhy\r\n', "latin1"));
+  expect(() => plan({ type: "spis", dir: join(root, "client", "matter"), title: "Synthetic", jurisdiction: "sk" })).toThrow(/^matter_folders obsahuje poškodený znak \(U\+FFFD\).*ulož ho ako UTF-8$/);
+});
+
+test("the office profile parser ignores a BOM that another reader left before the first key", () => {
+  // Appka a staršie čítania dostanú text s U+FEFF; matter_folders na prvom riadku nesmie zmiznúť.
+  const profile = parseOfficeWorkingProfile('\uFEFFmatter_folders: ["Podklady", "Drafty"]\r\nfolder_roles:\r\n  drafts: Drafty\r\n');
+  expect(profile?.folders).toEqual(["Podklady", "Drafty"]);
+  expect(profile?.roles).toEqual({ drafts: "Drafty" });
+  // Duplicitný kľúč za BOM sa nesmie potichu prebrať z druhého riadku.
+  expect(() => parseOfficeWorkingProfile('\uFEFFmatter_folders: ["A"]\nmatter_folders: ["B"]\n')).toThrow("Duplicitný kľúč pracovného profilu");
+});
+
+test("onboarding of a new matter reads a UTF-16LE office okf.config like the CLI", async () => {
+  mkdirSync(join(root, "Office"));
+  writeFileSync(join(root, "Office", "okf.config"), ENCODINGS["UTF-16LE with BOM"]!(CONFIG.join("\r\n") + "\r\n"));
+  const client = join(root, "Klient");
+  mkdirSync(client);
+  writeFileSync(join(client, "client.md"), "---\ntype: client\n---\n");
+  const preview = await planOnboarding(parseOnboardingRequest({ action: "matter", clientRoot: client, parent: client, title: "Zmluva", date: "2026-10-05", kind: "non_contentious", area: "IP", jurisdiction: "sk" }));
+  if (preview.mode !== "new") throw new Error("Expected matter plan.");
+  const paths = preview.plan.operations.map((operation) => operation.path);
+  expect(paths.some((path) => /(^|\/)Drafty$/.test(path))).toBe(true);
+  expect(paths.some((path) => /(^|\/)03_Drafty$/.test(path))).toBe(false);
 });
 
 test("bundled okf.js reads a UTF-16LE office okf.config", () => {
