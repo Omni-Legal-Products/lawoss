@@ -1,4 +1,6 @@
 import type { OnboardingApi } from "../../lawoss/domains/onboarding/api";
+import type { TriageApiPath } from "../../lawoss/domains/roztriedenie/api";
+import type { LawossOcrView } from "../../lawoss/domains/settings/ocr-opt-in";
 import type { WorkspaceMemoryStatus } from "../../../../../lawoss/okf-handoff/workspace-memory-status.mjs";
 export type { WorkspaceMemoryStatus as LegalworkWorkspaceMemoryStatus } from "../../../../../lawoss/okf-handoff/workspace-memory-status.mjs";
 import type { RemoteFolderSelection, ProjectRemoteFolderStatus } from "@legalwork/types/workspace";
@@ -1674,6 +1676,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     removeOcrServer: (id: string) => requestJson<OcrSettingsView>(baseUrl, `/ocr/servers/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
     installOcrEngine: (id: string) => requestJson<OcrSettingsView>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/install`, { token, hostToken, method: "POST", timeoutMs: timeouts.config }),
     cancelOcrInstall: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/install", { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
+    // LAWOSS: OCR only after the lawyer turns it on (lawoss/domains/settings/ocr-opt-in.ts).
+    lawossOcr: () => requestJson<LawossOcrView>(baseUrl, "/lawoss/ocr", { token, hostToken, timeoutMs: timeouts.config }),
+    setLawossOcr: (enabled: boolean) => requestJson<LawossOcrView>(baseUrl, "/lawoss/ocr", { token, hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.config }),
+    downloadLawossOcrModel: () => requestJson<LawossOcrView>(baseUrl, "/lawoss/ocr/model", { token, hostToken, method: "POST", timeoutMs: timeouts.config }),
+    removeLawossOcrModel: () => requestJson<LawossOcrView>(baseUrl, "/lawoss/ocr/model", { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
     testOcrEngine: (id: string) => requestJson<{ ok: boolean }>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/test`, { token, hostToken, method: "POST", timeoutMs: 130_000 }),
     setPersonalization: (settings: LegalworkPersonalizationSettings) =>
       requestJson<{ settings: LegalworkPersonalizationSettings; updatedAt: number }>(baseUrl, "/personalization", {
@@ -1760,6 +1767,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     planOnboarding: (input: Parameters<OnboardingApi["planOnboarding"]>[0]): ReturnType<OnboardingApi["planOnboarding"]> => requestJson(baseUrl, "/lawoss/onboarding/plan", { token, hostToken, method: "POST", body: input, timeoutMs: 120_000 }),
     recoverOnboarding: (input: Parameters<NonNullable<OnboardingApi["recoverOnboarding"]>>[0]): Promise<unknown> => requestJson(baseUrl, "/lawoss/onboarding/recover", { token, hostToken, method: "POST", body: input, timeoutMs: 180_000 }),
     applyOnboarding: (input: Parameters<OnboardingApi["applyOnboarding"]>[0]): ReturnType<OnboardingApi["applyOnboarding"]> => requestJson(baseUrl, "/lawoss/onboarding/apply", { token, hostToken, method: "POST", body: input, timeoutMs: 180_000 }),
+    lawossTriage: <T,>(path: TriageApiPath, body: unknown): Promise<T> => requestJson<T>(baseUrl, `/lawoss/triage/${path}`, { token, hostToken, method: "POST", body, timeoutMs: 600_000 }),
     createLocalWorkspace: (payload: { folderPath?: string; folderMode?: "default" | "selected"; name: string; preset: string; registerExisting?: boolean; appFiles?: "inside" | "outside"; projectFields?: ProjectField[]; remoteFolders?: RemoteFolderSelection[]; initializeFromFolders?: boolean; fromRemoteFolder?: boolean }) =>
       requestJson<WorkspaceList>(baseUrl, "/workspaces/local", {
         token,

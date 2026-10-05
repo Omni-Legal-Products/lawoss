@@ -93,7 +93,13 @@ test("company names with inner dots are safe folder names; a trailing dot is dro
   expect(await readFile(join(parent, "Novák s. r. o", "client.md"), "utf8")).toContain("Novák s. r. o.");
   const matter = await planOnboarding(parseOnboardingRequest({ action: "matter", clientRoot: preview.target, parent: preview.target, title: "Zmluva s ABC a. s.", date: "2026-10-04", kind: "non_contentious", area: "Obch. právo", jurisdiction: "sk" }));
   if (matter.mode !== "new") throw new Error("Expected matter plan.");
-  expect(matter.target).toBe(join(preview.target, "Obch. právo", "2026-10 Zmluva s ABC a. s"));
+  // Vec v `Spisy/` ako v šablóne klienta; oblasť je údaj v karte, nie priečinok (D1 2026-10-04).
+  expect(matter.target).toBe(join(preview.target, "Spisy", "2026-10 Zmluva s ABC a. s"));
+  await applyOnboarding(matter, await options());
+  const card = await readFile(join(matter.target, "matter.md"), "utf8");
+  expect(card).toContain('area: "Obch. právo"');
+  expect(card).toContain('klient: "Novák s. r. o."');
+  expect(card).toContain("](<../../client.md>)");
 });
 
 test("unsafe folder names are still rejected", async () => {

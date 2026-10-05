@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { t } from "@/i18n";
+import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import type {
   SystemOneProvider,
@@ -173,7 +174,7 @@ export function SystemOneSettingsSection({
               {t("systemone.loading")}
             </p>
           ) : (
-            settings.providers.map((provider) => (
+            settings.providers.filter((provider) => !(provider.managed && isCommercialSurfaceHidden("eigenwelt-account"))).map((provider) => (
               <LayoutSectionItem key={provider.id} className="gap-0">
                 <div className="flex w-full items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">

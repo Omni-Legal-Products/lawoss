@@ -99,12 +99,8 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   config.projectsDirectory = options.projectsDirectory;
   config.recorder = options.recorder ?? null;
   const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
-  // No trailing slash: the engine appends "/api.json" to this value, so a
-  // trailing slash produces the malformed "https://…com//api.json" seen in
-  // user-reported engine logs.
-  const opencodeModelsUrl = process.env.OPENCODE_MODELS_URL?.trim().replace(/\/+$/, "") || (process.env.LEGALWORK_DEV_MODE === "1"
-    ? "http://localhost:8791/models"
-    : "https://models.eigenweltlabs.com");
+  // LAWOSS: žiadna predvolená adresa katalógu modelov. Engine číta pribalený
+  // katalóg a nič nesťahuje (lawoss/engine-network.ts cez managed-opencode.ts).
 
   // Spawn managed OpenCode if requested and no explicit base URL was provided.
   let managedOpencode: ManagedOpencodeServer | null = null;
@@ -202,7 +198,6 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
                 OPENCODE_DISABLE_PROJECT_CONFIG: "true",
               }
             : {}),
-          OPENCODE_MODELS_URL: opencodeModelsUrl,
           ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
         },
       });

@@ -21,6 +21,11 @@ on:
   # installer ships unsigned (SmartScreen warning — acceptable for the
   # opt-in alpha channel).
   workflow_dispatch:
+    inputs:
+      base_version:
+        description: "LAWOSS: alpha base X.Y.Z, e.g. 0.2.1 (overrides vars.LAWOSS_ALPHA_BASE_VERSION; empty = next patch after the latest v* tag)"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -94,6 +99,9 @@ jobs:
         env:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
           GITHUB_SHA: ${{ github.sha }}
+          # LAWOSS: fork tags stop at v0.1.14 while dev already carries upstream
+          # 0.2.x, so an explicit base keeps alpha versions in step with the code.
+          ALPHA_BASE_VERSION: ${{ inputs.base_version || vars.LAWOSS_ALPHA_BASE_VERSION }}
         run: |
           set -euo pipefail
           # The latest v* tag reachable from this commit is the version source
@@ -111,10 +119,25 @@ jobs:
           fi
           IFS=. read -r major minor patch <<<"$base"
           next_patch=$((patch + 1))
+          alpha_base="${major}.${minor}.${next_patch}"
+          explicit_base="${ALPHA_BASE_VERSION:-}"
+          explicit_base="${explicit_base#v}"
+          if [ -n "$explicit_base" ]; then
+            if [[ ! "$explicit_base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Invalid alpha base version: $explicit_base (expected X.Y.Z)" >&2
+              exit 1
+            fi
+            IFS=. read -r emajor eminor epatch <<<"$explicit_base"
+            if (( emajor < major || (emajor == major && (eminor < minor || (eminor == minor && epatch < next_patch))) )); then
+              echo "Alpha base $explicit_base is lower than $alpha_base derived from $latest_tag; remove LAWOSS_ALPHA_BASE_VERSION or raise it." >&2
+              exit 1
+            fi
+            alpha_base="$explicit_base"
+          fi
           run="${GITHUB_RUN_NUMBER:-0}"
           sha="${GITHUB_SHA:0:7}"
           sha="${sha:-local}"
-          echo "Latest release tag: $latest_tag -> alpha base ${major}.${minor}.${next_patch}"
+          echo "Latest release tag: $latest_tag -> alpha base ${alpha_base}"
           # The commit sha rides in the prerelease part (…-alpha.<run>.g<sha>),
           # not as +<sha> build metadata: pnpm refuses to workspace-link the
           # exact-pinned internal deps (legalwork-server, opencode-router) when
@@ -125,9 +148,9 @@ jobs:
           # not a legal numeric prerelease identifier, and pnpm then cannot
           # match the workspace package either and falls back the same way.
           {
-            echo "alpha_version=${major}.${minor}.${next_patch}-alpha.${run}.g${sha}"
-            echo "base_version=${major}.${minor}.${next_patch}"
-            echo "release_tag=alpha-windows-v${major}.${minor}.${next_patch}-alpha.${run}-${sha}"
+            echo "alpha_version=${alpha_base}-alpha.${run}.g${sha}"
+            echo "base_version=${alpha_base}"
+            echo "release_tag=alpha-windows-v${alpha_base}-alpha.${run}-${sha}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Stamp alpha version
@@ -294,10 +317,12 @@ jobs:
           const fs = require("node:fs");
           const manifestPath = "apps/desktop/dist-electron/latest.yml";
           const releaseTag = process.env.ALPHA_RUN_RELEASE_TAG;
-          const baseUrl = `https://github.com/eigenweltlabs/legalwork/releases/download/${releaseTag}`;
+          // LAWOSS: the pointer must reference the repository the assets were
+          // just uploaded to, and the lawoss- artifactName from electron-builder.yml.
+          const baseUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/releases/download/${releaseTag}`;
           const rewritten = fs.readFileSync(manifestPath, "utf8")
-            .replace(/(url:\s*)(legalwork-[^\n]+)/g, `$1${baseUrl}/$2`)
-            .replace(/(path:\s*)(legalwork-[^\n]+)/g, `$1${baseUrl}/$2`);
+            .replace(/(url:\s*)(lawoss-[^\n]+)/g, `$1${baseUrl}/$2`)
+            .replace(/(path:\s*)(lawoss-[^\n]+)/g, `$1${baseUrl}/$2`);
           fs.writeFileSync(process.env.POINTER_MANIFEST, rewritten);
           NODE
 

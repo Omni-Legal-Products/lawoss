@@ -44,6 +44,8 @@ export type MatterInput = {
   intake?: string;
   /** Pending intake inherited from the client scope, kept separate from the matter's own VSTUPY.md. */
   inheritedIntakes?: readonly { content: string; path: string; scope: "client" }[];
+  /** Názov klienta z jeho karty (`client.md`/`klient.md`, pole `title`), ak vec patrí klientovi. */
+  clientTitle?: string;
   /** Mapped legacy-memory files visible to the user but never converted into typed records. */
   existingMemorySources?: readonly string[];
   manualStatus?: ManualStatus;
@@ -79,6 +81,8 @@ export const deadlineKey = (d: UpcomingDeadline): string => `${recordKey(d.matte
 
 export type ScopeLevel = "matter" | "client" | "office";
 const OFFICE_DIR = /(^|\/)(Office|_kancelaria)$/;
+/** Súbor leží v kancelárii (`Office/…`, `_kancelaria/…`): jeho lehota patrí kancelárii, nie jednej veci. */
+export const isOfficeFile = (file: string | undefined): boolean => Boolean(file && /(^|\/)(Office|_kancelaria)\//.test(file));
 
 /** Úroveň každej cesty rozsahu: prvá je vec, `Office`/`_kancelaria` kancelária, ostatné klient. */
 export const scopeLevels = (scopePaths: readonly string[]): { path: string; level: ScopeLevel }[] =>
@@ -95,7 +99,8 @@ export const missingScopeLevels = (scopePaths: readonly string[]): Exclude<Scope
  * sa oreže na deň; iný tvar ostáva ako text s `invalid` (`raw` = pôvodná hodnota pre potvrdenie).
  */
 export function recordDeadlines(r: OkfRecord): { date: string; raw: string; invalid?: true }[] {
-  if (isRetired(r)) return [];
+  // Vyradený záznam ani hotová úloha už nenesú lehotu - inak by navždy „horeli po lehote".
+  if (isRetired(r) || (r.type === "task" && r.state === "done")) return [];
   return (r.deadlines ?? []).map((raw) => {
     const day = isoDay(raw);
     return day ? { date: day, raw } : { date: raw, raw, invalid: true as const };
@@ -103,6 +108,12 @@ export function recordDeadlines(r: OkfRecord): { date: string; raw: string; inva
 }
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Text lehoty za dátumom („2026-10-09 Lehota na vyjadrenie" → „Lehota na vyjadrenie"); bez textu `undefined`. */
+export function deadlineLabel(raw: string | undefined): string | undefined {
+  const rest = /^\d{4}-\d{2}-\d{2}(?:T\S*)?(.*)$/s.exec(raw?.trim() ?? "")?.[1]?.replace(/^[\s:,;\u2013\u2014-]+/, "").trim();
+  return rest || undefined;
+}
 
 /** `RRRR-MM-DD` + n dní; nevalidný vstup vráti nezmenený. */
 export function addDays(iso: string, days: number): string {
@@ -147,7 +158,7 @@ function matterOverview(input: MatterInput): MatterOverview {
 
   const out: MatterOverview = {
     path: input.path,
-    title: card.title || matterRecord?.title || lastSegment(input.path),
+    title: card.title?.trim() || matterRecord?.title?.trim() || lastSegment(input.path),
     deadlines,
     openTasks,
     counts: {

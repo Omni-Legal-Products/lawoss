@@ -5,6 +5,7 @@ import { unwrap } from "../../app/lib/opencode";
 import { dispatchNewProviders } from "../../app/lib/provider-events";
 import { filterProviderList } from "../../app/utils/providers";
 import { pickDefaultModel } from "../../lawoss/shell/default-model-pick";
+import { filterSubscriptionModels } from "../../lawoss/providers/subscription-models";
 import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
 
 export const PROVIDER_LIST_CACHE_MS = 5 * 60 * 1000;
@@ -51,11 +52,12 @@ export async function fetchProviderList(input: {
   baseUrl?: string | null;
   directory?: string | null;
 }): Promise<ProviderListResponse> {
-  const value = unwrap(
+  // LAWOSS: ChatGPT subscription offers only models its account accepts, filtered before the snapshot.
+  const value = filterSubscriptionModels(unwrap(
     await input.client.provider.list({
       directory: input.directory?.trim() || undefined,
     }),
-  );
+  ));
   recordConnectedProviderSnapshot(input, value);
   return value;
 }

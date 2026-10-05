@@ -9,9 +9,10 @@ This repository sends selected GitHub events to a dedicated Telegram forum topic
 | Telegram group | `LawOSS (SLOVAKIA | CZECHIA) + AI Frontier Labs` |
 | Repository | `Omni-Legal-Products/lawoss` |
 | Default branch | `dev` |
-| Topic | `LAWOSS APP GH` |
+| Topic | `GitHub · App` |
 | Topic ID | `293` |
 | Workflow | `.github/workflows/telegram-notify.yml` |
+| Bot owner | MČ |
 
 The coordination repository `originalmagneto/lawOSS-like-SK-CZ` uses the separate topic `SK Mike GH` with topic ID `2`.
 
@@ -43,6 +44,55 @@ The workflow sends:
 - a manual test through `workflow_dispatch`.
 
 Routine pushes are intentionally not sent. This keeps the topic focused on events that require attention.
+
+## Share a published release manually
+
+Run `LAWOSS Telegram notifications` with the optional `release_tag` input set to
+the exact published GitHub release tag. Leave the input empty to send the
+original test message. Supported tags match what the fork's release workflows
+publish:
+
+| Release | Tag | Installers |
+|---|---|---|
+| Full release (`Release App`) | `v<upstream>-lawoss.<n>`, e.g. `v0.2.1-lawoss.1` | `lawoss-mac-arm64-…dmg`, `lawoss-mac-x64-…dmg`, `lawoss-win-x64-…exe`, `lawoss-linux-x86_64-…AppImage`, `lawoss-linux-arm64-…AppImage` |
+| macOS alpha (`Alpha Channel (macOS arm64)`) | `alpha-macos-v<X.Y.Z>-alpha.<run>-<sha>` | `lawoss-mac-arm64-…dmg` |
+| Windows alpha (`Alpha Channel (Windows x64)`) | `alpha-windows-v<X.Y.Z>-alpha.<run>-<sha>` | `lawoss-win-x64-…exe` |
+| Historical | `v0.1.14` | `legalwork-…` |
+
+The release is looked up in `RELEASE_REPOSITORY`, a workflow-level `env` entry
+in `telegram-notify.yml` (not a repository variable) that defaults to this
+repository (`github.repository`). It must match the same `env` entry in
+`release-macos-aarch64.yml`; the alpha workflows always publish to this
+repository. Links therefore point at the fork's own releases,
+never at the upstream site.
+
+The message uses LAWOSS branding and marks prereleases. Installer URLs come from
+GitHub's release API, using the workflow's read-only `github.token`. Only uploaded
+macOS DMG, Windows x64 EXE and Linux AppImage assets with `lawoss-` or historical
+`legalwork-` names are included. A platform with no installer is omitted; updater
+metadata, blockmaps and archives are not advertised as installers. A release that
+does not exist, is unpublished, or has no supported installers fails before any
+Telegram request. Tags such as `alpha-macos-latest` that contain only updater
+metadata therefore cannot be shared as installer releases.
+
+The existing automatic `release.published` notification still links to the
+release page. This change does not publish releases or download installers.
+
+Alpha prereleases are created with `github.token`, so GitHub sends no `release`
+event for them and nothing is posted automatically when an alpha build succeeds.
+Share an alpha build by dispatching the workflow with its run tag from the
+Releases page.
+
+Offline validation, with GitHub lookup and Telegram delivery stubbed:
+
+```sh
+python3 -m unittest discover -s .github/scripts -p 'test_telegram_release.py' -v
+```
+
+The `Telegram release fixtures` CI workflow runs these tests when the helper,
+notification workflow or tests change. It requires no Telegram secrets and sends
+no messages. A real manual dispatch sends a message to the configured topic and
+must only be used when that notification is intended.
 
 ## Activation and test
 

@@ -113,6 +113,7 @@ import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } 
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { registerOnboardingRoutes } from "./lawoss/onboarding.js";
+import { LawossOcrManager, registerLawossOcrRoutes } from "./lawoss/ocr-opt-in.js";
 import {
   applyGlobalToolPermissions,
   GLOBAL_PERSONALIZATION_ID,
@@ -799,7 +800,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     createClient: (workspace, directory) =>
       createDirectoryOpencodeClient(config, workspace, directory) as unknown as BenchmarkOpencodeClient,
   });
-  const ocr = new OcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"));
+  // LAWOSS: OCR models download only after the lawyer turns OCR on (lawoss/ocr-opt-in.ts).
+  const ocr = new LawossOcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"));
   const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout });
   const corpus = new CorpusService({
     selection: async () => {
@@ -1617,6 +1619,7 @@ function createRoutes(
   registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
+  registerLawossOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
   const projectFolders = registerStorageRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace, onProjectFoldersChanged: (id) => noteProjectFoldersChanged(config, id), onProjectRenamed: (id, name) => noteProjectRenamed(config, id, name) });
 
   registerCoreRoutes({

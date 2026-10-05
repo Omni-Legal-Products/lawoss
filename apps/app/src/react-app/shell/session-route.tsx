@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useLocale } from "@/i18n/use-locale";
-import { LAWOSS_ROUTES } from "../../lawoss/shell/routes";
+import { LAWOSS_ROUTES, lawossRouteTitle } from "../../lawoss/shell/routes";
 import { useDetachedWindow } from "./use-detached-window";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
@@ -130,6 +130,7 @@ import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/se
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { NovySpisPanel } from "@/lawoss/domains/novy-spis/novy-spis-page";
+import { isExperimentHidden } from "@/lawoss/feature-flags";
 import { newProjectFields } from "@/react-app/domains/workspace/project-defaults-store";
 import { CreateProjectModal, type CreateProjectInput } from "@/react-app/domains/workspace/create-project-modal";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
@@ -2504,6 +2505,7 @@ export function SessionRoute() {
           toast.error(t("recorder.transcriber_start_failed"));
         });
       }}
+      mainViewTitle={experimentView ? lawossRouteTitle(location.pathname) : undefined}
       mainView={
         // One reused SettingsSurface instance across the pages — it follows `initialPath`
         // via an effect, so switching Workflows <-> Integrations is instant and doesn't
@@ -2775,7 +2777,7 @@ export function SessionRoute() {
     <CreateProjectModal
       client={client}
       open={createWorkspaceOpen}
-      additionalContent={createWorkspaceOpen && !createWorkspaceBusy && selectedWorkspace && selectedWorkspace.workspaceType !== "remote" && selectedWorkspace.path && selectedWorkspaceEndpoint && !selectedWorkspaceError && !selectedWorkspaceIsLoading ? (
+      additionalContent={!isExperimentHidden("view-novy-spis") && createWorkspaceOpen && !createWorkspaceBusy && selectedWorkspace && selectedWorkspace.workspaceType !== "remote" && selectedWorkspace.path && selectedWorkspaceEndpoint && !selectedWorkspaceError && !selectedWorkspaceIsLoading ? (
         <details className="rounded-xl border border-dls-border p-4">
           <summary className="cursor-pointer text-sm font-medium">{t("lawoss.setup.wizard.title", locale)}</summary>
           <NovySpisPanel

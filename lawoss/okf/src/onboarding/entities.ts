@@ -1,13 +1,14 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { basename, join, resolve } from "node:path";
+import { basename, join, relative, resolve, sep } from "node:path";
 import { inspectOnboardingRoot } from "./classify.ts";
 import { applyOnboardingPlan, type ApplyResult, type CreateOperation, type OnboardingPlan } from "./transaction.ts";
 import { planEntity } from "../core.ts";
 import { LOCALIZED_TEMPLATES } from "../templates.ts";
-import { parseOfficeWorkingProfile } from "../profile.ts";
+import { DEFAULT_FOLDER_ROLES, parseOfficeWorkingProfile, type WorkingProfile } from "../profile.ts";
 import { findOfficeDir } from "../../../okf-pamat/src/store.ts";
 import { UNSAFE_FOLDER_NAME_MESSAGE } from "./messages.ts";
+import { parseFrontmatter } from "../frontmatter.ts";
 
 export type MatterKind = "contentious" | "non_contentious";
 export type AppFiles = "inside" | "outside";
@@ -26,7 +27,7 @@ export type MatterRequest = { clientRoot: string; parent: string; title: string;
  * match the planned one. The title keeps the full name. Still rejected: empty,
  * ".", "..", a leading dot (hidden), separators, ":" and NUL, over 120 characters.
  */
-const safeSegment = (value: string) => {
+export const safeSegment = (value: string) => {
   const trimmed = value.trim().replace(/[. ]+$/, "");
   if (!trimmed || trimmed.length > 120 || /[\\/:\0<>"|?*]|^\./.test(trimmed)) throw new Error(UNSAFE_FOLDER_NAME_MESSAGE);
   return trimmed;
@@ -51,7 +52,11 @@ function templateOperations(prefix: string, entries: ReturnType<typeof planEntit
   }
   return operations;
 }
-const officeConfig = (request: OfficeRequest) => `version: 1\ntitle: ${yaml(request.title)}\njurisdiction: ${request.jurisdiction}\nlanguage: ${request.language}\nlawyer_name: ${yaml(request.lawyerName)}\nstanding_authorization: ${yaml(request.lawyerName)}\nclient_path: "Klienti/*"\nareas: ["Corporate", "IP", "Pracovne"]\nmatter_folders: ["00_Na_zatriedenie", "01_Podklady", "02_Resers", "03_Drafty", "04_Vystupy", "05_Komunikacia"]\n`;
+/** Pracovné priečinky novej veci aj ich roly výslovne; bez rolí by sa do založenej veci nedalo nič zaradiť. */
+const officeConfig = (request: OfficeRequest) => {
+  const roles = DEFAULT_FOLDER_ROLES[request.language];
+  return `version: 1\ntitle: ${yaml(request.title)}\njurisdiction: ${request.jurisdiction}\nlanguage: ${request.language}\nlawyer_name: ${yaml(request.lawyerName)}\nstanding_authorization: ${yaml(request.lawyerName)}\nclient_path: "Klienti/*"\nareas: ["Corporate", "IP", "Pracovne"]\nmatter_folders: ${JSON.stringify(Object.values(roles))}\nfolder_roles: ${JSON.stringify(roles)}\n`;
+};
 
 export async function planOffice(request: OfficeRequest): Promise<CreatePreview> {
   const name = safeSegment(request.name ?? "Office");
@@ -70,22 +75,61 @@ export async function planNewSubject(request: SubjectRequest): Promise<CreatePre
   const card = `---\ntype: subject\ntitle: ${yaml(request.title)}\n---\n\n# ${request.title}\n`;
   return { mode: "new", appFiles: "inside", target, clientRoot: request.clientRoot, plan: await rootPlan(request.clientRoot, [directory(name), file(`${name}/subject.md`, card), directory(`${name}/memory`), file(`${name}/memory/.keep`, "")]) };
 }
+/** Veci klienta žijú v `Spisy/` ako v šablóne klienta, jeho AGENTS.md, CLI `novy-spis` aj v čítaní pamäte. */
+const MATTERS_DIR = "Spisy";
+const CLIENT_CARDS = ["client.md", "klient.md"];
+
+/** Karta klienta a jej názov, aby nová vec vedela, komu patrí (`klient:` a odkaz v matter.md). */
+async function clientCard(clientRoot: string): Promise<{ file: string; title?: string } | undefined> {
+  for (const name of CLIENT_CARDS) {
+    const file = join(clientRoot, name);
+    const content = await readFile(file, "utf8").catch(() => undefined);
+    if (content === undefined) continue;
+    const title = parseFrontmatter(content)?.title?.trim();
+    return title ? { file, title } : { file };
+  }
+  return undefined;
+}
+
+/** Údaje karty novej veci nad rámec formulára; triedenie ich vie doplniť zo spisovej značky. */
+export type MatterCardExtras = { caseNumber?: string; counterparty?: string; court?: string };
+export type MatterOperationsInput = {
+  title: string; date: string; kind: MatterKind; area: string; jurisdiction: "sk" | "cz";
+  subject?: string; language?: "sk" | "cs" | "en"; workingProfile?: WorkingProfile;
+  clientTitle?: string; clientCardPath?: string; extras?: MatterCardExtras;
+};
+/**
+ * Deterministické operácie jednej novej veci relatívne ku klientovi (`Spisy/<RRRR-MM> <názov>/…`)
+ * bez priečinka `Spisy`. Rovnaký zdroj pre formulár novej veci aj pre roztriedenie spisu.
+ */
+export function buildMatterOperations(input: MatterOperationsInput): { name: string; folder: string; operations: CreateOperation[] } {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || !["contentious", "non_contentious"].includes(input.kind)) throw new Error("Valid date and matter kind are required.");
+  // Oblasť je údaj veci (`area:` v matter.md), nie priečinok.
+  const area = safeSegment(input.area), name = `${input.date.slice(0, 7)} ${safeSegment(input.title)}`, folder = `${MATTERS_DIR}/${name}`;
+  const generated = planEntity({ type: "spis", dir: folder, title: input.title, language: input.language, jurisdiction: input.jurisdiction, date: input.date, workingProfile: input.workingProfile, matterKind: input.kind === "contentious" ? "dispute" : "other", ...(input.clientTitle ? { klient: input.clientTitle } : {}), ...(input.clientCardPath ? { clientCardPath: input.clientCardPath } : {}), ...(input.extras?.caseNumber ? { spzn: input.extras.caseNumber } : {}), ...(input.extras?.counterparty ? { protistrana: input.extras.counterparty } : {}), ...(input.extras?.court ? { sud: input.extras.court } : {}) }, LOCALIZED_TEMPLATES, () => false);
+  const template = templateOperations(folder, generated.entries).filter(operation => operation.path !== folder);
+  const operations = [directory(folder), ...template.map(operation => operation.path === `${folder}/matter.md` && operation.kind === "file" ? file(operation.path, (operation.content ?? "").replace("type: spis", `type: matter\nkind: ${input.kind}\narea: ${yaml(area)}\nsubject: ${yaml(input.subject ?? "")}`)) : operation)];
+  return { name, folder, operations };
+}
+
 export async function planNewMatter(request: MatterRequest): Promise<CreatePreview> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(request.date) || !["contentious", "non_contentious"].includes(request.kind)) throw new Error("Valid date and matter kind are required.");
-  const area = safeSegment(request.area), name = `${request.date.slice(0, 7)} ${safeSegment(request.title)}`, target = join(request.parent, area, name);
+  safeSegment(request.area);
+  const name = `${request.date.slice(0, 7)} ${safeSegment(request.title)}`, target = join(request.parent, MATTERS_DIR, name);
   const clientRoot = await realpath(request.clientRoot), parentRoot = await realpath(request.parent);
   if (parentRoot !== clientRoot && !parentRoot.startsWith(`${clientRoot}/`)) throw new Error("Matter parent must be within the inspected client root.");
   const client = await inspectOnboardingRoot(clientRoot);
   if (!client.complete || client.level !== "client") throw new Error("Matter client root must be an inspected client.");
   const inspected = await inspectOnboardingRoot(request.parent);
   if (!inspected.complete) throw new Error("Matter parent could not be inspected completely.");
-  const existingArea = inspected.entries.find(entry => entry.path === area);
-  if (existingArea && existingArea.kind !== "directory") throw new Error("Matter area is blocked by a non-directory.");
+  const existingMatters = inspected.entries.find(entry => entry.path === MATTERS_DIR);
+  if (existingMatters && existingMatters.kind !== "directory") throw new Error("Matter folder is blocked by a non-directory.");
   const office = findOfficeDir(request.parent);
   const workingProfile = office ? parseOfficeWorkingProfile(await readFile(join(office, "okf.config"), "utf8"), request.language ?? "sk") : undefined;
-  const generated = planEntity({ type: "spis", dir: target, title: request.title, language: request.language, jurisdiction: request.jurisdiction, date: request.date, workingProfile, matterKind: request.kind === "contentious" ? "dispute" : "other" }, LOCALIZED_TEMPLATES, () => false);
-  const template = templateOperations(`${area}/${name}`, generated.entries).filter(operation => operation.path !== `${area}/${name}`);
-  const operations = [ ...(existingArea ? [] : [directory(area)]), directory(`${area}/${name}`), ...template.map(operation => operation.path === `${area}/${name}/matter.md` && operation.kind === "file" ? file(operation.path, (operation.content ?? "").replace("type: spis", `type: matter\nkind: ${request.kind}\narea: ${yaml(area)}\nsubject: ${yaml(request.subject ?? "")}`)) : operation) ];
+  const card = await clientCard(clientRoot);
+  const clientCardPath = card ? relative(join(parentRoot, MATTERS_DIR, name), card.file).split(sep).join("/") : undefined;
+  const built = buildMatterOperations({ ...request, workingProfile, clientTitle: card?.title, clientCardPath });
+  const operations = [...(existingMatters ? [] : [directory(MATTERS_DIR)]), ...built.operations];
   return { mode: "new", appFiles: "inside", target, clientRoot: request.clientRoot, plan: await rootPlan(request.parent, operations) };
 }
 export async function executeCreate(preview: CreatePreview, journalDirectory: string): Promise<ApplyResult> { return applyOnboardingPlan(preview.plan, journalDirectory); }

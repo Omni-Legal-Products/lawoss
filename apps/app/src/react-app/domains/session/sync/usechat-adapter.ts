@@ -17,6 +17,7 @@ import {
   STRUCTURED_OUTPUT_TOOL,
 } from "./parse-tool-parts";
 import { t } from "@/i18n";
+import { subscriptionModelErrorKey } from "@/lawoss/providers/subscription-models";
 
 function recordValue(value: unknown, key: string) {
   if (!value || typeof value !== "object") return undefined;
@@ -71,6 +72,8 @@ function describeErrorText(text: string) {
 }
 
 export function describeOpencodeSessionError(error: unknown, fallback = "Session failed") {
+  const lawossKey = subscriptionModelErrorKey(error); // LAWOSS: model the ChatGPT subscription rejects
+  if (lawossKey) return t(lawossKey);
   if (error instanceof Error) return describeErrorText(error.message || fallback);
   if (typeof error === "string") return describeErrorText(error.trim() || fallback);
   if (!error || typeof error !== "object") return fallback;
