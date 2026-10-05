@@ -369,7 +369,7 @@ export function useOkfOverview(connection: OkfConnection | null, workspace: Rout
     queryKey: ["okf-overview", workspace?.id ?? "", connection?.baseUrl ?? "", connection?.token ?? ""],
     enabled: Boolean(client && workspace),
     queryFn: async () => {
-      if (!client || !workspace) throw new Error("Server LegalWork nebeží alebo chýba workspace.");
+      if (!client || !workspace) throw new Error("Server LAWOSS nebeží alebo chýba workspace.");
       const started = Date.now();
       try { return await readWorkspaceMemory(client, workspace.id); }
       finally { readDurations.set(workspace.id, Date.now() - started); }
