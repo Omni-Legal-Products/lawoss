@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "bun:test";
@@ -7,6 +7,7 @@ import { inspectOnboardingRoot } from "../src/onboarding/classify.ts";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
 import { applyTrialClone, recoverTrialClone, type TrialClone } from "../src/onboarding/trial-clone.ts";
 import type { OnboardingPlan } from "../src/onboarding/transaction.ts";
+import { syncFile, unlinkFile } from "../src/onboarding/file-durability.ts";
 
 const paths: string[] = [];
 afterEach(async () => { await Promise.all(paths.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
@@ -87,6 +88,37 @@ test("trial rollback removes only unchanged owned output and stops for a foreign
   await expect(recoverTrialClone(guarded, journal, "rollback")).rejects.toThrow("unowned entry");
   expect(await readFile(join(guarded.target, "foreign.txt"), "utf8")).toBe("foreign");
   expect(await readFile(join(guarded.target, "original.txt"), "utf8")).toBe("original");
+});
+
+// Windows: CopyFileW skopíruje aj atribút „iba na čítanie“ a fsync potrebuje handle s
+// právom zápisu; DeleteFileW taký súbor odmietne. Na Windows test spustí portable-windows.
+test("trial clone and rollback handle a read-only document", async () => {
+  const source = await directory("okf-trial-source-ro-");
+  const parent = await directory("okf-trial-parent-ro-");
+  const journal = await directory("okf-trial-journal-ro-");
+  await writeFile(join(source, "rozsudok-final.pdf"), "pdf");
+  await chmod(join(source, "rozsudok-final.pdf"), 0o444);
+  try {
+    const preview = await simplePreview(source, parent, "readonly");
+    await applyTrialClone(preview, journal);
+    const copied = await lstat(join(preview.target, "rozsudok-final.pdf"));
+    expect(copied.mode & 0o200).toBe(0);
+    expect(await readFile(join(preview.target, "rozsudok-final.pdf"), "utf8")).toBe("pdf");
+    await recoverTrialClone(preview, journal, "rollback");
+    await expect(lstat(preview.target)).rejects.toThrow();
+    expect(await readFile(join(source, "rozsudok-final.pdf"), "utf8")).toBe("pdf");
+  } finally { await chmod(join(source, "rozsudok-final.pdf"), 0o644); }
+});
+
+test("syncFile and unlinkFile on Windows keep and then clear the read-only attribute", async () => {
+  const dir = await directory("okf-durable-");
+  const file = join(dir, "a.pdf");
+  await writeFile(file, "a");
+  await chmod(file, 0o444);
+  await syncFile(file, "win32");
+  expect((await lstat(file)).mode & 0o200).toBe(0);
+  await unlinkFile(file, "win32");
+  await expect(lstat(file)).rejects.toThrow();
 });
 
 test("trial recovery is conservative for an interrupted unowned root and resumes conversion with no transaction journal", async () => {

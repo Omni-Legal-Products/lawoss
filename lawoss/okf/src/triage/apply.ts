@@ -9,10 +9,11 @@
  */
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { appendFile, copyFile, link, lstat, mkdir, open, readdir, readFile, realpath, rmdir, unlink } from "node:fs/promises";
+import { appendFile, copyFile, link, lstat, mkdir, open, readdir, readFile, realpath, rmdir } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { acquireOnboardingLock, parseOnboardingPlan, type CreateOperation } from "../onboarding/transaction.ts";
 import { inspectOnboardingRoot } from "../onboarding/classify.ts";
+import { syncFile, unlinkFile } from "../onboarding/file-durability.ts";
 import { planFingerprint, sha256 } from "./plan.ts";
 import { TRIAGE_ROLES } from "./rules.ts";
 import { TRIAGE_DIR, triageTreeDigest, verifyTrialClone } from "./scan.ts";
@@ -136,13 +137,12 @@ async function moveExclusive(source: string, target: string, digest: string): Pr
     if (code === "EEXIST") throw new TriageConflictError(`Cieľ už existuje: ${target}`);
     if (!["EXDEV", "EPERM", "ENOTSUP", "EOPNOTSUPP", "EMLINK", "ENOSYS", "EACCES"].includes(code)) throw error;
     await copyFile(source, target, constants.COPYFILE_EXCL);
-    const handle = await open(target, (process.platform === "win32" ? constants.O_RDWR : constants.O_RDONLY) | constants.O_NOFOLLOW);
-    try { await handle.sync(); } finally { await handle.close(); }
+    await syncFile(target);
   }
   if (await fileDigest(target) !== digest) throw new TriageConflictError(`Kópia ${target} nesedí s originálom.`);
   await durableDirectory(dirname(target));
   if (await fileDigest(source) !== digest) throw new TriageConflictError(`Zdroj ${source} sa zmenil počas presunu.`);
-  await unlink(source);
+  await unlinkFile(source);
   await durableDirectory(dirname(source));
 }
 
@@ -226,7 +226,7 @@ export async function applyTriagePlan(input: unknown, options: { trialJournalDir
       if (from === move.sha256 && to === null) {
         if (!started) await appendEvent(eventsPath, { t: "move_intent", id: move.id });
         await moveExclusive(source, target, move.sha256);
-      } else if (started && from === move.sha256 && to === move.sha256) { await unlink(source); await durableDirectory(dirname(source)); }
+      } else if (started && from === move.sha256 && to === move.sha256) { await unlinkFile(source); await durableDirectory(dirname(source)); }
       else if (!(started && from === null && to === move.sha256)) throw new TriageConflictError(to !== null && !started ? `Cieľ už existuje: ${move.to}` : `Dokument sa zmenil alebo chýba: ${move.from}`);
       await appendEvent(eventsPath, { t: "moved", id: move.id });
     }
@@ -290,7 +290,7 @@ export async function undoTriage(rootInput: string, runId: string, options: { tr
       const source = await safeParent(root, move.to), target = await safeParent(root, move.from);
       await appendEvent(eventsPath, { t: "restore_intent", id: move.id });
       if (from === null && to !== null) await moveExclusive(source, target, move.sha256);
-      else if (from !== null && to !== null) { await unlink(source); await durableDirectory(dirname(source)); }
+      else if (from !== null && to !== null) { await unlinkFile(source); await durableDirectory(dirname(source)); }
       await appendEvent(eventsPath, { t: "restored", id: move.id });
       restoredCount++;
     }
@@ -298,7 +298,7 @@ export async function undoTriage(rootInput: string, runId: string, options: { tr
       const full = join(root, operation.path);
       await appendEvent(eventsPath, { t: "remove_intent", path: operation.path });
       const state = await operationState(root, operation);
-      if (state === "ours") { if (operation.kind === "directory") await rmdir(full); else await unlink(full); await durableDirectory(dirname(full)); }
+      if (state === "ours") { if (operation.kind === "directory") await rmdir(full); else await unlinkFile(full); await durableDirectory(dirname(full)); }
       else if (state === "other") throw new TriageConflictError(`Zmenené počas vrátenia: ${operation.path}`);
       await appendEvent(eventsPath, { t: "removed", path: operation.path });
       removedCount++;
