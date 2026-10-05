@@ -393,3 +393,11 @@ Rozhodnutie MČ 5. 10. 2026: Eigenwelt nesmie byť aktívne pripojený na appku 
 | `apps/server/src/eigenwelt-auth.ts` | `fetchEigenweltManifest()` bez `LAWOSS_EIGENWELT_ACCOUNT=1` hneď skončí chybou (+1 import, +2 riadky) | Pokrýva obnovu modelov starého poskytovateľa `eigenwelt` pri štarte samostatného servera aj route `/api/eigenwelt/models` |
 | `apps/server/src/legalwork-runtime-config.ts` | `disabled_providers` obsahuje `eigenwelt` bez `LAWOSS_EIGENWELT_ACCOUNT=1` (+1 import, +2 riadky) | Starý blok poskytovateľa uložený v konfigurácii spisu (cesta „Vložiť API kľúč“) by engine inak ponúkol |
 | `.github/workflows/ci-tests.yml` | Krok „LAWOSS guard against Eigenwelt and analytics“ v jobe `legalwork-tests` po builde servera (+7 riadkov) | Stráž beží na každom PR bez nového povinného checku; na Linuxe kontroluje aj `apps/server/dist` |
+
+## Windows pred alfou (2026-10-05)
+
+Rozhodnutie Q18 (call 18. 8. 2026): prompty, OKF, MCP a práca so súbormi sú na všetkých platformách rovnaké. Job `portable-windows` spúšťa aj LAWOSS testy appky; na Windows ukázali rozdiely, ktoré Linux a macOS nevidia.
+
+| Upstream súbor | Zmena LAWOSS | Dôvod |
+|---|---|---|
+| `.gitattributes` | +`* text=auto eol=lf` (+4 riadky komentára) | Runner `windows-2022` má `core.autocrlf=true`, takže build pre Windows (alfa, `Package and launch`) dostal `SKILL.md` a bundle OKF s CRLF: prázdny popis skillu `/novy-spis` a `okf-pamat`, iné odtlačky skillov a falošné „obsahuje vaše úpravy“. Index je celý v LF, renormalizácia nič nemení |
