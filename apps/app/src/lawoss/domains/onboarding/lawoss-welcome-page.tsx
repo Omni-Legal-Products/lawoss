@@ -298,15 +298,23 @@ const unsafeFolderName: Record<Language, string> = {
   de: "Der Ordnername darf nicht leer sein, nicht mit einem Punkt beginnen, keine Zeichen / \\ : < > \" | ? * enthalten und nicht länger als 120 Zeichen sein. Punkte im Namen, etwa „s. r. o.“, sind zulässig.",
 };
 /** Zamknutý súbor z neúplnej inšpekcie (Windows: dokument otvorený vo Worde); cesty sú zo správy servera. */
-const lockedFiles: Record<Language, (paths: string) => string> = {
-  sk: (paths) =>
-    `Súbor je otvorený v inej aplikácii (napríklad vo Worde) alebo k nemu nie je prístup: ${paths}. Zatvorte ho a skúste to znova.`,
-  cs: (paths) =>
-    `Soubor je otevřený v jiné aplikaci (například ve Wordu) nebo k němu není přístup: ${paths}. Zavřete ho a zkuste to znovu.`,
-  en: (paths) =>
-    `A file is open in another application (for example Word) or cannot be accessed: ${paths}. Close it and try again.`,
-  de: (paths) =>
-    `Eine Datei ist in einer anderen Anwendung geöffnet (zum Beispiel in Word) oder nicht zugänglich: ${paths}. Schließen Sie sie und versuchen Sie es erneut.`,
+const lockedFiles: Record<Language, (paths: string, many: boolean) => string> = {
+  sk: (paths, many) =>
+    many
+      ? `Súbory sú otvorené v inej aplikácii (napríklad vo Worde) alebo k nim nie je prístup: ${paths}. Zatvorte ich a skúste to znova.`
+      : `Súbor je otvorený v inej aplikácii (napríklad vo Worde) alebo k nemu nie je prístup: ${paths}. Zatvorte ho a skúste to znova.`,
+  cs: (paths, many) =>
+    many
+      ? `Soubory jsou otevřené v jiné aplikaci (například ve Wordu) nebo k nim není přístup: ${paths}. Zavřete je a zkuste to znovu.`
+      : `Soubor je otevřený v jiné aplikaci (například ve Wordu) nebo k němu není přístup: ${paths}. Zavřete ho a zkuste to znovu.`,
+  en: (paths, many) =>
+    many
+      ? `Files are open in another application (for example Word) or cannot be accessed: ${paths}. Close them and try again.`
+      : `A file is open in another application (for example Word) or cannot be accessed: ${paths}. Close it and try again.`,
+  de: (paths, many) =>
+    many
+      ? `Dateien sind in einer anderen Anwendung geöffnet (zum Beispiel in Word) oder nicht zugänglich: ${paths}. Schließen Sie sie und versuchen Sie es erneut.`
+      : `Eine Datei ist in einer anderen Anwendung geöffnet (zum Beispiel in Word) oder nicht zugänglich: ${paths}. Schließen Sie sie und versuchen Sie es erneut.`,
 };
 const lockedFilesMessage = (error: unknown, locale: Language) => {
   if (!(error instanceof Error) || !error.message.startsWith(LOCKED_FILES_MESSAGE_PREFIX)) return undefined;
@@ -316,7 +324,7 @@ const lockedFilesMessage = (error: unknown, locale: Language) => {
     .trim()
     .replace(/ \(\+\d+ more\)$/, "");
   const paths = [...list.matchAll(new RegExp(`(?:^|; )(.+?): ${LOCKED_FILE_CODE}(?=; |$)`, "g"))].map((match) => match[1] ?? "");
-  return paths.length ? lockedFiles[locale](paths.join(", ")) : undefined;
+  return paths.length ? lockedFiles[locale](paths.join(", "), paths.length > 1) : undefined;
 };
 /** Server errors in the UI language where the app knows them; other messages stay as sent. */
 export const onboardingErrorMessage = (error: unknown, locale: Language) =>
