@@ -20,6 +20,10 @@ on:
       - apps/desktop/electron/workspace-store.test.mjs
       - apps/desktop/electron/lawoss-picked-path.mjs
       - apps/desktop/electron/lawoss-picked-path.test.mjs
+      - apps/desktop/electron/lawoss-process-tree.mjs
+      - apps/desktop/electron/lawoss-process-tree.test.mjs
+      - apps/desktop/electron/lawoss-okf-cli-smoke.mjs
+      - apps/desktop/electron/lawoss-okf-cli-smoke.test.mjs
       - apps/desktop/electron/main.mjs
       - apps/app/src/react-app/shell/welcome-route.tsx
       - apps/server/src/lawoss/**
@@ -56,6 +60,10 @@ on:
       - apps/desktop/electron/workspace-store.test.mjs
       - apps/desktop/electron/lawoss-picked-path.mjs
       - apps/desktop/electron/lawoss-picked-path.test.mjs
+      - apps/desktop/electron/lawoss-process-tree.mjs
+      - apps/desktop/electron/lawoss-process-tree.test.mjs
+      - apps/desktop/electron/lawoss-okf-cli-smoke.mjs
+      - apps/desktop/electron/lawoss-okf-cli-smoke.test.mjs
       - apps/desktop/electron/main.mjs
       - apps/app/src/react-app/shell/welcome-route.tsx
       - apps/server/src/lawoss/**
@@ -109,8 +117,11 @@ jobs:
         run: pnpm --filter @lawoss/okf-pamat test
       - name: Native handoff source tests
         run: bun test lawoss/okf-handoff/
-      - name: Updater, persistent native registration and picked folders
-        run: node --test apps/desktop/electron/update-feed.test.mjs apps/desktop/electron/updater.test.mjs apps/desktop/electron/workspace-store.test.mjs apps/desktop/electron/lawoss-picked-path.test.mjs
+      # Strom procesov: taskkill /T musí zhodiť aj vnúča nástroja agenta (python,
+      # soffice, node), inak drží zámky v priečinku klienta. Bundle OKF bežia
+      # s Node runnera v ceste s medzerou a diakritikou, len s ním v PATH.
+      - name: Updater, persistent native registration, picked folders, process tree and OKF CLI
+        run: node --test apps/desktop/electron/update-feed.test.mjs apps/desktop/electron/updater.test.mjs apps/desktop/electron/workspace-store.test.mjs apps/desktop/electron/lawoss-picked-path.test.mjs apps/desktop/electron/lawoss-process-tree.test.mjs apps/desktop/electron/lawoss-okf-cli-smoke.test.mjs
       # Pohľady z OKF (Dnes, Klienti, detail veci), onboarding a Lite dostávajú na
       # Windows cesty v tvare C:\...; bez tohto kroku tu nebežal žiadny ich test.
       # Filtre bez lomky, aby sedeli aj na cestách so spätnou lomkou.
@@ -121,6 +132,6 @@ jobs:
       # pamäťou a kanonickými cestami beží na Windows prvýkrát; dist sa tu nestavia,
       # takže filter zachytí len zdrojové testy (bez lomky kvôli cestám s `\`).
       # lawoss-path-containment: workspace v koreni disku (subst) a zdieľania (net share).
-      - name: LAWOSS server (onboarding, register existing, triage, memory, paths, containment, reload watcher)
+      - name: LAWOSS server (onboarding, register existing, triage, memory, paths, containment, reload watcher, process tree)
         working-directory: apps/server
         run: bun test lawoss reload-watcher

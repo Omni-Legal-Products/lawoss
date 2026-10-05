@@ -3,6 +3,7 @@ import net from "node:net";
 import { randomUUID } from "node:crypto";
 
 import { lawossEngineEnv } from "./lawoss/engine-network.js";
+import { killProcessTree } from "./lawoss/process-tree.js";
 
 export type ManagedOpencodeServer = {
   url: string;
@@ -162,6 +163,9 @@ function makeTerminator(child: ChildProcess, exited: Promise<void>): () => Promi
   return () => {
     closePromise ??= (async () => {
       if (!alive()) return;
+      // 🟡 LAWOSS: na Windows zhodí child.kill len engine; python, soffice či node
+      // z nástroja agenta by bežali ďalej a držali zámky v priečinku klienta.
+      if (process.platform === "win32") await killProcessTree(child.pid);
       try {
         child.kill("SIGTERM");
       } catch {

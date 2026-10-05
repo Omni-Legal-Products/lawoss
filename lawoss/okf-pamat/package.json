@@ -18,5 +18,8 @@
   },
   "bin": {
     "okf-memory": "./bin/okf-memory.ts"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.7.0"
   }
 }
