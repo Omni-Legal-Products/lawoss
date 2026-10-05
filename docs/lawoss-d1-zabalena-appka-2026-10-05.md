@@ -83,12 +83,37 @@ Platí pri zapnutom OKF. V alfe len vymyslené alebo verejné údaje.
 ### Rýchle akcie a skilly
 
 - Rýchle akcie vo veci aj skilly potrebujú pripojený model (pozri vyššie). Bez modelu asistent neodpovie.
-- Pri otvorení klienta appka doplní chýbajúce skilly `novy-spis`, `okf-pamat` a `usporiadaj-spis`. Vaše úpravy skillu neprepíše a raz na ne upozorní.
+- Pri otvorení klienta appka doplní chýbajúce skilly `novy-spis`, `okf-pamat`, `usporiadaj-spis` a `roztried-spis`. Vaše úpravy skillu neprepíše a raz na ne upozorní.
 - **Usporiadanie dokumentov:** v okne chatu napíšte `/`, vyberte `usporiadaj-spis` a uveďte, ktoré dokumenty sa majú pomenovať. Skill pripraví plán s náhľadom; nič sa nepremenuje ani neskopíruje bez vášho schválenia.
 
-### Automatické roztriedenie dokumentov (pripravuje sa)
+### Automatické roztriedenie dokumentov
 
-> **Pripravuje sa.** Samostatná funkcia, v alfe 1 ešte nie je. Postup pre testerov doplníme sem.
+Funguje **len v skúšobnom klone**. Originál klienta sa nikdy nemení.
+
+1. Pripojte existujúci priečinok klienta ako **Skúšobný klon** (pozri vyššie).
+2. Klienti → **Roztriediť dokumenty**. Appka hneď ukáže návrh podľa názvov súborov: počet dokumentov, koľko sa zaradí, koľko ostane na zatriedenie a ktoré veci vzniknú. V tabuľke vidíte pri každom dokumente, odkiaľ a kam pôjde, prečo a s akou istotou. Dokument môžete nechať na zatriedenie.
+3. **Spresniť s modelom** (potrebuje pripojený model): zaškrtnite súhlas, že celý text dokumentov ide k poskytovateľovi modelu, → **Otvoriť rozhovor s modelom** → odošlite pripravenú správu. Model prečíta dokumenty, navrhne veci (napríklad podľa spisovej značky a protistrany) a zaradí dokumenty. Nič nepresunie.
+4. Vráťte sa na **Roztriediť dokumenty** → **Použiť návrh modelu**. Skontrolujte nové veci a tabuľku.
+5. **Potvrdiť a roztriediť**. Appka založí veci v `Spisy/` a presunie dokumenty do pracovných priečinkov klienta a vecí. Nič neprepíše ani nezmaže.
+6. Celý beh vrátite tlačidlom **Vrátiť roztriedenie** (aj neskôr v paneli „Posledné roztriedenie“). Klon sa vráti presne do pôvodného stavu.
+
+Obmedzenia v alfe:
+
+- Bez modelu sa triedi len podľa názvov; súbory typu „sken001.pdf“ ostanú na zatriedenie a veci vzniknú len vtedy, keď spisovú značku nesú v názve aspoň dva súbory.
+- Z `.msg`, `.zfo`, `.asice` a obrázkov appka text nečíta; zaradí ich podľa názvu a súvislostí.
+- Veci založené len podľa názvov dostanú dnešný dátum; náhľad to označí.
+- Pôvodné, po roztriedení prázdne priečinky ostávajú.
+
+Overené 5. 10. 2026 na vymyslenom klientovi (34 dokumentov, dve konania a jedna nesporová vec) s predplatným ChatGPT a modelom GPT-6 Luna:
+
+| | Len podľa názvov | S modelom |
+|---|---|---|
+| Zaradené | 25 | 34 |
+| Na zatriedenie | 9 | 0 |
+| Nové veci | 0 | 3 (15, 11 a 2 dokumenty) |
+| Čas modelu | nie | asi 3 až 5 minút |
+
+Model zaradil správne aj skeny bez výpovedného názvu podľa spisovej značky v texte a spoločné dokumenty (plnomocenstvo, výpis z registra, zmluvu o právnych službách) nechal u klienta. Po vrátení boli všetky súbory klona zhodné so stavom pred roztriedením.
 
 ## Oficiálne odkazy na DPA
 
