@@ -91,7 +91,7 @@ export interface Store {
  * text pred prvou sekciou, zdvojená Truth/History a riadok History mimo tvaru udalosti.
  */
 function hasUnparsedBody(text: string): boolean {
-  const lines = text.split("\n");
+  const lines = text.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n");
   const body = lines.slice(lines.indexOf("---", 1) + 1);
   let section = "";
   const seen = new Set<string>();

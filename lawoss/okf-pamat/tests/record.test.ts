@@ -110,3 +110,11 @@ test("chybajuce povinne pole je chyba", () => {
   const bad = CZ.replace(/^description:.*$/m, "");
   assert.throws(() => parseRecord(bad), /description/);
 });
+
+// Windows: Poznámkový blok, PowerShell aj Git s autocrlf ukladajú CRLF, „UTF-8 s BOM“ pridá U+FEFF.
+test("CRLF a BOM z Windows: rovnaký záznam ako s LF", () => {
+  const lf = parseRecord(CZ);
+  assert.deepEqual(parseRecord(CZ.replace(/\n/g, "\r\n")), lf);
+  assert.deepEqual(parseRecord(`\uFEFF${CZ}`), lf);
+  assert.deepEqual(parseRecord(`\uFEFF${CZ.replace(/\n/g, "\r\n")}`), lf);
+});

@@ -232,7 +232,9 @@ const CORE_FIELDS = new Set([
 ]);
 
 function splitFrontmatter(text: string): { fm: string; body: string } {
-  const lines = text.split("\n");
+  // Windows: záznam alebo návrh z Poznámkového bloku, PowerShellu či Gitu s autocrlf má
+  // CRLF, „UTF-8 s BOM“ navyše U+FEFF. Bez prevodu ostal koncový `---\r` nenájdený.
+  const lines = text.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n");
   if (lines[0]?.trim() !== FM_DELIM) {
     throw new Error("Záznam nemá frontmatter — chýba úvodný oddeľovač ---");
   }

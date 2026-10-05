@@ -76,6 +76,17 @@ test("write --apply zapise L2 zaznam bez schvalenia", () => {
   assert.equal(pocet(dir), 1);
 });
 
+test("write --apply prijme navrh s CRLF z Windows a zapise ho s LF", () => {
+  const dir = spis();
+  const path = join(dir, "navrh.md");
+  writeFileSync(path, serializeRecord(rozhodnutie()).replace(/\n/g, "\r\n"));
+  const r = runCli(["write", dir, "--file", path, "--reason", "nove", "--apply"]);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(pocet(dir), 1);
+  const written = readdirSync(join(dir, MEMORY_DIR)).find((f) => f.endsWith(".md"))!;
+  assert.equal(readFileSync(join(dir, MEMORY_DIR, written), "utf8").includes("\r"), false);
+});
+
 // --- human gate ---
 
 test("zapis do L1 bez --approve-as skonci chybou a povie, co chyba", () => {

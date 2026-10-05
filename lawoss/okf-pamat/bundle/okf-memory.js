@@ -537,7 +537,8 @@ var CORE_FIELDS = new Set([
   "updated"
 ]);
 function splitFrontmatter(text) {
-  const lines = text.split(`
+  const lines = text.replace(/^\uFEFF/, "").replace(/\r\n?/g, `
+`).split(`
 `);
   if (lines[0]?.trim() !== FM_DELIM) {
     throw new Error("Záznam nemá frontmatter — chýba úvodný oddeľovač ---");
@@ -2266,7 +2267,8 @@ function documentLanguageFromCard(dir) {
   return;
 }
 function hasUnparsedBody(text) {
-  const lines = text.split(`
+  const lines = text.replace(/^\uFEFF/, "").replace(/\r\n?/g, `
+`).split(`
 `);
   const body = lines.slice(lines.indexOf("---", 1) + 1);
   let section = "";
