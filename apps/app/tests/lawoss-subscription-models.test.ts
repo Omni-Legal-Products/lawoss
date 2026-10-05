@@ -3,6 +3,7 @@ import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
 import type { Client } from "../src/app/types";
 import { t } from "../src/i18n";
 import {
+  CHATGPT_RECOMMENDED_MODELS,
   CHATGPT_SUBSCRIPTION_MODELS,
   filterSubscriptionModels,
   isChatgptSubscription,
@@ -17,14 +18,19 @@ import {
 } from "../src/react-app/infra/provider-list-query";
 
 // Catalogue keys that OpenCode 1.18.29 returned for OpenAI signed in with a ChatGPT
-// subscription (synthetic auth.json, isolated run on 2026-10-05). `-fast` keys share
-// `api.id` with their base model.
+// subscription (synthetic auth.json, isolated runs on 2026-10-05): first with the bundled
+// catalogue, then with the catalogue refreshed from models.dev. `-fast`, `-flex` and
+// `-ultrafast` keys share `api.id` with their base model (only the service tier differs).
 const OAUTH_KEYS = [
   "gpt-5.3-codex-spark", "gpt-5.4", "gpt-5.4-fast", "gpt-5.4-mini", "gpt-5.4-mini-fast",
   "gpt-5.5", "gpt-5.5-fast", "gpt-5.6-luna", "gpt-5.6-luna-fast", "gpt-5.6-sol", "gpt-5.6-sol-fast",
   "gpt-5.6-terra", "gpt-5.6-terra-fast", "gpt-6-astra", "gpt-6-astra-fast",
 ];
-const apiId = (key: string) => key.replace(/-fast$/, "");
+const OAUTH_KEYS_REFRESHED = [
+  ...OAUTH_KEYS, "gpt-5.4-mini-flex", "gpt-6-astra-ultrafast", "gpt-6-luna", "gpt-6-luna-fast",
+  "gpt-6-sol", "gpt-6-sol-fast", "gpt-6.1-sol", "gpt-6.1-sol-fast",
+];
+const apiId = (key: string) => key.replace(/-(fast|flex|ultrafast)$/, "");
 
 // Partial SDK fixture: only the fields the helpers read. The cast is limited to the test.
 const provider = (id: string, source: string, keys: string[]) => ({
@@ -48,12 +54,14 @@ describe("ChatGPT subscription models", () => {
     expect(isChatgptSubscription({ id: "anthropic", source: "custom" })).toBe(false);
   });
 
-  test("the picker keeps only models the subscription accepts, fast variants included", () => {
+  test("the picker keeps only models the subscription accepts, without speed variants", () => {
     const filtered = filterSubscriptionModels(list([provider("openai", "custom", OAUTH_KEYS)]));
-    expect(openaiModels(filtered)).toEqual([
-      "gpt-5.6-luna", "gpt-5.6-luna-fast", "gpt-5.6-sol", "gpt-5.6-sol-fast",
-      "gpt-5.6-terra", "gpt-5.6-terra-fast", "gpt-6-astra", "gpt-6-astra-fast",
+    expect(openaiModels(filtered)).toEqual(["gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-6-astra"]);
+    const refreshed = filterSubscriptionModels(list([provider("openai", "custom", OAUTH_KEYS_REFRESHED)]));
+    expect(openaiModels(refreshed)).toEqual([
+      "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol",
     ]);
+    expect(openaiModels(refreshed).some((id) => /-(fast|flex|ultrafast)$/.test(id))).toBe(false);
     for (const rejected of ["gpt-5.4", "gpt-5.3-codex-spark", "gpt-5.4-mini", "gpt-5.5"]) {
       expect(CHATGPT_SUBSCRIPTION_MODELS.has(rejected)).toBe(false);
     }
@@ -72,14 +80,30 @@ describe("ChatGPT subscription models", () => {
     expect(getConnectedProviderItems(filtered).map((p) => p.id)).toEqual(["openai"]);
   });
 
-  test("a default pointing at a rejected model is dropped, so the automatic pick takes a usable one", () => {
-    const filtered = filterSubscriptionModels(list([provider("openai", "custom", OAUTH_KEYS)], { openai: "gpt-5.4" }));
+  test("the automatic pick prefers Luna: gpt-6-luna when the catalogue has it, else gpt-5.6-luna", () => {
+    // OpenCode's own default for the subscription is gpt-5.6-terra-fast.
+    const refreshed = filterSubscriptionModels(list([provider("openai", "custom", OAUTH_KEYS_REFRESHED)], { openai: "gpt-5.6-terra-fast" }));
+    expect(refreshed.default.openai).toBe("gpt-6-luna");
+    expect(getDefaultModelForSingleConnectedProvider(refreshed)).toEqual({ providerID: "openai", modelID: "gpt-6-luna" });
+    const bundled = filterSubscriptionModels(list([provider("openai", "custom", OAUTH_KEYS)], { openai: "gpt-5.4" }));
+    expect(getDefaultModelForSingleConnectedProvider(bundled)).toEqual({ providerID: "openai", modelID: "gpt-5.6-luna" });
+    expect([...CHATGPT_RECOMMENDED_MODELS]).toEqual(["gpt-6-luna", "gpt-5.6-luna"]);
+  });
+
+  test("without any Luna a rejected default is dropped and the pick is still usable", () => {
+    const filtered = filterSubscriptionModels(list([provider("openai", "custom", ["gpt-5.4", "gpt-5.6-sol", "gpt-5.6-terra"])], { openai: "gpt-5.4" }));
     expect(filtered.default.openai).toBeUndefined();
     const pick = getDefaultModelForSingleConnectedProvider(filtered);
     expect(pick?.providerID).toBe("openai");
-    expect(CHATGPT_SUBSCRIPTION_MODELS.has(apiId(pick?.modelID ?? ""))).toBe(true);
-    const kept = filterSubscriptionModels(list([provider("openai", "custom", OAUTH_KEYS)], { openai: "gpt-5.6-terra-fast" }));
-    expect(getDefaultModelForSingleConnectedProvider(kept)).toEqual({ providerID: "openai", modelID: "gpt-5.6-terra-fast" });
+    expect(CHATGPT_SUBSCRIPTION_MODELS.has(pick?.modelID ?? "")).toBe(true);
+  });
+
+  test("an API key keeps OpenCode's default and the user's own choice is never replaced", () => {
+    const api = filterSubscriptionModels(list([provider("openai", "api", ["gpt-5.4", "gpt-6-luna"])], { openai: "gpt-5.4" }));
+    expect(api.default.openai).toBe("gpt-5.4");
+    const filtered = filterSubscriptionModels(list([provider("openai", "custom", OAUTH_KEYS_REFRESHED)]));
+    const own = { providerID: "openai", modelID: "gpt-6-sol" };
+    expect(modelReadiness({ defaultModel: own, providerList: filtered }).hasUsableModel).toBe(true);
   });
 
   test("a stored gpt-5.4 selection shows as unavailable instead of failing with HTTP 400", () => {

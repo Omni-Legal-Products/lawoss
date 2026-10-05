@@ -1,69 +1,39 @@
 import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+import {
+  isChatgptSubscription,
+  recommendedSubscriptionModel,
+  subscriptionModels,
+} from "../../../../../lawoss/providers/chatgpt-subscription.mjs";
+
+export {
+  CHATGPT_RECOMMENDED_MODELS,
+  CHATGPT_SUBSCRIPTION_MODELS,
+  isChatgptSubscription,
+  isSubscriptionModel,
+} from "../../../../../lawoss/providers/chatgpt-subscription.mjs";
 
 type Provider = ProviderListResponse["all"][number];
-
-/**
- * Modely, ktoré prihlásenie cez predplatné ChatGPT (OAuth, nie API kľúč) skutočne obslúži.
- *
- * OpenCode pri OAuth sám zužuje katalóg (plugin `openai`, `provider.models`), jeho zoznam
- * však zaostáva: v 1.18.29 ponúka aj `gpt-5.4`, `gpt-5.4-mini` a `gpt-5.3-codex-spark`,
- * ktoré Codex backend pre účet ChatGPT odmietne s HTTP 400 (D1, 5. 10. 2026).
- *
- * Zdroj: zoznam modelov, ktorý Codex backend vrátil pre účet ChatGPT
- * (`~/.codex/models_cache.json`, `fetched_at` 2026-10-05, codex 0.160.0, viditeľnosť `list`).
- * Overené pre jeden účet; iné plány (Plus, Team, Edu) môžu mať menej modelov, preto
- * odmietnutie modelu aj tak dostane zrozumiteľnú hlášku (`subscriptionModelErrorKey`).
- * `gpt-5.5` chýba zámerne: Codex ho ukončuje 14. 10. 2026, teda počas alfy.
- *
- * Porovnáva sa `api.id`, nie kľúč katalógu: varianty `-fast` (priority tier) zdieľajú
- * `api.id` so základným modelom. Zoznam obsahuje aj modely, ktoré pripnutý OpenCode
- * zatiaľ nemá, aby ich zvýšenie verzie nepotrebovalo zmenu kódu.
- */
-export const CHATGPT_SUBSCRIPTION_MODELS: ReadonlySet<string> = new Set([
-  "gpt-5.6-luna",
-  "gpt-5.6-sol",
-  "gpt-5.6-terra",
-  "gpt-6-astra",
-  "gpt-6-sol",
-  "gpt-6-luna",
-  "gpt-6.1-sol",
-]);
 
 const OPENAI_PROVIDER_ID = "openai";
 
 /**
- * OpenAI pripojené cez predplatné ChatGPT. OpenCode dáva poskytovateľovi zdroj `custom`,
- * keď ho pripojí loader pluginu z OAuth záznamu; API kľúč má zdroj `api`, premenná
- * prostredia `env`, konfigurácia `config` (overené na OpenCode 1.18.29 so syntetickým
- * `auth.json`). Tie ostávajú bez zmeny.
- */
-export function isChatgptSubscription(provider: Pick<Provider, "id" | "source">): boolean {
-  return provider.id === OPENAI_PROVIDER_ID && provider.source === "custom";
-}
-
-function filterProvider(provider: Provider): Provider {
-  if (!isChatgptSubscription(provider)) return provider;
-  const models = Object.fromEntries(
-    Object.entries(provider.models ?? {}).filter(([, model]) => CHATGPT_SUBSCRIPTION_MODELS.has(model.api?.id ?? model.id)),
-  );
-  // Prázdny prienik by poskytovateľa potichu skryl (bez modelov nie je „pripojený“).
-  // Vtedy radšej ponechať zoznam OpenCode; odmietnutie pokryje zrozumiteľná hláška.
-  return Object.keys(models).length > 0 ? { ...provider, models } : provider;
-}
-
-/**
- * Zoznam poskytovateľov, v ktorom má ChatGPT predplatné len použiteľné modely.
- * Predvolený model OpenCode sa zahodí, ak ukazuje na vyradený, aby automatický
- * výber vzal prvý použiteľný.
+ * Zoznam poskytovateľov, v ktorom má predplatné ChatGPT len použiteľné modely
+ * (`lawoss/providers/chatgpt-subscription.mjs`). Predvolený model poskytovateľa je
+ * odporúčaná Luna; automatický výber (`pickDefaultModel`) ho berie, keď používateľ
+ * nemá vlastnú voľbu. Ak Luna chýba a predvolený model OpenCode bol vyradený,
+ * predvolený sa zahodí a automatický výber vezme prvý použiteľný.
  */
 export function filterSubscriptionModels(value: ProviderListResponse): ProviderListResponse {
   if (!value.all.some(isChatgptSubscription)) return value;
-  const all = value.all.map(filterProvider);
   const defaults = { ...value.default };
-  for (const provider of all) {
-    const id = defaults[provider.id];
-    if (id !== undefined && isChatgptSubscription(provider) && !provider.models[id]) delete defaults[provider.id];
-  }
+  const all = value.all.map((provider: Provider): Provider => {
+    if (!isChatgptSubscription(provider)) return provider;
+    const models = subscriptionModels(provider);
+    const recommended = recommendedSubscriptionModel(models);
+    if (recommended) defaults[provider.id] = recommended;
+    else if (defaults[provider.id] !== undefined && !models[defaults[provider.id]]) delete defaults[provider.id];
+    return { ...provider, models };
+  });
   return { ...value, all, default: defaults };
 }
 
