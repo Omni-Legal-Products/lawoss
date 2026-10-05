@@ -33,16 +33,29 @@ type PlanGroupContext = {
   workspacePath: string;
 };
 
+/** Koreň s písmenom disku (`C:\`, `d:/`) alebo UNC (`\\nas\share`, po zjednotení lomiek `//nas/share`). */
+const WINDOWS_PATH = /^(?:[A-Za-z]:(?:[\\/]|$)|[\\/]{2}[^\\/])/;
+
 /**
  * Cesta `dir` vyjadrená relatívne ku koreňu workspace-u; `null` = leží mimo neho.
  * Rovnaká odpoveď slúži na dve veci: čím sa pýtať servera na obsah priečinka a
  * či vôbec ide o cestu, na ktorú má agent povolenie.
+ *
+ * Windows: koreň býva `C:\Klienti`, `D:\` alebo `\\nas\share\`, `targetDir()` pripája
+ * názov cez `/` a priečinok z dialógu môže mať iné veľké písmená (NTFS ich nerozlišuje).
+ * Lomky sa preto zjednotia na `/` a porovnáva sa bez ohľadu na veľkosť písmen;
+ * výsledok má vždy `/`. POSIX cesty sa porovnávajú presne ako doteraz.
  */
 export function workspaceRelativePath(dir: string, workspacePath: string): string | null {
-  const root = workspacePath.replace(/\/+$/, "");
-  if (!root || !dir) return null;
-  if (dir === root) return "";
-  return dir.startsWith(`${root}/`) ? dir.slice(root.length + 1) : null;
+  const windows = WINDOWS_PATH.test(workspacePath);
+  const unify = (path: string) => (windows ? path.replaceAll("\\", "/") : path);
+  const same = (left: string, right: string) => (windows ? left.toLowerCase() === right.toLowerCase() : left === right);
+  const root = unify(workspacePath).replace(/\/+$/, "");
+  const target = unify(dir);
+  if (!root || !target) return null;
+  if (same(target, root)) return "";
+  const prefix = `${root}/`;
+  return same(target.slice(0, prefix.length), prefix) ? target.slice(prefix.length) : null;
 }
 
 export function groupPlan(rows: readonly PlanEntry[], context: PlanGroupContext): PlanGroups {

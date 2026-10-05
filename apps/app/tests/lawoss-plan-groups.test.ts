@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { planEntity, type TemplateSet } from "../../../lawoss/okf/src/core";
 import { entityTypeFor, targetDir, type NovySpisForm } from "../src/lawoss/okf/compose-prompt";
 import { groupPlan, workspaceRelativePath, type PlanGroupItem } from "../src/lawoss/okf/plan-groups";
+import { okfTargetWithinWorkspace } from "../src/lawoss/domains/novy-spis/prepare-draft";
 
 /**
  * Šablóny nakrátko — appkové `templates.ts` ťahá súbory cez Vite `?raw`, čo mimo
@@ -93,5 +94,50 @@ describe("plán nového spisu v troch skupinách", () => {
     expect(workspaceRelativePath("/Users/x/Workspace-zaloha/Vec", WORKSPACE)).toBeNull();
     expect(workspaceRelativePath("/Users/x/Dropbox/Vec", WORKSPACE)).toBeNull();
     expect(workspaceRelativePath("/Users/x/Dropbox/Vec", "")).toBeNull();
+  });
+
+  test("workspaceRelativePath na Windows: spätné lomky, veľkosť písmen, koreň disku a zdieľania", () => {
+    // `targetDir()` pripája názov cez `/` aj ku koreňu so spätnými lomkami.
+    expect(workspaceRelativePath("C:\\Users\\Jan\\AK/Novák Jan", "C:\\Users\\Jan\\AK")).toBe("Novák Jan");
+    expect(workspaceRelativePath("C:\\Users\\Jan\\AK\\Klienti/Novák Jan", "C:\\Users\\Jan\\AK")).toBe("Klienti/Novák Jan");
+    expect(workspaceRelativePath("c:\\users\\jan\\ak\\Klienti/Novák Jan", "C:\\Users\\Jan\\AK\\")).toBe("Klienti/Novák Jan");
+    expect(workspaceRelativePath("c:\\users\\jan\\ak", "C:\\Users\\Jan\\AK")).toBe("");
+    expect(workspaceRelativePath("D:/Novák Jan", "D:\\")).toBe("Novák Jan");
+    expect(workspaceRelativePath("d:\\Klienti/Novák Jan", "D:\\")).toBe("Klienti/Novák Jan");
+    expect(workspaceRelativePath("D:\\", "D:\\")).toBe("");
+    expect(workspaceRelativePath("\\\\nas\\share/Novák Jan", "\\\\nas\\share\\")).toBe("Novák Jan");
+    expect(workspaceRelativePath("\\\\NAS\\Share\\Klienti/Novák Jan", "\\\\nas\\share")).toBe("Klienti/Novák Jan");
+    expect(workspaceRelativePath("//nas/share/Klienti/Novák Jan", "//nas/share")).toBe("Klienti/Novák Jan");
+    // Súrodenec s rovnakým začiatkom názvu, iný disk a iné zdieľanie sú mimo.
+    expect(workspaceRelativePath("C:\\Users\\Jan\\AK zaloha/Vec", "C:\\Users\\Jan\\AK")).toBeNull();
+    expect(workspaceRelativePath("E:/Vec", "D:\\")).toBeNull();
+    expect(workspaceRelativePath("\\\\nas\\share2/Vec", "\\\\nas\\share\\")).toBeNull();
+    // POSIX ostáva presné: macOS/Linux cesty sa nezjednocujú ani nezmenšujú.
+    expect(workspaceRelativePath("/users/x/workspace/Vec", WORKSPACE)).toBeNull();
+  });
+
+  test("koreň disku alebo zdieľania so spätnou lomkou nehlási vlastný priečinok ako mimo workspace", () => {
+    for (const root of ["D:\\", "\\\\nas\\share\\", "C:\\Users\\Jan\\AK"]) {
+      const windows: NovySpisForm = { ...form, root };
+      expect(labels(groupPlan(rowsFor(windows), { form: windows, workspacePath: root }).pozornost)).toEqual(["Overenie subjektu"]);
+    }
+    // Koreň vybraný v dialógu inou veľkosťou písmen je ten istý priečinok na NTFS.
+    const picked: NovySpisForm = { ...form, root: "c:\\users\\jan\\ak\\Klienti" };
+    expect(labels(groupPlan(rowsFor(picked), { form: picked, workspacePath: "C:\\Users\\Jan\\AK" }).pozornost)).toEqual(["Overenie subjektu"]);
+    const outside: NovySpisForm = { ...form, root: "E:\\Klienti" };
+    expect(labels(groupPlan(rowsFor(outside), { form: outside, workspacePath: "D:\\" }).pozornost)).toEqual(["Overenie subjektu", "E:\\Klienti/Novák Jan"]);
+  });
+
+  test("okfTargetWithinWorkspace na Windows: koreň disku a zdieľania, veľkosť písmen, súrodenec", () => {
+    const at = (path: string) => ({ path });
+    expect(okfTargetWithinWorkspace("D:/Novák Jan", at("D:\\"))).toBe(true);
+    expect(okfTargetWithinWorkspace("D:\\Klienti/Novák Jan", at("D:\\"))).toBe(true);
+    expect(okfTargetWithinWorkspace("\\\\nas\\share/Novák Jan", at("\\\\nas\\share\\"))).toBe(true);
+    expect(okfTargetWithinWorkspace("\\\\NAS\\Share\\Klienti/Novák Jan", at("\\\\nas\\share"))).toBe(true);
+    expect(okfTargetWithinWorkspace("c:\\users\\jan\\ak\\Klienti/Novák Jan", at("C:\\Users\\Jan\\AK"))).toBe(true);
+    expect(okfTargetWithinWorkspace("C:\\Users\\Jan\\AK zaloha/Novák Jan", at("C:\\Users\\Jan\\AK"))).toBe(false);
+    expect(okfTargetWithinWorkspace("E:/Novák Jan", at("D:\\"))).toBe(false);
+    expect(okfTargetWithinWorkspace("\\\\nas\\other/Novák Jan", at("\\\\nas\\share\\"))).toBe(false);
+    expect(okfTargetWithinWorkspace("D:\\Klienti\\..\\..\\Iny/Novák Jan", at("D:\\Klienti"))).toBe(false);
   });
 });
