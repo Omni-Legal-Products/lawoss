@@ -27,9 +27,8 @@ const PROFILE_PATHS = ["officeRoot", "clientRoot", "subjectRoot", "matterRoot"] 
  * odmietne (`safeSegment`) a predvolený názov klienta nanajvýš stratí úvodzovku na konci.
  */
 export function unquotedTypedPath(value: string): string {
-  // Len medzery, tabulátor a konce riadkov ako `typedDirectoryInput`; NBSP v názve ostane.
-  const edges = /^[ \t\r\n]+|[ \t\r\n]+$/g;
-  return value.replace(edges, "").replace(/^"/, "").replace(/"$/, "").replace(edges, "");
+  // Okraje cez trim() ako server pri názve kópie a klienta (safeSegment), aj NBSP; úvodzovky ako most.
+  return value.trim().replace(/^"/, "").replace(/"$/, "").trim();
 }
 
 /** Prevedená cesta; keď most zlyhá alebo nič nevráti, ide na server pôvodná a odmietne ju ako doteraz. */

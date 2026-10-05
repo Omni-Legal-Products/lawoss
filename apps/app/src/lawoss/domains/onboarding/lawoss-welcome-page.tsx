@@ -1427,7 +1427,8 @@ const folderName = (path: string) => unquotedTypedPath(path).replace(/[\\/]+$/, 
 /** Názov klienta pripájaného priečinka (karta klienta, pracovný priestor). */
 export const existingClientTitle = (root: string) => folderName(root) || "Client";
 /** Názov kópie tak, ako ho vytvorí server (`planExistingClient`). */
-export const trialCloneName = (original: string, date: string) => `${folderName(original) || "client"} (trial ${date})`;
+// Ako server (safeSegment): bez bodiek a medzier na konci, inak by náhľad ukázal iný priečinok, než vznikne.
+export const trialCloneName = (original: string, date: string) => `${folderName(original).replace(/[. ]+$/, "") || "client"} (trial ${date})`;
 /** Cieľ kópie pod poľom „Kam uložiť kópiu“. */
 export const cloneTargetOf = (cloneParent: string, original: string, date: string) =>
   `${unquotedTypedPath(cloneParent).replace(/[\\/]+$/, "")}/${trialCloneName(original, date)}`;

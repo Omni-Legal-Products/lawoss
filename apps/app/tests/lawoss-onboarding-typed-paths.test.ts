@@ -111,13 +111,16 @@ describe("an existing client folder pasted in quotes (Explorer „Copy as path�
     expect(trialCloneName('"Z:\\Novák a spol"', date)).toBe("Novák a spol (trial 2026-10-05)");
     expect(cloneTargetOf(parentFolderOf('"Z:\\Novák a spol"'), '"Z:\\Novák a spol"', date)).toBe("Z:/Novák a spol (trial 2026-10-05)");
     expect(cloneTargetOf('"D:\\Kopie"', "C:\\Klienti\\ACME", date)).toBe("D:\\Kopie/ACME (trial 2026-10-05)");
+    // Rovnaký názov ako vytvorí server (safeSegment): bez koncovej bodky a NBSP.
+    expect(trialCloneName("C:\\Klienti\\ACME s.r.o.", date)).toBe("ACME s.r.o (trial 2026-10-05)");
+    expect(trialCloneName("C:\\Klienti\\Novák\u00A0", date)).toBe("Novák (trial 2026-10-05)");
     // Rovnaké pravidlo ako `typedDirectoryInput` v desktope: okraje a jedna úvodzovka na každej strane.
     expect(unquotedTypedPath('  " C:\\Klienti "\n')).toBe("C:\\Klienti");
     expect(unquotedTypedPath('"C:\\Klienti')).toBe("C:\\Klienti");
     expect(unquotedTypedPath('""C:\\Klienti""')).toBe('"C:\\Klienti"');
     expect(unquotedTypedPath("C:\\Klienti\\Novák a spol")).toBe("C:\\Klienti\\Novák a spol");
-    // Rovnaké okraje ako most v desktope: NBSP na konci názvu je súčasť názvu, nie okraj.
-    expect(unquotedTypedPath("C:\\Klienti\\Novák\u00A0")).toBe("C:\\Klienti\\Novák\u00A0");
+    // Názov kópie a klienta odvodený rovnako ako na serveri (safeSegment orezáva cez trim(), aj NBSP).
+    expect(unquotedTypedPath("C:\\Klienti\\Novák\u00A0")).toBe("C:\\Klienti\\Novák");
   });
 
   test("the existing-client request and the copy preview use the derived values", () => {
