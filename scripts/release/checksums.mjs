@@ -5,8 +5,11 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+// Must match `artifactName` in apps/desktop/electron-builder.yml.
+export const RELEASE_ASSET_PREFIX = "lawoss-";
+
 export function isElectronReleaseAsset(file) {
-  return basename(file).startsWith("legalwork-") &&
+  return basename(file).startsWith(RELEASE_ASSET_PREFIX) &&
     (/\.(AppImage|blockmap|dmg|exe|rpm|zip)$/i.test(file) || /\.tar\.gz$/i.test(file));
 }
 
@@ -36,7 +39,7 @@ export async function mergeChecksums(paths) {
     const content = await readFile(path, "utf8");
     if (!content.trim()) throw new Error(`Empty checksum list: ${path}`);
     for (const line of content.trimEnd().split(/\r?\n/)) {
-      const match = line.match(/^([a-f0-9]{64})  (legalwork-[^/\\\r\n]+)$/);
+      const match = line.match(/^([a-f0-9]{64})  ([^/\\\r\n]+)$/);
       if (!match || !isElectronReleaseAsset(match[2])) throw new Error(`Invalid checksum entry in ${path}`);
       const [, digest, name] = match;
       if (entries.has(name) && entries.get(name) !== digest) {
