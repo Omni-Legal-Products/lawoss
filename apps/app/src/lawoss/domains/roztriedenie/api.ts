@@ -19,7 +19,7 @@ export type TriageProposal = { state: "none" } | { state: "ready"; file: string;
 export type TriagePreview = {
   id: string; fingerprint: string; runId: string; root: string; language: "sk" | "cs" | "en";
   documents: number; keepInInbox: string[]; classification: { used: boolean; documents: number };
-  matters: TriageMatterView[]; moves: TriageMoveView[]; stays: { id: string; path: string; why: "already_in_place" | "no_inbox" }[];
+  matters: TriageMatterView[]; moves: TriageMoveView[]; stays: { id: string; path: string; why: "already_in_place" | "unclear" | "no_inbox" }[];
   newFolders: number; proposal?: TriageProposal;
 };
 export type TriageApplyResult = { status: "applied" | "already_applied"; runId: string; moved: number; created: number };

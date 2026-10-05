@@ -17,7 +17,8 @@ import "../../lite/pages/okf-glass.css";
 import "./triage.css";
 
 type Text = (key: string, params?: Record<string, string | number>) => string;
-const useText = (locale: Language): Text => (key, params) => t(`lawoss.triage.${key}`, locale, params);
+/** Stabilná funkcia pre daný jazyk; nová funkcia pri každom vykreslení by znova spúšťala načítanie náhľadu. */
+const useText = (locale: Language): Text => useMemo(() => (key, params) => t(`lawoss.triage.${key}`, locale, params), [locale]);
 const reveal = (index: number): CSSProperties & Record<"--lw-i", number> => ({ "--lw-i": index });
 const lastSegment = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 const folderOf = (path: string) => path.split("/").slice(0, -1).join("/");
@@ -91,7 +92,8 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
   const [error, setError] = useState<string | null>(null);
   const [askUndo, setAskUndo] = useState<string | null>(null);
   const alive = useRef(true);
-  useEffect(() => () => { alive.current = false; }, []);
+  // StrictMode efekt odpojí a znova pripojí; príznak sa musí pri pripojení obnoviť.
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
 
   const run = useCallback(async <T,>(label: string, action: () => Promise<T>): Promise<T | undefined> => {
     setPhase({ kind: "busy", label }); setError(null);
@@ -148,6 +150,7 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
         <section className="lw-triage-panel lw-triage-done" style={reveal(1)} role="status">
           <CheckCircle2 aria-hidden size={22} />
           <p>{phase.kind === "applied" ? text("done", { count: phase.moved }) : text("undone")}</p>
+          {phase.kind === "applied" ? <Link className="lw-triage-ghost" to={LITE_CLIENTS_PATH}>{text("open_clients")}</Link> : null}
           {phase.kind === "applied" ? <button type="button" className="lw-triage-ghost" onClick={() => setAskUndo(phase.runId)}><RotateCcw aria-hidden size={15} /> {text("undo")}</button> : null}
         </section>
       ) : null}
@@ -168,7 +171,7 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
       ) : null}
 
       {busy ? <p className="lw-triage-quiet" aria-live="polite">{phase.label}</p> : null}
-      {phase.kind !== "applied" && preview ? <TriagePreviewView preview={preview} text={text} busy={busy} onKeep={toggleKeep} onConfirm={confirm} onModel={(useModel) => void load(useModel)}
+      {phase.kind !== "applied" && !askUndo && preview ? <TriagePreviewView preview={preview} text={text} busy={busy} onKeep={toggleKeep} onConfirm={confirm} onModel={(useModel) => void load(useModel)}
         model={<ModelPanel root={root} connection={connection} locale={locale} preview={preview} busy={busy} onOpen={(path) => navigate(path)} onError={(message) => setError(message)} />} /> : null}
     </>
   );
@@ -224,7 +227,9 @@ export function TriagePreviewView({ preview, text, busy, onKeep, onConfirm, onMo
   const matters = new Map(preview.matters.map((matter) => [matter.key, matter]));
   const inbox = preview.moves.filter((move) => move.role === "inbox").length;
   const keep = new Set(preview.keepInInbox);
-  const rows = [...preview.moves].sort((a, b) => (a.matter ?? "").localeCompare(b.matter ?? "") || ROLE_KEYS.indexOf(a.role) - ROLE_KEYS.indexOf(b.role) || a.from.localeCompare(b.from));
+  // Najprv zaradené u klienta, potom veci, nakoniec to, čo čaká na zatriedenie.
+  const order = (move: TriageMoveView) => move.role === "inbox" ? ROLE_KEYS.length : ROLE_KEYS.indexOf(move.role);
+  const rows = [...preview.moves].sort((a, b) => Number(a.role === "inbox") - Number(b.role === "inbox") || (a.matter ?? "").localeCompare(b.matter ?? "") || order(a) - order(b) || a.from.localeCompare(b.from));
   if (preview.documents === 0) return <p className="lw-triage-quiet">{text("nothing")}</p>;
   return (
     <>
@@ -269,7 +274,7 @@ export function TriagePreviewView({ preview, text, busy, onKeep, onConfirm, onMo
               return (
                 <tr key={move.id} data-role={move.role}>
                   <td className="lw-triage-name" title={move.from}>{lastSegment(move.from)}</td>
-                  <td className="lw-triage-path">{from || text("root_folder")}</td>
+                  <td className={from ? "lw-triage-path" : "lw-triage-from-root"}>{from || text("root_folder")}</td>
                   <td>
                     <span className="lw-triage-role">{move.role === "inbox" ? <Inbox aria-hidden size={13} /> : null}{text(`role_${move.role}`)}</span>
                     {matter ? <span className="lw-triage-matter-chip">{matter.title} <em>{text("new_matter_badge")}</em></span> : move.matter ? <span className="lw-triage-matter-chip">{folderOf(folderOf(move.to)).split("/").pop()}</span> : null}
