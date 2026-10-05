@@ -25,6 +25,11 @@ export function globalInstalledIds(view: MarketplaceView | null, entries: readon
   return new Set(entries.filter((entry) => entry.install.action === "plugin" && installed.has(catalogPluginId(entry))).map((entry) => entry.id));
 }
 
+/** Názov pluginu z katalógu v jazyku appky (server pozná len meno z `plugin.json`). */
+export function pluginDisplayName(pluginId: string, fallback: string, catalog: readonly MarketplaceEntry[]): string {
+  return catalog.find((entry) => entry.install.action === "plugin" && catalogPluginId(entry) === pluginId)?.name ?? fallback;
+}
+
 /** Odporúčané balíky pre všetkých klientov: po jednom, zlyhanie jedného nezastaví ostatné. */
 export async function installGlobalEntries(api: LawossMarketplaceApi, entries: readonly MarketplaceEntry[]): Promise<BasePackResult> {
   const result: BasePackResult = { installed: [], failed: [] };

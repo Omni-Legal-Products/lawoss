@@ -1651,11 +1651,18 @@ function createRoutes(
 
   registerOnboardingRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, onWorkspacesChanged, serializeWorkspace });
   // LAWOSS: LAWOSS Marketplace pre všetkých klientov a aktualizácie (lawoss/marketplace-routes.ts).
-  registerLawossMarketplaceRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, resolveWorkspace: (id) => resolveWorkspace(config, id), afterChange: async (ctx, only) => {
-    for (const workspace of only ? [only] : config.workspaces.filter((item) => item.workspaceType !== "remote")) {
-      await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
-      for (const reason of ["skills", "mcp"] as const) emitReloadEvent(ctx.reloadEvents, workspace, reason, { type: reason === "skills" ? "skill" : "mcp", name: "LAWOSS Marketplace", action: "updated" });
-    }
+  // Po zmene globálnych pluginov sa nečinné inštancie enginu obnovia (nové skilly a MCP), pri bežiacej úlohe len MCP a výzva na obnovu.
+  registerLawossMarketplaceRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, resolveWorkspace: (id) => resolveWorkspace(config, id), afterChange: async (ctx) => {
+    const local = config.workspaces.filter((item) => item.workspaceType !== "remote");
+    idleWorkspaceReloads = idleWorkspaceReloads.then(async () => {
+      for (const workspace of local) {
+        try {
+          if (!(await workspaceEngineBusy(config, workspace))) { await reloadOpencodeEngine(config, workspace); continue; }
+          await syncRuntimeMcpToOpencodeEngine(config, workspace).catch(() => undefined);
+          emitReloadEvent(ctx.reloadEvents, workspace, "skills", { type: "skill", name: "LAWOSS Marketplace", action: "updated" });
+        } catch { /* Best-effort: zastavený engine si pri štarte prečíta aktuálny stav. */ }
+      }
+    });
   } });
 
   registerWorkspaceRoutes({

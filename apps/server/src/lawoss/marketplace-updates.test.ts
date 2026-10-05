@@ -36,17 +36,15 @@ const manifest = () => new Response(JSON.stringify({ plugins: [
 ] }));
 
 describe("LAWOSS Marketplace: kontrola vydaní", () => {
+  // Iné testy v tom istom behu nastavujú lokálny GitHub; tu platia predvolené adresy.
+  const keys = ["LEGALWORK_GITHUB_API_BASE", "LEGALWORK_GITHUB_RAW_BASE"] as const;
+  let saved: Array<string | undefined> = [];
+  beforeEach(() => { saved = keys.map((key) => process.env[key]); keys.forEach((key) => delete process.env[key]); });
+  afterEach(() => keys.forEach((key, index) => { if (saved[index] === undefined) delete process.env[key]; else process.env[key] = saved[index]; }));
+
   test("zdroj je len repozitár lawoss-marketplace na api.github.com a jeho raw obsah", () => {
-    const saved = [process.env.LEGALWORK_GITHUB_API_BASE, process.env.LEGALWORK_GITHUB_RAW_BASE];
-    delete process.env.LEGALWORK_GITHUB_API_BASE;
-    delete process.env.LEGALWORK_GITHUB_RAW_BASE;
-    try {
-      expect(marketplaceApiUrl("releases/latest")).toBe("https://api.github.com/repos/Omni-Legal-Products/lawoss-marketplace/releases/latest");
-      expect(marketplaceRawUrl(SHA, ".claude-plugin/marketplace.json")).toBe(`https://raw.githubusercontent.com/Omni-Legal-Products/lawoss-marketplace/${SHA}/.claude-plugin/marketplace.json`);
-    } finally {
-      if (saved[0] !== undefined) process.env.LEGALWORK_GITHUB_API_BASE = saved[0];
-      if (saved[1] !== undefined) process.env.LEGALWORK_GITHUB_RAW_BASE = saved[1];
-    }
+    expect(marketplaceApiUrl("releases/latest")).toBe("https://api.github.com/repos/Omni-Legal-Products/lawoss-marketplace/releases/latest");
+    expect(marketplaceRawUrl(SHA, ".claude-plugin/marketplace.json")).toBe(`https://raw.githubusercontent.com/Omni-Legal-Products/lawoss-marketplace/${SHA}/.claude-plugin/marketplace.json`);
     expect(WEEKLY_CHECK_INTERVAL_MS).toBe(7 * DAY);
   });
 

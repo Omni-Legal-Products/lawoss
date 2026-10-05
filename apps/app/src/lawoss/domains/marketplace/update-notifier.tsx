@@ -11,13 +11,14 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { toast } from "@/components/ui/sonner";
-import { t, type Language } from "@/i18n";
+import { currentLocale, t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { readActiveWorkspaceId } from "@/react-app/shell/session-memory";
 
 import type { LawossMarketplaceApi, PluginUpdate } from "./marketplace-api";
 import { nativeIntegrationRoute } from "./native-actions";
-import { loadMarketplaceApi } from "./use-lawoss-marketplace";
+import { getMarketplaceCatalog } from "./catalog";
+import { loadMarketplaceApi, pluginDisplayName } from "./use-lawoss-marketplace";
 
 const POLL_MS = 60 * 60 * 1000;
 const NOTIFIED_KEY = "lawoss.marketplace.notified";
@@ -69,7 +70,7 @@ function announce(api: LawossMarketplaceApi, updates: readonly PluginUpdate[], l
         });
       },
     },
-    cancel: { label: t("lawoss.marketplace.notice.open", locale), onClick: open },
+    cancel: { label: t("lawoss.marketplace.notice.show", locale), onClick: open },
   });
 }
 
@@ -88,7 +89,8 @@ export function MarketplaceUpdateNotifier({ api: injected }: { api?: LawossMarke
       const signature = updatesSignature(view.check.release.tag, view.updates);
       if (alreadyNotified(signature)) return;
       markNotified(signature);
-      announce(api, view.updates, locale, open);
+      const catalog = getMarketplaceCatalog(currentLocale());
+      announce(api, view.updates.map((update) => ({ ...update, name: pluginDisplayName(update.pluginId, update.name, catalog) })), locale, open);
     };
     void poll();
     const timer = setInterval(() => void poll(), POLL_MS);

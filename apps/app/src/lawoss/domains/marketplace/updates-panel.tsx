@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import type { ImportedPlugin } from "../../../app/lib/extension-imports";
 import { getMarketplaceCatalog } from "./catalog";
+import { pluginDisplayName } from "./use-lawoss-marketplace";
 import { catalogPluginId, catalogPluginUrl } from "./native-actions";
 import type { FileChange, FileResolution, LawossMarketplaceApi, MarketplaceView, NeedsDecision, Resolutions } from "./marketplace-api";
 
@@ -127,7 +128,8 @@ export function MarketplaceUpdatesPanel({ api, view, checking, error, onCheck, o
     finally { setWorking(null); await onChanged().catch(() => undefined); }
   };
 
-  const updates = view?.updates ?? [];
+  const catalog = getMarketplaceCatalog(locale);
+  const updates = (view?.updates ?? []).map((update) => ({ ...update, name: pluginDisplayName(update.pluginId, update.name, catalog) }));
   const message = view ? checkMessage(view, locale) : null;
   return <section data-lawoss-updates="" aria-label={t("lawoss.marketplace.updates.title", locale)} className="space-y-3 rounded-xl border border-dls-border bg-dls-surface p-4">
     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -201,11 +203,11 @@ export function LegacyInstallsPanel({ api, workspaceId, workspaceName, plugins, 
     if (!api || !url) throw new Error(t("lawoss.marketplace.unavailable", locale));
     const outcome = await api.move(workspaceId, plugin.pluginId, url, resolutions);
     if (isDecision(outcome)) {
-      queue.ask({ id: plugin.pluginId, title: plugin.name, mode: "move", changes: outcome.changes, retry: (next) => move(plugin, next) });
+      queue.ask({ id: plugin.pluginId, title: pluginDisplayName(plugin.pluginId, plugin.name, catalog), mode: "move", changes: outcome.changes, retry: (next) => move(plugin, next) });
       return;
     }
     queue.done(plugin.pluginId);
-    setNotes((previous) => [...previous, t("lawoss.marketplace.legacy.moved", locale, { name: plugin.name }),
+    setNotes((previous) => [...previous, t("lawoss.marketplace.legacy.moved", locale, { name: pluginDisplayName(plugin.pluginId, plugin.name, catalog) }),
       ...(outcome.backups.length ? [t("lawoss.marketplace.updates.backups_note", locale, { files: outcome.backups.join(", ") })] : [])]);
   };
   const guarded = async (key: string, action: () => Promise<void>) => {
@@ -221,7 +223,7 @@ export function LegacyInstallsPanel({ api, workspaceId, workspaceName, plugins, 
     </div>
     <ul className="space-y-2">
       {plugins.map((plugin) => <li key={plugin.pluginId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dls-border px-3 py-2">
-        <span className="text-sm text-dls-text">{plugin.name}</span>
+        <span className="text-sm text-dls-text">{pluginDisplayName(plugin.pluginId, plugin.name, catalog)}</span>
         <Button size="sm" variant="outline" disabled={!api || working !== null || !urlOf(plugin)} onClick={() => void guarded(plugin.pluginId, () => move(plugin))}>
           {working === plugin.pluginId ? t("lawoss.marketplace.working", locale) : t("lawoss.marketplace.legacy.move", locale)}
         </Button>

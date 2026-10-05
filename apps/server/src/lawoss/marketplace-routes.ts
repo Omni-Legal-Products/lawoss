@@ -56,8 +56,8 @@ export function registerLawossMarketplaceRoutes(options: {
   readJsonBodyLimited: (request: Request, maxBytes: number) => Promise<Record<string, unknown>>;
   ensureWritable: (config: ServerConfig) => void;
   resolveWorkspace: (id: string) => Promise<WorkspaceInfo>;
-  /** Po zmene pluginov: MCP do bežiacich inštancií enginu a udalosti obnovy; `null` = všetky lokálne priečinky. */
-  afterChange: (ctx: RequestContext, workspace: WorkspaceInfo | null) => Promise<void>;
+  /** Po zmene globálnych pluginov: obnova inštancií enginu všetkých lokálnych priečinkov (na pozadí). */
+  afterChange: (ctx: RequestContext) => Promise<void>;
 }) {
   const { routes, config, jsonResponse, readJsonBodyLimited, ensureWritable } = options;
   const statePath = marketplaceStatePath(config);
@@ -107,21 +107,21 @@ export function registerLawossMarketplaceRoutes(options: {
   route("POST", "/lawoss/marketplace/plugins", async (ctx) => {
     const input = await body(ctx);
     const result = await installGlobalPlugin(config, requiredText(input.url, "url"));
-    if (result.status === "installed") await options.afterChange(ctx, null);
+    if (result.status === "installed") await options.afterChange(ctx);
     return result;
   });
 
   route("POST", "/lawoss/marketplace/plugins/update", async (ctx) => {
     const input = await body(ctx);
     const result = await updateGlobalPlugin(config, requiredText(input.pluginId, "pluginId"), await readUpdateState(statePath), readResolutions(input.resolutions));
-    if (result.status === "updated") await options.afterChange(ctx, null);
+    if (result.status === "updated") await options.afterChange(ctx);
     return result;
   });
 
   route("POST", "/lawoss/marketplace/plugins/remove", async (ctx) => {
     const input = await body(ctx);
     const result = await removeGlobalPlugin(config, requiredText(input.pluginId, "pluginId"), readResolutions(input.resolutions));
-    if (result.status === "removed") await options.afterChange(ctx, null);
+    if (result.status === "removed") await options.afterChange(ctx);
     return result;
   });
 
@@ -136,7 +136,7 @@ export function registerLawossMarketplaceRoutes(options: {
       requiredText(input.url, "url"),
       readResolutions(input.resolutions),
     );
-    if (result.status === "moved") await options.afterChange(ctx, null);
+    if (result.status === "moved") await options.afterChange(ctx);
     return result;
   });
 }
