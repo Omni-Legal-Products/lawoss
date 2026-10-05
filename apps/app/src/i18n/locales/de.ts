@@ -4651,8 +4651,9 @@ const de = {
     "Ist die Option aktiv, startet „Sandbox anlegen“ den abgekoppelten Worker über den Microsandbox-Image-Ablauf statt über den Standard-Docker-Ablauf.",
   "mcp.builtins_blocked":
     "Integrierte LegalWork-Erweiterungen sind von Ihrer Organisation deaktiviert. Nutzen Sie „Ausgeblendete anzeigen“, um blockierte Integrationen zu prüfen.",
+  // 🟡 LAWOSS: bez „(nur macOS)“, alfa vychádza aj pre Windows (alpha-windows-x64.yml).
   "updates.channel_note":
-    "„Stabil“ erhält vollständig getestete Releases. „Alpha“ enthält die neuesten Änderungen, kann aber weniger ausgereift sein (nur macOS).",
+    "„Stabil“ erhält vollständig getestete Releases. „Alpha“ enthält die neuesten Änderungen, kann aber weniger ausgereift sein.",
   "workspace.live_logs": "Live-Protokoll",
   "workspace.docker_debug_details": "Docker-Debugdetails",
   "providers.claude_consumer_terms":
