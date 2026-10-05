@@ -541,6 +541,8 @@ export type DesktopCommandMap = {
     args: [options?: { title?: string; defaultPath?: string; multiple?: boolean; canonical?: boolean }];
     result: string | string[] | null;
   };
+  // 🟡 LAWOSS: napísaná alebo vložená cesta v tvare ako z `pickDirectory` s `canonical` (Windows), inak bez zmeny.
+  canonicalDirectoryPath: { args: [value: string]; result: string };
   pickFile: {
     args: [
       options?: {

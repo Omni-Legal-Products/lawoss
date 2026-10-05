@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { createLegalworkServerClient, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { resolveWorkspaceListSelectedId, workspaceCreate, workspaceSetRuntimeActive, workspaceSetSelected } from "@/app/lib/desktop";
-import { pickDirectory } from "@/app/lib/desktop";
+import { canonicalDirectoryPath, pickDirectory } from "@/app/lib/desktop";
 import { isDesktopRuntime } from "@/app/utils";
 import { resolveLegalworkConnection } from "./legalwork-connection";
 import { installMissingOnboardingSkills } from "@/lawoss/domains/onboarding/install-pack";
@@ -16,6 +16,11 @@ import { LawossWelcomePage } from "@/lawoss/domains/onboarding/lawoss-welcome-pa
 import type { OnboardingStep } from "@/lawoss/domains/onboarding/api";
 import { authorAfterOnboarding } from "@/lawoss/okf/lawyer-name";
 import { markAllWhatsNewSeen } from "./whats-new";
+import { canonicalPathOf, withCanonicalPaths } from "@/lawoss/domains/onboarding/typed-paths";
+
+// 🟡 LAWOSS: napísané a vložené cesty idú na server v tvare ako vybrané v dialógu (Windows, typed-paths.ts); v prehliadači bez zmeny.
+const typedPaths = (client: LegalworkServerClient) => isDesktopRuntime() ? withCanonicalPaths(client, canonicalDirectoryPath) : client;
+const workingFolderPath = (value: string) => isDesktopRuntime() ? canonicalPathOf(value, canonicalDirectoryPath) : Promise.resolve(value);
 
 // LAWOSS: `existing` otvorí krok klienta rovno v pripojení existujúceho priečinka.
 const continuationStep = (value: string | null): OnboardingStep | undefined => value === "existing" ? "client" : value === "client" || value === "matter" || value === "okf" ? value : undefined;
@@ -43,7 +48,7 @@ export function WelcomeRoute() {
     let cancelled = false;
     void resolveLegalworkConnection().then(({ normalizedBaseUrl, resolvedToken, resolvedHostToken }) => {
       if (!normalizedBaseUrl || !(resolvedToken || resolvedHostToken)) throw new Error("LAWOSS server is unavailable");
-      if (!cancelled) setClient(createLegalworkServerClient({ baseUrl: normalizedBaseUrl, token: resolvedToken || undefined, hostToken: resolvedHostToken || undefined }));
+      if (!cancelled) setClient(typedPaths(createLegalworkServerClient({ baseUrl: normalizedBaseUrl, token: resolvedToken || undefined, hostToken: resolvedHostToken || undefined })));
     }).catch((reason: unknown) => { if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason)); });
     return () => { cancelled = true; };
   }, []);
@@ -55,7 +60,7 @@ export function WelcomeRoute() {
     const okf = status.profile?.okf?.enabled === true;
     const list = await client.listWorkspaces();
     // LAWOSS: without OKF the optional working folder is registered as is, with no OKF structure or skills.
-    const plain = !okf && !result?.workspace && completion?.workingFolder ? await registerWorkingFolder(client, completion.workingFolder) : undefined;
+    const plain = !okf && !result?.workspace && completion?.workingFolder ? await registerWorkingFolder(client, await workingFolderPath(completion.workingFolder)) : undefined;
     const workspace = result?.workspace ?? plain ?? list.items.find(item => item.path === status.profile?.clientRoot);
     let activeId = workspace?.id;
     if (workspace && isDesktopRuntime()) {
