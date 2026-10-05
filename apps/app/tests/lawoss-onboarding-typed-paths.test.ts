@@ -116,6 +116,8 @@ describe("an existing client folder pasted in quotes (Explorer „Copy as path�
     expect(unquotedTypedPath('"C:\\Klienti')).toBe("C:\\Klienti");
     expect(unquotedTypedPath('""C:\\Klienti""')).toBe('"C:\\Klienti"');
     expect(unquotedTypedPath("C:\\Klienti\\Novák a spol")).toBe("C:\\Klienti\\Novák a spol");
+    // Rovnaké okraje ako most v desktope: NBSP na konci názvu je súčasť názvu, nie okraj.
+    expect(unquotedTypedPath("C:\\Klienti\\Novák\u00A0")).toBe("C:\\Klienti\\Novák\u00A0");
   });
 
   test("the existing-client request and the copy preview use the derived values", () => {

@@ -128,7 +128,7 @@ test("napísaná cesta: na Windows zmiznú úvodzovky z Prieskumníka a medzery 
   assert.equal(typedDirectoryInput('  "Z:\\Kancelaria"\r\n', "win32"), "Z:\\Kancelaria");
   assert.equal(typedDirectoryInput('" C:\\Klienti "', "win32"), "C:\\Klienti");
   assert.equal(typedDirectoryInput("\tc:\\klienti ", "win32"), "c:\\klienti");
-  // Rodič kópie odvodený z cesty v úvodzovkách má úvodzovku len na začiatku.
+  // Ručne skrátená cesta v úvodzovkách má úvodzovku len na začiatku.
   assert.equal(typedDirectoryInput('"C:\\Klienti', "win32"), "C:\\Klienti");
   // Iba jeden pár; medzery a bodky vnútri názvu ostanú.
   assert.equal(typedDirectoryInput('""C:\\Klienti""', "win32"), '"C:\\Klienti"');
