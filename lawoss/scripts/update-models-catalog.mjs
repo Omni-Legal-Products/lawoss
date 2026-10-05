@@ -18,12 +18,14 @@ import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { CHATGPT_RECOMMENDED_MODELS } from "../providers/chatgpt-subscription.mjs";
+
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const CATALOG_PATH = resolve(repoRoot, "lawoss", "models-catalog", "api.json");
 export const DEFAULT_SOURCE = "https://models.opencode.ai/api.json";
 
-/** Modely, bez ktorých alfa neprejde: odporúčaný model predplatného ChatGPT. */
-export const REQUIRED_MODELS = [["openai", "gpt-6-luna"]];
+/** Modely, bez ktorých alfa neprejde: odporúčaný model predplatného ChatGPT (dnes `gpt-6-luna`). */
+export const REQUIRED_MODELS = [["openai", CHATGPT_RECOMMENDED_MODELS[0]]];
 
 const FORBIDDEN_SOURCE = /eigenwelt|legalwork/i;
 
