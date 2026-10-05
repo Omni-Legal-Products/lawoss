@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, linkSync, truncateSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, linkSync, truncateSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -303,18 +303,79 @@ describe("naming filesystem transaction", () => {
 
   // Windows: dokument otvorený vo Worde sa nedá zmazať ani prepísať; zámok sa simuluje na každom OS.
   const locked = (path: string) => Object.assign(new Error(`EBUSY: resource busy or locked, unlink '${path}'`), { code: "EBUSY", path });
+  const lockedMessage = (path: string) => `File is open in another program (for example Word) or is read-only: ${path}. Close it or allow writing, then create a new preview.`;
+  const deniedMessage = (path: string, code: string) => `Access denied: ${path} (${code}). Check file and folder permissions, then create a new preview.`;
   test("lock preflight: a source open in another program is a conflict with zero writes", () => {
     const f = fixture(), plan = planDocumentNaming(f.root, f.request), before = tree(f.base), probed: string[] = [];
     const result = applyDocumentNaming(f.root, plan, { checkpoint(stage, path) { if (stage === "lock-probe") { probed.push(path!); if (path === "03_Drafty/old.PDF") throw locked(join(f.root, path)); } } });
     expect(result.status).toBe("conflict"); expect(result.rolledBack).toBeUndefined(); expect(result.journal).toBeUndefined();
-    expect(result.message).toBe("File is open in another program (for example Word) or is read-only: 03_Drafty/old.PDF. Close it or allow writing, then create a new preview.");
+    expect(result.message).toBe(lockedMessage("03_Drafty/old.PDF"));
     // Iba zdroje, ktoré apply zmaže alebo prepíše: pracovný dokument a Markdown so zmeneným odkazom, nie originál.
     expect(probed).toEqual(["03_Drafty/old.PDF"]);
     expect(tree(f.base)).toEqual(before); expect(existsSync(join(f.root, ".lawoss"))).toBe(false);
     const g = fixture(), gPlan = planDocumentNaming(g.root, g.request), gProbed: string[] = [];
-    expect(applyDocumentNaming(g.root, gPlan, { checkpoint(stage, path) { if (stage === "lock-probe") { gProbed.push(path!); if (path === "notes/note.md") throw Object.assign(new Error("EPERM: operation not permitted"), { code: "EPERM" }); } } }).message).toContain("notes/note.md");
+    expect(applyDocumentNaming(g.root, gPlan, { checkpoint(stage, path) { if (stage === "lock-probe") { gProbed.push(path!); if (path === "notes/note.md") throw locked(join(g.root, path)); } } }).message).toBe(lockedMessage("notes/note.md"));
     expect(gProbed).toEqual(["03_Drafty/old.PDF", "notes/note.md"]);
     expect(applyDocumentNaming(g.root, gPlan).status).toBe("applied");
+  });
+  // Windows hlási otvorenie súboru „iba na čítanie“ na zápis ako EPERM. Root na Linuxe ho neodmietne, preto EPERM podá hook.
+  const deniedOn = (platform: NodeJS.Platform, root: string, target: string) => ({ platform, checkpoint(stage: string, path?: string) { if (stage === "lock-probe" && path === target) throw Object.assign(new Error(`EPERM: operation not permitted, open '${join(root, target)}'`), { code: "EPERM", path: join(root, target) }); } });
+  test("simulated Windows preflight: a read-only working document is renamed; a read-only Markdown or another denial stops with zero writes", () => {
+    const f = fixture(), source = join(f.root, "03_Drafty/old.PDF"); chmodSync(source, 0o444);
+    const plan = planDocumentNaming(f.root, f.request), working = plan.documents.find(d => d.id === "working")!;
+    // Zmazanie zdroja potrebuje právo priečinka (libuv zruší atribút „iba na čítanie“), nie zápis do súboru.
+    expect(applyDocumentNaming(f.root, plan, deniedOn("win32", f.root, "03_Drafty/old.PDF")).status).toBe("applied");
+    expect(existsSync(source)).toBe(false); expect(readFileSync(join(f.root, working.target.path))).toEqual(f.binary);
+    chmodSync(join(f.root, working.target.path), 0o644);
+    // MoveFileEx nenahradí Markdown „iba na čítanie“: konflikt zámku. Zapisovateľný súbor s EPERM blokujú práva, nie Word.
+    for (const [path, mode, message] of [["notes/note.md", 0o444, lockedMessage("notes/note.md")], ["notes/note.md", 0o644, deniedMessage("notes/note.md", "EPERM")], ["03_Drafty/old.PDF", 0o644, deniedMessage("03_Drafty/old.PDF", "EPERM")]] as const) {
+      const g = fixture(); chmodSync(join(g.root, path), mode);
+      const gPlan = planDocumentNaming(g.root, g.request), before = tree(g.base);
+      const result = applyDocumentNaming(g.root, gPlan, deniedOn("win32", g.root, path));
+      expect(result).toMatchObject({ status: "conflict", message }); expect(result.journal).toBeUndefined();
+      expect(tree(g.base)).toEqual(before); expect(existsSync(join(g.root, ".lawoss"))).toBe(false);
+      chmodSync(join(g.root, path), 0o644);
+      // Na POSIX ten istý EPERM zámok nie je: zmazanie aj rename na miesto súboru potrebujú len právo priečinka.
+      expect(applyDocumentNaming(g.root, gPlan, deniedOn("linux", g.root, path)).status).toBe("applied");
+    }
+  });
+  // Skutočné O_RDWR na POSIX; root práva súboru obíde, preto beží len pod bežným používateľom (CI).
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)("POSIX: a read-only working document and Markdown apply as before; as on Windows only the Markdown stops", () => {
+    const f = fixture(); for (const path of ["03_Drafty/old.PDF", "notes/note.md"]) chmodSync(join(f.root, path), 0o444);
+    const plan = planDocumentNaming(f.root, f.request), working = plan.documents.find(d => d.id === "working")!, before = tree(f.base);
+    expect(applyDocumentNaming(f.root, plan, { platform: "win32" })).toMatchObject({ status: "conflict", message: lockedMessage("notes/note.md") });
+    expect(tree(f.base)).toEqual(before); expect(existsSync(join(f.root, ".lawoss"))).toBe(false);
+    expect(applyDocumentNaming(f.root, plan).status).toBe("applied");
+    expect(readFileSync(join(f.root, working.target.path))).toEqual(f.binary); expect(existsSync(join(f.root, "03_Drafty/old.PDF"))).toBe(false);
+    expect(hash(readFileSync(join(f.root, "notes/note.md")))).toBe(plan.markdown[0]!.afterSha256);
+    expect(lstatSync(join(f.root, "notes/note.md")).mode & 0o777).toBe(0o444);
+  });
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)("POSIX: a folder without write permission is a neutral conflict after a complete rollback", () => {
+    const f = fixture(), plan = planDocumentNaming(f.root, f.request), before = tree(f.root);
+    chmodSync(join(f.root, "notes"), 0o555);
+    try {
+      const result = applyDocumentNaming(f.root, plan);
+      expect(result).toMatchObject({ status: "conflict", rolledBack: true, message: deniedMessage("notes/note.md", "EACCES") });
+      for (const [path, sha] of Object.entries(before)) if (sha !== "directory") expect(hash(readFileSync(path))).toBe(sha);
+      for (const doc of plan.documents) expect(existsSync(join(f.root, doc.target.path))).toBe(false);
+    } finally { chmodSync(join(f.root, "notes"), 0o755); }
+  });
+  test("a denial during the write names its cause: EBUSY or a read-only source on Windows is another program, other EPERM/EACCES is access", () => {
+    const rename = (root: string, code: string) => Object.assign(new Error(`${code}: rename`), { code, path: join(root, ".lawoss/naming-history/op-1/markdown-0.stage"), dest: join(root, "notes/note.md") });
+    const original = (root: string, code: string) => Object.assign(new Error(`${code}: open`), { code, path: join(root, "01_Podklady/original.pdf") });
+    for (const [error, platform, message] of [
+      [(root: string) => rename(root, "EACCES"), "linux", deniedMessage("notes/note.md", "EACCES")],
+      [(root: string) => rename(root, "EPERM"), "win32", deniedMessage("notes/note.md", "EPERM")],
+      [(root: string) => rename(root, "EBUSY"), "win32", lockedMessage("notes/note.md")],
+      // Originál sa len číta: EBUSY znamená, že ho drží iný program (Outlook bez zdieľania), EACCES nie.
+      [(root: string) => original(root, "EBUSY"), "linux", lockedMessage("01_Podklady/original.pdf")],
+      [(root: string) => original(root, "EACCES"), "win32", deniedMessage("01_Podklady/original.pdf", "EACCES")],
+    ] as const) {
+      const f = fixture(), before = tree(f.root), plan = planDocumentNaming(f.root, f.request);
+      const result = applyDocumentNaming(f.root, plan, { platform, checkpoint(stage) { if (stage === "target-created") throw error(f.root); } });
+      expect(result).toMatchObject({ status: "conflict", rolledBack: true, message });
+      for (const [path, sha] of Object.entries(before)) if (sha !== "directory") expect(hash(readFileSync(path))).toBe(sha);
+    }
   });
   test("a lock after the first write rolls back completely and reports conflict, not recovery", () => {
     for (const stage of ["target-created", "markdown-installed"] as const) {
