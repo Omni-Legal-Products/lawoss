@@ -8,6 +8,7 @@
  * (`OcrSettingsSection`) sa ukážu až pri zapnutej voľbe.
  */
 import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import type { OcrSettingsView } from "@legalwork/types/ocr";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
@@ -67,10 +68,12 @@ export function LawossOcrSettings({ client }: { client: Client | null }) {
   }, [client]);
 
   // Odkaz z kontroly (`#lawoss-ocr`) posunie na túto sekciu, keď sa načíta.
+  // HashRouter v desktope: fragment je v `useLocation().hash`, nie v `window.location.hash`.
+  const { hash } = useLocation();
   const loaded = view !== null;
   useEffect(() => {
-    if (loaded && window.location.hash === `#${OCR_SETTINGS_ANCHOR}`) document.getElementById(OCR_SETTINGS_ANCHOR)?.scrollIntoView({ block: "start" });
-  }, [loaded]);
+    if (loaded && hash === `#${OCR_SETTINGS_ANCHOR}`) document.getElementById(OCR_SETTINGS_ANCHOR)?.scrollIntoView({ block: "start" });
+  }, [loaded, hash]);
 
   useEffect(() => {
     if (!client || state !== "downloading") return;
