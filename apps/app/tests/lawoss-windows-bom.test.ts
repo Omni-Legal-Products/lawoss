@@ -89,10 +89,10 @@ test("read model: ANSI znak z okf.config ako CLI — v komentári nevadí, v cli
     // Server dekóduje ANSI bajt ako U+FFFD (readFile(…, "utf8")).
     "Office/okf.config": config,
   }), "ws", TODAY);
-  const comment = await read("client_path: AK/*/*\r\n# pozn�mka kancel�rie\r\n");
+  const comment = await read("client_path: AK/*/*\r\n# pozn\uFFFDmka kancel\uFFFDrie\r\n");
   expect(comment.problems).toEqual([]);
   expect(comment.inputs.find((entry) => entry.path === matter)?.inheritedIntakes?.[0]?.path).toBe("AK/N/Novák Jan/VSTUPY.md");
-  const damaged = await read("client_path: AK/*/Nov�k Jan\r\n");
+  const damaged = await read("client_path: AK/*/Nov\uFFFDk Jan\r\n");
   // VSTUPY.md robí z priečinka klienta ďalší vstup, preto sa problém konfigu hlási pri každom.
   expect([...new Set(damaged.problems.map((problem) => `${problem.path}: ${problem.message}`))]).toEqual([
     "Office/okf.config: client_path obsahuje poškodený znak (U+FFFD) — súbor nie je v UTF-8 ani v UTF-16 s BOM (napr. ANSI); ulož ho ako UTF-8",

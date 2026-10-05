@@ -58,7 +58,7 @@ test("an ANSI lawyer name is not prefilled damaged; the rest of the office profi
   const p = plan({ type: "spis", dir: join(root, "client", "matter"), title: "Synthetic", jurisdiction: "sk" });
   expect(p.entries.some((entry) => entry.path === "Drafty/.keep")).toBe(true);
   const card = p.entries.find((entry) => entry.path === "matter.md")?.content ?? "";
-  expect(card).not.toContain("�");
+  expect(card).not.toContain("\uFFFD");
   // Bez mena ostáva v karte zástupný text, nie „J\uFFFDn Novák“.
   expect(parseFrontmatter(card)?.advokat).toBe("[DOPLNIT]");
 });
