@@ -1,11 +1,12 @@
 /** @jsxImportSource react */
 import { useEffect, useState } from "react";
-import { FolderPlus, FolderTree, UserPlus } from "lucide-react";
+import { FolderInput, FolderPlus, FolderTree, UserPlus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/use-locale";
 import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
 import { resolveLegalworkConnection } from "@/react-app/shell/legalwork-connection";
+import { ATTACH_EXISTING_CLIENT_PATH, NEW_MATTER_PATH } from "../../lite/links";
 import type { OkfChoice } from "./api";
 
 /** The welcome flow reopened at the OKF choice. */
@@ -60,10 +61,10 @@ export function useOkfOffered(skip: boolean): boolean | undefined {
 }
 
 const labels = {
-  en: { client: "Add client", matter: "New matter", okf: "Turn on OKF" },
-  sk: { client: "Pridať klienta", matter: "Nová vec", okf: "Zapnúť OKF" },
-  cs: { client: "Přidat klienta", matter: "Nová věc", okf: "Zapnout OKF" },
-  de: { client: "Mandant hinzufügen", matter: "Neue Angelegenheit", okf: "OKF einschalten" },
+  en: { client: "Add client", attach: "Connect an existing client folder", matter: "New matter", okf: "Turn on OKF" },
+  sk: { client: "Pridať klienta", attach: "Pripojiť existujúci priečinok klienta", matter: "Nová vec", okf: "Zapnúť OKF" },
+  cs: { client: "Přidat klienta", attach: "Připojit existující složku klienta", matter: "Nová věc", okf: "Zapnout OKF" },
+  de: { client: "Mandant hinzufügen", attach: "Bestehenden Mandantenordner verbinden", matter: "Neue Angelegenheit", okf: "OKF einschalten" },
 };
 
 /** "Zapnúť OKF": shown only while OKF is not on. */
@@ -113,7 +114,17 @@ export function OnboardingEntryActions({
       <Button
         variant="outline"
         size={compact ? "icon-xs" : "sm"}
-        onClick={() => navigate("/welcome?continue=matter")}
+        onClick={() => navigate(ATTACH_EXISTING_CLIENT_PATH)}
+        aria-label={text.attach}
+        title={text.attach}
+      >
+        <FolderInput className="size-4" />
+        {compact ? null : <span>{text.attach}</span>}
+      </Button>
+      <Button
+        variant="outline"
+        size={compact ? "icon-xs" : "sm"}
+        onClick={() => navigate(NEW_MATTER_PATH)}
         aria-label={text.matter}
         title={text.matter}
       >
