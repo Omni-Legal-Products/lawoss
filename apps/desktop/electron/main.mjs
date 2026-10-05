@@ -153,8 +153,8 @@ const isDevMode = process.env.LEGALWORK_DEV_MODE === "1";
 const APP_NAME =
   process.env.LEGALWORK_ELECTRON_APP_NAME?.trim() ||
   (isDevMode ? "LegalWork - Dev" : "LegalWork");
-// LAWOSS: viditeľný názov v menu a v tray. APP_NAME ostáva identitou appky (userData, keychain),
-// jeho zmena by presunula údaje existujúcich inštalácií.
+// LAWOSS: viditeľný názov v menu a v tray. APP_NAME (app.setName) ostáva „LegalWork“: userData
+// sa odvodzuje od APP_IDENTIFIER, APP_NAME určuje na macOS priečinok logov a support bundle.
 const DISPLAY_NAME = isDevMode ? "LAWOSS - Dev" : "LAWOSS";
 const APP_IDENTIFIER =
   process.env.LEGALWORK_ELECTRON_APP_IDENTIFIER?.trim() ||
