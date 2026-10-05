@@ -1,5 +1,5 @@
 /** Súborová vrstva OKF — jediné miesto, ktoré číta a píše na disk. */
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 
 import {
@@ -21,6 +21,7 @@ import {
 import { LOCALIZED_TEMPLATES } from "./templates.ts";
 import { readConfiguredLawyerName } from "../../okf-pamat/src/config.ts";
 import { findOfficeDir } from "../../okf-pamat/src/store.ts";
+import { contained, missing } from "../../okf-pamat/src/workspace-memory-fs.ts";
 import { PROFILE_FILE, parseOfficeWorkingProfile, parseWorkingProfile, type WorkingProfile } from "./profile.ts";
 
 function readText(path: string): string {
@@ -156,36 +157,78 @@ export function validate(root: string): ValidationError[] {
 }
 
 /**
+ * Skutočná cesta súboru `path` (môže ešte neexistovať), ak po rozlíšení všetkých
+ * symbolických odkazov ostáva vnútri `realRoot`. `realRoot` musí byť už
+ * rozlíšený cez `realpathSync.native`.
+ *
+ * Neexistujúci koniec cesty sa pripojí k najbližšiemu existujúcemu predkovi.
+ * Visiaci symbolický odkaz sa odmietne, lebo jeho cieľ nemožno overiť a zápis
+ * by vytvoril súbor tam, kam ukazuje.
+ *
+ * Porovnanie je zámerne citlivé na veľkosť písmen: obe strany prechádzajú tým
+ * istým natívnym realpath, ktorý na APFS vracia názvy tak, ako sú na disku.
+ * Zhodné reťazce sú ten istý priečinok na citlivom aj necitlivom zväzku, takže
+ * rozdiel môže viesť len k zbytočnému odmietnutiu, nikdy k prijatiu cesty mimo
+ * koreňa. Prevod na malé písmená by bol nebezpečný na zväzku citlivom na
+ * veľkosť písmen. To isté platí pre NFC a NFD.
+ */
+export function realPathInside(realRoot: string, path: string): string {
+  // resolve() odstráni `..` lexikálne ešte pred prvým dotazom na disk.
+  const logical = resolve(realRoot, path);
+  const tail: string[] = [];
+  let ancestor = logical;
+  let real: string;
+  for (;;) {
+    try { real = realpathSync.native(ancestor); break; } catch (error) { if (!missing(error)) throw error; }
+    if (lstatSync(ancestor, { throwIfNoEntry: false })) throw new Error(`Visiaci symbolický odkaz nemožno overiť: ${ancestor}`);
+    const parent = dirname(ancestor);
+    if (parent === ancestor) throw new Error(`Cesta nemá existujúceho predka: ${logical}`);
+    tail.unshift(basename(ancestor));
+    ancestor = parent;
+  }
+  const target = tail.length ? join(real, ...tail) : real;
+  if (!contained(realRoot, target)) throw new Error(`Cesta vedie mimo priečinka entity (aj cez symbolický odkaz): ${logical}`);
+  if (!tail.length && !statSync(target).isFile()) throw new Error(`Nie je bežný súbor: ${logical}`);
+  return target;
+}
+
+/**
  * Pregeneruje odvodené súbory: CLAUDE.md ako mirror AGENTS.md (iba ak chýba
  * alebo sa líši — pôvodný obsah sa pred synchronizáciou zálohuje) a
  * zoznam entít v index.md (iba telo pod frontmatterom, ak index existuje).
  */
 export function render(root: string, selectedLanguage?: DocumentLanguage): { written: string[]; kept: string[] } {
-  const cards = ENTITY_TYPES.flatMap((type) => CARD_ALIASES[type]).filter((name) => existsSync(join(root, name)));
+  // Koreň môže byť alias (napr. /tmp, ~/Dropbox); záleží na jeho skutočnej ceste.
+  // Každý čítaný alebo zapisovaný súbor sa pred prvým zápisom overí voči nej a
+  // ďalej sa pracuje so skutočnou cestou, nie s odkazom.
+  const realRoot = realpathSync.native(root);
+  if (!statSync(realRoot).isDirectory()) throw new Error(`Nie je priečinok: ${root}`);
+  const inside = (name: string) => realPathInside(realRoot, name);
+  const agents = inside("AGENTS.md");
+  const claude = inside("CLAUDE.md");
+  const index = inside("index.md");
+  const cards = ENTITY_TYPES.flatMap((type) => CARD_ALIASES[type]).filter((name) => existsSync(join(realRoot, name)));
   if (cards.length > 1) throw new Error(`Viac kariet entity: ${cards.join(", ")}. Najprv zosúlaď ich obsah.`);
-  const metadata = cards[0] ? parseFrontmatter(readText(join(root, cards[0]))) : null;
+  const metadata = cards[0] ? parseFrontmatter(readText(inside(cards[0]))) : null;
   const language = resolveDocumentLanguage(selectedLanguage ?? metadata?.language, metadata?.jurisdiction);
   const written: string[] = [];
   const kept: string[] = [];
-  const agents = join(root, "AGENTS.md");
-  const claude = join(root, "CLAUDE.md");
   if (existsSync(agents)) {
     const a = readText(agents);
     if (!existsSync(claude)) { writeFileSync(claude, a, "utf8"); written.push("CLAUDE.md"); }
     else if (readText(claude) === a) kept.push("CLAUDE.md");
     else {
       const backup = `CLAUDE.md.${Date.now()}.bak`;
-      writeFileSync(join(root, backup), readText(claude), { encoding: "utf8", flag: "wx" });
+      writeFileSync(join(realRoot, backup), readText(claude), { encoding: "utf8", flag: "wx" });
       writeFileSync(claude, a, "utf8");
       written.push(backup, "CLAUDE.md");
     }
   }
-  const index = join(root, "index.md");
   if (existsSync(index)) {
     const text = readText(index);
     const fm = parseFrontmatter(text);
     const head = fm ? text.slice(0, text.indexOf("\n---", 3) + 4) : "";
-    const cards = listMarkdown(root).filter((rel) => rel.includes("/") && /\/(matter|spis|project|projekt|client|klient)\.md$/.test(rel));
+    const cards = listMarkdown(realRoot).filter((rel) => rel.includes("/") && /\/(matter|spis|project|projekt|client|klient)\.md$/.test(rel));
     const body = cards.length
       ? cards.map((rel) => `- [${rel.split("/").slice(0, -1).join("/")}](./${rel})`).join("\n")
       : { cs: "_(zatím žádné)_", sk: "_(zatiaľ žiadne)_", en: "_(none yet)_" }[language];

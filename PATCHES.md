@@ -439,3 +439,28 @@ Kým je voľba vypnutá, server nič nesťahuje (`LawossOcrManager` v `apps/serv
 | `apps/app/src/i18n/locales/en.ts`, `de.ts`, `cs.ts`, `sk.ts` | Import a spread slovníka `apps/app/src/lawoss/i18n/ocr.ts` (po +2 riadky) | Kľúče `lawoss.ocr.*` |
 
 Zostatkové riziko: `recorder-store.ts` `prewarm()` pri štarte načíta už stiahnutý model prepisu; ak bol model ručne importovaný z priečinka bez VAD, desktop (`recorder-service.mjs` `startTranscriber`) stiahne VAD (asi 2 MB). Rozlíšiť to bez zásahu do `apps/desktop/electron/main.mjs` nejde; v LAWOSS je záložka prepisu skrytá. Kto mal model OCR stiahnutý pred touto zmenou, má ho na disku, ale bez zapnutia sa nepoužije; v nastaveniach ho môže odstrániť.
+
+## Bezpečnostné doplnenie po upstream v0.2.1 (PR #98)
+
+Desktopové a serverové ochrany preberáme z upstream PR #170. Zachované sú `createAppUrlMatcher`, `guardIpcMain`, `safeOpen`, `tokensMatch` aj atomická publikácia tokenového súboru. Toto doplnenie má iba tri zostávajúce oblasti:
+
+| Súbory | Downstream zmena a dôvod |
+| --- | --- |
+| `.github/workflows/alpha-macos-aarch64.yml`, `alpha-windows-x64.yml`, `release-macos-aarch64.yml` | Existujúce odkazy na `pnpm/action-setup`, `oven-sh/setup-bun` a SignPath sú pripnuté na overené commit SHA. Verzie akcií a kroky podpisovania zostávajú zachované. |
+| `.github/workflows/ci-desktop-packaging.yml`, `ci-docx.yml`, `ci-legalwork-ui-mcp.yml`, `ci-okf-pamat.yml`, `ci-okf.yml`, `ci-tests.yml`, `ci-windows-portable.yml`, `storage-oauth-review.yml` | Rovnaké SHA pripnutie existujúcich pnpm/Bun akcií vrátane novších upstream workflowov. |
+| `pnpm-workspace.yaml`, `pnpm-lock.yaml` | Jediný blok `overrides` zachováva obe upstream ochrany xmldom a pripína zraniteľné Axios 1.x na 1.20.0. Aktuálny audit identifikoval Axios 1.13.6 cez Slack; napr. GHSA-3pq3-5fj3-cg6v a GHSA-542g-h47m-68v8 vyžadujú opravu v 1.20.0. |
+
+Doménová ochrana v `lawoss/okf/src/fs.ts` (`realPathInside`) porovnáva skutočné cesty: koreň aj `AGENTS.md`, `CLAUDE.md`, `index.md` a kartu entity rozlíši cez natívny realpath a pred prvým čítaním a zápisom overí, že cieľ ostáva vnútri skutočného koreňa. Neexistujúci súbor sa overí cez najbližšieho existujúceho predka; visiaci symlink, `..` mimo koreňa a nebežný súbor sa odmietnu. Render potom číta a zapisuje cez overenú skutočnú cestu. Koreň smie byť alias (`/tmp`, `/var`, `~/Dropbox`) a cesta smie obsahovať medzery a `~` (iCloud `Mobile Documents/com~apple~CloudDocs`, `CloudStorage/OneDrive-*`), podľa rozhodnutia MČ k otázke V3. Porovnanie je citlivé na veľkosť písmen nad kanonickými cestami; rozdiel môže spôsobiť iba odmietnutie, nie prijatie cesty mimo koreňa. Ide o kontrolu stabilného súborového stromu, nie ochranu pred súbežnou výmenou cesty iným procesom.
+
+Regresie pokrývajú každý vstup/výstup, neexistujúce a visiace ciele, symlink koreňa aj predka (simulácia `/tmp` -> `/private/tmp`), priečinok s medzerou a `~`, symlink vnútri koreňa na súbor vnútri (povolený) aj mimo (odmietnutý), kartu entity mimo koreňa, `..` traversal, nulové zápisy pri odmietnutí, bežné zrkadlenie, zálohu a index. Existujúce testovacie fixture používajú fyzický dočasný priečinok. Distribučný `lawoss/okf/bundle/okf.js` sa generuje pomocou Bun 1.4.2.
+
+
+Integrácia #98 nad #104 je overovaná na presnom onboarding heade `88d842b9bf088186412fbae6ef49cf94d023a698`. Jediný textový konflikt bol v generovanom `lawoss/okf/bundle/okf.js`; bundle je znovu zostavený zo spojených zdrojov pomocou Bun 1.4.2. Zdroje onboardingu aj bezpečnostné kontroly zostávajú zachované.
+
+Zostávajúce kritické advisory [GHSA-mv8w-475r-vwqw](https://github.com/advisories/GHSA-mv8w-475r-vwqw) sa týka `seroval@1.3.2` (oprava od 1.5.3). Produkčný dependency graf vedie cez `apps/orchestrator -> solid-js@1.9.9 -> seroval`, tiež cez `@opentui/solid` a `seroval-plugins`. TUI priamo importuje `solid-js` aj `@opentui/solid`; závislosť teda nie je iba devDependency. Advisory vyžaduje deserializáciu nedôveryhodného Seroval JSON cez `fromJSON()` so zapnutými pluginmi. Cielené čítanie `apps/orchestrator/src` nenašlo priame volanie `seroval` ani `fromJSON`; dosiahnuteľnosť zneužiteľnej deserializácie tým nie je dokázaná ani vylúčená. Samostatný upgrade nie je súčasťou #98.
+
+
+Integrované CI odhalilo nedokončenú štartovaciu MCP synchronizáciu: `apps/server/src/embedded.ts` pri shutdown teraz počká na jej promise pred ukončením vlastného enginu. Inak oneskorené požiadavky po skončení onboardingovej fixture zasahovali globálne fetch mocky OCR a Gmail testov. `apps/server/src/embedded-app-files.e2e.test.ts` overuje, že oba workspace prejdú synchronizáciou pred každým shutdown. Pri nedostupnom engine shutdown čaká na existujúce ohraničené sieťové timeouty synchronizácie. `apps/server/src/reviews/service.test.ts` pred simulovaným reštartom čaká na `service.stop()`, pretože zápis dokončeného stavu predchádza uprataniu aktívneho run promise. Produkčné OCR/review implementácie a Google extension sa nemenia.
+
+
+Linux packaging na heade `7bde0842` úspešne overil aplikáciu a renderer, no po hlásení PASS vypršal timeout testovacieho skriptu. `apps/desktop/scripts/packaged-startup-regression.mjs` teraz na POSIX spúšťa aplikáciu vo vlastnej procesovej skupine, pri cleanup ukončí aj potomkov a uzavrie výstupné pipes. Regresia `apps/desktop/scripts/packaged-startup-regression.test.mjs`, zaradená v `apps/desktop/package.json`, reprodukuje potomka držiaceho zdedené pipes po skončení hlavného procesu. Pôvodný skript po PASS visel; opravený sa ohraničene ukončí. Windows nepoužíva POSIX skupiny. Produkčný desktop runtime sa nemení.
