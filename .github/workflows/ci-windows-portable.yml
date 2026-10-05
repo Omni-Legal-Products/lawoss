@@ -8,6 +8,10 @@ on:
       - lawoss/okf-pamat/**
       - lawoss/okf-handoff/**
       - lawoss/tests/**
+      - apps/app/src/lawoss/**
+      - apps/app/tests/lawoss-*
+      - apps/app/tests/okf-*
+      - apps/app/package.json
       - apps/desktop/electron/update-feed.mjs
       - apps/desktop/electron/update-feed.test.mjs
       - apps/desktop/electron/updater.mjs
@@ -25,6 +29,10 @@ on:
       - lawoss/okf-pamat/**
       - lawoss/okf-handoff/**
       - lawoss/tests/**
+      - apps/app/src/lawoss/**
+      - apps/app/tests/lawoss-*
+      - apps/app/tests/okf-*
+      - apps/app/package.json
       - apps/desktop/electron/update-feed.mjs
       - apps/desktop/electron/update-feed.test.mjs
       - apps/desktop/electron/updater.mjs
@@ -57,8 +65,10 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
+      # LAWOSS testy appky importujú aj zdrojáky servera (napr. zod), preto celý
+      # workspace bez install skriptov; balenie ani podpisovanie tu nebeží.
       - name: Install source test and typecheck dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts --filter @lawoss/okf --filter @lawoss/okf-pamat --filter @legalwork/desktop
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: OKF typecheck
         run: pnpm --filter @lawoss/okf typecheck
       - name: OKF and naming
@@ -71,3 +81,9 @@ jobs:
         run: bun test lawoss/okf-handoff/
       - name: Updater and persistent native registration
         run: node --test apps/desktop/electron/update-feed.test.mjs apps/desktop/electron/updater.test.mjs apps/desktop/electron/workspace-store.test.mjs
+      # Pohľady z OKF (Dnes, Klienti, detail veci), onboarding a Lite dostávajú na
+      # Windows cesty v tvare C:\...; bez tohto kroku tu nebežal žiadny ich test.
+      # Filtre bez lomky, aby sedeli aj na cestách so spätnou lomkou.
+      - name: LAWOSS app logic (OKF views, onboarding, Lite)
+        working-directory: apps/app
+        run: bun test lawoss- okf-
