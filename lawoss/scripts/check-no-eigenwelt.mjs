@@ -14,7 +14,11 @@
  * 3. sa dá analytika zapnúť alebo odoslať (`analytics.ts`, prepínače v UI);
  * 4. zmizne serverová poistka účtu Eigenwelt alebo skrytie jeho plôch v appke;
  * 5. buildnutý výstup (`apps/server/dist`, `apps/app/dist`, `apps/desktop/server`),
- *    ak existuje, obsahuje kľúč alebo adresu analytiky či katalógu Eigenweltu.
+ *    ak existuje, obsahuje kľúč alebo adresu analytiky či katalógu Eigenweltu;
+ * 6. sa pri štarte servera alebo appky sťahujú modely (rozpoznávanie textu z huggingface.co,
+ *    modely rečníkov pre prepis). Rozhodnutie MČ 5. 10. 2026: žiadne spojenie bez akcie
+ *    používateľa; model OCR sa sťahuje až pri prvom použití
+ *    (`apps/server/src/lawoss/ocr-on-demand.ts`).
  *
  * Spolu s ňou beží stráž značky `check-branding.mjs` (LAWOSS namiesto LegalWork,
  * nemenný APP_IDENTIFIER, releasy forku), aby stačil jeden krok v CI.
@@ -219,7 +223,32 @@ export const STRUCTURE = [
     must: [/if: github\.repository == 'eigenweltlabs\/legalwork'/],
     why: "Štatistiky stiahnutí sa z forku neposielajú.",
   },
+  // Modely sa pri štarte nesťahujú (rozhodnutie MČ 5. 10. 2026: žiadne spojenie bez akcie používateľa).
+  {
+    file: "apps/server/src/config.ts",
+    must: [/autoDownloadOcr: parseBoolean\(process\.env\.LEGALWORK_OCR_AUTO_DOWNLOAD\) \?\? fileConfig\.autoDownloadOcr \?\? false,/],
+    why: "Server pri štarte nesťahuje model OCR; zapnúť to smie len používateľ (LEGALWORK_OCR_AUTO_DOWNLOAD=1 alebo autoDownloadOcr v konfigurácii).",
+  },
+  {
+    file: "apps/server/src/server.ts",
+    must: [/if \(config\.autoDownloadOcr && !config\.readOnly\) void ocr\.downloadDefaultIfNeeded\(\);/],
+    mustNot: [/\b(?:prepareSmallModel|prepareLayoutModel|prepareQualityModel|downloadModelAsset)\s*\(/],
+    why: "Sťahovanie modelu OCR pri štarte je len za vypnutým autoDownloadOcr.",
+  },
+  {
+    file: "apps/server/src/document-preparation/service.ts",
+    must: [/from "\.\.\/lawoss\/ocr-on-demand\.js";/, /await firstUseOcrDownload\(ocr, engine\)/, /await selected\.download\?\.wait\(job\.controller\.signal\)/],
+    why: "Lokálny model OCR sa sťahuje až pri prvom použití, s oznamom a zrozumiteľnou chybou.",
+  },
+  {
+    file: "apps/app/src/react-app/domains/recorder/recorder-store.ts",
+    mustNot: [/init: async \(\) => \{(?:(?!\n {4}\},)[\s\S])*ensureDiarizationReady\(\)/],
+    why: "Modely rozpoznania rečníkov sa sťahujú až pri nahrávaní, nie pri štarte appky.",
+  },
 ];
+
+/** Zapnutie sťahovania modelu OCR pri štarte v kóde (mimo testov). Používateľ ho smie zapnúť len sám. */
+export const MODEL_DOWNLOAD_AT_STARTUP = /LEGALWORK_OCR_AUTO_DOWNLOAD\s*[:=]\s*["'`]?(?:1|true)\b|autoDownloadOcr\s*[:=]\s*true\b/;
 
 /** UI, ktoré renderuje prepínač analytiky, musí byť za `isAnalyticsChoiceHidden()`. */
 const ANALYTICS_TOGGLE_KEYS = /t\("(?:settings\.analytics_toggle|welcome\.analytics_aria|welcome\.analytics_body)"\)/;
@@ -254,6 +283,9 @@ export function checkSources(root, files) {
     }
     if (path.startsWith("apps/app/src/") && ANALYTICS_TOGGLE_KEYS.test(text) && !text.includes("isAnalyticsChoiceHidden()")) {
       problems.push(`${path}: renderuje prepínač analytiky bez isAnalyticsChoiceHidden().`);
+    }
+    if (/^(?:apps|packages)\//.test(path) && MODEL_DOWNLOAD_AT_STARTUP.test(text)) {
+      problems.push(`${path}: zapína sťahovanie modelu OCR pri štarte. Model sa sťahuje až pri prvom použití (apps/server/src/lawoss/ocr-on-demand.ts).`);
     }
   }
   return problems;

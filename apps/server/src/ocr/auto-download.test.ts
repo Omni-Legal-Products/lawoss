@@ -105,10 +105,13 @@ test("automatic setup failures are visible and do not continuously retry", async
   install.mockResolvedValue(); await manager.install("local-fast"); expect(install).toHaveBeenCalledTimes(2);
 });
 
-test("resolved config enables automatic setup by default, with file and environment opt-out", async () => {
+// LAWOSS: automatic setup at startup is off by default; file or environment opt in (lawoss/ocr-on-demand.ts).
+test("resolved config disables automatic setup by default, with file and environment opt-in", async () => {
   const { root } = await setup(), configPath = join(root, "server.json");
   delete process.env.LEGALWORK_OCR_AUTO_DOWNLOAD;
   await writeFile(configPath, "{}");
+  expect((await resolveServerConfig({ configPath, workspaces: [] })).autoDownloadOcr).toBe(false);
+  await writeFile(configPath, JSON.stringify({ autoDownloadOcr: true }));
   expect((await resolveServerConfig({ configPath, workspaces: [] })).autoDownloadOcr).toBe(true);
   await writeFile(configPath, JSON.stringify({ autoDownloadOcr: false }));
   expect((await resolveServerConfig({ configPath, workspaces: [] })).autoDownloadOcr).toBe(false);

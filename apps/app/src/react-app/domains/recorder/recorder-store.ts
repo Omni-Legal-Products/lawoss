@@ -664,7 +664,7 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
       );
       if (needed.length) set({ permissionsNeeded: needed });
       void get().prewarm();
-      void get().ensureDiarizationReady();
+      // LAWOSS: speaker models download when a recording starts, never at app start (no connection without a user action).
     },
 
     /**
@@ -1006,6 +1006,8 @@ export const useRecorderStore = create<RecorderState & RecorderActions>((set, ge
         options?.diarize !== false &&
         options?.systemDictation !== true &&
         bootstrap?.diarization.installed === true;
+      // LAWOSS: first use of a retained recording fetches the speaker models for the next recordings.
+      if (options?.diarize !== false && options?.systemDictation !== true) void get().ensureDiarizationReady();
       // The start window (model cold-load + getUserMedia + track settle) is
       // seconds wide; if the machine sleeps inside it, roll the whole thing
       // back instead of latching a recording nobody can see.
