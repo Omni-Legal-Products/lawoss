@@ -44,6 +44,30 @@ export async function installCatalogEntry(entry: MarketplaceEntry, actions: Cata
   return installWithRefresh(() => url ? actions.installPlugin(url) : actions.installOkf(), actions.refresh);
 }
 
+export type BasePackResult = { installed: string[]; failed: Array<{ id: string; message: string }> };
+
+/**
+ * Základný balík: výslovná akcia advokáta (tlačidlo „Inštalovať“), každá položka cez ten istý
+ * natívny importér a pripnutú adresu ako v katalógu. Zlyhanie jednej nezastaví ostatné;
+ * stav sa na konci raz obnoví.
+ */
+export async function installBasePack(entries: readonly MarketplaceEntry[], actions: CatalogActions): Promise<BasePackResult> {
+  if (!actions.workspaceId) throw new Error(t("lawoss.integrations.catalog.select_workspace"));
+  if (!actions.canInstallPlugin) throw new Error(t("lawoss.integrations.catalog.install_denied"));
+  const result: BasePackResult = { installed: [], failed: [] };
+  for (const entry of entries) {
+    try {
+      const outcome = await actions.installPlugin(catalogPluginUrl(entry));
+      if (outcome.ok) result.installed.push(entry.id);
+      else result.failed.push({ id: entry.id, message: outcome.message });
+    } catch (error) {
+      result.failed.push({ id: entry.id, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  await actions.refresh().catch(() => undefined);
+  return result;
+}
+
 export async function installWithRefresh(install: () => Promise<InstallResult>, refresh: () => Promise<void>): Promise<InstallResult> {
   let result: InstallResult;
   try {

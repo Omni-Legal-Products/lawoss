@@ -9,6 +9,7 @@ import { ApiError } from "./errors.js";
 import { parseFrontmatter, buildFrontmatter } from "./frontmatter.js";
 import { addMcp, removeMcp } from "./mcp.js";
 import { ensureDir } from "./utils.js";
+import { readContentHash, readProvenance, withContentHash, withProvenance, type PluginProvenance } from "./lawoss/plugin-provenance.js";
 
 const OPENCODE_SKILL_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const OPENCODE_MCP_NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]*$/;
@@ -55,6 +56,7 @@ export type CloudImportedPluginFile = {
   title: string;
   path: string;
   updatedAt: string | null;
+  contentSha256?: string;
 };
 
 export type CloudImportedPlugin = {
@@ -65,6 +67,7 @@ export type CloudImportedPlugin = {
   updatedAt: string | null;
   files: CloudImportedPluginFile[];
   importedAt: number | null;
+  provenance?: PluginProvenance;
 };
 
 type WorkspaceCloudImports = {
@@ -464,6 +467,7 @@ function readCloudImports(config: Record<string, unknown>): WorkspaceCloudImport
         title,
         path,
         updatedAt: readString(file.updatedAt),
+        ...readContentHash(file),
       }];
     }) : [];
     return [[pluginId, {
@@ -474,6 +478,7 @@ function readCloudImports(config: Record<string, unknown>): WorkspaceCloudImport
       updatedAt: readString(value.updatedAt),
       files,
       importedAt: typeof value.importedAt === "number" && Number.isFinite(value.importedAt) ? value.importedAt : null,
+      ...readProvenance(value),
     }]];
   })) : {};
   return {
@@ -674,6 +679,7 @@ export async function installCloudPlugin(input: {
   marketplaceId: string | null;
   marketplace?: { id: string; name: string; updatedAt: string | null } | null;
   resolved: CloudPluginResolved;
+  provenance?: PluginProvenance | null;
 }): Promise<CloudImportedPlugin> {
   const namespace = pluginNamespace(input.resolved.plugin.name, input.resolved.plugin.id);
   const resourceNamespace = await preparePluginResources(input.workspaceRoot, namespace, input.resolved);
@@ -731,6 +737,7 @@ export async function installCloudPlugin(input: {
       title: object.title,
       path,
       updatedAt: object.updatedAt,
+      ...withContentHash(object.objectType !== "resource" ? content : null),
     });
   }
 
@@ -749,6 +756,7 @@ export async function installCloudPlugin(input: {
     updatedAt: input.resolved.plugin.updatedAt,
     files,
     importedAt: existing?.importedAt ?? Date.now(),
+    ...withProvenance(input.provenance),
   };
 
   const nextPlugins = {

@@ -138,6 +138,30 @@ describe("LAWOSS stráž Eigenweltu a analytiky", () => {
     assert.deepEqual(checkCatalog(join(root, "api.json")).length, 1);
   });
 
+  test("zdroje integrácií: LegalMemory nikdy, LegalWork predvolene vypnutý, LegalQuants bez zdroja neskenuje", () => {
+    const fails = (file, change) => checkStructure(structureWith(file, change)).some((line) => line.startsWith(file));
+    const flags = "apps/app/src/lawoss/feature-flags.ts";
+    // LegalMemory vypadne zo skrytých alebo ho prepínač zdroja odkryje.
+    assert.ok(fails(flags, (text) => text.replace('  "legalmemory",\n]);', "]);")));
+    assert.ok(fails(flags, (text) => text.replace("HIDDEN_QUICK_CONNECT_SERVERS.has(serverName) ||\n  (", "(")));
+    assert.ok(fails(flags, (text) => text.replace("new Set<string>([]);", 'new Set<string>(["legalmemory"]);')));
+    assert.ok(fails(flags, (text) => text.replace("isLegalQuantsHidden = (): boolean => !isLegalworkSourceEnabled();", "isLegalQuantsHidden = (): boolean => false;")));
+    // Zdroj LegalWork predvolene zapnutý alebo voľba so sieťou.
+    const source = "apps/app/src/lawoss/domains/integrations/legalwork-source.ts";
+    assert.ok(fails(source, (text) => text.replace("} catch {\n    return false;\n  }\n}\n\nlet enabled", "} catch {\n    return true;\n  }\n}\n\nlet enabled")));
+    assert.ok(fails(source, (text) => text.replace("let enabled = read();", "let enabled = true;")));
+    assert.ok(fails(source, (text) => `${text}\nvoid fetch("https://example.test");\n`));
+    assert.ok(fails("apps/app/src/lawoss/domains/integrations/legalwork-source-sync.ts", (text) => `${text}\nvoid connectMcp;\n`));
+    // LegalQuants sa vykreslí (a skenuje GitHub) aj bez zdroja.
+    assert.ok(fails("apps/app/src/react-app/domains/settings/pages/legalquants-import.tsx", (text) => text.replace("  if (!useLegalworkSource()) return null;\n", "")));
+    assert.ok(fails("apps/app/src/react-app/domains/settings/pages/workflows-view.tsx", (text) => text.replace("{isLegalQuantsHidden() ? null : <DropdownMenuItem", "{<DropdownMenuItem")));
+    // Upstream sync zmrazí katalóg alebo obíde filter.
+    // Zoznam pluginov alebo balíkov späť v kóde appky.
+    assert.ok(fails("apps/app/src/lawoss/domains/marketplace/base-pack.ts", (text) => `${text}\nexport const SK = ["slovlex", "orsr"];\n`));
+    assert.ok(fails("apps/app/src/lawoss/domains/marketplace/catalog.ts", (text) => text.replace('import snapshotJson from "./marketplace-snapshot.json";', 'const snapshotJson = { plugins: [{ name: "orsr" }] };')));
+    assert.ok(fails("apps/app/src/app/constants.ts", (text) => text.replace("(entry) => !isHiddenQuickConnect(entry.serverName ?? \"\"),", "() => true,")));
+  });
+
   test("buildnutý výstup s kľúčom analytiky zlyhá", () => {
     const root = fixture({
       "apps/app/dist/assets/index.js": 'fetch("https://eu.i.posthog.com/batch/",{body:JSON.stringify({api_key:"phc_abcdefghijklmnopqrstuvwxyz123"})})',

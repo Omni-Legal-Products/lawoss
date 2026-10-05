@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { MCP_QUICK_CONNECT, getMcpServerName, type McpDirectoryInfo } from "../src/app/constants";
+import { MCP_QUICK_CONNECT_ALL, getMcpServerName, type McpDirectoryInfo } from "../src/app/constants";
 import { deriveMcpServerName, resolveMcpSignInName, validateMcpServerName } from "../src/app/mcp";
 
 /**
@@ -49,7 +49,7 @@ describe("mcp sign-in identity", () => {
   });
 
   test("every built-in connector can be signed into", () => {
-    const broken = MCP_QUICK_CONNECT.filter((entry) => {
+    const broken = MCP_QUICK_CONNECT_ALL.filter((entry) => {
       try {
         return signInKey(entry) !== connectKey(entry);
       } catch {
