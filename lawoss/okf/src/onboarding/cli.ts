@@ -1,5 +1,6 @@
 import { constants } from "node:fs";
-import { lstat, open, realpath } from "node:fs/promises";
+import { lstat, open } from "node:fs/promises";
+import { realpath } from "../canonical-path.ts";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { inspectOnboardingRoot } from "./classify.ts";
 import { planClientConversion, type ClientConversionInput } from "./plan.ts";

@@ -20,6 +20,8 @@ on:
       - apps/desktop/electron/workspace-store.test.mjs
       - apps/desktop/electron/lawoss-picked-path.mjs
       - apps/desktop/electron/lawoss-picked-path.test.mjs
+      - apps/desktop/electron/main.mjs
+      - apps/app/src/react-app/shell/welcome-route.tsx
       - apps/desktop/package.json
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
@@ -43,6 +45,8 @@ on:
       - apps/desktop/electron/workspace-store.test.mjs
       - apps/desktop/electron/lawoss-picked-path.mjs
       - apps/desktop/electron/lawoss-picked-path.test.mjs
+      - apps/desktop/electron/main.mjs
+      - apps/app/src/react-app/shell/welcome-route.tsx
       - apps/desktop/package.json
       - pnpm-lock.yaml
       - pnpm-workspace.yaml

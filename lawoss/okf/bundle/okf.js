@@ -8,13 +8,25 @@ import { fileURLToPath } from "url";
 
 // src/onboarding/cli.ts
 import { constants as constants7 } from "node:fs";
-import { lstat as lstat8, open as open6, realpath as realpath7 } from "node:fs/promises";
+import { lstat as lstat8, open as open6 } from "node:fs/promises";
+
+// src/canonical-path.ts
+import { realpath as nativeRealpath } from "node:fs/promises";
+var SHARE_ROOT = /^\\\\[^\\]+\\[^\\]+$/;
+function withShareRootSeparator(real, platform = process.platform) {
+  return platform === "win32" && SHARE_ROOT.test(real) ? `${real}\\` : real;
+}
+async function realpath(path) {
+  return withShareRootSeparator(await nativeRealpath(path));
+}
+
+// src/onboarding/cli.ts
 import { dirname as dirname5, isAbsolute as isAbsolute6, relative as relative7, resolve as resolve8, sep as sep8 } from "node:path";
 
 // src/onboarding/classify.ts
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, open, readdir, realpath } from "node:fs/promises";
+import { lstat, open, readdir } from "node:fs/promises";
 import { basename, isAbsolute, join, resolve } from "node:path";
 
 // src/frontmatter.ts
@@ -262,7 +274,7 @@ async function inspectOnboardingRoot(root, limits = {}) {
 // src/onboarding/plan.ts
 import { createHash as createHash2 } from "node:crypto";
 import { constants as constants2 } from "node:fs";
-import { lstat as lstat2, open as open2, realpath as realpath2 } from "node:fs/promises";
+import { lstat as lstat2, open as open2 } from "node:fs/promises";
 import { join as join2 } from "node:path";
 // src/language.ts
 var DOCUMENT_LANGUAGES = ["cs", "sk", "en"];
@@ -1933,7 +1945,7 @@ function validateInput(input) {
 async function readInspectedText(root, entry) {
   if (!["AGENTS.md", "CLAUDE.md", PROFILE_FILE].includes(entry.path) || entry.kind !== "file" || entry.size > 1024 * 1024 || !entry.digest)
     throw new Error("Invalid inspected control file.");
-  if (await realpath2(root) !== root || !(await lstat2(root)).isDirectory())
+  if (await realpath(root) !== root || !(await lstat2(root)).isDirectory())
     throw new Error("The client root changed.");
   const path = join2(root, entry.path);
   const handle = await open2(path, constants2.O_RDONLY | constants2.O_NOFOLLOW);
@@ -2023,7 +2035,7 @@ async function planClientConversion(root, input) {
 // src/onboarding/transaction.ts
 import { createHash as createHash3 } from "node:crypto";
 import { constants as constants3 } from "node:fs";
-import { lstat as lstat3, mkdir, open as open3, readFile, realpath as realpath3, readdir as readdir2, rm, rmdir } from "node:fs/promises";
+import { lstat as lstat3, mkdir, open as open3, readFile, readdir as readdir2, rm, rmdir } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { dirname, isAbsolute as isAbsolute2, join as join3, relative, resolve as resolve2, sep } from "node:path";
 var sha2 = (value) => createHash3("sha256").update(value).digest("hex");
@@ -2091,7 +2103,7 @@ async function canonicalDirectory(value, label) {
     throw new Error(`${label} must be absolute.`);
   const resolved = resolve2(value);
   try {
-    if (await realpath3(value) !== resolved || !(await lstat3(resolved)).isDirectory())
+    if (await realpath(value) !== resolved || !(await lstat3(resolved)).isDirectory())
       throw new Error(`${label} must be a canonical directory.`);
   } catch {
     throw new Error(`${label} must be a canonical directory.`);
@@ -2174,14 +2186,14 @@ function parseJournal(value) {
   return { version: 1, identity: value.identity, plan: parseOnboardingPlan(value.plan), baseline };
 }
 async function noSymlinkRoot(root) {
-  if (await realpath3(root) !== root || (await lstat3(root)).isSymbolicLink())
+  if (await realpath(root) !== root || (await lstat3(root)).isSymbolicLink())
     throw new Error("Root changed or is a symlink.");
 }
 async function targetState(root, operation) {
   const target = join3(root, operation.path);
   try {
     const parent = dirname(target);
-    if (await realpath3(parent) !== parent || (await lstat3(parent)).isSymbolicLink())
+    if (await realpath(parent) !== parent || (await lstat3(parent)).isSymbolicLink())
       return "conflict";
     const state = await lstat3(target);
     if (state.isSymbolicLink() || (operation.kind === "file" ? !state.isFile() : !state.isDirectory()))
@@ -2199,7 +2211,7 @@ async function create(root, operation) {
   const full = join3(root, operation.path);
   const parent = dirname(full);
   const parentState = await lstat3(parent);
-  if (!parentState.isDirectory() || parentState.isSymbolicLink() || await realpath3(parent) !== parent)
+  if (!parentState.isDirectory() || parentState.isSymbolicLink() || await realpath(parent) !== parent)
     throw new Error("Unsafe parent directory.");
   if (operation.kind === "directory") {
     await mkdir(full);
@@ -2250,7 +2262,7 @@ async function preflight(root, plan, baseline) {
     const parent = dirname(join3(root, operation.path));
     try {
       const state = await lstat3(parent);
-      if (!state.isDirectory() || state.isSymbolicLink() || await realpath3(parent) !== parent)
+      if (!state.isDirectory() || state.isSymbolicLink() || await realpath(parent) !== parent)
         throw new Error(`Unsafe parent directory: ${operation.path}`);
     } catch (error) {
       if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ENOENT")
@@ -2272,7 +2284,7 @@ async function durableDirectory(path) {
   }
 }
 async function coordinatorDirectory() {
-  const base = await realpath3(tmpdir());
+  const base = await realpath(tmpdir());
   const baseState = await lstat3(base);
   if (!baseState.isDirectory() || baseState.isSymbolicLink())
     throw new Error("OS temporary directory must be a directory.");
@@ -2285,7 +2297,7 @@ async function coordinatorDirectory() {
       throw error;
   }
   const state = await lstat3(locks);
-  if (await realpath3(locks) !== locks || !state.isDirectory() || state.isSymbolicLink() || typeof process.getuid === "function" && (state.uid !== process.getuid() || (state.mode & 63) !== 0))
+  if (await realpath(locks) !== locks || !state.isDirectory() || state.isSymbolicLink() || typeof process.getuid === "function" && (state.uid !== process.getuid() || (state.mode & 63) !== 0))
     throw new Error("Unsafe onboarding lock coordinator.");
   return locks;
 }
@@ -2504,11 +2516,11 @@ async function recoverOnboardingPlan(plan, journalDirectory, action) {
 }
 
 // src/onboarding/onboarding.ts
-import { lstat as lstat7, mkdir as mkdir3, readFile as readFile4, realpath as realpath6, writeFile } from "node:fs/promises";
+import { lstat as lstat7, mkdir as mkdir3, readFile as readFile4, writeFile } from "node:fs/promises";
 import { dirname as dirname4, isAbsolute as isAbsolute5, join as join8, relative as relative6, resolve as resolve7, sep as sep7 } from "node:path";
 
 // src/onboarding/entities.ts
-import { lstat as lstat4, readFile as readFile2, realpath as realpath4 } from "node:fs/promises";
+import { lstat as lstat4, readFile as readFile2 } from "node:fs/promises";
 import { createHash as createHash4 } from "node:crypto";
 import { basename as basename3, join as join6, relative as relative4, resolve as resolve5, sep as sep5 } from "node:path";
 
@@ -2629,7 +2641,7 @@ var safeSegment = (value) => {
 };
 var yaml = (value) => JSON.stringify(value);
 async function rootPlan(root, operations) {
-  const canonical = await realpath4(root);
+  const canonical = await realpath(root);
   if (canonical !== resolve5(root) || !(await lstat4(canonical)).isDirectory())
     throw new Error("Parent must be a canonical existing directory.");
   const inspection = await inspectOnboardingParent(canonical);
@@ -2730,7 +2742,7 @@ async function planNewMatter(request) {
   if (request.subject !== undefined && /[\\/]/.test(request.subject))
     throw new Error("Matter subject must be the subject folder name, not a path.");
   const name = `${request.date.slice(0, 7)} ${safeSegment(request.title)}`, target = join6(request.parent, MATTERS_DIR, name);
-  const clientRoot = await realpath4(request.clientRoot), parentRoot = await realpath4(request.parent);
+  const clientRoot = await realpath(request.clientRoot), parentRoot = await realpath(request.parent);
   if (!contained(clientRoot, parentRoot))
     throw new Error("Matter parent must be within the inspected client root.");
   const client = await inspectOnboardingRoot(clientRoot);
@@ -2780,7 +2792,7 @@ async function planExistingClient(root, mode, cloneParent, map) {
 // src/onboarding/trial-clone.ts
 import { createHash as createHash5, randomUUID } from "node:crypto";
 import { constants as constants6 } from "node:fs";
-import { copyFile, lstat as lstat6, mkdir as mkdir2, open as open5, readFile as readFile3, realpath as realpath5, rename, rmdir as rmdir2 } from "node:fs/promises";
+import { copyFile, lstat as lstat6, mkdir as mkdir2, open as open5, readFile as readFile3, rename, rmdir as rmdir2 } from "node:fs/promises";
 import { dirname as dirname3, isAbsolute as isAbsolute4, join as join7, relative as relative5, resolve as resolve6, sep as sep6 } from "node:path";
 
 // src/onboarding/file-durability.ts
@@ -2869,7 +2881,7 @@ async function durableWrite(path, content, replace = false) {
 }
 async function context2(preview, journalDirectory) {
   for (const path of [preview.source, dirname3(preview.target), journalDirectory]) {
-    if (!isAbsolute4(path) || await realpath5(path) !== resolve6(path) || !(await lstat6(path)).isDirectory())
+    if (!isAbsolute4(path) || await realpath(path) !== resolve6(path) || !(await lstat6(path)).isDirectory())
       throw new Error("Trial cloning requires existing canonical directories.");
   }
   if (within(preview.source, preview.target) || within(preview.target, preview.source) || within(preview.source, journalDirectory) || within(journalDirectory, preview.source) || within(preview.target, journalDirectory) || within(journalDirectory, preview.target))
@@ -2964,7 +2976,7 @@ async function applyTrialClone(preview, journalDirectory, resume = false) {
           await mkdir2(target);
         else {
           const sourcePath = join7(preview.source, entry.path);
-          if (await realpath5(sourcePath) !== sourcePath || !(await lstat6(sourcePath)).isFile())
+          if (await realpath(sourcePath) !== sourcePath || !(await lstat6(sourcePath)).isFile())
             throw new Error("Trial source entry changed.");
           await copyFile(sourcePath, target, constants6.COPYFILE_EXCL);
           if (await fileDigest(target) !== entry.digest)
@@ -3104,7 +3116,7 @@ async function externalProfileDirectory(clientRoot, input) {
   let ancestor = directory;
   while (true) {
     try {
-      if (await realpath6(ancestor) !== ancestor || !(await lstat7(ancestor)).isDirectory())
+      if (await realpath(ancestor) !== ancestor || !(await lstat7(ancestor)).isDirectory())
         throw new Error("External profile directory must use a canonical directory path.");
       break;
     } catch (error) {
@@ -3117,7 +3129,7 @@ async function externalProfileDirectory(clientRoot, input) {
     }
   }
   await mkdir3(directory, { recursive: true });
-  if (await realpath6(directory) !== directory || !(await lstat7(directory)).isDirectory())
+  if (await realpath(directory) !== directory || !(await lstat7(directory)).isDirectory())
     throw new Error("External profile directory must use a canonical directory path.");
   return directory;
 }
@@ -3194,7 +3206,7 @@ async function planOnboarding(request) {
   if (request.action === "subject")
     return { action: request.action, ...await planNewSubject(request) };
   if (request.action === "matter") {
-    const client = await realpath6(request.clientRoot), parent = await realpath6(request.parent);
+    const client = await realpath(request.clientRoot), parent = await realpath(request.parent);
     if (!contained(client, parent))
       throw new Error("Matter parent must be within client root.");
     return { action: request.action, ...await planNewMatter(request) };
@@ -3344,7 +3356,7 @@ async function savePlanOutside(root, path, content) {
   const rel = relative7(root, target);
   if (!rel || !isAbsolute6(rel) && rel !== ".." && !rel.startsWith(`..${sep8}`))
     throw new Error("Save the preview outside the client directory.");
-  if (await realpath7(parent) !== parent || !(await lstat8(parent)).isDirectory())
+  if (await realpath(parent) !== parent || !(await lstat8(parent)).isDirectory())
     throw new Error("Plan output needs an existing canonical parent directory.");
   const handle = await open6(target, constants7.O_WRONLY | constants7.O_CREAT | constants7.O_EXCL | constants7.O_NOFOLLOW, 384);
   try {
@@ -3438,13 +3450,13 @@ import { dirname as dirname7, join as join12, resolve as resolve11 } from "node:
 
 // src/triage/files.ts
 import { constants as constants9 } from "node:fs";
-import { lstat as lstat10, mkdir as mkdir4, open as open8, readdir as readdir3, realpath as realpath9 } from "node:fs/promises";
+import { lstat as lstat10, mkdir as mkdir4, open as open8, readdir as readdir3 } from "node:fs/promises";
 import { join as join10 } from "node:path";
 
 // src/triage/scan.ts
 import { createHash as createHash6 } from "node:crypto";
 import { constants as constants8 } from "node:fs";
-import { lstat as lstat9, open as open7, readFile as readFile5, realpath as realpath8 } from "node:fs/promises";
+import { lstat as lstat9, open as open7, readFile as readFile5 } from "node:fs/promises";
 import { basename as basename4, isAbsolute as isAbsolute7, join as join9, relative as relative8, resolve as resolve9, sep as sep9 } from "node:path";
 
 // src/triage/rules.ts
@@ -3571,7 +3583,7 @@ async function verifyTrialClone(rootInput, trialJournalDirectory) {
     throw new TrialCloneError("Cesta ku klonu musí byť absolútna.");
   const root = resolve9(rootInput);
   try {
-    if (await realpath8(root) !== root || !(await lstat9(root)).isDirectory())
+    if (await realpath(root) !== root || !(await lstat9(root)).isDirectory())
       throw new TrialCloneError("Klon musí byť existujúci priečinok bez symbolických odkazov.");
   } catch (error) {
     if (error instanceof TrialCloneError)
@@ -3738,7 +3750,7 @@ async function triageSubdirectory(root, name, create) {
     }
     try {
       const state = await lstat10(current);
-      if (!state.isDirectory() || state.isSymbolicLink() || await realpath9(current) !== current)
+      if (!state.isDirectory() || state.isSymbolicLink() || await realpath(current) !== current)
         throw new Error("Priečinok roztriedenia v klone nie je bezpečný.");
     } catch (error) {
       if (errorCode3(error) === "ENOENT" && !create)
@@ -4076,7 +4088,7 @@ function buildTriagePlan(inventory, options) {
 // src/triage/apply.ts
 import { createHash as createHash8 } from "node:crypto";
 import { constants as constants10 } from "node:fs";
-import { appendFile, copyFile as copyFile2, link, lstat as lstat11, mkdir as mkdir5, open as open9, readdir as readdir4, readFile as readFile6, realpath as realpath10, rmdir as rmdir3 } from "node:fs/promises";
+import { appendFile, copyFile as copyFile2, link, lstat as lstat11, mkdir as mkdir5, open as open9, readdir as readdir4, readFile as readFile6, rmdir as rmdir3 } from "node:fs/promises";
 import { dirname as dirname6, isAbsolute as isAbsolute8, join as join11, resolve as resolve10 } from "node:path";
 class TriageConflictError extends Error {
   code = "triage_conflict";
@@ -4202,7 +4214,7 @@ async function runDirectory(root, runId, create) {
       }
     }
     const state = await lstat11(current);
-    if (!state.isDirectory() || state.isSymbolicLink() || await realpath10(current) !== current)
+    if (!state.isDirectory() || state.isSymbolicLink() || await realpath(current) !== current)
       throw new Error("Priečinok záznamov roztriedenia nie je bezpečný.");
   }
   return current;
@@ -4210,7 +4222,7 @@ async function runDirectory(root, runId, create) {
 async function safeParent(root, relativePath) {
   const full = join11(root, relativePath), parent = dirname6(full);
   const state = await lstat11(parent);
-  if (!state.isDirectory() || state.isSymbolicLink() || await realpath10(parent) !== parent)
+  if (!state.isDirectory() || state.isSymbolicLink() || await realpath(parent) !== parent)
     throw new TriageConflictError(`Cesta ${relativePath} vedie cez symbolický odkaz alebo neexistujúci priečinok.`);
   return full;
 }

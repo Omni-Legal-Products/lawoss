@@ -65,7 +65,7 @@ import { normalizeImportedSkill } from "./skill-import.mjs";
 import { migrateInstalledWorkflows } from "./skill-migration.mjs";
 // LAWOSS: značka a releasy forku z jedného miesta (kópia lawoss/branding.mjs).
 import { FORK_RELEASES_URL, brandAppName } from "./lawoss-branding.mjs";
-import { canonicalPickedDirectory } from "./lawoss-picked-path.mjs";
+import { pickedDirectories } from "./lawoss-picked-path.mjs";
 
 const mcpOAuthCallbacks = createMcpOAuthCallbackBroker();
 const mcpOAuthOwners = new WeakSet();
@@ -2019,10 +2019,8 @@ const desktopCommandHandlers = {
         properties,
       });
       if (result.canceled) return null;
-      // 🟡 LAWOSS: onboarding a nový spis žiadajú kanonickú cestu (namapovaný disk na Windows).
-      const filePaths = options.canonical
-        ? await Promise.all(result.filePaths.map((filePath) => canonicalPickedDirectory(filePath)))
-        : result.filePaths;
+      // 🟡 LAWOSS: onboarding žiada kanonickú cestu (namapovaný disk na Windows), viď lawoss-picked-path.mjs.
+      const filePaths = await pickedDirectories(result.filePaths, options);
       return options.multiple ? filePaths : (filePaths[0] ?? null);
   },
   "pickFile": async (event, ...args) => {

@@ -8,7 +8,8 @@
  */
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, open, readFile, realpath } from "node:fs/promises";
+import { lstat, open, readFile } from "node:fs/promises";
+import { realpath } from "../canonical-path.ts";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { findOfficeDir } from "../../../okf-pamat/src/store.ts";
 import { parseFrontmatter } from "../frontmatter.ts";

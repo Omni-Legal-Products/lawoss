@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, open, readdir, realpath } from "node:fs/promises";
+import { lstat, open, readdir } from "node:fs/promises";
+import { realpath } from "../canonical-path.ts";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { parseFrontmatter } from "../frontmatter.ts";
 

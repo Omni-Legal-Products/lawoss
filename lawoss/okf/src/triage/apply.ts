@@ -9,7 +9,8 @@
  */
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { appendFile, copyFile, link, lstat, mkdir, open, readdir, readFile, realpath, rmdir } from "node:fs/promises";
+import { appendFile, copyFile, link, lstat, mkdir, open, readdir, readFile, rmdir } from "node:fs/promises";
+import { realpath } from "../canonical-path.ts";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { acquireOnboardingLock, parseOnboardingPlan, type CreateOperation } from "../onboarding/transaction.ts";
 import { inspectOnboardingRoot } from "../onboarding/classify.ts";

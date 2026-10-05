@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readFile, realpath, readdir, rm, rmdir } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, readdir, rm, rmdir } from "node:fs/promises";
+import { realpath } from "../canonical-path.ts";
 import { hostname, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { inspectOnboardingParent, inspectOnboardingRoot, type OnboardingInspection, type TreeEntry } from "./classify.ts";

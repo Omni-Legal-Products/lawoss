@@ -122,7 +122,7 @@ export function NovySpisPanel({ connection, workspace, onOpenSession, documentAu
 
   async function pickRoot() {
     try {
-      const picked = (await pickDirectory({ title: text("wizard.root"), canonical: true })) as string | null;
+      const picked = (await pickDirectory({ title: text("wizard.root") })) as string | null;
       if (picked) setRootOverride(picked);
     } catch (error) {
       setStatus({ tone: "err", text: error instanceof Error ? error.message : String(error) });

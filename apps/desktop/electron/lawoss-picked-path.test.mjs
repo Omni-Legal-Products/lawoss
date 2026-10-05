@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
-import { canonicalPickedDirectory } from "./lawoss-picked-path.mjs";
+import { canonicalPickedDirectory, canonicalRealpath, pickedDirectories, withShareRootSeparator } from "./lawoss-picked-path.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 
 const stat = (kind) => ({ isSymbolicLink: () => kind === "link", isDirectory: () => kind !== "file" });
@@ -40,6 +40,22 @@ test("namapovaný disk dostane kanonický tvar UNC", async () => {
   );
 });
 
+test("disk namapovaný priamo na zdieľanie dostane koreň s lomkou ako z resolve()", async () => {
+  const { fs } = fakeFs({ "\\\\nas\\Kancelaria\\": "dir" }, { "Z:\\": "\\\\nas\\Kancelaria" });
+  assert.equal(await canonicalPickedDirectory("Z:\\", { platform: "win32", fs }), "\\\\nas\\Kancelaria\\");
+  assert.equal(path.win32.resolve("\\\\nas\\Kancelaria"), "\\\\nas\\Kancelaria\\");
+});
+
+test("lomka sa pridá len koreňu zdieľania na Windows", () => {
+  assert.equal(withShareRootSeparator("\\\\nas\\Kancelaria", "win32"), "\\\\nas\\Kancelaria\\");
+  assert.equal(withShareRootSeparator("\\\\nas\\Kancelaria\\", "win32"), "\\\\nas\\Kancelaria\\");
+  assert.equal(withShareRootSeparator("\\\\nas\\Kancelaria\\Klienti", "win32"), "\\\\nas\\Kancelaria\\Klienti");
+  assert.equal(withShareRootSeparator("C:\\", "win32"), "C:\\");
+  assert.equal(withShareRootSeparator("C:\\Klienti", "win32"), "C:\\Klienti");
+  assert.equal(withShareRootSeparator("\\\\nas\\Kancelaria", "darwin"), "\\\\nas\\Kancelaria");
+  assert.equal(withShareRootSeparator("/Volumes/NAS", "darwin"), "/Volumes/NAS");
+});
+
 test("cesta cez junction alebo symlink ostane, ako je", async () => {
   const { fs } = fakeFs(
     { "C:\\Users": "dir", "C:\\Users\\Advokat": "dir", "C:\\Users\\Advokat\\Dokumenty": "link", "D:\\Spisy": "dir" },
@@ -48,6 +64,23 @@ test("cesta cez junction alebo symlink ostane, ako je", async () => {
   assert.equal(
     await canonicalPickedDirectory("C:\\Users\\Advokat\\Dokumenty", { platform: "win32", fs }),
     "C:\\Users\\Advokat\\Dokumenty",
+  );
+});
+
+test("junction uprostred cesty (presmerované Dokumenty) cestu tiež nemení", async () => {
+  const { fs } = fakeFs(
+    {
+      "C:\\Users": "dir",
+      "C:\\Users\\Advokat": "dir",
+      "C:\\Users\\Advokat\\Dokumenty": "link",
+      "C:\\Users\\Advokat\\Dokumenty\\Klienti": "dir",
+      "D:\\Spisy\\Klienti": "dir",
+    },
+    { "C:\\Users\\Advokat\\Dokumenty\\Klienti": "D:\\Spisy\\Klienti" },
+  );
+  assert.equal(
+    await canonicalPickedDirectory("C:\\Users\\Advokat\\Dokumenty\\Klienti", { platform: "win32", fs }),
+    "C:\\Users\\Advokat\\Dokumenty\\Klienti",
   );
 });
 
@@ -69,12 +102,38 @@ test("mimo Windows sa cesta nečíta ani nemení", async () => {
   }
 });
 
+test("handler pickDirectory prevedie cesty len s voľbou canonical", async () => {
+  const seen = [];
+  const canonicalize = async (value) => { seen.push(value); return `kanonicky:${value}`; };
+  assert.deepEqual(await pickedDirectories(["Z:\\A", "Z:\\B"], { canonical: true }, canonicalize), ["kanonicky:Z:\\A", "kanonicky:Z:\\B"]);
+  assert.deepEqual(await pickedDirectories(["Z:\\A"], {}, canonicalize), ["Z:\\A"]);
+  assert.deepEqual(await pickedDirectories(["Z:\\A"], { canonical: false }, canonicalize), ["Z:\\A"]);
+  assert.deepEqual(seen, ["Z:\\A", "Z:\\B"]);
+  // main.mjs sa v testoch nenačíta (Electron), preto aspoň overíme, že handler funkciu volá.
+  const main = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
+  const handler = main.slice(main.indexOf('"pickDirectory": async'), main.indexOf('"pickFile": async'));
+  assert.match(handler, /await pickedDirectories\(result\.filePaths, options\)/);
+  assert.match(handler, /options\.multiple \? filePaths : \(filePaths\[0\] \?\? null\)/);
+});
+
 // Kontrola, ktorou OKF, server aj register pracovných priestorov odmietajú cestu.
-const accepted = async (value) => (await realpath(value)) === path.resolve(value);
+const accepted = async (value) => (await canonicalRealpath(value)) === path.resolve(value);
 
 function freeDriveLetter() {
   for (const letter of "PQRSTUVWXY") if (!existsSync(`${letter}:\\`)) return letter;
   return null;
+}
+
+/** @param {string} root */
+async function testStore(root) {
+  const userData = path.join(root, "userData");
+  await mkdir(userData, { recursive: true });
+  return createWorkspaceStore({
+    app: { getPath: (name) => name === "userData" ? userData : root },
+    defaultDenBaseUrl: "https://example.test",
+    defaultRequireSignin: false,
+    forceRequireSignin: false,
+  });
 }
 
 test("Windows: disk zo subst prejde kontrolou kanonickej cesty až po výbere", { skip: process.platform !== "win32" }, async (t) => {
@@ -82,7 +141,7 @@ test("Windows: disk zo subst prejde kontrolou kanonickej cesty až po výbere", 
   if (!letter) return t.skip("žiadne voľné písmeno disku");
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "lawoss-subst-")));
   const office = path.join(root, "Kancelaria");
-  await mkdir(path.join(office, "Klienti"), { recursive: true });
+  await mkdir(path.join(office, "Klienti", "Sub"), { recursive: true });
   execFileSync("subst", [`${letter}:`, office]);
   try {
     const picked = `${letter}:\\Klienti`;
@@ -96,28 +155,22 @@ test("Windows: disk zo subst prejde kontrolou kanonickej cesty až po výbere", 
     assert.equal(await accepted(await canonicalPickedDirectory(`${letter}:\\`)), true);
 
     // Register pracovných priestorov (registerExisting) prijme kanonický tvar.
-    const userData = path.join(root, "userData");
-    await mkdir(userData);
-    const store = createWorkspaceStore({
-      app: { getPath: (name) => name === "userData" ? userData : root },
-      defaultDenBaseUrl: "https://example.test",
-      defaultRequireSignin: false,
-      forceRequireSignin: false,
-    });
+    const store = await testStore(root);
     await assert.rejects(store.createWorkspace({ folderPath: picked, name: "Klienti", preset: "starter", registerExisting: true }));
     const registered = await store.createWorkspace({ folderPath: canonical, name: "Klienti", preset: "starter", registerExisting: true });
     assert.ok(registered.workspaces.some((workspace) => workspace.path === canonical));
 
-    // Junction v ceste: zmena by obišla kontrolu odkazov, preto ostane pôvodná cesta.
+    // Junction v ceste (na konci aj uprostred): zmena by obišla kontrolu odkazov, cesta ostane.
     await symlink(path.join(office, "Klienti"), path.join(office, "Odkaz"), "junction");
     assert.equal(await canonicalPickedDirectory(`${letter}:\\Odkaz`), `${letter}:\\Odkaz`);
+    assert.equal(await canonicalPickedDirectory(`${letter}:\\Odkaz\\Sub`), `${letter}:\\Odkaz\\Sub`);
   } finally {
     execFileSync("subst", [`${letter}:`, "/D"]);
     await rm(root, { recursive: true, force: true, maxRetries: 10 });
   }
 });
 
-test("Windows: namapovaný sieťový disk (net use) prejde kontrolou až po výbere", { skip: process.platform !== "win32" }, async (t) => {
+test("Windows: namapovaný sieťový disk (net use) prejde kontrolou až po výbere, aj jeho koreň", { skip: process.platform !== "win32" }, async (t) => {
   const letter = freeDriveLetter();
   if (!letter) return t.skip("žiadne voľné písmeno disku");
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "lawoss-netuse-")));
@@ -135,14 +188,22 @@ test("Windows: namapovaný sieťový disk (net use) prejde kontrolou až po výb
     const canonical = await canonicalPickedDirectory(picked);
     assert.notEqual(canonical, picked);
     assert.equal(await accepted(canonical), true);
-    // Koreň zdieľania: realpath vracia `\\server\share` bez lomky, resolve s lomkou, takže
-    // kontrola `realpath(x) === resolve(x)` ho odmietne (známe obmedzenie, zapísané v PR).
-    for (const value of [share, `${share}\\`]) {
-      const real = await realpath(value).catch((error) => `chyba ${error.code}`);
-      t.diagnostic(`koreň zdieľania ${JSON.stringify(value)}: realpath ${JSON.stringify(real)}, resolve ${JSON.stringify(path.resolve(value))}`);
-    }
+
+    // Koreň zdieľania: natívny realpath ho vráti bez lomky, resolve s lomkou.
+    t.diagnostic(`realpath(${JSON.stringify(share)}) = ${JSON.stringify(await realpath(share))}`);
+    assert.equal(await accepted(share), true);
+    assert.equal(await accepted(`${share}\\`), true);
+    const pickedRoot = await canonicalPickedDirectory(`${letter}:\\`);
+    assert.equal(pickedRoot, path.resolve(share));
+    assert.equal(await accepted(pickedRoot), true);
+
+    // Register pracovných priestorov prijme koreň zdieľania; samotné písmeno disku nie.
+    const store = await testStore(root);
+    await assert.rejects(store.createWorkspace({ folderPath: `${letter}:\\`, name: "NAS", preset: "starter", registerExisting: true }));
+    const registered = await store.createWorkspace({ folderPath: pickedRoot, name: "NAS", preset: "starter", registerExisting: true });
+    assert.ok(registered.workspaces.some((workspace) => workspace.path === pickedRoot));
   } finally {
-    execFileSync("net",["use", `${letter}:`, "/delete", "/y"], { stdio: "ignore", timeout: 30_000 });
+    execFileSync("net", ["use", `${letter}:`, "/delete", "/y"], { stdio: "ignore", timeout: 30_000 });
     await rm(root, { recursive: true, force: true, maxRetries: 10 });
   }
 });

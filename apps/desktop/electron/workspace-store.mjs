@@ -10,6 +10,7 @@ import path from "node:path";
 import { legalworkWorkspaceDisplayName, selectLegalworkWorkspaceForConnection } from "./remote-workspace.mjs";
 import { ensureOpencodeStateDir } from "./opencode-state-dir.mjs";
 import { exportWorkspaceConfig, importWorkspaceConfig } from "./workspace-archive.mjs";
+import { canonicalRealpath } from "./lawoss-picked-path.mjs";
 
 const EMPTY_WORKSPACE_LIST = Object.freeze({
   selectedId: "",
@@ -691,7 +692,8 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     if (registerExisting) {
       const resolvedPath = path.resolve(rawFolderPath);
       try {
-        if (!path.isAbsolute(rawFolderPath) || !(await lstat(resolvedPath)).isDirectory() || await realpath(resolvedPath) !== resolvedPath) {
+        // 🟡 LAWOSS: koreň zdieľania Windows (`\\nas\share\`) v tvare z resolve(), viď lawoss-picked-path.mjs.
+        if (!path.isAbsolute(rawFolderPath) || !(await lstat(resolvedPath)).isDirectory() || await canonicalRealpath(resolvedPath) !== resolvedPath) {
           throw new Error("Not a canonical existing directory");
         }
       } catch {

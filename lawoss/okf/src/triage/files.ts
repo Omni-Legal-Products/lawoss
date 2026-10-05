@@ -1,6 +1,7 @@
 /** Súbory roztriedenia v klone: uložené náhľady a klasifikácie od modelu. Všetko pod `.lawoss/triage/`. */
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readdir, realpath } from "node:fs/promises";
+import { lstat, mkdir, open, readdir } from "node:fs/promises";
+import { realpath } from "../canonical-path.ts";
 import { join } from "node:path";
 import { TRIAGE_DIR } from "./scan.ts";
 

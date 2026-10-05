@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, open, realpath } from "node:fs/promises";
+import { lstat, open } from "node:fs/promises";
+import { realpath } from "../canonical-path.ts";
 import { join } from "node:path";
 import { planEntity, type ClientType, type DocumentLanguage, type Jurisdiction } from "../core.ts";
 import { LOCALIZED_TEMPLATES } from "../templates.ts";

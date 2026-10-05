@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readFile, realpath } from "node:fs/promises";
+import { lstat, mkdir, open, readFile } from "node:fs/promises";
+import { realpath } from "./canonical-path.js";
 import { isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { ApiError } from "../errors.js";

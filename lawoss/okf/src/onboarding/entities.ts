@@ -1,4 +1,5 @@
-import { lstat, readFile, realpath } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
+import { realpath } from "../canonical-path.ts";
 import { createHash } from "node:crypto";
 import { basename, join, relative, resolve, sep } from "node:path";
 import { inspectOnboardingParent, inspectOnboardingRoot } from "./classify.ts";

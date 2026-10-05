@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { copyFile, lstat, mkdir, open, readFile, realpath, rename, rmdir } from "node:fs/promises";
+import { copyFile, lstat, mkdir, open, readFile, rename, rmdir } from "node:fs/promises";
+import { realpath } from "../canonical-path.ts";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { inspectOnboardingRoot, type TreeEntry } from "./classify.ts";
 import { acquireOnboardingLock, applyOnboardingPlan, parseOnboardingPlan, recoverOnboardingPlan, type OnboardingPlan } from "./transaction.ts";
