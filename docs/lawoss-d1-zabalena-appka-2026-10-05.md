@@ -67,7 +67,8 @@ Akceptačný beh D1 vyššie prebehol na macOS. Postup pre Windows x64 vychádza
 
 Verejné binárky budú len podpísané (rozhodnutie Q06/U6). Nepodpísaný build workflow vydá len ako **koncept (draft)**: vidia ho len členovia s právom zápisu do forku, názov začína **„NEPODPÍSANÉ – len interný tím“** a ukazovateľ `alpha-windows-latest` sa neposunie, takže ho updater nikomu neponúkne. Ďalej ho nešírte a nepracujte v ňom s klientskymi ani inými dôvernými údajmi.
 
-Releasy vytvorené pred zavedením tejto brány (názov „LegalWork Alpha …“, napríklad verejný prerelease `alpha-windows-v0.1.15-alpha.2-65ba399`) sú tiež nepodpísané a nemajú SHA-256 v popise; platí pre ne to isté: len interný tím, žiadne klientske údaje. Ukazovateľ `alpha-windows-latest` k 5. 10. 2026 mieri práve na tento build (overené cez GitHub API 5. 10. 2026).
+> [!WARNING]
+> Releasy vytvorené pred zavedením tejto brány (názov „LegalWork Alpha …“) sú nepodpísané a nemajú SHA-256 v popise. Verejný prerelease `alpha-windows-v0.1.15-alpha.2-65ba399` si k 5. 10. 2026 stiahne ktokoľvek aj bez prihlásenia (overené 5. 10. 2026: odkaz na inštalátor presmeruje na úložisko GitHubu). Brána workflowu ho dodatočne neskryje; kým ho tím neodstráni alebo nepresunie do konceptu, nepoužívajte ho a ďalej ho nešírte. Ukazovateľ `alpha-windows-latest` naň mieri s relatívnou adresou, takže updater dostane pri sťahovaní 404; opraví ho až prvé podpísané vydanie.
 
 Testovací build bez releasu (spustený s vypnutým `publish`) je v behu workflowu „Alpha Channel (Windows x64)“ na záložke Actions, časť Artifacts: `lawoss-alpha-windows-<verzia>`. Je to ZIP s inštalátorom, vydrží 7 dní a updater ho neponúka. Repo je verejné, takže ho po prihlásení do GitHubu stiahne ktokoľvek; workflow preto takto uloží len podpísaný build.
 

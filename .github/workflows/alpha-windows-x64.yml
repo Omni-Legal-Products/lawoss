@@ -15,7 +15,13 @@ name: Alpha Channel (Windows x64)
 # zápisu do repa, a nikdy neposunie verejný `alpha-windows-latest`, takže ho
 # updater nikomu neponúkne. Názov konceptu začína „NEPODPÍSANÉ – len interný tím“
 # a popis upozorní na SmartScreen a zákaz klientskych údajov. Nepodpísaný
-# inštalátor teda nikdy nevyjde verejne ani potichu.
+# inštalátor teda nikdy nevyjde verejne ani potichu. Pri podpise cez SignPath
+# sa nepodpísaný medzistupeň nahrá ako artefakt behu len pre SignPath a hneď
+# po podpise sa zmaže (aj pri chybe podpisu).
+#
+# Opakovaný beh (Re-run) s iným výsledkom podpisu, než mal prvý pokus, skončí
+# pred nahratím assetov: koncept sa nezverejní a verejný release nedostane
+# nepodpísaný inštalátor. Taký build treba spustiť znova ako nový beh.
 #
 # `draft: true` vydá aj podpísaný build len ako koncept bez posunu ukazovateľa.
 #
@@ -55,11 +61,15 @@ on:
 
 permissions:
   contents: write
+  # 🟡 LAWOSS: zmazanie nepodpísaného medzistupňa pre SignPath po podpise.
+  actions: write
 
-# 🟡 LAWOSS: všetky behy s `publish` zdieľajú jednu skupinu bez ohľadu na vetvu
-# a čakajú v rade, lebo posúvajú ten istý `alpha-windows-latest`. Kontrola verzie
-# pred posunom tak porovnáva s naozaj posledným ukazovateľom a zrušený beh
-# nenechá vydanie v polovici. Build bez publikovania ruší starší build tej vetvy.
+# 🟡 LAWOSS: všetky behy s `publish` zdieľajú jednu skupinu bez ohľadu na vetvu,
+# lebo posúvajú ten istý `alpha-windows-latest`, a bežiaci beh sa nezruší. Kontrola
+# verzie pred posunom tak porovnáva s naozaj posledným ukazovateľom a zrušený beh
+# nenechá vydanie v polovici. GitHub drží v skupine najviac jeden čakajúci beh:
+# novší dispatch čakajúci beh zruší a zaujme jeho miesto, takže po zrušení treba
+# zrušený build spustiť znova. Build bez publikovania ruší starší build tej vetvy.
 concurrency:
   group: ${{ inputs.publish && 'alpha-windows-x64-publish' || format('alpha-windows-x64-build-{0}', github.ref) }}
   cancel-in-progress: ${{ !inputs.publish }}
@@ -95,9 +105,12 @@ jobs:
           if [ -n "${SIGNPATH_PROJECT_SLUG:-}" ]; then
             echo "SignPath je nastavený; inštalátor sa podpíše."
             echo "signed=true" >> "$GITHUB_OUTPUT"
-            if [ "${DRAFT:-false}" = "true" ]; then
+            if [ "${DRAFT:-false}" = "true" ] && [ "${PUBLISH:-true}" = "true" ]; then
               echo "draft=true" >> "$GITHUB_OUTPUT"
             else
+              if [ "${DRAFT:-false}" = "true" ]; then
+                echo "::warning title=draft bez publish nemá účinok::publish=false nevytvorí release, build ide len do artefaktu behu, ktorý v public repe stiahne ktokoľvek prihlásený na GitHube."
+              fi
               echo "draft=false" >> "$GITHUB_OUTPUT"
             fi
             exit 0
@@ -336,6 +349,16 @@ jobs:
           wait-for-completion: true
           output-artifact-directory: ${{ runner.temp }}/signpath-signed
 
+      # 🟡 LAWOSS: nepodpísaný medzistupeň potreboval len SignPath; artefakt behu je
+      # v public repe verejný, preto sa zmaže hneď po podpise, aj keď podpis zlyhal.
+      - name: Delete unsigned installer artifact after SignPath
+        if: ${{ always() && steps.upload-unsigned-windows-installer.outputs.artifact-id != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload-unsigned-windows-installer.outputs.artifact-id }}
+        run: gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}"
+
       - name: Apply signed Windows installer
         if: env.SIGNPATH_PROJECT_SLUG != ''
         shell: bash
@@ -536,6 +559,14 @@ jobs:
             echo "Overenie v PowerShelli: \`Get-FileHash .\\<súbor> -Algorithm SHA256\`"
           } > "$notes"
           if gh release view "$ALPHA_RUN_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # Opakovaný beh (Re-run) číta podpis znova. Keď sa koncept/verejný stav
+            # nezhoduje s prvým pokusom, nič sa nenahrá: koncept by sa inak ocitol
+            # pod verejným ukazovateľom alebo nepodpísaný build vo verejnom releasi.
+            existing_draft="$(gh release view "$ALPHA_RUN_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+            if [ "$existing_draft" != "$DRAFT" ]; then
+              echo "::error title=Opakovaný beh s iným podpisom::Release $ALPHA_RUN_RELEASE_TAG má draft=$existing_draft, tento pokus draft=$DRAFT (signed=$SIGNED). Assety ani ukazovateľ sa nemenia. Spustite workflow znova ako nový beh (nová verzia a tag), prípadne release najprv odstráňte."
+              exit 1
+            fi
             # Opakovaný beh prepíše assety (--clobber), preto aj názov a popis s hashmi.
             echo "Alpha prerelease $ALPHA_RUN_RELEASE_TAG already exists; reusing it."
             gh release edit "$ALPHA_RUN_RELEASE_TAG" \
@@ -589,6 +620,13 @@ jobs:
           SIGNED: ${{ steps.signing.outputs.signed }}
         run: |
           set -euo pipefail
+          # 🟡 LAWOSS: verejný ukazovateľ len na podpísaný a zverejnený release (Q06/U6),
+          # podľa skutočného stavu releasu, nie len podľa výstupov tohto pokusu.
+          target_draft="$(gh release view "$ALPHA_RUN_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+          if [ "$SIGNED" != "true" ] || [ "$target_draft" != "false" ]; then
+            echo "::error title=Ukazovateľ sa neposúva::$ALPHA_RUN_RELEASE_TAG má draft=$target_draft, signed=$SIGNED. Verejný alpha-windows-latest smie mieriť len na podpísaný zverejnený release."
+            exit 1
+          fi
           POINTER_MANIFEST="$RUNNER_TEMP/latest.yml"
           export POINTER_MANIFEST
           node <<'NODE'
@@ -604,18 +642,12 @@ jobs:
           fs.writeFileSync(process.env.POINTER_MANIFEST, rewritten);
           NODE
 
-          # 🟡 LAWOSS: názov a popis ukazovateľa hovoria, kam práve mieri a či je
-          # tá alfa podpísaná; ukazovateľ je verejný, inštalátor má len jeho release.
+          # 🟡 LAWOSS: názov a popis ukazovateľa hovoria, kam práve mieri; ukazovateľ
+          # je verejný a inštalátor má len jeho release (vždy podpísaný, kontrola vyššie).
           pointer_title="$ALPHA_RELEASE_NAME"
           pointer_notes="$RUNNER_TEMP/alpha-pointer-notes.md"
           {
-            echo "Ukazovateľ updatera pre najnovšiu alfu LAWOSS (Windows x64). Obsahuje len \`latest.yml\`; inštalátor ${ALPHA_VERSION} je v releasi [${ALPHA_RUN_RELEASE_TAG}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${ALPHA_RUN_RELEASE_TAG})."
-            if [ "$SIGNED" != "true" ]; then
-              pointer_title="NEPODPÍSANÉ – len interný tím · ${ALPHA_RELEASE_NAME}"
-              echo
-              echo "> [!WARNING]"
-              echo "> Aktuálna alfa je NEPODPÍSANÁ – len pre interný tím. SmartScreen varuje; žiadne klientske údaje."
-            fi
+            echo "Ukazovateľ updatera pre najnovšiu alfu LAWOSS (Windows x64). Obsahuje len \`latest.yml\`; podpísaný inštalátor ${ALPHA_VERSION} je v releasi [${ALPHA_RUN_RELEASE_TAG}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${ALPHA_RUN_RELEASE_TAG})."
           } > "$pointer_notes"
 
           if ! gh release view "$ALPHA_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
