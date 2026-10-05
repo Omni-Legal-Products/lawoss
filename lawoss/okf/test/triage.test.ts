@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { inspectOnboardingRoot } from "../src/onboarding/classify.ts";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
-import { runTriage } from "../src/triage/cli.ts";
+import { resolveCloneRoot, runTriage } from "../src/triage/cli.ts";
+import { parseOfficeWorkingProfile } from "../src/profile.ts";
 import {
   applyTriagePlan, buildTriagePlan, ClassificationError, classifyByRules, CLASSIFICATION_SCHEMA, findCaseNumber, listTriageRuns,
   parseClassification, parseTriagePlan, prepareTriage, scanTriage, TrialCloneError, undoTriage, verifyTrialClone, type TriagePlan,
@@ -354,5 +355,92 @@ describe("CLI", () => {
     expect(await runTriage(["undo", clone.root, "--run", plan.runId, "--confirm"], out)).toBe(0);
     expect(await treeHash(clone.root)).toBe(original);
     expect(await runTriage(["status", clone.source], out)).toBe(1);
+  });
+});
+
+describe("po teste so skutočným modelom (5. 10. 2026)", () => {
+  /** Kancelária zo staršieho vzoru: `matter_folders` bez `folder_roles`, klon v jej priečinku Klienti. */
+  async function officeClone(files: Readonly<Record<string, string>>) {
+    const base = await directory("okf-triage-office-");
+    const source = join(base, "povodne", "Horizont"), clients = join(base, "praca", "Klienti"), journal = join(base, "journal"), external = join(base, "external");
+    for (const dir of [source, clients, join(base, "praca", "Office"), journal, external]) await mkdir(dir, { recursive: true });
+    await writeFile(join(base, "praca", "Office", "okf.config"), 'version: 1\njurisdiction: sk\nlanguage: sk\nmatter_folders: ["00_Na_zatriedenie", "01_Podklady", "02_Resers", "03_Drafty", "04_Vystupy", "05_Komunikacia"]\n');
+    await writeTriageFixture(source, files);
+    const preview = await planOnboarding(parseOnboardingRequest({ action: "existing", root: source, mode: "trial_clone", cloneParent: clients, title: "Horizont Stavby s. r. o.", clientType: "po", language: "sk", jurisdiction: "sk", date: "2026-10-05", confirmUnknownClient: true }));
+    const result = await applyOnboarding(preview, { journalDirectory: journal, externalProfileDirectory: external });
+    return { root: result.root, journal };
+  }
+
+  test("nové veci od modelu dostanú dokumenty do svojich priečinkov aj pri kancelárii bez rolí", async () => {
+    const clone = await officeClone({ "sken001.pdf": "a", "sken002.pdf": "b", "Re_ zmier.eml": "c", "Odvolanie_v2.docx": "d", "dokument (3).docx": "e", "IMG_2041.jpg": "f" });
+    const { inventory } = await prepareTriage(clone.root, { trialJournalDirectory: clone.journal, now: NOW });
+    const id = (path: string) => inventory.documents.find(item => item.path === path)!.id;
+    const classification = parseClassification({
+      schema: CLASSIFICATION_SCHEMA, treeDigest: inventory.treeDigest,
+      matters: [
+        { key: "betonka", title: "Spor s Betónka Sever o cenu betónu", kind: "contentious", caseNumber: "15Cb/45/2024" },
+        { key: "lesna", title: "Spor s Lesná Investičná o cenu diela", kind: "contentious", caseNumber: "8C/123/2023" },
+        { key: "nda", title: "Dohoda o mlčanlivosti Atrium Park", kind: "non_contentious" },
+      ],
+      documents: [
+        { id: id("sken001.pdf"), role: "client_documents", matter: "lesna", confidence: "high", reason: "Vyjadrenie žalovaného." },
+        { id: id("sken002.pdf"), role: "important_mail", matter: "betonka", confidence: "high", reason: "Uznesenie súdu." },
+        { id: id("Re_ zmier.eml"), role: "correspondence", matter: "betonka", confidence: "high", reason: "E-mail o zmieri." },
+        { id: id("Odvolanie_v2.docx"), role: "drafts", matter: "lesna", confidence: "high", reason: "Koncept odvolania." },
+        { id: id("dokument (3).docx"), role: "client_documents", matter: "nda", confidence: "high", reason: "Dohoda o mlčanlivosti." },
+        { id: id("IMG_2041.jpg"), role: "client_documents", matter: "lesna", confidence: "medium", reason: "Fotka trhliny." },
+      ],
+    }, inventory);
+    const plan = buildTriagePlan(inventory, { classification, today: "2026-10-05", runId: "triage-20261005-100000-abcdef", createdAt: NOW.toISOString() });
+    expect(plan.matters.map(matter => [matter.key, matter.documents])).toEqual([["betonka", 2], ["lesna", 3], ["nda", 1]]);
+    expect(plan.moves.filter(item => item.role === "inbox")).toEqual([]);
+    expect(plan.moves.every(item => item.source === "model")).toBe(true);
+    expect(move(plan, "sken002.pdf")?.to).toBe("Spisy/2026-10 Spor s Betónka Sever o cenu betónu/05_Komunikacia/Dolezita_posta/sken002.pdf");
+    expect(move(plan, "Odvolanie_v2.docx")?.to).toBe("Spisy/2026-10 Spor s Lesná Investičná o cenu diela/03_Drafty/Odvolanie_v2.docx");
+    const profile = plan.create.find(operation => operation.path.endsWith("Lesná Investičná o cenu diela/PRACOVNY-PROFIL.md"))!.content!;
+    expect(profile).toContain('"drafts":"03_Drafty"');
+    await applyTriagePlan(plan, { trialJournalDirectory: clone.journal });
+    expect(await readFile(join(clone.root, "Spisy/2026-10 Dohoda o mlčanlivosti Atrium Park/01_Podklady/dokument (3).docx"), "utf8")).toBe("e");
+  });
+
+  test("veci zo spisovej značky podľa pravidiel aj pri kancelárii bez rolí", async () => {
+    const clone = await officeClone({ "Rozsudok 8C_123_2023.pdf": "a", "Zaloba 8C_123_2023.pdf": "b" });
+    const { plan } = await prepareTriage(clone.root, { trialJournalDirectory: clone.journal, now: NOW });
+    expect(plan.matters).toEqual([expect.objectContaining({ caseNumber: "8C 123/2023", documents: 2 })]);
+    expect(move(plan, "Rozsudok 8C_123_2023.pdf")?.to).toBe("Spisy/2026-10 Konanie 8C 123-2023/05_Komunikacia/Dolezita_posta/Rozsudok 8C_123_2023.pdf");
+    expect(move(plan, "Zaloba 8C_123_2023.pdf")?.to).toBe("Spisy/2026-10 Konanie 8C 123-2023/04_Vystupy/Zaloba 8C_123_2023.pdf");
+  });
+
+  test("nová kancelária zapíše roly priečinkov, aby nové veci mali kam zaraďovať", async () => {
+    const parent = await directory("okf-office-roles-");
+    for (const [language, drafts] of [["sk", "03_Drafty"], ["cs", "03_Navrhy"], ["en", "03_Drafts"]] as const) {
+      const dir = join(parent, language);
+      await mkdir(dir);
+      const office = await planOnboarding(parseOnboardingRequest({ action: "office", parent: dir, title: "Office", jurisdiction: language === "cs" ? "cz" : "sk", language, lawyerName: "Syntetický advokát" }));
+      if (office.mode !== "new") throw new Error("office");
+      const config = office.plan.operations.find(operation => operation.path === "Office/okf.config")!.content!;
+      expect(config).toContain(`"drafts":"${drafts}"`);
+      expect(parseOfficeWorkingProfile(config, language)?.roles.drafts).toBe(drafts);
+    }
+  });
+
+  test("pravidlá: priečinok Faktúry a predžalobná výzva", () => {
+    const rule = (path: string) => { const name = path.split("/").pop()!; const dot = name.lastIndexOf("."); return classifyByRules({ path, name, ext: dot > 0 ? name.slice(dot + 1) : "" }); };
+    expect(rule("Faktury/FA-2023-0031.pdf")).toMatchObject({ role: "client_documents", rule: "folder_hint" });
+    expect(rule("Invoices/INV-17.pdf")).toMatchObject({ role: "client_documents", rule: "folder_hint" });
+    expect(rule("Predžalobná výzva Lesná.docx")).toMatchObject({ role: "correspondence", rule: "demand_letter" });
+    expect(rule("Předžalobní výzva.pdf")).toMatchObject({ role: "correspondence", rule: "demand_letter" });
+  });
+
+  test("CLI nájde klon bez cesty aj z relatívnej cesty", async () => {
+    const clone = await trialClone({ "Plnomocenstvo.pdf": "a" });
+    expect(resolveCloneRoot(undefined, join(clone.root, "01_Podklady"))).toBe(clone.root);
+    expect(resolveCloneRoot(".", clone.root)).toBe(clone.root);
+    expect(resolveCloneRoot("klony/Vymysleny klient (trial 2026-10-05)", join(clone.parent, ".."))).toBe(clone.root);
+    const lines: string[] = [];
+    const cwd = process.cwd();
+    process.chdir(clone.root);
+    try { expect(await runTriage(["status"], line => lines.push(line))).toBe(0); } finally { process.chdir(cwd); }
+    expect(JSON.parse(lines[0]!)).toMatchObject({ trial: true, root: clone.root });
   });
 });

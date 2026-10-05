@@ -1,5 +1,7 @@
 import type { Language } from "@/i18n";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { refreshOkfSkills, type BundledOkfSkill, type OkfSkillClient, type OkfSkillRefresh } from "../../okf/skill-refresh";
+import { reloadAfterSkillWrites } from "../../okf/skill-availability";
 import { notifyModifiedOkfSkills } from "../../okf/skill-refresh-notice";
 
 /** OKF skills every OKF client gets: /novy-spis, /okf-pamat, /usporiadaj-spis and /roztried-spis with their CLI resources. */
@@ -14,8 +16,10 @@ export async function okfSkillPack(locale: Language): Promise<BundledOkfSkill[]>
 }
 
 /** Complete missing bundled OKF skills and refresh unmodified ones; customizations are kept and reported. */
-export async function installMissingOnboardingSkills(client: OkfSkillClient, workspaceId: string, locale: Language): Promise<OkfSkillRefresh> {
+export async function installMissingOnboardingSkills(client: OkfSkillClient & Partial<Pick<LegalworkServerClient, "reloadEngine">>, workspaceId: string, locale: Language): Promise<OkfSkillRefresh> {
   const result = await refreshOkfSkills(client, workspaceId, await okfSkillPack(locale));
   notifyModifiedOkfSkills(result.modified, locale);
+  // Nový alebo obnovený skill engine uvidí až po obnovení; bez toho prvý rozhovor hlási „Command not found“.
+  await reloadAfterSkillWrites(client, workspaceId, result.written);
   return result;
 }

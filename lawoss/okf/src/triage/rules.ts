@@ -13,7 +13,7 @@ export type Confidence = "high" | "medium" | "low";
 
 /** Kód pravidla je strojový; appka ho prekladá, CLI ho vypíše ako je. */
 export type RuleCode =
-  | "email_file" | "data_box" | "power_of_attorney" | "court_decision" | "draft_marker" | "filing_final"
+  | "email_file" | "data_box" | "power_of_attorney" | "court_decision" | "demand_letter" | "draft_marker" | "filing_final"
   | "filing_draft" | "contract" | "invoice" | "registry_extract" | "research" | "final_output"
   | "folder_hint" | "unknown";
 
@@ -36,6 +36,8 @@ type Keyword = { words: readonly string[]; rule: RuleCode; role: TriageRole; con
 const KEYWORDS: readonly Keyword[] = [
   { rule: "power_of_attorney", role: "client_documents", confidence: "high", words: ["plnomocenstvo", "plnomocnenstvo", "plna moc", "plnou moc", "plne moci", "power of attorney", "splnomocnenie"] },
   { rule: "court_decision", role: "important_mail", confidence: "medium", words: ["rozsudok", "rozsudek", "rozsudku", "uznesenie", "uznesenia", "usneseni", "platobny rozkaz", "platebni rozkaz", "predvolanie", "predvolani", "vyzva sudu", "vyzva soudu", "exekucny prikaz", "exekucni prikaz", "upovedomenie", "vyrozumenie", "rozhodnutie", "rozhodnuti", "dorucenka", "judgment", "court order"] },
+  // Predžalobná výzva a upomienka sú korešpondencia s protistranou, nie podanie súdu.
+  { rule: "demand_letter", role: "correspondence", confidence: "medium", words: ["predzalobna vyzva", "predzalobnu vyzvu", "predzalobni vyzva", "predzalobni vyzvu", "vyzva na zaplatenie", "vyzva k zaplaceni", "upomienka", "upominka", "demand letter", "letter before action"] },
   { rule: "draft_marker", role: "drafts", confidence: "high", ext: WORD_EXT, words: ["draft", "navrh", "koncept", "pracovn", "wip", "redline", "verzia", "verze", "version", "rev", "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9"] },
   { rule: "filing_final", role: "outputs", confidence: "medium", ext: PDF_EXT, words: ["zaloba", "zalobu", "navrh na", "odvolanie", "odvolani", "dovolanie", "dovolani", "vyjadrenie", "vyjadreni", "replika", "duplika", "triplika", "podanie", "podani", "staznost", "stiznost", "odpor", "namietky", "namitky", "statement of claim", "appeal"] },
   { rule: "contract", role: "client_documents", confidence: "medium", words: ["zmluva", "zmluvy", "zmluvu", "smlouva", "smlouvy", "smlouvu", "dohoda", "dohody", "dodatok", "dodatek", "contract", "agreement", "nda"] },
@@ -52,7 +54,7 @@ const FILING_DRAFT: Keyword = { rule: "filing_draft", role: "drafts", confidence
 const FOLDER_HINTS: readonly { words: readonly string[]; role: TriageRole }[] = [
   { role: "correspondence", words: ["korespondencia", "korespondence", "posta", "email", "emaily", "maily", "mail", "correspondence", "komunikacia", "komunikace"] },
   { role: "drafts", words: ["drafty", "drafts", "koncepty", "navrhy", "pracovne"] },
-  { role: "client_documents", words: ["zmluvy", "smlouvy", "podklady", "od klienta", "dokumenty klienta", "doklady"] },
+  { role: "client_documents", words: ["zmluvy", "smlouvy", "podklady", "od klienta", "dokumenty klienta", "doklady", "faktury", "invoices", "invoice", "uctovne doklady", "ucetni doklady"] },
   { role: "outputs", words: ["podania", "podani", "vystupy", "outputs", "odoslane", "odeslane"] },
   { role: "research", words: ["reserse", "resers", "research", "judikatura"] },
 ];
@@ -92,7 +94,9 @@ export function classifyByRules(input: RuleInput): RuleResult {
   const result = (value: Omit<RuleResult, "caseNumber">): RuleResult => caseNumber ? { ...value, caseNumber } : value;
   if (EMAIL_EXT.has(ext)) return result({ role: "correspondence", confidence: "high", rule: "email_file", matched: `.${ext}` });
   if (DATA_BOX_EXT.has(ext)) return result({ role: "important_mail", confidence: ext === "zfo" ? "high" : "medium", rule: "data_box", matched: `.${ext}` });
-  for (const keyword of [KEYWORDS[0]!, KEYWORDS[1]!, KEYWORDS[2]!, FILING_DRAFT, ...KEYWORDS.slice(3)]) {
+  // Návrh vo Worde pred podaním: koncept žaloby je draft, nie výstup.
+  const draftIndex = KEYWORDS.findIndex(keyword => keyword.rule === "draft_marker") + 1;
+  for (const keyword of [...KEYWORDS.slice(0, draftIndex), FILING_DRAFT, ...KEYWORDS.slice(draftIndex)]) {
     if (keyword.ext && !keyword.ext.has(ext)) continue;
     const matched = findWord(text, keyword.words);
     if (matched) return result({ role: keyword.role, confidence: keyword.confidence, rule: keyword.rule, matched });

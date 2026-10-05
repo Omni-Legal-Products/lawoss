@@ -14,9 +14,10 @@ import { okfSkillPack } from "../domains/onboarding/install-pack";
 import { loadOkfConnection } from "./connection";
 import { resolveOpenClient, type OpenClientReader, type OpenClientWorkspace } from "./open-client";
 import { refreshOkfSkills, type OkfSkillClient } from "./skill-refresh";
+import { reloadAfterSkillWrites } from "./skill-availability";
 import { notifyModifiedOkfSkills } from "./skill-refresh-notice";
 
-export type OkfSkillSyncClient = OkfSkillClient & OpenClientReader & Pick<LegalworkServerClient, "onboardingStatus" | "capabilities">;
+export type OkfSkillSyncClient = OkfSkillClient & OpenClientReader & Pick<LegalworkServerClient, "onboardingStatus" | "capabilities"> & Partial<Pick<LegalworkServerClient, "reloadEngine">>;
 export type OkfSkillSyncResult =
   | { status: "refreshed"; workspaceId: string; modified: string[] }
   | { status: "skipped"; reason: "okf_off" | "not_client" | "read_only" };
@@ -35,7 +36,8 @@ export async function syncOkfSkillsForOpenWorkspace(
   const capabilities = await client.capabilities();
   if (!capabilities.skills.write || !capabilities.skillResources?.write) return { status: "skipped", reason: "read_only" };
   // Skilly patria klientovi: vec pod ním ich zdedí, kópia vo veci by zatienila neskoršie aktualizácie.
-  const { modified } = await refreshOkfSkills(client, openClient.workspaceId, await okfSkillPack(locale));
+  const { modified, written } = await refreshOkfSkills(client, openClient.workspaceId, await okfSkillPack(locale));
+  await reloadAfterSkillWrites(client, openClient.workspaceId, written);
   return { status: "refreshed", workspaceId: openClient.workspaceId, modified };
 }
 

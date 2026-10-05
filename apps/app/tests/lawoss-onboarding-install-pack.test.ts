@@ -27,7 +27,7 @@ test("onboarding skill pack preserves installed workspace skills and resources",
     [{ name: "novy-spis", scope: "project", content: novySpisSkillBody("sk").content }, { name: "okf-pamat", scope: "global", content: "global" }],
     new Map([["novy-spis", new Map([["okf.js", okfCliSource()]])]]),
   );
-  expect(await installMissingOnboardingSkills(f.client, "workspace", "sk")).toEqual({ modified: [] });
+  expect(await installMissingOnboardingSkills(f.client, "workspace", "sk")).toEqual({ modified: [], written: ["usporiadaj-spis", "roztried-spis"] });
   expect(f.calls.skill).toEqual(["usporiadaj-spis", "roztried-spis"]);
   expect(f.calls.resource).toEqual(["usporiadaj-spis/okf.js", "roztried-spis/okf.js"]);
   expect([...(f.resources.get("novy-spis")?.keys() ?? [])]).toEqual(["okf.js"]);

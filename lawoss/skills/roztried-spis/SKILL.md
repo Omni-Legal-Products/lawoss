@@ -7,6 +7,10 @@ description: Roztriedenie dokumentov existujúceho klienta do OKF len v skúšob
 
 Pracuj iba cez prenosné CLI `resources/okf.js` vedľa tohto skillu: `node "<skill>/resources/okf.js" triage …` (alebo Bun). Ak runtime alebo resource chýba, zastav sa a oznám to. Shell `mv`, `cp`, `rm`, presun cez správcu súborov ani iný nástroj nie sú povolený náhradný postup.
 
+## Priebeh bez prestávok
+
+Kroky 1 až 6 urob v jednom ťahu, bez čakania na „pokračuj“. Zastav sa a čakaj na človeka len v dvoch bodoch: pri súhlase s odoslaním obsahu (krok 2, ak ho úvodná správa už neobsahuje) a pred zápisom (krok 7). Chybu nástroja (napríklad zlú cestu) oprav sám a pokračuj.
+
 ## Pevné pravidlá
 
 - Dokumenty sa presúvajú **len v skúšobnom klone**. Originál klienta (cesta `source` v `.lawoss-trial.json`) nikdy nečítaj kvôli triedeniu, nepresúvaj ani neupravuj.
@@ -16,7 +20,7 @@ Pracuj iba cez prenosné CLI `resources/okf.js` vedľa tohto skillu: `node "<ski
 
 ## Postup
 
-1. **Over klon.** `node "<skill>/resources/okf.js" triage status "<klon>"`. Ak `trial` nie je `true`, zastav sa: vysvetli, že triediť sa dá len skúšobný klon, a ponúkni jeho vytvorenie v appke (Klienti → existujúci priečinok → Skúšobný klon).
+1. **Over klon a zisti jeho cestu.** `node "<skill>/resources/okf.js" triage status` (bez cesty: CLI nájde klon od aktuálneho priečinka rozhovoru nahor; ak používateľ cestu uviedol, pridaj ju). Pole `root` z výstupu je absolútna cesta klona; ďalej ju používaj ako `<klon>` vo všetkých príkazoch. Ak `trial` nie je `true`, zastav sa: vysvetli, že triediť sa dá len skúšobný klon, a ponúkni jeho vytvorenie v appke (Klienti → existujúci priečinok → Skúšobný klon).
 2. **Súhlas s odoslaním obsahu.** Povedz jasne: „Prečítam celý text dokumentov v tomto klone. Text sa odošle poskytovateľovi pripojeného modelu (uveď ktorému, ak to vieš). Súhlasíte?“ Bez výslovného áno nečítaj žiadny dokument; ponúkni triedenie len podľa názvov (`triage plan "<klon>"` bez klasifikácie) a pokračuj krokom 6. Ak súhlas už je v úvodnej správe od appky, zopakuj jednou vetou, čo sa odošle, a pokračuj.
 3. **Inventár.** `node "<skill>/resources/okf.js" triage scan "<klon>"`. Zapamätaj si `treeDigest` a zoznam `documents` (`id`, `path`, `ext`). `matters` sú existujúce veci (ich `id` začína `existing-`), `profile.roles` sú pracovné priečinky klienta.
 4. **Prečítaj každý dokument celý** (cesta je `"<klon>/<path>"`):

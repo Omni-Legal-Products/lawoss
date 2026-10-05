@@ -16,8 +16,11 @@ export type BundledOkfSkill = {
   resource: string;
   source: string;
 };
-/** `modified`: skills whose customized SKILL.md was kept although the bundle differs. */
-export type OkfSkillRefresh = { modified: string[] };
+/**
+ * `modified`: skills whose customized SKILL.md was kept although the bundle differs.
+ * `written`: skills whose SKILL.md was installed or replaced; the engine sees them only after it reloads.
+ */
+export type OkfSkillRefresh = { modified: string[]; written: string[] };
 
 /**
  * The server appends an auto-managed "Attached resources" block to SKILL.md whenever a
@@ -42,12 +45,12 @@ async function refreshSkillMarkdown(
   workspaceId: string,
   skill: BundledOkfSkill,
   known: ReadonlySet<string>,
-): Promise<boolean> {
+): Promise<"current" | "updated" | "customized"> {
   const installed = (await client.getSkill(workspaceId, skill.name)).content;
-  if (installedSkillBody(installed) === installedSkillBody(skill.body.content)) return true;
-  if (!known.has(await okfSkillBodyHash(installed))) return false;
+  if (installedSkillBody(installed) === installedSkillBody(skill.body.content)) return "current";
+  if (!known.has(await okfSkillBodyHash(installed))) return "customized";
   await client.upsertSkill(workspaceId, { name: skill.name, ...skill.body });
-  return true;
+  return "updated";
 }
 
 async function refreshResource(client: OkfSkillClient, workspaceId: string, skill: BundledOkfSkill): Promise<void> {
@@ -71,12 +74,17 @@ export async function refreshOkfSkills(
 ): Promise<OkfSkillRefresh> {
   const existing = await client.listSkills(workspaceId, { includeGlobal: true });
   const modified: string[] = [];
+  const written: string[] = [];
   for (const skill of skills) {
     const installed = existing.items.find((item) => item.name === skill.name);
     if (installed?.scope === "global") continue;
-    if (!installed) await client.upsertSkill(workspaceId, { name: skill.name, ...skill.body });
-    else if (!(await refreshSkillMarkdown(client, workspaceId, skill, known))) modified.push(skill.name);
+    if (!installed) { await client.upsertSkill(workspaceId, { name: skill.name, ...skill.body }); written.push(skill.name); }
+    else {
+      const state = await refreshSkillMarkdown(client, workspaceId, skill, known);
+      if (state === "customized") modified.push(skill.name);
+      if (state === "updated") written.push(skill.name);
+    }
     await refreshResource(client, workspaceId, skill);
   }
-  return { modified };
+  return { modified, written };
 }

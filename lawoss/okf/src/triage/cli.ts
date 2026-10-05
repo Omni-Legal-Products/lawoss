@@ -1,7 +1,10 @@
 /**
  * okf triage — roztriedenie spisu v skúšobnom klone. Žiadny model, žiadne implicitné zápisy.
  *
- *   okf triage status <klon>
+ *   Bez <klon> sa klon hľadá od aktuálneho priečinka nahor (rozhovor beží v priečinku klona);
+ *   relatívna cesta sa vyhodnotí voči aktuálnemu priečinku.
+ *
+ *   okf triage status [<klon>]
  *   okf triage scan <klon> [--out FILE]
  *   okf triage plan <klon> [--classification FILE] [--keep-in-inbox ID,ID] [--today RRRR-MM-DD]
  *   okf triage apply <klon> --plan FILE --confirm        ← až po potvrdení človekom
@@ -9,11 +12,12 @@
  *
  * `--trial-journal DIR` overí aj záznam aplikácie o vytvorení klona. Výstup je vždy JSON.
  */
-import { join } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { readJsonFile, triageSubdirectory, writeNewJson } from "./files.ts";
-import { applyTriagePlan, latestModelProposal, listTriageRuns, prepareTriage, scanTriage, undoTriage, verifyTrialClone } from "./index.ts";
+import { applyTriagePlan, latestModelProposal, listTriageRuns, prepareTriage, scanTriage, TRIAL_MARKER, undoTriage, verifyTrialClone } from "./index.ts";
 
-const usage = "okf triage status <klon> | scan <klon> [--out FILE] | plan <klon> [--classification FILE] [--keep-in-inbox ID,ID] [--today RRRR-MM-DD] | apply <klon> --plan FILE --confirm | undo <klon> --run RUN_ID --confirm  (voliteľne --trial-journal DIR)";
+const usage = "okf triage status [<klon>] | scan [<klon>] [--out FILE] | plan [<klon>] [--classification FILE] [--keep-in-inbox ID,ID] [--today RRRR-MM-DD] | apply [<klon>] --plan FILE --confirm | undo [<klon>] --run RUN_ID --confirm  (bez <klon> klon v aktuálnom priečinku; voliteľne --trial-journal DIR)";
 
 function parse(argv: string[]) {
   const args: string[] = [], flags = new Map<string, string | true>();
@@ -31,11 +35,26 @@ function only(flags: Map<string, string | true>, allowed: readonly string[]) {
 }
 const value = (flags: Map<string, string | true>, name: string) => { const item = flags.get(name); return typeof item === "string" ? item : undefined; };
 
+/** Klon z argumentu (aj relatívneho) alebo najbližší nadradený priečinok so značkou skúšobného klona. */
+export function resolveCloneRoot(argument: string | undefined, cwd: string = process.cwd()): string {
+  const start = resolve(cwd, argument ?? ".");
+  const canonical = existsSync(start) ? realpathSync(start) : start;
+  if (argument !== undefined) return canonical;
+  for (let dir = canonical, depth = 0; depth < 16; depth++) {
+    if (existsSync(join(dir, TRIAL_MARKER))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return canonical;
+}
+
 export async function runTriage(argv: string[], out: (line: string) => void = console.log): Promise<number> {
   try {
     const { args, flags } = parse(argv);
-    const [command, root] = args;
-    if (!command || !root || args.length !== 2) throw new Error(usage);
+    const [command, rootArgument] = args;
+    if (!command || args.length > 2) throw new Error(usage);
+    const root = resolveCloneRoot(rootArgument);
     const trialJournalDirectory = value(flags, "--trial-journal");
     if (command === "status") {
       only(flags, []);
