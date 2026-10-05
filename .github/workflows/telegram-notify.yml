@@ -26,6 +26,12 @@ on:
 permissions:
   contents: read
 
+env:
+  # LAWOSS: repozitár s GitHub Releases, z ktorého sa čítajú inštalátory.
+  # Musí sa zhodovať s RELEASE_REPOSITORY v release-macos-aarch64.yml.
+  # Alfa kanál vydáva do tohto repozitára (github.repository).
+  RELEASE_REPOSITORY: ${{ github.repository }}
+
 jobs:
   notify:
     runs-on: ubuntu-latest
@@ -76,7 +82,7 @@ jobs:
             workflow_dispatch)
               release_tag=$(jq -r '.inputs.release_tag // empty' "$event")
               if [ -n "$release_tag" ]; then
-                text=$(python3 .github/scripts/telegram_release.py --repository "$GITHUB_REPOSITORY" --tag "$release_tag")
+                text=$(python3 .github/scripts/telegram_release.py --repository "${RELEASE_REPOSITORY:-$GITHUB_REPOSITORY}" --tag "$release_tag")
               else
                 url="https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
                 text=$(printf '🧪 <b>Telegram test</b>\nRepo: <b>%s</b>\nSpustil: %s\n\n<a href="%s">Otvoriť workflow</a>' "$repository" "$actor" "$url")

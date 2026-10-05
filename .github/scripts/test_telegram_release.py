@@ -74,6 +74,27 @@ class ReleaseTests(unittest.TestCase):
                 self.assertIn("predbežné vydanie", message)
                 self.assertEqual(message.count('<a href="'), 2)
 
+    def test_fork_release_links_all_lawoss_installers(self):
+        # Mená podľa artifactName lawoss-${os}-${arch}-${version} z #112;
+        # x64 AppImage nesie electron-builder ako linux-x86_64.
+        tag = "v0.2.1-lawoss.1"
+        names = [
+            "lawoss-mac-arm64-0.2.1-lawoss.1.dmg",
+            "lawoss-mac-x64-0.2.1-lawoss.1.dmg",
+            "lawoss-win-x64-0.2.1-lawoss.1.exe",
+            "lawoss-linux-x86_64-0.2.1-lawoss.1.AppImage",
+            "lawoss-linux-arm64-0.2.1-lawoss.1.AppImage",
+        ]
+        release = fixture(
+            tag, names + ["SHA256SUMS", "latest-mac.yml", names[2] + ".blockmap"]
+        )
+        message = render_release(release, REPOSITORY, tag)
+        for name in names:
+            self.assertIn(f"/releases/download/{tag}/{name}", message)
+        self.assertEqual(message.count('<a href="'), 6)
+        self.assertNotIn("SHA256SUMS", message)
+        self.assertNotIn("predbežné vydanie", message)
+
     def test_lawoss_suffix_and_api_asset_url_are_preserved(self):
         tag = "v0.2.1-lawoss.1"
         release = fixture(tag, ["lawoss-linux-x64-custom-build.AppImage"])
@@ -156,7 +177,13 @@ class ReleaseTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
-    def run_workflow(self, event_name: str, event: dict, helper_failure: bool = False):
+    def run_workflow(
+        self,
+        event_name: str,
+        event: dict,
+        helper_failure: bool = False,
+        release_repository: str | None = None,
+    ):
         workflow = Path(__file__).parents[1] / "workflows/telegram-notify.yml"
         source = workflow.read_text().split(
             "      - name: Send Telegram notification\n", 1
@@ -174,11 +201,13 @@ class WorkflowTests(unittest.TestCase):
             (root / "python3").write_text(
                 "#!/bin/bash\necho 'fixture lookup failed' >&2\nexit 1\n"
                 if helper_failure
-                else "#!/bin/bash\nprintf '⬇️ <b>LAWOSS fixture release</b>\\n'\n"
+                else '#!/bin/bash\nprintf "%s\\n" "$@" > "$HELPER_ARGS"\n'
+                "printf '⬇️ <b>LAWOSS fixture release</b>\\n'\n"
             )
             for command in ("curl", "python3"):
                 (root / command).chmod(0o700)
             capture = root / "capture.txt"
+            helper_args = root / "helper-args.txt"
             env = {
                 **os.environ,
                 "PATH": f"{root}:{os.environ['PATH']}",
@@ -191,12 +220,19 @@ class WorkflowTests(unittest.TestCase):
                 "TG_CHAT": "fixture",
                 "TG_TOPIC": "fixture",
                 "CAPTURE": str(capture),
+                "HELPER_ARGS": str(helper_args),
             }
+            env.pop("RELEASE_REPOSITORY", None)
+            if release_repository is not None:
+                env["RELEASE_REPOSITORY"] = release_repository
             result = subprocess.run(
                 ["bash", "-euo", "pipefail", "-c", script],
                 env=env,
                 text=True,
                 capture_output=True,
+            )
+            self.helper_args = (
+                helper_args.read_text().splitlines() if helper_args.exists() else []
             )
             return result, capture.read_text() if capture.exists() else ""
 
@@ -215,6 +251,31 @@ class WorkflowTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("LAWOSS fixture release", delivery)
+
+    def test_manual_release_reads_release_repository(self):
+        result, _ = self.run_workflow(
+            "workflow_dispatch",
+            {"inputs": {"release_tag": "v0.2.1-lawoss.1"}},
+            release_repository="fixture/lawoss-releases",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            self.helper_args,
+            [
+                ".github/scripts/telegram_release.py",
+                "--repository",
+                "fixture/lawoss-releases",
+                "--tag",
+                "v0.2.1-lawoss.1",
+            ],
+        )
+
+    def test_manual_release_defaults_to_own_repository(self):
+        result, _ = self.run_workflow(
+            "workflow_dispatch", {"inputs": {"release_tag": "v0.2.1-lawoss.1"}}
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.helper_args[2], REPOSITORY)
 
     def test_failed_lookup_never_reaches_delivery(self):
         result, delivery = self.run_workflow(
