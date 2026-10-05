@@ -122,7 +122,9 @@ for (const target of ["directory", "metadata", "checkpoint", "status"]) {
   const skip = target === "directory" ? dirSymlinkSkip : fileSymlinkSkip;
   test.skipIf(Boolean(skip))(`unsafe ${target} symlink cannot redirect checkpoint writes${skip ? ` (${skip})` : ""}`, async () => {
     const f = fixture(); const handoff = createHandoff(f.root)!;
-    const good = await handoff.checkpoint("ses_safe", "idle"); const before = readFileSync(good.path!, "utf8");
+    const good = await handoff.checkpoint("ses_safe", "idle");
+    expect(good).toMatchObject({ ok: true });
+    const before = readFileSync(good.path!, "utf8");
     const outside = join(f.vault, "outside.txt"); writeFileSync(outside, "untouched");
     const path = target === "directory" ? join(f.root, ".lawoss/handoff") : target === "metadata" ? join(f.root, ".lawoss/handoff/ses_safe.workspace-binding.json") : target === "status" ? join(f.root, ".lawoss/handoff/ses_safe.status.md") : good.path!;
     rmSync(path, { recursive: true }); symlinkSync(target === "directory" ? f.vault : outside, path, target === "directory" ? "dir" : "file");
@@ -142,7 +144,9 @@ test("invalid session IDs and corrupt binding metadata fail closed", async () =>
 
 test("restart without host grants cannot recover authority from persisted binding metadata", async () => {
   const f = fixture(true); process.env.LAWOSS_MEMORY_ALLOWED_ROOTS = JSON.stringify([f.vault]);
-  const good = await createHandoff(f.root)!.checkpoint("ses_authority", "idle"); const before = readFileSync(good.path!, "utf8");
+  const good = await createHandoff(f.root)!.checkpoint("ses_authority", "idle");
+  expect(good).toMatchObject({ ok: true });
+  const before = readFileSync(good.path!, "utf8");
   const marker = join(f.root, ".lawoss/handoff/ses_authority.workspace-binding.json");
   writeFileSync(marker, JSON.stringify({ ...JSON.parse(readFileSync(marker, "utf8")), allowedRoots: [f.vault] }));
   for (const value of [undefined, "{"]) {
@@ -158,7 +162,7 @@ test("live host grant revocation preserves stale checkpoint and ignores environm
   const f = fixture(true); process.env.LAWOSS_MEMORY_ALLOWED_ROOTS = JSON.stringify([f.vault]);
   let grants = [f.vault], calls = 0;
   const handoff = createWorkspaceHandoff(f.root, { resolveAllowedRoots: async () => { calls++; return grants; } });
-  const first = await handoff.checkpoint("ses_live", "idle"); expect(first.ok).toBe(true);
+  const first = await handoff.checkpoint("ses_live", "idle"); expect(first).toMatchObject({ ok: true });
   const good = readFileSync(first.path!, "utf8"); grants = [];
   expect((await handoff.checkpoint("ses_live", "before-turn")).ok).toBe(false);
   expect(calls).toBeGreaterThanOrEqual(3);
@@ -169,7 +173,9 @@ test("live host grant revocation preserves stale checkpoint and ignores environm
 test("host grant is refreshed for the final checkpoint read too", async () => {
   const f = fixture(true); let calls = 0;
   const handoff = createWorkspaceHandoff(f.root, { resolveAllowedRoots: async () => ++calls === 1 ? [f.vault] : [] });
-  expect((await handoff.checkpoint("ses_race", "idle")).ok).toBe(false);
+  expect(await handoff.checkpoint("ses_race", "idle")).toMatchObject({
+    ok: false, error: "Workspace sources changed during checkpoint; read again before continuing",
+  });
   expect(calls).toBe(2);
   expect(existsSync(join(f.root, ".lawoss/handoff/ses_race.md"))).toBe(false);
 });

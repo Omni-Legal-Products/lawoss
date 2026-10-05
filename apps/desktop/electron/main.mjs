@@ -55,6 +55,7 @@ import { createApplicationMenu } from "./app-menu.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
 import { createAppUrlMatcher, guardIpcMain, guardPreviewNavigation } from "./app-url.mjs";
 import { createSafeOpen } from "./safe-open.mjs";
+import { findChevron7App } from "./lawoss-chevron7.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 import { copyFilesIntoProject, resolveProjectFolder } from "./project-file-copy.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
@@ -2805,6 +2806,14 @@ const desktopCommandHandlers = {
   },
   "__setApplicationMenuVisible": async (event, ...args) => {
       return applicationMenu.setVisible(args[0]);
+  },
+  // LAWOSS: presence check for Chevron7 by bundle id (lawoss-chevron7.mjs).
+  // Read-only: no launch, no open, no call to the app.
+  "chevron7Status": async () => {
+      return findChevron7App({
+        platform: process.platform,
+        roots: ["/Applications", path.join(os.homedir(), "Applications")],
+      });
   },
   // LAWOSS: Autogram (github.com/originalmagneto/autogram-macOS) is a separate
   // native signing app by the same author, installed and run independently of

@@ -18,7 +18,7 @@ export type PlanGroupItem = {
   noteParams?: Record<string, string>;
 };
 
-export type PlanGroups = {
+type PlanGroups = {
   /** Súbory a priečinky, ktoré vzniknú. */
   prida: PlanGroupItem[];
   /** Čo v priečinku už je — plán sa toho nedotkne. */
@@ -27,7 +27,7 @@ export type PlanGroups = {
   pozornost: PlanGroupItem[];
 };
 
-export type PlanGroupContext = {
+type PlanGroupContext = {
   form: NovySpisForm;
   /** Koreň workspace-u. Prázdny = cestu nevieme posúdiť, upozornenie nevzniká. */
   workspacePath: string;

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { realpathSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { CARD_FILE, ENTITY_TYPES, planEntity, parseFrontmatter, resolveDocumentLanguage, type PlanInput } from "../src/core.ts";
@@ -9,7 +9,7 @@ import { apply, plan, render, validate } from "../src/fs.ts";
 import { run } from "../src/cli.ts";
 
 let root: string;
-beforeEach(() => { root = mkdtempSync(join(tmpdir(), "okf-language-")); });
+beforeEach(() => { root = realpathSync(mkdtempSync(join(tmpdir(), "okf-language-"))); });
 afterEach(() => { rmSync(root, { recursive: true, force: true }); });
 const labels = {
   cs: { guide: "Nejprve čti", memory: "Starší paměť", inputs: "Vstupy a komunikace", channels: "Kontroly komunikace", profile: "Pracovní složky a názvy dokumentů", project: "rozhodnutí a získané zkušenosti", phase: "**Fáze:**" },

@@ -29,7 +29,7 @@ function profileLocation(directory: string, options: WorkspaceMemoryOptions): { 
 }
 
 /** Any orphan operation directory is unresolved too: a crash can precede the first journal. */
-export function checkHistory(workspace: string, report: WorkspaceMemoryReport, ownOperation?: string): void {
+function checkHistory(workspace: string, report: WorkspaceMemoryReport, ownOperation?: string): void {
   const history = join(workspace, ".lawoss", "memory-history");
   try {
     if (!checkedPath(history, "directory", true)) return;

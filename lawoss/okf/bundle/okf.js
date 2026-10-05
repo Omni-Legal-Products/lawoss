@@ -3,7 +3,7 @@
 // @bun
 
 // src/cli.ts
-import { realpathSync as realpathSync4 } from "fs";
+import { realpathSync as realpathSync5 } from "fs";
 import { fileURLToPath } from "url";
 
 // src/onboarding/cli.ts
@@ -4682,7 +4682,7 @@ async function runTriage(argv, out = console.log) {
 var ENTITY_TYPES2 = ["klient", "spis", "projekt"];
 
 // src/fs.ts
-import { existsSync as existsSync4, lstatSync as lstatSync3, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync3, statSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { existsSync as existsSync4, lstatSync as lstatSync3, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync3, realpathSync as realpathSync3, statSync, writeFileSync as writeFileSync2 } from "node:fs";
 import { basename as basename6, dirname as dirname8, join as join13, relative as relative9, resolve as resolve12, sep as sep10 } from "node:path";
 function readText(path) {
   return readFileSync3(path, "utf8");
@@ -4830,16 +4830,49 @@ function validate(root) {
   }
   return errors;
 }
+function realPathInside(realRoot, path) {
+  const logical = resolve12(realRoot, path);
+  const tail = [];
+  let ancestor = logical;
+  let real;
+  for (;; ) {
+    try {
+      real = realpathSync3.native(ancestor);
+      break;
+    } catch (error) {
+      if (!missing(error))
+        throw error;
+    }
+    if (lstatSync3(ancestor, { throwIfNoEntry: false }))
+      throw new Error(`Visiaci symbolický odkaz nemožno overiť: ${ancestor}`);
+    const parent = dirname8(ancestor);
+    if (parent === ancestor)
+      throw new Error(`Cesta nemá existujúceho predka: ${logical}`);
+    tail.unshift(basename6(ancestor));
+    ancestor = parent;
+  }
+  const target = tail.length ? join13(real, ...tail) : real;
+  if (!contained(realRoot, target))
+    throw new Error(`Cesta vedie mimo priečinka entity (aj cez symbolický odkaz): ${logical}`);
+  if (!tail.length && !statSync(target).isFile())
+    throw new Error(`Nie je bežný súbor: ${logical}`);
+  return target;
+}
 function render(root, selectedLanguage) {
-  const cards = ENTITY_TYPES.flatMap((type) => CARD_ALIASES[type]).filter((name) => existsSync4(join13(root, name)));
+  const realRoot = realpathSync3.native(root);
+  if (!statSync(realRoot).isDirectory())
+    throw new Error(`Nie je priečinok: ${root}`);
+  const inside = (name) => realPathInside(realRoot, name);
+  const agents = inside("AGENTS.md");
+  const claude = inside("CLAUDE.md");
+  const index = inside("index.md");
+  const cards = ENTITY_TYPES.flatMap((type) => CARD_ALIASES[type]).filter((name) => existsSync4(join13(realRoot, name)));
   if (cards.length > 1)
     throw new Error(`Viac kariet entity: ${cards.join(", ")}. Najprv zosúlaď ich obsah.`);
-  const metadata = cards[0] ? parseFrontmatter(readText(join13(root, cards[0]))) : null;
+  const metadata = cards[0] ? parseFrontmatter(readText(inside(cards[0]))) : null;
   const language = resolveDocumentLanguage(selectedLanguage ?? metadata?.language, metadata?.jurisdiction);
   const written = [];
   const kept = [];
-  const agents = join13(root, "AGENTS.md");
-  const claude = join13(root, "CLAUDE.md");
   if (existsSync4(agents)) {
     const a = readText(agents);
     if (!existsSync4(claude)) {
@@ -4849,18 +4882,17 @@ function render(root, selectedLanguage) {
       kept.push("CLAUDE.md");
     else {
       const backup = `CLAUDE.md.${Date.now()}.bak`;
-      writeFileSync2(join13(root, backup), readText(claude), { encoding: "utf8", flag: "wx" });
+      writeFileSync2(join13(realRoot, backup), readText(claude), { encoding: "utf8", flag: "wx" });
       writeFileSync2(claude, a, "utf8");
       written.push(backup, "CLAUDE.md");
     }
   }
-  const index = join13(root, "index.md");
   if (existsSync4(index)) {
     const text = readText(index);
     const fm = parseFrontmatter(text);
     const head = fm ? text.slice(0, text.indexOf(`
 ---`, 3) + 4) : "";
-    const cards = listMarkdown(root).filter((rel) => rel.includes("/") && /\/(matter|spis|project|projekt|client|klient)\.md$/.test(rel));
+    const cards = listMarkdown(realRoot).filter((rel) => rel.includes("/") && /\/(matter|spis|project|projekt|client|klient)\.md$/.test(rel));
     const body = cards.length ? cards.map((rel) => `- [${rel.split("/").slice(0, -1).join("/")}](./${rel})`).join(`
 `) : { cs: "_(zatím žádné)_", sk: "_(zatiaľ žiadne)_", en: "_(none yet)_" }[language];
     const next = `${head}
@@ -4879,7 +4911,7 @@ ${body}
 }
 
 // src/naming-fs.ts
-import { closeSync as closeSync2, constants as constants11, fstatSync as fstatSync2, fsyncSync, lstatSync as lstatSync4, mkdirSync as mkdirSync3, openSync as openSync2, opendirSync, readSync as readSync2, realpathSync as realpathSync3, renameSync as renameSync2, unlinkSync, writeSync } from "node:fs";
+import { closeSync as closeSync2, constants as constants11, fstatSync as fstatSync2, fsyncSync, lstatSync as lstatSync4, mkdirSync as mkdirSync3, openSync as openSync2, opendirSync, readSync as readSync2, realpathSync as realpathSync4, renameSync as renameSync2, unlinkSync, writeSync } from "node:fs";
 import { basename as basename7, dirname as dirname9, extname, isAbsolute as isAbsolute9, join as join14, relative as relative10, resolve as resolve13, sep as sep11 } from "node:path";
 
 // ../okf-pamat/src/workspace-memory-types.ts
@@ -5175,12 +5207,12 @@ function exists(path, kind = "file") {
 }
 function rootDirectory(directory) {
   checkedPath(directory, "directory");
-  const path = realpathSync3(directory);
+  const path = realpathSync4(directory);
   return { path, identity: physical(lstatSync4(path, { bigint: true })) };
 }
 function assertRoot(root) {
   checkedPath(root.path, "directory");
-  if (realpathSync3(root.path) !== root.path || physical(lstatSync4(root.path, { bigint: true })) !== root.identity)
+  if (realpathSync4(root.path) !== root.path || physical(lstatSync4(root.path, { bigint: true })) !== root.identity)
     conflict("Matter root changed");
 }
 function readNamingBinary(path, limit) {
@@ -5598,7 +5630,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
 function writeNamingPlanOutsideMatter(matterDir, output, plan) {
   const root = rootDirectory(matterDir), path = resolve13(output);
   checkedPath(dirname9(path), "directory");
-  const parent = realpathSync3(dirname9(path)), physicalOutput = join14(parent, basename7(path));
+  const parent = realpathSync4(dirname9(path)), physicalOutput = join14(parent, basename7(path));
   if (contained(root.path, physicalOutput) || !safeRelativePath(basename7(path)))
     throw new NamingSchemaError("--out must be a new portable filename outside the matter root");
   checkCase(physicalOutput, false);
@@ -5809,7 +5841,7 @@ function run(argv, out = console.log) {
 }
 var isMain = (() => {
   try {
-    return realpathSync4(process.argv[1] ?? "") === realpathSync4(fileURLToPath(import.meta.url));
+    return realpathSync5(process.argv[1] ?? "") === realpathSync5(fileURLToPath(import.meta.url));
   } catch {
     return false;
   }

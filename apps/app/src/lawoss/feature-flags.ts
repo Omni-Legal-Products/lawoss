@@ -48,7 +48,7 @@ export const isHiddenQuickConnect = (serverName: string): boolean =>
  * composerom, migračný dialóg zrušenej bezplatnej vrstvy, posledný krok
  * onboardingu). Pripojenie vlastného modelu (Anthropic, OpenRouter, …) ostáva.
  */
-export type CommercialSurface =
+type CommercialSurface =
   | "ai-plans"
   | "firm-hub"
   | "trial-notice"
@@ -57,7 +57,7 @@ export type CommercialSurface =
   | "eigenwelt-sign-in"
   | "eigenwelt-trial";
 
-export const HIDDEN_COMMERCIAL_SURFACES: ReadonlySet<CommercialSurface> = new Set<CommercialSurface>([
+const HIDDEN_COMMERCIAL_SURFACES: ReadonlySet<CommercialSurface> = new Set<CommercialSurface>([
   "ai-plans",
   "firm-hub",
   "trial-notice",

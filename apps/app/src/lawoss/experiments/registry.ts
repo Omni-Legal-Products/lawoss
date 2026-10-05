@@ -15,7 +15,7 @@ import { isExperimentHidden } from "../feature-flags";
  * stale stored value can never resurrect dead behaviour.
  */
 
-export type ExperimentStav = "návrh" | "v testovaní" | "na zlúčenie";
+type ExperimentStav = "návrh" | "v testovaní" | "na zlúčenie";
 
 type ExperimentBase = {
   /** Stable storage key. Never reuse an id for a different experiment. */

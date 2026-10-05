@@ -2,7 +2,7 @@
  * Datový model obrazovky „Dnes" a seskupení věcí podle klienta pro LAWOSS-lite.
  * Čistá funkce nad již načteným přehledem (`OkfReadResult`) - nesiaha na disk.
  */
-import { addDays, deadlineKey, deadlineTier, recordKey, scopeLevels, type DeadlineTier, type MatterInput, type MatterOverview, type UpcomingDeadline } from "../../../../../lawoss/okf/read";
+import { addDays, daysBetween, deadlineKey, deadlineTier, lastSegment, recordKey, scopeLevels, type DeadlineTier, type MatterInput, type MatterOverview, type UpcomingDeadline } from "../../../../../lawoss/okf/read";
 import { pendingInputs, type PendingInput } from "../../../../../lawoss/okf/inputs";
 import { clientFromPath } from "../../../../../lawoss/okf/cockpit";
 import type { OkfReadResult } from "../okf/read-model";
@@ -15,8 +15,6 @@ export type TodayModel = { deadlines: TodayDeadline[]; tasks: TodayTask[]; input
 /** `key` je jedinečný aj pri dvoch klientoch s rovnakým menom; `client` "" = klient bez názvu v karte. */
 export type ClientGroup = { key: string; client: string; matters: MatterOverview[] };
 
-const DAY = 86_400_000;
-const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY);
 
 export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDeadlines" | "overdue" | "inputs">, todayIso: string, horizonDays = HORIZON_DAYS): TodayModel {
   const horizon = addDays(todayIso, horizonDays);
@@ -60,7 +58,6 @@ export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDead
   };
 }
 
-const lastSegment = (path: string) => path.split("/").filter(Boolean).pop() ?? path;
 
 /**
  * Klient věci: složka klienta, kterou už našlo čtení paměti (`client.md`/`klient.md` nebo

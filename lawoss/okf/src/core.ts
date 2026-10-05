@@ -142,7 +142,7 @@ export function renderTemplate(template: string, vars: Record<string, string | u
   return `---\n${rendered}\n---${substitute(template.slice(header[0].length))}`;
 }
 
-export function templateVars(input: PlanInput): Record<string, string> {
+function templateVars(input: PlanInput): Record<string, string> {
   const date = input.date ?? today();
   return {
     LANGUAGE: resolveDocumentLanguage(input.language, input.jurisdiction),

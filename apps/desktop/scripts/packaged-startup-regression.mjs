@@ -34,6 +34,8 @@ const child = spawn(path.resolve(target), process.platform === "linux" ? ["--no-
     LEGALWORK_WORKSPACES: path.join(root, "workspace"),
     LEGALWORK_WORD_ADDIN: "0",
   },
+  // Keep POSIX descendants in a group owned only by this test.
+  detached: process.platform !== "win32",
   stdio: ["ignore", "pipe", "pipe"],
 });
 child.on("error", (error) => { launchError = error; });
@@ -67,8 +69,17 @@ try {
   console.error(output);
   throw error;
 } finally {
-  child.kill();
-  await Promise.race([new Promise((resolve) => child.once("exit", resolve)), setTimeout(5000)]);
-  if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+  const closed = new Promise((resolve) => child.once("close", resolve));
+  const terminate = (signal) => {
+    if (process.platform === "win32" || !child.pid) { child.kill(signal); return; }
+    try { process.kill(-child.pid, signal); }
+    catch (error) { if (error.code !== "ESRCH") throw error; }
+  };
+  terminate("SIGTERM");
+  await Promise.race([closed, setTimeout(5000, undefined, { ref: false })]);
+  // The main process may exit while descendants still hold its output pipes.
+  terminate("SIGKILL");
+  child.stdout.destroy();
+  child.stderr.destroy();
   await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
 }
