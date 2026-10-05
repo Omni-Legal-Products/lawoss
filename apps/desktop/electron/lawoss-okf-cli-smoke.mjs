@@ -66,6 +66,8 @@ export async function checkOkfCliWithNode({
     assert.ok(existsSync(path.join(matter, "memory")), "okf-memory init nezaložil memory/");
     assert.match(run("okf-memory validate", [memory, "validate", matter]), /^OK/);
   } finally {
-    await rm(temporary, { recursive: true, force: true });
+    // Defender či indexer na Windows krátko držia práve vytvorené súbory; bez
+    // opakovania by rm zhodil EBUSY/EPERM, hoci samotná kontrola prešla.
+    await rm(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 }

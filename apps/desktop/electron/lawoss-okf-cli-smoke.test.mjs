@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -22,7 +23,7 @@ test("chýbajúci Node v PATH kontrolu zhodí", async () => {
   try {
     await assert.rejects(checkOkfCliWithNode({ nodeDirectory: empty }), /ENOENT/);
   } finally {
-    await rm(empty, { recursive: true, force: true });
+    await rm(empty, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 });
 
@@ -35,6 +36,16 @@ test("Node, ktorý bundle nespustí, kontrolu zhodí", { skip: process.platform 
     await chmod(fake, 0o755);
     await assert.rejects(checkOkfCliWithNode({ nodeDirectory: root }), /okf apply klient skončil s kódom 1/);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  }
+});
+
+// EBUSY od Defendera sa mimo Windows nedá vyvolať, preto aspoň overíme, že každé
+// mazanie dočasného priečinka v kontrole aj v týchto testoch opakuje pokus.
+test("dočasné priečinky sa mažú s opakovaním pre Windows", () => {
+  for (const file of ["./lawoss-okf-cli-smoke.mjs", "./lawoss-okf-cli-smoke.test.mjs"]) {
+    const calls = readFileSync(new URL(file, import.meta.url), "utf8").match(/\brm\([^)]*\)/g) ?? [];
+    assert.ok(calls.length > 0, `${file} nemaže dočasný priečinok`);
+    for (const call of calls) assert.match(call, /maxRetries: 5, retryDelay: 200/, `${file}: ${call}`);
   }
 });
