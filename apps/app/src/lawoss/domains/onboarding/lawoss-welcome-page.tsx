@@ -1355,11 +1355,12 @@ export function parentFolderOf(path: string): string {
   if (cut <= 0) return "";
   const parent = trimmed.slice(0, cut);
   // Windows: `D:` bez lomky je aktuálny priečinok disku, nie jeho koreň (`join` z neho
-  // spraví relatívne `D:názov`). Koreň zdieľania `\\nas\Klienti` server odmietne
-  // s lomkou aj bez nej (realpath ju vynechá, resolve pridá; overené na runneri
-  // windows-2022 5. 10. 2026), preto ho nepredvyplníme a kópiu umiestni advokát.
+  // spraví relatívne `D:názov`). Koreň zdieľania dostane lomku ako z `resolve()`
+  // (`\\nas\Klienti\`, viď `lawoss/okf/src/canonical-path.ts`); samotný server
+  // (`\\nas`) priečinok nie je, kópiu vtedy umiestni advokát.
   if (/^[A-Za-z]:$/.test(parent)) return `${parent}\\`;
-  if (/^(?:\\\\|\/\/)[^\\/]+(?:[\\/][^\\/]+)?$/.test(parent)) return "";
+  if (/^(?:\\\\|\/\/)[^\\/]+$/.test(parent)) return "";
+  if (/^(?:\\\\|\/\/)[^\\/]+[\\/][^\\/]+$/.test(parent)) return `${parent}${trimmed[cut]}`;
   return parent;
 }
 const folderName = (path: string) => path.trim().replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
