@@ -8,17 +8,17 @@
  * nezmizne.
  */
 import type { OkfRecord } from "../okf-pamat/src/record.ts";
-import type { RecordType } from "../okf-pamat/src/schema.ts";
+import { isRecordType, valueLabel, type KnownRecordType, type RecordType } from "../okf-pamat/src/schema.ts";
 import { pendingInputs } from "./inputs.ts";
-import { deadlineTier, isOpenTask, recordDeadlines, type MatterInput, type MatterOverview } from "./read.ts";
+import { deadlineLabel, deadlineTier, isOpenTask, isRetired, recordDeadlines, type MatterInput, type MatterOverview } from "./read.ts";
 
 /** Odkiaľ údaj pochádza. Slovo, nie farba — stav musí byť čitateľný aj bez nej. */
-export type Provenance = "overené" | "AI návrh" | "zapísané" | "overenie neurčené" | "strojovo overené";
+type Provenance = "overené" | "AI návrh" | "zapísané" | "overenie neurčené" | "strojovo overené";
 
 /** Prečo riadok čaká na advokáta. Opäť slovo, nie farba. */
-export type AttentionState = "po termíne" | "blíži sa" | "neparsovateľné" | "chýba údaj" | "bez prameňa" | "nespracované";
+type AttentionState = "po termíne" | "blíži sa" | "neparsovateľné" | "chýba údaj" | "bez prameňa" | "nespracované";
 
-export type MatterProblem = { path: string; message: string; kind?: "validation"; scope?: "matter" | "client" | "office" };
+type MatterProblem = { path: string; message: string; kind?: "validation"; scope?: "matter" | "client" | "office" };
 
 export type CockpitInput = {
   matters: readonly MatterOverview[];
@@ -27,7 +27,7 @@ export type CockpitInput = {
   problems: readonly MatterProblem[];
 };
 
-export type CockpitField = { label: string; value: string; missing: boolean };
+type CockpitField = { label: string; value: string; missing: boolean };
 export type CockpitFact = {
   id: string;
   title: string;
@@ -38,10 +38,12 @@ export type CockpitFact = {
   provenance: Provenance;
   file: string;
 };
-export type CockpitTask = { id: string; title: string; assignee?: string; due?: string; overdue: boolean; file: string };
+type CockpitTask = { id: string; title: string; assignee?: string; due?: string; overdue: boolean; file: string };
 export type CockpitDeadline = {
   date: string;
   title: string;
+  /** Text lehoty za dátumom, ak ho zápis má; inak sa ukazuje názov záznamu. */
+  label?: string;
   recordId: string;
   provenance: Provenance;
   source?: string;
@@ -64,11 +66,13 @@ export type AttentionRow = {
   /** Rozsah zdrojového súboru, ak sa líši od otvorenej veci. */
   scope?: "client" | "office";
 };
+/** Zapojený subjekt: záznam `subject` alebo položka `participants`. Rola ostáva v jazyku záznamu. */
+export type CockpitParty = { name: string; role?: string; contact?: string; recordId: string; file: string };
 export type CockpitEvent = { date: string; text: string; kind?: string; recordId: string; file: string };
 
 export const REGISTER_ORDER = ["obal", "fakty", "ulohy", "lehoty"] as const;
 export type RegisterId = (typeof REGISTER_ORDER)[number];
-export type CockpitRegister = { id: RegisterId; label: string; note: string; count: number };
+type CockpitRegister = { id: RegisterId; label: string; note: string; count: number };
 
 export type Cockpit = {
   matter: MatterOverview;
@@ -81,6 +85,7 @@ export type Cockpit = {
   tasks: readonly CockpitTask[];
   deadlines: { confirmed: readonly CockpitDeadline[]; candidates: readonly CockpitDeadline[] };
   attention: readonly AttentionRow[];
+  parties: readonly CockpitParty[];
   events: readonly CockpitEvent[];
   unreadable: readonly MatterProblem[];
   /** Nálezy kanonického validátora, oddelené od súborov, ktoré sa nedali načítať. */
@@ -89,7 +94,8 @@ export type Cockpit = {
   okfValid: boolean;
 };
 
-const KIND_LABEL: Record<RecordType, string> = {
+// Kľúč je známy typ — nový známy typ bez popisky je chyba kompilácie.
+const KIND_LABEL: Record<KnownRecordType, string> = {
   matter: "spis",
   decision: "rozhodnutie",
   subject: "subjekt",
@@ -101,10 +107,16 @@ const KIND_LABEL: Record<RecordType, string> = {
   rule: "pravidlo",
   lesson: "poučenie",
   authority: "prameň",
+  requirement: "požiadavka",
+  instrument: "listina",
+  relation: "vzťah",
 };
 
-/** Typy, ktoré patria do registra FAKTY — spis je obal a úloha má vlastný register. */
-const FACT_TYPES = new Set<RecordType>(["decision", "subject", "question", "screening", "claim", "evidence", "authority", "rule", "lesson"]);
+/** Vlastný typ agenta nemá popisku — ukáže sa jeho názov. */
+const kindLabel = (t: RecordType): string => (isRecordType(t) ? KIND_LABEL[t] : t);
+
+/** Do registra FAKTY patrí všetko okrem obalu (spis) a úloh — aj nové a vlastné typy agenta. */
+const isFact = (t: RecordType): boolean => t !== "matter" && t !== "task";
 
 /** Fakt bez prameňa je nález validácie; pri týchto typoch prameň chýbať nesmie. */
 const NEEDS_SOURCE = new Set<RecordType>(["claim", "evidence", "decision"]);
@@ -126,7 +138,7 @@ export function provenance(record: OkfRecord): Provenance {
 }
 
 /** Confirmation applies only to this date and the exact reviewed Truth. */
-export function deadlineConfirmed(record: OkfRecord, date: string): boolean {
+function deadlineConfirmed(record: OkfRecord, date: string): boolean {
   return record.verified?.some((v) => v.type === "human" && typeof v.by === "string" && Boolean(v.by.trim()) && validVerificationTime(v.at) && v.at.slice(0, 10) >= record.updated.slice(0, 10) &&
     v.deadline === date && v.truth === record.truth) ?? false;
 }
@@ -152,13 +164,13 @@ export function clientFromPath(path: string): string | undefined {
 
 function facts(input: MatterInput): CockpitFact[] {
   return input.records
-    .filter((r) => FACT_TYPES.has(r.type))
+    .filter((r) => isFact(r.type))
     .map((r) => {
       const src = firstSource(r);
       const fact: CockpitFact = {
         id: r.id,
         title: r.title,
-        kind: KIND_LABEL[r.type],
+        kind: kindLabel(r.type),
         provenance: provenance(r),
         file: fileOf(input, r),
       };
@@ -202,12 +214,29 @@ function deadlines(input: MatterInput, todayIso: string): CockpitDeadline[] {
         confirmed: deadlineConfirmed(r, raw),
       };
       if (invalid) item.invalid = invalid;
+      const label = invalid ? undefined : deadlineLabel(raw);
+      if (label) item.label = label;
       const src = firstSource(r);
       if (src?.title) item.source = src.title;
       out.push(item);
     }
   }
   return out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.title.localeCompare(b.title)));
+}
+
+/** Subjekty a `participants` zo živých záznamov; bez mena sa nič neukáže (validátor to hlási). */
+function parties(input: MatterInput): CockpitParty[] {
+  const out: CockpitParty[] = [];
+  for (const r of input.records) {
+    if (isRetired(r)) continue;
+    const file = fileOf(input, r);
+    if (r.type === "subject") out.push({ name: r.title, ...(r.role ? { role: valueLabel("role", r.role, r.jurisdiction) } : {}), recordId: r.id, file });
+    for (const p of r.participants ?? []) {
+      const name = p.name?.trim();
+      if (name) out.push({ name, ...(p.role ? { role: p.role } : {}), ...(p.contact ? { contact: p.contact } : {}), recordId: r.id, file });
+    }
+  }
+  return out;
 }
 
 function events(input: MatterInput): CockpitEvent[] {
@@ -316,7 +345,7 @@ export function attention(
       kind: "nález",
       state: "bez prameňa",
       title: r.title,
-      detail: `${KIND_LABEL[r.type]} bez poľa sources — tvrdenie bez prameňa sa nedá overiť`,
+      detail: `${kindLabel(r.type)} bez poľa sources — tvrdenie bez prameňa sa nedá overiť`,
       provenance: provenance(r),
       file: fileOf(input, r),
     });
@@ -389,6 +418,7 @@ export function buildCockpit(data: CockpitInput, path: string | null, todayIso: 
     tasks: taskRows,
     deadlines: { confirmed, candidates },
     attention: attentionRows,
+    parties: parties(input),
     events: events(input),
     unreadable,
     diagnostics,

@@ -7,7 +7,7 @@ import type { WorkspaceInfo } from "../types.js";
 import { DocumentPreparation } from "../document-preparation/service.js";
 import { OcrService } from "../ocr/service.js";
 import { OcrManager } from "../ocr/manager.js";
-import { ReviewService } from "./service.js";
+import { ReviewService, reviewRunActive } from "./service.js";
 import { ReviewDefaults, ReviewStore } from "./storage.js";
 import { columnBackend } from "./policy.js";
 import type { ReviewCapabilities, ReviewColumn, ReviewResult, SavedReview } from "./schema.js";
@@ -53,7 +53,8 @@ async function fixture(options: { capabilities?: ReviewCapabilities; scheduler?:
   return { root, workspace, service, calls, create, hold: () => { hold = true; } };
 }
 async function settled(service: ReviewService, workspace: WorkspaceInfo, id: string) {
-  for (let i = 0; i < 300; i++) { const value = await service.get(workspace, id); if (value.status !== "running") return value; await Bun.sleep(10); }
+  // The saved status turns final before the run archives it and releases the review; wait for both, or a slow disk races the next step.
+  for (let i = 0; i < 300; i++) { const value = await service.get(workspace, id); if (value.status !== "running" && !reviewRunActive(workspace.path, id)) return value; await Bun.sleep(10); }
   throw new Error("Review did not settle");
 }
 test("saved reviews survive restart, create retries deduplicate, and revisions reject lost edits", async () => {
@@ -488,6 +489,8 @@ test("restart recovery resets OCR state and resumes unfinished cells without rep
   const f = await fixture(); let review = await f.create();
   await f.service.start(f.workspace, review.id, { revision: review.revision });
   review = await settled(f.service, f.workspace, review.id);
+  // Persisted completion precedes the run promise cleanup; simulate a stopped process.
+  await f.service.stop();
   const kept = structuredClone(review.cells[0]);
   await new ReviewStore(f.root).update(review.id, current => {
     current.status = "running"; current.documents[0].status = "preparing";

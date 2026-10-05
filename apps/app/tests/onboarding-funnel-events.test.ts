@@ -106,13 +106,14 @@ describe("onboarding funnel events", () => {
     expect(sentEvents()).toEqual([]);
   });
 
-  test("leaving the toggle on sends the whole funnel once the choice commits", async () => {
+  test("LAWOSS: even a stored opt-in sends nothing", async () => {
     setConsent(null);
     await runWelcomeUpToConsentCommit();
     expect(sentEvents()).toEqual([]);
 
     setConsent(true);
     await flushAnalytics();
-    expect(sentEvents()).toEqual(["onboarding_welcome_viewed", "onboarding_started", "workspace_created"]);
+    // LAWOSS: analytika je natrvalo vypnutá (apps/app/src/app/lib/analytics.ts).
+    expect(sentEvents()).toEqual([]);
   });
 });

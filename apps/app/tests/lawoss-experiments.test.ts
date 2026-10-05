@@ -20,7 +20,7 @@ Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
 });
 
-const { EXPERIMENTS, EXPERIMENT_FLAGS, EXPERIMENT_VIEWS } = await import("../src/lawoss/experiments/registry");
+const { EXPERIMENTS, EXPERIMENT_FLAGS, EXPERIMENT_VIEWS, VISIBLE_EXPERIMENT_VIEWS } = await import("../src/lawoss/experiments/registry");
 const { LAWOSS_ROUTES } = await import("../src/lawoss/shell/routes");
 const { EXPERIMENTY_PATH, experimentyNavItems } = await import("../src/lawoss/shell/layout");
 const { isExperimentOn, reloadExperimentsFromStorage, resetExperiments, setExperiment } = await import(
@@ -91,9 +91,9 @@ describe("sidebar asistenta", () => {
     expect(experimentyNavItems()[0].to).toBe(EXPERIMENTY_PATH);
   });
 
-  test("every experimental screen is reachable as a sub-item", () => {
+  test("every visible experimental screen is reachable as a sub-item", () => {
     const paths = experimentyNavItems().map((item) => item.to);
-    for (const view of EXPERIMENT_VIEWS) expect(paths).toContain(view.to);
+    for (const view of VISIBLE_EXPERIMENT_VIEWS) expect(paths).toContain(view.to);
   });
 
   test("sub-items carry no duplicates", () => {

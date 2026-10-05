@@ -15,19 +15,22 @@ test("parses only complete typed public requests", () => {
   expect(() => parseOnboardingRequest({ action: "existing", root: "/x", mode: "map", memoryPath: "MEMORY.md" })).toThrow();
 });
 
-test("plans and applies new office and every client type without overwrite operations", async () => {
+test("plans and applies a new office", async () => {
   const parent = await directory("okf-parent-");
   const office = await planOnboarding(parseOnboardingRequest({ action: "office", parent, title: "Office", jurisdiction: "sk", language: "sk", lawyerName: "M" }));
   expect(office.mode).toBe("new");
   await applyOnboarding(office, await options());
   expect(await readFile(join(parent, "Office/okf.config"), "utf8")).toContain("jurisdiction: sk");
-  for (const clientType of ["fo", "fo-podnikatel", "po", "iny"] as const) {
-    const preview = await planOnboarding(parseOnboardingRequest({ action: "client", parent, name: clientType, title: clientType, clientType, jurisdiction: "sk", date: "2026-10-03", language: "sk" }));
-    if (preview.mode !== "new") throw new Error("Expected new client plan.");
-    expect(preview.plan.operations.every(operation => operation.kind === "directory" || typeof operation.content === "string")).toBe(true);
-    await applyOnboarding(preview, await options());
-    expect(await readFile(join(parent, clientType, "client.md"), "utf8")).toContain(`client_type: ${clientType}`);
-  }
+});
+
+// Each durable filesystem transaction gets its own timeout and cleanup boundary.
+test.each(["fo", "fo-podnikatel", "po", "iny"] as const)("plans and applies client type %s without overwrite operations", async clientType => {
+  const parent = await directory("okf-parent-");
+  const preview = await planOnboarding(parseOnboardingRequest({ action: "client", parent, name: clientType, title: clientType, clientType, jurisdiction: "sk", date: "2026-10-03", language: "sk" }));
+  if (preview.mode !== "new") throw new Error("Expected new client plan.");
+  expect(preview.plan.operations.every(operation => operation.kind === "directory" || typeof operation.content === "string")).toBe(true);
+  await applyOnboarding(preview, await options());
+  expect(await readFile(join(parent, clientType, "client.md"), "utf8")).toContain(`client_type: ${clientType}`);
 });
 
 test("subject and both matter kinds carry additive identity fields", async () => {
@@ -82,4 +85,30 @@ test("trial clone preserves binary bytes, records provenance, and rejects stale 
   await writeFile(join(source, "changed.txt"), "changed");
   await expect(applyOnboarding(stale, await options())).rejects.toThrow("changed since planning");
   expect(await readFile(join(source, "original.bin"))).toEqual(bytes);
+});
+
+test("company names with inner dots are safe folder names; a trailing dot is dropped from the folder only", async () => {
+  const parent = await directory("okf-dots-");
+  const preview = await planOnboarding(parseOnboardingRequest({ action: "client", parent, name: "Novák s. r. o.", title: "Novák s. r. o.", clientType: "po", jurisdiction: "sk", date: "2026-10-04", language: "sk" }));
+  if (preview.mode !== "new") throw new Error("Expected new client plan.");
+  expect(preview.target).toBe(join(parent, "Novák s. r. o"));
+  await applyOnboarding(preview, await options());
+  expect(await readFile(join(parent, "Novák s. r. o", "client.md"), "utf8")).toContain("Novák s. r. o.");
+  const matter = await planOnboarding(parseOnboardingRequest({ action: "matter", clientRoot: preview.target, parent: preview.target, title: "Zmluva s ABC a. s.", date: "2026-10-04", kind: "non_contentious", area: "Obch. právo", jurisdiction: "sk" }));
+  if (matter.mode !== "new") throw new Error("Expected matter plan.");
+  // Vec v `Spisy/` ako v šablóne klienta; oblasť je údaj v karte, nie priečinok (D1 2026-10-04).
+  expect(matter.target).toBe(join(preview.target, "Spisy", "2026-10 Zmluva s ABC a. s"));
+  await applyOnboarding(matter, await options());
+  const card = await readFile(join(matter.target, "matter.md"), "utf8");
+  expect(card).toContain('area: "Obch. právo"');
+  expect(card).toContain('klient: "Novák s. r. o."');
+  expect(card).toContain("](<../../client.md>)");
+});
+
+test("unsafe folder names are still rejected", async () => {
+  const parent = await directory("okf-unsafe-");
+  const request = (name: string) => parseOnboardingRequest({ action: "client", parent, name, title: "T", clientType: "po", jurisdiction: "sk", date: "2026-10-04", language: "sk" });
+  for (const name of [" ", ".", "..", "...", ". .", ".skryty", "a/b", "a\\b", "C:x", "a\0b", "a<b", "a>b", "a\"b", "a|b", "a?b", "a*b", "x".repeat(121)]) {
+    await expect(planOnboarding(request(name))).rejects.toThrow("A safe non-empty folder name is required.");
+  }
 });

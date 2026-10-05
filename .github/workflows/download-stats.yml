@@ -5,9 +5,10 @@ name: Download Stats
 # counts and deletes traffic data after 14 days — this preserves both as
 # time series.
 
+# LAWOSS: plánovaný beh je vypnutý, štatistiky sa nikam neposielajú
+# automaticky. Ručné spustenie bez vars.LAWOSS_POSTHOG_KEY a
+# vars.LAWOSS_POSTHOG_HOST skončí úspešne bez akejkoľvek HTTP požiadavky.
 on:
-  schedule:
-    - cron: "23 */6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -15,6 +16,8 @@ permissions:
 
 jobs:
   report:
+    # LAWOSS: štatistiky stiahnutí idú do PostHogu dodávateľa upstreamu; vo forku nikdy.
+    if: github.repository == 'eigenweltlabs/legalwork'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -28,12 +31,11 @@ jobs:
 
       - name: Report release download stats to PostHog
         env:
-          # Traffic endpoints (views/clones/referrers) need push access, which
-          # the default Actions token may lack — set the LEGALWORK_STATS_TOKEN
-          # secret (classic PAT, repo scope) to enable them; release counters
-          # work either way (the script skips traffic on 403).
+          # Traffic endpoints need push access; release counters work with
+          # the default Actions token. The optional LEGALWORK_STATS_TOKEN
+          # secret name is kept unchanged. No upstream configuration is inherited.
           GITHUB_TOKEN: ${{ secrets.LEGALWORK_STATS_TOKEN || github.token }}
-          # Optional override; defaults to the LegalWork PostHog project key
-          # baked into the script (publishable, same as the app).
-          LEGALWORK_POSTHOG_KEY: ${{ vars.LEGALWORK_POSTHOG_KEY }}
+          # Without both explicit LAWOSS settings the script skips all HTTP.
+          LAWOSS_POSTHOG_KEY: ${{ vars.LAWOSS_POSTHOG_KEY }}
+          LAWOSS_POSTHOG_HOST: ${{ vars.LAWOSS_POSTHOG_HOST }}
         run: node scripts/release/report-download-stats.mjs

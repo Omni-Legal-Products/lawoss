@@ -6,6 +6,7 @@ import { addDays, buildOverview, deadlineTier, type MatterInput } from "../../..
 import { pendingInputs } from "../../../lawoss/okf/inputs";
 import { buildCockpit } from "../../../lawoss/okf/cockpit";
 import { MAX_DISCOVERY_DIRECTORIES, MAX_MATTERS, readWorkspaceMemory, type OkfReadClient } from "../src/lawoss/okf/read-model";
+import { groupByClient } from "../src/lawoss/lite/today-model";
 
 const TODAY = "2026-09-12";
 
@@ -418,4 +419,26 @@ test("vault RIHA legal bez karet: AK/<písmeno>/<klient>/<věc> se najde, pracov
   ]);
   expect(out.problems).toEqual([]);
   expect(out.truncated).toBe(false);
+});
+
+test("klient s kartou ostáva klientom aj bez vecí; s vecami sa nezdvojí (D1 2026-10-04)", async () => {
+  const out = await readWorkspaceMemory(fakeClient({
+    "Klienti/Prázdny/client.md": "---\ntitle: Prázdny klient s. r. o.\n---\n",
+    "Klienti/Prázdny/Spisy/.keep": "",
+    "Klienti/Novák/client.md": "---\ntitle: Novák Jan\n---\n",
+    "Klienti/Novák/Spisy/A/matter.md": "---\ntitle: Vec A\n---\n",
+  }), "ws", TODAY);
+  expect(out.clients).toEqual([
+    { path: "Klienti/Novák", title: "Novák Jan" },
+    { path: "Klienti/Prázdny", title: "Prázdny klient s. r. o." },
+  ]);
+  expect(out.matters.map((m) => m.title)).toEqual(["Vec A"]);
+  const groups = groupByClient(out.matters, out.inputs, out.clients);
+  expect(groups.map((g) => [g.client, g.matters.length])).toEqual([["Novák Jan", 1], ["Prázdny klient s. r. o.", 0]]);
+});
+
+test("klient v koreni priečinka bez vecí: jedna skupina s názvom z karty", async () => {
+  const out = await readWorkspaceMemory(fakeClient({ "client.md": "---\ntitle: Koreňový klient\n---\n", "00_Inbox/.keep": "" }), "ws", TODAY);
+  expect(out.clients).toEqual([{ path: "", title: "Koreňový klient" }]);
+  expect(groupByClient(out.matters, out.inputs, out.clients)).toEqual([{ key: "client:", client: "Koreňový klient", matters: [] }]);
 });

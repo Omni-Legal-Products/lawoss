@@ -9,8 +9,16 @@ import { registerLocalProject } from "../routes/workspaces.js";
 import { addRoute, type RequestContext, type Route } from "../routes/registry.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { externalAppFilesRoot } from "./workspace-app-files.js";
+import { registerTriageRoutes } from "./triage.js";
 import { executeOnboarding, inspectOnboardingRoot, previewOnboarding, recoverOnboardingOperation, type OnboardingPreview, type OnboardingResult } from "./onboarding-runtime.js";
 
+/** OKF is opt-in; enabling it requires a dated acknowledgement of a versioned notice. */
+const okfChoiceSchema = z.strictObject({
+  enabled: z.boolean(), acknowledgedAt: z.iso.datetime().optional(), noticeVersion: z.string().trim().min(1).max(64).optional(),
+}).superRefine((value, ctx) => {
+  if (value.enabled && (!value.acknowledgedAt || !value.noticeVersion)) ctx.addIssue({ code: "custom", message: "Enabling OKF requires an acknowledged notice version." });
+  if (!value.enabled && (value.acknowledgedAt || value.noticeVersion)) ctx.addIssue({ code: "custom", message: "A declined OKF choice stores no acknowledgement." });
+});
 const profileSchema = z.strictObject({
   version: z.literal(1), lawyerName: z.string().trim().min(1).max(200),
   jurisdiction: z.enum(["sk", "cz"]), language: z.enum(["sk", "cs", "en", "de"]),
@@ -18,7 +26,8 @@ const profileSchema = z.strictObject({
   subjectRoot: z.string().min(1).max(4096).optional(),
   matterRoot: z.string().min(1).max(4096).optional(),
   trial: z.boolean().optional(),
-  step: z.enum(["identity", "office", "ai", "client", "matter", "done"]).optional(),
+  okf: okfChoiceSchema.optional(),
+  step: z.enum(["identity", "okf", "office", "ai", "client", "matter", "done"]).optional(),
 });
 type Profile = z.infer<typeof profileSchema>;
 const previewSchema = z.looseObject({
@@ -214,4 +223,6 @@ export function registerOnboardingRoutes(options: {
       return result;
     } finally { busy.delete(input.id); }
   });
+  // Roztriedenie dokumentov v skúšobnom klone overuje klon záznamom tohto onboardingu.
+  registerTriageRoutes({ ...options, storage, jurisdiction: async () => (await readProfile())?.jurisdiction });
 }

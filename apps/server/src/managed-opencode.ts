@@ -2,6 +2,8 @@ import { spawn, type ChildProcess } from "node:child_process";
 import net from "node:net";
 import { randomUUID } from "node:crypto";
 
+import { lawossEngineEnv } from "./lawoss/engine-network.js";
+
 export type ManagedOpencodeServer = {
   url: string;
   username: string;
@@ -192,14 +194,18 @@ export async function createManagedOpencodeServer(options: {
   const username = randomSecret();
   const password = randomSecret();
   const command = options.bin?.trim() || "opencode";
+  // LAWOSS: engine bez sťahovania katalógu, zdieľania a aktualizácie (lawoss/engine-network.ts).
+  const lawossEnv = lawossEngineEnv();
   const env = {
     ...process.env,
     ...options.env,
+    ...lawossEnv,
     OPENCODE_SERVER_USERNAME: username,
     OPENCODE_SERVER_PASSWORD: password,
   };
   const injectedEnv = Object.entries({
     ...(options.env ?? {}),
+    ...lawossEnv,
     OPENCODE_SERVER_USERNAME: username,
     OPENCODE_SERVER_PASSWORD: password,
   })

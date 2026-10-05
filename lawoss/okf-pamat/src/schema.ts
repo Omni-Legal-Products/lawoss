@@ -18,7 +18,15 @@
 export type Jurisdiction = "cz" | "sk";
 export type Layer = "L1" | "L2" | "L3";
 
-export type RecordType =
+/**
+ * Typy, ktoré schéma pozná a pre ktoré má polia, popisky a kontroly.
+ *
+ * Zoznam **nie je uzavretý** (rozhodnutie 3 z 25. 9. 2026): štruktúru riadi
+ * agent. Neznámy `type` je vlastný typ agenta — číta sa, zapisuje a renderuje,
+ * validátor ho len označí (`AGENT_TYPE`). Vlastný typ patrí vždy do L2, takže
+ * sa ním nedá obísť brána L1/L3.
+ */
+export type KnownRecordType =
   | "matter"
   | "decision"
   | "subject"
@@ -29,9 +37,15 @@ export type RecordType =
   | "task"
   | "rule"
   | "lesson"
-  | "authority";
+  | "authority"
+  | "requirement"
+  | "instrument"
+  | "relation";
 
-export const RECORD_TYPES: readonly RecordType[] = [
+/** Typ záznamu na disku — známy typ alebo vlastný typ agenta. */
+export type RecordType = string;
+
+export const RECORD_TYPES: readonly KnownRecordType[] = [
   "matter",
   "decision",
   "subject",
@@ -43,10 +57,13 @@ export const RECORD_TYPES: readonly RecordType[] = [
   "rule",
   "lesson",
   "authority",
+  "requirement",
+  "instrument",
+  "relation",
 ];
 
 /** Do ktorej pamäťovej vrstvy typ patrí. Určuje, kto smie zapisovať. */
-export const LAYER_OF: Record<RecordType, Layer> = {
+export const LAYER_OF: Record<KnownRecordType, Layer> = {
   matter: "L2",
   decision: "L2",
   subject: "L2",
@@ -58,10 +75,21 @@ export const LAYER_OF: Record<RecordType, Layer> = {
   rule: "L1",
   lesson: "L1",
   authority: "L3",
+  requirement: "L2",
+  instrument: "L2",
+  relation: "L2",
 };
 
+/** Vrstva typu. Vlastný typ agenta je vždy L2 — inak by obišiel bránu L1/L3. */
+export function layerOf(type: RecordType): Layer {
+  return isRecordType(type) ? LAYER_OF[type] : "L2";
+}
+
+/** Tvar názvu vlastného typu: malé písmená, číslice, podčiarkovník. */
+export const AGENT_TYPE_PATTERN = /^[a-z][a-z0-9_]*$/;
+
 /** `map` = ploché mapovanie, `maplist` = zoznam plochých mapovaní (OKF `sources`, `verified`). */
-export type FieldKind = "string" | "number" | "list" | "map" | "maplist";
+type FieldKind = "string" | "number" | "list" | "map" | "maplist";
 
 /**
  * Stav záznamu. `superseded` = prekonaný novším, `void` = zrušený ako omyl.
@@ -169,6 +197,22 @@ export const EVIDENCE_KIND_PROVISION: Partial<
   },
 };
 
+/** Stav splnenia požiadavky (requirement) — nesporná agenda, koment VŘ k#85. */
+export const FULFILLMENT_STATUS = ["open", "met", "waived", "failed"] as const;
+
+/** Forma listiny (instrument). */
+export const INSTRUMENT_FORMS = ["plain", "certified_signature", "notarial_deed", "attorney_declaration"] as const;
+
+/** Životný cyklus listiny (instrument). */
+export const INSTRUMENT_STATUS = [
+  "draft", "negotiated", "final", "signed", "effective", "registered", "superseded",
+] as const;
+
+/** Druh vzťahu medzi subjektmi (relation). Neznámy druh je len varovanie. */
+export const RELATION_KINDS = [
+  "executive", "board_member", "shareholder", "representative", "attorney_in_fact", "beneficial_owner", "pledgee",
+] as const;
+
 /** Režim subjektového preverenia podľa spec 0002. */
 export const SCREENING_MODES = ["light", "medium", "hard"] as const;
 export type ScreeningMode = (typeof SCREENING_MODES)[number];
@@ -233,6 +277,9 @@ export const FIELDS: readonly FieldDef[] = [
   { canonical: "parties", cz: "strany", sk: "strany", kind: "list", required: false },
   { canonical: "matter_ref", cz: "spisová značka", sk: "spisová značka", kind: "string", required: false },
   { canonical: "court", cz: "soud", sk: "súd", kind: "string", required: false },
+  // Zapojené subjekty — voľný zoznam (súd, úrad, polícia, kontakt…), rolu určuje agent.
+  // Meno je jehlou úniku do L3 rovnako ako názov subjektu (validate.ts).
+  { canonical: "participants", cz: "Zapojené subjekty", sk: "Zapojené subjekty", kind: "maplist", required: false },
   { canonical: "area", cz: "oblast práva", sk: "oblasť práva", kind: "list", required: false },
 
   // --- identifikácia subjektu (zoznam údajov § 5 zák. č. 253/2008 Sb.) ---
@@ -326,6 +373,31 @@ export const FIELDS: readonly FieldDef[] = [
   { canonical: "state", cz: "stav úkolu", sk: "stav úlohy", kind: "string", required: false,
     values: TASK_STATES },
   { canonical: "due", cz: "termín", sk: "termín", kind: "string", required: false },
+
+  // --- požiadavka (requirement) ---
+  { canonical: "demanded_by", cz: "požaduje", sk: "požaduje", kind: "string", required: false },
+  { canonical: "demanded_from", cz: "požadováno od", sk: "požadované od", kind: "string", required: false },
+  { canonical: "fulfillment_status", cz: "stav splnění", sk: "stav splnenia", kind: "string", required: false,
+    values: FULFILLMENT_STATUS },
+
+  // --- listina (instrument) ---
+  { canonical: "version", cz: "verze", sk: "verzia", kind: "string", required: false },
+  { canonical: "file_hash", cz: "otisk souboru", sk: "odtlačok súboru", kind: "string", required: false },
+  { canonical: "form", cz: "forma", sk: "forma", kind: "string", required: false, values: INSTRUMENT_FORMS },
+  { canonical: "signed_by", cz: "podepsal", sk: "podpísal", kind: "list", required: false },
+  { canonical: "signed_at", cz: "podepsáno dne", sk: "podpísané dňa", kind: "string", required: false },
+  { canonical: "effect", cz: "účinek", sk: "účinok", kind: "string", required: false },
+  { canonical: "instrument_status", cz: "stav listiny", sk: "stav listiny", kind: "string", required: false,
+    values: INSTRUMENT_STATUS },
+
+  // --- vzťah (relation) ---
+  { canonical: "from_subject", cz: "subjekt", sk: "subjekt", kind: "string", required: false },
+  { canonical: "to_subject", cz: "ve vztahu k", sk: "vo vzťahu k", kind: "string", required: false },
+  { canonical: "relation_kind", cz: "druh vztahu", sk: "druh vzťahu", kind: "string", required: false,
+    values: RELATION_KINDS },
+  { canonical: "share", cz: "podíl", sk: "podiel", kind: "string", required: false },
+  { canonical: "valid_from", cz: "platí od", sk: "platí od", kind: "string", required: false },
+  { canonical: "valid_to", cz: "platí do", sk: "platí do", kind: "string", required: false },
 ];
 
 /** Údaje, ktoré sa maskujú vo výstupoch pre človeka a nesmú do `popis`. */
@@ -351,7 +423,7 @@ export function needleFields(): readonly FieldDef[] {
  * dokladu a jeho platnosť, ktoré SK nežiada; SK žiada označenie registra
  * a číslo zápisu u právnickej osoby, ktoré CZ nežiada. Preto dve sady, nie jedna.
  */
-export type AmlRequirement =
+type AmlRequirement =
   | string
   | {
       /** Údaj, ktorý stačí sám o sebe. */
@@ -409,7 +481,7 @@ export const AML_REQUIRED: Partial<
 };
 
 /** Popisok typu záznamu pre človeka. Na disku je vždy kanonický anglický názov. */
-const TYPE_LABELS: Record<RecordType, Record<Jurisdiction, string>> = {
+const TYPE_LABELS: Record<KnownRecordType, Record<Jurisdiction, string>> = {
   matter: { cz: "spis", sk: "spis" },
   decision: { cz: "rozhodnutí", sk: "rozhodnutie" },
   subject: { cz: "subjekt", sk: "subjekt" },
@@ -421,13 +493,16 @@ const TYPE_LABELS: Record<RecordType, Record<Jurisdiction, string>> = {
   rule: { cz: "pravidlo", sk: "pravidlo" },
   lesson: { cz: "poučení", sk: "poučenie" },
   authority: { cz: "pramen", sk: "prameň" },
+  requirement: { cz: "požadavek", sk: "požiadavka" },
+  instrument: { cz: "listina", sk: "listina" },
+  relation: { cz: "vztah", sk: "vzťah" },
 };
 
 /**
  * Popisky hodnôt enumov. Na disku je kanonická anglická hodnota, človeku
  * sa ukazuje jeho jazyk — rovnaká deľba ako pri kľúčoch.
  */
-const VALUE_LABELS: Record<string, Record<string, Record<Jurisdiction, string>>> = {
+const VALUE_LABELS: Record<string, Record<string, Partial<Record<Jurisdiction, string>>>> = {
   status: {
     active: { cz: "platný", sk: "platný" },
     superseded: { cz: "překonaný", sk: "prekonaný" },
@@ -494,6 +569,38 @@ const VALUE_LABELS: Record<string, Record<string, Record<Jurisdiction, string>>>
     blocked: { cz: "blokován", sk: "blokovaná" },
     done: { cz: "hotovo", sk: "hotové" },
   },
+  fulfillment_status: {
+    open: { cz: "nesplněno", sk: "nesplnené" },
+    met: { cz: "splněno", sk: "splnené" },
+    waived: { cz: "upuštěno", sk: "upustené" },
+    failed: { cz: "zmařeno", sk: "zmarené" },
+  },
+  form: {
+    plain: { cz: "prostá písemná forma", sk: "jednoduchá písomná forma" },
+    certified_signature: { cz: "úředně ověřený podpis", sk: "úradne osvedčený podpis" },
+    notarial_deed: { cz: "notářský zápis", sk: "notárska zápisnica" },
+    // Prohlášení o pravosti podpisu podľa § 25a zák. č. 85/1996 Sb. Slovenský
+    // ekvivalent nebol overený a neprekladá sa — SK zobrazí kanonickú hodnotu.
+    attorney_declaration: { cz: "prohlášení advokáta o pravosti podpisu" },
+  },
+  instrument_status: {
+    draft: { cz: "návrh", sk: "návrh" },
+    negotiated: { cz: "vyjednáno", sk: "vyjednané" },
+    final: { cz: "finální znění", sk: "finálne znenie" },
+    signed: { cz: "podepsáno", sk: "podpísané" },
+    effective: { cz: "účinné", sk: "účinné" },
+    registered: { cz: "zapsáno", sk: "zapísané" },
+    superseded: { cz: "nahrazeno", sk: "nahradené" },
+  },
+  relation_kind: {
+    executive: { cz: "statutární orgán", sk: "štatutárny orgán" },
+    board_member: { cz: "člen orgánu", sk: "člen orgánu" },
+    shareholder: { cz: "společník / akcionář", sk: "spoločník / akcionár" },
+    representative: { cz: "zástupce", sk: "zástupca" },
+    attorney_in_fact: { cz: "zmocněnec", sk: "splnomocnenec" },
+    beneficial_owner: { cz: "skutečný majitel", sk: "konečný užívateľ výhod" },
+    pledgee: { cz: "zástavní věřitel", sk: "záložný veriteľ" },
+  },
   evidence_kind: {
     document: { cz: "listina", sk: "listina" },
     witness: { cz: "výslech svědka", sk: "výsluch svedka" },
@@ -523,16 +630,36 @@ export function canonicalField(key: string): string | undefined {
   return FIELDS.find((x) => x.canonical === key || x.aliases?.includes(key))?.canonical;
 }
 
+/** Vlastný typ agenta nemá popisok — zobrazí sa jeho názov. */
 export function typeLabel(t: RecordType, j: Jurisdiction): string {
-  return TYPE_LABELS[t][j];
+  return isRecordType(t) ? TYPE_LABELS[t][j] : t;
 }
 
-export function isRecordType(value: string): value is RecordType {
+/** Je to typ, ktorý schéma pozná? Neznámy typ je vlastný typ agenta. */
+export function isRecordType(value: string): value is KnownRecordType {
   return (RECORD_TYPES as readonly string[]).includes(value);
 }
 
 export function isJurisdiction(value: string): value is Jurisdiction {
   return value === "cz" || value === "sk";
+}
+
+/** Skutočný kalendárny dátum RRRR-MM-DD — `2026-02-30` neprejde. */
+export function isIsoDate(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
+
+/**
+ * Lehota a termín sú kritické údaje a porovnávajú sa ako dátumy, nie text —
+ * `31.12.2026` by sa textovo vyhodnotil zle. Prijme sa ISO deň, za ním smie
+ * ísť čas alebo poznámka (`2026-10-01 odvolanie`). Vráti deň, alebo
+ * `undefined` pri neplatnej hodnote.
+ */
+export function isoDay(value: string): string | undefined {
+  const day = /^(\d{4}-\d{2}-\d{2})(?:[T ].*)?$/.exec(value.trim())?.[1];
+  return day && isIsoDate(day) ? day : undefined;
 }
 
 

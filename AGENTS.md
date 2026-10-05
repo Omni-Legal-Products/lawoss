@@ -93,7 +93,7 @@ Rules:
 2. Read the upstream release notes.
 3. Create `sync/upstream-vX.Y.Z` from `dev`.
 4. Merge the exact upstream release tag.
-5. Resolve conflicts using `PATCHES.md` as the checklist.
+5. Resolve conflicts using `PATCHES.md` as the checklist and walk `docs/upstream-sync-checklist.md` (Eigenwelt and analytics guard, model catalog, branding).
 6. Run CI and a desktop smoke test.
 7. Open a PR and obtain one approval.
 8. Release as `vX.Y.Z-lawoss.1` after merge.

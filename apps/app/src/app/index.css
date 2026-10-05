@@ -103,7 +103,7 @@
   --border: var(--lw-border);
   --input: var(--lw-border);
   --ring: var(--lw-accent);
-  --radius: 0.25rem; /* LAWOSS squared (issue #22) */
+  --radius: 0.75rem; /* LAWOSS: zaoblené ako pohľady z OKF (5. 10. 2026; predtým hranaté, issue #22) */
 
   --chart-1: #c9a24a;
   --chart-2: #a8b0ba;

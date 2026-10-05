@@ -7,15 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { LayoutSection, LayoutSectionDescription, LayoutSectionHeader, LayoutSectionTitle } from "@/react-app/domains/settings/settings-layout";
-import { OnboardingEntryActions } from "../onboarding/entry-actions";
+import { EnableOkfAction, OnboardingEntryActions } from "../onboarding/entry-actions";
 import { loadOfficeProfile, saveOfficeProfile, type OfficeProfileSnapshot } from "../../okf/office-profile";
+import { message } from "../../okf/read-model";
 
 const roles: Record<string, string> = {
   inbox: "lawoss.integrations.office.role.inbox", client_documents: "lawoss.integrations.office.role.client_documents", research: "lawoss.integrations.office.role.research",
   drafts: "lawoss.integrations.office.role.drafts", outputs: "lawoss.integrations.office.role.outputs", correspondence: "lawoss.integrations.office.role.correspondence", important_mail: "lawoss.integrations.office.role.important_mail",
 };
 type Props = { client: LegalworkServerClient | null; workspaceId: string | null; workspacePath: string; workspaceName: string; remote?: boolean };
-const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 export function OfficeProfileView({ client, workspaceId, workspacePath, workspaceName, remote }: Props) {
   const locale = useLocale();
@@ -37,7 +37,7 @@ export function OfficeProfileView({ client, workspaceId, workspacePath, workspac
       <LayoutSectionDescription>
         {t("lawoss.integrations.office.description", locale)}
       </LayoutSectionDescription>
-      {client && workspaceId ? <OnboardingEntryActions /> : null}
+      {client && workspaceId ? <OnboardingEntryActions /> : <EnableOkfAction />}
     </LayoutSectionHeader>
     {!client || !workspaceId || !workspacePath || remote ? <p>{t("lawoss.integrations.office.select_local", locale)}</p>
       : <>

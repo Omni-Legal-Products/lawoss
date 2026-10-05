@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router-dom";
 import { OfficeProfileEditor, OfficeProfileView } from "../src/lawoss/domains/settings/office-profile-view";
 import { workingProfile } from "../../../lawoss/okf/src/profile";
 import { NovySpisPanel } from "../src/lawoss/domains/novy-spis/novy-spis-page";
@@ -12,7 +13,7 @@ test("native office editor exposes folder roles and prevents read-only edits", (
   expect(html).toContain('fieldset disabled=""');
 });
 test("disconnected profile settings do not offer a writable form", () => {
-  const html = renderToStaticMarkup(<OfficeProfileView client={null} workspaceId={null} workspacePath="" workspaceName="" />);
+  const html = renderToStaticMarkup(<MemoryRouter><OfficeProfileView client={null} workspaceId={null} workspacePath="" workspaceName="" /></MemoryRouter>);
   expect(html).toContain("Select a connected local office folder");
   expect(html).not.toContain("Save profile");
 });

@@ -3,13 +3,13 @@
 // @bun
 
 // src/cli.ts
-import { realpathSync as realpathSync3 } from "fs";
+import { realpathSync as realpathSync5 } from "fs";
 import { fileURLToPath } from "url";
 
 // src/onboarding/cli.ts
 import { constants as constants5 } from "node:fs";
 import { lstat as lstat7, open as open5, realpath as realpath7 } from "node:fs/promises";
-import { dirname as dirname5, isAbsolute as isAbsolute5, relative as relative5, resolve as resolve7, sep as sep6 } from "node:path";
+import { dirname as dirname5, isAbsolute as isAbsolute5, relative as relative6, resolve as resolve7, sep as sep7 } from "node:path";
 
 // src/onboarding/classify.ts
 import { createHash } from "node:crypto";
@@ -65,6 +65,7 @@ var CARD_TYPES = {
   "project.md": ["project", "projekt"],
   "projekt.md": ["project", "projekt"]
 };
+var APP_FILE_DIRECTORIES = new Set([".opencode"]);
 var MEMORY_FILES = new Set(["MEMORY.md", "_memory.md", "_STATUS.md", "BRAIN.md", ".lawoss/memory-profile.json"]);
 var sha = (value) => createHash("sha256").update(value).digest("hex");
 var errorCode = (error) => error && typeof error === "object" && ("code" in error) ? String(error.code) : "read_failed";
@@ -123,7 +124,8 @@ async function inspectOnboardingRoot(root, limits = {}) {
         }
         if (state.isDirectory()) {
           result.entries.push({ path, kind: "directory", digest: null, size: 0 });
-          await visit(path, depth + 1);
+          if (!APP_FILE_DIRECTORIES.has(name))
+            await visit(path, depth + 1);
         } else if (state.isFile()) {
           if (bytes + state.size > maxBytes) {
             problem(path, "byte_limit");
@@ -251,6 +253,26 @@ var EVIDENCE_KINDS = [
   "party_examination",
   "inspection"
 ];
+var FULFILLMENT_STATUS = ["open", "met", "waived", "failed"];
+var INSTRUMENT_FORMS = ["plain", "certified_signature", "notarial_deed", "attorney_declaration"];
+var INSTRUMENT_STATUS = [
+  "draft",
+  "negotiated",
+  "final",
+  "signed",
+  "effective",
+  "registered",
+  "superseded"
+];
+var RELATION_KINDS = [
+  "executive",
+  "board_member",
+  "shareholder",
+  "representative",
+  "attorney_in_fact",
+  "beneficial_owner",
+  "pledgee"
+];
 var SCREENING_MODES = ["light", "medium", "hard"];
 var FIELDS = [
   { canonical: "okf", cz: "okf", sk: "okf", kind: "number", required: true },
@@ -287,6 +309,7 @@ var FIELDS = [
   { canonical: "parties", cz: "strany", sk: "strany", kind: "list", required: false },
   { canonical: "matter_ref", cz: "spisová značka", sk: "spisová značka", kind: "string", required: false },
   { canonical: "court", cz: "soud", sk: "súd", kind: "string", required: false },
+  { canonical: "participants", cz: "Zapojené subjekty", sk: "Zapojené subjekty", kind: "maplist", required: false },
   { canonical: "area", cz: "oblast práva", sk: "oblasť práva", kind: "list", required: false },
   {
     canonical: "role",
@@ -435,7 +458,44 @@ var FIELDS = [
     required: false,
     values: TASK_STATES
   },
-  { canonical: "due", cz: "termín", sk: "termín", kind: "string", required: false }
+  { canonical: "due", cz: "termín", sk: "termín", kind: "string", required: false },
+  { canonical: "demanded_by", cz: "požaduje", sk: "požaduje", kind: "string", required: false },
+  { canonical: "demanded_from", cz: "požadováno od", sk: "požadované od", kind: "string", required: false },
+  {
+    canonical: "fulfillment_status",
+    cz: "stav splnění",
+    sk: "stav splnenia",
+    kind: "string",
+    required: false,
+    values: FULFILLMENT_STATUS
+  },
+  { canonical: "version", cz: "verze", sk: "verzia", kind: "string", required: false },
+  { canonical: "file_hash", cz: "otisk souboru", sk: "odtlačok súboru", kind: "string", required: false },
+  { canonical: "form", cz: "forma", sk: "forma", kind: "string", required: false, values: INSTRUMENT_FORMS },
+  { canonical: "signed_by", cz: "podepsal", sk: "podpísal", kind: "list", required: false },
+  { canonical: "signed_at", cz: "podepsáno dne", sk: "podpísané dňa", kind: "string", required: false },
+  { canonical: "effect", cz: "účinek", sk: "účinok", kind: "string", required: false },
+  {
+    canonical: "instrument_status",
+    cz: "stav listiny",
+    sk: "stav listiny",
+    kind: "string",
+    required: false,
+    values: INSTRUMENT_STATUS
+  },
+  { canonical: "from_subject", cz: "subjekt", sk: "subjekt", kind: "string", required: false },
+  { canonical: "to_subject", cz: "ve vztahu k", sk: "vo vzťahu k", kind: "string", required: false },
+  {
+    canonical: "relation_kind",
+    cz: "druh vztahu",
+    sk: "druh vzťahu",
+    kind: "string",
+    required: false,
+    values: RELATION_KINDS
+  },
+  { canonical: "share", cz: "podíl", sk: "podiel", kind: "string", required: false },
+  { canonical: "valid_from", cz: "platí od", sk: "platí od", kind: "string", required: false },
+  { canonical: "valid_to", cz: "platí do", sk: "platí do", kind: "string", required: false }
 ];
 var SENSITIVE_FIELDS = FIELDS.filter((f) => f.sensitive).map((f) => f.canonical);
 var CZ_FO = [
@@ -2403,12 +2463,12 @@ async function recoverOnboardingPlan(plan, journalDirectory, action) {
 
 // src/onboarding/onboarding.ts
 import { lstat as lstat6, mkdir as mkdir3, readFile as readFile4, realpath as realpath6, writeFile } from "node:fs/promises";
-import { dirname as dirname4, isAbsolute as isAbsolute4, join as join8, relative as relative4, resolve as resolve6, sep as sep5 } from "node:path";
+import { dirname as dirname4, isAbsolute as isAbsolute4, join as join8, relative as relative5, resolve as resolve6, sep as sep6 } from "node:path";
 
 // src/onboarding/entities.ts
 import { lstat as lstat4, readFile as readFile2, realpath as realpath4 } from "node:fs/promises";
 import { createHash as createHash4 } from "node:crypto";
-import { basename as basename3, join as join6, resolve as resolve4 } from "node:path";
+import { basename as basename3, join as join6, relative as relative3, resolve as resolve4, sep as sep4 } from "node:path";
 
 // ../okf-pamat/src/store.ts
 import { existsSync as existsSync2, lstatSync, mkdirSync, readFileSync as readFileSync2, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -2477,11 +2537,14 @@ function findOfficeDir(startDir, maxUp = 8) {
   return;
 }
 
+// src/onboarding/messages.ts
+var UNSAFE_FOLDER_NAME_MESSAGE = "A safe non-empty folder name is required.";
+
 // src/onboarding/entities.ts
 var safeSegment = (value) => {
-  const trimmed = value.trim();
-  if (!trimmed || trimmed.length > 120 || /[\\/:\0]|^\.|[. ]$/.test(trimmed))
-    throw new Error("A safe non-empty folder name is required.");
+  const trimmed = value.trim().replace(/[. ]+$/, "");
+  if (!trimmed || trimmed.length > 120 || /[\\/:\0<>"|?*]|^\./.test(trimmed))
+    throw new Error(UNSAFE_FOLDER_NAME_MESSAGE);
   return trimmed;
 };
 var yaml = (value) => JSON.stringify(value);
@@ -2515,7 +2578,9 @@ function templateOperations(prefix, entries) {
   }
   return operations;
 }
-var officeConfig = (request) => `version: 1
+var officeConfig = (request) => {
+  const roles = DEFAULT_FOLDER_ROLES[request.language];
+  return `version: 1
 title: ${yaml(request.title)}
 jurisdiction: ${request.jurisdiction}
 language: ${request.language}
@@ -2523,8 +2588,10 @@ lawyer_name: ${yaml(request.lawyerName)}
 standing_authorization: ${yaml(request.lawyerName)}
 client_path: "Klienti/*"
 areas: ["Corporate", "IP", "Pracovne"]
-matter_folders: ["00_Na_zatriedenie", "01_Podklady", "02_Resers", "03_Drafty", "04_Vystupy", "05_Komunikacia"]
+matter_folders: ${JSON.stringify(Object.values(roles))}
+folder_roles: ${JSON.stringify(roles)}
 `;
+};
 async function planOffice(request) {
   const name = safeSegment(request.name ?? "Office");
   const target = join6(request.parent, name);
@@ -2549,10 +2616,38 @@ title: ${yaml(request.title)}
 `;
   return { mode: "new", appFiles: "inside", target, clientRoot: request.clientRoot, plan: await rootPlan(request.clientRoot, [directory(name), file(`${name}/subject.md`, card), directory(`${name}/memory`), file(`${name}/memory/.keep`, "")]) };
 }
+var MATTERS_DIR = "Spisy";
+var CLIENT_CARDS = ["client.md", "klient.md"];
+async function clientCard(clientRoot) {
+  for (const name of CLIENT_CARDS) {
+    const file = join6(clientRoot, name);
+    const content = await readFile2(file, "utf8").catch(() => {
+      return;
+    });
+    if (content === undefined)
+      continue;
+    const title = parseFrontmatter(content)?.title?.trim();
+    return title ? { file, title } : { file };
+  }
+  return;
+}
+function buildMatterOperations(input) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || !["contentious", "non_contentious"].includes(input.kind))
+    throw new Error("Valid date and matter kind are required.");
+  const area = safeSegment(input.area), name = `${input.date.slice(0, 7)} ${safeSegment(input.title)}`, folder = `${MATTERS_DIR}/${name}`;
+  const generated = planEntity({ type: "spis", dir: folder, title: input.title, language: input.language, jurisdiction: input.jurisdiction, date: input.date, workingProfile: input.workingProfile, matterKind: input.kind === "contentious" ? "dispute" : "other", ...input.clientTitle ? { klient: input.clientTitle } : {}, ...input.clientCardPath ? { clientCardPath: input.clientCardPath } : {}, ...input.extras?.caseNumber ? { spzn: input.extras.caseNumber } : {}, ...input.extras?.counterparty ? { protistrana: input.extras.counterparty } : {}, ...input.extras?.court ? { sud: input.extras.court } : {} }, LOCALIZED_TEMPLATES, () => false);
+  const template = templateOperations(folder, generated.entries).filter((operation) => operation.path !== folder);
+  const operations = [directory(folder), ...template.map((operation) => operation.path === `${folder}/matter.md` && operation.kind === "file" ? file(operation.path, (operation.content ?? "").replace("type: spis", `type: matter
+kind: ${input.kind}
+area: ${yaml(area)}
+subject: ${yaml(input.subject ?? "")}`)) : operation)];
+  return { name, folder, operations };
+}
 async function planNewMatter(request) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(request.date) || !["contentious", "non_contentious"].includes(request.kind))
     throw new Error("Valid date and matter kind are required.");
-  const area = safeSegment(request.area), name = `${request.date.slice(0, 7)} ${safeSegment(request.title)}`, target = join6(request.parent, area, name);
+  safeSegment(request.area);
+  const name = `${request.date.slice(0, 7)} ${safeSegment(request.title)}`, target = join6(request.parent, MATTERS_DIR, name);
   const clientRoot = await realpath4(request.clientRoot), parentRoot = await realpath4(request.parent);
   if (parentRoot !== clientRoot && !parentRoot.startsWith(`${clientRoot}/`))
     throw new Error("Matter parent must be within the inspected client root.");
@@ -2562,17 +2657,15 @@ async function planNewMatter(request) {
   const inspected = await inspectOnboardingRoot(request.parent);
   if (!inspected.complete)
     throw new Error("Matter parent could not be inspected completely.");
-  const existingArea = inspected.entries.find((entry) => entry.path === area);
-  if (existingArea && existingArea.kind !== "directory")
-    throw new Error("Matter area is blocked by a non-directory.");
+  const existingMatters = inspected.entries.find((entry) => entry.path === MATTERS_DIR);
+  if (existingMatters && existingMatters.kind !== "directory")
+    throw new Error("Matter folder is blocked by a non-directory.");
   const office = findOfficeDir(request.parent);
   const workingProfile = office ? parseOfficeWorkingProfile(await readFile2(join6(office, "okf.config"), "utf8"), request.language ?? "sk") : undefined;
-  const generated = planEntity({ type: "spis", dir: target, title: request.title, language: request.language, jurisdiction: request.jurisdiction, date: request.date, workingProfile, matterKind: request.kind === "contentious" ? "dispute" : "other" }, LOCALIZED_TEMPLATES, () => false);
-  const template = templateOperations(`${area}/${name}`, generated.entries).filter((operation) => operation.path !== `${area}/${name}`);
-  const operations = [...existingArea ? [] : [directory(area)], directory(`${area}/${name}`), ...template.map((operation) => operation.path === `${area}/${name}/matter.md` && operation.kind === "file" ? file(operation.path, (operation.content ?? "").replace("type: spis", `type: matter
-kind: ${request.kind}
-area: ${yaml(area)}
-subject: ${yaml(request.subject ?? "")}`)) : operation)];
+  const card = await clientCard(clientRoot);
+  const clientCardPath = card ? relative3(join6(parentRoot, MATTERS_DIR, name), card.file).split(sep4).join("/") : undefined;
+  const built = buildMatterOperations({ ...request, workingProfile, clientTitle: card?.title, clientCardPath });
+  const operations = [...existingMatters ? [] : [directory(MATTERS_DIR)], ...built.operations];
   return { mode: "new", appFiles: "inside", target, clientRoot: request.clientRoot, plan: await rootPlan(request.parent, operations) };
 }
 async function executeCreate(preview, journalDirectory) {
@@ -2606,11 +2699,11 @@ async function planExistingClient(root, mode, cloneParent, map) {
 import { createHash as createHash5, randomUUID } from "node:crypto";
 import { constants as constants4 } from "node:fs";
 import { copyFile, lstat as lstat5, mkdir as mkdir2, open as open4, readFile as readFile3, realpath as realpath5, rename, rmdir as rmdir2, unlink } from "node:fs/promises";
-import { dirname as dirname3, isAbsolute as isAbsolute3, join as join7, relative as relative3, resolve as resolve5, sep as sep4 } from "node:path";
+import { dirname as dirname3, isAbsolute as isAbsolute3, join as join7, relative as relative4, resolve as resolve5, sep as sep5 } from "node:path";
 var hash = (value) => createHash5("sha256").update(value).digest("hex");
 var within = (root, path) => {
-  const rel = relative3(root, path);
-  return !isAbsolute3(rel) && rel !== ".." && !rel.startsWith(`..${sep4}`);
+  const rel = relative4(root, path);
+  return !isAbsolute3(rel) && rel !== ".." && !rel.startsWith(`..${sep5}`);
 };
 var missing = (error) => error instanceof Error && ("code" in error) && error.code === "ENOENT";
 async function identity(path, kind) {
@@ -2881,8 +2974,8 @@ async function externalProfileDirectory(clientRoot, input) {
   if (!isAbsolute4(input))
     throw new Error("External profile directory must be absolute.");
   const directory = resolve6(input);
-  const fromClient = relative4(clientRoot, directory);
-  if (fromClient !== ".." && !fromClient.startsWith(`..${sep5}`) && !isAbsolute4(fromClient)) {
+  const fromClient = relative5(clientRoot, directory);
+  if (fromClient !== ".." && !fromClient.startsWith(`..${sep6}`) && !isAbsolute4(fromClient)) {
     throw new Error("External profile directory must be outside the mapped client directory.");
   }
   let ancestor = directory;
@@ -2979,7 +3072,7 @@ async function planOnboarding(request) {
     return { action: request.action, ...await planNewSubject(request) };
   if (request.action === "matter") {
     const client = await realpath6(request.clientRoot), parent = await realpath6(request.parent);
-    if (parent !== client && relative4(client, parent).startsWith(".."))
+    if (parent !== client && relative5(client, parent).startsWith(".."))
       throw new Error("Matter parent must be within client root.");
     return { action: request.action, ...await planNewMatter(request) };
   }
@@ -3125,8 +3218,8 @@ async function readPlan(path) {
 }
 async function savePlanOutside(root, path, content) {
   const target = resolve7(path), parent = dirname5(target);
-  const rel = relative5(root, target);
-  if (!rel || !isAbsolute5(rel) && rel !== ".." && !rel.startsWith(`..${sep6}`))
+  const rel = relative6(root, target);
+  if (!rel || !isAbsolute5(rel) && rel !== ".." && !rel.startsWith(`..${sep7}`))
     throw new Error("Save the preview outside the client directory.");
   if (await realpath7(parent) !== parent || !(await lstat7(parent)).isDirectory())
     throw new Error("Plan output needs an existing canonical parent directory.");
@@ -3215,26 +3308,1306 @@ async function runOnboarding(argv, out = console.log) {
     return 1;
   }
 }
+
+// src/triage/cli.ts
+import { existsSync as existsSync3, realpathSync } from "node:fs";
+import { dirname as dirname7, join as join12, resolve as resolve10 } from "node:path";
+
+// src/triage/files.ts
+import { constants as constants7 } from "node:fs";
+import { lstat as lstat9, mkdir as mkdir4, open as open7, readdir as readdir3, realpath as realpath9 } from "node:fs/promises";
+import { join as join10 } from "node:path";
+
+// src/triage/scan.ts
+import { createHash as createHash6 } from "node:crypto";
+import { constants as constants6 } from "node:fs";
+import { lstat as lstat8, open as open6, readFile as readFile5, realpath as realpath8 } from "node:fs/promises";
+import { basename as basename4, isAbsolute as isAbsolute6, join as join9, relative as relative7, resolve as resolve8, sep as sep8 } from "node:path";
+
+// src/triage/rules.ts
+var TRIAGE_ROLES = ["inbox", "client_documents", "research", "drafts", "outputs", "correspondence", "important_mail"];
+function normalizeText(value) {
+  return value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[_\-.,;()[\]{}+]+/g, " ").replace(/\s+/g, " ").trim();
+}
+var EMAIL_EXT = new Set(["eml", "msg", "emlx", "mbox", "oft"]);
+var DATA_BOX_EXT = new Set(["zfo", "asice", "asics"]);
+var WORD_EXT = new Set(["docx", "doc", "docm", "odt", "rtf", "pages", "dotx"]);
+var PDF_EXT = new Set(["pdf"]);
+var KEYWORDS = [
+  { rule: "power_of_attorney", role: "client_documents", confidence: "high", words: ["plnomocenstvo", "plnomocnenstvo", "plna moc", "plnou moc", "plne moci", "power of attorney", "splnomocnenie"] },
+  { rule: "court_decision", role: "important_mail", confidence: "medium", words: ["rozsudok", "rozsudek", "rozsudku", "uznesenie", "uznesenia", "usneseni", "platobny rozkaz", "platebni rozkaz", "predvolanie", "predvolani", "vyzva sudu", "vyzva soudu", "exekucny prikaz", "exekucni prikaz", "upovedomenie", "vyrozumenie", "rozhodnutie", "rozhodnuti", "dorucenka", "judgment", "court order"] },
+  { rule: "demand_letter", role: "correspondence", confidence: "medium", words: ["predzalobna vyzva", "predzalobnu vyzvu", "predzalobni vyzva", "predzalobni vyzvu", "vyzva na zaplatenie", "vyzva k zaplaceni", "upomienka", "upominka", "demand letter", "letter before action"] },
+  { rule: "draft_marker", role: "drafts", confidence: "high", ext: WORD_EXT, words: ["draft", "navrh", "koncept", "pracovn", "wip", "redline", "verzia", "verze", "version", "rev", "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9"] },
+  { rule: "filing_final", role: "outputs", confidence: "medium", ext: PDF_EXT, words: ["zaloba", "zalobu", "navrh na", "odvolanie", "odvolani", "dovolanie", "dovolani", "vyjadrenie", "vyjadreni", "replika", "duplika", "triplika", "podanie", "podani", "staznost", "stiznost", "odpor", "namietky", "namitky", "statement of claim", "appeal"] },
+  { rule: "contract", role: "client_documents", confidence: "medium", words: ["zmluva", "zmluvy", "zmluvu", "smlouva", "smlouvy", "smlouvu", "dohoda", "dohody", "dodatok", "dodatek", "contract", "agreement", "nda"] },
+  { rule: "invoice", role: "client_documents", confidence: "medium", words: ["faktura", "faktury", "invoice", "dobropis", "proforma", "ucet za", "vyuctovanie", "vyuctovani"] },
+  { rule: "registry_extract", role: "client_documents", confidence: "medium", words: ["vypis", "list vlastnictva", "list vlastnictvi", "obchodny register", "obchodni rejstrik", "orsr", "rpvs", "zivnostensky", "extract"] },
+  { rule: "research", role: "research", confidence: "medium", words: ["resers", "reserse", "reserz", "judikat", "judikatura", "research", "memo", "analyza", "komentar", "rozbor"] },
+  { rule: "final_output", role: "outputs", confidence: "medium", words: ["stanovisko", "posudok", "posudek", "legal opinion", "opinion", "finalne", "finalni", "final"] }
+];
+var FILING_DRAFT = { rule: "filing_draft", role: "drafts", confidence: "medium", ext: WORD_EXT, words: KEYWORDS.find((item) => item.rule === "filing_final").words };
+var FOLDER_HINTS = [
+  { role: "correspondence", words: ["korespondencia", "korespondence", "posta", "email", "emaily", "maily", "mail", "correspondence", "komunikacia", "komunikace"] },
+  { role: "drafts", words: ["drafty", "drafts", "koncepty", "navrhy", "pracovne"] },
+  { role: "client_documents", words: ["zmluvy", "smlouvy", "podklady", "od klienta", "dokumenty klienta", "doklady", "faktury", "invoices", "invoice", "uctovne doklady", "ucetni doklady"] },
+  { role: "outputs", words: ["podania", "podani", "vystupy", "outputs", "odoslane", "odeslane"] },
+  { role: "research", words: ["reserse", "resers", "research", "judikatura"] }
+];
+var escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function findWord(text, words) {
+  for (const word of words) {
+    const tail = word.length <= 3 ? "(?:$|\\s|\\d)" : "";
+    if (new RegExp(`(?:^|\\s)${escapeRegExp(word)}${tail}`).test(text))
+      return word;
+  }
+  return;
+}
+function findCaseNumber(text) {
+  const match = /(?:^|[^\p{L}\d])(\d{1,3})[ _-]?([A-Z][A-Za-z]{0,4})[ _/-]?(\d{1,6})[ _/-]((?:19|20)\d{2})(?![\p{L}\d])/u.exec(text);
+  if (!match)
+    return;
+  const [, senate, register, number, year] = match;
+  if (!senate || !register || !number || !year)
+    return;
+  const key = `${senate}${register.toUpperCase()}-${Number(number)}-${year}`;
+  return { key, display: `${senate}${register} ${Number(number)}/${year}` };
+}
+function classifyByRules(input) {
+  const ext = input.ext.toLowerCase();
+  const stem = input.ext ? input.name.slice(0, -(input.ext.length + 1)) : input.name;
+  const text = normalizeText(stem);
+  const folders = input.path.split("/").slice(0, -1);
+  const caseNumber = findCaseNumber(stem) ?? folders.map(findCaseNumber).find(Boolean);
+  const result = (value) => caseNumber ? { ...value, caseNumber } : value;
+  if (EMAIL_EXT.has(ext))
+    return result({ role: "correspondence", confidence: "high", rule: "email_file", matched: `.${ext}` });
+  if (DATA_BOX_EXT.has(ext))
+    return result({ role: "important_mail", confidence: ext === "zfo" ? "high" : "medium", rule: "data_box", matched: `.${ext}` });
+  const draftIndex = KEYWORDS.findIndex((keyword) => keyword.rule === "draft_marker") + 1;
+  for (const keyword of [...KEYWORDS.slice(0, draftIndex), FILING_DRAFT, ...KEYWORDS.slice(draftIndex)]) {
+    if (keyword.ext && !keyword.ext.has(ext))
+      continue;
+    const matched = findWord(text, keyword.words);
+    if (matched)
+      return result({ role: keyword.role, confidence: keyword.confidence, rule: keyword.rule, matched });
+  }
+  for (const folder of [...folders].reverse()) {
+    const name = normalizeText(folder);
+    for (const hint of FOLDER_HINTS) {
+      const matched = findWord(name, hint.words);
+      if (matched)
+        return result({ role: hint.role, confidence: "medium", rule: "folder_hint", matched: folder });
+    }
+  }
+  return result({ role: null, confidence: "low", rule: "unknown" });
+}
+
+// src/triage/types.ts
+var INVENTORY_SCHEMA = "lawoss.triage.inventory/v1";
+var CLASSIFICATION_SCHEMA = "lawoss.triage.classification/v1";
+var PLAN_SCHEMA = "lawoss.triage.plan/v1";
+
+// src/triage/scan.ts
+var TRIAL_MARKER = ".lawoss-trial.json";
+var TRIAGE_DIR = ".lawoss/triage";
+var MAX_TRIAGE_DOCUMENTS = 2000;
+
+class TrialCloneError extends Error {
+  code = "not_trial_clone";
+}
+var sha3 = (value) => createHash6("sha256").update(value).digest("hex");
+var record2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+var overlaps = (a, b) => {
+  const rel = relative7(a, b);
+  return rel === "" || !isAbsolute6(rel) && rel !== ".." && !rel.startsWith(`..${sep8}`);
+};
+var missing2 = (error) => error instanceof Error && ("code" in error) && error.code === "ENOENT";
+async function readBounded(path, max) {
+  const handle = await open6(path, constants6.O_RDONLY | constants6.O_NOFOLLOW);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.size > max)
+      throw new TrialCloneError("Značka skúšobného klona nie je obyčajný malý súbor.");
+    const buffer = Buffer.alloc(max + 1);
+    let size = 0;
+    while (size < buffer.length) {
+      const read = await handle.read(buffer, size, buffer.length - size, null);
+      if (!read.bytesRead)
+        break;
+      size += read.bytesRead;
+    }
+    if (size > max)
+      throw new TrialCloneError("Značka skúšobného klona je príliš veľká.");
+    return buffer.subarray(0, size).toString("utf8");
+  } finally {
+    await handle.close();
+  }
+}
+async function verifyTrialClone(rootInput, trialJournalDirectory) {
+  if (!isAbsolute6(rootInput))
+    throw new TrialCloneError("Cesta ku klonu musí byť absolútna.");
+  const root = resolve8(rootInput);
+  try {
+    if (await realpath8(root) !== root || !(await lstat8(root)).isDirectory())
+      throw new TrialCloneError("Klon musí byť existujúci priečinok bez symbolických odkazov.");
+  } catch (error) {
+    if (error instanceof TrialCloneError)
+      throw error;
+    throw new TrialCloneError("Klon musí byť existujúci priečinok.");
+  }
+  let marker;
+  try {
+    marker = JSON.parse(await readBounded(join9(root, TRIAL_MARKER), 64 * 1024));
+  } catch (error) {
+    if (error instanceof TrialCloneError)
+      throw error;
+    throw new TrialCloneError(missing2(error) ? "Toto nie je skúšobný klon. Dokumenty sa presúvajú len v skúšobnom klone, nikdy v origináli." : "Značka skúšobného klona je poškodená.");
+  }
+  if (!record2(marker) || marker.version !== 1 || marker.trial !== true || typeof marker.source !== "string" || !isAbsolute6(marker.source) || typeof marker.sourceDigest !== "string" || !/^[a-f0-9]{64}$/.test(marker.sourceDigest) || typeof marker.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(marker.fingerprint)) {
+    throw new TrialCloneError("Značka skúšobného klona má neplatný tvar.");
+  }
+  const source = resolve8(marker.source);
+  if (overlaps(source, root) || overlaps(root, source))
+    throw new TrialCloneError("Klon sa prekrýva so svojím originálom.");
+  let journalVerified = false;
+  if (trialJournalDirectory !== undefined) {
+    let journal;
+    try {
+      journal = JSON.parse(await readFile5(join9(trialJournalDirectory, `trial-${marker.fingerprint}.json`), "utf8"));
+    } catch {
+      throw new TrialCloneError("K tomuto priečinku chýba záznam o vytvorení skúšobného klona v tejto aplikácii.");
+    }
+    if (!record2(journal) || journal.version !== 1 || journal.fingerprint !== marker.fingerprint || journal.phase !== "complete" || !record2(journal.preview) || journal.preview.target !== root || journal.preview.source !== source || sha3(JSON.stringify(journal.preview)) !== marker.fingerprint) {
+      throw new TrialCloneError("Záznam o skúšobnom klone nezodpovedá tomuto priečinku.");
+    }
+    journalVerified = true;
+  }
+  return { root, source, fingerprint: marker.fingerprint, journalVerified };
+}
+var CARD_NAMES = new Set(["client.md", "klient.md", "matter.md", "spis.md", "project.md", "projekt.md", "subject.md"]);
+var MATTER_CARDS = ["matter.md", "spis.md", "project.md", "projekt.md"];
+var SYSTEM_NAMES = /^(?:agents\.md|claude\.md|brain\.md|memory\.md|_memory\.md|_status\.md|index\.md|log\.md|vstupy\.md|pracovny-profil\.md|komunikacne-kanaly\.md|okf\.config|\.keep)$/i;
+var hidden = (path) => path.split("/").some((part) => part.startsWith("."));
+var triageTreeDigest = (entries) => sha3(JSON.stringify(entries.filter((entry) => !hidden(entry.path))));
+async function readSmall(root, path) {
+  try {
+    return await readBounded(join9(root, path), 1024 * 1024);
+  } catch (error) {
+    if (missing2(error))
+      return;
+    throw error;
+  }
+}
+async function scanTriage(rootInput, options = {}) {
+  const clone = await verifyTrialClone(rootInput, options.trialJournalDirectory);
+  const inspection = await inspectOnboardingRoot(clone.root, options.limits);
+  if (!inspection.complete) {
+    const issue = inspection.issues[0];
+    throw new Error(issue?.code === "symlink_not_followed" ? `Klon obsahuje symbolický odkaz (${issue.path}); roztriedenie ho nesleduje. Odstráňte ho z klona.` : `Klon sa nepodarilo prečítať celý (${issue?.code ?? "neznámy dôvod"}${issue?.path ? `: ${issue.path}` : ""}).`);
+  }
+  if (inspection.level !== "client")
+    throw new Error("Skúšobný klon musí byť priečinok klienta s kartou klienta.");
+  const files = new Map(inspection.entries.filter((entry) => entry.kind === "file").map((entry) => [entry.path, entry]));
+  const clientCard = ["client.md", "klient.md"].find((name) => files.has(name));
+  const card = parseFrontmatter(await readSmall(clone.root, clientCard) ?? "") ?? {};
+  const language = resolveDocumentLanguage(["sk", "cs", "en"].includes(card.language ?? "") ? card.language : undefined, card.jurisdiction);
+  const office = findOfficeDir(clone.root);
+  const config = office ? await readFile5(join9(office, "okf.config"), "utf8").catch(() => {
+    return;
+  }) : undefined;
+  const officeJurisdiction = /^jurisdiction:\s*(sk|cz)\s*$/m.exec(config ?? "")?.[1];
+  const jurisdiction = options.jurisdiction ?? (card.jurisdiction === "cz" || card.jurisdiction === "sk" ? card.jurisdiction : officeJurisdiction === "cz" || officeJurisdiction === "sk" ? officeJurisdiction : language === "cs" ? "cz" : "sk");
+  const profileText = files.has(PROFILE_FILE) ? await readSmall(clone.root, PROFILE_FILE) : undefined;
+  const profile = profileText ? parseWorkingProfile(profileText) : workingProfile(undefined, undefined, undefined, language);
+  const officeProfile = config !== undefined ? parseOfficeWorkingProfile(config, language) : undefined;
+  const newMatterProfile = officeProfile && Object.keys(officeProfile.roles).length ? officeProfile : officeProfile && Object.keys(profile.roles).length ? { folders: profile.folders, roles: profile.roles, naming: profile.naming } : officeProfile;
+  const directories = new Set(inspection.entries.filter((entry) => entry.kind === "directory").map((entry) => entry.path));
+  const entityDirs = [...files.keys()].filter((path) => path.includes("/") && CARD_NAMES.has(path.split("/").pop().toLowerCase())).map((path) => path.split("/").slice(0, -1).join("/"));
+  const matters = [];
+  for (const dir of entityDirs.filter((dir) => /^Spisy\/[^/]+$/.test(dir)).sort()) {
+    const cardName = MATTER_CARDS.find((name) => files.has(`${dir}/${name}`));
+    if (!cardName)
+      continue;
+    const fields = parseFrontmatter(await readSmall(clone.root, `${dir}/${cardName}`) ?? "") ?? {};
+    let roles = {};
+    try {
+      const text = await readSmall(clone.root, `${dir}/${PROFILE_FILE}`);
+      if (text)
+        roles = parseWorkingProfile(text).roles;
+    } catch {
+      roles = {};
+    }
+    if (!Object.keys(roles).length)
+      roles = Object.fromEntries(Object.entries(profile.roles).filter(([, folder]) => directories.has(`${dir}/${folder}`)));
+    const caseKey = fields.spisova_znacka ? findCaseNumber(fields.spisova_znacka)?.key : undefined;
+    matters.push({ id: `existing-${sha3(dir).slice(0, 12)}`, path: dir, ...fields.title ? { title: fields.title } : {}, ...caseKey ? { caseKey } : {}, roles });
+  }
+  const inbox = profile.roles.inbox;
+  const sortedFolders = Object.entries(profile.roles).filter(([role]) => role !== "inbox").map(([, folder]) => folder);
+  const under = (path, folder) => path.startsWith(`${folder}/`);
+  const documents = [];
+  const skipped = [];
+  for (const entry of files.values()) {
+    const name = entry.path.split("/").pop();
+    const reason = hidden(entry.path) ? "hidden" : entry.path.split("/")[0] === "memory" ? "memory" : !entry.path.includes("/") && (CARD_NAMES.has(name.toLowerCase()) || SYSTEM_NAMES.test(name)) ? "system" : CARD_NAMES.has(name.toLowerCase()) || SYSTEM_NAMES.test(name) ? "system_name" : matters.some((matter) => under(entry.path, matter.path)) ? "in_matter" : entityDirs.some((dir) => under(entry.path, dir)) ? "inside_entity" : sortedFolders.some((folder) => under(entry.path, folder)) && !(inbox && under(entry.path, inbox)) ? "already_sorted" : undefined;
+    if (reason) {
+      if (reason !== "hidden")
+        skipped.push({ path: entry.path, reason });
+      continue;
+    }
+    const dot = name.lastIndexOf(".");
+    documents.push({ id: `d${sha3(entry.path).slice(0, 16)}`, path: entry.path, name, ext: dot > 0 ? name.slice(dot + 1).toLowerCase() : "", size: entry.size, sha256: entry.digest });
+  }
+  if (documents.length > MAX_TRIAGE_DOCUMENTS)
+    throw new Error(`Klon má ${documents.length} dokumentov na roztriedenie; naraz sa dá najviac ${MAX_TRIAGE_DOCUMENTS}.`);
+  documents.sort((a, b) => a.path.localeCompare(b.path));
+  return {
+    schema: INVENTORY_SCHEMA,
+    root: clone.root,
+    treeDigest: triageTreeDigest(inspection.entries),
+    language,
+    jurisdiction,
+    client: { ...card.title ? { title: card.title } : {}, card: clientCard },
+    profile: { folders: profile.folders, roles: profile.roles },
+    ...newMatterProfile ? { newMatterProfile } : {},
+    matters,
+    documents,
+    skipped,
+    occupied: [...directories, ...inspection.entries.filter((entry) => entry.kind !== "directory").map((entry) => entry.path)].sort()
+  };
+}
+
+// src/triage/files.ts
+var MAX_JSON_BYTES = 4 * 1024 * 1024;
+var errorCode2 = (error) => error instanceof Error && ("code" in error) ? String(error.code) : "";
+async function readJsonFile(path, max = MAX_JSON_BYTES) {
+  const handle = await open7(path, constants7.O_RDONLY | constants7.O_NOFOLLOW);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.size > max)
+      throw new Error("Súbor nie je obyčajný alebo je príliš veľký.");
+    const buffer = Buffer.alloc(max + 1);
+    let size = 0;
+    while (size < buffer.length) {
+      const read = await handle.read(buffer, size, buffer.length - size, null);
+      if (!read.bytesRead)
+        break;
+      size += read.bytesRead;
+    }
+    if (size > max)
+      throw new Error("Súbor je príliš veľký.");
+    return JSON.parse(buffer.subarray(0, size).toString("utf8"));
+  } finally {
+    await handle.close();
+  }
+}
+async function triageSubdirectory(root, name, create) {
+  let current = root;
+  for (const part of [...TRIAGE_DIR.split("/"), name]) {
+    current = join10(current, part);
+    if (create) {
+      try {
+        await mkdir4(current, { mode: 448 });
+      } catch (error) {
+        if (errorCode2(error) !== "EEXIST")
+          throw error;
+      }
+    }
+    try {
+      const state = await lstat9(current);
+      if (!state.isDirectory() || state.isSymbolicLink() || await realpath9(current) !== current)
+        throw new Error("Priečinok roztriedenia v klone nie je bezpečný.");
+    } catch (error) {
+      if (errorCode2(error) === "ENOENT" && !create)
+        return null;
+      throw error;
+    }
+  }
+  return current;
+}
+async function writeNewJson(path, value) {
+  const handle = await open7(path, constants7.O_WRONLY | constants7.O_CREAT | constants7.O_EXCL | constants7.O_NOFOLLOW, 384);
+  try {
+    await handle.writeFile(JSON.stringify(value, null, 2) + `
+`);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+async function listClassificationFiles(root) {
+  const dir = await triageSubdirectory(root, "classifications", false);
+  if (!dir)
+    return [];
+  return (await readdir3(dir)).filter((name) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,120}\.json$/.test(name)).sort().reverse().map((name) => join10(dir, name));
+}
+
+// src/triage/index.ts
+import { basename as basename5 } from "node:path";
+
+// src/triage/classification.ts
+class ClassificationError extends Error {
+}
+var fail2 = (message) => {
+  throw new ClassificationError(`Neplatná klasifikácia: ${message}`);
+};
+var record3 = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+var MAX_MATTERS = 50;
+var MAX_REASON = 300;
+function strict(value, allowed, where) {
+  for (const key of Object.keys(value))
+    if (!allowed.includes(key))
+      fail2(`${where}: nepovolené pole ${key}`);
+}
+function cleanLine(value, where, max, required = false) {
+  if (value === undefined || value === null || value === "") {
+    if (required)
+      fail2(`${where} chýba`);
+    return;
+  }
+  if (typeof value !== "string")
+    return fail2(`${where} musí byť text`);
+  const cleaned = value.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029"\\`]/g, " ").replace(/\s+/g, " ").trim();
+  if (!cleaned && required)
+    fail2(`${where} chýba`);
+  if (cleaned.length > max)
+    fail2(`${where} je dlhšie ako ${max} znakov`);
+  return cleaned || undefined;
+}
+function isoDate2(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+}
+var MATTER_KEY = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+function parseMatter(value, index) {
+  const where = `matters[${index}]`;
+  if (!record3(value))
+    return fail2(`${where} musí byť objekt`);
+  strict(value, ["key", "title", "date", "kind", "area", "caseNumber", "counterparty", "court"], where);
+  if (typeof value.key !== "string" || !MATTER_KEY.test(value.key) || value.key.startsWith("existing-"))
+    fail2(`${where}.key`);
+  const title = cleanLine(value.title, `${where}.title`, 100, true);
+  try {
+    safeSegment(title);
+  } catch {
+    fail2(`${where}.title nie je bezpečný názov priečinka`);
+  }
+  if (value.date !== undefined && (typeof value.date !== "string" || !isoDate2(value.date)))
+    fail2(`${where}.date musí byť RRRR-MM-DD`);
+  if (value.kind !== "contentious" && value.kind !== "non_contentious")
+    fail2(`${where}.kind`);
+  const area = cleanLine(value.area, `${where}.area`, 80);
+  if (area) {
+    try {
+      safeSegment(area);
+    } catch {
+      fail2(`${where}.area`);
+    }
+  }
+  return {
+    key: value.key,
+    title,
+    kind: value.kind,
+    ...typeof value.date === "string" ? { date: value.date } : {},
+    ...area ? { area } : {},
+    ...optional("caseNumber", cleanLine(value.caseNumber, `${where}.caseNumber`, 60)),
+    ...optional("counterparty", cleanLine(value.counterparty, `${where}.counterparty`, 200)),
+    ...optional("court", cleanLine(value.court, `${where}.court`, 200))
+  };
+}
+var optional = (key, value) => value ? { [key]: value } : {};
+function parseDecision(value, index, ids, matterKeys) {
+  const where = `documents[${index}]`;
+  if (!record3(value))
+    return fail2(`${where} musí byť objekt`);
+  strict(value, ["id", "role", "matter", "confidence", "reason", "truncated"], where);
+  if (typeof value.id !== "string" || !ids.has(value.id))
+    fail2(`${where}.id nie je v inventári`);
+  const role = TRIAGE_ROLES.find((item) => item === value.role);
+  if (!role)
+    return fail2(`${where}.role musí byť ${TRIAGE_ROLES.join(" | ")}`);
+  if (value.matter !== undefined && value.matter !== null && (typeof value.matter !== "string" || !matterKeys.has(value.matter)))
+    fail2(`${where}.matter nie je známa vec`);
+  if (value.confidence !== "high" && value.confidence !== "medium" && value.confidence !== "low")
+    fail2(`${where}.confidence`);
+  if (value.truncated !== undefined && typeof value.truncated !== "boolean")
+    fail2(`${where}.truncated`);
+  return {
+    id: value.id,
+    role,
+    confidence: value.confidence,
+    reason: cleanLine(value.reason, `${where}.reason`, MAX_REASON) ?? "",
+    ...typeof value.matter === "string" ? { matter: value.matter } : {},
+    ...value.truncated === true ? { truncated: true } : {}
+  };
+}
+function parseClassification(value, inventory) {
+  if (!record3(value))
+    return fail2("koreň musí byť objekt");
+  strict(value, ["schema", "treeDigest", "matters", "documents"], "koreň");
+  if (value.schema !== CLASSIFICATION_SCHEMA)
+    fail2(`schema musí byť ${CLASSIFICATION_SCHEMA}`);
+  if (value.treeDigest !== inventory.treeDigest)
+    fail2("treeDigest nezodpovedá aktuálnemu stavu klona; spusti scan znova");
+  const rawMatters = value.matters ?? [];
+  if (!Array.isArray(rawMatters) || rawMatters.length > MAX_MATTERS)
+    fail2(`matters musí byť zoznam do ${MAX_MATTERS} vecí`);
+  const matters = rawMatters.map(parseMatter);
+  const keys = new Set;
+  for (const matter of matters) {
+    if (keys.has(matter.key))
+      fail2(`duplicitný kľúč veci ${matter.key}`);
+    keys.add(matter.key);
+  }
+  const folders = new Set;
+  for (const matter of matters) {
+    const folder = safeSegment(matter.title).toLocaleLowerCase();
+    if (folders.has(folder))
+      fail2(`dve nové veci s rovnakým názvom ${matter.title}`);
+    folders.add(folder);
+  }
+  const matterKeys = new Set([...keys, ...inventory.matters.map((matter) => matter.id)]);
+  if (!Array.isArray(value.documents) || value.documents.length > inventory.documents.length)
+    fail2("documents musí byť zoznam dokumentov z inventára");
+  const ids = new Set(inventory.documents.map((document) => document.id));
+  const documents = value.documents.map((item, index) => parseDecision(item, index, ids, matterKeys));
+  const seen = new Set;
+  for (const decision of documents) {
+    if (seen.has(decision.id))
+      fail2(`dokument ${decision.id} je uvedený dvakrát`);
+    seen.add(decision.id);
+  }
+  return { schema: CLASSIFICATION_SCHEMA, treeDigest: inventory.treeDigest, matters, documents };
+}
+
+// src/triage/plan.ts
+import { createHash as createHash7 } from "node:crypto";
+var sha256 = (value) => createHash7("sha256").update(value).digest("hex");
+function planFingerprint(plan) {
+  const { fingerprint: _ignored, ...rest } = plan;
+  return sha256(JSON.stringify(rest));
+}
+var MATTER_TITLE = { sk: "Konanie", cs: "Řízení", en: "Proceedings" };
+var MATTER_AREA = { sk: "Súdne konanie", cs: "Soudní řízení", en: "Litigation" };
+var RULE_MATTER_MIN_DOCUMENTS = 2;
+function splitName(name) {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? { stem: name.slice(0, dot), ext: name.slice(dot) } : { stem: name, ext: "" };
+}
+function resolveFolder(roles, role) {
+  for (const candidate of role === "important_mail" ? ["important_mail", "correspondence", "inbox"] : [role, "inbox"]) {
+    const folder = roles[candidate];
+    if (folder)
+      return { role: candidate, folder };
+  }
+  return null;
+}
+function buildTriagePlan(inventory, options) {
+  const language = inventory.language;
+  const keep = new Set(options.keepInInbox ?? []);
+  const model = new Map((options.classification?.documents ?? []).map((decision) => [decision.id, decision]));
+  const decisions = new Map;
+  const caseGroups = new Map;
+  for (const document of inventory.documents) {
+    const fromModel = model.get(document.id);
+    if (fromModel) {
+      decisions.set(document.id, { role: fromModel.confidence === "low" ? "inbox" : fromModel.role, matter: fromModel.matter, source: "model", confidence: fromModel.confidence, reason: fromModel.reason, ...fromModel.truncated ? { truncated: true } : {} });
+      continue;
+    }
+    const rule = classifyByRules(document);
+    decisions.set(document.id, { role: rule.role, source: "rules", confidence: rule.confidence, rule: rule.rule, ...rule.matched ? { matched: rule.matched } : {} });
+    if (rule.caseNumber) {
+      const group = caseGroups.get(rule.caseNumber.key) ?? { display: rule.caseNumber.display, ids: [] };
+      group.ids.push(document.id);
+      caseGroups.set(rule.caseNumber.key, group);
+    }
+  }
+  const planned = [];
+  const takenFolders = new Set(inventory.occupied.map((path) => path.toLocaleLowerCase()));
+  const addMatter = (input) => {
+    const date = input.date ?? options.today;
+    let title = input.title;
+    let built = buildMatterOperations({ title, date, kind: input.kind, area: input.area ?? MATTER_AREA[language], jurisdiction: inventory.jurisdiction, language, workingProfile: inventory.newMatterProfile, clientTitle: inventory.client.title, clientCardPath: `../../${inventory.client.card}`, extras: { caseNumber: input.caseNumber, counterparty: input.counterparty, court: input.court } });
+    for (let n = 2;takenFolders.has(built.folder.toLocaleLowerCase()); n++) {
+      title = `${input.title} (${n})`;
+      built = buildMatterOperations({ title, date, kind: input.kind, area: input.area ?? MATTER_AREA[language], jurisdiction: inventory.jurisdiction, language, workingProfile: inventory.newMatterProfile, clientTitle: inventory.client.title, clientCardPath: `../../${inventory.client.card}`, extras: { caseNumber: input.caseNumber, counterparty: input.counterparty, court: input.court } });
+    }
+    takenFolders.add(built.folder.toLocaleLowerCase());
+    for (const operation of built.operations)
+      takenFolders.add(operation.path.toLocaleLowerCase());
+    const profile = built.operations.find((operation) => operation.path === `${built.folder}/${PROFILE_FILE}`);
+    const roles = profile?.content ? parseWorkingProfile(profile.content).roles : {};
+    planned.push({ key: input.key, title, folder: built.folder, date, dateSource: input.date ? "model" : "today", kind: input.kind, area: input.area ?? MATTER_AREA[language], jurisdiction: inventory.jurisdiction, ...input.caseNumber ? { caseNumber: input.caseNumber } : {}, ...input.counterparty ? { counterparty: input.counterparty } : {}, ...input.court ? { court: input.court } : {}, source: input.source, documents: 0, operations: built.operations, roles });
+  };
+  for (const matter of options.classification?.matters ?? [])
+    addMatter({ ...matter, source: "model" });
+  for (const [caseKey, group] of [...caseGroups].sort(([a], [b]) => a.localeCompare(b))) {
+    const existing = inventory.matters.find((matter) => matter.caseKey === caseKey);
+    const fromModel = planned.find((matter) => matter.caseNumber && findCaseNumber(matter.caseNumber)?.key === caseKey);
+    let key = existing?.id ?? fromModel?.key;
+    if (!key && group.ids.length >= RULE_MATTER_MIN_DOCUMENTS) {
+      key = `case-${sha256(caseKey).slice(0, 8)}`;
+      addMatter({ key, title: `${MATTER_TITLE[language]} ${group.display.replace(/\//g, "-")}`, kind: "contentious", caseNumber: group.display, source: "rules" });
+    }
+    if (key)
+      for (const id of group.ids) {
+        const decision = decisions.get(id);
+        if (decision)
+          decision.matter = key;
+      }
+  }
+  for (const id of keep) {
+    const decision = decisions.get(id);
+    if (decision)
+      Object.assign(decision, { role: "inbox", matter: undefined, source: "user", confidence: "high" });
+  }
+  const destinations = new Map([["", { base: "", roles: inventory.profile.roles }]]);
+  for (const matter of inventory.matters)
+    destinations.set(matter.id, { base: matter.path, roles: matter.roles });
+  for (const matter of planned)
+    destinations.set(matter.key, { base: matter.folder, roles: matter.roles });
+  const occupied = new Set(inventory.occupied.map((path) => path.toLocaleLowerCase()));
+  const needsMattersDir = planned.length > 0 && !occupied.has("spisy");
+  for (const matter of planned)
+    for (const operation of matter.operations)
+      occupied.add(operation.path.toLocaleLowerCase());
+  if (needsMattersDir)
+    occupied.add("spisy");
+  const claimed = new Set;
+  const extraDirectories = [];
+  const ensureDirectory = (path) => {
+    if (!path || occupied.has(path.toLocaleLowerCase()))
+      return;
+    ensureDirectory(path.split("/").slice(0, -1).join("/"));
+    occupied.add(path.toLocaleLowerCase());
+    extraDirectories.push({ path, kind: "directory" });
+  };
+  const moves = [];
+  const stays = [];
+  const used = new Set;
+  for (const document of inventory.documents) {
+    const decision = decisions.get(document.id);
+    const destination = destinations.get(decision.matter ?? "") ?? destinations.get("");
+    const requested = decision.role ?? "inbox";
+    const primary = resolveFolder(destination.roles, requested);
+    const target = primary ?? (destination.base ? resolveFolder(inventory.profile.roles, "inbox") : null);
+    if (!target) {
+      stays.push({ id: document.id, path: document.path, why: "no_inbox" });
+      continue;
+    }
+    const base = primary ? destination.base : "";
+    const folder = base ? `${base}/${target.folder}` : target.folder;
+    if (document.path.split("/").slice(0, -1).join("/") === folder) {
+      stays.push({ id: document.id, path: document.path, why: target.role === "inbox" ? "unclear" : "already_in_place" });
+      continue;
+    }
+    const { stem, ext } = splitName(document.name);
+    let to = `${folder}/${document.name}`;
+    for (let n = 2;occupied.has(to.toLocaleLowerCase()) || claimed.has(to.toLocaleLowerCase()); n++)
+      to = `${folder}/${stem} (${n})${ext}`;
+    claimed.add(to.toLocaleLowerCase());
+    ensureDirectory(folder);
+    if (decision.matter && base)
+      used.add(decision.matter);
+    const fallback = target.role !== requested || base === "" && destination.base !== "";
+    moves.push({
+      id: document.id,
+      from: document.path,
+      to,
+      size: document.size,
+      sha256: document.sha256,
+      role: target.role,
+      ...decision.matter && base ? { matter: decision.matter } : {},
+      source: fallback ? "fallback" : decision.source,
+      confidence: decision.confidence,
+      ...decision.rule ? { rule: decision.rule } : {},
+      ...decision.matched ? { matched: decision.matched } : {},
+      ...decision.reason ? { reason: decision.reason } : {},
+      ...decision.truncated ? { truncated: true } : {},
+      ...to !== `${folder}/${document.name}` ? { renamed: true } : {}
+    });
+  }
+  const kept = planned.filter((matter) => used.has(matter.key));
+  for (const matter of kept)
+    matter.documents = moves.filter((move) => move.matter === matter.key).length;
+  const create = [
+    ...needsMattersDir && kept.length ? [{ path: "Spisy", kind: "directory" }] : [],
+    ...kept.flatMap((matter) => matter.operations),
+    ...extraDirectories
+  ];
+  const plan = {
+    schema: PLAN_SCHEMA,
+    runId: options.runId,
+    root: inventory.root,
+    treeDigest: inventory.treeDigest,
+    createdAt: options.createdAt,
+    language,
+    classification: options.classification ? { used: true, digest: sha256(JSON.stringify(options.classification)), documents: options.classification.documents.length } : { used: false, documents: 0 },
+    matters: kept.map(({ operations: _operations, roles: _roles, ...matter }) => matter),
+    create,
+    moves,
+    stays
+  };
+  return { ...plan, fingerprint: planFingerprint(plan) };
+}
+
+// src/triage/apply.ts
+import { createHash as createHash8 } from "node:crypto";
+import { constants as constants8 } from "node:fs";
+import { appendFile, copyFile as copyFile2, link, lstat as lstat10, mkdir as mkdir5, open as open8, readdir as readdir4, readFile as readFile6, realpath as realpath10, rmdir as rmdir3, unlink as unlink2 } from "node:fs/promises";
+import { dirname as dirname6, isAbsolute as isAbsolute7, join as join11, resolve as resolve9 } from "node:path";
+class TriageConflictError extends Error {
+  code = "triage_conflict";
+}
+var record4 = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+var missing3 = (error) => error instanceof Error && ("code" in error) && error.code === "ENOENT";
+var errorCode3 = (error) => error instanceof Error && ("code" in error) ? String(error.code) : "";
+var RUN_ID = /^triage-[0-9]{8}-[0-9]{6}-[a-f0-9]{6}$/;
+var reserved3 = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+function invalid(message) {
+  throw new Error(`Neplatný plán roztriedenia: ${message}`);
+}
+function safeRelative(value, where, allowKeep = false) {
+  if (typeof value !== "string" || !value || value.length > 1024 || value.includes("\x00") || value.includes("\\") || isAbsolute7(value) || /^[a-z]:/i.test(value))
+    invalid(`${where} nie je bezpečná relatívna cesta`);
+  const parts = value.split("/");
+  if (parts.some((part, index) => !part || part.length > 255 || part === "." || part === ".." || part.startsWith(".") && !(allowKeep && part === ".keep" && index === parts.length - 1) || /[<>:"|?*\u0000-\u001f\u007f-\u009f]/.test(part) || /[. ]$/.test(part) || reserved3.test(part)))
+    invalid(`${where} nie je bezpečná relatívna cesta`);
+  return value;
+}
+function parseTriagePlan(value) {
+  if (!record4(value) || value.schema !== PLAN_SCHEMA)
+    invalid("schema");
+  if (typeof value.runId !== "string" || !RUN_ID.test(value.runId))
+    invalid("runId");
+  if (typeof value.root !== "string" || !isAbsolute7(value.root) || resolve9(value.root) !== value.root)
+    invalid("root");
+  if (typeof value.treeDigest !== "string" || !/^[a-f0-9]{64}$/.test(value.treeDigest))
+    invalid("treeDigest");
+  if (typeof value.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(value.fingerprint))
+    invalid("fingerprint");
+  if (!Array.isArray(value.create) || !Array.isArray(value.moves) || !Array.isArray(value.stays) || !Array.isArray(value.matters))
+    invalid("zoznamy");
+  if (value.moves.length > 5000 || value.matters.length > 100)
+    invalid("príliš veľa položiek");
+  const create = parseOnboardingPlan({ version: 1, root: value.root, treeDigest: value.treeDigest, operations: value.create }).operations;
+  for (const operation of create)
+    safeRelative(operation.path, "create.path", operation.kind === "file");
+  const ids = new Set, sources = new Set, targets = new Set;
+  const created = new Set(create.map((operation) => operation.path.toLocaleLowerCase()));
+  for (const [index, move] of value.moves.entries()) {
+    const where = `moves[${index}]`;
+    if (!record4(move) || typeof move.id !== "string" || !/^d[a-f0-9]{16}$/.test(move.id))
+      invalid(`${where}.id`);
+    const from = safeRelative(move.from, `${where}.from`), to = safeRelative(move.to, `${where}.to`);
+    if (typeof move.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(move.sha256) || !Number.isSafeInteger(move.size) || move.size < 0)
+      invalid(`${where}.sha256`);
+    if (!TRIAGE_ROLES.some((role) => role === move.role))
+      invalid(`${where}.role`);
+    if (ids.has(move.id) || sources.has(from.toLocaleLowerCase()) || targets.has(to.toLocaleLowerCase()) || created.has(to.toLocaleLowerCase()))
+      invalid(`${where} sa opakuje`);
+    ids.add(move.id);
+    sources.add(from.toLocaleLowerCase());
+    targets.add(to.toLocaleLowerCase());
+  }
+  for (const target of targets)
+    if (sources.has(target))
+      invalid("cieľ presunu je zároveň zdrojom iného presunu");
+  const plan = value;
+  if (planFingerprint(plan) !== plan.fingerprint)
+    invalid("odtlačok nesedí; plán bol zmenený po náhľade");
+  return plan;
+}
+var EVENT_TYPES = new Set(["intent", "created", "move_intent", "moved", "completed", "undo_started", "restore_intent", "restored", "remove_intent", "removed", "undone"]);
+async function durableDirectory2(path) {
+  if (process.platform === "win32")
+    return;
+  const handle = await open8(path, constants8.O_RDONLY);
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+async function appendEvent2(path, event) {
+  const handle = await open8(path, constants8.O_WRONLY | constants8.O_APPEND | constants8.O_CREAT | constants8.O_NOFOLLOW, 384);
+  try {
+    await handle.writeFile(`${JSON.stringify(event)}
+`);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+async function readEvents2(path) {
+  let raw;
+  try {
+    raw = await readFile6(path, "utf8");
+  } catch (error) {
+    if (missing3(error))
+      return [];
+    throw error;
+  }
+  if (raw && !raw.endsWith(`
+`))
+    await appendFile(path, `
+`);
+  const events = [];
+  for (const line of raw.split(`
+`).filter(Boolean)) {
+    let value;
+    try {
+      value = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!record4(value) || typeof value.t !== "string" || !EVENT_TYPES.has(value.t))
+      throw new Error("Záznam roztriedenia je poškodený.");
+    events.push({ t: value.t, ...typeof value.path === "string" ? { path: value.path } : {}, ...typeof value.id === "string" ? { id: value.id } : {} });
+  }
+  return events;
+}
+async function runDirectory(root, runId, create) {
+  let current = root;
+  for (const part of [...TRIAGE_DIR.split("/"), "runs", runId]) {
+    current = join11(current, part);
+    if (create) {
+      try {
+        await mkdir5(current, { mode: 448 });
+      } catch (error) {
+        if (errorCode3(error) !== "EEXIST")
+          throw error;
+      }
+    }
+    const state = await lstat10(current);
+    if (!state.isDirectory() || state.isSymbolicLink() || await realpath10(current) !== current)
+      throw new Error("Priečinok záznamov roztriedenia nie je bezpečný.");
+  }
+  return current;
+}
+async function safeParent(root, relativePath) {
+  const full = join11(root, relativePath), parent = dirname6(full);
+  const state = await lstat10(parent);
+  if (!state.isDirectory() || state.isSymbolicLink() || await realpath10(parent) !== parent)
+    throw new TriageConflictError(`Cesta ${relativePath} vedie cez symbolický odkaz alebo neexistujúci priečinok.`);
+  return full;
+}
+async function fileDigest2(path) {
+  let handle;
+  try {
+    handle = await open8(path, constants8.O_RDONLY | constants8.O_NOFOLLOW);
+  } catch (error) {
+    if (missing3(error))
+      return null;
+    if (errorCode3(error) === "ELOOP")
+      throw new TriageConflictError(`Symbolický odkaz: ${path}`);
+    throw error;
+  }
+  try {
+    if (!(await handle.stat()).isFile())
+      throw new TriageConflictError(`Nie je obyčajný súbor: ${path}`);
+    const hash = createHash8("sha256"), buffer = Buffer.alloc(65536);
+    while (true) {
+      const read = await handle.read(buffer, 0, buffer.length, null);
+      if (!read.bytesRead)
+        break;
+      hash.update(buffer.subarray(0, read.bytesRead));
+    }
+    return hash.digest("hex");
+  } finally {
+    await handle.close();
+  }
+}
+async function moveExclusive(source, target, digest) {
+  try {
+    await link(source, target);
+  } catch (error) {
+    const code = errorCode3(error);
+    if (code === "EEXIST")
+      throw new TriageConflictError(`Cieľ už existuje: ${target}`);
+    if (!["EXDEV", "EPERM", "ENOTSUP", "EOPNOTSUPP", "EMLINK", "ENOSYS", "EACCES"].includes(code))
+      throw error;
+    await copyFile2(source, target, constants8.COPYFILE_EXCL);
+    const handle = await open8(target, (process.platform === "win32" ? constants8.O_RDWR : constants8.O_RDONLY) | constants8.O_NOFOLLOW);
+    try {
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+  }
+  if (await fileDigest2(target) !== digest)
+    throw new TriageConflictError(`Kópia ${target} nesedí s originálom.`);
+  await durableDirectory2(dirname6(target));
+  if (await fileDigest2(source) !== digest)
+    throw new TriageConflictError(`Zdroj ${source} sa zmenil počas presunu.`);
+  await unlink2(source);
+  await durableDirectory2(dirname6(source));
+}
+async function createOperation(root, operation) {
+  const full = await safeParent(root, operation.path);
+  if (operation.kind === "directory")
+    await mkdir5(full);
+  else {
+    const handle = await open8(full, constants8.O_WRONLY | constants8.O_CREAT | constants8.O_EXCL | constants8.O_NOFOLLOW, 420);
+    try {
+      await handle.writeFile(operation.content ?? "");
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+  }
+  await durableDirectory2(dirname6(full));
+}
+async function operationState(root, operation) {
+  const full = join11(root, operation.path);
+  let state;
+  try {
+    state = await lstat10(full);
+  } catch (error) {
+    if (missing3(error))
+      return "missing";
+    throw error;
+  }
+  if (state.isSymbolicLink())
+    return "other";
+  if (operation.kind === "directory")
+    return state.isDirectory() ? "ours" : "other";
+  return state.isFile() && await fileDigest2(full) === sha256(operation.content ?? "") ? "ours" : "other";
+}
+async function applyTriagePlan(input, options = {}) {
+  const plan = parseTriagePlan(input);
+  const clone = await verifyTrialClone(plan.root, options.trialJournalDirectory);
+  const root = clone.root;
+  const unlock = await lock(root);
+  try {
+    const dir = await runDirectory(root, plan.runId, true);
+    const planPath = join11(dir, "plan.json"), eventsPath = join11(dir, "events.jsonl");
+    let stored;
+    try {
+      stored = JSON.parse(await readFile6(planPath, "utf8"));
+    } catch (error) {
+      if (!missing3(error))
+        throw error;
+    }
+    let events = await readEvents2(eventsPath);
+    if (stored !== undefined) {
+      if (!record4(stored) || stored.fingerprint !== plan.fingerprint)
+        throw new TriageConflictError("Pod týmto označením už existuje iný beh roztriedenia.");
+      if (events.some((event) => event.t === "undo_started" || event.t === "undone"))
+        throw new TriageConflictError("Tento beh roztriedenia bol vrátený. Pripravte nový náhľad.");
+      if (events.some((event) => event.t === "completed")) {
+        for (const move of plan.moves)
+          if (await fileDigest2(join11(root, move.to)) !== move.sha256)
+            throw new TriageConflictError(`Roztriedený dokument sa odvtedy zmenil: ${move.to}`);
+        return { status: "already_applied", runId: plan.runId, moved: plan.moves.length, created: plan.create.length, journal: dir };
+      }
+    } else {
+      const inspection = await inspectOnboardingRoot(root);
+      if (!inspection.complete || triageTreeDigest(inspection.entries) !== plan.treeDigest)
+        throw new TriageConflictError("Klon sa od náhľadu zmenil. Pripravte nový náhľad.");
+      const paths = new Map(inspection.entries.map((entry) => [entry.path.toLocaleLowerCase(), entry]));
+      const plannedDirectories = new Set(plan.create.filter((operation) => operation.kind === "directory").map((operation) => operation.path.toLocaleLowerCase()));
+      for (const operation of plan.create)
+        if (paths.has(operation.path.toLocaleLowerCase()))
+          throw new TriageConflictError(`Cieľ už existuje: ${operation.path}`);
+      for (const move of plan.moves) {
+        const source = paths.get(move.from.toLocaleLowerCase());
+        if (!source || source.kind !== "file" || source.path !== move.from || source.digest !== move.sha256)
+          throw new TriageConflictError(`Dokument sa zmenil alebo chýba: ${move.from}`);
+        if (paths.has(move.to.toLocaleLowerCase()))
+          throw new TriageConflictError(`Cieľ už existuje: ${move.to}`);
+        const parent = move.to.split("/").slice(0, -1).join("/").toLocaleLowerCase();
+        if (parent && paths.get(parent)?.kind !== "directory" && !plannedDirectories.has(parent))
+          throw new TriageConflictError(`Chýba cieľový priečinok: ${move.to}`);
+      }
+      const handle = await open8(planPath, constants8.O_WRONLY | constants8.O_CREAT | constants8.O_EXCL | constants8.O_NOFOLLOW, 384);
+      try {
+        await handle.writeFile(JSON.stringify(plan, null, 2) + `
+`);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await durableDirectory2(dir);
+      events = [];
+    }
+    const createdPaths = new Set(events.filter((event) => event.t === "created").map((event) => event.path));
+    const intents = new Set(events.filter((event) => event.t === "intent").map((event) => event.path));
+    for (const operation of plan.create) {
+      if (createdPaths.has(operation.path))
+        continue;
+      const state = await operationState(root, operation);
+      if (state === "other" || state === "ours" && !intents.has(operation.path))
+        throw new TriageConflictError(`Cieľ už existuje: ${operation.path}`);
+      if (!intents.has(operation.path))
+        await appendEvent2(eventsPath, { t: "intent", path: operation.path });
+      if (state === "missing")
+        await createOperation(root, operation);
+      await appendEvent2(eventsPath, { t: "created", path: operation.path });
+    }
+    const moved = new Set(events.filter((event) => event.t === "moved").map((event) => event.id));
+    const moveIntents = new Set(events.filter((event) => event.t === "move_intent").map((event) => event.id));
+    for (const move of plan.moves) {
+      if (moved.has(move.id))
+        continue;
+      const source = await safeParent(root, move.from), target = await safeParent(root, move.to);
+      const [from, to] = [await fileDigest2(source), await fileDigest2(target)];
+      const started = moveIntents.has(move.id);
+      if (from === move.sha256 && to === null) {
+        if (!started)
+          await appendEvent2(eventsPath, { t: "move_intent", id: move.id });
+        await moveExclusive(source, target, move.sha256);
+      } else if (started && from === move.sha256 && to === move.sha256) {
+        await unlink2(source);
+        await durableDirectory2(dirname6(source));
+      } else if (!(started && from === null && to === move.sha256))
+        throw new TriageConflictError(to !== null && !started ? `Cieľ už existuje: ${move.to}` : `Dokument sa zmenil alebo chýba: ${move.from}`);
+      await appendEvent2(eventsPath, { t: "moved", id: move.id });
+    }
+    await appendEvent2(eventsPath, { t: "completed" });
+    return { status: "applied", runId: plan.runId, moved: plan.moves.length, created: plan.create.length, journal: dir };
+  } finally {
+    await unlock();
+  }
+}
+async function readRun(root, runId) {
+  if (!RUN_ID.test(runId))
+    throw new Error("Neplatné označenie behu roztriedenia.");
+  let dir;
+  try {
+    dir = await runDirectory(root, runId, false);
+  } catch (error) {
+    if (missing3(error))
+      throw new Error("Takýto beh roztriedenia v klone nie je.");
+    throw error;
+  }
+  const plan = parseTriagePlan(JSON.parse(await readFile6(join11(dir, "plan.json"), "utf8")));
+  if (plan.root !== root || plan.runId !== runId)
+    throw new Error("Záznam roztriedenia patrí inému priečinku.");
+  const eventsPath = join11(dir, "events.jsonl");
+  return { plan, events: await readEvents2(eventsPath), eventsPath, dir };
+}
+async function undoTriage(rootInput, runId, options = {}) {
+  const clone = await verifyTrialClone(rootInput, options.trialJournalDirectory);
+  const root = clone.root;
+  const unlock = await lock(root);
+  try {
+    const { plan, events, eventsPath } = await readRun(root, runId);
+    if (events.some((event) => event.t === "undone"))
+      return { status: "already_undone", runId, restored: 0, removed: 0 };
+    const restored = new Set(events.filter((event) => event.t === "restored").map((event) => event.id));
+    const removed = new Set(events.filter((event) => event.t === "removed").map((event) => event.path));
+    const moveIntents = new Set(events.filter((event) => event.t === "move_intent").map((event) => event.id));
+    const createIntents = new Set(events.filter((event) => event.t === "intent").map((event) => event.path));
+    const pending = [];
+    const problems = [];
+    for (const move of plan.moves) {
+      if (!moveIntents.has(move.id) || restored.has(move.id))
+        continue;
+      const from = await fileDigest2(join11(root, move.from)), to = await fileDigest2(join11(root, move.to));
+      if (to !== null && to !== move.sha256)
+        problems.push(move.to);
+      else if (from !== null && from !== move.sha256)
+        problems.push(move.from);
+      else if (from === null && to === null)
+        problems.push(move.to);
+      else
+        pending.push({ move, from, to });
+    }
+    const owned = new Set([...pending.filter((item) => item.to !== null).map((item) => item.move.to.toLocaleLowerCase())]);
+    const toRemove = plan.create.filter((operation) => createIntents.has(operation.path) && !removed.has(operation.path));
+    for (const operation of toRemove)
+      owned.add(operation.path.toLocaleLowerCase());
+    for (const operation of toRemove) {
+      const state = await operationState(root, operation);
+      if (state === "other")
+        problems.push(operation.path);
+      if (state === "ours" && operation.kind === "directory") {
+        for (const name of await readdir4(join11(root, operation.path)))
+          if (!owned.has(`${operation.path}/${name}`.toLocaleLowerCase()))
+            problems.push(`${operation.path}/${name}`);
+      }
+    }
+    for (const item of pending)
+      if (item.from === null && !await lstat10(dirname6(join11(root, item.move.from))).then((state) => state.isDirectory() && !state.isSymbolicLink()).catch(() => false))
+        problems.push(dirname6(item.move.from));
+    if (problems.length)
+      throw new TriageConflictError(`Roztriedenie sa nedá vrátiť bez zásahu do zmenených súborov: ${[...new Set(problems)].slice(0, 10).join(", ")}${problems.length > 10 ? " …" : ""}`);
+    if (!events.some((event) => event.t === "undo_started"))
+      await appendEvent2(eventsPath, { t: "undo_started" });
+    let restoredCount = 0, removedCount = 0;
+    for (const { move, from, to } of [...pending].reverse()) {
+      const source = await safeParent(root, move.to), target = await safeParent(root, move.from);
+      await appendEvent2(eventsPath, { t: "restore_intent", id: move.id });
+      if (from === null && to !== null)
+        await moveExclusive(source, target, move.sha256);
+      else if (from !== null && to !== null) {
+        await unlink2(source);
+        await durableDirectory2(dirname6(source));
+      }
+      await appendEvent2(eventsPath, { t: "restored", id: move.id });
+      restoredCount++;
+    }
+    for (const operation of [...toRemove].reverse()) {
+      const full = join11(root, operation.path);
+      await appendEvent2(eventsPath, { t: "remove_intent", path: operation.path });
+      const state = await operationState(root, operation);
+      if (state === "ours") {
+        if (operation.kind === "directory")
+          await rmdir3(full);
+        else
+          await unlink2(full);
+        await durableDirectory2(dirname6(full));
+      } else if (state === "other")
+        throw new TriageConflictError(`Zmenené počas vrátenia: ${operation.path}`);
+      await appendEvent2(eventsPath, { t: "removed", path: operation.path });
+      removedCount++;
+    }
+    await appendEvent2(eventsPath, { t: "undone" });
+    return { status: "undone", runId, restored: restoredCount, removed: removedCount };
+  } finally {
+    await unlock();
+  }
+}
+async function listTriageRuns(rootInput) {
+  const root = resolve9(rootInput);
+  const runs = join11(root, TRIAGE_DIR, "runs");
+  let names;
+  try {
+    const state = await lstat10(runs);
+    if (!state.isDirectory() || state.isSymbolicLink())
+      return [];
+    names = await readdir4(runs);
+  } catch (error) {
+    if (missing3(error))
+      return [];
+    throw error;
+  }
+  const result = [];
+  for (const name of names.filter((item) => RUN_ID.test(item))) {
+    try {
+      const { plan, events } = await readRun(root, name);
+      const state = events.some((event) => event.t === "undone") ? "undone" : events.some((event) => event.t === "undo_started") ? "undoing" : events.some((event) => event.t === "completed") ? "applied" : events.length ? "interrupted" : "planned";
+      result.push({ runId: name, createdAt: plan.createdAt, state, moves: plan.moves.length, matters: plan.matters.length, fingerprint: plan.fingerprint });
+    } catch {}
+  }
+  return result.sort((a, b) => b.runId.localeCompare(a.runId));
+}
+function newRunId(now = new Date, random = sha256(`${now.toISOString()}:${Math.random()}`)) {
+  const iso = now.toISOString();
+  return `triage-${iso.slice(0, 10).replace(/-/g, "")}-${iso.slice(11, 19).replace(/:/g, "")}-${random.slice(0, 6)}`;
+}
+
+// src/triage/index.ts
+async function latestModelProposal(inventory) {
+  const [file] = await listClassificationFiles(inventory.root);
+  if (!file)
+    return { proposal: { state: "none" } };
+  let raw;
+  try {
+    raw = await readJsonFile(file);
+  } catch (error) {
+    return { proposal: { state: "invalid", file: basename5(file), message: error instanceof Error ? error.message : String(error) } };
+  }
+  if (raw && typeof raw === "object" && "treeDigest" in raw && raw.treeDigest !== inventory.treeDigest)
+    return { proposal: { state: "stale", file: basename5(file) } };
+  try {
+    const classification = parseClassification(raw, inventory);
+    return { proposal: { state: "ready", file: basename5(file), documents: classification.documents.length, matters: classification.matters.length }, classification };
+  } catch (error) {
+    return { proposal: { state: "invalid", file: basename5(file), message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+async function prepareTriage(root, options = {}) {
+  const inventory = await scanTriage(root, { trialJournalDirectory: options.trialJournalDirectory, jurisdiction: options.jurisdiction });
+  let classification;
+  let proposal = { state: "none" };
+  if (options.classificationFile)
+    classification = parseClassification(await readJsonFile(options.classificationFile), inventory);
+  else {
+    const latest = await latestModelProposal(inventory);
+    proposal = latest.proposal;
+    if (options.useModelProposal)
+      classification = latest.classification;
+  }
+  const now = options.now ?? new Date;
+  const plan = buildTriagePlan(inventory, { classification, keepInInbox: options.keepInInbox, today: options.today ?? now.toISOString().slice(0, 10), runId: newRunId(now), createdAt: now.toISOString() });
+  return { inventory, plan, proposal, ...classification ? { classification } : {} };
+}
+
+// src/triage/cli.ts
+var usage2 = "okf triage status [<klon>] | scan [<klon>] [--out FILE] | plan [<klon>] [--classification FILE] [--keep-in-inbox ID,ID] [--today RRRR-MM-DD] | apply [<klon>] --plan FILE --confirm | undo [<klon>] --run RUN_ID --confirm  (bez <klon> klon v aktuálnom priečinku; voliteľne --trial-journal DIR)";
+function parse2(argv) {
+  const args = [], flags = new Map;
+  for (let i = 0;i < argv.length; i++) {
+    const value = argv[i];
+    if (!value.startsWith("--")) {
+      args.push(value);
+      continue;
+    }
+    if (flags.has(value))
+      throw new Error(`Duplicitný prepínač ${value}`);
+    if (value === "--confirm" || value === "--json")
+      flags.set(value, true);
+    else {
+      const next = argv[++i];
+      if (!next || next.startsWith("--"))
+        throw new Error(`Chýba hodnota ${value}`);
+      flags.set(value, next);
+    }
+  }
+  return { args, flags };
+}
+function only2(flags, allowed) {
+  for (const key of flags.keys())
+    if (![...allowed, "--json", "--trial-journal"].includes(key))
+      throw new Error(`Nepodporovaný prepínač ${key}`);
+}
+var value = (flags, name) => {
+  const item = flags.get(name);
+  return typeof item === "string" ? item : undefined;
+};
+function resolveCloneRoot(argument, cwd = process.cwd()) {
+  const start = resolve10(cwd, argument ?? ".");
+  const canonical = existsSync3(start) ? realpathSync(start) : start;
+  if (argument !== undefined)
+    return canonical;
+  for (let dir = canonical, depth = 0;depth < 16; depth++) {
+    if (existsSync3(join12(dir, TRIAL_MARKER)))
+      return dir;
+    const parent = dirname7(dir);
+    if (parent === dir)
+      break;
+    dir = parent;
+  }
+  return canonical;
+}
+async function runTriage(argv, out = console.log) {
+  try {
+    const { args, flags } = parse2(argv);
+    const [command, rootArgument] = args;
+    if (!command || args.length > 2)
+      throw new Error(usage2);
+    const root = resolveCloneRoot(rootArgument);
+    const trialJournalDirectory = value(flags, "--trial-journal");
+    if (command === "status") {
+      only2(flags, []);
+      const clone = await verifyTrialClone(root, trialJournalDirectory).then((result) => ({ trial: true, ...result }), (error) => ({ trial: false, reason: error instanceof Error ? error.message : String(error) }));
+      out(JSON.stringify({ ...clone, runs: clone.trial ? await listTriageRuns(clone.root) : [] }, null, 2));
+      return clone.trial ? 0 : 1;
+    }
+    if (command === "scan") {
+      only2(flags, ["--out"]);
+      const inventory = await scanTriage(root, { trialJournalDirectory });
+      const { proposal } = await latestModelProposal(inventory);
+      const output = value(flags, "--out");
+      if (output)
+        await writeNewJson(output, inventory);
+      out(JSON.stringify({ ...inventory, modelProposal: proposal }, null, 2));
+      return 0;
+    }
+    if (command === "plan") {
+      only2(flags, ["--classification", "--keep-in-inbox", "--today"]);
+      const keep = value(flags, "--keep-in-inbox")?.split(",").map((item) => item.trim()).filter(Boolean);
+      const today = value(flags, "--today");
+      if (today !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(today))
+        throw new Error("--today musí byť RRRR-MM-DD");
+      const { plan } = await prepareTriage(root, { trialJournalDirectory, classificationFile: value(flags, "--classification"), keepInInbox: keep, today });
+      const dir = await triageSubdirectory(plan.root, "plans", true);
+      const file = join12(dir, `${plan.runId}.json`);
+      await writeNewJson(file, plan);
+      out(JSON.stringify({ planFile: file, note: "Náhľad; nič sa nepresunulo. Ukáž plán človeku a po jeho súhlase spusti apply --confirm.", plan }, null, 2));
+      return 0;
+    }
+    if (command === "apply") {
+      only2(flags, ["--plan", "--confirm"]);
+      if (flags.get("--confirm") !== true)
+        throw new Error("Najprv ukáž plán človeku a po jeho súhlase spusti apply s --confirm.");
+      const file = value(flags, "--plan");
+      if (!file)
+        throw new Error("Chýba --plan FILE.");
+      const plan = await readJsonFile(file);
+      const verified = await verifyTrialClone(root, trialJournalDirectory);
+      if (!plan || typeof plan !== "object" || !("root" in plan) || plan.root !== verified.root)
+        throw new Error("Plán patrí inému priečinku.");
+      out(JSON.stringify(await applyTriagePlan(plan, { trialJournalDirectory }), null, 2));
+      return 0;
+    }
+    if (command === "undo") {
+      only2(flags, ["--run", "--confirm"]);
+      if (flags.get("--confirm") !== true)
+        throw new Error("Vrátenie potvrď prepínačom --confirm po súhlase človeka.");
+      const run = value(flags, "--run");
+      if (!run)
+        throw new Error("Chýba --run RUN_ID.");
+      out(JSON.stringify(await undoTriage(root, run, { trialJournalDirectory }), null, 2));
+      return 0;
+    }
+    throw new Error(usage2);
+  } catch (error) {
+    out(`okf triage: ${error instanceof Error ? error.message : String(error)}`);
+    return 1;
+  }
+}
 // src/core.ts
 var ENTITY_TYPES2 = ["klient", "spis", "projekt"];
 
 // src/fs.ts
-import { existsSync as existsSync3, lstatSync as lstatSync2, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync3, statSync, writeFileSync as writeFileSync2 } from "node:fs";
-import { basename as basename4, dirname as dirname6, join as join9, relative as relative6, resolve as resolve8, sep as sep7 } from "node:path";
+import { existsSync as existsSync4, lstatSync as lstatSync3, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync3, realpathSync as realpathSync3, statSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { basename as basename6, dirname as dirname8, join as join13, relative as relative9, resolve as resolve12, sep as sep10 } from "node:path";
+
+// ../okf-pamat/src/workspace-memory-fs.ts
+import { closeSync, constants as constants9, fstatSync, lstatSync as lstatSync2, openSync, readSync, realpathSync as realpathSync2 } from "node:fs";
+import { isAbsolute as isAbsolute8, parse as parse3, relative as relative8, resolve as resolve11, sep as sep9 } from "node:path";
+function isObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function missing4(error) {
+  return isObject(error) && error.code === "ENOENT";
+}
+function contained(root, target) {
+  const rel = relative8(root, target);
+  return rel === "" || !isAbsolute8(rel) && rel !== ".." && !rel.startsWith(`..${sep9}`);
+}
+function checkedPath(path, kind, allowMissing = false) {
+  const full = resolve11(path), root = parse3(full).root;
+  const parts = relative8(root, full).split(sep9).filter(Boolean);
+  let current = root;
+  for (let i = 0;i < parts.length; i++) {
+    current = resolve11(current, parts[i]);
+    let stat;
+    try {
+      stat = lstatSync2(current);
+    } catch (error) {
+      if (allowMissing && missing4(error))
+        return false;
+      throw error;
+    }
+    if (stat.isSymbolicLink())
+      throw new Error(`Symlink is not allowed: ${current}`);
+    if (i < parts.length - 1 || kind === "directory") {
+      if (!stat.isDirectory())
+        throw new Error(`Not a directory: ${current}`);
+    } else if (!stat.isFile())
+      throw new Error(`Not a regular file: ${current}`);
+  }
+  return true;
+}
+
+// src/fs.ts
 function readText(path) {
   return readFileSync3(path, "utf8");
 }
 function storedProfile(dir) {
-  const path = join9(dir, PROFILE_FILE);
-  if (!existsSync3(path))
+  const path = join13(dir, PROFILE_FILE);
+  if (!existsSync4(path))
     return;
   return parseWorkingProfile(readText(path));
 }
 function officeProfile(dir, language) {
   const office = findOfficeDir(dir);
-  if (!office || !existsSync3(join9(office, "okf.config")))
+  if (!office || !existsSync4(join13(office, "okf.config")))
     return;
-  const path = join9(office, "okf.config");
+  const path = join13(office, "okf.config");
   if (!statSync(path).isFile())
     return;
   return parseOfficeWorkingProfile(readText(path), language);
@@ -3245,13 +4618,13 @@ function listMarkdown(root) {
     for (const entry of readdirSync2(dir, { withFileTypes: true })) {
       if (entry.name.startsWith("."))
         continue;
-      const full = join9(dir, entry.name);
+      const full = join13(dir, entry.name);
       if (entry.isDirectory()) {
         if (entry.name === "templates" || entry.name === "node_modules")
           continue;
         walk(full);
       } else if (entry.name.endsWith(".md")) {
-        out.push(relative6(root, full).split("\\").join("/"));
+        out.push(relative9(root, full).split("\\").join("/"));
       }
     }
   };
@@ -3259,7 +4632,7 @@ function listMarkdown(root) {
   return out.sort();
 }
 function detect(dir, hint) {
-  const isDir = existsSync3(dir) && statSync(dir).isDirectory();
+  const isDir = existsSync4(dir) && statSync(dir).isDirectory();
   const base = {
     dir,
     isDir,
@@ -3273,38 +4646,38 @@ function detect(dir, hint) {
   };
   if (!isDir)
     return base;
-  const type = ENTITY_TYPES.find((candidate) => CARD_ALIASES[candidate].some((name) => existsSync3(join9(dir, name)))) ?? null;
-  const hasAgents = existsSync3(join9(dir, "AGENTS.md"));
-  const hasClaude = existsSync3(join9(dir, "CLAUDE.md"));
-  const claudeIsMirror = hasAgents && hasClaude ? readText(join9(dir, "AGENTS.md")) === readText(join9(dir, "CLAUDE.md")) : null;
-  const indexPath = join9(dir, "index.md");
-  const okfVersion = existsSync3(indexPath) ? parseFrontmatter(readText(indexPath))?.okf_version ?? null : null;
+  const type = ENTITY_TYPES.find((candidate) => CARD_ALIASES[candidate].some((name) => existsSync4(join13(dir, name)))) ?? null;
+  const hasAgents = existsSync4(join13(dir, "AGENTS.md"));
+  const hasClaude = existsSync4(join13(dir, "CLAUDE.md"));
+  const claudeIsMirror = hasAgents && hasClaude ? readText(join13(dir, "AGENTS.md")) === readText(join13(dir, "CLAUDE.md")) : null;
+  const indexPath = join13(dir, "index.md");
+  const okfVersion = existsSync4(indexPath) ? parseFrontmatter(readText(indexPath))?.okf_version ?? null : null;
   const effective = type ?? hint ?? null;
   const missing = effective ? plan({ type: effective, dir, title: "" }).entries.filter((entry) => entry.action === "create").map((entry) => entry.path) : [];
   return { ...base, type, hasAgents, hasClaude, claudeIsMirror, okfVersion, markdownCount: listMarkdown(dir).length, missing };
 }
 function plan(input) {
-  const agents = join9(input.dir, "AGENTS.md");
-  const card = existingCard(input.type, (name) => existsSync3(join9(input.dir, name)));
-  const existing = card ? parseFrontmatter(readText(join9(input.dir, card))) : null;
+  const agents = join13(input.dir, "AGENTS.md");
+  const card = existingCard(input.type, (name) => existsSync4(join13(input.dir, name)));
+  const existing = card ? parseFrontmatter(readText(join13(input.dir, card))) : null;
   const language = resolveDocumentLanguage(input.language ?? existing?.language, existing?.jurisdiction || input.jurisdiction);
   const templates = LOCALIZED_TEMPLATES[language];
   const advokat = input.advokat?.trim() || (input.type === "spis" ? readConfiguredLawyerName(findOfficeDir(input.dir)) : undefined);
   const profile = storedProfile(input.dir) ?? input.workingProfile ?? (input.type === "spis" ? officeProfile(input.dir, language) : undefined);
   let clientCardPath;
   if (input.type === "spis") {
-    for (let parent = dirname6(resolve8(input.dir));; parent = dirname6(parent)) {
-      const card = existingCard("klient", (name) => existsSync3(join9(parent, name)));
+    for (let parent = dirname8(resolve12(input.dir));; parent = dirname8(parent)) {
+      const card = existingCard("klient", (name) => existsSync4(join13(parent, name)));
       if (card) {
-        clientCardPath = relative6(input.dir, join9(parent, card)).split("\\").join("/");
+        clientCardPath = relative9(input.dir, join13(parent, card)).split("\\").join("/");
         break;
       }
-      if (dirname6(parent) === parent)
+      if (dirname8(parent) === parent)
         break;
     }
   }
-  const result = planEntity({ ...input, language, advokat, workingProfile: profile, clientCardPath }, templates, (p) => existsSync3(join9(input.dir, p)));
-  if (existsSync3(agents)) {
+  const result = planEntity({ ...input, language, advokat, workingProfile: profile, clientCardPath }, templates, (p) => existsSync4(join13(input.dir, p)));
+  if (existsSync4(agents)) {
     const mirror = result.entries.find((entry) => entry.path === "CLAUDE.md" && entry.action === "create");
     if (mirror)
       mirror.content = readText(agents);
@@ -3314,44 +4687,44 @@ function plan(input) {
 function apply(p) {
   const created = [];
   const skipped = [];
-  const root = resolve8(p.dir);
-  const card = existingCard(p.type, (name) => existsSync3(join9(root, name)));
+  const root = resolve12(p.dir);
+  const card = existingCard(p.type, (name) => existsSync4(join13(root, name)));
   const plannedCard = p.entries.find((entry) => CARD_ALIASES[p.type].includes(entry.path));
   if (plannedCard && (card || plannedCard.action === "skip") && card !== plannedCard.path)
     throw new Error("Karta entity sa od náhľadu zmenila; načítaj nový plán.");
   for (const entry of p.entries.filter((item) => item.action === "create")) {
-    const target = resolve8(root, entry.path);
-    if (!target.startsWith(root + sep7))
+    const target = resolve12(root, entry.path);
+    if (!target.startsWith(root + sep10))
       throw new Error(`Cesta opúšťa priečinok entity: ${entry.path}`);
-    for (let part = target;part !== root; part = dirname6(part)) {
-      if (lstatSync2(part, { throwIfNoEntry: false })?.isSymbolicLink())
+    for (let part = target;part !== root; part = dirname8(part)) {
+      if (lstatSync3(part, { throwIfNoEntry: false })?.isSymbolicLink())
         throw new Error(`Cesta vedie cez symbolický odkaz: ${entry.path}`);
     }
   }
   mkdirSync2(p.dir, { recursive: true });
   for (const entry of p.entries) {
-    const full = join9(p.dir, entry.path);
-    if (entry.action !== "create" || existsSync3(full)) {
+    const full = join13(p.dir, entry.path);
+    if (entry.action !== "create" || existsSync4(full)) {
       skipped.push(entry.path);
       continue;
     }
-    mkdirSync2(dirname6(full), { recursive: true });
+    mkdirSync2(dirname8(full), { recursive: true });
     writeFileSync2(full, entry.content ?? "", "utf8");
     created.push(entry.path);
   }
   return { created, skipped };
 }
 function validate(root) {
-  if (!existsSync3(root))
+  if (!existsSync4(root))
     return [{ path: root, message: "priečinok neexistuje" }];
   const errors = [];
   const documents = listMarkdown(root);
   const workingPaths = [];
   for (const rel of documents.filter((path) => path.split("/").pop() === PROFILE_FILE)) {
     try {
-      const scope = dirname6(join9(root, rel));
+      const scope = dirname8(join13(root, rel));
       for (const folder of storedProfile(scope)?.folders ?? [])
-        workingPaths.push(relative6(root, join9(scope, folder)).split("\\").join("/") + "/");
+        workingPaths.push(relative9(root, join13(scope, folder)).split("\\").join("/") + "/");
     } catch (error) {
       errors.push({ path: rel, message: error instanceof Error ? error.message : String(error) });
     }
@@ -3359,45 +4732,77 @@ function validate(root) {
   for (const rel of documents) {
     if (workingPaths.some((path) => rel.startsWith(path)) || rel.split("/").some((part) => WORKING_FOLDERS.some((folder) => folder === part)) || rel.split("/").pop() === "BRAIN.md")
       continue;
-    const parent = dirname6(join9(root, rel));
-    const bundleRoot = !rel.includes("/") || basename4(parent) === "memory" || ENTITY_TYPES.some((type) => CARD_ALIASES[type].some((name) => existsSync3(join9(parent, name))));
-    const error = validateMarkdown(rel, readText(join9(root, rel)), bundleRoot);
+    const parent = dirname8(join13(root, rel));
+    const bundleRoot = !rel.includes("/") || basename6(parent) === "memory" || ENTITY_TYPES.some((type) => CARD_ALIASES[type].some((name) => existsSync4(join13(parent, name))));
+    const error = validateMarkdown(rel, readText(join13(root, rel)), bundleRoot);
     if (error)
       errors.push(error);
   }
   return errors;
 }
+function realPathInside(realRoot, path) {
+  const logical = resolve12(realRoot, path);
+  const tail = [];
+  let ancestor = logical;
+  let real;
+  for (;; ) {
+    try {
+      real = realpathSync3.native(ancestor);
+      break;
+    } catch (error) {
+      if (!missing4(error))
+        throw error;
+    }
+    if (lstatSync3(ancestor, { throwIfNoEntry: false }))
+      throw new Error(`Visiaci symbolický odkaz nemožno overiť: ${ancestor}`);
+    const parent = dirname8(ancestor);
+    if (parent === ancestor)
+      throw new Error(`Cesta nemá existujúceho predka: ${logical}`);
+    tail.unshift(basename6(ancestor));
+    ancestor = parent;
+  }
+  const target = tail.length ? join13(real, ...tail) : real;
+  if (!contained(realRoot, target))
+    throw new Error(`Cesta vedie mimo priečinka entity (aj cez symbolický odkaz): ${logical}`);
+  if (!tail.length && !statSync(target).isFile())
+    throw new Error(`Nie je bežný súbor: ${logical}`);
+  return target;
+}
 function render(root, selectedLanguage) {
-  const cards = ENTITY_TYPES.flatMap((type) => CARD_ALIASES[type]).filter((name) => existsSync3(join9(root, name)));
+  const realRoot = realpathSync3.native(root);
+  if (!statSync(realRoot).isDirectory())
+    throw new Error(`Nie je priečinok: ${root}`);
+  const inside = (name) => realPathInside(realRoot, name);
+  const agents = inside("AGENTS.md");
+  const claude = inside("CLAUDE.md");
+  const index = inside("index.md");
+  const cards = ENTITY_TYPES.flatMap((type) => CARD_ALIASES[type]).filter((name) => existsSync4(join13(realRoot, name)));
   if (cards.length > 1)
     throw new Error(`Viac kariet entity: ${cards.join(", ")}. Najprv zosúlaď ich obsah.`);
-  const metadata = cards[0] ? parseFrontmatter(readText(join9(root, cards[0]))) : null;
+  const metadata = cards[0] ? parseFrontmatter(readText(inside(cards[0]))) : null;
   const language = resolveDocumentLanguage(selectedLanguage ?? metadata?.language, metadata?.jurisdiction);
   const written = [];
   const kept = [];
-  const agents = join9(root, "AGENTS.md");
-  const claude = join9(root, "CLAUDE.md");
-  if (existsSync3(agents)) {
+  if (existsSync4(agents)) {
     const a = readText(agents);
-    if (!existsSync3(claude)) {
+    if (!existsSync4(claude)) {
       writeFileSync2(claude, a, "utf8");
       written.push("CLAUDE.md");
     } else if (readText(claude) === a)
       kept.push("CLAUDE.md");
     else {
       const backup = `CLAUDE.md.${Date.now()}.bak`;
-      writeFileSync2(join9(root, backup), readText(claude), { encoding: "utf8", flag: "wx" });
+      writeFileSync2(join13(realRoot, backup), readText(claude), { encoding: "utf8", flag: "wx" });
       writeFileSync2(claude, a, "utf8");
       written.push(backup, "CLAUDE.md");
     }
   }
-  const index = join9(root, "index.md");
-  if (existsSync3(index)) {
+  if (existsSync4(index)) {
     const text = readText(index);
     const fm = parseFrontmatter(text);
     const head = fm ? text.slice(0, text.indexOf(`
 ---`, 3) + 4) : "";
-    const cards = listMarkdown(root).filter((rel) => rel.includes("/") && /\/(matter|spis|project|projekt|client|klient)\.md$/.test(rel));
+    const cards = listMarkdown(realRoot).filter((rel) => rel.includes("/") && /\/(matter|spis|project|projekt|client|klient)\.md$/.test(rel));
     const body = cards.length ? cards.map((rel) => `- [${rel.split("/").slice(0, -1).join("/")}](./${rel})`).join(`
 `) : { cs: "_(zatím žádné)_", sk: "_(zatiaľ žiadne)_", en: "_(none yet)_" }[language];
     const next = `${head}
@@ -3416,46 +4821,8 @@ ${body}
 }
 
 // src/naming-fs.ts
-import { closeSync as closeSync2, constants as constants7, fstatSync as fstatSync2, fsyncSync, lstatSync as lstatSync4, mkdirSync as mkdirSync3, openSync as openSync2, opendirSync, readSync as readSync2, realpathSync as realpathSync2, renameSync as renameSync2, unlinkSync, writeSync } from "node:fs";
-import { basename as basename5, dirname as dirname7, extname, isAbsolute as isAbsolute7, join as join10, relative as relative8, resolve as resolve10, sep as sep9 } from "node:path";
-
-// ../okf-pamat/src/workspace-memory-fs.ts
-import { closeSync, constants as constants6, fstatSync, lstatSync as lstatSync3, openSync, readSync, realpathSync } from "node:fs";
-import { isAbsolute as isAbsolute6, parse as parse2, relative as relative7, resolve as resolve9, sep as sep8 } from "node:path";
-function isObject(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function missing2(error) {
-  return isObject(error) && error.code === "ENOENT";
-}
-function contained(root, target) {
-  const rel = relative7(root, target);
-  return rel === "" || !isAbsolute6(rel) && rel !== ".." && !rel.startsWith(`..${sep8}`);
-}
-function checkedPath(path, kind, allowMissing = false) {
-  const full = resolve9(path), root = parse2(full).root;
-  const parts = relative7(root, full).split(sep8).filter(Boolean);
-  let current = root;
-  for (let i = 0;i < parts.length; i++) {
-    current = resolve9(current, parts[i]);
-    let stat;
-    try {
-      stat = lstatSync3(current);
-    } catch (error) {
-      if (allowMissing && missing2(error))
-        return false;
-      throw error;
-    }
-    if (stat.isSymbolicLink())
-      throw new Error(`Symlink is not allowed: ${current}`);
-    if (i < parts.length - 1 || kind === "directory") {
-      if (!stat.isDirectory())
-        throw new Error(`Not a directory: ${current}`);
-    } else if (!stat.isFile())
-      throw new Error(`Not a regular file: ${current}`);
-  }
-  return true;
-}
+import { closeSync as closeSync2, constants as constants10, fstatSync as fstatSync2, fsyncSync, lstatSync as lstatSync4, mkdirSync as mkdirSync3, openSync as openSync2, opendirSync, readSync as readSync2, realpathSync as realpathSync4, renameSync as renameSync2, unlinkSync, writeSync } from "node:fs";
+import { basename as basename7, dirname as dirname9, extname, isAbsolute as isAbsolute9, join as join14, relative as relative10, resolve as resolve13, sep as sep11 } from "node:path";
 
 // ../okf-pamat/src/workspace-memory-types.ts
 var WORKSPACE_MEMORY_LIMITS = Object.freeze({ profileBytes: 256 * 1024, journalBytes: 4 * 1024 * 1024, sourceBytes: 2 * 1024 * 1024, totalBytes: 16 * 1024 * 1024, sources: 256 });
@@ -3516,7 +4883,7 @@ function parseWorkspaceMemoryProfileText(text) {
 }
 
 // src/naming-core.ts
-import { createHash as createHash6 } from "node:crypto";
+import { createHash as createHash9 } from "node:crypto";
 import { posix } from "node:path";
 var NAMING_LIMITS = Object.freeze({ documents: 64, markdownFiles: 32, documentBytes: 100 * 1024 * 1024, markdownBytes: 5 * 1024 * 1024, totalBytes: 1024 * 1024 * 1024 });
 
@@ -3532,17 +4899,17 @@ class NamingConflict extends Error {
 var order = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 var fold = (value) => value.normalize("NFC").toUpperCase().toLowerCase();
 function hash2(value) {
-  return createHash6("sha256").update(value).digest("hex");
+  return createHash9("sha256").update(value).digest("hex");
 }
 function object3(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
-function fail2(message) {
+function fail3(message) {
   throw new NamingSchemaError(message);
 }
 function exactKeys(value, keys) {
   if (Object.keys(value).some((k) => !keys.includes(k)))
-    fail2("Unknown naming field");
+    fail3("Unknown naming field");
 }
 function safeId(value) {
   return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/.test(value) && !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(value);
@@ -3560,26 +4927,26 @@ function validateDate(value) {
 }
 function parseNamingRequest(value) {
   if (!object3(value))
-    return fail2("Invalid naming request");
+    return fail3("Invalid naming request");
   exactKeys(value, ["schema", "operationId", "documents", "markdownFiles"]);
   if (value.schema !== "lawoss.document-naming.request/v1" || !safeId(value.operationId) || !Array.isArray(value.documents) || value.documents.length < 1 || value.documents.length > NAMING_LIMITS.documents || !Array.isArray(value.markdownFiles) || value.markdownFiles.length > NAMING_LIMITS.markdownFiles)
-    return fail2("Invalid naming request or selection limit");
+    return fail3("Invalid naming request or selection limit");
   const ids = new Set, paths = new Set;
   const documents = value.documents.map((d) => {
     if (!object3(d))
-      return fail2("Invalid document");
+      return fail3("Invalid document");
     exactKeys(d, ["id", "path", "treatment", "destinationRole", "metadata"]);
     if (!safeId(d.id) || ids.has(fold(d.id)) || !safeRelativePath(d.path) || paths.has(fold(d.path)) || d.treatment !== "rename-working" && d.treatment !== "copy-original-to-drafts" || typeof d.destinationRole !== "string" || !/^[a-z][a-z_]*$/.test(d.destinationRole) || d.treatment === "copy-original-to-drafts" && d.destinationRole !== "drafts" || !object3(d.metadata))
-      return fail2("Invalid/duplicate document, portable path or original destination");
+      return fail3("Invalid/duplicate document, portable path or original destination");
     exactKeys(d.metadata, ["date", "kind", "client", "description", "version"]);
     if (!validateDate(d.metadata.date))
-      return fail2("Explicit valid ISO calendar date or bez-datumu required");
+      return fail3("Explicit valid ISO calendar date or bez-datumu required");
     const metadata = { date: d.metadata.date };
     for (const key of ["kind", "client", "description", "version"]) {
       const field = d.metadata[key];
       if (field !== undefined) {
         if (typeof field !== "string" || !field.trim() || field.length > 240)
-          return fail2(`Invalid metadata: ${key}`);
+          return fail3(`Invalid metadata: ${key}`);
         metadata[key] = field;
       }
     }
@@ -3590,7 +4957,7 @@ function parseNamingRequest(value) {
   const selected = new Set;
   const markdownFiles = value.markdownFiles.map((p) => {
     if (!safeRelativePath(p) || !/\.md$/i.test(p) || selected.has(fold(p)) || paths.has(fold(p)))
-      return fail2("Invalid/duplicate Markdown or selected document overlap");
+      return fail3("Invalid/duplicate Markdown or selected document overlap");
     selected.add(fold(p));
     return p;
   }).sort(order);
@@ -3599,7 +4966,7 @@ function parseNamingRequest(value) {
 function normalizeNamingValue(value) {
   const normalized = value.normalize("NFC").replace(/[\s\\/<>:"|?*`\u0000-\u001f\u007f-\u009f\u2028\u2029]+/gu, "-").replace(/-+/g, "-").replace(/^[. -]+|[. -]+$/g, "");
   if (!normalized)
-    fail2("Metadata becomes empty after normalization");
+    fail3("Metadata becomes empty after normalization");
   return { input: value, normalized };
 }
 function normalizedMetadata(metadata) {
@@ -3607,11 +4974,11 @@ function normalizedMetadata(metadata) {
 }
 function renderDocumentName(profile, metadata, extension) {
   if (!validateDate(metadata.date))
-    fail2("Explicit document date required");
+    fail3("Explicit document date required");
   const normalized = normalizedMetadata(metadata);
-  const rendered = profile.naming.replace(/\{(date|kind|client|description|version)\}/g, (_, key) => normalized[key] ?? fail2(`Missing metadata: ${key}`)) + extension;
+  const rendered = profile.naming.replace(/\{(date|kind|client|description|version)\}/g, (_, key) => normalized[key] ?? fail3(`Missing metadata: ${key}`)) + extension;
   if (!safeRelativePath(rendered) || rendered.includes("/") || Buffer.byteLength(rendered) > 240)
-    fail2("Rendered name is not a portable filename");
+    fail3("Rendered name is not a portable filename");
   return rendered;
 }
 function canonical(value) {
@@ -3621,7 +4988,7 @@ function canonical(value) {
     return `{${Object.keys(value).sort(order).map((k) => `${JSON.stringify(k)}:${canonical(value[k])}`).join(",")}}`;
   if (value === null || typeof value === "string" || typeof value === "boolean" || typeof value === "number" && Number.isFinite(value))
     return JSON.stringify(value);
-  return fail2("Non-JSON naming value");
+  return fail3("Non-JSON naming value");
 }
 function namingFingerprint(value) {
   return hash2(canonical(value));
@@ -3629,9 +4996,9 @@ function namingFingerprint(value) {
 function rewriteSelectedMarkdownLinks(markdownPath, content, moves) {
   const referenceIds = [...content.matchAll(/^ {0,3}\[([^\]\n]+)\]:/gm)].map((m) => fold(m[1].trim().replace(/\s+/g, " ")));
   if (referenceIds.length > 20000)
-    fail2("Selected Markdown exceeds bounded reference count");
+    fail3("Selected Markdown exceeds bounded reference count");
   if (new Set(referenceIds).size !== referenceIds.length && moves.some((move) => fold(content).includes(fold(posix.basename(move.from)))))
-    fail2("Duplicate reference definitions in affected Markdown");
+    fail3("Duplicate reference definitions in affected Markdown");
   const rewrites = [];
   const edits = [];
   const covered = [];
@@ -3647,13 +5014,13 @@ function rewriteSelectedMarkdownLinks(markdownPath, content, moves) {
       if (content[start - 1] === "\\")
         continue;
       if (covered.length > 20000 || rewrites.length > 4096)
-        fail2("Selected Markdown exceeds bounded link count");
+        fail3("Selected Markdown exceeds bounded link count");
       if (code.some((c) => start < c.end && end > c.start) || covered.some((c) => start < c.end && end > c.start))
         continue;
       const raw = m[1], angle = raw.startsWith("<") && raw.endsWith(">");
       const destination = angle ? raw.slice(1, -1) : raw;
       if (moves.length && !/^(?:[A-Za-z][A-Za-z0-9+.-]*:|\/)/.test(destination) && /&(?:#[0-9]+|#x[0-9a-f]+|[a-z][a-z0-9]*);/i.test(destination))
-        fail2("Uncertain entity-bearing relative link destination");
+        fail3("Uncertain entity-bearing relative link destination");
       const split = destination.search(/[?#]/);
       const pathname = split < 0 ? destination : destination.slice(0, split), suffix = split < 0 ? "" : destination.slice(split);
       if (/^(?:[A-Za-z][A-Za-z0-9+.-]*:|\/|#)/.test(pathname)) {
@@ -3672,12 +5039,12 @@ function rewriteSelectedMarkdownLinks(markdownPath, content, moves) {
       const matches = moves.filter((move) => move.from === resolved || kind === "wikilink" && move.from === decoded);
       const unique = [...new Set(matches)];
       if (unique.length > 1)
-        fail2("Ambiguous affected wikilink");
+        fail3("Ambiguous affected wikilink");
       if (unique.length === 0) {
         if (kind === "wikilink" && moves.some((move) => fold(posix.basename(move.from, posix.extname(move.from))) === fold(posix.basename(decoded, posix.extname(decoded)))))
-          fail2("Ambiguous affected wikilink; use an exact relative path");
+          fail3("Ambiguous affected wikilink; use an exact relative path");
         if (moves.some((move) => fold(move.from) === fold(resolved)))
-          fail2("Ambiguous affected link case");
+          fail3("Ambiguous affected link case");
         covered.push({ start, end });
         continue;
       }
@@ -3687,14 +5054,14 @@ function rewriteSelectedMarkdownLinks(markdownPath, content, moves) {
         next = `./${next}`;
       if (kind === "wikilink") {
         if (/[#%[\]\^|]/.test(next))
-          fail2("Unsafe wiki target syntax; refine metadata or selected link format");
+          fail3("Unsafe wiki target syntax; refine metadata or selected link format");
       } else
         next = next.split("/").map((segment) => encodeURIComponent(segment).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)).join("/");
       next += suffix;
       const replacement = angle ? `<${next}>` : next;
       const capture = m.indices?.[1];
       if (!capture)
-        fail2("Missing exact link destination capture");
+        fail3("Missing exact link destination capture");
       edits.push({ start: capture[0], end: capture[1], text: replacement });
       covered.push({ start, end });
       rewrites.push({ from: destination, to: next, kind });
@@ -3708,7 +5075,7 @@ function rewriteSelectedMarkdownLinks(markdownPath, content, moves) {
     const id = fold((m[2] || m[1]).trim().replace(/\s+/g, " "));
     if (referenceIds.includes(id)) {
       if (covered.length >= 20000)
-        fail2("Selected Markdown exceeds bounded link count");
+        fail3("Selected Markdown exceeds bounded link count");
       covered.push({ start, end });
     }
   }
@@ -3716,19 +5083,19 @@ function rewriteSelectedMarkdownLinks(markdownPath, content, moves) {
   for (const c of covered.sort((a, b) => b.start - a.start))
     residual = residual.slice(0, c.start) + " ".repeat(c.end - c.start) + residual.slice(c.end);
   if (moves.length && /&(?:#[0-9]+|#x[0-9a-f]+|[a-z][a-z0-9]*);/i.test(residual))
-    fail2("Uncertain entity syntax outside supported links");
+    fail3("Uncertain entity syntax outside supported links");
   if (moves.length) {
     const unescaped = residual.replace(/\\([!-/:-@\[-`{-~])/g, "$1");
     const decodedResidual = unescaped.replace(/(?:%[0-9a-f]{2})+/gi, (encoded) => {
       try {
         return decodeURIComponent(encoded);
       } catch {
-        return fail2("Uncertain URI encoding outside supported links");
+        return fail3("Uncertain URI encoding outside supported links");
       }
     });
     const candidates = [fold(residual), fold(unescaped), fold(decodedResidual)];
     if (moves.some((move) => candidates.some((text) => text.includes(fold(posix.basename(move.from))))))
-      fail2("Affected path in unsupported/ambiguous Markdown syntax");
+      fail3("Affected path in unsupported/ambiguous Markdown syntax");
   }
   let result = content;
   for (const edit of edits.sort((a, b) => b.start - a.start))
@@ -3739,7 +5106,7 @@ function rewriteSelectedMarkdownLinks(markdownPath, content, moves) {
 // src/naming-fs.ts
 var PROFILE_LIMIT = 256 * 1024;
 var JSON_LIMIT = 4 * 1024 * 1024;
-var reserved3 = /^(?:memory|spisy|office|_kancelaria|agents\.md|claude\.md|brain\.md|memory\.md|_memory\.md|client\.md|klient\.md|matter\.md|spis\.md|project\.md|projekt\.md|index\.md|log\.md|_status\.md|vstupy\.md|pracovny-profil\.md|komunikacne-kanaly\.md|okf\.config)$/i;
+var reserved4 = /^(?:memory|spisy|office|_kancelaria|agents\.md|claude\.md|brain\.md|memory\.md|_memory\.md|client\.md|klient\.md|matter\.md|spis\.md|project\.md|projekt\.md|index\.md|log\.md|_status\.md|vstupy\.md|pracovny-profil\.md|komunikacne-kanaly\.md|okf\.config)$/i;
 var physical = (stat) => `${stat.dev}:${stat.ino}`;
 var utf8 = (data) => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(data);
 function conflict(message) {
@@ -3750,17 +5117,17 @@ function exists(path, kind = "file") {
 }
 function rootDirectory(directory) {
   checkedPath(directory, "directory");
-  const path = realpathSync2(directory);
+  const path = realpathSync4(directory);
   return { path, identity: physical(lstatSync4(path, { bigint: true })) };
 }
 function assertRoot(root) {
   checkedPath(root.path, "directory");
-  if (realpathSync2(root.path) !== root.path || physical(lstatSync4(root.path, { bigint: true })) !== root.identity)
+  if (realpathSync4(root.path) !== root.path || physical(lstatSync4(root.path, { bigint: true })) !== root.identity)
     conflict("Matter root changed");
 }
 function readNamingBinary(path, limit) {
   checkedPath(path, "file");
-  const fd = openSync2(path, constants7.O_RDONLY | constants7.O_NOFOLLOW | constants7.O_NONBLOCK);
+  const fd = openSync2(path, constants10.O_RDONLY | constants10.O_NOFOLLOW | constants10.O_NONBLOCK);
   try {
     const before = fstatSync2(fd, { bigint: true });
     if (!before.isFile() || before.nlink !== 1n)
@@ -3791,20 +5158,20 @@ function pin(path, read) {
   return { path, sha256: read.sha256, bytes: read.bytes, physical: read.physical };
 }
 function assertPin(root, expected, limit) {
-  const read = readNamingBinary(join10(root, expected.path), limit);
+  const read = readNamingBinary(join14(root, expected.path), limit);
   if (read.sha256 !== expected.sha256 || read.bytes !== expected.bytes || read.physical !== expected.physical)
     conflict(`Changed source: ${expected.path}`);
   return read;
 }
 function checkCase(path, shouldExist) {
-  const directory = opendirSync(dirname7(path));
+  const directory = opendirSync(dirname9(path));
   let found = false, count = 0;
   try {
     for (let entry = directory.readSync();entry; entry = directory.readSync()) {
       if (++count > 20000)
         conflict("Destination/path directory exceeds bounded case-check limit (20000 entries)");
-      if (fold(entry.name) === fold(basename5(path))) {
-        if (entry.name !== basename5(path) || !shouldExist)
+      if (fold(entry.name) === fold(basename7(path))) {
+        if (entry.name !== basename7(path) || !shouldExist)
           conflict(`Case-fold collision: ${path}`);
         found = true;
       }
@@ -3816,36 +5183,36 @@ function checkCase(path, shouldExist) {
     conflict(`Missing exact path: ${path}`);
 }
 function contentPath(root, path, mapped) {
-  if (!safeRelativePath(path) || path.split("/").some((p) => reserved3.test(p)) || mapped.has(fold(path)))
+  if (!safeRelativePath(path) || path.split("/").some((p) => reserved4.test(p)) || mapped.has(fold(path)))
     throw new NamingSchemaError(`Protected or unsafe path: ${path}`);
-  const result = resolve10(root, path);
+  const result = resolve13(root, path);
   if (!contained(root, result))
     throw new NamingSchemaError("Path outside matter");
   let component = root;
   for (const part of path.split("/").slice(0, -1)) {
-    component = join10(component, part);
+    component = join14(component, part);
     checkedPath(component, "directory");
     checkCase(component, true);
   }
   return result;
 }
 function memoryProtection(root) {
-  const path = ".lawoss/memory-profile.json", absolute = join10(root, path), mapped = new Set;
+  const path = ".lawoss/memory-profile.json", absolute = join14(root, path), mapped = new Set;
   if (!exists(absolute))
     return { source: null, mapped };
   const read = readNamingBinary(absolute, PROFILE_LIMIT), profile = parseWorkspaceMemoryProfileText(utf8(read.data));
   for (const source of profile.sources) {
     const location = profile.roots.find((r) => r.id === source.root);
-    const full = resolve10(root, location.path, source.path);
+    const full = resolve13(root, location.path, source.path);
     if (contained(root, full))
-      mapped.add(fold(relative8(root, full).split(sep9).join("/")));
+      mapped.add(fold(relative10(root, full).split(sep11).join("/")));
   }
   return { source: pin(path, read), mapped };
 }
 function targetAbsent(root, target) {
-  const path = join10(root, target.path);
-  checkedPath(dirname7(path), "directory");
-  if (physical(lstatSync4(dirname7(path), { bigint: true })) !== target.parentPhysical)
+  const path = join14(root, target.path);
+  checkedPath(dirname9(path), "directory");
+  if (physical(lstatSync4(dirname9(path), { bigint: true })) !== target.parentPhysical)
     conflict(`Target directory changed: ${target.path}`);
   checkCase(path, false);
   if (exists(path))
@@ -3853,7 +5220,7 @@ function targetAbsent(root, target) {
 }
 function planDocumentNaming(matterDir, input) {
   const request = parseNamingRequest(input), root = rootDirectory(matterDir);
-  const profileRead = readNamingBinary(join10(root.path, PROFILE_FILE), PROFILE_LIMIT), profile = parseWorkingProfile(utf8(profileRead.data));
+  const profileRead = readNamingBinary(join14(root.path, PROFILE_FILE), PROFILE_LIMIT), profile = parseWorkingProfile(utf8(profileRead.data));
   const protection = memoryProtection(root.path), selected = new Set([...request.documents.map((d) => fold(d.path)), ...request.markdownFiles.map(fold)]), targets = new Set, identities = new Set;
   let totalBytes = profileRead.bytes + (protection.source?.bytes ?? 0);
   const documents = request.documents.map((document) => {
@@ -3871,7 +5238,7 @@ function planDocumentNaming(matterDir, input) {
     if (selected.has(fold(targetPath)) || targets.has(fold(targetPath)))
       conflict(`Source/target or target overlap: ${targetPath}`);
     targets.add(fold(targetPath));
-    const target = { path: targetPath, mustBeAbsent: true, parentPhysical: physical(lstatSync4(dirname7(absoluteTarget), { bigint: true })) };
+    const target = { path: targetPath, mustBeAbsent: true, parentPhysical: physical(lstatSync4(dirname9(absoluteTarget), { bigint: true })) };
     targetAbsent(root.path, target);
     totalBytes += sourceRead.bytes;
     if (totalBytes > NAMING_LIMITS.totalBytes)
@@ -3910,7 +5277,7 @@ function parseNamingPlan(value) {
     throw new NamingSchemaError("Invalid naming plan");
   exactKeys(value, ["schema", "operationId", "fingerprint", "matterRootPhysical", "rootIdentity", "request", "profile", "memoryProfile", "documents", "markdown", "limits", "totalBytes", "linkScope"]);
   const request = parseNamingRequest(value.request);
-  if (value.schema !== "lawoss.document-naming.plan/v1" || value.operationId !== request.operationId || typeof value.fingerprint !== "string" || typeof value.matterRootPhysical !== "string" || !isAbsolute7(value.matterRootPhysical) || typeof value.rootIdentity !== "string" || !/^[0-9]+:[0-9]+$/.test(value.rootIdentity) || !object3(value.profile) || typeof value.profile.naming !== "string" || !object3(value.profile.roles) || !isPin(value.profile) || value.profile.path !== PROFILE_FILE || value.memoryProfile !== null && (!isPin(value.memoryProfile) || value.memoryProfile.path !== ".lawoss/memory-profile.json") || !Array.isArray(value.documents) || value.documents.length !== request.documents.length || !Array.isArray(value.markdown) || value.markdown.length !== request.markdownFiles.length || namingFingerprint(value.limits) !== namingFingerprint(NAMING_LIMITS) || typeof value.totalBytes !== "number" || !Number.isSafeInteger(value.totalBytes) || value.totalBytes < 0 || value.totalBytes > NAMING_LIMITS.totalBytes || value.linkScope !== "selected-files-only; unselected links are not verified")
+  if (value.schema !== "lawoss.document-naming.plan/v1" || value.operationId !== request.operationId || typeof value.fingerprint !== "string" || typeof value.matterRootPhysical !== "string" || !isAbsolute9(value.matterRootPhysical) || typeof value.rootIdentity !== "string" || !/^[0-9]+:[0-9]+$/.test(value.rootIdentity) || !object3(value.profile) || typeof value.profile.naming !== "string" || !object3(value.profile.roles) || !isPin(value.profile) || value.profile.path !== PROFILE_FILE || value.memoryProfile !== null && (!isPin(value.memoryProfile) || value.memoryProfile.path !== ".lawoss/memory-profile.json") || !Array.isArray(value.documents) || value.documents.length !== request.documents.length || !Array.isArray(value.markdown) || value.markdown.length !== request.markdownFiles.length || namingFingerprint(value.limits) !== namingFingerprint(NAMING_LIMITS) || typeof value.totalBytes !== "number" || !Number.isSafeInteger(value.totalBytes) || value.totalBytes < 0 || value.totalBytes > NAMING_LIMITS.totalBytes || value.linkScope !== "selected-files-only; unselected links are not verified")
     throw new NamingSchemaError("Invalid naming plan fields");
   for (const [i, d] of value.documents.entries()) {
     const document = request.documents[i];
@@ -3927,8 +5294,8 @@ function parseNamingPlan(value) {
   return value;
 }
 function exclusive(path, data, mode = 384) {
-  checkedPath(dirname7(path), "directory");
-  const fd = openSync2(path, constants7.O_WRONLY | constants7.O_CREAT | constants7.O_EXCL | constants7.O_NOFOLLOW, mode);
+  checkedPath(dirname9(path), "directory");
+  const fd = openSync2(path, constants10.O_WRONLY | constants10.O_CREAT | constants10.O_EXCL | constants10.O_NOFOLLOW, mode);
   try {
     const buffer = typeof data === "string" ? Buffer.from(data) : data;
     let count = 0;
@@ -3959,9 +5326,9 @@ function finalStates(root, plan) {
   profileCAS(root, plan);
   const files = [];
   for (const doc of plan.documents) {
-    const targetPath = join10(root, doc.target.path);
-    checkedPath(dirname7(targetPath), "directory");
-    if (physical(lstatSync4(dirname7(targetPath), { bigint: true })) !== doc.target.parentPhysical)
+    const targetPath = join14(root, doc.target.path);
+    checkedPath(dirname9(targetPath), "directory");
+    if (physical(lstatSync4(dirname9(targetPath), { bigint: true })) !== doc.target.parentPhysical)
       conflict("Final target directory changed");
     checkCase(targetPath, true);
     const target = readNamingBinary(targetPath, NAMING_LIMITS.documentBytes);
@@ -3970,11 +5337,11 @@ function finalStates(root, plan) {
       conflict(`Final target changed: ${doc.target.path}`);
     if (doc.treatment === "copy-original-to-drafts")
       files.push(pin(doc.source.path, assertPin(root, doc.source, NAMING_LIMITS.documentBytes)));
-    else if (exists(join10(root, doc.source.path)))
+    else if (exists(join14(root, doc.source.path)))
       conflict(`Working source reappeared: ${doc.source.path}`);
   }
   for (const m of plan.markdown) {
-    const read = readNamingBinary(join10(root, m.source.path), NAMING_LIMITS.markdownBytes);
+    const read = readNamingBinary(join14(root, m.source.path), NAMING_LIMITS.markdownBytes);
     if (read.sha256 !== m.afterSha256)
       conflict(`Final Markdown changed: ${m.source.path}`);
     files.push(pin(m.source.path, read));
@@ -3986,7 +5353,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
   const report = (status, message) => ({ status, operationId: plan.operationId, fingerprint: plan.fingerprint, ...message ? { message } : {} });
   if (root.path !== plan.matterRootPhysical || root.identity !== plan.rootIdentity)
     return report("conflict", "Matter root physical identity differs");
-  const history = join10(root.path, ".lawoss/naming-history"), operation = join10(history, plan.operationId), journal = join10(operation, "journal.json"), lock = join10(history, "apply.lock");
+  const history = join14(root.path, ".lawoss/naming-history"), operation = join14(history, plan.operationId), journal = join14(operation, "journal.json"), lock = join14(history, "apply.lock");
   let lockIdentity;
   const created = [], installed = [], removed = [];
   let prepared = false;
@@ -3996,7 +5363,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
       if (fresh.fingerprint !== plan.fingerprint)
         conflict("Preview is stale; create and approve a new plan");
     }
-    controlDirectory(join10(root.path, ".lawoss"));
+    controlDirectory(join14(root.path, ".lawoss"));
     controlDirectory(history);
     checkCase(operation, exists(operation, "directory"));
     lockIdentity = exclusive(lock, JSON.stringify({ operationId: plan.operationId, fingerprint: plan.fingerprint }));
@@ -4017,9 +5384,9 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
           return report("conflict", "Operation ID belongs to a different plan");
         if (namingFingerprint(prior.plan) !== namingFingerprint(plan))
           return recovery("Journal plan is inconsistent");
-        if (!exists(join10(operation, "committed.json")))
+        if (!exists(join14(operation, "committed.json")))
           return recovery("Incomplete operation; retain journal and snapshots for human recovery");
-        const receipt = readNamingJson(join10(operation, "committed.json"));
+        const receipt = readNamingJson(join14(operation, "committed.json"));
         if (!object3(receipt) || receipt.version !== 1 || receipt.status !== "committed" || typeof receipt.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(receipt.fingerprint) || !Array.isArray(receipt.finalFiles) || !receipt.finalFiles.every((file) => isPin(file) && safeRelativePath(file.path)))
           return recovery("Incomplete or invalid committed receipt");
         if (receipt.fingerprint !== plan.fingerprint)
@@ -4043,7 +5410,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
     const snapshots = new Map;
     for (const [i, source] of [...plan.documents.map((d) => d.source), ...plan.markdown.map((m) => m.source)].entries()) {
       const read = assertPin(root.path, source, i < plan.documents.length ? NAMING_LIMITS.documentBytes : NAMING_LIMITS.markdownBytes);
-      const backup = join10(operation, `before-${i}.bin`);
+      const backup = join14(operation, `before-${i}.bin`);
       exclusive(backup, read.data);
       snapshots.set(source.path, { backup, mode: read.mode, beforeSha256: read.sha256 });
     }
@@ -4053,12 +5420,12 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
       assertRoot(root);
       profileCAS(root.path, plan);
       targetAbsent(root.path, document.target);
-      const source = assertPin(root.path, document.source, NAMING_LIMITS.documentBytes), path = join10(root.path, document.target.path);
+      const source = assertPin(root.path, document.source, NAMING_LIMITS.documentBytes), path = join14(root.path, document.target.path);
       const identity = exclusive(path, source.data, source.mode);
       created.push({ path, physical: identity, sha256: source.sha256 });
       if (readNamingBinary(path, NAMING_LIMITS.documentBytes).sha256 !== source.sha256)
         conflict("Target copy verification failed");
-      exclusive(join10(operation, `target-${created.length}.json`), JSON.stringify(created.at(-1)));
+      exclusive(join14(operation, `target-${created.length}.json`), JSON.stringify(created.at(-1)));
       hooks.checkpoint?.("target-created", document.target.path);
     }
     const moves = plan.documents.filter((d) => d.treatment === "rename-working").map((d) => ({ from: d.source.path, to: d.target.path }));
@@ -4069,14 +5436,14 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
         conflict("Link rewrite differs from approved plan");
       if (markdown.source.sha256 === markdown.afterSha256)
         continue;
-      const staged = join10(operation, `markdown-${i}.stage`), identity = exclusive(staged, rewritten.content, before.mode);
+      const staged = join14(operation, `markdown-${i}.stage`), identity = exclusive(staged, rewritten.content, before.mode);
       if (readNamingBinary(staged, NAMING_LIMITS.markdownBytes).sha256 !== markdown.afterSha256)
         conflict("Staged Markdown differs");
       assertRoot(root);
       profileCAS(root.path, plan);
       assertPin(root.path, markdown.source, NAMING_LIMITS.markdownBytes);
-      const path = join10(root.path, markdown.source.path);
-      exclusive(join10(operation, `markdown-${i}-intent.json`), JSON.stringify({ path: markdown.source.path, stagedPhysical: identity }));
+      const path = join14(root.path, markdown.source.path);
+      exclusive(join14(operation, `markdown-${i}-intent.json`), JSON.stringify({ path: markdown.source.path, stagedPhysical: identity }));
       renameSync2(staged, path);
       installed.push({ path, physical: identity, sha256: markdown.afterSha256, ...snapshots.get(markdown.source.path) });
       hooks.checkpoint?.("markdown-installed", markdown.source.path);
@@ -4085,14 +5452,14 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
       assertRoot(root);
       profileCAS(root.path, plan);
       for (const m of plan.markdown)
-        if (readNamingBinary(join10(root.path, m.source.path), NAMING_LIMITS.markdownBytes).sha256 !== m.afterSha256)
+        if (readNamingBinary(join14(root.path, m.source.path), NAMING_LIMITS.markdownBytes).sha256 !== m.afterSha256)
           conflict("Selected links changed before source removal");
-      const target = readNamingBinary(join10(root.path, document.target.path), NAMING_LIMITS.documentBytes);
+      const target = readNamingBinary(join14(root.path, document.target.path), NAMING_LIMITS.documentBytes);
       if (target.sha256 !== document.source.sha256)
         conflict("Target changed before source removal");
       assertPin(root.path, document.source, NAMING_LIMITS.documentBytes);
-      const path = join10(root.path, document.source.path), snapshot = snapshots.get(document.source.path);
-      exclusive(join10(operation, `remove-${removed.length}-intent.json`), JSON.stringify({ path: document.source.path, ...snapshot }));
+      const path = join14(root.path, document.source.path), snapshot = snapshots.get(document.source.path);
+      exclusive(join14(operation, `remove-${removed.length}-intent.json`), JSON.stringify({ path: document.source.path, ...snapshot }));
       unlinkSync(path);
       removed.push({ path, sha256: document.source.sha256, ...snapshot });
       hooks.checkpoint?.("source-removed", document.source.path);
@@ -4103,7 +5470,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
     for (const file of [...created, ...installed])
       if (readNamingBinary(file.path, NAMING_LIMITS.documentBytes).physical !== file.physical)
         conflict("Written file physical identity changed before commit");
-    exclusive(join10(operation, "committed.json"), JSON.stringify({ version: 1, status: "committed", fingerprint: plan.fingerprint, finalFiles }));
+    exclusive(join14(operation, "committed.json"), JSON.stringify({ version: 1, status: "committed", fingerprint: plan.fingerprint, finalFiles }));
     return { ...report("applied"), journal };
   } catch (error) {
     const recovery = prepared;
@@ -4157,7 +5524,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
             completeRollback = false;
           }
       try {
-        exclusive(join10(operation, "failure.json"), JSON.stringify({ status: "recovery-required", error: error instanceof Error ? error.message : String(error), created, installed, removed }));
+        exclusive(join14(operation, "failure.json"), JSON.stringify({ status: "recovery-required", error: error instanceof Error ? error.message : String(error), created, installed, removed }));
       } catch {}
     }
     return { ...report(recovery ? "recovery-required" : "conflict", error instanceof Error ? error.message : String(error)), ...prepared ? { journal } : {} };
@@ -4171,10 +5538,10 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
   }
 }
 function writeNamingPlanOutsideMatter(matterDir, output, plan) {
-  const root = rootDirectory(matterDir), path = resolve10(output);
-  checkedPath(dirname7(path), "directory");
-  const parent = realpathSync2(dirname7(path)), physicalOutput = join10(parent, basename5(path));
-  if (contained(root.path, physicalOutput) || !safeRelativePath(basename5(path)))
+  const root = rootDirectory(matterDir), path = resolve13(output);
+  checkedPath(dirname9(path), "directory");
+  const parent = realpathSync4(dirname9(path)), physicalOutput = join14(parent, basename7(path));
+  if (contained(root.path, physicalOutput) || !safeRelativePath(basename7(path)))
     throw new NamingSchemaError("--out must be a new portable filename outside the matter root");
   checkCase(physicalOutput, false);
   exclusive(physicalOutput, JSON.stringify(plan, null, 2) + `
@@ -4374,7 +5741,7 @@ function run(argv, out = console.log) {
         return 0;
       }
       default:
-        out("okf detect|plan|apply|validate|render|naming|onboard; plan/apply/render: --language cs|sk|en; pozri hlavi\u010Dku src/cli.ts");
+        out("okf detect|plan|apply|validate|render|naming|onboard|triage; plan/apply/render: --language cs|sk|en; pozri hlavi\u010Dku src/cli.ts");
         return cmd ? 2 : 0;
     }
   } catch (error) {
@@ -4384,14 +5751,14 @@ function run(argv, out = console.log) {
 }
 var isMain = (() => {
   try {
-    return realpathSync3(process.argv[1] ?? "") === realpathSync3(fileURLToPath(import.meta.url));
+    return realpathSync5(process.argv[1] ?? "") === realpathSync5(fileURLToPath(import.meta.url));
   } catch {
     return false;
   }
 })();
 if (isMain) {
   const args = process.argv.slice(2);
-  process.exit(args[0] === "onboard" ? await runOnboarding(args.slice(1)) : run(args));
+  process.exit(args[0] === "onboard" ? await runOnboarding(args.slice(1)) : args[0] === "triage" ? await runTriage(args.slice(1)) : run(args));
 }
 export {
   run

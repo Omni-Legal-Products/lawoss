@@ -300,6 +300,11 @@ export function LocalProvider({ children }: LocalProviderProps) {
   return <LocalContext.Provider value={value}>{children}</LocalContext.Provider>;
 }
 
+/** LAWOSS: like useLocal, but undefined outside the provider (LAWOSS screens rendered standalone). */
+export function useOptionalLocal(): LocalContextValue | undefined {
+  return use(LocalContext);
+}
+
 export function useLocal(): LocalContextValue {
   const context = use(LocalContext);
   if (!context) {

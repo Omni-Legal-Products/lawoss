@@ -401,7 +401,8 @@ export async function resolveServerConfig(
     workspaces,
     authorizedRoots,
     readOnly,
-    autoDownloadOcr: parseBoolean(process.env.LEGALWORK_OCR_AUTO_DOWNLOAD) ?? fileConfig.autoDownloadOcr ?? true,
+    // LAWOSS: no model download at startup; local OCR downloads on first use (lawoss/ocr-on-demand.ts).
+    autoDownloadOcr: parseBoolean(process.env.LEGALWORK_OCR_AUTO_DOWNLOAD) ?? fileConfig.autoDownloadOcr ?? false,
     startedAt: Date.now(),
     tokenSource,
     hostTokenSource,

@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, renameSync, writeFileSync } from "node:fs";
+import { realpathSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { apply, detect, plan, render, validate } from "../src/fs.ts";
 import type { EntityType } from "../src/core.ts";
 
 let root: string;
-beforeEach(() => { root = mkdtempSync(join(tmpdir(), "okf-cards-")); });
+beforeEach(() => { root = realpathSync(mkdtempSync(join(tmpdir(), "okf-cards-"))); });
 afterEach(() => { rmSync(root, { recursive: true, force: true }); });
 const cases: { type: EntityType; canonical: string; legacy: string }[] = [
   { type: "klient", canonical: "client.md", legacy: "klient.md" },

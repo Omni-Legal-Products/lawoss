@@ -222,6 +222,13 @@ Miestnu príslušnosť nenapádame.
 **History** sa cez zápisové API iba rozširuje. Prístup k súborom cez iný editor
 nie je nezmeniteľný auditný archív.
 
+Štruktúru riadi agent: smie použiť **vlastný typ** (vždy L2, varovanie `AGENT_TYPE`),
+**vlastné sekcie** `## …` (zachovajú sa doslovne a v poradí) a zoznam **zapojených
+subjektov** `participants` (súd, úrad, kontakt; mená sú jehlami brány úniku do L3).
+Známe sú aj nesporné typy `requirement`, `instrument` a `relation`. Deterministické
+ostávajú kritické údaje: `deadlines` a `due` iba ako ISO dátum (`DATE_INVALID`)
+a tvar spisovej značky `matter_ref` (`CASE_NUMBER_FORMAT`). Podrobne v `SKILL.md`.
+
 ### Prečo anglicky
 
 Perzistencia je anglická, **rozhranie lokalizované**. Dôsledky:

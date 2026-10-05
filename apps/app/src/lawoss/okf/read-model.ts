@@ -14,21 +14,24 @@ import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import type { RouteWorkspace } from "@/react-app/shell/route-workspaces";
 import { normalizeDirectoryPath } from "@/app/utils";
 
-import { addDays, buildOverview, deadlineTier, type DeadlineTier, type MatterInput, type Overview } from "../../../../../lawoss/okf/read";
+import { addDays, buildOverview, deadlineTier, ISO_DAY, isCalendarDay, type DeadlineTier, type MatterInput, type Overview } from "../../../../../lawoss/okf/read";
 import { parseFrontmatter } from "../../../../../lawoss/okf/src/core";
 import { parseRecord, parseFrontmatter as parseMemoryFrontmatter } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { validateStore } from "../../../../../lawoss/okf-pamat/src/validate.ts";
 import { loadOkfConnection, type OkfConnection } from "./connection";
 
 export type OkfReadClient = Pick<LegalworkServerClient, "listWorkspaceDirectory" | "readWorkspaceFile">;
-export type ReadProblem = { path: string; message: string; kind?: "validation"; scope?: "matter" | "client" | "office" };
+type ReadProblem = { path: string; message: string; kind?: "validation"; scope?: "matter" | "client" | "office" };
 export type OkfReadResult = Overview & {
   problems: ReadProblem[];
   /** Workspace má viac vecí než `MAX_MATTERS`; prehľad je čiastočný. */
   truncated: boolean;
   /** Prečítané záznamy po veciach — detail veci ich potrebuje, prehľad ich ignoruje. */
   inputs: MatterInput[];
+  /** Priečinky s kartou klienta (`client.md`/`klient.md`) vrátane klientov bez vecí; názov z karty. */
+  clients?: OkfClient[];
 };
+export type OkfClient = { path: string; title?: string };
 
 export const MAX_MATTERS = 200;
 const CONCURRENCY = 6;
@@ -46,8 +49,8 @@ const AK_CLIENT = /^AK\/[^/]+\/[^/]+$/;
 const WORK_DIRS = new Set(["DS", "Prilohy", "Přílohy", "research", "drafts", "final", "analysis", "sources", "qa", "logs"]);
 const isWorkDir = (name: string): boolean => WORK_DIRS.has(name) || /^\d{2}_/.test(name) || name.startsWith("_");
 const RESERVED = new Set(["index.md", "log.md", "INDEX.md"]);
-const missing = (e: unknown): boolean => /(?:\b404\b|\bENOENT\b|not found)/i.test(message(e));
-const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+export const missing = (e: unknown): boolean => /(?:\b404\b|\bENOENT\b|not[_ ]found)/i.test(message(e));
+export const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /** `Promise.all` s hornou hranicou súbežnosti; výsledky v poradí vstupu. */
 async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
@@ -93,6 +96,7 @@ export async function readWorkspaceMemory(
   const dirs = async (path: string): Promise<string[]> => (await list(path))
     .filter((e) => e.kind === "dir" && !e.name.startsWith(".") && !SKIP_DIRECTORIES.has(e.name)).map((e) => e.path);
   const paths: string[] = [];
+  const clientPaths: string[] = [];
   let scanned = 0;
   const discover = async (path: string, directMatter = false, depth = 0, insideClient = false): Promise<void> => {
     if (scanned >= MAX_DISCOVERY_DIRECTORIES || paths.length >= MAX_MATTERS || depth > MAX_DISCOVERY_DEPTH) { truncated = true; return; }
@@ -107,6 +111,7 @@ export async function readWorkspaceMemory(
     // (nebo s vlastními soubory) je věcí sám - z přehledu se nic neztratí. Tvar se `Spisy/` platí dál.
     // Klient s kartou (client.md/klient.md) je OKF klient - i bez věcí zůstává klientem, ne věcí.
     const hasClientCard = entries.some((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name));
+    if (hasClientCard) clientPaths.push(path);
     if (AK_CLIENT.test(path) && !hasClientCard && !entries.some((e) => e.kind === "dir" && [MATTERS_DIR, "Veci"].includes(e.name))) {
       const matters = entries.filter((e) => e.kind === "dir" && !e.name.startsWith(".") && !SKIP_DIRECTORIES.has(e.name) && !isWorkDir(e.name));
       const ownFiles = entries.some((e) => e.kind === "file" && !e.name.startsWith("."));
@@ -129,6 +134,20 @@ export async function readWorkspaceMemory(
 
   type Bundle = { records: MatterInput["records"]; files: Record<string, string> };
   const bundles = new Map<string, Promise<Bundle>>();
+  // Názov klienta z jeho karty; jedna karta sa číta raz, aj keď má klient veľa vecí.
+  const clientTitles = new Map<string, Promise<string | undefined>>();
+  const clientTitle = (clientPath: string): Promise<string | undefined> => {
+    const cached = clientTitles.get(clientPath);
+    if (cached) return cached;
+    const pending = (async () => {
+      const card = (await list(clientPath)).find((e) => e.kind === "file" && CLIENT_CARDS.includes(e.name));
+      if (!card) return undefined;
+      const title = parseFrontmatter((await client.readWorkspaceFile(workspaceId, childPath(clientPath, card.name))).content)?.title;
+      return typeof title === "string" && title.trim() ? title.trim() : undefined;
+    })().catch((e: unknown) => { problems.push({ path: clientPath, message: message(e), scope: "client" }); return undefined; });
+    clientTitles.set(clientPath, pending);
+    return pending;
+  };
   const readBundle = (dir: string): Promise<Bundle> => {
     let pending = bundles.get(dir);
     if (!pending) {
@@ -216,6 +235,10 @@ export async function readWorkspaceMemory(
         input.records.push(record);
       }
     }
+    if (clientPath !== undefined) {
+      const title = await clientTitle(clientPath);
+      if (title) input.clientTitle = title;
+    }
     if (clientPath !== undefined && (await list(clientPath)).some((entry) => entry.name === "VSTUPY.md" && entry.kind === "file")) {
       const intakePath = childPath(clientPath, "VSTUPY.md");
       try {
@@ -257,7 +280,15 @@ export async function readWorkspaceMemory(
     }
     return input;
   });
-  return { ...buildOverview(matters, todayIso), problems, truncated, inputs: matters };
+  // Súbežné čítanie pridáva problémy v náhodnom poradí; zoradené sa nemenia, kým sa nezmenia súbory
+  // (inak by zdieľanie štruktúry v react-query hlásilo zmenu a pohľad by sa zbytočne prekreslil).
+  // Klient bez vecí je stále klient: Klienti a veci ho ukážu (D1 2026-10-04). Poradie podľa cesty kvôli zdieľaniu štruktúry.
+  const clients = (await mapLimit([...clientPaths].sort(), CONCURRENCY, async (clientPath): Promise<OkfClient> => {
+    const title = await clientTitle(clientPath);
+    return title ? { path: clientPath, title } : { path: clientPath };
+  }));
+  problems.sort((a, b) => a.path.localeCompare(b.path) || a.message.localeCompare(b.message));
+  return { ...buildOverview(matters, todayIso), problems, truncated, inputs: matters, clients };
 }
 
 /** Spojenie na server rovnako ako v Novom spise, len ako hook. */
@@ -319,28 +350,42 @@ export function officeOf(workspaces: readonly RouteWorkspace[], active: RouteWor
   return ancestors.sort((a, b) => normalizeDirectoryPath(a.path).length - normalizeDirectoryPath(b.path).length)[0] ?? active;
 }
 
+/** Ako často sa pohľady z OKF ticho obnovujú, kým je okno aktívne. */
+export const OKF_REFRESH_MS = 15_000;
+/** Strop pre veľkú kanceláriu: obnova nesmie bežať dlhšie, než trvá samotné čítanie. */
+const OKF_REFRESH_MAX_MS = 120_000;
+/** Posledná dĺžka čítania podľa workspace; dlhé čítanie predĺži interval. */
+const readDurations = new Map<string, number>();
+
+/** 15 s, alebo desaťnásobok posledného čítania, najviac 2 minúty. */
+export function okfRefreshInterval(lastReadMs: number | undefined): number {
+  return Math.min(OKF_REFRESH_MAX_MS, Math.max(OKF_REFRESH_MS, Math.round((lastReadMs ?? 0) * 10)));
+}
+
 export function useOkfOverview(connection: OkfConnection | null, workspace: RouteWorkspace | null) {
   const client = connection?.client ?? null;
   return useQuery({
     // Adresa a token v klíči: nové spojení = nové čtení (cache je jen v paměti, nikam se neukládá).
     queryKey: ["okf-overview", workspace?.id ?? "", connection?.baseUrl ?? "", connection?.token ?? ""],
     enabled: Boolean(client && workspace),
-    queryFn: () => {
-      if (!client || !workspace) throw new Error("Server LegalWork nebeží alebo chýba workspace.");
-      return readWorkspaceMemory(client, workspace.id);
+    queryFn: async () => {
+      if (!client || !workspace) throw new Error("Server LAWOSS nebeží alebo chýba workspace.");
+      const started = Date.now();
+      try { return await readWorkspaceMemory(client, workspace.id); }
+      finally { readDurations.set(workspace.id, Date.now() - started); }
     },
+    // Pohľady sú živé: zápis agenta alebo advokáta do OKF súborov sa ukáže bez reštartu.
+    // Obnovuje sa pri návrate do okna a v tichosti na pozadí; zmena sa prekreslí len pri inom obsahu.
+    refetchOnWindowFocus: true,
+    refetchInterval: () => okfRefreshInterval(workspace ? readDurations.get(workspace.id) : undefined),
+    refetchIntervalInBackground: false,
   });
 }
 
 // ── zobrazenie ────────────────────────────────────────────────────────────
 
-const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 /** Date-only values are calendar days, independent of the machine's time zone. */
-function calendarDay(iso: string): Date | null {
-  if (!ISO_DAY.test(iso)) return null;
-  const date = new Date(`${iso}T00:00:00Z`);
-  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === iso ? date : null;
-}
+const calendarDay = (iso: string): Date | null => isCalendarDay(iso) ? new Date(`${iso}T00:00:00Z`) : null;
 
 export function formatDay(iso: string, locale = "sk"): string {
   const date = calendarDay(iso);

@@ -4,6 +4,7 @@
  * Záznam je markdown so YAML frontmatterom a dvomi sekciami:
  *   ## Truth    — aktuálny overený stav, prepisuje sa
  *   ## History  — append-only stopa, nikdy sa nemaže
+ * Ďalšie sekcie `## …`, ktoré si agent založí, sa zachovajú doslovne a v poradí.
  *
  * Kľúče frontmatteru aj nadpisy sekcií sú kanonické (anglické) pre obe
  * jurisdikcie. Lokalizuje sa až výstup pre človeka.
@@ -15,7 +16,8 @@ import {
   canonicalField,
   isJurisdiction,
   isRecordType,
-  LAYER_OF,
+  layerOf,
+  AGENT_TYPE_PATTERN,
   type Jurisdiction,
   type Layer,
   type RecordType,
@@ -28,7 +30,7 @@ import {
 export const HEADINGS = { truth: "Truth", timeline: "History" } as const;
 
 /** Skalár frontmatteru. */
-export type FmScalar = string | number;
+type FmScalar = string | number;
 /** Ploché mapovanie — jeden prameň, jedno overenie. */
 export type FmMap = Record<string, FmScalar>;
 /**
@@ -63,6 +65,23 @@ export interface TimelineEntry {
   readonly kind?: string;
 }
 
+/** Zapojený subjekt (súd, úrad, protistrana, kontakt…). Rolu určuje agent voľne. */
+export interface Participant {
+  /** Povinné — validátor chýbajúce meno hlási ako PARTICIPANT_NAME_MISSING. */
+  name?: string;
+  role?: string;
+  contact?: string;
+  /** Odkaz: ID záznamu, spisová značka, ID schránky… */
+  ref?: string;
+  note?: string;
+}
+
+/** Vlastná sekcia tela záznamu mimo Truth/History. */
+export interface BodySection {
+  readonly heading: string;
+  readonly body: string;
+}
+
 export interface OkfRecord {
   /** Verzia formátu. Kľúč `okf:` je zároveň značkou, podľa ktorej sa súbor pozná. */
   okf: number;
@@ -95,6 +114,8 @@ export interface OkfRecord {
   proves?: string[];
   depends_on?: string[];
   acceptance?: string[];
+  signed_by?: string[];
+  participants?: Participant[];
 
   // spis
   truth_digest?: string;
@@ -169,8 +190,27 @@ export interface OkfRecord {
   state?: string;
   due?: string;
 
+  // požiadavka, listina, vzťah — nesporná agenda
+  demanded_by?: string;
+  demanded_from?: string;
+  fulfillment_status?: string;
+  version?: string;
+  file_hash?: string;
+  form?: string;
+  signed_at?: string;
+  effect?: string;
+  instrument_status?: string;
+  from_subject?: string;
+  to_subject?: string;
+  relation_kind?: string;
+  share?: string;
+  valid_from?: string;
+  valid_to?: string;
+
   truth: string;
   timeline: TimelineEntry[];
+  /** Vlastné sekcie tela v poradí zo súboru. Zapisujú sa za History. */
+  sections?: BodySection[];
 
   /**
    * Kľúče frontmatteru, ktoré schéma nepozná — zachovajú sa tak, ako prišli.
@@ -445,6 +485,24 @@ function sectionBody(body: string, heading: string): string | undefined {
   return (next ? rest.slice(0, next.index) : rest).trim();
 }
 
+const HEADING_LINE = /^##\s+(.+?)\s*$/;
+
+/** Sekcie tela okrem Truth a History — doslovne, v poradí. */
+function parseSections(body: string): BodySection[] {
+  const out: { heading: string; lines: string[] }[] = [];
+  let cur: { heading: string; lines: string[] } | undefined;
+  for (const line of body.split("\n")) {
+    const heading = HEADING_LINE.exec(line)?.[1];
+    if (heading !== undefined) {
+      cur = heading === HEADINGS.truth || heading === HEADINGS.timeline ? undefined : { heading, lines: [] };
+      if (cur) out.push(cur);
+      continue;
+    }
+    cur?.lines.push(line);
+  }
+  return out.map((x) => ({ heading: x.heading, body: x.lines.join("\n").replace(/^(?:[ \t]*\n)+/, "").trimEnd() }));
+}
+
 function parseTimeline(raw: string | undefined): TimelineEntry[] {
   if (!raw) return [];
   const out: TimelineEntry[] = [];
@@ -482,13 +540,18 @@ export function parseRecord(text: string): OkfRecord {
   if (chyba.length > 1) throw new Error(`Chýbajú povinné polia: ${chyba.join(", ")}`);
   const j = readJurisdiction(canon);
 
-  const typeRaw = String(canon.get("type"));
-  if (!isRecordType(typeRaw)) throw new Error(`Neznámy typ záznamu: ${typeRaw}`);
-  const type: RecordType = typeRaw;
-
-  const layer = String(canon.get("layer")) as Layer;
-  if (layer !== LAYER_OF[type]) {
-    throw new Error(`Typ ${typeRaw} patrí do vrstvy ${LAYER_OF[type]}, nie ${layer}`);
+  const type: RecordType = String(canon.get("type"));
+  if (!isRecordType(type) && !AGENT_TYPE_PATTERN.test(type)) {
+    throw new Error(`Neplatný typ záznamu: ${type} — vlastný typ píš malými písmenami, číslicami a _`);
+  }
+  // Vrstvu určuje typ. Vlastný typ agenta je vždy L2: inak by sa ním dala
+  // obísť brána L1/L3, ktorá od vrstvy závisí.
+  const layer: Layer = layerOf(type);
+  const declared = String(canon.get("layer"));
+  if (declared !== layer) {
+    throw new Error(isRecordType(type)
+      ? `Typ ${type} patrí do vrstvy ${layer}, nie ${declared}`
+      : `Vlastný typ ${type} patrí vždy do vrstvy L2, nie ${declared} — L1/L3 majú iba známe typy`);
   }
 
   const rec: OkfRecord = {
@@ -516,6 +579,8 @@ export function parseRecord(text: string): OkfRecord {
     target[f.canonical] = coerceField(f.kind, v, f.canonical);
   }
   if (Object.keys(extra).length > 0) rec.extra = extra;
+  const sections = parseSections(body);
+  if (sections.length > 0) rec.sections = sections;
   return rec;
 }
 
@@ -534,7 +599,8 @@ export function coerceField(kind: string, v: FmValue, key: string): FmValue {
       throw new Error(`Pole ${key} má byť mapovanie`);
     case "maplist": {
       const items = Array.isArray(v) ? (v as unknown[]) : [v];
-      return items.map((x) => (isMap(x) ? stringifyMap(x) : { title: String(x) }));
+      // Holý reťazec je pri prameni titul, pri zapojenom subjekte meno.
+      return items.map((x) => (isMap(x) ? stringifyMap(x) : { [key === "participants" ? "name" : "title"]: String(x) }));
     }
     default:
       if (typeof v === "object") throw new Error(`Pole ${key} má byť jednoduchá hodnota`);
@@ -600,6 +666,7 @@ export function serializeRecord(r: OkfRecord): string {
   for (const e of r.timeline) {
     lines.push(`- ${e.date}${e.kind ? ` [${canonicalEventKind(e.kind)}]` : ""} — ${e.text}`);
   }
+  for (const sec of r.sections ?? []) lines.push("", `## ${sec.heading}`, "", sec.body);
   return lines.join("\n") + "\n";
 }
 

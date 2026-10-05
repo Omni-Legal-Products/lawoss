@@ -1,0 +1,10 @@
+export const BRAND_NAME: "LAWOSS";
+export const UPSTREAM_BRAND_NAME: "LegalWork";
+export function brandAppName(isDevMode?: boolean): string;
+export const FORK_REPOSITORY: string;
+export const FORK_RELEASES_URL: string;
+export const FORK_RELEASE_DOWNLOAD_BASE_URL: string;
+export const FORK_RELEASES_API_URL: string;
+export const ALPHA_RELEASE_TAGS: Readonly<{ macos: "alpha-macos-latest"; windows: "alpha-windows-latest" }>;
+export function alphaReleaseDownloadUrl(platform: "macos" | "windows"): string;
+export function alphaReleasePageUrl(platform: "macos" | "windows"): string;

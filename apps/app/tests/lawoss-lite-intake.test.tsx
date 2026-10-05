@@ -135,11 +135,11 @@ describe("uložení do věci", () => {
     expect(binary).toEqual(["AK/B/Barakat/vec/00_K_zarazeni/IN-008/smlouva.pdf", "AK/B/Barakat/vec/00_K_zarazeni/IN-009/smlouva.pdf"]);
     expect(text.map((t) => [t.path, t.baseUpdatedAt])).toEqual([["AK/B/Barakat/vec/VSTUPY.md", 111], ["AK/B/Barakat/vec/VSTUPY.md", 112]]);
   });
-  test("chybějící VSTUPY.md se založí (404), jiná chyba čtení zastaví a nic nezapíše", async () => {
+  test.each(["404 not found", "not found", "not_found", "ENOENT"])("missing profile and register (%s) allow intake; other read errors stop writes", async (readError) => {
     const writes: string[] = [];
     const base = { writeWorkspaceBinaryFile: async (_w: string, p: { path: string }) => { writes.push(p.path); return { ok: true, path: p.path, bytes: 1, updatedAt: 1 }; },
       writeWorkspaceFile: async (_w: string, p: { path: string; baseUpdatedAt?: number | null }) => { writes.push(`${p.path}@${p.baseUpdatedAt}`); return { ok: true, path: p.path, bytes: 1, updatedAt: 1 }; } };
-    await saveDocumentsToMatter({ ...base, readWorkspaceFile: async () => { throw new Error("404 not found"); } } as never, "o", { path: "AK/B/X", title: "X" }, [new File(["a"], "a.pdf")]);
+    await saveDocumentsToMatter({ ...base, readWorkspaceFile: async () => { throw new Error(readError); } } as never, "o", { path: "AK/B/X", title: "X" }, [new File(["a"], "a.pdf")]);
     expect(writes).toEqual(["AK/B/X/00_K_zarazeni/IN-001/a.pdf", "AK/B/X/VSTUPY.md@null"]);
     writes.length = 0;
     await expect(saveDocumentsToMatter({ ...base, readWorkspaceFile: async () => { throw new Error("500 boom"); } } as never, "o", { path: "AK/B/X", title: "X" }, [new File(["a"], "a.pdf")])).rejects.toThrow("500");

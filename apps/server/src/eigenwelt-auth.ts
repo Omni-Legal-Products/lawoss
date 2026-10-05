@@ -35,6 +35,7 @@ import {
 } from "./runtime-opencode-config-store.js";
 import { resolveModelLimit } from "./model-limits.js";
 import type { ServerConfig } from "./types.js";
+import { EIGENWELT_ACCOUNT_DISABLED_MESSAGE, eigenweltAccountEnabled } from "./lawoss/commercial-services.js";
 
 /** Pre-registered as exact redirect URIs on the Clerk OAuth application —
  * loopback ports cannot be random. Keep in sync with the platform. */
@@ -615,6 +616,8 @@ export async function waitForEigenweltSignIn(
 export async function fetchEigenweltManifest(options?: {
   platformToken?: string | null;
 }): Promise<EigenweltManifest> {
+  // LAWOSS: bez povoleného účtu sa manifest nesťahuje (lawoss/commercial-services.ts).
+  if (!eigenweltAccountEnabled()) throw new Error(EIGENWELT_ACCOUNT_DISABLED_MESSAGE);
   const platform = eigenweltPlatformUrl();
   const token = options?.platformToken?.trim() || null;
   const url = token ? `${platform}/api/desktop/models` : `${platform}/api/public/models`;

@@ -5,6 +5,7 @@ import { ProviderActionsMenu } from "../provider-actions-menu";
 import type { ReactNode } from "react";
 
 import { t } from "@/i18n";
+import { isCommercialSurfaceHidden } from "@/lawoss/feature-flags";
 import { ProviderIcon } from "../../../design-system/provider-icon";
 import { SettingsNotice, SettingsStatusBadge } from "../settings-section";
 import {
@@ -86,7 +87,7 @@ export function AiSettingsView(props: AiSettingsViewProps) {
           <LayoutSectionDescription>{t("settings.providers_desc")}</LayoutSectionDescription>
         </LayoutSectionHeader>
 
-        <LayoutSectionItem className="flex-row flex-wrap items-center justify-between gap-3">
+        {isCommercialSurfaceHidden("eigenwelt-account") ? null : <LayoutSectionItem className="flex-row flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <ProviderIcon providerId="eigenwelt" size={20} className="text-dls-text" />
             <div className="min-w-0">
@@ -101,7 +102,7 @@ export function AiSettingsView(props: AiSettingsViewProps) {
               {t(props.eigenweltConnected ? "account.manage" : "account.sign_in")}
             </DropdownMenuItem>
           </ProviderActionsMenu>
-        </LayoutSectionItem>
+        </LayoutSectionItem>}
 
         {props.connectedProviders.map((provider) => (
           <LayoutSectionItem

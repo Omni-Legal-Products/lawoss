@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,7 @@ import { OcrError, type OcrEngine } from "../ocr/types.js";
 import { DocumentPreparation, documentPath, preparedSchema } from "./service.js";
 import type { DocumentLayout } from "./structure.js";
 import { openDocument } from "./render.js";
+import { writeOcrEnabled } from "../lawoss/ocr-opt-in.js";
 
 const layout: DocumentLayout = { fingerprint: "test-layout-1", async detect() {
   return { model: "test-layout", regions: [{ label: "text", box: { x: 0, y: 0, width: 1, height: 1 }, confidence: 1, order: 0 }] };
@@ -132,7 +133,11 @@ test("bounds workspace sources and output paths, rejects missing model and suppo
   await expect(documentPath(root, "outside.pdf")).rejects.toThrow("outside");
   await expect(documentPath(root, join(other, "contract.pdf"))).rejects.toThrow("outside");
   const manager = new OcrManager(join(root, "ocr"));
+  // LAWOSS: OCR is opt-in (lawoss/ocr-opt-in.ts); once on, a missing model downloads on first use with the bundled runtime, without it the error stays.
+  await writeOcrEnabled(manager.runtime.root, true);
+  const available = spyOn(manager.runtime, "available").mockResolvedValue(false);
   await expect(new DocumentPreparation(manager).start(root, { files: ["contract.pdf"] })).rejects.toThrow("Download");
+  available.mockRestore();
   const image = await openDocument(new Uint8Array(await readFile(new URL("../ocr/fixtures/bilingual.png", import.meta.url))), "image");
   expect(image.pageCount).toBe(1); expect((await image.page(1, new AbortController().signal)).nativeText).toBe(""); await image.close();
   await symlink(other, join(root, ".opencode"));

@@ -5,9 +5,9 @@
  */
 import type { Language } from "@/i18n";
 
-export type QuickActionId = "open" | "summarize" | "deadlines" | "reply" | "add_document" | "verify_client"
+type QuickActionId = "open" | "summarize" | "deadlines" | "reply" | "add_document" | "verify_client"
   | "hearing" | "research" | "strategy" | "redline" | "client_letter" | "document";
-export type QuickActionMatter = { title: string; matterRef?: string; path: string };
+type QuickActionMatter = { title: string; matterRef?: string; path: string };
 
 export const QUICK_ACTIONS = [
   { id: "summarize", labelKey: "lawoss.lite.action_summarize" },

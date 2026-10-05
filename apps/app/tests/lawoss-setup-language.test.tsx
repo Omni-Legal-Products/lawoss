@@ -28,10 +28,15 @@ const onboardingApi: OnboardingApi = {
 
 test("welcome exposes the first native identity step with all UI languages", () => {
   const html = renderToStaticMarkup(<MemoryRouter><LawossWelcomePage api={onboardingApi} pickDirectory={async () => null} onOpenAiSettings={() => {}} onComplete={() => {}} /></MemoryRouter>);
-  expect(html).toContain("Set up your legal practice");
+  expect(html).toContain("Set up your practice");
+  expect(html).toContain("Your name");
+  expect(html).not.toContain("legal practice");
   expect(html).toContain("You and jurisdiction");
   expect(html).toContain('value="sk"');
-  expect(html).toContain(">de</option>");
+  // Jazyky ich vlastnými názvami, nie kódmi; jurisdikcia v jazyku rozhrania.
+  expect(html).toContain('<option value="sk">Slovenčina</option><option value="cs">Čeština</option><option value="en" selected="">English</option><option value="de">Deutsch</option>');
+  expect(html).not.toContain(">de</option>");
+  expect(html).toContain('<option value="cz">Czech Republic</option>');
   expect(html).not.toContain("lawoss.setup.");
 });
 

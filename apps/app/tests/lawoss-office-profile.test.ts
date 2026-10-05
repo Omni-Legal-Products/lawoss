@@ -65,3 +65,12 @@ test("relative client paths may contain periods inside ordinary folder names", (
   const clientPath = "Kancelaria.v2/Klienti/*";
   expect(readOfficeProfile(updateOfficeProfile("", { profile: workingProfile(), clientPath })).clientPath).toBe(clientPath);
 });
+
+test("onboarding doplní autora dokumentov, ale vlastné meno nechá (D1 2026-10-04)", async () => {
+  const { authorAfterOnboarding } = await import("../src/lawoss/okf/lawyer-name");
+  expect(authorAfterOnboarding("LegalWork", "JUDr. Testovací Advokát")).toBe("JUDr. Testovací Advokát");
+  expect(authorAfterOnboarding("  ", "JUDr. Testovací Advokát")).toBe("JUDr. Testovací Advokát");
+  expect(authorAfterOnboarding("Mgr. Vlastné Meno", "JUDr. Testovací Advokát")).toBe("Mgr. Vlastné Meno");
+  expect(authorAfterOnboarding("LegalWork", undefined)).toBe("LegalWork");
+  expect(authorAfterOnboarding("LegalWork", "   ")).toBe("LegalWork");
+});

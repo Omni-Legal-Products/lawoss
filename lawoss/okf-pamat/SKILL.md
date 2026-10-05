@@ -183,6 +183,10 @@ potom načítaj plné pravidlá, poučenia a obsah veci cez `read` podľa vstupn
 | kto čo tvrdí a či je to preukázané | `claim` | L2 |
 | listina alebo iný dôkazný prostriedok | `evidence` | L2 |
 | úloha so záväzkom a termínom | `task` | L2 |
+| čo kto od koho požaduje (banka, kataster, protistrana) a či je to splnené | `requirement` | L2 |
+| zmluva, plná moc, vyhlásenie — verzia, forma, podpis, účinnosť | `instrument` | L2 |
+| vzťah medzi subjektmi (konateľ, spoločník, splnomocnenec, záložný veriteľ…) | `relation` | L2 |
+| čokoľvek, čo sa do typov vyššie nehodí | **vlastný typ** (napr. `hearing_note`) | L2 |
 | identifikácia klienta alebo protistrany (§ 8) | `subject` | L2, **u klienta** |
 | AML preverenie k dátumu | `screening` | L2, **u klienta** |
 | pracovné pravidlo, preferencia kancelárie | `rule` | **L1** |
@@ -191,16 +195,17 @@ potom načítaj plné pravidlá, poučenia a obsah veci cez `read` podľa vstupn
 
 ## Povinné polia záznamu
 
-Každý záznam je markdown s YAML hlavičkou a dvoma sekciami `## Truth` a `## History`.
+Každý záznam je markdown s YAML hlavičkou a sekciami `## Truth` a `## History`;
+ďalšie vlastné sekcie sú dovolené (viď nižšie).
 Bez ktoréhokoľvek z týchto **desiatich** polí CLI návrh odmietne (vypíše všetky chýbajúce naraz):
 
 | Pole | Hodnota |
 |---|---|
 | `okf` | `1` |
-| `id` | `S-001`, `M-001`, `D-001`, `T-001`, `Q-001`, `SC-001`, `C-001`, `E-001`, `R-001`, `L-001`, `A-001` — prefix podľa typu, číslo trojmiestne |
-| `type` | `subject` · `matter` · `decision` · `task` · `question` · `screening` · `claim` · `evidence` · `rule` · `lesson` · `authority` |
+| `id` | `S-001`, `M-001`, `D-001`, `T-001`, `Q-001`, `SC-001`, `C-001`, `E-001`, `R-001`, `L-001`, `A-001`, `RQ-001`, `IN-001`, `RL-001` — prefix podľa typu, číslo trojmiestne; vlastný typ si zvolí vlastný prefix veľkými písmenami (`X-001`, `HN-001`) |
+| `type` | `subject` · `matter` · `decision` · `task` · `question` · `screening` · `claim` · `evidence` · `rule` · `lesson` · `authority` · `requirement` · `instrument` · `relation` · vlastný typ (`a-z`, `0-9`, `_`) |
 | `title`, `description` | jedna veta; opis bez citlivých údajov |
-| `layer` | `L2` (spis) · `L1` (`rule`, `lesson`) · `L3` (`authority`) — určuje ho typ |
+| `layer` | `L2` (spis) · `L1` (`rule`, `lesson`) · `L3` (`authority`) — určuje ho typ; vlastný typ je **vždy `L2`** |
 | `jurisdiction` | `cz` alebo `sk` — nikdy predvolene |
 | `status` | `active` · `superseded` · `void`; pri `authority` aj `banned` · `deprecated` |
 | `created`, `updated` | ISO dátum; pri zmene obsahu vrátane metadát aktualizuj `updated`, nikdy ho neposúvaj späť. Opakovaný zápis v dnešný deň môže ponechať dnešný dátum. |
@@ -233,9 +238,57 @@ Nezahájeno.
 - 2026-09-11 — Úkol založen.
 ```
 
-Polia podľa typu (hodnoty z výpočtu, inak `UNKNOWN_VALUE`): `subject` → `role` (`client`, `counterparty`, `representative`, `ubo`), `person_type` (`natural_person`, `legal_person`, `sole_trader`), `registry_id` alebo `birth_number`, `registered_office`/`residence`; `matter` → `matter_ref`, `court`, `area`, `parties`; `decision` → `procedural_status` (`proposed`, `taken`), `deadlines`; `task` → `state` (`pending`, `in_progress`, `blocked`, `done`), `assignee`, `deadlines`; `question` → `legal_question`, `proof_status`; `screening` → `subject_ref`, `check_date`, `mode` (`light`, `medium`, `hard`), `risk`, `conclusion`, `valid_until`; `claim` → `claimed_by`, `proof_status`; `evidence` → `evidence_kind` (`document`, `witness`, `expert_opinion`, `party_examination`, `inspection`), `origin_date`, `sources`; `authority` → povinné `source`, `verified_via`, `verified_at`; podrobné odkazy v `sources` s `id` a `[^id]` v pravde, `verified`. Vyplnené polia evidujú preverenie; CLI samo obsah prameňa neoveruje.
+Polia podľa typu (hodnoty z výpočtu, inak `UNKNOWN_VALUE`): `subject` → `role` (`client`, `counterparty`, `representative`, `ubo`), `person_type` (`natural_person`, `legal_person`, `sole_trader`), `registry_id` alebo `birth_number`, `registered_office`/`residence`; `matter` → `matter_ref`, `court`, `area`, `parties`; `decision` → `procedural_status` (`proposed`, `taken`), `deadlines`; `task` → `state` (`pending`, `in_progress`, `blocked`, `done`), `assignee`, `deadlines`; `question` → `legal_question`, `proof_status`; `screening` → `subject_ref`, `check_date`, `mode` (`light`, `medium`, `hard`), `risk`, `conclusion`, `valid_until`; `claim` → `claimed_by`, `proof_status`; `evidence` → `evidence_kind` (`document`, `witness`, `expert_opinion`, `party_examination`, `inspection`), `origin_date`, `sources`; `authority` → povinné `source`, `verified_via`, `verified_at`; podrobné odkazy v `sources` s `id` a `[^id]` v pravde, `verified`; `requirement` → `demanded_by`, `demanded_from`, `source`, `fulfillment_status` (`open`, `met`, `waived`, `failed`); `instrument` → `version`, `file_hash`, `form` (`plain`, `certified_signature`, `notarial_deed`, `attorney_declaration`), `signed_by` (zoznam), `signed_at`, `effect`, `instrument_status` (`draft`, `negotiated`, `final`, `signed`, `effective`, `registered`, `superseded`), požiadavku, ktorú listina plní, cez `related: [RQ-001]`; `relation` → `from_subject`, `to_subject`, `relation_kind` (`executive`, `board_member`, `shareholder`, `representative`, `attorney_in_fact`, `beneficial_owner`, `pledgee`), `share`, `valid_from`, `valid_to`, `verified_at`, `sources`. Vyplnené polia evidujú preverenie; CLI samo obsah prameňa neoveruje.
 
 Druhy udalostí v `## History` (`- 2026-09-11 [decision] — …`): `delivery` · `filing` · `hearing` · `decision` · `request` · `call` · `email`. Staré slovenské hodnoty (`rozhodnutie`, `podanie`, …) sa pri čítaní prevedú, do súboru sa už píšu anglicky.
+
+## Štruktúru riadi agent
+
+Typy vyššie sú ponuka, nie klietka. Čo sa do nich nehodí, zapíš tak, ako to vec potrebuje:
+
+- **Vlastný typ.** `type: hearing_note` (malé písmená, číslice, `_`) sa načíta,
+  zapíše, objaví v `index.md`, `log.md` aj v `_STATUS.md` (ako názov typu).
+  Vrstva je **vždy `L2`** — iná vrstva je chyba, vlastným typom sa brána L1/L3
+  obísť nedá. `validate` ho označí varovaním `AGENT_TYPE`: kontroly známych typov
+  (AML, matica dôkazov, ban-list) sa naň nevzťahujú. Ak ide o preklep známeho
+  typu (`subjekt`), oprav ho — inak vypadne z AML kontroly.
+- **Vlastné sekcie.** Popri `## Truth` a `## History` smieš pridať ďalšie
+  `## …` sekcie (napr. `## Pokyn klienta`, `## Argumenty protistrany`). Zachovajú
+  sa doslovne a v poradí; zapisujú sa za `## History`. Zmena vlastnej sekcie je
+  zmena obsahu — v tom istom zápise pridaj riadok do `## History`. Text pred prvou
+  sekciou a zdvojená `## Truth`/`## History` ostávajú chybou čítania.
+- **Zapojené subjekty.** Súd, finančný úrad, polícia, prokuratúra, kataster,
+  kontaktná osoba — eviduj ich na zázname veci (alebo inom L2 zázname) v poli
+  `participants`; rolu píš voľne. Udalosť s nimi (doručenie, hovor) patrí do `## History`.
+  Kto potrebuje AML identifikáciu, je `subject`, nie len `participants`.
+
+  ```yaml
+  participants:
+    - name: Krajský soud v Brně
+      role: insolvenční soud
+      ref: KSBR 39 INS 1234/2020
+    - name: Mgr. Petr Svoboda
+      role: advokát protistrany
+      contact: datová schránka abc123
+      note: komunikuje jen písemně
+  ```
+
+  `name` je povinné (`PARTICIPANT_NAME_MISSING`). Blok „Zapojené subjekty"
+  sa vyrenderuje v `_STATUS.md` pod stranami. **Mená
+  z `participants` sú jehlami brány úniku do L3** rovnako ako mená subjektov —
+  okrem verejných inštitúcií (súd, úrad, polícia, prokuratúra, zastupiteľstvo,
+  ministerstvo, magistrát, správa), ktoré smie L3 prameň citovať.
+
+**Čo ostáva deterministické — tu sa neimprovizuje:**
+
+- `deadlines` a `due` sú **len ISO dátum `RRRR-MM-DD`** (skutočný deň); za ním smie
+  ísť poznámka (`"2026-10-01 odvolanie"`). `31.12.2026` alebo `zajtra` je chyba
+  `DATE_INVALID` a lehota sa nevyhodnotí. Lehotu neodvodzuj ani nedopočítavaj.
+- `matter_ref` má tvar spisovej značky súdu (`22 Cdo 2886/2023`, `MSPH 91 INS 5855/2024-C1`,
+  `1Cdo/12/2024`, `I. ÚS 1234/20`); iný tvar je varovanie `CASE_NUMBER_FORMAT`.
+  Interné číslo spisu kancelárie sem nepatrí.
+- Hodnoty enumov (stavy, formy, druhy vzťahu) — neznáma hodnota je varovanie `UNKNOWN_VALUE`.
+- Všetky brány: append-only história, stopa vecnej zmeny, human gate L1/L3 a mazania, únik do L3.
 
 Na ban-list (sekcia „Necitovať" v preambule) sa prameň dostane nastavením
 `status: banned` alebo `deprecated` — oba sa v nej objavia; `superseded`
@@ -289,6 +342,7 @@ a prípravu návrhu**. Vlastný zápis nechaj CLI.
   výsledok ako `screening` so zdrojmi, rizikom a `platnost_do`.
 - **Väzbu tvrdenie ↔ dôkaz veď z oboch strán.** Zapíšeš `supporting_evidence` do
   tvrdenia, zapíš aj `proves` do dôkazu — inak to validátor ohlási ako `LINK_ASYMMETRY`.
+- **`deadlines` a `due` píš len ako ISO dátum** (`2026-10-01`, voliteľne s poznámkou za medzerou).
 - **`due` na úlohe nie je procesná lehota.** Lehota patrí do `deadlines`; zmeškaný
   interný termín sa dá dohnať, zmeškaná lehota nie. Nemiešaj ich.
 - **`proof_status` neodvodzuj z počtu dôkazov.** Je to hodnota, ktorú zapisuje advokát;
@@ -382,7 +436,7 @@ Potom prejdi kontrolný zoznam nižšie.
 
 | Úroveň | Čo tam žije |
 |---|---|
-| `<spis>/memory/` | obsah veci — `matter`, `decision`, `claim`, `evidence`, `task`, `question` |
+| `<spis>/memory/` | obsah veci — `matter`, `decision`, `claim`, `evidence`, `task`, `question`, `requirement`, `instrument`, `relation`, vlastné typy |
 | `<klient>/memory/` | `subject` a `screening` — identifikácia sa robí raz na klienta |
 | `Office/memory/` | `rule`, `lesson` (L1) a `authority` (L3) |
 

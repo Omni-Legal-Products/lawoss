@@ -1,4 +1,5 @@
 import { desktopFetch } from "./desktop";
+import { alphaReleaseDownloadUrl, alphaReleasePageUrl } from "@/lawoss/branding";
 
 export type ElectronAlphaArtifact = {
   arch: "arm64" | "x64";
@@ -10,11 +11,9 @@ export type ElectronAlphaArtifact = {
   sha512: string;
 };
 
-const ELECTRON_ALPHA_RELEASE_BASE_URL =
-  "https://github.com/eigenweltlabs/legalwork/releases/download/alpha-macos-latest";
+const ELECTRON_ALPHA_RELEASE_BASE_URL = alphaReleaseDownloadUrl("macos");
 
-export const ELECTRON_ALPHA_RELEASE_PAGE_URL =
-  "https://github.com/eigenweltlabs/legalwork/releases/tag/alpha-macos-latest";
+export const ELECTRON_ALPHA_RELEASE_PAGE_URL = alphaReleasePageUrl("macos");
 
 export const ELECTRON_ALPHA_LATEST_MAC_YML_URL = `${ELECTRON_ALPHA_RELEASE_BASE_URL}/latest-mac.yml`;
 

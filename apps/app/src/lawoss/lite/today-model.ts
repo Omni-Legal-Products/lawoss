@@ -2,27 +2,27 @@
  * Datový model obrazovky „Dnes" a seskupení věcí podle klienta pro LAWOSS-lite.
  * Čistá funkce nad již načteným přehledem (`OkfReadResult`) - nesiaha na disk.
  */
-import { addDays, deadlineTier, recordKey, type DeadlineTier, type MatterInput, type MatterOverview, type UpcomingDeadline } from "../../../../../lawoss/okf/read";
+import { addDays, daysBetween, deadlineKey, deadlineTier, lastSegment, recordKey, scopeLevels, type DeadlineTier, type MatterInput, type MatterOverview, type UpcomingDeadline } from "../../../../../lawoss/okf/read";
 import { pendingInputs, type PendingInput } from "../../../../../lawoss/okf/inputs";
 import { clientFromPath } from "../../../../../lawoss/okf/cockpit";
 import type { OkfReadResult } from "../okf/read-model";
+import { HORIZON_DAYS } from "../okf/view-rules";
 
 /** `alsoIn`: další věci, do kterých patří tatáž lhůta ze sdíleného souboru (klient, kancelář). */
 export type TodayDeadline = UpcomingDeadline & { tier: DeadlineTier; daysLeft: number; alsoIn?: { path: string; title: string }[] };
 export type TodayTask = { key: string; id: string; title: string; due?: string; matters: { path: string; title: string }[] };
 export type TodayModel = { deadlines: TodayDeadline[]; tasks: TodayTask[]; inputs: PendingInput[]; recent: MatterOverview[] };
-export type ClientGroup = { client: string; matters: MatterOverview[] };
+/** `key` je jedinečný aj pri dvoch klientoch s rovnakým menom; `client` "" = klient bez názvu v karte. */
+export type ClientGroup = { key: string; client: string; matters: MatterOverview[] };
 
-const DAY = 86_400_000;
-const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY);
 
-export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDeadlines" | "overdue" | "inputs">, todayIso: string, horizonDays = 14): TodayModel {
+export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDeadlines" | "overdue" | "inputs">, todayIso: string, horizonDays = HORIZON_DAYS): TodayModel {
   const horizon = addDays(todayIso, horizonDays);
   // Lhůta ze sdíleného souboru přijde jednou za každou věc; ukázat ji jednou a vyjmenovat věci.
   const all: (UpcomingDeadline & { alsoIn?: { path: string; title: string }[] })[] = [];
   const byKey = new Map<string, (typeof all)[number]>();
   for (const d of [...result.overdue, ...result.upcomingDeadlines]) {
-    const key = `${recordKey(d.matter.path, { id: d.recordId, file: d.file })}\u0000${d.date}`;
+    const key = deadlineKey(d);
     const seen = byKey.get(key);
     if (seen) { (seen.alsoIn ??= []).push({ path: d.matter.path, title: d.matter.title }); continue; }
     const entry = { ...d };
@@ -58,26 +58,43 @@ export function buildToday(result: Pick<OkfReadResult, "matters" | "upcomingDead
   };
 }
 
-const OFFICE_DIR = /(^|\/)(Office|_kancelaria)$/;
-const lastSegment = (path: string) => path.split("/").filter(Boolean).pop() ?? path;
 
 /**
  * Klient věci: složka klienta, kterou už našlo čtení paměti (`client.md`/`klient.md` nebo
  * `client_path` v okf.config) - funguje pro `Klienti/Novák/…` i `AK/N/Novák/…`.
  * Bez ní tvar cesty `AK/<písmeno>/<klient>`, jinak věc sama.
  */
-export function groupByClient(matters: readonly MatterOverview[], inputs: readonly Pick<MatterInput, "path" | "scopePaths">[] = []): ClientGroup[] {
-  const scopes = new Map(inputs.map((i) => [i.path, i.scopePaths ?? []]));
+export function groupByClient(
+  matters: readonly MatterOverview[],
+  inputs: readonly Pick<MatterInput, "path" | "scopePaths" | "clientTitle">[] = [],
+  clients: readonly { path: string; title?: string }[] = [],
+): ClientGroup[] {
+  const byPath = new Map(inputs.map((i) => [i.path, i]));
   const groups = new Map<string, ClientGroup>();
   for (const matter of matters) {
-    const clientDir = scopes.get(matter.path)?.slice(1).find((dir) => dir && !OFFICE_DIR.test(dir));
-    const client = clientDir ? lastSegment(clientDir) : clientFromPath(matter.path) ?? matter.title;
-    const key = clientDir ?? client;
-    const group = groups.get(key) ?? { client, matters: [] };
+    const { key, name } = clientOf(matter, byPath.get(matter.path));
+    const group = groups.get(key) ?? { key, client: name ?? "", matters: [] };
     group.matters.push(matter);
     groups.set(key, group);
   }
-  return [...groups.values()].sort((a, b) => a.client.localeCompare(b.client, "cs"));
+  // Klient s kartou, ale zatiaľ bez vecí: rovnaký kľúč ako `clientOf`, aby sa s vecami nezdvojil.
+  for (const client of clients) {
+    const key = `client:${client.path}`;
+    if (!groups.has(key)) groups.set(key, { key, client: client.title?.trim() || (client.path ? lastSegment(client.path) : ""), matters: [] });
+  }
+  return [...groups.values()].sort((a, b) => a.client.localeCompare(b.client, "cs") || a.key.localeCompare(b.key));
+}
+
+/**
+ * Jediné miesto, ktoré určuje klienta veci (Klienti aj drobček v detaile): karta klienta,
+ * jeho priečinok, tvar cesty `AK/<písmeno>/<klient>`. Klient v koreni priečinka bez názvu
+ * v karte ostane bez mena (`name` undefined) - nikdy sa nepomenuje podľa veci.
+ */
+export function clientOf(matter: Pick<MatterOverview, "path" | "title">, input?: Pick<MatterInput, "scopePaths" | "clientTitle">): { key: string; name?: string } {
+  const scope = scopeLevels(input?.scopePaths ?? []).find((s) => s.level === "client");
+  if (scope) return { key: `client:${scope.path}`, name: input?.clientTitle?.trim() || (scope.path ? lastSegment(scope.path) : undefined) };
+  const fromPath = clientFromPath(matter.path);
+  return fromPath ? { key: `path:${fromPath}`, name: fromPath } : { key: `matter:${matter.path}`, name: matter.title };
 }
 
 /** Nejbližší lhůta dnes nebo později - prošlá ani neplatná se jako „další“ neukazuje. */

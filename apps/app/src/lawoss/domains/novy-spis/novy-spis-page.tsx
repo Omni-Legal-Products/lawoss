@@ -63,7 +63,7 @@ export function PlanGroup({ title, items, empty, tone }: { title: string; items:
   );
 }
 
-export type NovySpisPanelProps = {
+type NovySpisPanelProps = {
   connection: Pick<OkfConnection, "client" | "baseUrl" | "token">;
   workspace: RouteWorkspace;
   onOpenSession: (route: string) => void;
@@ -208,7 +208,7 @@ export function NovySpisPanel({ connection, workspace, onOpenSession, documentAu
 
   return (
     <section aria-label={text("wizard.title")}>
-      <h2 className="text-lg font-medium">{text("wizard.title")}</h2>
+      <h2 className="lw-h1">{text("wizard.title")}</h2>
       <p className="lw-lead">
         {text("wizard.intro")}
       </p>

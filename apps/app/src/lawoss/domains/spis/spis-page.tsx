@@ -1,10 +1,14 @@
 /** @jsxImportSource react */
+import { deadlineText } from "../../okf/view-rules";
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { useMatterText } from "../okf-page";
+import { isExperimentHidden } from "../../feature-flags";
+import { NEW_MATTER_PATH } from "../../lite/links";
+import { MatterParties, useMatterText } from "../okf-page";
 import type { MatterTextKey } from "../../i18n/matters";
 import { Button } from "@/components/ui/button";
+import { t } from "@/i18n";
 import { openMatterSession } from "../../okf/matter-session";
 
 import { LawossLayout } from "../../shell/layout";
@@ -25,6 +29,7 @@ import {
   type CockpitDeadline,
   type RegisterId,
 } from "../../../../../../lawoss/okf/cockpit";
+import { daysBetween, ISO_DAY, missingScopeLevels, scopeLevels } from "../../../../../../lawoss/okf/read";
 
 /**
  * Spisový prehľad — read-only cockpit jednej veci (spec MF, bod 3.3).
@@ -79,7 +84,7 @@ export function SpisPage() {
             <Button disabled={openingSession || !connection?.client || !workspace || workspace.workspaceType === "remote" || Boolean(query.error)} onClick={() => void openTask()}>{openingSession ? text("openingConversation") : text("openTask")}</Button>
             {sessionError ? <p role="alert">{sessionError}</p> : null}
           </div>
-          <MatterCockpit cockpit={cockpit} now={now} raw={raw.data ?? {}} />
+          <MatterCockpit cockpit={cockpit} now={now} raw={raw.data ?? {}} scopePaths={data?.inputs.find((i) => i.path === cockpit.matter.path)?.scopePaths} />
         </>
       ) : (
         <NotFound found={data ? data.matters.map((m) => ({ path: m.path, title: m.title })) : []} vec={vec} />
@@ -121,7 +126,7 @@ function NotFound({ found, vec }: { found: { path: string; title: string }[]; ve
           </>
         ) : (
           <>
-            {text("noMatters")} <Link to="/experimenty/novy-spis">{text("newMatter")}</Link>.
+            {text("noMatters")} <Link to={isExperimentHidden("view-novy-spis") ? NEW_MATTER_PATH : "/experimenty/novy-spis"}>{text("newMatter")}</Link>.
           </>
         )}
       </p>
@@ -151,7 +156,7 @@ function NotFound({ found, vec }: { found: { path: string; title: string }[]; ve
 
 export const matterLink = (path: string): string => `/spis?vec=${encodeURIComponent(path)}`;
 
-export function MatterCockpit({ cockpit, now, raw }: { cockpit: Cockpit; now: string; raw: Record<string, string> }) {
+export function MatterCockpit({ cockpit, now, raw, scopePaths = [] }: { cockpit: Cockpit; now: string; raw: Record<string, string>; scopePaths?: readonly string[] }) {
   const { locale, text } = useMatterText();
   const { matter } = cockpit;
   return (
@@ -197,6 +202,8 @@ export function MatterCockpit({ cockpit, now, raw }: { cockpit: Cockpit; now: st
           cockpit.attention.map((row, i) => <AttentionLine key={row.id} row={row} cockpit={cockpit} index={i} now={now} />)
         )}
       </div>
+
+      <MatterParties parties={cockpit.parties} />
 
       {cockpit.registers.map((reg) => (
         <div className="lw-reg" key={reg.id}>
@@ -255,6 +262,11 @@ export function MatterCockpit({ cockpit, now, raw }: { cockpit: Cockpit; now: st
         <span>
           {text("source")}: <span className="lw-mono">{matter.path}</span>
         </span>
+        {scopePaths.length > 0 ? <ul data-lawoss-scopes>{scopeLevels(scopePaths).map(({ path, level }) => (
+          <li className="break-all" key={path} data-lawoss-scope={level}><b>{t(`lawoss.lite.scope_${level}`, locale)}</b> <span className="lw-mono">{path || "."}</span></li>
+        ))}{missingScopeLevels(scopePaths).map((level) => (
+          <li key={level} data-lawoss-scope-missing={level}><b>{t(`lawoss.lite.scope_${level}`, locale)}:</b> {t(`lawoss.lite.scope_${level}_missing`, locale)}</li>
+        ))}</ul> : null}
       </div>
     </>
   );
@@ -272,6 +284,7 @@ function AttentionLine({ row, cockpit, index, now }: { row: AttentionRow; cockpi
         <small>
           {copy.detail}
           {row.provenance ? ` · ${cockpitLabel(row.provenance, text)}` : ""}
+          {row.scope ? ` · ${t(`lawoss.lite.scope_${row.scope}`, locale)}` : ""}
         </small>
       </span>
       <span className="lw-ref" title={row.file}>
@@ -366,7 +379,7 @@ function DeadlineGroup({ title, rows, now, empty }: { title: string; rows: reado
           <span className="lw-no">{i + 1}.</span>
           <span className={dayClass(d.date, now)}>{formatDay(d.date, locale)}</span>
           <span className="lw-t">
-            {d.title}
+            {deadlineText(d)}
             <small>
               {d.source ?? text("noSource")} · <span className="lw-mono">{d.file}</span>
             </small>
@@ -381,14 +394,6 @@ function DeadlineGroup({ title, rows, now, empty }: { title: string; rows: reado
 
 // ── pás lehôt ─────────────────────────────────────────────────────────────
 
-const MS_DAY = 86_400_000;
-const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
-
-/** Počet dní medzi dvomi `RRRR-MM-DD`; nevalidný vstup → 0. */
-function daysBetween(from: string, to: string): number {
-  if (!ISO_DAY.test(from) || !ISO_DAY.test(to)) return 0;
-  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / MS_DAY);
-}
 
 /**
  * Jediný obrázok obrazovky: pás lehôt veci. Okno je od najstaršej lehoty (alebo
@@ -437,7 +442,7 @@ function DeadlineStrip({ deadlines: unsorted, now }: { deadlines: readonly Cockp
               />
               <circle cx={x(d.date)} cy="92" r="4.5" fill={d.overdue ? color : "var(--lw-surface)"} stroke={color} strokeWidth="1.5" />
               <text x={label} y={top + 4} textAnchor={anchor} fill={color} fontWeight="500">
-                {d.title}
+                {deadlineText(d)}
               </text>
               <text x={label} y={top + 17} textAnchor={anchor} fontSize="11" fill="var(--lw-text-secondary)">
                 {formatDay(d.date, locale)} · {d.overdue ? text("overdue") : cockpitLabel(d.provenance, text)}

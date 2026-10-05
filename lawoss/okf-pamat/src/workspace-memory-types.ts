@@ -8,7 +8,7 @@ export interface WorkspaceMemoryOptions {
   profileIdentity?: string;
   profileGrants?: string[];
 }
-export interface WorkspaceMemoryProblem { code: string; message: string; sourceId?: string }
+interface WorkspaceMemoryProblem { code: string; message: string; sourceId?: string }
 export interface WorkspaceMemorySource {
   id: string; role: WorkspaceMemoryRole; path: string; root: string;
   required: boolean; writable: boolean; anchors: string[];

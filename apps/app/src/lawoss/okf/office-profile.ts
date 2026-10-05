@@ -3,7 +3,7 @@ import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { parseFrontmatter } from "../../../../../lawoss/okf-pamat/src/record";
 import { parseOfficeWorkingProfile, workingProfile, type WorkingProfile } from "../../../../../lawoss/okf/src/profile";
 
-export type OfficeProfile = { profile: WorkingProfile; clientPath: string };
+type OfficeProfile = { profile: WorkingProfile; clientPath: string };
 const editableKeys = new Set(["matter_folders", "folder_roles", "document_naming", "client_path"]);
 
 function validateClientPath(value: string): string {
