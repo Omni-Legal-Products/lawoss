@@ -4,8 +4,8 @@
  * Rozhodnutie MČ 5. 10. 2026: appka nerobí sieťové spojenia bez akcie používateľa.
  * Upstream pri každom štarte servera spúšťal `OcrManager.downloadDefaultIfNeeded()`
  * (sťahovanie z huggingface.co). LAWOSS ho predvolene vypína (`autoDownloadOcr`
- * v `apps/server/src/config.ts`, zapnúť ho dá len `LEGALWORK_OCR_AUTO_DOWNLOAD=1`
- * alebo `autoDownloadOcr: true` v konfigurácii servera) a rýchly lokálny model
+ * v `apps/server/src/config.ts`, zapnúť ho dá len používateľ premennou prostredia
+ * `LEGALWORK_OCR_AUTO_DOWNLOAD` alebo voľbou `autoDownloadOcr` v konfigurácii servera) a rýchly lokálny model
  * stiahne až príprava dokumentu, ktorá ho naozaj potrebuje: revízia so skenom,
  * hľadanie v naskenovaných PDF, korpus alebo nástroj agenta
  * (`apps/server/src/document-preparation/service.ts`, `snapshot()` a `run()`).
