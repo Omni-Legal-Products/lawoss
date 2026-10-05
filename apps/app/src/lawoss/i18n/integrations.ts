@@ -165,6 +165,14 @@ export const integrationsEn = {
   "lawoss.integrations.profile.unconfigured": "Default profile ({office} has no configuration)",
   "lawoss.integrations.profile.office_missing": "No office profile was found in the workspace. The agent will also check the parent Office folder when preparing the final CLI plan.",
   "lawoss.integrations.error.workspace_unavailable": "Workspace is unavailable: the server is not running or a token is missing.",
+  "lawoss.integrations.chevron7.aria": "Chevron7, signing, coming soon",
+  "lawoss.integrations.chevron7.eyebrow": "Signing · macOS app",
+  "lawoss.integrations.chevron7.badge": "Coming soon",
+  "lawoss.integrations.chevron7.description": "Sign documents with a qualified electronic signature, including authorisation under Slovak Act No. 305/2013 Coll. LAWOSS prepares the document; you always confirm the signature in Chevron7.",
+  "lawoss.integrations.chevron7.note": "The connection is in preparation. LAWOSS does not communicate with Chevron7 today.",
+  "lawoss.integrations.chevron7.installed": "Installed on this Mac",
+  "lawoss.integrations.chevron7.link": "More about Chevron7",
+  "lawoss.integrations.chevron7.link_aria": "More about Chevron7 (opens in your browser)",
 };
 export const integrationsCs = {
   "lawoss.integrations.author.title": "Jméno advokáta a autor dokumentů",
@@ -332,6 +340,14 @@ export const integrationsCs = {
   "lawoss.integrations.profile.unconfigured": "Výchozí profil ({office} bez konfigurace)",
   "lawoss.integrations.profile.office_missing": "Kancelářský profil se v pracovním prostoru nenašel. Agent ještě prověří nadřazený Office při finálním CLI plánu.",
   "lawoss.integrations.error.workspace_unavailable": "Pracovní prostor není dostupný: server neběží nebo chybí token.",
+  "lawoss.integrations.chevron7.aria": "Chevron7, podepisování, připravujeme",
+  "lawoss.integrations.chevron7.eyebrow": "Podepisování · aplikace pro macOS",
+  "lawoss.integrations.chevron7.badge": "Připravujeme",
+  "lawoss.integrations.chevron7.description": "Podepisování dokumentů kvalifikovaným elektronickým podpisem, včetně autorizace podle slovenského zákona č. 305/2013 Z. z. LAWOSS připraví dokument, podpis vždy potvrdíte v Chevron7.",
+  "lawoss.integrations.chevron7.note": "Propojení připravujeme. LAWOSS dnes s Chevron7 nijak nekomunikuje.",
+  "lawoss.integrations.chevron7.installed": "Nainstalováno na tomto Macu",
+  "lawoss.integrations.chevron7.link": "Více o Chevron7",
+  "lawoss.integrations.chevron7.link_aria": "Více o Chevron7 (otevře se v prohlížeči)",
 } satisfies Record<keyof typeof integrationsEn, string>;
 export const integrationsSk = {
   "lawoss.integrations.author.title": "Meno advokáta a autor dokumentov",
@@ -499,6 +515,14 @@ export const integrationsSk = {
   "lawoss.integrations.profile.unconfigured": "Predvolený profil ({office} bez konfigurácie)",
   "lawoss.integrations.profile.office_missing": "Kancelársky profil sa vo workspace nenašiel. Agent ešte preverí nadradený Office pri finálnom CLI pláne.",
   "lawoss.integrations.error.workspace_unavailable": "Workspace nie je dostupný — server nebeží alebo chýba token.",
+  "lawoss.integrations.chevron7.aria": "Chevron7, podpisovanie, pripravujeme",
+  "lawoss.integrations.chevron7.eyebrow": "Podpisovanie · aplikácia pre macOS",
+  "lawoss.integrations.chevron7.badge": "Pripravujeme",
+  "lawoss.integrations.chevron7.description": "Podpisovanie a autorizácia dokumentov kvalifikovaným elektronickým podpisom. LAWOSS pripraví dokument, podpis vždy potvrdíte v Chevron7.",
+  "lawoss.integrations.chevron7.note": "Prepojenie pripravujeme. LAWOSS dnes s Chevron7 nijako nekomunikuje.",
+  "lawoss.integrations.chevron7.installed": "Nainštalované na tomto Macu",
+  "lawoss.integrations.chevron7.link": "Viac o Chevron7",
+  "lawoss.integrations.chevron7.link_aria": "Viac o Chevron7 (otvorí sa v prehliadači)",
 } satisfies Record<keyof typeof integrationsEn, string>;
 export const integrationsDe = {
   "lawoss.integrations.author.title": "Anwaltsname und Dokumentautor",
@@ -666,4 +690,12 @@ export const integrationsDe = {
   "lawoss.integrations.profile.unconfigured": "Standardprofil ({office} ohne Konfiguration)",
   "lawoss.integrations.profile.office_missing": "Im Arbeitsbereich wurde kein Kanzleiprofil gefunden. Bei der Erstellung des endgültigen CLI-Plans prüft der Agent auch den übergeordneten Office-Ordner.",
   "lawoss.integrations.error.workspace_unavailable": "Der Arbeitsbereich ist nicht verfügbar: Der Server läuft nicht oder ein Token fehlt.",
+  "lawoss.integrations.chevron7.aria": "Chevron7, Signieren, in Vorbereitung",
+  "lawoss.integrations.chevron7.eyebrow": "Signieren · macOS-App",
+  "lawoss.integrations.chevron7.badge": "In Vorbereitung",
+  "lawoss.integrations.chevron7.description": "Dokumente mit einer qualifizierten elektronischen Signatur unterzeichnen, einschließlich Autorisierung nach dem slowakischen Gesetz Nr. 305/2013 Z. z. LAWOSS bereitet das Dokument vor, die Signatur bestätigen Sie immer in Chevron7.",
+  "lawoss.integrations.chevron7.note": "Die Anbindung ist in Vorbereitung. LAWOSS kommuniziert derzeit nicht mit Chevron7.",
+  "lawoss.integrations.chevron7.installed": "Auf diesem Mac installiert",
+  "lawoss.integrations.chevron7.link": "Mehr über Chevron7",
+  "lawoss.integrations.chevron7.link_aria": "Mehr über Chevron7 (öffnet sich im Browser)",
 } satisfies Record<keyof typeof integrationsEn, string>;
