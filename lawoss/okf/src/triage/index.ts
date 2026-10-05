@@ -39,10 +39,12 @@ export type PrepareOptions = {
   keepInInbox?: readonly string[];
   today?: string;
   now?: Date;
+  /** Jurisdikcia z profilu onboardingu; karta klienta ju nenesie. */
+  jurisdiction?: "sk" | "cz";
 };
 
-export async function prepareTriage(root: string, options: PrepareOptions = {}): Promise<{ inventory: TriageInventory; plan: TriagePlan; proposal: ModelProposal }> {
-  const inventory = await scanTriage(root, { trialJournalDirectory: options.trialJournalDirectory });
+export async function prepareTriage(root: string, options: PrepareOptions = {}): Promise<{ inventory: TriageInventory; plan: TriagePlan; proposal: ModelProposal; classification?: TriageClassification }> {
+  const inventory = await scanTriage(root, { trialJournalDirectory: options.trialJournalDirectory, jurisdiction: options.jurisdiction });
   let classification: TriageClassification | undefined;
   let proposal: ModelProposal = { state: "none" };
   if (options.classificationFile) classification = parseClassification(await readJsonFile(options.classificationFile), inventory);
@@ -53,7 +55,7 @@ export async function prepareTriage(root: string, options: PrepareOptions = {}):
   }
   const now = options.now ?? new Date();
   const plan = buildTriagePlan(inventory, { classification, keepInInbox: options.keepInInbox, today: options.today ?? now.toISOString().slice(0, 10), runId: newRunId(now), createdAt: now.toISOString() });
-  return { inventory, plan, proposal };
+  return { inventory, plan, proposal, ...(classification ? { classification } : {}) };
 }
 
 /** Ten istý inventár s inými voľbami (napr. ponechať dokument na zatriedenie) bez nového čítania disku. */

@@ -4408,7 +4408,7 @@ async function latestModelProposal(inventory) {
   }
 }
 async function prepareTriage(root, options = {}) {
-  const inventory = await scanTriage(root, { trialJournalDirectory: options.trialJournalDirectory });
+  const inventory = await scanTriage(root, { trialJournalDirectory: options.trialJournalDirectory, jurisdiction: options.jurisdiction });
   let classification;
   let proposal = { state: "none" };
   if (options.classificationFile)
@@ -4421,7 +4421,7 @@ async function prepareTriage(root, options = {}) {
   }
   const now = options.now ?? new Date;
   const plan = buildTriagePlan(inventory, { classification, keepInInbox: options.keepInInbox, today: options.today ?? now.toISOString().slice(0, 10), runId: newRunId(now), createdAt: now.toISOString() });
-  return { inventory, plan, proposal };
+  return { inventory, plan, proposal, ...classification ? { classification } : {} };
 }
 
 // src/triage/cli.ts
