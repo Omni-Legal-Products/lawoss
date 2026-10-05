@@ -137,8 +137,12 @@ export async function planNewMatter(request: MatterRequest): Promise<CreatePrevi
   const existingMatters = inspected.entries.find(entry => entry.path === MATTERS_DIR);
   if (existingMatters && existingMatters.kind !== "directory") throw new Error("Matter folder is blocked by a non-directory.");
   const office = findOfficeDir(request.parent);
-  // okf.config z Windows (BOM, UTF-16) dekódovaný ako v CLI (lawoss/okf/src/fs.ts).
-  const workingProfile = office ? parseOfficeWorkingProfile(decodeText(await readFile(join(office, "okf.config"))), request.language ?? "sk") : undefined;
+  // okf.config z Windows (BOM, UTF-16) dekódovaný ako v CLI (lawoss/okf/src/fs.ts); kancelária bez neho má predvolený profil.
+  const officeConfig = office ? await readFile(join(office, "okf.config")).then(decodeText, (error: unknown) => {
+    if (error && typeof error === "object" && "code" in error && (error.code === "ENOENT" || error.code === "EISDIR")) return undefined;
+    throw error;
+  }) : undefined;
+  const workingProfile = officeConfig !== undefined ? parseOfficeWorkingProfile(officeConfig, request.language ?? "sk") : undefined;
   const card = await clientCard(clientRoot);
   const clientCardPath = card ? relative(join(parentRoot, MATTERS_DIR, name), card.file).split(sep).join("/") : undefined;
   const built = buildMatterOperations({ ...request, workingProfile, clientTitle: card?.title, clientCardPath });

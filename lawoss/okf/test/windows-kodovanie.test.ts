@@ -69,7 +69,7 @@ test("an ANSI diacritic in matter_folders stops the plan instead of creating a d
   // Windows-1250 „á“ = 0xE1: bez kontroly by vznikol priečinok „N\uFFFDvrhy“.
   mkdirSync(join(root, "Office"));
   writeFileSync(join(root, "Office", "okf.config"), Buffer.from('matter_folders: ["Podklady", "Návrhy"]\r\nfolder_roles:\r\n  drafts: Návrhy\r\n', "latin1"));
-  expect(() => plan({ type: "spis", dir: join(root, "client", "matter"), title: "Synthetic", jurisdiction: "sk" })).toThrow(/^matter_folders obsahuje poškodený znak \(U\+FFFD\).*ulož ho ako UTF-8$/);
+  expect(() => plan({ type: "spis", dir: join(root, "client", "matter"), title: "Synthetic", jurisdiction: "sk" })).toThrow(/^okf\.config kancelárie nie je v UTF-8.*ulož ho ako UTF-8: matter_folders obsahuje poškodený znak \(U\+FFFD\)$/);
 });
 
 test("the office profile parser ignores a BOM that another reader left before the first key", () => {
@@ -92,6 +92,17 @@ test("onboarding of a new matter reads a UTF-16LE office okf.config like the CLI
   const paths = preview.plan.operations.map((operation) => operation.path);
   expect(paths.some((path) => /(^|\/)Drafty$/.test(path))).toBe(true);
   expect(paths.some((path) => /(^|\/)03_Drafty$/.test(path))).toBe(false);
+});
+
+test("onboarding of a new matter under an Office folder without okf.config uses the default profile", async () => {
+  // Kancelária bez konfigurácie je platný stav (appka: „Predvolený profil“); CLI ho tak berie tiež.
+  mkdirSync(join(root, "Office"));
+  const client = join(root, "Klient");
+  mkdirSync(client);
+  writeFileSync(join(client, "client.md"), "---\ntype: client\n---\n");
+  const preview = await planOnboarding(parseOnboardingRequest({ action: "matter", clientRoot: client, parent: client, title: "Zmluva", date: "2026-10-05", kind: "non_contentious", area: "IP", jurisdiction: "sk" }));
+  if (preview.mode !== "new") throw new Error("Expected matter plan.");
+  expect(preview.plan.operations.some((operation) => /(^|\/)03_Drafty$/.test(operation.path))).toBe(true);
 });
 
 test("bundled okf.js reads a UTF-16LE office okf.config", () => {

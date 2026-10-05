@@ -6,6 +6,9 @@ import { stripBom } from "../../okf-pamat/src/text-decode.ts";
 export const WORKING_FOLDERS = ["00_Na_zatriedenie", "01_Podklady", "02_Resers", "03_Drafty", "04_Vystupy", "05_Komunikacia"] as const;
 export const PROFILE_FILE = "PRACOVNY-PROFIL.md";
 export type WorkingProfile = { folders: string[]; roles: Record<string, string>; naming: string };
+/** okf.config kancelárie v ANSI: kód a začiatok správy, podľa ktorých ju appka preloží. */
+export const OFFICE_CONFIG_ENCODING_CODE = "office_config_encoding";
+export const OFFICE_CONFIG_ENCODING_MESSAGE = "okf.config kancelárie nie je v UTF-8 ani v UTF-16 s BOM (napr. ANSI); ulož ho ako UTF-8";
 
 /** Uložený profil konkrétneho klienta alebo veci; nikdy nečítame nadradený snapshot. */
 export function parseWorkingProfile(content: string): WorkingProfile {
@@ -33,7 +36,9 @@ export function parseOfficeWorkingProfile(text: string, language: DocumentLangua
   // ANSI (PowerShell 5.1 `Set-Content`): stratená diakritika by založila priečinok „N\uFFFDvrhy“.
   // Odmieta sa len použitá hodnota; poškodený komentár či iný kľúč profil nemení.
   for (const key of ["matter_folders", "folder_roles", "document_naming"]) {
-    if (JSON.stringify(fields.get(key) ?? null).includes("\uFFFD")) throw new Error(`${key} obsahuje poškodený znak (U+FFFD): Office/okf.config nie je v UTF-8 ani v UTF-16 s BOM (napr. ANSI); ulož ho ako UTF-8`);
+    if (JSON.stringify(fields.get(key) ?? null).includes("\uFFFD")) {
+      throw Object.assign(new Error(`${OFFICE_CONFIG_ENCODING_MESSAGE}: ${key} obsahuje poškodený znak (U+FFFD)`), { code: OFFICE_CONFIG_ENCODING_CODE });
+    }
   }
   return workingProfile(fields.get("matter_folders"), fields.get("folder_roles"), fields.get("document_naming"), language);
 }

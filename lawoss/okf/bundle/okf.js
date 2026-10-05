@@ -844,6 +844,8 @@ function parseBlock(block, firstLineNo) {
 // src/profile.ts
 var WORKING_FOLDERS = ["00_Na_zatriedenie", "01_Podklady", "02_Resers", "03_Drafty", "04_Vystupy", "05_Komunikacia"];
 var PROFILE_FILE = "PRACOVNY-PROFIL.md";
+var OFFICE_CONFIG_ENCODING_CODE = "office_config_encoding";
+var OFFICE_CONFIG_ENCODING_MESSAGE = "okf.config kancelárie nie je v UTF-8 ani v UTF-16 s BOM (napr. ANSI); ulož ho ako UTF-8";
 function parseWorkingProfile(content) {
   const fields = parseFrontmatter(content);
   if (fields?.type !== "working-profile" || !fields.folders || !fields.folder_roles || !fields.document_naming)
@@ -872,8 +874,9 @@ function parseOfficeWorkingProfile(text, language = "sk") {
     throw new Error("Duplicitná rola pracovného profilu");
   const fields = parseFrontmatter2(content);
   for (const key of ["matter_folders", "folder_roles", "document_naming"]) {
-    if (JSON.stringify(fields.get(key) ?? null).includes("�"))
-      throw new Error(`${key} obsahuje poškodený znak (U+FFFD): Office/okf.config nie je v UTF-8 ani v UTF-16 s BOM (napr. ANSI); ulož ho ako UTF-8`);
+    if (JSON.stringify(fields.get(key) ?? null).includes("�")) {
+      throw Object.assign(new Error(`${OFFICE_CONFIG_ENCODING_MESSAGE}: ${key} obsahuje poškodený znak (U+FFFD)`), { code: OFFICE_CONFIG_ENCODING_CODE });
+    }
   }
   return workingProfile(fields.get("matter_folders"), fields.get("folder_roles"), fields.get("document_naming"), language);
 }
@@ -2811,7 +2814,12 @@ async function planNewMatter(request) {
   if (existingMatters && existingMatters.kind !== "directory")
     throw new Error("Matter folder is blocked by a non-directory.");
   const office = findOfficeDir(request.parent);
-  const workingProfile = office ? parseOfficeWorkingProfile(decodeText(await readFile2(join6(office, "okf.config"))), request.language ?? "sk") : undefined;
+  const officeConfig = office ? await readFile2(join6(office, "okf.config")).then(decodeText, (error) => {
+    if (error && typeof error === "object" && "code" in error && (error.code === "ENOENT" || error.code === "EISDIR"))
+      return;
+    throw error;
+  }) : undefined;
+  const workingProfile = officeConfig !== undefined ? parseOfficeWorkingProfile(officeConfig, request.language ?? "sk") : undefined;
   const card = await clientCard(clientRoot);
   const clientCardPath = card ? relative4(join6(parentRoot, MATTERS_DIR, name), card.file).split(sep5).join("/") : undefined;
   const built = buildMatterOperations({ ...request, workingProfile, clientTitle: card?.title, clientCardPath });
