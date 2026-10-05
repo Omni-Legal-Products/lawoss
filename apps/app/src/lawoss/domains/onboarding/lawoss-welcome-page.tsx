@@ -37,6 +37,7 @@ import {
   writeOnboardingProgress,
 } from "./onboarding-state";
 import { OnboardingAiPanel } from "./ai-step";
+import { visibleExistingClientModes } from "../../feature-flags";
 import { UNSAFE_FOLDER_NAME_MESSAGE } from "../../../../../../lawoss/okf/src/onboarding/messages";
 import { LawossWordmark } from "../../shell/wordmark";
 import lawossMark from "../../../../../../lawoss/brand/lawoss-mark.svg";
@@ -335,6 +336,15 @@ function PathInput({
 }
 const extraText: Record<Language, Record<string, string>> = {
   sk: {
+    attachTitle: "Pripojiť existujúci priečinok klienta",
+    original: "Pôvodný priečinok klienta",
+    modeQuestion: "Čo sa stane s pôvodným priečinkom",
+    trial_cloneHelp: "LAWOSS vytvorí kópiu priečinka a pracuje len v nej. Originál ostane nedotknutý: nič sa v ňom nezmení, nepribudne ani nezmaže. Vhodné na vyskúšanie.",
+    convertHelp: "LAWOSS zapíše priamo do pôvodného priečinka: doplní chýbajúce súbory LAWOSS (kartu klienta, pokyny pre asistenta, pamäť). Vaše súbory neprepíše, nepresunie ani nezmaže.",
+    convertConfirm: "Rozumiem, že LAWOSS zapíše do pôvodného priečinka.",
+    cloneParent: "Kam uložiť kópiu",
+    cloneTarget: "Kópia vznikne ako",
+    trialPreview: "Vznikne kópia. Pôvodný priečinok ostane bez zmeny.",
     documentLanguage: "Jazyk dokumentov",
     soleTrader: "Fyzická osoba podnikateľ",
     other: "Iný",
@@ -350,6 +360,15 @@ const extraText: Record<Language, Record<string, string>> = {
     finish: "Dokončiť",
   },
   cs: {
+    attachTitle: "Připojit existující složku klienta",
+    original: "Původní složka klienta",
+    modeQuestion: "Co se stane s původní složkou",
+    trial_cloneHelp: "LAWOSS vytvoří kopii složky a pracuje jen v ní. Originál zůstane nedotčený: nic se v něm nezmění, nepřibude ani nesmaže. Vhodné na vyzkoušení.",
+    convertHelp: "LAWOSS zapíše přímo do původní složky: doplní chybějící soubory LAWOSS (kartu klienta, pokyny pro asistenta, paměť). Vaše soubory nepřepíše, nepřesune ani nesmaže.",
+    convertConfirm: "Rozumím, že LAWOSS zapíše do původní složky.",
+    cloneParent: "Kam uložit kopii",
+    cloneTarget: "Kopie vznikne jako",
+    trialPreview: "Vznikne kopie. Původní složka zůstane beze změny.",
     documentLanguage: "Jazyk dokumentů",
     soleTrader: "Fyzická osoba podnikatel",
     other: "Jiný",
@@ -365,6 +384,15 @@ const extraText: Record<Language, Record<string, string>> = {
     finish: "Dokončit",
   },
   en: {
+    attachTitle: "Connect an existing client folder",
+    original: "Original client folder",
+    modeQuestion: "What happens to the original folder",
+    trial_cloneHelp: "LAWOSS makes a copy of the folder and works only in the copy. The original stays untouched: nothing in it is changed, added or deleted. Good for trying things out.",
+    convertHelp: "LAWOSS writes directly into the original folder: it adds the missing LAWOSS files (client card, instructions for the assistant, memory). Your files are not overwritten, moved or deleted.",
+    convertConfirm: "I understand that LAWOSS writes into the original folder.",
+    cloneParent: "Where to save the copy",
+    cloneTarget: "The copy will be created as",
+    trialPreview: "A copy will be created. The original folder stays unchanged.",
     documentLanguage: "Document language",
     soleTrader: "Sole trader",
     other: "Other",
@@ -380,6 +408,15 @@ const extraText: Record<Language, Record<string, string>> = {
     finish: "Finish",
   },
   de: {
+    attachTitle: "Bestehenden Mandantenordner verbinden",
+    original: "Ursprünglicher Mandantenordner",
+    modeQuestion: "Was mit dem Originalordner geschieht",
+    trial_cloneHelp: "LAWOSS erstellt eine Kopie des Ordners und arbeitet nur in der Kopie. Das Original bleibt unberührt: darin wird nichts geändert, hinzugefügt oder gelöscht. Geeignet zum Ausprobieren.",
+    convertHelp: "LAWOSS schreibt direkt in den Originalordner: Es ergänzt fehlende LAWOSS-Dateien (Mandantenkarte, Hinweise für den Assistenten, Gedächtnis). Ihre Dateien werden nicht überschrieben, verschoben oder gelöscht.",
+    convertConfirm: "Ich verstehe, dass LAWOSS in den Originalordner schreibt.",
+    cloneParent: "Speicherort der Kopie",
+    cloneTarget: "Die Kopie entsteht als",
+    trialPreview: "Es entsteht eine Kopie. Der Originalordner bleibt unverändert.",
     documentLanguage: "Dokumentsprache",
     soleTrader: "Einzelunternehmer",
     other: "Andere",
@@ -396,6 +433,11 @@ const extraText: Record<Language, Record<string, string>> = {
     finish: "Abschließen",
   },
 };
+/** Texty krokov onboardingu v jazyku rozhrania. */
+export const welcomeText = (locale: Language) => (key: string): string =>
+  key === "cancel"
+    ? { en: "Cancel", sk: "Zrušiť", cs: "Zrušit", de: "Abbrechen" }[locale]
+    : (extraText[locale][key] ?? text[locale][key]);
 /** OKF notice, version `OKF_NOTICE_VERSION`. Changing the text needs a new version. */
 type OkfNotice = {
   title: string;
@@ -583,19 +625,19 @@ type Props = {
   ) => void | Promise<void>;
   onOpenAiSettings: () => void;
   pickDirectory: () => Promise<string | null>;
+  /** Krok klienta otvorený z tlačidla „Pripojiť existujúci priečinok klienta“. */
+  attachExisting?: boolean;
 };
 export function LawossWelcomePage({
   api,
   initialStep,
+  attachExisting = false,
   onComplete,
   onOpenAiSettings,
   pickDirectory,
 }: Props) {
   const locale = useLocale();
-  const tr = (key: string) =>
-    key === "cancel"
-      ? { en: "Cancel", sk: "Zrušiť", cs: "Zrušit", de: "Abbrechen" }[locale]
-      : (extraText[locale][key] ?? text[locale][key]);
+  const tr = welcomeText(locale);
   const [profile, setProfile] = useState<OnboardingProfile | null>(null);
   const [step, setStep] = useState<OnboardingStep>(initialStep ?? "identity");
   const [preview, setPreview] = useState<{
@@ -893,6 +935,7 @@ export function LawossWelcomePage({
               tr={tr}
               busy={busy}
               onPlan={plan}
+              initialExisting={attachExisting && initialStep === "client"}
             />
           ) : null}
           {step === "matter" ? (
@@ -977,7 +1020,7 @@ export function LawossWelcomePage({
             </ul>
             {(preview.value.preview.warnings ?? []).map((item) => (
               <p key={item} className="mt-2 text-sm text-[var(--lw-warning)]">
-                {item}
+                {item === "trial_clone" ? tr("trialPreview") : item}
               </p>
             ))}
             <div className="mt-5 flex gap-2">
@@ -1222,38 +1265,54 @@ function Office({
     </>
   );
 }
-function Client({
+/** Rodičovský priečinok cesty; kópia skúšobného klonu vznikne predvolene vedľa originálu. */
+export function parentFolderOf(path: string): string {
+  const trimmed = path.trim().replace(/[\\/]+$/, "");
+  const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return cut > 0 ? trimmed.slice(0, cut) : "";
+}
+const folderName = (path: string) => path.trim().replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
+/** Názov kópie tak, ako ho vytvorí server (`planExistingClient`). */
+export const trialCloneName = (original: string, date: string) => `${folderName(original) || "client"} (trial ${date})`;
+/** Režimy pripojenia v poradí ponuky; skúšobný klon je prvý a predvolený, mapovanie skryje alfa prepínač. */
+const EXISTING_MODES = visibleExistingClientModes(["trial_clone", "convert", "map"] as const);
+export function Client({
   base,
   locale,
   tr,
   busy,
   onPlan,
+  initialExisting = false,
 }: {
   base: OnboardingProfile;
   locale: Language;
   tr: (key: string) => string;
   busy: boolean;
   onPlan: (r: OnboardingPlanRequest) => Promise<void>;
+  initialExisting?: boolean;
 }) {
-  const [existing, setExisting] = useState(false);
+  const [existing, setExisting] = useState(initialExisting);
   const [value, setValue] = useState("");
   const [clientParent, setClientParent] = useState(() => clientsFolderOf(base.officeRoot));
   const [docLanguage, setDocLanguage] = useState<DocumentLanguage>(
     documentLanguage(locale),
   );
   const [confirmedClient, setConfirmedClient] = useState(false);
+  const [confirmedWrite, setConfirmedWrite] = useState(false);
   const [type, setType] = useState<ClientType>("po");
-  const [mode, setMode] = useState<ExistingClientMode>("convert");
+  const [mode, setMode] = useState<ExistingClientMode>(EXISTING_MODES[0] ?? "trial_clone");
   const [memoryPath, setMemoryPath] = useState("");
   const [identityAnchor, setIdentityAnchor] = useState("");
-  const [cloneParent, setCloneParent] = useState("");
+  // Kým ho advokát nezmení, kópia vznikne vedľa vybraného originálu.
+  const [cloneParentChoice, setCloneParent] = useState<string | null>(null);
+  const cloneParent = cloneParentChoice ?? parentFolderOf(value);
   const request = (): OnboardingPlanRequest =>
     existing
       ? {
           action: "existing",
           root: value,
           mode,
-          title: value.split("/").pop() || "Client",
+          title: folderName(value) || "Client",
           clientType: type,
           jurisdiction: base.jurisdiction,
           date: today(),
@@ -1277,10 +1336,11 @@ function Client({
     (existing || clientParent.trim()) &&
     (mode !== "map" || (memoryPath.trim() && identityAnchor.trim())) &&
     (mode !== "trial_clone" || cloneParent.trim()) &&
+    (!existing || mode !== "convert" || confirmedWrite) &&
     (!existing || mode === "map" || confirmedClient);
   return (
     <>
-      <h2 className="text-xl font-semibold">{tr("client")}</h2>
+      <h2 className="text-xl font-semibold">{existing ? tr("attachTitle") : tr("client")}</h2>
       <div className="flex gap-2">
         <Button
           variant={!existing ? "default" : "outline"}
@@ -1296,7 +1356,7 @@ function Client({
         </Button>
       </div>
       {field(
-        existing ? tr("path") : tr("name"),
+        existing ? tr("original") : tr("name"),
         existing ? (
           <PathInput value={value} onChange={setValue} />
         ) : (
@@ -1309,6 +1369,68 @@ function Client({
             <PathInput value={clientParent} onChange={setClientParent} />,
           )
         : null}
+      {existing ? (
+        <fieldset className="grid gap-2" data-lawoss-existing-modes>
+          <legend className="mb-1.5 text-sm font-medium">{tr("modeQuestion")}</legend>
+          {EXISTING_MODES.map((x) => (
+            <label key={x} className="lw-onb-inset flex gap-3 text-sm" data-mode={x}>
+              <input
+                type="radio"
+                name="lawoss-existing-mode"
+                value={x}
+                checked={mode === x}
+                onChange={() => setMode(x)}
+              />
+              <span className="grid gap-1">
+                <span className="font-medium">{tr(x)}</span>
+                <span className="text-muted-foreground">{tr(`${x}Help`)}</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      ) : null}
+      {existing && mode === "trial_clone" ? (
+        <div className="grid gap-1.5">
+          {field(
+            tr("cloneParent"),
+            <PathInput value={cloneParent} onChange={setCloneParent} />,
+          )}
+          {value.trim() && cloneParent.trim() ? (
+            <p className="break-all text-sm text-muted-foreground" data-lawoss-clone-target>
+              {tr("cloneTarget")}: {cloneParent.replace(/[\\/]+$/, "")}/{trialCloneName(value, today())}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      {existing && mode === "convert" ? (
+        <label className="flex gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={confirmedWrite}
+            onChange={(event) => setConfirmedWrite(event.target.checked)}
+          />
+          {tr("convertConfirm")}
+        </label>
+      ) : null}
+      {existing && mode === "map" ? (
+        <div className="lw-onb-inset grid gap-3">
+          <p className="text-sm text-muted-foreground">{tr("mapHelp")}</p>
+          {field(
+            tr("memory"),
+            <Input
+              value={memoryPath}
+              onChange={(e) => setMemoryPath(e.target.value)}
+            />,
+          )}
+          {field(
+            tr("anchor"),
+            <Input
+              value={identityAnchor}
+              onChange={(e) => setIdentityAnchor(e.target.value)}
+            />,
+          )}
+        </div>
+      ) : null}
       {field(
         tr("documentLanguage"),
         <DocumentLanguageSelect
@@ -1339,49 +1461,6 @@ function Client({
           <option value="iny">{tr("other")}</option>
         </select>,
       )}
-      {existing ? (
-        <>
-          {field(
-            tr("mode"),
-            <select
-              className="lw-onb-select"
-              value={mode}
-              onChange={(e) => setMode(e.target.value as ExistingClientMode)}
-            >
-              {(["convert", "map", "trial_clone"] as const).map((x) => (
-                <option key={x} value={x}>
-                  {tr(x)}
-                </option>
-              ))}
-            </select>,
-          )}
-          {mode === "map" ? (
-            <div className="lw-onb-inset grid gap-3">
-              <p className="text-sm text-muted-foreground">{tr("mapHelp")}</p>
-              {field(
-                tr("memory"),
-                <Input
-                  value={memoryPath}
-                  onChange={(e) => setMemoryPath(e.target.value)}
-                />,
-              )}
-              {field(
-                tr("anchor"),
-                <Input
-                  value={identityAnchor}
-                  onChange={(e) => setIdentityAnchor(e.target.value)}
-                />,
-              )}
-            </div>
-          ) : null}
-          {mode === "trial_clone"
-            ? field(
-                tr("parent"),
-                <PathInput value={cloneParent} onChange={setCloneParent} />,
-              )
-            : null}
-        </>
-      ) : null}
       <Button disabled={busy || !valid} onClick={() => void onPlan(request())}>
         {tr("preview")}
       </Button>

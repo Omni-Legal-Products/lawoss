@@ -4,6 +4,8 @@ export const LITE_CLIENTS_PATH = "/klienti";
 export const LITE_MATTER_PATH = "/vec";
 /** Nová vec cez ten istý formulár s náhľadom a potvrdením ako bočný panel (nie technický Nový spis). */
 export const NEW_MATTER_PATH = "/welcome?continue=matter";
+/** Krok klienta rovno v pripojení existujúceho priečinka; predvolený je skúšobný klon. */
+export const ATTACH_EXISTING_CLIENT_PATH = "/welcome?continue=existing";
 
 export const liteMatterLink = (path: string): string => `${LITE_MATTER_PATH}?vec=${encodeURIComponent(path)}`;
 
