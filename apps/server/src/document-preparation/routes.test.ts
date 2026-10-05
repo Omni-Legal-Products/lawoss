@@ -38,6 +38,8 @@ test("internal review preparation API enforces workspace authorization, pins the
     const client = { Authorization: "Bearer token", "content-type": "application/json" };
     const endpoint = `${base}/workspace/ws_1/document-preparations`;
     expect((await fetch(endpoint, { method: "POST", body: "{}" })).status).toBe(401);
+    // LAWOSS: OCR runs only after it is turned on (lawoss/ocr-opt-in.ts).
+    expect((await fetch(`${base}/lawoss/ocr`, { headers: host, method: "PUT", body: '{"enabled":true}' })).status).toBe(200);
     const saved = await fetch(`${base}/ocr/servers`, { headers: host, method: "POST", body: JSON.stringify({ label: "OCR", model: "first-model", endpoint: `http://127.0.0.1:${provider.port}/chat/completions`, languages: null, authentication: "none" }) });
     const engines = z.object({ engines: z.array(z.object({ id: z.string(), kind: z.string() })) }).parse(await saved.json());
     const modelId = engines.engines.find(engine => engine.kind === "chat-completions")!.id;

@@ -14,7 +14,8 @@ import { LayoutRuntime } from "./layout-runtime.js";
 import { assemblePageStructure, pageReviewReasons, unavailableStructure, type DocumentLayout, type LayoutDetection } from "./structure.js";
 import { linkDocumentStructure } from "./relations.js";
 import { openDocument, type RenderedDocument } from "./render.js";
-import { firstUseFailure, firstUseOcrDownload, type FirstUseDownload } from "../lawoss/ocr-on-demand.js";
+import { firstUseFailure, firstUseOcrDownload, OCR_DOWNLOADING_CODE, type FirstUseDownload } from "../lawoss/ocr-on-demand.js";
+import { OCR_DISABLED, ocrEnabled, textLayerSnapshot } from "../lawoss/ocr-opt-in.js";
 
 import { pageSchema, preparedSchema, type PreparedDocument } from "./schema.js";
 export { preparedSchema, type PreparedDocument } from "./schema.js";
@@ -33,8 +34,8 @@ export const prepareInput = z.strictObject({
 const hasOwnText = (text: string) => (text.match(/[\p{L}\p{N}]/gu)?.length ?? 0) >= 100;
 
 type Entry = { file: string; status: "queued" | "running" | "complete" | "needs-review" | "error"; completedPages: number; pageCount: number; preparationPath?: string; error?: string };
-type Job = { id: string; workspace: string; engine: OcrEngineInfo; status: "queued" | "running" | "complete" | "needs-review" | "cancelled"; documents: Entry[]; controller: AbortController; createdAt: number; notice?: string };
-type Snapshot = { service: OcrService; fingerprint: string; download?: FirstUseDownload };
+type Job = { id: string; workspace: string; engine: OcrEngineInfo; status: "queued" | "running" | "complete" | "needs-review" | "cancelled"; documents: Entry[]; controller: AbortController; createdAt: number; notice?: string; noticeCode?: string };
+type Snapshot = { service: OcrService; fingerprint: string; download?: FirstUseDownload; textOnly?: true; notice?: string; noticeCode?: string };
 const digest = (value: string | Uint8Array) => createHash("sha256").update(value).digest("hex");
 const within = (root: string, path: string) => { const part = relative(root, path); return part !== ".." && !part.startsWith(`..${sep}`) && !isAbsolute(part); };
 
@@ -53,6 +54,8 @@ export async function documentPath(workspace: string, input: string) {
 }
 
 async function snapshot(ocr: OcrManager): Promise<Snapshot> {
+  // LAWOSS: OCR runs only after the lawyer turns it on; until then only the text layer is read (lawoss/ocr-opt-in.ts).
+  if (!await ocrEnabled(ocr.runtime.root)) return textLayerSnapshot();
   const settings = await ocr.store.read();
   const engine = settings.engines.find(engine => engine.id === settings.defaultEngineId);
   if (!engine) throw new ApiError(400, "ocr_not_ready", "Choose an OCR model in Settings → AI Providers.");
@@ -96,7 +99,7 @@ export class DocumentPreparation {
     const selected = await (this.options.snapshot ? this.options.snapshot() : snapshot(this.ocr));
     const engine = selected.service.listEngines()[0];
     if (!engine) throw new Error("Missing OCR engine");
-    const job: Job = { id: randomUUID(), workspace: root, engine, status: "queued", documents: sources.map(source => ({ file: source.file, status: "queued", completedPages: 0, pageCount: 0 })), controller: new AbortController(), createdAt: Date.now(), notice: selected.download?.notice };
+    const job: Job = { id: randomUUID(), workspace: root, engine, status: "queued", documents: sources.map(source => ({ file: source.file, status: "queued", completedPages: 0, pageCount: 0 })), controller: new AbortController(), createdAt: Date.now(), notice: selected.notice ?? selected.download?.notice, noticeCode: selected.noticeCode ?? (selected.download ? OCR_DOWNLOADING_CODE : undefined) };
     this.jobs.set(job.id, job);
     this.pending = this.pending.catch(() => undefined).then(() => this.run(job, root, sources, input, selected, engine))
       // Model processes stay loaded across the job's pages and documents, and stop with it.
@@ -110,9 +113,9 @@ export class DocumentPreparation {
     try { await selected.download?.wait(job.controller.signal); } catch (error) {
       // LAWOSS: the first-use model download failed or was cancelled; nothing was read.
       for (const entry of job.documents) Object.assign(entry, { status: "error", error: job.controller.signal.aborted ? "Preparation was cancelled. Retry to resume completed pages." : firstUseFailure(error) });
-      job.status = job.controller.signal.aborted ? "cancelled" : "needs-review"; job.notice = undefined; return;
+      job.status = job.controller.signal.aborted ? "cancelled" : "needs-review"; job.notice = job.noticeCode = undefined; return;
     }
-    job.notice = undefined;
+    if (selected.download) job.notice = job.noticeCode = undefined;
     let layoutUnavailable = false;
     for (let index = 0; index < sources.length; index++) {
       if (job.controller.signal.aborted) break;
@@ -157,9 +160,12 @@ export class DocumentPreparation {
             try {
               const renderedPage = await document.page(page, signal);
               nativeText = renderedPage.nativeText; width = renderedPage.image.width; height = renderedPage.image.height;
-              if (input.ocr === "missing-text" && hasOwnText(nativeText)) {
+              if ((input.ocr === "missing-text" || selected.textOnly) && hasOwnText(nativeText)) {
                 // The page's own text is its evidence: no layout or OCR.
                 result = { page, nativeText, width, height, ocr: null, status: "complete" };
+              } else if (selected.textOnly) {
+                // LAWOSS: OCR is off; the page keeps its own text and stays unread (lawoss/ocr-opt-in.ts).
+                result = { page, nativeText, width, height, ocr: null, status: "error", error: OCR_DISABLED };
               } else {
                 // Layout comes first: the quality model reads each detected block so its text keeps coordinates.
                 let detected: LayoutDetection | undefined;
@@ -216,6 +222,7 @@ export class DocumentPreparation {
           job.controller.signal.throwIfAborted();
           doc.relations = linkDocumentStructure(doc.pages);
           doc.status = doc.pages.every(page => page.status === "complete") ? "complete" : "needs-review";
+          if (selected.textOnly && doc.pages.some(page => page.status === "error")) doc.error = OCR_DISABLED;
         } catch (error) {
           doc.status = "error"; doc.error = error instanceof ApiError ? error.message : job.controller.signal.aborted ? "Preparation was cancelled. Retry to resume completed pages." : "Could not prepare this document. Check that it is readable and not password-protected, then retry.";
         } finally { await rendered?.close(); }
@@ -258,7 +265,7 @@ export class DocumentPreparation {
   }
   async status(workspace: string, id: string) {
     const job = await this.job(workspace, id);
-    return { id: job.id, engine: job.engine, status: job.status, documents: job.documents.map(document => ({ ...document })), ...job.notice ? { notice: job.notice } : {} };
+    return { id: job.id, engine: job.engine, status: job.status, documents: job.documents.map(document => ({ ...document })), ...job.notice ? { notice: job.notice } : {}, ...job.noticeCode ? { noticeCode: job.noticeCode } : {} };
   }
   async cancel(workspace: string, id: string) {
     const job = await this.job(workspace, id);

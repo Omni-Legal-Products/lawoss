@@ -23,6 +23,7 @@ import { ReviewFilterControls, emptyReviewFilters, reviewFilterQuery } from "./r
 import { ReviewGrid, ReviewCellDetail } from "./review-grid";
 import { ReviewError, ReviewStatus, reviewAnswer, reviewProbabilityRows, reviewKey } from "./review-ui";
 import { OcrDownloadHint } from "@/lawoss/domains/reviews/ocr-download-hint";
+import { isOcrDisabledError } from "@/lawoss/domains/settings/ocr-opt-in";
 
 type DialogState = { type: "name" } | { type: "settings" | "library" } | { type: "column"; column?: ReviewColumn } | { type: "save"; columns: ReviewColumn[] } | null;
 function exportReview(review: SavedReview) {
@@ -150,7 +151,7 @@ export function ProjectReviews({ client, workspaceId, projectName, onOpenSession
         <div className="ml-auto"><ReviewFilePicker disabled={busy} onFiles={sources => void intake.add(sources)} /></div>
         <ReviewAddColumnButton disabled={busy} onSelect={addColumn} />
       </div>
-      <OcrDownloadHint client={client} waiting={running || review.documents.some(document => document.status === "preparing")} failed={review.documents.some(document => !!document.error)} />
+      <OcrDownloadHint client={client} workspaceId={workspaceId} waiting={running || review.documents.some(document => document.status === "preparing")} failed={review.documents.some(document => !!document.error)} ocrOff={review.documents.some(document => isOcrDisabledError(document.error))} />
       {filterQuery.error && <p role="status" className="pb-3 text-sm text-muted-foreground">{t(filterQuery.error)}</p>}
       {visibleReview && !visibleReview.documents.length && !filterQuery.error && <p className="py-6 text-sm text-muted-foreground">{t(rows.isPending ? "review.loading" : "review.no_matching_documents")}</p>}
       {running && <div className="h-0.5 shrink-0 bg-muted"><div className="h-full bg-foreground transition-all" style={{ width: `${review.cells.length ? done / review.cells.length * 100 : 0}%` }} /></div>}

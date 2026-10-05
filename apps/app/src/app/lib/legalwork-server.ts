@@ -1,5 +1,6 @@
 import type { OnboardingApi } from "../../lawoss/domains/onboarding/api";
 import type { TriageApiPath } from "../../lawoss/domains/roztriedenie/api";
+import type { LawossOcrView } from "../../lawoss/domains/settings/ocr-opt-in";
 import type { WorkspaceMemoryStatus } from "../../../../../lawoss/okf-handoff/workspace-memory-status.mjs";
 export type { WorkspaceMemoryStatus as LegalworkWorkspaceMemoryStatus } from "../../../../../lawoss/okf-handoff/workspace-memory-status.mjs";
 import type { RemoteFolderSelection, ProjectRemoteFolderStatus } from "@legalwork/types/workspace";
@@ -1675,6 +1676,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     removeOcrServer: (id: string) => requestJson<OcrSettingsView>(baseUrl, `/ocr/servers/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
     installOcrEngine: (id: string) => requestJson<OcrSettingsView>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/install`, { token, hostToken, method: "POST", timeoutMs: timeouts.config }),
     cancelOcrInstall: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/install", { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
+    // LAWOSS: OCR only after the lawyer turns it on (lawoss/domains/settings/ocr-opt-in.ts).
+    lawossOcr: () => requestJson<LawossOcrView>(baseUrl, "/lawoss/ocr", { token, hostToken, timeoutMs: timeouts.config }),
+    setLawossOcr: (enabled: boolean) => requestJson<LawossOcrView>(baseUrl, "/lawoss/ocr", { token, hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.config }),
+    downloadLawossOcrModel: () => requestJson<LawossOcrView>(baseUrl, "/lawoss/ocr/model", { token, hostToken, method: "POST", timeoutMs: timeouts.config }),
+    removeLawossOcrModel: () => requestJson<LawossOcrView>(baseUrl, "/lawoss/ocr/model", { token, hostToken, method: "DELETE", timeoutMs: timeouts.config }),
     testOcrEngine: (id: string) => requestJson<{ ok: boolean }>(baseUrl, `/ocr/engines/${encodeURIComponent(id)}/test`, { token, hostToken, method: "POST", timeoutMs: 130_000 }),
     setPersonalization: (settings: LegalworkPersonalizationSettings) =>
       requestJson<{ settings: LegalworkPersonalizationSettings; updatedAt: number }>(baseUrl, "/personalization", {
