@@ -34,10 +34,11 @@ describe("LAWOSS feature flags", () => {
     expect(hideCommercialSidebarItems(items)).toEqual(["navHome", "navProjects"]);
   });
 
-  test("LegalMemory sa neponúka v rýchlom pripojení", () => {
+  test("LegalMemory sa neponúka v rýchlom pripojení; upstream položky len so zdrojom LegalWork", () => {
     expect(HIDDEN_QUICK_CONNECT_SERVERS.has("legalmemory")).toBe(true);
     expect(isHiddenQuickConnect("legalmemory")).toBe(true);
-    expect(isHiddenQuickConnect("slovlex")).toBe(false);
+    // Zdroj LegalWork je predvolene vypnutý a allowlist LAWOSS je prázdny (lawoss-quick-connect.test.ts).
+    expect(isHiddenQuickConnect("notion")).toBe(true);
   });
 
   test("firemné zdieľanie a trial oznámenie sú skryté", () => {

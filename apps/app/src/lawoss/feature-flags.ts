@@ -6,6 +6,8 @@
  * jedného riadku tu.
  */
 
+import { isLegalworkSourceEnabled } from "./domains/integrations/legalwork-source";
+
 /** Záložky nastavení, ktoré sa nezobrazia. */
 export const HIDDEN_SETTINGS_TABS: ReadonlySet<string> = new Set<string>([
   // Prihlásenie, plán a fakturácia dodávateľa upstreamu.
@@ -27,7 +29,7 @@ export const hideCommercialSidebarItems = <T extends string>(items: T[]): T[] =>
 export const hideCommercialTabs = <T extends string>(tabs: T[]): T[] =>
   tabs.filter((tab) => !HIDDEN_SETTINGS_TABS.has(tab));
 
-/** MCP servery, ktoré sa neponúkajú v rýchlom pripojení. */
+/** MCP servery, ktoré sa neponúkajú v rýchlom pripojení nikdy, ani so zapnutým zdrojom LegalWork. */
 export const HIDDEN_QUICK_CONNECT_SERVERS: ReadonlySet<string> = new Set<string>([
   // LegalMemory je pamäťová appliance dodávateľa upstreamu. Naša pamäť je OKF.
   // Keď sa neponúkne na pripojenie, celý jeho subsystém ostane nečinný a
@@ -35,8 +37,27 @@ export const HIDDEN_QUICK_CONNECT_SERVERS: ReadonlySet<string> = new Set<string>
   "legalmemory",
 ]);
 
+/**
+ * Upstream položky rýchleho pripojenia (`serverName` z `MCP_QUICK_CONNECT_ALL`), ktoré
+ * LAWOSS ponúka aj bez zdroja LegalWork. Zámerne prázdne (MČ 5. 10. 2026): zdroj LAWOSS
+ * tvorí náš katalóg (`domains/marketplace/catalog.ts`) a pribalené nástroje (DOCX Redline,
+ * PDF Tools). Všetko ostatné z upstreamu (vzdialené MCP tretích strán, Computer Use,
+ * LegalWork UI, vstavaný Google Workspace, Voice Mode) patrí pod zdroj LegalWork, takže
+ * nová upstream položka sa po synci sama nezobrazí. Pridáva sa vedome
+ * (`docs/upstream-sync-checklist.md`).
+ */
+export const LAWOSS_QUICK_CONNECT_ALLOWLIST: ReadonlySet<string> = new Set<string>([]);
+
+/**
+ * Položka sa ponúkne, ak je na allowliste LAWOSS alebo je zapnutý zdroj LegalWork.
+ * Skryté servery (LegalMemory) neodkryje ani zapnutý zdroj.
+ */
 export const isHiddenQuickConnect = (serverName: string): boolean =>
-  HIDDEN_QUICK_CONNECT_SERVERS.has(serverName);
+  HIDDEN_QUICK_CONNECT_SERVERS.has(serverName) ||
+  (!LAWOSS_QUICK_CONNECT_ALLOWLIST.has(serverName) && !isLegalworkSourceEnabled());
+
+/** Import skills z LegalQuants (GitHub) patrí pod zdroj LegalWork; bez neho sa nič neskenuje. */
+export const isLegalQuantsHidden = (): boolean => !isLegalworkSourceEnabled();
 
 /**
  * Komerčné plochy upstreamu, ktoré prerastajú do záložiek, ktoré si necháme.

@@ -77,6 +77,7 @@ describe("OKF skills when a client is opened", () => {
       "client:skill:okf-pamat", "client:resource:okf-pamat/okf-memory.js",
       "client:skill:usporiadaj-spis", "client:resource:usporiadaj-spis/okf.js",
       "client:skill:roztried-spis", "client:resource:roztried-spis/okf.js",
+      "client:skill:vystup-dokumentu", "client:resource:vystup-dokumentu/postprocess_docx.py",
     ]);
     f.writes.length = 0;
     await syncOkfSkillsForOpenWorkspace(f.client, [CLIENT], "client", "sk");

@@ -1880,6 +1880,7 @@ function createRoutes(
       workspaceRoot: workspaceAppFilesRoot(config, workspace),
       marketplaceId: null,
       resolved: bundle.resolved,
+      provenance: { source: bundle.preview.source, version: bundle.preview.version },
     });
 
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
