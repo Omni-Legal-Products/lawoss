@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   MDXEditor, type MDXEditorMethods, UndoRedo, BoldItalicUnderlineToggles,
   BlockTypeSelect, ListsToggle, CreateLink, InsertImage, InsertTable,
@@ -10,6 +10,8 @@ import {
 import "@mdxeditor/editor/style.css";
 import "./markdown-editor.css";
 import { t } from "@/i18n";
+import { restorePristineMarkdown, type PristineMarkdown } from "@/lawoss/markdown/pristine";
+import { pristineMarkdownPlugin } from "@/lawoss/markdown/pristine-plugin";
 
 type Props = {
   value: string;
@@ -24,6 +26,17 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
   const editor = useRef<MDXEditorMethods>(null);
   const initial = useRef(value);
   const lastValue = useRef(value);
+  // LAWOSS (#90): original bytes and their canonical form, to map Undo back to the original.
+  const pristine = useRef<PristineMarkdown | null>(value === baseline ? { source: value, normalized: value } : null);
+  const viewMode = useRef("rich-text");
+  const sourceEdited = useRef(false);
+  const setViewMode = useCallback((mode: string) => { viewMode.current = mode; }, []);
+  const setPristine = useCallback((next: PristineMarkdown) => {
+    // Merely visiting Source displays canonical text; it is not an intentional edit.
+    if (!sourceEdited.current && next.source === pristine.current?.normalized) return;
+    pristine.current = next;
+    sourceEdited.current = false;
+  }, []);
   const plugins = useMemo(() => [
     // AutoLink runs after initial normalization and dirties untouched files containing bare URLs.
     // Existing Markdown links and explicit CreateLink actions remain available.
@@ -34,6 +47,7 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
     codeMirrorPlugin({ codeBlockLanguages: { txt: "Text", js: "JavaScript", ts: "TypeScript", json: "JSON", python: "Python", sql: "SQL", bash: "Shell", mermaid: "Mermaid" } }),
     diffSourcePlugin({ viewMode: "rich-text", diffMarkdown: baseline }),
     markdownShortcutPlugin(),
+    pristineMarkdownPlugin({ onImport: setPristine, onMode: setViewMode }),
     toolbarPlugin({ toolbarContents: () => (
       <DiffSourceToggleWrapper>
         <UndoRedo /><Separator /><BlockTypeSelect /><Separator />
@@ -41,11 +55,12 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
         <Separator /><CreateLink /><InsertImage /><InsertTable /><InsertCodeBlock /><InsertThematicBreak />
       </DiffSourceToggleWrapper>
     ) }),
-  ], [baseline, imageUpload, imagePreview]);
+  ], [baseline, imageUpload, imagePreview, setViewMode, setPristine]);
 
   useEffect(() => {
     if (value === lastValue.current) return;
     lastValue.current = value;
+    pristine.current = null;
     editor.current?.setMarkdown(value);
   }, [value]);
 
@@ -65,9 +80,14 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
     placeholder={t("artifact.start_writing")}
     onChange={(markdown, initialNormalize) => {
       // Opening a file must not rewrite its original whitespace or bullet style.
-      if (initialNormalize) return;
-      lastValue.current = markdown;
-      onChange(markdown);
+      if (initialNormalize) {
+        if (pristine.current?.source === initial.current) pristine.current = { source: initial.current, normalized: markdown };
+        return;
+      }
+      if (viewMode.current !== "rich-text") sourceEdited.current = true;
+      const next = restorePristineMarkdown(markdown, pristine.current, viewMode.current);
+      lastValue.current = next;
+      onChange(next);
     }}
   />;
 }

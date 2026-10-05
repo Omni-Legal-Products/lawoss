@@ -333,6 +333,7 @@ Doménové obrazovky, slovníky, viditeľný prepínač a regresie zostávajú v
 | `apps/app/src/react-app/domains/session/artifacts/artifact-markdown-editor.tsx` | `linkPlugin({ disableAutoLink: true })` vypína dodatočný automatický prepis holých URL/e-mailov pri načítaní. Ten prichádzal po počiatočnej normalizácii a falošne označoval otvorený dokument ako upravený. Explicitné Markdown odkazy a dialóg vloženia odkazu zostávajú; ochrana skutočných úprav sa nevypína. |
 | `apps/app/src/react-app/domains/session/artifacts/docx-document-state.ts` | Spoločná výzva na zahodenie skutočných neuložených zmien používa aktuálny jazyk UI. Výber dirty dokumentov, zrušenie akcie a discard callbacks zostávajú pôvodné. |
 | `apps/app/src/i18n/locales/en.ts`, `de.ts`, `cs.ts`, `sk.ts` | Jeden zhodný kľúč `artifact.confirm_discard_unsaved`; doslovné názvy súborov sú parametrom existujúcej interpolácie. |
+| `apps/app/src/react-app/domains/session/artifacts/artifact-markdown-editor.tsx` | LAWOSS `pristineMarkdownPlugin` sleduje importy a režim editora; `restorePristineMarkdown()` obnoví presné bajty po rich-text Undo. Mapovanie sa obnoví aj pri refetchi a po source uložení alebo prijatí cudzej verzie. Úmyselné source úpravy, Undo/Redo história, save guards a prekladový callback ostávajú zachované (#90, #97). |
 
 ### Izolácia OCR modelových testov (2026-10-03)
 
