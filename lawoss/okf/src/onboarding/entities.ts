@@ -119,6 +119,9 @@ export function buildMatterOperations(input: MatterOperationsInput): { name: str
 export async function planNewMatter(request: MatterRequest): Promise<CreatePreview> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(request.date) || !["contentious", "non_contentious"].includes(request.kind)) throw new Error("Valid date and matter kind are required.");
   safeSegment(request.area);
+  // Subjekt je meno priečinka subjektu. Cesta (C:\…\Divízia, /Users/…) by do karty veci
+  // zapísala údaj tohto počítača, ktorý na inom počítači so zosynchronizovaným klientom neplatí.
+  if (request.subject !== undefined && /[\\/]/.test(request.subject)) throw new Error("Matter subject must be the subject folder name, not a path.");
   const name = `${request.date.slice(0, 7)} ${safeSegment(request.title)}`, target = join(request.parent, MATTERS_DIR, name);
   const clientRoot = await realpath(request.clientRoot), parentRoot = await realpath(request.parent);
   // Windows: realpath vracia `\`, porovnanie s `${clientRoot}/` by odmietlo každý subjekt klienta.

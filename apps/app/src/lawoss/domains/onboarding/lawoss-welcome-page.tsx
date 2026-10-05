@@ -1770,8 +1770,9 @@ export function Matter({
               kind,
               area,
               jurisdiction: base.jurisdiction,
+              // Karta veci nesie meno subjektu (priečinok), nie cestu tohto počítača.
               ...(subjectMode === "existing" && selectedSubjectRoot
-                ? { subject: selectedSubjectRoot }
+                ? { subject: folderName(selectedSubjectRoot) }
                 : {}),
               language: documentLanguage,
             })

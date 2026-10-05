@@ -2727,6 +2727,8 @@ async function planNewMatter(request) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(request.date) || !["contentious", "non_contentious"].includes(request.kind))
     throw new Error("Valid date and matter kind are required.");
   safeSegment(request.area);
+  if (request.subject !== undefined && /[\\/]/.test(request.subject))
+    throw new Error("Matter subject must be the subject folder name, not a path.");
   const name = `${request.date.slice(0, 7)} ${safeSegment(request.title)}`, target = join6(request.parent, MATTERS_DIR, name);
   const clientRoot = await realpath4(request.clientRoot), parentRoot = await realpath4(request.parent);
   if (!contained(clientRoot, parentRoot))

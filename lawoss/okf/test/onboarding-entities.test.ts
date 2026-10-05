@@ -86,11 +86,14 @@ test("a matter under an existing subject stays inside the client; a sibling fold
   await writeFile(join(client, "client.md"), "---\ntype: client\n---\n");
   await applyOnboarding(await planOnboarding(parseOnboardingRequest({ action: "subject", clientRoot: client, name: "Novak Jan", title: "Novák Jan" })), await options());
   const subjectRoot = join(client, "Novak Jan");
-  const preview = await planOnboarding(parseOnboardingRequest({ action: "matter", clientRoot: client, parent: subjectRoot, title: "Zmluva", date: "2026-10-05", kind: "non_contentious", area: "IP", jurisdiction: "cz" }));
+  await expect(planOnboarding(parseOnboardingRequest({ action: "matter", clientRoot: client, parent: subjectRoot, title: "Zmluva", date: "2026-10-05", kind: "non_contentious", area: "IP", jurisdiction: "cz", subject: subjectRoot }))).rejects.toThrow(/folder name, not a path/);
+  const preview = await planOnboarding(parseOnboardingRequest({ action: "matter", clientRoot: client, parent: subjectRoot, title: "Zmluva", date: "2026-10-05", kind: "non_contentious", area: "IP", jurisdiction: "cz", subject: "Novak Jan" }));
   if (preview.mode !== "new") throw new Error("Expected matter plan.");
   expect(preview.target).toBe(join(subjectRoot, "Spisy", "2026-10 Zmluva"));
   await applyOnboarding(preview, await options());
-  expect(await readFile(join(preview.target, "matter.md"), "utf8")).toContain("kind: non_contentious");
+  const card = await readFile(join(preview.target, "matter.md"), "utf8");
+  expect(card).toContain("kind: non_contentious");
+  expect(card).toContain('subject: "Novak Jan"');
   const sibling = await directory("okf-client-sibling-");
   await expect(planOnboarding(parseOnboardingRequest({ action: "matter", clientRoot: client, parent: sibling, title: "Mimo", date: "2026-10-05", kind: "contentious", area: "IP", jurisdiction: "cz" }))).rejects.toThrow(/within/);
 });
