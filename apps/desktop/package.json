@@ -2,10 +2,9 @@
   "name": "@legalwork/desktop",
   "private": true,
   "version": "0.0.0",
-  "description": "LegalWork desktop shell",
+  "description": "LAWOSS desktop shell",
   "author": {
-    "name": "LegalWork",
-    "email": "chris@eigenweltlabs.com"
+    "name": "Omni-Legal-Products"
   },
   "main": "electron/main.mjs",
   "type": "module",

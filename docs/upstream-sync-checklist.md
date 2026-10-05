@@ -49,16 +49,27 @@ Potom ručne:
 
 ## 4. Značka a artefakty
 
-- [ ] `apps/desktop/electron-builder.yml`: `productName: LAWOSS`, `artifactName: lawoss-${os}-${arch}-${version}.${ext}`, `publish` na `Omni-Legal-Products/lawoss`, ikony z `resources/icons`, `LICENSE` a `NOTICE` v `extraResources`, katalóg modelov v `extraResources`.
-- [ ] Updater: `apps/desktop/electron/updater.mjs` a `update-feed.mjs` mieria na `https://lawoss.app/update` a releasy `Omni-Legal-Products/lawoss` (prefix `lawoss-`, záložne `legalwork-`).
-- [ ] Odkazy na releasy upstreamu, ktoré ostávajú ako známy dlh (nie spojenie appky, len odkaz po kliknutí): `RELEASE_PAGE_URL` v `apps/desktop/electron/main.mjs`, `RELEASES_URL` v `apps/app/src/react-app/shell/loading-overlay.tsx`, alfa kanál v ladení (`apps/app/src/app/lib/electron-alpha.ts`, len vývojársky režim a klik).
+Rozhodnutie MČ 5. 10. 2026 (M3): appka sa volá LAWOSS (`APP_NAME` aj `DISPLAY_NAME`) a upstream sync ostáva praktický. Jediný zdroj značky a adries releasov forku je `lawoss/branding.mjs`; upstream súbory ho importujú jedným riadkom. Najprv stráž značky (beží aj v kroku z bodu 2):
+
+```sh
+node lawoss/scripts/check-branding.mjs
+node --test lawoss/scripts/check-branding.test.mjs
+node lawoss/scripts/check-branding.mjs --write   # len ak sa zmenil lawoss/branding.mjs: obnoví desktopovú kópiu
+```
+
+- [ ] **Identita na disku sa nemení.** `APP_BUNDLE_IDENTIFIER` `com.eigenweltlabs.legalwork`, `DEV_APP_IDENTIFIER` `com.eigenweltlabs.legalwork.dev`, schéma `legalwork://`, `appId` v `electron-builder.yml` a userData `path.join(appData, APP_IDENTIFIER)` ostávajú. Ak upstream mení odvodenie priečinka s dátami, kľúčenky alebo logov, posúdiť dopad na existujúce inštalácie LAWOSS skôr, než sa stráž upraví.
+- [ ] **Konflikt v riadkoch so značkou** (`main.mjs`, `updater.mjs`, `electron-alpha.ts`, `release-channels.ts`, `loading-overlay.tsx`, `web-unavailable-surface.tsx`, `i18n/index.ts`): prevziať upstream a vrátiť jeden import a hodnotu z `lawoss/branding.mjs` (v desktope `./lawoss-branding.mjs`, v appke `@/lawoss/branding`). Nový literál „LegalWork“ alebo adresu upstreamu v týchto súboroch nenechávať.
+- [ ] **Nové upstream texty.** V slovníkoch sa „LegalWork“ neprepisuje; `t()` ho nahradí za LAWOSS (`applyBrandName`). Stráž zlyhá na inom tvare (napríklad „Legalwork“), na kľúči v `BRAND_EXEMPT_KEYS` bez dôvodu v `ALLOWED_TEXT` a na „LegalWork“ v slovníkoch a UI LAWOSS (`apps/app/src/lawoss/**`). Texty mimo `t()` v upstream súboroch stráž nepokrýva: nové pevné reťazce s menom upstreamu, ktoré advokát uvidí, zapísať do PR.
+- [ ] `apps/desktop/electron-builder.yml`: `productName: LAWOSS`, `protocols[0].name: LAWOSS`, popisy povolení macOS (`NS*UsageDescription`) s LAWOSS, `artifactName: lawoss-${os}-${arch}-${version}.${ext}`, `publish` na `Omni-Legal-Products/lawoss`, ikony z `resources/icons`, `LICENSE` a `NOTICE` v `extraResources`, katalóg modelov v `extraResources`. Meno upstreamu smie ostať len v licenčnej doložke a v názvoch pribalených binárok (`BUILDER_ALLOWED_LINES` v stráži).
+- [ ] Updater: `apps/desktop/electron/updater.mjs` (stable `https://lawoss.app/update`, alfa `alpha-macos-latest` a `alpha-windows-latest` forku) a `update-feed.mjs` (releasy `Omni-Legal-Products/lawoss`, prefix `lawoss-`, záložne `legalwork-`). Alfa náhľad v ladení (`electron-alpha.ts`) číta ten istý `latest-mac.yml` ako updater.
+- [ ] Odkazy na releasy v appke a desktope (`RELEASE_PAGE_URL`, `RELEASES_URL`, alfa kanál, webová verzia) vedú na `FORK_RELEASES_URL`; stráž zlyhá na `github.com/eigenweltlabs/legalwork` a `legalwork.app` v `apps/app/src` a `apps/desktop/electron`.
 - [ ] Názov, wordmark, prepínač jazyka, SK a CS slovníky a trasy LAWOSS podľa `PATCHES.md`.
 
 ## 5. PATCHES.md a overenie
 
 - [ ] Každý konflikt riešiť podľa riadkov `PATCHES.md`; nové zásahy do upstream súborov zapísať do toho istého PR.
 - [ ] `AGENTS.md` a `CLAUDE.md` zhodné.
-- [ ] Typecheck a testy: `pnpm typecheck` v `apps/app` a `apps/server`, `bun test tests/` v `apps/app`, `bun test src` v `apps/server`, `pnpm --filter @legalwork/desktop test`, `pnpm --filter @legalwork/app test:i18n`, stráž z bodu 2.
+- [ ] Typecheck a testy: `pnpm typecheck` v `apps/app` a `apps/server`, `pnpm --filter @legalwork/desktop typecheck:electron`, `bun test tests/` v `apps/app`, `bun test src` v `apps/server`, `pnpm --filter @legalwork/desktop test`, `pnpm --filter @legalwork/app test:i18n`, stráže z bodov 2 a 4.
 - [ ] Desktop smoke len izolovane: `HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME` na dočasný priečinok, `LEGALWORK_ELECTRON_USERDATA`, `LEGALWORK_DESKTOP_DISABLE_WORKSPACE_RECOVERY=1`, vymyslené údaje. Po behu `find ~/.config/legalwork ~/.config/opencode ~/.legalwork -newer <marker>` musí byť prázdne.
 - [ ] Bez sťahovania modelov: pri izolovanom štarte servera zaznamenať `fetch` (napríklad `bun --preload`), po štarte a `/health` nesmie ísť žiadna požiadavka na `huggingface.co`.
 - [ ] Bez internetu na Eigenwelt: pri smoke teste nastaviť `EIGENWELT_PLATFORM_URL` a `OPENCODE_MODELS_URL` na lokálny poslucháč, ktorý zapisuje požiadavky; po štarte, výpise poskytovateľov a pripojení modelu nesmie prísť žiadna.

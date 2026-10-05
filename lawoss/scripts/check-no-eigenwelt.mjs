@@ -20,6 +20,9 @@
  *    používateľa; model OCR sa sťahuje až pri prvom použití
  *    (`apps/server/src/lawoss/ocr-on-demand.ts`).
  *
+ * Spolu s ňou beží stráž značky `check-branding.mjs` (LAWOSS namiesto LegalWork,
+ * nemenný APP_IDENTIFIER, releasy forku), aby stačil jeden krok v CI.
+ *
  * Použitie: `node lawoss/scripts/check-no-eigenwelt.mjs` (bez závislostí, Node 18+).
  * Postup pri upstream synci: `docs/upstream-sync-checklist.md`.
  */
@@ -28,6 +31,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { checkBranding } from "./check-branding.mjs";
 import { CATALOG_PATH, validateCatalog } from "./update-models-catalog.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -91,7 +95,6 @@ export const ALLOWED = {
     matches: ["api.eigenweltlabs.com"],
     reason: "Vývojový náhľad nastavení so statickými dátami, nie je v appke.",
   },
-  "apps/desktop/package.json": { matches: ["eigenweltlabs.com"], reason: "Autor balíka upstreamu (metadáta)." },
   "packages/legalwork-ui-mcp/package.json": { matches: ["eigenweltlabs.com"], reason: "Autor balíka upstreamu (metadáta)." },
   "apps/server/src/eigenwelt-auth.ts": {
     matches: ["platform.eigenweltlabs.com"],
@@ -351,11 +354,16 @@ export function checkRepo(root = REPO_ROOT) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const problems = checkRepo();
-  if (problems.length) {
-    console.error(`LAWOSS stráž Eigenweltu a analytiky: ${problems.length} problémov\n${problems.map((line) => `  - ${line}`).join("\n")}`);
+  const guards = [
+    ["LAWOSS stráž Eigenweltu a analytiky", checkRepo()],
+    ["LAWOSS stráž značky", checkBranding()],
+  ];
+  for (const [name, problems] of guards) {
+    if (problems.length) console.error(`${name}: ${problems.length} problémov\n${problems.map((line) => `  - ${line}`).join("\n")}`);
+    else console.log(`${name}: v poriadku.`);
+  }
+  if (guards.some(([, problems]) => problems.length)) {
     console.error("Postup: docs/upstream-sync-checklist.md");
     process.exit(1);
   }
-  console.log("LAWOSS stráž Eigenweltu a analytiky: v poriadku.");
 }
