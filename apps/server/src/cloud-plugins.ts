@@ -10,6 +10,7 @@ import { parseFrontmatter, buildFrontmatter } from "./frontmatter.js";
 import { addMcp, removeMcp } from "./mcp.js";
 import { ensureDir } from "./utils.js";
 import { readContentHash, readProvenance, withContentHash, withProvenance, type PluginProvenance } from "./lawoss/plugin-provenance.js";
+import { installLocation } from "./lawoss/plugin-install-target.js";
 
 const OPENCODE_SKILL_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const OPENCODE_MCP_NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]*$/;
@@ -573,28 +574,28 @@ async function writeInstalledCloudPlugins(
   return next;
 }
 
-function resolveWorkspaceInstallPath(workspaceRoot: string, relativePath: string): string {
+function resolveWorkspaceInstallPath(workspaceRoot: string, relativePath: string, global = false): string {
   const normalized = relativePath.trim().replace(/^\/+/, "");
   const parts = normalized.split("/").filter(Boolean);
   if (!normalized.startsWith(".opencode/") || parts.some((part) => part === "." || part === "..")) {
     throw new ApiError(400, "invalid_cloud_plugin_path", `Invalid cloud plugin path: ${relativePath}`);
   }
   const root = resolve(workspaceRoot);
-  const candidate = resolve(root, normalized);
+  const candidate = installLocation(root, normalized, global);
   if (candidate !== root && !candidate.startsWith(`${root}/`)) {
     throw new ApiError(400, "invalid_cloud_plugin_path", `Invalid cloud plugin path: ${relativePath}`);
   }
   return candidate;
 }
 
-async function writePluginWorkspaceFile(workspaceRoot: string, path: string, content: string): Promise<void> {
-  const absolutePath = resolveWorkspaceInstallPath(workspaceRoot, path);
+async function writePluginWorkspaceFile(workspaceRoot: string, path: string, content: string, global = false): Promise<void> {
+  const absolutePath = resolveWorkspaceInstallPath(workspaceRoot, path, global);
   await mkdir(dirname(absolutePath), { recursive: true });
   await writeFile(absolutePath, content, "utf8");
 }
 
 /** Prepare an immutable runtime before changing any installed MCP command. */
-async function preparePluginResources(workspaceRoot: string, namespace: string, resolved: CloudPluginResolved): Promise<string> {
+async function preparePluginResources(workspaceRoot: string, namespace: string, resolved: CloudPluginResolved, global = false): Promise<string> {
   const prefix = `.opencode/plugin-resources/${namespace}/`;
   const resources = resolved.memberships.flatMap(({ configObject: object }) => {
     if (!object || object.status !== "active" || object.objectType !== "resource") return [];
@@ -613,7 +614,7 @@ async function preparePluginResources(workspaceRoot: string, namespace: string, 
   }
   const digest = createHash("sha256").update(JSON.stringify(resources)).digest("hex");
   const resourceNamespace = `${namespace}/${digest}`;
-  const target = resolveWorkspaceInstallPath(workspaceRoot, `.opencode/plugin-resources/${resourceNamespace}`);
+  const target = resolveWorkspaceInstallPath(workspaceRoot, `.opencode/plugin-resources/${resourceNamespace}`, global);
   let exists = false;
   try { await stat(target); exists = true; }
   catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error; }
@@ -640,9 +641,9 @@ async function preparePluginResources(workspaceRoot: string, namespace: string, 
   return resourceNamespace;
 }
 
-async function removePluginWorkspaceFile(workspaceRoot: string, path: string): Promise<void> {
+async function removePluginWorkspaceFile(workspaceRoot: string, path: string, global = false): Promise<void> {
   if (!path.startsWith(".opencode/")) return;
-  const absolutePath = resolveWorkspaceInstallPath(workspaceRoot, path);
+  const absolutePath = resolveWorkspaceInstallPath(workspaceRoot, path, global);
   if (/^\.opencode\/skills\/[^/]+\/[^/]+\/SKILL\.md$/.test(path)) {
     await rm(dirname(absolutePath), { recursive: true, force: true });
     return;
@@ -680,9 +681,14 @@ export async function installCloudPlugin(input: {
   marketplace?: { id: string; name: string; updatedAt: string | null } | null;
   resolved: CloudPluginResolved;
   provenance?: PluginProvenance | null;
+  /** LAWOSS: `workspaceId` je id záznamu, `workspaceRoot` globálny priečinok OpenCode (lawoss/plugin-install-target.ts). */
+  global?: boolean;
+  /** LAWOSS: logické cesty, ktoré aktualizácia neprepíše (advokát si ponechal svoju úpravu). */
+  preserve?: ReadonlySet<string>;
 }): Promise<CloudImportedPlugin> {
+  const global = input.global === true;
   const namespace = pluginNamespace(input.resolved.plugin.name, input.resolved.plugin.id);
-  const resourceNamespace = await preparePluginResources(input.workspaceRoot, namespace, input.resolved);
+  const resourceNamespace = await preparePluginResources(input.workspaceRoot, namespace, input.resolved, global);
   const cloudImports = await readInstalledCloudPlugins(input.serverConfig, input.workspaceId);
   const existing = cloudImports.plugins[input.resolved.plugin.id];
   const files: CloudImportedPluginFile[] = [];
@@ -694,7 +700,7 @@ export async function installCloudPlugin(input: {
 
     if (object.objectType === "mcp") {
       const configs = pluginMcpConfigsFromPayload(object, namespace);
-      const resourceRoot = resolve(input.workspaceRoot, ".opencode/plugin-resources", resourceNamespace);
+      const resourceRoot = installLocation(input.workspaceRoot, `.opencode/plugin-resources/${resourceNamespace}`, global);
       for (const item of configs) {
         if (Array.isArray(item.config.command)) {
           item.config.command = item.config.command.map((part: unknown) => typeof part === "string" ? part.replaceAll("${CLAUDE_PLUGIN_ROOT}", resourceRoot) : part);
@@ -702,7 +708,7 @@ export async function installCloudPlugin(input: {
       }
       for (const config of configs) {
         // Plugins are installed per workspace, so the MCPs they bring stay with it.
-        await addMcp(input.serverConfig, input.workspaceId, config.name, config.config, "workspace");
+        await addMcp(input.serverConfig, input.workspaceId, config.name, config.config, global ? "global" : "workspace");
         files.push({
           configObjectId: object.id,
           versionId: version?.id ?? null,
@@ -729,7 +735,7 @@ export async function installCloudPlugin(input: {
       const fileName = path.match(/\/([^/]+)\.md$/)?.[1] ?? object.title;
       content = buildCloudCommandContent(slugifyConfigObjectName(fileName, object.id), cloudConfigObjectDescription(object), content);
     }
-    if (object.objectType !== "resource") await writePluginWorkspaceFile(input.workspaceRoot, path, content);
+    if (object.objectType !== "resource" && !input.preserve?.has(path)) await writePluginWorkspaceFile(input.workspaceRoot, path, content, global);
     files.push({
       configObjectId: object.id,
       versionId: version.id,
@@ -795,6 +801,8 @@ export async function removeCloudPlugin(input: {
   workspaceId: string;
   workspaceRoot: string;
   pluginId: string;
+  /** LAWOSS: globálna inštalácia (lawoss/plugin-install-target.ts). */
+  global?: boolean;
 }): Promise<CloudImportedPlugin> {
   const cloudImports = await readInstalledCloudPlugins(input.serverConfig, input.workspaceId);
   const imported = cloudImports.plugins[input.pluginId];
@@ -806,7 +814,7 @@ export async function removeCloudPlugin(input: {
       await removeMcp(input.serverConfig, input.workspaceId, mcpName);
       return;
     }
-    await removePluginWorkspaceFile(input.workspaceRoot, file.path);
+    await removePluginWorkspaceFile(input.workspaceRoot, file.path, input.global === true);
   }));
 
   const nextPlugins = { ...cloudImports.plugins };
