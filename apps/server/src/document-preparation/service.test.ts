@@ -9,6 +9,7 @@ import { OcrError, type OcrEngine } from "../ocr/types.js";
 import { DocumentPreparation, documentPath, preparedSchema } from "./service.js";
 import type { DocumentLayout } from "./structure.js";
 import { openDocument } from "./render.js";
+import { writeOcrEnabled } from "../lawoss/ocr-opt-in.js";
 
 const layout: DocumentLayout = { fingerprint: "test-layout-1", async detect() {
   return { model: "test-layout", regions: [{ label: "text", box: { x: 0, y: 0, width: 1, height: 1 }, confidence: 1, order: 0 }] };
@@ -132,7 +133,8 @@ test("bounds workspace sources and output paths, rejects missing model and suppo
   await expect(documentPath(root, "outside.pdf")).rejects.toThrow("outside");
   await expect(documentPath(root, join(other, "contract.pdf"))).rejects.toThrow("outside");
   const manager = new OcrManager(join(root, "ocr"));
-  // LAWOSS: with the bundled runtime a missing model downloads on first use (lawoss/ocr-on-demand.test.ts); without it the error stays.
+  // LAWOSS: OCR is opt-in (lawoss/ocr-opt-in.ts); once on, a missing model downloads on first use with the bundled runtime, without it the error stays.
+  await writeOcrEnabled(manager.runtime.root, true);
   const available = spyOn(manager.runtime, "available").mockResolvedValue(false);
   await expect(new DocumentPreparation(manager).start(root, { files: ["contract.pdf"] })).rejects.toThrow("Download");
   available.mockRestore();

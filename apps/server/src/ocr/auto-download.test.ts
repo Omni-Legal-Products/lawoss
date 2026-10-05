@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { OcrManager } from "./manager.js";
 import { resolveServerConfig } from "../config.js";
 import { startServer } from "../server.js";
+import { writeOcrEnabled } from "../lawoss/ocr-opt-in.js";
 
 const roots: string[] = [];
 const originalAuto = process.env.LEGALWORK_OCR_AUTO_DOWNLOAD;
@@ -126,6 +127,8 @@ test("server startup schedules setup without awaiting downloads and skips read-o
   process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
   const pending = new Promise<void>(() => {});
   const automatic = spyOn(OcrManager.prototype, "downloadDefaultIfNeeded").mockImplementation(() => pending);
+  // LAWOSS: startup setup also needs OCR turned on (lawoss/ocr-opt-in.ts).
+  await writeOcrEnabled(join(root, "ocr"), true);
   try {
     for (const { readOnly, enabled } of [{ readOnly: false, enabled: true }, { readOnly: true, enabled: true }, { readOnly: false, enabled: false }]) {
       const config = await resolveServerConfig({ configPath: join(root, "server.json"), workspaces: [], port: 0, readOnly });

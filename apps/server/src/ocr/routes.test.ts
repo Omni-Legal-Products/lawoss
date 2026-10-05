@@ -36,6 +36,8 @@ test("OCR HTTP settings require host authority, redact keys and respect read-onl
     expect(unavailable.status).toBe(400);
     expect(await unavailable.text()).toContain("ocr_not_ready");
     const layoutInstall = spyOn(OcrRuntime.prototype, "installLayout").mockResolvedValue();
+    // LAWOSS: models download only after OCR is turned on (lawoss/ocr-opt-in.ts).
+    expect((await fetch(`${base}/lawoss/ocr`, { headers, method: "PUT", body: '{"enabled":true}' })).status).toBe(200);
     try {
       expect((await fetch(`${base}/ocr/engines/local-layout/install`, { method: "POST" })).status).toBe(401);
       expect((await fetch(`${base}/ocr/engines/local-layout/install`, { headers, method: "POST" })).status).toBe(200);
