@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describeMemoryWrite } from "../src/lawoss/lite/memory-write";
+import { describeMemoryWrite, keepsMemoryWriteGate } from "../src/lawoss/lite/memory-write";
 import { MemoryWriteNotice } from "../src/lawoss/lite/memory-write-notice";
 import {
   PermissionApprovalModal,
@@ -90,6 +90,56 @@ describe("describeMemoryWrite - shell by udělal něco jiného než karta (revie
   test("3: opakovaný --file/--reason/--approve-as/--if-revision → nic (CLI bere první)", () => {
     expect(describeMemoryWrite(`${cli} --file a.md --approve-as "JUDr. X" --file b.md --approve-as "Mgr. Y" --apply`)).toBeNull();
     for (const flag of ["--file", "--reason", "--approve-as", "--if-revision"]) expect(describeMemoryWrite(`${cli} ${flag} a ${flag} b`)).toBeNull();
+  });
+});
+
+describe("describeMemoryWrite - Windows (Q18: paměť spisu stejně na všech platformách)", () => {
+  const skill = String.raw`C:\Users\Novak\AK\.opencode\skills\okf-pamat\resources\okf-memory.js`;
+  const expected = { matterDir: "Spisy/Vec", file: "navrh.md", reason: "lhůta", apply: true };
+
+  test("absolutní cesta ke skillu s \\ v \"…\", s / i v '…' → karta", () => {
+    for (const bin of [`"${skill}"`, `'${skill}'`, `"${skill.replaceAll("\\", "/")}"`, skill.replaceAll("\\", "/")]) {
+      expect(describeMemoryWrite(`node ${bin} write Spisy/Vec --file navrh.md --reason "lhůta" --apply`)).toEqual(expected);
+    }
+    expect(describeMemoryWrite(`node.exe "${skill}" write Spisy/Vec --file navrh.md --reason "lhůta" --apply`)).toEqual(expected);
+    expect(describeMemoryWrite(String.raw`node ".opencode\skills\okf-pamat\resources\okf-memory.js" write "Spisy\Vec"`))
+      .toEqual({ matterDir: String.raw`Spisy\Vec`, apply: false });
+  });
+
+  test("Windows cesta mimo skill, s .. nebo neuvozovkovaná s \\ → nic", () => {
+    for (const bin of [
+      String.raw`"C:\a\skills\okf-pamat\..\evil\skills\okf-pamat\resources\okf-memory.js"`,
+      String.raw`"C:\Users\x\okf-memory.js"`,
+      String.raw`"C:\Users\x\myskills\okf-pamat\resources\okf-memory.js"`,
+      String.raw`"\\nas\share\.opencode\skills\okf-pamat\resources\okf-memory.js"`, // \\ v "…" bash zkrátí
+      skill, // neuvozovkovaná \ - bash ji odstraní
+    ]) expect(describeMemoryWrite(`node ${bin} write spis`)).toBeNull();
+  });
+
+  test("% (cmd rozvine i v uvozovkách) a escape \\ v \"…\" → nic", () => {
+    for (const cmd of [
+      String.raw`node "%USERPROFILE%\AK\.opencode\skills\okf-pamat\resources\okf-memory.js" write spis`,
+      `node "${skill}" write spis --reason "sleva 20 %"`,
+      `node "${skill}" write spis --reason '%HOME%'`,
+      `okf-memory write spis --reason 50%`,
+      String.raw`okf-memory write "Spisy\\Vec"`,
+      String.raw`okf-memory write "Spisy\$x"`,
+      String.raw`okf-memory write "Spisy\" --apply "x"`,
+    ]) expect(describeMemoryWrite(cmd)).toBeNull();
+  });
+});
+
+describe("keepsMemoryWriteGate - lite neschová bránu, když karta příkaz nepozná", () => {
+  test("rozpoznaný zápis i zápis v jiném tvaru (PowerShell, %…%) drží bránu", () => {
+    for (const cmd of [
+      "okf-memory write spis --apply",
+      String.raw`node "C:\Users\Novak\AK\.opencode\skills\okf-pamat\resources\okf-memory.js" write spis --apply`,
+      String.raw`& "C:\Users\Novak\AK\.opencode\skills\okf-pamat\resources\okf-memory.js" write spis --apply`,
+      String.raw`node "%USERPROFILE%\AK\.opencode\skills\okf-pamat\resources\okf-memory.js" write spis --apply`,
+    ]) expect(keepsMemoryWriteGate(cmd)).toBe(true);
+  });
+  test("jiný příkaz bránu neovlivní", () => {
+    for (const cmd of ["git status", String.raw`node "C:\x\build.js"`, "okf-memory read spis", ""]) expect(keepsMemoryWriteGate(cmd)).toBe(false);
   });
 });
 
