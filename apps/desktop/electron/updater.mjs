@@ -97,6 +97,23 @@ function normalizeElectronUpdaterChannel(value) {
   return "stable";
 }
 
+// 🟡 LAWOSS: build z alfa workflowu (verzia `X.Y.Z-alpha.N.g<sha>`) ostáva na
+// kanáli alfa. Tester si kanál v Nastaveniach neprepína a stable feed
+// (`lawoss.app/update`, zatiaľ 404) ani GitHub fallback (prijíma len
+// `vX.Y.Z[-lawoss.N]`) by mu ďalší build alfy nikdy neponúkli. Renderer
+// prevezme kanál, ktorý mu vráti main, takže sa prepínač zosúladí sám.
+const ALPHA_BUILD_VERSION = /^\d+\.\d+\.\d+-alpha\./;
+
+export function isAlphaBuild(app) {
+  const version = app?.isPackaged ? app.getVersion?.() : app?.getVersion ? resolveAppVersion(app) : null;
+  return ALPHA_BUILD_VERSION.test(String(version ?? ""));
+}
+
+function effectiveElectronUpdaterChannel(app, value) {
+  if (isAlphaBuild(app) && ALPHA_CHANNEL_PLATFORMS.has(process.platform)) return "alpha";
+  return normalizeElectronUpdaterChannel(value);
+}
+
 function electronUpdaterChannelPath(app) {
   return path.join(app.getPath("userData"), ELECTRON_UPDATER_CHANNEL_FILENAME);
 }
@@ -105,9 +122,9 @@ async function readElectronUpdaterChannel(app) {
   try {
     const raw = await readFile(electronUpdaterChannelPath(app), "utf8");
     const parsed = JSON.parse(raw);
-    return normalizeElectronUpdaterChannel(parsed?.channel);
+    return effectiveElectronUpdaterChannel(app, parsed?.channel);
   } catch {
-    return "stable";
+    return effectiveElectronUpdaterChannel(app, undefined);
   }
 }
 
@@ -200,7 +217,7 @@ function isVersionNewer(candidate, current) {
 }
 
 function updaterChannelState(app, channel) {
-  const normalized = normalizeElectronUpdaterChannel(channel);
+  const normalized = effectiveElectronUpdaterChannel(app, channel);
   return {
     channel: normalized,
     feedUrl: electronUpdaterFeedUrl(normalized),

@@ -337,6 +337,82 @@ describe("checkForUpdatesWithFeedFallback", () => {
   });
 });
 
+// 🟡 LAWOSS: tester alfy si kanál neprepína; build alfy musí sám ostať na alfa
+// feede, inak by mu stable feed ani GitHub fallback ďalší build neponúkli.
+describe("build alfy ostáva na kanáli alfa", {
+  skip: process.platform !== "darwin" && process.platform !== "win32",
+}, () => {
+  const alphaVersion = "0.2.2-alpha.7.gabc1234";
+
+  for (const stored of [null, "stable", "garbage"]) {
+    it(`bez voľby testera (súbor kanála: ${stored ?? "žiadny"}) kontroluje alfa feed`, async () => {
+      const userData = await mkdtemp(path.join(os.tmpdir(), "lawoss-updater-alpha-build-"));
+      try {
+        if (stored) {
+          await writeFile(path.join(userData, "electron-updater-channel.v1.json"), stored === "garbage" ? "{" : JSON.stringify({ channel: stored }));
+        }
+        const app = { isPackaged: true, getVersion: () => alphaVersion, getPath: () => userData };
+        const feedUrls = [];
+        const updater = {
+          setFeedURL({ url }) { feedUrls.push(url); },
+          async checkForUpdates() { return { updateInfo: { version: "0.2.2-alpha.8.gdef5678" } }; },
+        };
+        let apiRequests = 0;
+        const { channelState, result } = await checkForUpdatesWithFeedFallback(app, updater, {
+          fetch: async () => { apiRequests += 1; throw new Error("unexpected stable API request"); },
+        });
+        assert.equal(channelState.channel, "alpha");
+        assert.equal(channelState.feedUrl, ELECTRON_UPDATER_FEEDS.alpha);
+        assert.deepEqual(feedUrls, [ELECTRON_UPDATER_FEEDS.alpha]);
+        assert.equal(updater.allowPrerelease, true);
+        assert.equal(result.updateInfo.version, "0.2.2-alpha.8.gdef5678");
+        assert.equal(apiRequests, 0);
+      } finally {
+        await rm(userData, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it("IPC getChannel aj setChannel(\"stable\") vrátia alpha, renderer sa zosúladí", async () => {
+    const userData = await mkdtemp(path.join(os.tmpdir(), "lawoss-updater-alpha-ipc-"));
+    const handlers = new Map();
+    try {
+      registerUpdaterIpc({
+        app: { isPackaged: true, getVersion: () => alphaVersion, getPath: () => userData },
+        ipcMain: { handle(channel, handler) { handlers.set(channel, handler); } },
+        getMainWindow: () => null,
+        loadElectronUpdater: async () => null,
+        prepareUpdaterInstall: async () => {},
+      });
+      const initial = await handlers.get("legalwork:updater:getChannel")(null);
+      assert.equal(initial.channel, "alpha");
+      assert.equal(initial.feedUrl, ELECTRON_UPDATER_FEEDS.alpha);
+      const afterStable = await handlers.get("legalwork:updater:setChannel")(null, "stable");
+      assert.equal(afterStable.channel, "alpha");
+    } finally {
+      await rm(userData, { recursive: true, force: true });
+    }
+  });
+
+  it("stabilný build bez súboru kanála ostáva na stable", async () => {
+    const userData = await mkdtemp(path.join(os.tmpdir(), "lawoss-updater-stable-build-"));
+    const handlers = new Map();
+    try {
+      registerUpdaterIpc({
+        app: { isPackaged: true, getVersion: () => "0.2.1", getPath: () => userData },
+        ipcMain: { handle(channel, handler) { handlers.set(channel, handler); } },
+        getMainWindow: () => null,
+        loadElectronUpdater: async () => null,
+        prepareUpdaterInstall: async () => {},
+      });
+      const state = await handlers.get("legalwork:updater:getChannel")(null);
+      assert.equal(state.channel, "stable");
+    } finally {
+      await rm(userData, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("registered updater download IPC", () => {
   /** @param {{ primaryFailures?: number }} [options] */
   async function createHarness({ primaryFailures: initialPrimaryFailures = 1 } = {}) {
