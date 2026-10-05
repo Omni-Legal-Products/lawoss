@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { appendFile, copyFile, link, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { inspectOnboardingRoot } from "../src/onboarding/classify.ts";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
 import { resolveCloneRoot, runTriage } from "../src/triage/cli.ts";
@@ -12,6 +12,10 @@ import {
   parseClassification, parseTriagePlan, prepareTriage, scanTriage, TrialCloneError, undoTriage, verifyTrialClone, type TriagePlan,
 } from "../src/triage/index.ts";
 import { TRIAGE_FIXTURE, writeTriageFixture } from "./fixtures/triage-client.ts";
+
+// Klon, roztriedenie a vrátenie robia stovky zápisov s fsync. Na runneri windows-2022
+// trvá jeden test aj vyše 5 s (predvolený limit Bunu), na Linuxe asi 1 s.
+setDefaultTimeout(30_000);
 
 const paths: string[] = [];
 afterEach(async () => { await Promise.all(paths.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
