@@ -6,7 +6,7 @@ import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
 import { SectionHeading } from "@/react-app/design-system/surface";
 
-import { AutogramIntegrationCard } from "@/lawoss/domains/integrations/autogram-integration-card";
+import { Chevron7IntegrationCard } from "@/lawoss/domains/integrations/chevron7-integration-card";
 
 import { ClaudePluginImportModal } from "../../connections/modals/claude-plugin-import-modal";
 import type { LegalworkClaudePluginPreview } from "../../../../app/lib/legalwork-server";
@@ -152,7 +152,7 @@ export function ExtensionsView(props: ExtensionsViewProps) {
       {tab === "connectors" ? (
         <div className="space-y-4">
           {hubScope === "local" ? props.fileMemoryView : null}
-          <AutogramIntegrationCard />
+          <Chevron7IntegrationCard />
           {props.mcpView}
         </div>
       ) : null}
