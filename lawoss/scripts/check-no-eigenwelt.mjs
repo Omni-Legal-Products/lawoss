@@ -16,6 +16,9 @@
  * 5. buildnutý výstup (`apps/server/dist`, `apps/app/dist`, `apps/desktop/server`),
  *    ak existuje, obsahuje kľúč alebo adresu analytiky či katalógu Eigenweltu.
  *
+ * Spolu s ňou beží stráž značky `check-branding.mjs` (LAWOSS namiesto LegalWork,
+ * nemenný APP_IDENTIFIER, releasy forku), aby stačil jeden krok v CI.
+ *
  * Použitie: `node lawoss/scripts/check-no-eigenwelt.mjs` (bez závislostí, Node 18+).
  * Postup pri upstream synci: `docs/upstream-sync-checklist.md`.
  */
@@ -24,6 +27,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { checkBranding } from "./check-branding.mjs";
 import { CATALOG_PATH, validateCatalog } from "./update-models-catalog.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -318,11 +322,16 @@ export function checkRepo(root = REPO_ROOT) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const problems = checkRepo();
-  if (problems.length) {
-    console.error(`LAWOSS stráž Eigenweltu a analytiky: ${problems.length} problémov\n${problems.map((line) => `  - ${line}`).join("\n")}`);
+  const guards = [
+    ["LAWOSS stráž Eigenweltu a analytiky", checkRepo()],
+    ["LAWOSS stráž značky", checkBranding()],
+  ];
+  for (const [name, problems] of guards) {
+    if (problems.length) console.error(`${name}: ${problems.length} problémov\n${problems.map((line) => `  - ${line}`).join("\n")}`);
+    else console.log(`${name}: v poriadku.`);
+  }
+  if (guards.some(([, problems]) => problems.length)) {
     console.error("Postup: docs/upstream-sync-checklist.md");
     process.exit(1);
   }
-  console.log("LAWOSS stráž Eigenweltu a analytiky: v poriadku.");
 }

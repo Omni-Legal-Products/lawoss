@@ -1,5 +1,7 @@
 // LAWOSS: test stráže proti Eigenweltu a analytike. Spúšťa sa v CI:
 // node --test lawoss/scripts/check-no-eigenwelt.test.mjs
+// Import nižšie pridá aj testy stráže značky do toho istého behu.
+import "./check-branding.test.mjs";
 import assert from "node:assert/strict";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
