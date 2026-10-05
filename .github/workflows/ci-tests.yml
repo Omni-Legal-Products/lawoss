@@ -1,6 +1,7 @@
 name: LegalWork Tests
 
 on:
+  workflow_dispatch:
   # Include stacked feature PRs as well as dev.
   pull_request:
   push:
@@ -164,3 +165,43 @@ jobs:
 
       - name: Run e2e tests
         run: pnpm --filter @legalwork/app test:e2e
+
+
+  orchestrator-tests:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      LEGALWORK_DEV_MODE: "1"
+      LEGALWORK_OPENCODE_SOURCE: downloaded
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare orchestrator sidecar directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/legalwork-sidecar"
+          echo "LEGALWORK_SIDECAR_DIR=$RUNNER_TEMP/legalwork-sidecar" >> "$GITHUB_ENV"
+
+      - name: Run orchestrator integration gate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm test:orchestrator
