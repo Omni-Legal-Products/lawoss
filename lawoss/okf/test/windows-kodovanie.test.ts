@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseFrontmatter } from "../src/core.ts";
 import { plan } from "../src/fs.ts";
-import { hasWindowsPowerShell, writeWithWindowsPowerShell } from "../../tests/windows-powershell.mts";
+import { hasWindowsPowerShell, WINDOWS_POWERSHELL_TIMEOUT_MS, writeWithWindowsPowerShell } from "../../tests/windows-powershell.mts";
 
 // Kancelársky profil v okf.config z Poznámkového bloku alebo PowerShellu 5.1 (BOM, UTF-16, CRLF)
 // musí nový spis dostať rovnako ako okf-memory; inak onboarding spadne na prvom riadku.
@@ -79,4 +79,4 @@ test.skipIf(!hasWindowsPowerShell)("Windows PowerShell 5.1: office okf.config wr
     writeWithWindowsPowerShell(join(root, "Office", "okf.config"), CONFIG, how);
     expectOfficeProfile(join(root, "client", "matter"));
   }
-});
+}, WINDOWS_POWERSHELL_TIMEOUT_MS);

@@ -7,6 +7,13 @@ import { readFileSync } from "node:fs";
  */
 export const hasWindowsPowerShell = process.platform === "win32";
 
+/**
+ * Časový limit testu s `powershell.exe`. Bun má predvolene 5 s aj pre synchrónny
+ * test a proces po ňom zabije; studený štart PowerShellu 5.1 na windows-2022
+ * trvá sekundy a test ho spúšťa viackrát. `node:test` limit nemá.
+ */
+export const WINDOWS_POWERSHELL_TIMEOUT_MS = 60_000;
+
 /** Reťazec ako literál PowerShellu v jednoduchých úvodzovkách. */
 export const psQuote = (value: string): string => `'${value.replaceAll("'", "''")}'`;
 

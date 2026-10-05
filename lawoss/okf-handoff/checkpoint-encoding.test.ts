@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHandoff } from "./checkpoint.mjs";
 import { newRecord, serializeRecord } from "../okf-pamat/src/index.ts";
-import { hasWindowsPowerShell, writeWithWindowsPowerShell } from "../tests/windows-powershell.mts";
+import { hasWindowsPowerShell, WINDOWS_POWERSHELL_TIMEOUT_MS, writeWithWindowsPowerShell } from "../tests/windows-powershell.mts";
 
 // Karta veci uložená na Windows: Poznámkový blok a PowerShell 5.1 zapíšu BOM alebo UTF-16.
 // Odmietnutá karta znamenala tichý koniec OKF kontextu pri zhutnení.
@@ -83,4 +83,4 @@ test.skipIf(!hasWindowsPowerShell)("Windows PowerShell 5.1: card written by Set-
     expect(bytes[0]).toBe(how === ">" ? 0xff : 0xef);
     await expectCheckpoint(root);
   }
-});
+}, WINDOWS_POWERSHELL_TIMEOUT_MS);

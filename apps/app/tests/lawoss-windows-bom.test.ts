@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { workingProfile } from "../../../lawoss/okf/src/profile";
 import { readManualStatus } from "../../../lawoss/okf-pamat/src/manual-status";
-import { hasWindowsPowerShell, writeWithWindowsPowerShell } from "../../../lawoss/tests/windows-powershell.mts";
+import { hasWindowsPowerShell, WINDOWS_POWERSHELL_TIMEOUT_MS, writeWithWindowsPowerShell } from "../../../lawoss/tests/windows-powershell.mts";
 import { readOfficeProfile, updateOfficeProfile } from "../src/lawoss/okf/office-profile";
 import { loadProfilePreview } from "../src/lawoss/okf/load-profile";
 import { loadMemoryProfile, parseWorkspaceMemoryProfileText, type MemoryProfileClient } from "../src/lawoss/okf/workspace-memory-profile";
@@ -110,4 +110,4 @@ test.skipIf(!hasWindowsPowerShell)("Windows PowerShell 5.1: okf.config a _STATUS
   // Rovnako ako GET /workspace/:id/files/content: readFile(…, "utf8") ponechá U+FEFF.
   expect(readOfficeProfile(readFileSync(config, "utf8")).clientPath).toBe("AK/*");
   expect(readManualStatus(readFileSync(status, "utf8"), [], TODAY)).toMatchObject({ state: "dated", updated: "2026-09-01" });
-});
+}, WINDOWS_POWERSHELL_TIMEOUT_MS);
