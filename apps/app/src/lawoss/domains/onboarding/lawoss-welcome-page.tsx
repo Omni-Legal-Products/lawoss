@@ -38,6 +38,9 @@ import {
 } from "./onboarding-state";
 import { OnboardingAiPanel } from "./ai-step";
 import { visibleExistingClientModes } from "../../feature-flags";
+import { clientTitleOf, resolveOpenClient, type OpenClientReader } from "../../okf/open-client";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { readActiveWorkspaceId } from "@/react-app/shell/session-memory";
 import { UNSAFE_FOLDER_NAME_MESSAGE } from "../../../../../../lawoss/okf/src/onboarding/messages";
 import { LawossWordmark } from "../../shell/wordmark";
 import lawossMark from "../../../../../../lawoss/brand/lawoss-mark.svg";
@@ -336,6 +339,12 @@ function PathInput({
 }
 const extraText: Record<Language, Record<string, string>> = {
   sk: {
+    newMatter: "Nová vec",
+    matterUnder: "Vec vznikne pod klientom",
+    noClientYet: "Vyberte priečinok klienta, pod ktorým vec vznikne.",
+    otherClient: "Iný klient (priečinok)",
+    useClient: "Použiť tohto klienta",
+    openClientLoading: "Zisťujem, ktorý klient je otvorený…",
     attachTitle: "Pripojiť existujúci priečinok klienta",
     original: "Pôvodný priečinok klienta",
     modeQuestion: "Čo sa stane s pôvodným priečinkom",
@@ -360,6 +369,12 @@ const extraText: Record<Language, Record<string, string>> = {
     finish: "Dokončiť",
   },
   cs: {
+    newMatter: "Nová věc",
+    matterUnder: "Věc vznikne pod klientem",
+    noClientYet: "Vyberte složku klienta, pod kterým věc vznikne.",
+    otherClient: "Jiný klient (složka)",
+    useClient: "Použít tohoto klienta",
+    openClientLoading: "Zjišťuji, který klient je otevřený…",
     attachTitle: "Připojit existující složku klienta",
     original: "Původní složka klienta",
     modeQuestion: "Co se stane s původní složkou",
@@ -384,6 +399,12 @@ const extraText: Record<Language, Record<string, string>> = {
     finish: "Dokončit",
   },
   en: {
+    newMatter: "New matter",
+    matterUnder: "The matter will be created under client",
+    noClientYet: "Choose the client folder the matter belongs to.",
+    otherClient: "Another client (folder)",
+    useClient: "Use this client",
+    openClientLoading: "Finding the open client…",
     attachTitle: "Connect an existing client folder",
     original: "Original client folder",
     modeQuestion: "What happens to the original folder",
@@ -408,6 +429,12 @@ const extraText: Record<Language, Record<string, string>> = {
     finish: "Finish",
   },
   de: {
+    newMatter: "Neue Angelegenheit",
+    matterUnder: "Die Angelegenheit wird angelegt für den Mandanten",
+    noClientYet: "Wählen Sie den Mandantenordner, zu dem die Angelegenheit gehört.",
+    otherClient: "Anderer Mandant (Ordner)",
+    useClient: "Diesen Mandanten verwenden",
+    openClientLoading: "Geöffneter Mandant wird ermittelt…",
     attachTitle: "Bestehenden Mandantenordner verbinden",
     original: "Ursprünglicher Mandantenordner",
     modeQuestion: "Was mit dem Originalordner geschieht",
@@ -614,10 +641,42 @@ function DocumentLanguageSelect({
     </select>
   );
 }
+/** Server client in the app; tests pass only the onboarding API. */
+export type WelcomeApi = OnboardingApi & Partial<OpenClientReader & Pick<LegalworkServerClient, "listWorkspaces">>;
+const sameFolder = (a: string | undefined, b: string | undefined) =>
+  (a ?? "").replaceAll("\\", "/").replace(/\/+$/, "") === (b ?? "").replaceAll("\\", "/").replace(/\/+$/, "");
+/**
+ * Nová vec patrí pod klienta práve otvoreného pracovného priestoru (alebo klienta veci, ktorá je otvorená),
+ * inak pod posledného uloženého. Prepnutie ide cez ten istý zápis profilu ako tlačidlo „Použiť tohto
+ * klienta“, takže server overí, že ide o úplného klienta; pri chybe ostane uložený klient.
+ */
+export async function preferOpenClient(
+  api: WelcomeApi,
+  profile: OnboardingProfile | null,
+  activeId: string | null,
+): Promise<OnboardingProfile | null> {
+  if (profile?.okf?.enabled !== true || !api.listWorkspaces || !api.listWorkspaceDirectory || !api.readWorkspaceFile) return null;
+  const reader: OpenClientReader = { listWorkspaceDirectory: api.listWorkspaceDirectory, readWorkspaceFile: api.readWorkspaceFile };
+  try {
+    const list = await api.listWorkspaces();
+    const open = await resolveOpenClient(reader, list.items, activeId ?? list.activeId);
+    if (!open || sameFolder(open.root, profile?.clientRoot)) return null;
+    return await api.updateOnboardingProfile({ clientRoot: open.root, step: "matter" });
+  } catch {
+    return null;
+  }
+}
+/** Meno klienta pre formulár veci; bez prístupu k pracovným priestorom názov priečinka. */
+async function clientTitleFor(api: WelcomeApi, root: string): Promise<string> {
+  const fallback = root.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? root;
+  if (!api.listWorkspaces || !api.listWorkspaceDirectory || !api.readWorkspaceFile) return fallback;
+  const reader: OpenClientReader = { listWorkspaceDirectory: api.listWorkspaceDirectory, readWorkspaceFile: api.readWorkspaceFile };
+  return api.listWorkspaces().then((list) => clientTitleOf(reader, list.items, root)).catch(() => fallback);
+}
 /** Completion details that are not an onboarding apply result. */
 export type OnboardingCompletion = { workingFolder?: string };
 type Props = {
-  api: OnboardingApi;
+  api: WelcomeApi;
   initialStep?: OnboardingStep;
   onComplete: (
     result?: OnboardingApplyResult,
@@ -650,13 +709,21 @@ export function LawossWelcomePage({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [workingFolder, setWorkingFolder] = useState("");
+  // „+ Nová vec“ mimo prvého onboardingu: formulár počká, kým sa zistí otvorený klient.
+  const [openClientPending, setOpenClientPending] = useState(initialStep === "matter");
+  const [clientTitle, setClientTitle] = useState("");
   const completion = (): OnboardingCompletion | undefined =>
     workingFolder.trim() ? { workingFolder: workingFolder.trim() } : undefined;
   useEffect(() => {
     void api
       .onboardingStatus()
-      .then((status) => {
+      .then(async (status) => {
         setProfile(status.profile);
+        if (initialStep === "matter") {
+          const preferred = await preferOpenClient(api, status.profile, readActiveWorkspaceId());
+          if (preferred) setProfile(preferred);
+          setOpenClientPending(false);
+        }
         if (typeof window !== "undefined")
           setPreview(readPendingOnboarding(window.localStorage));
         const saved =
@@ -670,8 +737,18 @@ export function LawossWelcomePage({
           ),
         );
       })
-      .catch(() => setError(tr("error")));
+      .catch(() => {
+        setOpenClientPending(false);
+        setError(tr("error"));
+      });
   }, [api, initialStep]);
+  const savedClientRoot = profile?.clientRoot;
+  useEffect(() => {
+    let cancelled = false;
+    setClientTitle("");
+    if (savedClientRoot) void clientTitleFor(api, savedClientRoot).then((title) => { if (!cancelled) setClientTitle(title); });
+    return () => { cancelled = true; };
+  }, [api, savedClientRoot]);
   const move = async (
     next: OnboardingStep,
     patch: Pick<Partial<OnboardingProfile>, "okf"> = {},
@@ -938,8 +1015,13 @@ export function LawossWelcomePage({
               initialExisting={attachExisting && initialStep === "client"}
             />
           ) : null}
-          {step === "matter" ? (
+          {step === "matter" && openClientPending ? (
+            <p role="status">{tr("openClientLoading")}</p>
+          ) : null}
+          {step === "matter" && !openClientPending ? (
             <Matter
+              title={initialStep === "matter" ? tr("newMatter") : tr("matter")}
+              clientTitle={clientTitle}
               base={base}
               locale={locale}
               tr={tr}
@@ -1467,7 +1549,9 @@ export function Client({
     </>
   );
 }
-function Matter({
+export function Matter({
+  title: heading,
+  clientTitle,
   base,
   locale,
   tr,
@@ -1476,6 +1560,8 @@ function Matter({
   onClientChange,
   onSubjectChange,
 }: {
+  title: string;
+  clientTitle: string;
   base: OnboardingProfile;
   locale: Language;
   tr: (key: string) => string;
@@ -1535,9 +1621,20 @@ function Matter({
   };
   return (
     <>
-      <h2 className="text-xl font-semibold">{tr("matter")}</h2>
+      <h2 className="text-xl font-semibold">{heading}</h2>
+      <div className="lw-onb-inset grid gap-1" data-lawoss-matter-client>
+        {root ? (
+          <>
+            <p className="text-sm text-muted-foreground">{tr("matterUnder")}</p>
+            <p className="text-lg font-semibold">{clientTitle || root}</p>
+            <p className="break-all text-xs text-muted-foreground">{root}</p>
+          </>
+        ) : (
+          <p className="text-sm">{tr("noClientYet")}</p>
+        )}
+      </div>
       {field(
-        tr("client"),
+        root ? tr("otherClient") : tr("client"),
         <div className="grid gap-2">
           <PathInput
             value={selectedClientPath}
@@ -1559,11 +1656,8 @@ function Matter({
               void onClientChange(selectedClientPath);
             }}
           >
-            {tr("save")}
+            {tr("useClient")}
           </Button>
-          {root ? (
-            <p className="text-sm text-muted-foreground">{root}</p>
-          ) : null}
         </div>,
       )}
       {trial ? (
