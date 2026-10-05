@@ -5,9 +5,10 @@ name: Download Stats
 # counts and deletes traffic data after 14 days — this preserves both as
 # time series.
 
+# LAWOSS: plánovaný beh je vypnutý, štatistiky sa nikam neposielajú
+# automaticky. Ručné spustenie bez vars.LAWOSS_POSTHOG_KEY a
+# vars.LAWOSS_POSTHOG_HOST skončí úspešne bez akejkoľvek HTTP požiadavky.
 on:
-  schedule:
-    - cron: "23 */6 * * *"
   workflow_dispatch:
 
 permissions:
