@@ -76,3 +76,17 @@ export const isCommercialSurfaceHidden = (surface: CommercialSurface): boolean =
  * je slepá ulička.
  */
 export const isHiddenSettingsTab = (tab: string): boolean => HIDDEN_SETTINGS_TABS.has(tab);
+
+/**
+ * Alfa: experimenty, ktoré testeri nevidia (MČ 5. 10. 2026). „Nový spis“ (U1):
+ * k novej veci vedie len formulár z onboardingu (`NEW_MATTER_PATH`), agentový
+ * sprievodca je skrytý v bočnom paneli, v zozname experimentov, v dialógu
+ * „Pridať priečinok“ aj v prázdnom stave stránky Spis. „Prvé nastavenie“ (U2)
+ * sa ruší, kód ostáva do neskoršieho upratania. Návrat: vyprázdniť množinu.
+ */
+export const ALPHA_HIDDEN_EXPERIMENTS: ReadonlySet<string> = new Set<string>([
+  "view-novy-spis",
+  "view-prve-nastavenie",
+]);
+
+export const isExperimentHidden = (id: string): boolean => ALPHA_HIDDEN_EXPERIMENTS.has(id);

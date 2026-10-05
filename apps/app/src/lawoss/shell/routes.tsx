@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import type { ReactElement } from "react";
+import { Navigate } from "react-router-dom";
 import { t } from "@/i18n";
 
 import { ExperimentyPage } from "../domains/experimenty/experimenty-page";
@@ -12,7 +13,12 @@ import { PrveNastaveniePage } from "../domains/onboarding/prve-nastavenie-page";
 import { TodayPage } from "../lite/pages/today-page";
 import { ClientsPage } from "../lite/pages/clients-page";
 import { LiteMatterPage } from "../lite/pages/matter-page";
-import { LITE_CLIENTS_PATH, LITE_MATTER_PATH, LITE_TODAY_PATH } from "../lite/links";
+import { LITE_CLIENTS_PATH, LITE_MATTER_PATH, LITE_TODAY_PATH, NEW_MATTER_PATH } from "../lite/links";
+import { isExperimentHidden } from "../feature-flags";
+
+/** Skrytý experiment (alfa) presmeruje na náhradu, inak ukáže svoju obrazovku. Staré odkazy tak nevedú do prázdna. */
+const experiment = (id: string, element: ReactElement, replacement: string): ReactElement =>
+  isExperimentHidden(id) ? <Navigate to={replacement} replace /> : element;
 
 /**
  * LAWOSS routes (fáza B) — mapped directly in the upstream app-root
@@ -25,8 +31,8 @@ export const LAWOSS_ROUTES: ReadonlyArray<{ path: string; element: ReactElement;
   { path: "/konektory", element: <NativeIntegrationsRedirect from="/konektory" /> },
   { path: "/marketplace", element: <NativeIntegrationsRedirect from="/marketplace" /> },
   { path: "/experimenty", element: <ExperimentyPage />, title: "lawoss.shell.experiments" },
-  { path: "/experimenty/novy-spis", element: <NovySpisPage />, title: "lawoss.shell.new_matter" },
-  { path: "/experimenty/prve-nastavenie", element: <PrveNastaveniePage />, title: "lawoss.shell.setup" },
+  { path: "/experimenty/novy-spis", element: experiment("view-novy-spis", <NovySpisPage />, NEW_MATTER_PATH), title: "lawoss.shell.new_matter" },
+  { path: "/experimenty/prve-nastavenie", element: experiment("view-prve-nastavenie", <PrveNastaveniePage />, "/experimenty"), title: "lawoss.shell.setup" },
   // LAWOSS-lite - dostupné v obou režimech, v lite jsou výchozí navigací.
   { path: LITE_TODAY_PATH, element: <TodayPage />, title: "lawoss.lite.nav_today" },
   { path: LITE_CLIENTS_PATH, element: <ClientsPage />, title: "lawoss.lite.nav_clients" },

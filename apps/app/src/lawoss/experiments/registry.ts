@@ -1,4 +1,5 @@
 import { t } from "@/i18n";
+import { isExperimentHidden } from "../feature-flags";
 /**
  * LAWOSS experiments — the single list behind the "Experimenty" sidebar item.
  *
@@ -80,3 +81,5 @@ export const EXPERIMENTS: readonly Experiment[] = [
 
 export const EXPERIMENT_FLAGS = EXPERIMENTS.filter((item) => item.kind === "flag");
 export const EXPERIMENT_VIEWS = EXPERIMENTS.filter((item) => item.kind === "view");
+/** Obrazovky, ktoré sa ponúkajú v navigácii; skryté v alfe (`ALPHA_HIDDEN_EXPERIMENTS`) chýbajú. */
+export const VISIBLE_EXPERIMENT_VIEWS = EXPERIMENT_VIEWS.filter((item) => !isExperimentHidden(item.id));

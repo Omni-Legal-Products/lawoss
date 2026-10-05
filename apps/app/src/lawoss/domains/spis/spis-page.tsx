@@ -3,6 +3,8 @@ import { deadlineText } from "../../okf/view-rules";
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { isExperimentHidden } from "../../feature-flags";
+import { NEW_MATTER_PATH } from "../../lite/links";
 import { MatterParties, useMatterText } from "../okf-page";
 import type { MatterTextKey } from "../../i18n/matters";
 import { Button } from "@/components/ui/button";
@@ -124,7 +126,7 @@ function NotFound({ found, vec }: { found: { path: string; title: string }[]; ve
           </>
         ) : (
           <>
-            {text("noMatters")} <Link to="/experimenty/novy-spis">{text("newMatter")}</Link>.
+            {text("noMatters")} <Link to={isExperimentHidden("view-novy-spis") ? NEW_MATTER_PATH : "/experimenty/novy-spis"}>{text("newMatter")}</Link>.
           </>
         )}
       </p>
