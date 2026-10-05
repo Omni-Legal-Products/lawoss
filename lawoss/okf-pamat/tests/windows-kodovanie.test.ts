@@ -174,6 +174,21 @@ test("ANSI znak iba v komentári a v nepoužitom kľúči: poverenie, prah mien,
   assert.equal(pocet(join(root, OFFICE_DIR)), 1);
 });
 
+test("ANSI v reason a scope bez standing_authorization: nie je to poverenie, validate nič nehlási", () => {
+  // Neúplný blok poverenia bez mena nič neudeľuje; poškodené pole ho nesmie urobiť „neplatným poverením“.
+  const config = Buffer.concat([
+    Buffer.from("client_path: AK/*\r\n", "utf8"),
+    Buffer.from("reason: agentné vedenie spisov z porady v kancelárii\r\nscope: [L1, L3]\r\n", "latin1"),
+  ]);
+  const { office, spis } = kancelaria(config);
+  assert.deepEqual(inspectStandingAuthorization(office), {});
+  assert.equal(readStandingAuthorization(office), undefined);
+  assert.equal(readClientPath(office), "AK/*");
+  const validate = runCli(["validate", spis]);
+  assert.equal(validate.code, 0, validate.out);
+  assert.doesNotMatch(validate.out, /STANDING_AUTH/);
+});
+
 test("ANSI znak iba v komentári: client_path bez karty klienta určí klienta, read aj validate prejdú", () => {
   const root = temp("okf-win-kod-");
   const klient = join(root, "AK", "Novák Jan");
@@ -296,7 +311,7 @@ for (const [name, encode] of Object.entries(KODOVANIA)) {
     const bytes = readFileSync(join(dir, "_STATUS.md"));
     assert.equal(bytes.includes(0), false, "projekcia sa zapisuje ako UTF-8");
     const after = bytes.toString("utf8");
-    assert.doesNotMatch(after, /�/);
+    assert.doesNotMatch(after, /\uFFFD/);
     assert.match(after, /manual_updated: 2026-09-01/);
     assert.match(after, /Čakáme na súd\./);
     assert.match(after, /\[R-001\]\(\.\/memory\/R-001\.md\)/);
