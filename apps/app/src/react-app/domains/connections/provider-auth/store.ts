@@ -51,6 +51,7 @@ export type ProviderAuthLegalworkServer = {
 };
 import { dispatchNewProviders } from "../../../../app/lib/provider-events";
 import { customProviderModelEntry, customProviderModelFromEntry } from "./custom-provider-config";
+import { localProviderTimeouts } from "@/lawoss/providers/local-timeouts";
 
 type ProviderReturnFocusTarget = "none" | "composer";
 
@@ -1087,7 +1088,8 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     const providerConfig: Record<string, unknown> = {
       npm: CUSTOM_PROVIDER_NPM[input.apiType] ?? CUSTOM_PROVIDER_NPM.chat,
       name,
-      options: { baseURL },
+      // LAWOSS: lokálny model dostane dlhší limit, inak prvá požiadavka vyprší počas spracovania promptu.
+      options: { baseURL, ...localProviderTimeouts(baseURL) },
       models: modelsConfig,
       // The engine merges configured providers with its built-in catalog.
       // LM Studio must only offer the IDs selected for this endpoint.

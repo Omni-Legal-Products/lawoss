@@ -65,6 +65,7 @@ import { eigenweltHasPremiumModels } from "./eigenwelt-auth.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { repairRuntimeProviders } from "./runtime-provider-repair.js";
 import { externalOpencodeConfigDir } from "./lawoss/workspace-app-files.js";
+import { eigenweltAccountEnabled } from "./lawoss/commercial-services.js";
 
 const LEGALWORK_AGENT_PROMPT = `You are LegalWork — an AI agent that works alongside legal professionals inside a law firm.
 
@@ -230,6 +231,8 @@ export async function buildLegalworkRuntimeConfigObject(
     // The free tier is retired: the engine's anonymous OpenCode Zen provider
     // is always disabled so no unauthenticated fallback models exist.
     OPENCODE_ZEN_PROVIDER_ID,
+    // LAWOSS: Eigenwelt ani zo starej konfigurácie spisu (lawoss/commercial-services.ts).
+    ...(eigenweltAccountEnabled() ? [] : [EIGENWELT_PROVIDER_ID]),
   ].filter((item, index, list) => list.indexOf(item) === index);
   const providerMap = {
     // Never let a retired or unparsable stored block reach the engine: it

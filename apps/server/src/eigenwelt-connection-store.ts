@@ -12,6 +12,7 @@ import {
 } from "./eigenwelt-auth.js";
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
+import { eigenweltAccountEnabled } from "./lawoss/commercial-services.js";
 
 /**
  * The connected Eigenwelt firm account. Like the paid manifest it unlocks, it
@@ -292,8 +293,8 @@ function decodeAccount(json: string | null): EigenweltAccountIdentity | null {
 
 /** Full connection incl. the secret tokens — server-side callers only. */
 export async function readEigenweltConnection(config: ServerConfig): Promise<EigenweltConnection> {
-  const db = await connectionDb(config);
-  const row = db.get(ACCOUNT_ROW_ID);
+  // LAWOSS: bez povoleného účtu sa uložené pripojenie nečíta (lawoss/commercial-services.ts).
+  const row = eigenweltAccountEnabled() ? (await connectionDb(config)).get(ACCOUNT_ROW_ID) : undefined;
   if (!row) {
     return {
       entitlements: null,

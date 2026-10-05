@@ -27,6 +27,7 @@ import {
 import { EIGENWELT_ANALYTICS_ID_HEADER, launchAnalyticsId } from "./launch-analytics-id.js";
 import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
+import { eigenweltAccountEnabled } from "./lawoss/commercial-services.js";
 
 /** Provider id of the connected (paid) Eigenwelt Model API. Keep in sync with
  *  the app's EIGENWELT_PROVIDER_ID. */
@@ -90,6 +91,8 @@ export function eigenweltPaidManifestCachePath(config: ServerConfig): string {
 export async function readCachedEigenweltPaidManifest(
   config: ServerConfig,
 ): Promise<EigenweltPaidManifest | null> {
+  // LAWOSS: bez povoleného účtu žiadny platený manifest (lawoss/commercial-services.ts).
+  if (!eigenweltAccountEnabled()) return null;
   try {
     const raw = await readFile(eigenweltPaidManifestCachePath(config), "utf8");
     return parsePaidManifest(JSON.parse(raw) as unknown);

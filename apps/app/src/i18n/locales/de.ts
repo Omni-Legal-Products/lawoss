@@ -3,6 +3,7 @@ import { initialDe } from "../../lawoss/i18n/initial";
 import { mattersDe } from "../../lawoss/i18n/matters";
 import { integrationsDe } from "../../lawoss/i18n/integrations";
 import { shellDe } from "../../lawoss/i18n/shell";
+import { ocrDe } from "../../lawoss/i18n/ocr";
 /**
  * German translations (Deutsch)
  *
@@ -24,6 +25,7 @@ const de = {
   ...mattersDe,
   ...integrationsDe,
   ...shellDe,
+  ...ocrDe,
   "home.nav_label": "Startseite",
   "home.placeholder": "Arbeiten Sie mit LegalWork",
   "home.prompt_label": "Nachricht an LegalWork",

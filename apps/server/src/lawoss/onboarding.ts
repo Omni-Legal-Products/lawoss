@@ -9,6 +9,7 @@ import { registerLocalProject } from "../routes/workspaces.js";
 import { addRoute, type RequestContext, type Route } from "../routes/registry.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { externalAppFilesRoot } from "./workspace-app-files.js";
+import { registerTriageRoutes } from "./triage.js";
 import { executeOnboarding, inspectOnboardingRoot, previewOnboarding, recoverOnboardingOperation, type OnboardingPreview, type OnboardingResult } from "./onboarding-runtime.js";
 
 /** OKF is opt-in; enabling it requires a dated acknowledgement of a versioned notice. */
@@ -222,4 +223,6 @@ export function registerOnboardingRoutes(options: {
       return result;
     } finally { busy.delete(input.id); }
   });
+  // Roztriedenie dokumentov v skúšobnom klone overuje klon záznamom tohto onboardingu.
+  registerTriageRoutes({ ...options, storage, jurisdiction: async () => (await readProfile())?.jurisdiction });
 }

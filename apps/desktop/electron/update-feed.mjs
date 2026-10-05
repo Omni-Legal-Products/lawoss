@@ -8,11 +8,11 @@
 // Releasy vydané pred premenovaním (v0.1.14) nesú prefix `legalwork-`, novšie
 // `lawoss-`: skúša sa preferovaný prefix a pri 404 druhý.
 
-export const FORK_RELEASE_DOWNLOAD_BASE_URL =
-  "https://github.com/Omni-Legal-Products/lawoss/releases/download";
+import { FORK_RELEASES_API_URL, FORK_RELEASE_DOWNLOAD_BASE_URL } from "./lawoss-branding.mjs";
 
-export const GITHUB_APP_RELEASES_API_URL =
-  "https://api.github.com/repos/Omni-Legal-Products/lawoss/releases?per_page=20";
+export { FORK_RELEASE_DOWNLOAD_BASE_URL };
+
+export const GITHUB_APP_RELEASES_API_URL = `${FORK_RELEASES_API_URL}?per_page=20`;
 
 const GITHUB_RELEASES_TIMEOUT_MS = 5_000;
 const GITHUB_RELEASES_MAX_BYTES = 1_000_000;

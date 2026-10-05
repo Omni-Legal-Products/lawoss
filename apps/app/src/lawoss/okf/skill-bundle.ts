@@ -7,6 +7,8 @@ import { currentLocale, type Language } from "@/i18n";
 import skillMarkdown from "../../../../../lawoss/skills/novy-spis/SKILL.md?raw";
 import skillMarkdownCs from "../../../../../lawoss/skills/novy-spis/SKILL.cs.md?raw";
 import namingSkillMarkdown from "../../../../../lawoss/skills/usporiadaj-spis/SKILL.md?raw";
+import triageSkillMarkdown from "../../../../../lawoss/skills/roztried-spis/SKILL.md?raw";
+import triageSkillMarkdownCs from "../../../../../lawoss/skills/roztried-spis/SKILL.cs.md?raw";
 import okfCli from "../../../../../lawoss/okf/bundle/okf.js?raw";
 import pamatSkillMarkdown from "../../../../../lawoss/okf-pamat/SKILL.md?raw";
 import okfMemoryCli from "../../../../../lawoss/okf-pamat/bundle/okf-memory.js?raw";
@@ -47,6 +49,12 @@ export function okfMemoryCliSource(): string {
 export const USPORIADAJ_SPIS_SKILL_NAME = "usporiadaj-spis";
 export function usporiadajSpisSkillBody(): { description: string; content: string } {
   return skillBody(namingSkillMarkdown);
+}
+
+/** Roztriedenie dokumentov v skúšobnom klone; česká appka dostane český text, príkazy sú rovnaké. */
+export const ROZTRIED_SPIS_SKILL_NAME = "roztried-spis";
+export function roztriedSpisSkillBody(locale: Language = currentLocale()): { description: string; content: string } {
+  return skillBody(locale === "cs" ? triageSkillMarkdownCs : triageSkillMarkdown);
 }
 
 // Vyhotovení dokumentu: návrh → .docx podle šablony kanceláře → PDF z téhož .docx.

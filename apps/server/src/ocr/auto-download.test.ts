@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { OcrManager } from "./manager.js";
 import { resolveServerConfig } from "../config.js";
 import { startServer } from "../server.js";
+import { writeOcrEnabled } from "../lawoss/ocr-opt-in.js";
 
 const roots: string[] = [];
 const originalAuto = process.env.LEGALWORK_OCR_AUTO_DOWNLOAD;
@@ -105,10 +106,13 @@ test("automatic setup failures are visible and do not continuously retry", async
   install.mockResolvedValue(); await manager.install("local-fast"); expect(install).toHaveBeenCalledTimes(2);
 });
 
-test("resolved config enables automatic setup by default, with file and environment opt-out", async () => {
+// LAWOSS: automatic setup at startup is off by default; file or environment opt in (lawoss/ocr-on-demand.ts).
+test("resolved config disables automatic setup by default, with file and environment opt-in", async () => {
   const { root } = await setup(), configPath = join(root, "server.json");
   delete process.env.LEGALWORK_OCR_AUTO_DOWNLOAD;
   await writeFile(configPath, "{}");
+  expect((await resolveServerConfig({ configPath, workspaces: [] })).autoDownloadOcr).toBe(false);
+  await writeFile(configPath, JSON.stringify({ autoDownloadOcr: true }));
   expect((await resolveServerConfig({ configPath, workspaces: [] })).autoDownloadOcr).toBe(true);
   await writeFile(configPath, JSON.stringify({ autoDownloadOcr: false }));
   expect((await resolveServerConfig({ configPath, workspaces: [] })).autoDownloadOcr).toBe(false);
@@ -123,6 +127,8 @@ test("server startup schedules setup without awaiting downloads and skips read-o
   process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
   const pending = new Promise<void>(() => {});
   const automatic = spyOn(OcrManager.prototype, "downloadDefaultIfNeeded").mockImplementation(() => pending);
+  // LAWOSS: startup setup also needs OCR turned on (lawoss/ocr-opt-in.ts).
+  await writeOcrEnabled(join(root, "ocr"), true);
   try {
     for (const { readOnly, enabled } of [{ readOnly: false, enabled: true }, { readOnly: true, enabled: true }, { readOnly: false, enabled: false }]) {
       const config = await resolveServerConfig({ configPath: join(root, "server.json"), workspaces: [], port: 0, readOnly });

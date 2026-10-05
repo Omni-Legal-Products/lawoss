@@ -1,0 +1,66 @@
+/* Onboarding LAWOSS v jazyku pohľadov z OKF: tmavé sklo, kovové zlato, rovnaká mierka nadpisu ako Dnes. */
+.lw-onb {
+  position: relative;
+  background:
+    radial-gradient(900px 420px at 80% -8%, color-mix(in srgb, var(--lw-gold) 16%, transparent), transparent 70%),
+    radial-gradient(700px 380px at 0% 0%, color-mix(in srgb, var(--lw-text-primary) 4%, transparent), transparent 70%),
+    var(--lw-canvas);
+  color: var(--lw-text-primary);
+}
+.lw-onb-main > * { animation: lw-onb-rise 620ms var(--lw-ease-expo) both; }
+.lw-onb-main > *:nth-child(2) { animation-delay: 60ms; }
+.lw-onb-main > *:nth-child(3) { animation-delay: 120ms; }
+@keyframes lw-onb-rise {
+  from { opacity: 0; transform: translateY(10px); filter: blur(3px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+.lw-onb-brand { display: flex; align-items: center; gap: 10px; margin: 0 0 22px; }
+.lw-onb-brand img { width: 30px; height: 30px; }
+.lw-onb-wordmark { width: 112px; height: auto; color: var(--lw-text-primary); }
+.lw-onb-title { margin: 0; font-size: clamp(28px, 3vw, 38px); font-weight: 600; letter-spacing: -0.02em; line-height: 1.08; }
+
+.lw-onb-steps { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; margin: 22px 0 0; padding: 0; list-style: none; }
+.lw-onb-step-bar { display: block; height: 3px; margin-bottom: 8px; border-radius: 999px; background: var(--lw-border); transition: background 400ms var(--lw-ease-expo); }
+.lw-onb-steps li[data-state="done"] .lw-onb-step-bar { background: color-mix(in srgb, var(--lw-gold) 55%, transparent); }
+.lw-onb-steps li[data-state="current"] .lw-onb-step-bar { background: var(--lw-metal); box-shadow: 0 0 12px color-mix(in srgb, var(--lw-gold) 55%, transparent); }
+.lw-onb-step-label { display: block; font-size: 12px; line-height: 1.35; color: var(--lw-text-tertiary); }
+.lw-onb-steps li[data-state="current"] .lw-onb-step-label { color: var(--lw-text-primary); font-weight: 500; }
+.lw-onb-steps li[data-state="done"] .lw-onb-step-label { color: var(--lw-text-secondary); }
+
+.lw-onb-panel {
+  position: relative;
+  margin-top: 26px;
+  padding: 24px;
+  border: 1px solid var(--lw-border-subtle, var(--lw-border));
+  border-radius: var(--lw-radius-panel);
+  background: var(--lw-panel);
+  box-shadow: var(--lw-panel-shadow);
+}
+.lw-onb-panel::after {
+  content: ""; position: absolute; inset: 0 20% auto; height: 1px;
+  background: var(--lw-panel-hairline); opacity: 0.6; pointer-events: none;
+}
+.lw-onb-panel h2 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+.lw-onb-preview { border-color: color-mix(in srgb, var(--lw-gold) 35%, transparent); }
+.lw-onb-preview h2 svg { color: var(--lw-gold); }
+.lw-onb-preview ul { max-height: 280px; overflow: auto; font-family: var(--lw-font-mono); font-size: 12px; color: var(--lw-text-secondary); }
+.lw-onb-inset { padding: 16px; border: 1px solid var(--lw-border-subtle, var(--lw-border)); border-radius: var(--lw-radius-lg); background: color-mix(in srgb, var(--lw-text-primary) 2.5%, transparent); }
+.lw-onb-done { color: var(--lw-gold); }
+
+/* Natívny výber vyzerá ako ostatné polia appky. */
+.lw-onb-select {
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--lw-border);
+  border-radius: var(--lw-radius-md);
+  background: color-mix(in srgb, var(--lw-text-primary) 3%, var(--lw-sunken));
+  color: var(--lw-text-primary);
+  font: inherit;
+  font-size: 14px;
+}
+.lw-onb-select:focus-visible { outline: none; border-color: color-mix(in srgb, var(--lw-gold) 60%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lw-gold) 18%, transparent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .lw-onb-main > * { animation: none; }
+}

@@ -223,6 +223,8 @@ export type SessionPageProps = {
   onAccessibleTargetsChange?: (targets: OpenTarget[]) => void;
   /** When set, replaces the session main pane (keeps the sidebar). Used for the Evals screen. */
   mainView?: React.ReactNode;
+  /** LAWOSS: header title for a LAWOSS screen shown as `mainView`. */
+  mainViewTitle?: string;
   projectsPage?: boolean;
   homePage?: boolean;
   projectPage?: "home" | "tasks" | "reviews";
@@ -1107,7 +1109,8 @@ export function SessionPage(props: SessionPageProps) {
     </Button>
   );
 
-  const windowTitle = props.homePage ? t("home.nav_label")
+  const windowTitle = props.mainViewTitle ? props.mainViewTitle
+    : props.homePage ? t("home.nav_label")
     : props.projectsPage ? t("projects.plural")
     : props.projectPage === "home" ? workspaceName
     : props.projectPage === "reviews" ? t("projects.tab_review")
