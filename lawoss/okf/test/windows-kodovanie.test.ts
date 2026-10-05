@@ -13,7 +13,9 @@ import { hasWindowsPowerShell, WINDOWS_POWERSHELL_TIMEOUT_MS, writeWithWindowsPo
 // Kancelársky profil v okf.config z Poznámkového bloku alebo PowerShellu 5.1 (BOM, UTF-16, CRLF)
 // musí nový spis dostať rovnako ako okf-memory; inak onboarding spadne na prvom riadku.
 let root = "";
-beforeEach(() => { root = realpathSync(mkdtempSync(join(tmpdir(), "okf-win-kod-"))); });
+// Natívny realpath ako kontrola kanonickej cesty v onboardingu: %TEMP% na windows-2022 obsahuje
+// krátke meno 8.3 (RUNNER~1), ktoré JS realpathSync nerozvinie.
+beforeEach(() => { root = realpathSync.native(mkdtempSync(join(tmpdir(), "okf-win-kod-"))); });
 afterEach(() => { rmSync(root, { recursive: true, force: true }); });
 
 const CONFIG = [

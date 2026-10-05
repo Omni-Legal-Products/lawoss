@@ -1,6 +1,6 @@
 // LAWOSS: okf.config z Windows (Poznámkový blok, PowerShell 5.1) číta appka cez server rovnako ako CLI OKF.
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { decodeText } from "./lawoss/workspace-text.js";
@@ -19,7 +19,8 @@ const ENCODINGS: Record<string, (text: string) => Buffer> = {
 };
 
 async function serve() {
-  const root = await mkdtemp(join(tmpdir(), "okf-config-encoding-"));
+  // Natívny realpath: %TEMP% na windows-2022 obsahuje krátke meno 8.3 (RUNNER~1).
+  const root = await realpath(await mkdtemp(join(tmpdir(), "okf-config-encoding-")));
   roots.push(root);
   const config: ServerConfig = {
     host: "127.0.0.1", port: 0, token: "test-okf-encoding-client", hostToken: "test-okf-encoding-host",
