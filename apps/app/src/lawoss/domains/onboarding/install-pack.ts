@@ -9,6 +9,7 @@ export async function installMissingOnboardingSkills(client: OkfSkillClient, wor
     { name: bundle.NOVY_SPIS_SKILL_NAME, body: bundle.novySpisSkillBody(locale), resource: bundle.OKF_CLI_RESOURCE_NAME, source: bundle.okfCliSource() },
     { name: bundle.OKF_PAMAT_SKILL_NAME, body: bundle.pamatSkillBody(), resource: bundle.OKF_MEMORY_CLI_RESOURCE_NAME, source: bundle.okfMemoryCliSource() },
     { name: bundle.USPORIADAJ_SPIS_SKILL_NAME, body: bundle.usporiadajSpisSkillBody(), resource: bundle.OKF_CLI_RESOURCE_NAME, source: bundle.okfCliSource() },
+    { name: bundle.ROZTRIED_SPIS_SKILL_NAME, body: bundle.roztriedSpisSkillBody(locale), resource: bundle.OKF_CLI_RESOURCE_NAME, source: bundle.okfCliSource() },
   ]);
   notifyModifiedOkfSkills(result.modified, locale);
   return result;
