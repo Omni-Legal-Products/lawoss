@@ -12,6 +12,7 @@ import { createOfficeAddinManager } from "./office-addin-manager.mjs";
 import { ensureOpencodeStateDir } from "./opencode-state-dir.mjs";
 import { createHostApprovalHandler } from "./host-approvals.mjs";
 import { migrateLegacyWindowsOpenCodeConfig } from "./opencode-config-migration.mjs";
+import { killProcessTree } from "./lawoss-process-tree.mjs";
 
 const __runtimeDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1313,6 +1314,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     }
 
     if (child.exitCode == null && !child.killed) {
+      // 🟡 LAWOSS: na Windows zhodí child.kill len priameho potomka; python, soffice či
+      // node z nástroja agenta by bežali ďalej a držali zámky v priečinku klienta.
+      if (process.platform === "win32") await killProcessTree(child.pid);
       child.kill("SIGTERM");
       await new Promise((resolve) => setTimeout(resolve, 500));
       if (child.exitCode == null && !child.killed) {
