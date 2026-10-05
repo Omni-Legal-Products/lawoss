@@ -60,14 +60,16 @@ Akceptačný beh D1 vyššie prebehol na macOS. Postup pre Windows x64 vychádza
 
 ### Kde stiahnuť inštalátor
 
-1. [Releasy forku](https://github.com/Omni-Legal-Products/lawoss/releases) → prerelease `alpha-windows-v<základ>-alpha.<beh>-<sha>`, napríklad `alpha-windows-v0.1.15-alpha.2-65ba399`. Každý beh alfy má vlastný.
-2. Stiahnite `lawoss-win-x64-<verzia>.exe`, napríklad `lawoss-win-x64-0.1.15-alpha.2.g65ba399.exe`. Súbory `.blockmap` a `latest.yml` sú pre updater.
+1. [Releasy forku](https://github.com/Omni-Legal-Products/lawoss/releases) → prerelease `alpha-windows-v<základ>-alpha.<beh>-<sha>`, napríklad `alpha-windows-v0.2.1-alpha.4-1a2b3c4` (ilustračné). Každý beh alfy má vlastný.
+2. Stiahnite `lawoss-win-x64-<verzia>.exe`, napríklad `lawoss-win-x64-0.2.1-alpha.4.g1a2b3c4.exe`. Súbory `.blockmap` a `latest.yml` sú pre updater.
 3. Release `alpha-windows-latest` inštalátor nemá. Obsahuje len `latest.yml`, podľa ktorého updater hľadá najnovšiu alfu.
 4. Kontrolný súčet SHA-256 je v popise releasu. V PowerShelli v priečinku so stiahnutým súborom: `Get-FileHash .\lawoss-win-x64-<verzia>.exe` a hodnotu `Hash` porovnajte s popisom.
 
-Release, ktorého názov začína **„NEPODPÍSANÉ – len interný tím“**, je len pre interný tím. Ďalej ho nešírte a nepracujte v ňom s klientskymi ani inými dôvernými údajmi. Verejné binárky budú len podpísané (rozhodnutie Q06/U6).
+Verejné binárky budú len podpísané (rozhodnutie Q06/U6). Nepodpísaný build workflow vydá len ako **koncept (draft)**: vidia ho len členovia s právom zápisu do forku, názov začína **„NEPODPÍSANÉ – len interný tím“** a ukazovateľ `alpha-windows-latest` sa neposunie, takže ho updater nikomu neponúkne. Ďalej ho nešírte a nepracujte v ňom s klientskymi ani inými dôvernými údajmi.
 
-Testovací build bez releasu (spustený s vypnutým `publish`) je v behu workflowu „Alpha Channel (Windows x64)“ na záložke Actions, časť Artifacts: `lawoss-alpha-windows-<verzia>`, nepodpísaný s príponou `-NEPODPISANE`. Je to ZIP s inštalátorom, vydrží 7 dní a updater ho neponúka. Repo je verejné, takže ho po prihlásení do GitHubu stiahne každý, kto má k repu prístup na čítanie.
+Releasy vytvorené pred zavedením tejto brány (názov „LegalWork Alpha …“, napríklad verejný prerelease `alpha-windows-v0.1.15-alpha.2-65ba399`) sú tiež nepodpísané a nemajú SHA-256 v popise; platí pre ne to isté: len interný tím, žiadne klientske údaje. Ukazovateľ `alpha-windows-latest` k 5. 10. 2026 mieri práve na tento build (overené cez GitHub API 5. 10. 2026).
+
+Testovací build bez releasu (spustený s vypnutým `publish`) je v behu workflowu „Alpha Channel (Windows x64)“ na záložke Actions, časť Artifacts: `lawoss-alpha-windows-<verzia>`. Je to ZIP s inštalátorom, vydrží 7 dní a updater ho neponúka. Repo je verejné, takže ho po prihlásení do GitHubu stiahne ktokoľvek; workflow preto takto uloží len podpísaný build.
 
 ### SmartScreen
 

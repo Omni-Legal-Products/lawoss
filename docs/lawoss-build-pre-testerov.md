@@ -16,7 +16,9 @@ Potrebné len vtedy, keď si appku staviate sami.
 
 - Node 24: `.nvmrc` a `engines.node` v `package.json` (`>=24.0.0 <25.0.0`).
   S nástrojmi ako `nvm` stačí `nvm use` v koreni repozitára.
-- pnpm 11.4.0, vynútené cez `packageManager`. Na testy `apps/app` Bun 1.4.2.
+- pnpm 11.4.0, vynútené cez `packageManager`.
+- Bun 1.4.2: server sa zostavuje cez `bun build` (aj v `package:electron`) a
+  testy `apps/app` bežia v Bune.
 - macOS: Xcode Command Line Tools (`xcode-select --install`) pre prípad, že
   natívny `better-sqlite3` treba skompilovať zo zdroja.
 
@@ -27,7 +29,8 @@ Windows x64 (CI to robí na `windows-2022`; na vlastnom počítači s Windows
   (rovnako ako workflowy na `windows-2022`).
 - Node 24, `node --version` musí ukázať `v24.x`.
 - pnpm 11.4.0, napríklad `npm install -g pnpm@11.4.0`.
-- Bun 1.4.2, len na testy.
+- Bun 1.4.2: potrebný aj na build balíčka (server sa zostavuje cez `bun build`),
+  nielen na testy.
 - Pre prípad, že natívny modul treba skompilovať zo zdroja: Visual Studio Build
   Tools s „Desktop development with C++“.
 

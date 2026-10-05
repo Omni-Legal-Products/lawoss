@@ -11,13 +11,18 @@ name: Alpha Channel (Windows x64)
 # Podpis (rozhodnutie tímu Q06/U6): verejné binárky len podpísané. Bez SignPath
 # (prázdny SIGNPATH_PROJECT_SLUG) beh hneď na začiatku skončí, pokiaľ spúšťajúci
 # výslovne nezvolí `allow_unsigned_internal`. Taký build je len pre interný tím:
-# názov releasu začína „NEPODPÍSANÉ – len interný tím“ a popis upozorní na
-# SmartScreen a zákaz klientskych údajov. Nepodpísaný inštalátor teda nikdy
-# nevyjde potichu.
+# vyjde vždy ako koncept (draft) releasu, ktorý vidia len členovia s právom
+# zápisu do repa, a nikdy neposunie verejný `alpha-windows-latest`, takže ho
+# updater nikomu neponúkne. Názov konceptu začína „NEPODPÍSANÉ – len interný tím“
+# a popis upozorní na SmartScreen a zákaz klientskych údajov. Nepodpísaný
+# inštalátor teda nikdy nevyjde verejne ani potichu.
+#
+# `draft: true` vydá aj podpísaný build len ako koncept bez posunu ukazovateľa.
 #
 # `publish: false` len zostaví build a uloží ho ako artefakt behu (7 dní), bez
-# releasu a bez posunu `alpha-windows-latest`. Pozor: artefakt behu v public
-# repe stiahne každý, kto má k repu prístup na čítanie.
+# releasu a bez posunu `alpha-windows-latest`. Artefakt behu v public repe
+# stiahne ktokoľvek prihlásený na GitHube, preto je táto voľba len pre podpísaný
+# build; nepodpísaný beh s `publish: false` hneď na začiatku skončí.
 #
 # Pozri:
 #   - .github/workflows/alpha-macos-aarch64.yml (alfa pre macOS)
@@ -38,12 +43,12 @@ on:
         type: boolean
         default: false
       allow_unsigned_internal:
-        description: "LAWOSS: bez SignPath povoliť NEPODPÍSANÝ build len pre interný tím (SmartScreen, žiadne klientske údaje). Verejné binárky len podpísané."
+        description: "LAWOSS: bez SignPath povoliť NEPODPÍSANÝ build len pre interný tím: vždy len koncept (draft) bez posunu ukazovateľa, SmartScreen, žiadne klientske údaje. Verejné binárky len podpísané."
         required: false
         type: boolean
         default: false
       publish:
-        description: "LAWOSS: vydať prerelease a posunúť alpha-windows-latest. Vypnuté = len artefakt behu na 7 dní (testovací build bez releasu)."
+        description: "LAWOSS: vydať prerelease a posunúť alpha-windows-latest. Vypnuté = len artefakt behu na 7 dní (len podpísaný build; artefakt v public repe je verejný)."
         required: false
         type: boolean
         default: true
@@ -76,17 +81,25 @@ jobs:
     steps:
       # 🟡 LAWOSS: rozhodnutie Q06/U6 — nepodpísaný build len pre interný tím a s
       # výslovným varovaním. Beží pred checkoutom, aby beh bez SignPath skončil
-      # skôr, než sa hodinu stavia. Výstup `signed` čítajú kroky releasu.
+      # skôr, než sa hodinu stavia. Výstupy `signed` a `draft` čítajú kroky
+      # releasu; nepodpísaný build je vždy koncept a nikdy neposunie ukazovateľ.
       - name: Require SignPath or an explicit unsigned internal build
         id: signing
         shell: bash
         env:
           ALLOW_UNSIGNED_INTERNAL: ${{ inputs.allow_unsigned_internal }}
+          PUBLISH: ${{ inputs.publish }}
+          DRAFT: ${{ inputs.draft }}
         run: |
           set -euo pipefail
           if [ -n "${SIGNPATH_PROJECT_SLUG:-}" ]; then
             echo "SignPath je nastavený; inštalátor sa podpíše."
             echo "signed=true" >> "$GITHUB_OUTPUT"
+            if [ "${DRAFT:-false}" = "true" ]; then
+              echo "draft=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "draft=false" >> "$GITHUB_OUTPUT"
+            fi
             exit 0
           fi
           if [ -n "${SIGNPATH_ARTIFACT_CONFIGURATION_SLUG:-}" ]; then
@@ -96,8 +109,13 @@ jobs:
             echo "::error title=SignPath nie je nastavený::SIGNPATH_PROJECT_SLUG je prázdny, build by nebol podpísaný. Verejné binárky LAWOSS musia byť podpísané (rozhodnutie Q06/U6). Nepodpísaný build len pre interný tím spustite so vstupom allow_unsigned_internal=true; release dostane varovanie v názve aj v popise."
             exit 1
           fi
-          echo "::warning title=NEPODPÍSANÝ build::Bez SignPath, povolené cez allow_unsigned_internal. Len pre interný tím: SmartScreen varuje, žiadne klientske údaje."
+          if [ "${PUBLISH:-true}" != "true" ]; then
+            echo "::error title=Nepodpísaný build nie ako artefakt behu::publish=false by nepodpísaný inštalátor uložil ako artefakt behu, ktorý v public repe stiahne ktokoľvek prihlásený na GitHube. Nepodpísaný build pre interný tím spustite s publish=true; vyjde len ako koncept (draft) bez posunu ukazovateľa."
+            exit 1
+          fi
+          echo "::warning title=NEPODPÍSANÝ build::Bez SignPath, povolené cez allow_unsigned_internal. Len pre interný tím: vyjde len ako koncept (draft), ukazovateľ alpha-windows-latest sa neposunie, SmartScreen varuje, žiadne klientske údaje."
           echo "signed=false" >> "$GITHUB_OUTPUT"
+          echo "draft=true" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
         uses: actions/checkout@v6
@@ -333,6 +351,7 @@ jobs:
         env:
           ALPHA_VERSION: ${{ steps.alpha-version.outputs.alpha_version }}
           SIGNED: ${{ steps.signing.outputs.signed }}
+          DRAFT: ${{ steps.signing.outputs.draft }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -361,13 +380,18 @@ jobs:
             else
               echo "**NEPODPÍSANÉ – len interný tím.** SmartScreen pri spustení varuje; žiadne klientske údaje."
             fi
+            if [ "$DRAFT" = "true" ]; then
+              echo
+              echo "Koncept (draft): vidia ho len členovia s právom zápisu do repa; \`alpha-windows-latest\` sa neposúva."
+            fi
             echo
             cat "$hashes"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "file=$hashes" >> "$GITHUB_OUTPUT"
 
-      # 🟡 LAWOSS: `publish: false` = súkromný testovací build bez releasu a bez
-      # posunu ukazovateľa; updater ho nikomu neponúkne.
+      # 🟡 LAWOSS: `publish: false` = testovací build bez releasu a bez posunu
+      # ukazovateľa; updater ho nikomu neponúkne. Artefakt behu je v public repe
+      # verejný, preto sem nepodpísaný build nedôjde (brána `signing` ho zastaví).
       - name: Upload Windows test build as a run artifact (no release)
         if: ${{ !inputs.publish }}
         uses: actions/upload-artifact@v4
@@ -385,9 +409,10 @@ jobs:
       # prejde len pri opakovaní toho istého behu (run_attempt > 1), keď sa assety
       # releasu prepíšu a ukazovateľ musí dostať ich nové sha512. Beží pred
       # vytvorením releasu, aby zamietnutý beh nenechal verejný prerelease.
+      # Koncept (aj každý nepodpísaný build) ukazovateľ neposúva, kontrola odpadá.
       - name: Check alpha pointer version is newer
         id: pointer-guard
-        if: ${{ inputs.publish }}
+        if: ${{ inputs.publish && steps.signing.outputs.draft != 'true' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -471,8 +496,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ALPHA_VERSION: ${{ steps.alpha-version.outputs.alpha_version }}
           ALPHA_RUN_RELEASE_TAG: ${{ steps.alpha-version.outputs.release_tag }}
-          # 🟡 LAWOSS: názov a popis podľa podpisu (Q06/U6) a so SHA-256 assetov.
+          # 🟡 LAWOSS: názov a popis podľa podpisu (Q06/U6) a so SHA-256 assetov;
+          # nepodpísaný build je vždy koncept (draft), viditeľný len tímu s právom zápisu.
           SIGNED: ${{ steps.signing.outputs.signed }}
+          DRAFT: ${{ steps.signing.outputs.draft }}
           ASSET_HASHES: ${{ steps.asset-hashes.outputs.file }}
         run: |
           set -euo pipefail
@@ -495,6 +522,10 @@ jobs:
             if [ "$SIGNED" = "true" ]; then
               echo "Inštalátor je podpísaný cez SignPath."
             fi
+            if [ "$DRAFT" = "true" ]; then
+              echo
+              echo "Koncept (draft): vidia ho len členovia s právom zápisu do repa. Updater ho neponúka, \`alpha-windows-latest\` sa neposunul."
+            fi
             echo
             echo "Beh: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo
@@ -513,12 +544,16 @@ jobs:
               --notes-file "$notes"
             exit 0
           fi
+          release_flags=(--prerelease)
+          if [ "$DRAFT" = "true" ]; then
+            release_flags+=(--draft)
+          fi
           gh release create "$ALPHA_RUN_RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$title" \
             --notes-file "$notes" \
             --target "$GITHUB_SHA" \
-            --prerelease ${{ inputs.draft && '--draft' || '' }}
+            "${release_flags[@]}"
 
       - name: Upload Electron alpha updater assets
         if: ${{ inputs.publish }}
@@ -543,8 +578,9 @@ jobs:
             --clobber
 
       - name: Update alpha updater pointer
-        # LAWOSS: koncept nemení ukazovateľ alfa kanála.
-        if: ${{ inputs.publish && !inputs.draft }}
+        # LAWOSS: koncept nemení ukazovateľ alfa kanála; nepodpísaný build je vždy
+        # koncept (Q06/U6), takže verejný ukazovateľ nikdy nemieri na nepodpísaný.
+        if: ${{ inputs.publish && steps.signing.outputs.draft != 'true' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
