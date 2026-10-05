@@ -18,9 +18,17 @@ import { clientOf, nextDeadline } from "../today-model";
 import { LITE_CLIENTS_PATH } from "../links";
 import { listMatterConversations, openMatterConversation, type MatterConversation } from "../matter-conversations";
 import { saveDocumentsToMatter } from "../matter-intake";
+import { AI_SETTINGS_PATH, useMatterModelGap, type MatterModelGap } from "../matter-model";
 import "./lite.css";
 import "./okf-glass.css";
 import "./matter.css";
+
+/** Text podľa toho, čo rýchlym akciám chýba (kľúče `lawoss.lite.*`). */
+const MODEL_GAP_TEXT: Record<MatterModelGap, string> = {
+  "no-model": "model_gap_no_model",
+  "pick-model": "model_gap_pick_model",
+  unavailable: "model_gap_unavailable",
+};
 
 type ActionId = (typeof QUICK_ACTIONS)[number]["id"] | (typeof MORE_ACTIONS)[number]["id"];
 /** Z cockpitu stačí to, co lite ukazuje; zbytek zůstává v pro. */
@@ -64,13 +72,15 @@ function LiteMatterBody({ data, meta }: { data: OkfReadResult; meta: OkfPageMeta
       return listMatterConversations(connection, matter.path);
     },
   });
+  // Bez modelu sa rýchla akcia ani nespustí; detail to povie vopred a ukáže cestu k pripojeniu.
+  const modelGap = useMatterModelGap(connection);
   // Chybějící nebo neznámá cesta (smazaná nebo přejmenovaná věc) → zpět na seznam, nikdy jiná věc.
   if (!matter) return <p className="lw-empty"><Link to={LITE_CLIENTS_PATH}>{t("lawoss.lite.clients_title", locale)}</Link></p>;
   const cockpit = buildCockpit(data, matter.path, today());
   const input = data.inputs.find((entry) => entry.path === matter.path);
 
   async function onAction(id: ActionId) {
-    if (running.current || !matter) return;
+    if (running.current || !matter || modelGap) return;
     running.current = true; setBusy(id); setError(null);
     try {
       if (!connection) throw new Error(t("lawoss.integrations.error.registration_denied", locale));
@@ -117,7 +127,7 @@ function LiteMatterBody({ data, meta }: { data: OkfReadResult; meta: OkfPageMeta
   // Kľúč podľa veci: pri prechode na inú vec sa záložka, zvýraznenie aj potvrdenia vynulujú.
   return <LiteMatterView key={matter.path} matter={matter} cockpit={cockpit} busy={busy} error={error} onAction={(id) => void onAction(id)}
     conversations={conversations.data ?? []} onContinue={(c) => void onContinue(c)}
-    onFiles={(files) => void onFiles(files)} saved={saved}
+    onFiles={(files) => void onFiles(files)} saved={saved} modelGap={modelGap}
     scopePaths={input?.scopePaths}
     existingMemorySources={input?.existingMemorySources}
     truths={Object.fromEntries((input?.records ?? []).map((record) => [record.id, record.truth]))}
@@ -125,7 +135,7 @@ function LiteMatterBody({ data, meta }: { data: OkfReadResult; meta: OkfPageMeta
     meta={meta} focusDeadline={params.get("lehota")} />;
 }
 
-export function LiteMatterView({ matter, cockpit, busy, error, onAction, conversations = [], onContinue, onFiles, saved = null, scopePaths = [], existingMemorySources = [], truths = {}, client, meta, focusDeadline = null }: {
+export function LiteMatterView({ matter, cockpit, busy, error, onAction, conversations = [], onContinue, onFiles, saved = null, modelGap = null, scopePaths = [], existingMemorySources = [], truths = {}, client, meta, focusDeadline = null }: {
   matter: MatterOverview;
   scopePaths?: readonly string[];
   existingMemorySources?: readonly string[];
@@ -140,6 +150,8 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
   onFiles?: (files: File[]) => void;
   /** Co se právě uložilo (pro potvrzení advokátovi). */
   saved?: string | null;
+  /** Čo rýchlym akciám chýba (model); vtedy sú vypnuté okrem pridania dokumentu. */
+  modelGap?: MatterModelGap | null;
   /** Pravda záznamu podle ID: v „Čo vieme" ukáže, čo záznam tvrdí, nie len jeho názov. */
   truths?: Readonly<Record<string, string>>;
   /** Meno klienta, ak ho cesta alebo pamäť pozná. */
@@ -263,14 +275,14 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
       <div className="lw-matter-dock" style={reveal(1)}>
         <div className="lw-matter-actions">
           {QUICK_ACTIONS.map((action, index) => (
-            <button key={action.id} type="button" className={index === 0 ? "lw-matter-action is-primary" : "lw-matter-action"} disabled={busy !== null} aria-busy={busy === action.id}
+            <button key={action.id} type="button" className={index === 0 ? "lw-matter-action is-primary" : "lw-matter-action"} disabled={busy !== null || (modelGap !== null && !(action.id === "add_document" && onFiles))} aria-busy={busy === action.id}
               onClick={() => action.id === "add_document" && onFiles ? fileInput.current?.click() : onAction(action.id)}>{t(action.labelKey, locale)}</button>
           ))}
           <details className="lw-matter-more" ref={moreMenu}>
             <summary>{text("matter_more")}</summary>
             <div className="lw-matter-more-list" aria-label={text("more_actions")}>
               {MORE_ACTIONS.map((action) => (
-                <button key={action.id} type="button" className="lw-matter-action" disabled={busy !== null} aria-busy={busy === action.id} onClick={() => { if (moreMenu.current) moreMenu.current.open = false; onAction(action.id); }}>{t(action.labelKey, locale)}</button>
+                <button key={action.id} type="button" className="lw-matter-action" disabled={busy !== null || modelGap !== null} aria-busy={busy === action.id} onClick={() => { if (moreMenu.current) moreMenu.current.open = false; onAction(action.id); }}>{t(action.labelKey, locale)}</button>
               ))}
             </div>
           </details>
@@ -279,6 +291,12 @@ export function LiteMatterView({ matter, cockpit, busy, error, onAction, convers
           onChange={(event) => { const files = [...(event.target.files ?? [])]; event.target.value = ""; onFiles(files); }} /> : null}
         {onFiles ? <p className="lw-matter-drop">{text(dragging ? "intake_drop" : "intake_hint")}</p> : null}
         {saved ? <div className="lw-status ok" role="status">{text("intake_saved", { names: saved })}</div> : null}
+        {modelGap ? (
+          <div className="lw-status warn lw-matter-model-gap" role="status" data-lawoss-lite="model-gap" data-gap={modelGap}>
+            <span>{text(MODEL_GAP_TEXT[modelGap])}</span>
+            <Link to={AI_SETTINGS_PATH}>{text("model_gap_open")}</Link>
+          </div>
+        ) : null}
         {error ? <div className="lw-status err" role="alert">{text("action_error_generic")}</div> : null}
       </div>
 
