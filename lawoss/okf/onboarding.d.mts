@@ -55,7 +55,7 @@ export interface TriagePlan {
   matters: { key: string; title: string; folder: string; date: string; dateSource: "model" | "today"; kind: "contentious" | "non_contentious"; area: string; jurisdiction: "sk" | "cz"; caseNumber?: string; counterparty?: string; court?: string; source: "rules" | "model"; documents: number }[];
   create: { path: string; kind: "file" | "directory"; content?: string }[];
   moves: TriageMove[];
-  stays: { id: string; path: string; why: "already_in_place" | "no_inbox" }[];
+  stays: { id: string; path: string; why: "already_in_place" | "unclear" | "no_inbox" }[];
   fingerprint: string;
 }
 export type TriageModelProposal = { state: "none" } | { state: "ready"; file: string; documents: number; matters: number } | { state: "stale"; file: string } | { state: "invalid"; file: string; message: string };

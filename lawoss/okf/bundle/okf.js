@@ -3887,7 +3887,7 @@ function buildTriagePlan(inventory, options) {
     const base = primary ? destination.base : "";
     const folder = base ? `${base}/${target.folder}` : target.folder;
     if (document.path.split("/").slice(0, -1).join("/") === folder) {
-      stays.push({ id: document.id, path: document.path, why: "already_in_place" });
+      stays.push({ id: document.id, path: document.path, why: target.role === "inbox" ? "unclear" : "already_in_place" });
       continue;
     }
     const { stem, ext } = splitName(document.name);

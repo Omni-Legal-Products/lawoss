@@ -134,9 +134,10 @@ describe("plán a zápis", () => {
   });
 
   test("už zaradené dokumenty ostanú, priečinok na zatriedenie sa triedi", async () => {
-    const clone = await trialClone({ "01_Podklady/zmluva.pdf": "a", "00_Na_zatriedenie/Faktura 9.pdf": "b", "memory/x.md": "c", "Stary/klient.md": "d" });
+    const clone = await trialClone({ "01_Podklady/zmluva.pdf": "a", "00_Na_zatriedenie/Faktura 9.pdf": "b", "00_Na_zatriedenie/IMG.jpg": "e", "memory/x.md": "c", "Stary/klient.md": "d" });
     const { inventory, plan } = await rulesPlan(clone);
-    expect(inventory.documents.map(item => item.path)).toEqual(["00_Na_zatriedenie/Faktura 9.pdf"]);
+    expect(inventory.documents.map(item => item.path)).toEqual(["00_Na_zatriedenie/Faktura 9.pdf", "00_Na_zatriedenie/IMG.jpg"]);
+    expect(plan.stays).toEqual([expect.objectContaining({ path: "00_Na_zatriedenie/IMG.jpg", why: "unclear" })]);
     expect(inventory.skipped).toEqual(expect.arrayContaining([{ path: "01_Podklady/zmluva.pdf", reason: "already_sorted" }, { path: "memory/x.md", reason: "memory" }, { path: "Stary/klient.md", reason: "system_name" }]));
     expect(move(plan, "00_Na_zatriedenie/Faktura 9.pdf")?.to).toBe("01_Podklady/Faktura 9.pdf");
   });

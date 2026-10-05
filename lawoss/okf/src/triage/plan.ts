@@ -123,7 +123,7 @@ export function buildTriagePlan(inventory: TriageInventory, options: BuildOption
     if (!target) { stays.push({ id: document.id, path: document.path, why: "no_inbox" }); continue; }
     const base = primary ? destination.base : "";
     const folder = base ? `${base}/${target.folder}` : target.folder;
-    if (document.path.split("/").slice(0, -1).join("/") === folder) { stays.push({ id: document.id, path: document.path, why: "already_in_place" }); continue; }
+    if (document.path.split("/").slice(0, -1).join("/") === folder) { stays.push({ id: document.id, path: document.path, why: target.role === "inbox" ? "unclear" : "already_in_place" }); continue; }
     const { stem, ext } = splitName(document.name);
     let to = `${folder}/${document.name}`;
     for (let n = 2; occupied.has(to.toLocaleLowerCase()) || claimed.has(to.toLocaleLowerCase()); n++) to = `${folder}/${stem} (${n})${ext}`;

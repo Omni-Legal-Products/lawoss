@@ -41,7 +41,7 @@ export type TriageMove = {
   role: TriageRole; matter?: string; source: MoveSource; confidence: Confidence;
   rule?: RuleCode; matched?: string; reason?: string; truncated?: boolean; renamed?: boolean;
 };
-export type TriageStay = { id: string; path: string; why: "already_in_place" | "no_inbox" };
+export type TriageStay = { id: string; path: string; why: "already_in_place" | "unclear" | "no_inbox" };
 export type TriageNewMatter = {
   key: string; title: string; folder: string; date: string; dateSource: "model" | "today";
   kind: MatterKind; area: string; jurisdiction: "sk" | "cz"; caseNumber?: string; counterparty?: string; court?: string;
