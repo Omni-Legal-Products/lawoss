@@ -26,6 +26,11 @@ on:
         description: "LAWOSS: alpha base X.Y.Z, e.g. 0.2.1 (overrides vars.LAWOSS_ALPHA_BASE_VERSION; empty = next patch after the latest v* tag)"
         required: false
         type: string
+      draft:
+        description: "LAWOSS: koncept (draft) vydanie bez aktualizácie ukazovateľa alfa kanála; testeri ho nedostanú automaticky"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -281,7 +286,7 @@ jobs:
             --title "LegalWork Alpha ${ALPHA_VERSION} (Windows x64)" \
             --notes "$body" \
             --target "$GITHUB_SHA" \
-            --prerelease
+            --prerelease ${{ inputs.draft && '--draft' || '' }}
 
       - name: Upload Electron alpha updater assets
         shell: bash
@@ -305,6 +310,8 @@ jobs:
             --clobber
 
       - name: Update alpha updater pointer
+        # LAWOSS: koncept nemení ukazovateľ alfa kanála.
+        if: ${{ !inputs.draft }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
