@@ -1,6 +1,7 @@
 /** Browser-safe structural profile contract. Paths and grants still require filesystem verification. */
 import { WORKSPACE_MEMORY_LIMITS } from "./workspace-memory-types.ts";
 import type { WorkspaceMemoryRole } from "./workspace-memory-types.ts";
+import { stripBom } from "./text-decode.ts";
 
 export interface WorkspaceMemoryProfile {
   version: 1;
@@ -43,5 +44,6 @@ export function parseWorkspaceMemoryProfile(value: unknown): WorkspaceMemoryProf
 /** Text entry point enforces the same UTF-8 byte limit as the filesystem reader. */
 export function parseWorkspaceMemoryProfileText(text: string): WorkspaceMemoryProfile {
   if (new TextEncoder().encode(text).byteLength > WORKSPACE_MEMORY_LIMITS.profileBytes) throw new Error("Memory profile byte limit exceeded.");
-  return parseWorkspaceMemoryProfile(JSON.parse(text));
+  // Profil písaný ručne na Windows môže začínať BOM; JSON.parse ho neprijme. Hash ostáva z bajtov.
+  return parseWorkspaceMemoryProfile(JSON.parse(stripBom(text)));
 }

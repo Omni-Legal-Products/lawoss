@@ -14,6 +14,7 @@ import { join, sep } from "node:path";
 import { parseFrontmatter, type FmValue } from "./record.ts";
 import type { WriteDiff } from "./write.ts";
 import { isIsoDate } from "./schema.ts";
+import { decodeText } from "./text-decode.ts";
 
 export const CONFIG_FILE = "okf.config";
 
@@ -30,20 +31,49 @@ function text(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+/**
+ * `okf.config` existuje, ale nedá sa prečítať. Nesmie sa tváriť ako chýbajúci
+ * súbor — `client_path` z neho by potichu zmizol a s ním klientska úroveň aj
+ * z dosahu brány úniku.
+ */
+export class ConfigReadError extends Error {
+  readonly file: string;
+  constructor(file: string, cause: unknown) {
+    super(`súbor sa nedá prečítať — ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = "ConfigReadError";
+    this.file = file;
+  }
+}
+
+/** Advokát píše konfig ručne; na Windows často s BOM alebo v UTF-16 (viď `decodeText`). */
+function readConfigText(path: string): string {
+  const bytes = readFileSync(path);
+  try {
+    return decodeText(bytes, true);
+  } catch {
+    // ANSI (`Set-Content` bez -Encoding v PowerShelli 5.1) by z mena v poverení urobil U+FFFD.
+    throw new Error("nie je v UTF-8 ani v UTF-16 s BOM (napr. ANSI); ulož ho ako UTF-8");
+  }
+}
+
 function readConfig(
   officeDir: string | undefined,
 ): Map<string, FmValue> | undefined {
   if (!officeDir) return undefined;
   const path = join(officeDir, CONFIG_FILE);
   if (!existsSync(path)) return undefined;
-  return parseFrontmatter(readFileSync(path, "utf8"));
+  try {
+    return parseFrontmatter(readConfigText(path));
+  } catch (error) {
+    throw new ConfigReadError(path, error);
+  }
 }
 
 /** Meno na predvyplnenie karty; samo osebe nie je poverením na zápis. */
 export function readConfiguredLawyerName(officeDir: string | undefined): string | undefined {
   if (!officeDir) return undefined;
   try {
-    const contents = readFileSync(join(officeDir, CONFIG_FILE), "utf8");
+    const contents = readConfigText(join(officeDir, CONFIG_FILE));
     const value = parseFrontmatter(contents).get("standing_authorization");
     if (typeof value !== "string") return undefined;
     // Čítač pamäte odstraňuje úvodzovky bez dekódovania. Pre meno overíme
@@ -78,6 +108,9 @@ export function readConfiguredLawyerName(officeDir: string | undefined): string 
  *
  * Hviezdička zastupuje **jeden segment cesty**, nie ľubovoľnú hĺbku — vzor
  * `AK/*` + `/*` by inak označil za klienta aj priečinok veci.
+ *
+ * Nečitateľný konfig vyhodí `ConfigReadError`; `readScope` ho hlási ako
+ * nečitateľný súbor, nie ako „bez vzoru“.
  */
 export function readClientPath(officeDir: string | undefined): string | undefined {
   const v = readConfig(officeDir)?.get("client_path");
@@ -110,7 +143,10 @@ export interface StandingAuthorizationCheck {
 export function inspectStandingAuthorization(
   officeDir: string | undefined,
 ): StandingAuthorizationCheck {
-  const kv = readConfig(officeDir);
+  let kv: Map<string, FmValue> | undefined;
+  // Nečitateľný konfig nie je poverenie — `validate` to povie, `write` chce --approve-as.
+  try { kv = readConfig(officeDir); }
+  catch (error) { if (error instanceof ConfigReadError) return { problem: error.message }; throw error; }
   if (!kv || !kv.has("standing_authorization")) return {};
   const by = text(kv.get("standing_authorization"));
   const expiresAt = text(kv.get("expires_at"));
@@ -150,7 +186,10 @@ export type NameLeakSeverity = "error" | "warning";
  * prah, to je únik.
  */
 export function readNameLeakSeverity(officeDir: string | undefined): NameLeakSeverity {
-  const kv = readConfig(officeDir);
+  let kv: Map<string, FmValue> | undefined;
+  // Nečitateľný konfig zmäkčenie neudelí; ostáva prísnejší default.
+  try { kv = readConfig(officeDir); }
+  catch (error) { if (error instanceof ConfigReadError) return "error"; throw error; }
   const sev = text(kv?.get("leak_name_severity"));
   const reason = text(kv?.get("leak_name_reason"));
   return sev === "warning" && reason !== "" ? "warning" : "error";

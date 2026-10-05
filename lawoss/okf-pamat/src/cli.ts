@@ -26,6 +26,7 @@ import { validateStore } from "./validate.ts";
 import { inspectStandingAuthorization, isExpired, readNameLeakSeverity, CONFIG_FILE } from "./config.ts";
 
 import { readWorkspaceMemory, renderWorkspaceMemory, saveWorkspaceMemory, type WorkspaceMemorySaveRequest } from "./workspace-memory.ts";
+import { decodeText } from "./text-decode.ts";
 
 const dnes = (): string => new Date().toISOString().slice(0, 10);
 
@@ -159,7 +160,8 @@ export function runCli(argv: readonly string[]): CliResult {
       let request: WorkspaceMemorySaveRequest;
       try {
         // The writer validates the entire runtime schema; never reconstruct or weaken it here.
-        request = JSON.parse(readFileSync(args.file!, "utf8"));
+        // Windows PowerShell 5.1 zapíše `>` v UTF-16LE, `Set-Content -Encoding UTF8` s BOM.
+        request = JSON.parse(decodeText(readFileSync(args.file!)));
       } catch (error) { return { code: 2, out: `Invalid request file: ${error instanceof Error ? error.message : String(error)}` }; }
       const report = saveWorkspaceMemory(dir, request, { ...args.options, apply: args.apply });
       return { code: ["preview", "committed", "already-applied"].includes(report.status) ? 0 : 1,
@@ -185,7 +187,7 @@ export function runCli(argv: readonly string[]): CliResult {
       const problems = [...scope.problems];
       const inputs: string[] = [];
       try {
-        const status = readManualStatus(readFileSync(join(dir, STATUS_FILE), "utf8"), scope.records);
+        const status = readManualStatus(decodeText(readFileSync(join(dir, STATUS_FILE))), scope.records);
         if (status.content) inputs.push(`## Ručný stav — ${join(dir, STATUS_FILE)}`, status.message, status.content);
       } catch (error) {
         if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
@@ -202,7 +204,7 @@ export function runCli(argv: readonly string[]): CliResult {
       ];
       for (const { path, title } of contextFiles) {
         try {
-          inputs.push(`## ${title} — ${path}`, readFileSync(path, "utf8"));
+          inputs.push(`## ${title} — ${path}`, decodeText(readFileSync(path)));
         } catch (error) {
           if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
             problems.push({ file: path, message: error instanceof Error ? error.message : String(error) });
@@ -287,7 +289,7 @@ export function runCli(argv: readonly string[]): CliResult {
       try {
         if (!apply) {
           const statusPath = join(dir, "_STATUS.md");
-          const before = existsSync(statusPath) ? readFileSync(statusPath, "utf8") : "";
+          const before = existsSync(statusPath) ? decodeText(readFileSync(statusPath)) : "";
           // Rovnaký resolver ako pri zápise — inak by náhľad hlásil zmenu,
           // ktorá vzniká len tým, že náhľad odkazy nepozná.
           const after = renderStatus(before, s.records, s.jurisdiction, statusLinkResolver(dir), documentLanguageFromCard(dir));
@@ -380,7 +382,8 @@ export function runCli(argv: readonly string[]): CliResult {
 
       let after: OkfRecord;
       try {
-        after = parseRecord(readFileSync(file, "utf8"));
+        // Návrh z PowerShellu 5.1 býva v UTF-16 alebo s BOM.
+        after = parseRecord(decodeText(readFileSync(file)));
       } catch (e) {
         return { code: 2, out: `Návrh sa nedá prečítať: ${e instanceof Error ? e.message : String(e)}` };
       }

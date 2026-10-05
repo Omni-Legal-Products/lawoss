@@ -521,6 +521,22 @@ function truthDigest(truth) {
 }
 var OKF_VERSION = "0.2";
 
+// src/text-decode.ts
+function decodeText(bytes, fatal = false) {
+  if (bytes[0] === 254 && bytes[1] === 255) {
+    const swapped = Uint8Array.from(bytes);
+    for (let i = 0;i + 1 < swapped.length; i += 2) {
+      swapped[i] = bytes[i + 1];
+      swapped[i + 1] = bytes[i];
+    }
+    return new TextDecoder("utf-16le", { fatal }).decode(swapped);
+  }
+  return new TextDecoder(bytes[0] === 255 && bytes[1] === 254 ? "utf-16le" : "utf-8", { fatal }).decode(bytes);
+}
+function stripBom(text) {
+  return text.charCodeAt(0) === 65279 ? text.slice(1) : text;
+}
+
 // src/record.ts
 var HEADINGS = { truth: "Truth", timeline: "History" };
 var FM_DELIM = "---";
@@ -629,7 +645,7 @@ function unquote(v) {
 var indentOf = (line) => line.length - line.trimStart().length;
 function parseFrontmatter(fm) {
   const out = new Map;
-  const lines = fm.split(`
+  const lines = stripBom(fm).split(`
 `);
   let i = 0;
   while (i < lines.length) {
@@ -1384,7 +1400,8 @@ function manualStatusContent(text) {
 }
 
 // src/manual-status.ts
-function readManualStatus(text, records, today = new Date().toISOString().slice(0, 10)) {
+function readManualStatus(raw, records, today = new Date().toISOString().slice(0, 10)) {
+  const text = stripBom(raw);
   const content = manualStatusContent(text);
   const header = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text)?.[1];
   const value = header ? parseFrontmatter(header).get("manual_updated") : undefined;
@@ -2161,13 +2178,34 @@ var CONFIG_FILE = "okf.config";
 function text(v) {
   return typeof v === "string" ? v.trim() : "";
 }
+
+class ConfigReadError extends Error {
+  file;
+  constructor(file, cause) {
+    super(`súbor sa nedá prečítať — ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = "ConfigReadError";
+    this.file = file;
+  }
+}
+function readConfigText(path) {
+  const bytes = readFileSync(path);
+  try {
+    return decodeText(bytes, true);
+  } catch {
+    throw new Error("nie je v UTF-8 ani v UTF-16 s BOM (napr. ANSI); ulož ho ako UTF-8");
+  }
+}
 function readConfig(officeDir) {
   if (!officeDir)
     return;
   const path = join(officeDir, CONFIG_FILE);
   if (!existsSync(path))
     return;
-  return parseFrontmatter(readFileSync(path, "utf8"));
+  try {
+    return parseFrontmatter(readConfigText(path));
+  } catch (error) {
+    throw new ConfigReadError(path, error);
+  }
 }
 function readClientPath(officeDir) {
   const v = readConfig(officeDir)?.get("client_path");
@@ -2181,7 +2219,14 @@ function matchesClientPath(relative, pattern) {
   return pat.every((p, i) => p === "*" || p === seg[i]);
 }
 function inspectStandingAuthorization(officeDir) {
-  const kv = readConfig(officeDir);
+  let kv;
+  try {
+    kv = readConfig(officeDir);
+  } catch (error) {
+    if (error instanceof ConfigReadError)
+      return { problem: error.message };
+    throw error;
+  }
   if (!kv || !kv.has("standing_authorization"))
     return {};
   const by = text(kv.get("standing_authorization"));
@@ -2210,7 +2255,14 @@ function readStandingAuthorization(officeDir) {
   return inspectStandingAuthorization(officeDir).auth;
 }
 function readNameLeakSeverity(officeDir) {
-  const kv = readConfig(officeDir);
+  let kv;
+  try {
+    kv = readConfig(officeDir);
+  } catch (error) {
+    if (error instanceof ConfigReadError)
+      return "error";
+    throw error;
+  }
   const sev = text(kv?.get("leak_name_severity"));
   const reason = text(kv?.get("leak_name_reason"));
   return sev === "warning" && reason !== "" ? "warning" : "error";
@@ -2239,7 +2291,7 @@ function jurisdictionFromCard(dir) {
     const path = join2(dir, name);
     if (!existsSync2(path))
       continue;
-    const m = /^jurisdiction:\s*(cz|sk)\s*$/m.exec(readFileSync2(path, "utf8"));
+    const m = /^jurisdiction:\s*(cz|sk)\s*$/m.exec(decodeText(readFileSync2(path)));
     if (m?.[1] === "cz" || m?.[1] === "sk")
       return m[1];
   }
@@ -2250,7 +2302,7 @@ function documentLanguageFromCard(dir) {
     const path = join2(dir, name);
     if (!existsSync2(path))
       continue;
-    const header = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(readFileSync2(path, "utf8"))?.[1];
+    const header = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(decodeText(readFileSync2(path)))?.[1];
     if (!header)
       continue;
     const languageLines = header.split(/\r?\n/).filter((line) => /^language[ \t]*:/.test(line));
@@ -2736,7 +2788,7 @@ function syncStatus(dir) {
   const scope = completeScope(dir);
   const store = scope.matter;
   const path = join2(dir, STATUS_FILE);
-  const existing = existsSync2(path) ? readFileSync2(path, "utf8") : "";
+  const existing = existsSync2(path) ? decodeText(readFileSync2(path)) : "";
   const next = renderStatus(existing, scope.records, store.jurisdiction, statusLinkResolver(dir), documentLanguageFromCard(dir));
   if (next !== existing)
     writeProjection(path, next, dir);
@@ -2748,7 +2800,7 @@ function retrofitStatusFile(dir, apply) {
   const path = join2(dir, STATUS_FILE);
   if (!existsSync2(path))
     return [];
-  const existing = readFileSync2(path, "utf8");
+  const existing = decodeText(readFileSync2(path));
   const { text, inserted } = retrofitStatus(existing, store.records, store.jurisdiction, linkResolver(store, false), documentLanguageFromCard(dir));
   if (apply && inserted.length > 0)
     writeProjection(path, text, dir);
@@ -2825,8 +2877,17 @@ function findClientByPath(matterDir, maxUp) {
 }
 function readScope(matterDir) {
   const matter = readStore(matterDir);
-  const clientDir = findClientDir(matterDir);
-  const subjectDir = findSubjectDir(matterDir);
+  let clientDir;
+  let subjectDir;
+  const configProblems = [];
+  try {
+    clientDir = findClientDir(matterDir);
+    subjectDir = findSubjectDir(matterDir);
+  } catch (error) {
+    if (!(error instanceof ConfigReadError))
+      throw error;
+    configProblems.push({ file: error.file, message: error.message });
+  }
   const subject = subjectDir ? readStore(subjectDir) : undefined;
   const subjectRecords = subject?.records ?? [];
   const client = clientDir ? readStore(clientDir) : undefined;
@@ -2836,7 +2897,7 @@ function readScope(matterDir) {
   const office = officeDir ? readStore(officeDir) : undefined;
   const officeRecords = office?.records ?? [];
   const records = [...matter.records, ...subjectRecords, ...clientRecords, ...officeRecords];
-  const problems = [...matter.problems, ...subject?.problems ?? [], ...client?.problems ?? [], ...office?.problems ?? []];
+  const problems = [...matter.problems, ...configProblems, ...subject?.problems ?? [], ...client?.problems ?? [], ...office?.problems ?? []];
   const seen = new Set;
   for (const record of records) {
     if (seen.has(record.id))
@@ -3017,7 +3078,7 @@ function parseWorkspaceMemoryProfile(value) {
 function parseWorkspaceMemoryProfileText(text) {
   if (new TextEncoder().encode(text).byteLength > WORKSPACE_MEMORY_LIMITS.profileBytes)
     throw new Error("Memory profile byte limit exceeded.");
-  return parseWorkspaceMemoryProfile(JSON.parse(text));
+  return parseWorkspaceMemoryProfile(JSON.parse(stripBom(text)));
 }
 
 // src/workspace-memory-reader.ts
@@ -3610,7 +3671,7 @@ ${USAGE}` };
     if (cmd === "workspace-save") {
       let request;
       try {
-        request = JSON.parse(readFileSync3(args.file, "utf8"));
+        request = JSON.parse(decodeText(readFileSync3(args.file)));
       } catch (error) {
         return { code: 2, out: `Invalid request file: ${error instanceof Error ? error.message : String(error)}` };
       }
@@ -3642,7 +3703,7 @@ ${USAGE}` };
       const problems = [...scope.problems];
       const inputs = [];
       try {
-        const status = readManualStatus(readFileSync3(join5(dir, STATUS_FILE), "utf8"), scope.records);
+        const status = readManualStatus(decodeText(readFileSync3(join5(dir, STATUS_FILE))), scope.records);
         if (status.content)
           inputs.push(`## Ručný stav — ${join5(dir, STATUS_FILE)}`, status.message, status.content);
       } catch (error) {
@@ -3660,7 +3721,7 @@ ${USAGE}` };
       ];
       for (const { path, title } of contextFiles) {
         try {
-          inputs.push(`## ${title} — ${path}`, readFileSync3(path, "utf8"));
+          inputs.push(`## ${title} — ${path}`, decodeText(readFileSync3(path)));
         } catch (error) {
           if (!(error instanceof Error && ("code" in error) && error.code === "ENOENT")) {
             problems.push({ file: path, message: error instanceof Error ? error.message : String(error) });
@@ -3731,7 +3792,7 @@ ${serializeRecord(maskRecord(r))}`),
       try {
         if (!apply) {
           const statusPath = join5(dir, "_STATUS.md");
-          const before = existsSync3(statusPath) ? readFileSync3(statusPath, "utf8") : "";
+          const before = existsSync3(statusPath) ? decodeText(readFileSync3(statusPath)) : "";
           const after = renderStatus(before, s.records, s.jurisdiction, statusLinkResolver(dir), documentLanguageFromCard(dir));
           const zmena = before === after ? "bez zmeny" : "_STATUS.md by sa zmenil";
           return ok(`dry-run: ${zmena}; INDEX.md by dostal ${riadkov(s.records.length)}. Zapíš s --apply.`);
@@ -3810,7 +3871,7 @@ ${USAGE}` };
         return { code: 2, out: `Súbor návrhu neexistuje: ${file}` };
       let after;
       try {
-        after = parseRecord(readFileSync3(file, "utf8"));
+        after = parseRecord(decodeText(readFileSync3(file)));
       } catch (e) {
         return { code: 2, out: `Návrh sa nedá prečítať: ${e instanceof Error ? e.message : String(e)}` };
       }

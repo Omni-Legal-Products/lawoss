@@ -582,6 +582,22 @@ var AML_REQUIRED = {
   }
 };
 
+// ../okf-pamat/src/text-decode.ts
+function decodeText(bytes, fatal = false) {
+  if (bytes[0] === 254 && bytes[1] === 255) {
+    const swapped = Uint8Array.from(bytes);
+    for (let i = 0;i + 1 < swapped.length; i += 2) {
+      swapped[i] = bytes[i + 1];
+      swapped[i + 1] = bytes[i];
+    }
+    return new TextDecoder("utf-16le", { fatal }).decode(swapped);
+  }
+  return new TextDecoder(bytes[0] === 255 && bytes[1] === 254 ? "utf-16le" : "utf-8", { fatal }).decode(bytes);
+}
+function stripBom(text) {
+  return text.charCodeAt(0) === 65279 ? text.slice(1) : text;
+}
+
 // ../okf-pamat/src/record.ts
 var CORE_FIELDS = new Set([
   "okf",
@@ -673,7 +689,7 @@ function unquote(v) {
 var indentOf = (line) => line.length - line.trimStart().length;
 function parseFrontmatter2(fm) {
   const out = new Map;
-  const lines = fm.split(`
+  const lines = stripBom(fm).split(`
 `);
   let i = 0;
   while (i < lines.length) {
@@ -2536,11 +2552,19 @@ var BIRTH_NUMBER_PATTERN_G = new RegExp(BIRTH_NUMBER_PATTERN.source, "g");
 import { existsSync, readFileSync } from "node:fs";
 import { join as join4, sep as sep2 } from "node:path";
 var CONFIG_FILE = "okf.config";
+function readConfigText(path) {
+  const bytes = readFileSync(path);
+  try {
+    return decodeText(bytes, true);
+  } catch {
+    throw new Error("nie je v UTF-8 ani v UTF-16 s BOM (napr. ANSI); ulož ho ako UTF-8");
+  }
+}
 function readConfiguredLawyerName(officeDir) {
   if (!officeDir)
     return;
   try {
-    const contents = readFileSync(join4(officeDir, CONFIG_FILE), "utf8");
+    const contents = readConfigText(join4(officeDir, CONFIG_FILE));
     const value = parseFrontmatter2(contents).get("standing_authorization");
     if (typeof value !== "string")
       return;
@@ -4700,7 +4724,7 @@ function officeProfile(dir, language) {
   const path = join13(office, "okf.config");
   if (!statSync(path).isFile())
     return;
-  return parseOfficeWorkingProfile(readText(path), language);
+  return parseOfficeWorkingProfile(decodeText(readFileSync3(path)), language);
 }
 function listMarkdown(root) {
   const out = [];
@@ -4969,7 +4993,7 @@ function parseWorkspaceMemoryProfile(value) {
 function parseWorkspaceMemoryProfileText(text) {
   if (new TextEncoder().encode(text).byteLength > WORKSPACE_MEMORY_LIMITS.profileBytes)
     throw new Error("Memory profile byte limit exceeded.");
-  return parseWorkspaceMemoryProfile(JSON.parse(text));
+  return parseWorkspaceMemoryProfile(JSON.parse(stripBom(text)));
 }
 
 // src/naming-core.ts

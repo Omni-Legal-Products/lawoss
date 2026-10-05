@@ -22,6 +22,7 @@ import {
   type Layer,
   type RecordType,
 } from "./schema.ts";
+import { stripBom } from "./text-decode.ts";
 
 /**
  * Nadpisy sekcií záznamu. Anglické pre obe jurisdikcie — záznam je formát,
@@ -344,7 +345,9 @@ const indentOf = (line: string): number => line.length - line.trimStart().length
  */
 export function parseFrontmatter(fm: string): Map<string, FmValue> {
   const out = new Map<string, FmValue>();
-  const lines = fm.split("\n");
+  // `okf.config` prichádza celý, nie cez splitFrontmatter: U+FEFF z Windows by
+  // inak bol „odsadením“ prvého riadku a celý konfig by spadol.
+  const lines = stripBom(fm).split("\n");
   let i = 0;
   while (i < lines.length) {
     const line = lines[i] ?? "";
