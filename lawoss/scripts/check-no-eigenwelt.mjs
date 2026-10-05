@@ -23,7 +23,12 @@
  *    prepínačom, LegalQuants skenuje GitHub bez zapnutého zdroja alebo `constants.ts`
  *    prestane vystavovať katalógy, ktoré prepínač mení (rozhodnutie MČ 5. 10. 2026);
  * 8. sa zoznam pluginov alebo balíkov LAWOSS Marketplace vráti do kódu appky namiesto
- *    pribalenej kópie katalógu z marketplace.
+ *    pribalenej kópie katalógu z marketplace;
+ * 9. automatická sieť appky nie je len týždenná kontrola vydaní LAWOSS Marketplace
+ *    (ADR 0015, MČ 5. 10. 2026): v `apps/server/src/lawoss/marketplace-updates.ts` presne
+ *    adresy `api.github.com/repos/Omni-Legal-Products/lawoss-marketplace/…` a raw obsah toho
+ *    repozitára, interval presne 7 dní, nikdy hneď pri štarte, nič neinštaluje; GitHub ani
+ *    plánované sieťové volanie nikde inde v kóde LAWOSS a upozornenie v appke bez siete.
  *
  * Spolu s ňou beží stráž značky `check-branding.mjs` (LAWOSS namiesto LegalWork,
  * nemenný APP_IDENTIFIER, releasy forku), aby stačil jeden krok v CI.
@@ -348,6 +353,79 @@ STRUCTURE.push(
   },
 );
 
+// LAWOSS Marketplace (ADR 0015, MČ 5. 10. 2026): jediná automatická sieť je týždenná kontrola vydaní.
+export const MARKETPLACE_CHECK_FILE = "apps/server/src/lawoss/marketplace-updates.ts";
+/** Jediné adresy v module kontroly: API, raw obsah a adresa pluginu na inštaláciu (po kliknutí). */
+export const MARKETPLACE_CHECK_URLS = [
+  "https://api.github.com",
+  "https://raw.githubusercontent.com",
+  "https://github.com/${MARKETPLACE_OWNER}/${MARKETPLACE_REPO}/tree/${sha}/${path}",
+];
+const GITHUB_HOSTS = /api\.github\.com|raw\.githubusercontent\.com/;
+const SCHEDULED = /\bset(?:Interval|Timeout)\s*\(/;
+const NETWORK_CALL = /(?<![\w.])fetch\s*\(|\bfetchImpl\s*\(/;
+
+STRUCTURE.push(
+  {
+    file: MARKETPLACE_CHECK_FILE,
+    must: [
+      /const DEFAULT_API_BASE = "https:\/\/api\.github\.com";/,
+      /const DEFAULT_RAW_BASE = "https:\/\/raw\.githubusercontent\.com";/,
+      /export const MARKETPLACE_OWNER = "Omni-Legal-Products";/,
+      /export const MARKETPLACE_REPO = "lawoss-marketplace";/,
+      /return `\$\{apiBase\(\)\}\/repos\/\$\{MARKETPLACE_OWNER\}\/\$\{MARKETPLACE_REPO\}\/\$\{path\}`;/,
+      /return `\$\{rawBase\(\)\}\/\$\{MARKETPLACE_OWNER\}\/\$\{MARKETPLACE_REPO\}\/\$\{encodeURIComponent\(sha\)\}\/\$\{path\}`;/,
+      /export const WEEKLY_CHECK_INTERVAL_MS = 7 \* 24 \* 60 \* 60 \* 1000;/,
+      /if \(!state\.weeklyCheck\) return false;\s*const since = state\.lastCheckedAt \?\? state\.anchorAt;\s*return since !== null && now - since >= WEEKLY_CHECK_INTERVAL_MS;/,
+      /if \(state\.anchorAt === null && state\.lastCheckedAt === null\) \{[^}]*\}\)\);\s*return "anchored";\s*\}\s*if \(!isWeeklyCheckDue\(state, now\(\)\)\) return "idle";/,
+      /const first = setTimeout\(\(\) => \{\s*tick\(\);\s*interval = setInterval\(tick, EVALUATION_PERIOD_MS\);/,
+      /if \(config\.readOnly \|\| process\.env\.LAWOSS_MARKETPLACE_WEEKLY_CHECK === "0"\) return \(\) => undefined;/,
+    ],
+    mustNot: [/\b(?:installCloudPlugin|installGlobalPlugin|updateGlobalPlugin|resolveClaudePluginBundle)\b/, /\bimport\b[^;]*marketplace-global/],
+    why: "Týždenná kontrola LAWOSS Marketplace ide len na lawoss-marketplace na GitHube, raz za 7 dní, nie hneď pri štarte, dá sa vypnúť a nič neinštaluje.",
+  },
+  {
+    file: "apps/server/src/server.ts",
+    must: [/\/\/ LAWOSS: týždenná kontrola vydaní LAWOSS Marketplace[^\n]*\n\s*const stopMarketplaceCheck = startWeeklyMarketplaceCheck\(config\);/],
+    why: "Plánovač kontroly sa spúšťa raz, v startServer, a v stop() sa zastaví.",
+  },
+  {
+    file: "apps/server/src/lawoss/marketplace-global.ts",
+    must: [/const PLUGIN_URL = new RegExp\(`\^https:\/\/github\\\\\.com\/\$\{MARKETPLACE_OWNER\}\/\$\{MARKETPLACE_REPO\}\/tree\/\[a-f0-9\]\{40\}\/plugins\/\[a-z0-9-\]\+\$`\);/],
+    why: "Pre všetkých klientov sa inštaluje len z LAWOSS Marketplace, z pripnutého commitu.",
+  },
+  {
+    file: "apps/app/src/lawoss/domains/marketplace/update-notifier.tsx",
+    mustNot: [/\.check\(/, NETWORK_CALL],
+    why: "Upozornenie v appke číta len uložený výsledok kontroly na lokálnom serveri; samo nekontroluje a nič neinštaluje.",
+  },
+  {
+    file: "apps/app/src/lawoss/domains/marketplace/use-lawoss-marketplace.ts",
+    must: [/if \(options\.checkOnOpen\) void refresh\(\)\.then\(\(\) => check\("open"\)\);/],
+    why: "Kontrola pri otvorení len v LAWOSS Marketplace (checkOnOpen).",
+  },
+  {
+    file: "apps/app/src/lawoss/domains/onboarding/packs-step.tsx",
+    mustNot: [/checkOnOpen/, /\.check\(/],
+    why: "Krok onboardingu pri otvorení nejde na sieť; inštaluje až tlačidlom.",
+  },
+);
+
+/** Adresy a plánovanie v module kontroly vydaní LAWOSS Marketplace. */
+export function checkMarketplaceNetwork(root) {
+  const text = readText(root, MARKETPLACE_CHECK_FILE);
+  if (text === null) return [`${MARKETPLACE_CHECK_FILE}: chýba.`];
+  const problems = [];
+  for (const url of new Set(text.match(/https?:\/\/[^\s"'`)]*(?:\$\{[^}]*\}[^\s"'`)]*)*/g) ?? [])) {
+    if (!MARKETPLACE_CHECK_URLS.includes(url)) problems.push(`${MARKETPLACE_CHECK_FILE}: nepovolená adresa „${url}“. Kontrola smie ísť len na lawoss-marketplace na GitHube.`);
+  }
+  if ((text.match(/\bsetTimeout\s*\(/g) ?? []).length !== 1 || (text.match(/\bsetInterval\s*\(/g) ?? []).length !== 1) {
+    problems.push(`${MARKETPLACE_CHECK_FILE}: plánovač smie mať presne jeden setTimeout (prvé vyhodnotenie) a jeden setInterval (hodinové porovnanie času).`);
+  }
+  if (/(?<![\w.])fetch\s*\(/.test(text)) problems.push(`${MARKETPLACE_CHECK_FILE}: sieť len cez fetchImpl v checkMarketplaceRelease.`);
+  return problems;
+}
+
 /** Zapnutie sťahovania modelu OCR pri štarte v kóde (mimo testov). Používateľ ho smie zapnúť len sám. */
 export const MODEL_DOWNLOAD_AT_STARTUP = /LEGALWORK_OCR_AUTO_DOWNLOAD\s*[:=]\s*["'`]?(?:1|true)\b|autoDownloadOcr\s*[:=]\s*true\b/;
 
@@ -399,6 +477,10 @@ export function checkSources(root, files) {
     }
     if (/^(?:apps|packages)\//.test(path) && MODEL_DOWNLOAD_AT_STARTUP.test(text)) {
       problems.push(`${path}: zapína sťahovanie modelu OCR pri štarte. Model sa sťahuje len po zapnutí OCR (apps/server/src/lawoss/ocr-opt-in.ts).`);
+    }
+    if (/^apps\/(?:server|app)\/src\/lawoss\//.test(path) && path !== MARKETPLACE_CHECK_FILE) {
+      if (GITHUB_HOSTS.test(text)) problems.push(`${path}: adresa GitHub API alebo raw obsahu mimo ${MARKETPLACE_CHECK_FILE}. Jediná automatická sieť je týždenná kontrola LAWOSS Marketplace.`);
+      if (SCHEDULED.test(text) && NETWORK_CALL.test(text)) problems.push(`${path}: plánované sieťové volanie (časovač a fetch). Jediná automatická sieť je týždenná kontrola LAWOSS Marketplace.`);
     }
     if (/^apps\/(?:server|app)\/src\//.test(path)) {
       for (const { pattern, files: allowed } of MODEL_DOWNLOAD_CALLS) {
@@ -466,6 +548,7 @@ export function checkRepo(root = REPO_ROOT) {
   return [
     ...checkSources(root, trackedFiles(root)),
     ...checkStructure(root),
+    ...checkMarketplaceNetwork(root),
     ...checkCatalog(join(root, "lawoss", "models-catalog", "api.json")),
     ...checkBuild(root),
   ];

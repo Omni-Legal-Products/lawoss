@@ -46,6 +46,7 @@ import { LawossWordmark } from "../../shell/wordmark";
 import lawossMark from "../../../../../../lawoss/brand/lawoss-mark.svg";
 import "./onboarding.css";
 import { TriageEntry } from "../roztriedenie/triage-entry";
+import { PacksStep } from "./packs-step";
 
 /** Jazyky rozhrania v poradí LAWOSS (SK, CS, EN, DE) s pôvodnými názvami namiesto kódov. */
 const UI_LANGUAGE_ORDER: readonly Language[] = ["sk", "cs", "en", "de"];
@@ -364,6 +365,7 @@ const extraText: Record<Language, Record<string, string>> = {
     recoverFinish: "Dokončiť prerušený zápis",
     recoverRollback: "Vrátiť prerušený zápis",
     pack: "Pri dokončení doplníme chýbajúce skills OKF pre klienta. Existujúce úpravy zachováme.",
+    packs: "Odporúčané balíky",
     continue: "Pokračovať",
     workingFolder: "Pracovný priečinok (voliteľné)",
     workingFolderHelp: "LAWOSS bude pracovať v tomto priečinku. Nevytvorí v ňom priečinky ani súbory OKF.",
@@ -394,6 +396,7 @@ const extraText: Record<Language, Record<string, string>> = {
     recoverFinish: "Dokončit přerušený zápis",
     recoverRollback: "Vrátit přerušený zápis",
     pack: "Při dokončení doplníme chybějící skills OKF pro klienta. Existující úpravy zachováme.",
+    packs: "Doporučené balíčky",
     continue: "Pokračovat",
     workingFolder: "Pracovní složka (volitelné)",
     workingFolderHelp: "LAWOSS bude pracovat v této složce. Nevytvoří v ní složky ani soubory OKF.",
@@ -424,6 +427,7 @@ const extraText: Record<Language, Record<string, string>> = {
     recoverFinish: "Finish interrupted changes",
     recoverRollback: "Roll back interrupted changes",
     pack: "Completion adds missing OKF skills for this client and preserves existing customizations.",
+    packs: "Recommended bundles",
     continue: "Continue",
     workingFolder: "Working folder (optional)",
     workingFolderHelp: "LAWOSS will work in this folder. It creates no OKF folders or files in it.",
@@ -455,6 +459,7 @@ const extraText: Record<Language, Record<string, string>> = {
     recoverFinish: "Unterbrochene Änderungen abschließen",
     recoverRollback: "Unterbrochene Änderungen zurücknehmen",
     pack: "Beim Abschluss werden fehlende OKF-Skills ergänzt. Bestehende Anpassungen bleiben erhalten.",
+    packs: "Empfohlene Pakete",
     continue: "Weiter",
     workingFolder: "Arbeitsordner (optional)",
     workingFolderHelp: "LAWOSS arbeitet in diesem Ordner. Es legt darin keine OKF-Ordner oder -Dateien an.",
@@ -643,7 +648,7 @@ function DocumentLanguageSelect({
   );
 }
 /** Server client in the app; tests pass only the onboarding API. */
-export type WelcomeApi = OnboardingApi & Partial<OpenClientReader & Pick<LegalworkServerClient, "listWorkspaces">>;
+export type WelcomeApi = OnboardingApi & Partial<OpenClientReader & Pick<LegalworkServerClient, "listWorkspaces" | "lawossMarketplace">>;
 const sameFolder = (a: string | undefined, b: string | undefined) =>
   (a ?? "").replaceAll("\\", "/").replace(/\/+$/, "") === (b ?? "").replaceAll("\\", "/").replace(/\/+$/, "");
 /**
@@ -826,7 +831,7 @@ export function LawossWelcomePage({
       };
       const next =
         preview.request.action === "office"
-          ? "ai"
+          ? "packs"
           : preview.request.action === "matter"
             ? "done"
             : "matter";
@@ -974,11 +979,19 @@ export function LawossWelcomePage({
               onExisting={async (officeRoot) => {
                 try {
                   setProfile(await api.updateOnboardingProfile({ officeRoot }));
-                  await move("ai");
+                  await move("packs");
                 } catch (reason) {
                   setError(onboardingErrorMessage(reason, locale));
                 }
               }}
+            />
+          ) : null}
+          {step === "packs" ? (
+            <PacksStep
+              api={api.lawossMarketplace}
+              jurisdiction={base.jurisdiction}
+              busy={busy}
+              onContinue={() => void move("ai")}
             />
           ) : null}
           {step === "ai" ? (

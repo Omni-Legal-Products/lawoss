@@ -13,8 +13,8 @@ import {
 describe("OKF choice in the LAWOSS welcome flow", () => {
   test("the visible path follows the choice", () => {
     expect(visibleOnboardingSteps(undefined)).toEqual(["identity", "okf"]);
-    expect(visibleOnboardingSteps(true)).toEqual(["identity", "okf", "office", "ai", "client", "matter"]);
-    expect(visibleOnboardingSteps(false)).toEqual(["identity", "okf", "ai"]);
+    expect(visibleOnboardingSteps(true)).toEqual(["identity", "okf", "office", "packs", "ai", "client", "matter"]);
+    expect(visibleOnboardingSteps(false)).toEqual(["identity", "okf", "packs", "ai"]);
   });
 
   test("the AI step finishes without OKF and continues to the client with OKF", () => {
@@ -28,8 +28,9 @@ describe("OKF choice in the LAWOSS welcome flow", () => {
     expect(stepAfterOkfChoice(true, "matter")).toBe("matter");
     expect(stepAfterOkfChoice(true, undefined)).toBe("office");
     expect(stepAfterOkfChoice(true, "okf")).toBe("office");
-    expect(stepAfterOkfChoice(false, "client")).toBe("ai");
-    expect(stepAfterOkfChoice(false, undefined)).toBe("ai");
+    // Bez OKF nasleduje krok „Odporúčané balíky LAWOSS“ (MČ 5. 10. 2026).
+    expect(stepAfterOkfChoice(false, "client")).toBe("packs");
+    expect(stepAfterOkfChoice(false, undefined)).toBe("packs");
   });
 
   test("a step outside the chosen path falls back to the OKF choice", () => {
@@ -38,6 +39,8 @@ describe("OKF choice in the LAWOSS welcome flow", () => {
     expect(visibleOnboardingStep("office", false)).toBe("okf");
     expect(visibleOnboardingStep("matter", true)).toBe("matter");
     expect(visibleOnboardingStep("ai", false)).toBe("ai");
+    expect(visibleOnboardingStep("packs", false)).toBe("packs");
+    expect(visibleOnboardingStep("packs", undefined)).toBe("okf");
     expect(visibleOnboardingStep("identity", undefined)).toBe("identity");
     expect(visibleOnboardingStep("done", false)).toBe("done");
   });
