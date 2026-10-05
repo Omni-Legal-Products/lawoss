@@ -3,7 +3,7 @@ import { constants } from "node:fs";
 import { copyFile, lstat, mkdir, open, readFile, rename, rmdir } from "node:fs/promises";
 import { realpath } from "../canonical-path.ts";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { inspectOnboardingRoot, type TreeEntry } from "./classify.ts";
+import { inspectOnboardingRoot, type OnboardingInspection, type TreeEntry } from "./classify.ts";
 import { acquireOnboardingLock, applyOnboardingPlan, parseOnboardingPlan, recoverOnboardingPlan, type OnboardingPlan } from "./transaction.ts";
 import { syncFile, unlinkFile } from "./file-durability.ts";
 
@@ -46,7 +46,7 @@ async function readJournal(path: string, fingerprint: string): Promise<Journal |
     return value;
   } catch (error) { if (missing(error)) return null; throw error; }
 }
-async function verifyOwned(preview: TrialClone, journal: Journal, allowConversion = false): Promise<void> {
+async function verifyOwned(preview: TrialClone, journal: Journal, allowConversion = false): Promise<OnboardingInspection> {
   const current = await inspectOnboardingRoot(preview.target);
   if (!current.complete || !current.digest) throw new Error("Trial output cannot be inspected safely.");
   const expected = new Set(journal.owned.map(entry => entry.path));
@@ -56,6 +56,16 @@ async function verifyOwned(preview: TrialClone, journal: Journal, allowConversio
     const path = owned.path ? join(preview.target, owned.path) : preview.target;
     if (await identity(path, owned.kind) !== owned.identity || owned.kind === "file" && await fileDigest(path) !== owned.digest) throw new Error(`Trial entry changed; preserving ${owned.path || "root"}.`);
   }
+  return current;
+}
+/**
+ * Rollback maže aj priečinky klonu. Prchavý súbor Windows či Office (`Spisy/~$zmluva.docx` otvoreného
+ * dokumentu, `Thumbs.db`) inšpekcia vynechá, no rmdir by na ňom zlyhal až po zmazaní časti klonu.
+ * Preto stop pred prvým zmazaním; kopírovanie a apply ich naďalej ignorujú.
+ */
+function assertNoVolatileEntries(inspection: OnboardingInspection): void {
+  const ignored = inspection.ignored ?? [];
+  if (ignored.length) throw new Error(`Close open documents in the trial clone and remove leftover Windows or Office files, then retry rollback: ${ignored.slice(0, 5).join(", ")}${ignored.length > 5 ? ` (+${ignored.length - 5} more)` : ""}.`);
 }
 
 /** Copy each binary entry exclusively and journal its identity before proceeding. */
@@ -145,10 +155,10 @@ export async function recoverTrialClone(preview: TrialClone, journalDirectory: s
       catch (error) { if (!missing(error)) throw error; journal.owned = journal.owned.filter(entry => entry.path !== journal.removal); delete journal.removal; await save(); }
     }
     if (!journal.owned.length) { try { await lstat(preview.target); throw new Error("Uncertain trial root ownership."); } catch (error) { if (!missing(error)) throw error; } }
-    else await verifyOwned(preview, journal, true);
+    else assertNoVolatileEntries(await verifyOwned(preview, journal, true));
     if (journal.conversionPlan) await recoverOnboardingPlan(journal.conversionPlan, journalDirectory, "rollback");
     journal.phase = "rollback"; await save();
-    if (journal.owned.length) await verifyOwned(preview, journal);
+    if (journal.owned.length) assertNoVolatileEntries(await verifyOwned(preview, journal));
     while (journal.owned.length) {
       const owned = journal.owned[journal.owned.length - 1]!;
       journal.removal = owned.path; await save();

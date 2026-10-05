@@ -4,7 +4,7 @@ import { lstat, mkdir, open, readFile, readdir, rm, rmdir } from "node:fs/promis
 import { realpath } from "../canonical-path.ts";
 import { hostname, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { inspectOnboardingParent, inspectOnboardingRoot, type OnboardingInspection, type TreeEntry } from "./classify.ts";
+import { inspectOnboardingParent, inspectOnboardingRoot, VOLATILE_ENTRY, type OnboardingInspection, type TreeEntry } from "./classify.ts";
 
 export type CreateOperation = { path: string; kind: "file" | "directory"; content?: string };
 /**
@@ -28,7 +28,8 @@ function fail(message: string): never { throw new Error(`Invalid onboarding plan
 function safePath(value: string): string {
   if (typeof value !== "string" || !value || value.length > 1024 || value.includes("\0") || value.includes("\\") || isAbsolute(value) || /^[a-z]:/i.test(value)) fail("unsafe operation path");
   const parts = value.split("/");
-  if (parts.some(part => !part || part.length > 255 || part === "." || part === ".." || /[<>:"|?*\u0000-\u001f\u007f-\u009f]/.test(part) || /[. ]$/.test(part) || reserved.test(part))) fail("unsafe operation path");
+  // Prchavé mená (`~$…`, `Thumbs.db`, `desktop.ini`) inšpekcia nevidí; plán ich preto nesmie zakladať.
+  if (parts.some(part => !part || part.length > 255 || part === "." || part === ".." || /[<>:"|?*\u0000-\u001f\u007f-\u009f]/.test(part) || /[. ]$/.test(part) || reserved.test(part) || VOLATILE_ENTRY.test(part))) fail("unsafe operation path");
   return parts.join("/");
 }
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);

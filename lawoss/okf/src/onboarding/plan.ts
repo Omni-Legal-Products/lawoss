@@ -7,6 +7,7 @@ import { planEntity, type ClientType, type DocumentLanguage, type Jurisdiction }
 import { LOCALIZED_TEMPLATES } from "../templates.ts";
 import { PROFILE_FILE, parseWorkingProfile } from "../profile.ts";
 import { inspectOnboardingRoot, type TreeEntry } from "./classify.ts";
+import { incompleteInspectionMessage } from "./messages.ts";
 import type { CreateOperation, OnboardingPlan } from "./transaction.ts";
 
 export type ClientConversionInput = {
@@ -61,7 +62,7 @@ export async function readInspectedText(root: string, entry: TreeEntry): Promise
 export async function planClientConversion(root: string, input: ClientConversionInput): Promise<ClientConversionPreview> {
   validateInput(input);
   const inspection = await inspectOnboardingRoot(root);
-  if (!inspection.complete || !inspection.digest || inspection.level === "conflict") throw new Error("The directory could not be inspected completely and unambiguously.");
+  if (!inspection.complete || !inspection.digest || inspection.level === "conflict") throw new Error(incompleteInspectionMessage("The directory could not be inspected completely and unambiguously.", inspection.issues));
   if (inspection.level !== "client" && !(inspection.level === "unknown" && input.confirmUnknownClient === true)) throw new Error("Select a client directory or explicitly confirm an unrecognized directory as a client.");
   const existing = new Map(inspection.entries.map(entry => [entry.path, entry]));
   const profileEntry = existing.get(PROFILE_FILE);

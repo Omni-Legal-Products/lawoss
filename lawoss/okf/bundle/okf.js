@@ -79,6 +79,8 @@ var CARD_TYPES = {
 };
 var APP_FILE_DIRECTORIES = new Set([".opencode"]);
 var MEMORY_FILES = new Set(["MEMORY.md", "_memory.md", "_STATUS.md", "BRAIN.md", ".lawoss/memory-profile.json"]);
+var VOLATILE_ENTRY = /^(?:~\$.*|~WRL\d+\.tmp|thumbs\.db|desktop\.ini)$/i;
+var LOCK_CODES = new Set(["EBUSY", "EPERM", "EACCES"]);
 var sha = (value) => createHash("sha256").update(value).digest("hex");
 var errorCode = (error) => error && typeof error === "object" && ("code" in error) ? String(error.code) : "read_failed";
 async function inspectOnboardingParent(root, limits = {}) {
@@ -101,13 +103,17 @@ async function inspectOnboardingParent(root, limits = {}) {
       return result;
     }
     for (const name of names) {
+      if (VOLATILE_ENTRY.test(name)) {
+        (result.ignored ??= []).push(name);
+        continue;
+      }
       try {
         const state = await lstat(join(result.root, name));
         const kind = state.isSymbolicLink() ? "symlink" : state.isDirectory() ? "directory" : state.isFile() ? "file" : "unsupported";
         result.entries.push({ path: name, kind, digest: null, size: 0 });
       } catch (error) {
         const code = errorCode(error);
-        if (code === "EPERM" || code === "EACCES" || code === "EBUSY")
+        if (LOCK_CODES.has(code))
           result.entries.push({ path: name, kind: "unsupported", digest: null, size: 0 });
         else
           problem(name, code);
@@ -121,7 +127,7 @@ async function inspectOnboardingParent(root, limits = {}) {
     result.digest = sha(JSON.stringify(result.entries));
   return result;
 }
-async function inspectOnboardingRoot(root, limits = {}) {
+async function inspectOnboardingRoot(root, limits = {}, hooks = {}) {
   const maxEntries = limits.maxEntries ?? 1e4;
   const maxBytes = limits.maxBytes ?? 1024 * 1024 * 1024;
   const maxDepth = limits.maxDepth ?? 32;
@@ -161,6 +167,10 @@ async function inspectOnboardingRoot(root, limits = {}) {
       }
       for (const name of (await readdir(dir)).sort()) {
         const path = relative ? `${relative}/${name}` : name;
+        if (VOLATILE_ENTRY.test(name)) {
+          (result.ignored ??= []).push(path);
+          continue;
+        }
         if (seenEntries >= maxEntries) {
           problem(path, "entry_limit");
           exhausted = true;
@@ -168,69 +178,80 @@ async function inspectOnboardingRoot(root, limits = {}) {
         }
         seenEntries += 1;
         const full = join(result.root, path);
-        const state = await lstat(full);
-        if (state.isSymbolicLink()) {
-          result.entries.push({ path, kind: "symlink", digest: null, size: 0 });
-          problem(path, "symlink_not_followed");
-          continue;
-        }
-        if (state.isDirectory()) {
-          result.entries.push({ path, kind: "directory", digest: null, size: 0 });
-          if (!APP_FILE_DIRECTORIES.has(name))
-            await visit(path, depth + 1);
-        } else if (state.isFile()) {
-          if (bytes + state.size > maxBytes) {
-            problem(path, "byte_limit");
-            exhausted = true;
-            break;
+        try {
+          const state = await lstat(full);
+          if (state.isSymbolicLink()) {
+            result.entries.push({ path, kind: "symlink", digest: null, size: 0 });
+            problem(path, "symlink_not_followed");
+            continue;
           }
-          const handle = await open(full, constants.O_RDONLY | constants.O_NOFOLLOW);
-          try {
-            const opened = await handle.stat({ bigint: true });
-            const current = await lstat(full, { bigint: true });
-            if (!opened.isFile() || current.isSymbolicLink() || opened.ino !== current.ino || opened.dev !== current.dev) {
-              problem(path, "changed_during_read");
-              continue;
+          if (state.isDirectory()) {
+            result.entries.push({ path, kind: "directory", digest: null, size: 0 });
+            if (!APP_FILE_DIRECTORIES.has(name))
+              await visit(path, depth + 1);
+          } else if (state.isFile()) {
+            if (bytes + state.size > maxBytes) {
+              problem(path, "byte_limit");
+              exhausted = true;
+              break;
             }
-            const hash = createHash("sha256");
-            const buffer = Buffer.alloc(64 * 1024);
-            const parts = [];
-            let count = 0;
-            while (true) {
-              const read = await handle.read(buffer, 0, buffer.length, null);
-              if (!read.bytesRead)
-                break;
-              count += read.bytesRead;
-              bytes += read.bytesRead;
-              if (bytes > maxBytes) {
-                problem(path, "byte_limit");
-                exhausted = true;
-                break;
+            const handle = await (hooks.open ?? open)(full, constants.O_RDONLY | constants.O_NOFOLLOW);
+            try {
+              const opened = await handle.stat({ bigint: true });
+              const current = await lstat(full, { bigint: true });
+              if (!opened.isFile() || current.isSymbolicLink() || opened.ino !== current.ino || opened.dev !== current.dev) {
+                problem(path, "changed_during_read");
+                continue;
               }
-              const chunk = buffer.subarray(0, read.bytesRead);
-              hash.update(chunk);
-              if (CARD_LEVELS[path] && count <= 64 * 1024)
-                parts.push(Buffer.from(chunk));
+              const hash = createHash("sha256");
+              const buffer = Buffer.alloc(64 * 1024);
+              const parts = [];
+              let count = 0;
+              while (true) {
+                const read = await handle.read(buffer, 0, buffer.length, null);
+                if (!read.bytesRead)
+                  break;
+                count += read.bytesRead;
+                bytes += read.bytesRead;
+                if (bytes > maxBytes) {
+                  problem(path, "byte_limit");
+                  exhausted = true;
+                  break;
+                }
+                const chunk = buffer.subarray(0, read.bytesRead);
+                hash.update(chunk);
+                if (CARD_LEVELS[path] && count <= 64 * 1024)
+                  parts.push(Buffer.from(chunk));
+              }
+              const after = await handle.stat({ bigint: true });
+              const linked = await lstat(full, { bigint: true });
+              if (after.size !== opened.size || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs || linked.ino !== opened.ino || linked.dev !== opened.dev || linked.isSymbolicLink())
+                problem(path, "changed_during_read");
+              if (CARD_LEVELS[path]) {
+                if (count > 64 * 1024)
+                  problem(path, "card_size_limit");
+                else
+                  cardText.set(path, Buffer.concat(parts).toString("utf8"));
+              }
+              result.entries.push({ path, kind: "file", digest: hash.digest("hex"), size: count });
+              if (MEMORY_FILES.has(path))
+                result.memorySources.push(path);
+            } finally {
+              await handle.close();
             }
-            const after = await handle.stat({ bigint: true });
-            const linked = await lstat(full, { bigint: true });
-            if (after.size !== opened.size || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs || linked.ino !== opened.ino || linked.dev !== opened.dev || linked.isSymbolicLink())
-              problem(path, "changed_during_read");
-            if (CARD_LEVELS[path]) {
-              if (count > 64 * 1024)
-                problem(path, "card_size_limit");
-              else
-                cardText.set(path, Buffer.concat(parts).toString("utf8"));
-            }
-            result.entries.push({ path, kind: "file", digest: hash.digest("hex"), size: count });
-            if (MEMORY_FILES.has(path))
-              result.memorySources.push(path);
-          } finally {
-            await handle.close();
+          } else {
+            result.entries.push({ path, kind: "unsupported", digest: null, size: 0 });
+            problem(path, "unsupported_file_type");
           }
-        } else {
-          result.entries.push({ path, kind: "unsupported", digest: null, size: 0 });
-          problem(path, "unsupported_file_type");
+        } catch (error) {
+          const code = errorCode(error);
+          if (!LOCK_CODES.has(code))
+            problem(path, code);
+          else {
+            if (result.entries.at(-1)?.path !== path)
+              result.entries.push({ path, kind: "unsupported", digest: null, size: 0 });
+            problem(path, "locked_file");
+          }
         }
         if (exhausted)
           break;
@@ -1931,6 +1952,20 @@ var EN_TEMPLATES = {
 };
 var LOCALIZED_TEMPLATES = { cs: CS_TEMPLATES, sk: TEMPLATES, en: EN_TEMPLATES };
 
+// src/onboarding/messages.ts
+var UNSAFE_FOLDER_NAME_MESSAGE = "A safe non-empty folder name is required.";
+var LOCKED_FILES_MESSAGE_PREFIX = "Files are open in another application:";
+var LOCKED_FILE_CODE = "locked_file";
+function incompleteInspectionMessage(message, issues) {
+  if (!issues.length)
+    return message;
+  const locked = issues.filter((issue) => issue.code === LOCKED_FILE_CODE);
+  const ordered = locked.length ? [...locked, ...issues.filter((issue) => issue.code !== LOCKED_FILE_CODE)] : issues;
+  const listed = ordered.slice(0, 5).map((issue) => `${issue.path || "."}: ${issue.code}`).join("; ");
+  const more = issues.length > 5 ? ` (+${issues.length - 5} more)` : "";
+  return `${locked.length ? LOCKED_FILES_MESSAGE_PREFIX : message.replace(/\.$/, ":")} ${listed}${more}`;
+}
+
 // src/onboarding/plan.ts
 function validateInput(input) {
   if (!input || typeof input.title !== "string" || !input.title.trim() || input.title.length > 500 || /[\u0000-\u001f]/.test(input.title))
@@ -1974,7 +2009,7 @@ async function planClientConversion(root, input) {
   validateInput(input);
   const inspection = await inspectOnboardingRoot(root);
   if (!inspection.complete || !inspection.digest || inspection.level === "conflict")
-    throw new Error("The directory could not be inspected completely and unambiguously.");
+    throw new Error(incompleteInspectionMessage("The directory could not be inspected completely and unambiguously.", inspection.issues));
   if (inspection.level !== "client" && !(inspection.level === "unknown" && input.confirmUnknownClient === true))
     throw new Error("Select a client directory or explicitly confirm an unrecognized directory as a client.");
   const existing = new Map(inspection.entries.map((entry) => [entry.path, entry]));
@@ -2051,7 +2086,7 @@ function safePath(value) {
   if (typeof value !== "string" || !value || value.length > 1024 || value.includes("\x00") || value.includes("\\") || isAbsolute2(value) || /^[a-z]:/i.test(value))
     fail("unsafe operation path");
   const parts = value.split("/");
-  if (parts.some((part) => !part || part.length > 255 || part === "." || part === ".." || /[<>:"|?*\u0000-\u001f\u007f-\u009f]/.test(part) || /[. ]$/.test(part) || reserved2.test(part)))
+  if (parts.some((part) => !part || part.length > 255 || part === "." || part === ".." || /[<>:"|?*\u0000-\u001f\u007f-\u009f]/.test(part) || /[. ]$/.test(part) || reserved2.test(part) || VOLATILE_ENTRY.test(part)))
     fail("unsafe operation path");
   return parts.join("/");
 }
@@ -2629,13 +2664,10 @@ function checkedPath(path, kind, allowMissing = false) {
   return true;
 }
 
-// src/onboarding/messages.ts
-var UNSAFE_FOLDER_NAME_MESSAGE = "A safe non-empty folder name is required.";
-
 // src/onboarding/entities.ts
 var safeSegment = (value) => {
   const trimmed = value.trim().replace(/[. ]+$/, "");
-  if (!trimmed || trimmed.length > 120 || /[\\/:\0<>"|?*\u0001-\u001f\u007f-\u009f]|^\./.test(trimmed) || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(trimmed))
+  if (!trimmed || trimmed.length > 120 || /[\\/:\0<>"|?*\u0001-\u001f\u007f-\u009f]|^\./.test(trimmed) || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(trimmed) || VOLATILE_ENTRY.test(trimmed))
     throw new Error(UNSAFE_FOLDER_NAME_MESSAGE);
   return trimmed;
 };
@@ -2646,7 +2678,7 @@ async function rootPlan(root, operations) {
     throw new Error("Parent must be a canonical existing directory.");
   const inspection = await inspectOnboardingParent(canonical);
   if (!inspection.complete || !inspection.digest)
-    throw new Error("Parent could not be inspected completely.");
+    throw new Error(incompleteInspectionMessage("Parent could not be inspected completely.", inspection.issues));
   return { version: 1, root: canonical, treeDigest: inspection.digest, operations, scope: "parent" };
 }
 var directory = (path) => ({ path, kind: "directory" });
@@ -2698,7 +2730,7 @@ async function planNewSubject(request) {
   const name = safeSegment(request.name), target = join6(request.clientRoot, name);
   const client = await inspectOnboardingRoot(request.clientRoot);
   if (!client.complete || client.level !== "client")
-    throw new Error("Subject parent must be an inspected client root.");
+    throw new Error(incompleteInspectionMessage("Subject parent must be an inspected client root.", client.issues));
   const card = `---
 type: subject
 title: ${yaml(request.title)}
@@ -2747,10 +2779,10 @@ async function planNewMatter(request) {
     throw new Error("Matter parent must be within the inspected client root.");
   const client = await inspectOnboardingRoot(clientRoot);
   if (!client.complete || client.level !== "client")
-    throw new Error("Matter client root must be an inspected client.");
+    throw new Error(incompleteInspectionMessage("Matter client root must be an inspected client.", client.issues));
   const inspected = await inspectOnboardingParent(request.parent);
   if (!inspected.complete)
-    throw new Error("Matter parent could not be inspected completely.");
+    throw new Error(incompleteInspectionMessage("Matter parent could not be inspected completely.", inspected.issues));
   const existingMatters = inspected.entries.find((entry) => entry.path === MATTERS_DIR);
   if (existingMatters && existingMatters.kind !== "directory")
     throw new Error("Matter folder is blocked by a non-directory.");
@@ -2768,7 +2800,7 @@ async function executeCreate(preview, journalDirectory) {
 async function planExistingClient(root, mode, cloneParent, map) {
   const inspection = await inspectOnboardingRoot(root);
   if (!inspection.complete || !inspection.digest)
-    throw new Error("Source client could not be inspected completely.");
+    throw new Error(incompleteInspectionMessage("Source client could not be inspected completely.", inspection.issues));
   if (["office", "matter", "conflict"].includes(inspection.level))
     throw new Error("Source must be a client or an explicitly confirmed unknown directory.");
   if (mode === "map") {
@@ -2918,6 +2950,12 @@ async function verifyOwned(preview, journal, allowConversion = false) {
     if (await identity(path, owned.kind) !== owned.identity || owned.kind === "file" && await fileDigest(path) !== owned.digest)
       throw new Error(`Trial entry changed; preserving ${owned.path || "root"}.`);
   }
+  return current;
+}
+function assertNoVolatileEntries(inspection) {
+  const ignored = inspection.ignored ?? [];
+  if (ignored.length)
+    throw new Error(`Close open documents in the trial clone and remove leftover Windows or Office files, then retry rollback: ${ignored.slice(0, 5).join(", ")}${ignored.length > 5 ? ` (+${ignored.length - 5} more)` : ""}.`);
 }
 async function applyTrialClone(preview, journalDirectory, resume = false) {
   const { fingerprint, journalPath } = await context2(preview, journalDirectory);
@@ -3062,13 +3100,13 @@ async function recoverTrialClone(preview, journalDirectory, action) {
           throw error;
       }
     } else
-      await verifyOwned(preview, journal, true);
+      assertNoVolatileEntries(await verifyOwned(preview, journal, true));
     if (journal.conversionPlan)
       await recoverOnboardingPlan(journal.conversionPlan, journalDirectory, "rollback");
     journal.phase = "rollback";
     await save();
     if (journal.owned.length)
-      await verifyOwned(preview, journal);
+      assertNoVolatileEntries(await verifyOwned(preview, journal));
     while (journal.owned.length) {
       const owned = journal.owned[journal.owned.length - 1];
       journal.removal = owned.path;
@@ -5202,6 +5240,65 @@ var utf8 = (data) => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).
 function conflict(message) {
   throw new NamingConflict(message);
 }
+var LOCK_CODES2 = new Set(["EBUSY", "EPERM", "EACCES"]);
+var errorCode5 = (error) => object3(error) && typeof error.code === "string" ? error.code : undefined;
+var lockError = (error) => LOCK_CODES2.has(errorCode5(error) ?? "");
+var lockedMessage = (path) => `File is open in another program (for example Word) or is read-only: ${path}. Close it or allow writing, then create a new preview.`;
+var deniedMessage = (path, code) => `Access denied: ${path} (${code}). Check file and folder permissions, then create a new preview.`;
+function readOnlyFile(path) {
+  try {
+    const stat = lstatSync4(path);
+    return stat.isFile() && (stat.mode & 146) === 0;
+  } catch {
+    return false;
+  }
+}
+function writtenSources(plan) {
+  return [...plan.documents.filter((d) => d.treatment === "rename-working").map((d) => ({ path: d.source.path, replaced: false })), ...plan.markdown.filter((m) => m.source.sha256 !== m.afterSha256).map((m) => ({ path: m.source.path, replaced: true }))];
+}
+function blockedMessage(root, path, code, sources, platform) {
+  return code === "EBUSY" || platform === "win32" && sources.has(path) && readOnlyFile(join14(root, path)) ? lockedMessage(path) : deniedMessage(path, code);
+}
+function blockedPath(root, error) {
+  const code = errorCode5(error);
+  if (!object3(error) || code === undefined || !LOCK_CODES2.has(code))
+    return;
+  const target = typeof error.dest === "string" ? error.dest : typeof error.path === "string" ? error.path : undefined;
+  if (target === undefined || !contained(root, resolve13(target)))
+    return;
+  const path = relative10(root, resolve13(target)).split(sep11).join("/");
+  return path && path !== ".lawoss" && !path.startsWith(".lawoss/") ? { path, code } : undefined;
+}
+var pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+function renameWithRetry(from, to, platform = process.platform, rename = renameSync2, wait = pause) {
+  for (let attempt = 1;; attempt++) {
+    try {
+      rename(from, to);
+      return;
+    } catch (error) {
+      if (platform !== "win32" || attempt >= 10 || !lockError(error))
+        throw error;
+      wait(100);
+    }
+  }
+}
+function assertSourcesWritable(root, sources, hooks, platform) {
+  const paths = new Set(sources.map((source) => source.path));
+  for (const { path, replaced } of sources) {
+    const full = join14(root, path);
+    try {
+      hooks.checkpoint?.("lock-probe", path);
+      closeSync2(openSync2(full, constants11.O_RDWR | constants11.O_NOFOLLOW | constants11.O_NONBLOCK));
+    } catch (error) {
+      const code = errorCode5(error);
+      if (code === undefined || !LOCK_CODES2.has(code))
+        throw error;
+      if (code !== "EBUSY" && (platform !== "win32" || !replaced && readOnlyFile(full)))
+        continue;
+      conflict(blockedMessage(root, path, code, paths, platform));
+    }
+  }
+}
 function exists(path, kind = "file") {
   return checkedPath(path, kind, true);
 }
@@ -5439,7 +5536,8 @@ function finalStates(root, plan) {
   return files;
 }
 function applyDocumentNaming(matterDir, input, hooks = {}) {
-  const plan = parseNamingPlan(input), root = rootDirectory(matterDir);
+  const plan = parseNamingPlan(input), root = rootDirectory(matterDir), platform = hooks.platform ?? process.platform;
+  const sources = writtenSources(plan), sourcePaths = new Set(sources.map((source) => source.path));
   const report = (status, message) => ({ status, operationId: plan.operationId, fingerprint: plan.fingerprint, ...message ? { message } : {} });
   if (root.path !== plan.matterRootPhysical || root.identity !== plan.rootIdentity)
     return report("conflict", "Matter root physical identity differs");
@@ -5452,6 +5550,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
       const fresh = planDocumentNaming(root.path, plan.request);
       if (fresh.fingerprint !== plan.fingerprint)
         conflict("Preview is stale; create and approve a new plan");
+      assertSourcesWritable(root.path, sources, hooks, platform);
     }
     controlDirectory(join14(root.path, ".lawoss"));
     controlDirectory(history);
@@ -5534,7 +5633,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
       assertPin(root.path, markdown.source, NAMING_LIMITS.markdownBytes);
       const path = join14(root.path, markdown.source.path);
       exclusive(join14(operation, `markdown-${i}-intent.json`), JSON.stringify({ path: markdown.source.path, stagedPhysical: identity }));
-      renameSync2(staged, path);
+      renameWithRetry(staged, path, platform);
       installed.push({ path, physical: identity, sha256: markdown.afterSha256, ...snapshots.get(markdown.source.path) });
       hooks.checkpoint?.("markdown-installed", markdown.source.path);
     }
@@ -5599,7 +5698,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
             completeRollback = false;
             continue;
           }
-          renameSync2(stage, markdown.path);
+          renameWithRetry(stage, markdown.path, platform);
         } catch {
           completeRollback = false;
         }
@@ -5610,13 +5709,19 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
             const current = readNamingBinary(target.path, NAMING_LIMITS.documentBytes);
             if (current.physical === target.physical && current.sha256 === target.sha256)
               unlinkSync(target.path);
+            else
+              completeRollback = false;
           } catch {
             completeRollback = false;
           }
-      try {
-        exclusive(join14(operation, "failure.json"), JSON.stringify({ status: "recovery-required", error: error instanceof Error ? error.message : String(error), created, installed, removed }));
-      } catch {}
     }
+    const blocked = blockedPath(root.path, error), rolledBack = prepared && completeRollback && blocked !== undefined;
+    if (prepared)
+      try {
+        exclusive(join14(operation, "failure.json"), JSON.stringify({ status: rolledBack ? "rolled-back" : "recovery-required", error: error instanceof Error ? error.message : String(error), created, installed, removed }));
+      } catch {}
+    if (blocked !== undefined && (rolledBack || !prepared))
+      return { ...report("conflict", blockedMessage(root.path, blocked.path, blocked.code, sourcePaths, platform)), ...rolledBack ? { rolledBack: true, journal } : {} };
     return { ...report(recovery ? "recovery-required" : "conflict", error instanceof Error ? error.message : String(error)), ...prepared ? { journal } : {} };
   } finally {
     if (lockIdentity)

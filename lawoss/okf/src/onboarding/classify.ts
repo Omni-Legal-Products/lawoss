@@ -21,8 +21,12 @@ export type OnboardingInspection = {
   entries: TreeEntry[];
   memorySources: string[];
   issues: { path: string; code: string }[];
+  /** Prchavé súbory Windows a Office, ktoré inšpekcia vynechala (nie sú v `entries` ani v otlačku). */
+  ignored?: string[];
 };
 export type InspectionLimits = { maxEntries?: number; maxBytes?: number; maxDepth?: number };
+/** Test-only: náhrada `open` (zamknutý súbor sa na Linuxe ani macOS nedá vyrobiť). Server ani CLI ju neposielajú. */
+export type InspectionHooks = { open?: typeof open };
 const CARD_LEVELS: Record<string, "client" | "subject" | "matter"> = {
   "client.md": "client", "klient.md": "client", "subject.md": "subject",
   "matter.md": "matter", "spis.md": "matter", "project.md": "matter", "projekt.md": "matter",
@@ -39,6 +43,16 @@ const CARD_TYPES: Record<string, readonly string[]> = {
  */
 const APP_FILE_DIRECTORIES = new Set([".opencode"]);
 const MEMORY_FILES = new Set(["MEMORY.md", "_memory.md", "_STATUS.md", "BRAIN.md", ".lawoss/memory-profile.json"]);
+/**
+ * Prchavé artefakty Windows a Office: vlastnícky súbor otvoreného dokumentu Wordu (`~$zmluva.docx`),
+ * dočasný súbor Wordu (`~WRL0001.tmp`), náhľady Prieskumníka (`Thumbs.db`) a nastavenie priečinka
+ * (`desktop.ini`). Vznikajú a miznú bez advokáta, takže nepatria do otlačku stromu: inak by otvorený
+ * dokument vo Worde zmenil otlačok a apply by odmietol aj nezmenený priečinok. Porovnáva sa názov
+ * položky pred lstat; onboarding také mená nikdy nezakladá (transakcia aj safeSegment ich odmietnu).
+ */
+export const VOLATILE_ENTRY = /^(?:~\$.*|~WRL\d+\.tmp|thumbs\.db|desktop\.ini)$/i;
+/** Windows: súbor otvorený v inej aplikácii bez zdieľania (EBUSY), prípadne bez prístupu (EPERM, EACCES). */
+const LOCK_CODES = new Set(["EBUSY", "EPERM", "EACCES"]);
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 const errorCode = (error: unknown): string => error && typeof error === "object" && "code" in error ? String(error.code) : "read_failed";
 
@@ -63,6 +77,7 @@ export async function inspectOnboardingParent(root: string, limits: Pick<Inspect
     const names = (await readdir(result.root)).sort();
     if (names.length > maxEntries) { problem("", "entry_limit"); return result; }
     for (const name of names) {
+      if (VOLATILE_ENTRY.test(name)) { (result.ignored ??= []).push(name); continue; }
       try {
         const state = await lstat(join(result.root, name));
         const kind = state.isSymbolicLink() ? "symlink" : state.isDirectory() ? "directory" : state.isFile() ? "file" : "unsupported";
@@ -70,7 +85,7 @@ export async function inspectOnboardingParent(root: string, limits: Pick<Inspect
       } catch (error) {
         // Windows: systémovú položku (System Volume Information) nemusí byť možné ani lstat-nuť; meno stačí.
         const code = errorCode(error);
-        if (code === "EPERM" || code === "EACCES" || code === "EBUSY") result.entries.push({ path: name, kind: "unsupported", digest: null, size: 0 });
+        if (LOCK_CODES.has(code)) result.entries.push({ path: name, kind: "unsupported", digest: null, size: 0 });
         else problem(name, code);
       }
     }
@@ -80,7 +95,7 @@ export async function inspectOnboardingParent(root: string, limits: Pick<Inspect
 }
 
 /** Read-only inspection. Partial scans never produce a digest usable by apply. */
-export async function inspectOnboardingRoot(root: string, limits: InspectionLimits = {}): Promise<OnboardingInspection> {
+export async function inspectOnboardingRoot(root: string, limits: InspectionLimits = {}, hooks: InspectionHooks = {}): Promise<OnboardingInspection> {
   const maxEntries = limits.maxEntries ?? 10_000;
   const maxBytes = limits.maxBytes ?? 1024 * 1024 * 1024;
   const maxDepth = limits.maxDepth ?? 32;
@@ -105,52 +120,64 @@ export async function inspectOnboardingRoot(root: string, limits: InspectionLimi
       if (!before.isDirectory() || before.isSymbolicLink() || await realpath(dir) !== dir) { problem(relative, "unsafe_directory"); return; }
       for (const name of (await readdir(dir)).sort()) {
         const path = relative ? `${relative}/${name}` : name;
+        if (VOLATILE_ENTRY.test(name)) { (result.ignored ??= []).push(path); continue; }
         if (seenEntries >= maxEntries) { problem(path, "entry_limit"); exhausted = true; break; }
         seenEntries += 1;
         const full = join(result.root, path);
-        const state = await lstat(full);
-        if (state.isSymbolicLink()) {
-          result.entries.push({ path, kind: "symlink", digest: null, size: 0 });
-          problem(path, "symlink_not_followed");
-          continue;
-        }
-        if (state.isDirectory()) {
-          result.entries.push({ path, kind: "directory", digest: null, size: 0 });
-          if (!APP_FILE_DIRECTORIES.has(name)) await visit(path, depth + 1);
-        } else if (state.isFile()) {
-          if (bytes + state.size > maxBytes) { problem(path, "byte_limit"); exhausted = true; break; }
-          // Verify identity again after opening and after reading to reject changes during inspection.
-          const handle = await open(full, constants.O_RDONLY | constants.O_NOFOLLOW);
-          try {
-            const opened = await handle.stat({ bigint: true });
-            const current = await lstat(full, { bigint: true });
-            if (!opened.isFile() || current.isSymbolicLink() || opened.ino !== current.ino || opened.dev !== current.dev) { problem(path, "changed_during_read"); continue; }
-            const hash = createHash("sha256");
-            const buffer = Buffer.alloc(64 * 1024);
-            const parts: Buffer[] = [];
-            let count = 0;
-            while (true) {
-              const read = await handle.read(buffer, 0, buffer.length, null);
-              if (!read.bytesRead) break;
-              count += read.bytesRead; bytes += read.bytesRead;
-              if (bytes > maxBytes) { problem(path, "byte_limit"); exhausted = true; break; }
-              const chunk = buffer.subarray(0, read.bytesRead);
-              hash.update(chunk);
-              if (CARD_LEVELS[path] && count <= 64 * 1024) parts.push(Buffer.from(chunk));
-            }
-            const after = await handle.stat({ bigint: true });
-            const linked = await lstat(full, { bigint: true });
-            if (after.size !== opened.size || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs || linked.ino !== opened.ino || linked.dev !== opened.dev || linked.isSymbolicLink()) problem(path, "changed_during_read");
-            if (CARD_LEVELS[path]) {
-              if (count > 64 * 1024) problem(path, "card_size_limit");
-              else cardText.set(path, Buffer.concat(parts).toString("utf8"));
-            }
-            result.entries.push({ path, kind: "file", digest: hash.digest("hex"), size: count });
-            if (MEMORY_FILES.has(path)) result.memorySources.push(path);
-          } finally { await handle.close(); }
-        } else {
-          result.entries.push({ path, kind: "unsupported", digest: null, size: 0 });
-          problem(path, "unsupported_file_type");
+        // Zamknutý súbor (Word, Outlook, antivírus) pokazí len seba: zapíše sa ako problém
+        // a súrodenci sa prečítajú ďalej. Inšpekcia ostáva neúplná, apply je nemožný.
+        try {
+          const state = await lstat(full);
+          if (state.isSymbolicLink()) {
+            result.entries.push({ path, kind: "symlink", digest: null, size: 0 });
+            problem(path, "symlink_not_followed");
+            continue;
+          }
+          if (state.isDirectory()) {
+            result.entries.push({ path, kind: "directory", digest: null, size: 0 });
+            if (!APP_FILE_DIRECTORIES.has(name)) await visit(path, depth + 1);
+          } else if (state.isFile()) {
+            if (bytes + state.size > maxBytes) { problem(path, "byte_limit"); exhausted = true; break; }
+            // Verify identity again after opening and after reading to reject changes during inspection.
+            const handle = await (hooks.open ?? open)(full, constants.O_RDONLY | constants.O_NOFOLLOW);
+            try {
+              const opened = await handle.stat({ bigint: true });
+              const current = await lstat(full, { bigint: true });
+              if (!opened.isFile() || current.isSymbolicLink() || opened.ino !== current.ino || opened.dev !== current.dev) { problem(path, "changed_during_read"); continue; }
+              const hash = createHash("sha256");
+              const buffer = Buffer.alloc(64 * 1024);
+              const parts: Buffer[] = [];
+              let count = 0;
+              while (true) {
+                const read = await handle.read(buffer, 0, buffer.length, null);
+                if (!read.bytesRead) break;
+                count += read.bytesRead; bytes += read.bytesRead;
+                if (bytes > maxBytes) { problem(path, "byte_limit"); exhausted = true; break; }
+                const chunk = buffer.subarray(0, read.bytesRead);
+                hash.update(chunk);
+                if (CARD_LEVELS[path] && count <= 64 * 1024) parts.push(Buffer.from(chunk));
+              }
+              const after = await handle.stat({ bigint: true });
+              const linked = await lstat(full, { bigint: true });
+              if (after.size !== opened.size || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs || linked.ino !== opened.ino || linked.dev !== opened.dev || linked.isSymbolicLink()) problem(path, "changed_during_read");
+              if (CARD_LEVELS[path]) {
+                if (count > 64 * 1024) problem(path, "card_size_limit");
+                else cardText.set(path, Buffer.concat(parts).toString("utf8"));
+              }
+              result.entries.push({ path, kind: "file", digest: hash.digest("hex"), size: count });
+              if (MEMORY_FILES.has(path)) result.memorySources.push(path);
+            } finally { await handle.close(); }
+          } else {
+            result.entries.push({ path, kind: "unsupported", digest: null, size: 0 });
+            problem(path, "unsupported_file_type");
+          }
+        } catch (error) {
+          const code = errorCode(error);
+          if (!LOCK_CODES.has(code)) problem(path, code);
+          else {
+            if (result.entries.at(-1)?.path !== path) result.entries.push({ path, kind: "unsupported", digest: null, size: 0 });
+            problem(path, "locked_file");
+          }
         }
         if (exhausted) break;
       }

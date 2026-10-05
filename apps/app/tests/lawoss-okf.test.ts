@@ -16,7 +16,8 @@ describe("nový spis — požiadavka pre agenta", () => {
     expect(entityTypeFor("projekt")).toBe("projekt");
   });
   test("target dir is root/title with trailing slashes trimmed", () => {
-    expect(targetDir({ ...form, root: "/a/b/" })).toBe("/a/b/ACME s.r.o.");
+    // Koncovú bodku Windows ticho odreže, preto ju priečinok nemá na žiadnej platforme (Q18); názov v karte ju má.
+    expect(targetDir({ ...form, root: "/a/b/" })).toBe("/a/b/ACME s.r.o");
     expect(targetDir({ ...form, root: "", title: "" })).toBe("[názov]");
   });
   test("an explicit folder name leaves the matter title unchanged", () => {
@@ -57,7 +58,8 @@ describe("nový spis — požiadavka pre agenta", () => {
     expect(text).toContain("IČO: 12345678");
     expect(text).toContain("ORSR");
     expect(text).toContain("čakaj na moje potvrdenie");
-    expect(text).toContain("/Users/x/Klienti/ACME s.r.o.");
+    expect(text).toContain("/Users/x/Klienti/ACME s.r.o\"");
+    expect(text).toContain("- názov: ACME s.r.o.");
   });
   test("legacy verification switch cannot bypass client checks; internal projects need none", () => {
     expect(composePrompt({ ...form, verify: false })).toContain("ORSR");
