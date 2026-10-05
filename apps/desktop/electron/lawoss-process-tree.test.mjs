@@ -92,14 +92,18 @@ function functionSource(file, signature) {
 
 // stopChild je vnútri createRuntimeManager, ktorý test bez Electronu nespustí, a strom
 // sa reálne overuje len na Windows. Preto aspoň všade overíme poradie: taskkill /T
-// hľadá potomkov podľa PID rodiča, takže musí bežať pred prvým child.kill.
+// hľadá potomkov podľa PID rodiča, takže musí bežať pred prvým child.kill. Riadok musí
+// začínať samotným if, inak by prešlo aj zakomentované // if (...) await killProcessTree.
 test("stopChild zhodí na Windows strom pred prvým child.kill", () => {
   const stopChild = functionSource("./runtime.mjs", "async function stopChild(");
   assert.match(
     stopChild.slice(0, stopChild.indexOf("child.kill(")),
-    /if \(process\.platform === "win32"\) await killProcessTree\(child\.pid\);\s*$/,
+    /\n[ \t]*if \(process\.platform === "win32"\) await killProcessTree\(child\.pid\);\s*$/,
   );
-  assert.match(stopChild, /await killProcessTree\(child\.pid\);\s*child\.kill\("SIGTERM"\);/);
+  assert.match(
+    stopChild,
+    /\n[ \t]*if \(process\.platform === "win32"\) await killProcessTree\(child\.pid\);\s*child\.kill\("SIGTERM"\);/,
+  );
 });
 
 // Skutočný strom procesov na Windows: rodič (node) spustí vnúča (node), ktoré len

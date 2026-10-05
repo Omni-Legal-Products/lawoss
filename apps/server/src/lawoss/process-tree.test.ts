@@ -98,13 +98,16 @@ function functionSource(file: string, signature: string): string {
 
 // makeTerminator sa neexportuje a strom sa reálne overuje len na Windows. Preto aspoň
 // všade overíme poradie: taskkill /T hľadá potomkov podľa PID enginu, takže musí
-// bežať pred prvým child.kill, kým engine ešte žije.
+// bežať pred prvým child.kill, kým engine ešte žije. Riadok musí začínať samotným if,
+// inak by prešlo aj zakomentované // if (...) await killProcessTree.
 test("makeTerminator zhodí na Windows strom pred prvým child.kill", () => {
   const makeTerminator = functionSource("../managed-opencode.ts", "function makeTerminator(");
   expect(makeTerminator.slice(0, makeTerminator.indexOf("child.kill("))).toMatch(
-    /if \(process\.platform === "win32"\) await killProcessTree\(child\.pid\);\s*try \{\s*$/,
+    /\n[ \t]*if \(process\.platform === "win32"\) await killProcessTree\(child\.pid\);\s*try \{\s*$/,
   );
-  expect(makeTerminator).toMatch(/await killProcessTree\(child\.pid\);\s*try \{\s*child\.kill\("SIGTERM"\);/);
+  expect(makeTerminator).toMatch(
+    /\n[ \t]*if \(process\.platform === "win32"\) await killProcessTree\(child\.pid\);\s*try \{\s*child\.kill\("SIGTERM"\);/,
+  );
 });
 
 // Skutočný strom procesov na Windows: rodič (node) spustí vnúča (node), ktoré len
