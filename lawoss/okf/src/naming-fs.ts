@@ -12,13 +12,50 @@ export { NamingSchemaError, isNamingSchemaError, parseNamingRequest } from "./na
 const PROFILE_LIMIT = 256 * 1024, JSON_LIMIT = 4 * 1024 * 1024;
 const reserved = /^(?:memory|spisy|office|_kancelaria|agents\.md|claude\.md|brain\.md|memory\.md|_memory\.md|client\.md|klient\.md|matter\.md|spis\.md|project\.md|projekt\.md|index\.md|log\.md|_status\.md|vstupy\.md|pracovny-profil\.md|komunikacne-kanaly\.md|okf\.config)$/i;
 type Binary = { data: Buffer; sha256: string; bytes: number; physical: string; mode: number };
-type NamingApplyReport = { status: "applied" | "already-applied" | "conflict" | "recovery-required"; operationId: string; fingerprint: string; message?: string; journal?: string };
-/** Test-only injection seam; CLI never accepts hooks or environment fault flags. */
-type NamingApplyHooks = { checkpoint?: (stage: "prepared" | "target-created" | "markdown-installed" | "source-removed" | "before-commit", path?: string) => void };
+/** `rolledBack`: konflikt nastal až počas zápisu, ale vrátenie obnovilo všetky súbory spisu. */
+type NamingApplyReport = { status: "applied" | "already-applied" | "conflict" | "recovery-required"; operationId: string; fingerprint: string; message?: string; journal?: string; rolledBack?: true };
+/** Test-only injection seam; CLI never accepts hooks or environment fault flags. `lock-probe` beží pred otvorením zdroja na zápis. */
+type NamingApplyHooks = { checkpoint?: (stage: "lock-probe" | "prepared" | "target-created" | "markdown-installed" | "source-removed" | "before-commit", path?: string) => void };
 // NTFS file IDs can exceed Number.MAX_SAFE_INTEGER; preserve exact identity in plans and CAS.
 const physical = (stat: { dev: bigint; ino: bigint }) => `${stat.dev}:${stat.ino}`;
 const utf8 = (data: Buffer) => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(data);
 function conflict(message: string): never { throw new NamingConflict(message); }
+/** Windows: súbor drží iný program bez zdieľania (EBUSY), prípadne zápis alebo zmazanie odoprie (EPERM, EACCES). */
+const LOCK_CODES = new Set(["EBUSY", "EPERM", "EACCES"]);
+const lockError = (error: unknown): boolean => object(error) && typeof error.code === "string" && LOCK_CODES.has(error.code);
+const lockedMessage = (path: string) => `File is open in another program (for example Word) or is read-only: ${path}. Close it or allow writing, then create a new preview.`;
+/** Cesta v spise, ktorú zámok zastavil (`dest` pri rename); záznamy v `.lawoss` nie sú dokument advokáta. */
+function lockedPath(root: string, error: unknown): string | undefined {
+  if (!object(error) || !lockError(error)) return undefined;
+  const target = typeof error.dest === "string" ? error.dest : typeof error.path === "string" ? error.path : undefined;
+  if (target === undefined || !contained(root, resolve(target))) return undefined;
+  const path = relative(root, resolve(target)).split(sep).join("/");
+  return path && path !== ".lawoss" && !path.startsWith(".lawoss/") ? path : undefined;
+}
+const pause = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+/**
+ * Windows: antivírus, indexer alebo synchronizácia drží čerstvo zapísaný súbor chvíľu otvorený
+ * a rename vtedy zlyhá s EBUSY/EPERM/EACCES. Ohraničené opakovanie (10 pokusov po 100 ms);
+ * rename je atómový, neúspešný pokus nič nezmenil. Inde jeden pokus, chyba ide ďalej.
+ */
+export function renameWithRetry(from: string, to: string, platform: NodeJS.Platform = process.platform, rename: (from: string, to: string) => void = renameSync, wait: (ms: number) => void = pause): void {
+  for (let attempt = 1; ; attempt++) {
+    try { rename(from, to); return; }
+    catch (error) { if (platform !== "win32" || attempt >= 10 || !lockError(error)) throw error; wait(100); }
+  }
+}
+/**
+ * Pred prvým zápisom over, že každý zdroj, ktorý apply zmaže alebo prepíše, sa dá otvoriť na zápis.
+ * Dokument otvorený vo Worde na Windows tak skončí konfliktom bez jediného zápisu, nie až
+ * zlyhaním uprostred operácie. Otvorenie bez O_TRUNC/O_CREAT obsah ani čas zmeny nemení.
+ */
+function assertSourcesWritable(root: string, plan: NamingPlanV1, hooks: NamingApplyHooks): void {
+  const paths = [...plan.documents.filter(d => d.treatment === "rename-working").map(d => d.source.path), ...plan.markdown.filter(m => m.source.sha256 !== m.afterSha256).map(m => m.source.path)];
+  for (const path of paths) {
+    try { hooks.checkpoint?.("lock-probe", path); closeSync(openSync(join(root, path), constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK)); }
+    catch (error) { if (lockError(error)) conflict(lockedMessage(path)); throw error; }
+  }
+}
 function exists(path: string, kind: "file" | "directory" = "file"): boolean { return checkedPath(path, kind, true); }
 function rootDirectory(directory: string): { path: string; identity: string } {
   checkedPath(directory, "directory"); const path = realpathSync(directory); return { path, identity: physical(lstatSync(path, { bigint: true })) };
@@ -182,6 +219,7 @@ export function applyDocumentNaming(matterDir: string, input: NamingPlanV1, hook
     // Check before creating control artifacts; a stale preview causes no content mutations.
     if (!exists(operation, "directory")) {
       const fresh = planDocumentNaming(root.path, plan.request); if (fresh.fingerprint !== plan.fingerprint) conflict("Preview is stale; create and approve a new plan");
+      assertSourcesWritable(root.path, plan, hooks);
     }
     controlDirectory(join(root.path, ".lawoss")); controlDirectory(history);
     checkCase(operation, exists(operation, "directory"));
@@ -240,7 +278,7 @@ export function applyDocumentNaming(matterDir: string, input: NamingPlanV1, hook
       assertRoot(root); profileCAS(root.path, plan); assertPin(root.path, markdown.source, NAMING_LIMITS.markdownBytes);
       const path = join(root.path, markdown.source.path);
       exclusive(join(operation, `markdown-${i}-intent.json`), JSON.stringify({ path: markdown.source.path, stagedPhysical: identity }));
-      renameSync(staged, path); installed.push({ path, physical: identity, sha256: markdown.afterSha256, ...snapshots.get(markdown.source.path)! });
+      renameWithRetry(staged, path); installed.push({ path, physical: identity, sha256: markdown.afterSha256, ...snapshots.get(markdown.source.path)! });
       hooks.checkpoint?.("markdown-installed", markdown.source.path);
     }
     for (const document of plan.documents.filter(d => d.treatment === "rename-working")) {
@@ -277,15 +315,19 @@ export function applyDocumentNaming(matterDir: string, input: NamingPlanV1, hook
         exclusive(stage, snapshot.data, markdown.mode);
         const check = readNamingBinary(markdown.path, NAMING_LIMITS.markdownBytes);
         if (check.physical !== markdown.physical || check.sha256 !== markdown.sha256) { completeRollback = false; continue; }
-        renameSync(stage, markdown.path);
+        renameWithRetry(stage, markdown.path);
       } catch { completeRollback = false; }
       // Retain every copy if any source/link restoration is uncertain. Newer links may depend on it.
       if (completeRollback) for (const target of [...created].reverse()) try {
         assertRoot(root); const current = readNamingBinary(target.path, NAMING_LIMITS.documentBytes);
         if (current.physical === target.physical && current.sha256 === target.sha256) unlinkSync(target.path);
+        else completeRollback = false;
       } catch { completeRollback = false; }
-      try { exclusive(join(operation, "failure.json"), JSON.stringify({ status: "recovery-required", error: error instanceof Error ? error.message : String(error), created, installed, removed })); } catch { /* Never erase earlier recovery evidence. */ }
     }
+    // Zámok (Word, antivírus) je konflikt: pred prvým zápisom, alebo neskôr, ak vrátenie obnovilo celý spis.
+    const locked = lockedPath(root.path, error), rolledBack = prepared && completeRollback && locked !== undefined;
+    if (prepared) try { exclusive(join(operation, "failure.json"), JSON.stringify({ status: rolledBack ? "rolled-back" : "recovery-required", error: error instanceof Error ? error.message : String(error), created, installed, removed })); } catch { /* Never erase earlier recovery evidence. */ }
+    if (locked !== undefined && (rolledBack || !prepared)) return { ...report("conflict", lockedMessage(locked)), ...(rolledBack ? { rolledBack: true as const, journal } : {}) };
     return { ...report(recovery ? "recovery-required" : "conflict", error instanceof Error ? error.message : String(error)), ...(prepared ? { journal } : {}) };
   } finally {
     if (lockIdentity) try { checkedPath(lock, "file"); if (physical(lstatSync(lock, { bigint: true })) === lockIdentity) unlinkSync(lock); } catch { /* A replaced lock belongs to another writer. */ }

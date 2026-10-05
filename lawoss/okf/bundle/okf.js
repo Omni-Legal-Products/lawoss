@@ -5234,6 +5234,44 @@ var utf8 = (data) => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).
 function conflict(message) {
   throw new NamingConflict(message);
 }
+var LOCK_CODES2 = new Set(["EBUSY", "EPERM", "EACCES"]);
+var lockError = (error) => object3(error) && typeof error.code === "string" && LOCK_CODES2.has(error.code);
+var lockedMessage = (path) => `File is open in another program (for example Word) or is read-only: ${path}. Close it or allow writing, then create a new preview.`;
+function lockedPath(root, error) {
+  if (!object3(error) || !lockError(error))
+    return;
+  const target = typeof error.dest === "string" ? error.dest : typeof error.path === "string" ? error.path : undefined;
+  if (target === undefined || !contained(root, resolve13(target)))
+    return;
+  const path = relative10(root, resolve13(target)).split(sep11).join("/");
+  return path && path !== ".lawoss" && !path.startsWith(".lawoss/") ? path : undefined;
+}
+var pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+function renameWithRetry(from, to, platform = process.platform, rename = renameSync2, wait = pause) {
+  for (let attempt = 1;; attempt++) {
+    try {
+      rename(from, to);
+      return;
+    } catch (error) {
+      if (platform !== "win32" || attempt >= 10 || !lockError(error))
+        throw error;
+      wait(100);
+    }
+  }
+}
+function assertSourcesWritable(root, plan, hooks) {
+  const paths = [...plan.documents.filter((d) => d.treatment === "rename-working").map((d) => d.source.path), ...plan.markdown.filter((m) => m.source.sha256 !== m.afterSha256).map((m) => m.source.path)];
+  for (const path of paths) {
+    try {
+      hooks.checkpoint?.("lock-probe", path);
+      closeSync2(openSync2(join14(root, path), constants11.O_RDWR | constants11.O_NOFOLLOW | constants11.O_NONBLOCK));
+    } catch (error) {
+      if (lockError(error))
+        conflict(lockedMessage(path));
+      throw error;
+    }
+  }
+}
 function exists(path, kind = "file") {
   return checkedPath(path, kind, true);
 }
@@ -5484,6 +5522,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
       const fresh = planDocumentNaming(root.path, plan.request);
       if (fresh.fingerprint !== plan.fingerprint)
         conflict("Preview is stale; create and approve a new plan");
+      assertSourcesWritable(root.path, plan, hooks);
     }
     controlDirectory(join14(root.path, ".lawoss"));
     controlDirectory(history);
@@ -5566,7 +5605,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
       assertPin(root.path, markdown.source, NAMING_LIMITS.markdownBytes);
       const path = join14(root.path, markdown.source.path);
       exclusive(join14(operation, `markdown-${i}-intent.json`), JSON.stringify({ path: markdown.source.path, stagedPhysical: identity }));
-      renameSync2(staged, path);
+      renameWithRetry(staged, path);
       installed.push({ path, physical: identity, sha256: markdown.afterSha256, ...snapshots.get(markdown.source.path) });
       hooks.checkpoint?.("markdown-installed", markdown.source.path);
     }
@@ -5631,7 +5670,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
             completeRollback = false;
             continue;
           }
-          renameSync2(stage, markdown.path);
+          renameWithRetry(stage, markdown.path);
         } catch {
           completeRollback = false;
         }
@@ -5642,13 +5681,19 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
             const current = readNamingBinary(target.path, NAMING_LIMITS.documentBytes);
             if (current.physical === target.physical && current.sha256 === target.sha256)
               unlinkSync(target.path);
+            else
+              completeRollback = false;
           } catch {
             completeRollback = false;
           }
-      try {
-        exclusive(join14(operation, "failure.json"), JSON.stringify({ status: "recovery-required", error: error instanceof Error ? error.message : String(error), created, installed, removed }));
-      } catch {}
     }
+    const locked = lockedPath(root.path, error), rolledBack = prepared && completeRollback && locked !== undefined;
+    if (prepared)
+      try {
+        exclusive(join14(operation, "failure.json"), JSON.stringify({ status: rolledBack ? "rolled-back" : "recovery-required", error: error instanceof Error ? error.message : String(error), created, installed, removed }));
+      } catch {}
+    if (locked !== undefined && (rolledBack || !prepared))
+      return { ...report("conflict", lockedMessage(locked)), ...rolledBack ? { rolledBack: true, journal } : {} };
     return { ...report(recovery ? "recovery-required" : "conflict", error instanceof Error ? error.message : String(error)), ...prepared ? { journal } : {} };
   } finally {
     if (lockIdentity)

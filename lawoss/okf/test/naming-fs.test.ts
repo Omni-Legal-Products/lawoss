@@ -4,7 +4,8 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { planDocumentNaming, applyDocumentNaming, parseNamingPlan } from "../src/naming-fs.ts";
+import { planDocumentNaming, applyDocumentNaming, parseNamingPlan, renameWithRetry } from "../src/naming-fs.ts";
+import { holdWindowsFileLock } from "./windows-file-lock.ts";
 import { hash, NAMING_LIMITS, parseNamingRequest } from "../src/naming-core.ts";
 import { renderWorkingProfile, workingProfile } from "../src/profile.ts";
 import { run } from "../src/cli.ts";
@@ -299,5 +300,69 @@ describe("naming filesystem transaction", () => {
     expect(readFileSync(join(f.root, "notes/note.md"), "utf8")).toBe(`[x](<../03_Drafty/${encodeURIComponent(name)}#p2>)`);
     expect(readFileSync(join(f.root, "03_Drafty", name))).toEqual(f.binary); expect(existsSync(join(f.root, "03_Drafty/old.PDF"))).toBe(false);
   });
+
+  // Windows: dokument otvorený vo Worde sa nedá zmazať ani prepísať; zámok sa simuluje na každom OS.
+  const locked = (path: string) => Object.assign(new Error(`EBUSY: resource busy or locked, unlink '${path}'`), { code: "EBUSY", path });
+  test("lock preflight: a source open in another program is a conflict with zero writes", () => {
+    const f = fixture(), plan = planDocumentNaming(f.root, f.request), before = tree(f.base), probed: string[] = [];
+    const result = applyDocumentNaming(f.root, plan, { checkpoint(stage, path) { if (stage === "lock-probe") { probed.push(path!); if (path === "03_Drafty/old.PDF") throw locked(join(f.root, path)); } } });
+    expect(result.status).toBe("conflict"); expect(result.rolledBack).toBeUndefined(); expect(result.journal).toBeUndefined();
+    expect(result.message).toBe("File is open in another program (for example Word) or is read-only: 03_Drafty/old.PDF. Close it or allow writing, then create a new preview.");
+    // Iba zdroje, ktoré apply zmaže alebo prepíše: pracovný dokument a Markdown so zmeneným odkazom, nie originál.
+    expect(probed).toEqual(["03_Drafty/old.PDF"]);
+    expect(tree(f.base)).toEqual(before); expect(existsSync(join(f.root, ".lawoss"))).toBe(false);
+    const g = fixture(), gPlan = planDocumentNaming(g.root, g.request), gProbed: string[] = [];
+    expect(applyDocumentNaming(g.root, gPlan, { checkpoint(stage, path) { if (stage === "lock-probe") { gProbed.push(path!); if (path === "notes/note.md") throw Object.assign(new Error("EPERM: operation not permitted"), { code: "EPERM" }); } } }).message).toContain("notes/note.md");
+    expect(gProbed).toEqual(["03_Drafty/old.PDF", "notes/note.md"]);
+    expect(applyDocumentNaming(g.root, gPlan).status).toBe("applied");
+  });
+  test("a lock after the first write rolls back completely and reports conflict, not recovery", () => {
+    for (const stage of ["target-created", "markdown-installed"] as const) {
+      const f = fixture(), before = tree(f.root), plan = planDocumentNaming(f.root, f.request);
+      const result = applyDocumentNaming(f.root, plan, { checkpoint(current) { if (current === stage) throw locked(join(f.root, "03_Drafty/old.PDF")); } });
+      expect(result).toMatchObject({ status: "conflict", rolledBack: true, journal: join(f.root, ".lawoss/naming-history/op-1/journal.json") });
+      expect(result.message).toContain("03_Drafty/old.PDF");
+      for (const [path, sha] of Object.entries(before)) if (sha !== "directory") expect(hash(readFileSync(path))).toBe(sha);
+      for (const doc of plan.documents) expect(existsSync(join(f.root, doc.target.path))).toBe(false);
+      expect(JSON.parse(readFileSync(join(f.root, ".lawoss/naming-history/op-1/failure.json"), "utf8")).status).toBe("rolled-back");
+      // Rovnaké operationId už nesie journal: ďalší pokus potrebuje nový náhľad.
+      expect(applyDocumentNaming(f.root, plan).status).toBe("recovery-required");
+    }
+    // Zámok záznamu v `.lawoss` nie je dokument advokáta a ostáva recovery-required.
+    const g = fixture(), plan = planDocumentNaming(g.root, g.request);
+    expect(applyDocumentNaming(g.root, plan, { checkpoint(stage) { if (stage === "target-created") throw locked(join(g.root, ".lawoss/naming-history/op-1/target-1.json")); } }).status).toBe("recovery-required");
+  });
+  test("lock rolled back only when every restoration succeeded", () => {
+    const f = fixture(), plan = planDocumentNaming(f.root, f.request);
+    const result = applyDocumentNaming(f.root, plan, { checkpoint(stage, path) { if (stage === "markdown-installed") { writeFileSync(join(f.root, path!), "external newer note"); throw locked(join(f.root, "03_Drafty/old.PDF")); } } });
+    expect(result.status).toBe("recovery-required"); expect(result.rolledBack).toBeUndefined();
+    expect(readFileSync(join(f.root, "notes/note.md"), "utf8")).toBe("external newer note");
+  });
+  test("rename retries only on Windows lock errors and stays bounded", () => {
+    const busy = () => Object.assign(new Error("EBUSY"), { code: "EBUSY" });
+    let calls = 0, waits = 0;
+    renameWithRetry("a", "b", "win32", () => { if (++calls < 3) throw busy(); }, () => { waits++; });
+    expect({ calls, waits }).toEqual({ calls: 3, waits: 2 });
+    calls = 0; waits = 0;
+    expect(() => renameWithRetry("a", "b", "win32", () => { calls++; throw busy(); }, () => { waits++; })).toThrow("EBUSY");
+    expect({ calls, waits }).toEqual({ calls: 10, waits: 9 });
+    calls = 0;
+    expect(() => renameWithRetry("a", "b", "linux", () => { calls++; throw busy(); }, () => { throw new Error("no wait"); })).toThrow("EBUSY");
+    expect(calls).toBe(1);
+    calls = 0;
+    expect(() => renameWithRetry("a", "b", "win32", () => { calls++; throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); }, () => { throw new Error("no wait"); })).toThrow("ENOENT");
+    expect(calls).toBe(1);
+  });
+  // Skutočný zámok Windows: Word nechá dokument čítať (`Read`), zapisovať ani mazať nie; Outlook ani čítať (`None`).
+  for (const share of ["Read", "None"] as const) test.skipIf(process.platform !== "win32")(`Windows: a document held open (share ${share}) is a conflict with zero writes`, async () => {
+    const f = fixture(), plan = planDocumentNaming(f.root, f.request), before = tree(f.base);
+    const release = await holdWindowsFileLock(join(f.root, "03_Drafty/old.PDF"), share);
+    try {
+      const result = applyDocumentNaming(f.root, plan);
+      expect(result.status).toBe("conflict"); expect(result.message).toContain("03_Drafty/old.PDF");
+      expect(tree(f.base)).toEqual(before);
+    } finally { await release(); }
+    expect(applyDocumentNaming(f.root, plan).status).toBe("applied");
+  }, 60_000);
 
 });
