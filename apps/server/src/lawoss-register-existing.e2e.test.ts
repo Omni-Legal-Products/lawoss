@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, mkdir, realpath, rm, writeFile, readdir, readFile, lstat, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, writeFile, readdir, readFile, lstat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { startServer } from "./server.js";
 import { resolveServerConfig } from "./config.js";
 import { auditLogPath } from "./audit.js";
@@ -9,6 +9,7 @@ import { renameRegisteredWorkspace } from "./routes/workspaces.js";
 import { workspaceIdForPath } from "./workspaces.js";
 import type { ServerConfig } from "./types.js";
 import { externalAppFilesRoot } from "./lawoss/workspace-app-files.js";
+import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
 
 const previous = { data: process.env.LEGALWORK_DATA_DIR, tokens: process.env.LEGALWORK_TOKEN_STORE };
 const cleanups: (() => Promise<void>)[] = [];
@@ -20,7 +21,7 @@ afterEach(async () => {
 });
 async function fixture() {
   const base = await realpath(await mkdtemp(join(tmpdir(), "lawoss-register-")));
-  cleanups.push(() => rm(base, { recursive: true, force: true }));
+  cleanups.push(() => removeTestDir(base));
   const office = join(base, "office"), matter = join(office, "AK/S/A/Spisy/A");
   await mkdir(join(matter, ".lawoss"), { recursive: true });
   await writeFile(join(matter, "matter.md"), "Synthetic existing matter\n");
@@ -32,7 +33,7 @@ async function fixture() {
   return { base, url: `http://127.0.0.1:${server.port}`, config, office, matter, register };
 }
 async function snapshot(root: string) {
-  return Promise.all((await readdir(root, { recursive: true })).sort().map(async path => ({ path, bytes: (await lstat(join(root, path))).isFile() ? (await readFile(join(root, path))).toString("hex") : null })));
+  return Promise.all((await readdir(root, { recursive: true })).sort().map(async path => ({ path: path.replaceAll(sep, "/"), bytes: (await lstat(join(root, path))).isFile() ? (await readFile(join(root, path))).toString("hex") : null })));
 }
 test("host registers exact existing child with deterministic ID, persistence, audit and zero matter changes", async () => {
   const f = await fixture(), before = await snapshot(f.matter);
@@ -179,7 +180,7 @@ const symlinksAvailable = await (async () => {
       console.warn("Skipping existing-registration symlink case: filesystem does not permit symlink creation."); return false;
     }
     throw error;
-  } finally { await rm(base, { recursive: true, force: true }); }
+  } finally { await removeTestDir(base); }
 })();
 test.skipIf(!symlinksAvailable)("existing registration rejects a symlink alias without modifying the target", async () => {
   const f = await fixture(), before = await snapshot(f.matter), alias = join(f.base, "alias");

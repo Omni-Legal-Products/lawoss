@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,6 +11,7 @@ import { legalworkRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from 
 import { writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
 import { EIGENWELT_ACCOUNT_ENV, eigenweltAccountEnabled } from "./commercial-services.js";
+import { removeTestDir } from "./test-support/remove-test-dir.js";
 
 const preloaded = process.env[EIGENWELT_ACCOUNT_ENV];
 const previousDb = process.env.LEGALWORK_RUNTIME_DB;
@@ -25,7 +26,7 @@ afterEach(async () => {
   else process.env.LEGALWORK_RUNTIME_DB = previousDb;
   globalThis.fetch = originalFetch;
   requests.length = 0;
-  while (roots.length) await rm(roots.pop()!, { recursive: true, force: true });
+  while (roots.length) await removeTestDir(roots.pop()!);
 });
 
 /** Stav, ktorý by zostal po prihlásení do Eigenweltu v inštalácii LegalWorku. */

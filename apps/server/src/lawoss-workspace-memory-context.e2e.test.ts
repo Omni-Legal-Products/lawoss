@@ -1,17 +1,18 @@
 // Route GET /workspace/:id/lawoss/memory/context: kontext pamäte pre agenta (granty, profil, handoff) bez obsahu súborov.
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 import { externalAppFilesRoot, externalMemoryProfilePath } from "./lawoss/workspace-app-files.js";
+import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
 
 const priorData = process.env.LEGALWORK_DATA_DIR, priorTokens = process.env.LEGALWORK_TOKEN_STORE;
 const roots: string[] = [], stops: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
   for (const stop of stops.splice(0)) await stop();
-  for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
+  for (const root of roots.splice(0)) await removeTestDir(root);
   if (priorData === undefined) delete process.env.LEGALWORK_DATA_DIR; else process.env.LEGALWORK_DATA_DIR = priorData;
   if (priorTokens === undefined) delete process.env.LEGALWORK_TOKEN_STORE; else process.env.LEGALWORK_TOKEN_STORE = priorTokens;
 });
