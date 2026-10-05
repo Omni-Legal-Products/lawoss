@@ -1,4 +1,5 @@
 import type { OnboardingApi } from "../../lawoss/domains/onboarding/api";
+import type { TriageApiPath } from "../../lawoss/domains/roztriedenie/api";
 import type { WorkspaceMemoryStatus } from "../../../../../lawoss/okf-handoff/workspace-memory-status.mjs";
 export type { WorkspaceMemoryStatus as LegalworkWorkspaceMemoryStatus } from "../../../../../lawoss/okf-handoff/workspace-memory-status.mjs";
 import type { RemoteFolderSelection, ProjectRemoteFolderStatus } from "@legalwork/types/workspace";
@@ -1760,6 +1761,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     planOnboarding: (input: Parameters<OnboardingApi["planOnboarding"]>[0]): ReturnType<OnboardingApi["planOnboarding"]> => requestJson(baseUrl, "/lawoss/onboarding/plan", { token, hostToken, method: "POST", body: input, timeoutMs: 120_000 }),
     recoverOnboarding: (input: Parameters<NonNullable<OnboardingApi["recoverOnboarding"]>>[0]): Promise<unknown> => requestJson(baseUrl, "/lawoss/onboarding/recover", { token, hostToken, method: "POST", body: input, timeoutMs: 180_000 }),
     applyOnboarding: (input: Parameters<OnboardingApi["applyOnboarding"]>[0]): ReturnType<OnboardingApi["applyOnboarding"]> => requestJson(baseUrl, "/lawoss/onboarding/apply", { token, hostToken, method: "POST", body: input, timeoutMs: 180_000 }),
+    lawossTriage: <T,>(path: TriageApiPath, body: unknown): Promise<T> => requestJson<T>(baseUrl, `/lawoss/triage/${path}`, { token, hostToken, method: "POST", body, timeoutMs: 600_000 }),
     createLocalWorkspace: (payload: { folderPath?: string; folderMode?: "default" | "selected"; name: string; preset: string; registerExisting?: boolean; appFiles?: "inside" | "outside"; projectFields?: ProjectField[]; remoteFolders?: RemoteFolderSelection[]; initializeFromFolders?: boolean; fromRemoteFolder?: boolean }) =>
       requestJson<WorkspaceList>(baseUrl, "/workspaces/local", {
         token,

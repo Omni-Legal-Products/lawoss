@@ -45,6 +45,7 @@ import { UNSAFE_FOLDER_NAME_MESSAGE } from "../../../../../../lawoss/okf/src/onb
 import { LawossWordmark } from "../../shell/wordmark";
 import lawossMark from "../../../../../../lawoss/brand/lawoss-mark.svg";
 import "./onboarding.css";
+import { TriageEntry } from "../roztriedenie/triage-entry";
 
 /** Jazyky rozhrania v poradí LAWOSS (SK, CS, EN, DE) s pôvodnými názvami namiesto kódov. */
 const UI_LANGUAGE_ORDER: readonly Language[] = ["sk", "cs", "en", "de"];
@@ -1664,6 +1665,7 @@ export function Matter({
         <div className="lw-status warn">
           <FileWarning className="mb-2 size-5" />
           <p>{tr("trial")}</p>
+          {root ? <TriageEntry root={root} className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium underline underline-offset-4" /> : null}
           <label className="mt-3 flex gap-2 text-sm">
             <input
               type="checkbox"

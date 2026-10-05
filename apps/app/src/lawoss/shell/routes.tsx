@@ -10,6 +10,8 @@ import { NovySpisPage } from "../domains/novy-spis/novy-spis-page";
 import { PrehladPage } from "../domains/prehlad/prehlad-page";
 import { SpisPage } from "../domains/spis/spis-page";
 import { PrveNastaveniePage } from "../domains/onboarding/prve-nastavenie-page";
+import { TriagePage } from "../domains/roztriedenie/triage-page";
+import { TRIAGE_PATH } from "../domains/roztriedenie/api";
 import { TodayPage } from "../lite/pages/today-page";
 import { ClientsPage } from "../lite/pages/clients-page";
 import { LiteMatterPage } from "../lite/pages/matter-page";
@@ -37,6 +39,8 @@ export const LAWOSS_ROUTES: ReadonlyArray<{ path: string; element: ReactElement;
   { path: LITE_TODAY_PATH, element: <TodayPage />, title: "lawoss.lite.nav_today" },
   { path: LITE_CLIENTS_PATH, element: <ClientsPage />, title: "lawoss.lite.nav_clients" },
   { path: LITE_MATTER_PATH, element: <LiteMatterPage />, title: "lawoss.lite.nav_clients" },
+  // Roztriedenie dokumentov v skúšobnom klone (alfa): vstup z Klientov a z onboardingu po vytvorení klona.
+  { path: TRIAGE_PATH, element: <TriagePage />, title: "lawoss.triage.title" },
 ];
 
 /** Header title for a LAWOSS screen in the shared shell, so it never reads as a chat. */
