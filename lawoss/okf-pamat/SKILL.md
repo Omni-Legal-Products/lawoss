@@ -17,9 +17,9 @@ Kancelária je priečinok `Office/` s `okf.config` (trvalé poverenie advokáta)
 `AK/<písmeno>/<klient>/Spisy/<vec>` je predvolený profil. Klienta určuje karta
 `client.md` / `klient.md` v nadradenom priečinku alebo `client_path` v konfigurácii.
 Skill aj CLI fungujú nad obyčajnými Markdown súbormi bez LAWOSS aj bez Obsidianu. Návrh
-záznamu (`--file`) píš mimo spis (do dočasného priečinka systému, na Windows `%TEMP%`)
-alebo ho po zápise zmaž — do spisu patrí iba to, čo prešlo bránou. Ak `node` nie je
-k dispozícii, **zastav sa a povedz to**.
+záznamu (`--file`) píš mimo spis (do dočasného priečinka systému, na Windows `%TEMP%`,
+v PowerShelli `$env:TEMP`) alebo ho po zápise zmaž — do spisu patrí iba to, čo prešlo
+bránou. Ak `node` nie je k dispozícii, **zastav sa a povedz to**.
 
 ## Existujúca súborová pamäť: profil má prednosť
 
