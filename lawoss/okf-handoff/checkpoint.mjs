@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { runCli } from "../okf-pamat/src/cli.ts";
 import { findClientDir, findOfficeDir, findSubjectDir } from "../okf-pamat/src/store.ts";
 import { checkedDirectory, contained } from "../okf-pamat/src/workspace-memory-fs.ts";
+import { decodeText } from "../okf-pamat/src/text-decode.ts";
 
 import { createWorkspaceHandoff, hasWorkspaceBinding, workspaceProfilePresent } from "./workspace-checkpoint.mjs";
 
@@ -24,7 +25,8 @@ function matterBinding(directory) {
     const contents = cards.map((name) => {
       const path = join(root, name);
       if (!lstatSync(path).isFile()) throw new Error("Matter card must be a regular file");
-      return readFileSync(path, "utf8");
+      // Karta uložená na Windows s BOM alebo v UTF-16 je stále karta veci, nie dôvod mlčky vypnúť handoff.
+      return decodeText(readFileSync(path));
     });
     if (contents.some((text, index) => {
       const header = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text)?.[1];
