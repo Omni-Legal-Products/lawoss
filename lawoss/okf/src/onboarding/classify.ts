@@ -41,6 +41,43 @@ const MEMORY_FILES = new Set(["MEMORY.md", "_memory.md", "_STATUS.md", "BRAIN.md
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 const errorCode = (error: unknown): string => error && typeof error === "object" && "code" in error ? String(error.code) : "read_failed";
 
+/**
+ * Plytká kontrola priečinka, do ktorého onboarding len pridáva nové položky
+ * (kancelária, klient, subjekt, vec). Zaznamená mená a druhy položiek najvyššej
+ * úrovne, nič nečíta, nehashuje a odkazy nesleduje. Rekurzívny sken by zlyhal
+ * pri bežnom rodičovi: v Dokumentoch na Windows sú skryté junctions (My Music,
+ * My Pictures, My Videos), v profile ďalšie, a veľký priečinok narazí na limit
+ * 10 000 položiek či 1 GB. Zápis stráži transakcia: cieľ nesmie existovať
+ * (aj bez ohľadu na veľkosť písmen) a rodič nesmie byť symbolický odkaz.
+ */
+export async function inspectOnboardingParent(root: string, limits: Pick<InspectionLimits, "maxEntries"> = {}): Promise<OnboardingInspection> {
+  const maxEntries = limits.maxEntries ?? 10_000;
+  if (!Number.isSafeInteger(maxEntries) || maxEntries <= 0) throw new Error("Invalid inspection limits.");
+  const result: OnboardingInspection = { root: resolve(root), level: "unknown", confidence: "unknown", complete: true, digest: null, entries: [], memorySources: [], issues: [] };
+  const problem = (path: string, code: string) => { result.complete = false; result.issues.push({ path, code }); };
+  try {
+    if (!isAbsolute(root) || await realpath(root) !== resolve(root) || !(await lstat(root)).isDirectory()) {
+      problem("", "canonical_directory_required"); return result;
+    }
+    const names = (await readdir(result.root)).sort();
+    if (names.length > maxEntries) { problem("", "entry_limit"); return result; }
+    for (const name of names) {
+      try {
+        const state = await lstat(join(result.root, name));
+        const kind = state.isSymbolicLink() ? "symlink" : state.isDirectory() ? "directory" : state.isFile() ? "file" : "unsupported";
+        result.entries.push({ path: name, kind, digest: null, size: 0 });
+      } catch (error) {
+        // Windows: systémovú položku (System Volume Information) nemusí byť možné ani lstat-nuť; meno stačí.
+        const code = errorCode(error);
+        if (code === "EPERM" || code === "EACCES" || code === "EBUSY") result.entries.push({ path: name, kind: "unsupported", digest: null, size: 0 });
+        else problem(name, code);
+      }
+    }
+  } catch (error) { problem("", errorCode(error)); return result; }
+  if (result.complete) result.digest = sha(JSON.stringify(result.entries));
+  return result;
+}
+
 /** Read-only inspection. Partial scans never produce a digest usable by apply. */
 export async function inspectOnboardingRoot(root: string, limits: InspectionLimits = {}): Promise<OnboardingInspection> {
   const maxEntries = limits.maxEntries ?? 10_000;

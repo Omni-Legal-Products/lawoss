@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
-import { lstat, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { symlinkSync } from "node:fs";
+import { lstat, mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
@@ -28,6 +29,28 @@ test("plans and applies new office and every client type without overwrite opera
     await applyOnboarding(preview, await options());
     expect(await readFile(join(parent, clientType, "client.md"), "utf8")).toContain(`client_type: ${clientType}`);
   }
+});
+
+// Windows: Dokumenty obsahujú skryté junctions (My Music, My Pictures, My Videos). Typ
+// "junction" vytvorí na Windows skutočný junction bez práv správcu, inde symlink.
+test("an office can be created in a parent with junctions and deep content; only top-level changes block apply", async () => {
+  const parent = await directory("okf-parent-documents-");
+  const music = await directory("okf-music-");
+  symlinkSync(music, join(parent, "My Music"), "junction");
+  await mkdir(join(parent, "Zmluvy", "2025", "staré"), { recursive: true });
+  await writeFile(join(parent, "Zmluvy", "2025", "staré", "návrh.docx"), "x");
+  const office = await planOnboarding(parseOnboardingRequest({ action: "office", parent, title: "Office", jurisdiction: "cz", language: "cs", lawyerName: "M" }));
+  if (office.mode !== "new") throw new Error("Expected new office plan.");
+  expect(office.plan.scope).toBe("parent");
+  await writeFile(join(parent, "Zmluvy", "2025", "nový.docx"), "y"); // hlboká zmena (napr. synchronizácia) neblokuje
+  await applyOnboarding(office, await options());
+  expect(await readFile(join(parent, "Office/okf.config"), "utf8")).toContain("jurisdiction: cz");
+  expect((await lstat(join(parent, "My Music"))).isSymbolicLink()).toBe(true);
+  expect(await readdir(music)).toEqual([]);
+
+  const client = await planOnboarding(parseOnboardingRequest({ action: "client", parent, name: "Novak", title: "Novák", clientType: "fo", jurisdiction: "cz", date: "2026-10-05", language: "cs" }));
+  await writeFile(join(parent, "nový na vrchu.txt"), "z"); // zmena najvyššej úrovne medzi náhľadom a zápisom
+  await expect(applyOnboarding(client, await options())).rejects.toThrow(/changed since planning/);
 });
 
 test("subject and both matter kinds carry additive identity fields", async () => {

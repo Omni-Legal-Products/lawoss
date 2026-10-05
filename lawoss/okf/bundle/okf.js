@@ -69,6 +69,46 @@ var APP_FILE_DIRECTORIES = new Set([".opencode"]);
 var MEMORY_FILES = new Set(["MEMORY.md", "_memory.md", "_STATUS.md", "BRAIN.md", ".lawoss/memory-profile.json"]);
 var sha = (value) => createHash("sha256").update(value).digest("hex");
 var errorCode = (error) => error && typeof error === "object" && ("code" in error) ? String(error.code) : "read_failed";
+async function inspectOnboardingParent(root, limits = {}) {
+  const maxEntries = limits.maxEntries ?? 1e4;
+  if (!Number.isSafeInteger(maxEntries) || maxEntries <= 0)
+    throw new Error("Invalid inspection limits.");
+  const result = { root: resolve(root), level: "unknown", confidence: "unknown", complete: true, digest: null, entries: [], memorySources: [], issues: [] };
+  const problem = (path, code) => {
+    result.complete = false;
+    result.issues.push({ path, code });
+  };
+  try {
+    if (!isAbsolute(root) || await realpath(root) !== resolve(root) || !(await lstat(root)).isDirectory()) {
+      problem("", "canonical_directory_required");
+      return result;
+    }
+    const names = (await readdir(result.root)).sort();
+    if (names.length > maxEntries) {
+      problem("", "entry_limit");
+      return result;
+    }
+    for (const name of names) {
+      try {
+        const state = await lstat(join(result.root, name));
+        const kind = state.isSymbolicLink() ? "symlink" : state.isDirectory() ? "directory" : state.isFile() ? "file" : "unsupported";
+        result.entries.push({ path: name, kind, digest: null, size: 0 });
+      } catch (error) {
+        const code = errorCode(error);
+        if (code === "EPERM" || code === "EACCES" || code === "EBUSY")
+          result.entries.push({ path: name, kind: "unsupported", digest: null, size: 0 });
+        else
+          problem(name, code);
+      }
+    }
+  } catch (error) {
+    problem("", errorCode(error));
+    return result;
+  }
+  if (result.complete)
+    result.digest = sha(JSON.stringify(result.entries));
+  return result;
+}
 async function inspectOnboardingRoot(root, limits = {}) {
   const maxEntries = limits.maxEntries ?? 1e4;
   const maxBytes = limits.maxBytes ?? 1024 * 1024 * 1024;
@@ -2007,6 +2047,8 @@ var isRecord = (value) => value !== null && typeof value === "object" && !Array.
 function parseOnboardingPlan(value) {
   if (!isRecord(value) || value.version !== 1 || typeof value.root !== "string" || !isAbsolute2(value.root) || typeof value.treeDigest !== "string" || !/^[a-f0-9]{64}$/.test(value.treeDigest) || !Array.isArray(value.operations))
     fail("schema");
+  if (value.scope !== undefined && value.scope !== "parent")
+    fail("scope");
   const operations = [];
   if (value.operations.length > 1e4)
     fail("too many operations");
@@ -2042,7 +2084,7 @@ function parseOnboardingPlan(value) {
     } else
       operations.push({ path, kind: "directory" });
   });
-  return { version: 1, root: value.root, treeDigest: value.treeDigest, operations };
+  return { version: 1, root: value.root, treeDigest: value.treeDigest, operations, ...value.scope === "parent" ? { scope: "parent" } : {} };
 }
 async function canonicalDirectory(value, label) {
   if (!isAbsolute2(value))
@@ -2189,8 +2231,8 @@ async function verifyCreated(root, operations, created) {
       throw new Error(`Owned entry changed: ${operation.path}`);
   }
 }
-async function verifyBaseline(root, baseline, owned) {
-  const inspection = await inspectOnboardingRoot(root);
+async function verifyBaseline(root, baseline, owned, scope) {
+  const inspection = await inspectDigest(root, scope);
   if (!inspection.complete)
     throw new Error("Root changed or contains unsafe entries.");
   const actual = inspection.entries.filter((entry) => !owned.has(entry.path));
@@ -2299,8 +2341,8 @@ async function lock(root) {
       await rm(path, { force: true });
   };
 }
-async function inspectDigest(root) {
-  return inspectOnboardingRoot(root);
+async function inspectDigest(root, scope) {
+  return scope === "parent" ? inspectOnboardingParent(root) : inspectOnboardingRoot(root);
 }
 async function applyOnboardingPlan(plan, journalDirectory) {
   const prepared = await context(plan, journalDirectory);
@@ -2322,7 +2364,7 @@ async function applyOnboardingPlan(plan, journalDirectory) {
       if (stored.identity !== identity || JSON.stringify(stored.plan) !== JSON.stringify(plan))
         throw new Error("Journal identity mismatch.");
     } else {
-      const inspection = await inspectDigest(root);
+      const inspection = await inspectDigest(root, plan.scope);
       if (!inspection.complete || inspection.digest !== plan.treeDigest)
         throw new Error("Onboarding root changed since planning.");
       stored = { version: 1, identity, plan, baseline: inspection.entries };
@@ -2343,7 +2385,7 @@ async function applyOnboardingPlan(plan, journalDirectory) {
       throw new Error("Incomplete onboarding transaction requires recovery.");
     if (!stored)
       throw new Error("Journal was not initialized.");
-    await verifyBaseline(root, stored.baseline, new Set(created.keys()));
+    await verifyBaseline(root, stored.baseline, new Set(created.keys()), plan.scope);
     await preflight(root, plan, stored.baseline);
     for (const operation of plan.operations) {
       await noSymlinkRoot(root);
@@ -2392,7 +2434,7 @@ async function recoverOnboardingPlan(plan, journalDirectory, action) {
       }
     }
     await verifyCreated(root, plan.operations, created);
-    await verifyBaseline(root, stored.baseline, new Set(created.keys()));
+    await verifyBaseline(root, stored.baseline, new Set(created.keys()), plan.scope);
     if (events.some((event) => event.type === "rolled_back")) {
       if (action === "rollback")
         return { status: "rolled_back", created: [] };
@@ -2590,10 +2632,10 @@ async function rootPlan(root, operations) {
   const canonical = await realpath4(root);
   if (canonical !== resolve5(root) || !(await lstat4(canonical)).isDirectory())
     throw new Error("Parent must be a canonical existing directory.");
-  const inspection = await inspectOnboardingRoot(canonical);
+  const inspection = await inspectOnboardingParent(canonical);
   if (!inspection.complete || !inspection.digest)
     throw new Error("Parent could not be inspected completely.");
-  return { version: 1, root: canonical, treeDigest: inspection.digest, operations };
+  return { version: 1, root: canonical, treeDigest: inspection.digest, operations, scope: "parent" };
 }
 var directory = (path) => ({ path, kind: "directory" });
 var file = (path, content) => ({ path, kind: "file", content });
@@ -2692,7 +2734,7 @@ async function planNewMatter(request) {
   const client = await inspectOnboardingRoot(clientRoot);
   if (!client.complete || client.level !== "client")
     throw new Error("Matter client root must be an inspected client.");
-  const inspected = await inspectOnboardingRoot(request.parent);
+  const inspected = await inspectOnboardingParent(request.parent);
   if (!inspected.complete)
     throw new Error("Matter parent could not be inspected completely.");
   const existingMatters = inspected.entries.find((entry) => entry.path === MATTERS_DIR);

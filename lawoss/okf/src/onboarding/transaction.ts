@@ -3,10 +3,15 @@ import { constants } from "node:fs";
 import { lstat, mkdir, open, readFile, realpath, readdir, rm, rmdir } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { inspectOnboardingRoot, type OnboardingInspection, type TreeEntry } from "./classify.ts";
+import { inspectOnboardingParent, inspectOnboardingRoot, type OnboardingInspection, type TreeEntry } from "./classify.ts";
 
 export type CreateOperation = { path: string; kind: "file" | "directory"; content?: string };
-export type OnboardingPlan = { version: 1; root: string; treeDigest: string; operations: CreateOperation[] };
+/**
+ * `scope: "parent"`: plán len pridáva nové položky do priečinka (kancelária, klient,
+ * subjekt, vec), otlačok aj kontrola počas zápisu sú plytké (`inspectOnboardingParent`).
+ * Bez `scope` platí rekurzívny otlačok celého stromu (prevod, klon).
+ */
+export type OnboardingPlan = { version: 1; root: string; treeDigest: string; operations: CreateOperation[]; scope?: "parent" };
 export type ApplyResult = { status: "applied" | "already_applied" | "rolled_back"; created: string[] };
 type Journal = { version: 1; identity: string; plan: OnboardingPlan; baseline: TreeEntry[] };
 type Event = { type: "intent" | "created" | "remove_intent" | "removed" | "completed" | "rollback_started" | "rolled_back"; path?: string; kind?: CreateOperation["kind"]; digest?: string; identity?: string };
@@ -29,6 +34,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => value !==
 
 export function parseOnboardingPlan(value: unknown): OnboardingPlan {
   if (!isRecord(value) || value.version !== 1 || typeof value.root !== "string" || !isAbsolute(value.root) || typeof value.treeDigest !== "string" || !/^[a-f0-9]{64}$/.test(value.treeDigest) || !Array.isArray(value.operations)) fail("schema");
+  if (value.scope !== undefined && value.scope !== "parent") fail("scope");
   const operations: CreateOperation[] = [];
   if (value.operations.length > 10_000) fail("too many operations");
   const seen = new Map<string, number>();
@@ -54,7 +60,7 @@ export function parseOnboardingPlan(value: unknown): OnboardingPlan {
       operations.push({ path, kind: "file", content });
     } else operations.push({ path, kind: "directory" });
   });
-  return { version: 1, root: value.root, treeDigest: value.treeDigest, operations };
+  return { version: 1, root: value.root, treeDigest: value.treeDigest, operations, ...(value.scope === "parent" ? { scope: "parent" as const } : {}) };
 }
 async function canonicalDirectory(value: string, label: string): Promise<string> {
   if (!isAbsolute(value)) throw new Error(`${label} must be absolute.`);
@@ -159,8 +165,8 @@ async function verifyCreated(root: string, operations: readonly CreateOperation[
     if (await targetState(root, operation) !== "correct" || event.identity !== await entryIdentity(join(root, operation.path), operation.kind)) throw new Error(`Owned entry changed: ${operation.path}`);
   }
 }
-async function verifyBaseline(root: string, baseline: readonly TreeEntry[], owned: ReadonlySet<string>): Promise<void> {
-  const inspection = await inspectOnboardingRoot(root);
+async function verifyBaseline(root: string, baseline: readonly TreeEntry[], owned: ReadonlySet<string>, scope?: OnboardingPlan["scope"]): Promise<void> {
+  const inspection = await inspectDigest(root, scope);
   if (!inspection.complete) throw new Error("Root changed or contains unsafe entries.");
   const actual = inspection.entries.filter(entry => !owned.has(entry.path));
   if (JSON.stringify(actual) !== JSON.stringify(baseline)) throw new Error("Onboarding root changed during transaction.");
@@ -225,7 +231,7 @@ async function lock(root: string): Promise<() => Promise<void>> {
   try { await handle.writeFile(JSON.stringify(owner)); await handle.sync(); await durableDirectory(locks); } catch (error) { await handle.close(); await rm(path, { force: true }); throw error; }
   return async () => { await handle.close(); const current = JSON.parse(await readFile(path, "utf8")); if (isRecord(current) && current.token === owner.token) await rm(path, { force: true }); };
 }
-async function inspectDigest(root: string): Promise<OnboardingInspection> { return inspectOnboardingRoot(root); }
+async function inspectDigest(root: string, scope?: OnboardingPlan["scope"]): Promise<OnboardingInspection> { return scope === "parent" ? inspectOnboardingParent(root) : inspectOnboardingRoot(root); }
 
 /**
  * Filesystem checks narrow races but cannot make a hostile filesystem race-proof.
@@ -248,7 +254,7 @@ export async function applyOnboardingPlan(plan: OnboardingPlan, journalDirectory
     if (stored) {
       if (stored.identity !== identity || JSON.stringify(stored.plan) !== JSON.stringify(plan)) throw new Error("Journal identity mismatch.");
     } else {
-      const inspection = await inspectDigest(root);
+      const inspection = await inspectDigest(root, plan.scope);
       if (!inspection.complete || inspection.digest !== plan.treeDigest) throw new Error("Onboarding root changed since planning.");
       stored = { version: 1, identity, plan, baseline: inspection.entries };
       await createJournal(journalPath, stored);
@@ -260,7 +266,7 @@ export async function applyOnboardingPlan(plan: OnboardingPlan, journalDirectory
     if (events.some(event => event.type === "completed")) { await verifyCreated(root, plan.operations, created); if (created.size !== plan.operations.length) throw new Error("Incomplete completed journal."); return { status: "already_applied", created: [...created.keys()] }; }
     if (events.length) throw new Error("Incomplete onboarding transaction requires recovery.");
     if (!stored) throw new Error("Journal was not initialized.");
-    await verifyBaseline(root, stored.baseline, new Set(created.keys()));
+    await verifyBaseline(root, stored.baseline, new Set(created.keys()), plan.scope);
     await preflight(root, plan, stored.baseline);
     for (const operation of plan.operations) {
       await noSymlinkRoot(root);
@@ -303,7 +309,7 @@ export async function recoverOnboardingPlan(plan: OnboardingPlan, journalDirecto
       }
     }
     await verifyCreated(root, plan.operations, created);
-    await verifyBaseline(root, stored.baseline, new Set(created.keys()));
+    await verifyBaseline(root, stored.baseline, new Set(created.keys()), plan.scope);
     if (events.some(event => event.type === "rolled_back")) {
       if (action === "rollback") return { status: "rolled_back", created: [] };
       throw new Error("Onboarding transaction was rolled back.");

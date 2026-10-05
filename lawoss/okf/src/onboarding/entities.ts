@@ -1,7 +1,7 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, join, relative, resolve, sep } from "node:path";
-import { inspectOnboardingRoot } from "./classify.ts";
+import { inspectOnboardingParent, inspectOnboardingRoot } from "./classify.ts";
 import { applyOnboardingPlan, type ApplyResult, type CreateOperation, type OnboardingPlan } from "./transaction.ts";
 import { planEntity } from "../core.ts";
 import { LOCALIZED_TEMPLATES } from "../templates.ts";
@@ -37,9 +37,10 @@ const yaml = (value: string) => JSON.stringify(value);
 async function rootPlan(root: string, operations: CreateOperation[]): Promise<OnboardingPlan> {
   const canonical = await realpath(root);
   if (canonical !== resolve(root) || !(await lstat(canonical)).isDirectory()) throw new Error("Parent must be a canonical existing directory.");
-  const inspection = await inspectOnboardingRoot(canonical);
+  // Rodič sa len dopĺňa: plytký otlačok (Dokumenty na Windows majú skryté junctions, veľký priečinok limity).
+  const inspection = await inspectOnboardingParent(canonical);
   if (!inspection.complete || !inspection.digest) throw new Error("Parent could not be inspected completely.");
-  return { version: 1, root: canonical, treeDigest: inspection.digest, operations };
+  return { version: 1, root: canonical, treeDigest: inspection.digest, operations, scope: "parent" };
 }
 const directory = (path: string): CreateOperation => ({ path, kind: "directory" });
 const file = (path: string, content: string): CreateOperation => ({ path, kind: "file", content });
@@ -122,7 +123,7 @@ export async function planNewMatter(request: MatterRequest): Promise<CreatePrevi
   if (!contained(clientRoot, parentRoot)) throw new Error("Matter parent must be within the inspected client root.");
   const client = await inspectOnboardingRoot(clientRoot);
   if (!client.complete || client.level !== "client") throw new Error("Matter client root must be an inspected client.");
-  const inspected = await inspectOnboardingRoot(request.parent);
+  const inspected = await inspectOnboardingParent(request.parent);
   if (!inspected.complete) throw new Error("Matter parent could not be inspected completely.");
   const existingMatters = inspected.entries.find(entry => entry.path === MATTERS_DIR);
   if (existingMatters && existingMatters.kind !== "directory") throw new Error("Matter folder is blocked by a non-directory.");
