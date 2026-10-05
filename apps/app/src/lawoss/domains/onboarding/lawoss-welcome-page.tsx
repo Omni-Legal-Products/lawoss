@@ -1354,12 +1354,12 @@ export function parentFolderOf(path: string): string {
   const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
   if (cut <= 0) return "";
   const parent = trimmed.slice(0, cut);
-  // Windows: `D:` bez lomky je aktuálny priečinok disku, nie jeho koreň, a server ho
-  // odmietne; to isté platí pre koreň zdieľania `\\nas\Klienti`. Samotný server
-  // (`\\nas`) priečinok nie je, kópiu treba umiestniť ručne.
+  // Windows: `D:` bez lomky je aktuálny priečinok disku, nie jeho koreň (`join` z neho
+  // spraví relatívne `D:názov`). Koreň zdieľania `\\nas\Klienti` server odmietne
+  // s lomkou aj bez nej (realpath ju vynechá, resolve pridá; overené na runneri
+  // windows-2022 5. 10. 2026), preto ho nepredvyplníme a kópiu umiestni advokát.
   if (/^[A-Za-z]:$/.test(parent)) return `${parent}\\`;
-  if (/^(?:\\\\|\/\/)[^\\/]+$/.test(parent)) return "";
-  if (/^(?:\\\\|\/\/)[^\\/]+[\\/][^\\/]+$/.test(parent)) return `${parent}${trimmed[cut]}`;
+  if (/^(?:\\\\|\/\/)[^\\/]+(?:[\\/][^\\/]+)?$/.test(parent)) return "";
   return parent;
 }
 const folderName = (path: string) => path.trim().replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";

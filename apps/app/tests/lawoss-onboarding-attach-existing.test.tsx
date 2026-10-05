@@ -58,7 +58,7 @@ describe("connecting an existing client folder", () => {
     expect(parentFolderOf("/Users/test/Klienti/ACME/")).toBe("/Users/test/Klienti");
     expect(parentFolderOf("C:\\Klienti\\ACME")).toBe("C:\\Klienti");
     expect(parentFolderOf("D:\\ACME")).toBe("D:\\");
-    expect(parentFolderOf("\\\\nas\\Klienti\\ACME")).toBe("\\\\nas\\Klienti\\");
+    expect(parentFolderOf("\\\\nas\\Klienti\\ACME")).toBe("");
     expect(parentFolderOf("\\\\nas\\Klienti\\Novak\\ACME")).toBe("\\\\nas\\Klienti\\Novak");
     expect(parentFolderOf("\\\\nas\\Klienti")).toBe("");
     expect(trialCloneName("/Users/test/Klienti/ACME", "2026-10-05")).toBe("ACME (trial 2026-10-05)");

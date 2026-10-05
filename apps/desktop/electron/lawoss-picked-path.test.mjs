@@ -135,8 +135,8 @@ test("Windows: namapovaný sieťový disk (net use) prejde kontrolou až po výb
     const canonical = await canonicalPickedDirectory(picked);
     assert.notEqual(canonical, picked);
     assert.equal(await accepted(canonical), true);
-    // Koreň zdieľania (klient priamo v `\\nas\Klienti`): len záznam do logu, kým ho
-    // neoverí reálny NAS; parentFolderOf mu pridáva koncovú lomku.
+    // Koreň zdieľania: realpath vracia `\\server\share` bez lomky, resolve s lomkou, takže
+    // kontrola `realpath(x) === resolve(x)` ho odmietne (známe obmedzenie, zapísané v PR).
     for (const value of [share, `${share}\\`]) {
       const real = await realpath(value).catch((error) => `chyba ${error.code}`);
       t.diagnostic(`koreň zdieľania ${JSON.stringify(value)}: realpath ${JSON.stringify(real)}, resolve ${JSON.stringify(path.resolve(value))}`);
