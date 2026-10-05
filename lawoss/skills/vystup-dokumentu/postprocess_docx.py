@@ -12,8 +12,10 @@ Použití:
 """
 import sys
 import os
+import pathlib
 import shutil
 import subprocess
+import tempfile
 from docx import Document
 from docx.shared import Pt, Cm, RGBColor
 from docx.oxml.ns import qn
@@ -92,10 +94,20 @@ def add_table_borders(table):
     )
 
 def find_soffice():
-    """Najde binárku soffice na obvyklých cestách i v PATH."""
+    """Najde binárku soffice na obvyklých cestách i v PATH.
+
+    Instalátor LibreOffice pro Windows soffice do PATH nepřidává, proto i
+    %ProgramFiles% a %ProgramFiles(x86)%.
+    """
+    windows = [
+        os.path.join(os.environ[var], "LibreOffice", "program", "soffice.exe")
+        for var in ("ProgramFiles", "ProgramFiles(x86)")
+        if os.environ.get(var)
+    ]
     for cand in (
         os.path.expanduser("~/.local/bin/soffice"),
         "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+        *windows,
         shutil.which("soffice") or "",
         shutil.which("libreoffice") or "",
     ):
@@ -115,8 +127,8 @@ def export_pdf(docx_path):
         print("VAROVÁNÍ: soffice nenalezen - PDF nevygenerováno (.docx je hotový).")
         return None
     outdir = os.path.dirname(os.path.abspath(docx_path)) or "."
-    profile = "file://" + os.path.join(
-        os.environ.get("TMPDIR", "/tmp").rstrip("/"), "lo_pdf_profile")
+    # file:// URL z cesty platformy (na Windows file:///C:/.../Temp/..., mezery jako %20).
+    profile = pathlib.Path(tempfile.gettempdir(), "lo_pdf_profile").as_uri()
     cmd = [
         soffice, "--headless",
         f"-env:UserInstallation={profile}",
