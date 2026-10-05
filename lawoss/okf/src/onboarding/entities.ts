@@ -5,7 +5,7 @@ import { inspectOnboardingRoot } from "./classify.ts";
 import { applyOnboardingPlan, type ApplyResult, type CreateOperation, type OnboardingPlan } from "./transaction.ts";
 import { planEntity } from "../core.ts";
 import { LOCALIZED_TEMPLATES } from "../templates.ts";
-import { parseOfficeWorkingProfile, type WorkingProfile } from "../profile.ts";
+import { DEFAULT_FOLDER_ROLES, parseOfficeWorkingProfile, type WorkingProfile } from "../profile.ts";
 import { findOfficeDir } from "../../../okf-pamat/src/store.ts";
 import { UNSAFE_FOLDER_NAME_MESSAGE } from "./messages.ts";
 import { parseFrontmatter } from "../frontmatter.ts";
@@ -52,7 +52,11 @@ function templateOperations(prefix: string, entries: ReturnType<typeof planEntit
   }
   return operations;
 }
-const officeConfig = (request: OfficeRequest) => `version: 1\ntitle: ${yaml(request.title)}\njurisdiction: ${request.jurisdiction}\nlanguage: ${request.language}\nlawyer_name: ${yaml(request.lawyerName)}\nstanding_authorization: ${yaml(request.lawyerName)}\nclient_path: "Klienti/*"\nareas: ["Corporate", "IP", "Pracovne"]\nmatter_folders: ["00_Na_zatriedenie", "01_Podklady", "02_Resers", "03_Drafty", "04_Vystupy", "05_Komunikacia"]\n`;
+/** Pracovné priečinky novej veci aj ich roly výslovne; bez rolí by sa do založenej veci nedalo nič zaradiť. */
+const officeConfig = (request: OfficeRequest) => {
+  const roles = DEFAULT_FOLDER_ROLES[request.language];
+  return `version: 1\ntitle: ${yaml(request.title)}\njurisdiction: ${request.jurisdiction}\nlanguage: ${request.language}\nlawyer_name: ${yaml(request.lawyerName)}\nstanding_authorization: ${yaml(request.lawyerName)}\nclient_path: "Klienti/*"\nareas: ["Corporate", "IP", "Pracovne"]\nmatter_folders: ${JSON.stringify(Object.values(roles))}\nfolder_roles: ${JSON.stringify(roles)}\n`;
+};
 
 export async function planOffice(request: OfficeRequest): Promise<CreatePreview> {
   const name = safeSegment(request.name ?? "Office");

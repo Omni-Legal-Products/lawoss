@@ -115,7 +115,11 @@ export async function scanTriage(rootInput: string, options: { trialJournalDirec
   const jurisdiction = options.jurisdiction ?? (card.jurisdiction === "cz" || card.jurisdiction === "sk" ? card.jurisdiction : officeJurisdiction === "cz" || officeJurisdiction === "sk" ? officeJurisdiction : language === "cs" ? "cz" : "sk");
   const profileText = files.has(PROFILE_FILE) ? await readSmall(clone.root, PROFILE_FILE) : undefined;
   const profile = profileText ? parseWorkingProfile(profileText) : workingProfile(undefined, undefined, undefined, language);
-  const newMatterProfile = config !== undefined ? parseOfficeWorkingProfile(config, language) : undefined;
+  const officeProfile = config !== undefined ? parseOfficeWorkingProfile(config, language) : undefined;
+  // Kancelária s priečinkami bez rolí (starší vzor okf.config) by založila vec, do ktorej sa nedá nič
+  // zaradiť; nová vec vtedy dostane pracovný profil klienta, ktorý roly výslovne má (test 5. 10. 2026).
+  const newMatterProfile = officeProfile && Object.keys(officeProfile.roles).length ? officeProfile
+    : officeProfile && Object.keys(profile.roles).length ? { folders: profile.folders, roles: profile.roles, naming: profile.naming } : officeProfile;
 
   const directories = new Set(inspection.entries.filter(entry => entry.kind === "directory").map(entry => entry.path));
   const entityDirs = [...files.keys()].filter(path => path.includes("/") && CARD_NAMES.has(path.split("/").pop()!.toLowerCase())).map(path => path.split("/").slice(0, -1).join("/"));
@@ -126,6 +130,8 @@ export async function scanTriage(rootInput: string, options: { trialJournalDirec
     const fields = parseFrontmatter((await readSmall(clone.root, `${dir}/${cardName}`)) ?? "") ?? {};
     let roles: Record<string, string> = {};
     try { const text = await readSmall(clone.root, `${dir}/${PROFILE_FILE}`); if (text) roles = parseWorkingProfile(text).roles; } catch { roles = {}; }
+    // Vec bez rolí: výslovné roly klienta platia pre rovnako pomenované priečinky, ktoré vec naozaj má.
+    if (!Object.keys(roles).length) roles = Object.fromEntries(Object.entries(profile.roles).filter(([, folder]) => directories.has(`${dir}/${folder}`)));
     const caseKey = fields.spisova_znacka ? findCaseNumber(fields.spisova_znacka)?.key : undefined;
     matters.push({ id: `existing-${sha(dir).slice(0, 12)}`, path: dir, ...(fields.title ? { title: fields.title } : {}), ...(caseKey ? { caseKey } : {}), roles });
   }
