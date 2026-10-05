@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installCloudPlugin, readInstalledCloudPlugins } from "../cloud-plugins.js";
+import { installCloudPlugin, readInstalledCloudPlugins, type CloudPluginResolved } from "../cloud-plugins.js";
 import type { ServerConfig } from "../types.js";
 import { contentSha256, readProvenance } from "./plugin-provenance.js";
 
@@ -18,7 +18,7 @@ function serverConfig(root: string): ServerConfig {
   } satisfies ServerConfig;
 }
 
-const resolved = {
+const resolved: CloudPluginResolved = {
   plugin: { id: "github:Omni-Legal-Products/lawoss-marketplace#plugins/orsr", name: "orsr", description: "ORSR", updatedAt: null },
   memberships: [{
     configObjectId: "skill_1",
