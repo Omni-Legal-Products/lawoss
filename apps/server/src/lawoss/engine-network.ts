@@ -1,12 +1,12 @@
 /**
  * LAWOSS: engine (OpenCode) sa sám nespája s katalógom modelov, so zdieľaním
  * ani s aktualizáciou. Rozhodnutie MČ 5. 10. 2026: Eigenwelt nesmie byť aktívne
- * pripojený na appku; upstream predvolene sťahoval katalóg z
- * `models.eigenweltlabs.com` pri každom štarte a potom každú hodinu.
+ * pripojený na appku; upstream predvolene sťahoval katalóg zo zrkadla
+ * Eigenweltu pri každom štarte a potom každú hodinu.
  *
- * OpenCode 1.18.29 (overené v binárke): katalóg číta najprv z `OPENCODE_MODELS_PATH`,
- * potom zo snapshotu zabudovaného v binárke; sieť použije len vtedy, keď nemá ani
- * jedno a sťahovanie nie je vypnuté. Hodinovú obnovu vypína tá istá premenná
+ * OpenCode 1.18.29 (overené v binárke aj izolovaným behom): katalóg číta najprv
+ * z `OPENCODE_MODELS_PATH`, potom zo snapshotu zabudovaného v binárke. Popri tom
+ * ho hneď po štarte a potom každú hodinu obnovuje zo siete; to vypína
  * `OPENCODE_DISABLE_MODELS_FETCH`. Vynútenú obnovu volajú len príkazy CLI
  * `auth login` a `models --refresh`, nie `serve`, ktorý appka spúšťa.
  *

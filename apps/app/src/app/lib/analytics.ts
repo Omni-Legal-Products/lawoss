@@ -1,5 +1,5 @@
 /**
- * Product analytics for the LegalWork desktop app (PostHog, zero-dependency).
+ * Product analytics for the LegalWork desktop app (upstream: zero-dependency event batches).
  *
  * LAWOSS: analytika je natrvalo vypnutá (rozhodnutie MČ 5. 10. 2026). Modul
  * nemá kľúč, adresu ani sieťové volanie; udalosti len zrkadlí do lokálneho

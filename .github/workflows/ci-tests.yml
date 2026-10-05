@@ -124,6 +124,13 @@ jobs:
           pnpm --filter @legalwork/app typecheck
           pnpm --filter legalwork-server build
 
+      # LAWOSS: Eigenwelt nesmie byť aktívne pripojený a analytika je vypnutá
+      # natrvalo (MČ 5. 10. 2026). Na Linuxe kontroluje aj buildnutý server.
+      - name: LAWOSS guard against Eigenwelt and analytics
+        run: |
+          node lawoss/scripts/check-no-eigenwelt.mjs
+          node --test lawoss/scripts/check-no-eigenwelt.test.mjs
+
       - name: Run app unit tests
         run: pnpm --filter @legalwork/app test
 
