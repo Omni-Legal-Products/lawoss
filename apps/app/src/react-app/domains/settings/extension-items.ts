@@ -38,6 +38,12 @@ export type ExtensionItemBuildInput = {
   isBuiltInConnected: (entry: McpDirectoryInfo) => boolean;
 };
 
+// 🟡 LAWOSS: jedna platformová podmienka pre Nastavenia aj composer; composer by
+// inak na Windows ponúkal rozšírenie len pre macOS (Computer Use).
+export function isExtensionAvailableOnPlatform(entry: McpDirectoryInfo, platform: ExtensionItemBuildInput["platform"]) {
+  return !entry.extensionManifest?.platform || entry.extensionManifest.platform.includes(platform);
+}
+
 export function isToggleControlledExtension(entry: McpDirectoryInfo) {
   return entry.extensionManifest?.enablement?.some((condition) => condition.type === "toggle-enabled") === true;
 }
@@ -49,9 +55,7 @@ function setupStateFromEnablement(enablement: { active: boolean; results: Enable
 }
 
 export function buildExtensionItems(input: ExtensionItemBuildInput) {
-  const quickConnect = input.quickConnect.filter((entry) =>
-    !entry.extensionManifest?.platform || entry.extensionManifest.platform.includes(input.platform),
-  );
+  const quickConnect = input.quickConnect.filter((entry) => isExtensionAvailableOnPlatform(entry, input.platform));
   const builtInItems = quickConnect.filter(isBuiltInLegalWorkExtension).map((entry): ExtensionItem => {
     const enablement = entry.extensionManifest?.enablement
       ? evaluateEnablement(entry.extensionManifest.enablement, input.enablementContext)
