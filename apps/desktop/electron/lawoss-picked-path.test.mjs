@@ -6,7 +6,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
-import { canonicalPickedDirectory, canonicalRealpath, pickedDirectories, withShareRootSeparator } from "./lawoss-picked-path.mjs";
+import {
+  canonicalPickedDirectory,
+  canonicalRealpath,
+  canonicalTypedDirectory,
+  pickedDirectories,
+  typedDirectoryInput,
+  withShareRootSeparator,
+} from "./lawoss-picked-path.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 
 const stat = (kind) => ({ isSymbolicLink: () => kind === "link", isDirectory: () => kind !== "file" });
@@ -116,6 +123,81 @@ test("handler pickDirectory prevedie cesty len s voľbou canonical", async () =>
   assert.match(handler, /options\.multiple \? filePaths : \(filePaths\[0\] \?\? null\)/);
 });
 
+test("napísaná cesta: na Windows zmiznú úvodzovky z Prieskumníka a medzery na okraji", () => {
+  assert.equal(typedDirectoryInput('"C:\\Klienti\\Novák s. r. o."', "win32"), "C:\\Klienti\\Novák s. r. o.");
+  assert.equal(typedDirectoryInput('  "Z:\\Kancelaria"\r\n', "win32"), "Z:\\Kancelaria");
+  assert.equal(typedDirectoryInput('" C:\\Klienti "', "win32"), "C:\\Klienti");
+  assert.equal(typedDirectoryInput("\tc:\\klienti ", "win32"), "c:\\klienti");
+  // Rodič kópie odvodený z cesty v úvodzovkách má úvodzovku len na začiatku.
+  assert.equal(typedDirectoryInput('"C:\\Klienti', "win32"), "C:\\Klienti");
+  // Iba jeden pár; medzery a bodky vnútri názvu ostanú.
+  assert.equal(typedDirectoryInput('""C:\\Klienti""', "win32"), '"C:\\Klienti"');
+  assert.equal(typedDirectoryInput("C:\\Klienti\\Novák a spol", "win32"), "C:\\Klienti\\Novák a spol");
+  assert.equal(typedDirectoryInput("", "win32"), "");
+  // Mimo Windows sú úvodzovky aj medzery platné znaky názvu.
+  for (const platform of /** @type {NodeJS.Platform[]} */ (["darwin", "linux"])) {
+    assert.equal(typedDirectoryInput('"/Volumes/NAS/Kancelaria"', platform), '"/Volumes/NAS/Kancelaria"');
+    assert.equal(typedDirectoryInput(" /Users/advokat/Klienti ", platform), " /Users/advokat/Klienti ");
+  }
+});
+
+test("napísaná cesta v úvodzovkách na namapovanom disku dostane tvar ako z dialógu", async () => {
+  const { fs } = fakeFs(
+    { "Z:\\Kancelaria": "dir", "Z:\\Kancelaria\\Klienti": "dir", "\\\\nas\\share\\Kancelaria\\Klienti": "dir" },
+    { "Z:\\Kancelaria\\Klienti": "\\\\nas\\share\\Kancelaria\\Klienti" },
+  );
+  assert.equal(
+    await canonicalTypedDirectory(' "Z:\\Kancelaria\\Klienti" ', { platform: "win32", fs }),
+    "\\\\nas\\share\\Kancelaria\\Klienti",
+  );
+});
+
+test("napísaná cesta s malým písmenom disku a inou veľkosťou písmen dostane tvar z disku", async () => {
+  const { fs } = fakeFs(
+    { "c:\\users": "dir", "c:\\users\\advokat": "dir", "c:\\users\\advokat\\klienti": "dir", "C:\\Users\\Advokat\\Klienti": "dir" },
+    { "c:\\users\\advokat\\klienti": "C:\\Users\\Advokat\\Klienti" },
+  );
+  assert.equal(await canonicalTypedDirectory("c:\\users\\advokat\\klienti\\", { platform: "win32", fs }), "C:\\Users\\Advokat\\Klienti");
+});
+
+test("napísaná cesta cez junction, chýbajúca či relatívna ostane (len bez úvodzoviek)", async () => {
+  const link = fakeFs(
+    { "C:\\Users": "dir", "C:\\Users\\Advokat": "dir", "C:\\Users\\Advokat\\Dokumenty": "link", "C:\\Users\\Advokat\\Dokumenty\\Klienti": "dir" },
+    { "C:\\Users\\Advokat\\Dokumenty\\Klienti": "D:\\Spisy\\Klienti" },
+  );
+  assert.equal(
+    await canonicalTypedDirectory('"C:\\Users\\Advokat\\Dokumenty\\Klienti"', { platform: "win32", fs: link.fs }),
+    "C:\\Users\\Advokat\\Dokumenty\\Klienti",
+  );
+  const missing = fakeFs({}, {});
+  assert.equal(await canonicalTypedDirectory("Z:\\Neexistuje ", { platform: "win32", fs: missing.fs }), "Z:\\Neexistuje");
+  assert.equal(await canonicalTypedDirectory('"Klienti"', { platform: "win32", fs: missing.fs }), "Klienti");
+  // Relatívna cesta sa ani nečíta.
+  assert.deepEqual(missing.calls, ["Z:\\Neexistuje"]);
+});
+
+test("napísaná cesta: iný typ, príliš dlhá cesta a cesta mimo Windows sa nečítajú", async () => {
+  const { fs, calls } = fakeFs({}, {});
+  for (const value of [undefined, null, 42, { path: "C:\\Klienti" }]) {
+    assert.equal(await canonicalTypedDirectory(/** @type {any} */ (value), { platform: "win32", fs }), value);
+  }
+  const long = `C:\\${"a".repeat(4096)}`;
+  assert.equal(await canonicalTypedDirectory(long, { platform: "win32", fs }), long);
+  for (const platform of /** @type {NodeJS.Platform[]} */ (["darwin", "linux"])) {
+    assert.equal(await canonicalTypedDirectory(' "/Volumes/NAS/Kancelaria" ', { platform, fs }), ' "/Volumes/NAS/Kancelaria" ');
+  }
+  assert.deepEqual(calls, []);
+});
+
+test("handler canonicalDirectoryPath prevedie napísanú cestu ako výber v dialógu", () => {
+  const main = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
+  assert.match(main, /import \{ canonicalTypedDirectory, pickedDirectories \} from "\.\/lawoss-picked-path\.mjs";/);
+  const start = main.indexOf('  "canonicalDirectoryPath": async (event, ...args) => {');
+  assert.ok(start > 0, "handler musí mať tvar, ktorý nájde scripts/check-electron-bridge.mjs");
+  const handler = main.slice(start, main.indexOf("\n  },", start));
+  assert.match(handler, /return canonicalTypedDirectory\(args\[0\]\);/);
+});
+
 // Kontrola, ktorou OKF, server aj register pracovných priestorov odmietajú cestu.
 const accepted = async (value) => (await canonicalRealpath(value)) === path.resolve(value);
 
@@ -164,6 +246,20 @@ test("Windows: disk zo subst prejde kontrolou kanonickej cesty až po výbere", 
     await symlink(path.join(office, "Klienti"), path.join(office, "Odkaz"), "junction");
     assert.equal(await canonicalPickedDirectory(`${letter}:\\Odkaz`), `${letter}:\\Odkaz`);
     assert.equal(await canonicalPickedDirectory(`${letter}:\\Odkaz\\Sub`), `${letter}:\\Odkaz\\Sub`);
+
+    // Napísaná alebo vložená cesta: malé písmeno disku, iná veľkosť písmen, úvodzovky z Prieskumníka.
+    for (const typed of [`${letter.toLowerCase()}:\\Klienti`, `${letter}:\\KLIENTI\\`, `  "${letter}:\\Klienti"\r\n`]) {
+      const canonicalTyped = await canonicalTypedDirectory(typed);
+      assert.equal(canonicalTyped, path.join(office, "Klienti"), typed);
+      assert.equal(await accepted(canonicalTyped), true, typed);
+    }
+    const lower = `${root[0].toLowerCase()}${root.slice(1)}`;
+    assert.equal(await accepted(lower), false);
+    assert.equal(await canonicalTypedDirectory(`"${lower}"`), root);
+    // Junction ostane aj v napísanej ceste (len bez úvodzoviek) a kontrola ju odmietne ako doteraz.
+    assert.equal(await canonicalTypedDirectory(`"${letter}:\\Odkaz"`), `${letter}:\\Odkaz`);
+    assert.equal(await canonicalTypedDirectory(` ${path.join(office, "Odkaz")} `), path.join(office, "Odkaz"));
+    assert.equal(await accepted(path.join(office, "Odkaz")), false);
   } finally {
     execFileSync("subst", [`${letter}:`, "/D"]);
     await rm(root, { recursive: true, force: true, maxRetries: 10 });
