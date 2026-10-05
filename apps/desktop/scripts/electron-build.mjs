@@ -80,6 +80,8 @@ for (const fileName of readdirSync(electronRoot).filter((name) => /\.(mjs|cjs)$/
 run(nodeCmd, [resolve(__dirname, "check-electron-bridge.mjs")], repoRoot);
 run(nodeCmd, [resolve(__dirname, "check-server-deps.mjs")], repoRoot);
 run(nodeCmd, [resolve(__dirname, "check-plugin-bundles.mjs")], repoRoot);
+// LAWOSS: každý modul servera sa musí načítať z rozloženia app.asar (check-packaged-server-imports.mjs).
+run(nodeCmd, [resolve(__dirname, "check-packaged-server-imports.mjs")], repoRoot);
 // pnpm installs for host Node; packaging needs the Electron native ABI.
 // Respect cross-architecture release builds (for example x64 on an arm64 Mac).
 const targetTriple = process.env.CARGO_CFG_TARGET_TRIPLE ?? process.env.TARGET;
