@@ -130,6 +130,7 @@ import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/se
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { NovySpisPanel } from "@/lawoss/domains/novy-spis/novy-spis-page";
+import { isExperimentHidden } from "@/lawoss/feature-flags";
 import { newProjectFields } from "@/react-app/domains/workspace/project-defaults-store";
 import { CreateProjectModal, type CreateProjectInput } from "@/react-app/domains/workspace/create-project-modal";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
@@ -2776,7 +2777,7 @@ export function SessionRoute() {
     <CreateProjectModal
       client={client}
       open={createWorkspaceOpen}
-      additionalContent={createWorkspaceOpen && !createWorkspaceBusy && selectedWorkspace && selectedWorkspace.workspaceType !== "remote" && selectedWorkspace.path && selectedWorkspaceEndpoint && !selectedWorkspaceError && !selectedWorkspaceIsLoading ? (
+      additionalContent={!isExperimentHidden("view-novy-spis") && createWorkspaceOpen && !createWorkspaceBusy && selectedWorkspace && selectedWorkspace.workspaceType !== "remote" && selectedWorkspace.path && selectedWorkspaceEndpoint && !selectedWorkspaceError && !selectedWorkspaceIsLoading ? (
         <details className="rounded-xl border border-dls-border p-4">
           <summary className="cursor-pointer text-sm font-medium">{t("lawoss.setup.wizard.title", locale)}</summary>
           <NovySpisPanel

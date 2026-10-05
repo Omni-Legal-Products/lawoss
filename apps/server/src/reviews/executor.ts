@@ -19,6 +19,7 @@ import type { ReviewEvidence } from "./evidence.js";
 import { ReviewRequests, ReviewRetryError, reviewModelError } from "./scheduler.js";
 import { builtinJevFallback } from "./builtin-fallback.js";
 import { enforceReviewDecisionThreshold } from "./decision-threshold.js";
+import { offeredModels } from "../lawoss/chatgpt-subscription.js";
 
 const textModelSchema = z.object({ id: z.string(), status: z.string().optional(), limit: z.object({ context: z.number().positive(), output: z.number().positive() }),
   capabilities: z.object({ input: z.object({ text: z.boolean() }), output: z.object({ text: z.boolean(), image: z.boolean().optional(), audio: z.boolean().optional() }) }).optional(),
@@ -70,7 +71,8 @@ export class ReviewExecutor {
     if (llm.status === "fulfilled") {
       const connected = new Set(llm.value.providers.connected);
       for (const provider of llm.value.providers.all.filter(provider => connected.has(provider.id)))
-        for (const model of Object.values(provider.models).filter(isTextReviewModel)) {
+        // LAWOSS: ChatGPT subscription offers only models its account accepts, Luna first.
+        for (const model of offeredModels(provider).filter(isTextReviewModel)) {
           models.push({ backend: "llm", providerId: provider.id, providerName: provider.name, model: model.id, name: model.name, contextTokens: model.limit.context });
           if (`${provider.id}/${model.id}` === llm.value.selected) selectedLlm = { providerId: provider.id, model: model.id };
         }

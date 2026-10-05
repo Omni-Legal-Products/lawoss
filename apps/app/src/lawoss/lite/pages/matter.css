@@ -101,6 +101,9 @@
 .lw-matter-more-list .lw-matter-action { text-align: left; border-radius: 9px; }
 .lw-matter-drop { margin: 0; font-size: 12px; color: var(--lw-text-tertiary); }
 .lw-matter-drop::before { content: "⤓ "; color: var(--td-gold); }
+/* Rýchle akcie bez modelu: vopred povedať prečo a kde ho pripojiť. */
+.lw-matter-model-gap { margin-top: 4px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.lw-matter-model-gap a { color: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
 
 /* Panely */
 .lw-matter-panel {
