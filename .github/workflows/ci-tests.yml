@@ -159,7 +159,6 @@ jobs:
     env:
       LEGALWORK_DEV_MODE: "1"
       LEGALWORK_OPENCODE_SOURCE: downloaded
-      LEGALWORK_SIDECAR_DIR: ${{ runner.temp }}/legalwork-sidecar
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -181,6 +180,11 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Prepare orchestrator sidecar directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/legalwork-sidecar"
+          echo "LEGALWORK_SIDECAR_DIR=$RUNNER_TEMP/legalwork-sidecar" >> "$GITHUB_ENV"
 
       - name: Run orchestrator integration gate
         env:
