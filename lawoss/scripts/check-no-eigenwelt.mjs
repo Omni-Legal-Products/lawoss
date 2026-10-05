@@ -87,7 +87,6 @@ export const ALLOWED = {
     matches: ["api.eigenweltlabs.com"],
     reason: "Vývojový náhľad nastavení so statickými dátami, nie je v appke.",
   },
-  "apps/desktop/package.json": { matches: ["eigenweltlabs.com"], reason: "Autor balíka upstreamu (metadáta)." },
   "packages/legalwork-ui-mcp/package.json": { matches: ["eigenweltlabs.com"], reason: "Autor balíka upstreamu (metadáta)." },
   "apps/server/src/eigenwelt-auth.ts": {
     matches: ["platform.eigenweltlabs.com"],

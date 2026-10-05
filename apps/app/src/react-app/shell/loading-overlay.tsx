@@ -10,8 +10,9 @@ import { useBootState, useBootOverlayVisible } from "./boot-state";
 import { OwDotTicker } from "./dot-ticker";
 import { SettingsSurface } from "./settings-route";
 import { t } from "@/i18n";
+import { FORK_RELEASES_URL } from "@/lawoss/branding";
 
-const RELEASES_URL = "https://github.com/eigenweltlabs/legalwork/releases";
+const RELEASES_URL = FORK_RELEASES_URL;
 
 /**
  * One-click support-log collection for the boot error screen. The customer
