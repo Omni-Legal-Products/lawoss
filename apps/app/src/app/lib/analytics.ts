@@ -1,70 +1,23 @@
 /**
- * Product analytics for the LegalWork desktop app (PostHog, zero-dependency).
+ * Product analytics for the LegalWork desktop app (upstream: zero-dependency event batches).
  *
- * Principles:
- * - Never send message content, file paths, code, or prompts. Only event
- *   names, counts, durations, and coarse context (provider/model id, app
- *   version, platform).
- * - The distinct id lives in memory and rotates per app start — never
- *   persisted to localStorage or disk. The local server mints it per launch;
- *   desktop and Office pane adopt it via setAnalyticsDistinctId, with a
- *   local mint as boot-time fallback.
- * - Location is capped at city level server-side (the "GeoIP city cap"
- *   transformation in the PostHog project — keep it enabled after GeoIP);
- *   events are anonymous ($process_person_profile: false).
- * - Fire-and-forget: analytics must never break or slow the app.
- * - Opt-OUT model: analytics is on by default (the welcome toggle shows the
- *   default), but nothing is sent until the welcome screen has committed the
- *   choice: events captured while it is pending are held in memory and only
- *   flushed if the user left the toggle on. Opting out (welcome toggle or
- *   Settings -> Privacy) takes effect immediately: captures stop and the send
- *   queue is purged. Nothing is sent after opt-out.
- * - Every capture is mirrored into the local app inspector
- *   (`window.__legalwork.record("analytics.<event>")`) so coded evals can
- *   assert instrumentation without any analytics backend.
+ * LAWOSS: analytika je natrvalo vypnutá (rozhodnutie MČ 5. 10. 2026). Modul
+ * nemá kľúč, adresu ani sieťové volanie; udalosti len zrkadlí do lokálneho
+ * inšpektora (`window.__legalwork.record("analytics.<event>")`), aby upstream
+ * evaly a testy inštrumentácie fungovali. Uložená stará voľba „zapnuté“ ani
+ * prepis z Office panela nič neodošlú. Exporty ostávajú kvôli volajúcim.
+ * Stráži to `lawoss/scripts/check-no-eigenwelt.mjs`.
  */
 import { recordInspectorEvent } from "./app-inspector";
 import { isOfficeAddinRuntime } from "./runtime-env";
 import { officeHostName } from "@/word-addin/office";
 
-const ENV_POSTHOG_KEY = String(import.meta.env.VITE_LEGALWORK_POSTHOG_KEY ?? "").trim();
-const ENV_POSTHOG_HOST = String(import.meta.env.VITE_LEGALWORK_POSTHOG_HOST ?? "").trim();
-const ENV_APP_VERSION = String(import.meta.env.VITE_LEGALWORK_APP_VERSION ?? "").trim();
-
-// LegalWork's PostHog projects (EU region). PostHog client keys are publishable
-// by design. Alpha builds (stamped version `x.y.z-alpha.<run>.<sha>`) report to
-// the "LegalWork Dev & Alpha" project so they never mix with stable data.
-// Override or blank via VITE_LEGALWORK_POSTHOG_KEY / _HOST.
-const STABLE_POSTHOG_KEY = "phc_mvBQ5pbmKNZPmLn6c6bMZb9yXqEtf6bvSPZBa5vwRJfw";
-const ALPHA_POSTHOG_KEY = "phc_Bfnpz8tU5KkWcQ3uzqe99RPL74RuQXLJvHs9zPWZqRqJ";
-const DEFAULT_POSTHOG_KEY = ENV_APP_VERSION.includes("-alpha")
-  ? ALPHA_POSTHOG_KEY
-  : STABLE_POSTHOG_KEY;
-const DEFAULT_POSTHOG_HOST = "https://eu.i.posthog.com";
-
-// Production builds send usage analytics to LegalWork's PostHog (the default key
-// above, or VITE_LEGALWORK_POSTHOG_KEY). Dev builds send nothing so local work
-// never pollutes analytics; the inspector mirror still records events locally
-// either way, and the user's analyticsEnabled preference still turns it all off.
-const POSTHOG_KEY = ENV_POSTHOG_KEY || (import.meta.env.DEV ? "" : DEFAULT_POSTHOG_KEY);
-const POSTHOG_HOST = (ENV_POSTHOG_HOST || DEFAULT_POSTHOG_HOST).replace(/\/+$/, "");
-
 const PREFS_STORAGE_KEY = "legalwork.preferences";
 // Earlier builds persisted the distinct id here; initAnalytics cleans it up.
 const LEGACY_DISTINCT_ID_STORAGE_KEY = "legalwork.analytics.distinctId";
-const FLUSH_INTERVAL_MS = 10_000;
-const MAX_BATCH = 50;
 
 export type AnalyticsProperties = Record<string, string | number | boolean | null | readonly string[]>;
 
-type QueuedEvent = {
-  event: string;
-  properties: AnalyticsProperties;
-  timestamp: string;
-};
-
-let queue: QueuedEvent[] = [];
-let flushTimer: ReturnType<typeof setInterval> | null = null;
 let initialized = false;
 
 /** The stored consent choice, or null when the user never made one. */
@@ -85,31 +38,17 @@ export function getStoredAnalyticsConsent(): boolean | null {
 }
 
 // The Office pane mirrors the desktop's consent (adopted from the server
-// bootstrap, refreshed by polling — see word-addin/index.tsx). Memory only.
-let consentOverride: boolean | null = null;
-export function setAnalyticsConsentOverride(enabled: boolean): void {
-  consentOverride = enabled;
-}
+// bootstrap, refreshed by polling — see word-addin/index.tsx). LAWOSS: ignored.
+export function setAnalyticsConsentOverride(_enabled: boolean): void {}
 
+/** LAWOSS: vždy `false`, nech je uložená voľba alebo prepis z panela akýkoľvek. */
 export function isAnalyticsEnabled(): boolean {
-  if (consentOverride !== null) return consentOverride;
-  return getStoredAnalyticsConsent() === true;
-}
-
-/**
- * Explicit opt-out. Distinct from "not enabled": a pending choice (null —
- * the welcome screen, where the toggle shows on) still queues, but the queue
- * is held until the choice commits (see flushAnalytics). Only a stored "no"
- * silences — from that moment captures are discarded and the queue is purged.
- */
-function isAnalyticsRefused(): boolean {
-  if (consentOverride !== null) return !consentOverride;
-  return getStoredAnalyticsConsent() === false;
+  return false;
 }
 
 /** True when a capture would actually be sent — lets callers skip enrichment work. */
 export function isAnalyticsSending(): boolean {
-  return Boolean(POSTHOG_KEY) && isAnalyticsEnabled();
+  return false;
 }
 
 // Per-launch analytics id: minted in memory on first use, never persisted.
@@ -132,13 +71,6 @@ export function setAnalyticsDistinctId(id: string): void {
   if (trimmed) runtimeDistinctId = trimmed;
 }
 
-function baseProperties(): AnalyticsProperties {
-  return {
-    app_version: ENV_APP_VERSION || null,
-    platform: typeof navigator === "undefined" ? null : navigator.platform || null,
-  };
-}
-
 /**
  * Where an event was triggered: the desktop app, or a specific Office add-in
  * pane. NOT a base property — attached explicitly to the events that can fire
@@ -152,8 +84,8 @@ export function analyticsSurface(): AnalyticsSurface {
 }
 
 /**
- * Queue an analytics event. Always mirrored to the local inspector;
- * only sent over the network when enabled and a key is configured.
+ * Record an analytics event in the local inspector only. LAWOSS: nothing is
+ * queued and nothing leaves the machine.
  */
 export function captureAnalyticsEvent(event: string, properties: AnalyticsProperties = {}) {
   try {
@@ -161,62 +93,13 @@ export function captureAnalyticsEvent(event: string, properties: AnalyticsProper
   } catch {
     // Inspector unavailable (non-browser context).
   }
-
-  // Refused = silence. A pending choice (welcome screen) queues, so the
-  // onboarding events fired before the choice persists are not lost, but
-  // flushAnalytics holds them until it does. Held events are capped at one
-  // batch: the choice may never come (no welcome screen shown this launch).
-  if (!POSTHOG_KEY || isAnalyticsRefused()) return;
-  if (queue.length >= MAX_BATCH && !isAnalyticsEnabled()) return;
-
-  queue.push({
-    event,
-    properties: { ...baseProperties(), ...properties },
-    timestamp: new Date().toISOString(),
-  });
-  if (queue.length >= MAX_BATCH) {
-    void flushAnalytics();
-  }
 }
 
-/** Drop events captured before a newly committed opt-out. */
-export function discardPendingAnalytics(): void {
-  queue = [];
-}
+/** Kept for callers; there is never a pending queue to drop. */
+export function discardPendingAnalytics(): void {}
 
-export async function flushAnalytics(): Promise<void> {
-  if (!POSTHOG_KEY) return;
-  if (isAnalyticsRefused()) {
-    // Consent withdrawn — drop anything still queued.
-    queue = [];
-    return;
-  }
-  // Choice still pending: hold the queue. Nothing leaves the machine before
-  // the user could turn analytics off on the welcome screen.
-  if (!isAnalyticsEnabled() || queue.length === 0) return;
-  const batch = queue.splice(0, MAX_BATCH);
-  const distinctId = getAnalyticsDistinctId();
-
-  try {
-    await fetch(`${POSTHOG_HOST}/batch/`, {
-      method: "POST",
-      keepalive: true,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        api_key: POSTHOG_KEY,
-        batch: batch.map((entry) => ({
-          event: entry.event,
-          distinct_id: distinctId,
-          timestamp: entry.timestamp,
-          // Anonymous events — no person profiles.
-          properties: { ...entry.properties, $process_person_profile: false },
-        })),
-      }),
-    });
-  } catch {
-    // Network failure — drop silently. Analytics must never surface errors.
-  }
-}
+/** Kept for callers; LAWOSS sends nothing. */
+export async function flushAnalytics(): Promise<void> {}
 
 // Task run duration tracking: sendDraft marks the start, the session.idle
 // sync event takes it. Also acts as a dedupe guard so idle events that do
@@ -236,7 +119,8 @@ export function takeTaskRunStart(sessionId: string): number | null {
 }
 
 /**
- * One-time setup: flush loop and unload flush. Mounted from AppRoot.
+ * One-time setup. Mounted from AppRoot. LAWOSS: no flush loop, only cleanup
+ * of the id persisted by earlier builds.
  */
 export function initAnalytics() {
   if (initialized || typeof window === "undefined") return;
@@ -248,19 +132,8 @@ export function initAnalytics() {
   } catch {
     // Storage unavailable.
   }
-
-  flushTimer = setInterval(() => void flushAnalytics(), FLUSH_INTERVAL_MS);
-
-  window.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") void flushAnalytics();
-  });
 }
 
 export function disposeAnalytics() {
-  if (flushTimer) {
-    clearInterval(flushTimer);
-    flushTimer = null;
-  }
   initialized = false;
-  queue = [];
 }
