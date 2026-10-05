@@ -4301,8 +4301,9 @@ export default {
     "When enabled, Create Sandbox launches the detached worker with the microsandbox image flow instead of the default Docker image flow.",
   "mcp.builtins_blocked":
     "Built-in LegalWork extensions are disabled by your organization. Use Show hidden to review blocked built-ins.",
+  // 🟡 LAWOSS: bez „(macOS only)“, alfa vychádza aj pre Windows (alpha-windows-x64.yml).
   "updates.channel_note":
-    "Stable gets fully tested releases. Alpha includes the very latest changes but may be less polished (macOS only).",
+    "Stable gets fully tested releases. Alpha includes the very latest changes but may be less polished.",
   "workspace.live_logs": "Live logs",
   "workspace.docker_debug_details": "Docker debug details",
   "providers.claude_consumer_terms":

@@ -20,21 +20,41 @@ Potrebné len vtedy, keď si appku staviate sami.
 - macOS: Xcode Command Line Tools (`xcode-select --install`) pre prípad, že
   natívny `better-sqlite3` treba skompilovať zo zdroja.
 
+Windows x64 (CI to robí na `windows-2022`; na vlastnom počítači s Windows
+*neoverené*):
+
+- Dlhé cesty v gite ešte pred `git clone`: `git config --global core.longpaths true`
+  (rovnako ako workflowy na `windows-2022`).
+- Node 24, `node --version` musí ukázať `v24.x`.
+- pnpm 11.4.0, napríklad `npm install -g pnpm@11.4.0`.
+- Bun 1.4.2, len na testy.
+- Pre prípad, že natívny modul treba skompilovať zo zdroja: Visual Studio Build
+  Tools s „Desktop development with C++“.
+
 ```bash
 git clone https://github.com/Omni-Legal-Products/lawoss.git
 cd lawoss
 pnpm install
-pnpm build
+pnpm --filter @legalwork/desktop package:electron
 ```
 
-Balíček pre váš systém vznikne v `apps/desktop/dist-electron`. Vlastný build nie
-je podpísaný, takže ho systém pri prvom spustení zablokuje alebo varuje. Na macOS
-ho otvoríte pravým klikom a voľbou Otvoriť, alebo v Nastaveniach systému,
-časť Súkromie a bezpečnosť.
+`pnpm build` (aj `build:electron` v `apps/desktop`) zostaví len server,
+rozhranie a pomocné súbory pre Electron, balíček nevytvorí. Ten vytvorí až
+`package:electron` z `apps/desktop/package.json`: spustí ten istý build a potom
+`electron-builder` pre váš systém (macOS `.dmg` a `.zip`, Windows inštalátor
+NSIS `.exe`, Linux AppImage a `.tar.gz`). Rýchlejší `package:electron:dir`
+vytvorí len rozbalenú appku bez inštalátora. Výsledok je v
+`apps/desktop/dist-electron`.
+
+Vlastný build nie je podpísaný, takže ho systém pri prvom spustení zablokuje
+alebo varuje. Na macOS ho otvoríte pravým klikom a voľbou Otvoriť, alebo v
+Nastaveniach systému, časť Súkromie a bezpečnosť. Na Windows cez SmartScreen
+More info → Run anyway (pozri časť Windows v D1).
 
 Vlastný build má verziu `0.0.0` a kontrolu aktualizácií zámerne preskakuje
 (`isUnstampedLocalBuild` v `apps/desktop/electron/updater.mjs`). Novú verziu
-získate novým `git pull`, `pnpm install` a `pnpm build`.
+získate novým `git pull`, `pnpm install` a
+`pnpm --filter @legalwork/desktop package:electron`.
 
 ## Konektory samostatného `opencode` CLI
 
@@ -69,11 +89,12 @@ Chyby patria do [issues vo forku](https://github.com/Omni-Legal-Products/lawoss/
 nie do Telegramu. Uveďte:
 
 - kroky, ktoré chybu vyvolajú, a čo ste čakali oproti tomu, čo sa stalo,
-- verziu appky (na macOS v menu About LAWOSS); pri vlastnom builde s verziou
+- verziu appky (na macOS v menu About LAWOSS, všade v Nastaveniach →
+  Aktualizácie → Aktuálna verzia); pri vlastnom builde s verziou
   `0.0.0` aj výstup `git rev-parse HEAD` a `git branch --show-current`,
 - operačný systém s verziou a architektúrou (arm64 alebo x64), pri vlastnom
   builde aj verziu Node,
-- ak padol `pnpm install` alebo `pnpm build`, celý výpis chyby.
+- ak padol `pnpm install` alebo `package:electron`, celý výpis chyby.
 
 ## Ladiaci port Electronu
 
