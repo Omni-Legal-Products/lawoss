@@ -26,11 +26,13 @@ export type MatterRequest = { clientRoot: string; parent: string; title: string;
  * becomes the folder "Novák s. r. o"); trailing dots and spaces are dropped,
  * because Windows strips them silently and the created path would no longer
  * match the planned one. The title keeps the full name. Still rejected: empty,
- * ".", "..", a leading dot (hidden), separators, ":" and NUL, over 120 characters.
+ * ".", "..", a leading dot (hidden), separators, ":" and NUL, over 120 characters,
+ * control characters and Windows device names (CON, NUL, COM1, …, also with an
+ * extension) — the transaction plan refuses them anyway, so the preview must too.
  */
 export const safeSegment = (value: string) => {
   const trimmed = value.trim().replace(/[. ]+$/, "");
-  if (!trimmed || trimmed.length > 120 || /[\\/:\0<>"|?*]|^\./.test(trimmed)) throw new Error(UNSAFE_FOLDER_NAME_MESSAGE);
+  if (!trimmed || trimmed.length > 120 || /[\\/:\0<>"|?*\u0001-\u001f\u007f-\u009f]|^\./.test(trimmed) || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(trimmed)) throw new Error(UNSAFE_FOLDER_NAME_MESSAGE);
   return trimmed;
 };
 const yaml = (value: string) => JSON.stringify(value);

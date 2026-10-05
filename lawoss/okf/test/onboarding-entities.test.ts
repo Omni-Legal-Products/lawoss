@@ -53,6 +53,15 @@ test("an office can be created in a parent with junctions and deep content; only
   await expect(applyOnboarding(client, await options())).rejects.toThrow(/changed since planning/);
 });
 
+test("Windows device names and control characters are refused already in the preview", async () => {
+  const parent = await directory("okf-parent-reserved-");
+  for (const name of ["CON", "Nul", "Aux.sk", "com1", "a\tb"]) {
+    await expect(planOnboarding(parseOnboardingRequest({ action: "client", parent, name, title: name, clientType: "po", jurisdiction: "sk", date: "2026-10-05", language: "sk" }))).rejects.toThrow("A safe non-empty folder name is required.");
+  }
+  const ok = await planOnboarding(parseOnboardingRequest({ action: "client", parent, name: "Conrad s.r.o.", title: "Conrad s.r.o.", clientType: "po", jurisdiction: "sk", date: "2026-10-05", language: "sk" }));
+  expect(ok.mode).toBe("new");
+});
+
 test("subject and both matter kinds carry additive identity fields", async () => {
   const client = await directory("okf-client-");
   await writeFile(join(client, "client.md"), "---\ntype: client\n---\n");

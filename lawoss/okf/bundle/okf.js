@@ -2623,7 +2623,7 @@ var UNSAFE_FOLDER_NAME_MESSAGE = "A safe non-empty folder name is required.";
 // src/onboarding/entities.ts
 var safeSegment = (value) => {
   const trimmed = value.trim().replace(/[. ]+$/, "");
-  if (!trimmed || trimmed.length > 120 || /[\\/:\0<>"|?*]|^\./.test(trimmed))
+  if (!trimmed || trimmed.length > 120 || /[\\/:\0<>"|?*\u0001-\u001f\u007f-\u009f]|^\./.test(trimmed) || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(trimmed))
     throw new Error(UNSAFE_FOLDER_NAME_MESSAGE);
   return trimmed;
 };
