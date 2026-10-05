@@ -19,7 +19,7 @@ import { basename, isAbsolute, join, resolve } from "node:path";
 
 // src/frontmatter.ts
 function parseFrontmatter(text) {
-  const lines = text.split(/\r?\n/);
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
   if (lines[0] !== "---")
     return null;
   const out = {};
