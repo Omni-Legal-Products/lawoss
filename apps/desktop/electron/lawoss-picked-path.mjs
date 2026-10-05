@@ -2,6 +2,7 @@ import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
 
 const SHARE_ROOT = /^\\\\[^\\]+\\[^\\]+$/;
+const DRIVE_ROOT = /^[A-Za-z]:$/;
 
 /**
  * LAWOSS: Windows vracia z natívneho `realpath` koreň zdieľania ako `\\nas\Kancelaria`
@@ -9,12 +10,14 @@ const SHARE_ROOT = /^\\\\[^\\]+\\[^\\]+$/;
  * windows-2022 5. 10. 2026). Bez zjednotenia by kontrola `realpath(x) === resolve(x)`
  * odmietla disk `Z:` namapovaný priamo na zdieľanie. Rovnaká funkcia je
  * v `lawoss/okf/src/canonical-path.ts` a `apps/server/src/lawoss/canonical-path.ts`.
+ * Koreň disku vrátený ako `C:` (Bun 1.4.2 `fs.promises.realpath`, oven-sh/bun#42581) dostane
+ * lomku tiež; v Electrone (Node) sa to neprejaví, funkcia ostáva rovnaká ako na serveri.
  *
  * @param {string} real
  * @param {NodeJS.Platform} [platform]
  */
 export function withShareRootSeparator(real, platform = process.platform) {
-  return platform === "win32" && SHARE_ROOT.test(real) ? `${real}\\` : real;
+  return platform === "win32" && (SHARE_ROOT.test(real) || DRIVE_ROOT.test(real)) ? `${real}\\` : real;
 }
 
 /** `realpath` s koreňom zdieľania v tvare, aký vracia `path.resolve()`. @param {string} value */

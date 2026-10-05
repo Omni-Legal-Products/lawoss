@@ -10,6 +10,9 @@ test("koreň zdieľania Windows dostane lomku ako z resolve(), nič iné sa neme
   expect(withShareRootSeparator("\\\\nas\\Kancelaria\\Klienti", "win32")).toBe("\\\\nas\\Kancelaria\\Klienti");
   expect(withShareRootSeparator("C:\\", "win32")).toBe("C:\\");
   expect(withShareRootSeparator("C:\\Klienti", "win32")).toBe("C:\\Klienti");
+  // Bun 1.4.2 fs.promises.realpath vracia koreň disku ako `C:` (oven-sh/bun#42581).
+  expect(withShareRootSeparator("C:", "win32")).toBe("C:\\");
+  expect(withShareRootSeparator("C:", "linux")).toBe("C:");
   expect(withShareRootSeparator("\\\\nas\\Kancelaria", "darwin")).toBe("\\\\nas\\Kancelaria");
   expect(withShareRootSeparator("/Volumes/NAS", "linux")).toBe("/Volumes/NAS");
 });

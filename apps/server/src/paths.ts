@@ -1,4 +1,5 @@
-import { realpath } from "node:fs/promises";
+// 🟡 LAWOSS: realpath s koreňom disku a zdieľania v tvare ako resolve() (Bun vracia `C:`, oven-sh/bun#42581).
+import { realpath } from "./lawoss/canonical-path.js";
 import { isAbsolute, resolve } from "node:path";
 import { ApiError } from "./errors.js";
 import { isPathWithin } from "./lawoss/path-within.js";

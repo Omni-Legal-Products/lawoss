@@ -13,8 +13,9 @@ import { lstat as lstat8, open as open6 } from "node:fs/promises";
 // src/canonical-path.ts
 import { realpath as nativeRealpath } from "node:fs/promises";
 var SHARE_ROOT = /^\\\\[^\\]+\\[^\\]+$/;
+var DRIVE_ROOT = /^[A-Za-z]:$/;
 function withShareRootSeparator(real, platform = process.platform) {
-  return platform === "win32" && SHARE_ROOT.test(real) ? `${real}\\` : real;
+  return platform === "win32" && (SHARE_ROOT.test(real) || DRIVE_ROOT.test(real)) ? `${real}\\` : real;
 }
 async function realpath(path) {
   return withShareRootSeparator(await nativeRealpath(path));

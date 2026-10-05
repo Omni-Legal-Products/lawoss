@@ -59,6 +59,8 @@ test("lomka sa pridá len koreňu zdieľania na Windows", () => {
   assert.equal(withShareRootSeparator("\\\\nas\\Kancelaria\\Klienti", "win32"), "\\\\nas\\Kancelaria\\Klienti");
   assert.equal(withShareRootSeparator("C:\\", "win32"), "C:\\");
   assert.equal(withShareRootSeparator("C:\\Klienti", "win32"), "C:\\Klienti");
+  assert.equal(withShareRootSeparator("C:", "win32"), "C:\\");
+  assert.equal(withShareRootSeparator("C:", "darwin"), "C:");
   assert.equal(withShareRootSeparator("\\\\nas\\Kancelaria", "darwin"), "\\\\nas\\Kancelaria");
   assert.equal(withShareRootSeparator("/Volumes/NAS", "darwin"), "/Volumes/NAS");
 });
