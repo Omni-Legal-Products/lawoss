@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { appendFile, copyFile, link, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { inspectOnboardingRoot } from "../src/onboarding/classify.ts";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
@@ -448,7 +448,8 @@ describe("po teste so skutočným modelom (5. 10. 2026)", () => {
     const clone = await trialClone({ "Plnomocenstvo.pdf": "a" });
     expect(resolveCloneRoot(undefined, join(clone.root, "01_Podklady"))).toBe(clone.root);
     expect(resolveCloneRoot(".", clone.root)).toBe(clone.root);
-    expect(resolveCloneRoot("klony/Vymysleny klient (trial 2026-10-05)", join(clone.parent, ".."))).toBe(clone.root);
+    // Názov klona nesie dnešný dátum (planExistingClient), nie dátum z požiadavky; pevný reťazec zlyhal po polnoci.
+    expect(resolveCloneRoot(join("klony", basename(clone.root)), join(clone.parent, ".."))).toBe(clone.root);
     const lines: string[] = [];
     const cwd = process.cwd();
     process.chdir(clone.root);
