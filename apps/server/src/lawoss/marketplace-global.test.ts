@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installCloudPlugin, readInstalledCloudPlugins } from "../cloud-plugins.js";
@@ -9,6 +9,7 @@ import type { ServerConfig } from "../types.js";
 import { availableUpdates, installGlobalPlugin, moveWorkspacePlugin, pluginFileChanges, removeGlobalPlugin, updateGlobalPlugin, workspaceTarget } from "./marketplace-global.js";
 import { marketplaceStatePath, readUpdateState, runMarketplaceCheck } from "./marketplace-updates.js";
 import { globalPluginTarget } from "./plugin-install-target.js";
+import { removeTestDir } from "./test-support/remove-test-dir.js";
 
 const SHA1 = "1".repeat(40);
 const SHA2 = "2".repeat(40);
@@ -100,7 +101,8 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
       if (saved[key] === undefined) delete process.env[key];
       else process.env[key] = saved[key];
     }
-    await rm(root, { recursive: true, force: true });
+    // Windows: runtime.sqlite ostáva otvorená do konca procesu (test-support/remove-test-dir.ts).
+    await removeTestDir(root);
   });
 
   const skillPath = () => join(root, "config", "opencode", "skills", "demo-plugin", "demo", "SKILL.md");
@@ -113,7 +115,8 @@ describe("LAWOSS Marketplace: inštalácia raz pre advokáta a aktualizácie", (
     expect(result.item.provenance).toEqual({ source: { owner: "Omni-Legal-Products", repo: "lawoss-marketplace", ref: SHA1, dir: "plugins/demo" }, version: "1.0.0" });
     for (const workspaceId of ["ws_a", "ws_b"]) {
       const mcp = await runtimeMcpMapForWorkspace(config, workspaceId);
-      expect(JSON.stringify(mcp.demo?.command)).toContain(join(root, "config", "opencode", "plugin-resources", "demo-plugin"));
+      // Bez JSON.stringify: ten na Windows zdvojí každé `\` a cesta by sa nikdy nenašla.
+      expect([mcp.demo?.command ?? []].flat().join(" ")).toContain(join(root, "config", "opencode", "plugin-resources", "demo-plugin"));
     }
     // V priečinkoch klientov nič nevzniklo.
     expect(await readdir(join(root, "a")).catch(() => [])).toEqual([]);

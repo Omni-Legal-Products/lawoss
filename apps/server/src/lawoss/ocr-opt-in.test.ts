@@ -1,6 +1,6 @@
 // LAWOSS: OCR je voľba, ktorú advokát výslovne zapne; bez nej sa nič nesťahuje a číta sa len textová vrstva.
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PDFDocument } from "pdf-lib";
@@ -11,12 +11,13 @@ import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 import { firstUseOcrDownload } from "./ocr-on-demand.js";
 import { LawossOcrManager, OCR_DISABLED, OCR_DISABLED_CODE, ocrEnabled } from "./ocr-opt-in.js";
+import { removeTestDir } from "./test-support/remove-test-dir.js";
 
 const roots: string[] = [];
 const originalDb = process.env.LEGALWORK_RUNTIME_DB;
 afterEach(async () => {
   if (originalDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = originalDb;
-  await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })));
+  await Promise.all(roots.splice(0).map(root => removeTestDir(root)));
 });
 async function temporary() {
   const root = await mkdtemp(join(tmpdir(), "lawoss-ocr-opt-in-")); roots.push(root); return root;
@@ -82,7 +83,10 @@ test("vypnuté OCR: príprava číta len textovú vrstvu, sken označí a nič n
     expect(layoutCalls).toEqual([]);
     expect(install).not.toHaveBeenCalled();
     expect(installLayout).not.toHaveBeenCalled();
-    expect(fetched).not.toHaveBeenCalled();
+    // Spy vidí každý fetch v procese, aj dobiehajúce volania lokálnych serverov z predchádzajúcich
+    // testov (pod záťažou raz 2 volania, 5. 10. 2026). Model sa nikdy nesťahuje z loopbacku.
+    const urls = fetched.mock.calls.map(([input]) => String(input instanceof Request ? input.url : input));
+    expect(urls.filter(url => !/^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])[:/]/.test(url))).toEqual([]);
   } finally { install.mockRestore(); installLayout.mockRestore(); fetched.mockRestore(); }
 });
 

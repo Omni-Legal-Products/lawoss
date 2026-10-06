@@ -1,1 +1,6 @@
+# LAWOSS: textové súbory vždy s LF, aj pri checkoute na Windows (runner
+# windows-2022 má core.autocrlf=true). SKILL.md, prompty a bundle OKF sa do
+# appky vkladajú doslova; s CRLF by build pre Windows mal iné prompty, iné
+# odtlačky skillov a prázdne popisy z frontmatteru než build pre macOS.
+* text=auto eol=lf
 apps/app/public/third-party/** linguist-vendored

@@ -41,12 +41,18 @@ import { visibleExistingClientModes } from "../../feature-flags";
 import { clientTitleOf, resolveOpenClient, type OpenClientReader } from "../../okf/open-client";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { readActiveWorkspaceId } from "@/react-app/shell/session-memory";
-import { UNSAFE_FOLDER_NAME_MESSAGE } from "../../../../../../lawoss/okf/src/onboarding/messages";
+import {
+  LOCKED_FILE_CODE,
+  LOCKED_FILES_MESSAGE_PREFIX,
+  UNSAFE_FOLDER_NAME_MESSAGE,
+} from "../../../../../../lawoss/okf/src/onboarding/messages";
+import { OFFICE_CONFIG_ENCODING_MESSAGE } from "../../../../../../lawoss/okf/src/profile";
 import { LawossWordmark } from "../../shell/wordmark";
 import lawossMark from "../../../../../../lawoss/brand/lawoss-mark.svg";
 import "./onboarding.css";
 import { TriageEntry } from "../roztriedenie/triage-entry";
 import { PacksStep } from "./packs-step";
+import { canonicalPathRejection, unquotedTypedPath } from "./typed-paths";
 
 /** Jazyky rozhrania v poradí LAWOSS (SK, CS, EN, DE) s pôvodnými názvami namiesto kódov. */
 const UI_LANGUAGE_ORDER: readonly Language[] = ["sk", "cs", "en", "de"];
@@ -293,11 +299,52 @@ const unsafeFolderName: Record<Language, string> = {
   en: "The folder name must not be empty, start with a dot, contain / \\ : < > \" | ? * or be longer than 120 characters. Dots inside the name, such as \"s. r. o.\", are fine.",
   de: "Der Ordnername darf nicht leer sein, nicht mit einem Punkt beginnen, keine Zeichen / \\ : < > \" | ? * enthalten und nicht länger als 120 Zeichen sein. Punkte im Namen, etwa „s. r. o.“, sind zulässig.",
 };
+/** Zamknutý súbor z neúplnej inšpekcie (Windows: dokument otvorený vo Worde); cesty sú zo správy servera. */
+const lockedFiles: Record<Language, (paths: string, many: boolean) => string> = {
+  sk: (paths, many) =>
+    many
+      ? `Súbory sú otvorené v inej aplikácii (napríklad vo Worde) alebo k nim nie je prístup: ${paths}. Zatvorte ich a skúste to znova.`
+      : `Súbor je otvorený v inej aplikácii (napríklad vo Worde) alebo k nemu nie je prístup: ${paths}. Zatvorte ho a skúste to znova.`,
+  cs: (paths, many) =>
+    many
+      ? `Soubory jsou otevřené v jiné aplikaci (například ve Wordu) nebo k nim není přístup: ${paths}. Zavřete je a zkuste to znovu.`
+      : `Soubor je otevřený v jiné aplikaci (například ve Wordu) nebo k němu není přístup: ${paths}. Zavřete ho a zkuste to znovu.`,
+  en: (paths, many) =>
+    many
+      ? `Files are open in another application (for example Word) or cannot be accessed: ${paths}. Close them and try again.`
+      : `A file is open in another application (for example Word) or cannot be accessed: ${paths}. Close it and try again.`,
+  de: (paths, many) =>
+    many
+      ? `Dateien sind in einer anderen Anwendung geöffnet (zum Beispiel in Word) oder nicht zugänglich: ${paths}. Schließen Sie sie und versuchen Sie es erneut.`
+      : `Eine Datei ist in einer anderen Anwendung geöffnet (zum Beispiel in Word) oder nicht zugänglich: ${paths}. Schließen Sie sie und versuchen Sie es erneut.`,
+};
+const lockedFilesMessage = (error: unknown, locale: Language) => {
+  if (!(error instanceof Error) || !error.message.startsWith(LOCKED_FILES_MESSAGE_PREFIX)) return undefined;
+  // Zamknuté súbory sú v zozname vpredu; „; “ môže byť aj v názve súboru, preto rozhoduje kód za cestou.
+  const list = error.message
+    .slice(LOCKED_FILES_MESSAGE_PREFIX.length)
+    .trim()
+    .replace(/ \(\+\d+ more\)$/, "");
+  const paths = [...list.matchAll(new RegExp(`(?:^|; )(.+?): ${LOCKED_FILE_CODE}(?=; |$)`, "g"))].map((match) => match[1] ?? "");
+  return paths.length ? lockedFiles[locale](paths.join(", "), paths.length > 1) : undefined;
+};
+/** okf.config kancelárie v ANSI (PowerShell 5.1 `Set-Content`): názvy priečinkov z neho by boli poškodené. */
+const officeConfigEncoding: Record<Language, string> = {
+  sk: "Súbor okf.config kancelárie nie je uložený v UTF-8 (napríklad v ANSI z PowerShellu), takže priečinky z neho by mali poškodené názvy. Otvorte ho v Poznámkovom bloku, uložte ho s kódovaním UTF-8 a skúste to znova.",
+  cs: "Soubor okf.config kanceláře není uložený v UTF-8 (například v ANSI z PowerShellu), takže složky z něj by měly poškozené názvy. Otevřete ho v Poznámkovém bloku, uložte ho s kódováním UTF-8 a zkuste to znovu.",
+  en: "The office okf.config is not saved as UTF-8 (for example ANSI from PowerShell), so folders from it would get damaged names. Open it in Notepad, save it with UTF-8 encoding and try again.",
+  de: "Die okf.config der Kanzlei ist nicht als UTF-8 gespeichert (zum Beispiel ANSI aus PowerShell), daher hätten Ordner daraus beschädigte Namen. Öffnen Sie sie im Editor, speichern Sie sie mit der Codierung UTF-8 und versuchen Sie es erneut.",
+};
+const officeConfigEncodingMessage = (error: unknown, locale: Language) =>
+  error instanceof Error && error.message.startsWith(OFFICE_CONFIG_ENCODING_MESSAGE) ? officeConfigEncoding[locale] : undefined;
 /** Server errors in the UI language where the app knows them; other messages stay as sent. */
 export const onboardingErrorMessage = (error: unknown, locale: Language) =>
   error instanceof Error && error.message === UNSAFE_FOLDER_NAME_MESSAGE
     ? unsafeFolderName[locale]
-    : errorMessage(error, text[locale].error);
+    : (lockedFilesMessage(error, locale) ??
+      officeConfigEncodingMessage(error, locale) ??
+      canonicalPathRejection(error, locale) ??
+      errorMessage(error, text[locale].error));
 const field = (label: string, child: ReactNode) => (
   <label className="grid gap-1.5 text-sm font-medium">
     <span>{label}</span>
@@ -1361,15 +1408,30 @@ function Office({
     </>
   );
 }
-/** Rodičovský priečinok cesty; kópia skúšobného klonu vznikne predvolene vedľa originálu. */
+/** Rodičovský priečinok cesty (aj vloženej v úvodzovkách); kópia skúšobného klonu vznikne predvolene vedľa originálu. */
 export function parentFolderOf(path: string): string {
-  const trimmed = path.trim().replace(/[\\/]+$/, "");
+  const trimmed = unquotedTypedPath(path).replace(/[\\/]+$/, "");
   const cut = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
-  return cut > 0 ? trimmed.slice(0, cut) : "";
+  if (cut <= 0) return "";
+  const parent = trimmed.slice(0, cut);
+  // Windows: `D:` bez lomky je aktuálny priečinok disku, nie jeho koreň (`join` z neho
+  // spraví relatívne `D:názov`). Koreň zdieľania dostane lomku ako z `resolve()`
+  // (`\\nas\Klienti\`, viď `lawoss/okf/src/canonical-path.ts`); samotný server
+  // (`\\nas`) priečinok nie je, kópiu vtedy umiestni advokát.
+  if (/^[A-Za-z]:$/.test(parent)) return `${parent}\\`;
+  if (/^(?:\\\\|\/\/)[^\\/]+$/.test(parent)) return "";
+  if (/^(?:\\\\|\/\/)[^\\/]+[\\/][^\\/]+$/.test(parent)) return `${parent}${trimmed[cut]}`;
+  return parent;
 }
-const folderName = (path: string) => path.trim().replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
+const folderName = (path: string) => unquotedTypedPath(path).replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
+/** Názov klienta pripájaného priečinka (karta klienta, pracovný priestor). */
+export const existingClientTitle = (root: string) => folderName(root) || "Client";
 /** Názov kópie tak, ako ho vytvorí server (`planExistingClient`). */
-export const trialCloneName = (original: string, date: string) => `${folderName(original) || "client"} (trial ${date})`;
+// Ako server (safeSegment): bez bodiek a medzier na konci, inak by náhľad ukázal iný priečinok, než vznikne.
+export const trialCloneName = (original: string, date: string) => `${folderName(original).replace(/[. ]+$/, "") || "client"} (trial ${date})`;
+/** Cieľ kópie pod poľom „Kam uložiť kópiu“. */
+export const cloneTargetOf = (cloneParent: string, original: string, date: string) =>
+  `${unquotedTypedPath(cloneParent).replace(/[\\/]+$/, "")}/${trialCloneName(original, date)}`;
 /** Režimy pripojenia v poradí ponuky; skúšobný klon je prvý a predvolený, mapovanie skryje alfa prepínač. */
 const EXISTING_MODES = visibleExistingClientModes(["trial_clone", "convert", "map"] as const);
 /** Statické kľúče pomocných textov režimov, aby i18n audit nevidel dynamicky skladaný kľúč. */
@@ -1414,7 +1476,7 @@ export function Client({
           action: "existing",
           root: value,
           mode,
-          title: folderName(value) || "Client",
+          title: existingClientTitle(value),
           clientType: type,
           jurisdiction: base.jurisdiction,
           date: today(),
@@ -1499,7 +1561,7 @@ export function Client({
           )}
           {value.trim() && cloneParent.trim() ? (
             <p className="break-all text-sm text-muted-foreground" data-lawoss-clone-target>
-              {tr("cloneTarget")}: {cloneParent.replace(/[\\/]+$/, "")}/{trialCloneName(value, today())}
+              {tr("cloneTarget")}: {cloneTargetOf(cloneParent, value, today())}
             </p>
           ) : null}
         </div>
@@ -1783,8 +1845,9 @@ export function Matter({
               kind,
               area,
               jurisdiction: base.jurisdiction,
+              // Karta veci nesie meno subjektu (priečinok), nie cestu tohto počítača.
               ...(subjectMode === "existing" && selectedSubjectRoot
-                ? { subject: selectedSubjectRoot }
+                ? { subject: folderName(selectedSubjectRoot) }
                 : {}),
               language: documentLanguage,
             })

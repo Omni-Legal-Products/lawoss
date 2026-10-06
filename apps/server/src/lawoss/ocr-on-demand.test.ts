@@ -1,6 +1,6 @@
 // LAWOSS: model rozpoznávania textu sa sťahuje len po zapnutí OCR (tlačidlom alebo pri prvom použití), nikdy pri štarte servera.
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveServerConfig } from "../config.js";
@@ -12,6 +12,7 @@ import type { OcrEngine } from "../ocr/types.js";
 import { startServer } from "../server.js";
 import { OCR_DOWNLOAD_FAILED, OCR_DOWNLOAD_NOTICE, firstUseOcrDownload } from "./ocr-on-demand.js";
 import { writeOcrEnabled } from "./ocr-opt-in.js";
+import { removeTestDir } from "./test-support/remove-test-dir.js";
 
 const roots: string[] = [];
 const originalAuto = process.env.LEGALWORK_OCR_AUTO_DOWNLOAD;
@@ -20,7 +21,7 @@ afterEach(async () => {
   for (const [key, value] of Object.entries({ LEGALWORK_OCR_AUTO_DOWNLOAD: originalAuto, LEGALWORK_RUNTIME_DB: originalDb })) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;
   }
-  await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })));
+  await Promise.all(roots.splice(0).map(root => removeTestDir(root)));
 });
 async function temporary() {
   const root = await mkdtemp(join(tmpdir(), "lawoss-ocr-on-demand-")); roots.push(root); return root;

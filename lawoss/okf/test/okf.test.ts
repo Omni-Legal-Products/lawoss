@@ -19,6 +19,10 @@ describe("core", () => {
   test("renderTemplate fills known keys and blanks unknown ones", () => {
     expect(renderTemplate("a {{TITLE}} b {{NOPE}} c", { TITLE: "X" })).toBe("a X b  c");
   });
+  test("parseFrontmatter accepts a Windows card saved with BOM and CRLF", () => {
+    expect(parseFrontmatter('\uFEFF---\r\ntype: klient\r\ntitle: "Novák"\r\n---\r\nbody')).toEqual({ type: "klient", title: "Novák" });
+    expect(parseFrontmatter('\uFEFF---\ntype: spis\n---\n')).toEqual({ type: "spis" });
+  });
   test("parseFrontmatter reads simple keys and unquotes", () => {
     expect(parseFrontmatter('---\ntype: spis\nico: "123"\n---\nbody')).toEqual({ type: "spis", ico: "123" });
     expect(parseFrontmatter("no frontmatter")).toBeNull();

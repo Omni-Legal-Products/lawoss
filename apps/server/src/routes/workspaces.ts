@@ -1,5 +1,6 @@
 import type { registerProjectFolderRoutes } from "./project-folders.js";
-import { readFile, rename, rm, writeFile, lstat, realpath } from "node:fs/promises";
+import { readFile, rename, rm, writeFile, lstat } from "node:fs/promises";
+import { realpath } from "../lawoss/canonical-path.js";
 import { basename, dirname, resolve, isAbsolute } from "node:path";
 import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";

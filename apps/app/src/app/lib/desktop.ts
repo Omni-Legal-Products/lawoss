@@ -461,6 +461,8 @@ const {
   engineInfo,
   engineDoctor,
   pickDirectory,
+  // 🟡 LAWOSS: napísané cesty onboardingu (lawoss/domains/onboarding/typed-paths.ts).
+  canonicalDirectoryPath,
   pickFile,
   saveFile,
   engineInstall,
@@ -574,6 +576,7 @@ export {
   engineInfo,
   engineDoctor,
   pickDirectory,
+  canonicalDirectoryPath,
   pickFile,
   saveFile,
   engineInstall,

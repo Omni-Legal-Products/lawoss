@@ -7,12 +7,13 @@ import { resolveServerConfig } from "./config.js";
 import { readRuntimeOpencodeConfig, runtimeExternalDirectory, runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
+import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
 
 const roots: string[] = [], stops: (() => void | Promise<void>)[] = [];
 const originalData = process.env.LEGALWORK_DATA_DIR, originalTokens = process.env.LEGALWORK_TOKEN_STORE;
 afterEach(async () => {
   for (const stop of stops.splice(0)) await stop();
-  for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
+  for (const root of roots.splice(0)) await removeTestDir(root);
   if (originalData === undefined) delete process.env.LEGALWORK_DATA_DIR; else process.env.LEGALWORK_DATA_DIR = originalData;
   if (originalTokens === undefined) delete process.env.LEGALWORK_TOKEN_STORE; else process.env.LEGALWORK_TOKEN_STORE = originalTokens;
 });

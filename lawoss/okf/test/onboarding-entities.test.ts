@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
-import { lstat, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { symlinkSync } from "node:fs";
+import { lstat, mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
@@ -33,6 +34,44 @@ test.each(["fo", "fo-podnikatel", "po", "iny"] as const)("plans and applies clie
   expect(await readFile(join(parent, clientType, "client.md"), "utf8")).toContain(`client_type: ${clientType}`);
 });
 
+// Windows: Dokumenty obsahujú skryté junctions (My Music, My Pictures, My Videos). Typ
+// "junction" vytvorí na Windows skutočný junction bez práv správcu, inde symlink.
+test("an office can be created in a parent with junctions and deep content; only top-level changes block apply", async () => {
+  const parent = await directory("okf-parent-documents-");
+  const music = await directory("okf-music-");
+  symlinkSync(music, join(parent, "My Music"), "junction");
+  await mkdir(join(parent, "Zmluvy", "2025", "staré"), { recursive: true });
+  await writeFile(join(parent, "Zmluvy", "2025", "staré", "návrh.docx"), "x");
+  const office = await planOnboarding(parseOnboardingRequest({ action: "office", parent, title: "Office", jurisdiction: "cz", language: "cs", lawyerName: "M" }));
+  if (office.mode !== "new") throw new Error("Expected new office plan.");
+  expect(office.plan.scope).toBe("parent");
+  await writeFile(join(parent, "Zmluvy", "2025", "nový.docx"), "y"); // hlboká zmena (napr. synchronizácia) neblokuje
+  await applyOnboarding(office, await options());
+  expect(await readFile(join(parent, "Office/okf.config"), "utf8")).toContain("jurisdiction: cz");
+  expect((await lstat(join(parent, "My Music"))).isSymbolicLink()).toBe(true);
+  expect(await readdir(music)).toEqual([]);
+
+  const client = await planOnboarding(parseOnboardingRequest({ action: "client", parent, name: "Novak", title: "Novák", clientType: "fo", jurisdiction: "cz", date: "2026-10-05", language: "cs" }));
+  await writeFile(join(parent, "nový na vrchu.txt"), "z"); // zmena najvyššej úrovne medzi náhľadom a zápisom
+  await expect(applyOnboarding(client, await options())).rejects.toThrow(/changed since planning/);
+});
+
+test("Windows device names and control characters are refused already in the preview", async () => {
+  const parent = await directory("okf-parent-reserved-");
+  for (const name of ["CON", "Nul", "Aux.sk", "com1", "a\tb"]) {
+    await expect(planOnboarding(parseOnboardingRequest({ action: "client", parent, name, title: name, clientType: "po", jurisdiction: "sk", date: "2026-10-05", language: "sk" }))).rejects.toThrow("A safe non-empty folder name is required.");
+  }
+  const ok = await planOnboarding(parseOnboardingRequest({ action: "client", parent, name: "Conrad s.r.o.", title: "Conrad s.r.o.", clientType: "po", jurisdiction: "sk", date: "2026-10-05", language: "sk" }));
+  expect(ok.mode).toBe("new");
+});
+
+test("volatile Windows and Office names are refused already in the preview", async () => {
+  const parent = await directory("okf-parent-volatile-");
+  for (const name of ["Thumbs.db", "desktop.ini", "~$Novak", "~WRL0001.tmp"]) {
+    await expect(planOnboarding(parseOnboardingRequest({ action: "client", parent, name, title: name, clientType: "po", jurisdiction: "sk", date: "2026-10-05", language: "sk" }))).rejects.toThrow("A safe non-empty folder name is required.");
+  }
+});
+
 test("subject and both matter kinds carry additive identity fields", async () => {
   const client = await directory("okf-client-");
   await writeFile(join(client, "client.md"), "---\ntype: client\n---\n");
@@ -50,6 +89,23 @@ test("subject and both matter kinds carry additive identity fields", async () =>
     expect(result.clientRoot).toBe(client);
     expect(result.matterRoot).toBe(preview.target);
   }
+});
+
+test("a matter under an existing subject stays inside the client; a sibling folder is refused", async () => {
+  const client = await directory("okf-client-subject-");
+  await writeFile(join(client, "client.md"), "---\ntype: client\n---\n");
+  await applyOnboarding(await planOnboarding(parseOnboardingRequest({ action: "subject", clientRoot: client, name: "Novak Jan", title: "Novák Jan" })), await options());
+  const subjectRoot = join(client, "Novak Jan");
+  await expect(planOnboarding(parseOnboardingRequest({ action: "matter", clientRoot: client, parent: subjectRoot, title: "Zmluva", date: "2026-10-05", kind: "non_contentious", area: "IP", jurisdiction: "cz", subject: subjectRoot }))).rejects.toThrow(/folder name, not a path/);
+  const preview = await planOnboarding(parseOnboardingRequest({ action: "matter", clientRoot: client, parent: subjectRoot, title: "Zmluva", date: "2026-10-05", kind: "non_contentious", area: "IP", jurisdiction: "cz", subject: "Novak Jan" }));
+  if (preview.mode !== "new") throw new Error("Expected matter plan.");
+  expect(preview.target).toBe(join(subjectRoot, "Spisy", "2026-10 Zmluva"));
+  await applyOnboarding(preview, await options());
+  const card = await readFile(join(preview.target, "matter.md"), "utf8");
+  expect(card).toContain("kind: non_contentious");
+  expect(card).toContain('subject: "Novak Jan"');
+  const sibling = await directory("okf-client-sibling-");
+  await expect(planOnboarding(parseOnboardingRequest({ action: "matter", clientRoot: client, parent: sibling, title: "Mimo", date: "2026-10-05", kind: "contentious", area: "IP", jurisdiction: "cz" }))).rejects.toThrow(/within/);
 });
 
 test("map is read-only and only accepts a selected inspected memory source", async () => {

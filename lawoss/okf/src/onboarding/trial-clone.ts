@@ -1,9 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { copyFile, lstat, mkdir, open, readFile, realpath, rename, rmdir, unlink } from "node:fs/promises";
+import { copyFile, lstat, mkdir, open, readFile, rename, rmdir } from "node:fs/promises";
+import { realpath } from "../canonical-path.ts";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { inspectOnboardingRoot, type TreeEntry } from "./classify.ts";
+import { inspectOnboardingRoot, type OnboardingInspection, type TreeEntry } from "./classify.ts";
 import { acquireOnboardingLock, applyOnboardingPlan, parseOnboardingPlan, recoverOnboardingPlan, type OnboardingPlan } from "./transaction.ts";
+import { syncFile, unlinkFile } from "./file-durability.ts";
 
 export type TrialClone = { source: string; sourceDigest: string; target: string; conversionPlan?: OnboardingPlan };
 type Owned = { path: string; kind: "file" | "directory"; identity: string; digest: string | null; size: number };
@@ -44,7 +46,7 @@ async function readJournal(path: string, fingerprint: string): Promise<Journal |
     return value;
   } catch (error) { if (missing(error)) return null; throw error; }
 }
-async function verifyOwned(preview: TrialClone, journal: Journal, allowConversion = false): Promise<void> {
+async function verifyOwned(preview: TrialClone, journal: Journal, allowConversion = false): Promise<OnboardingInspection> {
   const current = await inspectOnboardingRoot(preview.target);
   if (!current.complete || !current.digest) throw new Error("Trial output cannot be inspected safely.");
   const expected = new Set(journal.owned.map(entry => entry.path));
@@ -54,6 +56,16 @@ async function verifyOwned(preview: TrialClone, journal: Journal, allowConversio
     const path = owned.path ? join(preview.target, owned.path) : preview.target;
     if (await identity(path, owned.kind) !== owned.identity || owned.kind === "file" && await fileDigest(path) !== owned.digest) throw new Error(`Trial entry changed; preserving ${owned.path || "root"}.`);
   }
+  return current;
+}
+/**
+ * Rollback maže aj priečinky klonu. Prchavý súbor Windows či Office (`Spisy/~$zmluva.docx` otvoreného
+ * dokumentu, `Thumbs.db`) inšpekcia vynechá, no rmdir by na ňom zlyhal až po zmazaní časti klonu.
+ * Preto stop pred prvým zmazaním; kopírovanie a apply ich naďalej ignorujú.
+ */
+function assertNoVolatileEntries(inspection: OnboardingInspection): void {
+  const ignored = inspection.ignored ?? [];
+  if (ignored.length) throw new Error(`Close open documents in the trial clone and remove leftover Windows or Office files, then retry rollback: ${ignored.slice(0, 5).join(", ")}${ignored.length > 5 ? ` (+${ignored.length - 5} more)` : ""}.`);
 }
 
 /** Copy each binary entry exclusively and journal its identity before proceeding. */
@@ -96,8 +108,7 @@ export async function applyTrialClone(preview: TrialClone, journalDirectory: str
           if (await realpath(sourcePath) !== sourcePath || !(await lstat(sourcePath)).isFile()) throw new Error("Trial source entry changed.");
           await copyFile(sourcePath, target, constants.COPYFILE_EXCL);
           if (await fileDigest(target) !== entry.digest) throw new Error("Trial copy digest mismatch.");
-          // Windows FlushFileBuffers requires a handle opened with write access.
-          const handle = await open(target, (process.platform === "win32" ? constants.O_RDWR : constants.O_RDONLY) | constants.O_NOFOLLOW); try { await handle.sync(); } finally { await handle.close(); }
+          await syncFile(target);
         }
         journal.owned.push({ path: entry.path, kind: entry.kind, identity: await identity(target, entry.kind), digest: entry.digest, size: entry.size });
         delete journal.intent; await save();
@@ -144,16 +155,16 @@ export async function recoverTrialClone(preview: TrialClone, journalDirectory: s
       catch (error) { if (!missing(error)) throw error; journal.owned = journal.owned.filter(entry => entry.path !== journal.removal); delete journal.removal; await save(); }
     }
     if (!journal.owned.length) { try { await lstat(preview.target); throw new Error("Uncertain trial root ownership."); } catch (error) { if (!missing(error)) throw error; } }
-    else await verifyOwned(preview, journal, true);
+    else assertNoVolatileEntries(await verifyOwned(preview, journal, true));
     if (journal.conversionPlan) await recoverOnboardingPlan(journal.conversionPlan, journalDirectory, "rollback");
     journal.phase = "rollback"; await save();
-    if (journal.owned.length) await verifyOwned(preview, journal);
+    if (journal.owned.length) assertNoVolatileEntries(await verifyOwned(preview, journal));
     while (journal.owned.length) {
       const owned = journal.owned[journal.owned.length - 1]!;
       journal.removal = owned.path; await save();
       const path = join(preview.target, owned.path);
       if (await identity(path, owned.kind) !== owned.identity || owned.kind === "file" && await fileDigest(path) !== owned.digest) throw new Error("Changed trial output; rollback stopped.");
-      if (owned.kind === "directory") await rmdir(path); else await unlink(path);
+      if (owned.kind === "directory") await rmdir(path); else await unlinkFile(path);
       journal.owned.pop(); delete journal.removal; await save();
     }
     journal.phase = "rolled_back"; await save();

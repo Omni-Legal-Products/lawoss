@@ -14,6 +14,7 @@ import { join, sep } from "node:path";
 import { parseFrontmatter, type FmValue } from "./record.ts";
 import type { WriteDiff } from "./write.ts";
 import { isIsoDate } from "./schema.ts";
+import { decodeText } from "./text-decode.ts";
 
 export const CONFIG_FILE = "okf.config";
 
@@ -30,20 +31,60 @@ function text(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+/**
+ * `okf.config` existuje, ale nedá sa prečítať (alebo je poškodený vzor klienta).
+ * Nesmie sa tváriť ako chýbajúci súbor — `client_path` z neho by potichu zmizol
+ * a s ním klientska úroveň aj z dosahu brány úniku.
+ */
+export class ConfigReadError extends Error {
+  readonly file: string;
+  constructor(file: string, cause: unknown, what = "súbor sa nedá prečítať") {
+    super(`${what} — ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = "ConfigReadError";
+    this.file = file;
+  }
+}
+
+/**
+ * Advokát píše konfig ručne; na Windows často s BOM alebo v UTF-16 (viď `decodeText`).
+ *
+ * Neplatné bajty sa nahradia U+FFFD, súbor sa kvôli nim neodmieta: ANSI znak
+ * v komentári či v kľúči, ktorý nástroj nečíta, by inak zhodil `client_path`
+ * aj všetko ostatné — a appka, ktorá číta zhovievavo, by videla iný konfig.
+ * Poškodenie rieši až hodnota, ktorá sa naozaj použije (`damaged`).
+ */
+function readConfigText(path: string): string {
+  return decodeText(readFileSync(path));
+}
+
+/** Hláška k U+FFFD v použitej hodnote; `Set-Content` bez -Encoding v PowerShelli 5.1 píše ANSI. */
+const NOT_UTF8 = "súbor nie je v UTF-8 ani v UTF-16 s BOM (napr. ANSI); ulož ho ako UTF-8";
+
+/** U+FFFD v hodnote: diakritika sa pri dekódovaní stratila a hodnota nie je tá, ktorú advokát napísal. */
+function damaged(value: FmValue | undefined): boolean {
+  if (typeof value === "string") return value.includes("\uFFFD");
+  if (Array.isArray(value)) return value.some((item) => damaged(item));
+  return typeof value === "object" && Object.values(value).some((item) => damaged(item));
+}
+
 function readConfig(
   officeDir: string | undefined,
-): Map<string, FmValue> | undefined {
+): { path: string; kv: Map<string, FmValue> } | undefined {
   if (!officeDir) return undefined;
   const path = join(officeDir, CONFIG_FILE);
   if (!existsSync(path)) return undefined;
-  return parseFrontmatter(readFileSync(path, "utf8"));
+  try {
+    return { path, kv: parseFrontmatter(readConfigText(path)) };
+  } catch (error) {
+    throw new ConfigReadError(path, error);
+  }
 }
 
 /** Meno na predvyplnenie karty; samo osebe nie je poverením na zápis. */
 export function readConfiguredLawyerName(officeDir: string | undefined): string | undefined {
   if (!officeDir) return undefined;
   try {
-    const contents = readFileSync(join(officeDir, CONFIG_FILE), "utf8");
+    const contents = readConfigText(join(officeDir, CONFIG_FILE));
     const value = parseFrontmatter(contents).get("standing_authorization");
     if (typeof value !== "string") return undefined;
     // Čítač pamäte odstraňuje úvodzovky bez dekódovania. Pre meno overíme
@@ -61,7 +102,8 @@ export function readConfiguredLawyerName(officeDir: string | undefined): string 
       if (!/^'(?:[^']|'')*'$/.test(scalar)) return undefined;
       name = scalar.slice(1, -1).replace(/''/g, "'");
     } else if (/^[!&*>|%@`\[{}]|^(?:null|true|false|~)$/i.test(scalar)) return undefined;
-    if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(name)) return undefined;
+    // U+FFFD: meno z ANSI konfigu by sa do karty dostalo poškodené.
+    if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029\uFFFD]/.test(name)) return undefined;
     return name.trim() || undefined;
   } catch {
     return undefined;
@@ -78,9 +120,15 @@ export function readConfiguredLawyerName(officeDir: string | undefined): string 
  *
  * Hviezdička zastupuje **jeden segment cesty**, nie ľubovoľnú hĺbku — vzor
  * `AK/*` + `/*` by inak označil za klienta aj priečinok veci.
+ *
+ * Nečitateľný konfig aj vzor s U+FFFD vyhodí `ConfigReadError`; `readScope`
+ * ho hlási ako nečitateľný súbor, nie ako „bez vzoru“.
  */
 export function readClientPath(officeDir: string | undefined): string | undefined {
-  const v = readConfig(officeDir)?.get("client_path");
+  const config = readConfig(officeDir);
+  const v = config?.kv.get("client_path");
+  // Poškodený vzor nesedí na žiadny priečinok — klient by potichu zmizol z dosahu brány úniku.
+  if (config && damaged(v)) throw new ConfigReadError(config.path, NOT_UTF8, "client_path obsahuje poškodený znak (U+FFFD)");
   return typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
 }
 
@@ -99,6 +147,9 @@ export interface StandingAuthorizationCheck {
   readonly problem?: string;
 }
 
+/** Polia poverenia, z ktorých sa skladá podpis a jeho rozsah. */
+const AUTHORIZATION_FIELDS = ["standing_authorization", "expires_at", "granted_at", "reason", "scope"] as const;
+
 /**
  * Prečíta poverenie a povie, prečo prípadne neplatí.
  *
@@ -110,8 +161,14 @@ export interface StandingAuthorizationCheck {
 export function inspectStandingAuthorization(
   officeDir: string | undefined,
 ): StandingAuthorizationCheck {
-  const kv = readConfig(officeDir);
+  let kv: Map<string, FmValue> | undefined;
+  // Nečitateľný konfig nie je poverenie — `validate` to povie, `write` chce --approve-as.
+  try { kv = readConfig(officeDir)?.kv; }
+  catch (error) { if (error instanceof ConfigReadError) return { problem: error.message }; throw error; }
   if (!kv || !kv.has("standing_authorization")) return {};
+  // Meno ide do histórie každého záznamu; s U+FFFD by sa podpis poškodil natrvalo.
+  const poskodene = AUTHORIZATION_FIELDS.find((key) => damaged(kv.get(key)));
+  if (poskodene) return { problem: `${poskodene} obsahuje poškodený znak (U+FFFD) — ${NOT_UTF8}` };
   const by = text(kv.get("standing_authorization"));
   const expiresAt = text(kv.get("expires_at"));
   const grantedAt = text(kv.get("granted_at"));
@@ -150,7 +207,11 @@ export type NameLeakSeverity = "error" | "warning";
  * prah, to je únik.
  */
 export function readNameLeakSeverity(officeDir: string | undefined): NameLeakSeverity {
-  const kv = readConfig(officeDir);
+  let kv: Map<string, FmValue> | undefined;
+  // Nečitateľný konfig zmäkčenie neudelí; ostáva prísnejší default.
+  try { kv = readConfig(officeDir)?.kv; }
+  catch (error) { if (error instanceof ConfigReadError) return "error"; throw error; }
+  if (damaged(kv?.get("leak_name_severity")) || damaged(kv?.get("leak_name_reason"))) return "error";
   const sev = text(kv?.get("leak_name_severity"));
   const reason = text(kv?.get("leak_name_reason"));
   return sev === "warning" && reason !== "" ? "warning" : "error";

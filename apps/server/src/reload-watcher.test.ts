@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -141,4 +142,36 @@ describe("reload watcher fingerprints", () => {
       }
     });
   });
+});
+
+// 🟡 LAWOSS: watcher vytvorený počas prehľadávania stromu po close() ostal
+// otvorený navždy. Na Windows tak držal priečinok (EBUSY pri mazaní, „priečinok
+// používa iný program“ v Prieskumníkovi). Linux ukáže sledovania v /proc.
+function inotifyWatchCount(): number {
+  return readdirSync("/proc/self/fdinfo").reduce((total, fd) => {
+    try {
+      return total + (readFileSync(`/proc/self/fdinfo/${fd}`, "utf8").match(/^inotify wd:/gm)?.length ?? 0);
+    } catch {
+      return total;
+    }
+  }, 0);
+}
+
+describe("reload watcher close", () => {
+  test.skipIf(!existsSync("/proc/self/fdinfo"))("close() during the first tree scan leaves no watcher behind", async () => {
+    await withWorkspace(async (root) => {
+      const { config } = buildConfig(root);
+      for (let index = 0; index < 120; index += 1) {
+        await mkdir(join(root, ".opencode", "skills", `skill-${index}`, "references"), { recursive: true });
+      }
+      const baseline = inotifyWatchCount();
+      for (let delay = 196; delay <= 260; delay += 4) {
+        const watcher = startReloadWatchers({ config, reloadEvents: new ReloadEventStore(), debounceMs: 30 });
+        await sleep(delay);
+        watcher.close();
+        await sleep(150);
+        expect({ delay, watches: inotifyWatchCount() }).toEqual({ delay, watches: baseline });
+      }
+    });
+  }, 30_000);
 });

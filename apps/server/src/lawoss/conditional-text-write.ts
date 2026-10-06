@@ -1,7 +1,8 @@
-import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { randomUUID } from "node:crypto";
 import { ApiError } from "../errors.js";
+import { readWorkspaceText } from "./workspace-text.js";
 
 const writes = new Map<string, Promise<void>>();
 
@@ -20,7 +21,8 @@ export async function writeConditionalText(root: string, path: string, content: 
         });
         if (info?.isSymbolicLink()) throw new ApiError(400, "invalid_path", "Conditional writes do not follow symbolic links");
       }
-      const actual = await readFile(path, "utf8").catch((error: NodeJS.ErrnoException) => {
+      // Rovnaké dekódovanie ako GET /files/content: okf.config s BOM alebo v UTF-16 nie je konflikt.
+      const actual = await readWorkspaceText(path).catch((error: NodeJS.ErrnoException) => {
         if (error.code === "ENOENT") return null;
         throw error;
       });

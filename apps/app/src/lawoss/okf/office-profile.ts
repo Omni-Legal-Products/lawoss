@@ -1,7 +1,8 @@
 import { t } from "@/i18n";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { parseFrontmatter } from "../../../../../lawoss/okf-pamat/src/record";
-import { parseOfficeWorkingProfile, workingProfile, type WorkingProfile } from "../../../../../lawoss/okf/src/profile";
+import { OFFICE_CONFIG_ENCODING_CODE, OFFICE_CONFIG_ENCODING_MESSAGE, parseOfficeWorkingProfile, workingProfile, type WorkingProfile } from "../../../../../lawoss/okf/src/profile";
+import { stripBom } from "../../../../../lawoss/okf-pamat/src/text-decode";
 
 type OfficeProfile = { profile: WorkingProfile; clientPath: string };
 const editableKeys = new Set(["matter_folders", "folder_roles", "document_naming", "client_path"]);
@@ -13,7 +14,9 @@ function validateClientPath(value: string): string {
   }
   return value;
 }
-export function readOfficeProfile(content: string): OfficeProfile {
+export function readOfficeProfile(raw: string): OfficeProfile {
+  // Server text dekóduje ako UTF-8 a BOM z Windows nechá; ten by skryl prvý kľúč pred kontrolou duplicít.
+  const content = stripBom(raw);
   const fields = parseFrontmatter(content);
   const seen = new Set<string>();
   for (const line of content.split("\n")) {
@@ -27,8 +30,24 @@ export function readOfficeProfile(content: string): OfficeProfile {
   return { profile: parseOfficeWorkingProfile(content) ?? workingProfile(), clientPath: validateClientPath(path) };
 }
 
+/**
+ * okf.config v ANSI (PowerShell 5.1 `Set-Content`): server ho dekóduje ako UTF-8 a stratená diakritika je
+ * U+FFFD. Prepis by ju natrvalo zapísal aj do cudzích riadkov (napr. meno v poverení), hoci Poznámkový blok
+ * ešte vie súbor otvoriť správne; editor ho preto nezapíše.
+ */
+function assertNotDamaged(content: string): void {
+  if (content.includes("\uFFFD")) {
+    throw Object.assign(new Error(`${OFFICE_CONFIG_ENCODING_MESSAGE}: súbor obsahuje poškodený znak (U+FFFD)`), { code: OFFICE_CONFIG_ENCODING_CODE });
+  }
+}
+export const isOfficeConfigEncodingError = (error: unknown) =>
+  !!error && typeof error === "object" && "code" in error && error.code === OFFICE_CONFIG_ENCODING_CODE;
+
 /** Replace only owned keys; keep unrelated settings (including authorization) byte-for-byte. */
-export function updateOfficeProfile(content: string, value: OfficeProfile): string {
+export function updateOfficeProfile(raw: string, value: OfficeProfile): string {
+  // Bez BOM, inak by prvý vlastnený kľúč ostal ako „cudzí“ riadok a zapísal sa dvakrát.
+  const content = stripBom(raw);
+  assertNotDamaged(content);
   readOfficeProfile(content);
   const profile = workingProfile(value.profile.folders, value.profile.roles, value.profile.naming);
   const clientPath = validateClientPath(value.clientPath);
@@ -63,6 +82,7 @@ export async function loadOfficeProfile(client: ProfileClient, workspaceId: stri
   const state = await client.statWorkspaceFile(workspaceId, path);
   if (state.exists && state.kind !== "file") throw new Error(t("lawoss.setup.error.configNotFile"));
   const content = state.exists ? (await client.readWorkspaceFile(workspaceId, path)).content : null;
+  if (content !== null) assertNotDamaged(content);
   return { path, content, value: readOfficeProfile(content ?? "") };
 }
 export async function saveOfficeProfile(client: ProfileClient, workspaceId: string, snapshot: OfficeProfileSnapshot, value: OfficeProfile): Promise<OfficeProfileSnapshot> {

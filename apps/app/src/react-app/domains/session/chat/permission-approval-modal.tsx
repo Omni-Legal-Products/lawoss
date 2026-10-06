@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import type { PendingPermission } from "@/app/types";
 import { currentUiMode, useUiMode } from "@/lawoss/lite/ui-mode";
-import { describeMemoryWrite } from "@/lawoss/lite/memory-write";
+import { describeMemoryWrite, keepsMemoryWriteGate } from "@/lawoss/lite/memory-write";
 import { MemoryWriteNotice } from "@/lawoss/lite/memory-write-notice";
 
 type PermissionPresentation = {
@@ -362,7 +362,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
               {t("session.allow_once")}
             </AlertDialogAction>
             {/* LAWOSS-lite: pravidlo „pro session“ by povolilo i pozdější zápis s --apply bez karty. */}
-            {lite && memoryWriteProposal ? null : (
+            {lite && keepsMemoryWriteGate(String(metadata.command ?? "")) ? null : (
               <AlertDialogAction
                 variant="outline"
                 onClick={() => props.respondPermission?.(props.permission.id, "always")}
@@ -428,7 +428,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               {t("session.allow_once")}
             </Button>
             {/* LAWOSS-lite: pravidlo „pro session“ by povolilo i pozdější zápis s --apply bez karty. */}
-            {lite && memoryWriteProposal ? null : (
+            {lite && keepsMemoryWriteGate(String(metadata.command ?? "")) ? null : (
               <Button
                 type="button"
                 variant="outline"

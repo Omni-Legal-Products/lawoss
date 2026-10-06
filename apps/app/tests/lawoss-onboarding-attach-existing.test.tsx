@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import type { Language } from "../src/i18n";
@@ -57,7 +59,19 @@ describe("connecting an existing client folder", () => {
     expect(parentFolderOf("/Users/test/Klienti/ACME s. r. o.")).toBe("/Users/test/Klienti");
     expect(parentFolderOf("/Users/test/Klienti/ACME/")).toBe("/Users/test/Klienti");
     expect(parentFolderOf("C:\\Klienti\\ACME")).toBe("C:\\Klienti");
+    expect(parentFolderOf("D:\\ACME")).toBe("D:\\");
+    expect(parentFolderOf("\\\\nas\\Klienti\\ACME")).toBe("\\\\nas\\Klienti\\");
+    expect(parentFolderOf("\\\\nas\\Klienti\\Novak\\ACME")).toBe("\\\\nas\\Klienti\\Novak");
+    expect(parentFolderOf("\\\\nas\\Klienti")).toBe("");
     expect(trialCloneName("/Users/test/Klienti/ACME", "2026-10-05")).toBe("ACME (trial 2026-10-05)");
+  });
+
+  test("the onboarding folder picker asks for the canonical path (mapped drive on Windows)", () => {
+    const route = readFileSync(join(import.meta.dir, "../src/react-app/shell/welcome-route.tsx"), "utf8");
+    expect(route).toContain('pickDirectory({ title: "Select LAWOSS folder", canonical: true })');
+    // Nový spis porovnáva výber s uloženou cestou pracovného priestoru, preto voľbu nemá.
+    const novySpis = readFileSync(join(import.meta.dir, "../src/lawoss/domains/novy-spis/novy-spis-page.tsx"), "utf8");
+    expect(novySpis).not.toContain("canonical: true");
   });
 
   test("the sidebar icon and the settings button carry the full name", () => {

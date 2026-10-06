@@ -198,3 +198,17 @@ test("different journals still serialize a single root", async () => {
   expect(outcomes.filter(outcome => outcome.status === "fulfilled")).toHaveLength(1);
   expect(outcomes.filter(outcome => outcome.status === "rejected")).toHaveLength(1);
 });
+
+// Word založí `~$zmluva.docx` pri otvorení dokumentu; otlačok ho nevidí, takže apply prejde,
+// a plán také meno nikdy nezaloží (inšpekcia by ho neskôr nevidela).
+test("volatile Windows and Office names neither block apply nor appear in a plan", async () => {
+  const { root, journal, digest } = await setup();
+  await writeFile(join(root, "~$zmluva.docx"), "owner");
+  await writeFile(join(root, "Thumbs.db"), "thumbs");
+  const value = plan(root, digest, [{ path: "matter", kind: "directory" }, { path: "matter/card.md", kind: "file", content: "hello" }]);
+  expect(await applyOnboardingPlan(value, journal)).toEqual({ status: "applied", created: ["matter", "matter/card.md"] });
+  expect(await readFile(join(root, "~$zmluva.docx"), "utf8")).toBe("owner");
+  for (const path of ["Thumbs.db", "~$novy.docx", "matter/desktop.ini", "matter/~WRL0001.tmp"]) {
+    await expect(applyOnboardingPlan(plan(root, digest, [{ path, kind: "file", content: "x" }]), journal)).rejects.toThrow("unsafe operation path");
+  }
+});

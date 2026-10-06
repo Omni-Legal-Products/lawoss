@@ -1,4 +1,6 @@
 import { writeConditionalText } from "../lawoss/conditional-text-write.js";
+import { childPathWithin } from "../lawoss/path-within.js";
+import { readWorkspaceText } from "../lawoss/workspace-text.js";
 import { createReadStream } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -129,7 +131,9 @@ function resolveSafeChildPath(root: string, child: string): string {
   if (candidate === rootResolved) {
     throw new ApiError(400, "invalid_path", "Path must point to a file");
   }
-  if (!candidate.startsWith(rootResolved + sep)) {
+  // 🟡 LAWOSS: pri koreni disku alebo zdieľania (`D:\`, `\\nas\share\`) končí rootResolved lomkou
+  // a prefix `rootResolved + sep` odmietal každý súbor.
+  if (!childPathWithin(rootResolved, child)) {
     throw new ApiError(400, "invalid_path", "Path traversal is not allowed");
   }
   return candidate;
@@ -1099,7 +1103,8 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       throw new ApiError(413, "file_too_large", "File exceeds size limit", { maxBytes, size: info.size });
     }
 
-    const content = await readFile(absPath, "utf8");
+    // 🟡 LAWOSS: okf.config z Windows (BOM, UTF-16) ako v CLI OKF; ostatné súbory UTF-8 ako doteraz.
+    const content = await readWorkspaceText(absPath);
     return jsonResponse({ path: relativePath, content, bytes: info.size, updatedAt: info.mtimeMs });
   });
 

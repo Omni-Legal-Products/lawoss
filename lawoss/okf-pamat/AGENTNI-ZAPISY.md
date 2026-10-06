@@ -24,6 +24,15 @@ scope: [L1, L3]
 reason: agentné vedenie spisov v rozsahu odsúhlasenom na porade 2. 9. 2026
 ```
 
+Na Windows ulož súbor ako UTF-8; prejde aj „UTF-8 s BOM“ a Unicode (UTF-16).
+V ANSI — napr. `Set-Content` bez `-Encoding` v PowerShelli 5.1 — sa diakritika
+neprečíta. V komentári to nevadí. V poli poverenia áno: meno a `expires_at`
+idú do histórie každého záznamu a poškodený `reason`, `scope` či dátum by
+poverenie urobil neurčitým, preto `validate` ohlási `STANDING_AUTH_INVALID`
+a zápisy chcú `--approve-as`. Poškodený `client_path`
+skončí ako `NEÚPLNÉ ČÍTANIE` a poškodený `leak_name_reason` zmäkčenie zhody
+mien neudelí.
+
 | Pole | Význam | Povinné |
 |---|---|---|
 | `standing_authorization` | meno advokáta, ktorý poverenie udelil — objaví sa v histórii každého záznamu | ✅ |

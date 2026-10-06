@@ -2,9 +2,13 @@
 import { resolveDocumentLanguage, type DocumentLanguage } from "./language.ts";
 import { parseFrontmatter } from "./frontmatter.ts";
 import { parseFrontmatter as parseConfig } from "../../okf-pamat/src/record.ts";
+import { stripBom } from "../../okf-pamat/src/text-decode.ts";
 export const WORKING_FOLDERS = ["00_Na_zatriedenie", "01_Podklady", "02_Resers", "03_Drafty", "04_Vystupy", "05_Komunikacia"] as const;
 export const PROFILE_FILE = "PRACOVNY-PROFIL.md";
 export type WorkingProfile = { folders: string[]; roles: Record<string, string>; naming: string };
+/** okf.config kancelárie v ANSI: kód a začiatok správy, podľa ktorých ju appka preloží. */
+export const OFFICE_CONFIG_ENCODING_CODE = "office_config_encoding";
+export const OFFICE_CONFIG_ENCODING_MESSAGE = "okf.config kancelárie nie je v UTF-8 ani v UTF-16 s BOM (napr. ANSI); ulož ho ako UTF-8";
 
 /** Uložený profil konkrétneho klienta alebo veci; nikdy nečítame nadradený snapshot. */
 export function parseWorkingProfile(content: string): WorkingProfile {
@@ -14,7 +18,9 @@ export function parseWorkingProfile(content: string): WorkingProfile {
 }
 
 /** Kancelársky profil nového spisu. Konfig bez profilových kľúčov nemení default. */
-export function parseOfficeWorkingProfile(content: string, language: DocumentLanguage = "sk"): WorkingProfile | undefined {
+export function parseOfficeWorkingProfile(text: string, language: DocumentLanguage = "sk"): WorkingProfile | undefined {
+  // okf.config uložený na Windows s BOM: U+FEFF pred prvým kľúčom by ho skryl.
+  const content = stripBom(text);
   if (!/^\s*(?:matter_folders|folder_roles|document_naming):/m.test(content)) return undefined;
   const keys = [...content.matchAll(/^(matter_folders|folder_roles|document_naming):/gm)].map((match) => match[1]);
   if (new Set(keys).size !== keys.length) throw new Error("Duplicitný kľúč pracovného profilu");
@@ -27,6 +33,13 @@ export function parseOfficeWorkingProfile(content: string, language: DocumentLan
   const roleNames = [...roleLines.join("\n").matchAll(/(?:^|[{,\n])\s*([a-z][a-z_]*):/g)].map((match) => match[1]);
   if (new Set(roleNames).size !== roleNames.length) throw new Error("Duplicitná rola pracovného profilu");
   const fields = parseConfig(content);
+  // ANSI (PowerShell 5.1 `Set-Content`): stratená diakritika by založila priečinok „N\uFFFDvrhy“.
+  // Odmieta sa len použitá hodnota; poškodený komentár či iný kľúč profil nemení.
+  for (const key of ["matter_folders", "folder_roles", "document_naming"]) {
+    if (JSON.stringify(fields.get(key) ?? null).includes("\uFFFD")) {
+      throw Object.assign(new Error(`${OFFICE_CONFIG_ENCODING_MESSAGE}: ${key} obsahuje poškodený znak (U+FFFD)`), { code: OFFICE_CONFIG_ENCODING_CODE });
+    }
+  }
   return workingProfile(fields.get("matter_folders"), fields.get("folder_roles"), fields.get("document_naming"), language);
 }
 

@@ -15,7 +15,8 @@ import { parseRecord, parseFrontmatter, recordRevision, serializeRecord, type Ok
 import { renderStatus, retrofitStatus, type LinkResolver, type BlockName } from "./render.ts";
 import { validateStore } from "./validate.ts";
 import { authorize, assertHasSource, type Approval, type WriteDiff } from "./write.ts";
-import { readStandingAuthorization, covers, readClientPath, matchesClientPath, readNameLeakSeverity } from "./config.ts";
+import { readStandingAuthorization, covers, readClientPath, matchesClientPath, readNameLeakSeverity, ConfigReadError } from "./config.ts";
+import { decodeText } from "./text-decode.ts";
 import { truthDigest, OKF_VERSION, type Jurisdiction } from "./schema.ts";
 import { documentTypeLabel, documentValueLabel, isDocumentLanguage, renderLanguage, type DocumentLanguage, type RenderLanguage } from "./document-language.ts";
 
@@ -45,7 +46,7 @@ export function jurisdictionFromCard(dir: string): Jurisdiction | undefined {
   for (const name of MATTER_CARDS) {
     const path = join(dir, name);
     if (!existsSync(path)) continue;
-    const m = /^jurisdiction:\s*(cz|sk)\s*$/m.exec(readFileSync(path, "utf8"));
+    const m = /^jurisdiction:\s*(cz|sk)\s*$/m.exec(decodeText(readFileSync(path)));
     if (m?.[1] === "cz" || m?.[1] === "sk") return m[1];
   }
   return undefined;
@@ -56,7 +57,8 @@ export function documentLanguageFromCard(dir: string): DocumentLanguage | undefi
   for (const name of [...MATTER_CARDS, "client.md", "klient.md"]) {
     const path = join(dir, name);
     if (!existsSync(path)) continue;
-    const header = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(readFileSync(path, "utf8"))?.[1];
+    // Karta z Windows môže mať BOM alebo UTF-16; bez dekódovania sa hlavička nenájde.
+    const header = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(decodeText(readFileSync(path)))?.[1];
     if (!header) continue;
     // Cards may contain valid multiline YAML or custom nested fields unsupported by
     // the intentionally strict memory-record parser. Inspect only our top-level scalar.
@@ -91,7 +93,7 @@ export interface Store {
  * text pred prvou sekciou, zdvojená Truth/History a riadok History mimo tvaru udalosti.
  */
 function hasUnparsedBody(text: string): boolean {
-  const lines = text.split("\n");
+  const lines = text.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n");
   const body = lines.slice(lines.indexOf("---", 1) + 1);
   let section = "";
   const seen = new Set<string>();
@@ -644,7 +646,8 @@ export function syncStatus(dir: string): void {
   const scope = completeScope(dir);
   const store = scope.matter;
   const path = join(dir, STATUS_FILE);
-  const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
+  // _STATUS.md v UTF-16 by sa inak prepísal ako zmes U+FFFD a nových blokov; zapisuje sa vždy UTF-8.
+  const existing = existsSync(path) ? decodeText(readFileSync(path)) : "";
   const next = renderStatus(existing, scope.records, store.jurisdiction, statusLinkResolver(dir), documentLanguageFromCard(dir));
   if (next !== existing) writeProjection(path, next, dir);
 }
@@ -655,7 +658,7 @@ export function retrofitStatusFile(dir: string, apply: boolean): BlockName[] {
   const store = readStore(dir);
   const path = join(dir, STATUS_FILE);
   if (!existsSync(path)) return [];
-  const existing = readFileSync(path, "utf8");
+  const existing = decodeText(readFileSync(path));
   const { text, inserted } = retrofitStatus(existing, store.records, store.jurisdiction, linkResolver(store, false), documentLanguageFromCard(dir));
   if (apply && inserted.length > 0) writeProjection(path, text, dir);
   return inserted;
@@ -789,8 +792,18 @@ function findClientByPath(matterDir: string, maxUp: number): string | undefined 
 
 export function readScope(matterDir: string): Scope {
   const matter = readStore(matterDir);
-  const clientDir = findClientDir(matterDir);
-  const subjectDir = findSubjectDir(matterDir);
+  // Nečitateľný `okf.config` so vzorom klienta je nečitateľný súbor v dosahu,
+  // nie „bez klienta“ — inak by brána úniku potichu stratila jehly klienta.
+  let clientDir: string | undefined;
+  let subjectDir: string | undefined;
+  const configProblems: StoreProblem[] = [];
+  try {
+    clientDir = findClientDir(matterDir);
+    subjectDir = findSubjectDir(matterDir);
+  } catch (error) {
+    if (!(error instanceof ConfigReadError)) throw error;
+    configProblems.push({ file: error.file, message: error.message });
+  }
   const subject = subjectDir ? readStore(subjectDir) : undefined;
   const subjectRecords = subject?.records ?? [];
   const client = clientDir ? readStore(clientDir) : undefined;
@@ -801,7 +814,7 @@ export function readScope(matterDir: string): Scope {
   const office = officeDir ? readStore(officeDir) : undefined;
   const officeRecords = office?.records ?? [];
   const records = [...matter.records, ...subjectRecords, ...clientRecords, ...officeRecords];
-  const problems = [...matter.problems, ...(subject?.problems ?? []), ...(client?.problems ?? []), ...(office?.problems ?? [])];
+  const problems = [...matter.problems, ...configProblems, ...(subject?.problems ?? []), ...(client?.problems ?? []), ...(office?.problems ?? [])];
   const seen = new Set<string>();
   for (const record of records) {
     if (seen.has(record.id)) problems.push({ file: matterDir, message: `Duplicitné ID ${record.id} v rozsahu pamäte.` });

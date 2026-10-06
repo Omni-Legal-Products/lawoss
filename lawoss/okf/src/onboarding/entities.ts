@@ -1,13 +1,16 @@
-import { lstat, readFile, realpath } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
+import { realpath } from "../canonical-path.ts";
 import { createHash } from "node:crypto";
 import { basename, join, relative, resolve, sep } from "node:path";
-import { inspectOnboardingRoot } from "./classify.ts";
+import { inspectOnboardingParent, inspectOnboardingRoot, VOLATILE_ENTRY } from "./classify.ts";
 import { applyOnboardingPlan, type ApplyResult, type CreateOperation, type OnboardingPlan } from "./transaction.ts";
 import { planEntity } from "../core.ts";
 import { LOCALIZED_TEMPLATES } from "../templates.ts";
 import { DEFAULT_FOLDER_ROLES, parseOfficeWorkingProfile, type WorkingProfile } from "../profile.ts";
 import { findOfficeDir } from "../../../okf-pamat/src/store.ts";
-import { UNSAFE_FOLDER_NAME_MESSAGE } from "./messages.ts";
+import { decodeText } from "../../../okf-pamat/src/text-decode.ts";
+import { contained } from "../../../okf-pamat/src/workspace-memory-fs.ts";
+import { incompleteInspectionMessage, UNSAFE_FOLDER_NAME_MESSAGE } from "./messages.ts";
 import { parseFrontmatter } from "../frontmatter.ts";
 
 export type MatterKind = "contentious" | "non_contentious";
@@ -25,20 +28,25 @@ export type MatterRequest = { clientRoot: string; parent: string; title: string;
  * becomes the folder "Novák s. r. o"); trailing dots and spaces are dropped,
  * because Windows strips them silently and the created path would no longer
  * match the planned one. The title keeps the full name. Still rejected: empty,
- * ".", "..", a leading dot (hidden), separators, ":" and NUL, over 120 characters.
+ * ".", "..", a leading dot (hidden), separators, ":" and NUL, over 120 characters,
+ * control characters and Windows device names (CON, NUL, COM1, …, also with an
+ * extension) — the transaction plan refuses them anyway, so the preview must too.
+ * Odmietnuté sú aj prchavé mená Windows a Office (`~$…`, `Thumbs.db`, `desktop.ini`): inšpekcia
+ * ich vynecháva, takže založený priečinok by v otlačku ani v skúšobnom klone nebol.
  */
 export const safeSegment = (value: string) => {
   const trimmed = value.trim().replace(/[. ]+$/, "");
-  if (!trimmed || trimmed.length > 120 || /[\\/:\0<>"|?*]|^\./.test(trimmed)) throw new Error(UNSAFE_FOLDER_NAME_MESSAGE);
+  if (!trimmed || trimmed.length > 120 || /[\\/:\0<>"|?*\u0001-\u001f\u007f-\u009f]|^\./.test(trimmed) || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(trimmed) || VOLATILE_ENTRY.test(trimmed)) throw new Error(UNSAFE_FOLDER_NAME_MESSAGE);
   return trimmed;
 };
 const yaml = (value: string) => JSON.stringify(value);
 async function rootPlan(root: string, operations: CreateOperation[]): Promise<OnboardingPlan> {
   const canonical = await realpath(root);
   if (canonical !== resolve(root) || !(await lstat(canonical)).isDirectory()) throw new Error("Parent must be a canonical existing directory.");
-  const inspection = await inspectOnboardingRoot(canonical);
-  if (!inspection.complete || !inspection.digest) throw new Error("Parent could not be inspected completely.");
-  return { version: 1, root: canonical, treeDigest: inspection.digest, operations };
+  // Rodič sa len dopĺňa: plytký otlačok (Dokumenty na Windows majú skryté junctions, veľký priečinok limity).
+  const inspection = await inspectOnboardingParent(canonical);
+  if (!inspection.complete || !inspection.digest) throw new Error(incompleteInspectionMessage("Parent could not be inspected completely.", inspection.issues));
+  return { version: 1, root: canonical, treeDigest: inspection.digest, operations, scope: "parent" };
 }
 const directory = (path: string): CreateOperation => ({ path, kind: "directory" });
 const file = (path: string, content: string): CreateOperation => ({ path, kind: "file", content });
@@ -71,7 +79,7 @@ export async function planNewClient(request: ClientRequest): Promise<CreatePrevi
 export async function planNewSubject(request: SubjectRequest): Promise<CreatePreview> {
   const name = safeSegment(request.name), target = join(request.clientRoot, name);
   const client = await inspectOnboardingRoot(request.clientRoot);
-  if (!client.complete || client.level !== "client") throw new Error("Subject parent must be an inspected client root.");
+  if (!client.complete || client.level !== "client") throw new Error(incompleteInspectionMessage("Subject parent must be an inspected client root.", client.issues));
   const card = `---\ntype: subject\ntitle: ${yaml(request.title)}\n---\n\n# ${request.title}\n`;
   return { mode: "new", appFiles: "inside", target, clientRoot: request.clientRoot, plan: await rootPlan(request.clientRoot, [directory(name), file(`${name}/subject.md`, card), directory(`${name}/memory`), file(`${name}/memory/.keep`, "")]) };
 }
@@ -115,17 +123,26 @@ export function buildMatterOperations(input: MatterOperationsInput): { name: str
 export async function planNewMatter(request: MatterRequest): Promise<CreatePreview> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(request.date) || !["contentious", "non_contentious"].includes(request.kind)) throw new Error("Valid date and matter kind are required.");
   safeSegment(request.area);
+  // Subjekt je meno priečinka subjektu. Cesta (C:\…\Divízia, /Users/…) by do karty veci
+  // zapísala údaj tohto počítača, ktorý na inom počítači so zosynchronizovaným klientom neplatí.
+  if (request.subject !== undefined && /[\\/]/.test(request.subject)) throw new Error("Matter subject must be the subject folder name, not a path.");
   const name = `${request.date.slice(0, 7)} ${safeSegment(request.title)}`, target = join(request.parent, MATTERS_DIR, name);
   const clientRoot = await realpath(request.clientRoot), parentRoot = await realpath(request.parent);
-  if (parentRoot !== clientRoot && !parentRoot.startsWith(`${clientRoot}/`)) throw new Error("Matter parent must be within the inspected client root.");
+  // Windows: realpath vracia `\`, porovnanie s `${clientRoot}/` by odmietlo každý subjekt klienta.
+  if (!contained(clientRoot, parentRoot)) throw new Error("Matter parent must be within the inspected client root.");
   const client = await inspectOnboardingRoot(clientRoot);
-  if (!client.complete || client.level !== "client") throw new Error("Matter client root must be an inspected client.");
-  const inspected = await inspectOnboardingRoot(request.parent);
-  if (!inspected.complete) throw new Error("Matter parent could not be inspected completely.");
+  if (!client.complete || client.level !== "client") throw new Error(incompleteInspectionMessage("Matter client root must be an inspected client.", client.issues));
+  const inspected = await inspectOnboardingParent(request.parent);
+  if (!inspected.complete) throw new Error(incompleteInspectionMessage("Matter parent could not be inspected completely.", inspected.issues));
   const existingMatters = inspected.entries.find(entry => entry.path === MATTERS_DIR);
   if (existingMatters && existingMatters.kind !== "directory") throw new Error("Matter folder is blocked by a non-directory.");
   const office = findOfficeDir(request.parent);
-  const workingProfile = office ? parseOfficeWorkingProfile(await readFile(join(office, "okf.config"), "utf8"), request.language ?? "sk") : undefined;
+  // okf.config z Windows (BOM, UTF-16) dekódovaný ako v CLI (lawoss/okf/src/fs.ts); kancelária bez neho má predvolený profil.
+  const officeConfig = office ? await readFile(join(office, "okf.config")).then(decodeText, (error: unknown) => {
+    if (error && typeof error === "object" && "code" in error && (error.code === "ENOENT" || error.code === "EISDIR")) return undefined;
+    throw error;
+  }) : undefined;
+  const workingProfile = officeConfig !== undefined ? parseOfficeWorkingProfile(officeConfig, request.language ?? "sk") : undefined;
   const card = await clientCard(clientRoot);
   const clientCardPath = card ? relative(join(parentRoot, MATTERS_DIR, name), card.file).split(sep).join("/") : undefined;
   const built = buildMatterOperations({ ...request, workingProfile, clientTitle: card?.title, clientCardPath });
@@ -135,7 +152,7 @@ export async function planNewMatter(request: MatterRequest): Promise<CreatePrevi
 export async function executeCreate(preview: CreatePreview, journalDirectory: string): Promise<ApplyResult> { return applyOnboardingPlan(preview.plan, journalDirectory); }
 export async function planExistingClient(root: string, mode: "map" | "trial_clone", cloneParent?: string, map?: { memoryPath: string; identityAnchor: string }): Promise<MapPreview | TrialClonePreview> {
   const inspection = await inspectOnboardingRoot(root);
-  if (!inspection.complete || !inspection.digest) throw new Error("Source client could not be inspected completely.");
+  if (!inspection.complete || !inspection.digest) throw new Error(incompleteInspectionMessage("Source client could not be inspected completely.", inspection.issues));
   if (["office", "matter", "conflict"].includes(inspection.level)) throw new Error("Source must be a client or an explicitly confirmed unknown directory.");
   if (mode === "map") {
     if (!map || !inspection.memorySources.includes(map.memoryPath) || !map.identityAnchor.trim()) throw new Error("Map mode requires a selected inspected memory path and identity anchor.");

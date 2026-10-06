@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "bun:test";
@@ -7,6 +7,7 @@ import { inspectOnboardingRoot } from "../src/onboarding/classify.ts";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
 import { applyTrialClone, recoverTrialClone, type TrialClone } from "../src/onboarding/trial-clone.ts";
 import type { OnboardingPlan } from "../src/onboarding/transaction.ts";
+import { syncFile, unlinkFile } from "../src/onboarding/file-durability.ts";
 
 const paths: string[] = [];
 afterEach(async () => { await Promise.all(paths.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
@@ -52,6 +53,20 @@ test("trial clone copies a >4 MiB binary, applies conversion metadata, and is id
   expect(await readFile(join(preview.target, "evidence.bin"))).toEqual(binary);
 });
 
+test("trial clone leaves out volatile Windows and Office artefacts", async () => {
+  const source = await directory("okf-trial-source-volatile-");
+  const parent = await directory("okf-trial-parent-volatile-");
+  const journal = await directory("okf-trial-journal-volatile-");
+  await mkdir(join(source, "Spisy"));
+  for (const [path, content] of [["zmluva.docx", "docx"], ["~$zmluva.docx", "owner"], ["Thumbs.db", "thumbs"], ["Spisy/desktop.ini", "ini"], ["Spisy/podanie.pdf", "pdf"]]) await writeFile(join(source, path!), content!);
+  const preview = await simplePreview(source, parent, "volatile");
+  await applyTrialClone(preview, journal);
+  expect(await readFile(join(preview.target, "zmluva.docx"), "utf8")).toBe("docx");
+  expect(await readFile(join(preview.target, "Spisy/podanie.pdf"), "utf8")).toBe("pdf");
+  for (const path of ["~$zmluva.docx", "Thumbs.db", "Spisy/desktop.ini"]) await expect(lstat(join(preview.target, path))).rejects.toThrow();
+  expect(await digest(source)).toBe(preview.sourceDigest);
+});
+
 test("trial clone never overwrites an existing target and rejects every containment overlap", async () => {
   const source = await directory("okf-trial-source-");
   const parent = await directory("okf-trial-parent-");
@@ -87,6 +102,58 @@ test("trial rollback removes only unchanged owned output and stops for a foreign
   await expect(recoverTrialClone(guarded, journal, "rollback")).rejects.toThrow("unowned entry");
   expect(await readFile(join(guarded.target, "foreign.txt"), "utf8")).toBe("foreign");
   expect(await readFile(join(guarded.target, "original.txt"), "utf8")).toBe("original");
+});
+
+// Otvorený dokument vo Worde nechá v klone vlastnícky súbor `~$…`; inšpekcia ho vynechá, rmdir by na ňom
+// zlyhal až po zmazaní časti klonu. Rollback preto stojí skôr, než čokoľvek zmaže.
+test("trial rollback stops before removing anything while a volatile Office file is in the clone", async () => {
+  const source = await directory("okf-trial-source-volatile-rollback-");
+  const parent = await directory("okf-trial-parent-volatile-rollback-");
+  const journal = await directory("okf-trial-journal-volatile-rollback-");
+  await mkdir(join(source, "Spisy"));
+  for (const [path, content] of [["a.docx", "a"], ["Spisy/b.docx", "b"], ["Spisy/c.docx", "c"]]) await writeFile(join(source, path!), content!);
+  const preview = await simplePreview(source, parent, "volatile-rollback");
+  await applyTrialClone(preview, journal);
+  await writeFile(join(preview.target, "Spisy/~$b.docx"), "owner");
+  await expect(recoverTrialClone(preview, journal, "rollback")).rejects.toThrow("Close open documents in the trial clone and remove leftover Windows or Office files, then retry rollback: Spisy/~$b.docx.");
+  for (const path of ["", "a.docx", "Spisy", "Spisy/b.docx", "Spisy/c.docx", ".lawoss-trial.json"]) expect((await lstat(join(preview.target, path))).isDirectory()).toBe(path === "" || path === "Spisy");
+  // Journal ostal dokončený: klon sa dá znova overiť a po zatvorení dokumentu celý vrátiť.
+  await applyTrialClone(preview, journal);
+  await rm(join(preview.target, "Spisy/~$b.docx"));
+  await recoverTrialClone(preview, journal, "rollback");
+  await expect(lstat(preview.target)).rejects.toThrow();
+  expect(await readFile(join(source, "Spisy/b.docx"), "utf8")).toBe("b");
+});
+
+// Windows: CopyFileW skopíruje aj atribút „iba na čítanie“ a fsync potrebuje handle s
+// právom zápisu; DeleteFileW taký súbor odmietne. Na Windows test spustí portable-windows.
+test("trial clone and rollback handle a read-only document", async () => {
+  const source = await directory("okf-trial-source-ro-");
+  const parent = await directory("okf-trial-parent-ro-");
+  const journal = await directory("okf-trial-journal-ro-");
+  await writeFile(join(source, "rozsudok-final.pdf"), "pdf");
+  await chmod(join(source, "rozsudok-final.pdf"), 0o444);
+  try {
+    const preview = await simplePreview(source, parent, "readonly");
+    await applyTrialClone(preview, journal);
+    const copied = await lstat(join(preview.target, "rozsudok-final.pdf"));
+    expect(copied.mode & 0o200).toBe(0);
+    expect(await readFile(join(preview.target, "rozsudok-final.pdf"), "utf8")).toBe("pdf");
+    await recoverTrialClone(preview, journal, "rollback");
+    await expect(lstat(preview.target)).rejects.toThrow();
+    expect(await readFile(join(source, "rozsudok-final.pdf"), "utf8")).toBe("pdf");
+  } finally { await chmod(join(source, "rozsudok-final.pdf"), 0o644); }
+});
+
+test("syncFile and unlinkFile on Windows keep and then clear the read-only attribute", async () => {
+  const dir = await directory("okf-durable-");
+  const file = join(dir, "a.pdf");
+  await writeFile(file, "a");
+  await chmod(file, 0o444);
+  await syncFile(file, "win32");
+  expect((await lstat(file)).mode & 0o200).toBe(0);
+  await unlinkFile(file, "win32");
+  await expect(lstat(file)).rejects.toThrow();
 });
 
 test("trial recovery is conservative for an interrupted unowned root and resumes conversion with no transaction journal", async () => {

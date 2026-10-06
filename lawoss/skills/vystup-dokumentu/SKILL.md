@@ -18,6 +18,6 @@ Dokument vzniká jedinou cestou: Markdown → `pandoc` se šablonou kanceláře 
    Úpravy navrhni a proveď jen v pracovní kopii, ne v originálu přijatého dokumentu.
 4. **Údaje, které nejsou ověřené** v podkladech věci (názvy a IČO firem, jména, adresy, spisové značky, data), nedoplňuj - nech `[DOPLNIT]`. Na konci je všechny vyjmenuj.
 5. **Převod:** `pandoc "<zdroj>.md" -o "<výstup>.docx" --reference-doc "<šablona>"`. Výstup do složky výstupů věci (`04_Vystupy/` nebo podle profilu) jako `<název>_vNN.docx`. Existující soubor nikdy nepřepisuj - další verze dostane vyšší `NN`.
-6. **Úprava a PDF:** `python3 "<cesta k tomuto skillu>/resources/postprocess_docx.py" "<výstup>.docx"` - písmo a okraje kanceláře, oprava zalomení a číslování, pak PDF z téhož `.docx`. Jiné písmo: `LAWOSS_DOCX_FONT`, `LAWOSS_DOCX_SIZE`.
-7. **Chybí-li** `pandoc`, `python-docx` nebo LibreOffice (`soffice`), zastav se a řekni, co chybí. PDF nevyráběj jinou cestou (přes LaTeX má jiné písmo i okraje).
+6. **Úprava a PDF:** `python3 "<cesta k tomuto skillu>/resources/postprocess_docx.py" "<výstup>.docx"` (na Windows `py -3` nebo `python` místo `python3`; `python3` tam bývá jen odkaz na Microsoft Store) - písmo a okraje kanceláře, oprava zalomení a číslování, pak PDF z téhož `.docx`. Jiné písmo: `LAWOSS_DOCX_FONT`, `LAWOSS_DOCX_SIZE`.
+7. **Chybí-li** `pandoc`, `python-docx` nebo LibreOffice (`soffice`; na Windows ho skript najde i v `C:\Program Files\LibreOffice\program\`), zastav se a řekni, co chybí. PDF nevyráběj jinou cestou (přes LaTeX má jiné písmo i okraje).
 8. **Výsledek:** cesty k `.docx` a `.pdf`, seznam `[DOPLNIT]` a upozornění, že PDF je třeba před odesláním zkontrolovat očima (textová kontrola rozbitý vzhled neodhalí).

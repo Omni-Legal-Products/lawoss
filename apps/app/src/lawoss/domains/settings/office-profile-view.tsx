@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { LayoutSection, LayoutSectionDescription, LayoutSectionHeader, LayoutSectionTitle } from "@/react-app/domains/settings/settings-layout";
 import { EnableOkfAction, OnboardingEntryActions } from "../onboarding/entry-actions";
-import { loadOfficeProfile, saveOfficeProfile, type OfficeProfileSnapshot } from "../../okf/office-profile";
+import { isOfficeConfigEncodingError, loadOfficeProfile, saveOfficeProfile, type OfficeProfileSnapshot } from "../../okf/office-profile";
 import { message } from "../../okf/read-model";
 
 const roles: Record<string, string> = {
@@ -28,7 +28,7 @@ export function OfficeProfileView({ client, workspaceId, workspacePath, workspac
     if (!client || !workspaceId || remote || !workspacePath) return;
     Promise.all([loadOfficeProfile(client, workspaceId, workspacePath), client.capabilities()]).then(([snapshot, capabilities]) => {
       if (!cancelled) setLoaded({ snapshot, writable: capabilities.config.write });
-    }).catch((failure: unknown) => { if (!cancelled) setError(message(failure)); });
+    }).catch((failure: unknown) => { if (!cancelled) setError(isOfficeConfigEncodingError(failure) ? t("lawoss.integrations.office.encoding", locale) : message(failure)); });
     return () => { cancelled = true; };
   }, [client, workspaceId, workspacePath, remote, reload]);
   return <LayoutSection>
@@ -70,7 +70,7 @@ export function OfficeProfileEditor({ client, workspaceId, initial, writable, on
       const next = await saveOfficeProfile(client, workspaceId, snapshot, { profile: { folders: choices, roles: mapping, naming }, clientPath });
       setSnapshot(next);
       setNotice({ error: false, text: "" });
-    } catch (error) { setNotice({ error: true, text: message(error) }); }
+    } catch (error) { setNotice({ error: true, text: isOfficeConfigEncodingError(error) ? t("lawoss.integrations.office.encoding", locale) : message(error) }); }
     finally { setBusy(false); }
   }
   return <div className="space-y-4">

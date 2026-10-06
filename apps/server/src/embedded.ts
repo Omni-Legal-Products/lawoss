@@ -28,6 +28,8 @@ import { refreshEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
 import type { ServeResult } from "./serve-node.js";
 import type { ServerConfig } from "./types.js";
+// 🟡 LAWOSS: na Windows relative() medzi diskami vráti absolútnu cestu bez "..".
+import { isPathWithin } from "./lawoss/path-within.js";
 
 export type HostWorkspaceAppFilesPolicy = {
   path: string;
@@ -55,11 +57,6 @@ export type EmbeddedServerOptions = CliArgs & {
   hostWorkspaceAppFiles?: readonly HostWorkspaceAppFilesPolicy[];
 };
 
-function isPathInside(parent: string, candidate: string): boolean {
-  const path = relative(parent, candidate);
-  return path === "" || (!path.startsWith(`..${sep}`) && path !== ".." && !path.includes(`..${sep}`));
-}
-
 function applyHostWorkspaceAppFilesPolicy(
   config: ServerConfig,
   policies: readonly HostWorkspaceAppFilesPolicy[] | undefined,
@@ -71,7 +68,7 @@ function applyHostWorkspaceAppFilesPolicy(
   for (const workspace of config.workspaces) {
     if (workspace.workspaceType === "remote") continue;
     const workspacePath = resolve(workspace.path);
-    if (outsideRoots.some((root) => isPathInside(root, workspacePath))) {
+    if (outsideRoots.some((root) => isPathWithin(root, workspacePath))) {
       workspace.appFiles = "outside";
     }
   }

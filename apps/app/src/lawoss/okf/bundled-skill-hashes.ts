@@ -56,4 +56,9 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "e1dd31551fc99c2ce420e0ef98f559d9fe996554cb78c8008794dc7100b0f123", // lawoss/skills/roztried-spis/SKILL.md @ fix/alfa-roztriedenie-po-teste
   "1d9b2412ad972be0f75cba45a6bc2f2a370c48cd1eb75eab8405891a13a8d69d", // lawoss/skills/roztried-spis/SKILL.cs.md @ fix/alfa-roztriedenie-po-teste
   "152fecaf602851be77270294701c310927577193fc124c1478cee9a864f36568", // lawoss/skills/vystup-dokumentu/SKILL.md @ 617dc380 (jediná verzia)
+  "abc25c4e6616b015914984d57d0da8b8a3eb7e17a509c011138da879461e4b7e", // lawoss/skills/vystup-dokumentu/SKILL.md @ fix/windows-alfa (py -3 a LibreOffice na Windows)
+  "4fa112fd49acad4d7e7b587d2734edc63e0906e8ee7911f600ac39c656b137e6", // lawoss/skills/usporiadaj-spis/SKILL.md @ win/g1-okf (konflikt so zámkom vo Worde)
+  "3f99167f7822742a9bfe7dbe2c14b93dc6bc03b31a36079f2dbc492731c54841", // lawoss/skills/usporiadaj-spis/SKILL.md @ win/g1-okf (Access denied: práva súboru či priečinka)
+  "78766cf84f65d426c39274d59d0b6238259102b8c1798e990c0d0cb093ec6ae2", // lawoss/okf-pamat/SKILL.md @ win/g2-encoding (%TEMP% a PowerShell 5.1 pri snapshote)
+  "7a41fb0ed029f7dfa500eca5043bbe04fa8f5050bae6cf078054c76e3a903d8c", // lawoss/okf-pamat/SKILL.md @ win/g2-encoding (dočasný priečinok aj ako $env:TEMP v PowerShelli)
 ]);

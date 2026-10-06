@@ -1,15 +1,16 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, mkdir, realpath, rm, writeFile, readdir, readFile, lstat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { startServer } from "./server.js";
 import { writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 import type { WorkspaceMemoryStatus } from "../../../lawoss/okf-handoff/workspace-memory-status.mjs";
 import { externalAppFilesRoot, externalMemoryProfilePath } from "./lawoss/workspace-app-files.js";
+import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
 const priorData = process.env.LEGALWORK_DATA_DIR, priorTokens = process.env.LEGALWORK_TOKEN_STORE;
 const roots: string[] = [], stops: (() => void | Promise<void>)[] = [];
-afterEach(async () => { for (const stop of stops.splice(0)) await stop(); for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); if (priorData === undefined) delete process.env.LEGALWORK_DATA_DIR; else process.env.LEGALWORK_DATA_DIR = priorData; if (priorTokens === undefined) delete process.env.LEGALWORK_TOKEN_STORE; else process.env.LEGALWORK_TOKEN_STORE = priorTokens; });
+afterEach(async () => { for (const stop of stops.splice(0)) await stop(); for (const root of roots.splice(0)) await removeTestDir(root); if (priorData === undefined) delete process.env.LEGALWORK_DATA_DIR; else process.env.LEGALWORK_DATA_DIR = priorData; if (priorTokens === undefined) delete process.env.LEGALWORK_TOKEN_STORE; else process.env.LEGALWORK_TOKEN_STORE = priorTokens; });
 async function fixture() {
   const base = await realpath(await mkdtemp(join(tmpdir(), "lawoss-status-"))); roots.push(base);
   const root = join(base, "matter"), vault = join(base, "vault"); await mkdir(root); await mkdir(vault); await mkdir(join(root, ".lawoss"));
@@ -28,7 +29,7 @@ test("authenticated status ignores file grants; native grant and revocation affe
   for (const path of ["/lawoss/memory", "/lawoss/memory/grants"]) expect((await fetch(f.url + path)).status).toBe(401);
   expect((await fetch(f.url.replace("synthetic", "unknown") + "/lawoss/memory", { headers: f.headers })).status).toBe(404);
   expect((await f.status()).complete).toBe(false);
-  const untrusted = await (await fetch(`${f.url}/authorized-folders`, { headers: f.headers })).json(); expect(untrusted.folders).toEqual([f.vault]);
+  const untrusted = await (await fetch(`${f.url}/authorized-folders`, { headers: f.headers })).json(); expect(untrusted.folders).toEqual([f.vault.replaceAll(sep, "/")]);
   const grants = await (await fetch(`${f.url}/lawoss/memory/grants`, { headers: f.headers })).json(); expect(grants.folders).toEqual([]); expect(grants.authority).toBe("runtime");
   expect((await fetch(`${f.url}/authorized-folders`, { method: "PUT", headers: f.headers, body: JSON.stringify({ folders: [f.vault] }) })).status).toBe(200);
   const loaded = await f.status(); expect(loaded.complete).toBe(true); expect(loaded.sources[0]?.status).toBe("loaded"); expect(loaded.sources[0]?.sha256).toMatch(/^[a-f0-9]{64}$/);
@@ -74,7 +75,7 @@ test("mapped production hook checkpoints outside the client and preserves it acr
     process.env.LEGALWORK_SERVER_URL = new URL(f.url).origin; process.env.LEGALWORK_SERVER_TOKEN = "synthetic-client";
     const { LawossOkfHandoff } = await import("./opencode-plugins/lawoss-okf-handoff.js");
     const first = { system: [] as string[] }; await (await LawossOkfHandoff({ directory: f.root }))["experimental.chat.system.transform"]!({ sessionID: "mapped" }, first); expect(first.system[0]).not.toContain("FAILED");
-    const checkpoint = join(appRoot, ".lawoss", "handoff", "mapped.md"); expect(await readdir(appRoot, { recursive: true })).toContain(".lawoss/handoff/mapped.md"); const good = await readFile(checkpoint, "utf8"); expect(good).toContain("MAPPED-HOOK-ANCHOR"); expect(await workspaceSnapshot(f.root)).toEqual(before);
+    const checkpoint = join(appRoot, ".lawoss", "handoff", "mapped.md"); expect((await readdir(appRoot, { recursive: true })).map(entry => entry.replaceAll(sep, "/"))).toContain(".lawoss/handoff/mapped.md"); const good = await readFile(checkpoint, "utf8"); expect(good).toContain("MAPPED-HOOK-ANCHOR"); expect(await workspaceSnapshot(f.root)).toEqual(before);
     for (const stop of stops.splice(0)) await stop(); const restarted = await startServer(f.config); stops.push(() => restarted.stop()); process.env.LEGALWORK_SERVER_URL = `http://127.0.0.1:${restarted.port}`;
     const fresh = { system: [] as string[] }; await (await LawossOkfHandoff({ directory: f.root }))["experimental.chat.system.transform"]!({ sessionID: "mapped" }, fresh); expect(fresh.system[0]).not.toContain("FAILED"); const afterRestart = await readFile(checkpoint, "utf8"); expect(afterRestart).toContain("MAPPED-HOOK-ANCHOR");
     await rm(profilePath); const revoked = { system: [] as string[] }; await (await LawossOkfHandoff({ directory: f.root }))["experimental.chat.system.transform"]!({ sessionID: "mapped" }, revoked); expect(revoked.system[0]).toContain("FAILED"); expect(await readFile(checkpoint, "utf8")).toBe(afterRestart);
@@ -113,7 +114,7 @@ async function workspaceSnapshot(root: string) {
   const paths = (await readdir(root, { recursive: true })).sort();
   return Promise.all(paths.map(async path => {
     const stat = await lstat(join(root, path));
-    return { path, directory: stat.isDirectory(), bytes: stat.isFile() ? (await readFile(join(root, path))).toString("hex") : null };
+    return { path: path.replaceAll(sep, "/"), directory: stat.isDirectory(), bytes: stat.isFile() ? (await readFile(join(root, path))).toString("hex") : null };
   }));
 }
 

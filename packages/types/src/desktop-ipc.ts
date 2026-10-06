@@ -537,9 +537,12 @@ export type DesktopCommandMap = {
 
   // Dialogs
   pickDirectory: {
-    args: [options?: { title?: string; defaultPath?: string; multiple?: boolean }];
+    // LAWOSS: `canonical` vráti na Windows kanonickú cestu (namapovaný disk → UNC), ak nevedie cez odkaz.
+    args: [options?: { title?: string; defaultPath?: string; multiple?: boolean; canonical?: boolean }];
     result: string | string[] | null;
   };
+  // 🟡 LAWOSS: napísaná alebo vložená cesta v tvare ako z `pickDirectory` s `canonical` (Windows), inak bez zmeny.
+  canonicalDirectoryPath: { args: [value: string]; result: string };
   pickFile: {
     args: [
       options?: {

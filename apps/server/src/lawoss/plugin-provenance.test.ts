@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installCloudPlugin, readInstalledCloudPlugins, type CloudPluginResolved } from "../cloud-plugins.js";
 import type { ServerConfig } from "../types.js";
 import { contentSha256, readProvenance } from "./plugin-provenance.js";
+import { removeTestDir } from "./test-support/remove-test-dir.js";
 
 const WORKSPACE_ID = "ws_lawoss_provenance";
 
@@ -58,7 +59,7 @@ describe("LAWOSS: pôvod nainštalovaného pluginu", () => {
     } finally {
       if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
       else process.env.LEGALWORK_RUNTIME_DB = previousDb;
-      await rm(root, { recursive: true, force: true });
+      await removeTestDir(root);
     }
   });
 

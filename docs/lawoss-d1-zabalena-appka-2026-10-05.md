@@ -54,6 +54,43 @@ Akceptačný beh alfy 1 s vetvou `feat/dnes-prehlad` ([lawoss#109](https://githu
 - **OpenAI cez ChatGPT účet:** rýchly výber modelov ponúka `gpt-5.4` a `gpt-5.3-codex-spark`, ktoré tento typ účtu odmietne (400 „not supported when using Codex with a ChatGPT account“). Funguje napríklad `gpt-5.6-luna` z „All models“. Zoznam pochádza z katalógu OpenCode.
 - **Jednotnosť UI:** onboarding, nastavenia a Home používajú iné prvky a písmo ako pohľady z OKF. Rieši sa samostatne.
 
+## Windows: inštalácia a aktualizácie (pre testerov)
+
+Akceptačný beh D1 vyššie prebehol na macOS. Postup pre Windows x64 vychádza z workflowu `alpha-windows-x64.yml`, z konfigurácie a šablón `electron-builder` 26.16.1 a z kódu appky. Štruktúru releasov sme overili cez GitHub API 5. 10. 2026. Body označené *neoverené na skutočnom Windows* zatiaľ nikto neprešiel na skutočnom počítači s Windows; hláste, ak sa líšia.
+
+### Kde stiahnuť inštalátor
+
+1. [Releasy forku](https://github.com/Omni-Legal-Products/lawoss/releases) → prerelease `alpha-windows-v<základ>-alpha.<beh>-<sha>`, napríklad `alpha-windows-v0.2.1-alpha.4-1a2b3c4` (ilustračné). Každý beh alfy má vlastný.
+2. Stiahnite `lawoss-win-x64-<verzia>.exe`, napríklad `lawoss-win-x64-0.2.1-alpha.4.g1a2b3c4.exe`. Súbory `.blockmap` a `latest.yml` sú pre updater.
+3. Release `alpha-windows-latest` inštalátor nemá. Obsahuje len `latest.yml`, podľa ktorého updater hľadá najnovšiu alfu.
+4. Kontrolný súčet SHA-256 je v popise releasu. V PowerShelli v priečinku so stiahnutým súborom: `Get-FileHash .\lawoss-win-x64-<verzia>.exe` a hodnotu `Hash` porovnajte s popisom.
+
+Verejné binárky budú len podpísané (rozhodnutie Q06/U6). Nepodpísaný build workflow vydá len ako **koncept (draft)**: vidia ho len členovia s právom zápisu do forku, názov začína **„NEPODPÍSANÉ – len interný tím“** a ukazovateľ `alpha-windows-latest` sa neposunie, takže ho updater nikomu neponúkne. Ďalej ho nešírte a nepracujte v ňom s klientskymi ani inými dôvernými údajmi.
+
+> [!WARNING]
+> Releasy vytvorené pred zavedením tejto brány (názov „LegalWork Alpha …“) sú nepodpísané a nemajú SHA-256 v popise. Verejný prerelease `alpha-windows-v0.1.15-alpha.2-65ba399` si k 5. 10. 2026 stiahne ktokoľvek aj bez prihlásenia (overené 5. 10. 2026: odkaz na inštalátor presmeruje na úložisko GitHubu). Brána workflowu ho dodatočne neskryje; kým ho tím neodstráni alebo nepresunie do konceptu, nepoužívajte ho a ďalej ho nešírte. Ukazovateľ `alpha-windows-latest` naň mieri s relatívnou adresou, takže updater dostane pri sťahovaní 404; opraví ho až prvé podpísané vydanie.
+
+Testovací build bez releasu (spustený s vypnutým `publish`) je v behu workflowu „Alpha Channel (Windows x64)“ na záložke Actions, časť Artifacts: `lawoss-alpha-windows-<verzia>`. Je to ZIP s inštalátorom, vydrží 7 dní a updater ho neponúka. Repo je verejné, takže ho po prihlásení do GitHubu stiahne ktokoľvek; workflow preto takto uloží len podpísaný build.
+
+### SmartScreen
+
+Kým inštalátor nie je podpísaný, Windows SmartScreen pri spustení ukáže „Windows protected your PC“. Kliknite na **More info** → **Run anyway**. V slovenskom a českom Windows sú tlačidlá preložené; presné znenie je *neoverené na skutočnom Windows*.
+
+### Inštalácia
+
+- Inštalátor je jednokrokový NSIS a inštaluje len pre prihláseného používateľa, bez práv správcu. `electron-builder.yml` nemení predvolené `oneClick` ani `perMachine` a šablóna inštalátora má pre tento režim `RequestExecutionLevel user`.
+- Predvolený priečinok podľa pravidiel `electron-builder` 26.16.1 je `%LOCALAPPDATA%\Programs\@legalworkdesktop`. Názov sa odvodzuje z balíka `@legalwork/desktop`, nie z „LAWOSS“. Spúšťací súbor je `LAWOSS.exe`. *Neoverené na skutočnom Windows.*
+- Po inštalácii sa appka sama spustí a pridá skratku „LAWOSS“ na plochu a do ponuky Štart. *Neoverené na skutočnom Windows.*
+- Nastavenia a dáta appky sú v `%APPDATA%\com.eigenweltlabs.legalwork` (`userData` v `apps/desktop/electron/main.mjs`). *Neoverené na skutočnom Windows.*
+
+### Aktualizácie
+
+Nastavenia → Aktualizácie → **Kanál vydaní: Alpha**. Build z alfa workflowu (verzia `X.Y.Z-alpha.N.g<sha>`) na kanáli Alpha zostáva sám (`isAlphaBuild` v `apps/desktop/electron/updater.mjs`), prepínač len skontrolujte. V tej istej časti je Aktuálna verzia; uveďte ju pri hlásení chyby. Updater číta `latest.yml` z `alpha-windows-latest`. Stiahnutie a inštalácia aktualizácie sú *neoverené na skutočnom Windows*.
+
+### Odinštalovanie
+
+Nastavenia systému Windows → Aplikácie → Nainštalované aplikácie → LAWOSS → Odinštalovať. Ak ste používali doplnok pre Word, Excel alebo PowerPoint, odinštalátor zruší aj jeho registráciu a odstráni lokálnu certifikačnú autoritu „LegalWork Local CA“; Windows sa pri tom raz opýta na odstránenie certifikátu (`apps/desktop/build/installer.nsh`). Pracovné priečinky klientov ani `%APPDATA%\com.eigenweltlabs.legalwork` nemaže. *Neoverené na skutočnom Windows.*
+
 ## Ako pripojiť model (pre testerov)
 
 Nastavenia → AI Providers → Add provider. Model sa potom vyberá dole v okne chatu.

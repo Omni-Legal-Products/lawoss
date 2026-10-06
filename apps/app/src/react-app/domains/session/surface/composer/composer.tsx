@@ -30,6 +30,7 @@ import type { ComposerAttachment, McpServerEntry, McpStatusMap, ModelRef, SkillC
 import { formatBytes } from "@/app/utils";
 import { t } from "@/i18n";
 import { isLegalWorkExtensionEnabled, isLegalWorkExtensionHidden, LEGALWORK_EXTENSION_STATE_CHANGED } from "@/react-app/domains/settings/extension-state";
+import { isExtensionAvailableOnPlatform } from "@/react-app/domains/settings/extension-items";
 import { FusionModelMultiSelect } from "@/components/fusion-model-multi-select";
 import { ModelBehaviorSelect } from "@/components/model-behavior-select";
 import { ModelSelect } from "@/components/model-select";
@@ -689,8 +690,12 @@ export function ReactSessionComposer(props: ComposerProps) {
   const activePlugin = toolMenuSection.startsWith("plugin:")
     ? pluginSections.find((entry) => entry.section === toolMenuSection)?.plugin ?? null
     : null;
+  // 🟡 LAWOSS: rovnaký zdroj platformy ako Nastavenia (settings-route.tsx), aby
+  // composer na Windows neponúkal rozšírenia len pre macOS.
+  const extensionPlatform = window.__LEGALWORK_ELECTRON__?.meta?.platform ?? "web";
   const composerExtensions = LEGALWORK_EXTENSION_CATALOG.filter((entry) =>
     !isLegalWorkExtensionHidden(entry) && isComposerExtensionAvailable(entry)
+      && isExtensionAvailableOnPlatform(entry, extensionPlatform)
   );
   const canSend = !props.uploading && (props.draft.trim().length > 0 || props.attachments.length > 0);
 

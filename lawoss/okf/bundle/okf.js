@@ -7,19 +7,32 @@ import { realpathSync as realpathSync5 } from "fs";
 import { fileURLToPath } from "url";
 
 // src/onboarding/cli.ts
-import { constants as constants5 } from "node:fs";
-import { lstat as lstat7, open as open5, realpath as realpath7 } from "node:fs/promises";
-import { dirname as dirname5, isAbsolute as isAbsolute5, relative as relative6, resolve as resolve7, sep as sep7 } from "node:path";
+import { constants as constants7 } from "node:fs";
+import { lstat as lstat8, open as open6 } from "node:fs/promises";
+
+// src/canonical-path.ts
+import { realpath as nativeRealpath } from "node:fs/promises";
+var SHARE_ROOT = /^\\\\[^\\]+\\[^\\]+$/;
+var DRIVE_ROOT = /^[A-Za-z]:$/;
+function withShareRootSeparator(real, platform = process.platform) {
+  return platform === "win32" && (SHARE_ROOT.test(real) || DRIVE_ROOT.test(real)) ? `${real}\\` : real;
+}
+async function realpath(path) {
+  return withShareRootSeparator(await nativeRealpath(path));
+}
+
+// src/onboarding/cli.ts
+import { dirname as dirname5, isAbsolute as isAbsolute6, relative as relative7, resolve as resolve8, sep as sep8 } from "node:path";
 
 // src/onboarding/classify.ts
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, open, readdir, realpath } from "node:fs/promises";
+import { lstat, open, readdir } from "node:fs/promises";
 import { basename, isAbsolute, join, resolve } from "node:path";
 
 // src/frontmatter.ts
 function parseFrontmatter(text) {
-  const lines = text.split(/\r?\n/);
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
   if (lines[0] !== "---")
     return null;
   const out = {};
@@ -67,9 +80,55 @@ var CARD_TYPES = {
 };
 var APP_FILE_DIRECTORIES = new Set([".opencode"]);
 var MEMORY_FILES = new Set(["MEMORY.md", "_memory.md", "_STATUS.md", "BRAIN.md", ".lawoss/memory-profile.json"]);
+var VOLATILE_ENTRY = /^(?:~\$.*|~WRL\d+\.tmp|thumbs\.db|desktop\.ini)$/i;
+var LOCK_CODES = new Set(["EBUSY", "EPERM", "EACCES"]);
 var sha = (value) => createHash("sha256").update(value).digest("hex");
 var errorCode = (error) => error && typeof error === "object" && ("code" in error) ? String(error.code) : "read_failed";
-async function inspectOnboardingRoot(root, limits = {}) {
+async function inspectOnboardingParent(root, limits = {}) {
+  const maxEntries = limits.maxEntries ?? 1e4;
+  if (!Number.isSafeInteger(maxEntries) || maxEntries <= 0)
+    throw new Error("Invalid inspection limits.");
+  const result = { root: resolve(root), level: "unknown", confidence: "unknown", complete: true, digest: null, entries: [], memorySources: [], issues: [] };
+  const problem = (path, code) => {
+    result.complete = false;
+    result.issues.push({ path, code });
+  };
+  try {
+    if (!isAbsolute(root) || await realpath(root) !== resolve(root) || !(await lstat(root)).isDirectory()) {
+      problem("", "canonical_directory_required");
+      return result;
+    }
+    const names = (await readdir(result.root)).sort();
+    if (names.length > maxEntries) {
+      problem("", "entry_limit");
+      return result;
+    }
+    for (const name of names) {
+      if (VOLATILE_ENTRY.test(name)) {
+        (result.ignored ??= []).push(name);
+        continue;
+      }
+      try {
+        const state = await lstat(join(result.root, name));
+        const kind = state.isSymbolicLink() ? "symlink" : state.isDirectory() ? "directory" : state.isFile() ? "file" : "unsupported";
+        result.entries.push({ path: name, kind, digest: null, size: 0 });
+      } catch (error) {
+        const code = errorCode(error);
+        if (LOCK_CODES.has(code))
+          result.entries.push({ path: name, kind: "unsupported", digest: null, size: 0 });
+        else
+          problem(name, code);
+      }
+    }
+  } catch (error) {
+    problem("", errorCode(error));
+    return result;
+  }
+  if (result.complete)
+    result.digest = sha(JSON.stringify(result.entries));
+  return result;
+}
+async function inspectOnboardingRoot(root, limits = {}, hooks = {}) {
   const maxEntries = limits.maxEntries ?? 1e4;
   const maxBytes = limits.maxBytes ?? 1024 * 1024 * 1024;
   const maxDepth = limits.maxDepth ?? 32;
@@ -109,6 +168,10 @@ async function inspectOnboardingRoot(root, limits = {}) {
       }
       for (const name of (await readdir(dir)).sort()) {
         const path = relative ? `${relative}/${name}` : name;
+        if (VOLATILE_ENTRY.test(name)) {
+          (result.ignored ??= []).push(path);
+          continue;
+        }
         if (seenEntries >= maxEntries) {
           problem(path, "entry_limit");
           exhausted = true;
@@ -116,69 +179,80 @@ async function inspectOnboardingRoot(root, limits = {}) {
         }
         seenEntries += 1;
         const full = join(result.root, path);
-        const state = await lstat(full);
-        if (state.isSymbolicLink()) {
-          result.entries.push({ path, kind: "symlink", digest: null, size: 0 });
-          problem(path, "symlink_not_followed");
-          continue;
-        }
-        if (state.isDirectory()) {
-          result.entries.push({ path, kind: "directory", digest: null, size: 0 });
-          if (!APP_FILE_DIRECTORIES.has(name))
-            await visit(path, depth + 1);
-        } else if (state.isFile()) {
-          if (bytes + state.size > maxBytes) {
-            problem(path, "byte_limit");
-            exhausted = true;
-            break;
+        try {
+          const state = await lstat(full);
+          if (state.isSymbolicLink()) {
+            result.entries.push({ path, kind: "symlink", digest: null, size: 0 });
+            problem(path, "symlink_not_followed");
+            continue;
           }
-          const handle = await open(full, constants.O_RDONLY | constants.O_NOFOLLOW);
-          try {
-            const opened = await handle.stat({ bigint: true });
-            const current = await lstat(full, { bigint: true });
-            if (!opened.isFile() || current.isSymbolicLink() || opened.ino !== current.ino || opened.dev !== current.dev) {
-              problem(path, "changed_during_read");
-              continue;
+          if (state.isDirectory()) {
+            result.entries.push({ path, kind: "directory", digest: null, size: 0 });
+            if (!APP_FILE_DIRECTORIES.has(name))
+              await visit(path, depth + 1);
+          } else if (state.isFile()) {
+            if (bytes + state.size > maxBytes) {
+              problem(path, "byte_limit");
+              exhausted = true;
+              break;
             }
-            const hash = createHash("sha256");
-            const buffer = Buffer.alloc(64 * 1024);
-            const parts = [];
-            let count = 0;
-            while (true) {
-              const read = await handle.read(buffer, 0, buffer.length, null);
-              if (!read.bytesRead)
-                break;
-              count += read.bytesRead;
-              bytes += read.bytesRead;
-              if (bytes > maxBytes) {
-                problem(path, "byte_limit");
-                exhausted = true;
-                break;
+            const handle = await (hooks.open ?? open)(full, constants.O_RDONLY | constants.O_NOFOLLOW);
+            try {
+              const opened = await handle.stat({ bigint: true });
+              const current = await lstat(full, { bigint: true });
+              if (!opened.isFile() || current.isSymbolicLink() || opened.ino !== current.ino || opened.dev !== current.dev) {
+                problem(path, "changed_during_read");
+                continue;
               }
-              const chunk = buffer.subarray(0, read.bytesRead);
-              hash.update(chunk);
-              if (CARD_LEVELS[path] && count <= 64 * 1024)
-                parts.push(Buffer.from(chunk));
+              const hash = createHash("sha256");
+              const buffer = Buffer.alloc(64 * 1024);
+              const parts = [];
+              let count = 0;
+              while (true) {
+                const read = await handle.read(buffer, 0, buffer.length, null);
+                if (!read.bytesRead)
+                  break;
+                count += read.bytesRead;
+                bytes += read.bytesRead;
+                if (bytes > maxBytes) {
+                  problem(path, "byte_limit");
+                  exhausted = true;
+                  break;
+                }
+                const chunk = buffer.subarray(0, read.bytesRead);
+                hash.update(chunk);
+                if (CARD_LEVELS[path] && count <= 64 * 1024)
+                  parts.push(Buffer.from(chunk));
+              }
+              const after = await handle.stat({ bigint: true });
+              const linked = await lstat(full, { bigint: true });
+              if (after.size !== opened.size || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs || linked.ino !== opened.ino || linked.dev !== opened.dev || linked.isSymbolicLink())
+                problem(path, "changed_during_read");
+              if (CARD_LEVELS[path]) {
+                if (count > 64 * 1024)
+                  problem(path, "card_size_limit");
+                else
+                  cardText.set(path, Buffer.concat(parts).toString("utf8"));
+              }
+              result.entries.push({ path, kind: "file", digest: hash.digest("hex"), size: count });
+              if (MEMORY_FILES.has(path))
+                result.memorySources.push(path);
+            } finally {
+              await handle.close();
             }
-            const after = await handle.stat({ bigint: true });
-            const linked = await lstat(full, { bigint: true });
-            if (after.size !== opened.size || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs || linked.ino !== opened.ino || linked.dev !== opened.dev || linked.isSymbolicLink())
-              problem(path, "changed_during_read");
-            if (CARD_LEVELS[path]) {
-              if (count > 64 * 1024)
-                problem(path, "card_size_limit");
-              else
-                cardText.set(path, Buffer.concat(parts).toString("utf8"));
-            }
-            result.entries.push({ path, kind: "file", digest: hash.digest("hex"), size: count });
-            if (MEMORY_FILES.has(path))
-              result.memorySources.push(path);
-          } finally {
-            await handle.close();
+          } else {
+            result.entries.push({ path, kind: "unsupported", digest: null, size: 0 });
+            problem(path, "unsupported_file_type");
           }
-        } else {
-          result.entries.push({ path, kind: "unsupported", digest: null, size: 0 });
-          problem(path, "unsupported_file_type");
+        } catch (error) {
+          const code = errorCode(error);
+          if (!LOCK_CODES.has(code))
+            problem(path, code);
+          else {
+            if (result.entries.at(-1)?.path !== path)
+              result.entries.push({ path, kind: "unsupported", digest: null, size: 0 });
+            problem(path, "locked_file");
+          }
         }
         if (exhausted)
           break;
@@ -222,7 +296,7 @@ async function inspectOnboardingRoot(root, limits = {}) {
 // src/onboarding/plan.ts
 import { createHash as createHash2 } from "node:crypto";
 import { constants as constants2 } from "node:fs";
-import { lstat as lstat2, open as open2, realpath as realpath2 } from "node:fs/promises";
+import { lstat as lstat2, open as open2 } from "node:fs/promises";
 import { join as join2 } from "node:path";
 // src/language.ts
 var DOCUMENT_LANGUAGES = ["cs", "sk", "en"];
@@ -530,6 +604,22 @@ var AML_REQUIRED = {
   }
 };
 
+// ../okf-pamat/src/text-decode.ts
+function decodeText(bytes) {
+  if (bytes[0] === 254 && bytes[1] === 255) {
+    const swapped = Uint8Array.from(bytes);
+    for (let i = 0;i + 1 < swapped.length; i += 2) {
+      swapped[i] = bytes[i + 1];
+      swapped[i + 1] = bytes[i];
+    }
+    return new TextDecoder("utf-16le").decode(swapped);
+  }
+  return new TextDecoder(bytes[0] === 255 && bytes[1] === 254 ? "utf-16le" : "utf-8").decode(bytes);
+}
+function stripBom(text) {
+  return text.charCodeAt(0) === 65279 ? text.slice(1) : text;
+}
+
 // ../okf-pamat/src/record.ts
 var CORE_FIELDS = new Set([
   "okf",
@@ -621,7 +711,7 @@ function unquote(v) {
 var indentOf = (line) => line.length - line.trimStart().length;
 function parseFrontmatter2(fm) {
   const out = new Map;
-  const lines = fm.split(`
+  const lines = stripBom(fm).split(`
 `);
   let i = 0;
   while (i < lines.length) {
@@ -755,13 +845,16 @@ function parseBlock(block, firstLineNo) {
 // src/profile.ts
 var WORKING_FOLDERS = ["00_Na_zatriedenie", "01_Podklady", "02_Resers", "03_Drafty", "04_Vystupy", "05_Komunikacia"];
 var PROFILE_FILE = "PRACOVNY-PROFIL.md";
+var OFFICE_CONFIG_ENCODING_CODE = "office_config_encoding";
+var OFFICE_CONFIG_ENCODING_MESSAGE = "okf.config kancelárie nie je v UTF-8 ani v UTF-16 s BOM (napr. ANSI); ulož ho ako UTF-8";
 function parseWorkingProfile(content) {
   const fields = parseFrontmatter(content);
   if (fields?.type !== "working-profile" || !fields.folders || !fields.folder_roles || !fields.document_naming)
     throw new Error(`Neplatný ${PROFILE_FILE}`);
   return workingProfile(JSON.parse(fields.folders), JSON.parse(fields.folder_roles), fields.document_naming);
 }
-function parseOfficeWorkingProfile(content, language = "sk") {
+function parseOfficeWorkingProfile(text, language = "sk") {
+  const content = stripBom(text);
   if (!/^\s*(?:matter_folders|folder_roles|document_naming):/m.test(content))
     return;
   const keys = [...content.matchAll(/^(matter_folders|folder_roles|document_naming):/gm)].map((match) => match[1]);
@@ -781,6 +874,11 @@ function parseOfficeWorkingProfile(content, language = "sk") {
   if (new Set(roleNames).size !== roleNames.length)
     throw new Error("Duplicitná rola pracovného profilu");
   const fields = parseFrontmatter2(content);
+  for (const key of ["matter_folders", "folder_roles", "document_naming"]) {
+    if (JSON.stringify(fields.get(key) ?? null).includes("�")) {
+      throw Object.assign(new Error(`${OFFICE_CONFIG_ENCODING_MESSAGE}: ${key} obsahuje poškodený znak (U+FFFD)`), { code: OFFICE_CONFIG_ENCODING_CODE });
+    }
+  }
   return workingProfile(fields.get("matter_folders"), fields.get("folder_roles"), fields.get("document_naming"), language);
 }
 var slovakRoles = {
@@ -1879,6 +1977,20 @@ var EN_TEMPLATES = {
 };
 var LOCALIZED_TEMPLATES = { cs: CS_TEMPLATES, sk: TEMPLATES, en: EN_TEMPLATES };
 
+// src/onboarding/messages.ts
+var UNSAFE_FOLDER_NAME_MESSAGE = "A safe non-empty folder name is required.";
+var LOCKED_FILES_MESSAGE_PREFIX = "Files are open in another application:";
+var LOCKED_FILE_CODE = "locked_file";
+function incompleteInspectionMessage(message, issues) {
+  if (!issues.length)
+    return message;
+  const locked = issues.filter((issue) => issue.code === LOCKED_FILE_CODE);
+  const ordered = locked.length ? [...locked, ...issues.filter((issue) => issue.code !== LOCKED_FILE_CODE)] : issues;
+  const listed = ordered.slice(0, 5).map((issue) => `${issue.path || "."}: ${issue.code}`).join("; ");
+  const more = issues.length > 5 ? ` (+${issues.length - 5} more)` : "";
+  return `${locked.length ? LOCKED_FILES_MESSAGE_PREFIX : message.replace(/\.$/, ":")} ${listed}${more}`;
+}
+
 // src/onboarding/plan.ts
 function validateInput(input) {
   if (!input || typeof input.title !== "string" || !input.title.trim() || input.title.length > 500 || /[\u0000-\u001f]/.test(input.title))
@@ -1893,7 +2005,7 @@ function validateInput(input) {
 async function readInspectedText(root, entry) {
   if (!["AGENTS.md", "CLAUDE.md", PROFILE_FILE].includes(entry.path) || entry.kind !== "file" || entry.size > 1024 * 1024 || !entry.digest)
     throw new Error("Invalid inspected control file.");
-  if (await realpath2(root) !== root || !(await lstat2(root)).isDirectory())
+  if (await realpath(root) !== root || !(await lstat2(root)).isDirectory())
     throw new Error("The client root changed.");
   const path = join2(root, entry.path);
   const handle = await open2(path, constants2.O_RDONLY | constants2.O_NOFOLLOW);
@@ -1922,7 +2034,7 @@ async function planClientConversion(root, input) {
   validateInput(input);
   const inspection = await inspectOnboardingRoot(root);
   if (!inspection.complete || !inspection.digest || inspection.level === "conflict")
-    throw new Error("The directory could not be inspected completely and unambiguously.");
+    throw new Error(incompleteInspectionMessage("The directory could not be inspected completely and unambiguously.", inspection.issues));
   if (inspection.level !== "client" && !(inspection.level === "unknown" && input.confirmUnknownClient === true))
     throw new Error("Select a client directory or explicitly confirm an unrecognized directory as a client.");
   const existing = new Map(inspection.entries.map((entry) => [entry.path, entry]));
@@ -1983,7 +2095,7 @@ async function planClientConversion(root, input) {
 // src/onboarding/transaction.ts
 import { createHash as createHash3 } from "node:crypto";
 import { constants as constants3 } from "node:fs";
-import { lstat as lstat3, mkdir, open as open3, readFile, realpath as realpath3, readdir as readdir2, rm, rmdir } from "node:fs/promises";
+import { lstat as lstat3, mkdir, open as open3, readFile, readdir as readdir2, rm, rmdir } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { dirname, isAbsolute as isAbsolute2, join as join3, relative, resolve as resolve2, sep } from "node:path";
 var sha2 = (value) => createHash3("sha256").update(value).digest("hex");
@@ -1999,7 +2111,7 @@ function safePath(value) {
   if (typeof value !== "string" || !value || value.length > 1024 || value.includes("\x00") || value.includes("\\") || isAbsolute2(value) || /^[a-z]:/i.test(value))
     fail("unsafe operation path");
   const parts = value.split("/");
-  if (parts.some((part) => !part || part.length > 255 || part === "." || part === ".." || /[<>:"|?*\u0000-\u001f\u007f-\u009f]/.test(part) || /[. ]$/.test(part) || reserved2.test(part)))
+  if (parts.some((part) => !part || part.length > 255 || part === "." || part === ".." || /[<>:"|?*\u0000-\u001f\u007f-\u009f]/.test(part) || /[. ]$/.test(part) || reserved2.test(part) || VOLATILE_ENTRY.test(part)))
     fail("unsafe operation path");
   return parts.join("/");
 }
@@ -2007,6 +2119,8 @@ var isRecord = (value) => value !== null && typeof value === "object" && !Array.
 function parseOnboardingPlan(value) {
   if (!isRecord(value) || value.version !== 1 || typeof value.root !== "string" || !isAbsolute2(value.root) || typeof value.treeDigest !== "string" || !/^[a-f0-9]{64}$/.test(value.treeDigest) || !Array.isArray(value.operations))
     fail("schema");
+  if (value.scope !== undefined && value.scope !== "parent")
+    fail("scope");
   const operations = [];
   if (value.operations.length > 1e4)
     fail("too many operations");
@@ -2042,14 +2156,14 @@ function parseOnboardingPlan(value) {
     } else
       operations.push({ path, kind: "directory" });
   });
-  return { version: 1, root: value.root, treeDigest: value.treeDigest, operations };
+  return { version: 1, root: value.root, treeDigest: value.treeDigest, operations, ...value.scope === "parent" ? { scope: "parent" } : {} };
 }
 async function canonicalDirectory(value, label) {
   if (!isAbsolute2(value))
     throw new Error(`${label} must be absolute.`);
   const resolved = resolve2(value);
   try {
-    if (await realpath3(value) !== resolved || !(await lstat3(resolved)).isDirectory())
+    if (await realpath(value) !== resolved || !(await lstat3(resolved)).isDirectory())
       throw new Error(`${label} must be a canonical directory.`);
   } catch {
     throw new Error(`${label} must be a canonical directory.`);
@@ -2132,14 +2246,14 @@ function parseJournal(value) {
   return { version: 1, identity: value.identity, plan: parseOnboardingPlan(value.plan), baseline };
 }
 async function noSymlinkRoot(root) {
-  if (await realpath3(root) !== root || (await lstat3(root)).isSymbolicLink())
+  if (await realpath(root) !== root || (await lstat3(root)).isSymbolicLink())
     throw new Error("Root changed or is a symlink.");
 }
 async function targetState(root, operation) {
   const target = join3(root, operation.path);
   try {
     const parent = dirname(target);
-    if (await realpath3(parent) !== parent || (await lstat3(parent)).isSymbolicLink())
+    if (await realpath(parent) !== parent || (await lstat3(parent)).isSymbolicLink())
       return "conflict";
     const state = await lstat3(target);
     if (state.isSymbolicLink() || (operation.kind === "file" ? !state.isFile() : !state.isDirectory()))
@@ -2157,7 +2271,7 @@ async function create(root, operation) {
   const full = join3(root, operation.path);
   const parent = dirname(full);
   const parentState = await lstat3(parent);
-  if (!parentState.isDirectory() || parentState.isSymbolicLink() || await realpath3(parent) !== parent)
+  if (!parentState.isDirectory() || parentState.isSymbolicLink() || await realpath(parent) !== parent)
     throw new Error("Unsafe parent directory.");
   if (operation.kind === "directory") {
     await mkdir(full);
@@ -2189,8 +2303,8 @@ async function verifyCreated(root, operations, created) {
       throw new Error(`Owned entry changed: ${operation.path}`);
   }
 }
-async function verifyBaseline(root, baseline, owned) {
-  const inspection = await inspectOnboardingRoot(root);
+async function verifyBaseline(root, baseline, owned, scope) {
+  const inspection = await inspectDigest(root, scope);
   if (!inspection.complete)
     throw new Error("Root changed or contains unsafe entries.");
   const actual = inspection.entries.filter((entry) => !owned.has(entry.path));
@@ -2208,7 +2322,7 @@ async function preflight(root, plan, baseline) {
     const parent = dirname(join3(root, operation.path));
     try {
       const state = await lstat3(parent);
-      if (!state.isDirectory() || state.isSymbolicLink() || await realpath3(parent) !== parent)
+      if (!state.isDirectory() || state.isSymbolicLink() || await realpath(parent) !== parent)
         throw new Error(`Unsafe parent directory: ${operation.path}`);
     } catch (error) {
       if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ENOENT")
@@ -2230,7 +2344,7 @@ async function durableDirectory(path) {
   }
 }
 async function coordinatorDirectory() {
-  const base = await realpath3(tmpdir());
+  const base = await realpath(tmpdir());
   const baseState = await lstat3(base);
   if (!baseState.isDirectory() || baseState.isSymbolicLink())
     throw new Error("OS temporary directory must be a directory.");
@@ -2243,7 +2357,7 @@ async function coordinatorDirectory() {
       throw error;
   }
   const state = await lstat3(locks);
-  if (await realpath3(locks) !== locks || !state.isDirectory() || state.isSymbolicLink() || typeof process.getuid === "function" && (state.uid !== process.getuid() || (state.mode & 63) !== 0))
+  if (await realpath(locks) !== locks || !state.isDirectory() || state.isSymbolicLink() || typeof process.getuid === "function" && (state.uid !== process.getuid() || (state.mode & 63) !== 0))
     throw new Error("Unsafe onboarding lock coordinator.");
   return locks;
 }
@@ -2299,8 +2413,8 @@ async function lock(root) {
       await rm(path, { force: true });
   };
 }
-async function inspectDigest(root) {
-  return inspectOnboardingRoot(root);
+async function inspectDigest(root, scope) {
+  return scope === "parent" ? inspectOnboardingParent(root) : inspectOnboardingRoot(root);
 }
 async function applyOnboardingPlan(plan, journalDirectory) {
   const prepared = await context(plan, journalDirectory);
@@ -2322,7 +2436,7 @@ async function applyOnboardingPlan(plan, journalDirectory) {
       if (stored.identity !== identity || JSON.stringify(stored.plan) !== JSON.stringify(plan))
         throw new Error("Journal identity mismatch.");
     } else {
-      const inspection = await inspectDigest(root);
+      const inspection = await inspectDigest(root, plan.scope);
       if (!inspection.complete || inspection.digest !== plan.treeDigest)
         throw new Error("Onboarding root changed since planning.");
       stored = { version: 1, identity, plan, baseline: inspection.entries };
@@ -2343,7 +2457,7 @@ async function applyOnboardingPlan(plan, journalDirectory) {
       throw new Error("Incomplete onboarding transaction requires recovery.");
     if (!stored)
       throw new Error("Journal was not initialized.");
-    await verifyBaseline(root, stored.baseline, new Set(created.keys()));
+    await verifyBaseline(root, stored.baseline, new Set(created.keys()), plan.scope);
     await preflight(root, plan, stored.baseline);
     for (const operation of plan.operations) {
       await noSymlinkRoot(root);
@@ -2392,7 +2506,7 @@ async function recoverOnboardingPlan(plan, journalDirectory, action) {
       }
     }
     await verifyCreated(root, plan.operations, created);
-    await verifyBaseline(root, stored.baseline, new Set(created.keys()));
+    await verifyBaseline(root, stored.baseline, new Set(created.keys()), plan.scope);
     if (events.some((event) => event.type === "rolled_back")) {
       if (action === "rollback")
         return { status: "rolled_back", created: [] };
@@ -2462,13 +2576,13 @@ async function recoverOnboardingPlan(plan, journalDirectory, action) {
 }
 
 // src/onboarding/onboarding.ts
-import { lstat as lstat6, mkdir as mkdir3, readFile as readFile4, realpath as realpath6, writeFile } from "node:fs/promises";
-import { dirname as dirname4, isAbsolute as isAbsolute4, join as join8, relative as relative5, resolve as resolve6, sep as sep6 } from "node:path";
+import { lstat as lstat7, mkdir as mkdir3, readFile as readFile4, writeFile } from "node:fs/promises";
+import { dirname as dirname4, isAbsolute as isAbsolute5, join as join8, relative as relative6, resolve as resolve7, sep as sep7 } from "node:path";
 
 // src/onboarding/entities.ts
-import { lstat as lstat4, readFile as readFile2, realpath as realpath4 } from "node:fs/promises";
+import { lstat as lstat4, readFile as readFile2 } from "node:fs/promises";
 import { createHash as createHash4 } from "node:crypto";
-import { basename as basename3, join as join6, relative as relative3, resolve as resolve4, sep as sep4 } from "node:path";
+import { basename as basename3, join as join6, relative as relative4, resolve as resolve5, sep as sep5 } from "node:path";
 
 // ../okf-pamat/src/store.ts
 import { existsSync as existsSync2, lstatSync, mkdirSync, readFileSync as readFileSync2, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -2482,11 +2596,14 @@ var BIRTH_NUMBER_PATTERN_G = new RegExp(BIRTH_NUMBER_PATTERN.source, "g");
 import { existsSync, readFileSync } from "node:fs";
 import { join as join4, sep as sep2 } from "node:path";
 var CONFIG_FILE = "okf.config";
+function readConfigText(path) {
+  return decodeText(readFileSync(path));
+}
 function readConfiguredLawyerName(officeDir) {
   if (!officeDir)
     return;
   try {
-    const contents = readFileSync(join4(officeDir, CONFIG_FILE), "utf8");
+    const contents = readConfigText(join4(officeDir, CONFIG_FILE));
     const value = parseFrontmatter2(contents).get("standing_authorization");
     if (typeof value !== "string")
       return;
@@ -2508,7 +2625,7 @@ function readConfiguredLawyerName(officeDir) {
       name = scalar.slice(1, -1).replace(/''/g, "'");
     } else if (/^[!&*>|%@`\[{}]|^(?:null|true|false|~)$/i.test(scalar))
       return;
-    if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(name))
+    if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029\uFFFD]/.test(name))
       return;
     return name.trim() || undefined;
   } catch {
@@ -2537,25 +2654,60 @@ function findOfficeDir(startDir, maxUp = 8) {
   return;
 }
 
-// src/onboarding/messages.ts
-var UNSAFE_FOLDER_NAME_MESSAGE = "A safe non-empty folder name is required.";
+// ../okf-pamat/src/workspace-memory-fs.ts
+import { closeSync, constants as constants4, fstatSync, lstatSync as lstatSync2, openSync, readSync, realpathSync } from "node:fs";
+import { isAbsolute as isAbsolute3, parse, relative as relative3, resolve as resolve4, sep as sep4 } from "node:path";
+function isObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function missing(error) {
+  return isObject(error) && error.code === "ENOENT";
+}
+function contained(root, target) {
+  const rel = relative3(root, target);
+  return rel === "" || !isAbsolute3(rel) && rel !== ".." && !rel.startsWith(`..${sep4}`);
+}
+function checkedPath(path, kind, allowMissing = false) {
+  const full = resolve4(path), root = parse(full).root;
+  const parts = relative3(root, full).split(sep4).filter(Boolean);
+  let current = root;
+  for (let i = 0;i < parts.length; i++) {
+    current = resolve4(current, parts[i]);
+    let stat;
+    try {
+      stat = lstatSync2(current);
+    } catch (error) {
+      if (allowMissing && missing(error))
+        return false;
+      throw error;
+    }
+    if (stat.isSymbolicLink())
+      throw new Error(`Symlink is not allowed: ${current}`);
+    if (i < parts.length - 1 || kind === "directory") {
+      if (!stat.isDirectory())
+        throw new Error(`Not a directory: ${current}`);
+    } else if (!stat.isFile())
+      throw new Error(`Not a regular file: ${current}`);
+  }
+  return true;
+}
 
 // src/onboarding/entities.ts
 var safeSegment = (value) => {
   const trimmed = value.trim().replace(/[. ]+$/, "");
-  if (!trimmed || trimmed.length > 120 || /[\\/:\0<>"|?*]|^\./.test(trimmed))
+  if (!trimmed || trimmed.length > 120 || /[\\/:\0<>"|?*\u0001-\u001f\u007f-\u009f]|^\./.test(trimmed) || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(trimmed) || VOLATILE_ENTRY.test(trimmed))
     throw new Error(UNSAFE_FOLDER_NAME_MESSAGE);
   return trimmed;
 };
 var yaml = (value) => JSON.stringify(value);
 async function rootPlan(root, operations) {
-  const canonical = await realpath4(root);
-  if (canonical !== resolve4(root) || !(await lstat4(canonical)).isDirectory())
+  const canonical = await realpath(root);
+  if (canonical !== resolve5(root) || !(await lstat4(canonical)).isDirectory())
     throw new Error("Parent must be a canonical existing directory.");
-  const inspection = await inspectOnboardingRoot(canonical);
+  const inspection = await inspectOnboardingParent(canonical);
   if (!inspection.complete || !inspection.digest)
-    throw new Error("Parent could not be inspected completely.");
-  return { version: 1, root: canonical, treeDigest: inspection.digest, operations };
+    throw new Error(incompleteInspectionMessage("Parent could not be inspected completely.", inspection.issues));
+  return { version: 1, root: canonical, treeDigest: inspection.digest, operations, scope: "parent" };
 }
 var directory = (path) => ({ path, kind: "directory" });
 var file = (path, content) => ({ path, kind: "file", content });
@@ -2606,7 +2758,7 @@ async function planNewSubject(request) {
   const name = safeSegment(request.name), target = join6(request.clientRoot, name);
   const client = await inspectOnboardingRoot(request.clientRoot);
   if (!client.complete || client.level !== "client")
-    throw new Error("Subject parent must be an inspected client root.");
+    throw new Error(incompleteInspectionMessage("Subject parent must be an inspected client root.", client.issues));
   const card = `---
 type: subject
 title: ${yaml(request.title)}
@@ -2647,23 +2799,30 @@ async function planNewMatter(request) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(request.date) || !["contentious", "non_contentious"].includes(request.kind))
     throw new Error("Valid date and matter kind are required.");
   safeSegment(request.area);
+  if (request.subject !== undefined && /[\\/]/.test(request.subject))
+    throw new Error("Matter subject must be the subject folder name, not a path.");
   const name = `${request.date.slice(0, 7)} ${safeSegment(request.title)}`, target = join6(request.parent, MATTERS_DIR, name);
-  const clientRoot = await realpath4(request.clientRoot), parentRoot = await realpath4(request.parent);
-  if (parentRoot !== clientRoot && !parentRoot.startsWith(`${clientRoot}/`))
+  const clientRoot = await realpath(request.clientRoot), parentRoot = await realpath(request.parent);
+  if (!contained(clientRoot, parentRoot))
     throw new Error("Matter parent must be within the inspected client root.");
   const client = await inspectOnboardingRoot(clientRoot);
   if (!client.complete || client.level !== "client")
-    throw new Error("Matter client root must be an inspected client.");
-  const inspected = await inspectOnboardingRoot(request.parent);
+    throw new Error(incompleteInspectionMessage("Matter client root must be an inspected client.", client.issues));
+  const inspected = await inspectOnboardingParent(request.parent);
   if (!inspected.complete)
-    throw new Error("Matter parent could not be inspected completely.");
+    throw new Error(incompleteInspectionMessage("Matter parent could not be inspected completely.", inspected.issues));
   const existingMatters = inspected.entries.find((entry) => entry.path === MATTERS_DIR);
   if (existingMatters && existingMatters.kind !== "directory")
     throw new Error("Matter folder is blocked by a non-directory.");
   const office = findOfficeDir(request.parent);
-  const workingProfile = office ? parseOfficeWorkingProfile(await readFile2(join6(office, "okf.config"), "utf8"), request.language ?? "sk") : undefined;
+  const officeConfig = office ? await readFile2(join6(office, "okf.config")).then(decodeText, (error) => {
+    if (error && typeof error === "object" && "code" in error && (error.code === "ENOENT" || error.code === "EISDIR"))
+      return;
+    throw error;
+  }) : undefined;
+  const workingProfile = officeConfig !== undefined ? parseOfficeWorkingProfile(officeConfig, request.language ?? "sk") : undefined;
   const card = await clientCard(clientRoot);
-  const clientCardPath = card ? relative3(join6(parentRoot, MATTERS_DIR, name), card.file).split(sep4).join("/") : undefined;
+  const clientCardPath = card ? relative4(join6(parentRoot, MATTERS_DIR, name), card.file).split(sep5).join("/") : undefined;
   const built = buildMatterOperations({ ...request, workingProfile, clientTitle: card?.title, clientCardPath });
   const operations = [...existingMatters ? [] : [directory(MATTERS_DIR)], ...built.operations];
   return { mode: "new", appFiles: "inside", target, clientRoot: request.clientRoot, plan: await rootPlan(request.parent, operations) };
@@ -2674,7 +2833,7 @@ async function executeCreate(preview, journalDirectory) {
 async function planExistingClient(root, mode, cloneParent, map) {
   const inspection = await inspectOnboardingRoot(root);
   if (!inspection.complete || !inspection.digest)
-    throw new Error("Source client could not be inspected completely.");
+    throw new Error(incompleteInspectionMessage("Source client could not be inspected completely.", inspection.issues));
   if (["office", "matter", "conflict"].includes(inspection.level))
     throw new Error("Source must be a client or an explicitly confirmed unknown directory.");
   if (mode === "map") {
@@ -2697,23 +2856,69 @@ async function planExistingClient(root, mode, cloneParent, map) {
 
 // src/onboarding/trial-clone.ts
 import { createHash as createHash5, randomUUID } from "node:crypto";
-import { constants as constants4 } from "node:fs";
-import { copyFile, lstat as lstat5, mkdir as mkdir2, open as open4, readFile as readFile3, realpath as realpath5, rename, rmdir as rmdir2, unlink } from "node:fs/promises";
-import { dirname as dirname3, isAbsolute as isAbsolute3, join as join7, relative as relative4, resolve as resolve5, sep as sep5 } from "node:path";
+import { constants as constants6 } from "node:fs";
+import { copyFile, lstat as lstat6, mkdir as mkdir2, open as open5, readFile as readFile3, rename, rmdir as rmdir2 } from "node:fs/promises";
+import { dirname as dirname3, isAbsolute as isAbsolute4, join as join7, relative as relative5, resolve as resolve6, sep as sep6 } from "node:path";
+
+// src/onboarding/file-durability.ts
+import { constants as constants5 } from "node:fs";
+import { chmod, lstat as lstat5, open as open4, unlink } from "node:fs/promises";
+var errorCode2 = (error) => error && typeof error === "object" && ("code" in error) ? String(error.code) : "";
+async function syncFile(path, platform = process.platform) {
+  if (platform !== "win32") {
+    const handle = await open4(path, constants5.O_RDONLY | constants5.O_NOFOLLOW);
+    try {
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    return;
+  }
+  const { mode } = await lstat5(path);
+  const readOnly = (mode & 128) === 0;
+  if (readOnly)
+    await chmod(path, mode | 128);
+  try {
+    const handle = await open4(path, constants5.O_RDWR | constants5.O_NOFOLLOW);
+    try {
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+  } finally {
+    if (readOnly)
+      await chmod(path, mode & 4095);
+  }
+}
+async function unlinkFile(path, platform = process.platform) {
+  try {
+    await unlink(path);
+  } catch (error) {
+    if (platform !== "win32" || errorCode2(error) !== "EPERM")
+      throw error;
+    const { mode } = await lstat5(path);
+    if ((mode & 128) !== 0)
+      throw error;
+    await chmod(path, mode | 128);
+    await unlink(path);
+  }
+}
+
+// src/onboarding/trial-clone.ts
 var hash = (value) => createHash5("sha256").update(value).digest("hex");
 var within = (root, path) => {
-  const rel = relative4(root, path);
-  return !isAbsolute3(rel) && rel !== ".." && !rel.startsWith(`..${sep5}`);
+  const rel = relative5(root, path);
+  return !isAbsolute4(rel) && rel !== ".." && !rel.startsWith(`..${sep6}`);
 };
-var missing = (error) => error instanceof Error && ("code" in error) && error.code === "ENOENT";
+var missing2 = (error) => error instanceof Error && ("code" in error) && error.code === "ENOENT";
 async function identity(path, kind) {
-  const stat = await lstat5(path, { bigint: true });
+  const stat = await lstat6(path, { bigint: true });
   if (stat.isSymbolicLink() || (kind === "directory" ? !stat.isDirectory() : !stat.isFile()))
     throw new Error("Trial entry type changed.");
   return `${stat.dev}:${stat.ino}${kind === "file" ? `:${stat.ctimeNs}` : ""}`;
 }
 async function fileDigest(path) {
-  const file = await open4(path, constants4.O_RDONLY | constants4.O_NOFOLLOW);
+  const file = await open5(path, constants6.O_RDONLY | constants6.O_NOFOLLOW);
   try {
     const h = createHash5("sha256"), buffer = Buffer.alloc(65536);
     while (true) {
@@ -2729,7 +2934,7 @@ async function fileDigest(path) {
 }
 async function durableWrite(path, content, replace = false) {
   const temporary = replace ? `${path}.${randomUUID()}.tmp` : path;
-  const handle = await open4(temporary, constants4.O_WRONLY | constants4.O_CREAT | constants4.O_EXCL | constants4.O_NOFOLLOW, 384);
+  const handle = await open5(temporary, constants6.O_WRONLY | constants6.O_CREAT | constants6.O_EXCL | constants6.O_NOFOLLOW, 384);
   try {
     await handle.writeFile(content);
     await handle.sync();
@@ -2741,7 +2946,7 @@ async function durableWrite(path, content, replace = false) {
 }
 async function context2(preview, journalDirectory) {
   for (const path of [preview.source, dirname3(preview.target), journalDirectory]) {
-    if (!isAbsolute3(path) || await realpath5(path) !== resolve5(path) || !(await lstat5(path)).isDirectory())
+    if (!isAbsolute4(path) || await realpath(path) !== resolve6(path) || !(await lstat6(path)).isDirectory())
       throw new Error("Trial cloning requires existing canonical directories.");
   }
   if (within(preview.source, preview.target) || within(preview.target, preview.source) || within(preview.source, journalDirectory) || within(journalDirectory, preview.source) || within(preview.target, journalDirectory) || within(journalDirectory, preview.target))
@@ -2753,14 +2958,14 @@ async function context2(preview, journalDirectory) {
 }
 async function readJournal(path, fingerprint) {
   try {
-    if (!(await lstat5(path)).isFile() || (await lstat5(path)).isSymbolicLink())
+    if (!(await lstat6(path)).isFile() || (await lstat6(path)).isSymbolicLink())
       throw new Error("Unsafe trial journal.");
     const value = JSON.parse(await readFile3(path, "utf8"));
     if (value.version !== 1 || value.fingerprint !== fingerprint || hash(JSON.stringify(value.preview)) !== fingerprint || !Array.isArray(value.owned))
       throw new Error("Invalid trial journal.");
     return value;
   } catch (error) {
-    if (missing(error))
+    if (missing2(error))
       return null;
     throw error;
   }
@@ -2778,6 +2983,12 @@ async function verifyOwned(preview, journal, allowConversion = false) {
     if (await identity(path, owned.kind) !== owned.identity || owned.kind === "file" && await fileDigest(path) !== owned.digest)
       throw new Error(`Trial entry changed; preserving ${owned.path || "root"}.`);
   }
+  return current;
+}
+function assertNoVolatileEntries(inspection) {
+  const ignored = inspection.ignored ?? [];
+  if (ignored.length)
+    throw new Error(`Close open documents in the trial clone and remove leftover Windows or Office files, then retry rollback: ${ignored.slice(0, 5).join(", ")}${ignored.length > 5 ? ` (+${ignored.length - 5} more)` : ""}.`);
 }
 async function applyTrialClone(preview, journalDirectory, resume = false) {
   const { fingerprint, journalPath } = await context2(preview, journalDirectory);
@@ -2801,10 +3012,10 @@ async function applyTrialClone(preview, journalDirectory, resume = false) {
       if (source.entries.some((entry) => entry.path === ".lawoss-trial.json"))
         throw new Error("Source is already a trial clone.");
       try {
-        await lstat5(preview.target);
+        await lstat6(preview.target);
         throw new Error("Trial destination already exists.");
       } catch (error) {
-        if (!missing(error))
+        if (!missing2(error))
           throw error;
       }
       journal = { version: 1, fingerprint, preview, sourceEntries: source.entries, owned: [], phase: "copying" };
@@ -2815,10 +3026,10 @@ async function applyTrialClone(preview, journalDirectory, resume = false) {
       await verifyOwned(preview, journal, journal.phase === "converting");
     if (journal.intent !== undefined && !journal.owned.some((entry) => entry.path === journal.intent)) {
       try {
-        await lstat5(join7(preview.target, journal.intent));
+        await lstat6(join7(preview.target, journal.intent));
         throw new Error("Uncertain trial entry ownership; preserve for manual recovery.");
       } catch (error) {
-        if (!missing(error))
+        if (!missing2(error))
           throw error;
       }
     }
@@ -2836,17 +3047,12 @@ async function applyTrialClone(preview, journalDirectory, resume = false) {
           await mkdir2(target);
         else {
           const sourcePath = join7(preview.source, entry.path);
-          if (await realpath5(sourcePath) !== sourcePath || !(await lstat5(sourcePath)).isFile())
+          if (await realpath(sourcePath) !== sourcePath || !(await lstat6(sourcePath)).isFile())
             throw new Error("Trial source entry changed.");
-          await copyFile(sourcePath, target, constants4.COPYFILE_EXCL);
+          await copyFile(sourcePath, target, constants6.COPYFILE_EXCL);
           if (await fileDigest(target) !== entry.digest)
             throw new Error("Trial copy digest mismatch.");
-          const handle = await open4(target, (process.platform === "win32" ? constants4.O_RDWR : constants4.O_RDONLY) | constants4.O_NOFOLLOW);
-          try {
-            await handle.sync();
-          } finally {
-            await handle.close();
-          }
+          await syncFile(target);
         }
         journal.owned.push({ path: entry.path, kind: entry.kind, identity: await identity(target, entry.kind), digest: entry.digest, size: entry.size });
         delete journal.intent;
@@ -2877,9 +3083,9 @@ async function applyTrialClone(preview, journalDirectory, resume = false) {
         const conversionJournal = join7(journalDirectory, `${hash(JSON.stringify(journal.conversionPlan))}.json`);
         let hasConversionJournal = true;
         try {
-          await lstat5(conversionJournal);
+          await lstat6(conversionJournal);
         } catch (error) {
-          if (missing(error))
+          if (missing2(error))
             hasConversionJournal = false;
           else
             throw error;
@@ -2909,9 +3115,9 @@ async function recoverTrialClone(preview, journalDirectory, action) {
     const save = () => durableWrite(journalPath, JSON.stringify(journal), true);
     if (journal.removal !== undefined) {
       try {
-        await lstat5(join7(preview.target, journal.removal));
+        await lstat6(join7(preview.target, journal.removal));
       } catch (error) {
-        if (!missing(error))
+        if (!missing2(error))
           throw error;
         journal.owned = journal.owned.filter((entry) => entry.path !== journal.removal);
         delete journal.removal;
@@ -2920,20 +3126,20 @@ async function recoverTrialClone(preview, journalDirectory, action) {
     }
     if (!journal.owned.length) {
       try {
-        await lstat5(preview.target);
+        await lstat6(preview.target);
         throw new Error("Uncertain trial root ownership.");
       } catch (error) {
-        if (!missing(error))
+        if (!missing2(error))
           throw error;
       }
     } else
-      await verifyOwned(preview, journal, true);
+      assertNoVolatileEntries(await verifyOwned(preview, journal, true));
     if (journal.conversionPlan)
       await recoverOnboardingPlan(journal.conversionPlan, journalDirectory, "rollback");
     journal.phase = "rollback";
     await save();
     if (journal.owned.length)
-      await verifyOwned(preview, journal);
+      assertNoVolatileEntries(await verifyOwned(preview, journal));
     while (journal.owned.length) {
       const owned = journal.owned[journal.owned.length - 1];
       journal.removal = owned.path;
@@ -2944,7 +3150,7 @@ async function recoverTrialClone(preview, journalDirectory, action) {
       if (owned.kind === "directory")
         await rmdir2(path);
       else
-        await unlink(path);
+        await unlinkFile(path);
       journal.owned.pop();
       delete journal.removal;
       await save();
@@ -2971,17 +3177,17 @@ var isoDate = (value) => {
   return date;
 };
 async function externalProfileDirectory(clientRoot, input) {
-  if (!isAbsolute4(input))
+  if (!isAbsolute5(input))
     throw new Error("External profile directory must be absolute.");
-  const directory = resolve6(input);
-  const fromClient = relative5(clientRoot, directory);
-  if (fromClient !== ".." && !fromClient.startsWith(`..${sep6}`) && !isAbsolute4(fromClient)) {
+  const directory = resolve7(input);
+  const fromClient = relative6(clientRoot, directory);
+  if (fromClient !== ".." && !fromClient.startsWith(`..${sep7}`) && !isAbsolute5(fromClient)) {
     throw new Error("External profile directory must be outside the mapped client directory.");
   }
   let ancestor = directory;
   while (true) {
     try {
-      if (await realpath6(ancestor) !== ancestor || !(await lstat6(ancestor)).isDirectory())
+      if (await realpath(ancestor) !== ancestor || !(await lstat7(ancestor)).isDirectory())
         throw new Error("External profile directory must use a canonical directory path.");
       break;
     } catch (error) {
@@ -2994,7 +3200,7 @@ async function externalProfileDirectory(clientRoot, input) {
     }
   }
   await mkdir3(directory, { recursive: true });
-  if (await realpath6(directory) !== directory || !(await lstat6(directory)).isDirectory())
+  if (await realpath(directory) !== directory || !(await lstat7(directory)).isDirectory())
     throw new Error("External profile directory must use a canonical directory path.");
   return directory;
 }
@@ -3071,8 +3277,8 @@ async function planOnboarding(request) {
   if (request.action === "subject")
     return { action: request.action, ...await planNewSubject(request) };
   if (request.action === "matter") {
-    const client = await realpath6(request.clientRoot), parent = await realpath6(request.parent);
-    if (parent !== client && relative5(client, parent).startsWith(".."))
+    const client = await realpath(request.clientRoot), parent = await realpath(request.parent);
+    if (!contained(client, parent))
       throw new Error("Matter parent must be within client root.");
     return { action: request.action, ...await planNewMatter(request) };
   }
@@ -3125,7 +3331,7 @@ async function recoverOnboarding(preview, options, action) {
 // src/onboarding/cli.ts
 var usage = "okf onboard classify <dir> | plan <dir> --title NAME --client-type po|fo|fo-podnikatel|iny --language sk|cs|en --jurisdiction sk|cz --date YYYY-MM-DD [--confirm-client] [--out FILE] | request --request FILE [--out FILE] | create --request FILE --journal DIR --external-profile DIR --confirm | apply --plan FILE --journal DIR --confirm | recover --plan FILE --journal DIR --action finish|rollback --confirm";
 var maxPlanBytes = 4 * 1024 * 1024;
-function parse(argv) {
+function parse2(argv) {
   const args = [], flags = new Map;
   for (let i = 0;i < argv.length; i++) {
     const value = argv[i];
@@ -3196,7 +3402,7 @@ async function aggregateEnvelope(value) {
   return { version: 1, request, preview };
 }
 async function readPlan(path) {
-  const handle = await open5(path, constants5.O_RDONLY | constants5.O_NOFOLLOW);
+  const handle = await open6(path, constants7.O_RDONLY | constants7.O_NOFOLLOW);
   try {
     const stat = await handle.stat();
     if (!stat.isFile() || stat.size > maxPlanBytes)
@@ -3217,13 +3423,13 @@ async function readPlan(path) {
   }
 }
 async function savePlanOutside(root, path, content) {
-  const target = resolve7(path), parent = dirname5(target);
-  const rel = relative6(root, target);
-  if (!rel || !isAbsolute5(rel) && rel !== ".." && !rel.startsWith(`..${sep7}`))
+  const target = resolve8(path), parent = dirname5(target);
+  const rel = relative7(root, target);
+  if (!rel || !isAbsolute6(rel) && rel !== ".." && !rel.startsWith(`..${sep8}`))
     throw new Error("Save the preview outside the client directory.");
-  if (await realpath7(parent) !== parent || !(await lstat7(parent)).isDirectory())
+  if (await realpath(parent) !== parent || !(await lstat8(parent)).isDirectory())
     throw new Error("Plan output needs an existing canonical parent directory.");
-  const handle = await open5(target, constants5.O_WRONLY | constants5.O_CREAT | constants5.O_EXCL | constants5.O_NOFOLLOW, 384);
+  const handle = await open6(target, constants7.O_WRONLY | constants7.O_CREAT | constants7.O_EXCL | constants7.O_NOFOLLOW, 384);
   try {
     await handle.writeFile(content);
     await handle.sync();
@@ -3233,7 +3439,7 @@ async function savePlanOutside(root, path, content) {
 }
 async function runOnboarding(argv, out = console.log) {
   try {
-    const { args, flags } = parse(argv);
+    const { args, flags } = parse2(argv);
     const command = args[0];
     if (command === "classify") {
       only(flags, ["--json"]);
@@ -3310,19 +3516,19 @@ async function runOnboarding(argv, out = console.log) {
 }
 
 // src/triage/cli.ts
-import { existsSync as existsSync3, realpathSync } from "node:fs";
-import { dirname as dirname7, join as join12, resolve as resolve10 } from "node:path";
+import { existsSync as existsSync3, realpathSync as realpathSync2 } from "node:fs";
+import { dirname as dirname7, join as join12, resolve as resolve11 } from "node:path";
 
 // src/triage/files.ts
-import { constants as constants7 } from "node:fs";
-import { lstat as lstat9, mkdir as mkdir4, open as open7, readdir as readdir3, realpath as realpath9 } from "node:fs/promises";
+import { constants as constants9 } from "node:fs";
+import { lstat as lstat10, mkdir as mkdir4, open as open8, readdir as readdir3 } from "node:fs/promises";
 import { join as join10 } from "node:path";
 
 // src/triage/scan.ts
 import { createHash as createHash6 } from "node:crypto";
-import { constants as constants6 } from "node:fs";
-import { lstat as lstat8, open as open6, readFile as readFile5, realpath as realpath8 } from "node:fs/promises";
-import { basename as basename4, isAbsolute as isAbsolute6, join as join9, relative as relative7, resolve as resolve8, sep as sep8 } from "node:path";
+import { constants as constants8 } from "node:fs";
+import { lstat as lstat9, open as open7, readFile as readFile5 } from "node:fs/promises";
+import { basename as basename4, isAbsolute as isAbsolute7, join as join9, relative as relative8, resolve as resolve9, sep as sep9 } from "node:path";
 
 // src/triage/rules.ts
 var TRIAGE_ROLES = ["inbox", "client_documents", "research", "drafts", "outputs", "correspondence", "important_mail"];
@@ -3418,12 +3624,12 @@ class TrialCloneError extends Error {
 var sha3 = (value) => createHash6("sha256").update(value).digest("hex");
 var record2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 var overlaps = (a, b) => {
-  const rel = relative7(a, b);
-  return rel === "" || !isAbsolute6(rel) && rel !== ".." && !rel.startsWith(`..${sep8}`);
+  const rel = relative8(a, b);
+  return rel === "" || !isAbsolute7(rel) && rel !== ".." && !rel.startsWith(`..${sep9}`);
 };
-var missing2 = (error) => error instanceof Error && ("code" in error) && error.code === "ENOENT";
+var missing3 = (error) => error instanceof Error && ("code" in error) && error.code === "ENOENT";
 async function readBounded(path, max) {
-  const handle = await open6(path, constants6.O_RDONLY | constants6.O_NOFOLLOW);
+  const handle = await open7(path, constants8.O_RDONLY | constants8.O_NOFOLLOW);
   try {
     const stat = await handle.stat();
     if (!stat.isFile() || stat.size > max)
@@ -3444,11 +3650,11 @@ async function readBounded(path, max) {
   }
 }
 async function verifyTrialClone(rootInput, trialJournalDirectory) {
-  if (!isAbsolute6(rootInput))
+  if (!isAbsolute7(rootInput))
     throw new TrialCloneError("Cesta ku klonu musí byť absolútna.");
-  const root = resolve8(rootInput);
+  const root = resolve9(rootInput);
   try {
-    if (await realpath8(root) !== root || !(await lstat8(root)).isDirectory())
+    if (await realpath(root) !== root || !(await lstat9(root)).isDirectory())
       throw new TrialCloneError("Klon musí byť existujúci priečinok bez symbolických odkazov.");
   } catch (error) {
     if (error instanceof TrialCloneError)
@@ -3461,12 +3667,12 @@ async function verifyTrialClone(rootInput, trialJournalDirectory) {
   } catch (error) {
     if (error instanceof TrialCloneError)
       throw error;
-    throw new TrialCloneError(missing2(error) ? "Toto nie je skúšobný klon. Dokumenty sa presúvajú len v skúšobnom klone, nikdy v origináli." : "Značka skúšobného klona je poškodená.");
+    throw new TrialCloneError(missing3(error) ? "Toto nie je skúšobný klon. Dokumenty sa presúvajú len v skúšobnom klone, nikdy v origináli." : "Značka skúšobného klona je poškodená.");
   }
-  if (!record2(marker) || marker.version !== 1 || marker.trial !== true || typeof marker.source !== "string" || !isAbsolute6(marker.source) || typeof marker.sourceDigest !== "string" || !/^[a-f0-9]{64}$/.test(marker.sourceDigest) || typeof marker.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(marker.fingerprint)) {
+  if (!record2(marker) || marker.version !== 1 || marker.trial !== true || typeof marker.source !== "string" || !isAbsolute7(marker.source) || typeof marker.sourceDigest !== "string" || !/^[a-f0-9]{64}$/.test(marker.sourceDigest) || typeof marker.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(marker.fingerprint)) {
     throw new TrialCloneError("Značka skúšobného klona má neplatný tvar.");
   }
-  const source = resolve8(marker.source);
+  const source = resolve9(marker.source);
   if (overlaps(source, root) || overlaps(root, source))
     throw new TrialCloneError("Klon sa prekrýva so svojím originálom.");
   let journalVerified = false;
@@ -3493,7 +3699,7 @@ async function readSmall(root, path) {
   try {
     return await readBounded(join9(root, path), 1024 * 1024);
   } catch (error) {
-    if (missing2(error))
+    if (missing3(error))
       return;
     throw error;
   }
@@ -3512,7 +3718,7 @@ async function scanTriage(rootInput, options = {}) {
   const card = parseFrontmatter(await readSmall(clone.root, clientCard) ?? "") ?? {};
   const language = resolveDocumentLanguage(["sk", "cs", "en"].includes(card.language ?? "") ? card.language : undefined, card.jurisdiction);
   const office = findOfficeDir(clone.root);
-  const config = office ? await readFile5(join9(office, "okf.config"), "utf8").catch(() => {
+  const config = office ? await readFile5(join9(office, "okf.config")).then(decodeText, () => {
     return;
   }) : undefined;
   const officeJurisdiction = /^jurisdiction:\s*(sk|cz)\s*$/m.exec(config ?? "")?.[1];
@@ -3579,9 +3785,9 @@ async function scanTriage(rootInput, options = {}) {
 
 // src/triage/files.ts
 var MAX_JSON_BYTES = 4 * 1024 * 1024;
-var errorCode2 = (error) => error instanceof Error && ("code" in error) ? String(error.code) : "";
+var errorCode3 = (error) => error instanceof Error && ("code" in error) ? String(error.code) : "";
 async function readJsonFile(path, max = MAX_JSON_BYTES) {
-  const handle = await open7(path, constants7.O_RDONLY | constants7.O_NOFOLLOW);
+  const handle = await open8(path, constants9.O_RDONLY | constants9.O_NOFOLLOW);
   try {
     const stat = await handle.stat();
     if (!stat.isFile() || stat.size > max)
@@ -3609,16 +3815,16 @@ async function triageSubdirectory(root, name, create) {
       try {
         await mkdir4(current, { mode: 448 });
       } catch (error) {
-        if (errorCode2(error) !== "EEXIST")
+        if (errorCode3(error) !== "EEXIST")
           throw error;
       }
     }
     try {
-      const state = await lstat9(current);
-      if (!state.isDirectory() || state.isSymbolicLink() || await realpath9(current) !== current)
+      const state = await lstat10(current);
+      if (!state.isDirectory() || state.isSymbolicLink() || await realpath(current) !== current)
         throw new Error("Priečinok roztriedenia v klone nie je bezpečný.");
     } catch (error) {
-      if (errorCode2(error) === "ENOENT" && !create)
+      if (errorCode3(error) === "ENOENT" && !create)
         return null;
       throw error;
     }
@@ -3626,7 +3832,7 @@ async function triageSubdirectory(root, name, create) {
   return current;
 }
 async function writeNewJson(path, value) {
-  const handle = await open7(path, constants7.O_WRONLY | constants7.O_CREAT | constants7.O_EXCL | constants7.O_NOFOLLOW, 384);
+  const handle = await open8(path, constants9.O_WRONLY | constants9.O_CREAT | constants9.O_EXCL | constants9.O_NOFOLLOW, 384);
   try {
     await handle.writeFile(JSON.stringify(value, null, 2) + `
 `);
@@ -3952,22 +4158,22 @@ function buildTriagePlan(inventory, options) {
 
 // src/triage/apply.ts
 import { createHash as createHash8 } from "node:crypto";
-import { constants as constants8 } from "node:fs";
-import { appendFile, copyFile as copyFile2, link, lstat as lstat10, mkdir as mkdir5, open as open8, readdir as readdir4, readFile as readFile6, realpath as realpath10, rmdir as rmdir3, unlink as unlink2 } from "node:fs/promises";
-import { dirname as dirname6, isAbsolute as isAbsolute7, join as join11, resolve as resolve9 } from "node:path";
+import { constants as constants10 } from "node:fs";
+import { appendFile, copyFile as copyFile2, link, lstat as lstat11, mkdir as mkdir5, open as open9, readdir as readdir4, readFile as readFile6, rmdir as rmdir3 } from "node:fs/promises";
+import { dirname as dirname6, isAbsolute as isAbsolute8, join as join11, resolve as resolve10 } from "node:path";
 class TriageConflictError extends Error {
   code = "triage_conflict";
 }
 var record4 = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
-var missing3 = (error) => error instanceof Error && ("code" in error) && error.code === "ENOENT";
-var errorCode3 = (error) => error instanceof Error && ("code" in error) ? String(error.code) : "";
+var missing4 = (error) => error instanceof Error && ("code" in error) && error.code === "ENOENT";
+var errorCode4 = (error) => error instanceof Error && ("code" in error) ? String(error.code) : "";
 var RUN_ID = /^triage-[0-9]{8}-[0-9]{6}-[a-f0-9]{6}$/;
 var reserved3 = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
 function invalid(message) {
   throw new Error(`Neplatný plán roztriedenia: ${message}`);
 }
 function safeRelative(value, where, allowKeep = false) {
-  if (typeof value !== "string" || !value || value.length > 1024 || value.includes("\x00") || value.includes("\\") || isAbsolute7(value) || /^[a-z]:/i.test(value))
+  if (typeof value !== "string" || !value || value.length > 1024 || value.includes("\x00") || value.includes("\\") || isAbsolute8(value) || /^[a-z]:/i.test(value))
     invalid(`${where} nie je bezpečná relatívna cesta`);
   const parts = value.split("/");
   if (parts.some((part, index) => !part || part.length > 255 || part === "." || part === ".." || part.startsWith(".") && !(allowKeep && part === ".keep" && index === parts.length - 1) || /[<>:"|?*\u0000-\u001f\u007f-\u009f]/.test(part) || /[. ]$/.test(part) || reserved3.test(part)))
@@ -3979,7 +4185,7 @@ function parseTriagePlan(value) {
     invalid("schema");
   if (typeof value.runId !== "string" || !RUN_ID.test(value.runId))
     invalid("runId");
-  if (typeof value.root !== "string" || !isAbsolute7(value.root) || resolve9(value.root) !== value.root)
+  if (typeof value.root !== "string" || !isAbsolute8(value.root) || resolve10(value.root) !== value.root)
     invalid("root");
   if (typeof value.treeDigest !== "string" || !/^[a-f0-9]{64}$/.test(value.treeDigest))
     invalid("treeDigest");
@@ -4021,7 +4227,7 @@ var EVENT_TYPES = new Set(["intent", "created", "move_intent", "moved", "complet
 async function durableDirectory2(path) {
   if (process.platform === "win32")
     return;
-  const handle = await open8(path, constants8.O_RDONLY);
+  const handle = await open9(path, constants10.O_RDONLY);
   try {
     await handle.sync();
   } finally {
@@ -4029,7 +4235,7 @@ async function durableDirectory2(path) {
   }
 }
 async function appendEvent2(path, event) {
-  const handle = await open8(path, constants8.O_WRONLY | constants8.O_APPEND | constants8.O_CREAT | constants8.O_NOFOLLOW, 384);
+  const handle = await open9(path, constants10.O_WRONLY | constants10.O_APPEND | constants10.O_CREAT | constants10.O_NOFOLLOW, 384);
   try {
     await handle.writeFile(`${JSON.stringify(event)}
 `);
@@ -4043,7 +4249,7 @@ async function readEvents2(path) {
   try {
     raw = await readFile6(path, "utf8");
   } catch (error) {
-    if (missing3(error))
+    if (missing4(error))
       return [];
     throw error;
   }
@@ -4074,31 +4280,31 @@ async function runDirectory(root, runId, create) {
       try {
         await mkdir5(current, { mode: 448 });
       } catch (error) {
-        if (errorCode3(error) !== "EEXIST")
+        if (errorCode4(error) !== "EEXIST")
           throw error;
       }
     }
-    const state = await lstat10(current);
-    if (!state.isDirectory() || state.isSymbolicLink() || await realpath10(current) !== current)
+    const state = await lstat11(current);
+    if (!state.isDirectory() || state.isSymbolicLink() || await realpath(current) !== current)
       throw new Error("Priečinok záznamov roztriedenia nie je bezpečný.");
   }
   return current;
 }
 async function safeParent(root, relativePath) {
   const full = join11(root, relativePath), parent = dirname6(full);
-  const state = await lstat10(parent);
-  if (!state.isDirectory() || state.isSymbolicLink() || await realpath10(parent) !== parent)
+  const state = await lstat11(parent);
+  if (!state.isDirectory() || state.isSymbolicLink() || await realpath(parent) !== parent)
     throw new TriageConflictError(`Cesta ${relativePath} vedie cez symbolický odkaz alebo neexistujúci priečinok.`);
   return full;
 }
 async function fileDigest2(path) {
   let handle;
   try {
-    handle = await open8(path, constants8.O_RDONLY | constants8.O_NOFOLLOW);
+    handle = await open9(path, constants10.O_RDONLY | constants10.O_NOFOLLOW);
   } catch (error) {
-    if (missing3(error))
+    if (missing4(error))
       return null;
-    if (errorCode3(error) === "ELOOP")
+    if (errorCode4(error) === "ELOOP")
       throw new TriageConflictError(`Symbolický odkaz: ${path}`);
     throw error;
   }
@@ -4121,25 +4327,20 @@ async function moveExclusive(source, target, digest) {
   try {
     await link(source, target);
   } catch (error) {
-    const code = errorCode3(error);
+    const code = errorCode4(error);
     if (code === "EEXIST")
       throw new TriageConflictError(`Cieľ už existuje: ${target}`);
     if (!["EXDEV", "EPERM", "ENOTSUP", "EOPNOTSUPP", "EMLINK", "ENOSYS", "EACCES"].includes(code))
       throw error;
-    await copyFile2(source, target, constants8.COPYFILE_EXCL);
-    const handle = await open8(target, (process.platform === "win32" ? constants8.O_RDWR : constants8.O_RDONLY) | constants8.O_NOFOLLOW);
-    try {
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
+    await copyFile2(source, target, constants10.COPYFILE_EXCL);
+    await syncFile(target);
   }
   if (await fileDigest2(target) !== digest)
     throw new TriageConflictError(`Kópia ${target} nesedí s originálom.`);
   await durableDirectory2(dirname6(target));
   if (await fileDigest2(source) !== digest)
     throw new TriageConflictError(`Zdroj ${source} sa zmenil počas presunu.`);
-  await unlink2(source);
+  await unlinkFile(source);
   await durableDirectory2(dirname6(source));
 }
 async function createOperation(root, operation) {
@@ -4147,7 +4348,7 @@ async function createOperation(root, operation) {
   if (operation.kind === "directory")
     await mkdir5(full);
   else {
-    const handle = await open8(full, constants8.O_WRONLY | constants8.O_CREAT | constants8.O_EXCL | constants8.O_NOFOLLOW, 420);
+    const handle = await open9(full, constants10.O_WRONLY | constants10.O_CREAT | constants10.O_EXCL | constants10.O_NOFOLLOW, 420);
     try {
       await handle.writeFile(operation.content ?? "");
       await handle.sync();
@@ -4161,9 +4362,9 @@ async function operationState(root, operation) {
   const full = join11(root, operation.path);
   let state;
   try {
-    state = await lstat10(full);
+    state = await lstat11(full);
   } catch (error) {
-    if (missing3(error))
+    if (missing4(error))
       return "missing";
     throw error;
   }
@@ -4185,7 +4386,7 @@ async function applyTriagePlan(input, options = {}) {
     try {
       stored = JSON.parse(await readFile6(planPath, "utf8"));
     } catch (error) {
-      if (!missing3(error))
+      if (!missing4(error))
         throw error;
     }
     let events = await readEvents2(eventsPath);
@@ -4219,7 +4420,7 @@ async function applyTriagePlan(input, options = {}) {
         if (parent && paths.get(parent)?.kind !== "directory" && !plannedDirectories.has(parent))
           throw new TriageConflictError(`Chýba cieľový priečinok: ${move.to}`);
       }
-      const handle = await open8(planPath, constants8.O_WRONLY | constants8.O_CREAT | constants8.O_EXCL | constants8.O_NOFOLLOW, 384);
+      const handle = await open9(planPath, constants10.O_WRONLY | constants10.O_CREAT | constants10.O_EXCL | constants10.O_NOFOLLOW, 384);
       try {
         await handle.writeFile(JSON.stringify(plan, null, 2) + `
 `);
@@ -4257,7 +4458,7 @@ async function applyTriagePlan(input, options = {}) {
           await appendEvent2(eventsPath, { t: "move_intent", id: move.id });
         await moveExclusive(source, target, move.sha256);
       } else if (started && from === move.sha256 && to === move.sha256) {
-        await unlink2(source);
+        await unlinkFile(source);
         await durableDirectory2(dirname6(source));
       } else if (!(started && from === null && to === move.sha256))
         throw new TriageConflictError(to !== null && !started ? `Cieľ už existuje: ${move.to}` : `Dokument sa zmenil alebo chýba: ${move.from}`);
@@ -4276,7 +4477,7 @@ async function readRun(root, runId) {
   try {
     dir = await runDirectory(root, runId, false);
   } catch (error) {
-    if (missing3(error))
+    if (missing4(error))
       throw new Error("Takýto beh roztriedenia v klone nie je.");
     throw error;
   }
@@ -4328,7 +4529,7 @@ async function undoTriage(rootInput, runId, options = {}) {
       }
     }
     for (const item of pending)
-      if (item.from === null && !await lstat10(dirname6(join11(root, item.move.from))).then((state) => state.isDirectory() && !state.isSymbolicLink()).catch(() => false))
+      if (item.from === null && !await lstat11(dirname6(join11(root, item.move.from))).then((state) => state.isDirectory() && !state.isSymbolicLink()).catch(() => false))
         problems.push(dirname6(item.move.from));
     if (problems.length)
       throw new TriageConflictError(`Roztriedenie sa nedá vrátiť bez zásahu do zmenených súborov: ${[...new Set(problems)].slice(0, 10).join(", ")}${problems.length > 10 ? " …" : ""}`);
@@ -4341,7 +4542,7 @@ async function undoTriage(rootInput, runId, options = {}) {
       if (from === null && to !== null)
         await moveExclusive(source, target, move.sha256);
       else if (from !== null && to !== null) {
-        await unlink2(source);
+        await unlinkFile(source);
         await durableDirectory2(dirname6(source));
       }
       await appendEvent2(eventsPath, { t: "restored", id: move.id });
@@ -4355,7 +4556,7 @@ async function undoTriage(rootInput, runId, options = {}) {
         if (operation.kind === "directory")
           await rmdir3(full);
         else
-          await unlink2(full);
+          await unlinkFile(full);
         await durableDirectory2(dirname6(full));
       } else if (state === "other")
         throw new TriageConflictError(`Zmenené počas vrátenia: ${operation.path}`);
@@ -4369,16 +4570,16 @@ async function undoTriage(rootInput, runId, options = {}) {
   }
 }
 async function listTriageRuns(rootInput) {
-  const root = resolve9(rootInput);
+  const root = resolve10(rootInput);
   const runs = join11(root, TRIAGE_DIR, "runs");
   let names;
   try {
-    const state = await lstat10(runs);
+    const state = await lstat11(runs);
     if (!state.isDirectory() || state.isSymbolicLink())
       return [];
     names = await readdir4(runs);
   } catch (error) {
-    if (missing3(error))
+    if (missing4(error))
       return [];
     throw error;
   }
@@ -4436,7 +4637,7 @@ async function prepareTriage(root, options = {}) {
 
 // src/triage/cli.ts
 var usage2 = "okf triage status [<klon>] | scan [<klon>] [--out FILE] | plan [<klon>] [--classification FILE] [--keep-in-inbox ID,ID] [--today RRRR-MM-DD] | apply [<klon>] --plan FILE --confirm | undo [<klon>] --run RUN_ID --confirm  (bez <klon> klon v aktuálnom priečinku; voliteľne --trial-journal DIR)";
-function parse2(argv) {
+function parse3(argv) {
   const args = [], flags = new Map;
   for (let i = 0;i < argv.length; i++) {
     const value = argv[i];
@@ -4467,8 +4668,8 @@ var value = (flags, name) => {
   return typeof item === "string" ? item : undefined;
 };
 function resolveCloneRoot(argument, cwd = process.cwd()) {
-  const start = resolve10(cwd, argument ?? ".");
-  const canonical = existsSync3(start) ? realpathSync(start) : start;
+  const start = resolve11(cwd, argument ?? ".");
+  const canonical = existsSync3(start) ? realpathSync2(start) : start;
   if (argument !== undefined)
     return canonical;
   for (let dir = canonical, depth = 0;depth < 16; depth++) {
@@ -4483,7 +4684,7 @@ function resolveCloneRoot(argument, cwd = process.cwd()) {
 }
 async function runTriage(argv, out = console.log) {
   try {
-    const { args, flags } = parse2(argv);
+    const { args, flags } = parse3(argv);
     const [command, rootArgument] = args;
     if (!command || args.length > 2)
       throw new Error(usage2);
@@ -4554,46 +4755,6 @@ var ENTITY_TYPES2 = ["klient", "spis", "projekt"];
 // src/fs.ts
 import { existsSync as existsSync4, lstatSync as lstatSync3, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync3, realpathSync as realpathSync3, statSync, writeFileSync as writeFileSync2 } from "node:fs";
 import { basename as basename6, dirname as dirname8, join as join13, relative as relative9, resolve as resolve12, sep as sep10 } from "node:path";
-
-// ../okf-pamat/src/workspace-memory-fs.ts
-import { closeSync, constants as constants9, fstatSync, lstatSync as lstatSync2, openSync, readSync, realpathSync as realpathSync2 } from "node:fs";
-import { isAbsolute as isAbsolute8, parse as parse3, relative as relative8, resolve as resolve11, sep as sep9 } from "node:path";
-function isObject(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function missing4(error) {
-  return isObject(error) && error.code === "ENOENT";
-}
-function contained(root, target) {
-  const rel = relative8(root, target);
-  return rel === "" || !isAbsolute8(rel) && rel !== ".." && !rel.startsWith(`..${sep9}`);
-}
-function checkedPath(path, kind, allowMissing = false) {
-  const full = resolve11(path), root = parse3(full).root;
-  const parts = relative8(root, full).split(sep9).filter(Boolean);
-  let current = root;
-  for (let i = 0;i < parts.length; i++) {
-    current = resolve11(current, parts[i]);
-    let stat;
-    try {
-      stat = lstatSync2(current);
-    } catch (error) {
-      if (allowMissing && missing4(error))
-        return false;
-      throw error;
-    }
-    if (stat.isSymbolicLink())
-      throw new Error(`Symlink is not allowed: ${current}`);
-    if (i < parts.length - 1 || kind === "directory") {
-      if (!stat.isDirectory())
-        throw new Error(`Not a directory: ${current}`);
-    } else if (!stat.isFile())
-      throw new Error(`Not a regular file: ${current}`);
-  }
-  return true;
-}
-
-// src/fs.ts
 function readText(path) {
   return readFileSync3(path, "utf8");
 }
@@ -4610,7 +4771,7 @@ function officeProfile(dir, language) {
   const path = join13(office, "okf.config");
   if (!statSync(path).isFile())
     return;
-  return parseOfficeWorkingProfile(readText(path), language);
+  return parseOfficeWorkingProfile(decodeText(readFileSync3(path)), language);
 }
 function listMarkdown(root) {
   const out = [];
@@ -4750,7 +4911,7 @@ function realPathInside(realRoot, path) {
       real = realpathSync3.native(ancestor);
       break;
     } catch (error) {
-      if (!missing4(error))
+      if (!missing(error))
         throw error;
     }
     if (lstatSync3(ancestor, { throwIfNoEntry: false }))
@@ -4821,7 +4982,7 @@ ${body}
 }
 
 // src/naming-fs.ts
-import { closeSync as closeSync2, constants as constants10, fstatSync as fstatSync2, fsyncSync, lstatSync as lstatSync4, mkdirSync as mkdirSync3, openSync as openSync2, opendirSync, readSync as readSync2, realpathSync as realpathSync4, renameSync as renameSync2, unlinkSync, writeSync } from "node:fs";
+import { closeSync as closeSync2, constants as constants11, fstatSync as fstatSync2, fsyncSync, lstatSync as lstatSync4, mkdirSync as mkdirSync3, openSync as openSync2, opendirSync, readSync as readSync2, realpathSync as realpathSync4, renameSync as renameSync2, unlinkSync, writeSync } from "node:fs";
 import { basename as basename7, dirname as dirname9, extname, isAbsolute as isAbsolute9, join as join14, relative as relative10, resolve as resolve13, sep as sep11 } from "node:path";
 
 // ../okf-pamat/src/workspace-memory-types.ts
@@ -4879,7 +5040,7 @@ function parseWorkspaceMemoryProfile(value) {
 function parseWorkspaceMemoryProfileText(text) {
   if (new TextEncoder().encode(text).byteLength > WORKSPACE_MEMORY_LIMITS.profileBytes)
     throw new Error("Memory profile byte limit exceeded.");
-  return parseWorkspaceMemoryProfile(JSON.parse(text));
+  return parseWorkspaceMemoryProfile(JSON.parse(stripBom(text)));
 }
 
 // src/naming-core.ts
@@ -5112,6 +5273,65 @@ var utf8 = (data) => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).
 function conflict(message) {
   throw new NamingConflict(message);
 }
+var LOCK_CODES2 = new Set(["EBUSY", "EPERM", "EACCES"]);
+var errorCode5 = (error) => object3(error) && typeof error.code === "string" ? error.code : undefined;
+var lockError = (error) => LOCK_CODES2.has(errorCode5(error) ?? "");
+var lockedMessage = (path) => `File is open in another program (for example Word) or is read-only: ${path}. Close it or allow writing, then create a new preview.`;
+var deniedMessage = (path, code) => `Access denied: ${path} (${code}). Check file and folder permissions, then create a new preview.`;
+function readOnlyFile(path) {
+  try {
+    const stat = lstatSync4(path);
+    return stat.isFile() && (stat.mode & 146) === 0;
+  } catch {
+    return false;
+  }
+}
+function writtenSources(plan) {
+  return [...plan.documents.filter((d) => d.treatment === "rename-working").map((d) => ({ path: d.source.path, replaced: false })), ...plan.markdown.filter((m) => m.source.sha256 !== m.afterSha256).map((m) => ({ path: m.source.path, replaced: true }))];
+}
+function blockedMessage(root, path, code, sources, platform) {
+  return code === "EBUSY" || platform === "win32" && sources.has(path) && readOnlyFile(join14(root, path)) ? lockedMessage(path) : deniedMessage(path, code);
+}
+function blockedPath(root, error) {
+  const code = errorCode5(error);
+  if (!object3(error) || code === undefined || !LOCK_CODES2.has(code))
+    return;
+  const target = typeof error.dest === "string" ? error.dest : typeof error.path === "string" ? error.path : undefined;
+  if (target === undefined || !contained(root, resolve13(target)))
+    return;
+  const path = relative10(root, resolve13(target)).split(sep11).join("/");
+  return path && path !== ".lawoss" && !path.startsWith(".lawoss/") ? { path, code } : undefined;
+}
+var pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+function renameWithRetry(from, to, platform = process.platform, rename = renameSync2, wait = pause) {
+  for (let attempt = 1;; attempt++) {
+    try {
+      rename(from, to);
+      return;
+    } catch (error) {
+      if (platform !== "win32" || attempt >= 10 || !lockError(error))
+        throw error;
+      wait(100);
+    }
+  }
+}
+function assertSourcesWritable(root, sources, hooks, platform) {
+  const paths = new Set(sources.map((source) => source.path));
+  for (const { path, replaced } of sources) {
+    const full = join14(root, path);
+    try {
+      hooks.checkpoint?.("lock-probe", path);
+      closeSync2(openSync2(full, constants11.O_RDWR | constants11.O_NOFOLLOW | constants11.O_NONBLOCK));
+    } catch (error) {
+      const code = errorCode5(error);
+      if (code === undefined || !LOCK_CODES2.has(code))
+        throw error;
+      if (code !== "EBUSY" && (platform !== "win32" || !replaced && readOnlyFile(full)))
+        continue;
+      conflict(blockedMessage(root, path, code, paths, platform));
+    }
+  }
+}
 function exists(path, kind = "file") {
   return checkedPath(path, kind, true);
 }
@@ -5127,7 +5347,7 @@ function assertRoot(root) {
 }
 function readNamingBinary(path, limit) {
   checkedPath(path, "file");
-  const fd = openSync2(path, constants10.O_RDONLY | constants10.O_NOFOLLOW | constants10.O_NONBLOCK);
+  const fd = openSync2(path, constants11.O_RDONLY | constants11.O_NOFOLLOW | constants11.O_NONBLOCK);
   try {
     const before = fstatSync2(fd, { bigint: true });
     if (!before.isFile() || before.nlink !== 1n)
@@ -5295,7 +5515,7 @@ function parseNamingPlan(value) {
 }
 function exclusive(path, data, mode = 384) {
   checkedPath(dirname9(path), "directory");
-  const fd = openSync2(path, constants10.O_WRONLY | constants10.O_CREAT | constants10.O_EXCL | constants10.O_NOFOLLOW, mode);
+  const fd = openSync2(path, constants11.O_WRONLY | constants11.O_CREAT | constants11.O_EXCL | constants11.O_NOFOLLOW, mode);
   try {
     const buffer = typeof data === "string" ? Buffer.from(data) : data;
     let count = 0;
@@ -5349,7 +5569,8 @@ function finalStates(root, plan) {
   return files;
 }
 function applyDocumentNaming(matterDir, input, hooks = {}) {
-  const plan = parseNamingPlan(input), root = rootDirectory(matterDir);
+  const plan = parseNamingPlan(input), root = rootDirectory(matterDir), platform = hooks.platform ?? process.platform;
+  const sources = writtenSources(plan), sourcePaths = new Set(sources.map((source) => source.path));
   const report = (status, message) => ({ status, operationId: plan.operationId, fingerprint: plan.fingerprint, ...message ? { message } : {} });
   if (root.path !== plan.matterRootPhysical || root.identity !== plan.rootIdentity)
     return report("conflict", "Matter root physical identity differs");
@@ -5362,6 +5583,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
       const fresh = planDocumentNaming(root.path, plan.request);
       if (fresh.fingerprint !== plan.fingerprint)
         conflict("Preview is stale; create and approve a new plan");
+      assertSourcesWritable(root.path, sources, hooks, platform);
     }
     controlDirectory(join14(root.path, ".lawoss"));
     controlDirectory(history);
@@ -5444,7 +5666,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
       assertPin(root.path, markdown.source, NAMING_LIMITS.markdownBytes);
       const path = join14(root.path, markdown.source.path);
       exclusive(join14(operation, `markdown-${i}-intent.json`), JSON.stringify({ path: markdown.source.path, stagedPhysical: identity }));
-      renameSync2(staged, path);
+      renameWithRetry(staged, path, platform);
       installed.push({ path, physical: identity, sha256: markdown.afterSha256, ...snapshots.get(markdown.source.path) });
       hooks.checkpoint?.("markdown-installed", markdown.source.path);
     }
@@ -5509,7 +5731,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
             completeRollback = false;
             continue;
           }
-          renameSync2(stage, markdown.path);
+          renameWithRetry(stage, markdown.path, platform);
         } catch {
           completeRollback = false;
         }
@@ -5520,13 +5742,19 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
             const current = readNamingBinary(target.path, NAMING_LIMITS.documentBytes);
             if (current.physical === target.physical && current.sha256 === target.sha256)
               unlinkSync(target.path);
+            else
+              completeRollback = false;
           } catch {
             completeRollback = false;
           }
-      try {
-        exclusive(join14(operation, "failure.json"), JSON.stringify({ status: "recovery-required", error: error instanceof Error ? error.message : String(error), created, installed, removed }));
-      } catch {}
     }
+    const blocked = blockedPath(root.path, error), rolledBack = prepared && completeRollback && blocked !== undefined;
+    if (prepared)
+      try {
+        exclusive(join14(operation, "failure.json"), JSON.stringify({ status: rolledBack ? "rolled-back" : "recovery-required", error: error instanceof Error ? error.message : String(error), created, installed, removed }));
+      } catch {}
+    if (blocked !== undefined && (rolledBack || !prepared))
+      return { ...report("conflict", blockedMessage(root.path, blocked.path, blocked.code, sourcePaths, platform)), ...rolledBack ? { rolledBack: true, journal } : {} };
     return { ...report(recovery ? "recovery-required" : "conflict", error instanceof Error ? error.message : String(error)), ...prepared ? { journal } : {} };
   } finally {
     if (lockIdentity)

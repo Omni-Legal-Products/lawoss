@@ -9,6 +9,7 @@ import { ApiError } from "./errors.js";
 import { parseFrontmatter, buildFrontmatter } from "./frontmatter.js";
 import { addMcp, removeMcp } from "./mcp.js";
 import { ensureDir } from "./utils.js";
+import { isPathWithin } from "./lawoss/path-within.js";
 import { readContentHash, readProvenance, withContentHash, withProvenance, type PluginProvenance } from "./lawoss/plugin-provenance.js";
 import { installLocation } from "./lawoss/plugin-install-target.js";
 
@@ -582,7 +583,8 @@ function resolveWorkspaceInstallPath(workspaceRoot: string, relativePath: string
   }
   const root = resolve(workspaceRoot);
   const candidate = installLocation(root, normalized, global);
-  if (candidate !== root && !candidate.startsWith(`${root}/`)) {
+  // 🟡 LAWOSS: resolve() vracia na Windows `\`, prefix `${root}/` by odmietol každý súbor pluginu.
+  if (!isPathWithin(root, candidate)) {
     throw new ApiError(400, "invalid_cloud_plugin_path", `Invalid cloud plugin path: ${relativePath}`);
   }
   return candidate;

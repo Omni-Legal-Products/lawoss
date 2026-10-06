@@ -178,6 +178,7 @@ function startWorkspaceReloadWatcher(input: {
   };
 
   const ensureOpencodeRootWatcher = () => {
+    if (closed) return;
     if (!existsSync(opencodeRoot)) {
       opencodeRootWatcher?.close();
       opencodeRootWatcher = null;
@@ -448,7 +449,9 @@ function createDirectoryTreeWatcher(input: {
   };
 
   const ensureWatcher = (dir: string) => {
-    if (watchers.has(dir)) return;
+    // 🟡 LAWOSS: scan() môže dobehnúť až po close(); nový watcher by ostal otvorený
+    // navždy a na Windows by držal priečinok (EBUSY, „priečinok používa iný program“).
+    if (closed || watchers.has(dir)) return;
     try {
       const watcher = watch(
         dir,
@@ -531,6 +534,7 @@ function createDirectoryTreeWatcher(input: {
       }
 
       const dirs = await scanDirs();
+      if (closed) return;
       for (const dir of dirs) {
         ensureWatcher(dir);
       }

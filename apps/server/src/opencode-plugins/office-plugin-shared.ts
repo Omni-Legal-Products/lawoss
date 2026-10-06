@@ -8,6 +8,8 @@
  * that relay -> Office.js -> result back through the same chain.
  */
 
+import { deepestContaining, isPathWithin } from "../lawoss/path-within.js";
+
 export type OpenCodeContext = {
   agent?: string;
   sessionID?: string;
@@ -58,9 +60,11 @@ export async function resolveWorkspaceId(context: OpenCodeContext): Promise<stri
   const directory = context.directory?.trim() ?? "";
   const items = await listWorkspaces();
   if (directory) {
+    // 🟡 LAWOSS: vec otvorená ako vlastná relácia (matter-session) leží v priečinku
+    // klienta; na Windows majú cesty `\`, prefix `${item.path}/` nesedel nikdy.
     const match =
       items.find((item) => item.path === directory) ??
-      items.find((item) => directory.startsWith(`${item.path}/`));
+      deepestContaining(items, directory);
     if (match) return match.id;
   }
   if (items.length === 1) return items[0]!.id;
@@ -145,7 +149,7 @@ export async function officePaneStatus(directory?: string): Promise<OfficePaneSt
         ? items.filter(
             (item) =>
               item.path === normalizedDirectory ||
-              normalizedDirectory.startsWith(`${item.path}/`),
+              isPathWithin(item.path, normalizedDirectory),
           )
         : items.slice(0, 5);
       for (const item of candidates) {

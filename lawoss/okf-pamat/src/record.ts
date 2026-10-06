@@ -22,6 +22,7 @@ import {
   type Layer,
   type RecordType,
 } from "./schema.ts";
+import { stripBom } from "./text-decode.ts";
 
 /**
  * Nadpisy sekcií záznamu. Anglické pre obe jurisdikcie — záznam je formát,
@@ -232,7 +233,9 @@ const CORE_FIELDS = new Set([
 ]);
 
 function splitFrontmatter(text: string): { fm: string; body: string } {
-  const lines = text.split("\n");
+  // Windows: záznam alebo návrh z Poznámkového bloku, PowerShellu či Gitu s autocrlf má
+  // CRLF, „UTF-8 s BOM“ navyše U+FEFF. Bez prevodu ostal koncový `---\r` nenájdený.
+  const lines = text.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n");
   if (lines[0]?.trim() !== FM_DELIM) {
     throw new Error("Záznam nemá frontmatter — chýba úvodný oddeľovač ---");
   }
@@ -342,7 +345,9 @@ const indentOf = (line: string): number => line.length - line.trimStart().length
  */
 export function parseFrontmatter(fm: string): Map<string, FmValue> {
   const out = new Map<string, FmValue>();
-  const lines = fm.split("\n");
+  // `okf.config` prichádza celý, nie cez splitFrontmatter: U+FEFF z Windows by
+  // inak bol „odsadením“ prvého riadku a celý konfig by spadol.
+  const lines = stripBom(fm).split("\n");
   let i = 0;
   while (i < lines.length) {
     const line = lines[i] ?? "";

@@ -2810,7 +2810,8 @@ export default {
   "advanced.opencode_sources_note": "OpenCode číta aj vlastné projektové a globálne konfiguračné súbory. LegalWork vkladá runtime konfiguráciu samostatne; pri kľúčoch spravovaných LegalWork je zdrojom na kontrolu vložená konfigurácia.",
   "advanced.microsandbox_note": "Ak je povolené, Vytvoriť sandbox spustí oddeleného workera pomocou image microsandbox namiesto predvoleného Docker image.",
   "mcp.builtins_blocked": "Vstavané rozšírenia LegalWork sú vašou organizáciou zakázané. Blokované vstavané rozšírenia skontrolujete cez Zobraziť skryté.",
-  "updates.channel_note": "Stabilný kanál dostáva plne otestované vydania. Alfa obsahuje najnovšie zmeny, ale môže byť menej vyladená (iba macOS).",
+  // 🟡 LAWOSS: bez „(iba macOS)“, alfa vychádza aj pre Windows (alpha-windows-x64.yml).
+  "updates.channel_note": "Stabilný kanál dostáva plne otestované vydania. Alfa obsahuje najnovšie zmeny, ale môže byť menej vyladená.",
   "workspace.live_logs": "Živé logy",
   "workspace.docker_debug_details": "Podrobnosti ladenia Dockera",
   "providers.claude_consumer_terms": "Prihlásenie cez Claude Pro/Max používa vaše osobné predplatné Claude. Spotrebiteľské podmienky Anthropic obmedzujú toto OAuth na Claude Code a claude.ai, takže použitie treťou stranou môže tieto podmienky porušovať a môže byť bez upozornenia zablokované. Na spoľahlivý a povolený prístup použite „Vytvoriť API kľúč“ alebo namiesto toho zadajte API kľúč Anthropic.",

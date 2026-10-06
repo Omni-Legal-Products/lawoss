@@ -1,6 +1,7 @@
 /** Frontmatter medzi prvými dvoma `---`; iba jednoduché `key: value`. */
 export function parseFrontmatter(text: string): Record<string, string> | null {
-  const lines = text.split(/\r?\n/);
+  // Windows: karta uložená ako „UTF-8 s BOM“ (Poznámkový blok, PowerShell 5.1) začína U+FEFF.
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
   if (lines[0] !== "---") return null;
   const out: Record<string, string> = {};
   for (let i = 1; i < lines.length; i += 1) {

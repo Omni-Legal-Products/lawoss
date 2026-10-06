@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -80,9 +80,12 @@ describe("LAWOSS: engine bez Eigenweltu", () => {
   test("spustený engine dostane poistky aj keď volajúci posiela adresu Eigenweltu", async () => {
     const dir = await tempDir("lawoss-engine-env-");
     const envPath = join(dir, "engine-env.json");
-    const bin = join(dir, "fake-opencode.mjs");
-    await writeFile(bin, `#!${process.execPath}
-const fs = require("node:fs");
+    // Podvrhnutý engine: Node spustí súbor `serve` z pracovného priečinka, lebo engine
+    // dostáva argumenty `serve --hostname … --port …`. Skript so shebangom Windows
+    // nespustí (EFTYPE), takto test beží rovnako na Windows, Linuxe aj macOS.
+    const node = Bun.which("node");
+    if (!node) throw new Error("Test potrebuje Node.js v PATH.");
+    await writeFile(join(dir, "serve"), `const fs = require("node:fs");
 const http = require("node:http");
 const keys = ["OPENCODE_MODELS_URL", "OPENCODE_MODELS_PATH", "OPENCODE_DISABLE_MODELS_FETCH", "OPENCODE_DISABLE_SHARE", "OPENCODE_DISABLE_AUTOUPDATE"];
 fs.writeFileSync(${JSON.stringify(envPath)}, JSON.stringify(Object.fromEntries(keys.map((key) => [key, process.env[key] ?? null]))));
@@ -92,9 +95,8 @@ http.createServer((request, response) => response.end("ok")).listen(port, "127.0
 });
 process.on("SIGTERM", () => process.exit(0));
 `, "utf8");
-    await chmod(bin, 0o755);
     const engine = await createManagedOpencodeServer({
-      bin,
+      bin: node,
       cwd: dir,
       env: { OPENCODE_MODELS_URL: "https://models.eigenweltlabs.com", OPENCODE_DISABLE_MODELS_FETCH: "0" },
     });
