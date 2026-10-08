@@ -3,7 +3,7 @@ import type { OnboardingApi, OnboardingApplyResult, OnboardingPlanRequest, Onboa
 import type { TriageApiPath } from "../src/lawoss/domains/roztriedenie/api";
 import {
   addOkfFiles, childPath, connectPractice, convertRequest, documentLanguage, firstWorkspaceResult,
-  folderName, freshOfficeRequest, isEmptyFolderSuggestion, matterClientPath, parentPath, practiceRequest, reorganizeTarget, retryFailed, startReorganize, type BatchItem,
+  folderName, freshOfficeRequest, startFreshFolder, isEmptyFolderSuggestion, matterClientPath, parentPath, practiceRequest, reorganizeTarget, retryFailed, startReorganize, type BatchItem,
 } from "../src/lawoss/domains/onboarding/found-flow";
 
 const identity = { lawyerName: "Syntetický advokát", jurisdiction: "sk" as const, language: "sk" as const };
@@ -125,5 +125,30 @@ describe("opravy po celkovej kontrole", () => {
       if (saved === undefined) delete process.env.TZ;
       else process.env.TZ = saved;
     }
+  });
+});
+
+describe("Začať nanovo", () => {
+  const fake = (level: OnboardingSuggestion["level"], signals: string[]) => {
+    const calls: string[] = [];
+    const { api: base, plans } = fakeApi();
+    const api = {
+      ...base,
+      suggestOnboarding: async ({ root }: { root: string }) => { calls.push(`suggest ${root}`); return suggestion({ root, level, signals, clients: [] }); },
+      planOnboarding: async (request: OnboardingPlanRequest) => { calls.push("plan"); return base.planOnboarding(request); },
+    };
+    return { api, calls, plans, acknowledge: async () => { calls.push("acknowledge"); } };
+  };
+  test("neprázdny priečinok: nič sa nezapíše ani nevezme na vedomie", async () => {
+    const { api, calls, acknowledge } = fake("client", ["documents_only"]);
+    expect(await startFreshFolder(api, "/p/Plný", { ...identity, language: "de" }, acknowledge)).toBe("not_empty");
+    expect(calls).toEqual(["suggest /p/Plný"]);
+  });
+  test("prázdny priečinok: najprv vzatie na vedomie, potom kancelária v jazyku dokumentov", async () => {
+    const { api, calls, plans, acknowledge } = fake("unknown", ["empty"]);
+    const result = await startFreshFolder(api, "/p/Nový", { ...identity, language: "de" }, acknowledge);
+    expect(result).not.toBe("not_empty");
+    expect(calls).toEqual(["suggest /p/Nový", "acknowledge", "plan"]);
+    expect(plans[0]).toMatchObject({ action: "office", parent: "/p/Nový", language: "en" });
   });
 });

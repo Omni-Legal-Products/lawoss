@@ -101,3 +101,16 @@ describe("LAWOSS onboarding progress", () => {
     }
   });
 });
+
+describe("vzatie OKF na vedomie", () => {
+  test("zapisuje sa len raz pre aktuálnu verziu oznámenia", async () => {
+    const { needsOkfAcknowledgement, okfChoice, OKF_NOTICE_VERSION } = await import("../src/lawoss/domains/onboarding/onboarding-state");
+    const profile = { version: 1 as const, lawyerName: "L", jurisdiction: "sk" as const, language: "sk" as const };
+    expect(needsOkfAcknowledgement(null)).toBe(true);
+    expect(needsOkfAcknowledgement(profile)).toBe(true);
+    expect(needsOkfAcknowledgement({ ...profile, okf: { enabled: false } })).toBe(true);
+    expect(needsOkfAcknowledgement({ ...profile, okf: { enabled: true, acknowledgedAt: "2026-09-25T10:00:00.000Z", noticeVersion: "2026-09-25" } })).toBe(true);
+    expect(needsOkfAcknowledgement({ ...profile, okf: okfChoice(true, new Date("2026-10-08T10:00:00Z")) })).toBe(false);
+    expect(OKF_NOTICE_VERSION).toBe("2026-10-08-priecinok");
+  });
+});

@@ -30,6 +30,7 @@ import {
   readPendingOnboarding,
   writePendingOnboarding,
   DEFAULT_ONBOARDING_PROGRESS,
+  needsOkfAcknowledgement,
   okfChoice,
   readOnboardingProgress,
   visibleOnboardingStep,
@@ -53,7 +54,7 @@ import "./onboarding.css";
 import { TriageEntry } from "../roztriedenie/triage-entry";
 import type { TriageClient } from "../roztriedenie/api";
 import { FolderStep } from "./folder-step";
-import { FoundScreen } from "./found-screen";
+import { FoundScreen, OkfNotice } from "./found-screen";
 import { foundText } from "./found-text";
 import { canonicalPathRejection, unquotedTypedPath } from "./typed-paths";
 
@@ -620,6 +621,16 @@ export function LawossWelcomePage({
     if (savedClientRoot) void clientTitleFor(api, savedClientRoot).then((title) => { if (!cancelled) setClientTitle(title); });
     return () => { cancelled = true; };
   }, [api, savedClientRoot]);
+  /**
+   * R3: OKF je vždy zapnuté; prvá odpoveď, ktorá zapisuje súbory OKF, je vzatie oznámenia na vedomie.
+   * Zapíše sa len raz za verziu oznámenia, inak by každá odpoveď prepísala `acknowledgedAt`.
+   */
+  const acknowledgeOkf = async (patch: Pick<Partial<OnboardingProfile>, "step"> = {}) => {
+    if (!needsOkfAcknowledgement(profile)) return;
+    setProfile(await api.updateOnboardingProfile({ okf: okfChoice(true, new Date()), ...patch }));
+  };
+  // Formulár klienta (`?continue=client`) zapisuje súbory OKF do priečinka klienta.
+  const writesClientOkf = preview?.request.action === "client" || preview?.request.action === "existing";
   const move = async (
     next: OnboardingStep,
     patch: Pick<Partial<OnboardingProfile>, "okf"> = {},
@@ -671,6 +682,7 @@ export function LawossWelcomePage({
     if (!preview) return;
     setBusy(true);
     try {
+      if (writesClientOkf) await acknowledgeOkf();
       const result = await api.applyOnboarding({
         id: preview.value.id,
         fingerprint: preview.value.fingerprint,
@@ -847,10 +859,7 @@ export function LawossWelcomePage({
                 identity={identity}
                 text={found}
                 root={foundRoot}
-                onAcknowledge={async () => {
-                  // R3: OKF je vždy zapnuté; prvé potvrdenie na tejto obrazovke je vzatie oznámenia na vedomie.
-                  setProfile(await api.updateOnboardingProfile({ okf: okfChoice(true, new Date()), step: "found" }));
-                }}
+                onAcknowledge={() => acknowledgeOkf({ step: "found" })}
                 onDone={async (result, completion) => {
                   setCompletedResult(result);
                   await onComplete(result, completion);
@@ -868,8 +877,9 @@ export function LawossWelcomePage({
                   setError(null);
                   setFoundRoot(root);
                 }}
+                onAcknowledge={() => acknowledgeOkf()}
                 // R7: „Začať nanovo“ nezaregistruje pracovný priečinok; appka ide na domov s interným priestorom.
-                onFreshDone={() => void complete(undefined)}
+                onFreshDone={() => complete(undefined)}
                 onError={reportError}
               />
             )
@@ -974,6 +984,12 @@ export function LawossWelcomePage({
                 {item === "trial_clone" ? tr("trialPreview") : item}
               </p>
             ))}
+            {writesClientOkf && needsOkfAcknowledgement(profile) ? (
+              <div className="mt-3 grid gap-1 text-sm" data-lawoss-okf-notice>
+                <OkfNotice text={found} />
+                <p className="text-xs text-muted-foreground">{found("acknowledge")}</p>
+              </div>
+            ) : null}
             <div className="mt-5 flex gap-2">
               <Button disabled={busy} onClick={() => void apply()}>
                 {tr("apply")}

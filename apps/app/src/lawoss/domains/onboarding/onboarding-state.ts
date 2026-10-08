@@ -1,5 +1,5 @@
 /** Small, versioned persistence seam for the LAWOSS welcome flow. */
-import type { OkfChoice, OnboardingPlanRequest, OnboardingPreview, OnboardingStep } from "./api";
+import type { OkfChoice, OnboardingPlanRequest, OnboardingPreview, OnboardingProfile, OnboardingStep } from "./api";
 
 export type PendingOnboarding = {
   request: Pick<OnboardingPlanRequest, "action">;
@@ -151,4 +151,9 @@ export function okfChoice(enabled: boolean, now: Date): OkfChoice {
   return enabled
     ? { enabled: true, acknowledgedAt: now.toISOString(), noticeVersion: OKF_NOTICE_VERSION }
     : { enabled: false };
+}
+
+/** Oznámenie OKF sa berie na vedomie raz za verziu; opakovaná odpoveď už `acknowledgedAt` neprepíše. */
+export function needsOkfAcknowledgement(profile: OnboardingProfile | null | undefined): boolean {
+  return profile?.okf?.enabled !== true || profile.okf.noticeVersion !== OKF_NOTICE_VERSION;
 }

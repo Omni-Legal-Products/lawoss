@@ -127,6 +127,20 @@ export async function connectPractice(api: FlowApi, root: string, identity: Foun
   return result;
 }
 
+/**
+ * „Začať nanovo“ (R7): len do prázdneho priečinka; oznámenie OKF sa berie na vedomie pred prvým zápisom.
+ * Náhľad zmien netreba potvrdzovať zvlášť: do prázdneho priečinka sa len pridáva.
+ */
+export async function startFreshFolder(api: FlowApi & Pick<OnboardingApi, "suggestOnboarding">, parent: string, identity: FoundIdentity, acknowledge: () => Promise<void>): Promise<OnboardingApplyResult | "not_empty"> {
+  if (!api.suggestOnboarding) throw new Error("suggest_unavailable");
+  if (!isEmptyFolderSuggestion(await api.suggestOnboarding({ root: parent }))) return "not_empty";
+  await acknowledge();
+  const preview = await api.planOnboarding(freshOfficeRequest(parent, identity));
+  const result = await api.applyOnboarding({ id: preview.id, fingerprint: preview.fingerprint, confirm: true });
+  await api.updateOnboardingProfile({ officeRoot: parent });
+  return result;
+}
+
 /** „Áno, usporiadaj“: výslovný súhlas, potom náhľad presunov; zápis až po potvrdení náhľadu. */
 export async function startReorganize(client: TriageClient, root: string): Promise<TriagePreview> {
   await triageGrant(client, root);

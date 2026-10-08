@@ -9,6 +9,8 @@ import { TriagePreviewView, useTriageText } from "../roztriedenie/triage-page";
 import type { OnboardingApi, OnboardingApplyResult, OnboardingSuggestion } from "./api";
 import { addOkfFiles, childPath, connectPractice, firstWorkspaceResult, folderName, matterClientPath, reorganizeTarget, retryFailed, startReorganize, type BatchItem, type FoundIdentity } from "./found-flow";
 import type { FoundTextKey } from "./found-text";
+import { OkfNotice } from "./okf-notice";
+export { OkfNotice } from "./okf-notice";
 import type { OnboardingCompletion } from "./lawoss-welcome-page";
 
 type Text = (key: FoundTextKey, params?: Record<string, string | number>) => string;
@@ -16,7 +18,6 @@ export type FoundLevel = "practice" | "client" | "matter";
 type Scope = "client" | "practice";
 type Answer = "no" | "yes";
 
-const OKF_FILES = ["AGENTS.md", "CLAUDE.md", "client.md", "memory/", "_STATUS.md"];
 const SCOPES: readonly Scope[] = ["client", "practice"];
 
 function headline(text: Text, suggestion: OnboardingSuggestion): string {
@@ -24,16 +25,6 @@ function headline(text: Text, suggestion: OnboardingSuggestion): string {
   if (suggestion.level === "client") return text("clientFound", { name: folderName(suggestion.root) });
   if (suggestion.level === "matter") return text("matterFound", { name: folderName(suggestion.root) });
   return text("unknownFound");
-}
-
-/** Oznámenie OKF so zoznamom súborov (R3); musí byť viditeľné pri každej odpovedi, ktorá ho potvrdzuje. */
-function OkfNotice({ text }: { text: Text }) {
-  return (
-    <>
-      <p className="text-muted-foreground">{text("okfNotice")}</p>
-      <p className="text-sm"><strong>{text("filesTitle")}:</strong> {OKF_FILES.join(", ")}</p>
-    </>
-  );
 }
 
 type ViewProps = {
