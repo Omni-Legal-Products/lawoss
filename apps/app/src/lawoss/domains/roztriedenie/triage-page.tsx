@@ -22,7 +22,7 @@ import "./triage.css";
 
 type Text = (key: string, params?: Record<string, string | number>) => string;
 /** Stabilná funkcia pre daný jazyk; nová funkcia pri každom vykreslení by znova spúšťala načítanie náhľadu. */
-const useText = (locale: Language): Text => useMemo(() => (key, params) => t(`lawoss.triage.${key}`, locale, params), [locale]);
+export const useTriageText = (locale: Language): Text => useMemo(() => (key, params) => t(`lawoss.triage.${key}`, locale, params), [locale]);
 const reveal = (index: number): CSSProperties & Record<"--lw-i", number> => ({ "--lw-i": index });
 const lastSegment = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 const folderOf = (path: string) => path.split("/").slice(0, -1).join("/");
@@ -60,7 +60,7 @@ export function TriagePage() {
   const locale = useLocale();
   const { connection } = useOkfConnection();
   const { root, loading } = useTrialRoot(connection);
-  const text = useText(locale);
+  const text = useTriageText(locale);
   return (
     <LawossLayout>
       <div className="lw-triage" data-lawoss="triage">
@@ -88,7 +88,7 @@ function TriageEmpty({ text, message, create = false }: { text: Text; message: s
 type Phase = { kind: "idle" } | { kind: "busy"; label: string } | { kind: "applied"; runId: string; moved: number } | { kind: "undone" };
 
 function TriageFlow({ root, connection, locale }: { root: string; connection: OkfConnection; locale: Language }) {
-  const text = useText(locale);
+  const text = useTriageText(locale);
   const navigate = useNavigate();
   const client: TriageClient | null = connection.client;
   const [status, setStatus] = useState<TriageStatus | null>(null);
@@ -184,7 +184,7 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
 
 /** Spresnenie modelom: jasná informácia o odoslaní obsahu, súhlas, potom rozhovor so skillom /roztried-spis. */
 function ModelPanel({ root, connection, locale, preview, busy, onOpen, onError }: { root: string; connection: OkfConnection; locale: Language; preview: TriagePreview; busy: boolean; onOpen: (path: string) => void; onError: (message: string) => void }) {
-  const text = useText(locale);
+  const text = useTriageText(locale);
   const gap = useMatterModelGap(connection);
   const [consent, setConsent] = useState(false);
   const [opening, setOpening] = useState(false);
