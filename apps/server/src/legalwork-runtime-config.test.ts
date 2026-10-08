@@ -315,6 +315,15 @@ describe("lawoss global custom providers", () => {
     expect(((await readConfigFile(config)).provider as Record<string, Record<string, unknown>>).ollama?.name).toBe("Ollama (priečinok)");
   });
 
+  test("chybný blok priečinka s rovnakým id neprekryje platný globálny", async () => {
+    const { config } = await setup();
+    const ollama = { npm: "@ai-sdk/openai-compatible", name: "Ollama", options: { baseURL: "http://localhost:11434/v1" } };
+    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, (current) => ({ ...current, provider: { ollama } }));
+    await writeRuntimeOpencodeConfig(config, "ws_1", (current) => ({ ...current, provider: { ollama: { name: 42 } } }));
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    expect((await readConfigFile(config)).provider as Record<string, unknown>).toMatchObject({ ollama });
+  });
+
   test("zápis globálnych poskytovateľov obnoví súbor konfigurácie priečinka", async () => {
     const { config } = await setup();
     const stop = keepLegalworkRuntimeConfigFileFresh(config, "ws_1");

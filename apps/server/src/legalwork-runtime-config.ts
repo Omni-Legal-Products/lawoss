@@ -242,7 +242,8 @@ export async function buildLegalworkRuntimeConfigObject(
     // would invalidate this whole file. The startup repair also removes such
     // blocks from the DB and notifies the app.
     // LAWOSS: globálni vlastní poskytovatelia; starý riadok priečinka má pri rovnakom id prednosť.
-    ...repairRuntimeProviders({ ...globalProviders, ...(runtimeConfig.provider ?? {}) }).providers,
+    ...repairRuntimeProviders(globalProviders).providers,
+    ...repairRuntimeProviders(runtimeConfig.provider ?? {}).providers,
     // Global injection wins over any stale per-workspace eigenwelt block.
     ...(paidProvider ? { [EIGENWELT_PROVIDER_ID]: paidProvider } : {}),
   };

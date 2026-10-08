@@ -3614,10 +3614,16 @@ function createRoutes(
           ...current,
           provider: Object.keys(nextGlobal).length ? nextGlobal : undefined,
         }));
-        const removals = Object.fromEntries(Object.entries(providerUpdate).filter(([, value]) => value === null));
-        if (Object.keys(removals).length) {
-          const currentRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
-          const nextLocal = mergeRuntimeProviderPatch(ensurePlainObject(currentRuntime.provider), removals);
+        // Globálny riadok je po každom zápise jediný zdroj: id z úpravy (aj nenulové)
+        // sa odstráni zo starého riadku priečinka, inak by starý blok prekryl nový.
+        const currentRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
+        const legacyProviders = ensurePlainObject(currentRuntime.provider);
+        const legacyIds = Object.keys(providerUpdate).filter((id) => id in legacyProviders);
+        if (legacyIds.length) {
+          const nextLocal = mergeRuntimeProviderPatch(
+            legacyProviders,
+            Object.fromEntries(legacyIds.map((id) => [id, null])),
+          );
           logicalUpdates.provider = Object.keys(nextLocal).length ? nextLocal : undefined;
         }
       }

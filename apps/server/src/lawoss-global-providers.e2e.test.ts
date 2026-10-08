@@ -58,3 +58,15 @@ test("GET /workspace/:id/config vráti globálneho poskytovateľa aj pre prieči
   const body: { opencode?: { provider?: Record<string, unknown> } } = await response.json();
   expect(body.opencode?.provider?.ollama).toEqual(ollama);
 });
+
+test("úprava staršieho poskytovateľa z riadku priečinka platí: globálny riadok má v2, priečinok ho už nemá", async () => {
+  const { config, baseUrl, ws, patchConfig } = await fixture();
+  const v1 = { ...ollama, name: "Ollama v1" }, v2 = { ...ollama, name: "Ollama v2" };
+  await writeRuntimeOpencodeConfig(config, ws.id, (current) => ({ ...current, provider: { ollama: v1 } }));
+  await patchConfig(ws.id, { opencode: { provider: { ollama: v2 } } });
+  expect((await readRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID)).provider).toEqual({ ollama: v2 });
+  expect((await readRuntimeOpencodeConfig(config, ws.id)).provider ?? {}).toEqual({});
+  const response = await fetch(`${baseUrl}/workspace/${ws.id}/config`, { headers: { authorization: "Bearer client" } });
+  const body: { opencode?: { provider?: Record<string, unknown> } } = await response.json();
+  expect(body.opencode?.provider?.ollama).toEqual(v2);
+});
