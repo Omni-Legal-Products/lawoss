@@ -85,6 +85,15 @@ test("prieskum nečíta obsah a pri limite vráti neúplný výsledok", async ()
   expect(full).toMatchObject({ level: "practice", complete: true });
   expect(full.clients.length).toBe(30);
 });
+test("praxe s 300 klientmi sa vyhodnotí pod 2 sekundy", async () => {
+  const root = await tree(Array.from({ length: 300 }, (_, i) => `Klient ${i} s. r. o./2024-01 Vec/`));
+  const started = performance.now();
+  const suggestion = await suggestOnboardingLevel(root);
+  const elapsed = performance.now() - started;
+  expect(suggestion.level).toBe("practice");
+  expect(suggestion.clients.length).toBe(300);
+  expect(elapsed).toBeLessThan(2000);
+});
 test("cesta musí byť existujúci kanonický priečinok", async () => {
   await expect(suggestOnboardingLevel("relative/path")).rejects.toThrow();
 });

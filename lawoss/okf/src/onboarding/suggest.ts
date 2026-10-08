@@ -27,9 +27,19 @@ const OFFICE_DIRS = ["Office", "_kancelaria"];
 const LETTER = /^\p{Lu}$/u;
 
 const nameOf = (path: string): string => path.split("/").pop() ?? path;
-const depthOf = (path: string): number => path ? path.split("/").length : 0;
-const childrenOf = (survey: FolderSurvey, parent: string): SurveyEntry[] =>
-  survey.entries.filter(entry => depthOf(entry.path) === depthOf(parent) + 1 && (parent === "" || entry.path.startsWith(`${parent}/`)));
+/** Priami potomkovia každého priečinka; kľúč „“ je koreň. Index sa postaví raz, nie pri každom hľadaní. */
+type ChildIndex = Map<string, SurveyEntry[]>;
+const indexChildren = (entries: SurveyEntry[]): ChildIndex => {
+  const index: ChildIndex = new Map();
+  for (const entry of entries) {
+    const slash = entry.path.lastIndexOf("/");
+    const parent = slash < 0 ? "" : entry.path.slice(0, slash);
+    const siblings = index.get(parent);
+    if (siblings) siblings.push(entry); else index.set(parent, [entry]);
+  }
+  return index;
+};
+const childrenOf = (index: ChildIndex, parent: string): SurveyEntry[] => index.get(parent) ?? [];
 const round = (value: number): number => Math.round(value * 100) / 100;
 
 /** Mená položiek do hĺbky 4, do šírky (najprv celá horná úroveň). Skryté a prchavé mená vynechá, odkazy nesleduje. */
@@ -60,10 +70,10 @@ export async function surveyFolder(root: string, limits: { maxDepth?: number; ma
 }
 
 /** Priečinky klientov podľa vzoru `client_path` z okf.config, relatívne ku koreňu praxe. */
-function matchPattern(survey: FolderSurvey, pattern: string): SuggestedClient[] {
+function matchPattern(index: ChildIndex, pattern: string): SuggestedClient[] {
   let level = [""];
   for (const segment of pattern.split("/").filter(Boolean)) {
-    level = level.flatMap(parent => childrenOf(survey, parent)
+    level = level.flatMap(parent => childrenOf(index, parent)
       .filter(entry => entry.kind === "directory" && !OFFICE_DIRS.includes(nameOf(entry.path)) && (segment === "*" || nameOf(entry.path) === segment))
       .map(entry => entry.path));
   }
@@ -73,7 +83,8 @@ function matchPattern(survey: FolderSurvey, pattern: string): SuggestedClient[] 
 export async function suggestOnboardingLevel(root: string): Promise<OnboardingSuggestion> {
   const survey = await surveyFolder(root);
   const base = { root: survey.root, complete: survey.complete, clients: [] };
-  const top = childrenOf(survey, "");
+  const index = indexChildren(survey.entries);
+  const top = childrenOf(index, "");
   const topFiles = top.filter(entry => entry.kind === "file").map(entry => nameOf(entry.path).toLowerCase());
   if (topFiles.some(name => CLIENT_CARDS.has(name))) return { ...base, level: "client", marked: true, score: 1, signals: ["client_card"] };
   if (topFiles.some(name => MATTER_CARDS.has(name))) return { ...base, level: "matter", marked: true, score: 1, signals: ["matter_card"] };
@@ -81,16 +92,16 @@ export async function suggestOnboardingLevel(root: string): Promise<OnboardingSu
   if (office) {
     const config = await readFile(join(survey.root, office, "okf.config"), "utf8").catch(() => "");
     const clientPattern = /^client_path:\s*"?([^"\n]+?)"?\s*$/m.exec(config)?.[1] ?? "Klienti/*";
-    return { ...base, level: "practice", marked: true, score: 1, signals: ["office_config"], clientPattern, clients: matchPattern(survey, clientPattern) };
+    return { ...base, level: "practice", marked: true, score: 1, signals: ["office_config"], clientPattern, clients: matchPattern(index, clientPattern) };
   }
   if (!top.length) return { ...base, level: "unknown", marked: false, score: 0, signals: ["empty"] };
 
   const dirs = top.filter(entry => entry.kind === "directory");
   const buckets = dirs.filter(entry => LETTER.test(nameOf(entry.path)));
   const bucketed = buckets.length >= PRACTICE_MIN_CLIENTS && buckets.length >= dirs.length * 0.8;
-  const candidates = bucketed ? buckets.flatMap(bucket => childrenOf(survey, bucket.path).filter(entry => entry.kind === "directory")) : dirs;
+  const candidates = bucketed ? buckets.flatMap(bucket => childrenOf(index, bucket.path).filter(entry => entry.kind === "directory")) : dirs;
   const legal = candidates.filter(candidate => hasLegalForm(nameOf(candidate.path)));
-  const withMatters = candidates.filter(candidate => childrenOf(survey, candidate.path).some(entry => entry.kind === "directory" && looksLikeMatterName(nameOf(entry.path))));
+  const withMatters = candidates.filter(candidate => childrenOf(index, candidate.path).some(entry => entry.kind === "directory" && looksLikeMatterName(nameOf(entry.path))));
   const clientish = new Set([...legal, ...withMatters].map(candidate => candidate.path));
   const ratio = candidates.length ? clientish.size / candidates.length : 0;
   if (candidates.length >= PRACTICE_MIN_CLIENTS && ratio >= PRACTICE_MIN_RATIO) {
