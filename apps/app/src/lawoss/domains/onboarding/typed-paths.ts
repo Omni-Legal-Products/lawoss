@@ -12,7 +12,7 @@ import type { OnboardingApi } from "./api";
 
 /** Prevod jednej cesty (v desktope `canonicalDirectoryPath`). */
 export type CanonicalizePath = (value: string) => Promise<string>;
-type PathApi = Pick<OnboardingApi, "classifyOnboarding" | "planOnboarding" | "updateOnboardingProfile">;
+type PathApi = Pick<OnboardingApi, "classifyOnboarding" | "planOnboarding" | "updateOnboardingProfile"> & Pick<Partial<OnboardingApi>, "suggestOnboarding">;
 
 /** Iba polia s cestou priečinka; názov, titul, subjekt, oblasť, pamäť ani kotvu identity nemeníme. */
 const CLASSIFY_PATHS = ["root"] as const;
@@ -53,8 +53,11 @@ async function withPaths<T extends object>(input: T, keys: readonly string[], ca
 }
 
 export function withCanonicalPaths<T extends PathApi>(api: T, canonicalize: CanonicalizePath): T {
+  // Návrh úrovne je voliteľný (staré náhrady API ho nemajú), preto sa obalí len keď existuje.
+  const suggest = api.suggestOnboarding;
   return {
     ...api,
+    ...(suggest ? { suggestOnboarding: async (input: { root: string }) => suggest(await withPaths(input, CLASSIFY_PATHS, canonicalize)) } : {}),
     classifyOnboarding: async (input: Parameters<PathApi["classifyOnboarding"]>[0]) =>
       api.classifyOnboarding(await withPaths(input, CLASSIFY_PATHS, canonicalize)),
     planOnboarding: async (request: Parameters<PathApi["planOnboarding"]>[0]) =>
