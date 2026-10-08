@@ -125,6 +125,10 @@ jobs:
           pnpm --filter @legalwork/app typecheck
           pnpm --filter legalwork-server build
 
+      - name: Verify native server SQLite under Node
+        if: runner.os == 'Linux'
+        run: pnpm --filter legalwork-server test:node
+
       # LAWOSS: server/dist musí fungovať aj v rozložení app.asar, kde koreňový lawoss/ chýba.
       - name: Verify packaged server modules load
         if: runner.os == 'Linux'
