@@ -70,3 +70,39 @@ test("triedenie je len pre hosta, len v klone a len po potvrdení odtlačku", as
   expect(await f.success("triage/undo", { root: f.clone, runId: kept.runId, confirm: true })).toMatchObject({ status: "undone", restored: 5 });
   expect(await tree(f.clone)).toBe(original);
 });
+
+/** Skutočný klient po „Nie, len pridaj OKF súbory“ (convert) a jeho registrácii, ako v novom onboardingu. */
+async function convertedFixture() {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "lawoss-triage-in-place-"))); roots.push(base);
+  const client = join(base, "Vymysleny klient"), data = join(base, "data");
+  for (const dir of [client, data]) await mkdir(dir);
+  for (const [path, content] of Object.entries({ "odpoved.eml": "x", "Plnomocenstvo.pdf": "y", "Rozsudok 8C_1_2024.pdf": "z", "Zaloba 8C_1_2024.pdf": "w" })) await writeFile(join(client, path), content);
+  process.env.LEGALWORK_DATA_DIR = data; process.env.LEGALWORK_TOKEN_STORE = join(data, "tokens.json");
+  const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(data, "server.json"), token: "synthetic-client", hostToken: "synthetic-host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [], authorizedRoots: [], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  const server = await startServer(config); stops.push(() => server.stop());
+  const headers = { "X-LegalWork-Host-Token": "synthetic-host", "Content-Type": "application/json" };
+  const call = (path: string, body: unknown) => fetch(`http://127.0.0.1:${server.port}/lawoss/${path}`, { method: "POST", headers, body: JSON.stringify(body) });
+  const success = async (path: string, body: unknown) => { const response = await call(path, body), result = await response.json(); expect({ status: response.status, error: result.error, message: result.message }).toEqual({ status: 200, error: undefined, message: undefined }); return result; };
+  const preview = await success("onboarding/plan", { action: "existing", root: client, mode: "convert", title: "Vymyslený klient", clientType: "po", language: "sk", jurisdiction: "sk", date: "2026-10-08", confirmUnknownClient: true });
+  await success("onboarding/apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true });
+  return { base, client, call, success };
+}
+
+test("usporiadanie na mieste: len zaregistrovaný klient, len po grant, vrátenie hlási ponechané", async () => {
+  const f = await convertedFixture();
+  expect(await f.success("triage/status", { root: f.client })).toMatchObject({ trial: false });
+  expect((await f.call("triage/plan", { root: f.client })).status).toBe(403);
+  expect((await f.call("triage/grant", { root: f.client, confirm: false })).status).toBe(400);
+  const stranger = join(f.base, "cudzí"); await mkdir(stranger);
+  expect((await f.call("triage/grant", { root: stranger, confirm: true })).status).toBe(403);
+  expect(await f.success("triage/grant", { root: f.client, confirm: true })).toEqual({ granted: true, root: f.client });
+  expect(await f.success("triage/status", { root: f.client })).toMatchObject({ trial: true, mode: "in_place", runs: [] });
+  const preview = await f.success("triage/plan", { root: f.client });
+  expect(preview.moves.length).toBeGreaterThan(1);
+  const applied = await f.success("triage/apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true });
+  const changed = preview.moves[0].to as string;
+  await writeFile(join(f.client, changed), "advokát to medzitým upravil");
+  const undone = await f.success("triage/undo", { root: f.client, runId: applied.runId, confirm: true });
+  expect(undone.kept).toContain(changed);
+  expect(undone.restored).toBe(preview.moves.length - 1);
+});

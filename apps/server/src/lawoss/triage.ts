@@ -7,7 +7,7 @@ import { z } from "zod";
 import { ApiError } from "../errors.js";
 import { addRoute, type RequestContext, type Route } from "../routes/registry.js";
 import type { ServerConfig } from "../types.js";
-import { applyTriagePlan, listTriageRuns, parseClassification, prepareTriage, replanTriage, undoTriage, verifyTrialClone, type TriageClassification, type TriageInventory, type TriagePlan } from "./onboarding-runtime.js";
+import { applyTriagePlan, grantInPlaceReorganize, listTriageRuns, parseClassification, prepareTriage, replanTriage, undoTriage, verifyTriageTarget, type TriageClassification, type TriageInventory, type TriagePlan } from "./onboarding-runtime.js";
 
 /**
  * Roztriedenie dokumentov v skúšobnom klone (host-only). Klient potvrdzuje uložený náhľad podľa
@@ -78,12 +78,25 @@ export function registerTriageRoutes(options: {
   route("status", async ctx => {
     const { root } = z.strictObject({ root: rootSchema }).parse(await body(ctx));
     try {
-      const clone = await verifyTrialClone(root, trialJournalDirectory);
-      return { trial: true, root: clone.root, runs: await listTriageRuns(clone.root) };
+      // Skúšobný klon alebo klient so súhlasom na mieste (`grant`); `trial: true` = roztriedenie je tu dovolené.
+      const target = await verifyTriageTarget(root, trialJournalDirectory);
+      return { trial: true, mode: target.mode, root: target.root, runs: await listTriageRuns(target.root) };
     } catch (error) {
-      if (error && typeof error === "object" && "code" in error && error.code === "not_trial_clone") return { trial: false, reason: error instanceof Error ? error.message : "" , runs: [] };
+      if (error && typeof error === "object" && "code" in error && error.code === "not_trial_clone") return { trial: false, reason: error instanceof Error ? error.message : "", runs: [] };
       throw error;
     }
+  });
+  // Výslovný súhlas advokáta s usporiadaním priečinka klienta na mieste („Áno, usporiadaj“).
+  // Len pre priečinok, ktorý appka spravuje ako klienta s vlastnými súbormi appky; presuny potom
+  // vyžadujú odtlačok potvrdeného náhľadu (`apply`), vrátenie ponechá zmenené dokumenty (`kept`).
+  route("grant", async ctx => {
+    options.ensureWritable(config);
+    const input = z.strictObject({ root: rootSchema, confirm: z.literal(true) }).parse(await body(ctx));
+    const root = resolve(input.root);
+    const registered = config.workspaces.some(workspace => workspace.workspaceType !== "remote" && resolve(workspace.path) === root && (workspace.appFiles ?? "inside") === "inside");
+    if (!registered) throw new ApiError(403, "not_registered_client", "Only a connected client folder can be reorganised in place.");
+    await grantInPlaceReorganize(root);
+    return { granted: true, root };
   });
   route("plan", async ctx => {
     options.ensureWritable(config);
