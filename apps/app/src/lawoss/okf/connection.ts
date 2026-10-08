@@ -44,7 +44,8 @@ export async function loadOkfConnection(): Promise<OkfConnection> {
   }
   const { normalizedBaseUrl, resolvedToken, resolvedHostToken } = await resolveLegalworkConnection();
   if (!normalizedBaseUrl || !resolvedToken) {
-    return { client: null, baseUrl: "", token: "", workspaces: withoutLawossHome(desktopWorkspaces), activeWorkspaceId: resolveActiveWorkspaceId(withoutLawossHome(desktopWorkspaces), readActiveWorkspaceId()) };
+    const storedActiveId = readActiveWorkspaceId();
+    return { client: null, baseUrl: "", token: "", workspaces: withoutLawossHome(desktopWorkspaces), activeWorkspaceId: storedActiveId ? resolveActiveWorkspaceId(withoutLawossHome(desktopWorkspaces), storedActiveId) : "" };
   }
   const client = createLegalworkServerClient({
     baseUrl: normalizedBaseUrl,
