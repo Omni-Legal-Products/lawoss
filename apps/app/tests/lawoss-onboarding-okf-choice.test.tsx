@@ -49,10 +49,10 @@ describe("OKF choice step", () => {
     expect(choice("de")).toContain("Vorerst ohne OKF");
   });
 
-  test("the welcome flow can open directly at the OKF choice with a two-step path before choosing", () => {
+  test("the welcome flow can open directly at the OKF choice with the three-step main path", () => {
     const html = renderToStaticMarkup(<MemoryRouter><LawossWelcomePage api={api} initialStep="okf" pickDirectory={async () => null} onOpenAiSettings={() => {}} onComplete={() => {}} /></MemoryRouter>);
     expect(html).toContain('data-lawoss-onboarding-step="okf"');
-    expect(html).toContain("repeat(2, minmax(0, 1fr))");
+    expect(html).toContain("repeat(3, minmax(0, 1fr))");
     expect(html).not.toContain("grid-cols-5");
   });
 

@@ -1,5 +1,5 @@
 /** Small, versioned persistence seam for the LAWOSS welcome flow. */
-import type { OkfChoice, OnboardingPlanRequest, OnboardingPreview } from "./api";
+import type { OkfChoice, OnboardingPlanRequest, OnboardingPreview, OnboardingStep } from "./api";
 
 export type PendingOnboarding = {
   request: Pick<OnboardingPlanRequest, "action">;
@@ -68,19 +68,6 @@ export function writePendingOnboarding(
 const ONBOARDING_PROGRESS_STORAGE_KEY = "legalwork.lawoss.onboarding.v1";
 
 export type OnboardingLane = "recommended" | "detailed";
-export type OnboardingStep =
-  | "identity"
-  | "okf"
-  | "office"
-  | "packs"
-  | "ai"
-  // Kroky nového toku cez priečinok (plán C2 dodá logiku); mimo viditeľných ciest sa vrátia na "okf".
-  | "folder"
-  | "found"
-  | "client"
-  | "matter"
-  | "done";
-
 export type OnboardingProgress = {
   lane: OnboardingLane;
   step: OnboardingStep;
@@ -102,6 +89,8 @@ function isStep(value: unknown): value is OnboardingStep {
     value === "office" ||
     value === "packs" ||
     value === "ai" ||
+    value === "folder" ||
+    value === "found" ||
     value === "client" ||
     value === "matter" ||
     value === "done"
@@ -117,8 +106,6 @@ export function readOnboardingProgress(
     if (!raw) return DEFAULT_ONBOARDING_PROGRESS;
     const parsed = JSON.parse(raw) as { lane?: unknown; step?: unknown };
     if (!isLane(parsed?.lane)) return DEFAULT_ONBOARDING_PROGRESS;
-    // v1's former folder checkpoint means the Office step in the native flow.
-    if (parsed?.step === "folder") return { lane: parsed.lane, step: "office" };
     if (!isStep(parsed?.step)) return DEFAULT_ONBOARDING_PROGRESS;
     return { lane: parsed.lane, step: parsed.step };
   } catch {
@@ -138,35 +125,26 @@ export function writeOnboardingProgress(
   }
 }
 
-/** Version of the OKF notice text; a new version asks for a new acknowledgement. */
-export const OKF_NOTICE_VERSION = "2026-10-04-alfa-1";
+/** Verzia oznámenia OKF; nová verzia si vyžiada nové vzatie na vedomie (spec 2026-10-08, OKF vždy lokálne). */
+export const OKF_NOTICE_VERSION = "2026-10-08-priecinok";
 
 /** `undefined` means the user has not chosen yet. */
 export type OkfEnabled = boolean | undefined;
 
-// „Odporúčané balíky LAWOSS“ (packs) idú po kancelárii; bez OKF hneď po voľbe (MČ 5. 10. 2026).
-const OKF_PATH: readonly OnboardingStep[] = ["identity", "okf", "office", "packs", "ai", "client", "matter"];
-const PLAIN_PATH: readonly OnboardingStep[] = ["identity", "okf", "packs", "ai"];
-const UNDECIDED_PATH: readonly OnboardingStep[] = ["identity", "okf"];
+/** Hlavná cesta onboardingu (spec P7): Ty → AI → Priečinok; „Toto som našiel“ je obrazovka kroku Priečinok. */
+export const MAIN_ONBOARDING_PATH: readonly OnboardingStep[] = ["identity", "ai", "folder"];
 
-/** Steps shown, numbered and used by "Back" for the current OKF choice. */
-export function visibleOnboardingSteps(okf: OkfEnabled): readonly OnboardingStep[] {
-  return okf === true ? OKF_PATH : okf === false ? PLAIN_PATH : UNDECIDED_PATH;
+export function visibleOnboardingSteps(): readonly OnboardingStep[] {
+  return MAIN_ONBOARDING_PATH;
 }
 
-/** A saved or requested step outside the chosen path returns to the OKF choice. */
-export function visibleOnboardingStep(step: OnboardingStep, okf: OkfEnabled): OnboardingStep {
-  return step === "done" || visibleOnboardingSteps(okf).includes(step) ? step : "okf";
+/** Staré kroky (voľba OKF, kancelária, balíky) uložené alfa testermi vedú na krok Priečinok. */
+export function visibleOnboardingStep(step: OnboardingStep): OnboardingStep {
+  return step === "okf" || step === "office" || step === "packs" ? "folder" : step;
 }
 
-export function stepAfterAi(okf: OkfEnabled): OnboardingStep {
-  return okf === true ? "client" : okf === false ? "done" : "okf";
-}
-
-/** After the choice, a requested client or matter (`?continue=`) is honoured when OKF is on. */
-export function stepAfterOkfChoice(enabled: boolean, requested: OnboardingStep | undefined): OnboardingStep {
-  if (!enabled) return "packs";
-  return requested === "client" || requested === "matter" ? requested : "office";
+export function stepAfterAi(): OnboardingStep {
+  return "folder";
 }
 
 export function okfChoice(enabled: boolean, now: Date): OkfChoice {

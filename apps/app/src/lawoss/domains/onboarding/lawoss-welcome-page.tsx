@@ -31,7 +31,6 @@ import {
   okfChoice,
   readOnboardingProgress,
   stepAfterAi,
-  stepAfterOkfChoice,
   visibleOnboardingStep,
   visibleOnboardingSteps,
   writeOnboardingProgress,
@@ -786,7 +785,6 @@ export function LawossWelcomePage({
         setStep(
           visibleOnboardingStep(
             initialStep ?? status.profile?.step ?? saved.step,
-            status.profile?.okf?.enabled,
           ),
         );
       })
@@ -928,7 +926,7 @@ export function LawossWelcomePage({
     }
   };
   const okfEnabled = profile?.okf?.enabled;
-  const steps = visibleOnboardingSteps(okfEnabled);
+  const steps = visibleOnboardingSteps();
   const idx = steps.indexOf(step);
   const base = profile ?? {
     version: 1,
@@ -1012,7 +1010,7 @@ export function LawossWelcomePage({
               busy={busy}
               continueLabel={tr("continue")}
               onChoose={(enabled) =>
-                move(stepAfterOkfChoice(enabled, initialStep), {
+                move("folder", {
                   okf: okfChoice(enabled, new Date()),
                 })
               }
@@ -1054,7 +1052,7 @@ export function LawossWelcomePage({
                 onContinue={
                   okfEnabled === false
                     ? undefined
-                    : () => void move(stepAfterAi(okfEnabled))
+                    : () => void move(stepAfterAi())
                 }
               />
               {okfEnabled === false ? (
