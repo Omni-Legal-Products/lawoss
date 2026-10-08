@@ -45,6 +45,20 @@ test("súhlas vyžaduje kartu klienta a je idempotentný", async () => {
   expect(await verifyTriageTarget(root)).toEqual({ root, mode: "in_place", journalVerified: false });
 });
 
+test("súhlas dostane aj klient so symbolickým odkazom a veľkým dokumentom v podpriečinku", async () => {
+  const root = await convertedClient(), outside = await directory("okf-in-place-outside-");
+  await writeFile(join(outside, "cudzi.txt"), "cudzí súbor");
+  await mkdir(join(root, "Archiv"));
+  try { await symlink(join(outside, "cudzi.txt"), join(root, "Archiv", "odkaz.txt")); }
+  catch (error) { if (!(error && typeof error === "object" && "code" in error && ["EPERM", "EACCES", "ENOSYS"].includes(String(error.code)))) throw error; }
+  // Riedky súbor nad limit 1 GB: plná inšpekcia skončí skôr, než sa dostane ku karte klienta.
+  const large = await open(join(root, "Archiv", "zaloha.bin"), "w");
+  try { await large.truncate(1024 * 1024 * 1024 + 1); } finally { await large.close(); }
+  await grantInPlaceReorganize(root, NOW);
+  expect(JSON.parse(await readFile(join(root, IN_PLACE_MARKER), "utf8"))).toEqual({ version: 1, root, grantedAt: NOW.toISOString() });
+  expect(await readFile(join(outside, "cudzi.txt"), "utf8")).toBe("cudzí súbor");
+});
+
 test("súhlas z iného priečinka (skopírovaný marker) neplatí", async () => {
   const root = await convertedClient();
   await mkdir(join(root, ".lawoss"), { recursive: true });

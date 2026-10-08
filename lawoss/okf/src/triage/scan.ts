@@ -16,7 +16,7 @@ import { decodeText } from "../../../okf-pamat/src/text-decode.ts";
 import { parseFrontmatter } from "../frontmatter.ts";
 import { resolveDocumentLanguage } from "../language.ts";
 import { parseOfficeWorkingProfile, parseWorkingProfile, PROFILE_FILE, workingProfile } from "../profile.ts";
-import { inspectOnboardingRoot, type InspectionHooks, type InspectionLimits, type OnboardingInspection, type TreeEntry } from "../onboarding/classify.ts";
+import { inspectCardLevel, inspectOnboardingRoot, type InspectionHooks, type InspectionLimits, type OnboardingInspection, type TreeEntry } from "../onboarding/classify.ts";
 import { findCaseNumber } from "./rules.ts";
 import { INVENTORY_SCHEMA, type ExistingMatter, type SkipReason, type TriageDocument, type TriageInventory } from "./types.ts";
 
@@ -92,8 +92,9 @@ export async function grantInPlaceReorganize(rootInput: string, now: Date = new 
   if (!isAbsolute(rootInput)) throw new Error("Cesta ku klientovi musí byť absolútna.");
   const root = resolve(rootInput);
   if (await realpath(root) !== root || !(await lstat(root)).isDirectory()) throw new Error("Klient musí byť existujúci priečinok bez symbolických odkazov.");
-  const inspection = await inspectOnboardingRoot(root);
-  if (inspection.level !== "client") throw new Error("Usporiadať sa dá len priečinok klienta s kartou klienta. Najprv pridajte OKF súbory.");
+  // Identita z karty v koreni (plytko): symbolický odkaz či veľký dokument v podpriečinku súhlas neblokuje,
+  // náhľad a zápis potom aj tak robia plnú inšpekciu.
+  if ((await inspectCardLevel(root)).level !== "client") throw new Error("Usporiadať sa dá len priečinok klienta s kartou klienta. Najprv pridajte OKF súbory.");
   const dir = join(root, ".lawoss");
   await mkdir(dir, { recursive: true });
   const content = JSON.stringify({ version: 1, root, grantedAt: now.toISOString() });
