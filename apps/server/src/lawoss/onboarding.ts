@@ -11,7 +11,7 @@ import { addRoute, type RequestContext, type Route } from "../routes/registry.js
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { externalAppFilesRoot } from "./workspace-app-files.js";
 import { registerTriageRoutes } from "./triage.js";
-import { executeOnboarding, inspectCardLevel, inspectOnboardingRoot, previewOnboarding, recoverOnboardingOperation, type OnboardingPreview, type OnboardingResult } from "./onboarding-runtime.js";
+import { executeOnboarding, inspectCardLevel, inspectOnboardingRoot, previewOnboarding, recoverOnboardingOperation, suggestOnboardingLevel, type OnboardingPreview, type OnboardingResult } from "./onboarding-runtime.js";
 
 /** OKF is opt-in; enabling it requires a dated acknowledgement of a versioned notice. */
 const okfChoiceSchema = z.strictObject({
@@ -139,6 +139,12 @@ export function registerOnboardingRoutes(options: {
     const input = z.strictObject({ root: z.string().min(1).max(4096) }).parse(await body(ctx));
     const inspection = await inspectOnboardingRoot(input.root);
     return { ...inspection, memoryCandidates: inspection.memorySources };
+  });
+  // Návrh úrovne (prax, klient, vec) z mien priečinkov; nič nečíta z obsahu a nič nezapisuje (spec P4).
+  route("POST", "suggest", async ctx => {
+    const input = z.strictObject({ root: z.string().min(1).max(4096) }).parse(await body(ctx));
+    await canonicalDirectory(input.root);
+    return await suggestOnboardingLevel(input.root);
   });
   route("POST", "plan", async ctx => {
     const input = await body(ctx), preview = await previewOnboarding(input);

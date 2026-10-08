@@ -250,3 +250,14 @@ test("profil naďalej odmietne priečinok, ktorý nie je klient", async () => {
   await mkdir(plain);
   expect((await f.call("profile", { lawyerName: "Synthetic lawyer", jurisdiction: "sk", language: "sk", clientRoot: plain })).status).toBe(400);
 });
+
+test("suggest navrhne prax z mien priečinkov a nič nezapíše", async () => {
+  const f = await fixture(), root = join(f.base, "kancelaria");
+  for (const name of ["Alfa s. r. o.", "Beta a. s.", "Gama s.r.o.", "Delta k. s.", "Novák Ján/2024-03 Kúpna zmluva"]) await mkdir(join(root, name), { recursive: true });
+  const suggestion = await f.success("suggest", { root });
+  expect(suggestion).toMatchObject({ level: "practice", marked: false, clientPattern: "*" });
+  expect(suggestion.clients).toHaveLength(5);
+  expect((await readdir(root)).sort()).toEqual(["Alfa s. r. o.", "Beta a. s.", "Delta k. s.", "Gama s.r.o.", "Novák Ján"]);
+  expect((await f.call("suggest", { root: "relatívna/cesta" })).status).toBe(400);
+  expect((await f.call("suggest", { root }, {} as { "X-LegalWork-Host-Token": string; "Content-Type": string })).status).toBe(401);
+});
