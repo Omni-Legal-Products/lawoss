@@ -167,7 +167,7 @@ async function operationState(root: string, operation: CreateOperation): Promise
 }
 
 export type TriageApplyResult = { status: "applied" | "already_applied"; runId: string; moved: number; created: number; journal: string };
-export type TriageUndoResult = { status: "undone" | "already_undone"; runId: string; restored: number; removed: number };
+export type TriageUndoResult = { status: "undone" | "already_undone"; runId: string; restored: number; removed: number; kept: string[] };
 
 /** Zapíše schválený plán. Opakované volanie s tým istým plánom dokončí prerušený beh. */
 export async function applyTriagePlan(input: unknown, options: { trialJournalDirectory?: string; hooks?: InspectionHooks } = {}): Promise<TriageApplyResult> {
@@ -250,13 +250,13 @@ async function readRun(root: string, runId: string): Promise<{ plan: TriagePlan;
  * Vráti celý beh: dokumenty na pôvodné miesta, potom odstráni len to, čo beh sám vytvoril.
  * Najprv overí všetko; ak by vrátenie čokoľvek cudzie zmenilo, neurobí nič.
  */
-export async function undoTriage(rootInput: string, runId: string, options: { trialJournalDirectory?: string } = {}): Promise<TriageUndoResult> {
+export async function undoTriage(rootInput: string, runId: string, options: { trialJournalDirectory?: string; keepChanged?: boolean } = {}): Promise<TriageUndoResult> {
   const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory);
   const root = clone.root;
   const unlock = await acquireOnboardingLock(root);
   try {
     const { plan, events, eventsPath } = await readRun(root, runId);
-    if (events.some(event => event.t === "undone")) return { status: "already_undone", runId, restored: 0, removed: 0 };
+    if (events.some(event => event.t === "undone")) return { status: "already_undone", runId, restored: 0, removed: 0, kept: [] };
     const restored = new Set(events.filter(event => event.t === "restored").map(event => event.id));
     const removed = new Set(events.filter(event => event.t === "removed").map(event => event.path));
     const moveIntents = new Set(events.filter(event => event.t === "move_intent").map(event => event.id));
@@ -265,25 +265,31 @@ export async function undoTriage(rootInput: string, runId: string, options: { tr
     type Pending = { move: TriageMove; from: string | null; to: string | null };
     const pending: Pending[] = [];
     const problems: string[] = [];
+    // Pri keepChanged sa medzitým zmenený alebo presunutý dokument nevracia, len sa zapíše do súhrnu.
+    const kept: string[] = [];
+    const conflict = (path: string) => { if (options.keepChanged) kept.push(path); else problems.push(path); };
     for (const move of plan.moves) {
       if (!moveIntents.has(move.id) || restored.has(move.id)) continue;
       const from = await fileDigest(join(root, move.from)), to = await fileDigest(join(root, move.to));
-      if (to !== null && to !== move.sha256) problems.push(move.to);
-      else if (from !== null && from !== move.sha256) problems.push(move.from);
-      else if (from === null && to === null) problems.push(move.to);
+      if (to !== null && to !== move.sha256) conflict(move.to);
+      else if (from !== null && from !== move.sha256) conflict(move.from);
+      else if (from === null && to === null) conflict(move.to);
       else pending.push({ move, from, to });
     }
     const owned = new Set<string>([...pending.filter(item => item.to !== null).map(item => item.move.to.toLocaleLowerCase())]);
     const toRemove = plan.create.filter(operation => createIntents.has(operation.path) && !removed.has(operation.path));
     for (const operation of toRemove) owned.add(operation.path.toLocaleLowerCase());
-    for (const operation of toRemove) {
+    if (!options.keepChanged) for (const operation of toRemove) {
       const state = await operationState(root, operation);
       if (state === "other") problems.push(operation.path);
       if (state === "ours" && operation.kind === "directory") {
         for (const name of await readdir(join(root, operation.path))) if (!owned.has(`${operation.path}/${name}`.toLocaleLowerCase())) problems.push(`${operation.path}/${name}`);
       }
     }
-    for (const item of pending) if (item.from === null && !(await lstat(dirname(join(root, item.move.from))).then(state => state.isDirectory() && !state.isSymbolicLink()).catch(() => false))) problems.push(dirname(item.move.from));
+    for (const item of [...pending]) if (item.from === null && !(await lstat(dirname(join(root, item.move.from))).then(state => state.isDirectory() && !state.isSymbolicLink()).catch(() => false))) {
+      if (options.keepChanged) { kept.push(item.move.to); pending.splice(pending.indexOf(item), 1); }
+      else problems.push(dirname(item.move.from));
+    }
     if (problems.length) throw new TriageConflictError(`Roztriedenie sa nedá vrátiť bez zásahu do zmenených súborov: ${[...new Set(problems)].slice(0, 10).join(", ")}${problems.length > 10 ? " …" : ""}`);
     if (!events.some(event => event.t === "undo_started")) await appendEvent(eventsPath, { t: "undo_started" });
     let restoredCount = 0, removedCount = 0;
@@ -297,15 +303,23 @@ export async function undoTriage(rootInput: string, runId: string, options: { tr
     }
     for (const operation of [...toRemove].reverse()) {
       const full = join(root, operation.path);
-      await appendEvent(eventsPath, { t: "remove_intent", path: operation.path });
-      const state = await operationState(root, operation);
-      if (state === "ours") { if (operation.kind === "directory") await rmdir(full); else await unlinkFile(full); await durableDirectory(dirname(full)); }
-      else if (state === "other") throw new TriageConflictError(`Zmenené počas vrátenia: ${operation.path}`);
+      if (options.keepChanged) {
+        const state = await operationState(root, operation);
+        if (state === "other" || (state === "ours" && operation.kind === "directory" && (await readdir(full)).length > 0)) { kept.push(operation.path); continue; }
+        await appendEvent(eventsPath, { t: "remove_intent", path: operation.path });
+        if (state === "ours") { if (operation.kind === "directory") await rmdir(full); else await unlinkFile(full); await durableDirectory(dirname(full)); }
+      } else {
+        // Pôvodné poradie bez zmeny (skúšobný klon): najprv remove_intent, potom stav.
+        await appendEvent(eventsPath, { t: "remove_intent", path: operation.path });
+        const state = await operationState(root, operation);
+        if (state === "ours") { if (operation.kind === "directory") await rmdir(full); else await unlinkFile(full); await durableDirectory(dirname(full)); }
+        else if (state === "other") throw new TriageConflictError(`Zmenené počas vrátenia: ${operation.path}`);
+      }
       await appendEvent(eventsPath, { t: "removed", path: operation.path });
       removedCount++;
     }
     await appendEvent(eventsPath, { t: "undone" });
-    return { status: "undone", runId, restored: restoredCount, removed: removedCount };
+    return { status: "undone", runId, restored: restoredCount, removed: removedCount, kept };
   } finally { await unlock(); }
 }
 

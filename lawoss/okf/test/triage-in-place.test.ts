@@ -123,3 +123,30 @@ test("zamknutý súbor spolu s iným problémom inšpekcie stále zastaví náh�
   await symlink(join(root, LOCKED_DOCX), join(root, "odkaz.docx"));
   await expect(scanTriage(root, { hooks: lockHooks(LOCKED_DOCX) })).rejects.toThrow(/symbolick|nepodarilo prečítať/);
 });
+
+test("vrátenie s keepChanged ponechá upravený dokument a ostatné vráti", async () => {
+  const root = await convertedClient();
+  await grantInPlaceReorganize(root, NOW);
+  const { plan } = await prepareTriage(root, { now: NOW });
+  expect(plan.moves.length).toBeGreaterThan(1);
+  await applyTriagePlan(plan);
+  const changed = plan.moves[0]!;
+  await writeFile(join(root, changed.to), "advokát to medzitým upravil");
+  await expect(undoTriage(root, plan.runId)).rejects.toThrow(/zmenených/);
+  const result = await undoTriage(root, plan.runId, { keepChanged: true });
+  expect(result).toMatchObject({ status: "undone", restored: plan.moves.length - 1 });
+  expect(result.kept).toContain(changed.to);
+  expect(await readFile(join(root, changed.to), "utf8")).toBe("advokát to medzitým upravil");
+  for (const move of plan.moves.slice(1)) await expect(readFile(join(root, move.from))).resolves.toBeDefined();
+});
+
+test("bez keepChanged ostáva vrátenie všetko alebo nič a nič nezmení", async () => {
+  const root = await convertedClient();
+  await grantInPlaceReorganize(root, NOW);
+  const { plan } = await prepareTriage(root, { now: NOW });
+  await applyTriagePlan(plan);
+  await writeFile(join(root, plan.moves[0]!.to), "zmena");
+  const before = await documentsHash(root);
+  await expect(undoTriage(root, plan.runId)).rejects.toThrow();
+  expect(await documentsHash(root)).toBe(before);
+});

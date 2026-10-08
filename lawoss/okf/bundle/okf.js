@@ -4638,23 +4638,30 @@ async function undoTriage(rootInput, runId, options = {}) {
   try {
     const { plan, events, eventsPath } = await readRun(root, runId);
     if (events.some((event) => event.t === "undone"))
-      return { status: "already_undone", runId, restored: 0, removed: 0 };
+      return { status: "already_undone", runId, restored: 0, removed: 0, kept: [] };
     const restored = new Set(events.filter((event) => event.t === "restored").map((event) => event.id));
     const removed = new Set(events.filter((event) => event.t === "removed").map((event) => event.path));
     const moveIntents = new Set(events.filter((event) => event.t === "move_intent").map((event) => event.id));
     const createIntents = new Set(events.filter((event) => event.t === "intent").map((event) => event.path));
     const pending = [];
     const problems = [];
+    const kept = [];
+    const conflict = (path) => {
+      if (options.keepChanged)
+        kept.push(path);
+      else
+        problems.push(path);
+    };
     for (const move of plan.moves) {
       if (!moveIntents.has(move.id) || restored.has(move.id))
         continue;
       const from = await fileDigest2(join11(root, move.from)), to = await fileDigest2(join11(root, move.to));
       if (to !== null && to !== move.sha256)
-        problems.push(move.to);
+        conflict(move.to);
       else if (from !== null && from !== move.sha256)
-        problems.push(move.from);
+        conflict(move.from);
       else if (from === null && to === null)
-        problems.push(move.to);
+        conflict(move.to);
       else
         pending.push({ move, from, to });
     }
@@ -4662,19 +4669,25 @@ async function undoTriage(rootInput, runId, options = {}) {
     const toRemove = plan.create.filter((operation) => createIntents.has(operation.path) && !removed.has(operation.path));
     for (const operation of toRemove)
       owned.add(operation.path.toLocaleLowerCase());
-    for (const operation of toRemove) {
-      const state = await operationState(root, operation);
-      if (state === "other")
-        problems.push(operation.path);
-      if (state === "ours" && operation.kind === "directory") {
-        for (const name of await readdir4(join11(root, operation.path)))
-          if (!owned.has(`${operation.path}/${name}`.toLocaleLowerCase()))
-            problems.push(`${operation.path}/${name}`);
+    if (!options.keepChanged)
+      for (const operation of toRemove) {
+        const state = await operationState(root, operation);
+        if (state === "other")
+          problems.push(operation.path);
+        if (state === "ours" && operation.kind === "directory") {
+          for (const name of await readdir4(join11(root, operation.path)))
+            if (!owned.has(`${operation.path}/${name}`.toLocaleLowerCase()))
+              problems.push(`${operation.path}/${name}`);
+        }
       }
-    }
-    for (const item of pending)
-      if (item.from === null && !await lstat11(dirname6(join11(root, item.move.from))).then((state) => state.isDirectory() && !state.isSymbolicLink()).catch(() => false))
-        problems.push(dirname6(item.move.from));
+    for (const item of [...pending])
+      if (item.from === null && !await lstat11(dirname6(join11(root, item.move.from))).then((state) => state.isDirectory() && !state.isSymbolicLink()).catch(() => false)) {
+        if (options.keepChanged) {
+          kept.push(item.move.to);
+          pending.splice(pending.indexOf(item), 1);
+        } else
+          problems.push(dirname6(item.move.from));
+      }
     if (problems.length)
       throw new TriageConflictError(`Roztriedenie sa nedá vrátiť bez zásahu do zmenených súborov: ${[...new Set(problems)].slice(0, 10).join(", ")}${problems.length > 10 ? " …" : ""}`);
     if (!events.some((event) => event.t === "undo_started"))
@@ -4694,21 +4707,37 @@ async function undoTriage(rootInput, runId, options = {}) {
     }
     for (const operation of [...toRemove].reverse()) {
       const full = join11(root, operation.path);
-      await appendEvent2(eventsPath, { t: "remove_intent", path: operation.path });
-      const state = await operationState(root, operation);
-      if (state === "ours") {
-        if (operation.kind === "directory")
-          await rmdir3(full);
-        else
-          await unlinkFile(full);
-        await durableDirectory2(dirname6(full));
-      } else if (state === "other")
-        throw new TriageConflictError(`Zmenené počas vrátenia: ${operation.path}`);
+      if (options.keepChanged) {
+        const state = await operationState(root, operation);
+        if (state === "other" || state === "ours" && operation.kind === "directory" && (await readdir4(full)).length > 0) {
+          kept.push(operation.path);
+          continue;
+        }
+        await appendEvent2(eventsPath, { t: "remove_intent", path: operation.path });
+        if (state === "ours") {
+          if (operation.kind === "directory")
+            await rmdir3(full);
+          else
+            await unlinkFile(full);
+          await durableDirectory2(dirname6(full));
+        }
+      } else {
+        await appendEvent2(eventsPath, { t: "remove_intent", path: operation.path });
+        const state = await operationState(root, operation);
+        if (state === "ours") {
+          if (operation.kind === "directory")
+            await rmdir3(full);
+          else
+            await unlinkFile(full);
+          await durableDirectory2(dirname6(full));
+        } else if (state === "other")
+          throw new TriageConflictError(`Zmenené počas vrátenia: ${operation.path}`);
+      }
       await appendEvent2(eventsPath, { t: "removed", path: operation.path });
       removedCount++;
     }
     await appendEvent2(eventsPath, { t: "undone" });
-    return { status: "undone", runId, restored: restoredCount, removed: removedCount };
+    return { status: "undone", runId, restored: restoredCount, removed: removedCount, kept };
   } finally {
     await unlock();
   }
