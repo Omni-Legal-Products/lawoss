@@ -83,5 +83,6 @@ export function prepareTriage(root: string, options?: { trialJournalDirectory?: 
 export function replanTriage(inventory: TriageInventory, classification: TriageClassification | undefined, keepInInbox: readonly string[], now?: Date): TriagePlan;
 export function parseClassification(value: unknown, inventory: TriageInventory): TriageClassification;
 export function applyTriagePlan(plan: unknown, options?: { trialJournalDirectory?: string }): Promise<{ status: "applied" | "already_applied"; runId: string; moved: number; created: number; journal: string }>;
+/** `keepChanged`: pri usporiadaní na mieste predvolene true (zmenené dokumenty ostanú a nahlásia sa v `kept`); v skúšobnom klone predvolene false (všetko alebo nič). */
 export function undoTriage(root: string, runId: string, options?: { trialJournalDirectory?: string; keepChanged?: boolean }): Promise<{ status: "undone" | "already_undone"; runId: string; restored: number; removed: number; kept: string[] }>;
 export function listTriageRuns(root: string): Promise<TriageRunStatus[]>;

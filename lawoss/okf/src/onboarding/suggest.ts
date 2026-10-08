@@ -6,6 +6,7 @@
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { realpath } from "../canonical-path.ts";
+import { decodeText } from "../../../okf-pamat/src/text-decode.ts";
 import { VOLATILE_ENTRY } from "./classify.ts";
 import { hasLegalForm, looksLikeMatterName } from "./suggest-patterns.ts";
 
@@ -90,8 +91,8 @@ export async function suggestOnboardingLevel(root: string): Promise<OnboardingSu
   if (topFiles.some(name => MATTER_CARDS.has(name))) return { ...base, level: "matter", marked: true, score: 1, signals: ["matter_card"] };
   const office = OFFICE_DIRS.find(name => survey.entries.some(entry => entry.path === `${name}/okf.config` && entry.kind === "file"));
   if (office) {
-    const config = await readFile(join(survey.root, office, "okf.config"), "utf8").catch(() => "");
-    const clientPattern = /^client_path:\s*"?([^"\n]+?)"?\s*$/m.exec(config)?.[1] ?? "Klienti/*";
+    const config = await readFile(join(survey.root, office, "okf.config")).then(decodeText, () => "");
+    const clientPattern = /^client_path:\s*["']?([^"'\r\n]+?)["']?\s*$/m.exec(config)?.[1] ?? "Klienti/*";
     return { ...base, level: "practice", marked: true, score: 1, signals: ["office_config"], clientPattern, clients: matchPattern(index, clientPattern) };
   }
   if (!top.length) return { ...base, level: "unknown", marked: false, score: 0, signals: ["empty"] };

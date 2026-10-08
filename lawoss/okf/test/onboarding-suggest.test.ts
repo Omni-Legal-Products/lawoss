@@ -97,3 +97,11 @@ test("praxe s 300 klientmi sa vyhodnotí pod 2 sekundy", async () => {
 test("cesta musí byť existujúci kanonický priečinok", async () => {
   await expect(suggestOnboardingLevel("relative/path")).rejects.toThrow();
 });
+
+test("okf.config v UTF-16LE s BOM a client_path v apostrofoch", async () => {
+  const office = await tree(["Office/okf.config", "AK/Alfa s. r. o./", "AK/Beta a. s./"]);
+  await writeFile(join(office, "Office/okf.config"), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('version: 1\r\nclient_path: "AK/*/*"\r\n', "utf16le")]));
+  expect((await suggestOnboardingLevel(office)).clientPattern).toBe("AK/*/*");
+  await writeFile(join(office, "Office/okf.config"), "version: 1\nclient_path: 'AK/*'\n");
+  expect((await suggestOnboardingLevel(office)).clientPattern).toBe("AK/*");
+});

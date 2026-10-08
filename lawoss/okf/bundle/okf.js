@@ -297,6 +297,22 @@ async function inspectOnboardingRoot(root, limits = {}, hooks = {}) {
 import { lstat as lstat2, readdir as readdir2, readFile } from "node:fs/promises";
 import { isAbsolute as isAbsolute2, join as join2, resolve as resolve2 } from "node:path";
 
+// ../okf-pamat/src/text-decode.ts
+function decodeText(bytes) {
+  if (bytes[0] === 254 && bytes[1] === 255) {
+    const swapped = Uint8Array.from(bytes);
+    for (let i = 0;i + 1 < swapped.length; i += 2) {
+      swapped[i] = bytes[i + 1];
+      swapped[i + 1] = bytes[i];
+    }
+    return new TextDecoder("utf-16le").decode(swapped);
+  }
+  return new TextDecoder(bytes[0] === 255 && bytes[1] === 254 ? "utf-16le" : "utf-8").decode(bytes);
+}
+function stripBom(text) {
+  return text.charCodeAt(0) === 65279 ? text.slice(1) : text;
+}
+
 // src/triage/rules.ts
 var TRIAGE_ROLES = ["inbox", "client_documents", "research", "drafts", "outputs", "correspondence", "important_mail"];
 function normalizeText(value) {
@@ -482,8 +498,8 @@ async function suggestOnboardingLevel(root) {
     return { ...base, level: "matter", marked: true, score: 1, signals: ["matter_card"] };
   const office = OFFICE_DIRS.find((name) => survey.entries.some((entry) => entry.path === `${name}/okf.config` && entry.kind === "file"));
   if (office) {
-    const config = await readFile(join2(survey.root, office, "okf.config"), "utf8").catch(() => "");
-    const clientPattern = /^client_path:\s*"?([^"\n]+?)"?\s*$/m.exec(config)?.[1] ?? "Klienti/*";
+    const config = await readFile(join2(survey.root, office, "okf.config")).then(decodeText, () => "");
+    const clientPattern = /^client_path:\s*["']?([^"'\r\n]+?)["']?\s*$/m.exec(config)?.[1] ?? "Klienti/*";
     return { ...base, level: "practice", marked: true, score: 1, signals: ["office_config"], clientPattern, clients: matchPattern(index, clientPattern) };
   }
   if (!top.length)
@@ -825,22 +841,6 @@ var AML_REQUIRED = {
     sole_trader: [...SK_FO, "business_address", "registry_entry"]
   }
 };
-
-// ../okf-pamat/src/text-decode.ts
-function decodeText(bytes) {
-  if (bytes[0] === 254 && bytes[1] === 255) {
-    const swapped = Uint8Array.from(bytes);
-    for (let i = 0;i + 1 < swapped.length; i += 2) {
-      swapped[i] = bytes[i + 1];
-      swapped[i + 1] = bytes[i];
-    }
-    return new TextDecoder("utf-16le").decode(swapped);
-  }
-  return new TextDecoder(bytes[0] === 255 && bytes[1] === 254 ? "utf-16le" : "utf-8").decode(bytes);
-}
-function stripBom(text) {
-  return text.charCodeAt(0) === 65279 ? text.slice(1) : text;
-}
 
 // ../okf-pamat/src/record.ts
 var CORE_FIELDS = new Set([
@@ -3867,7 +3867,7 @@ import { join as join11 } from "node:path";
 // src/triage/scan.ts
 import { createHash as createHash6 } from "node:crypto";
 import { constants as constants8 } from "node:fs";
-import { lstat as lstat10, mkdir as mkdir4, open as open7, readFile as readFile6, writeFile as writeFile2 } from "node:fs/promises";
+import { lstat as lstat10, mkdir as mkdir4, open as open7, readFile as readFile6, rename as rename2, rm as rm2, writeFile as writeFile2 } from "node:fs/promises";
 import { basename as basename4, isAbsolute as isAbsolute8, join as join10, relative as relative8, resolve as resolve10, sep as sep9 } from "node:path";
 
 // src/triage/types.ts
@@ -3895,7 +3895,7 @@ async function readBounded(path, max) {
   try {
     const stat = await handle.stat();
     if (!stat.isFile() || stat.size > max)
-      throw new TrialCloneError("Značka skúšobného klona nie je obyčajný malý súbor.");
+      throw new TrialCloneError("Značka priečinka nie je obyčajný malý súbor.");
     const buffer = Buffer.alloc(max + 1);
     let size = 0;
     while (size < buffer.length) {
@@ -3905,7 +3905,7 @@ async function readBounded(path, max) {
       size += read.bytesRead;
     }
     if (size > max)
-      throw new TrialCloneError("Značka skúšobného klona je príliš veľká.");
+      throw new TrialCloneError("Značka priečinka je príliš veľká.");
     return buffer.subarray(0, size).toString("utf8");
   } finally {
     await handle.close();
@@ -3929,10 +3929,10 @@ async function verifyTrialClone(rootInput, trialJournalDirectory) {
   } catch (error) {
     if (error instanceof TrialCloneError)
       throw error;
-    throw new TrialCloneError(missing3(error) ? "Toto nie je skúšobný klon. Dokumenty sa presúvajú len v skúšobnom klone, nikdy v origináli." : "Značka skúšobného klona je poškodená.");
+    throw new TrialCloneError(missing3(error) ? "Toto nie je skúšobný klon. Dokumenty sa presúvajú len v skúšobnom klone, nikdy v origináli." : "Značka priečinka je poškodená.");
   }
   if (!record2(marker) || marker.version !== 1 || marker.trial !== true || typeof marker.source !== "string" || !isAbsolute8(marker.source) || typeof marker.sourceDigest !== "string" || !/^[a-f0-9]{64}$/.test(marker.sourceDigest) || typeof marker.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(marker.fingerprint)) {
-    throw new TrialCloneError("Značka skúšobného klona má neplatný tvar.");
+    throw new TrialCloneError("Značka priečinka má neplatný tvar.");
   }
   const source = resolve10(marker.source);
   if (overlaps(source, root) || overlaps(root, source))
@@ -4001,7 +4001,7 @@ async function scanTriage(rootInput, options = {}) {
   const inspection = await inspectOnboardingRoot(clone.root, options.limits, options.hooks);
   if (!inspection.complete && !onlyLockedIssues(inspection)) {
     const issue = inspection.issues[0];
-    throw new Error(issue?.code === "symlink_not_followed" ? `Klon obsahuje symbolický odkaz (${issue.path}); roztriedenie ho nesleduje. Odstráňte ho z klona.` : `Klon sa nepodarilo prečítať celý (${issue?.code ?? "neznámy dôvod"}${issue?.path ? `: ${issue.path}` : ""}).`);
+    throw new Error(issue?.code === "symlink_not_followed" ? `Priečinok obsahuje symbolický odkaz (${issue.path}); roztriedenie ho nesleduje. Odstráňte ho z priečinka.` : `Priečinok sa nepodarilo prečítať celý (${issue?.code ?? "neznámy dôvod"}${issue?.path ? `: ${issue.path}` : ""}).`);
   }
   if (inspection.level !== "client")
     throw new Error("Usporiadať sa dá len priečinok klienta s kartou klienta.");
@@ -4060,7 +4060,7 @@ async function scanTriage(rootInput, options = {}) {
     if (issue.code === "locked_file")
       skipped.push({ path: issue.path, reason: "locked" });
   if (documents.length > MAX_TRIAGE_DOCUMENTS)
-    throw new Error(`Klon má ${documents.length} dokumentov na roztriedenie; naraz sa dá najviac ${MAX_TRIAGE_DOCUMENTS}.`);
+    throw new Error(`Priečinok má ${documents.length} dokumentov na roztriedenie; naraz sa dá najviac ${MAX_TRIAGE_DOCUMENTS}.`);
   documents.sort((a, b) => a.path.localeCompare(b.path));
   return {
     schema: INVENTORY_SCHEMA,
@@ -4462,6 +4462,12 @@ class TriageConflictError extends Error {
 var record4 = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 var missing4 = (error) => error instanceof Error && ("code" in error) && error.code === "ENOENT";
 var errorCode4 = (error) => error instanceof Error && ("code" in error) ? String(error.code) : "";
+var isClutter = (name) => VOLATILE_ENTRY.test(name) || /^\.ds_store$/i.test(name);
+async function removeClutter(directory) {
+  for (const name of await readdir5(directory))
+    if (isClutter(name))
+      await unlinkFile(join12(directory, name));
+}
 var RUN_ID = /^triage-[0-9]{8}-[0-9]{6}-[a-f0-9]{6}$/;
 var reserved3 = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
 function invalid(message) {
@@ -4785,6 +4791,7 @@ async function readRun(root, runId) {
 async function undoTriage(rootInput, runId, options = {}) {
   const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory);
   const root = clone.root;
+  const keepChanged = options.keepChanged ?? clone.mode === "in_place";
   const unlock = await lock(root);
   try {
     const { plan, events, eventsPath } = await readRun(root, runId);
@@ -4798,7 +4805,7 @@ async function undoTriage(rootInput, runId, options = {}) {
     const problems = [];
     const kept = [];
     const conflict = (path) => {
-      if (options.keepChanged)
+      if (keepChanged)
         kept.push(path);
       else
         problems.push(path);
@@ -4810,7 +4817,7 @@ async function undoTriage(rootInput, runId, options = {}) {
       if (to !== null && to !== move.sha256)
         conflict(move.to);
       else if (from !== null && from !== move.sha256)
-        conflict(move.from);
+        conflict(move.to);
       else if (from === null && to === null)
         conflict(move.to);
       else
@@ -4820,20 +4827,20 @@ async function undoTriage(rootInput, runId, options = {}) {
     const toRemove = plan.create.filter((operation) => createIntents.has(operation.path) && !removed.has(operation.path));
     for (const operation of toRemove)
       owned.add(operation.path.toLocaleLowerCase());
-    if (!options.keepChanged)
+    if (!keepChanged)
       for (const operation of toRemove) {
         const state = await operationState(root, operation);
         if (state === "other")
           problems.push(operation.path);
         if (state === "ours" && operation.kind === "directory") {
           for (const name of await readdir5(join12(root, operation.path)))
-            if (!owned.has(`${operation.path}/${name}`.toLocaleLowerCase()))
+            if (!isClutter(name) && !owned.has(`${operation.path}/${name}`.toLocaleLowerCase()))
               problems.push(`${operation.path}/${name}`);
         }
       }
     for (const item of [...pending])
       if (item.from === null && !await lstat12(dirname6(join12(root, item.move.from))).then((state) => state.isDirectory() && !state.isSymbolicLink()).catch(() => false)) {
-        if (options.keepChanged) {
+        if (keepChanged) {
           kept.push(item.move.to);
           pending.splice(pending.indexOf(item), 1);
         } else
@@ -4858,14 +4865,16 @@ async function undoTriage(rootInput, runId, options = {}) {
     }
     for (const operation of [...toRemove].reverse()) {
       const full = join12(root, operation.path);
-      if (options.keepChanged) {
+      if (keepChanged) {
         const state = await operationState(root, operation);
-        if (state === "other" || state === "ours" && operation.kind === "directory" && (await readdir5(full)).length > 0) {
+        if (state === "other" || state === "ours" && operation.kind === "directory" && (await readdir5(full)).some((name) => !isClutter(name))) {
           kept.push(operation.path);
           continue;
         }
         await appendEvent2(eventsPath, { t: "remove_intent", path: operation.path });
         if (state === "ours") {
+          if (operation.kind === "directory")
+            await removeClutter(full);
           if (operation.kind === "directory")
             await rmdir3(full);
           else
@@ -4876,9 +4885,10 @@ async function undoTriage(rootInput, runId, options = {}) {
         await appendEvent2(eventsPath, { t: "remove_intent", path: operation.path });
         const state = await operationState(root, operation);
         if (state === "ours") {
-          if (operation.kind === "directory")
+          if (operation.kind === "directory") {
+            await removeClutter(full);
             await rmdir3(full);
-          else
+          } else
             await unlinkFile(full);
           await durableDirectory2(dirname6(full));
         } else if (state === "other")

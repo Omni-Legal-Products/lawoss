@@ -13,7 +13,7 @@ import { appendFile, copyFile, link, lstat, mkdir, open, readdir, readFile, rmdi
 import { realpath } from "../canonical-path.ts";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { acquireOnboardingLock, parseOnboardingPlan, type CreateOperation } from "../onboarding/transaction.ts";
-import { inspectOnboardingRoot, type InspectionHooks } from "../onboarding/classify.ts";
+import { inspectOnboardingRoot, VOLATILE_ENTRY, type InspectionHooks } from "../onboarding/classify.ts";
 import { syncFile, unlinkFile } from "../onboarding/file-durability.ts";
 import { planFingerprint, sha256 } from "./plan.ts";
 import { TRIAGE_ROLES } from "./rules.ts";
@@ -24,6 +24,12 @@ export class TriageConflictError extends Error { readonly code = "triage_conflic
 const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const missing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
 const errorCode = (error: unknown) => error instanceof Error && "code" in error ? String(error.code) : "";
+/** Odpad operačného systému (Finder, Prieskumník, Office), ktorý nepatrí ani advokátovi, ani behu. */
+const isClutter = (name: string) => VOLATILE_ENTRY.test(name) || /^\.ds_store$/i.test(name);
+/** Zmaže odpad priamo v priečinku, ktorý beh vytvoril, aby sa dal odstrániť. Do záznamu sa nezapisuje. */
+async function removeClutter(directory: string): Promise<void> {
+  for (const name of await readdir(directory)) if (isClutter(name)) await unlinkFile(join(directory, name));
+}
 const RUN_ID = /^triage-[0-9]{8}-[0-9]{6}-[a-f0-9]{6}$/;
 const reserved = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
 
@@ -253,6 +259,8 @@ async function readRun(root: string, runId: string): Promise<{ plan: TriagePlan;
 export async function undoTriage(rootInput: string, runId: string, options: { trialJournalDirectory?: string; keepChanged?: boolean } = {}): Promise<TriageUndoResult> {
   const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory);
   const root = clone.root;
+  // Na mieste sa zmenený dokument ponecháva, ak volajúci nepovie výslovne inak; skúšobný klon ostáva všetko alebo nič.
+  const keepChanged = options.keepChanged ?? clone.mode === "in_place";
   const unlock = await acquireOnboardingLock(root);
   try {
     const { plan, events, eventsPath } = await readRun(root, runId);
@@ -267,27 +275,27 @@ export async function undoTriage(rootInput: string, runId: string, options: { tr
     const problems: string[] = [];
     // Pri keepChanged sa medzitým zmenený alebo presunutý dokument nevracia, len sa zapíše do súhrnu.
     const kept: string[] = [];
-    const conflict = (path: string) => { if (options.keepChanged) kept.push(path); else problems.push(path); };
+    const conflict = (path: string) => { if (keepChanged) kept.push(path); else problems.push(path); };
     for (const move of plan.moves) {
       if (!moveIntents.has(move.id) || restored.has(move.id)) continue;
       const from = await fileDigest(join(root, move.from)), to = await fileDigest(join(root, move.to));
       if (to !== null && to !== move.sha256) conflict(move.to);
-      else if (from !== null && from !== move.sha256) conflict(move.from);
+      else if (from !== null && from !== move.sha256) conflict(move.to);
       else if (from === null && to === null) conflict(move.to);
       else pending.push({ move, from, to });
     }
     const owned = new Set<string>([...pending.filter(item => item.to !== null).map(item => item.move.to.toLocaleLowerCase())]);
     const toRemove = plan.create.filter(operation => createIntents.has(operation.path) && !removed.has(operation.path));
     for (const operation of toRemove) owned.add(operation.path.toLocaleLowerCase());
-    if (!options.keepChanged) for (const operation of toRemove) {
+    if (!keepChanged) for (const operation of toRemove) {
       const state = await operationState(root, operation);
       if (state === "other") problems.push(operation.path);
       if (state === "ours" && operation.kind === "directory") {
-        for (const name of await readdir(join(root, operation.path))) if (!owned.has(`${operation.path}/${name}`.toLocaleLowerCase())) problems.push(`${operation.path}/${name}`);
+        for (const name of await readdir(join(root, operation.path))) if (!isClutter(name) && !owned.has(`${operation.path}/${name}`.toLocaleLowerCase())) problems.push(`${operation.path}/${name}`);
       }
     }
     for (const item of [...pending]) if (item.from === null && !(await lstat(dirname(join(root, item.move.from))).then(state => state.isDirectory() && !state.isSymbolicLink()).catch(() => false))) {
-      if (options.keepChanged) { kept.push(item.move.to); pending.splice(pending.indexOf(item), 1); }
+      if (keepChanged) { kept.push(item.move.to); pending.splice(pending.indexOf(item), 1); }
       else problems.push(dirname(item.move.from));
     }
     if (problems.length) throw new TriageConflictError(`Roztriedenie sa nedá vrátiť bez zásahu do zmenených súborov: ${[...new Set(problems)].slice(0, 10).join(", ")}${problems.length > 10 ? " …" : ""}`);
@@ -303,16 +311,16 @@ export async function undoTriage(rootInput: string, runId: string, options: { tr
     }
     for (const operation of [...toRemove].reverse()) {
       const full = join(root, operation.path);
-      if (options.keepChanged) {
+      if (keepChanged) {
         const state = await operationState(root, operation);
-        if (state === "other" || (state === "ours" && operation.kind === "directory" && (await readdir(full)).length > 0)) { kept.push(operation.path); continue; }
+        if (state === "other" || (state === "ours" && operation.kind === "directory" && (await readdir(full)).some(name => !isClutter(name)))) { kept.push(operation.path); continue; }
         await appendEvent(eventsPath, { t: "remove_intent", path: operation.path });
-        if (state === "ours") { if (operation.kind === "directory") await rmdir(full); else await unlinkFile(full); await durableDirectory(dirname(full)); }
+        if (state === "ours") { if (operation.kind === "directory") await removeClutter(full); if (operation.kind === "directory") await rmdir(full); else await unlinkFile(full); await durableDirectory(dirname(full)); }
       } else {
         // Pôvodné poradie bez zmeny (skúšobný klon): najprv remove_intent, potom stav.
         await appendEvent(eventsPath, { t: "remove_intent", path: operation.path });
         const state = await operationState(root, operation);
-        if (state === "ours") { if (operation.kind === "directory") await rmdir(full); else await unlinkFile(full); await durableDirectory(dirname(full)); }
+        if (state === "ours") { if (operation.kind === "directory") { await removeClutter(full); await rmdir(full); } else await unlinkFile(full); await durableDirectory(dirname(full)); }
         else if (state === "other") throw new TriageConflictError(`Zmenené počas vrátenia: ${operation.path}`);
       }
       await appendEvent(eventsPath, { t: "removed", path: operation.path });

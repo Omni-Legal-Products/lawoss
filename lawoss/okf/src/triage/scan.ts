@@ -8,7 +8,7 @@
  */
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readFile, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { realpath } from "../canonical-path.ts";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { findOfficeDir } from "../../../okf-pamat/src/store.ts";
@@ -36,11 +36,11 @@ async function readBounded(path: string, max: number): Promise<string> {
   const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const stat = await handle.stat();
-    if (!stat.isFile() || stat.size > max) throw new TrialCloneError("Značka skúšobného klona nie je obyčajný malý súbor.");
+    if (!stat.isFile() || stat.size > max) throw new TrialCloneError("Značka priečinka nie je obyčajný malý súbor.");
     const buffer = Buffer.alloc(max + 1);
     let size = 0;
     while (size < buffer.length) { const read = await handle.read(buffer, size, buffer.length - size, null); if (!read.bytesRead) break; size += read.bytesRead; }
-    if (size > max) throw new TrialCloneError("Značka skúšobného klona je príliš veľká.");
+    if (size > max) throw new TrialCloneError("Značka priečinka je príliš veľká.");
     return buffer.subarray(0, size).toString("utf8");
   } finally { await handle.close(); }
 }
@@ -60,11 +60,11 @@ export async function verifyTrialClone(rootInput: string, trialJournalDirectory?
   try { marker = JSON.parse(await readBounded(join(root, TRIAL_MARKER), 64 * 1024)); }
   catch (error) {
     if (error instanceof TrialCloneError) throw error;
-    throw new TrialCloneError(missing(error) ? "Toto nie je skúšobný klon. Dokumenty sa presúvajú len v skúšobnom klone, nikdy v origináli." : "Značka skúšobného klona je poškodená.");
+    throw new TrialCloneError(missing(error) ? "Toto nie je skúšobný klon. Dokumenty sa presúvajú len v skúšobnom klone, nikdy v origináli." : "Značka priečinka je poškodená.");
   }
   if (!record(marker) || marker.version !== 1 || marker.trial !== true || typeof marker.source !== "string" || !isAbsolute(marker.source)
     || typeof marker.sourceDigest !== "string" || !/^[a-f0-9]{64}$/.test(marker.sourceDigest) || typeof marker.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(marker.fingerprint)) {
-    throw new TrialCloneError("Značka skúšobného klona má neplatný tvar.");
+    throw new TrialCloneError("Značka priečinka má neplatný tvar.");
   }
   const source = resolve(marker.source);
   if (overlaps(source, root) || overlaps(root, source)) throw new TrialCloneError("Klon sa prekrýva so svojím originálom.");
@@ -100,8 +100,14 @@ export async function grantInPlaceReorganize(rootInput: string, now: Date = new 
   try { await writeFile(join(root, IN_PLACE_MARKER), content, { flag: "wx" }); }
   catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
-    const existing: unknown = JSON.parse(await readBounded(join(root, IN_PLACE_MARKER), 64 * 1024));
-    if (!record(existing) || existing.root !== root) throw new TrialCloneError("Súhlas s usporiadaním patrí inému priečinku. Odstráňte .lawoss/reorganize.json a potvrďte usporiadanie znova.");
+    // Značku vlastní appka: platnú pre tento priečinok ponecháme, cudziu (premenovaný alebo skopírovaný klient)
+    // či poškodenú nahradíme novým výslovným súhlasom. Zápis je atómový: dočasný súbor a premenovanie.
+    let current = false;
+    try { const existing: unknown = JSON.parse(await readBounded(join(root, IN_PLACE_MARKER), 64 * 1024)); current = record(existing) && existing.root === root; } catch { current = false; }
+    if (current) return;
+    const temporary = join(dir, `reorganize.json.${process.pid}.${Date.now()}.tmp`);
+    try { await writeFile(temporary, content, { flag: "wx" }); await rename(temporary, join(root, IN_PLACE_MARKER)); }
+    catch (failure) { await rm(temporary, { force: true }); throw failure; }
   }
 }
 
@@ -144,7 +150,7 @@ export async function scanTriage(rootInput: string, options: { trialJournalDirec
   const inspection = await inspectOnboardingRoot(clone.root, options.limits, options.hooks);
   if (!inspection.complete && !onlyLockedIssues(inspection)) {
     const issue = inspection.issues[0];
-    throw new Error(issue?.code === "symlink_not_followed" ? `Klon obsahuje symbolický odkaz (${issue.path}); roztriedenie ho nesleduje. Odstráňte ho z klona.` : `Klon sa nepodarilo prečítať celý (${issue?.code ?? "neznámy dôvod"}${issue?.path ? `: ${issue.path}` : ""}).`);
+    throw new Error(issue?.code === "symlink_not_followed" ? `Priečinok obsahuje symbolický odkaz (${issue.path}); roztriedenie ho nesleduje. Odstráňte ho z priečinka.` : `Priečinok sa nepodarilo prečítať celý (${issue?.code ?? "neznámy dôvod"}${issue?.path ? `: ${issue.path}` : ""}).`);
   }
   if (inspection.level !== "client") throw new Error("Usporiadať sa dá len priečinok klienta s kartou klienta.");
   const files = new Map(inspection.entries.filter(entry => entry.kind === "file").map(entry => [entry.path, entry]));
@@ -199,7 +205,7 @@ export async function scanTriage(rootInput: string, options: { trialJournalDirec
     documents.push({ id: `d${sha(entry.path).slice(0, 16)}`, path: entry.path, name, ext: dot > 0 ? name.slice(dot + 1).toLowerCase() : "", size: entry.size, sha256: entry.digest! });
   }
   for (const issue of inspection.issues) if (issue.code === "locked_file") skipped.push({ path: issue.path, reason: "locked" });
-  if (documents.length > MAX_TRIAGE_DOCUMENTS) throw new Error(`Klon má ${documents.length} dokumentov na roztriedenie; naraz sa dá najviac ${MAX_TRIAGE_DOCUMENTS}.`);
+  if (documents.length > MAX_TRIAGE_DOCUMENTS) throw new Error(`Priečinok má ${documents.length} dokumentov na roztriedenie; naraz sa dá najviac ${MAX_TRIAGE_DOCUMENTS}.`);
   documents.sort((a, b) => a.path.localeCompare(b.path));
   return {
     schema: INVENTORY_SCHEMA, root: clone.root, treeDigest: triageTreeDigest(inspection.entries), language, jurisdiction,

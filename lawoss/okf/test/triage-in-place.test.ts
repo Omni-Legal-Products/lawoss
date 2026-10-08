@@ -132,7 +132,7 @@ test("vrátenie s keepChanged ponechá upravený dokument a ostatné vráti", as
   await applyTriagePlan(plan);
   const changed = plan.moves[0]!;
   await writeFile(join(root, changed.to), "advokát to medzitým upravil");
-  await expect(undoTriage(root, plan.runId)).rejects.toThrow(/zmenených/);
+  await expect(undoTriage(root, plan.runId, { keepChanged: false })).rejects.toThrow(/zmenených/);
   const result = await undoTriage(root, plan.runId, { keepChanged: true });
   expect(result).toMatchObject({ status: "undone", restored: plan.moves.length - 1 });
   expect(result.kept).toContain(changed.to);
@@ -147,6 +147,94 @@ test("bez keepChanged ostáva vrátenie všetko alebo nič a nič nezmení", asy
   await applyTriagePlan(plan);
   await writeFile(join(root, plan.moves[0]!.to), "zmena");
   const before = await documentsHash(root);
-  await expect(undoTriage(root, plan.runId)).rejects.toThrow();
+  await expect(undoTriage(root, plan.runId, { keepChanged: false })).rejects.toThrow();
   expect(await documentsHash(root)).toBe(before);
+});
+
+/** Prvý priečinok, ktorý beh vytvoril (karta veci). */
+async function runCreatedDirectory(plan: { create: { kind: string; path: string }[] }): Promise<string> {
+  const created = plan.create.find(operation => operation.kind === "directory");
+  if (!created) throw new Error("Plan should create a directory.");
+  return created.path;
+}
+
+test("Finder: .DS_Store vo vytvorenom priečinku nebráni vráteniu", async () => {
+  const root = await convertedClient();
+  const before = await documentsHash(root);
+  await grantInPlaceReorganize(root, NOW);
+  const { plan } = await prepareTriage(root, { now: NOW });
+  await applyTriagePlan(plan);
+  await writeFile(join(root, await runCreatedDirectory(plan), ".DS_Store"), "x");
+  const undone = await undoTriage(root, plan.runId, { keepChanged: false });
+  expect(undone.status).toBe("undone");
+  expect(await documentsHash(root)).toBe(before);
+  await expect(readdir(join(root, await runCreatedDirectory(plan)))).rejects.toThrow();
+});
+
+test("Finder: s keepChanged sa priečinok s .DS_Store odstráni a nie je v kept", async () => {
+  const root = await convertedClient();
+  await grantInPlaceReorganize(root, NOW);
+  const { plan } = await prepareTriage(root, { now: NOW });
+  await applyTriagePlan(plan);
+  const dir = await runCreatedDirectory(plan);
+  await writeFile(join(root, dir, ".DS_Store"), "x");
+  const result = await undoTriage(root, plan.runId, { keepChanged: true });
+  expect(result.kept).not.toContain(dir);
+  await expect(readdir(join(root, dir))).rejects.toThrow();
+});
+
+test("kept ukazuje na dokument, ktorý ostal na novom mieste, nie na nový súbor na starom", async () => {
+  const root = await convertedClient();
+  await grantInPlaceReorganize(root, NOW);
+  const { plan } = await prepareTriage(root, { now: NOW });
+  await applyTriagePlan(plan);
+  const move = plan.moves[0]!;
+  await writeFile(join(root, move.from), "nový súbor na starom mieste");
+  const result = await undoTriage(root, plan.runId, { keepChanged: true });
+  expect(result.kept).toContain(move.to);
+  expect(result.kept).not.toContain(move.from);
+  await expect(readFile(join(root, move.to))).resolves.toBeDefined();
+  expect(await readFile(join(root, move.from), "utf8")).toBe("nový súbor na starom mieste");
+});
+
+test("súhlas nahradí značku patriacu inému priečinku (premenovaný klient)", async () => {
+  const root = await convertedClient();
+  await mkdir(join(root, ".lawoss"), { recursive: true });
+  await writeFile(join(root, IN_PLACE_MARKER), JSON.stringify({ version: 1, root: "/stary/nazov", grantedAt: NOW.toISOString() }));
+  await expect(verifyTriageTarget(root)).rejects.toThrow(/súhlas/);
+  await grantInPlaceReorganize(root, NOW);
+  expect(await verifyTriageTarget(root)).toEqual({ root, mode: "in_place", journalVerified: false });
+  expect((await readdir(join(root, ".lawoss"))).filter(name => name !== "reorganize.json")).toEqual([]);
+});
+
+test("súhlas nahradí poškodenú značku", async () => {
+  const root = await convertedClient();
+  await mkdir(join(root, ".lawoss"), { recursive: true });
+  await writeFile(join(root, IN_PLACE_MARKER), "{ nie json");
+  await grantInPlaceReorganize(root, NOW);
+  expect(await verifyTriageTarget(root)).toEqual({ root, mode: "in_place", journalVerified: false });
+});
+
+test("vrátenie na mieste bez voľby ponechá zmenený dokument", async () => {
+  const root = await convertedClient();
+  await grantInPlaceReorganize(root, NOW);
+  const { plan } = await prepareTriage(root, { now: NOW });
+  expect(plan.moves.length).toBeGreaterThan(1);
+  await applyTriagePlan(plan);
+  const changed = plan.moves[0]!;
+  await writeFile(join(root, changed.to), "advokát to medzitým upravil");
+  const result = await undoTriage(root, plan.runId);
+  expect(result.status).toBe("undone");
+  expect(result.kept).toContain(changed.to);
+  expect(await readFile(join(root, changed.to), "utf8")).toBe("advokát to medzitým upravil");
+});
+
+test("chyby pre priečinok na mieste nehovoria o klone", async () => {
+  const root = await convertedClient();
+  await grantInPlaceReorganize(root, NOW);
+  await symlink(join(root, LOCKED_DOCX), join(root, "odkaz.docx"));
+  await expect(scanTriage(root)).rejects.toThrow(/^(?!.*Klon)/);
+  await rm(join(root, "odkaz.docx"));
+  await writeFile(join(root, IN_PLACE_MARKER), "x".repeat(70 * 1024));
+  await expect(verifyTriageTarget(root)).rejects.toThrow(/Značka priečinka/);
 });
