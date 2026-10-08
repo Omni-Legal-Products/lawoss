@@ -64,3 +64,10 @@
 @media (prefers-reduced-motion: reduce) {
   .lw-onb-main > * { animation: none; }
 }
+
+/* Krok Priečinok: dve veľké voľby vedľa seba, na úzkom okne pod sebou. */
+.lw-onb-choices { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.lw-onb-choice { display: grid; gap: 10px; align-content: start; padding: 20px; border-radius: 16px; border: 1px solid color-mix(in srgb, var(--lw-gold) 28%, transparent); background: color-mix(in srgb, var(--lw-surface, #11161c) 86%, transparent); }
+.lw-onb-choice h3 { font-size: 1.05rem; font-weight: 600; }
+.lw-onb-choice p { color: var(--muted-foreground, #9aa4ae); font-size: 0.92rem; }
+.lw-onb-choice .lw-btn { justify-self: start; }
