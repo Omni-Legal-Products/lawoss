@@ -941,6 +941,8 @@ export function LawossWelcomePage({
       {/* Koreň appky má overflow: hidden; bez vlastnej posúvateľnej oblasti by náhľad zmien a jeho
           potvrdenie v nižšom okne neboli dosiahnuteľné (D1 na zabalenej appke). */}
       <div ref={scrollArea} className="lw-onb h-screen overflow-y-auto" data-lawoss-onboarding-scroll>
+      {/* Okno bez systémovej lišty: bez tohto pásu sa počas onboardingu nedá posunúť (rovnaký pás ako v Page). */}
+      <div aria-hidden className="fixed inset-x-0 top-0 z-20 h-10 mac:titlebar-drag" />
       <main
         className="lw-onb-main mx-auto min-h-full max-w-3xl px-6 py-12"
         data-lawoss-onboarding-step={step}
