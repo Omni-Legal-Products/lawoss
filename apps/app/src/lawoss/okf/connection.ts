@@ -1,4 +1,5 @@
 import { t } from "@/i18n";
+import { withoutLawossHome } from "../home-workspace";
 /**
  * Prístup k serveru a k workspace-om mimo session-route — rovnaký recept, aký
  * používa settings-route, len bez jej stavu. Nič z toho nie je nové API:
@@ -38,7 +39,7 @@ export async function loadOkfConnection(): Promise<OkfConnection> {
   }
   const { normalizedBaseUrl, resolvedToken, resolvedHostToken } = await resolveLegalworkConnection();
   if (!normalizedBaseUrl || !resolvedToken) {
-    return { client: null, baseUrl: "", token: "", workspaces: desktopWorkspaces, activeWorkspaceId: readActiveWorkspaceId() ?? "" };
+    return { client: null, baseUrl: "", token: "", workspaces: withoutLawossHome(desktopWorkspaces), activeWorkspaceId: readActiveWorkspaceId() ?? "" };
   }
   const client = createLegalworkServerClient({
     baseUrl: normalizedBaseUrl,
@@ -46,7 +47,7 @@ export async function loadOkfConnection(): Promise<OkfConnection> {
     hostToken: resolvedHostToken || undefined,
   });
   const list = await client.listWorkspaces();
-  const workspaces = mergeRouteWorkspaces(list.items, desktopWorkspaces);
+  const workspaces = withoutLawossHome(mergeRouteWorkspaces(list.items, desktopWorkspaces));
   const activeWorkspaceId = readActiveWorkspaceId() ?? list.activeId ?? workspaces[0]?.id ?? "";
   return { client, baseUrl: normalizedBaseUrl, token: resolvedToken, workspaces, activeWorkspaceId };
 }
