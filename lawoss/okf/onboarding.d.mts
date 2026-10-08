@@ -29,6 +29,7 @@ export interface OnboardingResult {
   status?: "applied" | "already_applied" | "rolled_back";
 }
 export function inspectOnboardingRoot(root: string): Promise<Inspection>;
+export function inspectCardLevel(root: string): Promise<{ root: string; level: Inspection["level"]; issues: { path: string; code: string }[] }>;
 /** Návrh úrovne priečinka; ide len o návrh s mierou istoty, nie o rozhodnutie (spec P4). */
 export type SuggestedLevel = "practice" | "client" | "matter" | "unknown";
 export interface SuggestedClient { path: string; name: string }

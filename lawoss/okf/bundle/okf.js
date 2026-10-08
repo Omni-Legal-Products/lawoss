@@ -78,6 +78,21 @@ var CARD_TYPES = {
   "project.md": ["project", "projekt"],
   "projekt.md": ["project", "projekt"]
 };
+var CARD_HEAD_BYTES = 64 * 1024;
+function decideCardLevel(cards, office, officeConflict) {
+  if (cards.length > 1 || cards.length > 0 && office || officeConflict)
+    return { level: "conflict", issue: "conflicting_identity" };
+  const card = cards[0];
+  if (card) {
+    const metadata = card.text === undefined ? null : parseFrontmatter(card.text);
+    const types = card.text?.match(/^type:/gm) ?? [];
+    const level = CARD_LEVELS[card.path];
+    if (!level || !metadata?.type || types.length !== 1 || !CARD_TYPES[card.path]?.includes(metadata.type))
+      return { level: "conflict", issue: "invalid_card_type" };
+    return { level };
+  }
+  return { level: office ? "office" : "unknown" };
+}
 var APP_FILE_DIRECTORIES = new Set([".opencode"]);
 var MEMORY_FILES = new Set(["MEMORY.md", "_memory.md", "_STATUS.md", "BRAIN.md", ".lawoss/memory-profile.json"]);
 var VOLATILE_ENTRY = /^(?:~\$.*|~WRL\d+\.tmp|thumbs\.db|desktop\.ini)$/i;
@@ -273,19 +288,11 @@ async function inspectOnboardingRoot(root, limits = {}, hooks = {}) {
     result.level = "conflict";
     result.issues.push({ path: "", code });
   };
-  if (cards.length > 1 || cards.length && office || officePaths.length > 1 || officePaths.some((entry) => entry.path.split("/").length > 2))
-    conflict("conflicting_identity");
-  else if (cards.length === 1) {
-    const card = cards[0];
-    const text = cardText.get(card.path);
-    const metadata = text === undefined ? null : parseFrontmatter(text);
-    const types = text?.match(/^type:/gm) ?? [];
-    if (!metadata?.type || types.length !== 1 || !CARD_TYPES[card.path]?.includes(metadata.type))
-      conflict("invalid_card_type");
-    else
-      result.level = CARD_LEVELS[card.path];
-  } else if (office)
-    result.level = "office";
+  const decision = decideCardLevel(cards.map((card) => ({ path: card.path, text: cardText.get(card.path) })), office, officePaths.length > 1 || officePaths.some((entry) => entry.path.split("/").length > 2));
+  if (decision.issue)
+    conflict(decision.issue);
+  else
+    result.level = decision.level;
   if (result.complete && result.level !== "conflict") {
     result.digest = sha(JSON.stringify(result.entries));
     result.confidence = result.level === "unknown" ? "unknown" : "confirmed";

@@ -36,6 +36,60 @@ const CARD_TYPES: Record<string, readonly string[]> = {
   "matter.md": ["matter", "spis"], "spis.md": ["matter", "spis"],
   "project.md": ["project", "projekt"], "projekt.md": ["project", "projekt"],
 };
+const OFFICE_DIR_NAMES = ["Office", "_kancelaria"] as const;
+const CARD_HEAD_BYTES = 64 * 1024;
+
+/**
+ * Jedno rozhodnutie o úrovni z kariet a kancelárie; používa ho plná inšpekcia aj plytká
+ * kontrola identity, aby pravidlá (jedna karta, platný `type:`, karta nie vedľa kancelárie) neboli dvakrát.
+ */
+export function decideCardLevel(cards: readonly { path: string; text: string | undefined }[], office: boolean, officeConflict: boolean): { level: OnboardingLevel; issue?: "conflicting_identity" | "invalid_card_type" } {
+  if (cards.length > 1 || (cards.length > 0 && office) || officeConflict) return { level: "conflict", issue: "conflicting_identity" };
+  const card = cards[0];
+  if (card) {
+    const metadata = card.text === undefined ? null : parseFrontmatter(card.text);
+    const types = card.text?.match(/^type:/gm) ?? [];
+    const level = CARD_LEVELS[card.path];
+    if (!level || !metadata?.type || types.length !== 1 || !CARD_TYPES[card.path]?.includes(metadata.type)) return { level: "conflict", issue: "invalid_card_type" };
+    return { level };
+  }
+  return { level: office ? "office" : "unknown" };
+}
+
+/** Prvých 64 KB karty bez sledovania odkazu; väčšia karta alebo iný druh súboru vráti `undefined`. */
+async function readCardHead(path: string): Promise<string | undefined> {
+  let handle;
+  try { handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW); }
+  catch { return undefined; }
+  try {
+    const state = await handle.stat();
+    if (!state.isFile() || state.size > CARD_HEAD_BYTES) return undefined;
+    const buffer = Buffer.alloc(state.size);
+    const read = await handle.read(buffer, 0, state.size, 0);
+    return buffer.subarray(0, read.bytesRead).toString("utf8");
+  } finally { await handle.close(); }
+}
+
+const isFile = (path: string) => lstat(path).then(state => state.isFile(), () => false);
+
+/**
+ * Plytká kontrola identity priečinka: len karty v koreni a `Office/okf.config`, bez prechádzania stromu.
+ * Pre potvrdenie už vybraného klienta, kancelárie či veci (profil onboardingu); veľký strom, symlink
+ * alebo zamknutý dokument v ňom identitu nemenia. Zápis (plán, apply) naďalej robí plnú inšpekciu.
+ */
+export async function inspectCardLevel(root: string): Promise<{ root: string; level: OnboardingLevel; issues: { path: string; code: string }[] }> {
+  const resolved = resolve(root);
+  try {
+    if (!isAbsolute(root) || await realpath(root) !== resolved || !(await lstat(resolved)).isDirectory()) return { root: resolved, level: "unknown", issues: [{ path: "", code: "canonical_directory_required" }] };
+  } catch { return { root: resolved, level: "unknown", issues: [{ path: "", code: "canonical_directory_required" }] }; }
+  const names = new Set(await readdir(resolved));
+  const cardNames = Object.keys(CARD_LEVELS).filter(name => names.has(name));
+  const cards = await Promise.all(cardNames.map(async path => ({ path, text: await readCardHead(join(resolved, path)) })));
+  const directOffice = OFFICE_DIR_NAMES.some(name => basename(resolved) === name) && names.has("okf.config") && await isFile(join(resolved, "okf.config"));
+  const nestedOffices = (await Promise.all(OFFICE_DIR_NAMES.map(name => isFile(join(resolved, name, "okf.config"))))).filter(Boolean).length;
+  const decision = decideCardLevel(cards, directOffice || nestedOffices > 0, nestedOffices > 1);
+  return { root: resolved, level: decision.level, issues: decision.issue ? [{ path: "", code: decision.issue }] : [] };
+}
 /**
  * Súbory appky v otvorenom priečinku (OpenCode, jeho skilly a node_modules so symlinkami v `.bin`).
  * Mení ich engine, nie advokát, takže nepatria do identity klienta ani veci; bez tohto pravidla
@@ -191,15 +245,13 @@ export async function inspectOnboardingRoot(root: string, limits: InspectionLimi
   const directOffice = ["Office", "_kancelaria"].includes(basename(result.root)) && result.entries.some(entry => entry.path === "okf.config" && entry.kind === "file");
   const office = directOffice || officePaths.some(entry => ["Office/okf.config", "_kancelaria/okf.config"].includes(entry.path));
   const conflict = (code: string) => { result.level = "conflict"; result.issues.push({ path: "", code }); };
-  if (cards.length > 1 || cards.length && office || officePaths.length > 1 || officePaths.some(entry => entry.path.split("/").length > 2)) conflict("conflicting_identity");
-  else if (cards.length === 1) {
-    const card = cards[0]!;
-    const text = cardText.get(card.path);
-    const metadata = text === undefined ? null : parseFrontmatter(text);
-    const types = text?.match(/^type:/gm) ?? [];
-    if (!metadata?.type || types.length !== 1 || !CARD_TYPES[card.path]?.includes(metadata.type)) conflict("invalid_card_type");
-    else result.level = CARD_LEVELS[card.path]!;
-  } else if (office) result.level = "office";
+  const decision = decideCardLevel(
+    cards.map(card => ({ path: card.path, text: cardText.get(card.path) })),
+    office,
+    officePaths.length > 1 || officePaths.some(entry => entry.path.split("/").length > 2),
+  );
+  if (decision.issue) conflict(decision.issue);
+  else result.level = decision.level;
   if (result.complete && result.level !== "conflict") {
     result.digest = sha(JSON.stringify(result.entries));
     result.confidence = result.level === "unknown" ? "unknown" : "confirmed";
