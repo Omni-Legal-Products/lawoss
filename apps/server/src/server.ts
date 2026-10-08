@@ -120,12 +120,14 @@ import { startWeeklyMarketplaceCheck } from "./lawoss/marketplace-updates.js";
 import {
   applyGlobalToolPermissions,
   GLOBAL_PERSONALIZATION_ID,
+  GLOBAL_PROVIDERS_ID,
   GLOBAL_TOOL_PERMISSIONS_ID,
   isPersonality,
   MAX_CUSTOM_INSTRUCTIONS_LENGTH,
   mergeOpencodeConfigs,
   mergeRuntimeProviderPatch,
   readGlobalPersonalizationSettings,
+  readGlobalProviderMap,
   readGlobalToolPermissions,
   readRuntimeOpencodeConfig,
   GLOBAL_MCP_ID,
@@ -1795,10 +1797,15 @@ function createRoutes(
     );
     // Tool permissions come from the global row; the workspace row only
     // contributes external_directory (see applyGlobalToolPermissions).
+    // LAWOSS: globálni vlastní poskytovatelia (GLOBAL_PROVIDERS_ID); riadok priečinka má prednosť.
+    const workspaceRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
+    const globalProviders = await readGlobalProviderMap(config);
     const opencode = mergeOpencodeConfigs(
       await readOpencodeConfig(workspaceAppFilesRoot(config, workspace)),
       applyGlobalToolPermissions(
-        await readRuntimeOpencodeConfig(config, workspace.id),
+        Object.keys(globalProviders).length
+          ? { ...workspaceRuntime, provider: { ...globalProviders, ...(workspaceRuntime.provider ?? {}) } }
+          : workspaceRuntime,
         await readGlobalToolPermissions(config),
       ),
     );
@@ -3599,13 +3606,20 @@ function createRoutes(
 
       const providerUpdate = ensurePlainObject(provider);
       if (Object.keys(providerUpdate).length) {
-        const currentRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
-        // A `null` value in the patch removes that provider (see
-        // mergeRuntimeProviderPatch) so a client can fully disconnect it.
-        logicalUpdates.provider = mergeRuntimeProviderPatch(
-          ensurePlainObject(currentRuntime.provider),
-          providerUpdate,
-        );
+        // LAWOSS: vlastní poskytovatelia sú globálni (GLOBAL_PROVIDERS_ID). `null` odstráni
+        // poskytovateľa z globálneho riadku aj zo starého riadku priečinka.
+        const globalRuntime = await readRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID);
+        const nextGlobal = mergeRuntimeProviderPatch(ensurePlainObject(globalRuntime.provider), providerUpdate);
+        await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, (current) => ({
+          ...current,
+          provider: Object.keys(nextGlobal).length ? nextGlobal : undefined,
+        }));
+        const removals = Object.fromEntries(Object.entries(providerUpdate).filter(([, value]) => value === null));
+        if (Object.keys(removals).length) {
+          const currentRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
+          const nextLocal = mergeRuntimeProviderPatch(ensurePlainObject(currentRuntime.provider), removals);
+          logicalUpdates.provider = Object.keys(nextLocal).length ? nextLocal : undefined;
+        }
       }
 
       const agentUpdate = ensurePlainObject(agent);
