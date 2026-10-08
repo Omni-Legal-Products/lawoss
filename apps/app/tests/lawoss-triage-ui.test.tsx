@@ -92,9 +92,20 @@ test("po vrátení na mieste sa ukážu ponechané dokumenty", () => {
 
 test("kľúče pre priečinok na mieste existujú vo všetkých jazykoch", () => {
   for (const locale of ["sk", "cs", "en", "de"] as const) {
-    for (const key of ["undo_restored", "undo_kept", "not_reorganizable", "in_place_title", "organize_okf"]) {
+    for (const key of ["undo_restored", "undo_kept", "not_reorganizable", "in_place_title", "organize_okf", "confirm_note_in_place", "nothing_in_place", "undo_question_in_place", "model_privacy_in_place"]) {
       expect(t(`lawoss.triage.${key}`, locale, { count: 3 })).not.toBe(`lawoss.triage.${key}`);
     }
     expect(t("lawoss.triage.undo_restored", locale, { count: 3 })).toContain("3");
   }
+});
+
+test("priečinok na mieste nehovorí o klone", () => {
+  const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.triage.${key}`, "sk", params);
+  const out = html(<TriagePreviewView preview={preview} text={text} busy={false} inPlace onKeep={() => {}} onConfirm={() => {}} onModel={() => {}} />);
+  expect(out).toContain("Dokumenty sa presunú priamo vo vašom priečinku. Presun sa dá vrátiť na stránke Roztriedenie.");
+  expect(out).not.toMatch(/klon/i);
+  const empty = html(<TriagePreviewView preview={{ ...preview, documents: 0, moves: [] }} text={text} busy={false} inPlace onKeep={() => {}} onConfirm={() => {}} onModel={() => {}} />);
+  expect(empty).toContain("V priečinku nie je čo usporiadať.");
+  expect(t("lawoss.triage.undo_question_in_place", "cs")).toBe("Vrátit dokumenty na původní místa? Dokumenty, které jste mezitím změnili, zůstanou na novém místě.");
+  expect(t("lawoss.triage.model_privacy_in_place", "sk")).toBe("Model uvidí názvy a obsah dokumentov tohto klienta.");
 });

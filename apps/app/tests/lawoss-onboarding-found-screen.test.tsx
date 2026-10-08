@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { BatchView, FoundView } from "../src/lawoss/domains/onboarding/found-screen";
+import { BatchView, FoundView, ReorganizeView } from "../src/lawoss/domains/onboarding/found-screen";
+import { t } from "../src/i18n";
+import type { TriagePreview } from "../src/lawoss/domains/roztriedenie/api";
 import { foundText } from "../src/lawoss/domains/onboarding/found-text";
 import type { OnboardingSuggestion } from "../src/lawoss/domains/onboarding/api";
 
@@ -64,4 +66,18 @@ describe("Toto som našiel", () => {
     expect(html).toContain("Ďalší klient");
     expect(html).not.toContain("Otvoriť v LAWOSS");
   });
+});
+
+test("usporiadanie v onboardingu má štýly roztriedenia a hovorí o priečinku, nie o klone", () => {
+  const preview: TriagePreview = {
+    id: "00000000-0000-4000-8000-000000000000", fingerprint: "a".repeat(64), runId: "triage-20261008-100000-abcdef", root: "/p/Novák", language: "sk",
+    documents: 1, keepInInbox: [], classification: { used: false, documents: 0 }, matters: [],
+    moves: [{ id: "d0000000000000001", from: "odpoved.eml", to: "05_Komunikacia/odpoved.eml", size: 1, role: "correspondence", source: "rules", confidence: "high", rule: "email_file", matched: ".eml" }],
+    stays: [], newFolders: 1,
+  };
+  const html = renderToStaticMarkup(<ReorganizeView text={foundText("sk")} triageText={(key, params) => t(`lawoss.triage.${key}`, "sk", params)} busy={false} name="Novák" preview={preview} more={false} onKeep={() => undefined} onConfirm={() => undefined} onSkip={() => undefined} />);
+  expect(html).toMatch(/<div class="lw-triage[ "]/);
+  expect(html).toContain("Usporiadanie: Novák");
+  expect(html).toContain("Dokumenty sa presunú priamo vo vašom priečinku.");
+  expect(html).toContain("Dokončiť");
 });

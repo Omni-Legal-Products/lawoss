@@ -127,6 +127,26 @@ export function BatchView({ text, busy, items, answer, onRetry, onContinue }: { 
   );
 }
 
+type ReorganizeProps = {
+  text: Text; triageText: (key: string, params?: Record<string, string | number>) => string; busy: boolean;
+  name: string; preview: TriagePreview; more: boolean;
+  onKeep: (id: string, keep: boolean) => void; onConfirm: () => void; onSkip: () => void;
+};
+
+/**
+ * Náhľad presunov jedného klienta (priečinok na mieste). Obal `lw-triage` nesie premenné a panely
+ * roztriedenia; bez neho je tlačidlo potvrdenia v onboardingu takmer neviditeľné.
+ */
+export function ReorganizeView({ text, triageText, busy, name, preview, more, onKeep, onConfirm, onSkip }: ReorganizeProps) {
+  return (
+    <div className="lw-triage lw-triage-embedded" data-lawoss-reorganize>
+      <h2 className="text-xl font-semibold">{text("reorganizeFor", { name })}</h2>
+      <TriagePreviewView preview={preview} text={triageText} busy={busy} inPlace onKeep={onKeep} onConfirm={onConfirm} onModel={() => undefined} />
+      <div><button type="button" className="lw-btn" disabled={busy} onClick={onSkip}>{more ? text("skipClient") : text("finish")}</button></div>
+    </div>
+  );
+}
+
 type Props = {
   api: Pick<OnboardingApi, "planOnboarding" | "applyOnboarding" | "updateOnboardingProfile" | "suggestOnboarding">;
   triage: TriageClient;
@@ -256,18 +276,14 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
   }
   const [current, ...rest] = phase.queue;
   return (
-    <div className="grid gap-3" data-lawoss-reorganize>
-      <h2 className="text-xl font-semibold">{text("reorganizeFor", { name: current?.name ?? "" })}</h2>
-      <TriagePreviewView
-        preview={phase.preview} text={triageText} busy={busy}
-        onKeep={(id, keep) => void run(async () => {
-          const keepInInbox = keep ? [...phase.preview.keepInInbox, id] : phase.preview.keepInInbox.filter(item => item !== id);
-          setPhase({ ...phase, preview: await triageReplan(triage, phase.preview.id, keepInInbox) });
-        })}
-        onConfirm={() => void run(async () => { await triageApply(triage, phase.preview); await nextReorganize(rest, phase.result); })}
-        onModel={() => undefined}
-      />
-      <div><button type="button" className="lw-btn" disabled={busy} onClick={() => void run(() => nextReorganize(rest, phase.result))}>{rest.length ? text("skipClient") : text("finish")}</button></div>
-    </div>
+    <ReorganizeView
+      text={text} triageText={triageText} busy={busy} name={current?.name ?? ""} preview={phase.preview} more={rest.length > 0}
+      onKeep={(id, keep) => void run(async () => {
+        const keepInInbox = keep ? [...phase.preview.keepInInbox, id] : phase.preview.keepInInbox.filter(item => item !== id);
+        setPhase({ ...phase, preview: await triageReplan(triage, phase.preview.id, keepInInbox) });
+      })}
+      onConfirm={() => void run(async () => { await triageApply(triage, phase.preview); await nextReorganize(rest, phase.result); })}
+      onSkip={() => void run(() => nextReorganize(rest, phase.result))}
+    />
   );
 }

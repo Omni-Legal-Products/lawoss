@@ -27,6 +27,9 @@
   background: radial-gradient(560px 230px at 84% 0%, color-mix(in srgb, var(--td-gold) 20%, transparent), transparent 70%), radial-gradient(380px 160px at 10% 12%, color-mix(in srgb, var(--td-gold) 7%, transparent), transparent 70%);
   filter: blur(4px);
 }
+/* Usporiadanie vnútri onboardingu: premenné a panely ako na stránke, bez okrajov a žiary stránky. */
+.lw-triage.lw-triage-embedded { max-width: none; margin: 0; padding: 0; }
+.lw-triage.lw-triage-embedded::before { display: none; }
 .lw-triage > * { position: relative; animation: lw-okf-rise 620ms var(--td-ease) both; animation-delay: calc(var(--lw-i, 0) * 60ms); }
 
 .lw-triage-hero { padding: 20px 4px 4px; }
@@ -137,3 +140,5 @@ td.lw-triage-path { display: table-cell; max-width: 180px; }
 @container (max-width: 760px) { .lw-triage-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .lw-triage-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .lw-triage-bar { border-radius: 18px; flex-direction: column; align-items: stretch; } }
 @media (prefers-reduced-motion: reduce) { .lw-triage > * { animation: none; } }
+/* Nadpis klienta v onboardingu ostáva ako nadpisy panela onboardingu (.lw-onb-panel h2). */
+.lw-triage.lw-triage-embedded > h2 { margin: 0; font-size: 18px; letter-spacing: -0.01em; }
