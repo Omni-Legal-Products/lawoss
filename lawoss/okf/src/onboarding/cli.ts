@@ -3,11 +3,12 @@ import { lstat, open } from "node:fs/promises";
 import { realpath } from "../canonical-path.ts";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { inspectOnboardingRoot } from "./classify.ts";
+import { suggestOnboardingLevel } from "./suggest.ts";
 import { planClientConversion, type ClientConversionInput } from "./plan.ts";
 import { applyOnboardingPlan, parseOnboardingPlan, recoverOnboardingPlan } from "./transaction.ts";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding, recoverOnboarding, type OnboardingPreview, type OnboardingRequest } from "./onboarding.ts";
 
-const usage = "okf onboard classify <dir> | plan <dir> --title NAME --client-type po|fo|fo-podnikatel|iny --language sk|cs|en --jurisdiction sk|cz --date YYYY-MM-DD [--confirm-client] [--out FILE] | request --request FILE [--out FILE] | create --request FILE --journal DIR --external-profile DIR --confirm | apply --plan FILE --journal DIR --confirm | recover --plan FILE --journal DIR --action finish|rollback --confirm";
+const usage = "okf onboard classify <dir> | suggest <dir> | plan <dir> --title NAME --client-type po|fo|fo-podnikatel|iny --language sk|cs|en --jurisdiction sk|cz --date YYYY-MM-DD [--confirm-client] [--out FILE] | request --request FILE [--out FILE] | create --request FILE --journal DIR --external-profile DIR --confirm | apply --plan FILE --journal DIR --confirm | recover --plan FILE --journal DIR --action finish|rollback --confirm";
 const maxPlanBytes = 4 * 1024 * 1024;
 function parse(argv: string[]) {
   const args: string[] = [], flags = new Map<string, string | true>();
@@ -101,6 +102,12 @@ export async function runOnboarding(argv: string[], out: (line: string) => void 
       const result = await inspectOnboardingRoot(args[1]!);
       out(JSON.stringify(result, null, 2));
       return result.complete && result.level !== "conflict" ? 0 : 1;
+    }
+    if (command === "suggest") {
+      only(flags, ["--json"]);
+      if (args.length !== 2) throw new Error(usage);
+      out(JSON.stringify(await suggestOnboardingLevel(args[1]!), null, 2));
+      return 0;
     }
     if (command === "plan") {
       only(flags, ["--title", "--client-type", "--language", "--jurisdiction", "--date", "--confirm-client", "--out", "--json"]);

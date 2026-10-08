@@ -10,7 +10,7 @@ export interface Inspection {
   ignored?: string[];
 }
 export interface OnboardingPreview {
-  action: "office" | "client" | "subject" | "matter" | "existing";
+  action: "office" | "practice" | "client" | "subject" | "matter" | "existing";
   mode: "new" | "map" | "trial_clone";
   appFiles: "inside" | "outside";
   root?: string;
@@ -29,6 +29,22 @@ export interface OnboardingResult {
   status?: "applied" | "already_applied" | "rolled_back";
 }
 export function inspectOnboardingRoot(root: string): Promise<Inspection>;
+/** Návrh úrovne priečinka; ide len o návrh s mierou istoty, nie o rozhodnutie (spec P4). */
+export type SuggestedLevel = "practice" | "client" | "matter" | "unknown";
+export interface SuggestedClient { path: string; name: string }
+export interface OnboardingSuggestion {
+  root: string;
+  level: SuggestedLevel;
+  marked: boolean;
+  score: number;
+  signals: string[];
+  clientPattern?: string;
+  clients: SuggestedClient[];
+  complete: boolean;
+}
+export function suggestOnboardingLevel(root: string): Promise<OnboardingSuggestion>;
+export function grantInPlaceReorganize(root: string, now?: Date): Promise<void>;
+export function verifyTriageTarget(root: string, trialJournalDirectory?: string): Promise<{ root: string; mode: "trial" | "in_place"; journalVerified: boolean }>;
 export function previewOnboarding(input: unknown): Promise<OnboardingPreview>;
 export function executeOnboarding(preview: OnboardingPreview, options: { journalDirectory: string; externalProfileDirectory: string }): Promise<OnboardingResult>;
 export function recoverOnboardingOperation(preview: OnboardingPreview, options: { journalDirectory: string; externalProfileDirectory: string }, action: "finish" | "rollback"): Promise<OnboardingResult>;

@@ -32,7 +32,7 @@ const profileSchema = z.strictObject({
 });
 type Profile = z.infer<typeof profileSchema>;
 const previewSchema = z.looseObject({
-  action: z.enum(["office", "client", "subject", "matter", "existing"]),
+  action: z.enum(["office", "practice", "client", "subject", "matter", "existing"]),
   mode: z.enum(["new", "map", "trial_clone"]), appFiles: z.enum(["inside", "outside"]),
   root: z.string().min(1).optional(), target: z.string().min(1).optional(),
   clientRoot: z.string().min(1).optional(), officeMemoryRoot: z.string().min(1).optional(),
