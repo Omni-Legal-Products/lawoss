@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, open, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inspectOnboardingRoot } from "../src/onboarding/classify.ts";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
-import { applyTriagePlan, grantInPlaceReorganize, IN_PLACE_MARKER, prepareTriage, TrialCloneError, undoTriage, verifyTriageTarget } from "../src/triage/index.ts";
+import { applyTriagePlan, grantInPlaceReorganize, IN_PLACE_MARKER, prepareTriage, scanTriage, TrialCloneError, undoTriage, verifyTriageTarget } from "../src/triage/index.ts";
 import { TRIAGE_FIXTURE, writeTriageFixture } from "./fixtures/triage-client.ts";
 
 setDefaultTimeout(30_000);
@@ -65,4 +65,20 @@ test("usporiadanie na mieste a jeho úplné vrátenie", async () => {
   expect(undone.status).toBe("undone");
   expect(await documentsHash(root)).toBe(before);
   expect(await readdir(join(root, ".lawoss"))).toContain("reorganize.json");
+});
+
+test("zamknutý súbor sa preskočí a nahlási, ostatné sa usporiadajú", async () => {
+  const root = await convertedClient();
+  await grantInPlaceReorganize(root, NOW);
+  const locked = Object.keys(TRIAGE_FIXTURE).find(path => path.endsWith(".docx"));
+  if (!locked) throw new Error("Fixture needs a .docx document.");
+  const hooks = {
+    open: (async (path: Parameters<typeof open>[0], flags?: string | number) => {
+      if (String(path).endsWith(locked)) throw Object.assign(new Error("busy"), { code: "EBUSY" });
+      return open(path, flags);
+    }) as typeof open,
+  };
+  const inventory = await scanTriage(root, { hooks });
+  expect(inventory.skipped).toContainEqual({ path: locked, reason: "locked" });
+  expect(inventory.documents.some(document => document.path === locked)).toBe(false);
 });

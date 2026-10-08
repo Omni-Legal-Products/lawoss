@@ -3844,10 +3844,11 @@ async function readSmall(root, path) {
     throw error;
   }
 }
+var onlyLockedIssues = (inspection) => inspection.issues.length > 0 && inspection.issues.every((issue) => issue.code === "locked_file");
 async function scanTriage(rootInput, options = {}) {
   const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory);
-  const inspection = await inspectOnboardingRoot(clone.root, options.limits);
-  if (!inspection.complete) {
+  const inspection = await inspectOnboardingRoot(clone.root, options.limits, options.hooks);
+  if (!inspection.complete && !onlyLockedIssues(inspection)) {
     const issue = inspection.issues[0];
     throw new Error(issue?.code === "symlink_not_followed" ? `Klon obsahuje symbolický odkaz (${issue.path}); roztriedenie ho nesleduje. Odstráňte ho z klona.` : `Klon sa nepodarilo prečítať celý (${issue?.code ?? "neznámy dôvod"}${issue?.path ? `: ${issue.path}` : ""}).`);
   }
@@ -3904,6 +3905,9 @@ async function scanTriage(rootInput, options = {}) {
     const dot = name.lastIndexOf(".");
     documents.push({ id: `d${sha3(entry.path).slice(0, 16)}`, path: entry.path, name, ext: dot > 0 ? name.slice(dot + 1).toLowerCase() : "", size: entry.size, sha256: entry.digest });
   }
+  for (const issue of inspection.issues)
+    if (issue.code === "locked_file")
+      skipped.push({ path: issue.path, reason: "locked" });
   if (documents.length > MAX_TRIAGE_DOCUMENTS)
     throw new Error(`Klon má ${documents.length} dokumentov na roztriedenie; naraz sa dá najviac ${MAX_TRIAGE_DOCUMENTS}.`);
   documents.sort((a, b) => a.path.localeCompare(b.path));
@@ -4543,8 +4547,8 @@ async function applyTriagePlan(input, options = {}) {
       }
     } else {
       const inspection = await inspectOnboardingRoot(root);
-      if (!inspection.complete || triageTreeDigest(inspection.entries) !== plan.treeDigest)
-        throw new TriageConflictError("Klon sa od náhľadu zmenil. Pripravte nový náhľad.");
+      if (!inspection.complete && !onlyLockedIssues(inspection) || triageTreeDigest(inspection.entries) !== plan.treeDigest)
+        throw new TriageConflictError("Priečinok sa od náhľadu zmenil. Pripravte nový náhľad.");
       const paths = new Map(inspection.entries.map((entry) => [entry.path.toLocaleLowerCase(), entry]));
       const plannedDirectories = new Set(plan.create.filter((operation) => operation.kind === "directory").map((operation) => operation.path.toLocaleLowerCase()));
       for (const operation of plan.create)

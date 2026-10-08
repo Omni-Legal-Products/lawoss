@@ -16,7 +16,7 @@ import { decodeText } from "../../../okf-pamat/src/text-decode.ts";
 import { parseFrontmatter } from "../frontmatter.ts";
 import { resolveDocumentLanguage } from "../language.ts";
 import { parseOfficeWorkingProfile, parseWorkingProfile, PROFILE_FILE, workingProfile } from "../profile.ts";
-import { inspectOnboardingRoot, type InspectionLimits, type TreeEntry } from "../onboarding/classify.ts";
+import { inspectOnboardingRoot, type InspectionHooks, type InspectionLimits, type OnboardingInspection, type TreeEntry } from "../onboarding/classify.ts";
 import { findCaseNumber } from "./rules.ts";
 import { INVENTORY_SCHEMA, type ExistingMatter, type SkipReason, type TriageDocument, type TriageInventory } from "./types.ts";
 
@@ -131,14 +131,18 @@ async function readSmall(root: string, path: string): Promise<string | undefined
   try { return await readBounded(join(root, path), 1024 * 1024); } catch (error) { if (missing(error)) return undefined; throw error; }
 }
 
+/** Neúplná inšpekcia len kvôli zamknutým súborom (Word, Outlook): tie sa preskočia, zvyšok sa dá usporiadať. */
+export const onlyLockedIssues = (inspection: OnboardingInspection): boolean =>
+  inspection.issues.length > 0 && inspection.issues.every(issue => issue.code === "locked_file");
+
 /**
  * Inventár dokumentov, ktoré má zmysel roztriediť: všetko mimo systémových súborov, pamäte,
  * existujúcich vecí a už zaradených pracovných priečinkov. Súbory v priečinku na zatriedenie sa triedia.
  */
-export async function scanTriage(rootInput: string, options: { trialJournalDirectory?: string; limits?: InspectionLimits; jurisdiction?: "sk" | "cz" } = {}): Promise<TriageInventory> {
+export async function scanTriage(rootInput: string, options: { trialJournalDirectory?: string; limits?: InspectionLimits; jurisdiction?: "sk" | "cz"; hooks?: InspectionHooks } = {}): Promise<TriageInventory> {
   const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory);
-  const inspection = await inspectOnboardingRoot(clone.root, options.limits);
-  if (!inspection.complete) {
+  const inspection = await inspectOnboardingRoot(clone.root, options.limits, options.hooks);
+  if (!inspection.complete && !onlyLockedIssues(inspection)) {
     const issue = inspection.issues[0];
     throw new Error(issue?.code === "symlink_not_followed" ? `Klon obsahuje symbolický odkaz (${issue.path}); roztriedenie ho nesleduje. Odstráňte ho z klona.` : `Klon sa nepodarilo prečítať celý (${issue?.code ?? "neznámy dôvod"}${issue?.path ? `: ${issue.path}` : ""}).`);
   }
@@ -194,6 +198,7 @@ export async function scanTriage(rootInput: string, options: { trialJournalDirec
     const dot = name.lastIndexOf(".");
     documents.push({ id: `d${sha(entry.path).slice(0, 16)}`, path: entry.path, name, ext: dot > 0 ? name.slice(dot + 1).toLowerCase() : "", size: entry.size, sha256: entry.digest! });
   }
+  for (const issue of inspection.issues) if (issue.code === "locked_file") skipped.push({ path: issue.path, reason: "locked" });
   if (documents.length > MAX_TRIAGE_DOCUMENTS) throw new Error(`Klon má ${documents.length} dokumentov na roztriedenie; naraz sa dá najviac ${MAX_TRIAGE_DOCUMENTS}.`);
   documents.sort((a, b) => a.path.localeCompare(b.path));
   return {
