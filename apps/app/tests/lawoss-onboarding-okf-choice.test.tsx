@@ -58,7 +58,12 @@ describe("OKF choice step", () => {
 
   test("the welcome flow scrolls inside its own area because the app root does not scroll", () => {
     const html = renderToStaticMarkup(<MemoryRouter><LawossWelcomePage api={api} initialStep="okf" pickDirectory={async () => null} onOpenAiSettings={() => {}} onComplete={() => {}} /></MemoryRouter>);
-    expect(html).toMatch(/<div class="lw-onb h-screen overflow-y-auto" data-lawoss-onboarding-scroll="true"><main/);
+    expect(html).toMatch(/<div class="lw-onb h-screen overflow-y-auto" data-lawoss-onboarding-scroll="true">(?:<div [^>]*><\/div>)?<main/);
+  });
+
+  test("the welcome flow has a titlebar strip so the frameless window can be dragged", () => {
+    const html = renderToStaticMarkup(<MemoryRouter><LawossWelcomePage api={api} initialStep="okf" pickDirectory={async () => null} onOpenAiSettings={() => {}} onComplete={() => {}} /></MemoryRouter>);
+    expect(html).toMatch(/<div aria-hidden="true" class="fixed inset-x-0 top-0 z-20 h-10 mac:titlebar-drag"><\/div>/);
   });
 
   test("the client step suggests the Klienti folder created next to the office", () => {
