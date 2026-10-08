@@ -16,6 +16,7 @@ import { applyTriagePlan, grantInPlaceReorganize, listTriageRuns, parseClassific
 type Ticket = { version: 1; id: string; root: string; inventory: TriageInventory; classification?: TriageClassification; keepInInbox: string[]; plan: TriagePlan };
 const rootSchema = z.string().min(1).max(4096).refine(isAbsolute, "Absolute path required.");
 const missing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
+const UNAVAILABLE_ROOT = new Set(["ENOTDIR", "EACCES", "ENOENT"]);
 
 async function writeNew(path: string, value: unknown): Promise<void> {
   const file = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
@@ -82,7 +83,10 @@ export function registerTriageRoutes(options: {
       const target = await verifyTriageTarget(root, trialJournalDirectory);
       return { trial: true, mode: target.mode, root: target.root, runs: await listTriageRuns(target.root) };
     } catch (error) {
-      if (error && typeof error === "object" && "code" in error && error.code === "not_trial_clone") return { trial: false, reason: error instanceof Error ? error.message : "", runs: [] };
+      const code = error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : "";
+      if (code === "not_trial_clone") return { trial: false, reason: error instanceof Error ? error.message : "", runs: [] };
+      // Cesta k súboru, nečitateľný alebo chýbajúci priečinok: roztriedenie tu nie je, nie chyba požiadavky.
+      if (UNAVAILABLE_ROOT.has(code)) return { trial: false, reason: "Priečinok neexistuje alebo sa nedá prečítať.", runs: [] };
       throw error;
     }
   });
