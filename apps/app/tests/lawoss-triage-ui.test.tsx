@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import type { ReactElement } from "react";
 import { t } from "../src/i18n";
 import { ClientsView } from "../src/lawoss/lite/pages/clients-page";
-import { TriagePreviewView } from "../src/lawoss/domains/roztriedenie/triage-page";
+import { TriagePreviewView, TriageUndoSummary } from "../src/lawoss/domains/roztriedenie/triage-page";
 import { triageApply, triageGrant, triageLink, triagePlan, triageReplan, triageUndo, type TriageApiPath, type TriageClient, type TriagePreview } from "../src/lawoss/domains/roztriedenie/api";
 import { LAWOSS_ROUTES } from "../src/lawoss/shell/routes";
 
@@ -82,4 +82,19 @@ test("grant posiela root a potvrdenie", async () => {
   const client: TriageClient = { lawossTriage: async <T,>(path: TriageApiPath, body: unknown): Promise<T> => { calls.push({ path, body }); return { granted: true, root: "/k" } as T; } };
   expect(await triageGrant(client, "/k")).toEqual({ granted: true, root: "/k" });
   expect(calls).toEqual([{ path: "grant", body: { root: "/k", confirm: true } }]);
+});
+
+test("po vrátení na mieste sa ukážu ponechané dokumenty", () => {
+  const out = html(<TriageUndoSummary text={(key, params) => `${key}${params ? JSON.stringify(params) : ""}`} result={{ status: "undone", runId: "triage-20261008-100000-abcdef", restored: 3, removed: 2, kept: ["05_Komunikacia/odpoved.eml"] }} />);
+  expect(out).toContain("undo_restored{&quot;count&quot;:3}");
+  expect(out).toContain("05_Komunikacia/odpoved.eml");
+});
+
+test("kľúče pre priečinok na mieste existujú vo všetkých jazykoch", () => {
+  for (const locale of ["sk", "cs", "en", "de"] as const) {
+    for (const key of ["undo_restored", "undo_kept", "not_reorganizable", "in_place_title"]) {
+      expect(t(`lawoss.triage.${key}`, locale, { count: 3 })).not.toBe(`lawoss.triage.${key}`);
+    }
+    expect(t("lawoss.triage.undo_restored", locale, { count: 3 })).toContain("3");
+  }
 });

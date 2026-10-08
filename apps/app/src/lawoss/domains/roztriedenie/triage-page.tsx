@@ -10,12 +10,12 @@ import { LawossLayout } from "../../shell/layout";
 import { useOkfConnection } from "../../okf/read-model";
 import { openSessionWithPrompt, type OkfConnection } from "../../okf/connection";
 import { AI_SETTINGS_PATH, useMatterModelGap } from "../../lite/matter-model";
-import { LITE_CLIENTS_PATH } from "../../lite/links";
+import { LITE_CLIENTS_PATH, organizeFolderLink } from "../../lite/links";
 import { installMissingOnboardingSkills } from "../onboarding/install-pack";
 import { ensureSkillAvailable, workspaceSkillEngine } from "../../okf/skill-availability";
 
 const ROZTRIED_SPIS_SKILL = "roztried-spis";
-import { triageApply, triagePlan, triageReplan, triageStatus, triageUndo, type TriageClient, type TriageMoveView, type TriagePreview, type TriageRun, type TriageStatus } from "./api";
+import { triageApply, triagePlan, triageReplan, triageStatus, triageUndo, type TriageClient, type TriageMoveView, type TriagePreview, type TriageRun, type TriageStatus, type TriageUndoResult } from "./api";
 import { OFFICE_CONFIG_ENCODING_CODE } from "../../../../../../lawoss/okf/src/profile";
 import "../../lite/pages/okf-glass.css";
 import "./triage.css";
@@ -72,20 +72,36 @@ export function TriagePage() {
   );
 }
 
-function TriageEmpty({ text, message, create = false }: { text: Text; message: string; create?: boolean }) {
+function TriageEmpty({ text, message, create = false, organizeRoot }: { text: Text; message: string; create?: boolean; organizeRoot?: string }) {
   return (
     <section className="lw-triage-panel lw-triage-empty" style={reveal(1)}>
       <FolderTree aria-hidden size={28} />
       <p>{message}</p>
       <div className="lw-triage-row">
         {create ? <Link className="lw-today-primary" to="/welcome?continue=client">{text("create_trial")}</Link> : null}
+        {organizeRoot ? <Link className="lw-btn gold" to={organizeFolderLink(organizeRoot)}>{text("organize_okf")}</Link> : null}
         <Link className="lw-triage-ghost" to={LITE_CLIENTS_PATH}>{text("back")}</Link>
       </div>
     </section>
   );
 }
 
-type Phase = { kind: "idle" } | { kind: "busy"; label: string } | { kind: "applied"; runId: string; moved: number } | { kind: "undone" };
+/** Súhrn vrátenia: koľko sa vrátilo a ktoré dokumenty ostali, lebo ich advokát medzitým zmenil (spec). */
+export function TriageUndoSummary({ text, result }: { text: Text; result: TriageUndoResult }) {
+  return (
+    <div className="grid gap-1" role="status">
+      <p>{text("undo_restored", { count: result.restored })}</p>
+      {result.kept.length ? (
+        <>
+          <p>{text("undo_kept")}</p>
+          <ul className="list-disc pl-5">{result.kept.map((path) => <li key={path}>{path}</li>)}</ul>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+type Phase = { kind: "idle" } | { kind: "busy"; label: string } | { kind: "applied"; runId: string; moved: number } | { kind: "undone"; result: TriageUndoResult };
 
 function TriageFlow({ root, connection, locale }: { root: string; connection: OkfConnection; locale: Language }) {
   const text = useTriageText(locale);
@@ -137,16 +153,17 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
     if (!client) return;
     setAskUndo(null);
     const result = await run(text("undoing"), () => triageUndo(client, root, runId));
-    if (result && alive.current) { setPhase({ kind: "undone" }); await load(); setPhase({ kind: "undone" }); }
+    if (result && alive.current) { setPhase({ kind: "undone", result }); await load(); setPhase({ kind: "undone", result }); }
   }
 
-  if (status && !status.trial) return <TriageEmpty text={text} message={text("not_trial")} />;
+  if (status && !status.trial) return <TriageEmpty text={text} message={text("not_reorganizable")} organizeRoot={root} />;
+  const inPlace = status?.trial === true && status.mode === "in_place";
   return (
     <>
       <header className="lw-triage-hero" style={reveal(0)}>
         <p className="lw-triage-topline"><span className="lw-triage-chip">{text("folder")}</span> {lastSegment(root)}</p>
-        <h1 className="lw-h1">{text("title")}</h1>
-        <p className="lw-triage-lead">{text("lead")}</p>
+        <h1 className="lw-h1">{text(inPlace ? "in_place_title" : "title")}</h1>
+        {inPlace ? null : <p className="lw-triage-lead">{text("lead")}</p>}
       </header>
 
       {error ? <div className="lw-status warn lw-triage-alert" role="alert"><TriangleAlert aria-hidden size={18} /><span>{error}</span><button type="button" className="lw-triage-ghost" onClick={() => void load()}>{text("refresh")}</button></div> : null}
@@ -154,7 +171,7 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
       {phase.kind === "applied" || phase.kind === "undone" ? (
         <section className="lw-triage-panel lw-triage-done" style={reveal(1)} role="status">
           <CheckCircle2 aria-hidden size={22} />
-          <p>{phase.kind === "applied" ? text("done", { count: phase.moved }) : text("undone")}</p>
+          {phase.kind === "applied" ? <p>{text("done", { count: phase.moved })}</p> : <TriageUndoSummary text={text} result={phase.result} />}
           {phase.kind === "applied" ? <Link className="lw-triage-ghost" to={LITE_CLIENTS_PATH}>{text("open_clients")}</Link> : null}
           {phase.kind === "applied" ? <button type="button" className="lw-triage-ghost" onClick={() => setAskUndo(phase.runId)}><RotateCcw aria-hidden size={15} /> {text("undo")}</button> : null}
         </section>
