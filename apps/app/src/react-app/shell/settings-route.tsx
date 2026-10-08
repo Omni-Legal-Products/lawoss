@@ -176,7 +176,7 @@ import {
   OPENAI_IMAGE_MODEL,
 } from "@/react-app/domains/settings/openai-image-extension";
 import { OLLAMA_PROVIDER_CONFIG, type LocalProviderInstallInput } from "@/react-app/domains/settings/openai-image-extension";
-import { preferRealWorkspace } from "@/lawoss/home-workspace";
+import { isLawossHomeWorkspace, preferRealWorkspace } from "@/lawoss/home-workspace";
 import { localProviderTimeouts } from "@/lawoss/providers/local-timeouts";
 
 function normalizeComputerUsePermissions(value: unknown) {
@@ -1572,7 +1572,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   }, [activeClient, connectionsStore, providerAuthStore, selectedWorkspace?.id]);
 
   const selectedWorkspaceName = selectedWorkspace?.displayNameResolved ?? t("session.workspace_fallback");
-  const workspaceOptions = workspaces.map((workspace) => ({
+  // Domovský priestor sa nezobrazuje, okrem prípadu, keď je práve vybraný (inak by výber neukazoval aktívny priečinok).
+  const workspaceOptions = workspaces.filter((workspace) => workspace.id === selectedWorkspaceId || !isLawossHomeWorkspace(workspace)).map((workspace) => ({
     id: workspace.id,
     name: workspace.displayNameResolved,
     color: workspaceSwatchColor(workspace.id),

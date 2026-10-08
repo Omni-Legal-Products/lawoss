@@ -27,6 +27,11 @@ export type OkfConnection = {
   activeWorkspaceId: string;
 };
 
+/** Aktívne id musí patriť do zoznamu pre používateľa (bez domovského priestoru); inak prvý skutočný priečinok alebo prázdne. */
+export function resolveActiveWorkspaceId(workspaces: readonly { id: string }[], activeId: string | null | undefined): string {
+  return workspaces.find((workspace) => workspace.id === activeId)?.id ?? workspaces[0]?.id ?? "";
+}
+
 export async function loadOkfConnection(): Promise<OkfConnection> {
   let desktopWorkspaces: RouteWorkspace[] = [];
   if (isDesktopRuntime()) {
@@ -39,7 +44,7 @@ export async function loadOkfConnection(): Promise<OkfConnection> {
   }
   const { normalizedBaseUrl, resolvedToken, resolvedHostToken } = await resolveLegalworkConnection();
   if (!normalizedBaseUrl || !resolvedToken) {
-    return { client: null, baseUrl: "", token: "", workspaces: withoutLawossHome(desktopWorkspaces), activeWorkspaceId: readActiveWorkspaceId() ?? "" };
+    return { client: null, baseUrl: "", token: "", workspaces: withoutLawossHome(desktopWorkspaces), activeWorkspaceId: resolveActiveWorkspaceId(withoutLawossHome(desktopWorkspaces), readActiveWorkspaceId()) };
   }
   const client = createLegalworkServerClient({
     baseUrl: normalizedBaseUrl,
@@ -48,7 +53,7 @@ export async function loadOkfConnection(): Promise<OkfConnection> {
   });
   const list = await client.listWorkspaces();
   const workspaces = withoutLawossHome(mergeRouteWorkspaces(list.items, desktopWorkspaces));
-  const activeWorkspaceId = readActiveWorkspaceId() ?? list.activeId ?? workspaces[0]?.id ?? "";
+  const activeWorkspaceId = resolveActiveWorkspaceId(workspaces, readActiveWorkspaceId() ?? list.activeId);
   return { client, baseUrl: normalizedBaseUrl, token: resolvedToken, workspaces, activeWorkspaceId };
 }
 
