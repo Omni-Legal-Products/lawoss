@@ -8,9 +8,7 @@ const computerUseHelperAppName = "LegalWork Computer Use.app";
 
 const sidecarBases = [
   "opencode",
-  "legalwork-server",
   "legalwork-orchestrator",
-  "chrome-devtools-mcp",
 ];
 
 function targetTriple(platformName, arch) {
@@ -95,7 +93,7 @@ async function afterPack(context) {
   if (!fs.existsSync(nodePath)) throw new Error(`Missing packaged Node runtime: ${nodePath}`);
   const arch = typeof context.arch === "string" ? context.arch : Arch[context.arch];
   pruneOcrRuntime(resources, context.electronPlatformName, arch);
-  const triple = targetTriple(context.electronPlatformName, context.arch);
+  const triple = targetTriple(context.electronPlatformName, arch);
   if (!triple) return;
 
   const sidecarsDir = resolveSidecarsDir(context);
