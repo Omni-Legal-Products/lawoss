@@ -17,12 +17,12 @@ const api: WelcomeApi = {
   lawossTriage: <T,>(): Promise<T> => Promise.reject(new Error("pri SSR sa nevolá")),
 };
 // Krok AI číta predvolený model z LocalProvider a zoznam poskytovateľov cez react-query.
-const page = (initialStep: OnboardingStep, extra: { initialRoot?: string } = {}) =>
+const page = (initialStep: OnboardingStep, extra: { initialRoot?: string; completed?: boolean } = {}) =>
   renderToStaticMarkup(
     <QueryClientProvider client={new QueryClient()}>
       <LocalProvider>
         <MemoryRouter>
-          <LawossWelcomePage api={api} initialStep={initialStep} initialRoot={extra.initialRoot} pickDirectory={async () => null} onOpenAiSettings={() => {}} onComplete={() => {}} />
+          <LawossWelcomePage api={api} initialStep={initialStep} initialRoot={extra.initialRoot} hasCompletedOnboarding={extra.completed} onCancel={() => {}} pickDirectory={async () => null} onOpenAiSettings={() => {}} onComplete={() => {}} />
         </MemoryRouter>
       </LocalProvider>
     </QueryClientProvider>,
@@ -63,6 +63,27 @@ describe("LAWOSS welcome flow", () => {
     const html = page("found", { initialRoot: "/x" });
     expect(html).toContain("Looking at the folder…");
     expect(html).toMatch(/<li data-state="current" aria-current="step"><span class="lw-onb-step-bar"><\/span><span class="lw-onb-step-label">3\. /);
+  });
+
+  test("tok z bočného panela po dokončenom onboardingu: Zrušiť namiesto hlavičky krokov a Späť", () => {
+    for (const html of [page("folder", { completed: true }), page("client", { completed: true }), page("matter", { completed: true })]) {
+      expect(html).toMatch(/<button[^>]*class="lw-btn"[^>]*>Cancel<\/button>/);
+      expect(html).not.toContain("lw-onb-steps");
+      expect(html).not.toMatch(/>Back</);
+    }
+  });
+
+  test("prvý onboarding nemá Zrušiť a krok Priečinok má Späť", () => {
+    const html = page("folder");
+    expect(html).not.toMatch(/>Cancel</);
+    expect(html).toMatch(/>Back</);
+  });
+
+  test("počas obrazovky Toto som našiel nie je Späť (zápis sa nedá potichu opustiť)", () => {
+    expect(page("folder", { initialRoot: "/Users/a/Klienti/Novák" })).not.toMatch(/>Back</);
+    const sidebar = page("folder", { initialRoot: "/Users/a/Klienti/Novák", completed: true });
+    expect(sidebar).not.toMatch(/>Cancel</);
+    expect(sidebar).not.toContain("lw-onb-steps");
   });
 
   test("formuláre klienta a veci z bočného panela nemajú hlavičku krokov", () => {

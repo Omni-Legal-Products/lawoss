@@ -109,7 +109,7 @@ export function FoundView({ text, busy, suggestion, level, scope, selected, onLe
   );
 }
 
-export function BatchView({ text, busy, items, answer, onRetry, onContinue }: { text: Text; busy: boolean; items: readonly BatchItem[]; answer?: Answer; onRetry: () => void; onContinue: () => void }) {
+export function BatchView({ text, busy, items, answer, onRetry, onContinue, onChangeFolder }: { text: Text; busy: boolean; items: readonly BatchItem[]; answer?: Answer; onRetry: () => void; onContinue: () => void; onChangeFolder?: () => void }) {
   const done = items.filter(item => item.status === "done").length;
   const failed = items.filter(item => item.status === "failed");
   const pending = items.some(item => item.status === "pending");
@@ -120,7 +120,10 @@ export function BatchView({ text, busy, items, answer, onRetry, onContinue }: { 
       {!pending ? (
         <div className="flex gap-2">
           {failed.length ? <button type="button" className="lw-btn" disabled={busy} onClick={onRetry}>{text("retry")}</button> : null}
-          <button type="button" className="lw-btn gold" disabled={busy} onClick={onContinue}>{text(answer === "yes" ? "nextClient" : "open")}</button>
+          {/* Nikto nepribudol: nie je čo otvoriť ani usporiadať, ostáva iný priečinok. */}
+          {done === 0 && onChangeFolder
+            ? <button type="button" className="lw-btn gold" disabled={busy} onClick={onChangeFolder}>{text("changeFolder")}</button>
+            : <button type="button" className="lw-btn gold" disabled={busy} onClick={onContinue}>{text(answer === "yes" ? "nextClient" : "open")}</button>}
         </div>
       ) : null}
     </div>
@@ -272,7 +275,7 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
       const progress = (next: BatchItem[]) => setPhase({ name: "batch", items: next, answer: phase.answer });
       progress(await retryFailed(api, phase.items, identity, today, progress));
     });
-    return <BatchView text={text} busy={busy} items={phase.items} answer={phase.answer} onRetry={() => void retry()} onContinue={() => void continueBatch()} />;
+    return <BatchView text={text} busy={busy} items={phase.items} answer={phase.answer} onRetry={() => void retry()} onContinue={() => void continueBatch()} onChangeFolder={onChangeFolder} />;
   }
   const [current, ...rest] = phase.queue;
   return (

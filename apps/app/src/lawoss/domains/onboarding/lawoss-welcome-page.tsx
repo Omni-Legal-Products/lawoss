@@ -548,12 +548,18 @@ type Props = {
   attachExisting?: boolean;
   /** Priečinok z odkazu (`?root=`): krok Priečinok otvorí rovno obrazovku „Toto som našiel“. */
   initialRoot?: string;
+  /** Onboarding je už dokončený (`local.prefs`); tok z bočného panela potom nie je hlavná cesta. */
+  hasCompletedOnboarding?: boolean;
+  /** „Zrušiť“ v toku z bočného panela: návrat tam, odkiaľ advokát prišiel. */
+  onCancel?: () => void;
 };
 export function LawossWelcomePage({
   api,
   initialStep,
   attachExisting = false,
   initialRoot,
+  hasCompletedOnboarding = false,
+  onCancel,
   onComplete,
   onOpenAiSettings,
   pickDirectory,
@@ -760,8 +766,11 @@ export function LawossWelcomePage({
   const steps = visibleOnboardingSteps();
   // „Toto som našiel“ je obrazovka kroku Priečinok, v hlavičke preto svieti Priečinok.
   const idx = steps.indexOf(step === "found" ? "folder" : step);
+  // Tok z bočného panela (Pridať priečinok, Usporiadať podľa OKF, nový klient či vec) po dokončenom
+  // onboardingu nie je hlavná cesta: bez hlavičky krokov a bez Späť (viedlo by na krok Ty), so Zrušiť.
+  const sidebarFlow = hasCompletedOnboarding && (initialStep !== undefined || initialRoot !== undefined);
   // Formuláre klienta a veci z bočného panela nie sú na hlavnej ceste a hlavičku krokov nemajú.
-  const mainPath = step !== "client" && step !== "matter";
+  const mainPath = !sidebarFlow && step !== "client" && step !== "matter";
   const base = profile ?? {
     version: 1,
     lawyerName: "",
@@ -1025,14 +1034,22 @@ export function LawossWelcomePage({
             ) : null}
           </section>
         ) : null}
-        {step !== "identity" && step !== "done" ? (
+        {/* Počas obrazovky „Toto som našiel“ päta nie je: bežiaci zápis by sa dal potichu opustiť;
+            obrazovka má vlastné „Vybrať iný priečinok“, vypnuté počas zápisu. */}
+        {step !== "identity" && step !== "done" && !foundRoot ? (
           <footer className="mt-8 flex justify-between">
-            <Button
-              variant="ghost"
-              onClick={() => void move(steps[Math.max(0, idx - 1)])}
-            >
-              {tr("back")}
-            </Button>
+            {sidebarFlow ? (
+              <button type="button" className="lw-btn" disabled={busy} onClick={onCancel}>
+                {tr("cancel")}
+              </button>
+            ) : (
+              <Button
+                variant="ghost"
+                onClick={() => void move(steps[Math.max(0, idx - 1)])}
+              >
+                {tr("back")}
+              </Button>
+            )}
             {step === "client" || step === "matter" ? (
               <Button
                 variant="ghost"

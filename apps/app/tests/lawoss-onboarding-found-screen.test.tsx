@@ -61,6 +61,12 @@ describe("Toto som našiel", () => {
     expect(html).toContain("Skúsiť znova neúspešných");
     expect(html).toContain("Otvoriť v LAWOSS");
   });
+  test("keď zlyhali všetci, ponúkne iný priečinok namiesto otvorenia", () => {
+    const html = renderToStaticMarkup(<BatchView text={foundText("sk")} busy={false} items={[{ root: "/z", name: "Zamknutý", status: "failed", error: "locked_file" }]} onRetry={() => undefined} onContinue={() => undefined} onChangeFolder={() => undefined} />);
+    expect(html).toContain("Hotovo: 0 z 1");
+    expect(html).toContain("Vybrať iný priečinok");
+    expect(html).not.toContain("Otvoriť v LAWOSS");
+  });
   test("súhrn po odpovedi Áno pokračuje na ďalšieho klienta", () => {
     const html = renderToStaticMarkup(<BatchView text={foundText("sk")} busy={false} answer="yes" items={[{ root: "/a", name: "Alfa", status: "done" }]} onRetry={() => undefined} onContinue={() => undefined} />);
     expect(html).toContain("Ďalší klient");
