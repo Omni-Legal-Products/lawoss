@@ -7,6 +7,9 @@ import { test } from "node:test";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 import { ensureLawossHomeWorkspace, lawossHomeWorkspacePath, LAWOSS_HOME_DIR_NAME } from "./lawoss-home-workspace.mjs";
 
+// Bez obnovy z perzistovaného stavu hostiteľa by test videl cudzie priečinky z ~/.config.
+process.env.LEGALWORK_DESKTOP_DISABLE_WORKSPACE_RECOVERY = "1";
+
 async function fixture() {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "lawoss-home-")));
   const userData = path.join(root, "userData");
