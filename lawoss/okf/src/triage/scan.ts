@@ -8,7 +8,7 @@
  */
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, open, readFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, writeFile } from "node:fs/promises";
 import { realpath } from "../canonical-path.ts";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { findOfficeDir } from "../../../okf-pamat/src/store.ts";
@@ -82,6 +82,43 @@ export async function verifyTrialClone(rootInput: string, trialJournalDirectory?
   return { root, source, fingerprint: marker.fingerprint, journalVerified };
 }
 
+/** Výslovný súhlas advokáta s usporiadaním priečinka klienta na mieste (spec: „Áno, usporiadaj“). */
+export const IN_PLACE_MARKER = ".lawoss/reorganize.json";
+export type TriageTarget = { root: string; mode: "trial" | "in_place"; journalVerified: boolean };
+const NO_CONSENT = "Dokumenty sa presúvajú len po výslovnom súhlase s usporiadaním priečinka alebo v skúšobnom klone.";
+
+/** Zapíše súhlas do `.lawoss/` klienta. Skrytý priečinok je mimo otlačku roztriedenia, náhľad sa ním nezmení. */
+export async function grantInPlaceReorganize(rootInput: string, now: Date = new Date()): Promise<void> {
+  if (!isAbsolute(rootInput)) throw new Error("Cesta ku klientovi musí byť absolútna.");
+  const root = resolve(rootInput);
+  if (await realpath(root) !== root || !(await lstat(root)).isDirectory()) throw new Error("Klient musí byť existujúci priečinok bez symbolických odkazov.");
+  const inspection = await inspectOnboardingRoot(root);
+  if (inspection.level !== "client") throw new Error("Usporiadať sa dá len priečinok klienta s kartou klienta. Najprv pridajte OKF súbory.");
+  const dir = join(root, ".lawoss");
+  await mkdir(dir, { recursive: true });
+  const content = JSON.stringify({ version: 1, root, grantedAt: now.toISOString() });
+  try { await writeFile(join(root, IN_PLACE_MARKER), content, { flag: "wx" }); }
+  catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+    const existing: unknown = JSON.parse(await readBounded(join(root, IN_PLACE_MARKER), 64 * 1024));
+    if (!record(existing) || existing.root !== root) throw new TrialCloneError("Súhlas s usporiadaním patrí inému priečinku. Odstráňte .lawoss/reorganize.json a potvrďte usporiadanie znova.");
+  }
+}
+
+/** Skúšobný klon (podľa značky) alebo klient so súhlasom na mieste; inak odmietne. */
+export async function verifyTriageTarget(rootInput: string, trialJournalDirectory?: string): Promise<TriageTarget> {
+  if (!isAbsolute(rootInput)) throw new TrialCloneError("Cesta musí byť absolútna.");
+  const root = resolve(rootInput);
+  const trial = await lstat(join(root, TRIAL_MARKER)).then(() => true, error => { if (missing(error)) return false; throw error; });
+  if (trial) { const clone = await verifyTrialClone(root, trialJournalDirectory); return { root: clone.root, mode: "trial", journalVerified: clone.journalVerified }; }
+  if (await realpath(root).catch(() => "") !== root) throw new TrialCloneError("Priečinok musí existovať a nesmie byť symbolický odkaz.");
+  let consent: unknown;
+  try { consent = JSON.parse(await readBounded(join(root, IN_PLACE_MARKER), 64 * 1024)); }
+  catch (error) { if (error instanceof TrialCloneError) throw error; throw new TrialCloneError(NO_CONSENT); }
+  if (!record(consent) || consent.version !== 1 || consent.root !== root || typeof consent.grantedAt !== "string") throw new TrialCloneError(NO_CONSENT);
+  return { root, mode: "in_place", journalVerified: false };
+}
+
 const CARD_NAMES = new Set(["client.md", "klient.md", "matter.md", "spis.md", "project.md", "projekt.md", "subject.md"]);
 const MATTER_CARDS = ["matter.md", "spis.md", "project.md", "projekt.md"];
 /** Súbory, ktoré si OKF alebo agent číta podľa mena; presunuté by zmenili význam priečinka. */
@@ -99,13 +136,13 @@ async function readSmall(root: string, path: string): Promise<string | undefined
  * existujúcich vecí a už zaradených pracovných priečinkov. Súbory v priečinku na zatriedenie sa triedia.
  */
 export async function scanTriage(rootInput: string, options: { trialJournalDirectory?: string; limits?: InspectionLimits; jurisdiction?: "sk" | "cz" } = {}): Promise<TriageInventory> {
-  const clone = await verifyTrialClone(rootInput, options.trialJournalDirectory);
+  const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory);
   const inspection = await inspectOnboardingRoot(clone.root, options.limits);
   if (!inspection.complete) {
     const issue = inspection.issues[0];
     throw new Error(issue?.code === "symlink_not_followed" ? `Klon obsahuje symbolický odkaz (${issue.path}); roztriedenie ho nesleduje. Odstráňte ho z klona.` : `Klon sa nepodarilo prečítať celý (${issue?.code ?? "neznámy dôvod"}${issue?.path ? `: ${issue.path}` : ""}).`);
   }
-  if (inspection.level !== "client") throw new Error("Skúšobný klon musí byť priečinok klienta s kartou klienta.");
+  if (inspection.level !== "client") throw new Error("Usporiadať sa dá len priečinok klienta s kartou klienta.");
   const files = new Map(inspection.entries.filter(entry => entry.kind === "file").map(entry => [entry.path, entry]));
   const clientCard = ["client.md", "klient.md"].find(name => files.has(name))!;
   const card = parseFrontmatter((await readSmall(clone.root, clientCard)) ?? "") ?? {};

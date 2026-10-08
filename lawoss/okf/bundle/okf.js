@@ -3632,13 +3632,13 @@ import { dirname as dirname7, join as join12, resolve as resolve11 } from "node:
 
 // src/triage/files.ts
 import { constants as constants9 } from "node:fs";
-import { lstat as lstat10, mkdir as mkdir4, open as open8, readdir as readdir3 } from "node:fs/promises";
+import { lstat as lstat10, mkdir as mkdir5, open as open8, readdir as readdir3 } from "node:fs/promises";
 import { join as join10 } from "node:path";
 
 // src/triage/scan.ts
 import { createHash as createHash6 } from "node:crypto";
 import { constants as constants8 } from "node:fs";
-import { lstat as lstat9, open as open7, readFile as readFile5 } from "node:fs/promises";
+import { lstat as lstat9, mkdir as mkdir4, open as open7, readFile as readFile5, writeFile as writeFile2 } from "node:fs/promises";
 import { basename as basename4, isAbsolute as isAbsolute7, join as join9, relative as relative8, resolve as resolve9, sep as sep9 } from "node:path";
 
 // src/triage/rules.ts
@@ -3801,6 +3801,35 @@ async function verifyTrialClone(rootInput, trialJournalDirectory) {
   }
   return { root, source, fingerprint: marker.fingerprint, journalVerified };
 }
+var IN_PLACE_MARKER = ".lawoss/reorganize.json";
+var NO_CONSENT = "Dokumenty sa presúvajú len po výslovnom súhlase s usporiadaním priečinka alebo v skúšobnom klone.";
+async function verifyTriageTarget(rootInput, trialJournalDirectory) {
+  if (!isAbsolute7(rootInput))
+    throw new TrialCloneError("Cesta musí byť absolútna.");
+  const root = resolve9(rootInput);
+  const trial = await lstat9(join9(root, TRIAL_MARKER)).then(() => true, (error) => {
+    if (missing3(error))
+      return false;
+    throw error;
+  });
+  if (trial) {
+    const clone = await verifyTrialClone(root, trialJournalDirectory);
+    return { root: clone.root, mode: "trial", journalVerified: clone.journalVerified };
+  }
+  if (await realpath(root).catch(() => "") !== root)
+    throw new TrialCloneError("Priečinok musí existovať a nesmie byť symbolický odkaz.");
+  let consent;
+  try {
+    consent = JSON.parse(await readBounded(join9(root, IN_PLACE_MARKER), 64 * 1024));
+  } catch (error) {
+    if (error instanceof TrialCloneError)
+      throw error;
+    throw new TrialCloneError(NO_CONSENT);
+  }
+  if (!record2(consent) || consent.version !== 1 || consent.root !== root || typeof consent.grantedAt !== "string")
+    throw new TrialCloneError(NO_CONSENT);
+  return { root, mode: "in_place", journalVerified: false };
+}
 var CARD_NAMES = new Set(["client.md", "klient.md", "matter.md", "spis.md", "project.md", "projekt.md", "subject.md"]);
 var MATTER_CARDS = ["matter.md", "spis.md", "project.md", "projekt.md"];
 var SYSTEM_NAMES = /^(?:agents\.md|claude\.md|brain\.md|memory\.md|_memory\.md|_status\.md|index\.md|log\.md|vstupy\.md|pracovny-profil\.md|komunikacne-kanaly\.md|okf\.config|\.keep)$/i;
@@ -3816,14 +3845,14 @@ async function readSmall(root, path) {
   }
 }
 async function scanTriage(rootInput, options = {}) {
-  const clone = await verifyTrialClone(rootInput, options.trialJournalDirectory);
+  const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory);
   const inspection = await inspectOnboardingRoot(clone.root, options.limits);
   if (!inspection.complete) {
     const issue = inspection.issues[0];
     throw new Error(issue?.code === "symlink_not_followed" ? `Klon obsahuje symbolický odkaz (${issue.path}); roztriedenie ho nesleduje. Odstráňte ho z klona.` : `Klon sa nepodarilo prečítať celý (${issue?.code ?? "neznámy dôvod"}${issue?.path ? `: ${issue.path}` : ""}).`);
   }
   if (inspection.level !== "client")
-    throw new Error("Skúšobný klon musí byť priečinok klienta s kartou klienta.");
+    throw new Error("Usporiadať sa dá len priečinok klienta s kartou klienta.");
   const files = new Map(inspection.entries.filter((entry) => entry.kind === "file").map((entry) => [entry.path, entry]));
   const clientCard = ["client.md", "klient.md"].find((name) => files.has(name));
   const card = parseFrontmatter(await readSmall(clone.root, clientCard) ?? "") ?? {};
@@ -3924,7 +3953,7 @@ async function triageSubdirectory(root, name, create) {
     current = join10(current, part);
     if (create) {
       try {
-        await mkdir4(current, { mode: 448 });
+        await mkdir5(current, { mode: 448 });
       } catch (error) {
         if (errorCode3(error) !== "EEXIST")
           throw error;
@@ -4270,7 +4299,7 @@ function buildTriagePlan(inventory, options) {
 // src/triage/apply.ts
 import { createHash as createHash8 } from "node:crypto";
 import { constants as constants10 } from "node:fs";
-import { appendFile, copyFile as copyFile2, link, lstat as lstat11, mkdir as mkdir5, open as open9, readdir as readdir4, readFile as readFile6, rmdir as rmdir3 } from "node:fs/promises";
+import { appendFile, copyFile as copyFile2, link, lstat as lstat11, mkdir as mkdir6, open as open9, readdir as readdir4, readFile as readFile6, rmdir as rmdir3 } from "node:fs/promises";
 import { dirname as dirname6, isAbsolute as isAbsolute8, join as join11, resolve as resolve10 } from "node:path";
 class TriageConflictError extends Error {
   code = "triage_conflict";
@@ -4389,7 +4418,7 @@ async function runDirectory(root, runId, create) {
     current = join11(current, part);
     if (create) {
       try {
-        await mkdir5(current, { mode: 448 });
+        await mkdir6(current, { mode: 448 });
       } catch (error) {
         if (errorCode4(error) !== "EEXIST")
           throw error;
@@ -4457,7 +4486,7 @@ async function moveExclusive(source, target, digest) {
 async function createOperation(root, operation) {
   const full = await safeParent(root, operation.path);
   if (operation.kind === "directory")
-    await mkdir5(full);
+    await mkdir6(full);
   else {
     const handle = await open9(full, constants10.O_WRONLY | constants10.O_CREAT | constants10.O_EXCL | constants10.O_NOFOLLOW, 420);
     try {
@@ -4487,7 +4516,7 @@ async function operationState(root, operation) {
 }
 async function applyTriagePlan(input, options = {}) {
   const plan = parseTriagePlan(input);
-  const clone = await verifyTrialClone(plan.root, options.trialJournalDirectory);
+  const clone = await verifyTriageTarget(plan.root, options.trialJournalDirectory);
   const root = clone.root;
   const unlock = await lock(root);
   try {
@@ -4599,7 +4628,7 @@ async function readRun(root, runId) {
   return { plan, events: await readEvents2(eventsPath), eventsPath, dir };
 }
 async function undoTriage(rootInput, runId, options = {}) {
-  const clone = await verifyTrialClone(rootInput, options.trialJournalDirectory);
+  const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory);
   const root = clone.root;
   const unlock = await lock(root);
   try {

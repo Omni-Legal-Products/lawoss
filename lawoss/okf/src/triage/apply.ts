@@ -17,7 +17,7 @@ import { inspectOnboardingRoot } from "../onboarding/classify.ts";
 import { syncFile, unlinkFile } from "../onboarding/file-durability.ts";
 import { planFingerprint, sha256 } from "./plan.ts";
 import { TRIAGE_ROLES } from "./rules.ts";
-import { TRIAGE_DIR, triageTreeDigest, verifyTrialClone } from "./scan.ts";
+import { TRIAGE_DIR, triageTreeDigest, verifyTriageTarget } from "./scan.ts";
 import { PLAN_SCHEMA, type TriageMove, type TriagePlan } from "./types.ts";
 
 export class TriageConflictError extends Error { readonly code = "triage_conflict"; }
@@ -172,7 +172,7 @@ export type TriageUndoResult = { status: "undone" | "already_undone"; runId: str
 /** Zapíše schválený plán. Opakované volanie s tým istým plánom dokončí prerušený beh. */
 export async function applyTriagePlan(input: unknown, options: { trialJournalDirectory?: string } = {}): Promise<TriageApplyResult> {
   const plan = parseTriagePlan(input);
-  const clone = await verifyTrialClone(plan.root, options.trialJournalDirectory);
+  const clone = await verifyTriageTarget(plan.root, options.trialJournalDirectory);
   const root = clone.root;
   const unlock = await acquireOnboardingLock(root);
   try {
@@ -251,7 +251,7 @@ async function readRun(root: string, runId: string): Promise<{ plan: TriagePlan;
  * Najprv overí všetko; ak by vrátenie čokoľvek cudzie zmenilo, neurobí nič.
  */
 export async function undoTriage(rootInput: string, runId: string, options: { trialJournalDirectory?: string } = {}): Promise<TriageUndoResult> {
-  const clone = await verifyTrialClone(rootInput, options.trialJournalDirectory);
+  const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory);
   const root = clone.root;
   const unlock = await acquireOnboardingLock(root);
   try {
