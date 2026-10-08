@@ -57,6 +57,7 @@ import { createAppUrlMatcher, guardIpcMain, guardPreviewNavigation } from "./app
 import { createSafeOpen } from "./safe-open.mjs";
 import { findChevron7App } from "./lawoss-chevron7.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
+import { ensureLawossHomeWorkspace } from "./lawoss-home-workspace.mjs";
 import { copyFilesIntoProject, resolveProjectFolder } from "./project-file-copy.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
 import { describeBlockedUrl, guardNavigation } from "./window-allowlist.mjs";
@@ -1274,6 +1275,10 @@ function describeRuntimeBootFailure(error) {
 }
 
 async function bootRuntimeForSelectedWorkspace() {
+  // 🟡 LAWOSS: bez lokálneho priečinka domovský priestor, aby sa dala nastaviť AI (spec 2026-10-08, P8).
+  await ensureLawossHomeWorkspace({ userData: app.getPath("userData"), workspaceStore, mkdir }).catch((error) => {
+    console.warn("[lawoss] domovský priestor sa nepodarilo pripraviť", error);
+  });
   const list = await workspaceStore.readWorkspaceState();
   const selectedId = list.selectedId || list.activeId || list.workspaces[0]?.id || "";
   const workspace = selectedId
