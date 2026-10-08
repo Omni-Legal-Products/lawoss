@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync } from "node:fs";
-import { isAbsolute, parse, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 
 export function sha256(value: string | Buffer): string { return createHash("sha256").update(value).digest("hex"); }
 export function isObject(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
@@ -24,7 +24,33 @@ export function checkedPath(path: string, kind: "file" | "directory", allowMissi
   }
   return true;
 }
-export function checkedDirectory(path: string): string { checkedPath(path, "directory"); return realpathSync(path); }
+/** An explicitly selected authority root may be an alias, including its ancestors. */
+export function checkedDirectory(path: string): string { const physical = resolve(realpathSync.native(path)); checkedPath(physical, "directory"); return physical; }
+/**
+ * Resolve a child inside its selected authority root, including a missing tail.
+ * A symlink never grants access to another root. Keep checkedPath strict for
+ * subsequent I/O on the physical path (a later symlink replacement must fail).
+ */
+export function physicalPathWithin(root: string, path: string, kind: "file" | "directory", allowMissing = false): string {
+  if (path.split(/[\\/]/).includes("..")) throw new Error(`Traversal is not allowed: ${path}`);
+  const logicalRoot = resolve(root), physicalRoot = checkedDirectory(root), logical = resolve(root, path);
+  if (!contained(logicalRoot, logical)) throw new Error(`Path outside authority root: ${path}`);
+  let ancestor = logical;
+  const tail: string[] = [];
+  let physical: string;
+  for (;;) {
+    try { physical = resolve(realpathSync.native(ancestor)); break; }
+    catch (error) { if (!allowMissing || !missing(error)) throw error; }
+    if (lstatSync(ancestor, { throwIfNoEntry: false })) throw new Error(`Dangling symlink is not allowed: ${ancestor}`);
+    const parent = dirname(ancestor);
+    if (parent === ancestor) throw new Error(`No existing ancestor: ${logical}`);
+    tail.unshift(basename(ancestor)); ancestor = parent;
+  }
+  const target = join(physical, ...tail);
+  if (!contained(physicalRoot, target)) throw new Error(`Path outside authority root through symlink: ${logical}`);
+  checkedPath(target, kind, allowMissing);
+  return target;
+}
 interface ReadText { content: string; sha256: string; bytes: number; physical: string; mode: number }
 export function readText(path: string, limit: number): ReadText {
   checkedPath(path, "file");

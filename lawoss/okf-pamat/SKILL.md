@@ -50,8 +50,14 @@ Profil explicitne mapuje existujúce súbory; neprehľadáva celý vault. Syntet
 
 ID veci, koreňov, zdrojov a operácie: 1–96 ASCII znakov, prvý písmeno/číslica,
 ďalšie písmená, číslice, `_`, `-`. ID zdrojov sú jedinečné aj bez rozlíšenia
-veľkosti písmen. Cesta zdroja je relatívna ku koreňu; symlinky, `..`, duplicitné
-fyzické súbory a akýkoľvek komponent `.lawoss` (case-insensitive) sa odmietnu.
+veľkosti písmen. Cesta zdroja je relatívna ku koreňu; `..`, duplicitné
+fyzické súbory a akýkoľvek komponent `.lawoss` (case-insensitive, aj po rozlíšení) sa odmietnu.
+Alias workspace alebo explicitného grantu aj jeho predkov je povolený. Vnútorný
+odkaz zdroja sa číta a zapisuje cez skutočnú cestu iba v jeho konkrétnom koreni;
+odkaz nesmie prejsť do iného koreňa ani s inak platným grantom. Visiace odkazy
+sa odmietnu, neexistujúci koniec cesty sa overí cez najbližšieho existujúceho
+predka. História a zámky naďalej odmietajú odkazy. Zmena mapovania ruší CAS;
+nejde o OS sandbox proti súbežnému útočníkovi. Implementácia: [#111](https://github.com/Omni-Legal-Products/lawoss/issues/111).
 Povinný je aspoň jeden `case_memory` a aspoň jeden povinný zdroj s doslovnou
 kotvou presnej veci. Meno klienta nestačí; kotva sama právne neoveruje identitu.
 

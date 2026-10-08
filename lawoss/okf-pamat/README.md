@@ -10,6 +10,8 @@ to zostáva skillu `novy-spis`. Toto jadro vlastní iba pamäť.
 
 ## Existujúca pamäť a karta bez migrácie
 
+Alias koreňa či jeho predka sa rozlíši na skutočnú cestu. Vnútorné odkazy pamäťových zdrojov smú zostať iba v príslušnom koreni; externé granty sú oddelené autority. Zápis používa overené fyzické cesty, CAS a existujúci journal/lock protokol ([#111](https://github.com/Omni-Legal-Products/lawoss/issues/111)).
+
 Opt-in `.lawoss/memory-profile.json` mapuje existujúcu Markdown pamäť, kartu,
 pracovnú poznámku a denník aj v oddelených koreňoch. `read` dá profilu prednosť;
 neplatný profil je neúplné čítanie. `workspace-read` načíta celé texty s cestami,
