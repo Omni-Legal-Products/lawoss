@@ -2579,6 +2579,60 @@ async function recoverOnboardingPlan(plan, journalDirectory, action) {
 import { lstat as lstat7, mkdir as mkdir3, readFile as readFile4, writeFile } from "node:fs/promises";
 import { dirname as dirname4, isAbsolute as isAbsolute5, join as join8, relative as relative6, resolve as resolve7, sep as sep7 } from "node:path";
 
+// templates/kancelaria/AGENTS.md
+var AGENTS_default10 = `# AGENTS.md: advokátska prax (OKF)
+
+Tento priečinok je advokátska prax usporiadaná podľa OKF (otvorený klientsky folder framework). Pravidlá platia pre každý AI nástroj, ktorý tu pracuje.
+
+## Štruktúra
+
+- \`Office/okf.config\`: nastavenie kancelárie (jurisdikcia, jazyk, pracovné priečinky, kde sú klienti).
+- \`Office/memory/\`: pamäť kancelárie, pravidlá a pramene spoločné pre všetkých klientov.
+- Klienti: priečinky podľa vzoru \`{{CLIENT_PATH}}\` (relatívne k tomuto priečinku). Každý klient má vlastný \`AGENTS.md\`, kartu \`client.md\` a priečinok \`memory/\`.
+
+## Pravidlá
+
+- {{SCOPE_RULE}}
+- Pred prácou na klientovi si prečítaj jeho \`AGENTS.md\` a kartu klienta.
+- Súbory klientov nemeň, nepresúvaj ani nemaž bez výslovného pokynu advokáta.
+`;
+
+// templates/cs/kancelaria/AGENTS.md
+var AGENTS_default11 = `# AGENTS.md: advokátní praxe (OKF)
+
+Tato složka je advokátní praxe uspořádaná podle OKF (otevřený klientský folder framework). Pravidla platí pro každý AI nástroj, který zde pracuje.
+
+## Struktura
+
+- \`Office/okf.config\`: nastavení kanceláře (jurisdikce, jazyk, pracovní složky, kde jsou klienti).
+- \`Office/memory/\`: paměť kanceláře, pravidla a prameny společné pro všechny klienty.
+- Klienti: složky podle vzoru \`{{CLIENT_PATH}}\` (relativně k této složce). Každý klient má vlastní \`AGENTS.md\`, kartu \`client.md\` a složku \`memory/\`.
+
+## Pravidla
+
+- {{SCOPE_RULE}}
+- Před prací na klientovi si přečti jeho \`AGENTS.md\` a kartu klienta.
+- Soubory klientů neměň, nepřesouvej ani nemaž bez výslovného pokynu advokáta.
+`;
+
+// templates/en/kancelaria/AGENTS.md
+var AGENTS_default12 = `# AGENTS.md: law practice (OKF)
+
+This folder is a law practice organised by OKF (open client folder framework). These rules apply to every AI tool working here.
+
+## Structure
+
+- \`Office/okf.config\`: office settings (jurisdiction, language, working folders, where clients live).
+- \`Office/memory/\`: office memory, rules and sources shared by all clients.
+- Clients: folders matching \`{{CLIENT_PATH}}\` (relative to this folder). Each client has its own \`AGENTS.md\`, a \`client.md\` card and a \`memory/\` folder.
+
+## Rules
+
+- {{SCOPE_RULE}}
+- Before working on a client, read its \`AGENTS.md\` and client card.
+- Do not change, move or delete client files without the lawyer's explicit instruction.
+`;
+
 // src/onboarding/entities.ts
 import { lstat as lstat4, readFile as readFile2 } from "node:fs/promises";
 import { createHash as createHash4 } from "node:crypto";
@@ -2730,7 +2784,7 @@ function templateOperations(prefix, entries) {
   }
   return operations;
 }
-var officeConfig = (request) => {
+var officeConfig = (request, clientPath = "Klienti/*", scope = "client") => {
   const roles = DEFAULT_FOLDER_ROLES[request.language];
   return `version: 1
 title: ${yaml(request.title)}
@@ -2738,16 +2792,61 @@ jurisdiction: ${request.jurisdiction}
 language: ${request.language}
 lawyer_name: ${yaml(request.lawyerName)}
 standing_authorization: ${yaml(request.lawyerName)}
-client_path: "Klienti/*"
+client_path: ${yaml(clientPath)}
+workspace_scope: ${scope}
 areas: ["Corporate", "IP", "Pracovne"]
 matter_folders: ${JSON.stringify(Object.values(roles))}
 folder_roles: ${JSON.stringify(roles)}
 `;
 };
+var PRACTICE_AGENTS = { sk: AGENTS_default10, cs: AGENTS_default11, en: AGENTS_default12 };
+var SCOPE_RULE = {
+  sk: {
+    client: "Pracuj vždy nad jedným klientom. Spisy iného klienta neotváraj ani necituj, ak to advokát výslovne nežiada (mlčanlivosť).",
+    practice: "Advokát zvolil prácu nad celou praxou naraz. Aj tak drž informácie každého klienta oddelene a neprenášaj ich medzi klientmi (mlčanlivosť)."
+  },
+  cs: {
+    client: "Pracuj vždy nad jedním klientem. Spisy jiného klienta neotevírej ani necituj, pokud to advokát výslovně nežádá (mlčenlivost).",
+    practice: "Advokát zvolil práci nad celou praxí najednou. I tak drž informace každého klienta odděleně a nepřenášej je mezi klienty (mlčenlivost)."
+  },
+  en: {
+    client: "Always work on one client. Do not open or quote another client's files unless the lawyer explicitly asks (confidentiality).",
+    practice: "The lawyer chose to work on the whole practice at once. Still keep each client's information separate and never carry it between clients (confidentiality)."
+  }
+};
+var practiceAgents = (language, clientPath, scope) => PRACTICE_AGENTS[language].replaceAll("{{CLIENT_PATH}}", clientPath).replaceAll("{{SCOPE_RULE}}", SCOPE_RULE[language][scope]);
+function practiceInstructions(topNames, language, clientPath, scope) {
+  if (topNames.has("agents.md") || topNames.has("claude.md"))
+    return [];
+  const content = practiceAgents(language, clientPath, scope);
+  return [file("AGENTS.md", content), file("CLAUDE.md", content)];
+}
+async function topLevelNames(parent) {
+  const inspection = await inspectOnboardingParent(await realpath(parent));
+  if (!inspection.complete)
+    throw new Error(incompleteInspectionMessage("Parent could not be inspected completely.", inspection.issues));
+  return new Set(inspection.entries.map((entry) => entry.path.toLowerCase()));
+}
+function safeClientPattern(value) {
+  const parts = value.split("/");
+  if (!value || parts.length > 4 || parts.at(-1) !== "*" || parts.some((part) => part !== "*" && safeSegment(part) !== part))
+    throw new Error("Invalid client path pattern.");
+  return parts.join("/");
+}
 async function planOffice(request) {
   const name = safeSegment(request.name ?? "Office");
   const target = join6(request.parent, name);
-  return { mode: "new", appFiles: "inside", target, plan: await rootPlan(request.parent, [directory(name), file(`${name}/okf.config`, officeConfig(request)), directory(`${name}/memory`), file(`${name}/memory/.keep`, ""), directory("Klienti"), file("Klienti/.keep", "")]) };
+  const names = await topLevelNames(request.parent);
+  return { mode: "new", appFiles: "inside", target, plan: await rootPlan(request.parent, [directory(name), file(`${name}/okf.config`, officeConfig(request)), directory(`${name}/memory`), file(`${name}/memory/.keep`, ""), directory("Klienti"), file("Klienti/.keep", ""), ...practiceInstructions(names, request.language, "Klienti/*", "client")]) };
+}
+async function planPracticeOffice(request) {
+  const clientPath = safeClientPattern(request.clientPattern);
+  const root = await realpath(request.root);
+  const names = await topLevelNames(root);
+  if (names.has("office") || names.has("_kancelaria"))
+    throw new Error("Tento priečinok už kanceláriu má (Office/). Pripojte ho ako kanceláriu.");
+  const office = { parent: root, title: request.title, jurisdiction: request.jurisdiction, language: request.language, lawyerName: request.lawyerName };
+  return { mode: "new", appFiles: "inside", target: root, plan: await rootPlan(root, [directory("Office"), file("Office/okf.config", officeConfig(office, clientPath, request.scope)), directory("Office/memory"), file("Office/memory/.keep", ""), ...practiceInstructions(names, request.language, clientPath, request.scope)]) };
 }
 async function planNewClient(request) {
   const name = safeSegment(request.name), target = join6(request.parent, name), language = request.language ?? "sk";
@@ -3216,6 +3315,16 @@ function parseOnboardingRequest(value) {
       throw new Error("Invalid language.");
     return { action: "office", parent: string(value.parent, "parent"), title: string(value.title, "title"), jurisdiction, language, lawyerName: string(value.lawyerName, "lawyerName"), name: optionalString(value.name, "name") };
   }
+  if (value.action === "practice") {
+    const { jurisdiction, language, scope } = value;
+    if (jurisdiction !== "sk" && jurisdiction !== "cz")
+      throw new Error("Invalid onboarding jurisdiction.");
+    if (language !== "sk" && language !== "cs" && language !== "en")
+      throw new Error("Invalid language.");
+    if (scope !== "client" && scope !== "practice")
+      throw new Error("Invalid workspace scope.");
+    return { action: "practice", root: string(value.root, "root"), title: string(value.title, "title"), jurisdiction, language, lawyerName: string(value.lawyerName, "lawyerName"), clientPattern: safeClientPattern(string(value.clientPattern, "clientPattern")), scope };
+  }
   if (value.action === "client") {
     const { clientType, language } = value;
     if (clientType !== "fo" && clientType !== "fo-podnikatel" && clientType !== "po" && clientType !== "iny")
@@ -3272,6 +3381,8 @@ function parseOnboardingRequest(value) {
 async function planOnboarding(request) {
   if (request.action === "office")
     return { action: request.action, ...await planOffice(request) };
+  if (request.action === "practice")
+    return { action: request.action, ...await planPracticeOffice(request) };
   if (request.action === "client")
     return { action: request.action, ...await planNewClient(request) };
   if (request.action === "subject")

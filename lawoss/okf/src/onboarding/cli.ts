@@ -45,7 +45,7 @@ function savedPreview(value: unknown, request: OnboardingRequest): OnboardingPre
     if (value.appFiles !== "inside" || typeof value.target !== "string") throw new Error("Invalid aggregate create preview.");
     const plan = parseOnboardingPlan(value.plan);
     if (value.action === "existing" && (request.action !== "existing" || request.mode !== "convert")) throw new Error("Aggregate preview action does not match request.");
-    return { action: value.action as "office" | "client" | "subject" | "matter" | "existing", mode: "new", appFiles: "inside", target: value.target, ...(typeof value.clientRoot === "string" ? { clientRoot: value.clientRoot } : {}), plan };
+    return { action: value.action as "office" | "practice" | "client" | "subject" | "matter" | "existing", mode: "new", appFiles: "inside", target: value.target, ...(typeof value.clientRoot === "string" ? { clientRoot: value.clientRoot } : {}), plan };
   }
   if (value.mode === "trial_clone") {
     if (request.action !== "existing" || request.mode !== "trial_clone" || value.appFiles !== "inside" || typeof value.source !== "string" || typeof value.target !== "string" || typeof value.sourceDigest !== "string" || value.trial !== true) throw new Error("Invalid aggregate trial preview.");
