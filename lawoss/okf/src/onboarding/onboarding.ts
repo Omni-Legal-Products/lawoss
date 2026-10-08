@@ -1,7 +1,7 @@
 import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { realpath } from "../canonical-path.ts";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { planClientConversion, type ClientConversionInput } from "./plan.ts";
+import { planClientConversion, planShallowClientConversion, type ClientConversionInput } from "./plan.ts";
 import { inspectOnboardingRoot } from "./classify.ts";
 import { executeCreate, planExistingClient, planNewClient, planNewMatter, planNewSubject, planOffice, planPracticeOffice, safeClientPattern, type AppFiles, type CreatePreview, type MapPreview, type PracticeRequest, type TrialClonePreview } from "./entities.ts";
 import { applyTrialClone, recoverTrialClone } from "./trial-clone.ts";
@@ -106,7 +106,8 @@ export async function planOnboarding(request: OnboardingRequest): Promise<Onboar
   if (request.action === "client") return { action: request.action, ...await planNewClient(request) };
   if (request.action === "subject") return { action: request.action, ...await planNewSubject(request) };
   if (request.action === "matter") { const client = await realpath(request.clientRoot), parent = await realpath(request.parent); if (!contained(client, parent)) throw new Error("Matter parent must be within client root."); return { action: request.action, ...await planNewMatter(request) }; }
-  if (request.mode === "convert") { const preview = await planClientConversion(request.root, request); return { action: "existing", mode: "new", appFiles: "inside", target: request.root, clientRoot: request.root, plan: preview.plan }; }
+  // „Nie, len pridaj OKF súbory“ len pridáva položky do koreňa klienta: plytký plán (`scope: "parent"`).
+  if (request.mode === "convert") { const preview = await planShallowClientConversion(request.root, request); return { action: "existing", mode: "new", appFiles: "inside", target: request.root, clientRoot: request.root, plan: preview.plan }; }
   const preview = await planExistingClient(request.root, request.mode, request.mode === "trial_clone" ? request.cloneParent : undefined, request.mode === "map" ? request : undefined);
   if (request.mode === "trial_clone") {
     if (preview.mode !== "trial_clone") throw new Error("Trial clone planner returned an invalid mode.");

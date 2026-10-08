@@ -78,6 +78,7 @@ var CARD_TYPES = {
   "project.md": ["project", "projekt"],
   "projekt.md": ["project", "projekt"]
 };
+var OFFICE_DIR_NAMES = ["Office", "_kancelaria"];
 var CARD_HEAD_BYTES = 64 * 1024;
 function decideCardLevel(cards, office, officeConflict) {
   if (cards.length > 1 || cards.length > 0 && office || officeConflict)
@@ -92,6 +93,41 @@ function decideCardLevel(cards, office, officeConflict) {
     return { level };
   }
   return { level: office ? "office" : "unknown" };
+}
+async function readCardHead(path) {
+  let handle;
+  try {
+    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch {
+    return;
+  }
+  try {
+    const state = await handle.stat();
+    if (!state.isFile() || state.size > CARD_HEAD_BYTES)
+      return;
+    const buffer = Buffer.alloc(state.size);
+    const read = await handle.read(buffer, 0, state.size, 0);
+    return buffer.subarray(0, read.bytesRead).toString("utf8");
+  } finally {
+    await handle.close();
+  }
+}
+var isFile = (path) => lstat(path).then((state) => state.isFile(), () => false);
+async function inspectCardLevel(root) {
+  const resolved = resolve(root);
+  try {
+    if (!isAbsolute(root) || await realpath(root) !== resolved || !(await lstat(resolved)).isDirectory())
+      return { root: resolved, level: "unknown", issues: [{ path: "", code: "canonical_directory_required" }] };
+  } catch {
+    return { root: resolved, level: "unknown", issues: [{ path: "", code: "canonical_directory_required" }] };
+  }
+  const names = new Set(await readdir(resolved));
+  const cardNames = Object.keys(CARD_LEVELS).filter((name) => names.has(name));
+  const cards = await Promise.all(cardNames.map(async (path) => ({ path, text: await readCardHead(join(resolved, path)) })));
+  const directOffice = OFFICE_DIR_NAMES.some((name) => basename(resolved) === name) && names.has("okf.config") && await isFile(join(resolved, "okf.config"));
+  const nestedOffices = (await Promise.all(OFFICE_DIR_NAMES.map((name) => isFile(join(resolved, name, "okf.config"))))).filter(Boolean).length;
+  const decision = decideCardLevel(cards, directOffice || nestedOffices > 0, nestedOffices > 1);
+  return { root: resolved, level: decision.level, issues: decision.issue ? [{ path: "", code: decision.issue }] : [] };
 }
 var APP_FILE_DIRECTORIES = new Set([".opencode"]);
 var MEMORY_FILES = new Set(["MEMORY.md", "_memory.md", "_STATUS.md", "BRAIN.md", ".lawoss/memory-profile.json"]);
@@ -2231,18 +2267,25 @@ function validateInput(input) {
   if (input.confirmUnknownClient !== undefined && typeof input.confirmUnknownClient !== "boolean")
     throw new Error("Invalid client confirmation.");
 }
-async function readInspectedText(root, entry) {
-  if (!["AGENTS.md", "CLAUDE.md", PROFILE_FILE].includes(entry.path) || entry.kind !== "file" || entry.size > 1024 * 1024 || !entry.digest)
-    throw new Error("Invalid inspected control file.");
+var CONTROL_FILES = ["AGENTS.md", "CLAUDE.md", PROFILE_FILE];
+var CONTROL_LIMIT = 1024 * 1024;
+var INSTRUCTION_LIMIT = "Instruction files must be regular files within the size limit.";
+var UNINSPECTABLE = "The directory could not be inspected completely and unambiguously.";
+var NOT_CLIENT = "Select a client directory or explicitly confirm an unrecognized directory as a client.";
+var CHANGED = "The directory changed while preparing the preview. Inspect it again.";
+async function readControlFile(root, name, expected, limitMessage = INSTRUCTION_LIMIT) {
   if (await realpath(root) !== root || !(await lstat3(root)).isDirectory())
     throw new Error("The client root changed.");
-  const path = join3(root, entry.path);
+  const path = join3(root, name);
   const handle = await open2(path, constants2.O_RDONLY | constants2.O_NOFOLLOW);
   try {
     const opened = await handle.stat({ bigint: true }), linked = await lstat3(path, { bigint: true });
-    if (!opened.isFile() || linked.isSymbolicLink() || opened.ino !== linked.ino || opened.dev !== linked.dev || opened.size !== BigInt(entry.size))
+    if (!opened.isFile() || linked.isSymbolicLink() || opened.ino !== linked.ino || opened.dev !== linked.dev || expected && opened.size !== BigInt(expected.size))
       throw new Error("The instruction file changed.");
-    const buffer = Buffer.alloc(entry.size + 1);
+    if (opened.size > BigInt(CONTROL_LIMIT))
+      throw new Error(limitMessage);
+    const size = Number(opened.size);
+    const buffer = Buffer.alloc(size + 1);
     let bytes = 0;
     while (bytes < buffer.length) {
       const next = await handle.read(buffer, bytes, buffer.length - bytes, null);
@@ -2252,30 +2295,19 @@ async function readInspectedText(root, entry) {
     }
     const after = await handle.stat({ bigint: true }), current = await lstat3(path, { bigint: true });
     const content = buffer.subarray(0, bytes);
-    if (bytes !== entry.size || after.ctimeNs !== opened.ctimeNs || after.mtimeNs !== opened.mtimeNs || after.size !== opened.size || current.isSymbolicLink() || current.ino !== opened.ino || current.dev !== opened.dev || createHash2("sha256").update(content).digest("hex") !== entry.digest)
+    if (bytes !== size || after.ctimeNs !== opened.ctimeNs || after.mtimeNs !== opened.mtimeNs || after.size !== opened.size || current.isSymbolicLink() || current.ino !== opened.ino || current.dev !== opened.dev || expected && createHash2("sha256").update(content).digest("hex") !== expected.digest)
       throw new Error("The instruction file changed.");
     return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(content);
   } finally {
     await handle.close();
   }
 }
-async function planClientConversion(root, input) {
-  validateInput(input);
-  const inspection = await inspectOnboardingRoot(root);
-  if (!inspection.complete || !inspection.digest || inspection.level === "conflict")
-    throw new Error(incompleteInspectionMessage("The directory could not be inspected completely and unambiguously.", inspection.issues));
-  if (inspection.level !== "client" && !(inspection.level === "unknown" && input.confirmUnknownClient === true))
-    throw new Error("Select a client directory or explicitly confirm an unrecognized directory as a client.");
-  const existing = new Map(inspection.entries.map((entry) => [entry.path, entry]));
-  const profileEntry = existing.get(PROFILE_FILE);
-  const workingProfile = profileEntry ? parseWorkingProfile(await readInspectedText(inspection.root, profileEntry)) : undefined;
-  const planned = planEntity({ type: "klient", dir: inspection.root, ...input, workingProfile }, LOCALIZED_TEMPLATES, (path) => existing.has(path));
-  const agents = existing.get("AGENTS.md"), claude = existing.get("CLAUDE.md");
-  for (const entry of [agents, claude])
-    if (entry && (entry.kind !== "file" || entry.size > 1024 * 1024))
-      throw new Error("Instruction files must be regular files within the size limit.");
-  const agentsText = agents ? await readInspectedText(inspection.root, agents) : undefined;
-  const claudeText = claude ? await readInspectedText(inspection.root, claude) : undefined;
+async function readInspectedText(root, entry) {
+  if (!CONTROL_FILES.includes(entry.path) || entry.kind !== "file" || entry.size > CONTROL_LIMIT || !entry.digest)
+    throw new Error("Invalid inspected control file.");
+  return readControlFile(root, entry.path, { size: entry.size, digest: entry.digest });
+}
+function mirrorInstructions(planned, agentsText, claudeText) {
   if (agentsText !== undefined && claudeText !== undefined && agentsText !== claudeText)
     throw new Error("AGENTS.md and CLAUDE.md differ. Resolve their contents before conversion.");
   const instructionText = agentsText ?? claudeText;
@@ -2284,14 +2316,16 @@ async function planClientConversion(root, input) {
       if (["AGENTS.md", "CLAUDE.md"].includes(entry.path) && entry.action === "create")
         entry.content = instructionText;
   }
+}
+function conversionOperations(planned, existing) {
   const operations = [];
   const directories = new Set;
   function directory(path) {
     if (!path || directories.has(path))
       return;
-    const entry = existing.get(path);
-    if (entry) {
-      if (entry.kind !== "directory")
+    const kind = existing(path);
+    if (kind) {
+      if (kind !== "directory")
         throw new Error(`A file blocks the planned directory: ${path}`);
       return;
     }
@@ -2301,7 +2335,7 @@ async function planClientConversion(root, input) {
   }
   for (const entry of planned.entries) {
     if (entry.action === "skip") {
-      if (existing.get(entry.path)?.kind !== "file")
+      if (existing(entry.path) !== "file")
         throw new Error(`A directory blocks the planned file: ${entry.path}`);
       continue;
     }
@@ -2309,15 +2343,121 @@ async function planClientConversion(root, input) {
     operations.push({ path: entry.path, kind: "file", content: entry.content ?? "" });
   }
   directory("memory");
+  return operations;
+}
+async function planClientConversion(root, input) {
+  validateInput(input);
+  const inspection = await inspectOnboardingRoot(root);
+  if (!inspection.complete || !inspection.digest || inspection.level === "conflict")
+    throw new Error(incompleteInspectionMessage(UNINSPECTABLE, inspection.issues));
+  if (inspection.level !== "client" && !(inspection.level === "unknown" && input.confirmUnknownClient === true))
+    throw new Error(NOT_CLIENT);
+  const existing = new Map(inspection.entries.map((entry) => [entry.path, entry]));
+  const profileEntry = existing.get(PROFILE_FILE);
+  const workingProfile = profileEntry ? parseWorkingProfile(await readInspectedText(inspection.root, profileEntry)) : undefined;
+  const planned = planEntity({ type: "klient", dir: inspection.root, ...input, workingProfile }, LOCALIZED_TEMPLATES, (path) => existing.has(path));
+  const agents = existing.get("AGENTS.md"), claude = existing.get("CLAUDE.md");
+  for (const entry of [agents, claude])
+    if (entry && (entry.kind !== "file" || entry.size > CONTROL_LIMIT))
+      throw new Error(INSTRUCTION_LIMIT);
+  const agentsText = agents ? await readInspectedText(inspection.root, agents) : undefined;
+  const claudeText = claude ? await readInspectedText(inspection.root, claude) : undefined;
+  mirrorInstructions(planned, agentsText, claudeText);
+  const operations = conversionOperations(planned, (path) => existing.get(path)?.kind);
   const verified = await inspectOnboardingRoot(root);
   if (!verified.complete || verified.digest !== inspection.digest)
-    throw new Error("The directory changed while preparing the preview. Inspect it again.");
+    throw new Error(CHANGED);
   return {
     mode: "convert",
     appFiles: "inside",
     plan: { version: 1, root: inspection.root, treeDigest: inspection.digest, operations },
     preserved: inspection.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path),
     archiveSources: inspection.memorySources
+  };
+}
+async function lstatKind(path) {
+  try {
+    const state = await lstat3(path);
+    return state.isSymbolicLink() ? "symlink" : state.isDirectory() ? "directory" : state.isFile() ? "file" : "unsupported";
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT")
+      return null;
+    throw error;
+  }
+}
+async function nestedKinds(root, top, paths) {
+  const kinds = new Map;
+  const kindOf = (path) => path.includes("/") ? kinds.get(path) ?? null : top.get(path)?.kind ?? null;
+  for (const path of paths) {
+    const parts = path.split("/");
+    for (let index = 1;index < parts.length; index += 1) {
+      const parent = parts.slice(0, index).join("/"), current = parts.slice(0, index + 1).join("/");
+      if (kindOf(parent) !== "directory")
+        break;
+      if (kinds.has(current))
+        continue;
+      try {
+        kinds.set(current, await lstatKind(join3(root, current)));
+      } catch (error) {
+        const code = error && typeof error === "object" && "code" in error ? String(error.code) : "read_failed";
+        throw new Error(incompleteInspectionMessage(UNINSPECTABLE, [{ path: current, code }]));
+      }
+    }
+  }
+  return kinds;
+}
+async function readTopLevelControl(root, entry, message) {
+  if (!entry)
+    return;
+  if (entry.kind !== "file")
+    throw new Error(message);
+  return readControlFile(root, entry.path, undefined, message);
+}
+async function planShallowClientConversion(root, input) {
+  validateInput(input);
+  const identity = await inspectCardLevel(root);
+  if (identity.level === "conflict" || identity.issues.length)
+    throw new Error(incompleteInspectionMessage(UNINSPECTABLE, identity.issues));
+  if (identity.level !== "client" && !(identity.level === "unknown" && input.confirmUnknownClient === true))
+    throw new Error(NOT_CLIENT);
+  const inspection = await inspectOnboardingParent(root);
+  if (!inspection.complete || !inspection.digest)
+    throw new Error(incompleteInspectionMessage(UNINSPECTABLE, inspection.issues));
+  const top = new Map(inspection.entries.map((entry) => [entry.path, entry]));
+  const profileText = await readTopLevelControl(inspection.root, top.get(PROFILE_FILE), "Invalid inspected control file.");
+  const workingProfile = profileText === undefined ? undefined : parseWorkingProfile(profileText);
+  const plan = (exists) => planEntity({ type: "klient", dir: inspection.root, ...input, workingProfile }, LOCALIZED_TEMPLATES, exists);
+  const candidates = new Set(plan((path) => top.has(path)).entries.map((entry) => entry.path));
+  candidates.add("memory");
+  const nested = await nestedKinds(inspection.root, top, [...candidates]);
+  const existing = (path) => (path.includes("/") ? nested.get(path) : top.get(path)?.kind) ?? undefined;
+  const planned = plan((path) => existing(path) !== undefined);
+  if (planned.entries.some((entry) => !candidates.has(entry.path)))
+    throw new Error(CHANGED);
+  const agents = top.get("AGENTS.md"), claude = top.get("CLAUDE.md");
+  for (const entry of [agents, claude])
+    if (entry && entry.kind !== "file")
+      throw new Error(INSTRUCTION_LIMIT);
+  const agentsText = await readTopLevelControl(inspection.root, agents, INSTRUCTION_LIMIT);
+  const claudeText = await readTopLevelControl(inspection.root, claude, INSTRUCTION_LIMIT);
+  mirrorInstructions(planned, agentsText, claudeText);
+  const operations = conversionOperations(planned, existing);
+  const archiveSources = [];
+  for (const entry of inspection.entries) {
+    if (entry.kind === "file" && MEMORY_FILES.has(entry.path))
+      archiveSources.push(entry.path);
+    if (entry.kind === "directory" && entry.path === ".lawoss" && await lstatKind(join3(inspection.root, ".lawoss", "memory-profile.json")) === "file")
+      archiveSources.push(".lawoss/memory-profile.json");
+  }
+  const verified = await inspectOnboardingParent(root);
+  if (!verified.complete || verified.digest !== inspection.digest)
+    throw new Error(CHANGED);
+  return {
+    mode: "convert",
+    appFiles: "inside",
+    plan: { version: 1, root: inspection.root, treeDigest: inspection.digest, operations, scope: "parent" },
+    preserved: inspection.entries.filter((entry) => entry.kind === "file").map((entry) => entry.path),
+    archiveSources
   };
 }
 
@@ -3623,7 +3763,7 @@ async function planOnboarding(request) {
     return { action: request.action, ...await planNewMatter(request) };
   }
   if (request.mode === "convert") {
-    const preview = await planClientConversion(request.root, request);
+    const preview = await planShallowClientConversion(request.root, request);
     return { action: "existing", mode: "new", appFiles: "inside", target: request.root, clientRoot: request.root, plan: preview.plan };
   }
   const preview = await planExistingClient(request.root, request.mode, request.mode === "trial_clone" ? request.cloneParent : undefined, request.mode === "map" ? request : undefined);

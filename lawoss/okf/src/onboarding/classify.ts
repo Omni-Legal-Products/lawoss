@@ -96,7 +96,7 @@ export async function inspectCardLevel(root: string): Promise<{ root: string; le
  * nešlo pridať vec k už otvorenému klientovi (D1 2026-10-05).
  */
 const APP_FILE_DIRECTORIES = new Set([".opencode"]);
-const MEMORY_FILES = new Set(["MEMORY.md", "_memory.md", "_STATUS.md", "BRAIN.md", ".lawoss/memory-profile.json"]);
+export const MEMORY_FILES: ReadonlySet<string> = new Set(["MEMORY.md", "_memory.md", "_STATUS.md", "BRAIN.md", ".lawoss/memory-profile.json"]);
 /**
  * Prchavé artefakty Windows a Office: vlastnícky súbor otvoreného dokumentu Wordu (`~$zmluva.docx`),
  * dočasný súbor Wordu (`~WRL0001.tmp`), náhľady Prieskumníka (`Thumbs.db`) a nastavenie priečinka
