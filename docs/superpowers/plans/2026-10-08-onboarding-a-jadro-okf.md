@@ -11,7 +11,7 @@
 
 **Tech stack:** TypeScript (strict, bez `any`), Bun 1.4.2. Testy jadra bežia cez `bun test test/` v `lawoss/okf` (nie `node --test`, to platí pre `okf-pamat`). Typy: `bun run typecheck`.
 
-**Spec:** [lawOSS-like-SK-CZ `specs/2026-10-08-onboarding-pripojit-priecinok.md`](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/blob/spec/onboarding-pripojit-priecinok/specs/2026-10-08-onboarding-pripojit-priecinok.md) (PR #92, schválil MČ 8. 10. 2026). Plán sa ním riadi; spec sa do forku nekopíruje.
+**Spec:** [lawOSS-like-SK-CZ `specs/2026-10-08-onboarding-pripojit-priecinok.md`](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/92) (po zlúčení v `main` na rovnakej ceste) (PR #92, schválil MČ 8. 10. 2026). Plán sa ním riadi; spec sa do forku nekopíruje.
 
 **Poradie plánov:** A (tento) → C (server a tok v appke, stavia na A). B (AI bez priečinka) je nezávislý. D (vizuál) ide po C.
 
@@ -611,8 +611,10 @@ import { executeCreate, planExistingClient, planNewClient, planNewMatter, planNe
 
 - [ ] **Krok 6: Spusti testy**
 
-Run: `cd lawoss/okf && bun test test/onboarding-practice.test.ts test/onboarding-entities.test.ts test/onboarding-cli.test.ts`
-Expected: PASS. Ak padne existujúci test, ktorý porovnáva presný zoznam operácií kancelárie, doplň doň `AGENTS.md` a `CLAUDE.md` na koniec (nové správanie podľa spec, krok „Začať nanovo“).
+Run: `cd lawoss/okf && bun test test/onboarding-practice.test.ts test/onboarding-entities.test.ts test/onboarding-cli.test.ts test/triage.test.ts`
+Run: `cd apps/server && bun test src/lawoss-onboarding.e2e.test.ts`
+Run: `cd apps/app && bun test tests/lawoss-onboarding`
+Expected: PASS. Kancelárie zakladajú aj `apps/server/src/lawoss-onboarding.e2e.test.ts:59` a `:99` a testy appky. Ak niektorý test (v `lawoss/okf`, serveri alebo appke) porovnáva presný zoznam operácií kancelárie alebo presný obsah rodiča, doplň doň `AGENTS.md` a `CLAUDE.md` na koniec (nové správanie podľa spec, krok „Začať nanovo“).
 
 - [ ] **Krok 7: Typecheck, celé testy, bundle**
 
@@ -1017,19 +1019,24 @@ export type TriageUndoResult = { status: "undone" | "already_undone"; runId: str
 ```ts
     for (const operation of [...toRemove].reverse()) {
       const full = join(root, operation.path);
-      const state = await operationState(root, operation);
       if (options.keepChanged) {
+        const state = await operationState(root, operation);
         if (state === "other" || (state === "ours" && operation.kind === "directory" && (await readdir(full)).length > 0)) { kept.push(operation.path); continue; }
+        await appendEvent(eventsPath, { t: "remove_intent", path: operation.path });
+        if (state === "ours") { if (operation.kind === "directory") await rmdir(full); else await unlinkFile(full); await durableDirectory(dirname(full)); }
+      } else {
+        // Pôvodné poradie bez zmeny (skúšobný klon): najprv remove_intent, potom stav.
+        await appendEvent(eventsPath, { t: "remove_intent", path: operation.path });
+        const state = await operationState(root, operation);
+        if (state === "ours") { if (operation.kind === "directory") await rmdir(full); else await unlinkFile(full); await durableDirectory(dirname(full)); }
+        else if (state === "other") throw new TriageConflictError(`Zmenené počas vrátenia: ${operation.path}`);
       }
-      await appendEvent(eventsPath, { t: "remove_intent", path: operation.path });
-      if (state === "ours") { if (operation.kind === "directory") await rmdir(full); else await unlinkFile(full); await durableDirectory(dirname(full)); }
-      else if (state === "other") throw new TriageConflictError(`Zmenené počas vrátenia: ${operation.path}`);
       await appendEvent(eventsPath, { t: "removed", path: operation.path });
       removedCount++;
     }
 ```
 
-   Pozor: pôvodný kód volá `operationState` až po `remove_intent`. Pri `keepChanged: false` musí ostať poradie a správanie rovnaké ako dnes; preto vetvu bez `keepChanged` nechaj presne v pôvodnom poradí (`remove_intent`, potom `operationState`) a novú logiku použi len pri `keepChanged`.
+   Vetva `else` je doslova dnešný kód (`apply.ts`, cyklus nad `[...toRemove].reverse()`), aby sa vrátenie skúšobného klona nezmenilo.
 7. Návrat: `return { status: "undone", runId, restored: restoredCount, removed: removedCount, kept };`
 
 V `lawoss/okf/onboarding.d.mts` doplň do deklarácie výsledku vrátenia pole `kept: string[]` a do volieb `keepChanged?: boolean`, ak je `undoTriage` deklarované. Over: `rg -n "undoTriage" lawoss/okf/onboarding.d.mts`.

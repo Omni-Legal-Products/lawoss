@@ -11,7 +11,7 @@
 
 **Tech stack:** TypeScript, Electron (`node --test` v `apps/desktop`), server (`bun test` v `apps/server`), appka (`bun test` v `apps/app`), pnpm 11.4.0, Node 24.
 
-**Spec:** [lawOSS-like-SK-CZ `specs/2026-10-08-onboarding-pripojit-priecinok.md`](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/blob/spec/onboarding-pripojit-priecinok/specs/2026-10-08-onboarding-pripojit-priecinok.md), časť „AI bez priečinka (P8)“ (PR #92, schválil MČ 8. 10. 2026).
+**Spec:** [lawOSS-like-SK-CZ `specs/2026-10-08-onboarding-pripojit-priecinok.md`](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/92) (po zlúčení v `main` na rovnakej ceste), časť „AI bez priečinka (P8)“ (PR #92, schválil MČ 8. 10. 2026).
 
 ## Zistenia, z ktorých plán vychádza (overené v kóde 8. 10. 2026)
 
@@ -49,6 +49,7 @@
 - Modify: `apps/server/src/runtime-opencode-config-store.ts` (nová konštanta a čítanie pri `GLOBAL_MCP_ID`, riadok 232)
 - Modify: `apps/server/src/legalwork-runtime-config.ts` (`providerMap` riadok 237 až 244, filter v `keepLegalworkRuntimeConfigFileFresh` riadok 356 až 368)
 - Modify: `apps/server/src/server.ts` (vetva `providerUpdate`, riadok 3600 až 3609)
+- Modify: `apps/server/src/runtime-provider-repair.ts` (`repairAllWorkspaceRuntimeProviders`, riadok 109)
 - Modify: `PATCHES.md`
 - Test: `apps/server/src/legalwork-runtime-config.test.ts`
 
@@ -184,6 +185,21 @@ export async function readGlobalProviderMap(config: ServerConfig): Promise<Recor
 
 Doplň import `GLOBAL_PROVIDERS_ID` zo `./runtime-opencode-config-store.js` (vedľa `GLOBAL_TOOL_PERMISSIONS_ID`).
 
+`apps/server/src/runtime-provider-repair.ts`: štartovacia oprava (`repairAllWorkspaceRuntimeProviders`, riadok 109) dnes prechádza len hosťované priečinky, takže vyradený alebo poškodený blok v globálnom riadku by sa len filtroval, nikdy neodstránil. Za cyklus `for (const workspace of config.workspaces)` pridaj:
+
+```ts
+  // LAWOSS: aj globálny riadok vlastných poskytovateľov (GLOBAL_PROVIDERS_ID).
+  try {
+    for (const notice of await repairWorkspaceRuntimeProviders(config, GLOBAL_PROVIDERS_ID)) {
+      console.warn(`Removed provider "${notice.providerId}" from global providers (${notice.reason}).`);
+    }
+  } catch (error) {
+    console.warn(`Provider repair failed for global providers: ${error instanceof Error ? error.message : String(error)}`);
+  }
+```
+
+s importom `GLOBAL_PROVIDERS_ID` zo `./runtime-opencode-config-store.js`. Overené 8. 10.: `repairRuntimeProviders` (`runtime-provider-repair.ts:60`) nechá platný blok bez zmeny (`kept[id] = block`, schéma `z.looseObject`), takže očakávanie `toEqual(ollama)` v teste platí.
+
 Pozor: blok `if (Object.keys(logicalUpdates).length || …)` pod tým zapíše `logicalUpdates` do riadku priečinka. Keď je `logicalUpdates.provider === undefined` a kľúč existuje, `Object.keys(...).length` je 1 a zápis prebehne s `provider: undefined`, čo pole z riadku odstráni. To je zamýšľané správanie.
 
 - [ ] **Krok 4: Over, ako appka číta poskytovateľov späť**
@@ -201,11 +217,11 @@ Expected: PASS a typecheck bez chýb.
 Do `PATCHES.md` pridaj riadok:
 
 ```markdown
-| `apps/server/src/runtime-opencode-config-store.ts`, `apps/server/src/legalwork-runtime-config.ts`, `apps/server/src/server.ts` | Nový riadok `GLOBAL_PROVIDERS_ID` a `readGlobalProviderMap()`; konfigurácia enginu zlúči globálnych vlastných poskytovateľov pod riadok priečinka; `PATCH /workspace/:id/config` zapisuje `provider` do globálneho riadku, `null` odstráni z oboch; obnova súboru reaguje aj na globálny riadok | Vlastný poskytovateľ (Ollama) nastavený pred prvým priečinkom alebo v jednom klientovi musí platiť pre všetkých (spec 2026-10-08, P8); vzor `GLOBAL_MCP_ID` | MČ | (číslo PR) |
+| `apps/server/src/runtime-opencode-config-store.ts`, `apps/server/src/legalwork-runtime-config.ts`, `apps/server/src/server.ts`, `apps/server/src/runtime-provider-repair.ts` | Nový riadok `GLOBAL_PROVIDERS_ID` a `readGlobalProviderMap()`; konfigurácia enginu zlúči globálnych vlastných poskytovateľov pod riadok priečinka; `PATCH /workspace/:id/config` zapisuje `provider` do globálneho riadku, `null` odstráni z oboch; obnova súboru reaguje aj na globálny riadok; štartovacia oprava čistí aj globálny riadok | Vlastný poskytovateľ (Ollama) nastavený pred prvým priečinkom alebo v jednom klientovi musí platiť pre všetkých (spec 2026-10-08, P8); vzor `GLOBAL_MCP_ID` | MČ | (číslo PR) |
 ```
 
 ```bash
-git add apps/server/src/runtime-opencode-config-store.ts apps/server/src/legalwork-runtime-config.ts apps/server/src/server.ts apps/server/src/legalwork-runtime-config.test.ts apps/server/src/lawoss-global-providers.e2e.test.ts PATCHES.md
+git add apps/server/src/runtime-opencode-config-store.ts apps/server/src/legalwork-runtime-config.ts apps/server/src/server.ts apps/server/src/runtime-provider-repair.ts apps/server/src/legalwork-runtime-config.test.ts apps/server/src/lawoss-global-providers.e2e.test.ts PATCHES.md
 git commit -m "feat: vlastní poskytovatelia AI platia pre všetky priečinky"
 ```
 
@@ -461,8 +477,10 @@ export function preferRealWorkspace<T extends WithPath & { workspaceType?: strin
 1. `apps/app/src/lawoss/domains/onboarding/ai-step.tsx`, v `resolveOpencodeTarget` nahraď výber priečinka (riadky 161 až 165):
 
 ```ts
-  const workspace = preferRealWorkspace(list.items, list.activeId, item => item.id);
+  const workspace = preferRealWorkspace(list.items, list.activeId, item => item.id) ?? list.items.find((item) => item.id === list.activeId);
 ```
+
+   Druhá časť zachová pôvodné správanie, keď je aktívny len vzdialený priečinok (`preferRealWorkspace` vzdialené nevyberá).
 
    a pridaj import `import { preferRealWorkspace } from "../../home-workspace";`.
 
@@ -478,12 +496,12 @@ export function preferRealWorkspace<T extends WithPath & { workspaceType?: strin
 
 ```ts
   const selectedWorkspace = useMemo(
-    () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? (selectedWorkspaceId ? null : preferRealWorkspace(workspaces) ?? null),
+    () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? (selectedWorkspaceId ? null : preferRealWorkspace(workspaces) ?? workspaces[0] ?? null),
     [selectedWorkspaceId, workspaces],
   );
 ```
 
-   s importom `import { preferRealWorkspace } from "@/lawoss/home-workspace";`. Over, že typ položiek `workspaces` má `path` a `workspaceType` (`rg -n "workspaceType" apps/app/src/react-app/shell/settings-route.tsx | head -3`).
+   s importom `import { preferRealWorkspace } from "@/lawoss/home-workspace";`. Koncové `?? workspaces[0]` zachová pôvodné správanie pre používateľa, ktorý má len vzdialený priečinok. Over, že typ položiek `workspaces` má `path` a `workspaceType` (`rg -n "workspaceType" apps/app/src/react-app/shell/settings-route.tsx | head -3`).
 
 4. `apps/app/src/lawoss/okf/connection.ts` (riadky 28 až 50): zoznam, ktorý funkcia vracia, obaľ do `withoutLawossHome(...)`.
 
@@ -532,7 +550,7 @@ HOME=$P/home XDG_CONFIG_HOME=$P/home/.config XDG_DATA_HOME=$P/home/.local/share 
 
 1. Bez priečinka otvor Nastavenia → Poskytovatelia AI: zoznam sa načíta, žiadne „Nepripojené k serveru“.
 2. Pridaj vlastného poskytovateľa Ollama (`http://localhost:11434/v1`), ak beží lokálne. Ak nebeží, pridaj OpenAI-compatible poskytovateľa so syntetickou adresou: overuje sa uloženie, nie odpoveď.
-3. V onboardingu krok AI ukáže stav modelu, nie „no-workspace“.
+3. V onboardingu krok AI ukáže stav modelu, nie „no-workspace“. Klikni na tlačidlo, ktoré otvára nastavenia AI: musí otvoriť Poskytovateľov AI. Neoverené v kóde: `settings-route.tsx:380-383` počas nedokončeného onboardingu presmeruje na `/session`. Ak sa to stane, zapíš to do PR ako zistenie pre plán C (tok onboardingu); cieľ plánu B (engine bez priečinka) to nespochybňuje, ale krok AI v onboardingu sa potom nedá dokončiť z tohto tlačidla.
 4. Pridaj syntetický priečinok klienta (prázdny priečinok v `$P`). V bočnom paneli je len klient, `lawoss-domov` nie je nikde.
 5. V Poskytovateľoch AI je poskytovateľ z bodu 2 stále.
 6. `ls $P/userdata/lawoss-domov` je prázdny.
