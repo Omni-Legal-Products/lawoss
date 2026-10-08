@@ -12,7 +12,9 @@ import { run } from "../src/cli.ts";
 const cleanup: string[] = [];
 afterEach(() => { for (const path of cleanup.splice(0)) rmSync(path, { recursive: true, force: true }); });
 function fixture() {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), "okf-naming-"))); cleanup.push(base); const root = join(base, "matter"); mkdirSync(root);
+  // Match native authority-root resolution: on Windows realpathSync may retain RUNNER~1.
+  // Injected fs error paths must use the same physical paths as the actual apply operations.
+  const base = realpathSync.native(mkdtempSync(join(tmpdir(), "okf-naming-"))); cleanup.push(base); const root = join(base, "matter"); mkdirSync(root);
   const profile = workingProfile(); for (const folder of profile.folders) mkdirSync(join(root, folder), { recursive: true }); mkdirSync(join(root, "notes"));
   writeFileSync(join(root, "PRACOVNY-PROFIL.md"), renderWorkingProfile(profile));
   const binary = Buffer.from([0, 255, 254, 128, 13, 10, 80, 68, 70]);
