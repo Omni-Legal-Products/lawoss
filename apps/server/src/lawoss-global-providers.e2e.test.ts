@@ -21,10 +21,12 @@ async function fixture() {
   cleanups.push(() => removeTestDir(base));
   const office = join(base, "office");
   await mkdir(office, { recursive: true });
+  const second = join(base, "second");
+  await mkdir(second, { recursive: true });
   process.env.LEGALWORK_DATA_DIR = join(base, "data");
   process.env.LEGALWORK_TOKEN_STORE = join(base, "tokens.json");
   process.env.LEGALWORK_RUNTIME_DB = join(base, "runtime.sqlite");
-  const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(base, "server.json"), token: "client", hostToken: "host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [{ id: "office", name: "Office", preset: "starter", path: office, workspaceType: "local" }], authorizedRoots: [office], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(base, "server.json"), token: "client", hostToken: "host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [{ id: "office", name: "Office", preset: "starter", path: office, workspaceType: "local" }, { id: "second", name: "Second", preset: "starter", path: second, workspaceType: "local" }], authorizedRoots: [office, second], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
   const server = await startServer(config);
   cleanups.push(async () => { await server.stop(); });
   const baseUrl = `http://127.0.0.1:${server.port}`;
@@ -69,4 +71,34 @@ test("úprava staršieho poskytovateľa z riadku priečinka platí: globálny ri
   const response = await fetch(`${baseUrl}/workspace/${ws.id}/config`, { headers: { authorization: "Bearer client" } });
   const body: { opencode?: { provider?: Record<string, unknown> } } = await response.json();
   expect(body.opencode?.provider?.ollama).toEqual(v2);
+});
+
+test("starý poskytovateľ uložený vo viacerých priečinkoch sa pri úprave aj pri null odstráni zo všetkých riadkov", async () => {
+  const { config, baseUrl, ws, patchConfig } = await fixture();
+  const v1 = { ...ollama, name: "Ollama v1" }, v2 = { ...ollama, name: "Ollama v2" };
+  const seedBoth = async () => {
+    for (const id of ["office", "second"]) await writeRuntimeOpencodeConfig(config, id, (current) => ({ ...current, provider: { ollama: v1 } }));
+  };
+  const getProvider = async (id: string) => {
+    const response = await fetch(`${baseUrl}/workspace/${id}/config`, { headers: { authorization: "Bearer client" } });
+    const body: { opencode?: { provider?: Record<string, unknown> } } = await response.json();
+    return body.opencode?.provider?.ollama;
+  };
+  await seedBoth();
+  await patchConfig(ws.id, { opencode: { provider: { ollama: v2 } } });
+  for (const id of ["office", "second"]) expect((await readRuntimeOpencodeConfig(config, id)).provider ?? {}).toEqual({});
+  expect(await getProvider("second")).toEqual(v2);
+  await seedBoth();
+  await patchConfig(ws.id, { opencode: { provider: { ollama: null } } });
+  for (const id of ["office", "second"]) expect((await readRuntimeOpencodeConfig(config, id)).provider ?? {}).toEqual({});
+  expect(await getProvider("second")).toBeUndefined();
+});
+
+test("GET opraví neplatný starý blok a vráti platný globálny poskytovateľ", async () => {
+  const { config, baseUrl, ws, patchConfig } = await fixture();
+  await patchConfig(ws.id, { opencode: { provider: { ollama } } });
+  await writeRuntimeOpencodeConfig(config, ws.id, (current) => ({ ...current, provider: { ollama: { npm: 42 } } }));
+  const response = await fetch(`${baseUrl}/workspace/${ws.id}/config`, { headers: { authorization: "Bearer client" } });
+  const body: { opencode?: { provider?: Record<string, unknown> } } = await response.json();
+  expect(body.opencode?.provider?.ollama).toEqual(ollama);
 });

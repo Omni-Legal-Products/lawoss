@@ -146,7 +146,7 @@ import {
   readEngineEigenweltProvider,
   writeLegalworkRuntimeConfigFile,
 } from "./legalwork-runtime-config.js";
-import { providerRepairNotices } from "./runtime-provider-repair.js";
+import { providerRepairNotices, repairRuntimeProviders } from "./runtime-provider-repair.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
 import {
   eigenweltHasPremiumModels,
@@ -1804,7 +1804,7 @@ function createRoutes(
       await readOpencodeConfig(workspaceAppFilesRoot(config, workspace)),
       applyGlobalToolPermissions(
         Object.keys(globalProviders).length
-          ? { ...workspaceRuntime, provider: { ...globalProviders, ...(workspaceRuntime.provider ?? {}) } }
+          ? { ...workspaceRuntime, provider: { ...repairRuntimeProviders(globalProviders).providers, ...repairRuntimeProviders(workspaceRuntime.provider ?? {}).providers } }
           : workspaceRuntime,
         await readGlobalToolPermissions(config),
       ),
@@ -3616,15 +3616,19 @@ function createRoutes(
         }));
         // Globálny riadok je po každom zápise jediný zdroj: id z úpravy (aj nenulové)
         // sa odstráni zo starého riadku priečinka, inak by starý blok prekryl nový.
-        const currentRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
-        const legacyProviders = ensurePlainObject(currentRuntime.provider);
-        const legacyIds = Object.keys(providerUpdate).filter((id) => id in legacyProviders);
-        if (legacyIds.length) {
+        // Starý stav môže byť vo viacerých priečinkoch, preto sa čistia všetky riadky.
+        for (const row of config.workspaces) {
+          const rowRuntime = await readRuntimeOpencodeConfig(config, row.id);
+          const legacyProviders = ensurePlainObject(rowRuntime.provider);
+          const legacyIds = Object.keys(providerUpdate).filter((id) => Object.hasOwn(legacyProviders, id));
+          if (!legacyIds.length) continue;
           const nextLocal = mergeRuntimeProviderPatch(
             legacyProviders,
             Object.fromEntries(legacyIds.map((id) => [id, null])),
           );
-          logicalUpdates.provider = Object.keys(nextLocal).length ? nextLocal : undefined;
+          const nextProvider = Object.keys(nextLocal).length ? nextLocal : undefined;
+          if (row.id === workspace.id) logicalUpdates.provider = nextProvider;
+          else await writeRuntimeOpencodeConfig(config, row.id, (current) => ({ ...current, provider: nextProvider }));
         }
       }
 

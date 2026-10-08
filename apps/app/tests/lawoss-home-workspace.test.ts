@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isLawossHomeWorkspace, preferRealWorkspace, withoutLawossHome } from "../src/lawoss/home-workspace";
+import { avoidLawossHomeId, defaultWorkspaceId, isLawossHomeWorkspace, preferRealWorkspace, withoutLawossHome } from "../src/lawoss/home-workspace";
 
 const home = { id: "ws_home", path: "/Users/a/Library/Application Support/LAWOSS/lawoss-domov", workspaceType: "local" };
 const homeWin = { id: "ws_home_win", path: "C:\\Users\\a\\AppData\\Roaming\\LAWOSS\\lawoss-domov", workspaceType: "local" };
@@ -24,5 +24,21 @@ describe("domovský priestor", () => {
   test("bez skutočného priečinka sa použije domovský, vzdialený nie", () => {
     expect(preferRealWorkspace([remote, home], null, item => item.id)).toEqual(home);
     expect(preferRealWorkspace([remote], null, item => item.id)).toBeUndefined();
+  });
+  const clientB = { id: "ws_b", path: "/Users/a/Klienti/B", workspaceType: "local" };
+  test("po odstránení aktívneho priečinka sa nevyberie domov, ak existuje skutočný", () => {
+    // domov je zaregistrovaný ako prvý; server aj uložené id ukazujú naň
+    expect(avoidLawossHomeId([home, client, clientB], "ws_home")).toBe("ws_client");
+    expect(defaultWorkspaceId([home, client, clientB])).toBe("ws_client");
+    expect(avoidLawossHomeId([home, client], "ws_client")).toBe("ws_client");
+    expect(avoidLawossHomeId([home, remote], "ws_home")).toBe("ws_home");
+  });
+  test("len domov alebo prázdny zoznam ostáva beze zmeny", () => {
+    expect(avoidLawossHomeId([home], "ws_home")).toBe("ws_home");
+    expect(defaultWorkspaceId([home])).toBe("ws_home");
+    expect(defaultWorkspaceId([remote, home])).toBe("ws_remote");
+    expect(defaultWorkspaceId([remote])).toBe("ws_remote");
+    expect(defaultWorkspaceId([])).toBe("");
+    expect(avoidLawossHomeId([], "x")).toBe("x");
   });
 });

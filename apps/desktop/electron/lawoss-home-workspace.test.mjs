@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readdir, realpath } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -55,4 +55,38 @@ test("po pridaní klienta ostane domovský priestor v zozname, ale nový nevznik
   const state = await workspaceStore.readWorkspaceState();
   assert.equal(state.workspaces.length, 2);
   assert.equal(state.workspaces.find((entry) => entry.id === state.selectedId)?.path, client);
+});
+
+test("zmazaný priečinok domova na disku sa pri ďalšom volaní obnoví bez duplicity", async () => {
+  const { userData, workspaceStore } = await fixture();
+  await ensureLawossHomeWorkspace({ userData, workspaceStore, mkdir });
+  await rm(lawossHomeWorkspacePath(userData), { recursive: true, force: true });
+  assert.equal(await ensureLawossHomeWorkspace({ userData, workspaceStore, mkdir }), false);
+  assert.deepEqual(await readdir(lawossHomeWorkspacePath(userData)), []);
+  assert.equal((await workspaceStore.readWorkspaceState()).workspaces.length, 1);
+});
+
+test("ak výber ukazuje na domov a existuje skutočný priečinok, výber prejde na skutočný", async () => {
+  const { root, userData, workspaceStore } = await fixture();
+  await ensureLawossHomeWorkspace({ userData, workspaceStore, mkdir });
+  const client = path.join(root, "Klient");
+  await mkdir(client);
+  await workspaceStore.createWorkspace({ folderPath: client, registerExisting: true });
+  const homeEntry = (await workspaceStore.readWorkspaceState()).workspaces.find((entry) => entry.path === lawossHomeWorkspacePath(userData));
+  await workspaceStore.setSelectedWorkspace(homeEntry.id);
+  await workspaceStore.setRuntimeActiveWorkspace(homeEntry.id);
+  await ensureLawossHomeWorkspace({ userData, workspaceStore, mkdir });
+  const state = await workspaceStore.readWorkspaceState();
+  const clientEntry = state.workspaces.find((entry) => entry.path === client);
+  assert.equal(state.selectedId, clientEntry.id);
+  assert.equal(state.activeId, clientEntry.id);
+  assert.equal(state.watchedId, clientEntry.id);
+});
+
+test("ak je domov jediný, výber ostane na ňom", async () => {
+  const { userData, workspaceStore } = await fixture();
+  await ensureLawossHomeWorkspace({ userData, workspaceStore, mkdir });
+  await ensureLawossHomeWorkspace({ userData, workspaceStore, mkdir });
+  const state = await workspaceStore.readWorkspaceState();
+  assert.equal(state.selectedId, state.workspaces[0].id);
 });

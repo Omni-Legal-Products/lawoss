@@ -31,6 +31,7 @@ import {
   testRemoteWorkspaceConnection,
 } from "@/react-app/domains/workspace/remote-workspace-diagnostics";
 import { useLocal } from "@/react-app/kernel/local-provider";
+import { avoidLawossHomeId, defaultWorkspaceId, withoutLawossHome } from "../../lawoss/home-workspace";
 import { useBootState } from "./boot-state";
 import { ensureDesktopLocalLegalworkConnection } from "./desktop-local-legalwork";
 import { resolveLegalworkConnection } from "./legalwork-connection";
@@ -116,7 +117,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const [legacySelectedWorkspaceId, setLegacySelectedWorkspaceId] = useState<string>(() => readActiveWorkspaceId() ?? "");
   const selectedWorkspaceId = routeWorkspaceId || legacySelectedWorkspaceId;
   const selectedWorkspace = useMemo(
-    () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? (selectedWorkspaceId ? null : workspaces[0] ?? null),
+    () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? (selectedWorkspaceId ? null : workspaces.find((workspace) => workspace.id === defaultWorkspaceId(workspaces)) ?? null),
     [selectedWorkspaceId, workspaces],
   );
   // Workspace-scoped API calls (sessions, events, activate, opencode/*) must
@@ -402,7 +403,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         sessionsByWorkspaceIdRef.current = {};
         setSessionsByWorkspaceId({});
         setErrorsByWorkspaceId({});
-        setLegacySelectedWorkspaceId(resolveWorkspaceListSelectedId(desktopList) || orderedDesktopWorkspaces[0]?.id || "");
+        setLegacySelectedWorkspaceId(avoidLawossHomeId(orderedDesktopWorkspaces, resolveWorkspaceListSelectedId(desktopList)) || defaultWorkspaceId(orderedDesktopWorkspaces));
         return;
       }
 
@@ -448,8 +449,9 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
           : "") ||
         resolveWorkspaceListSelectedId(desktopList) ||
         list.activeId?.trim() ||
-        nextWorkspaces[0]?.id ||
-        "";
+        defaultWorkspaceId(nextWorkspaces);
+      // LAWOSS: domovský priestor nikdy nie je aktívny, kým existuje skutočný lokálny priečinok.
+      nextWorkspaceId = avoidLawossHomeId(nextWorkspaces, nextWorkspaceId);
       if (selectedSessionId) {
         const match = cachedEntries.find((entry) =>
           entry.sessions.some((session) => session?.id === selectedSessionId),
@@ -527,7 +529,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         const orderedDesktopWorkspaces = orderRouteWorkspaces(desktopWorkspaces, workspaceOrderIdsRef.current);
         setWorkspaces(orderedDesktopWorkspaces);
         setLegacySelectedWorkspaceId((current) =>
-          current || resolveWorkspaceListSelectedId(desktopList) || orderedDesktopWorkspaces[0]?.id || "",
+          avoidLawossHomeId(orderedDesktopWorkspaces, current || resolveWorkspaceListSelectedId(desktopList)) || defaultWorkspaceId(orderedDesktopWorkspaces),
         );
       }
     } finally {
@@ -707,7 +709,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       if (!hasLoadedServerWorkspaces) return;
       const fallbackWorkspaceId = workspaces.some((workspace) => workspace.id === legacySelectedWorkspaceId)
         ? legacySelectedWorkspaceId
-        : workspaces[0]?.id || "";
+        : defaultWorkspaceId(workspaces);
       if (fallbackWorkspaceId) {
         navigateToWorkspaceSession(fallbackWorkspaceId, selectedSessionId, { replace: true });
       }
@@ -744,10 +746,10 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   // `loading` is false and we know for sure there are zero workspaces.
   useEffect(() => {
     if (loading || preserveRoute) return;
-    if (workspaces.length > 0) return;
+    if (withoutLawossHome(workspaces).length > 0) return;
     if (local.prefs.hasCompletedOnboarding) return;
     navigate("/welcome", { replace: true });
-  }, [loading, preserveRoute, local.prefs.hasCompletedOnboarding, navigate, workspaces.length]);
+  }, [loading, preserveRoute, local.prefs.hasCompletedOnboarding, navigate, workspaces]);
 
   // NOTE: Blueprint seeding was removed from the route.
   // It was firing `materializeBlueprintSessions` + a session re-fetch on every

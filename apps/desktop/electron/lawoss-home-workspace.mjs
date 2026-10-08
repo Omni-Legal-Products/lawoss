@@ -14,9 +14,23 @@ export function lawossHomeWorkspacePath(userData) {
 export async function ensureLawossHomeWorkspace({ userData, workspaceStore, mkdir }) {
   const state = await workspaceStore.readWorkspaceState();
   const local = state.workspaces.filter((entry) => entry?.workspaceType !== "remote" && String(entry?.path ?? "").trim());
-  if (local.length) return false;
   const folderPath = lawossHomeWorkspacePath(userData);
+  const isHome = (entry) => path.basename(String(entry?.path ?? "").trim()) === LAWOSS_HOME_DIR_NAME;
+  const real = local.filter((entry) => !isHome(entry));
+  if (real.length) {
+    // Obrana do hĺbky: výber nesmie ostať na domove, keď existuje skutočný priečinok.
+    const home = local.find(isHome);
+    if (home) {
+      await mkdir(folderPath, { recursive: true });
+      const target = real[0].id;
+      if (state.selectedId === home.id || state.activeId === home.id) await workspaceStore.setSelectedWorkspace(target);
+      if (state.watchedId === home.id) await workspaceStore.setRuntimeActiveWorkspace(target);
+    }
+    return false;
+  }
+  // Priečinok sa vytvára vždy, aj keď je domov už zaregistrovaný (mohol byť zmazaný na disku).
   await mkdir(folderPath, { recursive: true });
+  if (local.length) return false;
   // registerExisting vyžaduje kanonickú cestu (macOS /var -> /private/var).
   const canonical = await realpath(folderPath);
   await workspaceStore.createWorkspace({ folderPath: canonical, registerExisting: true, appFiles: "outside", name: "LAWOSS" });
