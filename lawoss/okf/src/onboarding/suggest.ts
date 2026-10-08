@@ -4,7 +4,7 @@
  * `inspectOnboardingRoot` a jej `level` ostávajú autoritatívne pre zápis (brána `convert`).
  */
 import { lstat, readdir, readFile } from "node:fs/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import { realpath } from "../canonical-path.ts";
 import { decodeText } from "../../../okf-pamat/src/text-decode.ts";
 import { VOLATILE_ENTRY } from "./classify.ts";
@@ -112,7 +112,8 @@ export async function suggestOnboardingLevel(root: string): Promise<OnboardingSu
     if (withMatters.length) signals.push("matter_named_children");
     return { ...base, level: "practice", marked: false, score: round(ratio), signals, clientPattern: bucketed ? "*/*" : "*", clients: candidates.map(candidate => ({ path: candidate.path, name: nameOf(candidate.path) })) };
   }
-  if (looksLikeMatterName(nameOf(survey.root))) return { ...base, level: "matter", marked: false, score: 0.8, signals: ["matter_named_root"] };
+  // The root is a native absolute path; only survey entries use portable "/" paths.
+  if (looksLikeMatterName(basename(survey.root))) return { ...base, level: "matter", marked: false, score: 0.8, signals: ["matter_named_root"] };
   if (dirs.some(entry => looksLikeMatterName(nameOf(entry.path)))) return { ...base, level: "client", marked: false, score: 0.8, signals: ["matter_named_children"] };
   if (!dirs.length) return { ...base, level: "matter", marked: false, score: 0.5, signals: ["documents_only"] };
   return { ...base, level: "client", marked: false, score: 0.5, signals: ["plain_directories"] };
