@@ -143,6 +143,11 @@ jobs:
       - name: Run server unit tests
         run: pnpm --filter legalwork-server test
 
+      - name: Verify messaging control authentication and workspace containment
+        run: |
+          pnpm --filter opencode-router test:unit
+          node --test apps/orchestrator/scripts/router-control-security.test.mjs
+
       - name: Verify report source evidence checks
         run: |
           python3 -m venv "$RUNNER_TEMP/legalwork-report-tests"

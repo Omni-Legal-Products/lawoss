@@ -22,7 +22,7 @@ import {
   jsResponse,
   svgResponse,
 } from "../toy-ui.js";
-import type { Capabilities, ServerConfig, WorkspaceInfo } from "../types.js";
+import type { Actor, Capabilities, ServerConfig, WorkspaceInfo } from "../types.js";
 import { addRoute, type Route } from "./registry.js";
 
 type JsonResponse = (data: unknown, status?: number) => Response;
@@ -45,7 +45,7 @@ interface RegisterCoreRoutesOptions {
   buildCapabilities: (config: ServerConfig) => Capabilities;
   fetchRuntimeControl: FetchRuntimeControl;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
-  serializeWorkspace: (workspace: ServerConfig["workspaces"][number]) => unknown;
+  serializeWorkspace: (workspace: ServerConfig["workspaces"][number], scope?: Actor["scope"]) => unknown;
   resolveToyUiEnabled: () => boolean;
   resolveDevLogPath: () => string | null;
   getOpenAiRealtimeVoiceCapability: (env: EnvService) => Promise<unknown>;
@@ -186,7 +186,7 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
       corsOrigins: config.corsOrigins,
       workspaceCount: 1,
       activeWorkspaceId: workspace.id,
-      workspace: serializeWorkspace(workspace),
+      workspace: serializeWorkspace(workspace, ctx.actor?.scope),
       authorizedRoots: config.authorizedRoots,
       server: {
         host: config.host,
@@ -206,10 +206,10 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
 
   addRoute(routes, "GET", "/w/:id/workspaces", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    return jsonResponse({ items: [serializeWorkspace(workspace)], activeId: workspace.id });
+    return jsonResponse({ items: [serializeWorkspace(workspace, ctx.actor?.scope)], activeId: workspace.id });
   });
 
-  addRoute(routes, "GET", "/status", "client", async () => {
+  addRoute(routes, "GET", "/status", "client", async (ctx) => {
     const active = config.workspaces[0];
     return jsonResponse({
       ok: true,
@@ -221,7 +221,7 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
       corsOrigins: config.corsOrigins,
       workspaceCount: config.workspaces.length,
       activeWorkspaceId: active?.id ?? null,
-      workspace: active ? serializeWorkspace(active) : null,
+      workspace: active ? serializeWorkspace(active, ctx.actor?.scope) : null,
       authorizedRoots: config.authorizedRoots,
       server: {
         host: config.host,
@@ -321,9 +321,9 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
     return jsonResponse(await googleWorkspaceRunScopeSmokeTest(config));
   });
 
-  addRoute(routes, "GET", "/workspaces", "client", async () => {
+  addRoute(routes, "GET", "/workspaces", "client", async (ctx) => {
     const active = config.workspaces[0] ?? null;
-    const items = config.workspaces.map(serializeWorkspace);
+    const items = config.workspaces.map((workspace) => serializeWorkspace(workspace, ctx.actor?.scope));
     return jsonResponse({ items, workspaces: items, activeId: active?.id ?? null });
   });
 

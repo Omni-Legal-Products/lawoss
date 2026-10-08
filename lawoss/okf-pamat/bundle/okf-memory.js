@@ -723,16 +723,16 @@ function parseBlock(block, firstLineNo) {
       const body = t.slice(2).trim();
       const idx = body.indexOf(":");
       if (idx === -1 || body.startsWith('"') || body.startsWith("'") || body.startsWith("[") || body.startsWith("{")) {
-        const v = parseScalar(body);
-        if (typeof v === "object" && !Array.isArray(v)) {
-          cur = v;
+        const v2 = parseScalar(body);
+        if (typeof v2 === "object" && !Array.isArray(v2)) {
+          cur = v2;
           items.push(cur);
           return;
         }
-        if (Array.isArray(v))
+        if (Array.isArray(v2))
           throw new Error(`Riadok ${firstLineNo + k}: zoznam v zozname sa nepodporuje`);
         cur = undefined;
-        items.push(v);
+        items.push(v2);
         return;
       }
       if (body.slice(idx + 1).trim() === "") {
@@ -1418,7 +1418,7 @@ import { existsSync as existsSync3, lstatSync as lstatSync4, mkdirSync as mkdirS
 import { isAbsolute as isAbsolute3, join as join5, resolve as resolve4 } from "node:path";
 
 // src/store.ts
-import { existsSync as existsSync2, lstatSync, mkdirSync, readFileSync as readFileSync2, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync as existsSync2, fstatSync, lstatSync, mkdirSync, openSync, readFileSync as readFileSync2, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join as join2, relative, resolve, sep as sep2 } from "node:path";
 
@@ -1945,11 +1945,11 @@ function validateStore(records, opts = {}) {
     }
   }
   for (const r of records) {
-    const ids = new Set((r.sources ?? []).map((z) => z.id).filter((x) => !!x));
+    const ids2 = new Set((r.sources ?? []).map((z) => z.id).filter((x) => !!x));
     const text = bodyText(r);
     const pouzite = new Set([...text.matchAll(/\[\^([^\]\s]+)\]/g)].map((m) => m[1] ?? ""));
     for (const label of pouzite) {
-      if (ids.has(label))
+      if (ids2.has(label))
         continue;
       findings.push({
         severity: "error",
@@ -2330,8 +2330,8 @@ function documentLanguageFromCard(dir) {
   }
   return;
 }
-function hasUnparsedBody(text) {
-  const lines = text.replace(/^\uFEFF/, "").replace(/\r\n?/g, `
+function hasUnparsedBody(text2) {
+  const lines = text2.replace(/^\uFEFF/, "").replace(/\r\n?/g, `
 `).split(`
 `);
   const body = lines.slice(lines.indexOf("---", 1) + 1);
@@ -2360,10 +2360,17 @@ function readStore(dir) {
   const records = [];
   const problems = [];
   try {
-    for (const entry of readdirSync(memoryDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    const safeMemoryDir = join2(realpathSync(dir), MEMORY_DIR);
+    if (lstatSync(safeMemoryDir).isSymbolicLink())
+      throw new Error("Symbolický odkaz na adresár pamäte nie je povolený.");
+    for (const entry of readdirSync(safeMemoryDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const name = entry.name;
       if (entry.isDirectory()) {
         problems.push({ file: name, message: "Vnorený adresár pamäte nie je podporovaný; jeho záznamy neboli načítané." });
+        continue;
+      }
+      if (entry.isSymbolicLink()) {
+        problems.push({ file: name, message: "Symbolický odkaz na záznam pamäte nie je povolený." });
         continue;
       }
       if (!name.endsWith(".md"))
@@ -2371,7 +2378,20 @@ function readStore(dir) {
       if (name === INDEX_FILE || name === LOG_FILE || name === LEGACY_INDEX_FILE)
         continue;
       try {
-        const source = readFileSync2(join2(memoryDir, name), "utf8");
+        const file = join2(safeMemoryDir, name);
+        const before = lstatSync(file);
+        if (!before.isFile() || before.isSymbolicLink())
+          throw new Error("Záznam pamäte musí byť bežný súbor.");
+        const fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+        let source;
+        try {
+          const opened = fstatSync(fd);
+          if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino)
+            throw new Error("Záznam pamäte sa zmenil počas čítania.");
+          source = readFileSync2(fd, "utf8");
+        } finally {
+          closeSync(fd);
+        }
         records.push(parseRecord(source));
         if (hasUnparsedBody(source)) {
           problems.push({ file: join2(memoryDir, name), message: "Časť obsahu (text pred prvou sekciou, zdvojená Truth/History alebo riadok History mimo tvaru udalosti) sa nedá načítať. Otvor celý zdrojový súbor; tento výpis nie je úplný." });
@@ -2636,8 +2656,8 @@ function writeIndex(dir) {
     lines.push("", `## ${nadpis[layer]?.[j] ?? layer}`, "");
     for (const r of vo) {
       const cesta = href(r.id);
-      const odkaz = cesta ? `[${r.id}](${cesta})` : r.id;
-      lines.push(`* ${odkaz} — ${documentTypeLabel(r.type, j)} — ${r.description}`);
+      const odkaz2 = cesta ? `[${r.id}](${cesta})` : r.id;
+      lines.push(`* ${odkaz2} — ${documentTypeLabel(r.type, j)} — ${r.description}`);
     }
   }
   if (readdirSync(store.memoryDir).includes(LEGACY_INDEX_FILE)) {
@@ -2659,10 +2679,10 @@ function writeLog(dir) {
   for (const r of scope.records) {
     for (const e of r.timeline) {
       const cesta = href(r.id);
-      const odkaz = cesta ? `[${r.id}](${cesta})` : r.id;
+      const odkaz2 = cesta ? `[${r.id}](${cesta})` : r.id;
       const druh = e.kind ? `**${documentValueLabel("event_kind", e.kind, j)}**: ` : "";
       const zoznam = podlaDatumu.get(e.date) ?? [];
-      zoznam.push(`* ${druh}${e.text} — ${odkaz}`);
+      zoznam.push(`* ${druh}${e.text} — ${odkaz2}`);
       podlaDatumu.set(e.date, zoznam);
     }
   }
@@ -2813,9 +2833,9 @@ function retrofitStatusFile(dir, apply) {
   if (!existsSync2(path))
     return [];
   const existing = decodeText(readFileSync2(path));
-  const { text, inserted } = retrofitStatus(existing, store.records, store.jurisdiction, linkResolver(store, false), documentLanguageFromCard(dir));
+  const { text: text2, inserted } = retrofitStatus(existing, store.records, store.jurisdiction, linkResolver(store, false), documentLanguageFromCard(dir));
   if (apply && inserted.length > 0)
-    writeProjection(path, text, dir);
+    writeProjection(path, text2, dir);
   return inserted;
 }
 var CLIENT_CARDS = ["client.md", "klient.md"];
@@ -2950,12 +2970,12 @@ function composePreamble(records) {
 // src/workspace-memory-types.ts
 var WORKSPACE_MEMORY_LIMITS = Object.freeze({ profileBytes: 256 * 1024, journalBytes: 4 * 1024 * 1024, sourceBytes: 2 * 1024 * 1024, totalBytes: 16 * 1024 * 1024, sources: 256 });
 // src/workspace-memory-reader.ts
-import { readdirSync as readdirSync2, realpathSync as realpathSync2 } from "node:fs";
+import { readdirSync as readdirSync2, realpathSync as realpathSync3 } from "node:fs";
 import { isAbsolute as isAbsolute2, join as join3, resolve as resolve3, sep as sep4 } from "node:path";
 
 // src/workspace-memory-fs.ts
 import { createHash } from "node:crypto";
-import { closeSync, constants, fstatSync, lstatSync as lstatSync2, openSync, readSync, realpathSync } from "node:fs";
+import { closeSync as closeSync2, constants as constants2, fstatSync as fstatSync2, lstatSync as lstatSync2, openSync as openSync2, readSync, realpathSync as realpathSync2 } from "node:fs";
 import { isAbsolute, parse, relative as relative2, resolve as resolve2, sep as sep3 } from "node:path";
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -3005,13 +3025,13 @@ function checkedPath(path, kind, allowMissing = false) {
 }
 function checkedDirectory(path) {
   checkedPath(path, "directory");
-  return realpathSync(path);
+  return realpathSync2(path);
 }
 function readText(path, limit) {
   checkedPath(path, "file");
-  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  const fd = openSync2(path, constants2.O_RDONLY | constants2.O_NOFOLLOW | constants2.O_NONBLOCK);
   try {
-    const before = fstatSync(fd, { bigint: true });
+    const before = fstatSync2(fd, { bigint: true });
     if (!before.isFile())
       throw new Error(`Not a regular file: ${path}`);
     if (before.size > BigInt(limit))
@@ -3024,14 +3044,14 @@ function readText(path, limit) {
         break;
       count += n;
     }
-    const after = fstatSync(fd, { bigint: true }), named = lstatSync2(path, { bigint: true });
+    const after = fstatSync2(fd, { bigint: true }), named = lstatSync2(path, { bigint: true });
     if (BigInt(count) !== before.size || before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs || named.isSymbolicLink() || before.ino !== named.ino || before.dev !== named.dev)
       throw new Error(`Source changed during read: ${path}`);
     const bytes = buffer.subarray(0, count);
     const content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
     return { content, sha256: sha256(bytes), bytes: count, physical: `${before.dev}:${before.ino}`, mode: Number(before.mode & 0o777n) };
   } finally {
-    closeSync(fd);
+    closeSync2(fd);
   }
 }
 function jsonText(path, limit) {
@@ -3087,10 +3107,10 @@ function parseWorkspaceMemoryProfile(value) {
     throw new Error("At least one required source must have identity anchors.");
   return { version: 1, matterId: value.matterId, roots, sources };
 }
-function parseWorkspaceMemoryProfileText(text) {
-  if (new TextEncoder().encode(text).byteLength > WORKSPACE_MEMORY_LIMITS.profileBytes)
+function parseWorkspaceMemoryProfileText(text2) {
+  if (new TextEncoder().encode(text2).byteLength > WORKSPACE_MEMORY_LIMITS.profileBytes)
     throw new Error("Memory profile byte limit exceeded.");
-  return parseWorkspaceMemoryProfile(JSON.parse(stripBom(text)));
+  return parseWorkspaceMemoryProfile(JSON.parse(stripBom(text2)));
 }
 
 // src/workspace-memory-reader.ts
@@ -3109,7 +3129,7 @@ function profileLocation(directory, options) {
       throw new Error("Host profile path is missing or unsafe.");
     return { path, external: false };
   }
-  const canonical = realpathSync2(path);
+  const canonical = realpathSync3(path);
   const external = !contained(directory, canonical);
   if (external) {
     if (options.profileIdentity !== canonical)
@@ -3197,7 +3217,7 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
       if (!rootProblems.has(source.root)) {
         try {
           if (checkedPath(path, "file", true))
-            path = realpathSync2(path);
+            path = realpathSync3(path);
           if (isControlPath(path))
             throw new Error("Memory sources cannot alias reserved .lawoss control files.");
         } catch (error) {
@@ -3206,8 +3226,8 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
       }
       report.sources.push({ id: source.id, root: source.root, path, role: source.role, required: source.required, writable: externalProfile ? false : source.writable, anchors, sha256: null, bytes: 0, content: null, status: "error" });
     }
-    const semanticRoots = [...roots].map(([id, path]) => ({ id, path })).sort(byId);
-    const semanticSources = report.sources.map(({ id, root, path, role, required, writable, anchors }) => ({ id, root, path, role, required, writable, anchors: [...new Set(anchors)].sort() })).sort(byId);
+    const semanticRoots = [...roots].map(([id2, path]) => ({ id: id2, path })).sort(byId);
+    const semanticSources = report.sources.map(({ id: id2, root, path, role: role2, required, writable, anchors }) => ({ id: id2, root, path, role: role2, required, writable, anchors: [...new Set(anchors)].sort() })).sort(byId);
     report.bindingHash = sha256(JSON.stringify({ version: 1, directory: report.directory, profilePath, externalProfile, matterId: report.matterId, grants, roots: semanticRoots, sources: semanticSources }));
     const physical = new Set;
     let total = 0;
@@ -3217,16 +3237,16 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
           throw new Error(rootProblems.get(source.root));
         if (sourceProblems.has(source.id))
           throw new Error(sourceProblems.get(source.id));
-        const text = readText(source.path, Math.min(WORKSPACE_MEMORY_LIMITS.sourceBytes, WORKSPACE_MEMORY_LIMITS.totalBytes - total));
-        total += text.bytes;
-        if (physical.has(text.physical))
+        const text2 = readText(source.path, Math.min(WORKSPACE_MEMORY_LIMITS.sourceBytes, WORKSPACE_MEMORY_LIMITS.totalBytes - total));
+        total += text2.bytes;
+        if (physical.has(text2.physical))
           throw new Error("Duplicate physical source (alias or hardlink).");
-        physical.add(text.physical);
-        source.sha256 = text.sha256;
-        source.bytes = text.bytes;
-        source.content = text.content;
+        physical.add(text2.physical);
+        source.sha256 = text2.sha256;
+        source.bytes = text2.bytes;
+        source.content = text2.content;
         source.status = "loaded";
-        if (source.anchors.some((anchor) => !text.content.includes(anchor)))
+        if (source.anchors.some((anchor) => !text2.content.includes(anchor)))
           throw new Error("Exact matter identity anchor not found in source.");
       } catch (error) {
         source.status = missing(error) ? "missing" : "error";
@@ -3245,7 +3265,7 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
     if (readText(profilePath, WORKSPACE_MEMORY_LIMITS.profileBytes).sha256 !== report.profileHash)
       throw new Error("Profile changed during snapshot load.");
     checkHistory(report.directory, report, ownOperation);
-    report.contextHash = sha256(JSON.stringify({ bindingHash: report.bindingHash, sources: report.sources.map(({ id, sha256, status }) => ({ id, sha256, status })).sort(byId) }));
+    report.contextHash = sha256(JSON.stringify({ bindingHash: report.bindingHash, sources: report.sources.map(({ id: id2, sha256: sha2562, status }) => ({ id: id2, sha256: sha2562, status })).sort(byId) }));
     report.complete = report.problems.every((p) => p.code === "missing-source" && report.sources.some((s) => s.id === p.sourceId && !s.required && !s.writable));
   } catch (error) {
     report.present = true;
@@ -3269,7 +3289,7 @@ function renderWorkspaceMemory(report) {
 }
 // src/workspace-memory-writer.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
-import { chmodSync, closeSync as closeSync2, constants as constants2, fstatSync as fstatSync2, fsyncSync, lstatSync as lstatSync3, mkdirSync as mkdirSync2, openSync as openSync2, renameSync as renameSync2, unlinkSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { chmodSync, closeSync as closeSync3, constants as constants3, fstatSync as fstatSync3, fsyncSync, lstatSync as lstatSync3, mkdirSync as mkdirSync2, openSync as openSync3, renameSync as renameSync2, unlinkSync, writeFileSync as writeFileSync2 } from "node:fs";
 import { dirname as dirname2, join as join4 } from "node:path";
 class Conflict extends Error {
 }
@@ -3336,12 +3356,12 @@ function validateSnapshot(report, request) {
 }
 function createPrivate(path, content, mode = 384) {
   checkedPath(dirname2(path), "directory");
-  const fd = openSync2(path, constants2.O_CREAT | constants2.O_EXCL | constants2.O_WRONLY | constants2.O_NOFOLLOW, mode);
+  const fd = openSync3(path, constants3.O_CREAT | constants3.O_EXCL | constants3.O_WRONLY | constants3.O_NOFOLLOW, mode);
   try {
     writeFileSync2(fd, content, "utf8");
     fsyncSync(fd);
   } finally {
-    closeSync2(fd);
+    closeSync3(fd);
   }
 }
 function privateDirectory(path) {
@@ -3404,7 +3424,7 @@ function saveWorkspaceMemory(directory, request, options = {}) {
     privateDirectory(history);
     lockPath = join4(history, "save.lock");
     try {
-      lockFd = openSync2(lockPath, constants2.O_CREAT | constants2.O_EXCL | constants2.O_WRONLY | constants2.O_NOFOLLOW, 384);
+      lockFd = openSync3(lockPath, constants3.O_CREAT | constants3.O_EXCL | constants3.O_WRONLY | constants3.O_NOFOLLOW, 384);
     } catch (error) {
       throw new Conflict(`Cannot acquire exclusive save lock: ${message(error)}`);
     }
@@ -3415,7 +3435,7 @@ function saveWorkspaceMemory(directory, request, options = {}) {
       return result;
     const assertLock = () => {
       checkedPath(lockPath, "file");
-      const held = fstatSync2(lockFd), named = lstatSync3(lockPath);
+      const held = fstatSync3(lockFd), named = lstatSync3(lockPath);
       if (held.ino !== named.ino || held.dev !== named.dev)
         throw new Conflict("Save lock was replaced externally.");
     };
@@ -3522,7 +3542,7 @@ function saveWorkspaceMemory(directory, request, options = {}) {
     }
     if (lockFd !== undefined) {
       try {
-        const held = fstatSync2(lockFd), named = lstatSync3(lockPath);
+        const held = fstatSync3(lockFd), named = lstatSync3(lockPath);
         if (!named.isSymbolicLink() && held.ino === named.ino && held.dev === named.dev)
           unlinkSync(lockPath);
       } catch (error) {
@@ -3530,7 +3550,7 @@ function saveWorkspaceMemory(directory, request, options = {}) {
         if (result.status === "committed" || result.status === "already-applied")
           result.status = "error";
       } finally {
-        closeSync2(lockFd);
+        closeSync3(lockFd);
       }
     }
   }
@@ -3868,22 +3888,22 @@ ${serializeRecord(maskRecord(r))}`),
 `) };
     }
     case "write": {
-      const file = flagValue(rest, "--file");
+      const file2 = flagValue(rest, "--file");
       const reason = flagValue(rest, "--reason");
       const approveAs = flagValue(rest, "--approve-as");
       const expectedRevision = flagValue(rest, "--if-revision");
       if (rest.includes("--if-revision") && !expectedRevision)
         return { code: 2, out: "Prepínač --if-revision vyžaduje SHA256 z príkazu read." };
-      if (!file || !reason) {
+      if (!file2 || !reason) {
         return { code: 2, out: `Príkaz write vyžaduje --file a --reason.
 
 ${USAGE}` };
       }
-      if (!existsSync3(file))
-        return { code: 2, out: `Súbor návrhu neexistuje: ${file}` };
+      if (!existsSync3(file2))
+        return { code: 2, out: `Súbor návrhu neexistuje: ${file2}` };
       let after;
       try {
-        after = parseRecord(decodeText(readFileSync3(file)));
+        after = parseRecord(decodeText(readFileSync3(file2)));
       } catch (e) {
         return { code: 2, out: `Návrh sa nedá prečítať: ${e instanceof Error ? e.message : String(e)}` };
       }

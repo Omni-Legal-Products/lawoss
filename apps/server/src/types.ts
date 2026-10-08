@@ -87,6 +87,8 @@ export interface ApprovalConfig {
 export interface WordAddinConfig {
   /** Serve the Word task pane bundle and start the HTTPS add-in listener. */
   enabled: boolean;
+  /** Per-installation secret delivered only through the locally installed manifest. */
+  capability?: string;
   /** Fixed port for the HTTPS listener referenced by the add-in manifest. */
   port: number;
   /** PEM certificate path. Defaults to ~/.office-addin-dev-certs/localhost.crt. */

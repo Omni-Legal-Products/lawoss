@@ -6,6 +6,7 @@ import type { SkillItem } from "./types.js";
 import { parseFrontmatter, buildFrontmatter } from "./frontmatter.js";
 import { exists } from "./utils.js";
 import { validateDescription, validateSkillName } from "./validators.js";
+import { resolveWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { ApiError } from "./errors.js";
 import { globalSkillsDir, projectSkillsDir } from "./workspace-files.js";
 import { BUNDLED_WORKFLOW_NAMES } from "./bundled-workflows.js";
@@ -69,10 +70,12 @@ async function parseSkillEntry(
   entryName: string,
   scope: "project" | "global",
   skipped?: SkippedSkill[],
+  workspaceRoot?: string,
 ): Promise<SkillItem | null> {
   let parsed: ReturnType<typeof parseFrontmatter>;
   try {
-    parsed = parseFrontmatter(await readFile(skillPath, "utf8"));
+    const readablePath = workspaceRoot ? await resolveWorkspaceFilePath(workspaceRoot, skillPath) : skillPath;
+    parsed = parseFrontmatter(await readFile(readablePath, "utf8"));
   } catch (error) {
     console.warn("[skills] Skipped unreadable or malformed skill:", skillPath, error);
     skipped?.push({ path: skillPath, reason: error instanceof Error ? error.message.split("\n")[0]! : "Could not read or parse SKILL.md" });
@@ -109,16 +112,17 @@ async function parseSkillEntry(
   };
 }
 
-async function listSkillsInDir(dir: string, scope: "project" | "global", skipped?: SkippedSkill[]): Promise<SkillItem[]> {
-  if (!(await exists(dir))) return [];
-  const entries = await readdir(dir, { withFileTypes: true });
+async function listSkillsInDir(dir: string, scope: "project" | "global", skipped?: SkippedSkill[], workspaceRoot?: string): Promise<SkillItem[]> {
+  const readableDir = workspaceRoot ? await resolveWorkspaceFilePath(workspaceRoot, dir) : dir;
+  if (!(await exists(readableDir))) return [];
+  const entries = await readdir(readableDir, { withFileTypes: true });
   const items: SkillItem[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const skillPath = join(dir, entry.name, "SKILL.md");
     if (await exists(skillPath)) {
       // Direct skill: <dir>/<name>/SKILL.md
-      const item = await parseSkillEntry(skillPath, entry.name, scope, skipped);
+      const item = await parseSkillEntry(skillPath, entry.name, scope, skipped, workspaceRoot);
       if (item) items.push(item);
     } else {
       // Domain/category folder: <dir>/<domain>/<name>/SKILL.md – scan one level deeper.
@@ -128,7 +132,7 @@ async function listSkillsInDir(dir: string, scope: "project" | "global", skipped
       const domainDir = join(dir, entry.name);
       let subEntries: Dirent[];
       try {
-        subEntries = await readdir(domainDir, { withFileTypes: true });
+        subEntries = await readdir(workspaceRoot ? await resolveWorkspaceFilePath(workspaceRoot, domainDir) : domainDir, { withFileTypes: true });
       } catch (error) {
         console.warn("[skills] Could not read skill folder:", domainDir, error);
         continue;
@@ -137,7 +141,7 @@ async function listSkillsInDir(dir: string, scope: "project" | "global", skipped
         if (!subEntry.isDirectory()) continue;
         const subSkillPath = join(domainDir, subEntry.name, "SKILL.md");
         if (!(await exists(subSkillPath))) continue;
-        const item = await parseSkillEntry(subSkillPath, subEntry.name, scope, skipped);
+        const item = await parseSkillEntry(subSkillPath, subEntry.name, scope, skipped, workspaceRoot);
         if (item) items.push(item);
       }
     }
@@ -151,8 +155,8 @@ export async function listSkills(workspaceRoot: string, includeGlobal: boolean, 
   for (const root of roots) {
     const opencodeDir = join(root, ".opencode", "skills");
     const claudeDir = join(root, ".claude", "skills");
-    items.push(...(await listSkillsInDir(opencodeDir, "project", skipped)));
-    items.push(...(await listSkillsInDir(claudeDir, "project", skipped)));
+    items.push(...(await listSkillsInDir(opencodeDir, "project", skipped, root)));
+    items.push(...(await listSkillsInDir(claudeDir, "project", skipped, root)));
   }
 
   if (includeGlobal) {
@@ -248,22 +252,22 @@ export async function upsertSkill(
   const scope: SkillScope = payload.scope === "global" ? "global" : "project";
 
   const baseDir = skillsDirForScope(workspaceRoot, scope);
-  const skillDir = join(baseDir, skill.name);
+  const skillDir = scope === "project" ? await resolveWorkspaceFilePath(workspaceRoot, join(baseDir, skill.name)) : join(baseDir, skill.name);
   await mkdir(skillDir, { recursive: true });
-  const skillPath = join(skillDir, "SKILL.md");
+  const skillPath = scope === "project" ? await resolveWorkspaceFilePath(workspaceRoot, join(skillDir, "SKILL.md")) : join(skillDir, "SKILL.md");
   const existed = await exists(skillPath);
   await writeFile(skillPath, skill.content, "utf8");
-  return { path: skillPath, action: existed ? "updated" : "added", scope };
+  return { path: join(baseDir, skill.name, "SKILL.md"), action: existed ? "updated" : "added", scope };
 }
 
 export async function deleteSkill(workspaceRoot: string, name: string): Promise<{ path: string }> {
   const trimmed = name.trim();
   validateSkillName(trimmed);
   const baseDir = projectSkillsDir(workspaceRoot);
-  const flatDir = join(baseDir, trimmed);
-  if (await exists(join(flatDir, "SKILL.md"))) {
+  const flatDir = await resolveWorkspaceFilePath(workspaceRoot, join(baseDir, trimmed), { preserveLeaf: true });
+  if (await exists(await resolveWorkspaceFilePath(workspaceRoot, join(flatDir, "SKILL.md")))) {
     await rm(flatDir, { recursive: true, force: true });
-    return { path: flatDir };
+    return { path: join(baseDir, trimmed) };
   }
   // Nested layout: skills/<domain>/<name>/SKILL.md (e.g. skills installed by
   // marketplace plugin bundles are namespaced under a plugin folder). Listing
@@ -273,7 +277,7 @@ export async function deleteSkill(workspaceRoot: string, name: string): Promise<
   if (!item) {
     throw new ApiError(404, "skill_not_found", `Skill not found: ${trimmed}`);
   }
-  const skillDir = dirname(item.path);
+  const skillDir = await resolveWorkspaceFilePath(workspaceRoot, dirname(item.path), { preserveLeaf: true });
   await rm(skillDir, { recursive: true, force: true });
-  return { path: skillDir };
+  return { path: dirname(item.path) };
 }

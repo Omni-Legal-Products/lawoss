@@ -1,6 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 
 import { createHash } from "node:crypto";
+import { realpathSync, statSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -15,7 +16,7 @@ import { startHealthServer, type HealthSnapshot } from "./health.js";
 import { type InboundMessagePart, type MessageDeliveryResult, type OutboundMessagePart, normalizeOutboundParts, summarizeInboundPartsForPrompt, summarizeInboundPartsForReporter, textFromInboundParts } from "./media.js";
 import { MediaStore } from "./media-store.js";
 import { buildPermissionRules, createClient } from "./opencode.js";
-import { isWithinWorkspaceRootPath, normalizeScopedDirectoryPath } from "./path-scope.js";
+import { normalizeScopedDirectoryPath, resolveWorkspacePath } from "./path-scope.js";
 import { chunkText, formatInputSummary, truncateText } from "./text.js";
 import { createSlackAdapter } from "./slack.js";
 import { createTelegramAdapter, isTelegramPeerId } from "./telegram.js";
@@ -250,7 +251,8 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
   const clients = new Map<string, ReturnType<typeof createClient>>();
   const defaultDirectory = config.opencodeDirectory;
   const workspaceRoot = resolve(defaultDirectory || process.cwd());
-  const mediaStore = new MediaStore(join(workspaceRoot, ".opencode-router", "media"));
+  const canonicalWorkspaceRoot = realpathSync(workspaceRoot);
+  const mediaStore = new MediaStore(join(workspaceRoot, ".opencode-router", "media"), canonicalWorkspaceRoot);
   await mediaStore.ensureReady();
   const workspaceAgentFilePath = join(workspaceRoot, OPENCODE_ROUTER_AGENT_FILE_RELATIVE_PATH);
   const agentPromptCache = new Map<string, { mtimeMs: number; config: MessagingAgentConfig }>();
@@ -448,19 +450,14 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
 
   const workspaceRootNormalized = normalizeDirectory(workspaceRoot);
 
-  const isWithinWorkspaceRoot = (candidate: string) => {
-    return isWithinWorkspaceRootPath({
-      workspaceRoot,
-      candidate,
-      platform: process.platform,
-    });
-  };
-
   const resolveScopedDirectory = (input: string): { ok: true; directory: string } | { ok: false; error: string } => {
     const trimmed = input.trim();
     if (!trimmed) return { ok: false, error: "Directory is required." };
     const resolved = resolve(isAbsolute(trimmed) ? trimmed : join(workspaceRoot, trimmed));
-    if (!isWithinWorkspaceRoot(resolved)) {
+    try {
+      const canonical = resolveWorkspacePath(canonicalWorkspaceRoot, resolved);
+      if (!statSync(canonical).isDirectory()) throw new Error("Not a directory");
+    } catch {
       return {
         ok: false,
         error: `Directory must stay within workspace root: ${workspaceRootNormalized}`,
@@ -620,6 +617,7 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
       const file = await mediaStore.resolveOutboundFile({
         filePath: part.filePath,
         baseDirectory,
+        workspaceRoot: canonicalWorkspaceRoot,
         maxBytes: outboundMediaMaxBytes,
       });
       resolved.push({
@@ -1517,6 +1515,7 @@ export async function startBridge(config: Config, logger: Logger, reporter?: Bri
           };
         },
       },
+      { controlToken: config.controlToken, host: config.healthHost },
     );
   }
 

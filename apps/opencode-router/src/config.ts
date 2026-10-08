@@ -80,6 +80,8 @@ export type Config = {
   permissionMode: "allow" | "deny";
   toolOutputLimit: number;
   healthPort?: number;
+  healthHost?: string;
+  controlToken?: string;
   logLevel: string;
 };
 
@@ -291,6 +293,8 @@ export function loadConfig(
     permissionMode,
     toolOutputLimit,
     healthPort,
+    healthHost: env.OPENCODE_ROUTER_HEALTH_HOST?.trim() || "127.0.0.1",
+    controlToken: env.OPENCODE_ROUTER_CONTROL_TOKEN?.trim() || undefined,
     logLevel: env.LOG_LEVEL?.trim() || "info",
   };
 }

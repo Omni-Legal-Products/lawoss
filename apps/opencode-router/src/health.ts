@@ -1,4 +1,6 @@
 import http from "node:http";
+import { timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
 
 import type { Logger } from "pino";
 
@@ -156,45 +158,66 @@ export async function startHealthServer(
   getStatus: () => HealthSnapshot,
   logger: Logger,
   handlers: HealthHandlers = {},
+  security: { controlToken?: string; host?: string } = {},
 ) {
+  // This capability is runtime-only: never persist it in the portable router config.
+  if (!security.controlToken || !/^[a-fA-F0-9]{64}$/.test(security.controlToken)) {
+    throw new Error("OPENCODE_ROUTER_CONTROL_TOKEN must contain 32 random bytes encoded as 64 hex characters");
+  }
+  const token = Buffer.from(security.controlToken);
+  const host = security.host?.trim() || "127.0.0.1";
   const server = http.createServer((req, res) => {
     void (async () => {
-      const requestOrigin = req.headers.origin;
-      if (requestOrigin) {
-        res.setHeader("Access-Control-Allow-Origin", requestOrigin);
-        res.setHeader("Vary", "Origin");
-      } else {
-        res.setHeader("Access-Control-Allow-Origin", "*");
-      }
-      res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-
-      const requestHeaders = req.headers["access-control-request-headers"];
-      if (Array.isArray(requestHeaders)) {
-        res.setHeader("Access-Control-Allow-Headers", requestHeaders.join(", "));
-      } else if (typeof requestHeaders === "string" && requestHeaders.trim()) {
-        res.setHeader("Access-Control-Allow-Headers", requestHeaders);
-      } else {
-        res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-      }
-
-      if (req.headers["access-control-request-private-network"] === "true") {
-        res.setHeader("Access-Control-Allow-Private-Network", "true");
-      }
-
-      if (req.method === "OPTIONS") {
-        res.writeHead(204);
-        res.end();
+      const reject = (status: number, error: string) => {
+        res.writeHead(status, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error }));
+      };
+      // This is a native control API, not a browser API. Never opt into CORS/PNA.
+      if (req.headers.origin !== undefined) {
+        reject(403, "Browser origins are not allowed");
         return;
       }
-
-      const pathname = req.url ? new URL(req.url, "http://localhost").pathname : "";
-
-      if (!pathname || pathname === "/" || pathname === "/health") {
+      let requestHost: URL;
+      try {
+        requestHost = new URL(`http://${req.headers.host ?? ""}`);
+      } catch {
+        reject(403, "Invalid host");
+        return;
+      }
+      const hostname = requestHost.hostname.replace(/^\[|\]$/g, "");
+      const address = server.address();
+      const listenerPort = typeof address === "object" && address ? address.port : port;
+      const loopbackHost = ["127.0.0.1", "::1", "localhost"].includes(host);
+      const allowedHost = host === "0.0.0.0" || host === "::"
+        ? isIP(hostname) !== 0 || hostname === "localhost"
+        : hostname === host || (loopbackHost && ["127.0.0.1", "::1", "localhost"].includes(hostname));
+      if (!allowedHost || requestHost.username || requestHost.password || requestHost.pathname !== "/" ||
+          requestHost.search || requestHost.hash || Number(requestHost.port || 80) !== listenerPort) {
+        reject(403, "Invalid host");
+        return;
+      }
+      const pathname = req.url ? new URL(req.url, "http://localhost").pathname : "/";
+      const authorization = req.headers.authorization ?? "";
+      const supplied = Buffer.from(authorization.startsWith("Bearer ") ? authorization.slice(7) : "");
+      const authenticated = supplied.length === token.length && timingSafeEqual(supplied, token);
+      const healthRead = (pathname === "/" || pathname === "/health") &&
+        (req.method === "GET" || req.method === "HEAD");
+      if (healthRead && !authorization) {
+        const snapshot = getStatus();
+        res.writeHead(snapshot.ok ? 200 : 503, { "Content-Type": "application/json" });
+        res.end(req.method === "HEAD" ? undefined : JSON.stringify({ ok: snapshot.ok }));
+        return;
+      }
+      if (!authenticated) {
+        reject(401, "Router control token required");
+        return;
+      }
+      if (healthRead) {
         const snapshot = getStatus();
         res.writeHead(snapshot.ok ? 200 : 503, {
           "Content-Type": "application/json",
         });
-        res.end(JSON.stringify(snapshot));
+        res.end(req.method === "HEAD" ? undefined : JSON.stringify(snapshot));
         return;
       }
 
@@ -659,8 +682,6 @@ export async function startHealthServer(
       res.end(JSON.stringify({ ok: false, error: "Internal error" }));
     });
   });
-
-  const host = (process.env.OPENCODE_ROUTER_HEALTH_HOST ?? "").trim() || "127.0.0.1";
 
   try {
     await new Promise<void>((resolve, reject) => {

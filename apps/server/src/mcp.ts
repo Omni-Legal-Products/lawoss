@@ -1,3 +1,5 @@
+import { resolveWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
+import { exists } from "./utils.js";
 import { minimatch } from "minimatch";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -83,7 +85,7 @@ function isMcpDisabledByTools(config: Record<string, unknown>, name: string): bo
 }
 
 export async function listMcp(serverConfig: ServerConfig, workspaceId: string, workspaceRoot: string): Promise<McpItem[]> {
-  const { data: config } = await readJsoncFile(opencodeConfigPath(workspaceRoot), {} as Record<string, unknown>, { allowInvalid: true });
+  const { data: config } = await readJsoncFile(await resolveWorkspaceFilePath(workspaceRoot, opencodeConfigPath(workspaceRoot)), {} as Record<string, unknown>, { allowInvalid: true });
   const { data: globalConfig } = await readJsoncFile(globalOpenCodeConfigPath(), {} as Record<string, unknown>, { allowInvalid: true });
 
   const projectMcpMap = getMcpConfig(config);
@@ -176,9 +178,9 @@ export async function removeMcp(serverConfig: ServerConfig, workspaceId: string,
   // OpenCode can merge several config files. Remove every copy of this entry,
   // including a lower-priority file that would become visible after removal.
   for (const workspace of serverConfig.workspaces) {
-    if (workspace.workspaceType === "remote") continue;
+    if (workspace.workspaceType === "remote" || !(await exists(workspace.path))) continue;
     for (const path of opencodeConfigPaths(workspace.path)) {
-      files.push(path);
+      files.push(await resolveWorkspaceFilePath(workspace.path, path));
     }
   }
   for (const filename of ["opencode.json", "opencode.jsonc"]) {
