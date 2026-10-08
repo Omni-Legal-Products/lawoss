@@ -1,8 +1,10 @@
 /** @jsxImportSource react */
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -30,7 +32,6 @@ import {
   DEFAULT_ONBOARDING_PROGRESS,
   okfChoice,
   readOnboardingProgress,
-  stepAfterAi,
   visibleOnboardingStep,
   visibleOnboardingSteps,
   writeOnboardingProgress,
@@ -50,7 +51,10 @@ import { LawossWordmark } from "../../shell/wordmark";
 import lawossMark from "../../../../../../lawoss/brand/lawoss-mark.svg";
 import "./onboarding.css";
 import { TriageEntry } from "../roztriedenie/triage-entry";
-import { PacksStep } from "./packs-step";
+import type { TriageClient } from "../roztriedenie/api";
+import { FolderStep } from "./folder-step";
+import { FoundScreen } from "./found-screen";
+import { foundText } from "./found-text";
 import { canonicalPathRejection, unquotedTypedPath } from "./typed-paths";
 
 /** Jazyky rozhrania v poradí LAWOSS (SK, CS, EN, DE) s pôvodnými názvami namiesto kódov. */
@@ -78,8 +82,6 @@ const text: Record<Language, Record<string, string>> = {
   en: {
     title: "Set up your practice",
     identity: "You and jurisdiction",
-    okf: "Matter organisation",
-    office: "Office",
     ai: "Data and AI",
     folder: "Folder",
     client: "First client",
@@ -96,7 +98,6 @@ const text: Record<Language, Record<string, string>> = {
     existing: "Connect existing",
     parent: "Parent folder",
     name: "Name",
-    path: "Folder path",
     aiText:
       "The assistant answers through a model you connect in the AI settings. Onboarding does not create a separate AI configuration.",
     type: "Client type",
@@ -118,23 +119,18 @@ const text: Record<Language, Record<string, string>> = {
     kind: "Matter type",
     contentious: "Case (contentious)",
     non_contentious: "Matter (non-contentious)",
-    noOffice:
-      "The office is only a folder with settings and shared memory. You always work inside a specific client's folder.",
     mapHelp:
       "Mapping stays read-only. Both fields are required and must refer to existing client memory.",
     trial: "This is a trial clone. Confirm before creating work in it.",
     trialConfirm:
       "I understand this trial clone is not the original client folder.",
     changes: "Planned changes",
-    officeConfirmed: "Office confirmed",
     done: "Your practice is ready. Add clients and matters later from the sidebar or Settings.",
     error: "This step could not be completed.",
   },
   sk: {
     title: "Nastavte svoju prax",
     identity: "Vy a jurisdikcia",
-    okf: "Organizácia spisov",
-    office: "Kancelária",
     ai: "Dáta a AI",
     folder: "Priečinok",
     client: "Prvý klient",
@@ -151,7 +147,6 @@ const text: Record<Language, Record<string, string>> = {
     existing: "Pripojiť existujúcu",
     parent: "Nadradený priečinok",
     name: "Názov",
-    path: "Cesta k priečinku",
     aiText:
       "Asistent odpovedá cez model, ktorý pripojíte v nastaveniach AI. Onboarding nevytvára samostatnú konfiguráciu AI.",
     type: "Typ klienta",
@@ -173,23 +168,18 @@ const text: Record<Language, Record<string, string>> = {
     kind: "Druh veci",
     contentious: "Spis (konanie)",
     non_contentious: "Vec (nesporová agenda)",
-    noOffice:
-      "Kancelária je len priečinok s nastaveniami a spoločnou pamäťou. Pracujete vždy v priečinku konkrétneho klienta.",
     mapHelp:
       "Mapovanie je iba na čítanie. Oba údaje sú povinné a musia odkazovať na existujúcu pamäť klienta.",
     trial: "Ide o skúšobný klon. Pred vytvorením práce ho potvrďte.",
     trialConfirm:
       "Rozumiem, že skúšobný klon nie je pôvodný priečinok klienta.",
     changes: "Plánované zmeny",
-    officeConfirmed: "Kancelária je potvrdená",
     done: "Prax je pripravená. Klientov a veci pridáte neskôr z bočného panela alebo Nastavení.",
     error: "Tento krok sa nepodarilo dokončiť.",
   },
   cs: {
     title: "Nastavte svou praxi",
     identity: "Vy a jurisdikce",
-    okf: "Organizace spisů",
-    office: "Kancelář",
     ai: "Data a AI",
     folder: "Složka",
     client: "První klient",
@@ -206,7 +196,6 @@ const text: Record<Language, Record<string, string>> = {
     existing: "Připojit existující",
     parent: "Nadřazená složka",
     name: "Název",
-    path: "Cesta ke složce",
     aiText:
       "Asistent odpovídá přes model, který připojíte v nastavení AI. Onboarding nevytváří samostatnou konfiguraci AI.",
     type: "Typ klienta",
@@ -228,22 +217,17 @@ const text: Record<Language, Record<string, string>> = {
     kind: "Druh věci",
     contentious: "Spis (řízení)",
     non_contentious: "Věc",
-    noOffice:
-      "Kancelář je jen složka s nastavením a společnou pamětí. Pracujete vždy ve složce konkrétního klienta.",
     mapHelp:
       "Mapování je pouze pro čtení. Oba údaje jsou povinné a musí odkazovat na existující paměť klienta.",
     trial: "Jde o zkušební klon. Před vytvořením práce jej potvrďte.",
     trialConfirm: "Rozumím, že zkušební klon není původní složka klienta.",
     changes: "Plánované změny",
-    officeConfirmed: "Kancelář je potvrzena",
     done: "Praxe je připravena. Klienty a věci přidáte později z postranního panelu nebo Nastavení.",
     error: "Tento krok se nepodařilo dokončit.",
   },
   de: {
     title: "Richten Sie Ihre Praxis ein",
     identity: "Sie und die Jurisdiktion",
-    okf: "Aktenorganisation",
-    office: "Kanzlei",
     ai: "Daten und KI",
     folder: "Ordner",
     client: "Erster Mandant",
@@ -260,7 +244,6 @@ const text: Record<Language, Record<string, string>> = {
     existing: "Bestehende verbinden",
     parent: "Übergeordneter Ordner",
     name: "Name",
-    path: "Ordnerpfad",
     aiText:
       "Der Assistent antwortet über ein Modell, das Sie in den KI-Einstellungen verbinden. Das Onboarding erstellt keine getrennte KI-Konfiguration.",
     type: "Mandantentyp",
@@ -282,8 +265,6 @@ const text: Record<Language, Record<string, string>> = {
     kind: "Art der Angelegenheit",
     contentious: "Akte (streitig)",
     non_contentious: "Angelegenheit (nicht streitig)",
-    noOffice:
-      "Die Kanzlei ist nur ein Ordner mit Einstellungen und gemeinsamem Gedächtnis. Sie arbeiten immer im Ordner eines bestimmten Mandanten.",
     mapHelp:
       "Die Abbildung bleibt schreibgeschützt. Beide Felder sind erforderlich und müssen auf den vorhandenen Mandantenspeicher verweisen.",
     trial:
@@ -291,7 +272,6 @@ const text: Record<Language, Record<string, string>> = {
     trialConfirm:
       "Ich verstehe, dass die Testkopie nicht der ursprüngliche Mandantenordner ist.",
     changes: "Geplante Änderungen",
-    officeConfirmed: "Kanzlei bestätigt",
     done: "Ihre Kanzlei ist bereit. Mandanten und Angelegenheiten können Sie später über die Seitenleiste oder Einstellungen hinzufügen.",
     error: "Dieser Schritt konnte nicht abgeschlossen werden.",
   },
@@ -414,11 +394,6 @@ const extraText: Record<Language, Record<string, string>> = {
     confirmClient: "Potvrdzujem, že vybraný priečinok patrí jednému klientovi.",
     recoverFinish: "Dokončiť prerušený zápis",
     recoverRollback: "Vrátiť prerušený zápis",
-    pack: "Pri dokončení doplníme chýbajúce skills OKF pre klienta. Existujúce úpravy zachováme.",
-    packs: "Odporúčané balíky",
-    continue: "Pokračovať",
-    workingFolder: "Pracovný priečinok (voliteľné)",
-    workingFolderHelp: "LAWOSS bude pracovať v tomto priečinku. Nevytvorí v ňom priečinky ani súbory OKF.",
     finish: "Dokončiť",
   },
   cs: {
@@ -445,11 +420,6 @@ const extraText: Record<Language, Record<string, string>> = {
     confirmClient: "Potvrzuji, že vybraná složka patří jednomu klientovi.",
     recoverFinish: "Dokončit přerušený zápis",
     recoverRollback: "Vrátit přerušený zápis",
-    pack: "Při dokončení doplníme chybějící skills OKF pro klienta. Existující úpravy zachováme.",
-    packs: "Doporučené balíčky",
-    continue: "Pokračovat",
-    workingFolder: "Pracovní složka (volitelné)",
-    workingFolderHelp: "LAWOSS bude pracovat v této složce. Nevytvoří v ní složky ani soubory OKF.",
     finish: "Dokončit",
   },
   en: {
@@ -476,11 +446,6 @@ const extraText: Record<Language, Record<string, string>> = {
     confirmClient: "I confirm this folder belongs to one client.",
     recoverFinish: "Finish interrupted changes",
     recoverRollback: "Roll back interrupted changes",
-    pack: "Completion adds missing OKF skills for this client and preserves existing customizations.",
-    packs: "Recommended bundles",
-    continue: "Continue",
-    workingFolder: "Working folder (optional)",
-    workingFolderHelp: "LAWOSS will work in this folder. It creates no OKF folders or files in it.",
     finish: "Finish",
   },
   de: {
@@ -508,11 +473,6 @@ const extraText: Record<Language, Record<string, string>> = {
       "Ich bestätige, dass dieser Ordner zu einem Mandanten gehört.",
     recoverFinish: "Unterbrochene Änderungen abschließen",
     recoverRollback: "Unterbrochene Änderungen zurücknehmen",
-    pack: "Beim Abschluss werden fehlende OKF-Skills ergänzt. Bestehende Anpassungen bleiben erhalten.",
-    packs: "Empfohlene Pakete",
-    continue: "Weiter",
-    workingFolder: "Arbeitsordner (optional)",
-    workingFolderHelp: "LAWOSS arbeitet in diesem Ordner. Es legt darin keine OKF-Ordner oder -Dateien an.",
     finish: "Abschließen",
   },
 };
@@ -521,163 +481,6 @@ export const welcomeText = (locale: Language) => (key: string): string =>
   key === "cancel"
     ? { en: "Cancel", sk: "Zrušiť", cs: "Zrušit", de: "Abbrechen" }[locale]
     : (extraText[locale][key] ?? text[locale][key]);
-/** OKF notice, version `OKF_NOTICE_VERSION`. Changing the text needs a new version. */
-type OkfNotice = {
-  title: string;
-  intro: string;
-  points: readonly string[];
-  use: string;
-  notNow: string;
-  acknowledge: string;
-};
-const okfNotice: Record<Language, OkfNotice> = {
-  sk: {
-    title: "Organizácia spisov (OKF)",
-    intro:
-      "LAWOSS môže viesť kanceláriu, klientov a veci v jednotnej štruktúre OKF. Sú to obyčajné priečinky a textové súbory na vašom počítači, ktoré si viete otvoriť aj bez LAWOSS.",
-    points: [
-      "Asistent číta a zapisuje pamäť veci: lehoty, zapojené subjekty, fakty a stav. Zápisy ostávajú v priečinku klienta.",
-      "Ak používate model v cloude, časti spisu sa posielajú poskytovateľovi modelu ako súčasť otázky. Mlčanlivosť a zmluvu o spracúvaní údajov (DPA) s poskytovateľom máte vo svojej zodpovednosti.",
-      "V alfa verzii pracujte len s vymyslenými alebo verejnými údajmi, nie so skutočnými spismi.",
-      "OKF môžete zapnúť aj neskôr.",
-    ],
-    use: "Používať OKF",
-    notNow: "Zatiaľ bez OKF",
-    acknowledge: "Beriem na vedomie, ako OKF pracuje s údajmi spisu.",
-  },
-  cs: {
-    title: "Organizace spisů (OKF)",
-    intro:
-      "LAWOSS může vést kancelář, klienty a věci v jednotné struktuře OKF. Jsou to obyčejné složky a textové soubory ve vašem počítači, které otevřete i bez LAWOSS.",
-    points: [
-      "Asistent čte a zapisuje paměť věci: lhůty, zapojené subjekty, fakta a stav. Zápisy zůstávají ve složce klienta.",
-      "Pokud používáte model v cloudu, části spisu se posílají poskytovateli modelu jako součást dotazu. Mlčenlivost a smlouvu o zpracování údajů (DPA) s poskytovatelem máte ve své odpovědnosti.",
-      "V alfa verzi pracujte jen s vymyšlenými nebo veřejnými údaji, ne se skutečnými spisy.",
-      "OKF můžete zapnout i později.",
-    ],
-    use: "Používat OKF",
-    notNow: "Zatím bez OKF",
-    acknowledge: "Beru na vědomí, jak OKF pracuje s údaji spisu.",
-  },
-  en: {
-    title: "Matter organisation (OKF)",
-    intro:
-      "LAWOSS can keep your office, clients and matters in one OKF structure. These are ordinary folders and text files on your computer that you can open without LAWOSS.",
-    points: [
-      "The assistant reads and writes matter memory: deadlines, involved parties, facts and status. Entries stay in the client folder.",
-      "If you use a cloud model, parts of the matter are sent to the model provider as part of a question. Confidentiality and a data processing agreement (DPA) with the provider remain your responsibility.",
-      "In the alpha, work only with invented or public data, not with real matters.",
-      "You can turn OKF on later.",
-    ],
-    use: "Use OKF",
-    notNow: "Not now",
-    acknowledge: "I acknowledge how OKF handles matter data.",
-  },
-  de: {
-    title: "Aktenorganisation (OKF)",
-    intro:
-      "LAWOSS kann Kanzlei, Mandanten und Angelegenheiten in einer einheitlichen OKF-Struktur führen. Das sind gewöhnliche Ordner und Textdateien auf Ihrem Computer, die Sie auch ohne LAWOSS öffnen können.",
-    points: [
-      "Der Assistent liest und schreibt das Gedächtnis der Angelegenheit: Fristen, beteiligte Personen und Stellen, Fakten und Stand. Einträge bleiben im Mandantenordner.",
-      "Wenn Sie ein Cloud-Modell verwenden, werden Teile der Akte als Teil einer Frage an den Modellanbieter gesendet. Verschwiegenheit und ein Auftragsverarbeitungsvertrag (DPA) mit dem Anbieter liegen in Ihrer Verantwortung.",
-      "Arbeiten Sie in der Alpha nur mit erfundenen oder öffentlichen Daten, nicht mit echten Akten.",
-      "Sie können OKF auch später einschalten.",
-    ],
-    use: "OKF verwenden",
-    notNow: "Vorerst ohne OKF",
-    acknowledge: "Ich nehme zur Kenntnis, wie OKF mit Aktendaten umgeht.",
-  },
-};
-/** Two equal choices, none preselected on first visit; enabling requires the acknowledgement. */
-export function OkfChoiceStep({
-  locale,
-  initial,
-  busy,
-  continueLabel,
-  onChoose,
-}: {
-  locale: Language;
-  initial: boolean | undefined;
-  busy: boolean;
-  continueLabel: string;
-  onChoose: (enabled: boolean) => Promise<void>;
-}) {
-  const notice = okfNotice[locale];
-  const [choice, setChoice] = useState<boolean | undefined>(initial);
-  const [acknowledged, setAcknowledged] = useState(false);
-  const ready = choice === false || (choice === true && acknowledged);
-  return (
-    <>
-      <h2 className="text-xl font-semibold">{notice.title}</h2>
-      <p>{notice.intro}</p>
-      <ul className="list-disc grid gap-2 pl-5 text-sm">
-        {notice.points.map((point) => (
-          <li key={point}>{point}</li>
-        ))}
-      </ul>
-      <div className="grid gap-2 sm:grid-cols-2" role="group" aria-label={notice.title}>
-        <Button
-          type="button"
-          variant={choice === true ? "default" : "outline"}
-          aria-pressed={choice === true}
-          onClick={() => setChoice(true)}
-        >
-          {notice.use}
-        </Button>
-        <Button
-          type="button"
-          variant={choice === false ? "default" : "outline"}
-          aria-pressed={choice === false}
-          onClick={() => setChoice(false)}
-        >
-          {notice.notNow}
-        </Button>
-      </div>
-      {choice === true ? (
-        <label className="flex gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={acknowledged}
-            onChange={(event) => setAcknowledged(event.target.checked)}
-          />
-          {notice.acknowledge}
-        </label>
-      ) : null}
-      <Button
-        disabled={busy || !ready}
-        onClick={() => {
-          if (choice !== undefined) void onChoose(choice);
-        }}
-      >
-        {continueLabel}
-      </Button>
-    </>
-  );
-}
-/** Optional working folder for the path without OKF; registered as a plain workspace. */
-export function WorkingFolderStep({
-  tr,
-  busy,
-  folder,
-  onFolderChange,
-  onFinish,
-}: {
-  tr: (key: string) => string;
-  busy: boolean;
-  folder: string;
-  onFolderChange: (value: string) => void;
-  onFinish: () => void;
-}) {
-  return (
-    <>
-      {field(tr("workingFolder"), <PathInput value={folder} onChange={onFolderChange} />)}
-      <p className="text-sm text-muted-foreground">{tr("workingFolderHelp")}</p>
-      <Button disabled={busy} onClick={onFinish}>
-        {tr("finish")}
-      </Button>
-    </>
-  );
-}
 function DocumentLanguageSelect({
   value,
   onChange,
@@ -698,7 +501,7 @@ function DocumentLanguageSelect({
   );
 }
 /** Server client in the app; tests pass only the onboarding API. */
-export type WelcomeApi = OnboardingApi & Partial<OpenClientReader & Pick<LegalworkServerClient, "listWorkspaces" | "lawossMarketplace">>;
+export type WelcomeApi = OnboardingApi & Partial<OpenClientReader & Pick<LegalworkServerClient, "listWorkspaces" | "lawossMarketplace" | "lawossTriage">>;
 const sameFolder = (a: string | undefined, b: string | undefined) =>
   (a ?? "").replaceAll("\\", "/").replace(/\/+$/, "") === (b ?? "").replaceAll("\\", "/").replace(/\/+$/, "");
 /**
@@ -742,11 +545,14 @@ type Props = {
   pickDirectory: () => Promise<string | null>;
   /** Krok klienta otvorený z tlačidla „Pripojiť existujúci priečinok klienta“. */
   attachExisting?: boolean;
+  /** Priečinok z odkazu (`?root=`): krok Priečinok otvorí rovno obrazovku „Toto som našiel“. */
+  initialRoot?: string;
 };
 export function LawossWelcomePage({
   api,
   initialStep,
   attachExisting = false,
+  initialRoot,
   onComplete,
   onOpenAiSettings,
   pickDirectory,
@@ -754,7 +560,8 @@ export function LawossWelcomePage({
   const locale = useLocale();
   const tr = welcomeText(locale);
   const [profile, setProfile] = useState<OnboardingProfile | null>(null);
-  const [step, setStep] = useState<OnboardingStep>(initialStep ?? "identity");
+  // Staré kroky (voľba OKF, kancelária, balíky) vedú na Priečinok už pri prvom vykreslení, nie až po načítaní profilu.
+  const [step, setStep] = useState<OnboardingStep>(visibleOnboardingStep(initialStep ?? "identity"));
   const [preview, setPreview] = useState<{
     request: Pick<OnboardingPlanRequest, "action">;
     value: OnboardingPreview;
@@ -764,12 +571,21 @@ export function LawossWelcomePage({
   >();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [workingFolder, setWorkingFolder] = useState("");
+  // Vybraný priečinok kroku Priečinok; kým je prázdny, krok ponúka pripojiť existujúci alebo začať nanovo.
+  const [foundRoot, setFoundRoot] = useState<string | null>(initialRoot ?? null);
+  const found = foundText(locale);
   // „+ Nová vec“ mimo prvého onboardingu: formulár počká, kým sa zistí otvorený klient.
   const [openClientPending, setOpenClientPending] = useState(initialStep === "matter");
   const [clientTitle, setClientTitle] = useState("");
-  const completion = (): OnboardingCompletion | undefined =>
-    workingFolder.trim() ? { workingFolder: workingFolder.trim() } : undefined;
+  // Obrazovka „Toto som našiel“ dostane stabilného klienta roztriedenia; jej návrh sa inak volá pri každom vykreslení znova.
+  const triage = useMemo<TriageClient | null>(
+    () => (api.lawossTriage ? { lawossTriage: api.lawossTriage } : null),
+    [api],
+  );
+  const reportError = useCallback(
+    (reason: unknown) => setError(onboardingErrorMessage(reason, locale)),
+    [locale],
+  );
   useEffect(() => {
     void api
       .onboardingStatus()
@@ -819,7 +635,7 @@ export function LawossWelcomePage({
       const saved = await api.updateOnboardingProfile({ ...patch, step: next });
       setProfile(saved);
       setStep(next);
-      if (next === "done") await onComplete(completedResult, completion());
+      if (next === "done") await onComplete(completedResult);
     } catch (reason) {
       setError(onboardingErrorMessage(reason, locale));
     } finally {
@@ -880,7 +696,7 @@ export function LawossWelcomePage({
       };
       const next =
         preview.request.action === "office"
-          ? "packs"
+          ? "done"
           : preview.request.action === "matter"
             ? "done"
             : "matter";
@@ -918,26 +734,29 @@ export function LawossWelcomePage({
       setBusy(false);
     }
   };
-  const complete = async () => {
+  const complete = async (result: OnboardingApplyResult | undefined) => {
     setBusy(true);
     setError(null);
     try {
-      await onComplete(completedResult, completion());
+      await onComplete(result);
     } catch (reason) {
       setError(onboardingErrorMessage(reason, locale));
     } finally {
       setBusy(false);
     }
   };
-  const okfEnabled = profile?.okf?.enabled;
   const steps = visibleOnboardingSteps();
-  const idx = steps.indexOf(step);
+  // „Toto som našiel“ je obrazovka kroku Priečinok, v hlavičke preto svieti Priečinok.
+  const idx = steps.indexOf(step === "found" ? "folder" : step);
+  // Formuláre klienta a veci z bočného panela nie sú na hlavnej ceste a hlavičku krokov nemajú.
+  const mainPath = step !== "client" && step !== "matter";
   const base = profile ?? {
     version: 1,
     lawyerName: "",
     jurisdiction: "sk",
     language: locale,
   };
+  const identity = { lawyerName: base.lawyerName, jurisdiction: base.jurisdiction, language: base.language };
   return (
     <DirectoryPickerContext.Provider value={pickDirectory}>
       {/* Koreň appky má overflow: hidden; bez vlastnej posúvateľnej oblasti by náhľad zmien a jeho
@@ -956,25 +775,27 @@ export function LawossWelcomePage({
             <span className="sr-only">LAWOSS</span>
           </p>
           <h1 className="lw-onb-title">{tr("title")}</h1>
-          <ol
-            className="lw-onb-steps"
-            style={{
-              gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))`,
-            }}
-          >
-            {steps.map((item, i) => (
-              <li
-                key={item}
-                data-state={i < idx ? "done" : i === idx ? "current" : "next"}
-                aria-current={i === idx ? "step" : undefined}
-              >
-                <span className="lw-onb-step-bar" />
-                <span className="lw-onb-step-label">
-                  {i + 1}. {tr(item)}
-                </span>
-              </li>
-            ))}
-          </ol>
+          {mainPath ? (
+            <ol
+              className="lw-onb-steps"
+              style={{
+                gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))`,
+              }}
+            >
+              {steps.map((item, i) => (
+                <li
+                  key={item}
+                  data-state={i < idx ? "done" : i === idx ? "current" : "next"}
+                  aria-current={i === idx ? "step" : undefined}
+                >
+                  <span className="lw-onb-step-bar" />
+                  <span className="lw-onb-step-label">
+                    {i + 1}. {tr(item)}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          ) : null}
         </header>
         {error ? (
           <p
@@ -997,52 +818,13 @@ export function LawossWelcomePage({
                 try {
                   setLanguagePreference(next.language);
                   setProfile(await api.updateOnboardingProfile(next));
-                  await move("okf");
+                  await move("ai");
                 } catch (reason) {
                   setError(onboardingErrorMessage(reason, locale));
                 } finally {
                   setBusy(false);
                 }
               }}
-            />
-          ) : null}
-          {step === "okf" ? (
-            <OkfChoiceStep
-              key={String(okfEnabled)}
-              locale={locale}
-              initial={okfEnabled}
-              busy={busy}
-              continueLabel={tr("continue")}
-              onChoose={(enabled) =>
-                move("folder", {
-                  okf: okfChoice(enabled, new Date()),
-                })
-              }
-            />
-          ) : null}
-          {step === "office" ? (
-            <Office
-              base={base}
-              api={api}
-              tr={tr}
-              busy={busy}
-              onPlan={plan}
-              onExisting={async (officeRoot) => {
-                try {
-                  setProfile(await api.updateOnboardingProfile({ officeRoot }));
-                  await move("packs");
-                } catch (reason) {
-                  setError(onboardingErrorMessage(reason, locale));
-                }
-              }}
-            />
-          ) : null}
-          {step === "packs" ? (
-            <PacksStep
-              api={api.lawossMarketplace}
-              jurisdiction={base.jurisdiction}
-              busy={busy}
-              onContinue={() => void move("ai")}
             />
           ) : null}
           {step === "ai" ? (
@@ -1053,22 +835,44 @@ export function LawossWelcomePage({
                 locale={locale}
                 busy={busy}
                 onOpenAiSettings={onOpenAiSettings}
-                onContinue={
-                  okfEnabled === false
-                    ? undefined
-                    : () => void move(stepAfterAi())
-                }
+                onContinue={() => void move("folder")}
               />
-              {okfEnabled === false ? (
-                <WorkingFolderStep
-                  tr={tr}
-                  busy={busy}
-                  folder={workingFolder}
-                  onFolderChange={setWorkingFolder}
-                  onFinish={() => void move("done")}
-                />
-              ) : null}
             </>
+          ) : null}
+          {(step === "folder" || step === "found") && triage ? (
+            foundRoot ? (
+              <FoundScreen
+                api={api}
+                triage={triage}
+                identity={identity}
+                text={found}
+                root={foundRoot}
+                onAcknowledge={async () => {
+                  // R3: OKF je vždy zapnuté; prvé potvrdenie na tejto obrazovke je vzatie oznámenia na vedomie.
+                  setProfile(await api.updateOnboardingProfile({ okf: okfChoice(true, new Date()), step: "found" }));
+                }}
+                onDone={async (result) => {
+                  setCompletedResult(result);
+                  await onComplete(result);
+                }}
+                onChangeFolder={() => setFoundRoot(null)}
+                onError={reportError}
+              />
+            ) : (
+              <FolderStep
+                api={api}
+                identity={identity}
+                text={found}
+                pickDirectory={pickDirectory}
+                onFound={(root) => {
+                  setError(null);
+                  setFoundRoot(root);
+                }}
+                // R7: „Začať nanovo“ nezaregistruje pracovný priečinok; appka ide na domov s interným priestorom.
+                onFreshDone={() => void complete(undefined)}
+                onError={reportError}
+              />
+            )
           ) : null}
           {step === "client" ? (
             <Client
@@ -1130,7 +934,7 @@ export function LawossWelcomePage({
             <>
               <Check className="lw-onb-done size-8" />
               <p>{tr("done")}</p>
-              <Button disabled={busy} onClick={() => void complete()}>
+              <Button disabled={busy} onClick={() => void complete(completedResult)}>
                 {tr("open")}
               </Button>
             </>
@@ -1283,132 +1087,6 @@ function Identity({
       >
         {tr("save")}
       </Button>
-    </>
-  );
-}
-function Office({
-  base,
-  api,
-  tr,
-  busy,
-  onPlan,
-  onExisting,
-}: {
-  base: OnboardingProfile;
-  api: OnboardingApi;
-  tr: (key: string) => string;
-  busy: boolean;
-  onPlan: (r: OnboardingPlanRequest) => Promise<void>;
-  onExisting: (root: string) => Promise<void>;
-}) {
-  const [existing, setExisting] = useState(false);
-  const [parent, setParent] = useState("");
-  const [title, setTitle] = useState("Office");
-  const [status, setStatus] = useState("");
-  const [officeConfirmed, setOfficeConfirmed] = useState(false);
-  const [docLanguage, setDocLanguage] = useState<DocumentLanguage>(
-    documentLanguage(base.language),
-  );
-  return (
-    <>
-      <h2 className="text-xl font-semibold">{tr("office")}</h2>
-      <p className="text-sm text-muted-foreground">{tr("noOffice")}</p>
-      <p className="text-sm text-muted-foreground">{tr("pack")}</p>
-      <div className="flex gap-2">
-        <Button
-          variant={!existing ? "default" : "outline"}
-          onClick={() => setExisting(false)}
-        >
-          {tr("new")}
-        </Button>
-        <Button
-          variant={existing ? "default" : "outline"}
-          onClick={() => setExisting(true)}
-        >
-          {tr("existing")}
-        </Button>
-      </div>
-      {field(
-        existing ? tr("path") : tr("parent"),
-        <PathInput
-          value={parent}
-          onChange={(value) => {
-            setParent(value);
-            setOfficeConfirmed(false);
-            setStatus("");
-          }}
-        />,
-      )}
-      {!existing ? (
-        <>
-          {field(
-            tr("documentLanguage"),
-            <DocumentLanguageSelect
-              value={docLanguage}
-              onChange={setDocLanguage}
-            />,
-          )}
-          {field(
-            tr("name"),
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} />,
-          )}
-          <Button
-            disabled={busy || !parent || !title}
-            onClick={() =>
-              void onPlan({
-                action: "office",
-                parent,
-                title,
-                jurisdiction: base.jurisdiction,
-                language: docLanguage,
-                lawyerName: base.lawyerName,
-              })
-            }
-          >
-            {tr("preview")}
-          </Button>
-        </>
-      ) : (
-        <>
-          <Button
-            variant="outline"
-            disabled={busy || !parent}
-            onClick={() =>
-              void api
-                .classifyOnboarding({ root: parent })
-                .then((result) => {
-                  const confirmed =
-                    result.level === "office" && result.complete === true;
-                  setOfficeConfirmed(confirmed);
-                  setStatus(
-                    confirmed
-                      ? tr("officeConfirmed")
-                      : (result.message ??
-                          result.issues
-                            ?.map((issue) => `${issue.path}: ${issue.code}`)
-                            .join(", ") ??
-                          result.level),
-                  );
-                })
-                .catch((reason: unknown) => {
-                  setOfficeConfirmed(false);
-                  setStatus(
-                    reason instanceof Error ? reason.message : tr("error"),
-                  );
-                })
-            }
-          >
-            {tr("preview")}
-          </Button>
-          {status ? <p role="status">{status}</p> : null}
-          <Button
-            disabled={busy || !parent || !officeConfirmed}
-            onClick={() => void onExisting(parent)}
-          >
-            {tr("save")}
-          </Button>
-        </>
-      )}
     </>
   );
 }
