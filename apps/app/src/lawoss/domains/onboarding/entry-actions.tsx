@@ -6,11 +6,13 @@ import { Button } from "@/components/ui/button";
 import { useLocale } from "@/i18n/use-locale";
 import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
 import { resolveLegalworkConnection } from "@/react-app/shell/legalwork-connection";
-import { ATTACH_EXISTING_CLIENT_PATH, NEW_MATTER_PATH } from "../../lite/links";
+import { isLawossHomeWorkspace } from "../../home-workspace";
+import { ADD_FOLDER_PATH, NEW_MATTER_PATH, organizeFolderLink } from "../../lite/links";
+import { activeWorkspace, useOkfConnection } from "../../okf/read-model";
 import type { OkfChoice } from "./api";
 
-/** The welcome flow reopened at the OKF choice. */
-export const ENABLE_OKF_ROUTE = "/welcome?continue=okf";
+/** Pôvodné „Zapnúť OKF“ vedie na krok Priečinok (OKF je súčasťou pripojenia priečinka). */
+export const ENABLE_OKF_ROUTE = ADD_FOLDER_PATH;
 
 /** Offer OKF until it is on; an unreadable status still offers it (the link only opens the choice). */
 export function offersOkf(status: { profile: { okf?: OkfChoice } | null } | null): boolean {
@@ -61,10 +63,10 @@ export function useOkfOffered(skip: boolean): boolean | undefined {
 }
 
 const labels = {
-  en: { client: "Add client", attach: "Connect an existing client folder", matter: "New matter", okf: "Turn on OKF" },
-  sk: { client: "Pridať klienta", attach: "Pripojiť existujúci priečinok klienta", matter: "Nová vec", okf: "Zapnúť OKF" },
-  cs: { client: "Přidat klienta", attach: "Připojit existující složku klienta", matter: "Nová věc", okf: "Zapnout OKF" },
-  de: { client: "Mandant hinzufügen", attach: "Bestehenden Mandantenordner verbinden", matter: "Neue Angelegenheit", okf: "OKF einschalten" },
+  en: { client: "Add client", folder: "Add folder", organize: "Organise by OKF", matter: "New matter", okf: "Turn on OKF" },
+  sk: { client: "Pridať klienta", folder: "Pridať priečinok", organize: "Usporiadať podľa OKF", matter: "Nová vec", okf: "Zapnúť OKF" },
+  cs: { client: "Přidat klienta", folder: "Přidat složku", organize: "Uspořádat podle OKF", matter: "Nová věc", okf: "Zapnout OKF" },
+  de: { client: "Mandant hinzufügen", folder: "Ordner hinzufügen", organize: "Nach OKF ordnen", matter: "Neue Angelegenheit", okf: "OKF einschalten" },
 };
 
 /** "Zapnúť OKF": shown only while OKF is not on. */
@@ -90,17 +92,17 @@ export function EnableOkfAction({ compact = false, okfOffered }: { compact?: boo
 /** Shared entry points. The welcome route renders the same client and matter forms. */
 export function OnboardingEntryActions({
   compact = false,
-  okfOffered,
 }: {
   compact?: boolean;
-  /** Test seam; by default the onboarding status decides. */
-  okfOffered?: boolean;
 }) {
   const navigate = useNavigate();
   const text = labels[useLocale()];
+  const { connection } = useOkfConnection();
+  const active = activeWorkspace(connection);
+  // Interný domovský priestor nie je priečinok advokáta, usporiadať sa nedá.
+  const organizePath = active?.path && !isLawossHomeWorkspace(active) ? active.path : undefined;
   return (
     <div className={compact ? "flex gap-1" : "flex flex-wrap gap-2"}>
-      <EnableOkfAction compact={compact} okfOffered={okfOffered} />
       <Button
         variant="outline"
         size={compact ? "icon-xs" : "sm"}
@@ -114,13 +116,25 @@ export function OnboardingEntryActions({
       <Button
         variant="outline"
         size={compact ? "icon-xs" : "sm"}
-        onClick={() => navigate(ATTACH_EXISTING_CLIENT_PATH)}
-        aria-label={text.attach}
-        title={text.attach}
+        onClick={() => navigate(ADD_FOLDER_PATH)}
+        aria-label={text.folder}
+        title={text.folder}
       >
         <FolderInput className="size-4" />
-        {compact ? null : <span>{text.attach}</span>}
+        {compact ? null : <span>{text.folder}</span>}
       </Button>
+      {organizePath ? (
+        <Button
+          variant="outline"
+          size={compact ? "icon-xs" : "sm"}
+          onClick={() => navigate(organizeFolderLink(organizePath))}
+          aria-label={text.organize}
+          title={text.organize}
+        >
+          <FolderTree className="size-4" />
+          {compact ? null : <span>{text.organize}</span>}
+        </Button>
+      ) : null}
       <Button
         variant="outline"
         size={compact ? "icon-xs" : "sm"}

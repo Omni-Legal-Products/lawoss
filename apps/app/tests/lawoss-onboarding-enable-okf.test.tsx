@@ -1,10 +1,13 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
+
+const withQuery = (node: React.ReactNode) => <QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>;
 import { ENABLE_OKF_ROUTE, offersOkf, OnboardingEntryActions } from "../src/lawoss/domains/onboarding/entry-actions";
 
-test("Zapnúť OKF reopens onboarding at the OKF step", () => {
-  expect(ENABLE_OKF_ROUTE).toBe("/welcome?continue=okf");
+test("Zapnúť OKF vedie na krok Priečinok", () => {
+  expect(ENABLE_OKF_ROUTE).toBe("/welcome?continue=folder");
 });
 
 test("the link is offered until OKF is on, also when the status cannot be read", () => {
@@ -15,8 +18,8 @@ test("the link is offered until OKF is on, also when the status cannot be read",
   expect(offersOkf({ profile: { okf: { enabled: true, acknowledgedAt: "2026-10-04T10:00:00.000Z", noticeVersion: "2026-10-04-alfa-1" } } })).toBe(false);
 });
 
-test("the entry actions render the OKF link once the choice is known", () => {
-  const html = renderToStaticMarkup(<MemoryRouter><OnboardingEntryActions okfOffered /></MemoryRouter>);
-  expect(html).toContain("Turn on OKF");
-  expect(renderToStaticMarkup(<MemoryRouter><OnboardingEntryActions okfOffered={false} /></MemoryRouter>)).not.toContain("Turn on OKF");
+test("kompaktný panel nemá Zapnúť OKF, ale Pridať priečinok", () => {
+  const html = renderToStaticMarkup(<MemoryRouter>{withQuery(<OnboardingEntryActions compact />)}</MemoryRouter>);
+  expect(html).not.toContain("Turn on OKF");
+  expect(html).toContain("Add folder");
 });

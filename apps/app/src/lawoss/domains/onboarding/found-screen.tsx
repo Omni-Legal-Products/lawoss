@@ -9,6 +9,7 @@ import { TriagePreviewView, useTriageText } from "../roztriedenie/triage-page";
 import type { OnboardingApi, OnboardingApplyResult, OnboardingSuggestion } from "./api";
 import { addOkfFiles, childPath, connectPractice, firstWorkspaceResult, folderName, parentPath, reorganizeTarget, retryFailed, startReorganize, type BatchItem, type FoundIdentity } from "./found-flow";
 import type { FoundTextKey } from "./found-text";
+import type { OnboardingCompletion } from "./lawoss-welcome-page";
 
 type Text = (key: FoundTextKey, params?: Record<string, string | number>) => string;
 export type FoundLevel = "practice" | "client" | "matter";
@@ -142,7 +143,7 @@ type Props = {
   text: Text;
   root: string;
   onAcknowledge: () => Promise<void>;
-  onDone: (result?: OnboardingApplyResult) => Promise<void> | void;
+  onDone: (result?: OnboardingApplyResult, completion?: OnboardingCompletion) => Promise<void> | void;
   onChangeFolder: () => void;
   onError: (reason: unknown) => void;
 };
@@ -212,8 +213,8 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
     if (level === "practice") {
       await connectPractice(api, suggestion.root, identity, suggestion, scope);
       if (scope === "practice") {
-        // Celá prax ako jeden priečinok (P5): zaregistruje ju volajúci cez onDone bez výsledku klienta.
-        await onDone({ result: "applied", root: suggestion.root });
+        // Celá prax ako jeden priečinok (P5): volajúci ju zaregistruje ako pracovný priečinok (bez výsledku klienta).
+        await onDone(undefined, { workingFolder: suggestion.root });
         return;
       }
       const items = suggestion.clients.filter(client => selected.includes(client.path)).map(client => ({ root: childPath(suggestion.root, client.path), name: client.name }));

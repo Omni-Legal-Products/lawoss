@@ -851,9 +851,9 @@ export function LawossWelcomePage({
                   // R3: OKF je vždy zapnuté; prvé potvrdenie na tejto obrazovke je vzatie oznámenia na vedomie.
                   setProfile(await api.updateOnboardingProfile({ okf: okfChoice(true, new Date()), step: "found" }));
                 }}
-                onDone={async (result) => {
+                onDone={async (result, completion) => {
                   setCompletedResult(result);
-                  await onComplete(result);
+                  await onComplete(result, completion);
                 }}
                 onChangeFolder={() => setFoundRoot(null)}
                 onError={reportError}
