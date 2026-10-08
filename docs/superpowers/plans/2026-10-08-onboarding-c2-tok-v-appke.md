@@ -29,6 +29,9 @@
 | R4 | **Hromadné pridanie OKF súborov** sa potvrdzuje raz pre celý zoznam; jednotlivé náhľady servera appka potvrdí sama. | „Nie“ (convert) len pridáva súbory, nič neprepisuje ani nepresúva; advokát vidí zoznam klientov aj zoznam súborov, ktoré pribudnú každému. |
 | R5 | **Predvolené hodnoty pre convert:** názov = meno priečinka, typ klienta `po` pri právnej forme v mene, inak `fo`, jurisdikcia a jazyk z kroku Ty, dátum = dnes, `confirmUnknownClient: true`. | Formulár „Prvý klient“ z onboardingu vypadol (spec P7). Typ klienta sa dá neskôr zmeniť v karte klienta. |
 | R6 | Kroky OKF voľba, Kancelária a Balíky z onboardingu odchádzajú; `packs-step.tsx` ostáva (používa ho Marketplace), z onboardingu sa len odpojí. | Spec P7. |
+| R7 | **„Začať nanovo“ nezaregistruje žiadny pracovný priečinok.** Po založení kancelárie ide appka na domov s interným domovským priestorom (plán B), kým advokát nepridá prvého klienta. | Výsledok kancelárie má `root` = `…/Office`; ako pracovný priečinok nedáva zmysel a celý nový priečinok LAWOSS by agentovi otvoril všetkých budúcich klientov. Spec krok 3 sa dá čítať aj inak. |
+| R8 | **Celá prax ako jeden priečinok** sa po onboardingu zaregistruje s `appFiles: "inside"`, takže do koreňa praxe vedľa `Office/` pribudne `.opencode/` (súbory appky, nie klientske dáta). | Rovnako ako pri každom pracovnom priečinku; spec P5 to pri „jeden priečinok“ predpokladá. |
+| R9 | **Vec:** tlačidlo „Pripojiť klienta …“ pripojí nadradený priečinok s odpoveďou „Nie“. Usporiadať ho advokát môže neskôr cez „Usporiadať podľa OKF“. | Jednoduchší tok; spec žiada len ponúknuť pripojenie klienta. |
 
 ## Global Constraints
 
@@ -924,7 +927,7 @@ describe("Toto som našiel", () => {
 });
 ```
 
-Regulárny výraz pre zaškrtnutý checkbox závisí od poradia atribútov v Reacte. Ak test padne len na tvare atribútov, uprav regex tak, aby overoval to isté: riadok klienta „Alfa s. r. o.“ má zaškrtnuté políčko a „Beta a. s.“ nemá.
+Regulárne výrazy pre zaškrtnutý checkbox a pre `disabled` závisia od poradia a tvaru atribútov v Reacte (`disabled=""` alebo `disabled`). Ak test padne len na tvare atribútov, uprav regex tak, aby overoval to isté: riadok klienta „Alfa s. r. o.“ má zaškrtnuté políčko a „Beta a. s.“ nemá; tlačidlo „Áno, usporiadaj“ je pri celej praxi vypnuté.
 
 - [ ] **Krok 2: Over, že testy padajú**
 
@@ -1179,6 +1182,7 @@ Poznámky pre implementátora:
 - `onModel` je v `TriagePreviewView` povinný; model sa v onboardingu nepoužíva (prepínač sa zobrazí len pri `proposal.state === "ready"`, čo pri prvom usporiadaní nenastane).
 - Fáza `question` pri `level === "matter"`: tlačidlo „Pripojiť klienta …“ volá `onAnswer("no")` a `answer` pre `level === "matter"` pripojí rodiča (`parentPath`), nie vec. Usporiadať ho advokát môže neskôr cez „Usporiadať podľa OKF“.
 - Cesta klienta praxe sa skladá z koreňa praxe a relatívnej cesty z návrhu (`childPath`), nie z mena.
+- Efekt s `suggestOnboarding` má zámerne závislosti `[api, root]`. `onError` z volajúceho je nová funkcia pri každom vykreslení; keby bol v závislostiach, návrh by sa volal stále dookola. Ak lint pravidlo `react-hooks/exhaustive-deps` hlási chybu, obal `onError` vo volajúcom (`lawoss-welcome-page.tsx`, úloha 6) do `useCallback` a až potom ho pridaj do závislostí.
 
 - [ ] **Krok 5: Spusti testy, typecheck, commit**
 
@@ -1240,7 +1244,7 @@ Expected: FAIL (`repeat(3` chýba, krok `folder` sa nevykreslí).
 3. `Props`: pridaj `initialRoot?: string`.
 4. Stav: `const [foundRoot, setFoundRoot] = useState<string | null>(initialRoot ?? null);` a `const found = foundText(locale);`.
 5. V `Identity.onSave`: `await move("okf")` zmeň na `await move("ai")`.
-6. Vetvu `step === "okf"` (komponent `OkfChoiceStep`), vetvu `step === "office"` (komponent `Office`) a vetvu `step === "packs"` odstráň.
+6. Vetvu `step === "okf"` (komponent `OkfChoiceStep`; od úlohy 1 volá dočasne `move("folder", { okf: okfChoice(enabled, new Date()) })`), vetvu `step === "office"` (komponent `Office`) a vetvu `step === "packs"` odstráň. Kľúč `folder` v slovníku `text` pridala úloha 3.
 7. Vetvu `step === "ai"` nahraď:
 
 ```tsx

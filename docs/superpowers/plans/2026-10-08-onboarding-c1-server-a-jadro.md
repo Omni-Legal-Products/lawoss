@@ -333,6 +333,8 @@ Run: `cd apps/server && bun test src/lawoss-onboarding.e2e.test.ts src/lawoss-tr
 Run: `cd ../app && bun test tests/lawoss-onboarding-matter-client.test.tsx`
 Expected: PASS.
 
+Do popisu PR uveď: `/plan` a `/apply` naďalej robia plnú inšpekciu celého stromu, takže bezpečnosť zápisu sa nemení; uvoľnila sa len kontrola identity už vybraného priečinka v profile. Priečinok s dvoma kartami (konflikt) profil naďalej odmietne.
+
 - [ ] **Krok 5: Commit**
 
 ```bash
@@ -657,7 +659,7 @@ a vo `withCanonicalPaths` pridaj (len keď metóda existuje):
     } : {}),
 ```
 
-Ak lint alebo zásady nedovoľujú `!`, nahraď ho lokálnou premennou: `const suggest = api.suggestOnboarding;` a `suggest ? { suggestOnboarding: async input => suggest(await withPaths(...)) } : {}`. Uprednostni túto podobu.
+Použi radšej podobu bez `!`: `const suggest = api.suggestOnboarding;` a `...(suggest ? { suggestOnboarding: async (input: { root: string }) => suggest(await withPaths(input, CLASSIFY_PATHS, canonicalize)) } : {})`. Návratový typ `withCanonicalPaths` ostáva `T`; ak typecheck podmienené rozšírenie nepriradí k `T`, zostav výsledok ako `const wrapped: T = { ...api, classifyOnboarding…, planOnboarding…, updateOnboardingProfile… }` a metódu pridaj cez `if (suggest) wrapped.suggestOnboarding = …` (pole je voliteľné, takže priradenie je typovo v poriadku).
 
 `apps/app/src/app/lib/legalwork-server.ts`, hneď za `classifyOnboarding`:
 
