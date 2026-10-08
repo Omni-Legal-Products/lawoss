@@ -217,3 +217,36 @@ test("OKF choice is optional, acknowledged when enabled, and older profiles stil
   await f.restartFromDisk();
   expect((await f.success("status")).profile).toMatchObject({ lawyerName: "Synthetic lawyer", okf: { enabled: false } });
 });
+
+test("profil prijme skutočného klienta so symlinkom; classify problém naďalej hlási", async () => {
+  const f = await fixture();
+  const created = await f.apply({ action: "client", parent: f.parent, name: "Klient", title: "Klient", ...common });
+  const clientRoot = created.clientRoot as string;
+  await mkdir(join(clientRoot, "Podklady"));
+  await symlink(join(clientRoot, "Podklady"), join(clientRoot, "odkaz"));
+  await f.success("profile", { lawyerName: "Synthetic lawyer", jurisdiction: "sk", language: "sk", clientRoot });
+  expect((await f.success("classify", { root: clientRoot })).complete).toBe(false);
+});
+
+test("profil prijme kanceláriu v koreni veľkej praxe bez prechádzania klientov", async () => {
+  const f = await fixture(), root = join(f.base, "praxe");
+  await mkdir(join(root, "Klient A"), { recursive: true });
+  await symlink(join(root, "Klient A"), join(root, "odkaz-na-klienta"));
+  await f.apply({ action: "practice", root, title: "Syntetická prax", jurisdiction: "sk", language: "sk", lawyerName: "Synthetic lawyer", clientPattern: "*", scope: "client" });
+  await f.success("profile", { lawyerName: "Synthetic lawyer", jurisdiction: "sk", language: "sk", officeRoot: root });
+});
+
+test("nové kroky folder a found sa uložia; starý krok packs sa načíta", async () => {
+  const f = await fixture();
+  await f.success("profile", { lawyerName: "Synthetic lawyer", jurisdiction: "sk", language: "sk", step: "packs" });
+  expect((await f.success("status")).profile.step).toBe("packs");
+  await f.success("profile", { step: "folder" });
+  await f.success("profile", { step: "found" });
+  expect((await f.success("status")).profile.step).toBe("found");
+});
+
+test("profil naďalej odmietne priečinok, ktorý nie je klient", async () => {
+  const f = await fixture(), plain = join(f.base, "obyčajný");
+  await mkdir(plain);
+  expect((await f.call("profile", { lawyerName: "Synthetic lawyer", jurisdiction: "sk", language: "sk", clientRoot: plain })).status).toBe(400);
+});
