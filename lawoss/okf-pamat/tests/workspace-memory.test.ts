@@ -15,7 +15,8 @@ const fileSymlinkSkip = symlinkSkipReason("file");
 const dirSymlinkSkip = symlinkSkipReason("dir");
 
 function fixture(t: { after(fn: () => void): void }) {
-  const base = mkdtempSync(join(realpathSync(tmpdir()), "workspace-memory-"));
+  // Native canonical paths expand Windows short names (RUNNER~1), as the reader does.
+  const base = realpathSync.native(mkdtempSync(join(tmpdir(), "workspace-memory-")));
   t.after(() => rmSync(base, { recursive: true, force: true }));
   const workspace = join(base, "case"), vault = join(base, "vault");
   mkdirSync(join(workspace, ".lawoss"), { recursive: true }); mkdirSync(vault);
@@ -53,7 +54,7 @@ test("absent profile has no effects; full legacy two-root load requires a caller
 test("host-owned external profile needs canonical identity and grants and maps sources read-only", t => {
   const f = fixture(t); const externalProfile = join(f.vault, "external-profile.json"); const original = readFileSync(f.profilePath);
   writeFileSync(externalProfile, original); rmSync(f.profilePath);
-  const options = { allowedRoots: [f.vault], profilePath: externalProfile, profileIdentity: realpathSync(externalProfile), profileGrants: [f.vault] };
+  const options = { allowedRoots: [f.vault], profilePath: externalProfile, profileIdentity: realpathSync.native(externalProfile), profileGrants: [f.vault] };
   const report = readWorkspaceMemory(f.workspace, options);
   assert.equal(report.complete, true, JSON.stringify(report.problems));
   assert.ok(report.sources.every(source => !source.writable));

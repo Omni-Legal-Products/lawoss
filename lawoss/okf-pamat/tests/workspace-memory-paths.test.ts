@@ -7,7 +7,7 @@ import { checkedDirectory, physicalPathWithin } from "../src/workspace-memory-fs
 import { symlinkSkipReason } from "../../tests/symlink-capability.mts";
 
 test("physical child resolution verifies missing tails, types and traversal without creating files", t => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "memory-paths-")));
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "memory-paths-")));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   writeFileSync(join(root, "file"), "evidence");
   assert.equal(physicalPathWithin(root, "new/nested/file", "file", true), join(root, "new/nested/file"));
@@ -19,7 +19,7 @@ test("physical child resolution verifies missing tails, types and traversal with
 });
 
 test("authority aliases permit internal missing children but reject escaped and dangling ancestors", { skip: symlinkSkipReason("dir") }, t => {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), "memory-paths-alias-")));
+  const base = realpathSync.native(mkdtempSync(join(tmpdir(), "memory-paths-alias-")));
   t.after(() => rmSync(base, { recursive: true, force: true }));
   const root = join(base, "root"), outside = join(base, "outside"), alias = join(base, "alias");
   mkdirSync(root); mkdirSync(outside); mkdirSync(join(root, "inside"));
