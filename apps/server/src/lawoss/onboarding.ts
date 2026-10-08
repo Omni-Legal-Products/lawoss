@@ -185,7 +185,8 @@ export function registerOnboardingRoutes(options: {
         await writeJson(receiptPath, { fingerprint: input.fingerprint, result });
       }
       if (result.status === "rolled_back") throw new ApiError(409, "onboarding_rolled_back", "This plan was rolled back. Create a new preview.");
-      if (ticket.preview.action === "office") return { result: repeated ? "already_applied" : "applied", ...result };
+      // Kancelária a prax nemajú pracovný priestor klienta; registrácia klientov praxe patrí do plánu C.
+      if (ticket.preview.action === "office" || ticket.preview.action === "practice") return { result: repeated ? "already_applied" : "applied", ...result };
       const clientRoot = result.clientRoot ?? (ticket.preview.action === "existing" || ticket.preview.action === "client" ? result.root : undefined);
       if (!clientRoot) throw new Error("Onboarding did not return a client workspace.");
       await canonicalDirectory(clientRoot);
