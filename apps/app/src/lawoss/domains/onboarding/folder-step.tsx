@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { FolderOpen, FolderPlus } from "lucide-react";
 import type { OnboardingApi, OnboardingApplyResult } from "./api";
-import type { FoundIdentity } from "./found-flow";
+import { freshOfficeRequest, type FoundIdentity } from "./found-flow";
 import type { FoundTextKey } from "./found-text";
 
 type Text = (key: FoundTextKey, params?: Record<string, string | number>) => string;
@@ -66,7 +66,7 @@ export function FolderStep({ api, identity, text, pickDirectory, onFound, onFres
     if (!parent) return;
     setBusy(true);
     try {
-      const preview = await api.planOnboarding({ action: "office", parent, title: "LAWOSS", jurisdiction: identity.jurisdiction, language: identity.language, lawyerName: identity.lawyerName });
+      const preview = await api.planOnboarding(freshOfficeRequest(parent, identity));
       const result = await api.applyOnboarding({ id: preview.id, fingerprint: preview.fingerprint, confirm: true });
       await api.updateOnboardingProfile({ officeRoot: parent });
       setFresh(result);

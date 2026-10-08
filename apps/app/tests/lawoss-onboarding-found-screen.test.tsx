@@ -35,6 +35,11 @@ describe("Toto som našiel", () => {
     expect(html).toContain("AGENTS.md");
     expect(html).toContain("Beriem na vedomie a pokračujem");
   });
+  test("vec v Spisy/ ponúkne klienta nad Spisy", () => {
+    const html = renderToStaticMarkup(<FoundView {...props} suggestion={base({ root: "/p/Novák/Spisy/2024-03 Zmluva", level: "matter" })} level="matter" />);
+    expect(html).toContain("Pripojiť klienta Novák");
+    expect(html).not.toContain("Pripojiť klienta Spisy");
+  });
   test("prax po klientoch bez označeného klienta: obe odpovede sú vypnuté", () => {
     const clients = [{ path: "Alfa s. r. o.", name: "Alfa s. r. o." }];
     const html = renderToStaticMarkup(<FoundView {...props} suggestion={base({ level: "practice", clients, clientPattern: "*" })} level="practice" selected={[]} />);

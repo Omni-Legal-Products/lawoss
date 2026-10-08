@@ -5,7 +5,7 @@
 import type { Language } from "@/i18n";
 import { hasLegalForm } from "../../../../../../lawoss/okf/src/onboarding/suggest-patterns";
 import { triageGrant, triagePlan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
-import type { DocumentLanguage, ExistingPlanRequest, Jurisdiction, OnboardingApi, OnboardingApplyResult, OnboardingSuggestion, PracticePlanRequest } from "./api";
+import type { DocumentLanguage, ExistingPlanRequest, Jurisdiction, OfficePlanRequest, OnboardingApi, OnboardingApplyResult, OnboardingSuggestion, PracticePlanRequest } from "./api";
 
 export type FoundIdentity = { lawyerName: string; jurisdiction: Jurisdiction; language: Language };
 export type BatchItem = { root: string; name: string; status: "pending" | "done" | "failed"; error?: string; result?: OnboardingApplyResult };
@@ -24,6 +24,14 @@ export function parentPath(root: string): string {
   return index > 0 ? trimmed.slice(0, index) : trimmed;
 }
 
+/**
+ * Klient veci (R9): priamy rodič, pri veci v `<klient>/Spisy/<vec>` (štruktúra OKF) rodič priečinka Spisy.
+ */
+export function matterClientPath(root: string): string {
+  const parent = parentPath(root);
+  return folderName(parent).toLowerCase() === "spisy" ? parentPath(parent) : parent;
+}
+
 /** Cesta klienta z relatívnej cesty návrhu (vždy s „/“) v oddeľovači koreňa. */
 export function childPath(root: string, relative: string): string {
   const separator = separatorOf(root);
@@ -35,7 +43,18 @@ export function documentLanguage(language: Language): DocumentLanguage {
   return language === "cs" ? "cs" : language === "sk" ? "sk" : "en";
 }
 
-const isoDay = (date: Date) => date.toISOString().slice(0, 10);
+/** Miestny deň (nie UTC): karta vytvorená o 0.30 alebo 23.30 nesie dnešný dátum advokáta. */
+const isoDay = (date: Date) => [date.getFullYear(), date.getMonth() + 1, date.getDate()].map((part, index) => String(part).padStart(index ? 2 : 4, "0")).join("-");
+
+/** „Začať nanovo“: kancelária v novom priečinku; jazyk dokumentov ako pri ostatných zápisoch OKF. */
+export function freshOfficeRequest(parent: string, identity: FoundIdentity): OfficePlanRequest {
+  return { action: "office", parent, title: "LAWOSS", jurisdiction: identity.jurisdiction, language: documentLanguage(identity.language), lawyerName: identity.lawyerName };
+}
+
+/** „Začať nanovo“ zapisuje len do prázdneho priečinka (návrh bez položiek má signál `empty`). */
+export function isEmptyFolderSuggestion(suggestion: OnboardingSuggestion): boolean {
+  return suggestion.level === "unknown" && suggestion.signals.includes("empty");
+}
 
 /** „Nie, len pridaj OKF súbory“ bez formulára (R5): názov a typ z mena priečinka, zvyšok z kroku Ty. */
 export function convertRequest(root: string, identity: FoundIdentity, today: Date): ExistingPlanRequest {

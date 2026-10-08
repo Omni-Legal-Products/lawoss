@@ -3,7 +3,7 @@ import type { OnboardingApi, OnboardingApplyResult, OnboardingPlanRequest, Onboa
 import type { TriageApiPath } from "../src/lawoss/domains/roztriedenie/api";
 import {
   addOkfFiles, childPath, connectPractice, convertRequest, documentLanguage, firstWorkspaceResult,
-  folderName, parentPath, practiceRequest, reorganizeTarget, retryFailed, startReorganize, type BatchItem,
+  folderName, freshOfficeRequest, isEmptyFolderSuggestion, matterClientPath, parentPath, practiceRequest, reorganizeTarget, retryFailed, startReorganize, type BatchItem,
 } from "../src/lawoss/domains/onboarding/found-flow";
 
 const identity = { lawyerName: "Syntetický advokát", jurisdiction: "sk" as const, language: "sk" as const };
@@ -93,5 +93,37 @@ describe("prax a usporiadanie", () => {
     expect(reorganizeTarget({ ...base, result: { result: "applied", root: "/p/A/Office", clientRoot: "/p/A", workspace: { id: "w", path: "/p/A" } } })).toBe("/p/A");
     expect(reorganizeTarget({ ...base, result: { result: "applied", root: "/p/A/Office", clientRoot: "/p/A/Klient" } })).toBe("/p/A/Klient");
     expect(reorganizeTarget(base)).toBe("/p/A");
+  });
+});
+
+describe("opravy po celkovej kontrole", () => {
+  test("vec v Spisy/ patrí klientovi nad Spisy, inak priamemu rodičovi (macOS aj Windows)", () => {
+    expect(matterClientPath("/p/Novák/Spisy/2024-03 Zmluva")).toBe("/p/Novák");
+    expect(matterClientPath("/p/Novák/2024-03 Zmluva")).toBe("/p/Novák");
+    expect(matterClientPath("C:\\Klienti\\Novák\\Spisy\\2024-03 Zmluva\\")).toBe("C:\\Klienti\\Novák");
+    expect(matterClientPath("C:\\Klienti\\Novák\\2024-03 Zmluva")).toBe("C:\\Klienti\\Novák");
+  });
+  test("Začať nanovo: jazyk dokumentov kancelárie z jazyka rozhrania (nemčina píše anglicky)", () => {
+    expect(freshOfficeRequest("/p/Nový", { ...identity, language: "de" })).toEqual({ action: "office", parent: "/p/Nový", title: "LAWOSS", jurisdiction: "sk", language: "en", lawyerName: "Syntetický advokát" });
+    expect(freshOfficeRequest("/p/Nový", { ...identity, language: "cs" }).language).toBe("cs");
+  });
+  test("Začať nanovo len do prázdneho priečinka", () => {
+    expect(isEmptyFolderSuggestion(suggestion({ level: "unknown", signals: ["empty"] }))).toBe(true);
+    expect(isEmptyFolderSuggestion(suggestion({ level: "unknown", signals: ["documents_only"] }))).toBe(false);
+    expect(isEmptyFolderSuggestion(suggestion({ level: "client", signals: ["empty"] }))).toBe(false);
+  });
+  test("dátum karty je miestny deň aj tesne pred a po polnoci", () => {
+    // bun test beží v UTC; posun pásma ukáže rozdiel medzi miestnym dňom a dňom v UTC.
+    const saved = process.env.TZ;
+    try {
+      for (const zone of ["Europe/Bratislava", "America/New_York"]) {
+        process.env.TZ = zone;
+        expect(convertRequest("/p/A", identity, new Date(2026, 9, 8, 23, 30)).date).toBe("2026-10-08");
+        expect(convertRequest("/p/A", identity, new Date(2026, 9, 8, 0, 30)).date).toBe("2026-10-08");
+      }
+    } finally {
+      if (saved === undefined) delete process.env.TZ;
+      else process.env.TZ = saved;
+    }
   });
 });

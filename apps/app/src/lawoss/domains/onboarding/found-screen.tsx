@@ -7,7 +7,7 @@ import { useLocale } from "@/i18n/use-locale";
 import { triageApply, triageReplan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { TriagePreviewView, useTriageText } from "../roztriedenie/triage-page";
 import type { OnboardingApi, OnboardingApplyResult, OnboardingSuggestion } from "./api";
-import { addOkfFiles, childPath, connectPractice, firstWorkspaceResult, folderName, parentPath, reorganizeTarget, retryFailed, startReorganize, type BatchItem, type FoundIdentity } from "./found-flow";
+import { addOkfFiles, childPath, connectPractice, firstWorkspaceResult, folderName, matterClientPath, reorganizeTarget, retryFailed, startReorganize, type BatchItem, type FoundIdentity } from "./found-flow";
 import type { FoundTextKey } from "./found-text";
 import type { OnboardingCompletion } from "./lawoss-welcome-page";
 
@@ -48,7 +48,7 @@ export function FoundView({ text, busy, suggestion, level, scope, selected, onLe
   const yesDisabled = level === "practice" && scope === "practice";
   // Prax po klientoch bez označeného klienta: nie je čo urobiť, kancelária sa nezapíše.
   const nothingSelected = level === "practice" && scope === "client" && selected.length === 0;
-  const parentName = folderName(parentPath(suggestion.root));
+  const parentName = folderName(matterClientPath(suggestion.root));
   return (
     <div className="grid gap-5" data-lawoss-found>
       <h2 className="text-xl font-semibold">{text("foundTitle")}</h2>
@@ -223,7 +223,7 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
       return;
     }
     // Vec (R9): pripojí sa nadradený priečinok ako klient, nie samotná vec.
-    const target = level === "matter" ? parentPath(suggestion.root) : suggestion.root;
+    const target = level === "matter" ? matterClientPath(suggestion.root) : suggestion.root;
     const batch = await addOkfFiles(api, [{ root: target, name: folderName(target) }], identity, today, (next) => setPhase({ name: "batch", items: next, answer: choice }));
     if (batch[0]?.status === "done" && choice === "no") { await onDone(batch[0].result); return; }
     if (batch[0]?.status === "done" && choice === "yes") { await nextReorganize(batch, batch[0].result); return; }
