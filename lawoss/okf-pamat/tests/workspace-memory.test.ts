@@ -1,6 +1,8 @@
 import { symlinkSkipReason } from "../../tests/symlink-capability.mts";
 // POSIX mode assertions below do not model Windows ACLs; content/CAS checks run on every OS.
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { syncBuiltinESMExports } from "node:module";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -93,10 +95,10 @@ test("source limit is an explicit failure, never truncated success", t => {
   const r = f.load(); assert.equal(r.complete, false); assert.equal(r.sources.find(s => s.id === "note")!.content, null);
 });
 
-test("symlink profile and source are rejected", { skip: fileSymlinkSkip }, t => {
+test("internal profile alias is readable but duplicate physical sources remain rejected", { skip: fileSymlinkSkip }, t => {
   const f = fixture(t); const original = readFileSync(f.profilePath);
   rmSync(f.profilePath); writeFileSync(join(f.workspace, "profile.json"), original); symlinkSync(join(f.workspace, "profile.json"), f.profilePath);
-  assert.equal(f.load().complete, false); rmSync(f.profilePath); f.putProfile();
+  assert.equal(f.load().complete, true); rmSync(f.profilePath); f.putProfile();
   rmSync(join(f.vault, "note.md")); symlinkSync(join(f.vault, "card.md"), join(f.vault, "note.md")); assert.equal(f.load().complete, false);
 });
 
@@ -105,7 +107,7 @@ test("hardlink source aliases are rejected (including NTFS)", t => {
   rmSync(join(f.vault, "note.md")); linkSync(join(f.vault, "card.md"), join(f.vault, "note.md")); assert.equal(f.load().complete, false);
 });
 
-test("symlink root is rejected", { skip: dirSymlinkSkip }, t => {
+test("a local root alias cannot acquire authority from a separate external grant", { skip: dirSymlinkSkip }, t => {
   const f = fixture(t);
   symlinkSync(f.vault, join(f.workspace, "linked-vault"), "dir"); f.profile.roots[1]!.path = "linked-vault"; f.putProfile(); assert.equal(f.load().complete, false);
 });
@@ -318,4 +320,152 @@ test("case-equivalent source IDs are rejected before preview or history creation
   const accepted = f.load(); assert.equal(accepted.complete, true); assert.ok(accepted.sources.some(s => s.id === "Card"));
   const request = f.request(); assert.equal(saveWorkspaceMemory(f.workspace, request, { ...f.options, apply: true }).status, "committed");
   assert.equal(readFileSync(join(f.workspace, ".lawoss", "memory-history", request.operationId, "Card.before"), "utf8"), "card old text\n");
+});
+
+
+test("root and ancestor aliases share physical bindings and coordinated writes", { skip: dirSymlinkSkip }, t => {
+  for (const ancestor of [false, true]) {
+    const f = fixture(t), alias = join(f.vault, "workspace-alias");
+    symlinkSync(ancestor ? join(f.workspace, "..") : f.workspace, alias, "dir");
+    const selected = ancestor ? join(alias, "case") : alias;
+    const before = f.load(), request = f.request();
+    const loaded = readWorkspaceMemory(selected, f.options);
+    assert.equal(loaded.complete, true, JSON.stringify(loaded.problems));
+    assert.equal(loaded.directory, f.workspace); assert.equal(loaded.bindingHash, before.bindingHash);
+    const result = saveWorkspaceMemory(selected, request, { ...f.options, apply: true });
+    assert.equal(result.status, "committed", JSON.stringify(result));
+    assert.ok(result.changes.every(change => !change.path.includes("workspace-alias")));
+    assert.equal(saveWorkspaceMemory(selected, request, { ...f.options, apply: true }).status, "already-applied");
+  }
+});
+
+test("explicit grant aliases remain separate authority roots and permit physical writes", { skip: dirSymlinkSkip }, t => {
+  const f = fixture(t), originalRequest = f.request(), alias = join(f.workspace, "..", "vault-alias");
+  symlinkSync(f.vault, alias, "dir"); f.profile.roots[1]!.path = alias; f.putProfile();
+  const options = { allowedRoots: [alias] };
+  const report = readWorkspaceMemory(f.workspace, options);
+  assert.equal(report.complete, true, JSON.stringify(report.problems));
+  assert.equal(readWorkspaceMemory(f.workspace).complete, false);
+  const request = { ...originalRequest, expectedBindingHash: report.bindingHash!, expectedContextHash: report.contextHash! };
+  assert.equal(saveWorkspaceMemory(f.workspace, request, { ...options, apply: true }).status, "committed");
+  assert.equal(readFileSync(join(f.vault, "card.md"), "utf8"), request.updates.find(u => u.sourceId === "card")!.content);
+});
+
+test("internal source and parent symlinks read and replace physical files without replacing links", { skip: fileSymlinkSkip || dirSymlinkSkip }, t => {
+  const f = fixture(t), target = join(f.workspace, "physical"), alias = join(f.workspace, "linked");
+  mkdirSync(target); fs.renameSync(join(f.workspace, "_memory.md"), join(target, "memory.md"));
+  symlinkSync(target, alias, "dir"); symlinkSync(join(target, "memory.md"), join(alias, "source.md"));
+  f.profile.sources[0]!.path = "linked/source.md"; f.putProfile();
+  const before = f.load(); assert.equal(before.complete, true, JSON.stringify(before.problems));
+  assert.equal(before.sources[0]!.path, join(target, "memory.md"));
+  const request = f.request(), result = saveWorkspaceMemory(f.workspace, request, { ...f.options, apply: true });
+  assert.equal(result.status, "committed", JSON.stringify(result));
+  assert.equal(fs.lstatSync(join(alias, "source.md")).isSymbolicLink(), true);
+  assert.equal(readFileSync(join(target, "memory.md"), "utf8"), request.updates[0]!.content);
+  assert.equal(saveWorkspaceMemory(f.workspace, request, { ...f.options, apply: true }).status, "already-applied");
+});
+
+test("missing optional source resolves a safe existing ancestor, outside and dangling ancestors fail closed", { skip: dirSymlinkSkip }, t => {
+  const f = fixture(t), inside = join(f.vault, "inside"), linked = join(f.vault, "linked");
+  mkdirSync(inside); symlinkSync(inside, linked, "dir");
+  f.profile.sources[2]!.path = "linked/not-created/note.md";
+  f.profile.sources[2]!.required = false; f.profile.sources[2]!.writable = false; f.putProfile();
+  const report = f.load(); assert.equal(report.complete, true, JSON.stringify(report.problems));
+  assert.equal(report.sources[2]!.status, "missing"); assert.equal(report.sources[2]!.path, join(inside, "not-created/note.md"));
+  assert.equal(existsSync(join(inside, "not-created")), false);
+  const request = f.request();
+  rmSync(linked); symlinkSync(f.workspace, linked, "dir");
+  assert.equal(f.load().complete, false); // another allowed root is not this source's authority
+  assert.equal(saveWorkspaceMemory(f.workspace, request, { ...f.options, apply: true }).status, "conflict");
+  assert.equal(existsSync(join(f.workspace, "not-created")), false);
+  assert.deepEqual(readdirSync(join(f.workspace, ".lawoss")), ["memory-profile.json"]);
+  rmSync(linked); symlinkSync(join(f.vault, "absent"), linked, "dir");
+  assert.equal(f.load().complete, false);
+  assert.equal(existsSync(join(f.vault, "absent")), false);
+});
+
+test("outside source or profile links reject saves before any history or outside writes", { skip: fileSymlinkSkip }, t => {
+  for (const profile of [false, true]) {
+    const f = fixture(t), request = f.request(), outside = join(f.workspace, "..", "outside");
+    mkdirSync(outside);
+    const path = profile ? f.profilePath : join(f.workspace, "_memory.md"), target = join(outside, "file");
+    const original = readFileSync(path); writeFileSync(target, original); rmSync(path); symlinkSync(target, path);
+    const before = readdirSync(outside);
+    assert.equal(f.load().complete, false);
+    assert.equal(saveWorkspaceMemory(f.workspace, request, { ...f.options, apply: true }).status, "conflict");
+    assert.deepEqual(readFileSync(target), original); assert.deepEqual(readdirSync(outside), before);
+    assert.equal(existsSync(join(f.workspace, ".lawoss", "memory-history")), false);
+  }
+});
+
+test("retargeting an internal alias after preview changes the binding and makes zero save writes", { skip: fileSymlinkSkip }, t => {
+  const f = fixture(t), path = join(f.workspace, "_memory.md"), first = join(f.workspace, "first.md"), second = join(f.workspace, "second.md");
+  const content = readFileSync(path); fs.renameSync(path, first); writeFileSync(second, content); symlinkSync(first, path);
+  const request = f.request(); rmSync(path); symlinkSync(second, path);
+  const result = saveWorkspaceMemory(f.workspace, request, { ...f.options, apply: true });
+  assert.equal(result.status, "conflict");
+  assert.deepEqual(readFileSync(first), content); assert.deepEqual(readFileSync(second), content);
+  assert.equal(existsSync(join(f.workspace, ".lawoss", "memory-history")), false);
+});
+
+test("safe profile alias permits save while physical control files remain reserved", { skip: fileSymlinkSkip }, t => {
+  const f = fixture(t), physicalProfile = join(f.workspace, "profile.json");
+  fs.renameSync(f.profilePath, physicalProfile); symlinkSync(physicalProfile, f.profilePath);
+  const profileBefore = readFileSync(physicalProfile), request = f.request();
+  assert.equal(saveWorkspaceMemory(f.workspace, request, { ...f.options, apply: true }).status, "committed");
+  assert.deepEqual(readFileSync(physicalProfile), profileBefore); assert.equal(fs.lstatSync(f.profilePath).isSymbolicLink(), true);
+  symlinkSync(join(f.workspace, ".lawoss", "memory-history", request.operationId, "memory.before"), join(f.vault, "control-alias.md"));
+  f.profile.sources[2]!.path = "control-alias.md"; writeFileSync(physicalProfile, JSON.stringify(f.profile));
+  assert.equal(f.load().complete, false);
+});
+
+
+test("Node memory bundle reads and saves an alias root through the same physical binding", { skip: dirSymlinkSkip }, t => {
+  const f = fixture(t), alias = join(f.vault, "case-alias"); symlinkSync(f.workspace, alias, "dir");
+  const cli = fileURLToPath(new URL("../bundle/okf-memory.js", import.meta.url));
+  const invoke = (command: string, args: string[] = []) => JSON.parse(execFileSync(process.execPath, [cli, command, alias, "--allow-root", f.vault, ...args, "--json"], { encoding: "utf8" }));
+  const report = invoke("workspace-read"); assert.equal(report.complete, true); assert.equal(report.bindingHash, f.load().bindingHash);
+  const requestFile = join(f.vault, "request.json"), request = f.request(); writeFileSync(requestFile, JSON.stringify(request));
+  assert.equal(invoke("workspace-save", ["--file", requestFile, "--apply"]).status, "committed");
+  assert.equal(invoke("workspace-save", ["--file", requestFile, "--apply"]).status, "already-applied");
+});
+
+test("a specifically granted alias below the workspace overrides the broader workspace authority", { skip: dirSymlinkSkip }, t => {
+  for (const reverseGrants of [false, true]) {
+    const f = fixture(t), originalRequest = f.request(), alias = join(f.workspace, "explicit-vault-grant");
+    symlinkSync(f.vault, alias, "dir"); f.profile.roots[1]!.path = alias; f.putProfile();
+    // The physical vault grant alone does not authorize traversal through this local alias.
+    assert.equal(f.load().complete, false);
+    const options = { allowedRoots: reverseGrants ? [alias, f.workspace] : [f.workspace, alias] };
+    const report = readWorkspaceMemory(f.workspace, options);
+    assert.equal(report.complete, true, JSON.stringify(report.problems));
+    assert.equal(report.sources.find(s => s.id === "card")!.path, join(f.vault, "card.md"));
+    const request = { ...originalRequest, expectedBindingHash: report.bindingHash!, expectedContextHash: report.contextHash! };
+    const before = readFileSync(join(f.vault, "card.md"));
+    assert.equal(saveWorkspaceMemory(f.workspace, request, { ...f.options, apply: true }).status, "conflict");
+    assert.deepEqual(readFileSync(join(f.vault, "card.md")), before);
+    assert.equal(existsSync(join(f.workspace, ".lawoss", "memory-history")), false);
+    const saved = saveWorkspaceMemory(f.workspace, request, { ...options, apply: true });
+    assert.equal(saved.status, "committed", JSON.stringify(saved));
+    assert.equal(readFileSync(join(f.vault, "card.md"), "utf8"), request.updates.find(u => u.sourceId === "card")!.content);
+    assert.equal(saveWorkspaceMemory(f.workspace, request, { ...options, apply: true }).status, "already-applied");
+  }
+});
+
+test("profile lookup honors a specific alias grant below the workspace and retains external read-only authority", { skip: dirSymlinkSkip }, t => {
+  const f = fixture(t), alias = join(f.workspace, "explicit-profile-grant"), physicalProfile = join(f.vault, "host-profile.json");
+  symlinkSync(f.vault, alias, "dir"); writeFileSync(physicalProfile, readFileSync(f.profilePath));
+  const options = { ...f.options, profilePath: join(alias, "host-profile.json"), profileIdentity: physicalProfile, profileGrants: [f.workspace, alias] };
+  const report = readWorkspaceMemory(f.workspace, options);
+  assert.equal(report.complete, true, JSON.stringify(report.problems));
+  assert.ok(report.sources.every(source => !source.writable));
+  assert.equal(readWorkspaceMemory(f.workspace, { ...options, profileGrants: [alias, f.workspace] }).bindingHash, report.bindingHash);
+  assert.equal(readWorkspaceMemory(f.workspace, { ...options, profilePath: physicalProfile }).complete, true);
+  // Granting the destination only must not silently grant the local alias.
+  assert.equal(readWorkspaceMemory(f.workspace, { ...options, profileGrants: [f.vault] }).complete, false);
+  const before = readFileSync(physicalProfile), memoryBefore = readFileSync(join(f.workspace, "_memory.md"));
+  const request: WorkspaceMemorySaveRequest = { version: 1, matterId: report.matterId!, operationId: "external-profile-alias", reason: "external profiles remain read-only", expectedBindingHash: report.bindingHash!, expectedContextHash: report.contextHash!, updates: [] };
+  assert.equal(saveWorkspaceMemory(f.workspace, request, { ...options, apply: true }).status, "conflict");
+  assert.deepEqual(readFileSync(physicalProfile), before); assert.deepEqual(readFileSync(join(f.workspace, "_memory.md")), memoryBefore);
+  assert.equal(existsSync(join(f.workspace, ".lawoss", "memory-history")), false);
 });
