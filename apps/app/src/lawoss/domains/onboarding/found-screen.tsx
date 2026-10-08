@@ -25,6 +25,16 @@ function headline(text: Text, suggestion: OnboardingSuggestion): string {
   return text("unknownFound");
 }
 
+/** Oznámenie OKF so zoznamom súborov (R3); musí byť viditeľné pri každej odpovedi, ktorá ho potvrdzuje. */
+function OkfNotice({ text }: { text: Text }) {
+  return (
+    <>
+      <p className="text-muted-foreground">{text("okfNotice")}</p>
+      <p className="text-sm"><strong>{text("filesTitle")}:</strong> {OKF_FILES.join(", ")}</p>
+    </>
+  );
+}
+
 type ViewProps = {
   text: Text; busy: boolean; suggestion: OnboardingSuggestion; level: FoundLevel;
   scope: Scope; selected: readonly string[];
@@ -35,6 +45,8 @@ type ViewProps = {
 
 export function FoundView({ text, busy, suggestion, level, scope, selected, onLevel, onScope, onToggle, onAll, onAnswer, onChangeFolder }: ViewProps) {
   const yesDisabled = level === "practice" && scope === "practice";
+  // Prax po klientoch bez označeného klienta: nie je čo urobiť, kancelária sa nezapíše.
+  const nothingSelected = level === "practice" && scope === "client" && selected.length === 0;
   const parentName = folderName(parentPath(suggestion.root));
   return (
     <div className="grid gap-5" data-lawoss-found>
@@ -52,8 +64,10 @@ export function FoundView({ text, busy, suggestion, level, scope, selected, onLe
       {level === "matter" ? (
         <div className="lw-onb-inset grid gap-2">
           <p>{text("matterHint", { name: parentName })}</p>
+          <OkfNotice text={text} />
           {/* R9: vec sa nepripája sama, pripojí sa nadradený klient s odpoveďou „Nie“. */}
           <div><button type="button" className="lw-btn gold" disabled={busy} onClick={() => onAnswer("no")}>{text("useParent", { name: parentName })}</button></div>
+          <p className="text-xs text-muted-foreground">{text("acknowledge")}</p>
         </div>
       ) : null}
       {level === "practice" ? (
@@ -82,18 +96,17 @@ export function FoundView({ text, busy, suggestion, level, scope, selected, onLe
       {level !== "matter" ? (
         <section className="grid gap-3">
           <h3 className="font-semibold">{text("reorganizeQuestion")}</h3>
-          <p className="text-muted-foreground">{text("okfNotice")}</p>
-          <p className="text-sm"><strong>{text("filesTitle")}:</strong> {OKF_FILES.join(", ")}</p>
+          <OkfNotice text={text} />
           <div className="lw-onb-choices">
             <section className="lw-onb-choice">
               <h3>{text("answerNo")}</h3>
               <p>{text("answerNoHint")}</p>
-              <button type="button" className="lw-btn gold" disabled={busy} onClick={() => onAnswer("no")}>{text("answerNo")}</button>
+              <button type="button" className="lw-btn gold" disabled={busy || nothingSelected} onClick={() => onAnswer("no")}>{text("answerNo")}</button>
             </section>
             <section className="lw-onb-choice">
               <h3>{text("answerYes")}</h3>
               <p>{yesDisabled ? text("answerYesDisabled") : text(level === "practice" ? "answerYesPractice" : "answerYesHint")}</p>
-              <button type="button" className="lw-btn" disabled={busy || yesDisabled} onClick={() => onAnswer("yes")}>{text("answerYes")}</button>
+              <button type="button" className="lw-btn" disabled={busy || yesDisabled || nothingSelected} onClick={() => onAnswer("yes")}>{text("answerYes")}</button>
             </section>
           </div>
           <p className="text-xs text-muted-foreground">{text("acknowledge")}</p>
@@ -104,7 +117,7 @@ export function FoundView({ text, busy, suggestion, level, scope, selected, onLe
   );
 }
 
-export function BatchView({ text, busy, items, onRetry, onContinue }: { text: Text; busy: boolean; items: readonly BatchItem[]; onRetry: () => void; onContinue: () => void }) {
+export function BatchView({ text, busy, items, answer, onRetry, onContinue }: { text: Text; busy: boolean; items: readonly BatchItem[]; answer?: Answer; onRetry: () => void; onContinue: () => void }) {
   const done = items.filter(item => item.status === "done").length;
   const failed = items.filter(item => item.status === "failed");
   const pending = items.some(item => item.status === "pending");
@@ -115,7 +128,7 @@ export function BatchView({ text, busy, items, onRetry, onContinue }: { text: Te
       {!pending ? (
         <div className="flex gap-2">
           {failed.length ? <button type="button" className="lw-btn" disabled={busy} onClick={onRetry}>{text("retry")}</button> : null}
-          <button type="button" className="lw-btn gold" disabled={busy} onClick={onContinue}>{text("open")}</button>
+          <button type="button" className="lw-btn gold" disabled={busy} onClick={onContinue}>{text(answer === "yes" ? "nextClient" : "open")}</button>
         </div>
       ) : null}
     </div>
@@ -135,7 +148,7 @@ type Props = {
 };
 
 type Phase =
-  | { name: "loading" }
+  | { name: "loading"; failed?: boolean }
   | { name: "question"; suggestion: OnboardingSuggestion }
   | { name: "batch"; items: BatchItem[]; answer: Answer }
   | { name: "reorganize"; queue: BatchItem[]; preview: TriagePreview; result?: OnboardingApplyResult };
@@ -155,14 +168,18 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
   useEffect(() => {
     let cancelled = false;
     const suggest = api.suggestOnboarding;
-    if (!suggest) { onError(new Error("suggest_unavailable")); return; }
+    if (!suggest) { setPhase({ name: "loading", failed: true }); onError(new Error("suggest_unavailable")); return; }
     setPhase({ name: "loading" });
     void suggest({ root }).then((suggestion) => {
       if (cancelled) return;
       setLevel(suggestion.level === "practice" || suggestion.level === "matter" ? suggestion.level : "client");
       setSelected(suggestion.clients.map(client => client.path));
       setPhase({ name: "question", suggestion });
-    }).catch((reason: unknown) => { if (!cancelled) onError(reason); });
+    }).catch((reason: unknown) => {
+      if (cancelled) return;
+      setPhase({ name: "loading", failed: true });
+      onError(reason);
+    });
     return () => { cancelled = true; };
   }, [api, root]);
 
@@ -212,7 +229,15 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
     setPhase({ name: "batch", items: batch, answer: choice });
   });
 
-  if (phase.name === "loading") return <p role="status">{text("looking")}</p>;
+  if (phase.name === "loading") {
+    // Po chybe návrhu ostane cesta späť na výber priečinka; chybu hlási onError.
+    return (
+      <div className="grid gap-3">
+        <p role="status">{text("looking")}</p>
+        {phase.failed ? <div><button type="button" className="lw-btn" onClick={onChangeFolder}>{text("changeFolder")}</button></div> : null}
+      </div>
+    );
+  }
   if (phase.name === "question") {
     return (
       <FoundView
@@ -235,7 +260,7 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
       const progress = (next: BatchItem[]) => setPhase({ name: "batch", items: next, answer: phase.answer });
       progress(await retryFailed(api, phase.items, identity, today, progress));
     });
-    return <BatchView text={text} busy={busy} items={phase.items} onRetry={() => void retry()} onContinue={() => void continueBatch()} />;
+    return <BatchView text={text} busy={busy} items={phase.items} answer={phase.answer} onRetry={() => void retry()} onContinue={() => void continueBatch()} />;
   }
   const [current, ...rest] = phase.queue;
   return (

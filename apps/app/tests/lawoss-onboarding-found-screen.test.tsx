@@ -32,6 +32,14 @@ describe("Toto som našiel", () => {
   test("vec: ponúkne nadradeného klienta", () => {
     const html = renderToStaticMarkup(<FoundView {...props} suggestion={base({ root: "/p/Novák/2024-03 Zmluva", level: "matter" })} level="matter" />);
     expect(html).toContain("Pripojiť klienta Novák");
+    expect(html).toContain("AGENTS.md");
+    expect(html).toContain("Beriem na vedomie a pokračujem");
+  });
+  test("prax po klientoch bez označeného klienta: obe odpovede sú vypnuté", () => {
+    const clients = [{ path: "Alfa s. r. o.", name: "Alfa s. r. o." }];
+    const html = renderToStaticMarkup(<FoundView {...props} suggestion={base({ level: "practice", clients, clientPattern: "*" })} level="practice" selected={[]} />);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Nie, len pridaj OKF súbory/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Áno, usporiadaj/);
   });
   test("oprava návrhu prepne voľby bez nového výberu priečinka", () => {
     const html = renderToStaticMarkup(<FoundView {...props} suggestion={base({ level: "practice" })} level="client" />);
@@ -44,5 +52,11 @@ describe("Toto som našiel", () => {
     expect(html).toContain("Hotovo: 1 z 2");
     expect(html).toContain("Nepodarilo sa: Zamknutý (locked_file)");
     expect(html).toContain("Skúsiť znova neúspešných");
+    expect(html).toContain("Otvoriť v LAWOSS");
+  });
+  test("súhrn po odpovedi Áno pokračuje na ďalšieho klienta", () => {
+    const html = renderToStaticMarkup(<BatchView text={foundText("sk")} busy={false} answer="yes" items={[{ root: "/a", name: "Alfa", status: "done" }]} onRetry={() => undefined} onContinue={() => undefined} />);
+    expect(html).toContain("Ďalší klient");
+    expect(html).not.toContain("Otvoriť v LAWOSS");
   });
 });
