@@ -171,7 +171,7 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
       {phase.kind === "applied" || phase.kind === "undone" ? (
         <section className="lw-triage-panel lw-triage-done" style={reveal(1)} role="status">
           <CheckCircle2 aria-hidden size={22} />
-          {phase.kind === "applied" ? <p>{text("done", { count: phase.moved })}</p> : <TriageUndoSummary text={text} result={phase.result} />}
+          {phase.kind === "applied" ? <p>{text("done", { count: phase.moved })}</p> : inPlace ? <TriageUndoSummary text={text} result={phase.result} /> : <p>{text("undone")}</p>}
           {phase.kind === "applied" ? <Link className="lw-triage-ghost" to={LITE_CLIENTS_PATH}>{text("open_clients")}</Link> : null}
           {phase.kind === "applied" ? <button type="button" className="lw-triage-ghost" onClick={() => setAskUndo(phase.runId)}><RotateCcw aria-hidden size={15} /> {text("undo")}</button> : null}
         </section>

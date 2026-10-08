@@ -92,7 +92,7 @@ test("po vrátení na mieste sa ukážu ponechané dokumenty", () => {
 
 test("kľúče pre priečinok na mieste existujú vo všetkých jazykoch", () => {
   for (const locale of ["sk", "cs", "en", "de"] as const) {
-    for (const key of ["undo_restored", "undo_kept", "not_reorganizable", "in_place_title"]) {
+    for (const key of ["undo_restored", "undo_kept", "not_reorganizable", "in_place_title", "organize_okf"]) {
       expect(t(`lawoss.triage.${key}`, locale, { count: 3 })).not.toBe(`lawoss.triage.${key}`);
     }
     expect(t("lawoss.triage.undo_restored", locale, { count: 3 })).toContain("3");
