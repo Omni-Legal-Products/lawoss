@@ -13,7 +13,7 @@ import { appendFile, copyFile, link, lstat, mkdir, open, readdir, readFile, rmdi
 import { realpath } from "../canonical-path.ts";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { acquireOnboardingLock, parseOnboardingPlan, type CreateOperation } from "../onboarding/transaction.ts";
-import { inspectOnboardingRoot } from "../onboarding/classify.ts";
+import { inspectOnboardingRoot, type InspectionHooks } from "../onboarding/classify.ts";
 import { syncFile, unlinkFile } from "../onboarding/file-durability.ts";
 import { planFingerprint, sha256 } from "./plan.ts";
 import { TRIAGE_ROLES } from "./rules.ts";
@@ -170,7 +170,7 @@ export type TriageApplyResult = { status: "applied" | "already_applied"; runId: 
 export type TriageUndoResult = { status: "undone" | "already_undone"; runId: string; restored: number; removed: number };
 
 /** Zapíše schválený plán. Opakované volanie s tým istým plánom dokončí prerušený beh. */
-export async function applyTriagePlan(input: unknown, options: { trialJournalDirectory?: string } = {}): Promise<TriageApplyResult> {
+export async function applyTriagePlan(input: unknown, options: { trialJournalDirectory?: string; hooks?: InspectionHooks } = {}): Promise<TriageApplyResult> {
   const plan = parseTriagePlan(input);
   const clone = await verifyTriageTarget(plan.root, options.trialJournalDirectory);
   const root = clone.root;
@@ -190,7 +190,7 @@ export async function applyTriagePlan(input: unknown, options: { trialJournalDir
       }
     } else {
       // Prvý zápis: strom klona musí byť presne ten, z ktorého vznikol náhľad.
-      const inspection = await inspectOnboardingRoot(root);
+      const inspection = await inspectOnboardingRoot(root, {}, options.hooks);
       if ((!inspection.complete && !onlyLockedIssues(inspection)) || triageTreeDigest(inspection.entries) !== plan.treeDigest) throw new TriageConflictError("Priečinok sa od náhľadu zmenil. Pripravte nový náhľad.");
       const paths = new Map(inspection.entries.map(entry => [entry.path.toLocaleLowerCase(), entry]));
       const plannedDirectories = new Set(plan.create.filter(operation => operation.kind === "directory").map(operation => operation.path.toLocaleLowerCase()));

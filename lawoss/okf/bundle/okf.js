@@ -4546,7 +4546,7 @@ async function applyTriagePlan(input, options = {}) {
         return { status: "already_applied", runId: plan.runId, moved: plan.moves.length, created: plan.create.length, journal: dir };
       }
     } else {
-      const inspection = await inspectOnboardingRoot(root);
+      const inspection = await inspectOnboardingRoot(root, {}, options.hooks);
       if (!inspection.complete && !onlyLockedIssues(inspection) || triageTreeDigest(inspection.entries) !== plan.treeDigest)
         throw new TriageConflictError("Priečinok sa od náhľadu zmenil. Pripravte nový náhľad.");
       const paths = new Map(inspection.entries.map((entry) => [entry.path.toLocaleLowerCase(), entry]));
