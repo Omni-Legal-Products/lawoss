@@ -25,6 +25,10 @@ Oprava sú dva commity na `feat/onboarding-c2` (pôvodne [lawoss#144](https://gi
 
 Ukončenie appky skončilo SIGTRAP (exit 133) vo všetkých behoch B a C, `dev` sa ukončil čisto (exit 0). Príčina je opravená na `dev` v [lawoss#141](https://github.com/Omni-Legal-Products/lawoss/pull/141) (`c7490d4f`, stráž navigácie volala `stop()` počas shutdown obrazovky). Vetvy A, B a C sú staršie ako táto oprava a dostanú ju po aktualizácii z `dev`.
 
+## Overenie opráv P1 (profil d4, build `32ca4699`)
+
+Čistý izolovaný profil, 0 timeoutov pri štarte. Onboarding sa otvoril, cesty 1 a 2 som zopakoval s rovnakými syntetickými dátami. Výsledky sú pri jednotlivých krokoch nižšie.
+
 ## Cesta 1: Klient (profil d3)
 
 Ty a jurisdikcia → Dáta a AI (Pokračovať bez modelu) → Priečinok → Pripojiť existujúci → `Samostatný klient`.
@@ -37,9 +41,9 @@ Ty a jurisdikcia → Dáta a AI (Pokračovať bez modelu) → Priečinok → Pri
 | Vložený panel náhľadu presunov | PASS: 9 dokumentov, dôvod, istota, „Nechať na zatriedenie“ a lišta „Potvrdiť a roztriediť“. Stĺpec Dokument je úzky a lame názvy uprostred slova. ![náhľad](assets/d1-onboarding-priecinok-2026-10/05-klient-nahlad-presunov.jpg) |
 | Tlačidlo pod náhľadom | V prvom spustení je to „Dokončiť“. „Zrušiť“ je iba v toku z bočného panela (pozri nižšie). ![spodok](assets/d1-onboarding-priecinok-2026-10/06-klient-nahlad-spodok.jpg) |
 | Potvrdiť a roztriediť | PASS: dokumenty sú v `01_Podklady`, `03_Drafty`, `04_Vystupy`, `05_Komunikacia` a `05_Komunikacia/Dolezita_posta`; klient je zaregistrovaný ako workspace |
-| Vec `2025-01 Spor` | **FAIL (P1, na rozhodnutie MČ):** `Žaloba.pdf` sa presunula z priečinka veci do `04_Vystupy` klienta a priečinok veci ostal prázdny. Klienti a veci potom ukazujú „Zatiaľ bez vecí“. Usporiadanie tak rozpustí existujúcu vec. |
+| Vec `2025-01 Spor` | d3 **FAIL:** `Žaloba.pdf` sa presunula z priečinka veci do `04_Vystupy` klienta. **Opravené `ff009a0f`, d4 PASS:** náhľad má 8 dokumentov a `Žaloba.pdf` ostane v `2025-01 Spor`. Karta veci (`matter.md`) pre taký priečinok nevzniká, preto Klienti a veci stále ukazujú „Zatiaľ bez vecí“. To patrí convertu, nie roztriedeniu. ![d4 náhľad](assets/d1-onboarding-priecinok-2026-10/11-d4-klient-nahlad-8-dokumentov.jpg) |
 | Appka po dokončení | Otvorí Domov s vybraným projektom „Samostatný klient“, nie stránku klienta |
-| „Vrátiť“ na stránke Roztriedenie | **FAIL:** stránka nemá v lite pri usporiadaní na mieste žiadny vstup. `TriageEntry` sa ukáže iba pre skúšobný klon (`profile.trial`), hoci lišta náhľadu píše „Presun sa dá vrátiť na stránke Roztriedenie“. |
+| „Vrátiť“ na stránke Roztriedenie | d3 **FAIL:** pri usporiadaní na mieste chýbal vstup. **Opravené `32ca4699`, d4 PASS:** Klienti a veci majú „Roztriediť dokumenty“, stránka ukáže posledné roztriedenie a „Vrátiť roztriedenie“ vrátil 8 dokumentov na pôvodné miesta. Štítok stránky pritom nesprávne píše „Skúšobný klon“. ![vstup](assets/d1-onboarding-priecinok-2026-10/12-d4-klienti-vstup-roztriedenie.jpg) ![vrátené](assets/d1-onboarding-priecinok-2026-10/13-d4-vratene-8.jpg) |
 
 ## Tok z bočného panela
 
@@ -57,7 +61,7 @@ Bočný panel → Pridať priečinok → Pripojiť existujúci → `Prax`.
 | Návrh „celá prax: 6 klientov“, predvolené „Každý klient zvlášť“ | PASS ![prax](assets/d1-onboarding-priecinok-2026-10/07-prax-toto-som-nasiel.jpg) |
 | Odznačiť `Zamknutý klient` → „Nie, len pridaj OKF súbory“ | PASS: súhrn „Hotovo: 5 z 5“ ![5 z 5](assets/d1-onboarding-priecinok-2026-10/08-prax-hotovo-5-z-5.jpg) |
 | Súbory na disku | PASS: 5 klientov má `AGENTS.md`, `client.md`, `memory/`. `Zamknutý klient` ostal nedotknutý. Vznikol `Prax/Office/` a `Prax/AGENTS.md` neobsahuje mená klientov. |
-| 5 klientov v appke | **FAIL:** zaregistrovaný je iba `Alfa s. r. o.`. `found-screen.tsx` po dávke volá `onDone(firstWorkspaceResult(...))` a `welcome-route` natívne zaregistruje len tento jeden workspace. Klienti a veci ukazujú iba Alfu. ![iba Alfa](assets/d1-onboarding-priecinok-2026-10/09-prax-klienti-len-alfa.jpg) |
+| 5 klientov v appke | d3 **FAIL:** zaregistrovaný bol iba `Alfa s. r. o.` ([snímka](assets/d1-onboarding-priecinok-2026-10/09-prax-klienti-len-alfa.jpg)). **Opravené `6cd066af`, d4 PASS:** všetkých 5 klientov je zaregistrovaných, každý má skilly OKF a výber projektu ich ukazuje. ![5 klientov](assets/d1-onboarding-priecinok-2026-10/14-d4-prax-5-klientov.jpg) |
 | `lawoss-domov` | PASS: nikde v UI |
 
 ## Cesta 3: Začať nanovo (profil d3)
@@ -77,10 +81,11 @@ Bočný panel → Pridať priečinok → Začať nanovo → `Nová prax`.
 | Priorita | Nález | Stav |
 |---|---|---|
 | P0 | Čistá inštalácia neotvorí onboarding (d1, d2) | Opravené na `feat/onboarding-c2`, overené v d3 |
-| P1 | Usporiadanie klienta rozpustí existujúcu vec (`2025-01 Spor`) | Na rozhodnutie MČ |
-| P1 | Prax „Každý klient zvlášť“ zaregistruje iba prvého klienta | Otvorené |
-| P1 | „Vrátiť“ po usporiadaní na mieste nemá v lite vstup | Otvorené |
+| P1 | Usporiadanie klienta rozpustí existujúcu vec (`2025-01 Spor`) | Opravené `ff009a0f`, overené v d4 |
+| P1 | Prax „Každý klient zvlášť“ zaregistruje iba prvého klienta | Opravené `6cd066af`, overené v d4 |
+| P1 | „Vrátiť“ po usporiadaní na mieste nemá v lite vstup | Opravené `32ca4699`, overené v d4 |
 | P2 | `_STATUS.md` sľúbený, ale nevznikne | Otvorené |
 | P2 | „Usporiadať podľa OKF“ z bočného panela bez priameho „Zrušiť“ | Otvorené |
 | P2 | Pomalý prvý štart buildov C (7 až 15 timeoutov, `dev` a B 0) | Na diagnostiku |
+| P3 | Stránka Roztriedenie pri usporiadaní na mieste píše „Skúšobný klon“; priečinok veci bez karty sa v Klientoch a veciach neukáže ako vec | Otvorené |
 | P3 | Úzky stĺpec Dokument v náhľade, „Zrušiť“ po dokončenom zápise, rovnaké názvy workspace | Otvorené |
