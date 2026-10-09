@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -16,6 +16,10 @@ afterEach(async () => {
   if (originalData === undefined) delete process.env.LEGALWORK_DATA_DIR; else process.env.LEGALWORK_DATA_DIR = originalData;
   if (originalTokens === undefined) delete process.env.LEGALWORK_TOKEN_STORE; else process.env.LEGALWORK_TOKEN_STORE = originalTokens;
 });
+// Windows CI nestihne celý integračný scenár (štart servera, onboarding, náhľady,
+// zápis žurnálu a vrátenie) za predvolených 5 s. Limit 20 s platí len na Windows a len
+// v tomto súbore; test s vlastným limitom (transactionTimeout na #137) má prednosť.
+if (process.platform === "win32") setDefaultTimeout(20_000);
 
 /** Syntetický klient (vymyslené mená) a jeho skúšobný klon cez skutočný onboarding API. */
 async function fixture() {
