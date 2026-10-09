@@ -36,3 +36,8 @@ export const triageGrant = (client: TriageClient, root: string) => client.lawoss
 /** Trasa stránky; klon sa odovzdáva v parametri, inak sa použije klon z onboardingu. */
 export const TRIAGE_PATH = "/roztriedenie";
 export const triageLink = (root?: string) => root ? `${TRIAGE_PATH}?klon=${encodeURIComponent(root)}` : TRIAGE_PATH;
+/** Cieľ roztriedenia: priečinok z odkazu, inak skúšobný klon z onboardingu, inak aktívny klient (usporiadanie na mieste). */
+export const triageTargetRoot = (input: { param?: string | null; trialRoot?: string | null; activeRoot?: string | null }): string | null =>
+  input.param || input.trialRoot || input.activeRoot || null;
+/** Vstup do roztriedenia len pre priečinok, ktorý server pustí (skúšobný klon alebo súhlas na mieste). */
+export const offersTriageEntry = (status: TriageStatus | null): boolean => status?.trial === true;

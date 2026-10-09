@@ -7,7 +7,7 @@ import { useLocale } from "@/i18n/use-locale";
 import { LegalworkServerError } from "@/app/lib/legalwork-server";
 import { normalizeDirectoryPath } from "@/app/utils";
 import { LawossLayout } from "../../shell/layout";
-import { useOkfConnection } from "../../okf/read-model";
+import { activeWorkspace, useOkfConnection } from "../../okf/read-model";
 import { openSessionWithPrompt, type OkfConnection } from "../../okf/connection";
 import { AI_SETTINGS_PATH, useMatterModelGap } from "../../lite/matter-model";
 import { LITE_CLIENTS_PATH, organizeFolderLink } from "../../lite/links";
@@ -15,7 +15,7 @@ import { installMissingOnboardingSkills } from "../onboarding/install-pack";
 import { ensureSkillAvailable, workspaceSkillEngine } from "../../okf/skill-availability";
 
 const ROZTRIED_SPIS_SKILL = "roztried-spis";
-import { triageApply, triagePlan, triageReplan, triageStatus, triageUndo, type TriageClient, type TriageMoveView, type TriagePreview, type TriageRun, type TriageStatus, type TriageUndoResult } from "./api";
+import { triageApply, triagePlan, triageReplan, triageStatus, triageTargetRoot, triageUndo, type TriageClient, type TriageMoveView, type TriagePreview, type TriageRun, type TriageStatus, type TriageUndoResult } from "./api";
 import { OFFICE_CONFIG_ENCODING_CODE } from "../../../../../../lawoss/okf/src/profile";
 import "../../lite/pages/okf-glass.css";
 import "./triage.css";
@@ -39,7 +39,7 @@ function friendlyError(error: unknown, text: Text): string {
   return text("error_generic");
 }
 
-/** Klon z parametra stránky, inak aktívny skúšobný klon z onboardingu. */
+/** Klon z parametra stránky, inak aktívny skúšobný klon z onboardingu, inak aktívny klient (usporiadanie na mieste). */
 function useTrialRoot(connection: OkfConnection | null): { root: string | null; loading: boolean } {
   const [params] = useSearchParams();
   const fromParams = params.get("klon");
@@ -53,7 +53,7 @@ function useTrialRoot(connection: OkfConnection | null): { root: string | null; 
     );
     return () => { alive = false; };
   }, [connection, fromParams]);
-  return { root: fromParams ?? fromProfile ?? null, loading: !fromParams && fromProfile === undefined };
+  return { root: triageTargetRoot({ param: fromParams, trialRoot: fromProfile, activeRoot: activeWorkspace(connection)?.path }), loading: !fromParams && fromProfile === undefined };
 }
 
 export function TriagePage() {

@@ -5,7 +5,7 @@ import type { ReactElement } from "react";
 import { t } from "../src/i18n";
 import { ClientsView } from "../src/lawoss/lite/pages/clients-page";
 import { TriagePreviewView, TriageUndoSummary } from "../src/lawoss/domains/roztriedenie/triage-page";
-import { triageApply, triageGrant, triageLink, triagePlan, triageReplan, triageUndo, type TriageApiPath, type TriageClient, type TriagePreview } from "../src/lawoss/domains/roztriedenie/api";
+import { offersTriageEntry, triageApply, triageGrant, triageLink, triageTargetRoot, triagePlan, triageReplan, triageUndo, type TriageApiPath, type TriageClient, type TriagePreview } from "../src/lawoss/domains/roztriedenie/api";
 import { LAWOSS_ROUTES } from "../src/lawoss/shell/routes";
 
 const BANNED = /workspace|session|skill|\bMCP\b|\bOKF\b|opencode|plugin|treeDigest|fingerprint/i;
@@ -108,4 +108,19 @@ test("priečinok na mieste nehovorí o klone", () => {
   expect(empty).toContain("V priečinku nie je čo usporiadať.");
   expect(t("lawoss.triage.undo_question_in_place", "cs")).toBe("Vrátit dokumenty na původní místa? Dokumenty, které jste mezitím změnili, zůstanou na novém místě.");
   expect(t("lawoss.triage.model_privacy_in_place", "sk")).toBe("Model uvidí názvy a obsah dokumentov tohto klienta.");
+});
+
+describe("vstup do roztriedenia aj pri usporiadaní na mieste (D1 9. 10.)", () => {
+  test("cieľ: odkaz, potom skúšobný klon, potom aktívny klient", () => {
+    expect(triageTargetRoot({ param: "/a", trialRoot: "/b", activeRoot: "/c" })).toBe("/a");
+    expect(triageTargetRoot({ trialRoot: "/b", activeRoot: "/c" })).toBe("/b");
+    expect(triageTargetRoot({ trialRoot: null, activeRoot: "/c" })).toBe("/c");
+    expect(triageTargetRoot({})).toBeNull();
+  });
+  test("vstup sa ukáže klientovi so súhlasom na mieste, nie klientovi bez neho", () => {
+    expect(offersTriageEntry({ trial: true, mode: "in_place", root: "/c", runs: [] })).toBe(true);
+    expect(offersTriageEntry({ trial: true, mode: "trial", root: "/b", runs: [] })).toBe(true);
+    expect(offersTriageEntry({ trial: false, runs: [] })).toBe(false);
+    expect(offersTriageEntry(null)).toBe(false);
+  });
 });
