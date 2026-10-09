@@ -2882,7 +2882,7 @@ function guardAppWindow(contents) {
   guardNavigation(contents, [], (url) => {
     console.warn(`[window] blocked navigation outside allowlist: ${describeBlockedUrl(url)}`);
     browserPanel.routeBlockedMainWindowNavigation(url);
-  }, isAppUrl);
+  }, (url) => isAppUrl(url) || url === SHUTDOWN_SCREEN_URL);
 }
 
 async function createMainWindow() {
