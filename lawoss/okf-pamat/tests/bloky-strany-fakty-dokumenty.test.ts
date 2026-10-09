@@ -1,6 +1,8 @@
 /**
  * Strany, fakty a kľúčové dokumenty — sekcie 1, 2 a 6 šablóny Fázy A. Test
  * 10 vecí z ISIR (11. 9. 2026) ukázal, že ostávali prázdne, hoci pamäť dáta mala.
+ * Údaje v testoch sú vymyslené: mená, rodné čísla, IČO a spisové značky
+ * nepatria žiadnej skutočnej osobe ani konaniu.
  */
 
 import { test } from "node:test";
@@ -14,9 +16,9 @@ const rec = (id: string, type: OkfRecord["type"], title: string, over: Partial<O
     timeline: [{ date: T, text: "založeno" }] }), ...over });
 
 const ZAZNAMY: OkfRecord[] = [
-  rec("S-001", "subject", "Dvořák Josef", { role: "client", person_type: "natural_person", birth_number: "931208/4430" }),
-  rec("S-002", "subject", "JUDr. Správce", { role: "counterparty", person_type: "legal_person", registry_id: "25804685" }),
-  rec("M-001", "matter", "KSBR 31 INS 3296/2024", {
+  rec("S-001", "subject", "Vzorový Petr", { role: "client", person_type: "natural_person", birth_number: "750101/1234" }),
+  rec("S-002", "subject", "JUDr. Správce", { role: "counterparty", person_type: "legal_person", registry_id: "87654321" }),
+  rec("M-001", "matter", "KSBR 99 INS 99903/2024", {
     sources: [{ id: "isir-case", title: "ISIR – řízení", resource: "https://isir.justice.cz/x", last_modified: "2026-09-10" }],
     truth: "Stav řízení: **VYŘÍZENÁ**.[^isir-case]\nCelkem 24 událostí | bez odkazu.",
   }),
@@ -30,7 +32,7 @@ const SABLONA_A = `# Vec — Status
 ## 1. Strany
 | Rola | Subjekt | IČO | Kontakt |
 |---|---|---|---|
-| Klient | Dvořák Josef |  | |
+| Klient | Vzorový Petr |  | |
 
 ## 2. Fakty veci
 | # | Fakt | Zdroj | Zistené | Dopad na vec |
@@ -45,14 +47,14 @@ test("retrofit najde sekcie 1, 2 a 6 sablony Fazy A a naplni ich z pamate", () =
   const { text, inserted } = retrofitStatus(SABLONA_A, ZAZNAMY, "sk");
   assert.deepEqual([...inserted].sort(), ["documents", "facts", "parties"]);
   assert.match(text, /## 1\. Strany\n<!-- okf:render:parties:start -->/);
-  assert.match(text, /\| klient \| Dvořák Josef \| 931208\/•••• \| S-001 \|/, "rodné číslo maskované");
-  assert.doesNotMatch(text, /931208\/4430/, "celé rodné číslo do statusu nepatrí");
-  assert.match(text, /\| protistrana \| JUDr\. Správce \| 25804685 \|/);
+  assert.match(text, /\| klient \| Vzorový Petr \| 750101\/•••• \| S-001 \|/, "rodné číslo maskované");
+  assert.doesNotMatch(text, /750101\/1234/, "celé rodné číslo do statusu nepatrí");
+  assert.match(text, /\| protistrana \| JUDr\. Správce \| 87654321 \|/);
   assert.match(text, /\| 1 \| Stav řízení: VYŘÍZENÁ\. \| \[ISIR – řízení\]\(https:\/\/isir\.justice\.cz\/x\) \| 2026-09-10 \| M-001 \|/, "poznámka pod čiarou → odkaz na prameň, dátum z prameňa");
   assert.match(text, /\| 2 \| Celkem 24 událostí \\\| bez odkazu\. \| — \| 2026-09-11 \|/, "zvislá čiara v texte sa escapuje, bez prameňa pomlčka");
   assert.match(text, /\| 3 \| Dlužník tvrdí, že splátky platil \| tvrdí dlužník \| 2026-05-01 \| C-001 \|/, "tvrdenie ide za faktmi s pôvodcom");
   assert.match(text, /\| B: Usnesení o úpadku \| listina \| 2024-04-18 \| \[Usnesení\]\(https:\/\/isir\.justice\.cz\/doc\/1\), \[B-2024-04-18-usneseni\.pdf\]\(Dokumenty\/B-2024-04-18-usneseni\.pdf\) \| E-001 \|/, "URL aj súbor vo veci");
-  assert.match(text, /\| Klient \| Dvořák Josef \|  \| \|/, "pôvodná tabuľka advokáta ostáva pod blokom");
+  assert.match(text, /\| Klient \| Vzorový Petr \|  \| \|/, "pôvodná tabuľka advokáta ostáva pod blokom");
 });
 
 test("strany, fakty a dokumenty su marker-only: kostra novej veci ich ma, cudzi subor sam nerastie", () => {
