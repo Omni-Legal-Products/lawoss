@@ -8,6 +8,7 @@ import { readLegalworkWorkspaceConfig } from "./legalwork-workspace-config-store
 import { addPlugin, listPlugins, removePlugin } from "./plugins.js";
 import {
   applyGlobalToolPermissions,
+  GLOBAL_PROVIDERS_ID,
   GLOBAL_TOOL_PERMISSIONS_ID,
   readGlobalMcpMap,
   readGlobalToolPermissions,
@@ -234,9 +235,15 @@ describe("runtime OpenCode config store", () => {
           body: JSON.stringify({ opencode: { provider: { synthetic: { name: "Synthetic" } } } }),
         });
         expect(runtimeResponse.status).toBe(200);
-        expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).provider).toEqual({
+        // LAWOSS: vlastní poskytovatelia sú globálni (GLOBAL_PROVIDERS_ID), riadok priečinka ich nemá.
+        expect((await readRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID)).provider).toEqual({
           synthetic: { name: "Synthetic" },
         });
+        expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).provider ?? {}).toEqual({});
+        const engineConfig = JSON.parse(await buildLegalworkRuntimeConfig(config, WORKSPACE_ID)) as {
+          provider?: Record<string, unknown>;
+        };
+        expect(engineConfig.provider?.synthetic).toEqual({ name: "Synthetic" });
       } finally {
         await server.stop(true);
       }
