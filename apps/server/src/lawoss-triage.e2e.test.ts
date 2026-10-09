@@ -9,6 +9,10 @@ import type { ServerConfig } from "./types.js";
 import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
 
 const roots: string[] = [], stops: (() => void | Promise<void>)[] = [];
+// Celý scenár zahŕňa štart servera, onboarding, viacero náhľadov, odolný zápis
+// žurnálu a vrátenie. Windows CI ho nestihne za predvolených 5 s; limit patrí celému
+// integračnému toku, nie jednej HTTP požiadavke (rovnako ako #138).
+const transactionTimeout = process.platform === "win32" ? 20_000 : 5_000;
 const originalData = process.env.LEGALWORK_DATA_DIR, originalTokens = process.env.LEGALWORK_TOKEN_STORE;
 afterEach(async () => {
   for (const stop of stops.splice(0)) await stop();
@@ -69,7 +73,7 @@ test("triedenie je len pre hosta, len v klone a len po potvrdení odtlačku", as
   expect((await f.call("triage/undo", { root: f.source, runId: kept.runId, confirm: true })).status).toBe(403);
   expect(await f.success("triage/undo", { root: f.clone, runId: kept.runId, confirm: true })).toMatchObject({ status: "undone", restored: 5 });
   expect(await tree(f.clone)).toBe(original);
-});
+}, transactionTimeout);
 
 /** Skutočný klient po „Nie, len pridaj OKF súbory“ (convert) a jeho registrácii, ako v novom onboardingu. */
 async function convertedFixture() {
@@ -107,7 +111,7 @@ test("usporiadanie na mieste: len zaregistrovaný klient, len po grant, vráteni
   const undone = await f.success("triage/undo", { root: f.client, runId: applied.runId, confirm: true });
   expect(undone.kept).toContain(changed);
   expect(undone.restored).toBe(preview.moves.length - 1);
-});
+}, transactionTimeout);
 
 const exists = (path: string) => lstat(path).then(() => true, () => false);
 
