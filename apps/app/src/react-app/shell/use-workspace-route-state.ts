@@ -55,6 +55,8 @@ import { isSessionIndexRoute, legacySessionRoute, workspaceSessionRoute } from "
 export type UseWorkspaceRouteStateInput = {
   /** Keep embedded non-session pages addressable while loading workspace data. */
   preserveRoute?: boolean;
+  /** Still redirect a first run to /welcome when preserveRoute is set (landing pages). */
+  firstRunRedirect?: boolean;
   /** Invoked when the legalwork-server settings-changed event fires (the route bumps its settings version). */
   onServerSettingsChanged: () => void;
   /** Receives the local legalwork-server host info discovered during refresh. */
@@ -85,7 +87,7 @@ export function sessionsWithinWorkspace(workspace: RouteWorkspace, sessions: Rou
 }
 
 export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
-  const { onServerSettingsChanged, onHostInfo, preserveRoute = false } = input;
+  const { onServerSettingsChanged, onHostInfo, preserveRoute = false, firstRunRedirect = false } = input;
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const local = useLocal();
@@ -743,11 +745,11 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   // completed onboarding. This fires after the initial route refresh so
   // `loading` is false and we know for sure there are zero workspaces.
   useEffect(() => {
-    if (loading || preserveRoute) return;
+    if (loading || (preserveRoute && !firstRunRedirect)) return;
     if (workspaces.length > 0) return;
     if (local.prefs.hasCompletedOnboarding) return;
     navigate("/welcome", { replace: true });
-  }, [loading, preserveRoute, local.prefs.hasCompletedOnboarding, navigate, workspaces.length]);
+  }, [loading, preserveRoute, firstRunRedirect, local.prefs.hasCompletedOnboarding, navigate, workspaces.length]);
 
   // NOTE: Blueprint seeding was removed from the route.
   // It was firing `materializeBlueprintSessions` + a session re-fetch on every
