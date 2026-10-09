@@ -54,6 +54,17 @@ test("onboarding is host-only, rejects unconfirmed writes and persists identity"
   expect(await readdir(f.parent)).toEqual([]);
 });
 
+test("practice applies configuration without registering its clients as workspaces", async () => {
+  const f = await fixture(), root = join(f.base, "praxe"), client = join(root, "Klient A");
+  await mkdir(client, { recursive: true }); await writeFile(join(client, "original.txt"), "Original bytes\n");
+  const before = await readFile(join(client, "original.txt"), "utf8");
+  const result = await f.apply({ action: "practice", root, title: "Syntetická prax", jurisdiction: "sk", language: "sk", lawyerName: "Syntetický advokát", clientPattern: "*", scope: "client" });
+  expect(result.result).toBe("applied");
+  expect(result.workspace).toBeUndefined(); expect(f.config.workspaces).toHaveLength(0);
+  expect((await lstat(join(root, "Office", "okf.config"))).isFile()).toBe(true);
+  expect(await readFile(join(client, "original.txt"), "utf8")).toBe(before);
+});
+
 test("office stays configuration, client remains workspace for subject and both matter kinds", async () => {
   const f = await fixture();
   const office = await f.apply({ action: "office", parent: f.parent, title: "Synthetic office", lawyerName: "Synthetic lawyer", language: "sk", jurisdiction: "sk" });
@@ -205,4 +216,48 @@ test("OKF choice is optional, acknowledged when enabled, and older profiles stil
   expect(disabled.okf).toEqual({ enabled: false });
   await f.restartFromDisk();
   expect((await f.success("status")).profile).toMatchObject({ lawyerName: "Synthetic lawyer", okf: { enabled: false } });
+});
+
+test("profil prijme skutočného klienta so symlinkom; classify problém naďalej hlási", async () => {
+  const f = await fixture();
+  const created = await f.apply({ action: "client", parent: f.parent, name: "Klient", title: "Klient", ...common });
+  const clientRoot = created.clientRoot as string;
+  await mkdir(join(clientRoot, "Podklady"));
+  await symlink(join(clientRoot, "Podklady"), join(clientRoot, "odkaz"));
+  await f.success("profile", { lawyerName: "Synthetic lawyer", jurisdiction: "sk", language: "sk", clientRoot });
+  expect((await f.success("classify", { root: clientRoot })).complete).toBe(false);
+});
+
+test("profil prijme kanceláriu v koreni veľkej praxe bez prechádzania klientov", async () => {
+  const f = await fixture(), root = join(f.base, "praxe");
+  await mkdir(join(root, "Klient A"), { recursive: true });
+  await symlink(join(root, "Klient A"), join(root, "odkaz-na-klienta"));
+  await f.apply({ action: "practice", root, title: "Syntetická prax", jurisdiction: "sk", language: "sk", lawyerName: "Synthetic lawyer", clientPattern: "*", scope: "client" });
+  await f.success("profile", { lawyerName: "Synthetic lawyer", jurisdiction: "sk", language: "sk", officeRoot: root });
+});
+
+test("nové kroky folder a found sa uložia; starý krok packs sa načíta", async () => {
+  const f = await fixture();
+  await f.success("profile", { lawyerName: "Synthetic lawyer", jurisdiction: "sk", language: "sk", step: "packs" });
+  expect((await f.success("status")).profile.step).toBe("packs");
+  await f.success("profile", { step: "folder" });
+  await f.success("profile", { step: "found" });
+  expect((await f.success("status")).profile.step).toBe("found");
+});
+
+test("profil naďalej odmietne priečinok, ktorý nie je klient", async () => {
+  const f = await fixture(), plain = join(f.base, "obyčajný");
+  await mkdir(plain);
+  expect((await f.call("profile", { lawyerName: "Synthetic lawyer", jurisdiction: "sk", language: "sk", clientRoot: plain })).status).toBe(400);
+});
+
+test("suggest navrhne prax z mien priečinkov a nič nezapíše", async () => {
+  const f = await fixture(), root = join(f.base, "kancelaria");
+  for (const name of ["Alfa s. r. o.", "Beta a. s.", "Gama s.r.o.", "Delta k. s.", "Novák Ján/2024-03 Kúpna zmluva"]) await mkdir(join(root, name), { recursive: true });
+  const suggestion = await f.success("suggest", { root });
+  expect(suggestion).toMatchObject({ level: "practice", marked: false, clientPattern: "*" });
+  expect(suggestion.clients).toHaveLength(5);
+  expect((await readdir(root)).sort()).toEqual(["Alfa s. r. o.", "Beta a. s.", "Delta k. s.", "Gama s.r.o.", "Novák Ján"]);
+  expect((await f.call("suggest", { root: "relatívna/cesta" })).status).toBe(400);
+  expect((await f.call("suggest", { root }, {} as { "X-LegalWork-Host-Token": string; "Content-Type": string })).status).toBe(401);
 });

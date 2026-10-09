@@ -74,6 +74,9 @@ export type OnboardingStep =
   | "office"
   | "packs"
   | "ai"
+  // Kroky nového toku cez priečinok (plán C2 dodá logiku); mimo viditeľných ciest sa vrátia na "okf".
+  | "folder"
+  | "found"
   | "client"
   | "matter"
   | "done";

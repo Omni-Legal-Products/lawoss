@@ -1,3 +1,6 @@
+import practiceAgentsSK from "../../templates/kancelaria/AGENTS.md" with { type: "text" };
+import practiceAgentsCS from "../../templates/cs/kancelaria/AGENTS.md" with { type: "text" };
+import practiceAgentsEN from "../../templates/en/kancelaria/AGENTS.md" with { type: "text" };
 import { lstat, readFile } from "node:fs/promises";
 import { realpath } from "../canonical-path.ts";
 import { createHash } from "node:crypto";
@@ -60,16 +63,65 @@ function templateOperations(prefix: string, entries: ReturnType<typeof planEntit
   }
   return operations;
 }
+export type WorkspaceScope = "client" | "practice";
+export type PracticeRequest = { root: string; title: string; jurisdiction: "sk" | "cz"; language: "sk" | "cs" | "en"; lawyerName: string; clientPattern: string; scope: WorkspaceScope };
+
 /** Pracovné priečinky novej veci aj ich roly výslovne; bez rolí by sa do založenej veci nedalo nič zaradiť. */
-const officeConfig = (request: OfficeRequest) => {
+const officeConfig = (request: OfficeRequest, clientPath = "Klienti/*", scope: WorkspaceScope = "client") => {
   const roles = DEFAULT_FOLDER_ROLES[request.language];
-  return `version: 1\ntitle: ${yaml(request.title)}\njurisdiction: ${request.jurisdiction}\nlanguage: ${request.language}\nlawyer_name: ${yaml(request.lawyerName)}\nstanding_authorization: ${yaml(request.lawyerName)}\nclient_path: "Klienti/*"\nareas: ["Corporate", "IP", "Pracovne"]\nmatter_folders: ${JSON.stringify(Object.values(roles))}\nfolder_roles: ${JSON.stringify(roles)}\n`;
+  return `version: 1\ntitle: ${yaml(request.title)}\njurisdiction: ${request.jurisdiction}\nlanguage: ${request.language}\nlawyer_name: ${yaml(request.lawyerName)}\nstanding_authorization: ${yaml(request.lawyerName)}\nclient_path: ${yaml(clientPath)}\nworkspace_scope: ${scope}\nareas: ["Corporate", "IP", "Pracovne"]\nmatter_folders: ${JSON.stringify(Object.values(roles))}\nfolder_roles: ${JSON.stringify(roles)}\n`;
 };
+
+const PRACTICE_AGENTS: Record<"sk" | "cs" | "en", string> = { sk: practiceAgentsSK, cs: practiceAgentsCS, en: practiceAgentsEN };
+/** Mlčanlivosť: predvolene jeden klient na pracovný priečinok (spec P5). */
+const SCOPE_RULE: Record<"sk" | "cs" | "en", Record<WorkspaceScope, string>> = {
+  sk: {
+    client: "Pracuj vždy nad jedným klientom. Spisy iného klienta neotváraj ani necituj, ak to advokát výslovne nežiada (mlčanlivosť).",
+    practice: "Advokát zvolil prácu nad celou praxou naraz. Aj tak drž informácie každého klienta oddelene a neprenášaj ich medzi klientmi (mlčanlivosť).",
+  },
+  cs: {
+    client: "Pracuj vždy nad jedním klientem. Spisy jiného klienta neotevírej ani necituj, pokud to advokát výslovně nežádá (mlčenlivost).",
+    practice: "Advokát zvolil práci nad celou praxí najednou. I tak drž informace každého klienta odděleně a nepřenášej je mezi klienty (mlčenlivost).",
+  },
+  en: {
+    client: "Always work on one client. Do not open or quote another client's files unless the lawyer explicitly asks (confidentiality).",
+    practice: "The lawyer chose to work on the whole practice at once. Still keep each client's information separate and never carry it between clients (confidentiality).",
+  },
+};
+const practiceAgents = (language: "sk" | "cs" | "en", clientPath: string, scope: WorkspaceScope) =>
+  PRACTICE_AGENTS[language].replaceAll("{{CLIENT_PATH}}", clientPath).replaceAll("{{SCOPE_RULE}}", SCOPE_RULE[language][scope]);
+/** Koreňový AGENTS.md a CLAUDE.md praxe, len ak v koreni ani jeden nie je; vlastné pravidlá advokáta sa nikdy neprepíšu. */
+function practiceInstructions(topNames: ReadonlySet<string>, language: "sk" | "cs" | "en", clientPath: string, scope: WorkspaceScope): CreateOperation[] {
+  if (topNames.has("agents.md") || topNames.has("claude.md")) return [];
+  const content = practiceAgents(language, clientPath, scope);
+  return [file("AGENTS.md", content), file("CLAUDE.md", content)];
+}
+async function topLevelNames(parent: string): Promise<Set<string>> {
+  const inspection = await inspectOnboardingParent(await realpath(parent));
+  if (!inspection.complete) throw new Error(incompleteInspectionMessage("Parent could not be inspected completely.", inspection.issues));
+  return new Set(inspection.entries.map(entry => entry.path.toLowerCase()));
+}
+/** Vzor klientov z okf.config: relatívny, najviac 4 časti, posledná je „*“, ostatné bezpečné mená alebo „*“. */
+export function safeClientPattern(value: string): string {
+  const parts = value.split("/");
+  if (!value || parts.length > 4 || parts.at(-1) !== "*" || parts.some(part => part !== "*" && safeSegment(part) !== part)) throw new Error("Invalid client path pattern.");
+  return parts.join("/");
+}
 
 export async function planOffice(request: OfficeRequest): Promise<CreatePreview> {
   const name = safeSegment(request.name ?? "Office");
   const target = join(request.parent, name);
-  return { mode: "new", appFiles: "inside", target, plan: await rootPlan(request.parent, [directory(name), file(`${name}/okf.config`, officeConfig(request)), directory(`${name}/memory`), file(`${name}/memory/.keep`, ""), directory("Klienti"), file("Klienti/.keep", "")]) };
+  const names = await topLevelNames(request.parent);
+  return { mode: "new", appFiles: "inside", target, plan: await rootPlan(request.parent, [directory(name), file(`${name}/okf.config`, officeConfig(request)), directory(`${name}/memory`), file(`${name}/memory/.keep`, ""), directory("Klienti"), file("Klienti/.keep", ""), ...practiceInstructions(names, request.language, "Klienti/*", "client")]) };
+}
+/** Existujúca prax: kancelária vedľa klientov, nič existujúce sa nepresúva (spec P5). */
+export async function planPracticeOffice(request: PracticeRequest): Promise<CreatePreview> {
+  const clientPath = safeClientPattern(request.clientPattern);
+  const root = await realpath(request.root);
+  const names = await topLevelNames(root);
+  if (names.has("office") || names.has("_kancelaria")) throw new Error("Tento priečinok už kanceláriu má (Office/). Pripojte ho ako kanceláriu.");
+  const office: OfficeRequest = { parent: root, title: request.title, jurisdiction: request.jurisdiction, language: request.language, lawyerName: request.lawyerName };
+  return { mode: "new", appFiles: "inside", target: root, plan: await rootPlan(root, [directory("Office"), file("Office/okf.config", officeConfig(office, clientPath, request.scope)), directory("Office/memory"), file("Office/memory/.keep", ""), ...practiceInstructions(names, request.language, clientPath, request.scope)]) };
 }
 export async function planNewClient(request: ClientRequest): Promise<CreatePreview> {
   const name = safeSegment(request.name), target = join(request.parent, name), language = request.language ?? "sk";

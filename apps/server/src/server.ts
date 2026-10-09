@@ -120,12 +120,14 @@ import { startWeeklyMarketplaceCheck } from "./lawoss/marketplace-updates.js";
 import {
   applyGlobalToolPermissions,
   GLOBAL_PERSONALIZATION_ID,
+  GLOBAL_PROVIDERS_ID,
   GLOBAL_TOOL_PERMISSIONS_ID,
   isPersonality,
   MAX_CUSTOM_INSTRUCTIONS_LENGTH,
   mergeOpencodeConfigs,
   mergeRuntimeProviderPatch,
   readGlobalPersonalizationSettings,
+  readGlobalProviderMap,
   readGlobalToolPermissions,
   readRuntimeOpencodeConfig,
   GLOBAL_MCP_ID,
@@ -144,7 +146,7 @@ import {
   readEngineEigenweltProvider,
   writeLegalworkRuntimeConfigFile,
 } from "./legalwork-runtime-config.js";
-import { providerRepairNotices } from "./runtime-provider-repair.js";
+import { providerRepairNotices, repairRuntimeProviders } from "./runtime-provider-repair.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
 import {
   eigenweltHasPremiumModels,
@@ -1795,10 +1797,15 @@ function createRoutes(
     );
     // Tool permissions come from the global row; the workspace row only
     // contributes external_directory (see applyGlobalToolPermissions).
+    // LAWOSS: globálni vlastní poskytovatelia (GLOBAL_PROVIDERS_ID); riadok priečinka má prednosť.
+    const workspaceRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
+    const globalProviders = await readGlobalProviderMap(config);
     const opencode = mergeOpencodeConfigs(
       await readOpencodeConfig(workspaceAppFilesRoot(config, workspace)),
       applyGlobalToolPermissions(
-        await readRuntimeOpencodeConfig(config, workspace.id),
+        Object.keys(globalProviders).length
+          ? { ...workspaceRuntime, provider: { ...repairRuntimeProviders(globalProviders).providers, ...repairRuntimeProviders(workspaceRuntime.provider ?? {}).providers } }
+          : workspaceRuntime,
         await readGlobalToolPermissions(config),
       ),
     );
@@ -3599,13 +3606,30 @@ function createRoutes(
 
       const providerUpdate = ensurePlainObject(provider);
       if (Object.keys(providerUpdate).length) {
-        const currentRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
-        // A `null` value in the patch removes that provider (see
-        // mergeRuntimeProviderPatch) so a client can fully disconnect it.
-        logicalUpdates.provider = mergeRuntimeProviderPatch(
-          ensurePlainObject(currentRuntime.provider),
-          providerUpdate,
-        );
+        // LAWOSS: vlastní poskytovatelia sú globálni (GLOBAL_PROVIDERS_ID). `null` odstráni
+        // poskytovateľa z globálneho riadku aj zo starého riadku priečinka.
+        const globalRuntime = await readRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID);
+        const nextGlobal = mergeRuntimeProviderPatch(ensurePlainObject(globalRuntime.provider), providerUpdate);
+        await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, (current) => ({
+          ...current,
+          provider: Object.keys(nextGlobal).length ? nextGlobal : undefined,
+        }));
+        // Globálny riadok je po každom zápise jediný zdroj: id z úpravy (aj nenulové)
+        // sa odstráni zo starého riadku priečinka, inak by starý blok prekryl nový.
+        // Starý stav môže byť vo viacerých priečinkoch, preto sa čistia všetky riadky.
+        for (const row of config.workspaces) {
+          const rowRuntime = await readRuntimeOpencodeConfig(config, row.id);
+          const legacyProviders = ensurePlainObject(rowRuntime.provider);
+          const legacyIds = Object.keys(providerUpdate).filter((id) => Object.hasOwn(legacyProviders, id));
+          if (!legacyIds.length) continue;
+          const nextLocal = mergeRuntimeProviderPatch(
+            legacyProviders,
+            Object.fromEntries(legacyIds.map((id) => [id, null])),
+          );
+          const nextProvider = Object.keys(nextLocal).length ? nextLocal : undefined;
+          if (row.id === workspace.id) logicalUpdates.provider = nextProvider;
+          else await writeRuntimeOpencodeConfig(config, row.id, (current) => ({ ...current, provider: nextProvider }));
+        }
       }
 
       const agentUpdate = ensurePlainObject(agent);
