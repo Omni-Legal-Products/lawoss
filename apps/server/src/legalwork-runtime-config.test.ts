@@ -13,6 +13,7 @@ import {
 } from "./legalwork-runtime-config.js";
 import {
   GLOBAL_PERSONALIZATION_ID,
+  GLOBAL_PROVIDERS_ID,
   GLOBAL_TOOL_PERMISSIONS_ID,
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
@@ -291,5 +292,49 @@ describe("eigenwelt paid provider injection", () => {
     await writeLegalworkRuntimeConfigFile(config, "ws_other");
     const providers = (await readConfigFile(config)).provider as Record<string, { models?: Record<string, unknown> }>;
     expect(Object.keys(providers.eigenwelt?.models ?? {})).toEqual(["Eigenwelt Europe"]);
+  });
+});
+
+describe("lawoss global custom providers", () => {
+  test("globálni vlastní poskytovatelia sa dostanú do každého priečinka", async () => {
+    const { config } = await setup();
+    const ollama = { npm: "@ai-sdk/openai-compatible", name: "Ollama", options: { baseURL: "http://localhost:11434/v1" }, models: { "gemma4:12b-mlx": { name: "gemma4" } } };
+    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, (current) => ({ ...current, provider: { ollama } }));
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    const parsed = await readConfigFile(config);
+    expect((parsed.provider as Record<string, unknown>).ollama).toEqual(ollama);
+  });
+
+  test("starý poskytovateľ uložený pri priečinku má prednosť pred globálnym s rovnakým id", async () => {
+    const { config } = await setup();
+    const global = { npm: "@ai-sdk/openai-compatible", name: "Ollama (global)", options: { baseURL: "http://localhost:11434/v1" } };
+    const local = { npm: "@ai-sdk/openai-compatible", name: "Ollama (priečinok)", options: { baseURL: "http://127.0.0.1:11434/v1" } };
+    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, (current) => ({ ...current, provider: { ollama: global } }));
+    await writeRuntimeOpencodeConfig(config, "ws_1", (current) => ({ ...current, provider: { ollama: local } }));
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    expect(((await readConfigFile(config)).provider as Record<string, Record<string, unknown>>).ollama?.name).toBe("Ollama (priečinok)");
+  });
+
+  test("chybný blok priečinka s rovnakým id neprekryje platný globálny", async () => {
+    const { config } = await setup();
+    const ollama = { npm: "@ai-sdk/openai-compatible", name: "Ollama", options: { baseURL: "http://localhost:11434/v1" } };
+    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, (current) => ({ ...current, provider: { ollama } }));
+    await writeRuntimeOpencodeConfig(config, "ws_1", (current) => ({ ...current, provider: { ollama: { name: 42 } } }));
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    expect((await readConfigFile(config)).provider as Record<string, unknown>).toMatchObject({ ollama });
+  });
+
+  test("zápis globálnych poskytovateľov obnoví súbor konfigurácie priečinka", async () => {
+    const { config } = await setup();
+    const stop = keepLegalworkRuntimeConfigFileFresh(config, "ws_1");
+    cleanups.push(stop);
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, (current) => ({ ...current, provider: { lmstudio: { npm: "@ai-sdk/openai-compatible", name: "LM Studio", options: { baseURL: "http://localhost:1234/v1" } } } }));
+    for (let i = 0; i < 50; i++) {
+      const provider = (await readConfigFile(config)).provider as Record<string, unknown> | undefined;
+      if (provider?.lmstudio) return;
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    throw new Error("Config file was not refreshed after a global provider write.");
   });
 });

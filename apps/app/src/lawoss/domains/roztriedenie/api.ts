@@ -4,11 +4,11 @@
  */
 import type { TriageRole } from "../../../../../../lawoss/okf/src/triage/rules";
 
-export type TriageApiPath = "status" | "plan" | "replan" | "apply" | "undo";
+export type TriageApiPath = "status" | "plan" | "replan" | "apply" | "undo" | "grant";
 export type TriageClient = { lawossTriage<T>(path: TriageApiPath, body: unknown): Promise<T> };
 
 export type TriageRun = { runId: string; createdAt: string; state: "applied" | "interrupted" | "undone" | "undoing" | "planned"; moves: number; matters: number };
-export type TriageStatus = { trial: true; root: string; runs: TriageRun[] } | { trial: false; reason?: string; runs: [] };
+export type TriageStatus = { trial: true; mode: "trial" | "in_place"; root: string; runs: TriageRun[] } | { trial: false; reason?: string; runs: [] };
 export type TriageMoveView = {
   id: string; from: string; to: string; size: number; role: TriageRole; matter?: string;
   source: "rules" | "model" | "user" | "fallback"; confidence: "high" | "medium" | "low";
@@ -23,14 +23,21 @@ export type TriagePreview = {
   newFolders: number; proposal?: TriageProposal;
 };
 export type TriageApplyResult = { status: "applied" | "already_applied"; runId: string; moved: number; created: number };
-export type TriageUndoResult = { status: "undone" | "already_undone"; runId: string; restored: number; removed: number };
+export type TriageUndoResult = { status: "undone" | "already_undone"; runId: string; restored: number; removed: number; kept: string[] };
 
 export const triageStatus = (client: TriageClient, root: string) => client.lawossTriage<TriageStatus>("status", { root });
 export const triagePlan = (client: TriageClient, root: string, useModel = false) => client.lawossTriage<TriagePreview>("plan", { root, ...(useModel ? { useModel: true } : {}) });
 export const triageReplan = (client: TriageClient, id: string, keepInInbox: readonly string[]) => client.lawossTriage<TriagePreview>("replan", { id, keepInInbox });
 export const triageApply = (client: TriageClient, preview: Pick<TriagePreview, "id" | "fingerprint">) => client.lawossTriage<TriageApplyResult>("apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true });
 export const triageUndo = (client: TriageClient, root: string, runId: string) => client.lawossTriage<TriageUndoResult>("undo", { root, runId, confirm: true });
+/** Výslovný súhlas s usporiadaním priečinka klienta na mieste („Áno, usporiadaj“). */
+export const triageGrant = (client: TriageClient, root: string) => client.lawossTriage<{ granted: true; root: string }>("grant", { root, confirm: true });
 
 /** Trasa stránky; klon sa odovzdáva v parametri, inak sa použije klon z onboardingu. */
 export const TRIAGE_PATH = "/roztriedenie";
 export const triageLink = (root?: string) => root ? `${TRIAGE_PATH}?klon=${encodeURIComponent(root)}` : TRIAGE_PATH;
+/** Cieľ roztriedenia: priečinok z odkazu, inak skúšobný klon z onboardingu, inak aktívny klient (usporiadanie na mieste). */
+export const triageTargetRoot = (input: { param?: string | null; trialRoot?: string | null; activeRoot?: string | null }): string | null =>
+  input.param || input.trialRoot || input.activeRoot || null;
+/** Vstup do roztriedenia len pre priečinok, ktorý server pustí (skúšobný klon alebo súhlas na mieste). */
+export const offersTriageEntry = (status: TriageStatus | null): boolean => status?.trial === true;

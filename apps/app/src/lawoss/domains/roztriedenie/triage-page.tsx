@@ -7,22 +7,22 @@ import { useLocale } from "@/i18n/use-locale";
 import { LegalworkServerError } from "@/app/lib/legalwork-server";
 import { normalizeDirectoryPath } from "@/app/utils";
 import { LawossLayout } from "../../shell/layout";
-import { useOkfConnection } from "../../okf/read-model";
+import { activeWorkspace, useOkfConnection } from "../../okf/read-model";
 import { openSessionWithPrompt, type OkfConnection } from "../../okf/connection";
 import { AI_SETTINGS_PATH, useMatterModelGap } from "../../lite/matter-model";
-import { LITE_CLIENTS_PATH } from "../../lite/links";
+import { LITE_CLIENTS_PATH, organizeFolderLink } from "../../lite/links";
 import { installMissingOnboardingSkills } from "../onboarding/install-pack";
 import { ensureSkillAvailable, workspaceSkillEngine } from "../../okf/skill-availability";
 
 const ROZTRIED_SPIS_SKILL = "roztried-spis";
-import { triageApply, triagePlan, triageReplan, triageStatus, triageUndo, type TriageClient, type TriageMoveView, type TriagePreview, type TriageRun, type TriageStatus } from "./api";
+import { triageApply, triagePlan, triageReplan, triageStatus, triageTargetRoot, triageUndo, type TriageClient, type TriageMoveView, type TriagePreview, type TriageRun, type TriageStatus, type TriageUndoResult } from "./api";
 import { OFFICE_CONFIG_ENCODING_CODE } from "../../../../../../lawoss/okf/src/profile";
 import "../../lite/pages/okf-glass.css";
 import "./triage.css";
 
 type Text = (key: string, params?: Record<string, string | number>) => string;
 /** Stabilná funkcia pre daný jazyk; nová funkcia pri každom vykreslení by znova spúšťala načítanie náhľadu. */
-const useText = (locale: Language): Text => useMemo(() => (key, params) => t(`lawoss.triage.${key}`, locale, params), [locale]);
+export const useTriageText = (locale: Language): Text => useMemo(() => (key, params) => t(`lawoss.triage.${key}`, locale, params), [locale]);
 const reveal = (index: number): CSSProperties & Record<"--lw-i", number> => ({ "--lw-i": index });
 const lastSegment = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 const folderOf = (path: string) => path.split("/").slice(0, -1).join("/");
@@ -39,7 +39,7 @@ function friendlyError(error: unknown, text: Text): string {
   return text("error_generic");
 }
 
-/** Klon z parametra stránky, inak aktívny skúšobný klon z onboardingu. */
+/** Klon z parametra stránky, inak aktívny skúšobný klon z onboardingu, inak aktívny klient (usporiadanie na mieste). */
 function useTrialRoot(connection: OkfConnection | null): { root: string | null; loading: boolean } {
   const [params] = useSearchParams();
   const fromParams = params.get("klon");
@@ -53,14 +53,14 @@ function useTrialRoot(connection: OkfConnection | null): { root: string | null; 
     );
     return () => { alive = false; };
   }, [connection, fromParams]);
-  return { root: fromParams ?? fromProfile ?? null, loading: !fromParams && fromProfile === undefined };
+  return { root: triageTargetRoot({ param: fromParams, trialRoot: fromProfile, activeRoot: activeWorkspace(connection)?.path }), loading: !fromParams && fromProfile === undefined };
 }
 
 export function TriagePage() {
   const locale = useLocale();
   const { connection } = useOkfConnection();
   const { root, loading } = useTrialRoot(connection);
-  const text = useText(locale);
+  const text = useTriageText(locale);
   return (
     <LawossLayout>
       <div className="lw-triage" data-lawoss="triage">
@@ -72,23 +72,44 @@ export function TriagePage() {
   );
 }
 
-function TriageEmpty({ text, message, create = false }: { text: Text; message: string; create?: boolean }) {
+function TriageEmpty({ text, message, create = false, organizeRoot }: { text: Text; message: string; create?: boolean; organizeRoot?: string }) {
   return (
     <section className="lw-triage-panel lw-triage-empty" style={reveal(1)}>
       <FolderTree aria-hidden size={28} />
       <p>{message}</p>
       <div className="lw-triage-row">
         {create ? <Link className="lw-today-primary" to="/welcome?continue=client">{text("create_trial")}</Link> : null}
+        {organizeRoot ? <Link className="lw-btn gold" to={organizeFolderLink(organizeRoot)}>{text("organize_okf")}</Link> : null}
         <Link className="lw-triage-ghost" to={LITE_CLIENTS_PATH}>{text("back")}</Link>
       </div>
     </section>
   );
 }
 
-type Phase = { kind: "idle" } | { kind: "busy"; label: string } | { kind: "applied"; runId: string; moved: number } | { kind: "undone" };
+/** Súhrn vrátenia: koľko sa vrátilo a ktoré dokumenty ostali, lebo ich advokát medzitým zmenil (spec). */
+export function TriageUndoSummary({ text, result }: { text: Text; result: TriageUndoResult }) {
+  return (
+    <div className="grid gap-1" role="status">
+      <p>{text("undo_restored", { count: result.restored })}</p>
+      {result.kept.length ? (
+        <>
+          <p>{text("undo_kept")}</p>
+          <ul className="list-disc pl-5">{result.kept.map((path) => <li key={path}>{path}</li>)}</ul>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+type Phase = { kind: "idle" } | { kind: "busy"; label: string } | { kind: "applied"; runId: string; moved: number } | { kind: "undone"; result: TriageUndoResult };
+
+/** Štítok a meno priečinka: skúšobný klon, alebo priečinok klienta pri usporiadaní na mieste (D1 9. 10.). */
+export function TriageTopline({ text, root, inPlace }: { text: Text; root: string; inPlace: boolean }) {
+  return <p className="lw-triage-topline"><span className="lw-triage-chip">{text(inPlace ? "folder_in_place" : "folder")}</span> {lastSegment(root)}</p>;
+}
 
 function TriageFlow({ root, connection, locale }: { root: string; connection: OkfConnection; locale: Language }) {
-  const text = useText(locale);
+  const text = useTriageText(locale);
   const navigate = useNavigate();
   const client: TriageClient | null = connection.client;
   const [status, setStatus] = useState<TriageStatus | null>(null);
@@ -137,16 +158,17 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
     if (!client) return;
     setAskUndo(null);
     const result = await run(text("undoing"), () => triageUndo(client, root, runId));
-    if (result && alive.current) { setPhase({ kind: "undone" }); await load(); setPhase({ kind: "undone" }); }
+    if (result && alive.current) { setPhase({ kind: "undone", result }); await load(); setPhase({ kind: "undone", result }); }
   }
 
-  if (status && !status.trial) return <TriageEmpty text={text} message={text("not_trial")} />;
+  if (status && !status.trial) return <TriageEmpty text={text} message={text("not_reorganizable")} organizeRoot={root} />;
+  const inPlace = status?.trial === true && status.mode === "in_place";
   return (
     <>
       <header className="lw-triage-hero" style={reveal(0)}>
-        <p className="lw-triage-topline"><span className="lw-triage-chip">{text("folder")}</span> {lastSegment(root)}</p>
-        <h1 className="lw-h1">{text("title")}</h1>
-        <p className="lw-triage-lead">{text("lead")}</p>
+        <TriageTopline text={text} root={root} inPlace={inPlace} />
+        <h1 className="lw-h1">{text(inPlace ? "in_place_title" : "title")}</h1>
+        {inPlace ? null : <p className="lw-triage-lead">{text("lead")}</p>}
       </header>
 
       {error ? <div className="lw-status warn lw-triage-alert" role="alert"><TriangleAlert aria-hidden size={18} /><span>{error}</span><button type="button" className="lw-triage-ghost" onClick={() => void load()}>{text("refresh")}</button></div> : null}
@@ -154,7 +176,7 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
       {phase.kind === "applied" || phase.kind === "undone" ? (
         <section className="lw-triage-panel lw-triage-done" style={reveal(1)} role="status">
           <CheckCircle2 aria-hidden size={22} />
-          <p>{phase.kind === "applied" ? text("done", { count: phase.moved }) : text("undone")}</p>
+          {phase.kind === "applied" ? <p>{text("done", { count: phase.moved })}</p> : inPlace ? <TriageUndoSummary text={text} result={phase.result} /> : <p>{text("undone")}</p>}
           {phase.kind === "applied" ? <Link className="lw-triage-ghost" to={LITE_CLIENTS_PATH}>{text("open_clients")}</Link> : null}
           {phase.kind === "applied" ? <button type="button" className="lw-triage-ghost" onClick={() => setAskUndo(phase.runId)}><RotateCcw aria-hidden size={15} /> {text("undo")}</button> : null}
         </section>
@@ -167,7 +189,7 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
       ) : null}
       {askUndo ? (
         <section className="lw-triage-panel lw-triage-ask" role="alertdialog" aria-label={text("undo")}>
-          <p>{text("undo_question")}</p>
+          <p>{text(inPlace ? "undo_question_in_place" : "undo_question")}</p>
           <div className="lw-triage-row">
             <button type="button" className="lw-today-primary" disabled={busy} onClick={() => void undo(askUndo)}>{text("undo_yes")}</button>
             <button type="button" className="lw-triage-ghost" onClick={() => setAskUndo(null)}>{text("cancel")}</button>
@@ -176,15 +198,15 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
       ) : null}
 
       {busy ? <p className="lw-triage-quiet" aria-live="polite">{phase.label}</p> : null}
-      {phase.kind !== "applied" && !askUndo && preview ? <TriagePreviewView preview={preview} text={text} busy={busy} onKeep={toggleKeep} onConfirm={confirm} onModel={(useModel) => void load(useModel)}
-        model={<ModelPanel root={root} connection={connection} locale={locale} preview={preview} busy={busy} onOpen={(path) => navigate(path)} onError={(message) => setError(message)} />} /> : null}
+      {phase.kind !== "applied" && !askUndo && preview ? <TriagePreviewView preview={preview} text={text} busy={busy} inPlace={inPlace} onKeep={toggleKeep} onConfirm={confirm} onModel={(useModel) => void load(useModel)}
+        model={<ModelPanel root={root} connection={connection} locale={locale} preview={preview} busy={busy} inPlace={inPlace} onOpen={(path) => navigate(path)} onError={(message) => setError(message)} />} /> : null}
     </>
   );
 }
 
 /** Spresnenie modelom: jasná informácia o odoslaní obsahu, súhlas, potom rozhovor so skillom /roztried-spis. */
-function ModelPanel({ root, connection, locale, preview, busy, onOpen, onError }: { root: string; connection: OkfConnection; locale: Language; preview: TriagePreview; busy: boolean; onOpen: (path: string) => void; onError: (message: string) => void }) {
-  const text = useText(locale);
+function ModelPanel({ root, connection, locale, preview, busy, inPlace, onOpen, onError }: { root: string; connection: OkfConnection; locale: Language; preview: TriagePreview; busy: boolean; inPlace: boolean; onOpen: (path: string) => void; onError: (message: string) => void }) {
+  const text = useTriageText(locale);
   const gap = useMatterModelGap(connection);
   const [consent, setConsent] = useState(false);
   const [opening, setOpening] = useState(false);
@@ -213,7 +235,7 @@ function ModelPanel({ root, connection, locale, preview, busy, onOpen, onError }
         <p className="lw-triage-note">{text("model_missing")} <Link to={AI_SETTINGS_PATH}>{text("model_connect")}</Link></p>
       ) : (
         <>
-          <p className="lw-triage-privacy" role="note"><TriangleAlert aria-hidden size={16} /> {text("model_privacy")}</p>
+          <p className="lw-triage-privacy" role="note"><TriangleAlert aria-hidden size={16} /> {text(inPlace ? "model_privacy_in_place" : "model_privacy")}</p>
           <label className="lw-triage-consent"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /> {text("model_consent")}</label>
           <button type="button" className="lw-triage-ghost" disabled={!consent || opening || busy} onClick={() => void open()}>{text("model_open")} <ArrowRight aria-hidden size={15} /></button>
         </>
@@ -232,15 +254,18 @@ function reasonOf(move: TriageMoveView, text: Text): string {
   return move.rule && RULE_KEYS.has(move.rule) ? text(`reason_${move.rule}`, { matched: move.matched ?? "" }) : "";
 }
 
-/** Náhľad ako tabuľka: dokument, odkiaľ, kam, prečo, istota, nová vec; riadok sa dá nechať na zatriedenie. */
-export function TriagePreviewView({ preview, text, busy, onKeep, onConfirm, onModel, model }: { preview: TriagePreview; text: Text; busy: boolean; onKeep: (id: string, keep: boolean) => void; onConfirm: () => void; onModel: (useModel: boolean) => void; model?: ReactNode }) {
+/**
+ * Náhľad ako tabuľka: dokument, odkiaľ, kam, prečo, istota, nová vec; riadok sa dá nechať na zatriedenie.
+ * `inPlace`: priečinok klienta na mieste (nie skúšobný klon), texty potom o klone nehovoria.
+ */
+export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep, onConfirm, onModel, model }: { preview: TriagePreview; text: Text; busy: boolean; inPlace?: boolean; onKeep: (id: string, keep: boolean) => void; onConfirm: () => void; onModel: (useModel: boolean) => void; model?: ReactNode }) {
   const matters = new Map(preview.matters.map((matter) => [matter.key, matter]));
   const inbox = preview.moves.filter((move) => move.role === "inbox").length;
   const keep = new Set(preview.keepInInbox);
   // Najprv zaradené u klienta, potom veci, nakoniec to, čo čaká na zatriedenie.
   const order = (move: TriageMoveView) => move.role === "inbox" ? ROLE_KEYS.length : ROLE_KEYS.indexOf(move.role);
   const rows = [...preview.moves].sort((a, b) => Number(a.role === "inbox") - Number(b.role === "inbox") || (a.matter ?? "").localeCompare(b.matter ?? "") || order(a) - order(b) || a.from.localeCompare(b.from));
-  if (preview.documents === 0) return <p className="lw-triage-quiet">{text("nothing")}</p>;
+  if (preview.documents === 0) return <p className="lw-triage-quiet">{text(inPlace ? "nothing_in_place" : "nothing")}</p>;
   return (
     <>
       <dl className="lw-triage-stats" style={reveal(1)}>
@@ -308,7 +333,7 @@ export function TriagePreviewView({ preview, text, busy, onKeep, onConfirm, onMo
       ) : null}
 
       <footer className="lw-triage-bar" style={reveal(6)}>
-        <p>{text("confirm_note", { count: preview.moves.length })}</p>
+        <p>{inPlace ? text("confirm_note_in_place") : text("confirm_note", { count: preview.moves.length })}</p>
         <button type="button" className="lw-today-primary" disabled={busy || preview.moves.length === 0} onClick={onConfirm}>{text("confirm")}</button>
       </footer>
     </>

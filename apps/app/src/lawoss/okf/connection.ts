@@ -1,4 +1,5 @@
 import { t } from "@/i18n";
+import { withoutLawossHome } from "../home-workspace";
 /**
  * Prístup k serveru a k workspace-om mimo session-route — rovnaký recept, aký
  * používa settings-route, len bez jej stavu. Nič z toho nie je nové API:
@@ -26,6 +27,11 @@ export type OkfConnection = {
   activeWorkspaceId: string;
 };
 
+/** Aktívne id musí patriť do zoznamu pre používateľa (bez domovského priestoru); inak prvý skutočný priečinok alebo prázdne. */
+export function resolveActiveWorkspaceId(workspaces: readonly { id: string }[], activeId: string | null | undefined): string {
+  return workspaces.find((workspace) => workspace.id === activeId)?.id ?? workspaces[0]?.id ?? "";
+}
+
 export async function loadOkfConnection(): Promise<OkfConnection> {
   let desktopWorkspaces: RouteWorkspace[] = [];
   if (isDesktopRuntime()) {
@@ -38,7 +44,8 @@ export async function loadOkfConnection(): Promise<OkfConnection> {
   }
   const { normalizedBaseUrl, resolvedToken, resolvedHostToken } = await resolveLegalworkConnection();
   if (!normalizedBaseUrl || !resolvedToken) {
-    return { client: null, baseUrl: "", token: "", workspaces: desktopWorkspaces, activeWorkspaceId: readActiveWorkspaceId() ?? "" };
+    const storedActiveId = readActiveWorkspaceId();
+    return { client: null, baseUrl: "", token: "", workspaces: withoutLawossHome(desktopWorkspaces), activeWorkspaceId: storedActiveId ? resolveActiveWorkspaceId(withoutLawossHome(desktopWorkspaces), storedActiveId) : "" };
   }
   const client = createLegalworkServerClient({
     baseUrl: normalizedBaseUrl,
@@ -46,8 +53,8 @@ export async function loadOkfConnection(): Promise<OkfConnection> {
     hostToken: resolvedHostToken || undefined,
   });
   const list = await client.listWorkspaces();
-  const workspaces = mergeRouteWorkspaces(list.items, desktopWorkspaces);
-  const activeWorkspaceId = readActiveWorkspaceId() ?? list.activeId ?? workspaces[0]?.id ?? "";
+  const workspaces = withoutLawossHome(mergeRouteWorkspaces(list.items, desktopWorkspaces));
+  const activeWorkspaceId = resolveActiveWorkspaceId(workspaces, readActiveWorkspaceId() ?? list.activeId);
   return { client, baseUrl: normalizedBaseUrl, token: resolvedToken, workspaces, activeWorkspaceId };
 }
 

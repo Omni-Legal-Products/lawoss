@@ -28,6 +28,9 @@ export const isWorkspaceSwitcherVisible = (_mode: UiMode): boolean => true;
 /** Preserve the upstream home destination in advanced mode. */
 export const landingPath = (mode: UiMode): string => (mode === "lite" ? LITE_TODAY_PATH : "/home");
 
+/** Úvodné stránky oboch režimov: aj pri `preserveRoute` z nich musí prvé spustenie presmerovať na /welcome. */
+export const isLandingPath = (pathname: string): boolean => pathname === LITE_TODAY_PATH || pathname === "/home";
+
 /** Apply Lite filtering to the v0.2.1 native action rail. */
 export const isMainRailItemVisible = (key: string, mode: UiMode): boolean =>
   mode === "pro" || !["navTasks", "navWorkflows", "navRecorder", "navEvaluations"].includes(key);

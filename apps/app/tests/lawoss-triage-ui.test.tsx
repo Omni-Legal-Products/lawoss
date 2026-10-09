@@ -4,8 +4,8 @@ import { MemoryRouter } from "react-router-dom";
 import type { ReactElement } from "react";
 import { t } from "../src/i18n";
 import { ClientsView } from "../src/lawoss/lite/pages/clients-page";
-import { TriagePreviewView } from "../src/lawoss/domains/roztriedenie/triage-page";
-import { triageApply, triageLink, triagePlan, triageReplan, triageUndo, type TriageClient, type TriagePreview } from "../src/lawoss/domains/roztriedenie/api";
+import { TriagePreviewView, TriageTopline, TriageUndoSummary } from "../src/lawoss/domains/roztriedenie/triage-page";
+import { offersTriageEntry, triageApply, triageGrant, triageLink, triageTargetRoot, triagePlan, triageReplan, triageUndo, type TriageApiPath, type TriageClient, type TriagePreview } from "../src/lawoss/domains/roztriedenie/api";
 import { LAWOSS_ROUTES } from "../src/lawoss/shell/routes";
 
 const BANNED = /workspace|session|skill|\bMCP\b|\bOKF\b|opencode|plugin|treeDigest|fingerprint/i;
@@ -74,5 +74,66 @@ describe("roztriedenie v appke", () => {
       ["apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true }],
       ["undo", { root: "/x/klon", runId: preview.runId, confirm: true }],
     ]);
+  });
+});
+
+test("grant posiela root a potvrdenie", async () => {
+  const calls: { path: string; body: unknown }[] = [];
+  const client: TriageClient = { lawossTriage: async <T,>(path: TriageApiPath, body: unknown): Promise<T> => { calls.push({ path, body }); return { granted: true, root: "/k" } as T; } };
+  expect(await triageGrant(client, "/k")).toEqual({ granted: true, root: "/k" });
+  expect(calls).toEqual([{ path: "grant", body: { root: "/k", confirm: true } }]);
+});
+
+test("po vrátení na mieste sa ukážu ponechané dokumenty", () => {
+  const out = html(<TriageUndoSummary text={(key, params) => `${key}${params ? JSON.stringify(params) : ""}`} result={{ status: "undone", runId: "triage-20261008-100000-abcdef", restored: 3, removed: 2, kept: ["05_Komunikacia/odpoved.eml"] }} />);
+  expect(out).toContain("undo_restored{&quot;count&quot;:3}");
+  expect(out).toContain("05_Komunikacia/odpoved.eml");
+});
+
+test("kľúče pre priečinok na mieste existujú vo všetkých jazykoch", () => {
+  for (const locale of ["sk", "cs", "en", "de"] as const) {
+    for (const key of ["undo_restored", "undo_kept", "not_reorganizable", "in_place_title", "organize_okf", "confirm_note_in_place", "nothing_in_place", "undo_question_in_place", "model_privacy_in_place"]) {
+      expect(t(`lawoss.triage.${key}`, locale, { count: 3 })).not.toBe(`lawoss.triage.${key}`);
+    }
+    expect(t("lawoss.triage.undo_restored", locale, { count: 3 })).toContain("3");
+  }
+});
+
+test("priečinok na mieste nehovorí o klone", () => {
+  const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.triage.${key}`, "sk", params);
+  const out = html(<TriagePreviewView preview={preview} text={text} busy={false} inPlace onKeep={() => {}} onConfirm={() => {}} onModel={() => {}} />);
+  expect(out).toContain("Dokumenty sa presunú priamo vo vašom priečinku. Presun sa dá vrátiť na stránke Roztriedenie.");
+  expect(out).not.toMatch(/klon/i);
+  const empty = html(<TriagePreviewView preview={{ ...preview, documents: 0, moves: [] }} text={text} busy={false} inPlace onKeep={() => {}} onConfirm={() => {}} onModel={() => {}} />);
+  expect(empty).toContain("V priečinku nie je čo usporiadať.");
+  expect(t("lawoss.triage.undo_question_in_place", "cs")).toBe("Vrátit dokumenty na původní místa? Dokumenty, které jste mezitím změnili, zůstanou na novém místě.");
+  expect(t("lawoss.triage.model_privacy_in_place", "sk")).toBe("Model uvidí názvy a obsah dokumentov tohto klienta.");
+});
+
+describe("vstup do roztriedenia aj pri usporiadaní na mieste (D1 9. 10.)", () => {
+  test("cieľ: odkaz, potom skúšobný klon, potom aktívny klient", () => {
+    expect(triageTargetRoot({ param: "/a", trialRoot: "/b", activeRoot: "/c" })).toBe("/a");
+    expect(triageTargetRoot({ trialRoot: "/b", activeRoot: "/c" })).toBe("/b");
+    expect(triageTargetRoot({ trialRoot: null, activeRoot: "/c" })).toBe("/c");
+    expect(triageTargetRoot({})).toBeNull();
+  });
+  test("vstup sa ukáže klientovi so súhlasom na mieste, nie klientovi bez neho", () => {
+    expect(offersTriageEntry({ trial: true, mode: "in_place", root: "/c", runs: [] })).toBe(true);
+    expect(offersTriageEntry({ trial: true, mode: "trial", root: "/b", runs: [] })).toBe(true);
+    expect(offersTriageEntry({ trial: false, runs: [] })).toBe(false);
+    expect(offersTriageEntry(null)).toBe(false);
+  });
+});
+
+describe("štítok stránky roztriedenia podľa režimu (D1 9. 10.)", () => {
+  const text = (key: string) => t(`lawoss.triage.${key}`, "sk");
+  test("usporiadanie na mieste nehovorí o skúšobnom klone", () => {
+    const markup = html(<TriageTopline text={text} root="/x/Samostatný klient" inPlace />);
+    expect(markup).toContain("Priečinok klienta");
+    expect(markup).not.toContain("klon");
+    expect(markup).toContain("Samostatný klient");
+  });
+  test("skúšobný klon ostáva označený ako klon", () => {
+    expect(html(<TriageTopline text={text} root="/x/Klient (trial 2026-10-05)" inPlace={false} />)).toContain("Skúšobný klon");
   });
 });

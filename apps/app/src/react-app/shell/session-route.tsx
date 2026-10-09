@@ -10,6 +10,7 @@ import {
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useLocale } from "@/i18n/use-locale";
 import { LAWOSS_ROUTES, lawossRouteTitle } from "../../lawoss/shell/routes";
+import { isLandingPath } from "../../lawoss/lite/visibility";
 import { useDetachedWindow } from "./use-detached-window";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
@@ -90,6 +91,7 @@ import {
   safeStringify,
 } from "@/app/utils";
 import { t } from "@/i18n";
+import { withoutLawossHome } from "@/lawoss/home-workspace";
 import { isCommercialSurfaceHidden, isHiddenSettingsTab } from "@/lawoss/feature-flags";
 import {
   type RouteWorkspace,
@@ -506,6 +508,7 @@ export function SessionRoute() {
     handleRuntimeSessionUpdated,
   } = useWorkspaceRouteState({
     preserveRoute: Boolean(experimentView),
+    firstRunRedirect: isLandingPath(location.pathname),
     onServerSettingsChanged: () => setLegalworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setLegalworkServerHostInfoState,
   });
@@ -650,7 +653,7 @@ export function SessionRoute() {
   // navigation still works.
   const hiddenTemplateWorkspaceIds = useHiddenTemplateWorkspaceIds();
   const sidebarWorkspaces = useMemo(
-    () => workspaces.filter((workspace) => !hiddenTemplateWorkspaceIds.includes(workspace.id)),
+    () => withoutLawossHome(workspaces).filter((workspace) => !hiddenTemplateWorkspaceIds.includes(workspace.id)),
     [hiddenTemplateWorkspaceIds, workspaces],
   );
   const workspaceSessionGroups = useMemo(
