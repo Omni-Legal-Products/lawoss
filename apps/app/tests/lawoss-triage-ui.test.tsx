@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import type { ReactElement } from "react";
 import { t } from "../src/i18n";
 import { ClientsView } from "../src/lawoss/lite/pages/clients-page";
-import { TriagePreviewView, TriageUndoSummary } from "../src/lawoss/domains/roztriedenie/triage-page";
+import { TriagePreviewView, TriageTopline, TriageUndoSummary } from "../src/lawoss/domains/roztriedenie/triage-page";
 import { offersTriageEntry, triageApply, triageGrant, triageLink, triageTargetRoot, triagePlan, triageReplan, triageUndo, type TriageApiPath, type TriageClient, type TriagePreview } from "../src/lawoss/domains/roztriedenie/api";
 import { LAWOSS_ROUTES } from "../src/lawoss/shell/routes";
 
@@ -122,5 +122,18 @@ describe("vstup do roztriedenia aj pri usporiadaní na mieste (D1 9. 10.)", () =
     expect(offersTriageEntry({ trial: true, mode: "trial", root: "/b", runs: [] })).toBe(true);
     expect(offersTriageEntry({ trial: false, runs: [] })).toBe(false);
     expect(offersTriageEntry(null)).toBe(false);
+  });
+});
+
+describe("štítok stránky roztriedenia podľa režimu (D1 9. 10.)", () => {
+  const text = (key: string) => t(`lawoss.triage.${key}`, "sk");
+  test("usporiadanie na mieste nehovorí o skúšobnom klone", () => {
+    const markup = html(<TriageTopline text={text} root="/x/Samostatný klient" inPlace />);
+    expect(markup).toContain("Priečinok klienta");
+    expect(markup).not.toContain("klon");
+    expect(markup).toContain("Samostatný klient");
+  });
+  test("skúšobný klon ostáva označený ako klon", () => {
+    expect(html(<TriageTopline text={text} root="/x/Klient (trial 2026-10-05)" inPlace={false} />)).toContain("Skúšobný klon");
   });
 });

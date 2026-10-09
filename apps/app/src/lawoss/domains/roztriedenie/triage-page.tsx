@@ -103,6 +103,11 @@ export function TriageUndoSummary({ text, result }: { text: Text; result: Triage
 
 type Phase = { kind: "idle" } | { kind: "busy"; label: string } | { kind: "applied"; runId: string; moved: number } | { kind: "undone"; result: TriageUndoResult };
 
+/** Štítok a meno priečinka: skúšobný klon, alebo priečinok klienta pri usporiadaní na mieste (D1 9. 10.). */
+export function TriageTopline({ text, root, inPlace }: { text: Text; root: string; inPlace: boolean }) {
+  return <p className="lw-triage-topline"><span className="lw-triage-chip">{text(inPlace ? "folder_in_place" : "folder")}</span> {lastSegment(root)}</p>;
+}
+
 function TriageFlow({ root, connection, locale }: { root: string; connection: OkfConnection; locale: Language }) {
   const text = useTriageText(locale);
   const navigate = useNavigate();
@@ -161,7 +166,7 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
   return (
     <>
       <header className="lw-triage-hero" style={reveal(0)}>
-        <p className="lw-triage-topline"><span className="lw-triage-chip">{text("folder")}</span> {lastSegment(root)}</p>
+        <TriageTopline text={text} root={root} inPlace={inPlace} />
         <h1 className="lw-h1">{text(inPlace ? "in_place_title" : "title")}</h1>
         {inPlace ? null : <p className="lw-triage-lead">{text("lead")}</p>}
       </header>
