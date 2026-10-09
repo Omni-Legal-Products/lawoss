@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
-import { liteSettingsTabs, isMainRailItemVisible, isSidebarItemVisible, isWorkspaceSwitcherVisible, landingPath } from "../src/lawoss/lite/visibility";
+import { liteSettingsTabs, isMainRailItemVisible, isSidebarItemVisible, isWorkspaceSwitcherVisible, isLandingPath, landingPath } from "../src/lawoss/lite/visibility";
 import { SettingsSidebar } from "../src/react-app/domains/settings/shell/settings-page";
 import { t } from "@/i18n";
 import { LAWOSS_ROUTES } from "../src/lawoss/shell/routes";
@@ -42,6 +42,13 @@ describe("napojení LAWOSS-lite", () => {
   test("úvodní stránka: lite → /dnes, pro zachová upstream /home", () => {
     expect(landingPath("lite")).toBe("/dnes");
     expect(landingPath("pro")).toBe("/home");
+  });
+
+  test("úvodné stránky povolia presmerovanie na /welcome pri prvom spustení, ostatné trasy LAWOSS nie", () => {
+    expect(isLandingPath(landingPath("lite"))).toBe(true);
+    expect(isLandingPath(landingPath("pro"))).toBe(true);
+    expect(isLandingPath("/klienti")).toBe(false);
+    expect(isLandingPath("/welcome")).toBe(false);
   });
 });
 

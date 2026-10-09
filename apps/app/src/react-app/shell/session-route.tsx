@@ -10,6 +10,7 @@ import {
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useLocale } from "@/i18n/use-locale";
 import { LAWOSS_ROUTES, lawossRouteTitle } from "../../lawoss/shell/routes";
+import { isLandingPath } from "../../lawoss/lite/visibility";
 import { useDetachedWindow } from "./use-detached-window";
 import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
@@ -507,6 +508,7 @@ export function SessionRoute() {
     handleRuntimeSessionUpdated,
   } = useWorkspaceRouteState({
     preserveRoute: Boolean(experimentView),
+    firstRunRedirect: isLandingPath(location.pathname),
     onServerSettingsChanged: () => setLegalworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setLegalworkServerHostInfoState,
   });
