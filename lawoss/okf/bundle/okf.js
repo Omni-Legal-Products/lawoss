@@ -338,7 +338,7 @@ async function inspectOnboardingRoot(root, limits = {}, hooks = {}) {
 
 // src/onboarding/suggest.ts
 import { lstat as lstat2, readdir as readdir2, readFile } from "node:fs/promises";
-import { isAbsolute as isAbsolute2, join as join2, resolve as resolve2 } from "node:path";
+import { basename as basename2, isAbsolute as isAbsolute2, join as join2, resolve as resolve2 } from "node:path";
 
 // ../okf-pamat/src/text-decode.ts
 function decodeText(bytes) {
@@ -565,7 +565,7 @@ async function suggestOnboardingLevel(root) {
       signals.push("matter_named_children");
     return { ...base, level: "practice", marked: false, score: round(ratio), signals, clientPattern: bucketed ? "*/*" : "*", clients: candidates.map((candidate) => ({ path: candidate.path, name: nameOf(candidate.path) })) };
   }
-  if (looksLikeMatterName(nameOf(survey.root)))
+  if (looksLikeMatterName(basename2(survey.root)))
     return { ...base, level: "matter", marked: false, score: 0.8, signals: ["matter_named_root"] };
   if (dirs.some((entry) => looksLikeMatterName(nameOf(entry.path))))
     return { ...base, level: "client", marked: false, score: 0.8, signals: ["matter_named_children"] };
@@ -3005,11 +3005,11 @@ This folder is a law practice organised by OKF (open client folder framework). T
 // src/onboarding/entities.ts
 import { lstat as lstat5, readFile as readFile3 } from "node:fs/promises";
 import { createHash as createHash4 } from "node:crypto";
-import { basename as basename3, join as join7, relative as relative4, resolve as resolve6, sep as sep5 } from "node:path";
+import { basename as basename4, join as join7, relative as relative4, resolve as resolve6, sep as sep5 } from "node:path";
 
 // ../okf-pamat/src/store.ts
 import { existsSync as existsSync2, lstatSync, mkdirSync, readFileSync as readFileSync2, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { basename as basename2, dirname as dirname2, join as join6, relative as relative2, resolve as resolve4, sep as sep3 } from "node:path";
+import { basename as basename3, dirname as dirname2, join as join6, relative as relative2, resolve as resolve4, sep as sep3 } from "node:path";
 
 // ../okf-pamat/src/validate.ts
 var BIRTH_NUMBER_PATTERN = /\b\d{6}\s?\/\s?\d{3,4}\b/;
@@ -3063,7 +3063,7 @@ var LEGACY_OFFICE_DIR = "_kancelaria";
 var OFFICE_DIRS2 = [OFFICE_DIR, LEGACY_OFFICE_DIR];
 function findOfficeDir(startDir, maxUp = 8) {
   let dir = resolve4(startDir);
-  if (OFFICE_DIRS2.some((n) => basename2(dir) === n))
+  if (OFFICE_DIRS2.some((n) => basename3(dir) === n))
     return dir;
   for (let i = 0;i < maxUp; i++) {
     const candidate = OFFICE_DIRS2.map((n) => join6(dir, n)).find((c) => existsSync2(c));
@@ -3318,7 +3318,7 @@ async function planExistingClient(root, mode, cloneParent, map) {
   }
   if (!cloneParent)
     throw new Error("Trial clone parent is required.");
-  const target = join7(cloneParent, `${safeSegment(basename3(inspection.root) || "client")} (trial ${new Date().toISOString().slice(0, 10)})`);
+  const target = join7(cloneParent, `${safeSegment(basename4(inspection.root) || "client")} (trial ${new Date().toISOString().slice(0, 10)})`);
   return { mode, appFiles: "inside", source: inspection.root, sourceDigest: inspection.digest, target, trial: true };
 }
 
@@ -4015,7 +4015,7 @@ import { join as join11 } from "node:path";
 import { createHash as createHash6 } from "node:crypto";
 import { constants as constants8 } from "node:fs";
 import { lstat as lstat10, mkdir as mkdir4, open as open7, readFile as readFile6, rename as rename2, rm as rm2, writeFile as writeFile2 } from "node:fs/promises";
-import { basename as basename4, isAbsolute as isAbsolute8, join as join10, relative as relative8, resolve as resolve10, sep as sep9 } from "node:path";
+import { basename as basename5, isAbsolute as isAbsolute8, join as join10, relative as relative8, resolve as resolve10, sep as sep9 } from "node:path";
 
 // src/triage/types.ts
 var INVENTORY_SCHEMA = "lawoss.triage.inventory/v1";
@@ -4291,7 +4291,7 @@ async function listClassificationFiles(root) {
 }
 
 // src/triage/index.ts
-import { basename as basename5 } from "node:path";
+import { basename as basename6 } from "node:path";
 
 // src/triage/classification.ts
 class ClassificationError extends Error {
@@ -5088,15 +5088,15 @@ async function latestModelProposal(inventory) {
   try {
     raw = await readJsonFile(file);
   } catch (error) {
-    return { proposal: { state: "invalid", file: basename5(file), message: error instanceof Error ? error.message : String(error) } };
+    return { proposal: { state: "invalid", file: basename6(file), message: error instanceof Error ? error.message : String(error) } };
   }
   if (raw && typeof raw === "object" && "treeDigest" in raw && raw.treeDigest !== inventory.treeDigest)
-    return { proposal: { state: "stale", file: basename5(file) } };
+    return { proposal: { state: "stale", file: basename6(file) } };
   try {
     const classification = parseClassification(raw, inventory);
-    return { proposal: { state: "ready", file: basename5(file), documents: classification.documents.length, matters: classification.matters.length }, classification };
+    return { proposal: { state: "ready", file: basename6(file), documents: classification.documents.length, matters: classification.matters.length }, classification };
   } catch (error) {
-    return { proposal: { state: "invalid", file: basename5(file), message: error instanceof Error ? error.message : String(error) } };
+    return { proposal: { state: "invalid", file: basename6(file), message: error instanceof Error ? error.message : String(error) } };
   }
 }
 async function prepareTriage(root, options = {}) {
@@ -5235,7 +5235,7 @@ var ENTITY_TYPES2 = ["klient", "spis", "projekt"];
 
 // src/fs.ts
 import { existsSync as existsSync4, lstatSync as lstatSync3, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync3, realpathSync as realpathSync3, statSync, writeFileSync as writeFileSync2 } from "node:fs";
-import { basename as basename6, dirname as dirname8, join as join14, relative as relative9, resolve as resolve13, sep as sep10 } from "node:path";
+import { basename as basename7, dirname as dirname8, join as join14, relative as relative9, resolve as resolve13, sep as sep10 } from "node:path";
 function readText(path) {
   return readFileSync3(path, "utf8");
 }
@@ -5375,7 +5375,7 @@ function validate(root) {
     if (workingPaths.some((path) => rel.startsWith(path)) || rel.split("/").some((part) => WORKING_FOLDERS.some((folder) => folder === part)) || rel.split("/").pop() === "BRAIN.md")
       continue;
     const parent = dirname8(join14(root, rel));
-    const bundleRoot = !rel.includes("/") || basename6(parent) === "memory" || ENTITY_TYPES.some((type) => CARD_ALIASES[type].some((name) => existsSync4(join14(parent, name))));
+    const bundleRoot = !rel.includes("/") || basename7(parent) === "memory" || ENTITY_TYPES.some((type) => CARD_ALIASES[type].some((name) => existsSync4(join14(parent, name))));
     const error = validateMarkdown(rel, readText(join14(root, rel)), bundleRoot);
     if (error)
       errors.push(error);
@@ -5400,7 +5400,7 @@ function realPathInside(realRoot, path) {
     const parent = dirname8(ancestor);
     if (parent === ancestor)
       throw new Error(`Cesta nemá existujúceho predka: ${logical}`);
-    tail.unshift(basename6(ancestor));
+    tail.unshift(basename7(ancestor));
     ancestor = parent;
   }
   const target = tail.length ? join14(real, ...tail) : real;
@@ -5464,7 +5464,7 @@ ${body}
 
 // src/naming-fs.ts
 import { closeSync as closeSync2, constants as constants11, fstatSync as fstatSync2, fsyncSync, lstatSync as lstatSync4, mkdirSync as mkdirSync3, openSync as openSync2, opendirSync, readSync as readSync2, realpathSync as realpathSync4, renameSync as renameSync2, unlinkSync, writeSync } from "node:fs";
-import { basename as basename7, dirname as dirname9, extname, isAbsolute as isAbsolute10, join as join15, relative as relative10, resolve as resolve14, sep as sep11 } from "node:path";
+import { basename as basename8, dirname as dirname9, extname, isAbsolute as isAbsolute10, join as join15, relative as relative10, resolve as resolve14, sep as sep11 } from "node:path";
 
 // ../okf-pamat/src/workspace-memory-types.ts
 var WORKSPACE_MEMORY_LIMITS = Object.freeze({ profileBytes: 256 * 1024, journalBytes: 4 * 1024 * 1024, sourceBytes: 2 * 1024 * 1024, totalBytes: 16 * 1024 * 1024, sources: 256 });
@@ -5871,8 +5871,8 @@ function checkCase(path, shouldExist) {
     for (let entry = directory.readSync();entry; entry = directory.readSync()) {
       if (++count > 20000)
         conflict("Destination/path directory exceeds bounded case-check limit (20000 entries)");
-      if (fold(entry.name) === fold(basename7(path))) {
-        if (entry.name !== basename7(path) || !shouldExist)
+      if (fold(entry.name) === fold(basename8(path))) {
+        if (entry.name !== basename8(path) || !shouldExist)
           conflict(`Case-fold collision: ${path}`);
         found = true;
       }
@@ -6249,8 +6249,8 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
 function writeNamingPlanOutsideMatter(matterDir, output, plan) {
   const root = rootDirectory(matterDir), path = resolve14(output);
   checkedPath(dirname9(path), "directory");
-  const parent = realpathSync4(dirname9(path)), physicalOutput = join15(parent, basename7(path));
-  if (contained(root.path, physicalOutput) || !safeRelativePath(basename7(path)))
+  const parent = realpathSync4(dirname9(path)), physicalOutput = join15(parent, basename8(path));
+  if (contained(root.path, physicalOutput) || !safeRelativePath(basename8(path)))
     throw new NamingSchemaError("--out must be a new portable filename outside the matter root");
   checkCase(physicalOutput, false);
   exclusive(physicalOutput, JSON.stringify(plan, null, 2) + `
