@@ -17,6 +17,7 @@ import type { OnboardingStep } from "@/lawoss/domains/onboarding/api";
 import { authorAfterOnboarding } from "@/lawoss/okf/lawyer-name";
 import { markAllWhatsNewSeen } from "./whats-new";
 import { canonicalPathOf, withCanonicalPaths } from "@/lawoss/domains/onboarding/typed-paths";
+import { watchLegalworkConnection } from "@/lawoss/domains/onboarding/server-connection";
 
 // 🟡 LAWOSS: napísané a vložené cesty idú na server v tvare ako vybrané v dialógu (Windows, typed-paths.ts); v prehliadači bez zmeny.
 const typedPaths = (client: LegalworkServerClient) => isDesktopRuntime() ? withCanonicalPaths(client, canonicalDirectoryPath) : client;
@@ -45,14 +46,12 @@ export function WelcomeRoute() {
   // LAWOSS: ako upstream pri štarte onboardingu; novému používateľovi je nové všetko, „What's new“ nie.
   useEffect(() => { if (!local.prefs.hasCompletedOnboarding) markAllWhatsNewSeen(); }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    void resolveLegalworkConnection().then(({ normalizedBaseUrl, resolvedToken, resolvedHostToken }) => {
-      if (!normalizedBaseUrl || !(resolvedToken || resolvedHostToken)) throw new Error("LAWOSS server is unavailable");
-      if (!cancelled) setClient(typedPaths(createLegalworkServerClient({ baseUrl: normalizedBaseUrl, token: resolvedToken || undefined, hostToken: resolvedHostToken || undefined })));
-    }).catch((reason: unknown) => { if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason)); });
-    return () => { cancelled = true; };
-  }, []);
+  // 🟡 LAWOSS: pri prvom štarte počká, kým boot spustí server (server-connection.ts), namiesto okamžitej chyby.
+  useEffect(() => watchLegalworkConnection({
+    resolve: resolveLegalworkConnection,
+    onReady: ({ normalizedBaseUrl, resolvedToken, resolvedHostToken }) => setClient(typedPaths(createLegalworkServerClient({ baseUrl: normalizedBaseUrl, token: resolvedToken || undefined, hostToken: resolvedHostToken || undefined }))),
+    onUnavailable: setError,
+  }), []);
 
   if (error) return <main className="mx-auto max-w-xl p-10"><p role="alert">{error}</p><Button className="mt-4" onClick={() => navigate("/settings/advanced")}>Open Settings</Button></main>;
   if (!client) return <main className="mx-auto max-w-xl p-10" role="status">Connecting LAWOSS…</main>;

@@ -505,3 +505,10 @@ Integrované CI odhalilo nedokončenú štartovaciu MCP synchronizáciu: `apps/s
 
 
 Linux packaging na heade `7bde0842` úspešne overil aplikáciu a renderer, no po hlásení PASS vypršal timeout testovacieho skriptu. `apps/desktop/scripts/packaged-startup-regression.mjs` teraz na POSIX spúšťa aplikáciu vo vlastnej procesovej skupine, pri cleanup ukončí aj potomkov a uzavrie výstupné pipes. Regresia `apps/desktop/scripts/packaged-startup-regression.test.mjs`, zaradená v `apps/desktop/package.json`, reprodukuje potomka držiaceho zdedené pipes po skončení hlavného procesu. Pôvodný skript po PASS visel; opravený sa ohraničene ukončí. Windows nepoužíva POSIX skupiny. Produkčný desktop runtime sa nemení.
+
+### Onboarding pri prvom spustení (2026-10-09)
+
+| Súbor | Zmena | Dôvod |
+|---|---|---|
+| `apps/app/src/react-app/shell/welcome-route.tsx` | Pripojenie k serveru cez `watchLegalworkConnection()` z LAWOSS `lawoss/domains/onboarding/server-connection.ts` namiesto jednorazového `resolveLegalworkConnection()` (+1 import, +1 komentár, efekt nahradený) | Pri prvom štarte sa uvítacia stránka otvorí skôr, než boot spustí server; jednorazové pripojenie skončilo natrvalo na „LAWOSS server is unavailable“. Teraz čaká na `legalwork-server-settings-changed` a chybu ukáže až po 30 s. |
+| `apps/app/src/react-app/shell/session-route.tsx`, `apps/app/src/react-app/shell/use-workspace-route-state.ts` | `firstRunRedirect: isLandingPath(...)` (pozri „Unified experiments shell“) | Čistá inštalácia v režime lite pristane na `/dnes`, kde `preserveRoute` vypínalo presmerovanie na `/welcome`. |
