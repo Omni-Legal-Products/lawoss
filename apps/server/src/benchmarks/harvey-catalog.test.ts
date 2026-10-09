@@ -163,6 +163,17 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+test("rejects unsafe catalog document paths and task keys before download", async () => {
+  const config = { configPath: join(dir, "server.json") };
+  const good = { key: "tasks/tax/draft-tax-memo", vertical: "tax", name: "draft-tax-memo", documents: ["input.docx"] };
+  for (const path of ["..\\outside.txt", "../outside.txt", "C:outside", "file:stream", "a/../b"]) {
+    await expect(ensureHarveyDocuments(config, sha, { ...good, documents: ["input.docx", path] })).rejects.toThrow();
+    await expect(ensureHarveyDocuments(config, sha, { ...good, key: path })).rejects.toThrow();
+  }
+  await expect(ensureHarveyDocuments(config, "../revision", good)).rejects.toThrow();
+  expect(requestLog).toHaveLength(0);
+});
+
 describe("loadHarveyIndex", () => {
   test("builds and caches the index from the git tree", async () => {
     const index = await loadHarveyIndex(store);

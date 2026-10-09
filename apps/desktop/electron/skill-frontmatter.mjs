@@ -1,5 +1,12 @@
 import matter from "gray-matter";
 
+// Explicit options also bypass gray-matter's shared no-options parser cache.
+const safeOptions = {
+  engines: {
+    javascript: () => { throw new Error("JavaScript frontmatter is not supported"); },
+  },
+};
+
 // Match OpenCode's ConfigMarkdown.sanitize for unquoted colons in YAML values.
 function sanitize(content) {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -19,8 +26,8 @@ function sanitize(content) {
 
 export function parseSkillFrontmatter(content) {
   try {
-    return matter(content);
+    return matter(content, safeOptions);
   } catch {
-    return matter(sanitize(content));
+    return matter(sanitize(content), safeOptions);
   }
 }

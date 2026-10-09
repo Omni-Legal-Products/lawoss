@@ -1,5 +1,5 @@
 import { readdir, rm, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { ApiError } from "../errors.js";
 import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
@@ -21,6 +21,7 @@ import { normalizeSkillPolicy } from "../benchmarks/ablation.js";
 import type { BenchmarkLatestResultRow, BenchmarkStore, BenchmarkTaskRow } from "../benchmarks/store.js";
 import { removeTaskDocumentsScratchDir, stageTaskDocuments } from "../benchmarks/workdir.js";
 import { buildTasksZip, MAX_ZIP_TASKS, parseTasksZip } from "../benchmarks/task-zip.js";
+import { resolveDocumentPath } from "../benchmarks/document-path.js";
 import { aggregateModelAnalytics } from "../benchmarks/analytics.js";
 import type { BenchmarkRunner } from "../benchmarks/runner.js";
 import {
@@ -154,17 +155,20 @@ function parseDocumentsField(body: Record<string, unknown>): CustomDocumentInput
   return documents;
 }
 
-async function writeCustomTaskDocuments(
+export async function writeCustomTaskDocuments(
   config: ServerConfig,
   taskId: string,
   documents: CustomDocumentInput[],
 ): Promise<string | null> {
   const documentsDir = join(benchmarksDataDir(config), "custom-tasks", taskId, "documents");
+  // Validate the complete batch before replacing any existing documents.
+  const targets = documents.map((document) => ({ document, target: resolveDocumentPath(documentsDir, document.name) }));
   await rm(documentsDir, { recursive: true, force: true });
   if (!documents.length) return null;
   await mkdir(documentsDir, { recursive: true });
-  for (const document of documents) {
-    await writeFile(join(documentsDir, document.name), Buffer.from(document.contentBase64, "base64"));
+  for (const { document, target } of targets) {
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, Buffer.from(document.contentBase64, "base64"));
   }
   return documentsDir;
 }

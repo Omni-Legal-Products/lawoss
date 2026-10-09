@@ -5,6 +5,7 @@ import { join, relative } from "node:path";
 import { sanitizeLegalworkTemplateConfig } from "./blueprint-sessions.js";
 import { buildCommandContent } from "./commands.js";
 import { CORE_OPENCODE_FILES } from "./core-skills.js";
+import { resolveWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { ApiError } from "./errors.js";
 import { parseFrontmatter } from "./frontmatter.js";
 import { readJsoncFile } from "./jsonc.js";
@@ -33,6 +34,7 @@ export type WorkspaceImportChange = {
 
 type WorkspaceImportPlannedChange = WorkspaceImportChange & {
   absolutePath: string;
+  canonicalPath?: string;
   beforeDigest: string;
   afterDigest: string;
 };
@@ -255,9 +257,9 @@ function isMissingFileError(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && error.code === "ENOENT");
 }
 
-async function readTextIfPresent(path: string): Promise<string | null> {
+async function readTextIfPresent(workspaceRoot: string, path: string): Promise<string | null> {
   try {
-    return await readFile(path, "utf8");
+    return await readFile(await resolveWorkspaceFilePath(workspaceRoot, path), "utf8");
   } catch (error) {
     if (isMissingFileError(error)) return null;
     throw error;
@@ -281,14 +283,15 @@ function fingerprintWorkspaceImportChanges(changes: WorkspaceImportPlannedChange
       kind: change.kind,
       action: change.action,
       path: change.path,
+      canonicalPath: change.canonicalPath,
       beforeDigest: change.beforeDigest,
       afterDigest: change.afterDigest,
     })),
   );
 }
 
-async function readLegalworkConfig(path: string): Promise<Record<string, unknown>> {
-  const raw = await readTextIfPresent(path);
+async function readLegalworkConfig(workspaceRoot: string, path: string): Promise<Record<string, unknown>> {
+  const raw = await readTextIfPresent(workspaceRoot, path);
   if (raw === null) return {};
   try {
     return JSON.parse(raw) as Record<string, unknown>;
@@ -298,13 +301,13 @@ async function readLegalworkConfig(path: string): Promise<Record<string, unknown
 }
 
 async function listProjectSkillNames(workspaceRoot: string): Promise<string[]> {
-  const dir = projectSkillsDir(workspaceRoot);
+  const dir = await resolveWorkspaceFilePath(workspaceRoot, projectSkillsDir(workspaceRoot));
   if (!(await exists(dir))) return [];
   const entries = await readdir(dir, { withFileTypes: true });
   const names: string[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    if (await exists(join(dir, entry.name, "SKILL.md"))) {
+    if (await exists(await resolveWorkspaceFilePath(workspaceRoot, join(dir, entry.name, "SKILL.md")))) {
       names.push(entry.name);
     }
   }
@@ -312,7 +315,7 @@ async function listProjectSkillNames(workspaceRoot: string): Promise<string[]> {
 }
 
 async function listProjectCommandNames(workspaceRoot: string): Promise<string[]> {
-  const dir = projectCommandsDir(workspaceRoot);
+  const dir = await resolveWorkspaceFilePath(workspaceRoot, projectCommandsDir(workspaceRoot));
   if (!(await exists(dir))) return [];
   const entries = await readdir(dir, { withFileTypes: true });
   return entries
@@ -330,7 +333,7 @@ export async function buildWorkspaceImportPreview(
 
   if (input.opencode !== undefined) {
     const path = opencodeConfigPath(workspaceRoot);
-    const before = await readJsoncFile(path, {} as Record<string, unknown>);
+    const before = await readJsoncFile(await resolveWorkspaceFilePath(workspaceRoot, path), {} as Record<string, unknown>);
     const after = input.modes.opencode === "replace" ? input.opencode : { ...before.data, ...input.opencode };
     changes.push({
       kind: "opencode",
@@ -346,7 +349,7 @@ export async function buildWorkspaceImportPreview(
   if (input.legalwork !== undefined) {
     const path = legalworkConfigPath(workspaceRoot);
     const existsBefore = await exists(path);
-    const before = await readLegalworkConfig(path);
+    const before = await readLegalworkConfig(workspaceRoot, path);
     const after = input.modes.legalwork === "replace" ? input.legalwork : { ...before, ...input.legalwork };
     changes.push({
       kind: "legalwork",
@@ -366,7 +369,7 @@ export async function buildWorkspaceImportPreview(
       incoming.add(skill.name);
       const path = join(projectSkillsDir(workspaceRoot), skill.name, "SKILL.md");
       const existsBefore = existing.has(skill.name);
-      const before = existsBefore ? await readTextIfPresent(path) : null;
+      const before = existsBefore ? await readTextIfPresent(workspaceRoot, path) : null;
       const next = buildSkillContent(skill);
       changes.push({
         kind: "skill",
@@ -384,7 +387,7 @@ export async function buildWorkspaceImportPreview(
         if (CORE_SKILL_NAMES.has(name)) continue;
         const path = join(projectSkillsDir(workspaceRoot), name);
         const skillFile = join(path, "SKILL.md");
-        const before = await readTextIfPresent(skillFile);
+        const before = await readTextIfPresent(workspaceRoot, skillFile);
         if (before === null) continue;
         changes.push({
           kind: "skill",
@@ -406,7 +409,7 @@ export async function buildWorkspaceImportPreview(
       incoming.add(command.name);
       const path = join(projectCommandsDir(workspaceRoot), `${command.name}.md`);
       const existsBefore = existing.has(command.name);
-      const before = existsBefore ? await readTextIfPresent(path) : null;
+      const before = existsBefore ? await readTextIfPresent(workspaceRoot, path) : null;
       const next = buildCommandContent(command);
       changes.push({
         kind: "command",
@@ -423,7 +426,7 @@ export async function buildWorkspaceImportPreview(
         if (incoming.has(name)) continue;
         if (CORE_COMMAND_NAMES.has(name)) continue;
         const path = join(projectCommandsDir(workspaceRoot), `${name}.md`);
-        const before = await readTextIfPresent(path);
+        const before = await readTextIfPresent(workspaceRoot, path);
         if (before === null) continue;
         changes.push({
           kind: "command",
@@ -444,7 +447,7 @@ export async function buildWorkspaceImportPreview(
       incoming.add(file.path);
       const path = join(workspaceRoot, file.path);
       const existsBefore = await exists(path);
-      const before = existsBefore ? await readTextIfPresent(path) : null;
+      const before = existsBefore ? await readTextIfPresent(workspaceRoot, path) : null;
       changes.push({
         kind: "file",
         action: actionForTarget(before !== null, before !== file.content, "merge"),
@@ -460,7 +463,7 @@ export async function buildWorkspaceImportPreview(
         if (incoming.has(filePath)) continue;
         if (CORE_PORTABLE_FILE_PATHS.has(filePath)) continue;
         const path = join(workspaceRoot, filePath);
-        const before = await readTextIfPresent(path);
+        const before = await readTextIfPresent(workspaceRoot, path);
         if (before === null) continue;
         changes.push({
           kind: "file",
@@ -475,6 +478,8 @@ export async function buildWorkspaceImportPreview(
     }
   }
 
+  // Validate new targets as well as existing content before producing a plan.
+  for (const change of changes) change.canonicalPath = await resolveWorkspaceFilePath(workspaceRoot, change.absolutePath);
   const summary = countSummary(changes);
   return {
     fingerprint: fingerprintWorkspaceImportChanges(changes),
@@ -488,7 +493,7 @@ export function publicWorkspaceImportPreview(preview: WorkspaceImportPlan): Work
     fingerprint: preview.fingerprint,
     summary: preview.summary,
     changes: preview.changes.map(
-      ({ absolutePath: _absolutePath, beforeDigest: _beforeDigest, afterDigest: _afterDigest, ...change }) => change,
+      ({ absolutePath: _absolutePath, canonicalPath: _canonicalPath, beforeDigest: _beforeDigest, afterDigest: _afterDigest, ...change }) => change,
     ),
   };
 }

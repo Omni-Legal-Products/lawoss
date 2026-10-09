@@ -1888,7 +1888,21 @@ function addEnvPassThroughArgs(args: string[], names: string[]) {
   }
 }
 
+// One private capability is shared by this runtime and its managed tool processes.
+// It is deliberately absent from persisted state, generated tools and CLI output.
+let runtimeRouterControlToken: string | undefined;
+function getRouterControlToken(): string {
+  if (runtimeRouterControlToken) return runtimeRouterControlToken;
+  const configured = process.env.OPENCODE_ROUTER_CONTROL_TOKEN?.trim();
+  if (configured && !/^[a-fA-F0-9]{64}$/.test(configured)) {
+    throw new Error("OPENCODE_ROUTER_CONTROL_TOKEN must contain 32 random bytes encoded as 64 hex characters");
+  }
+  runtimeRouterControlToken = configured || randomBytes(32).toString("hex");
+  return runtimeRouterControlToken;
+}
+
 const SANDBOX_INTERNAL_ENV_NAMES = [
+  "OPENCODE_ROUTER_CONTROL_TOKEN",
   "LEGALWORK_TOKEN",
   "LEGALWORK_HOST_TOKEN",
   "OPENCODE_SERVER_USERNAME",
@@ -3203,6 +3217,8 @@ function opencodeRouterSendToolSource(): string {
     '    autoBind: tool.schema.boolean().optional().describe("When direct sending, bind peerId to directory if provided"),',
     "  },",
     "  async execute(args, context) {",
+    '    const controlToken = (process.env.OPENCODE_ROUTER_CONTROL_TOKEN || "").trim()',
+    '    if (!/^[a-fA-F0-9]{64}$/.test(controlToken)) throw new Error("Router control token is not provisioned")',
     '    const rawPort = (process.env.OPENCODE_ROUTER_HEALTH_PORT || "3005").trim()',
     "    const port = Number(rawPort)",
     "    if (!Number.isFinite(port) || port <= 0) {",
@@ -3227,7 +3243,7 @@ function opencodeRouterSendToolSource(): string {
     "    }",
     "    const response = await fetch(`http://127.0.0.1:${port}/send`, {",
     '      method: "POST",',
-    '      headers: { "Content-Type": "application/json" },',
+    '      headers: { "Content-Type": "application/json", Authorization: `Bearer ${controlToken}` },',
     "      body: JSON.stringify(payload),",
     "    })",
     "    const body = await response.text()",
@@ -3290,6 +3306,8 @@ function opencodeRouterStatusToolSource(): string {
     '    includeBindings: tool.schema.boolean().optional().describe("Include binding details (default: false)"),',
     "  },",
     "  async execute(args, context) {",
+    '    const controlToken = (process.env.OPENCODE_ROUTER_CONTROL_TOKEN || "").trim()',
+    '    if (!/^[a-fA-F0-9]{64}$/.test(controlToken)) throw new Error("Router control token is not provisioned")',
     '    const rawPort = (process.env.OPENCODE_ROUTER_HEALTH_PORT || "3005").trim()',
     "    const port = Number(rawPort)",
     "    if (!Number.isFinite(port) || port <= 0) {",
@@ -3306,7 +3324,7 @@ function opencodeRouterStatusToolSource(): string {
     "    const includeBindings = args.includeBindings === true",
     "",
     "    const fetchJson = async (path) => {",
-    "      const response = await fetch(`http://127.0.0.1:${port}${path}`)",
+    "      const response = await fetch(`http://127.0.0.1:${port}${path}`, { headers: { Authorization: `Bearer ${controlToken}` } })",
     "      const body = await response.text()",
     "      let json = null",
     "      try {",
@@ -3514,6 +3532,7 @@ async function fetchOpenCodeRouterHealth(
 ): Promise<OpenCodeRouterHealthSnapshot> {
   return (await fetchJson(
     `${baseUrl.replace(/\/$/, "")}/health`,
+    { headers: { Authorization: `Bearer ${getRouterControlToken()}` } },
   )) as OpenCodeRouterHealthSnapshot;
 }
 
@@ -3538,7 +3557,9 @@ async function waitForOpenCodeRouterHealthy(
   let lastError: string | null = null;
   while (Date.now() - start < timeoutMs) {
     try {
-      const response = await fetch(`${baseUrl.replace(/\/$/, "")}/health`);
+      const response = await fetch(`${baseUrl.replace(/\/$/, "")}/health`, {
+        headers: { Authorization: `Bearer ${getRouterControlToken()}` },
+      });
       if (response.ok) {
         return (await response.json()) as OpenCodeRouterHealthSnapshot;
       }
@@ -3825,6 +3846,7 @@ async function startOpencode(options: {
     env: {
       ...process.env,
       ...(options.stateLayout?.env ?? {}),
+      OPENCODE_ROUTER_CONTROL_TOKEN: getRouterControlToken(),
       OPENCODE_CLIENT: "legalwork-orchestrator",
       LEGALWORK: "1",
       LEGALWORK_RUN_ID: options.runId,
@@ -3939,6 +3961,7 @@ async function startLegalworkServer(options: {
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
+        OPENCODE_ROUTER_CONTROL_TOKEN: getRouterControlToken(),
         LEGALWORK_TOKEN: options.token,
         LEGALWORK_HOST_TOKEN: options.hostToken,
         LEGALWORK_RUN_ID: options.runId,
@@ -4029,6 +4052,7 @@ async function startOpenCodeRouter(options: {
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
+        OPENCODE_ROUTER_CONTROL_TOKEN: getRouterControlToken(),
         LEGALWORK_RUN_ID: options.runId,
         LEGALWORK_LOG_FORMAT: options.logFormat,
         OTEL_RESOURCE_ATTRIBUTES: mergeResourceAttributes(
@@ -4308,6 +4332,9 @@ async function writeSandboxEntrypoint(options: {
   const requiredSecretEnv = [
     ': "${LEGALWORK_TOKEN:?LEGALWORK_TOKEN is required}"',
     ': "${LEGALWORK_HOST_TOKEN:?LEGALWORK_HOST_TOKEN is required}"',
+    options.legalwork.opencodeRouterEnabled
+      ? ': "${OPENCODE_ROUTER_CONTROL_TOKEN:?OPENCODE_ROUTER_CONTROL_TOKEN is required}"'
+      : "",
     options.opencode.username
       ? ': "${OPENCODE_SERVER_USERNAME:?OPENCODE_SERVER_USERNAME is required}"'
       : "",
@@ -4543,6 +4570,7 @@ async function startDockerSandbox(options: {
     env: {
       ...userEnv,
       ...process.env,
+      OPENCODE_ROUTER_CONTROL_TOKEN: getRouterControlToken(),
       LEGALWORK_TOKEN: options.legalwork.token,
       LEGALWORK_HOST_TOKEN: options.legalwork.hostToken,
       ...(options.opencode.username
@@ -4725,6 +4753,7 @@ async function startAppleContainerSandbox(options: {
     env: {
       ...userEnv,
       ...process.env,
+      OPENCODE_ROUTER_CONTROL_TOKEN: getRouterControlToken(),
       LEGALWORK_TOKEN: options.legalwork.token,
       LEGALWORK_HOST_TOKEN: options.legalwork.hostToken,
       ...(options.opencode.username
@@ -4842,8 +4871,6 @@ async function verifyLegalworkServer(input: {
         opencode?: {
           baseUrl?: string;
           directory?: string;
-          username?: string;
-          password?: string;
         };
       }
     | undefined;
@@ -4871,17 +4898,17 @@ async function verifyLegalworkServer(input: {
       `LegalWork server OpenCode directory mismatch: expected ${input.expectedOpencodeDirectory}, got ${opencode?.directory ?? "<missing>"}.`,
     );
   }
-  if (
-    input.expectedOpencodeUsername &&
-    opencode?.username !== input.expectedOpencodeUsername
-  ) {
-    throw new Error("LegalWork server OpenCode username mismatch.");
-  }
-  if (
-    input.expectedOpencodePassword &&
-    opencode?.password !== input.expectedOpencodePassword
-  ) {
-    throw new Error("LegalWork server OpenCode password mismatch.");
+  // Workspace projections intentionally omit engine credentials. Verify that the
+  // server can actually authenticate to the selected engine without exposing them.
+  if (input.expectedOpencodeBaseUrl || input.expectedOpencodeUsername || input.expectedOpencodePassword) {
+    if (!matched.id) throw new Error("LegalWork server workspace ID is missing.");
+    const engineHealth = await fetchJson(
+      `${input.baseUrl}/workspace/${encodeURIComponent(matched.id)}/opencode/global/health`,
+      { headers, signal: AbortSignal.timeout(5000) },
+    );
+    if (engineHealth?.healthy !== true) {
+      throw new Error("LegalWork server OpenCode connection is not healthy.");
+    }
   }
 
   const hostHeaders = { "X-LegalWork-Host-Token": input.hostToken };
@@ -7284,6 +7311,7 @@ async function runStart(args: ParsedArgs) {
   const opencodeRouterHealthUrl = `http://127.0.0.1:${opencodeRouterHealthPort}`;
   const opencodeRouterEnv: NodeJS.ProcessEnv = {
     ...process.env,
+    OPENCODE_ROUTER_CONTROL_TOKEN: getRouterControlToken(),
     OPENCODE_DIRECTORY: resolvedWorkspace,
     OPENCODE_URL: opencodeConnectUrl,
     ...(opencodeUsername ? { OPENCODE_SERVER_USERNAME: opencodeUsername } : {}),

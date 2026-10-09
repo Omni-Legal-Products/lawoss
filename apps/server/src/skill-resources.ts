@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { resolveWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { ApiError } from "./errors.js";
 import { exists } from "./utils.js";
 import { validateSkillName } from "./validators.js";
@@ -45,18 +46,19 @@ export function isTextResource(name: string): boolean {
   return TEXT_RESOURCE_EXTENSIONS.has(ext);
 }
 
-async function findSkillDirInBase(baseDir: string, skillName: string): Promise<string | null> {
+async function findSkillDirInBase(baseDir: string, skillName: string, workspaceRoot?: string): Promise<string | null> {
+  const safePath = (path: string) => workspaceRoot ? resolveWorkspaceFilePath(workspaceRoot, path) : Promise.resolve(path);
   // Flat layout: <base>/<name>/SKILL.md
   const flat = join(baseDir, skillName);
-  if (await exists(join(flat, "SKILL.md"))) return flat;
+  if (await exists(await safePath(join(flat, "SKILL.md")))) return flat;
   // Nested layout: <base>/<domain>/<name>/SKILL.md — same convention the
   // skills listing supports (see listSkillsInDir in skills.ts).
-  if (!(await exists(baseDir))) return null;
-  const entries = await readdir(baseDir, { withFileTypes: true });
+  if (!(await exists(await safePath(baseDir)))) return null;
+  const entries = await readdir(await safePath(baseDir), { withFileTypes: true });
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const nested = join(baseDir, entry.name, skillName);
-    if (await exists(join(nested, "SKILL.md"))) return nested;
+    if (await exists(await safePath(join(nested, "SKILL.md")))) return nested;
   }
   return null;
 }
@@ -81,9 +83,9 @@ function globalSkillsBaseDirs(): string[] {
 export async function resolveSkillDir(workspaceRoot: string, skillName: string): Promise<string> {
   const trimmed = skillName.trim();
   validateSkillName(trimmed); // kebab-case only — path-traversal safe
-  const fromOpencode = await findSkillDirInBase(projectSkillsDir(workspaceRoot), trimmed);
+  const fromOpencode = await findSkillDirInBase(projectSkillsDir(workspaceRoot), trimmed, workspaceRoot);
   if (fromOpencode) return fromOpencode;
-  const fromClaude = await findSkillDirInBase(join(workspaceRoot, ".claude", "skills"), trimmed);
+  const fromClaude = await findSkillDirInBase(join(workspaceRoot, ".claude", "skills"), trimmed, workspaceRoot);
   if (fromClaude) return fromClaude;
   for (const baseDir of globalSkillsBaseDirs()) {
     const fromGlobal = await findSkillDirInBase(baseDir, trimmed);
@@ -92,7 +94,8 @@ export async function resolveSkillDir(workspaceRoot: string, skillName: string):
   throw new ApiError(404, "skill_not_found", `Skill not found: ${trimmed}`);
 }
 
-async function listResourceNames(resourcesDir: string): Promise<string[]> {
+async function listResourceNames(skillDir: string, resourcesDir: string): Promise<string[]> {
+  resourcesDir = await resolveWorkspaceFilePath(skillDir, resourcesDir);
   if (!(await exists(resourcesDir))) return [];
   const entries = await readdir(resourcesDir, { withFileTypes: true });
   return entries
@@ -105,9 +108,9 @@ export async function listSkillResources(workspaceRoot: string, skillName: strin
   const skillDir = await resolveSkillDir(workspaceRoot, skillName);
   const dir = join(skillDir, "resources");
   const items: SkillResourceItem[] = [];
-  for (const name of await listResourceNames(dir)) {
+  for (const name of await listResourceNames(skillDir, dir)) {
     const path = join(dir, name);
-    const info = await stat(path);
+    const info = await stat(await resolveWorkspaceFilePath(skillDir, path));
     items.push({ name, path, size: info.size, updatedAt: info.mtimeMs });
   }
   return items;
@@ -123,14 +126,15 @@ export async function readSkillResource(
   validateResourceName(trimmed);
   const skillDir = await resolveSkillDir(workspaceRoot, skillName);
   const path = join(skillDir, "resources", trimmed);
-  if (!(await exists(path))) {
+  const safePath = await resolveWorkspaceFilePath(skillDir, path);
+  if (!(await exists(safePath))) {
     throw new ApiError(404, "resource_not_found", `Attached file not found: ${trimmed}`);
   }
   if (encoding !== "base64" && !isTextResource(trimmed)) {
     throw new ApiError(415, "resource_not_text", "Only text files (.md, .txt, .csv) can be opened in the editor");
   }
-  const info = await stat(path);
-  const content = (await readFile(path)).toString(encoding);
+  const info = await stat(safePath);
+  const content = (await readFile(safePath)).toString(encoding);
   return { item: { name: trimmed, path, size: info.size, updatedAt: info.mtimeMs }, content };
 }
 
@@ -152,13 +156,15 @@ export async function upsertSkillResource(
   }
   const skillDir = await resolveSkillDir(workspaceRoot, skillName);
   const dir = join(skillDir, "resources");
-  await mkdir(dir, { recursive: true });
+  await resolveWorkspaceFilePath(skillDir, "SKILL.md");
+  await mkdir(await resolveWorkspaceFilePath(skillDir, dir), { recursive: true });
   const path = join(dir, name);
-  const existed = await exists(path);
+  const safePath = await resolveWorkspaceFilePath(skillDir, path);
+  const existed = await exists(safePath);
   if (typeof payload.contentBase64 === "string") {
-    await writeFile(path, Buffer.from(payload.contentBase64, "base64"));
+    await writeFile(safePath, Buffer.from(payload.contentBase64, "base64"));
   } else {
-    await writeFile(path, payload.content ?? "", "utf8");
+    await writeFile(safePath, payload.content ?? "", "utf8");
   }
   await syncResourcesSection(skillDir);
   return { name, path, skillPath: join(skillDir, "SKILL.md"), action: existed ? "updated" : "added" };
@@ -173,10 +179,12 @@ export async function deleteSkillResource(
   validateResourceName(trimmed);
   const skillDir = await resolveSkillDir(workspaceRoot, skillName);
   const path = join(skillDir, "resources", trimmed);
-  if (!(await exists(path))) {
+  const safePath = await resolveWorkspaceFilePath(skillDir, path);
+  if (!(await exists(safePath))) {
     throw new ApiError(404, "resource_not_found", `Attached file not found: ${trimmed}`);
   }
-  await rm(path, { force: true });
+  await resolveWorkspaceFilePath(skillDir, "SKILL.md");
+  await rm(await resolveWorkspaceFilePath(skillDir, path, { preserveLeaf: true }), { force: true });
   await syncResourcesSection(skillDir);
   return { path, skillPath: join(skillDir, "SKILL.md") };
 }
@@ -221,10 +229,10 @@ export function applyResourcesSection(body: string, names: string[]): string {
 
 /** Rewrite <skillDir>/SKILL.md so its managed section matches resources/. */
 async function syncResourcesSection(skillDir: string): Promise<void> {
-  const skillPath = join(skillDir, "SKILL.md");
+  const skillPath = await resolveWorkspaceFilePath(skillDir, "SKILL.md");
   if (!(await exists(skillPath))) return;
   const content = await readFile(skillPath, "utf8");
-  const names = await listResourceNames(join(skillDir, "resources"));
+  const names = await listResourceNames(skillDir, join(skillDir, "resources"));
   // Split the frontmatter off textually so every other key stays byte-for-byte
   // untouched; only the body is regenerated.
   const match = content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);

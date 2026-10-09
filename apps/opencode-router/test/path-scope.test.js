@@ -47,3 +47,16 @@ test("isWithinWorkspaceRootPath still rejects directories outside the workspace 
     false,
   );
 });
+
+test("Windows UNC aliases preserve their share boundary on every test host", () => {
+  const workspaceRoot = String.raw`\\server\share\project`;
+  assert.equal(isWithinWorkspaceRootPath({ workspaceRoot, candidate: String.raw`\\?\UNC\server\share\project\child`, platform: "win32" }), true);
+  for (const candidate of [String.raw`\\server\share\project-other`, String.raw`\\server\other\project`, String.raw`H:\project`]) {
+    assert.equal(isWithinWorkspaceRootPath({ workspaceRoot, candidate, platform: "win32" }), false);
+  }
+});
+
+test("scope permits harmless dotted child names while rejecting parent traversal", () => {
+  assert.equal(isWithinWorkspaceRootPath({ workspaceRoot: "/workspace", candidate: "/workspace/..notes", platform: "darwin" }), true);
+  assert.equal(isWithinWorkspaceRootPath({ workspaceRoot: "/workspace", candidate: "/workspace/../outside", platform: "darwin" }), false);
+});

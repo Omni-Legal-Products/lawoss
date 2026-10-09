@@ -3,6 +3,7 @@ import { mkdir, stat, writeFile } from "node:fs/promises";
 import { basename, extname, isAbsolute, join, resolve } from "node:path";
 
 import type { MediaKind } from "./media.js";
+import { resolveWorkspacePath } from "./path-scope.js";
 
 export type StoredMediaFile = {
   filePath: string;
@@ -44,10 +45,10 @@ function sanitizeFilename(filename: string, fallbackPrefix: string, fallbackExt:
 }
 
 export class MediaStore {
-  constructor(private readonly rootDir: string) {}
+  constructor(private readonly rootDir: string, private readonly workspaceRoot: string) {}
 
   async ensureReady(): Promise<void> {
-    await mkdir(this.rootDir, { recursive: true });
+    await mkdir(resolveWorkspacePath(this.workspaceRoot, this.rootDir, true), { recursive: true });
   }
 
   private inboundDir(channel: string, identityId: string, peerId: string): string {
@@ -72,7 +73,7 @@ export class MediaStore {
     filename?: string;
     mimeType?: string;
   }): Promise<StoredMediaFile> {
-    const dir = this.inboundDir(input.channel, input.identityId, input.peerId);
+    const dir = resolveWorkspacePath(this.workspaceRoot, this.inboundDir(input.channel, input.identityId, input.peerId), true);
     await mkdir(dir, { recursive: true });
 
     const defaultExt = extensionFromMime(input.mimeType, input.kind);
@@ -81,9 +82,9 @@ export class MediaStore {
       `${input.kind}-${Date.now()}-${randomUUID().slice(0, 8)}`,
       defaultExt,
     );
-    const filePath = join(dir, safeFilename);
+    const filePath = resolveWorkspacePath(this.workspaceRoot, join(dir, `${randomUUID()}-${safeFilename}`), true);
 
-    await writeFile(filePath, input.buffer);
+    await writeFile(filePath, input.buffer, { flag: "wx", mode: 0o600 });
 
     return {
       filePath,
@@ -131,6 +132,7 @@ export class MediaStore {
   async resolveOutboundFile(input: {
     filePath: string;
     baseDirectory: string;
+    workspaceRoot: string;
     maxBytes?: number;
   }): Promise<StoredMediaFile> {
     const raw = input.filePath.trim();
@@ -140,12 +142,16 @@ export class MediaStore {
       throw error;
     }
 
-    const resolved = isAbsolute(raw) ? resolve(raw) : resolve(input.baseDirectory, raw);
+    let resolved: string;
     let info;
     try {
+      // The caller's selected directory cannot redefine the workspace authority.
+      const base = resolveWorkspacePath(input.workspaceRoot, input.baseDirectory);
+      resolved = resolveWorkspacePath(input.workspaceRoot, isAbsolute(raw) ? resolve(raw) : resolve(base, raw));
       info = await stat(resolved);
     } catch (error) {
-      const wrapped = new Error(`File not found: ${resolved}`) as Error & { status?: number };
+      if (error instanceof Error && "status" in error && error.status === 403) throw error;
+      const wrapped = new Error(`File not found: ${raw}`) as Error & { status?: number };
       wrapped.status = 404;
       (wrapped as any).cause = error;
       throw wrapped;

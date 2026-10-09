@@ -8,7 +8,7 @@
  * v _STATUS.md. Dokumenty spisu ani karty nikdy neotvára na zápis.
  */
 
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { parseRecord, parseFrontmatter, recordRevision, serializeRecord, type OkfRecord } from "./record.ts";
@@ -118,16 +118,33 @@ export function readStore(dir: string): Store {
   const records: OkfRecord[] = [];
   const problems: StoreProblem[] = [];
   try {
-    for (const entry of readdirSync(memoryDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    // The selected matter can itself be a mounted/Dropbox alias; memory links
+    // beneath it must never import records from a different matter.
+    const safeMemoryDir = join(realpathSync(dir), MEMORY_DIR);
+    if (lstatSync(safeMemoryDir).isSymbolicLink()) throw new Error("Symbolický odkaz na adresár pamäte nie je povolený.");
+    for (const entry of readdirSync(safeMemoryDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const name = entry.name;
       if (entry.isDirectory()) {
         problems.push({ file: name, message: "Vnorený adresár pamäte nie je podporovaný; jeho záznamy neboli načítané." });
         continue;
       }
+      if (entry.isSymbolicLink()) {
+        problems.push({ file: name, message: "Symbolický odkaz na záznam pamäte nie je povolený." });
+        continue;
+      }
       if (!name.endsWith(".md")) continue;
       if (name === INDEX_FILE || name === LOG_FILE || name === LEGACY_INDEX_FILE) continue;
       try {
-        const source = readFileSync(join(memoryDir, name), "utf8");
+        const file = join(safeMemoryDir, name);
+        const before = lstatSync(file);
+        if (!before.isFile() || before.isSymbolicLink()) throw new Error("Záznam pamäte musí byť bežný súbor.");
+        const fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+        let source: string;
+        try {
+          const opened = fstatSync(fd);
+          if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) throw new Error("Záznam pamäte sa zmenil počas čítania.");
+          source = readFileSync(fd, "utf8");
+        } finally { closeSync(fd); }
         records.push(parseRecord(source));
         if (hasUnparsedBody(source)) {
           problems.push({ file: join(memoryDir, name), message: "Časť obsahu (text pred prvou sekciou, zdvojená Truth/History alebo riadok History mimo tvaru udalosti) sa nedá načítať. Otvor celý zdrojový súbor; tento výpis nie je úplný." });

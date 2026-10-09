@@ -5,6 +5,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { ApiError } from "../errors.js";
 import type { ServerConfig } from "../types.js";
 import { ensureHarveyDocuments } from "./harvey-catalog.js";
+import { isSafeDocumentPath } from "./document-path.js";
 import type { BenchmarkTaskRow } from "./store.js";
 import {
   parseHarveyTaskJson,
@@ -138,11 +139,6 @@ export async function buildTasksZip(
   return zipSync(files);
 }
 
-function isSafeDocumentName(name: string): boolean {
-  if (!name || name.endsWith("/")) return false;
-  return !name.split("/").some((segment) => segment === ".." || segment === "");
-}
-
 /**
  * Parse a Zip archive into task definitions + their documents. Any `**​/task.json`
  * entry is read as a Harvey-format task; sibling `documents/…` files are attached.
@@ -186,7 +182,7 @@ export function parseTasksZip(bytes: Uint8Array): {
     const documents = paths
       .filter((candidate) => candidate.startsWith(prefix))
       .map((candidate) => ({ name: candidate.slice(prefix.length), bytes: archive[candidate] }))
-      .filter((document) => isSafeDocumentName(document.name));
+      .filter((document) => isSafeDocumentPath(document.name));
     tasks.push({ folder, definition: parsed.task, documents });
   }
   return { tasks, failed };

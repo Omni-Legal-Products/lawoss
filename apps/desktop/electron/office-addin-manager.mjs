@@ -20,7 +20,8 @@
  * single OS prompt. Operations return structured results with per-step
  * outcomes and real error details; failures also log to the main console.
  */
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { randomBytes, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { platform } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -46,7 +47,7 @@ function logError(message) {
  * @param {() => string | null} deps.locatePaneDist    Directory holding the built task pane bundle, or null.
  * @param {() => Promise<unknown>} deps.requestServerRestart  Restart the embedded server so listener state applies.
  */
-export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist, requestServerRestart }) {
+export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist, requestServerRestart, createPlatformBackend = createOfficeAddinPlatformBackend }) {
   const userDataDir = app.getPath("userData");
   const certDir = join(userDataDir, "office-addin-certs");
   const statePath = join(userDataDir, "office-addins.json");
@@ -59,7 +60,7 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
     };
   }
 
-  const backend = createOfficeAddinPlatformBackend({ userDataDir, certPaths: certPaths() });
+  const backend = createPlatformBackend({ userDataDir, certPaths: certPaths() });
 
   function unsupportedResult(steps = []) {
     return {
@@ -89,17 +90,24 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
       }
       return {
         apps,
+        capability: typeof parsed.capability === "string" && /^[a-f0-9]{64}$/.test(parsed.capability) ? parsed.capability : null,
         port: Number.isFinite(parsed.port) ? parsed.port : DEFAULT_PORT,
         installedAt: Number.isFinite(parsed.installedAt) ? parsed.installedAt : null,
       };
     } catch {
-      return { apps: emptyApps(), port: DEFAULT_PORT, installedAt: null };
+      return { apps: emptyApps(), capability: null, port: DEFAULT_PORT, installedAt: null };
     }
   }
 
   function writeState(next) {
     mkdirSync(userDataDir, { recursive: true });
-    writeFileSync(statePath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+    const temporary = `${statePath}.${randomUUID()}.tmp`;
+    try {
+      writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+      renameSync(temporary, statePath);
+    } finally {
+      rmSync(temporary, { force: true });
+    }
   }
 
   function anyEnabled(state) {
@@ -110,15 +118,30 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
    * Server config the embedded server should launch with. Null when no app is
    * installed or the certificate is missing, so the listener stays off.
    */
-  function serverConfig() {
+  async function serverConfig() {
     const state = readState();
     if (!anyEnabled(state)) return null;
     const { leafCertPath, leafKeyPath } = certPaths();
     if (!existsSync(leafCertPath) || !existsSync(leafKeyPath)) return null;
+    // Upgrade existing installations before starting the listener: their old
+    // cached redirector would discard the new pairing fragment.
+    if (!backend) return null;
+    state.capability ||= randomBytes(32).toString("hex");
+    writeState(state);
+    for (const [appId, enabled] of Object.entries(state.apps)) {
+      if (!enabled) continue;
+      const manifest = await buildManifest(state.port, backend.manifestHost(appId), state.capability);
+      const result = manifest ? backend.writeManifest(appId, manifest) : null;
+      if (!result?.ok) {
+        logError("Could not refresh the paired Office manifest. Reinstall the add-in in settings.");
+        return null;
+      }
+    }
     const distPath = locatePaneDist?.() ?? undefined;
     return {
       wordAddin: true,
       wordAddinPort: state.port,
+      wordAddinCapability: state.capability,
       wordAddinCert: leafCertPath,
       wordAddinKey: leafKeyPath,
       ...(distPath ? { wordAddinDist: distPath } : {}),
@@ -126,7 +149,7 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
   }
 
   // ── Manifests ─────────────────────────────────────────────────────────
-  async function buildManifest(port, host) {
+  async function buildManifest(port, host, capability) {
     const dist = locateServerDist?.();
     if (!dist) return null;
     const modulePath = join(dist, "word-addin.js");
@@ -135,6 +158,7 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
     const version = typeof app.getVersion === "function" ? `${app.getVersion()}.0` : undefined;
     return buildWordAddinManifest({
       baseUrl: `https://localhost:${port}`,
+      capability,
       version,
       ...(host ? { host } : {}),
     });
@@ -231,7 +255,8 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
       return { ok: false, steps, status: status(), error: certError };
     }
 
-    const manifest = await buildManifest(state.port, backend.manifestHost(appId));
+    state.capability ||= randomBytes(32).toString("hex");
+    const manifest = await buildManifest(state.port, backend.manifestHost(appId), state.capability);
     if (!manifest) {
       const detail = "Could not build the add-in manifest (server bundle missing).";
       steps.push({ step: "manifest", ok: false, error: detail });
@@ -291,7 +316,7 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
       return { ok: false, steps, status: status(), error: removed.error };
     }
 
-    writeState({ apps: nextApps, port: state.port, installedAt: lastOne ? null : state.installedAt });
+    writeState({ apps: nextApps, port: state.port, capability: lastOne ? null : state.capability, installedAt: lastOne ? null : state.installedAt });
     await applyListenerState(steps);
 
     return { ok: true, steps, status: status() };

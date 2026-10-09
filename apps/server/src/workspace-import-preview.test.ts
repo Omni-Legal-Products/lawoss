@@ -755,7 +755,7 @@ describe("workspace import preview", () => {
     }
   });
 
-  test("replace import keeps existing items when an incoming write fails", async () => {
+  test("replace import rejects an unusable incoming path before touching existing items", async () => {
     const workspace = await makeWorkspace();
     const dataDir = await mkdtemp(join(tmpdir(), "legalwork-import-preview-data-"));
     tempDirs.push(dataDir);
@@ -776,21 +776,13 @@ describe("workspace import preview", () => {
         Authorization: "Bearer test-token",
         "Content-Type": "application/json",
       };
-      const response = await silenceExpectedServerError(() =>
-        requestWorkspaceImportWithPreview(baseUrl, headers, {
-          mode: { skills: "replace" },
-          skills: [
-            {
-              name: "new",
-              description: "New skill",
-              content: "new skill\n",
-            },
-          ],
-        }),
-      );
-
-      expect(response.ok).toBe(false);
-      expect(response.status).toBe(500);
+      const payload = { mode: { skills: "replace" }, skills: [{ name: "new", description: "New skill", content: "new skill\n" }] };
+      // Containment now validates missing-target ancestors during preview too.
+      // A regular file cannot be the parent of SKILL.md; reject before any delete.
+      for (const route of ["import/preview", "import"]) {
+        const response = await fetch(`${baseUrl}/workspace/workspace/${route}`, { method: "POST", headers, body: JSON.stringify(payload) });
+        expect(response.status).toBe(400);
+      }
       expect(await readFile(join(workspace, ".opencode", "skills", "old", "SKILL.md"), "utf8")).toBe("old skill\n");
       expect(await readFile(join(workspace, ".opencode", "skills", "new"), "utf8")).toBe(
         "blocks new skill directory\n",

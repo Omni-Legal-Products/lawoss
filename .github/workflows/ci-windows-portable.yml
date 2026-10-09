@@ -32,6 +32,14 @@ on:
       - apps/server/src/reload-watcher.test.ts
       - apps/server/src/routes/workspaces.ts
       - apps/server/src/routes/files.ts
+      - apps/server/src/frontmatter*
+      - apps/server/src/security-*
+      - apps/server/src/word-addin*
+      - apps/server/src/benchmarks/**
+      - apps/server/src/routes/benchmarks.ts
+      - apps/opencode-router/**
+      - apps/orchestrator/src/cli.ts
+      - apps/orchestrator/scripts/router-control-security.test.mjs
       - apps/server/src/paths.ts
       - apps/server/src/server.ts
       - apps/server/src/embedded.ts
@@ -72,6 +80,14 @@ on:
       - apps/server/src/reload-watcher.test.ts
       - apps/server/src/routes/workspaces.ts
       - apps/server/src/routes/files.ts
+      - apps/server/src/frontmatter*
+      - apps/server/src/security-*
+      - apps/server/src/word-addin*
+      - apps/server/src/benchmarks/**
+      - apps/server/src/routes/benchmarks.ts
+      - apps/opencode-router/**
+      - apps/orchestrator/src/cli.ts
+      - apps/orchestrator/scripts/router-control-security.test.mjs
       - apps/server/src/paths.ts
       - apps/server/src/server.ts
       - apps/server/src/embedded.ts
@@ -135,3 +151,12 @@ jobs:
       - name: LAWOSS server (onboarding, register existing, triage, memory, paths, containment, reload watcher, process tree)
         working-directory: apps/server
         run: bun test lawoss reload-watcher
+
+      - name: Security boundaries and Windows archive destinations
+        working-directory: apps/server
+        run: bun test src/frontmatter.test.ts src/frontmatter-security.e2e.test.ts src/security-auth-boundaries.e2e.test.ts src/security-file-boundary.e2e.test.ts src/word-addin.e2e.test.ts src/word-addin-shell.test.ts src/benchmarks/document-path.test.ts src/benchmarks/task-zip.test.ts src/benchmarks/harvey-catalog.test.ts
+
+      - name: Messaging control and local media isolation
+        run: |
+          pnpm --filter opencode-router test:unit
+          node --test apps/orchestrator/scripts/router-control-security.test.mjs

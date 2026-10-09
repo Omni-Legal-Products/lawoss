@@ -1,5 +1,14 @@
 import matter from "gray-matter";
 import { stringify } from "yaml";
+import { ApiError } from "./errors.js";
+
+// gray-matter merges built-in engines into options, and an inline language tag
+// overrides `language`. Disable the executable engine itself, including js aliases.
+const safeOptions = {
+  engines: {
+    javascript: () => { throw new ApiError(400, "invalid_frontmatter", "JavaScript frontmatter is not supported"); },
+  },
+};
 
 // Match OpenCode's ConfigMarkdown.parse: retry invalid YAML after rewriting
 // unquoted values containing colons as block scalars.
@@ -21,10 +30,10 @@ function sanitize(content: string): string {
 
 export function parseFrontmatter(content: string): { data: Record<string, unknown>; body: string } {
   try {
-    const parsed = matter(content);
+    const parsed = matter(content, safeOptions);
     return { data: parsed.data, body: parsed.content };
   } catch {
-    const parsed = matter(sanitize(content));
+    const parsed = matter(sanitize(content), safeOptions);
     return { data: parsed.data, body: parsed.content };
   }
 }

@@ -1506,7 +1506,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       recorder,
       // Word/Excel/PowerPoint add-in listener — enabled via the Office Add-ins
       // settings tab; null when not installed so the listener stays off.
-      ...(officeAddinManager.serverConfig() ?? {}),
+      ...((await officeAddinManager.serverConfig()) ?? {}),
     });
     inProcessServer = handle;
     legalworkServerState.managedOpencodeExecution = handle.managedOpencodeExecution ?? null;

@@ -53,7 +53,7 @@ function baseConfig(root: string, wordAddin?: WordAddinConfig): ServerConfig {
     hostTokenSource: "cli",
     logFormat: "json",
     logRequests: false,
-    wordAddin,
+    wordAddin: wordAddin ? { capability: "a".repeat(64), ...wordAddin } : undefined,
   };
 }
 
@@ -72,7 +72,7 @@ describe("word add-in hosting", () => {
     expect(response.status).toBe(404);
   });
 
-  test("serves bootstrap token without CORS headers", async () => {
+  test("requires the installation capability before disclosing bootstrap tokens", async () => {
     const root = await createTempRoot();
     const dist = await createDistBundle(root);
     const { baseUrl } = await startTestServer(
@@ -85,12 +85,24 @@ describe("word add-in hosting", () => {
       }),
     );
 
+    const deniedHeaders: Record<string, string>[] = [{}, { "X-LegalWork-Office-Capability": "wrong" }, { "X-LegalWork-Office-Capability": "a".repeat(64), Origin: "https://evil.example" }];
+    for (const headers of deniedHeaders) {
+      const denied = await fetch(`${baseUrl}/word-addin/bootstrap`, { headers });
+      expect(denied.status).toBe(401);
+      const body = await denied.text();
+      expect(body).not.toContain("owt_test_client_token");
+      expect(body).not.toContain("host_test_token");
+    }
     const response = await fetch(`${baseUrl}/word-addin/bootstrap`, {
-      headers: { Origin: "https://evil.example" },
+      headers: { "X-LegalWork-Office-Capability": "a".repeat(64), Origin: baseUrl },
     });
     expect(response.status).toBe(200);
     const body = (await response.json()) as { token?: string };
     expect(body.token).toBe("owt_test_client_token");
+    const officeOrigin = await fetch(`${baseUrl}/word-addin/bootstrap`, {
+      headers: { "X-LegalWork-Office-Capability": "a".repeat(64), Origin: "https://localhost:45999" },
+    });
+    expect(officeOrigin.status).toBe(200);
     // The bootstrap payload contains the client token; it must never be
     // readable cross-origin, so no ACAO header even though corsOrigins is *.
     expect(response.headers.get("access-control-allow-origin")).toBeNull();
@@ -183,11 +195,15 @@ describe("word add-in hosting", () => {
       }),
     );
 
-    const response = await fetch(`${baseUrl}/word-addin/manifest.xml`);
+    const unauthenticated = await fetch(`${baseUrl}/word-addin/manifest.xml`);
+    expect(unauthenticated.status).toBe(401);
+    expect(await unauthenticated.text()).not.toContain("a".repeat(64));
+    const response = await fetch(`${baseUrl}/word-addin/manifest.xml`, { headers: { "X-LegalWork-Host-Token": "host_test_token" } });
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("application/xml");
     const xml = await response.text();
     expect(xml).toContain("https://localhost:45999/word-addin/taskpane.html");
+    expect(xml).toContain("?pairing=2#capability=" + "a".repeat(64));
     expect(xml).toContain('xsi:type="TaskPaneApp"');
     expect(xml).toContain("<Host Name=\"Document\"/>");
   });
@@ -220,7 +236,7 @@ describe("buildWordAddinManifest", () => {
   test("escapes the base URL and falls back to a valid version", () => {
     const xml = buildWordAddinManifest({ baseUrl: "https://localhost:47443/", version: "not-a-version" });
     expect(xml).toContain("<Version>1.0.0.0</Version>");
-    expect(xml).toContain('SourceLocation DefaultValue="https://localhost:47443/word-addin/taskpane.html"');
+    expect(xml).toContain('SourceLocation DefaultValue="https://localhost:47443/word-addin/taskpane.html?pairing=2"');
     expect(xml).not.toContain("47443//word-addin");
   });
 

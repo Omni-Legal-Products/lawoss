@@ -86,6 +86,19 @@ describe("parseTasksZip", () => {
     const { tasks } = parseTasksZip(zip);
     expect(tasks[0].documents).toHaveLength(0);
   });
+
+  test("rejects Windows traversal and aliases while retaining nested portable documents", () => {
+    const files: Record<string, Uint8Array> = {
+      "t/task.json": strToU8(JSON.stringify({ title: "T", work_type: "draft", instructions: "Do it.", criteria: [{ match_criteria: "P." }] })),
+      "t/documents/nested/input.txt": strToU8("valid"),
+    };
+    for (const name of ["..\\escape.txt", "a/..\\..\\escape.txt", "C:\\escape", "C:escape", "/absolute", "\\\\host\\share\\file", "file:stream", "./dot", "nul.txt", "a/COM1", "file.", "file ", "a\0b"]) {
+      files[`t/documents/${name}`] = strToU8("rejected");
+    }
+    const { tasks, failed } = parseTasksZip(zipSync(files));
+    expect(failed).toHaveLength(0);
+    expect(tasks[0].documents.map(({ name }) => name)).toEqual(["nested/input.txt"]);
+  });
 });
 
 describe("buildTasksZip round-trip", () => {
