@@ -2,12 +2,12 @@
  * „Toto som našiel“ (spec 2026-10-08): návrh úrovne, oprava, prax, otázka OKF, hromadné pridanie
  * a usporiadanie po jednom klientovi. Spoločná pre onboarding aj bočný panel („Pridať priečinok“).
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocale } from "@/i18n/use-locale";
 import { triageApply, triageReplan, type TriageClient, type TriagePreview } from "../roztriedenie/api";
 import { TriagePreviewView, useTriageText } from "../roztriedenie/triage-page";
 import type { OnboardingApi, OnboardingApplyResult, OnboardingSuggestion } from "./api";
-import { addOkfFiles, childPath, connectPractice, firstWorkspaceResult, folderName, matterClientPath, reorganizeTarget, retryFailed, startReorganize, type BatchItem, type FoundIdentity } from "./found-flow";
+import { addOkfFiles, childPath, connectPractice, firstWorkspaceResult, folderName, matterClientPath, reorganizeTarget, retryFailed, startReorganize, workspaceResults, type BatchItem, type FoundIdentity } from "./found-flow";
 import type { FoundTextKey } from "./found-text";
 import { OkfNotice } from "./okf-notice";
 export { OkfNotice } from "./okf-notice";
@@ -176,6 +176,8 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
   const [scope, setScope] = useState<Scope>("client");
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  // Klienti dávky praxe: koniec toku (aj po usporiadaní po jednom) ich odovzdá všetkých, nie len prvého.
+  const batchClients = useRef<OnboardingApplyResult[]>([]);
   const today = new Date();
 
   // Závislosti sú zámerne len [api, root]: onError od volajúceho je pri každom vykreslení nová
@@ -210,7 +212,7 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
    */
   const nextReorganize = async (queue: readonly BatchItem[], result?: OnboardingApplyResult): Promise<void> => {
     const [current, ...rest] = queue;
-    if (!current) { await onDone(result); return; }
+    if (!current) { await onDone(result, batchClients.current.length ? { clients: batchClients.current } : undefined); return; }
     let preview: TriagePreview;
     try {
       preview = await startReorganize(triage, reorganizeTarget(current));
@@ -268,8 +270,9 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
   if (phase.name === "batch") {
     const continueBatch = () => run(async () => {
       const done = phase.items.filter(item => item.status === "done");
+      batchClients.current = workspaceResults(phase.items);
       if (phase.answer === "yes") await nextReorganize(done, firstWorkspaceResult(phase.items));
-      else await onDone(firstWorkspaceResult(phase.items));
+      else await onDone(firstWorkspaceResult(phase.items), { clients: batchClients.current });
     });
     const retry = () => run(async () => {
       const progress = (next: BatchItem[]) => setPhase({ name: "batch", items: next, answer: phase.answer });

@@ -18,6 +18,7 @@ import { authorAfterOnboarding } from "@/lawoss/okf/lawyer-name";
 import { markAllWhatsNewSeen } from "./whats-new";
 import { canonicalPathOf, withCanonicalPaths } from "@/lawoss/domains/onboarding/typed-paths";
 import { watchLegalworkConnection } from "@/lawoss/domains/onboarding/server-connection";
+import { registerOtherClients } from "@/lawoss/domains/onboarding/register-clients";
 
 // 🟡 LAWOSS: napísané a vložené cesty idú na server v tvare ako vybrané v dialógu (Windows, typed-paths.ts); v prehliadači bez zmeny.
 const typedPaths = (client: LegalworkServerClient) => isDesktopRuntime() ? withCanonicalPaths(client, canonicalDirectoryPath) : client;
@@ -71,7 +72,9 @@ export function WelcomeRoute() {
       if (!native || native.id !== workspace.id) throw new Error("Client registration did not preserve workspace identity.");
       await workspaceSetSelected(native.id);
       await workspaceSetRuntimeActive(native.id);
-      await ensureDesktopLocalLegalworkConnection({ route: "session", workspace: native, allWorkspaces: nativeList.workspaces });
+      // 🟡 LAWOSS: ostatní klienti dávky praxe sú samostatné pracovné priečinky (register-clients.ts).
+      const others = await registerOtherClients(completion?.clients ?? [], native.id, (other, client) => workspaceCreate({ folderPath: other.path, name: other.displayName ?? other.path.split(/[\\/]/).pop() ?? "Client", preset: "starter", registerExisting: true, appFiles: client.appFiles }));
+      await ensureDesktopLocalLegalworkConnection({ route: "session", workspace: native, allWorkspaces: (others ?? nativeList).workspaces });
       activeId = native.id;
     }
     if (activeId) {
@@ -79,6 +82,8 @@ export function WelcomeRoute() {
       const activeClient = createLegalworkServerClient({ baseUrl: connection.normalizedBaseUrl, token: connection.resolvedToken, hostToken: connection.resolvedHostToken });
       await activeClient.activateWorkspace(activeId, { persist: true });
       if (okf) await installMissingOnboardingSkills(activeClient, activeId, status.profile?.language ?? "sk");
+      // Skilly ostatným klientom dávky; zlyhanie neprekazí dokončenie, pri otvorení klienta sa doplnia.
+      if (okf) for (const other of completion?.clients ?? []) if (other.workspace && other.workspace.id !== activeId) await installMissingOnboardingSkills(activeClient, other.workspace.id, status.profile?.language ?? "sk").catch((reason: unknown) => console.warn("[lawoss] OKF skills for another practice client", reason));
       writeActiveWorkspaceId(activeId);
     }
     local.setPrefs((previous) => ({ ...previous, documentAuthor: authorAfterOnboarding(previous.documentAuthor, status.profile?.lawyerName), hasCompletedOnboarding: true }));

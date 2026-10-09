@@ -534,7 +534,11 @@ async function clientTitleFor(api: WelcomeApi, root: string): Promise<string> {
   return api.listWorkspaces().then((list) => clientTitleOf(reader, list.items, root)).catch(() => fallback);
 }
 /** Completion details that are not an onboarding apply result. */
-export type OnboardingCompletion = { workingFolder?: string };
+export type OnboardingCompletion = {
+  workingFolder?: string;
+  /** Všetci klienti dávky praxe s pracovným priečinkom (aj prvý); volajúci každého zaregistruje. */
+  clients?: OnboardingApplyResult[];
+};
 type Props = {
   api: WelcomeApi;
   initialStep?: OnboardingStep;

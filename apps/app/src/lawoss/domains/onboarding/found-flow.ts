@@ -151,6 +151,11 @@ export function firstWorkspaceResult(items: readonly BatchItem[]): OnboardingApp
   return items.find(item => item.status === "done" && item.result?.workspace)?.result;
 }
 
+/** Všetci úspešní klienti dávky s pracovným priečinkom, v poradí dávky (spec: každý je samostatný pracovný priečinok). */
+export function workspaceResults(items: readonly BatchItem[]): OnboardingApplyResult[] {
+  return items.flatMap(item => item.status === "done" && item.result?.workspace ? [item.result] : []);
+}
+
 /** Cieľ usporiadania: zaregistrovaný pracovný priečinok, inak koreň klienta, inak pôvodná cesta. */
 export function reorganizeTarget(item: BatchItem): string {
   return item.result?.workspace?.path ?? item.result?.clientRoot ?? item.root;

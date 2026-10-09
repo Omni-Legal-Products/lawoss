@@ -3,7 +3,7 @@ import type { OnboardingApi, OnboardingApplyResult, OnboardingPlanRequest, Onboa
 import type { TriageApiPath } from "../src/lawoss/domains/roztriedenie/api";
 import {
   addOkfFiles, childPath, connectPractice, convertRequest, documentLanguage, firstWorkspaceResult,
-  folderName, freshOfficeRequest, startFreshFolder, isEmptyFolderSuggestion, matterClientPath, parentPath, practiceRequest, reorganizeTarget, retryFailed, startReorganize, type BatchItem,
+  folderName, freshOfficeRequest, workspaceResults, startFreshFolder, isEmptyFolderSuggestion, matterClientPath, parentPath, practiceRequest, reorganizeTarget, retryFailed, startReorganize, type BatchItem,
 } from "../src/lawoss/domains/onboarding/found-flow";
 
 const identity = { lawyerName: "Syntetický advokát", jurisdiction: "sk" as const, language: "sk" as const };
@@ -61,6 +61,8 @@ describe("hromadné pridanie OKF súborov", () => {
     expect(applied).toHaveLength(2);
     expect(progress.at(-1)).toEqual(items);
     expect(firstWorkspaceResult(items)?.workspace?.path).toBe("/p/Alfa");
+    // Spec: každý potvrdený klient je samostatný pracovný priečinok, nie len prvý.
+    expect(workspaceResults(items).map(result => result.workspace?.path)).toEqual(["/p/Alfa", "/p/Gama"]);
     const again = await retryFailed(api, items, identity, today, () => undefined);
     expect(again.map(item => item.status)).toEqual(["done", "failed", "done"]);
     expect(applied).toHaveLength(2);
