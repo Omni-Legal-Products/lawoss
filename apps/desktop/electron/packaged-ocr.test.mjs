@@ -86,8 +86,10 @@ async function sidecarFixture(t, platform, arch) {
       throw new Error(`Unexpected hook dependency: ${name}`);
     },
   });
+  const afterPack = module.exports;
+  assert.ok(typeof afterPack === "function", "afterPack must export a callable hook");
   return {
-    run: (contextArch) => module.exports({
+    run: (contextArch) => afterPack({
       appOutDir: root, electronPlatformName: platform, arch: contextArch,
       packager: { appInfo: { productFilename: "LAWOSS" } },
     }),
