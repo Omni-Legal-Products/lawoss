@@ -23,7 +23,7 @@ Akceptačný beh plánu C2 (úloha 9) na zabalenej appke z vetvy `feat/onboardin
 
 Oprava sú dva commity na `feat/onboarding-c2` (pôvodne [lawoss#144](https://github.com/Omni-Legal-Products/lawoss/pull/144), zatvorený): úvodné stránky `/dnes` a `/home` povolia presmerovanie na `/welcome` pri prvom spustení (`firstRunRedirect`) a `/welcome` čaká na udalosť `legalwork-server-settings-changed` (`lawoss/domains/onboarding/server-connection.ts`). Na `dev` ani v B sa chyba neprejavila. Mechanizmus pri C2 nie je určený. Behy C2 mali pri prvom štarte 7 až 15 timeoutov, `dev` a B ani jeden. Ponechávam to ako nález pre tím.
 
-Ukončenie appky skončilo SIGTRAP (exit 133, `CrShutdownDetector`, `node::sqlite::DatabaseSync`) vo všetkých behoch B a C. `dev` sa ukončil čisto (exit 0). Diagnostika je samostatná úloha.
+Ukončenie appky skončilo SIGTRAP (exit 133) vo všetkých behoch B a C, `dev` sa ukončil čisto (exit 0). Príčina je opravená na `dev` v [lawoss#141](https://github.com/Omni-Legal-Products/lawoss/pull/141) (`c7490d4f`, stráž navigácie volala `stop()` počas shutdown obrazovky). Vetvy A, B a C sú staršie ako táto oprava a dostanú ju po aktualizácii z `dev`.
 
 ## Cesta 1: Klient (profil d3)
 
@@ -82,5 +82,5 @@ Bočný panel → Pridať priečinok → Začať nanovo → `Nová prax`.
 | P1 | „Vrátiť“ po usporiadaní na mieste nemá v lite vstup | Otvorené |
 | P2 | `_STATUS.md` sľúbený, ale nevznikne | Otvorené |
 | P2 | „Usporiadať podľa OKF“ z bočného panela bez priameho „Zrušiť“ | Otvorené |
-| P2 | Pomalý prvý štart buildov C (7 až 15 timeoutov), SIGTRAP pri ukončení od B | Na diagnostiku |
+| P2 | Pomalý prvý štart buildov C (7 až 15 timeoutov, `dev` a B 0) | Na diagnostiku |
 | P3 | Úzky stĺpec Dokument v náhľade, „Zrušiť“ po dokončenom zápise, rovnaké názvy workspace | Otvorené |
