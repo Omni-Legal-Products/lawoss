@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertCircle, ChevronRight, Eye, EyeOff, RotateCw, X } from "lucide-react";
+import { AlertCircle, ArrowUpDown, ChevronRight, Eye, EyeOff, RotateCw, X } from "lucide-react";
 
 import type {
   LegalworkServerClient,
@@ -9,6 +9,7 @@ import type {
   LegalworkWorkspaceDirectoryList,
 } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn, formatFileSize } from "@/lib/utils";
@@ -23,8 +24,10 @@ import { classifyOpenTarget } from "../artifacts/open-target";
 import { projectFileDisplayName } from "../../workspace/project-note-title";
 import { writeWorkspaceFileDrag } from "@/app/lib/workspace-file-drag";
 import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
 import { projectErrorMessage } from "../../workspace/project-errors";
 import { ProjectFilesDropzone } from "../../workspace/project-files-dropzone";
+import { isSortDirection, isSortKey, readWorkspaceFileSort, sortWorkspaceEntries, writeWorkspaceFileSort, type WorkspaceFileSort } from "./workspace-file-sort";
 
 type WorkspaceFilesPanelProps = {
   client: LegalworkServerClient | null;
@@ -42,6 +45,8 @@ const SKELETON_ROW_WIDTHS = ["56%", "72%", "44%", "64%", "38%", "52%"];
 
 // Remember the folder when navigating away from a workspace and back.
 const lastPathByWorkspace = new Map<string, string>();
+const SORT_KEYS: WorkspaceFileSort["key"][] = ["name", "date", "size", "type"];
+const SORT_DIRECTIONS: WorkspaceFileSort["direction"][] = ["asc", "desc"];
 
 function workspaceDisplayName(workspaceRoot: string): string {
   const cleaned = workspaceRoot.trim().replace(/[/\\]+$/, "");
@@ -62,6 +67,30 @@ export function WorkspaceFilesPanel({
 }: WorkspaceFilesPanelProps) {
   const [path, setPath] = React.useState(() => (workspaceId ? lastPathByWorkspace.get(workspaceId) ?? "" : ""));
   const [showHidden, setShowHidden] = React.useState(false);
+  const locale = useLocale();
+  const [sortState, setSortState] = React.useState(() => ({ workspaceId, value: readWorkspaceFileSort(workspaceId) }));
+  const sortKeyLabels = {
+    name: t("workspace_files.sort_name"),
+    date: t("workspace_files.sort_date"),
+    size: t("workspace_files.sort_size"),
+    type: t("workspace_files.sort_type"),
+  };
+  const sortDirectionLabels = {
+    asc: t("workspace_files.sort_asc"),
+    desc: t("workspace_files.sort_desc"),
+  };
+  // Read the new workspace's preference before rendering it. Persist only user
+  // changes, so a workspace switch cannot save the previous workspace's sort.
+  const sort = sortState.workspaceId === workspaceId ? sortState.value : readWorkspaceFileSort(workspaceId);
+  const changeSort = (next: WorkspaceFileSort) => {
+    setSortState({ workspaceId, value: next });
+    writeWorkspaceFileSort(workspaceId, next);
+    listRef.current?.scrollTo({ top: 0 });
+  };
+  const sortLabel = t("workspace_files.sort_current", {
+    field: sortKeyLabels[sort.key],
+    direction: sortDirectionLabels[sort.direction],
+  });
 
   React.useEffect(() => {
     if (workspaceId) {
@@ -101,8 +130,8 @@ export function WorkspaceFilesPanel({
 
   const visibleEntries = React.useMemo(() => {
     const entries = data?.entries ?? [];
-    return showHidden ? entries : entries.filter((entry) => !entry.name.startsWith("."));
-  }, [data?.entries, showHidden]);
+    return sortWorkspaceEntries(showHidden ? entries : entries.filter((entry) => !entry.name.startsWith(".")), sort, locale);
+  }, [data?.entries, showHidden, sort.key, sort.direction, locale]);
 
   const hiddenCount = (data?.entries.length ?? 0) - visibleEntries.length;
 
@@ -121,6 +150,34 @@ export function WorkspaceFilesPanel({
       <ProjectFilesDropzone projectId={workspaceId ?? ""} workspaceId={workspaceId ?? ""} isRemoteWorkspace={isRemoteWorkspace || !client || !workspaceId} destinationPath={path}>
       <div className="flex h-full min-h-0 flex-col bg-background/90">
         <PanelHeader headerTarget={headerTarget} title={t("workspace_files.files")}>
+          <DropdownMenu>
+            <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={sortLabel} title={sortLabel} disabled={!workspaceId} />}>
+              <ArrowUpDown />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>{t("workspace_files.sort_by")}</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={sort.key} onValueChange={(key) => {
+                  if (isSortKey(key)) changeSort({ ...sort, key });
+                }}>
+                  {SORT_KEYS.map((key) => <DropdownMenuRadioItem key={key} value={key} closeOnClick>
+                    {sortKeyLabels[key]}
+                  </DropdownMenuRadioItem>)}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>{t("workspace_files.sort_order")}</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={sort.direction} onValueChange={(direction) => {
+                  if (isSortDirection(direction)) changeSort({ ...sort, direction });
+                }}>
+                  {SORT_DIRECTIONS.map((direction) => <DropdownMenuRadioItem key={direction} value={direction} closeOnClick>
+                    {sortDirectionLabels[direction]}
+                  </DropdownMenuRadioItem>)}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Tooltip>
             <TooltipTrigger
               render={(
