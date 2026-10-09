@@ -17,6 +17,7 @@ import { parseFrontmatter } from "../frontmatter.ts";
 import { resolveDocumentLanguage } from "../language.ts";
 import { parseOfficeWorkingProfile, parseWorkingProfile, PROFILE_FILE, workingProfile } from "../profile.ts";
 import { inspectCardLevel, inspectOnboardingRoot, type InspectionHooks, type InspectionLimits, type OnboardingInspection, type TreeEntry } from "../onboarding/classify.ts";
+import { looksLikeMatterName } from "../onboarding/suggest-patterns.ts";
 import { findCaseNumber } from "./rules.ts";
 import { INVENTORY_SCHEMA, type ExistingMatter, type SkipReason, type TriageDocument, type TriageInventory } from "./types.ts";
 
@@ -199,6 +200,9 @@ export async function scanTriage(rootInput: string, options: { trialJournalDirec
       : CARD_NAMES.has(name.toLowerCase()) || SYSTEM_NAMES.test(name) ? "system_name"
       : matters.some(matter => under(entry.path, matter.path)) ? "in_matter"
       : entityDirs.some(dir => under(entry.path, dir)) ? "inside_entity"
+      // Priečinok pomenovaný ako vec (`2025-01 Spor`, spisová značka) je vec aj bez karty; rozpoznanie ho tak
+      // aj ohlási („klient s vecami“). Jeho dokumenty ostanú spolu na mieste, roztriedenie vec nerozpustí.
+      : entry.path.split("/").slice(0, -1).some(looksLikeMatterName) ? "in_matter"
       : sortedFolders.some(folder => under(entry.path, folder)) && !(inbox && under(entry.path, inbox)) ? "already_sorted"
       : undefined;
     if (reason) { if (reason !== "hidden") skipped.push({ path: entry.path, reason }); continue; }

@@ -81,6 +81,18 @@ test("usporiadanie na mieste a jeho úplné vrátenie", async () => {
   expect(await readdir(join(root, ".lawoss"))).toContain("reorganize.json");
 });
 
+test("priečinok veci bez karty (`2025-01 Spor`) sa nerozpustí, ostatné podpriečinky sa usporiadajú", async () => {
+  const root = await convertedClient();
+  await mkdir(join(root, "2025-01 Spor"));
+  await writeFile(join(root, "2025-01 Spor", "Žaloba.pdf"), "%PDF-1.4 synthetic claim in matter");
+  await grantInPlaceReorganize(root, NOW);
+  const inventory = await scanTriage(root);
+  expect(inventory.skipped).toContainEqual({ path: "2025-01 Spor/Žaloba.pdf", reason: "in_matter" });
+  const { plan } = await prepareTriage(root, { now: NOW });
+  expect(plan.moves.some(move => move.from.startsWith("2025-01 Spor/"))).toBe(false);
+  expect(plan.moves.some(move => move.from === "Stare/priloha.pdf")).toBe(true);
+});
+
 /** Zámok simulovaný chybou EBUSY pri otvorení súboru (Word na Windows). */
 function lockHooks(locked: string) {
   return {
