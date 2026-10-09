@@ -90,6 +90,7 @@ import {
   safeStringify,
 } from "@/app/utils";
 import { t } from "@/i18n";
+import { withoutLawossHome } from "@/lawoss/home-workspace";
 import { isCommercialSurfaceHidden, isHiddenSettingsTab } from "@/lawoss/feature-flags";
 import {
   type RouteWorkspace,
@@ -650,7 +651,7 @@ export function SessionRoute() {
   // navigation still works.
   const hiddenTemplateWorkspaceIds = useHiddenTemplateWorkspaceIds();
   const sidebarWorkspaces = useMemo(
-    () => workspaces.filter((workspace) => !hiddenTemplateWorkspaceIds.includes(workspace.id)),
+    () => withoutLawossHome(workspaces).filter((workspace) => !hiddenTemplateWorkspaceIds.includes(workspace.id)),
     [hiddenTemplateWorkspaceIds, workspaces],
   );
   const workspaceSessionGroups = useMemo(

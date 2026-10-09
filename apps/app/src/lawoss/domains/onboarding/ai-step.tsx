@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { useEffect, useState } from "react";
+import { preferRealWorkspace } from "../../home-workspace";
 import { CircleAlert, CircleCheck, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Language } from "@/i18n";
@@ -160,8 +161,8 @@ async function resolveOpencodeTarget(): Promise<OpencodeTarget | null> {
   });
   const list = await server.listWorkspaces();
   const workspace =
-    list.items.find((item) => item.id === list.activeId) ??
-    list.items.find((item) => item.workspaceType !== "remote");
+    preferRealWorkspace(list.items, list.activeId, (item) => item.id) ??
+    list.items.find((item) => item.id === list.activeId);
   if (!workspace) return null;
   const endpoint = resolveWorkspaceEndpoint(workspace, {
     baseUrl: connection.normalizedBaseUrl,

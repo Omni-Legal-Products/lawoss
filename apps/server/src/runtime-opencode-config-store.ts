@@ -236,6 +236,18 @@ export async function readGlobalMcpMap(config: ServerConfig): Promise<Record<str
   return runtimeMcpMap(await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID));
 }
 
+/**
+ * LAWOSS: vlastní poskytovatelia (Ollama, LM Studio, OpenAI-compatible) pre každý priečinok,
+ * ako konektory v GLOBAL_MCP_ID. Prihlásenia (auth.json) sú v engine globálne už dnes;
+ * bez tohto riadku by sa vlastný poskytovateľ stratil pri prechode na iný priečinok.
+ */
+export const GLOBAL_PROVIDERS_ID = "__global_providers__";
+
+export async function readGlobalProviderMap(config: ServerConfig): Promise<Record<string, unknown>> {
+  const provider = (await readRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID)).provider;
+  return isRecord(provider) ? { ...provider } : {};
+}
+
 export async function readGlobalPersonalizationSettings(
   config: ServerConfig,
 ): Promise<PersonalizationSettings> {
