@@ -235,15 +235,22 @@ describe("runtime OpenCode config store", () => {
           body: JSON.stringify({ opencode: { provider: { synthetic: { name: "Synthetic" } } } }),
         });
         expect(runtimeResponse.status).toBe(200);
-        // LAWOSS: vlastní poskytovatelia sú globálni (GLOBAL_PROVIDERS_ID), riadok priečinka ich nemá.
+        // LAWOSS: providers are shared across workspaces, while this workspace's
+        // application files still live outside the client directory.
         expect((await readRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID)).provider).toEqual({
           synthetic: { name: "Synthetic" },
         });
-        expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).provider ?? {}).toEqual({});
-        const engineConfig = JSON.parse(await buildLegalworkRuntimeConfig(config, WORKSPACE_ID)) as {
-          provider?: Record<string, unknown>;
-        };
+        expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).provider).toBeUndefined();
+        const effectiveResponse = await fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/config`, {
+          headers: { authorization: `Bearer ${config.token}` },
+        });
+        expect(effectiveResponse.status).toBe(200);
+        const effective: { opencode?: { provider?: Record<string, unknown> } } = await effectiveResponse.json();
+        expect(effective.opencode?.provider?.synthetic).toEqual({ name: "Synthetic" });
+        const engineConfig: { provider?: Record<string, unknown> } = JSON.parse(await buildLegalworkRuntimeConfig(config, WORKSPACE_ID));
         expect(engineConfig.provider?.synthetic).toEqual({ name: "Synthetic" });
+        expect(await readFile(projectConfigPath, "utf8")).toBe(originalProjectConfig);
+        expect(await readFile(join(root, "client-record.txt"), "utf8")).toBe("original client record");
       } finally {
         await server.stop(true);
       }
