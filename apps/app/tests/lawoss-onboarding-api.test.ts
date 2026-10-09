@@ -15,4 +15,9 @@ describe("LAWOSS onboarding request contract", () => {
     expect(request.action).toBe("matter");
     if (request.action === "matter") expect(request.kind).toBe("non_contentious");
   });
+
+  test("plán praxe je súčasť únie požiadaviek", () => {
+    const request: OnboardingPlanRequest = { action: "practice", root: "/p", title: "Prax", jurisdiction: "sk", language: "sk", lawyerName: "L", clientPattern: "*", scope: "client" };
+    expect(request.action).toBe("practice");
+  });
 });

@@ -38,6 +38,8 @@ const child = spawn(path.resolve(target), process.platform === "linux" ? ["--no-
   detached: process.platform !== "win32",
   stdio: ["ignore", "pipe", "pipe"],
 });
+// Subscribe before polling: a failed app may close before cleanup begins.
+const closed = new Promise((resolve) => child.once("close", resolve));
 child.on("error", (error) => { launchError = error; });
 child.stdout.on("data", (chunk) => { output += chunk; });
 child.stderr.on("data", (chunk) => { output += chunk; });
@@ -69,7 +71,6 @@ try {
   console.error(output);
   throw error;
 } finally {
-  const closed = new Promise((resolve) => child.once("close", resolve));
   const terminate = (signal) => {
     if (process.platform === "win32" || !child.pid) { child.kill(signal); return; }
     try { process.kill(-child.pid, signal); }

@@ -104,7 +104,7 @@ function findOpencodeSessionDbPath(sessionId: string, inputPath?: string): strin
   for (const dbPath of candidates) {
     const db = new Database(dbPath, { readonly: true });
     try {
-      const session = db.prepare("select id from session where id = ?1").get(sessionId);
+      const session = db.prepare("select id from session where id = ?").get(sessionId);
       if (session) return dbPath;
     } catch {
       // ignore non-matching dbs
@@ -162,23 +162,23 @@ export function seedOpencodeSessionMessages(input: {
 
   try {
     const run = db.transaction(() => {
-      const session = db.prepare("select id from session where id = ?1").get(sessionId);
+      const session = db.prepare("select id from session where id = ?").get(sessionId);
       if (!session) {
         throw new Error(`OpenCode session not found: ${sessionId}`);
       }
 
-      const existing = db.prepare("select count(1) as count from message where session_id = ?1").get(sessionId) as { count?: number } | null;
+      const existing = db.prepare("select count(1) as count from message where session_id = ?").get(sessionId) as { count?: number } | null;
       if ((existing?.count ?? 0) > 0) {
         return { inserted: 0, skipped: true };
       }
 
       const insertMessage = db.prepare(
-        "insert into message (id, session_id, time_created, time_updated, data) values (?1, ?2, ?3, ?4, ?5)",
+        "insert into message (id, session_id, time_created, time_updated, data) values (?, ?, ?, ?, ?)",
       );
       const insertPart = db.prepare(
-        "insert into part (id, message_id, session_id, time_created, time_updated, data) values (?1, ?2, ?3, ?4, ?5, ?6)",
+        "insert into part (id, message_id, session_id, time_created, time_updated, data) values (?, ?, ?, ?, ?, ?)",
       );
-      const updateSession = db.prepare("update session set time_updated = ?2 where id = ?1");
+      const updateSession = db.prepare("update session set time_updated = ? where id = ?");
 
       const startedAt = input.now ?? Date.now();
       let counter = 0;
@@ -228,7 +228,7 @@ export function seedOpencodeSessionMessages(input: {
         }
       });
 
-      updateSession.run(sessionId, startedAt + messages.length);
+      updateSession.run(startedAt + messages.length, sessionId);
       return { inserted: messages.length, skipped: false };
     });
 

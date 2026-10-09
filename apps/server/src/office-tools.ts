@@ -41,6 +41,7 @@ const CLIENT_LIVENESS_MS = 40_000;
 
 type PendingExecution = {
   request: OfficeToolRequest;
+  workspaceId: string;
   clientKey: string;
   resolve: (result: OfficeToolExecutionResult) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -161,7 +162,7 @@ export class OfficeToolRelay {
           error: `The Office pane did not answer within ${Math.round(timeout / 1000)}s. The document may be busy or the pane was closed.`,
         });
       }, timeout);
-      this.pending.set(request.id, { request, clientKey: key, resolve, timer });
+      this.pending.set(request.id, { request, workspaceId, clientKey: key, resolve, timer });
 
       const waiter = this.waiters.get(key)?.shift();
       if (waiter) {
@@ -224,9 +225,9 @@ export class OfficeToolRelay {
     });
   }
 
-  complete(requestId: string, result: OfficeToolExecutionResult): boolean {
+  complete(workspaceId: string, requestId: string, result: OfficeToolExecutionResult): boolean {
     const entry = this.pending.get(requestId);
-    if (!entry) return false;
+    if (!entry || entry.workspaceId !== workspaceId) return false;
     clearTimeout(entry.timer);
     this.pending.delete(requestId);
     entry.resolve(result);

@@ -11,7 +11,7 @@ import { addRoute, type RequestContext, type Route } from "../routes/registry.js
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { externalAppFilesRoot } from "./workspace-app-files.js";
 import { registerTriageRoutes } from "./triage.js";
-import { executeOnboarding, inspectOnboardingRoot, previewOnboarding, recoverOnboardingOperation, type OnboardingPreview, type OnboardingResult } from "./onboarding-runtime.js";
+import { executeOnboarding, inspectCardLevel, inspectOnboardingRoot, previewOnboarding, recoverOnboardingOperation, suggestOnboardingLevel, type OnboardingPreview, type OnboardingResult } from "./onboarding-runtime.js";
 
 /** OKF is opt-in; enabling it requires a dated acknowledgement of a versioned notice. */
 const okfChoiceSchema = z.strictObject({
@@ -28,11 +28,12 @@ const profileSchema = z.strictObject({
   matterRoot: z.string().min(1).max(4096).optional(),
   trial: z.boolean().optional(),
   okf: okfChoiceSchema.optional(),
-  step: z.enum(["identity", "okf", "office", "packs", "ai", "client", "matter", "done"]).optional(),
+  // Nový tok (spec 2026-10-08): identity, ai, folder, found, done. Staré hodnoty ostávajú pre uložené profily alfa testerov.
+  step: z.enum(["identity", "ai", "folder", "found", "okf", "office", "packs", "client", "matter", "done"]).optional(),
 });
 type Profile = z.infer<typeof profileSchema>;
 const previewSchema = z.looseObject({
-  action: z.enum(["office", "client", "subject", "matter", "existing"]),
+  action: z.enum(["office", "practice", "client", "subject", "matter", "existing"]),
   mode: z.enum(["new", "map", "trial_clone"]), appFiles: z.enum(["inside", "outside"]),
   root: z.string().min(1).optional(), target: z.string().min(1).optional(),
   clientRoot: z.string().min(1).optional(), officeMemoryRoot: z.string().min(1).optional(),
@@ -118,9 +119,11 @@ export function registerOnboardingRoutes(options: {
       for (const [key, level] of [["officeRoot", "office"], ["clientRoot", "client"], ["subjectRoot", "subject"], ["matterRoot", "matter"]] as const) {
         const path = profile[key]; if (!path) continue;
         await canonicalDirectory(path);
-        const inspection = await inspectOnboardingRoot(path);
+        // LAWOSS: identita z kariet v koreni (plytko). Plná inšpekcia celého stromu tu odmietala
+        // skutočných klientov (veľký strom, symlink, zamknutý dokument), chyba z callu 8. 10. 2026.
+        const identity = await inspectCardLevel(path);
         const mappedClient = key === "clientRoot" && config.workspaces.some(workspace => workspace.path === path && workspace.appFiles === "outside");
-        if (!mappedClient && (!inspection.complete || inspection.level !== level)) throw new ApiError(400, "invalid_scope", `Selected ${key} does not identify a complete ${level}.`);
+        if (!mappedClient && identity.level !== level) throw new ApiError(400, "invalid_scope", `Selected ${key} does not identify a ${level}.`);
       }
       if (profile.matterRoot && (!profile.clientRoot || !inside(profile.clientRoot, profile.matterRoot))) throw new ApiError(400, "invalid_scope", "Matter must be within the selected client.");
       if (profile.subjectRoot && (!profile.clientRoot || !inside(profile.clientRoot, profile.subjectRoot))) throw new ApiError(400, "invalid_scope", "Subject must be within the selected client.");
@@ -136,6 +139,12 @@ export function registerOnboardingRoutes(options: {
     const input = z.strictObject({ root: z.string().min(1).max(4096) }).parse(await body(ctx));
     const inspection = await inspectOnboardingRoot(input.root);
     return { ...inspection, memoryCandidates: inspection.memorySources };
+  });
+  // Návrh úrovne (prax, klient, vec) z mien priečinkov; nič nečíta z obsahu a nič nezapisuje (spec P4).
+  route("POST", "suggest", async ctx => {
+    const input = z.strictObject({ root: z.string().min(1).max(4096) }).parse(await body(ctx));
+    await canonicalDirectory(input.root);
+    return await suggestOnboardingLevel(input.root);
   });
   route("POST", "plan", async ctx => {
     const input = await body(ctx), preview = await previewOnboarding(input);
@@ -185,7 +194,8 @@ export function registerOnboardingRoutes(options: {
         await writeJson(receiptPath, { fingerprint: input.fingerprint, result });
       }
       if (result.status === "rolled_back") throw new ApiError(409, "onboarding_rolled_back", "This plan was rolled back. Create a new preview.");
-      if (ticket.preview.action === "office") return { result: repeated ? "already_applied" : "applied", ...result };
+      // Kancelária a prax nemajú pracovný priestor klienta; registrácia klientov praxe patrí do plánu C.
+      if (ticket.preview.action === "office" || ticket.preview.action === "practice") return { result: repeated ? "already_applied" : "applied", ...result };
       const clientRoot = result.clientRoot ?? (ticket.preview.action === "existing" || ticket.preview.action === "client" ? result.root : undefined);
       if (!clientRoot) throw new Error("Onboarding did not return a client workspace.");
       await canonicalDirectory(clientRoot);

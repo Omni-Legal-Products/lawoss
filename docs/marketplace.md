@@ -43,27 +43,63 @@ Each entry needs:
 - the human gate required before use;
 - intended install scope: workspace or global.
 
-The app currently ships a deterministic bundled catalog and renders an
-installation preview only. Opening a detail or preview does not install,
-connect, update or execute anything.
+## Current installation flow
 
-## Future GitHub registry flow
+The app ships a deterministic bundled catalog inside the native Settings
+integrations views. Opening an entry or requesting a plugin preview does not
+install it. Installation is a separate explicit action; installed and connected
+are separate states.
 
-The planned registry flow is:
+LAWOSS Marketplace plugins can be installed once for all clients or into the
+selected workspace. The global installer accepts only plugin paths in
+`Omni-Legal-Products/lawoss-marketplace` pinned to a full commit SHA. It reuses
+the upstream plugin bundle resolver and installer: skills go into the global
+OpenCode configuration directory, MCP configuration into the shared runtime
+database row, and the installation record retains source and version provenance.
+Plugin runtime resources are downloaded during installation.
 
-```text
-GitHub marketplace manifest
-  → schema/path/license validation
-  → pinned catalog entry
-  → installation preview
-  → explicit human confirmation
-  → deterministic installer
-```
+The workspace option uses the native plugin preview/import flow and its existing
+permissions. Bundled OKF skills use their workspace skill installer. Existing
+workspace plugin installations remain usable; moving a Marketplace plugin to
+the global scope is an explicit action with decisions for local changes. These
+paths do not create a parallel connector manager: native Settings continues to
+own permissions, connection state and refresh after installation.
 
-The future registry may be hosted in the LAWOSS GitHub organisation and should
-keep stable, lab, community and private sources distinguishable. The app must
-cache the last valid catalog for offline discovery and must not silently replace
-a pinned version.
+## Release checks, updates and removal
+
+The server checks releases of `Omni-Legal-Products/lawoss-marketplace`, falling
+back to the highest semantic-version tag when no release exists. It resolves
+the tag to a commit SHA before reading the marketplace manifest. The bundled
+catalog remains available offline; the last release-check result is persisted.
+
+Checks run when Marketplace opens, on a manual check, or when the optional
+weekly check becomes due. Reopening within 15 minutes reuses the saved result;
+a manual check bypasses that cooldown. Weekly checking is enabled by default
+and can be disabled. The first evaluation records the start of the interval
+without a network request; it does not download plugins at startup. Checks use
+only the marketplace repository's GitHub API and raw content endpoints and
+never install an update automatically.
+
+An explicit update compares installed files with their recorded SHA-256 hashes.
+Modified or missing files require a decision: keep the local version, replace
+it, or back it up before taking the new version. Removal and migration also
+protect local changes. Backups are retained under `lawoss-zalohy`; a disabled
+MCP remains disabled after update or migration.
+
+The host-authenticated API is `/lawoss/marketplace`, with separate check,
+settings, install, update, remove and move routes. Its implementation is in
+`apps/server/src/lawoss/marketplace-{routes,global,updates}.ts`.
+
+## Verification boundaries
+
+Server tests cover updates, local-edit decisions, backup failures, failed
+downloads, migration and removal. An isolated service smoke on 9 October 2026
+used the real GitHub `v0.1.0` release, pinned installation, duplicate installation,
+and removal with preservation of a local edit. It did not start plugin runtimes
+or exercise the visible app. Only one published release/tag existed, so a live
+update between two releases was not tested; update behavior is covered by
+controlled test fixtures. Installing a connector does not establish that its
+credentials are configured or its remote data source is available.
 
 ## Safety boundaries
 

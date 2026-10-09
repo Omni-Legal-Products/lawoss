@@ -1415,7 +1415,7 @@ function readManualStatus(raw, records, today = new Date().toISOString().slice(0
 // src/cli.ts
 import { createHash as createHash2 } from "node:crypto";
 import { existsSync as existsSync3, lstatSync as lstatSync4, mkdirSync as mkdirSync3, readFileSync as readFileSync3, writeFileSync as writeFileSync3 } from "node:fs";
-import { isAbsolute as isAbsolute3, join as join5, resolve as resolve4 } from "node:path";
+import { isAbsolute as isAbsolute3, join as join6, resolve as resolve4 } from "node:path";
 
 // src/store.ts
 import { existsSync as existsSync2, lstatSync, mkdirSync, readFileSync as readFileSync2, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -2950,13 +2950,13 @@ function composePreamble(records) {
 // src/workspace-memory-types.ts
 var WORKSPACE_MEMORY_LIMITS = Object.freeze({ profileBytes: 256 * 1024, journalBytes: 4 * 1024 * 1024, sourceBytes: 2 * 1024 * 1024, totalBytes: 16 * 1024 * 1024, sources: 256 });
 // src/workspace-memory-reader.ts
-import { readdirSync as readdirSync2, realpathSync as realpathSync2 } from "node:fs";
-import { isAbsolute as isAbsolute2, join as join3, resolve as resolve3, sep as sep4 } from "node:path";
+import { readdirSync as readdirSync2 } from "node:fs";
+import { isAbsolute as isAbsolute2, join as join4, resolve as resolve3, sep as sep4 } from "node:path";
 
 // src/workspace-memory-fs.ts
 import { createHash } from "node:crypto";
 import { closeSync, constants, fstatSync, lstatSync as lstatSync2, openSync, readSync, realpathSync } from "node:fs";
-import { isAbsolute, parse, relative as relative2, resolve as resolve2, sep as sep3 } from "node:path";
+import { basename as basename2, dirname as dirname2, isAbsolute, join as join3, parse, relative as relative2, resolve as resolve2, sep as sep3 } from "node:path";
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -3004,8 +3004,40 @@ function checkedPath(path, kind, allowMissing = false) {
   return true;
 }
 function checkedDirectory(path) {
-  checkedPath(path, "directory");
-  return realpathSync(path);
+  const physical = resolve2(realpathSync.native(path));
+  checkedPath(physical, "directory");
+  return physical;
+}
+function physicalPathWithin(root, path, kind, allowMissing = false) {
+  if (path.split(/[\\/]/).includes(".."))
+    throw new Error(`Traversal is not allowed: ${path}`);
+  const logicalRoot = resolve2(root), physicalRoot = checkedDirectory(root), logical = resolve2(root, path);
+  if (!contained(logicalRoot, logical))
+    throw new Error(`Path outside authority root: ${path}`);
+  let ancestor = logical;
+  const tail = [];
+  let physical;
+  for (;; ) {
+    try {
+      physical = resolve2(realpathSync.native(ancestor));
+      break;
+    } catch (error) {
+      if (!allowMissing || !missing(error))
+        throw error;
+    }
+    if (lstatSync2(ancestor, { throwIfNoEntry: false }))
+      throw new Error(`Dangling symlink is not allowed: ${ancestor}`);
+    const parent = dirname2(ancestor);
+    if (parent === ancestor)
+      throw new Error(`No existing ancestor: ${logical}`);
+    tail.unshift(basename2(ancestor));
+    ancestor = parent;
+  }
+  const target = join3(physical, ...tail);
+  if (!contained(physicalRoot, target))
+    throw new Error(`Path outside authority root through symlink: ${logical}`);
+  checkedPath(target, kind, allowMissing);
+  return target;
 }
 function readText(path, limit) {
   checkedPath(path, "file");
@@ -3100,21 +3132,29 @@ function isControlPath(path) {
 function byId(a, b) {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
-function profileLocation(directory, options) {
-  const path = options.profilePath ?? join3(directory, ".lawoss", "memory-profile.json");
+function authorityFor(path, roots) {
+  const target = resolve3(path);
+  return roots.map((root) => resolve3(root)).filter((root) => contained(root, target)).sort((left, right) => right.length - left.length)[0];
+}
+function profileLocation(directory, logicalDirectory, options) {
+  const path = options.profilePath ?? join4(directory, ".lawoss", "memory-profile.json");
   if (options.profilePath !== undefined && !isAbsolute2(path))
     throw new Error("Host profile path must be absolute.");
-  if (!checkedPath(path, "file", true)) {
+  const grants = (options.profileGrants ?? []).filter((grant) => typeof grant === "string" && isAbsolute2(grant));
+  const authorities = [directory, logicalDirectory, ...grants, ...grants.map(checkedDirectory)];
+  const authority = authorityFor(path, authorities);
+  if (!authority)
+    throw new Error("External profile requires a host grant covering its canonical path.");
+  const canonical = physicalPathWithin(authority, path, "file", true);
+  if (!checkedPath(canonical, "file", true)) {
     if (options.profilePath !== undefined)
       throw new Error("Host profile path is missing or unsafe.");
-    return { path, external: false };
+    return { path: canonical, external: false };
   }
-  const canonical = realpathSync2(path);
   const external = !contained(directory, canonical);
   if (external) {
     if (options.profileIdentity !== canonical)
       throw new Error("External profile identity must equal its canonical path.");
-    const grants = options.profileGrants ?? [];
     if (!grants.some((grant) => typeof grant === "string" && isAbsolute2(grant) && contained(checkedDirectory(grant), canonical))) {
       throw new Error("External profile requires a host grant covering its canonical path.");
     }
@@ -3122,7 +3162,7 @@ function profileLocation(directory, options) {
   return { path: canonical, external };
 }
 function checkHistory(workspace, report, ownOperation) {
-  const history = join3(workspace, ".lawoss", "memory-history");
+  const history = join4(workspace, ".lawoss", "memory-history");
   try {
     if (!checkedPath(history, "directory", true))
       return;
@@ -3132,14 +3172,14 @@ function checkHistory(workspace, report, ownOperation) {
       if (name === ownOperation)
         continue;
       if (name === "save.lock") {
-        checkedPath(join3(history, name), "file");
+        checkedPath(join4(history, name), "file");
         report.problems.push({ code: "save-in-progress", message: "A save lock exists; memory may be changing. Do not remove an active lock." });
         continue;
       }
       if (!safeId(name))
         throw new Error(`Invalid history entry: ${name}`);
-      checkedPath(join3(history, name), "directory");
-      const journal = jsonText(join3(history, name, "journal.json"), WORKSPACE_MEMORY_LIMITS.journalBytes);
+      checkedPath(join4(history, name), "directory");
+      const journal = jsonText(join4(history, name, "journal.json"), WORKSPACE_MEMORY_LIMITS.journalBytes);
       if (!isObject(journal) || journal.version !== 1 || !["committed", "rolled-back"].includes(String(journal.status)))
         report.problems.push({ code: "unfinished-journal", message: `Operation ${name} requires recovery before loading or saving.` });
     }
@@ -3152,16 +3192,16 @@ function readWorkspaceMemory(directory, options = {}) {
 }
 function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
   const report = { present: false, complete: false, directory: resolve3(directory), loadedAt: new Date().toISOString(), matterId: null, bindingHash: null, profileHash: null, contextHash: null, sources: [], problems: [] };
-  let profilePath = join3(report.directory, ".lawoss", "memory-profile.json");
+  let profilePath = join4(report.directory, ".lawoss", "memory-profile.json");
   let externalProfile = false;
   try {
-    const location = profileLocation(report.directory, options);
+    report.directory = checkedDirectory(directory);
+    const location = profileLocation(report.directory, resolve3(directory), options);
     profilePath = location.path;
     externalProfile = location.external;
     if (!checkedPath(profilePath, "file", true))
       return report;
     report.present = true;
-    report.directory = checkedDirectory(report.directory);
     const profileText = readText(profilePath, WORKSPACE_MEMORY_LIMITS.profileBytes);
     report.profileHash = profileText.sha256;
     const profile = parseWorkspaceMemoryProfileText(profileText.content);
@@ -3178,11 +3218,12 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
     for (const root of profile.roots) {
       const path = resolve3(report.directory, root.path);
       roots.set(root.id, path);
-      if (!contained(report.directory, path) && !grants.some((grant) => contained(grant, path)))
+      const authority = authorityFor(path, [report.directory, resolve3(directory), ...options.allowedRoots ?? [], ...grants]);
+      if (!authority)
         rootProblems.set(root.id, `External root requires a caller grant: ${root.id}`);
       else {
         try {
-          roots.set(root.id, checkedDirectory(path));
+          roots.set(root.id, physicalPathWithin(authority, path, "directory"));
         } catch (error) {
           rootProblems.set(root.id, message(error));
         }
@@ -3196,8 +3237,7 @@ function readWorkspaceMemorySnapshot(directory, options = {}, ownOperation) {
         throw new Error("Memory sources cannot alias reserved .lawoss control files.");
       if (!rootProblems.has(source.root)) {
         try {
-          if (checkedPath(path, "file", true))
-            path = realpathSync2(path);
+          path = physicalPathWithin(roots.get(source.root), path, "file", true);
           if (isControlPath(path))
             throw new Error("Memory sources cannot alias reserved .lawoss control files.");
         } catch (error) {
@@ -3270,7 +3310,7 @@ function renderWorkspaceMemory(report) {
 // src/workspace-memory-writer.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
 import { chmodSync, closeSync as closeSync2, constants as constants2, fstatSync as fstatSync2, fsyncSync, lstatSync as lstatSync3, mkdirSync as mkdirSync2, openSync as openSync2, renameSync as renameSync2, unlinkSync, writeFileSync as writeFileSync2 } from "node:fs";
-import { dirname as dirname2, join as join4 } from "node:path";
+import { dirname as dirname3, join as join5 } from "node:path";
 class Conflict extends Error {
 }
 function validateRequest(request) {
@@ -3335,7 +3375,7 @@ function validateSnapshot(report, request) {
     throw new Conflict("Updated context exceeds total byte limit.");
 }
 function createPrivate(path, content, mode = 384) {
-  checkedPath(dirname2(path), "directory");
+  checkedPath(dirname3(path), "directory");
   const fd = openSync2(path, constants2.O_CREAT | constants2.O_EXCL | constants2.O_WRONLY | constants2.O_NOFOLLOW, mode);
   try {
     writeFileSync2(fd, content, "utf8");
@@ -3345,21 +3385,21 @@ function createPrivate(path, content, mode = 384) {
   }
 }
 function privateDirectory(path) {
-  checkedPath(dirname2(path), "directory");
+  checkedPath(dirname3(path), "directory");
   if (!checkedPath(path, "directory", true))
     mkdirSync2(path, { mode: 448 });
   checkedPath(path, "directory");
   chmodSync(path, 448);
 }
 function writeJournal(operationPath, journal) {
-  const temp = join4(operationPath, `journal-${randomUUID2()}.tmp`);
+  const temp = join5(operationPath, `journal-${randomUUID2()}.tmp`);
   const content = JSON.stringify(journal, null, 2) + `
 `;
   if (Buffer.byteLength(content) > WORKSPACE_MEMORY_LIMITS.journalBytes)
     throw new Error("Journal byte limit exceeded.");
   createPrivate(temp, content);
   checkedPath(operationPath, "directory");
-  const path = join4(operationPath, "journal.json");
+  const path = join5(operationPath, "journal.json");
   checkedPath(path, "file", true);
   renameSync2(temp, path);
 }
@@ -3376,12 +3416,12 @@ function saveWorkspaceMemory(directory, request, options = {}) {
     requireComplete(initial);
     if (initial.matterId !== request.matterId || initial.bindingHash !== request.expectedBindingHash)
       throw new Conflict("Matter/profile/grants binding changed.");
-    const history = join4(initial.directory, ".lawoss", "memory-history");
-    operationPath = join4(history, request.operationId);
+    const history = join5(initial.directory, ".lawoss", "memory-history");
+    operationPath = join5(history, request.operationId);
     const existing = () => {
       if (!checkedPath(operationPath, "directory", true))
         return false;
-      const prior = jsonText(join4(operationPath, "journal.json"), WORKSPACE_MEMORY_LIMITS.journalBytes);
+      const prior = jsonText(join5(operationPath, "journal.json"), WORKSPACE_MEMORY_LIMITS.journalBytes);
       if (!isObject(prior) || prior.fingerprint !== result.fingerprint)
         throw new Conflict("operationId was already used for a different request.");
       if (prior.status !== "committed")
@@ -3402,7 +3442,7 @@ function saveWorkspaceMemory(directory, request, options = {}) {
       return result;
     }
     privateDirectory(history);
-    lockPath = join4(history, "save.lock");
+    lockPath = join5(history, "save.lock");
     try {
       lockFd = openSync2(lockPath, constants2.O_CREAT | constants2.O_EXCL | constants2.O_WRONLY | constants2.O_NOFOLLOW, 384);
     } catch (error) {
@@ -3420,7 +3460,7 @@ function saveWorkspaceMemory(directory, request, options = {}) {
         throw new Conflict("Save lock was replaced externally.");
     };
     assertLock();
-    validateSnapshot(readWorkspaceMemorySnapshot(initial.directory, options, request.operationId), request);
+    validateSnapshot(readWorkspaceMemorySnapshot(directory, options, request.operationId), request);
     mkdirSync2(operationPath, { mode: 448 });
     result.historyPath = operationPath;
     journal = { version: 1, operationId: request.operationId, fingerprint: result.fingerprint, matterId: request.matterId, reason: request.reason, bindingHash: initial.bindingHash, contextHash: initial.contextHash, status: "prepared", createdAt: new Date().toISOString(), changes: result.changes };
@@ -3428,14 +3468,14 @@ function saveWorkspaceMemory(directory, request, options = {}) {
     prepared = true;
     for (const source of initial.sources) {
       if (source.content !== null)
-        createPrivate(join4(operationPath, `${source.id}.before`), source.content);
+        createPrivate(join5(operationPath, `${source.id}.before`), source.content);
     }
     for (const update of request.updates) {
       const source = initial.sources.find((s) => s.id === update.sourceId);
       const current = readText(source.path, WORKSPACE_MEMORY_LIMITS.sourceBytes);
       if (current.sha256 !== source.sha256)
         throw new Conflict(`Source changed before staging: ${source.id}`);
-      const stage = join4(dirname2(source.path), `.lawoss-memory-${request.operationId}-${source.id}-${randomUUID2()}.tmp`);
+      const stage = join5(dirname3(source.path), `.lawoss-memory-${request.operationId}-${source.id}-${randomUUID2()}.tmp`);
       const replacement = { source, update, newHash: sha256(update.content), stage, mode: current.mode };
       replacements.push(replacement);
       createPrivate(stage, update.content);
@@ -3443,10 +3483,10 @@ function saveWorkspaceMemory(directory, request, options = {}) {
     journal.stages = replacements.map((r) => ({ sourceId: r.source.id, path: r.source.path, stage: r.stage, before: `${r.source.id}.before`, beforeSha256: r.source.sha256, afterSha256: r.newHash }));
     writeJournal(operationPath, journal);
     assertLock();
-    validateSnapshot(readWorkspaceMemorySnapshot(initial.directory, options, request.operationId), request);
+    validateSnapshot(readWorkspaceMemorySnapshot(directory, options, request.operationId), request);
     const validateCurrent = () => {
       assertLock();
-      const current = readWorkspaceMemorySnapshot(initial.directory, options, request.operationId);
+      const current = readWorkspaceMemorySnapshot(directory, options, request.operationId);
       requireComplete(current);
       if (current.bindingHash !== request.expectedBindingHash)
         throw new Conflict("Profile or grants changed during save.");
@@ -3462,7 +3502,7 @@ function saveWorkspaceMemory(directory, request, options = {}) {
       if (readText(replacement.stage, WORKSPACE_MEMORY_LIMITS.sourceBytes).sha256 !== replacement.newHash)
         throw new Conflict("Staged content changed.");
       chmodSync(replacement.stage, replacement.mode);
-      checkedPath(dirname2(replacement.source.path), "directory");
+      checkedPath(dirname3(replacement.source.path), "directory");
       checkedPath(replacement.source.path, "file");
       renameSync2(replacement.stage, replacement.source.path);
       installed.push(replacement);
@@ -3484,13 +3524,13 @@ function saveWorkspaceMemory(directory, request, options = {}) {
             continue;
           if (current.sha256 !== replacement.newHash)
             throw new Error(`External newer edit preserved: ${replacement.source.id}`);
-          const restore = join4(dirname2(replacement.source.path), `.lawoss-memory-rollback-${randomUUID2()}.tmp`);
+          const restore = join5(dirname3(replacement.source.path), `.lawoss-memory-rollback-${randomUUID2()}.tmp`);
           createPrivate(restore, replacement.source.content);
           chmodSync(restore, replacement.mode);
           try {
             if (readText(replacement.source.path, WORKSPACE_MEMORY_LIMITS.sourceBytes).sha256 !== replacement.newHash)
               throw new Error(`External edit during rollback: ${replacement.source.id}`);
-            checkedPath(dirname2(replacement.source.path), "directory");
+            checkedPath(dirname3(replacement.source.path), "directory");
             renameSync2(restore, replacement.source.path);
           } finally {
             if (checkedPath(restore, "file", true))
@@ -3604,7 +3644,7 @@ function zaznamov(n) {
 }
 function workspaceProfilePresent(directory) {
   try {
-    const control = join5(directory, ".lawoss");
+    const control = join6(directory, ".lawoss");
     let stat;
     try {
       stat = lstatSync4(control);
@@ -3616,7 +3656,7 @@ function workspaceProfilePresent(directory) {
     if (!stat.isDirectory())
       return true;
     try {
-      lstatSync4(join5(control, "memory-profile.json"));
+      lstatSync4(join6(control, "memory-profile.json"));
       return true;
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ENOENT")
@@ -3715,20 +3755,20 @@ ${USAGE}` };
       const problems = [...scope.problems];
       const inputs = [];
       try {
-        const status = readManualStatus(decodeText(readFileSync3(join5(dir, STATUS_FILE))), scope.records);
+        const status = readManualStatus(decodeText(readFileSync3(join6(dir, STATUS_FILE))), scope.records);
         if (status.content)
-          inputs.push(`## Ručný stav — ${join5(dir, STATUS_FILE)}`, status.message, status.content);
+          inputs.push(`## Ručný stav — ${join6(dir, STATUS_FILE)}`, status.message, status.content);
       } catch (error) {
         if (!(error instanceof Error && ("code" in error) && error.code === "ENOENT")) {
-          problems.push({ file: join5(dir, STATUS_FILE), message: error instanceof Error ? error.message : String(error) });
+          problems.push({ file: join6(dir, STATUS_FILE), message: error instanceof Error ? error.message : String(error) });
         }
       }
       const contextFiles = [
-        { path: join5(dir, "VSTUPY.md"), title: "Evidencia vstupov" },
-        { path: join5(dir, "KOMUNIKACNE-KANALY.md"), title: "Komunikačné kanály veci" },
+        { path: join6(dir, "VSTUPY.md"), title: "Evidencia vstupov" },
+        { path: join6(dir, "KOMUNIKACNE-KANALY.md"), title: "Komunikačné kanály veci" },
         ...scope.clientDir ? [
-          { path: join5(scope.clientDir, "VSTUPY.md"), title: "Evidencia vstupov klienta" },
-          { path: join5(scope.clientDir, "KOMUNIKACNE-KANALY.md"), title: "Komunikačné kanály klienta" }
+          { path: join6(scope.clientDir, "VSTUPY.md"), title: "Evidencia vstupov klienta" },
+          { path: join6(scope.clientDir, "KOMUNIKACNE-KANALY.md"), title: "Komunikačné kanály klienta" }
         ] : []
       ];
       for (const { path, title } of contextFiles) {
@@ -3803,7 +3843,7 @@ ${serializeRecord(maskRecord(r))}`),
       const s = { records: scope.records, jurisdiction: scope.matter.jurisdiction };
       try {
         if (!apply) {
-          const statusPath = join5(dir, "_STATUS.md");
+          const statusPath = join6(dir, "_STATUS.md");
           const before = existsSync3(statusPath) ? decodeText(readFileSync3(statusPath)) : "";
           const after = renderStatus(before, s.records, s.jurisdiction, statusLinkResolver(dir), documentLanguageFromCard(dir));
           const zmena = before === after ? "bez zmeny" : "_STATUS.md by sa zmenil";
@@ -3980,9 +4020,9 @@ ${USAGE}` };
       if (!apply) {
         return ok(`dry-run: založil by som adresár ${MEMORY_DIR}/ a BRAIN.md ` + `(jurisdikcia ${jurisdiction}, zdroj: ${zdroj}). Zapíš s --apply.`);
       }
-      mkdirSync3(join5(dir, MEMORY_DIR), { recursive: true });
+      mkdirSync3(join6(dir, MEMORY_DIR), { recursive: true });
       ensureBrain(dir, jurisdiction);
-      const status = join5(dir, STATUS_FILE);
+      const status = join6(dir, STATUS_FILE);
       const kostra = !existsSync3(status);
       if (kostra)
         writeFileSync3(status, statusSkeleton(jurisdiction, language), "utf8");

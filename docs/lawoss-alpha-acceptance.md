@@ -8,6 +8,14 @@ spustením aplikácie s prázdnym profilom.
 
 > **Hranica alfa testu:** úspešný preflight ani úspešný scenár nie je právne, bezpečnostné ani produkčné schválenie. Build nie je určený na skutočné spisy.
 
+> **Rozsah protokolu (9. 10. 2026):** nasledujúce kroky overujú existujúce UI
+> s voľbou OKF. Backend onboardingu cez priečinok z PR [#135](https://github.com/Omni-Legal-Products/lawoss/pull/135),
+> [#136](https://github.com/Omni-Legal-Products/lawoss/pull/136) a [#137](https://github.com/Omni-Legal-Products/lawoss/pull/137)
+> sám nedokazuje dokončenie nového trojkrokového toku C2. Ten má samostatnú
+> akceptáciu podľa [schváleného smeru onboardingu](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/92)
+> a [implementačného plánu C2](https://github.com/Omni-Legal-Products/lawoss/pull/134).
+> Zaznamenajte presný commit testovaného buildu; PASS tohto protokolu neoznačuje C2 za hotové.
+
 ## Bezpečnostné podmienky
 
 - Použite iba **syntetické alebo verejné dáta**. Nepoužívajte klientske,
@@ -70,8 +78,8 @@ Prejdite celý scenár v poradí:
    pripojený bez vybraného modelu alebo že vybraný model už nie je dostupný.
 2. Cez „Otvoriť nastavenia AI“ overte, že stav zodpovedá nastaveniam. Zrušená
    bezplatná vrstva sa nesmie zobraziť ako pripojený model.
-3. Prepínač „Zdieľať anonymné údaje o používaní“ je predvolene vypnutý.
-   V hlásení uveďte, či ste ho menili.
+3. Analytika je v LAWOSS natrvalo vypnutá. Krok AI ani Nastavenia nesmú
+   ponúkať prepínač na jej zapnutie. Ak sa zobrazí, zaznamenajte odchýlku.
 4. Pokračujte. Bez modelu tlačidlo znie „Pokračovať bez modelu“.
 
 ### Klient a vec
@@ -121,8 +129,8 @@ Začnite s novým prázdnym profilom a prejdite:
 
 1. V kroku „Vy a jurisdikcia“ vyplňte vymyslené meno a pokračujte.
 2. Zvoľte „Zatiaľ bez OKF“. Potvrdenie sa nevyžaduje a onboarding má tri kroky.
-3. V kroku „Dáta a AI“ overte rovnaký výslovný stav modelu a predvolene
-   vypnutý prepínač analytiky ako v ceste s OKF.
+3. V kroku „Dáta a AI“ overte rovnaký výslovný stav modelu a neprítomnosť
+   prepínača analytiky ako v ceste s OKF. Analytika je natrvalo vypnutá.
 4. Ako „Pracovný priečinok (voliteľné)“ vyberte testovací priečinok so
    syntetickým dokumentom a zvoľte „Dokončiť“.
 5. Overte, že priečinok je pridaný ako pracovný priestor, nevznikla v ňom
@@ -159,8 +167,8 @@ Scenár označte ako **PASS** iba vtedy, ak:
 - prešla celá cesta voľba OKF → kancelária → klient → vec → dokument →
   pamäť → nový rozhovor aj kratšia cesta bez OKF, alebo hlásenie výslovne
   uvádza, ktorú cestu tester neprešiel;
-- krok AI pravdivo uviedol stav modelu a analytika ostala vypnutá, kým ju
-  tester sám nezapol;
+- krok AI pravdivo uviedol stav modelu a analytika ostala natrvalo vypnutá
+  bez možnosti zapnúť ju v rozhraní;
 - odpoveď sa dala skontrolovať podľa zdroja a nebola prezentovaná ako
   automaticky schválené právne stanovisko;
 - neunikol kontext medzi vecami;

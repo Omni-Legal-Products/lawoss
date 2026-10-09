@@ -12,7 +12,9 @@ import { run } from "../src/cli.ts";
 const cleanup: string[] = [];
 afterEach(() => { for (const path of cleanup.splice(0)) rmSync(path, { recursive: true, force: true }); });
 function fixture() {
-  const base = realpathSync(mkdtempSync(join(tmpdir(), "okf-naming-"))); cleanup.push(base); const root = join(base, "matter"); mkdirSync(root);
+  // Match native authority-root resolution: on Windows realpathSync may retain RUNNER~1.
+  // Injected fs error paths must use the same physical paths as the actual apply operations.
+  const base = realpathSync.native(mkdtempSync(join(tmpdir(), "okf-naming-"))); cleanup.push(base); const root = join(base, "matter"); mkdirSync(root);
   const profile = workingProfile(); for (const folder of profile.folders) mkdirSync(join(root, folder), { recursive: true }); mkdirSync(join(root, "notes"));
   writeFileSync(join(root, "PRACOVNY-PROFIL.md"), renderWorkingProfile(profile));
   const binary = Buffer.from([0, 255, 254, 128, 13, 10, 80, 68, 70]);
@@ -171,13 +173,52 @@ describe("naming filesystem transaction", () => {
     const result = applyDocumentNaming(f.root, plan, { checkpoint(stage, path) { if (stage === "markdown-installed") { writeFileSync(join(f.root, path!), "external newer note"); writeFileSync(join(f.root, plan.documents[0]!.target.path), "external newer binary"); throw new Error("failure after external edit"); } } });
     expect(result.status).toBe("recovery-required"); expect(readFileSync(join(f.root, "notes/note.md"), "utf8")).toBe("external newer note"); expect(readFileSync(join(f.root, plan.documents[0]!.target.path), "utf8")).toBe("external newer binary");
   });
-  test.skipIf(!supportsSymlinks())("symlink capability probe; sources, parents, targets, Markdown and root rejected", () => {
+  test.skipIf(!supportsSymlinks())("document, metadata and destination symlinks remain rejected: rename is not a symlink operation", () => {
 
     for (const path of ["03_Drafty/old.PDF", "notes/note.md", "03_Drafty", "notes"]) {
       const f = fixture(); renameSync(join(f.root, path), join(f.base, "moved")); symlinkSync(join(f.base, "moved"), join(f.root, path), path.includes(".") ? "file" : "dir"); expect(() => planDocumentNaming(f.root, f.request)).toThrow("Symlink");
     }
     const f = fixture(), plan = planDocumentNaming(f.root, f.request); symlinkSync(join(f.root, "03_Drafty/old.PDF"), join(f.root, plan.documents[0]!.target.path)); expect(applyDocumentNaming(f.root, plan).status).toBe("conflict");
-    symlinkSync(f.root, join(f.base, "root-link"), "dir"); expect(() => planDocumentNaming(join(f.base, "root-link"), f.request)).toThrow("Symlink");
+
+  });
+  test.skipIf(!supportsSymlinks())("root and ancestor aliases preserve physical pins, preview purity and apply/replay", () => {
+    for (const ancestor of [false, true]) {
+      const f = fixture(), alias = join(f.base, "alias");
+      symlinkSync(ancestor ? f.base : f.root, alias, "dir");
+      const selected = ancestor ? join(alias, "matter") : alias;
+      const before = tree(f.root), direct = planDocumentNaming(f.root, f.request), plan = planDocumentNaming(selected, f.request);
+      expect(plan).toEqual(direct); expect(tree(f.root)).toEqual(before);
+      expect(plan.matterRootPhysical).toBe(f.root);
+      expect(applyDocumentNaming(selected, plan).status).toBe("applied");
+      for (const document of plan.documents) expect(readFileSync(join(f.root, document.target.path))).toEqual(f.binary);
+      expect(applyDocumentNaming(selected, plan).status).toBe("already-applied");
+    }
+  });
+  test.skipIf(!supportsSymlinks())("Node bundle accepts aliased root and external manifest/output parents", () => {
+    const f = fixture(), alias = join(f.base, "alias"); symlinkSync(f.base, alias, "dir");
+    const manifest = join(alias, "request.json"), planFile = join(alias, "plan.json");
+    writeFileSync(manifest, JSON.stringify(f.request));
+    const cli = fileURLToPath(new URL("../bundle/okf.js", import.meta.url));
+    const invoke = (args: string[]) => spawnSync("node", [cli, "naming", join(alias, "matter"), ...args, "--json"], { encoding: "utf8" });
+    const preview = invoke(["--manifest", manifest, "--out", planFile]);
+    expect(preview.status).toBe(0);
+    expect(JSON.parse(readFileSync(planFile, "utf8")).matterRootPhysical).toBe(f.root);
+    expect(invoke(["--plan", planFile, "--apply"]).status).toBe(0);
+    expect(invoke(["--plan", planFile, "--apply"]).status).toBe(0);
+  });
+  test.skipIf(!supportsSymlinks())("alias root never authorizes escaping or dangling destination parents; refusal has zero writes", () => {
+    for (const dangling of [false, true]) {
+      const f = fixture(), alias = join(f.base, "alias"); symlinkSync(f.root, alias, "dir");
+      const plan = planDocumentNaming(alias, f.request);
+      const outside = join(f.base, "outside");
+      renameSync(join(f.root, "03_Drafty"), outside);
+      symlinkSync(dangling ? join(outside, "missing") : outside, join(f.root, "03_Drafty"), "dir");
+      const before = tree(f.base);
+      expect(() => planDocumentNaming(alias, f.request)).toThrow();
+      expect(applyDocumentNaming(alias, plan).status).toBe("conflict");
+      expect(tree(f.base)).toEqual(before);
+      expect(existsSync(join(f.root, ".lawoss"))).toBe(false);
+    }
   });
   test("CLI preview/exact plan apply with external-only exclusive output and exit codes", () => {
     const f = fixture(), requestFile = join(f.base, "request.json"), planFile = join(f.base, "plan.json"), output: string[] = []; writeFileSync(requestFile, JSON.stringify(f.request));

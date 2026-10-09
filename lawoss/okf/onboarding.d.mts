@@ -10,7 +10,7 @@ export interface Inspection {
   ignored?: string[];
 }
 export interface OnboardingPreview {
-  action: "office" | "client" | "subject" | "matter" | "existing";
+  action: "office" | "practice" | "client" | "subject" | "matter" | "existing";
   mode: "new" | "map" | "trial_clone";
   appFiles: "inside" | "outside";
   root?: string;
@@ -29,6 +29,23 @@ export interface OnboardingResult {
   status?: "applied" | "already_applied" | "rolled_back";
 }
 export function inspectOnboardingRoot(root: string): Promise<Inspection>;
+export function inspectCardLevel(root: string): Promise<{ root: string; level: Inspection["level"]; issues: { path: string; code: string }[] }>;
+/** Návrh úrovne priečinka; ide len o návrh s mierou istoty, nie o rozhodnutie (spec P4). */
+export type SuggestedLevel = "practice" | "client" | "matter" | "unknown";
+export interface SuggestedClient { path: string; name: string }
+export interface OnboardingSuggestion {
+  root: string;
+  level: SuggestedLevel;
+  marked: boolean;
+  score: number;
+  signals: string[];
+  clientPattern?: string;
+  clients: SuggestedClient[];
+  complete: boolean;
+}
+export function suggestOnboardingLevel(root: string): Promise<OnboardingSuggestion>;
+export function grantInPlaceReorganize(root: string, now?: Date): Promise<void>;
+export function verifyTriageTarget(root: string, trialJournalDirectory?: string): Promise<{ root: string; mode: "trial" | "in_place"; journalVerified: boolean }>;
 export function previewOnboarding(input: unknown): Promise<OnboardingPreview>;
 export function executeOnboarding(preview: OnboardingPreview, options: { journalDirectory: string; externalProfileDirectory: string }): Promise<OnboardingResult>;
 export function recoverOnboardingOperation(preview: OnboardingPreview, options: { journalDirectory: string; externalProfileDirectory: string }, action: "finish" | "rollback"): Promise<OnboardingResult>;
@@ -67,5 +84,6 @@ export function prepareTriage(root: string, options?: { trialJournalDirectory?: 
 export function replanTriage(inventory: TriageInventory, classification: TriageClassification | undefined, keepInInbox: readonly string[], now?: Date): TriagePlan;
 export function parseClassification(value: unknown, inventory: TriageInventory): TriageClassification;
 export function applyTriagePlan(plan: unknown, options?: { trialJournalDirectory?: string }): Promise<{ status: "applied" | "already_applied"; runId: string; moved: number; created: number; journal: string }>;
-export function undoTriage(root: string, runId: string, options?: { trialJournalDirectory?: string }): Promise<{ status: "undone" | "already_undone"; runId: string; restored: number; removed: number }>;
+/** `keepChanged`: pri usporiadaní na mieste predvolene true (zmenené dokumenty ostanú a nahlásia sa v `kept`); v skúšobnom klone predvolene false (všetko alebo nič). */
+export function undoTriage(root: string, runId: string, options?: { trialJournalDirectory?: string; keepChanged?: boolean }): Promise<{ status: "undone" | "already_undone"; runId: string; restored: number; removed: number; kept: string[] }>;
 export function listTriageRuns(root: string): Promise<TriageRunStatus[]>;
