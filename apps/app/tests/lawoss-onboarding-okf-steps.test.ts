@@ -45,6 +45,12 @@ describe("OKF choice in the LAWOSS welcome flow", () => {
     expect(visibleOnboardingStep("done", false)).toBe("done");
   });
 
+  test("without a server profile the flow starts at identity, whatever localStorage saved", () => {
+    expect(visibleOnboardingStep("okf", undefined, false)).toBe("identity");
+    expect(visibleOnboardingStep("matter", true, false)).toBe("identity");
+    expect(visibleOnboardingStep("done", false, false)).toBe("identity");
+  });
+
   test("enabling records a versioned acknowledgement, declining records none", () => {
     expect(okfChoice(true, new Date("2026-10-04T10:00:00.000Z"))).toEqual({
       enabled: true,

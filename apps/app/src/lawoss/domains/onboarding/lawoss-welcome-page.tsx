@@ -787,6 +787,7 @@ export function LawossWelcomePage({
           visibleOnboardingStep(
             initialStep ?? status.profile?.step ?? saved.step,
             status.profile?.okf?.enabled,
+            status.profile !== null,
           ),
         );
       })

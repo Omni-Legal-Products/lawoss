@@ -151,8 +151,11 @@ export function visibleOnboardingSteps(okf: OkfEnabled): readonly OnboardingStep
   return okf === true ? OKF_PATH : okf === false ? PLAIN_PATH : UNDECIDED_PATH;
 }
 
-/** A saved or requested step outside the chosen path returns to the OKF choice. */
-export function visibleOnboardingStep(step: OnboardingStep, okf: OkfEnabled): OnboardingStep {
+/** A saved or requested step outside the chosen path returns to the OKF choice.
+ * Without a server profile every later step would save a patch the server rejects
+ * (no name, jurisdiction, language), so the flow starts at identity whatever localStorage says. */
+export function visibleOnboardingStep(step: OnboardingStep, okf: OkfEnabled, hasProfile = true): OnboardingStep {
+  if (!hasProfile) return "identity";
   return step === "done" || visibleOnboardingSteps(okf).includes(step) ? step : "okf";
 }
 
