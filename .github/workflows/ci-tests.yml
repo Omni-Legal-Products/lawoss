@@ -23,14 +23,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  sandbox-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      required: ${{ steps.changes.outputs.required }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Check sandbox inputs
+        id: changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/ci/sandbox-changes.mjs
+
   sandbox-runtime:
+    needs: sandbox-changes
+    # Maintainers can skip expensive runtime checks for an individual PR.
+    # Push, manual and release validation remain unaffected by PR labels.
+    if: >-
+      needs.sandbox-changes.outputs.required == 'true' &&
+      !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-sandbox-tests'))
     uses: ./.github/workflows/sandbox-runtime.yml
   desktop-packaging:
     if: github.event_name == 'workflow_dispatch' && inputs.package_desktop
     needs: sandbox-runtime
     uses: ./.github/workflows/ci-desktop-packaging.yml
   legalwork-tests:
-    needs: sandbox-runtime
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -52,82 +76,9 @@ jobs:
         with:
           version: 11.4.0
 
-      - name: Install OpenCode CLI
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          OPENCODE_GITHUB_REPO: ${{ vars.OPENCODE_GITHUB_REPO || 'anomalyco/opencode' }}
-        run: |
-          set -euo pipefail
-
-          repo="${OPENCODE_GITHUB_REPO:-anomalyco/opencode}"
-          version="$(node -e "const fs=require('fs'); const parsed=JSON.parse(fs.readFileSync('constants.json','utf8')); process.stdout.write(String(parsed.opencodeVersion||'').trim().replace(/^v/,''));")"
-          version="$(echo "$version" | tr -d '\r\n' | sed 's/^v//')"
-
-          if [ -z "$version" ]; then
-            echo "Unable to resolve OpenCode version from constants.json." >&2
-            exit 1
-          fi
-
-          arch="$(uname -m)"
-          case "${RUNNER_OS}" in
-            Linux)
-              if [ "$arch" = "aarch64" ] || [ "$arch" = "arm64" ]; then
-                opencode_asset="opencode-linux-arm64.tar.gz"
-              else
-                opencode_asset="opencode-linux-x64-baseline.tar.gz"
-              fi
-              ;;
-            macOS)
-              if [ "$arch" = "arm64" ]; then
-                opencode_asset="opencode-darwin-arm64.zip"
-              else
-                opencode_asset="opencode-darwin-x64-baseline.zip"
-              fi
-              ;;
-            *)
-              echo "Unsupported OS: ${RUNNER_OS}" >&2
-              exit 1
-              ;;
-          esac
-
-          url="https://github.com/${repo}/releases/download/v${version}/${opencode_asset}"
-          tmp_dir="$RUNNER_TEMP/opencode"
-          extract_dir="$tmp_dir/extracted"
-          rm -rf "$tmp_dir"
-          mkdir -p "$extract_dir"
-
-          curl_headers=()
-          if [ -n "${GITHUB_TOKEN:-}" ]; then
-            curl_headers+=( -H "Authorization: Bearer ${GITHUB_TOKEN}" )
-          fi
-
-          curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 "${curl_headers[@]}" -o "$tmp_dir/$opencode_asset" "$url"
-
-          if [[ "$opencode_asset" == *.tar.gz ]]; then
-            tar -xzf "$tmp_dir/$opencode_asset" -C "$extract_dir"
-          else
-            unzip -q "$tmp_dir/$opencode_asset" -d "$extract_dir"
-          fi
-
-          if [ -f "$extract_dir/opencode" ]; then
-            bin_path="$extract_dir/opencode"
-          elif [ -f "$extract_dir/opencode.exe" ]; then
-            bin_path="$extract_dir/opencode.exe"
-          else
-            echo "OpenCode binary not found in archive" >&2
-            ls -la "$extract_dir"
-            exit 1
-          fi
-
-          install_dir="$HOME/.opencode/bin"
-          mkdir -p "$install_dir"
-          cp "$bin_path" "$install_dir/opencode"
-          chmod 755 "$install_dir/opencode"
-          echo "$install_dir" >> "$GITHUB_PATH"
-
-      - name: Verify OpenCode
-        run: opencode --version
+      - uses: ./.github/actions/setup-opencode
+        with:
+          repository: ${{ vars.OPENCODE_GITHUB_REPO || 'anomalyco/opencode' }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -145,22 +96,6 @@ jobs:
 
       - name: Run app unit tests
         run: pnpm --filter @legalwork/app test
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: sandbox-runtime-${{ runner.os == 'macOS' && 'darwin-arm64' || 'linux-x64' }}
-          path: ${{ runner.temp }}/sandbox-runtime
-      - name: Unpack protected runtime
-        run: |
-          mkdir -p apps/server/resources/agent-sandbox/runtime
-          tar -xzf "$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz" -C apps/server/resources/agent-sandbox/runtime
-
-      - name: Verify the shipped engine uses protected execution
-        env:
-          LEGALWORK_SANDBOX_INTEGRATION: '1'
-        run: |
-          pnpm --filter legalwork-server build
-          LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --timeout 180000 apps/server/src/agent-sandbox/engine.integration.test.ts
 
       - name: Run server unit tests
         run: pnpm --filter legalwork-server test
@@ -193,10 +128,48 @@ jobs:
           path: ${{ runner.temp }}/browser-workflow.png
 
       - name: Run release tooling tests
-        run: node --test scripts/release/*.test.mjs
+        run: node --test scripts/release/*.test.mjs scripts/ci/*.test.mjs
 
       - name: Typecheck Electron main against the IPC contract
         run: pnpm --filter @legalwork/desktop typecheck:electron
 
       - name: Run e2e tests
         run: pnpm --filter @legalwork/app test:e2e
+
+  sandbox-engine:
+    needs: sandbox-runtime
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: ./.github/actions/setup-opencode
+        with:
+          repository: ${{ vars.OPENCODE_GITHUB_REPO || 'anomalyco/opencode' }}
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: sandbox-runtime-${{ runner.os == 'macOS' && 'darwin-arm64' || 'linux-x64' }}
+          path: ${{ runner.temp }}/sandbox-runtime
+      - name: Unpack protected runtime
+        run: |
+          mkdir -p apps/server/resources/agent-sandbox/runtime
+          tar -xzf "$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz" -C apps/server/resources/agent-sandbox/runtime
+
+      - name: Verify the shipped engine uses protected execution
+        env:
+          LEGALWORK_SANDBOX_INTEGRATION: '1'
+        run: |
+          pnpm --filter legalwork-server build
+          LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/agent-sandbox/engine.integration.test.ts apps/server/src/opencode-plugins/legalwork-skill-resources.integration.test.ts

@@ -141,7 +141,8 @@ def calculate(inputs, recorder):
     day = recorder.step("Two-week response period", "Count weeks from the service event", end, inputs["service"], 2)
     return {"status": "calculated", "results": [{"title": "Ordinary response", "date": day, "cutoff": "2026-01-26T23:00:00Z", "timeZone": "Europe/Berlin"}]}
 `;
-test("community code records actual function inputs/outputs; payment-order selection refuses a fabricated longstop", async () => {
+// The sandbox runtime job supplies the VM assets; ordinary unit tests do not.
+test.skipIf(process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("community code records actual function inputs/outputs; payment-order selection refuses a fabricated longstop", async () => {
   const ordinary = await executePython(python, { purpose: "ordinary_response", service: "2026-01-12" });
   expect(ordinary.result.results[0].date).toBe("2026-01-26");
   expect(ordinary.steps[0].inputs).toEqual({ trigger: "2026-01-12", weeks: 2 });

@@ -52,7 +52,7 @@ test("expert correction composes in a fresh load, preserves base, respects scope
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("workflow bases and descendants compose automatically and support installed Python code", async () => {
+test("workflow bases and descendants compose automatically and resolve installed Python code", async () => {
   const root = await mkdtemp(join(tmpdir(), "workflow-composition-"));
   const script = join(root, "check.mjs");
   await writeFile(script, `
@@ -65,7 +65,7 @@ test("workflow bases and descendants compose automatically and support installed
     import assert from 'node:assert/strict';
     const { upsertSkill, listSkills } = await import(${JSON.stringify(new URL("./skills.ts", import.meta.url).href)});
     const { composedSkill } = await import(${JSON.stringify(new URL("./skill-composition.ts", import.meta.url).href)});
-    const { calculationScript, executePython } = await import(${JSON.stringify(new URL("./calculations/python-runner.ts", import.meta.url).href)});
+    const { calculationScript } = await import(${JSON.stringify(new URL("./calculations/python-runner.ts", import.meta.url).href)});
     const workspace = join(process.env.XDG_CONFIG_HOME, 'project');
     const other = join(process.env.XDG_CONFIG_HOME, 'other');
     await mkdir(join(workspace, '.git'), { recursive:true });
@@ -85,12 +85,9 @@ test("workflow bases and descendants compose automatically and support installed
     assert.deepEqual(loaded.composed.chain.map(item => item.name), [baseName, globalName, 'workflow-assistant-project-correction']);
     assert.deepEqual((await composedSkill(other, baseName)).chain.map(item => item.name), [baseName, globalName]);
     assert.equal((await listSkills(other, true)).find(item => item.name === globalName).kind, 'workflow');
-    const result = await executePython(loaded.code, {});
-    assert.equal(result.result.status, 'needs_information');
-    assert.deepEqual(result.result.results, []);
     await writeFile(base.path, '---\\nname: '+baseName+'\\ndescription: Changed\\n---\\nChanged code selection.');
     await assert.rejects(calculationScript(workspace, baseName), { code:'skill_base_changed' });
-    console.log('workflow discovery, composition, scope, executable and pinned version checks passed');
+    console.log('workflow discovery, composition, scope, code resolution and pinned version checks passed');
   `);
   try {
     const child = Bun.spawn([process.execPath, script], { env: { ...process.env, XDG_CONFIG_HOME: root }, stdout: "pipe", stderr: "pipe" });

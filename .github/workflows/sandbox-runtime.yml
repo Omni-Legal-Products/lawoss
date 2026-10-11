@@ -146,7 +146,7 @@ jobs:
           if [ '${{ runner.os }}' = macOS ]; then
             sysctl -i kern.hv_support kern.hv_vmm_present hw.optional.arm64
           fi
-          bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/agent-sandbox apps/server/src/calculations/calculations.test.ts apps/server/src/approvals.test.ts
+          bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/agent-sandbox apps/server/src/calculations/calculations.test.ts apps/server/src/approvals.test.ts apps/server/src/skill-package.test.ts
       - name: Preserve executable modes in runtime artifact
         shell: bash
         run: tar -czf sandbox-runtime.tgz -C apps/server/resources/agent-sandbox/runtime .

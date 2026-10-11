@@ -1,3 +1,4 @@
+import { readSkillPackageFile } from "./skill-package.js";
 import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
 import { stopMessageQueue } from "./session-message-queue.js";
 import { runtimeDbPath } from "./runtime-db.js";
@@ -4197,6 +4198,15 @@ function createRoutes(
     requireClientScope(ctx, "viewer");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     return jsonResponse(await composedSkill(workspace.path, ctx.params.name));
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/skills/:name/package-file", "client", async ctx => {
+    requireClientScope(ctx, "viewer");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const input = z.object({ directory: z.string().min(1), path: z.string().min(1), offset: z.coerce.number().int().min(0).default(0) }).parse(Object.fromEntries(ctx.url.searchParams));
+    const skill = (await listSkills(workspace.path, true)).find(item => item.name === ctx.params.name);
+    if (!skill) throw new ApiError(404, "skill_not_found", "This skill is no longer installed.");
+    return jsonResponse(await readSkillPackageFile(skill.path, input.directory, input.path, input.offset));
   });
 
   addRoute(routes, "POST", "/workspace/:id/skills", "client", async (ctx) => {

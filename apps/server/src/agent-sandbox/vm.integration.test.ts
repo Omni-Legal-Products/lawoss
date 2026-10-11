@@ -123,7 +123,14 @@ echo approved > allowed.txt`, true);
     try {
       const bytes = randomBytes(2 * 1024 * 1024 + 17);
       await writeFile(join(workspace, "binary.bin"), bytes);
+      await mkdir(join(skill, "resources"));
+      await writeFile(join(skill, "resources/fields.md"), "Current intake fields");
+      await writeFile(join(skill, "resources/template.docx"), await readFile(new URL("../../resources/core-opencode/skills/workflow-assistant-due-diligence/resources/DD-Report-Template.docx", import.meta.url)));
       await writeFile(join(skill, "helper.py"), `from pathlib import Path
+from zipfile import ZipFile
+assert Path('/skills/0/resources/fields.md').read_text() == 'Current intake fields'
+assert b'{{matter_name}}' in ZipFile('/skills/0/resources/template.docx').read('word/document.xml')
+assert not Path('/skills/1').exists()
 Path('/workspace/copied.bin').write_bytes(Path('/workspace/binary.bin').read_bytes())
 try:
     Path('/skills/0/forbidden').write_text('escape')
