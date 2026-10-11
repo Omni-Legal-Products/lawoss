@@ -3,6 +3,7 @@ import { isCalculationTool } from "./calculation/calculation-card";
 import { shouldRenderJevSearchCard, jevSearchIdentity, withLatestJevSearchProgress } from "./review/jev-search-card";
 import { isReviewCardTool, reviewCardIdentity } from "./review/review-tool";
 import { isProjectListTool, suppressProjectCard } from "./project/project-tool";
+import { isSubagentTool } from "./subagent-tool";
 import { isReasoningUIPart, isToolUIPart, type DynamicToolUIPart, type FileUIPart, type ReasoningUIPart, type ToolUIPart, type UIMessage } from "ai"
 import type { ThreadStatus } from "@/lib/messages"
 import { t } from "@/i18n";
@@ -133,6 +134,7 @@ type AssistantRenderGroup =
   | { kind: "scheduled-task"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "calculation"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "project"; part: ToolUIPart | DynamicToolUIPart }
+  | { kind: "subagents"; parts: Array<ToolUIPart | DynamicToolUIPart> }
   | { kind: "tools"; parts: Array<ToolUIPart | DynamicToolUIPart | ReasoningUIPart> }
 
 /** Combine consecutive activity across engine messages, retaining prose boundaries. */
@@ -269,6 +271,12 @@ export function getAssistantRenderGroups(
     }
 
     if (isToolUIPart(part)) {
+      if (isSubagentTool(part)) {
+        const previous = groups.at(-1);
+        if (previous?.kind === "subagents") previous.parts.push(part);
+        else groups.push({ kind: "subagents", parts: [part] });
+        continue;
+      }
       if (shouldRenderJevSearchCard(part)) {
         const id = jevSearchIdentity(part);
         const existing = id ? groups.findIndex(group => group.kind === "jev-search" && jevSearchIdentity(group.part) === id) : -1;

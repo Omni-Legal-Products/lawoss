@@ -9,7 +9,7 @@ import { analyticsErrorService, analyticsErrorStatus } from "@/app/lib/analytics
 import { allowlistedErrorName, sessionErrorFingerprint } from "@/app/lib/app-error";
 import { createClient, resolveLegalworkWorkspaceMount, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
-import { isAnthropicUsageLimitError, isProviderUsageLimitError, providerUsageLimitErrorText, usageLimitRetryEvent } from "@/app/lib/provider-usage-limit";
+import { eigenweltUsageLimitFromError, isAnthropicUsageLimitError, isProviderUsageLimitError, providerUsageLimitErrorText, usageLimitRetryEvent } from "@/app/lib/provider-usage-limit";
 import { useComposerStateStore } from "../surface/composer-state-store";
 import { normalizeEvent } from "@/app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX, type Client, type OpencodeEvent, type PendingPermission, type PendingQuestion } from "@/app/types";
@@ -653,7 +653,8 @@ async function stopUsageLimitRetry(entry: SyncEntry, workspaceId: string, sessio
     usageLimitStops.add(key);
     ownsStop = true;
     useComposerStateStore.getState().setQueuePaused(sessionId, true);
-    const pendingText = providerUsageLimitErrorText("");
+    const limit = currentProvider === "eigenwelt" ? eigenweltUsageLimitFromError(error) : null;
+    const pendingText = providerUsageLimitErrorText(currentProvider ?? "", limit);
     injectSessionErrorMessage(workspaceId, sessionId, pendingText);
     markEigenweltBudgetStop(sessionId, Date.now(), pendingText);
     const stopped = await abortSessionSafe(client, sessionId, session.directory);
@@ -662,13 +663,13 @@ async function stopUsageLimitRetry(entry: SyncEntry, workspaceId: string, sessio
     const messages = unwrap(await client.session.messages({ sessionID: sessionId, directory: session.directory }));
     const info = messages.at(-1)?.info;
     const providerId = info?.role === "assistant" ? info.providerID : info?.model.providerID ?? "";
-    const errorText = providerUsageLimitErrorText(providerId);
+    const errorText = providerUsageLimitErrorText(providerId, limit);
     updateProviderUsageLimitStop(sessionId, errorText);
     injectSessionErrorMessage(workspaceId, sessionId, errorText);
     const mount = resolveLegalworkWorkspaceMount(entry.input.baseUrl);
     if (stopped && mount && info?.role === "assistant") {
       const server = createLegalworkServerClient({ baseUrl: mount.baseUrl, token: entry.input.legalworkToken });
-      await server.recordSessionUsageLimit(mount.workspaceId, sessionId, info.id);
+      await server.recordSessionUsageLimit(mount.workspaceId, sessionId, info.id, limit);
     }
   } catch { if (ownsStop) usageLimitStops.delete(key); }
 }
@@ -765,7 +766,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
       const usageLimitStop = consumeProviderUsageLimitStop(sessionId);
       const aborted = isSessionAbortError(sessionError) && !usageLimitStop;
       const errorText = usageLimitStop ?? describeOpencodeSessionError(sessionError, "Session failed", provider);
-      if (isAnthropicUsageLimitError(sessionError)) useComposerStateStore.getState().setQueuePaused(sessionId, true);
+      if (isProviderUsageLimitError(sessionError, provider)) useComposerStateStore.getState().setQueuePaused(sessionId, true);
       const runStartedAt = aborted ? null : takeTaskRunStart(sessionId);
       if (runStartedAt !== null) {
         captureRunOutcome(workspaceId, sessionId, "task_run_errored", {
@@ -823,7 +824,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
 
   if (event.type === "session.next.retried") {
     const retry = usageLimitRetryEvent(event.properties);
-    if (retry && isAnthropicUsageLimitError(retry.error)) {
+    if (retry && (isAnthropicUsageLimitError(retry.error) || eigenweltUsageLimitFromError(retry.error))) {
       void stopUsageLimitRetry(entry, workspaceId, retry.sessionId, retry.error);
     }
     return;

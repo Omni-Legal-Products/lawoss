@@ -178,9 +178,31 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
     const downloadDirectory = await resolveTabDownloadDirectory(context);
     const tab = createBrowserTab("about:blank", { select: true, downloadDirectory });
     const connection = await automationBroker.grant(tab.view.webContents, () => tab.downloads);
-    try { await tab.view.webContents.loadURL(url); } catch (error) {
-      // A direct file URL can abort navigation while the download continues.
-      if (error.code !== "ERR_ABORTED" || tab.downloads.length === 0) throw error;
+    // Electron's loadURL promise can settle on an earlier navigation's load.
+    // Finish the initial blank page before awaiting the requested destination.
+    await tab.initialLoad;
+    const browserSession = session.fromPartition(BROWSER_SESSION_PARTITION);
+    let downloadStarted;
+    const download = new Promise((resolve) => { downloadStarted = resolve; });
+    const onDownload = (_event, _item, contents) => {
+      if (contents === tab.view.webContents) downloadStarted();
+    };
+    browserSession.on("will-download", onDownload);
+    let downloadTimer;
+    try {
+      await tab.view.webContents.loadURL(url);
+    } catch (error) {
+      // Chromium can reject navigation before announcing a direct file download.
+      if (!["ERR_ABORTED", "ERR_FAILED"].includes(error.code)) throw error;
+      if (tab.downloads.length === 0) {
+        await Promise.race([download, new Promise((resolve) => {
+          downloadTimer = setTimeout(resolve, 5000);
+        })]);
+      }
+      if (tab.downloads.length === 0) throw error;
+    } finally {
+      clearTimeout(downloadTimer);
+      browserSession.removeListener("will-download", onDownload);
     }
     const snapshot = await automationBroker.snapshot(tab.view.webContents).catch((error) => ({ error: error.message }));
     return {
@@ -504,12 +526,12 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
         partition: BROWSER_SESSION_PARTITION,
       },
     });
-    const tab = { tabId, view, favicon: null, downloadDirectory, downloads: [] };
-    browserTabs.set(tabId, tab);
-    browserTabOrder.push(tabId);
     // Load about:blank immediately to preempt persistent-session restore.
     // Cookies live on the session object, not the document — they survive this.
-    view.webContents.loadURL("about:blank");
+    const initialLoad = view.webContents.loadURL("about:blank");
+    const tab = { tabId, view, favicon: null, downloadDirectory, downloads: [], initialLoad };
+    browserTabs.set(tabId, tab);
+    browserTabOrder.push(tabId);
     // A web page asking for a new window. It cannot open one here, and the
     // safe opener decides whether the OS ever sees the link.
     view.webContents.setWindowOpenHandler(({ url: targetUrl }) => {

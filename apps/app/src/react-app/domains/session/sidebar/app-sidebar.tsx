@@ -109,6 +109,7 @@ import { SidebarWorkflowGenerationBadge } from "./sidebar-workflow-generation-ba
 import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 import {
   MAX_SESSIONS_PREVIEW,
+  sidebarSessionGroups,
   flattenSessionRows,
   getRootSessions,
   partitionArchivedSessions,
@@ -605,6 +606,11 @@ function isSessionActivityStatus(status: string | undefined): status is SessionA
 // SidebarMenuButton (data-active:bg-sidebar-accent) — no accent bar.
 
 export function AppSidebar(props: AppSidebarProps) {
+  const groups = React.useMemo(() => sidebarSessionGroups(props.workspaceSessionGroups), [props.workspaceSessionGroups]);
+  return <AppSidebarContent {...props} workspaceSessionGroups={groups} />;
+}
+
+function AppSidebarContent(props: AppSidebarProps) {
   const { config: shellConfig } = useShellConfig();
   const { open, isMobile, setOpen } = useSidebar();
   const collapsed = !isMobile && !open;

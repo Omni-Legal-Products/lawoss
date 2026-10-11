@@ -34,6 +34,7 @@
     "./file-storage": "./src/file-storage.ts",
     "./model-limits": "./src/model-limits.ts",
     "./usage-control": "./src/usage-control.ts",
+    "./provider-usage-limit": "./src/provider-usage-limit.ts",
     "./eigenwelt-checkout": "./src/eigenwelt-checkout.ts",
     "./systemone": "./src/systemone.ts",
     "./ocr": "./src/ocr.ts",

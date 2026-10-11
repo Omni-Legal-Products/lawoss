@@ -17,10 +17,14 @@ export const interactionSessionsKey = (workspaceId: string) => ["react-interacti
 export const emptyInteractionSessions: InteractionSessions = {};
 
 export function seedInteractionSession(workspaceId: string, info: InteractionSession) {
+  seedInteractionSessions(workspaceId, [info]);
+}
+
+export function seedInteractionSessions(workspaceId: string, sessions: InteractionSession[]) {
   getReactQueryClient().setQueryData<InteractionSessions>(interactionSessionsKey(workspaceId), (current = {}) => {
-    const previous = current[info.id];
-    if (previous?.title === info.title && previous.parentID === info.parentID) return current;
-    return { ...current, [info.id]: info };
+    const changed = sessions.filter(info => current[info.id]?.title !== info.title || current[info.id]?.parentID !== info.parentID);
+    if (!changed.length) return current;
+    return { ...current, ...Object.fromEntries(changed.map(info => [info.id, info])) };
   });
 }
 

@@ -5,6 +5,11 @@ import { t } from "../../../../i18n";
 
 export const MAX_SESSIONS_PREVIEW = 6;
 
+// Subagents are reached from their parent chat, including when the parent is
+// absent from a paginated list. Keep the original groups for chat navigation.
+export const sidebarSessionGroups = (groups: WorkspaceSessionGroup[]) =>
+  groups.map(group => ({ ...group, sessions: group.sessions.filter(session => !session.parentID?.trim()) }));
+
 export type SessionListItem = WorkspaceSessionGroup["sessions"][number];
 export type FlattenedSessionRow = { session: SessionListItem; depth: number };
 export type SessionTreeState = {

@@ -4,6 +4,7 @@ import { WorkspaceWindowButton } from "./react-app/domains/session/panel/workspa
 import { DocumentDiscardDialog } from "./react-app/domains/session/artifacts/document-discard-dialog";
 import { projectFileTab } from "./react-app/domains/workspace/project-file-tab";
 import type { ProjectFileLink } from "@legalwork/types/project-files";
+import type { ToolPart } from "@opencode-ai/sdk/v2/client";
 import { registerEmptySession } from "./react-app/domains/session/sidebar/session-list-visibility";
 import { projectViewFromPath, workspaceSessionRoute } from "./react-app/shell/workspace-routes";
 /** @jsxImportSource react */
@@ -40,6 +41,7 @@ import type { AiPlansVariant } from "@/app/lib/eigenwelt-access";
 import { seedSessionState, snapshotKey, transcriptKey } from "@/react-app/domains/session/sync/session-sync";
 import { seedPermissionState, seedQuestionState } from "@/react-app/domains/session/sync/interaction-state";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
+import { eigenweltEntitlementsQueryKey } from "@/react-app/domains/connections/eigenwelt-entitlements";
 import { LocalProvider } from "@/react-app/kernel/local-provider";
 import { ShellConfigProvider } from "@/react-app/shell/shell-config";
 import { ReloadCoordinatorProvider } from "@/react-app/shell/reload-coordinator";
@@ -51,7 +53,7 @@ import { CalendarView } from "@/react-app/domains/calendar/calendar-view";
 import { AppHome } from "@/react-app/domains/session/home/app-home";
 import { submitHomeMessage, type PendingHomeMessage } from "@/react-app/domains/session/home/home-submission";
 import { providerUsageLimitErrorText } from "@/app/lib/provider-usage-limit";
-import { usageLimitFixture } from "@/react-app/design-system/usage-limit-fixture";
+import { organizationRequestLimit, usageLimitFixture } from "@/react-app/design-system/usage-limit-fixture";
 
 if (!import.meta.env.DEV) throw new Error("The session fixture is available only in development.");
 initLocale();
@@ -60,13 +62,16 @@ const now = Date.now();
 const previewParams = new URLSearchParams(window.location.search);
 if (previewParams.has("lang")) setLocale(previewParams.get("lang") === "de" ? "de" : "en");
 if (previewParams.has("theme")) document.documentElement.dataset.theme = previewParams.get("theme") === "dark" ? "dark" : "light";
-const limitParam = previewParams.get("limit");
+// `?subscription=ended&role=member` previews expiry without connected services.
+const subscriptionPreview = previewParams.get("subscription") === "ended";
+const limitParam = previewParams.get("limit") ?? (subscriptionPreview ? "pro" : null);
 const limitPlan = limitParam === "sync" || limitParam === "plus" || limitParam === "pro" ? limitParam : null;
 const model = { providerID: previewParams.get("provider") ?? "openai", modelID: previewParams.has("composer-layout") ? "GPT-5.6 Terra" : "Preview model" };
-const limitFixture = usageLimitFixture(limitPlan, previewParams.get("role") !== "member", model.providerID);
+const requestTooLarge = previewParams.has("requestTooLarge");
+const limitFixture = usageLimitFixture(limitPlan, previewParams.get("role") !== "member", model.providerID, requestTooLarge);
 const upgradePreview = previewParams.get("upgrade");
 const topUpPreview = previewParams.get("topup");
-const intentPreview = previewParams.get("intent");
+const intentPreview = requestTooLarge ? "request" : previewParams.get("intent");
 let topUpPending: { operationId: string; amountCents: number } | null = null;
 let topUpReadyAt = 0;
 let failNextUsageRead = false;
@@ -96,6 +101,14 @@ const reply = "I've reviewed the sample terms and organized the key points.\n\n#
 const snapshots = new Map<string, LegalworkSessionSnapshot>();
 const queryClient = getReactQueryClient();
 queryClient.setDefaultOptions({ queries: { retry: false, refetchOnWindowFocus: false } });
+if (subscriptionPreview && limitFixture.entitlements.account && limitFixture.entitlements.entitlements) {
+  limitFixture.entitlements.account.orgRole = limitFixture.usage.isAdmin ? "org:admin" : "org:member";
+  limitFixture.entitlements.entitlements.subscriptionStatus = "canceled";
+  limitFixture.entitlements.entitlements.features = [];
+  limitFixture.usage.enabled = false;
+  limitFixture.usage.me.blockedReason = null;
+  queryClient.setQueryData(eigenweltEntitlementsQueryKey(), limitFixture.entitlements);
+}
 if (previewParams.has("review-checks")) {
   for (const directory of [workspace.path, otherWorkspace.path]) queryClient.setQueryData(providerListQueryKey({ baseUrl: "https://legalwork-preview.invalid/opencode", directory }), {
     all: [{ id: model.providerID, name: "Preview models", source: "api", models: { [model.modelID]: { id: model.modelID, name: model.modelID, capabilities: { reasoning: false } }, "Drafting model": { id: "Drafting model", name: "Drafting model", capabilities: { reasoning: false } } } }], connected: [model.providerID], default: { [model.providerID]: model.modelID },
@@ -153,7 +166,10 @@ if (limitParam) {
   saveSnapshot({
     ...item,
     messages: item.messages.map(message => message.info.role === "assistant" ? {
-      ...message, parts: [], info: { ...message.info, error: { name: "UnknownError", data: { message: providerUsageLimitErrorText(model.providerID) } } },
+      ...message, parts: [], info: { ...message.info, error: subscriptionPreview ? {
+        name: "APIError", data: { statusCode: 403, providerID: "eigenwelt", message: "Forbidden",
+          responseBody: '{"error":{"message":"team not allowed to access model","type":"team_model_access_denied"}}' },
+      } : { name: "UnknownError", data: { message: providerUsageLimitErrorText(model.providerID, requestTooLarge ? organizationRequestLimit : null) } } },
     } : message),
   });
   if (previewParams.has("continued")) {
@@ -178,6 +194,30 @@ if (subagentApprovals) {
       patterns: ["/Shared/Client precedents/*"], metadata: { path: "/Shared/Client precedents", description: "Read the precedents used for this review" }, always: [],
     }]);
   }
+  for (const { id, title, running } of [
+    { id: "visual-drafting", title: "Draft review summary", running: true },
+    { id: "visual-completed", title: "Check liability clauses", running: false },
+  ]) {
+    const item = snapshot(id, title, running ? undefined : "Check the liability clauses.");
+    saveSnapshot({ ...item, session: { ...item.session, parentID: "visual-review" }, status: { type: running ? "busy" : "idle" } });
+  }
+  const parent = snapshots.get("visual-review");
+  if (parent) saveSnapshot({ ...parent, messages: parent.messages.map(message => {
+    if (message.info.role !== "assistant") return message;
+    const tools: ToolPart[] = [
+      { id: "visual-research", title: "Research contract history", completed: false },
+      { id: "visual-drafting", title: "Draft review summary", completed: false },
+      { id: "visual-completed", title: "Check liability clauses", completed: true },
+    ].map(agent => ({
+      type: "tool", id: `tool-${agent.id}`, callID: `call-${agent.id}`, messageID: message.info.id, sessionID: parent.session.id, tool: "task",
+      state: agent.completed ? {
+        status: "completed", input: { description: agent.title, prompt: "Review the assigned clauses", subagent_type: "general" }, metadata: { sessionId: agent.id }, title: agent.title, output: "Review completed.", time: { start: now - 60_000, end: now - 30_000 },
+      } : {
+        status: "running", input: { description: agent.title, prompt: "Review the assigned clauses", subagent_type: "general" }, metadata: { sessionId: agent.id }, time: { start: now - 60_000 },
+      },
+    }));
+    return { ...message, parts: [...tools, ...message.parts] };
+  }) });
   seedQuestionState(workspace.id, "visual-reference", [{
     id: "reference-question", sessionID: "visual-reference", questions: [{
       header: "Reference version", question: "Which policy version should I use for the comparison?",
@@ -388,6 +428,7 @@ const fixtureClient: LegalworkServerClient = {
       const orgLimit = organization ? action.limitCents : previous.orgExtraLimitCents;
       const wallet = previewParams.get("intentRecovery") === "blocked" ? 0 : previous.walletCents ?? 0;
       me.extraRemainingCents = Math.max(0, Math.min(me.extraLimitCents - me.extraUsedCents, orgLimit === null ? Infinity : orgLimit - (previous.orgExtraUsedCents ?? 0), wallet));
+      me.availableMicros = (me.remainingCents + me.extraRemainingCents) * 10_000;
       me.blockedReason = me.extraRemainingCents > 0 ? null : "wallet_empty";
       limitFixture.usage = { ...previous, me, members: [me], orgExtraLimitCents: orgLimit, walletCents: wallet,
         extraEnabled: action.action === "enableExtraUsage" || previous.extraEnabled };
@@ -663,7 +704,15 @@ function SessionPreview() {
           }}
           surface={{
             workspaceRoot: activeWorkspace.path, developerMode: false, modelLabel: model.providerID === "eigenwelt" ? "LegalWork AI" : "ChatGPT", onModelClick: previewNotice,
-            onChooseAiPlan: async () => previewNotice(),
+            onChooseAiPlan: async plan => {
+              if (!subscriptionPreview) { previewNotice(); return; }
+              await new Promise<void>(resolve => window.setTimeout(resolve, 1_500));
+              const updated = usageLimitFixture(plan, true, model.providerID);
+              if (updated.entitlements.account) updated.entitlements.account.orgRole = "org:admin";
+              limitFixture.entitlements = updated.entitlements;
+              limitFixture.usage = updated.usage;
+              queryClient.setQueryData(eigenweltEntitlementsQueryKey(), updated.entitlements);
+            },
             modelPickerOpen: false, modelSelectorLocked: !previewParams.has("composer-layout") && !previewParams.has("review-checks"), selectedModel: model, onModelPickerOpenChange: () => {}, onModelChange: () => {},
             onSendDraft: sendDraft, onDraftChange: () => {}, attachmentsEnabled: false, attachmentsDisabledReason: "Use the connected app to upload files.",
             modelVariantLabel: "Standard", modelVariant: null, onModelVariantChange: () => {}, agentLabel: "Assistant", selectedAgent: null,

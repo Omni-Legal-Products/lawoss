@@ -6,6 +6,7 @@ import { ApiError } from "../errors.js";
 import { canonicalFilePath } from "../file-write-lock.js";
 import { posix, win32 } from "node:path";
 import { applySessionUsageLimits, deleteSessionUsageLimits, recordSessionUsageLimit } from "../session-usage-limits.js";
+import { usageLimitDetailsSchema } from "../provider-usage-limit.js";
 import { buildSession, buildSessionList, buildSessionMessages, buildSessionSnapshot } from "../session-read-model.js";
 import {
   createSessionGroupId,
@@ -430,6 +431,8 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       const workspace = await resolveWorkspace(config, ctx.params.id);
       const body = await readJsonBody(ctx.request);
       const messageId = requireStringField(body, "messageId");
+      const limit = body.limit === undefined ? null : usageLimitDetailsSchema.safeParse(body.limit);
+      if (limit && !limit.success) throw new ApiError(400, "invalid_usage_limit", "Valid admission details are required");
       const sessionId = ctx.params.sessionId;
       const opencode = createWorkspaceOpencodeClient(config, workspace);
       const message = unwrapOpencodeResult(
@@ -454,6 +457,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
         sessionId,
         messageId,
         message.info.providerID,
+        limit?.success ? limit.data : null,
       );
       return jsonResponse({ ok: true });
     },

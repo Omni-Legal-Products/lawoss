@@ -19,3 +19,11 @@ export function usageBlockMessageKey(reason: string | null, isAdmin: boolean) {
 export function usageBlockNeedsSettings(reason: string | null) {
   return reason === "member_limit" || reason === "organization_limit" || reason === "extra_disabled";
 }
+
+export function usageRequestMessageKey(reason: string | null, isAdmin: boolean) {
+  if (reason === "member_limit") return isAdmin ? "limits.request_member_admin" : "limits.request_member";
+  if (reason === "organization_limit") return isAdmin ? "limits.request_organization_admin" : "limits.request_organization";
+  if (reason === "wallet_empty") return isAdmin ? "limits.request_wallet_admin" : "limits.request_wallet";
+  if (reason === "service_limit") return "limits.request_service";
+  return usageBlockMessageKey(reason, isAdmin);
+}

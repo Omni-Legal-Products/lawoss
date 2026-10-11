@@ -28,6 +28,7 @@ import {
   ListTodo,
   Loader2,
   Plus,
+  PanelRightClose,
   PanelsTopLeft,
   RotateCw,
   X,
@@ -1004,7 +1005,7 @@ function SidePanelContent({
     <Button variant="ghost" size="icon-sm" onClick={() => setExpanded(!expanded)} aria-label={expanded ? t("side_panel.restore_workspace") : t("side_panel.expand_workspace")} title={expanded ? t("side_panel.restore_workspace") : t("side_panel.expand_workspace")}>
       {expanded ? <Minimize2 /> : <Maximize2 />}
     </Button>
-    {!unified && <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("side_panel.close_preview")} title={t("side_panel.close_preview")}><X /></Button>}
+    {!unified && <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("side_panel.close_preview")} title={t("side_panel.close_preview")}><PanelRightClose /></Button>}
   </div>;
 
   const dropProjectTab = (tab: PanelTabEntry, pane: string, edge?: DocumentDropEdge) => {
@@ -1022,7 +1023,7 @@ function SidePanelContent({
       const destination = current?.panes.find(item => item.id === pane.id);
       if (destination) reorderTabs(insertTabBefore(current.tabs.filter(tab => destination.tabIds.includes(tab.id)).map(tab => tab.id), id, beforeId));
     }} onFileDrop={openFilesInViewer} className={cn("shrink-0 titlebar-no-drag", docked ? "h-full" : "bg-muted/35")}>
-      <div className={cn("flex items-center gap-1 px-2", docked ? "h-full" : "h-11 border-b border-border/70")}>
+      <div data-window-caption-controls={docked && pane.id === controlsPane} className={cn("flex items-center gap-1 px-2", docked ? "h-full" : "h-11 border-b border-border/70")}>
         <div className="no-scrollbar min-w-0 overflow-x-auto">
           <PanelTabList values={paneTabs.map(tab => tab.id)} onReorder={reorderTabs}>
             {paneTabs.map(tab => <SidePanelTab key={tab.id} projectId={projectId} tab={tab} fileSource={tab.type === "artifact" ? tab.sourceProject ?? (client && workspaceId && (tab.value || tab.storage) ? projectFiles?.identify(client, workspaceId, { name: tab.label, path: tab.storage?.file.path ?? tab.value!, connectionId: tab.storage?.root.id }) ?? undefined : undefined) : undefined} pane={pane.id} destinations={orderedPanes} canSplit={panes.length < MAX_DOCUMENT_PANES && paneTabs.length > 1} active={pane.activeTabId === tab.id} canMove={canMove} preview={pane.previewTabId === tab.id} onKeepOpen={() => usePanelTabStore.getState().keepTab(sessionId, tab.id)}

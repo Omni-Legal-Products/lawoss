@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { startServer } from "./server.js";
+import { openSqlite } from "./runtime-db.js";
 import type { ServerConfig } from "./types.js";
 
 type Served = {
@@ -35,7 +36,7 @@ function auth(token: string) {
   return { Authorization: `Bearer ${token}` };
 }
 
-function startMockOpencode(input?: { sessionDirectory?: string; invalidList?: boolean; holdCommand?: Promise<void>; idle?: () => boolean; commands?: () => Array<{ name: string; template: string }>; promptError?: () => { name: string; data: { message: string } } | undefined }) {
+function startMockOpencode(input?: { sessionDirectory?: string; invalidList?: boolean; holdCommand?: Promise<void>; idle?: () => boolean; commands?: () => Array<{ name: string; template: string }>; promptError?: () => { name: string; data: { message: string } } | undefined; providerId?: string }) {
   const requests: Array<{ pathname: string; search: string; directory: string | null; method: string }> = [];
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -106,7 +107,7 @@ function startMockOpencode(input?: { sessionDirectory?: string; invalidList?: bo
       }
 
       if (url.pathname === "/session/ses_1/message/msg_1") {
-        return Response.json({ info: { id: "msg_1", sessionID: "ses_1", role: "assistant", providerID: "openai" }, parts: [] });
+        return Response.json({ info: { id: "msg_1", sessionID: "ses_1", role: "assistant", providerID: input?.providerId ?? "openai" }, parts: [] });
       }
 
       if (url.pathname === "/session/ses_1/todo") {
@@ -181,6 +182,29 @@ async function waitUntil(predicate: () => boolean) {
 }
 
 describe("workspace session read APIs", () => {
+  test("request admission details survive snapshot and transcript reads, and malformed details are rejected", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    // Start with the provider-only table shipped before admission details.
+    const db = await openSqlite(join(workspaceRoot, "runtime.sqlite"));
+    db.exec("CREATE TABLE session_usage_limits (workspace_id TEXT NOT NULL, session_id TEXT NOT NULL, message_id TEXT NOT NULL, provider_id TEXT NOT NULL, PRIMARY KEY(workspace_id,session_id,message_id))");
+    db.run("INSERT INTO session_usage_limits VALUES (?,?,?,?)", ["ws_1", "ses_1", "msg_1", "openai"]);
+    const mock = startMockOpencode({ providerId: "eigenwelt" });
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, readOnly: false });
+    const base = `http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1`;
+    const headers = { ...auth(legalwork.token), "Content-Type": "application/json" };
+    const legacy = await fetch(`${base}/snapshot`, { headers }).then(response => response.json());
+    expect(legacy.item.messages[0].info.error.data.message).toBe("LegalWork provider usage limit: openai");
+    const limit = { reason: "organization_limit", requiredMicros: 200000, availableMicros: 90000 };
+    const response = await fetch(`${base}/usage-limit`, { method: "POST", headers, body: JSON.stringify({ messageId: "msg_1", limit }) });
+    expect(response.status).toBe(200);
+    const snapshot = await fetch(`${base}/snapshot`, { headers }).then(response => response.json());
+    const text = snapshot.item.messages[0].info.error.data.message;
+    expect(decodeURIComponent(text.split(" ").at(-1))).toBe(JSON.stringify(limit));
+    const messages = await fetch(`${base}/messages`, { headers }).then(response => response.json());
+    expect(messages.items[0].info.error.data.message).toBe(text);
+    const malformed = await fetch(`${base}/usage-limit`, { method: "POST", headers, body: JSON.stringify({ messageId: "msg_1", limit: { ...limit, reason: "unknown" } }) });
+    expect(malformed.status).toBe(400);
+  });
   test("a stopped quota turn stays actionable in subsequent snapshots and message reads", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const mock = startMockOpencode();

@@ -8,8 +8,67 @@ import {
   transcriptKey,
 } from "../src/react-app/domains/session/sync/session-sync";
 import { useComposerStateStore } from "../src/react-app/domains/session/surface/composer-state-store";
-import { providerFromUsageLimitError } from "../src/app/lib/provider-usage-limit";
+import { parseProviderUsageLimit, providerFromUsageLimitError } from "../src/app/lib/provider-usage-limit";
 import type { UIMessage } from "ai";
+
+test("a gateway admission reason survives stopping a background retry and is persisted with its turn", async () => {
+  const limit = { reason: "organization_limit", requiredMicros: 200000, availableMicros: 90000 };
+  const persisted: unknown[] = [];
+  let aborts = 0;
+  const server = Bun.serve({
+    port: 0,
+    async fetch(request) {
+      const path = new URL(request.url).pathname;
+      if (path.endsWith("/messages")) {
+        return Response.json({ items: [{ info: { id: "gateway-turn", role: "assistant", providerID: "eigenwelt" }, parts: [] }] });
+      }
+      if (path.endsWith("/usage-limit")) {
+        persisted.push(await request.json());
+        return Response.json({ ok: true });
+      }
+      if (path.endsWith("/abort")) {
+        aborts++;
+        return Response.json(true);
+      }
+      return Response.json({ item: { id: "gateway-session", directory: "/project/gateway" } });
+    },
+  });
+  const input = {
+    workspaceId: "gateway-workspace",
+    baseUrl: new URL("/workspace/gateway-workspace/opencode", server.url).toString(),
+    legalworkToken: "test",
+  };
+  const dispose = __createWorkspaceSessionSyncForTest(input);
+  const query = getReactQueryClient();
+  try {
+    __applySessionSyncEventForTest(input, {
+      type: "session.next.retried",
+      properties: {
+        sessionID: "gateway-session",
+        error: {
+          statusCode: 429,
+          message: "HTTP 429",
+          responseBody: JSON.stringify({ error: { message: "Budget has been exceeded. Eigenwelt usage limit: " + JSON.stringify(limit) } }),
+        },
+      },
+    });
+    for (let attempt = 0; attempt < 50 && !persisted.length; attempt++) await Bun.sleep(10);
+    expect(aborts).toBe(1);
+    expect(persisted).toEqual([{ messageId: "gateway-turn", limit }]);
+    expect(useComposerStateStore.getState().pausedQueues["gateway-session"]).toBe(true);
+    __applySessionSyncEventForTest(input, {
+      type: "session.error",
+      properties: { sessionID: "gateway-session", error: { name: "MessageAbortedError", data: { message: "The message was interrupted" } } },
+    });
+    const messages = query.getQueryData<UIMessage[]>(transcriptKey(input.workspaceId, "gateway-session"));
+    const part = messages?.at(-1)?.parts.find(part => part.type === "text");
+    expect(part?.type === "text" && parseProviderUsageLimit(part.text)).toEqual({ providerId: "eigenwelt", limit });
+  } finally {
+    dispose();
+    server.stop(true);
+    query.clear();
+  }
+});
 
 test("the first quota retry aborts a background task in its workspace and pauses follow-ups", async () => {
   const aborts: URL[] = [];

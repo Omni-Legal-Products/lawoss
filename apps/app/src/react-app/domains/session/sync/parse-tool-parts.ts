@@ -37,6 +37,13 @@ export function parseDynamicToolUIPart(part: ToolPart): DynamicToolUIPart | null
     return null;
   }
 
+  const metadata = "metadata" in part.state ? part.state.metadata : undefined;
+  const callProviderMetadata = { opencode: {
+    partId: part.id,
+    ...(part.tool === "task" && typeof metadata?.sessionId === "string" ? { sessionId: metadata.sessionId } : {}),
+    ...(part.tool === "task" && metadata?.background === true ? { background: true } : {}),
+  } };
+
   if (part.state.status === "error") {
     return {
       type: "dynamic-tool",
@@ -45,7 +52,7 @@ export function parseDynamicToolUIPart(part: ToolPart): DynamicToolUIPart | null
       state: "output-error",
       input: part.state.input,
       errorText: part.state.error,
-      callProviderMetadata: { opencode: { partId: part.id } },
+      callProviderMetadata,
     };
   }
 
@@ -57,7 +64,7 @@ export function parseDynamicToolUIPart(part: ToolPart): DynamicToolUIPart | null
       state: "output-available",
       input: part.state.input,
       output: part.state.output,
-      callProviderMetadata: { opencode: { partId: part.id } },
+      callProviderMetadata,
     };
   }
 
@@ -73,6 +80,6 @@ export function parseDynamicToolUIPart(part: ToolPart): DynamicToolUIPart | null
     toolCallId: part.callID,
     state: "input-streaming",
     input: part.state.input,
-    callProviderMetadata: { opencode: { partId: part.id } },
+    callProviderMetadata,
   };
 }

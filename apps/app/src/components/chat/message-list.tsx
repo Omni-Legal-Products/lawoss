@@ -4,6 +4,7 @@ import { CalculationToolCard } from "./calculation/calculation-card";
 import { PendingStatus } from "./pending-status";
 import { JevSearchCard } from "./review/jev-search-card";
 import { ReviewToolCard, ReviewToolGroup } from "./review/review-card";
+import { SubagentToolRows } from "./subagent-tool-row";
 "use memo";
 
 import { ProjectContentsTool } from "./project/project-contents-card";
@@ -418,6 +419,7 @@ const AssistantMessage = React.memo(
             if (group.kind === "jev-search") return <JevSearchCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "review") return <ReviewToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "reviews") return <ReviewToolGroup key={group.parts[0].toolCallId} parts={group.parts} />;
+            if (group.kind === "subagents") return <SubagentToolRows key={group.parts[0].toolCallId} parts={group.parts} />;
 
             if (group.kind === "scheduled-task") return <ScheduledTaskToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "calculation") return <CalculationToolCard key={group.part.toolCallId} part={group.part} />;

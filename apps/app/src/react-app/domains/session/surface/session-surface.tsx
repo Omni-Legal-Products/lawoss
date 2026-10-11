@@ -4,10 +4,13 @@ import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { SessionSandbox } from "./session-sandbox";
 /** @jsxImportSource react */
 import { ProviderLimitMessage } from "@/react-app/domains/connections/usage-control/provider-limit-message";
+import { SubscriptionEndedMessage } from "@/react-app/domains/connections/usage-control/subscription-ended-message";
+import { hasEndedEigenweltSubscription, isEigenweltSubscriptionEndedErrorText } from "@/app/lib/eigenwelt-subscription";
 import { hasAssistantReplyAfter } from "@/react-app/domains/connections/usage-control/usage-recovery";
-import { isProviderUsageLimitError, providerFromUsageLimitError } from "@/app/lib/provider-usage-limit";
+import { eigenweltUsageLimitFromError, isProviderUsageLimitError, parseProviderUsageLimit, providerFromUsageLimitError } from "@/app/lib/provider-usage-limit";
+import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "@/app/types";
 import { RecordingDetailDialog } from "../../recorder/recorder-pane";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { UIMessage } from "ai";
 import { useQuery } from "@tanstack/react-query";
 import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
@@ -202,6 +205,7 @@ export type SessionSurfaceProps = {
   isRemoteWorkspace: boolean;
   isSandboxWorkspace: boolean;
   todos?: TodoItem[];
+  pendingInteractionSessionIds?: string[];
   activePermission?: PendingPermission | null;
   permissionReplyBusy?: boolean;
   respondPermission?: (requestID: string, reply: "once" | "always" | "reject") => void;
@@ -438,12 +442,15 @@ function parseSessionError(thrown: unknown): SessionError {
   return { message: raw || "Failed to send prompt." };
 }
 
-function SessionErrorCard({ error, onDismiss, onChangeModel, onOpenModelPicker }: {
+function SessionErrorCard({ error, onDismiss, onChangeModel, onOpenModelPicker, renderRecovery }: {
   error: SessionError;
   onDismiss: () => void;
   onChangeModel?: (model: { providerID: string; modelID: string }) => void;
   onOpenModelPicker?: () => void;
+  renderRecovery?: (error: string) => ReactNode;
 }) {
+  const recovery = renderRecovery?.(error.message);
+  if (recovery) return <div className="mx-auto max-w-[720px] px-3 py-3 sm:px-5">{recovery}</div>;
   return (
     <div className="mx-auto max-w-[720px] px-3 py-3 sm:px-5">
       <div className="rounded-2xl border border-red-6/30 bg-red-3/15 px-5 py-4">
@@ -520,12 +527,23 @@ export function SessionSurface(props: SessionSurfaceProps) {
       props.selectedModel.providerID === "eigenwelt" || noModelNoticeVisible || lockedOutCandidate,
   });
   const eigenweltPlan = eigenweltEntitlementsQuery.data?.entitlements?.plan ?? null;
+  const subscriptionEndedNoticeVisible = hasEndedEigenweltSubscription(eigenweltEntitlementsQuery.data) &&
+    (props.selectedModel.providerID === "eigenwelt" || noModelNoticeVisible || lockedOutCandidate);
+  function isSubscriptionRecoveryError(error: string) {
+    return isEigenweltSubscriptionEndedErrorText(error) ||
+      subscriptionEndedNoticeVisible && error === t("session_route.model_unavailable");
+  }
+  function renderSubscriptionRecovery(error: string, resolved = false) {
+    if (!isSubscriptionRecoveryError(error)) return null;
+    return <SubscriptionEndedMessage client={props.client} workspaceId={props.workspaceId}
+      onChoosePlan={props.onChooseAiPlan} resolved={resolved} />;
+  }
   // Trial lapsed while the selection still points at the Eigenwelt provider:
   // the paid gateway is blocked, so surface the subscribe path instead of
   // letting sends fail on a vanished model.
   const eigenweltTrial = eigenweltTrialState(eigenweltEntitlementsQuery.data?.entitlements ?? null);
   const trialEndedNoticeVisible =
-    props.selectedModel.providerID === "eigenwelt" && eigenweltTrial.kind === "ended";
+    !subscriptionEndedNoticeVisible && props.selectedModel.providerID === "eigenwelt" && eigenweltTrial.kind === "ended";
   const trialBillingUrl = eigenweltBillingUrl(eigenweltEntitlementsQuery.data?.platformURL ?? null);
   // Locked out: the selection points at a provider that is no longer
   // connected (signed out of Eigenwelt, access revoked, provider removed) and
@@ -550,9 +568,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // Office task pane lands here on first open: its model choice is stored per
   // origin, apart from the app's.
   const pickModelNoticeVisible = noModelNoticeVisible && (props.providerConnectedCount ?? 0) > 0;
-  const connectNoticeVisible = props.aiPlansGate
+  const connectNoticeVisible = !subscriptionEndedNoticeVisible && (props.aiPlansGate
     ? noAiPlanNoticeVisible || pickModelNoticeVisible
-    : noModelNoticeVisible || lockedOutNoticeVisible || noAiPlanNoticeVisible;
+    : noModelNoticeVisible || lockedOutNoticeVisible || noAiPlanNoticeVisible);
   // While nothing can serve the prompt (no selection, a selection on a
   // provider that is gone, or a plan without models), block submission
   // exactly as a vanished model does, so the notice's buttons or the plan
@@ -564,6 +582,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const sendBlocked =
     Boolean(props.modelUnavailable) ||
     noModelNoticeVisible ||
+    subscriptionEndedNoticeVisible ||
     lockedOutNoticeVisible ||
     noAiPlanNoticeVisible;
   const connectNoticeVariant = noAiPlanNoticeVisible
@@ -907,6 +926,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
     () => deriveRenderedSessionMessages({ transcriptState, snapshot }),
     [snapshot, transcriptState],
   );
+  const subscriptionEndedAccessoryVisible = subscriptionEndedNoticeVisible &&
+    !isSubscriptionRecoveryError(error?.message ?? "") &&
+    !renderedMessages.some(message => message.id.startsWith(SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX) &&
+      !hasAssistantReplyAfter(renderedMessages, message.id) &&
+      message.parts.some(part => part.type === "text" && isSubscriptionRecoveryError(part.text)));
   const queryClient = useQueryClient();
   const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
   const openTargetsFingerprint = useMemo(
@@ -1966,7 +1990,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         </div>
       ) : null}
 
-      <div className="relative min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1 overflow-hidden">
         <div
           ref={scrollRef}
           aria-hidden={props.realtimeVoiceActive || undefined}
@@ -2004,6 +2028,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     onDismiss={handleDismissError}
                     onChangeModel={props.onChangeModel}
                     onOpenModelPicker={props.onModelClick}
+                    renderRecovery={renderSubscriptionRecovery}
                   />
                 ) : (
                   <div className="mx-auto max-w-xl rounded-3xl border border-red-6/40 bg-red-3/20 px-6 py-5 text-sm text-red-11">
@@ -2021,6 +2046,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                 onDismiss={handleDismissError}
                 onChangeModel={props.onChangeModel}
                 onOpenModelPicker={props.onModelClick}
+                renderRecovery={renderSubscriptionRecovery}
               />
             ) : (
               <DevProfiler id="MessageList">
@@ -2037,6 +2063,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
                       legalworkClient={props.client}
                       workspaceId={props.workspaceId}
                       sessionId={props.sessionId}
+                      onOpenSession={props.onOpenInteractionSession}
+                      pendingInteractionSessionIds={props.pendingInteractionSessionIds}
                       showThinking={showThinking}
                       developerMode={props.developerMode}
                       displaySuggestions={shellConfig.starterCards}
@@ -2050,6 +2078,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
                       <MessageList
                         eigenweltPlan={eigenweltPlan}
                         renderUsageLimit={(error, messageId) => {
+                          const subscriptionRecovery = renderSubscriptionRecovery(error,
+                            messageId ? hasAssistantReplyAfter(renderedMessages, messageId) : false);
+                          if (subscriptionRecovery) return subscriptionRecovery;
                           const provider = providerFromUsageLimitError(error);
                           const legacyBudget = isEigenweltBudgetExceededErrorText(error);
                           if (!isProviderUsageLimitError(error, props.selectedModel.providerID) && provider === null && !legacyBudget) return null;
@@ -2058,6 +2089,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                             workspaceId={props.workspaceId}
                             plan={eigenweltPlan}
                             providerId={provider || (legacyBudget ? "eigenwelt" : props.selectedModel.providerID)}
+                            limit={parseProviderUsageLimit(error)?.limit ?? (props.selectedModel.providerID === "eigenwelt" ? eigenweltUsageLimitFromError(error) : null)}
                             onChoosePlan={props.onChooseAiPlan}
                             resolved={messageId ? hasAssistantReplyAfter(renderedMessages, messageId) : false}
                           />;
@@ -2182,10 +2214,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
           queueAccessory={queuePaused || queuedDrafts.length > 0 || editingQueuedDraftId ? (
             <QueuedMessagesPanel messages={queuedDrafts} onRemove={removeQueuedDraft} onEdit={editQueuedDraft} onReorder={reorderQueuedDrafts} editingId={editingQueuedDraftId} onCancelEdit={cancelQueuedEdit} paused={queuePaused} onResume={resumeQueue} disabled={sendBlocked || queueSaving} />
           ) : null}
-          compactTopSpacing={Boolean(trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || hasActivePlan || props.activePermission || queuedDrafts.length > 0)}
+          compactTopSpacing={Boolean(subscriptionEndedAccessoryVisible || trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || hasActivePlan || props.activePermission || queuedDrafts.length > 0)}
           topAccessory={
-            trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || hasActivePlan || props.activePermission ? (
+            subscriptionEndedAccessoryVisible || trialEndedNoticeVisible || connectNoticeVisible || props.activeQuestion || hasActivePlan || props.activePermission ? (
               <div className={props.activePermission || props.activeQuestion ? "max-h-[50vh] overflow-y-auto" : undefined}>
+                {subscriptionEndedAccessoryVisible ? (
+                  <SubscriptionEndedMessage client={props.client} workspaceId={props.workspaceId} onChoosePlan={props.onChooseAiPlan} />
+                ) : null}
                 {trialEndedNoticeVisible ? <TrialEndedNotice billingUrl={trialBillingUrl} /> : null}
                 {connectNoticeVisible ? (
                   <NoModelNotice

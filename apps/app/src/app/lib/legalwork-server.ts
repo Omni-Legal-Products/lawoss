@@ -226,6 +226,7 @@ export type EigenweltAccountIdentity = {
   userEmail: string | null;
   orgId: string;
   orgName: string;
+  orgRole?: string | null;
 };
 
 /** Feature flags the platform may grant (subset the app gates surfaces on). */
@@ -2139,9 +2140,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken, timeoutMs: timeouts.sessionRead },
       );
     },
-    recordSessionUsageLimit: (workspaceId: string, sessionId: string, messageId: string) =>
+    recordSessionUsageLimit: (workspaceId: string, sessionId: string, messageId: string, limit?: import("@legalwork/types/provider-usage-limit").UsageLimitDetails | null) =>
       requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/usage-limit`, {
-        token, hostToken, method: "POST", body: { messageId },
+        token, hostToken, method: "POST", body: { messageId, ...(limit ? { limit } : {}) },
       }),
     getSessionSnapshot: (workspaceId: string, sessionId: string, options?: { limit?: number }) => {
       const query = new URLSearchParams();

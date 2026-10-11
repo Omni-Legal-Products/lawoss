@@ -165,7 +165,7 @@ describe("subagent request scope", () => {
     expect(usePanelTabStore.getState().sessions[scope]?.tabs.map((tab) => tab.id)).toEqual(["chat:other", "contract"]);
   });
 
-  test("new child sessions enter the sidebar immediately and subsequent updates replace them", () => {
+  test("new child sessions enter runtime navigation data immediately and subsequent updates replace them", () => {
     const child = session("child", "parent");
     const list = upsertRuntimeSession([session("parent")], { sessionId: child.id, info: child });
     expect(list.map((item) => item.id)).toEqual(["parent", "child"]);

@@ -4,7 +4,7 @@ import { ProjectLinkedFiles } from "../../workspace/project-linked-files";
 /** @jsxImportSource react */
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertCircle, Pin, ChevronRight, Eye, EyeOff, RotateCw, Search, X } from "lucide-react";
+import { AlertCircle, Pin, ChevronRight, Eye, EyeOff, PanelRightClose, RotateCw, Search, X } from "lucide-react";
 
 import type {
   LegalworkServerClient,
@@ -239,7 +239,7 @@ function WorkspaceFilesPanelContent({
             <TooltipTrigger
               render={(
                 <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("workspace_files.close_panel")}>
-                  <X />
+                  <PanelRightClose />
                 </Button>
               )}
             />

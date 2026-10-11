@@ -78,6 +78,9 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
       id: request.sessionID, title: sessions[request.sessionID]?.title || t("session.subagent"),
     } : undefined,
   })), [questions, sessionId, sessions]);
+  const pendingInteractionSessionIds = useMemo(() => [...new Set(
+    [...pendingPermissions, ...pendingQuestions].map(request => request.sessionID),
+  )], [pendingPermissions, pendingQuestions]);
   const todoQueryKey = useMemo(
     () => (workspaceId && sessionId ? todoKey(workspaceId, sessionId) : null),
     [sessionId, workspaceId],
@@ -147,6 +150,7 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
   );
 
   return {
+    pendingInteractionSessionIds,
     activePermission,
     permissionReplyBusy,
     respondPermission,

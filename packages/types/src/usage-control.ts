@@ -14,6 +14,8 @@ export type UsageRequestView = {
   createdAt: string;
 };
 export type MemberUsageView = {
+  availableMicros?: number;
+  requestLimitReason?: import("./provider-usage-limit").UsageLimitDetails["reason"];
   userId: string;
   name: string;
   email: string | null;
