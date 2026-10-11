@@ -22,7 +22,7 @@ export function WorkspaceChat(props: SessionSurfaceProps) {
     const releaseSession = trackWorkspaceSessionSync(input, props.sessionId);
     return () => { releaseSession(); releaseWorkspace(); };
   }, [props.workspaceId, props.opencodeBaseUrl, props.legalworkToken, props.sessionId]);
-  const interactions = useSessionInteractions({ client, workspaceId: props.workspaceId, sessionId: props.sessionId, workspaceRoot: props.workspaceRoot });
+  const interactions = useSessionInteractions({ client, serverClient: props.client, workspaceId: props.workspaceId, sessionId: props.sessionId, workspaceRoot: props.workspaceRoot });
   const key = chatModelKey(props.opencodeBaseUrl, props.workspaceId, props.sessionId);
   const stored = useSessionModelStore(state => state.selections[key]);
   const selection = stored ?? { model: props.selectedModel, variant: props.modelVariant };

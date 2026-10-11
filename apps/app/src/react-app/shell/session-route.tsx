@@ -9,7 +9,8 @@ import { CalendarView } from "../domains/calendar/calendar-view";
 import { sessionMainPage, workspaceCalendarRoute } from "./workspace-routes";
 import { projectErrorMessage } from "../domains/workspace/project-errors";
 /** @jsxImportSource react */
-import { useOrgPolicyForbids } from "@/react-app/domains/connections/org-policy";
+import { useOrgPolicyForbids, useOrgPolicyStore } from "@/react-app/domains/connections/org-policy";
+import { onboardingPermissionsEnforced } from "@/react-app/domains/onboarding/permissions-policy";
 import { OrgPolicyFeatureOff } from "@/react-app/domains/connections/org-policy-ui";
 import {
   useCallback,
@@ -137,6 +138,7 @@ import {
 } from "@/react-app/domains/session/sync/session-sync";
 import { firstLineLocalFileParts } from "@/react-app/domains/session/sync/prompt-file-parts";
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
+import { useHostApprovalSync } from "./use-host-approval-sync";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
 import { runFusionSend, buildFusionTraceSystemPrompt } from "@/react-app/domains/session/fusion/fusion-controller";
 import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/session/fusion/fusion-store";
@@ -495,6 +497,7 @@ export function SessionRoute() {
   });
   // The server says when projects or tasks changed here: what shows them re-reads.
   useSyncEvents(client);
+  useHostApprovalSync(client, workspaces, selectedSessionId);
   useSessionInbox(client, workspaces, sessionsByWorkspaceId, loadWorkspaceSessionsInBackground);
   useEffect(() => {
     if (!client || detached) return;
@@ -838,9 +841,9 @@ export function SessionRoute() {
 
   // Persisted onboarding stage — survives reloads; "done" for existing
   // installs. "setup" is a legacy interim value, shown as the office step.
-  // Order: office -> audio -> permissions -> ai -> done. The Office and audio
-  // steps are desktop-only, so the web flow starts at permissions (see
-  // WelcomeRoute) and its permissions step has no way back.
+  // Order: office -> audio -> ai -> permissions -> done. Signing in first
+  // lets us apply firm policies before offering permission choices.
+  // Office and audio are desktop-only; the web flow starts at ai.
   const onboardingStage =
     local.prefs.onboardingStage === "setup" ? "office" : local.prefs.onboardingStage;
   const setOnboardingStage = useCallback(
@@ -856,10 +859,7 @@ export function SessionRoute() {
   // Set when the user navigates backwards in the onboarding flow, so the
   // office step shows its rows instead of auto-skipping forward again.
   const onboardingWentBack = useRef(false);
-  // The AI step (the plan screen) is the last one, so finishing it finishes
-  // onboarding. It finishes by itself once a model is usable: "connected"
-  // (Eigenwelt), "own_model" (an own provider) or "existing" (one was there
-  // before).
+  const onboardingAiMethod = useRef<"connected" | "own_model" | "existing">("existing");
   const finishOnboarding = useCallback(
     (ai: "connected" | "own_model" | "existing") => {
       captureAnalyticsEvent("onboarding_completed", { ai });
@@ -1000,7 +1000,7 @@ export function SessionRoute() {
   // The plan screen. LegalWork has no free model tier: with neither an own
   // provider nor an Eigenwelt plan that includes the models, the screen lies
   // over the app until one of them works (see aiAccessState for its variants).
-  // The same screen is the last onboarding step.
+  // The same screen connects a model before onboarding permissions.
   const eigenweltView = eigenweltEntitlementsQuery.data;
   // The last signed-in account, remembered so a returning user is asked to
   // sign in instead of being shown the plans.
@@ -1083,11 +1083,38 @@ export function SessionRoute() {
     captureAnalyticsEvent("ai_plans_viewed", { mode, variant: aiPlansVariant, trigger });
   }, [aiAccess, aiPlansScreenVisible, aiPlansVariant, onboardingStage]);
   useEffect(() => {
-    if (onboardingStage !== "ai" || aiAccess !== "ready") return;
+    if (onboardingStage !== "ai" && onboardingStage !== "permissions") return;
+    if (aiAccess === "unknown") return;
+    if (aiAccess !== "ready") {
+      // Resume installations that saved the old permissions-before-sign-in order.
+      if (onboardingStage === "permissions") setOnboardingStage("ai");
+      return;
+    }
+    const policyClient = selectedWorkspaceEndpoint?.client ?? client;
+    if (!policyClient) return;
+    let cancelled = false;
     const path = aiPlansPathRef.current;
-    captureAnalyticsEvent("onboarding_ai_completed", { method: path ?? "existing" });
-    finishOnboarding(path === "eigenwelt" ? "connected" : (path ?? "existing"));
-  }, [aiAccess, finishOnboarding, onboardingStage]);
+    if (onboardingStage === "ai") onboardingAiMethod.current = path === "eigenwelt" ? "connected" : (path ?? "existing");
+    void (async () => {
+      let enforced = false;
+      try {
+        const view = await policyClient.orgPolicy();
+        if (cancelled) return;
+        useOrgPolicyStore.setState({ view });
+        enforced = onboardingPermissionsEnforced(view);
+      } catch {
+        // Unknown policy must not skip choices. The settings enforce their
+        // server-side locks and report any connection problem.
+      }
+      if (cancelled) return;
+      if (onboardingStage === "ai") captureAnalyticsEvent("onboarding_ai_completed", { method: path ?? "existing" });
+      if (enforced) {
+        captureAnalyticsEvent("onboarding_permissions_skipped", { reason: "enforced" });
+        finishOnboarding(onboardingAiMethod.current);
+      } else if (onboardingStage === "ai") setOnboardingStage("permissions");
+    })();
+    return () => { cancelled = true; };
+  }, [aiAccess, client, finishOnboarding, onboardingStage, selectedWorkspaceEndpoint?.client, setOnboardingStage]);
   // "Check for updates" on the plan screen: the Updates settings in a dialog
   // above it, so an app that cannot get past the screen can still update. It
   // starts a check the way the app menu's "Check for Updates…" does.
@@ -1195,6 +1222,7 @@ export function SessionRoute() {
     todos,
   } = useSessionInteractions({
     client: opencodeClient,
+    serverClient: selectedWorkspaceEndpoint?.client,
     workspaceId: selectedWorkspaceEndpoint?.workspaceId ?? "",
     sessionId: selectedSessionId,
     workspaceRoot: selectedWorkspaceRoot,
@@ -2347,7 +2375,7 @@ export function SessionRoute() {
         }}
         onDone={(result) => {
           captureAnalyticsEvent("onboarding_audio_done", { result });
-          setOnboardingStage("permissions");
+          setOnboardingStage("ai");
         }}
       />
     ) : null}
@@ -2374,7 +2402,7 @@ export function SessionRoute() {
         }
         onDone={() => {
           captureAnalyticsEvent("onboarding_permissions_done");
-          setOnboardingStage("ai");
+          finishOnboarding(onboardingAiMethod.current);
         }}
       />
     ) : null}
@@ -2387,9 +2415,7 @@ export function SessionRoute() {
       onChooseProvider={openProvidersFromPlans}
     />}
     {aiPlansScreenVisible ? (
-      // The plan screen: the last onboarding step, and the screen over the
-      // app while no model is usable. There is no skip: it closes by itself
-      // once a model works (onboarding then finishes, see above).
+      // Connect a model, then load firm policy before the permissions step.
       <AiPlansOverlay
         mode={onboardingStage === "ai" ? "onboarding" : "gate"}
         variant={aiPlansVariant ?? "new"}
@@ -2409,10 +2435,10 @@ export function SessionRoute() {
         onCheckModels={checkEigenweltPlanModels}
         onUseOtherAccount={switchEigenweltAccount}
         onBack={
-          onboardingStage === "ai"
+          onboardingStage === "ai" && isDesktopRuntime()
             ? () => {
                 onboardingWentBack.current = true;
-                setOnboardingStage("permissions");
+                setOnboardingStage("audio");
               }
             : undefined
         }

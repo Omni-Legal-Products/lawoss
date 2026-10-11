@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "@/components/ui/sonner";
 import { useQueries } from "@tanstack/react-query";
 
+import { useSessionActivityStore } from "../status/session-activity-store";
+import { hostApprovalScope } from "@/react-app/shell/host-approval-feed";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import type { Client, PendingPermission, PendingQuestion, TodoItem } from "@/app/types";
 import { t } from "@/i18n";
 import { unwrap } from "@/app/lib/opencode";
@@ -30,13 +33,14 @@ function combineQuestions(results: Array<{ data: PendingQuestion[] | undefined }
 
 export type UseSessionInteractionsInput = {
   client: Client | null;
+  serverClient?: LegalworkServerClient | null;
   workspaceId: string;
   sessionId: string | null;
   workspaceRoot: string;
 };
 
 export function useSessionInteractions(input: UseSessionInteractionsInput) {
-  const { client, workspaceId, sessionId, workspaceRoot } = input;
+  const { client, serverClient, workspaceId, sessionId, workspaceRoot } = input;
 
   const [permissionReplyBusy, setPermissionReplyBusy] = useState(false);
   const permissionReplyBusyRef = useRef(false);
@@ -46,11 +50,13 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
   const sessionsKey = useMemo(() => workspaceId ? interactionSessionsKey(workspaceId) : null, [workspaceId]);
   const sessions = useQueryCacheState<InteractionSessions>(sessionsKey, emptyInteractionSessions);
   const sessionIds = useMemo(() => interactionSessionIds(sessionId, sessions), [sessionId, sessions]);
+  const hostScope = serverClient ? hostApprovalScope(serverClient.baseUrl, workspaceId) : null;
+  const permissionScopes = hostScope ? [workspaceId, hostScope] : [workspaceId];
   const permissions = useQueries({
-    queries: sessionIds.map((id) => ({
-      queryKey: permissionKey(workspaceId, id), enabled: false, initialData: emptyPendingPermissions,
-      queryFn: () => getReactQueryClient().getQueryData<PendingPermission[]>(permissionKey(workspaceId, id)) ?? emptyPendingPermissions,
-    })),
+    queries: permissionScopes.flatMap(scope => sessionIds.map((id) => ({
+      queryKey: permissionKey(scope, id), enabled: false, initialData: emptyPendingPermissions,
+      queryFn: () => getReactQueryClient().getQueryData<PendingPermission[]>(permissionKey(scope, id)) ?? emptyPendingPermissions,
+    }))),
     combine: combinePermissions,
   });
   const questions = useQueries({
@@ -102,8 +108,9 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
       permissionReplyBusyRef.current = true;
       setPermissionReplyBusy(true);
       try {
-        await replyToPermission(client, pendingPermission, reply, workspaceRoot);
-        acknowledgeInteraction(workspaceId, pendingPermission.sessionID, requestID, "permission");
+        await replyToPermission(client, pendingPermission, reply, workspaceRoot, serverClient);
+        if (pendingPermission.protocol === "host") useSessionActivityStore.getState().setWaitingRequest(workspaceId, pendingPermission.sessionID, "permission", requestID, false);
+        acknowledgeInteraction(pendingPermission.protocol === "host" && hostScope ? hostScope : workspaceId, pendingPermission.sessionID, requestID, "permission");
       } catch (error) {
         toast.error(t("app.error_request_failed"), {
           description: describeRouteError(error),
@@ -113,7 +120,7 @@ export function useSessionInteractions(input: UseSessionInteractionsInput) {
         setPermissionReplyBusy(false);
       }
     },
-    [client, pendingPermissions, sessionId, workspaceId, workspaceRoot],
+    [client, serverClient, hostScope, pendingPermissions, sessionId, workspaceId, workspaceRoot],
   );
 
   const activeQuestion = permissionFirst ? null : firstQuestion ?? null;

@@ -1,5 +1,6 @@
-import { queueActionSchema, queuedPromptPayload } from "../session-queue-schema.js";
+import { queueActionSchema, queuedPromptPayload, type QueueEntry } from "../session-queue-schema.js";
 import { QueuePreparationError, registerMessageQueue } from "../session-message-queue.js";
+import { assertNoHostShellInterpolation, assertSandboxProxyAllowed } from "../agent-sandbox/proxy-gate.js";
 import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { ApiError } from "../errors.js";
 import { canonicalFilePath } from "../file-write-lock.js";
@@ -66,6 +67,17 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     unwrapOpencodeResult,
   } = options;
   const sessionGroupEvents = new SessionGroupEventStore();
+  async function validateQueuedExecution(client: WorkspaceOpencodeClient, execution: QueueEntry["execution"]) {
+    if (!config.agentSandboxEnabled) return;
+    if (execution.kind === "shell") assertSandboxProxyAllowed("POST", "/session/queued/shell");
+    if (execution.kind === "command") {
+      assertNoHostShellInterpolation(execution.arguments);
+      const commands = unwrapOpencodeResult(await client.command.list(), "/command");
+      const definition = commands.find(item => item.name === execution.command);
+      if (!definition) throw new ApiError(404, "command_not_found", "Command not found.");
+      assertNoHostShellInterpolation(definition.template);
+    }
+  }
   async function queueClient(workspace: WorkspaceInfo, sessionID: string) {
     const client = createWorkspaceOpencodeClient(config, workspace);
     const session = unwrapOpencodeResult(await client.session.get({ sessionID }), "session");
@@ -92,6 +104,8 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
         try {
           const workspace = await resolveWorkspace(config, workspaceId);
           const client = await queueClient(workspace, sessionID);
+          // Revalidate restored queues and shortcut definitions changed since enqueue.
+          await validateQueuedExecution(client, entry.execution);
           unwrapOpencodeResult(await client.session.update({ sessionID, time: { archived: 0 } }), "session/update");
           return client;
         } catch (error) {
@@ -119,7 +133,8 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     const parsed = queueActionSchema.safeParse(await readJsonBodyLimited(ctx.request, 64 * 1024 * 1024));
     if (!parsed.success) throw new ApiError(400, "invalid_queue_action", "Invalid message queue action.");
     // Reject stale/deleted or cross-workspace sessions before storing executable work.
-    await queueClient(workspace, ctx.params.sessionId);
+    const client = await queueClient(workspace, ctx.params.sessionId);
+    if (parsed.data.type === "enqueue") await validateQueuedExecution(client, parsed.data.execution);
     return jsonResponse(await messageQueue.act(workspace.id, ctx.params.sessionId, parsed.data));
   });
 

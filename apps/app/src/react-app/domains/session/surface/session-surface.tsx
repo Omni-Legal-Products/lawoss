@@ -1,6 +1,7 @@
 import { useProjectFiles } from "../../workspace/project-file-context";
 import type { QueueInput } from "@legalwork/types/session-queue";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
+import { SessionSandbox } from "./session-sandbox";
 /** @jsxImportSource react */
 import { ProviderLimitMessage } from "@/react-app/domains/connections/usage-control/provider-limit-message";
 import { hasAssistantReplyAfter } from "@/react-app/domains/connections/usage-control/usage-recovery";
@@ -1954,7 +1955,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   return (
     <DevProfiler id="SessionSurface">
-    <div className="lw-session-typography flex h-full min-h-0 flex-col">
+    <div className="lw-session-typography relative flex h-full min-h-0 flex-col">
+      <SessionSandbox key={`${props.workspaceId}:${props.sessionId}`} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} />
       {fusionAvailable ? <FusionIntroDialog open={fusionIntroOpen} onOpenChange={setFusionIntroOpen} /> : null}
       {model.transitionState === "switching" && showDelayedLoading ? (
         <div className="flex justify-center px-6 pt-4">

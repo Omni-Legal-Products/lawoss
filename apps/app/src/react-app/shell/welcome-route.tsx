@@ -82,7 +82,7 @@ export function WelcomeRoute() {
         ...prev,
         analyticsEnabled,
         hasCompletedOnboarding: true,
-        onboardingStage: isDesktopRuntime() ? "office" : "permissions",
+        onboardingStage: isDesktopRuntime() ? "office" : "ai",
       }));
       markAllWhatsNewSeen();
       markTranscriptionIntroSeen();
