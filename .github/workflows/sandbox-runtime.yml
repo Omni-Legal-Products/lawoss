@@ -6,19 +6,44 @@ on:
         type: string
         required: false
         default: ''
+      targets:
+        description: Comma-separated platform-architecture targets, or all
+        type: string
+        default: all
+      run_tests:
+        description: Run sandbox validation after preparing the runtime
+        type: boolean
+        default: true
   workflow_dispatch:
+    inputs:
+      run_tests:
+        description: Run sandbox validation after preparing the runtime
+        type: boolean
+        default: true
 permissions:
   contents: read
 jobs:
+  targets:
+    runs-on: ubuntu-latest
+    outputs:
+      guest: ${{ steps.matrix.outputs.guest }}
+      runtime: ${{ steps.matrix.outputs.runtime }}
+    steps:
+      # Select targets from the workflow commit; ref selects the build sources.
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Select runtime targets
+        id: matrix
+        env:
+          SANDBOX_TARGETS: ${{ inputs.targets || 'all' }}
+        run: node scripts/sandbox/ci-matrix.mjs
   guest:
+    needs: targets
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            arch: x64
-          - os: ubuntu-24.04-arm
-            arch: arm64
+      matrix: ${{ fromJSON(needs.targets.outputs.guest) }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -33,41 +58,10 @@ jobs:
           name: sandbox-guest-${{ matrix.arch }}
           path: apps/server/resources/agent-sandbox/runtime/
   runtime:
-    needs: guest
+    needs: [targets, guest]
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: macos-15
-            platform: darwin
-            arch: arm64
-            qemu: aarch64
-          - os: macos-15-intel
-            platform: darwin
-            arch: x64
-            qemu: x86_64
-          - os: windows-2022
-            platform: win32
-            arch: x64
-            qemu: x86_64
-            msystem: UCRT64
-            package: mingw-w64-ucrt-x86_64
-            prefix: ucrt64
-          - os: windows-11-arm
-            platform: win32
-            arch: arm64
-            qemu: aarch64
-            msystem: CLANGARM64
-            package: mingw-w64-clang-aarch64
-            prefix: clangarm64
-          - os: ubuntu-24.04
-            platform: linux
-            arch: x64
-            qemu: x86_64
-          - os: ubuntu-24.04-arm
-            platform: linux
-            arch: arm64
-            qemu: aarch64
+      matrix: ${{ fromJSON(needs.targets.outputs.runtime) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
@@ -136,8 +130,11 @@ jobs:
         run: |
           binary="$RUNNER_TEMP/qemu/bin/qemu-system-${{ matrix.qemu }}"
           QEMU_SOURCE_DIR="$RUNNER_TEMP/qemu-11.1.2" SANDBOX_DEPENDENCY_LICENSES="$RUNNER_TEMP/qemu-deps/share/licenses" node scripts/sandbox/package-runtime.mjs "$binary"
-      - run: node --test scripts/sandbox/macos-compatibility.test.mjs
+      - name: Test macOS compatibility audit
+        if: inputs.run_tests
+        run: node --test scripts/sandbox/macos-compatibility.test.mjs
       - name: Exercise real isolation and permission enforcement
+        if: inputs.run_tests
         timeout-minutes: 15
         env:
           LEGALWORK_SANDBOX_INTEGRATION: '1'

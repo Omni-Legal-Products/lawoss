@@ -22,6 +22,10 @@ on:
   # opt-in alpha channel).
   workflow_dispatch:
     inputs:
+      sandbox_tests:
+        description: Run sandbox validation tests (adds build time)
+        type: boolean
+        default: false
       signing_test:
         description: "Validate SignPath test signing without publishing a release or updating the alpha feed"
         type: boolean
@@ -38,6 +42,9 @@ concurrency:
 jobs:
   sandbox-runtime:
     uses: ./.github/workflows/sandbox-runtime.yml
+    with:
+      targets: win32-x64,win32-arm64
+      run_tests: ${{ inputs.sandbox_tests }}
   publish-alpha-windows:
     needs: sandbox-runtime
     name: Build + Publish alpha (${{ matrix.target }})

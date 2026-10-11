@@ -18,6 +18,11 @@ on:
   # until Apple signing secrets are added + MACOS_NOTARIZE=true (see the
   # signed/unsigned package steps below).
   workflow_dispatch:
+    inputs:
+      sandbox_tests:
+        description: Run sandbox validation tests (adds build time)
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -27,7 +32,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  sandbox-runtime:
+    uses: ./.github/workflows/sandbox-runtime.yml
+    with:
+      targets: darwin-arm64
+      run_tests: ${{ inputs.sandbox_tests }}
   publish-alpha-macos-aarch64:
+    needs: sandbox-runtime
     name: Build + Publish alpha (aarch64-apple-darwin)
     runs-on: macos-14
     timeout-minutes: 180
@@ -134,6 +145,16 @@ jobs:
         run: |
           node scripts/release/apply-version.mjs --version "$ALPHA_VERSION"
           pnpm install --lockfile-only --no-frozen-lockfile
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sandbox-runtime-darwin-arm64
+          path: ${{ runner.temp }}/sandbox-runtime
+      - name: Unpack protected runtime
+        shell: bash
+        run: |
+          mkdir -p apps/server/resources/agent-sandbox/runtime
+          tar -xzf "$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz" -C apps/server/resources/agent-sandbox/runtime
 
       - name: Write notary API key
         if: env.MACOS_NOTARIZE == 'true'

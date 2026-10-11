@@ -100,6 +100,8 @@ Current Microsoft MXC has advanced beyond the preview shown in the screenshots. 
 
 Docker is used only to construct the guest on developer/CI machines. Release and CI workflows produce runtime artifacts for each platform and architecture, run real isolation tests, and include those artifacts in the installer. Build-time package managers are not shipped as prerequisites.
 
+Both Alpha workflows expose an unchecked **Run sandbox validation tests (adds build time)** checkbox in GitHub Actions > Run workflow. Alpha always prepares and bundles the required runtime, but runs the sandbox validation suite only when checked. Windows Alpha prepares Windows x64 and ARM64; macOS Alpha prepares macOS ARM64. PR CI, stable releases and manual runs of **Protected execution runtime** retain sandbox validation by default.
+
 On a Mac development machine:
 
 ```sh
