@@ -2193,6 +2193,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onDropProjectFile={source => { try { if (!projectFiles) throw new Error(t("project_files.source_unavailable")); projectFiles.attach(source, props.sessionId); } catch (error) { toast.error(error instanceof Error ? error.message : t("project_files.failed")); } }}
         onDropWorkspaceFile={handleDropWorkspaceFile}
         inputHistory={inputHistory}
+        onPasteMentions={values => setComposerMentions(props.sessionId, {
+          ...getComposerMentions(useComposerStateStore.getState(), props.sessionId),
+          ...Object.fromEntries(values.map((value): [string, "upload"] => [value, "upload"])),
+        })}
         onPasteText={handlePasteText}
         onUnsupportedFileLinks={handleUnsupportedFileLinks}
         pastedText={pasteParts}

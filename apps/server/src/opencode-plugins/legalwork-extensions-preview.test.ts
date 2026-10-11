@@ -228,6 +228,25 @@ describe("in-app Word document routing", () => {
     expect(JSON.parse(raw)).toMatchObject({ ok: true, result: { data: "[P1] Compensation" } });
   });
 
+  test("routes clean template fills and native replies to the originating chat", async () => {
+    const requests: unknown[] = [];
+    await withBridge(activeDocumentSnapshot, body => {
+      requests.push(body);
+      return { ok: true, result: { ok: true, saved: true } };
+    });
+    const plugin = await LegalWorkExtensionsPreview();
+    const fill = { paraId: "p1", placeholder: "[DATE]", value: "11 October 2026" };
+    const reply = { commentId: 2, text: "Agreed." };
+    await plugin.tool.inapp_docx_fill_template.execute(fill, { sessionID: "ses_open" });
+    await plugin.tool.inapp_docx_reply_comment.execute(reply, { sessionID: "ses_open" });
+    expect(requests).toEqual([
+      { actionId: "document.agent_tool", args: { sessionId: "ses_open", toolName: "fill_template", args: fill } },
+      { actionId: "document.agent_tool", args: { sessionId: "ses_open", toolName: "reply_comment", args: reply } },
+    ]);
+    await expect(plugin.tool.inapp_docx_reply_comment.execute({ commentId: -1, text: "Agreed." }, { sessionID: "ses_open" })).rejects.toThrow();
+    expect(requests).toHaveLength(2);
+  });
+
   test("routes targeted tracked-change rejection to the live editor", async () => {
     let request: unknown;
     await withBridge(activeDocumentSnapshot, (body) => {
@@ -308,6 +327,7 @@ describe("in-app Office sidebar routing", () => {
     const plugin = await LegalWorkExtensionsPreview();
     await expect(plugin["tool.execute.before"]({ tool: "legalwork_shell", sessionID: "ses_office", callID: "1" }, { args: { command: "rewrite matter/Budget.xlsx" } })).rejects.toThrow("inapp_xlsx_*");
     await plugin["tool.execute.before"]({ tool: "bash", sessionID: "ses_office", callID: "2" }, { args: { command: "read other.xlsx" } });
+    await plugin["tool.execute.before"]({ tool: "legalwork_shell", sessionID: "ses_office", callID: "3" }, { args: { command: "inspect matter/Budget.xlsx", write: false } });
   });
   test("routes presentation replacements to the live editor", async () => {
     const pptx = { ...surface, format: "pptx", path: "Review.pptx" };
@@ -361,7 +381,7 @@ test("opens workspace and connected files in the engine session, then exposes li
   await plugin["experimental.chat.system.transform"]({ sessionID: "ses_this" }, output);
   expect(output.system.join("\n")).toContain("inapp_documents_open");
   expect(output.system.join("\n")).toContain("inapp_md_*");
-  expect(output.system.join("\n")).toContain("An empty inapp_documents_list means you need to open the file");
+  expect(output.system.join("\n")).toContain("Inspect reference documents in the background with file-reading tools");
 });
 
 describe("PowerPoint visual feedback", () => {

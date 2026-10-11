@@ -1,3 +1,5 @@
+import { permissionAction } from "./permissions.js";
+
 export const managedTools: Record<string, string> = { bash: "legalwork_shell", webfetch: "legalwork_webfetch", websearch: "legalwork_websearch" };
 
 // Distinguishes generated network denials from restrictions saved by older chats.
@@ -10,6 +12,26 @@ export function managedPermissionRules<T extends { permission: string; pattern: 
   return [...agent.filter(rule => !Object.hasOwn(managedTools, rule.permission)),
     ...session.filter(rule => rule.permission !== managedNetworkGuard && !(guarded && Object.hasOwn(managedTools, rule.permission) && rule.pattern === "*" && rule.action === "deny"))]
     .map(rule => ({ ...rule, permission: Object.entries(managedTools).find(([, managed]) => managed === rule.permission)?.[0] ?? rule.permission }));
+}
+
+/** The engine adds file-reader defaults even when command approvals are off.
+ * Applying those defaults to an entire shell command asks for every project
+ * read, and classifies every host command as external-directory access.
+ * Keep explicit user, agent and firm rules. Native file tools retain their
+ * own per-path checks; the managed shell uses its configured permission. */
+export function explicitFileApprovals<T extends { permission: string; pattern: string; action: string }>(agent: T[], configured: unknown[]) {
+  return agent.filter(rule => {
+    const implicit = rule.action === "ask" && (
+      rule.permission === "external_directory" && rule.pattern === "*" ||
+      rule.permission === "read" && ["*.env", "*.env.*"].includes(rule.pattern)
+    );
+    if (!implicit) return true;
+    return configured.some(value => {
+      const permissions = typeof value === "string" ? { "*": value }
+        : value && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : {};
+      return permissionAction(permissions, rule.permission, rule.pattern) !== "allow";
+    });
+  });
 }
 
 /** Keep built-in host execution disabled even when a sandbox plugin cannot load. */

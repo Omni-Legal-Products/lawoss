@@ -44,7 +44,7 @@ import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor,
 import { announceSyncChange, syncEventStream } from "./app-sync-events.js";
 import { ApprovalService } from "./approvals.js";
 import { AgentSandboxService } from "./agent-sandbox/service.js";
-import { managedPermissionRules } from "./agent-sandbox/engine-policy.js";
+import { explicitFileApprovals, managedPermissionRules } from "./agent-sandbox/engine-policy.js";
 import { registerAgentSandboxRoutes } from "./routes/agent-sandbox.js";
 import { assertNoHostShellInterpolation, assertSandboxProxyAllowed, sandboxSessionBody } from "./agent-sandbox/proxy-gate.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
@@ -913,7 +913,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       if (!agent) throw new ApiError(403, "sandbox_agent", "The selected agent is unavailable.");
       // Built-in host shell and web tools stay denied. Managed tools carry
       // the original permissions under their separate identities.
-      return managedPermissionRules(agent.permission, session.permission ?? []);
+      const engineConfig = unwrapOpencodeResult(await client.config.get(), "/config");
+      return managedPermissionRules(explicitFileApprovals(agent.permission, [engineConfig.permission, engineConfig.agent?.[agentName]?.permission]), session.permission ?? []);
     },
   });
 

@@ -1,3 +1,5 @@
+import { useProjectFiles } from "@/react-app/domains/workspace/project-file-context";
+import { copyMessageWithAttachments } from "@/react-app/domains/session/surface/composer/attachment-clipboard";
 import { useRequestOpenTask } from "@/react-app/domains/session/panel/panel-tab-destination";
 import { ScheduledTaskToolCard } from "./scheduled-task-card";
 import { CalculationToolCard } from "./calculation/calculation-card";
@@ -331,7 +333,17 @@ interface CopyMessageButtonProps {
   messages: UIMessage[]
 }
 
+function useCopyMessage() {
+  const { workspaceId, legalworkClient } = useMessageList();
+  const files = useProjectFiles();
+  return React.useCallback((text: string) => copyMessageWithAttachments(text, file => {
+    const source = legalworkClient && files?.identify(legalworkClient, workspaceId, file);
+    return source && files ? { source, projectName: files.sourceProject(source).name } : null;
+  }), [workspaceId, legalworkClient, files]);
+}
+
 function CopyMessageButton({ messages }: CopyMessageButtonProps) {
+  const copyMessage = useCopyMessage();
   const [copied, setCopied] = React.useState(false)
   const text = React.useMemo(() => getMessagesText(messages), [messages])
 
@@ -341,13 +353,13 @@ function CopyMessageButton({ messages }: CopyMessageButtonProps) {
     }
 
     try {
-      await navigator.clipboard.writeText(text)
+      await copyMessage(text)
       setCopied(true)
       window.setTimeout(() => setCopied(false), 2000)
     } catch {
       // ignore clipboard failures
     }
-  }, [text])
+  }, [text, copyMessage])
 
   if (!text) {
     return null
@@ -583,6 +595,7 @@ function renderUserTextWithReferenceChips(rawText: string) {
 
 const UserMessage = React.memo(
   ({ message, isStreaming }: UserMessageProps) => {
+    const copyMessage = useCopyMessage();
     const { onRevertToUserMessage, onForkAtMessage, onEditUserMessage } = useMessageList()
     const messageText = React.useMemo(() => cleanUserMessageText(getMessagesText([message])), [message])
 
@@ -663,7 +676,7 @@ const UserMessage = React.memo(
               </ContextMenuItem>
             ) : null}
             {messageText ? (
-              <ContextMenuItem onClick={() => void navigator.clipboard.writeText(messageText)}>
+              <ContextMenuItem onClick={() => void copyMessage(messageText)}>
                 <Copy className="size-4" />
                 {t("common.copy")}
               </ContextMenuItem>
@@ -695,6 +708,12 @@ type MessageComponentProps = {
 const MessageComponent = React.memo(
   ({ message, isLastMessage, isStreaming, isLastStep }: MessageComponentProps) => {
     if (isSessionErrorMessage(message)) {
+      const metadata = message.metadata;
+      if (metadata && typeof metadata === "object" && "opencode" in metadata &&
+          metadata.opencode && typeof metadata.opencode === "object" &&
+          "stopped" in metadata.opencode && metadata.opencode.stopped === true) {
+        return <Message className="text-sm text-muted-foreground">{t("chat.stopped")}</Message>;
+      }
       return <ErrorMessage error={getMessagesText([message]) || t("session.failed")} messageId={message.id} />
     }
 
@@ -868,10 +887,6 @@ function getRenderableMessage(message: UIMessage) {
   return parts.length > 0 ? { ...message, parts } : null;
 }
 
-function MessageArtifacts(props: { message: UIMessage }) {
-  return <ArtifactList messages={[props.message]} includeTargetFallbacks={false} />;
-}
-
 /** A stable empty list, so a tasks-only strip does not re-derive artifacts on every render. */
 const EMPTY_MESSAGES: UIMessage[] = []
 
@@ -939,7 +954,6 @@ function MessageGroup({
           isStreaming={isLiveGroup && item === displayItems.at(-1)}
           isLastStep={groupIndex === items.length - 1}
         />
-        <MessageArtifacts message={item.message} />
       </div>
     )
   }
@@ -1016,12 +1030,6 @@ export function MessageList({ eigenweltPlan = null, messages, status, retryStatu
   const error = useSessionErrorMessage();
   const hasSessionErrorMessage = React.useMemo(() => messages.some(isSessionErrorMessage), [messages])
   const hasLiveTool = isStreaming && collectToolParts(messages).some(isToolPartInFlight)
-  const hasActivityTail = React.useMemo(() => {
-    const last = items.at(-1)
-    if (!last || !isMessageGroup(last)) return false
-    const tail = groupAssistantToolRuns(last.messages, false).at(-1)
-    return tail?.message.parts.some(isToolUIPart) ?? false
-  }, [items])
 
   return (
     <UsageLimitRendererContext.Provider value={renderUsageLimit ?? null}>
@@ -1054,12 +1062,11 @@ export function MessageList({ eigenweltPlan = null, messages, status, retryStatu
               isStreaming={isLastMessage && isStreaming}
               isLastStep={isLastStep}
             />
-            <MessageArtifacts message={item.message} />
           </div>
         )
       })}
 
-      {status === "streaming" && !hasLiveTool && !hasActivityTail && <LoadingMessage />}
+      {status === "streaming" && !hasLiveTool && <LoadingMessage />}
       {retryStatus ? <RetryMessage status={retryStatus} /> : null}
       {error && !hasSessionErrorMessage ? <ErrorMessage error={error} /> : null}
     </div>

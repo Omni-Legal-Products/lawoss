@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentSandboxService, type AgentPermissionRule } from "./service.js";
-import { managedPermissionRules } from "./engine-policy.js";
+import { explicitFileApprovals, managedPermissionRules } from "./engine-policy.js";
 import { webInputSchema } from "./web.js";
 import { brokerRequest, type OutboundRequest, type OutboundResponse, prepareOutboundRequest } from "./network.js";
 import type { SandboxRun } from "./vm.js";
@@ -14,8 +14,10 @@ import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpe
 import type { ApprovalRequest, ServerConfig, WorkspaceInfo } from "../types.js";
 
 const roots: string[] = [];
+const services: AgentSandboxService[] = [];
 const configs: ServerConfig[] = [];
 afterEach(async () => {
+  services.splice(0).forEach(service => service.stop());
   for (const config of configs.splice(0)) {
     await closeRuntimeOpencodeConfig(config);
     await resetOrgPolicyRuntimeForTests(config);
@@ -54,6 +56,7 @@ async function fixture(permissions: Record<string, unknown>, approve = true, onR
     status: async () => ({ available: true }), prepare: async () => "test-image",
     run: async (input) => { executions.push(input); await onRun?.(input); return { output: "done", exitCode: 0, truncated: false }; },
   });
+  services.push(service);
   const run = (write = false) => service.run(workspace, { command: "python report.py", write, timeoutMs: 1000 },
     { type: "remote", scope: "collaborator" }, new AbortController().signal);
   return { config, workspace, service, prompts, executions, run };
@@ -530,13 +533,13 @@ test("changing network mode closes an active web response", async () => {
   await writeSandboxNetworkMode(f.config, "allow");
   let connected: () => void = () => {};
   const connection = new Promise<void>(resolve => { connected = resolve; });
-  const server = Bun.serve({ port: 0, fetch: () => {
+  const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => {
     connected();
     return new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode("partial response")); } }));
   } });
   try {
     const result = f.service.web(f.workspace, webInput(server.url.href), { type: "host" }, AbortSignal.timeout(5000)).catch(error => error);
-    await connection;
+    await Promise.race([connection, result.then(value => { throw new Error(`Web request ended before connecting: ${String(value)}`); })]);
     await writeSandboxNetworkMode(f.config, "block");
     expect(await result).toBeInstanceOf(Error);
   } finally { server.stop(true); }
@@ -551,5 +554,24 @@ test("a legacy chat shell denial prevents real native execution after migration"
   ], [{ permission: "bash", pattern: "*", action: "deny" }]);
   await expect(f.service.run(f.workspace, { command: "echo bypassed", write: false, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal, rules)).rejects.toThrow("blocked");
   expect(f.executions).toHaveLength(0);
+  expect(f.prompts).toHaveLength(0);
+});
+
+
+test("approval-off project reads and writes run repeatedly without inherited engine file prompts", async () => {
+  const f = await fixture({ bash: "allow", edit: "allow" });
+  const rules = explicitFileApprovals<AgentPermissionRule>([
+    { permission: "*", pattern: "*", action: "allow" },
+    { permission: "read", pattern: "*.env", action: "ask" },
+    { permission: "read", pattern: "*.env.*", action: "ask" },
+    { permission: "external_directory", pattern: "*", action: "ask" },
+  ], [{ bash: "allow", edit: "allow" }]);
+  for (const enabled of [true, false]) {
+    await writeSandboxDefault(f.config, { enabled, networkMode: "allow" });
+    for (let run = 0; run < 2; run++) {
+      const result = await f.service.run(f.workspace, { command: "printf verified > result.txt; cat result.txt", sessionID: "chat", write: true, timeoutMs: 5000 }, { type: "host" }, new AbortController().signal, rules);
+      expect(result.exitCode).toBe(0);
+    }
+  }
   expect(f.prompts).toHaveLength(0);
 });

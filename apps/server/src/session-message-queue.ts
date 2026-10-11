@@ -7,6 +7,7 @@ import { ApiError } from "./errors.js";
 import type { ServerConfig } from "./types.js";
 
 export type QueueTransport = {
+  confirmed?: (workspaceId: string, sessionId: string, entry: QueueEntry) => Promise<boolean>;
   idle: (workspaceId: string, sessionId: string) => Promise<boolean>;
   send: (workspaceId: string, sessionId: string, entry: QueueEntry) => Promise<void | { pause: boolean; reason?: "stop" | "error" }>;
 };
@@ -173,6 +174,18 @@ export class SessionMessageQueue {
     for (const key of this.pending) {
       const queue = this.states.get(key);
       if (!queue) continue;
+      for (const entry of queue.entries.filter(entry => entry.status === "uncertain")) {
+        if (await this.transport.confirmed?.(queue.workspaceId, queue.sessionId, entry).catch(() => false)) {
+          await this.change(queue.workspaceId, queue.sessionId, current => {
+            current.entries = current.entries.filter(item => item.id !== entry.id);
+            current.completedIds = [...current.completedIds, entry.id].slice(-500);
+            if (current.pauseReason === "error" && !current.entries.some(item => item.status === "uncertain" || item.status === "failed")) {
+              current.paused = false;
+              delete current.pauseReason;
+            }
+          });
+        }
+      }
       if (queue.entries.some(entry => entry.edit && entry.edit.expires <= Date.now())) {
         await this.change(queue.workspaceId, queue.sessionId, current => {
           for (const entry of current.entries) if (entry.edit && entry.edit.expires <= Date.now()) delete entry.edit;
@@ -218,7 +231,14 @@ export class SessionMessageQueue {
       });
     } catch (error) {
       if (this.removed.has(keyOf(workspaceId, sessionId))) return;
+      const confirmed = !(error instanceof QueuePreparationError) &&
+        await this.transport.confirmed?.(workspaceId, sessionId, sent).catch(() => false);
       await this.change(workspaceId, sessionId, queue => {
+        if (confirmed) {
+          queue.entries = queue.entries.filter(entry => entry.id !== sent.id);
+          queue.completedIds = [...queue.completedIds, sent.id].slice(-500);
+          return;
+        }
         const entry = queue.entries.find(entry => entry.id === sent.id);
         if (entry) {
           entry.status = error instanceof QueuePreparationError ? "failed" : "uncertain";

@@ -99,6 +99,9 @@ function localPathFromHref(href: string) {
 }
 
 function openTargetForHref(href: string, openTargets: OpenTarget[]) {
+  if (/^https?:\/\//i.test(href)) {
+    return { id: `url:${href}`, kind: "url", value: href, name: href, preview: "browser", confidence: 100, reason: "link" } satisfies OpenTarget;
+  }
   const path = localPathFromHref(href);
 
   if (!path) {
@@ -498,7 +501,7 @@ function MarkdownBlockInner({
 
         if (target && onOpenTarget) {
           event.preventDefault();
-          onOpenTarget(target, { external: true });
+          onOpenTarget(target, { external: event.metaKey || event.ctrlKey });
           return;
         }
       }
@@ -515,13 +518,25 @@ function MarkdownBlockInner({
       sync();
     };
 
+    const handleContextMenu = (event: MouseEvent) => {
+      if (!(event.target instanceof Element) || !onOpenTarget) return;
+      const anchor = event.target.closest<HTMLAnchorElement>("a[data-legalwork-link-href]");
+      if (!anchor) return;
+      const target = openTargetForHref(anchor.dataset.legalworkLinkHref ?? "", openTargets);
+      if (!target) return;
+      event.preventDefault();
+      setLinkMenu({ target, anchor });
+    };
+
     root.addEventListener("load", handleLoad, true);
     root.addEventListener("click", handleClick);
+    root.addEventListener("contextmenu", handleContextMenu);
 
     if (globalThis.ResizeObserver === undefined) {
       return () => {
         root.removeEventListener("load", handleLoad, true);
         root.removeEventListener("click", handleClick);
+        root.removeEventListener("contextmenu", handleContextMenu);
       };
     }
 
@@ -532,6 +547,7 @@ function MarkdownBlockInner({
       observer.disconnect();
       root.removeEventListener("load", handleLoad, true);
       root.removeEventListener("click", handleClick);
+      root.removeEventListener("contextmenu", handleContextMenu);
     };
   }, [html, onOpenTarget, openTargets]);
 

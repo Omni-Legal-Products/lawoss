@@ -803,8 +803,11 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
           // assistant message id) so a reload reconciles instead of
           // duplicating; the sessionId fallback only applies when the run
           // errored before any assistant message existed.
-          return upsertMessage(current, createSessionErrorUIMessage(turnKey, errorText));
+          return upsertMessage(current, createSessionErrorUIMessage(turnKey, errorText, { stopped: aborted }));
         });
+        // Server-initiated stops persist their reason before aborting. Refresh
+        // so an automatic retry stop does not remain labelled as a user stop.
+        if (aborted) void queryClient.invalidateQueries({ queryKey: snapshotKey(workspaceId, sessionId), exact: true });
       }
     }
     return;

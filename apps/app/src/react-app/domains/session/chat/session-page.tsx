@@ -33,7 +33,7 @@ import {
 import { materializeLegalMemoryFile } from "../../../../app/lib/legalmemory-file";
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import type { BootPhase } from "../../../../app/lib/startup-boot";
-import { desktopBridge, openDesktopPath, revealDesktopItemInDir, type WorkspaceInfo } from "../../../../app/lib/desktop";
+import { desktopBridge, openDesktopPath, openDesktopUrl, revealDesktopItemInDir, type WorkspaceInfo } from "../../../../app/lib/desktop";
 import type {
   PendingPermission,
   PendingQuestion,
@@ -80,7 +80,7 @@ import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-sto
 
 import { isElectronRuntime } from "../../../../app/utils";
 import { classifyOpenTarget, isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTarget, resolvePathOpenTarget, type OpenTarget } from "../artifacts/open-target";
-import { confirmDiscardDocuments } from "../artifacts/docx-document-state";
+import { confirmDiscardDocuments, confirmDiscardSessionDocuments } from "../artifacts/docx-document-state";
 import type { OpenTargetOptions } from "@/lib/target-provider";
 import { SidePanel } from "../panel/side-panel";
 import { DocumentPane } from "../panel/document-pane";
@@ -564,6 +564,10 @@ export function SessionPage(props: SessionPageProps) {
   const openTarget = useCallback((target: OpenTarget, options?: OpenTargetOptions, sourceSessionId?: string) => {
     if (target.kind === "url" || target.preview === "browser") {
       const url = browserUrlForTarget(target);
+      if (options?.external && isElectronRuntime()) {
+        void openDesktopUrl(url);
+        return;
+      }
       if (isElectronRuntime()) {
         setCurrentSidePanel("panel");
         void window.__LEGALWORK_ELECTRON__?.browser?.createTab?.(url);
@@ -731,9 +735,16 @@ export function SessionPage(props: SessionPageProps) {
       if (!allowedSessions.includes(controlStringArg(args, "sessionId"))) return { ok: false, error: "No matching session is visible. Open this session first." };
       const client = props.legalworkServerClient, workspaceId = props.runtimeWorkspaceId;
       if (!client || !workspaceId) return { ok: false, error: "Workspace is not ready." };
+      const canSwitchDocument = () => {
+        // Workspace tabs stay mounted, so another tab cannot discard this draft.
+        if (panelStateSessionId.startsWith("workspace:")) return true;
+        const panel = usePanelTabStore.getState().sessions[panelStateSessionId];
+        const pane = panel?.panes.find(item => item.id === panel.focusedPaneId);
+        return confirmDiscardSessionDocuments(panelStateSessionId, [pane?.activeTabId ?? null], () => false, true);
+      };
       let path = controlStringArg(args, "path"), connectionId = controlStringArg(args, "connectionId");
       if (!path || /[\\\x00-\x1f\x7f]/.test(path) || path.split("/").some((part) => !part || part === "." || part === "..")) return { ok: false, error: "Use a relative file path within the workspace or connection." };
-      if (!confirmDiscardDocuments(undefined, () => false)) return { ok: false, error: "Save the current draft before opening another file." };
+      if (!canSwitchDocument()) return { ok: false, error: "Save the current draft before opening another file." };
       const copyTo = controlStringArg(args, "copyTo");
       if (copyTo) {
         if (/[\\\x00-\x1f\x7f]/.test(copyTo) || copyTo.split("/").some((part) => !part || part === "." || part === "..") || copyTo.split(".").at(-1)?.toLowerCase() !== path.split(".").at(-1)?.toLowerCase())
@@ -755,13 +766,13 @@ export function SessionPage(props: SessionPageProps) {
         // The viewer performs the normal checkout, retaining source and cloud-save controls.
         const file: StorageEntry = { path, name, kind: "file", size: null, modifiedAt: null };
         tabId = storageFileTab(workspaceId, root, file).id;
-        if (!confirmDiscardDocuments(undefined, () => false)) return { ok: false, error: "Save the current draft first." };
+        if (!canSwitchDocument()) return { ok: false, error: "Save the current draft first." };
         openStorageFile(root, file);
       } else {
         const file = await client.statWorkspaceFile(workspaceId, path);
         if (!file.exists || file.kind !== "file") return { ok: false, error: "File not found in this workspace." };
         tabId = `file:${file.path}`;
-        if (!confirmDiscardDocuments(undefined, () => false)) return { ok: false, error: "Save the current draft first." };
+        if (!canSwitchDocument()) return { ok: false, error: "Save the current draft first." };
         openTab(panelStateSessionId, { id: tabId, type: "artifact", label: name, value: file.path, preview, size: file.size, updatedAt: file.updatedAt });
         preserveSidePanelOnPanelOpenRef.current = true;
         setCurrentSidePanel("panel");

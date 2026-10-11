@@ -73,6 +73,17 @@ const inAppDocxCommentArgsSchema = z.object({
   search: z.string().optional().describe("Optional exact unique phrase within the paragraph to anchor the comment."),
 });
 
+const inAppDocxTemplateArgsSchema = z.object({
+  paraId: z.string().min(1),
+  placeholder: z.string().regex(/^(?:\{\{[^{}]+\}\}|\[\[[^\[\]]+\]\]|\[[^\[\]]+\])$/).describe("Exact {{placeholder}}, [[placeholder]] or [PLACEHOLDER] text from the copied template."),
+  value: z.string().describe("Text to insert cleanly in the output copy."),
+});
+
+const inAppDocxReplyArgsSchema = z.object({
+  commentId: z.number().int().min(0).describe("Parent comment ID from inapp_docx_read_comments."),
+  text: z.string().min(1).describe("Reply in the existing comment thread."),
+});
+
 const inAppDocxReviewArgsSchema = z.object({
   changeIds: z
     .array(z.number().int().min(0))
@@ -107,13 +118,14 @@ Answer only from the returned transcript. If multiple sessions match, ask a shor
 Do NOT use browser_navigate, browser_click, or browser_snapshot to interact with the LegalWork app itself. Those are for browsing external websites.
 
 ## Document work happens in the side viewer
-For document, spreadsheet and presentation tasks, open the working file in the side viewer BEFORE inspecting or editing its contents. This is the default even if the user has not opened a file or explicitly asked to see it. An empty inapp_documents_list means you need to open the file; it is not a reason to switch to Python.
-Use inapp_documents_open for a workspace file, or supply connection_id and path for a connected file. For a NEW deliverable based on a template, also supply copy_to with the new workspace filename: this copies the template and opens the new file without changing the original. Example: inapp_documents_open({connection_id:"<selected connection>", path:"Templates/Pitch.pptx", copy_to:"Client pitch.pptx"}). Do not fill the template through Python and only show the finished file afterward.
-Once loaded, call inapp_documents_list for the exact active path, then use inapp_docx_*, inapp_md_*, inapp_xlsx_* or inapp_pptx_* tools to read and edit visibly. For several source documents, open/select the appropriate source, then return to the working file. For a new file without a template, a file tool may create the initial valid skeleton; open it immediately and do supported content edits live.
+Inspect reference documents in the background with file-reading tools. Do not open or select a source merely to read it, as that interrupts the user. Before EDITING a document, spreadsheet or presentation, open the working output file in the side viewer.
+Use inapp_documents_open for a workspace file, or supply connection_id and path for a connected file. For any attached input under .legalwork/attachments, preserve the snapshot and supply copy_to with a visible output filename before editing. For a NEW deliverable based on a template, also supply copy_to with the new workspace filename: this copies the template and opens the new file without changing the original. Example: inapp_documents_open({connection_id:"<selected connection>", path:"Templates/Pitch.pptx", copy_to:"Client pitch.pptx"}). Do not fill the template through Python and only show the finished file afterward.
+Once loaded, call inapp_documents_list for the exact active path, then use inapp_docx_*, inapp_md_*, inapp_xlsx_* or inapp_pptx_* tools to read and edit visibly. For several source documents, read their saved files in the background and keep the working output visible. Read the live draft when inspecting a file with unsaved changes. For a new file without a template, a file tool may create the initial valid skeleton; open it immediately and do supported content edits live.
 Use a file-based fallback only when the viewer reports an unsupported operation/format or is unavailable, or the user explicitly requests that workflow. Do not silently choose Python for operations available in the editor. If a structural change needs a file tool, save the live draft first, explain the limitation briefly, and reopen/reload the result before continuing. Local editor saves do not publish to cloud storage; copied deliverables require a separate upload if requested.
-When a Word document is open in LegalWork's right-hand document editor, use the inapp_docx_* tools to read and edit that live document. Those tools save changes back to the workspace automatically, and every agent text edit is a tracked change. Do not use word_* tools or a bash/file DOCX pipeline for that open in-app document. If inapp_docx_read_document says no matching in-app document is open, then try the Microsoft Word word_* tools; only after both live surfaces are unavailable should you use the file pipeline.
+When a Word document is open in LegalWork's right-hand document editor, use the inapp_docx_* tools to read and edit that live document. Those tools save changes back to the workspace automatically, and negotiated text edits are tracked changes. To populate placeholders in a new template copy, use inapp_docx_fill_template for clean output; it preserves pre-existing revisions. Do not use word_* tools or a bash/file DOCX pipeline for that open in-app document. If inapp_docx_read_document says no matching in-app document is open, then try the Microsoft Word word_* tools; only after both live surfaces are unavailable should you use the file pipeline.
 
 ## Presentation visual review
+Prefer the native inapp_pptx_preview for visual verification. When a file-based render is necessary and permitted, use a fresh writable LibreOffice profile, a correctly URL-encoded absolute file URI (Python pathlib.Path.resolve().as_uri()), and a separate writable output directory. Never retry the same crashing invocation or change permissions to bypass a blocked renderer. A failed PDF conversion is not a successful visual check: use native previews or explicitly report what remains unverified. Keep slide content concise, use readable type and consistent margins, and move detailed analysis into speaker notes or a linked report.
 Start with inapp_pptx_read_presentation to read all slides, notes, table rows and chart data in one call. Do not loop over slides just to read the deck. Use inapp_pptx_read with slideIndex only for a targeted follow-up. Neither read tool navigates the viewer. Whole-deck reads omit repeated text-run styles and geometry; request a slideIndex for those details.
 To add slides, use inapp_pptx_add_slide: choose an existing templateSlideIndex, set insertIndex, and fill its text boxes with replacements in the same call. This copies the template's design and leaves the original intact. Read the returned new element IDs for any further edits. Use the named inapp_pptx_* tools directly, not legalwork_ui_execute_action with invented Office actions. For an unsupported operation or an explicit request to edit through code, call inapp_pptx_prepare_file_edit first: it saves and closes the live draft, allowing file/code editing without a stale editor overwriting it. Then edit the returned file and reopen with inapp_documents_open. If saving fails, keep the draft open and do not edit the file. Do not claim slides cannot be edited or probe internal app bundles / guess action names.
 Finish all planned text and layout edits for a slide, then call inapp_pptx_preview once to inspect the rendered slide before moving to the next slide. Reads return live text and structured slide data without navigating or changing the selection. Edit calls return potential overlap/overflow warnings without images. Do not request a preview after every read or individual edit. If the finished-slide preview reveals unintended overlapping text, clipping or unreadable text, make the necessary corrections with shorter wording or inapp_pptx_update_layout, then request one new preview after those corrections are complete. Preserve the template hierarchy and readable font sizes. If preview is unavailable, say visual verification is incomplete; do not claim the layout was checked.
@@ -200,7 +212,7 @@ The active right-hand document for this session is ${JSON.stringify(surface.name
 
 - An unqualified request about "the document", "the memo", "this", or a concrete edit refers to this open document.
 - Read it with inapp_docx_read_document or locate exact text with inapp_docx_find_text. Use the returned stable paraId for edits.
-- Make text edits with inapp_docx_suggest_change and comments with inapp_docx_add_comment. Suggestions appear immediately as tracked changes and save automatically.
+- Make minimal exact-span text edits with inapp_docx_suggest_change. Add comments only when requested, using inapp_docx_add_comment; reply to existing comments with inapp_docx_reply_comment. Suggestions appear immediately as tracked changes and save automatically.
 - To adopt or revert tracked edits, call inapp_docx_read_changes, select the relevant change IDs, then call inapp_docx_accept_changes or inapp_docx_reject_changes. Do not tell the user to resolve changes manually when these tools are available.
 - Do not call word_* tools, inspect the DOCX with bash, create a redlined copy, or run the FILE backend against this open document.
 - A concrete edit whose replacement is fully specified should be carried out directly. Do not search LegalMemory merely to validate a user-supplied replacement; use firm knowledge only when the task asks for precedent/research or information is genuinely missing.
@@ -338,6 +350,9 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
   ) => {
     if (input.tool !== "bash" && input.tool !== "legalwork_shell" && input.tool !== "task") return;
     if (!/\.(docx|xlsx|pptx)/i.test(JSON.stringify(output.args))) return;
+    // Read-only inspection must remain available even when a viewer cannot load.
+    // The managed shell still enforces its independent execution permissions.
+    if (input.tool === "legalwork_shell" && output.args.write === false) return;
     const snapshot = await uiBridgeRequest("/snapshot");
     const surface = inAppDocumentSurface(snapshot, input.sessionID);
     if (!surface?.editable || !inAppDocxCallTargetsSurface(input.tool, output.args, surface)) return;
@@ -487,6 +502,20 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
       args: inAppDocxCommentArgsSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         return callInAppDocxTool(context, "add_comment", inAppDocxCommentArgsSchema.parse(rawArgs));
+      },
+    },
+    inapp_docx_fill_template: {
+      description: "Fill one placeholder in a NEW COPY of a Word template with clean text and save automatically. First open the template with copy_to to preserve the source. Accepts only the newly inserted replacement, preserving all pre-existing tracked changes. Use suggest_change for negotiated redlines.",
+      args: inAppDocxTemplateArgsSchema.shape,
+      async execute(rawArgs: unknown, context: OpenCodeContext) {
+        return callInAppDocxTool(context, "fill_template", inAppDocxTemplateArgsSchema.parse(rawArgs));
+      },
+    },
+    inapp_docx_reply_comment: {
+      description: "Reply in an existing Word comment thread and save automatically. Read comments first and pass the parent ID. Do not create a separate comment referring to an ID.",
+      args: inAppDocxReplyArgsSchema.shape,
+      async execute(rawArgs: unknown, context: OpenCodeContext) {
+        return callInAppDocxTool(context, "reply_comment", inAppDocxReplyArgsSchema.parse(rawArgs));
       },
     },
     inapp_docx_read_changes: {

@@ -1,3 +1,4 @@
+import { sandboxPaths } from "./paths.js";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { listSkills } from "../skills.js";
@@ -73,10 +74,19 @@ function authorizedFolders(entries: Record<string, unknown>): string[] {
 
 export class AgentSandboxService {
   private active = new Map<AbortController, Promise<void>>();
+  private clearRemembered: Array<() => void>;
   constructor(readonly config: ServerConfig, readonly approvals: ApprovalService,
-    readonly backend: Pick<VmSandbox, "run" | "prepare" | "status"> = new VmSandbox()) {}
+    readonly backend: Pick<VmSandbox, "run" | "prepare" | "status"> = new VmSandbox()) {
+    this.clearRemembered = [
+      onRuntimeOpencodeConfigWrite((config, id) => { if (config === this.config) approvals.forgetRemembered(id === GLOBAL_TOOL_PERMISSIONS_ID ? undefined : id); }),
+      onSandboxSettingsChange(async config => { if (config === this.config) approvals.forgetRemembered(); }),
+      onOrgPolicyChange(config, scopes => { if (scopes.has("engine")) approvals.forgetRemembered(); }),
+    ];
+  }
 
   stop(): void {
+    this.clearRemembered.splice(0).forEach(unsubscribe => unsubscribe());
+    this.approvals.forgetRemembered();
     for (const controller of this.active.keys()) controller.abort(new Error("LegalWork is stopping."));
   }
 
@@ -141,9 +151,9 @@ export class AgentSandboxService {
       await ask("read", "*", "Allow this command to read all files in these folders, including files covered by individual read rules?", mounts.map((mount) => mount.source), commandAction("read"));
       if (command.write) await ask("edit", "*", `Allow this command to change files in the listed folders?\n\n${command.command}`, sources, writeAction);
       const safeMounts = await validateMounts(mounts, [runtimeStorageDir(this.config)]);
-      const cwd = command.workdir || "/workspace";
+      const cwd = sandboxPaths(command.workdir || "/workspace", safeMounts);
       if (!cwd.startsWith("/")) throw new ApiError(400, "sandbox_directory", "Use /workspace or an authorized sandbox folder.");
-      const result = await this.backend.run({ command: command.command, cwd, mounts: safeMounts,
+      const result = await this.backend.run({ command: sandboxPaths(command.command, safeMounts), cwd, mounts: safeMounts,
         timeoutMs: command.timeoutMs, signal,
         // Scoped tool/agent rules require the request broker even in allow mode.
         networkMode: networkMode === "allow" && commandAction("webfetch") !== "allow" ? "approve" : networkMode,
@@ -202,17 +212,19 @@ export class AgentSandboxService {
     const signal = AbortSignal.any([parentSignal, controller.signal]);
     const unsubscribe = onRuntimeOpencodeConfigWrite((config, id) => {
       if (config === this.config && (id === workspace.id || id === GLOBAL_TOOL_PERMISSIONS_ID)) {
+        this.approvals.forgetRemembered(workspace.id);
         controller.abort(new Error("Permissions changed. Try again with the current permissions."));
       }
     });
     let dependencies: string[] | undefined;
     const unsubscribeSandbox = onSandboxSettingsChange(async (config, id) => {
       if (config !== this.config || (dependencies && !dependencies.includes(id))) return;
+      this.approvals.forgetRemembered(workspace.id);
       controller.abort(new Error("Sandbox settings changed. Try again with the current settings."));
       await this.active.get(controller);
     });
     const unsubscribePolicy = onOrgPolicyChange(this.config, (scopes) => {
-      if (scopes.has("engine")) controller.abort(new Error("Organization policy changed. Try again with the current permissions."));
+      if (scopes.has("engine")) { this.approvals.forgetRemembered(workspace.id); controller.abort(new Error("Organization policy changed. Try again with the current permissions.")); }
     });
     try {
       const { permission: permissions } = await orgPolicyPermissions(this.config, await readGlobalToolPermissions(this.config));
@@ -227,7 +239,7 @@ export class AgentSandboxService {
           if (!reviewable) throw new ApiError(403, "sandbox_review_limit", "This request is too large to review in the approval dialog. Send a smaller request.");
           const result = await this.approvals.requestApproval({ workspaceId: workspace.id, actor,
             action: `sandbox.${permission}`, summary, paths, sessionID: operation.sessionID, description: operation.description,
-            ...(network ? { network } : {}) }, signal, true);
+            ...(network ? { network } : {}) }, signal, true, operation.sessionID ? JSON.stringify([workspace.id, operation.sessionID, permission, pattern, paths, network, permissions, agentRules, settings.enabled, settings.networkMode]) : undefined);
           if (!result.allowed) throw new ApiError(403, "sandbox_permission_denied", "Sandbox permission was declined.");
         }
         signal.throwIfAborted();

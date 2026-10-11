@@ -125,7 +125,8 @@ export async function brokerRequest(
 
 function sendPinned(input: OutboundRequest, address: Address, signal: AbortSignal): Promise<OutboundResponse> {
   const url = new URL(input.url);
-  return new Promise((resolve, reject) => {
+  let onAbort: (() => void) | undefined;
+  return new Promise<OutboundResponse>((resolve, reject) => {
     const send = url.protocol === "https:" ? httpsRequest : httpRequest;
     const req = send({
       hostname: address.address,
@@ -152,6 +153,15 @@ function sendPinned(input: OutboundRequest, address: Address, signal: AbortSigna
     });
     req.setTimeout(30_000, () => req.destroy(new Error("Sandbox HTTP request timed out.")));
     req.on("error", reject);
+    // Some runtimes close an interrupted response without emitting req.error.
+    // Settle explicitly so changing policy does not wait forever for cleanup.
+    onAbort = () => {
+      const error = signal.reason instanceof Error ? signal.reason : new Error("Website request cancelled.");
+      req.destroy(error);
+      reject(error);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) { onAbort(); return; }
     req.end(Buffer.from(input.bodyBase64, "base64"));
-  });
+  }).finally(() => { if (onAbort) signal.removeEventListener("abort", onAbort); });
 }

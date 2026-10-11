@@ -98,3 +98,28 @@ describe("host approval handler", () => {
     expect(service.list()).toEqual([]);
   });
 });
+
+
+test("remembered sandbox approval is exact, chat-scoped and revocable", async () => {
+  const service = new ApprovalService({ mode: "manual", timeoutMs: 1000 });
+  const request: Omit<ApprovalRequest, "id" | "createdAt"> = { workspaceId: "matter", sessionID: "chat", actor: { type: "host" }, action: "sandbox.read", summary: "Read project files", paths: ["/matter"] };
+  try {
+    const first = service.requestApproval(request, undefined, true, "matter/chat/read");
+    const pending = service.list()[0];
+    expect(pending.canRemember).toBe(true);
+    service.respond(pending.id, "always");
+    expect((await first).allowed).toBe(true);
+    expect(await service.requestApproval(request, undefined, true, "matter/chat/read")).toMatchObject({ id: "remembered", allowed: true });
+    for (const key of ["matter/other-chat/read", "matter/chat/edit"]) {
+      const other = service.requestApproval(request, undefined, true, key);
+      expect(service.list()).toHaveLength(1);
+      service.respond(service.list()[0].id, "deny");
+      expect((await other).allowed).toBe(false);
+    }
+    service.forgetRemembered("matter");
+    const revoked = service.requestApproval(request, undefined, true, "matter/chat/read");
+    expect(service.list()).toHaveLength(1);
+    service.respond(service.list()[0].id, "deny");
+    expect((await revoked).allowed).toBe(false);
+  } finally { service.dispose(); }
+});

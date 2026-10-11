@@ -17,7 +17,7 @@ import { OrgPolicyNote } from "../connections/org-policy-ui";
 export function ReviewSettingsDialog({ client, workspaceId, review, onClose }: { client: LegalworkServerClient; workspaceId: string; review?: SavedReview; onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   return <Dialog open onOpenChange={open => { if (!open && !busy) onClose(); }}>
-    <DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>{t("review.settings")}</DialogTitle><DialogDescription>{t(review ? "review.settings_scope" : "review.defaults_scope")}</DialogDescription></DialogHeader>
+    <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg"><DialogHeader><DialogTitle>{t("review.settings")}</DialogTitle><DialogDescription>{t(review ? "review.settings_scope" : "review.defaults_scope")}</DialogDescription></DialogHeader>
       <ReviewSettingsForm client={client} workspaceId={workspaceId} review={review} onClose={onClose} onBusyChange={setBusy} />
     </DialogContent>
   </Dialog>;

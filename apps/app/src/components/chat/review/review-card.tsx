@@ -1,6 +1,6 @@
 import { reviewActionLabel } from "@/react-app/domains/reviews/review-labels";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { useRequestPanelTab } from "@/react-app/domains/session/panel/panel-tab-destination";
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
 import { ArrowUpRight, Loader2, Play, Square, Table2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,6 @@ import { Progress } from "@/components/ui/progress";
 import { t } from "@/i18n";
 import { LegalworkServerError } from "@/app/lib/legalwork-server";
 import { useMessageList } from "../message-list-provider";
-import { workspaceReviewsRoute } from "@/react-app/shell/workspace-routes";
 import { reviewKey, ReviewError, ReviewStatus } from "@/react-app/domains/reviews/review-ui";
 import { parseReviewCard, reviewCardProgress } from "./review-tool";
 import { reviewCardQueryOptions } from "./review-card-query";
@@ -43,15 +42,16 @@ function ReviewCard({ card, compact = false }: { card: NonNullable<ReturnType<ty
   }, onSuccess: async result => { if (result) cache.setQueryData(reviewKey(card.workspaceId, result.id), result); await cache.invalidateQueries({ queryKey: ["project-reviews", card.workspaceId] }); } });
   if (query.error instanceof LegalworkServerError && query.error.code === "review_not_found") return <section className="my-2 max-w-xl rounded-2xl border p-4"><h3 className="text-sm font-medium">{card.review.name}</h3><p className="mt-1 text-xs text-muted-foreground">{t("review.unavailable")}</p></section>;
   return <section className={compact ? "overflow-hidden" : "my-2 max-w-xl overflow-hidden rounded-2xl border bg-background"}>
-    <ReviewProgressCard progress={progress} href={workspaceReviewsRoute(card.workspaceId, card.review.id)} available={available} disconnected={query.isError} compact={compact} />
+    <ReviewProgressCard progress={progress} workspaceId={card.workspaceId} reviewId={card.review.id} available={available} disconnected={query.isError} compact={compact} />
     {mutation.error && <div className="px-4 pb-3"><ReviewError error={mutation.error} /></div>}
     {review && reviewRunAction(review) !== "rerun_all" && <footer className="flex justify-end border-t px-3 py-2"><Button variant="ghost" size="sm" disabled={!available || mutation.isPending || !review.columns.length || !review.documents.length} onClick={() => mutation.mutate()}>{state === "running" ? <Square className="size-3.5" /> : <Play className="size-3.5" />}{reviewActionLabel(reviewRunAction(review))}</Button></footer>}
   </section>;
 }
 
-export function ReviewProgressCard({ progress, href, available, disconnected = false, compact = false }: {
-  progress: ReturnType<typeof reviewCardProgress>; href: string; available: boolean; disconnected?: boolean; compact?: boolean;
+export function ReviewProgressCard({ progress, workspaceId, reviewId, available, disconnected = false, compact = false }: {
+  progress: ReturnType<typeof reviewCardProgress>; workspaceId: string; reviewId: string; available: boolean; disconnected?: boolean; compact?: boolean;
 }) {
+  const openTab = useRequestPanelTab({ kind: "workspace", workspaceId });
   const counts = t("review.card_processed", { done: progress.done, total: progress.total });
   const content = <>
     <div className="flex items-start gap-3">
@@ -72,6 +72,6 @@ export function ReviewProgressCard({ progress, href, available, disconnected = f
     </div>
     {!compact && <div className="mt-4 flex items-center justify-end gap-1.5 text-xs font-medium">{t("review.open")}<ArrowUpRight className="size-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" /></div>}
   </>;
-  return available ? <Link to={href} aria-label={t("review.open_named", { name: progress.name })} className="group block rounded-2xl p-4 transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">{content}</Link>
+  return available ? <button type="button" onClick={() => openTab({ id: `review:${reviewId}`, type: "review", reviewId, label: progress.name })} aria-label={t("review.open_named", { name: progress.name })} className="group block w-full text-left rounded-2xl p-4 transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">{content}</button>
     : <div className="p-4" aria-disabled="true">{content}</div>;
 }

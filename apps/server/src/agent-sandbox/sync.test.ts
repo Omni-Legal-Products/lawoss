@@ -44,7 +44,7 @@ test("application default sync handles devices, offline edits, conflicts, accoun
     }
     return Response.json(snapshots.get(account) ?? current);
   }, { preconnect: fetch.preconnect });
-  expect(await readSandboxDefault(a)).toEqual({ enabled: false, networkMode: "approve" });
+  expect(await readSandboxDefault(a)).toEqual({ enabled: false, networkMode: "allow" });
   await signIn(a); await signIn(b);
   await syncSandboxSettings(a, request); await syncSandboxSettings(b, request);
   expect(writes).toBe(0);

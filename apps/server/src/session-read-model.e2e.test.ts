@@ -36,7 +36,7 @@ function auth(token: string) {
   return { Authorization: `Bearer ${token}` };
 }
 
-function startMockOpencode(input?: { sessionDirectory?: string; invalidList?: boolean; holdCommand?: Promise<void>; idle?: () => boolean; commands?: () => Array<{ name: string; template: string }>; promptError?: () => { name: string; data: { message: string } } | undefined; providerId?: string }) {
+function startMockOpencode(input?: { sessionDirectory?: string; invalidList?: boolean; holdCommand?: Promise<void>; idle?: () => boolean; retry?: () => { type: "retry"; attempt: number; message: string; next: number } | null; commands?: () => Array<{ name: string; template: string }>; promptError?: () => { name: string; data: { message: string } } | undefined; providerId?: string }) {
   const requests: Array<{ pathname: string; search: string; directory: string | null; method: string }> = [];
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -66,8 +66,9 @@ function startMockOpencode(input?: { sessionDirectory?: string; invalidList?: bo
       }
 
       if (url.pathname === "/session/status") {
-        return Response.json({ ses_1: { type: input?.idle?.() ? "idle" : "busy" } });
+        return Response.json({ ses_1: input?.retry?.() ?? { type: input?.idle?.() ? "idle" : "busy" } });
       }
+      if (url.pathname === "/session/ses_1/abort") return Response.json(true);
       if (url.pathname === "/command") return Response.json(input?.commands?.() ?? []);
 
       if (url.pathname === "/session/ses_1") {
@@ -91,6 +92,7 @@ function startMockOpencode(input?: { sessionDirectory?: string; invalidList?: bo
               id: "msg_1",
               sessionID: "ses_1",
               role: "assistant",
+              providerID: input?.providerId ?? "openai",
               time: { created: 200 },
             },
             parts: [
@@ -182,6 +184,24 @@ async function waitUntil(predicate: () => boolean) {
 }
 
 describe("workspace session read APIs", () => {
+  test("persistent retry stops once bounded and its reason survives transcript reload", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    let attempt = 2;
+    const mock = startMockOpencode({ retry: () => ({ type: "retry", attempt, message: "Service unavailable", next: 1000 }) });
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, readOnly: false });
+    const base = `http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1`;
+    const headers = auth(legalwork.token);
+    expect(await fetch(`${base}/retry-stop`, { method: "POST", headers }).then(response => response.json())).toEqual({ stopped: false });
+    expect(mock.requests.filter(request => request.pathname.endsWith("/abort"))).toHaveLength(0);
+    attempt = 3;
+    expect(await fetch(`${base}/retry-stop`, { method: "POST", headers }).then(response => response.json())).toEqual({ stopped: true });
+    expect(mock.requests.filter(request => request.pathname.endsWith("/abort"))).toHaveLength(1);
+    const snapshot = await fetch(`${base}/snapshot`, { headers }).then(response => response.json());
+    expect(snapshot.item.messages[0].info.error.data.message).toContain("Automatic retries stopped");
+    const messages = await fetch(`${base}/messages`, { headers }).then(response => response.json());
+    expect(messages.items[0].info.error.data.message).toBe(snapshot.item.messages[0].info.error.data.message);
+  });
+
   test("request admission details survive snapshot and transcript reads, and malformed details are rejected", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     // Start with the provider-only table shipped before admission details.

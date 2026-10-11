@@ -20,3 +20,8 @@ export const projectFileLinkSchema = z.object({
   createdAt: z.number(),
 });
 export type ProjectFileLink = z.infer<typeof projectFileLinkSchema>;
+
+/** Portable clipboard provenance for saved project attachments. */
+export const projectAttachmentClipboardSchema = z.array(z.object({
+  link: z.string().max(8192), source: projectFileSourceSchema, projectName: z.string().max(512),
+})).max(100);

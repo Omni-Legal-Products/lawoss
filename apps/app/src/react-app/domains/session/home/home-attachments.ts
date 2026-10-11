@@ -1,9 +1,10 @@
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import type { ProjectFileSource } from "@legalwork/types/project-files";
 import { hasWorkspaceFileDrag, readWorkspaceFileDrag, type WorkspaceFileDragItem } from "@/app/lib/workspace-file-drag";
 import { hasStorageFileDrag, readStorageFileDrag, materializeStorageFile, type StorageFileDragItem } from "@/app/lib/storage-file-drag";
 import { hasLegalMemoryFileDrag, readLegalMemoryFileDrag, materializeLegalMemoryFile, type LegalMemoryFileDragItem } from "@/app/lib/legalmemory-file";
 import { t } from "@/i18n";
-import { createWorkspaceAttachmentMention, uploadWorkspaceAttachment, workspaceAttachmentDisplayText, workspaceAttachmentInstruction } from "../surface/composer/workspace-attachment";
+import { createWorkspaceAttachmentMention, parseWorkspaceAttachmentMention, uploadWorkspaceAttachment, workspaceAttachmentDisplayText, workspaceAttachmentInstruction } from "../surface/composer/workspace-attachment";
 import {
   createStorageComposerMention, storageComposerDisplayText, storageComposerInstruction,
   createLegalMemoryComposerMention, legalMemoryComposerDisplayText, legalMemoryComposerInstruction,
@@ -16,7 +17,14 @@ export type HomeFileReference =
   | { kind: "memory"; file: LegalMemoryFileDragItem };
 
 export type HomeFileContent = { text: string; context: string };
-export type HomeDraftAttachment = { source: File | HomeFileReference; value: string; kind: ComposerMentionKind };
+export type HomeDraftAttachment = { source: File | HomeFileReference; value: string; kind: ComposerMentionKind; clipboardSource?: ProjectFileSource };
+
+export function homeClipboardAttachment(value: string): HomeDraftAttachment | null {
+  const attachment = parseWorkspaceAttachmentMention(value);
+  if (!attachment?.source) return null;
+  return { value, kind: "upload", clipboardSource: attachment.source,
+    source: { kind: "workspace", file: attachment.source } };
+}
 
 /** Use the chat editor's existing mention nodes while the target project is undecided. */
 export function stageHomeAttachment(source: File | HomeFileReference): HomeDraftAttachment {

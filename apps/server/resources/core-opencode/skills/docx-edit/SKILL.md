@@ -49,7 +49,10 @@ and prints only counts. It does not verify legal conclusions or exhaustive scope
 This skill is how this firm reads and edits Word documents with AI. It has **three
 backends**, and your FIRST step is always to pick the right one:
 
-## Step 0 — where are you running?
+## Step 0: choose the target
+
+For a named reference document that is not already open, inspect its saved file in the background with the FILE backend. Do not change the user's visible tab just to read a source. For an attached document to edit, first copy it to a visible project output with inapp_documents_open and copy_to. Keep the original attachment snapshot intact.
+
 
 1. Unless the user explicitly named a different workspace document, call
    `inapp_docx_read_document` first. If it succeeds, the target is the document open in
@@ -63,8 +66,11 @@ backends**, and your FIRST step is always to pick the right one:
 
 - Read with `inapp_docx_read_document` or find exact text with `inapp_docx_find_text`.
   Both return stable `paraId` anchors.
-- Edit with `inapp_docx_suggest_change` and comment with `inapp_docx_add_comment`.
-  Every agent text edit is a tracked change and saves back to the workspace automatically.
+- Edit with `inapp_docx_suggest_change`. Add comments only when the user requests them.
+  Replace the smallest exact phrase that needs changing; retain surrounding language and formatting.
+  Negotiated text edits are tracked changes and save back to the workspace automatically.
+- For clean template population in a new output copy, use `inapp_docx_fill_template` with the exact placeholder and value. This accepts only the new replacement and preserves existing revisions.
+- Reply to requested partner comments with `inapp_docx_reply_comment` using the parent ID from `inapp_docx_read_comments`.
 - Accept or revert edits with `inapp_docx_accept_changes` / `inapp_docx_reject_changes`.
   First call `inapp_docx_read_changes`, then pass the relevant IDs. For "revert my edits",
   reject only changes authored by the agent; never remove unrelated pre-existing redlines.
@@ -79,14 +85,21 @@ backends**, and your FIRST step is always to pick the right one:
 - Read with `word_read_document` (and `word_search` to locate clauses) before editing,
   so anchors are verbatim.
 - Edit with `word_replace_text` / `word_insert_text`: they apply native tracked changes
-  directly in the open document. Attach a short `word_add_comment` rationale to each
-  substantive edit. `word_run_code` covers formatting and anything the typed tools miss.
+  directly in the open document. Keep rationale in chat unless comments are requested.
+  `word_run_code` covers formatting and anything the typed tools miss.
 - **Never write files in LIVE mode.** No `docx-agent.mjs`, no `.redlined.docx`, no copy
   of the open document. The redlines are already in front of the user: they accept or
   reject them in Word (Review ribbon). Do not tell them to open another file or the
   LegalWork viewer.
 - Hand back: one or two short sentences on what you redlined and a reminder to review
   the tracked changes in Word.
+
+## Editing judgment
+
+- Keep redlines surgical: changing an amount, party, date, or placeholder should not rewrite the sentence or clause.
+- Never place internal advice, missing-input notes or negotiation strategy into a deliverable unless requested. Summarize unresolved points in chat.
+- For a new document populated from a template, preserve the template and create a clean output copy in the project. Do not deliver a template full of redlines unless requested. Preserve any pre-existing revisions; never accept unrelated changes to clean up your output.
+- Save edited attachments and newly generated deliverables to visible project files, then link the exact output. Background reference attachments may remain unchanged in their attachment storage.
 
 ## FILE mode — the self-contained file pipeline
 

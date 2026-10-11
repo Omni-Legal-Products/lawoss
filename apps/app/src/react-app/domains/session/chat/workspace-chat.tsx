@@ -35,6 +35,7 @@ export function WorkspaceChat(props: SessionSurfaceProps) {
   const behavior = useModelBehavior({ providerList: providers.data, defaultModel: selection.model, modelVariant: selection.variant });
   const select = (model: ModelRef) => {
     useSessionModelStore.getState().select(key, { model, variant: selection.model.providerID === model.providerID && selection.model.modelID === model.modelID ? selection.variant : null });
+    props.onModelChange(model);
     picker.setCompactOpen(false); picker.setOpen(false);
   };
   return <div className="h-full min-h-0" data-workspace-chat={props.sessionId} data-workspace-tab-active={props.active !== false}>

@@ -1,5 +1,19 @@
 import { expect, test } from "bun:test";
-import { managedNetworkGuard, managedPermissionRules, sandboxEngineAgents, sandboxEnginePermissions } from "./engine-policy.js";
+import { explicitFileApprovals, managedNetworkGuard, managedPermissionRules, sandboxEngineAgents, sandboxEnginePermissions } from "./engine-policy.js";
+
+test("engine file-reader defaults do not turn allowed project commands into approval requests", () => {
+  const defaults = [
+    { permission: "*", pattern: "*", action: "allow" },
+    { permission: "external_directory", pattern: "*", action: "ask" },
+    { permission: "read", pattern: "*.env", action: "ask" },
+    { permission: "read", pattern: "*.env.*", action: "ask" },
+  ];
+  expect(explicitFileApprovals(defaults, [{ bash: "allow", edit: "allow" }])).toEqual([defaults[0]]);
+  expect(explicitFileApprovals(defaults, [{ read: { "*.env": "ask", "*.env.*": "ask" }, external_directory: "ask" }])).toEqual(defaults);
+  const deny = { permission: "read", pattern: "private/*", action: "deny" };
+  expect(explicitFileApprovals([...defaults, deny], [])).toContainEqual(deny);
+  expect(managedPermissionRules(explicitFileApprovals(defaults, []), [defaults[1]])).toContainEqual(defaults[1]);
+});
 
 test("the protected tool keeps shell permissions while the host shell stays denied", () => {
   expect(sandboxEnginePermissions({ "*": "allow", bash: "ask", edit: "deny" }))

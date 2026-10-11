@@ -840,6 +840,7 @@ export type DesktopCommandInvokers = {
 
 /** Exact request shown for one-time approval on the worker's host. */
 export interface HostApprovalRequest {
+  canRemember?: boolean;
   id: string;
   workspaceId: string;
   action: string;

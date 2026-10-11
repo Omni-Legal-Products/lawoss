@@ -444,7 +444,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               <Clock3 data-icon="inline-start" />
               {t("session.allow_once")}
             </Button>
-            {!projectInstructions && !host ? <Button
+            {!projectInstructions && (!host || host.canRemember) ? <Button
               type="button"
               variant="outline"
               size="sm"

@@ -11,7 +11,8 @@ import { WelcomeSurface } from "@/components/chat/session-welcome";
 import { MessageContent } from "@/components/ui/message";
 import { PendingStatus } from "@/components/chat/pending-status";
 import { LexicalPromptEditor } from "../surface/composer/editor";
-import { activeHomeAttachments, hasHomeFileDrop, homeAttachmentToken, readHomeFileReference, replaceHomeAttachmentTokens, stageHomeAttachment, type HomeDraftAttachment, type HomeFileReference } from "./home-attachments";
+import { activeHomeAttachments, hasHomeFileDrop, homeAttachmentToken, homeClipboardAttachment, readHomeFileReference, replaceHomeAttachmentTokens, stageHomeAttachment, type HomeDraftAttachment, type HomeFileReference } from "./home-attachments";
+import { useProjectFiles } from "../../workspace/project-file-context";
 import { t } from "@/i18n";
 import "./app-home.css";
 
@@ -34,6 +35,7 @@ export type AppHomeProps = {
 };
 
 export function AppHome(props: AppHomeProps) {
+  const projectFiles = useProjectFiles();
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<HomeDraftAttachment[]>([]);
   const [sending, setSending] = useState(false);
@@ -43,6 +45,7 @@ export function AppHome(props: AppHomeProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const sendingRef = useRef(false);
+  const copiedFiles = useRef(new Map<string, File>());
   const project = props.workspaces.find((workspace) => workspace.id === props.projectId);
   const busy = props.disabled || sending;
   const canSend = !busy && Boolean(text.trim());
@@ -67,7 +70,18 @@ export function AppHome(props: AppHomeProps) {
     setError(null);
     try {
       // Keep the submitted view until navigation has a populated conversation.
-      await props.onSend(text, activeHomeAttachments(text, attachments));
+      const active = await Promise.all(activeHomeAttachments(text, attachments).map(async attachment => {
+        if (!attachment.clipboardSource) return attachment;
+        if (!projectFiles) throw new Error(t("project_files.source_unavailable"));
+        let file = copiedFiles.current.get(attachment.value);
+        if (!file) {
+          const saved = await projectFiles.readSaved(attachment.clipboardSource);
+          file = new File([saved.data], attachment.clipboardSource.name, { type: saved.contentType ?? "application/octet-stream" });
+          copiedFiles.current.set(attachment.value, file);
+        }
+        return { ...attachment, source: file };
+      }));
+      await props.onSend(text, active);
     } catch (error) {
       setError(error instanceof Error ? error.message : t("home.send_failed"));
       sendingRef.current = false;
@@ -78,6 +92,10 @@ export function AppHome(props: AppHomeProps) {
   const editor = <LexicalPromptEditor
     value={sending ? "" : text} mentions={mentions} disabled={busy}
     placeholder={t("home.placeholder")} ariaLabel={t("home.prompt_label")} onChange={setText} onSubmit={send}
+    onPasteMentions={values => setAttachments(current => [...current, ...values.flatMap(value => {
+      const attachment = homeClipboardAttachment(value);
+      return attachment ? [attachment] : [];
+    })])}
     onPaste={(event) => {
       if (!event.clipboardData.files.length) return;
       event.preventDefault();

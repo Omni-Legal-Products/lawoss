@@ -34,7 +34,7 @@ export function ArtifactPptxEditor(props: OfficeEditorProps) {
     const fit = () => {
       if (!host.querySelector("[data-pptx-viewport]")) return;
       const width = host.clientWidth;
-      if (width < 960 && (lastWidth === 0 || lastWidth >= 960) && host.querySelector("[data-pptx-inspector]")) host.querySelector<HTMLButtonElement>('[aria-label="Toggle inspector panel"]')?.click();
+      if ((lastWidth === 0 || (width < 960 && lastWidth >= 960)) && host.querySelector("[data-pptx-inspector]")) host.querySelector<HTMLButtonElement>('[aria-label="Toggle inspector panel"]')?.click();
       if (width < 760 && (lastWidth === 0 || lastWidth >= 760) && host.querySelector('aside[aria-label="Slides"]')) host.querySelector<HTMLButtonElement>('[aria-label="Toggle slides panel"]')?.click();
       lastWidth = width;
     };

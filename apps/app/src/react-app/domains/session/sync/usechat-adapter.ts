@@ -69,6 +69,7 @@ function describeErrorText(text: string, provider: string | null = null) {
 }
 
 export function describeOpencodeSessionError(error: unknown, fallback = "Session failed", providerId?: string) {
+  if (isSessionAbortError(error)) return t("chat.stopped");
   const limit = providerId === "eigenwelt" ? eigenweltUsageLimitFromError(error) : null;
   if (limit) return providerUsageLimitErrorText("eigenwelt", limit);
   if (isAnthropicUsageLimitError(error)) return providerUsageLimitErrorText(providerId ?? "anthropic");
@@ -119,13 +120,13 @@ function sessionErrorMessageId(turnKey: string) {
  * message instead of duplicating — while a brand new error on a later turn
  * still produces its own message instead of overwriting the previous one.
  */
-export function createSessionErrorUIMessage(turnKey: string, text: string, options?: { created?: number }): UIMessage {
+export function createSessionErrorUIMessage(turnKey: string, text: string, options?: { created?: number; stopped?: boolean }): UIMessage {
   const id = sessionErrorMessageId(turnKey);
   const created = options?.created;
   return {
     id,
     role: "assistant",
-    ...(typeof created === "number" ? { metadata: { opencode: { created } } } : {}),
+    metadata: { opencode: { ...(typeof created === "number" ? { created } : {}), stopped: options?.stopped ?? false } },
     parts: [{
       type: "text",
       text,
@@ -265,7 +266,7 @@ export function snapshotToUIMessages(snapshot: LegalworkSessionSnapshot): UIMess
     if (!error) return [uiMessage];
 
     const providerId = message.info.role === "assistant" ? message.info.providerID : undefined;
-    const errorMessage = createSessionErrorUIMessage(message.info.id, describeOpencodeSessionError(error, "Session failed", providerId), { created });
+    const errorMessage = createSessionErrorUIMessage(message.info.id, describeOpencodeSessionError(error, "Session failed", providerId), { created, stopped: isSessionAbortError(error) });
     return uiMessage.parts.length > 0 ? [uiMessage, errorMessage] : [errorMessage];
   });
 }

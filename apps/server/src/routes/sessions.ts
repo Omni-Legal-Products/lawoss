@@ -1,3 +1,4 @@
+import { retryStopReason } from "../session-retry-policy.js";
 import { queueActionSchema, queuedPromptPayload, type QueueEntry } from "../session-queue-schema.js";
 import { QueuePreparationError, registerMessageQueue } from "../session-message-queue.js";
 import { assertNoHostShellInterpolation, assertSandboxProxyAllowed } from "../agent-sandbox/proxy-gate.js";
@@ -92,6 +93,14 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     return client;
   }
   const messageQueue = registerMessageQueue(config, {
+    confirmed: async (workspaceId, sessionID, entry) => {
+      if (entry.execution.kind !== "prompt") return false;
+      const workspace = await resolveWorkspace(config, workspaceId);
+      const client = await queueClient(workspace, sessionID);
+      const messageID = `msg_${entry.id.replaceAll("-", "")}`;
+      const result = await client.session.message({ sessionID, messageID }, { signal: AbortSignal.timeout(5000) });
+      return result.data?.info.id === messageID && result.data.info.role === "user" && result.data.info.sessionID === sessionID;
+    },
     idle: async (workspaceId, sessionId) => {
       if (config.readOnly) return false;
       const workspace = await resolveWorkspace(config, workspaceId);
@@ -418,6 +427,28 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       limit: parseOptionalPositiveInteger(ctx.url.searchParams.get("limit"), "limit"),
     });
     return jsonResponse({ item });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/sessions/:sessionId/retry-stop", "client", async ctx => {
+    ensureWritable(config);
+    requireClientScope(ctx, "collaborator");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const sessionId = ctx.params.sessionId;
+    const client = await queueClient(workspace, sessionId);
+    const statuses = unwrapOpencodeResult(await client.session.status(), "session/status");
+    const status = statuses[sessionId];
+    const reason = status && retryStopReason(status);
+    if (!reason) return jsonResponse({ stopped: false });
+    const messages = unwrapOpencodeResult(await client.session.messages({ sessionID: sessionId }), "session/messages");
+    const last = messages.at(-1)?.info;
+    if (last?.role !== "assistant") return jsonResponse({ stopped: false });
+    // Recheck after reads: a completed retry or new user turn takes precedence.
+    const current = unwrapOpencodeResult(await client.session.status(), "session/status")[sessionId];
+    if (current?.type !== "retry" || status.type !== "retry" || current.attempt !== status.attempt || current.next !== status.next) return jsonResponse({ stopped: false });
+    await messageQueue.act(workspace.id, sessionId, { type: "pause", paused: true });
+    await recordSessionUsageLimit(config, workspace.id, sessionId, last.id, last.providerID, null, reason);
+    unwrapOpencodeResult(await client.session.abort({ sessionID: sessionId }), "session/abort");
+    return jsonResponse({ stopped: true });
   });
 
   addRoute(

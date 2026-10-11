@@ -1770,7 +1770,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     capabilities: () => requestJson<LegalworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken, timeoutMs: timeouts.capabilities }),
     canApprove: Boolean(hostToken),
     pendingHostApprovals: () => requestJson<{ items: import("@legalwork/types/desktop-ipc").HostApprovalRequest[] }>(baseUrl, "/approvals", { token, hostToken, timeoutMs: timeouts.status }),
-    replyHostApproval: (request: import("@legalwork/types/desktop-ipc").HostApprovalRequest, reply: "allow" | "deny") =>
+    replyHostApproval: (request: import("@legalwork/types/desktop-ipc").HostApprovalRequest, reply: "allow" | "deny" | "always") =>
       requestJson<{ ok: true; allowed: boolean }>(baseUrl, `/approvals/${encodeURIComponent(request.id)}`, {
         token, hostToken, method: "POST", body: { reply, workspaceId: request.workspaceId, sessionID: request.sessionID }, timeoutMs: timeouts.config,
       }),

@@ -25,6 +25,10 @@ async function store(config: ServerConfig) {
           if (!db.all("PRAGMA table_info(session_usage_limits)").some(column => column.name === "limit_json")) throw error;
         }
       }
+      if (!db.all("PRAGMA table_info(session_usage_limits)").some(column => column.name === "stop_reason")) {
+        try { db.exec("ALTER TABLE session_usage_limits ADD COLUMN stop_reason TEXT"); }
+        catch (error) { if (!db.all("PRAGMA table_info(session_usage_limits)").some(column => column.name === "stop_reason")) throw error; }
+      }
       return db;
     })();
     stores.set(path, db);
@@ -39,11 +43,12 @@ export async function recordSessionUsageLimit(
   messageId: string,
   providerId: string,
   limit?: UsageLimitDetails | null,
+  stopReason?: string,
 ) {
   const db = await store(config);
   db.run(
-    "INSERT INTO session_usage_limits (workspace_id,session_id,message_id,provider_id,limit_json) VALUES (?,?,?,?,?) ON CONFLICT(workspace_id,session_id,message_id) DO UPDATE SET provider_id=excluded.provider_id,limit_json=excluded.limit_json",
-    [workspaceId, sessionId, messageId, providerId, providerId === "eigenwelt" && limit ? JSON.stringify(limit) : null],
+    "INSERT INTO session_usage_limits (workspace_id,session_id,message_id,provider_id,limit_json,stop_reason) VALUES (?,?,?,?,?,?) ON CONFLICT(workspace_id,session_id,message_id) DO UPDATE SET provider_id=excluded.provider_id,limit_json=excluded.limit_json,stop_reason=excluded.stop_reason",
+    [workspaceId, sessionId, messageId, providerId, providerId === "eigenwelt" && limit ? JSON.stringify(limit) : null, stopReason ?? null],
   );
 }
 
@@ -55,13 +60,13 @@ export async function applySessionUsageLimits(
 ): Promise<SessionMessagesResponse2> {
   const db = await store(config);
   const rows = db.all(
-    "SELECT message_id,provider_id,limit_json FROM session_usage_limits WHERE workspace_id=? AND session_id=?",
+    "SELECT message_id,provider_id,limit_json,stop_reason FROM session_usage_limits WHERE workspace_id=? AND session_id=?",
     [workspaceId, sessionId],
   );
   const providers = new Map(
     rows.flatMap((row) =>
       typeof row.message_id === "string" && typeof row.provider_id === "string"
-        ? [[row.message_id, {providerId:row.provider_id,limit:storedLimit(row.limit_json)}]]
+        ? [[row.message_id, {providerId:row.provider_id,limit:storedLimit(row.limit_json), reason: typeof row.stop_reason === "string" ? row.stop_reason : null}]]
         : [],
     ),
   );
@@ -77,7 +82,7 @@ export async function applySessionUsageLimits(
           name: "UnknownError",
           data: {
             message:
-              providerUsageLimitErrorText(provider.providerId, provider.limit),
+              provider.reason ?? providerUsageLimitErrorText(provider.providerId, provider.limit),
           },
         },
       },

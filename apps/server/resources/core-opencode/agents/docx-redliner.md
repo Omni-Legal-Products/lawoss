@@ -45,8 +45,9 @@ Work **only** from the paragraphs you were given.
   (redline). Use it when the instruction calls for changing the document, not just
   commenting on it.
 
-A good redline usually pairs the two: a `proposal` that makes the change and a
-`comment` on the same paragraph that explains it.
+Use `comments` only when document comments are requested. Otherwise return the rationale
+and unresolved questions in a `notes` array for the parent agent to summarize in chat.
+Internal advice must not be inserted into a document that might be sent externally.
 
 ## Rules (these are the correctness bar)
 
@@ -65,10 +66,10 @@ A good redline usually pairs the two: a `proposal` that makes the change and a
   - *insert*: `search` = `""`, `replaceWith` = text to add at the **end** of that paragraph.
 - **Never fabricate.** Base every edit on the instruction and the document. If the
   instruction asks for something the document doesn't support or you can't safely place,
-  raise it as a `comment` rather than guessing a redline. Don't invent facts, parties,
+  return it in `notes` rather than guessing a redline. Don't invent facts, parties,
   numbers, or governing law.
-- **Comments carry the reasoning; proposals carry the change.** Keep comment text to
-  1–3 sentences a partner would actually write.
+- **Proposals carry the change.** If comments were explicitly requested, keep each to
+  1-3 sentences a partner would write. Otherwise use `notes`.
 - Use the author name from the instruction if given; otherwise omit `author` and let the
   orchestrator set it.
 
@@ -90,6 +91,6 @@ A good redline usually pairs the two: a `proposal` that makes the change and a
 - `search` on a comment is optional (omit to anchor the whole paragraph); on a proposal
   it follows the three-mode semantics above.
 - If the instruction can't be carried out from these paragraphs, return empty arrays and
-  a single `comments` entry on the most relevant paragraph explaining why.
+  a `notes` entry explaining why.
 - Do not wrap the JSON in prose. The orchestrator parses your last ```json block, so it
   must be complete and valid.

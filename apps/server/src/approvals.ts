@@ -8,6 +8,7 @@ interface ApprovalResult {
 }
 
 interface PendingApproval {
+  rememberKey?: string;
   request: ApprovalRequest;
   resolve: (result: ApprovalResult) => void;
   cleanup: () => void;
@@ -18,6 +19,7 @@ export class ApprovalService {
   private pending = new Map<string, PendingApproval>();
   private hostHandler?: HostApprovalHandler;
   private disposed = false;
+  private remembered = new Map<string, string>();
 
   constructor(config: ApprovalConfig, hostHandler?: HostApprovalHandler, private readonly onChange?: () => void) {
     this.config = config;
@@ -32,6 +34,7 @@ export class ApprovalService {
     input: Omit<ApprovalRequest, "id" | "createdAt">,
     signal?: AbortSignal,
     forceManual = false,
+    rememberKey?: string,
   ): Promise<ApprovalResult> {
     if (this.disposed || signal?.aborted) {
       return { id: "cancelled", allowed: false, reason: "cancelled" };
@@ -39,9 +42,11 @@ export class ApprovalService {
     if (this.config.mode === "auto" && !forceManual) {
       return { id: "auto", allowed: true };
     }
+    if (rememberKey && this.remembered.has(rememberKey)) return { id: "remembered", allowed: true };
     const id = shortId();
     const request: ApprovalRequest = {
       ...input,
+      canRemember: Boolean(rememberKey && input.sessionID),
       id,
       createdAt: Date.now(),
     };
@@ -53,6 +58,7 @@ export class ApprovalService {
       }, this.config.timeoutMs);
       const cancel = () => { this.settle(id, false, "cancelled"); };
       this.pending.set(id, {
+        rememberKey,
         request,
         resolve,
         cleanup: () => {
@@ -80,12 +86,22 @@ export class ApprovalService {
     return result;
   }
 
-  respond(id: string, reply: "allow" | "deny"): ApprovalResult | null {
-    return this.settle(id, reply === "allow", reply === "allow" ? undefined : "denied");
+  respond(id: string, reply: "allow" | "deny" | "always"): ApprovalResult | null {
+    const pending = this.pending.get(id);
+    if (reply === "always") {
+      if (!pending?.rememberKey || !pending.request.canRemember) return null;
+      this.remembered.set(pending.rememberKey, pending.request.workspaceId);
+    }
+    return this.settle(id, reply !== "deny", reply === "deny" ? "denied" : undefined);
+  }
+
+  forgetRemembered(workspaceId?: string) {
+    for (const [key, workspace] of this.remembered) if (!workspaceId || workspace === workspaceId) this.remembered.delete(key);
   }
 
   dispose(): void {
     this.disposed = true;
+    this.remembered.clear();
     for (const id of this.pending.keys()) this.settle(id, false, "cancelled");
   }
 

@@ -115,6 +115,7 @@ type ComposerProps = {
   onInsertMention: (kind: ComposerMentionKind, value: string) => void;
   /** Sent-prompt history (oldest first) recalled with ArrowUp/ArrowDown (#2012). */
   inputHistory?: string[];
+  onPasteMentions?: (mentions: string[]) => void;
   onPasteText: (text: string) => PastedTextChip;
   onUnsupportedFileLinks: (links: string[]) => void;
   onDropLegalMemoryFile: (file: LegalMemoryFileDragItem) => void | Promise<void>;
@@ -1132,6 +1133,7 @@ export function ReactSessionComposer(props: ComposerProps) {
               onExpandPastedText={handleExpandPastedText}
               onPreviewPastedText={setPreviewPastedLabel}
               onPasteText={props.onPasteText}
+              onPasteMentions={props.onPasteMentions}
               onPaste={(event) => {
                 // Paste policy:
                 // 1. Actual files on the clipboard -> attach them.

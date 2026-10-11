@@ -26,7 +26,7 @@ function categoryOf(part: ToolPart) {
   if (/(?:^|[_-])(?:search|grep|glob|find)(?:$|[_-])/.test(name)) return "search";
   if ((name === "websearch" || name === "legalwork_websearch")) return "search";
   if (/(?:^|[_-])(?:read|get|results|inspect)(?:$|[_-])/.test(name) || name === "lsp") return "read";
-  if (/(?:^|[_-])(?:edit|patch|update|rename)(?:$|[_-])/.test(name)) return "edit";
+  if (/(?:^|[_-])(?:edit|patch|update|rename|suggest_change|fill_template|propose_change|replace_text|insert_text|add_comment|reply_comment|accept_changes|reject_changes)(?:$|[_-])/.test(name)) return "edit";
   if (/(?:^|[_-])(?:write|create|save)(?:$|[_-])/.test(name)) return "write";
   if (name.startsWith("legalwork_review_")) return "review";
   if (/(?:^|[_-])(?:list|files|browse)(?:$|[_-])/.test(name)) return "browse";

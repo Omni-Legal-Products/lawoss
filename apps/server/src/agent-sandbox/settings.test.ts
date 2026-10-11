@@ -41,7 +41,7 @@ test("network settings API authenticates, validates, persists and respects read-
   try {
     expect((await patch({ mode: "allow" })).status).toBe(401);
     expect((await patch({ mode: "allow" }, "client")).status).toBe(401);
-    expect(await (await fetch(base + "/sandbox/status", { headers: { authorization: "Bearer client" } })).json()).toMatchObject({ enabled: false, supported: true, available: null, networkMode: "approve" });
+    expect(await (await fetch(base + "/sandbox/status", { headers: { authorization: "Bearer client" } })).json()).toMatchObject({ enabled: false, supported: true, available: null, networkMode: "allow" });
     // Updating an existing profile must not turn an old network preference
     // or tool permission into consent to enable sandboxing.
     for (const networkMode of networkModeSchema.options) {
@@ -60,7 +60,7 @@ test("network settings API authenticates, validates, persists and respects read-
     expect((await patch({ mode: "allow" }, viewer.token)).status).toBe(401);
     for (const body of [{ mode: "unknown" }, { mode: "allow", extra: true }, { mode: null }, {}]) {
       expect((await patch(body, "host")).status).toBe(400);
-      expect(await readSandboxNetworkMode(config)).toBe("approve");
+      expect(await readSandboxNetworkMode(config)).toBe("allow");
     }
     for (const mode of networkModeSchema.options) {
       const response = await patch({ mode }, "host");

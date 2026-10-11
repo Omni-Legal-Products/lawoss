@@ -192,14 +192,16 @@ export async function createManagedOpencodeServer(options: {
   const username = randomSecret();
   const password = randomSecret();
   const command = options.bin?.trim() || "opencode";
+  const features = { OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: process.env.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS ?? "true" };
   const env = {
     ...process.env,
+    ...features,
     ...options.env,
     OPENCODE_SERVER_USERNAME: username,
     OPENCODE_SERVER_PASSWORD: password,
   };
   const injectedEnv = Object.entries({
-    ...(options.env ?? {}),
+    ...features,    ...(options.env ?? {}),
     OPENCODE_SERVER_USERNAME: username,
     OPENCODE_SERVER_PASSWORD: password,
   })

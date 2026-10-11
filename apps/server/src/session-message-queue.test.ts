@@ -277,3 +277,47 @@ test("waiting messages can be reordered during delivery without moving or resend
   await until(async () => { await queue.tick(); return (await queue.read("w", "s")).entries.length === 0; });
   expect(sent).toEqual([a.id, c.id, b.id]);
 });
+
+
+test("a lost response is reconciled by exact message identity without offering a duplicate send", async () => {
+  let sends = 0;
+  const accepted = new Set<string>();
+  const { queue } = await setup({ idle: async () => true,
+    send: async (_w, _s, entry) => { sends++; accepted.add(entry.id); throw new Error("Response connection closed"); },
+    confirmed: async (_w, _s, entry) => accepted.has(entry.id),
+  });
+  const item = message();
+  await queue.act("w", "s", item);
+  await until(async () => (await queue.read("w", "s")).completedIds.includes(item.id));
+  expect((await queue.read("w", "s")).entries).toHaveLength(0);
+  expect((await queue.read("w", "s")).paused).toBe(false);
+  await queue.act("w", "s", item);
+  expect(sends).toBe(1);
+});
+
+test("uncertain delivery reconciles when message history becomes available later", async () => {
+  let visible = false, sends = 0;
+  const { queue } = await setup({ idle: async () => true, send: async () => { sends++; throw new Error("Disconnected"); }, confirmed: async () => visible });
+  const item = message();
+  await queue.act("w", "s", item);
+  await until(async () => (await queue.read("w", "s")).entries[0]?.status === "uncertain");
+  visible = true;
+  await queue.tick();
+  const state = await queue.read("w", "s");
+  expect(state.entries).toHaveLength(0);
+  expect(state.completedIds).toContain(item.id);
+  expect(state.paused).toBe(false);
+  expect(sends).toBe(1);
+});
+
+test("delivery reconciliation preserves an explicit user pause", async () => {
+  let visible = false;
+  const { queue } = await setup({ idle: async () => true, send: async () => { throw new Error("Disconnected"); }, confirmed: async () => visible });
+  await queue.act("w", "s", message());
+  await until(async () => (await queue.read("w", "s")).entries[0]?.status === "uncertain");
+  await queue.act("w", "s", { type: "pause", paused: true });
+  visible = true;
+  await queue.tick();
+  expect((await queue.read("w", "s")).entries).toHaveLength(0);
+  expect((await queue.read("w", "s")).paused).toBe(true);
+});

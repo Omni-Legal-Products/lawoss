@@ -31,7 +31,7 @@ export async function readSandboxDefault(config: ServerConfig): Promise<SandboxS
 }
 export async function readSandboxNetworkMode(config: ServerConfig): Promise<NetworkMode> {
   const row = await readRuntimeOpencodeConfig(config, SANDBOX_DEFAULT_ID);
-  return row.sandbox?.networkMode ?? (await readRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID)).sandboxNetworkMode ?? "approve";
+  return row.sandbox?.networkMode ?? (await readRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID)).sandboxNetworkMode ?? DEFAULT_SANDBOX_SETTINGS.networkMode;
 }
 /** Firm values never overwrite the member's own synced preference. */
 export async function applicationSandbox(config: ServerConfig) {

@@ -254,8 +254,8 @@ export async function refreshWorkspaceInteractions(input: RecoveryInput) {
 
 export async function replyToPermission(client: Client, permission: PendingPermission, reply: "once" | "always" | "reject", directory: string, serverClient?: LegalworkServerClient | null) {
   if (permission.protocol === "host") {
-    if (!serverClient?.canApprove || !permission.host || reply === "always") throw new Error(t("app.error_request_failed"));
-    await serverClient.replyHostApproval(permission.host, reply === "once" ? "allow" : "deny");
+    if (!serverClient?.canApprove || !permission.host || (reply === "always" && !permission.host.canRemember)) throw new Error(t("app.error_request_failed"));
+    await serverClient.replyHostApproval(permission.host, reply === "once" ? "allow" : reply === "always" ? "always" : "deny");
   } else if (permission.protocol === "v2") {
     const result = await client.v2.session.permission.reply({ sessionID: permission.sessionID, requestID: permission.id, reply });
     if (result.error !== undefined) unwrap(result);

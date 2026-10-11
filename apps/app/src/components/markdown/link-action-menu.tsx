@@ -17,7 +17,7 @@ import type { OpenTarget } from "@/react-app/domains/session/artifacts/open-targ
 import type { OpenTargetOptions } from "@/lib/target-provider";
 import { t } from "@/i18n";
 
-const SUPPORTED_PANEL_PREVIEWS = new Set(["markdown", "sheet", "slides", "word", "image", "pdf", "html", "text"]);
+const SUPPORTED_PANEL_PREVIEWS = new Set(["browser", "markdown", "sheet", "slides", "word", "image", "audio", "video", "pdf", "html", "text"]);
 
 type LinkActionMenuProps = {
   target: OpenTarget;
@@ -29,8 +29,9 @@ type LinkActionMenuProps = {
 export function LinkActionMenu({ target, anchor, onOpenTarget, onClose }: LinkActionMenuProps) {
   const [apps, setApps] = useState<DesktopApplication[] | null>(null);
   const [appsLoading, setAppsLoading] = useState(false);
-  const canOpenInPanel = target.kind === "file" && SUPPORTED_PANEL_PREVIEWS.has(target.preview);
-  const canOpenExternally = isElectronRuntime() && target.kind === "file";
+  const canOpenInPanel = SUPPORTED_PANEL_PREVIEWS.has(target.preview);
+  const canOpenExternally = isElectronRuntime();
+  const canReveal = canOpenExternally && target.kind === "file";
 
   useEffect(() => {
     anchor.setAttribute("aria-haspopup", "menu");
@@ -42,8 +43,8 @@ export function LinkActionMenu({ target, anchor, onOpenTarget, onClose }: LinkAc
 
   useEffect(() => {
     setApps(null);
-    setAppsLoading(canOpenExternally);
-    if (!canOpenExternally) return;
+    setAppsLoading(canReveal);
+    if (!canReveal) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -58,7 +59,7 @@ export function LinkActionMenu({ target, anchor, onOpenTarget, onClose }: LinkAc
       }
     })();
     return () => { cancelled = true; };
-  }, [canOpenExternally, target.value]);
+  }, [canReveal, target.value]);
 
   const handleOpenDefault = () => {
     onOpenTarget(target, { external: true });
@@ -105,7 +106,7 @@ export function LinkActionMenu({ target, anchor, onOpenTarget, onClose }: LinkAc
           disabled={!canOpenExternally}
         >
           <ExternalLink className="size-4 shrink-0" />
-          {t("link_menu.open_default_app")}
+          {t(target.kind === "url" ? "link_menu.open_default_browser" : "link_menu.open_default_app")}
         </DropdownMenuItem>
         {canOpenInPanel ? (
           <DropdownMenuItem onClick={handleOpenInPanel}>
@@ -113,13 +114,13 @@ export function LinkActionMenu({ target, anchor, onOpenTarget, onClose }: LinkAc
             {t("link_menu.open_in_panel")}
           </DropdownMenuItem>
         ) : null}
-        <DropdownMenuItem
+        {target.kind === "file" ? <DropdownMenuItem
           onClick={handleReveal}
-          disabled={!canOpenExternally}
+          disabled={!canReveal}
         >
           <FolderOpen className="size-4 shrink-0" />
           {t("link_menu.show_in_folder")}
-        </DropdownMenuItem>
+        </DropdownMenuItem> : null}
         {canOpenExternally && apps && apps.length > 0 ? (
           <>
             <DropdownMenuSeparator />
