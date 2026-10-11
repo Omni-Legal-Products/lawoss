@@ -1638,11 +1638,16 @@ async function openAppWindow(event, route, title = "") {
   });
   sessionWindow.webContents.on("did-start-navigation", (_navigationEvent, url, isInPlace, isMainFrame) => {
     if (!isMainFrame || isInPlace || browserPanel.isMainWindowAllowedNavigation(url)) return;
-    try {
-      sessionWindow.webContents.stop();
-    } catch {
-      // Best effort — routing below still preserves the detached chat.
-    }
+    const contents = sessionWindow.webContents;
+    // Stopping during event dispatch can crash Chromium (#231).
+    setImmediate(() => {
+      if (contents.isDestroyed()) return;
+      try {
+        contents.stop();
+      } catch {
+        // Best effort; routing below still preserves the detached chat.
+      }
+    });
     browserPanel.routeBlockedMainWindowNavigation(url);
   });
 
@@ -2815,11 +2820,16 @@ async function createMainWindow() {
   mainWindow.webContents.on("did-start-navigation", (_event, url, isInPlace, isMainFrame) => {
     if (!isMainFrame || isInPlace) return;
     if (browserPanel.isMainWindowAllowedNavigation(url)) return;
-    try {
-      mainWindow?.webContents.stop();
-    } catch {
-      // best effort — routing below still gives the user a way back
-    }
+    const contents = mainWindow?.webContents;
+    // Stopping during event dispatch can crash Chromium (#231).
+    setImmediate(() => {
+      if (!contents || contents.isDestroyed()) return;
+      try {
+        contents.stop();
+      } catch {
+        // Best effort; routing below still gives the user a way back.
+      }
+    });
     browserPanel.routeBlockedMainWindowNavigation(url);
   });
 
