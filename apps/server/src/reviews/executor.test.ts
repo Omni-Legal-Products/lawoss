@@ -12,6 +12,7 @@ const decisions: SystemOneRequest[] = [];
 let fail = false, wrongModel = false, fabricated = false, incomplete = false, modelOffline = false, quota = false, subscribed = false, noDefault = false;
 let citationRepairSucceeds = false, incidentalAbsenceCitation = false;
 let stalledPrompts = 0;
+let engineError = false;
 const model = { id: "chat", name: "Reviewer", limit: { context: 128000, output: 4096 }, capabilities: { input: { text: true }, output: { text: true } } };
 const engine = Bun.serve({ port: 0, async fetch(request) {
   const path = new URL(request.url).pathname, raw = await request.text(); calls.push({ path, method: request.method, body: raw ? JSON.parse(raw) : undefined });
@@ -22,6 +23,7 @@ const engine = Bun.serve({ port: 0, async fetch(request) {
   if (path === "/session/status") return Response.json(quota ? { "review-worker": { type: "retry", attempt: 1, message: "You have no credits remaining.", next: Date.now() + 60_000 } } : {});
   if (quota && path === "/session/review-worker/message") await Bun.sleep(2500);
   if (path === "/session/review-worker/message" && stalledPrompts-- > 0) await Bun.sleep(300);
+  if (path === "/session/review-worker/message" && engineError) return Response.json({ name: "UnknownError", data: { message: 'Agent not found: "document-extractor"' } }, { status: 500 });
   if (path === "/session/review-worker/message") return Response.json({ info: { modelID: wrongModel ? "substitute" : "chat", providerID: "firm" }, parts: [{ type: "text", text: JSON.stringify({ cells: { assignment: {
     value: incomplete || incidentalAbsenceCitation ? "Not found" : "Yes", reason: "", quote: incomplete ? "" : fabricated && !(citationRepairSucceeds && calls.filter(call => call.path.endsWith("/message")).length > 1) ? "Invented quote" : "Assignment is permitted.", page: incomplete ? null : 1, location: "Assignment", confidence: "high", citations: [],
   } } }) }] });
@@ -38,7 +40,7 @@ const executor = new ReviewExecutor(config, { settings: async () => structuredCl
 const column = ReviewColumnSchema.parse({ key: "assignment", label: "Assignment", question: "Is assignment permitted?", kind: "yes_no" });
 const review = (mode: "jev" | "mixed" | "llm") => SavedReviewSchema.parse({ id: "71953464-c3a7-47a5-ae2a-f28a1b090bea", name: "Review", revision: 0, createdAt: 0, updatedAt: 0, settings: { mode, jev: { providerId: "firm-jev", model: "jev" }, llm: { providerId: "firm", model: "chat" } }, documents: [], cells: [], columns: [column], status: "draft", runId: null });
 const evidence = { hash: "source-hash", complete: true, pages: [{ page: 1, text: "Assignment is permitted." }] };
-beforeEach(() => { calls.length = 0; decisions.length = 0; fail = false; wrongModel = false; fabricated = false; incomplete = false; modelOffline = false; quota = false; subscribed = false; noDefault = false; citationRepairSucceeds = false; incidentalAbsenceCitation = false; stalledPrompts = 0; });
+beforeEach(() => { calls.length = 0; decisions.length = 0; fail = false; wrongModel = false; fabricated = false; incomplete = false; modelOffline = false; quota = false; subscribed = false; noDefault = false; citationRepairSucceeds = false; incidentalAbsenceCitation = false; stalledPrompts = 0; engineError = false; });
 afterAll(() => engine.stop(true));
 test("model discovery filters embeddings, image and realtime models and retains actual engine text capabilities", () => {
   expect(isTextReviewModel(model)).toBe(true);
@@ -94,7 +96,14 @@ test("builtin JEV choices abstain for missing, irrelevant, uncertain and low-pro
 test("Only LLM uses the selected model, disables all tools, checks citations, and deletes its temporary session", async () => {
   const result = await executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal);
   expect(result.citations).toEqual([{ page: 1, quote: "Assignment is permitted." }]); expect(decisions).toHaveLength(0);
-  expect(calls.find(call => call.path.endsWith("/message"))?.body).toMatchObject({ model: { providerID: "firm", modelID: "chat" }, tools: { bash: false, read: false, task: false, legalwork_review_start: false } });
+  expect(calls.find(call => call.path.endsWith("/message"))?.body).toMatchObject({ agent: "document-extractor", model: { providerID: "firm", modelID: "chat" }, tools: { bash: false, read: false, task: false, legalwork_review_start: false } });
+  expect(calls.some(call => call.method === "DELETE")).toBe(true);
+});
+test("review engine errors retain their cause and clean up the temporary session", async () => {
+  engineError = true;
+  await expect(executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal)).rejects.toThrow('Agent not found: "document-extractor"');
+  expect(calls.filter(call => call.path.endsWith("/message"))).toHaveLength(1);
+  expect(calls.some(call => call.path.endsWith("/abort"))).toBe(true);
   expect(calls.some(call => call.method === "DELETE")).toBe(true);
 });
 test("fabricated citations or substituted models cannot become results; tools are still cleaned up", async () => {

@@ -75,6 +75,7 @@ import { eigenweltHasPremiumModels } from "./eigenwelt-auth.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { repairRuntimeProviders } from "./runtime-provider-repair.js";
 import { sandboxEngineAgents, sandboxEnginePermissions } from "./agent-sandbox/engine-policy.js";
+import { REVIEW_AGENT, reviewAgentConfig } from "./reviews/agent.js";
 
 const LEGALWORK_AGENT_PROMPT = `You are LegalWork — an AI agent that works alongside legal professionals inside a law firm.
 
@@ -278,6 +279,7 @@ export async function buildLegalworkRuntimeConfigObject(
     default_agent: runtimeConfig.default_agent ?? "legalwork",
     agent: {
       ...runtimeAgentMap(runtimeConfig),
+      [REVIEW_AGENT]: reviewAgentConfig(),
       [PROJECT_TASK_AGENT]: {
         description: "Scheduled task with access to this project only", mode: "primary", hidden: true,
         prompt: agentPrompt + "\nThis scheduled run may access only its own project through the project-scoped tools. Use legalwork_project_list/read, project calendar and review tools. Shell, browser, delegation and unrestricted connectors are unavailable. Do not work around a scope denial. Explain any missing capability. Existing chat history remains visible.",

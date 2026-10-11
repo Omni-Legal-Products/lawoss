@@ -70,6 +70,25 @@ test("protected engine configuration retains installed skill discovery", async (
   expect(await readConfigFile(config)).toMatchObject({ skills: { paths: expect.arrayContaining([folder]) }, lsp: false, formatter: false });
 });
 
+test.each([false, true])("the built-in review worker is registered with sandboxing=%s", async (sandboxed) => {
+  const { config } = await setup();
+  config.agentSandboxEnabled = sandboxed;
+  await writeRuntimeOpencodeConfig(config, "ws_1", () => ({
+    agent: { "document-extractor": { disable: true, model: "other/model", prompt: "Stored override", permission: { "*": "allow" } } },
+  }));
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  const parsed = await readConfigFile(config);
+  expect(parsed).toMatchObject({ agent: { "document-extractor": {
+    description: "Internal grounded text inference worker for saved project reviews.",
+    mode: "subagent", hidden: true, temperature: 0.1,
+    prompt: expect.stringContaining("Use only the evidence and column definition provided in this request."),
+    tools: { "*": false }, permission: { "*": "deny" },
+  } } });
+  expect(parsed).not.toHaveProperty("agent.document-extractor.disable");
+  expect(parsed).not.toHaveProperty("agent.document-extractor.model");
+  expect(parsed).not.toHaveProperty("agent.document-extractor.prompt", "Stored override");
+});
+
 describe("legalwork runtime config file", () => {
   test("writes runtime-DB MCPs and legalwork defaults into the file", async () => {
     const { config } = await setup();
