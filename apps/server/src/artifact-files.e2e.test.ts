@@ -55,6 +55,25 @@ function auth(token: string) {
 }
 
 describe("artifact file routes", () => {
+  test("code editor extensions round-trip through the text API without enabling binary files", async () => {
+    const root = await createWorkspaceRoot();
+    const { base, token } = await startLegalworkServer(root);
+    for (const extension of ["py", "pyw", "mts", "cts", "mjs", "cjs", "tsx", "jsx", "sass", "scss", "sql", "sh", "bash", "zsh", "jsonc", "toml"]) {
+      const path = `reports/source.${extension.toUpperCase()}`;
+      const content = "# Code editor round-trip\n";
+      const saved = await fetch(`${base}/workspace/ws_1/files/content`, { method: "POST", headers: auth(token), body: JSON.stringify({ path, content }) });
+      expect(saved.status).toBe(200);
+      await saved.arrayBuffer();
+      const loaded = await fetch(`${base}/workspace/ws_1/files/content?path=${encodeURIComponent(path)}`, { headers: auth(token) });
+      expect(loaded.status).toBe(200);
+      expect(await loaded.json()).toMatchObject({ path, content });
+      expect(await readFile(join(root, path), "utf8")).toBe(content);
+    }
+    const rejected = await fetch(`${base}/workspace/ws_1/files/content`, { method: "POST", headers: auth(token), body: JSON.stringify({ path: "reports/image.png", content: "not an image" }) });
+    expect(rejected.status).toBe(400);
+    await rejected.arrayBuffer();
+  });
+
   test("file identity survives atomic saves and is shared by workspace path aliases", async () => {
     const root = await createWorkspaceRoot();
     await symlink(join(root, "reports"), join(root, "reports-alias"), "dir");

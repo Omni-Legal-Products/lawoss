@@ -34,6 +34,8 @@ import { Switch } from "@/components/ui/switch";
 import { DocumentAccessBanner, useDocumentOwnership } from "./use-document-ownership";
 import { FileCopyPanel } from "../../workspace/file-copy-job";
 import { useDocumentPreferences } from "./document-preferences";
+import { loadMarkdownDraft, savedMarkdownDraft, type MarkdownDraft } from "./markdown-draft";
+import { useTextAutosave } from "./use-text-autosave";
 
 const ArtifactTextEditor = lazy(() =>
   import("./artifact-text-editor").then((module) => ({ default: module.ArtifactTextEditor })),
@@ -84,7 +86,7 @@ type ArtifactQueryState =
   | (TextData & { updatedAt: number | null })
   | (BinaryData & { contentType: string | null; updatedAt: number | null; downloadedUpdatedAt?: number | null; revision: number });
 
-type SaveArtifactInput = Data & { baseUpdatedAt: number | null };
+type SaveArtifactInput = Data & { baseUpdatedAt: number | null; baseContent?: string };
 
 let fallbackBinaryRevision = 0;
 
@@ -192,7 +194,14 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
   const controlSessionIds = useDocumentControlSessions(sessionId);
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
+  const [textDraft, setTextDraft] = useState<MarkdownDraft | null>(null);
+  const textDraftRef = useRef<MarkdownDraft | null>(null);
+  const updateTextDraft = useCallback((update: (current: MarkdownDraft | null) => MarkdownDraft | null) => {
+    textDraftRef.current = update(textDraftRef.current);
+    setTextDraft(textDraftRef.current);
+  }, []);
+  const draft = textDraft?.content ?? "";
+  const setDraft = (content: string) => updateTextDraft(current => current ? { ...current, content } : current);
   const [documentSnapshot, setDocumentSnapshot] = useState<DocxSnapshot | null>(null);
   const [documentDirty, setDocumentDirty] = useState(false);
   const documentDirtyRef = useRef(false);
@@ -211,8 +220,9 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
   const writableFile = target.kind === "file" && !localReadOnly;
   const isEditableDocument = isBinaryEditor && writableFile && !isRemoteWorkspace;
   const autosaveKey = JSON.stringify([workspaceId, target.value]);
-  const canAutosave = target.preview === "word" && isEditableDocument && !hasSaveActions;
-  const autosave = useDocumentPreferences((state) => canAutosave && state.autosave[autosaveKey] === true);
+  const canAutosaveText = writableFile && target.preview === "text" && !hasSaveActions;
+  const canAutosave = (target.preview === "word" && isEditableDocument && !hasSaveActions) || canAutosaveText;
+  const autosave = useDocumentPreferences((state) => canAutosave && (canAutosaveText ? state.autosave[autosaveKey] !== false : state.autosave[autosaveKey] === true));
   const [autosaveError, setAutosaveError] = useState<string | null>(null);
   const onDocumentDirtyChange = useCallback((dirty: boolean) => {
     documentDirtyRef.current = dirty;
@@ -227,15 +237,14 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (!documentDirtyRef.current) return;
+      if (!documentDirtyRef.current && (!textDraftRef.current || textDraftRef.current.content === textDraftRef.current.baseline)) return;
       event.preventDefault();
       event.returnValue = "";
     };
     window.addEventListener("beforeunload", beforeUnload);
     return () => window.removeEventListener("beforeunload", beforeUnload);
   }, []);
-  // Markdown renders by default (MarkdownPreview); the "Edit" button toggles to raw source.
-  const isDirectTextEdit = false;
+  const isDirectTextEdit = target.preview === "text";
   const externalPath = useMemo(() => target.kind === "file" ? absoluteWorkspacePath(workspaceRoot, target.value) : target.value, [target.kind, target.value, workspaceRoot]);
 
   const { data: fileIcon } = useQuery<string | null>({
@@ -299,11 +308,10 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         setDocumentSnapshot(loaded.data);
       }
     },
-    revision: () => isBinaryEditor ? (isOfficeEditor ? officeApi.current : docxApi.current)?.revision() ?? -1 : isTextSheet && !editing ? sheetApi.current?.revision() ?? "" : draft,
+    revision: () => isBinaryEditor ? (isOfficeEditor ? officeApi.current : docxApi.current)?.revision() ?? -1 : isTextSheet && !editing ? sheetApi.current?.revision() ?? "" : textDraftRef.current?.content ?? "",
     dirty: () => {
-      // The save acknowledgement updates the cache before React paints it.
-      const saved = queryClient.getQueryData<ArtifactQueryState>(["artifact-panel", workspaceId, target.id, client.baseUrl]);
-      return Boolean((target.preview === "word" ? docxApi.current?.isDirty() : documentDirtyRef.current) || (saved?.kind === "text" && draft !== saved.data));
+      const current = textDraftRef.current;
+      return Boolean((target.preview === "word" ? docxApi.current?.isDirty() : documentDirtyRef.current) || (current && current.content !== current.baseline));
     },
     discard: async () => {
       const current = isBinaryEditor ? await (isOfficeEditor ? officeApi.current : docxApi.current)?.getBuffer()
@@ -328,9 +336,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
       }
       await pendingWrite.current;
       if (isTextSheet && !editing) return await sheetApi.current?.save() ?? false;
-      if (data?.kind === "text" && draft !== data.data) {
-        await mutateAsync({ kind: "text", data: draft, baseUpdatedAt: data.updatedAt });
-      }
+      if (data?.kind === "text") return saveText();
       setEditing(false);
       return true;
     },
@@ -384,16 +390,16 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
 
   useEffect(() => {
     setEditing(false);
-    setDraft("");
-  }, [target.id, workspaceId]);
+    updateTextDraft(() => null);
+  }, [target.id, workspaceId, updateTextDraft]);
 
   useEffect(() => {
     if (data?.kind === "text") {
-      setDraft(data.data);
+      updateTextDraft(current => loadMarkdownDraft(current, data.data, data.updatedAt));
     }
-  }, [data]);
+  }, [data, updateTextDraft]);
 
-  const { mutate, mutateAsync, isPending: isSaving } = useMutation({
+  const { mutateAsync, isPending: isSaving } = useMutation({
     mutationFn: async (input: SaveArtifactInput) => {
       if (target.kind !== "file") {
         throw new Error(t("artifact.cannot_save_non_file"));
@@ -401,7 +407,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
 
       access.assertWrite();
       const operation = input.kind === "text"
-        ? client.writeWorkspaceFile(workspaceId, { path: target.value, content: input.data, baseUpdatedAt: input.baseUpdatedAt })
+        ? client.writeWorkspaceFile(workspaceId, { path: target.value, content: input.data, baseUpdatedAt: input.baseUpdatedAt, baseContent: input.baseContent })
         : client.writeWorkspaceBinaryFile(workspaceId, { path: target.value, data: input.data, baseUpdatedAt: input.baseUpdatedAt });
       pendingWrite.current = operation;
       const clear = () => { if (pendingWrite.current === operation) pendingWrite.current = null; };
@@ -417,7 +423,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
       queryClient.setQueryData<ArtifactQueryState>(
         ["artifact-panel", workspaceId, target.id, client.baseUrl] as const,
         input.kind === "text"
-          ? { kind: "text", data: input.data, updatedAt: result.updatedAt ?? null }
+          ? { kind: "text", data: result.content ?? input.data, updatedAt: result.updatedAt ?? null }
           : savedDocx ? publishedDocxSnapshot(savedDocx, nextBinaryRevision(result.updatedAt ?? null)) : {
               kind: "binary",
               data: input.data,
@@ -428,9 +434,36 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
       );
 
       if (input.kind === "text") {
-        setDraft(input.data);
+        updateTextDraft(current => {
+          if (!current) return current;
+          const written = result.content ?? input.data;
+          if (current.content === input.data) return { content: written, baseline: written, updatedAt: result.updatedAt ?? null };
+          return result.merged ? { ...current, baseline: input.data } : savedMarkdownDraft(current, input.data, result.updatedAt ?? null);
+        });
+        automaticTextSave.saved();
       }
     },
+  });
+
+  const pendingTextSave = useRef<Promise<boolean> | null>(null);
+  const saveText = (): Promise<boolean> => {
+    if (pendingTextSave.current) return pendingTextSave.current;
+    const snapshot = textDraftRef.current;
+    // A handoff flush still owns the file while ordinary editing is suspended.
+    if (!snapshot || !writableFile || !access.ownsFile) return Promise.resolve(false);
+    if (snapshot.content === snapshot.baseline) return Promise.resolve(true);
+    const operation = mutateAsync({ kind: "text", data: snapshot.content, baseContent: snapshot.baseline, baseUpdatedAt: snapshot.updatedAt })
+      .then(() => true)
+      .finally(() => { pendingTextSave.current = null; });
+    pendingTextSave.current = operation;
+    return operation;
+  };
+  const automaticTextSave = useTextAutosave({
+    enabled: canAutosaveText && autosave,
+    suspended: !access.editable || !writableFile,
+    content: draft,
+    isDirty: () => Boolean(textDraftRef.current && textDraftRef.current.content !== textDraftRef.current.baseline),
+    save: saveText,
   });
 
   const download = async () => {
@@ -495,14 +528,9 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
       return;
     }
 
-    mutate(
-      {
-        kind: "text",
-        data: draft,
-        baseUpdatedAt: data.updatedAt,
-      },
-      { onSuccess: () => setEditing(false) },
-    );
+    void saveText().then(saved => { if (saved) setEditing(false); }).catch(error => {
+      toast.error(error instanceof Error ? error.message : t("artifact.save_failed"));
+    });
   };
 
   const saveSpreadsheetContent = async (payload: Data) => {
@@ -609,9 +637,10 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
   const persistWorkingCopy = async () => {
     if (!access.editable || isSaving || documentSaving || localReadOnly) return false;
     if (isTextSheet && !editing) return (await sheetApi.current?.save()) ?? false;
-    if (data?.kind === "text" && draft !== data.data) {
-      await mutateAsync({ kind: "text", data: draft, baseUpdatedAt: data.updatedAt });
-      setEditing(false);
+    if (data?.kind === "text") {
+      const saved = await saveText();
+      if (saved) setEditing(false);
+      return saved;
     } else if (isEditableDocument && documentDirtyRef.current) {
       if (!(await saveDocument()) || documentDirtyRef.current) return false;
     }
@@ -619,7 +648,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
   };
 
   const textDirtyRef = useRef(false);
-  textDirtyRef.current = data?.kind === "text" && draft !== data.data;
+  textDirtyRef.current = Boolean(textDraft && draft !== textDraft.baseline);
   useEffect(() => { if (textDirtyRef.current) usePanelTabStore.getState().keepTab(sessionId, target.id); }, [draft, data, sessionId, target.id]);
   useEffect(() => {
     if (!writableFile || isBinaryEditor || isTextSheet) return;
@@ -637,7 +666,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
 
   return (
     <ArtifactFrame
-        expandable={isBinaryEditor || target.preview === "audio" || target.preview === "video"}
+        expandable={isBinaryEditor || isDirectTextEdit || target.preview === "audio" || target.preview === "video"}
         title={target.name}
         icon={fileIcon ? <img src={fileIcon} alt="" className="size-5 shrink-0 object-contain" /> : <ArtifactIcon type={target.preview} className="size-5" />}
         meta={<>
@@ -648,6 +677,9 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
               <span className="col-start-1 row-start-1">{documentSaving || isSaving ? t("common.saving") : autosaveError ? t("artifact.autosave_paused") : documentDirty ? t("common.unsaved_changes") : t("common.saved")}</span>
             </span>
           ) : null}
+          {isDirectTextEdit && textDraft && <span className="ms-2 whitespace-nowrap" role="status">
+            {isSaving ? t("common.saving") : automaticTextSave.error ? t("artifact.autosave_paused") : draft !== textDraft.baseline ? t("common.unsaved_changes") : t("common.saved")}
+          </span>}
         </>}
         actions={<>
           {canAutosave && access.editable && <label className="me-3 flex shrink-0 items-center gap-1.5 text-xs" title={t("artifact.autosave_description")}>
@@ -666,7 +698,8 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
                         size="sm"
                         onClick={() => {
                           if (data?.kind === "text") {
-                            setDraft(data.data);
+                            updateTextDraft(() => ({ content: data.data, baseline: data.data, updatedAt: data.updatedAt }));
+                            automaticTextSave.saved();
                           }
                           setEditing(false);
                         }}
@@ -681,7 +714,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
                 {!saveActions && <Tooltip>
                   <TooltipTrigger
                     render={(
-                      <Button variant="default" size="sm" onClick={() => void save()} disabled={isSaving || draft === data.data} aria-busy={isSaving} className={isSaving ? "disabled:opacity-100" : undefined}>{t("common.save")}</Button>
+                      <Button variant="default" size="sm" onClick={() => void save()} disabled={isSaving || draft === textDraft?.baseline} aria-busy={isSaving} className={isSaving ? "disabled:opacity-100" : undefined}>{t("common.save")}</Button>
                     )}
                   />
                   <TooltipContent>{t("artifact.save_changes")}</TooltipContent>
@@ -760,6 +793,9 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
       {autosaveError && <div className="shrink-0 border-b border-border bg-muted px-4 py-2 text-xs" role="alert">
         {t("artifact.autosave_failed")} <span>{autosaveError}</span>
       </div>}
+      {automaticTextSave.error && <div className="shrink-0 border-b border-border bg-muted px-4 py-2 text-xs" role="alert">
+        {t("artifact.autosave_failed")} <span>{automaticTextSave.error}</span>
+      </div>}
       {documentChangedOnDisk ? (
         <div className="shrink-0 border-b border-border bg-muted px-4 py-2 text-xs" role="alert">
           {t("artifact.file_changed_note")}
@@ -771,7 +807,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         ) : isError ? (
           <PreviewError message={error instanceof Error ? error.message : t("artifact.load_failed") } />
         ) : data?.kind === "text" && (editing || isDirectTextEdit) ? (
-          <TextEditor value={draft} language={target.preview === "markdown" ? "markdown" : "text"} readOnly={localReadOnly || !access.editable} onChange={value => { if (!localReadOnly && access.editable) setDraft(value); }} />
+          <TextEditor value={draft} name={target.name} language={target.preview === "markdown" ? "markdown" : "text"} readOnly={localReadOnly || !access.editable} onSave={save} onChange={value => { if (!localReadOnly && access.editable) setDraft(value); }} />
         ) : target.preview === "markdown" && data?.kind === "text" ? (
           <MarkdownPreview content={data.data} />
         ) : isOfficeEditor && documentSnapshot ? (

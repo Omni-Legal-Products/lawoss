@@ -14,6 +14,13 @@
  */
 
 const de = {
+  "code_editor.label": "{name} bearbeiten",
+  "code_editor.plain_text": "Klartext",
+  "code_editor.syntax_error": "Syntaxfehler",
+  "code_editor.syntax_ok": "Keine Syntaxfehler",
+  "code_editor.issues_one": "{count} Syntaxproblem",
+  "code_editor.issues_other": "{count} Syntaxprobleme",
+  "code_editor.position": "Z. {line}, Sp. {column}",
   "sandbox.choice_off": "Aus",
   "sandbox.choice_on": "An",
   "sandbox.execution_title": "Befehle in einer Sandbox ausführen",

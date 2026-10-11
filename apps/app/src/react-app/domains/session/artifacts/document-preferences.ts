@@ -14,7 +14,7 @@ function storedAutosave(fallback: Record<string, boolean>) {
 
 export type DocumentSplitOrientation = "horizontal" | "vertical";
 
-/** Opt-in per original workspace file, shared by its tabs on this device. */
+/** Per-file overrides shared by tabs on this device. Text defaults on, DOCX off. */
 export const useDocumentPreferences = create<{
   autosave: Record<string, boolean>;
   splitSize: number;

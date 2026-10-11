@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import { codeLanguage } from "./code-language";
 
 import { LEGALMEMORY_URI_PATTERN } from "@/components/markdown/legalmemory-ref";
 
@@ -36,7 +37,7 @@ const WORKSPACE_ID_PREFIX_PATTERN = /^workspace\/(?:ws_[^/]+|\d+|[0-9a-f-]{6,})\
 const FILE_PATTERN = /(?:^|[\s"'`([{*])((?:\.{1,2}[/\\]|~[/\\]|[/\\])?[\w.\-]+(?:[/\\][\w.\-]+)+\.[a-z][a-z0-9]{0,9}|[\w.\-]+\.[a-z][a-z0-9]{0,9})/gi;
 const URL_PATTERN = /https?:\/\/[^\s)\]}>"'`]+/gi;
 const SOCKET_PATTERN = /(?:ws|wss):\/\/[^\s)\]}>"'`]+/gi;
-const SIDEBAR_ARTIFACT_FILE_PREVIEWS = new Set<OpenTargetPreview>(["markdown", "sheet", "slides", "word", "image", "audio", "video", "pdf", "html"]);
+const SIDEBAR_ARTIFACT_FILE_PREVIEWS = new Set<OpenTargetPreview>(["markdown", "sheet", "slides", "word", "image", "audio", "video", "pdf", "html", "text"]);
 const MARKDOWN_LINK_PATTERN = /\[([^\]\n]+)\]\(([^)\s]+)\)/g;
 const DISCOVERY_TOOL_NAMES = new Set(["glob", "grep", "search", "find"]);
 const ARTIFACT_METADATA_TOOL_NAMES = new Set(["legalwork_extension_call"]);
@@ -94,7 +95,7 @@ export function classifyOpenTarget(value: string, kind: OpenTargetKind): OpenTar
   if ([".mp4", ".m4v", ".webm", ".mov", ".ogv", ".mkv", ".avi"].includes(ext)) return "video";
   if (ext === ".pdf") return "pdf";
   if ([".html", ".htm"].includes(ext)) return "html";
-  if ([".txt", ".log", ".json", ".jsonc", ".yaml", ".yml", ".toml", ".xml", ".ts", ".tsx", ".js", ".jsx", ".css", ".scss"].includes(ext)) return "text";
+  if ([".txt", ".log"].includes(ext) || codeLanguage(value)) return "text";
   return "external";
 }
 

@@ -19,6 +19,9 @@ import type { OpenTarget } from "./open-target";
 import { DocumentAccessBanner, useDocumentOwnership } from "./use-document-ownership";
 import { t } from "@/i18n";
 import { projectFileDisplayName } from "../../workspace/project-note-title";
+import { Switch } from "@/components/ui/switch";
+import { useDocumentPreferences } from "./document-preferences";
+import { useTextAutosave } from "./use-text-autosave";
 
 /** The file changed in the same place meanwhile: what is there now (the write route's 409). */
 function overlapOf(details: unknown): { content: string; updatedAt: number } | null {
@@ -58,6 +61,9 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
   const pendingSave = useRef<Promise<boolean> | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [clash, setClash] = useState<{ content: string; updatedAt: number } | null>(null);
+  const autosaveKey = JSON.stringify([workspaceId, target.value]);
+  const canAutosave = !sourceReadOnly && !saveActions && target.kind === "file";
+  const autosave = useDocumentPreferences(state => canAutosave && state.autosave[autosaveKey] !== false);
   const imageUrls = useRef(new Map<string, string>());
   const update = useCallback((fn: (current: MarkdownDraft | null) => MarkdownDraft | null) => {
     draftRef.current = fn(draftRef.current);
@@ -140,6 +146,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
       void queryClient.invalidateQueries({ queryKey: ["project-notes", workspaceId] });
       if (result.merged) toast.info(t("markdown.merged_changes"));
       access.saved();
+      automaticSave.saved();
       setSaveError(null);
       setClash(null);
       return true;
@@ -165,6 +172,14 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
     pendingSave.current = operation;
     return operation;
   }, [doSave]);
+
+  const automaticSave = useTextAutosave({
+    enabled: autosave,
+    suspended: !access.editable || localReadOnly,
+    content: draft?.content ?? "",
+    isDirty: () => Boolean(draftRef.current && draftRef.current.content !== draftRef.current.baseline),
+    save,
+  });
 
   /** Changed in the same place elsewhere: keep both (mine as a copy beside it), take theirs, or keep mine over it. */
   const resolveClash = async (choice: "both" | "theirs" | "mine") => {
@@ -259,8 +274,12 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") { event.preventDefault(); event.stopPropagation(); if (access.editable) void save(); }
   }}>
     <ArtifactFrame expandable title={projectFileDisplayName(target.value, target.name)} icon={<ArtifactIcon type="markdown" className="size-5" />}
-      meta={<span role="status">{saving ? t("common.saving") : dirty ? t("common.unsaved_changes") : t("common.saved")}</span>}
+      meta={<span role="status">{saving ? t("common.saving") : automaticSave.error ? t("artifact.autosave_paused") : dirty ? t("common.unsaved_changes") : t("common.saved")}</span>}
       actions={<>
+        {canAutosave && access.editable && <label className="me-3 flex shrink-0 items-center gap-1.5 text-xs" title={t("artifact.autosave_description")}>
+          <Switch size="sm" checked={autosave} onCheckedChange={enabled => useDocumentPreferences.getState().setAutosave(autosaveKey, enabled)} />
+          {t("artifact.autosave")}
+        </label>}
         {saveActions ? access.editable && saveActions(save, saving || !draft) : <Button size="sm" disabled={localReadOnly || !draft || !dirty || saving} onClick={() => void save()}>{t("common.save")}</Button>}
         <Button variant="ghost" size="icon-sm" aria-label={t("artifact.download")} title={t("artifact.download_markdown")} onClick={download} disabled={!draft}><Download /></Button>
         {!isRemoteWorkspace && <>

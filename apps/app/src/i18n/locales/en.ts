@@ -4,6 +4,13 @@
  */
 
 export default {
+  "code_editor.label": "Edit {name}",
+  "code_editor.plain_text": "Plain text",
+  "code_editor.syntax_error": "Syntax error",
+  "code_editor.syntax_ok": "No syntax errors",
+  "code_editor.issues_one": "{count} syntax issue",
+  "code_editor.issues_other": "{count} syntax issues",
+  "code_editor.position": "Ln {line}, Col {column}",
   "sandbox.choice_off": "Off",
   "sandbox.choice_on": "On",
   "sandbox.execution_title": "Run commands in a sandbox",

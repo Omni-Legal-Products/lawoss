@@ -89,7 +89,7 @@ describe("deriveOpenTargets", () => {
     expect(targets[0]).toMatchObject({ value: "reports/summary.md", preview: "markdown", confidence: 95 });
   });
 
-  it("keeps written unsupported files available for opening externally", () => {
+  it("opens written code files in editor tabs", () => {
     const targets = deriveOpenTargets([
       toolMessage("msg_tool", "write", { filePath: "src/widget.tsx" }, { filePath: "src/widget.tsx" }),
     ]);
@@ -97,7 +97,7 @@ describe("deriveOpenTargets", () => {
     const target = targets[0];
 
     expect(target).toMatchObject({ value: "src/widget.tsx", preview: "text", confidence: 95 });
-    expect(target ? isCollectibleArtifactTarget({ ...target, exists: true }) : true).toBe(false);
+    expect(target ? isCollectibleArtifactTarget({ ...target, exists: true }) : false).toBe(true);
   });
 
   it("uses markdown link href once when the label is the href basename", () => {
