@@ -59,6 +59,7 @@ import { createBrowserPanel } from "./browser-panel.mjs";
 import { resolveBrowserProject } from "./browser-project.mjs";
 import { createAppUrlMatcher, guardIpcMain, guardPreviewNavigation } from "./app-url.mjs";
 import { createSafeOpen } from "./safe-open.mjs";
+import { getApplicationsForFile } from "./file-applications.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 import { copyFilesIntoProject, resolveProjectFolder } from "./project-file-copy.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
@@ -2565,64 +2566,15 @@ const desktopCommandHandlers = {
   "__getApplicationsForFile": async (event, ...args) => {
       const target = String(args[0] ?? "").trim();
       if (!target) return [];
-      const platform = process.platform;
-      const results = [];
-
-      try {
-        if (platform === "darwin") {
-          // Scan /Applications and /System/Applications for .app bundles
-          const appDirs = ["/Applications", "/System/Applications", "/Applications/Utilities", `${os.homedir()}/Applications`];
-          const seen = new Set();
-          for (const dir of appDirs) {
-            let entries;
-            try { entries = await readdir(dir); } catch { continue; }
-            for (const entry of entries) {
-              if (!entry.endsWith(".app")) continue;
-              const appPath = path.join(dir, entry);
-              if (seen.has(appPath)) continue;
-              seen.add(appPath);
-              const name = entry.replace(/\.app$/i, "");
-              let icon = null;
-              try {
-                const img = await app.getFileIcon(appPath, { size: "small" });
-                icon = img.isEmpty() ? null : img.toDataURL();
-              } catch {}
-              results.push({ name, appPath, icon });
-            }
-          }
-        } else if (platform === "linux") {
-          // Parse .desktop files in standard directories
-          const desktopDirs = ["/usr/share/applications", "/usr/local/share/applications", `${os.homedir()}/.local/share/applications`];
-          const seen = new Set();
-          for (const dir of desktopDirs) {
-            let entries;
-            try { entries = await readdir(dir); } catch { continue; }
-            for (const entry of entries) {
-              if (!entry.endsWith(".desktop")) continue;
-              const filePath = path.join(dir, entry);
-              if (seen.has(filePath)) continue;
-              seen.add(filePath);
-              try {
-                const content = await readFile(filePath, "utf-8");
-                const nameMatch = content.match(/^Name=(.+)$/m);
-                const execMatch = content.match(/^Exec=(.+)$/m);
-                if (!nameMatch || !execMatch) continue;
-                const name = nameMatch[1].trim();
-                const appPath = execMatch[1].trim().replace(/%[fFuU]/g, "").trim();
-                if (!appPath) continue;
-                let icon = null;
-                try {
-                  const img = await app.getFileIcon(filePath, { size: "small" });
-                  icon = img.isEmpty() ? null : img.toDataURL();
-                } catch {}
-                results.push({ name, appPath, icon });
-              } catch {}
-            }
-          }
-        }
-      } catch {}
-
-      return results;
+      const applications = await getApplicationsForFile(target);
+      return Promise.all(applications.map(async ({ name, appPath }) => {
+        let icon = null;
+        try {
+          const image = await app.getFileIcon(appPath, { size: "small" });
+          icon = image.isEmpty() ? null : image.toDataURL();
+        } catch {}
+        return { name, appPath, icon };
+      }));
   },
   "__openWithApp": async (event, ...args) => {
       const target = String(args[0] ?? "").trim();
@@ -2633,8 +2585,14 @@ const desktopCommandHandlers = {
         if (platform === "darwin") {
           execFileSync("open", ["-a", appPath, target]);
         } else if (platform === "linux") {
-          const child = spawn(appPath, [target], { detached: true, stdio: "ignore" });
-          child.unref();
+          await new Promise((resolve, reject) => {
+            const child = spawn("gio", ["launch", appPath, target], { stdio: "ignore" });
+            child.once("error", reject);
+            child.once("exit", (code) => {
+              if (code === 0) resolve(undefined);
+              else reject(new Error("Could not open file with this application."));
+            });
+          });
         } else {
           return `Open with app is not supported on ${platform}`;
         }

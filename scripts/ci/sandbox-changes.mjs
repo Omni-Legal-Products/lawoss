@@ -3,13 +3,16 @@ import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 // Unit tests always run. Only builds and real-VM tests use this filter.
+// Electron's UI entrypoint and package scripts are covered by desktop tests;
+// dependency changes are covered by pnpm-lock.yaml. CI filter edits need only
+// the filter tests, not a rebuild of the runtime they select.
 export function needsSandboxRuntime(paths) {
-  return paths.some(path => /^(?:scripts\/sandbox\/|apps\/server\/(?:resources\/agent-sandbox\/|src\/(?:agent-sandbox|calculations)\/)|\.github\/actions\/setup-opencode\/|scripts\/ci\/)/.test(path)
+  return paths.some(path => /^(?:scripts\/sandbox\/|apps\/server\/(?:resources\/agent-sandbox\/|src\/(?:agent-sandbox|calculations)\/)|\.github\/actions\/setup-opencode\/)/.test(path)
     || /^\.github\/workflows\/(?:ci-tests|sandbox-runtime|ci-desktop-packaging)\.yml$/.test(path)
     || /^(?:package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|constants\.json)$/.test(path)
-    || /^apps\/(?:server|desktop)\/package\.json$/.test(path)
+    || path === 'apps/server/package.json'
     || /^apps\/server\/src\/routes\/agent-sandbox(?:\.[^/]+)?\.ts$/.test(path)
-    || /^apps\/desktop\/(?:electron\/(?:main|runtime)\.mjs|scripts\/prepare-sidecar\.mjs|electron-builder[^/]*)$/.test(path)
+    || /^apps\/desktop\/(?:electron\/runtime\.mjs|scripts\/prepare-sidecar\.mjs|electron-builder[^/]*)$/.test(path)
     || /^apps\/server\/src\/(?:server|auth|config|approvals|global-tool-permissions|runtime-opencode-config-store|legalwork-runtime-config|org-policy[^/]*|opencode-proxy[^/]*|opencode-connection|opencode-engine[^/]*|engine[^/]*|types|workspace-files|skills|skill-[^/]*)\.[cm]?ts$/.test(path)
     || /^apps\/server\/src\/opencode-plugins\/(?:legalwork-sandbox|legalwork-skill-[^/]*|legalwork-org-policy-guard|office-plugin-shared|app-state-reminders)(?:\.[^/]+)?\.ts$/.test(path)
     || /^apps\/server\/(?:scripts\/gen-web-worker-code\.ts|test-preload\.ts|bunfig\.toml|tsconfig\.json)$/.test(path));

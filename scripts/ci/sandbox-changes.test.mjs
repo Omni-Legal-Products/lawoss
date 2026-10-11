@@ -12,16 +12,29 @@ test('ordinary UI, workflows, documents and unrelated server changes skip VM bui
   assert.equal(needsSandboxRuntime([]), false);
 });
 
+test('file-menu changes and CI filter maintenance do not rebuild the sandbox', () => {
+  const paths = [
+    'apps/app/src/components/markdown/link-action-menu.tsx', 'apps/app/src/components/markdown/markdown.tsx',
+    'apps/app/src/components/ui/dropdown-menu.tsx', 'apps/desktop/electron/file-applications.mjs',
+    'apps/desktop/electron/file-applications.test.mjs', 'apps/desktop/electron/main.mjs',
+    'apps/desktop/package.json', 'scripts/ci/sandbox-changes.mjs', 'scripts/ci/sandbox-changes.test.mjs',
+  ];
+  assert.equal(needsSandboxRuntime(paths), false);
+  assert.equal(needsSandboxRuntime([...paths, 'apps/desktop/electron/runtime.mjs']), true);
+  assert.equal(needsSandboxRuntime([...paths, 'pnpm-lock.yaml']), true);
+});
+
 test('isolation, permissions, engine wiring and runtime dependencies retain real VM checks', () => {
   for (const path of ['apps/server/src/agent-sandbox/filesystem.ts', 'apps/server/src/agent-sandbox/vm.integration.test.ts',
     'apps/server/resources/agent-sandbox/runtime.json', 'scripts/sandbox/host-windows.c', 'scripts/sandbox/build-runtime-source.sh',
     'apps/server/src/server.ts', 'apps/server/src/approvals.ts', 'apps/server/src/org-policy.ts',
     'apps/server/src/legalwork-runtime-config.ts', 'apps/server/src/opencode-plugins/legalwork-sandbox.ts',
-    'apps/server/src/routes/agent-sandbox.ts', 'apps/desktop/electron/main.mjs',
+    'apps/server/src/routes/agent-sandbox.ts', 'apps/desktop/electron/runtime.mjs',
+    'apps/desktop/scripts/prepare-sidecar.mjs', 'apps/desktop/electron-builder.yml',
     'apps/server/src/opencode-plugins/legalwork-skill-tools.ts', 'apps/server/src/skill-composition.ts',
     'apps/server/src/calculations/python-runner.ts', 'apps/server/src/calculations/calculations.test.ts',
     'pnpm-lock.yaml', 'constants.json', '.github/workflows/sandbox-runtime.yml', '.github/workflows/ci-tests.yml',
-    'scripts/ci/sandbox-changes.mjs', 'apps/server/package.json']) {
+    'apps/server/package.json']) {
     assert.equal(needsSandboxRuntime([path]), true, path);
   }
 });

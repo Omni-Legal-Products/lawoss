@@ -383,7 +383,7 @@ function MarkdownBlockInner({
   const requestOpenTask = useRequestOpenTask();
   const rootRef = useRef<HTMLDivElement>(null);
   const { openTargets, onOpenTarget } = useOpenTargets();
-  const [linkMenu, setLinkMenu] = useState<{ target: OpenTarget; rect: DOMRect } | null>(null);
+  const [linkMenu, setLinkMenu] = useState<{ target: OpenTarget; anchor: HTMLElement } | null>(null);
   const syncHtml = useMemo(() => {
     if (!text.trim()) {
       return "";
@@ -416,6 +416,10 @@ function MarkdownBlockInner({
   }, [streaming, text]);
 
   const html = !streaming && highlightedHtml?.text === text ? highlightedHtml.html : syncHtml;
+  // Preserve the clicked chevron while opening its menu rerenders this block.
+  const innerHtml = useMemo(() => ({ __html: html }), [html]);
+
+  useEffect(() => { setLinkMenu(null); }, [html]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -482,7 +486,7 @@ function MarkdownBlockInner({
         const href = chevron.dataset.legalworkLinkChevron ?? "";
         const target = openTargetForHref(href, openTargets);
         if (target) {
-          setLinkMenu({ target, rect: chevron.getBoundingClientRect() });
+          setLinkMenu((current) => current?.anchor === chevron ? null : { target, anchor: chevron });
         }
         return;
       }
@@ -540,13 +544,13 @@ function MarkdownBlockInner({
       <motion.div
         ref={rootRef}
         className={cn("markdown-content max-w-none text-foreground", className)}
-        dangerouslySetInnerHTML={{ __html: html }}
+        dangerouslySetInnerHTML={innerHtml}
         {...props}
       />
       {linkMenu && onOpenTarget ? (
         <LinkActionMenu
           target={linkMenu.target}
-          anchorRect={linkMenu.rect}
+          anchor={linkMenu.anchor}
           onOpenTarget={onOpenTarget}
           onClose={() => setLinkMenu(null)}
         />
