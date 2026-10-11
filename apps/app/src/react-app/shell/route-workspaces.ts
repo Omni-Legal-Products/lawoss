@@ -31,6 +31,12 @@ export type RouteSession = Session & {
   slug?: string | null;
 };
 
+/** Runtime data can improve a listed session, but cannot resurrect a deleted one. */
+export function preferLoadedSession(fetched: RouteSession[], loaded: RouteSession | null): RouteSession[] {
+  if (!loaded) return fetched;
+  return fetched.map(session => session.id === loaded.id && loaded.time.updated >= session.time.updated ? loaded : session);
+}
+
 export function upsertRuntimeSession(sessions: RouteSession[], update: { sessionId: string; info: Record<string, unknown> }): RouteSession[] {
   const index = sessions.findIndex((session) => session.id === update.sessionId);
   if (index >= 0) {

@@ -13,6 +13,7 @@ import {
   acknowledgeInteraction, ensureWorkspaceSessionSync, trackWorkspaceSessionSync,
 } from "../src/react-app/domains/session/sync/session-sync";
 import { useSessionActivityStore } from "../src/react-app/domains/session/status/session-activity-store";
+import { chatPanelTab, usePanelTabStore } from "../src/react-app/domains/session/panel/panel-tab-store";
 import { upsertRuntimeSession } from "../src/react-app/shell/route-workspaces";
 
 const workspaceId = "subagent-tests";
@@ -139,6 +140,15 @@ describe("subagent request scope", () => {
 
   test("deleting a child removes its nested requests and keeps unrelated approvals", () => {
     const emit = testSync();
+    const previousPanels = usePanelTabStore.getState().sessions;
+    cleanups.push(() => usePanelTabStore.setState({ sessions: previousPanels }));
+    const scope = `workspace:${workspaceId}`;
+    for (const id of ["child", "grandchild", "other"]) {
+      usePanelTabStore.getState().openTab(scope, chatPanelTab(id, id));
+    }
+    usePanelTabStore.getState().openTab(scope, {
+      id: "contract", type: "artifact", label: "Contract", value: "contract.docx", preview: "word",
+    });
     emit("session.created", { info: session("child", "parent") });
     emit("session.created", { info: session("grandchild", "child") });
     emit("permission.asked", permission());
@@ -151,6 +161,7 @@ describe("subagent request scope", () => {
     expect(pendingQuestions("grandchild")).toEqual([]);
     expect(pendingPermissions("other")).toHaveLength(1);
     expect(queryClient.getQueryData<InteractionSessions>(interactionSessionsKey(workspaceId))?.child).toBeUndefined();
+    expect(usePanelTabStore.getState().sessions[scope]?.tabs.map((tab) => tab.id)).toEqual(["chat:other", "contract"]);
   });
 
   test("new child sessions enter the sidebar immediately and subsequent updates replace them", () => {

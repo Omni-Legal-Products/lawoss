@@ -1,7 +1,7 @@
 // Requests from the selected chat and its descendants share the composer.
 // Each request retains its owning session for replies and cache removal.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/sonner";
 import { useQueries } from "@tanstack/react-query";
 
 import type { Client, PendingPermission, PendingQuestion, TodoItem } from "@/app/types";

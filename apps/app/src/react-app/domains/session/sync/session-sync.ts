@@ -1,3 +1,4 @@
+import { usePanelTabStore } from "../panel/panel-tab-store";
 import type { UIMessage } from "ai";
 import type { FilePart, Part, PermissionRequest, PermissionV2Request, QuestionRequest, Session, SessionStatus, Todo } from "@opencode-ai/sdk/v2/client";
 
@@ -715,6 +716,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     if (sessionId) {
       const sessions = queryClient.getQueryData<InteractionSessions>(interactionSessionsKey(workspaceId)) ?? {};
       for (const id of interactionSessionIds(sessionId, sessions)) {
+        usePanelTabStore.getState().clearSession(id);
         entry.deletedSessionIds.add(id);
         entry.interactionSnapshot?.deletedSessions.add(id);
       }
