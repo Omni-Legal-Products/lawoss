@@ -49,26 +49,43 @@ export function registerTriageRoutes(options: {
   // vie zapísať ktokoľvek (aj agent). Záznam zapisuje len `grant`; jadro presúva v origináli len s `allowInPlace`.
   const consents = join(options.storage, "consent");
   const consentPath = (root: string) => join(consents, `${createHash("sha256").update(root).digest("hex")}.json`);
-  const consentSchema = z.strictObject({ version: z.literal(1), workspaceId: z.string().min(1), root: z.string().min(1), grantedAt: z.string().min(1) });
+  // Súhlas platí na jedno usporiadanie (rozhodnutie MČ 12. 10., spec lawOSS-like-SK-CZ#92): po zápise nesie `runId`
+  // a dovolí už len vrátenie tohto behu, po vrátení zanikne. Ďalšie usporiadanie potrebuje nový `grant`.
+  const RUN_ID = /^triage-\d{8}-\d{6}-[a-f0-9]{6}$/;
+  const consentSchema = z.strictObject({ version: z.literal(1), workspaceId: z.string().min(1), root: z.string().min(1), grantedAt: z.string().min(1), runId: z.string().regex(RUN_ID).optional() });
+  type Consent = z.infer<typeof consentSchema>;
   const registeredClient = (root: string) => config.workspaces.find(workspace => workspace.workspaceType !== "remote" && resolve(workspace.path) === root && (workspace.appFiles ?? "inside") === "inside");
-  /** `allowInPlace` len pre priečinok, ktorý je stále pripojený ako klient so súbormi appky vnútri a má záznam z `grant`. */
-  const hostConsent = async (rootInput: string): Promise<TriageTargetOptions> => {
-    if (!isAbsolute(rootInput)) return {};
+  /** Záznam z `grant` pre priečinok, ktorý je stále pripojený ako klient so súbormi appky vnútri; inak nič. */
+  const readConsent = async (rootInput: string): Promise<Consent | undefined> => {
+    if (!isAbsolute(rootInput)) return undefined;
     const root = resolve(rootInput), workspace = registeredClient(root);
-    if (!workspace) return {};
+    if (!workspace) return undefined;
     let raw: unknown;
     try { raw = JSON.parse(await readFile(consentPath(root), "utf8")); }
-    catch (error) { if (missing(error) || error instanceof SyntaxError) return {}; throw error; }
+    catch (error) { if (missing(error) || error instanceof SyntaxError) return undefined; throw error; }
     const consent = consentSchema.safeParse(raw);
-    return { allowInPlace: consent.success && consent.data.root === root && consent.data.workspaceId === workspace.id };
+    return consent.success && consent.data.root === root && consent.data.workspaceId === workspace.id ? consent.data : undefined;
   };
-  const recordConsent = async (root: string, workspaceId: string) => {
+  /** `allowInPlace` pre nový náhľad a zápis (nespotrebovaný súhlas) alebo pre vrátenie behu, na ktorý sa súhlas spotreboval. */
+  const hostConsent = async (rootInput: string, use: { plan: true } | { undo: string } | { status: true }): Promise<TriageTargetOptions> => {
+    const consent = await readConsent(rootInput);
+    if (!consent) return {};
+    if ("plan" in use) return { allowInPlace: consent.runId === undefined };
+    if ("undo" in use) return { allowInPlace: consent.runId === use.undo };
+    return { allowInPlace: true };
+  };
+  const ensureConsents = async () => {
     await mkdir(consents, { recursive: true, mode: 0o700 });
     if (await realpath(consents) !== resolve(consents) || !(await lstat(consents)).isDirectory()) throw new Error("Unsafe consent storage.");
+  };
+  const writeConsent = async (consent: Consent) => {
+    await ensureConsents();
     const temporary = join(consents, `${randomUUID()}.tmp`);
-    try { await writeNew(temporary, { version: 1, workspaceId, root, grantedAt: new Date().toISOString() }); await rename(temporary, consentPath(root)); }
+    try { await writeNew(temporary, consent); await rename(temporary, consentPath(consent.root)); }
     catch (error) { await rm(temporary, { force: true }); throw error; }
   };
+  const recordConsent = (root: string, workspaceId: string) => writeConsent({ version: 1, workspaceId, root, grantedAt: new Date().toISOString() });
+  const revokeConsent = async (root: string) => { await rm(consentPath(resolve(root)), { force: true }); };
   const busy = new Set<string>();
   const body = (ctx: RequestContext) => options.readJsonBodyLimited(ctx.request, 256 * 1024);
   const ensureTickets = async () => {
@@ -104,8 +121,10 @@ export function registerTriageRoutes(options: {
     const { root } = z.strictObject({ root: rootSchema }).parse(await body(ctx));
     try {
       // Skúšobný klon alebo klient so súhlasom na mieste (`grant`); `trial: true` = roztriedenie je tu dovolené.
-      const target = await verifyTriageTarget(root, trialJournalDirectory, await hostConsent(root));
-      return { trial: true, mode: target.mode, root: target.root, runs: await listTriageRuns(target.root) };
+      const target = await verifyTriageTarget(root, trialJournalDirectory, await hostConsent(root, { status: true }));
+      // `canPlan: false` = súhlas sa spotreboval na posledné usporiadanie; ostáva len jeho vrátenie.
+      const canPlan = target.mode === "trial" || (await hostConsent(root, { plan: true })).allowInPlace === true;
+      return { trial: true, mode: target.mode, root: target.root, canPlan, runs: await listTriageRuns(target.root) };
     } catch (error) {
       const code = error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : "";
       if (code === "not_trial_clone") return { trial: false, reason: error instanceof Error ? error.message : "", runs: [] };
@@ -130,7 +149,7 @@ export function registerTriageRoutes(options: {
   route("plan", async ctx => {
     options.ensureWritable(config);
     const input = z.strictObject({ root: rootSchema, useModel: z.boolean().optional() }).parse(await body(ctx));
-    const consent = await hostConsent(input.root);
+    const consent = await hostConsent(input.root, { plan: true });
     // Usporiadanie na mieste stojí na pravidlách bez modelu (spec lawOSS-like-SK-CZ#92); návrh modelu len v skúšobnom klone.
     if (input.useModel === true && (await verifyTriageTarget(input.root, trialJournalDirectory, consent)).mode === "in_place") throw new ApiError(400, "triage_model_in_place", "A model proposal is not used when reorganising a client folder in place.");
     const { inventory, plan, proposal, classification } = await prepareTriage(input.root, { trialJournalDirectory, useModelProposal: input.useModel === true, jurisdiction: await options.jurisdiction(), ...consent });
@@ -155,7 +174,13 @@ export function registerTriageRoutes(options: {
     try {
       const ticket = await readTicket(input.id);
       if (ticket.plan.fingerprint !== input.fingerprint) throw new ApiError(409, "stale_preview", "Preview fingerprint does not match. Create a new preview.");
-      return await applyTriagePlan(ticket.plan, { trialJournalDirectory, ...await hostConsent(ticket.plan.root) });
+      const consent = await readConsent(ticket.plan.root);
+      const fresh = consent !== undefined && consent.runId === undefined;
+      try { return await applyTriagePlan(ticket.plan, { trialJournalDirectory, allowInPlace: fresh }); }
+      finally {
+        // Súhlas sa spotrebuje, len čo beh má denník (aj pri chybe uprostred), aby sa dal vrátiť a nedal zopakovať.
+        if (fresh && (await listTriageRuns(ticket.plan.root).catch(() => [])).some(run => run.runId === ticket.plan.runId)) await writeConsent({ ...consent, runId: ticket.plan.runId });
+      }
     } finally { busy.delete(input.id); }
   });
   route("undo", async ctx => {
@@ -163,7 +188,12 @@ export function registerTriageRoutes(options: {
     const input = z.strictObject({ root: rootSchema, runId: z.string().regex(/^triage-\d{8}-\d{6}-[a-f0-9]{6}$/), confirm: z.literal(true) }).parse(await body(ctx));
     if (busy.size) throw new ApiError(409, "triage_busy", "Another triage operation is running.");
     busy.add(input.runId);
-    try { return await undoTriage(input.root, input.runId, { trialJournalDirectory, ...await hostConsent(input.root) }); }
-    finally { busy.delete(input.runId); }
+    try {
+      const consent = await hostConsent(input.root, { undo: input.runId });
+      const result = await undoTriage(input.root, input.runId, { trialJournalDirectory, ...consent });
+      // Po vrátení na mieste súhlas zanikne; ďalšie usporiadanie potrebuje nové potvrdenie advokáta.
+      if (consent.allowInPlace === true) await revokeConsent(input.root);
+      return result;
+    } finally { busy.delete(input.runId); }
   });
 }
