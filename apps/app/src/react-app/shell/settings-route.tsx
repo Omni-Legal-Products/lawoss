@@ -178,6 +178,7 @@ import {
 import { OLLAMA_PROVIDER_CONFIG, type LocalProviderInstallInput } from "@/react-app/domains/settings/openai-image-extension";
 import { conversationWorkspaceId, isLawossHomeWorkspace, preferRealWorkspace } from "@/lawoss/home-workspace";
 import { localProviderTimeouts } from "@/lawoss/providers/local-timeouts";
+import { patchProviderConfirmingOverwrite } from "@/lawoss/providers/overwrite-confirm";
 
 function normalizeComputerUsePermissions(value: unknown) {
   if (typeof value !== "object" || value === null) return null;
@@ -1149,7 +1150,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     setLocalProviderStatus(null);
     setLocalProviderError(null);
     try {
-      await client.patchConfig(workspaceId, {
+      // LAWOSS: rozdielny poskytovateľ iného klienta sa prepíše až po potvrdení.
+      await patchProviderConfirmingOverwrite((confirmProviderOverwrite) => client.patchConfig(workspaceId, {
         opencode: {
           provider: {
             [input.providerId]: {
@@ -1160,7 +1162,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             },
           },
         },
-      });
+        ...(confirmProviderOverwrite ? { confirmProviderOverwrite } : {}),
+      }));
       if (input.setDefault) {
         local.setPrefs((previous) => ({
           ...previous,

@@ -16,6 +16,7 @@ import { DesktopRuntimeBoot } from "./desktop-runtime-boot";
 import { startDebugLogger, stopDebugLogger } from "./debug-logger";
 import { resolveLegalworkConnection } from "./legalwork-connection";
 import { ReloadCoordinatorProvider } from "./reload-coordinator";
+import { ProviderOverwriteConfirmHost } from "@/lawoss/providers/overwrite-confirm-host";
 
 function resolveDefaultServerUrl(): string {
   if (isDesktopRuntime()) return "http://127.0.0.1:4096";
@@ -68,6 +69,7 @@ export function AppProviders({ children }: AppProvidersProps) {
           <LocalProvider>
             <ReloadCoordinatorProvider>{children}</ReloadCoordinatorProvider>
             <Toaster />
+            <ProviderOverwriteConfirmHost />
           </LocalProvider>
         </ArchitectureMismatchGate>
       </ServerProvider>

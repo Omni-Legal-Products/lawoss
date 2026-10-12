@@ -31,6 +31,7 @@ import {
 } from "@/react-app/domains/connections/eigenwelt-entitlements";
 import { usePremiumUpsell } from "@/react-app/domains/recorder/premium-upsell-context";
 import { WORKFLOWS_PER_PAGE, WorkflowPagination } from "./workflow-pagination";
+import { patchProviderConfirmingOverwrite } from "@/lawoss/providers/overwrite-confirm";
 
 /**
  * Firm-hub "download" surface for a single kind. Lists the items your firm has
@@ -192,7 +193,11 @@ export function HubDownloadSection({
       if (!detail.payload || typeof detail.payload !== "object") {
         throw new Error(t("firm_hub.preset_invalid"));
       }
-      await legalworkClient.patchConfig(workspaceId, { opencode: detail.payload as Record<string, unknown> });
+      // LAWOSS: predvoľba s poskytovateľom prepíše rozdielny blok iného klienta až po potvrdení.
+      await patchProviderConfirmingOverwrite((confirmProviderOverwrite) => legalworkClient.patchConfig(workspaceId, {
+        opencode: detail.payload as Record<string, unknown>,
+        ...(confirmProviderOverwrite ? { confirmProviderOverwrite } : {}),
+      }));
       // Presets apply from settings (not the install route), so record the pulled
       // version here to power "update available" on the next visit.
       await legalworkClient.hubRecordInstall(workspaceId, {

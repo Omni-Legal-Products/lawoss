@@ -249,6 +249,11 @@ export const integrationsEn = {
   "lawoss.marketplace.onboarding.intro": "Public registers and tools for your practice, installed once for all your clients. Nothing is downloaded until you click Install.",
   "lawoss.marketplace.onboarding.later": "You can add or remove bundles later in Settings, Integrations, LAWOSS Marketplace.",
   "lawoss.marketplace.onboarding.continue": "Continue",
+  "lawoss.integrations.providerOverwrite.title": "Overwrite the provider for other clients too?",
+  "lawoss.integrations.providerOverwrite.description": "Provider {provider} has its own different settings in these clients. If you save, they will use the new settings too:",
+  "lawoss.integrations.providerOverwrite.cancel": "Cancel",
+  "lawoss.integrations.providerOverwrite.confirm": "Save for all",
+  "lawoss.integrations.providerOverwrite.cancelled": "Nothing was saved. The other clients keep their own provider settings.",
 };
 export const integrationsCs = {
   "lawoss.integrations.author.title": "Jméno advokáta a autor dokumentů",
@@ -500,6 +505,11 @@ export const integrationsCs = {
   "lawoss.marketplace.onboarding.intro": "Veřejné rejstříky a nástroje pro právní práci, nainstalované jednou pro všechny vaše klienty. Dokud nekliknete na Instalovat, nic se nestahuje.",
   "lawoss.marketplace.onboarding.later": "Balíčky můžete později přidat nebo odebrat v Nastavení, Integrace, LAWOSS Marketplace.",
   "lawoss.marketplace.onboarding.continue": "Pokračovat",
+  "lawoss.integrations.providerOverwrite.title": "Přepsat poskytovatele i u dalších klientů?",
+  "lawoss.integrations.providerOverwrite.description": "Poskytovatel {provider} má u těchto klientů vlastní odlišné nastavení. Po uložení budou používat i nové nastavení:",
+  "lawoss.integrations.providerOverwrite.cancel": "Zrušit",
+  "lawoss.integrations.providerOverwrite.confirm": "Uložit pro všechny",
+  "lawoss.integrations.providerOverwrite.cancelled": "Nic se neuložilo. Ostatní klienti si ponechali vlastní nastavení poskytovatele.",
 } satisfies Record<keyof typeof integrationsEn, string>;
 export const integrationsSk = {
   "lawoss.integrations.author.title": "Meno advokáta a autor dokumentov",
@@ -751,6 +761,11 @@ export const integrationsSk = {
   "lawoss.marketplace.onboarding.intro": "Verejné registre a nástroje pre právnu prácu, nainštalované raz pre všetkých vašich klientov. Kým nekliknete na Inštalovať, nič sa nesťahuje.",
   "lawoss.marketplace.onboarding.later": "Balíky môžete neskôr pridať alebo odobrať v Nastaveniach, Integrácie, LAWOSS Marketplace.",
   "lawoss.marketplace.onboarding.continue": "Pokračovať",
+  "lawoss.integrations.providerOverwrite.title": "Prepísať poskytovateľa aj u ďalších klientov?",
+  "lawoss.integrations.providerOverwrite.description": "Poskytovateľ {provider} má u týchto klientov vlastné odlišné nastavenie. Po uložení budú používať aj nové nastavenie:",
+  "lawoss.integrations.providerOverwrite.cancel": "Zrušiť",
+  "lawoss.integrations.providerOverwrite.confirm": "Uložiť pre všetkých",
+  "lawoss.integrations.providerOverwrite.cancelled": "Nič sa neuložilo. Ostatní klienti si ponechali vlastné nastavenie poskytovateľa.",
 } satisfies Record<keyof typeof integrationsEn, string>;
 export const integrationsDe = {
   "lawoss.integrations.author.title": "Anwaltsname und Dokumentautor",
@@ -1002,4 +1017,9 @@ export const integrationsDe = {
   "lawoss.marketplace.onboarding.intro": "Öffentliche Register und Werkzeuge für die juristische Arbeit, einmal für alle Ihre Mandanten installiert. Bis Sie auf Installieren klicken, wird nichts heruntergeladen.",
   "lawoss.marketplace.onboarding.later": "Pakete können Sie später unter Einstellungen, Integrationen, LAWOSS Marketplace hinzufügen oder entfernen.",
   "lawoss.marketplace.onboarding.continue": "Weiter",
+  "lawoss.integrations.providerOverwrite.title": "Anbieter auch für andere Mandanten überschreiben?",
+  "lawoss.integrations.providerOverwrite.description": "Der Anbieter {provider} hat bei diesen Mandanten eigene abweichende Einstellungen. Wenn Sie speichern, verwenden auch sie die neuen Einstellungen:",
+  "lawoss.integrations.providerOverwrite.cancel": "Abbrechen",
+  "lawoss.integrations.providerOverwrite.confirm": "Für alle speichern",
+  "lawoss.integrations.providerOverwrite.cancelled": "Es wurde nichts gespeichert. Die anderen Mandanten behalten ihre eigenen Anbietereinstellungen.",
 } satisfies Record<keyof typeof integrationsEn, string>;

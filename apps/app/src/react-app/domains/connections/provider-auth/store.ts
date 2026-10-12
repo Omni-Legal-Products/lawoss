@@ -52,6 +52,7 @@ export type ProviderAuthLegalworkServer = {
 import { dispatchNewProviders } from "../../../../app/lib/provider-events";
 import { customProviderModelEntry, customProviderModelFromEntry } from "./custom-provider-config";
 import { localProviderTimeouts } from "@/lawoss/providers/local-timeouts";
+import { patchProviderConfirmingOverwrite } from "@/lawoss/providers/overwrite-confirm";
 
 type ProviderReturnFocusTarget = "none" | "composer";
 
@@ -918,9 +919,11 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     // matter folder that doesn't carry its own opencode.jsonc). This mirrors
     // the local-provider install path used elsewhere in settings.
     if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
-      await legalworkClient.patchConfig(legalworkWorkspaceId, {
+      // LAWOSS: rozdielny poskytovateľ iného klienta sa prepíše až po potvrdení.
+      await patchProviderConfirmingOverwrite((confirmProviderOverwrite) => legalworkClient.patchConfig(legalworkWorkspaceId, {
         opencode: { provider: { [providerId]: providerConfig } },
-      });
+        ...(confirmProviderOverwrite ? { confirmProviderOverwrite } : {}),
+      }));
       return true;
     }
 
@@ -967,9 +970,10 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
       // A `null` value tells the server to delete this key from the runtime
       // provider map (patch payloads can't carry `undefined` over JSON).
-      await legalworkClient.patchConfig(legalworkWorkspaceId, {
+      await patchProviderConfirmingOverwrite((confirmProviderOverwrite) => legalworkClient.patchConfig(legalworkWorkspaceId, {
         opencode: { provider: { [resolved]: null } },
-      });
+        ...(confirmProviderOverwrite ? { confirmProviderOverwrite } : {}),
+      }));
       return;
     }
 
