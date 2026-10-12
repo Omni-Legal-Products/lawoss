@@ -31,7 +31,7 @@ import {
   testRemoteWorkspaceConnection,
 } from "@/react-app/domains/workspace/remote-workspace-diagnostics";
 import { useLocal } from "@/react-app/kernel/local-provider";
-import { avoidLawossHomeId, defaultWorkspaceId, withoutLawossHome } from "../../lawoss/home-workspace";
+import { avoidLawossHomeId, conversationWorkspaceId, defaultWorkspaceId, withoutLawossHome } from "../../lawoss/home-workspace";
 import { useBootState } from "./boot-state";
 import { ensureDesktopLocalLegalworkConnection } from "./desktop-local-legalwork";
 import { resolveLegalworkConnection } from "./legalwork-connection";
@@ -717,6 +717,8 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     }
     if (["/home", "/projects", "/tasks", "/workflows", "/recorder", "/evals"].includes(pathname)) return;
     if (!routeWorkspaceId && selectedWorkspaceId) {
+      // LAWOSS: vybraný domovský priestor ostáva na úvodnej stránke, nie je to projekt (P8).
+      if (!conversationWorkspaceId(workspaces, selectedWorkspaceId)) return;
       navigateToWorkspaceSession(selectedWorkspaceId, selectedSessionId, { replace: true });
       return;
     }

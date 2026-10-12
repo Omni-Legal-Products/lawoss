@@ -176,7 +176,7 @@ import {
   OPENAI_IMAGE_MODEL,
 } from "@/react-app/domains/settings/openai-image-extension";
 import { OLLAMA_PROVIDER_CONFIG, type LocalProviderInstallInput } from "@/react-app/domains/settings/openai-image-extension";
-import { isLawossHomeWorkspace, preferRealWorkspace } from "@/lawoss/home-workspace";
+import { conversationWorkspaceId, isLawossHomeWorkspace, preferRealWorkspace } from "@/lawoss/home-workspace";
 import { localProviderTimeouts } from "@/lawoss/providers/local-timeouts";
 
 function normalizeComputerUsePermissions(value: unknown) {
@@ -394,6 +394,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [workspaceConnectionOverrides, setWorkspaceConnectionOverrides] = useState<Record<string, WorkspaceConnectionState>>({});
   const [legacySelectedWorkspaceId, setLegacySelectedWorkspaceId] = useState(() => navigationWorkspaceId ?? readActiveWorkspaceId() ?? "");
   const selectedWorkspaceId = routeWorkspaceId || legacySelectedWorkspaceId;
+  // LAWOSS: z nastavení sa do domovského priestoru nevracia ako do projektu (P8), ale na úvodnú stránku.
+  const sessionReturnWorkspaceId = conversationWorkspaceId(workspaces, selectedWorkspaceId);
+  const sessionReturnRoute = sessionReturnWorkspaceId ? workspaceSessionRoute(sessionReturnWorkspaceId) : "/session";
 
   const onEmbeddedPathChange = props.onEmbeddedPathChange;
   useEffect(() => {
@@ -2231,7 +2234,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onOpenLink={(url) => platform.openLink(url)}
             createSessionAndOpen={async (_command?: string): Promise<string | undefined> => {
               props.onClose?.();
-              navigate(selectedWorkspaceId ? workspaceSessionRoute(selectedWorkspaceId) : "/session");
+              navigate(sessionReturnRoute);
               return undefined;
             }}
             onGenerateFromTemplates={async () => {
@@ -2394,7 +2397,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 onOpenLink={(url) => platform.openLink(url)}
                 createSessionAndOpen={async (_command?: string): Promise<string | undefined> => {
                   props.onClose?.();
-                  navigate(selectedWorkspaceId ? workspaceSessionRoute(selectedWorkspaceId) : "/session");
+                  navigate(sessionReturnRoute);
                   return undefined;
                 }}
               />
@@ -2542,7 +2545,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           onSelectWorkspace={handleSelectSettingsWorkspace}
           headerStatus={routeLegalworkStatus}
           busyHint={loading ? t("session.loading_detail") : busyLabel}
-          onClose={props.onClose ?? (() => navigate(selectedWorkspaceId ? workspaceSessionRoute(selectedWorkspaceId) : "/session"))}
+          onClose={props.onClose ?? (() => navigate(sessionReturnRoute))}
           compact={props.embedded}
         >
           {settingsView}
