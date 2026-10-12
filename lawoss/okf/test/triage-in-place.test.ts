@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
-import { mkdtemp, mkdir, open, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, open, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inspectOnboardingRoot } from "../src/onboarding/classify.ts";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
 import { applyTriagePlan, grantInPlaceReorganize, IN_PLACE_MARKER, prepareTriage, replanTriage, scanTriage, TriageConflictError, TrialCloneError, undoTriage, verifyTriageTarget } from "../src/triage/index.ts";
 import { TRIAGE_FIXTURE, writeTriageFixture } from "./fixtures/triage-client.ts";
+import { holdWindowsFileLock } from "./windows-file-lock.ts";
 
 setDefaultTimeout(30_000);
 const paths: string[] = [];
@@ -145,6 +146,74 @@ test("zamknutý súbor spolu s iným problémom inšpekcie stále zastaví náh�
   await symlink(join(root, LOCKED_DOCX), join(root, "odkaz.docx"));
   await expect(scanTriage(root, { hooks: lockHooks(LOCKED_DOCX), ...HOST })).rejects.toThrow(/symbolick|nepodarilo prečítať/);
 });
+
+/**
+ * Word na Windows: dokument sa dá otvoriť na čítanie, nie na zápis ani zmazanie. Sonda zápisu
+ * (na win32 open s O_RDWR) sa simuluje chybou `code` len pre súbory z `locked`; čítanie ide ďalej.
+ */
+function wordHooks(locked: readonly string[], code = "EBUSY") {
+  return { writeProbe: async (path: string) => { if (locked.some(name => path.endsWith(name))) throw Object.assign(new Error("locked for write"), { code }); } };
+}
+
+test("dokument otvorený vo Worde (čítanie áno, zápis nie) sa v náhľade preskočí ako locked", async () => {
+  const root = await convertedClient();
+  await grantInPlaceReorganize(root, NOW);
+  const inventory = await scanTriage(root, { hooks: wordHooks([LOCKED_DOCX]), ...HOST });
+  expect(inventory.skipped).toContainEqual({ path: LOCKED_DOCX, reason: "locked" });
+  expect(inventory.documents.some(document => document.path === LOCKED_DOCX)).toBe(false);
+  const plan = replanTriage(inventory, undefined, [], NOW);
+  expect(plan.moves.length).toBeGreaterThan(0);
+  expect(plan.moves.some(move => move.from === LOCKED_DOCX)).toBe(false);
+  expect(await applyTriagePlan(plan, { hooks: wordHooks([LOCKED_DOCX]), ...HOST })).toMatchObject({ status: "applied", moved: plan.moves.length });
+  await expect(readFile(join(root, LOCKED_DOCX))).resolves.toBeDefined();
+});
+
+test("dokument otvorený vo Worde až po náhľade zastaví zápis pred prvým presunom", async () => {
+  const root = await convertedClient();
+  await grantInPlaceReorganize(root, NOW);
+  const { plan } = await prepareTriage(root, { now: NOW, ...HOST });
+  expect(plan.moves.some(move => move.from === LOCKED_DOCX)).toBe(true);
+  const before = await documentsHash(root);
+  const error = await applyTriagePlan(plan, { hooks: wordHooks([LOCKED_DOCX]), ...HOST }).then(() => undefined, (reason: unknown) => reason);
+  expect(error).toBeInstanceOf(TriageConflictError);
+  expect(error instanceof Error ? error.message : "").toContain(LOCKED_DOCX);
+  expect(error instanceof Error ? error.message : "").toContain("nový náhľad");
+  expect(await documentsHash(root)).toBe(before);
+  await expect(readdir(join(root, ".lawoss/triage/runs", plan.runId))).resolves.not.toContain("plan.json");
+});
+
+test("súbor len na čítanie nie je zamknutý, zamietnutý zápis do zapisovateľného áno", async () => {
+  const root = await convertedClient();
+  await grantInPlaceReorganize(root, NOW);
+  const readOnly = Object.keys(TRIAGE_FIXTURE).find(path => !path.includes("/") && path !== LOCKED_DOCX && !path.endsWith(".md"));
+  if (!readOnly) throw new Error("Fixture needs a second top-level document.");
+  await chmod(join(root, readOnly), 0o444);
+  try {
+    const inventory = await scanTriage(root, { hooks: wordHooks([readOnly, LOCKED_DOCX], "EPERM"), ...HOST });
+    expect(inventory.documents.some(document => document.path === readOnly)).toBe(true);
+    expect(inventory.skipped).toContainEqual({ path: LOCKED_DOCX, reason: "locked" });
+  } finally { await chmod(join(root, readOnly), 0o644); }
+});
+
+// Skutočný zámok Windows ako Word: ostatní smú čítať (`Read`), zapisovať ani mazať nie.
+test.skipIf(process.platform !== "win32")("Windows: dokument otvorený vo Worde sa preskočí v náhľade a nový zámok zastaví zápis", async () => {
+  const root = await convertedClient();
+  await grantInPlaceReorganize(root, NOW);
+  let release = await holdWindowsFileLock(join(root, LOCKED_DOCX), "Read");
+  try {
+    const inventory = await scanTriage(root, HOST);
+    expect(inventory.skipped).toContainEqual({ path: LOCKED_DOCX, reason: "locked" });
+    expect(inventory.documents.some(document => document.path === LOCKED_DOCX)).toBe(false);
+  } finally { await release(); }
+  const { plan } = await prepareTriage(root, { now: NOW, ...HOST });
+  expect(plan.moves.some(move => move.from === LOCKED_DOCX)).toBe(true);
+  const before = await documentsHash(root);
+  release = await holdWindowsFileLock(join(root, LOCKED_DOCX), "Read");
+  try {
+    await expect(applyTriagePlan(plan, HOST)).rejects.toThrow(/nový náhľad/);
+  } finally { await release(); }
+  expect(await documentsHash(root)).toBe(before);
+}, 60_000);
 
 test("vrátenie s keepChanged ponechá upravený dokument a ostatné vráti", async () => {
   const root = await convertedClient();
