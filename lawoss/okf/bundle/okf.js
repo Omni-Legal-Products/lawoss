@@ -3883,6 +3883,7 @@ var MAX_TRIAGE_DOCUMENTS = 2000;
 class TrialCloneError extends Error {
   code = "not_trial_clone";
 }
+var NOT_TRIAL_CLONE = "Toto nie je skúšobný klon. Dokumenty sa presúvajú len v skúšobnom klone, nikdy v origináli.";
 var sha3 = (value) => createHash6("sha256").update(value).digest("hex");
 var record2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 var overlaps = (a, b) => {
@@ -3929,7 +3930,7 @@ async function verifyTrialClone(rootInput, trialJournalDirectory) {
   } catch (error) {
     if (error instanceof TrialCloneError)
       throw error;
-    throw new TrialCloneError(missing3(error) ? "Toto nie je skúšobný klon. Dokumenty sa presúvajú len v skúšobnom klone, nikdy v origináli." : "Značka priečinka je poškodená.");
+    throw new TrialCloneError(missing3(error) ? NOT_TRIAL_CLONE : "Značka priečinka je poškodená.");
   }
   if (!record2(marker) || marker.version !== 1 || marker.trial !== true || typeof marker.source !== "string" || !isAbsolute8(marker.source) || typeof marker.sourceDigest !== "string" || !/^[a-f0-9]{64}$/.test(marker.sourceDigest) || typeof marker.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(marker.fingerprint)) {
     throw new TrialCloneError("Značka priečinka má neplatný tvar.");
@@ -3954,7 +3955,7 @@ async function verifyTrialClone(rootInput, trialJournalDirectory) {
 }
 var IN_PLACE_MARKER = ".lawoss/reorganize.json";
 var NO_CONSENT = "Dokumenty sa presúvajú len po výslovnom súhlase s usporiadaním priečinka alebo v skúšobnom klone.";
-async function verifyTriageTarget(rootInput, trialJournalDirectory) {
+async function verifyTriageTarget(rootInput, trialJournalDirectory, options = {}) {
   if (!isAbsolute8(rootInput))
     throw new TrialCloneError("Cesta musí byť absolútna.");
   const root = resolve10(rootInput);
@@ -3967,6 +3968,8 @@ async function verifyTriageTarget(rootInput, trialJournalDirectory) {
     const clone = await verifyTrialClone(root, trialJournalDirectory);
     return { root: clone.root, mode: "trial", journalVerified: clone.journalVerified };
   }
+  if (options.allowInPlace !== true)
+    throw new TrialCloneError(NOT_TRIAL_CLONE);
   if (await realpath(root).catch(() => "") !== root)
     throw new TrialCloneError("Priečinok musí existovať a nesmie byť symbolický odkaz.");
   let consent;
@@ -3997,7 +4000,7 @@ async function readSmall(root, path) {
 }
 var onlyLockedIssues = (inspection) => inspection.issues.length > 0 && inspection.issues.every((issue) => issue.code === "locked_file");
 async function scanTriage(rootInput, options = {}) {
-  const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory);
+  const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory, options);
   const inspection = await inspectOnboardingRoot(clone.root, options.limits, options.hooks);
   if (!inspection.complete && !onlyLockedIssues(inspection)) {
     const issue = inspection.issues[0];
@@ -4677,7 +4680,7 @@ async function operationState(root, operation) {
 }
 async function applyTriagePlan(input, options = {}) {
   const plan = parseTriagePlan(input);
-  const clone = await verifyTriageTarget(plan.root, options.trialJournalDirectory);
+  const clone = await verifyTriageTarget(plan.root, options.trialJournalDirectory, options);
   const root = clone.root;
   const unlock = await lock(root);
   try {
@@ -4789,7 +4792,7 @@ async function readRun(root, runId) {
   return { plan, events: await readEvents2(eventsPath), eventsPath, dir };
 }
 async function undoTriage(rootInput, runId, options = {}) {
-  const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory);
+  const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory, options);
   const root = clone.root;
   const keepChanged = options.keepChanged ?? clone.mode === "in_place";
   const unlock = await lock(root);
@@ -4953,7 +4956,7 @@ async function latestModelProposal(inventory) {
   }
 }
 async function prepareTriage(root, options = {}) {
-  const inventory = await scanTriage(root, { trialJournalDirectory: options.trialJournalDirectory, jurisdiction: options.jurisdiction });
+  const inventory = await scanTriage(root, { trialJournalDirectory: options.trialJournalDirectory, jurisdiction: options.jurisdiction, allowInPlace: options.allowInPlace });
   let classification;
   let proposal = { state: "none" };
   if (options.classificationFile)
