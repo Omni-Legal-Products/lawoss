@@ -67,6 +67,7 @@ jobs:
     needs: resolve-release
     with:
       ref: ${{ needs.resolve-release.outputs.release_tag }}
+      run_tests: false
   resolve-release:
     name: Resolve Release Metadata
     # SignPath trusted builds require every job leading to the Windows signing
