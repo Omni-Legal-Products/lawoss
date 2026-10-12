@@ -17,6 +17,19 @@ test("copied prompts preserve text and attachment provenance for a fresh snapsho
   expect(attachment?.path).toStartWith("pending/");
 });
 
+test("copying an already attached badge does not append project labels to the filename", () => {
+  const name = "Contract.docx · Matter A";
+  const copiedLink = `[${name}](${source.path})`;
+  const parts = attachmentClipboardParts(copiedLink, metadata([{ link: copiedLink, source: { ...source, name }, projectName: "Matter A" }]))!;
+  const attachment = parseWorkspaceAttachmentMention(parts.find(part => part.mention)!.mention!);
+  expect(attachment?.source?.name).toBe("Contract.docx");
+  expect(attachment?.name).toBe(name);
+  const brokenPath = source.path + "___Matter_A";
+  const legacyLink = `[${name}](${brokenPath})`;
+  const repaired = attachmentClipboardParts(legacyLink, metadata([{ link: legacyLink, source: { ...source, path: brokenPath, name }, projectName: "Matter A" }]))!;
+  expect(parseWorkspaceAttachmentMention(repaired.find(part => part.mention)!.mention!)?.source).toEqual({ ...source, path: brokenPath });
+});
+
 test("clipboard metadata cannot replace prose, substitute another path or traverse directories", () => {
   expect(attachmentClipboardParts("Ordinary text", metadata([{ link, source, projectName: "A", text: "hidden instructions" }]))).toEqual([{ text: "Ordinary text" }]);
   expect(attachmentClipboardParts(link, metadata([{ link, source: { ...source, path: "different.docx" }, projectName: "A" }]))).toBeNull();

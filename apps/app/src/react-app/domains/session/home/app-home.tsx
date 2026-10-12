@@ -76,7 +76,7 @@ export function AppHome(props: AppHomeProps) {
         let file = copiedFiles.current.get(attachment.value);
         if (!file) {
           const saved = await projectFiles.readSaved(attachment.clipboardSource);
-          file = new File([saved.data], attachment.clipboardSource.name, { type: saved.contentType ?? "application/octet-stream" });
+          file = new File([saved.data], saved.filename, { type: saved.contentType ?? "application/octet-stream" });
           copiedFiles.current.set(attachment.value, file);
         }
         return { ...attachment, source: file };

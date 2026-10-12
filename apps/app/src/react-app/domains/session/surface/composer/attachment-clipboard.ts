@@ -1,4 +1,5 @@
 import { projectAttachmentClipboardSchema, type ProjectFileSource } from "@legalwork/types/project-files";
+import { attachmentFilename } from "@/app/lib/attachment-filename";
 import { createProjectAttachmentMention, parseWorkspaceAttachmentLink, WORKSPACE_ATTACHMENT_LINK_SOURCE } from "./workspace-attachment";
 
 const attribute = "data-legalwork-attachments";
@@ -31,7 +32,7 @@ export function attachmentClipboardParts(text: string, metadata: string) {
     if (!byLink.size) return null;
     return text.split(new RegExp(`(${WORKSPACE_ATTACHMENT_LINK_SOURCE})`, "g")).map(value => {
       const reference = byLink.get(value);
-      return reference ? { mention: createProjectAttachmentMention(reference.source, reference.projectName) } : { text: value };
+      return reference ? { mention: createProjectAttachmentMention({ ...reference.source, name: attachmentFilename(reference.source.path) }, reference.projectName) } : { text: value };
     });
   } catch { return null; }
 }

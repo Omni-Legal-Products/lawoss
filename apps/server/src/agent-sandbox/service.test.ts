@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentSandboxService, type AgentPermissionRule } from "./service.js";
@@ -176,16 +176,16 @@ test("saving a network mode waits for cancelled workers to finish cleanup", asyn
   expect(saved).toBe(true);
 });
 
-test("installed helpers require skill permission and always enter read-only", async () => {
+test("project helper aliases share the project edit permission and still require skill permission", async () => {
   const f = await fixture({ bash: "allow", read: "ask", skill: { "helper": "ask" } });
   const folder = join(f.workspace.path, ".opencode", "skills", "helper");
   await mkdir(folder, { recursive: true });
   await writeFile(join(folder, "SKILL.md"), "---\nname: helper\ndescription: Test installed helper\n---\nRun helper.py.\n");
   const command = { command: "python3 /skills/0/helper.py", skills: ["helper"], write: true, timeoutMs: 1000 };
   await f.service.run(f.workspace, command, { type: "host" }, new AbortController().signal);
-  expect(f.executions[0].mounts[1]).toMatchObject({ target: "/skills/0", writable: false });
+  expect(f.executions[0].mounts[1]).toMatchObject({ target: "/skills/0", writable: true });
   expect(f.prompts.map((prompt) => prompt.action)).toEqual(["sandbox.skill", "sandbox.read"]);
-  expect(f.prompts[1].paths).toContain(folder);
+  expect(f.prompts[1].paths).toContain(await realpath(folder));
   await expect(f.service.run(f.workspace, command, { type: "host" }, new AbortController().signal,
     [{ permission: "skill", pattern: "helper", action: "deny" }])).rejects.toThrow("skill is blocked");
   expect(f.executions).toHaveLength(1);

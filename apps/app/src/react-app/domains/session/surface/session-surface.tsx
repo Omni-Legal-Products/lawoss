@@ -1140,7 +1140,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       if (!projectFiles) throw new Error(t("project_files.source_unavailable"));
       const source = attachment.source;
       const saved = await projectFiles.readSaved(source);
-      const reference = await uploadWorkspaceAttachment(props.client, props.workspaceId, new File([saved.data], source.name, { type: saved.contentType ?? "application/octet-stream" }), `${source.name} · ${saved.projectName}`);
+      const reference = await uploadWorkspaceAttachment(props.client, props.workspaceId, new File([saved.data], saved.filename, { type: saved.contentType ?? "application/octet-stream" }), `${saved.filename} · ${saved.projectName}`);
       const versioned = `${reference}&${new URLSearchParams({ origin: saved.projectName, version: saved.version, originProject: source.projectId, originPath: source.path })}`;
       resolved = resolved.replaceAll(token, `@${encodeComposerMentionValue(versioned)}`);
       delete prepared[value]; prepared[versioned] = "upload";

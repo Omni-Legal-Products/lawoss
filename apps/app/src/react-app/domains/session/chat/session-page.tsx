@@ -80,6 +80,7 @@ import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-sto
 
 import { isElectronRuntime } from "../../../../app/utils";
 import { classifyOpenTarget, isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTarget, resolvePathOpenTarget, type OpenTarget } from "../artifacts/open-target";
+import { attachmentFilename } from "@/app/lib/attachment-filename";
 import { confirmDiscardDocuments, confirmDiscardSessionDocuments } from "../artifacts/docx-document-state";
 import type { OpenTargetOptions } from "@/lib/target-provider";
 import { SidePanel } from "../panel/side-panel";
@@ -747,7 +748,7 @@ export function SessionPage(props: SessionPageProps) {
       if (!canSwitchDocument()) return { ok: false, error: "Save the current draft before opening another file." };
       const copyTo = controlStringArg(args, "copyTo");
       if (copyTo) {
-        if (/[\\\x00-\x1f\x7f]/.test(copyTo) || copyTo.split("/").some((part) => !part || part === "." || part === "..") || copyTo.split(".").at(-1)?.toLowerCase() !== path.split(".").at(-1)?.toLowerCase())
+        if (/[\\\x00-\x1f\x7f]/.test(copyTo) || copyTo.split("/").some((part) => !part || part === "." || part === "..") || copyTo.split(".").at(-1)?.toLowerCase() !== (connectionId ? path : attachmentFilename(path)).split(".").at(-1)?.toLowerCase())
           return { ok: false, error: "Use a new workspace-relative filename with the same file extension as the template." };
         if (connectionId) {
           const copy = await client.checkoutStorageFile(workspaceId, connectionId, path);
@@ -756,7 +757,7 @@ export function SessionPage(props: SessionPageProps) {
         path = copyTo;
         connectionId = "";
       }
-      const name = path.split("/").at(-1)!;
+      const name = connectionId ? path.split("/").at(-1)! : attachmentFilename(path);
       const preview = classifyOpenTarget(name, "file");
       if (preview === "external" || preview === "browser") return { ok: false, error: "This file type cannot be opened in the side viewer." };
       let tabId: string;

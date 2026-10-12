@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
 import { codeLanguage } from "./code-language";
+import { attachmentFilename } from "@/app/lib/attachment-filename";
 
 import { LEGALMEMORY_URI_PATTERN } from "@/components/markdown/legalmemory-ref";
 
@@ -83,7 +84,7 @@ function extname(value: string) {
 
 export function classifyOpenTarget(value: string, kind: OpenTargetKind): OpenTargetPreview {
   if (kind === "url") return "browser";
-  const ext = extname(value);
+  const ext = extname(attachmentFilename(value));
   if ([".md", ".markdown", ".mdx"].includes(ext)) return "markdown";
   if ([".csv", ".tsv", ".xlsx", ".xls", ".ods"].includes(ext)) return "sheet";
   if ([".ppt", ".pptx", ".pptm", ".pot", ".potx", ".odp", ".key", ".sxi"].includes(ext)) return "slides";

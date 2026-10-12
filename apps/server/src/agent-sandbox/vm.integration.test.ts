@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
-import { mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,6 +25,37 @@ describe.skipIf(process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("real agent s
     // Cold document-library imports need headroom under software emulation.
     timeoutMs: 60_000, signal, authorizeNetwork: async () => false,
   });
+
+  test("an attached Word document can be inspected and copied to an editable project output", async () => {
+    const attachment = ".legalwork/attachments/fixture/Contract.docx___Matter_A";
+    await mkdir(join(workspace, ".legalwork/attachments/fixture"), { recursive: true });
+    const original = await readFile(new URL("../../resources/core-opencode/skills/workflow-assistant-due-diligence/resources/DD-Report-Template.docx", import.meta.url));
+    await writeFile(join(workspace, attachment), original);
+    const helper = join(workspace, ".opencode/skills/docx-edit");
+    await mkdir(helper, { recursive: true });
+    try {
+      await cp(new URL("../../resources/core-opencode/skills/docx-edit/assets", import.meta.url), join(helper, "assets"), { recursive: true });
+      const result = await sandbox.run({ command: `node .opencode/skills/docx-edit/assets/docx-agent.mjs inspect '${attachment}' > /tmp/inspection.json && python3 - <<'PY'
+import json, shutil
+from pathlib import Path
+assert json.loads(Path('/tmp/inspection.json').read_text())['totalParagraphs'] > 0
+source = Path('${attachment}')
+shutil.copyfile(source, 'Attachment_Output.docx')
+assert Path('Attachment_Output.docx').read_bytes() == source.read_bytes()
+for path in ['.env', '.opencode/local.json', '.legalwork/local.json', '.git/config']:
+    file = Path(path)
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text('project contents')
+    assert file.read_text() == 'project contents'
+print('Attachment read and project copy succeeded')
+PY`, cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: true }],
+        timeoutMs: 60_000, signal: AbortSignal.timeout(120_000), authorizeNetwork: async () => false });
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain("Attachment read and project copy succeeded");
+      expect(await readFile(join(workspace, attachment))).toEqual(original);
+      expect(await readFile(join(workspace, "Attachment_Output.docx"))).toEqual(original);
+    } finally { await rm(helper, { recursive: true, force: true }); }
+  }, 180_000);
 
   test("ten concurrent commands share one VM with separate folders, processes, proxies and temporary files", async () => {
     const root = await mkdtemp(join(tmpdir(), "sandbox-concurrent-"));

@@ -29,6 +29,29 @@ const write = (fs: SandboxFilesystem, handle: number, data: string, offset = 0) 
 const read = async (fs: SandboxFilesystem, handle: number, offset = 0, size = 128) =>
   z.instanceof(Buffer).parse(await fs.request({ op: "read", handle, offset, size })).toString();
 
+test("all project files, including hidden files and attachments, follow the mount's edit permission", async () => {
+  const f = await fixture();
+  const paths = [".legalwork/attachments/snapshot/Contract.docx", ".legalwork/state.json", ".legalwork/scratch/plan.json",
+    ".opencode/skills/helper/tool.py", ".git/config", ".env", ".env.local", ".npmrc", ".bashrc", ".zshrc", ".profile",
+    "legalwork-sandbox-staging-project/data"];
+  for (const path of paths) {
+    await mkdir(join(f.workspace, path, ".."), { recursive: true });
+    await writeFile(join(f.workspace, path), "original");
+    const handle = await openFile(f.filesystem, `/workspace/${path}`, true);
+    expect(await read(f.filesystem, handle)).toBe("original");
+    await write(f.filesystem, handle, "modified");
+  }
+  expect(await f.filesystem.request({ op: "list", path: "/workspace/.legalwork", offset: 0 })).toMatchObject({ names: ["attachments", "scratch", "state.json"] });
+  const readonly = await SandboxFilesystem.create([{ source: f.workspace, target: "/workspace", writable: false }], f.controller.signal);
+  filesystems.push(readonly);
+  for (const path of paths) {
+    expect(await read(readonly, await openFile(readonly, `/workspace/${path}`))).toBe("original");
+    await expect(openFile(readonly, `/workspace/${path}`, true)).rejects.toMatchObject({ code: "EROFS" });
+  }
+  await f.filesystem.commit();
+  for (const path of paths) expect(await readFile(join(f.workspace, path), "utf8")).toBe("modified");
+});
+
 test("multi-gigabyte folders and files are read in chunks without a snapshot", async () => {
   const f = await fixture();
   const length = 2 * 1024 ** 3;
@@ -73,17 +96,16 @@ test("edits stay on disk staging until commit and read-only folders reject write
   expect(await readFile(join(f.reference, "input"), "utf8")).toBe("reference");
 });
 
-test("paths, links, private staging and host execution configuration are refused", async () => {
+test("paths escaping approved folders, links and live private staging are refused", async () => {
   const f = await fixture();
   await writeFile(join(f.root, "secret"), "private");
-  await mkdir(join(f.workspace, "LEGALWORK-SANDBOX-STAGING-hidden"));
-  await writeFile(join(f.workspace, "LEGALWORK-SANDBOX-STAGING-hidden", "data"), "private staging");
   // Windows junctions exercise reparse-point containment without requiring
   // administrator rights or enabling Developer Mode to create symlinks.
   await symlink(f.root, join(f.workspace, "link"), process.platform === "win32" ? "junction" : "dir");
-  for (const path of ["/workspace/../secret", "/workspace/link/secret", "/workspace/.env", "/workspace/CON", "/workspace/file:stream", "/workspace/legalwork-sandbox-staging-hidden/data", "/workspace/LEGALWORK-SANDBOX-STAGING-hidden/data", "/outside/secret"]) {
+  for (const path of ["/workspace/../secret", "/workspace/link/secret", "/workspace/CON", "/workspace/file:stream", "/outside/secret"]) {
     await expect(openFile(f.filesystem, path)).rejects.toThrow();
   }
+  await expect(SandboxFilesystem.create([{ source: f.filesystem.staging, target: "/workspace", writable: true }], f.controller.signal)).rejects.toThrow("Private sandbox storage");
   await mkdir(join(f.workspace, "folder"));
   await f.filesystem.request({ op: "stat", path: "/workspace/folder" });
   await rm(join(f.workspace, "folder"), { recursive: true });

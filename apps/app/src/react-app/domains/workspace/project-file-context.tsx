@@ -10,6 +10,7 @@ import { useComposerStateStore, getComposerDraft, getComposerMentions } from "..
 import { encodeComposerMentionValue } from "../session/surface/composer/mention-encoding";
 import { createProjectAttachmentMention } from "../session/surface/composer/workspace-attachment";
 import { LinkedFileMoveDialogs } from "./linked-file-move";
+import { attachmentFilename } from "@/app/lib/attachment-filename";
 
 const ProjectFilesContext = createContext<(ReturnType<typeof createProjectFileAccess> & { dragTypes: readonly string[] }) | null>(null);
 
@@ -57,7 +58,7 @@ export function createProjectFileAccess(groups: WorkspaceSessionGroup[], local: 
       if (!after.exists || before.updatedAt !== after.updatedAt || before.size !== after.size) throw new Error(t("project_files.changed_during_copy"));
       const digest = await crypto.subtle.digest("SHA-256", download.data);
       const version = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
-      return { ...download, version, projectName: owner.name };
+      return { ...download, version, projectName: owner.name, filename: attachmentFilename(source.path) };
     },
     async newChat(projectId: string, source: ProjectFileSource | ProjectFileSource[]) {
       const sources = Array.isArray(source) ? source : [source];

@@ -36,6 +36,10 @@ test("saved snapshots read only from the origin and detect source changes during
   expect(saved.version).toBe(createHash("sha256").update(bytes).digest("hex"));
   expect(saved.projectName).toBe("Source");
   expect(calls).toEqual(["a/same.md", "a/same.md", "a/same.md"]);
+  const copied = await access.readSaved({ ...source, path: ".legalwork/attachments/id/Contract.docx", name: "Contract.docx · Source" });
+  expect(copied.filename).toBe("Contract.docx");
+  const legacy = await access.readSaved({ ...source, path: ".legalwork/attachments/id/Contract.docx___Source", name: "Contract.docx · Source · Source" });
+  expect(legacy.filename).toBe("Contract.docx");
   mutate = true;
   await expect(access.readSaved(source)).rejects.toThrow("changed during");
 });

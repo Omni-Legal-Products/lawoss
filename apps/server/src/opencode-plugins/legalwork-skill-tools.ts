@@ -165,7 +165,7 @@ export const LegalWorkSkillTools = async () => {
   },
   tool: {
     legalwork_skill_load: {
-      description: "Load an installed skill or workflow, its expert corrections and its full package of attached resources. Returns exact file references for legalwork_skill_read and read-only shell mounts. Use this for all workflows and skills, including deadlines. Resolves dependencies and refuses changed base versions.",
+      description: "Load an installed skill or workflow, its expert corrections and its full package of attached resources. Returns exact file references for legalwork_skill_read and shell mounts. Use this for all workflows and skills, including deadlines. Resolves dependencies and refuses changed base versions.",
       args: { name: z.string().min(1) },
       async execute(raw: unknown, context: OpenCodeContext) {
         const { name } = z.object({ name: z.string().min(1) }).parse(raw);

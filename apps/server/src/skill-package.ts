@@ -72,8 +72,8 @@ export async function readSkillPackageFile(skillPath: string, expectedDirectory:
   const pages = extname(path).toLowerCase() === ".docx" ? docxEvidence(bytes) : null;
   let text: string;
   try { text = pages ? pages.map(page => page.text).join("\n\n") : new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
-  catch { throw new ApiError(415, "skill_resource_binary", "Use the skill's read-only sandbox mount for this binary file."); }
-  if (text.includes("\0")) throw new ApiError(415, "skill_resource_binary", "Use the skill's read-only sandbox mount for this binary file.");
+  catch { throw new ApiError(415, "skill_resource_binary", "Use the skill's sandbox mount for this binary file."); }
+  if (text.includes("\0")) throw new ApiError(415, "skill_resource_binary", "Use the skill's sandbox mount for this binary file.");
   const end = Math.min(offset + 24000, text.length);
   return { path, directory, content: text.slice(offset, end), totalCharacters: text.length,
     ...(end < text.length ? { nextOffset: end } : {}),

@@ -7,7 +7,7 @@ const args = z.object({
   command: z.string().min(1).max(128000).describe("Command to execute using the shell and paths in the latest sandbox-settings reminder."),
   description: z.string().describe("Briefly describe what the command does."),
   workdir: z.string().optional().describe("Optional working directory. With sandboxing on use /workspace or /authorized/N; with it off use an absolute host folder. Omit to use the project directory."),
-  skills: z.array(z.string().min(1).max(200)).max(16).optional().describe("Installed skills needed by this command. When sandboxing is on their folders are shared read-only at /skills/0, /skills/1. When off use their host paths."),
+  skills: z.array(z.string().min(1).max(200)).max(16).optional().describe("Installed skills needed by this command. When sandboxing is on their folders are shared at /skills/0, /skills/1. Project skills follow the project edit permission; skills outside the project are read-only. When off use their host paths."),
   timeout: z.number().int().min(1).max(600000).optional(),
   write: z.boolean().optional().describe("Set true when the command needs to change project files. When sandboxing is on, false makes shared folders read-only. When off, this flag cannot restrict host access. File-change permissions still apply."),
 });

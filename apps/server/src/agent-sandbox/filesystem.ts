@@ -1,17 +1,18 @@
 import { withCommitPaths } from "./commit-lock.js";
 import { constants, type BigIntStats } from "node:fs";
-import { chmod, copyFile, lstat, mkdir, mkdtemp, open, readdir, rename, rm, rmdir, statfs, type FileHandle } from "node:fs/promises";
+import { chmod, copyFile, lstat, mkdir, mkdtemp, open, readdir, realpath, rename, rm, rmdir, statfs, type FileHandle } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { z } from "zod";
-import { checkedPath, protectedPath, safeRelative, validateMounts, within, type SandboxMount } from "./files.js";
+import { checkedPath, safeRelative, validateMounts, within, type SandboxMount } from "./files.js";
 
 const pathSchema = z.string().min(1).max(4096);
 const numberSchema = z.number().int().nonnegative().safe();
 const handleSchema = numberSchema.min(1);
 const CHUNK = 128 * 1024;
 const PRIVATE_PREFIX = "legalwork-sandbox-staging-";
+const privateDirectories = new Set<string>();
 const MAX_HANDLES = 256;
 const MAX_CHANGED_FILES = 10000;
 const reserveBytes = 1024 ** 3;
@@ -41,7 +42,7 @@ function version(stat: BigIntStats | null): string | undefined {
   return stat ? `${stat.dev}:${stat.ino}:${stat.mode}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}` : undefined;
 }
 const keyFor = (path: string) => process.platform === "linux" ? path : path.normalize("NFD").toLowerCase();
-const privatePath = (path: string) => path.split(/[\\/]/).some((part) => part.toLowerCase().startsWith(PRIVATE_PREFIX));
+const privatePath = (path: string) => [...privateDirectories].some(root => within(keyFor(root), keyFor(path)));
 type Location = { mount: SandboxMount; suffix: string; host: string; key: string; path: string };
 type Entry = Location & { baseline: string | undefined; originalDirectory: boolean; directory: boolean; deleted: boolean;
   dirty: boolean; mode: number; size: number; contentHash?: string; stage?: string; descriptor?: FileHandle };
@@ -69,13 +70,14 @@ export class SandboxFilesystem {
   static async create(mounts: SandboxMount[], signal: AbortSignal): Promise<SandboxFilesystem> {
     const checked = await validateMounts(mounts);
     if (checked.some((mount) => privatePath(mount.source))) error("EACCES", "Private sandbox storage cannot be authorized.");
-    const staging = await mkdtemp(join(tmpdir(), PRIVATE_PREFIX));
+    const staging = await realpath(await mkdtemp(join(tmpdir(), PRIVATE_PREFIX)));
+    privateDirectories.add(staging);
     try {
       const space = await statfs(staging);
       const available = space.bavail * space.bsize;
       // A budget for NEW temporary data, independent of authorized folder size.
       return new SandboxFilesystem(checked, staging, Math.max(0, Math.floor((available - reserveBytes) / 2)), signal);
-    } catch (failure) { await rm(staging, { recursive: true, force: true }); throw failure; }
+    } catch (failure) { privateDirectories.delete(staging); await rm(staging, { recursive: true, force: true }); throw failure; }
   }
 
   private locate(path: string): Location {
@@ -84,7 +86,6 @@ export class SandboxFilesystem {
     if (!mount) error("EACCES", "Path is outside the authorized folders.");
     const suffix = path.slice(mount.target.length + 1);
     if (suffix && !safeRelative(suffix)) error("EACCES", "Unsafe sandbox path.");
-    if ((protectedPath(suffix) && suffix.toLowerCase() !== ".legalwork") || privatePath(suffix)) error("EACCES", "Protected host files are unavailable.");
     const host = join(mount.source, ...suffix.split("/"));
     if (privatePath(host)) error("EACCES");
     return { mount, suffix, host, key: keyFor(host), path };
@@ -93,7 +94,6 @@ export class SandboxFilesystem {
   private writable(location: Location): void {
     if (!location.suffix) error("EPERM", "Authorized folder roots cannot be replaced.");
     if (!location.mount.writable || this.mounts.some((mount) => !mount.writable && within(keyFor(mount.source), keyFor(location.host)))) error("EROFS");
-    if (protectedPath(location.suffix) && location.suffix.toLowerCase() !== ".legalwork") error("EACCES");
   }
 
   private async original(location: Location): Promise<BigIntStats | null> {
@@ -431,5 +431,6 @@ export class SandboxFilesystem {
     this.cancel();
     await this.closeHandles();
     await rm(this.staging, { recursive: true, force: true });
+    privateDirectories.delete(this.staging);
   }
 }

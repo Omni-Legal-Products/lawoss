@@ -2,13 +2,6 @@ import { lstat, mkdir, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
 
 export type SandboxMount = { source: string; target: string; writable: boolean };
-const protectedNames = new Set([".git", ".opencode", ".env", ".npmrc", ".bashrc", ".zshrc", ".profile"]);
-
-export function protectedPath(path: string): boolean {
-  const parts = path.toLowerCase().split("/");
-  return parts.some((part, index) => protectedNames.has(part) || part.startsWith(".env.") ||
-    (part === ".legalwork" && parts[index + 1] !== "scratch"));
-}
 
 export function within(root: string, candidate: string): boolean {
   const path = relative(root, candidate);
@@ -26,7 +19,6 @@ export async function validateMounts(mounts: SandboxMount[], protectedPaths: str
   const result: SandboxMount[] = [];
   for (const mount of mounts) {
     if (!/^\/(workspace|(?:authorized|skills)\/[0-9]+)$/.test(mount.target) || targets.has(mount.target)) throw new Error("Invalid sandbox folder.");
-    if (mount.target.startsWith("/skills/") && mount.writable) throw new Error("Installed skills are read-only.");
     targets.add(mount.target);
     if (!isAbsolute(mount.source)) throw new Error("Sandbox folders must be absolute paths.");
     const source = await realpath(mount.source);
@@ -38,6 +30,12 @@ export async function validateMounts(mounts: SandboxMount[], protectedPaths: str
     result.push({ ...mount, source });
   }
   if (!targets.has("/workspace")) throw new Error("Sandbox workspace is missing.");
+  const workspace = result.find(mount => mount.target === "/workspace")!;
+  for (const mount of result) {
+    if (mount.target.startsWith("/skills/") && mount.writable && (!workspace.writable || !within(workspace.source, mount.source))) {
+      throw new Error("Installed skills outside the project are read-only.");
+    }
+  }
   return result;
 }
 

@@ -1,6 +1,8 @@
 import { sandboxPaths } from "./paths.js";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
+import { realpath } from "node:fs/promises";
+import { within } from "./files.js";
 import { listSkills } from "../skills.js";
 import { ApprovalService } from "../approvals.js";
 import { onOrgPolicyChange } from "../org-policy.js";
@@ -145,7 +147,8 @@ export class AgentSandboxService {
           const skill = installed.find((item) => item.name === name);
           if (!skill) throw new ApiError(400, "sandbox_skill_missing", `Installed skill not found: ${name}`);
           await ask("skill", name, `Allow this command to use the installed skill ${name}?`, [skill.path]);
-          mounts.push({ source: dirname(skill.path), target: `/skills/${index}`, writable: false });
+          const source = await realpath(dirname(skill.path));
+          mounts.push({ source, target: `/skills/${index}`, writable: command.write && within(await realpath(workspace.path), source) });
         }
       }
       await ask("read", "*", "Allow this command to read all files in these folders, including files covered by individual read rules?", mounts.map((mount) => mount.source), commandAction("read"));
