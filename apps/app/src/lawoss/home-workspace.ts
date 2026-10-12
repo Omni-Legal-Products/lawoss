@@ -39,3 +39,15 @@ export function avoidLawossHomeId<T extends RouteLike>(list: readonly T[], candi
   const real = withoutLawossHome(list.filter(item => item.workspaceType !== "remote"))[0];
   return real?.id ?? candidateId;
 }
+
+/**
+ * Priečinok pre konverzáciu z trasy, `?project` alebo výberu. Domovský priestor nie je projekt
+ * a nesmie dostať konverzáciu ani prílohy (spec 2026-10-08, P8), preto vráti null; neznáme id
+ * (zoznam sa ešte načítava) ostáva, aby sa nestratil platný odkaz.
+ */
+export function conversationWorkspaceId<T extends RouteLike>(list: readonly T[], id?: string | null): string | null {
+  const candidate = id?.trim();
+  if (!candidate) return null;
+  const workspace = list.find(item => item.id === candidate);
+  return workspace && isLawossHomeWorkspace(workspace) ? null : candidate;
+}

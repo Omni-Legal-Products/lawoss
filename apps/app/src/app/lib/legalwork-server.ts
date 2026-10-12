@@ -2177,7 +2177,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/provider-repairs`,
         { token, hostToken, timeoutMs: timeouts.config },
       ),
-    patchConfig: (workspaceId: string, payload: { opencode?: Record<string, unknown>; legalwork?: Record<string, unknown> }) =>
+    // LAWOSS: confirmProviderOverwrite potvrdí prepis rozdielneho poskytovateľa u ďalších klientov (409 provider_conflict).
+    patchConfig: (workspaceId: string, payload: { opencode?: Record<string, unknown>; legalwork?: Record<string, unknown>; confirmProviderOverwrite?: boolean }) =>
       requestJson<{ updatedAt?: number | null }>(baseUrl, `/workspace/${workspaceId}/config`, {
         token,
         hostToken,
