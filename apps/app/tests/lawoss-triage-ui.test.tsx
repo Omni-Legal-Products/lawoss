@@ -99,6 +99,19 @@ test("kľúče pre priečinok na mieste existujú vo všetkých jazykoch", () =>
   }
 });
 
+test("na mieste sa model neponúka, návrh je len deterministický (spec #92, rozhodnutie MČ 12. 10.)", () => {
+  const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.triage.${key}`, "sk", params);
+  const ready: TriagePreview = { ...preview, proposal: { state: "ready", file: ".lawoss/triage/navrh.json", documents: 2, matters: 1 }, classification: { used: true, documents: 2 } };
+  const panel = <section data-testid="model-panel">panel modelu</section>;
+  const inPlace = html(<TriagePreviewView preview={ready} text={text} busy={false} inPlace onKeep={() => {}} onConfirm={() => {}} onModel={() => {}} model={panel} />);
+  expect(inPlace).not.toContain("panel modelu");
+  expect(inPlace).not.toContain(text("model_use"));
+  expect(inPlace).not.toContain(text("model_rules_only"));
+  const trial = html(<TriagePreviewView preview={ready} text={text} busy={false} onKeep={() => {}} onConfirm={() => {}} onModel={() => {}} model={panel} />);
+  expect(trial).toContain("panel modelu");
+  expect(trial).toContain(text("model_use"));
+});
+
 test("priečinok na mieste nehovorí o klone", () => {
   const text = (key: string, params?: Record<string, string | number>) => t(`lawoss.triage.${key}`, "sk", params);
   const out = html(<TriagePreviewView preview={preview} text={text} busy={false} inPlace onKeep={() => {}} onConfirm={() => {}} onModel={() => {}} />);

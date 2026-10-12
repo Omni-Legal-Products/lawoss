@@ -133,7 +133,8 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
     const next = await run(text("loading"), async () => {
       const state = await triageStatus(client, root);
       if (alive.current) setStatus(state);
-      return state.trial ? triagePlan(client, root, useModel) : null;
+      // Server pri usporiadaní na mieste model odmietne (400 triage_model_in_place).
+      return state.trial ? triagePlan(client, root, useModel && state.mode !== "in_place") : null;
     });
     if (alive.current && next !== undefined) setPreview(next);
   }, [client, root, run, text]);
@@ -256,7 +257,7 @@ function reasonOf(move: TriageMoveView, text: Text): string {
 
 /**
  * Náhľad ako tabuľka: dokument, odkiaľ, kam, prečo, istota, nová vec; riadok sa dá nechať na zatriedenie.
- * `inPlace`: priečinok klienta na mieste (nie skúšobný klon), texty potom o klone nehovoria.
+ * `inPlace`: priečinok klienta na mieste (nie skúšobný klon), texty potom o klone nehovoria a model sa neponúka.
  */
 export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep, onConfirm, onModel, model }: { preview: TriagePreview; text: Text; busy: boolean; inPlace?: boolean; onKeep: (id: string, keep: boolean) => void; onConfirm: () => void; onModel: (useModel: boolean) => void; model?: ReactNode }) {
   const matters = new Map(preview.matters.map((matter) => [matter.key, matter]));
@@ -275,8 +276,9 @@ export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep
         <div data-tone={preview.matters.length ? "gold" : undefined}><dd>{preview.matters.length}</dd><dt>{text("stat_matters")}</dt></div>
       </dl>
 
-      {model}
-      {preview.proposal?.state === "ready" || preview.classification.used ? (
+      {/* Na mieste je návrh len deterministický (spec #92): server model odmietne, panel ani prepínač sa neukážu. */}
+      {inPlace ? null : model}
+      {!inPlace && (preview.proposal?.state === "ready" || preview.classification.used) ? (
         <div className="lw-triage-switch" role="group" style={reveal(2)}>
           <span>{preview.classification.used ? text("model_used") : text("model_ready")}</span>
           <button type="button" className="lw-triage-ghost" disabled={busy} aria-pressed={!preview.classification.used} onClick={() => onModel(false)}>{text("model_rules_only")}</button>
