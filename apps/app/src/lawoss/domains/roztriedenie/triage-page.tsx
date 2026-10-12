@@ -15,7 +15,7 @@ import { installMissingOnboardingSkills } from "../onboarding/install-pack";
 import { ensureSkillAvailable, workspaceSkillEngine } from "../../okf/skill-availability";
 
 const ROZTRIED_SPIS_SKILL = "roztried-spis";
-import { triageApply, triagePlan, triageReplan, triageStatus, triageTargetRoot, triageUndo, type TriageClient, type TriageMoveView, type TriagePreview, type TriageRun, type TriageStatus, type TriageUndoResult } from "./api";
+import { plansPreview, triageApply, triagePlan, triageReplan, triageStatus, triageTargetRoot, triageUndo, type TriageClient, type TriageMoveView, type TriagePreview, type TriageRun, type TriageStatus, type TriageUndoResult } from "./api";
 import { OFFICE_CONFIG_ENCODING_CODE } from "../../../../../../lawoss/okf/src/profile";
 import "../../lite/pages/okf-glass.css";
 import "./triage.css";
@@ -134,7 +134,7 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
       const state = await triageStatus(client, root);
       if (alive.current) setStatus(state);
       // Server pri usporiadaní na mieste model odmietne (400 triage_model_in_place).
-      return state.trial ? triagePlan(client, root, useModel && state.mode !== "in_place") : null;
+      return state.trial && plansPreview(state) ? triagePlan(client, root, useModel && state.mode !== "in_place") : null;
     });
     if (alive.current && next !== undefined) setPreview(next);
   }, [client, root, run, text]);
@@ -162,7 +162,16 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
     if (result && alive.current) { setPhase({ kind: "undone", result }); await load(); setPhase({ kind: "undone", result }); }
   }
 
-  if (status && !status.trial) return <TriageEmpty text={text} message={text("not_reorganizable")} organizeRoot={root} />;
+  if (status && !status.trial) {
+    // Po vrátení na mieste súhlas zanikne: súhrn ostane viditeľný a ďalšie usporiadanie ide cez nové potvrdenie.
+    if (phase.kind === "undone") return (
+      <>
+        <section className="lw-triage-panel lw-triage-done" style={reveal(0)} role="status"><CheckCircle2 aria-hidden size={22} /><TriageUndoSummary text={text} result={phase.result} /></section>
+        <TriageEmpty text={text} message={text("in_place_again")} organizeRoot={root} />
+      </>
+    );
+    return <TriageEmpty text={text} message={text("not_reorganizable")} organizeRoot={root} />;
+  }
   const inPlace = status?.trial === true && status.mode === "in_place";
   return (
     <>
@@ -186,6 +195,12 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
         <section className="lw-triage-panel lw-triage-last" style={reveal(1)}>
           <span>{text("last_run", { date: new Date(lastApplied.createdAt).toLocaleString(locale) })}</span>
           <button type="button" className="lw-triage-ghost" disabled={busy} onClick={() => setAskUndo(lastApplied.runId)}><RotateCcw aria-hidden size={15} /> {text("undo")}</button>
+        </section>
+      ) : null}
+      {status?.trial && !plansPreview(status) && phase.kind !== "applied" ? (
+        <section className="lw-triage-panel lw-triage-empty" style={reveal(2)}>
+          <p>{text("in_place_used")}</p>
+          <div className="lw-triage-row"><Link className="lw-btn gold" to={organizeFolderLink(root)}>{text("organize_okf")}</Link></div>
         </section>
       ) : null}
       {askUndo ? (

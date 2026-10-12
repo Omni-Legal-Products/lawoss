@@ -8,7 +8,9 @@ export type TriageApiPath = "status" | "plan" | "replan" | "apply" | "undo" | "g
 export type TriageClient = { lawossTriage<T>(path: TriageApiPath, body: unknown): Promise<T> };
 
 export type TriageRun = { runId: string; createdAt: string; state: "applied" | "interrupted" | "undone" | "undoing" | "planned"; moves: number; matters: number };
-export type TriageStatus = { trial: true; mode: "trial" | "in_place"; root: string; runs: TriageRun[] } | { trial: false; reason?: string; runs: [] };
+export type TriageStatus = { trial: true; mode: "trial" | "in_place"; root: string; canPlan?: boolean; runs: TriageRun[] } | { trial: false; reason?: string; runs: [] };
+/** Náhľad sa pýta, len kým súhlas na mieste nie je spotrebovaný: po zápise ostáva len vrátenie (rozhodnutie MČ 12. 10.). */
+export const plansPreview = (state: TriageStatus): boolean => state.trial && state.canPlan !== false;
 export type TriageMoveView = {
   id: string; from: string; to: string; size: number; role: TriageRole; matter?: string;
   source: "rules" | "model" | "user" | "fallback"; confidence: "high" | "medium" | "low";

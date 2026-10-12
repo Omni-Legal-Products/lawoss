@@ -5,7 +5,7 @@ import type { ReactElement } from "react";
 import { t } from "../src/i18n";
 import { ClientsView } from "../src/lawoss/lite/pages/clients-page";
 import { TriagePreviewView, TriageTopline, TriageUndoSummary } from "../src/lawoss/domains/roztriedenie/triage-page";
-import { offersTriageEntry, triageApply, triageGrant, triageLink, triageTargetRoot, triagePlan, triageReplan, triageUndo, type TriageApiPath, type TriageClient, type TriagePreview } from "../src/lawoss/domains/roztriedenie/api";
+import { offersTriageEntry, plansPreview, triageApply, triageGrant, triageLink, triageTargetRoot, triagePlan, triageReplan, triageUndo, type TriageApiPath, type TriageClient, type TriagePreview } from "../src/lawoss/domains/roztriedenie/api";
 import { LAWOSS_ROUTES } from "../src/lawoss/shell/routes";
 
 const BANNED = /workspace|session|skill|\bMCP\b|\bOKF\b|opencode|plugin|treeDigest|fingerprint/i;
@@ -149,4 +149,16 @@ describe("štítok stránky roztriedenia podľa režimu (D1 9. 10.)", () => {
   test("skúšobný klon ostáva označený ako klon", () => {
     expect(html(<TriageTopline text={text} root="/x/Klient (trial 2026-10-05)" inPlace={false} />)).toContain("Skúšobný klon");
   });
+});
+
+test("spotrebovaný súhlas na mieste nežiada náhľad, skúšobný klon áno (rozhodnutie MČ 12. 10.)", () => {
+  expect(plansPreview({ trial: true, mode: "in_place", root: "/x/K", canPlan: true, runs: [] })).toBe(true);
+  expect(plansPreview({ trial: true, mode: "in_place", root: "/x/K", canPlan: false, runs: [] })).toBe(false);
+  expect(plansPreview({ trial: true, mode: "trial", root: "/x/K (trial)", runs: [] })).toBe(true);
+  expect(plansPreview({ trial: false, runs: [] })).toBe(false);
+  for (const locale of ["sk", "cs", "en", "de"] as const) {
+    expect(t("lawoss.triage.in_place_used", locale)).not.toBe("lawoss.triage.in_place_used");
+    expect(t("lawoss.triage.in_place_again", locale)).not.toBe("lawoss.triage.in_place_again");
+  }
+  expect(t("lawoss.triage.in_place_used", "sk")).toContain("Usporiadať podľa OKF");
 });
