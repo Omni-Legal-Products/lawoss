@@ -129,6 +129,36 @@ async function inspectCardLevel(root) {
   const decision = decideCardLevel(cards, directOffice || nestedOffices > 0, nestedOffices > 1);
   return { root: resolved, level: decision.level, issues: decision.issue ? [{ path: "", code: decision.issue }] : [] };
 }
+async function findOfficeConfigs(root, limits = {}) {
+  const maxEntries = limits.maxEntries ?? 1e5, maxDepth = limits.maxDepth ?? 32;
+  const offices = [];
+  const queue = [{ relative: "", depth: 0 }];
+  let seen = 0;
+  for (let next = queue.shift();next; next = queue.shift()) {
+    if (next.depth > maxDepth)
+      return { complete: false, offices };
+    let entries;
+    try {
+      entries = await readdir(join(root, next.relative), { withFileTypes: true });
+    } catch {
+      return { complete: false, offices };
+    }
+    for (const entry of entries) {
+      if (VOLATILE_ENTRY.test(entry.name))
+        continue;
+      if (++seen > maxEntries)
+        return { complete: false, offices };
+      const path = next.relative ? `${next.relative}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (!APP_FILE_DIRECTORIES.has(entry.name))
+          queue.push({ relative: path, depth: next.depth + 1 });
+      } else if (entry.isFile() && OFFICE_CONFIG.test(path))
+        offices.push(path);
+    }
+  }
+  return { complete: true, offices: offices.sort() };
+}
+var OFFICE_CONFIG = /(?:^|\/)(?:Office|_kancelaria)\/okf\.config$/;
 var APP_FILE_DIRECTORIES = new Set([".opencode"]);
 var MEMORY_FILES = new Set(["MEMORY.md", "_memory.md", "_STATUS.md", "BRAIN.md", ".lawoss/memory-profile.json"]);
 var VOLATILE_ENTRY = /^(?:~\$.*|~WRL\d+\.tmp|thumbs\.db|desktop\.ini)$/i;
@@ -317,7 +347,7 @@ async function inspectOnboardingRoot(root, limits = {}, hooks = {}) {
   }
   await visit("", 0);
   const cards = result.entries.filter((entry) => entry.kind === "file" && CARD_LEVELS[entry.path]);
-  const officePaths = result.entries.filter((entry) => entry.kind === "file" && /(?:^|\/)(?:Office|_kancelaria)\/okf\.config$/.test(entry.path));
+  const officePaths = result.entries.filter((entry) => entry.kind === "file" && OFFICE_CONFIG.test(entry.path));
   const directOffice = ["Office", "_kancelaria"].includes(basename(result.root)) && result.entries.some((entry) => entry.path === "okf.config" && entry.kind === "file");
   const office = directOffice || officePaths.some((entry) => ["Office/okf.config", "_kancelaria/okf.config"].includes(entry.path));
   const conflict = (code) => {
@@ -2420,6 +2450,11 @@ async function planShallowClientConversion(root, input) {
     throw new Error(incompleteInspectionMessage(UNINSPECTABLE, identity.issues));
   if (identity.level !== "client" && !(identity.level === "unknown" && input.confirmUnknownClient === true))
     throw new Error(NOT_CLIENT);
+  const offices = await findOfficeConfigs(identity.root);
+  if (!offices.complete)
+    throw new Error(incompleteInspectionMessage(UNINSPECTABLE, [{ path: "", code: "office_search_incomplete" }]));
+  if (offices.offices.length)
+    throw new Error(incompleteInspectionMessage(UNINSPECTABLE, offices.offices.map((path) => ({ path, code: "conflicting_identity" }))));
   const inspection = await inspectOnboardingParent(root);
   if (!inspection.complete || !inspection.digest)
     throw new Error(incompleteInspectionMessage(UNINSPECTABLE, inspection.issues));
