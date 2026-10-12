@@ -192,3 +192,23 @@ test("usporiadanie na mieste nepoužije návrh modelu", async () => {
   const refused = await f.call("triage/plan", { root: f.client, useModel: true });
   expect({ status: refused.status, code: (await refused.json()).code }).toEqual({ status: 400, code: "triage_model_in_place" });
 });
+
+test("súhlas na mieste platí na jedno usporiadanie a jeho vrátenie (rozhodnutie MČ 12. 10.)", async () => {
+  const f = await convertedFixture();
+  await f.success("triage/grant", { root: f.client, confirm: true });
+  expect(await f.success("triage/status", { root: f.client })).toMatchObject({ trial: true, mode: "in_place", canPlan: true });
+  const preview = await f.success("triage/plan", { root: f.client });
+  const second = await f.success("triage/plan", { root: f.client });
+  const applied = await f.success("triage/apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true });
+  // Po zápise ostáva súhlas len na vrátenie tohto behu: nový náhľad ani starší potvrdený náhľad neprejdú.
+  expect(await f.success("triage/status", { root: f.client })).toMatchObject({ trial: true, mode: "in_place", canPlan: false });
+  expect((await f.call("triage/plan", { root: f.client })).status).toBe(403);
+  expect((await f.call("triage/apply", { id: second.id, fingerprint: second.fingerprint, confirm: true })).status).toBe(403);
+  expect((await f.call("triage/undo", { root: f.client, runId: "triage-20261012-120000-abcdef", confirm: true })).status).toBe(403);
+  await f.success("triage/undo", { root: f.client, runId: applied.runId, confirm: true });
+  // Po vrátení súhlas zanikne; ďalšie usporiadanie potrebuje nové potvrdenie advokáta.
+  expect(await f.success("triage/status", { root: f.client })).toMatchObject({ trial: false });
+  expect((await f.call("triage/plan", { root: f.client })).status).toBe(403);
+  await f.success("triage/grant", { root: f.client, confirm: true });
+  expect(await f.success("triage/status", { root: f.client })).toMatchObject({ trial: true, canPlan: true });
+}, transactionTimeout);
