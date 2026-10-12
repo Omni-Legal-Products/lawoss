@@ -616,6 +616,7 @@ export function LawossWelcomePage({
         setStep(
           visibleOnboardingStep(
             initialStep ?? status.profile?.step ?? saved.step,
+            status.profile !== null,
           ),
         );
       })

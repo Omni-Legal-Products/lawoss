@@ -138,8 +138,13 @@ export function visibleOnboardingSteps(): readonly OnboardingStep[] {
   return MAIN_ONBOARDING_PATH;
 }
 
-/** Staré kroky (voľba OKF, kancelária, balíky) uložené alfa testermi vedú na krok Priečinok. */
-export function visibleOnboardingStep(step: OnboardingStep): OnboardingStep {
+/**
+ * Staré kroky (voľba OKF, kancelária, balíky) uložené alfa testermi vedú na krok Priečinok.
+ * Bez profilu na serveri by každý ďalší krok uložil zmenu, ktorú server odmietne (chýba meno,
+ * jurisdikcia a jazyk), preto tok začína identitou bez ohľadu na localStorage (#147).
+ */
+export function visibleOnboardingStep(step: OnboardingStep, hasProfile = true): OnboardingStep {
+  if (!hasProfile) return "identity";
   return step === "okf" || step === "office" || step === "packs" ? "folder" : step;
 }
 

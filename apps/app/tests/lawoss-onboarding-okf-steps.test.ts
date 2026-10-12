@@ -16,6 +16,9 @@ describe("kroky onboardingu cez priečinok", () => {
     for (const legacy of ["okf", "office", "packs"] as const) expect(visibleOnboardingStep(legacy)).toBe("folder");
     for (const kept of ["identity", "ai", "folder", "found", "client", "matter", "done"] as const) expect(visibleOnboardingStep(kept)).toBe(kept);
   });
+  test("bez profilu na serveri začína tok identitou bez ohľadu na localStorage (#147)", () => {
+    for (const saved of ["ai", "folder", "found", "okf", "matter", "done"] as const) expect(visibleOnboardingStep(saved, false)).toBe("identity");
+  });
   test("uložené folder v localStorage je nový krok Priečinok", () => {
     expect(readOnboardingProgress(storage({ lane: "detailed", step: "folder" }))).toEqual({ lane: "detailed", step: "folder" });
     expect(readOnboardingProgress(storage({ lane: "detailed", step: "found" }))).toEqual({ lane: "detailed", step: "found" });
