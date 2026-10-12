@@ -10,7 +10,38 @@ export type ProviderOverwriteConflict = {
   workspaces: { id: string; name: string }[];
 };
 
-type PendingConfirm = { conflicts: ProviderOverwriteConflict[]; resolve: (confirmed: boolean) => void };
+/** `save` pri zápise poskytovateľa, `remove` pri odpojení (`null`); líši sa text potvrdenia. */
+export type ProviderOverwriteMode = "save" | "remove";
+
+export type ProviderOverwriteRequest = { conflicts: ProviderOverwriteConflict[]; mode: ProviderOverwriteMode };
+
+type PendingConfirm = ProviderOverwriteRequest & { resolve: (confirmed: boolean) => void };
+
+const copyKeys = {
+  save: {
+    title: "lawoss.integrations.providerOverwrite.title",
+    description: "lawoss.integrations.providerOverwrite.description",
+    confirm: "lawoss.integrations.providerOverwrite.confirm",
+    cancelled: "lawoss.integrations.providerOverwrite.cancelled",
+  },
+  remove: {
+    title: "lawoss.integrations.providerOverwrite.removeTitle",
+    description: "lawoss.integrations.providerOverwrite.removeDescription",
+    confirm: "lawoss.integrations.providerOverwrite.removeConfirm",
+    cancelled: "lawoss.integrations.providerOverwrite.removeCancelled",
+  },
+} as const;
+
+export function providerOverwriteCopy(mode: ProviderOverwriteMode, providerId = "") {
+  const keys = copyKeys[mode];
+  return {
+    title: t(keys.title),
+    description: t(keys.description, { provider: providerId }),
+    cancel: t("lawoss.integrations.providerOverwrite.cancel"),
+    confirm: t(keys.confirm),
+    cancelled: t(keys.cancelled),
+  };
+}
 
 let pending: PendingConfirm | null = null;
 let hosts = 0;
@@ -37,20 +68,20 @@ export function providerOverwriteConflictsFrom(error: unknown): ProviderOverwrit
   return conflicts.length ? conflicts : null;
 }
 
-export function providerOverwriteMessage(conflicts: readonly ProviderOverwriteConflict[]): string {
+export function providerOverwriteMessage(conflicts: readonly ProviderOverwriteConflict[], mode: ProviderOverwriteMode): string {
   return conflicts
-    .map((conflict) => `${t("lawoss.integrations.providerOverwrite.description", { provider: conflict.providerId })}\n${conflict.workspaces.map((workspace) => `• ${workspace.name}`).join("\n")}`)
+    .map((conflict) => `${providerOverwriteCopy(mode, conflict.providerId).description}\n${conflict.workspaces.map((workspace) => `• ${workspace.name}`).join("\n")}`)
     .join("\n\n");
 }
 
 /** Otvorí potvrdenie v ProviderOverwriteConfirmHost; bez hostiteľa použije natívne okno. */
-export function requestProviderOverwriteConfirm(conflicts: ProviderOverwriteConflict[]): Promise<boolean> {
+export function requestProviderOverwriteConfirm({ conflicts, mode }: ProviderOverwriteRequest): Promise<boolean> {
   if (!hosts) {
-    return Promise.resolve(typeof window !== "undefined" && window.confirm(`${t("lawoss.integrations.providerOverwrite.title")}\n\n${providerOverwriteMessage(conflicts)}`));
+    return Promise.resolve(typeof window !== "undefined" && window.confirm(`${providerOverwriteCopy(mode).title}\n\n${providerOverwriteMessage(conflicts, mode)}`));
   }
   pending?.resolve(false);
   return new Promise((resolve) => {
-    pending = { conflicts, resolve };
+    pending = { conflicts, mode, resolve };
     emit();
   });
 }
@@ -67,7 +98,7 @@ export const providerOverwriteConfirmStore = {
     listeners.add(listener);
     return () => listeners.delete(listener);
   },
-  snapshot: (): ProviderOverwriteConflict[] | null => pending?.conflicts ?? null,
+  snapshot: (): ProviderOverwriteRequest | null => pending,
   attachHost() {
     hosts += 1;
     return () => {
@@ -83,14 +114,17 @@ export const providerOverwriteConfirmStore = {
  */
 export async function patchProviderConfirmingOverwrite<T>(
   patch: (confirmProviderOverwrite: boolean) => Promise<T>,
-  confirm: (conflicts: ProviderOverwriteConflict[]) => Promise<boolean> = requestProviderOverwriteConfirm,
+  options: { mode?: ProviderOverwriteMode; confirm?: (request: ProviderOverwriteRequest) => Promise<boolean> } = {},
 ): Promise<T> {
+  const mode = options.mode ?? "save";
   try {
     return await patch(false);
   } catch (error) {
     const conflicts = providerOverwriteConflictsFrom(error);
     if (!conflicts) throw error;
-    if (!(await confirm(conflicts))) throw new Error(t("lawoss.integrations.providerOverwrite.cancelled"));
+    if (!(await (options.confirm ?? requestProviderOverwriteConfirm)({ conflicts, mode }))) {
+      throw new Error(providerOverwriteCopy(mode).cancelled);
+    }
     return await patch(true);
   }
 }

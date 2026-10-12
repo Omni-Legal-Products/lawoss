@@ -973,7 +973,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       await patchProviderConfirmingOverwrite((confirmProviderOverwrite) => legalworkClient.patchConfig(legalworkWorkspaceId, {
         opencode: { provider: { [resolved]: null } },
         ...(confirmProviderOverwrite ? { confirmProviderOverwrite } : {}),
-      }));
+      }), { mode: "remove" });
       return;
     }
 

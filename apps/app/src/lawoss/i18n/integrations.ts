@@ -254,6 +254,10 @@ export const integrationsEn = {
   "lawoss.integrations.providerOverwrite.cancel": "Cancel",
   "lawoss.integrations.providerOverwrite.confirm": "Save for all",
   "lawoss.integrations.providerOverwrite.cancelled": "Nothing was saved. The other clients keep their own provider settings.",
+  "lawoss.integrations.providerOverwrite.removeTitle": "Disconnect the provider for other clients too?",
+  "lawoss.integrations.providerOverwrite.removeDescription": "Provider {provider} has its own different settings in these clients. If you disconnect it, they will lose it too:",
+  "lawoss.integrations.providerOverwrite.removeConfirm": "Disconnect for all",
+  "lawoss.integrations.providerOverwrite.removeCancelled": "Nothing was disconnected. The other clients keep their own provider settings.",
 };
 export const integrationsCs = {
   "lawoss.integrations.author.title": "Jméno advokáta a autor dokumentů",
@@ -510,6 +514,10 @@ export const integrationsCs = {
   "lawoss.integrations.providerOverwrite.cancel": "Zrušit",
   "lawoss.integrations.providerOverwrite.confirm": "Uložit pro všechny",
   "lawoss.integrations.providerOverwrite.cancelled": "Nic se neuložilo. Ostatní klienti si ponechali vlastní nastavení poskytovatele.",
+  "lawoss.integrations.providerOverwrite.removeTitle": "Odpojit poskytovatele i u dalších klientů?",
+  "lawoss.integrations.providerOverwrite.removeDescription": "Poskytovatel {provider} má u těchto klientů vlastní odlišné nastavení. Po odpojení o něj přijdou i oni:",
+  "lawoss.integrations.providerOverwrite.removeConfirm": "Odpojit pro všechny",
+  "lawoss.integrations.providerOverwrite.removeCancelled": "Nic se neodpojilo. Ostatní klienti si ponechali vlastní nastavení poskytovatele.",
 } satisfies Record<keyof typeof integrationsEn, string>;
 export const integrationsSk = {
   "lawoss.integrations.author.title": "Meno advokáta a autor dokumentov",
@@ -766,6 +774,10 @@ export const integrationsSk = {
   "lawoss.integrations.providerOverwrite.cancel": "Zrušiť",
   "lawoss.integrations.providerOverwrite.confirm": "Uložiť pre všetkých",
   "lawoss.integrations.providerOverwrite.cancelled": "Nič sa neuložilo. Ostatní klienti si ponechali vlastné nastavenie poskytovateľa.",
+  "lawoss.integrations.providerOverwrite.removeTitle": "Odpojiť poskytovateľa aj u ďalších klientov?",
+  "lawoss.integrations.providerOverwrite.removeDescription": "Poskytovateľ {provider} má u týchto klientov vlastné odlišné nastavenie. Po odpojení oň prídu aj oni:",
+  "lawoss.integrations.providerOverwrite.removeConfirm": "Odpojiť pre všetkých",
+  "lawoss.integrations.providerOverwrite.removeCancelled": "Nič sa neodpojilo. Ostatní klienti si ponechali vlastné nastavenie poskytovateľa.",
 } satisfies Record<keyof typeof integrationsEn, string>;
 export const integrationsDe = {
   "lawoss.integrations.author.title": "Anwaltsname und Dokumentautor",
@@ -1022,4 +1034,8 @@ export const integrationsDe = {
   "lawoss.integrations.providerOverwrite.cancel": "Abbrechen",
   "lawoss.integrations.providerOverwrite.confirm": "Für alle speichern",
   "lawoss.integrations.providerOverwrite.cancelled": "Es wurde nichts gespeichert. Die anderen Mandanten behalten ihre eigenen Anbietereinstellungen.",
+  "lawoss.integrations.providerOverwrite.removeTitle": "Anbieter auch für andere Mandanten trennen?",
+  "lawoss.integrations.providerOverwrite.removeDescription": "Der Anbieter {provider} hat bei diesen Mandanten eigene abweichende Einstellungen. Wenn Sie ihn trennen, verlieren auch sie ihn:",
+  "lawoss.integrations.providerOverwrite.removeConfirm": "Für alle trennen",
+  "lawoss.integrations.providerOverwrite.removeCancelled": "Es wurde nichts getrennt. Die anderen Mandanten behalten ihre eigenen Anbietereinstellungen.",
 } satisfies Record<keyof typeof integrationsEn, string>;

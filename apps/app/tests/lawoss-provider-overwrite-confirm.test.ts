@@ -20,10 +20,10 @@ describe("prepis poskytovateľa u ďalších klientov", () => {
       calls.push(confirm);
       if (!confirm) throw conflictError();
       return "ok";
-    }, async (items) => { asked.push(items); return true; });
+    }, { confirm: async (request) => { asked.push(request); return true; } });
     expect(result).toBe("ok");
     expect(calls).toEqual([false, true]);
-    expect(asked).toEqual([conflicts]);
+    expect(asked).toEqual([{ conflicts, mode: "save" }]);
   });
 
   test("zrušenie skončí chybou a druhá požiadavka sa nepošle", async () => {
@@ -31,7 +31,7 @@ describe("prepis poskytovateľa u ďalších klientov", () => {
     const run = patchProviderConfirmingOverwrite(async (confirm) => {
       calls.push(confirm);
       throw conflictError();
-    }, async () => false);
+    }, { mode: "remove", confirm: async (request) => request.mode !== "remove" });
     await expect(run).rejects.toThrow();
     expect(calls).toEqual([false]);
   });
@@ -39,7 +39,7 @@ describe("prepis poskytovateľa u ďalších klientov", () => {
   test("iná chyba sa nepýta a prepadne bez zmeny", async () => {
     const other = new LegalworkServerError(500, "internal_error", "boom");
     let asked = false;
-    await expect(patchProviderConfirmingOverwrite(async () => { throw other; }, async () => { asked = true; return true; })).rejects.toBe(other);
+    await expect(patchProviderConfirmingOverwrite(async () => { throw other; }, { confirm: async () => { asked = true; return true; } })).rejects.toBe(other);
     expect(asked).toBe(false);
   });
 });
