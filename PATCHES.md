@@ -502,3 +502,9 @@ Integrované CI odhalilo nedokončenú štartovaciu MCP synchronizáciu: `apps/s
 
 
 Linux packaging na heade `7bde0842` úspešne overil aplikáciu a renderer, no po hlásení PASS vypršal timeout testovacieho skriptu. `apps/desktop/scripts/packaged-startup-regression.mjs` teraz na POSIX spúšťa aplikáciu vo vlastnej procesovej skupine, pri cleanup ukončí aj potomkov a uzavrie výstupné pipes. Regresia `apps/desktop/scripts/packaged-startup-regression.test.mjs`, zaradená v `apps/desktop/package.json`, reprodukuje potomka držiaceho zdedené pipes po skončení hlavného procesu. Pôvodný skript po PASS visel; opravený sa ohraničene ukončí. Windows nepoužíva POSIX skupiny. Produkčný desktop runtime sa nemení.
+
+### Ukončenie testovacích enginov opencode (2026-10-12)
+
+| Súbory upstreamu | Úprava a dôvod |
+|---|---|
+| `apps/server/src/mcp.oauth-flow.e2e.test.ts`, `apps/server/src/mcp.oauth-rebuild.e2e.test.ts` | Engine aj mock OAuth server sa spúšťajú cez `spawnOwnedChild` a v async `afterAll` (limit 15 s) sa ukončujú cez `stopOwnedChild` z LAWOSS súboru `src/lawoss/test-support/owned-child-process.ts`; engine dostane aj `HOME` v dočasnom priečinku. Pôvodný `kill()` neeskaloval a nečakal: engine občas po SIGTERM nedokončil vypínanie a pri páde procesu testov (SIGTERM, SIGHUP, SIGKILL, timeout nástroja) sa afterAll nespustil. 9. 10. 2026 tak ostalo desať enginov s rodičom launchd a reálnym HOME. Produkčný kód sa nemení. |
