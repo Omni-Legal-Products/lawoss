@@ -8,5 +8,5 @@ export function reviewAgentConfig(): Record<string, unknown> {
   const file = CORE_OPENCODE_FILES.find(file => file.path === `.opencode/agents/${REVIEW_AGENT}.md`);
   if (!file) throw new Error("The built-in review worker is missing from the LegalWork bundle.");
   const { data, body } = parseFrontmatter(file.content);
-  return { ...data, prompt: body.trim(), permission: { "*": "deny" } };
+  return { ...data, prompt: body.trim(), permission: { "*": "deny", StructuredOutput: "allow" } };
 }

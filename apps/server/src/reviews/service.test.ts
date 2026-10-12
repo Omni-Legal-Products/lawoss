@@ -488,6 +488,9 @@ test("restart recovery resets OCR state and resumes unfinished cells without rep
   const f = await fixture(); let review = await f.create();
   await f.service.start(f.workspace, review.id, { revision: review.revision });
   review = await settled(f.service, f.workspace, review.id);
+  // A terminal status can precede history archival and runner cleanup. Finish
+  // shutdown before writing the interrupted state that a new process would load.
+  await f.service.stop();
   const kept = structuredClone(review.cells[0]);
   await new ReviewStore(f.root).update(review.id, current => {
     current.status = "running"; current.documents[0].status = "preparing";

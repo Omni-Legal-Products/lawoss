@@ -1,3 +1,4 @@
+import { isReviewWorkerSession } from "@legalwork/types/reviews";
 // The session route's data + navigation core: workspace/session loading
 // (refreshRouteState + background session fetch), endpoint and opencode
 // client resolution, URL-derived selection, redirects (fallback workspace,
@@ -176,7 +177,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     });
   }, [selectedWorkspaceId, selectedSessionId]);
   const mergeFetchedSessionsWithPending = useCallback((workspaceId: string, fetched: RouteSession[], current: RouteSession[]) => {
-    fetched = fetched.filter(session => !removedSessionIdsRef.current.has(session.id));
+    fetched = fetched.filter(session => !isReviewWorkerSession(session) && !removedSessionIdsRef.current.has(session.id));
     // Preserve newer runtime fields only for sessions still listed by the server.
     const loaded = loadedSessionRef.current?.workspaceId === workspaceId ? loadedSessionRef.current.session : null;
     fetched = preferLoadedSession(fetched, loaded);

@@ -165,6 +165,15 @@ describe("subagent request scope", () => {
     expect(usePanelTabStore.getState().sessions[scope]?.tabs.map((tab) => tab.id)).toEqual(["chat:other", "contract"]);
   });
 
+  test("review worker creation and updates never enter the chat navigation list", () => {
+    const visible = [session("parent")];
+    const worker = { ...session("review"), title: "Review: Governing law", metadata: { legalworkReviewWorker: true } };
+    expect(upsertRuntimeSession(visible, { sessionId: worker.id, info: worker })).toBe(visible);
+    expect(upsertRuntimeSession(visible, { sessionId: worker.id, info: { ...worker, title: "Renamed result" } })).toBe(visible);
+    const ordinary = { ...session("ordinary"), title: worker.title };
+    expect(upsertRuntimeSession(visible, { sessionId: ordinary.id, info: ordinary }).map(item => item.id)).toEqual(["parent", "ordinary"]);
+  });
+
   test("new child sessions enter runtime navigation data immediately and subsequent updates replace them", () => {
     const child = session("child", "parent");
     const list = upsertRuntimeSession([session("parent")], { sessionId: child.id, info: child });

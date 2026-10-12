@@ -7,6 +7,8 @@ import { buildLegalworkRuntimeConfigObject } from "../legalwork-runtime-config.j
 import { createManagedOpencodeServer } from "../managed-opencode.js";
 import { closeRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
+import { buildSessionList } from "../session-read-model.js";
+import { isReviewWorkerSession } from "@legalwork/types/reviews";
 import { ReviewExecutor } from "./executor.js";
 import { ReviewColumnSchema, SavedReviewSchema } from "./schema.js";
 
@@ -20,18 +22,28 @@ test.skipIf(!binary)("LLM review completes in the shipped engine with project co
     readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
     agentSandboxEnabled: true,
   };
-  const requests: Array<{ messages: Array<{ role: string; content: unknown }>; tools?: unknown[] }> = [];
+  const requests: Array<{ messages: Array<{ role: string; content: unknown }>; tools?: Array<{ function: { name: string } }> }> = [];
+  let engine: Awaited<ReturnType<typeof createManagedOpencodeServer>> | undefined;
+  let checkedLiveWorker = false;
   const fixture = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
-    const input = z.object({ messages: z.array(z.object({ role: z.string(), content: z.unknown() })), tools: z.array(z.unknown()).optional() }).parse(await request.json());
+    const input = z.object({ messages: z.array(z.object({ role: z.string(), content: z.unknown() })), tools: z.array(z.object({ function: z.object({ name: z.string() }) })).optional() }).parse(await request.json());
     requests.push(input);
     const answer = JSON.stringify({ cells: { assignment: {
       value: "Yes", reason: "Assignment is expressly permitted.", quote: "Assignment is permitted.", page: 1,
       location: "Assignment", confidence: "high", citations: [{ page: 1, quote: "Assignment is permitted.", source: "native" }],
     } } });
+    if (engine) {
+      const headers = { authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` };
+      const sessions = await fetch(engine.url + "/session", { headers }).then(response => response.json());
+      const workers = z.array(z.unknown()).parse(sessions);
+      expect(workers.length).toBeGreaterThan(0);
+      expect(workers.every(isReviewWorkerSession)).toBe(true);
+      expect(buildSessionList(sessions)).toEqual([]);
+      checkedLiveWorker = true;
+    }
     const chunk = (delta: unknown, finish_reason: string | null) => `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
-    return new Response(chunk({ role: "assistant", content: answer }, null) + chunk({}, "stop") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
+    return new Response(chunk({ role: "assistant", tool_calls: [{ index: 0, id: "structured", type: "function", function: { name: "StructuredOutput", arguments: answer } }] }, null) + chunk({}, "tool_calls") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
   } });
-  let engine: Awaited<ReturnType<typeof createManagedOpencodeServer>> | undefined;
   try {
     const agentsFolder = join(workspace.path, ".opencode", "agents");
     await mkdir(agentsFolder, { recursive: true });
@@ -73,7 +85,8 @@ test.skipIf(!binary)("LLM review completes in the shipped engine with project co
     expect(result).toMatchObject({ value: "Yes", backend: "llm", model: "fixture", evidence: "cited", citations: [{ page: 1, quote: "Assignment is permitted." }] });
     const inference = requests.find(request => JSON.stringify(request.messages).includes("Review the supplied evidence only."));
     expect(inference).toBeDefined();
-    expect(inference?.tools ?? []).toEqual([]);
+    expect(inference?.tools?.map(tool => tool.function.name)).toEqual(["StructuredOutput"]);
+    expect(checkedLiveWorker).toBe(true);
     const sessions = await fetch(engine.url + "/session", { headers, signal: AbortSignal.timeout(10000) });
     expect(await sessions.json()).toEqual([]);
   } finally {

@@ -2,6 +2,14 @@ import { z } from "zod";
 import { SystemOneAnswerSchema } from "./systemone.js";
 import type { DocumentRegion, DocumentRelation, PageStructure } from "./document-structure.js";
 
+// Set in the create request, before the engine publishes session.created.
+export const REVIEW_WORKER_METADATA = { legalworkReviewWorker: true };
+export function isReviewWorkerSession(session: unknown) {
+  if (!session || typeof session !== "object" || !("metadata" in session)) return false;
+  const metadata = session.metadata;
+  return !!metadata && typeof metadata === "object" && "legalworkReviewWorker" in metadata && metadata.legalworkReviewWorker === true;
+}
+
 export const REVIEW_FILE_EXTENSIONS = ["pdf", "docx", "png", "jpg", "jpeg", "webp", "txt", "md", "markdown"];
 export const REVIEW_MAX_FILE_BYTES = 64 * 1024 * 1024;
 export function isReviewFile(name: string) {
