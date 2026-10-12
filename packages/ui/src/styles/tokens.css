@@ -124,6 +124,8 @@
   --lw-hover: rgba(13, 13, 15, 0.04);
   --lw-active: rgba(13, 13, 15, 0.07);
   --lw-selected: var(--lw-accent-soft);
+  --lw-text-selection-bg: #2563eb;
+  --lw-text-selection-fg: #ffffff;
   --lw-focus-ring: rgba(53, 53, 59, 0.24);
   --lw-focus-ring-navy: var(--lw-focus-ring);
 

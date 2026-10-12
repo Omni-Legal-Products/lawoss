@@ -320,7 +320,8 @@ body {
     @apply font-sans;
   }
   ::selection {
-    background: var(--lw-accent-soft);
+    background: var(--lw-text-selection-bg);
+    color: var(--lw-text-selection-fg);
   }
 }
 
