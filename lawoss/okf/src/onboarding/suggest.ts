@@ -7,11 +7,11 @@ import { lstat, readdir, readFile } from "node:fs/promises";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { realpath } from "../canonical-path.ts";
 import { decodeText } from "../../../okf-pamat/src/text-decode.ts";
-import { VOLATILE_ENTRY } from "./classify.ts";
+import { findAncestorOffice, VOLATILE_ENTRY } from "./classify.ts";
 import { hasLegalForm, looksLikeMatterName } from "./suggest-patterns.ts";
 
 export type SuggestedLevel = "practice" | "client" | "matter" | "unknown";
-export type SuggestionSignal = "office_config" | "client_card" | "matter_card" | "legal_form_children" | "matter_named_children" | "letter_buckets" | "matter_named_root" | "documents_only" | "plain_directories" | "empty";
+export type SuggestionSignal = "office_config" | "client_card" | "matter_card" | "legal_form_children" | "matter_named_children" | "letter_buckets" | "matter_named_root" | "documents_only" | "plain_directories" | "empty" | "inside_office";
 export type SuggestedClient = { path: string; name: string };
 export type OnboardingSuggestion = { root: string; level: SuggestedLevel; marked: boolean; score: number; signals: SuggestionSignal[]; clientPattern?: string; clients: SuggestedClient[]; complete: boolean };
 export type SurveyEntry = { path: string; kind: "file" | "directory" };
@@ -107,6 +107,8 @@ export async function suggestOnboardingLevel(root: string): Promise<OnboardingSu
   const clientish = new Set([...legal, ...withMatters].map(candidate => candidate.path));
   const ratio = candidates.length ? clientish.size / candidates.length : 0;
   if (candidates.length >= PRACTICE_MIN_CLIENTS && ratio >= PRACTICE_MIN_RATIO) {
+    // Vnútri existujúcej kancelárie nová prax nevznikne (planPracticeOffice ju odmietne); návrh nechá úroveň na advokátovi.
+    if (await findAncestorOffice(survey.root)) return { ...base, level: "unknown", marked: false, score: 0, signals: ["inside_office"] };
     const signals: SuggestionSignal[] = [];
     if (bucketed) signals.push("letter_buckets");
     if (legal.length) signals.push("legal_form_children");
