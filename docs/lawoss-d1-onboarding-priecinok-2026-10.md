@@ -80,6 +80,22 @@ Bočný panel → Pridať priečinok → Začať nanovo → `Nová prax`.
 | Skopírovať `Samostatný klient` do `Nová prax/Klienti/` → Pridať priečinok → klient → „Nie“ | PASS: pribudli OKF súbory, nič sa nepohlo (`Žaloba.pdf` ostala v `2025-01 Spor`) a klient je zaregistrovaný |
 | Názvy workspace | Dva rôzne priečinky majú rovnaký názov „Samostatný klient“ a v UI sa nedajú rozlíšiť |
 
+## Opakovanie po review VŘ (profil d6, build `bfd27332`, 12. 10. 2026, ad-hoc podpis)
+
+C2 so zlúčenými A (`50326ac3`), B (`be012306`) a C1 (`4905e9e1`): súhlas s usporiadaním na mieste eviduje hostiteľ, značka `.lawoss/reorganize.json` sama nestačí, model sa na mieste neponúka. Čistý izolovaný profil (`HOME`, `XDG_*`, `LEGALWORK_ELECTRON_USERDATA`), syntetický `Samostatný klient` s 8 dokumentmi a vecou `2025-01 Spor`. Jazyk rozhrania ostal angličtina (rozbaľovací zoznam sa v teste na pozadí nedal ovládať).
+
+| Krok | Výsledok |
+|---|---|
+| Ty → AI (bez modelu) → Priečinok → Pripojiť existujúci → `Samostatný klient` | PASS, návrh „a client: Samostatný klient“ |
+| „Yes, organise it“ | PASS: OKF súbory pribudli, priečinok sa zaregistroval s `appFiles: "inside"`, záznam súhlasu `~/.config/legalwork/lawoss-onboarding/consent/<sha256>.json` (0600, `workspaceId` a `root`) vznikol v profile hostiteľa |
+| Náhľad na mieste | PASS: 8 dokumentov, 7 zaradených, 1 na zatriedenie, text „presunú sa priamo vo vašom priečinku“, **bez panelu a prepínača modelu** ([17](assets/d1-onboarding-priecinok-2026-10/17-d6-nahlad-na-mieste-bez-modelu.jpg)) |
+| „Confirm and sort“ | PASS: 7 presunov do rolí, `Poznamky.txt` do `00_Inbox`, vec `2025-01 Spor/Žaloba.pdf` nedotknutá, appka na domove klienta ([18](assets/d1-onboarding-priecinok-2026-10/18-d6-po-usporiadani-domov.jpg)) |
+| Klienti a veci → Sort documents | PASS: stránka rozpozná usporiadanie na mieste zo záznamu hostiteľa, štítok „Client folder“, „Undo sorting“ ([19](assets/d1-onboarding-priecinok-2026-10/19-d6-roztriedenie-suhlas-hostitela.jpg)) |
+| „Undo sorting“ → „Yes, undo“ | PASS: „Documents returned: 8“, všetky dokumenty späť v koreni ([20](assets/d1-onboarding-priecinok-2026-10/20-d6-vratene-8.jpg)) |
+| Zatvorenie a kontrola profilu | PASS: appka ukončená cez AppleScript `quit`, bez relaunchu; `find ~/.config/legalwork ~/.config/opencode ~/.legalwork -newer marker` prázdne |
+
+Podvrhnutú značku bez súhlasu hostiteľa (403) v D1 neoverujem: trasy roztriedenia sú len pre hostiteľa. Pokrýva ju serverový e2e test v C1 (`e051635f`, CI zelené). Pri prvom pokuse systémový výber priečinka po prechode na ovládanie celej obrazovky sám potvrdil predvolený `~/Downloads`. Appka ukázala len návrh („This looks like the client Downloads“), nič nezapísala a návrh som zrušil cez „Choose another folder“.
+
 ## Súhrn nálezov
 
 | Priorita | Nález | Stav |
