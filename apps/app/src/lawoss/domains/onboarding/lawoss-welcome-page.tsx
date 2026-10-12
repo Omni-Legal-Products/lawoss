@@ -321,11 +321,34 @@ const officeConfigEncoding: Record<Language, string> = {
 };
 const officeConfigEncodingMessage = (error: unknown, locale: Language) =>
   error instanceof Error && error.message.startsWith(OFFICE_CONFIG_ENCODING_MESSAGE) ? officeConfigEncoding[locale] : undefined;
+/**
+ * Vo vybranom priečinku je iná kancelária alebo karta (`conflicting_identity`), prípadne sa kancelária
+ * nedala spoľahlivo vyhľadať (`office_search_incomplete`). Spec #92: stop s vysvetlením.
+ */
+const nestedIdentity: Record<Language, (paths: string) => string> = {
+  sk: (paths) => `Vo vybranom priečinku už je iná kancelária alebo iný klient: ${paths}. Taký priečinok sa nedá pripojiť ako jeden klient. Pripojte priamo priečinok tej kancelárie alebo vyberte iný priečinok.`,
+  cs: (paths) => `Ve vybrané složce už je jiná kancelář nebo jiný klient: ${paths}. Takovou složku nelze připojit jako jednoho klienta. Připojte přímo složku té kanceláře nebo vyberte jinou složku.`,
+  en: (paths) => `The selected folder already contains another office or another client: ${paths}. Such a folder cannot be added as a single client. Add that office folder directly or choose a different folder.`,
+  de: (paths) => `Der gewählte Ordner enthält bereits eine andere Kanzlei oder einen anderen Mandanten: ${paths}. Ein solcher Ordner kann nicht als ein Mandant hinzugefügt werden. Fügen Sie direkt den Ordner dieser Kanzlei hinzu oder wählen Sie einen anderen Ordner.`,
+};
+const officeSearchIncomplete: Record<Language, string> = {
+  sk: "Priečinok sa nepodarilo prehľadať celý (je veľmi veľký alebo sa niektorý podpriečinok nedá čítať), takže nie je isté, že v ňom nie je iná kancelária. Vyberte menší priečinok, napríklad priečinok jedného klienta.",
+  cs: "Složku se nepodařilo prohledat celou (je velmi velká nebo některou podsložku nelze číst), takže není jisté, že v ní není jiná kancelář. Vyberte menší složku, například složku jednoho klienta.",
+  en: "The folder could not be searched completely (it is very large or a subfolder cannot be read), so it is not certain that it contains no other office. Choose a smaller folder, for example the folder of one client.",
+  de: "Der Ordner konnte nicht vollständig durchsucht werden (er ist sehr groß oder ein Unterordner ist nicht lesbar), daher ist nicht sicher, dass er keine andere Kanzlei enthält. Wählen Sie einen kleineren Ordner, zum Beispiel den Ordner eines Mandanten.",
+};
+const identityMessage = (error: unknown, locale: Language) => {
+  if (!(error instanceof Error)) return undefined;
+  if (/(?:^|: |; )\.: office_search_incomplete(?=; |$| \()/.test(error.message)) return officeSearchIncomplete[locale];
+  const paths = [...error.message.matchAll(/(?:: |; )([^;]+?): conflicting_identity(?=; |$| \()/g)].map((match) => match[1] ?? "");
+  return paths.length ? nestedIdentity[locale](paths.join(", ")) : undefined;
+};
 /** Server errors in the UI language where the app knows them; other messages stay as sent. */
 export const onboardingErrorMessage = (error: unknown, locale: Language) =>
   error instanceof Error && error.message === UNSAFE_FOLDER_NAME_MESSAGE
     ? unsafeFolderName[locale]
     : (lockedFilesMessage(error, locale) ??
+      identityMessage(error, locale) ??
       officeConfigEncodingMessage(error, locale) ??
       canonicalPathRejection(error, locale) ??
       errorMessage(error, text[locale].error));
