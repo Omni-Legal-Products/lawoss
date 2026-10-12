@@ -8,6 +8,8 @@ test("project-only agent denies unscoped tools and preserves user tool permissio
     "*": "deny", legalwork_project_read: "deny", legalwork_calendar_get: "allow", legalwork_calendar_list: "ask",
   });
   expect(ScheduledTaskInputSchema.shape.projectAccess.parse(undefined)).toBe("project");
+  expect(projectTaskPermissions()).toMatchObject({ legalwork_schedule_clock: "allow" });
+  expect(projectTaskPermissions({ legalwork_schedule_clock: "deny" })).toMatchObject({ legalwork_schedule_clock: "deny" });
   expect(hasProjectTaskBoundary(undefined)).toBe(false);
   expect(hasProjectTaskBoundary({ name: PROJECT_TASK_AGENT, permission: [{ permission: "*", pattern: "*", action: "deny" }, { permission: "legalwork_project_read", pattern: "*", action: "allow" }] })).toBe(true);
   for (const permission of ["*", "bash", "read", "task", "mcp_*", "legalwork_schedule_update"]) {

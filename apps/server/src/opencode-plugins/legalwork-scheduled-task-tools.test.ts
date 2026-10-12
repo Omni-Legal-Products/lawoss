@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, setSystemTime, spyOn, test } from "bun:test";
 import { LegalWorkScheduledTaskTools } from "./legalwork-scheduled-task-tools.js";
 import { ScheduledTaskInputSchema, type ScheduledTaskInput } from "@legalwork/types/scheduled-tasks";
 import { nextOccurrence, wallTime } from "../scheduled-tasks/schedule.js";
@@ -57,6 +57,7 @@ test("chat creation supplies the computer zone for every schedule kind and respe
   const saved: ScheduledTaskInput[] = [];
   const server = Bun.serve({ port: 0, async fetch(request) {
     if (new URL(request.url).pathname === "/workspaces") return Response.json({ items: [{ id: "current", path: "/matters/current" }] });
+    if (new URL(request.url).pathname === "/session/ses_zone/message") return Response.json([]);
     if (new URL(request.url).pathname === "/session/this-chat/message/running-message") return Response.json({ info: { role: "assistant", providerID: "fixture", modelID: "fixture-model" }, parts: [] });
     const input = ScheduledTaskInputSchema.parse(await request.json());
     saved.push(input);
@@ -77,8 +78,13 @@ test("chat creation supplies the computer zone for every schedule kind and respe
       const before = wallTime(new Date().toISOString(), zone);
       await plugin["experimental.chat.system.transform"]({}, output);
       const guidance = output.system.join(" ");
-      expect(guidance).toContain(`local time zone is ${zone}`);
-      expect(guidance).toContain(before.slice(0, 10));
+      const user = { message: { id: "msg_zone" }, parts: [] };
+      await plugin["chat.message"]({ sessionID: "ses_zone" }, user);
+      const reminder = JSON.stringify(user.parts);
+      expect(reminder).toContain(`time zone ${zone}`);
+      expect(reminder).toContain(before.slice(0, 10));
+      expect(guidance).not.toContain(zone);
+      expect(guidance).not.toContain(before.slice(0, 10));
       expect(guidance).toContain("Do not ask the user for their time zone");
       expect(guidance).toContain("use 06:00, starting at the next future morning");
       for (const schedule of schedules) {
@@ -98,5 +104,68 @@ test("chat creation supplies the computer zone for every schedule kind and respe
     if (oldZone === undefined) delete process.env.TZ; else process.env.TZ = oldZone;
     if (oldUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = oldUrl;
     if (oldToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = oldToken;
+  }
+});
+
+test("clock reminders refresh on user turns while the system prompt and saved history stay fixed", async () => {
+  const options = new Intl.DateTimeFormat().resolvedOptions();
+  const zone = spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({ ...options, timeZone: "Europe/Berlin" });
+  setSystemTime(new Date("2026-10-24T21:59:55.123Z"));
+  try {
+    const plugin = await LegalWorkScheduledTaskTools();
+    const firstSystem = { system: [] };
+    await plugin["experimental.chat.system.transform"]({}, firstSystem);
+    const first = { message: { id: "msg_first" }, parts: [{ type: "text", text: "Remind me tomorrow morning." }] };
+    await plugin["chat.message"]({ sessionID: "ses_clock" }, first);
+    expect(first.parts.at(-1)).toMatchObject({
+      type: "text", synthetic: true, messageID: "msg_first", sessionID: "ses_clock",
+    });
+    expect(first.parts.at(-1)?.text).toContain('topic="scheduling-clock"');
+    expect(first.parts.at(-1)?.text).toContain("2026-10-24T23:59:55");
+    expect(first.parts.at(-1)?.text).toContain("2026-10-24T21:59:55.123Z");
+    const savedFirst = JSON.stringify(first);
+
+    // Subsequent model steps cross local midnight without changing their prefix.
+    setSystemTime(new Date("2026-10-24T22:01:00.456Z"));
+    const nextSystem = { system: [] };
+    await plugin["experimental.chat.system.transform"]({}, nextSystem);
+    expect(nextSystem).toEqual(firstSystem);
+    expect(JSON.stringify(first)).toBe(savedFirst);
+    const second = { message: { id: "msg_second" }, parts: [] };
+    await plugin["chat.message"]({ sessionID: "ses_clock" }, second);
+    expect(JSON.stringify(second.parts)).toContain("2026-10-25T00:01:00");
+    expect(JSON.stringify(first)).toBe(savedFirst);
+
+    // A changed computer zone also belongs in new conversation context.
+    zone.mockReturnValue({ ...options, timeZone: "America/New_York" });
+    const changedZone = { system: [] };
+    await plugin["experimental.chat.system.transform"]({}, changedZone);
+    expect(changedZone).toEqual(firstSystem);
+    const third = { message: { id: "msg_third" }, parts: [] };
+    await plugin["chat.message"]({ sessionID: "ses_clock" }, third);
+    expect(JSON.stringify(third.parts)).toContain("time zone America/New_York");
+    expect(JSON.stringify(third.parts)).toContain("2026-10-24T18:01:00");
+  } finally {
+    setSystemTime();
+    zone.mockRestore();
+  }
+});
+
+test("on-demand scheduling clock stays fresh through the daylight-saving fallback", async () => {
+  const options = new Intl.DateTimeFormat().resolvedOptions();
+  const zone = spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({ ...options, timeZone: "Europe/Berlin" });
+  setSystemTime(new Date("2026-10-25T00:59:59.123Z"));
+  try {
+    const plugin = await LegalWorkScheduledTaskTools();
+    expect(JSON.parse(await plugin.tool.legalwork_schedule_clock.execute())).toEqual({
+      currentTime: "2026-10-25T00:59:59.123Z", localTime: "2026-10-25T02:59:59", timeZone: "Europe/Berlin",
+    });
+    setSystemTime(new Date("2026-10-25T01:00:01.456Z"));
+    expect(JSON.parse(await plugin.tool.legalwork_schedule_clock.execute())).toEqual({
+      currentTime: "2026-10-25T01:00:01.456Z", localTime: "2026-10-25T02:00:01", timeZone: "Europe/Berlin",
+    });
+  } finally {
+    setSystemTime();
+    zone.mockRestore();
   }
 });
