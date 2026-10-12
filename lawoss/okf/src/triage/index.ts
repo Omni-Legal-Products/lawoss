@@ -4,14 +4,14 @@ import { parseClassification } from "./classification.ts";
 import { listClassificationFiles, readJsonFile } from "./files.ts";
 import { buildTriagePlan } from "./plan.ts";
 import { newRunId } from "./apply.ts";
-import { scanTriage } from "./scan.ts";
+import { scanTriage, type TriageTargetOptions } from "./scan.ts";
 import type { TriageClassification, TriageInventory, TriagePlan } from "./types.ts";
 
 export { applyTriagePlan, listTriageRuns, newRunId, parseTriagePlan, undoTriage, TriageConflictError, type TriageApplyResult, type TriageRunStatus, type TriageUndoResult } from "./apply.ts";
 export { ClassificationError, parseClassification } from "./classification.ts";
 export { buildTriagePlan, planFingerprint } from "./plan.ts";
 export { classifyByRules, findCaseNumber, TRIAGE_ROLES, type RuleCode, type TriageRole } from "./rules.ts";
-export { grantInPlaceReorganize, IN_PLACE_MARKER, looksLikeTrialName, scanTriage, TrialCloneError, TRIAL_MARKER, verifyTrialClone, verifyTriageTarget, type TriageTarget } from "./scan.ts";
+export { grantInPlaceReorganize, IN_PLACE_MARKER, looksLikeTrialName, scanTriage, TrialCloneError, TRIAL_MARKER, verifyTrialClone, verifyTriageTarget, type TriageTarget, type TriageTargetOptions } from "./scan.ts";
 export * from "./types.ts";
 
 export type ModelProposal = { state: "none" } | { state: "ready"; file: string; documents: number; matters: number } | { state: "stale"; file: string } | { state: "invalid"; file: string; message: string };
@@ -30,7 +30,7 @@ export async function latestModelProposal(inventory: TriageInventory): Promise<{
   } catch (error) { return { proposal: { state: "invalid", file: basename(file), message: error instanceof Error ? error.message : String(error) } }; }
 }
 
-export type PrepareOptions = {
+export type PrepareOptions = TriageTargetOptions & {
   trialJournalDirectory?: string;
   /** Klasifikácia z konkrétneho súboru (CLI, skill). */
   classificationFile?: string;
@@ -44,7 +44,7 @@ export type PrepareOptions = {
 };
 
 export async function prepareTriage(root: string, options: PrepareOptions = {}): Promise<{ inventory: TriageInventory; plan: TriagePlan; proposal: ModelProposal; classification?: TriageClassification }> {
-  const inventory = await scanTriage(root, { trialJournalDirectory: options.trialJournalDirectory, jurisdiction: options.jurisdiction });
+  const inventory = await scanTriage(root, { trialJournalDirectory: options.trialJournalDirectory, jurisdiction: options.jurisdiction, allowInPlace: options.allowInPlace });
   let classification: TriageClassification | undefined;
   let proposal: ModelProposal = { state: "none" };
   if (options.classificationFile) classification = parseClassification(await readJsonFile(options.classificationFile), inventory);

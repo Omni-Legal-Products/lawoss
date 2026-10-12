@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { inspectOnboardingRoot } from "./lawoss/onboarding-runtime.js";
+import { applyTriagePlan, inspectOnboardingRoot, prepareTriage } from "./lawoss/onboarding-runtime.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
@@ -91,7 +91,7 @@ async function convertedFixture() {
   await success("onboarding/apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true });
   // Registrácia existujúceho priečinka tou istou cestou ako appka (`POST /workspaces/local`).
   const register = (folderPath: string, extra: Record<string, unknown> = {}) => fetch(`http://127.0.0.1:${server.port}/workspaces/local`, { method: "POST", headers, body: JSON.stringify({ folderPath, name: "Vymyslený priečinok", preset: "starter", registerExisting: true, ...extra }) });
-  return { base, client, call, success, register };
+  return { base, client, config, call, success, register };
 }
 
 test("usporiadanie na mieste: len zaregistrovaný klient, len po grant, vrátenie hlási ponechané", async () => {
@@ -138,4 +138,57 @@ test("súhlas na mieste odmietne zaregistrovaný priečinok bez karty klienta aj
   const forbidden = await f.call("triage/grant", { root: outside, confirm: true });
   expect({ status: forbidden.status, code: (await forbidden.json()).code }).toEqual({ status: 403, code: "not_registered_client" });
   expect(await exists(join(outside, ".lawoss"))).toBe(false);
+});
+
+test("routy roztriedenia odmietnu originál aj s platne vyzerajúcou značkou súhlasu", async () => {
+  const f = await fixture();
+  // Originál ako klient s kartou a ručne zapísanou značkou; tú vie zapísať aj agent.
+  await writeFile(join(f.source, "client.md"), "---\ntype: client\ntitle: Vymyslený klient\n---\n");
+  await mkdir(join(f.source, ".lawoss"));
+  await writeFile(join(f.source, ".lawoss/reorganize.json"), JSON.stringify({ version: 1, root: f.source, grantedAt: new Date().toISOString() }));
+  // Beh na mieste, ktorý by pripravil hostiteľ po overení súhlasu; server to robí len po `grant` pre pripojeného klienta.
+  const { plan } = await prepareTriage(f.source, { allowInPlace: true });
+  await applyTriagePlan(plan, { allowInPlace: true });
+  const applied = await tree(f.source);
+
+  expect(await f.success("triage/status", { root: f.source })).toMatchObject({ trial: false, runs: [] });
+  const refused = await f.call("triage/plan", { root: f.source });
+  expect({ status: refused.status, code: (await refused.json()).code }).toEqual({ status: 403, code: "not_trial_clone" });
+  expect((await f.call("triage/undo", { root: f.source, runId: plan.runId, confirm: true })).status).toBe(403);
+  expect(await tree(f.source)).toBe(applied);
+});
+
+test("pripojený klient s ručne zapísanou značkou bez grant sa v origináli neusporiada", async () => {
+  const f = await convertedFixture();
+  // Značku vie zapísať aj agent; súhlas je len záznam hostiteľa, ktorý zapisuje `grant`.
+  await mkdir(join(f.client, ".lawoss"), { recursive: true });
+  await writeFile(join(f.client, ".lawoss/reorganize.json"), JSON.stringify({ version: 1, root: f.client, grantedAt: new Date().toISOString() }));
+  const before = await tree(f.client);
+  expect(await f.success("triage/status", { root: f.client })).toMatchObject({ trial: false, runs: [] });
+  const refused = await f.call("triage/plan", { root: f.client });
+  expect({ status: refused.status, code: (await refused.json()).code }).toEqual({ status: 403, code: "not_trial_clone" });
+  expect((await f.call("triage/undo", { root: f.client, runId: "triage-20261012-120000-abcdef", confirm: true })).status).toBe(403);
+  expect(await tree(f.client)).toBe(before);
+});
+
+test("súhlas na mieste prestane platiť po odpojení klienta aj pri súboroch appky mimo", async () => {
+  const f = await convertedFixture();
+  await f.success("triage/grant", { root: f.client, confirm: true });
+  const preview = await f.success("triage/plan", { root: f.client });
+  const workspace = f.config.workspaces.find(item => item.path === f.client);
+  if (!workspace) throw new Error("Klient nie je pripojený.");
+  workspace.appFiles = "outside";
+  expect(await f.success("triage/status", { root: f.client })).toMatchObject({ trial: false });
+  expect((await f.call("triage/apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true })).status).toBe(403);
+  workspace.appFiles = "inside";
+  f.config.workspaces.splice(f.config.workspaces.indexOf(workspace), 1);
+  expect(await f.success("triage/status", { root: f.client })).toMatchObject({ trial: false });
+  expect((await f.call("triage/plan", { root: f.client })).status).toBe(403);
+}, transactionTimeout);
+
+test("usporiadanie na mieste nepoužije návrh modelu", async () => {
+  const f = await convertedFixture();
+  await f.success("triage/grant", { root: f.client, confirm: true });
+  const refused = await f.call("triage/plan", { root: f.client, useModel: true });
+  expect({ status: refused.status, code: (await refused.json()).code }).toEqual({ status: 400, code: "triage_model_in_place" });
 });

@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, type Dirent } from "node:fs";
 import { lstat, open, readdir } from "node:fs/promises";
 import { realpath } from "../canonical-path.ts";
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { parseFrontmatter } from "../frontmatter.ts";
 
 export type OnboardingLevel = "office" | "client" | "subject" | "matter" | "unknown" | "conflict";
@@ -74,8 +74,10 @@ const isFile = (path: string) => lstat(path).then(state => state.isFile(), () =>
 
 /**
  * Plytká kontrola identity priečinka: len karty v koreni a `Office/okf.config`, bez prechádzania stromu.
- * Pre potvrdenie už vybraného klienta, kancelárie či veci (profil onboardingu); veľký strom, symlink
- * alebo zamknutý dokument v ňom identitu nemenia. Zápis (plán, apply) naďalej robí plnú inšpekciu.
+ * Pre potvrdenie už vybraného klienta, kancelárie či veci (profil onboardingu, súhlas s usporiadaním);
+ * veľký strom, symlink alebo zamknutý dokument v ňom identitu nemenia. Vnorenú kanceláriu nespozná:
+ * plytký prevod (`planShallowClientConversion`) ju preto hľadá cez `findOfficeConfigs`, ostatné zápisy
+ * robia plnú inšpekciu.
  */
 export async function inspectCardLevel(root: string): Promise<{ root: string; level: OnboardingLevel; issues: { path: string; code: string }[] }> {
   const resolved = resolve(root);
@@ -90,6 +92,34 @@ export async function inspectCardLevel(root: string): Promise<{ root: string; le
   const decision = decideCardLevel(cards, directOffice || nestedOffices > 0, nestedOffices > 1);
   return { root: resolved, level: decision.level, issues: decision.issue ? [{ path: "", code: decision.issue }] : [] };
 }
+/**
+ * Kancelárie OKF (`Office/okf.config`, `_kancelaria/okf.config`) kdekoľvek v strome, rovnako ako ich
+ * hľadá plná inšpekcia, ale len podľa mien: nič neotvára ani nečíta, odkazy nesleduje a priečinky
+ * súborov appky vynechá. Zamknutý dokument ani veľký strom preto nevadí. `complete: false` znamená
+ * limit hĺbky či počtu položiek alebo nečitateľný priečinok; volajúci vtedy identitu nepozná.
+ */
+export async function findOfficeConfigs(root: string, limits: Pick<InspectionLimits, "maxEntries" | "maxDepth"> = {}): Promise<{ complete: boolean; offices: string[] }> {
+  const maxEntries = limits.maxEntries ?? 100_000, maxDepth = limits.maxDepth ?? 32;
+  const offices: string[] = [];
+  const queue: { relative: string; depth: number }[] = [{ relative: "", depth: 0 }];
+  let seen = 0;
+  for (let next = queue.shift(); next; next = queue.shift()) {
+    if (next.depth > maxDepth) return { complete: false, offices };
+    let entries: Dirent[];
+    try { entries = await readdir(join(root, next.relative), { withFileTypes: true }); }
+    catch { return { complete: false, offices }; }
+    for (const entry of entries) {
+      if (VOLATILE_ENTRY.test(entry.name)) continue;
+      if (++seen > maxEntries) return { complete: false, offices };
+      const path = next.relative ? `${next.relative}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) { if (!APP_FILE_DIRECTORIES.has(entry.name)) queue.push({ relative: path, depth: next.depth + 1 }); }
+      else if (entry.isFile() && OFFICE_CONFIG.test(path)) offices.push(path);
+    }
+  }
+  return { complete: true, offices: offices.sort() };
+}
+const OFFICE_CONFIG = /(?:^|\/)(?:Office|_kancelaria)\/okf\.config$/;
+
 /**
  * Súbory appky v otvorenom priečinku (OpenCode, jeho skilly a node_modules so symlinkami v `.bin`).
  * Mení ich engine, nie advokát, takže nepatria do identity klienta ani veci; bez tohto pravidla
@@ -146,6 +176,26 @@ export async function inspectOnboardingParent(root: string, limits: Pick<Inspect
   } catch (error) { problem("", errorCode(error)); return result; }
   if (result.complete) result.digest = sha(JSON.stringify(result.entries));
   return result;
+}
+
+/** Rovnaká medza ako `findOfficeDir` (okf-pamat), ktorý klientom pod predkom vracia jeho kanceláriu. */
+export const OFFICE_ANCESTOR_LEVELS = 8;
+/**
+ * Kancelária v predkovi (`Office/okf.config` alebo `_kancelaria/okf.config`), najviac 8 úrovní nahor.
+ * Nová kancelária pod ňou by ju pre klientov nižšie zatienila (pamäť, `standing_authorization`).
+ * Holý priečinok `Office` bez `okf.config` kanceláriou nie je.
+ */
+export async function findAncestorOffice(dir: string): Promise<string | undefined> {
+  let current = resolve(dir);
+  for (let level = 0; level < OFFICE_ANCESTOR_LEVELS; level++) {
+    const parent = dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+    for (const name of ["Office", "_kancelaria"]) {
+      if (await lstat(join(current, name, "okf.config")).then(state => state.isFile(), () => false)) return join(current, name);
+    }
+  }
+  return undefined;
 }
 
 /** Read-only inspection. Partial scans never produce a digest usable by apply. */
@@ -241,7 +291,7 @@ export async function inspectOnboardingRoot(root: string, limits: InspectionLimi
   }
   await visit("", 0);
   const cards = result.entries.filter(entry => entry.kind === "file" && CARD_LEVELS[entry.path]);
-  const officePaths = result.entries.filter(entry => entry.kind === "file" && /(?:^|\/)(?:Office|_kancelaria)\/okf\.config$/.test(entry.path));
+  const officePaths = result.entries.filter(entry => entry.kind === "file" && OFFICE_CONFIG.test(entry.path));
   const directOffice = ["Office", "_kancelaria"].includes(basename(result.root)) && result.entries.some(entry => entry.path === "okf.config" && entry.kind === "file");
   const office = directOffice || officePaths.some(entry => ["Office/okf.config", "_kancelaria/okf.config"].includes(entry.path));
   const conflict = (code: string) => { result.level = "conflict"; result.issues.push({ path: "", code }); };
