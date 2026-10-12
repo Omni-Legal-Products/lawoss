@@ -109,9 +109,9 @@ test("priečinok veci bez karty (`2025-01 Spor`) sa nerozpustí, ostatné podpri
   await mkdir(join(root, "2025-01 Spor"));
   await writeFile(join(root, "2025-01 Spor", "Žaloba.pdf"), "%PDF-1.4 synthetic claim in matter");
   await grantInPlaceReorganize(root, NOW);
-  const inventory = await scanTriage(root);
+  const inventory = await scanTriage(root, HOST);
   expect(inventory.skipped).toContainEqual({ path: "2025-01 Spor/Žaloba.pdf", reason: "in_matter" });
-  const { plan } = await prepareTriage(root, { now: NOW });
+  const { plan } = await prepareTriage(root, { now: NOW, ...HOST });
   expect(plan.moves.some(move => move.from.startsWith("2025-01 Spor/"))).toBe(false);
   expect(plan.moves.some(move => move.from === "Stare/priloha.pdf")).toBe(true);
 });
