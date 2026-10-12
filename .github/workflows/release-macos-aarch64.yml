@@ -596,9 +596,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          # Dispatch-based release recovery uses the workflow ref so fixes to
-          # release asset publishing can run without moving an already-shipped tag.
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || env.RELEASE_TAG }}
+          # Pin recovery scripts to the workflow commit so deleting or advancing
+          # its branch cannot break publication or change the code being run.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || env.RELEASE_TAG }}
           fetch-depth: 0
 
       - name: Setup Node
@@ -745,9 +745,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          # Dispatch-based release recovery uses the workflow ref so fixes to
-          # npm release automation can run without moving an already-shipped tag.
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || env.RELEASE_TAG }}
+          # Pin recovery scripts to the workflow commit so deleting or advancing
+          # its branch cannot break publication or change the code being run.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || env.RELEASE_TAG }}
           fetch-depth: 0
 
       - name: Setup Node
