@@ -23,7 +23,7 @@ const MENU_OVERLAY_READY_TIMEOUT_MS = 2000;
 let browserTabCounter = 0;
 export function createBrowserPanel(options) {
   const { app, getWindow, getWindowForEvent } = options;
-  const automationBroker = createBrowserAutomationBroker();
+  const automationBroker = createBrowserAutomationBroker({ authorize: options.authorizeBrowserAutomation });
   const proxyState = { current: null };
   const panels = new Map();
   app.once("will-quit", () => { destroy(); void automationBroker.close(); });
@@ -81,7 +81,7 @@ export function createBrowserPanel(options) {
   };
 }
 
-function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, getWindow, isAllowedAppNavigation, safeOpen, resolveDownloadDirectory, automationBroker, proxyState }) {
+function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, getWindow, isAllowedAppNavigation, safeOpen, resolveDownloadDirectory, authorizeBrowserAutomation, automationBroker, proxyState }) {
   const browserTabs = new Map();
   let browserTabOrder = [];
   let activeBrowserTabId = null;
@@ -164,12 +164,14 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
 
   function routeBlockedMainWindowNavigation(url) {
     if (!/^https?:\/\//i.test(String(url ?? ""))) return;
-    void openBrowserUrlForAutomation(url).catch((error) => {
+    // A link clicked by the user does not grant an agent an automation handle.
+    void resolveTabDownloadDirectory().then(downloadDirectory => createBrowserTab(normalizeBrowserUrl(url), { downloadDirectory })).catch((error) => {
       console.warn("[browser] failed to route blocked main-window navigation", error);
     });
   }
 
   async function openBrowserUrlForAutomation(rawUrl, provider = "auto", context = {}) {
+    await authorizeBrowserAutomation(context);
     const requestedProvider = String(provider || "auto").trim().toLowerCase();
     if (requestedProvider && requestedProvider !== "auto" && requestedProvider !== "builtin") {
       throw new Error(`Browser provider is not available yet: ${requestedProvider}`);
@@ -177,7 +179,13 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
     const url = normalizeBrowserUrl(rawUrl);
     const downloadDirectory = await resolveTabDownloadDirectory(context);
     const tab = createBrowserTab("about:blank", { select: true, downloadDirectory });
-    const connection = await automationBroker.grant(tab.view.webContents, () => tab.downloads);
+    let connection;
+    try {
+      connection = await automationBroker.grant(tab.view.webContents, () => tab.downloads, context);
+    } catch (error) {
+      closeBrowserTab(tab.tabId);
+      throw error;
+    }
     // Electron's loadURL promise can settle on an earlier navigation's load.
     // Finish the initial blank page before awaiting the requested destination.
     await tab.initialLoad;
@@ -190,6 +198,7 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
     browserSession.on("will-download", onDownload);
     let downloadTimer;
     try {
+      await authorizeBrowserAutomation(context);
       await tab.view.webContents.loadURL(url);
     } catch (error) {
       // Chromium can reject navigation before announcing a direct file download.
@@ -858,7 +867,10 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
     ipcMain.handle("legalwork:browser:listTabs", () => {
       return listBrowserTabs();
     });
-    ipcMain.handle("legalwork:browser:setProxy", (_event, proxy) => setBrowserProxy(proxy));
+    ipcMain.handle("legalwork:browser:setProxy", async (_event, proxy, context) => {
+      await authorizeBrowserAutomation(context);
+      return setBrowserProxy(proxy);
+    });
     ipcMain.handle("legalwork:browser:getProxy", () => browserProxyState());
     ipcMain.handle("legalwork:browser:tabContextMenu", (event, tabId, point) => {
       return showBrowserTabContextMenu(tabId, point);

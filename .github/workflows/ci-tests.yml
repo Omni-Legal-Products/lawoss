@@ -125,6 +125,10 @@ jobs:
           LEGALWORK_BROWSER_TEST_SCREENSHOT: ${{ runner.temp }}/browser-workflow.png
         run: pnpm --filter @legalwork/desktop test:browser-workflow
 
+      - name: Verify browser network policy in Electron
+        if: runner.os == 'macOS'
+        run: pnpm --filter @legalwork/desktop test:browser-network
+
       - name: Upload browser workflow evidence
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4

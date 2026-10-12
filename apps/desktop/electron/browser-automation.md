@@ -5,6 +5,18 @@
 256-bit capability for that tab. Treat it as a credential; do not log or share it.
 It expires when the tab closes or the app exits.
 
+Automation requires the originating project and chat identity, supplied by the
+server tool's execution context. When that chat's effective sandbox setting is on,
+browser tools require network Allow. Approve and Off disable automation, including
+proxy changes and generic UI browser actions. Manual browser tabs remain usable.
+Missing identity, invalid policy, and an unavailable policy service fail closed.
+
+The broker binds each capability to that identity and rechecks policy for HTTP
+routes, WebSocket upgrades, CDP commands and events. It also checks live grants once
+per second so a page cannot retain automation access indefinitely without another
+tool call. A denied check revokes its capability, disconnects clients and closes
+the agent-created page. Switching the visible project does not change its policy.
+
 The main process broker listens on an ephemeral loopback port. Both `/json/list`
 and the page WebSocket require that capability. Discovery returns only the
 authorized tab. Requests with an Origin header or an unexpected Host are refused.
@@ -30,6 +42,8 @@ through launch arguments. The broker works independently of this setting.
 
 Run `pnpm --filter @legalwork/desktop test` for broker authorization, connection
 lifecycle, development-debugging configuration, and sandboxed preload checks.
+Run `pnpm --filter @legalwork/desktop test:browser-network` for real Electron
+navigation, connection revocation and independent-chat policy checks.
 
 ## Project downloads
 

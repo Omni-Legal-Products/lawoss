@@ -98,6 +98,7 @@ app.whenReady().then(async () => {
   const origin = `http://127.0.0.1:${fixture.address().port}`;
   const main = new BrowserWindow({ show: false });
   const panel = createBrowserPanel({
+    authorizeBrowserAutomation: async () => {},
     app, WebContentsView, clipboard, session,
     getWindow: () => main, getWindowForEvent: () => main,
     isAllowedAppNavigation: () => false,

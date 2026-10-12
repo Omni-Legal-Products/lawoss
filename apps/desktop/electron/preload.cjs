@@ -146,7 +146,7 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
     selectTab(tabId) { return ipcRenderer.invoke("legalwork:browser:selectTab", tabId); },
     reorderTabs(tabIds) { return ipcRenderer.invoke("legalwork:browser:reorderTabs", tabIds); },
     listTabs() { return ipcRenderer.invoke("legalwork:browser:listTabs"); },
-    setProxy(proxy) { return ipcRenderer.invoke("legalwork:browser:setProxy", proxy); },
+    setProxy(proxy, context) { return ipcRenderer.invoke("legalwork:browser:setProxy", proxy, context); },
     getProxy() { return ipcRenderer.invoke("legalwork:browser:getProxy"); },
     showTabContextMenu(tabId, point) { return ipcRenderer.invoke("legalwork:browser:tabContextMenu", tabId, point); },
     destroy() { return ipcRenderer.invoke("legalwork:browser:destroy"); },

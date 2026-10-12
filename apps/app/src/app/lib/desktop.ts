@@ -122,7 +122,7 @@ declare global {
       browser?: {
         show?: (bounds: { x: number; y: number; width: number; height: number }, tabId?: string) => Promise<void>;
         hide?: (tabId?: string) => Promise<void>;
-        openUrl?: (url: string, provider?: "auto" | "builtin" | "external", context?: { directory?: string; workspaceId?: string }) => Promise<{
+        openUrl?: (url: string, provider?: "auto" | "builtin" | "external", context?: { directory?: string; workspaceId?: string; sessionId?: string }) => Promise<{
           provider: "builtin";
           browser_url: string;
           target_id: string;
@@ -144,7 +144,7 @@ declare global {
         selectTab?: (tabId: string) => Promise<string>;
         reorderTabs?: (tabIds: string[]) => Promise<BrowserPanelTab[]>;
         listTabs?: () => Promise<BrowserPanelTab[]>;
-        setProxy?: (proxy?: string | null) => Promise<BrowserProxyState>;
+        setProxy?: (proxy?: string | null, context?: { workspaceId?: string; sessionId?: string }) => Promise<BrowserProxyState>;
         getProxy?: () => Promise<BrowserProxyState>;
         showTabContextMenu?: (tabId: string, point?: { x: number; y: number }) => Promise<void>;
         destroy?: () => Promise<void>;

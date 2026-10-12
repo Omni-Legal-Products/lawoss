@@ -1,4 +1,5 @@
 import { legalworkBrowserTools } from "./legalwork-browser-tools.js";
+import { requireBrowserNetwork } from "./browser-network-policy.js";
 import { uiBridgeRequest, inAppDocumentSurface, documentMatchesSession, getStringProperty, getBooleanProperty, type InAppDocumentSurface } from "./inapp-document-bridge.js";
 import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 import { z } from "zod";
@@ -602,9 +603,10 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
       async execute(rawArgs: unknown, context: OpenCodeContext = {}) {
         requireInteractiveRun(context);
         const { actionId, args } = uiExecuteArgsSchema.parse(rawArgs);
+        const browserContext = actionId.startsWith("browser.") ? await requireBrowserNetwork(context) : {};
         const result = await uiBridgeRequest("/execute", {
           method: "POST",
-          body: { actionId, args: args ?? {} },
+          body: { actionId, args: { ...args, ...browserContext } },
         });
         return JSON.stringify(result, null, 2);
       },
@@ -615,11 +617,12 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
       args: browserOpenUrlArgsSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = browserOpenUrlArgsSchema.parse(rawArgs);
+        const browserContext = await requireBrowserNetwork(context);
         const result = await uiBridgeRequest("/execute", {
           method: "POST",
           body: {
             actionId: "browser.open_url",
-            args: { url: args.url, provider: args.provider ?? "builtin", directory: context.directory || context.worktree },
+            args: { url: args.url, provider: args.provider ?? "builtin", ...browserContext },
           },
           timeoutMs: 45000,
         });
@@ -629,11 +632,12 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
     legalwork_browser_set_proxy: {
       description: "Route all LegalWork built-in browser traffic through an HTTP/SOCKS proxy — for example to fetch search results or pages as seen from another location. Applies to every built-in browser tab (including browser_* automation) until cleared with legalwork_browser_clear_proxy. If the user has named proxies configured as LEGALWORK_BROWSER_PROXY_<NAME> environment variables, pass env:NAME instead of a raw URL.",
       args: browserSetProxyArgsSchema.shape,
-      async execute(rawArgs: unknown) {
+      async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = browserSetProxyArgsSchema.parse(rawArgs);
+        const browserContext = await requireBrowserNetwork(context);
         const result = await uiBridgeRequest("/execute", {
           method: "POST",
-          body: { actionId: "browser.set_proxy", args: { proxy: args.proxy } },
+          body: { actionId: "browser.set_proxy", args: { proxy: args.proxy, ...browserContext } },
         });
         return JSON.stringify(result, null, 2);
       },
@@ -641,10 +645,11 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
     legalwork_browser_clear_proxy: {
       description: "Clear the LegalWork built-in browser proxy and restore the system network settings.",
       args: {},
-      async execute() {
+      async execute(_rawArgs: unknown, context: OpenCodeContext) {
+        const browserContext = await requireBrowserNetwork(context);
         const result = await uiBridgeRequest("/execute", {
           method: "POST",
-          body: { actionId: "browser.set_proxy", args: { proxy: "" } },
+          body: { actionId: "browser.set_proxy", args: { proxy: "", ...browserContext } },
         });
         return JSON.stringify(result, null, 2);
       },

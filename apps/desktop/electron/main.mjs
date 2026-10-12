@@ -57,6 +57,7 @@ import { windowAppearanceOptions, windowsTitleBarOverlay } from "./window-chrome
 import { createEventStreams } from "./event-streams.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
 import { resolveBrowserProject } from "./browser-project.mjs";
+import { requireBrowserNetwork } from "./browser-network-policy.mjs";
 import { createAppUrlMatcher, guardIpcMain, guardPreviewNavigation } from "./app-url.mjs";
 import { createSafeOpen } from "./safe-open.mjs";
 import { getApplicationsForFile } from "./file-applications.mjs";
@@ -690,6 +691,7 @@ process.on("unhandledRejection", (reason) => {
 
 const browserPanel = createBrowserPanel({
   app, WebContentsView, clipboard, session,
+  authorizeBrowserAutomation: async (context) => requireBrowserNetwork(context, await runtimeManager.legalworkServerInfo()),
   resolveDownloadDirectory: async (context, windowUrl) => resolveBrowserProject(
     context, await workspaceStore.readWorkspaceState(), await runtimeManager.legalworkServerInfo(), windowUrl,
   ),

@@ -2,6 +2,7 @@ import { appStateReminders, type SavedConversations } from "./app-state-reminder
 import { z } from "zod";
 import { webFetchArgs, webSearchArgs } from "../agent-sandbox/web.js";
 import { resolveWorkspaceId, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
+import { isBrowserTool, requireBrowserNetwork } from "./browser-network-policy.js";
 
 const args = z.object({
   command: z.string().min(1).max(128000).describe("Command to execute using the shell and paths in the latest sandbox-settings reminder."),
@@ -22,7 +23,7 @@ export const LegalWorkSandbox = async (input: SavedConversations = {}) => {
       if (!response.ok) return null;
       const state = z.object({ enabled: z.boolean(), networkMode: z.string(), shell: z.string(), platform: z.string(), cwd: z.string() }).parse(await response.json());
       return `Sandboxing is ${state.enabled ? "on" : "off"}. Shell: ${state.shell}. Platform: ${state.platform}. Project working directory: ${state.cwd}. ` +
-        (state.enabled ? `Network mode: ${state.networkMode}. Only shared folders are accessible. Python 3 and Node.js are installed. Authorized folders: /authorized/N. Skills: /skills/N.` : "Commands run directly on this computer with its installed tools and OS permissions. Sandbox network controls do not apply.");
+        (state.enabled ? `Network mode: ${state.networkMode}. Browser tools are ${state.networkMode === "allow" ? "available" : "disabled; use the managed web tools for policy-controlled requests"}. Only shared folders are accessible. Python 3 and Node.js are installed. Authorized folders: /authorized/N. Skills: /skills/N.` : "Commands run directly on this computer with its installed tools and OS permissions. Sandbox network controls do not apply.");
     } catch { return null; }
   }, "Read the chat's current sandbox settings before running commands.", input);
   const webTool = (kind: "fetch" | "search") => ({
@@ -53,8 +54,9 @@ export const LegalWorkSandbox = async (input: SavedConversations = {}) => {
   // Covers the engine's direct shell endpoint and fails closed if a future
   // engine version accidentally selects its built-in bash tool.
   "shell.env": async () => { throw new Error("Use legalwork_shell for command execution."); },
-  "tool.execute.before": async ({ tool }: { tool: string }) => {
+  "tool.execute.before": async ({ tool, sessionID }: { tool: string; sessionID?: string }, output: { args: Record<string, unknown> }) => {
     if (["webfetch", "websearch", "codesearch"].includes(tool)) throw new Error("Use legalwork_webfetch or legalwork_websearch so this chat's network setting is enforced.");
+    if (isBrowserTool(tool, output.args)) await requireBrowserNetwork({ sessionID, directory: input.directory });
   },
   tool: {
     legalwork_webfetch: webTool("fetch"),

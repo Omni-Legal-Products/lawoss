@@ -11,6 +11,7 @@ app.whenReady().then(async () => {
   const main = new BrowserWindow({ show: false });
   const detached = new BrowserWindow({ show: false });
   const panel = createBrowserPanel({
+    authorizeBrowserAutomation: async () => {},
     app, WebContentsView, clipboard, session,
     getWindow: () => main,
     getWindowForEvent: (event) => BrowserWindow.fromWebContents(event.sender),

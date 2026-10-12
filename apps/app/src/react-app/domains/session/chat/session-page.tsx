@@ -639,6 +639,8 @@ export function SessionPage(props: SessionPageProps) {
       { name: "url", type: "string", required: true, description: "The website URL to open." },
       { name: "provider", type: "string", description: "Browser provider. Use builtin or auto. External is reserved for future support." },
       { name: "directory", type: "string", description: "Originating agent project directory. Downloads remain bound to this project." },
+      { name: "workspaceId", type: "string", required: true, description: "Calling project ID supplied by the browser tool." },
+      { name: "sessionId", type: "string", required: true, description: "Calling chat ID supplied by the browser tool." },
     ],
     previewArgs: { url: "https://example.com", provider: "builtin" },
     disabled: !isElectronRuntime(),
@@ -652,6 +654,8 @@ export function SessionPage(props: SessionPageProps) {
       setCurrentSidePanel("panel");
       return window.__LEGALWORK_ELECTRON__?.browser?.openUrl?.(url, provider, {
         directory: controlStringArg(args, "directory") || props.selectedWorkspaceRoot,
+        workspaceId: controlStringArg(args, "workspaceId"),
+        sessionId: controlStringArg(args, "sessionId"),
       });
     },
   }), [props.selectedWorkspaceRoot, setCurrentSidePanel]);
@@ -663,6 +667,8 @@ export function SessionPage(props: SessionPageProps) {
     sideEffect: "mutation",
     args: [
       { name: "proxy", type: "string", description: "Proxy URL like http://user:pass@host:8080 or socks5://host:1080, env:NAME to use the LEGALWORK_BROWSER_PROXY_NAME environment variable, or empty to clear." },
+      { name: "workspaceId", type: "string", required: true, description: "Calling project ID supplied by the browser tool." },
+      { name: "sessionId", type: "string", required: true, description: "Calling chat ID supplied by the browser tool." },
     ],
     previewArgs: { proxy: "env:DE" },
     disabled: !isElectronRuntime(),
@@ -670,7 +676,7 @@ export function SessionPage(props: SessionPageProps) {
       const proxy = controlStringArg(args, "proxy") || "";
       const setProxy = window.__LEGALWORK_ELECTRON__?.browser?.setProxy;
       if (!setProxy) return { ok: false, error: "Built-in browser is not available." };
-      return setProxy(proxy);
+      return setProxy(proxy, { workspaceId: controlStringArg(args, "workspaceId"), sessionId: controlStringArg(args, "sessionId") });
     },
   }), []);
   useControlAction(setBrowserProxyControlAction);

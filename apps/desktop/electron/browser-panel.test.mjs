@@ -7,7 +7,7 @@ import test from "node:test";
 import { createBrowserPanel } from "./browser-panel.mjs";
 import { resolveBrowserProject } from "./browser-project.mjs";
 
-function fixture(resolveDownloadDirectory = async () => null) {
+function fixture(resolveDownloadDirectory = async () => null, authorizeBrowserAutomation = async () => {}) {
   const views = [];
   class View {
     constructor() {
@@ -35,7 +35,7 @@ function fixture(resolveDownloadDirectory = async () => null) {
   const browserSession = new EventEmitter();
   const controller = createBrowserPanel({ app: new EventEmitter(), WebContentsView: View, clipboard: { writeText: () => {} }, session: { fromPartition: () => browserSession },
     getWindow: () => first, getWindowForEvent: event => [first, second, third].find(host => event.sender === host.webContents),
-    resolveDownloadDirectory,
+    resolveDownloadDirectory, authorizeBrowserAutomation,
     isAllowedAppNavigation: () => true, safeOpen: { openExternal: () => {} },
   });
   controller.registerIpc({ handle: (name, handler) => handlers.set(name, handler), on: () => {} });
@@ -43,6 +43,22 @@ function fixture(resolveDownloadDirectory = async () => null) {
   const left = { x: 20, y: 50, width: 400, height: 600 }, right = { ...left, x: 425 };
   return { controller, views, first, second, third, call, left, right, browserSession };
 }
+
+test("a denied browser tool cannot create a tab or change the proxy, while manual browsing still works", async t => {
+  const contexts = [];
+  const f = fixture(async () => null, async context => {
+    contexts.push(context);
+    throw new Error("Browser tools are disabled.");
+  });
+  t.after(() => f.controller.destroy());
+  const context = { workspaceId: "project", sessionId: "chat" };
+  await assert.rejects(f.call("openUrl", f.first, "https://example.org", "builtin", context), /disabled/);
+  await assert.rejects(f.call("setProxy", f.first, "http://example.org:8080", context), /disabled/);
+  assert.equal(f.views.length, 0);
+  assert.deepEqual(contexts, [context, context]);
+  await f.call("createTab", f.first, "https://example.org");
+  assert.equal(f.views.length, 1);
+});
 
 test("native browser panes keep separate bounds, navigation and visibility", async t => {
   const f = fixture(); t.after(() => f.controller.destroy());
