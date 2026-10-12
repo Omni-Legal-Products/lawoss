@@ -13,11 +13,11 @@ import { appendFile, copyFile, link, lstat, mkdir, open, readdir, readFile, rmdi
 import { realpath } from "../canonical-path.ts";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { acquireOnboardingLock, parseOnboardingPlan, type CreateOperation } from "../onboarding/transaction.ts";
-import { inspectOnboardingRoot, VOLATILE_ENTRY, type InspectionHooks } from "../onboarding/classify.ts";
+import { inspectOnboardingRoot, VOLATILE_ENTRY } from "../onboarding/classify.ts";
 import { syncFile, unlinkFile } from "../onboarding/file-durability.ts";
 import { planFingerprint, sha256 } from "./plan.ts";
 import { TRIAGE_ROLES } from "./rules.ts";
-import { onlyLockedIssues, TRIAGE_DIR, triageTreeDigest, verifyTriageTarget, type TriageTargetOptions } from "./scan.ts";
+import { lockedForWrite, onlyLockedIssues, TRIAGE_DIR, triageTreeDigest, verifyTriageTarget, type TriageHooks, type TriageTargetOptions } from "./scan.ts";
 import { PLAN_SCHEMA, type TriageMove, type TriagePlan } from "./types.ts";
 
 export class TriageConflictError extends Error { readonly code = "triage_conflict"; }
@@ -176,7 +176,7 @@ export type TriageApplyResult = { status: "applied" | "already_applied"; runId: 
 export type TriageUndoResult = { status: "undone" | "already_undone"; runId: string; restored: number; removed: number; kept: string[] };
 
 /** Zapíše schválený plán. Opakované volanie s tým istým plánom dokončí prerušený beh. */
-export async function applyTriagePlan(input: unknown, options: TriageTargetOptions & { trialJournalDirectory?: string; hooks?: InspectionHooks } = {}): Promise<TriageApplyResult> {
+export async function applyTriagePlan(input: unknown, options: TriageTargetOptions & { trialJournalDirectory?: string; hooks?: TriageHooks } = {}): Promise<TriageApplyResult> {
   const plan = parseTriagePlan(input);
   const clone = await verifyTriageTarget(plan.root, options.trialJournalDirectory, options);
   const root = clone.root;
@@ -208,6 +208,10 @@ export async function applyTriagePlan(input: unknown, options: TriageTargetOptio
         const parent = move.to.split("/").slice(0, -1).join("/").toLocaleLowerCase();
         if (parent && paths.get(parent)?.kind !== "directory" && !plannedDirectories.has(parent)) throw new TriageConflictError(`Chýba cieľový priečinok: ${move.to}`);
       }
+      // Dokument otvorený vo Worde až po náhľade: zastaviť pred prvým zápisom, nie EBUSY uprostred behu.
+      const locked: string[] = [];
+      for (const move of plan.moves) if (await lockedForWrite(join(root, move.from), options.hooks)) locked.push(move.from);
+      if (locked.length) throw new TriageConflictError(`Dokument je otvorený v inom programe (napríklad vo Worde): ${locked.slice(0, 10).join(", ")}${locked.length > 10 ? " …" : ""}. Nič sa nepresunulo. Zatvorte ho a pripravte nový náhľad.`);
       const handle = await open(planPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
       try { await handle.writeFile(JSON.stringify(plan, null, 2) + "\n"); await handle.sync(); } finally { await handle.close(); }
       await durableDirectory(dir);

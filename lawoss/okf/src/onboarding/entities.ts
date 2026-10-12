@@ -5,7 +5,7 @@ import { lstat, readFile } from "node:fs/promises";
 import { realpath } from "../canonical-path.ts";
 import { createHash } from "node:crypto";
 import { basename, join, relative, resolve, sep } from "node:path";
-import { inspectOnboardingParent, inspectOnboardingRoot, VOLATILE_ENTRY } from "./classify.ts";
+import { findAncestorOffice, inspectOnboardingParent, inspectOnboardingRoot, VOLATILE_ENTRY } from "./classify.ts";
 import { applyOnboardingPlan, type ApplyResult, type CreateOperation, type OnboardingPlan } from "./transaction.ts";
 import { planEntity } from "../core.ts";
 import { LOCALIZED_TEMPLATES } from "../templates.ts";
@@ -120,6 +120,9 @@ export async function planPracticeOffice(request: PracticeRequest): Promise<Crea
   const root = await realpath(request.root);
   const names = await topLevelNames(root);
   if (names.has("office") || names.has("_kancelaria")) throw new Error("Tento priečinok už kanceláriu má (Office/). Pripojte ho ako kanceláriu.");
+  // Vnorená kancelária (napr. prax nad `Klienti/` existujúcej kancelárie) by klientom pod ňou zmenila kanceláriu.
+  const outer = await findAncestorOffice(root);
+  if (outer) throw new Error(`Tento priečinok je už súčasťou kancelárie (${outer}). Pripojte celú kanceláriu, nie jej časť.`);
   const office: OfficeRequest = { parent: root, title: request.title, jurisdiction: request.jurisdiction, language: request.language, lawyerName: request.lawyerName };
   return { mode: "new", appFiles: "inside", target: root, plan: await rootPlan(root, [directory("Office"), file("Office/okf.config", officeConfig(office, clientPath, request.scope)), directory("Office/memory"), file("Office/memory/.keep", ""), ...practiceInstructions(names, request.language, clientPath, request.scope)]) };
 }

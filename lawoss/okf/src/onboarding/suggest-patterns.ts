@@ -18,4 +18,6 @@ export const CZ_LEGAL_FORMS: readonly RegExp[] = [
 export const hasLegalForm = (name: string): boolean => [...SK_LEGAL_FORMS, ...CZ_LEGAL_FORMS].some(pattern => pattern.test(name));
 /** Vec: na začiatku rok 2000 až 2099 (voliteľne s mesiacom) a oddeľovač, alebo spisová značka v názve. */
 const MATTER_DATE = /^20\d{2}(?:[-_. ](?:0[1-9]|1[0-2]))?(?:[-_ ]|$)/;
-export const looksLikeMatterName = (name: string): boolean => MATTER_DATE.test(name) || findCaseNumber(name) !== undefined;
+/** Holý rok alebo dátum bez názvu („2021“, „2024-01“, „2024-01-15“): archív podľa rokov, nie vec ani klient. */
+export const isBareDate = (name: string): boolean => /^20\d{2}(?:[-_. ]\d{1,2}){0,2}$/.test(name);
+export const looksLikeMatterName = (name: string): boolean => !isBareDate(name) && (MATTER_DATE.test(name) || findCaseNumber(name) !== undefined);

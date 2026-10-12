@@ -149,6 +149,37 @@ async function readSmall(root: string, path: string): Promise<string | undefined
   try { return await readBounded(join(root, path), 1024 * 1024); } catch (error) { if (missing(error)) return undefined; throw error; }
 }
 
+/**
+ * Háky roztriedenia. `writeProbe` je test-only náhrada sondy zápisu (zámok Wordu sa mimo Windows
+ * nedá vyrobiť); server ani CLI ju neposielajú.
+ */
+export type TriageHooks = InspectionHooks & { writeProbe?: (path: string) => Promise<void> };
+const errorCode = (error: unknown): string => error instanceof Error && "code" in error ? String(error.code) : "";
+
+/** Windows: otvorenie na zápis bez O_TRUNC/O_CREAT obsah ani čas zmeny nemení. Inde súbor zámok nedrží. */
+async function defaultWriteProbe(path: string): Promise<void> {
+  if (process.platform !== "win32") return;
+  const handle = await open(path, constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  await handle.close();
+}
+
+/**
+ * Drží súbor iný program tak, že ho presun nezmaže? Word dovolí otvorený dokument čítať (inšpekcia
+ * prejde), zapisovať ani mazať nie; `unlink` po pevnom odkaze by skončil EBUSY uprostred behu.
+ * Rovnako ako `assertSourcesWritable` v naming-fs.ts: EBUSY je zámok, EPERM/EACCES len pri súbore,
+ * ktorý nie je iba na čítanie (ten sa presúva aj bez práva zápisu do samotného súboru).
+ */
+export async function lockedForWrite(path: string, hooks: TriageHooks = {}): Promise<boolean> {
+  try { await (hooks.writeProbe ?? defaultWriteProbe)(path); return false; }
+  catch (error) {
+    const code = errorCode(error);
+    if (code === "EBUSY") return true;
+    if (code !== "EPERM" && code !== "EACCES") throw error;
+    const state = await lstat(path);
+    return !(state.isFile() && (state.mode & 0o222) === 0);
+  }
+}
+
 /** Neúplná inšpekcia len kvôli zamknutým súborom (Word, Outlook): tie sa preskočia, zvyšok sa dá usporiadať. */
 export const onlyLockedIssues = (inspection: OnboardingInspection): boolean =>
   inspection.issues.length > 0 && inspection.issues.every(issue => issue.code === "locked_file");
@@ -157,7 +188,7 @@ export const onlyLockedIssues = (inspection: OnboardingInspection): boolean =>
  * Inventár dokumentov, ktoré má zmysel roztriediť: všetko mimo systémových súborov, pamäte,
  * existujúcich vecí a už zaradených pracovných priečinkov. Súbory v priečinku na zatriedenie sa triedia.
  */
-export async function scanTriage(rootInput: string, options: TriageTargetOptions & { trialJournalDirectory?: string; limits?: InspectionLimits; jurisdiction?: "sk" | "cz"; hooks?: InspectionHooks } = {}): Promise<TriageInventory> {
+export async function scanTriage(rootInput: string, options: TriageTargetOptions & { trialJournalDirectory?: string; limits?: InspectionLimits; jurisdiction?: "sk" | "cz"; hooks?: TriageHooks } = {}): Promise<TriageInventory> {
   const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory, options);
   const inspection = await inspectOnboardingRoot(clone.root, options.limits, options.hooks);
   if (!inspection.complete && !onlyLockedIssues(inspection)) {
@@ -213,6 +244,8 @@ export async function scanTriage(rootInput: string, options: TriageTargetOptions
       : sortedFolders.some(folder => under(entry.path, folder)) && !(inbox && under(entry.path, inbox)) ? "already_sorted"
       : undefined;
     if (reason) { if (reason !== "hidden") skipped.push({ path: entry.path, reason }); continue; }
+    // Otvorený vo Worde: na čítanie áno, presunúť sa nedá. Preskočí sa a nahlási ako zamknutý.
+    if (await lockedForWrite(join(clone.root, entry.path), options.hooks)) { skipped.push({ path: entry.path, reason: "locked" }); continue; }
     const dot = name.lastIndexOf(".");
     documents.push({ id: `d${sha(entry.path).slice(0, 16)}`, path: entry.path, name, ext: dot > 0 ? name.slice(dot + 1).toLowerCase() : "", size: entry.size, sha256: entry.digest! });
   }
