@@ -69,9 +69,16 @@ test("klient s právnou formou a menej ako piatimi podpriečinkami nie je prax",
 test("klient: podpriečinky pomenované ako veci", async () => {
   expect(await suggestOnboardingLevel(await tree(["2024-03 Kúpna zmluva/zmluva.docx", "2025-01 Spor/žaloba.pdf", "Faktúry/"]))).toMatchObject({ level: "client", marked: false, score: 0.8, signals: ["matter_named_children"] });
 });
-test("vec: len dokumenty, alebo koreň pomenovaný ako vec", async () => {
+test("vec: len dokumenty", async () => {
   expect(await suggestOnboardingLevel(await tree(["zmluva.docx", "plná moc.pdf"]))).toMatchObject({ level: "matter", score: 0.5, signals: ["documents_only"] });
-  expect(await suggestOnboardingLevel(await tree(["Podklady/a.pdf"], "2024-03 Kúpna zmluva-"))).toMatchObject({ level: "matter", score: 0.8, signals: ["matter_named_root"] });
+});
+test("vec: názov koreňa v natívnej ceste, nie názov jeho predka", async () => {
+  // join/realpath deliberately retain native Windows separators on Windows CI.
+  const root = await tree(["Podklady/a.pdf"], "2024-03 Kúpna zmluva-");
+  expect(await suggestOnboardingLevel(root)).toMatchObject({ level: "matter", score: 0.8, signals: ["matter_named_root"] });
+  const client = join(root, "Klient");
+  await mkdir(join(client, "Podklady"), { recursive: true });
+  expect(await suggestOnboardingLevel(client)).toMatchObject({ level: "client", score: 0.5, signals: ["plain_directories"] });
 });
 test("prázdny priečinok je neznámy; skryté priečinky sa ignorujú", async () => {
   expect(await suggestOnboardingLevel(await tree([".git/", ".DS_Store"]))).toMatchObject({ level: "unknown", score: 0, signals: ["empty"] });
