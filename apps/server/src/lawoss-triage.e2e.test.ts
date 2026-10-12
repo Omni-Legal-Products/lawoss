@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { inspectOnboardingRoot } from "./lawoss/onboarding-runtime.js";
+import { applyTriagePlan, inspectOnboardingRoot, prepareTriage } from "./lawoss/onboarding-runtime.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
@@ -138,4 +138,22 @@ test("súhlas na mieste odmietne zaregistrovaný priečinok bez karty klienta aj
   const forbidden = await f.call("triage/grant", { root: outside, confirm: true });
   expect({ status: forbidden.status, code: (await forbidden.json()).code }).toEqual({ status: 403, code: "not_registered_client" });
   expect(await exists(join(outside, ".lawoss"))).toBe(false);
+});
+
+test("routy roztriedenia odmietnu originál aj s platne vyzerajúcou značkou súhlasu", async () => {
+  const f = await fixture();
+  // Originál ako klient s kartou a ručne zapísanou značkou; tú vie zapísať aj agent.
+  await writeFile(join(f.source, "client.md"), "---\ntype: client\ntitle: Vymyslený klient\n---\n");
+  await mkdir(join(f.source, ".lawoss"));
+  await writeFile(join(f.source, ".lawoss/reorganize.json"), JSON.stringify({ version: 1, root: f.source, grantedAt: new Date().toISOString() }));
+  // Beh na mieste, ktorý by pripravil hostiteľ po overení súhlasu (C1); server v tomto PR to nerobí.
+  const { plan } = await prepareTriage(f.source, { allowInPlace: true });
+  await applyTriagePlan(plan, { allowInPlace: true });
+  const applied = await tree(f.source);
+
+  expect(await f.success("triage/status", { root: f.source })).toMatchObject({ trial: false, runs: [] });
+  const refused = await f.call("triage/plan", { root: f.source });
+  expect({ status: refused.status, code: (await refused.json()).code }).toEqual({ status: 403, code: "not_trial_clone" });
+  expect((await f.call("triage/undo", { root: f.source, runId: plan.runId, confirm: true })).status).toBe(403);
+  expect(await tree(f.source)).toBe(applied);
 });

@@ -26,6 +26,7 @@ export const TRIAGE_DIR = ".lawoss/triage";
 export const MAX_TRIAGE_DOCUMENTS = 2000;
 
 export class TrialCloneError extends Error { readonly code = "not_trial_clone"; }
+const NOT_TRIAL_CLONE = "Toto nie je skúšobný klon. Dokumenty sa presúvajú len v skúšobnom klone, nikdy v origináli.";
 
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -60,7 +61,7 @@ export async function verifyTrialClone(rootInput: string, trialJournalDirectory?
   try { marker = JSON.parse(await readBounded(join(root, TRIAL_MARKER), 64 * 1024)); }
   catch (error) {
     if (error instanceof TrialCloneError) throw error;
-    throw new TrialCloneError(missing(error) ? "Toto nie je skúšobný klon. Dokumenty sa presúvajú len v skúšobnom klone, nikdy v origináli." : "Značka priečinka je poškodená.");
+    throw new TrialCloneError(missing(error) ? NOT_TRIAL_CLONE : "Značka priečinka je poškodená.");
   }
   if (!record(marker) || marker.version !== 1 || marker.trial !== true || typeof marker.source !== "string" || !isAbsolute(marker.source)
     || typeof marker.sourceDigest !== "string" || !/^[a-f0-9]{64}$/.test(marker.sourceDigest) || typeof marker.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(marker.fingerprint)) {
@@ -112,12 +113,22 @@ export async function grantInPlaceReorganize(rootInput: string, now: Date = new 
   }
 }
 
-/** Skúšobný klon (podľa značky) alebo klient so súhlasom na mieste; inak odmietne. */
-export async function verifyTriageTarget(rootInput: string, trialJournalDirectory?: string): Promise<TriageTarget> {
+/**
+ * Usporiadanie na mieste je predvolene vypnuté (`allowInPlace: false`): presúva sa len v skúšobnom klone.
+ * Značka `.lawoss/reorganize.json` v priečinku klienta je len súbor, ktorý môže zapísať ktokoľvek (aj agent),
+ * preto sama súhlas nedokazuje. `allowInPlace: true` smie poslať len hostiteľ, ktorý súhlas advokáta overil
+ * vo vlastnom zázname mimo priečinka klienta (C1, lawoss#137); značka sa potom kontroluje ďalej. Server ani CLI
+ * ho v lawoss#135 neposielajú, originál teda odmietnu náhľad, zápis aj vrátenie.
+ */
+export type TriageTargetOptions = { allowInPlace?: boolean };
+
+/** Skúšobný klon (podľa značky) alebo, ak to volajúci výslovne dovolí, klient so súhlasom na mieste; inak odmietne. */
+export async function verifyTriageTarget(rootInput: string, trialJournalDirectory?: string, options: TriageTargetOptions = {}): Promise<TriageTarget> {
   if (!isAbsolute(rootInput)) throw new TrialCloneError("Cesta musí byť absolútna.");
   const root = resolve(rootInput);
   const trial = await lstat(join(root, TRIAL_MARKER)).then(() => true, error => { if (missing(error)) return false; throw error; });
   if (trial) { const clone = await verifyTrialClone(root, trialJournalDirectory); return { root: clone.root, mode: "trial", journalVerified: clone.journalVerified }; }
+  if (options.allowInPlace !== true) throw new TrialCloneError(NOT_TRIAL_CLONE);
   if (await realpath(root).catch(() => "") !== root) throw new TrialCloneError("Priečinok musí existovať a nesmie byť symbolický odkaz.");
   let consent: unknown;
   try { consent = JSON.parse(await readBounded(join(root, IN_PLACE_MARKER), 64 * 1024)); }
@@ -146,8 +157,8 @@ export const onlyLockedIssues = (inspection: OnboardingInspection): boolean =>
  * Inventár dokumentov, ktoré má zmysel roztriediť: všetko mimo systémových súborov, pamäte,
  * existujúcich vecí a už zaradených pracovných priečinkov. Súbory v priečinku na zatriedenie sa triedia.
  */
-export async function scanTriage(rootInput: string, options: { trialJournalDirectory?: string; limits?: InspectionLimits; jurisdiction?: "sk" | "cz"; hooks?: InspectionHooks } = {}): Promise<TriageInventory> {
-  const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory);
+export async function scanTriage(rootInput: string, options: TriageTargetOptions & { trialJournalDirectory?: string; limits?: InspectionLimits; jurisdiction?: "sk" | "cz"; hooks?: InspectionHooks } = {}): Promise<TriageInventory> {
+  const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory, options);
   const inspection = await inspectOnboardingRoot(clone.root, options.limits, options.hooks);
   if (!inspection.complete && !onlyLockedIssues(inspection)) {
     const issue = inspection.issues[0];
