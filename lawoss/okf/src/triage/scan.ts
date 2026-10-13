@@ -17,6 +17,7 @@ import { parseFrontmatter } from "../frontmatter.ts";
 import { resolveDocumentLanguage } from "../language.ts";
 import { parseOfficeWorkingProfile, parseWorkingProfile, PROFILE_FILE, workingProfile } from "../profile.ts";
 import { inspectCardLevel, inspectOnboardingRoot, type InspectionHooks, type InspectionLimits, type OnboardingInspection, type TreeEntry } from "../onboarding/classify.ts";
+import { looksLikeMatterName } from "../onboarding/suggest-patterns.ts";
 import { findCaseNumber } from "./rules.ts";
 import { INVENTORY_SCHEMA, type ExistingMatter, type SkipReason, type TriageDocument, type TriageInventory } from "./types.ts";
 
@@ -26,6 +27,7 @@ export const TRIAGE_DIR = ".lawoss/triage";
 export const MAX_TRIAGE_DOCUMENTS = 2000;
 
 export class TrialCloneError extends Error { readonly code = "not_trial_clone"; }
+const NOT_TRIAL_CLONE = "Toto nie je skúšobný klon. Dokumenty sa presúvajú len v skúšobnom klone, nikdy v origináli.";
 
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -60,7 +62,7 @@ export async function verifyTrialClone(rootInput: string, trialJournalDirectory?
   try { marker = JSON.parse(await readBounded(join(root, TRIAL_MARKER), 64 * 1024)); }
   catch (error) {
     if (error instanceof TrialCloneError) throw error;
-    throw new TrialCloneError(missing(error) ? "Toto nie je skúšobný klon. Dokumenty sa presúvajú len v skúšobnom klone, nikdy v origináli." : "Značka priečinka je poškodená.");
+    throw new TrialCloneError(missing(error) ? NOT_TRIAL_CLONE : "Značka priečinka je poškodená.");
   }
   if (!record(marker) || marker.version !== 1 || marker.trial !== true || typeof marker.source !== "string" || !isAbsolute(marker.source)
     || typeof marker.sourceDigest !== "string" || !/^[a-f0-9]{64}$/.test(marker.sourceDigest) || typeof marker.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(marker.fingerprint)) {
@@ -97,6 +99,9 @@ export async function grantInPlaceReorganize(rootInput: string, now: Date = new 
   if ((await inspectCardLevel(root)).level !== "client") throw new Error("Usporiadať sa dá len priečinok klienta s kartou klienta. Najprv pridajte OKF súbory.");
   const dir = join(root, ".lawoss");
   await mkdir(dir, { recursive: true });
+  // `.lawoss` ako symbolický odkaz (či junction) by značku zapísal mimo priečinka klienta (review VŘ k #137, bod 6).
+  const state = await lstat(dir);
+  if (state.isSymbolicLink() || !state.isDirectory() || await realpath(dir) !== dir) throw new Error("Priečinok .lawoss klienta nesmie byť symbolický odkaz.");
   const content = JSON.stringify({ version: 1, root, grantedAt: now.toISOString() });
   try { await writeFile(join(root, IN_PLACE_MARKER), content, { flag: "wx" }); }
   catch (error) {
@@ -112,12 +117,22 @@ export async function grantInPlaceReorganize(rootInput: string, now: Date = new 
   }
 }
 
-/** Skúšobný klon (podľa značky) alebo klient so súhlasom na mieste; inak odmietne. */
-export async function verifyTriageTarget(rootInput: string, trialJournalDirectory?: string): Promise<TriageTarget> {
+/**
+ * Usporiadanie na mieste je predvolene vypnuté (`allowInPlace: false`): presúva sa len v skúšobnom klone.
+ * Značka `.lawoss/reorganize.json` v priečinku klienta je len súbor, ktorý môže zapísať ktokoľvek (aj agent),
+ * preto sama súhlas nedokazuje. `allowInPlace: true` smie poslať len hostiteľ, ktorý súhlas advokáta overil
+ * vo vlastnom zázname mimo priečinka klienta (C1, lawoss#137); značka sa potom kontroluje ďalej. Server ani CLI
+ * ho v lawoss#135 neposielajú, originál teda odmietnu náhľad, zápis aj vrátenie.
+ */
+export type TriageTargetOptions = { allowInPlace?: boolean };
+
+/** Skúšobný klon (podľa značky) alebo, ak to volajúci výslovne dovolí, klient so súhlasom na mieste; inak odmietne. */
+export async function verifyTriageTarget(rootInput: string, trialJournalDirectory?: string, options: TriageTargetOptions = {}): Promise<TriageTarget> {
   if (!isAbsolute(rootInput)) throw new TrialCloneError("Cesta musí byť absolútna.");
   const root = resolve(rootInput);
   const trial = await lstat(join(root, TRIAL_MARKER)).then(() => true, error => { if (missing(error)) return false; throw error; });
   if (trial) { const clone = await verifyTrialClone(root, trialJournalDirectory); return { root: clone.root, mode: "trial", journalVerified: clone.journalVerified }; }
+  if (options.allowInPlace !== true) throw new TrialCloneError(NOT_TRIAL_CLONE);
   if (await realpath(root).catch(() => "") !== root) throw new TrialCloneError("Priečinok musí existovať a nesmie byť symbolický odkaz.");
   let consent: unknown;
   try { consent = JSON.parse(await readBounded(join(root, IN_PLACE_MARKER), 64 * 1024)); }
@@ -138,6 +153,37 @@ async function readSmall(root: string, path: string): Promise<string | undefined
   try { return await readBounded(join(root, path), 1024 * 1024); } catch (error) { if (missing(error)) return undefined; throw error; }
 }
 
+/**
+ * Háky roztriedenia. `writeProbe` je test-only náhrada sondy zápisu (zámok Wordu sa mimo Windows
+ * nedá vyrobiť); server ani CLI ju neposielajú.
+ */
+export type TriageHooks = InspectionHooks & { writeProbe?: (path: string) => Promise<void> };
+const errorCode = (error: unknown): string => error instanceof Error && "code" in error ? String(error.code) : "";
+
+/** Windows: otvorenie na zápis bez O_TRUNC/O_CREAT obsah ani čas zmeny nemení. Inde súbor zámok nedrží. */
+async function defaultWriteProbe(path: string): Promise<void> {
+  if (process.platform !== "win32") return;
+  const handle = await open(path, constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  await handle.close();
+}
+
+/**
+ * Drží súbor iný program tak, že ho presun nezmaže? Word dovolí otvorený dokument čítať (inšpekcia
+ * prejde), zapisovať ani mazať nie; `unlink` po pevnom odkaze by skončil EBUSY uprostred behu.
+ * Rovnako ako `assertSourcesWritable` v naming-fs.ts: EBUSY je zámok, EPERM/EACCES len pri súbore,
+ * ktorý nie je iba na čítanie (ten sa presúva aj bez práva zápisu do samotného súboru).
+ */
+export async function lockedForWrite(path: string, hooks: TriageHooks = {}): Promise<boolean> {
+  try { await (hooks.writeProbe ?? defaultWriteProbe)(path); return false; }
+  catch (error) {
+    const code = errorCode(error);
+    if (code === "EBUSY") return true;
+    if (code !== "EPERM" && code !== "EACCES") throw error;
+    const state = await lstat(path);
+    return !(state.isFile() && (state.mode & 0o222) === 0);
+  }
+}
+
 /** Neúplná inšpekcia len kvôli zamknutým súborom (Word, Outlook): tie sa preskočia, zvyšok sa dá usporiadať. */
 export const onlyLockedIssues = (inspection: OnboardingInspection): boolean =>
   inspection.issues.length > 0 && inspection.issues.every(issue => issue.code === "locked_file");
@@ -146,8 +192,8 @@ export const onlyLockedIssues = (inspection: OnboardingInspection): boolean =>
  * Inventár dokumentov, ktoré má zmysel roztriediť: všetko mimo systémových súborov, pamäte,
  * existujúcich vecí a už zaradených pracovných priečinkov. Súbory v priečinku na zatriedenie sa triedia.
  */
-export async function scanTriage(rootInput: string, options: { trialJournalDirectory?: string; limits?: InspectionLimits; jurisdiction?: "sk" | "cz"; hooks?: InspectionHooks } = {}): Promise<TriageInventory> {
-  const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory);
+export async function scanTriage(rootInput: string, options: TriageTargetOptions & { trialJournalDirectory?: string; limits?: InspectionLimits; jurisdiction?: "sk" | "cz"; hooks?: TriageHooks } = {}): Promise<TriageInventory> {
+  const clone = await verifyTriageTarget(rootInput, options.trialJournalDirectory, options);
   const inspection = await inspectOnboardingRoot(clone.root, options.limits, options.hooks);
   if (!inspection.complete && !onlyLockedIssues(inspection)) {
     const issue = inspection.issues[0];
@@ -199,9 +245,14 @@ export async function scanTriage(rootInput: string, options: { trialJournalDirec
       : CARD_NAMES.has(name.toLowerCase()) || SYSTEM_NAMES.test(name) ? "system_name"
       : matters.some(matter => under(entry.path, matter.path)) ? "in_matter"
       : entityDirs.some(dir => under(entry.path, dir)) ? "inside_entity"
+      // Priečinok pomenovaný ako vec (`2025-01 Spor`, spisová značka) je vec aj bez karty; rozpoznanie ho tak
+      // aj ohlási („klient s vecami“). Jeho dokumenty ostanú spolu na mieste, roztriedenie vec nerozpustí.
+      : entry.path.split("/").slice(0, -1).some(looksLikeMatterName) ? "in_matter"
       : sortedFolders.some(folder => under(entry.path, folder)) && !(inbox && under(entry.path, inbox)) ? "already_sorted"
       : undefined;
     if (reason) { if (reason !== "hidden") skipped.push({ path: entry.path, reason }); continue; }
+    // Otvorený vo Worde: na čítanie áno, presunúť sa nedá. Preskočí sa a nahlási ako zamknutý.
+    if (await lockedForWrite(join(clone.root, entry.path), options.hooks)) { skipped.push({ path: entry.path, reason: "locked" }); continue; }
     const dot = name.lastIndexOf(".");
     documents.push({ id: `d${sha(entry.path).slice(0, 16)}`, path: entry.path, name, ext: dot > 0 ? name.slice(dot + 1).toLowerCase() : "", size: entry.size, sha256: entry.digest! });
   }

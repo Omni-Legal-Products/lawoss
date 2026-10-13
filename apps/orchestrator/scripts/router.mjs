@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, mkdir, realpath, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, realpath, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -76,6 +76,17 @@ async function runCli(args, dataDir) {
   return trimmed ? JSON.parse(trimmed) : null;
 }
 
+// Pri zlyhaní vypíše konce logov OpenCode z dočasného dátového priečinka, kým ho
+// finally nezmaže. Bez nich CI nevie ukázať, prečo engine neodpovedal na /health.
+async function printOpencodeLogs(dir) {
+  const entries = await readdir(dir, { recursive: true }).catch(() => []);
+  for (const entry of entries.filter((name) => name.endsWith(".log"))) {
+    const text = await readFile(join(dir, entry), "utf8").catch(() => "");
+    const tail = text.split("\n").slice(-120).join("\n");
+    console.error(`--- ${entry} (posledných 120 riadkov) ---\n${tail}`);
+  }
+}
+
 async function canonicalPath(input) {
   try {
     return await realpath(input);
@@ -117,6 +128,7 @@ const daemon = spawn(
     env: {
       ...process.env,
       LEGALWORK_DATA_DIR: dataDir,
+      LEGALWORK_OPENCODE_LOG_LEVEL: process.env.LEGALWORK_OPENCODE_LOG_LEVEL ?? "DEBUG",
     },
     stdio: ["ignore", "inherit", "inherit"],
   },
@@ -161,6 +173,7 @@ try {
     ),
   );
   process.exitCode = 1;
+  await printOpencodeLogs(dataDir);
 } finally {
   await stopProcessTree(daemon);
   await rm(root, { recursive: true, force: true });

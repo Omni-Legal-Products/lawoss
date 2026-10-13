@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { lstat, mkdir, mkdtemp, readFile, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { inspectOnboardingParent } from "../src/onboarding/classify.ts";
+import { findOfficeConfigs, inspectOnboardingParent, inspectOnboardingRoot } from "../src/onboarding/classify.ts";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
 import { planClientConversion, planShallowClientConversion } from "../src/onboarding/plan.ts";
 
@@ -141,4 +141,82 @@ test("plytký plán odmietne nie klienta, rozpor kariet, blokujúce položky a n
     await expect(planShallowClientConversion(linkedDirectory, input)).rejects.toThrow("A file blocks the planned directory: Spisy");
     expect(await readFile(join(outside, "cudzi.txt"), "utf8")).toBe("cudzí súbor");
   }
+});
+
+/** Strom zo zoznamu ciest; `.md` dostane kartu klienta, `okf.config` konfiguráciu kancelárie. */
+async function treeOf(paths: readonly string[]): Promise<string> {
+  const root = await directory("okf-shallow-office-");
+  for (const path of paths) {
+    await mkdir(join(root, path, ".."), { recursive: true });
+    await writeFile(join(root, path), path.endsWith(".md") ? "---\ntype: client\ntitle: X\n---\n" : 'version: 1\nclient_path: "Klienti/*"\n');
+  }
+  return root;
+}
+
+test("convert odmietne vnorenú kanceláriu rovnako ako plná inšpekcia (parita)", async () => {
+  const cases: { paths: string[]; conflict: boolean }[] = [
+    { paths: ["Prax/Office/okf.config", "Prax/Klienti/A/client.md", "Prax/Klienti/B/client.md"], conflict: true },
+    { paths: ["client.md", "Podklady/_kancelaria/okf.config"], conflict: true },
+    { paths: ["A/Office/okf.config", "B/Office/okf.config"], conflict: true },
+    { paths: ["client.md", "Zmluvy/okf.config", "Office/poznamka.txt"], conflict: false },
+    { paths: [".opencode/Office/okf.config", "Zmluvy/zmluva.pdf"], conflict: false },
+  ];
+  for (const { paths: tree, conflict } of cases) {
+    const root = await treeOf(tree);
+    const full = await inspectOnboardingRoot(root);
+    expect({ tree, conflict: full.issues.some(issue => issue.code === "conflicting_identity") }).toEqual({ tree, conflict });
+    if (conflict) await expect(planOnboarding(request(root))).rejects.toThrow("conflicting_identity");
+    else expect((await planOnboarding(request(root))).mode).toBe("new");
+  }
+});
+
+test("hľadanie kancelárie nesleduje odkazy a pri limite je neúplné, convert potom nepokračuje", async () => {
+  const root = await treeOf(["Zmluvy/zmluva.pdf"]);
+  const practice = await treeOf(["Office/okf.config"]);
+  let linked = true;
+  try { await symlink(practice, join(root, "Zmluvy", "prax")); }
+  catch (error) { if (error && typeof error === "object" && "code" in error && ["EPERM", "EACCES", "ENOSYS"].includes(String(error.code))) linked = false; else throw error; }
+  if (linked) expect(await findOfficeConfigs(root)).toEqual({ complete: true, offices: [] });
+  expect(await findOfficeConfigs(root, { maxEntries: 1 })).toMatchObject({ complete: false });
+  expect(await findOfficeConfigs(root, { maxDepth: 0 })).toMatchObject({ complete: false });
+  await mkdir(join(root, "A", "B", "C"), { recursive: true });
+  expect(await findOfficeConfigs(join(root, "A"), { maxDepth: 1 })).toMatchObject({ complete: false });
+});
+
+test("úprava AGENTS.md medzi náhľadom a zápisom zastaví prevod, CLAUDE.md nedostane starý text", async () => {
+  const { root } = await clientWithLink();
+  await writeFile(join(root, "AGENTS.md"), "# Pokyny\n\nPôvodný text.\n");
+  const preview = await planOnboarding(request(root));
+  if (preview.mode !== "new") throw new Error("Convert must return a create preview.");
+  expect(preview.plan.operations.some(operation => operation.path === "CLAUDE.md")).toBe(true);
+  await writeFile(join(root, "AGENTS.md"), "# Pokyny\n\nUpravený text.\n");
+  await expect(applyOnboarding(preview, await options())).rejects.toThrow("Onboarding root changed since planning.");
+  expect(await exists(join(root, "CLAUDE.md"))).toBe(false);
+});
+
+test("plytký otlačok zahŕňa obsah riadiacich súborov, nie ostatných dokumentov", async () => {
+  const { root } = await clientWithLink();
+  await writeFile(join(root, "AGENTS.md"), "a");
+  await writeFile(join(root, "zmluva.docx"), "x");
+  const before = (await inspectOnboardingParent(root)).digest;
+  await writeFile(join(root, "zmluva.docx"), "y");
+  expect((await inspectOnboardingParent(root)).digest).toBe(before);
+  await writeFile(join(root, "AGENTS.md"), "b");
+  expect((await inspectOnboardingParent(root)).digest).not.toBe(before);
+});
+
+test("convert s junction na cudziu prax v podpriečinku: kanceláriu za odkazom neráta a nič za ním nezapíše", async () => {
+  const root = await treeOf(["Zmluvy/zmluva.pdf"]);
+  const practice = await treeOf(["Office/okf.config"]);
+  // Junction na Windows nepotrebuje práva správcu (na rozdiel od symlinku), takže test beží aj na Windows CI.
+  try { await symlink(practice, join(root, "Zmluvy", "prax"), "junction"); }
+  catch (error) { if (error && typeof error === "object" && "code" in error && ["EPERM", "EACCES", "ENOSYS"].includes(String(error.code))) return; throw error; }
+  expect(await findOfficeConfigs(root)).toEqual({ complete: true, offices: [] });
+  const before = (await inspectOnboardingRoot(practice)).digest;
+  const preview = await planOnboarding(request(root));
+  if (preview.mode !== "new") throw new Error("Convert must return a create preview.");
+  expect(preview.plan.operations.some(operation => operation.path.startsWith("Zmluvy"))).toBe(false);
+  await applyOnboarding(preview, await options());
+  expect(await exists(join(root, "client.md"))).toBe(true);
+  expect((await inspectOnboardingRoot(practice)).digest).toBe(before);
 });

@@ -102,3 +102,86 @@ test("GET opraví neplatný starý blok a vráti platný globálny poskytovateľ
   const body: { opencode?: { provider?: Record<string, unknown> } } = await response.json();
   expect(body.opencode?.provider?.ollama).toEqual(ollama);
 });
+
+test("rozdielny blok iného priečinka: bez potvrdenia 409 bez zápisu, s potvrdením prepis a audit v každom dotknutom", async () => {
+  const { config, baseUrl, ws, patchConfig } = await fixture();
+  const local = { ...ollama, name: "Ollama A" }; // klient A: localhost
+  const lan = { ...ollama, name: "Ollama B", options: { baseURL: "http://192.168.1.20:11434/v1" } }; // klient B: iný host v LAN
+  const v2 = { ...ollama, name: "Ollama A v2" };
+  await writeRuntimeOpencodeConfig(config, "office", (current) => ({ ...current, provider: { ollama: local } }));
+  await writeRuntimeOpencodeConfig(config, "second", (current) => ({ ...current, provider: { ollama: lan } }));
+  const patch = (body: unknown) => fetch(`${baseUrl}/workspace/${ws.id}/config`, { method: "PATCH", headers: { authorization: "Bearer client", "content-type": "application/json" }, body: JSON.stringify(body) });
+  const getProvider = async (id: string) => {
+    const response = await fetch(`${baseUrl}/workspace/${id}/config`, { headers: { authorization: "Bearer client" } });
+    const body: { opencode?: { provider?: Record<string, unknown> } } = await response.json();
+    return body.opencode?.provider?.ollama;
+  };
+  const auditOf = async (id: string) => (await (await fetch(`${baseUrl}/workspace/${id}/audit`, { headers: { authorization: "Bearer client" } })).json()).items as { action: string }[];
+  const conflict = { code: "provider_conflict", details: { providerConflicts: [{ providerId: "ollama", workspaces: [{ id: "second", name: "Second" }] }] } };
+
+  // úprava aj odpojenie v A bez potvrdenia: 409 a nič sa nezapíše
+  for (const value of [v2, null]) {
+    const response = await patch({ opencode: { provider: { ollama: value } } });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject(conflict);
+    expect((await readRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID)).provider ?? {}).toEqual({});
+    expect((await readRuntimeOpencodeConfig(config, "office")).provider).toEqual({ ollama: local });
+    expect((await readRuntimeOpencodeConfig(config, "second")).provider).toEqual({ ollama: lan });
+    expect(await getProvider("second")).toEqual(lan);
+  }
+
+  // s potvrdením: globálny riadok má v2, oba staré bloky zmiznú, B má záznam v audite
+  const confirmed = await patch({ opencode: { provider: { ollama: v2 } }, confirmProviderOverwrite: true });
+  expect(confirmed.status).toBe(200);
+  expect((await readRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID)).provider).toEqual({ ollama: v2 });
+  for (const id of ["office", "second"]) expect((await readRuntimeOpencodeConfig(config, id)).provider ?? {}).toEqual({});
+  expect(await getProvider("second")).toEqual(v2);
+  expect(await auditOf("second")).toEqual(expect.arrayContaining([expect.objectContaining({ action: "config.provider.overwrite" })]));
+});
+
+test("zhodný starý blok iného priečinka prejde bez potvrdenia a dotknutý priečinok dostane záznam v audite", async () => {
+  const { config, baseUrl, ws, patchConfig } = await fixture();
+  const local = { ...ollama, name: "Ollama A" };
+  await writeRuntimeOpencodeConfig(config, "office", (current) => ({ ...current, provider: { ollama: local } }));
+  await writeRuntimeOpencodeConfig(config, "second", (current) => ({ ...current, provider: { ollama: local } }));
+  await patchConfig(ws.id, { opencode: { provider: { ollama: { ...local, name: "Ollama v2" } } } });
+  expect((await readRuntimeOpencodeConfig(config, "second")).provider ?? {}).toEqual({});
+  const audit = (await (await fetch(`${baseUrl}/workspace/second/audit`, { headers: { authorization: "Bearer client" } })).json()).items as { action: string }[];
+  expect(audit).toEqual(expect.arrayContaining([expect.objectContaining({ action: "config.provider.overwrite" })]));
+});
+
+test("zmena adresy servera vyžaduje potvrdenie aj pri zhodnom starom bloku a pri globálnom poskytovateľovi (MČ 13. 10.)", async () => {
+  const { config, baseUrl, ws } = await fixture();
+  const third = join(config.workspaces[0]!.path, "..", "third"), home = join(config.workspaces[0]!.path, "..", "lawoss-domov");
+  for (const dir of [third, home]) await mkdir(dir, { recursive: true });
+  // C používa len globálneho poskytovateľa; domov sa v zozname nikdy neobjaví.
+  config.workspaces.push({ id: "third", name: "Third", preset: "starter", path: third, workspaceType: "local" }, { id: "home", name: "lawoss-domov", preset: "starter", path: home, workspaceType: "local" });
+  config.authorizedRoots.push(third, home);
+  const local = { ...ollama, name: "Ollama" };
+  const cloud = { ...ollama, options: { baseURL: "https://cloud.example/v1" } };
+  await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, (current) => ({ ...current, provider: { ollama: local } }));
+  await writeRuntimeOpencodeConfig(config, "office", (current) => ({ ...current, provider: { ollama: local } }));
+  await writeRuntimeOpencodeConfig(config, "second", (current) => ({ ...current, provider: { ollama: local } }));
+  const patch = (body: unknown) => fetch(`${baseUrl}/workspace/${ws.id}/config`, { method: "PATCH", headers: { authorization: "Bearer client", "content-type": "application/json" }, body: JSON.stringify(body) });
+  const auditOf = async (id: string) => (await (await fetch(`${baseUrl}/workspace/${id}/audit`, { headers: { authorization: "Bearer client" } })).json()).items as { action: string }[];
+
+  const refused = await patch({ opencode: { provider: { ollama: cloud } } });
+  expect(refused.status).toBe(409);
+  expect(await refused.json()).toMatchObject({ code: "provider_conflict", details: { providerConflicts: [{ providerId: "ollama", reason: "endpoint_change", workspaces: [{ id: "second", name: "Second" }, { id: "third", name: "Third" }] }] } });
+  expect((await readRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID)).provider).toEqual({ ollama: local });
+  expect((await readRuntimeOpencodeConfig(config, "second")).provider).toEqual({ ollama: local });
+
+  // rovnaká adresa, iný názov: bez potvrdenia
+  expect((await patch({ opencode: { provider: { ollama: { ...local, name: "Ollama v2" } } } })).status).toBe(200);
+
+  const confirmed = await patch({ opencode: { provider: { ollama: cloud } }, confirmProviderOverwrite: true });
+  expect(confirmed.status).toBe(200);
+  expect((await readRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID)).provider).toEqual({ ollama: cloud });
+  expect(await auditOf("third")).toEqual(expect.arrayContaining([expect.objectContaining({ action: "config.provider.endpoint" })]));
+});
+
+test("nový poskytovateľ, ktorého ostatní klienti nemali, nie je zmena adresy", async () => {
+  const { baseUrl, ws } = await fixture();
+  const response = await fetch(`${baseUrl}/workspace/${ws.id}/config`, { method: "PATCH", headers: { authorization: "Bearer client", "content-type": "application/json" }, body: JSON.stringify({ opencode: { provider: { ollama: { ...ollama, options: { baseURL: "https://cloud.example/v1" } } } } }) });
+  expect(response.status).toBe(200);
+});
