@@ -1,3 +1,4 @@
+import type { PanelTabDestination } from "./panel-tab-request";
 import { documentControlTarget } from "./document-control-target";
 import { DocumentControlSessions, useDocumentControlSessions } from "../../../shell/control/document-control-sessions";
 import { isFileIntakeTarget, isFileSidebarDrag } from "./file-drop-intent";
@@ -93,6 +94,7 @@ import { DocumentPane } from "./document-pane";
 import { ProjectReviews } from "../../reviews/project-reviews";
 
 type SidePanelProps = {
+  tabDestination?: PanelTabDestination;
   controlSessionIds?: readonly string[];
   headerTarget?: HTMLElement | null;
   projects?: { id: string; name: string }[];
@@ -710,6 +712,7 @@ export function SidePanel(props: SidePanelProps) {
 }
 
 function SidePanelContent({
+  tabDestination,
   headerTarget,
   projects,
   sessionId,
@@ -1130,7 +1133,7 @@ function SidePanelContent({
           : tab.type === "workflow-resource" ? <WorkflowResourceEditorPanel id={tab.id} onClose={() => closeDocumentTab(tab)} /> : null;
         return [<DocumentPane key={`${workspaceId}:${sessionId}:${tab.id}`} destination={pane ? destinations[pane.id] ?? null : null}>
           <ControlActionScope active={tab.type === "artifact" ? visible && tab.id === controlDocumentId : active}><div className="flex h-full min-h-0 flex-col" onFocusCapture={focus} onPointerDownCapture={focus} onInputCapture={() => usePanelTabStore.getState().keepTab(sessionId, tab.id)}>
-            <PanelTabDestinationProvider destination={unified ? { kind: "workspace", workspaceId: sessionId.slice(10) } : { kind: "evals" }}>{body}</PanelTabDestinationProvider>
+            <PanelTabDestinationProvider destination={tabDestination ?? (unified ? { kind: "workspace", workspaceId: sessionId.slice(10) } : { kind: "evals" })}>{body}</PanelTabDestinationProvider>
           </div></ControlActionScope>
         </DocumentPane>];
       })}

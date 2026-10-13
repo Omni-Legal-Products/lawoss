@@ -2330,7 +2330,7 @@ export function SessionRoute() {
     }
   };
 
-  const workflowLibraryView = <SettingsSurface embedded singleView initialPath="workflows" workspaceId={selectedWorkspaceId}
+  const workflowLibraryView = <SettingsSurface embedded singleView active={showWorkflows} initialPath="workflows" workspaceId={selectedWorkspaceId}
     onClose={() => { navigate(workspaceSessionRoute(selectedWorkspaceId, selectedSessionId)); }} />;
 
   return (

@@ -1,3 +1,4 @@
+import { isWorkspacePanelScope } from "./panel-scope";
 import { projectFileSourceSchema, type ProjectFileSource } from "@legalwork/types/project-files";
 import { projectFileTab } from "../../workspace/project-file-tab";
 import { isProjectView, type ProjectView } from "./project-view";
@@ -241,7 +242,7 @@ function dockTab(sessionId: string, session: SessionPanelState, tab: PanelTab, p
   if (split && source?.id === destination.id && source.tabIds.length === 1) return session;
   const sourceEmpties = source && source.id !== destination.id && source.tabIds.length === 1;
   if (split && session.panes.length + 1 - (sourceEmpties ? 1 : 0) > MAX_DOCUMENT_PANES) return session;
-  if (!sessionId.startsWith("workspace:") && !split && destination.activeTabId !== tab.id && !confirmDiscardSessionDocuments(sessionId, [destination.activeTabId], undefined, true, retry)) return session;
+  if (!isWorkspacePanelScope(sessionId) && !split && destination.activeTabId !== tab.id && !confirmDiscardSessionDocuments(sessionId, [destination.activeTabId], undefined, true, retry)) return session;
   const tabs = existing ? session.tabs.map(entry => entry.id === tab.id ? tab : entry) : [...session.tabs, tab];
   const newPaneId = split ? `pane:${crypto.randomUUID()}` : destination.id;
   const panes = session.panes.map(pane => {
@@ -456,7 +457,7 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
         if (!closing || !pane) return state;
         if (closing.type === "workflow" || closing.type === "workflow-resource") {
           if (!confirmDiscardSessionDocuments(sessionId, [tabId], undefined, false, () => get().closeTab(sessionId, tabId))) return state;
-        } else if ((sessionId.startsWith("workspace:") || pane.activeTabId === tabId) && !confirmDiscardSessionDocuments(sessionId, [tabId], undefined, true, () => get().closeTab(sessionId, tabId))) return state;
+        } else if ((isWorkspacePanelScope(sessionId) || pane.activeTabId === tabId) && !confirmDiscardSessionDocuments(sessionId, [tabId], undefined, true, () => get().closeTab(sessionId, tabId))) return state;
         return updateSession(state, sessionId, normalizeSession({ ...session, tabs: session.tabs.filter(tab => tab.id !== tabId),
           panes: session.panes.map(entry => entry.id === pane.id ? { ...entry, tabIds: entry.tabIds.filter(id => id !== tabId), activeTabId: entry.activeTabId === tabId ? neighbour(session, entry, tabId) : entry.activeTabId } : entry),
         }));
@@ -464,7 +465,7 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
       selectTab: (sessionId, tabId) => set(state => {
         const session = getWritableSession(state, sessionId);
         const pane = session.panes.find(pane => pane.tabIds.includes(tabId));
-        if (!pane || (pane.activeTabId === tabId && session.focusedPaneId === pane.id) || (pane.activeTabId !== tabId && !sessionId.startsWith("workspace:") && !confirmDiscardSessionDocuments(sessionId, [pane.activeTabId], undefined, true, () => get().selectTab(sessionId, tabId)))) return state;
+        if (!pane || (pane.activeTabId === tabId && session.focusedPaneId === pane.id) || (pane.activeTabId !== tabId && !isWorkspacePanelScope(sessionId) && !confirmDiscardSessionDocuments(sessionId, [pane.activeTabId], undefined, true, () => get().selectTab(sessionId, tabId)))) return state;
         return updateSession(state, sessionId, normalizeSession({ ...session, focusedPaneId: pane.id, panes: session.panes.map(entry => entry.id === pane.id ? { ...entry, activeTabId: tabId } : entry) }));
       }),
       moveTab: (sessionId, tabId, pane, edge) => set(state => {

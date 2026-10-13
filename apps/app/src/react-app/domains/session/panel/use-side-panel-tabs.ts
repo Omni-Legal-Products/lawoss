@@ -1,3 +1,4 @@
+import { isWorkspacePanelScope } from "./panel-scope";
 import * as React from "react";
 
 import type { BrowserStatePayload } from "@/app/lib/desktop";
@@ -108,7 +109,7 @@ export function useSelectTab() {
 
     const previous = usePanelTabStore.getState().sessions[sessionId];
     const pane = previous?.panes.find(pane => pane.tabIds.includes(tabId));
-    if (!sessionId.startsWith("workspace:") && pane && pane.activeTabId !== tabId &&
+    if (!isWorkspacePanelScope(sessionId) && pane && pane.activeTabId !== tabId &&
       !confirmDiscardSessionDocuments(sessionId, [pane.activeTabId], undefined, true, () => selectPanelTab(sessionId, tabId))) return;
 
     selectTab(sessionId, tabId);

@@ -63,8 +63,8 @@ function fixture(changed: () => void) {
   return store;
 }
 
-export function WorkflowsPreview({ workspaceId = "visual-workspace", reviewClient }: { workspaceId?: string; reviewClient?: LegalworkServerClient }) {
+export function WorkflowsPreview({ workspaceId = "visual-workspace", reviewClient, active }: { active?: boolean; workspaceId?: string; reviewClient?: LegalworkServerClient }) {
   const [, setRevision] = useState(0);
   const extensions = useMemo(() => fixture(() => setRevision((value) => value + 1)), []);
-  return <WorkflowsView inlineEditor workspaceId={workspaceId} reviewWorkspaceId={workspaceId} reviewClient={reviewClient} workspaceName="Northstar Legal" busy={false} canInstallSkillCreator canUseDesktopTools extensions={extensions} onOpenLink={() => {}} createSessionAndOpen={() => {}} />;
+  return <WorkflowsView active={active} workspaceId={workspaceId} reviewWorkspaceId={workspaceId} reviewClient={reviewClient} workspaceName="Northstar Legal" busy={false} canInstallSkillCreator canUseDesktopTools extensions={extensions} onOpenLink={() => {}} createSessionAndOpen={() => {}} />;
 }

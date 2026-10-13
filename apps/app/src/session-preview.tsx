@@ -43,6 +43,7 @@ import { seedPermissionState, seedQuestionState } from "@/react-app/domains/sess
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { eigenweltEntitlementsQueryKey } from "@/react-app/domains/connections/eigenwelt-entitlements";
 import { LocalProvider } from "@/react-app/kernel/local-provider";
+import { LegalworkControlProvider } from "@/react-app/shell/control/control-provider";
 import { ShellConfigProvider } from "@/react-app/shell/shell-config";
 import { ReloadCoordinatorProvider } from "@/react-app/shell/reload-coordinator";
 import { WorkspaceProvider } from "@/react-app/shell/workspace-provider";
@@ -645,7 +646,7 @@ function SessionPreview() {
           projectTasksView={(embedded, inWorkspace) => <TasksPane embedded={embedded} client={fixtureClient} workspaceId={activeWorkspace.id} projectId={activeWorkspace.id} detailMode={inWorkspace ? "panel" : "inline"} onOpenInProject={(_projectId, task) => { usePanelTabStore.getState().openTab(workspacePanelKey(activeWorkspace.id), { id: `task:${task.id}`, type: "task", taskId: task.id, label: task.title }); navigate(`/workspace/${activeWorkspace.id}/session?view=workspace`); }} baseUrl={fixtureClient.baseUrl} token="visual-fixture" workspaces={[workspace, otherWorkspace]} defaultModel={model} onOpenSession={(_workspaceId, id) => setSelectedSessionId(id)} />}
           projectCalendarView={<CalendarView client={fixtureClient} workspaceId={activeWorkspace.id} projectId={activeWorkspace.id} projectName={activeWorkspace.name} />}
           homePage={showHome}
-          workflowLibraryView={<WorkflowsPreview workspaceId={activeWorkspace.id} reviewClient={fixtureClient} />}
+          workflowLibraryView={<WorkflowsPreview active={showWorkflows} workspaceId={activeWorkspace.id} reviewClient={fixtureClient} />}
           mainView={showHome ? <AppHome
             workspaces={[workspace, otherWorkspace]} projectId={homeProject}
             onProjectChange={(id) => { setHomeProject(id); pendingHome.current = { sessionId: null, uploads: new Map() }; }} onCreateProject={previewNotice}
@@ -699,7 +700,7 @@ function SessionPreview() {
             onOpenRenameWorkspace: previewNotice, onRevealWorkspace: previewNotice, onForgetWorkspace: previewNotice,
             onOpenCreateWorkspace: previewNotice, onCreateChatInNewWorkspace: previewNotice,
             onShowProjects: () => { setShowHome(false); setShowWorkflows(false); navigate("/projects"); },
-            onShowChats: () => { setShowHome(true); setShowWorkflows(false); }, onShowEvals: previewNotice, onShowWorkflows: () => setShowWorkflows(true), onShowExtensions: previewNotice, onShowRecorder: previewNotice,
+            onShowChats: () => { setShowHome(true); setShowWorkflows(false); }, onShowEvals: previewNotice, onShowWorkflows: () => { setShowHome(false); setShowWorkflows(true); navigate("/workflows"); }, onShowExtensions: previewNotice, onShowRecorder: previewNotice,
             activeNav: showWorkflows ? "workflows" : null,
           }}
           surface={{
@@ -740,15 +741,17 @@ previewRoot.render(
             <ReloadCoordinatorProvider>
               <WorkspaceProvider client={null} selectedWorkspaceRoot={workspace.path} workspaces={[]} baseUrl="https://legalwork-preview.invalid" token="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode" onOpenSession={previewNotice}>
                 <MemoryRouter initialEntries={[window.location.hash.slice(1) || "/"]}>
-                  <ProjectFileImportContext value={async (_projectId, imported, folder) => { await previewCopyDelay(); return { files: await Promise.all(imported.map(async file => {
-                    const path = folder ? `${folder}/${file.name}` : file.name;
-                    if (files.some(entry => entry.path === path)) return { name: file.name, path, status: "already_here" };
-                    files = [...files, { name: file.name, path, kind: "file", size: file.size }];
-                    localStorage.setItem(`legalwork:synthetic-file:${path}`, JSON.stringify({ content: await file.text(), updatedAt: Date.now() }));
-                    return { name: file.name, path, status: "copied" };
-                  })) }; }}><SessionPreview /></ProjectFileImportContext>
-                  <PlansPreview />
-                  <Toaster /><DocumentDiscardDialog />
+                  <LegalworkControlProvider>
+                    <ProjectFileImportContext value={async (_projectId, imported, folder) => { await previewCopyDelay(); return { files: await Promise.all(imported.map(async file => {
+                      const path = folder ? `${folder}/${file.name}` : file.name;
+                      if (files.some(entry => entry.path === path)) return { name: file.name, path, status: "already_here" };
+                      files = [...files, { name: file.name, path, kind: "file", size: file.size }];
+                      localStorage.setItem(`legalwork:synthetic-file:${path}`, JSON.stringify({ content: await file.text(), updatedAt: Date.now() }));
+                      return { name: file.name, path, status: "copied" };
+                    })) }; }}><SessionPreview /></ProjectFileImportContext>
+                    <PlansPreview />
+                    <Toaster /><DocumentDiscardDialog />
+                  </LegalworkControlProvider>
                 </MemoryRouter>
               </WorkspaceProvider>
             </ReloadCoordinatorProvider>

@@ -104,6 +104,30 @@ describe("skill resources CRUD", () => {
     expect(await readFile(skillMd(), "utf8")).toBe(originalSkill);
   });
 
+  test("reads imported Unicode attachment names and saves to the same file", async () => {
+    await createSkill();
+    const names = ["Nr_085_Anfrage beim Gerichtsvollzieher zwecks Abgabe eines Verm”gensverzeichnisses.docx", "Vermögensverzeichnis (Entwurf).docx", "Öffentliche Urkunde.docx", "Cafe\u0301.docx"];
+    const bytes = Buffer.from([80, 75, 3, 4, 0, 255, 128, 1]);
+    await mkdir(join(skillDir(), "resources"), { recursive: true });
+    for (const name of names) {
+      const path = join(skillDir(), "resources", name);
+      // Imported workflows already contain filenames that bypassed the upload form.
+      await writeFile(path, bytes);
+      const listed = (await listSkillResources(workspace, SKILL)).find(item => item.name === name);
+      expect(listed).toBeDefined();
+      const loaded = await readSkillResource(workspace, SKILL, name, "base64");
+      expect(loaded.item.path).toBe(path);
+      expect(Buffer.from(loaded.content, "base64")).toEqual(bytes);
+      const edited = Buffer.concat([bytes, Buffer.from([1, 2])]);
+      const saved = await upsertSkillResource(workspace, SKILL, { name, contentBase64: edited.toString("base64") });
+      expect(saved.action).toBe("updated");
+      expect(saved.path).toBe(path);
+      expect(await readFile(path)).toEqual(edited);
+      await deleteSkillResource(workspace, SKILL, name);
+      expect(await exists(path)).toBe(false);
+    }
+  });
+
   test("rejects reading non-text resources in the editor", async () => {
     await createSkill();
     await upsertSkillResource(workspace, SKILL, { name: "letterhead.docx", contentBase64: "aGk=" });
@@ -144,7 +168,7 @@ describe("skill resources CRUD", () => {
 });
 
 describe("name safety", () => {
-  const badFileNames = ["../evil.md", "..", "a/b.md", "a\\b.md", "/etc/passwd", ".hidden.md", "", "trailing. ", "a..b.md"];
+  const badFileNames = ["../evil.md", "..", "a/b.md", "a\\b.md", "/etc/passwd", ".hidden.md", "", "trailing. ", "a..b.md", "a\u0000.docx", "a\n.docx", "C:drive.docx", "a|b.docx", "a?b.docx"];
 
   for (const name of badFileNames) {
     test(`rejects file name ${JSON.stringify(name)}`, async () => {

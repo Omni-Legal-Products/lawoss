@@ -324,6 +324,7 @@ function settingsPathForRoute(route: ReturnType<typeof parseSettingsPath>) {
 }
 
 export type SettingsSurfaceProps = {
+  active?: boolean;
   embedded?: boolean;
   initialPath?: string;
   workspaceId?: string;
@@ -2253,6 +2254,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         const View = route.tab === "workflows" ? WorkflowsView : SkillsView;
         return (
           <View
+            active={props.active}
             workspaceId={selectedWorkspaceId}
             reviewClient={legalworkClient}
             reviewWorkspaceId={hubWorkspaceId}
@@ -2272,7 +2274,6 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 }}
               />
             }
-            inlineEditor
             kind={route.tab === "workflows" ? "workflows" : "skills"}
             workspaceName={selectedWorkspaceName}
             busy={busy}
@@ -2567,7 +2568,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         // Standalone pages use the same pane-relative gutters and content width.
         // Workflows owns its frame so its list and editor can scroll independently.
         <div className={route.tab === "workflows"
-          ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
+          ? "flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
           : "@container/page min-w-0 min-h-0 flex-1 overflow-y-auto bg-background"}>
           {route.tab === "workflows" ? settingsView : <div className="lw-page-content lw-page-top flex flex-col gap-6 pb-8">{settingsView}</div>}
         </div>

@@ -1,3 +1,4 @@
+import { workflowsPanelKey } from "../panel/panel-scope";
 import { WorkspaceWindowButton } from "../panel/workspace-window-button";
 import { WorkspaceTabDropTarget } from "../sidebar/workspace-tab-drop-target";
 import { ProjectFileProvider } from "../../workspace/project-file-context";
@@ -370,9 +371,10 @@ export function SessionPage(props: SessionPageProps) {
   const [workspaceHost, setWorkspaceHost] = useState<HTMLDivElement | null>(null);
   useEffect(() => { usePanelTabStore.getState().migrateWorkspace(props.selectedWorkspaceId); }, [props.selectedWorkspaceId]);
   const workflowsPage = props.sidebar.activeNav === "workflows";
+  const workflowPanel = useSessionPanelState(workflowsPanelKey(props.selectedWorkspaceId));
   // Bind from current project props, even on a direct return to an editor.
   // Caching the last visited library would lose its services on project changes.
-  const workflowLibrary = workflowsPage || workspacePanel.tabs.some(tab => tab.type === "workflow" || tab.type === "workflow-resource")
+  const workflowLibrary = workflowsPage || workflowPanel.tabs.length > 0 || workspacePanel.tabs.some(tab => tab.type === "workflow" || tab.type === "workflow-resource")
     ? props.workflowLibraryView : null;
   const [workflowLibraryHost, setWorkflowLibraryHost] = useState<HTMLDivElement | null>(null);
   const mobile = useIsMobile();

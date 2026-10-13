@@ -22,7 +22,7 @@ export type SkillResourceItem = {
 };
 
 // A resource name is a plain file name — no directories, no dot-prefix, no `..`.
-const RESOURCE_NAME_REGEX = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,127}$/;
+const RESOURCE_NAME_REGEX = /^[\p{L}\p{N}][^<>:"/\\|?*\p{C}]{0,127}$/u;
 const TEXT_RESOURCE_EXTENSIONS = new Set(["md", "markdown", "txt", "csv"]);
 
 export function validateResourceName(name: string): void {
@@ -35,7 +35,7 @@ export function validateResourceName(name: string): void {
     throw new ApiError(
       400,
       "invalid_resource_name",
-      "Resource name must be a plain file name (letters, numbers, spaces, dots, dashes; no slashes or ..)",
+      "Resource name must be a plain file name (no slashes, control characters, reserved path characters, or ..)",
     );
   }
 }
