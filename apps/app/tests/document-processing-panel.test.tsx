@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import { DocumentProcessingPanel } from "../src/react-app/domains/session/panel/document-processing-panel";
-import { documentClientIdentity, type FreshDocument } from "../src/react-app/domains/session/panel/document-processing";
+import { documentClientIdentity, persistDocumentSelection, readDocumentSelection, type FreshDocument } from "../src/react-app/domains/session/panel/document-processing";
 import { t } from "../src/i18n";
 
 const source: FreshDocument = { id: "source", path: '<img src=x onerror="unsafe">.pdf', workspaceId: "selected", hash: "a", status: "partial", complete: false, pageCount: 2, readablePages: 1, updatedAt: 1, provenance: { sourcePath: "source.pdf", depth: 0 }, freshness: "current", pages: [{ page: 1, text: "<script>unsafe</script>" }] };
@@ -41,5 +41,41 @@ test("React query identity cannot reuse another owning client with the same runt
   const queryClient = new QueryClient();
   queryClient.setQueryData(["lawoss-documents", prior.baseUrl, documentClientIdentity(prior), "selected", "/root", [source.path], "files"], [source]);
   const html = renderToStaticMarkup(<QueryClientProvider client={queryClient}><DocumentProcessingPanel client={next} workspaceId="selected" projectId="app-selected" workspaceRoot="/root" folder="" selectedPaths={[source.path]} onSelectPaths={() => {}} fileVersion="files" active={false} isRemote={true} /></QueryClientProvider>);
-  expect(html).not.toContain("&lt;img"); expect(html).not.toContain(t("documents.status_partial"));
+  expect(html).toContain(t("documents.status_missing")); expect(html).not.toContain(t("documents.status_partial"));
+});
+
+test("persisted reload selection includes unprepared original and cannot claim complete extraction", () => {
+  const client = createLegalworkServerClient({ baseUrl: "http://reload" });
+  const queryClient = new QueryClient();
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const saved = new Map<string, string>();
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
+    getItem: (key: string) => saved.get(key) ?? null,
+    setItem: (key: string, value: string) => saved.set(key, value),
+  } });
+  persistDocumentSelection("reload-selection", [source.path, "unprepared.pdf"]);
+  const selectedPaths = readDocumentSelection("reload-selection");
+  if (previousStorage) Object.defineProperty(globalThis, "localStorage", previousStorage);
+  else Reflect.deleteProperty(globalThis, "localStorage");
+  const identity = [client.baseUrl, documentClientIdentity(client), "selected", "/root"];
+  queryClient.setQueryData(["lawoss-documents", ...identity, [...selectedPaths].sort(), "files"], [{ ...source, status: "readable", complete: true }]);
+  const html = renderToStaticMarkup(<QueryClientProvider client={queryClient}><DocumentProcessingPanel client={client} workspaceId="selected" projectId="app-selected" workspaceRoot="/root" folder="" selectedPaths={selectedPaths} onSelectPaths={() => {}} fileVersion="files" active={false} isRemote={false} /></QueryClientProvider>);
+  expect(html).not.toContain(t("documents.complete"));
+  expect(html).toContain("unprepared.pdf");
+});
+
+test("real output query success, failed refetch and recovery retract and restore verified status", async () => {
+  const client = createLegalworkServerClient({ baseUrl: "http://refetch" });
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const identity = [client.baseUrl, documentClientIdentity(client), "selected", "/root"];
+  const key = ["lawoss-document-outputs", ...identity, ["source"], "files"];
+  queryClient.setQueryData(["lawoss-documents", ...identity, [source.path], "files"], [{ ...source, status: "readable", complete: true }]);
+  const output = { path: "report.md", documentIds: ["source"], verified: true, hash: "a", currentHash: "a", sourceHash: "x", currentSourceHash: "x" };
+  const html = () => renderToStaticMarkup(<QueryClientProvider client={queryClient}><DocumentProcessingPanel client={client} workspaceId="selected" projectId="app-selected" workspaceRoot="/root" folder="" selectedPaths={[source.path]} onSelectPaths={() => {}} fileVersion="files" active={false} isRemote={false} /></QueryClientProvider>);
+  await queryClient.fetchQuery({ queryKey: key, queryFn: async () => [output] });
+  expect(html()).toContain(t("documents.output_verified"));
+  await expect(queryClient.fetchQuery({ queryKey: key, staleTime: 0, queryFn: async () => { throw new Error("status unavailable"); } })).rejects.toThrow();
+  expect(html()).not.toContain(t("documents.output_verified"));
+  await queryClient.fetchQuery({ queryKey: key, staleTime: 0, queryFn: async () => [output] });
+  expect(html()).toContain(t("documents.output_verified"));
 });

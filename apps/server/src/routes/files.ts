@@ -1144,6 +1144,11 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     }
     // Validate canonical containment before inspecting or enumerating a selected folder.
     const scopedPath = await resolveWithinRoot(workspace.path, relativePath || ".");
+    const requestedBoundary = ctx.url.searchParams.get("within");
+    const within = requestedBoundary === null ? undefined : requestedBoundary.trim()
+      ? normalizeWorkspaceRelativePath(requestedBoundary.trim(), { allowSubdirs: true }) : "";
+    const boundary = within === undefined ? undefined : await realpath(await resolveWithinRoot(workspace.path, within || "."));
+    if (boundary) await resolveWithinRoot(boundary, scopedPath);
     const info = await stat(scopedPath);
     if (!info.isDirectory()) {
       throw new ApiError(400, "invalid_path", "Path must point to a directory");
@@ -1157,6 +1162,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
           const entryPath = relativePath ? `${relativePath}/${dirent.name}` : dirent.name;
           try {
             const entryAbsolute = await resolveWithinRoot(workspace.path, entryPath);
+            if (boundary) await resolveWithinRoot(boundary, entryAbsolute);
             const entryInfo = await stat(entryAbsolute);
             if (entryInfo.isDirectory()) {
               return { name: dirent.name, path: entryPath, kind: "dir" };
@@ -1180,7 +1186,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     const truncated = entries.length > FILE_LIST_MAX_ENTRIES;
     return jsonResponse({
-      path: relativePath,
+      path: relativePath, ...(within === undefined ? {} : { enforcedWithin: within }),
       entries: truncated ? entries.slice(0, FILE_LIST_MAX_ENTRIES) : entries,
       truncated,
     });

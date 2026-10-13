@@ -9,17 +9,44 @@ export function documentClientIdentity(client: object): number {
   return identity;
 }
 
+export function readDocumentSelection(key: string): string[] {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(`lawoss-doc-selection:${key}`) ?? "[]");
+    return Array.isArray(saved) && saved.length <= 20 && saved.every(path => typeof path === "string") ? saved : [];
+  } catch {
+    return [];
+  }
+}
+export function persistDocumentSelection(key: string, paths: string[]) {
+  try { localStorage.setItem(`lawoss-doc-selection:${key}`, JSON.stringify(paths)); } catch { /* Optional UI persistence. */ }
+}
+
+export function readDocumentWorkingDirectory(key: string): string {
+  try {
+    const saved = localStorage.getItem(`lawoss-doc-working-directory:${key}`) ?? "";
+    return saved.length <= 4096 ? saved : "";
+  } catch {
+    return "";
+  }
+}
+export function persistDocumentWorkingDirectory(key: string, directory: string) {
+  try { localStorage.setItem(`lawoss-doc-working-directory:${key}`, directory); } catch { /* Optional UI persistence. */ }
+}
+
 export type FreshDocument = LawossDocumentSummary & { freshness: "current" | "pending" | "stale" | "error"; pages: LawossDocumentRead["pages"] };
-export type DocumentGenerationRequest = { projectId: string; caseDirectory: string; sources: LawossDocumentSummary[]; outputLanguage: LawossOutputLanguage; retrySessionId?: string | null };
+export type DocumentGenerationRequest = { projectId: string; caseDirectory: string; sources: LawossDocumentSummary[]; outputLanguage: LawossOutputLanguage; retrySessionId?: string | null; newGeneration?: boolean };
 export type DocumentGenerationCallback = (request: DocumentGenerationRequest) => Promise<string>;
 
 export async function discoverDocumentSources(client: Pick<LegalworkServerClient, "listWorkspaceDirectory"> & Partial<Pick<LegalworkServerClient, "readWorkspaceFile">>, workspaceId: string, folder: string): Promise<string[]> {
-  const paths: string[] = [], visited = new Set<string>(), queue = [folder];
+  const paths: string[] = [];
+  const visited = new Set<string>();
+  const queue = [folder];
   while (queue.length) {
     const path = queue.shift()!;
     if (visited.has(path) || visited.size >= 100) throw new Error(t("documents.folder_limit"));
     visited.add(path);
-    const list = await client.listWorkspaceDirectory(workspaceId, path);
+    const list = await client.listWorkspaceDirectory(workspaceId, path, { within: folder });
+    if (list.enforcedWithin !== folder) throw new Error(t("documents.folder_boundary_unavailable"));
     if (list.truncated) throw new Error(t("documents.folder_limit"));
     for (const entry of list.entries) {
       // Discovery is data from the selected folder only; reject malformed cross-scope results.
@@ -61,11 +88,20 @@ export async function listAllDocuments(client: Pick<LegalworkServerClient, "list
 
 export async function freshDocumentSources(client: Pick<LegalworkServerClient, "readLawossDocument">, workspaceId: string, paths: string[], records: LawossDocumentSummary[]): Promise<FreshDocument[]> {
   // The latest admitted original owns descendants, never a historical same-path version.
-  const roots = paths.map(path => [...records].reverse().filter(r => r.path === path && !r.provenance.parentId).sort((a, b) => b.updatedAt - a.updatedAt)[0]).filter((r): r is LawossDocumentSummary => Boolean(r));
+  const roots = paths.map(path => {
+    const originals = [...records].reverse().filter(record => record.path === path && !record.provenance.parentId);
+    return originals.sort((left, right) => right.updatedAt - left.updatedAt)[0];
+  }).filter((record): record is LawossDocumentSummary => Boolean(record));
   const selected = new Set(roots.map(r => r.id));
   for (let changed = true; changed;) {
     changed = false;
-    for (const record of records) if (record.provenance.parentId && selected.has(record.provenance.parentId) && !selected.has(record.id)) { selected.add(record.id); changed = true; }
+    for (const record of records) {
+      const selectedParent = record.provenance.parentId && selected.has(record.provenance.parentId);
+      if (selectedParent && !selected.has(record.id)) {
+        selected.add(record.id);
+        changed = true;
+      }
+    }
   }
   return Promise.all(records.filter(r => selected.has(r.id)).map(async record => {
     try {
@@ -74,13 +110,22 @@ export async function freshDocumentSources(client: Pick<LegalworkServerClient, "
       return { ...read, freshness: "current" as const };
     } catch (error) {
       const code = error && typeof error === "object" && "code" in error ? error.code : null;
-      return { ...record, freshness: code === "document_stale" ? "stale" as const : code === "document_pending" ? "pending" as const : "error" as const, pages: [], issue: error instanceof Error ? error.message : String(error) };
+      const freshness = code === "document_stale" ? "stale" : code === "document_pending" ? "pending" : "error";
+      return { ...record, freshness: freshness as FreshDocument["freshness"], pages: [], issue: error instanceof Error ? error.message : String(error) };
     }
   }));
 }
 
-export function documentCoverage(records: FreshDocument[]) {
-  return { sources: new Set(records.map(r => r.id)).size, pages: records.reduce((n, r) => n + r.pageCount, 0), readablePages: records.reduce((n, r) => n + (r.freshness === "current" ? r.readablePages : 0), 0), complete: records.length > 0 && records.every(r => r.freshness === "current" && r.complete && r.status === "readable") };
+export function documentCoverage(records: FreshDocument[], selectedPaths?: string[]) {
+  const coveredPaths = new Set(records.filter(record => !record.provenance.parentId).map(record => record.path));
+  const exactSelection = !selectedPaths || selectedPaths.every(path => coveredPaths.has(path));
+  const allReadable = records.every(record => record.freshness === "current" && record.complete && record.status === "readable");
+  return {
+    sources: new Set(records.map(record => record.id)).size,
+    pages: records.reduce((count, record) => count + record.pageCount, 0),
+    readablePages: records.reduce((count, record) => count + (record.freshness === "current" ? record.readablePages : 0), 0),
+    complete: exactSelection && records.length > 0 && allReadable,
+  };
 }
 export function documentOutputState(output: Pick<LawossOutputStatus, "verified" | "hash" | "currentHash" | "sourceHash" | "currentSourceHash">): "edited" | "invalid" | "verified" | "generated" {
   if (output.hash !== output.currentHash) return "edited";

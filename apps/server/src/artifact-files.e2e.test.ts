@@ -55,6 +55,33 @@ function auth(token: string) {
 }
 
 describe("artifact file routes", () => {
+  test("selected-folder HTTP discovery excludes canonical sibling links but keeps selected internal aliases", async () => {
+    const root = await createWorkspaceRoot();
+    await mkdir(join(root, "selected", "real"), { recursive: true });
+    await mkdir(join(root, "sibling"));
+    await writeFile(join(root, "selected", "real", "own.txt"), "selected source");
+    await writeFile(join(root, "sibling", "private.txt"), "sibling source");
+    await symlink(join(root, "sibling"), join(root, "selected", "sibling-link"), "dir");
+    await symlink(join(root, "selected", "real"), join(root, "selected", "inside-link"), "dir");
+    const alias = join(root, "selected-alias");
+    await symlink(join(root, "selected"), alias, "dir");
+    const { base, token } = await startLegalworkServer(root);
+    // Bun executes the real app consumer here; each package is strictly typechecked separately.
+    const clientModule = "../../app/src/app/lib/legalwork-server.ts";
+    const discoveryModule = "../../app/src/react-app/domains/session/panel/document-processing.ts";
+    const { createLegalworkServerClient } = await import(clientModule);
+    const { discoverDocumentSources } = await import(discoveryModule);
+    const client = createLegalworkServerClient({ baseUrl: base, token });
+    const discovered: string[] = await discoverDocumentSources(client, "ws_1", "selected");
+    expect(discovered.sort()).toEqual(["selected/inside-link/own.txt", "selected/real/own.txt"]);
+    const positive: string[] = await discoverDocumentSources(client, "ws_1", "selected-alias");
+    expect(positive.every(path => !path.includes("sibling"))).toBe(true);
+    const escape = await fetch(`${base}/workspace/ws_1/files/list?path=selected%2Fsibling-link&within=selected`, { headers: auth(token) });
+    expect(escape.status).toBe(400);
+    // Ordinary browsing still permits the same workspace-internal alias.
+    expect((await client.listWorkspaceDirectory("ws_1", "selected/sibling-link")).entries[0]?.name).toBe("private.txt");
+  });
+
   test("directory discovery rejects external aliases and preserves internal/root aliases", async () => {
     const root = await createWorkspaceRoot(), outside = await createWorkspaceRoot();
     await symlink(outside, join(root, "external"), "dir");

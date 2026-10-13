@@ -1,4 +1,6 @@
-import { generationPrompt, submitDocumentTask, type DocumentGenerationRequest } from "../domains/session/panel/document-processing";
+import { allDocumentGenerations, applyDocumentGenerationRunStatus, documentGenerationKey, getDocumentGeneration, reconcileDocumentGeneration, observeDocumentGeneration, subscribeDocumentGenerations, documentGenerationsRevision, submitBoundDocumentGeneration } from "../domains/session/panel/document-generation-lifecycle";
+import { ensureWorkspaceSessionSync, trackWorkspaceSessionSync } from "../domains/session/sync/session-sync";
+import { generationPrompt, type DocumentGenerationRequest } from "../domains/session/panel/document-processing";
 import { documentExecutionDirectory, preflightDocumentGeneration } from "../domains/session/panel/native-document-preflight";
 import { PROJECT_FOLDER_RECONNECTED_EVENT } from "../domains/workspace/project-folder-recovery";
 import { projectErrorMessage } from "../domains/workspace/project-errors";
@@ -9,6 +11,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useLocale } from "@/i18n/use-locale";
@@ -36,6 +39,7 @@ import type {
   AgentPartInput,
   FilePartInput,
   ProviderListResponse,
+  SessionStatus,
   TextPartInput,
 } from "@opencode-ai/sdk/v2/client";
 
@@ -1726,7 +1730,27 @@ export function SessionRoute() {
   );
 
 
-  const documentSubmissions = useRef(new Map<string, { sessionId: string | null; running: boolean }>());
+  const documentGenerationRevision = useSyncExternalStore(subscribeDocumentGenerations, documentGenerationsRevision, documentGenerationsRevision);
+  useEffect(() => {
+    const releases: Array<() => void> = [];
+    for (const [key, binding] of allDocumentGenerations()) {
+      if (binding.phase === "completed" || binding.phase === "error") continue;
+      const workspace = workspaces.find(item => item.id === binding.projectId);
+      const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token });
+      if (!workspace || !endpoint || endpoint.baseUrl !== binding.baseUrl || endpoint.workspaceId !== binding.workspaceId || workspace.path !== binding.root) continue;
+      const sync = {
+        workspaceId: workspace.id,
+        baseUrl: endpoint.opencodeBaseUrl,
+        legalworkToken: endpoint.token,
+        directory: binding.directory,
+        onSessionStatus: (update: { sessionId: string; status: SessionStatus }) => {
+          if (update.sessionId === binding.sessionId) applyDocumentGenerationRunStatus(key, update.status);
+        },
+      };
+      releases.push(ensureWorkspaceSessionSync(sync), trackWorkspaceSessionSync(sync, binding.sessionId), observeDocumentGeneration(key, workspace.id));
+    }
+    return () => { for (const release of releases) release(); };
+  }, [documentGenerationRevision, workspaces, baseUrl, token]);
   const handleGenerateDocuments = async (request: DocumentGenerationRequest): Promise<string> => {
     const workspace = workspaces.find(item => item.id === request.projectId);
     if (!workspace || isLawossHomeWorkspace(workspace)) throw new Error(t("workspace.not_found"));
@@ -1735,12 +1759,19 @@ export function SessionRoute() {
     const root = workspace.path?.trim() || "";
     const { relative, directory } = documentExecutionDirectory(root, request.caseDirectory, endpoint.isRemote);
     const scopedClient = createClient(endpoint.opencodeBaseUrl, directory, { token: endpoint.token, mode: "legalwork" });
-    const key = JSON.stringify([request.projectId, endpoint.baseUrl, directory, request.outputLanguage, request.sources.map(source => [source.id, source.hash])]);
-    let pending = documentSubmissions.current.get(key);
-    if (!pending) { pending = { sessionId: request.retrySessionId ?? null, running: false }; documentSubmissions.current.set(key, pending); }
+    const metadata = { projectId: workspace.id, baseUrl: endpoint.baseUrl, workspaceId: endpoint.workspaceId, root, directory };
+    const key = documentGenerationKey(metadata, request.outputLanguage, request.sources);
+    const existing = getDocumentGeneration(key);
+    if (existing) {
+      const snapshot = await endpoint.client.getSessionSnapshot(endpoint.workspaceId, existing.sessionId, { limit: 20 });
+      reconcileDocumentGeneration(key, snapshot.item);
+      if (snapshot.item.status.type === "busy" || snapshot.item.status.type === "retry") return existing.sessionId;
+    }
     try {
-      const sessionId = await submitDocumentTask({
-        pending,
+      return await submitBoundDocumentGeneration({
+        key,
+        metadata,
+        newGeneration: request.newGeneration,
         preflight: async () => {
           try {
             await preflightDocumentGeneration({ queryClient: getReactQueryClient(), sdk: scopedClient, baseUrl: endpoint.opencodeBaseUrl,
@@ -1777,10 +1808,9 @@ export function SessionRoute() {
           }
         },
       });
-      documentSubmissions.current.delete(key);
-      return sessionId;
     } catch (cause) {
-      if (pending.sessionId && cause instanceof Error) Object.assign(cause, { sessionId: pending.sessionId });
+      const binding = getDocumentGeneration(key);
+      if (binding && cause instanceof Error) Object.assign(cause, { sessionId: binding.sessionId });
       throw cause;
     }
   };

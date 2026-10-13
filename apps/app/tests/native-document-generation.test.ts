@@ -1,3 +1,9 @@
+import { renderToStaticMarkup } from "react-dom/server";
+import { createElement } from "react";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { DocumentProcessingPanel } from "../src/react-app/domains/session/panel/document-processing-panel";
+import { documentClientIdentity } from "../src/react-app/domains/session/panel/document-processing";
+import { t } from "../src/i18n";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { expect, test } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
@@ -26,8 +32,8 @@ async function transportTest(run: (fixture: { base: string; calls: string[]; sta
       const selected = path.includes("/child/") ? child : root;
       return Response.json({ ...selected, text: "source text", pages: [{ page: 1, text: "source text", source: "native" }], offset: 0, nextOffset: null, untrusted: true });
     }
-    if (path.endsWith("/session") && request.method === "POST") { bodies.push(await request.text()); return Response.json({ id: "created", directory: "/registered/root/work" }); }
-    if (request.method === "PATCH" && path.endsWith("/session/created")) return Response.json({ id: "created" });
+    if (path.endsWith("/session") && request.method === "POST") { bodies.push(await request.text()); const count = calls.filter(call => call === "POST /workspace/remote-runtime/opencode/session").length; return Response.json({ id: count === 1 ? "created" : `created-${count}`, directory: "/registered/root/work" }); }
+    if (request.method === "PATCH" && /\/session\/created(?:-\d+)?$/.test(path)) return Response.json({ id: "created" });
     if (path.endsWith("/prompt_async")) { bodies.push(await request.json()); return state.failSend ? Response.json({ code: "billing", message: "billing unavailable" }, { status: 402 }) : new Response(null, { status: 204 }); }
     return Response.json({ code: "unexpected", message: path }, { status: 500 });
   } });
@@ -89,3 +95,88 @@ test("unregistered SDK client cannot silently probe the overridden/cache path", 
   expect(() => preflightOpencodeDirectory(raw, "/registered/root/work")).toThrow();
   expect(calls).toEqual([]);
 }));
+
+import { submitBoundDocumentGeneration, applyDocumentGenerationRunStatus, documentGenerationKey, getDocumentGeneration, observeDocumentGeneration, reconcileDocumentGeneration, clearDocumentGenerationsForTest } from "../src/react-app/domains/session/panel/document-generation-lifecycle";
+import { useSessionActivityStore } from "../src/react-app/domains/session/status/session-activity-store";
+import { ensureWorkspaceSessionSync, __createWorkspaceSessionSyncForTest, __applySessionSyncEventForTest, __disposeWorkspaceSessionSyncForTest } from "../src/react-app/domains/session/sync/session-sync";
+
+test("accepted204 stays bound across new panel/reload, repeat does not create, native background error retries same chat", async () => transportTest(async ({ base, calls }) => {
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const saved = new Map<string, string>();
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
+    getItem: (key: string) => saved.get(key) ?? null,
+    setItem: (key: string, value: string) => saved.set(key, value),
+    removeItem: (key: string) => saved.delete(key),
+  } });
+  clearDocumentGenerationsForTest();
+  const input = inputs(base);
+  const metadata = { projectId: "rem_app-project", baseUrl: base, workspaceId: "remote-runtime", root: "/registered/root", directory: "/registered/root/work" };
+  const key = documentGenerationKey(metadata, "en", input.request.sources);
+  const projectKey = JSON.stringify([base, metadata.workspaceId, metadata.root]);
+  saved.set(`lawoss-doc-working-directory:${projectKey}`, "work");
+  const sync = { workspaceId: metadata.projectId, baseUrl: input.baseUrl, legalworkToken: "fixture-token" };
+  __createWorkspaceSessionSyncForTest(sync);
+  const releaseStatus = ensureWorkspaceSessionSync({ ...sync, onSessionStatus: update => {
+    if (update.sessionId === "created") applyDocumentGenerationRunStatus(key, update.status);
+  } });
+  const release = observeDocumentGeneration(key, metadata.projectId);
+  const options = {
+    key, metadata, preflight: () => preflightDocumentGeneration(input),
+    create: async () => unwrap(await input.sdk.session.create({ directory: input.directory })).id,
+    send: async (sessionID: string) => { const response = await input.sdk.session.promptAsync({ sessionID, parts: [{ type: "text", text: "selected task" }], model: input.model }); if (response.error) throw new Error(JSON.stringify(response.error)); },
+  };
+  try {
+    expect(await submitBoundDocumentGeneration(options)).toBe("created");
+    __applySessionSyncEventForTest(sync, { type: "session.status", properties: { sessionID: "created", status: { type: "busy" } } } as any);
+    expect(getDocumentGeneration(key)?.phase).toBe("running");
+    // Clear the runtime registry and reload its actual persisted association, not the pending HTTP closure.
+    clearDocumentGenerationsForTest(true);
+    expect(getDocumentGeneration(key)?.sessionId).toBe("created");
+    expect(getDocumentGeneration(key)?.phase).toBe("running");
+    const cache = new QueryClient();
+    const identity = [base, documentClientIdentity(input.legalwork), metadata.workspaceId, metadata.root];
+    cache.setQueryData(["lawoss-documents", ...identity, [root.path], "files"], input.request.sources.map(source => ({ ...source, freshness: "current", pages: [] })));
+    const panel = createElement(DocumentProcessingPanel, { client: input.legalwork, workspaceId: metadata.workspaceId, projectId: metadata.projectId, workspaceRoot: metadata.root, folder: "", selectedPaths: [root.path], onSelectPaths: () => {}, fileVersion: "files", active: false, isRemote: false });
+    const reloadedPanel = renderToStaticMarkup(createElement(QueryClientProvider, { client: cache }, panel));
+    expect(reloadedPanel).toContain(t("documents.run_active"));
+    expect(reloadedPanel).toContain('value="work"');
+    expect(await submitBoundDocumentGeneration({ ...options })).toBe("created");
+    expect(calls.filter(call => call === "POST /workspace/remote-runtime/opencode/session")).toHaveLength(1);
+    expect(calls.filter(call => call.endsWith("/prompt_async"))).toHaveLength(1);
+    __applySessionSyncEventForTest(sync, { type: "session.error", properties: { sessionID: "created", error: { name: "APIError", data: { message: "late provider failure" } } } } as any);
+    expect(getDocumentGeneration(key)?.phase).toBe("error");
+    expect(await submitBoundDocumentGeneration({ ...options })).toBe("created");
+    expect(calls.filter(call => call === "POST /workspace/remote-runtime/opencode/session")).toHaveLength(1);
+    expect(calls.filter(call => call.endsWith("/prompt_async"))).toHaveLength(2);
+    // Reload recovery can also reconcile actual snapshot completion; a stale idle-only snapshot cannot.
+    reconcileDocumentGeneration(key, { status: { type: "idle" }, messages: [] } as any);
+    applyDocumentGenerationRunStatus(key, { type: "idle" });
+    expect(getDocumentGeneration(key)?.phase).not.toBe("completed");
+    __applySessionSyncEventForTest(sync, { type: "session.status", properties: { sessionID: "created", status: { type: "busy" } } } as any);
+    __applySessionSyncEventForTest(sync, { type: "session.idle", properties: { sessionID: "created" } } as any);
+    expect(getDocumentGeneration(key)?.phase).toBe("completed");
+    // A later manual turn's error cannot rewrite the already-terminal scoped generation.
+    reconcileDocumentGeneration(key, { status: { type: "idle" }, messages: [{ info: { role: "assistant", error: { name: "APIError" }, time: { created: Date.now() + 10, completed: Date.now() + 10 } }, parts: [] }] } as any);
+    expect(getDocumentGeneration(key)?.phase).toBe("completed");
+    __applySessionSyncEventForTest(sync, { type: "session.error", properties: { sessionID: "created", error: { name: "APIError", data: { message: "unrelated later turn" } } } } as any);
+    expect(getDocumentGeneration(key)?.phase).toBe("completed");
+    expect(await submitBoundDocumentGeneration(options)).toBe("created");
+    expect(calls.filter(call => call.endsWith("/prompt_async"))).toHaveLength(2);
+    expect(await submitBoundDocumentGeneration({ ...options, newGeneration: true })).toBe("created-2");
+    expect(calls.filter(call => call === "POST /workspace/remote-runtime/opencode/session")).toHaveLength(2);
+  } finally {
+    release(); releaseStatus(); __disposeWorkspaceSessionSyncForTest(sync); clearDocumentGenerationsForTest();
+    useSessionActivityStore.getState().removeSession(metadata.projectId, "created");
+    useSessionActivityStore.getState().removeSession(metadata.projectId, "created-2");
+    if (previousStorage) Object.defineProperty(globalThis, "localStorage", previousStorage);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  }
+}));
+
+test("regenerated attachment IDs do not detach an accepted request from unchanged ultimate originals", () => {
+  const metadata = { projectId: "project", baseUrl: "http://owner", workspaceId: "runtime", root: "/root", directory: "/root" };
+  const initial = documentGenerationKey(metadata, "en", [root, child]);
+  const refreshed = documentGenerationKey(metadata, "en", [root, { ...child, id: "new-child-id" }]);
+  expect(refreshed).toBe(initial);
+  expect(documentGenerationKey(metadata, "en", [{ ...root, hash: "b".repeat(64) }, child])).not.toBe(initial);
+});

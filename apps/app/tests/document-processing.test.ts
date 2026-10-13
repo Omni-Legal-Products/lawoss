@@ -25,7 +25,7 @@ test("folder discovery is bounded, refuses truncation and never visits sibling f
   const calls: string[] = [];
   const paths = await discoverDocumentSources({ listWorkspaceDirectory: async (workspace, path) => {
     expect(workspace).toBe("target"); calls.push(path);
-    return { path, truncated: false, entries: path === "case" ? [{ kind: "file" as const, name: "a.pdf", path: "case/a.pdf" }, { kind: "dir" as const, name: "sub", path: "case/sub" }] : [{ kind: "file" as const, name: "b.txt", path: "case/sub/b.txt" }] };
+    return { path, enforcedWithin: "case", truncated: false, entries: path === "case" ? [{ kind: "file" as const, name: "a.pdf", path: "case/a.pdf" }, { kind: "dir" as const, name: "sub", path: "case/sub" }] : [{ kind: "file" as const, name: "b.txt", path: "case/sub/b.txt" }] };
   } }, "target", "case");
   expect(paths).toEqual(["case/a.pdf", "case/sub/b.txt"]);
   expect(calls).toEqual(["case", "case/sub"]);
@@ -85,14 +85,21 @@ test("pending upload remains pending and partial extraction never promotes compl
 });
 
 test("folder overflow and source-scope forgery fail before admitting any selected paths", async () => {
-  await expect(discoverDocumentSources({ listWorkspaceDirectory: async (_workspace, path) => ({ path, truncated: false, entries: Array.from({ length: 21 }, (_, n) => ({ path: `case/${n}.pdf`, name: `${n}.pdf`, kind: "file" as const })) }) }, "target", "case")).rejects.toThrow();
-  await expect(discoverDocumentSources({ listWorkspaceDirectory: async (_workspace, path) => ({ path, truncated: false, entries: [{ path: "sibling/a.pdf", name: "a.pdf", kind: "file" as const }] }) }, "target", "case")).rejects.toThrow();
+  await expect(discoverDocumentSources({ listWorkspaceDirectory: async (_workspace, path) => ({ path, enforcedWithin: "case", truncated: false, entries: Array.from({ length: 21 }, (_, n) => ({ path: `case/${n}.pdf`, name: `${n}.pdf`, kind: "file" as const })) }) }, "target", "case")).rejects.toThrow();
+  await expect(discoverDocumentSources({ listWorkspaceDirectory: async (_workspace, path) => ({ path, enforcedWithin: "case", truncated: false, entries: [{ path: "sibling/a.pdf", name: "a.pdf", kind: "file" as const }] }) }, "target", "case")).rejects.toThrow();
 });
 
 test("a nested independent case manifest fails closed rather than borrowing root identity", async () => {
   const client = {
-    listWorkspaceDirectory: async (_workspace: string, path: string) => ({ path, truncated: false, entries: [{ path: "case/TEST_ZDROJE_ISIR.json", name: "TEST_ZDROJE_ISIR.json", kind: "file" as const }, { path: "case/a.pdf", name: "a.pdf", kind: "file" as const }] }),
+    listWorkspaceDirectory: async (_workspace: string, path: string) => ({ path, enforcedWithin: "case", truncated: false, entries: [{ path: "case/TEST_ZDROJE_ISIR.json", name: "TEST_ZDROJE_ISIR.json", kind: "file" as const }, { path: "case/a.pdf", name: "a.pdf", kind: "file" as const }] }),
     readWorkspaceFile: async (_workspace: string, path: string) => ({ path, content: JSON.stringify({ company: "Known", caseNumber: path.startsWith("case/") ? "CASE B" : "CASE A" }), bytes: 0, updatedAt: 0 }),
   };
   await expect(discoverDocumentSources(client, "target", "case")).rejects.toThrow();
+});
+
+
+test("older or mismatched folder-boundary acknowledgment fails closed before admission", async () => {
+  for (const enforcedWithin of [undefined, "sibling"]) {
+    await expect(discoverDocumentSources({ listWorkspaceDirectory: async (_workspace, path) => ({ path, enforcedWithin, truncated: false, entries: [{ path: "selected/a.txt", name: "a.txt", kind: "file" as const }] }) }, "target", "selected")).rejects.toThrow();
+  }
 });

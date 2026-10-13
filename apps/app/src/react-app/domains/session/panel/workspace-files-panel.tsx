@@ -31,7 +31,7 @@ import { ProjectFilesDropzone } from "../../workspace/project-files-dropzone";
 import { isSortDirection, isSortKey, readWorkspaceFileSort, sortWorkspaceEntries, writeWorkspaceFileSort, type WorkspaceFileSort } from "./workspace-file-sort";
 
 import { DocumentProcessingPanel } from "./document-processing-panel";
-import { documentClientIdentity, type DocumentGenerationCallback } from "./document-processing";
+import { documentClientIdentity, readDocumentSelection, persistDocumentSelection, type DocumentGenerationCallback } from "./document-processing";
 
 type WorkspaceFilesPanelProps = {
   projectId?: string;
@@ -78,17 +78,14 @@ export function WorkspaceFilesPanel({
   const path = folderState.key === selectionKey ? folderState.path : lastPathByWorkspace.get(selectionKey) ?? "";
   const setPath = (nextPath: string) => setFolderState({ key: selectionKey, path: nextPath });
   const [showHidden, setShowHidden] = React.useState(false);
-  const [selectionState, setSelectionState] = React.useState<{ key: string; paths: string[] }>(() => {
-    try {
-      const saved: unknown = JSON.parse(localStorage.getItem(`lawoss-doc-selection:${selectionKey}`) ?? "[]");
-      return { key: selectionKey, paths: Array.isArray(saved) && saved.length <= 20 && saved.every(path => typeof path === "string") ? saved : [] };
-    }
-    catch { return { key: selectionKey, paths: [] }; }
-  });
+  const [selectionState, setSelectionState] = React.useState<{ key: string; paths: string[] }>(() => ({
+    key: selectionKey,
+    paths: readDocumentSelection(selectionKey),
+  }));
   const selectedPaths = selectionState.key === selectionKey ? selectionState.paths : [];
   const selectPaths = (paths: string[]) => {
     setSelectionState({ key: selectionKey, paths });
-    try { localStorage.setItem(`lawoss-doc-selection:${selectionKey}`, JSON.stringify(paths)); } catch { /* optional UI persistence */ }
+    persistDocumentSelection(selectionKey, paths);
   };
 
   const locale = useLocale();

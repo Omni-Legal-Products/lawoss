@@ -955,6 +955,8 @@ export type LegalworkWorkspaceDirectoryEntry = {
 };
 
 export type LegalworkWorkspaceDirectoryList = {
+  /** Present only when the server enforced the explicit canonical discovery boundary. */
+  enforcedWithin?: string;
   path: string;
   entries: LegalworkWorkspaceDirectoryEntry[];
   truncated: boolean;
@@ -3090,10 +3092,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     validateLawossDocuments: (workspaceId: string, input: LawossValidateInput) => requestJson<LawossValidationResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/validate`, { token, hostToken, method: "POST", body: input }),
     listLawossOutputs: (workspaceId: string, offset = 0, limit = 20) => requestJson<{ outputs: LawossOutputStatus[]; nextOffset: number | null; legalApproval: false }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/outputs?offset=${offset}&limit=${limit}`, { token, hostToken }),
 
-    listWorkspaceDirectory: (workspaceId: string, path: string) =>
+    listWorkspaceDirectory: (workspaceId: string, path: string, options?: { within?: string }) =>
       requestJson<LegalworkWorkspaceDirectoryList>(
         baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/files/list?path=${encodeURIComponent(path)}`,
+        `/workspace/${encodeURIComponent(workspaceId)}/files/list?path=${encodeURIComponent(path)}${options?.within === undefined ? "" : `&within=${encodeURIComponent(options.within)}`}`,
         { token, hostToken },
       ),
 

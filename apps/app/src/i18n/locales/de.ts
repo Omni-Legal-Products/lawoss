@@ -5723,7 +5723,7 @@ const de = {
   "documents.output_edited": "Ausgabe geändert / entfernt",
   "documents.output_invalid": "Quellen geändert / ungültige Ausgabe",
   "documents.validate": "Gespeicherte Ausgabe prüfen",
-  "documents.folder_note": "Der Ordner umfasst reguläre Dateien in Unterordnern; versteckte Einträge, externe Symlinks und Identitätsmanifest werden ausgeschlossen. Maximal 20 Quellen; nicht unterstützte oder zu große Ordner werden nicht übermittelt.",
+  "documents.folder_note": "Der Ordner umfasst reguläre Dateien in Unterordnern; versteckte Einträge, Links außerhalb des ausgewählten Ordners und Identitätsmanifest werden ausgeschlossen. Maximal 20 Quellen; nicht unterstützte oder zu große Ordner werden nicht übermittelt.",
   "documents.folder_limit": "Ordner überschreitet 20 Quellen / 100 Ordner oder die Liste ist unvollständig. Wählen Sie einen kleineren Umfang.",
   "documents.folder_scope": "Ordnerliste enthält einen Pfad außerhalb des ausgewählten Bereichs.",
   "documents.unsupported": "Nicht unterstützte Quelle: {path}. Wählen Sie Dateien einzeln.",
@@ -5741,6 +5741,12 @@ const de = {
   "projects.folder_reconnected_activation_failed": "Der Projektordner ist wieder verbunden, aber das Projekt konnte nicht geöffnet werden. Versuchen Sie es erneut.",
   "projects.reconnect_folder": "Projektordner erneut verbinden",
   "projects.reconnect_path": "Pfad des vorhandenen Projektordners",
+  "documents.status_missing": "Quelle noch nicht vorbereitet; Seitenumfang unbekannt.",
+  "documents.output_unavailable": "Aktuelle Ausgabeprüfung ist nicht verfügbar.",
+  "documents.folder_boundary_unavailable": "Der Server hat die Grenze des ausgewählten Ordners nicht bestätigt. Aktualisieren Sie den Server und versuchen Sie es erneut.",
+  "documents.run_active": "Generierung läuft im bestehenden Chat.",
+  "documents.new_generation": "Neue Generierung starten",
+  "documents.run_completed": "Chat-Lauf beendet; separate Prüfungen bestimmen den Ausgabestatus.",
 } as const;
 
 export default de;
