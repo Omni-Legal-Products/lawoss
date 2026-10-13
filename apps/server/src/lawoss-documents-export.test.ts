@@ -107,3 +107,27 @@ test("ordinary non-ISIR project exports actual prepared references while legal c
  const rows=parseCsv(await readFile(join(root,"ordinary-registry.csv"),"utf8")); expect(rows[1][1]).toBe(id); expect(rows[1][2]).toBe(""); expect(rows[1]).toHaveLength(7);
  expect(await readFile(join(root,"ordinary-summary.md"),"utf8")).toContain("Nezjištěno");
 }));
+test("visible source attribution and coverage must match the saved summary block",()=>fixture(async(exports,w,root,id)=>{
+ await exports.export(w,exportInputSchema.parse({path:"summary.md",kind:"summary",outputLanguage:"cs",documentIds:[id],entries:[]}));
+ const original=await readFile(join(root,"summary.md"),"utf8");
+ for(const changed of [original.replace("[D1](https://isir.justice.cz/isir/document/D1)","[D1](https://example.invalid/wrong-source)"),original.replace("[D1](https://isir.justice.cz/isir/document/D1)","[OTHER](https://isir.justice.cz/isir/document/D1)"),original.replace("## source.txt","## wrong.txt"),original.replace("Úplnost zpracování: Úplné","Úplnost zpracování: Neúplné")]) {
+  await writeFile(join(root,"agent.md"),changed);
+  const result=await exports.validate(w,{paths:["agent.md"],documentIds:[id],outputLanguage:"cs"});
+  expect(result.valid).toBe(false); expect(result.outputs[0].verified).toBe(false); expect(result.issues.map(issue=>issue.code)).toContain("summary_provenance");
+  expect((await exports.list(w)).outputs.find(o=>o.path==="agent.md")?.verified).toBe(false);
+ }
+}));
+test("rejected visible identity companion cannot verify its CSV in either path order or persisted reload",()=>fixture(async(exports,w,root,id,documents)=>{
+ await exports.export(w,exportInputSchema.parse({path:"summary.md",kind:"summary",outputLanguage:"cs",documentIds:[id],entries:[]}));
+ await exports.export(w,exportInputSchema.parse({path:"registered.csv",kind:"registry",outputLanguage:"cs",documentIds:[id],entries:[]}));
+ await writeFile(join(root,"agent.csv"),await readFile(join(root,"registered.csv")));
+ await writeFile(join(root,"agent.md"),(await readFile(join(root,"summary.md"),"utf8")).replace("Synthetic s.r.o. — SYN 1/2026","OTHER COMPANY — OTHER CASE"));
+ for(const paths of [["agent.md","agent.csv","registered.csv"],["agent.csv","agent.md","registered.csv"]]) {
+  const result=await exports.validate(w,{paths,documentIds:[id],outputLanguage:"cs"}); expect(result.valid).toBe(false);
+  expect(result.outputs.find(o=>o.path==="agent.csv")?.verified).toBe(false);
+  expect(result.outputs.find(o=>o.path==="registered.csv")?.verified).toBe(true);
+  expect(result.issues.some(issue=>issue.path==="agent.csv" && issue.code==="identity_dependency")).toBe(true);
+  const reloaded=await new DocumentExports(documents).list(w);
+  expect(reloaded.outputs.find(o=>o.path==="agent.csv")?.verified).toBe(false);
+ }
+}));
