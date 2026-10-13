@@ -5,7 +5,7 @@ import type { ReactElement } from "react";
 import { t } from "../src/i18n";
 import { ClientsView } from "../src/lawoss/lite/pages/clients-page";
 import { TriagePreviewView } from "../src/lawoss/domains/roztriedenie/triage-page";
-import { triageApply, triageLink, triagePlan, triageReplan, triageUndo, type TriageClient, type TriagePreview } from "../src/lawoss/domains/roztriedenie/api";
+import { triageApply, triageGrant, triageLink, triagePlan, triageReplan, triageUndo, type TriageApiPath, type TriageClient, type TriagePreview } from "../src/lawoss/domains/roztriedenie/api";
 import { LAWOSS_ROUTES } from "../src/lawoss/shell/routes";
 
 const BANNED = /workspace|session|skill|\bMCP\b|\bOKF\b|opencode|plugin|treeDigest|fingerprint/i;
@@ -75,4 +75,11 @@ describe("roztriedenie v appke", () => {
       ["undo", { root: "/x/klon", runId: preview.runId, confirm: true }],
     ]);
   });
+});
+
+test("grant posiela root a potvrdenie", async () => {
+  const calls: { path: string; body: unknown }[] = [];
+  const client: TriageClient = { lawossTriage: async <T,>(path: TriageApiPath, body: unknown): Promise<T> => { calls.push({ path, body }); return { granted: true, root: "/k" } as T; } };
+  expect(await triageGrant(client, "/k")).toEqual({ granted: true, root: "/k" });
+  expect(calls).toEqual([{ path: "grant", body: { root: "/k", confirm: true } }]);
 });

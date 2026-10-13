@@ -1,4 +1,4 @@
-import type { OnboardingApi } from "../../lawoss/domains/onboarding/api";
+import type { OnboardingApi, OnboardingSuggestion } from "../../lawoss/domains/onboarding/api";
 import type { TriageApiPath } from "../../lawoss/domains/roztriedenie/api";
 import type { LawossOcrView } from "../../lawoss/domains/settings/ocr-opt-in";
 import { lawossMarketplaceMethods } from "../../lawoss/domains/marketplace/marketplace-api";
@@ -1767,6 +1767,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     onboardingStatus: (): ReturnType<OnboardingApi["onboardingStatus"]> => requestJson(baseUrl, "/lawoss/onboarding/status", { token, hostToken }),
     updateOnboardingProfile: (profile: Parameters<OnboardingApi["updateOnboardingProfile"]>[0]): ReturnType<OnboardingApi["updateOnboardingProfile"]> => requestJson(baseUrl, "/lawoss/onboarding/profile", { token, hostToken, method: "POST", body: profile }),
     classifyOnboarding: (input: Parameters<OnboardingApi["classifyOnboarding"]>[0]): ReturnType<OnboardingApi["classifyOnboarding"]> => requestJson(baseUrl, "/lawoss/onboarding/classify", { token, hostToken, method: "POST", body: input, timeoutMs: 120_000 }),
+    suggestOnboarding: (input: { root: string }): Promise<OnboardingSuggestion> => requestJson(baseUrl, "/lawoss/onboarding/suggest", { token, hostToken, method: "POST", body: input, timeoutMs: 120_000 }),
     planOnboarding: (input: Parameters<OnboardingApi["planOnboarding"]>[0]): ReturnType<OnboardingApi["planOnboarding"]> => requestJson(baseUrl, "/lawoss/onboarding/plan", { token, hostToken, method: "POST", body: input, timeoutMs: 120_000 }),
     recoverOnboarding: (input: Parameters<NonNullable<OnboardingApi["recoverOnboarding"]>>[0]): Promise<unknown> => requestJson(baseUrl, "/lawoss/onboarding/recover", { token, hostToken, method: "POST", body: input, timeoutMs: 180_000 }),
     applyOnboarding: (input: Parameters<OnboardingApi["applyOnboarding"]>[0]): ReturnType<OnboardingApi["applyOnboarding"]> => requestJson(baseUrl, "/lawoss/onboarding/apply", { token, hostToken, method: "POST", body: input, timeoutMs: 180_000 }),
