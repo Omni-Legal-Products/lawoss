@@ -85,14 +85,16 @@ test("CZ klient s věcmi pojmenovanými i s právní formou protistrany je klien
 test("SK klient s datovanými podpriečinkami vecí nie je istá prax", async () => {
   const root = await tree(["Kúpna zmluva/2024-01 návrh/", "Nájomná zmluva/2024-02 návrh/", "Spor s Beta/2024-03 žaloba/", "Due diligence/2024-04 správa/", "Pracovné zmluvy/2025-01 návrh/"]);
   const suggestion = await suggestOnboardingLevel(root);
+  // Od 13. 10. (slová veci) prevažujú mená vecí, takže návrh je rovno klient, nie slabá prax.
+  expect(suggestion.level).toBe("client");
   expect(suggestion.signals).toEqual(["matter_named_children"]);
-  expect(suggestion.score).toBeLessThanOrEqual(0.5);
 });
 test("CZ klient s datovanými podsložkami věcí není jistá praxe", async () => {
   const root = await tree(["Kupní smlouva/2024-01 návrh/", "Nájemní smlouva/2024-02 návrh/", "Spor s Beta/2024-03 žaloba/", "Due diligence/2024-04 zpráva/", "Pracovní smlouvy/2025-01 návrh/"]);
   const suggestion = await suggestOnboardingLevel(root);
+  // Od 13. 10. (slová veci) prevažujú mená vecí, takže návrh je rovno klient, nie slabá prax.
+  expect(suggestion.level).toBe("client");
   expect(suggestion.signals).toEqual(["matter_named_children"]);
-  expect(suggestion.score).toBeLessThanOrEqual(0.5);
 });
 test("archív podľa rokov nie je prax s rokmi ako klientmi", async () => {
   const root = await tree(["2021/2021-03 Spor Alfa/", "2022/2022-05 Zmluva/", "2023/x.pdf", "2024/2024-01 Nájom/", "2025/2025-02 Exekúcia/"]);
@@ -142,4 +144,25 @@ test("okf.config v UTF-16LE s BOM a client_path v apostrofoch", async () => {
   expect((await suggestOnboardingLevel(office)).clientPattern).toBe("AK/*/*");
   await writeFile(join(office, "Office/okf.config"), "version: 1\nclient_path: 'AK/*'\n");
   expect((await suggestOnboardingLevel(office)).clientPattern).toBe("AK/*");
+});
+
+test("SK klient s nedatovanými vecami pomenovanými podľa protistrany je klient, nie prax (MČ 13. 10., možnosť B)", async () => {
+  const root = await tree(["Spor s Alfa s.r.o./", "Nájom Beta k.s./", "Žaloba Gama a.s./", "Kúpa Delta s.r.o./", "Exekúcia Omega s.r.o./"]);
+  const suggestion = await suggestOnboardingLevel(root);
+  expect(suggestion.level).toBe("client");
+  expect(suggestion.clients).toEqual([]);
+});
+test("CZ klient s nedatovanými věcmi pojmenovanými podle protistrany je klient, ne praxe", async () => {
+  const root = await tree(["Spor s Alfa s.r.o./", "Nájem Beta k.s./", "Žaloba Gama a.s./", "Koupě Delta s.r.o./", "Exekuce Omega s.r.o./"]);
+  expect((await suggestOnboardingLevel(root)).level).toBe("client");
+});
+test("slovo veci musí stáť samostatne na začiatku; klient s podobným menom ostáva klientom", () => {
+  for (const name of ["Spor s Alfa s.r.o.", "Nájom Beta k.s.", "Kúpna zmluva Delta", "Řízení Gama a.s.", "Věc Omega", "NÁVRH na vklad", "Výpoveď Beta"]) expect(looksLikeMatterName(name)).toBe(true);
+  for (const name of ["Nájomné domy s.r.o.", "Sporiteľňa a.s.", "Alfa s.r.o.", "Novák Ján", "Kúpeľe Piešťany a.s."]) expect(looksLikeMatterName(name)).toBe(false);
+  expect(looksLikeMatterName("Spor s Alfa".normalize("NFD"))).toBe(true);
+  expect(looksLikeMatterName("Žaloba Beta".normalize("NFD"))).toBe(true);
+});
+test("prax s klientmi s právnou formou ostáva praxou aj vedľa priečinka veci", async () => {
+  const root = await tree(["Alfa s.r.o./", "Beta a.s./", "Gama k.s./", "Delta s.r.o./", "Epsilon s.r.o./", "Spor s Omega s.r.o./"]);
+  expect((await suggestOnboardingLevel(root)).level).toBe("practice");
 });
