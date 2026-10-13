@@ -1,3 +1,5 @@
+import { LawossDocuments } from "./lawoss/documents/service.js";
+import { registerLawossDocumentRoutes } from "./routes/lawoss-documents.js";
 import { workspaceOwnsSession } from "./lawoss/workspace-history.js";
 import { sessionInfoSchema } from "./session-read-model.js";
 import { historicalWorkspaceSessions } from "./lawoss/workspace-history-sessions.js";
@@ -814,6 +816,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   // LAWOSS: OCR models download only after the lawyer turns OCR on (lawoss/ocr-opt-in.ts).
   const ocr = new LawossOcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"));
   const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout });
+  const documents = new LawossDocuments(config, preparation);
   const corpus = new CorpusService({
     selection: async () => {
       const settings = await readSystemOneSettings(config);
@@ -827,7 +830,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     infer: (request, selection, signal) => systemOne(config, request, { providerId: selection.providerId, signal, retry: false }),
   });
   const reviews = new ReviewService(new ReviewExecutor(config), preparation, new ReviewDefaults(runtimeStorageDir(config)));
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus);
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, documents);
 
   const serverOptions: {
     hostname: string;
@@ -1042,6 +1045,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       approvals.dispose();
       await corpus.stop();
       reviews.stop();
+      await documents.stop();
       preparation.stop();
       ocr.stop();
       stopTaskSync();
@@ -1629,6 +1633,7 @@ function createRoutes(
   preparation: DocumentPreparation,
   reviews: ReviewService,
   corpus: CorpusService,
+  documents: LawossDocuments,
 ): Route[] {
   const routes: Route[] = [];
   registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, onSettingsChanged: async () => {
@@ -1664,6 +1669,7 @@ function createRoutes(
   });
   registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
+  registerLawossDocumentRoutes({ routes, config, documents, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
   registerLawossOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
   const projectFolders = registerStorageRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace, onProjectFoldersChanged: (id) => noteProjectFoldersChanged(config, id), onProjectRenamed: (id, name) => noteProjectRenamed(config, id, name) });
