@@ -182,3 +182,41 @@ test("hľadanie kancelárie nesleduje odkazy a pri limite je neúplné, convert 
   await mkdir(join(root, "A", "B", "C"), { recursive: true });
   expect(await findOfficeConfigs(join(root, "A"), { maxDepth: 1 })).toMatchObject({ complete: false });
 });
+
+test("úprava AGENTS.md medzi náhľadom a zápisom zastaví prevod, CLAUDE.md nedostane starý text", async () => {
+  const { root } = await clientWithLink();
+  await writeFile(join(root, "AGENTS.md"), "# Pokyny\n\nPôvodný text.\n");
+  const preview = await planOnboarding(request(root));
+  if (preview.mode !== "new") throw new Error("Convert must return a create preview.");
+  expect(preview.plan.operations.some(operation => operation.path === "CLAUDE.md")).toBe(true);
+  await writeFile(join(root, "AGENTS.md"), "# Pokyny\n\nUpravený text.\n");
+  await expect(applyOnboarding(preview, await options())).rejects.toThrow("Onboarding root changed since planning.");
+  expect(await exists(join(root, "CLAUDE.md"))).toBe(false);
+});
+
+test("plytký otlačok zahŕňa obsah riadiacich súborov, nie ostatných dokumentov", async () => {
+  const { root } = await clientWithLink();
+  await writeFile(join(root, "AGENTS.md"), "a");
+  await writeFile(join(root, "zmluva.docx"), "x");
+  const before = (await inspectOnboardingParent(root)).digest;
+  await writeFile(join(root, "zmluva.docx"), "y");
+  expect((await inspectOnboardingParent(root)).digest).toBe(before);
+  await writeFile(join(root, "AGENTS.md"), "b");
+  expect((await inspectOnboardingParent(root)).digest).not.toBe(before);
+});
+
+test("convert s junction na cudziu prax v podpriečinku: kanceláriu za odkazom neráta a nič za ním nezapíše", async () => {
+  const root = await treeOf(["Zmluvy/zmluva.pdf"]);
+  const practice = await treeOf(["Office/okf.config"]);
+  // Junction na Windows nepotrebuje práva správcu (na rozdiel od symlinku), takže test beží aj na Windows CI.
+  try { await symlink(practice, join(root, "Zmluvy", "prax"), "junction"); }
+  catch (error) { if (error && typeof error === "object" && "code" in error && ["EPERM", "EACCES", "ENOSYS"].includes(String(error.code))) return; throw error; }
+  expect(await findOfficeConfigs(root)).toEqual({ complete: true, offices: [] });
+  const before = (await inspectOnboardingRoot(practice)).digest;
+  const preview = await planOnboarding(request(root));
+  if (preview.mode !== "new") throw new Error("Convert must return a create preview.");
+  expect(preview.plan.operations.some(operation => operation.path.startsWith("Zmluvy"))).toBe(false);
+  await applyOnboarding(preview, await options());
+  expect(await exists(join(root, "client.md"))).toBe(true);
+  expect((await inspectOnboardingRoot(practice)).digest).toBe(before);
+});

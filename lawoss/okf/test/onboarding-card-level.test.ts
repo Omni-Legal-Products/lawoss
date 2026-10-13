@@ -53,3 +53,12 @@ test("príliš veľká karta sa nečíta a je neplatná", async () => {
   const root = await fixture({ "client.md": `${card("client")}${"x".repeat(70 * 1024)}` });
   expect(await inspectCardLevel(root)).toMatchObject({ level: "conflict", issues: [{ path: "", code: "invalid_card_type" }] });
 });
+
+test("karta cez symbolický odkaz sa neprečíta ani bez O_NOFOLLOW (Windows): rozhoduje lstat", async () => {
+  const outside = await fixture({ "client.md": card("client") });
+  const root = await fixture();
+  try { await symlink(join(outside, "client.md"), join(root, "client.md")); }
+  catch (error) { if (error && typeof error === "object" && "code" in error && ["EPERM", "EACCES", "ENOSYS"].includes(String(error.code))) return; throw error; }
+  const level = await inspectCardLevel(root);
+  expect(level.level).not.toBe("client");
+});
