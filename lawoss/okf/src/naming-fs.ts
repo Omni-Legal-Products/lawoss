@@ -1,7 +1,7 @@
 /** Bounded binary filesystem execution. Cooperative-writer CAS, not an OS sandbox. */
 import { closeSync, constants, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, opendirSync, readSync, realpathSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { checkedPath, contained } from "../../okf-pamat/src/workspace-memory-fs.ts";
+import { checkedDirectory, checkedPath, contained } from "../../okf-pamat/src/workspace-memory-fs.ts";
 import { parseWorkspaceMemoryProfileText } from "../../okf-pamat/src/workspace-memory-profile.ts";
 import { parseWorkingProfile, PROFILE_FILE } from "./profile.ts";
 import { exactKeys, fold, hash, NAMING_LIMITS, NamingConflict, namingFingerprint, NamingSchemaError, normalizedMetadata, object, parseNamingRequest, renderDocumentName, rewriteSelectedMarkdownLinks, safeRelativePath, type FilePin, type NamingPlanV1, type NamingRequestV1 } from "./naming-core.ts";
@@ -84,7 +84,7 @@ function assertSourcesWritable(root: string, sources: readonly { path: string; r
 }
 function exists(path: string, kind: "file" | "directory" = "file"): boolean { return checkedPath(path, kind, true); }
 function rootDirectory(directory: string): { path: string; identity: string } {
-  checkedPath(directory, "directory"); const path = realpathSync(directory); return { path, identity: physical(lstatSync(path, { bigint: true })) };
+  const path = checkedDirectory(directory); return { path, identity: physical(lstatSync(path, { bigint: true })) };
 }
 function assertRoot(root: { path: string; identity: string }): void { checkedPath(root.path, "directory"); if (realpathSync(root.path) !== root.path || physical(lstatSync(root.path, { bigint: true })) !== root.identity) conflict("Matter root changed"); }
 /** No decoding, bounded allocation/read even if the file grows, and no multiply-linked inputs. */
@@ -102,7 +102,7 @@ export function readNamingBinary(path: string, limit: number): Binary {
     const bytes = data.subarray(0, count); return { data: bytes, bytes: count, sha256: hash(bytes), physical: physical(before), mode: Number(before.mode & 0o777n) };
   } finally { closeSync(fd); }
 }
-export function readNamingJson(path: string, limit = JSON_LIMIT): unknown { return JSON.parse(utf8(readNamingBinary(path, limit).data)); }
+export function readNamingJson(path: string, limit = JSON_LIMIT): unknown { return JSON.parse(utf8(readNamingBinary(join(checkedDirectory(dirname(path)), basename(path)), limit).data)); }
 function pin(path: string, read: Binary): FilePin { return { path, sha256: read.sha256, bytes: read.bytes, physical: read.physical }; }
 function assertPin(root: string, expected: FilePin, limit: number): Binary {
   const read = readNamingBinary(join(root, expected.path), limit);
@@ -363,8 +363,8 @@ export function applyDocumentNaming(matterDir: string, input: NamingPlanV1, hook
 
 /** Preview output is an explicitly requested new artifact outside the matter, never an overwrite. */
 export function writeNamingPlanOutsideMatter(matterDir: string, output: string, plan: NamingPlanV1): void {
-  const root = rootDirectory(matterDir), path = resolve(output); checkedPath(dirname(path), "directory");
-  const parent = realpathSync(dirname(path)), physicalOutput = join(parent, basename(path));
+  const root = rootDirectory(matterDir), path = resolve(output);
+  const parent = checkedDirectory(dirname(path)), physicalOutput = join(parent, basename(path));
   if (contained(root.path, physicalOutput) || !safeRelativePath(basename(path))) throw new NamingSchemaError("--out must be a new portable filename outside the matter root");
   checkCase(physicalOutput, false); exclusive(physicalOutput, JSON.stringify(plan, null, 2) + "\n");
 }

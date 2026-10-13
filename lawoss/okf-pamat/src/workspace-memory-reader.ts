@@ -1,6 +1,6 @@
-import { readdirSync, realpathSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { isAbsolute, join, resolve, sep } from "node:path";
-import { checkedDirectory, checkedPath, contained, isObject, jsonText, message, missing, readText, safeId, sha256 } from "./workspace-memory-fs.ts";
+import { checkedDirectory, checkedPath, contained, isObject, jsonText, message, missing, physicalPathWithin, readText, safeId, sha256 } from "./workspace-memory-fs.ts";
 import { WORKSPACE_MEMORY_LIMITS } from "./workspace-memory-types.ts";
 import type { WorkspaceMemoryOptions, WorkspaceMemoryReport } from "./workspace-memory-types.ts";
 
@@ -9,18 +9,27 @@ export { writableRoles } from "./workspace-memory-profile.ts";
 // Reserve control metadata in every workspace, even through external grants or case aliases.
 function isControlPath(path: string): boolean { return path.split(sep).some(component => component.toLowerCase() === ".lawoss"); }
 function byId(a: { id: string }, b: { id: string }): number { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; }
-function profileLocation(directory: string, options: WorkspaceMemoryOptions): { path: string; external: boolean } {
+/** A specifically granted alias is its own root, even when located below the workspace. */
+function authorityFor(path: string, roots: string[]): string | undefined {
+  const target = resolve(path);
+  return roots.map(root => resolve(root)).filter(root => contained(root, target))
+    .sort((left, right) => right.length - left.length)[0];
+}
+function profileLocation(directory: string, logicalDirectory: string, options: WorkspaceMemoryOptions): { path: string; external: boolean } {
   const path = options.profilePath ?? join(directory, ".lawoss", "memory-profile.json");
   if (options.profilePath !== undefined && !isAbsolute(path)) throw new Error("Host profile path must be absolute.");
-  if (!checkedPath(path, "file", true)) {
+  const grants = (options.profileGrants ?? []).filter(grant => typeof grant === "string" && isAbsolute(grant));
+  const authorities = [directory, logicalDirectory, ...grants, ...grants.map(checkedDirectory)];
+  const authority = authorityFor(path, authorities);
+  if (!authority) throw new Error("External profile requires a host grant covering its canonical path.");
+  const canonical = physicalPathWithin(authority, path, "file", true);
+  if (!checkedPath(canonical, "file", true)) {
     if (options.profilePath !== undefined) throw new Error("Host profile path is missing or unsafe.");
-    return { path, external: false };
+    return { path: canonical, external: false };
   }
-  const canonical = realpathSync(path);
   const external = !contained(directory, canonical);
   if (external) {
     if (options.profileIdentity !== canonical) throw new Error("External profile identity must equal its canonical path.");
-    const grants = options.profileGrants ?? [];
     if (!grants.some(grant => typeof grant === "string" && isAbsolute(grant) && contained(checkedDirectory(grant), canonical))) {
       throw new Error("External profile requires a host grant covering its canonical path.");
     }
@@ -56,11 +65,11 @@ export function readWorkspaceMemorySnapshot(directory: string, options: Workspac
   let externalProfile = false;
   try {
     // Failure of an existing unsafe parent must not masquerade as profile absence.
-    const location = profileLocation(report.directory, options);
+    report.directory = checkedDirectory(directory);
+    const location = profileLocation(report.directory, resolve(directory), options);
     profilePath = location.path; externalProfile = location.external;
     if (!checkedPath(profilePath, "file", true)) return report;
     report.present = true;
-    report.directory = checkedDirectory(report.directory);
     const profileText = readText(profilePath, WORKSPACE_MEMORY_LIMITS.profileBytes); report.profileHash = profileText.sha256;
     const profile = parseWorkspaceMemoryProfileText(profileText.content);
     report.matterId = profile.matterId;
@@ -72,8 +81,9 @@ export function readWorkspaceMemorySnapshot(directory: string, options: Workspac
       const path = resolve(report.directory, root.path);
       // Check authority before accessing an external root.
       roots.set(root.id, path);
-      if (!contained(report.directory, path) && !grants.some(grant => contained(grant, path))) rootProblems.set(root.id, `External root requires a caller grant: ${root.id}`);
-      else { try { roots.set(root.id, checkedDirectory(path)); } catch (error) { rootProblems.set(root.id, message(error)); } }
+      const authority = authorityFor(path, [report.directory, resolve(directory), ...(options.allowedRoots ?? []), ...grants]);
+      if (!authority) rootProblems.set(root.id, `External root requires a caller grant: ${root.id}`);
+      else { try { roots.set(root.id, physicalPathWithin(authority, path, "directory")); } catch (error) { rootProblems.set(root.id, message(error)); } }
     }
     const sourceProblems = new Map<string, string>();
     for (const source of profile.sources) {
@@ -82,8 +92,8 @@ export function readWorkspaceMemorySnapshot(directory: string, options: Workspac
       if (isControlPath(path)) throw new Error("Memory sources cannot alias reserved .lawoss control files.");
       if (!rootProblems.has(source.root)) {
         try {
-          // Keep symlink rejection before canonicalization; never use realpath to grant authority.
-          if (checkedPath(path, "file", true)) path = realpathSync(path);
+          // Resolve within this source's root, not the union of caller grants.
+          path = physicalPathWithin(roots.get(source.root)!, path, "file", true);
           if (isControlPath(path)) throw new Error("Memory sources cannot alias reserved .lawoss control files.");
         } catch (error) { sourceProblems.set(source.id, message(error)); }
       }

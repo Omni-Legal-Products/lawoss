@@ -11,7 +11,8 @@ afterEach(() => {
   for (const [key, value] of Object.entries({ LEGALWORK_SERVER_URL: prior.url, LEGALWORK_SERVER_TOKEN: prior.token, LAWOSS_MEMORY_ALLOWED_ROOTS: prior.grants })) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
 });
 function fixture() {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "lawoss-host-grants-"))); roots.push(root);
+  // Match checkedDirectory's native authority identity (Windows TEMP may contain RUNNER~1).
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "lawoss-host-grants-"))); roots.push(root);
   const child = join(root, "child"), vault = join(root, "vault"); mkdirSync(child); mkdirSync(vault);
   const workspaces = { items: [{ id: "parent", path: root }, { id: "child", path: child }] };
   const grants = { authority: "runtime", workspaceId: "child", workspaceRoot: child, folders: [vault], hiddenCount: 0 };
@@ -67,7 +68,7 @@ test("host memory context shares bounded host selection and validates outside pr
   writeFileSync(join(f.child, "client-profile.json"), "{}");
   const context = {
     ...f.grants,
-    profile: { profilePath, profileIdentity: realpathSync(profilePath), profileGrants: [appRoot] },
+    profile: { profilePath, profileIdentity: realpathSync.native(profilePath), profileGrants: [appRoot] },
     handoffRoot: appRoot,
   };
   const requests: string[] = [];
@@ -76,7 +77,7 @@ test("host memory context shares bounded host selection and validates outside pr
     return Response.json(url.endsWith("/workspaces") ? f.workspaces : url.endsWith("/grants") ? f.grants : context);
   };
   expect(await resolveHostMemoryContext({ ...f.options, fetch: fetcher })).toEqual({
-    allowedRoots: [f.child, f.vault], profilePath: realpathSync(profilePath), profileIdentity: realpathSync(profilePath), profileGrants: [realpathSync(appRoot)], handoffRoot: realpathSync(appRoot),
+    allowedRoots: [f.child, f.vault], profilePath: realpathSync.native(profilePath), profileIdentity: realpathSync.native(profilePath), profileGrants: [realpathSync.native(appRoot)], handoffRoot: realpathSync.native(appRoot),
   });
   expect(requests).toEqual(["http://localhost:4321/workspaces", "http://localhost:4321/workspace/child/lawoss/memory/grants", "http://localhost:4321/workspace/child/lawoss/memory/context"]);
 

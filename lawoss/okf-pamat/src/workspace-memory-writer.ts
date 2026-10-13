@@ -78,6 +78,7 @@ export function saveWorkspaceMemory(directory: string, request: WorkspaceMemoryS
     validateRequest(request); result.operationId = request.operationId; result.fingerprint = fingerprint(request);
     const initial = readWorkspaceMemory(directory, options); requireComplete(initial);
     if (initial.matterId !== request.matterId || initial.bindingHash !== request.expectedBindingHash) throw new Conflict("Matter/profile/grants binding changed.");
+    // Snapshot paths are physical; keep the caller alias only for binding revalidation.
     const history = join(initial.directory, ".lawoss", "memory-history"); operationPath = join(history, request.operationId);
     const existing = (): boolean => {
       if (!checkedPath(operationPath, "directory", true)) return false;
@@ -99,7 +100,7 @@ export function saveWorkspaceMemory(directory: string, request: WorkspaceMemoryS
       checkedPath(lockPath, "file"); const held = fstatSync(lockFd!), named = lstatSync(lockPath);
       if (held.ino !== named.ino || held.dev !== named.dev) throw new Conflict("Save lock was replaced externally.");
     };
-    assertLock(); validateSnapshot(readWorkspaceMemorySnapshot(initial.directory, options, request.operationId), request);
+    assertLock(); validateSnapshot(readWorkspaceMemorySnapshot(directory, options, request.operationId), request);
     // mkdir is deliberately exclusive: a competing or orphan operation cannot be overwritten.
     mkdirSync(operationPath, { mode: 0o700 }); result.historyPath = operationPath;
     journal = { version: 1, operationId: request.operationId, fingerprint: result.fingerprint, matterId: request.matterId, reason: request.reason, bindingHash: initial.bindingHash, contextHash: initial.contextHash, status: "prepared", createdAt: new Date().toISOString(), changes: result.changes };
@@ -117,10 +118,10 @@ export function saveWorkspaceMemory(directory: string, request: WorkspaceMemoryS
     }
     journal.stages = replacements.map(r => ({ sourceId: r.source.id, path: r.source.path, stage: r.stage, before: `${r.source.id}.before`, beforeSha256: r.source.sha256, afterSha256: r.newHash }));
     writeJournal(operationPath, journal);
-    assertLock(); validateSnapshot(readWorkspaceMemorySnapshot(initial.directory, options, request.operationId), request);
+    assertLock(); validateSnapshot(readWorkspaceMemorySnapshot(directory, options, request.operationId), request);
     // Revalidate every source before each rename, accounting for our already installed versions.
     const validateCurrent = () => {
-      assertLock(); const current = readWorkspaceMemorySnapshot(initial.directory, options, request.operationId); requireComplete(current);
+      assertLock(); const current = readWorkspaceMemorySnapshot(directory, options, request.operationId); requireComplete(current);
       if (current.bindingHash !== request.expectedBindingHash) throw new Conflict("Profile or grants changed during save.");
       for (const source of current.sources) {
         const expected = installed.find(r => r.source.id === source.id)?.newHash ?? initial.sources.find(s => s.id === source.id)!.sha256;

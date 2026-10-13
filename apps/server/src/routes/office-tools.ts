@@ -71,13 +71,13 @@ export function registerOfficeToolRoutes(options: RegisterOfficeToolRoutesOption
 
   addRoute(routes, "POST", "/workspace/:id/office-tools/requests/:requestId/result", "client", async (ctx) => {
     requireClientScope(ctx, "collaborator");
-    await resolveWorkspace(config, ctx.params.id);
+    const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const result: OfficeToolExecutionResult =
       body.ok === true
         ? { ok: true, result: body.result }
         : { ok: false, error: typeof body.error === "string" && body.error ? body.error : "Office tool failed" };
-    const accepted = officeTools.complete(ctx.params.requestId, result);
+    const accepted = officeTools.complete(workspace.id, ctx.params.requestId, result);
     return jsonResponse({ accepted });
   });
 }
