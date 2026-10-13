@@ -71,8 +71,9 @@ function normalizePath(path: string) {
     .replace(WORKSPACE_ID_PREFIX_PATTERN, "");
 }
 
-function basename(value: string) {
-  const clean = value.split(/[?#]/)[0] ?? value;
+function basename(value: string, kind: OpenTargetKind = "file") {
+  // Query and fragment delimiters are literal characters in filesystem paths.
+  const clean = kind === "url" ? value.split(/[?#]/)[0] ?? value : value;
   return clean.split("/").filter(Boolean).pop() ?? value;
 }
 
@@ -104,7 +105,7 @@ function textWithoutRedundantMarkdownLinkLabels(text: string) {
   return text.replace(MARKDOWN_LINK_PATTERN, (match, label: string, href: string) => {
     const cleanLabel = label.trim();
     const cleanHref = href.trim();
-    return cleanLabel === basename(cleanHref) ? `[](${cleanHref})` : match;
+    return cleanLabel === basename(cleanHref, URI_PATTERN.test(cleanHref) ? "url" : "file") ? `[](${cleanHref})` : match;
   });
 }
 
@@ -138,7 +139,7 @@ function targetFromUrl(url: string, confidence: number, reason: string): OpenTar
     id: `url:${clean}`,
     kind: "url",
     value: clean,
-    name: basename(clean) || clean,
+    name: basename(clean, "url") || clean,
     preview: "browser",
     confidence,
     reason,
