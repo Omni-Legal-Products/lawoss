@@ -96,10 +96,13 @@ export class LawossDocuments {
       const sources: Array<Awaited<ReturnType<LawossDocuments["source"]>>> = [];
       for (const path of inputs) { const source = await this.source(workspace, path, Math.min(LIMIT.bytes, available)); sources.push(source); available -= source.bytes.length; }
       const records = await this.records(workspace), result: DocumentSummary[] = [];
-      if (records.length + sources.length > LIMIT.records) throw new ApiError(429, "document_limit", "Document storage record limit reached.");
+      const launches: Array<{ id: string; source: Awaited<ReturnType<LawossDocuments["source"]>> }> = [];
+      const plannedIds = new Set<string>();
+      // Plan against the final record set, before persisting or launching work.
+      // Reuse consumes no slot; retries free their old attachment descendants.
       for (const source of sources) {
         let record = records.find(record => !record.provenance.parentId && record.path === source.path && record.hash === source.hash);
-        if (record && (this.active.has(record.id) || record.status === "readable")) { result.push(summary(record)); continue; }
+        if (record && (this.active.has(record.id) || record.status === "readable" || plannedIds.has(record.id))) { result.push(summary(record)); continue; }
         if (record) {
           const descendants = new Set([record.id]);
           for (const item of records) if (item.provenance.parentId && descendants.has(item.provenance.parentId)) descendants.add(item.id);
@@ -108,11 +111,16 @@ export class LawossDocuments {
         } else {
           record = { id: randomUUID(), workspaceId: workspace.id, path: source.path, hash: source.hash, status: "uploaded", pages: [], complete: false, updatedAt: Date.now(), provenance: { sourcePath: source.path, depth: 0 } }; records.push(record);
         }
-        const controller = new AbortController(), id = record.id;
-        const done = this.pending.then(() => this.run(workspace, id, source, controller.signal)).catch(() => {}).finally(() => this.active.delete(id));
-        this.pending = done; this.active.set(id, { controller, done, workspaceId: workspace.id, bytes: source.bytes.length }); result.push(summary(record));
+        launches.push({ id: record.id, source }); plannedIds.add(record.id); result.push(summary(record));
       }
-      await this.save(workspace, records); return result;
+      if (records.length > LIMIT.records) throw new ApiError(429, "document_limit", "Document storage record limit reached.");
+      await this.save(workspace, records);
+      for (const { id, source } of launches) {
+        const controller = new AbortController();
+        const done = this.pending.then(() => this.run(workspace, id, source, controller.signal)).catch(() => {}).finally(() => this.active.delete(id));
+        this.pending = done; this.active.set(id, { controller, done, workspaceId: workspace.id, bytes: source.bytes.length });
+      }
+      return result;
     });
   }
   private async update(workspace: WorkspaceInfo, id: string, update: Partial<DocumentRecord>) {
@@ -160,10 +168,13 @@ export class LawossDocuments {
       try {
         const { inspectPdfAttachments } = await import("../../document-preparation/render.js");
         const attachments = await inspectPdfAttachments(bytes, signal, { count: LIMIT.attachments - budget.count, bytes: LIMIT.attachmentBytes - budget.bytes });
+        // Reserve all immediate siblings before recursion. A nested subtree
+        // must not spend bytes/count already needed by later siblings.
+        budget.count += attachments.length;
+        budget.bytes += attachments.reduce((sum, attachment) => sum + attachment.bytes.length, 0);
         for (const attachment of attachments) {
           signal.throwIfAborted();
           if (record.provenance.depth >= LIMIT.depth) throw new Error("Portfolio attachment nesting exceeds 3 levels.");
-          budget.count++; budget.bytes += attachment.bytes.length;
           const child: DocumentRecord = { id: randomUUID(), workspaceId: workspace.id, path: record.path, hash: hash(attachment.bytes), status: "preparing", pages: [], complete: false, updatedAt: Date.now(), provenance: { sourcePath: record.provenance.sourcePath, parentId: record.id, parentHash: record.hash, attachmentName: attachment.name.slice(0, 4096), depth: record.provenance.depth + 1 } };
           await this.lock(async () => { const records = await this.records(workspace); if (records.length >= LIMIT.records) throw new Error("Document record limit reached."); records.push(child); await this.save(workspace, records); });
           if (!await this.extract(workspace, child, attachment.bytes, extname(attachment.name).toLowerCase(), scratch, signal, budget, seen)) { complete = false; issue = "Some portfolio attachments are unreadable or incomplete."; }

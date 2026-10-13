@@ -307,3 +307,86 @@ test("portfolio text budget marks over-limit child failed with its actual issue"
   const records = await settled(service, workspace), failed = records.find(record => record.provenance.attachmentName === "second.txt");
   expect(records[0].status).toBe("partial"); expect(failed?.status).toBe("failed"); expect(failed?.issue).toContain("2 million");
 }));
+
+test("nested siblings cannot exceed the tree-wide 32 attachment budget", () => fixture(async (service, workspace, root) => {
+  const inner = await PDFDocument.load(await pdf("Synthetic inner count cover"));
+  for (let i = 0; i < 31; i++) await inner.attach(new TextEncoder().encode("Synthetic child"), `child-${i}.txt`);
+  const outer = await PDFDocument.load(await pdf("Synthetic outer count cover"));
+  await outer.attach(await inner.save(), "a-inner.pdf"); await outer.attach(new TextEncoder().encode("Synthetic last sibling"), "z-last.txt");
+  await writeFile(join(root, "nested-count.pdf"), await outer.save()); await service.prepare(workspace, ["nested-count.pdf"]);
+  const records = await settled(service, workspace);
+  expect(records[0].status).toBe("partial"); expect(records[0].complete).toBe(false);
+  expect(records.filter(record => record.provenance.parentId).length).toBeLessThanOrEqual(32);
+  expect(records.some(record => record.issue?.includes("count"))).toBe(true);
+}));
+
+test("nested siblings cannot exceed the tree-wide decoded attachment byte budget", () => fixture(async (service, workspace, root) => {
+  const inner = await PDFDocument.load(await pdf("Synthetic inner byte cover"));
+  await inner.attach(new Uint8Array(40 * 1024 * 1024), "nested.bin");
+  const outer = await PDFDocument.load(await pdf("Synthetic outer byte cover"));
+  await outer.attach(await inner.save(), "a-inner.pdf"); await outer.attach(new Uint8Array(25 * 1024 * 1024), "z-last.bin");
+  await writeFile(join(root, "nested-bytes.pdf"), await outer.save()); await service.prepare(workspace, ["nested-bytes.pdf"]);
+  const records = await settled(service, workspace);
+  // Both .bin payloads are unsupported, but admission must fail the tree byte budget too.
+  expect(records.some(record => record.issue?.includes("bytes"))).toBe(true);
+  expect(records[0].complete).toBe(false);
+}));
+
+test("capacity permits deduplicated readable reuse, failed retry and retry-descendant admission planning", () => fixture(async (service, workspace, root) => {
+  // Reach the public 500-record limit through real preparation, not fabricated storage.
+  for (let offset = 0; offset < 497; offset += 20) {
+    const paths = Array.from({ length: Math.min(20, 497 - offset) }, (_, i) => `capacity-${offset + i}.txt`);
+    await Promise.all(paths.map(path => writeFile(join(root, path), "Synthetic capacity evidence")));
+    await service.prepare(workspace, paths); await settled(service, workspace);
+  }
+  await writeFile(join(root, "failed-at-capacity.txt"), "Synthetic\0binary");
+  const portfolio = await PDFDocument.load(await pdf("Synthetic capacity portfolio")); await portfolio.attach(new Uint8Array([1]), "unsupported.bin");
+  await writeFile(join(root, "retry-at-capacity.pdf"), await portfolio.save());
+  const initial = await service.prepare(workspace, ["failed-at-capacity.txt", "retry-at-capacity.pdf"]);
+  const full = await settled(service, workspace); expect(full).toHaveLength(500);
+  const readable = full.find(record => record.path === "capacity-0.txt")!;
+  const reused = await service.prepare(workspace, ["capacity-0.txt", "capacity-0.txt"]);
+  expect(reused.map(record => record.id)).toEqual([readable.id, readable.id]); expect((await service.list(workspace))).toHaveLength(500);
+  expect((await service.prepare(workspace, ["failed-at-capacity.txt"]))[0].id).toBe(initial[0].id); await settled(service, workspace);
+  await writeFile(join(root, "new-at-capacity.txt"), "Synthetic new capacity source");
+  // A retry removes one old attachment, making room even when the new input comes first.
+  const admitted = await service.prepare(workspace, ["new-at-capacity.txt", "retry-at-capacity.pdf"]);
+  expect(admitted[1].id).toBe(initial[1].id);
+  const end = await settled(service, workspace); expect(end).toHaveLength(500);
+  expect(end.find(record => record.id === admitted[0].id)?.status).toBe("readable");
+  expect(end.find(record => record.id === admitted[1].id)?.complete).toBe(false);
+  expect(end.some(record => record.issue?.includes("record limit"))).toBe(true);
+  await writeFile(join(root, "rejected.txt"), "Synthetic rejected source");
+  await expect(service.prepare(workspace, ["rejected.txt"])).rejects.toThrow("record limit");
+  expect((await service.list(workspace))).toHaveLength(500);
+}), 30000);
+
+test("an interrupted original at 500 records remains retryable after real process restart", () => fixture(async (service, workspace, root) => {
+  for (let offset = 0; offset < 499; offset += 20) {
+    const paths = Array.from({ length: Math.min(20, 499 - offset) }, (_, i) => `restart-capacity-${offset + i}.txt`);
+    await Promise.all(paths.map(path => writeFile(join(root, path), "Synthetic restart capacity")));
+    await service.prepare(workspace, paths); await settled(service, workspace);
+  }
+  await writeFile(join(root, "interrupted-capacity.txt"), "Synthetic interrupted capacity source");
+  const moduleRoot = new URL("./", import.meta.url).pathname;
+  const code = `import { LawossDocuments } from ${JSON.stringify(moduleRoot + "lawoss/documents/service.ts")};
+import { DocumentPreparation } from ${JSON.stringify(moduleRoot + "document-preparation/service.ts")};
+import { OcrManager } from ${JSON.stringify(moduleRoot + "ocr/manager.ts")};
+const workspace = ${JSON.stringify(workspace)};
+const service = new LawossDocuments({ configPath: ${JSON.stringify(join(root, "config.json"))} }, new DocumentPreparation(new OcrManager(${JSON.stringify(join(root, "child-runtime"))})));
+await service.prepare(workspace, ["interrupted-capacity.txt"]); process.exit(0);`;
+  const child = Bun.spawn([process.execPath, "--eval", code], { stdout: "ignore", stderr: "pipe" }); expect(await child.exited).toBe(0);
+  const before = await service.list(workspace); expect(before).toHaveLength(500);
+  const interrupted = before.find(record => record.path === "interrupted-capacity.txt")!; expect(interrupted.status).toBe("failed"); expect(interrupted.issue).toContain("interrupted");
+  const [retry] = await service.prepare(workspace, ["interrupted-capacity.txt", "interrupted-capacity.txt"]); expect(retry.id).toBe(interrupted.id);
+  const end = await settled(service, workspace); expect(end).toHaveLength(500); expect(end.find(record => record.id === retry.id)?.status).toBe("readable");
+}), 30000);
+
+test("exactly 32 nested attachments remain readable within the shared count budget", () => fixture(async (service, workspace, root) => {
+  const inner = await PDFDocument.load(await pdf("Synthetic valid inner count cover"));
+  for (let i = 0; i < 30; i++) await inner.attach(new TextEncoder().encode("Synthetic permitted child"), `child-${i}.txt`);
+  const outer = await PDFDocument.load(await pdf("Synthetic valid outer count cover"));
+  await outer.attach(await inner.save(), "a-inner.pdf"); await outer.attach(new TextEncoder().encode("Synthetic permitted sibling"), "z-last.txt");
+  await writeFile(join(root, "valid-nested-count.pdf"), await outer.save()); await service.prepare(workspace, ["valid-nested-count.pdf"]);
+  const records = await settled(service, workspace); expect(records).toHaveLength(33); expect(records.every(record => record.complete && record.status === "readable")).toBe(true);
+}));
