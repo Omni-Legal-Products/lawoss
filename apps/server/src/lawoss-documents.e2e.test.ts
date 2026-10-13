@@ -245,6 +245,14 @@ test("actual HTTP and registered agent document tools enforce authorization, pag
     const id = started.documents[0].id;
     for (let i = 0; i < 200; i++) { const list = JSON.parse(await plugin.tool.lawoss_documents_list.execute({ limit: 1 }, context)); if (list.documents[0].status === "readable") break; await new Promise(resolve => setTimeout(resolve, 10)); }
     const read = JSON.parse(await plugin.tool.lawoss_documents_read.execute({ id, limit: 10 }, context)); expect(read.text).toBe("Synthetic "); expect(read.nextOffset).toBe(10); expect(read.untrusted).toBe(true);
+    const { createHash } = await import("node:crypto");
+    await writeFile(join(path,"TEST_ZDROJE_ISIR.json"),JSON.stringify({source:"ISIR",company:"Synthetic",caseNumber:"SYN 2/2026",sourceUrl:"https://isir.justice.cz/isir/synthetic",sampleOnly:true,documents:[{file:"source.txt",documentId:"D2",url:"https://isir.justice.cz/isir/document/D2",sha256:createHash("sha256").update("Synthetic HTTP evidence").digest("hex")}] }));
+    const exportBody={path:"registry.csv",kind:"registry",outputLanguage:"cs",documentIds:[id],entries:[{documentId:id,summary:"Synthetic summary"}]};
+    expect((await fetch(`${endpoint}/export`,{method:"POST",body:JSON.stringify(exportBody)})).status).toBe(401);
+    const exported=JSON.parse(await plugin.tool.lawoss_documents_export.execute(exportBody,context)); expect(exported.verified).toBe(false); expect(exported.path).toBe("registry.csv");
+    const checked=JSON.parse(await plugin.tool.lawoss_documents_validate.execute({paths:["registry.csv"],documentIds:[id],outputLanguage:"cs"},context)); expect(checked.valid).toBe(true); expect(checked.legalApproval).toBe(false);
+    const saved=await (await fetch(`${endpoint}/outputs?limit=1`,{headers})).json(); expect(saved.outputs[0].verified).toBe(true); expect(saved.outputs[0].currentHash).toBe(exported.hash); expect(saved.nextOffset).toBeNull();
+    expect((await fetch(`${endpoint}/export`,{headers,method:"POST",body:JSON.stringify({...exportBody,outputLanguage:"de"})})).status).toBe(400);
     expect((await fetch(`${endpoint}/${id}/read`)).status).toBe(401);
     expect((await fetch(`${endpoint}/prepare`, { headers, method: "POST", body: '{"paths":["../server.json"]}' })).status).toBe(403);
     expect((await fetch(`${endpoint}/prepare`, { headers, method: "POST", body: '{"paths":[]}' })).status).toBe(400);
@@ -255,7 +263,13 @@ test("actual HTTP and registered agent document tools enforce authorization, pag
     expect((await fetch(`${endpoint}/prepare`, { headers: viewerHeaders, method: "POST", body: '{"paths":["source.txt"]}' })).status).toBe(403);
     expect((await fetch(`${endpoint}/${id}`, { headers: viewerHeaders, method: "DELETE" })).status).toBe(403);
     expect((await fetch(`${endpoint}/${id}/read`, { headers: viewerHeaders })).status).toBe(200);
+    expect((await fetch(`${endpoint}/export`,{headers:viewerHeaders,method:"POST",body:JSON.stringify(exportBody)})).status).toBe(403);
+    expect((await fetch(`${endpoint}/validate`,{headers:viewerHeaders,method:"POST",body:JSON.stringify({paths:["registry.csv"],documentIds:[id],outputLanguage:"cs"})})).status).toBe(403);
+    expect((await fetch(`${endpoint}/outputs`,{headers:viewerHeaders})).status).toBe(200);
     config.readOnly = true;
+    expect((await fetch(`${endpoint}/export`,{headers,method:"POST",body:JSON.stringify(exportBody)})).status).toBe(403);
+    expect((await fetch(`${endpoint}/validate`,{headers,method:"POST",body:JSON.stringify({paths:["registry.csv"],documentIds:[id],outputLanguage:"cs"})})).status).toBe(403);
+    expect((await fetch(`${endpoint}/outputs`,{headers})).status).toBe(200);
     expect((await fetch(`${endpoint}/prepare`, { headers, method: "POST", body: '{"paths":["source.txt"]}' })).status).toBe(403);
     expect((await fetch(`${endpoint}/${id}`, { headers, method: "DELETE" })).status).toBe(403);
     expect((await fetch(`${endpoint}/${id}/read`, { headers })).status).toBe(200);

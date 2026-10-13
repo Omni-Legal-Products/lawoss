@@ -8,8 +8,9 @@ import type { DocumentPreparation } from "../../document-preparation/service.js"
 import { within } from "../../reviews/storage.js";
 import type { ServerConfig, WorkspaceInfo } from "../../types.js";
 import { workspaceAppFilesRoot } from "../workspace-app-files.js";
-import { DOCUMENT_LIMITS as LIMIT, documentRecordSchema, type DocumentRead, type DocumentRecord, type DocumentSummary } from "./types.js";
+import { DOCUMENT_LIMITS as LIMIT, documentRecordSchema, type DocumentEvidence, type DocumentRead, type DocumentRecord, type DocumentSummary } from "./types.js";
 
+const outputRecordSchema = z.object({ sourceKind:z.enum(["isir","workspace"]), identityPath:z.string().nullable(), identityHash:z.string().nullable(), documentIds:z.array(z.string().uuid()).min(1).max(20), owned:z.boolean(), workspaceId:z.string(), path:z.string(), hash:z.string().regex(/^[a-f0-9]{64}$/), sourceHash:z.string(), verifiedHash:z.string().nullable(), kind:z.enum(["registry","summary"]), outputLanguage:z.enum(["cs","sk","en"]), verified:z.literal(false), legalApproval:z.literal(false), identity:z.object({caseNumber:z.string().nullable(),company:z.string().nullable(),sourceUrl:z.string().nullable(),project:z.string()}) });
 const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const summary = ({ pages, ...record }: DocumentRecord): DocumentSummary => ({ ...record, pageCount: new Set(pages.map(page => page.page).filter(page => page !== null)).size || (pages.length ? 1 : 0), readablePages: new Set(pages.filter(page => page.status === "complete").map(page => page.page)).size });
 function originalRecord(records: DocumentRecord[], record: DocumentRecord): DocumentRecord {
@@ -35,7 +36,7 @@ export class LawossDocuments {
     const base = workspaceAppFilesRoot(this.config, workspace);
     // Reject existing symlinks before creating or reading app-owned storage.
     let directory = resolve(base);
-    await mkdir(directory, { recursive: true });
+    if (workspace.appFiles === "outside") await mkdir(directory, { recursive: true });
     directory = await realpath(directory);
     for (const segment of [".legalwork", "lawoss-documents"]) {
       directory = join(directory, segment);
@@ -201,9 +202,44 @@ export class LawossDocuments {
     for (const page of record.pages) { const pageEnd = start + page.text.length; if (pageEnd > offset && start < end) pages.push({ ...page, text: page.text.slice(Math.max(0, offset - start), Math.min(page.text.length, end - start)) }); start = pageEnd + 2; }
     return { ...summary(record), text: text.slice(offset, end), pages, offset, nextOffset: end < text.length ? end : null, untrusted: true };
   }
+  async evidence(workspace:WorkspaceInfo,id:string):Promise<DocumentEvidence> {
+    const fresh=await this.read(workspace,id);
+    const record=await this.lock(async()=>(await this.records(workspace)).find(item=>item.id===id));
+    if(!record || record.hash!==fresh.hash || record.updatedAt!==fresh.updatedAt) throw new ApiError(409,"document_stale","Evidence changed during inspection.");
+    return {...summary(record),pages:record.pages.map(({text,...page})=>page)};
+  }
   async cancel(workspace: WorkspaceInfo, id: string) {
     const job = this.active.get(id); if (!job || job.workspaceId !== workspace.id) throw new ApiError(404, "document_job", "Active document preparation not found.");
     job.controller.abort(); await job.done; return { id, cancelled: true };
+  }
+  async outputRecords(workspace: WorkspaceInfo) {
+    return this.lock(async () => {
+      await realpath(workspace.path);
+      const file = join(await this.directory(workspace), "outputs.json");
+      try {
+        const info = await lstat(file); if (info.isSymbolicLink() || info.size > 4 * 1024 * 1024) throw new Error("Invalid output storage.");
+        const records=z.array(outputRecordSchema).max(500).parse(JSON.parse(await readFile(file, "utf8")));
+        if(records.some(record=>record.workspaceId!==workspace.id)) throw new Error("Output storage belongs to another workspace.");
+        return records;
+      } catch (error) { if (error instanceof Error && "code" in error && error.code === "ENOENT") return []; throw error; }
+    });
+  }
+  async outputRecord(workspace:WorkspaceInfo,path:string) { return (await this.outputRecords(workspace)).find(record=>record.path===path); }
+  async saveOutputRecord(workspace: WorkspaceInfo, input: Omit<z.infer<typeof outputRecordSchema>, "workspaceId">) {
+    // The caller has already resolved the existing workspace root; never recreate a moved root.
+    await realpath(workspace.path);
+    return this.lock(async () => {
+      const directory = await this.directory(workspace), file = join(directory, "outputs.json");
+      let records: z.infer<typeof outputRecordSchema>[] = [];
+      try { const info = await lstat(file); if (info.isSymbolicLink() || info.size > 4 * 1024 * 1024) throw new Error("Invalid output storage."); records = z.array(outputRecordSchema).max(500).parse(JSON.parse(await readFile(file,"utf8"))); }
+      catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error; }
+      const record = outputRecordSchema.parse({ ...input, workspaceId: workspace.id });
+      records = records.filter(item => !(item.workspaceId === workspace.id && item.path === input.path)); records.push(record);
+      if (records.length > 500) throw new Error("Output record limit reached.");
+      const bytes=JSON.stringify(records); if(Buffer.byteLength(bytes)>4*1024*1024) throw new Error("Output metadata exceeds 4 MiB.");
+      const temp = join(directory, `${randomUUID()}.tmp`);
+      try { await writeFile(temp, bytes, {flag:"wx",mode:0o600}); await rename(temp,file); } finally { await rm(temp,{force:true}); }
+    });
   }
   async stop() { this.stopped = true; for (const job of this.active.values()) job.controller.abort(); await Promise.all([...this.active.values()].map(job => job.done)); }
 }
