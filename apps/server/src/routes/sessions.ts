@@ -87,7 +87,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
         opencode.session.list(input).then(result => buildSessionList(unwrapOpencodeResult(result, "/session"))),
         historicalWorkspaceSessions(config, workspace, input),
       ]);
-      const byId = new Map(lists.flat().map(session => [session.id, session]));
+      const byId = new Map(lists.flat().filter(session => workspaceOwnsSession(workspace, session)).map(session => [session.id, session]));
       const merged = [...byId.values()].sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0));
       return input.limit ? merged.slice(0, input.limit) : merged;
     } catch (error) {

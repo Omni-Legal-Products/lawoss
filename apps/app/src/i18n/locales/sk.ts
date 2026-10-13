@@ -4812,6 +4812,7 @@ export default {
   "projects.create_folder_failed": "Priečinok projektu sa nepodarilo vytvoriť ani otvoriť. Skontrolujte oprávnenia priečinka alebo vyberte iný priečinok.",
   "projects.conflict": "Tieto polia sa zmenili v inom okne. Pred opätovným uložením načítajte najnovšie polia.",
   "projects.reconnect_reconciliation_needed": "Obnovenie pripojenia spisu vyžaduje kontrolu: niektoré zmeny sa nepodarilo vrátiť. Obráťte sa na podporu.",
+  "projects.folder_reconnected_activation_failed": "Priečinok spisu je znova pripojený, ale otvorenie spisu sa nepodarilo. Skúste ho znova otvoriť.",
   "projects.reconnect_folder": "Znova pripojiť priečinok spisu",
   "projects.reconnect_path": "Cesta k existujúcemu priečinku spisu",
   "projects.folder_unavailable": "Priečinok projektu nie je dostupný. Znova pripojte jeho disk alebo obnovte priečinok na pôvodnom mieste a skúste to znova.",

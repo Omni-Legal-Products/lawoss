@@ -461,3 +461,29 @@ test("rollback of failed reconnect preserves a concurrent desktop selection", as
   assert.equal(restored.selectedId, selected.selectedId); assert.equal(restored.workspaces.length, 2);
   assert.equal(restored.workspaces.find(entry => entry.id === old.id).path, a);
 });
+
+test("registration allocates from queued current state when recovery commits during bootstrap", async () => {
+  const { renameSync, mkdirSync } = await import("node:fs");
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "reconnect-interleave-")));
+  const a = path.join(root,"A"), b = path.join(root,"B"); await mkdir(a);
+  let armed = false; let recovery; let original;
+  const store = createWorkspaceStore({
+    app: { getPath: name => {
+      // This existing host dependency marks the bootstrap write immediately
+      // before registration's final queued mutation. No sleeps or fake state.
+      if (armed && new Error().stack?.includes("writeWorkspaceLegalworkConfig")) {
+        armed = false; renameSync(a,b); mkdirSync(a);
+        recovery = store.reconnectHostWorkspace({ ...original, path:b, previousPaths:[a] }, original);
+      }
+      return name === "userData" ? path.join(root,"userData") : root;
+    } }, defaultDenBaseUrl:"https://example.test", defaultRequireSignin:false, forceRequireSignin:false,
+  });
+  const initial = await store.createWorkspace({ folderPath:a,registerExisting:true,name:"Original" }); original=initial.workspaces[0];
+  armed=true; const registered=await store.createWorkspace({folderPath:a,name:"Unrelated"}); await recovery;
+  assert.equal(armed,false,"the intended filesystem interleaving must occur");
+  const state=await store.readWorkspaceState();
+  assert.equal(state.workspaces.find(entry=>entry.id===original.id)?.path,b);
+  assert.notEqual(registered.selectedId,original.id);
+  assert.equal(state.workspaces.length,2);
+  assert.ok(state.workspaces.find(entry=>entry.path===a)?.appFilesStorageKey);
+});

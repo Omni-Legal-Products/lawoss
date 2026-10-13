@@ -104,7 +104,7 @@ test("native mounted session list and getters exclude later foreign chats reusin
     const foreign = { id: "foreign-late", directory: f.a, title: "Foreign", time: { updated: 2 } };
     if (url.pathname === "/experimental/control-plane/move-session") return new Response(null, { status: 204 });
     if (url.pathname === "/experimental/session") return Response.json(late ? [foreign, original] : [original]);
-    if (url.pathname === "/session") return Response.json([]);
+    if (url.pathname === "/session") return Response.json([foreign]);
     if (url.pathname === "/session/original") { expect(request.headers.get("content-length")).toBeNull(); return Response.json(original); }
     if (url.pathname === "/session/original/shell") return Response.json({ cwd: f.b });
     if (url.pathname === "/session/foreign-late") return Response.json(foreign);
@@ -116,6 +116,8 @@ test("native mounted session list and getters exclude later foreign chats reusin
   const headers = { Authorization: "Bearer client" };
   const list = await fetch(`${base}/opencode/session`, { headers });
   expect(list.status).toBe(200); expect((await list.json()).map((item: { id: string }) => item.id)).toEqual(["original"]);
+  const ordinary = await fetch(`${base}/sessions`, { headers });
+  expect(ordinary.status).toBe(200); expect((await ordinary.json()).items.map((item: { id: string }) => item.id)).toEqual(["original"]);
   expect((await fetch(`${base}/opencode/session/original`, { headers })).status).toBe(200);
   const shell = await fetch(`${base}/opencode/session/original/shell`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ agent: "build", command: "pwd" }) });
   expect(shell.status).toBe(200); expect(await shell.json()).toEqual({ cwd: f.b });

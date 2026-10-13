@@ -741,32 +741,29 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
       await mkdir(folderPath, { recursive: true });
     }
     const preset = String(input.preset ?? "starter");
-    const registeredState = await readWorkspaceState();
-    const registered = registeredState.workspaces.find(entry => entry.workspaceType !== "remote" && normalizeWorkspacePathKey(entry.path) === normalizeWorkspacePathKey(folderPath));
-    const pathId = localWorkspaceId(folderPath);
-    const pathIdTaken = registeredState.workspaces.some(entry => entry.id === pathId);
-    const id = registered?.id ?? (pathIdTaken ? stableWorkspaceId(`${folderPath}::${randomBytes(12).toString("hex")}`) : pathId);
-    const storagePathTaken = registeredState.workspaces.some(entry => entry.workspaceType !== "remote" && normalizeWorkspacePathKey(entry.path) !== normalizeWorkspacePathKey(folderPath) && normalizeWorkspacePathKey(entry.previousPaths?.[0] ?? entry.path) === normalizeWorkspacePathKey(folderPath));
-    const appFilesStorageKey = registered?.appFilesStorageKey ?? (!registered && (pathIdTaken || storagePathTaken) ? `${folderPath}::${id}` : null);
-    const workspace = normalizeWorkspaceEntry({
-      id,
-      name: String(input.name ?? (path.basename(folderPath) || "Workspace")),
-      displayName: String(input.name ?? (path.basename(folderPath) || "Workspace")),
-      path: folderPath,
-      preset,
-      workspaceType: "local",
-      ...(appFilesStorageKey ? { appFilesStorageKey } : {}),
-      appFiles: requestedAppFiles ?? "inside",
-    });
     if (!registerExisting) {
       await mkdir(path.join(folderPath, ".opencode"), { recursive: true });
       await writeWorkspaceLegalworkConfig(folderPath, defaultWorkspaceLegalworkConfig(folderPath, preset));
     }
 
     return mutateWorkspaceState((state) => {
-      const existing = state.workspaces.find(
-        (entry) => entry.id === workspace.id || normalizeWorkspacePathKey(entry.path) === workspacePathKey(workspace),
-      );
+      const registered = state.workspaces.find(entry => entry.workspaceType !== "remote" && normalizeWorkspacePathKey(entry.path) === normalizeWorkspacePathKey(folderPath));
+      const pathId = localWorkspaceId(folderPath);
+      const pathIdTaken = state.workspaces.some(entry => entry.id === pathId);
+      const id = registered?.id ?? (pathIdTaken ? stableWorkspaceId(`${folderPath}::${randomBytes(12).toString("hex")}`) : pathId);
+      const storagePathTaken = state.workspaces.some(entry => entry.workspaceType !== "remote" && normalizeWorkspacePathKey(entry.path) !== normalizeWorkspacePathKey(folderPath) && normalizeWorkspacePathKey(entry.previousPaths?.[0] ?? entry.path) === normalizeWorkspacePathKey(folderPath));
+      const appFilesStorageKey = registered?.appFilesStorageKey ?? (!registered && (pathIdTaken || storagePathTaken) ? `${folderPath}::${id}` : null);
+      const workspace = normalizeWorkspaceEntry({
+        id,
+        name: String(input.name ?? (path.basename(folderPath) || "Workspace")),
+        displayName: String(input.name ?? (path.basename(folderPath) || "Workspace")),
+        path: folderPath,
+        preset,
+        workspaceType: "local",
+        ...(appFilesStorageKey ? { appFilesStorageKey } : {}),
+        appFiles: requestedAppFiles ?? "inside",
+      });
+      const existing = registered;
       const persistedAppFiles = existing?.appFiles === "outside" ? "outside" : "inside";
       const nextWorkspace = {
         ...workspace,

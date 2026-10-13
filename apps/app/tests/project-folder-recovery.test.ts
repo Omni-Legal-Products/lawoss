@@ -18,3 +18,13 @@ test("failed reconnect preserves error and never activates or refreshes", async 
   const client = { reconnectWorkspace: async () => { throw failure; }, activateWorkspace: async () => { calls.push("activate"); return { activeId: "same", workspace, persisted: true }; } };
   await expect(recoverProjectFolder({ client, workspaceId: "same", expectedPath: "/old", pick: async () => "/new", refresh: async () => { calls.push("refresh"); } })).rejects.toBe(failure); expect(calls).toEqual([]);
 });
+
+test("committed reconnect refreshes current folder even when activation fails", async () => {
+  const failure=new Error("Engine reload failed");const calls:string[]=[];
+  const client={reconnectWorkspace:async()=>{calls.push("committed");return {workspace,persisted:true as const};},activateWorkspace:async()=>{calls.push("activate");throw failure;}};
+  try { await recoverProjectFolder({client,workspaceId:"same",expectedPath:"/old",pick:async()=>"/new",refresh:async()=>{calls.push("refresh");}}); throw new Error("Expected activation warning"); }
+  catch(error) {
+    expect(calls).toEqual(["committed","activate","refresh"]);
+    expect(error).toMatchObject({recoveryCommitted:true,cause:failure});
+  }
+});

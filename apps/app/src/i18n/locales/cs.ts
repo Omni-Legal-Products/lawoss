@@ -4811,6 +4811,7 @@ export default {
   "projects.create_folder_failed": "Složku projektu nelze vytvořit nebo otevřít. Zkontrolujte oprávnění složky nebo vyberte jinou složku.",
   "projects.conflict": "Tato pole se změnila v jiném okně. Před opětovným uložením načtěte nejnovější pole.",
   "projects.reconnect_reconciliation_needed": "Obnovení připojení spisu vyžaduje kontrolu: některé změny se nepodařilo vrátit. Obraťte se na podporu.",
+  "projects.folder_reconnected_activation_failed": "Složka spisu je znovu připojena, ale otevření spisu se nepodařilo. Zkuste jej znovu otevřít.",
   "projects.reconnect_folder": "Znovu připojit složku spisu",
   "projects.reconnect_path": "Cesta k existující složce spisu",
   "projects.folder_unavailable": "Složka projektu není k dispozici. Znovu připojte jeho jednotku nebo obnovte složku do původního umístění a zkuste to znovu.",

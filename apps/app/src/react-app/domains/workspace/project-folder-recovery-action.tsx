@@ -2,10 +2,11 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/sonner";
 import { Input } from "@/components/ui/input";
 import { t } from "@/i18n";
 import { projectErrorMessage } from "./project-errors";
-import { PROJECT_FOLDER_RECONNECTED_EVENT, recoverProjectFolder } from "./project-folder-recovery";
+import { PROJECT_FOLDER_RECONNECTED_EVENT, ProjectFolderActivationError, recoverProjectFolder } from "./project-folder-recovery";
 
 export function ProjectFolderRecoveryAction({ client, workspaceId, error }: { client: LegalworkServerClient; workspaceId: string; error: unknown }) {
   const available = error instanceof LegalworkServerError && error.code === "project_folder_unavailable";
@@ -24,8 +25,11 @@ export function ProjectFolderRecoveryAction({ client, workspaceId, error }: { cl
         const result = await client.pickWorkspaceFolder({ title: t("projects.reconnect_folder"), defaultPath: workspace.path, existingOnly: true });
         if (!result.supported) setTyped("");
         return result.path;
-      }, refresh: async () => { await queryClient.invalidateQueries(); window.dispatchEvent(new Event(PROJECT_FOLDER_RECONNECTED_EVENT)); } });
-    } catch (error) { setFailure(error); }
+      }, refresh: async () => { try { await queryClient.invalidateQueries(); } finally { window.dispatchEvent(new Event(PROJECT_FOLDER_RECONNECTED_EVENT)); } } });
+    } catch (error) {
+      if (error instanceof ProjectFolderActivationError) toast.warning(t("projects.folder_reconnected_activation_failed"));
+      else setFailure(error);
+    }
     finally { setBusy(false); }
   };
   return <div className="space-y-2">

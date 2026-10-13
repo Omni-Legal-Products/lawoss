@@ -840,6 +840,7 @@ export default {
   "projects.create_folder_failed": "The project folder could not be created or opened. Check folder permissions or choose a different folder.",
   "projects.conflict": "These fields changed in another window. Load the latest fields before saving again.",
   "projects.reconnect_reconciliation_needed": "Project recovery needs attention: some changes could not be rolled back. Contact support.",
+  "projects.folder_reconnected_activation_failed": "The project folder is reconnected, but opening the project failed. Try opening it again.",
   "projects.reconnect_folder": "Reconnect project folder",
   "projects.reconnect_path": "Existing project folder path",
   "projects.folder_unavailable": "The project folder is unavailable. Reconnect its drive or restore the folder to its original location, then try again.",
