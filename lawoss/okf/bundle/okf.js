@@ -59,579 +59,6 @@ function parseFrontmatter(text) {
   return null;
 }
 
-// src/onboarding/classify.ts
-var CARD_LEVELS = {
-  "client.md": "client",
-  "klient.md": "client",
-  "subject.md": "subject",
-  "matter.md": "matter",
-  "spis.md": "matter",
-  "project.md": "matter",
-  "projekt.md": "matter"
-};
-var CARD_TYPES = {
-  "client.md": ["client", "klient"],
-  "klient.md": ["client", "klient"],
-  "subject.md": ["subject"],
-  "matter.md": ["matter", "spis"],
-  "spis.md": ["matter", "spis"],
-  "project.md": ["project", "projekt"],
-  "projekt.md": ["project", "projekt"]
-};
-var OFFICE_DIR_NAMES = ["Office", "_kancelaria"];
-var CARD_HEAD_BYTES = 64 * 1024;
-function decideCardLevel(cards, office, officeConflict) {
-  if (cards.length > 1 || cards.length > 0 && office || officeConflict)
-    return { level: "conflict", issue: "conflicting_identity" };
-  const card = cards[0];
-  if (card) {
-    const metadata = card.text === undefined ? null : parseFrontmatter(card.text);
-    const types = card.text?.match(/^type:/gm) ?? [];
-    const level = CARD_LEVELS[card.path];
-    if (!level || !metadata?.type || types.length !== 1 || !CARD_TYPES[card.path]?.includes(metadata.type))
-      return { level: "conflict", issue: "invalid_card_type" };
-    return { level };
-  }
-  return { level: office ? "office" : "unknown" };
-}
-async function readCardHead(path) {
-  let handle;
-  try {
-    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-  } catch {
-    return;
-  }
-  try {
-    const state = await handle.stat();
-    if (!state.isFile() || state.size > CARD_HEAD_BYTES)
-      return;
-    const buffer = Buffer.alloc(state.size);
-    const read = await handle.read(buffer, 0, state.size, 0);
-    return buffer.subarray(0, read.bytesRead).toString("utf8");
-  } finally {
-    await handle.close();
-  }
-}
-var isFile = (path) => lstat(path).then((state) => state.isFile(), () => false);
-async function inspectCardLevel(root) {
-  const resolved = resolve(root);
-  try {
-    if (!isAbsolute(root) || await realpath(root) !== resolved || !(await lstat(resolved)).isDirectory())
-      return { root: resolved, level: "unknown", issues: [{ path: "", code: "canonical_directory_required" }] };
-  } catch {
-    return { root: resolved, level: "unknown", issues: [{ path: "", code: "canonical_directory_required" }] };
-  }
-  const names = new Set(await readdir(resolved));
-  const cardNames = Object.keys(CARD_LEVELS).filter((name) => names.has(name));
-  const cards = await Promise.all(cardNames.map(async (path) => ({ path, text: await readCardHead(join(resolved, path)) })));
-  const directOffice = OFFICE_DIR_NAMES.some((name) => basename(resolved) === name) && names.has("okf.config") && await isFile(join(resolved, "okf.config"));
-  const nestedOffices = (await Promise.all(OFFICE_DIR_NAMES.map((name) => isFile(join(resolved, name, "okf.config"))))).filter(Boolean).length;
-  const decision = decideCardLevel(cards, directOffice || nestedOffices > 0, nestedOffices > 1);
-  return { root: resolved, level: decision.level, issues: decision.issue ? [{ path: "", code: decision.issue }] : [] };
-}
-async function findOfficeConfigs(root, limits = {}) {
-  const maxEntries = limits.maxEntries ?? 1e5, maxDepth = limits.maxDepth ?? 32;
-  const offices = [];
-  const queue = [{ relative: "", depth: 0 }];
-  let seen = 0;
-  for (let next = queue.shift();next; next = queue.shift()) {
-    if (next.depth > maxDepth)
-      return { complete: false, offices };
-    let entries;
-    try {
-      entries = await readdir(join(root, next.relative), { withFileTypes: true });
-    } catch {
-      return { complete: false, offices };
-    }
-    for (const entry of entries) {
-      if (VOLATILE_ENTRY.test(entry.name))
-        continue;
-      if (++seen > maxEntries)
-        return { complete: false, offices };
-      const path = next.relative ? `${next.relative}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) {
-        if (!APP_FILE_DIRECTORIES.has(entry.name))
-          queue.push({ relative: path, depth: next.depth + 1 });
-      } else if (entry.isFile() && OFFICE_CONFIG.test(path))
-        offices.push(path);
-    }
-  }
-  return { complete: true, offices: offices.sort() };
-}
-var OFFICE_CONFIG = /(?:^|\/)(?:Office|_kancelaria)\/okf\.config$/;
-var APP_FILE_DIRECTORIES = new Set([".opencode"]);
-var MEMORY_FILES = new Set(["MEMORY.md", "_memory.md", "_STATUS.md", "BRAIN.md", ".lawoss/memory-profile.json"]);
-var VOLATILE_ENTRY = /^(?:~\$.*|~WRL\d+\.tmp|thumbs\.db|desktop\.ini)$/i;
-var LOCK_CODES = new Set(["EBUSY", "EPERM", "EACCES"]);
-var sha = (value) => createHash("sha256").update(value).digest("hex");
-var errorCode = (error) => error && typeof error === "object" && ("code" in error) ? String(error.code) : "read_failed";
-async function inspectOnboardingParent(root, limits = {}) {
-  const maxEntries = limits.maxEntries ?? 1e4;
-  if (!Number.isSafeInteger(maxEntries) || maxEntries <= 0)
-    throw new Error("Invalid inspection limits.");
-  const result = { root: resolve(root), level: "unknown", confidence: "unknown", complete: true, digest: null, entries: [], memorySources: [], issues: [] };
-  const problem = (path, code) => {
-    result.complete = false;
-    result.issues.push({ path, code });
-  };
-  try {
-    if (!isAbsolute(root) || await realpath(root) !== resolve(root) || !(await lstat(root)).isDirectory()) {
-      problem("", "canonical_directory_required");
-      return result;
-    }
-    const names = (await readdir(result.root)).sort();
-    if (names.length > maxEntries) {
-      problem("", "entry_limit");
-      return result;
-    }
-    for (const name of names) {
-      if (VOLATILE_ENTRY.test(name)) {
-        (result.ignored ??= []).push(name);
-        continue;
-      }
-      try {
-        const state = await lstat(join(result.root, name));
-        const kind = state.isSymbolicLink() ? "symlink" : state.isDirectory() ? "directory" : state.isFile() ? "file" : "unsupported";
-        result.entries.push({ path: name, kind, digest: null, size: 0 });
-      } catch (error) {
-        const code = errorCode(error);
-        if (LOCK_CODES.has(code))
-          result.entries.push({ path: name, kind: "unsupported", digest: null, size: 0 });
-        else
-          problem(name, code);
-      }
-    }
-  } catch (error) {
-    problem("", errorCode(error));
-    return result;
-  }
-  if (result.complete)
-    result.digest = sha(JSON.stringify(result.entries));
-  return result;
-}
-var OFFICE_ANCESTOR_LEVELS = 8;
-async function findAncestorOffice(dir) {
-  let current = resolve(dir);
-  for (let level = 0;level < OFFICE_ANCESTOR_LEVELS; level++) {
-    const parent = dirname(current);
-    if (parent === current)
-      return;
-    current = parent;
-    for (const name of ["Office", "_kancelaria"]) {
-      if (await lstat(join(current, name, "okf.config")).then((state) => state.isFile(), () => false))
-        return join(current, name);
-    }
-  }
-  return;
-}
-async function inspectOnboardingRoot(root, limits = {}, hooks = {}) {
-  const maxEntries = limits.maxEntries ?? 1e4;
-  const maxBytes = limits.maxBytes ?? 1024 * 1024 * 1024;
-  const maxDepth = limits.maxDepth ?? 32;
-  if (![maxEntries, maxBytes, maxDepth].every((value) => Number.isSafeInteger(value) && value > 0))
-    throw new Error("Invalid inspection limits.");
-  const result = { root: resolve(root), level: "unknown", confidence: "unknown", complete: true, digest: null, entries: [], memorySources: [], issues: [] };
-  const problem = (path, code) => {
-    result.complete = false;
-    result.issues.push({ path, code });
-  };
-  try {
-    if (!isAbsolute(root) || await realpath(root) !== resolve(root) || !(await lstat(root)).isDirectory()) {
-      problem("", "canonical_directory_required");
-      return result;
-    }
-  } catch (error) {
-    problem("", errorCode(error));
-    return result;
-  }
-  let bytes = 0;
-  let seenEntries = 0;
-  let exhausted = false;
-  const cardText = new Map;
-  async function visit(relative, depth) {
-    if (exhausted)
-      return;
-    if (depth > maxDepth) {
-      problem(relative, "depth_limit");
-      return;
-    }
-    try {
-      const dir = join(result.root, relative);
-      const before = await lstat(dir);
-      if (!before.isDirectory() || before.isSymbolicLink() || await realpath(dir) !== dir) {
-        problem(relative, "unsafe_directory");
-        return;
-      }
-      for (const name of (await readdir(dir)).sort()) {
-        const path = relative ? `${relative}/${name}` : name;
-        if (VOLATILE_ENTRY.test(name)) {
-          (result.ignored ??= []).push(path);
-          continue;
-        }
-        if (seenEntries >= maxEntries) {
-          problem(path, "entry_limit");
-          exhausted = true;
-          break;
-        }
-        seenEntries += 1;
-        const full = join(result.root, path);
-        try {
-          const state = await lstat(full);
-          if (state.isSymbolicLink()) {
-            result.entries.push({ path, kind: "symlink", digest: null, size: 0 });
-            problem(path, "symlink_not_followed");
-            continue;
-          }
-          if (state.isDirectory()) {
-            result.entries.push({ path, kind: "directory", digest: null, size: 0 });
-            if (!APP_FILE_DIRECTORIES.has(name))
-              await visit(path, depth + 1);
-          } else if (state.isFile()) {
-            if (bytes + state.size > maxBytes) {
-              problem(path, "byte_limit");
-              exhausted = true;
-              break;
-            }
-            const handle = await (hooks.open ?? open)(full, constants.O_RDONLY | constants.O_NOFOLLOW);
-            try {
-              const opened = await handle.stat({ bigint: true });
-              const current = await lstat(full, { bigint: true });
-              if (!opened.isFile() || current.isSymbolicLink() || opened.ino !== current.ino || opened.dev !== current.dev) {
-                problem(path, "changed_during_read");
-                continue;
-              }
-              const hash = createHash("sha256");
-              const buffer = Buffer.alloc(64 * 1024);
-              const parts = [];
-              let count = 0;
-              while (true) {
-                const read = await handle.read(buffer, 0, buffer.length, null);
-                if (!read.bytesRead)
-                  break;
-                count += read.bytesRead;
-                bytes += read.bytesRead;
-                if (bytes > maxBytes) {
-                  problem(path, "byte_limit");
-                  exhausted = true;
-                  break;
-                }
-                const chunk = buffer.subarray(0, read.bytesRead);
-                hash.update(chunk);
-                if (CARD_LEVELS[path] && count <= 64 * 1024)
-                  parts.push(Buffer.from(chunk));
-              }
-              const after = await handle.stat({ bigint: true });
-              const linked = await lstat(full, { bigint: true });
-              if (after.size !== opened.size || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs || linked.ino !== opened.ino || linked.dev !== opened.dev || linked.isSymbolicLink())
-                problem(path, "changed_during_read");
-              if (CARD_LEVELS[path]) {
-                if (count > 64 * 1024)
-                  problem(path, "card_size_limit");
-                else
-                  cardText.set(path, Buffer.concat(parts).toString("utf8"));
-              }
-              result.entries.push({ path, kind: "file", digest: hash.digest("hex"), size: count });
-              if (MEMORY_FILES.has(path))
-                result.memorySources.push(path);
-            } finally {
-              await handle.close();
-            }
-          } else {
-            result.entries.push({ path, kind: "unsupported", digest: null, size: 0 });
-            problem(path, "unsupported_file_type");
-          }
-        } catch (error) {
-          const code = errorCode(error);
-          if (!LOCK_CODES.has(code))
-            problem(path, code);
-          else {
-            if (result.entries.at(-1)?.path !== path)
-              result.entries.push({ path, kind: "unsupported", digest: null, size: 0 });
-            problem(path, "locked_file");
-          }
-        }
-        if (exhausted)
-          break;
-      }
-      const after = await lstat(dir);
-      if (before.ino !== after.ino || before.dev !== after.dev || before.mtimeMs !== after.mtimeMs)
-        problem(relative, "changed_during_read");
-    } catch (error) {
-      problem(relative, errorCode(error));
-    }
-  }
-  await visit("", 0);
-  const cards = result.entries.filter((entry) => entry.kind === "file" && CARD_LEVELS[entry.path]);
-  const officePaths = result.entries.filter((entry) => entry.kind === "file" && OFFICE_CONFIG.test(entry.path));
-  const directOffice = ["Office", "_kancelaria"].includes(basename(result.root)) && result.entries.some((entry) => entry.path === "okf.config" && entry.kind === "file");
-  const office = directOffice || officePaths.some((entry) => ["Office/okf.config", "_kancelaria/okf.config"].includes(entry.path));
-  const conflict = (code) => {
-    result.level = "conflict";
-    result.issues.push({ path: "", code });
-  };
-  const decision = decideCardLevel(cards.map((card) => ({ path: card.path, text: cardText.get(card.path) })), office, officePaths.length > 1 || officePaths.some((entry) => entry.path.split("/").length > 2));
-  if (decision.issue)
-    conflict(decision.issue);
-  else
-    result.level = decision.level;
-  if (result.complete && result.level !== "conflict") {
-    result.digest = sha(JSON.stringify(result.entries));
-    result.confidence = result.level === "unknown" ? "unknown" : "confirmed";
-  }
-  return result;
-}
-
-// src/onboarding/suggest.ts
-import { lstat as lstat2, readdir as readdir2, readFile } from "node:fs/promises";
-import { basename as basename2, isAbsolute as isAbsolute2, join as join2, resolve as resolve2 } from "node:path";
-
-// ../okf-pamat/src/text-decode.ts
-function decodeText(bytes) {
-  if (bytes[0] === 254 && bytes[1] === 255) {
-    const swapped = Uint8Array.from(bytes);
-    for (let i = 0;i + 1 < swapped.length; i += 2) {
-      swapped[i] = bytes[i + 1];
-      swapped[i + 1] = bytes[i];
-    }
-    return new TextDecoder("utf-16le").decode(swapped);
-  }
-  return new TextDecoder(bytes[0] === 255 && bytes[1] === 254 ? "utf-16le" : "utf-8").decode(bytes);
-}
-function stripBom(text) {
-  return text.charCodeAt(0) === 65279 ? text.slice(1) : text;
-}
-
-// src/triage/rules.ts
-var TRIAGE_ROLES = ["inbox", "client_documents", "research", "drafts", "outputs", "correspondence", "important_mail"];
-function normalizeText(value) {
-  return value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[_\-.,;()[\]{}+]+/g, " ").replace(/\s+/g, " ").trim();
-}
-var EMAIL_EXT = new Set(["eml", "msg", "emlx", "mbox", "oft"]);
-var DATA_BOX_EXT = new Set(["zfo", "asice", "asics"]);
-var WORD_EXT = new Set(["docx", "doc", "docm", "odt", "rtf", "pages", "dotx"]);
-var PDF_EXT = new Set(["pdf"]);
-var KEYWORDS = [
-  { rule: "power_of_attorney", role: "client_documents", confidence: "high", words: ["plnomocenstvo", "plnomocnenstvo", "plna moc", "plnou moc", "plne moci", "power of attorney", "splnomocnenie"] },
-  { rule: "court_decision", role: "important_mail", confidence: "medium", words: ["rozsudok", "rozsudek", "rozsudku", "uznesenie", "uznesenia", "usneseni", "platobny rozkaz", "platebni rozkaz", "predvolanie", "predvolani", "vyzva sudu", "vyzva soudu", "exekucny prikaz", "exekucni prikaz", "upovedomenie", "vyrozumenie", "rozhodnutie", "rozhodnuti", "dorucenka", "judgment", "court order"] },
-  { rule: "demand_letter", role: "correspondence", confidence: "medium", words: ["predzalobna vyzva", "predzalobnu vyzvu", "predzalobni vyzva", "predzalobni vyzvu", "vyzva na zaplatenie", "vyzva k zaplaceni", "upomienka", "upominka", "demand letter", "letter before action"] },
-  { rule: "draft_marker", role: "drafts", confidence: "high", ext: WORD_EXT, words: ["draft", "navrh", "koncept", "pracovn", "wip", "redline", "verzia", "verze", "version", "rev", "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9"] },
-  { rule: "filing_final", role: "outputs", confidence: "medium", ext: PDF_EXT, words: ["zaloba", "zalobu", "navrh na", "odvolanie", "odvolani", "dovolanie", "dovolani", "vyjadrenie", "vyjadreni", "replika", "duplika", "triplika", "podanie", "podani", "staznost", "stiznost", "odpor", "namietky", "namitky", "statement of claim", "appeal"] },
-  { rule: "contract", role: "client_documents", confidence: "medium", words: ["zmluva", "zmluvy", "zmluvu", "smlouva", "smlouvy", "smlouvu", "dohoda", "dohody", "dodatok", "dodatek", "contract", "agreement", "nda"] },
-  { rule: "invoice", role: "client_documents", confidence: "medium", words: ["faktura", "faktury", "invoice", "dobropis", "proforma", "ucet za", "vyuctovanie", "vyuctovani"] },
-  { rule: "registry_extract", role: "client_documents", confidence: "medium", words: ["vypis", "list vlastnictva", "list vlastnictvi", "obchodny register", "obchodni rejstrik", "orsr", "rpvs", "zivnostensky", "extract"] },
-  { rule: "research", role: "research", confidence: "medium", words: ["resers", "reserse", "reserz", "judikat", "judikatura", "research", "memo", "analyza", "komentar", "rozbor"] },
-  { rule: "final_output", role: "outputs", confidence: "medium", words: ["stanovisko", "posudok", "posudek", "legal opinion", "opinion", "finalne", "finalni", "final"] }
-];
-var FILING_DRAFT = { rule: "filing_draft", role: "drafts", confidence: "medium", ext: WORD_EXT, words: KEYWORDS.find((item) => item.rule === "filing_final").words };
-var FOLDER_HINTS = [
-  { role: "correspondence", words: ["korespondencia", "korespondence", "posta", "email", "emaily", "maily", "mail", "correspondence", "komunikacia", "komunikace"] },
-  { role: "drafts", words: ["drafty", "drafts", "koncepty", "navrhy", "pracovne"] },
-  { role: "client_documents", words: ["zmluvy", "smlouvy", "podklady", "od klienta", "dokumenty klienta", "doklady", "faktury", "invoices", "invoice", "uctovne doklady", "ucetni doklady"] },
-  { role: "outputs", words: ["podania", "podani", "vystupy", "outputs", "odoslane", "odeslane"] },
-  { role: "research", words: ["reserse", "resers", "research", "judikatura"] }
-];
-var escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-function findWord(text, words) {
-  for (const word of words) {
-    const tail = word.length <= 3 ? "(?:$|\\s|\\d)" : "";
-    if (new RegExp(`(?:^|\\s)${escapeRegExp(word)}${tail}`).test(text))
-      return word;
-  }
-  return;
-}
-function findCaseNumber(text) {
-  const match = /(?:^|[^\p{L}\d])(\d{1,3})[ _-]?([A-Z][A-Za-z]{0,4})[ _/-]?(\d{1,6})[ _/-]((?:19|20)\d{2})(?![\p{L}\d])/u.exec(text);
-  if (!match)
-    return;
-  const [, senate, register, number, year] = match;
-  if (!senate || !register || !number || !year)
-    return;
-  const key = `${senate}${register.toUpperCase()}-${Number(number)}-${year}`;
-  return { key, display: `${senate}${register} ${Number(number)}/${year}` };
-}
-function classifyByRules(input) {
-  const ext = input.ext.toLowerCase();
-  const stem = input.ext ? input.name.slice(0, -(input.ext.length + 1)) : input.name;
-  const text = normalizeText(stem);
-  const folders = input.path.split("/").slice(0, -1);
-  const caseNumber = findCaseNumber(stem) ?? folders.map(findCaseNumber).find(Boolean);
-  const result = (value) => caseNumber ? { ...value, caseNumber } : value;
-  if (EMAIL_EXT.has(ext))
-    return result({ role: "correspondence", confidence: "high", rule: "email_file", matched: `.${ext}` });
-  if (DATA_BOX_EXT.has(ext))
-    return result({ role: "important_mail", confidence: ext === "zfo" ? "high" : "medium", rule: "data_box", matched: `.${ext}` });
-  const draftIndex = KEYWORDS.findIndex((keyword) => keyword.rule === "draft_marker") + 1;
-  for (const keyword of [...KEYWORDS.slice(0, draftIndex), FILING_DRAFT, ...KEYWORDS.slice(draftIndex)]) {
-    if (keyword.ext && !keyword.ext.has(ext))
-      continue;
-    const matched = findWord(text, keyword.words);
-    if (matched)
-      return result({ role: keyword.role, confidence: keyword.confidence, rule: keyword.rule, matched });
-  }
-  for (const folder of [...folders].reverse()) {
-    const name = normalizeText(folder);
-    for (const hint of FOLDER_HINTS) {
-      const matched = findWord(name, hint.words);
-      if (matched)
-        return result({ role: hint.role, confidence: "medium", rule: "folder_hint", matched: folder });
-    }
-  }
-  return result({ role: null, confidence: "low", rule: "unknown" });
-}
-
-// src/onboarding/suggest-patterns.ts
-var form = (body) => new RegExp(`(?:^|[\\s,(])${body}(?=$|[\\s,)])`, "iu");
-var SK_LEGAL_FORMS = [
-  form("s\\.\\s?r\\.\\s?o\\.?"),
-  form("a\\.\\s?s\\.?"),
-  form("k\\.\\s?s\\.?"),
-  form("v\\.\\s?o\\.\\s?s\\.?"),
-  form("š\\.\\s?p\\.?"),
-  form("j\\.\\s?s\\.\\s?a\\.?")
-];
-var CZ_LEGAL_FORMS = [
-  form("spol\\.\\s?s\\s?r\\.\\s?o\\.?"),
-  form("s\\.\\s?r\\.\\s?o\\.?"),
-  form("a\\.\\s?s\\.?"),
-  form("k\\.\\s?s\\.?"),
-  form("v\\.\\s?o\\.\\s?s\\.?"),
-  form("z\\.\\s?s\\.?"),
-  form("o\\.\\s?p\\.\\s?s\\.?"),
-  form("z\\.\\s?ú\\.?")
-];
-var hasLegalForm = (name) => [...SK_LEGAL_FORMS, ...CZ_LEGAL_FORMS].some((pattern) => pattern.test(name));
-var MATTER_DATE = /^20\d{2}(?:[-_. ](?:0[1-9]|1[0-2]))?(?:[-_ ]|$)/;
-var isBareDate = (name) => /^20\d{2}(?:[-_. ]\d{1,2}){0,2}$/.test(name);
-var looksLikeMatterName = (name) => !isBareDate(name) && (MATTER_DATE.test(name) || findCaseNumber(name) !== undefined);
-
-// src/onboarding/suggest.ts
-var PRACTICE_MIN_CLIENTS = 5;
-var PRACTICE_MIN_RATIO = 0.5;
-var WEAK_SCORE = 0.5;
-var SURVEY_DEPTH = 4;
-var SURVEY_ENTRIES = 50000;
-var CLIENT_CARDS = new Set(["client.md", "klient.md"]);
-var MATTER_CARDS = new Set(["matter.md", "spis.md", "project.md", "projekt.md"]);
-var OFFICE_DIRS = ["Office", "_kancelaria"];
-var LETTER = /^\p{Lu}$/u;
-var nameOf = (path) => path.split("/").pop() ?? path;
-var indexChildren = (entries) => {
-  const index = new Map;
-  for (const entry of entries) {
-    const slash = entry.path.lastIndexOf("/");
-    const parent = slash < 0 ? "" : entry.path.slice(0, slash);
-    const siblings = index.get(parent);
-    if (siblings)
-      siblings.push(entry);
-    else
-      index.set(parent, [entry]);
-  }
-  return index;
-};
-var childrenOf = (index, parent) => index.get(parent) ?? [];
-var round = (value) => Math.round(value * 100) / 100;
-async function surveyFolder(root, limits = {}) {
-  const maxDepth = limits.maxDepth ?? SURVEY_DEPTH, maxEntries = limits.maxEntries ?? SURVEY_ENTRIES;
-  if (!isAbsolute2(root) || await realpath(root) !== resolve2(root) || !(await lstat2(root)).isDirectory())
-    throw new Error("Vyberte existujúci priečinok bez symbolických odkazov.");
-  const survey = { root: resolve2(root), complete: true, entries: [] };
-  const queue = [{ relative: "", depth: 1 }];
-  for (let next = queue.shift();next; next = queue.shift()) {
-    let names;
-    try {
-      names = (await readdir2(join2(survey.root, next.relative))).sort();
-    } catch {
-      survey.complete = false;
-      continue;
-    }
-    for (const name of names) {
-      if (name.startsWith(".") || VOLATILE_ENTRY.test(name))
-        continue;
-      if (survey.entries.length >= maxEntries) {
-        survey.complete = false;
-        return survey;
-      }
-      const path = next.relative ? `${next.relative}/${name}` : name;
-      try {
-        const state = await lstat2(join2(survey.root, path));
-        if (state.isSymbolicLink())
-          continue;
-        if (state.isDirectory()) {
-          survey.entries.push({ path, kind: "directory" });
-          if (next.depth < maxDepth)
-            queue.push({ relative: path, depth: next.depth + 1 });
-        } else if (state.isFile())
-          survey.entries.push({ path, kind: "file" });
-      } catch {
-        survey.complete = false;
-      }
-    }
-  }
-  return survey;
-}
-function matchPattern(index, pattern) {
-  let level = [""];
-  for (const segment of pattern.split("/").filter(Boolean)) {
-    level = level.flatMap((parent) => childrenOf(index, parent).filter((entry) => entry.kind === "directory" && !OFFICE_DIRS.includes(nameOf(entry.path)) && (segment === "*" || nameOf(entry.path) === segment)).map((entry) => entry.path));
-  }
-  return level.filter(Boolean).map((path) => ({ path, name: nameOf(path) }));
-}
-async function suggestOnboardingLevel(root) {
-  const survey = await surveyFolder(root);
-  const base = { root: survey.root, complete: survey.complete, clients: [] };
-  const index = indexChildren(survey.entries);
-  const top = childrenOf(index, "");
-  const topFiles = top.filter((entry) => entry.kind === "file").map((entry) => nameOf(entry.path).toLowerCase());
-  if (topFiles.some((name) => CLIENT_CARDS.has(name)))
-    return { ...base, level: "client", marked: true, score: 1, signals: ["client_card"] };
-  if (topFiles.some((name) => MATTER_CARDS.has(name)))
-    return { ...base, level: "matter", marked: true, score: 1, signals: ["matter_card"] };
-  const office = OFFICE_DIRS.find((name) => survey.entries.some((entry) => entry.path === `${name}/okf.config` && entry.kind === "file"));
-  if (office) {
-    const config = await readFile(join2(survey.root, office, "okf.config")).then(decodeText, () => "");
-    const clientPattern = /^client_path:\s*["']?([^"'\r\n]+?)["']?\s*$/m.exec(config)?.[1] ?? "Klienti/*";
-    return { ...base, level: "practice", marked: true, score: 1, signals: ["office_config"], clientPattern, clients: matchPattern(index, clientPattern) };
-  }
-  if (!top.length)
-    return { ...base, level: "unknown", marked: false, score: 0, signals: ["empty"] };
-  const dirs = top.filter((entry) => entry.kind === "directory");
-  const buckets = dirs.filter((entry) => LETTER.test(nameOf(entry.path)));
-  const bucketed = buckets.length >= PRACTICE_MIN_CLIENTS && buckets.length >= dirs.length * 0.8;
-  const candidates = bucketed ? buckets.flatMap((bucket) => childrenOf(index, bucket.path).filter((entry) => entry.kind === "directory")) : dirs;
-  const matterNamed = candidates.filter((candidate) => looksLikeMatterName(nameOf(candidate.path)));
-  const clientCandidates = candidates.filter((candidate) => !looksLikeMatterName(nameOf(candidate.path)) && !isBareDate(nameOf(candidate.path)));
-  const legal = clientCandidates.filter((candidate) => hasLegalForm(nameOf(candidate.path)));
-  const withMatters = clientCandidates.filter((candidate) => childrenOf(index, candidate.path).some((entry) => entry.kind === "directory" && looksLikeMatterName(nameOf(entry.path))));
-  const clientish = new Set([...legal, ...withMatters].map((candidate) => candidate.path));
-  const ratio = candidates.length ? clientish.size / candidates.length : 0;
-  const mattersDominate = matterNamed.length * 2 > candidates.length;
-  if (!mattersDominate && clientCandidates.length >= PRACTICE_MIN_CLIENTS && ratio >= PRACTICE_MIN_RATIO) {
-    if (await findAncestorOffice(survey.root))
-      return { ...base, level: "unknown", marked: false, score: 0, signals: ["inside_office"] };
-    const signals = [];
-    if (bucketed)
-      signals.push("letter_buckets");
-    if (legal.length)
-      signals.push("legal_form_children");
-    if (withMatters.length)
-      signals.push("matter_named_children");
-    const score = signals.length === 1 && signals[0] === "matter_named_children" ? Math.min(round(ratio), WEAK_SCORE) : round(ratio);
-    return { ...base, level: "practice", marked: false, score, signals, clientPattern: bucketed ? "*/*" : "*", clients: clientCandidates.map((candidate) => ({ path: candidate.path, name: nameOf(candidate.path) })) };
-  }
-  if (looksLikeMatterName(basename2(survey.root)))
-    return { ...base, level: "matter", marked: false, score: 0.8, signals: ["matter_named_root"] };
-  if (dirs.some((entry) => looksLikeMatterName(nameOf(entry.path))))
-    return { ...base, level: "client", marked: false, score: 0.8, signals: ["matter_named_children"] };
-  if (!dirs.length)
-    return { ...base, level: "matter", marked: false, score: 0.5, signals: ["documents_only"] };
-  return { ...base, level: "client", marked: false, score: 0.5, signals: ["plain_directories"] };
-}
-
-// src/onboarding/plan.ts
-import { createHash as createHash2 } from "node:crypto";
-import { constants as constants2 } from "node:fs";
-import { lstat as lstat3, open as open2 } from "node:fs/promises";
-import { join as join3 } from "node:path";
 // src/language.ts
 var DOCUMENT_LANGUAGES = ["cs", "sk", "en"];
 function resolveDocumentLanguage(language, jurisdiction) {
@@ -643,6 +70,7 @@ function resolveDocumentLanguage(language, jurisdiction) {
   }
   return jurisdiction === "cz" ? "cs" : "sk";
 }
+
 // ../okf-pamat/src/schema.ts
 var STATUS = ["active", "superseded", "void", "banned", "deprecated"];
 var PERSON_KINDS = ["natural_person", "legal_person", "sole_trader"];
@@ -937,6 +365,22 @@ var AML_REQUIRED = {
     sole_trader: [...SK_FO, "business_address", "registry_entry"]
   }
 };
+
+// ../okf-pamat/src/text-decode.ts
+function decodeText(bytes) {
+  if (bytes[0] === 254 && bytes[1] === 255) {
+    const swapped = Uint8Array.from(bytes);
+    for (let i = 0;i + 1 < swapped.length; i += 2) {
+      swapped[i] = bytes[i + 1];
+      swapped[i + 1] = bytes[i];
+    }
+    return new TextDecoder("utf-16le").decode(swapped);
+  }
+  return new TextDecoder(bytes[0] === 255 && bytes[1] === 254 ? "utf-16le" : "utf-8").decode(bytes);
+}
+function stripBom(text) {
+  return text.charCodeAt(0) === 65279 ? text.slice(1) : text;
+}
 
 // ../okf-pamat/src/record.ts
 var CORE_FIELDS = new Set([
@@ -1354,6 +798,595 @@ ${copy.example}
 ${copy.originals}
 `;
 }
+
+// src/onboarding/classify.ts
+var CARD_LEVELS = {
+  "client.md": "client",
+  "klient.md": "client",
+  "subject.md": "subject",
+  "matter.md": "matter",
+  "spis.md": "matter",
+  "project.md": "matter",
+  "projekt.md": "matter"
+};
+var CARD_TYPES = {
+  "client.md": ["client", "klient"],
+  "klient.md": ["client", "klient"],
+  "subject.md": ["subject"],
+  "matter.md": ["matter", "spis"],
+  "spis.md": ["matter", "spis"],
+  "project.md": ["project", "projekt"],
+  "projekt.md": ["project", "projekt"]
+};
+var OFFICE_DIR_NAMES = ["Office", "_kancelaria"];
+var CARD_HEAD_BYTES = 64 * 1024;
+function decideCardLevel(cards, office, officeConflict) {
+  if (cards.length > 1 || cards.length > 0 && office || officeConflict)
+    return { level: "conflict", issue: "conflicting_identity" };
+  const card = cards[0];
+  if (card) {
+    const metadata = card.text === undefined ? null : parseFrontmatter(card.text);
+    const types = card.text?.match(/^type:/gm) ?? [];
+    const level = CARD_LEVELS[card.path];
+    if (!level || !metadata?.type || types.length !== 1 || !CARD_TYPES[card.path]?.includes(metadata.type))
+      return { level: "conflict", issue: "invalid_card_type" };
+    return { level };
+  }
+  return { level: office ? "office" : "unknown" };
+}
+async function openRegularFile(path) {
+  const linked = await lstat(path, { bigint: true }).catch(() => {
+    return;
+  });
+  if (!linked?.isFile())
+    return;
+  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)).catch(() => {
+    return;
+  });
+  if (!handle)
+    return;
+  const opened = await handle.stat({ bigint: true });
+  if (!opened.isFile() || opened.dev !== linked.dev || opened.ino !== linked.ino) {
+    await handle.close();
+    return;
+  }
+  return handle;
+}
+async function readCardHead(path) {
+  const handle = await openRegularFile(path);
+  if (!handle)
+    return;
+  try {
+    const state = await handle.stat();
+    if (!state.isFile() || state.size > CARD_HEAD_BYTES)
+      return;
+    const buffer = Buffer.alloc(state.size);
+    const read = await handle.read(buffer, 0, state.size, 0);
+    return buffer.subarray(0, read.bytesRead).toString("utf8");
+  } finally {
+    await handle.close();
+  }
+}
+var isFile = (path) => lstat(path).then((state) => state.isFile(), () => false);
+async function inspectCardLevel(root) {
+  const resolved = resolve(root);
+  try {
+    if (!isAbsolute(root) || await realpath(root) !== resolved || !(await lstat(resolved)).isDirectory())
+      return { root: resolved, level: "unknown", issues: [{ path: "", code: "canonical_directory_required" }] };
+  } catch {
+    return { root: resolved, level: "unknown", issues: [{ path: "", code: "canonical_directory_required" }] };
+  }
+  const names = new Set(await readdir(resolved));
+  const cardNames = Object.keys(CARD_LEVELS).filter((name) => names.has(name));
+  const cards = await Promise.all(cardNames.map(async (path) => ({ path, text: await readCardHead(join(resolved, path)) })));
+  const directOffice = OFFICE_DIR_NAMES.some((name) => basename(resolved) === name) && names.has("okf.config") && await isFile(join(resolved, "okf.config"));
+  const nestedOffices = (await Promise.all(OFFICE_DIR_NAMES.map((name) => isFile(join(resolved, name, "okf.config"))))).filter(Boolean).length;
+  const decision = decideCardLevel(cards, directOffice || nestedOffices > 0, nestedOffices > 1);
+  return { root: resolved, level: decision.level, issues: decision.issue ? [{ path: "", code: decision.issue }] : [] };
+}
+async function findOfficeConfigs(root, limits = {}) {
+  const maxEntries = limits.maxEntries ?? 1e5, maxDepth = limits.maxDepth ?? 32;
+  const offices = [];
+  const queue = [{ relative: "", depth: 0 }];
+  let seen = 0;
+  for (let next = queue.shift();next; next = queue.shift()) {
+    if (next.depth > maxDepth)
+      return { complete: false, offices };
+    let entries;
+    try {
+      entries = await readdir(join(root, next.relative), { withFileTypes: true });
+    } catch {
+      return { complete: false, offices };
+    }
+    for (const entry of entries) {
+      if (VOLATILE_ENTRY.test(entry.name))
+        continue;
+      if (++seen > maxEntries)
+        return { complete: false, offices };
+      const path = next.relative ? `${next.relative}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (!APP_FILE_DIRECTORIES.has(entry.name))
+          queue.push({ relative: path, depth: next.depth + 1 });
+      } else if (entry.isFile() && OFFICE_CONFIG.test(path))
+        offices.push(path);
+    }
+  }
+  return { complete: true, offices: offices.sort() };
+}
+var OFFICE_CONFIG = /(?:^|\/)(?:Office|_kancelaria)\/okf\.config$/;
+var APP_FILE_DIRECTORIES = new Set([".opencode"]);
+var MEMORY_FILES = new Set(["MEMORY.md", "_memory.md", "_STATUS.md", "BRAIN.md", ".lawoss/memory-profile.json"]);
+var VOLATILE_ENTRY = /^(?:~\$.*|~WRL\d+\.tmp|thumbs\.db|desktop\.ini)$/i;
+var LOCK_CODES = new Set(["EBUSY", "EPERM", "EACCES"]);
+var sha = (value) => createHash("sha256").update(value).digest("hex");
+var errorCode = (error) => error && typeof error === "object" && ("code" in error) ? String(error.code) : "read_failed";
+var CONTENT_DIGEST_FILES = new Set(["AGENTS.md", "CLAUDE.md", PROFILE_FILE]);
+var CONTENT_DIGEST_BYTES = 1024 * 1024;
+async function contentDigest(path) {
+  const handle = await openRegularFile(path);
+  if (!handle)
+    throw Object.assign(new Error(`Not a regular file: ${path}`), { code: "symlink_not_followed" });
+  try {
+    const state = await handle.stat();
+    if (state.size > CONTENT_DIGEST_BYTES)
+      return { digest: sha(`oversize:${state.size}:${state.mtimeMs}`), size: state.size };
+    return { digest: createHash("sha256").update(await handle.readFile()).digest("hex"), size: state.size };
+  } finally {
+    await handle.close();
+  }
+}
+async function inspectOnboardingParent(root, limits = {}) {
+  const maxEntries = limits.maxEntries ?? 1e4;
+  if (!Number.isSafeInteger(maxEntries) || maxEntries <= 0)
+    throw new Error("Invalid inspection limits.");
+  const result = { root: resolve(root), level: "unknown", confidence: "unknown", complete: true, digest: null, entries: [], memorySources: [], issues: [] };
+  const problem = (path, code) => {
+    result.complete = false;
+    result.issues.push({ path, code });
+  };
+  try {
+    if (!isAbsolute(root) || await realpath(root) !== resolve(root) || !(await lstat(root)).isDirectory()) {
+      problem("", "canonical_directory_required");
+      return result;
+    }
+    const names = (await readdir(result.root)).sort();
+    if (names.length > maxEntries) {
+      problem("", "entry_limit");
+      return result;
+    }
+    for (const name of names) {
+      if (VOLATILE_ENTRY.test(name)) {
+        (result.ignored ??= []).push(name);
+        continue;
+      }
+      try {
+        const state = await lstat(join(result.root, name));
+        const kind = state.isSymbolicLink() ? "symlink" : state.isDirectory() ? "directory" : state.isFile() ? "file" : "unsupported";
+        const content = kind === "file" && CONTENT_DIGEST_FILES.has(name) ? await contentDigest(join(result.root, name)) : null;
+        result.entries.push({ path: name, kind, digest: content?.digest ?? null, size: content?.size ?? 0 });
+      } catch (error) {
+        const code = errorCode(error);
+        if (LOCK_CODES.has(code))
+          result.entries.push({ path: name, kind: "unsupported", digest: null, size: 0 });
+        else
+          problem(name, code);
+      }
+    }
+  } catch (error) {
+    problem("", errorCode(error));
+    return result;
+  }
+  if (result.complete)
+    result.digest = sha(JSON.stringify(result.entries));
+  return result;
+}
+var OFFICE_ANCESTOR_LEVELS = 8;
+async function findAncestorOffice(dir) {
+  let current = resolve(dir);
+  for (let level = 0;level < OFFICE_ANCESTOR_LEVELS; level++) {
+    const parent = dirname(current);
+    if (parent === current)
+      return;
+    current = parent;
+    for (const name of ["Office", "_kancelaria"]) {
+      if (await lstat(join(current, name, "okf.config")).then((state) => state.isFile(), () => false))
+        return join(current, name);
+    }
+  }
+  return;
+}
+async function inspectOnboardingRoot(root, limits = {}, hooks = {}) {
+  const maxEntries = limits.maxEntries ?? 1e4;
+  const maxBytes = limits.maxBytes ?? 1024 * 1024 * 1024;
+  const maxDepth = limits.maxDepth ?? 32;
+  if (![maxEntries, maxBytes, maxDepth].every((value) => Number.isSafeInteger(value) && value > 0))
+    throw new Error("Invalid inspection limits.");
+  const result = { root: resolve(root), level: "unknown", confidence: "unknown", complete: true, digest: null, entries: [], memorySources: [], issues: [] };
+  const problem = (path, code) => {
+    result.complete = false;
+    result.issues.push({ path, code });
+  };
+  try {
+    if (!isAbsolute(root) || await realpath(root) !== resolve(root) || !(await lstat(root)).isDirectory()) {
+      problem("", "canonical_directory_required");
+      return result;
+    }
+  } catch (error) {
+    problem("", errorCode(error));
+    return result;
+  }
+  let bytes = 0;
+  let seenEntries = 0;
+  let exhausted = false;
+  const cardText = new Map;
+  async function visit(relative, depth) {
+    if (exhausted)
+      return;
+    if (depth > maxDepth) {
+      problem(relative, "depth_limit");
+      return;
+    }
+    try {
+      const dir = join(result.root, relative);
+      const before = await lstat(dir);
+      if (!before.isDirectory() || before.isSymbolicLink() || await realpath(dir) !== dir) {
+        problem(relative, "unsafe_directory");
+        return;
+      }
+      for (const name of (await readdir(dir)).sort()) {
+        const path = relative ? `${relative}/${name}` : name;
+        if (VOLATILE_ENTRY.test(name)) {
+          (result.ignored ??= []).push(path);
+          continue;
+        }
+        if (seenEntries >= maxEntries) {
+          problem(path, "entry_limit");
+          exhausted = true;
+          break;
+        }
+        seenEntries += 1;
+        const full = join(result.root, path);
+        try {
+          const state = await lstat(full);
+          if (state.isSymbolicLink()) {
+            result.entries.push({ path, kind: "symlink", digest: null, size: 0 });
+            problem(path, "symlink_not_followed");
+            continue;
+          }
+          if (state.isDirectory()) {
+            result.entries.push({ path, kind: "directory", digest: null, size: 0 });
+            if (!APP_FILE_DIRECTORIES.has(name))
+              await visit(path, depth + 1);
+          } else if (state.isFile()) {
+            if (bytes + state.size > maxBytes) {
+              problem(path, "byte_limit");
+              exhausted = true;
+              break;
+            }
+            const handle = await (hooks.open ?? open)(full, constants.O_RDONLY | constants.O_NOFOLLOW);
+            try {
+              const opened = await handle.stat({ bigint: true });
+              const current = await lstat(full, { bigint: true });
+              if (!opened.isFile() || current.isSymbolicLink() || opened.ino !== current.ino || opened.dev !== current.dev) {
+                problem(path, "changed_during_read");
+                continue;
+              }
+              const hash = createHash("sha256");
+              const buffer = Buffer.alloc(64 * 1024);
+              const parts = [];
+              let count = 0;
+              while (true) {
+                const read = await handle.read(buffer, 0, buffer.length, null);
+                if (!read.bytesRead)
+                  break;
+                count += read.bytesRead;
+                bytes += read.bytesRead;
+                if (bytes > maxBytes) {
+                  problem(path, "byte_limit");
+                  exhausted = true;
+                  break;
+                }
+                const chunk = buffer.subarray(0, read.bytesRead);
+                hash.update(chunk);
+                if (CARD_LEVELS[path] && count <= 64 * 1024)
+                  parts.push(Buffer.from(chunk));
+              }
+              const after = await handle.stat({ bigint: true });
+              const linked = await lstat(full, { bigint: true });
+              if (after.size !== opened.size || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs || linked.ino !== opened.ino || linked.dev !== opened.dev || linked.isSymbolicLink())
+                problem(path, "changed_during_read");
+              if (CARD_LEVELS[path]) {
+                if (count > 64 * 1024)
+                  problem(path, "card_size_limit");
+                else
+                  cardText.set(path, Buffer.concat(parts).toString("utf8"));
+              }
+              result.entries.push({ path, kind: "file", digest: hash.digest("hex"), size: count });
+              if (MEMORY_FILES.has(path))
+                result.memorySources.push(path);
+            } finally {
+              await handle.close();
+            }
+          } else {
+            result.entries.push({ path, kind: "unsupported", digest: null, size: 0 });
+            problem(path, "unsupported_file_type");
+          }
+        } catch (error) {
+          const code = errorCode(error);
+          if (!LOCK_CODES.has(code))
+            problem(path, code);
+          else {
+            if (result.entries.at(-1)?.path !== path)
+              result.entries.push({ path, kind: "unsupported", digest: null, size: 0 });
+            problem(path, "locked_file");
+          }
+        }
+        if (exhausted)
+          break;
+      }
+      const after = await lstat(dir);
+      if (before.ino !== after.ino || before.dev !== after.dev || before.mtimeMs !== after.mtimeMs)
+        problem(relative, "changed_during_read");
+    } catch (error) {
+      problem(relative, errorCode(error));
+    }
+  }
+  await visit("", 0);
+  const cards = result.entries.filter((entry) => entry.kind === "file" && CARD_LEVELS[entry.path]);
+  const officePaths = result.entries.filter((entry) => entry.kind === "file" && OFFICE_CONFIG.test(entry.path));
+  const directOffice = ["Office", "_kancelaria"].includes(basename(result.root)) && result.entries.some((entry) => entry.path === "okf.config" && entry.kind === "file");
+  const office = directOffice || officePaths.some((entry) => ["Office/okf.config", "_kancelaria/okf.config"].includes(entry.path));
+  const conflict = (code) => {
+    result.level = "conflict";
+    result.issues.push({ path: "", code });
+  };
+  const decision = decideCardLevel(cards.map((card) => ({ path: card.path, text: cardText.get(card.path) })), office, officePaths.length > 1 || officePaths.some((entry) => entry.path.split("/").length > 2));
+  if (decision.issue)
+    conflict(decision.issue);
+  else
+    result.level = decision.level;
+  if (result.complete && result.level !== "conflict") {
+    result.digest = sha(JSON.stringify(result.entries));
+    result.confidence = result.level === "unknown" ? "unknown" : "confirmed";
+  }
+  return result;
+}
+
+// src/onboarding/suggest.ts
+import { lstat as lstat2, readdir as readdir2, readFile } from "node:fs/promises";
+import { basename as basename2, isAbsolute as isAbsolute2, join as join2, resolve as resolve2 } from "node:path";
+
+// src/triage/rules.ts
+var TRIAGE_ROLES = ["inbox", "client_documents", "research", "drafts", "outputs", "correspondence", "important_mail"];
+function normalizeText(value) {
+  return value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[_\-.,;()[\]{}+]+/g, " ").replace(/\s+/g, " ").trim();
+}
+var EMAIL_EXT = new Set(["eml", "msg", "emlx", "mbox", "oft"]);
+var DATA_BOX_EXT = new Set(["zfo", "asice", "asics"]);
+var WORD_EXT = new Set(["docx", "doc", "docm", "odt", "rtf", "pages", "dotx"]);
+var PDF_EXT = new Set(["pdf"]);
+var KEYWORDS = [
+  { rule: "power_of_attorney", role: "client_documents", confidence: "high", words: ["plnomocenstvo", "plnomocnenstvo", "plna moc", "plnou moc", "plne moci", "power of attorney", "splnomocnenie"] },
+  { rule: "court_decision", role: "important_mail", confidence: "medium", words: ["rozsudok", "rozsudek", "rozsudku", "uznesenie", "uznesenia", "usneseni", "platobny rozkaz", "platebni rozkaz", "predvolanie", "predvolani", "vyzva sudu", "vyzva soudu", "exekucny prikaz", "exekucni prikaz", "upovedomenie", "vyrozumenie", "rozhodnutie", "rozhodnuti", "dorucenka", "judgment", "court order"] },
+  { rule: "demand_letter", role: "correspondence", confidence: "medium", words: ["predzalobna vyzva", "predzalobnu vyzvu", "predzalobni vyzva", "predzalobni vyzvu", "vyzva na zaplatenie", "vyzva k zaplaceni", "upomienka", "upominka", "demand letter", "letter before action"] },
+  { rule: "draft_marker", role: "drafts", confidence: "high", ext: WORD_EXT, words: ["draft", "navrh", "koncept", "pracovn", "wip", "redline", "verzia", "verze", "version", "rev", "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9"] },
+  { rule: "filing_final", role: "outputs", confidence: "medium", ext: PDF_EXT, words: ["zaloba", "zalobu", "navrh na", "odvolanie", "odvolani", "dovolanie", "dovolani", "vyjadrenie", "vyjadreni", "replika", "duplika", "triplika", "podanie", "podani", "staznost", "stiznost", "odpor", "namietky", "namitky", "statement of claim", "appeal"] },
+  { rule: "contract", role: "client_documents", confidence: "medium", words: ["zmluva", "zmluvy", "zmluvu", "smlouva", "smlouvy", "smlouvu", "dohoda", "dohody", "dodatok", "dodatek", "contract", "agreement", "nda"] },
+  { rule: "invoice", role: "client_documents", confidence: "medium", words: ["faktura", "faktury", "invoice", "dobropis", "proforma", "ucet za", "vyuctovanie", "vyuctovani"] },
+  { rule: "registry_extract", role: "client_documents", confidence: "medium", words: ["vypis", "list vlastnictva", "list vlastnictvi", "obchodny register", "obchodni rejstrik", "orsr", "rpvs", "zivnostensky", "extract"] },
+  { rule: "research", role: "research", confidence: "medium", words: ["resers", "reserse", "reserz", "judikat", "judikatura", "research", "memo", "analyza", "komentar", "rozbor"] },
+  { rule: "final_output", role: "outputs", confidence: "medium", words: ["stanovisko", "posudok", "posudek", "legal opinion", "opinion", "finalne", "finalni", "final"] }
+];
+var FILING_DRAFT = { rule: "filing_draft", role: "drafts", confidence: "medium", ext: WORD_EXT, words: KEYWORDS.find((item) => item.rule === "filing_final").words };
+var FOLDER_HINTS = [
+  { role: "correspondence", words: ["korespondencia", "korespondence", "posta", "email", "emaily", "maily", "mail", "correspondence", "komunikacia", "komunikace"] },
+  { role: "drafts", words: ["drafty", "drafts", "koncepty", "navrhy", "pracovne"] },
+  { role: "client_documents", words: ["zmluvy", "smlouvy", "podklady", "od klienta", "dokumenty klienta", "doklady", "faktury", "invoices", "invoice", "uctovne doklady", "ucetni doklady"] },
+  { role: "outputs", words: ["podania", "podani", "vystupy", "outputs", "odoslane", "odeslane"] },
+  { role: "research", words: ["reserse", "resers", "research", "judikatura"] }
+];
+var escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function findWord(text, words) {
+  for (const word of words) {
+    const tail = word.length <= 3 ? "(?:$|\\s|\\d)" : "";
+    if (new RegExp(`(?:^|\\s)${escapeRegExp(word)}${tail}`).test(text))
+      return word;
+  }
+  return;
+}
+function findCaseNumber(text) {
+  const match = /(?:^|[^\p{L}\d])(\d{1,3})[ _-]?([A-Z][A-Za-z]{0,4})[ _/-]?(\d{1,6})[ _/-]((?:19|20)\d{2})(?![\p{L}\d])/u.exec(text);
+  if (!match)
+    return;
+  const [, senate, register, number, year] = match;
+  if (!senate || !register || !number || !year)
+    return;
+  const key = `${senate}${register.toUpperCase()}-${Number(number)}-${year}`;
+  return { key, display: `${senate}${register} ${Number(number)}/${year}` };
+}
+function classifyByRules(input) {
+  const ext = input.ext.toLowerCase();
+  const stem = input.ext ? input.name.slice(0, -(input.ext.length + 1)) : input.name;
+  const text = normalizeText(stem);
+  const folders = input.path.split("/").slice(0, -1);
+  const caseNumber = findCaseNumber(stem) ?? folders.map(findCaseNumber).find(Boolean);
+  const result = (value) => caseNumber ? { ...value, caseNumber } : value;
+  if (EMAIL_EXT.has(ext))
+    return result({ role: "correspondence", confidence: "high", rule: "email_file", matched: `.${ext}` });
+  if (DATA_BOX_EXT.has(ext))
+    return result({ role: "important_mail", confidence: ext === "zfo" ? "high" : "medium", rule: "data_box", matched: `.${ext}` });
+  const draftIndex = KEYWORDS.findIndex((keyword) => keyword.rule === "draft_marker") + 1;
+  for (const keyword of [...KEYWORDS.slice(0, draftIndex), FILING_DRAFT, ...KEYWORDS.slice(draftIndex)]) {
+    if (keyword.ext && !keyword.ext.has(ext))
+      continue;
+    const matched = findWord(text, keyword.words);
+    if (matched)
+      return result({ role: keyword.role, confidence: keyword.confidence, rule: keyword.rule, matched });
+  }
+  for (const folder of [...folders].reverse()) {
+    const name = normalizeText(folder);
+    for (const hint of FOLDER_HINTS) {
+      const matched = findWord(name, hint.words);
+      if (matched)
+        return result({ role: hint.role, confidence: "medium", rule: "folder_hint", matched: folder });
+    }
+  }
+  return result({ role: null, confidence: "low", rule: "unknown" });
+}
+
+// src/onboarding/suggest-patterns.ts
+var form = (body) => new RegExp(`(?:^|[\\s,(])${body}(?=$|[\\s,)])`, "iu");
+var SK_LEGAL_FORMS = [
+  form("s\\.\\s?r\\.\\s?o\\.?"),
+  form("a\\.\\s?s\\.?"),
+  form("k\\.\\s?s\\.?"),
+  form("v\\.\\s?o\\.\\s?s\\.?"),
+  form("š\\.\\s?p\\.?"),
+  form("j\\.\\s?s\\.\\s?a\\.?")
+];
+var CZ_LEGAL_FORMS = [
+  form("spol\\.\\s?s\\s?r\\.\\s?o\\.?"),
+  form("s\\.\\s?r\\.\\s?o\\.?"),
+  form("a\\.\\s?s\\.?"),
+  form("k\\.\\s?s\\.?"),
+  form("v\\.\\s?o\\.\\s?s\\.?"),
+  form("z\\.\\s?s\\.?"),
+  form("o\\.\\s?p\\.\\s?s\\.?"),
+  form("z\\.\\s?ú\\.?")
+];
+var hasLegalForm = (name) => [...SK_LEGAL_FORMS, ...CZ_LEGAL_FORMS].some((pattern) => pattern.test(name));
+var MATTER_DATE = /^20\d{2}(?:[-_. ](?:0[1-9]|1[0-2]))?(?:[-_ ]|$)/;
+var isBareDate = (name) => /^20\d{2}(?:[-_. ]\d{1,2}){0,2}$/.test(name);
+var looksLikeMatterName = (name) => !isBareDate(name) && (MATTER_DATE.test(name) || findCaseNumber(name) !== undefined);
+
+// src/onboarding/suggest.ts
+var PRACTICE_MIN_CLIENTS = 5;
+var PRACTICE_MIN_RATIO = 0.5;
+var WEAK_SCORE = 0.5;
+var SURVEY_DEPTH = 4;
+var SURVEY_ENTRIES = 50000;
+var CLIENT_CARDS = new Set(["client.md", "klient.md"]);
+var MATTER_CARDS = new Set(["matter.md", "spis.md", "project.md", "projekt.md"]);
+var OFFICE_DIRS = ["Office", "_kancelaria"];
+var LETTER = /^\p{Lu}$/u;
+var nameOf = (path) => path.split("/").pop() ?? path;
+var indexChildren = (entries) => {
+  const index = new Map;
+  for (const entry of entries) {
+    const slash = entry.path.lastIndexOf("/");
+    const parent = slash < 0 ? "" : entry.path.slice(0, slash);
+    const siblings = index.get(parent);
+    if (siblings)
+      siblings.push(entry);
+    else
+      index.set(parent, [entry]);
+  }
+  return index;
+};
+var childrenOf = (index, parent) => index.get(parent) ?? [];
+var round = (value) => Math.round(value * 100) / 100;
+async function surveyFolder(root, limits = {}) {
+  const maxDepth = limits.maxDepth ?? SURVEY_DEPTH, maxEntries = limits.maxEntries ?? SURVEY_ENTRIES;
+  if (!isAbsolute2(root) || await realpath(root) !== resolve2(root) || !(await lstat2(root)).isDirectory())
+    throw new Error("Vyberte existujúci priečinok bez symbolických odkazov.");
+  const survey = { root: resolve2(root), complete: true, entries: [] };
+  const queue = [{ relative: "", depth: 1 }];
+  for (let next = queue.shift();next; next = queue.shift()) {
+    let names;
+    try {
+      names = (await readdir2(join2(survey.root, next.relative))).sort();
+    } catch {
+      survey.complete = false;
+      continue;
+    }
+    for (const name of names) {
+      if (name.startsWith(".") || VOLATILE_ENTRY.test(name))
+        continue;
+      if (survey.entries.length >= maxEntries) {
+        survey.complete = false;
+        return survey;
+      }
+      const path = next.relative ? `${next.relative}/${name}` : name;
+      try {
+        const state = await lstat2(join2(survey.root, path));
+        if (state.isSymbolicLink())
+          continue;
+        if (state.isDirectory()) {
+          survey.entries.push({ path, kind: "directory" });
+          if (next.depth < maxDepth)
+            queue.push({ relative: path, depth: next.depth + 1 });
+        } else if (state.isFile())
+          survey.entries.push({ path, kind: "file" });
+      } catch {
+        survey.complete = false;
+      }
+    }
+  }
+  return survey;
+}
+function matchPattern(index, pattern) {
+  let level = [""];
+  for (const segment of pattern.split("/").filter(Boolean)) {
+    level = level.flatMap((parent) => childrenOf(index, parent).filter((entry) => entry.kind === "directory" && !OFFICE_DIRS.includes(nameOf(entry.path)) && (segment === "*" || nameOf(entry.path) === segment)).map((entry) => entry.path));
+  }
+  return level.filter(Boolean).map((path) => ({ path, name: nameOf(path) }));
+}
+async function suggestOnboardingLevel(root) {
+  const survey = await surveyFolder(root);
+  const base = { root: survey.root, complete: survey.complete, clients: [] };
+  const index = indexChildren(survey.entries);
+  const top = childrenOf(index, "");
+  const topFiles = top.filter((entry) => entry.kind === "file").map((entry) => nameOf(entry.path).toLowerCase());
+  if (topFiles.some((name) => CLIENT_CARDS.has(name)))
+    return { ...base, level: "client", marked: true, score: 1, signals: ["client_card"] };
+  if (topFiles.some((name) => MATTER_CARDS.has(name)))
+    return { ...base, level: "matter", marked: true, score: 1, signals: ["matter_card"] };
+  const office = OFFICE_DIRS.find((name) => survey.entries.some((entry) => entry.path === `${name}/okf.config` && entry.kind === "file"));
+  if (office) {
+    const config = await readFile(join2(survey.root, office, "okf.config")).then(decodeText, () => "");
+    const clientPattern = /^client_path:\s*["']?([^"'\r\n]+?)["']?\s*$/m.exec(config)?.[1] ?? "Klienti/*";
+    return { ...base, level: "practice", marked: true, score: 1, signals: ["office_config"], clientPattern, clients: matchPattern(index, clientPattern) };
+  }
+  if (!top.length)
+    return { ...base, level: "unknown", marked: false, score: 0, signals: ["empty"] };
+  const dirs = top.filter((entry) => entry.kind === "directory");
+  const buckets = dirs.filter((entry) => LETTER.test(nameOf(entry.path)));
+  const bucketed = buckets.length >= PRACTICE_MIN_CLIENTS && buckets.length >= dirs.length * 0.8;
+  const candidates = bucketed ? buckets.flatMap((bucket) => childrenOf(index, bucket.path).filter((entry) => entry.kind === "directory")) : dirs;
+  const matterNamed = candidates.filter((candidate) => looksLikeMatterName(nameOf(candidate.path)));
+  const clientCandidates = candidates.filter((candidate) => !looksLikeMatterName(nameOf(candidate.path)) && !isBareDate(nameOf(candidate.path)));
+  const legal = clientCandidates.filter((candidate) => hasLegalForm(nameOf(candidate.path)));
+  const withMatters = clientCandidates.filter((candidate) => childrenOf(index, candidate.path).some((entry) => entry.kind === "directory" && looksLikeMatterName(nameOf(entry.path))));
+  const clientish = new Set([...legal, ...withMatters].map((candidate) => candidate.path));
+  const ratio = candidates.length ? clientish.size / candidates.length : 0;
+  const mattersDominate = matterNamed.length * 2 > candidates.length;
+  if (!mattersDominate && clientCandidates.length >= PRACTICE_MIN_CLIENTS && ratio >= PRACTICE_MIN_RATIO) {
+    if (await findAncestorOffice(survey.root))
+      return { ...base, level: "unknown", marked: false, score: 0, signals: ["inside_office"] };
+    const signals = [];
+    if (bucketed)
+      signals.push("letter_buckets");
+    if (legal.length)
+      signals.push("legal_form_children");
+    if (withMatters.length)
+      signals.push("matter_named_children");
+    const score = signals.length === 1 && signals[0] === "matter_named_children" ? Math.min(round(ratio), WEAK_SCORE) : round(ratio);
+    return { ...base, level: "practice", marked: false, score, signals, clientPattern: bucketed ? "*/*" : "*", clients: clientCandidates.map((candidate) => ({ path: candidate.path, name: nameOf(candidate.path) })) };
+  }
+  if (looksLikeMatterName(basename2(survey.root)))
+    return { ...base, level: "matter", marked: false, score: 0.8, signals: ["matter_named_root"] };
+  if (dirs.some((entry) => looksLikeMatterName(nameOf(entry.path))))
+    return { ...base, level: "client", marked: false, score: 0.8, signals: ["matter_named_children"] };
+  if (!dirs.length)
+    return { ...base, level: "matter", marked: false, score: 0.5, signals: ["documents_only"] };
+  return { ...base, level: "client", marked: false, score: 0.5, signals: ["plain_directories"] };
+}
+
+// src/onboarding/plan.ts
+import { createHash as createHash2 } from "node:crypto";
+import { constants as constants2 } from "node:fs";
+import { lstat as lstat3, open as open2 } from "node:fs/promises";
+import { join as join3 } from "node:path";
 // src/core.ts
 var OKF_VERSION = "0.1";
 var ENTITY_TYPES = ["klient", "spis", "projekt"];
