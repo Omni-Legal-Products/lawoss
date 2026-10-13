@@ -35,7 +35,8 @@ async function fixture() {
   const success = async (path: string, body: unknown) => { const response = await call(path, body), result = await response.json(); expect({ status: response.status, error: result.error, message: result.message }).toEqual({ status: 200, error: undefined, message: undefined }); return result; };
   const preview = await success("onboarding/plan", { action: "existing", root: source, mode: "trial_clone", cloneParent: clones, title: "Vymyslený klient", clientType: "po", language: "sk", jurisdiction: "sk", date: "2026-10-05", confirmUnknownClient: true });
   const clone = await success("onboarding/apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true });
-  return { source, clone: clone.root as string, call, success };
+  const get = (path: string, auth: Record<string, string>) => fetch(`http://127.0.0.1:${server.port}/lawoss/${path}`, { headers: auth });
+  return { source, clone: clone.root as string, call, get, success };
 }
 async function tree(root: string): Promise<string> {
   const inspection = await inspectOnboardingRoot(root);
@@ -211,4 +212,16 @@ test("súhlas na mieste platí na jedno usporiadanie a jeho vrátenie (rozhodnut
   expect((await f.call("triage/plan", { root: f.client })).status).toBe(403);
   await f.success("triage/grant", { root: f.client, confirm: true });
   expect(await f.success("triage/status", { root: f.client })).toMatchObject({ trial: true, canPlan: true });
+}, transactionTimeout);
+
+test("token spolupracovníka ani požiadavka bez tokenu neprejdú žiadnou trasou onboardingu a roztriedenia", async () => {
+  const f = await fixture();
+  const client = { Authorization: "Bearer synthetic-client", "Content-Type": "application/json" }, none = { "Content-Type": "application/json" };
+  const triage = ["status", "grant", "plan", "replan", "apply", "undo"].map(name => `triage/${name}`);
+  const onboarding = ["profile", "classify", "suggest", "plan", "apply", "recover"].map(name => `onboarding/${name}`);
+  const results: Record<string, number[]> = {};
+  for (const path of [...triage, ...onboarding]) results[path] = [(await f.call(path, { root: f.source, confirm: true }, client)).status, (await f.call(path, { root: f.source, confirm: true }, none)).status];
+  results["onboarding/status"] = [(await f.get("onboarding/status", client)).status, (await f.get("onboarding/status", none)).status];
+  expect(results).toEqual(Object.fromEntries(Object.keys(results).map(path => [path, [401, 401]])));
+  expect(await exists(join(f.source, ".lawoss"))).toBe(false);
 }, transactionTimeout);

@@ -4,6 +4,7 @@ import { lstat, open, readdir } from "node:fs/promises";
 import { realpath } from "../canonical-path.ts";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { parseFrontmatter } from "../frontmatter.ts";
+import { PROFILE_FILE } from "../profile.ts";
 
 export type OnboardingLevel = "office" | "client" | "subject" | "matter" | "unknown" | "conflict";
 export type TreeEntry = {
@@ -56,11 +57,24 @@ export function decideCardLevel(cards: readonly { path: string; text: string | u
   return { level: office ? "office" : "unknown" };
 }
 
+/**
+ * Otvorí bežný súbor bez sledovania odkazu. `O_NOFOLLOW` na Windows neexistuje (Node ho tam nedefinuje),
+ * preto najprv `lstat` a po otvorení zhoda zariadenia a inode; odkaz alebo výmena súboru vráti `undefined`.
+ */
+async function openRegularFile(path: string) {
+  const linked = await lstat(path, { bigint: true }).catch(() => undefined);
+  if (!linked?.isFile()) return undefined;
+  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)).catch(() => undefined);
+  if (!handle) return undefined;
+  const opened = await handle.stat({ bigint: true });
+  if (!opened.isFile() || opened.dev !== linked.dev || opened.ino !== linked.ino) { await handle.close(); return undefined; }
+  return handle;
+}
+
 /** Prvých 64 KB karty bez sledovania odkazu; väčšia karta alebo iný druh súboru vráti `undefined`. */
 async function readCardHead(path: string): Promise<string | undefined> {
-  let handle;
-  try { handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW); }
-  catch { return undefined; }
+  const handle = await openRegularFile(path);
+  if (!handle) return undefined;
   try {
     const state = await handle.stat();
     if (!state.isFile() || state.size > CARD_HEAD_BYTES) return undefined;
@@ -141,9 +155,28 @@ const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 const errorCode = (error: unknown): string => error && typeof error === "object" && "code" in error ? String(error.code) : "read_failed";
 
 /**
+ * Riadiace súbory v koreni, z ktorých obsahu plán prevodu skladá nové súbory (`CLAUDE.md` z `AGENTS.md`,
+ * rolu z profilu). Ich obsah preto patrí do plytkého otlačku: úprava medzi náhľadom a zápisom inak
+ * prejde a nový súbor dostane starý text.
+ */
+const CONTENT_DIGEST_FILES = new Set(["AGENTS.md", "CLAUDE.md", PROFILE_FILE]);
+const CONTENT_DIGEST_BYTES = 1024 * 1024;
+
+/** Hash obsahu bez sledovania odkazu; väčší súbor dostane len označenie veľkosti, plán ho aj tak odmietne. */
+async function contentDigest(path: string): Promise<{ digest: string; size: number }> {
+  const handle = await openRegularFile(path);
+  if (!handle) throw Object.assign(new Error(`Not a regular file: ${path}`), { code: "symlink_not_followed" });
+  try {
+    const state = await handle.stat();
+    if (state.size > CONTENT_DIGEST_BYTES) return { digest: sha(`oversize:${state.size}:${state.mtimeMs}`), size: state.size };
+    return { digest: createHash("sha256").update(await handle.readFile()).digest("hex"), size: state.size };
+  } finally { await handle.close(); }
+}
+
+/**
  * Plytká kontrola priečinka, do ktorého onboarding len pridáva nové položky
  * (kancelária, klient, subjekt, vec). Zaznamená mená a druhy položiek najvyššej
- * úrovne, nič nečíta, nehashuje a odkazy nesleduje. Rekurzívny sken by zlyhal
+ * úrovne a odkazy nesleduje; obsah hashuje len pri riadiacich súboroch (`CONTENT_DIGEST_FILES`). Rekurzívny sken by zlyhal
  * pri bežnom rodičovi: v Dokumentoch na Windows sú skryté junctions (My Music,
  * My Pictures, My Videos), v profile ďalšie, a veľký priečinok narazí na limit
  * 10 000 položiek či 1 GB. Zápis stráži transakcia: cieľ nesmie existovať
@@ -165,7 +198,8 @@ export async function inspectOnboardingParent(root: string, limits: Pick<Inspect
       try {
         const state = await lstat(join(result.root, name));
         const kind = state.isSymbolicLink() ? "symlink" : state.isDirectory() ? "directory" : state.isFile() ? "file" : "unsupported";
-        result.entries.push({ path: name, kind, digest: null, size: 0 });
+        const content = kind === "file" && CONTENT_DIGEST_FILES.has(name) ? await contentDigest(join(result.root, name)) : null;
+        result.entries.push({ path: name, kind, digest: content?.digest ?? null, size: content?.size ?? 0 });
       } catch (error) {
         // Windows: systémovú položku (System Volume Information) nemusí byť možné ani lstat-nuť; meno stačí.
         const code = errorCode(error);

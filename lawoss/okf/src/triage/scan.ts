@@ -99,6 +99,9 @@ export async function grantInPlaceReorganize(rootInput: string, now: Date = new 
   if ((await inspectCardLevel(root)).level !== "client") throw new Error("Usporiadať sa dá len priečinok klienta s kartou klienta. Najprv pridajte OKF súbory.");
   const dir = join(root, ".lawoss");
   await mkdir(dir, { recursive: true });
+  // `.lawoss` ako symbolický odkaz (či junction) by značku zapísal mimo priečinka klienta (review VŘ k #137, bod 6).
+  const state = await lstat(dir);
+  if (state.isSymbolicLink() || !state.isDirectory() || await realpath(dir) !== dir) throw new Error("Priečinok .lawoss klienta nesmie byť symbolický odkaz.");
   const content = JSON.stringify({ version: 1, root, grantedAt: now.toISOString() });
   try { await writeFile(join(root, IN_PLACE_MARKER), content, { flag: "wx" }); }
   catch (error) {

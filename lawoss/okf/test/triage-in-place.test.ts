@@ -355,3 +355,13 @@ test("chyby pre priečinok na mieste nehovoria o klone", async () => {
   await writeFile(join(root, IN_PLACE_MARKER), "x".repeat(70 * 1024));
   await expect(verifyTriageTarget(root, undefined, HOST)).rejects.toThrow(/Značka priečinka/);
 });
+
+test("súhlas nezapíše značku cez symbolický odkaz .lawoss mimo priečinka klienta (review VŘ k #137, bod 6)", async () => {
+  const root = await convertedClient();
+  const outside = await directory("okf-lawoss-outside-");
+  await rm(join(root, ".lawoss"), { recursive: true, force: true });
+  try { await symlink(outside, join(root, ".lawoss"), "junction"); }
+  catch (error) { if (error && typeof error === "object" && "code" in error && ["EPERM", "EACCES", "ENOSYS"].includes(String(error.code))) return; throw error; }
+  await expect(grantInPlaceReorganize(root, NOW)).rejects.toThrow(/symbolický odkaz/);
+  expect(await readdir(outside)).toEqual([]);
+});
