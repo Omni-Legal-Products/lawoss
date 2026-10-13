@@ -1,3 +1,6 @@
+import { workspaceOwnsSession } from "./lawoss/workspace-history.js";
+import { sessionInfoSchema } from "./session-read-model.js";
+import { historicalWorkspaceSessions } from "./lawoss/workspace-history-sessions.js";
 import { getWorkspaceMemoryContext, getWorkspaceMemoryGrants, getWorkspaceMemoryStatus } from "./lawoss/workspace-memory.js";
 import { z } from "zod";
 import { reviewSourcePage } from "./reviews/source-page.js";
@@ -1178,6 +1181,7 @@ async function proxyOpencodeRequest(input: {
   }
 
   const proxyPath = input.proxyPath ?? input.url.pathname;
+  const scopedProxyPath = normalizeOpencodeProxyPath(proxyPath);
   let targetUrl = buildOpencodeProxyUrl(baseUrl, proxyPath, input.url.search);
   const headers = new Headers(input.request.headers);
   headers.delete("authorization");
@@ -1199,6 +1203,22 @@ async function proxyOpencodeRequest(input: {
   const auth = workspace ? resolveWorkspaceOpencodeConnection(input.config, workspace).authHeader ?? null : null;
   if (auth) {
     headers.set("Authorization", auth);
+  }
+
+  if (scopedProxyPath === "/experimental/session") {
+    throw new ApiError(403, "workspace_history_internal", "Global session history is host-internal");
+  }
+  const sessionMatch = scopedProxyPath.match(/^\/session\/([^/]+)(?:\/|$)/);
+  if (workspace && (workspace.previousPaths?.length || workspace.appFilesStorageKey) && sessionMatch && !["status", "list"].includes(sessionMatch[1]!)) {
+    const sessionId = decodeURIComponent(sessionMatch[1]!);
+    const metadataUrl = buildOpencodeProxyUrl(baseUrl, `/session/${encodeURIComponent(sessionId)}`, "");
+    const metadataHeaders = new Headers(headers);
+    metadataHeaders.delete("content-length");
+    metadataHeaders.delete("content-type");
+    const metadata = await fetch(metadataUrl, { headers: metadataHeaders, signal: AbortSignal.timeout(10_000) });
+    if (!metadata.ok) throw new ApiError(404, "session_not_found", "Session not found");
+    const parsed = sessionInfoSchema.safeParse(await metadata.json());
+    if (!parsed.success || !workspaceOwnsSession(workspace, parsed.data)) throw new ApiError(404, "session_not_found", "Session does not belong to this project");
   }
 
   const method = input.request.method.toUpperCase();
@@ -1223,6 +1243,20 @@ async function proxyOpencodeRequest(input: {
     headers,
     body,
   });
+
+  if (workspace && method === "GET" && scopedProxyPath === "/session" && response.ok && (workspace.previousPaths?.length || workspace.appFilesStorageKey)) {
+    const current = sessionInfoSchema.array().safeParse(await response.json());
+    if (!current.success) throw new ApiError(502, "opencode_invalid_response", "Invalid session list");
+    const historical = await historicalWorkspaceSessions(input.config, workspace, {
+      roots: parseOptionalBoolean(input.url.searchParams.get("roots"), "roots"),
+      start: parseOptionalNonNegativeInteger(input.url.searchParams.get("start"), "start"),
+      search: input.url.searchParams.get("search") ?? undefined,
+    });
+    const merged = new Map([...historical, ...current.data].filter(session => workspaceOwnsSession(workspace, session)).map(session => [session.id, session]));
+    const ordered = [...merged.values()].sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0));
+    const limit = parseOptionalPositiveInteger(input.url.searchParams.get("limit"), "limit");
+    return jsonResponse(limit ? ordered.slice(0, limit) : ordered);
+  }
 
   return sanitizeProxyResponse(response);
 }
@@ -1619,7 +1653,10 @@ function createRoutes(
         if (result.response?.status === 404) return null;
         return unwrapOpencodeResult(result, "/session");
       },
-      list: async () => unwrapOpencodeResult(await client.session.list(), "/session"),
+      list: async () => {
+        const lists = await Promise.all([client.session.list().then(result => unwrapOpencodeResult(result, "/session")), historicalWorkspaceSessions(config, workspace)]);
+        return [...new Map(lists.flat().map(session => [session.id, session])).values()];
+      },
       messages: async (id, limit) => unwrapOpencodeResult(await client.session.messages({ sessionID: id, limit }), "/session/message"),
       create: async title => unwrapOpencodeResult(await client.session.create({ title }), "/session"),
       unarchive: async id => unwrapOpencodeResult(await client.session.update({ sessionID: id, time: { archived: 0 } }), "/session"),
@@ -3207,8 +3244,8 @@ function createRoutes(
     return {
       workspace, orgId, tasks: await taskStore(config), recorder: config.recorder,
       sessions: async (limit) => {
-        const result = await createWorkspaceOpencodeClient(config, workspace).session.list({ limit });
-        return unwrapOpencodeResult(result, "/session");
+        const lists = await Promise.all([createWorkspaceOpencodeClient(config, workspace).session.list({ limit }).then(result => unwrapOpencodeResult(result, "/session")), historicalWorkspaceSessions(config, workspace)]);
+        return [...new Map(lists.flat().map(session => [session.id, session])).values()].map(session => ({ id: session.id, title: session.title ?? "", directory: session.directory ?? workspace.path, time: { updated: session.time?.updated ?? 0 } }));
       },
     };
   };

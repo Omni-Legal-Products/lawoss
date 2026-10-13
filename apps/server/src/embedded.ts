@@ -54,6 +54,8 @@ export type EmbeddedServerOptions = CliArgs & {
   /** Desktop recorder hook, forwarded to Office add-in API routes. */
   recorder?: ServerConfig["recorder"];
   /** Outside-mode policy supplied by the embedding host before workspace initialization. */
+  hostWorkspaces?: readonly import("./types.js").WorkspaceConfig[];
+  reconnectHostWorkspace?: ServerConfig["reconnectHostWorkspace"];
   hostWorkspaceAppFiles?: readonly HostWorkspaceAppFilesPolicy[];
 };
 
@@ -90,6 +92,12 @@ export type EmbeddedServerHandle = {
 
 export async function startEmbeddedServer(options: EmbeddedServerOptions): Promise<EmbeddedServerHandle> {
   const config = await resolveServerConfig(options, { approvalMode: options.defaultApprovalMode });
+  if (options.workspaces.length && options.hostWorkspaces) {
+    const { buildWorkspaceInfos } = await import("./workspaces.js");
+    const hostEntries = buildWorkspaceInfos([...options.hostWorkspaces], process.cwd());
+    config.workspaces = config.workspaces.map(entry => hostEntries.find(host => host.path === entry.path) ?? entry);
+  }
+  config.reconnectHostWorkspace = options.reconnectHostWorkspace;
   applyHostWorkspaceAppFilesPolicy(config, options.hostWorkspaceAppFiles);
   config.requestHostApproval = options.requestHostApproval;
   config.pickDirectory = options.pickDirectory ?? null;

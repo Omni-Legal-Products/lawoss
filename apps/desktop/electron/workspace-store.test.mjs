@@ -414,3 +414,50 @@ test("selecting a server-created project persists it across desktop restart with
     else process.env.LEGALWORK_SERVER_CONFIG = previous;
   }
 });
+
+test("reconnect host persistence preserves same ID and selection and can roll back", async () => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "reconnect-store-")));
+  const store = createTestStore(root, path.join(root, "userData"));
+  const a = path.join(root, "A"), b = path.join(root, "B");
+  await mkdir(a);
+  const initial = await store.createWorkspace({ folderPath: a, registerExisting: true, appFiles: "outside", name: "Matter" });
+  const old = initial.workspaces[0];
+  const { rename } = await import("node:fs/promises"); await rename(a, b);
+  const rollback = await store.reconnectHostWorkspace({ ...old, path: b }, old);
+  const restarted = createTestStore(root, path.join(root, "userData"));
+  assert.equal((await restarted.readWorkspaceState()).workspaces[0].path, b);
+  assert.equal((await restarted.readWorkspaceState()).selectedId, old.id);
+  await rollback(); assert.equal((await store.readWorkspaceState()).workspaces[0].path, a);
+  assert.equal((await store.readWorkspaceState()).selectedId, initial.selectedId);
+});
+
+test("registering freed old path after reconnect does not overwrite moved project's ID", async () => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "reconnect-reuse-")));
+  const store = createTestStore(root, path.join(root, "userData"));
+  const a = path.join(root, "A"), b = path.join(root, "B"); await mkdir(a);
+  const initial = await store.createWorkspace({ folderPath: a, registerExisting: true, appFiles: "outside", name: "Original" });
+  const old = initial.workspaces[0]; const { rename } = await import("node:fs/promises"); await rename(a, b);
+  await store.reconnectHostWorkspace({ ...old, path: b, previousPaths: [a], previousSessionIds: ["old-chat"] }, old);
+  await mkdir(a); const next = await store.createWorkspace({ folderPath: a, registerExisting: true, appFiles: "outside", name: "Unrelated" });
+  assert.notEqual(next.selectedId, old.id); assert.equal(next.workspaces.find(entry => entry.id === old.id).path, b);
+  assert.deepEqual(next.workspaces.find(entry => entry.id === old.id).previousSessionIds, ["old-chat"]);
+  assert.equal(next.workspaces.length, 2);
+  const { externalWorkspaceAppFilesRoot } = await import("./runtime.mjs");
+  const moved = next.workspaces.find(entry => entry.id === old.id);
+  const unrelated = next.workspaces.find(entry => entry.id === next.selectedId);
+  assert.notEqual(externalWorkspaceAppFilesRoot(path.join(root, "server.json"), a), externalWorkspaceAppFilesRoot(path.join(root, "server.json"), unrelated.path, unrelated.appFilesStorageKey));
+  assert.equal(moved.previousPaths[0], a);
+});
+
+test("rollback of failed reconnect preserves a concurrent desktop selection", async () => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "reconnect-rollback-selection-")));
+  const store = createTestStore(root, path.join(root, "userData"));
+  const a = path.join(root, "A"), b = path.join(root, "B"), other = path.join(root, "other"); await mkdir(a); await mkdir(other);
+  const original = await store.createWorkspace({ folderPath: a, registerExisting: true });
+  const old = original.workspaces[0]; const { rename } = await import("node:fs/promises"); await rename(a, b);
+  const rollback = await store.reconnectHostWorkspace({ ...old, path: b }, old);
+  const selected = await store.createWorkspace({ folderPath: other, registerExisting: true });
+  await rollback(); const restored = await store.readWorkspaceState();
+  assert.equal(restored.selectedId, selected.selectedId); assert.equal(restored.workspaces.length, 2);
+  assert.equal(restored.workspaces.find(entry => entry.id === old.id).path, a);
+});

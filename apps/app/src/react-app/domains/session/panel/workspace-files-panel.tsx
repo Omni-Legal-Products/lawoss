@@ -25,6 +25,7 @@ import { projectFileDisplayName } from "../../workspace/project-note-title";
 import { writeWorkspaceFileDrag } from "@/app/lib/workspace-file-drag";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
+import { ProjectFolderRecoveryAction } from "../../workspace/project-folder-recovery-action";
 import { projectErrorMessage } from "../../workspace/project-errors";
 import { ProjectFilesDropzone } from "../../workspace/project-files-dropzone";
 import { isSortDirection, isSortKey, readWorkspaceFileSort, sortWorkspaceEntries, writeWorkspaceFileSort, type WorkspaceFileSort } from "./workspace-file-sort";
@@ -269,6 +270,7 @@ export function WorkspaceFilesPanel({
               title={t("workspace_files.open_failed_title")}
               description={projectErrorMessage(error)}
             >
+              {client && workspaceId ? <ProjectFolderRecoveryAction client={client} workspaceId={workspaceId} error={error} /> : null}
               <Button variant="outline" size="sm" onClick={() => void refetch()}>
                 {t("workspace_files.try_again")}
               </Button>

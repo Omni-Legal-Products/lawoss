@@ -1,3 +1,4 @@
+import { ProjectFolderRecoveryAction } from "./project-folder-recovery-action";
 import { ProjectRemoteFolders } from "./project-remote-folders";
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -182,6 +183,7 @@ export function ProjectHome(props: {
 
         {details.error || rootFiles.error ? <Surface className="space-y-3 rounded-xl p-4">
           <p role="alert" className="text-sm text-destructive">{projectErrorMessage(details.error ?? rootFiles.error)}</p>
+          <ProjectFolderRecoveryAction client={client} workspaceId={workspaceId} error={details.error ?? rootFiles.error} />
           <Button variant="outline" size="sm" disabled={details.isFetching || rootFiles.isFetching} onClick={() => {
             void details.refetch();
             void rootFiles.refetch();

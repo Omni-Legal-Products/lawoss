@@ -1,3 +1,4 @@
+import { PROJECT_FOLDER_RECONNECTED_EVENT } from "../domains/workspace/project-folder-recovery";
 import { projectErrorMessage } from "../domains/workspace/project-errors";
 /** @jsxImportSource react */
 import {
@@ -525,6 +526,12 @@ export function SessionRoute() {
     [opencodeBaseUrl, selectedSessionDirectory, selectedWorkspaceError, selectedWorkspaceRoot, selectedWorkspaceServerToken],
   );
   // Projects synced with the firm arrive, leave and get renamed in the background.
+  useEffect(() => {
+    const refresh = () => { void refreshRouteState(); };
+    window.addEventListener(PROJECT_FOLDER_RECONNECTED_EVENT, refresh);
+    return () => window.removeEventListener(PROJECT_FOLDER_RECONNECTED_EVENT, refresh);
+  }, [refreshRouteState]);
+
   useProjectSyncPoller(client, () => void refreshRouteState(), (workspaceIds) => {
     // Sync changed files of these projects here: whatever shows them reloads.
     for (const id of workspaceIds) {

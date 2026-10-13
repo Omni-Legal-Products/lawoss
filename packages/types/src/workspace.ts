@@ -183,6 +183,12 @@ export type WorkspaceWire = {
   displayName?: string | null;
   /** Whether LegalWork-managed project files are stored in this workspace. */
   appFiles?: "inside" | "outside";
+  /** Host-recorded historical roots for session lookup only. */
+  previousPaths?: string[];
+  /** Immutable session IDs captured when the host reconnects a missing folder. */
+  previousSessionIds?: string[];
+  /** Host-owned storage identity for a path reused by a distinct project. */
+  appFilesStorageKey?: string;
   legalworkHostUrl?: string | null;
   legalworkToken?: string | null;
   /** Desktop IPC only: tokens for desktop-managed remote workspaces. */

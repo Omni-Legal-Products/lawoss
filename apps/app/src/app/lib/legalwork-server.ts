@@ -1781,7 +1781,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         timeoutMs: payload.remoteFolders?.length ? 180_000 : timeouts.activateWorkspace,
       }),
     // Long timeout: the server shows a native dialog and waits for the human.
-    pickWorkspaceFolder: (payload?: { title?: string; defaultPath?: string; returnFocusTo?: string }) =>
+    pickWorkspaceFolder: (payload?: { title?: string; defaultPath?: string; returnFocusTo?: string; existingOnly?: boolean }) =>
       requestJson<{ supported: boolean; path: string | null }>(baseUrl, "/workspaces/pick-folder", {
         token,
         hostToken,
@@ -1816,6 +1816,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         method: "PATCH",
         body: { displayName },
         timeoutMs: timeouts.activateWorkspace,
+      }),
+    reconnectWorkspace: (workspaceId: string, payload: { folderPath: string; expectedPath: string }) =>
+      requestJson<{ workspace: LegalworkWorkspaceInfo; persisted: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/reconnect`, {
+        token, hostToken, method: "POST", body: payload,
       }),
     activateWorkspace: (workspaceId: string, options?: { persist?: boolean }) => {
       const query = options?.persist ? "?persist=true" : "";

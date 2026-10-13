@@ -1,7 +1,9 @@
+import { remapHistoricalFilePath } from "../lawoss/workspace-history.js";
 import { writeConditionalText } from "../lawoss/conditional-text-write.js";
 import { childPathWithin } from "../lawoss/path-within.js";
 import { readWorkspaceText } from "../lawoss/workspace-text.js";
 import { createReadStream } from "node:fs";
+import { realpath } from "../lawoss/canonical-path.js";
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
@@ -236,7 +238,7 @@ async function workspaceArtifactNames(workspaceRoot: string): Promise<Map<string
   return names;
 }
 
-export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, input: unknown): Promise<Array<Record<string, unknown>>> {
+export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, input: unknown, previousPaths: string[] = []): Promise<Array<Record<string, unknown>>> {
   const targets = Array.isArray(input) ? input.slice(0, 80) : [];
   const results = new Map<string, Record<string, unknown>>();
   const workspaceResolved = resolve(workspaceRoot);
@@ -273,7 +275,7 @@ export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, inp
     let relativePath: string;
     try {
       if (isAbsolute(rawValue)) {
-        const absolutePath = resolve(rawValue);
+        const absolutePath = remapHistoricalFilePath({ id: "", name: "", preset: "", workspaceType: "local", path: workspaceRoot, previousPaths }, rawValue);
         const pathFromWorkspace = relative(workspaceResolved, absolutePath);
         if (!pathFromWorkspace || pathFromWorkspace === ".." || pathFromWorkspace.startsWith(`..${sep}`) || isAbsolute(pathFromWorkspace)) {
           continue;
@@ -300,6 +302,9 @@ export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, inp
     let updatedAt: number | undefined;
     let kindValue: "file" | "dir" | "other" | undefined;
     if (await exists(absPath)) {
+      const canonical = await realpath(absPath);
+      const canonicalRoot = await realpath(workspaceRoot);
+      if (!childPathWithin(canonicalRoot, relative(canonicalRoot, canonical))) continue;
       const info = await stat(absPath);
       kindValue = info.isFile() ? "file" : info.isDirectory() ? "dir" : "other";
       existsFile = info.isFile();
@@ -717,7 +722,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
   addRoute(routes, "POST", "/workspace/:id/artifacts/resolve", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
-    const items = await resolveWorkspaceArtifactTargets(workspace.path, body.targets);
+    const items = await resolveWorkspaceArtifactTargets(workspace.path, body.targets, workspace.previousPaths);
     return jsonResponse({ items });
   });
 
