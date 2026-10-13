@@ -51,3 +51,12 @@ export function conversationWorkspaceId<T extends RouteLike>(list: readonly T[],
   const workspace = list.find(item => item.id === candidate);
   return workspace && isLawossHomeWorkspace(workspace) ? null : candidate;
 }
+
+/**
+ * Klient pre kopilota nahrávača. Kopilot zakladá konverzáciu s prepisom hovoru vo vybranom priečinku;
+ * v domovskom priestore by vznikla neviditeľná konverzácia s klientskými údajmi (P8, review VŘ k #136),
+ * preto vráti null a nahrávač ukáže výzvu pripojiť priečinok.
+ */
+export function recorderCopilotClient<C>(workspace: WithPath | null | undefined, client: C): C | null {
+  return workspace && isLawossHomeWorkspace(workspace) ? null : client;
+}

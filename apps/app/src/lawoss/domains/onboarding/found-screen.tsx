@@ -20,7 +20,22 @@ type Answer = "no" | "yes";
 
 const SCOPES: readonly Scope[] = ["client", "practice"];
 
+/**
+ * Slabý návrh praxe: jediný signál sú podpriečinky pomenované ako veci. Rovnako vyzerá jeden klient
+ * s datovanými verziami vecí, ktorý je podľa P4 typický. Appka sa preto pýta a predvolí klienta
+ * (review VŘ k #135, bod 5: „pri jedinom signáli matter_named_children sa radšej opýtať“).
+ */
+export function isUncertainPractice(suggestion: OnboardingSuggestion): boolean {
+  return suggestion.level === "practice" && !suggestion.marked && suggestion.signals.length === 1 && suggestion.signals[0] === "matter_named_children";
+}
+
+export function initialFoundLevel(suggestion: OnboardingSuggestion): FoundLevel {
+  if (isUncertainPractice(suggestion)) return "client";
+  return suggestion.level === "practice" || suggestion.level === "matter" ? suggestion.level : "client";
+}
+
 function headline(text: Text, suggestion: OnboardingSuggestion): string {
+  if (isUncertainPractice(suggestion)) return text("practiceUncertain", { count: suggestion.clients.length, name: folderName(suggestion.root) });
   if (suggestion.level === "practice") return text("practiceFound", { count: suggestion.clients.length });
   if (suggestion.level === "client") return text("clientFound", { name: folderName(suggestion.root) });
   if (suggestion.level === "matter") return text("matterFound", { name: folderName(suggestion.root) });
@@ -189,7 +204,7 @@ export function FoundScreen({ api, triage, identity, text, root, onAcknowledge, 
     setPhase({ name: "loading" });
     void suggest({ root }).then((suggestion) => {
       if (cancelled) return;
-      setLevel(suggestion.level === "practice" || suggestion.level === "matter" ? suggestion.level : "client");
+      setLevel(initialFoundLevel(suggestion));
       setSelected(suggestion.clients.map(client => client.path));
       setPhase({ name: "question", suggestion });
     }).catch((reason: unknown) => {

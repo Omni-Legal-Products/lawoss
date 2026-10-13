@@ -91,7 +91,7 @@ import {
   safeStringify,
 } from "@/app/utils";
 import { t } from "@/i18n";
-import { conversationWorkspaceId, isLawossHomeWorkspace, withoutLawossHome } from "@/lawoss/home-workspace";
+import { conversationWorkspaceId, isLawossHomeWorkspace, recorderCopilotClient, withoutLawossHome } from "@/lawoss/home-workspace";
 import { isCommercialSurfaceHidden, isHiddenSettingsTab } from "@/lawoss/feature-flags";
 import {
   type RouteWorkspace,
@@ -726,11 +726,11 @@ export function SessionRoute() {
   }, []);
   useEffect(() => {
     registerRecorderCopilotContext({
-      getClient: () => opencodeClient,
+      getClient: () => recorderCopilotClient(selectedWorkspace, opencodeClient),
       getDirectory: () => selectedWorkspaceRoot || null,
     });
     return () => registerRecorderCopilotContext(null);
-  }, [opencodeClient, selectedWorkspaceRoot]);
+  }, [opencodeClient, selectedWorkspace, selectedWorkspaceRoot]);
 
   const providerListQuery = useProviderListQuery({
     client: opencodeClient,

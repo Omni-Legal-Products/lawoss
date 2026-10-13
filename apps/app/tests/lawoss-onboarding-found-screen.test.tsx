@@ -87,3 +87,24 @@ test("usporiadanie v onboardingu má štýly roztriedenia a hovorí o priečinku
   expect(html).toContain("Dokumenty sa presunú priamo vo vašom priečinku.");
   expect(html).toContain("Dokončiť");
 });
+
+describe("slabý návrh praxe (review VŘ k #135, bod 5)", () => {
+  const clients = [{ path: "Kúpna zmluva", name: "Kúpna zmluva" }, { path: "Nájom", name: "Nájom" }];
+  test("jediný signál vecí: appka sa pýta a predvolí klienta", async () => {
+    const { initialFoundLevel } = await import("../src/lawoss/domains/onboarding/found-screen");
+    const weak = base({ level: "practice", score: 0.5, signals: ["matter_named_children"], clients, clientPattern: "*" });
+    expect(initialFoundLevel(weak)).toBe("client");
+    const html = renderToStaticMarkup(<FoundView {...props} suggestion={weak} level={initialFoundLevel(weak)} />);
+    expect(html).toContain("Môže to byť jeden klient Novák s vecami, alebo celá prax s 2 klientmi");
+    expect(html).not.toContain("Vyzerá to ako celá prax");
+    expect(html).toContain("Nie, len pridaj OKF súbory");
+  });
+  test("istá prax a označená prax ostávajú praxou", async () => {
+    const { initialFoundLevel } = await import("../src/lawoss/domains/onboarding/found-screen");
+    expect(initialFoundLevel(base({ level: "practice", score: 0.83, signals: ["legal_form_children", "matter_named_children"], clients }))).toBe("practice");
+    expect(initialFoundLevel(base({ level: "practice", score: 0.5, signals: ["letter_buckets"], clients }))).toBe("practice");
+    expect(initialFoundLevel(base({ level: "practice", score: 1, marked: true, clients }))).toBe("practice");
+    expect(initialFoundLevel(base({ level: "matter" }))).toBe("matter");
+    expect(initialFoundLevel(base({ level: "unknown" }))).toBe("client");
+  });
+});

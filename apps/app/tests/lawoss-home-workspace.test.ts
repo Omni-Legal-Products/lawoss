@@ -54,3 +54,12 @@ describe("domovský priestor", () => {
     expect(conversationWorkspaceId([home], "")).toBeNull();
   });
 });
+
+test("kopilot nahrávača nedostane klienta v domovskom priestore (review VŘ k #136, bod 1)", async () => {
+  const { recorderCopilotClient } = await import("../src/lawoss/home-workspace");
+  const client = { id: "engine" };
+  expect(recorderCopilotClient({ path: "/Users/x/Library/Application Support/LAWOSS/lawoss-domov" }, client)).toBeNull();
+  expect(recorderCopilotClient({ path: "C:\\Users\\x\\AppData\\Roaming\\LAWOSS\\lawoss-domov" }, client)).toBeNull();
+  expect(recorderCopilotClient({ path: "/Users/x/Klienti/Novák" }, client)).toBe(client);
+  expect(recorderCopilotClient(null, client)).toBe(client);
+});
