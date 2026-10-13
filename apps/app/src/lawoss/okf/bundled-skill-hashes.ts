@@ -61,4 +61,6 @@ export const BUNDLED_OKF_SKILL_HASHES: ReadonlySet<string> = new Set([
   "3f99167f7822742a9bfe7dbe2c14b93dc6bc03b31a36079f2dbc492731c54841", // lawoss/skills/usporiadaj-spis/SKILL.md @ win/g1-okf (Access denied: práva súboru či priečinka)
   "78766cf84f65d426c39274d59d0b6238259102b8c1798e990c0d0cb093ec6ae2", // lawoss/okf-pamat/SKILL.md @ win/g2-encoding (%TEMP% a PowerShell 5.1 pri snapshote)
   "7a41fb0ed029f7dfa500eca5043bbe04fa8f5050bae6cf078054c76e3a903d8c", // lawoss/okf-pamat/SKILL.md @ win/g2-encoding (dočasný priečinok aj ako $env:TEMP v PowerShelli)
+  "709fc65bed5675058a4800f90b047a40edd0342af412445cca208663febbcd0f", // lawoss/okf-pamat/SKILL.md @ #111 (fyzické cesty, interné aliasy a oddelené granty)
+  "8f915b370fe784db367a2fcb523439f083bcd2ea9141e2c5112966d18a9cc5d0", // lawoss/skills/usporiadaj-spis/SKILL.md @ #111 (alias koreňa, zákaz symlinkov dokumentov)
 ]);

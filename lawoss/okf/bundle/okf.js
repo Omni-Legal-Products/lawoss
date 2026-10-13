@@ -22,7 +22,7 @@ async function realpath(path) {
 }
 
 // src/onboarding/cli.ts
-import { dirname as dirname6, isAbsolute as isAbsolute7, relative as relative7, resolve as resolve9, sep as sep8 } from "node:path";
+import { dirname as dirname7, isAbsolute as isAbsolute7, relative as relative7, resolve as resolve9, sep as sep8 } from "node:path";
 
 // src/onboarding/classify.ts
 import { createHash } from "node:crypto";
@@ -3110,7 +3110,7 @@ async function recoverOnboardingPlan(plan, journalDirectory, action) {
 
 // src/onboarding/onboarding.ts
 import { lstat as lstat8, mkdir as mkdir3, readFile as readFile5, writeFile } from "node:fs/promises";
-import { dirname as dirname5, isAbsolute as isAbsolute6, join as join9, relative as relative6, resolve as resolve8, sep as sep7 } from "node:path";
+import { dirname as dirname6, isAbsolute as isAbsolute6, join as join10, relative as relative6, resolve as resolve8, sep as sep7 } from "node:path";
 
 // templates/kancelaria/AGENTS.md
 var AGENTS_default10 = `# AGENTS.md: advokátska prax (OKF)
@@ -3169,7 +3169,7 @@ This folder is a law practice organised by OKF (open client folder framework). T
 // src/onboarding/entities.ts
 import { lstat as lstat5, readFile as readFile3 } from "node:fs/promises";
 import { createHash as createHash4 } from "node:crypto";
-import { basename as basename4, join as join7, relative as relative4, resolve as resolve6, sep as sep5 } from "node:path";
+import { basename as basename5, join as join8, relative as relative4, resolve as resolve6, sep as sep5 } from "node:path";
 
 // ../okf-pamat/src/store.ts
 import { existsSync as existsSync2, lstatSync, mkdirSync, readFileSync as readFileSync2, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -3243,7 +3243,7 @@ function findOfficeDir(startDir, maxUp = 8) {
 
 // ../okf-pamat/src/workspace-memory-fs.ts
 import { closeSync, constants as constants4, fstatSync, lstatSync as lstatSync2, openSync, readSync, realpathSync } from "node:fs";
-import { isAbsolute as isAbsolute4, parse, relative as relative3, resolve as resolve5, sep as sep4 } from "node:path";
+import { basename as basename4, dirname as dirname4, isAbsolute as isAbsolute4, join as join7, parse, relative as relative3, resolve as resolve5, sep as sep4 } from "node:path";
 function isObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -3277,6 +3277,11 @@ function checkedPath(path, kind, allowMissing = false) {
       throw new Error(`Not a regular file: ${current}`);
   }
   return true;
+}
+function checkedDirectory(path) {
+  const physical = resolve5(realpathSync.native(path));
+  checkedPath(physical, "directory");
+  return physical;
 }
 
 // src/onboarding/entities.ts
@@ -3368,7 +3373,7 @@ function safeClientPattern(value) {
 }
 async function planOffice(request) {
   const name = safeSegment(request.name ?? "Office");
-  const target = join7(request.parent, name);
+  const target = join8(request.parent, name);
   const names = await topLevelNames(request.parent);
   return { mode: "new", appFiles: "inside", target, plan: await rootPlan(request.parent, [directory(name), file(`${name}/okf.config`, officeConfig(request)), directory(`${name}/memory`), file(`${name}/memory/.keep`, ""), directory("Klienti"), file("Klienti/.keep", ""), ...practiceInstructions(names, request.language, "Klienti/*", "client")]) };
 }
@@ -3385,12 +3390,12 @@ async function planPracticeOffice(request) {
   return { mode: "new", appFiles: "inside", target: root, plan: await rootPlan(root, [directory("Office"), file("Office/okf.config", officeConfig(office, clientPath, request.scope)), directory("Office/memory"), file("Office/memory/.keep", ""), ...practiceInstructions(names, request.language, clientPath, request.scope)]) };
 }
 async function planNewClient(request) {
-  const name = safeSegment(request.name), target = join7(request.parent, name), language = request.language ?? "sk";
+  const name = safeSegment(request.name), target = join8(request.parent, name), language = request.language ?? "sk";
   const generated = planEntity({ type: "klient", dir: target, title: request.title, clientType: request.clientType, language, jurisdiction: request.jurisdiction, date: request.date }, LOCALIZED_TEMPLATES, () => false);
   return { mode: "new", appFiles: "inside", target, clientRoot: target, plan: await rootPlan(request.parent, templateOperations(name, generated.entries)) };
 }
 async function planNewSubject(request) {
-  const name = safeSegment(request.name), target = join7(request.clientRoot, name);
+  const name = safeSegment(request.name), target = join8(request.clientRoot, name);
   const client = await inspectOnboardingRoot(request.clientRoot);
   if (!client.complete || client.level !== "client")
     throw new Error(incompleteInspectionMessage("Subject parent must be an inspected client root.", client.issues));
@@ -3407,7 +3412,7 @@ var MATTERS_DIR = "Spisy";
 var CLIENT_CARDS2 = ["client.md", "klient.md"];
 async function clientCard(clientRoot) {
   for (const name of CLIENT_CARDS2) {
-    const file = join7(clientRoot, name);
+    const file = join8(clientRoot, name);
     const content = await readFile3(file, "utf8").catch(() => {
       return;
     });
@@ -3436,7 +3441,7 @@ async function planNewMatter(request) {
   safeSegment(request.area);
   if (request.subject !== undefined && /[\\/]/.test(request.subject))
     throw new Error("Matter subject must be the subject folder name, not a path.");
-  const name = `${request.date.slice(0, 7)} ${safeSegment(request.title)}`, target = join7(request.parent, MATTERS_DIR, name);
+  const name = `${request.date.slice(0, 7)} ${safeSegment(request.title)}`, target = join8(request.parent, MATTERS_DIR, name);
   const clientRoot = await realpath(request.clientRoot), parentRoot = await realpath(request.parent);
   if (!contained(clientRoot, parentRoot))
     throw new Error("Matter parent must be within the inspected client root.");
@@ -3450,14 +3455,14 @@ async function planNewMatter(request) {
   if (existingMatters && existingMatters.kind !== "directory")
     throw new Error("Matter folder is blocked by a non-directory.");
   const office = findOfficeDir(request.parent);
-  const officeConfig = office ? await readFile3(join7(office, "okf.config")).then(decodeText, (error) => {
+  const officeConfig = office ? await readFile3(join8(office, "okf.config")).then(decodeText, (error) => {
     if (error && typeof error === "object" && "code" in error && (error.code === "ENOENT" || error.code === "EISDIR"))
       return;
     throw error;
   }) : undefined;
   const workingProfile = officeConfig !== undefined ? parseOfficeWorkingProfile(officeConfig, request.language ?? "sk") : undefined;
   const card = await clientCard(clientRoot);
-  const clientCardPath = card ? relative4(join7(parentRoot, MATTERS_DIR, name), card.file).split(sep5).join("/") : undefined;
+  const clientCardPath = card ? relative4(join8(parentRoot, MATTERS_DIR, name), card.file).split(sep5).join("/") : undefined;
   const built = buildMatterOperations({ ...request, workingProfile, clientTitle: card?.title, clientCardPath });
   const operations = [...existingMatters ? [] : [directory(MATTERS_DIR)], ...built.operations];
   return { mode: "new", appFiles: "inside", target, clientRoot: request.clientRoot, plan: await rootPlan(request.parent, operations) };
@@ -3474,7 +3479,7 @@ async function planExistingClient(root, mode, cloneParent, map) {
   if (mode === "map") {
     if (!map || !inspection.memorySources.includes(map.memoryPath) || !map.identityAnchor.trim())
       throw new Error("Map mode requires a selected inspected memory path and identity anchor.");
-    const memory = await readFile3(join7(inspection.root, map.memoryPath), "utf8");
+    const memory = await readFile3(join8(inspection.root, map.memoryPath), "utf8");
     if (Buffer.byteLength(memory) > 1024 * 1024 || !memory.includes(map.identityAnchor))
       throw new Error("Map identity anchor must occur in the selected bounded memory source.");
     const rechecked = await inspectOnboardingRoot(inspection.root);
@@ -3485,7 +3490,7 @@ async function planExistingClient(root, mode, cloneParent, map) {
   }
   if (!cloneParent)
     throw new Error("Trial clone parent is required.");
-  const target = join7(cloneParent, `${safeSegment(basename4(inspection.root) || "client")} (trial ${new Date().toISOString().slice(0, 10)})`);
+  const target = join8(cloneParent, `${safeSegment(basename5(inspection.root) || "client")} (trial ${new Date().toISOString().slice(0, 10)})`);
   return { mode, appFiles: "inside", source: inspection.root, sourceDigest: inspection.digest, target, trial: true };
 }
 
@@ -3493,7 +3498,7 @@ async function planExistingClient(root, mode, cloneParent, map) {
 import { createHash as createHash5, randomUUID } from "node:crypto";
 import { constants as constants6 } from "node:fs";
 import { copyFile, lstat as lstat7, mkdir as mkdir2, open as open5, readFile as readFile4, rename, rmdir as rmdir2 } from "node:fs/promises";
-import { dirname as dirname4, isAbsolute as isAbsolute5, join as join8, relative as relative5, resolve as resolve7, sep as sep6 } from "node:path";
+import { dirname as dirname5, isAbsolute as isAbsolute5, join as join9, relative as relative5, resolve as resolve7, sep as sep6 } from "node:path";
 
 // src/onboarding/file-durability.ts
 import { constants as constants5 } from "node:fs";
@@ -3580,7 +3585,7 @@ async function durableWrite(path, content, replace = false) {
     await rename(temporary, path);
 }
 async function context2(preview, journalDirectory) {
-  for (const path of [preview.source, dirname4(preview.target), journalDirectory]) {
+  for (const path of [preview.source, dirname5(preview.target), journalDirectory]) {
     if (!isAbsolute5(path) || await realpath(path) !== resolve7(path) || !(await lstat7(path)).isDirectory())
       throw new Error("Trial cloning requires existing canonical directories.");
   }
@@ -3589,7 +3594,7 @@ async function context2(preview, journalDirectory) {
   if (!/^[a-f0-9]{64}$/.test(preview.sourceDigest))
     throw new Error("Invalid trial source digest.");
   const fingerprint = hash(JSON.stringify(preview));
-  return { fingerprint, journalPath: join8(journalDirectory, `trial-${fingerprint}.json`) };
+  return { fingerprint, journalPath: join9(journalDirectory, `trial-${fingerprint}.json`) };
 }
 async function readJournal(path, fingerprint) {
   try {
@@ -3614,7 +3619,7 @@ async function verifyOwned(preview, journal, allowConversion = false) {
   if (current.entries.some((entry) => !expected.has(entry.path) && !conversionPaths.has(entry.path)))
     throw new Error("Trial contains an unowned entry; preserve it for manual recovery.");
   for (const owned of journal.owned) {
-    const path = owned.path ? join8(preview.target, owned.path) : preview.target;
+    const path = owned.path ? join9(preview.target, owned.path) : preview.target;
     if (await identity(path, owned.kind) !== owned.identity || owned.kind === "file" && await fileDigest(path) !== owned.digest)
       throw new Error(`Trial entry changed; preserving ${owned.path || "root"}.`);
   }
@@ -3661,7 +3666,7 @@ async function applyTrialClone(preview, journalDirectory, resume = false) {
       await verifyOwned(preview, journal, journal.phase === "converting");
     if (journal.intent !== undefined && !journal.owned.some((entry) => entry.path === journal.intent)) {
       try {
-        await lstat7(join8(preview.target, journal.intent));
+        await lstat7(join9(preview.target, journal.intent));
         throw new Error("Uncertain trial entry ownership; preserve for manual recovery.");
       } catch (error) {
         if (!missing2(error))
@@ -3675,13 +3680,13 @@ async function applyTrialClone(preview, journalDirectory, resume = false) {
           continue;
         if (entry.kind !== "directory" && entry.kind !== "file")
           throw new Error("Unsupported trial entry.");
-        const target = join8(preview.target, entry.path);
+        const target = join9(preview.target, entry.path);
         journal.intent = entry.path;
         await save();
         if (entry.kind === "directory")
           await mkdir2(target);
         else {
-          const sourcePath = join8(preview.source, entry.path);
+          const sourcePath = join9(preview.source, entry.path);
           if (await realpath(sourcePath) !== sourcePath || !(await lstat7(sourcePath)).isFile())
             throw new Error("Trial source entry changed.");
           await copyFile(sourcePath, target, constants6.COPYFILE_EXCL);
@@ -3699,8 +3704,8 @@ async function applyTrialClone(preview, journalDirectory, resume = false) {
       const marker = JSON.stringify({ version: 1, trial: true, source: preview.source, sourceDigest: preview.sourceDigest, fingerprint });
       journal.intent = ".lawoss-trial.json";
       await save();
-      await durableWrite(join8(preview.target, journal.intent), marker);
-      journal.owned.push({ path: journal.intent, kind: "file", identity: await identity(join8(preview.target, journal.intent), "file"), digest: hash(marker), size: Buffer.byteLength(marker) });
+      await durableWrite(join9(preview.target, journal.intent), marker);
+      journal.owned.push({ path: journal.intent, kind: "file", identity: await identity(join9(preview.target, journal.intent), "file"), digest: hash(marker), size: Buffer.byteLength(marker) });
       delete journal.intent;
       if (preview.conversionPlan) {
         const inspected = await inspectOnboardingRoot(preview.target);
@@ -3715,7 +3720,7 @@ async function applyTrialClone(preview, journalDirectory, resume = false) {
       if (!resume)
         await applyOnboardingPlan(journal.conversionPlan, journalDirectory);
       else {
-        const conversionJournal = join8(journalDirectory, `${hash(JSON.stringify(journal.conversionPlan))}.json`);
+        const conversionJournal = join9(journalDirectory, `${hash(JSON.stringify(journal.conversionPlan))}.json`);
         let hasConversionJournal = true;
         try {
           await lstat7(conversionJournal);
@@ -3750,7 +3755,7 @@ async function recoverTrialClone(preview, journalDirectory, action) {
     const save = () => durableWrite(journalPath, JSON.stringify(journal), true);
     if (journal.removal !== undefined) {
       try {
-        await lstat7(join8(preview.target, journal.removal));
+        await lstat7(join9(preview.target, journal.removal));
       } catch (error) {
         if (!missing2(error))
           throw error;
@@ -3779,7 +3784,7 @@ async function recoverTrialClone(preview, journalDirectory, action) {
       const owned = journal.owned[journal.owned.length - 1];
       journal.removal = owned.path;
       await save();
-      const path = join8(preview.target, owned.path);
+      const path = join9(preview.target, owned.path);
       if (await identity(path, owned.kind) !== owned.identity || owned.kind === "file" && await fileDigest(path) !== owned.digest)
         throw new Error("Changed trial output; rollback stopped.");
       if (owned.kind === "directory")
@@ -3828,7 +3833,7 @@ async function externalProfileDirectory(clientRoot, input) {
     } catch (error) {
       if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ENOENT")
         throw error;
-      const parent = dirname5(ancestor);
+      const parent = dirname6(ancestor);
       if (parent === ancestor)
         throw new Error("External profile directory has no existing canonical ancestor.");
       ancestor = parent;
@@ -3948,7 +3953,7 @@ async function applyOnboarding(preview, options) {
     if (!inspection.complete || inspection.digest !== preview.sourceDigest)
       throw new Error("Mapped client changed since planning.");
     const directory = await externalProfileDirectory(preview.root, options.externalProfileDirectory);
-    const path = join9(directory, "memory-profile.json"), content = JSON.stringify(preview.externalProfile);
+    const path = join10(directory, "memory-profile.json"), content = JSON.stringify(preview.externalProfile);
     try {
       await writeFile(path, content, { flag: "wx" });
     } catch (error) {
@@ -4070,7 +4075,7 @@ async function readPlan(path) {
   }
 }
 async function savePlanOutside(root, path, content) {
-  const target = resolve9(path), parent = dirname6(target);
+  const target = resolve9(path), parent = dirname7(target);
   const rel = relative7(root, target);
   if (!rel || !isAbsolute7(rel) && rel !== ".." && !rel.startsWith(`..${sep8}`))
     throw new Error("Save the preview outside the client directory.");
@@ -4171,18 +4176,18 @@ async function runOnboarding(argv, out = console.log) {
 
 // src/triage/cli.ts
 import { existsSync as existsSync3, realpathSync as realpathSync2 } from "node:fs";
-import { dirname as dirname8, join as join13, resolve as resolve12 } from "node:path";
+import { dirname as dirname9, join as join14, resolve as resolve12 } from "node:path";
 
 // src/triage/files.ts
 import { constants as constants9 } from "node:fs";
 import { lstat as lstat11, mkdir as mkdir5, open as open8, readdir as readdir4 } from "node:fs/promises";
-import { join as join11 } from "node:path";
+import { join as join12 } from "node:path";
 
 // src/triage/scan.ts
 import { createHash as createHash6 } from "node:crypto";
 import { constants as constants8 } from "node:fs";
 import { lstat as lstat10, mkdir as mkdir4, open as open7, readFile as readFile6, rename as rename2, rm as rm2, writeFile as writeFile2 } from "node:fs/promises";
-import { basename as basename5, isAbsolute as isAbsolute8, join as join10, relative as relative8, resolve as resolve10, sep as sep9 } from "node:path";
+import { basename as basename6, isAbsolute as isAbsolute8, join as join11, relative as relative8, resolve as resolve10, sep as sep9 } from "node:path";
 
 // src/triage/types.ts
 var INVENTORY_SCHEMA = "lawoss.triage.inventory/v1";
@@ -4240,7 +4245,7 @@ async function verifyTrialClone(rootInput, trialJournalDirectory) {
   }
   let marker;
   try {
-    marker = JSON.parse(await readBounded(join10(root, TRIAL_MARKER), 64 * 1024));
+    marker = JSON.parse(await readBounded(join11(root, TRIAL_MARKER), 64 * 1024));
   } catch (error) {
     if (error instanceof TrialCloneError)
       throw error;
@@ -4256,7 +4261,7 @@ async function verifyTrialClone(rootInput, trialJournalDirectory) {
   if (trialJournalDirectory !== undefined) {
     let journal;
     try {
-      journal = JSON.parse(await readFile6(join10(trialJournalDirectory, `trial-${marker.fingerprint}.json`), "utf8"));
+      journal = JSON.parse(await readFile6(join11(trialJournalDirectory, `trial-${marker.fingerprint}.json`), "utf8"));
     } catch {
       throw new TrialCloneError("K tomuto priečinku chýba záznam o vytvorení skúšobného klona v tejto aplikácii.");
     }
@@ -4273,7 +4278,7 @@ async function verifyTriageTarget(rootInput, trialJournalDirectory, options = {}
   if (!isAbsolute8(rootInput))
     throw new TrialCloneError("Cesta musí byť absolútna.");
   const root = resolve10(rootInput);
-  const trial = await lstat10(join10(root, TRIAL_MARKER)).then(() => true, (error) => {
+  const trial = await lstat10(join11(root, TRIAL_MARKER)).then(() => true, (error) => {
     if (missing3(error))
       return false;
     throw error;
@@ -4288,7 +4293,7 @@ async function verifyTriageTarget(rootInput, trialJournalDirectory, options = {}
     throw new TrialCloneError("Priečinok musí existovať a nesmie byť symbolický odkaz.");
   let consent;
   try {
-    consent = JSON.parse(await readBounded(join10(root, IN_PLACE_MARKER), 64 * 1024));
+    consent = JSON.parse(await readBounded(join11(root, IN_PLACE_MARKER), 64 * 1024));
   } catch (error) {
     if (error instanceof TrialCloneError)
       throw error;
@@ -4305,7 +4310,7 @@ var hidden = (path) => path.split("/").some((part) => part.startsWith("."));
 var triageTreeDigest = (entries) => sha3(JSON.stringify(entries.filter((entry) => !hidden(entry.path))));
 async function readSmall(root, path) {
   try {
-    return await readBounded(join10(root, path), 1024 * 1024);
+    return await readBounded(join11(root, path), 1024 * 1024);
   } catch (error) {
     if (missing3(error))
       return;
@@ -4348,7 +4353,7 @@ async function scanTriage(rootInput, options = {}) {
   const card = parseFrontmatter(await readSmall(clone.root, clientCard) ?? "") ?? {};
   const language = resolveDocumentLanguage(["sk", "cs", "en"].includes(card.language ?? "") ? card.language : undefined, card.jurisdiction);
   const office = findOfficeDir(clone.root);
-  const config = office ? await readFile6(join10(office, "okf.config")).then(decodeText, () => {
+  const config = office ? await readFile6(join11(office, "okf.config")).then(decodeText, () => {
     return;
   }) : undefined;
   const officeJurisdiction = /^jurisdiction:\s*(sk|cz)\s*$/m.exec(config ?? "")?.[1];
@@ -4391,7 +4396,7 @@ async function scanTriage(rootInput, options = {}) {
         skipped.push({ path: entry.path, reason });
       continue;
     }
-    if (await lockedForWrite(join10(clone.root, entry.path), options.hooks)) {
+    if (await lockedForWrite(join11(clone.root, entry.path), options.hooks)) {
       skipped.push({ path: entry.path, reason: "locked" });
       continue;
     }
@@ -4447,7 +4452,7 @@ async function readJsonFile(path, max = MAX_JSON_BYTES) {
 async function triageSubdirectory(root, name, create) {
   let current = root;
   for (const part of [...TRIAGE_DIR.split("/"), name]) {
-    current = join11(current, part);
+    current = join12(current, part);
     if (create) {
       try {
         await mkdir5(current, { mode: 448 });
@@ -4482,11 +4487,11 @@ async function listClassificationFiles(root) {
   const dir = await triageSubdirectory(root, "classifications", false);
   if (!dir)
     return [];
-  return (await readdir4(dir)).filter((name) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,120}\.json$/.test(name)).sort().reverse().map((name) => join11(dir, name));
+  return (await readdir4(dir)).filter((name) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,120}\.json$/.test(name)).sort().reverse().map((name) => join12(dir, name));
 }
 
 // src/triage/index.ts
-import { basename as basename6 } from "node:path";
+import { basename as basename7 } from "node:path";
 
 // src/triage/classification.ts
 class ClassificationError extends Error {
@@ -4797,7 +4802,7 @@ function buildTriagePlan(inventory, options) {
 import { createHash as createHash8 } from "node:crypto";
 import { constants as constants10 } from "node:fs";
 import { appendFile, copyFile as copyFile2, link, lstat as lstat12, mkdir as mkdir6, open as open9, readdir as readdir5, readFile as readFile7, rmdir as rmdir3 } from "node:fs/promises";
-import { dirname as dirname7, isAbsolute as isAbsolute9, join as join12, resolve as resolve11 } from "node:path";
+import { dirname as dirname8, isAbsolute as isAbsolute9, join as join13, resolve as resolve11 } from "node:path";
 class TriageConflictError extends Error {
   code = "triage_conflict";
 }
@@ -4808,7 +4813,7 @@ var isClutter = (name) => VOLATILE_ENTRY.test(name) || /^\.ds_store$/i.test(name
 async function removeClutter(directory) {
   for (const name of await readdir5(directory))
     if (isClutter(name))
-      await unlinkFile(join12(directory, name));
+      await unlinkFile(join13(directory, name));
 }
 var RUN_ID = /^triage-[0-9]{8}-[0-9]{6}-[a-f0-9]{6}$/;
 var reserved3 = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
@@ -4918,7 +4923,7 @@ async function readEvents2(path) {
 async function runDirectory(root, runId, create) {
   let current = root;
   for (const part of [...TRIAGE_DIR.split("/"), "runs", runId]) {
-    current = join12(current, part);
+    current = join13(current, part);
     if (create) {
       try {
         await mkdir6(current, { mode: 448 });
@@ -4934,7 +4939,7 @@ async function runDirectory(root, runId, create) {
   return current;
 }
 async function safeParent(root, relativePath) {
-  const full = join12(root, relativePath), parent = dirname7(full);
+  const full = join13(root, relativePath), parent = dirname8(full);
   const state = await lstat12(parent);
   if (!state.isDirectory() || state.isSymbolicLink() || await realpath(parent) !== parent)
     throw new TriageConflictError(`Cesta ${relativePath} vedie cez symbolický odkaz alebo neexistujúci priečinok.`);
@@ -4980,11 +4985,11 @@ async function moveExclusive(source, target, digest) {
   }
   if (await fileDigest2(target) !== digest)
     throw new TriageConflictError(`Kópia ${target} nesedí s originálom.`);
-  await durableDirectory2(dirname7(target));
+  await durableDirectory2(dirname8(target));
   if (await fileDigest2(source) !== digest)
     throw new TriageConflictError(`Zdroj ${source} sa zmenil počas presunu.`);
   await unlinkFile(source);
-  await durableDirectory2(dirname7(source));
+  await durableDirectory2(dirname8(source));
 }
 async function createOperation(root, operation) {
   const full = await safeParent(root, operation.path);
@@ -4999,10 +5004,10 @@ async function createOperation(root, operation) {
       await handle.close();
     }
   }
-  await durableDirectory2(dirname7(full));
+  await durableDirectory2(dirname8(full));
 }
 async function operationState(root, operation) {
-  const full = join12(root, operation.path);
+  const full = join13(root, operation.path);
   let state;
   try {
     state = await lstat12(full);
@@ -5024,7 +5029,7 @@ async function applyTriagePlan(input, options = {}) {
   const unlock = await lock(root);
   try {
     const dir = await runDirectory(root, plan.runId, true);
-    const planPath = join12(dir, "plan.json"), eventsPath = join12(dir, "events.jsonl");
+    const planPath = join13(dir, "plan.json"), eventsPath = join13(dir, "events.jsonl");
     let stored;
     try {
       stored = JSON.parse(await readFile7(planPath, "utf8"));
@@ -5040,7 +5045,7 @@ async function applyTriagePlan(input, options = {}) {
         throw new TriageConflictError("Tento beh roztriedenia bol vrátený. Pripravte nový náhľad.");
       if (events.some((event) => event.t === "completed")) {
         for (const move of plan.moves)
-          if (await fileDigest2(join12(root, move.to)) !== move.sha256)
+          if (await fileDigest2(join13(root, move.to)) !== move.sha256)
             throw new TriageConflictError(`Roztriedený dokument sa odvtedy zmenil: ${move.to}`);
         return { status: "already_applied", runId: plan.runId, moved: plan.moves.length, created: plan.create.length, journal: dir };
       }
@@ -5065,7 +5070,7 @@ async function applyTriagePlan(input, options = {}) {
       }
       const locked = [];
       for (const move of plan.moves)
-        if (await lockedForWrite(join12(root, move.from), options.hooks))
+        if (await lockedForWrite(join13(root, move.from), options.hooks))
           locked.push(move.from);
       if (locked.length)
         throw new TriageConflictError(`Dokument je otvorený v inom programe (napríklad vo Worde): ${locked.slice(0, 10).join(", ")}${locked.length > 10 ? " …" : ""}. Nič sa nepresunulo. Zatvorte ho a pripravte nový náhľad.`);
@@ -5108,7 +5113,7 @@ async function applyTriagePlan(input, options = {}) {
         await moveExclusive(source, target, move.sha256);
       } else if (started && from === move.sha256 && to === move.sha256) {
         await unlinkFile(source);
-        await durableDirectory2(dirname7(source));
+        await durableDirectory2(dirname8(source));
       } else if (!(started && from === null && to === move.sha256))
         throw new TriageConflictError(to !== null && !started ? `Cieľ už existuje: ${move.to}` : `Dokument sa zmenil alebo chýba: ${move.from}`);
       await appendEvent2(eventsPath, { t: "moved", id: move.id });
@@ -5130,10 +5135,10 @@ async function readRun(root, runId) {
       throw new Error("Takýto beh roztriedenia v klone nie je.");
     throw error;
   }
-  const plan = parseTriagePlan(JSON.parse(await readFile7(join12(dir, "plan.json"), "utf8")));
+  const plan = parseTriagePlan(JSON.parse(await readFile7(join13(dir, "plan.json"), "utf8")));
   if (plan.root !== root || plan.runId !== runId)
     throw new Error("Záznam roztriedenia patrí inému priečinku.");
-  const eventsPath = join12(dir, "events.jsonl");
+  const eventsPath = join13(dir, "events.jsonl");
   return { plan, events: await readEvents2(eventsPath), eventsPath, dir };
 }
 async function undoTriage(rootInput, runId, options = {}) {
@@ -5161,7 +5166,7 @@ async function undoTriage(rootInput, runId, options = {}) {
     for (const move of plan.moves) {
       if (!moveIntents.has(move.id) || restored.has(move.id))
         continue;
-      const from = await fileDigest2(join12(root, move.from)), to = await fileDigest2(join12(root, move.to));
+      const from = await fileDigest2(join13(root, move.from)), to = await fileDigest2(join13(root, move.to));
       if (to !== null && to !== move.sha256)
         conflict(move.to);
       else if (from !== null && from !== move.sha256)
@@ -5181,18 +5186,18 @@ async function undoTriage(rootInput, runId, options = {}) {
         if (state === "other")
           problems.push(operation.path);
         if (state === "ours" && operation.kind === "directory") {
-          for (const name of await readdir5(join12(root, operation.path)))
+          for (const name of await readdir5(join13(root, operation.path)))
             if (!isClutter(name) && !owned.has(`${operation.path}/${name}`.toLocaleLowerCase()))
               problems.push(`${operation.path}/${name}`);
         }
       }
     for (const item of [...pending])
-      if (item.from === null && !await lstat12(dirname7(join12(root, item.move.from))).then((state) => state.isDirectory() && !state.isSymbolicLink()).catch(() => false)) {
+      if (item.from === null && !await lstat12(dirname8(join13(root, item.move.from))).then((state) => state.isDirectory() && !state.isSymbolicLink()).catch(() => false)) {
         if (keepChanged) {
           kept.push(item.move.to);
           pending.splice(pending.indexOf(item), 1);
         } else
-          problems.push(dirname7(item.move.from));
+          problems.push(dirname8(item.move.from));
       }
     if (problems.length)
       throw new TriageConflictError(`Roztriedenie sa nedá vrátiť bez zásahu do zmenených súborov: ${[...new Set(problems)].slice(0, 10).join(", ")}${problems.length > 10 ? " …" : ""}`);
@@ -5206,13 +5211,13 @@ async function undoTriage(rootInput, runId, options = {}) {
         await moveExclusive(source, target, move.sha256);
       else if (from !== null && to !== null) {
         await unlinkFile(source);
-        await durableDirectory2(dirname7(source));
+        await durableDirectory2(dirname8(source));
       }
       await appendEvent2(eventsPath, { t: "restored", id: move.id });
       restoredCount++;
     }
     for (const operation of [...toRemove].reverse()) {
-      const full = join12(root, operation.path);
+      const full = join13(root, operation.path);
       if (keepChanged) {
         const state = await operationState(root, operation);
         if (state === "other" || state === "ours" && operation.kind === "directory" && (await readdir5(full)).some((name) => !isClutter(name))) {
@@ -5227,7 +5232,7 @@ async function undoTriage(rootInput, runId, options = {}) {
             await rmdir3(full);
           else
             await unlinkFile(full);
-          await durableDirectory2(dirname7(full));
+          await durableDirectory2(dirname8(full));
         }
       } else {
         await appendEvent2(eventsPath, { t: "remove_intent", path: operation.path });
@@ -5238,7 +5243,7 @@ async function undoTriage(rootInput, runId, options = {}) {
             await rmdir3(full);
           } else
             await unlinkFile(full);
-          await durableDirectory2(dirname7(full));
+          await durableDirectory2(dirname8(full));
         } else if (state === "other")
           throw new TriageConflictError(`Zmenené počas vrátenia: ${operation.path}`);
       }
@@ -5253,7 +5258,7 @@ async function undoTriage(rootInput, runId, options = {}) {
 }
 async function listTriageRuns(rootInput) {
   const root = resolve11(rootInput);
-  const runs = join12(root, TRIAGE_DIR, "runs");
+  const runs = join13(root, TRIAGE_DIR, "runs");
   let names;
   try {
     const state = await lstat12(runs);
@@ -5289,15 +5294,15 @@ async function latestModelProposal(inventory) {
   try {
     raw = await readJsonFile(file);
   } catch (error) {
-    return { proposal: { state: "invalid", file: basename6(file), message: error instanceof Error ? error.message : String(error) } };
+    return { proposal: { state: "invalid", file: basename7(file), message: error instanceof Error ? error.message : String(error) } };
   }
   if (raw && typeof raw === "object" && "treeDigest" in raw && raw.treeDigest !== inventory.treeDigest)
-    return { proposal: { state: "stale", file: basename6(file) } };
+    return { proposal: { state: "stale", file: basename7(file) } };
   try {
     const classification = parseClassification(raw, inventory);
-    return { proposal: { state: "ready", file: basename6(file), documents: classification.documents.length, matters: classification.matters.length }, classification };
+    return { proposal: { state: "ready", file: basename7(file), documents: classification.documents.length, matters: classification.matters.length }, classification };
   } catch (error) {
-    return { proposal: { state: "invalid", file: basename6(file), message: error instanceof Error ? error.message : String(error) } };
+    return { proposal: { state: "invalid", file: basename7(file), message: error instanceof Error ? error.message : String(error) } };
   }
 }
 async function prepareTriage(root, options = {}) {
@@ -5355,9 +5360,9 @@ function resolveCloneRoot(argument, cwd = process.cwd()) {
   if (argument !== undefined)
     return canonical;
   for (let dir = canonical, depth = 0;depth < 16; depth++) {
-    if (existsSync3(join13(dir, TRIAL_MARKER)))
+    if (existsSync3(join14(dir, TRIAL_MARKER)))
       return dir;
-    const parent = dirname8(dir);
+    const parent = dirname9(dir);
     if (parent === dir)
       break;
     dir = parent;
@@ -5396,7 +5401,7 @@ async function runTriage(argv, out = console.log) {
         throw new Error("--today musí byť RRRR-MM-DD");
       const { plan } = await prepareTriage(root, { trialJournalDirectory, classificationFile: value(flags, "--classification"), keepInInbox: keep, today });
       const dir = await triageSubdirectory(plan.root, "plans", true);
-      const file = join13(dir, `${plan.runId}.json`);
+      const file = join14(dir, `${plan.runId}.json`);
       await writeNewJson(file, plan);
       out(JSON.stringify({ planFile: file, note: "Náhľad; nič sa nepresunulo. Ukáž plán človeku a po jeho súhlase spusti apply --confirm.", plan }, null, 2));
       return 0;
@@ -5436,21 +5441,21 @@ var ENTITY_TYPES2 = ["klient", "spis", "projekt"];
 
 // src/fs.ts
 import { existsSync as existsSync4, lstatSync as lstatSync3, mkdirSync as mkdirSync2, readdirSync as readdirSync2, readFileSync as readFileSync3, realpathSync as realpathSync3, statSync, writeFileSync as writeFileSync2 } from "node:fs";
-import { basename as basename7, dirname as dirname9, join as join14, relative as relative9, resolve as resolve13, sep as sep10 } from "node:path";
+import { basename as basename8, dirname as dirname10, join as join15, relative as relative9, resolve as resolve13, sep as sep10 } from "node:path";
 function readText(path) {
   return readFileSync3(path, "utf8");
 }
 function storedProfile(dir) {
-  const path = join14(dir, PROFILE_FILE);
+  const path = join15(dir, PROFILE_FILE);
   if (!existsSync4(path))
     return;
   return parseWorkingProfile(readText(path));
 }
 function officeProfile(dir, language) {
   const office = findOfficeDir(dir);
-  if (!office || !existsSync4(join14(office, "okf.config")))
+  if (!office || !existsSync4(join15(office, "okf.config")))
     return;
-  const path = join14(office, "okf.config");
+  const path = join15(office, "okf.config");
   if (!statSync(path).isFile())
     return;
   return parseOfficeWorkingProfile(decodeText(readFileSync3(path)), language);
@@ -5461,7 +5466,7 @@ function listMarkdown(root) {
     for (const entry of readdirSync2(dir, { withFileTypes: true })) {
       if (entry.name.startsWith("."))
         continue;
-      const full = join14(dir, entry.name);
+      const full = join15(dir, entry.name);
       if (entry.isDirectory()) {
         if (entry.name === "templates" || entry.name === "node_modules")
           continue;
@@ -5489,37 +5494,37 @@ function detect(dir, hint) {
   };
   if (!isDir)
     return base;
-  const type = ENTITY_TYPES.find((candidate) => CARD_ALIASES[candidate].some((name) => existsSync4(join14(dir, name)))) ?? null;
-  const hasAgents = existsSync4(join14(dir, "AGENTS.md"));
-  const hasClaude = existsSync4(join14(dir, "CLAUDE.md"));
-  const claudeIsMirror = hasAgents && hasClaude ? readText(join14(dir, "AGENTS.md")) === readText(join14(dir, "CLAUDE.md")) : null;
-  const indexPath = join14(dir, "index.md");
+  const type = ENTITY_TYPES.find((candidate) => CARD_ALIASES[candidate].some((name) => existsSync4(join15(dir, name)))) ?? null;
+  const hasAgents = existsSync4(join15(dir, "AGENTS.md"));
+  const hasClaude = existsSync4(join15(dir, "CLAUDE.md"));
+  const claudeIsMirror = hasAgents && hasClaude ? readText(join15(dir, "AGENTS.md")) === readText(join15(dir, "CLAUDE.md")) : null;
+  const indexPath = join15(dir, "index.md");
   const okfVersion = existsSync4(indexPath) ? parseFrontmatter(readText(indexPath))?.okf_version ?? null : null;
   const effective = type ?? hint ?? null;
   const missing = effective ? plan({ type: effective, dir, title: "" }).entries.filter((entry) => entry.action === "create").map((entry) => entry.path) : [];
   return { ...base, type, hasAgents, hasClaude, claudeIsMirror, okfVersion, markdownCount: listMarkdown(dir).length, missing };
 }
 function plan(input) {
-  const agents = join14(input.dir, "AGENTS.md");
-  const card = existingCard(input.type, (name) => existsSync4(join14(input.dir, name)));
-  const existing = card ? parseFrontmatter(readText(join14(input.dir, card))) : null;
+  const agents = join15(input.dir, "AGENTS.md");
+  const card = existingCard(input.type, (name) => existsSync4(join15(input.dir, name)));
+  const existing = card ? parseFrontmatter(readText(join15(input.dir, card))) : null;
   const language = resolveDocumentLanguage(input.language ?? existing?.language, existing?.jurisdiction || input.jurisdiction);
   const templates = LOCALIZED_TEMPLATES[language];
   const advokat = input.advokat?.trim() || (input.type === "spis" ? readConfiguredLawyerName(findOfficeDir(input.dir)) : undefined);
   const profile = storedProfile(input.dir) ?? input.workingProfile ?? (input.type === "spis" ? officeProfile(input.dir, language) : undefined);
   let clientCardPath;
   if (input.type === "spis") {
-    for (let parent = dirname9(resolve13(input.dir));; parent = dirname9(parent)) {
-      const card = existingCard("klient", (name) => existsSync4(join14(parent, name)));
+    for (let parent = dirname10(resolve13(input.dir));; parent = dirname10(parent)) {
+      const card = existingCard("klient", (name) => existsSync4(join15(parent, name)));
       if (card) {
-        clientCardPath = relative9(input.dir, join14(parent, card)).split("\\").join("/");
+        clientCardPath = relative9(input.dir, join15(parent, card)).split("\\").join("/");
         break;
       }
-      if (dirname9(parent) === parent)
+      if (dirname10(parent) === parent)
         break;
     }
   }
-  const result = planEntity({ ...input, language, advokat, workingProfile: profile, clientCardPath }, templates, (p) => existsSync4(join14(input.dir, p)));
+  const result = planEntity({ ...input, language, advokat, workingProfile: profile, clientCardPath }, templates, (p) => existsSync4(join15(input.dir, p)));
   if (existsSync4(agents)) {
     const mirror = result.entries.find((entry) => entry.path === "CLAUDE.md" && entry.action === "create");
     if (mirror)
@@ -5531,7 +5536,7 @@ function apply(p) {
   const created = [];
   const skipped = [];
   const root = resolve13(p.dir);
-  const card = existingCard(p.type, (name) => existsSync4(join14(root, name)));
+  const card = existingCard(p.type, (name) => existsSync4(join15(root, name)));
   const plannedCard = p.entries.find((entry) => CARD_ALIASES[p.type].includes(entry.path));
   if (plannedCard && (card || plannedCard.action === "skip") && card !== plannedCard.path)
     throw new Error("Karta entity sa od náhľadu zmenila; načítaj nový plán.");
@@ -5539,19 +5544,19 @@ function apply(p) {
     const target = resolve13(root, entry.path);
     if (!target.startsWith(root + sep10))
       throw new Error(`Cesta opúšťa priečinok entity: ${entry.path}`);
-    for (let part = target;part !== root; part = dirname9(part)) {
+    for (let part = target;part !== root; part = dirname10(part)) {
       if (lstatSync3(part, { throwIfNoEntry: false })?.isSymbolicLink())
         throw new Error(`Cesta vedie cez symbolický odkaz: ${entry.path}`);
     }
   }
   mkdirSync2(p.dir, { recursive: true });
   for (const entry of p.entries) {
-    const full = join14(p.dir, entry.path);
+    const full = join15(p.dir, entry.path);
     if (entry.action !== "create" || existsSync4(full)) {
       skipped.push(entry.path);
       continue;
     }
-    mkdirSync2(dirname9(full), { recursive: true });
+    mkdirSync2(dirname10(full), { recursive: true });
     writeFileSync2(full, entry.content ?? "", "utf8");
     created.push(entry.path);
   }
@@ -5565,9 +5570,9 @@ function validate(root) {
   const workingPaths = [];
   for (const rel of documents.filter((path) => path.split("/").pop() === PROFILE_FILE)) {
     try {
-      const scope = dirname9(join14(root, rel));
+      const scope = dirname10(join15(root, rel));
       for (const folder of storedProfile(scope)?.folders ?? [])
-        workingPaths.push(relative9(root, join14(scope, folder)).split("\\").join("/") + "/");
+        workingPaths.push(relative9(root, join15(scope, folder)).split("\\").join("/") + "/");
     } catch (error) {
       errors.push({ path: rel, message: error instanceof Error ? error.message : String(error) });
     }
@@ -5575,9 +5580,9 @@ function validate(root) {
   for (const rel of documents) {
     if (workingPaths.some((path) => rel.startsWith(path)) || rel.split("/").some((part) => WORKING_FOLDERS.some((folder) => folder === part)) || rel.split("/").pop() === "BRAIN.md")
       continue;
-    const parent = dirname9(join14(root, rel));
-    const bundleRoot = !rel.includes("/") || basename7(parent) === "memory" || ENTITY_TYPES.some((type) => CARD_ALIASES[type].some((name) => existsSync4(join14(parent, name))));
-    const error = validateMarkdown(rel, readText(join14(root, rel)), bundleRoot);
+    const parent = dirname10(join15(root, rel));
+    const bundleRoot = !rel.includes("/") || basename8(parent) === "memory" || ENTITY_TYPES.some((type) => CARD_ALIASES[type].some((name) => existsSync4(join15(parent, name))));
+    const error = validateMarkdown(rel, readText(join15(root, rel)), bundleRoot);
     if (error)
       errors.push(error);
   }
@@ -5598,13 +5603,13 @@ function realPathInside(realRoot, path) {
     }
     if (lstatSync3(ancestor, { throwIfNoEntry: false }))
       throw new Error(`Visiaci symbolický odkaz nemožno overiť: ${ancestor}`);
-    const parent = dirname9(ancestor);
+    const parent = dirname10(ancestor);
     if (parent === ancestor)
       throw new Error(`Cesta nemá existujúceho predka: ${logical}`);
-    tail.unshift(basename7(ancestor));
+    tail.unshift(basename8(ancestor));
     ancestor = parent;
   }
-  const target = tail.length ? join14(real, ...tail) : real;
+  const target = tail.length ? join15(real, ...tail) : real;
   if (!contained(realRoot, target))
     throw new Error(`Cesta vedie mimo priečinka entity (aj cez symbolický odkaz): ${logical}`);
   if (!tail.length && !statSync(target).isFile())
@@ -5619,7 +5624,7 @@ function render(root, selectedLanguage) {
   const agents = inside("AGENTS.md");
   const claude = inside("CLAUDE.md");
   const index = inside("index.md");
-  const cards = ENTITY_TYPES.flatMap((type) => CARD_ALIASES[type]).filter((name) => existsSync4(join14(realRoot, name)));
+  const cards = ENTITY_TYPES.flatMap((type) => CARD_ALIASES[type]).filter((name) => existsSync4(join15(realRoot, name)));
   if (cards.length > 1)
     throw new Error(`Viac kariet entity: ${cards.join(", ")}. Najprv zosúlaď ich obsah.`);
   const metadata = cards[0] ? parseFrontmatter(readText(inside(cards[0]))) : null;
@@ -5635,7 +5640,7 @@ function render(root, selectedLanguage) {
       kept.push("CLAUDE.md");
     else {
       const backup = `CLAUDE.md.${Date.now()}.bak`;
-      writeFileSync2(join14(realRoot, backup), readText(claude), { encoding: "utf8", flag: "wx" });
+      writeFileSync2(join15(realRoot, backup), readText(claude), { encoding: "utf8", flag: "wx" });
       writeFileSync2(claude, a, "utf8");
       written.push(backup, "CLAUDE.md");
     }
@@ -5665,7 +5670,7 @@ ${body}
 
 // src/naming-fs.ts
 import { closeSync as closeSync2, constants as constants11, fstatSync as fstatSync2, fsyncSync, lstatSync as lstatSync4, mkdirSync as mkdirSync3, openSync as openSync2, opendirSync, readSync as readSync2, realpathSync as realpathSync4, renameSync as renameSync2, unlinkSync, writeSync } from "node:fs";
-import { basename as basename8, dirname as dirname10, extname, isAbsolute as isAbsolute10, join as join15, relative as relative10, resolve as resolve14, sep as sep11 } from "node:path";
+import { basename as basename9, dirname as dirname11, extname, isAbsolute as isAbsolute10, join as join16, relative as relative10, resolve as resolve14, sep as sep11 } from "node:path";
 
 // ../okf-pamat/src/workspace-memory-types.ts
 var WORKSPACE_MEMORY_LIMITS = Object.freeze({ profileBytes: 256 * 1024, journalBytes: 4 * 1024 * 1024, sourceBytes: 2 * 1024 * 1024, totalBytes: 16 * 1024 * 1024, sources: 256 });
@@ -5972,7 +5977,7 @@ function writtenSources(plan) {
   return [...plan.documents.filter((d) => d.treatment === "rename-working").map((d) => ({ path: d.source.path, replaced: false })), ...plan.markdown.filter((m) => m.source.sha256 !== m.afterSha256).map((m) => ({ path: m.source.path, replaced: true }))];
 }
 function blockedMessage(root, path, code, sources, platform) {
-  return code === "EBUSY" || platform === "win32" && sources.has(path) && readOnlyFile(join15(root, path)) ? lockedMessage(path) : deniedMessage(path, code);
+  return code === "EBUSY" || platform === "win32" && sources.has(path) && readOnlyFile(join16(root, path)) ? lockedMessage(path) : deniedMessage(path, code);
 }
 function blockedPath(root, error) {
   const code = errorCode6(error);
@@ -6000,7 +6005,7 @@ function renameWithRetry(from, to, platform = process.platform, rename = renameS
 function assertSourcesWritable(root, sources, hooks, platform) {
   const paths = new Set(sources.map((source) => source.path));
   for (const { path, replaced } of sources) {
-    const full = join15(root, path);
+    const full = join16(root, path);
     try {
       hooks.checkpoint?.("lock-probe", path);
       closeSync2(openSync2(full, constants11.O_RDWR | constants11.O_NOFOLLOW | constants11.O_NONBLOCK));
@@ -6018,8 +6023,7 @@ function exists(path, kind = "file") {
   return checkedPath(path, kind, true);
 }
 function rootDirectory(directory) {
-  checkedPath(directory, "directory");
-  const path = realpathSync4(directory);
+  const path = checkedDirectory(directory);
   return { path, identity: physical(lstatSync4(path, { bigint: true })) };
 }
 function assertRoot(root) {
@@ -6054,26 +6058,26 @@ function readNamingBinary(path, limit) {
   }
 }
 function readNamingJson(path, limit = JSON_LIMIT) {
-  return JSON.parse(utf8(readNamingBinary(path, limit).data));
+  return JSON.parse(utf8(readNamingBinary(join16(checkedDirectory(dirname11(path)), basename9(path)), limit).data));
 }
 function pin(path, read) {
   return { path, sha256: read.sha256, bytes: read.bytes, physical: read.physical };
 }
 function assertPin(root, expected, limit) {
-  const read = readNamingBinary(join15(root, expected.path), limit);
+  const read = readNamingBinary(join16(root, expected.path), limit);
   if (read.sha256 !== expected.sha256 || read.bytes !== expected.bytes || read.physical !== expected.physical)
     conflict(`Changed source: ${expected.path}`);
   return read;
 }
 function checkCase(path, shouldExist) {
-  const directory = opendirSync(dirname10(path));
+  const directory = opendirSync(dirname11(path));
   let found = false, count = 0;
   try {
     for (let entry = directory.readSync();entry; entry = directory.readSync()) {
       if (++count > 20000)
         conflict("Destination/path directory exceeds bounded case-check limit (20000 entries)");
-      if (fold(entry.name) === fold(basename8(path))) {
-        if (entry.name !== basename8(path) || !shouldExist)
+      if (fold(entry.name) === fold(basename9(path))) {
+        if (entry.name !== basename9(path) || !shouldExist)
           conflict(`Case-fold collision: ${path}`);
         found = true;
       }
@@ -6092,14 +6096,14 @@ function contentPath(root, path, mapped) {
     throw new NamingSchemaError("Path outside matter");
   let component = root;
   for (const part of path.split("/").slice(0, -1)) {
-    component = join15(component, part);
+    component = join16(component, part);
     checkedPath(component, "directory");
     checkCase(component, true);
   }
   return result;
 }
 function memoryProtection(root) {
-  const path = ".lawoss/memory-profile.json", absolute = join15(root, path), mapped = new Set;
+  const path = ".lawoss/memory-profile.json", absolute = join16(root, path), mapped = new Set;
   if (!exists(absolute))
     return { source: null, mapped };
   const read = readNamingBinary(absolute, PROFILE_LIMIT), profile = parseWorkspaceMemoryProfileText(utf8(read.data));
@@ -6112,9 +6116,9 @@ function memoryProtection(root) {
   return { source: pin(path, read), mapped };
 }
 function targetAbsent(root, target) {
-  const path = join15(root, target.path);
-  checkedPath(dirname10(path), "directory");
-  if (physical(lstatSync4(dirname10(path), { bigint: true })) !== target.parentPhysical)
+  const path = join16(root, target.path);
+  checkedPath(dirname11(path), "directory");
+  if (physical(lstatSync4(dirname11(path), { bigint: true })) !== target.parentPhysical)
     conflict(`Target directory changed: ${target.path}`);
   checkCase(path, false);
   if (exists(path))
@@ -6122,7 +6126,7 @@ function targetAbsent(root, target) {
 }
 function planDocumentNaming(matterDir, input) {
   const request = parseNamingRequest(input), root = rootDirectory(matterDir);
-  const profileRead = readNamingBinary(join15(root.path, PROFILE_FILE), PROFILE_LIMIT), profile = parseWorkingProfile(utf8(profileRead.data));
+  const profileRead = readNamingBinary(join16(root.path, PROFILE_FILE), PROFILE_LIMIT), profile = parseWorkingProfile(utf8(profileRead.data));
   const protection = memoryProtection(root.path), selected = new Set([...request.documents.map((d) => fold(d.path)), ...request.markdownFiles.map(fold)]), targets = new Set, identities = new Set;
   let totalBytes = profileRead.bytes + (protection.source?.bytes ?? 0);
   const documents = request.documents.map((document) => {
@@ -6140,7 +6144,7 @@ function planDocumentNaming(matterDir, input) {
     if (selected.has(fold(targetPath)) || targets.has(fold(targetPath)))
       conflict(`Source/target or target overlap: ${targetPath}`);
     targets.add(fold(targetPath));
-    const target = { path: targetPath, mustBeAbsent: true, parentPhysical: physical(lstatSync4(dirname10(absoluteTarget), { bigint: true })) };
+    const target = { path: targetPath, mustBeAbsent: true, parentPhysical: physical(lstatSync4(dirname11(absoluteTarget), { bigint: true })) };
     targetAbsent(root.path, target);
     totalBytes += sourceRead.bytes;
     if (totalBytes > NAMING_LIMITS.totalBytes)
@@ -6196,7 +6200,7 @@ function parseNamingPlan(value) {
   return value;
 }
 function exclusive(path, data, mode = 384) {
-  checkedPath(dirname10(path), "directory");
+  checkedPath(dirname11(path), "directory");
   const fd = openSync2(path, constants11.O_WRONLY | constants11.O_CREAT | constants11.O_EXCL | constants11.O_NOFOLLOW, mode);
   try {
     const buffer = typeof data === "string" ? Buffer.from(data) : data;
@@ -6228,9 +6232,9 @@ function finalStates(root, plan) {
   profileCAS(root, plan);
   const files = [];
   for (const doc of plan.documents) {
-    const targetPath = join15(root, doc.target.path);
-    checkedPath(dirname10(targetPath), "directory");
-    if (physical(lstatSync4(dirname10(targetPath), { bigint: true })) !== doc.target.parentPhysical)
+    const targetPath = join16(root, doc.target.path);
+    checkedPath(dirname11(targetPath), "directory");
+    if (physical(lstatSync4(dirname11(targetPath), { bigint: true })) !== doc.target.parentPhysical)
       conflict("Final target directory changed");
     checkCase(targetPath, true);
     const target = readNamingBinary(targetPath, NAMING_LIMITS.documentBytes);
@@ -6239,11 +6243,11 @@ function finalStates(root, plan) {
       conflict(`Final target changed: ${doc.target.path}`);
     if (doc.treatment === "copy-original-to-drafts")
       files.push(pin(doc.source.path, assertPin(root, doc.source, NAMING_LIMITS.documentBytes)));
-    else if (exists(join15(root, doc.source.path)))
+    else if (exists(join16(root, doc.source.path)))
       conflict(`Working source reappeared: ${doc.source.path}`);
   }
   for (const m of plan.markdown) {
-    const read = readNamingBinary(join15(root, m.source.path), NAMING_LIMITS.markdownBytes);
+    const read = readNamingBinary(join16(root, m.source.path), NAMING_LIMITS.markdownBytes);
     if (read.sha256 !== m.afterSha256)
       conflict(`Final Markdown changed: ${m.source.path}`);
     files.push(pin(m.source.path, read));
@@ -6256,7 +6260,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
   const report = (status, message) => ({ status, operationId: plan.operationId, fingerprint: plan.fingerprint, ...message ? { message } : {} });
   if (root.path !== plan.matterRootPhysical || root.identity !== plan.rootIdentity)
     return report("conflict", "Matter root physical identity differs");
-  const history = join15(root.path, ".lawoss/naming-history"), operation = join15(history, plan.operationId), journal = join15(operation, "journal.json"), lock = join15(history, "apply.lock");
+  const history = join16(root.path, ".lawoss/naming-history"), operation = join16(history, plan.operationId), journal = join16(operation, "journal.json"), lock = join16(history, "apply.lock");
   let lockIdentity;
   const created = [], installed = [], removed = [];
   let prepared = false;
@@ -6267,7 +6271,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
         conflict("Preview is stale; create and approve a new plan");
       assertSourcesWritable(root.path, sources, hooks, platform);
     }
-    controlDirectory(join15(root.path, ".lawoss"));
+    controlDirectory(join16(root.path, ".lawoss"));
     controlDirectory(history);
     checkCase(operation, exists(operation, "directory"));
     lockIdentity = exclusive(lock, JSON.stringify({ operationId: plan.operationId, fingerprint: plan.fingerprint }));
@@ -6288,9 +6292,9 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
           return report("conflict", "Operation ID belongs to a different plan");
         if (namingFingerprint(prior.plan) !== namingFingerprint(plan))
           return recovery("Journal plan is inconsistent");
-        if (!exists(join15(operation, "committed.json")))
+        if (!exists(join16(operation, "committed.json")))
           return recovery("Incomplete operation; retain journal and snapshots for human recovery");
-        const receipt = readNamingJson(join15(operation, "committed.json"));
+        const receipt = readNamingJson(join16(operation, "committed.json"));
         if (!object3(receipt) || receipt.version !== 1 || receipt.status !== "committed" || typeof receipt.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(receipt.fingerprint) || !Array.isArray(receipt.finalFiles) || !receipt.finalFiles.every((file) => isPin(file) && safeRelativePath(file.path)))
           return recovery("Incomplete or invalid committed receipt");
         if (receipt.fingerprint !== plan.fingerprint)
@@ -6314,7 +6318,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
     const snapshots = new Map;
     for (const [i, source] of [...plan.documents.map((d) => d.source), ...plan.markdown.map((m) => m.source)].entries()) {
       const read = assertPin(root.path, source, i < plan.documents.length ? NAMING_LIMITS.documentBytes : NAMING_LIMITS.markdownBytes);
-      const backup = join15(operation, `before-${i}.bin`);
+      const backup = join16(operation, `before-${i}.bin`);
       exclusive(backup, read.data);
       snapshots.set(source.path, { backup, mode: read.mode, beforeSha256: read.sha256 });
     }
@@ -6324,12 +6328,12 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
       assertRoot(root);
       profileCAS(root.path, plan);
       targetAbsent(root.path, document.target);
-      const source = assertPin(root.path, document.source, NAMING_LIMITS.documentBytes), path = join15(root.path, document.target.path);
+      const source = assertPin(root.path, document.source, NAMING_LIMITS.documentBytes), path = join16(root.path, document.target.path);
       const identity = exclusive(path, source.data, source.mode);
       created.push({ path, physical: identity, sha256: source.sha256 });
       if (readNamingBinary(path, NAMING_LIMITS.documentBytes).sha256 !== source.sha256)
         conflict("Target copy verification failed");
-      exclusive(join15(operation, `target-${created.length}.json`), JSON.stringify(created.at(-1)));
+      exclusive(join16(operation, `target-${created.length}.json`), JSON.stringify(created.at(-1)));
       hooks.checkpoint?.("target-created", document.target.path);
     }
     const moves = plan.documents.filter((d) => d.treatment === "rename-working").map((d) => ({ from: d.source.path, to: d.target.path }));
@@ -6340,14 +6344,14 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
         conflict("Link rewrite differs from approved plan");
       if (markdown.source.sha256 === markdown.afterSha256)
         continue;
-      const staged = join15(operation, `markdown-${i}.stage`), identity = exclusive(staged, rewritten.content, before.mode);
+      const staged = join16(operation, `markdown-${i}.stage`), identity = exclusive(staged, rewritten.content, before.mode);
       if (readNamingBinary(staged, NAMING_LIMITS.markdownBytes).sha256 !== markdown.afterSha256)
         conflict("Staged Markdown differs");
       assertRoot(root);
       profileCAS(root.path, plan);
       assertPin(root.path, markdown.source, NAMING_LIMITS.markdownBytes);
-      const path = join15(root.path, markdown.source.path);
-      exclusive(join15(operation, `markdown-${i}-intent.json`), JSON.stringify({ path: markdown.source.path, stagedPhysical: identity }));
+      const path = join16(root.path, markdown.source.path);
+      exclusive(join16(operation, `markdown-${i}-intent.json`), JSON.stringify({ path: markdown.source.path, stagedPhysical: identity }));
       renameWithRetry(staged, path, platform);
       installed.push({ path, physical: identity, sha256: markdown.afterSha256, ...snapshots.get(markdown.source.path) });
       hooks.checkpoint?.("markdown-installed", markdown.source.path);
@@ -6356,14 +6360,14 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
       assertRoot(root);
       profileCAS(root.path, plan);
       for (const m of plan.markdown)
-        if (readNamingBinary(join15(root.path, m.source.path), NAMING_LIMITS.markdownBytes).sha256 !== m.afterSha256)
+        if (readNamingBinary(join16(root.path, m.source.path), NAMING_LIMITS.markdownBytes).sha256 !== m.afterSha256)
           conflict("Selected links changed before source removal");
-      const target = readNamingBinary(join15(root.path, document.target.path), NAMING_LIMITS.documentBytes);
+      const target = readNamingBinary(join16(root.path, document.target.path), NAMING_LIMITS.documentBytes);
       if (target.sha256 !== document.source.sha256)
         conflict("Target changed before source removal");
       assertPin(root.path, document.source, NAMING_LIMITS.documentBytes);
-      const path = join15(root.path, document.source.path), snapshot = snapshots.get(document.source.path);
-      exclusive(join15(operation, `remove-${removed.length}-intent.json`), JSON.stringify({ path: document.source.path, ...snapshot }));
+      const path = join16(root.path, document.source.path), snapshot = snapshots.get(document.source.path);
+      exclusive(join16(operation, `remove-${removed.length}-intent.json`), JSON.stringify({ path: document.source.path, ...snapshot }));
       unlinkSync(path);
       removed.push({ path, sha256: document.source.sha256, ...snapshot });
       hooks.checkpoint?.("source-removed", document.source.path);
@@ -6374,7 +6378,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
     for (const file of [...created, ...installed])
       if (readNamingBinary(file.path, NAMING_LIMITS.documentBytes).physical !== file.physical)
         conflict("Written file physical identity changed before commit");
-    exclusive(join15(operation, "committed.json"), JSON.stringify({ version: 1, status: "committed", fingerprint: plan.fingerprint, finalFiles }));
+    exclusive(join16(operation, "committed.json"), JSON.stringify({ version: 1, status: "committed", fingerprint: plan.fingerprint, finalFiles }));
     return { ...report("applied"), journal };
   } catch (error) {
     const recovery = prepared;
@@ -6433,7 +6437,7 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
     const blocked = blockedPath(root.path, error), rolledBack = prepared && completeRollback && blocked !== undefined;
     if (prepared)
       try {
-        exclusive(join15(operation, "failure.json"), JSON.stringify({ status: rolledBack ? "rolled-back" : "recovery-required", error: error instanceof Error ? error.message : String(error), created, installed, removed }));
+        exclusive(join16(operation, "failure.json"), JSON.stringify({ status: rolledBack ? "rolled-back" : "recovery-required", error: error instanceof Error ? error.message : String(error), created, installed, removed }));
       } catch {}
     if (blocked !== undefined && (rolledBack || !prepared))
       return { ...report("conflict", blockedMessage(root.path, blocked.path, blocked.code, sourcePaths, platform)), ...rolledBack ? { rolledBack: true, journal } : {} };
@@ -6449,9 +6453,8 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
 }
 function writeNamingPlanOutsideMatter(matterDir, output, plan) {
   const root = rootDirectory(matterDir), path = resolve14(output);
-  checkedPath(dirname10(path), "directory");
-  const parent = realpathSync4(dirname10(path)), physicalOutput = join15(parent, basename8(path));
-  if (contained(root.path, physicalOutput) || !safeRelativePath(basename8(path)))
+  const parent = checkedDirectory(dirname11(path)), physicalOutput = join16(parent, basename9(path));
+  if (contained(root.path, physicalOutput) || !safeRelativePath(basename9(path)))
     throw new NamingSchemaError("--out must be a new portable filename outside the matter root");
   checkCase(physicalOutput, false);
   exclusive(physicalOutput, JSON.stringify(plan, null, 2) + `
