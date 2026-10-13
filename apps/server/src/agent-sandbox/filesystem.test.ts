@@ -45,7 +45,10 @@ test("all project files, including hidden files and attachments, follow the moun
   const readonly = await SandboxFilesystem.create([{ source: f.workspace, target: "/workspace", writable: false }], f.controller.signal);
   filesystems.push(readonly);
   for (const path of paths) {
-    expect(await read(readonly, await openFile(readonly, `/workspace/${path}`))).toBe("original");
+    const handle = await openFile(readonly, `/workspace/${path}`);
+    expect(await read(readonly, handle)).toBe("original");
+    // Windows cannot replace a file while the other broker holds it open.
+    await readonly.request({ op: "close", handle });
     await expect(openFile(readonly, `/workspace/${path}`, true)).rejects.toMatchObject({ code: "EROFS" });
   }
   await f.filesystem.commit();
