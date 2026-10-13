@@ -12,7 +12,9 @@
 
 **Tech stack:** TypeScript, Bun 1.4.2 (`bun test`), pnpm 11.4.0, Node 24. Testy jadra: `cd lawoss/okf && bun test test/`. Server: `cd apps/server && bun test src/<súbor>`. Appka: `cd apps/app && bun test tests/<súbor>`.
 
-**Spec:** [lawOSS-like-SK-CZ#92](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/92) (po zlúčení `specs/2026-10-08-onboarding-pripojit-priecinok.md` v `main`), schválil MČ 8. 10. 2026. Nadväzuje na plán A (#135) a B (#136).
+**Spec:** [lawOSS-like-SK-CZ#92](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/92) (po zlúčení `specs/2026-10-08-onboarding-pripojit-priecinok.md` v `main`); smer odsúhlasili MČ a MF 8. 10. 2026, spec čaká na odsúhlasenie tímom. Nadväzuje na plán A (#135) a B (#136).
+
+**Stav (13. 10. 2026):** implementované a zlúčené do `dev` admin mergeom MČ (lawoss#135 až #137, #145, nadväzujúce opravy #151 až #154). Plán ostáva ako záznam postupu; rozhodnutia R1 až R9 sú v specu k#92 na odsúhlasenie tímom.
 
 ## Predpoklad: základ vetvy
 

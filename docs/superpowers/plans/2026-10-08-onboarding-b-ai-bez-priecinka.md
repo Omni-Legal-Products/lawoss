@@ -11,7 +11,9 @@
 
 **Tech stack:** TypeScript, Electron (`node --test` v `apps/desktop`), server (`bun test` v `apps/server`), appka (`bun test` v `apps/app`), pnpm 11.4.0, Node 24.
 
-**Spec:** [lawOSS-like-SK-CZ `specs/2026-10-08-onboarding-pripojit-priecinok.md`](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/92) (po zlúčení v `main` na rovnakej ceste), časť „AI bez priečinka (P8)“ (PR #92, schválil MČ 8. 10. 2026).
+**Spec:** [lawOSS-like-SK-CZ `specs/2026-10-08-onboarding-pripojit-priecinok.md`](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/92) (po zlúčení v `main` na rovnakej ceste), časť „AI bez priečinka (P8)“ (PR #92: smer odsúhlasili MČ a MF 8. 10. 2026, spec čaká na odsúhlasenie tímom).
+
+**Stav (13. 10. 2026):** implementované a zlúčené do `dev` admin mergeom MČ (lawoss#135 až #137, #145, nadväzujúce opravy #151 až #154). Plán ostáva ako záznam postupu; rozhodnutia R1 až R9 sú v specu k#92 na odsúhlasenie tímom.
 
 ## Zistenia, z ktorých plán vychádza (overené v kóde 8. 10. 2026)
 

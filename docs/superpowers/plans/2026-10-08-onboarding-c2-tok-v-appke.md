@@ -11,7 +11,9 @@
 
 **Tech stack:** React 19, TypeScript, `bun test` s `renderToStaticMarkup` (bez JSDOM), pnpm 11.4.0, Node 24, Electron (overenie na zabalenej appke).
 
-**Spec:** [lawOSS-like-SK-CZ#92](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/92) (po zlúčení `specs/2026-10-08-onboarding-pripojit-priecinok.md` v `main`), časti „Tok obrazoviek“, „Pripojenie praxe (P5)“ a „Chyby a obnova“. Schválil MČ 8. 10. 2026.
+**Spec:** [lawOSS-like-SK-CZ#92](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/92) (po zlúčení `specs/2026-10-08-onboarding-pripojit-priecinok.md` v `main`), časti „Tok obrazoviek“, „Pripojenie praxe (P5)“ a „Chyby a obnova“. Smer odsúhlasili MČ a MF 8. 10. 2026, spec čaká na odsúhlasenie tímom.
+
+**Stav (13. 10. 2026):** implementované a zlúčené do `dev` admin mergeom MČ (lawoss#135 až #137, #145, nadväzujúce opravy #151 až #154). Plán ostáva ako záznam postupu; rozhodnutia R1 až R9 sú v specu k#92 na odsúhlasenie tímom.
 
 ## Predpoklad: základ vetvy
 
