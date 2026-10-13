@@ -20,6 +20,7 @@ import { readLegalworkServerSettings } from "@/app/lib/legalwork-server";
 import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import { writeLastSessionFor } from "@/react-app/shell/session-memory";
 import { t } from "@/i18n";
+import { withoutLawossHome } from "@/lawoss/home-workspace";
 import { fetchDocumentPath, officeCoversTopRightCorner, officeHostName, openLegalworkApp } from "./office";
 import { useWordServerClient } from "./use-word-server-client";
 
@@ -121,7 +122,8 @@ export function WordWorkspacesScreen() {
     queryKey: ["word-addin", "workspaces"],
     queryFn: () => client.listWorkspaces(),
   });
-  const items = workspaces.data?.items ?? [];
+  // LAWOSS: interný domovský priestor sa používateľovi nezobrazuje.
+  const items = withoutLawossHome(workspaces.data?.items ?? []);
 
   // Folder of the open Office document (null while unsaved or cloud-hosted),
   // offered as a one-click "create workspace here" shortcut.
@@ -361,7 +363,7 @@ export function WordSessionsScreen() {
     queryKey: ["word-addin", "workspaces"],
     queryFn: () => client.listWorkspaces(),
   });
-  const workspace = workspaces.data?.items.find((item) => item.id === workspaceId);
+  const workspace = withoutLawossHome(workspaces.data?.items ?? []).find((item) => item.id === workspaceId);
   const workspaceName = workspace?.name ?? "";
 
   // Mirrors the app's "New Task": create a real (empty) session and open it,

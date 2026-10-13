@@ -176,7 +176,9 @@ import {
   OPENAI_IMAGE_MODEL,
 } from "@/react-app/domains/settings/openai-image-extension";
 import { OLLAMA_PROVIDER_CONFIG, type LocalProviderInstallInput } from "@/react-app/domains/settings/openai-image-extension";
+import { conversationWorkspaceId, isLawossHomeWorkspace, preferRealWorkspace } from "@/lawoss/home-workspace";
 import { localProviderTimeouts } from "@/lawoss/providers/local-timeouts";
+import { patchProviderConfirmingOverwrite } from "@/lawoss/providers/overwrite-confirm";
 
 function normalizeComputerUsePermissions(value: unknown) {
   if (typeof value !== "object" || value === null) return null;
@@ -393,6 +395,9 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [workspaceConnectionOverrides, setWorkspaceConnectionOverrides] = useState<Record<string, WorkspaceConnectionState>>({});
   const [legacySelectedWorkspaceId, setLegacySelectedWorkspaceId] = useState(() => navigationWorkspaceId ?? readActiveWorkspaceId() ?? "");
   const selectedWorkspaceId = routeWorkspaceId || legacySelectedWorkspaceId;
+  // LAWOSS: z nastavení sa do domovského priestoru nevracia ako do projektu (P8), ale na úvodnú stránku.
+  const sessionReturnWorkspaceId = conversationWorkspaceId(workspaces, selectedWorkspaceId);
+  const sessionReturnRoute = sessionReturnWorkspaceId ? workspaceSessionRoute(sessionReturnWorkspaceId) : "/session";
 
   const onEmbeddedPathChange = props.onEmbeddedPathChange;
   useEffect(() => {
@@ -519,7 +524,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   });
 
   const selectedWorkspace = useMemo(
-    () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? (selectedWorkspaceId ? null : workspaces[0] ?? null),
+    () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? (selectedWorkspaceId ? null : preferRealWorkspace(workspaces) ?? workspaces[0] ?? null),
     [selectedWorkspaceId, workspaces],
   );
   const workspaceConnectionStateById = useMemo(() => {
@@ -1145,7 +1150,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
     setLocalProviderStatus(null);
     setLocalProviderError(null);
     try {
-      await client.patchConfig(workspaceId, {
+      // LAWOSS: rozdielny poskytovateľ iného klienta sa prepíše až po potvrdení.
+      await patchProviderConfirmingOverwrite((confirmProviderOverwrite) => client.patchConfig(workspaceId, {
         opencode: {
           provider: {
             [input.providerId]: {
@@ -1156,7 +1162,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             },
           },
         },
-      });
+        ...(confirmProviderOverwrite ? { confirmProviderOverwrite } : {}),
+      }));
       if (input.setDefault) {
         local.setPrefs((previous) => ({
           ...previous,
@@ -1571,7 +1578,8 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   }, [activeClient, connectionsStore, providerAuthStore, selectedWorkspace?.id]);
 
   const selectedWorkspaceName = selectedWorkspace?.displayNameResolved ?? t("session.workspace_fallback");
-  const workspaceOptions = workspaces.map((workspace) => ({
+  // Domovský priestor sa nezobrazuje, okrem prípadu, keď je práve vybraný (inak by výber neukazoval aktívny priečinok).
+  const workspaceOptions = workspaces.filter((workspace) => workspace.id === selectedWorkspaceId || !isLawossHomeWorkspace(workspace)).map((workspace) => ({
     id: workspace.id,
     name: workspace.displayNameResolved,
     color: workspaceSwatchColor(workspace.id),
@@ -2229,7 +2237,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
             onOpenLink={(url) => platform.openLink(url)}
             createSessionAndOpen={async (_command?: string): Promise<string | undefined> => {
               props.onClose?.();
-              navigate(selectedWorkspaceId ? workspaceSessionRoute(selectedWorkspaceId) : "/session");
+              navigate(sessionReturnRoute);
               return undefined;
             }}
             onGenerateFromTemplates={async () => {
@@ -2392,7 +2400,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                 onOpenLink={(url) => platform.openLink(url)}
                 createSessionAndOpen={async (_command?: string): Promise<string | undefined> => {
                   props.onClose?.();
-                  navigate(selectedWorkspaceId ? workspaceSessionRoute(selectedWorkspaceId) : "/session");
+                  navigate(sessionReturnRoute);
                   return undefined;
                 }}
               />
@@ -2540,7 +2548,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           onSelectWorkspace={handleSelectSettingsWorkspace}
           headerStatus={routeLegalworkStatus}
           busyHint={loading ? t("session.loading_detail") : busyLabel}
-          onClose={props.onClose ?? (() => navigate(selectedWorkspaceId ? workspaceSessionRoute(selectedWorkspaceId) : "/session"))}
+          onClose={props.onClose ?? (() => navigate(sessionReturnRoute))}
           compact={props.embedded}
         >
           {settingsView}

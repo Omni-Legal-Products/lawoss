@@ -4,8 +4,12 @@ export const LITE_CLIENTS_PATH = "/klienti";
 export const LITE_MATTER_PATH = "/vec";
 /** Nová vec cez ten istý formulár s náhľadom a potvrdením ako bočný panel (nie technický Nový spis). */
 export const NEW_MATTER_PATH = "/welcome?continue=matter";
-/** Krok klienta rovno v pripojení existujúceho priečinka; predvolený je skúšobný klon. */
-export const ATTACH_EXISTING_CLIENT_PATH = "/welcome?continue=existing";
+/** Pripojiť priečinok (klient, prax, vec) cez obrazovku „Toto som našiel“ (spec 2026-10-08). */
+export const ADD_FOLDER_PATH = "/welcome?continue=folder";
+/** Staré meno pre tlačidlá „Pripojiť existujúci priečinok klienta“; vedie na ten istý tok. */
+export const ATTACH_EXISTING_CLIENT_PATH = ADD_FOLDER_PATH;
+/** „Usporiadať podľa OKF“ pre už pripojený priečinok: rovno obrazovka „Toto som našiel“. */
+export const organizeFolderLink = (root: string): string => `${ADD_FOLDER_PATH}&root=${encodeURIComponent(root)}`;
 
 export const liteMatterLink = (path: string): string => `${LITE_MATTER_PATH}?vec=${encodeURIComponent(path)}`;
 

@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { useEffect, useState } from "react";
+import { preferRealWorkspace } from "../../home-workspace";
 import { CircleAlert, CircleCheck, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { Language } from "@/i18n";
@@ -36,7 +37,7 @@ const aiStepText: Record<Language, AiStepText> = {
     none: "Zatiaľ nemáte pripojený model. Pokračovať môžete aj bez neho, asistent však začne odpovedať až po pripojení modelu v nastaveniach AI.",
     pick: "Poskytovateľ je pripojený, ale model zatiaľ nie je vybraný. Vyberte ho v nastaveniach AI.",
     unavailable: "Vybraný model už nie je dostupný. Vyberte iný v nastaveniach AI.",
-    noWorkspace: "Model pripojíte, keď bude otvorený prvý priečinok (klient alebo pracovný priečinok): nastavenia AI patria k nemu. Pokračujte a model potom pripojte v Nastavenia → Poskytovatelia AI.",
+    noWorkspace: "Prostredie AI sa ešte nespustilo, preto sa model teraz nedá overiť. Pokračujte a model pripojte v Nastavenia → Poskytovatelia AI. Nastavenie platí pre všetky priečinky a priečinok na to nepotrebujete.",
     open: "Otvoriť nastavenia AI",
     continueReady: "Pokračovať",
     continueWithout: "Pokračovať bez modelu",
@@ -47,7 +48,7 @@ const aiStepText: Record<Language, AiStepText> = {
     none: "Zatím nemáte připojený model. Pokračovat můžete i bez něj, asistent ale začne odpovídat až po připojení modelu v nastavení AI.",
     pick: "Poskytovatel je připojen, ale model zatím není vybrán. Vyberte ho v nastavení AI.",
     unavailable: "Vybraný model už není dostupný. Vyberte jiný v nastavení AI.",
-    noWorkspace: "Model připojíte, až bude otevřená první složka (klient nebo pracovní složka): nastavení AI patří k ní. Pokračujte a model pak připojte v Nastavení → Poskytovatelé AI.",
+    noWorkspace: "Prostředí AI se ještě nespustilo, proto model teď nelze ověřit. Pokračujte a model připojte v Nastavení → Poskytovatelé AI. Nastavení platí pro všechny složky a složku k tomu nepotřebujete.",
     open: "Otevřít nastavení AI",
     continueReady: "Pokračovat",
     continueWithout: "Pokračovat bez modelu",
@@ -58,7 +59,7 @@ const aiStepText: Record<Language, AiStepText> = {
     none: "No model is connected yet. You can continue without one, but the assistant only answers once a model is connected in the AI settings.",
     pick: "A provider is connected, but no model is selected yet. Choose one in the AI settings.",
     unavailable: "The selected model is no longer available. Choose another one in the AI settings.",
-    noWorkspace: "You connect a model once the first folder is open (a client or a working folder), because the AI settings belong to it. Continue, then connect a model in Settings → AI Providers.",
+    noWorkspace: "The AI environment has not started yet, so the model cannot be checked now. Continue, then connect a model in Settings → AI Providers. The setting applies to every folder and does not need one.",
     open: "Open AI settings",
     continueReady: "Continue",
     continueWithout: "Continue without a model",
@@ -69,14 +70,14 @@ const aiStepText: Record<Language, AiStepText> = {
     none: "Noch ist kein Modell verbunden. Sie können ohne Modell fortfahren, der Assistent antwortet aber erst, wenn in den KI-Einstellungen ein Modell verbunden ist.",
     pick: "Ein Anbieter ist verbunden, aber noch kein Modell ausgewählt. Wählen Sie es in den KI-Einstellungen.",
     unavailable: "Das ausgewählte Modell ist nicht mehr verfügbar. Wählen Sie in den KI-Einstellungen ein anderes.",
-    noWorkspace: "Ein Modell verbinden Sie, sobald der erste Ordner geöffnet ist (Mandant oder Arbeitsordner), denn die KI-Einstellungen gehören zu ihm. Fahren Sie fort und verbinden Sie das Modell dann unter Einstellungen → KI-Provider.",
+    noWorkspace: "Die KI-Umgebung ist noch nicht gestartet, daher lässt sich das Modell jetzt nicht prüfen. Fahren Sie fort und verbinden Sie das Modell unter Einstellungen → KI-Provider. Die Einstellung gilt für alle Ordner und benötigt keinen Ordner.",
     open: "KI-Einstellungen öffnen",
     continueReady: "Weiter",
     continueWithout: "Ohne Modell fortfahren",
   },
 };
 
-/** `no-workspace`: before the first folder exists there is no engine whose providers could be listed or configured. */
+/** `no-workspace`: no engine is reachable yet (not even the hidden home workspace, spec P8), so providers cannot be listed here. */
 export type AiModelView = { state: ComposerModelState | "checking" | "no-workspace"; modelLabel?: string };
 
 /**
@@ -160,8 +161,8 @@ async function resolveOpencodeTarget(): Promise<OpencodeTarget | null> {
   });
   const list = await server.listWorkspaces();
   const workspace =
-    list.items.find((item) => item.id === list.activeId) ??
-    list.items.find((item) => item.workspaceType !== "remote");
+    preferRealWorkspace(list.items, list.activeId, (item) => item.id) ??
+    list.items.find((item) => item.id === list.activeId);
   if (!workspace) return null;
   const endpoint = resolveWorkspaceEndpoint(workspace, {
     baseUrl: connection.normalizedBaseUrl,

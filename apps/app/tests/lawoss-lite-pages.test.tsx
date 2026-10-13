@@ -183,7 +183,7 @@ describe("stavy stránek LAWOSS-lite", () => {
     const retry = <button type="button">Try again</button>;
     const off = html(<OkfPageState {...base} okfOff retry={retry} stateText={liteStateText("en")}>{() => "dashboard"}</OkfPageState>);
     expect(off).toContain("built from matter organisation, which is off");
-    expect(off).toContain('href="/welcome?continue=okf"');
+    expect(off).toContain('href="/welcome?continue=folder"');
     expect(off).toContain("Turn on matter organisation");
     expect(off).not.toContain("The office folder has no matters yet.");
     expect(off).not.toContain("Try again");

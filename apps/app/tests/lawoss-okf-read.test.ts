@@ -442,3 +442,21 @@ test("klient v koreni priečinka bez vecí: jedna skupina s názvom z karty", as
   expect(out.clients).toEqual([{ path: "", title: "Koreňový klient" }]);
   expect(groupByClient(out.matters, out.inputs, out.clients)).toEqual([{ key: "client:", client: "Koreňový klient", matters: [] }]);
 });
+
+test("priečinok pomenovaný ako vec (`2025-01 Spor`) je vecou klienta aj bez karty (D1 2026-10-09)", async () => {
+  const out = await readWorkspaceMemory(fakeClient({
+    "client.md": "---\ntitle: Samostatný klient\n---\n",
+    "2025-01 Spor/Žaloba.pdf": "%PDF",
+    "8C 1-2024 Odvolanie/poznamka.txt": "",
+    "01_Podklady/Plná moc.pdf": "%PDF",
+    "Archív/stary.pdf": "%PDF",
+  }), "ws", TODAY);
+  expect(out.matters.map((m) => m.path).sort()).toEqual(["2025-01 Spor", "8C 1-2024 Odvolanie"]);
+  expect(out.matters.find((m) => m.path === "2025-01 Spor")?.title).toBe("2025-01 Spor");
+  expect(groupByClient(out.matters, out.inputs, out.clients).map((g) => [g.client, g.matters.length])).toEqual([["Samostatný klient", 2]]);
+});
+
+test("mimo klienta s kartou sa priečinok s dátumom za vec nepovažuje", async () => {
+  const out = await readWorkspaceMemory(fakeClient({ "2025-01 Projekt/readme.txt": "" }), "ws", TODAY);
+  expect(out.matters).toEqual([]);
+});
