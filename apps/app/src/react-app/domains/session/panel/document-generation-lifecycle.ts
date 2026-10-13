@@ -16,6 +16,8 @@ export type DocumentGenerationBinding = DocumentGenerationMetadata & {
   phase: "accepted" | "running" | "completed" | "error";
   error: string | null;
   nativeRunObserved?: boolean;
+  messageId?: string;
+  nativeRevision?: number;
 };
 const storageKey = "lawoss.document-generations.v1";
 const bindings = new Map<string, DocumentGenerationBinding>();
@@ -23,6 +25,23 @@ const listeners = new Set<() => void>();
 const inFlight = new Set<string>();
 let loaded = false;
 let revision = 0;
+let lastMessageTime = 0;
+let messageCounter = 0;
+
+/** OpenCode Identifier ascending format: six-byte timestamp/counter plus 14 random base62 characters. */
+function createMessageId() {
+  const time = Math.max(Date.now(), lastMessageTime);
+  messageCounter = time === lastMessageTime ? messageCounter + 1 : 1;
+  lastMessageTime = time;
+  if (messageCounter >= 4096) {
+    lastMessageTime += 1;
+    messageCounter = 1;
+  }
+  const timestamp = ((BigInt(lastMessageTime) * 4096n + BigInt(messageCounter)) & 0xffffffffffffn).toString(16).padStart(12, "0");
+  const alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  const random = crypto.getRandomValues(new Uint8Array(14));
+  return `msg_${timestamp}${Array.from(random, value => alphabet[value % 62]).join("")}`;
+}
 
 function loadBindings() {
   if (loaded) return;
@@ -74,7 +93,7 @@ export function observeDocumentGeneration(key: string, projectId: string) {
     const record = useSessionActivityStore.getState().recordsByWorkspaceId[projectId]?.[binding.sessionId];
     if (!record || record.updatedAt < binding.startedAt) return;
     if (record.errorActive) {
-      saveBinding(key, { ...binding, phase: "error", error: record.errorMessage });
+      saveBinding(key, { ...binding, phase: "error", error: record.errorMessage, nativeRevision: (binding.nativeRevision ?? 0) + 1 });
     } else if (record.runActive && binding.phase === "accepted") {
       saveBinding(key, { ...binding, phase: "running" });
     }
@@ -89,35 +108,57 @@ export function applyDocumentGenerationRunStatus(key: string, status: SessionSta
   const binding = getDocumentGeneration(key);
   if (!binding || binding.phase === "completed" || binding.phase === "error") return;
   if (status.type === "busy" || status.type === "retry") {
-    if (!binding.nativeRunObserved) {
-      saveBinding(key, { ...binding, phase: "running", nativeRunObserved: true });
-    }
-  } else if (status.type === "idle" && binding.nativeRunObserved) {
-    saveBinding(key, { ...binding, phase: "completed", error: null });
+    saveBinding(key, { ...binding, phase: "running", nativeRunObserved: true, nativeRevision: (binding.nativeRevision ?? 0) + 1 });
+  } else if (status.type === "idle") {
+    const terminal = binding.nativeRunObserved ? { phase: "completed" as const, error: null } : {};
+    saveBinding(key, { ...binding, ...terminal, nativeRevision: (binding.nativeRevision ?? 0) + 1 });
   }
 }
 
-export function reconcileDocumentGeneration(key: string, snapshot: Pick<LegalworkSessionSnapshot, "messages" | "status">) {
+export type DocumentGenerationSnapshot = {
+  snapshot: Pick<LegalworkSessionSnapshot, "messages" | "status">;
+  messageId?: string;
+  nativeRevision: number;
+};
+
+/** Capture the attempt and native event revision before starting the non-atomic server read. */
+export async function readDocumentGenerationSnapshot(key: string, read: () => Promise<Pick<LegalworkSessionSnapshot, "messages" | "status">>): Promise<DocumentGenerationSnapshot> {
   const binding = getDocumentGeneration(key);
-  if (!binding || binding.phase === "completed") return;
-  const currentTurn = snapshot.messages.filter(message => message.info.role === "assistant" && message.info.time.created >= binding.startedAt);
+  const messageId = binding?.messageId;
+  const nativeRevision = binding?.nativeRevision ?? 0;
+  return { snapshot: await read(), messageId, nativeRevision };
+}
+
+export function isDocumentGenerationSnapshotCurrent(binding: DocumentGenerationBinding | null, result: DocumentGenerationSnapshot) {
+  return Boolean(binding && result.messageId === binding.messageId && result.nativeRevision === (binding.nativeRevision ?? 0));
+}
+
+export function reconcileDocumentGeneration(key: string, result: DocumentGenerationSnapshot | Pick<LegalworkSessionSnapshot, "messages" | "status">) {
+  const binding = getDocumentGeneration(key);
+  if (!binding || binding.phase === "completed" || binding.phase === "error") return;
+  const envelope = "snapshot" in result ? result : null;
+  if (!envelope || !isDocumentGenerationSnapshotCurrent(binding, envelope)) return;
+  const snapshot = envelope.snapshot;
+  // Historical/legacy bindings without a persisted engine-visible ID remain conservative.
+  const currentTurn = binding.messageId
+    ? snapshot.messages.filter(({ info }) => info.role === "assistant" && info.parentID === binding.messageId && !info.summary)
+    : [];
   const failed = currentTurn.find(message => message.info.role === "assistant" && message.info.error);
   if (failed?.info.role === "assistant") {
-    const error = JSON.stringify(failed.info.error);
-    if (binding.phase !== "error" || binding.error !== error) {
-      saveBinding(key, { ...binding, phase: "error", error });
-    }
+    saveBinding(key, { ...binding, phase: "error", error: JSON.stringify(failed.info.error) });
     return;
   }
   if (snapshot.status.type === "busy" || snapshot.status.type === "retry") {
-    if (binding.phase === "error") return;
     if (binding.phase !== "running" || !binding.nativeRunObserved) {
-      saveBinding(key, { ...binding, phase: "running", error: null, nativeRunObserved: true });
+      saveBinding(key, { ...binding, phase: "running", nativeRunObserved: true });
     }
     return;
   }
-  const completed = currentTurn.some(message => message.info.role === "assistant" && typeof message.info.time.completed === "number" && message.info.time.completed >= binding.startedAt);
-  if (completed && binding.phase !== "error") {
+  const completed = currentTurn.some(({ info }) => {
+    if (info.role !== "assistant" || typeof info.time.completed !== "number") return false;
+    return Boolean(info.finish) && info.finish !== "tool-calls" && info.finish !== "unknown";
+  });
+  if (completed) {
     saveBinding(key, { ...binding, phase: "completed", error: null });
   }
 }
@@ -129,7 +170,7 @@ export async function submitBoundDocumentGeneration(input: {
   newGeneration?: boolean;
   preflight: () => Promise<void>;
   create: () => Promise<string>;
-  send: (sessionId: string) => Promise<void>;
+  send: (sessionId: string, messageId: string) => Promise<void>;
 }) {
   if (inFlight.has(input.key)) throw new Error(t("documents.busy"));
   const existing = getDocumentGeneration(input.key);
@@ -141,11 +182,11 @@ export async function submitBoundDocumentGeneration(input: {
   try {
     await input.preflight();
     const sessionId = !binding || input.newGeneration ? await input.create() : binding.sessionId;
-    binding = { ...input.metadata, sessionId, startedAt: Date.now(), phase: "accepted", error: null, nativeRunObserved: false };
+    binding = { ...input.metadata, sessionId, startedAt: Date.now(), phase: "accepted", error: null, nativeRunObserved: false, messageId: createMessageId(), nativeRevision: 0 };
     saveBinding(input.key, binding);
     submitted = true;
     useSessionActivityStore.getState().setRunStatus(input.metadata.projectId, sessionId, { type: "busy" });
-    await input.send(sessionId);
+    await input.send(sessionId, binding.messageId!);
     return sessionId;
   } catch (cause) {
     if (binding && submitted) {

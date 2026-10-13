@@ -1,5 +1,5 @@
 import { documentExecutionDirectory } from "./native-document-preflight";
-import { documentGenerationKey, getDocumentGeneration, isDocumentGenerationActive, reconcileDocumentGeneration, subscribeDocumentGenerations } from "./document-generation-lifecycle";
+import { documentGenerationKey, getDocumentGeneration, isDocumentGenerationActive, reconcileDocumentGeneration, readDocumentGenerationSnapshot, isDocumentGenerationSnapshotCurrent, subscribeDocumentGenerations } from "./document-generation-lifecycle";
 /** @jsxImportSource react */
 import * as React from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -76,7 +76,7 @@ export function DocumentProcessingPanel(props: DocumentProcessingPanelProps) {
   );
   const lifecycle = useQuery({
     queryKey: ["lawoss-document-generation", ...identity, binding?.sessionId, binding?.startedAt],
-    queryFn: async () => (await props.client.getSessionSnapshot(props.workspaceId, binding!.sessionId, { limit: 20 })).item,
+    queryFn: () => readDocumentGenerationSnapshot(generationKey, async () => (await props.client.getSessionSnapshot(props.workspaceId, binding!.sessionId, { limit: 20 })).item),
     enabled: props.active && Boolean(binding),
     staleTime: 0,
     refetchInterval: props.active && binding ? 2000 : false,
@@ -87,7 +87,7 @@ export function DocumentProcessingPanel(props: DocumentProcessingPanelProps) {
       reconcileDocumentGeneration(generationKey, lifecycle.data);
     }
   }, [generationKey, lifecycle.data, lifecycle.isError, lifecycle.isFetching]);
-  const nativeSnapshotActive = !lifecycle.isError && (lifecycle.data?.status.type === "busy" || lifecycle.data?.status.type === "retry");
+  const nativeSnapshotActive = !lifecycle.isError && Boolean(lifecycle.data && isDocumentGenerationSnapshotCurrent(binding, lifecycle.data)) && (lifecycle.data?.snapshot.status.type === "busy" || lifecycle.data?.snapshot.status.type === "retry");
   const generationActive = isDocumentGenerationActive(binding) || nativeSnapshotActive;
   const refresh = async () => {
     await Promise.all([

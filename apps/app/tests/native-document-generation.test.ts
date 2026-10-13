@@ -15,14 +15,20 @@ import { generationPrompt, submitDocumentTask } from "../src/react-app/domains/s
 const root = { id: "root", path: "case/a.pdf", workspaceId: "remote-runtime", hash: "a".repeat(64), status: "readable" as const, complete: true, pageCount: 1, readablePages: 1, updatedAt: 1, provenance: { sourcePath: "case/a.pdf", depth: 0 } };
 const child = { ...root, id: "child", provenance: { ...root.provenance, parentId: "root", depth: 1, attachmentName: "attachment.pdf" } };
 
-async function transportTest(run: (fixture: { base: string; calls: string[]; state: { connected: boolean; tools: boolean; engine: boolean; stale: boolean; failSend: boolean }; bodies: unknown[] }) => Promise<void>) {
+async function transportTest(run: (fixture: { base: string; calls: string[]; state: { connected: boolean; tools: boolean; engine: boolean; stale: boolean; failSend: boolean; snapshot: any }; bodies: unknown[] }) => Promise<void>) {
   const calls: string[] = [], bodies: unknown[] = [];
-  const state = { connected: true, tools: true, engine: true, stale: false, failSend: false };
+  const state = { connected: true, tools: true, engine: true, stale: false, failSend: false, snapshot: { messages: [], status: { type: "idle" } } };
   const server = Bun.serve({ port: 0, fetch: async request => {
     const url = new URL(request.url), path = url.pathname;
     calls.push(`${request.method} ${path}`);
     expect(request.headers.get("authorization")).toBe("Bearer fixture-token");
     if (path.includes("/opencode/")) expect(decodeURIComponent(url.searchParams.get("directory") ?? request.headers.get("x-opencode-directory") ?? "")).toBe("/registered/root/work");
+    if (path.endsWith("/snapshot")) {
+      // Engine page order uses creation time and then ID, returned chronologically.
+      const limit = Number(url.searchParams.get("limit") ?? 20);
+      const messages = [...state.snapshot.messages].sort((a, b) => a.info.time.created - b.info.time.created || a.info.id.localeCompare(b.info.id)).slice(-limit);
+      return Response.json({ item: { session: { id: "created" }, todos: [], ...state.snapshot, messages } });
+    }
     if (path.endsWith("/provider")) return Response.json({ all: [{ id: "chosen", name: "Chosen", source: "api", models: { selected: { id: "selected", providerID: "chosen", name: "Selected", capabilities: { toolcall: state.tools }, limit: { context: 10000, output: 1000 } } } }], connected: state.connected ? ["chosen"] : [], default: {} });
     if (path.endsWith("/session") && request.method === "GET") return state.engine ? Response.json([]) : Response.json({ code: "engine_unavailable", message: "engine unavailable" }, { status: 503 });
     if (path.endsWith("/files/list")) { expect(url.searchParams.get("path")).toBe("work"); return Response.json({ path: "work", entries: [], truncated: false }); }
@@ -96,7 +102,7 @@ test("unregistered SDK client cannot silently probe the overridden/cache path", 
   expect(calls).toEqual([]);
 }));
 
-import { submitBoundDocumentGeneration, applyDocumentGenerationRunStatus, documentGenerationKey, getDocumentGeneration, observeDocumentGeneration, reconcileDocumentGeneration, clearDocumentGenerationsForTest } from "../src/react-app/domains/session/panel/document-generation-lifecycle";
+import { submitBoundDocumentGeneration, applyDocumentGenerationRunStatus, documentGenerationKey, getDocumentGeneration, observeDocumentGeneration, reconcileDocumentGeneration, readDocumentGenerationSnapshot, clearDocumentGenerationsForTest } from "../src/react-app/domains/session/panel/document-generation-lifecycle";
 import { useSessionActivityStore } from "../src/react-app/domains/session/status/session-activity-store";
 import { ensureWorkspaceSessionSync, __createWorkspaceSessionSyncForTest, __applySessionSyncEventForTest, __disposeWorkspaceSessionSyncForTest } from "../src/react-app/domains/session/sync/session-sync";
 
@@ -123,7 +129,7 @@ test("accepted204 stays bound across new panel/reload, repeat does not create, n
   const options = {
     key, metadata, preflight: () => preflightDocumentGeneration(input),
     create: async () => unwrap(await input.sdk.session.create({ directory: input.directory })).id,
-    send: async (sessionID: string) => { const response = await input.sdk.session.promptAsync({ sessionID, parts: [{ type: "text", text: "selected task" }], model: input.model }); if (response.error) throw new Error(JSON.stringify(response.error)); },
+    send: async (sessionID: string, messageID: string) => { const response = await input.sdk.session.promptAsync({ sessionID, messageID, parts: [{ type: "text", text: "selected task" }], model: input.model }); if (response.error) throw new Error(JSON.stringify(response.error)); },
   };
   try {
     expect(await submitBoundDocumentGeneration(options)).toBe("created");
@@ -180,3 +186,108 @@ test("regenerated attachment IDs do not detach an accepted request from unchange
   expect(refreshed).toBe(initial);
   expect(documentGenerationKey(metadata, "en", [{ ...root, hash: "b".repeat(64) }, child])).not.toBe(initial);
 });
+
+
+test("accepted native message correlation survives skew/reload, ignores tool steps and stale snapshots", async () => transportTest(async ({ base, calls, state, bodies }) => {
+  const storage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const saved = new Map<string, string>();
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: (key: string) => saved.get(key) ?? null, setItem: (key: string, value: string) => saved.set(key, value), removeItem: (key: string) => saved.delete(key) } });
+  clearDocumentGenerationsForTest();
+  const input = inputs(base);
+  const metadata = { projectId: "round2", baseUrl: base, workspaceId: input.workspaceId, root: "/registered/root", directory: input.directory };
+  const key = documentGenerationKey(metadata, "en", input.request.sources);
+  saved.set(`lawoss-doc-working-directory:${JSON.stringify([base, metadata.workspaceId, metadata.root])}`, "work");
+  const renderPanel = () => {
+    const cache = new QueryClient();
+    cache.setQueryData(["lawoss-documents", base, documentClientIdentity(input.legalwork), metadata.workspaceId, metadata.root, [root.path], "files"], input.request.sources.map(source => ({ ...source, freshness: "current", pages: [] })));
+    const panel = createElement(DocumentProcessingPanel, { client: input.legalwork, workspaceId: metadata.workspaceId, projectId: metadata.projectId, workspaceRoot: metadata.root, folder: "", selectedPaths: [root.path], onSelectPaths: () => {}, fileVersion: "files", active: false, isRemote: false });
+    return renderToStaticMarkup(createElement(QueryClientProvider, { client: cache }, panel));
+  };
+  const options = {
+    key, metadata, preflight: () => preflightDocumentGeneration(input),
+    create: async () => unwrap(await input.sdk.session.create({ directory: input.directory })).id,
+    send: async (sessionID: string, messageID: string) => { const result = await input.sdk.session.promptAsync({ sessionID, messageID, parts: [{ type: "text", text: "task" }], model: input.model }); if (result.error) throw new Error(JSON.stringify(result.error)); },
+  };
+  const read = () => readDocumentGenerationSnapshot(key, async () => (await input.legalwork.getSessionSnapshot(input.workspaceId, "created", { limit: 20 })).item);
+  const assistant = (parentID: string, finish: string, skew: number, error?: object, summary = false) => ({ info: { id: `assistant-${parentID}`, sessionID: "created", role: "assistant", parentID, summary, finish, time: { created: Date.now() + skew, completed: Date.now() + skew }, ...(error ? { error } : {}) }, parts: [] });
+  try {
+    await submitBoundDocumentGeneration(options);
+    const firstID = (bodies.at(-1) as any).messageID;
+    expect(firstID).toMatch(/^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+    expect(getDocumentGeneration(key)?.messageId).toBe(firstID);
+    expect(renderPanel()).toContain(t("documents.run_active"));
+    for (const finish of ["tool-calls", "unknown", ""]) {
+      state.snapshot = { status: { type: "idle" }, messages: [assistant(firstID, finish, 1000)] };
+      reconcileDocumentGeneration(key, await read());
+      expect(getDocumentGeneration(key)?.phase).toBe("accepted");
+    }
+    state.snapshot = { status: { type: "idle" }, messages: [assistant(firstID, "stop", 1000, undefined, true)] };
+    reconcileDocumentGeneration(key, await read());
+    expect(getDocumentGeneration(key)?.phase).toBe("accepted");
+    await submitBoundDocumentGeneration(options);
+    expect(calls.filter(call => call.endsWith("/prompt_async"))).toHaveLength(1);
+    // The server can read idle before handoff and messages after a tool step.
+    // A later real native error must remain observable after that snapshot.
+    const sync = { workspaceId: metadata.projectId, baseUrl: input.baseUrl, legalworkToken: "fixture-token" };
+    __createWorkspaceSessionSyncForTest(sync);
+    const release = observeDocumentGeneration(key, metadata.projectId);
+    __applySessionSyncEventForTest(sync, { type: "session.error", properties: { sessionID: "created", error: { name: "APIError", data: { message: "background" } } } } as any);
+    expect(getDocumentGeneration(key)?.phase).toBe("error");
+    release(); __disposeWorkspaceSessionSyncForTest(sync);
+    await submitBoundDocumentGeneration(options);
+    const secondID = (bodies.at(-1) as any).messageID;
+    expect(secondID > firstID).toBe(true);
+    expect(calls.filter(call => call === "POST /workspace/remote-runtime/opencode/session")).toHaveLength(1);
+    state.snapshot = { status: { type: "idle" }, messages: [assistant(firstID, "stop", 1000, { name: "APIError" }), assistant("manual-turn", "stop", 1000, { name: "APIError" })] };
+    reconcileDocumentGeneration(key, await read());
+    expect(getDocumentGeneration(key)?.phase).toBe("accepted");
+    // Engine clock behind: reload still associates a terminal failure exactly.
+    state.snapshot.messages.push(...Array.from({ length: 30 }, (_, index) => assistant(`older-page-${index}`, "stop", -2000, { name: "APIError" })), assistant(secondID, "stop", -1000, { name: "APIError" }));
+    clearDocumentGenerationsForTest(true);
+    reconcileDocumentGeneration(key, await read());
+    expect(getDocumentGeneration(key)?.phase).toBe("error");
+    expect(renderPanel()).toContain(t("documents.retry_generation"));
+    expect(renderPanel()).not.toContain(t("documents.run_active"));
+    await submitBoundDocumentGeneration(options);
+    const aheadID = (bodies.at(-1) as any).messageID;
+    state.snapshot = { status: { type: "idle" }, messages: [assistant(aheadID, "stop", 1000, { name: "APIError" })] };
+    clearDocumentGenerationsForTest(true);
+    reconcileDocumentGeneration(key, await read());
+    expect(getDocumentGeneration(key)?.phase).toBe("error");
+    expect(renderPanel()).toContain(t("documents.retry_generation"));
+    expect(renderPanel()).not.toContain(t("documents.run_active"));
+    await submitBoundDocumentGeneration(options);
+    const thirdID = (bodies.at(-1) as any).messageID;
+    expect(thirdID > aheadID).toBe(true);
+    // Bounded transcript can contain old rows never seen before; parent identity still rejects them.
+    state.snapshot = { status: { type: "idle" }, messages: Array.from({ length: 20 }, (_, index) => assistant(`old-outside-watermark-${index}`, "stop", 1000, { name: "APIError" })) };
+    reconcileDocumentGeneration(key, await read());
+    expect(getDocumentGeneration(key)?.phase).toBe("accepted");
+    state.snapshot = { status: { type: "idle" }, messages: [assistant(thirdID, "stop", -1000)] };
+    const stale = await read();
+    __createWorkspaceSessionSyncForTest(sync);
+    const releaseStatus = ensureWorkspaceSessionSync({ ...sync, onSessionStatus: update => { if (update.sessionId === "created") applyDocumentGenerationRunStatus(key, update.status); } });
+    __applySessionSyncEventForTest(sync, { type: "session.status", properties: { sessionID: "created", status: { type: "busy" } } } as any);
+    reconcileDocumentGeneration(key, stale);
+    releaseStatus(); __disposeWorkspaceSessionSyncForTest(sync);
+    expect(getDocumentGeneration(key)?.phase).toBe("running");
+    // Both clock directions recover terminal success, even without a live busy event.
+    clearDocumentGenerationsForTest(true);
+    reconcileDocumentGeneration(key, await read());
+    expect(getDocumentGeneration(key)?.phase).toBe("completed");
+    expect(renderPanel()).toContain(t("documents.new_generation"));
+    expect(renderPanel()).not.toContain(t("documents.run_active"));
+    await submitBoundDocumentGeneration({ ...options, newGeneration: true });
+    const fourthID = (bodies.at(-1) as any).messageID;
+    state.snapshot = { status: { type: "idle" }, messages: [assistant(fourthID, "stop", 1000)] };
+    clearDocumentGenerationsForTest(true);
+    reconcileDocumentGeneration(key, await read());
+    expect(getDocumentGeneration(key)?.phase).toBe("completed");
+    expect(renderPanel()).toContain(t("documents.new_generation"));
+    expect(renderPanel()).not.toContain(t("documents.run_active"));
+  } finally {
+    clearDocumentGenerationsForTest();
+    useSessionActivityStore.getState().removeSession(metadata.projectId, "created");
+    if (storage) Object.defineProperty(globalThis, "localStorage", storage); else Reflect.deleteProperty(globalThis, "localStorage");
+  }
+}));

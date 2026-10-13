@@ -1,4 +1,4 @@
-import { allDocumentGenerations, applyDocumentGenerationRunStatus, documentGenerationKey, getDocumentGeneration, reconcileDocumentGeneration, observeDocumentGeneration, subscribeDocumentGenerations, documentGenerationsRevision, submitBoundDocumentGeneration } from "../domains/session/panel/document-generation-lifecycle";
+import { allDocumentGenerations, applyDocumentGenerationRunStatus, documentGenerationKey, getDocumentGeneration, reconcileDocumentGeneration, readDocumentGenerationSnapshot, isDocumentGenerationSnapshotCurrent, observeDocumentGeneration, subscribeDocumentGenerations, documentGenerationsRevision, submitBoundDocumentGeneration } from "../domains/session/panel/document-generation-lifecycle";
 import { ensureWorkspaceSessionSync, trackWorkspaceSessionSync } from "../domains/session/sync/session-sync";
 import { generationPrompt, type DocumentGenerationRequest } from "../domains/session/panel/document-processing";
 import { documentExecutionDirectory, preflightDocumentGeneration } from "../domains/session/panel/native-document-preflight";
@@ -1324,7 +1324,7 @@ export function SessionRoute() {
     navigate(target, { state: { workspaceId, sessionId } });
   }, [navigate, selectedSessionId, sidebarActiveWorkspaceId]);
 
-  const sendNativeDraft = useCallback(async (draft: ComposerDraft, sessionId: string, options: { waitForCompletion?: boolean; waitForFusion?: boolean } | undefined, scope: {
+  const sendNativeDraft = useCallback(async (draft: ComposerDraft, sessionId: string, options: { waitForCompletion?: boolean; waitForFusion?: boolean; messageID?: string } | undefined, scope: {
     opencode: NonNullable<typeof sessionOpencodeClient>; legalwork: LegalworkServerClient; directory: string; projectId: string; runtimeKey?: string; preflighted?: boolean;
   }) => {
     const targetSessionId = sessionId.trim() || selectedSessionId;
@@ -1398,6 +1398,7 @@ export function SessionRoute() {
           client: scope.opencode,
           directory: scope.directory || undefined,
           mainSessionId: targetSessionId,
+          messageID: options?.messageID,
           parts,
           userText: text,
           candidateModels,
@@ -1418,6 +1419,7 @@ export function SessionRoute() {
 
     const request = {
       sessionID: targetSessionId,
+      ...(options?.messageID ? { messageID: options.messageID } : {}),
       parts,
       model: local.prefs.defaultModel ?? undefined,
       agent: selectedAgent ?? undefined,
@@ -1763,9 +1765,9 @@ export function SessionRoute() {
     const key = documentGenerationKey(metadata, request.outputLanguage, request.sources);
     const existing = getDocumentGeneration(key);
     if (existing) {
-      const snapshot = await endpoint.client.getSessionSnapshot(endpoint.workspaceId, existing.sessionId, { limit: 20 });
-      reconcileDocumentGeneration(key, snapshot.item);
-      if (snapshot.item.status.type === "busy" || snapshot.item.status.type === "retry") return existing.sessionId;
+      const result = await readDocumentGenerationSnapshot(key, async () => (await endpoint.client.getSessionSnapshot(endpoint.workspaceId, existing.sessionId, { limit: 20 })).item);
+      reconcileDocumentGeneration(key, result);
+      if (isDocumentGenerationSnapshotCurrent(getDocumentGeneration(key), result) && (result.snapshot.status.type === "busy" || result.snapshot.status.type === "retry")) return existing.sessionId;
     }
     try {
       return await submitBoundDocumentGeneration({
@@ -1793,7 +1795,7 @@ export function SessionRoute() {
           captureAnalyticsEvent("task_created", { source: "document-processing", surface: analyticsSurface() });
           return session.id;
         },
-        send: async sessionId => {
+        send: async (sessionId, messageID) => {
           // Select immediately, retaining this chat if inference/auth/billing fails.
           setLegacySelectedWorkspaceId(workspace.id); writeActiveWorkspaceId(workspace.id);
           writeLastSessionFor(workspace.id, sessionId); navigateToWorkspaceSession(workspace.id, sessionId);
@@ -1801,7 +1803,7 @@ export function SessionRoute() {
           const text = generationPrompt(request.outputLanguage, request.sources);
           try {
             await sendNativeDraft({ mode: "prompt", text, parts: [{ type: "text", text }], attachments: [],
-              modelContext: `Selected project root: ${JSON.stringify(root)}. Working directory: ${JSON.stringify(directory)}. Source and export paths are relative to the selected project ROOT, not the working subfolder. The working subfolder does not change legal identity; do not infer another case.` }, sessionId, { waitForFusion: true },
+              modelContext: `Selected project root: ${JSON.stringify(root)}. Working directory: ${JSON.stringify(directory)}. Source and export paths are relative to the selected project ROOT, not the working subfolder. The working subfolder does not change legal identity; do not infer another case.` }, sessionId, { waitForFusion: true, messageID },
               { opencode: scopedClient, legalwork: endpoint.client, directory, projectId: workspace.id, preflighted: true });
           } catch (cause) {
             throw Object.assign(new Error(t("documents.send_failed", { message: describeRouteError(cause) })), { sessionId });
