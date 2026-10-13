@@ -8,6 +8,8 @@ import { t } from "@/i18n";
 export type ProviderOverwriteConflict = {
   providerId: string;
   workspaces: { id: string; name: string }[];
+  /** `endpoint_change`: klienti by po uložení posielali dáta na inú adresu servera (MČ 13. 10. 2026). */
+  reason?: "endpoint_change";
 };
 
 /** `save` pri zápise poskytovateľa, `remove` pri odpojení (`null`); líši sa text potvrdenia. */
@@ -32,11 +34,18 @@ const copyKeys = {
   },
 } as const;
 
-export function providerOverwriteCopy(mode: ProviderOverwriteMode, providerId = "") {
+const endpointKeys = {
+  title: "lawoss.integrations.providerOverwrite.endpointTitle",
+  description: "lawoss.integrations.providerOverwrite.endpointDescription",
+} as const;
+
+/** Pri zmene adresy servera (`endpoint_change`) a uložení hovorí text o novej adrese, nie o odlišnom nastavení. */
+export function providerOverwriteCopy(mode: ProviderOverwriteMode, providerId = "", endpointChange = false) {
   const keys = copyKeys[mode];
+  const endpoint = endpointChange && mode === "save";
   return {
-    title: t(keys.title),
-    description: t(keys.description, { provider: providerId }),
+    title: t(endpoint ? endpointKeys.title : keys.title),
+    description: t(endpoint ? endpointKeys.description : keys.description, { provider: providerId }),
     cancel: t("lawoss.integrations.providerOverwrite.cancel"),
     confirm: t(keys.confirm),
     cancelled: t(keys.cancelled),
@@ -56,7 +65,7 @@ function parseConflict(value: unknown): ProviderOverwriteConflict | null {
   const workspaces = value.workspaces.flatMap((item) =>
     isRecord(item) && typeof item.id === "string" && typeof item.name === "string" ? [{ id: item.id, name: item.name }] : [],
   );
-  return { providerId: value.providerId, workspaces };
+  return { providerId: value.providerId, workspaces, ...(value.reason === "endpoint_change" ? { reason: "endpoint_change" as const } : {}) };
 }
 
 /** Konflikty z chyby 409 `provider_conflict`; pri inej chybe null. */
@@ -68,16 +77,18 @@ export function providerOverwriteConflictsFrom(error: unknown): ProviderOverwrit
   return conflicts.length ? conflicts : null;
 }
 
+export const hasEndpointChange = (conflicts: readonly ProviderOverwriteConflict[]) => conflicts.some((conflict) => conflict.reason === "endpoint_change");
+
 export function providerOverwriteMessage(conflicts: readonly ProviderOverwriteConflict[], mode: ProviderOverwriteMode): string {
   return conflicts
-    .map((conflict) => `${providerOverwriteCopy(mode, conflict.providerId).description}\n${conflict.workspaces.map((workspace) => `• ${workspace.name}`).join("\n")}`)
+    .map((conflict) => `${providerOverwriteCopy(mode, conflict.providerId, conflict.reason === "endpoint_change").description}\n${conflict.workspaces.map((workspace) => `• ${workspace.name}`).join("\n")}`)
     .join("\n\n");
 }
 
 /** Otvorí potvrdenie v ProviderOverwriteConfirmHost; bez hostiteľa použije natívne okno. */
 export function requestProviderOverwriteConfirm({ conflicts, mode }: ProviderOverwriteRequest): Promise<boolean> {
   if (!hosts) {
-    return Promise.resolve(typeof window !== "undefined" && window.confirm(`${providerOverwriteCopy(mode).title}\n\n${providerOverwriteMessage(conflicts, mode)}`));
+    return Promise.resolve(typeof window !== "undefined" && window.confirm(`${providerOverwriteCopy(mode, "", hasEndpointChange(conflicts)).title}\n\n${providerOverwriteMessage(conflicts, mode)}`));
   }
   pending?.resolve(false);
   return new Promise((resolve) => {

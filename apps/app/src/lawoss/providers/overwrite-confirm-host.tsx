@@ -9,14 +9,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { providerOverwriteConfirmStore, providerOverwriteCopy, settleProviderOverwriteConfirm } from "./overwrite-confirm";
+import { hasEndpointChange, providerOverwriteConfirmStore, providerOverwriteCopy, settleProviderOverwriteConfirm } from "./overwrite-confirm";
 
 /** LAWOSS: potvrdenie prepisu alebo odpojenia poskytovateľa u ďalších klientov (Zrušiť / Uložiť pre všetkých, Odpojiť pre všetkých). */
 export function ProviderOverwriteConfirmHost() {
   useEffect(() => providerOverwriteConfirmStore.attachHost(), []);
   const request = useSyncExternalStore(providerOverwriteConfirmStore.subscribe, providerOverwriteConfirmStore.snapshot, providerOverwriteConfirmStore.snapshot);
   const conflicts = request?.conflicts ?? [];
-  const copy = providerOverwriteCopy(request?.mode ?? "save");
+  const copy = providerOverwriteCopy(request?.mode ?? "save", "", hasEndpointChange(conflicts));
   return (
     <AlertDialog open={Boolean(request)} onOpenChange={(open) => { if (!open) settleProviderOverwriteConfirm(false); }}>
       <AlertDialogContent>
@@ -24,7 +24,7 @@ export function ProviderOverwriteConfirmHost() {
           <AlertDialogTitle>{copy.title}</AlertDialogTitle>
           {conflicts.map((conflict) => (
             <AlertDialogDescription key={conflict.providerId}>
-              {providerOverwriteCopy(request?.mode ?? "save", conflict.providerId).description}
+              {providerOverwriteCopy(request?.mode ?? "save", conflict.providerId, conflict.reason === "endpoint_change").description}
             </AlertDialogDescription>
           ))}
         </AlertDialogHeader>
