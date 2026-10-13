@@ -249,3 +249,36 @@ test("approved commands, skills and attachments still support their normal lifec
   expect((await call("skills/synthetic/promote-workflow", "POST")).status).toBe(200);
   expect((await call("skills/workflow-assistant-synthetic", "DELETE")).status).toBe(200);
 });
+
+test("resource deletion cannot replace an approved link node with its unchanged canonical target", async () => {
+  let link = "", second = "";
+  const f = await fixture(false, async () => { await rm(link); await symlink(second, link, "dir"); return "allow"; });
+  const skill = join(f.workspace, ".opencode", "skills", "synthetic");
+  const first = join(skill, "first"); second = join(skill, "second");
+  await mkdir(first, { recursive: true }); await mkdir(second);
+  const content = "---\nname: synthetic\ndescription: Synthetic skill\n---\noriginal skill\n";
+  await writeFile(join(skill, "SKILL.md"), content);
+  await writeFile(join(second, "sample.md"), "original attachment");
+  await symlink(join(second, "sample.md"), join(first, "sample.md"));
+  link = join(skill, "resources"); await symlink(first, link, "dir");
+  const response = await fetch(`${f.base}/workspace/ws_1/skills/synthetic/resources/sample.md`, { method: "DELETE", headers: f.collaborator });
+  expect(response.status).toBe(409);
+  expect(await readFile(join(second, "sample.md"), "utf8")).toBe("original attachment");
+  expect(await readFile(join(first, "sample.md"), "utf8")).toBe("original attachment");
+  expect(await readFile(join(skill, "SKILL.md"), "utf8")).toBe(content);
+});
+
+test("workflow promotion binds the directory being renamed even when SKILL.md keeps the same target", async () => {
+  let link = "", second = "";
+  const f = await fixture(false, async () => { await rm(link); await symlink(second, link, "dir"); return "allow"; });
+  const first = join(f.workspace, "first-skills"); second = join(f.workspace, "second-skills");
+  await mkdir(first); await mkdir(join(second, "synthetic"), { recursive: true });
+  const content = "---\nname: synthetic\ndescription: Synthetic skill\n---\noriginal skill\n";
+  await writeFile(join(second, "synthetic", "SKILL.md"), content);
+  await symlink(join(second, "synthetic"), join(first, "synthetic"), "dir");
+  link = join(f.workspace, ".opencode", "skills"); await symlink(first, link, "dir");
+  const response = await fetch(`${f.base}/workspace/ws_1/skills/synthetic/promote-workflow`, { method: "POST", headers: f.collaborator });
+  expect(response.status).toBe(409);
+  expect(await readFile(join(second, "synthetic", "SKILL.md"), "utf8")).toBe(content);
+  expect(await readFile(join(first, "synthetic", "SKILL.md"), "utf8")).toBe(content);
+});

@@ -74,6 +74,7 @@ Rules:
 - Never use `any`, typecasts, or `as` unless necessary and justified.
 - Prefer functional patterns, short focused functions, DRY, KISS, and YAGNI.
 - Use pnpm. Never use npm or yarn.
+- Pin Bun in `PATH` before running package build scripts; invoking a Bun binary by absolute path does not pin the shell commands inside `bun run`. Verify committed bundles by a second identical build.
 - Bun SQLite adapters with an explicit close lifecycle should use cached `Database.query()` or explicitly finalize prepared statements; uncached statements can retain WAL/file handles after `close()`. Verify immediate removal on Windows, not just Unix cleanup.
 - Use components from `@/components` when possible.
 - Prefer shadcn/ui with Base UI for new components.

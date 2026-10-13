@@ -3985,14 +3985,22 @@ function createRoutes(
     const skillDir = await resolveSkillDir(root, name);
     const requested = join(skillDir, "SKILL.md");
     const approved = await resolveWorkspaceFilePath(skillDir, requested);
+    const base = join(root, ".opencode", "skills");
+    const approvedBase = await resolveWorkspaceFilePath(root, base);
+    const source = join(base, name);
+    const approvedLeaf = await resolveWorkspaceFilePath(root, source, { preserveLeaf: true });
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.upsert",
       summary: `Mark ${name} as a workflow`,
-      paths: [approved],
+      paths: [approvedLeaf, approved],
     });
     if (await resolveSkillDir(root, name) !== skillDir) throw new ApiError(409, "path_changed", "Skill directory changed while awaiting approval");
     await recheckWorkspaceFilePath(skillDir, requested, approved);
+    await recheckWorkspaceFilePath(root, base, approvedBase);
+    if (await resolveWorkspaceFilePath(root, source, { preserveLeaf: true }) !== approvedLeaf) {
+      throw new ApiError(409, "path_changed", "Workflow source changed while awaiting approval");
+    }
     const result = await promoteSkillToWorkflow(workspaceAppFilesRoot(config, workspace), name);
     emitReloadEvent(ctx.reloadEvents, workspace, "skills", {
       type: "skill",
@@ -4179,16 +4187,20 @@ function createRoutes(
     const skillDir = await resolveSkillDir(workspaceAppFilesRoot(config, workspace), skill);
     const requested = [join(skillDir, "resources", name), join(skillDir, "SKILL.md")];
     const approved = await Promise.all(requested.map(path => resolveWorkspaceFilePath(skillDir, path)));
+    const approvedLeaf = await resolveWorkspaceFilePath(skillDir, requested[0]!, { preserveLeaf: true });
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.resource.delete",
       summary: `Remove ${name} from skill ${skill}`,
-      paths: approved,
+      paths: [approvedLeaf, approved[1]!],
     });
     if (await resolveSkillDir(workspaceAppFilesRoot(config, workspace), skill) !== skillDir) {
       throw new ApiError(409, "path_changed", "Skill directory changed while awaiting approval");
     }
     for (let i = 0; i < requested.length; i++) await recheckWorkspaceFilePath(skillDir, requested[i]!, approved[i]!);
+    if (await resolveWorkspaceFilePath(skillDir, requested[0]!, { preserveLeaf: true }) !== approvedLeaf) {
+      throw new ApiError(409, "path_changed", "Resource path changed while awaiting approval");
+    }
     const result = await deleteSkillResource(workspaceAppFilesRoot(config, workspace), skill, name);
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
       id: shortId(),

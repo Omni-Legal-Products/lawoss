@@ -551,16 +551,16 @@ function parseBlock(block, firstLineNo) {
       const body = t.slice(2).trim();
       const idx = body.indexOf(":");
       if (idx === -1 || body.startsWith('"') || body.startsWith("'") || body.startsWith("[") || body.startsWith("{")) {
-        const v2 = parseScalar(body);
-        if (typeof v2 === "object" && !Array.isArray(v2)) {
-          cur = v2;
+        const v = parseScalar(body);
+        if (typeof v === "object" && !Array.isArray(v)) {
+          cur = v;
           items.push(cur);
           return;
         }
-        if (Array.isArray(v2))
+        if (Array.isArray(v))
           throw new Error(`Riadok ${firstLineNo + k}: zoznam v zozname sa nepodporuje`);
         cur = undefined;
-        items.push(v2);
+        items.push(v);
         return;
       }
       if (body.slice(idx + 1).trim() === "") {
@@ -1091,9 +1091,9 @@ async function inspectOnboardingRoot(root, limits = {}, hooks = {}) {
                 if (CARD_LEVELS[path] && count <= 64 * 1024)
                   parts.push(Buffer.from(chunk));
               }
-              const after2 = await handle.stat({ bigint: true });
+              const after = await handle.stat({ bigint: true });
               const linked = await lstat(full, { bigint: true });
-              if (after2.size !== opened.size || after2.mtimeNs !== opened.mtimeNs || after2.ctimeNs !== opened.ctimeNs || linked.ino !== opened.ino || linked.dev !== opened.dev || linked.isSymbolicLink())
+              if (after.size !== opened.size || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs || linked.ino !== opened.ino || linked.dev !== opened.dev || linked.isSymbolicLink())
                 problem(path, "changed_during_read");
               if (CARD_LEVELS[path]) {
                 if (count > 64 * 1024)
@@ -2513,8 +2513,8 @@ async function planClientConversion(root, input) {
     throw new Error(NOT_CLIENT);
   const existing = new Map(inspection.entries.map((entry) => [entry.path, entry]));
   const profileEntry = existing.get(PROFILE_FILE);
-  const workingProfile2 = profileEntry ? parseWorkingProfile(await readInspectedText(inspection.root, profileEntry)) : undefined;
-  const planned = planEntity({ type: "klient", dir: inspection.root, ...input, workingProfile: workingProfile2 }, LOCALIZED_TEMPLATES, (path) => existing.has(path));
+  const workingProfile = profileEntry ? parseWorkingProfile(await readInspectedText(inspection.root, profileEntry)) : undefined;
+  const planned = planEntity({ type: "klient", dir: inspection.root, ...input, workingProfile }, LOCALIZED_TEMPLATES, (path) => existing.has(path));
   const agents = existing.get("AGENTS.md"), claude = existing.get("CLAUDE.md");
   for (const entry of [agents, claude])
     if (entry && (entry.kind !== "file" || entry.size > CONTROL_LIMIT))
@@ -2589,8 +2589,8 @@ async function planShallowClientConversion(root, input) {
     throw new Error(incompleteInspectionMessage(UNINSPECTABLE, inspection.issues));
   const top = new Map(inspection.entries.map((entry) => [entry.path, entry]));
   const profileText = await readTopLevelControl(inspection.root, top.get(PROFILE_FILE), "Invalid inspected control file.");
-  const workingProfile2 = profileText === undefined ? undefined : parseWorkingProfile(profileText);
-  const plan = (exists) => planEntity({ type: "klient", dir: inspection.root, ...input, workingProfile: workingProfile2 }, LOCALIZED_TEMPLATES, exists);
+  const workingProfile = profileText === undefined ? undefined : parseWorkingProfile(profileText);
+  const plan = (exists) => planEntity({ type: "klient", dir: inspection.root, ...input, workingProfile }, LOCALIZED_TEMPLATES, exists);
   const candidates = new Set(plan((path) => top.has(path)).entries.map((entry) => entry.path));
   candidates.add("memory");
   const nested = await nestedKinds(inspection.root, top, [...candidates]);
@@ -3412,14 +3412,14 @@ var MATTERS_DIR = "Spisy";
 var CLIENT_CARDS2 = ["client.md", "klient.md"];
 async function clientCard(clientRoot) {
   for (const name of CLIENT_CARDS2) {
-    const file2 = join8(clientRoot, name);
-    const content = await readFile3(file2, "utf8").catch(() => {
+    const file = join8(clientRoot, name);
+    const content = await readFile3(file, "utf8").catch(() => {
       return;
     });
     if (content === undefined)
       continue;
     const title = parseFrontmatter(content)?.title?.trim();
-    return title ? { file: file2, title } : { file: file2 };
+    return title ? { file, title } : { file };
   }
   return;
 }
@@ -3455,15 +3455,15 @@ async function planNewMatter(request) {
   if (existingMatters && existingMatters.kind !== "directory")
     throw new Error("Matter folder is blocked by a non-directory.");
   const office = findOfficeDir(request.parent);
-  const officeConfig2 = office ? await readFile3(join8(office, "okf.config")).then(decodeText, (error) => {
+  const officeConfig = office ? await readFile3(join8(office, "okf.config")).then(decodeText, (error) => {
     if (error && typeof error === "object" && "code" in error && (error.code === "ENOENT" || error.code === "EISDIR"))
       return;
     throw error;
   }) : undefined;
-  const workingProfile2 = officeConfig2 !== undefined ? parseOfficeWorkingProfile(officeConfig2, request.language ?? "sk") : undefined;
+  const workingProfile = officeConfig !== undefined ? parseOfficeWorkingProfile(officeConfig, request.language ?? "sk") : undefined;
   const card = await clientCard(clientRoot);
   const clientCardPath = card ? relative4(join8(parentRoot, MATTERS_DIR, name), card.file).split(sep5).join("/") : undefined;
-  const built = buildMatterOperations({ ...request, workingProfile: workingProfile2, clientTitle: card?.title, clientCardPath });
+  const built = buildMatterOperations({ ...request, workingProfile, clientTitle: card?.title, clientCardPath });
   const operations = [...existingMatters ? [] : [directory(MATTERS_DIR)], ...built.operations];
   return { mode: "new", appFiles: "inside", target, clientRoot: request.clientRoot, plan: await rootPlan(request.parent, operations) };
 }
@@ -3558,18 +3558,18 @@ async function identity(path, kind) {
   return `${stat.dev}:${stat.ino}${kind === "file" ? `:${stat.ctimeNs}` : ""}`;
 }
 async function fileDigest(path) {
-  const file2 = await open5(path, constants7.O_RDONLY | constants7.O_NOFOLLOW);
+  const file = await open5(path, constants7.O_RDONLY | constants7.O_NOFOLLOW);
   try {
     const h = createHash5("sha256"), buffer = Buffer.alloc(65536);
     while (true) {
-      const result = await file2.read(buffer, 0, buffer.length, null);
+      const result = await file.read(buffer, 0, buffer.length, null);
       if (!result.bytesRead)
         break;
       h.update(buffer.subarray(0, result.bytesRead));
     }
     return h.digest("hex");
   } finally {
-    await file2.close();
+    await file.close();
   }
 }
 async function durableWrite(path, content, replace = false) {
@@ -3819,12 +3819,12 @@ var isoDate = (value) => {
 async function externalProfileDirectory(clientRoot, input) {
   if (!isAbsolute6(input))
     throw new Error("External profile directory must be absolute.");
-  const directory2 = resolve8(input);
-  const fromClient = relative6(clientRoot, directory2);
+  const directory = resolve8(input);
+  const fromClient = relative6(clientRoot, directory);
   if (fromClient !== ".." && !fromClient.startsWith(`..${sep7}`) && !isAbsolute6(fromClient)) {
     throw new Error("External profile directory must be outside the mapped client directory.");
   }
-  let ancestor = directory2;
+  let ancestor = directory;
   while (true) {
     try {
       if (await realpath(ancestor) !== ancestor || !(await lstat8(ancestor)).isDirectory())
@@ -3839,10 +3839,10 @@ async function externalProfileDirectory(clientRoot, input) {
       ancestor = parent;
     }
   }
-  await mkdir3(directory2, { recursive: true });
-  if (await realpath(directory2) !== directory2 || !(await lstat8(directory2)).isDirectory())
+  await mkdir3(directory, { recursive: true });
+  if (await realpath(directory) !== directory || !(await lstat8(directory)).isDirectory())
     throw new Error("External profile directory must use a canonical directory path.");
-  return directory2;
+  return directory;
 }
 function parseOnboardingRequest(value) {
   if (!record(value) || typeof value.action !== "string")
@@ -3935,8 +3935,8 @@ async function planOnboarding(request) {
     return { action: request.action, ...await planNewMatter(request) };
   }
   if (request.mode === "convert") {
-    const preview2 = await planShallowClientConversion(request.root, request);
-    return { action: "existing", mode: "new", appFiles: "inside", target: request.root, clientRoot: request.root, plan: preview2.plan };
+    const preview = await planShallowClientConversion(request.root, request);
+    return { action: "existing", mode: "new", appFiles: "inside", target: request.root, clientRoot: request.root, plan: preview.plan };
   }
   const preview = await planExistingClient(request.root, request.mode, request.mode === "trial_clone" ? request.cloneParent : undefined, request.mode === "map" ? request : undefined);
   if (request.mode === "trial_clone") {
@@ -3952,8 +3952,8 @@ async function applyOnboarding(preview, options) {
     const inspection = await inspectOnboardingRoot(preview.root);
     if (!inspection.complete || inspection.digest !== preview.sourceDigest)
       throw new Error("Mapped client changed since planning.");
-    const directory2 = await externalProfileDirectory(preview.root, options.externalProfileDirectory);
-    const path = join10(directory2, "memory-profile.json"), content = JSON.stringify(preview.externalProfile);
+    const directory = await externalProfileDirectory(preview.root, options.externalProfileDirectory);
+    const path = join10(directory, "memory-profile.json"), content = JSON.stringify(preview.externalProfile);
     try {
       await writeFile(path, content, { flag: "wx" });
     } catch (error) {
@@ -4011,7 +4011,7 @@ function required(flags, name) {
   return value;
 }
 function choice(flags, name, choices) {
-  const value = required(flags, name), selected = choices.find((choice2) => choice2 === value);
+  const value = required(flags, name), selected = choices.find((choice) => choice === value);
   if (selected === undefined)
     throw new Error(`Invalid ${name}.`);
   return selected;
@@ -4158,8 +4158,8 @@ async function runOnboarding(argv, out = console.log) {
       if (object(raw) && "request" in raw && "preview" in raw) {
         const envelope = await aggregateEnvelope(raw);
         const options = { journalDirectory: journal, externalProfileDirectory: required(flags, "--external-profile") };
-        const result2 = command === "apply" ? await applyOnboarding(envelope.preview, options) : await recoverOnboarding(envelope.preview, options, choice(flags, "--action", ["finish", "rollback"]));
-        out(JSON.stringify(result2, null, 2));
+        const result = command === "apply" ? await applyOnboarding(envelope.preview, options) : await recoverOnboarding(envelope.preview, options, choice(flags, "--action", ["finish", "rollback"]));
+        out(JSON.stringify(result, null, 2));
         return 0;
       }
       const plan = parseOnboardingPlan(raw);
@@ -4349,8 +4349,8 @@ async function scanTriage(rootInput, options = {}) {
   if (inspection.level !== "client")
     throw new Error("Usporiadať sa dá len priečinok klienta s kartou klienta.");
   const files = new Map(inspection.entries.filter((entry) => entry.kind === "file").map((entry) => [entry.path, entry]));
-  const clientCard2 = ["client.md", "klient.md"].find((name) => files.has(name));
-  const card = parseFrontmatter(await readSmall(clone.root, clientCard2) ?? "") ?? {};
+  const clientCard = ["client.md", "klient.md"].find((name) => files.has(name));
+  const card = parseFrontmatter(await readSmall(clone.root, clientCard) ?? "") ?? {};
   const language = resolveDocumentLanguage(["sk", "cs", "en"].includes(card.language ?? "") ? card.language : undefined, card.jurisdiction);
   const office = findOfficeDir(clone.root);
   const config = office ? await readFile6(join11(office, "okf.config")).then(decodeText, () => {
@@ -4365,7 +4365,7 @@ async function scanTriage(rootInput, options = {}) {
   const directories = new Set(inspection.entries.filter((entry) => entry.kind === "directory").map((entry) => entry.path));
   const entityDirs = [...files.keys()].filter((path) => path.includes("/") && CARD_NAMES.has(path.split("/").pop().toLowerCase())).map((path) => path.split("/").slice(0, -1).join("/"));
   const matters = [];
-  for (const dir of entityDirs.filter((dir2) => /^Spisy\/[^/]+$/.test(dir2)).sort()) {
+  for (const dir of entityDirs.filter((dir) => /^Spisy\/[^/]+$/.test(dir)).sort()) {
     const cardName = MATTER_CARDS2.find((name) => files.has(`${dir}/${name}`));
     if (!cardName)
       continue;
@@ -4415,7 +4415,7 @@ async function scanTriage(rootInput, options = {}) {
     treeDigest: triageTreeDigest(inspection.entries),
     language,
     jurisdiction,
-    client: { ...card.title ? { title: card.title } : {}, card: clientCard2 },
+    client: { ...card.title ? { title: card.title } : {}, card: clientCard },
     profile: { folders: profile.folders, roles: profile.roles },
     ...newMatterProfile ? { newMatterProfile } : {},
     matters,
@@ -4449,11 +4449,11 @@ async function readJsonFile(path, max = MAX_JSON_BYTES) {
     await handle.close();
   }
 }
-async function triageSubdirectory(root, name, create2) {
+async function triageSubdirectory(root, name, create) {
   let current = root;
   for (const part of [...TRIAGE_DIR.split("/"), name]) {
     current = join12(current, part);
-    if (create2) {
+    if (create) {
       try {
         await mkdir5(current, { mode: 448 });
       } catch (error) {
@@ -4466,7 +4466,7 @@ async function triageSubdirectory(root, name, create2) {
       if (!state.isDirectory() || state.isSymbolicLink() || await realpath(current) !== current)
         throw new Error("Priečinok roztriedenia v klone nie je bezpečný.");
     } catch (error) {
-      if (errorCode4(error) === "ENOENT" && !create2)
+      if (errorCode4(error) === "ENOENT" && !create)
         return null;
       throw error;
     }
@@ -4507,16 +4507,16 @@ function strict(value, allowed, where) {
     if (!allowed.includes(key))
       fail2(`${where}: nepovolené pole ${key}`);
 }
-function cleanLine(value, where, max, required2 = false) {
+function cleanLine(value, where, max, required = false) {
   if (value === undefined || value === null || value === "") {
-    if (required2)
+    if (required)
       fail2(`${where} chýba`);
     return;
   }
   if (typeof value !== "string")
     return fail2(`${where} musí byť text`);
   const cleaned = value.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029"\\`]/g, " ").replace(/\s+/g, " ").trim();
-  if (!cleaned && required2)
+  if (!cleaned && required)
     fail2(`${where} chýba`);
   if (cleaned.length > max)
     fail2(`${where} je dlhšie ako ${max} znakov`);
@@ -4777,7 +4777,7 @@ function buildTriagePlan(inventory, options) {
   const kept = planned.filter((matter) => used.has(matter.key));
   for (const matter of kept)
     matter.documents = moves.filter((move) => move.matter === matter.key).length;
-  const create2 = [
+  const create = [
     ...needsMattersDir && kept.length ? [{ path: "Spisy", kind: "directory" }] : [],
     ...kept.flatMap((matter) => matter.operations),
     ...extraDirectories
@@ -4791,7 +4791,7 @@ function buildTriagePlan(inventory, options) {
     language,
     classification: options.classification ? { used: true, digest: sha256(JSON.stringify(options.classification)), documents: options.classification.documents.length } : { used: false, documents: 0 },
     matters: kept.map(({ operations: _operations, roles: _roles, ...matter }) => matter),
-    create: create2,
+    create,
     moves,
     stays
   };
@@ -4810,10 +4810,10 @@ var record4 = (value) => value !== null && typeof value === "object" && !Array.i
 var missing4 = (error) => error instanceof Error && ("code" in error) && error.code === "ENOENT";
 var errorCode5 = (error) => error instanceof Error && ("code" in error) ? String(error.code) : "";
 var isClutter = (name) => VOLATILE_ENTRY.test(name) || /^\.ds_store$/i.test(name);
-async function removeClutter(directory2) {
-  for (const name of await readdir5(directory2))
+async function removeClutter(directory) {
+  for (const name of await readdir5(directory))
     if (isClutter(name))
-      await unlinkFile(join13(directory2, name));
+      await unlinkFile(join13(directory, name));
 }
 var RUN_ID = /^triage-[0-9]{8}-[0-9]{6}-[a-f0-9]{6}$/;
 var reserved3 = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
@@ -4843,11 +4843,11 @@ function parseTriagePlan(value) {
     invalid("zoznamy");
   if (value.moves.length > 5000 || value.matters.length > 100)
     invalid("príliš veľa položiek");
-  const create2 = parseOnboardingPlan({ version: 1, root: value.root, treeDigest: value.treeDigest, operations: value.create }).operations;
-  for (const operation of create2)
+  const create = parseOnboardingPlan({ version: 1, root: value.root, treeDigest: value.treeDigest, operations: value.create }).operations;
+  for (const operation of create)
     safeRelative(operation.path, "create.path", operation.kind === "file");
   const ids = new Set, sources = new Set, targets = new Set;
-  const created = new Set(create2.map((operation) => operation.path.toLocaleLowerCase()));
+  const created = new Set(create.map((operation) => operation.path.toLocaleLowerCase()));
   for (const [index, move] of value.moves.entries()) {
     const where = `moves[${index}]`;
     if (!record4(move) || typeof move.id !== "string" || !/^d[a-f0-9]{16}$/.test(move.id))
@@ -4920,11 +4920,11 @@ async function readEvents2(path) {
   }
   return events;
 }
-async function runDirectory(root, runId, create2) {
+async function runDirectory(root, runId, create) {
   let current = root;
   for (const part of [...TRIAGE_DIR.split("/"), "runs", runId]) {
     current = join13(current, part);
-    if (create2) {
+    if (create) {
       try {
         await mkdir6(current, { mode: 448 });
       } catch (error) {
@@ -4959,14 +4959,14 @@ async function fileDigest2(path) {
   try {
     if (!(await handle.stat()).isFile())
       throw new TriageConflictError(`Nie je obyčajný súbor: ${path}`);
-    const hash2 = createHash8("sha256"), buffer = Buffer.alloc(65536);
+    const hash = createHash8("sha256"), buffer = Buffer.alloc(65536);
     while (true) {
       const read = await handle.read(buffer, 0, buffer.length, null);
       if (!read.bytesRead)
         break;
-      hash2.update(buffer.subarray(0, read.bytesRead));
+      hash.update(buffer.subarray(0, read.bytesRead));
     }
-    return hash2.digest("hex");
+    return hash.digest("hex");
   } finally {
     await handle.close();
   }
@@ -5287,22 +5287,22 @@ function newRunId(now = new Date, random = sha256(`${now.toISOString()}:${Math.r
 
 // src/triage/index.ts
 async function latestModelProposal(inventory) {
-  const [file2] = await listClassificationFiles(inventory.root);
-  if (!file2)
+  const [file] = await listClassificationFiles(inventory.root);
+  if (!file)
     return { proposal: { state: "none" } };
   let raw;
   try {
-    raw = await readJsonFile(file2);
+    raw = await readJsonFile(file);
   } catch (error) {
-    return { proposal: { state: "invalid", file: basename7(file2), message: error instanceof Error ? error.message : String(error) } };
+    return { proposal: { state: "invalid", file: basename7(file), message: error instanceof Error ? error.message : String(error) } };
   }
   if (raw && typeof raw === "object" && "treeDigest" in raw && raw.treeDigest !== inventory.treeDigest)
-    return { proposal: { state: "stale", file: basename7(file2) } };
+    return { proposal: { state: "stale", file: basename7(file) } };
   try {
     const classification = parseClassification(raw, inventory);
-    return { proposal: { state: "ready", file: basename7(file2), documents: classification.documents.length, matters: classification.matters.length }, classification };
+    return { proposal: { state: "ready", file: basename7(file), documents: classification.documents.length, matters: classification.matters.length }, classification };
   } catch (error) {
-    return { proposal: { state: "invalid", file: basename7(file2), message: error instanceof Error ? error.message : String(error) } };
+    return { proposal: { state: "invalid", file: basename7(file), message: error instanceof Error ? error.message : String(error) } };
   }
 }
 async function prepareTriage(root, options = {}) {
@@ -5396,24 +5396,24 @@ async function runTriage(argv, out = console.log) {
     if (command === "plan") {
       only2(flags, ["--classification", "--keep-in-inbox", "--today"]);
       const keep = value(flags, "--keep-in-inbox")?.split(",").map((item) => item.trim()).filter(Boolean);
-      const today2 = value(flags, "--today");
-      if (today2 !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(today2))
+      const today = value(flags, "--today");
+      if (today !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(today))
         throw new Error("--today musí byť RRRR-MM-DD");
-      const { plan } = await prepareTriage(root, { trialJournalDirectory, classificationFile: value(flags, "--classification"), keepInInbox: keep, today: today2 });
+      const { plan } = await prepareTriage(root, { trialJournalDirectory, classificationFile: value(flags, "--classification"), keepInInbox: keep, today });
       const dir = await triageSubdirectory(plan.root, "plans", true);
-      const file2 = join14(dir, `${plan.runId}.json`);
-      await writeNewJson(file2, plan);
-      out(JSON.stringify({ planFile: file2, note: "Náhľad; nič sa nepresunulo. Ukáž plán človeku a po jeho súhlase spusti apply --confirm.", plan }, null, 2));
+      const file = join14(dir, `${plan.runId}.json`);
+      await writeNewJson(file, plan);
+      out(JSON.stringify({ planFile: file, note: "Náhľad; nič sa nepresunulo. Ukáž plán človeku a po jeho súhlase spusti apply --confirm.", plan }, null, 2));
       return 0;
     }
     if (command === "apply") {
       only2(flags, ["--plan", "--confirm"]);
       if (flags.get("--confirm") !== true)
         throw new Error("Najprv ukáž plán človeku a po jeho súhlase spusti apply s --confirm.");
-      const file2 = value(flags, "--plan");
-      if (!file2)
+      const file = value(flags, "--plan");
+      if (!file)
         throw new Error("Chýba --plan FILE.");
-      const plan = await readJsonFile(file2);
+      const plan = await readJsonFile(file);
       const verified = await verifyTrialClone(root, trialJournalDirectory);
       if (!plan || typeof plan !== "object" || !("root" in plan) || plan.root !== verified.root)
         throw new Error("Plán patrí inému priečinku.");
@@ -5501,8 +5501,8 @@ function detect(dir, hint) {
   const indexPath = join15(dir, "index.md");
   const okfVersion = existsSync4(indexPath) ? parseFrontmatter(readText(indexPath))?.okf_version ?? null : null;
   const effective = type ?? hint ?? null;
-  const missing5 = effective ? plan({ type: effective, dir, title: "" }).entries.filter((entry) => entry.action === "create").map((entry) => entry.path) : [];
-  return { ...base, type, hasAgents, hasClaude, claudeIsMirror, okfVersion, markdownCount: listMarkdown(dir).length, missing: missing5 };
+  const missing = effective ? plan({ type: effective, dir, title: "" }).entries.filter((entry) => entry.action === "create").map((entry) => entry.path) : [];
+  return { ...base, type, hasAgents, hasClaude, claudeIsMirror, okfVersion, markdownCount: listMarkdown(dir).length, missing };
 }
 function plan(input) {
   const agents = join15(input.dir, "AGENTS.md");
@@ -5515,9 +5515,9 @@ function plan(input) {
   let clientCardPath;
   if (input.type === "spis") {
     for (let parent = dirname10(resolve13(input.dir));; parent = dirname10(parent)) {
-      const card2 = existingCard("klient", (name) => existsSync4(join15(parent, name)));
-      if (card2) {
-        clientCardPath = relative9(input.dir, join15(parent, card2)).split("\\").join("/");
+      const card = existingCard("klient", (name) => existsSync4(join15(parent, name)));
+      if (card) {
+        clientCardPath = relative9(input.dir, join15(parent, card)).split("\\").join("/");
         break;
       }
       if (dirname10(parent) === parent)
@@ -5650,8 +5650,8 @@ function render(root, selectedLanguage) {
     const fm = parseFrontmatter(text);
     const head = fm ? text.slice(0, text.indexOf(`
 ---`, 3) + 4) : "";
-    const cards2 = listMarkdown(realRoot).filter((rel) => rel.includes("/") && /\/(matter|spis|project|projekt|client|klient)\.md$/.test(rel));
-    const body = cards2.length ? cards2.map((rel) => `- [${rel.split("/").slice(0, -1).join("/")}](./${rel})`).join(`
+    const cards = listMarkdown(realRoot).filter((rel) => rel.includes("/") && /\/(matter|spis|project|projekt|client|klient)\.md$/.test(rel));
+    const body = cards.length ? cards.map((rel) => `- [${rel.split("/").slice(0, -1).join("/")}](./${rel})`).join(`
 `) : { cs: "_(zatím žádné)_", sk: "_(zatiaľ žiadne)_", en: "_(none yet)_" }[language];
     const next = `${head}
 
@@ -5678,31 +5678,31 @@ var WORKSPACE_MEMORY_LIMITS = Object.freeze({ profileBytes: 256 * 1024, journalB
 // ../okf-pamat/src/workspace-memory-profile.ts
 var roles = ["case_memory", "case_card", "work_note", "task_log", "rules", "lessons", "source_index", "evidence"];
 var writableRoles = new Set(["case_memory", "case_card", "work_note", "task_log"]);
-function object2(value2) {
-  return typeof value2 === "object" && value2 !== null && !Array.isArray(value2);
+function object2(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-function id(value2) {
-  return typeof value2 === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/.test(value2);
+function id(value) {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/.test(value);
 }
-function role(value2) {
-  return typeof value2 === "string" && roles.some((r) => r === value2);
+function role(value) {
+  return typeof value === "string" && roles.some((r) => r === value);
 }
-function file2(value2) {
-  return typeof value2 === "string" && value2.length > 0 && !value2.includes("\\") && !value2.includes("\x00") && !/^[A-Za-z]:/.test(value2) && value2.split("/").every((part) => part !== "" && part !== "." && part !== "..");
+function file2(value) {
+  return typeof value === "string" && value.length > 0 && !value.includes("\\") && !value.includes("\x00") && !/^[A-Za-z]:/.test(value) && value.split("/").every((part) => part !== "" && part !== "." && part !== "..");
 }
-function parseWorkspaceMemoryProfile(value2) {
-  if (!object2(value2) || value2.version !== 1 || !id(value2.matterId) || !Array.isArray(value2.roots) || !Array.isArray(value2.sources))
+function parseWorkspaceMemoryProfile(value) {
+  if (!object2(value) || value.version !== 1 || !id(value.matterId) || !Array.isArray(value.roots) || !Array.isArray(value.sources))
     throw new Error("Invalid version 1 memory profile.");
-  if (value2.sources.length === 0 || value2.sources.length > WORKSPACE_MEMORY_LIMITS.sources || value2.roots.length === 0 || value2.roots.length > WORKSPACE_MEMORY_LIMITS.sources)
+  if (value.sources.length === 0 || value.sources.length > WORKSPACE_MEMORY_LIMITS.sources || value.roots.length === 0 || value.roots.length > WORKSPACE_MEMORY_LIMITS.sources)
     throw new Error("Invalid profile source/root count.");
   const rootIds = new Set, sourceIds = new Set;
-  const roots = value2.roots.map((root) => {
+  const roots = value.roots.map((root) => {
     if (!object2(root) || !id(root.id) || rootIds.has(root.id) || typeof root.path !== "string" || root.path.length === 0 || root.path.includes("\x00") || root.path.includes("\\") && !/^[A-Za-z]:[\\/]/.test(root.path) || root.path.split(/[\\/]/).includes(".."))
       throw new Error("Invalid or duplicate root.");
     rootIds.add(root.id);
     return { id: root.id, path: root.path };
   });
-  const sources = value2.sources.map((source) => {
+  const sources = value.sources.map((source) => {
     if (!object2(source) || !id(source.id) || sourceIds.has(source.id.toLowerCase()) || typeof source.root !== "string" || !rootIds.has(source.root) || !file2(source.path) || !role(source.role) || typeof source.required !== "boolean" || typeof source.writable !== "boolean")
       throw new Error("Invalid or duplicate source.");
     if (source.writable && !writableRoles.has(source.role))
@@ -5722,7 +5722,7 @@ function parseWorkspaceMemoryProfile(value2) {
     throw new Error("At least one case_memory source must be required.");
   if (!sources.some((s) => s.required && (s.anchors?.length ?? 0) > 0))
     throw new Error("At least one required source must have identity anchors.");
-  return { version: 1, matterId: value2.matterId, roots, sources };
+  return { version: 1, matterId: value.matterId, roots, sources };
 }
 function parseWorkspaceMemoryProfileText(text) {
   if (new TextEncoder().encode(text).byteLength > WORKSPACE_MEMORY_LIMITS.profileBytes)
@@ -5745,42 +5745,42 @@ function isNamingSchemaError(error) {
 class NamingConflict extends Error {
 }
 var order = (a, b) => a < b ? -1 : a > b ? 1 : 0;
-var fold = (value2) => value2.normalize("NFC").toUpperCase().toLowerCase();
-function hash2(value2) {
-  return createHash9("sha256").update(value2).digest("hex");
+var fold = (value) => value.normalize("NFC").toUpperCase().toLowerCase();
+function hash2(value) {
+  return createHash9("sha256").update(value).digest("hex");
 }
-function object3(value2) {
-  return !!value2 && typeof value2 === "object" && !Array.isArray(value2);
+function object3(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 function fail3(message) {
   throw new NamingSchemaError(message);
 }
-function exactKeys(value2, keys) {
-  if (Object.keys(value2).some((k) => !keys.includes(k)))
+function exactKeys(value, keys) {
+  if (Object.keys(value).some((k) => !keys.includes(k)))
     fail3("Unknown naming field");
 }
-function safeId(value2) {
-  return typeof value2 === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/.test(value2) && !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(value2);
+function safeId(value) {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/.test(value) && !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(value);
 }
-function safeRelativePath(value2) {
-  return typeof value2 === "string" && value2.length > 0 && value2.length <= 1024 && value2.split("/").every((p) => p.length > 0 && p.length <= 240 && p === p.normalize("NFC") && !p.startsWith(".") && p.trim() === p && !/[. ]$/.test(p) && !/[\\<>:"|?*\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(p) && !/^(?:con|conin\$|conout\$|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(p));
+function safeRelativePath(value) {
+  return typeof value === "string" && value.length > 0 && value.length <= 1024 && value.split("/").every((p) => p.length > 0 && p.length <= 240 && p === p.normalize("NFC") && !p.startsWith(".") && p.trim() === p && !/[. ]$/.test(p) && !/[\\<>:"|?*\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(p) && !/^(?:con|conin\$|conout\$|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(p));
 }
-function validateDate(value2) {
-  if (value2 === "bez-datumu")
+function validateDate(value) {
+  if (value === "bez-datumu")
     return true;
-  if (typeof value2 !== "string" || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(value2) || value2.startsWith("0000"))
+  if (typeof value !== "string" || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(value) || value.startsWith("0000"))
     return false;
-  const date = new Date(`${value2}T00:00:00Z`);
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value2;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
-function parseNamingRequest(value2) {
-  if (!object3(value2))
+function parseNamingRequest(value) {
+  if (!object3(value))
     return fail3("Invalid naming request");
-  exactKeys(value2, ["schema", "operationId", "documents", "markdownFiles"]);
-  if (value2.schema !== "lawoss.document-naming.request/v1" || !safeId(value2.operationId) || !Array.isArray(value2.documents) || value2.documents.length < 1 || value2.documents.length > NAMING_LIMITS.documents || !Array.isArray(value2.markdownFiles) || value2.markdownFiles.length > NAMING_LIMITS.markdownFiles)
+  exactKeys(value, ["schema", "operationId", "documents", "markdownFiles"]);
+  if (value.schema !== "lawoss.document-naming.request/v1" || !safeId(value.operationId) || !Array.isArray(value.documents) || value.documents.length < 1 || value.documents.length > NAMING_LIMITS.documents || !Array.isArray(value.markdownFiles) || value.markdownFiles.length > NAMING_LIMITS.markdownFiles)
     return fail3("Invalid naming request or selection limit");
   const ids = new Set, paths = new Set;
-  const documents = value2.documents.map((d) => {
+  const documents = value.documents.map((d) => {
     if (!object3(d))
       return fail3("Invalid document");
     exactKeys(d, ["id", "path", "treatment", "destinationRole", "metadata"]);
@@ -5803,19 +5803,19 @@ function parseNamingRequest(value2) {
     return { id: d.id, path: d.path, treatment: d.treatment, destinationRole: d.destinationRole, metadata };
   }).sort((a, b) => order(a.path, b.path));
   const selected = new Set;
-  const markdownFiles = value2.markdownFiles.map((p) => {
+  const markdownFiles = value.markdownFiles.map((p) => {
     if (!safeRelativePath(p) || !/\.md$/i.test(p) || selected.has(fold(p)) || paths.has(fold(p)))
       return fail3("Invalid/duplicate Markdown or selected document overlap");
     selected.add(fold(p));
     return p;
   }).sort(order);
-  return { schema: "lawoss.document-naming.request/v1", operationId: value2.operationId, documents, markdownFiles };
+  return { schema: "lawoss.document-naming.request/v1", operationId: value.operationId, documents, markdownFiles };
 }
-function normalizeNamingValue(value2) {
-  const normalized = value2.normalize("NFC").replace(/[\s\\/<>:"|?*`\u0000-\u001f\u007f-\u009f\u2028\u2029]+/gu, "-").replace(/-+/g, "-").replace(/^[. -]+|[. -]+$/g, "");
+function normalizeNamingValue(value) {
+  const normalized = value.normalize("NFC").replace(/[\s\\/<>:"|?*`\u0000-\u001f\u007f-\u009f\u2028\u2029]+/gu, "-").replace(/-+/g, "-").replace(/^[. -]+|[. -]+$/g, "");
   if (!normalized)
     fail3("Metadata becomes empty after normalization");
-  return { input: value2, normalized };
+  return { input: value, normalized };
 }
 function normalizedMetadata(metadata) {
   return Object.fromEntries(Object.entries(metadata).map(([k, v]) => [k, normalizeNamingValue(v).normalized]));
@@ -5829,17 +5829,17 @@ function renderDocumentName(profile, metadata, extension) {
     fail3("Rendered name is not a portable filename");
   return rendered;
 }
-function canonical(value2) {
-  if (Array.isArray(value2))
-    return `[${value2.map(canonical).join(",")}]`;
-  if (object3(value2))
-    return `{${Object.keys(value2).sort(order).map((k) => `${JSON.stringify(k)}:${canonical(value2[k])}`).join(",")}}`;
-  if (value2 === null || typeof value2 === "string" || typeof value2 === "boolean" || typeof value2 === "number" && Number.isFinite(value2))
-    return JSON.stringify(value2);
+function canonical(value) {
+  if (Array.isArray(value))
+    return `[${value.map(canonical).join(",")}]`;
+  if (object3(value))
+    return `{${Object.keys(value).sort(order).map((k) => `${JSON.stringify(k)}:${canonical(value[k])}`).join(",")}}`;
+  if (value === null || typeof value === "string" || typeof value === "boolean" || typeof value === "number" && Number.isFinite(value))
+    return JSON.stringify(value);
   return fail3("Non-JSON naming value");
 }
-function namingFingerprint(value2) {
-  return hash2(canonical(value2));
+function namingFingerprint(value) {
+  return hash2(canonical(value));
 }
 function rewriteSelectedMarkdownLinks(markdownPath, content, moves) {
   const referenceIds = [...content.matchAll(/^ {0,3}\[([^\]\n]+)\]:/gm)].map((m) => fold(m[1].trim().replace(/\s+/g, " ")));
@@ -5884,14 +5884,14 @@ function rewriteSelectedMarkdownLinks(markdownPath, content, moves) {
       if (decoded.includes("\\"))
         continue;
       const resolved = posix.normalize(posix.join(posix.dirname(markdownPath), decoded));
-      const matches = moves.filter((move2) => move2.from === resolved || kind === "wikilink" && move2.from === decoded);
+      const matches = moves.filter((move) => move.from === resolved || kind === "wikilink" && move.from === decoded);
       const unique = [...new Set(matches)];
       if (unique.length > 1)
         fail3("Ambiguous affected wikilink");
       if (unique.length === 0) {
-        if (kind === "wikilink" && moves.some((move2) => fold(posix.basename(move2.from, posix.extname(move2.from))) === fold(posix.basename(decoded, posix.extname(decoded)))))
+        if (kind === "wikilink" && moves.some((move) => fold(posix.basename(move.from, posix.extname(move.from))) === fold(posix.basename(decoded, posix.extname(decoded)))))
           fail3("Ambiguous affected wikilink; use an exact relative path");
-        if (moves.some((move2) => fold(move2.from) === fold(resolved)))
+        if (moves.some((move) => fold(move.from) === fold(resolved)))
           fail3("Ambiguous affected link case");
         covered.push({ start, end });
         continue;
@@ -5920,8 +5920,8 @@ function rewriteSelectedMarkdownLinks(markdownPath, content, moves) {
       continue;
     if (m[2] === undefined && /[(:\[]/.test(content[end] ?? ""))
       continue;
-    const id2 = fold((m[2] || m[1]).trim().replace(/\s+/g, " "));
-    if (referenceIds.includes(id2)) {
+    const id = fold((m[2] || m[1]).trim().replace(/\s+/g, " "));
+    if (referenceIds.includes(id)) {
       if (covered.length >= 20000)
         fail3("Selected Markdown exceeds bounded link count");
       covered.push({ start, end });
@@ -5973,8 +5973,8 @@ function readOnlyFile(path) {
     return false;
   }
 }
-function writtenSources(plan2) {
-  return [...plan2.documents.filter((d) => d.treatment === "rename-working").map((d) => ({ path: d.source.path, replaced: false })), ...plan2.markdown.filter((m) => m.source.sha256 !== m.afterSha256).map((m) => ({ path: m.source.path, replaced: true }))];
+function writtenSources(plan) {
+  return [...plan.documents.filter((d) => d.treatment === "rename-working").map((d) => ({ path: d.source.path, replaced: false })), ...plan.markdown.filter((m) => m.source.sha256 !== m.afterSha256).map((m) => ({ path: m.source.path, replaced: true }))];
 }
 function blockedMessage(root, path, code, sources, platform) {
   return code === "EBUSY" || platform === "win32" && sources.has(path) && readOnlyFile(join16(root, path)) ? lockedMessage(path) : deniedMessage(path, code);
@@ -5990,10 +5990,10 @@ function blockedPath(root, error) {
   return path && path !== ".lawoss" && !path.startsWith(".lawoss/") ? { path, code } : undefined;
 }
 var pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-function renameWithRetry(from, to, platform = process.platform, rename3 = renameSync2, wait = pause) {
+function renameWithRetry(from, to, platform = process.platform, rename = renameSync2, wait = pause) {
   for (let attempt = 1;; attempt++) {
     try {
-      rename3(from, to);
+      rename(from, to);
       return;
     } catch (error) {
       if (platform !== "win32" || attempt >= 10 || !lockError(error))
@@ -6022,8 +6022,8 @@ function assertSourcesWritable(root, sources, hooks, platform) {
 function exists(path, kind = "file") {
   return checkedPath(path, kind, true);
 }
-function rootDirectory(directory2) {
-  const path = checkedDirectory(directory2);
+function rootDirectory(directory) {
+  const path = checkedDirectory(directory);
   return { path, identity: physical(lstatSync4(path, { bigint: true })) };
 }
 function assertRoot(root) {
@@ -6070,10 +6070,10 @@ function assertPin(root, expected, limit) {
   return read;
 }
 function checkCase(path, shouldExist) {
-  const directory2 = opendirSync(dirname11(path));
+  const directory = opendirSync(dirname11(path));
   let found = false, count = 0;
   try {
-    for (let entry = directory2.readSync();entry; entry = directory2.readSync()) {
+    for (let entry = directory.readSync();entry; entry = directory.readSync()) {
       if (++count > 20000)
         conflict("Destination/path directory exceeds bounded case-check limit (20000 entries)");
       if (fold(entry.name) === fold(basename9(path))) {
@@ -6083,7 +6083,7 @@ function checkCase(path, shouldExist) {
       }
     }
   } finally {
-    directory2.closeSync();
+    directory.closeSync();
   }
   if (shouldExist && !found)
     conflict(`Missing exact path: ${path}`);
@@ -6178,26 +6178,26 @@ function planDocumentNaming(matterDir, input) {
 function isPin(v) {
   return object3(v) && typeof v.path === "string" && typeof v.sha256 === "string" && /^[a-f0-9]{64}$/.test(v.sha256) && typeof v.bytes === "number" && Number.isSafeInteger(v.bytes) && v.bytes >= 0 && typeof v.physical === "string" && /^[0-9]+:[0-9]+$/.test(v.physical);
 }
-function parseNamingPlan(value2) {
-  if (!object3(value2))
+function parseNamingPlan(value) {
+  if (!object3(value))
     throw new NamingSchemaError("Invalid naming plan");
-  exactKeys(value2, ["schema", "operationId", "fingerprint", "matterRootPhysical", "rootIdentity", "request", "profile", "memoryProfile", "documents", "markdown", "limits", "totalBytes", "linkScope"]);
-  const request = parseNamingRequest(value2.request);
-  if (value2.schema !== "lawoss.document-naming.plan/v1" || value2.operationId !== request.operationId || typeof value2.fingerprint !== "string" || typeof value2.matterRootPhysical !== "string" || !isAbsolute10(value2.matterRootPhysical) || typeof value2.rootIdentity !== "string" || !/^[0-9]+:[0-9]+$/.test(value2.rootIdentity) || !object3(value2.profile) || typeof value2.profile.naming !== "string" || !object3(value2.profile.roles) || !isPin(value2.profile) || value2.profile.path !== PROFILE_FILE || value2.memoryProfile !== null && (!isPin(value2.memoryProfile) || value2.memoryProfile.path !== ".lawoss/memory-profile.json") || !Array.isArray(value2.documents) || value2.documents.length !== request.documents.length || !Array.isArray(value2.markdown) || value2.markdown.length !== request.markdownFiles.length || namingFingerprint(value2.limits) !== namingFingerprint(NAMING_LIMITS) || typeof value2.totalBytes !== "number" || !Number.isSafeInteger(value2.totalBytes) || value2.totalBytes < 0 || value2.totalBytes > NAMING_LIMITS.totalBytes || value2.linkScope !== "selected-files-only; unselected links are not verified")
+  exactKeys(value, ["schema", "operationId", "fingerprint", "matterRootPhysical", "rootIdentity", "request", "profile", "memoryProfile", "documents", "markdown", "limits", "totalBytes", "linkScope"]);
+  const request = parseNamingRequest(value.request);
+  if (value.schema !== "lawoss.document-naming.plan/v1" || value.operationId !== request.operationId || typeof value.fingerprint !== "string" || typeof value.matterRootPhysical !== "string" || !isAbsolute10(value.matterRootPhysical) || typeof value.rootIdentity !== "string" || !/^[0-9]+:[0-9]+$/.test(value.rootIdentity) || !object3(value.profile) || typeof value.profile.naming !== "string" || !object3(value.profile.roles) || !isPin(value.profile) || value.profile.path !== PROFILE_FILE || value.memoryProfile !== null && (!isPin(value.memoryProfile) || value.memoryProfile.path !== ".lawoss/memory-profile.json") || !Array.isArray(value.documents) || value.documents.length !== request.documents.length || !Array.isArray(value.markdown) || value.markdown.length !== request.markdownFiles.length || namingFingerprint(value.limits) !== namingFingerprint(NAMING_LIMITS) || typeof value.totalBytes !== "number" || !Number.isSafeInteger(value.totalBytes) || value.totalBytes < 0 || value.totalBytes > NAMING_LIMITS.totalBytes || value.linkScope !== "selected-files-only; unselected links are not verified")
     throw new NamingSchemaError("Invalid naming plan fields");
-  for (const [i, d] of value2.documents.entries()) {
+  for (const [i, d] of value.documents.entries()) {
     const document = request.documents[i];
     if (!object3(d) || d.id !== document.id || d.treatment !== document.treatment || !isPin(d.source) || d.source.path !== document.path || d.source.bytes > NAMING_LIMITS.documentBytes || !object3(d.target) || !safeRelativePath(d.target.path) || d.target.mustBeAbsent !== true || typeof d.target.parentPhysical !== "string" || !/^[0-9]+:[0-9]+$/.test(d.target.parentPhysical) || !object3(d.normalizedMetadata))
       throw new NamingSchemaError("Invalid planned document");
   }
-  for (const [i, m] of value2.markdown.entries()) {
+  for (const [i, m] of value.markdown.entries()) {
     if (!object3(m) || !isPin(m.source) || m.source.path !== request.markdownFiles[i] || m.source.bytes > NAMING_LIMITS.markdownBytes || typeof m.afterSha256 !== "string" || !/^[a-f0-9]{64}$/.test(m.afterSha256) || !Array.isArray(m.rewrites))
       throw new NamingSchemaError("Invalid planned Markdown");
   }
-  const { fingerprint, ...body } = value2;
+  const { fingerprint, ...body } = value;
   if (namingFingerprint(body) !== fingerprint)
     throw new NamingConflict("Plan fingerprint changed; obtain a new preview and approval");
-  return value2;
+  return value;
 }
 function exclusive(path, data, mode = 384) {
   checkedPath(dirname11(path), "directory");
@@ -6222,16 +6222,16 @@ function controlDirectory(path) {
   }
   checkedPath(path, "directory");
 }
-function profileCAS(root, plan2) {
-  assertPin(root, plan2.profile, PROFILE_LIMIT);
+function profileCAS(root, plan) {
+  assertPin(root, plan.profile, PROFILE_LIMIT);
   const current = memoryProtection(root);
-  if (namingFingerprint(current.source) !== namingFingerprint(plan2.memoryProfile))
+  if (namingFingerprint(current.source) !== namingFingerprint(plan.memoryProfile))
     conflict("Memory profile presence/content/identity changed");
 }
-function finalStates(root, plan2) {
-  profileCAS(root, plan2);
+function finalStates(root, plan) {
+  profileCAS(root, plan);
   const files = [];
-  for (const doc of plan2.documents) {
+  for (const doc of plan.documents) {
     const targetPath = join16(root, doc.target.path);
     checkedPath(dirname11(targetPath), "directory");
     if (physical(lstatSync4(dirname11(targetPath), { bigint: true })) !== doc.target.parentPhysical)
@@ -6246,7 +6246,7 @@ function finalStates(root, plan2) {
     else if (exists(join16(root, doc.source.path)))
       conflict(`Working source reappeared: ${doc.source.path}`);
   }
-  for (const m of plan2.markdown) {
+  for (const m of plan.markdown) {
     const read = readNamingBinary(join16(root, m.source.path), NAMING_LIMITS.markdownBytes);
     if (read.sha256 !== m.afterSha256)
       conflict(`Final Markdown changed: ${m.source.path}`);
@@ -6255,26 +6255,26 @@ function finalStates(root, plan2) {
   return files;
 }
 function applyDocumentNaming(matterDir, input, hooks = {}) {
-  const plan2 = parseNamingPlan(input), root = rootDirectory(matterDir), platform = hooks.platform ?? process.platform;
-  const sources = writtenSources(plan2), sourcePaths = new Set(sources.map((source) => source.path));
-  const report = (status, message) => ({ status, operationId: plan2.operationId, fingerprint: plan2.fingerprint, ...message ? { message } : {} });
-  if (root.path !== plan2.matterRootPhysical || root.identity !== plan2.rootIdentity)
+  const plan = parseNamingPlan(input), root = rootDirectory(matterDir), platform = hooks.platform ?? process.platform;
+  const sources = writtenSources(plan), sourcePaths = new Set(sources.map((source) => source.path));
+  const report = (status, message) => ({ status, operationId: plan.operationId, fingerprint: plan.fingerprint, ...message ? { message } : {} });
+  if (root.path !== plan.matterRootPhysical || root.identity !== plan.rootIdentity)
     return report("conflict", "Matter root physical identity differs");
-  const history = join16(root.path, ".lawoss/naming-history"), operation = join16(history, plan2.operationId), journal = join16(operation, "journal.json"), lock2 = join16(history, "apply.lock");
+  const history = join16(root.path, ".lawoss/naming-history"), operation = join16(history, plan.operationId), journal = join16(operation, "journal.json"), lock = join16(history, "apply.lock");
   let lockIdentity;
   const created = [], installed = [], removed = [];
   let prepared = false;
   try {
     if (!exists(operation, "directory")) {
-      const fresh2 = planDocumentNaming(root.path, plan2.request);
-      if (fresh2.fingerprint !== plan2.fingerprint)
+      const fresh = planDocumentNaming(root.path, plan.request);
+      if (fresh.fingerprint !== plan.fingerprint)
         conflict("Preview is stale; create and approve a new plan");
       assertSourcesWritable(root.path, sources, hooks, platform);
     }
     controlDirectory(join16(root.path, ".lawoss"));
     controlDirectory(history);
     checkCase(operation, exists(operation, "directory"));
-    lockIdentity = exclusive(lock2, JSON.stringify({ operationId: plan2.operationId, fingerprint: plan2.fingerprint }));
+    lockIdentity = exclusive(lock, JSON.stringify({ operationId: plan.operationId, fingerprint: plan.fingerprint }));
     assertRoot(root);
     if (exists(operation, "directory")) {
       const recovery = (message) => ({ ...report("recovery-required", message), journal });
@@ -6288,78 +6288,78 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
         const priorPlan = parseNamingPlan(prior.plan);
         if (priorPlan.fingerprint !== prior.fingerprint)
           return recovery("Journal plan fingerprint is inconsistent");
-        if (prior.fingerprint !== plan2.fingerprint)
+        if (prior.fingerprint !== plan.fingerprint)
           return report("conflict", "Operation ID belongs to a different plan");
-        if (namingFingerprint(prior.plan) !== namingFingerprint(plan2))
+        if (namingFingerprint(prior.plan) !== namingFingerprint(plan))
           return recovery("Journal plan is inconsistent");
         if (!exists(join16(operation, "committed.json")))
           return recovery("Incomplete operation; retain journal and snapshots for human recovery");
         const receipt = readNamingJson(join16(operation, "committed.json"));
-        if (!object3(receipt) || receipt.version !== 1 || receipt.status !== "committed" || typeof receipt.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(receipt.fingerprint) || !Array.isArray(receipt.finalFiles) || !receipt.finalFiles.every((file3) => isPin(file3) && safeRelativePath(file3.path)))
+        if (!object3(receipt) || receipt.version !== 1 || receipt.status !== "committed" || typeof receipt.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(receipt.fingerprint) || !Array.isArray(receipt.finalFiles) || !receipt.finalFiles.every((file) => isPin(file) && safeRelativePath(file.path)))
           return recovery("Incomplete or invalid committed receipt");
-        if (receipt.fingerprint !== plan2.fingerprint)
+        if (receipt.fingerprint !== plan.fingerprint)
           return report("conflict", "Committed receipt belongs to a different plan");
-        if (receipt.finalFiles.length !== plan2.documents.length + plan2.documents.filter((d) => d.treatment === "copy-original-to-drafts").length + plan2.markdown.length)
+        if (receipt.finalFiles.length !== plan.documents.length + plan.documents.filter((d) => d.treatment === "copy-original-to-drafts").length + plan.markdown.length)
           return recovery("Incomplete committed final states");
         committed = receipt;
       } catch (error) {
         return recovery(`Unreadable operation records; retain evidence: ${error instanceof Error ? error.message : String(error)}`);
       }
-      if (namingFingerprint(finalStates(root.path, plan2)) !== namingFingerprint(committed.finalFiles))
+      if (namingFingerprint(finalStates(root.path, plan)) !== namingFingerprint(committed.finalFiles))
         conflict("Committed physical final states changed");
       return { ...report("already-applied"), journal };
     }
-    const fresh = planDocumentNaming(root.path, plan2.request);
-    if (fresh.fingerprint !== plan2.fingerprint)
+    const fresh = planDocumentNaming(root.path, plan.request);
+    if (fresh.fingerprint !== plan.fingerprint)
       conflict("Preview changed while acquiring lock");
     mkdirSync3(operation, { mode: 448 });
     prepared = true;
-    exclusive(journal, JSON.stringify({ version: 1, status: "prepared", fingerprint: plan2.fingerprint, plan: plan2 }, null, 2));
+    exclusive(journal, JSON.stringify({ version: 1, status: "prepared", fingerprint: plan.fingerprint, plan }, null, 2));
     const snapshots = new Map;
-    for (const [i, source] of [...plan2.documents.map((d) => d.source), ...plan2.markdown.map((m) => m.source)].entries()) {
-      const read = assertPin(root.path, source, i < plan2.documents.length ? NAMING_LIMITS.documentBytes : NAMING_LIMITS.markdownBytes);
+    for (const [i, source] of [...plan.documents.map((d) => d.source), ...plan.markdown.map((m) => m.source)].entries()) {
+      const read = assertPin(root.path, source, i < plan.documents.length ? NAMING_LIMITS.documentBytes : NAMING_LIMITS.markdownBytes);
       const backup = join16(operation, `before-${i}.bin`);
       exclusive(backup, read.data);
       snapshots.set(source.path, { backup, mode: read.mode, beforeSha256: read.sha256 });
     }
     hooks.checkpoint?.("prepared");
-    profileCAS(root.path, plan2);
-    for (const document of plan2.documents) {
+    profileCAS(root.path, plan);
+    for (const document of plan.documents) {
       assertRoot(root);
-      profileCAS(root.path, plan2);
+      profileCAS(root.path, plan);
       targetAbsent(root.path, document.target);
       const source = assertPin(root.path, document.source, NAMING_LIMITS.documentBytes), path = join16(root.path, document.target.path);
-      const identity2 = exclusive(path, source.data, source.mode);
-      created.push({ path, physical: identity2, sha256: source.sha256 });
+      const identity = exclusive(path, source.data, source.mode);
+      created.push({ path, physical: identity, sha256: source.sha256 });
       if (readNamingBinary(path, NAMING_LIMITS.documentBytes).sha256 !== source.sha256)
         conflict("Target copy verification failed");
       exclusive(join16(operation, `target-${created.length}.json`), JSON.stringify(created.at(-1)));
       hooks.checkpoint?.("target-created", document.target.path);
     }
-    const moves = plan2.documents.filter((d) => d.treatment === "rename-working").map((d) => ({ from: d.source.path, to: d.target.path }));
-    for (const [i, markdown] of plan2.markdown.entries()) {
+    const moves = plan.documents.filter((d) => d.treatment === "rename-working").map((d) => ({ from: d.source.path, to: d.target.path }));
+    for (const [i, markdown] of plan.markdown.entries()) {
       const before = assertPin(root.path, markdown.source, NAMING_LIMITS.markdownBytes);
       const rewritten = rewriteSelectedMarkdownLinks(markdown.source.path, utf8(before.data), moves);
       if (hash2(rewritten.content) !== markdown.afterSha256)
         conflict("Link rewrite differs from approved plan");
       if (markdown.source.sha256 === markdown.afterSha256)
         continue;
-      const staged = join16(operation, `markdown-${i}.stage`), identity2 = exclusive(staged, rewritten.content, before.mode);
+      const staged = join16(operation, `markdown-${i}.stage`), identity = exclusive(staged, rewritten.content, before.mode);
       if (readNamingBinary(staged, NAMING_LIMITS.markdownBytes).sha256 !== markdown.afterSha256)
         conflict("Staged Markdown differs");
       assertRoot(root);
-      profileCAS(root.path, plan2);
+      profileCAS(root.path, plan);
       assertPin(root.path, markdown.source, NAMING_LIMITS.markdownBytes);
       const path = join16(root.path, markdown.source.path);
-      exclusive(join16(operation, `markdown-${i}-intent.json`), JSON.stringify({ path: markdown.source.path, stagedPhysical: identity2 }));
+      exclusive(join16(operation, `markdown-${i}-intent.json`), JSON.stringify({ path: markdown.source.path, stagedPhysical: identity }));
       renameWithRetry(staged, path, platform);
-      installed.push({ path, physical: identity2, sha256: markdown.afterSha256, ...snapshots.get(markdown.source.path) });
+      installed.push({ path, physical: identity, sha256: markdown.afterSha256, ...snapshots.get(markdown.source.path) });
       hooks.checkpoint?.("markdown-installed", markdown.source.path);
     }
-    for (const document of plan2.documents.filter((d) => d.treatment === "rename-working")) {
+    for (const document of plan.documents.filter((d) => d.treatment === "rename-working")) {
       assertRoot(root);
-      profileCAS(root.path, plan2);
-      for (const m of plan2.markdown)
+      profileCAS(root.path, plan);
+      for (const m of plan.markdown)
         if (readNamingBinary(join16(root.path, m.source.path), NAMING_LIMITS.markdownBytes).sha256 !== m.afterSha256)
           conflict("Selected links changed before source removal");
       const target = readNamingBinary(join16(root.path, document.target.path), NAMING_LIMITS.documentBytes);
@@ -6374,11 +6374,11 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
     }
     hooks.checkpoint?.("before-commit");
     assertRoot(root);
-    const finalFiles = finalStates(root.path, plan2);
-    for (const file3 of [...created, ...installed])
-      if (readNamingBinary(file3.path, NAMING_LIMITS.documentBytes).physical !== file3.physical)
+    const finalFiles = finalStates(root.path, plan);
+    for (const file of [...created, ...installed])
+      if (readNamingBinary(file.path, NAMING_LIMITS.documentBytes).physical !== file.physical)
         conflict("Written file physical identity changed before commit");
-    exclusive(join16(operation, "committed.json"), JSON.stringify({ version: 1, status: "committed", fingerprint: plan2.fingerprint, finalFiles }));
+    exclusive(join16(operation, "committed.json"), JSON.stringify({ version: 1, status: "committed", fingerprint: plan.fingerprint, finalFiles }));
     return { ...report("applied"), journal };
   } catch (error) {
     const recovery = prepared;
@@ -6445,19 +6445,19 @@ function applyDocumentNaming(matterDir, input, hooks = {}) {
   } finally {
     if (lockIdentity)
       try {
-        checkedPath(lock2, "file");
-        if (physical(lstatSync4(lock2, { bigint: true })) === lockIdentity)
-          unlinkSync(lock2);
+        checkedPath(lock, "file");
+        if (physical(lstatSync4(lock, { bigint: true })) === lockIdentity)
+          unlinkSync(lock);
       } catch {}
   }
 }
-function writeNamingPlanOutsideMatter(matterDir, output, plan2) {
+function writeNamingPlanOutsideMatter(matterDir, output, plan) {
   const root = rootDirectory(matterDir), path = resolve14(output);
   const parent = checkedDirectory(dirname11(path)), physicalOutput = join16(parent, basename9(path));
   if (contained(root.path, physicalOutput) || !safeRelativePath(basename9(path)))
     throw new NamingSchemaError("--out must be a new portable filename outside the matter root");
   checkCase(physicalOutput, false);
-  exclusive(physicalOutput, JSON.stringify(plan2, null, 2) + `
+  exclusive(physicalOutput, JSON.stringify(plan, null, 2) + `
 `);
 }
 
@@ -6483,14 +6483,14 @@ function parseArgs(argv) {
   return { positional, flags };
 }
 function str(flags, key) {
-  const value2 = flags[key];
-  return typeof value2 === "string" ? value2 : undefined;
+  const value = flags[key];
+  return typeof value === "string" ? value : undefined;
 }
 function choice2(flags, key, values) {
-  const value2 = str(flags, key);
-  if (value2 === undefined)
+  const value = str(flags, key);
+  if (value === undefined)
     return;
-  const match = values.find((item) => item === value2);
+  const match = values.find((item) => item === value);
   if (!match)
     throw new Error(`--${key}: vyber ${values.join(" | ")}`);
   return match;
@@ -6500,10 +6500,10 @@ function languageFrom(flags) {
     return;
   return resolveDocumentLanguage(flags.language);
 }
-function entityType(value2) {
-  if (value2 && ENTITY_TYPES2.includes(value2))
-    return value2;
-  throw new Error(`typ mus\xED by\u0165 ${ENTITY_TYPES2.join(" | ")}; dostal som: ${value2 ?? "(ni\u010D)"}`);
+function entityType(value) {
+  if (value && ENTITY_TYPES2.includes(value))
+    return value;
+  throw new Error(`typ mus\xED by\u0165 ${ENTITY_TYPES2.join(" | ")}; dostal som: ${value ?? "(ni\u010D)"}`);
 }
 function jurisdictionFrom(flags, type) {
   const sk = flags.sk === true;
@@ -6565,9 +6565,9 @@ function run(argv, out = console.log) {
         if (!dir || positional.length !== 2 || new Set(namingKeys).size !== namingKeys.length || Object.keys(flags).some((key) => !["manifest", "plan", "apply", "out", "json"].includes(key)) || flags.json !== undefined && flags.json !== true)
           throw new NamingSchemaError("Usage: okf naming <dir> --manifest request.json [--out plan.json] [--json] OR --plan plan.json --apply [--json]");
         if (flags.apply === true && str(flags, "plan") && flags.manifest === undefined && flags.out === undefined) {
-          const result2 = applyDocumentNaming(dir, parseNamingPlan(readNamingJson(str(flags, "plan"))));
-          out(JSON.stringify(result2, null, 2));
-          return result2.status === "applied" || result2.status === "already-applied" ? 0 : 1;
+          const result = applyDocumentNaming(dir, parseNamingPlan(readNamingJson(str(flags, "plan"))));
+          out(JSON.stringify(result, null, 2));
+          return result.status === "applied" || result.status === "already-applied" ? 0 : 1;
         }
         if (!str(flags, "manifest") || flags.plan !== undefined || flags.apply !== undefined || flags.out !== undefined && !str(flags, "out"))
           throw new NamingSchemaError("Preview requires --manifest; apply requires the exact approved --plan and --apply");
