@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { startServer } from "./server.js";
 import { buildWordAddinManifest, WORD_ADDIN_MANIFEST_IDS } from "./word-addin.js";
 import { WORD_ADDIN_SHELL_VERSION } from "./word-addin-shell.js";
+import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
 import type { ServerConfig, WordAddinConfig } from "./types.js";
 
 const stops: Array<() => void | Promise<void>> = [];
@@ -16,7 +17,7 @@ afterEach(async () => {
     await stops.pop()?.();
   }
   while (roots.length) {
-    await rm(roots.pop()!, { recursive: true, force: true });
+    await removeTestDir(roots.pop()!);
   }
 });
 

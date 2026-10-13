@@ -353,7 +353,9 @@ async function openSqlite(path: string): Promise<SqliteHandle> {
     const db = new Database(path, { create: true });
     db.exec("PRAGMA journal_mode = WAL");
     return {
-      prepare: (sql) => db.prepare(sql) as unknown as Statement,
+      // Bun finalizes cached queries on close; uncached prepare() statements
+      // otherwise keep SQLite's WAL handles alive until garbage collection.
+      prepare: (sql) => db.query(sql) as unknown as Statement,
       exec: (sql) => db.exec(sql),
       close: () => db.close(),
     };

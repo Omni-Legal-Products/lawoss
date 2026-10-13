@@ -1,0 +1,5 @@
+## Codebase Patterns
+- Bun SQLite statements need an explicit close lifecycle; cached query statements are finalized by Database.close().
+- Approval paths must be canonicalized before waiting and compared afterward. Attachment changes also bind the managed SKILL.md.
+
+2026-10-13T22:29:31.243864+02:00 — PR142: reproduced SQLite/WAL handle retention, viewer skill/plugin disclosure and approval-time path swaps. Added focused regressions and normal lifecycle control; aligned Windows fixtures and rebuilt conflicted bundles with Bun 1.4.2 after merging dev. Verified server 1509 pass/31 skip, desktop 330 pass/4 skip, server typecheck and diff check. Files: server.ts, auth/file security and approval tests, benchmark store/tests, Office test, Windows CI, PATCHES, AGENTS/CLAUDE. Native Windows CI remains a separate gate.

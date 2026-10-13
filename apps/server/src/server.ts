@@ -1,4 +1,4 @@
-import { resolveWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
+import { resolveWorkspaceFilePath, recheckWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
 import { getWorkspaceMemoryContext, getWorkspaceMemoryGrants, getWorkspaceMemoryStatus } from "./lawoss/workspace-memory.js";
 import { z } from "zod";
 import { reviewSourcePage } from "./reviews/source-page.js";
@@ -3803,6 +3803,7 @@ function createRoutes(
   });
 
   addRoute(routes, "GET", "/workspace/:id/plugins", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const includeGlobal = ctx.url.searchParams.get("includeGlobal") === "true";
     const result = await listPlugins(config, workspace.id, workspaceAppFilesRoot(config, workspace), includeGlobal);
@@ -3980,12 +3981,18 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const name = String(ctx.params.name ?? "").trim();
     if (!name) throw new ApiError(400, "invalid_skill_name", "Skill name is required");
+    const root = workspaceAppFilesRoot(config, workspace);
+    const skillDir = await resolveSkillDir(root, name);
+    const requested = join(skillDir, "SKILL.md");
+    const approved = await resolveWorkspaceFilePath(skillDir, requested);
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.upsert",
       summary: `Mark ${name} as a workflow`,
-      paths: [join(workspaceAppFilesRoot(config, workspace), ".opencode", "skills")],
+      paths: [approved],
     });
+    if (await resolveSkillDir(root, name) !== skillDir) throw new ApiError(409, "path_changed", "Skill directory changed while awaiting approval");
+    await recheckWorkspaceFilePath(skillDir, requested, approved);
     const result = await promoteSkillToWorkflow(workspaceAppFilesRoot(config, workspace), name);
     emitReloadEvent(ctx.reloadEvents, workspace, "skills", {
       type: "skill",
@@ -3997,6 +4004,7 @@ function createRoutes(
   });
 
   addRoute(routes, "GET", "/workspace/:id/skills/:name", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const includeGlobal = ctx.url.searchParams.get("includeGlobal") === "true";
     const name = String(ctx.params.name ?? "").trim();
@@ -4023,12 +4031,16 @@ function createRoutes(
     // "global" writes into the shared library the desktop Skills/Workflows
     // screens list; the default stays project-scoped for existing callers.
     const scope = body.scope === "global" ? "global" : "project";
+    const root = workspaceAppFilesRoot(config, workspace);
+    const requested = join(skillsDirForScope(root, scope), name.trim(), "SKILL.md");
+    const approved = scope === "project" ? await resolveWorkspaceFilePath(root, requested) : requested;
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.upsert",
       summary: `Upsert skill ${name}`,
-      paths: [join(skillsDirForScope(workspaceAppFilesRoot(config, workspace), scope), name, "SKILL.md")],
+      paths: [approved],
     });
+    if (scope === "project") await recheckWorkspaceFilePath(root, requested, approved);
     const result = await upsertSkill(workspaceAppFilesRoot(config, workspace), { name, content, description, scope });
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
       id: shortId(),
@@ -4056,12 +4068,21 @@ function createRoutes(
     if (!name) {
       throw new ApiError(400, "invalid_skill_name", "Skill name is required");
     }
+    const root = workspaceAppFilesRoot(config, workspace);
+    const item = (await listSkills(root, false)).find(skill => skill.name === name && skill.scope === "project");
+    const requested = item ? dirname(item.path) : join(root, ".opencode", "skills", name);
+    const approved = await resolveWorkspaceFilePath(root, requested);
+    const approvedLeaf = await resolveWorkspaceFilePath(root, requested, { preserveLeaf: true });
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.delete",
       summary: `Delete skill ${name}`,
-      paths: [join(workspaceAppFilesRoot(config, workspace), ".opencode", "skills", name)],
+      paths: [approvedLeaf],
     });
+    await recheckWorkspaceFilePath(root, requested, approved);
+    if (await resolveWorkspaceFilePath(root, requested, { preserveLeaf: true }) !== approvedLeaf) {
+      throw new ApiError(409, "path_changed", "Skill path changed while awaiting approval");
+    }
     const result = await deleteSkill(workspaceAppFilesRoot(config, workspace), name);
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
       id: shortId(),
@@ -4116,12 +4137,18 @@ function createRoutes(
     // Validate + resolve up front so the approval prompt shows the real path.
     validateResourceName(name);
     const skillDir = await resolveSkillDir(workspaceAppFilesRoot(config, workspace), skill);
+    const requested = [join(skillDir, "resources", name), join(skillDir, "SKILL.md")];
+    const approved = await Promise.all(requested.map(path => resolveWorkspaceFilePath(skillDir, path)));
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.resource.upsert",
       summary: `Attach ${name} to skill ${skill}`,
-      paths: [join(skillDir, "resources", name)],
+      paths: approved,
     });
+    if (await resolveSkillDir(workspaceAppFilesRoot(config, workspace), skill) !== skillDir) {
+      throw new ApiError(409, "path_changed", "Skill directory changed while awaiting approval");
+    }
+    for (let i = 0; i < requested.length; i++) await recheckWorkspaceFilePath(skillDir, requested[i]!, approved[i]!);
     const result = await upsertSkillResource(workspaceAppFilesRoot(config, workspace), skill, { name, content, contentBase64 });
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
       id: shortId(),
@@ -4150,12 +4177,18 @@ function createRoutes(
     const name = String(ctx.params.name ?? "").trim();
     validateResourceName(name);
     const skillDir = await resolveSkillDir(workspaceAppFilesRoot(config, workspace), skill);
+    const requested = [join(skillDir, "resources", name), join(skillDir, "SKILL.md")];
+    const approved = await Promise.all(requested.map(path => resolveWorkspaceFilePath(skillDir, path)));
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.resource.delete",
       summary: `Remove ${name} from skill ${skill}`,
-      paths: [join(skillDir, "resources", name)],
+      paths: approved,
     });
+    if (await resolveSkillDir(workspaceAppFilesRoot(config, workspace), skill) !== skillDir) {
+      throw new ApiError(409, "path_changed", "Skill directory changed while awaiting approval");
+    }
+    for (let i = 0; i < requested.length; i++) await recheckWorkspaceFilePath(skillDir, requested[i]!, approved[i]!);
     const result = await deleteSkillResource(workspaceAppFilesRoot(config, workspace), skill, name);
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
       id: shortId(),
@@ -4412,12 +4445,16 @@ function createRoutes(
     const body = await readJsonBody(ctx.request);
     const name = String(body.name ?? "");
     const template = String(body.template ?? "");
+    const root = workspaceAppFilesRoot(config, workspace);
+    const requested = join(root, ".opencode", "commands", `${sanitizeCommandName(name)}.md`);
+    const approved = await resolveWorkspaceFilePath(root, requested);
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "commands.upsert",
       summary: `Upsert command ${name}`,
-      paths: [join(workspaceAppFilesRoot(config, workspace), ".opencode", "commands", `${sanitizeCommandName(name)}.md`)],
+      paths: [approved],
     });
+    await recheckWorkspaceFilePath(root, requested, approved);
     const path = await upsertCommand(workspaceAppFilesRoot(config, workspace), {
       name,
       description: body.description ? String(body.description) : undefined,
@@ -4451,12 +4488,20 @@ function createRoutes(
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const name = ctx.params.name ?? "";
+    const root = workspaceAppFilesRoot(config, workspace);
+    const requested = join(root, ".opencode", "commands", `${sanitizeCommandName(name)}.md`);
+    const approved = await resolveWorkspaceFilePath(root, requested);
+    const approvedLeaf = await resolveWorkspaceFilePath(root, requested, { preserveLeaf: true });
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "commands.delete",
       summary: `Delete command ${name}`,
-      paths: [join(workspaceAppFilesRoot(config, workspace), ".opencode", "commands", `${sanitizeCommandName(name)}.md`)],
+      paths: [approvedLeaf],
     });
+    await recheckWorkspaceFilePath(root, requested, approved);
+    if (await resolveWorkspaceFilePath(root, requested, { preserveLeaf: true }) !== approvedLeaf) {
+      throw new ApiError(409, "path_changed", "Command path changed while awaiting approval");
+    }
     await deleteCommand(workspaceAppFilesRoot(config, workspace), name);
     await recordAudit(workspaceAppFilesRoot(config, workspace), {
       id: shortId(),

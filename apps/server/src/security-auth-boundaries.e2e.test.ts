@@ -84,6 +84,25 @@ test("viewer cannot retrieve configuration through direct, mounted, export, meta
   expect(f.calls).toEqual(["GET /session/synthetic_session/message"]);
 });
 
+test("skill detail and plugin configuration require collaborator access at every mount", async () => {
+  const f = await fixture();
+  const skill = join(f.workspace, ".opencode", "skills", "synthetic");
+  await mkdir(skill, { recursive: true });
+  const content = "---\nname: synthetic\ndescription: Synthetic test\n---\nskill-secret-sentinel\n";
+  await writeFile(join(skill, "SKILL.md"), content);
+  for (const prefix of ["", "/w/ws_1"]) {
+    for (const route of ["skills/synthetic", "skills/synthetic?includeGlobal=true", "plugins", "plugins?includeGlobal=true"]) {
+      const denied = await fetch(`${f.base}${prefix}/workspace/ws_1/${route}`, { headers: f.viewer });
+      expect(denied.status).toBe(403);
+      expect(await denied.text()).not.toContain("skill-secret-sentinel");
+    }
+    const allowed = await fetch(`${f.base}${prefix}/workspace/ws_1/skills/synthetic`, { headers: f.collaborator });
+    expect(allowed.status).toBe(200);
+    expect(await allowed.text()).toContain("skill-secret-sentinel");
+    expect((await fetch(`${f.base}${prefix}/workspace/ws_1/plugins`, { headers: f.collaborator })).status).toBe(200);
+  }
+});
+
 test("read-only mode blocks proxy mutations for collaborators at every mount but preserves reads", async () => {
   const f = await fixture(true);
   for (const mount of ["/opencode", "/w/ws_1/opencode", "/workspace/ws_1/opencode"]) {
@@ -136,4 +155,97 @@ test("project configuration writes reject a different canonical target after app
   expect(response.status).toBe(409);
   expect(await readFile(original, "utf8")).toBe("{}");
   expect(await readFile(replacement, "utf8")).toBe("{}");
+});
+
+for (const kind of ["commands", "skills"] as const) {
+  test(`${kind} upsert rejects a different in-workspace target after approval`, async () => {
+    let link = "", replacement = "";
+    const f = await fixture(false, async () => {
+      await rm(link);
+      await symlink(replacement, link, "dir");
+      return "allow";
+    });
+    const first = join(f.workspace, "first-tools");
+    replacement = join(f.workspace, "other-tools");
+    await mkdir(first); await mkdir(replacement);
+    link = join(f.workspace, ".opencode", kind);
+    await symlink(first, link, "dir");
+    const payload = kind === "commands" ? { name: "synthetic", template: "Synthetic command" }
+      : { name: "synthetic", description: "Synthetic skill", content: "Synthetic skill body" };
+    const response = await fetch(`${f.base}/workspace/ws_1/${kind}`, {
+      method: "POST", headers: { ...f.collaborator, "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    });
+    expect(response.status).toBe(409);
+    const suffix = kind === "commands" ? "synthetic.md" : "synthetic/SKILL.md";
+    expect(await readFile(join(first, suffix), "utf8").catch(() => null)).toBeNull();
+    expect(await readFile(join(replacement, suffix), "utf8").catch(() => null)).toBeNull();
+  });
+}
+
+for (const kind of ["commands", "skills"] as const) {
+  test(`${kind} delete rejects a different in-workspace target after approval`, async () => {
+    let link = "", replacement = "";
+    const f = await fixture(false, async () => {
+      await rm(link); await symlink(replacement, link, "dir"); return "allow";
+    });
+    const first = join(f.workspace, "first-tools"); replacement = join(f.workspace, "other-tools");
+    const suffix = kind === "commands" ? "synthetic.md" : "synthetic/SKILL.md";
+    const content = kind === "commands" ? "---\nname: synthetic\n---\noriginal command\n"
+      : "---\nname: synthetic\ndescription: Synthetic skill\n---\noriginal skill\n";
+    for (const dir of [first, replacement]) {
+      await mkdir(kind === "commands" ? dir : join(dir, "synthetic"), { recursive: true });
+      await writeFile(join(dir, suffix), content);
+    }
+    link = join(f.workspace, ".opencode", kind); await symlink(first, link, "dir");
+    const response = await fetch(`${f.base}/workspace/ws_1/${kind}/synthetic`, { method: "DELETE", headers: f.collaborator });
+    expect(response.status).toBe(409);
+    expect(await readFile(join(first, suffix), "utf8")).toBe(content);
+    expect(await readFile(join(replacement, suffix), "utf8")).toBe(content);
+  });
+}
+
+for (const method of ["POST", "DELETE", "PROMOTE"] as const) {
+  test(`skill resource ${method} binds both the attachment and SKILL.md during approval`, async () => {
+    let link = "", replacement = "";
+    const f = await fixture(false, async () => {
+      await rm(link); await symlink(replacement, link, "dir"); return "allow";
+    });
+    const first = join(f.workspace, "first-tools"); replacement = join(f.workspace, "other-tools");
+    const content = "---\nname: synthetic\ndescription: Synthetic skill\n---\noriginal skill\n";
+    for (const dir of [first, replacement]) {
+      await mkdir(join(dir, "synthetic", "resources"), { recursive: true });
+      await writeFile(join(dir, "synthetic", "SKILL.md"), content);
+      await writeFile(join(dir, "synthetic", "resources", "sample.md"), "original attachment");
+    }
+    link = join(f.workspace, ".opencode", "skills"); await symlink(first, link, "dir");
+    const route = method === "PROMOTE" ? "/workspace/ws_1/skills/synthetic/promote-workflow"
+      : "/workspace/ws_1/skills/synthetic/resources" + (method === "DELETE" ? "/sample.md" : "");
+    const response = await fetch(f.base + route, { method: method === "PROMOTE" ? "POST" : method, headers: { ...f.collaborator, "Content-Type": "application/json" },
+      ...(method === "POST" ? { body: JSON.stringify({ name: "sample.md", content: "unapproved update" }) } : {}),
+    });
+    expect(response.status).toBe(409);
+    for (const dir of [first, replacement]) {
+      expect(await readFile(join(dir, "synthetic", "SKILL.md"), "utf8")).toBe(content);
+      expect(await readFile(join(dir, "synthetic", "resources", "sample.md"), "utf8")).toBe("original attachment");
+    }
+  });
+}
+
+test("approved commands, skills and attachments still support their normal lifecycle", async () => {
+  const f = await fixture(false, async () => "allow");
+  const call = (route: string, method = "GET", body?: unknown) => fetch(`${f.base}/workspace/ws_1/${route}`, {
+    method, headers: { ...f.collaborator, "Content-Type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  expect((await call("commands", "POST", { name: "synthetic", template: "Synthetic command" })).status).toBe(200);
+  expect((await call("commands/synthetic", "DELETE")).status).toBe(200);
+  expect((await call("skills", "POST", { name: "synthetic", description: "Synthetic skill", content: "Synthetic body" })).status).toBe(200);
+  expect((await call("skills/synthetic")).status).toBe(200);
+  expect((await call("skills/synthetic/resources", "POST", { name: "sample.md", content: "Synthetic attachment" })).status).toBe(200);
+  const resource = await call("skills/synthetic/resources/sample.md");
+  expect(resource.status).toBe(200);
+  expect(await resource.text()).toContain("Synthetic attachment");
+  expect((await call("skills/synthetic/resources/sample.md", "DELETE")).status).toBe(200);
+  expect((await call("skills/synthetic/promote-workflow", "POST")).status).toBe(200);
+  expect((await call("skills/workflow-assistant-synthetic", "DELETE")).status).toBe(200);
 });

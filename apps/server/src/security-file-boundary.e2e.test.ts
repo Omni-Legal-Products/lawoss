@@ -26,7 +26,7 @@ async function fixture(alias = false, manual = false) {
   // Windows: server drží runtime.sqlite otvorenú aj po stop(), rm skončí EBUSY.
   cleanup.push(() => removeTestDir(base));
   process.env.LEGALWORK_TOKEN_STORE = join(base, "tokens.json");
-  process.env.LEGALWORK_RUNTIME_DB = join(base, "runtime.db");
+  process.env.LEGALWORK_RUNTIME_DB = join(base, "runtime.sqlite");
   process.env.LEGALWORK_DATA_DIR = join(base, "data");
   const root = join(base, "workspace"), outside = join(base, "outside");
   await mkdir(root); await mkdir(outside);

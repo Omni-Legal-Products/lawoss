@@ -544,3 +544,12 @@ Lokálna oprava nad `2fa3ace51596746a2bd3c5bb25cb8f4ee5aeb903`. Nasledujúce dow
 | `.github/workflows/ci-tests.yml`, `ci-windows-portable.yml`; `apps/desktop/package.json` | Existujúce CI dopĺňa router/orchestrátor a bezpečnostné regresie; Windows má explicitné testy archívov a ciest. Desktop test suite obsahuje migráciu Office manifestov. |
 
 Kontroly súborového stromu nie sú OS sandbox proti súbežnej výmene adresárov iným miestnym procesom. Viewer ochrana vychádza zo známych konfiguračných ciest a ich aliasov; nejde o všeobecný DLP filter všetkých dokumentov. Testy používajú syntetické dočasné dáta a mockované vzdialené služby. Natívny Windows, reálny Office, podpis, balenie a nasadenie vyžadujú vlastné runtime overenie.
+
+### Windows SQLite teardown regression (2026-10-13)
+
+| Súbory upstreamu | Úprava a dôvod |
+|---|---|
+| `apps/server/src/benchmarks/store.ts`, `store.test.ts` | Bun používa cacheované `Database.query()` namiesto nefinalizovaných `prepare()` statements. `close()` tak okamžite uvoľní databázu aj WAL/SHM; regresia skúša odstránenie a opätovné otvorenie úložiska. Node adaptér sa nemení. |
+| `apps/server/src/security-file-boundary.e2e.test.ts`, `word-addin.e2e.test.ts`; `.github/workflows/ci-windows-portable.yml` | Bezpečnostná fixtúra používa konvenčný názov `runtime.sqlite`; Office test používa existujúci úzky `removeTestDir`, ktorý na Windows toleruje iba procesne cacheovanú runtime databázu. Iné zamknuté súbory ostávajú chybou. Windows CI spúšťa aj regresiu benchmark store. |
+
+| `apps/server/src/server.ts`, `security-auth-boundaries.e2e.test.ts`, `approvals.e2e.test.ts` | Detail skillu a zoznam pluginov vyžadujú collaborator aj na mounted aliasoch. Projektové command/skill upsert a delete, prílohy aj povýšenie workflow viažu schválenie na kanonický cieľ a po rozhodnutí ho overia; príloha zahŕňa aj upravovaný SKILL.md. Regresie menia odkaz medzi dvoma cieľmi počas host approval a zachovávajú bežný lifecycle. Test host approval používa kanonický dočasný koreň, aby zobrazovaný skutočný cieľ sedel aj na macOS `/var` aliase. |
