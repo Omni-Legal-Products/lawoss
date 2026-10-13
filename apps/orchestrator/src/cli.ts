@@ -3589,9 +3589,13 @@ async function waitForOpencodeHealthy(
 ) {
   const start = Date.now();
   let lastError: string | null = null;
+  // LAWOSS: každý pokus má vlastný limit. OpenCode na Linux CI občas prijme
+  // spojenie a neodpovie; bez limitu fetch visel a slučka sa už nezopakovala.
+  const attemptSignal = () =>
+    AbortSignal.timeout(Math.max(1, Math.min(2_000, timeoutMs - (Date.now() - start))));
   while (Date.now() - start < timeoutMs) {
     try {
-      const health = unwrap(await client.global.health());
+      const health = unwrap(await client.global.health({ signal: attemptSignal() }));
       if (health?.healthy) return health;
       lastError = "Server reported unhealthy";
     } catch (error) {
@@ -3602,7 +3606,7 @@ async function waitForOpencodeHealthy(
       // Some environments have a broken OpenCode /health probe even while the
       // core API surface is already usable. Accept a successful path lookup as
       // readiness so session APIs can come up in those runtimes.
-      unwrap(await client.path.get());
+      unwrap(await client.path.get(undefined, { signal: attemptSignal() }));
       return { healthy: true, degraded: true, reason: lastError ?? undefined };
     } catch (error) {
       if (!lastError) {
