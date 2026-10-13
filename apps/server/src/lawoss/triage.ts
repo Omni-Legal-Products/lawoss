@@ -124,7 +124,10 @@ export function registerTriageRoutes(options: {
       const target = await verifyTriageTarget(root, trialJournalDirectory, await hostConsent(root, { status: true }));
       // `canPlan: false` = súhlas sa spotreboval na posledné usporiadanie; ostáva len jeho vrátenie.
       const canPlan = target.mode === "trial" || (await hostConsent(root, { plan: true })).allowInPlace === true;
-      return { trial: true, mode: target.mode, root: target.root, canPlan, runs: await listTriageRuns(target.root) };
+      // Na mieste sa dá vrátiť len beh, na ktorý sa spotreboval súhlas; nový súhlas vrátenie predošlého behu ruší
+      // (rozhodnutie MČ 13. 10.), appka preto „Vrátiť“ ukáže len pri `undoRunId`.
+      const undoRunId = target.mode === "in_place" ? (await readConsent(root))?.runId : undefined;
+      return { trial: true, mode: target.mode, root: target.root, canPlan, ...(undoRunId ? { undoRunId } : {}), runs: await listTriageRuns(target.root) };
     } catch (error) {
       const code = error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : "";
       if (code === "not_trial_clone") return { trial: false, reason: error instanceof Error ? error.message : "", runs: [] };

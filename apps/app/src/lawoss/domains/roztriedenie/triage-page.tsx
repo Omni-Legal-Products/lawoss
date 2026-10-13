@@ -15,7 +15,7 @@ import { installMissingOnboardingSkills } from "../onboarding/install-pack";
 import { ensureSkillAvailable, workspaceSkillEngine } from "../../okf/skill-availability";
 
 const ROZTRIED_SPIS_SKILL = "roztried-spis";
-import { plansPreview, triageApply, triagePlan, triageReplan, triageStatus, triageTargetRoot, triageUndo, type TriageClient, type TriageMoveView, type TriagePreview, type TriageRun, type TriageStatus, type TriageUndoResult } from "./api";
+import { plansPreview, undoableRun, triageApply, triagePlan, triageReplan, triageStatus, triageTargetRoot, triageUndo, type TriageClient, type TriageMoveView, type TriagePreview, type TriageRun, type TriageStatus, type TriageUndoResult } from "./api";
 import { OFFICE_CONFIG_ENCODING_CODE } from "../../../../../../lawoss/okf/src/profile";
 import "../../lite/pages/okf-glass.css";
 import "./triage.css";
@@ -140,7 +140,7 @@ function TriageFlow({ root, connection, locale }: { root: string; connection: Ok
   }, [client, root, run, text]);
   useEffect(() => { void load(); }, [load]);
 
-  const lastApplied: TriageRun | undefined = status?.trial ? status.runs.find((item) => item.state === "applied") : undefined;
+  const lastApplied: TriageRun | undefined = undoableRun(status);
   const busy = phase.kind === "busy";
 
   async function toggleKeep(id: string, keep: boolean) {
