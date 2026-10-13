@@ -550,3 +550,12 @@ Linux packaging na heade `7bde0842` úspešne overil aplikáciu a renderer, no p
 | Súbory upstreamu | Úprava a dôvod | Vetva |
 |---|---|---|
 | `apps/server/src/opencode-plugins/legalwork-project-tools.ts` | Scoped export/validate tools nad LAWOSS document service, explicitný jazyk výstupu a pokyny pre kontrolu skutočne uložených súborov s ohraničenou opravou. Identita, vlastníctvo, zdroje a stav overenia zostávajú v serverovej doméne; odpoveď modelu sama nepriznáva úspech. | `fix/isir-native-reliability` |
+
+### Natívna príprava a generovanie dokumentov (2026-10-14)
+
+| Súbory upstreamu | Úprava a dôvod | Vetva |
+|---|---|---|
+| `apps/app/src/app/lib/legalwork-server.ts`, `apps/app/src/app/lib/opencode.ts` | Typované document/export/validation API a úzky WeakMap hook na pôvodný SDK transport pre skutočný engine-directory preflight. Verejný SDK Client ani existujúca autentizácia sa nemenia. | `fix/isir-native-reliability` |
+| `apps/app/src/react-app/domains/session/panel/workspace-files-panel.tsx`, `apps/app/src/react-app/domains/session/chat/session-page.tsx`, `apps/app/src/react-app/shell/session-route.tsx`, `apps/app/src/i18n/locales/en.ts`, `apps/app/src/i18n/locales/de.ts` | Malé hooks pre natívny processing panel a okamžité scoped odoslanie cez existujúci chat/model/agent/permissions. Väzba prijatého chatu prežije async chybu a reload; nový beh je výslovná terminálna akcia. CZ/SK zostávajú vo vlastných locale súboroch. | `fix/isir-native-reliability` |
+| `apps/server/src/routes/files.ts`, `apps/server/src/artifact-files.e2e.test.ts` | Canonical containment pred enumeráciou a voliteľný selected-folder `within` s presným `enforcedWithin` potvrdením. General browser zachová vnútorné/root aliasy; príprava neprijme sibling alias mimo výberu. Skutočné filesystem/HTTP regresie. | `fix/isir-native-reliability` |
+| `apps/app/src/react-app/domains/session/fusion/fusion-controller.ts`, `apps/app/tests/fusion-routing.test.ts` | Voliteľný `messageID` sa forwarduje iba do existujúceho main-session promptAsync pre koreláciu generovania po reload/retry. Candidate požiadavky ani bežní volajúci bez field sa nemenia; focused regresia overuje hranicu. | `fix/isir-native-reliability` |

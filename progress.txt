@@ -4,6 +4,7 @@
 - Reuse DocumentPreparation/OCR and scoped agent plugins; incomplete coverage is a durable result, not a successful empty document.
 - Real ISIR datasets and provider credentials stay outside Git; CI fixtures are synthetic.
 - Output verification includes visible provenance and valid identity dependencies, not just a machine block. Inspection never grants overwrite ownership.
+- Native prompt acknowledgment and terminal task state are separate; keep accepted chats bound to original-source IDs/hashes through retry and reload.
 
 ## Progress
 
@@ -18,3 +19,7 @@
 2026-10-14: Task3 export/actual-file validation committedfed0f089 with full server1510/32skip/0fail and strict typecheck/build/Node green. Fresh review reproduced two verification defects (visible provenance mismatch and rejected companion conferring CSV verification); fixfaeb54ad has RED10pass2fail -> covering36pass1existingOCRskip0fail, strict typecheck/build0. Scoped rereview pending; Task3 not marked complete yet. Shared PATCHES and identical AGENTS/CLAUDE document source identity, ownership and dependency patterns. Actual ten-case/31PDF preservation baseline recorded outsideGit with no source modification; native harness gaps mapped, final UI/deployment remains open.
 
 2026-10-14: Task3 fixfaeb54ad independently re-reviewed clean: visible source attribution/coverage, both-order rejected identity dependencies, persisted-status invalidation, normal formatting and diagnostic provenance all addressed. Marked Task3 code gate complete in plan; no native app acceptance or dev deployment claimed. Shared documentation checks cmp AGENTS/CLAUDE and git diff --check exit0.
+
+2026-10-14: Task4 native panel/generation committed6c561976; fresh review found missing-source completeness, cached verification after refresh failure, selected-folder sibling aliases and async duplicate/retry lifecycle. Fixea0f097c has direct RED/GREEN regressions and final covering57app/30server passed, strict app/server typechecks, locale6007keys and production build22.21s exit0. Current fresh scoped rereview pending. Updated PATCHES and general AGENTS/CLAUDE patterns; final Electron/native/provider/ten-case acceptance and dev deployment remain open.
+
+2026-10-14T01:48:04+02:00: Task4 fixes ea0f097c/b2811e9b independently re-reviewed clean. Final covering62pass422assertions8files, strictapp/build21.08s0; exact engine-visible attempt IDs repair clock-skew/reload/old-error and stale snapshot terminal defects. Pinned1.18.29 ID/pagination contract verified. Marked Task4 code gate complete; updated upstream hooks and identical AGENTS/CLAUDE patterns. Actual Electron/native/live-provider, full final CI and dev deployment still pending Task5.
