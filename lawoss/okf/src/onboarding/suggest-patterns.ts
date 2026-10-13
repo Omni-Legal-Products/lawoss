@@ -18,4 +18,29 @@ export const CZ_LEGAL_FORMS: readonly RegExp[] = [
 export const hasLegalForm = (name: string): boolean => [...SK_LEGAL_FORMS, ...CZ_LEGAL_FORMS].some(pattern => pattern.test(name));
 /** Vec: na začiatku rok 2000 až 2099 (voliteľne s mesiacom) a oddeľovač, alebo spisová značka v názve. */
 const MATTER_DATE = /^20\d{2}(?:[-_. ](?:0[1-9]|1[0-2]))?(?:[-_ ]|$)/;
-export const looksLikeMatterName = (name: string): boolean => MATTER_DATE.test(name) || findCaseNumber(name) !== undefined;
+/** Holý rok alebo dátum bez názvu („2021“, „2024-01“, „2024-01-15“): archív podľa rokov, nie vec ani klient. */
+export const isBareDate = (name: string): boolean => /^20\d{2}(?:[-_. ]\d{1,2}){0,2}$/.test(name);
+/**
+ * Slová, ktorými advokát začína názov veci („Spor s Alfa s.r.o.“, „Nájom Beta k.s.“). Vec pomenovaná podľa
+ * protistrany nesie jej právnu formu, takže bez tohto pravidla vyzerá ako klient a jeden klient s vecami ako
+ * prax (review VŘ k #135, bod 5; rozhodnutie MČ 13. 10. 2026, možnosť B). Slovo musí stáť samostatne:
+ * „Nájomné domy s.r.o.“ ostáva klientom. SK a CZ sú oddelené, rovnaké slovo môže byť v oboch.
+ */
+export const SK_MATTER_WORDS: readonly string[] = [
+  "spor", "žaloba", "návrh", "nájom", "prenájom", "kúpa", "predaj", "zmluva", "kúpna", "nájomná", "darovacia", "dohoda",
+  "exekúcia", "konanie", "odvolanie", "dovolanie", "sťažnosť", "vymáhanie", "pohľadávka", "rozvod", "dedičstvo",
+  "dedičské", "konkurz", "reštrukturalizácia", "oddlženie", "trestné", "trestná", "správne", "výpoveď", "náhrada",
+  "platobný", "darovanie", "vec",
+];
+export const CZ_MATTER_WORDS: readonly string[] = [
+  "spor", "žaloba", "návrh", "nájem", "pronájem", "koupě", "prodej", "smlouva", "kupní", "nájemní", "darovací", "dohoda",
+  "exekuce", "řízení", "odvolání", "dovolání", "stížnost", "vymáhání", "pohledávka", "rozvod", "dědictví",
+  "dědické", "insolvence", "oddlužení", "trestní", "správní", "výpověď", "náhrada", "platební", "darování", "věc",
+];
+const MATTER_WORDS = new Set([...SK_MATTER_WORDS, ...CZ_MATTER_WORDS]);
+/** Prvé slovo názvu (NFC, malými písmenami) je slovo veci zo zoznamu SK alebo CZ. */
+export const startsWithMatterWord = (name: string): boolean => {
+  const first = name.normalize("NFC").trim().toLocaleLowerCase("sk").split(/[\s,.;:()_-]+/u)[0] ?? "";
+  return MATTER_WORDS.has(first);
+};
+export const looksLikeMatterName = (name: string): boolean => !isBareDate(name) && (MATTER_DATE.test(name) || findCaseNumber(name) !== undefined || startsWithMatterWord(name));

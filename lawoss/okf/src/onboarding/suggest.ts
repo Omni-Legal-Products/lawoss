@@ -7,11 +7,11 @@ import { lstat, readdir, readFile } from "node:fs/promises";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { realpath } from "../canonical-path.ts";
 import { decodeText } from "../../../okf-pamat/src/text-decode.ts";
-import { VOLATILE_ENTRY } from "./classify.ts";
-import { hasLegalForm, looksLikeMatterName } from "./suggest-patterns.ts";
+import { findAncestorOffice, VOLATILE_ENTRY } from "./classify.ts";
+import { hasLegalForm, isBareDate, looksLikeMatterName } from "./suggest-patterns.ts";
 
 export type SuggestedLevel = "practice" | "client" | "matter" | "unknown";
-export type SuggestionSignal = "office_config" | "client_card" | "matter_card" | "legal_form_children" | "matter_named_children" | "letter_buckets" | "matter_named_root" | "documents_only" | "plain_directories" | "empty";
+export type SuggestionSignal = "office_config" | "client_card" | "matter_card" | "legal_form_children" | "matter_named_children" | "letter_buckets" | "matter_named_root" | "documents_only" | "plain_directories" | "empty" | "inside_office";
 export type SuggestedClient = { path: string; name: string };
 export type OnboardingSuggestion = { root: string; level: SuggestedLevel; marked: boolean; score: number; signals: SuggestionSignal[]; clientPattern?: string; clients: SuggestedClient[]; complete: boolean };
 export type SurveyEntry = { path: string; kind: "file" | "directory" };
@@ -20,6 +20,8 @@ export type FolderSurvey = { root: string; complete: boolean; entries: SurveyEnt
 /** Prvé prahy (spec, otvorená otázka 1); doladia sa na anonymizovanom strome reálnej praxe. */
 export const PRACTICE_MIN_CLIENTS = 5;
 export const PRACTICE_MIN_RATIO = 0.5;
+/** Istota slabého návrhu (rovnaká ako pri obyčajných priečinkoch): advokát sa má rozhodnúť sám. */
+const WEAK_SCORE = 0.5;
 const SURVEY_DEPTH = 4;
 const SURVEY_ENTRIES = 50_000;
 const CLIENT_CARDS = new Set(["client.md", "klient.md"]);
@@ -27,6 +29,7 @@ const MATTER_CARDS = new Set(["matter.md", "spis.md", "project.md", "projekt.md"
 const OFFICE_DIRS = ["Office", "_kancelaria"];
 const LETTER = /^\p{Lu}$/u;
 
+/** Meno z relatívnej cesty položky prieskumu, tá sa skladá cez „/“ na každej platforme. Koreň je natívna cesta, preto `basename`. */
 const nameOf = (path: string): string => path.split("/").pop() ?? path;
 /** Priami potomkovia každého priečinka; kľúč „“ je koreň. Index sa postaví raz, nie pri každom hľadaní. */
 type ChildIndex = Map<string, SurveyEntry[]>;
@@ -101,18 +104,28 @@ export async function suggestOnboardingLevel(root: string): Promise<OnboardingSu
   const buckets = dirs.filter(entry => LETTER.test(nameOf(entry.path)));
   const bucketed = buckets.length >= PRACTICE_MIN_CLIENTS && buckets.length >= dirs.length * 0.8;
   const candidates = bucketed ? buckets.flatMap(bucket => childrenOf(index, bucket.path).filter(entry => entry.kind === "directory")) : dirs;
-  const legal = candidates.filter(candidate => hasLegalForm(nameOf(candidate.path)));
-  const withMatters = candidates.filter(candidate => childrenOf(index, candidate.path).some(entry => entry.kind === "directory" && looksLikeMatterName(nameOf(entry.path))));
+  // Priečinok pomenovaný ako vec („2024-01 Spor s Alfa s.r.o.“) je vec, nie klient, aj keď nesie právnu formu
+  // protistrany; holý rok či dátum je archív. Ani jeden sa nepočíta za klienta, v menovateli ostávajú.
+  const matterNamed = candidates.filter(candidate => looksLikeMatterName(nameOf(candidate.path)));
+  const clientCandidates = candidates.filter(candidate => !looksLikeMatterName(nameOf(candidate.path)) && !isBareDate(nameOf(candidate.path)));
+  const legal = clientCandidates.filter(candidate => hasLegalForm(nameOf(candidate.path)));
+  const withMatters = clientCandidates.filter(candidate => childrenOf(index, candidate.path).some(entry => entry.kind === "directory" && looksLikeMatterName(nameOf(entry.path))));
   const clientish = new Set([...legal, ...withMatters].map(candidate => candidate.path));
   const ratio = candidates.length ? clientish.size / candidates.length : 0;
-  if (candidates.length >= PRACTICE_MIN_CLIENTS && ratio >= PRACTICE_MIN_RATIO) {
+  // Prevažujú mená vecí: typický jeden klient (spec P4), nie prax.
+  const mattersDominate = matterNamed.length * 2 > candidates.length;
+  if (!mattersDominate && clientCandidates.length >= PRACTICE_MIN_CLIENTS && ratio >= PRACTICE_MIN_RATIO) {
+    // Vnútri existujúcej kancelárie nová prax nevznikne (planPracticeOffice ju odmietne); návrh nechá úroveň na advokátovi.
+    if (await findAncestorOffice(survey.root)) return { ...base, level: "unknown", marked: false, score: 0, signals: ["inside_office"] };
     const signals: SuggestionSignal[] = [];
     if (bucketed) signals.push("letter_buckets");
     if (legal.length) signals.push("legal_form_children");
     if (withMatters.length) signals.push("matter_named_children");
-    return { ...base, level: "practice", marked: false, score: round(ratio), signals, clientPattern: bucketed ? "*/*" : "*", clients: candidates.map(candidate => ({ path: candidate.path, name: nameOf(candidate.path) })) };
+    // Jediný signál sú podpriečinky pomenované ako veci: rovnako vyzerá klient s datovanými verziami vecí
+    // („Kúpna zmluva/2024-01 návrh“). Prax sa len ponúkne s nízkou istotou, rozhodne advokát.
+    const score = signals.length === 1 && signals[0] === "matter_named_children" ? Math.min(round(ratio), WEAK_SCORE) : round(ratio);
+    return { ...base, level: "practice", marked: false, score, signals, clientPattern: bucketed ? "*/*" : "*", clients: clientCandidates.map(candidate => ({ path: candidate.path, name: nameOf(candidate.path) })) };
   }
-  // The root is a native absolute path; only survey entries use portable "/" paths.
   if (looksLikeMatterName(basename(survey.root))) return { ...base, level: "matter", marked: false, score: 0.8, signals: ["matter_named_root"] };
   if (dirs.some(entry => looksLikeMatterName(nameOf(entry.path)))) return { ...base, level: "client", marked: false, score: 0.8, signals: ["matter_named_children"] };
   if (!dirs.length) return { ...base, level: "matter", marked: false, score: 0.5, signals: ["documents_only"] };

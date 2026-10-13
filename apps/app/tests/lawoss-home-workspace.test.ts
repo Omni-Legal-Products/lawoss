@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { avoidLawossHomeId, defaultWorkspaceId, isLawossHomeWorkspace, preferRealWorkspace, withoutLawossHome } from "../src/lawoss/home-workspace";
+import { avoidLawossHomeId, conversationWorkspaceId, defaultWorkspaceId, isLawossHomeWorkspace, preferRealWorkspace, withoutLawossHome } from "../src/lawoss/home-workspace";
 
 const home = { id: "ws_home", path: "/Users/a/Library/Application Support/LAWOSS/lawoss-domov", workspaceType: "local" };
 const homeWin = { id: "ws_home_win", path: "C:\\Users\\a\\AppData\\Roaming\\LAWOSS\\lawoss-domov", workspaceType: "local" };
@@ -41,4 +41,25 @@ describe("domovský priestor", () => {
     expect(defaultWorkspaceId([])).toBe("");
     expect(avoidLawossHomeId([], "x")).toBe("x");
   });
+  test("domov nie je cieľ konverzácie: z trasy, ?project ani z výberu sa nepoužije", () => {
+    // /workspace/<domov>/session, /home?project=<domov> a vybraný domov po onboardingu bez priečinka
+    expect(conversationWorkspaceId([home], "ws_home")).toBeNull();
+    expect(conversationWorkspaceId([home, client], "ws_home")).toBeNull();
+    expect(conversationWorkspaceId([homeWin], "ws_home_win")).toBeNull();
+    expect(conversationWorkspaceId([home, client], "ws_client")).toBe("ws_client");
+    expect(conversationWorkspaceId([home, remote], "ws_remote")).toBe("ws_remote");
+    // neznáme id (zoznam sa ešte načítava) ostáva, aby sa nestratil platný odkaz
+    expect(conversationWorkspaceId([], "ws_client")).toBe("ws_client");
+    expect(conversationWorkspaceId([home], null)).toBeNull();
+    expect(conversationWorkspaceId([home], "")).toBeNull();
+  });
+});
+
+test("kopilot nahrávača nedostane klienta v domovskom priestore (review VŘ k #136, bod 1)", async () => {
+  const { recorderCopilotClient } = await import("../src/lawoss/home-workspace");
+  const client = { id: "engine" };
+  expect(recorderCopilotClient({ path: "/Users/x/Library/Application Support/LAWOSS/lawoss-domov" }, client)).toBeNull();
+  expect(recorderCopilotClient({ path: "C:\\Users\\x\\AppData\\Roaming\\LAWOSS\\lawoss-domov" }, client)).toBeNull();
+  expect(recorderCopilotClient({ path: "/Users/x/Klienti/Novák" }, client)).toBe(client);
+  expect(recorderCopilotClient(null, client)).toBe(client);
 });

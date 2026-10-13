@@ -67,7 +67,7 @@ export function describeBlockedUrl(url) {
  * loadURL), so `did-start-navigation` is the backstop for agent automation
  * that picks the app window as its CDP target (upstream #2000).
  *
- * @param {import("node:events").EventEmitter & { stop(): void }} contents Electron WebContents
+ * @param {import("node:events").EventEmitter & { stop(): void; isDestroyed(): boolean }} contents Electron WebContents
  * @param {readonly string[]} allowlist
  * @param {(url: string) => void} onBlocked
  * @param {(url: string) => boolean} [isTrustedUrl]
@@ -84,11 +84,16 @@ export function guardNavigation(contents, allowlist, onBlocked, isTrustedUrl = (
   /** @param {{ url: string; isMainFrame: boolean; isSameDocument: boolean }} event */
   const stop = (event) => {
     if (!event.isMainFrame || event.isSameDocument || isTrustedUrl(event.url)) return;
-    try {
-      contents.stop();
-    } catch {
-      // best effort — onBlocked still gives the user a way back
-    }
+    // stop() priamo v did-start-navigation zhodí Electron 43 na SIGTRAP; v ďalšom
+    // ťahu slučky navigáciu ešte zruší, kým sa nepotvrdí.
+    setImmediate(() => {
+      if (contents.isDestroyed()) return;
+      try {
+        contents.stop();
+      } catch {
+        // best effort — onBlocked still gives the user a way back
+      }
+    });
     onBlocked(event.url);
   };
   contents.on("did-start-navigation", stop);

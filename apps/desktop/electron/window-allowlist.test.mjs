@@ -74,9 +74,15 @@ describe("describeBlockedUrl", () => {
 
 function fakeContents() {
   const stops = [];
-  const contents = Object.assign(new EventEmitter(), { stop: () => { stops.push(true); } });
+  const contents = Object.assign(new EventEmitter(), {
+    destroyed: false,
+    stop: () => { stops.push(true); },
+    isDestroyed: () => contents.destroyed,
+  });
   return { contents, stops };
 }
+
+const nextLoopTurn = () => new Promise((resolve) => setImmediate(resolve));
 
 function navigationEvent(url, isMainFrame = true, isSameDocument = false) {
   const event = { url, isMainFrame, isSameDocument, prevented: false, preventDefault: () => { event.prevented = true; } };
@@ -117,16 +123,41 @@ describe("guardNavigation", () => {
     assert.deepEqual(stops, []);
   });
 
-  it("did-start-navigation mimo allowlistu zastaví načítanie (CDP Page.navigate), okrem in-page navigácie", () => {
+  it("did-start-navigation mimo allowlistu zastaví načítanie (CDP Page.navigate), okrem in-page navigácie", async () => {
     const { contents, stops } = fakeContents();
     const blocked = [];
     guardNavigation(contents, DEV, (url) => blocked.push(url));
 
     contents.emit("did-start-navigation", navigationEvent("http://localhost:5174/transfers/0361bbfc"));
     contents.emit("did-start-navigation", navigationEvent("http://localhost:5174/", true, true));
+    await nextLoopTurn();
 
     assert.deepEqual(stops, [true]);
     assert.deepEqual(blocked, ["http://localhost:5174/transfers/0361bbfc"]);
+  });
+
+  it("stop() nevolá počas did-start-navigation, Electron 43 by na tom spadol (SIGTRAP)", async () => {
+    const { contents, stops } = fakeContents();
+    guardNavigation(contents, DEV, () => {});
+
+    contents.emit("did-start-navigation", navigationEvent("https://example.test/"));
+    assert.deepEqual(stops, []);
+
+    await nextLoopTurn();
+    assert.deepEqual(stops, [true]);
+  });
+
+  it("odložený stop() vynechá zničený WebContents", async () => {
+    const { contents, stops } = fakeContents();
+    const blocked = [];
+    guardNavigation(contents, DEV, (url) => blocked.push(url));
+
+    contents.emit("did-start-navigation", navigationEvent("https://example.test/"));
+    contents.destroyed = true;
+    await nextLoopTurn();
+
+    assert.deepEqual(stops, []);
+    assert.deepEqual(blocked, ["https://example.test/"]);
   });
 });
 
@@ -147,6 +178,7 @@ describe("upstream app URL matcher integration", () => {
       assert.equal(redirect.prevented, true);
       contents.emit("did-start-navigation", navigationEvent(url));
     }
+    await nextLoopTurn();
     assert.equal(stops.length, 3);
     assert.equal(blocked.length, 6);
   });

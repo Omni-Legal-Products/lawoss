@@ -31,7 +31,7 @@ import {
   testRemoteWorkspaceConnection,
 } from "@/react-app/domains/workspace/remote-workspace-diagnostics";
 import { useLocal } from "@/react-app/kernel/local-provider";
-import { avoidLawossHomeId, defaultWorkspaceId, withoutLawossHome } from "../../lawoss/home-workspace";
+import { avoidLawossHomeId, conversationWorkspaceId, defaultWorkspaceId, withoutLawossHome } from "../../lawoss/home-workspace";
 import { useBootState } from "./boot-state";
 import { ensureDesktopLocalLegalworkConnection } from "./desktop-local-legalwork";
 import { resolveLegalworkConnection } from "./legalwork-connection";
@@ -56,6 +56,8 @@ import { isSessionIndexRoute, legacySessionRoute, workspaceSessionRoute } from "
 export type UseWorkspaceRouteStateInput = {
   /** Keep embedded non-session pages addressable while loading workspace data. */
   preserveRoute?: boolean;
+  /** Still redirect a first run to /welcome when preserveRoute is set (landing pages). */
+  firstRunRedirect?: boolean;
   /** Invoked when the legalwork-server settings-changed event fires (the route bumps its settings version). */
   onServerSettingsChanged: () => void;
   /** Receives the local legalwork-server host info discovered during refresh. */
@@ -86,7 +88,7 @@ export function sessionsWithinWorkspace(workspace: RouteWorkspace, sessions: Rou
 }
 
 export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
-  const { onServerSettingsChanged, onHostInfo, preserveRoute = false } = input;
+  const { onServerSettingsChanged, onHostInfo, preserveRoute = false, firstRunRedirect = false } = input;
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const local = useLocal();
@@ -717,6 +719,8 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     }
     if (["/home", "/projects", "/tasks", "/workflows", "/recorder", "/evals"].includes(pathname)) return;
     if (!routeWorkspaceId && selectedWorkspaceId) {
+      // LAWOSS: vybraný domovský priestor ostáva na úvodnej stránke, nie je to projekt (P8).
+      if (!conversationWorkspaceId(workspaces, selectedWorkspaceId)) return;
       navigateToWorkspaceSession(selectedWorkspaceId, selectedSessionId, { replace: true });
       return;
     }
@@ -745,11 +749,11 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   // completed onboarding. This fires after the initial route refresh so
   // `loading` is false and we know for sure there are zero workspaces.
   useEffect(() => {
-    if (loading || preserveRoute) return;
+    if (loading || (preserveRoute && !firstRunRedirect)) return;
     if (withoutLawossHome(workspaces).length > 0) return;
     if (local.prefs.hasCompletedOnboarding) return;
     navigate("/welcome", { replace: true });
-  }, [loading, preserveRoute, local.prefs.hasCompletedOnboarding, navigate, workspaces]);
+  }, [loading, preserveRoute, firstRunRedirect, local.prefs.hasCompletedOnboarding, navigate, workspaces]);
 
   // NOTE: Blueprint seeding was removed from the route.
   // It was firing `materializeBlueprintSessions` + a session re-fetch on every

@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyOnboarding, parseOnboardingRequest, planOnboarding } from "../src/onboarding/onboarding.ts";
+import { suggestOnboardingLevel } from "../src/onboarding/suggest.ts";
 
 const paths: string[] = [];
 afterEach(async () => { await Promise.all(paths.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
@@ -57,6 +58,29 @@ test("prax, ktorá už kanceláriu má, sa odmietne", async () => {
   const root = await directory("okf-practice-office-");
   await mkdir(join(root, "Office"));
   await expect(planOnboarding(parseOnboardingRequest(practice(root)))).rejects.toThrow(/kanceláriu/);
+});
+
+test("priečinok vnútri existujúcej kancelárie sa ako prax odmietne a nič sa nezapíše", async () => {
+  for (const office of ["Office", "_kancelaria"]) {
+    const root = await directory("okf-practice-nested-");
+    await mkdir(join(root, office));
+    await writeFile(join(root, office, "okf.config"), 'version: 1\nclient_path: "Klienti/*"\n');
+    const clients = join(root, "Klienti");
+    for (const name of ["Alfa s. r. o.", "Beta a. s.", "Gama s.r.o.", "Delta k. s.", "Epsilon v. o. s."]) await mkdir(join(clients, name, "2024-01 Zmluva"), { recursive: true });
+    for (const target of [clients, join(clients, "Alfa s. r. o.")]) {
+      await expect(planOnboarding(parseOnboardingRequest(practice(target)))).rejects.toThrow(/súčasťou kancelárie/);
+      expect((await suggestOnboardingLevel(target)).level).not.toBe("practice");
+    }
+    expect((await readdir(clients)).sort()).toEqual(["Alfa s. r. o.", "Beta a. s.", "Delta k. s.", "Epsilon v. o. s.", "Gama s.r.o."]);
+  }
+});
+
+test("priečinok Office bez okf.config v predkovi kanceláriou nie je", async () => {
+  const root = await directory("okf-practice-not-office-");
+  await mkdir(join(root, "Office"));
+  const practiceRoot = join(root, "Prax");
+  await mkdir(practiceRoot);
+  await expect(planOnboarding(parseOnboardingRequest(practice(practiceRoot)))).resolves.toBeDefined();
 });
 
 test("vzor klientov musí byť relatívny a končiť hviezdičkou", () => {

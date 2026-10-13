@@ -13,6 +13,8 @@ import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
 
 const previous = { data: process.env.LEGALWORK_DATA_DIR, tokens: process.env.LEGALWORK_TOKEN_STORE };
 const cleanups: (() => Promise<void>)[] = [];
+// Štart servera a registrácia s kontrolou celého stromu; Windows CI to nestihne za predvolených 5 s.
+const integrationTimeout = process.platform === "win32" ? 20_000 : 5_000;
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   for (const [key, value] of Object.entries({ LEGALWORK_DATA_DIR: previous.data, LEGALWORK_TOKEN_STORE: previous.tokens })) {
@@ -206,4 +208,4 @@ test("existing matter registration rejects project initialization options before
     expect((await readdir(f.base)).includes("default-projects")).toBe(false);
     expect(f.config.workspaces).toHaveLength(1);
   }
-});
+}, integrationTimeout);

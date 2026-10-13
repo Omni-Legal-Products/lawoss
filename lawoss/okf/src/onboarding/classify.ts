@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, type Dirent } from "node:fs";
 import { lstat, open, readdir } from "node:fs/promises";
 import { realpath } from "../canonical-path.ts";
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { parseFrontmatter } from "../frontmatter.ts";
+import { PROFILE_FILE } from "../profile.ts";
 
 export type OnboardingLevel = "office" | "client" | "subject" | "matter" | "unknown" | "conflict";
 export type TreeEntry = {
@@ -56,11 +57,24 @@ export function decideCardLevel(cards: readonly { path: string; text: string | u
   return { level: office ? "office" : "unknown" };
 }
 
+/**
+ * Otvorí bežný súbor bez sledovania odkazu. `O_NOFOLLOW` na Windows neexistuje (Node ho tam nedefinuje),
+ * preto najprv `lstat` a po otvorení zhoda zariadenia a inode; odkaz alebo výmena súboru vráti `undefined`.
+ */
+async function openRegularFile(path: string) {
+  const linked = await lstat(path, { bigint: true }).catch(() => undefined);
+  if (!linked?.isFile()) return undefined;
+  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)).catch(() => undefined);
+  if (!handle) return undefined;
+  const opened = await handle.stat({ bigint: true });
+  if (!opened.isFile() || opened.dev !== linked.dev || opened.ino !== linked.ino) { await handle.close(); return undefined; }
+  return handle;
+}
+
 /** Prvých 64 KB karty bez sledovania odkazu; väčšia karta alebo iný druh súboru vráti `undefined`. */
 async function readCardHead(path: string): Promise<string | undefined> {
-  let handle;
-  try { handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW); }
-  catch { return undefined; }
+  const handle = await openRegularFile(path);
+  if (!handle) return undefined;
   try {
     const state = await handle.stat();
     if (!state.isFile() || state.size > CARD_HEAD_BYTES) return undefined;
@@ -74,8 +88,10 @@ const isFile = (path: string) => lstat(path).then(state => state.isFile(), () =>
 
 /**
  * Plytká kontrola identity priečinka: len karty v koreni a `Office/okf.config`, bez prechádzania stromu.
- * Pre potvrdenie už vybraného klienta, kancelárie či veci (profil onboardingu); veľký strom, symlink
- * alebo zamknutý dokument v ňom identitu nemenia. Zápis (plán, apply) naďalej robí plnú inšpekciu.
+ * Pre potvrdenie už vybraného klienta, kancelárie či veci (profil onboardingu, súhlas s usporiadaním);
+ * veľký strom, symlink alebo zamknutý dokument v ňom identitu nemenia. Vnorenú kanceláriu nespozná:
+ * plytký prevod (`planShallowClientConversion`) ju preto hľadá cez `findOfficeConfigs`, ostatné zápisy
+ * robia plnú inšpekciu.
  */
 export async function inspectCardLevel(root: string): Promise<{ root: string; level: OnboardingLevel; issues: { path: string; code: string }[] }> {
   const resolved = resolve(root);
@@ -90,6 +106,34 @@ export async function inspectCardLevel(root: string): Promise<{ root: string; le
   const decision = decideCardLevel(cards, directOffice || nestedOffices > 0, nestedOffices > 1);
   return { root: resolved, level: decision.level, issues: decision.issue ? [{ path: "", code: decision.issue }] : [] };
 }
+/**
+ * Kancelárie OKF (`Office/okf.config`, `_kancelaria/okf.config`) kdekoľvek v strome, rovnako ako ich
+ * hľadá plná inšpekcia, ale len podľa mien: nič neotvára ani nečíta, odkazy nesleduje a priečinky
+ * súborov appky vynechá. Zamknutý dokument ani veľký strom preto nevadí. `complete: false` znamená
+ * limit hĺbky či počtu položiek alebo nečitateľný priečinok; volajúci vtedy identitu nepozná.
+ */
+export async function findOfficeConfigs(root: string, limits: Pick<InspectionLimits, "maxEntries" | "maxDepth"> = {}): Promise<{ complete: boolean; offices: string[] }> {
+  const maxEntries = limits.maxEntries ?? 100_000, maxDepth = limits.maxDepth ?? 32;
+  const offices: string[] = [];
+  const queue: { relative: string; depth: number }[] = [{ relative: "", depth: 0 }];
+  let seen = 0;
+  for (let next = queue.shift(); next; next = queue.shift()) {
+    if (next.depth > maxDepth) return { complete: false, offices };
+    let entries: Dirent[];
+    try { entries = await readdir(join(root, next.relative), { withFileTypes: true }); }
+    catch { return { complete: false, offices }; }
+    for (const entry of entries) {
+      if (VOLATILE_ENTRY.test(entry.name)) continue;
+      if (++seen > maxEntries) return { complete: false, offices };
+      const path = next.relative ? `${next.relative}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) { if (!APP_FILE_DIRECTORIES.has(entry.name)) queue.push({ relative: path, depth: next.depth + 1 }); }
+      else if (entry.isFile() && OFFICE_CONFIG.test(path)) offices.push(path);
+    }
+  }
+  return { complete: true, offices: offices.sort() };
+}
+const OFFICE_CONFIG = /(?:^|\/)(?:Office|_kancelaria)\/okf\.config$/;
+
 /**
  * Súbory appky v otvorenom priečinku (OpenCode, jeho skilly a node_modules so symlinkami v `.bin`).
  * Mení ich engine, nie advokát, takže nepatria do identity klienta ani veci; bez tohto pravidla
@@ -111,9 +155,28 @@ const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 const errorCode = (error: unknown): string => error && typeof error === "object" && "code" in error ? String(error.code) : "read_failed";
 
 /**
+ * Riadiace súbory v koreni, z ktorých obsahu plán prevodu skladá nové súbory (`CLAUDE.md` z `AGENTS.md`,
+ * rolu z profilu). Ich obsah preto patrí do plytkého otlačku: úprava medzi náhľadom a zápisom inak
+ * prejde a nový súbor dostane starý text.
+ */
+const CONTENT_DIGEST_FILES = new Set(["AGENTS.md", "CLAUDE.md", PROFILE_FILE]);
+const CONTENT_DIGEST_BYTES = 1024 * 1024;
+
+/** Hash obsahu bez sledovania odkazu; väčší súbor dostane len označenie veľkosti, plán ho aj tak odmietne. */
+async function contentDigest(path: string): Promise<{ digest: string; size: number }> {
+  const handle = await openRegularFile(path);
+  if (!handle) throw Object.assign(new Error(`Not a regular file: ${path}`), { code: "symlink_not_followed" });
+  try {
+    const state = await handle.stat();
+    if (state.size > CONTENT_DIGEST_BYTES) return { digest: sha(`oversize:${state.size}:${state.mtimeMs}`), size: state.size };
+    return { digest: createHash("sha256").update(await handle.readFile()).digest("hex"), size: state.size };
+  } finally { await handle.close(); }
+}
+
+/**
  * Plytká kontrola priečinka, do ktorého onboarding len pridáva nové položky
  * (kancelária, klient, subjekt, vec). Zaznamená mená a druhy položiek najvyššej
- * úrovne, nič nečíta, nehashuje a odkazy nesleduje. Rekurzívny sken by zlyhal
+ * úrovne a odkazy nesleduje; obsah hashuje len pri riadiacich súboroch (`CONTENT_DIGEST_FILES`). Rekurzívny sken by zlyhal
  * pri bežnom rodičovi: v Dokumentoch na Windows sú skryté junctions (My Music,
  * My Pictures, My Videos), v profile ďalšie, a veľký priečinok narazí na limit
  * 10 000 položiek či 1 GB. Zápis stráži transakcia: cieľ nesmie existovať
@@ -135,7 +198,8 @@ export async function inspectOnboardingParent(root: string, limits: Pick<Inspect
       try {
         const state = await lstat(join(result.root, name));
         const kind = state.isSymbolicLink() ? "symlink" : state.isDirectory() ? "directory" : state.isFile() ? "file" : "unsupported";
-        result.entries.push({ path: name, kind, digest: null, size: 0 });
+        const content = kind === "file" && CONTENT_DIGEST_FILES.has(name) ? await contentDigest(join(result.root, name)) : null;
+        result.entries.push({ path: name, kind, digest: content?.digest ?? null, size: content?.size ?? 0 });
       } catch (error) {
         // Windows: systémovú položku (System Volume Information) nemusí byť možné ani lstat-nuť; meno stačí.
         const code = errorCode(error);
@@ -146,6 +210,26 @@ export async function inspectOnboardingParent(root: string, limits: Pick<Inspect
   } catch (error) { problem("", errorCode(error)); return result; }
   if (result.complete) result.digest = sha(JSON.stringify(result.entries));
   return result;
+}
+
+/** Rovnaká medza ako `findOfficeDir` (okf-pamat), ktorý klientom pod predkom vracia jeho kanceláriu. */
+export const OFFICE_ANCESTOR_LEVELS = 8;
+/**
+ * Kancelária v predkovi (`Office/okf.config` alebo `_kancelaria/okf.config`), najviac 8 úrovní nahor.
+ * Nová kancelária pod ňou by ju pre klientov nižšie zatienila (pamäť, `standing_authorization`).
+ * Holý priečinok `Office` bez `okf.config` kanceláriou nie je.
+ */
+export async function findAncestorOffice(dir: string): Promise<string | undefined> {
+  let current = resolve(dir);
+  for (let level = 0; level < OFFICE_ANCESTOR_LEVELS; level++) {
+    const parent = dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+    for (const name of ["Office", "_kancelaria"]) {
+      if (await lstat(join(current, name, "okf.config")).then(state => state.isFile(), () => false)) return join(current, name);
+    }
+  }
+  return undefined;
 }
 
 /** Read-only inspection. Partial scans never produce a digest usable by apply. */
@@ -241,7 +325,7 @@ export async function inspectOnboardingRoot(root: string, limits: InspectionLimi
   }
   await visit("", 0);
   const cards = result.entries.filter(entry => entry.kind === "file" && CARD_LEVELS[entry.path]);
-  const officePaths = result.entries.filter(entry => entry.kind === "file" && /(?:^|\/)(?:Office|_kancelaria)\/okf\.config$/.test(entry.path));
+  const officePaths = result.entries.filter(entry => entry.kind === "file" && OFFICE_CONFIG.test(entry.path));
   const directOffice = ["Office", "_kancelaria"].includes(basename(result.root)) && result.entries.some(entry => entry.path === "okf.config" && entry.kind === "file");
   const office = directOffice || officePaths.some(entry => ["Office/okf.config", "_kancelaria/okf.config"].includes(entry.path));
   const conflict = (code: string) => { result.level = "conflict"; result.issues.push({ path: "", code }); };

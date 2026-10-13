@@ -147,6 +147,7 @@ import {
   writeLegalworkRuntimeConfigFile,
 } from "./legalwork-runtime-config.js";
 import { providerRepairNotices, repairRuntimeProviders } from "./runtime-provider-repair.js";
+import { endpointChangeConflicts, type LegacyProviderRow, mergeProviderConflicts, providerOverwriteConflicts } from "./lawoss/provider-overwrite.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
 import {
   eigenweltHasPremiumModels,
@@ -3609,26 +3610,78 @@ function createRoutes(
         // LAWOSS: vlastní poskytovatelia sú globálni (GLOBAL_PROVIDERS_ID). `null` odstráni
         // poskytovateľa z globálneho riadku aj zo starého riadku priečinka.
         const globalRuntime = await readRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID);
-        const nextGlobal = mergeRuntimeProviderPatch(ensurePlainObject(globalRuntime.provider), providerUpdate);
+        const globalProviders = ensurePlainObject(globalRuntime.provider);
+        // Starý stav môže byť vo viacerých priečinkoch. Rozdielny blok iného klienta sa prepíše
+        // až po potvrdení (lawoss/provider-overwrite.ts); dovtedy sa nezapíše nič.
+        const legacyRows: (LegacyProviderRow & { workspace: WorkspaceInfo })[] = [];
+        const allRows: (LegacyProviderRow & { path?: string })[] = [];
+        for (const row of config.workspaces) {
+          const providers = ensurePlainObject((await readRuntimeOpencodeConfig(config, row.id)).provider);
+          allRows.push({ id: row.id, name: row.name, providers, path: row.path });
+          if (Object.keys(providerUpdate).some((id) => Object.hasOwn(providers, id))) {
+            legacyRows.push({ id: row.id, name: row.name, providers, workspace: row });
+          }
+        }
+        const ownProviders = legacyRows.find((row) => row.id === workspace.id)?.providers ?? {};
+        const previous = Object.fromEntries(Object.keys(providerUpdate).map((id) => [
+          id,
+          Object.hasOwn(ownProviders, id) ? ownProviders[id] : globalProviders[id],
+        ]));
+        const providerConflicts = mergeProviderConflicts(
+          providerOverwriteConflicts({ workspaceId: workspace.id, update: providerUpdate, previous, rows: legacyRows }),
+          endpointChangeConflicts({ workspaceId: workspace.id, update: providerUpdate, globalProviders, workspaces: allRows }),
+        );
+        if (providerConflicts.length && body.confirmProviderOverwrite !== true) {
+          throw new ApiError(409, "provider_conflict", "Another workspace has a different provider with the same id.", { providerConflicts });
+        }
+        const nextGlobal = mergeRuntimeProviderPatch(globalProviders, providerUpdate);
         await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, (current) => ({
           ...current,
           provider: Object.keys(nextGlobal).length ? nextGlobal : undefined,
         }));
         // Globálny riadok je po každom zápise jediný zdroj: id z úpravy (aj nenulové)
         // sa odstráni zo starého riadku priečinka, inak by starý blok prekryl nový.
-        // Starý stav môže byť vo viacerých priečinkoch, preto sa čistia všetky riadky.
-        for (const row of config.workspaces) {
-          const rowRuntime = await readRuntimeOpencodeConfig(config, row.id);
-          const legacyProviders = ensurePlainObject(rowRuntime.provider);
-          const legacyIds = Object.keys(providerUpdate).filter((id) => Object.hasOwn(legacyProviders, id));
-          if (!legacyIds.length) continue;
+        for (const row of legacyRows) {
+          const legacyIds = Object.keys(providerUpdate).filter((id) => Object.hasOwn(row.providers, id));
           const nextLocal = mergeRuntimeProviderPatch(
-            legacyProviders,
+            row.providers,
             Object.fromEntries(legacyIds.map((id) => [id, null])),
           );
           const nextProvider = Object.keys(nextLocal).length ? nextLocal : undefined;
-          if (row.id === workspace.id) logicalUpdates.provider = nextProvider;
-          else await writeRuntimeOpencodeConfig(config, row.id, (current) => ({ ...current, provider: nextProvider }));
+          if (row.id === workspace.id) {
+            logicalUpdates.provider = nextProvider;
+            continue;
+          }
+          await writeRuntimeOpencodeConfig(config, row.id, (current) => ({ ...current, provider: nextProvider }));
+          const rowRoot = workspaceAppFilesRoot(config, row.workspace);
+          await recordAudit(rowRoot, {
+            id: shortId(),
+            workspaceId: row.id,
+            actor: ctx.actor ?? { type: "remote" },
+            action: "config.provider.overwrite",
+            target: legalworkConfigPath(rowRoot),
+            summary: `Provider ${legacyIds.join(", ")} replaced by the global provider from workspace ${workspace.name}`,
+            timestamp: Date.now(),
+          });
+        }
+        // Klienti bez vlastného bloku dostanú audit, ak po potvrdení posielajú dáta na inú adresu servera.
+        const audited = new Set(legacyRows.map((row) => row.id));
+        for (const conflict of providerConflicts.filter((item) => item.reason === "endpoint_change")) {
+          for (const affected of conflict.workspaces.filter((item) => !audited.has(item.id))) {
+            const info = config.workspaces.find((item) => item.id === affected.id);
+            if (!info) continue;
+            audited.add(affected.id);
+            const rowRoot = workspaceAppFilesRoot(config, info);
+            await recordAudit(rowRoot, {
+              id: shortId(),
+              workspaceId: affected.id,
+              actor: ctx.actor ?? { type: "remote" },
+              action: "config.provider.endpoint",
+              target: legalworkConfigPath(rowRoot),
+              summary: `Provider ${conflict.providerId} now uses a different server address, changed in workspace ${workspace.name}`,
+              timestamp: Date.now(),
+            });
+          }
         }
       }
 

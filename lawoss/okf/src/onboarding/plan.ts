@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { planEntity, type ClientType, type DocumentLanguage, type Jurisdiction } from "../core.ts";
 import { LOCALIZED_TEMPLATES } from "../templates.ts";
 import { PROFILE_FILE, parseWorkingProfile } from "../profile.ts";
-import { inspectCardLevel, inspectOnboardingParent, inspectOnboardingRoot, MEMORY_FILES, type TreeEntry } from "./classify.ts";
+import { findOfficeConfigs, inspectCardLevel, inspectOnboardingParent, inspectOnboardingRoot, MEMORY_FILES, type TreeEntry } from "./classify.ts";
 import { incompleteInspectionMessage } from "./messages.ts";
 import type { CreateOperation, OnboardingPlan } from "./transaction.ts";
 
@@ -191,6 +191,10 @@ export async function planShallowClientConversion(root: string, input: ClientCon
   const identity = await inspectCardLevel(root);
   if (identity.level === "conflict" || identity.issues.length) throw new Error(incompleteInspectionMessage(UNINSPECTABLE, identity.issues));
   if (identity.level !== "client" && !(identity.level === "unknown" && input.confirmUnknownClient === true)) throw new Error(NOT_CLIENT);
+  // Kancelária hlbšie v strome (prax vnútri vybraného priečinka) je rovnaký konflikt ako pri plnej inšpekcii.
+  const offices = await findOfficeConfigs(identity.root);
+  if (!offices.complete) throw new Error(incompleteInspectionMessage(UNINSPECTABLE, [{ path: "", code: "office_search_incomplete" }]));
+  if (offices.offices.length) throw new Error(incompleteInspectionMessage(UNINSPECTABLE, offices.offices.map(path => ({ path, code: "conflicting_identity" }))));
   const inspection = await inspectOnboardingParent(root);
   if (!inspection.complete || !inspection.digest) throw new Error(incompleteInspectionMessage(UNINSPECTABLE, inspection.issues));
   const top = new Map(inspection.entries.map(entry => [entry.path, entry]));

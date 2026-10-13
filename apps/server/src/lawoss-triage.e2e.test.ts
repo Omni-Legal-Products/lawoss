@@ -1,17 +1,17 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { inspectOnboardingRoot } from "./lawoss/onboarding-runtime.js";
+import { applyTriagePlan, inspectOnboardingRoot, prepareTriage } from "./lawoss/onboarding-runtime.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
 
 const roots: string[] = [], stops: (() => void | Promise<void>)[] = [];
 // Celý scenár zahŕňa štart servera, onboarding, viacero náhľadov, odolný zápis
-// žurnálu a vrátenie. Windows CI spotreboval takmer 5 s už pred registráciou
-// klona; limit patrí celému integračnému toku, nie jednej HTTP požiadavke.
+// žurnálu a vrátenie. Windows CI ho nestihne za predvolených 5 s; limit patrí celému
+// integračnému toku, nie jednej HTTP požiadavke (rovnako ako #138).
 const transactionTimeout = process.platform === "win32" ? 20_000 : 5_000;
 const originalData = process.env.LEGALWORK_DATA_DIR, originalTokens = process.env.LEGALWORK_TOKEN_STORE;
 afterEach(async () => {
@@ -20,6 +20,10 @@ afterEach(async () => {
   if (originalData === undefined) delete process.env.LEGALWORK_DATA_DIR; else process.env.LEGALWORK_DATA_DIR = originalData;
   if (originalTokens === undefined) delete process.env.LEGALWORK_TOKEN_STORE; else process.env.LEGALWORK_TOKEN_STORE = originalTokens;
 });
+// Windows CI nestihne celý integračný scenár (štart servera, onboarding, náhľady,
+// zápis žurnálu a vrátenie) za predvolených 5 s. Limit 20 s platí len na Windows a len
+// v tomto súbore; test s vlastným limitom (transactionTimeout na #137) má prednosť.
+if (process.platform === "win32") setDefaultTimeout(20_000);
 
 /** Syntetický klient (vymyslené mená) a jeho skúšobný klon cez skutočný onboarding API. */
 async function fixture() {
@@ -35,7 +39,8 @@ async function fixture() {
   const success = async (path: string, body: unknown) => { const response = await call(path, body), result = await response.json(); expect({ status: response.status, error: result.error, message: result.message }).toEqual({ status: 200, error: undefined, message: undefined }); return result; };
   const preview = await success("onboarding/plan", { action: "existing", root: source, mode: "trial_clone", cloneParent: clones, title: "Vymyslený klient", clientType: "po", language: "sk", jurisdiction: "sk", date: "2026-10-05", confirmUnknownClient: true });
   const clone = await success("onboarding/apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true });
-  return { source, clone: clone.root as string, call, success };
+  const get = (path: string, auth: Record<string, string>) => fetch(`http://127.0.0.1:${server.port}/lawoss/${path}`, { headers: auth });
+  return { source, clone: clone.root as string, call, get, success };
 }
 async function tree(root: string): Promise<string> {
   const inspection = await inspectOnboardingRoot(root);
@@ -73,7 +78,7 @@ test("triedenie je len pre hosta, len v klone a len po potvrdení odtlačku", as
   expect((await f.call("triage/undo", { root: f.source, runId: kept.runId, confirm: true })).status).toBe(403);
   expect(await f.success("triage/undo", { root: f.clone, runId: kept.runId, confirm: true })).toMatchObject({ status: "undone", restored: 5 });
   expect(await tree(f.clone)).toBe(original);
-}, transactionTimeout);
+}, 30_000);
 
 /** Skutočný klient po „Nie, len pridaj OKF súbory“ (convert) a jeho registrácii, ako v novom onboardingu. */
 async function convertedFixture() {
@@ -91,7 +96,7 @@ async function convertedFixture() {
   await success("onboarding/apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true });
   // Registrácia existujúceho priečinka tou istou cestou ako appka (`POST /workspaces/local`).
   const register = (folderPath: string, extra: Record<string, unknown> = {}) => fetch(`http://127.0.0.1:${server.port}/workspaces/local`, { method: "POST", headers, body: JSON.stringify({ folderPath, name: "Vymyslený priečinok", preset: "starter", registerExisting: true, ...extra }) });
-  return { base, client, call, success, register };
+  return { base, client, config, call, success, register };
 }
 
 test("usporiadanie na mieste: len zaregistrovaný klient, len po grant, vrátenie hlási ponechané", async () => {
@@ -139,3 +144,102 @@ test("súhlas na mieste odmietne zaregistrovaný priečinok bez karty klienta aj
   expect({ status: forbidden.status, code: (await forbidden.json()).code }).toEqual({ status: 403, code: "not_registered_client" });
   expect(await exists(join(outside, ".lawoss"))).toBe(false);
 });
+
+test("routy roztriedenia odmietnu originál aj s platne vyzerajúcou značkou súhlasu", async () => {
+  const f = await fixture();
+  // Originál ako klient s kartou a ručne zapísanou značkou; tú vie zapísať aj agent.
+  await writeFile(join(f.source, "client.md"), "---\ntype: client\ntitle: Vymyslený klient\n---\n");
+  await mkdir(join(f.source, ".lawoss"));
+  await writeFile(join(f.source, ".lawoss/reorganize.json"), JSON.stringify({ version: 1, root: f.source, grantedAt: new Date().toISOString() }));
+  // Beh na mieste, ktorý by pripravil hostiteľ po overení súhlasu; server to robí len po `grant` pre pripojeného klienta.
+  const { plan } = await prepareTriage(f.source, { allowInPlace: true });
+  await applyTriagePlan(plan, { allowInPlace: true });
+  const applied = await tree(f.source);
+
+  expect(await f.success("triage/status", { root: f.source })).toMatchObject({ trial: false, runs: [] });
+  const refused = await f.call("triage/plan", { root: f.source });
+  expect({ status: refused.status, code: (await refused.json()).code }).toEqual({ status: 403, code: "not_trial_clone" });
+  expect((await f.call("triage/undo", { root: f.source, runId: plan.runId, confirm: true })).status).toBe(403);
+  expect(await tree(f.source)).toBe(applied);
+});
+
+test("pripojený klient s ručne zapísanou značkou bez grant sa v origináli neusporiada", async () => {
+  const f = await convertedFixture();
+  // Značku vie zapísať aj agent; súhlas je len záznam hostiteľa, ktorý zapisuje `grant`.
+  await mkdir(join(f.client, ".lawoss"), { recursive: true });
+  await writeFile(join(f.client, ".lawoss/reorganize.json"), JSON.stringify({ version: 1, root: f.client, grantedAt: new Date().toISOString() }));
+  const before = await tree(f.client);
+  expect(await f.success("triage/status", { root: f.client })).toMatchObject({ trial: false, runs: [] });
+  const refused = await f.call("triage/plan", { root: f.client });
+  expect({ status: refused.status, code: (await refused.json()).code }).toEqual({ status: 403, code: "not_trial_clone" });
+  expect((await f.call("triage/undo", { root: f.client, runId: "triage-20261012-120000-abcdef", confirm: true })).status).toBe(403);
+  expect(await tree(f.client)).toBe(before);
+});
+
+test("súhlas na mieste prestane platiť po odpojení klienta aj pri súboroch appky mimo", async () => {
+  const f = await convertedFixture();
+  await f.success("triage/grant", { root: f.client, confirm: true });
+  const preview = await f.success("triage/plan", { root: f.client });
+  const workspace = f.config.workspaces.find(item => item.path === f.client);
+  if (!workspace) throw new Error("Klient nie je pripojený.");
+  workspace.appFiles = "outside";
+  expect(await f.success("triage/status", { root: f.client })).toMatchObject({ trial: false });
+  expect((await f.call("triage/apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true })).status).toBe(403);
+  workspace.appFiles = "inside";
+  f.config.workspaces.splice(f.config.workspaces.indexOf(workspace), 1);
+  expect(await f.success("triage/status", { root: f.client })).toMatchObject({ trial: false });
+  expect((await f.call("triage/plan", { root: f.client })).status).toBe(403);
+}, transactionTimeout);
+
+test("usporiadanie na mieste nepoužije návrh modelu", async () => {
+  const f = await convertedFixture();
+  await f.success("triage/grant", { root: f.client, confirm: true });
+  const refused = await f.call("triage/plan", { root: f.client, useModel: true });
+  expect({ status: refused.status, code: (await refused.json()).code }).toEqual({ status: 400, code: "triage_model_in_place" });
+});
+
+test("súhlas na mieste platí na jedno usporiadanie a jeho vrátenie (rozhodnutie MČ 12. 10.)", async () => {
+  const f = await convertedFixture();
+  await f.success("triage/grant", { root: f.client, confirm: true });
+  expect(await f.success("triage/status", { root: f.client })).toMatchObject({ trial: true, mode: "in_place", canPlan: true });
+  const preview = await f.success("triage/plan", { root: f.client });
+  const second = await f.success("triage/plan", { root: f.client });
+  const applied = await f.success("triage/apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true });
+  // Po zápise ostáva súhlas len na vrátenie tohto behu: nový náhľad ani starší potvrdený náhľad neprejdú.
+  expect(await f.success("triage/status", { root: f.client })).toMatchObject({ trial: true, mode: "in_place", canPlan: false });
+  expect((await f.call("triage/plan", { root: f.client })).status).toBe(403);
+  expect((await f.call("triage/apply", { id: second.id, fingerprint: second.fingerprint, confirm: true })).status).toBe(403);
+  expect((await f.call("triage/undo", { root: f.client, runId: "triage-20261012-120000-abcdef", confirm: true })).status).toBe(403);
+  await f.success("triage/undo", { root: f.client, runId: applied.runId, confirm: true });
+  // Po vrátení súhlas zanikne; ďalšie usporiadanie potrebuje nové potvrdenie advokáta.
+  expect(await f.success("triage/status", { root: f.client })).toMatchObject({ trial: false });
+  expect((await f.call("triage/plan", { root: f.client })).status).toBe(403);
+  await f.success("triage/grant", { root: f.client, confirm: true });
+  expect(await f.success("triage/status", { root: f.client })).toMatchObject({ trial: true, canPlan: true });
+}, transactionTimeout);
+
+test("token spolupracovníka ani požiadavka bez tokenu neprejdú žiadnou trasou onboardingu a roztriedenia", async () => {
+  const f = await fixture();
+  const client = { Authorization: "Bearer synthetic-client", "Content-Type": "application/json" }, none = { "Content-Type": "application/json" };
+  const triage = ["status", "grant", "plan", "replan", "apply", "undo"].map(name => `triage/${name}`);
+  const onboarding = ["profile", "classify", "suggest", "plan", "apply", "recover"].map(name => `onboarding/${name}`);
+  const results: Record<string, number[]> = {};
+  for (const path of [...triage, ...onboarding]) results[path] = [(await f.call(path, { root: f.source, confirm: true }, client)).status, (await f.call(path, { root: f.source, confirm: true }, none)).status];
+  results["onboarding/status"] = [(await f.get("onboarding/status", client)).status, (await f.get("onboarding/status", none)).status];
+  expect(results).toEqual(Object.fromEntries(Object.keys(results).map(path => [path, [401, 401]])));
+  expect(await exists(join(f.source, ".lawoss"))).toBe(false);
+}, transactionTimeout);
+
+test("nový súhlas ruší vrátenie predošlého usporiadania na mieste a status to povie (rozhodnutie MČ 13. 10.)", async () => {
+  const f = await convertedFixture();
+  await f.success("triage/grant", { root: f.client, confirm: true });
+  expect((await f.success("triage/status", { root: f.client })).undoRunId).toBeUndefined();
+  const preview = await f.success("triage/plan", { root: f.client });
+  const applied = await f.success("triage/apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true });
+  expect(await f.success("triage/status", { root: f.client })).toMatchObject({ mode: "in_place", canPlan: false, undoRunId: applied.runId });
+  await f.success("triage/grant", { root: f.client, confirm: true });
+  const after = await f.success("triage/status", { root: f.client });
+  expect(after).toMatchObject({ mode: "in_place", canPlan: true });
+  expect(after.undoRunId).toBeUndefined();
+  expect((await f.call("triage/undo", { root: f.client, runId: applied.runId, confirm: true })).status).toBe(403);
+}, transactionTimeout);

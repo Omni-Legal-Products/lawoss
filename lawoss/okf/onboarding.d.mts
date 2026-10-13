@@ -45,7 +45,9 @@ export interface OnboardingSuggestion {
 }
 export function suggestOnboardingLevel(root: string): Promise<OnboardingSuggestion>;
 export function grantInPlaceReorganize(root: string, now?: Date): Promise<void>;
-export function verifyTriageTarget(root: string, trialJournalDirectory?: string): Promise<{ root: string; mode: "trial" | "in_place"; journalVerified: boolean }>;
+/** Usporiadanie na mieste len s `allowInPlace: true` od hostiteľa, ktorý súhlas overil vo vlastnom zázname; samotná značka v priečinku nestačí. */
+export interface TriageTargetOptions { allowInPlace?: boolean }
+export function verifyTriageTarget(root: string, trialJournalDirectory?: string, options?: TriageTargetOptions): Promise<{ root: string; mode: "trial" | "in_place"; journalVerified: boolean }>;
 export function previewOnboarding(input: unknown): Promise<OnboardingPreview>;
 export function executeOnboarding(preview: OnboardingPreview, options: { journalDirectory: string; externalProfileDirectory: string }): Promise<OnboardingResult>;
 export function recoverOnboardingOperation(preview: OnboardingPreview, options: { journalDirectory: string; externalProfileDirectory: string }, action: "finish" | "rollback"): Promise<OnboardingResult>;
@@ -80,10 +82,10 @@ export interface TriagePlan {
 export type TriageModelProposal = { state: "none" } | { state: "ready"; file: string; documents: number; matters: number } | { state: "stale"; file: string } | { state: "invalid"; file: string; message: string };
 export interface TriageRunStatus { runId: string; createdAt: string; state: "applied" | "interrupted" | "undone" | "undoing" | "planned"; moves: number; matters: number; fingerprint: string }
 export function verifyTrialClone(root: string, trialJournalDirectory?: string): Promise<{ root: string; source: string; fingerprint: string; journalVerified: boolean }>;
-export function prepareTriage(root: string, options?: { trialJournalDirectory?: string; classificationFile?: string; useModelProposal?: boolean; keepInInbox?: readonly string[]; today?: string; now?: Date; jurisdiction?: "sk" | "cz" }): Promise<{ inventory: TriageInventory; plan: TriagePlan; proposal: TriageModelProposal; classification?: TriageClassification }>;
+export function prepareTriage(root: string, options?: TriageTargetOptions & { trialJournalDirectory?: string; classificationFile?: string; useModelProposal?: boolean; keepInInbox?: readonly string[]; today?: string; now?: Date; jurisdiction?: "sk" | "cz" }): Promise<{ inventory: TriageInventory; plan: TriagePlan; proposal: TriageModelProposal; classification?: TriageClassification }>;
 export function replanTriage(inventory: TriageInventory, classification: TriageClassification | undefined, keepInInbox: readonly string[], now?: Date): TriagePlan;
 export function parseClassification(value: unknown, inventory: TriageInventory): TriageClassification;
-export function applyTriagePlan(plan: unknown, options?: { trialJournalDirectory?: string }): Promise<{ status: "applied" | "already_applied"; runId: string; moved: number; created: number; journal: string }>;
+export function applyTriagePlan(plan: unknown, options?: TriageTargetOptions & { trialJournalDirectory?: string }): Promise<{ status: "applied" | "already_applied"; runId: string; moved: number; created: number; journal: string }>;
 /** `keepChanged`: pri usporiadaní na mieste predvolene true (zmenené dokumenty ostanú a nahlásia sa v `kept`); v skúšobnom klone predvolene false (všetko alebo nič). */
-export function undoTriage(root: string, runId: string, options?: { trialJournalDirectory?: string; keepChanged?: boolean }): Promise<{ status: "undone" | "already_undone"; runId: string; restored: number; removed: number; kept: string[] }>;
+export function undoTriage(root: string, runId: string, options?: TriageTargetOptions & { trialJournalDirectory?: string; keepChanged?: boolean }): Promise<{ status: "undone" | "already_undone"; runId: string; restored: number; removed: number; kept: string[] }>;
 export function listTriageRuns(root: string): Promise<TriageRunStatus[]>;
