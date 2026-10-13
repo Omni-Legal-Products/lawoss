@@ -70,3 +70,12 @@ test("saved aggregate preview is the confirmation artifact for idempotent apply"
   expect(JSON.parse((await run(args)).output).status).toBe("applied");
   expect(JSON.parse((await run(args)).output).status).toBe("already_applied");
 });
+
+test("onboard suggest vypíše návrh úrovne", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "okf-cli-suggest-")));
+  await mkdir(join(root, "2024-03 Kúpna zmluva"), { recursive: true });
+  const result = await run(["suggest", root]);
+  expect(result.code).toBe(0);
+  expect(JSON.parse(result.output)).toMatchObject({ level: "client", marked: false, signals: ["matter_named_children"] });
+  await rm(root, { recursive: true, force: true });
+});

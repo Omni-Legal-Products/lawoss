@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, open, readdir } from "node:fs/promises";
 import { realpath } from "../canonical-path.ts";
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { parseFrontmatter } from "../frontmatter.ts";
 
 export type OnboardingLevel = "office" | "client" | "subject" | "matter" | "unknown" | "conflict";
@@ -92,6 +92,26 @@ export async function inspectOnboardingParent(root: string, limits: Pick<Inspect
   } catch (error) { problem("", errorCode(error)); return result; }
   if (result.complete) result.digest = sha(JSON.stringify(result.entries));
   return result;
+}
+
+/** Rovnaká medza ako `findOfficeDir` (okf-pamat), ktorý klientom pod predkom vracia jeho kanceláriu. */
+export const OFFICE_ANCESTOR_LEVELS = 8;
+/**
+ * Kancelária v predkovi (`Office/okf.config` alebo `_kancelaria/okf.config`), najviac 8 úrovní nahor.
+ * Nová kancelária pod ňou by ju pre klientov nižšie zatienila (pamäť, `standing_authorization`).
+ * Holý priečinok `Office` bez `okf.config` kanceláriou nie je.
+ */
+export async function findAncestorOffice(dir: string): Promise<string | undefined> {
+  let current = resolve(dir);
+  for (let level = 0; level < OFFICE_ANCESTOR_LEVELS; level++) {
+    const parent = dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+    for (const name of ["Office", "_kancelaria"]) {
+      if (await lstat(join(current, name, "okf.config")).then(state => state.isFile(), () => false)) return join(current, name);
+    }
+  }
+  return undefined;
 }
 
 /** Read-only inspection. Partial scans never produce a digest usable by apply. */
