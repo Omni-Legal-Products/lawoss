@@ -345,7 +345,7 @@ const highlightedMarkdownParser = new Marked({
         ],
       });
     },
-    container: `<div data-legalwork-shiki="true" class="my-4 overflow-hidden rounded-lg border border-border/70 bg-gray-1/80 p-4 text-xs leading-6">%s</div>`,
+    container: `<div data-legalwork-shiki="true" class="my-4 overflow-x-auto rounded-lg border border-border/70 bg-gray-1/80 p-4 text-xs leading-6">%s</div>`,
   }),
 );
 

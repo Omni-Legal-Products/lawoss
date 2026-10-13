@@ -406,7 +406,7 @@ const AssistantMessage = React.memo(
               return (
                 <MessageContent
                   key={`text-${index}`}
-                  className="text-foreground prose w-full min-w-0 flex-1 rounded-lg bg-transparent p-0"
+                  className="text-foreground prose w-full min-w-0 flex-1 rounded-lg bg-transparent p-0 [&>:last-child]:mb-0"
                   markdown
                 >
                   {group.text}
@@ -420,7 +420,7 @@ const AssistantMessage = React.memo(
                   key={`reasoning-${index}`}
                   // chat-reasoning is an unstyled hook so embedders can
                   // target reasoning output (the Office pane hides it).
-                  className="chat-reasoning text-muted-foreground prose w-full min-w-0 flex-1 rounded-lg bg-transparent p-0"
+                  className="chat-reasoning text-muted-foreground prose w-full min-w-0 flex-1 rounded-lg bg-transparent p-0 [&>:last-child]:mb-0"
                   markdown
                 >
                   {group.text}
@@ -965,7 +965,7 @@ function MessageGroup({
       {/* The graph and the sources belong under the finished answer, not among
           the retrieval steps. They are collected across the whole turn, since
           the tool calls and the prose that follows them are separate messages. */}
-      <div className="w-full min-w-0">
+      {legalMemoryDocuments.length > 0 ? <div className="w-full min-w-0">
         <LegalMemoryMatterGraph
           rootDocumentId={legalMemoryDocuments[0]?.documentId ?? null}
           streaming={isStreaming}
@@ -977,7 +977,7 @@ function MessageGroup({
           matters={legalMemoryMatters}
           streaming={isStreaming}
         />
-      </div>
+      </div> : null}
       {hasText && !isLiveGroup && (
         <div className="flex w-full min-w-0 flex-wrap items-center gap-2 opacity-0 transition-opacity duration-150 group-hover/message-group:opacity-100 focus-within:opacity-100">
           <MessageActions className="flex gap-0">
