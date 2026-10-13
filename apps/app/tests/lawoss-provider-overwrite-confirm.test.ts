@@ -43,3 +43,16 @@ describe("prepis poskytovateľa u ďalších klientov", () => {
     expect(asked).toBe(false);
   });
 });
+
+describe("zmena adresy servera (MČ 13. 10. 2026)", () => {
+  test("dôvod endpoint_change prejde z 409 a dialóg hovorí o novej adrese", async () => {
+    const { hasEndpointChange, providerOverwriteMessage } = await import("../src/lawoss/providers/overwrite-confirm");
+    const endpoint = [{ providerId: "ollama", reason: "endpoint_change" as const, workspaces: [{ id: "second", name: "Klient B" }] }];
+    const parsed = providerOverwriteConflictsFrom(new LegalworkServerError(409, "provider_conflict", "x", { providerConflicts: endpoint }));
+    expect(parsed).toEqual(endpoint);
+    expect(hasEndpointChange(parsed ?? [])).toBe(true);
+    expect(hasEndpointChange(conflicts)).toBe(false);
+    expect(providerOverwriteMessage(endpoint, "save")).not.toBe(providerOverwriteMessage(conflicts, "save"));
+    expect(providerOverwriteMessage(endpoint, "save")).toContain("Klient B");
+  });
+});

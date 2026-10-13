@@ -147,7 +147,7 @@ import {
   writeLegalworkRuntimeConfigFile,
 } from "./legalwork-runtime-config.js";
 import { providerRepairNotices, repairRuntimeProviders } from "./runtime-provider-repair.js";
-import { type LegacyProviderRow, providerOverwriteConflicts } from "./lawoss/provider-overwrite.js";
+import { endpointChangeConflicts, type LegacyProviderRow, mergeProviderConflicts, providerOverwriteConflicts } from "./lawoss/provider-overwrite.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
 import {
   eigenweltHasPremiumModels,
@@ -3614,8 +3614,10 @@ function createRoutes(
         // Starý stav môže byť vo viacerých priečinkoch. Rozdielny blok iného klienta sa prepíše
         // až po potvrdení (lawoss/provider-overwrite.ts); dovtedy sa nezapíše nič.
         const legacyRows: (LegacyProviderRow & { workspace: WorkspaceInfo })[] = [];
+        const allRows: (LegacyProviderRow & { path?: string })[] = [];
         for (const row of config.workspaces) {
           const providers = ensurePlainObject((await readRuntimeOpencodeConfig(config, row.id)).provider);
+          allRows.push({ id: row.id, name: row.name, providers, path: row.path });
           if (Object.keys(providerUpdate).some((id) => Object.hasOwn(providers, id))) {
             legacyRows.push({ id: row.id, name: row.name, providers, workspace: row });
           }
@@ -3625,7 +3627,10 @@ function createRoutes(
           id,
           Object.hasOwn(ownProviders, id) ? ownProviders[id] : globalProviders[id],
         ]));
-        const providerConflicts = providerOverwriteConflicts({ workspaceId: workspace.id, update: providerUpdate, previous, rows: legacyRows });
+        const providerConflicts = mergeProviderConflicts(
+          providerOverwriteConflicts({ workspaceId: workspace.id, update: providerUpdate, previous, rows: legacyRows }),
+          endpointChangeConflicts({ workspaceId: workspace.id, update: providerUpdate, globalProviders, workspaces: allRows }),
+        );
         if (providerConflicts.length && body.confirmProviderOverwrite !== true) {
           throw new ApiError(409, "provider_conflict", "Another workspace has a different provider with the same id.", { providerConflicts });
         }
@@ -3658,6 +3663,25 @@ function createRoutes(
             summary: `Provider ${legacyIds.join(", ")} replaced by the global provider from workspace ${workspace.name}`,
             timestamp: Date.now(),
           });
+        }
+        // Klienti bez vlastného bloku dostanú audit, ak po potvrdení posielajú dáta na inú adresu servera.
+        const audited = new Set(legacyRows.map((row) => row.id));
+        for (const conflict of providerConflicts.filter((item) => item.reason === "endpoint_change")) {
+          for (const affected of conflict.workspaces.filter((item) => !audited.has(item.id))) {
+            const info = config.workspaces.find((item) => item.id === affected.id);
+            if (!info) continue;
+            audited.add(affected.id);
+            const rowRoot = workspaceAppFilesRoot(config, info);
+            await recordAudit(rowRoot, {
+              id: shortId(),
+              workspaceId: affected.id,
+              actor: ctx.actor ?? { type: "remote" },
+              action: "config.provider.endpoint",
+              target: legalworkConfigPath(rowRoot),
+              summary: `Provider ${conflict.providerId} now uses a different server address, changed in workspace ${workspace.name}`,
+              timestamp: Date.now(),
+            });
+          }
         }
       }
 
