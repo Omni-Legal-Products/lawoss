@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 import { resolveWorkspaceFilePath } from "./lawoss/filesystem-boundary.js";
@@ -22,7 +23,8 @@ const hostHeaders = { "X-LegalWork-Host-Token": "boundary-host", "Content-Type":
 
 async function fixture(alias = false, manual = false) {
   const base = await realpath(await mkdtemp(join(tmpdir(), "lawoss-security-files-")));
-  cleanup.push(() => rm(base, { recursive: true, force: true }));
+  // Windows: server drží runtime.sqlite otvorenú aj po stop(), rm skončí EBUSY.
+  cleanup.push(() => removeTestDir(base));
   process.env.LEGALWORK_TOKEN_STORE = join(base, "tokens.json");
   process.env.LEGALWORK_RUNTIME_DB = join(base, "runtime.db");
   process.env.LEGALWORK_DATA_DIR = join(base, "data");
