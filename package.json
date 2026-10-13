@@ -33,7 +33,8 @@
     "release:prepare:dry": "node scripts/release/prepare.mjs --dry-run",
     "release:ship": "node scripts/release/ship.mjs",
     "release:ship:watch": "node scripts/release/ship.mjs --watch",
-    "office:sideload": "pnpm --filter @legalwork/desktop office:sideload"
+    "office:sideload": "pnpm --filter @legalwork/desktop office:sideload",
+    "test:isir": "node scripts/test-isir-attachments.mjs"
   },
   "packageManager": "pnpm@11.4.0",
   "engines": {

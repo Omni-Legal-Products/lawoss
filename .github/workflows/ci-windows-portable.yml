@@ -6,6 +6,10 @@ on:
     paths:
       - lawoss/okf/**
       - lawoss/okf-pamat/**
+      - lawoss/testing/isir/**
+      - apps/server/src/isir-case-attachments.e2e.test.ts
+      - apps/desktop/electron/isir-case-files.test.mjs
+      - scripts/test-isir-attachments.mjs
       - lawoss/okf-handoff/**
       - lawoss/tests/**
       - apps/app/src/lawoss/**
@@ -46,6 +50,10 @@ on:
     paths:
       - lawoss/okf/**
       - lawoss/okf-pamat/**
+      - lawoss/testing/isir/**
+      - apps/server/src/isir-case-attachments.e2e.test.ts
+      - apps/desktop/electron/isir-case-files.test.mjs
+      - scripts/test-isir-attachments.mjs
       - lawoss/okf-handoff/**
       - lawoss/tests/**
       - apps/app/src/lawoss/**
@@ -135,3 +143,6 @@ jobs:
       - name: LAWOSS server (onboarding, register existing, triage, memory, paths, containment, reload watcher, process tree)
         working-directory: apps/server
         run: bun test lawoss reload-watcher
+
+      - name: ISIR attachments in ten case folders (synthetic offline corpus)
+        run: pnpm test:isir

@@ -1,5 +1,11 @@
 # LAWOSS downstream patches
 
+## ISIR attachment acceptance (2026-10-13)
+
+| Súbory | Downstream doplnenie a dôvod |
+| --- | --- |
+| `package.json`, `apps/desktop/package.json`, `.github/workflows/ci-windows-portable.yml` | Príkaz `test:isir`, zaradenie testu desktopového kopírovania a Windows behu s desiatimi syntetickými spismi. Živé dáta ISIR sa sťahujú iba na výslovné miestne spustenie mimo Git; originály, oddelenie spisov a chýbajúce cesty overujú regresie. |
+
 This file records every LAWOSS modification to a file inherited from `eigenweltlabs/legalwork`.
 
 New LAWOSS-owned files do not need an entry. Every pull request that changes an upstream file must add or update its row here.
