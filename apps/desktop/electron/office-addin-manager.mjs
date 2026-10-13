@@ -46,6 +46,7 @@ function logError(message) {
  * @param {() => string | null} deps.locateServerDist  Directory holding the built server (word-addin.js), or null.
  * @param {() => string | null} deps.locatePaneDist    Directory holding the built task pane bundle, or null.
  * @param {() => Promise<unknown>} deps.requestServerRestart  Restart the embedded server so listener state applies.
+ * @param {typeof createOfficeAddinPlatformBackend} [deps.createPlatformBackend]  Platform backend (manifests, CA trust); tests inject a fake.
  */
 export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist, requestServerRestart, createPlatformBackend = createOfficeAddinPlatformBackend }) {
   const userDataDir = app.getPath("userData");

@@ -5,13 +5,15 @@ import { join } from "node:path";
 import { startServer, assertOpencodeProxyAllowed } from "./server.js";
 import { TokenService } from "./tokens.js";
 import type { ServerConfig } from "./types.js";
+import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
 
 const cleanup: Array<() => unknown | Promise<unknown>> = [];
 afterEach(async () => { while (cleanup.length) await cleanup.pop()?.(); });
 
 async function fixture(readOnly = false, onApproval?: ServerConfig["requestHostApproval"]) {
   const root = await mkdtemp(join(tmpdir(), "lawoss-auth-boundary-"));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  // Windows: server drží runtime.sqlite otvorenú aj po stop(), rm skončí EBUSY.
+  cleanup.push(() => removeTestDir(root));
   const isolated = { LEGALWORK_TOKEN_STORE: join(root, "tokens.json"), LEGALWORK_RUNTIME_DB: join(root, "runtime.sqlite") };
   const previous = Object.fromEntries(Object.keys(isolated).map((key) => [key, process.env[key]]));
   Object.assign(process.env, isolated);

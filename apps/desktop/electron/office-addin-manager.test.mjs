@@ -25,7 +25,7 @@ function fixture(t, { failManifest = false } = {}) {
     listApps: () => [],
     caTrusted: () => false,
   };
-  const manager = createOfficeAddinManager({ app: { getPath: () => root, getVersion: () => "1.2.3" }, locateServerDist: () => dist, locatePaneDist: () => null, requestServerRestart: async () => {}, createPlatformBackend: () => backend });
+  const manager = createOfficeAddinManager({ app: /** @type {import("electron").App} */ (/** @type {unknown} */ ({ getPath: () => root, getVersion: () => "1.2.3" })), locateServerDist: () => dist, locatePaneDist: () => null, requestServerRestart: async () => {}, createPlatformBackend: () => /** @type {ReturnType<typeof import("./office-addin-platform.mjs").createOfficeAddinPlatformBackend>} */ (/** @type {unknown} */ (backend)) });
   return { root, manager, statePath, manifests };
 }
 

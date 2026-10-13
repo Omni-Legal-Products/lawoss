@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
 import { startServer } from "./server.js";
 import { TokenService } from "./tokens.js";
 import type { ServerConfig } from "./types.js";
@@ -40,6 +41,7 @@ test("viewer command and skill previews cannot execute frontmatter; ordinary pre
     delete probe.lawossPreviewProbe;
     await server?.stop();
     for (const [key, value] of previous) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
-    await rm(root, { recursive: true, force: true });
+    // Windows: server drží runtime.sqlite otvorenú aj po stop(), rm skončí EBUSY.
+    await removeTestDir(root);
   }
 });

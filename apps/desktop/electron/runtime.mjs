@@ -1557,8 +1557,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
           engineState.hostname = new URL(opencode.baseUrl).hostname;
           engineState.port = Number(new URL(opencode.baseUrl).port) || null;
           engineState.baseUrl = opencode.baseUrl;
-          engineState.opencodeUsername = opencode.username ?? null;
-          engineState.opencodePassword = opencode.password ?? null;
+          // LAWOSS: server od #142 prihlasovacie údaje enginu nevracia; ponechať tie, ktoré desktop pozná.
+          engineState.opencodeUsername = opencode.username ?? engineState.opencodeUsername ?? null;
+          engineState.opencodePassword = opencode.password ?? engineState.opencodePassword ?? null;
           engineState.execution = handle.managedOpencodeExecution ?? null;
           engineState.child = null;
           engineState.childExited = false;
