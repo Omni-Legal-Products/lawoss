@@ -116,3 +116,9 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 - Treat stable workspace identity, current filesystem root, and app-owned storage key as separate persisted values. Reusing an old filesystem path must not reuse another workspace's identity or outside storage.
 - Historical paths and captured session IDs are lookup metadata, never additional filesystem permission. Revalidate mappings against the current canonical root before reading a recovered project's memory or artifacts.
 - Use supported engine APIs for changing session execution directories; request headers alone do not prove that tools run in the new directory. Verify with an actual tool invocation and preserve original session/message IDs. Do not edit the engine's internal database.
+
+## Document evidence and resource bounds
+
+- Preserve original source hashes, per-source page numbers and embedded-document provenance. Extraction completeness and pagination completion are different contracts; consumers must follow read cursors and verify current source hashes before presenting fresh evidence.
+- Reserve tree-wide attachment budgets before recursive descent. Capacity admission must count actual new records after deduplication/retry planning; a full registry must still permit reuse of an existing preparation.
+- Reuse DocumentPreparation/OCR; missing models or incomplete OCR remain partial. Optional real-model tests use an explicitly selected, pinned/hash-verified isolated cache and must not configure or download into a user profile automatically.
