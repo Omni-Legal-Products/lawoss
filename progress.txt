@@ -1,0 +1,11 @@
+## Codebase Patterns
+
+- Workspace identity and file paths are separate contracts: moving a folder must not create a new case or silently recreate the old path.
+- Reuse DocumentPreparation/OCR and scoped agent plugins; incomplete coverage is a durable result, not a successful empty document.
+- Real ISIR datasets and provider credentials stay outside Git; CI fixtures are synthetic.
+
+## Progress
+
+2026-10-13: Created isolated implementation worktree from fetched dev 4b5870a9, acceptance and five-task implementation plan. User explicitly authorized direct dev push after green checks. Existing profiles and test data preserved. No production code changes yet.
+
+2026-10-13: Recovery implementation committed as e60e4241 and submitted to fresh read-only task review. Updated PATCHES.md, AGENTS.md and identical CLAUDE.md for stable identity/storage and historical-path authority invariants. Final worker gates: server1478/app1488/desktop324 passed, all three typechecks exit0; actual local engine tool write and history restart proof retained outside Git. No dev deployment or actual renderer acceptance claimed.

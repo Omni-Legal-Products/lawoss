@@ -110,3 +110,9 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 - Notify pull requests, issues, releases, and failed CI runs. Do not add routine push notifications without a team decision.
 - The coordination repository uses a different topic, `SK Mike GH` with topic ID `2`.
 - Setup and recovery instructions live in `docs/telegram-notifications.md`.
+
+## Workspace persistence and recovery
+
+- Treat stable workspace identity, current filesystem root, and app-owned storage key as separate persisted values. Reusing an old filesystem path must not reuse another workspace's identity or outside storage.
+- Historical paths and captured session IDs are lookup metadata, never additional filesystem permission. Revalidate mappings against the current canonical root before reading a recovered project's memory or artifacts.
+- Use supported engine APIs for changing session execution directories; request headers alone do not prove that tools run in the new directory. Verify with an actual tool invocation and preserve original session/message IDs. Do not edit the engine's internal database.
