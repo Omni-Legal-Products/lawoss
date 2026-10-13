@@ -103,12 +103,18 @@ been emitted through progress. There are no automatic retries or paid API retrie
 
 ## Provision local models
 
-On startup, a writable server automatically prepares the small model in the
-background when `local-fast` is the saved default and its installation is missing.
-This includes the first launch after an application update. Startup does not wait
-for downloads; Settings shows progress, cancellation and the existing Download model
-retry control. Ready installations are reused. Selecting a custom or higher-quality
-default skips automatic setup; the larger model remains an explicit download.
+In LAWOSS, OCR is off until the user explicitly enables Text recognition from scans
+in Settings → AI Providers. While it is off, document preparation uses only the
+document's own text layer, reports unread scans, and downloads no OCR models.
+Enabling OCR saves the choice without starting a download. After that choice, the
+user can download the fast model in Settings, or document preparation can download
+it on first use when needed. That setup includes the shared layout model. Settings
+shows progress, cancellation and retry; verified existing assets are reused.
+
+Startup downloads are disabled by default (`autoDownloadOcr: false`). Even an
+explicit `LEGALWORK_OCR_AUTO_DOWNLOAD=1` or server configuration override cannot
+bypass the saved LAWOSS OCR opt-in. The higher-quality model always requires an
+explicit download; selecting a remote engine never follows from local failure.
 
 The small model uses bundled native ONNX Runtime, the `paddleocr` JavaScript
 pipeline and the image decoder already shipped for PDF rendering. It needs no
@@ -148,13 +154,12 @@ process exits, even abruptly. Cancelling a page stops only that answer. The serv
 reading slots and receives a page's crops two at a time: that answered 53 crops 21% faster
 than one slot with identical text, using about 2.9 GB of memory.
 
-Cancelling small-model setup is remembered across restarts; Download model clears
-that cancellation and retries. Failed setup retries on the next launch, or manually
-from Settings. Closing the application cancels running setup without disabling the
-next startup attempt. To disable automatic setup for a deployment, set
-`LEGALWORK_OCR_AUTO_DOWNLOAD=0` or `"autoDownloadOcr": false` in the server config.
-Read-only servers never start automatic downloads. Extraction itself never installs
-models; callers still need to wait for the selected model to become ready.
+Download model in Settings can retry failed or cancelled setup. Restarting LAWOSS
+does not retry downloads under the default configuration. Disabling OCR cancels
+an active installation and retains downloaded models until the user removes them.
+Read-only servers reject setup. The low-level extraction service does not install
+models; LAWOSS document preparation can request and await fast-model setup after
+the explicit OCR opt-in, before extraction starts.
 
 `apps/server/resources/ocr/` is included in server package files and Electron's
 external resources, so workers remain outside ASAR. Npm/server installations also
@@ -278,10 +283,13 @@ run. Agents use the bundled `start-tabular-review` skill and review tools; stand
 OCR preparation tools are not exposed to the agent. DOCX/text continue through their
 existing readers.
 
-Every PDF page is rendered with PDF.js at up to 144 dpi (16 million pixels maximum)
-and passed to OCR, even when a text layer exists. Native text and recognition results
-remain separate. PNG/JPEG/WebP use the same recognition path. Optional language hints
-can be omitted; no language is assumed. No model or cloud fallback occurs.
+PDF rendering uses PDF.js at up to 144 dpi (16 million pixels maximum). With OCR
+enabled, preparation follows the selected OCR policy; text-only preparation and
+the policy for pages missing native text do not force OCR on every page. With
+LAWOSS OCR off, only native text is read and unread scans remain visible as a
+limitation. Native text and recognition results remain separate. PNG/JPEG/WebP
+use the recognition path when OCR is enabled. Optional language hints can be
+omitted; no language is assumed. No model or cloud fallback occurs.
 
 Prepared page evidence is stored with mode 0600 below
 `.opencode/legalwork/prepared-documents/` in the workspace. Cache identity includes the
@@ -315,6 +323,11 @@ JEV column routing, semantic linking of handwritten insertions and the contract-
 release benchmark remain separate work; OCR integration does not certify clause recall.
 
 ## Host settings API
+
+LAWOSS adds host-authorized `GET/PUT /lawoss/ocr` for the explicit enabled choice
+and `POST/DELETE /lawoss/ocr/model` for downloading/removing local models. Enabling
+is not itself a download. `LawossOcrManager` enforces the choice for installs,
+including requests through the shared `/ocr/*` endpoints.
 
 All `/ocr/*` routes require host/owner authorization. Read-only servers expose the
 settings but reject all mutations, downloads and sample tests. Configuration lives

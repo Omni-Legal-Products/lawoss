@@ -144,6 +144,43 @@ describe("office tool relay", () => {
     expect(executeBody.error).toBe("anchor not found");
   });
 
+  test("results belong to their workspace and a rejected result leaves the request pending", async () => {
+    const root = await createWorkspaceRoot();
+    const otherRoot = await createWorkspaceRoot();
+    const config = baseConfig(root);
+    config.workspaces.push({ id: "ws_other", name: "other", path: otherRoot, workspaceType: "local", preset: "starter" });
+    config.authorizedRoots.push(otherRoot);
+    const server = await startServer(config);
+    stops.push(() => server.stop());
+    const baseUrl = `http://127.0.0.1:${server.port}/workspace/ws_word_test/office-tools`;
+    const otherUrl = `http://127.0.0.1:${server.port}/workspace/ws_other/office-tools`;
+
+    await fetch(`${baseUrl}/poll?wait=0&host=Word`, { headers: AUTH });
+    const execution = fetch(`${baseUrl}/execute`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ tool: "word_read_document", timeoutMs: 3000 }),
+    });
+    const pollResponse = await fetch(`${baseUrl}/poll?wait=2&host=Word`, { headers: AUTH });
+    const polled: { requests: Array<{ id: string }> } = await pollResponse.json();
+    expect(polled.requests).toHaveLength(1);
+    const requestId = polled.requests[0]!.id;
+    const postResult = (url: string, text: string) => fetch(`${url}/requests/${requestId}/result`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ ok: true, result: { text } }),
+    });
+
+    const wrongWorkspace = await postResult(otherUrl, "wrong workspace");
+    expect(wrongWorkspace.status).toBe(200);
+    expect(await wrongWorkspace.json()).toEqual({ accepted: false });
+    const correctWorkspace = await postResult(baseUrl, "original workspace");
+    expect(correctWorkspace.status).toBe(200);
+    expect(await correctWorkspace.json()).toEqual({ accepted: true });
+    expect(await (await execution).json()).toEqual({ ok: true, result: { text: "original workspace" } });
+    expect(await (await postResult(baseUrl, "duplicate result")).json()).toEqual({ accepted: false });
+  });
+
   test("execute times out when the pane never answers", async () => {
     const { baseUrl } = await startTestServer();
     await fetch(`${baseUrl}/poll?wait=0`, { headers: AUTH });

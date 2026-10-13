@@ -21,11 +21,24 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             platform: linux
+            arch: x64
             executable: linux-unpacked/legalwork
+            asar: linux-unpacked/resources/app.asar
+            securityTarget: linux-unpacked/legalwork
           - os: windows-2022
             target: x86_64-pc-windows-msvc
             platform: win
+            arch: x64
             executable: win-unpacked/LAWOSS.exe
+            asar: win-unpacked/resources/app.asar
+            securityTarget: win-unpacked/LAWOSS.exe
+          - os: macos-14
+            target: aarch64-apple-darwin
+            platform: mac
+            arch: arm64
+            executable: mac-arm64/LAWOSS.app/Contents/MacOS/LAWOSS
+            asar: mac-arm64/LAWOSS.app/Contents/Resources/app.asar
+            securityTarget: mac-arm64/LAWOSS.app
     defaults:
       run:
         shell: bash
@@ -33,6 +46,7 @@ jobs:
       TARGET: ${{ matrix.target }}
       NODE_OPTIONS: --max-old-space-size=6144
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      MACOS_NOTARIZE: "false"
     steps:
       - uses: actions/checkout@v6
       - name: Enable Windows long paths
@@ -56,25 +70,25 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: pnpm --filter @legalwork/desktop build:electron
       - name: Package desktop app
-        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --${{ matrix.platform }} --x64 --dir --publish never
+        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --${{ matrix.platform }} --${{ matrix.arch }} ${{ runner.os == 'macOS' && '-c.mac.identity=-' || '' }} --dir --publish never
       # LAWOSS: importuje každý modul servera priamo zo zabaleného app.asar (Electron ako Node).
       - name: Verify packaged server modules load from app.asar
-        run: node apps/desktop/scripts/check-packaged-server-imports.mjs "apps/desktop/dist-electron/$(dirname "${{ matrix.executable }}")/resources/app.asar"
+        run: node apps/desktop/scripts/check-packaged-server-imports.mjs "apps/desktop/dist-electron/${{ matrix.asar }}"
       - name: Verify Linux AppImage packaging
         if: runner.os == 'Linux'
         run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --linux AppImage --x64 --publish never
       - name: Verify shipped fuses, Node and document tools
-        run: pnpm --dir apps/desktop check:packaged-security "dist-electron/${{ matrix.executable }}"
-      - name: Verify Windows native modules
-        if: runner.os == 'Windows'
+        run: pnpm --dir apps/desktop check:packaged-security "dist-electron/${{ matrix.securityTarget }}"
+      - name: Verify Windows and macOS native modules
+        if: runner.os != 'Linux'
         timeout-minutes: 2
         run: pnpm --dir apps/desktop test:native
-      - name: Verify Windows preview isolation
-        if: runner.os == 'Windows'
+      - name: Verify Windows and macOS preview isolation
+        if: runner.os != 'Linux'
         timeout-minutes: 2
         run: pnpm --dir apps/desktop test:preview-security
-      - name: Verify Windows packaged startup
-        if: runner.os == 'Windows'
+      - name: Verify Windows and macOS packaged startup
+        if: runner.os != 'Linux'
         timeout-minutes: 3
         run: node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
       - name: Verify Linux native modules
