@@ -2,13 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
+
+const withQuery = (node: React.ReactNode) => <QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>;
 import type { Language } from "../src/i18n";
 import { OnboardingEntryActions } from "../src/lawoss/domains/onboarding/entry-actions";
 import { Client, parentFolderOf, trialCloneName, welcomeText } from "../src/lawoss/domains/onboarding/lawoss-welcome-page";
 import type { OnboardingProfile } from "../src/lawoss/domains/onboarding/api";
 import { ALPHA_HIDE_MAP_WITHOUT_WRITING, visibleExistingClientModes } from "../src/lawoss/feature-flags";
-import { ATTACH_EXISTING_CLIENT_PATH } from "../src/lawoss/lite/links";
+import { ATTACH_EXISTING_CLIENT_PATH, organizeFolderLink } from "../src/lawoss/lite/links";
 import { ClientsView } from "../src/lawoss/lite/pages/clients-page";
 
 const base: OnboardingProfile = { version: 1, lawyerName: "Testovací advokát", jurisdiction: "sk", language: "sk" };
@@ -17,7 +20,7 @@ const client = (locale: Language, initialExisting = true) =>
 
 describe("connecting an existing client folder", () => {
   test("opens the client step directly in the attach mode with the trial clone preselected", () => {
-    expect(ATTACH_EXISTING_CLIENT_PATH).toBe("/welcome?continue=existing");
+    expect(ATTACH_EXISTING_CLIENT_PATH).toBe("/welcome?continue=folder");
     const html = client("sk");
     expect(html).toContain("Pripojiť existujúci priečinok klienta");
     expect(html).toContain("Čo sa stane s pôvodným priečinkom");
@@ -26,6 +29,10 @@ describe("connecting an existing client folder", () => {
     expect(html).toContain("Originál ostane nedotknutý");
     expect(html).toContain("LAWOSS zapíše priamo do pôvodného priečinka");
     expect(html).toContain("Kam uložiť kópiu");
+  });
+
+  test("odkaz na usporiadanie priečinka nesie zakódovanú cestu", () => {
+    expect(organizeFolderLink("/Users/a/Klienti/Novák s.r.o")).toBe("/welcome?continue=folder&root=%2FUsers%2Fa%2FKlienti%2FNov%C3%A1k%20s.r.o");
   });
 
   test("hides the map mode in the alpha with one switch", () => {
@@ -75,15 +82,15 @@ describe("connecting an existing client folder", () => {
   });
 
   test("the sidebar icon and the settings button carry the full name", () => {
-    const html = renderToStaticMarkup(<MemoryRouter><OnboardingEntryActions compact okfOffered={false} /></MemoryRouter>);
-    expect(html).toContain('aria-label="Connect an existing client folder"');
-    expect(html).toContain('title="Connect an existing client folder"');
-    expect(renderToStaticMarkup(<MemoryRouter><OnboardingEntryActions okfOffered={false} /></MemoryRouter>)).toContain("<span>Connect an existing client folder</span>");
+    const html = renderToStaticMarkup(<MemoryRouter>{withQuery(<OnboardingEntryActions compact />)}</MemoryRouter>);
+    expect(html).toContain('aria-label="Add folder"');
+    expect(html).toContain('title="Add folder"');
+    expect(renderToStaticMarkup(<MemoryRouter>{withQuery(<OnboardingEntryActions />)}</MemoryRouter>)).toContain("<span>Add folder</span>");
   });
 
   test("Klienti offers the attach button next to New matter", () => {
     const html = renderToStaticMarkup(<MemoryRouter><ClientsView groups={[]} locale="sk" /></MemoryRouter>);
-    expect(html).toContain('href="/welcome?continue=existing"');
+    expect(html).toContain('href="/welcome?continue=folder"');
     expect(html).toContain("Pripojiť existujúci priečinok klienta");
     expect(html).toContain("+ Nová vec");
   });

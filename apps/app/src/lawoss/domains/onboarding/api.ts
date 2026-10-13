@@ -48,7 +48,7 @@ export type OfficePlanRequest = {
   title: string;
   name?: string;
   jurisdiction: Jurisdiction;
-  language: Language;
+  language: DocumentLanguage;
   lawyerName: string;
 };
 export type ClientPlanRequest = {
