@@ -105,6 +105,18 @@ jobs:
           pnpm --filter legalwork-server build
           LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/scheduled-tasks/engine.test.ts
 
+      - name: Verify whole-agent prompt cache contract
+        env:
+          LEGALWORK_CACHE_CAPTURE: ${{ runner.temp }}/prompt-cache-capture.json
+        run: LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts apps/server/scripts/prompt-cache-engine.test.ts
+
+      - name: Upload synthetic prompt cache evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prompt-cache-${{ runner.os }}
+          path: ${{ runner.temp }}/prompt-cache-capture.json
+
       - name: Verify report source evidence checks
         run: |
           python3 -m venv "$RUNNER_TEMP/legalwork-report-tests"

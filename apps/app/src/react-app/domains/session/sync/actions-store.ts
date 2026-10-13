@@ -12,7 +12,7 @@ import type {
 import { t } from "../../../../i18n";
 import { eigenweltProviderRecoveryMessage } from "./eigenwelt-provider-error";
 import { unwrap } from "../../../../app/lib/opencode";
-import { systemReminderPart } from "../../../../app/lib/system-reminder";
+import { buildSessionPromptRequest } from "../../../../app/lib/system-reminder";
 import {
   abortSession as abortSessionTyped,
   abortSessionSafe,
@@ -606,14 +606,14 @@ export function createSessionActionsStore(options: {
           }),
         );
       } else {
-        const result = await c.session.promptAsync({
+        const result = await c.session.promptAsync(buildSessionPromptRequest({
           sessionID,
           model,
           agent: agent ?? undefined,
           variant: requestVariant,
           ...(promptOverrides ?? {}),
-          parts: resolvedDraft.modelContext?.trim() ? [...parts, systemReminderPart(resolvedDraft.modelContext.trim())] : parts,
-        });
+          parts,
+        }, resolvedDraft.modelContext));
         assertNoClientError(result, model.providerID);
 
         options.modelConfig.setSessionModelById((current) => ({

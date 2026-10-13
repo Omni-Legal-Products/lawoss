@@ -48,7 +48,7 @@ import type {
 
 import { analyticsSurface, captureAnalyticsEvent, markTaskRunStart } from "@/app/lib/analytics";
 import { createClient, unwrap } from "@/app/lib/opencode";
-import { systemReminderPart } from "@/app/lib/system-reminder";
+import { buildSessionPromptRequest, systemReminderPart } from "@/app/lib/system-reminder";
 import { abortSessionSafe, forkSession, listCommands, revertSession, setSessionArchived, shellInSession } from "@/app/lib/opencode-session";
 import { useSessionManagementStore as sessionManagementStore } from "@/react-app/domains/session/sidebar/session-management-store";
 import {
@@ -1517,13 +1517,13 @@ export function SessionRoute() {
           }
         }
 
-        const request = {
+        const request = buildSessionPromptRequest({
           sessionID: targetSessionId,
           parts,
           model: sendModel ?? undefined,
           agent: selectedAgent ?? undefined,
           ...(sendVariant ? { variant: sendVariant } : {}),
-        };
+        });
         if (options?.waitForCompletion) {
           // The queue advances after the engine's whole loop, not after a tool
           // step, a streamed assistant message, or the prompt_async HTTP 204.
