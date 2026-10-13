@@ -162,3 +162,16 @@ test("spotrebovaný súhlas na mieste nežiada náhľad, skúšobný klon áno (
   }
   expect(t("lawoss.triage.in_place_used", "sk")).toContain("Usporiadať podľa OKF");
 });
+
+describe("vrátenie po novom súhlase (rozhodnutie MČ 13. 10. 2026)", () => {
+  const run = (runId: string, state: "applied" | "undone" = "applied") => ({ runId, createdAt: "2026-10-13T10:00:00Z", state, moves: 3, matters: 1 });
+  test("na mieste sa ponúkne len beh, na ktorý sa spotreboval súhlas", async () => {
+    const { undoableRun } = await import("../src/lawoss/domains/roztriedenie/api");
+    const runs = [run("triage-20261013-110000-bbbbbb"), run("triage-20261013-100000-aaaaaa")];
+    expect(undoableRun({ trial: true, mode: "in_place", root: "/k", canPlan: false, undoRunId: "triage-20261013-110000-bbbbbb", runs })?.runId).toBe("triage-20261013-110000-bbbbbb");
+    expect(undoableRun({ trial: true, mode: "in_place", root: "/k", canPlan: true, runs })).toBeUndefined();
+    expect(undoableRun({ trial: true, mode: "trial", root: "/k", runs })?.runId).toBe("triage-20261013-110000-bbbbbb");
+    expect(undoableRun({ trial: false, runs: [] })).toBeUndefined();
+    expect(undoableRun(null)).toBeUndefined();
+  });
+});

@@ -8,7 +8,17 @@ export type TriageApiPath = "status" | "plan" | "replan" | "apply" | "undo" | "g
 export type TriageClient = { lawossTriage<T>(path: TriageApiPath, body: unknown): Promise<T> };
 
 export type TriageRun = { runId: string; createdAt: string; state: "applied" | "interrupted" | "undone" | "undoing" | "planned"; moves: number; matters: number };
-export type TriageStatus = { trial: true; mode: "trial" | "in_place"; root: string; canPlan?: boolean; runs: TriageRun[] } | { trial: false; reason?: string; runs: [] };
+export type TriageStatus = { trial: true; mode: "trial" | "in_place"; root: string; canPlan?: boolean; undoRunId?: string; runs: TriageRun[] } | { trial: false; reason?: string; runs: [] };
+
+/**
+ * Beh, ktorý sa dá vrátiť: v klone posledný zapísaný, na mieste len ten, na ktorý sa spotreboval súhlas.
+ * Po novom súhlase sa predošlé usporiadanie vrátiť nedá a tlačidlo sa neukáže (rozhodnutie MČ 13. 10. 2026).
+ */
+export function undoableRun(status: TriageStatus | null): TriageRun | undefined {
+  if (!status?.trial) return undefined;
+  const applied = status.runs.filter((item) => item.state === "applied");
+  return status.mode === "in_place" ? applied.find((item) => item.runId === status.undoRunId) : applied[0];
+}
 /** Náhľad sa pýta, len kým súhlas na mieste nie je spotrebovaný: po zápise ostáva len vrátenie (rozhodnutie MČ 12. 10.). */
 export const plansPreview = (state: TriageStatus): boolean => state.trial && state.canPlan !== false;
 export type TriageMoveView = {

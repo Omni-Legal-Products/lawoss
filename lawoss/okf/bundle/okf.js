@@ -1257,7 +1257,80 @@ var CZ_LEGAL_FORMS = [
 var hasLegalForm = (name) => [...SK_LEGAL_FORMS, ...CZ_LEGAL_FORMS].some((pattern) => pattern.test(name));
 var MATTER_DATE = /^20\d{2}(?:[-_. ](?:0[1-9]|1[0-2]))?(?:[-_ ]|$)/;
 var isBareDate = (name) => /^20\d{2}(?:[-_. ]\d{1,2}){0,2}$/.test(name);
-var looksLikeMatterName = (name) => !isBareDate(name) && (MATTER_DATE.test(name) || findCaseNumber(name) !== undefined);
+var SK_MATTER_WORDS = [
+  "spor",
+  "žaloba",
+  "návrh",
+  "nájom",
+  "prenájom",
+  "kúpa",
+  "predaj",
+  "zmluva",
+  "kúpna",
+  "nájomná",
+  "darovacia",
+  "dohoda",
+  "exekúcia",
+  "konanie",
+  "odvolanie",
+  "dovolanie",
+  "sťažnosť",
+  "vymáhanie",
+  "pohľadávka",
+  "rozvod",
+  "dedičstvo",
+  "dedičské",
+  "konkurz",
+  "reštrukturalizácia",
+  "oddlženie",
+  "trestné",
+  "trestná",
+  "správne",
+  "výpoveď",
+  "náhrada",
+  "platobný",
+  "darovanie",
+  "vec"
+];
+var CZ_MATTER_WORDS = [
+  "spor",
+  "žaloba",
+  "návrh",
+  "nájem",
+  "pronájem",
+  "koupě",
+  "prodej",
+  "smlouva",
+  "kupní",
+  "nájemní",
+  "darovací",
+  "dohoda",
+  "exekuce",
+  "řízení",
+  "odvolání",
+  "dovolání",
+  "stížnost",
+  "vymáhání",
+  "pohledávka",
+  "rozvod",
+  "dědictví",
+  "dědické",
+  "insolvence",
+  "oddlužení",
+  "trestní",
+  "správní",
+  "výpověď",
+  "náhrada",
+  "platební",
+  "darování",
+  "věc"
+];
+var MATTER_WORDS = new Set([...SK_MATTER_WORDS, ...CZ_MATTER_WORDS]);
+var startsWithMatterWord = (name) => {
+  const first = name.normalize("NFC").trim().toLocaleLowerCase("sk").split(/[\s,.;:()_-]+/u)[0] ?? "";
+  return MATTER_WORDS.has(first);
+};
+var looksLikeMatterName = (name) => !isBareDate(name) && (MATTER_DATE.test(name) || findCaseNumber(name) !== undefined || startsWithMatterWord(name));
 
 // src/onboarding/suggest.ts
 var PRACTICE_MIN_CLIENTS = 5;

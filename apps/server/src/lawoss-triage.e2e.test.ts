@@ -225,3 +225,17 @@ test("token spolupracovníka ani požiadavka bez tokenu neprejdú žiadnou traso
   expect(results).toEqual(Object.fromEntries(Object.keys(results).map(path => [path, [401, 401]])));
   expect(await exists(join(f.source, ".lawoss"))).toBe(false);
 }, transactionTimeout);
+
+test("nový súhlas ruší vrátenie predošlého usporiadania na mieste a status to povie (rozhodnutie MČ 13. 10.)", async () => {
+  const f = await convertedFixture();
+  await f.success("triage/grant", { root: f.client, confirm: true });
+  expect((await f.success("triage/status", { root: f.client })).undoRunId).toBeUndefined();
+  const preview = await f.success("triage/plan", { root: f.client });
+  const applied = await f.success("triage/apply", { id: preview.id, fingerprint: preview.fingerprint, confirm: true });
+  expect(await f.success("triage/status", { root: f.client })).toMatchObject({ mode: "in_place", canPlan: false, undoRunId: applied.runId });
+  await f.success("triage/grant", { root: f.client, confirm: true });
+  const after = await f.success("triage/status", { root: f.client });
+  expect(after).toMatchObject({ mode: "in_place", canPlan: true });
+  expect(after.undoRunId).toBeUndefined();
+  expect((await f.call("triage/undo", { root: f.client, runId: applied.runId, confirm: true })).status).toBe(403);
+}, transactionTimeout);
