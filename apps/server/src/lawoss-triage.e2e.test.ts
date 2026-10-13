@@ -73,7 +73,7 @@ test("triedenie je len pre hosta, len v klone a len po potvrdení odtlačku", as
   expect((await f.call("triage/undo", { root: f.source, runId: kept.runId, confirm: true })).status).toBe(403);
   expect(await f.success("triage/undo", { root: f.clone, runId: kept.runId, confirm: true })).toMatchObject({ status: "undone", restored: 5 });
   expect(await tree(f.clone)).toBe(original);
-}, transactionTimeout);
+}, 30_000);
 
 /** Skutočný klient po „Nie, len pridaj OKF súbory“ (convert) a jeho registrácii, ako v novom onboardingu. */
 async function convertedFixture() {
