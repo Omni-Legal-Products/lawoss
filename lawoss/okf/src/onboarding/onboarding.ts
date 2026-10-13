@@ -3,20 +3,21 @@ import { realpath } from "../canonical-path.ts";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { planClientConversion, type ClientConversionInput } from "./plan.ts";
 import { inspectOnboardingRoot } from "./classify.ts";
-import { executeCreate, planExistingClient, planNewClient, planNewMatter, planNewSubject, planOffice, type AppFiles, type CreatePreview, type MapPreview, type TrialClonePreview } from "./entities.ts";
+import { executeCreate, planExistingClient, planNewClient, planNewMatter, planNewSubject, planOffice, planPracticeOffice, safeClientPattern, type AppFiles, type CreatePreview, type MapPreview, type PracticeRequest, type TrialClonePreview } from "./entities.ts";
 import { applyTrialClone, recoverTrialClone } from "./trial-clone.ts";
 import { recoverOnboardingPlan } from "./transaction.ts";
 import { contained } from "../../../okf-pamat/src/workspace-memory-fs.ts";
 
 export type OnboardingRequest =
   | { action: "office"; parent: string; title: string; jurisdiction: "sk" | "cz"; language: "sk" | "cs" | "en"; lawyerName: string; name?: string }
+  | ({ action: "practice" } & PracticeRequest)
   | { action: "client"; parent: string; name: string; title: string; clientType: "fo" | "fo-podnikatel" | "po" | "iny"; jurisdiction: "sk" | "cz"; date: string; language: "sk" | "cs" | "en" }
   | { action: "subject"; clientRoot: string; name: string; title: string }
   | { action: "matter"; clientRoot: string; parent: string; title: string; date: string; kind: "contentious" | "non_contentious"; area: string; jurisdiction: "sk" | "cz"; subject?: string; language?: "sk" | "cs" | "en" }
   | ({ action: "existing"; root: string; mode: "convert" } & ClientConversionInput)
   | { action: "existing"; root: string; mode: "map"; memoryPath: string; identityAnchor: string }
   | ({ action: "existing"; root: string; mode: "trial_clone"; cloneParent: string } & ClientConversionInput);
-export type OnboardingPreview = (CreatePreview & { action: "office" | "client" | "subject" | "matter" | "existing" }) | (MapPreview & { action: "existing" }) | (TrialClonePreview & { action: "existing"; conversionPlan?: import("./transaction.ts").OnboardingPlan });
+export type OnboardingPreview = (CreatePreview & { action: "office" | "practice" | "client" | "subject" | "matter" | "existing" }) | (MapPreview & { action: "existing" }) | (TrialClonePreview & { action: "existing"; conversionPlan?: import("./transaction.ts").OnboardingPlan });
 export type OnboardingApplyOptions = { journalDirectory: string; externalProfileDirectory: string };
 export type OnboardingApplyResult = { root: string; clientRoot?: string; matterRoot?: string; appFiles: AppFiles; trial?: true; status?: "applied" | "already_applied" | "rolled_back" };
 const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -56,6 +57,13 @@ export function parseOnboardingRequest(value: unknown): OnboardingRequest {
     const language = value.language; if (language !== "sk" && language !== "cs" && language !== "en") throw new Error("Invalid language.");
     return { action: "office", parent: string(value.parent, "parent"), title: string(value.title, "title"), jurisdiction, language, lawyerName: string(value.lawyerName, "lawyerName"), name: optionalString(value.name, "name") };
   }
+  if (value.action === "practice") {
+    const jurisdiction = value.jurisdiction, language = value.language, scope = value.scope;
+    if (jurisdiction !== "sk" && jurisdiction !== "cz") throw new Error("Invalid onboarding jurisdiction.");
+    if (language !== "sk" && language !== "cs" && language !== "en") throw new Error("Invalid language.");
+    if (scope !== "client" && scope !== "practice") throw new Error("Invalid workspace scope.");
+    return { action: "practice", root: string(value.root, "root"), title: string(value.title, "title"), jurisdiction, language, lawyerName: string(value.lawyerName, "lawyerName"), clientPattern: safeClientPattern(string(value.clientPattern, "clientPattern")), scope };
+  }
   if (value.action === "client") {
     const clientType = value.clientType, language = value.language;
     if (clientType !== "fo" && clientType !== "fo-podnikatel" && clientType !== "po" && clientType !== "iny") throw new Error("Invalid client type.");
@@ -94,6 +102,7 @@ export function parseOnboardingRequest(value: unknown): OnboardingRequest {
 }
 export async function planOnboarding(request: OnboardingRequest): Promise<OnboardingPreview> {
   if (request.action === "office") return { action: request.action, ...await planOffice(request) };
+  if (request.action === "practice") return { action: request.action, ...await planPracticeOffice(request) };
   if (request.action === "client") return { action: request.action, ...await planNewClient(request) };
   if (request.action === "subject") return { action: request.action, ...await planNewSubject(request) };
   if (request.action === "matter") { const client = await realpath(request.clientRoot), parent = await realpath(request.parent); if (!contained(client, parent)) throw new Error("Matter parent must be within client root."); return { action: request.action, ...await planNewMatter(request) }; }

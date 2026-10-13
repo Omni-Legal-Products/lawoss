@@ -32,7 +32,7 @@ const profileSchema = z.strictObject({
 });
 type Profile = z.infer<typeof profileSchema>;
 const previewSchema = z.looseObject({
-  action: z.enum(["office", "client", "subject", "matter", "existing"]),
+  action: z.enum(["office", "practice", "client", "subject", "matter", "existing"]),
   mode: z.enum(["new", "map", "trial_clone"]), appFiles: z.enum(["inside", "outside"]),
   root: z.string().min(1).optional(), target: z.string().min(1).optional(),
   clientRoot: z.string().min(1).optional(), officeMemoryRoot: z.string().min(1).optional(),
@@ -185,7 +185,8 @@ export function registerOnboardingRoutes(options: {
         await writeJson(receiptPath, { fingerprint: input.fingerprint, result });
       }
       if (result.status === "rolled_back") throw new ApiError(409, "onboarding_rolled_back", "This plan was rolled back. Create a new preview.");
-      if (ticket.preview.action === "office") return { result: repeated ? "already_applied" : "applied", ...result };
+      // Kancelária a prax nemajú pracovný priestor klienta; registrácia klientov praxe patrí do plánu C.
+      if (ticket.preview.action === "office" || ticket.preview.action === "practice") return { result: repeated ? "already_applied" : "applied", ...result };
       const clientRoot = result.clientRoot ?? (ticket.preview.action === "existing" || ticket.preview.action === "client" ? result.root : undefined);
       if (!clientRoot) throw new Error("Onboarding did not return a client workspace.");
       await canonicalDirectory(clientRoot);

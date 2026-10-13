@@ -54,6 +54,17 @@ test("onboarding is host-only, rejects unconfirmed writes and persists identity"
   expect(await readdir(f.parent)).toEqual([]);
 });
 
+test("practice applies configuration without registering its clients as workspaces", async () => {
+  const f = await fixture(), root = join(f.base, "praxe"), client = join(root, "Klient A");
+  await mkdir(client, { recursive: true }); await writeFile(join(client, "original.txt"), "Original bytes\n");
+  const before = await readFile(join(client, "original.txt"), "utf8");
+  const result = await f.apply({ action: "practice", root, title: "Syntetická prax", jurisdiction: "sk", language: "sk", lawyerName: "Syntetický advokát", clientPattern: "*", scope: "client" });
+  expect(result.result).toBe("applied");
+  expect(result.workspace).toBeUndefined(); expect(f.config.workspaces).toHaveLength(0);
+  expect((await lstat(join(root, "Office", "okf.config"))).isFile()).toBe(true);
+  expect(await readFile(join(client, "original.txt"), "utf8")).toBe(before);
+});
+
 test("office stays configuration, client remains workspace for subject and both matter kinds", async () => {
   const f = await fixture();
   const office = await f.apply({ action: "office", parent: f.parent, title: "Synthetic office", lawyerName: "Synthetic lawyer", language: "sk", jurisdiction: "sk" });
