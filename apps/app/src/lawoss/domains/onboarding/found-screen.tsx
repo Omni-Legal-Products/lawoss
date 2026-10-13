@@ -21,12 +21,12 @@ type Answer = "no" | "yes";
 const SCOPES: readonly Scope[] = ["client", "practice"];
 
 /**
- * Slabý návrh praxe (jediný signál sú podpriečinky pomenované ako veci, istota najviac 0,5): rovnako vyzerá
- * jeden klient s datovanými verziami vecí, ktorý je podľa P4 typický. Appka sa preto pýta a predvolí klienta
- * (review VŘ k #135, bod 5).
+ * Slabý návrh praxe: jediný signál sú podpriečinky pomenované ako veci. Rovnako vyzerá jeden klient
+ * s datovanými verziami vecí, ktorý je podľa P4 typický. Appka sa preto pýta a predvolí klienta
+ * (review VŘ k #135, bod 5: „pri jedinom signáli matter_named_children sa radšej opýtať“).
  */
 export function isUncertainPractice(suggestion: OnboardingSuggestion): boolean {
-  return suggestion.level === "practice" && !suggestion.marked && suggestion.score <= 0.5;
+  return suggestion.level === "practice" && !suggestion.marked && suggestion.signals.length === 1 && suggestion.signals[0] === "matter_named_children";
 }
 
 export function initialFoundLevel(suggestion: OnboardingSuggestion): FoundLevel {

@@ -101,7 +101,8 @@ describe("slabý návrh praxe (review VŘ k #135, bod 5)", () => {
   });
   test("istá prax a označená prax ostávajú praxou", async () => {
     const { initialFoundLevel } = await import("../src/lawoss/domains/onboarding/found-screen");
-    expect(initialFoundLevel(base({ level: "practice", score: 0.83, clients }))).toBe("practice");
+    expect(initialFoundLevel(base({ level: "practice", score: 0.83, signals: ["legal_form_children", "matter_named_children"], clients }))).toBe("practice");
+    expect(initialFoundLevel(base({ level: "practice", score: 0.5, signals: ["letter_buckets"], clients }))).toBe("practice");
     expect(initialFoundLevel(base({ level: "practice", score: 1, marked: true, clients }))).toBe("practice");
     expect(initialFoundLevel(base({ level: "matter" }))).toBe("matter");
     expect(initialFoundLevel(base({ level: "unknown" }))).toBe("client");
