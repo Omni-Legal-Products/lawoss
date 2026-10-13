@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdtemp, mkdir, realpath, writeFile, readdir, readFile, lstat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
@@ -15,6 +15,8 @@ const previous = { data: process.env.LEGALWORK_DATA_DIR, tokens: process.env.LEG
 const cleanups: (() => Promise<void>)[] = [];
 // Štart servera a registrácia s kontrolou celého stromu; Windows CI to nestihne za predvolených 5 s.
 const integrationTimeout = process.platform === "win32" ? 20_000 : 5_000;
+// Každý test tu štartuje server a registruje priečinok; Windows CI nestihne ani ostatné za 5 s.
+if (process.platform === "win32") setDefaultTimeout(integrationTimeout);
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   for (const [key, value] of Object.entries({ LEGALWORK_DATA_DIR: previous.data, LEGALWORK_TOKEN_STORE: previous.tokens })) {
