@@ -39,10 +39,12 @@ import type { ServerConfig } from "./types.js";
 import {
   applyGlobalToolPermissions,
   GLOBAL_MCP_ID,
+  GLOBAL_PROVIDERS_ID,
   GLOBAL_PERSONALIZATION_ID,
   GLOBAL_TOOL_PERMISSIONS_ID,
   onRuntimeOpencodeConfigWrite,
   readGlobalMcpMap,
+  readGlobalProviderMap,
   readGlobalToolPermissions,
   readGlobalPersonalizationSettings,
   readRuntimeOpencodeConfig,
@@ -234,10 +236,13 @@ export async function buildLegalworkRuntimeConfigObject(
     // LAWOSS: Eigenwelt ani zo starej konfigurácie spisu (lawoss/commercial-services.ts).
     ...(eigenweltAccountEnabled() ? [] : [EIGENWELT_PROVIDER_ID]),
   ].filter((item, index, list) => list.indexOf(item) === index);
+  const globalProviders = config ? await readGlobalProviderMap(config) : {};
   const providerMap = {
     // Never let a retired or unparsable stored block reach the engine: it
     // would invalidate this whole file. The startup repair also removes such
     // blocks from the DB and notifies the app.
+    // LAWOSS: globálni vlastní poskytovatelia; starý riadok priečinka má pri rovnakom id prednosť.
+    ...repairRuntimeProviders(globalProviders).providers,
     ...repairRuntimeProviders(runtimeConfig.provider ?? {}).providers,
     // Global injection wins over any stale per-workspace eigenwelt block.
     ...(paidProvider ? { [EIGENWELT_PROVIDER_ID]: paidProvider } : {}),
@@ -361,7 +366,8 @@ export function keepLegalworkRuntimeConfigFileFresh(config: ServerConfig, worksp
       writtenWorkspaceId !== workspaceId &&
       writtenWorkspaceId !== GLOBAL_TOOL_PERMISSIONS_ID &&
       writtenWorkspaceId !== GLOBAL_PERSONALIZATION_ID &&
-      writtenWorkspaceId !== GLOBAL_MCP_ID
+      writtenWorkspaceId !== GLOBAL_MCP_ID &&
+      writtenWorkspaceId !== GLOBAL_PROVIDERS_ID
     ) return;
     void writeLegalworkRuntimeConfigFile(writeConfig, workspaceId).catch(() => undefined);
   });

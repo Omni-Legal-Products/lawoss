@@ -90,6 +90,7 @@ import {
   safeStringify,
 } from "@/app/utils";
 import { t } from "@/i18n";
+import { conversationWorkspaceId, isLawossHomeWorkspace, withoutLawossHome } from "@/lawoss/home-workspace";
 import { isCommercialSurfaceHidden, isHiddenSettingsTab } from "@/lawoss/feature-flags";
 import {
   type RouteWorkspace,
@@ -650,7 +651,7 @@ export function SessionRoute() {
   // navigation still works.
   const hiddenTemplateWorkspaceIds = useHiddenTemplateWorkspaceIds();
   const sidebarWorkspaces = useMemo(
-    () => workspaces.filter((workspace) => !hiddenTemplateWorkspaceIds.includes(workspace.id)),
+    () => withoutLawossHome(workspaces).filter((workspace) => !hiddenTemplateWorkspaceIds.includes(workspace.id)),
     [hiddenTemplateWorkspaceIds, workspaces],
   );
   const workspaceSessionGroups = useMemo(
@@ -869,9 +870,9 @@ export function SessionRoute() {
     (ai: "connected" | "own_model" | "existing") => {
       captureAnalyticsEvent("onboarding_completed", { ai });
       setOnboardingStage("done");
-      navigate(homeRoute(homeProjectIdFromSearch(location.search) || selectedWorkspaceId), { replace: true });
+      navigate(homeRoute(conversationWorkspaceId(workspaces, homeProjectIdFromSearch(location.search) || selectedWorkspaceId)), { replace: true });
     },
-    [location.search, navigate, selectedWorkspaceId, setOnboardingStage],
+    [location.search, navigate, selectedWorkspaceId, setOnboardingStage, workspaces],
   );
 
   // LAWOSS: krok „audio" zapína prepis a diktovanie, ale záložka recorder je
@@ -1714,6 +1715,11 @@ export function SessionRoute() {
     ) {
       return;
     }
+    // LAWOSS: domovský priestor nie je projekt (P8); nová konverzácia začína na úvodnej stránke.
+    if (isLawossHomeWorkspace(workspace)) {
+      navigate("/home");
+      return;
+    }
     const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token });
     if (!endpoint || !endpoint.token) {
       return;
@@ -1784,7 +1790,7 @@ export function SessionRoute() {
         }
       }
     }
-  }, [baseUrl, loading, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, token, workspaces]);
+  }, [baseUrl, loading, navigate, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, token, workspaces]);
 
   // Latest session-list state for prev/next session tab navigation. The
   // `options` field is updated by `onSessionTabsChange` from SessionPage so we
@@ -2164,7 +2170,8 @@ export function SessionRoute() {
   }, [createWorkspaceBusy, handleCreateWorkspace]);
 
   const homePage = location.pathname === "/home" || (!selectedSessionId && isSessionIndexRoute(location.pathname));
-  const homeEntryProjectId = routeWorkspaceId || homeProjectIdFromSearch(location.search);
+  // LAWOSS: domovský priestor z trasy ani z ?project nie je projekt úvodnej stránky (P8).
+  const homeEntryProjectId = conversationWorkspaceId(workspaces, routeWorkspaceId || homeProjectIdFromSearch(location.search));
   const [homeProjectId, setHomeProjectId] = useState<string | null>(homeEntryProjectId);
   const homeSending = useRef(false);
   const pendingHomeMessage = useRef<PendingHomeMessage & { workspaceId: string } | null>(null);
@@ -2184,6 +2191,8 @@ export function SessionRoute() {
     try {
       let workspace = homeProjectId ? workspaces.find((item) => item.id === homeProjectId) : null;
       if (homeProjectId && !workspace) throw new Error(t("workspace.not_found"));
+      // LAWOSS: do domovského priestoru sa konverzácia ani prílohy nezakladajú (P8).
+      if (workspace && isLawossHomeWorkspace(workspace)) workspace = null;
       if (!workspace) {
         const name = text.trim().split(/\r?\n/)[0].slice(0, 80) || files[0]?.name || t("home.new_project");
         const list = await client.createLocalWorkspace({ name, folderMode: "default", preset: "starter", projectFields: newProjectFields() });

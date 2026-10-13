@@ -37,10 +37,13 @@ describe("onboarding AI step", () => {
     expect(view({ state: "unavailable" })).toContain("Pokračovať bez modelu");
   });
 
-  test("before the first folder there are no AI settings to open, only the way forward", () => {
+  test("without a reachable engine there are no AI settings to open, only the way forward", () => {
     const html = view({ state: "no-workspace" });
     expect(html).toContain('data-lawoss-ai-model="no-workspace"');
-    expect(html).toContain("Model pripojíte, keď bude otvorený prvý priečinok");
+    expect(html).toContain("Prostredie AI sa ešte nespustilo");
+    // P8: nastavenie AI nepatrí k prvému priečinku a priečinok naň netreba
+    expect(html).not.toContain("prvý priečinok");
+    expect(html).toContain("platí pre všetky priečinky");
     expect(html).not.toContain("Otvoriť nastavenia AI");
     expect(html).toContain("Pokračovať bez modelu");
     expect(view({ state: "no-workspace" }, { locale: "cs" })).toContain("Poskytovatelé AI");

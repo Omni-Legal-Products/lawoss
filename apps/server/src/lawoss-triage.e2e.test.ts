@@ -38,6 +38,9 @@ async function tree(root: string): Promise<string> {
   return createHash("sha256").update(JSON.stringify((inspection as unknown as { entries: { path: string }[] }).entries.filter(entry => !entry.path.startsWith(".lawoss")))).digest("hex");
 }
 
+// Celý scenár (klon cez onboarding, náhľad, zápis a návrat s fsync) trvá na macOS asi 2,5 s, na Windows
+// runneri 5 až 7 s. Predvolený limit 5 s ho tam prerušil a afterEach zmazal dočasný priečinok, takže
+// zvyšok testu padal na zavádzajúcich asserciách (chýbajúci záznam o klone, prázdny status).
 test("triedenie je len pre hosta, len v klone a len po potvrdení odtlačku", async () => {
   const f = await fixture();
   expect((await f.call("triage/status", { root: f.clone }, { Authorization: "Bearer synthetic-client", "Content-Type": "application/json" })).status).toBe(401);
@@ -69,7 +72,7 @@ test("triedenie je len pre hosta, len v klone a len po potvrdení odtlačku", as
   expect((await f.call("triage/undo", { root: f.source, runId: kept.runId, confirm: true })).status).toBe(403);
   expect(await f.success("triage/undo", { root: f.clone, runId: kept.runId, confirm: true })).toMatchObject({ status: "undone", restored: 5 });
   expect(await tree(f.clone)).toBe(original);
-});
+}, 30_000);
 
 test("routy roztriedenia odmietnu originál aj s platne vyzerajúcou značkou súhlasu", async () => {
   const f = await fixture();
