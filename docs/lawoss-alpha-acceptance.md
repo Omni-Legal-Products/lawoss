@@ -8,13 +8,13 @@ spustením aplikácie s prázdnym profilom.
 
 > **Hranica alfa testu:** úspešný preflight ani úspešný scenár nie je právne, bezpečnostné ani produkčné schválenie. Build nie je určený na skutočné spisy.
 
-> **Rozsah protokolu (9. 10. 2026):** nasledujúce kroky overujú existujúce UI
-> s voľbou OKF. Backend onboardingu cez priečinok z PR [#135](https://github.com/Omni-Legal-Products/lawoss/pull/135),
-> [#136](https://github.com/Omni-Legal-Products/lawoss/pull/136) a [#137](https://github.com/Omni-Legal-Products/lawoss/pull/137)
-> sám nedokazuje dokončenie nového trojkrokového toku C2. Ten má samostatnú
-> akceptáciu podľa [schváleného smeru onboardingu](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/92)
-> a [implementačného plánu C2](https://github.com/Omni-Legal-Products/lawoss/pull/134).
-> Zaznamenajte presný commit testovaného buildu; PASS tohto protokolu neoznačuje C2 za hotové.
+> **Rozsah protokolu (aktualizované 13. 10. 2026):** onboarding cez priečinok (tri kroky Ty, AI, Priečinok)
+> je v `dev` od 13. 10. (PR [#135](https://github.com/Omni-Legal-Products/lawoss/pull/135),
+> [#136](https://github.com/Omni-Legal-Products/lawoss/pull/136), [#137](https://github.com/Omni-Legal-Products/lawoss/pull/137)
+> a [#145](https://github.com/Omni-Legal-Products/lawoss/pull/145), admin merge MČ). Smer je v
+> [specu k#92](https://github.com/Omni-Legal-Products/lawOSS-like-SK-CZ/pull/92), ktorý ešte nie je odsúhlasený tímom;
+> postup je v plánoch `docs/superpowers/plans/2026-10-08-onboarding-*.md`.
+> Zaznamenajte presný commit testovaného buildu.
 
 ## Bezpečnostné podmienky
 
