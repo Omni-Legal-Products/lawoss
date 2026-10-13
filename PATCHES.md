@@ -544,3 +544,9 @@ Linux packaging na heade `7bde0842` úspešne overil aplikáciu a renderer, no p
 | `apps/server/src/document-preparation/render.ts`, `apps/server/src/corpus/extract.ts` | Ohraničená enumerácia PDF.js6 príloh (Map a lazy content), signalizácia poškodeného Unicode a skutočná OCR evidence pre stránky vyžadujúce OCR. Text-only príprava s vypnutým OCR nesmie povýšiť nepokryté obrazy na úplné čítanie; natívny text zostáva dostupný ako partial. | `fix/isir-native-reliability` |
 | `apps/server/src/server.ts` | Úzke konštrukčné, route a shutdown hooks pre LAWOSS document service; scope/auth používa existujúci server. Shutdown najprv ukončí dokumentové joby, potom zdieľanú prípravu/OCR. | `fix/isir-native-reliability` |
 | `apps/server/src/opencode-plugins/legalwork-project-tools.ts` | Scoped prepare/list/read tools a guidance pre stránkovanie, atribúciu príloh, neúplné pokrytie a nedôveryhodný obsah; využíva existujúcu produkčnú registráciu/build pluginu. | `fix/isir-native-reliability` |
+
+### Štruktúrované výstupy a overenie dokumentov (2026-10-14)
+
+| Súbory upstreamu | Úprava a dôvod | Vetva |
+|---|---|---|
+| `apps/server/src/opencode-plugins/legalwork-project-tools.ts` | Scoped export/validate tools nad LAWOSS document service, explicitný jazyk výstupu a pokyny pre kontrolu skutočne uložených súborov s ohraničenou opravou. Identita, vlastníctvo, zdroje a stav overenia zostávajú v serverovej doméne; odpoveď modelu sama nepriznáva úspech. | `fix/isir-native-reliability` |
