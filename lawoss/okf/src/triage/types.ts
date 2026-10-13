@@ -9,7 +9,7 @@ export const CLASSIFICATION_SCHEMA = "lawoss.triage.classification/v1";
 export const PLAN_SCHEMA = "lawoss.triage.plan/v1";
 
 export type TriageDocument = { id: string; path: string; name: string; ext: string; size: number; sha256: string };
-export type SkipReason = "system" | "hidden" | "memory" | "in_matter" | "inside_entity" | "already_sorted" | "system_name";
+export type SkipReason = "system" | "hidden" | "memory" | "in_matter" | "inside_entity" | "already_sorted" | "system_name" | "locked";
 export type ExistingMatter = { id: string; path: string; title?: string; caseKey?: string; roles: Record<string, string> };
 
 export type TriageInventory = {

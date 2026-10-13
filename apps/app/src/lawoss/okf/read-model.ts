@@ -16,6 +16,7 @@ import { normalizeDirectoryPath } from "@/app/utils";
 
 import { addDays, buildOverview, deadlineTier, ISO_DAY, isCalendarDay, type DeadlineTier, type MatterInput, type Overview } from "../../../../../lawoss/okf/read";
 import { parseFrontmatter } from "../../../../../lawoss/okf/src/core";
+import { looksLikeMatterName } from "../../../../../lawoss/okf/src/onboarding/suggest-patterns.ts";
 import { parseRecord, parseFrontmatter as parseMemoryFrontmatter } from "../../../../../lawoss/okf-pamat/src/record.ts";
 import { validateStore } from "../../../../../lawoss/okf-pamat/src/validate.ts";
 import { loadOkfConnection, type OkfConnection } from "./connection";
@@ -127,7 +128,9 @@ export async function readWorkspaceMemory(
       // Preserve empty legacy matters only inside a recognised client or the existing AK profile.
       if ([MATTERS_DIR, "Veci"].includes(child.name) && (clientFolder || path.startsWith("AK/"))) {
         for (const matter of await dirs(child.path)) await discover(matter, true, depth + 2, clientFolder);
-      } else await discover(child.path, false, depth + 1, clientFolder);
+      // Priamy podpriečinok klienta s kartou pomenovaný ako vec (`2025-01 Spor`, spisová značka) je vec aj bez
+      // karty; rovnaký vzor ako rozpoznanie a roztriedenie (suggest-patterns.ts), D1 2026-10-09.
+      } else await discover(child.path, hasClientCard && !isWorkDir(child.name) && looksLikeMatterName(child.name), depth + 1, clientFolder);
     }
   };
   await discover("");

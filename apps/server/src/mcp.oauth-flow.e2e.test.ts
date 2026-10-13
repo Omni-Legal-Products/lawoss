@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createMcpOAuthCallbackBroker } from "../../desktop/electron/mcp-oauth-callback.mjs";
+import { spawnOwnedChild, stopOwnedChild } from "./lawoss/test-support/owned-child-process.js";
 
 /**
  * Full MCP OAuth flow e2e:
@@ -110,7 +111,7 @@ describeMaybe("mcp oauth flow against mock provider", () => {
       }),
     );
 
-    mockProc = spawn("node", [join(repoRoot, "scripts/mock-oauth-mcp-server.mjs")], {
+    mockProc = spawnOwnedChild("node", [join(repoRoot, "scripts/mock-oauth-mcp-server.mjs")], {
       env: { ...process.env, PORT: String(mockPort), AUTO_APPROVE: "1" },
       stdio: "ignore",
     });
@@ -128,10 +129,11 @@ describeMaybe("mcp oauth flow against mock provider", () => {
     for (const key of Object.keys(engineEnv)) {
       if (key.startsWith("OPENCODE_")) delete engineEnv[key];
     }
-    engineProc = spawn(enginePath!, ["serve", "--hostname", "127.0.0.1", "--port", String(enginePort)], {
+    engineProc = spawnOwnedChild(enginePath!, ["serve", "--hostname", "127.0.0.1", "--port", String(enginePort)], {
       cwd: workDir,
       env: {
         ...engineEnv,
+        HOME: join(dataDir, "home"),
         XDG_DATA_HOME: join(dataDir, "xdg-data"),
         XDG_CONFIG_HOME: join(dataDir, "xdg-config"),
         XDG_STATE_HOME: join(dataDir, "xdg-state"),
@@ -150,13 +152,12 @@ describeMaybe("mcp oauth flow against mock provider", () => {
     );
   }, 60_000);
 
-  afterAll(() => {
+  afterAll(async () => {
     callbacks.close();
-    engineProc?.kill();
-    mockProc?.kill();
+    await Promise.all([stopOwnedChild(engineProc), stopOwnedChild(mockProc)]);
     rmSync(workDir, { recursive: true, force: true });
     rmSync(dataDir, { recursive: true, force: true });
-  });
+  }, 15_000);
 
   test(
     "engine completes browser OAuth (discovery, DCR, PKCE) and connects",
@@ -259,7 +260,7 @@ describeMaybe("mcp oauth flow against mock provider", () => {
     const callbackPort = await getFreePort();
     const providerUrl = `http://127.0.0.1:${port}`;
     const name = "mock-registered-client";
-    const mock = spawn("node", [join(repoRoot, "scripts/mock-oauth-mcp-server.mjs")], {
+    const mock = spawnOwnedChild("node", [join(repoRoot, "scripts/mock-oauth-mcp-server.mjs")], {
       env: {
         ...process.env,
         PORT: String(port), AUTO_APPROVE: "1", DYNAMIC_REGISTRATION: "0",
@@ -308,7 +309,7 @@ describeMaybe("mcp oauth flow against mock provider", () => {
       expect(afterCredentials.requests.filter((request: { path: string }) => request.path === "/register").length).toBe(registrations);
     } finally {
       callbacks.cancel(listenerId);
-      mock.kill();
+      await stopOwnedChild(mock);
     }
   }, 30_000);
 

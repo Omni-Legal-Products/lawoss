@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createMcpOAuthCallbackBroker } from "../../desktop/electron/mcp-oauth-callback.mjs";
+import { spawnOwnedChild, stopOwnedChild } from "./lawoss/test-support/owned-child-process.js";
 
 /**
  * Why LegalWork never rebuilds an engine instance while an MCP sign-in is in
@@ -169,7 +170,7 @@ describeMaybe("engine OAuth pending state vs. instance rebuilds and other worksp
     writeConfig(workDirA);
     writeConfig(workDirB);
 
-    mockProc = spawn("node", [join(repoRoot, "scripts/mock-oauth-mcp-server.mjs")], {
+    mockProc = spawnOwnedChild("node", [join(repoRoot, "scripts/mock-oauth-mcp-server.mjs")], {
       env: { ...process.env, PORT: String(mockPort), AUTO_APPROVE: "1" },
       stdio: "ignore",
     });
@@ -177,10 +178,11 @@ describeMaybe("engine OAuth pending state vs. instance rebuilds and other worksp
 
     const engineEnv = { ...process.env };
     for (const key of Object.keys(engineEnv)) if (key.startsWith("OPENCODE_")) delete engineEnv[key];
-    engineProc = spawn(enginePath!, ["serve", "--hostname", "127.0.0.1", "--port", String(enginePort)], {
+    engineProc = spawnOwnedChild(enginePath!, ["serve", "--hostname", "127.0.0.1", "--port", String(enginePort)], {
       cwd: workDirA,
       env: {
         ...engineEnv,
+        HOME: join(dataDir, "home"),
         XDG_DATA_HOME: join(dataDir, "xdg-data"),
         XDG_CONFIG_HOME: join(dataDir, "xdg-config"),
         XDG_STATE_HOME: join(dataDir, "xdg-state"),
@@ -192,14 +194,13 @@ describeMaybe("engine OAuth pending state vs. instance rebuilds and other worksp
     await waitFor(async () => ((await engineFetch(workDirA, "/mcp")).ok ? true : null), 30_000, "opencode engine");
   }, 60_000);
 
-  afterAll(() => {
+  afterAll(async () => {
     callbacks.close();
-    engineProc?.kill();
-    mockProc?.kill();
+    await Promise.all([stopOwnedChild(engineProc), stopOwnedChild(mockProc)]);
     rmSync(workDirA, { recursive: true, force: true });
     rmSync(workDirB, { recursive: true, force: true });
     rmSync(dataDir, { recursive: true, force: true });
-  });
+  }, 15_000);
 
   test("control: an undisturbed sign-in completes", async () => {
     const listener = await listen();

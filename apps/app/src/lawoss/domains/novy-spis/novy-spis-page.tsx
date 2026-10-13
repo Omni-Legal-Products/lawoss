@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { t } from "@/i18n";
+import { withoutLawossHome } from "../../home-workspace";
 import { useLocale } from "@/i18n/use-locale";
 import type { SetupTextKey } from "../../i18n/setup";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -408,7 +409,7 @@ export function NovySpisPage() {
     });
     return () => { cancelled = true; };
   }, []);
-  const workspaces = connection?.workspaces.filter((item) => item.workspaceType !== "remote" && item.path) ?? [];
+  const workspaces = withoutLawossHome(connection?.workspaces.filter((item) => item.workspaceType !== "remote" && item.path) ?? []);
   const workspace = workspaces.find((item) => item.id === workspaceId) ?? workspaces[0];
   return <LawossLayout>
     {error ? <p role="alert">{error}</p> : null}

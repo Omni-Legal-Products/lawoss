@@ -218,3 +218,16 @@ describe("canonical path rejections in the UI language", () => {
     expect(transaction).toContain('"Plan root must be canonical."');
   });
 });
+
+test("suggest prevedie cestu z Prieskumníka rovnako ako classify", async () => {
+  const seen: string[] = [];
+  const api = {
+    classifyOnboarding: async () => ({ level: "unknown" as const }),
+    planOnboarding: async () => ({ id: "x", fingerprint: "y", preview: {} }),
+    updateOnboardingProfile: async () => ({ version: 1 as const, lawyerName: "L", jurisdiction: "sk" as const, language: "sk" as const }),
+    suggestOnboarding: async (input: { root: string }) => { seen.push(input.root); return { root: input.root, level: "client" as const, marked: false, score: 0.5, signals: [], clients: [], complete: true }; },
+  };
+  const wrapped = withCanonicalPaths(api, async value => value.replace(/^"|"$/g, "").replace("z:", "Z:"));
+  await wrapped.suggestOnboarding?.({ root: "\"z:\\Klienti\\Novák\"" });
+  expect(seen).toEqual(["Z:\\Klienti\\Novák"]);
+});

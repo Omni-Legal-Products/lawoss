@@ -1,13 +1,13 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { realpath } from "./canonical-path.js";
 import { isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { ApiError } from "../errors.js";
 import { addRoute, type RequestContext, type Route } from "../routes/registry.js";
 import type { ServerConfig } from "../types.js";
-import { applyTriagePlan, listTriageRuns, parseClassification, prepareTriage, replanTriage, undoTriage, verifyTrialClone, type TriageClassification, type TriageInventory, type TriagePlan } from "./onboarding-runtime.js";
+import { applyTriagePlan, grantInPlaceReorganize, listTriageRuns, parseClassification, prepareTriage, replanTriage, undoTriage, verifyTriageTarget, type TriageClassification, type TriageInventory, type TriagePlan, type TriageTargetOptions } from "./onboarding-runtime.js";
 
 /**
  * Roztriedenie dokumentov v skúšobnom klone (host-only). Klient potvrdzuje uložený náhľad podľa
@@ -16,6 +16,7 @@ import { applyTriagePlan, listTriageRuns, parseClassification, prepareTriage, re
 type Ticket = { version: 1; id: string; root: string; inventory: TriageInventory; classification?: TriageClassification; keepInInbox: string[]; plan: TriagePlan };
 const rootSchema = z.string().min(1).max(4096).refine(isAbsolute, "Absolute path required.");
 const missing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
+const UNAVAILABLE_ROOT = new Set(["ENOTDIR", "EACCES", "ENOENT"]);
 
 async function writeNew(path: string, value: unknown): Promise<void> {
   const file = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
@@ -44,6 +45,47 @@ export function registerTriageRoutes(options: {
   const { config } = options;
   const tickets = join(options.storage, "triage");
   const trialJournalDirectory = join(options.storage, "journal");
+  // Súhlas s usporiadaním na mieste eviduje hostiteľ, nie priečinok klienta: značku `.lawoss/reorganize.json`
+  // vie zapísať ktokoľvek (aj agent). Záznam zapisuje len `grant`; jadro presúva v origináli len s `allowInPlace`.
+  const consents = join(options.storage, "consent");
+  const consentPath = (root: string) => join(consents, `${createHash("sha256").update(root).digest("hex")}.json`);
+  // Súhlas platí na jedno usporiadanie (rozhodnutie MČ 12. 10., spec lawOSS-like-SK-CZ#92): po zápise nesie `runId`
+  // a dovolí už len vrátenie tohto behu, po vrátení zanikne. Ďalšie usporiadanie potrebuje nový `grant`.
+  const RUN_ID = /^triage-\d{8}-\d{6}-[a-f0-9]{6}$/;
+  const consentSchema = z.strictObject({ version: z.literal(1), workspaceId: z.string().min(1), root: z.string().min(1), grantedAt: z.string().min(1), runId: z.string().regex(RUN_ID).optional() });
+  type Consent = z.infer<typeof consentSchema>;
+  const registeredClient = (root: string) => config.workspaces.find(workspace => workspace.workspaceType !== "remote" && resolve(workspace.path) === root && (workspace.appFiles ?? "inside") === "inside");
+  /** Záznam z `grant` pre priečinok, ktorý je stále pripojený ako klient so súbormi appky vnútri; inak nič. */
+  const readConsent = async (rootInput: string): Promise<Consent | undefined> => {
+    if (!isAbsolute(rootInput)) return undefined;
+    const root = resolve(rootInput), workspace = registeredClient(root);
+    if (!workspace) return undefined;
+    let raw: unknown;
+    try { raw = JSON.parse(await readFile(consentPath(root), "utf8")); }
+    catch (error) { if (missing(error) || error instanceof SyntaxError) return undefined; throw error; }
+    const consent = consentSchema.safeParse(raw);
+    return consent.success && consent.data.root === root && consent.data.workspaceId === workspace.id ? consent.data : undefined;
+  };
+  /** `allowInPlace` pre nový náhľad a zápis (nespotrebovaný súhlas) alebo pre vrátenie behu, na ktorý sa súhlas spotreboval. */
+  const hostConsent = async (rootInput: string, use: { plan: true } | { undo: string } | { status: true }): Promise<TriageTargetOptions> => {
+    const consent = await readConsent(rootInput);
+    if (!consent) return {};
+    if ("plan" in use) return { allowInPlace: consent.runId === undefined };
+    if ("undo" in use) return { allowInPlace: consent.runId === use.undo };
+    return { allowInPlace: true };
+  };
+  const ensureConsents = async () => {
+    await mkdir(consents, { recursive: true, mode: 0o700 });
+    if (await realpath(consents) !== resolve(consents) || !(await lstat(consents)).isDirectory()) throw new Error("Unsafe consent storage.");
+  };
+  const writeConsent = async (consent: Consent) => {
+    await ensureConsents();
+    const temporary = join(consents, `${randomUUID()}.tmp`);
+    try { await writeNew(temporary, consent); await rename(temporary, consentPath(consent.root)); }
+    catch (error) { await rm(temporary, { force: true }); throw error; }
+  };
+  const recordConsent = (root: string, workspaceId: string) => writeConsent({ version: 1, workspaceId, root, grantedAt: new Date().toISOString() });
+  const revokeConsent = async (root: string) => { await rm(consentPath(resolve(root)), { force: true }); };
   const busy = new Set<string>();
   const body = (ctx: RequestContext) => options.readJsonBodyLimited(ctx.request, 256 * 1024);
   const ensureTickets = async () => {
@@ -78,17 +120,42 @@ export function registerTriageRoutes(options: {
   route("status", async ctx => {
     const { root } = z.strictObject({ root: rootSchema }).parse(await body(ctx));
     try {
-      const clone = await verifyTrialClone(root, trialJournalDirectory);
-      return { trial: true, root: clone.root, runs: await listTriageRuns(clone.root) };
+      // Skúšobný klon alebo klient so súhlasom na mieste (`grant`); `trial: true` = roztriedenie je tu dovolené.
+      const target = await verifyTriageTarget(root, trialJournalDirectory, await hostConsent(root, { status: true }));
+      // `canPlan: false` = súhlas sa spotreboval na posledné usporiadanie; ostáva len jeho vrátenie.
+      const canPlan = target.mode === "trial" || (await hostConsent(root, { plan: true })).allowInPlace === true;
+      // Na mieste sa dá vrátiť len beh, na ktorý sa spotreboval súhlas; nový súhlas vrátenie predošlého behu ruší
+      // (rozhodnutie MČ 13. 10.), appka preto „Vrátiť“ ukáže len pri `undoRunId`.
+      const undoRunId = target.mode === "in_place" ? (await readConsent(root))?.runId : undefined;
+      return { trial: true, mode: target.mode, root: target.root, canPlan, ...(undoRunId ? { undoRunId } : {}), runs: await listTriageRuns(target.root) };
     } catch (error) {
-      if (error && typeof error === "object" && "code" in error && error.code === "not_trial_clone") return { trial: false, reason: error instanceof Error ? error.message : "" , runs: [] };
+      const code = error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : "";
+      if (code === "not_trial_clone") return { trial: false, reason: error instanceof Error ? error.message : "", runs: [] };
+      // Cesta k súboru, nečitateľný alebo chýbajúci priečinok: roztriedenie tu nie je, nie chyba požiadavky.
+      if (UNAVAILABLE_ROOT.has(code)) return { trial: false, reason: "Priečinok neexistuje alebo sa nedá prečítať.", runs: [] };
       throw error;
     }
+  });
+  // Výslovný súhlas advokáta s usporiadaním priečinka klienta na mieste („Áno, usporiadaj“).
+  // Len pre priečinok, ktorý appka spravuje ako klienta s vlastnými súbormi appky; presuny potom
+  // vyžadujú odtlačok potvrdeného náhľadu (`apply`), vrátenie ponechá zmenené dokumenty (`kept`).
+  route("grant", async ctx => {
+    options.ensureWritable(config);
+    const input = z.strictObject({ root: rootSchema, confirm: z.literal(true) }).parse(await body(ctx));
+    const root = resolve(input.root);
+    const workspace = registeredClient(root);
+    if (!workspace) throw new ApiError(403, "not_registered_client", "Only a connected client folder can be reorganised in place.");
+    await grantInPlaceReorganize(root);
+    await recordConsent(root, workspace.id);
+    return { granted: true, root };
   });
   route("plan", async ctx => {
     options.ensureWritable(config);
     const input = z.strictObject({ root: rootSchema, useModel: z.boolean().optional() }).parse(await body(ctx));
-    const { inventory, plan, proposal, classification } = await prepareTriage(input.root, { trialJournalDirectory, useModelProposal: input.useModel === true, jurisdiction: await options.jurisdiction() });
+    const consent = await hostConsent(input.root, { plan: true });
+    // Usporiadanie na mieste stojí na pravidlách bez modelu (spec lawOSS-like-SK-CZ#92); návrh modelu len v skúšobnom klone.
+    if (input.useModel === true && (await verifyTriageTarget(input.root, trialJournalDirectory, consent)).mode === "in_place") throw new ApiError(400, "triage_model_in_place", "A model proposal is not used when reorganising a client folder in place.");
+    const { inventory, plan, proposal, classification } = await prepareTriage(input.root, { trialJournalDirectory, useModelProposal: input.useModel === true, jurisdiction: await options.jurisdiction(), ...consent });
     if (input.useModel === true && !classification) throw new ApiError(409, "triage_no_model_proposal", "No current model proposal for this folder.");
     return view(await store(inventory.root, inventory, classification, [], plan), proposal);
   });
@@ -110,7 +177,13 @@ export function registerTriageRoutes(options: {
     try {
       const ticket = await readTicket(input.id);
       if (ticket.plan.fingerprint !== input.fingerprint) throw new ApiError(409, "stale_preview", "Preview fingerprint does not match. Create a new preview.");
-      return await applyTriagePlan(ticket.plan, { trialJournalDirectory });
+      const consent = await readConsent(ticket.plan.root);
+      const fresh = consent !== undefined && consent.runId === undefined;
+      try { return await applyTriagePlan(ticket.plan, { trialJournalDirectory, allowInPlace: fresh }); }
+      finally {
+        // Súhlas sa spotrebuje, len čo beh má denník (aj pri chybe uprostred), aby sa dal vrátiť a nedal zopakovať.
+        if (fresh && (await listTriageRuns(ticket.plan.root).catch(() => [])).some(run => run.runId === ticket.plan.runId)) await writeConsent({ ...consent, runId: ticket.plan.runId });
+      }
     } finally { busy.delete(input.id); }
   });
   route("undo", async ctx => {
@@ -118,7 +191,12 @@ export function registerTriageRoutes(options: {
     const input = z.strictObject({ root: rootSchema, runId: z.string().regex(/^triage-\d{8}-\d{6}-[a-f0-9]{6}$/), confirm: z.literal(true) }).parse(await body(ctx));
     if (busy.size) throw new ApiError(409, "triage_busy", "Another triage operation is running.");
     busy.add(input.runId);
-    try { return await undoTriage(input.root, input.runId, { trialJournalDirectory }); }
-    finally { busy.delete(input.runId); }
+    try {
+      const consent = await hostConsent(input.root, { undo: input.runId });
+      const result = await undoTriage(input.root, input.runId, { trialJournalDirectory, ...consent });
+      // Po vrátení na mieste súhlas zanikne; ďalšie usporiadanie potrebuje nové potvrdenie advokáta.
+      if (consent.allowInPlace === true) await revokeConsent(input.root);
+      return result;
+    } finally { busy.delete(input.runId); }
   });
 }

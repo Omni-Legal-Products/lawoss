@@ -12,7 +12,7 @@
  * toasts) and defensively every time the engine config file is built.
  */
 import { z } from "zod";
-import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { GLOBAL_PROVIDERS_ID, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 
 /** Provider ids LegalWork once injected and has since retired. */
@@ -118,5 +118,13 @@ export async function repairAllWorkspaceRuntimeProviders(config: ServerConfig): 
         `Provider repair failed for workspace ${workspace.id}: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+  }
+  // LAWOSS: aj globálny riadok vlastných poskytovateľov (GLOBAL_PROVIDERS_ID).
+  try {
+    for (const notice of await repairWorkspaceRuntimeProviders(config, GLOBAL_PROVIDERS_ID)) {
+      console.warn(`Removed provider "${notice.providerId}" from global providers (${notice.reason}).`);
+    }
+  } catch (error) {
+    console.warn(`Provider repair failed for global providers: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

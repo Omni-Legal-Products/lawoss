@@ -6,6 +6,8 @@ export type OnboardingStep =
   | "office"
   | "packs"
   | "ai"
+  | "folder"
+  | "found"
   | "client"
   | "matter"
   | "done";
@@ -46,7 +48,7 @@ export type OfficePlanRequest = {
   title: string;
   name?: string;
   jurisdiction: Jurisdiction;
-  language: Language;
+  language: DocumentLanguage;
   lawyerName: string;
 };
 export type ClientPlanRequest = {
@@ -91,12 +93,24 @@ export type ExistingPlanRequest = {
   identityAnchor?: string;
   cloneParent?: string;
 };
+/** Plán zápisu praxe alebo klienta z vybraného priečinka (spec 2026-10-08). */
+export type PracticePlanRequest = {
+  action: "practice";
+  root: string;
+  title: string;
+  jurisdiction: Jurisdiction;
+  language: DocumentLanguage;
+  lawyerName: string;
+  clientPattern: string;
+  scope: "client" | "practice";
+};
 export type OnboardingPlanRequest =
   | OfficePlanRequest
   | ClientPlanRequest
   | SubjectPlanRequest
   | MatterPlanRequest
-  | ExistingPlanRequest;
+  | ExistingPlanRequest
+  | PracticePlanRequest;
 
 export type OnboardingPreview = {
   id: string;
@@ -130,6 +144,18 @@ export type OnboardingClassification = {
   message?: string;
 };
 
+/** Návrh úrovne vybraného priečinka (spec P4); vždy návrh, ktorý advokát potvrdí alebo opraví. */
+export type OnboardingSuggestion = {
+  root: string;
+  level: "practice" | "client" | "matter" | "unknown";
+  marked: boolean;
+  score: number;
+  signals: readonly string[];
+  clientPattern?: string;
+  clients: readonly { path: string; name: string }[];
+  complete: boolean;
+};
+
 export type OnboardingApi = {
   onboardingStatus(): Promise<OnboardingStatus>;
   updateOnboardingProfile(
@@ -140,6 +166,7 @@ export type OnboardingApi = {
   classifyOnboarding(input: {
     root: string;
   }): Promise<OnboardingClassification>;
+  suggestOnboarding?(input: { root: string }): Promise<OnboardingSuggestion>;
   planOnboarding(request: OnboardingPlanRequest): Promise<OnboardingPreview>;
   applyOnboarding(input: {
     id: string;

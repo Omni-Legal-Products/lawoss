@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import type { LegalworkWorkspaceInfo } from "@/app/lib/legalwork-server";
+import { withoutLawossHome } from "@/lawoss/home-workspace";
 import { fetchDocumentPath, officeHostName } from "./office";
 import { useWordServerClient } from "./use-word-server-client";
 import { matchWorkspaceForDocument } from "./workspace-match";
@@ -38,7 +39,7 @@ export function WorkspaceAutoOpen() {
 
       let workspaces: LegalworkWorkspaceInfo[];
       try {
-        workspaces = (await client.listWorkspaces()).items ?? [];
+        workspaces = withoutLawossHome((await client.listWorkspaces()).items ?? []);
       } catch {
         return;
       }
