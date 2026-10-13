@@ -360,6 +360,14 @@ export function unwrap<T>(result: FieldsResult<T>): NonNullable<T> {
   throw new Error(message || t("app.unknown_error"));
 }
 
+const directoryPreflights = new WeakMap<object, (directory: string) => Promise<FieldsResult<Session[]>>>();
+/** Probe the live selected engine using the native transport, not the cached LegalWork session list. */
+export function preflightOpencodeDirectory(client: ReturnType<typeof createOpencodeClient>, directory: string): Promise<FieldsResult<Session[]>> {
+  const probe = directoryPreflights.get(client);
+  if (!probe) throw new Error(t("documents.preflight_failed", { message: t("session_route.create_server_unavailable") }));
+  return probe(directory);
+}
+
 export function createClient(baseUrl: string, directory?: string, auth?: OpencodeAuth) {
   const headers: Record<string, string> = {};
   if (!isDesktopRuntime()) {
@@ -512,6 +520,9 @@ export function createClient(baseUrl: string, directory?: string, auth?: Opencod
     });
   };
 
+  // Unlike the LegalWork cached session-list override, this probes the selected
+  // live engine through the mounted canonical directory guard and native transport.
+  directoryPreflights.set(client, requestedDirectory => listOriginal({ directory: requestedDirectory, limit: 1 }));
   return client;
 }
 

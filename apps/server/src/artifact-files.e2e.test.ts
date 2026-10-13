@@ -55,6 +55,27 @@ function auth(token: string) {
 }
 
 describe("artifact file routes", () => {
+  test("directory discovery rejects external aliases and preserves internal/root aliases", async () => {
+    const root = await createWorkspaceRoot(), outside = await createWorkspaceRoot();
+    await symlink(outside, join(root, "external"), "dir");
+    await symlink(join(root, "reports"), join(root, "internal"), "dir");
+    const alias = join(outside, "root-alias");
+    await symlink(root, alias, "dir");
+    const { base, token } = await startLegalworkServer(alias);
+    const list = (path: string) => fetch(`${base}/workspace/ws_1/files/list?path=${encodeURIComponent(path)}`, { headers: auth(token) });
+    const escaped = await list("external");
+    expect(escaped.status).toBe(400);
+    expect(await escaped.json()).toMatchObject({ code: "path_escape" });
+    expect((await list("internal")).status).toBe(200);
+    const listed = await list("");
+    expect(listed.status).toBe(200);
+    const entries = (await listed.json() as { entries: Array<{ path: string }> }).entries;
+    expect(entries.map(entry => entry.path)).toContain("internal");
+    expect(entries.map(entry => entry.path)).not.toContain("external");
+    expect((await list("missing")).status).toBe(404);
+    expect((await list("reports/artifact-eval.md")).status).toBe(400);
+  });
+
   test("previews and downloads preserve Unicode filenames in safe response headers", async () => {
     const root = await createWorkspaceRoot();
     const { base, token } = await startLegalworkServer(root);

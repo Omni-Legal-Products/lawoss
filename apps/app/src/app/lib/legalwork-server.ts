@@ -918,6 +918,34 @@ export type LegalworkWorkspaceFileStat = {
   updatedAt?: number;
 };
 
+export type LawossDocumentSummary = {
+  id: string; workspaceId: string; path: string; hash: string;
+  status: "uploaded" | "preparing" | "readable" | "partial" | "failed";
+  extraction?: "native" | "ocr"; complete: boolean; issue?: string; updatedAt: number;
+  provenance: { sourcePath: string; parentId?: string; parentHash?: string; attachmentName?: string; depth: number };
+  pageCount: number; readablePages: number;
+};
+export type LawossDocumentRead = LawossDocumentSummary & {
+  text: string; pages: Array<{ page: number | null; text: string; source?: "native" | "ocr"; status?: "complete" | "needs-review" | "error" }>;
+  offset: number; nextOffset: number | null; untrusted: true;
+};
+export type LawossOutputLanguage = "cs" | "sk" | "en";
+export type LawossExportInput = {
+  path: string; kind: "registry" | "summary"; outputLanguage: LawossOutputLanguage; documentIds: string[]; expectedHash?: string;
+  entries: Array<{ documentId: string; summary: string; date?: string; type?: string }>;
+};
+export type LawossExportResult = { sourceKind: "isir" | "workspace"; path: string; hash: string; verified: false; kind: "registry" | "summary"; outputLanguage: LawossOutputLanguage; legalApproval: false };
+export type LawossOutputStatus = {
+  sourceKind: "isir" | "workspace"; path: string; kind: "registry" | "summary"; outputLanguage: LawossOutputLanguage; documentIds: string[];
+  identity: { caseNumber: string | null; company: string | null; sourceUrl: string | null; project: string };
+  hash: string; currentHash: string | null; sourceHash: string; currentSourceHash: string | null; owned: boolean; verified: boolean; legalApproval: false;
+};
+export type LawossValidateInput = { paths: string[]; documentIds: string[]; outputLanguage: LawossOutputLanguage };
+export type LawossValidationResult = {
+  valid: boolean; issues: Array<{ code: string; path?: string; row?: number; message: string }>;
+  outputs: Array<{ path: string; hash: string | null; verified: boolean; owned: boolean }>; legalApproval: false; instruction: string;
+};
+
 export type LegalworkWorkspaceDirectoryEntry = {
   name: string;
   path: string;
@@ -3053,6 +3081,14 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/files/content?path=${encodeURIComponent(path)}`,
         { token, hostToken },
       ),
+
+    prepareLawossDocuments: (workspaceId: string, paths: string[]) => requestJson<{ documents: LawossDocumentSummary[]; untrusted: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/prepare`, { token, hostToken, method: "POST", body: { paths } }),
+    listLawossDocuments: (workspaceId: string, offset = 0, limit = 50) => requestJson<{ documents: LawossDocumentSummary[]; nextOffset: number | null; untrusted: true }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents?offset=${offset}&limit=${limit}`, { token, hostToken }),
+    readLawossDocument: (workspaceId: string, id: string, offset = 0, limit = 16000) => requestJson<LawossDocumentRead>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/${encodeURIComponent(id)}/read?offset=${offset}&limit=${limit}`, { token, hostToken }),
+    cancelLawossDocument: (workspaceId: string, id: string) => requestJson<{ id: string; cancelled: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE" }),
+    exportLawossDocument: (workspaceId: string, input: LawossExportInput) => requestJson<LawossExportResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/export`, { token, hostToken, method: "POST", body: input }),
+    validateLawossDocuments: (workspaceId: string, input: LawossValidateInput) => requestJson<LawossValidationResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/validate`, { token, hostToken, method: "POST", body: input }),
+    listLawossOutputs: (workspaceId: string, offset = 0, limit = 20) => requestJson<{ outputs: LawossOutputStatus[]; nextOffset: number | null; legalApproval: false }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/lawoss/documents/outputs?offset=${offset}&limit=${limit}`, { token, hostToken }),
 
     listWorkspaceDirectory: (workspaceId: string, path: string) =>
       requestJson<LegalworkWorkspaceDirectoryList>(

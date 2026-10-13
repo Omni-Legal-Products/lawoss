@@ -1,3 +1,4 @@
+import { resolveWithinRoot } from "../paths.js";
 import { remapHistoricalFilePath } from "../lawoss/workspace-history.js";
 import { writeConditionalText } from "../lawoss/conditional-text-write.js";
 import { childPathWithin } from "../lawoss/path-within.js";
@@ -1141,19 +1142,22 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     if (!(await exists(absPath))) {
       throw new ApiError(404, "dir_not_found", "Directory not found");
     }
-    const info = await stat(absPath);
+    // Validate canonical containment before inspecting or enumerating a selected folder.
+    const scopedPath = await resolveWithinRoot(workspace.path, relativePath || ".");
+    const info = await stat(scopedPath);
     if (!info.isDirectory()) {
       throw new ApiError(400, "invalid_path", "Path must point to a directory");
     }
 
-    const dirents = await readdir(absPath, { withFileTypes: true });
+    const dirents = await readdir(scopedPath, { withFileTypes: true });
     type DirectoryEntry = { name: string; path: string; kind: "file" | "dir"; size?: number; updatedAt?: number };
     const entries = (
       await Promise.all(
         dirents.map(async (dirent): Promise<DirectoryEntry | null> => {
           const entryPath = relativePath ? `${relativePath}/${dirent.name}` : dirent.name;
           try {
-            const entryInfo = await stat(join(absPath, dirent.name));
+            const entryAbsolute = await resolveWithinRoot(workspace.path, entryPath);
+            const entryInfo = await stat(entryAbsolute);
             if (entryInfo.isDirectory()) {
               return { name: dirent.name, path: entryPath, kind: "dir" };
             }
