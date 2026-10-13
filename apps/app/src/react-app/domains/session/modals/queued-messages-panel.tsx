@@ -33,14 +33,14 @@ export function QueuedMessagesPanel(props: QueuedMessagesPanelProps) {
     try { await props.onReorder(order); }
     finally { dragOrderRef.current = null; setDragOrder(null); setSavingOrder(false); }
   };
-  if (!props.messages.length && !props.editingId && !props.paused) return null;
+  if (!props.messages.length && !props.editingId) return null;
   return (
     <section
       data-message-queue
       aria-label={t("composer.queued_count", { count: props.messages.length })}
       className="mx-3 -mb-3 rounded-t-[18px] border border-b-0 border-border/70 bg-background/90 px-1.5 pt-1 pb-3"
     >
-      {props.paused && <div className="flex h-7 items-center justify-between gap-3 px-2 text-xs text-muted-foreground">
+      {props.paused && props.messages.length > 0 && <div className="flex h-7 items-center justify-between gap-3 px-2 text-xs text-muted-foreground">
         <span>{t("composer.queue_paused")}</span>
         <Button variant="ghost" size="xs" disabled={props.disabled || props.messages.some(item => item.status === "uncertain" || item.locked) || Boolean(props.editingId)} onClick={props.onResume}>
           <Play className="size-3" />{t("composer.resume_queue")}
