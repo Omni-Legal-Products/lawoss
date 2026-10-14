@@ -611,3 +611,12 @@ PR #156 už obsahuje staršiu publikovanú sériu bdaba06e; následné SQL/proxy
 | `apps/app/src/react-app/domains/session/panel/workspace-files-panel.tsx` | Štyri readonly data atribúty existujúceho panelu umožňujú testu overiť fyzického vlastníka, klientsku identitu a vybraný priečinok vstupu. Nemenia stav, query, sieť, UI tok ani lifetime. Skutočných8chooserov zachovalo presný event/backendNodeId; skoršie odpojenie sa nereprodukovalo, jeho príčina zostáva neznáma. | `fix/isir-native-reliability` (nová lokálna séria po merge #156) |
 
 Downstream natívny harness používa iba pri počiatočnom existujúcom registrovanom koreni autentizované `/path` a celé telo s presnou directory kontrolou. UI/global-health/body zdieľajú pôvodný90s absolutný rozpočet; bežný reset30s a relaunch/recovery zostávajú nezmenené. Parser SyntaxError má fixný text bez cause; skutočné HTTP regresie zachovávajú transportné chyby/deadline. Scoped revízie5807/4414 a42helpertestov sú čisté. Aktuálny úplný beh skončil pri príprave spisu8 po7kompletných prípadoch; nejde o uzavretie10spisov/31zdrojov/20výstupov, remoteOS, dev ani živého profilu.
+
+
+### Stabilná identita zvoleného klienta pri metadata refresh (2026-10-14)
+
+| Upstream súbory | Downstream doplnenie | Vetva |
+| --- | --- | --- |
+| `apps/app/src/app/lib/workspace-endpoint.ts`, `apps/app/src/react-app/shell/use-workspace-route-state.ts` | Jeden existujúci resolver odvodí efektívne routing/auth skaláry; vybraný endpoint memo závisí na nich a application-owner ID. Nový workspace metadata objekt nevytvára rovnaké pripojenie znova; token/server/ID/local-remote/disconnect zmeny sa zachovajú. Nullish/empty fallback a absencia constructor hostToken sú nezmenené, root query/execution scope zostáva samostatná. | `fix/isir-native-reliability` (nová lokálna séria po merge #156) |
+
+Skutočný podporovaný metadata refresh pri zachytenom native chooseri na starom kóde odpojil vstup; rovnaký kontrolovaný scenár po oprave zachováva rovnakého klienta/node/IPC/hash. Bežný kompletný syntetický native test túto regresiu a26mounted-hook kontrol spúšťa defaultne. Scoped revízie05089/70862 sú čisté. Celý aktuálny native zostáva RED pri discovery spisu7 po6prípadoch/12výstupoch; pôvodný cleanupfalse a oddelený verified2PID cleanup sú zachované, remoteOS/dev/živý profil zatiaľ neoverené.
