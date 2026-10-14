@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -110,7 +110,8 @@ describe("artifact file routes", () => {
       "SH-Lu\u0308beck_HRB_26773_HL+Liste_der_Gesellschafter-20260925162201.pdf",
       "Vertrag-München.pdf",
       "契約書-📄.pdf",
-      "Client's \"draft\" (100%)*.pdf",
+      "Client's draft (100%).pdf",
+      ...(process.platform === "win32" ? [] : ["Client's \"draft\" (100%)*.pdf"]),
       "contract.pdf",
     ];
     const bytes = Buffer.from("%PDF-1.7\n% filename regression fixture\n");
@@ -280,6 +281,31 @@ describe("artifact file routes", () => {
     expect(Number(xlsxDownload.headers.get("x-legalwork-updated-at"))).toBeGreaterThan(0);
     expect(xlsxDownload.headers.get("access-control-expose-headers")).toContain("X-LegalWork-Updated-At");
     expect(Array.from(new Uint8Array(await xlsxDownload.arrayBuffer()))).toEqual([80, 75, 9, 9]);
+  });
+
+  test("text saves compare base bytes even when filesystem timestamps are identical", async () => {
+    const root = await createWorkspaceRoot();
+    const { base, token } = await startLegalworkServer(root);
+    const notePath = join(root, "reports", "artifact-eval.md");
+    const timestamp = new Date("2026-01-01T00:00:00.000Z");
+    const original = "Title\n\nOriginal paragraph.\n";
+    await writeFile(notePath, original);
+    await utimes(notePath, timestamp, timestamp);
+    const loaded = (await stat(notePath)).mtimeMs;
+    const save = (content: string, force = false) => fetch(`${base}/workspace/ws_1/files/content`, {
+      method: "POST", headers: auth(token),
+      body: JSON.stringify({ path: "reports/artifact-eval.md", content, baseUpdatedAt: loaded, baseContent: original, force }),
+    });
+    await writeFile(notePath, "Title from Ben\n\nOriginal paragraph.\n");
+    await utimes(notePath, timestamp, timestamp);
+    expect((await stat(notePath)).mtimeMs).toBe(loaded);
+    const clash = await save("Title from Anna\n\nOriginal paragraph.\n");
+    expect(clash.status).toBe(409);
+    expect(await readFile(notePath, "utf8")).toBe("Title from Ben\n\nOriginal paragraph.\n");
+    const merge = await save("Title\n\nParagraph from Anna.\n");
+    expect(await merge.json()).toMatchObject({ merged: true, content: "Title from Ben\n\nParagraph from Anna.\n" });
+    expect((await save("Explicit replacement\n", true)).status).toBe(200);
+    expect(await readFile(notePath, "utf8")).toBe("Explicit replacement\n");
   });
 
   test("lists workspace directories with dirs-first ordering and path safety", async () => {

@@ -1331,9 +1331,13 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const beforeUpdatedAt = before ? before.mtimeMs : null;
     let written = content;
     let merged = false;
-    if (!force && beforeUpdatedAt !== null && baseUpdatedAt !== null && beforeUpdatedAt !== baseUpdatedAt) {
-      const current = baseContent !== null && mergeableText(relativePath) ? await readFile(absPath, "utf8") : null;
-      const combined = current === null || baseContent === null ? null : mergeText(baseContent, content, current);
+    // Synced files and coarse filesystem clocks can retain the loaded mtime.
+    // When the editor supplies its base text, compare the actual bytes too.
+    const current = !force && before && baseContent !== null ? await readFile(absPath, "utf8") : null;
+    const changed = (baseUpdatedAt !== null && beforeUpdatedAt !== baseUpdatedAt)
+      || (current !== null && current !== baseContent);
+    if (!force && beforeUpdatedAt !== null && changed) {
+      const combined = current === null || baseContent === null || !mergeableText(relativePath) ? null : mergeText(baseContent, content, current);
       if (combined === null) {
         throw new ApiError(409, "conflict", "File changed since it was loaded", {
           baseUpdatedAt,
