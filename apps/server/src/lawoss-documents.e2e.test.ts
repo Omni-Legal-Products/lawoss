@@ -9,6 +9,7 @@ import { DocumentPreparation } from "./document-preparation/service.js";
 import { OcrService } from "./ocr/service.js";
 import type { OcrContent, OcrPage, OcrContext } from "./ocr/types.js";
 import { OcrManager } from "./ocr/manager.js";
+import { removeSyntheticTestDir } from "./lawoss/test-support/inspect-cleanup.js";
 
 async function pdf(text: string) {
   const doc = await PDFDocument.create(); const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -179,15 +180,16 @@ test("corrupted Unicode mapping enters OCR and failed OCR retains readable nativ
 
 test("process interruption persists retryable state and restart never reports completed", () => fixture(async (service, workspace, root) => {
   await writeFile(join(root, "restart.txt"), "Synthetic persistent source");
-  const moduleRoot = new URL("./", import.meta.url).pathname;
-  const code = `import { LawossDocuments } from ${JSON.stringify(moduleRoot + "lawoss/documents/service.ts")};
-import { DocumentPreparation } from ${JSON.stringify(moduleRoot + "document-preparation/service.ts")};
-import { OcrManager } from ${JSON.stringify(moduleRoot + "ocr/manager.ts")};
+  const moduleUrl = (relative: string) => new URL(relative, import.meta.url).href;
+  const code = `import { LawossDocuments } from ${JSON.stringify(moduleUrl("./lawoss/documents/service.ts"))};
+import { DocumentPreparation } from ${JSON.stringify(moduleUrl("./document-preparation/service.ts"))};
+import { OcrManager } from ${JSON.stringify(moduleUrl("./ocr/manager.ts"))};
 const workspace = ${JSON.stringify(workspace)};
 const service = new LawossDocuments({ configPath: ${JSON.stringify(join(root, "config.json"))} }, new DocumentPreparation(new OcrManager(${JSON.stringify(join(root, "child-runtime"))})));
 await service.prepare(workspace, ["restart.txt"]); process.exit(0);`;
   const child = Bun.spawn([process.execPath, "--eval", code], { stdout: "ignore", stderr: "pipe" });
-  expect(await child.exited).toBe(0);
+  const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+  expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
   const [interrupted] = await service.list(workspace); expect(interrupted.complete).toBe(false); expect(interrupted.status).toBe("failed"); expect(interrupted.issue).toContain("interrupted");
   const [retry] = await service.prepare(workspace, ["restart.txt"]); expect(retry.id).toBe(interrupted.id);
   expect((await settled(service, workspace))[0].status).toBe("readable");
@@ -279,7 +281,7 @@ test("actual HTTP and registered agent document tools enforce authorization, pag
     if (old.db === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = old.db;
     if (old.url === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = old.url;
     if (old.token === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = old.token;
-    await rm(root, { recursive: true, force: true });
+    await removeSyntheticTestDir(root);
   }
 }, 20000);
 
@@ -382,14 +384,15 @@ test("an interrupted original at 500 records remains retryable after real proces
     await service.prepare(workspace, paths); await settled(service, workspace);
   }
   await writeFile(join(root, "interrupted-capacity.txt"), "Synthetic interrupted capacity source");
-  const moduleRoot = new URL("./", import.meta.url).pathname;
-  const code = `import { LawossDocuments } from ${JSON.stringify(moduleRoot + "lawoss/documents/service.ts")};
-import { DocumentPreparation } from ${JSON.stringify(moduleRoot + "document-preparation/service.ts")};
-import { OcrManager } from ${JSON.stringify(moduleRoot + "ocr/manager.ts")};
+  const moduleUrl = (relative: string) => new URL(relative, import.meta.url).href;
+  const code = `import { LawossDocuments } from ${JSON.stringify(moduleUrl("./lawoss/documents/service.ts"))};
+import { DocumentPreparation } from ${JSON.stringify(moduleUrl("./document-preparation/service.ts"))};
+import { OcrManager } from ${JSON.stringify(moduleUrl("./ocr/manager.ts"))};
 const workspace = ${JSON.stringify(workspace)};
 const service = new LawossDocuments({ configPath: ${JSON.stringify(join(root, "config.json"))} }, new DocumentPreparation(new OcrManager(${JSON.stringify(join(root, "child-runtime"))})));
 await service.prepare(workspace, ["interrupted-capacity.txt"]); process.exit(0);`;
-  const child = Bun.spawn([process.execPath, "--eval", code], { stdout: "ignore", stderr: "pipe" }); expect(await child.exited).toBe(0);
+  const child = Bun.spawn([process.execPath, "--eval", code], { stdout: "ignore", stderr: "pipe" }); const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+  expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
   const before = await service.list(workspace); expect(before).toHaveLength(500);
   const interrupted = before.find(record => record.path === "interrupted-capacity.txt")!; expect(interrupted.status).toBe("failed"); expect(interrupted.issue).toContain("interrupted");
   const [retry] = await service.prepare(workspace, ["interrupted-capacity.txt", "interrupted-capacity.txt"]); expect(retry.id).toBe(interrupted.id);

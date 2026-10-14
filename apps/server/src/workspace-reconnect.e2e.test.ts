@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, mkdir, rename, readFile, writeFile, rm, realpath, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { removeSyntheticTestDir } from "./lawoss/test-support/inspect-cleanup.js";
 import { startServer } from "./server.js";
 import { buildWorkspaceInfos } from "./workspaces.js";
 import type { ServerConfig } from "./types.js";
@@ -9,7 +10,7 @@ const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { while (cleanup.length) await cleanup.pop()?.(); });
 async function fixture() {
   const root = await realpath(await mkdtemp(join(tmpdir(), "reconnect-")));
-  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  cleanup.push(() => removeSyntheticTestDir(root));
   const a = join(root, "A"), b = join(root, "B");
   await mkdir(a); await writeFile(join(a, "source.pdf"), "%PDF-original");
   const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "client", hostToken: "host", configPath: join(root, "server.json"), approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"], workspaces: [{id: "stable", name: "Matter", displayName: "Matter", path: a, preset: "starter", workspaceType: "local", appFiles: "outside"}], authorizedRoots: [a], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };

@@ -10,11 +10,11 @@ export async function until(read, description, timeout = 30_000) {
   throw new Error(`Timed out: ${description}; last=${String(last)}`);
 }
 
-export async function connectRenderer(url) {
+export async function connectRenderer(url, request = fetch) {
   const parsed = new URL(url);
   if (parsed.hostname !== "127.0.0.1" || parsed.protocol !== "http:" || !parsed.port) throw new Error("Explicit loopback CDP URL required");
   const target = await until(async () => {
-    const targets = await (await fetch(`${url}/json/list`)).json();
+    const targets = await (await request(`${url}/json/list`, { signal: AbortSignal.timeout(5000) })).json();
     return targets.find(t => t.type === "page" && /^http:\/\/127\.0\.0\.1:/.test(t.url));
   }, "owned renderer CDP target");
   const ws = new WebSocket(target.webSocketDebuggerUrl);
