@@ -81,6 +81,45 @@ test('HTTP transport primary error identity survives readiness cleanup', async (
   } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
 });
 
+test('HTTP200 malformed JSON publishes no body, scope, auth or URL through error message, stack or cause', async () => {
+  const sentinels = ['BODYLEAK', '/fixture/private-scope', 'Basic fixture-secret', 'https://fixture.invalid/private'];
+  const server = createServer((req, res) => {
+    assert.equal(req.headers.authorization, sentinels[2]);
+    assert.equal(new URL(req.url, 'http://fixture').searchParams.get('directory'), sentinels[1]);
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(sentinels.join(' '));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    await assert.rejects(awaitDirectoryInstance({ request: fetch, baseUrl: `http://127.0.0.1:${server.address().port}`, headers: { authorization: sentinels[2] }, directory: sentinels[1], deadline: Date.now() + 2000 }), error => {
+      const disclosure = { message: sentinels.some(value => error.message.includes(value)), stack: sentinels.some(value => error.stack.includes(value)), cause: error.cause !== undefined };
+      assert.deepEqual(disclosure, { message: false, stack: false, cause: false }, 'parser details must not publish malformed body or scope');
+      assert.equal(error.message, 'Selected instance readiness JSON contract failed');
+      return true;
+    });
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+});
+
+test('HTTP body transport failure identity survives the JSON syntax boundary', async () => {
+  let interrupt, original;
+  const server = createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.write('{"directory":');
+    interrupt = () => res.destroy();
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const request = async (...args) => {
+      const response = await fetch(...args);
+      const json = response.json.bind(response);
+      response.json = async () => { try { return await json(); } catch (error) { original = error; throw error; } };
+      interrupt();
+      return response;
+    };
+    await assert.rejects(awaitDirectoryInstance({ request, baseUrl: `http://127.0.0.1:${server.address().port}`, headers: { authorization: 'Basic fixture' }, directory: '/fixture', deadline: Date.now() + 2000 }), error => error === original && error.name === 'TypeError');
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+});
+
 test('Windows separators/case normalize but POSIX distinct names remain distinct', async () => {
   for (const [platform, directory, returned, success] of [
     ['win32', 'C:\\Fixture\\č', 'c:/fixture/č/', true],

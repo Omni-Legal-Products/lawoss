@@ -23,7 +23,14 @@ export async function awaitDirectoryInstance({ request, baseUrl, headers, direct
   try {
     response = await request(`${baseUrl}/path?directory=${encodeURIComponent(directory)}`, { headers, signal: controller.signal });
     if (response.status !== 200) throw new Error('Selected instance readiness HTTP contract failed');
-    const body = await response.json();
+    let body;
+    try { body = await response.json(); }
+    catch (error) {
+      // Node's JSON syntax errors may quote response bytes in message/stack.
+      // Do not attach that parser error as a cause; transport/abort stays exact.
+      if (!(error instanceof SyntaxError)) throw error;
+      throw new Error('Selected instance readiness JSON contract failed');
+    }
     if (directoryKey(body?.directory, platform) !== directoryKey(directory, platform)) throw new Error('Selected instance readiness scope mismatch');
     if (Date.now() >= deadline) throw new DOMException('Startup readiness budget expired', 'TimeoutError');
     return { status: 200, authenticated: true, directoryMatches: true, worktreeMatchesDirectory: directoryKey(body.worktree, platform) === directoryKey(directory, platform), bodyCompleted: true };
