@@ -3353,7 +3353,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
 
     writeWorkspaceBinaryFile: (
       workspaceId: string,
-      payload: { path: string; data: ArrayBuffer; baseUpdatedAt?: number | null; force?: boolean },
+      payload: { path: string; data: ArrayBuffer; baseUpdatedAt?: number | null; force?: boolean; createOnly?: boolean },
     ) =>
       requestJson<LegalworkWorkspaceFileWriteResult>(
         baseUrl,
@@ -3367,6 +3367,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
             dataBase64: arrayBufferToBase64(payload.data),
             baseUpdatedAt: payload.baseUpdatedAt,
             force: payload.force,
+            createOnly: payload.createOnly,
           },
         },
       ),

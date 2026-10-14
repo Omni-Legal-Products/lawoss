@@ -147,6 +147,8 @@ describe("in-app Word document routing", () => {
     expect(reminder).toStartWith('<system-reminder topic="sidebar">');
     expect(reminder).toContain("compensation-memo.docx");
     expect(reminder).toContain("inapp_docx_suggest_change");
+    expect(reminder).toContain("never reuse identity or handles from earlier turns");
+    expect(reminder).toContain("targetSearch");
     expect(reminder).toContain("inapp_docx_reject_changes");
     expect(reminder).toContain("save automatically");
     expect(reminder).toContain("Do not search LegalMemory merely");
@@ -563,4 +565,57 @@ test("Markdown chunks are scoped to the originating task and a failed save is a 
   fail = true;
   await expect(plugin.tool.inapp_markdown_create.execute({ ...args, append: true, complete: true }, { sessionID: "background-task" })).rejects.toThrow("File already exists");
   await expect(plugin.tool.inapp_markdown_create.execute(args, {})).rejects.toThrow("A task is required");
+});
+
+
+test("Word reads preserve whole-document defaults and accept optional ranges above 50 paragraphs", async () => {
+  const requests: unknown[] = [];
+  await withBridge({}, body => { requests.push(body); return { ok: true, result: { ok: true } }; });
+  const plugin = await LegalWorkExtensionsPreview();
+  for (const args of [{}, { fromIndex: 0, toIndex: 100 }, { fromIndex: 10, limit: 75 }]) {
+    await plugin.tool.inapp_docx_read_document.execute(args, { sessionID: "ses_open" });
+    expect(requests.at(-1)).toEqual({ actionId: "document.agent_tool", args: { sessionId: "ses_open", toolName: "read_document", args } });
+  }
+  expect(plugin.tool.inapp_docx_read_document.description).toContain("whole document by default");
+  await expect(plugin.tool.inapp_docx_read_document.execute({ fromIndex: 2, toIndex: 1 }, { sessionID: "ses_open" })).rejects.toThrow("ordered paragraph range");
+});
+
+test("Word exposes fifteen focused tools and routes typed batches, controls and copy workflows", async () => {
+  const requests: unknown[] = [];
+  await withBridge({}, body => { requests.push(body); return { ok: true, result: { ok: true, saved: true } }; });
+  const plugin = await LegalWorkExtensionsPreview();
+  const names = Object.keys(plugin.tool).filter(name => name.startsWith("inapp_docx"));
+  expect(names).toHaveLength(15); expect(names).not.toContain("inapp_docx");
+  const identity = { documentId: "live-1", draftRevision: 2, path: "Contract.docx" };
+  const edit = { ...identity, operations: [{ operation: "apply_formatting", paraId: "P1", marks: { bold: false, fontSize: 11 }, paragraph: { spaceAfter: 6 } }, { operation: "insert_cross_reference", paraId: "P2", targetParaId: "P3", kind: "number", search: "clause 3" }] };
+  await plugin.tool.inapp_docx_edit.execute(edit, { sessionID: "ses_open" });
+  await plugin.tool.inapp_docx_edit.execute({ ...identity, action: "save" }, { sessionID: "ses_open" });
+  await plugin.tool.inapp_docx_fill_template.execute({ ...identity, tag: "ClientName", value: "Nordfeld GmbH" }, { sessionID: "ses_open" });
+  await plugin.tool.inapp_docx_read_document.execute({ path: identity.path, view: "formatting", paraId: "P1", includeStyles: true }, { sessionID: "ses_open" });
+  await plugin.tool.inapp_docx_compare_documents.execute({ ...identity, fileName: "Compared.docx", versions: [{ path: "Returned.docx", author: "Counsel" }] }, { sessionID: "ses_open" });
+  await plugin.tool.inapp_docx_inspect_document.execute({ path: identity.path }, { sessionID: "ses_open" });
+  await plugin.tool.inapp_docx_inspect_document.execute({ ...identity, fileName: "Outgoing.docx", categories: ["properties"] }, { sessionID: "ses_open" });
+  expect(requests.map(body => body && typeof body === "object" ? Reflect.get(body, "args") : undefined)).toMatchObject([
+    { sessionId: "ses_open", path: identity.path, toolName: "edit", args: edit },
+    { sessionId: "ses_open", path: identity.path, toolName: "edit", args: { action: "save" } },
+    { sessionId: "ses_open", path: identity.path, toolName: "fill_template", args: { tag: "ClientName" } },
+    { sessionId: "ses_open", path: identity.path, toolName: "read_document", args: { view: "formatting" } },
+    { sessionId: "ses_open", path: identity.path, toolName: "create_comparison_copy" },
+    { sessionId: "ses_open", path: identity.path, toolName: "inspect_document" },
+    { sessionId: "ses_open", path: identity.path, toolName: "create_clean_copy" },
+  ]);
+  const count = requests.length;
+  await expect(plugin.tool.inapp_docx_edit.execute({ ...identity, operations: [{ operation: "set_bookmark" }] }, { sessionID: "ses_open" })).rejects.toThrow("Use create_bookmark (not set_bookmark)");
+  await expect(plugin.tool.inapp_docx_edit.execute({ ...identity, action: "save", operations: edit.operations }, { sessionID: "ses_open" })).rejects.toThrow();
+  await expect(plugin.tool.inapp_docx_compare_documents.execute({ ...identity, fileName: "x.docx", versions: [{ path: "../foreign.docx", author: "X" }] }, { sessionID: "ses_open" })).rejects.toThrow();
+  await expect(plugin.tool.inapp_docx_fill_template.execute({ tag: "ClientName", value: "X" }, { sessionID: "ses_open" })).rejects.toThrow();
+  expect(requests).toHaveLength(count);
+  for (const name of ["inapp_docx_edit", "inapp_docx_compare_documents", "inapp_docx_inspect_document"]) {
+    const method = Object.entries(plugin.tool).find(([key]) => key === name)?.[1];
+    expect(method && JSON.stringify(z.toJSONSchema(z.object(method.args)))).toContain("documentId");
+  }
+  const editSchema = JSON.stringify(z.toJSONSchema(z.object(plugin.tool.inapp_docx_edit.args)));
+  expect(editSchema).toContain('"enum":["create_bookmark"]');
+  expect(editSchema).toContain('"enum":["insert_cross_reference"]');
+  expect(editSchema).toContain('"targetSearch"');
 });

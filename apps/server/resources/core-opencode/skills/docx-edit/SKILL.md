@@ -61,19 +61,61 @@ For a named reference document that is not already open, inspect its saved file 
 ## IN-APP LIVE mode — edit the document open in LegalWork
 
 - Read with `inapp_docx_read_document` or find exact text with `inapp_docx_find_text`.
-  Both return stable `paraId` anchors.
+  Start every new user edit request with a fresh live read. Do not reuse document
+  identity, revision or paragraph handles from an earlier turn.
+  Both return stable `paraId` anchors. Read_document reads the whole document by
+  default. Pagination is optional via `limit`/`fromIndex`/`toIndex`; when paginating,
+  follow `nextIndex` until coverage is complete. Use `view: "structure"`
+  or `view: "formatting"`, or a `paraId`, for focused reads. Structure exposes native
+  field codes/targets/missing-reference status, bookmarks, linked notes, controls
+  and locks, section numbering and protection. Formatting exposes run/paragraph
+  properties in points; `includeStyles` adds native definitions and inheritance.
 - Edit with `inapp_docx_suggest_change`. Add comments only when the user requests them.
   Replace the smallest exact phrase that needs changing; retain surrounding language and formatting.
   Negotiated text edits are tracked changes and save back to the workspace automatically.
 - For clean template population in a new output copy, use `inapp_docx_fill_template` with the exact placeholder and value. This accepts only the new replacement and preserves existing revisions.
+- Native text controls can be filled by `controlId` or a unique `tag` through
+  `inapp_docx_fill_template`, with fresh `documentId`/`draftRevision`. Locks and
+  protection are enforced; structured/bound controls fail safely.
+- Use `inapp_docx_edit` for typed `operations` batches: formatting, paragraph styles,
+  bookmarks, linked cross-references, footnotes/endnotes, breaks, section numbering,
+  protection and field/TOC refresh. These are direct native edits, not tracked
+  proposals. Require `documentId`/`draftRevision` from a fresh live read. Operations
+  run sequentially and save once; on failure inspect `appliedOperations`/`failedIndex`.
+  Never replay applied edits. Re-read and use `action: "save"` without operations to
+  retry a failed save. Note edits reload handles; put them last and read again.
+- The operation names are `apply_formatting`, `set_paragraph_style`,
+  `create_bookmark`, `insert_cross_reference`, `edit_cross_reference`, `edit_note`,
+  `insert_note`, `insert_break`, `set_page_numbering`, `set_protection`, `update_fields`.
+  For a short linked reference use, for example,
+  `{operation: "insert_cross_reference", paraId: sourceId, targetParaId: targetId,
+  targetSearch: "§ 2 Schlussbestimmungen", kind: "text", search: "[REFERENCE]"}`.
+  `search` replaces a unique source phrase (empty appends); `targetSearch` selects
+  the native bookmark range in the target (omitting it references the paragraph).
+  `create_bookmark` also accepts a unique `search` for a text range. Use an existing
+  `bookmark` instead of `targetParaId`/`targetSearch` when one already matches.
+  `kind: "number"` requires automatic numbering. A manually typed § label uses
+  `kind: "text"` with `targetSearch`. Follow with `update_fields` and read back the
+  native field instruction, linked status, target range and displayed result.
+  When visibility is questioned, inspect structure and a real preview before
+  claiming a rendering problem; do not add a duplicate unlinked text reference.
+- `inapp_docx_compare_documents` compares the live draft with one saved returned
+  project DOCX, or combines independent drafts into a new native redline copy.
+  `inapp_docx_inspect_document` reads privacy findings; explicit `fileName`/`categories`
+  create an outgoing copy. Removing revisions accepts all changes only in that
+  copy. Copies preserve the live source and never overwrite files.
 - Reply to requested partner comments with `inapp_docx_reply_comment` using the parent ID from `inapp_docx_read_comments`.
 - Accept or revert edits with `inapp_docx_accept_changes` / `inapp_docx_reject_changes`.
   First call `inapp_docx_read_changes`, then pass the relevant IDs. For "revert my edits",
   reject only changes authored by the agent; never remove unrelated pre-existing redlines.
 - Do the accept/reject action yourself when asked. Do not tell the user to click review
   controls or claim the live editor lacks the tool.
-- **Never use bash or the FILE pipeline for this open document.** Do not create a
-  `.redlined.docx` copy: the redline appears in the document the user is viewing.
+- Use the live tools for supported edits. For unsupported layout/structure, use
+  `legalwork_shell` with `write: true`: it saves/releases/reloads project editors
+  automatically. The explicit `inapp_docx_prepare_file_edit` remains for a manual
+  multi-step handoff; proceed only after `ok` and `saved`, then reopen and verify.
+  Negotiated redlines remain in the live draft; separate comparison/outgoing copies
+  are created only when requested.
 - Hand back one or two short sentences; the user can review the tracked change beside the chat.
 
 ## WORD LIVE mode — edit the open Microsoft Word document with word_* tools

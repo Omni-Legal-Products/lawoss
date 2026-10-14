@@ -31,3 +31,25 @@ test("multiline editor search targets the actual range and preserves adjacent te
   expect(doc.textBetween(1, range!.from)).toBe("Before ");
   expect(doc.textBetween(range!.to, paragraph.nodeSize - 1)).toBe(" after");
 });
+
+test("field results are readable without turning field display characters into editable positions", () => {
+  const field = schema.node("field", { fieldType: "REF", instruction: "REF Clause2 \\h", displayText: "§ 2 Schlussbestimmungen" });
+  const paragraph = schema.node("paragraph", { paraId: "P1" }, [schema.text("Before "), field, schema.text(" after"), schema.text(" proposed", [schema.marks.insertion.create({ revisionId: "1" })])]);
+  const doc = schema.node("doc", null, [paragraph]);
+  expect(getVanillaNodeText(paragraph)).toBe("Before § 2 Schlussbestimmungen after");
+  expect(getVanillaTextBetween(doc, 1, paragraph.nodeSize - 1)).toBe("Before § 2 Schlussbestimmungen after");
+  expect(findTextInPmParagraph(doc, 0, paragraph.nodeSize, "Schlussbestimmungen")).toBeNull();
+  expect(findTextInPmParagraph(doc, 0, paragraph.nodeSize, "Before  after")).toBeNull();
+  const range = findTextInPmParagraph(doc, 0, paragraph.nodeSize, "after")!;
+  expect(doc.textBetween(range.from, range.to)).toBe("after");
+});
+
+test("ordinary text replacement cannot remove a native bookmark boundary", () => {
+  const paragraph = schema.node("paragraph", null, [schema.text("before "), schema.node("bookmarkStart", { id: 1, name: "Clause" }), schema.text("inside"), schema.node("bookmarkEnd", { id: 1 }), schema.text(" after")]);
+  const doc = schema.node("doc", null, [paragraph]);
+  expect(getVanillaNodeText(paragraph)).toBe("before inside after");
+  expect(findTextInPmParagraph(doc, 0, paragraph.nodeSize, "before inside")).toBeNull();
+  expect(findTextInPmParagraph(doc, 0, paragraph.nodeSize, "inside after")).toBeNull();
+  const range = findTextInPmParagraph(doc, 0, paragraph.nodeSize, "inside")!;
+  expect(doc.textBetween(range.from, range.to)).toBe("inside");
+});

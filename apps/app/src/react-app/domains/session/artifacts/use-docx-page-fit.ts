@@ -4,6 +4,7 @@ import { SIDEBAR_DOCUMENT_SHIFT } from "@eigenpal/docx-editor-core/utils/sidebar
 
 const PAGE_GUTTERS = 48;
 const REVIEW_RAIL = 352;
+const OUTLINE_RAIL = 220;
 
 /** Fit on layout changes; the native zoom controls remain usable between resizes. */
 export function useDocxPageFit(
@@ -18,7 +19,8 @@ export function useDocxPageFit(
     const viewport = host?.querySelector<HTMLElement>(".docx-editor__scroll-container");
     if (!host || !editor || !page || !viewport || !page.offsetWidth) return;
     const rail = viewport.clientWidth >= 900 && host.querySelector(".docx-unified-sidebar") ? REVIEW_RAIL : 0;
-    const available = viewport.clientWidth - PAGE_GUTTERS - rail;
+    const outline = host.querySelector(".docx-outline-nav") ? OUTLINE_RAIL : 0;
+    const available = viewport.clientWidth - PAGE_GUTTERS - rail - outline;
     const zoom = Math.max(0.25, Math.min(1, available / page.offsetWidth));
     if (Math.abs(editor.getZoom() - zoom) > 0.005) editor.setZoom(zoom);
   }, [containerRef, editorRef, commentsOpen]);
@@ -33,6 +35,7 @@ export function useDocxPageFit(
     let viewport: HTMLElement | null = null;
     let zoomLayer: HTMLElement | null = null;
     let sidebar: Element | null = null;
+    let outline: Element | null = null;
     let lastHostWidth = 0;
     let lastViewportWidth = 0;
     let lastPageWidth = 0;
@@ -55,7 +58,7 @@ export function useDocxPageFit(
         // The stack includes wider sections in mixed-orientation documents.
         const selectionOutset = `${Math.max(0, ((pages?.offsetWidth ?? width) - (zoomLayer?.clientWidth ?? 0)) / 2)}px`;
         if (pages && host.style.getPropertyValue("--docx-selection-outset") !== selectionOutset) host.style.setProperty("--docx-selection-outset", selectionOutset);
-        const minWidth = `${width * zoom + PAGE_GUTTERS + rail}px`;
+        const minWidth = `${width * zoom + PAGE_GUTTERS + rail + (outline ? OUTLINE_RAIL : 0)}px`;
         if (width && host.style.getPropertyValue("--docx-layout-width") !== minWidth) host.style.setProperty("--docx-layout-width", minWidth);
         // Transforms change painted size while retaining the full layout height.
         // Match the scroll track to the pages, avoiding empty space at the end.
@@ -92,8 +95,9 @@ export function useDocxPageFit(
       const nextViewport = host.querySelector<HTMLElement>(".docx-editor__scroll-container");
       const nextZoomLayer = nextPages?.parentElement ?? null;
       const nextSidebar = host.querySelector(".docx-unified-sidebar");
-      if (nextPage === page && nextPages === pages && nextViewport === viewport && nextZoomLayer === zoomLayer && nextSidebar === sidebar) return;
-      if (nextSidebar !== sidebar) needsFit = true;
+      const nextOutline = host.querySelector(".docx-outline-nav");
+      if (nextPage === page && nextPages === pages && nextViewport === viewport && nextZoomLayer === zoomLayer && nextSidebar === sidebar && nextOutline === outline) return;
+      if (nextSidebar !== sidebar || nextOutline !== outline) needsFit = true;
       if (page) resize.unobserve(page);
       if (pages) resize.unobserve(pages);
       if (viewport) resize.unobserve(viewport);
@@ -103,6 +107,7 @@ export function useDocxPageFit(
       viewport = nextViewport;
       zoomLayer = nextZoomLayer;
       sidebar = nextSidebar;
+      outline = nextOutline;
       if (page) resize.observe(page);
       if (pages) resize.observe(pages);
       if (viewport) resize.observe(viewport);
@@ -111,7 +116,7 @@ export function useDocxPageFit(
       // styles never schedule geometry work on the typing path.
       structure.disconnect();
       structure.observe(host, { childList: true, subtree: !page });
-      for (const element of [page, viewport, zoomLayer, sidebar]) {
+      for (const element of [page, viewport, zoomLayer, sidebar, outline]) {
         for (let parent = element?.parentElement; parent && parent !== host; parent = parent.parentElement) {
           structure.observe(parent, { childList: true });
         }

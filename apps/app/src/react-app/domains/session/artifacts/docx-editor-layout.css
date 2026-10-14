@@ -82,3 +82,31 @@
     display: block;
   }
 }
+
+.docx-host .docx-outline-nav {
+  background: var(--doc-bg, #fff);
+  border-right: 1px solid var(--doc-border, #ddd);
+  padding-left: 12px;
+  box-shadow: 2px 0 8px var(--doc-shadow, #0000000d);
+}
+
+.docx-host:has(.docx-outline-nav) .paged-editor__pages {
+  margin-left: calc(256px / var(--docx-zoom, 1));
+}
+
+.docx-host [data-word-bookmark],
+.docx-host .layout-run[data-word-note-id],
+.docx-host [data-word-note-reference-pos] {
+  cursor: pointer;
+}
+
+.docx-host [data-word-bookmark]:focus-visible {
+  outline: 2px solid var(--doc-selection, #1a73e8);
+  outline-offset: 2px;
+}
+
+.docx-host .layout-footnote-content:focus {
+  outline: 2px solid var(--doc-selection, #1a73e8);
+  outline-offset: 4px;
+}
+

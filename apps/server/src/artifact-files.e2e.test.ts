@@ -341,3 +341,16 @@ test("streamed Markdown creation never overwrites an existing file, including ra
   expect((await create("Overwrite")).status).toBe(409);
   expect(await readFile(join(root, "reports/new.md"), "utf8")).toBe(saved);
 });
+
+
+test("binary create-only writes preserve an existing outgoing copy and serialize racing creators", async () => {
+  const root = await createWorkspaceRoot();
+  const { base, token } = await startLegalworkServer(root);
+  const write = (text: string) => fetch(`${base}/workspace/ws_1/files/raw`, { method: "POST", headers: auth(token), body: JSON.stringify({ path: "reports/outgoing.docx", dataBase64: Buffer.from(text).toString("base64"), createOnly: true }) });
+  const results = await Promise.all([write("first"), write("second")]);
+  expect(results.map(result => result.status).sort()).toEqual([200, 409]);
+  await Promise.all(results.map(result => result.arrayBuffer()));
+  const original = await readFile(join(root, "reports/outgoing.docx"), "utf8");
+  const rejected = await write("overwrite"); expect(rejected.status).toBe(409); await rejected.arrayBuffer();
+  expect(await readFile(join(root, "reports/outgoing.docx"), "utf8")).toBe(original);
+});
