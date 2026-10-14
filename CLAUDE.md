@@ -128,6 +128,7 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 - Bind exports to actual prepared sources and persisted project identity. Routing IDs are not legal case numbers. Absent optional reference metadata preserves explicit unknown legal fields; a present invalid reference manifest must not silently downgrade to generic mode.
 - Validate visible source attribution and coverage as well as machine metadata. An invalid identity companion cannot confer verification on a dependent output, regardless of validation order. Recheck output, source and dependency hashes when displaying persisted verification.
 - Keep file ownership separate from successful inspection. Validating an ordinary file does not authorize overwriting it; generated-output repairs require the registered current hash and caller's expected hash. Format/provenance verification never means legal approval.
+- Resolve known copies and canonical aliases within the selected case before deduplicating references. Verify current selected/reference bytes and reject ambiguous official identities; an explicitly listed path with a mismatched hash must not borrow another reference.
 
 ## Native document generation
 
@@ -135,3 +136,7 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 - Recursive selection enforces the canonical selected-folder boundary as well as the workspace boundary. Require the server's exact boundary acknowledgment; older servers must not silently widen selection.
 - An asynchronous prompt acknowledgment is not task completion. Retain the scoped session through native running/error/terminal states and reload; retries reuse the accepted chat. Associate source selection with ultimate-original IDs and hashes, and correlate each submitted attempt with its engine-visible user-message ID. Completed tool steps and comparisons between client/server clocks are not terminal evidence.
 - Probe the captured original SDK transport for engine-directory readiness. A wrapped workspace session list can return cached metadata without proving that the engine is available.
+- Release unused transports for known idle sessions. Keep background synchronization for active or waiting runs and remaining reference owners; stale idle evidence must not cancel a newer accepted prompt.
+- Use explicit static translation-key maps for native status labels. The CI audit rejects runtime key construction outside the existing LAWOSS domain dictionaries; type safety alone does not prove the audit will pass.
+- Starting an existing registered workspace must not recreate a missing source root. Check directory existence before runtime reuse or provisioning in either app-files mode; explicit home/new-project initialization remains a separate operation.
+- Historical engine metadata must account for native application archive timestamps of zero. Use supported archived-inclusive listing before strict directory/captured-ID filtering, while preserving each record archive state and filesystem scope.
