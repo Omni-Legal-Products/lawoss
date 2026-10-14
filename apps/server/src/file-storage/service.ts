@@ -8,6 +8,8 @@ import { smbAdapter } from "./smb.js";
 import { ftpAdapter, sftpAdapter, webdavAdapter } from "./file-servers.js";
 import { objectPrefix, providerError, type StorageAdapter } from "./common.js";
 
+export const adapterBindings = new WeakMap<StorageInput, () => Promise<StorageAdapter>>();
+
 export async function withStorage<T>(
   input: StorageInput,
   operation: (adapter: StorageAdapter) => Promise<T>,
@@ -17,7 +19,9 @@ export async function withStorage<T>(
     if ("prefix" in input.config) objectPrefix(input.config.prefix);
     if ((input.config.kind === "sftp" || input.config.kind === "ftp") && !input.config.rootPath.startsWith("/"))
       throw new ApiError(400, "invalid_storage_root", "Use an absolute path for the storage root.");
-    switch (input.config.kind) {
+    const bound = adapterBindings.get(input);
+    if (bound) adapter = await bound();
+    else switch (input.config.kind) {
       case "oauth": {
         const token = tokenBindings.get(input);
         if (!token) throw new ApiError(401, "storage_signin_required", "Sign in to this connection in File storage settings.");

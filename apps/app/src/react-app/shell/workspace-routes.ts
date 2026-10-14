@@ -1,6 +1,19 @@
 import { isProjectView, type ProjectView } from "../domains/session/panel/project-view";
 import type { SettingsTab } from "../../app/types";
 
+export type ComposerToolSection = "workflows" | "plugins" | "connectors" | "skills";
+export type ComposerSettingsSection = ComposerToolSection | "providers";
+
+export function composerSettingsPath(section: ComposerSettingsSection) {
+  switch (section) {
+    case "workflows": return "/workflows";
+    case "plugins": return "/settings/extensions/plugins";
+    case "connectors": return "/settings/extensions/mcp";
+    case "skills": return "/settings/extensions/skills";
+    case "providers": return "/settings/ai";
+  }
+}
+
 export function homeRoute(projectId?: string | null) {
   const project = projectId?.trim();
   return project ? `/home?project=${encodeURIComponent(project)}` : "/home";

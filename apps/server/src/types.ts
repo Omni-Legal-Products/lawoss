@@ -117,6 +117,8 @@ export interface RecorderBridge {
 }
 
 export interface ServerConfig {
+  /** Read-only migration from the previous desktop safeStorage connector store. */
+  decryptLegacyConnectorSecrets?: (value: string) => string | Promise<string>;
   host: string;
   port: number;
   token: string;

@@ -25,6 +25,9 @@ const configSchema = z.discriminatedUnion("kind", [
     kind: z.literal("oauth"),
     provider: z.string().regex(/^[a-z][a-z0-9-]{1,50}$/),
     root: z.string().max(2048).default(""),
+    /** Reuses a native connector account; never another OAuth grant. */
+    accountId: z.string().min(1).max(500).optional(),
+    driveId: z.string().min(1).max(1000).optional(),
   }),
   z.object({
     kind: z.literal("smb"),
@@ -184,6 +187,7 @@ export type StorageRoot = {
   revision?: string;
   /** A linked folder already contained in this available connection. Browsers show the source once; tools keep the scoped root. */
   sourceConnectionId?: string;
+  provider?: string;
 };
 export type StorageEntry = {
   path: string;
@@ -193,6 +197,10 @@ export type StorageEntry = {
   modifiedAt: string | null;
   /** The version a conditional write names, when the provider lists it. */
   version?: string;
+  id?: string;
+  webUrl?: string;
+  /** Native Google documents open as editable exports with a separate save destination. */
+  exported?: boolean;
 };
 // Window navigation transfers retain the source connection, never just its
 // temporary local working path (which would lose read-only/publish semantics).
@@ -201,11 +209,12 @@ export const storageFileSourceSchema = z.object({
   root: z.object({
     id: z.string(), name: z.string(), writable: z.boolean(),
     kind: z.enum(["oauth", "smb", "webdav", "s3", "azure", "gcs", "sftp", "ftp", "linked"]),
-    revision: z.string().optional(), sourceConnectionId: z.string().optional(),
+    revision: z.string().optional(), sourceConnectionId: z.string().optional(), provider: z.string().optional(),
   }),
   file: z.object({
     path: z.string(), name: z.string(), kind: z.enum(["file", "folder"]),
     size: z.number().nullable(), modifiedAt: z.string().nullable(), version: z.string().optional(),
+    id: z.string().optional(), webUrl: z.string().optional(), exported: z.boolean().optional(),
   }),
 });
 

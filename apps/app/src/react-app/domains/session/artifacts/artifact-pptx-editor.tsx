@@ -43,6 +43,15 @@ export function ArtifactPptxEditor(props: OfficeEditorProps) {
     resize.observe(host); mount.observe(host, { childList: true, subtree: true }); fit();
     return () => { resize.disconnect(); mount.disconnect(); };
   }, [state.host]);
+  state.navigation.current = async (target) => {
+    if (target.kind !== "slide") throw new Error("PowerPoint navigation requires a slide number.");
+    const api = editor.current;
+    if (!api || !api.getSlideCount()) throw new Error(t("pptx.still_loading"));
+    if (target.slide > api.getSlideCount()) throw new Error(`This presentation has ${api.getSlideCount()} slides.`);
+    api.setActiveSlideIndex(target.slide - 1);
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    return { slide: target.slide, slideCount: api.getSlideCount() };
+  };
   state.serialize.current = async () => {
     if (!editor.current || editor.current.getSlideCount() === 0) throw new Error(t("pptx.still_loading"));
     const bytes = await editor.current.getContent();

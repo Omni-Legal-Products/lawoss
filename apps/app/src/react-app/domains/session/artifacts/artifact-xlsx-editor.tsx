@@ -59,6 +59,19 @@ export function ArtifactXlsxEditor(props: OfficeEditorProps) {
             await univerAPI.getFormula().onCalculationResultApplied(10000);
             return adapter.save(workbook.save(), true);
           };
+          state.navigation.current = async (target) => {
+            if (target.kind !== "cells") throw new Error("Excel navigation requires a sheet and cell range.");
+            const sheet = workbook.getSheetByName(target.sheet);
+            if (!sheet) throw new Error(t("xlsx.sheet_not_found"));
+            const bounds = officeRange(target.range);
+            const snapshot = workbook.save().sheets[sheet.getSheetId()];
+            if (!snapshot || snapshot.hidden) throw new Error("The requested sheet is hidden or unavailable.");
+            if (bounds.endRow >= (snapshot.rowCount ?? 0) || bounds.endColumn >= (snapshot.columnCount ?? 0)) throw new Error("The range exceeds the current sheet grid.");
+            workbook.setActiveSheet(sheet);
+            sheet.setActiveRange(sheet.getRange(target.range));
+            sheet.scrollToCell(bounds.startRow, bounds.startColumn);
+            return { sheet: target.sheet, range: target.range };
+          };
           state.agentTool.current = async (name, rawArgs) => {
             if (name !== "read" && name !== "write") throw new Error(t("xlsx.unknown_tool"));
             const args = name === "read" ? xlsxReadSchema.parse(rawArgs) : xlsxWriteSchema.parse(rawArgs);
@@ -99,10 +112,10 @@ export function ArtifactXlsxEditor(props: OfficeEditorProps) {
       const lifecycle = univerAPI.addEvent(univerAPI.Event.LifeCycleChanged, finishOpening);
       finishOpening();
       const unsubscribeTheme = subscribeToTheme(() => univerAPI.toggleDarkMode(getResolvedThemeMode() === "dark"));
-      cleanup = () => { unsubscribeTheme(); lifecycle.dispose(); listener.dispose(); before.dispose(); state.serialize.current = null; state.agentTool.current = null; queueMicrotask(() => univer.dispose()); };
+      cleanup = () => { unsubscribeTheme(); lifecycle.dispose(); listener.dispose(); before.dispose(); state.serialize.current = null; state.agentTool.current = null; state.navigation.current = null; queueMicrotask(() => univer.dispose()); };
     }).catch((error: unknown) => { if (!disposed) state.setError(error instanceof Error ? error.message : t("xlsx.open_failed")); });
     return () => { disposed = true; cleanup?.(); };
-  }, [initial, workbookId, props.name, props.readOnly, state.changed, state.setError, state.serialize, state.agentTool]);
+  }, [initial, workbookId, props.name, props.readOnly, state.changed, state.setError, state.serialize, state.agentTool, state.navigation]);
   useEffect(() => {
     if (!ready) return;
     const strip = container.current?.querySelector('[data-u-comp="slide-tab-item"]')?.parentElement;

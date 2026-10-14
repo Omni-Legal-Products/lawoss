@@ -10,6 +10,7 @@ export type StorageEntryDragItem = {
   workspaceId: string;
   connectionId: string;
   path: string;
+  name?: string;
   kind: "file" | "folder";
   writable: boolean;
 };
@@ -19,7 +20,7 @@ export function hasStorageEntryDrag(data: DataTransfer) {
 }
 
 export function writeStorageEntryDrag(data: DataTransfer, workspaceId: string, root: StorageRoot, entry: StorageEntry): StorageEntryDragItem {
-  const item: StorageEntryDragItem = { workspaceId, connectionId: root.id, path: entry.path, kind: entry.kind, writable: root.writable };
+  const item: StorageEntryDragItem = { workspaceId, connectionId: root.id, path: entry.path, name: entry.name, kind: entry.kind, writable: root.writable };
   if (entry.kind === "file") writeStorageFileDrag(data, root, entry);
   data.effectAllowed = "copy";
   data.setData(STORAGE_ENTRY_DRAG_TYPE, JSON.stringify(item));
@@ -36,7 +37,7 @@ export function readStorageEntryDrag(data: DataTransfer): StorageEntryDragItem |
     if (typeof workspaceId !== "string" || !workspaceId || typeof connectionId !== "string" || !connectionId ||
       typeof path !== "string" || !path || path.length > 4096 || /[\\\x00-\x1f\x7f]/.test(path) || path.split("/").some((part) => !part || part === "." || part === "..") ||
       (kind !== "file" && kind !== "folder") || typeof writable !== "boolean") return null;
-    return { workspaceId, connectionId, path, kind, writable };
+    return { workspaceId, connectionId, path, kind, writable, ...("name" in item && typeof item.name === "string" ? { name: item.name } : {}) };
   } catch {
     return null;
   }

@@ -5,10 +5,10 @@ import type { StorageEntry, StorageTransfer, StorageTransferProgress, StorageTra
 import { ApiError } from "../errors.js";
 import { conflict, findEntry, providerError, storagePath, type StorageAdapter } from "./common.js";
 
-export function transferDestination(input: StorageTransfer, sameRoot: boolean) {
+export function transferDestination(input: StorageTransfer, sameRoot: boolean, filename?: string) {
   storagePath(input.path, false);
   storagePath(input.destinationPath);
-  const name = input.path.split("/").at(-1)!;
+  const name = filename ?? input.path.split("/").at(-1)!;
   const destination = storagePath(input.destinationPath ? `${input.destinationPath}/${name}` : name, false);
   if (sameRoot && (destination === input.path || (input.kind === "folder" && destination.startsWith(`${input.path}/`))))
     throw new ApiError(400, "invalid_storage_destination", "Choose a different folder outside the folder being transferred.");
@@ -53,9 +53,9 @@ export async function transferEntry(source: StorageAdapter, target: StorageAdapt
     onProgress?.({ ...update, elapsedMs: performance.now() - phaseStartedAt });
   };
   report({ phase: "scanning", completedFiles: 0, totalFiles: null });
-  const destination = transferDestination(input, sameRoot);
   const original = await findEntry(source, input.path, input.kind);
   if (!original) throw new ApiError(404, "storage_not_found", "File or folder not found. Refresh before transferring.");
+  const destination = transferDestination(input, sameRoot, original.name);
   if (input.destinationPath && !await findEntry(target, input.destinationPath, "folder"))
     throw new ApiError(404, "storage_not_found", "The destination folder no longer exists. Refresh Memory Drive.");
   if (await findEntry(target, destination)) conflict();
@@ -73,14 +73,18 @@ export async function transferEntry(source: StorageAdapter, target: StorageAdapt
     report({ phase: "completed", completedFiles: totalFiles, totalFiles });
     return destination;
   }
+  if (input.mode === "move" && entries.some((entry) => entry.exported)) throw new ApiError(403, "storage_export_read_only", "Copy exported Google documents. Moving them to a different source would remove the native originals.");
   const directory = await mkdtemp(join(tmpdir(), "legalwork-transfer-"));
   const staged = join(directory, "content");
+  const destinations = new Map<string, string>([[input.path, destination]]);
   const files: { path: string; destination: string; sha256: string; version: string }[] = [];
   let started = false;
   let removing = false;
   try {
     for (const item of entries) {
-      const path = destination + item.path.slice(input.path.length);
+      const parentPath = item.path.split("/").slice(0, -1).join("/");
+      const path = item.path === input.path ? destination : `${destinations.get(parentPath)!}/${item.name}`;
+      destinations.set(item.path, path);
       if (item.kind === "folder") {
         await target.mkdir(path);
         started = true;

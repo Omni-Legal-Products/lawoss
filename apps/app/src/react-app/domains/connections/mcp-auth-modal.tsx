@@ -262,7 +262,7 @@ export function McpAuthModal(props: McpAuthModalProps) {
     needsCredentials || errorKind === "client_registration_required" || errorKind === "invalid_client";
   const busy = state.phase === "preparing" || state.phase === "completing";
   const waiting = state.phase === "waiting";
-  const serverName = props.entry?.name ?? "MCP Server";
+  const serverName = props.entry?.name ?? t("extension_card.kind_mcp");
 
   return (
     <Dialog open={props.open} onOpenChange={(open) => { if (!open) close(); }}>

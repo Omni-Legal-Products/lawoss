@@ -61,6 +61,7 @@ import { requireBrowserNetwork } from "./browser-network-policy.mjs";
 import { createAppUrlMatcher, guardIpcMain, guardPreviewNavigation } from "./app-url.mjs";
 import { createSafeOpen } from "./safe-open.mjs";
 import { getApplicationsForFile } from "./file-applications.mjs";
+import { composeAppleMailDraft, composeOutlookDraft } from "./mail-draft.mjs";
 import { createWorkspaceStore } from "./workspace-store.mjs";
 import { copyFilesIntoProject, resolveProjectFolder } from "./project-file-copy.mjs";
 import { exportSkillFolder, readSkillArchive } from "./workspace-archive.mjs";
@@ -1671,6 +1672,8 @@ async function openAppWindow(event, route, title = "") {
 // typecheck:electron`.
 /** @type {import("@legalwork/types/desktop-ipc").DesktopCommandHandlers<import("electron").IpcMainInvokeEvent>} */
 const desktopCommandHandlers = {
+  "composeAppleMailDraft": async (_event, draft) => composeAppleMailDraft(draft),
+  "composeOutlookDraft": async (_event, draft) => composeOutlookDraft(draft),
   "__streamOpen": (event, id, url, headers) => eventStreams.open(event.sender, id, url, headers),
   "__streamRead": (event, id) => eventStreams.read(event.sender, id),
   "__streamCancel": async (event, id) => eventStreams.cancel(event.sender, id),

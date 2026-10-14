@@ -34,7 +34,10 @@ import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { isOfficeAddinRuntime } from "@/app/lib/runtime-env";
 import { t } from "@/i18n";
-import { readWorkspaceImports, type ImportedPlugin } from "@/app/lib/extension-imports";
+import type { ImportedPlugin } from "@/app/lib/extension-imports";
+import type { ComposerConnector } from "./composer/tool-menu";
+import type { ComposerSettingsSection } from "@/react-app/shell/workspace-routes";
+import { resolveConnectorState } from "@/react-app/domains/settings/pages/connector-status";
 import {
   materializeLegalMemoryFile,
   materializeLegalMemoryFolder,
@@ -53,7 +56,6 @@ import type {
 import type {
   ComposerAttachment,
   ComposerDraft,
-  ComposerPart,
   McpServerEntry,
   McpStatusMap,
   ModelRef,
@@ -68,6 +70,7 @@ import {
 } from "@/app/lib/app-inspector";
 import { useControlAction, type LegalworkControlAction } from "@/react-app/shell/control/control-provider";
 import { ReactSessionComposer } from "./composer/composer";
+import { buildComposerDraft } from "./composer/composer-draft";
 import { hasUnfinishedTodos, TodoPanel } from "./todo-panel";
 import {
   VoicePanel,
@@ -77,23 +80,11 @@ import { collectVoiceActivity } from "@/react-app/domains/session/voice/voice-ac
 import {
   createLegalMemoryComposerMention,
   createLegalMemoryFolderComposerMention,
-  decodeComposerMentionValue,
   encodeComposerMentionValue,
-  legalMemoryComposerInstruction,
-  legalMemoryComposerDisplayText,
   createStorageComposerMention,
-  storageComposerInstruction,
-  storageComposerDisplayText,
-  reviewComposerDisplayText,
-  reviewComposerInstruction,
-  calendarComposerDisplayText,
-  calendarComposerInstruction,
-  taskComposerDisplayText,
-  taskComposerInstruction,
   type ComposerMentionKind,
 } from "./composer/mention-encoding";
 import { desktopBridge } from "@/app/lib/desktop";
-import { parseSlashCommandInvocation } from "./composer/slash-command";
 import { DevProfiler } from "@/react-app/shell/dev-profiler";
 import { useShellConfig } from "@/react-app/shell/shell-config";
 import { useReactRenderWatchdog } from "@/react-app/shell/react-render-watchdog";
@@ -101,7 +92,7 @@ import { SessionDebugPanel } from "./debug-panel";
 import { deriveRenderedSessionMessages, resolveRenderedSessionSnapshot } from "./session-render-state";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { useRecorderStore } from "@/react-app/domains/recorder/recorder-store";
-import { parseWorkspaceAttachmentMention, createWorkspaceAttachmentMention, uploadWorkspaceAttachment, workspaceAttachmentDisplayText, workspaceAttachmentInstruction } from "./composer/workspace-attachment";
+import { parseWorkspaceAttachmentMention, createWorkspaceAttachmentMention, uploadWorkspaceAttachment } from "./composer/workspace-attachment";
 import { deriveSessionRenderModel } from "@/react-app/domains/session/sync/transition-controller";
 import { useSessionScrollController } from "./scroll-controller";
 import { PendingStatus } from "@/components/chat/pending-status";
@@ -217,7 +208,7 @@ export type SessionSurfaceProps = {
   onChangeModel?: (model: { providerID: string; modelID: string }) => void;
   onUploadInboxFiles?: ((files: File[], options?: { notify?: boolean }) => void | Promise<unknown>) | null;
   providerConnectedCount?: number;
-  onOpenSettingsSection?: ((section: "commands" | "skills" | "mcps" | "plugins" | "providers") => void) | undefined;
+  onOpenSettingsSection?: ((section: ComposerSettingsSection) => void) | undefined;
   onRevertToMessage?: (messageId: string, sessionId: string) => Promise<boolean>;
   onForkAtMessage?: (messageId: string | null, sessionId: string) => void;
   onOpenTarget?: (target: OpenTarget, options?: OpenTargetOptions, sessionId?: string) => void;
@@ -766,7 +757,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const [rendered, setRendered] = useState<{ sessionId: string; snapshot: LegalworkSessionSnapshot } | null>(null);
   const [toolSkills, setToolSkills] = useState<SkillCard[]>([]);
   const [toolMcpServers, setToolMcpServers] = useState<McpServerEntry[]>([]);
-  const [toolMcpStatus, setToolMcpStatus] = useState<string | null>(null);
   const [toolMcpStatuses, setToolMcpStatuses] = useState<McpStatusMap>({});
   const [toolImportedPlugins, setToolImportedPlugins] = useState<ImportedPlugin[]>([]);
   const [verifiedOpenTargets, setVerifiedOpenTargets] = useState<OpenTarget[]>([]);
@@ -1040,90 +1030,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
     isError: snapshotQuery.isError || Boolean(error),
   });
 
-  const buildDraft = useCallback((text: string, nextAttachments: ComposerAttachment[], draftMentions = mentions): ComposerDraft => {
-    const modelContexts: string[] = [];
-    const parts: ComposerPart[] = text.split(/(\[pasted text [^\]]+\]|\[skill [^\]]+\]|@[^\s@]+)/).flatMap((segment) => {
-      if (!segment) return [] as ComposerDraft["parts"];
-      const pasteMatch = segment.match(/^\[pasted text (.+)\]$/);
-      if (pasteMatch) {
-        const target = pasteParts.find((item) => item.label === pasteMatch[1]);
-        if (target) {
-          return [{ type: "paste", id: target.id, label: target.label, text: target.text, lines: target.lines }];
-        }
-      }
-      const skillMatch = segment.match(/^\[skill (.+)\]$/);
-      if (skillMatch?.[1]) {
-        return [{ type: "skill", name: skillMatch[1] } satisfies ComposerDraft["parts"][number]];
-      }
-      if (segment.startsWith("@")) {
-        const value = decodeComposerMentionValue(segment.slice(1));
-        const kind = draftMentions[value];
-        if (kind === "agent") return [{ type: "agent", name: value } satisfies ComposerDraft["parts"][number]];
-        if (kind === "file") return [{ type: "file", path: value, label: value } satisfies ComposerDraft["parts"][number]];
-        if (kind === "upload") {
-          modelContexts.push(workspaceAttachmentInstruction(value));
-          return [{ type: "text", text: workspaceAttachmentDisplayText(value) } satisfies ComposerDraft["parts"][number]];
-        }
-        if (kind === "memory") {
-          modelContexts.push(legalMemoryComposerInstruction(value));
-          return [{ type: "text", text: legalMemoryComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
-        }
-        if (kind === "storage") {
-          modelContexts.push(storageComposerInstruction(value));
-          return [{ type: "text", text: storageComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
-        }
-        if (kind === "review") {
-          modelContexts.push(reviewComposerInstruction(value));
-          return [{ type: "text", text: reviewComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
-        }
-        if (kind === "calendar") {
-          modelContexts.push(calendarComposerInstruction(value));
-          return [{ type: "text", text: calendarComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
-        }
-        if (kind === "task") {
-          modelContexts.push(taskComposerInstruction(value));
-          return [{ type: "text", text: taskComposerDisplayText(value) } satisfies ComposerDraft["parts"][number]];
-        }
-        if (kind === "app") return [{ type: "app", name: value } satisfies ComposerDraft["parts"][number]];
-      }
-      return [{ type: "text", text: segment } satisfies ComposerDraft["parts"][number]];
-    });
-    // Expand paste placeholders in resolvedText so the model receives
-    // the actual pasted content instead of "[pasted text <label>]".
-    let resolved = text;
-    for (const part of pasteParts) {
-      resolved = resolved.replace(`[pasted text ${part.label}]`, () => part.text);
-    }
-    resolved = resolved.replace(/\[skill ([^\]]+)\]/g, (_match, name: string) => `the \"${name}\" skill`);
-    for (const [value, kind] of Object.entries(draftMentions)) {
-      resolved = resolved.replaceAll(
-        `@${encodeComposerMentionValue(value)}`,
-        kind === "memory"
-          ? legalMemoryComposerDisplayText(value)
-          : kind === "storage"
-            ? storageComposerDisplayText(value)
-            : kind === "review"
-              ? reviewComposerDisplayText(value)
-            : kind === "calendar"
-              ? calendarComposerDisplayText(value)
-            : kind === "task"
-              ? taskComposerDisplayText(value)
-              : kind === "upload"
-                ? workspaceAttachmentDisplayText(value)
-                : `@${value}`,
-      );
-    }
-    const slashCommand = parseSlashCommandInvocation(resolved);
-    return {
-      mode: "prompt",
-      parts,
-      attachments: nextAttachments,
-      text,
-      resolvedText: resolved,
-      modelContext: [...new Set(modelContexts)].join("\n") || undefined,
-      command: slashCommand ?? undefined,
-    };
-  }, [mentions, pasteParts]);
+  const buildDraft = useCallback((text: string, nextAttachments: ComposerAttachment[], draftMentions = mentions): ComposerDraft =>
+    buildComposerDraft(text, nextAttachments, draftMentions, pasteParts), [mentions, pasteParts]);
 
   const preparedProjectDraft = useRef<{ signature: string; draft: ComposerDraft; mentions: typeof mentions } | null>(null);
   const prepareProjectAttachments = async (text: string, nextAttachments: ComposerAttachment[]) => {
@@ -1499,6 +1407,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
     }
   };
 
+  const handleRegisterMention = (kind: ComposerMentionKind, value: string) => {
+    setComposerMentions(props.sessionId, { ...getComposerMentions(useComposerStateStore.getState(), props.sessionId), [value]: kind });
+  };
+
   /** Insert a memory pill without disturbing the draft the user is typing. */
   const appendMemoryMention = (reference: string) => {
     const composerState = useComposerStateStore.getState();
@@ -1769,18 +1681,24 @@ export function SessionSurface(props: SessionSurfaceProps) {
   useControlAction(composerStopControlAction);
 
   const listSkills = async (): Promise<SkillCard[]> => {
-    const response = await props.client.listSkills(props.workspaceId, { includeGlobal: true });
-    const next = (response.items ?? []).map((skill) => ({
+    const [response, firm] = await Promise.all([
+      props.client.listSkills(props.workspaceId, { includeGlobal: true }),
+      props.client.firmHubSkills().then(result => result.items, () => []),
+    ]);
+    const next = [...response.items, ...firm.filter(skill => !response.items.some(own => own.name === skill.name))].map((skill) => ({
       name: skill.name,
       path: skill.path,
       description: skill.description,
       trigger: skill.trigger,
+      kind: skill.kind,
+      workflowType: skill.workflowType,
+      firm: skill.firm,
     } satisfies SkillCard));
     setToolSkills(next);
     return next;
   };
 
-  const listMcp = async (): Promise<{ servers: McpServerEntry[]; statuses: McpStatusMap; status: string | null }> => {
+  const listMcp = async (): Promise<{ servers: ComposerConnector[]; statuses: McpStatusMap }> => {
     const [response, firmHub] = await Promise.all([
       props.client.listMcp(props.workspaceId),
       // The firm's connectors run from the firm's own config, not the project's.
@@ -1790,16 +1708,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
       name: entry.name,
       config: entry.config as McpServerEntry["config"],
     } satisfies McpServerEntry));
-    const firm = (firmHub?.items ?? []).flatMap((item): McpServerEntry[] => {
-      const connector = item.connector;
-      if (!connector || !(item.installation === "automatic" || item.added)) return [];
-      // Without the member's own key the engine doesn't run it yet.
-      if (connector.access === "member" && !connector.hasOwnKey) return [];
-      if (own.some((entry) => entry.name === connector.serverName)) return [];
-      return [{ name: connector.serverName, config: connector.url ? { type: "remote", url: connector.url } : { type: "local" } }];
-    });
-    const servers = [...own, ...firm];
-
     let statuses: McpStatusMap = {};
     try {
       if (props.workspaceRoot.trim()) {
@@ -1808,17 +1716,33 @@ export function SessionSurface(props: SessionSurfaceProps) {
     } catch {
       statuses = {};
     }
-
-    const status = servers.length ? null : "No MCP servers loaded.";
+    const firm = (firmHub?.items ?? []).flatMap((item): ComposerConnector[] => {
+      const connector = item.connector;
+      if (!connector || !(item.installation === "automatic" || item.added)) return [];
+      if (own.some((entry) => entry.name === connector.serverName)) return [];
+      return [{
+        name: connector.serverName,
+        config: connector.url ? { type: "remote", url: connector.url } : { type: "local" },
+        displayName: item.name,
+        description: item.description,
+        firm: true,
+        state: resolveConnectorState({
+          enabled: true,
+          status: statuses[connector.serverName]?.status,
+          needsKey: connector.access === "member" && !connector.hasOwnKey,
+          needsSignIn: connector.access === "oauth" && statuses[connector.serverName]?.status !== "connected",
+        }),
+      }];
+    });
+    const servers = [...own, ...firm];
     setToolMcpServers(servers);
     setToolMcpStatuses(statuses);
-    setToolMcpStatus(status);
-    return { servers, statuses, status };
+    return { servers, statuses };
   };
 
   const listImportedPlugins = async (): Promise<ImportedPlugin[]> => {
-    const response = await props.client.getConfig(props.workspaceId);
-    const plugins = Object.values(readWorkspaceImports(response.legalwork).plugins)
+    const response = await props.client.listCloudPlugins(props.workspaceId);
+    const plugins = Object.values(response.plugins)
       .sort((left, right) => left.name.localeCompare(right.name));
     setToolImportedPlugins(plugins);
     return plugins;
@@ -1876,7 +1800,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   const handleMessageListDispatchAction = useCallback((action: DispatchAction) => {
     if (action.target === "settings" && action.action === "open") {
-      props.onOpenSettingsSection?.(action.section);
+      props.onOpenSettingsSection?.(action.section === "commands" ? "workflows" : action.section === "mcps" ? "connectors" : action.section);
     }
   }, [props.onOpenSettingsSection]);
 
@@ -2179,7 +2103,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
         skills={toolSkills}
         listMcp={listMcp}
         mcpServers={toolMcpServers}
-        mcpStatus={toolMcpStatus}
         mcpStatuses={toolMcpStatuses}
         listImportedPlugins={listImportedPlugins}
         importedPlugins={toolImportedPlugins}
@@ -2187,6 +2110,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         recentFiles={props.recentFiles}
         searchFiles={props.searchFiles}
         onInsertMention={handleInsertMention}
+        onRegisterMention={handleRegisterMention}
         onDropLegalMemoryFile={handleDropLegalMemoryFile}
         onDropLegalMemoryFolder={handleDropLegalMemoryFolder}
         onDropStorageFile={handleDropStorageFile}

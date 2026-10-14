@@ -1,3 +1,5 @@
+import { CalendarEventDraftToolCard } from "./calendar-event-draft-card";
+import { EmailDraftToolCard } from "./email-draft-card";
 import { useProjectFiles } from "@/react-app/domains/workspace/project-file-context";
 import { copyMessageWithAttachments } from "@/react-app/domains/session/surface/composer/attachment-clipboard";
 import { useRequestOpenTask } from "@/react-app/domains/session/panel/panel-tab-destination";
@@ -433,6 +435,8 @@ const AssistantMessage = React.memo(
             if (group.kind === "reviews") return <ReviewToolGroup key={group.parts[0].toolCallId} parts={group.parts} />;
             if (group.kind === "subagents") return <SubagentToolRows key={group.parts[0].toolCallId} parts={group.parts} />;
 
+            if (group.kind === "calendar-event-draft") return <CalendarEventDraftToolCard key={group.part.toolCallId} part={group.part} />;
+            if (group.kind === "email-draft") return <EmailDraftToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "scheduled-task") return <ScheduledTaskToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "calculation") return <CalculationToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "project") return <ProjectContentsTool key={group.part.toolCallId} part={group.part} />;

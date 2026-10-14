@@ -62,18 +62,29 @@ const browserWindow = new EventTarget();
 let config = "{}";
 let status: McpStatusMap = {};
 let saveError = "";
+let engineSaveError = "";
 let serverAdds: unknown[] = [];
+let engineAdds: unknown[] = [];
 let analyticsEvents: string[] = [];
 let reloads: Array<{ reason: ReloadReason; trigger?: ReloadTrigger }> = [];
 let restoreAnalytics = () => {};
 let selectedWorkspaceId = "local";
 let remoteSaveWait: Promise<void> | undefined;
 let remoteSaveStarted: (() => void) | undefined;
+let emptyServerList = false;
+let configExists = true;
+let registrationFailed = false;
+let serverEnables: unknown[] = [];
+let engineStatusWait: Promise<void> | undefined;
+let engineStatusStarted: (() => void) | undefined;
+let engineStatusRequests = 0;
+let serverListReads = 0;
+let emptyServerReads = 0;
 
 Object.assign(browserWindow, {
   __LEGALWORK_ELECTRON__: {
     invokeDesktop: async (command: string, ...args: unknown[]) => {
-      if (command === "readOpencodeConfig") return { path: "/tmp/opencode.json", exists: true, content: config };
+      if (command === "readOpencodeConfig") return { path: "/tmp/opencode.json", exists: configExists, content: config };
       if (command === "writeOpencodeConfig") {
         config = String(args[2]);
         return { ok: true };
@@ -83,7 +94,7 @@ Object.assign(browserWindow, {
   },
 });
 
-function makeStore(remote = false) {
+function makeStore(remote = false, fileFallback = false, routeConnection = false) {
   const legalworkServer = createLegalworkServerStore({
     startupPreference: () => "local",
     documentVisible: () => true,
@@ -112,7 +123,8 @@ function makeStore(remote = false) {
     selectedWorkspaceId: () => selectedWorkspaceId,
     selectedWorkspaceRoot: () => "/tmp/workspace",
     workspaceType: () => remote ? "remote" : "local",
-    legalworkServer: connectedServer,
+    legalworkServer: fileFallback ? legalworkServer : connectedServer,
+    ...(routeConnection ? { legalworkServerConnection: () => connectedServer.getSnapshot() } : {}),
     runtimeWorkspaceId: () => remote ? "remote" : null,
     developerMode: () => false,
     markReloadRequired: (reason, trigger) => { reloads.push({ reason, trigger }); },
@@ -126,12 +138,23 @@ describe("connection store success reporting", () => {
     config = "{}";
     status = { "test-server": { status: "connected" } };
     saveError = "";
+    engineSaveError = "";
     serverAdds = [];
+    engineAdds = [];
     analyticsEvents = [];
     reloads = [];
     selectedWorkspaceId = "local";
     remoteSaveWait = undefined;
     remoteSaveStarted = undefined;
+    emptyServerList = false;
+    configExists = true;
+    registrationFailed = false;
+    serverEnables = [];
+    engineStatusWait = undefined;
+    engineStatusStarted = undefined;
+    engineStatusRequests = 0;
+    serverListReads = 0;
+    emptyServerReads = 0;
     const capture = spyOn(analytics, "captureAnalyticsEvent").mockImplementation((event) => { analyticsEvents.push(event); });
     restoreAnalytics = () => capture.mockRestore();
     Object.defineProperty(globalThis, "window", { value: browserWindow, configurable: true });
@@ -140,6 +163,13 @@ describe("connection store success reporting", () => {
       value: async (input: RequestInfo | URL, init?: RequestInit) => {
         const request = new Request(input, init);
         const pathname = new URL(request.url).pathname;
+        if (/^\/workspace\/[^/]+\/mcp\/[^/]+\/enabled$/.test(pathname)) {
+          serverEnables.push(await request.json());
+          remoteSaveStarted?.();
+          await remoteSaveWait;
+          if (saveError) return Response.json({ code: "enable_failed", message: saveError }, { status: 500 });
+          return Response.json({ ok: true });
+        }
         if (/^\/workspace\/[^/]+\/mcp$/.test(pathname)) {
           if (request.method === "POST") {
             serverAdds.push(await request.json());
@@ -147,10 +177,17 @@ describe("connection store success reporting", () => {
             await remoteSaveWait;
             if (saveError) return Response.json({ code: "runtime_unavailable", message: saveError }, { status: 500 });
           }
-          return Response.json({ items: [{ name: "test-server", config: { type: "remote", url: entry.url }, source: "config.remote" }] });
+          serverListReads += 1;
+          return Response.json({ items: emptyServerList || serverListReads <= emptyServerReads ? [] : [{ name: "test-server", config: { type: "remote", url: entry.url }, source: "config.remote" }], ...(registrationFailed ? { engineSync: { status: "failed", failures: [{ name: "test-server", error: "Registration failed" }] } } : {}) });
         }
         if (pathname !== "/mcp") throw new Error(`Unexpected request: ${request.url}`);
-        return Response.json(status);
+        if (request.method === "POST") engineAdds.push(await request.json());
+        if (request.method === "POST" && engineSaveError) return Response.json({ message: engineSaveError }, { status: 500 });
+        const engineStatus = status;
+        engineStatusRequests += 1;
+        engineStatusStarted?.();
+        await engineStatusWait;
+        return Response.json(engineStatus);
       },
     });
   });
@@ -160,6 +197,85 @@ describe("connection store success reporting", () => {
     if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
     else Reflect.deleteProperty(globalThis, "window");
     globalThis.fetch = originalFetch;
+  });
+
+  test("saved connector configuration is visible while engine status is still loading", async () => {
+    let finishStatus = () => {};
+    engineStatusWait = new Promise<void>(resolve => { finishStatus = resolve; });
+    const started = new Promise<void>(resolve => { engineStatusStarted = resolve; });
+    const store = makeStore();
+    const refreshing = store.refreshMcpServers();
+    await started;
+    try {
+      expect(store.getSnapshot().mcpServers.map(server => server.name)).toEqual(["test-server"]);
+    } finally { finishStatus(); await refreshing; store.dispose(); }
+  });
+
+  test("import completion can refresh saved configuration without waiting for an engine check", async () => {
+    const store = makeStore();
+    try {
+      await store.refreshMcpServers({ includeStatus: false });
+      expect(store.getSnapshot().mcpServers.map(server => server.name)).toEqual(["test-server"]);
+      expect(engineStatusRequests).toBe(0);
+    } finally { store.dispose(); }
+  });
+
+  test("the connected route supplies imported connectors before the store's first health check", async () => {
+    const store = makeStore(false, true, true);
+    try {
+      await store.refreshMcpServers({ includeStatus: false });
+      expect(store.getSnapshot().mcpServers.map(server => server.name)).toEqual(["test-server"]);
+      expect(serverListReads).toBe(1);
+    } finally { store.dispose(); }
+  });
+
+  test("import completion waits for its saved connector to reach the library", async () => {
+    emptyServerReads = 1;
+    const store = makeStore();
+    try {
+      await store.refreshImportedConnectors(["test-server"]);
+      expect(serverListReads).toBe(2);
+      expect(store.getSnapshot().mcpServers.map(server => server.name)).toEqual(["test-server"]);
+      expect(engineStatusRequests).toBe(0);
+    } finally { store.dispose(); }
+  });
+
+  test("a pending status check cannot update the previous workspace after selection changes", async () => {
+    let finishStatus = () => {};
+    engineStatusWait = new Promise<void>(resolve => { finishStatus = resolve; });
+    const started = new Promise<void>(resolve => { engineStatusStarted = resolve; });
+    const store = makeStore();
+    const oldRefresh = store.refreshMcpServers();
+    await started;
+    selectedWorkspaceId = "other-workspace";
+    engineStatusWait = undefined;
+    emptyServerList = true;
+    try {
+      await store.refreshMcpServers();
+      finishStatus();
+      await oldRefresh;
+      expect(store.getSnapshot().mcpServers).toEqual([]);
+      expect(store.getSnapshot().mcpStatuses).toEqual({});
+    } finally { finishStatus(); await oldRefresh; store.dispose(); }
+  });
+
+  test("an older engine-status request cannot erase a connector fetched after an import", async () => {
+    let finishStatus = () => {};
+    engineStatusWait = new Promise<void>(resolve => { finishStatus = resolve; });
+    const started = new Promise<void>(resolve => { engineStatusStarted = resolve; });
+    emptyServerList = true;
+    const store = makeStore();
+    const oldRefresh = store.refreshMcpServers();
+    await started;
+    engineStatusWait = undefined;
+    emptyServerList = false;
+    try {
+      await store.refreshMcpServers();
+      expect(store.getSnapshot().mcpServers.map(server => server.name)).toEqual(["test-server"]);
+      finishStatus();
+      await oldRefresh;
+      expect(store.getSnapshot().mcpServers.map(server => server.name)).toEqual(["test-server"]);
+    } finally { finishStatus(); await oldRefresh; store.dispose(); }
   });
 
   test("OAuth waits for verified completion, emits once, and retains the final success message", async () => {
@@ -182,6 +298,65 @@ describe("connection store success reporting", () => {
     expect(reloads).toEqual([{ reason: "mcp", trigger: { type: "mcp", name: "test-server", action: "added" } }]);
   });
 
+  test("a healthy empty connector list has no legacy configuration banner", async () => {
+    emptyServerList = true;
+    const store = makeStore();
+    await store.refreshMcpServers();
+    expect(store.getSnapshot().mcpServers).toEqual([]);
+    expect(store.getSnapshot().mcpStatus).toBeNull();
+  });
+
+  test("missing or empty config files use the library empty state without file-setup instructions", async () => {
+    const store = makeStore(false, true);
+    for (const exists of [false, true]) {
+      configExists = exists;
+      await store.refreshMcpServers();
+      expect(store.getSnapshot().mcpServers).toEqual([]);
+      expect(store.getSnapshot().mcpStatus).toBeNull();
+    }
+  });
+
+  test("actual registration failures still explain which connectors need attention", async () => {
+    registrationFailed = true;
+    status = {};
+    const store = makeStore();
+    await store.refreshMcpServers();
+    expect(store.getSnapshot().mcpStatus).toBe("Could not connect these connectors: test-server. Refresh and try again.");
+  });
+
+  test("signing in to an imported disabled connector enables it first and defers reload until sign-in ends", async () => {
+    const store = makeStore();
+    await store.authorizeMcp({ name: "test-server", config: { type: "remote", url: entry.url, enabled: false, oauth: {} } });
+    expect(serverEnables).toEqual([{ enabled: true }]);
+    expect(store.getSnapshot().mcpAuthModalOpen).toBe(true);
+    expect(store.getSnapshot().mcpAuthEntry?.serverName).toBe("test-server");
+    expect(reloads).toEqual([]);
+    store.closeMcpAuthModal();
+    expect(reloads).toEqual([{ reason: "mcp", trigger: { type: "mcp", name: "test-server", action: "updated" } }]);
+  });
+
+  test("a rejected enable cannot start sign-in or claim successful activation", async () => {
+    saveError = "You cannot enable this connector";
+    const store = makeStore();
+    await store.authorizeMcp({ name: "test-server", config: { type: "remote", url: entry.url, enabled: false } });
+    expect(store.getSnapshot().mcpAuthModalOpen).toBe(false);
+    expect(store.getSnapshot().mcpStatus).toBe(saveError);
+    expect(reloads).toEqual([]);
+  });
+
+  test("changing workspaces while activation is pending cannot open its sign-in in the new workspace", async () => {
+    let finish: (() => void) | undefined;
+    remoteSaveWait = new Promise(resolve => { finish = resolve; });
+    const started = new Promise<void>(resolve => { remoteSaveStarted = resolve; });
+    const store = makeStore();
+    const opening = store.authorizeMcp({ name: "test-server", config: { type: "remote", url: entry.url, enabled: false } });
+    await started;
+    selectedWorkspaceId = "other";
+    finish?.();
+    await opening;
+    expect(store.getSnapshot().mcpAuthModalOpen).toBe(false);
+  });
+
   test("closing sign-in never emits a success event, but still applies the saved connector", async () => {
     const store = makeStore();
     await store.connectMcp({ ...entry, oauth: true });
@@ -198,6 +373,23 @@ describe("connection store success reporting", () => {
     expect(await store.connectMcp(entry)).toBe(false);
     expect(store.getSnapshot().mcpStatus).toBe("MCP endpoint returned 503");
     expect(connectedEvents()).toHaveLength(0);
+  });
+
+  test("a rejected settings update cannot report success using the old connected engine entry", async () => {
+    const store = makeStore();
+    engineSaveError = "Updated configuration was rejected";
+    expect(await store.connectMcp({ ...entry, headers: { Authorization: "Bearer synthetic-token" }, oauth: false })).toBe(false);
+    expect(connectedEvents()).toEqual([]);
+    store.dispose();
+  });
+
+  test("configuring an imported local connector preserves ownership and forwards its full launch configuration to the engine", async () => {
+    const config = { type: "local", command: ["node", "/plugin/server.js", "", "two words"], cwd: "/plugin", environment: { KEY: "synthetic-key", EMPTY: "" }, timeout: 45000 } satisfies import("../src/app/types").McpServerConfig;
+    const store = makeStore();
+    expect(await store.connectMcp({ ...entry, ...config, existingConfig: config, oauth: false })).toBe(true);
+    expect(serverAdds[0]).toMatchObject({ name: "test-server", preserveScope: true, config: { ...config, enabled: true } });
+    expect(engineAdds[0]).toMatchObject({ name: "test-server", config: { ...config, enabled: true } });
+    store.dispose();
   });
 
   test("a failed save cannot silently report success", async () => {

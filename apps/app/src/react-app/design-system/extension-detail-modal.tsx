@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { openDesktopUrl } from "@/app/lib/desktop";
-import { CheckCircle2, ExternalLink, Loader2 } from "lucide-react";
+import { Check, ExternalLink, Loader2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
   Card,
@@ -95,12 +95,14 @@ export type ExtensionDetailModalProps = {
   onShow?: () => void;
   /** Extension-specific configuration UI rendered inside the modal body. */
   configSlot?: React.ReactNode;
+  /** Native connectors show account settings directly, without extension metadata cards. */
+  presentation?: "default" | "connector";
   showEnablementCard?: boolean;
   size?: "default" | "wide";
 };
 
 const kindLabel: Record<ExtensionKind, string> = {
-  mcp: "MCP Server",
+  get mcp() { return t("extension_card.kind_mcp"); },
   plugin: "Plugin",
   skill: "Skill",
   "ui-control": "UI Control",
@@ -108,10 +110,10 @@ const kindLabel: Record<ExtensionKind, string> = {
 };
 
 const kindDesc: Record<ExtensionKind, string> = {
-  mcp: "Connects as a Model Context Protocol server, giving your agent access to external tools and data.",
+  mcp: "Gives your agent access to external tools and data.",
   plugin: "Extends LegalWork with additional capabilities managed by your organization.",
   skill: "A reusable workflow that your agent can execute on demand.",
-  "ui-control": "Lets another MCP client inspect and drive this LegalWork desktop UI through a local stdio wrapper.",
+  "ui-control": "Allows an external agent to inspect and control LegalWork.",
   extension: "A LegalWork extension that adds tools, providers, or integrations to your workspace.",
 };
 
@@ -227,6 +229,7 @@ export function ExtensionDetailModal({
   onHide,
   onShow,
   configSlot,
+  presentation = "default",
   showEnablementCard = true,
   size = "default",
 }: ExtensionDetailModalProps) {
@@ -251,16 +254,9 @@ export function ExtensionDetailModal({
           <div className="flex min-w-0 items-start gap-4">
             {/* Icon. Omitted for a product whose name is already its mark. */}
             <div className={cn("relative shrink-0", brandWordmark && "hidden")}>
-              <div
-                className={cn(
-                  "flex size-12 items-center justify-center rounded-xl border",
-                  connected ? "border-emerald-6 bg-emerald-2" : "border-dls-border bg-dls-hover",
-                )}
-              >
+              <div className="flex size-12 items-center justify-center">
                 {resolvedIconSrc ? (
-                  <div className="flex size-8 items-center justify-center rounded-md bg-white">
-                    <img src={resolvedIconSrc} alt="" width={20} height={20} loading="lazy" style={{ display: "block" }} />
-                  </div>
+                  <img src={resolvedIconSrc} alt="" width={32} height={32} loading="lazy" className="block size-8 object-contain" />
                 ) : (
                   <ExtensionMeshAvatar
                     name={name}
@@ -270,8 +266,8 @@ export function ExtensionDetailModal({
                 )}
               </div>
               {connected ? (
-                <div className="absolute -bottom-0.5 -right-0.5 flex size-5 items-center justify-center rounded-full border-2 border-dls-surface bg-emerald-9">
-                  <CheckCircle2 size={11} className="text-white" strokeWidth={3} />
+                <div className="absolute -bottom-0.5 -right-0.5 flex size-5 items-center justify-center rounded-full border-2 border-dls-surface bg-success">
+                  <Check size={11} className="text-white" strokeWidth={3} />
                 </div>
               ) : null}
             </div>
@@ -281,7 +277,9 @@ export function ExtensionDetailModal({
                 {brandWordmark ? name.toUpperCase() : name}
               </DialogTitle>
               <DialogDescription className="flex flex-wrap items-center gap-2">
-                <span>{kindLabel[kind]}</span>
+                <span className={presentation === "connector" && connected ? "text-green-11" : undefined}>{presentation === "connector"
+                  ? connected ? t("connectors.connected") : t("config.status_not_connected")
+                  : kindLabel[kind]}</span>
                 {preview ? (
                   <span className="rounded-md bg-[rgba(var(--dls-accent-rgb),0.1)] px-1.5 py-0.5 text-[10px] font-medium text-dls-accent">
                     Preview
@@ -297,7 +295,7 @@ export function ExtensionDetailModal({
           <ScrollAreaViewport className="min-h-0 flex-1 h-auto!">
             <div className="space-y-5 px-px">
             {/* Description */}
-            <div className="text-sm leading-relaxed text-card-foreground">
+            <div className={cn("text-sm leading-relaxed", presentation === "connector" ? "text-muted-foreground" : "text-card-foreground")}>
               {description}
             </div>
 
@@ -315,6 +313,7 @@ export function ExtensionDetailModal({
               </button>
             ) : null}
 
+            {presentation === "default" && <>
             {setupInstructions ? (
               <Card variant="outline" size="sm">
                 <CardHeader>
@@ -412,7 +411,7 @@ export function ExtensionDetailModal({
 
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Status</span>
-                    <span className={cn("font-medium", connected ? "text-emerald-11" : "text-muted-foreground")}>
+                    <span className={cn("font-medium", connected ? "text-green-11" : "text-muted-foreground")}>
                       {connected
                         ? connectedLabel ?? (kind === "skill" || kind === "plugin" ? "Installed" : "Connected")
                         : connecting
@@ -492,6 +491,9 @@ export function ExtensionDetailModal({
               </Card>
             ) : null}
 
+            </>}
+
+            {presentation === "connector" && disabledReason && <p className="text-sm text-amber-11">{disabledReason}</p>}
             {configSlot}
             </div>
           </ScrollAreaViewport>
@@ -501,7 +503,7 @@ export function ExtensionDetailModal({
           <div className="flex flex-wrap gap-2">
             {hidden && onShow ? (
               <Button
-                variant="outline"
+                variant={presentation === "connector" ? "ghost" : "outline"}
                 size="sm"
                 onClick={() => {
                   onShow();
@@ -512,7 +514,7 @@ export function ExtensionDetailModal({
               </Button>
             ) : !hidden && onHide ? (
               <Button
-                variant="outline"
+                variant={presentation === "connector" ? "ghost" : "outline"}
                 size="sm"
                 onClick={() => {
                   onHide();

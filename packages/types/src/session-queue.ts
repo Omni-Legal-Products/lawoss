@@ -10,12 +10,13 @@ export const queuedDraftSchema = z.object({
     z.object({ type: z.literal("paste"), ...paste.shape }),
     z.object({ type: z.literal("agent"), name: z.string() }),
     z.object({ type: z.literal("skill"), name: z.string() }),
+    z.object({ type: z.literal("plugin"), pluginId: z.string(), label: z.string() }),
     z.object({ type: z.literal("app"), name: z.string() }),
     z.object({ type: z.literal("file"), path: z.string(), label: z.string().optional() }),
   ])),
   attachments: z.array(z.object({ id: z.string(), name: z.string(), mimeType: z.string(), size: z.number(), kind: z.enum(["image", "file"]), data: z.string().regex(/^data:[^,]*;base64,[A-Za-z0-9+/]*={0,2}$/).refine(data => (data.length - data.indexOf(",") - 1) % 4 === 0) })),
   editor: z.object({
-    mentions: z.record(z.string(), z.enum(["agent", "file", "memory", "upload", "storage", "app", "task", "review", "calendar"])),
+    mentions: z.record(z.string(), z.enum(["agent", "file", "memory", "upload", "storage", "app", "task", "review", "calendar", "plugin"])),
     pasteParts: z.array(paste),
   }),
 });

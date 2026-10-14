@@ -178,7 +178,7 @@ export function ComputerUseConfig({
           >
             {connecting ? <Loader2 className="size-4 shrink-0 animate-spin" /> : null}
             <span className="min-w-0 break-words">
-              {connected ? "Configured" : connecting ? "Connecting…" : "Connect MCP"}
+              {connected ? t("mcp.connected") : connecting ? t("status.connecting") : t("mcp.connect")}
             </span>
           </Button>
         </SetupRow>

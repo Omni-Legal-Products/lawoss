@@ -77,7 +77,7 @@ export function getBooleanProperty(value: unknown, key: string): boolean | null 
 }
 
 export type InAppDocumentSurface = {
-  format: "docx" | "xlsx" | "pptx" | "md";
+  format: "docx" | "xlsx" | "pptx" | "md" | "pdf";
   sessionId: string;
   name: string;
   path: string;
@@ -98,7 +98,7 @@ export function inAppDocumentSurface(payload: unknown, sessionId?: string): InAp
   const surface = Reflect.get(payload, "activeSurface");
   if (typeof surface !== "object" || surface === null) return null;
   const format = getStringProperty(surface, "format");
-  if (getStringProperty(surface, "kind") !== "document" || (format !== "docx" && format !== "xlsx" && format !== "pptx" && format !== "md")) return null;
+  if (getStringProperty(surface, "kind") !== "document" || (format !== "docx" && format !== "xlsx" && format !== "pptx" && format !== "md" && format !== "pdf")) return null;
   const surfaceSessionId = getStringProperty(surface, "sessionId");
   const name = getStringProperty(surface, "name");
   const path = getStringProperty(surface, "path");

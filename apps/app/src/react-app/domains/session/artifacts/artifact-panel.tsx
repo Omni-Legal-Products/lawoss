@@ -1,3 +1,4 @@
+import { documentNavigationSchema } from "@legalwork/types/office-editor";
 import { isDocumentReadTool } from "./document-agent-read";
 import { useDocumentControlSessions } from "../../../shell/control/document-control-sessions";
 import { ProjectFilePanel } from "../../workspace/project-file-panel";
@@ -28,7 +29,7 @@ import { drainDocxRecovery } from "./docx-recovery";
 import { type ArtifactPanelTab, usePanelTabStore } from "../panel/panel-tab-store";
 import { isCollectibleArtifactTarget, type BinaryData, type Data, type OpenTarget, type TextData } from "./open-target";
 import { MediaPreview } from "./media-preview";
-import { HTMLPreview, ImagePreview, MarkdownPreview, PdfPreview, PlainText, PreviewError, PreviewLoading, PreviewUnavailable } from "./preview";
+import { type PdfPreviewApi, HTMLPreview, ImagePreview, MarkdownPreview, PdfPreview, PlainText, PreviewError, PreviewLoading, PreviewUnavailable } from "./preview";
 import { t } from "@/i18n";
 import { Switch } from "@/components/ui/switch";
 import { DocumentAccessBanner, useDocumentOwnership } from "./use-document-ownership";
@@ -210,6 +211,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
   snapshotRef.current = documentSnapshot;
   const pendingWrite = useRef<Promise<unknown> | null>(null);
   const docxApi = useRef<DocxEditorApi | null>(null);
+  const pdfApi = useRef<PdfPreviewApi | null>(null);
   const officeApi = useRef<OfficeEditorApi | null>(null);
   const sheetApi = useRef<SpreadsheetEditorApi | null>(null);
   const isTextSheet = target.preview === "sheet" && isTextContent(target);
@@ -557,11 +559,11 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
   };
 
   const documentSurface = useMemo<LegalworkControlSurface | null>(() => (
-    isBinaryEditor
+    (isBinaryEditor || target.preview === "pdf")
       ? {
           id: `${sessionId}:${target.id}`,
           kind: "document",
-          format: target.preview === "word" ? "docx" : /\.xlsx$/i.test(target.value) ? "xlsx" : "pptx",
+          format: target.preview === "pdf" ? "pdf" : target.preview === "word" ? "docx" : /\.xlsx$/i.test(target.value) ? "xlsx" : "pptx",
           sessionId,
           workspaceId,
           name: target.name,
@@ -574,7 +576,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
   useControlSurface(documentSurface);
 
   const documentAgentControlAction = useMemo<LegalworkControlAction | null>(() => (
-    documentSurface ? {
+    documentSurface && isBinaryEditor ? {
       id: target.preview === "word" ? "document.agent_tool" : "office.agent_tool",
       label: `Work on ${target.name}`,
       description: `Read or edit ${target.value} in the live editor. Edits save automatically.${target.preview === "word" ? " Text edits are tracked changes." : " Office edits are direct edits, without tracked changes."}`,
@@ -615,8 +617,30 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         };
       },
     } : null
-  ), [documentSurface, controlSessionIds, sessionId, target.name, target.preview, target.value, isEditableDocument, access.editable, onClose]);
+  ), [documentSurface, isBinaryEditor, controlSessionIds, sessionId, target.name, target.preview, target.value, isEditableDocument, access.editable, onClose]);
   useControlAction(documentAgentControlAction);
+
+  useControlAction(useMemo<LegalworkControlAction | null>(() => documentSurface ? {
+    id: "documents.navigate", label: "Show a requested document location", sideEffect: "navigation", requiresArgs: true,
+    description: "Only when explicitly requested by the user. Navigate the active PDF/DOCX page, PPTX slide or Excel sheet/range without editing or saving.",
+    args: [{ name: "sessionId", type: "string", required: true }, { name: "path", type: "string", required: true }, { name: "target", type: "object", required: true }],
+    execute: async rawArgs => {
+      if (!isRecord(rawArgs) || !controlSessionIds.includes(stringProperty(rawArgs, "sessionId"))) return { ok: false, error: "No document is open for this session." };
+      const parsed = documentNavigationSchema.safeParse(rawArgs);
+      if (!parsed.success) return { ok: false, error: "Provide the exact file path and a valid destination." };
+      if (parsed.data.path !== target.value) return { ok: false, error: "The active file changed. Select the intended document and retry." };
+      if (target.preview === "pdf") {
+        if (parsed.data.target.kind !== "page") return { ok: false, error: "PDF navigation requires a page number." };
+        if (!pdfApi.current) return { ok: false, error: "The PDF is still loading." };
+        const page = parsed.data.target.page;
+        return { ok: true, path: target.value, ...await pdfApi.current.navigate(page) };
+      }
+      const api = target.preview === "word" ? docxApi.current : officeApi.current;
+      if (!api) return { ok: false, error: "The document is still loading." };
+      try { return { ok: true, path: target.value, location: await api.navigate(parsed.data.target) }; }
+      catch (error) { return { ok: false, error: error instanceof Error ? error.message : "Navigation failed." }; }
+    },
+  } : null, [documentSurface, controlSessionIds, target.value, target.preview]));
 
   const saveDocument = async () => {
     if (!access.editable || documentSaving || isSaving) return false;
@@ -860,7 +884,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         ) : target.preview === "image" && data?.kind === "binary" && binaryObjectUrl ? (
           <ImagePreview src={binaryObjectUrl} alt={target.name} />
         ) : target.preview === "pdf" && data?.kind === "binary" && binaryObjectUrl ? (
-          <PdfPreview url={sourcePage ? `${binaryObjectUrl}#page=${sourcePage}` : binaryObjectUrl} title={target.name} />
+          <PdfPreview apiRef={pdfApi} url={sourcePage ? `${binaryObjectUrl}#page=${sourcePage}` : binaryObjectUrl} title={target.name} />
         ) : data?.kind === "binary" && binaryObjectUrl && target.preview === "html" ? (
           <HTMLPreview type="binary" title={target.name} url={binaryObjectUrl} />
         ) : data?.kind === "text" ? (

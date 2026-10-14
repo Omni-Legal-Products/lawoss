@@ -6,6 +6,7 @@
  * of owning the process lifecycle.
  */
 import { mkdir } from "node:fs/promises";
+import { connectorRuntimeCapability } from "./connectors/capability.js";
 import { join } from "node:path";
 import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import { resolveServerConfig, type CliArgs } from "./config.js";
@@ -32,6 +33,7 @@ import type { ServerConfig } from "./types.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 
 export type EmbeddedServerOptions = CliArgs & {
+  decryptLegacyConnectorSecrets?: ServerConfig["decryptLegacyConnectorSecrets"];
   /** Fallback only; explicit CLI, environment and file approval settings take precedence. */
   defaultApprovalMode?: ServerConfig["approval"]["mode"];
   /** Host-owned approval presentation for manual mode. */
@@ -66,6 +68,7 @@ export type EmbeddedServerHandle = {
 
 export async function startEmbeddedServer(options: EmbeddedServerOptions): Promise<EmbeddedServerHandle> {
   const config = await resolveServerConfig(options, { approvalMode: options.defaultApprovalMode });
+  config.decryptLegacyConnectorSecrets = options.decryptLegacyConnectorSecrets;
   config.agentSandboxEnabled = options.manageOpencode === true && !config.opencodeBaseUrl;
   config.requestHostApproval = options.requestHostApproval;
   config.pickDirectory = options.pickDirectory ?? null;
@@ -144,6 +147,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
           ...(process.env.LEGALWORK_UI_CONTROL_DISCOVERY ? { LEGALWORK_UI_CONTROL_DISCOVERY: process.env.LEGALWORK_UI_CONTROL_DISCOVERY } : {}),
           LEGALWORK_SERVER_URL: serverUrl,
           LEGALWORK_SERVER_TOKEN: config.token,
+          LEGALWORK_CONNECTOR_TOKEN: connectorRuntimeCapability(config),
           OPENCODE_CONFIG: runtimeConfigPath,
           // The firm's enforced settings: read after every project's own config.
           OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config),

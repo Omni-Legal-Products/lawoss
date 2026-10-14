@@ -1,6 +1,7 @@
 import { ApiError } from "../errors.js";
 import type { EnvService } from "../env-file.js";
 import type { ServerConfig } from "../types.js";
+import { CONNECTOR_EXTENSION_ACTIONS, callConnectorExtensionAction, isConnectorExtension } from "../connectors/index.js";
 import {
   callGoogleWorkspaceExtensionAction,
   GOOGLE_WORKSPACE_EXTENSION_ACTIONS,
@@ -14,6 +15,7 @@ import {
 import { appliedOrgPolicy } from "../org-policy.js";
 
 const LEGALWORK_EXPERIMENTAL_EXTENSION_ACTIONS = [
+  ...CONNECTOR_EXTENSION_ACTIONS,
   ...GOOGLE_WORKSPACE_EXTENSION_ACTIONS,
   ...OPENAI_IMAGE_GENERATION_EXTENSION_ACTIONS,
 ];
@@ -58,6 +60,8 @@ export async function callExperimentalExtensionAction(config: ServerConfig, env:
     const result = await callGoogleWorkspaceExtensionAction(config, action, args, context);
     if (result) return result;
   }
+
+  if (isConnectorExtension(extensionId)) return callConnectorExtensionAction(config, extensionId, action, args, context);
 
   if (extensionId === OPENAI_IMAGE_GENERATION_EXTENSION_ID) {
     const result = await callOpenAiImageGenerationExtensionAction(config, env, action, args, context);

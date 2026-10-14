@@ -48,6 +48,10 @@ export async function scopedFolderAdapter(adapter: StorageAdapter, reference: Fo
     ...(adapter.listFiles ? { listFiles: async (path: string, cursor?: string, signal?: AbortSignal) => page(await adapter.listFiles!(full(path), cursor, signal), full(path)) } : {}),
     ...(adapter.searchCapabilities ? { searchCapabilities: () => adapter.searchCapabilities!() } : {}),
     ...(adapter.search ? { search: async (input) => ({ ...page(await adapter.search!({ ...input, path: full(input.path) }), full(input.path)), path: input.path }) } : {}),
+    ...(adapter.findEntry ? { findEntry: async (path: string, kind?: import("@legalwork/types/file-storage").StorageEntry["kind"]) => {
+      const entry = await adapter.findEntry!(full(path), kind);
+      return entry ? { ...entry, path } : null;
+    } } : {}),
     stat: (path) => adapter.stat(full(path)),
     read: (path) => adapter.read(full(path)),
     download: (path, destination) => adapter.download(full(path), destination),

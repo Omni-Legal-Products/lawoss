@@ -1,3 +1,4 @@
+import type { PluginCreateRequest, PluginImportPreview, PluginImportProvider, PluginImportRequest } from "@legalwork/types/plugin-import";
 import * as React from "react";
 
 import { applyEdits, modify } from "jsonc-parser";
@@ -198,6 +199,8 @@ export function createExtensionsStore(options: {
   setBusyStartedAt: (value: number | null) => void;
   setError: (value: string | null) => void;
   markReloadRequired?: (reason: ReloadReason, trigger?: ReloadTrigger) => void;
+  /** Publish saved connectors before an import or bundle creation is shown as complete. */
+  refreshConnectors?: (names: readonly string[]) => Promise<void>;
 }) {
   const listeners = new Set<() => void>();
 
@@ -208,6 +211,7 @@ export function createExtensionsStore(options: {
   let snapshot: ExtensionsStoreSnapshot;
 
   let refreshSkillsInFlight = false;
+  let refreshSkillsPromise: Promise<void> | null = null;
   let refreshPluginsInFlight = false;
   let refreshHubSkillsInFlight = false;
   let refreshSkillsAborted = false;
@@ -562,6 +566,48 @@ export function createExtensionsStore(options: {
     }
   }
 
+  async function pluginImportTarget() {
+    const target = await resolveWorkspaceServerTarget();
+    if (!target.legalworkClient || !target.legalworkWorkspaceId) throw new Error(t("extensions.server_unavailable_github_plugins"));
+    return { client: target.legalworkClient, id: target.legalworkWorkspaceId };
+  }
+  async function pluginCreateOptions() {
+    const target = await pluginImportTarget();
+    return target.client.pluginCreateOptions(target.id);
+  }
+  async function readPackageComponent(pluginId: string, path: string) {
+    const target = await pluginImportTarget();
+    return target.client.readPackageComponent(target.id, pluginId, path);
+  }
+  async function createWorkflowPlugin(input: PluginCreateRequest) {
+    const target = await pluginImportTarget();
+    const result = await target.client.createWorkflowPlugin(target.id, input);
+    await options.refreshConnectors?.(result.item.files.filter(file => file.objectType === "mcp").map(file => file.path.slice(OPENCODE_MCP_IMPORT_PATH_PREFIX.length)));
+    await refreshSkills({ force: true });
+    return result.item;
+  }
+  async function discoverPluginImports(provider: PluginImportProvider) {
+    const target = await pluginImportTarget();
+    return (await target.client.discoverPluginImports(target.id, provider)).items;
+  }
+  async function previewPluginImports(request: PluginImportRequest) {
+    const target = await pluginImportTarget();
+    return (await target.client.previewPluginImports(target.id, request)).items;
+  }
+  async function installPluginImport(request: PluginImportRequest) {
+    const target = await pluginImportTarget();
+    const result = await target.client.installPluginImport(target.id, request);
+    return result.preview;
+  }
+  async function refreshPluginImport(preview: PluginImportPreview) {
+    await options.refreshConnectors?.(preview.components.filter(component => component.type === "mcp").map(component => component.installedName));
+    const skills = preview.components.filter(component => component.type === "skill");
+    if (skills.length) {
+      await refreshSkills({ force: true });
+      if (!skills.every(component => state.skills.some(skill => skill.name === component.installedName))) throw new Error(t("extensions.import_library_failed"));
+    }
+  }
+
   async function previewClaudePlugin(url: string): Promise<LegalworkClaudePluginPreview> {
     const target = await resolveWorkspaceServerTarget();
     if (!target.legalworkClient || !target.legalworkWorkspaceId) {
@@ -580,6 +626,7 @@ export function createExtensionsStore(options: {
         throw new Error(t("extensions.server_unavailable_github_plugins"));
       }
       const result = await target.legalworkClient.installClaudePlugin(target.legalworkWorkspaceId, { url });
+      await options.refreshConnectors?.(result.item.files.filter(file => file.objectType === "mcp").map(file => file.path.slice(OPENCODE_MCP_IMPORT_PATH_PREFIX.length)));
       await refreshSkills({ force: true });
       return {
         ok: true,
@@ -785,6 +832,20 @@ export function createExtensionsStore(options: {
   }
 
   async function refreshSkills(optionsOverride?: { force?: boolean }) {
+    if (disposed) return;
+    // A forced post-import read must run after any pre-import read. Returning
+    // early here would close the import while its skills still aren't listed.
+    while (refreshSkillsPromise) {
+      await refreshSkillsPromise;
+      if (disposed || !optionsOverride?.force) return;
+    }
+    const promise = refreshSkillsOnce(optionsOverride);
+    refreshSkillsPromise = promise;
+    try { await promise; }
+    finally { if (refreshSkillsPromise === promise) refreshSkillsPromise = null; }
+  }
+
+  async function refreshSkillsOnce(optionsOverride?: { force?: boolean }) {
     const root = options.selectedWorkspaceRoot().trim();
     const isLocalWorkspace = options.workspaceType() === "local";
     const { legalworkSnapshot, legalworkClient, legalworkWorkspaceId, hasLegalworkTarget } =
@@ -2212,6 +2273,13 @@ export function createExtensionsStore(options: {
     importGithubSkills,
     installSkillCreator,
     installHubSkill,
+    discoverPluginImports,
+    pluginCreateOptions,
+    readPackageComponent,
+    createWorkflowPlugin,
+    previewPluginImports,
+    installPluginImport,
+    refreshPluginImport,
     previewClaudePlugin,
     installClaudePlugin,
     importedPackages,

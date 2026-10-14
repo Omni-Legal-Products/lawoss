@@ -1,4 +1,6 @@
 /** @jsxImportSource react */
+import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryHeader, IntegrationLibraryActions, IntegrationLibrarySearchContext, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationAddRequest, useIntegrationLibraryLayout } from "./integration-library";
+import { SkillLibraryRow } from "./skill-library-row";
 import {
   useCallback,
   useEffect,
@@ -7,10 +9,12 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
+  type RefObject,
   type SetStateAction,
 } from "react";
 import {
   Blocks,
+  ArrowLeft,
   Bot,
   CheckCircle2,
   ChevronLeft,
@@ -55,18 +59,17 @@ import {
   pillSecondaryClass,
 } from "@/react-app/domains/workspace/modal-styles";
 import { Button } from "@/components/ui/button";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import { Spinner } from "../settings-section";
 import { fitSkillNameLength } from "@/app/utils";
-import { syncAttachedFilesSection } from "@/app/utils/skill-resources";
 import {
   dismissTemplateWorkflowRun,
   retryTemplateWorkflowImport,
   useTemplateWorkflowRun,
 } from "../state/template-workflow-generation";
 import {
-  SkillResourcesPanel,
   StagedResourcesField,
   flushStagedResources,
   type SkillResourcesStore,
@@ -77,7 +80,9 @@ import { FirmItemNote } from "../../connections/org-policy-ui";
 import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import type { LegalworkClaudePluginPreview } from "@/app/lib/legalwork-server";
 import type { FirmHubSkillFile } from "@legalwork/types/firm-hub";
-import { BuiltInSkills, ImportedPackages, packageParts, type SkillPackagesStore } from "./skill-packages";
+import { BuiltInSkills, ImportedPackages, matchingBuiltInSkills, packageParts, type SkillPackagesStore } from "./skill-packages";
+import { importedSkillPlugin, pluginImportName, pluginImportSkillName } from "./plugin-import-presentation";
+import { SkillDetailsDialog } from "./skill-details-dialog";
 import { FirmSkillDialog } from "./firm-skill-dialog";
 
 type InstallResult = { ok: boolean; message: string };
@@ -188,7 +193,7 @@ export type SkillsViewProps = {
   onOpenTemplateGenerationSession?: () => void;
   /** Firm Hub: share a skill/workflow folder org-wide (gated on admin_hub). */
   canShareWithFirm?: boolean;
-  onShareWithFirm?: (skillName: string, kind: "skill" | "workflow") => void | Promise<void>;
+  onShareWithFirm?: (skillName: string, kind: "skill" | "workflow", displayName?: string) => void | Promise<void>;
   /** Firm Hub: "download workflows shared with your firm" section (self-gating). */
   firmDownloadView?: ReactNode;
   /** Opens the multi-select "Share with your firm" dialog (Team scope only). */
@@ -218,10 +223,6 @@ type SkillsViewLocalState = {
   customRepoRef: string;
   customRepoError: string | null;
   selectedSkill: SkillCard | null;
-  selectedContent: string;
-  selectedLoading: boolean;
-  selectedDirty: boolean;
-  selectedError: string | null;
   installingSkillCreator: boolean;
   installingHubSkill: string | null;
 };
@@ -239,10 +240,6 @@ const initialSkillsViewLocalState: SkillsViewLocalState = {
   customRepoRef: "main",
   customRepoError: null,
   selectedSkill: null,
-  selectedContent: "",
-  selectedLoading: false,
-  selectedDirty: false,
-  selectedError: null,
   installingSkillCreator: false,
   installingHubSkill: null,
 };
@@ -265,6 +262,7 @@ function skillsViewLocalReducer(
 }
 
 export function SkillsView(props: SkillsViewProps) {
+  const libraryLayout = useIntegrationLibraryLayout();
   const { extensions } = props;
   const [localState, dispatchLocal] = useReducer(
     skillsViewLocalReducer,
@@ -280,10 +278,6 @@ export function SkillsView(props: SkillsViewProps) {
     customRepoRef,
     customRepoError,
     selectedSkill,
-    selectedContent,
-    selectedLoading,
-    selectedDirty,
-    selectedError,
     installingSkillCreator,
     installingHubSkill,
   } = localState;
@@ -300,10 +294,6 @@ export function SkillsView(props: SkillsViewProps) {
   const setCustomRepoRef = (value: SetStateAction<string>) => setLocal("customRepoRef", value);
   const setCustomRepoError = (value: SetStateAction<string | null>) => setLocal("customRepoError", value);
   const setSelectedSkill = (value: SetStateAction<SkillCard | null>) => setLocal("selectedSkill", value);
-  const setSelectedContent = (value: SetStateAction<string>) => setLocal("selectedContent", value);
-  const setSelectedLoading = (value: SetStateAction<boolean>) => setLocal("selectedLoading", value);
-  const setSelectedDirty = (value: SetStateAction<boolean>) => setLocal("selectedDirty", value);
-  const setSelectedError = (value: SetStateAction<string | null>) => setLocal("selectedError", value);
   const setInstallingSkillCreator = (value: SetStateAction<boolean>) => setLocal("installingSkillCreator", value);
   const setInstallingHubSkill = (value: SetStateAction<string | null>) => setLocal("installingHubSkill", value);
 
@@ -335,6 +325,13 @@ export function SkillsView(props: SkillsViewProps) {
 
 
   const isWorkflowsView = props.kind === "workflows";
+  const source = isWorkflowsView ? "all" : libraryLayout?.source ?? "all";
+  const [skillCreateOpen, setSkillCreateOpen] = useState(false);
+  const managedAdd = useIntegrationAddRequest("skill", async () => {
+    if (isWorkflowsView || props.busy) return;
+    if (await orgPolicyAllows("skills.allowCustom")) setSkillCreateOpen(true);
+  });
+  const [packagesOpen, setPackagesOpen] = useState(false);
   // Local | Team toggle: "Local" shows this workspace's installed items; "Team"
   // shows what the firm shared (firmDownloadView). Only meaningful when a Team
   // view is provided (firm-connected + entitled).
@@ -360,8 +357,11 @@ export function SkillsView(props: SkillsViewProps) {
   const allSkills = extensions.skills();
   // Each view shows only its own kind; both live in the same skill store.
   const skills = useMemo(
-    () => allSkills.filter((skill) => isWorkflowCard(skill) === isWorkflowsView),
-    [allSkills, isWorkflowsView],
+    () => allSkills.filter((skill) => isWorkflowCard(skill) === isWorkflowsView
+      && (source === "all" || (source === "team" ? Boolean(skill.firm) : !skill.firm))
+      // The embedded team catalogue includes installed and offered items together.
+      && !(libraryLayout && !isWorkflowsView && props.firmDownloadView && skill.firm)),
+    [allSkills, isWorkflowsView, source, libraryLayout, props.firmDownloadView],
   );
   const hubSkills = extensions.hubSkills();
   const hubRepo = extensions.hubRepo();
@@ -379,9 +379,10 @@ export function SkillsView(props: SkillsViewProps) {
     if (!query) return skills;
     return skills.filter((skill) => {
       const description = skill.description ?? "";
-      return skill.name.toLowerCase().includes(query) || description.toLowerCase().includes(query);
+      const owner = importedSkillPlugin(skill, libraryLayout?.importedPackages);
+      return skill.name.toLowerCase().includes(query) || pluginImportSkillName(skill).toLowerCase().includes(query) || description.toLowerCase().includes(query) || Boolean(owner && pluginImportName(owner).toLowerCase().includes(query));
     });
-  }, [searchQuery, skills]);
+  }, [searchQuery, skills, libraryLayout?.importedPackages]);
 
   // Workflows render as a paginated 2-column card grid (6 per page); skills keep
   // the hairline ledger. Page resets whenever the filtered set shrinks or search changes.
@@ -427,7 +428,7 @@ export function SkillsView(props: SkillsViewProps) {
 
   // Workflows are local-authored only — no Hub/Cloud catalogs.
   const effectiveActiveFilter = !SKILLS_HUB_UI_ENABLED && activeFilter === "hub" ? "all" : activeFilter;
-  const showInstalledSection = showLocal && (effectiveActiveFilter === "all" || effectiveActiveFilter === "installed");
+  const showInstalledSection = showLocal && (isWorkflowsView || filteredSkills.length > 0 || (source === "personal" || (source === "all" && !props.firmDownloadView && matchingBuiltInSkills(searchQuery).length === 0))) && (effectiveActiveFilter === "all" || effectiveActiveFilter === "installed");
   // Read the imported packages again once the import dialog brought one in.
   const [packagesRevision, setPackagesRevision] = useState(0);
   // One of the firm's skills, open to read.
@@ -451,6 +452,7 @@ export function SkillsView(props: SkillsViewProps) {
 
   const refreshCatalogs = useCallback(() => {
     if (props.busy) return;
+    setPackagesRevision(revision => revision + 1);
     void extensions.refreshSkills({ force: true });
     if (SKILLS_HUB_UI_ENABLED) void extensions.refreshHubSkills({ force: true });
   }, [extensions, props.busy]);
@@ -514,29 +516,7 @@ export function SkillsView(props: SkillsViewProps) {
 
 
 
-  const openSkill = useCallback(
-    async (skill: SkillCard) => {
-      if (props.busy) return;
-      setSelectedSkill(skill);
-      setSelectedContent("");
-      setSelectedDirty(false);
-      setSelectedError(null);
-      setSelectedLoading(true);
-      try {
-        const result = await extensions.readSkill(skill.name);
-        if (!result) {
-          setSelectedError(t("skills.skill_load_failed"));
-          return;
-        }
-        setSelectedContent(result.content);
-      } catch (error) {
-        setSelectedError(maskError(error));
-      } finally {
-        setSelectedLoading(false);
-      }
-    },
-    [extensions, maskError, props.busy],
-  );
+  const openSkill = (skill: SkillCard) => { if (!props.busy) setSelectedSkill(skill); };
 
   const exportSkill = useCallback(
     async (skill: SkillCard) => {
@@ -551,37 +531,6 @@ export function SkillsView(props: SkillsViewProps) {
     },
     [extensions, props.busy, props.canUseDesktopTools],
   );
-
-  // Attaching/removing a file rewrites the managed "Attached resources" section
-  // in the SKILL.md on disk. Pull the regenerated section into the editor:
-  // replace the content wholesale when it has no unsaved edits, otherwise
-  // splice just the managed block so the edits survive.
-  const syncEditorAfterResourceChange = useCallback(async () => {
-    const skill = selectedSkill;
-    if (!skill) return;
-    const result = await extensions.readSkill(skill.name);
-    if (!result) return;
-    setSelectedContent((current) =>
-      selectedDirty ? syncAttachedFilesSection(current, result.content) : result.content,
-    );
-  }, [extensions, selectedDirty, selectedSkill]);
-
-  const saveSelectedSkill = useCallback(async () => {
-    if (!selectedSkill || !selectedDirty) return;
-    setSelectedError(null);
-    try {
-      await Promise.resolve(
-        extensions.saveSkill({
-          name: selectedSkill.name,
-          content: selectedContent,
-          description: selectedSkill.description,
-        }),
-      );
-      setSelectedDirty(false);
-    } catch (error) {
-      setSelectedError(maskError(error));
-    }
-  }, [extensions, maskError, selectedContent, selectedDirty, selectedSkill]);
 
   const selectHubRepo = useCallback(
     (repo: HubSkillRepo) => {
@@ -637,10 +586,10 @@ export function SkillsView(props: SkillsViewProps) {
   };
 
   return (
-    <section className="space-y-8 w-full max-w-5xl">
-      <div className="space-y-7">
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-          <div className="min-w-0">
+    <section className={isWorkflowsView ? "space-y-8 w-full max-w-5xl" : libraryLayout ? "space-y-1 w-full max-w-5xl" : "space-y-6 w-full max-w-5xl"}>
+      <div className={isWorkflowsView ? "space-y-7" : "space-y-5"}>
+        <div className={libraryLayout ? "contents" : "flex flex-wrap items-start justify-between gap-4"}>
+          <div className={libraryLayout ? "hidden" : "min-w-0 flex-1 basis-64"}>
             {props.showHeader !== false ? (
               <>
                 <span className="lw-section-eyebrow uppercase text-dls-secondary">
@@ -653,10 +602,10 @@ export function SkillsView(props: SkillsViewProps) {
                     : t("skills.worker_profile_desc")}
                 </p>
               </>
-            ) : null}
+            ) : !isWorkflowsView ? <IntegrationLibraryHeader title={t("skills.title")} description={t("integrations.skills_description")} /> : null}
           </div>
 
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {showLocal ? <IntegrationLibraryActions><div className="flex max-w-full flex-wrap items-center gap-2">
             {isWorkflowsView ? (
               <>
                 <ImportSkillsButton
@@ -700,32 +649,43 @@ export function SkillsView(props: SkillsViewProps) {
               </>
             ) : (
               <>
-                <ImportSkillsButton
+                {!libraryLayout ? <ImportSkillsButton
                   asWorkflow={false}
                   busy={props.busy}
                   canUseDesktopTools={props.canUseDesktopTools}
                   existingNames={installedNames}
                   extensions={extensions}
                   onPackageImported={() => setPackagesRevision((revision) => revision + 1)}
-                />
-                <button
+                /> : null}
+                {!libraryLayout ? <button
                   type="button"
                   onClick={() => runDesktopAction(extensions.revealSkillsFolder)}
                   disabled={props.busy || !props.canUseDesktopTools}
-                  className={ghostActionClass}
+                  className={rowIconBtnClass}
+                  aria-label={t("skills.reveal_folder")}
+                  title={t("skills.reveal_folder")}
                 >
                   <FolderOpen size={14} />
-                  {t("skills.reveal_folder")}
-                </button>
+                </button> : null}
                 <SkillCreatorButton
+                  open={libraryLayout ? skillCreateOpen : undefined}
+                  onOpenChange={libraryLayout ? setSkillCreateOpen : undefined}
                   disabled={props.busy}
                   existingNames={installedNames}
                   onCreate={extensions.createSkill}
                   saveSkillResource={extensions.saveSkillResource}
                 />
+                {libraryLayout ? <>
+                  {!managedAdd ? <IntegrationAddMenu disabled={props.busy} actions={[{ label: t("skills.new_skill"), icon: Plus, onClick: async () => { if (await orgPolicyAllows("skills.allowCustom")) setSkillCreateOpen(true); } }]} /> : null}
+                  <IntegrationMoreMenu busy={props.busy} onRefresh={refreshCatalogs}>
+                    <DropdownMenuItem onClick={() => setPackagesOpen(true)}><Package />{t("skills.packages_title")}</DropdownMenuItem>
+                    <DropdownMenuItem disabled={props.busy || !props.canUseDesktopTools} onClick={() => runDesktopAction(extensions.revealSkillsFolder)}><FolderOpen />{t("skills.reveal_folder")}</DropdownMenuItem>
+                  </IntegrationMoreMenu>
+                </> : null}
               </>
             )}
-          </div>
+            {isWorkflowsView || props.showHeader !== false ? <Button variant="ghost" size="icon-sm" disabled={props.busy} onClick={refreshCatalogs} title={t("common.refresh")} aria-label={t("common.refresh")}><RefreshCw className="size-4" /></Button> : null}
+          </div></IntegrationLibraryActions> : null}
         </div>
 
         {showInternalToggle ? (
@@ -739,56 +699,16 @@ export function SkillsView(props: SkillsViewProps) {
           </div>
         ) : null}
 
-        {showLocal ? (
-        <div className="flex flex-col gap-3 border-t border-dls-border pt-5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="relative w-full sm:max-w-[300px]">
-            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-dls-secondary" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.currentTarget.value)}
-              placeholder={t("skills.catalog_search_placeholder")}
-              className="w-full rounded-lg border border-dls-border bg-transparent py-2 pl-9 pr-3 text-[13px] text-dls-text placeholder:text-dls-secondary focus:border-[rgba(var(--dls-accent-rgb),0.4)] focus:outline-none"
-            />
-          </div>
-
-          <div className="flex items-center gap-4 text-[13px]">
-            {isWorkflowsView
-              ? null
-              : (SKILLS_HUB_UI_ENABLED ? (["all", "installed", "hub"] as SkillsFilter[]) : (["all", "installed"] as SkillsFilter[])).map((filter) => (
-                  <button
-                    key={filter}
-                    type="button"
-                    onClick={() => setActiveFilter(filter)}
-                    className={
-                      effectiveActiveFilter === filter
-                        ? "font-medium text-dls-text transition-colors"
-                        : "text-dls-secondary transition-colors hover:text-dls-text"
-                    }
-                  >
-                    {filter === "all"
-                      ? t("skills.filter_all")
-                      : filter === "installed"
-                        ? t("skills.filter_installed")
-                        : t("skills.filter_hub")}
-                  </button>
-                ))}
-            <button
-              type="button"
-              onClick={refreshCatalogs}
-              disabled={props.busy}
-              className={rowIconBtnClass}
-              title={t("common.refresh")}
-              aria-label={t("common.refresh")}
-            >
-              <RefreshCw size={14} />
-            </button>
-          </div>
-        </div>
-        ) : null}
+        {showLocal ? <IntegrationSearch toolbar={!isWorkflowsView} value={searchQuery} onChange={setSearchQuery} label={t(isWorkflowsView ? "skills.catalog_search_placeholder" : "integrations.search_skills")} /> : null}
       </div>
 
       {showTeam ? props.firmDownloadView : null}
+      {libraryLayout && !isWorkflowsView ? <Dialog open={packagesOpen} onOpenChange={setPackagesOpen}>
+        <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-y-auto sm:max-w-3xl">
+          <DialogHeader className="pe-8"><DialogTitle>{t("skills.packages_title")}</DialogTitle><DialogDescription>{t("skills.packages_desc")}</DialogDescription></DialogHeader>
+          <ImportedPackages extensions={extensions} busy={props.busy} revision={packagesRevision + (libraryLayout.revision ?? 0)} showEmpty />
+        </DialogContent>
+      </Dialog> : null}
 
       {props.accessHint ? (
         <div className="rounded-[20px] border border-dls-border bg-dls-hover px-5 py-4 text-[13px] text-dls-secondary">
@@ -809,14 +729,7 @@ export function SkillsView(props: SkillsViewProps) {
 
       {showInstalledSection ? (
         <div className="space-y-4">
-          <div className="flex items-baseline justify-between gap-3">
-            <span className="lw-section-eyebrow uppercase text-dls-secondary">
-              {isWorkflowsView ? t("skills.workflows_title") : t("skills.eyebrow_installed")}
-            </span>
-            <span className="font-mono text-[11px] tabular-nums text-dls-secondary">
-              {filteredSkills.length.toString().padStart(2, "0")}
-            </span>
-          </div>
+          <IntegrationGroupHeading hideInLibrary={!isWorkflowsView} title={isWorkflowsView ? t("skills.workflows_title") : t("integrations.your_skills")} count={filteredSkills.length} />
 
           {isWorkflowsView && templateRun ? (
             <TemplateGenerationRow
@@ -831,16 +744,20 @@ export function SkillsView(props: SkillsViewProps) {
           ) : null}
 
           {filteredSkills.length === 0 ? (
-            <div className="rounded-[20px] border border-dashed border-dls-border py-16 text-center text-[14px] text-dls-secondary">
-              {isWorkflowsView ? t("skills.no_workflows") : t("skills.no_skills")}
-            </div>
+            <IntegrationEmptyState icon={Blocks} title={t(searchQuery.trim() ? "integrations.no_skill_matches" : isWorkflowsView ? "skills.no_workflows" : "integrations.no_skills_title")} description={t(searchQuery.trim() ? "integrations.search_hint" : "integrations.no_skills_description")} />
           ) : (
             <div className="space-y-5">
-              <div className="grid gap-3 sm:grid-cols-2">
-                {pagedWorkflows.map((skill) => {
-                  const displayName = isWorkflowsView ? workflowDisplayName(skill.name) : skill.name;
+              <div className={isWorkflowsView ? "grid gap-3 sm:grid-cols-2" : "space-y-1"}>
+                {(isWorkflowsView ? pagedWorkflows : filteredSkills).map((skill) => {
+
+                  const displayName = isWorkflowsView ? workflowDisplayName(skill.name) : pluginImportSkillName(skill);
                   const typeLabel = isWorkflowsView ? t("workflows.workflow") : isLegalworkInjectedSkill(skill) ? "LegalWork" : null;
                   const TypeIcon = isWorkflowsView ? Bot : Blocks;
+                  const owner = importedSkillPlugin(skill, libraryLayout?.importedPackages);
+                  if (!isWorkflowsView) return <SkillLibraryRow key={skill.path} name={displayName} description={skill.description || t("skills.no_description")} source={skill.firm ? t("firm_hub.scope_team") : owner ? t("integrations.plugin_source", { name: pluginImportName(owner) }) : typeLabel} busy={props.busy} onOpen={() => { if (skill.firm) setFirmSkill(skill); else void openSkill(skill); }}
+                    onExport={!skill.firm && props.canUseDesktopTools ? () => void exportSkill(skill) : undefined}
+                    onShare={!skill.firm && props.canShareWithFirm && props.onShareWithFirm ? () => void props.onShareWithFirm?.(skill.name, "skill", displayName) : undefined}
+                    onRemove={!skill.firm && props.canUseDesktopTools ? () => setUninstallTarget(skill) : undefined} />;
                   // The firm's skill follows its hub: members read it, but cannot change or remove it here.
                   if (skill.firm) {
                     return (
@@ -958,7 +875,7 @@ export function SkillsView(props: SkillsViewProps) {
                   );
                 })}
               </div>
-              {workflowPageCount > 1 ? (
+              {isWorkflowsView && workflowPageCount > 1 ? (
                 <div className="flex items-center justify-between border-t border-dls-border pt-4">
                   <span className="font-mono text-[11px] tabular-nums text-dls-secondary">
                     Page {workflowPage + 1} / {workflowPageCount}
@@ -992,10 +909,11 @@ export function SkillsView(props: SkillsViewProps) {
         </div>
       ) : null}
 
-      {showInstalledSection && !isWorkflowsView ? (
+      {showLocal && !isWorkflowsView ? (
         <>
-          <ImportedPackages extensions={extensions} busy={props.busy} revision={packagesRevision} />
-          <BuiltInSkills />
+          {libraryLayout && props.firmDownloadView ? <IntegrationLibrarySearchContext.Provider value={{ query: searchQuery, hasOtherResults: filteredSkills.length > 0 || (source === "all" && matchingBuiltInSkills(searchQuery).length > 0) }}>{props.firmDownloadView}</IntegrationLibrarySearchContext.Provider> : null}
+          {source === "team" && !props.firmDownloadView && filteredSkills.length === 0 ? <IntegrationEmptyState icon={Blocks} title={t("firm_hub.empty_skills")} /> : null}
+          {source === "all" ? <BuiltInSkills searchQuery={searchQuery} /> : null}
         </>
       ) : null}
 
@@ -1113,72 +1031,7 @@ export function SkillsView(props: SkillsViewProps) {
         </div>
       ) : null}
 
-      <Dialog
-        open={Boolean(selectedSkill)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setSelectedSkill(null);
-            setSelectedContent("");
-            setSelectedDirty(false);
-            setSelectedError(null);
-            setSelectedLoading(false);
-          }
-        }}
-      >
-        <DialogContent className="flex max-h-[88vh] min-h-0 w-full max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
-            <DialogHeader className="flex-row items-start justify-between gap-4 border-b border-subtle py-4 pl-6 pr-14 space-y-0">
-              <div className="min-w-0 space-y-1">
-                <span className="lw-section-eyebrow">{selectedSkill?.name?.startsWith("workflow") ? t("skills.eyebrow_automation") : t("skills.eyebrow_skill")}</span>
-                <DialogTitle className="min-w-0 truncate text-lg font-semibold text-ink">{selectedSkill?.name}</DialogTitle>
-                {selectedSkill?.description ? (
-                  <p className="line-clamp-1 text-sm text-subtext">{selectedSkill.description}</p>
-                ) : null}
-              </div>
-              <Button
-                type="button"
-                variant="default"
-                disabled={!selectedDirty || props.busy}
-                onClick={() => void saveSelectedSkill()}
-              >
-                {t("common.save")}
-              </Button>
-            </DialogHeader>
-
-            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
-              {selectedError ? <div className="rounded-xl border border-danger/25 bg-danger-soft px-4 py-3 text-sm text-danger">{selectedError}</div> : null}
-              {selectedLoading ? (
-                <div className="flex items-center gap-2 text-sm text-subtext"><Spinner className="size-4" /> {t("skills.loading")}</div>
-              ) : (
-                <>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-2xs font-semibold uppercase tracking-wide text-tertiary">Definition</span>
-                      <span className="text-2xs text-tertiary">Markdown</span>
-                    </div>
-                    <textarea
-                      value={selectedContent}
-                      onChange={(event) => {
-                        setSelectedContent(event.currentTarget.value);
-                        setSelectedDirty(true);
-                      }}
-                      className="min-h-[380px] w-full resize-none rounded-2xl border border-subtle bg-sunken px-4 py-3.5 text-[13px] font-mono leading-relaxed text-ink transition-[border-color,box-shadow] focus:border-brand focus:outline-none focus:ring-2 focus:ring-[var(--lw-focus-ring)]"
-                      spellCheck={false}
-                    />
-                  </div>
-                  {/* Firm templates/playbooks packaged inside this skill's own folder. */}
-                  {selectedSkill ? (
-                    <SkillResourcesPanel
-                      skillName={selectedSkill.name}
-                      busy={props.busy}
-                      extensions={extensions}
-                      onChanged={() => void syncEditorAfterResourceChange()}
-                    />
-                  ) : null}
-                </>
-              )}
-            </div>
-        </DialogContent>
-      </Dialog>
+      {selectedSkill ? <SkillDetailsDialog key={selectedSkill.name} skill={selectedSkill} extensions={extensions} busy={props.busy} canEdit={props.canInstallSkillCreator} initialEditing={isWorkflowsView} onClose={() => setSelectedSkill(null)} /> : null}
 
       {firmSkill ? (
         <FirmSkillDialog name={firmSkill.name} added={firmSkill.firm === "optional"} read={extensions.readFirmSkill} onClose={() => setFirmSkill(null)} />
@@ -1187,7 +1040,7 @@ export function SkillsView(props: SkillsViewProps) {
       <ConfirmModal
         open={Boolean(uninstallTarget)}
         title={t("skills.uninstall_title")}
-        message={t("skills.uninstall_warning").replace("{name}", uninstallTarget?.name ?? "")}
+        message={t("skills.uninstall_warning").replace("{name}", uninstallTarget ? pluginImportSkillName(uninstallTarget) : "")}
         confirmLabel={t("skills.uninstall")}
         cancelLabel={t("common.cancel")}
         confirmButtonVariant="destructive"
@@ -1278,12 +1131,16 @@ export function SkillsView(props: SkillsViewProps) {
  * (installSkillTemplate). No round-trip through chat.
  */
 function SkillCreatorButton(props: {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   disabled?: boolean;
   existingNames: Set<string>;
   onCreate: (input: { name: string; content: string; description?: string }) => Promise<{ ok: boolean; message: string }>;
   saveSkillResource: SkillResourcesStore["saveSkillResource"];
 }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = props.open ?? internalOpen;
+  const setOpen = props.onOpenChange ?? setInternalOpen;
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [body, setBody] = useState("");
@@ -1337,17 +1194,16 @@ function SkillCreatorButton(props: {
 
   return (
     <>
-      <button
-        type="button"
+      {props.open === undefined ? <Button
+        size="sm"
         onClick={async () => {
           if (await orgPolicyAllows("skills.allowCustom")) setOpen(true);
         }}
         disabled={props.disabled}
-        className={pillPrimaryClass}
       >
         <Plus size={14} />
         {t("skills.new_skill")}
-      </button>
+      </Button> : null}
       <Dialog
         open={open}
         onOpenChange={(next) => {
@@ -1688,14 +1544,22 @@ function WorkflowCreatorButton(props: {
   );
 }
 
+export type SkillImportStore = Pick<SkillsExtensionsStore, "scanGithubSkills" | "previewClaudePlugin" | "importGithubSkills" | "installClaudePlugin" | "importLocalSkill" | "importLocalSkillZip">;
+export type SkillImportSource = "github" | "files";
+
 export function ImportSkillsButton(props: {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  onBack?: () => void;
+  onImported?: () => void;
+  returnFocus?: false | RefObject<HTMLElement | null>;
+  /** Standalone workflow import keeps both sources when this is omitted. */
+  source?: SkillImportSource;
   asWorkflow: boolean;
   busy: boolean;
   canUseDesktopTools: boolean;
   existingNames: Set<string>;
-  extensions: SkillsExtensionsStore;
+  extensions: SkillImportStore;
   /** A whole package was imported (skills, connectors and commands together). */
   onPackageImported?: () => void;
 }) {
@@ -1821,6 +1685,7 @@ export function ImportSkillsButton(props: {
       if (result.ok) {
         toast.success(result.message);
         setSelected(new Set());
+        props.onImported?.();
       }
     } finally {
       setImporting(false);
@@ -1858,18 +1723,18 @@ export function ImportSkillsButton(props: {
 
   return (
     <>
-      <button
+      <Button
         hidden={props.open !== undefined}
-        type="button"
+        variant="outline"
+        size="sm"
         onClick={async () => {
           if (await orgPolicyAllows("skills.allowCustom")) setOpen(true);
         }}
         disabled={props.busy}
-        className={ghostActionClass}
       >
         <Download size={14} />
-        {t("skills.import")}
-      </button>
+        {t(asWorkflow ? "skills.import" : "skills.import_skills_title")}
+      </Button>
       <Dialog
         open={open}
         onOpenChange={(next) => {
@@ -1877,18 +1742,18 @@ export function ImportSkillsButton(props: {
           if (!next) reset();
         }}
       >
-        <DialogContent className="flex max-h-[88vh] min-h-0 w-full max-w-2xl flex-col overflow-hidden sm:max-w-2xl">
+        <DialogContent className={`flex max-h-[88vh] min-h-0 w-full flex-col overflow-hidden ${props.source === "files" ? "max-w-md sm:max-w-md" : "max-w-2xl sm:max-w-2xl"}`} finalFocus={props.returnFocus}>
           <DialogHeader>
-            <DialogTitle>{asWorkflow ? t("skills.import_workflows_title") : t("skills.import_skills_title")}</DialogTitle>
+            {props.onBack ? <Button variant="link" size="xs" className="mb-2 w-fit px-0 text-muted-foreground" disabled={scanning || importing} onClick={() => { reset(); props.onBack?.(); }}><ArrowLeft className="size-3.5" />{t("common.back")}</Button> : null}
+            <DialogTitle>{t(asWorkflow ? "skills.import_workflows_title" : props.source === "github" ? "integrations.import_github" : props.source === "files" ? "integrations.import_files" : "integrations.import_skill_files")}</DialogTitle>
             <DialogDescription>
-              Bring in {noun} folders from a GitHub repo or a local folder. Each is a directory containing a SKILL.md.
-              {asWorkflow ? " Imported items are added as workflows." : ""}
+              {asWorkflow ? "Bring in workflow folders from a GitHub repo or a local folder. Each is a directory containing a SKILL.md. Imported items are added as workflows." : t(props.source === "github" ? "integrations.import_github_description" : props.source === "files" ? "integrations.import_files_description" : "integrations.import_skill_files_description")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-px py-1">
-            <div className="space-y-2">
-              <span className="text-xs font-medium text-dls-text">{t("skills.from_github")}</span>
+            {props.source !== "files" ? <div className="space-y-2">
+              {!props.source ? <span className="text-xs font-medium text-dls-text">{t("skills.from_github")}</span> : null}
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input
                   value={url}
@@ -2013,12 +1878,12 @@ export function ImportSkillsButton(props: {
                   </Button>
                 </div>
               ) : null}
-            </div>
+            </div> : null}
 
-            <Separator />
+            {!props.source ? <Separator /> : null}
 
-            <div className="space-y-2">
-              <span className="text-xs font-medium text-dls-text">{t("skills.from_this_machine")}</span>
+            {props.source !== "github" ? <div className="space-y-2">
+              {!props.source ? <span className="text-xs font-medium text-dls-text">{t("skills.from_this_machine")}</span> : null}
               <p className="text-[12px] leading-relaxed text-dls-secondary">
                 {t("skills.import_hint")}
               </p>
@@ -2035,7 +1900,7 @@ export function ImportSkillsButton(props: {
               {!props.canUseDesktopTools ? (
                 <p className="text-[11px] text-dls-secondary/70">{t("skills.desktop_required")}</p>
               ) : null}
-            </div>
+            </div> : null}
           </div>
 
           <DialogFooter>

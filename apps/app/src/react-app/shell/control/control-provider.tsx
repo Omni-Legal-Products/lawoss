@@ -52,7 +52,7 @@ export type LegalworkOpenFile = { id: string; sessionId: string; sessionIds?: re
 export type LegalworkControlSurface = {
   id: string;
   kind: "document";
-  format: "docx" | "xlsx" | "pptx" | "md";
+  format: "docx" | "xlsx" | "pptx" | "md" | "pdf";
   sessionId: string;
   sessionIds?: readonly string[];
   workspaceId: string;

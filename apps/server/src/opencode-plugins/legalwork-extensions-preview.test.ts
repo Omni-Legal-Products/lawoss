@@ -488,3 +488,39 @@ describe("project-scoped document controls", () => {
     expect(JSON.parse(await plugin.tool.inapp_documents_list.execute({}, { sessionID: "ses_old" }))).toEqual({ files: [], activeDocument: null });
   });
 });
+
+describe("requested document navigation", () => {
+  test("instructions require a user request without quote or confirmation fields", async () => {
+    const plugin = await LegalWorkExtensionsPreview();
+    const output: { system: string[] } = { system: [] };
+    await plugin["experimental.chat.system.transform"]({}, output);
+    expect(output.system.join("\n")).toContain("ONLY when the user explicitly asks");
+    expect(Object.keys(plugin.tool.inapp_documents_navigate.args)).toEqual(["path", "target"]);
+  });
+
+  test("routes all four formats using this session and preserves read-only access", async () => {
+    let currentFormat = "pdf";
+    const calls: unknown[] = [];
+    await withBridge({ activeSurface: { kind: "document", get format() { return currentFormat; }, sessionId: "pane", sessionIds: ["chat"], name: "File", path: "file", editable: false } }, body => { calls.push(body); return { ok: true }; });
+    const plugin = await LegalWorkExtensionsPreview();
+    for (const format of ["pdf", "docx", "pptx", "xlsx"]) {
+      currentFormat = format;
+      const target = format === "pptx" ? { kind: "slide", slide: 3 } : format === "xlsx" ? { kind: "cells", sheet: "Budget", range: "B20:D22" } : { kind: "page", page: 3 };
+      expect(JSON.parse(await plugin.tool.inapp_documents_navigate.execute({ path: "file", target }, { sessionID: "chat" })).ok).toBe(true);
+      expect(calls.at(-1)).toEqual({ actionId: "documents.navigate", args: { path: "file", target, sessionId: "chat" } });
+    }
+  });
+
+  test("rejects a different session, stale path, wrong format, invalid destination and scheduled runs", async () => {
+    let executions = 0;
+    await withBridge({ activeSurface: { kind: "document", format: "pdf", sessionId: "chat", name: "File", path: "file.pdf" } }, () => { executions++; return { ok: true }; });
+    const plugin = await LegalWorkExtensionsPreview();
+    const args = { path: "file.pdf", target: { kind: "page", page: 2 } };
+    for (const [request, context] of [[args, { sessionID: "other" }], [{ ...args, path: "other.pdf" }, { sessionID: "chat" }], [{ ...args, target: { kind: "slide", slide: 2 } }, { sessionID: "chat" }]] satisfies Array<[unknown, { sessionID: string }]>) {
+      expect(JSON.parse(await plugin.tool.inapp_documents_navigate.execute(request, context)).ok).toBe(false);
+    }
+    for (const page of [0, -1, 1.5]) await expect(plugin.tool.inapp_documents_navigate.execute({ ...args, target: { kind: "page", page } }, { sessionID: "chat" })).rejects.toThrow();
+    for (const agent of [PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT]) await expect(plugin.tool.inapp_documents_navigate.execute(args, { sessionID: "chat", agent })).rejects.toThrow("cannot control");
+    expect(executions).toBe(0);
+  });
+});

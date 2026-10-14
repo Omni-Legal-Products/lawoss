@@ -11,6 +11,7 @@ import { serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-sh
 const RULES = `## Connected file storage
 Use storage_* tools for file storage connected in Settings and shown in Memory Drive. The same tools work across providers and multiple connections.
 - Questions about matters, clients, or "what did we do in matter ..." concern the firm's records, not previous chats. Use the source the user names; otherwise search this project’s linked folders first when present. Only when no project folders are linked, use live LegalMemory when connected, or these storage tools. Do not start with UI session actions, local glob/grep, Python, or shell commands to discover remote records.
+- Google Drive, OneDrive and SharePoint use these storage tools. Google Docs/Sheets/Slides open as Office exports: respect writable=false, edit a separate workspace copy, and never describe those edits as updating the native Google document. Native metadata/link and alternate export tools remain available.
 - Start with storage_list_connections. Use the returned connection_id, never a display name as an identifier. Every path is relative to that connection's root. Preserve the connection ID and path when referring to results; equal filenames can belong to different sources.
 - For a matter/client identifier or an unknown folder location, call storage_search with mode=path (the default), query set to the identifier, and path='' unless a narrower folder is already known. This matches literal text anywhere in full file paths, including parent folder names, recursively on every provider. No capability check is needed for this mode. Use returned paths to select the exact matter; a substring match can also include similarly numbered matters. Do not guess a root path_prefix or use filename-only search for a folder identifier.
 - For a filename lookup, use storage_search_filenames. It matches only the filename, not parent folders. Both metadata searches read listings, not file contents or empty folders. Scope path to the relevant folder when known. A page can contain zero matches and still have nextCursor: continue only those connections with cursors, preserving query, mode and path. complete means this metadata scan finished, not that document contents were searched or the matter does not exist elsewhere.
@@ -32,7 +33,7 @@ const sourceArgs = z.object({
 const workspaceSchema = z.object({ items: z.array(z.object({ id: z.string(), path: z.string() })) });
 const rootsSchema = z.object({
   teamError: z.string().optional(),
-  roots: z.array(z.object({ id: z.string(), name: z.string(), kind: z.string(), writable: z.boolean() })),
+  roots: z.array(z.object({ id: z.string(), name: z.string(), kind: z.string(), provider: z.string().optional(), writable: z.boolean() })),
 });
 const fileSchema = z.object({
   localPath: z.string(),
@@ -50,7 +51,7 @@ async function request(path: string, method = "GET", body?: unknown): Promise<un
     throw new ApiError(503, "storage_connection_unavailable", "The workspace connection is not ready.");
   const response = await fetch(`${url}${path}`, {
     method,
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(process.env.LEGALWORK_CONNECTOR_TOKEN ? { "x-legalwork-connector-token": process.env.LEGALWORK_CONNECTOR_TOKEN } : {}) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal: AbortSignal.timeout(900_000),
   });

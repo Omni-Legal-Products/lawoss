@@ -426,6 +426,30 @@ describe("workspace session read APIs", () => {
     expect(mock.requests.some((request) => request.pathname === "/session")).toBe(true);
   });
 
+  test("forwards sandbox-rewritten prompts without a stale content length", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const mock = startMockOpencode();
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, agentSandboxEnabled: true });
+    const originalFetch = globalThis.fetch;
+    let forwarded: { headers: Headers; body: unknown } | undefined;
+    globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      if (String(input) === `http://127.0.0.1:${mock.server.port}/session/ses_1/message` && init?.method === "POST") {
+        if (!(init.body instanceof ArrayBuffer)) throw new Error("expected buffered proxy body");
+        forwarded = { headers: new Headers(init.headers), body: JSON.parse(Buffer.from(init.body).toString()) };
+        return Response.json({ info: { id: "response", role: "assistant" }, parts: [] });
+      }
+      return originalFetch(input, init);
+    }, originalFetch);
+    stops.push(() => { globalThis.fetch = originalFetch; });
+    const body = JSON.stringify({ parts: [{ type: "text", text: "Verify connection" }], tools: { bash: false } });
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/opencode/session/ses_1/message`, {
+      method: "POST", headers: { ...auth(legalwork.token), "Content-Type": "application/json", "Content-Length": String(Buffer.byteLength(body)) }, body,
+    });
+    expect(response.status).toBe(200);
+    expect(forwarded?.body).toMatchObject({ tools: { bash: false, legalwork_shell: false } });
+    expect(forwarded?.headers.get("content-length")).toBeNull();
+  });
+
   test("returns 502 when OpenCode returns an invalid session list payload", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const mock = startMockOpencode({ invalidList: true });

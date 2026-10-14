@@ -1,3 +1,4 @@
+import { documentNavigationTargetSchema, type DocumentNavigationTarget } from "@legalwork/types/office-editor";
 import { isDocumentReadTool } from "./document-agent-read";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { toast } from "@/components/ui/sonner";
@@ -5,6 +6,7 @@ import { t } from "@/i18n";
 
 export type OfficeAgentResult = { success: boolean; data?: unknown; saved?: boolean; error?: string };
 export type OfficeEditorApi = {
+  navigate: (target: DocumentNavigationTarget) => Promise<unknown>;
   save: () => Promise<boolean>;
   drain: () => Promise<void>;
   getBuffer: () => Promise<ArrayBuffer | null>;
@@ -26,6 +28,7 @@ export function useOfficeEditor(props: OfficeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const serialize = useRef<(() => Promise<ArrayBuffer>) | null>(null);
   const agentTool = useRef<((name: string, args: Record<string, unknown>) => Promise<{ data: unknown; mutated?: boolean }>) | null>(null);
+  const navigation = useRef<((target: DocumentNavigationTarget) => Promise<unknown>) | null>(null);
   const afterSave = useRef<(() => void) | null>(null);
   const latest = useRef(props);
   latest.current = props;
@@ -98,7 +101,12 @@ export function useOfficeEditor(props: OfficeEditorProps) {
         if (!reading) { setSaving(false); latest.current.onSavingChange?.(false); }
       }
     };
-    const api = { save, getBuffer, revision: () => revision.current, executeAgentTool, drain: () => busy.current ? new Promise<void>(resolve => idle.current.push(resolve)) : Promise.resolve() };
+    const navigate = async (target: DocumentNavigationTarget) => {
+      if (busy.current) throw new Error("The document is busy. Retry after saving finishes.");
+      if (!navigation.current) throw new Error("The document is still loading.");
+      return navigation.current(documentNavigationTargetSchema.parse(target));
+    };
+    const api = { navigate, save, getBuffer, revision: () => revision.current, executeAgentTool, drain: () => busy.current ? new Promise<void>(resolve => idle.current.push(resolve)) : Promise.resolve() };
     props.apiRef.current = api;
     const element = host.current;
     const keydown = (event: KeyboardEvent) => {
@@ -111,5 +119,5 @@ export function useOfficeEditor(props: OfficeEditorProps) {
     element?.addEventListener("keydown", keydown, true);
     return () => { if (props.apiRef.current === api) props.apiRef.current = null; element?.removeEventListener("keydown", keydown, true); };
   }, [props.apiRef, changed]);
-  return { host, serialize, agentTool, afterSave, changed, saving, error, setError };
+  return { host, serialize, agentTool, navigation, afterSave, changed, saving, error, setError };
 }

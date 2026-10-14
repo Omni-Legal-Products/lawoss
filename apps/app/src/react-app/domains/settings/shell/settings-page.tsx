@@ -391,10 +391,10 @@ export function SettingsPage(props: SettingsPageProps) {
   return (
     <SettingsContent>
       <SettingsPanel key={props.activeTab} className={props.activeTab === "extensions" ? "lw-enter lg:max-w-5xl" : "lw-enter"}>
-        <SettingsPanelHeading>
+        {props.activeTab !== "extensions" ? <SettingsPanelHeading>
           <SettingsPanelTitle>{getSettingsTabLabel(props.activeTab)}</SettingsPanelTitle>
           <SettingsPanelDescription>{getSettingsTabDescription(props.activeTab)}</SettingsPanelDescription>
-        </SettingsPanelHeading>
+        </SettingsPanelHeading> : null}
 
         {props.showUpdateToolbar && props.activeTab === "general" ? (
           <SettingsPanelToolbar>

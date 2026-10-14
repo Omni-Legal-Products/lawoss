@@ -54,6 +54,22 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.package_desktop
     needs: sandbox-runtime
     uses: ./.github/workflows/ci-desktop-packaging.yml
+  windows-drafts:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Test portable drafts
+        run: pnpm test:drafts
+      - name: Test Windows Outlook handoff
+        run: node --test apps/desktop/electron/mail-draft.test.mjs
+
   legalwork-tests:
     runs-on: ${{ matrix.os }}
 
@@ -104,6 +120,9 @@ jobs:
         run: |
           pnpm --filter legalwork-server build
           LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/scheduled-tasks/engine.test.ts
+
+      - name: Verify built draft routes load in Node
+        run: pnpm test:drafts:build
 
       - name: Verify whole-agent prompt cache contract
         env:

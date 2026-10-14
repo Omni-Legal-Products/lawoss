@@ -37,11 +37,13 @@ const placeholders = (value: string): string[] =>
  * Everything else matching English is an untranslated string.
  */
 const GERMAN_KEEPS_ENGLISH = new Set<string>([
+  "plugin_create.kind", "plugin_create.name",
+  "composer.plugin_pill", // Plugin is the same product term in both languages.
   "workspace.overview", // Home is the shared navigation label in both languages.
   "scheduled.name", // Identical German and English noun.
   "projects.schema.priority_normal", "projects.schema.budget", // Identical German and English terms.
   "review.status", // Identical German and English noun.
-  "sidebar.project_name", "project_filters.title", // "Name" and "Filter" are identical German nouns.
+  "sidebar.project_name", "project_filters.title", "integrations.filter", // "Name" and "Filter" are identical German nouns.
   "review.mixed", // Product model names: JEV + LLM.
   "review.sets", "review.prompts", "workflows.workflow", // Established product terminology in both languages.
   "systemone.typesafe",
@@ -78,6 +80,7 @@ const GERMAN_KEEPS_ENGLISH = new Set<string>([
   "settings.status_label", "settings.default_label", "settings.diag_default",
   "mcp.apps_title", "mcp.your_apps", "mcp.available_apps", "mcp.server_type", "mcp.logout_label",
   "mcp.oauth_scope", "mcp.oauth_client_id", "mcp.oauth_client_secret", "mcp.server_url",
+  "add_mcp.url_tab", // URL is the same acronym in German.
   "mcp.server_command_placeholder", "mcp.server_name_placeholder", "mcp.server_url_placeholder",
   "mcp.type_remote", "mcp.friendly_status_offline", "mcp.config_file", "mcp.scope_global",
   "mcp.scope_project", "mcp.technical_details", "mcp.last_synced", "mcp.oauth_advanced_title",
@@ -134,6 +137,8 @@ const GERMAN_KEEPS_ENGLISH = new Set<string>([
 
 /** Text that speaks TO the agent, where "du" is the intended register. */
 const AGENT_FACING = new Set<string>([
+  "connectors.prompt",
+  "connectors.calendar_prompt", "connectors.files_prompt",
   "blueprint.starter_blueprint_prompt", "blueprint.starter_chrome_prompt",
   "blueprint.starter_command_prompt", "blueprint.starter_csv_prompt",
   "blueprint.starter_explore_prompt", "blueprint.csv_session_user",

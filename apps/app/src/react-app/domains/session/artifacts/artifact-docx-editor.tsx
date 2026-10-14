@@ -1,3 +1,4 @@
+import { documentNavigationTargetSchema, type DocumentNavigationTarget } from "@legalwork/types/office-editor";
 import { acceptTemplateRevisions, templateRevisionIds } from "./docx-template-revisions";
 import { normalizeDocxLineBreaks } from "./docx-line-breaks";
 import { isDocumentReadTool } from "./document-agent-read";
@@ -38,6 +39,7 @@ import { createDocumentAutosave } from "./document-autosave";
 setGoogleFontsEnabled(false);
 
 export type DocxEditorApi = {
+  navigate: (target: DocumentNavigationTarget) => Promise<unknown>;
   /** Serialize and persist the current document. Never clears edits made during a save. */
   save: () => Promise<boolean>;
   flushSave: () => Promise<boolean>;
@@ -374,7 +376,16 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
 
   useEffect(() => {
     if (!apiRef) return;
-    apiRef.current = { save, getBuffer, revision: () => { checkDocument(); return revision.current; }, isDirty: () => { checkDocument(); return dirty.current; },
+    apiRef.current = { navigate: async (rawTarget) => {
+      const target = documentNavigationTargetSchema.parse(rawTarget);
+      if (target.kind !== "page") throw new Error("Word navigation requires a page number.");
+      if (!ready.current) throw new Error("The document is still loading.");
+      const pages = containerRef.current?.querySelectorAll<HTMLElement>(".layout-page");
+      const page = pages?.[target.page - 1];
+      if (!page) throw new Error(`Page ${target.page} is unavailable. The current layout has ${pages?.length ?? 0} pages.`);
+      page.scrollIntoView({ block: "start", behavior: "instant" });
+      return { page: target.page, pageCount: pages!.length };
+    }, save, getBuffer, revision: () => { checkDocument(); return revision.current; }, isDirty: () => { checkDocument(); return dirty.current; },
       flushSave: async () => {
         if (pendingSave.current && !await pendingSave.current) return false;
         checkDocument();

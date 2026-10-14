@@ -1,3 +1,5 @@
+import { connectorDefinitions } from "@legalwork/types/connectors";
+import { resolveBrandIconSrc } from "../../../design-system/extension-icon-src";
 import { hasStorageEntryDragForWorkspace } from "@/app/lib/storage-entry-drag";
 import { useProjectFiles } from "../../workspace/project-file-context";
 import { hasProjectFileDrag } from "@/app/lib/project-file-drag";
@@ -117,7 +119,7 @@ export function StorageDriveTree({ client, workspaceId, roots, onOpenFile }: Tre
     const source = roots.find((root) => root.id === item.connectionId);
     if (!source) return;
     transferring.current = true;
-    const name = item.path.split("/").at(-1)!;
+    const name = item.name ?? item.path.split("/").at(-1)!;
     setSelected(target);
     setError("");
     setNotice("");
@@ -176,15 +178,6 @@ export function StorageDriveTree({ client, workspaceId, roots, onOpenFile }: Tre
           <FolderPlus className="size-3.5" />
         </Button>
       </div>
-      {selected && (
-        <p
-          className="truncate px-2 pb-1 text-[10px] text-muted-foreground"
-          title={`${selected.root.name}/${selected.path}`}
-        >
-          {selected.root.name}
-          {selected.path ? ` / ${selected.path}` : ""}
-        </p>
-      )}
       <input
         ref={uploadInput}
         type="file"
@@ -449,8 +442,8 @@ function StorageFolder(props: FolderProps) {
           <ChevronRight
             className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")}
           />
-          <span className="relative flex size-5 shrink-0">
-            <FolderIcon open={open} />
+          <span className="relative flex size-5 shrink-0 items-center justify-center">
+            {depth === 0 && root.provider && connectorDefinitions.some((item) => item.id === root.provider) ? <img src={resolveBrandIconSrc(undefined, connectorDefinitions.find((item) => item.id === root.provider)?.icon)} alt="" className="size-4 object-contain" /> : <FolderIcon open={open} />}
             {isPending && <span className="absolute -right-1 -bottom-1 flex size-3.5 items-center justify-center rounded-full bg-background text-foreground ring-2 ring-background"><Loader2 className="size-3 animate-spin" /></span>}
           </span>
           <span className={cn("min-w-0 flex-1 truncate", depth === 0 && "font-medium")}>{name}</span>

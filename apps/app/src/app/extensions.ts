@@ -1,4 +1,5 @@
 import { t } from "@/i18n";
+import { connectorDefinitions } from "@legalwork/types/connectors";
 // Owned here: reload vocabulary is part of the extension manifest contract.
 // types.ts re-exports it for the rest of the app.
 export type ReloadReason = "plugins" | "skills" | "mcp" | "config" | "agents" | "commands";
@@ -151,6 +152,16 @@ export function isTrustedBuiltInExtension(manifest: LegalWorkExtensionManifest |
 }
 
 export const BUILT_IN_LEGALWORK_EXTENSION_MANIFESTS: LegalWorkExtensionManifest[] = [
+  ...connectorDefinitions.map(({ id, name, icon, descriptionKey, promptKey }): LegalWorkExtensionManifest => ({
+    schemaVersion: 1, id, name,
+    get description() { return t(descriptionKey); },
+    source: { format: "legalwork-builtin", origin: "builtin", trusted: true },
+    icon: { simpleIconSlug: icon },
+    composer: { get prompt() { return t(promptKey, { name, id }); } },
+    resources: [ { type: "provider", id, label: name, providerId: id, required: true } ],
+    contributions: [ { type: "settings-panel", ref: id, location: "settings-detail" } ],
+    lifecycle: { detection: [`provider:${id}`] },
+  })),
   {
     schemaVersion: 1,
     id: "legalwork-voice",

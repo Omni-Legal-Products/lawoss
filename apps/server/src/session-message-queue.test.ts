@@ -113,6 +113,23 @@ test("hidden queued context survives validation and restart without changing the
   expect(payload).not.toHaveProperty("system");
   expect(payload).not.toHaveProperty("kind");
 });
+test("whole-plugin chips survive shared queue validation, restart and editing", async () => {
+  const transport = { idle: async () => false, send: async () => {} };
+  const { queue, dir } = await setup(transport);
+  const value = "legalwork-plugin://github?name=GitHub";
+  const item = queueActionSchema.parse({ ...message(), draft: { mode: "prompt", text: `Use @${encodeURIComponent(value)}`, parts: [{ type: "plugin", pluginId: "github", label: "GitHub" }], attachments: [], editor: { mentions: { [value]: "plugin" }, pasteParts: [] } } });
+  if (item.type !== "enqueue") throw new Error("Expected enqueue");
+  await queue.act("w", "s", item); queue.stop();
+  const restored = new SessionMessageQueue(dir, transport); cleanups.push(async () => restored.stop());
+  const state = await restored.read("w", "s");
+  expect(state.entries[0].draft).toEqual(item.draft);
+  const token = crypto.randomUUID();
+  await restored.act("w", "s", { type: "edit", id: item.id, token, revision: state.revision });
+  const edited = await restored.act("w", "s", { ...item, editToken: token, draft: { ...item.draft, text: `${item.draft.text} to review changes` } });
+  expect(edited.entries[0].draft.parts).toEqual(item.draft.parts);
+  expect(edited.entries[0].draft.editor.mentions).toEqual({ [value]: "plugin" });
+  expect(edited.entries[0].draft.text).toEndWith("to review changes");
+});
 test("legacy queued context dispatches as a hidden message part without mutating the saved entry", () => {
   const execution = message().execution;
   if (execution.kind !== "prompt") throw new Error("Expected prompt");

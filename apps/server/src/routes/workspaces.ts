@@ -404,7 +404,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       body.folderMode = "default";
       body.preset = "starter";
     }
-    const preparedFolders = await options.projectFolders?.prepare(body.remoteFolders);
+    const preparedFolders = await options.projectFolders?.prepare(body.remoteFolders, ctx);
     if (body.fromRemoteFolder && !preparedFolders?.length) throw new ApiError(400, "project_folder_required", "Select a remote folder first.");
     if (body.projectFields !== undefined && body.templateId !== undefined)
       throw new ApiError(400, "invalid_project_template", "Choose either a template or explicit fields.");

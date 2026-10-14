@@ -1,15 +1,24 @@
+import { IntegrationLibraryRow, IntegrationGroupHeading, IntegrationEmptyState, IntegrationSearch, useIntegrationLibraryLayout } from "./integration-library";
 /** @jsxImportSource react */
 import { useEffect, useState } from "react";
-import { Blocks, Package, Trash2 } from "lucide-react";
+import { Blocks, Loader2, Package } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 import { t } from "@/i18n";
 import { toast } from "@/components/ui/sonner";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import type { ImportedPlugin } from "../../../../app/lib/extension-imports";
 import { BUILT_IN_SKILLS } from "../built-in-skills";
+import { pluginImportName } from "./plugin-import-presentation";
+import { PluginDetailsDialog, type PluginDetailsAccess } from "./plugin-details-dialog";
+import { packageParts, pluginFileInstalledName } from "./plugin-package-contents";
+import { PluginConnectorStatus } from "./connector-status";
+export { ImportedPackageContents, packageParts } from "./plugin-package-contents";
 
 /**
- * Two parts of the Skills tab: the packages imported into this workspace (a
+ * Installed bundles in the Plugins tab and all import records in its manager (a
  * package brings skills, connectors and commands at once; each part also shows
  * in its own list) and the skills built into LegalWork.
  */
@@ -19,96 +28,82 @@ export type SkillPackagesStore = {
   removeImportedPackage: (pluginId: string) => Promise<void>;
 };
 
-const cardClass = "rounded-[16px] border border-dls-border bg-dls-surface p-3.5";
-const iconClass = "inline-flex size-7 shrink-0 items-center justify-center rounded-[9px] border border-dls-border bg-dls-hover text-dls-accent";
-
-const PART_COPY = {
-  skill: "skills.package_skills",
-  mcp: "skills.package_connectors",
-  command: "skills.package_commands",
-  agent: "skills.package_agents",
-} as const;
-
-/** What a package brings, from the type of each of its parts, in words: "2 skills · 1 connector". */
-export function packageParts(types: readonly string[]): string {
-  return (["skill", "mcp", "command", "agent"] as const)
-    .map((type) => ({ type, count: types.filter((each) => each === type).length }))
-    .filter(({ count }) => count > 0)
-    .map(({ type, count }) => t(PART_COPY[type], { count }))
-    .join(" · ");
-}
-
 export function ImportedPackages(props: {
   extensions: SkillPackagesStore;
   busy: boolean;
   /** Changes when a package was imported, so the list is read again. */
   revision: number;
+  searchQuery?: string;
+  showEmpty?: boolean;
+  onChanged?: (pluginId: string) => void;
+  /** The public Plugins library excludes standalone skill/connector imports. */
+  library?: boolean;
+  canRemove?: boolean;
+  detailsAccess?: PluginDetailsAccess;
 }) {
   const { extensions } = props;
-  const [packages, setPackages] = useState<ImportedPlugin[]>([]);
+  const layout = useIntegrationLibraryLayout();
+  const cached = layout?.importedPackages;
+  const connectorState = layout?.connectorState;
+  const [packages, setPackages] = useState<readonly ImportedPlugin[]>(cached ?? []);
+  const [loading, setLoading] = useState(cached === undefined);
+  const [error, setError] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selected, setSelected] = useState<ImportedPlugin | null>(null);
   const [removing, setRemoving] = useState<ImportedPlugin | null>(null);
 
   useEffect(() => {
     let stopped = false;
+    if (cached !== undefined) { setPackages(cached); setLoading(false); setError(""); return; }
+    setLoading(true);
+    setError("");
     extensions.importedPackages()
       .then((list) => {
         if (!stopped) setPackages(list);
       })
-      .catch(() => {
-        // The server is not reachable: nothing to show until it is.
-      });
+      .catch(cause => { if (!stopped) setError(cause instanceof Error ? cause.message : t("skills.unknown_error")); })
+      .finally(() => { if (!stopped) setLoading(false); });
     return () => {
       stopped = true;
     };
-  }, [extensions, props.revision]);
+  }, [extensions, props.revision, cached]);
 
   async function remove(plugin: ImportedPlugin) {
     try {
       await extensions.removeImportedPackage(plugin.pluginId);
       setPackages((list) => list.filter((each) => each.pluginId !== plugin.pluginId));
-      toast.success(t("skills.package_removed", { name: plugin.name }));
+      props.onChanged?.(plugin.pluginId);
+      toast.success(t("skills.package_removed", { name: pluginImportName(plugin) }));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("skills.unknown_error"));
     }
   }
 
-  if (packages.length === 0) return null;
+  const query = (props.searchQuery ?? searchQuery).trim().toLowerCase();
+  const team = props.library && layout?.source === "team";
+  const visiblePackages = packages.filter(plugin => (!props.library || plugin.sourceKind === undefined || plugin.sourceKind === "plugin") && (!query || [pluginImportName(plugin), plugin.description ?? "", packageParts(plugin.files.map(file => file.objectType))].join(" ").toLowerCase().includes(query)));
+  if (!props.library && !loading && !error && visiblePackages.length === 0 && !props.showEmpty) return null;
   return (
     <div className="space-y-4">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="lw-section-eyebrow uppercase text-dls-secondary">{t("skills.packages_title")}</span>
-        <span className="font-mono text-[11px] tabular-nums text-dls-secondary">{packages.length.toString().padStart(2, "0")}</span>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {packages.map((plugin) => (
-          <div key={plugin.pluginId} className={`${cardClass} group`}>
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className={iconClass}>
-                  <Package size={14} strokeWidth={1.75} />
-                </span>
-                <h4 className="truncate text-[14px] font-medium tracking-[-0.01em] text-dls-text">{plugin.name}</h4>
-              </div>
-              <button
-                type="button"
-                className="inline-flex size-8 items-center justify-center rounded-lg text-dls-secondary transition-colors hover:bg-dls-hover hover:text-dls-text disabled:cursor-not-allowed disabled:opacity-40"
-                disabled={props.busy}
-                onClick={() => setRemoving(plugin)}
-                title={t("skills.package_remove")}
-                aria-label={t("skills.package_remove_named", { name: plugin.name })}
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-            {plugin.description ? <p className="mt-2 line-clamp-2 text-[13px] leading-relaxed text-dls-secondary">{plugin.description}</p> : null}
-            <p className="mt-2 text-[12px] text-dls-secondary">{packageParts(plugin.files.map((file) => file.objectType))}</p>
-          </div>
+      {props.library ? <IntegrationSearch toolbar value={searchQuery} onChange={setSearchQuery} label={t("integrations.search_plugins")} /> : null}
+      {team ? <IntegrationEmptyState icon={Package} title={t("integrations.team_plugins_unavailable")} /> : loading ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("common.loading")}</p> : error ? <p role="alert" className="text-sm text-destructive">{error}</p> : <>
+      <IntegrationGroupHeading hideInLibrary title={t("skills.packages_title")} count={visiblePackages.length} />
+      {visiblePackages.length === 0 ? <IntegrationEmptyState icon={Package} title={t(props.library ? query ? "integrations.no_plugin_matches" : "integrations.no_plugins" : "integrations.no_packages")} description={t(query ? "integrations.search_hint" : props.library ? "integrations.plugins_import_hint" : "integrations.import_description")} /> : null}
+      <div className="space-y-1">
+        {visiblePackages.map((plugin) => (
+          <IntegrationLibraryRow key={plugin.pluginId} name={pluginImportName(plugin)} description={plugin.description || packageParts(plugin.files.map(file => file.objectType)) || t("extensions.import_no_components")}
+            status={connectorState ? <PluginConnectorStatus states={plugin.files.filter(file => file.objectType === "mcp").map(file => connectorState(pluginFileInstalledName(file)))} /> : undefined}
+            source={props.library ? plugin.pluginId.startsWith("import:chatgpt:") ? "ChatGPT" : plugin.pluginId.startsWith("import:claude:") ? "Claude" : undefined : undefined}
+            icon={<span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Package className="size-4 text-muted-foreground" /></span>} busy={props.busy} onOpen={() => setSelected(plugin)}
+            onRemove={props.canRemove === false ? undefined : () => setRemoving(plugin)} />
         ))}
       </div>
+      </>}
+      {selected ? <PluginDetailsDialog key={selected.pluginId} plugin={selected} busy={props.busy} access={props.detailsAccess} onClose={() => setSelected(null)} /> : null}
       <ConfirmModal
         open={removing !== null}
-        title={t("skills.package_remove_title", { name: removing?.name ?? "" })}
-        message={t("skills.package_remove_message")}
+        title={t("skills.package_remove_title", { name: removing ? pluginImportName(removing) : "" })}
+        message={t(removing?.scope === "global" ? "extensions.import_remove_global" : "skills.package_remove_message")}
         confirmLabel={t("skills.package_remove")}
         cancelLabel={t("common.cancel")}
         confirmButtonVariant="destructive"
@@ -123,28 +118,33 @@ export function ImportedPackages(props: {
   );
 }
 
-export function BuiltInSkills() {
+export function matchingBuiltInSkills(searchQuery = "") {
+  const query = searchQuery.trim().toLowerCase();
+  return BUILT_IN_SKILLS.filter(skill => !query || [skill.name, skill.description(), ...skill.commands].join(" ").toLowerCase().includes(query));
+}
+
+export function BuiltInSkills(props: { searchQuery?: string; showEmpty?: boolean } = {}) {
+  const skills = matchingBuiltInSkills(props.searchQuery);
+  const [selected, setSelected] = useState<typeof skills[number] | null>(null);
+  if (skills.length === 0 && !props.showEmpty) return null;
   return (
     <div className="space-y-4">
-      <span className="lw-section-eyebrow uppercase text-dls-secondary">{t("skills.built_in_title")}</span>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {BUILT_IN_SKILLS.map((skill) => (
-          <div key={skill.id} className={cardClass}>
-            <div className="flex min-w-0 items-center gap-2">
-              <span className={iconClass}>
-                <Blocks size={14} strokeWidth={1.75} />
-              </span>
-              <h4 className="truncate text-[14px] font-medium tracking-[-0.01em] text-dls-text">{skill.name}</h4>
-            </div>
-            <p className="mt-2 text-[13px] leading-relaxed text-dls-secondary">{skill.description()}</p>
-            <div className="mt-2.5 flex flex-wrap gap-1.5">
-              {skill.commands.map((command) => (
-                <span key={command} className="rounded-lg bg-dls-hover px-2 py-1 font-mono text-[11px] text-dls-text">{command}</span>
-              ))}
-            </div>
-          </div>
+      <IntegrationGroupHeading hideInLibrary title={t("skills.built_in_title")} count={skills.length} />
+      {skills.length === 0 ? <IntegrationEmptyState icon={Blocks} title={t("integrations.no_skill_matches")} description={t("integrations.search_hint")} /> : null}
+      <div className="space-y-1">
+        {skills.map((skill) => (
+          <IntegrationLibraryRow key={skill.id} name={skill.name} description={skill.description()} source={t("integrations.included")} onOpen={() => setSelected(skill)}
+            icon={<span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Blocks className="size-4 text-muted-foreground" /></span>} />
         ))}
       </div>
+      <Dialog open={selected !== null} onOpenChange={open => { if (!open) setSelected(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{selected?.name}</DialogTitle><DialogDescription>{selected?.description()}</DialogDescription></DialogHeader>
+          <p className="text-sm text-muted-foreground">{t("integrations.skill_commands")}</p>
+          <div className="flex flex-wrap gap-2">{selected?.commands.map(command => <code key={command} className="rounded-md bg-muted px-2 py-1 text-sm">{command}</code>)}</div>
+          <DialogFooter><Button onClick={() => setSelected(null)}>{t("common.close")}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

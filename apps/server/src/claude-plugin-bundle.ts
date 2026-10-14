@@ -342,7 +342,7 @@ export async function resolveClaudePluginBundle(input: { url: string; ref?: stri
     for (const [name, config] of Object.entries(record)) {
       if (!isRecord(config)) continue;
       if (mcpConfigReferencesPluginRoot(config)) {
-        warnings.push(`MCP server "${name}" uses \${CLAUDE_PLUGIN_ROOT} (a plugin-local command), which LegalWork does not support yet. It was skipped.`);
+        warnings.push(`Connector "${name}" will not be installed. This GitHub importer cannot run plugin-local commands.`);
         continue;
       }
       mcpServers[name] = config;
@@ -357,7 +357,7 @@ export async function resolveClaudePluginBundle(input: { url: string; ref?: stri
       try {
         addMcpServers(JSON.parse(text));
       } catch {
-        warnings.push(`${mcpPath} is not valid JSON; its MCP servers were skipped.`);
+        warnings.push(`Connector definitions in ${mcpPath} will be skipped because the file is not valid JSON.`);
       }
     }
   } else if (isRecord(declaredMcp)) {
@@ -369,7 +369,7 @@ export async function resolveClaudePluginBundle(input: { url: string; ref?: stri
     try {
       addMcpServers(JSON.parse(text));
     } catch {
-      warnings.push(`${dotMcpPath} is not valid JSON; its MCP servers were skipped.`);
+      warnings.push(`Connector definitions in ${dotMcpPath} will be skipped because the file is not valid JSON.`);
     }
   }
 

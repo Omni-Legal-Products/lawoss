@@ -156,6 +156,7 @@ function StorageSaveActions({
   };
   return (
     <>
+      {file.exported && <p className="max-w-sm text-xs text-muted-foreground">{t("storage.export_copy")}</p>}
       <div className="flex items-center">
         <Button size="sm" className="rounded-r-none" disabled={busy || editorBusy || !copy.localWritable} onClick={() => void save("working-copy")}>
           {busy || editorBusy ? t("common.saving") : t("common.save")}

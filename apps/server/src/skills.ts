@@ -111,7 +111,7 @@ async function parseSkillEntry(
   };
 }
 
-async function listSkillsInDir(dir: string, scope: "project" | "global", skipped?: SkippedSkill[]): Promise<SkillItem[]> {
+export async function listSkillsInDir(dir: string, scope: "project" | "global", skipped?: SkippedSkill[]): Promise<SkillItem[]> {
   if (!(await exists(dir))) return [];
   const entries = await readdir(dir, { withFileTypes: true });
   const items: SkillItem[] = [];

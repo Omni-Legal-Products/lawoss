@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "no
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createMcpOAuthCallbackBroker } from "../../desktop/electron/mcp-oauth-callback.mjs";
+import { normalizeImportedConnector } from "./connector-imports.js";
 
 /**
  * Full MCP OAuth flow e2e:
@@ -242,6 +243,47 @@ describeMaybe("mcp oauth flow against mock provider", () => {
     },
     90_000,
   );
+
+  test("Context7's canonical imported callback survives provider normalization, consent and token exchange", async () => {
+    const port = await getFreePort();
+    const providerUrl = `http://127.0.0.1:${port}`;
+    const callbackPort = await getFreePort();
+    const mock = spawn("node", [join(repoRoot, "scripts/mock-oauth-mcp-server.mjs")], {
+      env: { ...process.env, PORT: String(port), AUTO_APPROVE: "1", NORMALIZE_LOOPBACK_CALLBACK: "1" },
+      stdio: "ignore",
+    });
+    let listenerId = "";
+    try {
+      await waitFor(async () => (await fetch(`${providerUrl}/health`)).ok ? true : null, 10_000, "normalizing OAuth provider");
+      const beforeName = "context7-default-callback";
+      const beforeConfig = { type: "remote", url: `${providerUrl}/mcp`, enabled: true, oauth: { callbackPort } };
+      expect((await engineFetch("/mcp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: beforeName, config: beforeConfig }) })).ok).toBe(true);
+      const before = await (await engineFetch(`/mcp/${beforeName}/auth`, { method: "POST" })).json();
+      const rejected = await fetch(before.authorizationUrl, { redirect: "manual" });
+      expect(rejected.status).toBe(400);
+      expect((await rejected.json()).error_description).toContain("registered redirect URLs");
+
+      const imported = normalizeImportedConnector({ url: "https://mcp.context7.com/mcp?client=claude-code-plugin", oauth: { callbackPort } }, []);
+      const oauth = imported.oauth;
+      if (!oauth || typeof oauth !== "object" || !("redirectUri" in oauth) || typeof oauth.redirectUri !== "string") throw new Error("Missing imported OAuth callback");
+      const listener = await callbacks.listen({ redirectUri: oauth.redirectUri });
+      listenerId = listener.listenerId;
+      const name = "context7-imported-callback";
+      const config = { ...imported, type: "remote", url: `${providerUrl}/mcp`, enabled: true };
+      expect((await engineFetch("/mcp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, config }) })).ok).toBe(true);
+      const started = await (await engineFetch(`/mcp/${name}/auth`, { method: "POST" })).json();
+      const authorizationUrl = new URL(started.authorizationUrl);
+      expect(authorizationUrl.searchParams.get("redirect_uri")).toBe(oauth.redirectUri);
+      const waiting = callbacks.wait({ listenerId, state: started.oauthState });
+      expect((await fetch(authorizationUrl)).ok).toBe(true);
+      const complete = await engineFetch(`/mcp/${name}/auth/callback`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(await waiting) });
+      expect(complete.ok).toBe(true);
+      expect(await complete.json()).toEqual({ status: "connected" });
+    } finally {
+      callbacks.cancel(listenerId);
+      mock.kill();
+    }
+  }, 45_000);
 
   test("logout removes stored tokens and drops the connection", async () => {
     const disconnect = await engineFetch(`/mcp/${MCP_NAME}/disconnect`, { method: "POST" });

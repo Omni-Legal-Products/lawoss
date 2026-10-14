@@ -94,6 +94,7 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
+    NSAppleEventsUsageDescription: LegalWork uses Apple Mail or Microsoft Outlook to open editable email drafts with the recipients and attachments you choose.
     NSMicrophoneUsageDescription: LegalWork uses the microphone when you start Voice Mode or record a conversation in the Recorder tab.
     NSAudioCaptureUsageDescription: LegalWork captures system audio when you record calls or meetings in the Recorder tab. Audio is transcribed locally on this device and never uploaded.
     NSInputMonitoringUsageDescription: LegalWork uses keyboard monitoring to detect your dictation shortcut and support hold-to-talk outside the app.

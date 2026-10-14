@@ -1,5 +1,8 @@
-/** Simple Icons marks bundled in `public/` as `ext-<slug>.svg` (CC0-1.0). */
-const BUNDLED_BRAND_ICONS = new Set(["box", "dropbox", "egnyte", "google", "googlecloud", "notion"]);
+/** Brand marks bundled in `public/` as `ext-<slug>.svg`; sources are documented in docs/nango-connectors.md. */
+const BUNDLED_BRAND_ICONS = new Set([
+  "box", "dropbox", "egnyte", "google", "googlecloud", "notion",
+  "gmail", "googlecalendar", "googledrive", "microsoftoutlook", "microsoftonedrive", "microsoftsharepoint",
+]);
 
 export function resolveExtensionIconSrc(iconSrc: string): string {
   if (!iconSrc.startsWith("/")) {

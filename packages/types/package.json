@@ -25,6 +25,7 @@
       "development": "./src/desktop-ipc.ts",
       "default": "./src/desktop-ipc.ts"
     },
+    "./connectors": "./src/connectors.ts",
     "./audio": {
       "types": "./src/audio.ts",
       "development": "./src/audio.ts",
@@ -44,12 +45,16 @@
     "./search": "./src/search.ts",
     "./sync-events": "./src/sync-events.ts",
     "./calendar": "./src/calendar.ts",
+    "./calendar-event-draft": "./src/calendar-event-draft.ts",
+    "./email-draft": "./src/email-draft.ts",
     "./calculation": "./src/calculation.ts",
     "./session-queue": "./src/session-queue.ts",
     "./scheduled-tasks": "./src/scheduled-tasks.ts",
     "./org-policy": "./src/org-policy.ts",
     "./org-policy-view": "./src/org-policy-view.ts",
-    "./firm-hub": "./src/firm-hub.ts"
+    "./firm-hub": "./src/firm-hub.ts",
+    "./plugin-import": "./src/plugin-import.ts",
+    "./connector-config": "./src/connector-config.ts"
   },
   "files": [
     "src",

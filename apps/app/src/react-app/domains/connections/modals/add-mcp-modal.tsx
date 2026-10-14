@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { TextInput } from "../../../design-system/text-input";
+import { HubTabs } from "../../settings/segmented-tabs";
 import type { McpDirectoryInfo } from "@/app/constants";
 import {
   AUTHORIZATION_HEADER,
@@ -344,6 +345,18 @@ export function AddMcpModal(props: AddMcpModalProps) {
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-px py-1">
           {step === "details" ? (
             <>
+              {!props.isRemoteWorkspace ? (
+                <HubTabs
+                  items={[
+                    { id: "url", label: t("add_mcp.url_tab") },
+                    { id: "command", label: t("add_mcp.local_tab") },
+                  ]}
+                  value={local ? "command" : "url"}
+                  onChange={(value) => setCommand(value === "command" ? "" : null)}
+                  disabled={primaryBusy}
+                  label={t("mcp.connection_type")}
+                />
+              ) : null}
               <TextInput
                 label={t("add_mcp.name_label")}
                 placeholder={t("add_mcp.name_placeholder")}
@@ -372,15 +385,7 @@ export function AddMcpModal(props: AddMcpModalProps) {
               {local ? null : <CustomConnectorHeaderFields form={form} onChange={patch} />}
               {props.isRemoteWorkspace ? (
                 <p className="text-[11px] text-dls-secondary">{t("mcp.remote_workspace_url_hint")}</p>
-              ) : (
-                <button
-                  type="button"
-                  className="text-xs text-dls-secondary underline underline-offset-4 hover:text-dls-text"
-                  onClick={() => setCommand(local ? null : "")}
-                >
-                  {local ? t("add_mcp.url_toggle") : t("add_mcp.local_toggle")}
-                </button>
-              )}
+              ) : null}
             </>
           ) : null}
 

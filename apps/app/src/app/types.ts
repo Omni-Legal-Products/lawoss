@@ -10,6 +10,7 @@ import type {
 } from "@opencode-ai/sdk/v2/client";
 import type { createClient } from "./lib/opencode";
 import type { OpencodeConfigFile, WorkspaceInfo } from "./lib/desktop-types";
+import type { ConnectorConfig } from "@legalwork/types/connector-config";
 
 export type Client = ReturnType<typeof createClient>;
 
@@ -99,6 +100,7 @@ export type ComposerPart =
   | { type: "text"; text: string }
   | { type: "agent"; name: string }
   | { type: "skill"; name: string }
+  | { type: "plugin"; pluginId: string; label: string }
   | { type: "file"; path: string; label?: string }
   /** A macOS app targeted via Computer Use (composer "@App" mention). */
   | { type: "app"; name: string }
@@ -349,16 +351,7 @@ export type PluginScope = "project" | "global";
 
 export type McpServerSource = "config.project" | "config.global" | "config.remote";
 
-export type McpServerConfig = {
-  type: "remote" | "local";
-  url?: string;
-  command?: string[];
-  enabled?: boolean;
-  headers?: Record<string, string>;
-  environment?: Record<string, string>;
-  oauth?: McpOAuthConfig | false;
-  timeout?: number;
-};
+export type McpServerConfig = ConnectorConfig;
 
 export type McpServerEntry = {
   name: string;

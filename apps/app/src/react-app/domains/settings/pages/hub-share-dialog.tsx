@@ -80,7 +80,7 @@ export function HubShareDialog(props: {
   workspaceId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  initialSelection?: { kind: Selectable["kind"]; ref: string } | null;
+  initialSelection?: { kind: Selectable["kind"]; ref: string; label?: string } | null;
   /**
    * Also offer the user's global skill library (~/.config/opencode/skills).
    * Must match what the Skills/Workflows pages list, or an item shown there
@@ -142,13 +142,13 @@ export function HubShareDialog(props: {
             : undefined;
           return {
             ref: it.name,
-            label: it.name,
+            label: initialSelection?.label ?? it.name,
             kind: initialKind ?? (it.kind === "workflow" ? "workflow" as const : "skill" as const),
           };
         }) : []);
         setMcps(m ? m.items
           .filter((it) => !initialSelection || it.name === initialSelection.ref)
-          .map((it) => ({ ref: it.name, label: it.name, kind: "mcp" as const, hasSecret: mcpHasSecret(it.config) })) : []);
+          .map((it) => ({ ref: it.name, label: initialSelection?.label ?? it.name, kind: "mcp" as const, hasSecret: mcpHasSecret(it.config) })) : []);
         setReviewSets(r ? r.entries
           .filter((entry) => entry.source === "personal" && reviewLibraryKind(entry) === "set")
           .filter((entry) => !initialSelection || entry.id === initialSelection.ref)
@@ -270,7 +270,7 @@ export function HubShareDialog(props: {
                 {singleItem.kind === "workflow"
                   ? "Workflow"
                   : singleItem.kind === "mcp"
-                    ? "MCP server"
+                    ? t("extension_card.kind_mcp")
                     : singleItem.kind === "review_set"
                       ? t("hub_share.review_set")
                       : "Skill"}

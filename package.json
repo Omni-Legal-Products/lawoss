@@ -15,6 +15,7 @@
     "build:web": "pnpm --filter @legalwork/app build:web",
     "preview": "pnpm --filter @legalwork/app preview",
     "typecheck": "pnpm --filter @legalwork/app typecheck",
+    "test:drafts": "node --experimental-strip-types scripts/test-drafts.mjs",
     "test:health": "pnpm --filter @legalwork/app test:health",
     "test:sessions": "pnpm --filter @legalwork/app test:sessions",
     "test:refactor": "pnpm --filter @legalwork/app test:refactor",
@@ -32,7 +33,8 @@
     "release:prepare:dry": "node scripts/release/prepare.mjs --dry-run",
     "release:ship": "node scripts/release/ship.mjs",
     "release:ship:watch": "node scripts/release/ship.mjs --watch",
-    "office:sideload": "pnpm --filter @legalwork/desktop office:sideload"
+    "office:sideload": "pnpm --filter @legalwork/desktop office:sideload",
+    "test:drafts:build": "node --test scripts/test-draft-build.mjs"
   },
   "packageManager": "pnpm@11.4.0"
 }

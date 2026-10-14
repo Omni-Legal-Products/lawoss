@@ -50,7 +50,7 @@ describe("Add custom connector: the check", () => {
     const html = renderToStaticMarkup(React.createElement(CustomConnectorCheck, {
       probe: { url: form.url, reachable: true, transport: null, auth: "unknown", steps: [{ id: "connect", status: 404, ok: false }], error: "HTTP 404" },
     }));
-    expect(html).toContain("This address does not answer like an MCP server.");
+    expect(html).toContain("This address does not respond as a connector.");
     expect(html).toContain("Check the address on the provider");
   });
 });

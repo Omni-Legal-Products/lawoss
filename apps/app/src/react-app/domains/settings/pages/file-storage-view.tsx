@@ -1,14 +1,19 @@
 /** @jsxImportSource react */
-import { useEffect, useRef, useState } from "react";
+import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationAddRequest, useIntegrationLibraryLayout } from "./integration-library";
+import { useEffect, useState } from "react";
+import { connectorDefinitions } from "@legalwork/types/connectors";
+import { ConnectorConfig } from "../connector-config";
+import { ExtensionDetailModal } from "../../../design-system/extension-detail-modal";
+import { resolveBrandIconSrc } from "../../../design-system/extension-icon-src";
+import { StorageCloudLocations } from "./storage-cloud-locations";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   ArrowUpRight,
   Check,
   ChevronRight,
-  Download,
   Loader2,
-  Pencil,
+  HardDrive,
   Plus,
   RefreshCw,
   Trash2,
@@ -35,7 +40,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { t } from "@/i18n";
-import { cn } from "@/lib/utils";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import {
   STORAGE_CHANGED_EVENT,
   storageAuthDescription,
@@ -61,12 +66,19 @@ export function FileStorageView({
   workspaceId: string | null;
 }) {
   const queryClient = useQueryClient();
+  const libraryLayout = useIntegrationLibraryLayout();
   const scope = useHubScope() ?? "local";
-  const [editor, setEditor] = useState<{ kind: StorageKind; connection?: StorageConnection; provider?: StorageOAuthProvider } | null>(null);
+  const [editor, setEditor] = useState<{ kind: StorageKind; connection?: StorageConnection; provider?: StorageOAuthProvider; account?: StorageConnection } | null>(null);
+  const [nativeProvider, setNativeProvider] = useState<string | null>(null);
+  const native = connectorDefinitions.find((item) => item.id === nativeProvider);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [removing, setRemoving] = useState<StorageConnection | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const addSection = useRef<HTMLElement>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [providerSearch, setProviderSearch] = useState("");
+  useEffect(() => { setSearch(""); setPickerOpen(false); setEditor(null); }, [workspaceId, scope]);
   const connections = useQuery({
     queryKey: ["storage-connections", workspaceId],
     queryFn: () => client!.storageConnections(workspaceId!),
@@ -79,14 +91,42 @@ export function FileStorageView({
     queryFn: () => client!.storageOAuthProviders(workspaceId!),
     enabled: Boolean(client && workspaceId),
   });
-  const visibleConnections = storageConnectionsForScope(connections.data?.connections ?? [], scope);
+  const allConnections = connections.data?.connections ?? [];
+  const detail = allConnections.find(connection => connection.id === detailId);
+  const source = libraryLayout?.source ?? "all";
+  const visibleConnections = libraryLayout
+    ? allConnections.filter(connection => source === "all" || (source === "team" ? Boolean(connection.team) : !connection.team))
+    : storageConnectionsForScope(allConnections, scope);
+  const nativeDefinition = (connection: StorageConnection) => connection.config.kind === "oauth" ? connectorDefinitions.find(provider => connection.config.kind === "oauth" && provider.id === connection.config.provider) : undefined;
+  const storageProviderName = (connection: StorageConnection) => nativeDefinition(connection)?.name ?? (connection.config.kind === "oauth" ? providers.data?.providers.find(provider => connection.config.kind === "oauth" && provider.id === connection.config.provider)?.name ?? connection.config.provider : storageLabel(connection.config.kind));
+  const query = search.trim().toLowerCase();
+  const matchingConnections = visibleConnections.filter(connection => !query || `${connection.name} ${storageProviderName(connection)}`.toLowerCase().includes(query));
+  const providerQuery = providerSearch.trim().toLowerCase();
+  const matchingNativeProviders = connectorDefinitions.filter(provider => provider.kind === "files" && (!providerQuery || provider.name.toLowerCase().includes(providerQuery)));
+  const matchingProviders = (providers.data?.providers ?? []).filter(provider => !providerQuery || provider.name.toLowerCase().includes(providerQuery));
+  const matchingKinds = storageKinds.filter(kind => !providerQuery || `${storageLabel(kind)} ${storageDescription(kind)}`.toLowerCase().includes(providerQuery));
   // The firm may allow no connections of the member's own.
   const personalForbidden = useOrgPolicyForbids("storage.allowPersonal");
   // The firm's connections are set up on the platform, and who gets them decided there.
   const canAdd = scope === "local" && !personalForbidden;
+  const managedAdd = useIntegrationAddRequest("storage", async () => {
+    if (busy || !canAdd || !client || !workspaceId || !(await orgPolicyAllows("storage.allowPersonal"))) return;
+    setProviderSearch("");
+    setPickerOpen(true);
+  });
   const openNewEditor = async (next: NonNullable<typeof editor>) => {
     if (scope === "local" && !(await orgPolicyAllows("storage.allowPersonal"))) return;
+    setPickerOpen(false);
     setEditor(next);
+  };
+  const openNativeAccount = (providerId: string) => {
+    setPickerOpen(false);
+    setDetailId(null);
+    setNativeProvider(providerId);
+  };
+  const openFolderView = (account: StorageConnection) => {
+    const provider = nativeDefinition(account);
+    if (provider) void openNewEditor({ kind: "oauth", account, provider: { id: provider.id, name: provider.name, rootHint: t(provider.id === "google-drive" ? "storage.google_root_hint" : "storage.microsoft_root_hint") } });
   };
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ["storage-connections"] });
@@ -96,7 +136,9 @@ export function FileStorageView({
   };
   useEffect(() => {
     setEditor(null);
+    setNativeProvider(null);
     setRemoving(null);
+    setDetailId(null);
     setError("");
   }, [client, workspaceId, scope]);
   useEffect(() => {
@@ -106,6 +148,16 @@ export function FileStorageView({
     window.addEventListener(STORAGE_CHANGED_EVENT, listener);
     return () => window.removeEventListener(STORAGE_CHANGED_EVENT, listener);
   }, [connections.refetch]);
+  async function setTeamInstalled(connection: StorageConnection) {
+    if (!client || !workspaceId || !connection.team) return;
+    setBusy(true);
+    setError("");
+    try {
+      await client.setTeamStorageInstalled(workspaceId, connection.id, !connection.team.installed);
+      refresh();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : t("storage.failed")); }
+    finally { setBusy(false); }
+  }
   if (!client || !workspaceId)
     return (
       <div className="rounded-2xl border border-border p-6 text-sm text-muted-foreground">
@@ -113,22 +165,13 @@ export function FileStorageView({
       </div>
     );
   return (
-    <div className="space-y-8">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="max-w-xl space-y-2">
-          <h3 className="text-xl font-medium tracking-tight">{t("storage.heading")}</h3>
-          <p className="text-sm leading-6 text-muted-foreground">
-            {t(scope === "team" ? "storage.team_intro" : "storage.local_intro")}
-          </p>
-          {scope === "local" ? <OrgPolicyNote policyKey="storage.allowPersonal" /> : null}
-        </div>
-        {canAdd && (
-          <Button onClick={() => addSection.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-            <Plus className="size-4" />
-            {t("storage.add")}
-          </Button>
-        )}
-      </div>
+    <div className="space-y-6">
+      <IntegrationLibraryHeader title={t("storage.tab")} description={t(scope === "team" ? "storage.team_intro" : "integrations.storage_description")} actions={<>
+        {!managedAdd ? <IntegrationAddMenu disabled={busy || !canAdd} actions={[{ label: t("storage.add"), icon: Plus, onClick: () => { setProviderSearch(""); setPickerOpen(true); } }]} /> : null}
+        <IntegrationMoreMenu busy={busy} onRefresh={refresh} />
+      </>} />
+      {scope === "local" ? <OrgPolicyNote policyKey="storage.allowPersonal" /> : null}
+      <IntegrationSearch toolbar value={search} onChange={setSearch} label={t("integrations.search_storage")} />
       {(error || connections.error) && (
         <p
           role="alert"
@@ -138,7 +181,7 @@ export function FileStorageView({
           {error || connections.error?.message}
         </p>
       )}
-      {scope === "team" && connections.data?.team?.error ? (
+      {(libraryLayout || scope === "team") && connections.data?.team?.error ? (
         <p role="alert" className="text-sm text-destructive">
           {connections.data.team.error}
         </p>
@@ -149,151 +192,93 @@ export function FileStorageView({
           {t("storage.loading")}
         </div>
       ) : null}
-      {visibleConnections.length ? (
+      {matchingConnections.length ? (
         <section className="space-y-3">
-          <h4 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            {t(scope === "team" ? "storage.shared_count" : "storage.connected", { count: visibleConnections.length })}
-          </h4>
-          <div className="divide-y divide-border rounded-2xl border border-border bg-background">
-            {visibleConnections.map((connection) => {
+          <IntegrationGroupHeading hideInLibrary title={t(scope === "team" ? "integrations.shared_storage" : "integrations.your_storage")} count={matchingConnections.length} />
+          <div className="space-y-1">
+            {matchingConnections.map((connection) => {
               const Icon = storageIcons[connection.config.kind];
+              const provider = nativeDefinition(connection);
+              const accountRoot = connection.id.startsWith("connector:");
+              const icon = provider && resolveBrandIconSrc(undefined, provider.icon);
               return (
-                <div key={connection.id} className="flex flex-wrap items-center gap-3 p-4">
-                  <div className="grid size-11 place-items-center rounded-xl border border-border/60 bg-muted/40">
-                    <Icon className="size-5 text-muted-foreground" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{connection.name}</p>
-                    {connection.team ? (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {t(
-                          connection.teamInstallation === "optional"
-                            ? "storage.team_optional"
-                            : "storage.team_automatic",
-                        )}
-                      </p>
-                    ) : null}
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {connection.config.kind === "oauth" ? providers.data?.providers.find((p) => connection.config.kind === "oauth" && p.id === connection.config.provider)?.name ?? connection.config.provider : storageLabel(connection.config.kind)} <span className="mx-1">·</span>{" "}
-                      {connection.readOnly ? t("storage.read_only") : t("storage.read_write")}
-                    </p>
-                  </div>
-                  {connection.config.kind === "oauth" && connection.enabled && connection.team?.installed !== false && (
-                    <StorageOAuthSignIn client={client} workspaceId={workspaceId} connectionId={connection.id} revision={connection.updatedAt} onChanged={refresh} />
-                  )}
-                  {connection.team && connection.teamInstallation === "optional" && (
-                    <Button
-                      variant={connection.team.installed ? "outline" : "default"}
-                      size="sm"
-                      disabled={busy || (!connection.enabled && !connection.team.installed)}
-                      onClick={async () => {
-                        setBusy(true);
-                        setError("");
-                        try {
-                          await client.setTeamStorageInstalled(workspaceId, connection.id, !connection.team?.installed);
-                          refresh();
-                        } catch (cause) {
-                          setError(cause instanceof Error ? cause.message : t("storage.failed"));
-                        } finally {
-                          setBusy(false);
-                        }
-                      }}
-                    >
-                      {!connection.team.installed && <Download className="size-3.5" />}
-                      {t(connection.team.installed ? "storage.remove_local" : "storage.install")}
-                    </Button>
-                  )}
-                  <span
-                    className={cn(
-                      "rounded-full px-2.5 py-1 text-[11px]",
-                      connection.enabled ? "bg-green-3 text-green-11" : "bg-muted text-muted-foreground",
-                    )}
-                  >
-                    {t(
-                      !connection.enabled
-                        ? "storage.paused"
-                        : connection.team?.installed === false
-                          ? "storage.available"
-                          : "storage.enabled",
-                    )}
-                  </span>
-                  {!connection.team && (
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={t("storage.edit_connection", { name: connection.name })}
-                        onClick={() => setEditor({ kind: connection.config.kind, connection })}
-                      >
-                        <Pencil className="size-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={t("storage.remove_connection", { name: connection.name })}
-                        onClick={() => setRemoving(connection)}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </>
-                  )}
-                </div>
+                <IntegrationLibraryRow key={connection.id} name={connection.name} description={`${storageProviderName(connection)} · ${t(connection.readOnly ? "storage.read_only" : "storage.read_write")}`}
+                  icon={icon ? <span className="grid size-9 shrink-0 place-items-center"><img src={icon} alt="" className="size-6 object-contain" /></span> : <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Icon className="size-4 text-muted-foreground" /></span>}
+                  source={connection.team ? t("firm_hub.scope_team") : undefined} busy={busy} onOpen={() => accountRoot && provider ? openNativeAccount(provider.id) : setDetailId(connection.id)}
+                  onEdit={!connection.team && !accountRoot ? () => setEditor({ kind: connection.config.kind, connection }) : undefined}
+                  onRemove={!connection.team && !accountRoot ? () => setRemoving(connection) : undefined}
+                  actions={accountRoot && canAdd ? <DropdownMenuItem onClick={() => openFolderView(connection)}><Plus />{t("storage.add_folder_view")}</DropdownMenuItem> : connection.team && connection.teamInstallation === "optional" ? <DropdownMenuItem disabled={!connection.enabled && !connection.team.installed} onClick={() => void setTeamInstalled(connection)}>{t(connection.team.installed ? "storage.remove_local" : "storage.install")}</DropdownMenuItem> : undefined} />
               );
             })}
           </div>
         </section>
       ) : !connections.isLoading && !connections.error ? (
-        <div className="rounded-2xl border border-dashed border-border p-6 text-sm text-muted-foreground">
-          {t(scope === "team" ? "storage.team_empty" : personalForbidden ? "storage.local_empty_team_only" : "storage.local_empty")}
-        </div>
+        <IntegrationEmptyState icon={HardDrive} title={t(query ? "integrations.no_storage_matches" : source === "team" || scope === "team" ? "integrations.no_shared_storage" : "integrations.no_storage_title")} description={query ? t("integrations.search_hint") : source === "team" || scope === "team" ? undefined : t(personalForbidden ? "storage.local_empty_team_only" : "integrations.no_storage_description")} action={!query && canAdd && source !== "team" ? <Button variant="outline" size="sm" onClick={() => setPickerOpen(true)}><Plus className="size-4" />{t("storage.add")}</Button> : undefined} />
       ) : null}
-      {canAdd && (
-        <section ref={addSection} className="scroll-mt-6 space-y-3">
-          <div className="flex items-center gap-2">
-            <Plus className="size-4 text-muted-foreground" />
-            <h4 className="text-sm font-medium">{t("storage.add")}</h4>
+      <Dialog open={Boolean(detail)} onOpenChange={open => { if (!open) setDetailId(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{detail?.name}</DialogTitle><DialogDescription>{detail ? `${storageProviderName(detail)} · ${t(detail.readOnly ? "storage.read_only" : "storage.read_write")}` : ""}</DialogDescription></DialogHeader>
+          {detail ? <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">{t(!detail.enabled ? "storage.paused" : detail.team?.installed === false ? "storage.available" : "storage.enabled")}</p>
+            {detail.team ? <p className="text-sm text-muted-foreground">{t(detail.teamInstallation === "optional" ? "storage.team_optional" : "storage.team_automatic")}</p> : null}
+            {detail.config.kind === "oauth" && !detail.config.accountId && detail.enabled && detail.team?.installed !== false ? <StorageOAuthSignIn client={client} workspaceId={workspaceId} connectionId={detail.id} revision={detail.updatedAt} onChanged={refresh} /> : null}
+            {detail.config.kind === "oauth" && detail.config.accountId && nativeDefinition(detail) ? <Button variant="outline" onClick={() => { const provider = nativeDefinition(detail); if (provider) openNativeAccount(provider.id); }}>{t("storage.account_settings")}</Button> : null}
+            {detail.team && detail.teamInstallation === "optional" ? <Button variant="outline" disabled={busy || (!detail.enabled && !detail.team.installed)} onClick={() => void setTeamInstalled(detail)}>{t(detail.team.installed ? "storage.remove_local" : "storage.install")}</Button> : null}
+          </div> : null}
+          <DialogFooter>
+            {detail && !detail.team ? <Button variant="outline" disabled={busy} onClick={() => { setEditor({ kind: detail.config.kind, connection: detail }); setDetailId(null); }}>{t("common.edit")}</Button> : null}
+            <Button onClick={() => setDetailId(null)}>{t("common.close")}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={pickerOpen && canAdd} onOpenChange={setPickerOpen}>
+        <DialogContent className="flex max-h-[calc(100dvh-3rem)] flex-col gap-5 sm:max-w-2xl">
+          <DialogHeader className="pe-8"><DialogTitle>{t("storage.add")}</DialogTitle><DialogDescription>{t("integrations.storage_picker_description")}</DialogDescription></DialogHeader>
+          <IntegrationSearch value={providerSearch} onChange={setProviderSearch} label={t("integrations.search_providers")} />
+          <div className="min-h-0 overflow-y-auto">
+            {providers.error ? <p role="alert" className="mb-4 text-sm text-destructive">{providers.error.message}</p> : null}
+            {providers.isLoading ? <p role="status" className="mb-4 text-sm text-muted-foreground">{t("storage.loading")}</p> : null}
+            <div className="grid gap-2 sm:grid-cols-2">
+              {matchingNativeProviders.map(provider => {
+                const icon = resolveBrandIconSrc(undefined, provider.icon);
+                const account = allConnections.find(connection => connection.id.startsWith(`connector:${provider.id}:`));
+                return <button key={provider.id} type="button" onClick={() => openNativeAccount(provider.id)} className="flex items-start gap-3 rounded-xl border border-border p-4 text-start transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  {icon && <img src={icon} alt="" className="mt-0.5 size-5 shrink-0 object-contain" />}<span><span className="block text-sm font-medium">{provider.name}</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{t(account ? "connectors.connected" : "storage.oauth_description")}</span></span>
+                </button>;
+              })}
+              {matchingProviders.map(provider => <button key={provider.id} type="button" onClick={() => void openNewEditor({ kind: "oauth", provider })} className="flex items-start gap-3 rounded-xl border border-border p-4 text-start transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <ArrowUpRight className="mt-0.5 size-5 shrink-0 text-muted-foreground" /><span><span className="block text-sm font-medium">{provider.name}</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{t("storage.oauth_description")}</span></span>
+              </button>)}
+              {matchingKinds.map(kind => { const Icon = storageIcons[kind]; return <button key={kind} type="button" onClick={() => void openNewEditor({ kind })} className="flex items-start gap-3 rounded-xl border border-border p-4 text-start transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <Icon className="mt-0.5 size-5 shrink-0 text-muted-foreground" /><span><span className="block text-sm font-medium">{storageLabel(kind)}</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{storageDescription(kind)}</span></span>
+              </button>; })}
+            </div>
+            {!providers.isLoading && matchingNativeProviders.length === 0 && matchingProviders.length === 0 && matchingKinds.length === 0 ? <IntegrationEmptyState icon={HardDrive} title={t("integrations.no_provider_matches")} description={t("integrations.search_hint")} /> : null}
           </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {providers.data?.providers.map((provider) => (
-              <button key={provider.id} type="button" onClick={() => void openNewEditor({ kind: "oauth", provider })}
-                className="group flex flex-col rounded-2xl border border-border bg-background p-5 text-left transition-colors hover:border-foreground/25 hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                <ArrowUpRight className="mb-4 size-5 text-muted-foreground" />
-                <span className="text-sm font-medium">{provider.name}</span>
-                <span className="mt-1.5 text-xs leading-5 text-muted-foreground">{t("storage.oauth_description")}</span>
-              </button>
-            ))}
-            {storageKinds.map((kind) => {
-              const Icon = storageIcons[kind];
-              return (
-                <button
-                  key={kind}
-                  type="button"
-                  onClick={() => void openNewEditor({ kind })}
-                  className="group flex flex-col rounded-2xl border border-border bg-background p-5 text-left transition-colors hover:border-foreground/25 hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <div className="mb-4 flex w-full items-center justify-between">
-                    <Icon className="size-5 text-muted-foreground" />
-                    <ArrowUpRight className="size-4 text-muted-foreground/40 transition-colors group-hover:text-foreground" />
-                  </div>
-                  <span className="text-sm font-medium">{storageLabel(kind)}</span>
-                  <span className="mt-1.5 text-xs leading-5 text-muted-foreground">{storageDescription(kind)}</span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-      )}
+        </DialogContent>
+      </Dialog>
       {editor && (
         <StorageConnectionDialog
           client={client}
           workspaceId={workspaceId}
           kind={editor.kind}
-          provider={editor.provider ?? providers.data?.providers.find((p) => editor.connection?.config.kind === "oauth" && editor.connection.config.provider === p.id)}
+          provider={editor.provider ?? providers.data?.providers.find((p) => editor.connection?.config.kind === "oauth" && editor.connection.config.provider === p.id) ?? (() => { const definition = connectorDefinitions.find((p) => editor.connection?.config.kind === "oauth" && editor.connection.config.provider === p.id); return definition ? { id: definition.id, name: definition.name, rootHint: t(definition.id === "google-drive" ? "storage.google_root_hint" : "storage.microsoft_root_hint") } : undefined; })()}
           connection={editor.connection}
+          account={editor.account}
           onClose={() => setEditor(null)}
+          onBack={!editor.connection ? () => { setEditor(null); setPickerOpen(true); } : undefined}
           onSaved={refresh}
         />
       )}
+      {native && <ExtensionDetailModal open onClose={() => setNativeProvider(null)} name={native.name} description={t(native.descriptionKey)} iconSlug={native.icon} kind="extension" presentation="connector"
+        connected={Boolean(connections.data?.connections.some((item) => item.id.startsWith(`connector:${native.id}:`)))}
+        configSlot={<>
+          <ConnectorConfig id={native.id} legalworkServerClient={client} presentation="dialog" onExtensionConnectionChange={() => refresh()} />
+          {canAdd && allConnections.some(connection => connection.id.startsWith(`connector:${native.id}:`)) && <Button variant="outline" onClick={() => {
+            const account = allConnections.find(connection => connection.id.startsWith(`connector:${native.id}:`));
+            if (account) { setNativeProvider(null); openFolderView(account); }
+          }}><Plus />{t("storage.add_folder_view")}</Button>}
+        </>} />}
       <Dialog
         open={Boolean(removing)}
         onOpenChange={(open) => {
@@ -344,7 +329,9 @@ function StorageConnectionDialog({
   kind,
   provider,
   connection,
+  account,
   onClose,
+  onBack,
   onSaved,
 }: {
   client: LegalworkServerClient;
@@ -352,17 +339,21 @@ function StorageConnectionDialog({
   kind: StorageKind;
   provider?: StorageOAuthProvider;
   connection?: StorageConnection;
+  account?: StorageConnection;
   onClose: () => void;
+  onBack?: () => void;
   onSaved: () => void;
 }) {
+  const initial = connection ?? account;
+  const cloud = initial?.config.kind === "oauth" && Boolean(initial.config.accountId);
   const [name, setName] = useState(connection?.name ?? provider?.name ?? "");
   const [values, setValues] = useState<Record<string, string>>(() =>
-    connection
-      ? Object.fromEntries(Object.entries(connection.config).map(([key, value]) => [key, String(value)]))
+    initial
+      ? Object.fromEntries(Object.entries(initial.config).map(([key, value]) => [key, String(value)]))
       : kind === "oauth" ? { provider: provider?.id ?? "", root: "" } : storageDefaults(kind),
   );
   const [secrets, setSecrets] = useState<Partial<Record<StorageSecretKey, string>>>({});
-  const [readOnly, setReadOnly] = useState(connection?.readOnly ?? false);
+  const [readOnly, setReadOnly] = useState(initial?.readOnly ?? false);
   const [enabled, setEnabled] = useState(connection?.enabled ?? true);
   const [busy, setBusy] = useState<"test" | "save" | null>(null);
   const [error, setError] = useState("");
@@ -422,7 +413,7 @@ function StorageConnectionDialog({
       <DialogContent className="flex max-h-[90dvh] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
         <DialogHeader className="shrink-0 border-b border-border p-6 pr-12">
           <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
-            <span>{t("storage.tab")}</span>
+            {onBack ? <Button variant="link" size="xs" className="px-0 text-muted-foreground" onClick={onBack}>{t("integrations.change_provider")}</Button> : <span>{t("storage.tab")}</span>}
             <ChevronRight className="size-3" />
             <span>{t("firm_hub.scope_local")}</span>
             <ChevronRight className="size-3" />
@@ -430,7 +421,7 @@ function StorageConnectionDialog({
           </div>
           <DialogTitle className="flex items-center gap-3 text-xl">
             <Icon className="size-5 text-muted-foreground" />
-            {connection ? t("storage.edit_title") : t("storage.connect_provider", { provider: providerName })}
+            {connection ? t("storage.edit_title") : cloud ? t("storage.add_folder_view") : t("storage.connect_provider", { provider: providerName })}
           </DialogTitle>
           <DialogDescription>{storageDescription(kind)}</DialogDescription>
         </DialogHeader>
@@ -453,12 +444,17 @@ function StorageConnectionDialog({
               maxLength={100}
               disabled={Boolean(busy)}
             />
-            <FieldDescription>{t("storage.name_help")}</FieldDescription>
+            <FieldDescription>{t(cloud ? "storage.personal_view_hint" : "storage.name_help")}</FieldDescription>
           </Field>
           {kind === "oauth" && <Field>
             <FieldLabel htmlFor="storage-oauth-root">{t("storage.oauth_root")}</FieldLabel>
             <Input id="storage-oauth-root" value={values.root ?? ""} onChange={(event) => change("root", event.target.value)} placeholder={provider?.rootHint} />
-            <FieldDescription>{provider?.rootHint ?? t("storage.oauth_root_hint")} {t("storage.oauth_edit_root")}</FieldDescription>
+            <FieldDescription>{cloud ? t(values.provider === "google-drive" ? "storage.google_root_hint" : "storage.microsoft_root_hint") : provider?.rootHint ?? t("storage.oauth_root_hint")} {cloud ? t("storage.account_reused") : t("storage.oauth_edit_root")}</FieldDescription>
+          </Field>}
+          {cloud && values.provider !== "google-drive" && <Field>
+            <FieldLabel htmlFor="storage-drive-id">{t("storage.drive_id")}</FieldLabel>
+            <Input id="storage-drive-id" value={values.driveId ?? ""} onChange={(event) => change("driveId", event.target.value)} required={values.provider === "sharepoint-files"} />
+            {values.provider !== "onedrive-personal" && <StorageCloudLocations client={client} provider={values.provider!} accountId={values.accountId!} onSelect={(id) => change("driveId", id)} />}
           </Field>}
           <div className="grid gap-4 sm:grid-cols-2">
             {storageFields(kind).map((field) => (

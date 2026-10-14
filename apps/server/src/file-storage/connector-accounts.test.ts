@@ -1,0 +1,143 @@
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { z } from "zod";
+import type { ServerConfig } from "../types.js";
+import { startServer } from "../server.js";
+import { writeEigenweltConnection } from "../eigenwelt-connection-store.js";
+import { writeConnectorConnections } from "../connectors/store.js";
+import { saveConnectorWriteSetting } from "../connectors/settings.js";
+import { savedConnectorStatus } from "../connectors/broker.js";
+import { StorageStore } from "./store.js";
+import { storageInputSchema } from "./schema.js";
+import { connectorRuntimeCapability } from "../connectors/capability.js";
+import { ConnectorStorageAccounts } from "./connector-accounts.js";
+import { updateProjectRemote, readProjectDetails } from "../project-store.js";
+import { connectionFingerprint, ProjectFolderBindings } from "./project-folders.js";
+
+const nativeFetch = globalThis.fetch;
+const keys = ["EIGENWELT_PLATFORM_URL", "LEGALWORK_TOKEN_STORE", "LEGALWORK_RUNTIME_DB", "LEGALWORK_ENV_STORE", "LEGALWORK_STORAGE_STORE", "LEGALWORK_DATA_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"];
+const prior = new Map(keys.map((key) => [key, process.env[key]]));
+const owner = JSON.stringify(["https://storage-broker.test", "firm", "alice"]);
+let root: string, config: ServerConfig, base: string;
+let server: Awaited<ReturnType<typeof startServer>> | undefined;
+let calls: string[];
+const googleRoot = { id: "root", name: "Drive", mimeType: "application/vnd.google-apps.folder", parents: [], version: "1" };
+const account = { id: "cloud-account", nangoConnectionId: "fixture-capability", createdAt: "2026-10-01T00:00:00Z", needsReconnect: false };
+beforeEach(async () => {
+  root = await mkdtemp(join(tmpdir(), "storage-account-tests-"));
+  for (const key of keys) process.env[key] = key === "EIGENWELT_PLATFORM_URL" ? "https://storage-broker.test" : join(root, key);
+  const workspace = join(root, "project"); await mkdir(workspace);
+  config = { host: "127.0.0.1", port: 0, token: "fixture-owner", hostToken: "fixture-host", configPath: join(root, "server.json"), approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [],
+    workspaces: [{ id: "project", name: "Project", path: workspace, workspaceType: "local", preset: "default" }], authorizedRoots: [root], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  await writeEigenweltConnection(config, { platformToken: "fixture-platform-token", platformURL: "https://storage-broker.test", account: { userId: "alice", userName: "Alice", userEmail: "alice@example.test", orgId: "firm", orgName: "Firm" } });
+  await writeConnectorConnections(config, owner, "google-drive", [account]); calls = [];
+  globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.hostname === "127.0.0.1") return nativeFetch(input, init);
+    calls.push(url.pathname);
+    if (url.pathname.endsWith("/connection/status")) return Response.json({ connection: { id: account.nangoConnectionId, createdAt: account.createdAt, needsReconnect: false } });
+    if (url.pathname.endsWith("/connection/token")) return Response.json({ accessToken: "fixture-provider-token", expiresAt: null });
+    if (url.hostname === "www.googleapis.com") return url.pathname.endsWith("/files") ? Response.json({ files: [] }) : Response.json(googleRoot, { headers: { etag: '"root-version"' } });
+    return Response.json({}, { status: 404 });
+  }, { preconnect: nativeFetch.preconnect });
+});
+afterEach(async () => {
+  await server?.stop(); server = undefined; globalThis.fetch = nativeFetch;
+  for (const [key, value] of prior) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+  await rm(root, { recursive: true, force: true });
+});
+async function serve() { server = await startServer(config); base = `http://127.0.0.1:${server.port}`; }
+async function scopedToken(scope: "viewer" | "collaborator") {
+  const response = await nativeFetch(`${base}/tokens`, { method: "POST", headers: { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" }, body: JSON.stringify({ scope }) });
+  expect(response.status).toBe(201); return z.object({ token: z.string() }).parse(await response.json()).token;
+}
+async function api(path: string, token = config.token, body?: unknown) {
+  return nativeFetch(`${base}/workspace/project/storage${path}`, { method: body === undefined ? "GET" : "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(token === config.token ? { "x-legalwork-host-token": config.hostToken } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+}
+
+test("saved account status and root discovery never request Nango status or tokens", async () => {
+  const status = await savedConnectorStatus(config, "google-drive"); expect(status.connectors[0].connections[0].id).toBe(account.id); expect(calls).toHaveLength(0);
+  await serve(); calls.length = 0;
+  for (let poll = 0; poll < 3; poll++) {
+    const response = await api("/roots"); expect(response.status).toBe(200);
+    const data = z.object({ roots: z.array(z.object({ id: z.string(), writable: z.boolean(), provider: z.string().optional() })) }).parse(await response.json());
+    expect(data.roots).toContainEqual(expect.objectContaining({ id: `connector:google-drive:${account.id}`, writable: false, provider: "google-drive" }));
+  }
+  expect(calls.some((path) => path.startsWith("/api/connectors"))).toBe(false);
+});
+
+test("write settings stay default-off and folder views reuse one saved account", async () => {
+  const bridge = new ConnectorStorageAccounts(config); const first = await bridge.list("project"); expect(first[0].readOnly).toBe(true);
+  await saveConnectorWriteSetting(config, "google-drive", { writeAccess: true }); expect((await bridge.list("project"))[0].readOnly).toBe(false);
+  const store = new StorageStore(config); await store.save("project", storageInputSchema.parse({ name: "Subfolder", config: { kind: "oauth", provider: "google-drive", accountId: account.id, root: "folder" }, readOnly: true }));
+  expect((await savedConnectorStatus(config, "google-drive")).connectors[0].connections).toHaveLength(1); expect(calls).toHaveLength(0);
+});
+
+test("personal roots and every generic read/write path remain owner-only", async () => {
+  await serve();
+  const id = encodeURIComponent(`connector:google-drive:${account.id}`);
+  const scopes: ("viewer" | "collaborator")[] = ["viewer", "collaborator"];
+  for (const scope of scopes) {
+    const token = await scopedToken(scope);
+    const roots = z.object({ roots: z.array(z.object({ id: z.string() })) }).parse(await (await api("/roots", token)).json()); expect(roots.roots).toHaveLength(0);
+    for (const suffix of ["/capabilities", "/children", "/search?mode=content&query=test", "/file?path=File.txt"]) expect((await api(`/${id}${suffix}`, token)).status).toBe(403);
+    for (const entry of [{ suffix: "/checkout", body: { path: "File.txt" } }, { suffix: "/filename-search", body: { query: "test" } }, { suffix: "/folders", body: { path: "Folder" } }, { suffix: "/local-copy", body: { localPath: "File.txt", targetPath: "Copy.txt" } }]) expect((await api(`/${id}${entry.suffix}`, token, entry.body)).status).toBe(403);
+  }
+  expect(calls.some((path) => path.startsWith("/drive") || path.startsWith("/api/connectors"))).toBe(false);
+});
+
+test("a bound project link cannot bypass personal-account isolation", async () => {
+  const bridge = new ConnectorStorageAccounts(config); const connection = (await bridge.list("project"))[0];
+  const folder = { id: "00000000-0000-4000-8000-000000000001", connectionId: connection.id, connectionName: connection.name, connectionFingerprint: connectionFingerprint(connection), folder: { path: "", id: "root", name: "Drive", namespace: `google-drive:${account.id}:root` } };
+  const workspace = config.workspaces[0]; const details = await readProjectDetails(workspace.path);
+  await updateProjectRemote(workspace.path, { version: 1, folders: [folder], initialization: "ready" }, details.revision);
+  await new ProjectFolderBindings(new StorageStore(config).path).save(workspace.id, folder, workspace.id);
+  await serve(); const token = await scopedToken("collaborator"); calls.length = 0;
+  expect((await api(`/project%3A${folder.id}/children`, token)).status).toBe(403);
+  const response = await nativeFetch(`${base}/workspace/project/project/remote-folders`, { headers: { Authorization: `Bearer ${token}` } });
+  const result = z.object({ folders: z.array(z.object({ status: z.string() })) }).parse(await response.json()); expect(result.folders[0].status).toBe("denied");
+  expect(calls.some((path) => path.startsWith("/drive") || path.startsWith("/api/connectors"))).toBe(false);
+});
+
+test("a switched Eigenwelt account cannot inherit a saved cloud folder view", async () => {
+  const input = storageInputSchema.parse({ name: "Drive", config: { kind: "oauth", provider: "google-drive", accountId: account.id, root: "" } });
+  await writeEigenweltConnection(config, { platformToken: "bob-platform", platformURL: "https://storage-broker.test", account: { userId: "bob", userName: "Bob", userEmail: "bob@example.test", orgId: "firm", orgName: "Firm" } });
+  const bridge = new ConnectorStorageAccounts(config); expect(await bridge.list("project")).toHaveLength(0);
+  await expect(bridge.validate(input)).rejects.toMatchObject({ code: "storage_disconnected" }); expect(calls).toHaveLength(0);
+});
+
+test("team promotion rejects personal cloud credentials before contacting the platform", async () => {
+  await serve(); calls.length = 0;
+  const response = await nativeFetch(`${base}/workspace/project/storage/team`, { method: "POST", headers: { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" }, body: JSON.stringify({ name: "Drive", config: { kind: "oauth", provider: "google-drive", accountId: account.id, root: "" } }) });
+  expect(response.status).toBe(403); expect(calls.some((path) => path.includes("storage") || path.includes("connectors"))).toBe(false);
+});
+
+
+test("the owner's managed agent can use generic storage while ordinary collaborators cannot", async () => {
+  await serve(); const capability = connectorRuntimeCapability(config);
+  const headers = { Authorization: `Bearer ${config.token}`, "x-legalwork-connector-token": capability };
+  const roots = z.object({ roots: z.array(z.object({ id: z.string() })) }).parse(await (await nativeFetch(`${base}/workspace/project/storage/roots`, { headers })).json());
+  expect(roots.roots).toHaveLength(1);
+  const response = await nativeFetch(`${base}/workspace/project/storage/${encodeURIComponent(roots.roots[0].id)}/children`, { headers }); expect(response.status).toBe(200);
+  expect(calls).toContain("/api/connectors/google-drive/connection/token");
+  const viewer = await scopedToken("viewer");
+  expect((await nativeFetch(`${base}/workspace/project/storage/${encodeURIComponent(roots.roots[0].id)}/children`, { headers: { Authorization: `Bearer ${viewer}`, "x-legalwork-connector-token": capability } })).status).toBe(403);
+});
+
+test("own OAuth storage remains available without Eigenwelt sign-in and creates no second grant", async () => {
+  const { OAuthVault, oauthVaultPath } = await import("./oauth/vault.js");
+  const { connectorOAuthClientInputSchema, connectorConnectionSchema } = await import("../connectors/schema.js");
+  const vault = new OAuthVault(oauthVaultPath(config));
+  const stateSchema = z.object({ client: connectorOAuthClientInputSchema, revision: z.string(), connections: z.array(connectorConnectionSchema.extend({ readOnly: z.boolean(), authorizedWrites: z.array(z.string()), grantKey: z.string() })) });
+  const grant = "synthetic-own-oauth-grant";
+  await vault.setEntry(JSON.stringify(["connector-oauth-app", "google-drive"]), stateSchema, { client: { clientId: "synthetic-client", tenantId: "" }, revision: "revision", connections: [{ id: "own-account", source: "custom", createdAt: null, needsReconnect: false, readOnly: true, authorizedWrites: [], grantKey: grant }] });
+  await vault.set(grant, { accessToken: "synthetic-access", refreshToken: "synthetic-refresh", expiresAt: Date.now() + 3600_000 });
+  await writeEigenweltConnection(config, { platformURL: "https://storage-broker.test", platformToken: null, refreshToken: null, account: null });
+  const bridge = new ConnectorStorageAccounts(config); const roots = await bridge.list("project"); expect(roots[0].config).toMatchObject({ accountId: "own-account", provider: "google-drive" });
+  await bridge.validate(roots[0]); expect(calls).toHaveLength(0);
+  await serve(); const response = await api(`/${encodeURIComponent(roots[0].id)}/children`); expect(response.status).toBe(200);
+  expect(calls.some((path) => path.startsWith("/api/connectors"))).toBe(false);
+  expect((await savedConnectorStatus(config, "google-drive")).connectors[0].connections).toHaveLength(1);
+});

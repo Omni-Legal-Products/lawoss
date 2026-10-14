@@ -33,6 +33,7 @@ async function listCommandsInDir(dir: string, scope: "workspace" | "global"): Pr
   const entries = await readdir(dir, { withFileTypes: true });
   const items: CommandItem[] = [];
   for (const entry of entries) {
+    if (entry.isDirectory()) { items.push(...await listCommandsInDir(join(dir, entry.name), scope)); continue; }
     if (!entry.isFile()) continue;
     if (!entry.name.endsWith(".md")) continue;
     const filePath = join(dir, entry.name);
