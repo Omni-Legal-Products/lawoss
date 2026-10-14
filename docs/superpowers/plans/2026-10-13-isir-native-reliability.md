@@ -141,6 +141,16 @@ První publikovaný HEAD dad974fd prošel source testy Linux/macOS a i18n. Windo
 
 - [x] Reprodukovat zastaralý zápis při shodném mtime přes skutečné HTTP; odmítnout konfliktní baseContent i bez změny času, zachovat merge/force. Oprava 251b523a, cílený RED/GREEN.
 - [x] Zachovat testy hlaviček s Windows-valid názvy a úplnými file URL pro child import; přidat bezpečně omezené synthetic-only native/cleanup diagnostiky, které zachovají původní chybu. Commit 2fd12637, covering49server/23helpers GREEN.
-- [ ] Nezávislá immutable scoped review, aktuální úplné lokální testy/build a feature publikace.
+- [x] Nezávislá immutable scoped review prvního CI kola, aktuální úplné lokální testy/build a feature publikace bdaba06e. Nové remote výsledky znovu otevřely zbývající kroky níže.
 - [ ] Z nových remote výsledků/artifacts určit skutečnou příčinu native timeoutů a Windows EBUSY; opravit jen doložené příčiny, bez skipů či potlačení chyb. Sdílené DB shutdown vlastnictví musí prokázat souběžně živý druhý server i poslední release/restart.
 - [ ] Zelené požadované OS CI, běžné schválení PR a začlenění do dev; potom zachovaný uživatelský profil, skutečné public/provider/CUA testy a závěrečný audit Task5 výše.
+
+Aktuální stav 14. 10. 2026: publikované bdaba06e prošlo source Linux/macOS a i18n; Windows portable má 18 selhání úklidu EBUSY a všechny tři native package průchody selhaly. Lokální podepsaná databázová implementace 45799fd5 prošla server1560/21skip/0fail, Node2/0fail a zbývajícími lokálními integračními kontrolami. Nezávislá revize však otevřela tři Important chyby; oprava není publikovaná ani schválená k nasazení.
+
+- [x] Při neúspěšném zavření zachovat skutečný prostředek a generaci, zkusit ostatní prostředky a umožnit explicitní bezpečný úklid bez dvojího snížení vlastníků či předčasného otevření nástupce.
+- [x] Předat přijatou krátce odloženou task/project synchronizaci zbývajícímu živému serveru; ověřit opačné pořadí zastavení i skutečný Node AsyncLocalStorage kontext.
+- [x] Zachovat původní chybu inicializace i chybu zavření a vlastnictví částečně otevřené databáze ve všech osmi adaptérech a nezávislých přímých store instancích.
+- [x] Po skutečných RED/GREEN dokončit zmrazené úplné kontroly a čerstvou immutable revizi těchto tří oprav před další publikací. Fix 1a6f89ff: server1575/21existujících skip/0fail, strict/build0, Node2/0skip/0fail; I1–I3 nezávisle potvrzeny jako odstraněné.
+- [x] Opravit dva nové testové typy `any` bezpečným zúžením `unknown`, zachovat všechny behaviorální kontroly a uzavřít malou scoped revizi. Test-only 71bce45c: focused34/0fail/153assertions, strict0; čerstvá scoped revize Minor ADDRESSED bez dalších zjištění. Produkční kód a jeho úplné testy se tím nemění.
+- [ ] Prokázat a opravit zrušení streamu přes celý autentizovaný produkční proxy; samostatný Node adapter probe již prokázal otevřený upstream po odpojení, ale ne příčinu browser timeoutů.
+- [ ] Doložit příčinu Linux/macOS nativního zaseknutí a Windows resetu na skutečných platformách; zpřesnit bezpečné diagnostiky, zachovat normální obnovení enginu a všechny dosavadní akceptační podmínky.

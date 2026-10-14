@@ -119,6 +119,10 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 
 ## Document evidence and resource bounds
 
+- Capture the canonical database path and generation in its lifetime owner. Async request/producer work must keep that owner until completion; stopping one server must preserve another live server's borrowed stores, watchers and accepted pending synchronization.
+- Failed native close is not released ownership. Retain the exact failed resource and both initialization/cleanup errors for explicit captured-generation recovery; close successful siblings only once and keep successor readiness blocked until cleanup succeeds.
+- Verify database release using real Bun and Node drivers, own-process handles and normal directory removal while the process stays alive. A returned close call or garbage collection is not proof that retained prepared statements released their native handles.
+
 - Preserve original source hashes, per-source page numbers and embedded-document provenance. Extraction completeness and pagination completion are different contracts; consumers must follow read cursors and verify current source hashes before presenting fresh evidence.
 - Reserve tree-wide attachment budgets before recursive descent. Capacity admission must count actual new records after deduplication/retry planning; a full registry must still permit reuse of an existing preparation.
 - Persist original-source admission independently from extraction update time. Restoring earlier bytes must select that original and its descendants after reload; legacy records retain a deterministic fallback and every selected read still verifies current bytes.
