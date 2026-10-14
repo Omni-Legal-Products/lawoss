@@ -297,6 +297,10 @@ function latestAssistantMessageId(messages: UIMessage[]) {
   return null;
 }
 
+function latestUserMessageId(messages: UIMessage[] | undefined) {
+  return messages?.findLast((message) => message.role === "user")?.id ?? null;
+}
+
 function partHasVisibleAssistantOutput(part: Part) {
   if (part.type === "text" && part.synthetic) return false;
   if (part.type === "text" && part.ignored) return false;
@@ -729,6 +733,18 @@ export function coalescePendingDeltas(items: PendingDelta[]) {
   return ordered;
 }
 
+function publishSessionStatus(workspaceId: string, sessionId: string, status: SessionStatus) {
+  const queryClient = getReactQueryClient();
+  queryClient.setQueryData(statusKey(workspaceId, sessionId), status);
+  // Metadata/revert updates replay this snapshot through both hydration effects.
+  // Keep its execution status aligned with the native publication, without
+  // creating a snapshot for sessions that have not been loaded.
+  queryClient.setQueryData<LegalworkSessionSnapshot>(
+    snapshotKey(workspaceId, sessionId),
+    (current) => current ? { ...current, status } : current,
+  );
+}
+
 function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent) {
   const queryClient = getReactQueryClient();
   const input = entry.input;
@@ -785,7 +801,8 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
           status_code: analyticsErrorStatus(sessionError),
         });
       }
-      useSessionActivityStore.getState().setError(workspaceId, sessionId, errorText);
+      const errorUserMessageId = latestUserMessageId(queryClient.getQueryData<UIMessage[]>(transcriptKey(workspaceId, sessionId)));
+      useSessionActivityStore.getState().setError(workspaceId, sessionId, errorText, errorUserMessageId);
       if (isTrackedSession(entry, sessionId)) {
         queryClient.setQueryData<UIMessage[]>(transcriptKey(workspaceId, sessionId), (current = []) => {
           // Key the error to the latest assistant turn so it lands beside the
@@ -821,7 +838,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     if (!props.sessionID || !props.status) return;
     useSessionActivityStore.getState().setRunStatus(workspaceId, props.sessionID, props.status);
     const tracked = isTrackedSession(entry, props.sessionID);
-    if (tracked) queryClient.setQueryData(statusKey(workspaceId, props.sessionID), props.status);
+    if (tracked) publishSessionStatus(workspaceId, props.sessionID, props.status);
     for (const listener of entry.sessionStatusListeners) listener({ sessionId: props.sessionID, status: props.status });
     if (input && tracked && !isLiveStatus(props.status)) releaseRetainedSessionSoon(input, entry, props.sessionID);
     return;
@@ -923,7 +940,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
       && (info.error || (info.finish && info.finish !== "tool-calls" && info.finish !== "unknown"))) {
       useSessionActivityStore.getState().setRunStatus(workspaceId, info.sessionID, idleStatus);
       if (isTrackedSession(entry, info.sessionID)) {
-        queryClient.setQueryData(statusKey(workspaceId, info.sessionID), idleStatus);
+        publishSessionStatus(workspaceId, info.sessionID, idleStatus);
       }
     }
     if (!isTrackedSession(entry, info.sessionID)) return;
@@ -1065,7 +1082,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     }
     useSessionActivityStore.getState().setRunStatus(workspaceId, props.sessionID, idleStatus);
     const tracked = isTrackedSession(entry, props.sessionID);
-    if (tracked) queryClient.setQueryData(statusKey(workspaceId, props.sessionID), idleStatus);
+    if (tracked) publishSessionStatus(workspaceId, props.sessionID, idleStatus);
     for (const listener of entry.sessionStatusListeners) listener({ sessionId: props.sessionID, status: idleStatus });
     if (input && tracked) releaseRetainedSessionSoon(input, entry, props.sessionID);
   }
@@ -1296,18 +1313,42 @@ export function seedTodoState(
   queryClient.setQueryData(key, todos);
 }
 
+function snapshotHasNewerUser(
+  snapshot: LegalworkSessionSnapshot,
+  knownUserId: string | null | undefined,
+  incoming: UIMessage[],
+) {
+  if (!knownUserId) return false;
+  const visible = applyRevertCursor(incoming, snapshot.session.revert?.messageID);
+  const knownIndex = visible.findIndex((message) => message.role === "user" && message.id === knownUserId);
+  const newerIndex = visible.findLastIndex((message) => message.role === "user");
+  if (knownIndex < 0 || newerIndex <= knownIndex) return false;
+  const newerId = visible[newerIndex].id;
+  if (visible.slice(newerIndex + 1).some((message) => message.id.startsWith(SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX))) return false;
+  return !snapshot.messages.some((message) => message.info.role === "assistant"
+    && message.info.parentID === newerId && message.info.error
+    && visible.some((candidate) => candidate.id === `${SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX}${message.info.id}`));
+}
+
 export function seedSessionState(workspaceId: string, snapshot: LegalworkSessionSnapshot) {
   const queryClient = getReactQueryClient();
   const key = transcriptKey(workspaceId, snapshot.session.id);
   const incoming = snapshotToUIMessages(snapshot);
   const existing = queryClient.getQueryData<UIMessage[]>(key);
 
-  useSessionActivityStore.getState().seedSessionRun(
-    workspaceId,
-    snapshot.session.id,
-    snapshot.status,
-    assistantOutputAfterLatestUser(incoming),
-  );
+  // Cached metadata is not new execution evidence after an error. A live
+  // snapshot may recover only when its ordered messages prove a newer user turn.
+  const activityStore = useSessionActivityStore.getState();
+  const currentActivity = activityStore.recordsByWorkspaceId[workspaceId]?.[snapshot.session.id];
+  if (!currentActivity?.errorActive
+    || (isLiveStatus(snapshot.status) && snapshotHasNewerUser(snapshot, currentActivity.errorUserMessageId, incoming))) {
+    activityStore.seedSessionRun(
+      workspaceId,
+      snapshot.session.id,
+      snapshot.status,
+      assistantOutputAfterLatestUser(incoming),
+    );
+  }
 
   // The snapshot's revert cursor is authoritative: messages at/after it are
   // reverted server-side, so the cache must not keep them alive (a later
@@ -1323,7 +1364,8 @@ export function seedSessionState(workspaceId: string, snapshot: LegalworkSession
 
   // An older idle snapshot must not overwrite a newer busy event / accepted prompt.
   const activity = useSessionActivityStore.getState().recordsByWorkspaceId[workspaceId]?.[snapshot.session.id];
-  if (isLiveStatus(snapshot.status) || !activity?.runActive) {
+  // Replaying an old idle snapshot must not refresh idle evidence past an error.
+  if (!activity?.errorActive && (isLiveStatus(snapshot.status) || !activity?.runActive)) {
     queryClient.setQueryData(statusKey(workspaceId, snapshot.session.id), snapshot.status);
   }
   seedTodoState(workspaceId, snapshot.session.id, snapshot.todos);
@@ -1340,7 +1382,8 @@ export function seedSessionState(workspaceId: string, snapshot: LegalworkSession
  */
 export function injectSessionErrorMessage(workspaceId: string, sessionId: string, text: string) {
   const queryClient = getReactQueryClient();
-  useSessionActivityStore.getState().setError(workspaceId, sessionId, text);
+  const errorUserMessageId = latestUserMessageId(queryClient.getQueryData<UIMessage[]>(transcriptKey(workspaceId, sessionId)));
+  useSessionActivityStore.getState().setError(workspaceId, sessionId, text, errorUserMessageId);
   queryClient.setQueryData<UIMessage[]>(transcriptKey(workspaceId, sessionId), (current = []) => {
     const turnKey = latestAssistantMessageId(current) ?? sessionId;
     return upsertMessage(current, createSessionErrorUIMessage(turnKey, text));

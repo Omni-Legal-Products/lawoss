@@ -13,6 +13,7 @@ type SessionActivityRecord = {
   assistantOutput: boolean;
   errorActive: boolean;
   errorMessage: string | null;
+  errorUserMessageId: string | null;
   compacting: boolean;
   waitingPermissionIds: string[];
   waitingQuestionIds: string[];
@@ -39,7 +40,7 @@ type SessionActivityStore = {
   markAssistantOutput: (workspaceId: string, sessionId: string, messageId?: string, options?: { allowUnknownMessageRole?: boolean }) => void;
   setWaitingRequest: (workspaceId: string, sessionId: string, kind: "permission" | "question", requestId: string, waiting: boolean) => void;
   replaceWaitingRequests: (workspaceId: string, sessionId: string, kind: "permission" | "question", requestIds: string[]) => void;
-  setError: (workspaceId: string, sessionId: string, message?: string) => void;
+  setError: (workspaceId: string, sessionId: string, message?: string, errorUserMessageId?: string | null) => void;
   clearError: (workspaceId: string, sessionId: string) => void;
   setCompacting: (workspaceId: string, sessionId: string, compacting: boolean) => void;
   removeSession: (workspaceId: string, sessionId: string) => void;
@@ -51,6 +52,7 @@ const createRecord = (): SessionActivityRecord => ({
   assistantOutput: false,
   errorActive: false,
   errorMessage: null,
+  errorUserMessageId: null,
   compacting: false,
   waitingPermissionIds: [],
   waitingQuestionIds: [],
@@ -175,6 +177,7 @@ export const useSessionActivityStore = create<SessionActivityStore>((set, get) =
               assistantOutput: runActive && record.runActive ? record.assistantOutput : false,
               errorActive: runActive ? false : record.errorActive,
               errorMessage: runActive ? null : record.errorMessage,
+              errorUserMessageId: runActive ? null : record.errorUserMessageId,
               compacting: runActive ? record.compacting : false,
               waitingPermissionIds: runActive ? record.waitingPermissionIds : [],
               waitingQuestionIds: runActive ? record.waitingQuestionIds : [],
@@ -199,6 +202,7 @@ export const useSessionActivityStore = create<SessionActivityStore>((set, get) =
         assistantOutput: runActive && assistantOutput,
         errorActive: runActive ? false : record.errorActive,
         errorMessage: runActive ? null : record.errorMessage,
+        errorUserMessageId: runActive ? null : record.errorUserMessageId,
         compacting: runActive ? record.compacting : false,
         waitingPermissionIds: runActive ? record.waitingPermissionIds : [],
         waitingQuestionIds: runActive ? record.waitingQuestionIds : [],
@@ -218,6 +222,7 @@ export const useSessionActivityStore = create<SessionActivityStore>((set, get) =
         assistantOutput: runActive && record.runActive ? record.assistantOutput : false,
         errorActive: runActive ? false : record.errorActive,
         errorMessage: runActive ? null : record.errorMessage,
+        errorUserMessageId: runActive ? null : record.errorUserMessageId,
         compacting: runActive ? record.compacting : false,
         waitingPermissionIds: runActive ? record.waitingPermissionIds : [],
         waitingQuestionIds: runActive ? record.waitingQuestionIds : [],
@@ -272,7 +277,7 @@ export const useSessionActivityStore = create<SessionActivityStore>((set, get) =
       [kind === "permission" ? "waitingPermissionIds" : "waitingQuestionIds"]: ids,
     })));
   },
-  setError: (workspaceId, sessionId, message) => {
+  setError: (workspaceId, sessionId, message, errorUserMessageId) => {
     const workspace = workspaceId.trim();
     const session = sessionId.trim();
     if (!workspace || !session) return;
@@ -280,6 +285,7 @@ export const useSessionActivityStore = create<SessionActivityStore>((set, get) =
       ...record,
       errorActive: true,
       errorMessage: message ? message : t("session.failed"),
+      errorUserMessageId: errorUserMessageId?.trim() || null,
       runActive: false,
       assistantOutput: false,
       compacting: false,
@@ -293,6 +299,7 @@ export const useSessionActivityStore = create<SessionActivityStore>((set, get) =
       ...record,
       errorActive: false,
       errorMessage: null,
+      errorUserMessageId: null,
     })));
   },
   setCompacting: (workspaceId, sessionId, compacting) => {
@@ -304,6 +311,7 @@ export const useSessionActivityStore = create<SessionActivityStore>((set, get) =
       compacting,
       errorActive: compacting ? false : record.errorActive,
       errorMessage: compacting ? null : record.errorMessage,
+      errorUserMessageId: compacting ? null : record.errorUserMessageId,
     })));
   },
   removeSession: (workspaceId, sessionId) => {
