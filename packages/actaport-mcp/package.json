@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Bundled Actaport MCP server generated from the official OpenAPI specification",
   "scripts": {
-    "build": "bun build src/index.ts src/auth.ts --outdir dist --target node --format esm --entry-naming '[name].mjs'",
+    "build": "bun build src/index.ts src/auth.ts --outdir dist --target node --format esm --entry-naming \"[name].mjs\"",
     "typecheck": "tsc --noEmit",
     "test": "pnpm build && bun test test"
   },
