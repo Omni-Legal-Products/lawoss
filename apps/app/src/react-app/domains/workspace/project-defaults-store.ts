@@ -1,88 +1,90 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { ProjectDetails, ProjectField } from "@legalwork/types/workspace";
-import { currentLocale, type Locale, t } from "@/i18n";
+import * as shared from "@legalwork/types/workspace";
+import { emptyProjectFields } from "@legalwork/types/workspace";
+import type { ProjectDetails, ProjectField, ProjectMetadataTemplate } from "@legalwork/types/workspace";
+import { currentLocale } from "@/i18n";
 
-/** A template defines fields only. Every project starts with empty, optional values. */
-export function emptyProjectFields(fields: ProjectField[]): ProjectField[] {
-  return fields.map((field) => ({ ...field, value: null, ...(field.options ? { options: [...field.options] } : {}) }));
-}
+export type { ProjectMetadataTemplate } from "@legalwork/types/workspace";
+export { emptyProjectFields } from "@legalwork/types/workspace";
+export const projectFieldLabel = (field: ProjectField, locale = currentLocale()) => shared.projectFieldLabel(field, locale);
+export const localizedProjectFields = (fields: ProjectField[], locale = currentLocale()) => shared.localizedProjectFields(fields, locale);
+export const localizedTemplateFields = (fields: ProjectField[], locale = currentLocale()) => shared.localizedTemplateFields(fields, locale);
+export const defaultAkteFields = () => shared.defaultAkteFields(currentLocale());
+export const defaultProjectTemplates = () => shared.defaultProjectTemplates(currentLocale());
+export const projectTemplateName = (template: ProjectMetadataTemplate, locale = currentLocale()) => shared.projectTemplateName(template, locale);
 
 /** Older projects inherit defaults until their first save, including an explicitly empty save. */
 export function withInitialProjectFields(details: ProjectDetails, defaults: ProjectField[]): ProjectDetails {
   if (details.revision > 0 || details.fields.length > 0) return details;
-  return { ...details, fields: emptyProjectFields(defaults) };
+  return { ...details, fields: localizedTemplateFields(defaults) };
 }
 
-/** Resolve only our known presets. Legacy defaults are recognized by both id and original label. */
-function suggestedLabels(locale: Locale): Record<string, string> {
-  return {
-    matter_number: t("projects.schema.matter_number", locale),
-    client: t("projects.schema.client", locale),
-    opposing_party: t("projects.schema.opposing_party", locale),
-    subject: t("projects.schema.subject", locale),
-    practice_area: t("projects.schema.practice_area", locale),
-    responsible: t("projects.schema.responsible", locale),
-    status: t("projects.schema.status", locale),
-    opened_on: t("projects.schema.opened_on", locale),
-    court: t("projects.schema.court", locale),
-    external_reference: t("projects.schema.external_reference", locale),
-  };
-}
-
-export function projectFieldLabel(field: ProjectField, locale = currentLocale()): string {
-  const label = suggestedLabels(locale)[field.id];
-  if (!label || field.labelSource === "custom") return field.label;
-  if (field.labelSource === "suggested" ||
-      ["en", "de"].some((language) =>
-        suggestedLabels(language === "de" ? "de" : "en")[field.id] === field.label)) return label;
-  return field.label;
-}
-
-/** Preserve label provenance when a field editor saves or copies defaults. */
-export function localizedProjectFields(fields: ProjectField[], locale = currentLocale()): ProjectField[] {
-  return fields.map((field) => ({
-    ...field,
-    label: projectFieldLabel(field, locale),
-    labelSource: field.labelSource ?? (
-      suggestedLabels("en")[field.id] === field.label || suggestedLabels("de")[field.id] === field.label
-        ? "suggested" : "custom"
-    ),
-  }));
-}
-
-export function defaultAkteFields(): ProjectField[] {
+/** Switching templates keeps entered values and custom fields, including their types. */
+export function applyProjectTemplate(fields: ProjectField[], template: ProjectMetadataTemplate): ProjectField[] {
+  const selected = new Set(template.fields.map((field) => field.id));
+  const existing = new Map(fields.map((field) => [field.id, field]));
   return [
-    { id: "matter_number", labelSource: "suggested", label: t("projects.schema.matter_number"), type: "text", value: null },
-    { id: "client", labelSource: "suggested", label: t("projects.schema.client"), type: "text", value: null },
-    { id: "opposing_party", labelSource: "suggested", label: t("projects.schema.opposing_party"), type: "text", value: null },
-    { id: "subject", labelSource: "suggested", label: t("projects.schema.subject"), type: "text", value: null },
-    { id: "practice_area", labelSource: "suggested", label: t("projects.schema.practice_area"), type: "text", value: null },
-    { id: "responsible", labelSource: "suggested", label: t("projects.schema.responsible"), type: "text", value: null },
-    { id: "status", labelSource: "suggested", label: t("projects.schema.status"), type: "select", value: null,
-      options: [t("projects.schema.status_open"), t("projects.schema.status_active"), t("projects.schema.status_waiting"), t("projects.schema.status_closed")] },
-    { id: "opened_on", labelSource: "suggested", label: t("projects.schema.opened_on"), type: "date", value: null },
-    { id: "court", labelSource: "suggested", label: t("projects.schema.court"), type: "text", value: null },
-    { id: "external_reference", labelSource: "suggested", label: t("projects.schema.external_reference"), type: "text", value: null },
+    ...localizedTemplateFields(template.fields).map((field) => existing.get(field.id) ?? field),
+    ...fields.filter((field) => !selected.has(field.id) && (field.value !== null && field.value !== "" || field.labelSource !== "suggested")),
   ];
 }
 
-export const useProjectDefaultsStore = create<{
-  fields: ProjectField[] | null;
-  setFields: (fields: ProjectField[]) => void;
-  addField: (field: ProjectField) => void;
-  reset: () => void;
-}>()(persist((set) => ({
-  fields: null,
-  setFields: (fields) => set({ fields: emptyProjectFields(fields) }),
-  addField: (field) => set((state) => {
-    const fields = state.fields ?? defaultAkteFields();
-    if (!field.label.trim() || fields.length >= 50 || fields.some((entry) => entry.id === field.id)) return state;
-    return { fields: emptyProjectFields([...fields, { ...field, label: field.label.trim() }]) };
-  }),
-  reset: () => set({ fields: null }),
-}), { name: "legalwork.projectMetadataDefaults" }));
+type ProjectTemplatesState = {
+  serverKey: string | null;
+  migrated: boolean;
+  hasLegacyDefaults: boolean;
+  templates: ProjectMetadataTemplate[];
+  defaultTemplateId: string | null;
+};
 
-export function newProjectFields(): ProjectField[] {
-  return emptyProjectFields(localizedProjectFields(useProjectDefaultsStore.getState().fields ?? defaultAkteFields()));
+/** Version 0 held a single schema. Preserve even an explicitly empty schema. */
+export function migrateProjectDefaults(persisted: unknown): Pick<ProjectTemplatesState, "templates" | "defaultTemplateId" | "hasLegacyDefaults"> {
+  const templates = defaultProjectTemplates();
+  // Preserve saved catalogs when upgrading from the browser-only template picker.
+  if (persisted && typeof persisted === "object" && "templates" in persisted) {
+    const parsed = shared.projectTemplateCatalogSchema.safeParse({ ...persisted, revision: 0 });
+    if (parsed.success) {
+      const legacy = parsed.data.templates.find((entry) => entry.id === "administration");
+      if (legacy && !parsed.data.templates.some((entry) => entry.id === "contracts")) {
+        const pristine = legacy.nameSource === "suggested" &&
+          shared.localizedTemplateFields(legacy.fields, "en").every((field) => {
+            const type = field.id === "status" ? "select" : field.id === "renewal_date" ? "date" : field.id === "budget" ? "number" : "text";
+            return field.labelSource === "suggested" && field.type === type && (field.id === "status"
+              ? JSON.stringify(field.options) === JSON.stringify(["Open", "In progress", "Waiting", "Closed"]) : field.options === undefined);
+          }) && legacy.fields.map((field) => field.id).join(",") === "process,reference,project_owner,department,vendor,status,renewal_date,budget";
+        if (pristine) parsed.data.templates = parsed.data.templates.filter((entry) => entry !== legacy);
+        parsed.data.templates.push(templates.find((entry) => entry.id === "contracts")!);
+        if (pristine && parsed.data.defaultTemplateId === legacy.id) parsed.data.defaultTemplateId = "contracts";
+      }
+      return { templates: parsed.data.templates, defaultTemplateId: parsed.data.defaultTemplateId, hasLegacyDefaults: true };
+    }
+  }
+  if (persisted && typeof persisted === "object" && "fields" in persisted && Array.isArray(persisted.fields)) {
+    const fields = persisted.fields.filter((field): field is ProjectField =>
+      field !== null && typeof field === "object" && typeof field.id === "string" && typeof field.label === "string" &&
+      ["text", "number", "date", "select"].includes(field.type) &&
+      (field.options === undefined || Array.isArray(field.options) && field.options.every((option: unknown) => typeof option === "string")),
+    );
+    templates[0].fields = emptyProjectFields(fields);
+  }
+  return { templates, defaultTemplateId: "legal_matter", hasLegacyDefaults: Boolean(persisted && typeof persisted === "object" && "fields" in persisted) };
+}
+
+export const useProjectDefaultsStore = create<ProjectTemplatesState>()(persist((): ProjectTemplatesState => ({
+  serverKey: null,
+  migrated: false,
+  hasLegacyDefaults: false,
+  templates: defaultProjectTemplates(),
+  defaultTemplateId: "legal_matter",
+}), {
+  name: "legalwork.projectMetadataDefaults",
+  version: 2,
+  migrate: migrateProjectDefaults,
+  partialize: ({ templates, defaultTemplateId, migrated, hasLegacyDefaults }) => ({ templates, defaultTemplateId, migrated, hasLegacyDefaults }),
+}));
+
+const NO_FIELDS: ProjectField[] = [];
+export function defaultProjectFields(state: Pick<ProjectTemplatesState, "templates" | "defaultTemplateId">): ProjectField[] {
+  return state.templates.find((template) => template.id === state.defaultTemplateId)?.fields ?? NO_FIELDS;
 }

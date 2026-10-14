@@ -11,9 +11,9 @@ export type ShellNavKey = "navHome" | "navScheduled" | "navCalendar" | "navProje
 
 const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navProjects", "navCalendar", "navTasks", "navScheduled", "navWorkflows", "navRecorder", "navEvaluations"];
 
-export type ChatSectionKey = "navNewChat" | "sectionPinned" | "sectionPinnedProjects" | "sectionProjects" | "sectionRecent";
+export type ChatSectionKey = "navNewChat" | "sectionPinned" | "sectionPinnedProjects" | "sectionSharedProjects" | "sectionProjects" | "sectionRecent";
 export type ProjectNavKey = "projectCalendar" | "projectHome" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";
-const DEFAULT_CHAT_ORDER: ChatSectionKey[] = ["navNewChat", "sectionPinned", "sectionPinnedProjects", "sectionProjects", "sectionRecent"];
+const DEFAULT_CHAT_ORDER: ChatSectionKey[] = ["navNewChat", "sectionPinned", "sectionPinnedProjects", "sectionSharedProjects", "sectionProjects", "sectionRecent"];
 const DEFAULT_PROJECT_ORDER: ProjectNavKey[] = ["projectHome", "projectCalendar", "projectReviews", "projectTasks", "projectFiles", "projectSessions"];
 
 export type ShellConfig = {
@@ -26,6 +26,7 @@ export type ShellConfig = {
   sectionPinned: boolean;
   sectionPinnedProjects: boolean;
   sectionProjects: boolean;
+  sectionSharedProjects: boolean;
   sectionRecent: boolean;
   projectNavOrder: ProjectNavKey[];
   projectCalendar: boolean;
@@ -85,6 +86,7 @@ export const DEFAULT_SHELL_CONFIG: ShellConfig = {
   sectionPinned: true,
   sectionPinnedProjects: true,
   sectionProjects: true,
+  sectionSharedProjects: true,
   sectionRecent: true,
   projectNavOrder: DEFAULT_PROJECT_ORDER,
   projectCalendar: true,
@@ -128,7 +130,20 @@ function readOrder<K extends string>(value: unknown, defaults: K[]): K[] {
   return [...new Set([...saved, ...defaults])];
 }
 
-function readShellConfig(): ShellConfig {
+function readChatOrder(value: unknown): ChatSectionKey[] {
+  const order = readOrder(value, DEFAULT_CHAT_ORDER);
+  // Saved defaults follow the new default; explicit custom arrangements stay put.
+  if (Array.isArray(value) && value.join(",") === "navNewChat,sectionPinned,sectionProjects,sectionSharedProjects,sectionRecent")
+    return [...DEFAULT_CHAT_ORDER];
+  if (Array.isArray(value) && !value.includes("sectionSharedProjects")) {
+    const existing: ChatSectionKey[] = order.filter((key) => key !== "sectionSharedProjects");
+    existing.splice(existing.indexOf("sectionProjects"), 0, "sectionSharedProjects");
+    return existing;
+  }
+  return order;
+}
+
+export function readShellConfig(): ShellConfig {
   if (typeof window === "undefined") return DEFAULT_SHELL_CONFIG;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -146,7 +161,7 @@ function readShellConfig(): ShellConfig {
       navOrder.splice(navOrder.indexOf("navScheduled"), 1);
       navOrder.splice(navOrder.indexOf("navTasks") + 1, 0, "navScheduled");
     }
-    const chatSectionOrder = readOrder(next.chatSectionOrder, DEFAULT_CHAT_ORDER);
+    const chatSectionOrder = readChatOrder(next.chatSectionOrder);
     if (Array.isArray(next.chatSectionOrder) && !next.chatSectionOrder.includes("sectionPinnedProjects")) {
       chatSectionOrder.splice(chatSectionOrder.indexOf("sectionPinnedProjects"), 1);
       chatSectionOrder.splice(chatSectionOrder.indexOf("sectionPinned") + 1, 0, "sectionPinnedProjects");

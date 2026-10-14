@@ -391,6 +391,8 @@ describe("project sync between computers", () => {
     // The copy knows which Akte it is, so it is never taken for a new one.
     expect((await readProjectDetails(copy.path)).syncProjectId).toBe((await readProjectDetails(akte.path)).syncProjectId);
     expect((await projectSyncStatus(member.config, copy)).role).toBe("member");
+    expect((await projectSyncOverview(owner.config)).roles?.[akte.id]).toBe("owner");
+    expect((await projectSyncOverview(member.config)).roles?.[copy.id]).toBe("member");
 
     await runProjectSync(outsider.config, { platform });
     expect(projectsOf(outsider.config)).toEqual([]);
@@ -802,6 +804,7 @@ describe("project sync between computers", () => {
       offer: { name: "Akte", ownerUserId: "user_anna" },
     });
     expect((await projectSyncOverview(member.config)).states[own.id]).toBe("offered");
+    expect((await projectSyncOverview(member.config)).roles?.[own.id]).toBeUndefined();
     expect(projectsOf(member.config).map((workspace) => workspace.id)).toEqual([own.id]);
     expect(tasks.listOutbox().filter((entry) => entry.taskId === task.id)).toEqual([]);
     await expect(saveProjectSyncSettings(member.config, own, settings())).rejects.toMatchObject({ code: "project_sync_offer_pending" });
@@ -821,6 +824,7 @@ describe("project sync between computers", () => {
     await resolveProjectSync(member.config, own, { action: "use_folder" });
     await runProjectSync(member.config, { platform });
     expect(await projectSyncStatus(member.config, own)).toMatchObject({ mode: "synced", role: "member", ownFolder: true });
+    expect((await projectSyncOverview(member.config)).roles?.[own.id]).toBe("member");
     expect(projectsOf(member.config).map((workspace) => workspace.id)).toEqual([own.id]);
 
     // Taken off: the project stays Ben's own, and Anna's id in the shared folder is left alone.

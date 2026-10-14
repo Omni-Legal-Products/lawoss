@@ -978,9 +978,11 @@ export async function projectSyncOverview(config: ServerConfig): Promise<Project
   const { orgId } = await connectedOrg(config);
   const round = roundStates.get(keyOf(config));
   const states: Record<string, ProjectSyncState> = {};
+  const roles: Record<string, "owner" | "member"> = {};
   for (const link of store.links(orgId ?? undefined)) {
     const workspace = workspaceOf(config, link.workspaceId);
     if (!workspace) continue;
+    roles[link.workspaceId] = link.role;
     const pendingChanges = store.pendingOps(link.projectId).length + (link.report?.pending ?? 0);
     states[link.workspaceId] = stateOf(
       link,
@@ -999,6 +1001,7 @@ export async function projectSyncOverview(config: ServerConfig): Promise<Project
     connected: orgId !== null,
     revision: revisions.get(keyOf(config)) ?? 0,
     states,
+    roles,
     contents: Object.fromEntries(contentRevisions.get(keyOf(config)) ?? []),
     removed: [...(removedWorkspaces.get(keyOf(config)) ?? [])],
   };

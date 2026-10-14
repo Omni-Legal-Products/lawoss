@@ -19,7 +19,7 @@ import { useShellConfig, type ProjectNavKey } from "../../shell/shell-config";
 import { SIDEBAR_ITEMS } from "../session/sidebar/sidebar-customization";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
-import { defaultAkteFields, useProjectDefaultsStore, withInitialProjectFields } from "./project-defaults-store";
+import { defaultProjectFields, useProjectDefaultsStore, withInitialProjectFields } from "./project-defaults-store";
 import { collectProjectFilterFields, matchesProjectFilters, useProjectFilterStore } from "./project-filters";
 import { ProjectFilterBar } from "./project-filter-bar";
 import { ProjectViews } from "./project-views";
@@ -56,8 +56,8 @@ export function ProjectsPage(props: Props) {
   const syncStates = useProjectSyncStore(state => state.states);
   const filtered = filterState.teamOnly || filterState.filters.length > 0;
   const { descending, setDescending } = filterState;
-  const savedDefaults = useProjectDefaultsStore(state => state.fields);
-  const defaults = savedDefaults ?? defaultAkteFields();
+  const savedDefaults = useProjectDefaultsStore(defaultProjectFields);
+  const defaults = savedDefaults;
   const endpoints = useMemo(() => props.groups.map(({ workspace }) => resolveWorkspaceEndpoint(workspace, { baseUrl: props.client?.baseUrl, token: props.client?.token })), [props.groups, props.client]);
   // Use the same project cache as Home; values edited there update filters too.
   // Read metadata for every project, not just the current page.

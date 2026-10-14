@@ -39,6 +39,7 @@ const placeholders = (value: string): string[] =>
 const GERMAN_KEEPS_ENGLISH = new Set<string>([
   "workspace.overview", // Home is the shared navigation label in both languages.
   "scheduled.name", // Identical German and English noun.
+  "projects.schema.priority_normal", "projects.schema.budget", // Identical German and English terms.
   "review.status", // Identical German and English noun.
   "sidebar.project_name", "project_filters.title", // "Name" and "Filter" are identical German nouns.
   "review.mixed", // Product model names: JEV + LLM.

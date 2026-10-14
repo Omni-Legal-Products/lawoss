@@ -168,6 +168,8 @@ export type ProjectSyncOverview = {
   connected: boolean;
   revision: number;
   states: Record<string, ProjectSyncState>;
+  /** Owner or recipient for each linked project. Absent on older servers. */
+  roles?: Record<string, "owner" | "member">;
   /** Per project: moves whenever sync changed its files on this computer, so what shows them reloads. */
   contents: Record<string, number>;
   /** Projects sync took off this computer while the server ran: the app's own list forgets them too. */
@@ -235,3 +237,5 @@ export type ProjectContentKind = z.infer<typeof kind>;
 export type ProjectContentItem = z.infer<typeof item>;
 export type ProjectContentSection = z.infer<typeof projectContentsSchema>["sections"][number];
 export type ProjectContents = z.infer<typeof projectContentsSchema>;
+
+export * from "./project-templates.js";

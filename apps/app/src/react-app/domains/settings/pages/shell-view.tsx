@@ -24,7 +24,7 @@ import { t } from "@/i18n";
 /*  Main view                                                          */
 /* ------------------------------------------------------------------ */
 
-export function ShellCustomizationView() {
+export function ShellCustomizationView({ client = null }: { client?: import("@/app/lib/legalwork-server").LegalworkServerClient | null }) {
   const { config, update } = useShellConfig();
   const local = useLocal();
 
@@ -33,7 +33,7 @@ export function ShellCustomizationView() {
       <ThemeSection />
       {/* ---- Language ---- carries its own section header and card. */}
       <LanguageSection />
-      <ProjectDefaultsSection />
+      <ProjectDefaultsSection client={client} />
 
       <NewWindowPreference />
 

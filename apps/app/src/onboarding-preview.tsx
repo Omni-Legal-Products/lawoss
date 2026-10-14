@@ -2,6 +2,7 @@
 // Dev-only fixture, deliberately absent from production Vite inputs.
 // Uses the real onboarding steps without creating projects or changing device settings.
 import { StrictMode, useRef, useState } from "react";
+import { defaultProjectTemplates } from "@legalwork/types/workspace";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -42,6 +43,7 @@ const permissionsClient: LegalworkServerClient = {
     return {};
   },
   orgPolicy: async () => ({ state: "none", orgId: null, orgName: null, role: null, revision: 0, platformURL: null, entries: {}, restored: null }),
+  getProjectTemplates: async () => ({ revision: 1, defaultTemplateId: "legal_matter", templates: defaultProjectTemplates() }),
   getConfig: async () => ({ opencode: previewConfig, legalwork: {} }),
   patchConfig: async (_workspaceId, payload) => {
     previewConfig = { ...previewConfig, ...payload.opencode };
@@ -75,6 +77,7 @@ function OnboardingPreview() {
         onCheckModels={async () => false}
       />
       : <WelcomePage
+        client={permissionsClient}
         totalSteps={params.has("web") ? 3 : 5}
         analyticsEnabled={analytics}
         onAnalyticsChange={setAnalytics}

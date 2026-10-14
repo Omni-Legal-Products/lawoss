@@ -3,6 +3,8 @@ import { t } from "@/i18n";
 
 export function projectErrorMessage(error: unknown, creating = false): string {
   if (error instanceof LegalworkServerError) {
+    if (error.code === "project_templates_conflict") return t("projects.templates.conflict");
+    if (error.code === "invalid_project_template") return t("projects.templates.invalid");
     if (error.code === "project_changed") return t("projects.conflict");
     if (error.code === "project_folder_unavailable") return t(creating ? "projects.create_folder_failed" : "projects.folder_unavailable");
     if (error.code === "invalid_project_metadata") return t("projects.metadata_invalid");

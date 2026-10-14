@@ -30,7 +30,7 @@ import type {
   WorkspaceSessionGroup,
 } from "@/app/types";
 import { getWorkspaceTaskLoadErrorDisplay } from "@/app/utils";
-import { t } from "@/i18n";
+import { currentLocale, t } from "@/i18n";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import {
   type RouteWorkspace,
@@ -145,7 +145,7 @@ import {
 } from "@/app/utils";
 import { CreateWorkspaceModal } from "@/react-app/domains/workspace/create-workspace-modal";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
-import { newProjectFields } from "@/react-app/domains/workspace/project-defaults-store";
+
 import {
   diagnoseRemoteWorkspaceTaskLoadFailure,
   getRemoteWorkspaceConnectionKey,
@@ -1958,7 +1958,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       let list: WorkspaceList | null = null;
       if (legalworkClient) {
         list = await legalworkClient
-          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset, projectFields: newProjectFields() })
+          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset, templateLanguage: currentLocale() })
           .catch(() => null);
       }
       if (!list) {
@@ -2248,7 +2248,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           />
         );
       case "shell":
-        return <ShellCustomizationView />;
+        return <ShellCustomizationView client={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient} />;
       case "skills":
       case "workflows": {
         const View = route.tab === "workflows" ? WorkflowsView : SkillsView;

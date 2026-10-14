@@ -2,6 +2,7 @@ import type { registerProjectFolderRoutes } from "./project-folders.js";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { recordAudit } from "../audit.js";
+import { readProjectTemplates, saveProjectTemplates, localizeProjectTemplates, projectFieldsFromTemplate } from "../project-templates.js";
 import { ApiError } from "../errors.js";
 import { inheritWorkspaceOpencodeConnection, resolveWorkspaceOpencodeConnection } from "../opencode-connection.js";
 import type { ProjectField } from "@legalwork/types/workspace";
@@ -10,7 +11,7 @@ import { ensureDir, exists, shortId } from "../utils.js";
 import { ensureWorkspaceFiles } from "../workspace-init.js";
 import { workspaceIdForPath, workspaceIdForRemote } from "../workspaces.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
-import { initializeProjectFields, parseProjectFieldDefaults, createDefaultProjectFolder, defaultProjectRoot, readProjectDetails, updateProjectDetails, updateProjectFieldValues } from "../project-store.js";
+import { initializeProjectFields, parseProjectFields, createDefaultProjectFolder, defaultProjectRoot, readProjectDetails, updateProjectDetails, updateProjectFieldValues } from "../project-store.js";
 
 type JsonResponse = (data: unknown, status?: number) => Response;
 type ReadJsonBody = (request: Request) => Promise<Record<string, unknown>>;
@@ -253,7 +254,7 @@ export async function registerLocalProject(
     folderPath: string;
     name: string;
     preset: string;
-    projectFields?: ReturnType<typeof parseProjectFieldDefaults> | null;
+    projectFields?: ReturnType<typeof parseProjectFields> | null;
     position?: "first" | "last";
   },
 ): Promise<{ workspace: WorkspaceInfo; persisted: boolean }> {
@@ -358,6 +359,16 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     return jsonResponse({ folderPath: defaultProjectRoot(config.projectsDirectory) });
   });
 
+  addRoute(routes, "GET", "/workspaces/project-templates", "client", async (ctx) => {
+    const language = new URL(ctx.request.url).searchParams.get("language") === "de" ? "de" : "en";
+    return jsonResponse(localizeProjectTemplates(await readProjectTemplates(config), language));
+  });
+
+  addRoute(routes, "PUT", "/workspaces/project-templates", "host", async (ctx) => {
+    ensureWritable(config);
+    return jsonResponse(await saveProjectTemplates(config, await readJsonBodyLimited(ctx.request, 2 * 1024 * 1024)));
+  });
+
   addRoute(routes, "GET", "/workspace/:id/project", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     return jsonResponse(await readProjectDetails(workspace.path));
@@ -383,12 +394,22 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     return jsonResponse(updated);
   });
 
-  addRoute(routes, "POST", "/workspaces/local", "host", async (ctx) => {
+  const createLocalWorkspace = async (ctx: RequestContext, newProjectOnly = false) => {
     ensureWritable(config);
     const body = await readJsonBody(ctx.request);
+    if (newProjectOnly) {
+      requireClientScope(ctx, "collaborator");
+      if (Object.keys(body).some((key) => !["name", "templateId", "templateLanguage", "projectFields"].includes(key)))
+        throw new ApiError(400, "invalid_payload", "This endpoint creates a new project folder. Only name, templateId, templateLanguage and projectFields are supported.");
+      body.folderMode = "default";
+      body.preset = "starter";
+    }
     const preparedFolders = await options.projectFolders?.prepare(body.remoteFolders);
     if (body.fromRemoteFolder && !preparedFolders?.length) throw new ApiError(400, "project_folder_required", "Select a remote folder first.");
-    const projectFields = body.projectFields === undefined ? null : parseProjectFieldDefaults(body.projectFields);
+    if (body.projectFields !== undefined && body.templateId !== undefined)
+      throw new ApiError(400, "invalid_project_template", "Choose either a template or explicit fields.");
+    const projectFields = body.projectFields === undefined
+      ? await projectFieldsFromTemplate(config, body) : parseProjectFields(body.projectFields);
     let folderPath = typeof body.folderPath === "string" ? body.folderPath.trim() : "";
     const initializeFromFolders = body.initializeFromFolders === true || body.fromRemoteFolder === true;
     if (initializeFromFolders && !folderPath && !preparedFolders?.length)
@@ -424,12 +445,20 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       timestamp: Date.now(),
     });
 
+    if (newProjectOnly) return jsonResponse({
+      activeId: workspace.id,
+      project: { id: workspace.id, name: workspace.name, localFolder: workspace.path, ...await readProjectDetails(workspace.path) },
+      persisted,
+    }, 201);
     return jsonResponse({
       activeId: workspace.id,
       workspaces: config.workspaces.map(serializeWorkspace),
       persisted,
     }, 201);
-  });
+  };
+  addRoute(routes, "POST", "/workspaces/local", "host", (ctx) => createLocalWorkspace(ctx));
+  // Agents can create a fresh project using collaborator permissions, without host folder-registration access.
+  addRoute(routes, "POST", "/workspaces/projects", "client", (ctx) => createLocalWorkspace(ctx, true));
 
   addRoute(routes, "POST", "/workspaces/remote", "host", async (ctx) => {
     ensureWritable(config);

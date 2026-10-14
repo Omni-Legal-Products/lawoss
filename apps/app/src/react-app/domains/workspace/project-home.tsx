@@ -25,7 +25,7 @@ import { ProjectFilesDropzone } from "./project-files-dropzone";
 import { useRecorderStore } from "../recorder/recorder-store";
 import { ProjectNoteTile } from "./project-note-tile";
 import { useProjectFavoritesStore } from "./project-favorites-store";
-import { defaultAkteFields, useProjectDefaultsStore, withInitialProjectFields } from "./project-defaults-store";
+import { defaultProjectFields, useProjectDefaultsStore, withInitialProjectFields } from "./project-defaults-store";
 import { t } from "@/i18n";
 import { projectErrorMessage } from "./project-errors";
 import { ProjectShareButton, ProjectSyncNotice } from "./project-sync";
@@ -55,7 +55,7 @@ export function ProjectHome(props: {
   const isFavorite = useProjectFavoritesStore((state) => state.favoriteIds.includes(workspaceId));
   const toggleFavorite = useProjectFavoritesStore((state) => state.toggleFavorite);
   const favoriteLabel = t(isFavorite ? "sidebar.unpin_project" : "sidebar.pin_project");
-  const savedDefaults = useProjectDefaultsStore((state) => state.fields);
+  const savedDefaults = useProjectDefaultsStore(defaultProjectFields);
   const queryClient = useQueryClient();
   const [noteOpen, setNoteOpen] = useState(false);
   const [deletingNote, setDeletingNote] = useState<LegalworkWorkspaceDirectoryEntry | null>(null);
@@ -73,7 +73,7 @@ export function ProjectHome(props: {
   const details = useQuery({
     queryKey: ["project", workspaceId],
     queryFn: () => client.getProjectDetails(workspaceId),
-    select: (data) => withInitialProjectFields(data, savedDefaults ?? defaultAkteFields()),
+    select: (data) => withInitialProjectFields(data, savedDefaults),
   });
   const rootFiles = useQuery({
     queryKey: ["project-files", workspaceId, "", client.baseUrl],
@@ -253,7 +253,7 @@ export function ProjectHome(props: {
           {details.data ? <ProjectMetadata details={details.data} onCancel={() => setEditMetadata(false)} onReload={async () => {
             const data = await client.getProjectDetails(workspaceId);
             queryClient.setQueryData(["project", workspaceId], data);
-            return withInitialProjectFields(data, savedDefaults ?? defaultAkteFields());
+            return withInitialProjectFields(data, savedDefaults);
           }} onSave={async (fields) => {
             if (!details.data) return;
             const data = await client.updateProjectDetails(workspaceId, { revision: details.data.revision, fields });

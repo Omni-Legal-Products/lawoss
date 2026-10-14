@@ -138,6 +138,7 @@ import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { MainActionRail } from "./main-action-rail";
 import { EigenweltAccountMenu } from "./eigenwelt-account-menu";
 import { ProjectFolderIcon } from "../../workspace/project-sync";
+import { projectSectionGroups, reorderProjectSection } from "./project-sections";
 import { useProjectSyncStore } from "../../workspace/project-sync-store";
 import { unreadSession, useSessionInboxStore } from "./session-inbox-store";
 import { useProjectFavoritesStore } from "../../workspace/project-favorites-store";
@@ -735,6 +736,7 @@ function AppSidebarContent(props: AppSidebarProps) {
               <Search className="size-[18px]" strokeWidth={1.5} />
             </TooltipTrigger><TooltipContent side="bottom">{t("content_search.title")}<kbd className="rounded bg-background/20 px-1.5 py-0.5 font-sans">{isMacPlatform() ? "⌘ K" : "Ctrl K"}</kbd></TooltipContent></Tooltip>
           </SidebarMenuItem> : null;
+  const projectRoles = useProjectSyncStore((state) => state.roles);
   const pinned = usePinnedSessionIds();
   const pinOrder = useSessionManagementStore(state => state.pinnedIds);
   const inbox = useSessionInboxStore();
@@ -749,6 +751,7 @@ function AppSidebarContent(props: AppSidebarProps) {
     setClosedSections(current => {
       const next = new Set(current);
       next.delete("sectionProjects");
+      next.delete("sectionSharedProjects");
       next.delete("sectionRecent");
       return next;
     });
@@ -870,15 +873,18 @@ function AppSidebarContent(props: AppSidebarProps) {
               </button>
               {!closedSections.has(key) && <SidebarMenu className="gap-0.5">{pinnedProjects.map(({ workspace }) => <PinnedProjectRow key={workspace.id} workspace={workspace} />)}</SidebarMenu>}
             </section> : null;
-            if (key !== "sectionProjects") return sessionSection(key);
+            if (key !== "sectionProjects" && key !== "sectionSharedProjects") return sessionSection(key);
+            const shared = key === "sectionSharedProjects";
+            const groups = projectSectionGroups(props.workspaceSessionGroups, projectRoles, shared);
             return <section key={key} className="pb-3">
               <div className="flex h-9 items-center gap-1 px-4">
-                <button className="flex flex-1 items-center gap-1.5 text-xs text-muted-foreground" aria-expanded={!closedSections.has(key)} onClick={() => toggleSection(key)}>{t("projects.plural")}<ChevronRight className={cn("size-3 transition-transform", !closedSections.has(key) && "rotate-90")} /><UnreadDot unread={closedSections.has(key) && props.workspaceSessionGroups.some(group => group.sessions.some(session => !isSessionArchived(session) && unreadSession(inbox, session.id)))} /></button>
+                <button className="flex flex-1 items-center gap-1.5 text-xs text-muted-foreground" aria-expanded={!closedSections.has(key)} onClick={() => toggleSection(key)}>{t(SIDEBAR_ITEMS[key].label)}<ChevronRight className={cn("size-3 transition-transform", !closedSections.has(key) && "rotate-90")} /><UnreadDot unread={closedSections.has(key) && groups.some(group => group.sessions.some(session => !isSessionArchived(session) && unreadSession(inbox, session.id)))} /></button>
                 <Button variant="ghost" size="icon-xs" aria-label={t("sidebar.all_projects")} title={t("sidebar.all_projects")} onClick={() => props.onShowProjects?.()}><LayoutGrid className="size-3.5" /></Button>
-                <Button variant="ghost" size="icon-xs" aria-label={t("projects.create")} onClick={props.onOpenCreateWorkspace}><Plus className="size-3.5" /></Button>
+                {!shared && <Button variant="ghost" size="icon-xs" aria-label={t("projects.create")} onClick={props.onOpenCreateWorkspace}><Plus className="size-3.5" /></Button>}
               </div>
-              {!closedSections.has(key) && <Reorder.Group as="div" axis="y" values={props.workspaceSessionGroups.map(group => group.workspace.id)} onReorder={ids => props.onReorderWorkspaces?.(ids)} className="flex flex-col gap-px">
-                {props.workspaceSessionGroups.map(group => <WorkspaceReorderItem key={group.workspace.id} group={group} showInitialLoading={props.showInitialLoading} canReorder={Boolean(props.onReorderWorkspaces)} />)}
+              {!closedSections.has(key) && <Reorder.Group as="div" axis="y" values={groups.map(group => group.workspace.id)} onReorder={ids => props.onReorderWorkspaces?.(reorderProjectSection(props.workspaceSessionGroups.map(group => group.workspace.id), ids))} className="flex flex-col gap-px">
+                {groups.map(group => <WorkspaceReorderItem key={group.workspace.id} group={group} showInitialLoading={props.showInitialLoading} canReorder={Boolean(props.onReorderWorkspaces)} />)}
+                {shared && !groups.length && <p className="px-4 py-2 text-xs text-muted-foreground">{t("projects.shared_empty")}</p>}
               </Reorder.Group>}
             </section>;
           })}

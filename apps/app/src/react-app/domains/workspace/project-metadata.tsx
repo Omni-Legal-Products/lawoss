@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { ProjectDetails, ProjectField } from "@legalwork/types/workspace";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,8 @@ import {
 } from "@/components/ui/select";
 import { t } from "@/i18n";
 import { toast } from "@/components/ui/sonner";
-import { defaultAkteFields, localizedProjectFields, useProjectDefaultsStore } from "./project-defaults-store";
+import { applyProjectTemplate, localizedTemplateFields, localizedProjectFields, useProjectDefaultsStore } from "./project-defaults-store";
+import { ProjectTemplateSelect } from "./project-template-select";
 import { LegalworkServerError } from "@/app/lib/legalwork-server";
 import { projectErrorMessage } from "./project-errors";
 import { changeProjectFieldType, parseProjectOptions } from "./project-field-editing";
@@ -20,20 +21,21 @@ import { changeProjectFieldType, parseProjectOptions } from "./project-field-edi
 export function ProjectMetadata(props: {
   details: Pick<ProjectDetails, "fields">;
   definitionsOnly?: boolean;
+  children?: ReactNode;
+  saveDisabled?: boolean;
   onSave: (fields: ProjectField[]) => Promise<void>;
   onCancel: () => void;
   onReload?: () => Promise<Pick<ProjectDetails, "fields">>;
 }) {
-  const savedDefaults = useProjectDefaultsStore((state) => state.fields);
-  const saveFieldToDefaults = useProjectDefaultsStore((state) => state.addField);
-  const defaults = savedDefaults ?? defaultAkteFields();
+  const templates = useProjectDefaultsStore((state) => state.templates);
+  const [templateId, setTemplateId] = useState<string | null>(null);
   const typeLabels = {
     text: t("projects.type_text"),
     number: t("projects.type_number"),
     date: t("projects.type_date"),
     select: t("projects.type_select"),
   };
-  const [fields, setFields] = useState(() => localizedProjectFields(props.details.fields));
+  const [fields, setFields] = useState(() => props.definitionsOnly ? localizedTemplateFields(props.details.fields) : localizedProjectFields(props.details.fields));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
@@ -45,7 +47,8 @@ export function ProjectMetadata(props: {
       ),
     );
   const save = async () => {
-    if (busy || conflict) return;
+    if (busy || conflict || props.saveDisabled) return;
+    if (fields.some((field) => !field.label.trim())) return;
     if (fields.some((field) => field.type === "select" && field.value !== null && field.value !== "" && !field.options?.includes(String(field.value)))) {
       setError(t("projects.options_value_missing"));
       return;
@@ -55,7 +58,7 @@ export function ProjectMetadata(props: {
     try {
       await props.onSave(fields);
     } catch (error) {
-      setConflict(error instanceof LegalworkServerError && error.code === "project_changed");
+      setConflict(error instanceof LegalworkServerError && (error.code === "project_changed" || error.code === "project_templates_conflict"));
       setError(projectErrorMessage(error));
     } finally {
       setBusy(false);
@@ -70,6 +73,23 @@ export function ProjectMetadata(props: {
       }}
     >
       <fieldset disabled={busy} className="space-y-4">
+        {props.children}
+        {!props.definitionsOnly && templates.length > 0 ? <div className="space-y-2 rounded-xl border border-border p-3">
+          <div className="text-sm font-medium">{t("projects.templates.template")}</div>
+          <div className="flex items-center gap-2">
+            <ProjectTemplateSelect value={templateId} onChange={setTemplateId} />
+            <Button type="button" variant="outline" disabled={!templateId || conflict} onClick={() => {
+              const template = templates.find((entry) => entry.id === templateId);
+              if (!template) return;
+              const next = applyProjectTemplate(fields, template);
+              if (next.length > 50) { setError(t("projects.templates.too_many_fields")); return; }
+              setFields(next);
+              setOptionDrafts({});
+              setError(null);
+            }}>{t("projects.templates.apply")}</Button>
+          </div>
+          <p className="text-xs text-muted-foreground">{t("projects.templates.apply_hint")}</p>
+        </div> : null}
         {fields.map((field) => (
           <div
             key={field.id}
@@ -199,14 +219,6 @@ export function ProjectMetadata(props: {
                 }
               />
             ) : null}
-            {!props.definitionsOnly && !defaults.some((entry) => entry.id === field.id) ? (
-              <div className="flex justify-end sm:col-span-3">
-                <Button type="button" variant="ghost" size="xs" disabled={!field.label.trim() || defaults.length >= 50} onClick={() => {
-                  saveFieldToDefaults(field);
-                  toast.success(t("projects.saved_to_defaults", { name: field.label.trim() }));
-                }}>{t("projects.save_to_defaults")}</Button>
-              </div>
-            ) : null}
           </div>
         ))}
         <Button
@@ -253,7 +265,7 @@ export function ProjectMetadata(props: {
         >
           {t("projects.cancel")}
         </Button>
-        <Button type="submit" disabled={busy || conflict}>
+        <Button type="submit" disabled={busy || conflict || props.saveDisabled}>
           {busy ? t("projects.saving") : t("projects.save")}
         </Button>
       </div>

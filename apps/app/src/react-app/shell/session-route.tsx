@@ -102,7 +102,7 @@ import {
   resolveModelDisplayName,
   safeStringify,
 } from "@/app/utils";
-import { t } from "@/i18n";
+import { currentLocale, t } from "@/i18n";
 import {
   type RouteWorkspace,
   type RouteSession,
@@ -145,7 +145,7 @@ import { runFusionSend, buildFusionTraceSystemPrompt } from "@/react-app/domains
 import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/session/fusion/fusion-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
-import { newProjectFields } from "@/react-app/domains/workspace/project-defaults-store";
+import { useProjectTemplateCatalog } from "@/react-app/domains/workspace/project-template-catalog";
 import { CreateProjectModal, type CreateProjectInput } from "@/react-app/domains/workspace/create-project-modal";
 import { NewChatDialog } from "@/react-app/domains/session/sidebar/new-chat-dialog";
 import { useSessionProviderAuth } from "@/react-app/domains/connections/provider-auth/use-session-provider-auth";
@@ -487,6 +487,7 @@ export function SessionRoute() {
     onHostInfo: setLegalworkServerHostInfoState,
   });
   // Projects synced with the firm arrive, leave and get renamed in the background.
+  useProjectTemplateCatalog(client);
   useProjectSyncPoller(client, () => void refreshRouteState(), (workspaceIds) => {
     // Sync changed files of these projects here: whatever shows them reloads.
     for (const id of workspaceIds) {
@@ -2105,7 +2106,7 @@ export function SessionRoute() {
       let createdOnServer = false;
       if (client) {
         list = await client
-          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset, projectFields: newProjectFields() })
+          .createLocalWorkspace({ folderPath: folder, name: workspaceName, preset, templateLanguage: currentLocale() })
           .then((serverList) => {
             createdOnServer = true;
             return serverList;
@@ -2170,7 +2171,7 @@ export function SessionRoute() {
     setCreateWorkspaceBusy(true);
     setCreateWorkspaceError(null);
     try {
-      const list = await client.createLocalWorkspace({ ...input, preset: "starter", projectFields: newProjectFields() });
+      const list = await client.createLocalWorkspace({ ...input, preset: "starter" });
       const id = resolveWorkspaceListSelectedId(list);
       if (!id) throw new Error(t("session_route.create_server_unavailable"));
       setLegacySelectedWorkspaceId(id);
@@ -2250,7 +2251,7 @@ export function SessionRoute() {
       if (homeProjectId && !workspace) throw new Error(t("workspace.not_found"));
       if (!workspace) {
         const name = displayText.trim().split(/\r?\n/)[0].slice(0, 80) || t("home.new_project");
-        const list = await client.createLocalWorkspace({ name, folderMode: "default", preset: "starter", projectFields: newProjectFields() });
+        const list = await client.createLocalWorkspace({ name, folderMode: "default", preset: "starter", templateLanguage: currentLocale() });
         const createdId = resolveWorkspaceListSelectedId(list);
         const created = list.workspaces.find((item) => item.id === createdId);
         if (!created) throw new Error(t("session_route.create_server_unavailable"));

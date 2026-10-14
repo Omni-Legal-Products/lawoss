@@ -24,7 +24,7 @@ function readConfig(saved: object | null) {
 test("new sidebars enable pinned projects beside pinned chats", () => {
   const config = readConfig(null);
   expect(config?.sectionPinnedProjects).toBe(true);
-  expect(config?.chatSectionOrder).toEqual(["navNewChat", "sectionPinned", "sectionPinnedProjects", "sectionProjects", "sectionRecent"]);
+  expect(config?.chatSectionOrder).toEqual(["navNewChat", "sectionPinned", "sectionPinnedProjects", "sectionSharedProjects", "sectionProjects", "sectionRecent"]);
 });
 
 test("older sidebar preferences gain pinned projects without reordering saved sections", () => {
@@ -32,13 +32,13 @@ test("older sidebar preferences gain pinned projects without reordering saved se
   const config = readConfig({ chatSectionOrder: savedOrder, sectionProjects: false });
   expect(config?.sectionPinnedProjects).toBe(true);
   expect(config?.sectionProjects).toBe(false);
-  expect(config?.chatSectionOrder).toEqual([...savedOrder, "sectionPinnedProjects"]);
+  expect(config?.chatSectionOrder).toEqual(["sectionRecent", "sectionSharedProjects", "sectionProjects", "navNewChat", "sectionPinned", "sectionPinnedProjects"]);
   expect(readConfig({ chatSectionOrder: ["sectionPinned", "sectionRecent", "sectionProjects", "navNewChat"] })?.chatSectionOrder)
-    .toEqual(["sectionPinned", "sectionPinnedProjects", "sectionRecent", "sectionProjects", "navNewChat"]);
+    .toEqual(["sectionPinned", "sectionPinnedProjects", "sectionRecent", "sectionSharedProjects", "sectionProjects", "navNewChat"]);
 });
 
 test("the saved visibility and position of pinned projects survive a reload", () => {
-  const savedOrder = ["sectionPinnedProjects", "sectionRecent", "sectionProjects", "sectionPinned", "navNewChat"];
+  const savedOrder = ["sectionPinnedProjects", "sectionRecent", "sectionProjects", "sectionSharedProjects", "sectionPinned", "navNewChat"];
   const config = readConfig({ chatSectionOrder: savedOrder, sectionPinnedProjects: false });
   expect(config?.sectionPinnedProjects).toBe(false);
   expect(config?.chatSectionOrder).toEqual(savedOrder);

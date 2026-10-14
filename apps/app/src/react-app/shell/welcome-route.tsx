@@ -8,12 +8,11 @@ import { isDesktopRuntime } from "../../app/utils";
 import { useLocal } from "../kernel/local-provider";
 import { WelcomePage, type ProjectCreatePhase } from "../domains/onboarding/welcome-page";
 import type { CreateProjectInput } from "../domains/workspace/create-project-modal";
-import { newProjectFields } from "../domains/workspace/project-defaults-store";
 import { projectErrorMessage } from "../domains/workspace/project-errors";
 import { resolveLegalworkConnection } from "./legalwork-connection";
 import { analyticsSurface, captureAnalyticsEvent, discardPendingAnalytics, getStoredAnalyticsConsent } from "../../app/lib/analytics";
 import { captureAppError } from "../../app/lib/app-error";
-import { createLegalworkServerClient } from "../../app/lib/legalwork-server";
+import { createLegalworkServerClient, type LegalworkServerClient } from "../../app/lib/legalwork-server";
 import { writeActiveWorkspaceId } from "./session-memory";
 import { homeRoute } from "./workspace-routes";
 import { ensureDesktopLocalLegalworkConnection } from "./desktop-local-legalwork";
@@ -25,6 +24,22 @@ export function WelcomeRoute() {
   const navigate = useNavigate();
   const local = useLocal();
   const creating = useRef(false);
+  const [client, setClient] = useState<LegalworkServerClient | null>(null);
+  const [connectionAttempt, setConnectionAttempt] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    const connect = () => {
+      void resolveLegalworkConnection().then(({ normalizedBaseUrl, resolvedToken, resolvedHostToken }) => {
+        if (cancelled) return;
+        if (!normalizedBaseUrl || !(resolvedToken || resolvedHostToken)) throw new Error("Project server unavailable.");
+        setClient(createLegalworkServerClient({ baseUrl: normalizedBaseUrl, token: resolvedToken || undefined, hostToken: resolvedHostToken || undefined }));
+        setError(null);
+      }).catch(() => { if (!cancelled) setError(t("welcome.project_server_unavailable")); });
+    };
+    connect();
+    window.addEventListener("legalwork-server-settings-changed", connect);
+    return () => { cancelled = true; window.removeEventListener("legalwork-server-settings-changed", connect); };
+  }, [connectionAttempt]);
   const createdProjectId = useRef<string | null>(null);
   const [createPhase, setCreatePhase] = useState<ProjectCreatePhase | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,17 +68,8 @@ export function WelcomeRoute() {
     setCreatePhase("project");
     captureAnalyticsEvent("onboarding_started", { surface: analyticsSurface() });
     try {
-      const { normalizedBaseUrl, resolvedToken, resolvedHostToken } = await resolveLegalworkConnection();
-      if (!normalizedBaseUrl || !(resolvedToken || resolvedHostToken)) {
-        setError(t("welcome.project_server_unavailable"));
-        return;
-      }
-      const client = createLegalworkServerClient({
-        baseUrl: normalizedBaseUrl,
-        token: resolvedToken || undefined,
-        hostToken: resolvedHostToken || undefined,
-      });
-      const list = await client.createLocalWorkspace({ ...input, preset: "starter", projectFields: newProjectFields() });
+      if (!client) throw new Error(t("welcome.project_server_unavailable"));
+      const list = await client.createLocalWorkspace({ ...input, preset: "starter" });
       const createdId = resolveWorkspaceListSelectedId(list);
       const workspace = list.workspaces.find((item) => item.id === createdId);
       if (!createdId || !workspace) throw new Error("Created project missing from server response");
@@ -94,10 +100,12 @@ export function WelcomeRoute() {
       creating.current = false;
       setCreatePhase(null);
     }
-  }, [analyticsEnabled, local, navigate]);
+  }, [analyticsEnabled, client, local, navigate]);
 
   return (
     <WelcomePage
+      client={client}
+      onRetryConnection={() => setConnectionAttempt((attempt) => attempt + 1)}
       onCreateProject={handleCreateProject}
       onPickFolder={isDesktopRuntime() ? async () => {
         const picked = await pickDirectory({ title: t("projects.location") });
