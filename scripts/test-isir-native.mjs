@@ -229,6 +229,7 @@ try {
       const ack=await refreshName(`${workspace.name} refresh acknowledgement`);
       const after=await cdp.evaluate("window.__isirChooserBoundary.sample('after-controlled-refresh')");
       await writeFile(path.join(root,'endpoint-refresh.json'),JSON.stringify({schema:1,ack,before,after},null,2),{mode:0o600});
+      assert.equal(after.clientIdentity,before.clientIdentity,'Controlled metadata refresh preserves the actual selected workspace client identity');
       console.log(`Controlled native route refresh: ${JSON.stringify({ack,clientIdentityEqual:before.clientIdentity===after.clientIdentity,capturedConnected:after.capturedConnected})}`);
     }
     const resolved=await cdp.send('DOM.resolveNode',{backendNodeId:chooser.params.backendNodeId});
