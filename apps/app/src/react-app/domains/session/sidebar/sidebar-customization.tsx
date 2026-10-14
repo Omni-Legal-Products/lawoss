@@ -1,5 +1,5 @@
 import { useRef, useState, type ChangeEvent } from "react";
-import { Users, CalendarDays, House, FolderOpen, LayoutGrid, Pin, Clock, TableProperties, ListTodo, Files, MessageSquare, Check, FlaskConical, GripVertical, Inbox, Loader2, Mic, PenLine, Upload, Workflow, X } from "lucide-react";
+import { BookOpen, Users, CalendarDays, House, FolderOpen, LayoutGrid, Pin, Clock, TableProperties, ListTodo, Files, MessageSquare, Check, FlaskConical, GripVertical, Inbox, Loader2, Mic, PenLine, Upload, Workflow, X } from "lucide-react";
 import { LazyMotion, Reorder, domMax, useDragControls } from "motion/react";
 import { toast } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,7 @@ export const SIDEBAR_ITEMS = {
   navTasks: { label: "sidebar.tasks", icon: Inbox },
   navWorkflows: { label: "sidebar.workflows", icon: Workflow },
   navRecorder: { label: "recorder.nav_label", icon: Mic },
+  navWikis: { label: "wiki.title", icon: BookOpen },
   navEvaluations: { label: "sidebar.evals", icon: FlaskConical },
 };
 

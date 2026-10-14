@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import type { McpDirectoryInfo } from "../src/app/constants";
-import { buildExtensionItems } from "../src/react-app/domains/settings/extension-items";
+import { MCP_QUICK_CONNECT, type McpDirectoryInfo } from "../src/app/constants";
+import { buildExtensionItems, type ExtensionItemBuildInput } from "../src/react-app/domains/settings/extension-items";
 
 const connectedBuiltIn: McpDirectoryInfo = {
   id: "legalwork-browser",
@@ -39,6 +39,21 @@ const availableBuiltIn: McpDirectoryInfo = {
 };
 
 describe("extension item projection", () => {
+  test("offers only Open Computer Use on Mac and Windows", () => {
+    const platforms: ExtensionItemBuildInput["platform"][] = ["darwin", "windows", "linux", "web"];
+    for (const platform of platforms) {
+      const result = buildExtensionItems({
+        quickConnect: MCP_QUICK_CONNECT, platform, mcpServers: [], installedSkills: [],
+        enablementContext: { mcpStatuses: { "computer-use": { status: "connected" } } },
+        isBuiltInConnected: () => false,
+      });
+      const openComputerUse = result.builtInItems.find((item) => item.builtInEntry?.id === "open-computer-use");
+      expect(Boolean(openComputerUse)).toBe(platform === "darwin" || platform === "windows");
+      expect(result.builtInItems.some((item) => item.builtInEntry?.id === "computer-use")).toBe(false);
+      if (openComputerUse) expect(openComputerUse.active).toBe(false);
+    }
+  });
+
   test("keeps unconnected built-ins out of My Extensions quick connect", () => {
     const result = buildExtensionItems({
       quickConnect: [connectedBuiltIn, availableBuiltIn],

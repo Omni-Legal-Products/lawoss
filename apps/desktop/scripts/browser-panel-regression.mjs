@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { app, BrowserWindow, WebContentsView, clipboard, session } from "electron";
+import { app, BaseWindow, BrowserWindow, WebContentsView, clipboard, session } from "electron";
 import { createBrowserPanel } from "../electron/browser-panel.mjs";
 
 const userData = mkdtempSync(path.join(os.tmpdir(), "legalwork-browser-test-"));
@@ -12,7 +12,7 @@ app.whenReady().then(async () => {
   const detached = new BrowserWindow({ show: false });
   const panel = createBrowserPanel({
     authorizeBrowserAutomation: async () => {},
-    app, WebContentsView, clipboard, session,
+    app, BaseWindow, WebContentsView, clipboard, session,
     getWindow: () => main,
     getWindowForEvent: (event) => BrowserWindow.fromWebContents(event.sender),
     isAllowedAppNavigation: () => false,

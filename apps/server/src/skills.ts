@@ -113,7 +113,7 @@ async function parseSkillEntry(
 
 export async function listSkillsInDir(dir: string, scope: "project" | "global", skipped?: SkippedSkill[]): Promise<SkillItem[]> {
   if (!(await exists(dir))) return [];
-  const entries = await readdir(dir, { withFileTypes: true });
+  const entries = (await readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
   const items: SkillItem[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
@@ -135,7 +135,7 @@ export async function listSkillsInDir(dir: string, scope: "project" | "global", 
         console.warn("[skills] Could not read skill folder:", domainDir, error);
         continue;
       }
-      for (const subEntry of subEntries) {
+      for (const subEntry of subEntries.sort((a, b) => a.name.localeCompare(b.name))) {
         if (!subEntry.isDirectory()) continue;
         const subSkillPath = join(domainDir, subEntry.name, "SKILL.md");
         if (!(await exists(subSkillPath))) continue;
@@ -149,7 +149,9 @@ export async function listSkillsInDir(dir: string, scope: "project" | "global", 
 
 export async function listSkills(workspaceRoot: string, includeGlobal: boolean, skipped?: SkippedSkill[]): Promise<SkillItem[]> {
   const roots = await findWorkspaceRoots(workspaceRoot);
-  const items: SkillItem[] = [];
+  // Visible workspace packages travel with a wiki and remain editable in its tree.
+  // Only scan this workspace, never another wiki or a parent's visible content.
+  const items = await listSkillsInDir(join(workspaceRoot, "Skills"), "project", skipped);
   for (const root of roots) {
     const opencodeDir = join(root, ".opencode", "skills");
     const claudeDir = join(root, ".claude", "skills");
@@ -197,6 +199,13 @@ export type SkillScope = "project" | "global";
 
 export function skillsDirForScope(workspaceRoot: string, scope: SkillScope): string {
   return scope === "global" ? globalSkillsDir() : projectSkillsDir(workspaceRoot);
+}
+
+export async function skillPathForScope(workspaceRoot: string, scope: SkillScope, name: string): Promise<string> {
+  validateSkillName(name);
+  const visible = join(workspaceRoot, "Skills", name, "SKILL.md");
+  if (scope === "project" && await exists(visible)) return visible;
+  return join(skillsDirForScope(workspaceRoot, scope), name, "SKILL.md");
 }
 
 export type UpsertSkillPayload = {
@@ -253,10 +262,9 @@ export async function upsertSkill(
   const skill = buildSkillContent(payload);
   const scope: SkillScope = payload.scope === "global" ? "global" : "project";
 
-  const baseDir = skillsDirForScope(workspaceRoot, scope);
-  const skillDir = join(baseDir, skill.name);
+  const skillPath = await skillPathForScope(workspaceRoot, scope, skill.name);
+  const skillDir = dirname(skillPath);
   await mkdir(skillDir, { recursive: true });
-  const skillPath = join(skillDir, "SKILL.md");
   const existed = await exists(skillPath);
   if (lesson && existed) throw new ApiError(409, "skill_exists", "Choose a new name for this correction to preserve the existing skill.");
   if (lesson && dependency) {
@@ -272,8 +280,7 @@ export async function upsertSkill(
 export async function deleteSkill(workspaceRoot: string, name: string): Promise<{ path: string }> {
   const trimmed = name.trim();
   validateSkillName(trimmed);
-  const baseDir = projectSkillsDir(workspaceRoot);
-  const flatDir = join(baseDir, trimmed);
+  const flatDir = dirname(await skillPathForScope(workspaceRoot, "project", trimmed));
   if (await exists(join(flatDir, "SKILL.md"))) {
     await rm(flatDir, { recursive: true, force: true });
     return { path: flatDir };

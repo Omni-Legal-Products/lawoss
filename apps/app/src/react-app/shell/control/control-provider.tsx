@@ -67,6 +67,7 @@ export type LegalworkControlResult =
   | { ok: false; actionId: string; error: string };
 
 export type LegalworkControlHelpers = {
+  callerSessionId?: string;
   setNarration: (text: string) => void;
 };
 
@@ -85,6 +86,8 @@ export type LegalworkControlAction = {
   previewArgs?: unknown;
   disabled?: boolean;
   targetRef?: LegalworkControlTargetRef;
+  /** Data/document operations never animate, focus, or lock the visible UI. */
+  background?: boolean;
   execute: (args: unknown, helpers: LegalworkControlHelpers) => unknown | Promise<unknown>;
 };
 
@@ -115,7 +118,7 @@ type LegalworkControlContextValue = {
   registerAction: (actionId: string, actionRef: ControlActionRef) => () => void;
   registerOpenFiles: (files: LegalworkOpenFile[]) => () => void;
   registerSurface: (surface: LegalworkControlSurface) => () => void;
-  executeAction: (actionId: string, args?: unknown) => Promise<LegalworkControlResult>;
+  executeAction: (actionId: string, args?: unknown, callerSessionId?: string) => Promise<LegalworkControlResult>;
   snapshot: () => LegalworkControlSnapshot;
 };
 
@@ -123,7 +126,7 @@ type LegalworkControlAPI = {
   version: number;
   snapshot: () => LegalworkControlSnapshot;
   listActions: () => LegalworkControlActionMetadata[];
-  execute: (actionId: string, args?: unknown) => Promise<LegalworkControlResult>;
+  execute: (actionId: string, args?: unknown, callerSessionId?: string) => Promise<LegalworkControlResult>;
   setEnabled: (enabled: boolean) => void;
   subscribe: (listener: (snapshot: LegalworkControlSnapshot) => void) => () => void;
 };
@@ -318,11 +321,18 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
     await wait(SPOTLIGHT_TIMING_MS.release);
   }, []);
 
-  const executeAction = useCallback(async (actionId: string, args?: unknown): Promise<LegalworkControlResult> => {
+  const executeAction = useCallback(async (actionId: string, args?: unknown, callerSessionId?: string): Promise<LegalworkControlResult> => {
     const registered = actionsRef.current.get(actionId);
     const action = registered?.ref.current;
     if (!registered || !action) return { ok: false, actionId, error: `Unknown action: ${actionId}` };
     if (action.disabled) return { ok: false, actionId, error: t("control.action_disabled", { label: action.label }) };
+    if (action.background) {
+      try {
+        const result = await action.execute(args, { setNarration: () => {}, callerSessionId });
+        const error = returnedActionError(result);
+        return error ? { ok: false, actionId, error } : { ok: true, actionId, result };
+      } catch (error) { return { ok: false, actionId, error: describeError(error) }; }
+    }
     if (busyActionIdRef.current) return { ok: false, actionId, error: `Already acting: ${busyActionIdRef.current}` };
 
     if (action.requiresConfirmation && isBrowser()) {
@@ -341,7 +351,7 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
       await playTargetChoreography(action, runId);
       setNarration(t("control.narration_running", { label: action.label }));
       const effectiveArgs = args === undefined ? action.previewArgs : args;
-      const result = await action.execute(effectiveArgs, { setNarration });
+      const result = await action.execute(effectiveArgs, { setNarration, callerSessionId });
       const resultError = returnedActionError(result);
       if (resultError) {
         setNarration(t("control.narration_could_not", { label: action.label, error: resultError }));
@@ -444,6 +454,8 @@ const ControlActionScopeContext = createContext(true);
 export function ControlActionScope({ active, children }: { active: boolean; children: ReactNode }) {
   return <ControlActionScopeContext value={active}>{children}</ControlActionScopeContext>;
 }
+
+export function useControlScope() { return use(ControlActionScopeContext); }
 
 export function useControlAction(action: LegalworkControlAction | null | false | undefined) {
   const control = useLegalworkControl();
@@ -627,7 +639,7 @@ export function LegalworkRouteControlActions() {
           { id: "voice", label: "Voice mode", description: "Talk to LegalWork with real-time voice using OpenAI Realtime." },
           { id: "files", label: "File management", description: "Read, write, and organize files in your workspace." },
           { id: "code", label: "Write and run code", description: "Generate, edit, and execute code with full tool access." },
-          { id: "computer-use", label: "Computer use", description: "Control your computer with screenshots and mouse/keyboard actions." },
+          { id: "open-computer-use", label: "Open Computer Use", description: "Control your computer with screenshots and mouse/keyboard actions." },
           { id: "skills", label: "Skills", description: "Install specialized skill packs for specific workflows." },
           { id: "automations", label: "Automations", description: "Schedule recurring tasks and background agents." },
           { id: "sharing", label: "Share sessions", description: "Share workspace sessions with collaborators via LegalWork Cloud." },

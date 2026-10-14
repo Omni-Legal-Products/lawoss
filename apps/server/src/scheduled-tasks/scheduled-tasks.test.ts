@@ -254,3 +254,14 @@ describe("scheduled chat inbox", () => {
     expect(changes).toBe(0);
   });
 });
+
+test("scheduled wiki access retains the authorizing user scope and downgrades on collaborator edits", async () => {
+  const { store, path } = await open();
+  const task = store.create("project", { ...input, projectAccess: "all" }, now, "owner");
+  expect(task.wikiScope).toBe("owner");
+  const reopened = await ScheduledTaskStore.open(path);
+  expect(reopened.get("project", task.id).wikiScope).toBe("owner");
+  const edited = reopened.update("project", task.id, task.revision, { prompt: "Changed task" }, now, "collaborator");
+  expect(edited.wikiScope).toBe("collaborator");
+  expect(store.get("project", task.id).wikiScope).toBe("collaborator");
+});

@@ -395,19 +395,19 @@ describe("the firm's own providers", () => {
 });
 
 describe("the firm's workspace settings", () => {
-  test("firm instructions follow the agent's, a switched-off extension leaves the engine, and review defaults apply", async () => {
+  test.each(["computer-use", "open-computer-use"])("firm instructions, extension policy (%s) and review defaults apply", async (extensionId) => {
     const { config, root } = await setup({
       "personalization.firmInstructions": { mode: "enforced", value: "Cite German law with paragraph numbers." },
-      "extensions.builtIn": { mode: "enforced", value: { "computer-use": false } },
+      "extensions.builtIn": { mode: "enforced", value: { [extensionId]: false } },
       "reviews.defaults": { mode: "enforced", value: { mode: "llm", minDecisionProbability: 0.9 } },
     });
-    await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ mcp: { "computer-use": { type: "local", command: ["npx"] }, "legalwork-ui": { type: "local", command: ["npx"] } } }));
+    await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ mcp: { "open-computer-use": { type: "local", command: ["open-computer-use", "mcp"] }, "legalwork-ui": { type: "local", command: ["npx"] } } }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
     const runtime = await readJson(legalworkRuntimeConfigFilePath(config));
     expect(JSON.stringify(runtime.agent)).toContain("## Firm instructions");
     expect(JSON.stringify(runtime.agent)).toContain("Cite German law with paragraph numbers.");
     expect(Object.keys(runtime.mcp ?? {})).toEqual(["legalwork-ui"]);
-    await expect(requireConnectorAllowed(config, "computer-use")).rejects.toMatchObject({ code: "org_policy_disallowed" });
+    await expect(requireConnectorAllowed(config, "open-computer-use")).rejects.toMatchObject({ code: "org_policy_disallowed" });
 
     const defaults = new ReviewDefaults(root, {
       settings: async () => (await appliedOrgPolicy(config, "reviews.defaults"))?.value ?? null,

@@ -31,6 +31,8 @@ export type ResolvedWorkspaceEndpoint = {
   baseUrl: string;
   /** Auth token for that server. May be empty for unauthenticated local servers. */
   token: string;
+  /** Host credential is present only for the local server owning this workspace. */
+  hostToken?: string;
   /** Workspace id as the owning server expects it in URL paths. No `rem_` prefix. */
   workspaceId: string;
   /** True when the workspace lives on a remote LegalWork worker, not the user's local server. */
@@ -47,6 +49,7 @@ export type LocalServerHandle = {
   localClient?: LegalworkServerClient | null;
   baseUrl: string | null | undefined;
   token: string | null | undefined;
+  hostToken?: string | null;
 };
 
 type WorkspaceEndpointInput = Pick<
@@ -140,10 +143,12 @@ export function resolveWorkspaceEndpoint(
   const localBaseUrl = (localServer.baseUrl ?? "").trim();
   if (!localBaseUrl) return null;
   const localToken = (localServer.token ?? "").trim();
+  const hostToken = localServer.hostToken?.trim() || undefined;
   const workspaceId = workspace.id.trim();
   const client = localServer.localClient?.baseUrl === localBaseUrl.replace(/\/+$/, "") ? localServer.localClient : createLegalworkServerClient({
     baseUrl: localBaseUrl,
     token: localToken || undefined,
+    hostToken,
   });
   const mountedBaseUrl = (
     buildLegalworkWorkspaceBaseUrl(localBaseUrl, workspaceId) ?? localBaseUrl
@@ -151,6 +156,7 @@ export function resolveWorkspaceEndpoint(
   return {
     baseUrl: localBaseUrl,
     token: localToken,
+    hostToken,
     workspaceId,
     isRemote: false,
     client,

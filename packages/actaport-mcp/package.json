@@ -1,0 +1,23 @@
+{
+  "name": "@legalwork/actaport-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Bundled Actaport MCP server generated from the official OpenAPI specification",
+  "scripts": {
+    "build": "bun build src/index.ts src/auth.ts --outdir dist --target node --format esm --entry-naming '[name].mjs'",
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm build && bun test test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "bun-types": "^1.3.6",
+    "typescript": "^5.6.3"
+  }
+}

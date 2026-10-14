@@ -28,7 +28,7 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
       request.setEncoding("utf8");
       request.on("data", (chunk) => {
         raw += chunk;
-        if (raw.length > 128_000) {
+        if (raw.length > 5 * 1024 * 1024) {
           reject(new Error("Request body too large"));
           request.destroy();
         }
@@ -79,7 +79,6 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
       return evaluateLegalworkControl(`(async () => {
         const control = window.__legalworkControl;
         if (!control) return { ok: false, error: "LegalWork control surface is not available yet." };
-        control.setEnabled?.(true);
         return { ok: true, ...control.snapshot() };
       })()`);
     }
@@ -87,7 +86,6 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
       return evaluateLegalworkControl(`(async () => {
         const control = window.__legalworkControl;
         if (!control) return { ok: false, error: "LegalWork control surface is not available yet." };
-        control.setEnabled?.(true);
         return { ok: true, actions: control.listActions() };
       })()`);
     }
@@ -100,8 +98,7 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
         if (!input || typeof input.actionId !== "string" || !input.actionId.trim()) {
           return { ok: false, error: "Missing LegalWork actionId." };
         }
-        control.setEnabled?.(true);
-        return control.execute(input.actionId, input.args ?? {});
+        return control.execute(input.actionId, input.args ?? {}, typeof input.callerSessionId === "string" ? input.callerSessionId : undefined);
       })()`, { focus: args.focus === true });
     }
     return { ok: false, error: `Unknown LegalWork control command: ${command}` };

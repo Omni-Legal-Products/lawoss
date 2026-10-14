@@ -43,3 +43,24 @@ test("the saved visibility and position of pinned projects survive a reload", ()
   expect(config?.sectionPinnedProjects).toBe(false);
   expect(config?.chatSectionOrder).toEqual(savedOrder);
 });
+
+
+test("older sidebar preferences gain Wiki without changing existing choices", () => {
+  const savedOrder = ["navHome", "navRecorder", "navEvaluations", "navProjects", "navCalendar", "navTasks", "navScheduled", "navWorkflows"];
+  const config = readConfig({ navOrder: savedOrder, navRecorder: false, navTasks: false });
+  expect(config?.navWikis).toBe(true);
+  expect(config?.navOrder.filter(key => key !== "navWikis")).toEqual(savedOrder);
+  expect(config?.navOrder.indexOf("navWikis")).toBe((config?.navOrder.indexOf("navRecorder") ?? -1) + 1);
+  expect(config?.navRecorder).toBe(false);
+  expect(config?.navTasks).toBe(false);
+});
+
+test("the saved Wiki visibility and position survive a reload", () => {
+  const defaults = readConfig(null);
+  expect(defaults?.navWikis).toBe(true);
+  expect(defaults?.navOrder).toContain("navWikis");
+  const savedOrder = ["navWikis", ...(defaults?.navOrder.filter(key => key !== "navWikis") ?? [])];
+  const config = readConfig({ navOrder: savedOrder, navWikis: false });
+  expect(config?.navWikis).toBe(false);
+  expect(config?.navOrder).toEqual(savedOrder);
+});

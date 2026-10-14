@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
 import { mcpAuthEntryFromServer, mcpConnectOutcome } from "../src/app/mcp-connect-state";
-import type { McpDirectoryInfo } from "../src/app/constants";
+import { MCP_QUICK_CONNECT, type McpDirectoryInfo } from "../src/app/constants";
 import type { McpStatusMap, ReloadReason, ReloadTrigger } from "../src/app/types";
 import { createClient } from "../src/app/lib/opencode";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
@@ -80,11 +80,24 @@ let engineStatusStarted: (() => void) | undefined;
 let engineStatusRequests = 0;
 let serverListReads = 0;
 let emptyServerReads = 0;
+let openComputerUseError = "";
+let openComputerUseCalls = 0;
+const openComputerUseConfig = {
+  command: ["/installed/Open Computer Use.app/Contents/MacOS/OpenComputerUse", "mcp"],
+  environment: { OPEN_COMPUTER_USE_AGENT_SOCKET_NAMESPACE: "test-legalwork-ocu" },
+};
 
 Object.assign(browserWindow, {
   __LEGALWORK_ELECTRON__: {
     invokeDesktop: async (command: string, ...args: unknown[]) => {
+      if (command === "getActaportMcpCommand") return ["node", "/tmp/bundled-actaport/index.mjs"];
+      if (command === "getActaportMcpEnvironment") return { ACTAPORT_CONNECTION_FILE: "/tmp/actaport-connection.json", ACTAPORT_ALLOW_WRITES: "0", ACTAPORT_TOOLSETS: "" };
       if (command === "readOpencodeConfig") return { path: "/tmp/opencode.json", exists: configExists, content: config };
+      if (command === "getOpenComputerUseMcpConfig") {
+        openComputerUseCalls += 1;
+        if (openComputerUseError) throw new Error(openComputerUseError);
+        return openComputerUseConfig;
+      }
       if (command === "writeOpencodeConfig") {
         config = String(args[2]);
         return { ok: true };
@@ -155,6 +168,8 @@ describe("connection store success reporting", () => {
     engineStatusRequests = 0;
     serverListReads = 0;
     emptyServerReads = 0;
+    openComputerUseError = "";
+    openComputerUseCalls = 0;
     const capture = spyOn(analytics, "captureAnalyticsEvent").mockImplementation((event) => { analyticsEvents.push(event); });
     restoreAnalytics = () => capture.mockRestore();
     Object.defineProperty(globalThis, "window", { value: browserWindow, configurable: true });
@@ -177,6 +192,8 @@ describe("connection store success reporting", () => {
             await remoteSaveWait;
             if (saveError) return Response.json({ code: "runtime_unavailable", message: saveError }, { status: 500 });
           }
+          if (status.actaport) return Response.json({ items: [{ name: "actaport", config: { type: "local", command: ["node", "/tmp/bundled-actaport/index.mjs"] }, source: "config.local" }] });
+          if (status["open-computer-use"]) return Response.json({ items: [{ name: "open-computer-use", config: { type: "local", ...openComputerUseConfig }, source: "config.local" }] });
           serverListReads += 1;
           return Response.json({ items: emptyServerList || serverListReads <= emptyServerReads ? [] : [{ name: "test-server", config: { type: "remote", url: entry.url }, source: "config.remote" }], ...(registrationFailed ? { engineSync: { status: "failed", failures: [{ name: "test-server", error: "Registration failed" }] } } : {}) });
         }
@@ -423,6 +440,39 @@ describe("connection store success reporting", () => {
     expect(connectedEvents()).toHaveLength(0);
   });
 
+  test("connects the new native runtime to OpenCode with its own identity and environment", async () => {
+    const integration = MCP_QUICK_CONNECT.find((item) => item.id === "open-computer-use");
+    if (!integration) throw new Error("Open Computer Use is missing from the integration directory");
+    status = { "open-computer-use": { status: "connected" } };
+    const store = makeStore();
+    expect(await store.connectMcp(integration)).toBe(true);
+    const config = { type: "local", enabled: true, ...openComputerUseConfig };
+    expect(serverAdds).toEqual([{ name: "open-computer-use", config }]);
+    expect(engineAdds).toEqual([{ name: "open-computer-use", config }]);
+    expect(openComputerUseCalls).toBe(1);
+    expect(store.getSnapshot().mcpAuthModalOpen).toBe(false);
+  });
+
+  test("a failed runtime install cannot save a broken command or fall back to the old helper", async () => {
+    const integration = MCP_QUICK_CONNECT.find((item) => item.id === "open-computer-use");
+    if (!integration) throw new Error("Open Computer Use is missing from the integration directory");
+    openComputerUseError = "Download failed its integrity check";
+    const store = makeStore();
+    expect(await store.connectMcp(integration)).toBe(false);
+    expect(serverAdds).toHaveLength(0);
+    expect(engineAdds).toHaveLength(0);
+    expect(store.getSnapshot().mcpStatus).toContain(openComputerUseError);
+  });
+
+  test("remote workers cannot install or receive the local desktop command", async () => {
+    const integration = MCP_QUICK_CONNECT.find((item) => item.id === "open-computer-use");
+    if (!integration) throw new Error("Open Computer Use is missing from the integration directory");
+    expect(await makeStore(true).connectMcp(integration)).toBe(false);
+    expect(openComputerUseCalls).toBe(0);
+    expect(serverAdds).toHaveLength(0);
+    expect(engineAdds).toHaveLength(0);
+  });
+
   test("explicitly disabled OAuth stays disabled in persisted config even when old client settings exist", async () => {
     const store = makeStore(true);
     expect(await store.connectMcp({ ...entry, oauth: false, oauthConfig: { clientId: "old-client" } })).toBe(true);
@@ -444,6 +494,25 @@ describe("connection store success reporting", () => {
     expect(store.getSnapshot().mcpAuthModalOpen).toBe(false);
     expect(store.getSnapshot().mcpConnectingName).toBeNull();
     expect(connectedEvents()).toHaveLength(0);
+  });
+
+  test("Actaport resolves its bundled command and saves only the private connection reference", async () => {
+    const actaport = MCP_QUICK_CONNECT.find((item) => item.serverName === "actaport");
+    if (!actaport) throw new Error("Missing Actaport extension");
+    status = { actaport: { status: "connected" } };
+    expect(await makeStore().connectMcp(actaport)).toBe(true);
+    expect(serverAdds).toHaveLength(1);
+    expect(serverAdds[0]).toMatchObject({ name: "actaport", config: { type: "local", command: ["node", "/tmp/bundled-actaport/index.mjs"],
+      environment: { ACTAPORT_CONNECTION_FILE: "/tmp/actaport-connection.json", ACTAPORT_ALLOW_WRITES: "0", ACTAPORT_TOOLSETS: "" } } });
+    expect(JSON.stringify(serverAdds)).not.toContain("clientSecret");
+    expect(JSON.stringify(serverAdds)).not.toContain("password");
+  });
+
+  test("Actaport desktop credentials cannot be sent to a remote worker", async () => {
+    const actaport = MCP_QUICK_CONNECT.find((item) => item.serverName === "actaport");
+    if (!actaport) throw new Error("Missing Actaport extension");
+    expect(await makeStore(true).connectMcp(actaport)).toBe(false);
+    expect(serverAdds).toHaveLength(0);
   });
 
   test("a save that finishes after switching workspaces cannot start OAuth for the new selection", async () => {

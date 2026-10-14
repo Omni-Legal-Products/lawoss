@@ -26,14 +26,14 @@ export class ScheduledTaskStore {
     if (!row) throw new ApiError(404, "scheduled_task_missing", "Scheduled task not found.");
     return ScheduledTaskSchema.parse(JSON.parse(String(row.data)));
   }
-  create(workspaceId: string, raw: unknown, now = Date.now()) {
+  create(workspaceId: string, raw: unknown, now = Date.now(), wikiScope: "owner" | "collaborator" = "collaborator") {
     const input = ScheduledTaskInputSchema.parse(raw);
     const nextRunAt = nextOccurrence(input.schedule, now);
     if (!nextRunAt) throw new ApiError(400, "schedule_expired", "Choose a schedule with a future run.");
-    const task: ScheduledTask = { ...input, id: randomUUID(), workspaceId, revision: 1, status: "active", nextRunAt, createdAt: new Date(now).toISOString(), updatedAt: new Date(now).toISOString() };
+    const task: ScheduledTask = { ...input, wikiScope, id: randomUUID(), workspaceId, revision: 1, status: "active", nextRunAt, createdAt: new Date(now).toISOString(), updatedAt: new Date(now).toISOString() };
     this.write(task); return task;
   }
-  update(workspaceId: string, id: string, revision: number, patch: Partial<ReturnType<typeof ScheduledTaskInputSchema.parse>> & { status?: "active" | "paused" }, now = Date.now()) {
+  update(workspaceId: string, id: string, revision: number, patch: Partial<ReturnType<typeof ScheduledTaskInputSchema.parse>> & { status?: "active" | "paused" }, now = Date.now(), wikiScope?: "owner" | "collaborator") {
     return this.transaction(() => {
       const task = this.get(workspaceId, id);
       this.checkRevision(task, revision);
@@ -43,7 +43,7 @@ export class ScheduledTaskStore {
       const recalculate = changedSchedule || (status === "active" && task.status !== "active");
       const nextRunAt = recalculate ? nextOccurrence(input.schedule, now) : task.nextRunAt;
       if (status === "active" && !nextRunAt) throw new ApiError(400, "schedule_expired", "Choose a future time before resuming this task.");
-      const result = { ...task, ...input, status, nextRunAt, revision: revision + 1, updatedAt: new Date(now).toISOString() };
+      const result = { ...task, ...input, wikiScope: wikiScope ?? task.wikiScope, status, nextRunAt, revision: revision + 1, updatedAt: new Date(now).toISOString() };
       this.write(result); return result;
     });
   }

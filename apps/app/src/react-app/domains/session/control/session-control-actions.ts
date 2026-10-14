@@ -99,6 +99,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
 
   const listSessionsControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "session.list_sessions",
+    background: true,
     label: t("control.list_sessions"),
     description: "Return the list of sessions across workspaces so the user can ask to open one by name.",
     sideEffect: "none",
@@ -119,22 +120,6 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
     },
   }), [sessionsByWorkspaceId, workspaces]);
   useControlAction(listSessionsControlAction);
-
-  const openSessionControlAction = useMemo<LegalworkControlAction>(() => ({
-    id: "session.open",
-    label: t("control.open_session"),
-    description: "Navigate to a specific session. Use list_sessions first to get the session ID.",
-    sideEffect: "navigation",
-    requiresArgs: true,
-    args: [{ name: "sessionId", type: "string", required: true, description: "Session ID from session.list_sessions." }],
-    execute: (args) => {
-      const sessionId = stringArg(args, "sessionId");
-      if (!sessionId) return { ok: false, error: "sessionId is required" };
-      navigateToSession(sessionId);
-      return { ok: true, navigatedTo: sessionId };
-    },
-  }), [navigateToSession]);
-  useControlAction(openSessionControlAction);
 
   const renameSessionControlAction = useMemo<LegalworkControlAction>(() => ({
     id: "session.rename",

@@ -21,7 +21,7 @@ const manifestSchema = z.object({ version: z.literal(1), architecture: z.enum(["
   files: z.record(z.string(), z.string().regex(/^[a-f0-9]{64}$/)),
 });
 export type SandboxResult = { output: string; exitCode: number; truncated: boolean };
-export type SandboxRun = { command: string; cwd: string; mounts: SandboxMount[]; timeoutMs: number;
+export type SandboxRun = { command: string; cwd: string; mounts: SandboxMount[]; timeoutMs: number; beforeCommit?: () => Promise<void>;
   signal: AbortSignal; networkMode?: NetworkMode; authorizeNetwork: (request: OutboundRequest) => Promise<boolean> };
 const eventSchema = z.discriminatedUnion("event", [
   z.object({ event: z.literal("output"), stream: z.enum(["stdout", "stderr"]), data: z.string().max(16384) }),
@@ -200,6 +200,7 @@ export class VmSandbox {
       filesystem.cancel();
       await filesystemWork;
       if (exitCode === undefined) throw new Error("Protected command did not finish.");
+      await input.beforeCommit?.();
       await filesystem.commit(input.signal);
       return { output, exitCode, truncated };
     } finally {

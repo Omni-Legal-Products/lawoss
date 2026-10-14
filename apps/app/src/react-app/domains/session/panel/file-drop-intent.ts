@@ -13,6 +13,7 @@ export function isFileSidebarDrag(data: Pick<DataTransfer, "types">) {
 export function isFileIntakeTarget(kind: string | undefined, data: Pick<DataTransfer, "types">, projectId?: string | null) {
   if (kind === undefined) return false;
   if (kind === "composer") return true;
+  if (kind === "wiki") return data.types.includes("Files") || hasProjectFileDrag(data);
   if (kind.startsWith("project:")) return canTransferProjectFiles(data, kind.slice(8));
   // Legacy intake can use an own-project single-file payload, never interpret a
   // foreign relative path or quietly import only the first file of a batch.

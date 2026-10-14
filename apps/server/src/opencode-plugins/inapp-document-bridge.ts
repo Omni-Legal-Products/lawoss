@@ -17,8 +17,9 @@ function userAppDataDir(): string {
 }
 
 function uiControlDiscoveryPaths(): string[] {
+  const explicit = process.env.LEGALWORK_UI_CONTROL_DISCOVERY?.trim();
+  if (explicit) return [explicit];
   return [
-    process.env.LEGALWORK_UI_CONTROL_DISCOVERY?.trim(),
     join(userAppDataDir(), "com.eigenweltlabs.legalwork", "legalwork-ui-control.json"),
     join(userAppDataDir(), "com.eigenweltlabs.legalwork.dev", "legalwork-ui-control.json"),
   ].filter((p): p is string => Boolean(p));
@@ -93,23 +94,47 @@ export function documentMatchesSession(value: unknown, sessionId: string): boole
     : Array.isArray(sessions) && sessions.includes(sessionId);
 }
 
-export function inAppDocumentSurface(payload: unknown, sessionId?: string): InAppDocumentSurface | null {
+export function inAppDocumentSurface(payload: unknown, sessionId?: string, path?: string): InAppDocumentSurface | null {
   if (typeof payload !== "object" || payload === null) return null;
-  const surface = Reflect.get(payload, "activeSurface");
+  const active: unknown = Reflect.get(payload, "activeSurface");
+  const surfaces: unknown = Reflect.get(payload, "surfaces");
+  const surface: unknown = path && getStringProperty(active, "path") !== path && Array.isArray(surfaces)
+    ? surfaces.find(candidate => getStringProperty(candidate, "path") === path && (!sessionId || documentMatchesSession(candidate, sessionId))) : active;
   if (typeof surface !== "object" || surface === null) return null;
   const format = getStringProperty(surface, "format");
   if (getStringProperty(surface, "kind") !== "document" || (format !== "docx" && format !== "xlsx" && format !== "pptx" && format !== "md" && format !== "pdf")) return null;
   const surfaceSessionId = getStringProperty(surface, "sessionId");
   const name = getStringProperty(surface, "name");
-  const path = getStringProperty(surface, "path");
-  if (!surfaceSessionId || !name || !path || (sessionId && !documentMatchesSession(surface, sessionId))) return null;
+  const surfacePath = getStringProperty(surface, "path");
+  if (!surfaceSessionId || !name || !surfacePath || (path && path !== surfacePath) || (sessionId && !documentMatchesSession(surface, sessionId))) return null;
   return {
     format,
     sessionId: surfaceSessionId,
     name,
-    path,
+    path: surfacePath,
     editable: getBooleanProperty(surface, "editable") === true,
     agentEditsTracked: getBooleanProperty(surface, "agentEditsTracked") === true,
   };
 }
 
+/** All live drafts protected from file writes, including another chat's drafts. */
+export function protectedDocumentSurfaces(payload: unknown, sessionId: string): InAppDocumentSurface[] {
+  if (!payload || typeof payload !== "object") return [];
+  const protectedSurfaces: unknown = Reflect.get(payload, "protectedSurfaces");
+  const surfaces: unknown = Reflect.get(payload, "surfaces");
+  const candidates = Array.isArray(protectedSurfaces) ? protectedSurfaces
+    : [Reflect.get(payload, "activeSurface"), ...(Array.isArray(surfaces) ? surfaces : [])];
+  return candidates.flatMap(activeSurface => {
+    const surface = inAppDocumentSurface({ activeSurface }, sessionId);
+    return surface ? [surface] : [];
+  });
+}
+
+
+/** Task-scoped document inventory, independent of the visible workspace. */
+export async function taskDocumentSnapshot(sessionId: string | undefined): Promise<unknown> {
+  if (!sessionId) return { ok: false, error: "A task is required." };
+  const response = await uiBridgeRequest("/execute", { method: "POST", body: { actionId: "documents.list", args: { sessionId } } });
+  if (response && typeof response === "object" && Reflect.get(response, "ok") === true) return Reflect.get(response, "result");
+  return response;
+}

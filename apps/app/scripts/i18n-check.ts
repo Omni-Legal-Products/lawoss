@@ -47,6 +47,8 @@ const GERMAN_KEEPS_ENGLISH = new Set<string>([
   "review.mixed", // Product model names: JEV + LLM.
   "review.sets", "review.prompts", "workflows.workflow", // Established product terminology in both languages.
   "systemone.typesafe",
+  // Wiki uses the same established terms in German.
+  "wiki.title", "wiki.name", "wiki.graph", "wiki.markdown", "wiki.chats", "wiki.property_text",
   // Storage protocol names and the shared technical term "Port".
   "storage.provider_webdav", "storage.provider_sftp", "storage.provider_ftp", "storage.field_port",
   // Tool transcript: loanwords and identical tokens
@@ -152,6 +154,7 @@ const AGENT_FACING = new Set<string>([
   // Starter prompts the user sends to the agent.
   "task_suggestions.grid_prompt", "task_suggestions.redline_prompt",
   "task_suggestions.summary_prompt", "projects.setup.initial_prompt",
+  "scheduled.template_review_prompt",
   // Sample chat content and quoted example prompts.
   "mcp.quick_connect_legalwork_ui_desc",
   "mcp.quick_connect_legalwork_cloud_desc", "mcp.quick_connect_legalwork_admin_desc",

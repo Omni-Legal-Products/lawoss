@@ -9,6 +9,7 @@
  */
 
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import { realpath } from "node:fs/promises";
 
 export type OpenCodeContext = {
   agent?: string;
@@ -16,6 +17,7 @@ export type OpenCodeContext = {
   messageID?: string;
   directory?: string;
   worktree?: string;
+  abort?: AbortSignal;
   ask?: (input: {
     permission: string;
     patterns: string[];
@@ -36,6 +38,17 @@ export function serverToken(): string {
   return String(process.env.LEGALWORK_SERVER_TOKEN || "");
 }
 
+export async function workspaceToolHeaders(context?: OpenCodeContext): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { Authorization: `Bearer ${serverToken()}` };
+  const token = process.env.LEGALWORK_WIKI_AGENT_TOKEN?.trim();
+  if (token && context?.sessionID && context.directory) {
+    headers["x-legalwork-wiki-agent-token"] = token;
+    headers["x-legalwork-wiki-agent-session"] = context.sessionID;
+    headers["x-legalwork-wiki-agent-directory"] = encodeURIComponent(await realpath(context.directory));
+  }
+  return headers;
+}
+
 type WorkspaceListPayload = {
   items?: Array<{ id?: unknown; path?: unknown }>;
 };
@@ -44,13 +57,15 @@ type WorkspaceListPayload = {
 // pointed at a different LegalWork server must not read the previous one's.
 let workspaceCache: { at: number; url: string; items: Array<{ id: string; path: string }> } | null = null;
 
-export async function listWorkspaces(): Promise<Array<{ id: string; path: string }>> {
+export async function listWorkspaces(context?: OpenCodeContext): Promise<Array<{ id: string; path: string }>> {
   const url = serverUrl();
-  if (workspaceCache && workspaceCache.url === url && Date.now() - workspaceCache.at < WORKSPACE_CACHE_MS) {
+  const headers = await workspaceToolHeaders(context);
+  const sessionScoped = Boolean(headers["x-legalwork-wiki-agent-token"]);
+  if (!sessionScoped && workspaceCache && workspaceCache.url === url && Date.now() - workspaceCache.at < WORKSPACE_CACHE_MS) {
     return workspaceCache.items;
   }
   const response = await fetch(`${url}/workspaces`, {
-    headers: { Authorization: `Bearer ${serverToken()}` },
+    headers,
     signal: AbortSignal.timeout(8_000),
   });
   if (!response.ok) throw new Error(`Workspace lookup failed: HTTP ${response.status}`);
@@ -58,13 +73,13 @@ export async function listWorkspaces(): Promise<Array<{ id: string; path: string
   const items = (payload.items ?? []).flatMap((item) =>
     typeof item.id === "string" && typeof item.path === "string" ? [{ id: item.id, path: item.path }] : [],
   );
-  workspaceCache = { at: Date.now(), url, items };
+  if (!sessionScoped) workspaceCache = { at: Date.now(), url, items };
   return items;
 }
 
 export async function resolveWorkspaceId(context: OpenCodeContext, options: { requireDirectory?: boolean } = {}): Promise<string> {
   const directory = context.directory?.trim() ?? "";
-  const items = await listWorkspaces();
+  const items = await listWorkspaces(context);
   if (directory) {
     const match = [...items].sort((a, b) => b.path.length - a.path.length).find((item) => {
       if (!item.path) return false;

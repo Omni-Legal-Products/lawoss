@@ -2325,7 +2325,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     officeAddinUninstall: (appId) => officeAddinManager.uninstall(appId),
     officeAddinOpenApp: (appId) => officeAddinManager.openApp(appId),
     orchestratorStatus,
-    orchestratorWorkspaceActivate,
+    orchestratorWorkspaceActivate: (input) => withRuntimeLifecycle(() => orchestratorWorkspaceActivate(input)),
     orchestratorInstanceDispose,
     orchestratorStartDetached,
     opencodeMcpAuth,

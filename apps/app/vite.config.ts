@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { openuiLicenseNotices } from "./scripts/openui-license-notices";
 
 const portValue = Number.parseInt(process.env.PORT ?? "", 10);
 const devPort = Number.isFinite(portValue) && portValue > 0 ? portValue : 5173;
@@ -53,6 +54,7 @@ export default defineConfig({
     "import.meta.env.VITE_LEGALWORK_APP_VERSION": JSON.stringify(buildAppVersion),
   },
   plugins: [
+    openuiLicenseNotices(),
     {
       name: "legalwork-dev-server-id",
       configureServer(server) {
@@ -89,6 +91,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      // OpenUI's optional development overlay loads remote code. Keep rendering fully bundled.
+      "@openuidev/devtools": resolve(appRoot, "../../packages/openui/src/devtools-disabled.ts"),
       "@": resolve(appRoot, "src"),
     },
   },

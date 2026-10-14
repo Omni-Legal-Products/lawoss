@@ -1,3 +1,4 @@
+import { ViewHostProvider } from "@/react-app/domains/views/view-host";
 "use memo";
 
 import { useSessionActivityStore } from "@/react-app/domains/session/status/session-activity-store"
@@ -105,7 +106,7 @@ export function MessageListProvider({
 
   return (
     <MessageListContext.Provider value={value}>
-      {children}
+      <ViewHostProvider client={legalworkClient} owner={{ kind: "workspace", id: workspaceId }}>{children}</ViewHostProvider>
     </MessageListContext.Provider>
   )
 }

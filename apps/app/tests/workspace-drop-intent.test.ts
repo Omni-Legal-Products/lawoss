@@ -66,6 +66,15 @@ test("pane drops open files unless the pointer is over a compatible explicit int
   expect(isFileIntakeTarget("storage:server-b", cloud, "project-b")).toBe(false);
 });
 
+test("wiki intake copies system files and project file batches before pane tab handling", () => {
+  expect(isFileIntakeTarget("wiki", { types: ["Files"] })).toBe(true);
+  expect(isFileIntakeTarget("wiki", { types: ["text/plain"] })).toBe(false);
+  const data = transfer(); writeProjectFileDrag(data, source);
+  expect(isFileIntakeTarget("wiki", { types: data.types }, "other-project")).toBe(true);
+  writeProjectFilesDrag(data, [source, { ...source, path: "B.pdf" }]);
+  expect(isFileIntakeTarget("wiki", { types: data.types })).toBe(true);
+});
+
  test("explicit review/task intake preserves compatible own-project single-file payloads", () => {
   const data = transfer(); writeProjectFileDrag(data, source);
   data.setData("application/x-legalwork-workspace-file", "fixture");

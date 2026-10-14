@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { buildSkillMarkdown, resolveSkillName } from "../skill-tool-content.js";
 
-import { resolveWorkspaceId, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
+import { resolveWorkspaceId, serverToken, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 
 /**
  * Agent tools for the ordinary discoverable skill library. Workflows is the
@@ -83,7 +83,7 @@ type SkillListItem = { name?: unknown; description?: unknown; kind?: unknown; sc
 
 async function requestJson(
   path: string,
-  options: { method?: string; body?: unknown } = {},
+  options: { method?: string; body?: unknown; context?: OpenCodeContext } = {},
 ): Promise<{ ok: true; payload: unknown } | { ok: false; error: string }> {
   const url = serverUrl();
   const token = serverToken();
@@ -93,7 +93,7 @@ async function requestJson(
   const response = await fetch(`${url}${path}`, {
     method: options.method ?? "GET",
     headers: {
-      Authorization: `Bearer ${token}`,
+      ...await workspaceToolHeaders(options.context),
       ...(options.body ? { "Content-Type": "application/json" } : {}),
     },
     ...(options.body ? { body: JSON.stringify(options.body) } : {}),
@@ -122,6 +122,7 @@ async function attachResources(
   skillName: string,
   paths: string[],
   baseDir: string,
+  context: OpenCodeContext,
 ): Promise<{ attached: string[]; warnings: string[] }> {
   const attached: string[] = [];
   const warnings: string[] = [];
@@ -140,7 +141,7 @@ async function attachResources(
       const name = basename(path);
       const result = await requestJson(
         `/workspace/${encodeURIComponent(workspaceId)}/skills/${encodeURIComponent(skillName)}/resources`,
-        { method: "POST", body: { name, contentBase64: bytes.toString("base64") } },
+        { method: "POST", body: { name, contentBase64: bytes.toString("base64") }, context },
       );
       if (result.ok) attached.push(name);
       else warnings.push(`${path}: ${result.error}`);
@@ -171,7 +172,7 @@ export const LegalWorkSkillTools = async () => {
         const { name } = z.object({ name: z.string().min(1) }).parse(raw);
         const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
         const key = sessionKey(workspace, context);
-        const result = await requestJson(`/workspace/${encodeURIComponent(workspace)}/skills/${encodeURIComponent(name)}/composed`);
+        const result = await requestJson(`/workspace/${encodeURIComponent(workspace)}/skills/${encodeURIComponent(name)}/composed`, { context });
         if (!result.ok) return JSON.stringify(result);
         const { chain } = z.object({ chain: z.array(packageEntry) }).parse(result.payload);
         for (const entry of chain) {
@@ -195,7 +196,7 @@ export const LegalWorkSkillTools = async () => {
         await context.ask!({ permission: "skill", patterns: [entry.name], always: [entry.name], metadata: {} });
         await context.ask!({ permission: "read", patterns: [join(entry.directory, input.path)], always: [], metadata: {} });
         const query = new URLSearchParams({ directory: entry.directory, path: input.path, offset: String(input.offset ?? 0) });
-        return JSON.stringify(await requestJson(`/workspace/${encodeURIComponent(workspace)}/skills/${encodeURIComponent(input.name)}/package-file?${query}`));
+        return JSON.stringify(await requestJson(`/workspace/${encodeURIComponent(workspace)}/skills/${encodeURIComponent(input.name)}/package-file?${query}`, { context }));
       },
     },
     legalwork_skill_create: {
@@ -213,7 +214,7 @@ export const LegalWorkSkillTools = async () => {
         try {
           const workspaceId = await resolveWorkspaceId(context);
           const existing = await requestJson(
-            `/workspace/${encodeURIComponent(workspaceId)}/skills?includeGlobal=true`,
+            `/workspace/${encodeURIComponent(workspaceId)}/skills?includeGlobal=true`, { context },
           );
           const items = existing.ok ? (existing.payload as { items?: SkillListItem[] } | null)?.items ?? [] : [];
           const original = items.find(item => item.name === args.name);
@@ -229,7 +230,7 @@ export const LegalWorkSkillTools = async () => {
             }
           }
           const created = await requestJson(`/workspace/${encodeURIComponent(workspaceId)}/skills`, {
-            method: "POST",
+            method: "POST", context,
             body: {
               name: fullName,
               description: args.description.trim(),
@@ -248,7 +249,7 @@ export const LegalWorkSkillTools = async () => {
             return JSON.stringify({ ok: false, name: fullName, error: `Could not save the ${kind}: ${created.error}` });
           }
           const { attached, warnings } = args.resourcePaths?.length
-            ? await attachResources(workspaceId, fullName, args.resourcePaths, context.directory?.trim() || process.cwd())
+            ? await attachResources(workspaceId, fullName, args.resourcePaths, context.directory?.trim() || process.cwd(), context)
             : { attached: [], warnings: [] };
           const where = kind === "workflow" ? "Workflows" : "Settings > Integrations > Skills";
           return JSON.stringify(
@@ -282,7 +283,7 @@ export const LegalWorkSkillTools = async () => {
       async execute(_rawArgs: unknown, context: OpenCodeContext) {
         try {
           const workspaceId = await resolveWorkspaceId(context);
-          const result = await requestJson(`/workspace/${encodeURIComponent(workspaceId)}/skills?includeGlobal=true`);
+          const result = await requestJson(`/workspace/${encodeURIComponent(workspaceId)}/skills?includeGlobal=true`, { context });
           if (!result.ok) return JSON.stringify({ ok: false, error: result.error });
           const items = (result.payload as { items?: SkillListItem[] } | null)?.items ?? [];
           const entries = items.flatMap((item) =>

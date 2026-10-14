@@ -1,0 +1,13 @@
+.lw-saved-view { max-width: 1240px; margin: 0 auto; padding: 32px clamp(20px, 5vw, 64px) 48px; }
+.lw-saved-view-inline { padding: 16px 20px 20px; }
+.lw-saved-view-toolbar { display: flex; align-items: center; justify-content: space-between; color: var(--muted-foreground); font-size: 11px; margin-bottom: 20px; padding-right: 24px; }
+.lw-saved-view-loading { display: flex; gap: 8px; align-items: center; color: var(--muted-foreground); font-size: 13px; min-height: 80px; }
+.lw-saved-view-error { font-size: 13px; padding: 16px; color: var(--destructive); }
+.lw-saved-view-error pre { white-space: pre-wrap; font-size: 12px; }
+.lw-view-data-note, .lw-view-provenance { margin-top: 20px; font-size: 11px; color: var(--muted-foreground); }
+.lw-view-provenance summary { cursor: pointer; }
+.lw-view-provenance button { display: block; margin-top: 6px; text-align: left; text-decoration: underline; }
+.lw-inline-view { position: relative; border: 1px solid var(--border); border-radius: 12px; margin: 20px 0; overflow: hidden; }
+.lw-inline-view-open { position: absolute; right: 12px; top: 18px; z-index: 2; padding: 2px; color: var(--muted-foreground); cursor: pointer; }
+
+.lw-saved-view-inline .lw-saved-view-toolbar { justify-content: flex-end; margin-bottom: 12px; min-height: 20px; }

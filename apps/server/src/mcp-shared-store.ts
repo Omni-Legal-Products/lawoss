@@ -67,16 +67,29 @@ function usable(name: string, entry: Record<string, unknown>): boolean {
   }
 }
 
+/** Only retire LegalWork's bundled helper, not a custom MCP with the same name. */
+function retiredComputerUse(name: string, entry: Record<string, unknown>): boolean {
+  if (name !== "computer-use" || !Array.isArray(entry.command)) return false;
+  return entry.command.some((part) => typeof part === "string" && (
+    part === "@legalwork/handsfree" ||
+    /(?:^|\/)packages\/handsfree\/bin\/legalwork-handsfree-computer-use\.mjs$/.test(part.replaceAll("\\", "/")) ||
+    /(?:^|\/)LegalWork Computer Use\.app\/Contents\/MacOS\/ComputerUse$/.test(part.replaceAll("\\", "/")) ||
+    /(?:^|\/)HandsFreeComputerUse$/.test(part.replaceAll("\\", "/"))
+  ));
+}
+
 export async function importConnectorsIntoSharedRow(
   config: ServerConfig,
   sources: ConnectorImportSources,
 ): Promise<{ imported: string[] }> {
   if (config.readOnly) return { imported: [] };
   const shared: McpMap = { ...(await readGlobalMcpMap(config)) };
+  const retiredShared = shared["computer-use"] && retiredComputerUse("computer-use", shared["computer-use"]);
+  if (retiredShared) delete shared["computer-use"];
   const imported: string[] = [];
   const sourceEntries: Array<{ path: string; name: string }> = [];
   const take = (name: string, entry: Record<string, unknown>) => {
-    if (Object.prototype.hasOwnProperty.call(shared, name) || !usable(name, entry)) return;
+    if (retiredComputerUse(name, entry) || Object.prototype.hasOwnProperty.call(shared, name) || !usable(name, entry)) return;
     shared[name] = entry;
     imported.push(name);
   };
@@ -87,12 +100,12 @@ export async function importConnectorsIntoSharedRow(
     const row = runtimeMcpMap(await readRuntimeOpencodeConfig(config, workspace.id));
     if (Object.keys(row).length === 0) continue;
     const pluginOwned = await installedCloudPluginMcpNames(config, workspace.id);
-    const moving = Object.entries(row).filter(([name]) => !pluginOwned.has(name));
+    const moving = Object.entries(row).filter(([name, entry]) => !pluginOwned.has(name) || retiredComputerUse(name, entry));
     if (moving.length === 0) continue;
     for (const [name, entry] of moving) take(name, entry);
     await writeRuntimeOpencodeConfig(config, workspace.id, (current) => {
       const next = { ...current };
-      const kept = Object.fromEntries(Object.entries(runtimeMcpMap(current)).filter(([name]) => pluginOwned.has(name)));
+      const kept = Object.fromEntries(Object.entries(runtimeMcpMap(current)).filter(([name, entry]) => pluginOwned.has(name) && !retiredComputerUse(name, entry)));
       if (Object.keys(kept).length) next.mcp = kept;
       else delete next.mcp;
       return next;
@@ -117,7 +130,7 @@ export async function importConnectorsIntoSharedRow(
     }
   }
 
-  if (imported.length > 0) {
+  if (imported.length > 0 || retiredShared) {
     await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, (current) => ({ ...current, mcp: shared }));
   }
   for (const { path, name } of sourceEntries) {

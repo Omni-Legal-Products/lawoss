@@ -59,6 +59,7 @@ export type OpencodeAuth = {
   username?: string;
   password?: string;
   token?: string;
+  hostToken?: string;
   mode?: "basic" | "legalwork";
 };
 
@@ -307,8 +308,10 @@ function requestIsStreaming(input: RequestInfo | URL, init?: RequestInit): boole
 const createDesktopFetch = (auth?: OpencodeAuth) => {
   const authHeader = resolveAuthHeader(auth);
   const addAuth = (headers: Headers) => {
-    if (!authHeader || headers.has("Authorization")) return;
-    headers.set("Authorization", authHeader);
+    if (authHeader && !headers.has("Authorization")) headers.set("Authorization", authHeader);
+    if (auth?.mode === "legalwork" && auth.hostToken && !headers.has("X-LegalWork-Host-Token")) {
+      headers.set("X-LegalWork-Host-Token", auth.hostToken);
+    }
   };
 
   return (input: RequestInfo | URL, init?: RequestInit) => {
@@ -365,6 +368,7 @@ export function createClient(baseUrl: string, directory?: string, auth?: Opencod
     if (authHeader) {
       headers.Authorization = authHeader;
     }
+    if (auth?.mode === "legalwork" && auth.hostToken) headers["X-LegalWork-Host-Token"] = auth.hostToken;
   }
 
   const transportFetch = isDesktopRuntime()
@@ -405,7 +409,7 @@ export function createClient(baseUrl: string, directory?: string, auth?: Opencod
   const legalworkMount = auth?.mode === "legalwork" ? resolveLegalworkWorkspaceMount(baseUrl) : null;
   const legalworkSessionClient =
     legalworkMount && auth?.token
-      ? createLegalworkServerClient({ baseUrl: legalworkMount.baseUrl, token: auth.token })
+      ? createLegalworkServerClient({ baseUrl: legalworkMount.baseUrl, token: auth.token, hostToken: auth.hostToken })
       : null;
   // TODO(2026-04-12): remove the old-server compatibility path here once all
   // LegalWork servers expose the workspace-scoped session read APIs.

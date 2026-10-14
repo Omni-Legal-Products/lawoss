@@ -1,10 +1,8 @@
 const { spawnSync } = require("node:child_process");
-const { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
+const { mkdtempSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
 const { createHash } = require("node:crypto");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
-
-const computerUseHelperAppName = "LegalWork Computer Use.app";
 
 function run(command, args) {
   const result = spawnSync(command, args, { stdio: "inherit" });
@@ -19,29 +17,6 @@ function requireEnv(name) {
     throw new Error(`${name} is required to notarize the Electron macOS app`);
   }
   return value;
-}
-
-function computerUseHelperPath(appPath) {
-  return path.join(appPath, "Contents", "Resources", "helpers", computerUseHelperAppName);
-}
-
-function verifyComputerUseHelper(appPath, requireDistributionSignature) {
-  const helperPath = computerUseHelperPath(appPath);
-  if (!existsSync(helperPath)) {
-    throw new Error(`Computer Use helper app is missing from packaged app: ${helperPath}`);
-  }
-
-  run("codesign", ["--verify", "--deep", "--strict", "--verbose=2", helperPath]);
-
-  if (!requireDistributionSignature) return;
-  const result = spawnSync("codesign", ["--display", "--verbose=4", helperPath], { encoding: "utf8" });
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    throw new Error(`codesign --display failed for Computer Use helper with status ${result.status}`);
-  }
-  if (result.stderr.includes("Signature=adhoc")) {
-    throw new Error("Computer Use helper app is ad-hoc signed; notarized builds require a Developer ID signature.");
-  }
 }
 
 async function afterSign(context) {
@@ -67,7 +42,6 @@ async function afterSign(context) {
 
   const appName = `${context.packager.appInfo.productFilename}.app`;
   const appPath = path.join(context.appOutDir, appName);
-  verifyComputerUseHelper(appPath, process.env.MACOS_NOTARIZE === "true");
 
   const notaryTempDir = mkdtempSync(path.join(tmpdir(), "legalwork-electron-notary-"));
   const notaryZipPath = path.join(notaryTempDir, `${context.packager.appInfo.productFilename}-notary.zip`);

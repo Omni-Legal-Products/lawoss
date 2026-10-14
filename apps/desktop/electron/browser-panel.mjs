@@ -81,7 +81,7 @@ export function createBrowserPanel(options) {
   };
 }
 
-function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, getWindow, isAllowedAppNavigation, safeOpen, resolveDownloadDirectory, authorizeBrowserAutomation, automationBroker, proxyState }) {
+function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard, session, getWindow, isAllowedAppNavigation, safeOpen, resolveDownloadDirectory, authorizeBrowserAutomation, automationBroker, proxyState }) {
   const browserTabs = new Map();
   let browserTabOrder = [];
   let activeBrowserTabId = null;
@@ -96,6 +96,7 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
   let menuOverlayReadyResolvers = [];
   let menuOverlayShowSerial = 0;
   let removeDownloadHandler = null;
+  let previewWindow = null;
 
   function ensureDownloadHandler() {
     removeDownloadHandler ??= installBrowserDownloads(session.fromPartition(BROWSER_SESSION_PARTITION),
@@ -178,10 +179,15 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
     }
     const url = normalizeBrowserUrl(rawUrl);
     const downloadDirectory = await resolveTabDownloadDirectory(context);
-    const tab = createBrowserTab("about:blank", { select: true, downloadDirectory });
+    const tab = createBrowserTab("about:blank", { select: false, downloadDirectory, taskSessionId: context.sessionId, workspaceId: context.workspaceId });
     let connection;
     try {
-      connection = await automationBroker.grant(tab.view.webContents, () => tab.downloads, context);
+      connection = await automationBroker.grant(tab.view.webContents, () => tab.downloads, context, () => {
+        if (!tab.taskSessionId || (tab.taskActive && !tab.dismissed)) return;
+        tab.taskActive = true;
+        tab.dismissed = false;
+        sendBrowserState();
+      });
     } catch (error) {
       closeBrowserTab(tab.tabId);
       throw error;
@@ -257,6 +263,10 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
 
     return {
       id: tabId,
+      background: tab.background,
+      taskSessionId: tab.taskActive ? tab.taskSessionId : undefined,
+      workspaceId: tab.workspaceId,
+      dismissed: tab.dismissed,
       type: "browser",
       label: getBrowserTabLabel(title, url),
       url,
@@ -461,7 +471,7 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
         if (request.url && isHttpUrl(request.url)) void safeOpen.openExternal(request.url);
         break;
       case "close-tab":
-        if (tab) closeBrowserTab(tab.tabId);
+        if (tab) closeUserBrowserTab(tab);
         break;
       case "close-all-tabs":
         closeAllBrowserTabs();
@@ -522,7 +532,7 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
     return browserProxyState();
   }
 
-  function createBrowserTab(url = "about:blank", { select = true, downloadDirectory = null } = {}) {
+  function createBrowserTab(url = "about:blank", { select = true, downloadDirectory = null, taskSessionId = "", workspaceId = "" } = {}) {
     ensureDownloadHandler();
     const tabId = createBrowserTabId();
     const view = new WebContentsView({
@@ -538,7 +548,8 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
     // Load about:blank immediately to preempt persistent-session restore.
     // Cookies live on the session object, not the document — they survive this.
     const initialLoad = view.webContents.loadURL("about:blank");
-    const tab = { tabId, view, favicon: null, downloadDirectory, downloads: [], initialLoad };
+    view.setBounds({ x: 0, y: 0, width: 1200, height: 800 });
+    const tab = { tabId, view, background: !select, taskSessionId, workspaceId, taskActive: Boolean(taskSessionId), dismissed: false, favicon: null, downloadDirectory, downloads: [], initialLoad };
     browserTabs.set(tabId, tab);
     browserTabOrder.push(tabId);
     // A web page asking for a new window. It cannot open one here, and the
@@ -547,24 +558,10 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
       void safeOpen.openExternal(targetUrl);
       return { action: "deny" };
     });
-    view.webContents.on("did-start-navigation", (_event, targetUrl, isInPlace, isMainFrame) => {
-      if (!isMainFrame || isInPlace) return;
-      const target = String(targetUrl ?? "");
-      // Blank and data pages are not user-visible browser navigations.
-      if (target === "about:blank" || target.startsWith("data:")) return;
-      // Agent-driven CDP navigation can target a background tab whose view is
-      // detached. Bring that tab on screen, otherwise navigation "succeeds"
-      // while the visible tab stays on about:blank (#2015).
-      if (activeBrowserTabId !== tabId) {
-        try {
-          selectBrowserTab(tabId);
-        } catch {
-          // The tab may be mid-close; the panel-opened event below still fires.
-        }
-      }
-      sendToRenderer("legalwork:browser:panel-opened");
-    });
+    // Navigation is data work. Only explicit user selection may attach a tab
+    // to the visible pane; a redirect or an agent's CDP call must not do so.
     view.webContents.on("focus", () => {
+      if (!browserViewVisible || !window()?.contentView.children.includes(view)) return;
       activeBrowserTabId = tabId;
       sendToRenderer("legalwork:browser:state", { ...browserStatePayload(), focusedTabId: tabId });
     });
@@ -578,13 +575,14 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
     view.webContents.on("did-start-loading", () => sendBrowserState());
     view.webContents.on("did-stop-loading", () => sendBrowserState());
     view.webContents.once("destroyed", () => {
+      if (previewWindow?.contentView.children.includes(view)) previewWindow.contentView.removeChildView(view);
       browserTabs.delete(tabId);
       paneBounds.delete(tabId);
       browserTabOrder = browserTabOrder.filter((id) => id !== tabId);
-      if (activeBrowserTabId === tabId) activeBrowserTabId = browserTabOrder[0] ?? null;
+      if (activeBrowserTabId === tabId) activeBrowserTabId = browserTabOrder.find(id => !browserTabs.get(id)?.background) ?? null;
       sendBrowserState();
     });
-    if (select || !activeBrowserTabId) {
+    if (select) {
       selectBrowserTab(tabId);
     } else {
       sendBrowserState();
@@ -653,6 +651,7 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
   function selectBrowserTab(tabId) {
     if (!browserTabs.has(tabId)) throw new Error(`Unknown browser tab: ${tabId}`);
     hideMenuOverlay();
+    browserTabs.get(tabId).background = false;
     const previousView = getActiveBrowserView();
     activeBrowserTabId = tabId;
     if (previousView && previousView !== getActiveBrowserView() && ![...paneBounds.keys()].some(id => browserTabs.get(id)?.view === previousView)) {
@@ -661,6 +660,20 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
     attachActiveBrowserView();
     sendBrowserState();
     return getBrowserTab(tabId);
+  }
+
+  function returnBrowserTabToBackground(tab) {
+    detachBrowserView(tab.view);
+    paneBounds.delete(tab.tabId);
+    tab.background = true;
+    tab.dismissed = false;
+    if (activeBrowserTabId === tab.tabId) activeBrowserTabId = browserTabOrder.find(id => !browserTabs.get(id)?.background) ?? null;
+    sendBrowserState();
+    return tab.tabId;
+  }
+
+  function closeUserBrowserTab(tab) {
+    return tab.taskActive ? returnBrowserTabToBackground(tab) : closeBrowserTab(tab.tabId);
   }
 
   function closeBrowserTab(tabId = activeBrowserTabId) {
@@ -674,10 +687,8 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
     paneBounds.delete(tabId);
     browserTabOrder = browserTabOrder.filter((id) => id !== tabId);
     if (wasActive) {
-      const nextTabId =
-        browserTabOrder[Math.min(closingIndex, browserTabOrder.length - 1)] ??
-        browserTabOrder[closingIndex - 1] ??
-        null;
+      const visibleTabs = browserTabOrder.filter(id => !browserTabs.get(id)?.background);
+      const nextTabId = visibleTabs[Math.min(closingIndex, visibleTabs.length - 1)] ?? null;
       activeBrowserTabId = nextTabId;
       if (nextTabId) {
         attachActiveBrowserView();
@@ -692,21 +703,9 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
   }
 
   function closeAllBrowserTabs() {
-    const closedTabIds = [...browserTabOrder];
-    if (closedTabIds.length === 0) return [];
+    const closedTabIds = browserTabOrder.filter(id => !browserTabs.get(id)?.background);
     hideMenuOverlay();
-    const tabsToClose = closedTabIds
-      .map((tabId) => browserTabs.get(tabId))
-      .filter(Boolean);
-    hideBrowserView();
-    browserTabs.clear();
-    browserTabOrder = [];
-    activeBrowserTabId = null;
-    for (const tab of tabsToClose) {
-      try { tab.view.webContents.close(); } catch { /* already destroyed */ }
-    }
-    sendToRenderer("legalwork:browser:panel-closed");
-    sendBrowserState();
+    for (const id of closedTabIds) closeUserBrowserTab(browserTabs.get(id));
     return closedTabIds;
   }
 
@@ -783,6 +782,8 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
     for (const tab of browserTabs.values()) {
       try { tab.view.webContents.close(); } catch { /* already destroyed */ }
     }
+    previewWindow?.destroy();
+    previewWindow = null;
     browserTabs.clear();
     browserTabOrder = [];
     activeBrowserTabId = null;
@@ -853,7 +854,35 @@ function createWindowBrowserPanel({ app, WebContentsView, clipboard, session, ge
       return { tabId: tab.tabId };
     });
     ipcMain.handle("legalwork:browser:closeTab", (event, tabId) => {
-      return closeBrowserTab(tabId == null ? undefined : String(tabId));
+      const tab = getBrowserTab(tabId == null ? undefined : String(tabId));
+      return tab ? closeUserBrowserTab(tab) : null;
+    });
+    ipcMain.handle("legalwork:browser:dismissTab", (_event, tabId) => {
+      const tab = getBrowserTab(tabId);
+      if (!tab?.background) return;
+      if (!tab.taskActive) return closeBrowserTab(tabId);
+      tab.dismissed = true;
+      sendBrowserState();
+    });
+    ipcMain.handle("legalwork:browser:releaseSession", (_event, sessionId) => {
+      for (const tab of [...browserTabs.values()]) {
+        if (tab.taskSessionId !== sessionId) continue;
+        tab.taskActive = false;
+        if (tab.background) closeBrowserTab(tab.tabId);
+      }
+      sendBrowserState();
+    });
+    ipcMain.handle("legalwork:browser:previewTab", async (_event, tabId) => {
+      const tab = getBrowserTab(tabId);
+      if (!tab || tab.view.webContents.isDestroyed()) return null;
+      // A native compositor host is required for repeated captures. Keep it
+      // hidden and non-focusable; promotion reparents this exact same view.
+      if (!window()?.contentView.children.includes(tab.view)) {
+        previewWindow ??= new BaseWindow({ show: false, focusable: false, skipTaskbar: true, width: 1200, height: 800 });
+        if (!previewWindow.contentView.children.includes(tab.view)) previewWindow.contentView.addChildView(tab.view);
+        tab.view.setBounds({ x: 0, y: 0, width: 1200, height: 800 });
+      }
+      return automationBroker.preview(tab.view.webContents);
     });
     ipcMain.handle("legalwork:browser:closeAllTabs", (event) => {
       return closeAllBrowserTabs();

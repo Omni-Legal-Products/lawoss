@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentSandboxService, type AgentPermissionRule } from "./service.js";
@@ -12,6 +12,7 @@ import { ApprovalService } from "../approvals.js";
 import { resetOrgPolicyRuntimeForTests } from "../org-policy.js";
 import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ApprovalRequest, ServerConfig, WorkspaceInfo } from "../types.js";
+import { WikiStore } from "../wiki/store.js";
 
 const roots: string[] = [];
 const services: AgentSandboxService[] = [];
@@ -70,6 +71,63 @@ test("shell denial prevents runtime launch", async () => {
 });
 
 const networkRequest = () => prepareOutboundRequest({ url: "https://example.com/", method: "POST", headers: {}, bodyBase64: Buffer.from("test body").toString("base64") });
+
+test("sandbox off permits host reads and writes with external wikis registered", async () => {
+  const f = await fixture({ bash: "allow", read: "allow", edit: "allow", webfetch: "allow" });
+  const store = new WikiStore(f.config);
+  try {
+    const wiki = await store.create({ name: "External", template: "blank" });
+    const file = join(wiki.root, "host-access.txt");
+    await writeFile(file, "host-read");
+    await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });
+    const quoted = `'${file.replaceAll("'", "'\\''")}'`;
+    const result = await f.service.run(f.workspace, { command: `cat ${quoted} && printf host-write > ${quoted}`, write: true, timeoutMs: 5000 }, { type: "host" }, new AbortController().signal);
+    expect(result).toMatchObject({ sandbox: "host", output: "host-read", exitCode: 0 });
+    expect(await readFile(file, "utf8")).toBe("host-write");
+    expect((await effectiveSandbox(f.config, f.workspace.id, [])).enabled).toBe(false);
+    expect(f.executions).toHaveLength(0);
+    expect(f.prompts).toHaveLength(0);
+  } finally { await store.close(); }
+});
+
+test("sandbox mounts external wiki content read-only but retains writable project and own-wiki files", async () => {
+  const f = await fixture({ bash: "allow", read: "allow", edit: "allow", external_directory: "allow" });
+  const store = new WikiStore(f.config);
+  try {
+    const wiki = await store.create({ name: "External", template: "blank" });
+    await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permission: { external_directory: { [`${wiki.root}/*`]: "allow" } } }));
+    const runOwner = (write: boolean) => f.service.run(f.workspace, { command: "true", write, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal);
+    await runOwner(true);
+    expect(f.executions[0].mounts.map(mount => [mount.target, mount.writable])).toEqual([["/workspace", true], ["/authorized/0", false]]);
+    const own = f.config.workspaces.find(workspace => workspace.id === wiki.workspaceId);
+    if (!own) throw new Error("Wiki workspace missing");
+    await f.service.run(own, { command: "true", write: true, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal);
+    expect(f.executions[1].mounts).toEqual([{ source: wiki.root, target: "/workspace", writable: true }]);
+    await expect(f.service.run(own, { command: "true", write: false, timeoutMs: 1000 }, { type: "remote", scope: "collaborator" }, new AbortController().signal))
+      .rejects.toMatchObject({ code: "workspace_not_found" });
+    await store.update(wiki.id, { allowInProjects: false });
+    await expect(runOwner(false)).rejects.toMatchObject({ code: "wiki_access_denied" });
+  } finally { await store.close(); }
+});
+
+test("a wiki registered during a command prevents its staged changes from committing", async () => {
+  const f = await fixture({ bash: "allow", read: "allow", edit: "allow", external_directory: "allow" });
+  const external = await mkdtemp(join(tmpdir(), "sandbox-new-wiki-")); roots.push(external);
+  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permission: { external_directory: { [`${external}/*`]: "allow" } } }));
+  const store = new WikiStore(f.config);
+  const service = new AgentSandboxService(f.config, new ApprovalService(f.config.approval), {
+    status: async () => ({ available: true }), prepare: async () => "test-image",
+    run: async input => {
+      await store.create({ name: "New wiki", root: external, template: "blank" });
+      await input.beforeCommit?.();
+      return { output: "", exitCode: 0, truncated: false };
+    },
+  });
+  try {
+    await expect(service.run(f.workspace, { command: "true", write: true, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal))
+      .rejects.toMatchObject({ code: "wiki_sandbox_policy_changed" });
+  } finally { await store.close(); }
+});
 
 test("approve is the persistent default and prompts even when webfetch and server approvals allow", async () => {
   const f = await fixture({ webfetch: "allow" }, true, async (input) => {

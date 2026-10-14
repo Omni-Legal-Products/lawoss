@@ -1,7 +1,7 @@
 import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 import { z } from "zod";
 import { webFetchArgs, webSearchArgs } from "../agent-sandbox/web.js";
-import { resolveWorkspaceId, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
+import { resolveWorkspaceId, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 import { isBrowserTool, requireBrowserNetwork } from "./browser-network-policy.js";
 
 const args = z.object({
@@ -16,9 +16,10 @@ const args = z.object({
 export const LegalWorkSandbox = async (input: SavedConversations = {}) => {
   const reminders = appStateReminders("sandbox-settings", async (sessionID) => {
     try {
-      const workspace = await resolveWorkspaceId({ directory: input.directory }, { requireDirectory: true });
+      const context = { directory: input.directory, sessionID };
+      const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
       const response = await fetch(`${serverUrl()}/workspace/${encodeURIComponent(workspace)}/sandbox/session/${encodeURIComponent(sessionID)}`, {
-        headers: { Authorization: `Bearer ${serverToken()}` }, signal: AbortSignal.timeout(10000),
+        headers: await workspaceToolHeaders(context), signal: AbortSignal.timeout(10000),
       });
       if (!response.ok) return null;
       const state = z.object({ enabled: z.boolean(), networkMode: z.string(), shell: z.string(), platform: z.string(), cwd: z.string() }).parse(await response.json());
@@ -34,7 +35,7 @@ export const LegalWorkSandbox = async (input: SavedConversations = {}) => {
       if (!context.sessionID || !context.agent) throw new Error("Web access requires a session and agent identity.");
       const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
       const response = await fetch(`${serverUrl()}/workspace/${encodeURIComponent(workspace)}/sandbox/web`, {
-        method: "POST", headers: { Authorization: `Bearer ${serverToken()}`, "Content-Type": "application/json" },
+        method: "POST", headers: { ...await workspaceToolHeaders(context), "Content-Type": "application/json" },
         body: JSON.stringify({ ...args, kind, sessionID: context.sessionID, agent: context.agent }),
         signal: context.abort ? AbortSignal.any([context.abort, AbortSignal.timeout(900000)]) : AbortSignal.timeout(900000),
       });
@@ -69,7 +70,7 @@ export const LegalWorkSandbox = async (input: SavedConversations = {}) => {
         if (!context.sessionID || !context.agent) throw new Error("Sandbox execution requires a session and agent identity.");
         const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
         const response = await fetch(`${serverUrl()}/workspace/${encodeURIComponent(workspace)}/sandbox/execute`, {
-          method: "POST", headers: { Authorization: `Bearer ${serverToken()}`, "Content-Type": "application/json" },
+          method: "POST", headers: { ...await workspaceToolHeaders(context), "Content-Type": "application/json" },
           body: JSON.stringify({ command: input.command, description: input.description, workdir: input.workdir, skills: input.skills, write: input.write ?? false,
             timeoutMs: input.timeout ?? 120000, agent: context.agent, sessionID: context.sessionID }),
           signal: context.abort ? AbortSignal.any([context.abort, AbortSignal.timeout(900000)]) : AbortSignal.timeout(900000),

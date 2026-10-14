@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { usePanelRef } from "react-resizable-panels";
 import { ResizableHandle, ResizablePanel } from "@/components/ui/resizable";
 import type { FileSidebarItem } from "../../../shell/ui-state-store";
@@ -11,26 +11,30 @@ import { FILE_SIDEBAR_DRAG_TYPE } from "./file-drop-intent";
  */
 export function FileSidebars(props: {
   active: FileSidebarItem | null;
+  viewerOpen: boolean;
   memory: ReactNode;
   files: ReactNode;
+  wiki?: ReactNode;
   onResize?: (width: number) => void;
 }) {
   const panelRef = usePanelRef();
   const expandedWidth = useRef(300);
   const [visited, setVisited] = useState<FileSidebarItem[]>([]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const active = props.active;
     if (active) {
       setVisited((current) => (current.includes(active) ? current : [...current, active]));
     }
-    // Panel constraints are re-registered when visibility changes. Resize only
-    // after the group has applied them, so a reopening does not use maxSize=0.
+    // The group restores a separate layout when the viewer opens or closes.
+    // Capture the current width before that layout can overwrite it, then apply
+    // it after the group has registered its panels and visibility constraints.
+    const width = expandedWidth.current;
     const frame = requestAnimationFrame(() => {
-      if (active) panelRef.current?.resize(expandedWidth.current);
+      if (active) panelRef.current?.resize(width);
       else panelRef.current?.collapse();
     });
     return () => cancelAnimationFrame(frame);
-  }, [props.active, panelRef]);
+  }, [props.active, props.viewerOpen, panelRef]);
 
   return (
     <>
@@ -38,6 +42,7 @@ export function FileSidebars(props: {
       <ResizablePanel
         id="file-navigation"
         panelRef={panelRef}
+        groupResizeBehavior="preserve-pixel-size"
         collapsible={!props.active}
         collapsedSize="0px"
         defaultSize={props.active ? "300px" : "0px"}
@@ -50,7 +55,7 @@ export function FileSidebars(props: {
         }}
         className="min-h-0 overflow-hidden"
       >
-        {(["memory", "files"] satisfies FileSidebarItem[]).map((kind) => (
+        {(["memory", "files", "wiki"] satisfies FileSidebarItem[]).map((kind) => (
           <div key={kind} hidden={props.active !== kind} className="h-full min-h-0" data-file-sidebar={kind}
             // Mark after row/selection handlers have finished replacing drag payloads.
             onDragStart={event => event.dataTransfer.setData(FILE_SIDEBAR_DRAG_TYPE, "")}>

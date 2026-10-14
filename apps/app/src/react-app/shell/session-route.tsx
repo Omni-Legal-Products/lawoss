@@ -1,3 +1,4 @@
+import { useDocumentProjectResolver } from "../domains/session/artifacts/document-runtime";
 import { registerEmptySession } from "@/react-app/domains/session/sidebar/session-list-visibility";
 import { projectViewFromPath } from "./workspace-routes";
 import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session/panel/panel-tab-store";
@@ -25,6 +26,10 @@ import { EvalsPane } from "./evals-route";
 import { RecorderPane } from "../domains/recorder/recorder-pane";
 import { TasksPane } from "../domains/tasks/tasks-pane";
 import { openTaskProject } from "../domains/tasks/task-project-navigation";
+import { useQuery } from "@tanstack/react-query";
+import { WikiManager } from "../domains/wiki/wiki-manager";
+import type { WikiVault } from "@legalwork/types/wiki";
+import { useComposerStateStore } from "../domains/session/surface/composer-state-store";
 import {
   TASKS_PANE_OPEN_EVENT,
   takePendingTasksPaneRequest,
@@ -183,6 +188,8 @@ import {
   forgetWorkspaceMemory,
   readActiveWorkspaceId,
   readLastSessionFor,
+  readLastWikiWorkspaceId,
+  writeLastWikiWorkspaceId,
   readWorkspaceOrderIds,
   writeActiveWorkspaceId,
   writeLastSessionFor,
@@ -215,7 +222,7 @@ import { useSessionGroupSync } from "./use-session-group-sync";
 import { useWorkspaceRouteState } from "./use-workspace-route-state";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { useSessionControlActions } from "@/react-app/domains/session/control/session-control-actions";
-import { composerSettingsPath, homeRoute, homeProjectIdFromSearch, isSessionIndexRoute, workspaceProjectRoute, workspaceSessionRoute, workspaceSettingsRoute, workspaceTasksRoute, type ComposerSettingsSection } from "./workspace-routes";
+import { wikiWorkspaceRoute, composerSettingsPath, homeRoute, homeProjectIdFromSearch, isSessionIndexRoute, workspaceProjectRoute, workspaceSessionRoute, workspaceSettingsRoute, workspaceTasksRoute, type ComposerSettingsSection } from "./workspace-routes";
 import { SettingsSurface } from "./settings-route";
 import { loadPluginSelectionContext } from "@/react-app/domains/session/surface/composer/plugin-selection";
 import { WorkspaceProvider } from "./workspace-provider";
@@ -380,6 +387,8 @@ export function SessionRoute() {
   // Mirroring the URL in state lets urgent updates reopen the chat sidebar
   // while React Router is still committing a top-level navigation.
   const mainPage = sessionMainPage(location.pathname);
+  const showWikis = mainPage === "wikis";
+  const manageWikis = showWikis && new URLSearchParams(location.search).get("manage") === "1";
   const showEvals = mainPage === "evals";
   const showWorkflows = mainPage === "workflows";
   const showRecorder = mainPage === "recorder";
@@ -451,6 +460,7 @@ export function SessionRoute() {
     client,
     baseUrl,
     token,
+    hostToken,
     workspaces,
     setWorkspaces,
     workspacesRef,
@@ -491,6 +501,38 @@ export function SessionRoute() {
     onServerSettingsChanged: () => setLegalworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setLegalworkServerHostInfoState,
   });
+  const wikis = useQuery({
+    queryKey: ["wikis", baseUrl],
+    queryFn: () => client!.listWikis(),
+    enabled: Boolean(client),
+  });
+  const activeWiki = showWikis ? wikis.data?.items.find(wiki => wiki.workspaceId === routeWorkspaceId) : undefined;
+  useEffect(() => {
+    if (isDesktopRuntime() && wikis.data) usePanelTabStore.getState().reconnectWikiTabs(baseUrl, wikis.data.items.map(wiki => wiki.id));
+  }, [baseUrl, wikis.data]);
+  const openWikiWorkspace = useCallback((wiki: WikiVault) => {
+    // Wikis created by another window or API can precede the workspace list.
+    if (!workspacesRef.current.some(workspace => workspace.id === wiki.workspaceId)) void refreshRouteState();
+    writeLastWikiWorkspaceId(baseUrl, wiki.workspaceId);
+    const panel = usePanelTabStore.getState().sessions[workspacePanelKey(wiki.workspaceId)];
+    const activeId = panel?.panes.find(pane => pane.id === panel.focusedPaneId)?.activeTabId ?? panel?.activeTabId;
+    const active = panel?.tabs.find(tab => tab.id === activeId);
+    navigate(wikiWorkspaceRoute(wiki.workspaceId, active?.type === "chat" ? active.sessionId : null));
+  }, [baseUrl, navigate, refreshRouteState, workspacesRef]);
+  useEffect(() => {
+    if (!wikis.data) return;
+    // Canonicalize old wiki chat links without changing their session.
+    if (!showWikis && selectedWorkspace?.preset === "wiki" && (isSessionIndexRoute(location.pathname) || location.pathname.startsWith(`/workspace/${encodeURIComponent(selectedWorkspace.id)}/session/`))) {
+      navigate(wikiWorkspaceRoute(selectedWorkspace.id, selectedSessionId) + location.search, { replace: true });
+      return;
+    }
+    if (!showWikis || manageWikis) return;
+    if (activeWiki) { writeLastWikiWorkspaceId(baseUrl, activeWiki.workspaceId); return; }
+    const remembered = readLastWikiWorkspaceId(baseUrl);
+    const wiki = wikis.data.items.find(item => item.workspaceId === remembered) ?? wikis.data.items[0];
+    if (wiki) openWikiWorkspace(wiki);
+    else if (routeWorkspaceId) navigate("/wikis", { replace: true });
+  }, [wikis.data, showWikis, manageWikis, activeWiki, baseUrl, routeWorkspaceId, selectedWorkspace, selectedSessionId, location.pathname, location.search, navigate, openWikiWorkspace]);
   // Projects synced with the firm arrive, leave and get renamed in the background.
   useProjectTemplateCatalog(client);
   useProjectSyncPoller(client, () => void refreshRouteState(), (workspaceIds) => {
@@ -638,16 +680,19 @@ export function SessionRoute() {
     }
   }, [activeReloadBlockingSessions.length, reloadWorkspaceEngineFromUi, selectedWorkspaceRoot]);
 
-  // Templates workspaces (created by workflow generation) are utility plumbing:
-  // they stay out of the sidebar; their session is reached via the Workflows
-  // progress banner. Route resolution keeps using the unfiltered list so that
-  // navigation still works.
+  // Templates and wiki workspaces have their own navigation surfaces. Keep the
+  // full list for resolving their agent sessions, while project navigation
+  // shows only project folders.
   const hiddenTemplateWorkspaceIds = useHiddenTemplateWorkspaceIds();
   const sidebarWorkspaces = useMemo(
-    () => workspaces.filter((workspace) => !hiddenTemplateWorkspaceIds.includes(workspace.id)),
+    () => workspaces.filter((workspace) => workspace.preset !== "wiki" && !hiddenTemplateWorkspaceIds.includes(workspace.id)),
     [hiddenTemplateWorkspaceIds, workspaces],
   );
   const workspaceSessionGroups = useMemo(
+    () => toSessionGroups(showWikis && activeWiki ? workspaces.filter(workspace => workspace.id === activeWiki.workspaceId) : sidebarWorkspaces, sessionsByWorkspaceId, errorsByWorkspaceId, new Set(retryingWorkspaceIds)),
+    [errorsByWorkspaceId, retryingWorkspaceIds, sessionsByWorkspaceId, sidebarWorkspaces, showWikis, activeWiki, workspaces],
+  );
+  const fileWorkspaceGroups = useMemo(
     () => toSessionGroups(sidebarWorkspaces, sessionsByWorkspaceId, errorsByWorkspaceId, new Set(retryingWorkspaceIds)),
     [errorsByWorkspaceId, retryingWorkspaceIds, sessionsByWorkspaceId, sidebarWorkspaces],
   );
@@ -1782,14 +1827,14 @@ export function SessionRoute() {
     ) {
       return;
     }
-    const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token });
+    const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token, hostToken });
     if (!endpoint || !endpoint.token) {
       return;
     }
     const workspaceClient = createClient(
       endpoint.opencodeBaseUrl,
       workspace.path?.trim() || undefined,
-      { token: endpoint.token, mode: "legalwork" },
+      { token: endpoint.token, hostToken: endpoint.hostToken, mode: "legalwork" },
     );
     try {
       setErrorsByWorkspaceId((current) => ({ ...current, [workspaceId]: null }));
@@ -1858,7 +1903,7 @@ export function SessionRoute() {
         }
       }
     }
-  }, [baseUrl, loading, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, token, workspaces]);
+  }, [baseUrl, hostToken, loading, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, token, workspaces]);
 
   // Latest session-list state for prev/next session tab navigation. The
   // `options` field is updated by `onSessionTabsChange` from SessionPage so we
@@ -2081,12 +2126,20 @@ export function SessionRoute() {
     setWorkspaces((current) => orderRouteWorkspaces(current, nextOrderIds));
   }, []);
 
+  useDocumentProjectResolver(useCallback((sessionId: string) => {
+    const owner = Object.entries(sessionsByWorkspaceId).find(([, sessions]) => sessions.some(session => session.id === sessionId));
+    const workspace = workspaces.find(workspace => workspace.id === owner?.[0]);
+    const endpoint = workspace ? endpointForWorkspace(workspace) : null;
+    if (!workspace || !endpoint) throw new Error("The task's project could not be resolved. Do not navigate the user's workspace to retry.");
+    return { projectId: workspace.id, workspaceId: endpoint.workspaceId, workspaceRoot: workspace.path || "", client: endpoint.client, isRemoteWorkspace: endpoint.isRemote };
+  }, [sessionsByWorkspaceId, workspaces, endpointForWorkspace]));
+
   const sessionTarget = useCallback((sessionId: string) => {
     const owner = Object.entries(sessionsByWorkspaceId).find(([, sessions]) => sessions.some(session => session.id === sessionId));
     const workspace = workspaces.find(workspace => workspace.id === (owner?.[0] ?? selectedWorkspaceId));
     const endpoint = workspace ? endpointForWorkspace(workspace) : null;
     if (!workspace || !endpoint) throw new Error(t("sidebar.sessions_unavailable"));
-    return { workspace, endpoint, client: createClient(endpoint.opencodeBaseUrl, workspace.path?.trim() || undefined, { token: endpoint.token, mode: "legalwork" }) };
+    return { workspace, endpoint, client: createClient(endpoint.opencodeBaseUrl, workspace.path?.trim() || undefined, { token: endpoint.token, hostToken: endpoint.hostToken, mode: "legalwork" }) };
   }, [sessionsByWorkspaceId, workspaces, selectedWorkspaceId, endpointForWorkspace]);
 
   const handleArchiveSession = useCallback(
@@ -2147,7 +2200,7 @@ export function SessionRoute() {
           ? unwrap(await createClient(
               `${(buildLegalworkWorkspaceBaseUrl(baseUrl, targetWorkspaceId) ?? baseUrl).replace(/\/+$/, "")}/opencode`,
               workspacePath || undefined,
-              { token, mode: "legalwork" },
+              { token, hostToken, mode: "legalwork" },
             ).session.create({ directory: workspacePath || undefined }))
           : null;
         setLegacySelectedWorkspaceId(targetWorkspaceId);
@@ -2178,7 +2231,7 @@ export function SessionRoute() {
     } finally {
       setCreateWorkspaceBusy(false);
     }
-  }, [baseUrl, client, local, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, token]);
+  }, [baseUrl, client, hostToken, local, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, token]);
 
   const handleCreateProject = async (input: CreateProjectInput) => {
     if (!client || createWorkspaceBusy) return;
@@ -2208,7 +2261,7 @@ export function SessionRoute() {
         try {
           if (!baseUrl || !token) throw new Error(t("session_route.create_server_unavailable"));
           const workspacePath = list.workspaces.find((workspace) => workspace.id === id)?.path;
-          const firstClient = createClient(`${(buildLegalworkWorkspaceBaseUrl(baseUrl, id) ?? baseUrl).replace(/\/+$/, "")}/opencode`, workspacePath, { token, mode: "legalwork" });
+          const firstClient = createClient(`${(buildLegalworkWorkspaceBaseUrl(baseUrl, id) ?? baseUrl).replace(/\/+$/, "")}/opencode`, workspacePath, { token, hostToken, mode: "legalwork" });
           const session = unwrap(await firstClient.session.create({ directory: workspacePath }));
           rememberPendingCreatedSession(id, session.id);
           writeLastSessionFor(id, session.id);
@@ -2277,14 +2330,14 @@ export function SessionRoute() {
         captureAnalyticsEvent("workspace_created", { source: "home", surface: analyticsSurface() });
       }
       const targetWorkspace = workspace;
-      const endpoint = resolveWorkspaceEndpoint(targetWorkspace, { baseUrl, token });
+      const endpoint = resolveWorkspaceEndpoint(targetWorkspace, { baseUrl, token, hostToken });
       if (!endpoint?.token) throw new Error(t("session_route.create_server_unavailable"));
       await endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true });
       if (isDesktopRuntime() && !endpoint.isRemote) {
         await workspaceSetSelected(targetWorkspace.id).catch(() => undefined);
         await workspaceSetRuntimeActive(targetWorkspace.id).catch(() => undefined);
       }
-      const workspaceClient = createClient(endpoint.opencodeBaseUrl, targetWorkspace.path || undefined, { token: endpoint.token, mode: "legalwork" });
+      const workspaceClient = createClient(endpoint.opencodeBaseUrl, targetWorkspace.path || undefined, { token: endpoint.token, hostToken: endpoint.hostToken, mode: "legalwork" });
       let pending = pendingHomeMessage.current;
       if (!pending || pending.workspaceId !== targetWorkspace.id) {
         pending = { workspaceId: targetWorkspace.id, sessionId: null, uploads: new Map() };
@@ -2347,6 +2400,20 @@ export function SessionRoute() {
 
   const workflowLibraryView = <SettingsSurface embedded singleView active={showWorkflows} initialPath="workflows" workspaceId={selectedWorkspaceId}
     onClose={() => { navigate(workspaceSessionRoute(selectedWorkspaceId, selectedSessionId)); }} />;
+  const handleOpenWikiSession = async (wiki: WikiVault, prompt?: string) => {
+    const endpoint = resolveWorkspaceEndpoint({ id: wiki.workspaceId, workspaceType: "local" }, { baseUrl, token, hostToken });
+    if (!endpoint) throw new Error(t("wiki.offline"));
+    const wikiClient = createClient(endpoint.opencodeBaseUrl, wiki.root, { token: endpoint.token, hostToken: endpoint.hostToken, mode: "legalwork" });
+    const session = unwrap(await wikiClient.session.create({ directory: wiki.root, title: wiki.name }));
+    if (prompt) useComposerStateStore.getState().setDraft(session.id, prompt);
+    setLegacySelectedWorkspaceId(wiki.workspaceId);
+    writeActiveWorkspaceId(wiki.workspaceId);
+    writeLastSessionFor(wiki.workspaceId, session.id);
+    rememberPendingCreatedSession(wiki.workspaceId, session.id);
+    navigateToWorkspaceSession(wiki.workspaceId, session.id);
+    void refreshRouteState();
+    focusPromptSoon();
+  };
 
   return (
     <WorkspaceProvider
@@ -2479,6 +2546,7 @@ export function SessionRoute() {
       </DialogContent>
     </Dialog>
     <SessionPage
+      fileWorkspaceGroups={fileWorkspaceGroups}
       workflowLibraryView={workflowLibraryView}
       homePage={homePage}
       selectedSessionId={selectedSessionId}
@@ -2498,6 +2566,8 @@ export function SessionRoute() {
       legalworkServerStatus={client ? "connected" : "disconnected"}
       legalworkServerClient={selectedWorkspaceEndpoint?.client ?? client}
       environmentClient={client}
+      wikiWorkspace={activeWiki}
+      wiki={{ client, serverUrl: baseUrl, workspaceId: selectedWorkspaceId, workspaces: sidebarWorkspaces, onWikisChanged: () => void refreshRouteState(), onOpenWikiSession: handleOpenWikiSession, onOpenWiki: openWikiWorkspace, selectedWikiId: activeWiki?.id, onSelectWiki: showWikis ? openWikiWorkspace : undefined, onManageWikis: () => navigate("/wikis?manage=1") }}
       legalworkServerToken={selectedWorkspaceServerToken}
       developerMode={developerMode}
       headerStatus={canCreateChat ? t("status.connected") : t("session.loading_detail")}
@@ -2607,7 +2677,7 @@ export function SessionRoute() {
         });
       }}
       mainView={
-        scheduledPage ? (
+        showWikis && (manageWikis || !activeWiki) ? <WikiManager client={client} serverUrl={baseUrl} workspaces={sidebarWorkspaces} onChanged={() => void refreshRouteState()} onOpen={openWikiWorkspace} /> : scheduledPage ? (
           <ScheduledTasksPage client={client}
             projects={workspaces.filter(workspace => workspace.workspaceType !== "remote").sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId)).map(workspace => ({ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id }))}
             defaultModel={local.prefs.defaultModel ? { providerID: local.prefs.defaultModel.providerID, modelID: local.prefs.defaultModel.modelID } : null}
@@ -2615,8 +2685,8 @@ export function SessionRoute() {
             onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)} />
         ) : calendarPage ? (
           <CalendarView client={client}
-            projects={workspaces.flatMap(workspace => { const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })}
-            remoteSources={workspaces.flatMap(workspace => { if (workspace.workspaceType !== "remote") return []; const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })} />
+            projects={workspaces.flatMap(workspace => { const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token, hostToken }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })}
+            remoteSources={workspaces.flatMap(workspace => { if (workspace.workspaceType !== "remote") return []; const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token, hostToken }); return endpoint ? [{ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id, workspaceId: endpoint.workspaceId, client: endpoint.client }] : []; })} />
         ) : homePage ? (
           <AppHome
             workspaces={sidebarWorkspaces}
@@ -2708,6 +2778,7 @@ export function SessionRoute() {
         onNewChat: () => setNewChatOpen(true),
         onShowChats: () => navigate("/home"),
         onShowProjects: () => navigate("/projects"),
+        onShowWikis: () => navigate("/wikis"),
         onShowEvals: showEvalsPane,
         onShowWorkflows: showWorkflowsPane,
         onShowExtensions: () => navigate(`/workspace/${encodeURIComponent(selectedWorkspaceId)}/settings/extensions/mcp`),
@@ -2770,12 +2841,12 @@ export function SessionRoute() {
           void (async () => {
             const workspace = workspaces.find((item) => item.id === workspaceId);
             if (!workspace) return;
-            const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token });
+            const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token, hostToken });
             if (!endpoint?.token) return;
             const workspaceClient = createClient(
               endpoint.opencodeBaseUrl,
               workspace.path?.trim() || undefined,
-              { token: endpoint.token, mode: "legalwork" },
+              { token: endpoint.token, hostToken: endpoint.hostToken, mode: "legalwork" },
             );
             try {
               const session = unwrap(

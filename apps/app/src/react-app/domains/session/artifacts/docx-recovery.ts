@@ -146,6 +146,7 @@ export function draftDecisionPendingApi(name: string): DocxEditorApi {
   const error = `${name} has an unsaved draft kept on this device. The user must choose "Recover draft" or "Discard draft and open file" in LegalWork's editor before the document can be read or edited. Ask the user to decide. Do not look for the document elsewhere or inspect the app.`;
   return {
     navigate: async () => { throw new Error(error); },
+    isReady: () => true,
     save: async () => false,
     flushSave: async () => false,
     drain: async () => {},

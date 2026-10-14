@@ -43,8 +43,11 @@ import { mergeStorageSecrets, publicConnection, StorageStore } from "../file-sto
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
 import { appliedOrgPolicy, requireOrgPolicyAllows } from "../org-policy.js";
+import type { DocumentPreparation } from "../document-preparation/service.js";
+import { storageDocumentText } from "../file-storage/document-text.js";
 
 type Options = {
+  preparation: DocumentPreparation;
   onProjectFoldersChanged?: (workspaceId: string) => Promise<void>;
   onProjectRenamed?: (workspaceId: string, name: string) => Promise<void>;
   routes: Route[];
@@ -69,6 +72,7 @@ const writeSchema = z.object({
 });
 
 export function registerStorageRoutes({
+  preparation,
   onProjectFoldersChanged, onProjectRenamed,
   routes,
   config,
@@ -416,14 +420,26 @@ export function registerStorageRoutes({
   });
   addRoute(routes, "POST", `${base}/:storageId/checkout`, "client", async (ctx) => {
     const connection = await selected(ctx);
-    const parsed = z.object({ path: z.string() }).safeParse(await readJsonBodyLimited(ctx.request, 8 * 1024));
+    const parsed = z.object({
+      path: z.string(),
+      readText: z.object({ offset: z.number().int().nonnegative(), maxChars: z.number().int().min(1).max(80_000) }).optional(),
+    }).safeParse(await readJsonBodyLimited(ctx.request, 8 * 1024));
     if (!parsed.success) throw new ApiError(400, "invalid_storage_path", "A file path is required.");
     const path = storagePath(parsed.data.path, false);
     const current = await resolveWorkspace(config, ctx.params.id);
     const copy = await workingCopy(current.path, path);
     try {
       const file = await withStorage(connection, (adapter) => adapter.download(path, copy.path));
+      const reading = parsed.data.readText
+        ? await storageDocumentText(current.path, copy.relativePath, preparation, parsed.data.readText, ctx.request.signal)
+          .then(documentText => ({ documentText }))
+          .catch((error: unknown) => ({ readError: {
+            code: "storage_document_read_failed",
+            message: error instanceof Error ? error.message : "Document text could not be read.",
+          } }))
+        : {};
       return jsonResponse({
+        ...reading,
         localPath: copy.relativePath,
         version: file.version,
         size: file.size,

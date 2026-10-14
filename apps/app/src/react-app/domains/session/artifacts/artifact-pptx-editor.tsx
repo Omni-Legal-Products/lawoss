@@ -21,6 +21,7 @@ void i18n.init({ lng: "en", fallbackLng: "en", keySeparator: false, resources: {
 export function ArtifactPptxEditor(props: OfficeEditorProps) {
   const editor = useRef<PowerPointViewerHandle>(null);
   const state = useOfficeEditor(props);
+  state.ready.current = () => Boolean(editor.current?.getSlideCount());
   const onDirtyChange = useCallback((dirty: boolean) => { if (dirty) state.changed(); }, [state.changed]);
   state.afterSave.current = () => editor.current?.markSaved();
   const [content] = useState(() => new Uint8Array(props.content));

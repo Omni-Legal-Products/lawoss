@@ -22,6 +22,7 @@ import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
 import { repairAllWorkspaceRuntimeProviders } from "./runtime-provider-repair.js";
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
+import { ensureWikiAgentToken } from "./wiki/agent-access.js";
 import pkg from "../package.json" with { type: "json" };
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 
@@ -40,7 +41,6 @@ if (args.version) {
 const config = await resolveServerConfig(args);
 config.agentSandboxEnabled = process.env.LEGALWORK_MANAGE_OPENCODE === "1" && !config.opencodeBaseUrl;
 const logger = createServerLogger(config);
-const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${config.port}`;
 let managedOpencode: ManagedOpencodeServer | null = null;
 
 if (!config.readOnly) {
@@ -63,59 +63,65 @@ await importConnectorsIntoSharedRow(config, {
   console.warn(`[legalwork-server] connector import skipped: ${error instanceof Error ? error.message : String(error)}`);
 });
 
-if (!config.opencodeBaseUrl && process.env.LEGALWORK_MANAGE_OPENCODE === "1") {
-  const workspace = config.workspaces[0];
-  if (workspace?.path) {
-    // Server-managed config file: the engine re-reads it from disk on every
-    // instance rebuild, and keepLegalworkRuntimeConfigFileFresh rewrites it
-    // on every runtime-DB write — so disposes always pick up current state.
-    const runtimeConfigPath = await writeLegalworkRuntimeConfigFile(config, workspace.id);
-    keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
-    // Fire-and-forget: pick up models added on the Eigenwelt gateway since the
-    // provider was connected (no-op unless provider.eigenwelt is configured).
-    void refreshEigenweltProviderModels(config, workspace.id);
-    const managedOpencodeCwd = process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim() || workspace.path;
-    await mkdir(managedOpencodeCwd, { recursive: true });
-    // Private engine DB (see managed-opencode-db.ts): keep the managed engine
-    // off OpenCode's global opencode.db so a separately installed OpenCode
-    // can never migrate the engine's schema out from under it (issue #62).
-    const managedDb = await prepareManagedOpencodeEngineDb(config);
-    if (managedDb) process.env.OPENCODE_DB = managedDb.path;
-    const engineHome = join(runtimeStorageDir(config), "engine-home");
-    await mkdir(engineHome, { recursive: true });
-    managedOpencode = await createManagedOpencodeServer({
-      bin: process.env.LEGALWORK_OPENCODE_BIN,
-      cwd: managedOpencodeCwd,
-      excludedPorts: [config.port],
-      env: {
-        ...(process.env.LEGALWORK_DEV_MODE ? { LEGALWORK_DEV_MODE: process.env.LEGALWORK_DEV_MODE } : {}),
-        ...(process.env.LEGALWORK_UI_CONTROL_DISCOVERY ? { LEGALWORK_UI_CONTROL_DISCOVERY: process.env.LEGALWORK_UI_CONTROL_DISCOVERY } : {}),
-        LEGALWORK_SERVER_URL: serverUrl,
-        LEGALWORK_SERVER_TOKEN: config.token,
-        LEGALWORK_CONNECTOR_TOKEN: connectorRuntimeCapability(config),
-        OPENCODE_CONFIG: runtimeConfigPath,
-        OPENCODE_DISABLE_PROJECT_CONFIG: "true",
-        OPENCODE_TEST_HOME: engineHome,
-        XDG_CONFIG_HOME: join(engineHome, "config"),
-        OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config),
-        OPENCODE_CONFIG_CONTENT: "",
-        ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
-      },
-    });
-    config.opencodeBaseUrl = managedOpencode.url;
-    config.opencodeUsername = managedOpencode.username;
-    config.opencodePassword = managedOpencode.password;
-    for (const entry of config.workspaces) {
-      entry.baseUrl ??= managedOpencode.url;
-      entry.opencodeUsername ??= managedOpencode.username;
-      entry.opencodePassword ??= managedOpencode.password;
-      entry.directory ??= entry.path;
+const server = await startServer(config, { onListening: async (port) => {
+  const serverUrl = `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${port}`;
+  if (!config.opencodeBaseUrl && process.env.LEGALWORK_MANAGE_OPENCODE === "1") {
+    const workspace = config.workspaces[0];
+    if (workspace?.path) {
+      // Server-managed config file: the engine re-reads it from disk on every
+      // instance rebuild, and keepLegalworkRuntimeConfigFileFresh rewrites it
+      // on every runtime-DB write — so disposes always pick up current state.
+      const runtimeConfigPath = await writeLegalworkRuntimeConfigFile(config, workspace.id);
+      keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
+      // Fire-and-forget: pick up models added on the Eigenwelt gateway since the
+      // provider was connected (no-op unless provider.eigenwelt is configured).
+      void refreshEigenweltProviderModels(config, workspace.id);
+      const managedOpencodeCwd = process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim() || workspace.path;
+      await mkdir(managedOpencodeCwd, { recursive: true });
+      // Private engine DB (see managed-opencode-db.ts): keep the managed engine
+      // off OpenCode's global opencode.db so a separately installed OpenCode
+      // can never migrate the engine's schema out from under it (issue #62).
+      const managedDb = await prepareManagedOpencodeEngineDb(config);
+      if (managedDb) process.env.OPENCODE_DB = managedDb.path;
+      const engineHome = join(runtimeStorageDir(config), "engine-home");
+      await mkdir(engineHome, { recursive: true });
+      managedOpencode = await createManagedOpencodeServer({
+        bin: process.env.LEGALWORK_OPENCODE_BIN,
+        cwd: managedOpencodeCwd,
+        excludedPorts: [config.port],
+        env: {
+          ...(process.env.LEGALWORK_DEV_MODE ? { LEGALWORK_DEV_MODE: process.env.LEGALWORK_DEV_MODE } : {}),
+          ...(process.env.LEGALWORK_UI_CONTROL_DISCOVERY ? { LEGALWORK_UI_CONTROL_DISCOVERY: process.env.LEGALWORK_UI_CONTROL_DISCOVERY } : {}),
+          LEGALWORK_SERVER_URL: serverUrl,
+          LEGALWORK_SERVER_TOKEN: config.token,
+          LEGALWORK_WIKI_AGENT_TOKEN: await ensureWikiAgentToken(config),
+          LEGALWORK_CONNECTOR_TOKEN: connectorRuntimeCapability(config),
+          OPENCODE_CONFIG: runtimeConfigPath,
+          OPENCODE_DISABLE_PROJECT_CONFIG: "true",
+          OPENCODE_TEST_HOME: engineHome,
+          XDG_CONFIG_HOME: join(engineHome, "config"),
+          OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config),
+          OPENCODE_CONFIG_CONTENT: "",
+          ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
+        },
+      });
+      config.opencodeBaseUrl = managedOpencode.url;
+      config.opencodeUsername = managedOpencode.username;
+      config.opencodePassword = managedOpencode.password;
+      for (const entry of config.workspaces) {
+        entry.baseUrl ??= managedOpencode.url;
+        entry.opencodeUsername ??= managedOpencode.username;
+        entry.opencodePassword ??= managedOpencode.password;
+        entry.directory ??= entry.path;
+      }
+      logger.log("info", `Managed OpenCode listening on ${managedOpencode.url}`);
     }
-    logger.log("info", `Managed OpenCode listening on ${managedOpencode.url}`);
   }
-}
+} }).catch(async (error: unknown) => {
+  await managedOpencode?.close();
+  throw error;
+});
 
-const server = await startServer(config);
 
 // The runtime config file above only covers workspaces[0]. Push every
 // workspace's runtime-DB MCPs into the engine so they aren't invisible

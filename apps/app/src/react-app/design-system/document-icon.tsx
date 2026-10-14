@@ -3,7 +3,7 @@ import { Globe } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-export type DocumentIconKind = "browser" | "markdown" | "sheet" | "slides" | "word" | "image" | "video" | "audio" | "pdf" | "html" | "text" | "external" | "unknown";
+export type DocumentIconKind = "view" | "browser" | "markdown" | "sheet" | "slides" | "word" | "image" | "video" | "audio" | "pdf" | "html" | "text" | "external" | "unknown";
 
 type DocumentIconProps = Omit<ComponentProps<"svg">, "children"> & {
   kind: DocumentIconKind;
@@ -36,7 +36,7 @@ export function DocumentIcon({ kind, className, ...props }: DocumentIconProps) {
       <path d="M6 2.5h7.5L19 8v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4.5a2 2 0 0 1 2-2Z" fill={`url(#${id}-paper)`} stroke="var(--lw-asset-edge, #b6b6bd)" strokeWidth=".8" />
       <path d="M13.5 2.5V6.5A1.5 1.5 0 0 0 15 8H19" fill="var(--lw-asset-back, #d6d6da)" stroke="var(--lw-asset-edge, #b6b6bd)" strokeWidth=".8" strokeLinejoin="round" />
       <g stroke="var(--lw-file-accent, #6c6c76)" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round">
-        {kind === "sheet" ? (
+        {kind === "view" ? (<><path d="M7.5 17v-3m4 3v-6m4 6v-4" /><path d="M7 18h10" /></>) : kind === "sheet" ? (
           <><rect x="7" y="11" width="9" height="6" rx=".6" /><path d="M7 13.5h9M10.5 11v6" /></>
         ) : kind === "image" ? (
           <><rect x="7" y="10.5" width="9" height="7" rx=".8" /><path d="m7 16 2.7-2.7 2.1 2.1 1.4-1.4 2.8 2.8" /><circle cx="13.5" cy="12.5" r=".55" fill="var(--lw-file-accent, #6c6c76)" stroke="none" /></>

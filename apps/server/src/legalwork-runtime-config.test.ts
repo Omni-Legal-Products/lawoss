@@ -64,10 +64,13 @@ test("protected engine configuration retains installed skill discovery", async (
   const { root, config } = await setup();
   config.agentSandboxEnabled = true;
   const folder = join(root, ".opencode", "skills", "protected-helper");
+  const visible = join(root, "Skills", "wiki-setup");
+  await mkdir(visible, { recursive: true });
+  await writeFile(join(visible, "SKILL.md"), "---\nname: wiki-setup\ndescription: Set up this wiki\n---\nRead this wiki's guidance.\n");
   await mkdir(folder, { recursive: true });
   await writeFile(join(folder, "SKILL.md"), "---\nname: protected-helper\ndescription: An installed helper\n---\nUse the protected shell.\n");
   await writeLegalworkRuntimeConfigFile(config, "ws_1");
-  expect(await readConfigFile(config)).toMatchObject({ skills: { paths: expect.arrayContaining([folder]) }, lsp: false, formatter: false });
+  expect(await readConfigFile(config)).toMatchObject({ skills: { paths: expect.arrayContaining([folder, visible]) }, lsp: false, formatter: false });
 });
 
 test.each([false, true])("the built-in review worker is registered with sandboxing=%s", async (sandboxed) => {
@@ -135,6 +138,7 @@ describe("legalwork runtime config file", () => {
     // OpenCode's dynamic import() throw ERR_UNSUPPORTED_ESM_URL_SCHEME and
     // fails the whole config load — no providers, no tasks.
     expect(localPlugins.some((spec) => /legalwork-storage-tools\.(?:js|ts)\?v=/.test(spec))).toBe(true);
+    expect(localPlugins.some((spec) => /legalwork-wiki-tools\.(?:js|ts)\?v=/.test(spec))).toBe(true);
     expect(localPlugins.length).toBeGreaterThan(0);
     for (const spec of localPlugins) {
       expect(spec.startsWith("file://")).toBe(true);

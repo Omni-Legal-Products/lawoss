@@ -37,6 +37,7 @@ import {
   legalworkScheduledTaskToolsPluginPath,
   legalworkProjectToolsPluginPath,
   legalworkReviewToolsPluginPath,
+  legalworkWikiToolsPluginPath,
   legalworkExcelToolsPluginPath,
   legalworkPowerPointToolsPluginPath,
   legalworkBenchmarkToolsPluginPath,
@@ -323,6 +324,7 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkScheduledTaskToolsPluginPath(), config),
       bundledPluginSpec(legalworkProjectToolsPluginPath(), config),
       bundledPluginSpec(legalworkReviewToolsPluginPath(), config),
+      bundledPluginSpec(legalworkWikiToolsPluginPath(), config),
       bundledPluginSpec(legalworkOrgPolicyGuardPluginPath(), config),
       // The member's own plugins, unless the firm allows none.
       ...(config && (await appliedOrgPolicy(config, "plugins.allowCustom"))?.value === false ? [] : runtimePluginList(runtimeConfig)),

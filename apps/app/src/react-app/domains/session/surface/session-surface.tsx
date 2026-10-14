@@ -1,3 +1,5 @@
+import { BackgroundTabStack } from "../background/background-tab-stack";
+import { MarkdownStreamLinks } from "../artifacts/markdown-stream-links";
 import { useProjectFiles } from "../../workspace/project-file-context";
 import type { QueueInput } from "@legalwork/types/session-queue";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
@@ -125,6 +127,7 @@ import {
 import { LEGALMEMORY_OPEN_EVENT, LEGALMEMORY_REF_EVENT } from "@/components/markdown/legalmemory-ref";
 import { MessageList } from "@/components/chat/message-list";
 import { MessageListProvider, type DispatchAction } from "@/components/chat/message-list-provider";
+import { SessionSubagents } from "./session-subagents";
 import { FusionIntroDialog, markFusionIntroSeen, shouldShowFusionIntro } from "@/react-app/domains/session/fusion/fusion-intro-dialog";
 import { useFusionStore } from "@/react-app/domains/session/fusion/fusion-store";
 import { OpenTargetProvider, type OpenTargetOptions } from "@/lib/target-provider";
@@ -1392,12 +1395,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
     if (kind === "app") {
       void (async () => {
         try {
-          const status = (await desktopBridge.checkComputerUsePermissions()) as { ok?: boolean };
-          if (status.ok === true) return;
+          const status = await desktopBridge.checkOpenComputerUse();
+          if (status.ready) return;
           toast.warning(t("composer.computer_use_permissions_missing", { app: value }), {
             action: {
               label: t("composer.computer_use_permissions_setup"),
-              onClick: () => void desktopBridge.openComputerUsePermissionSetup(),
+              onClick: () => void desktopBridge.openOpenComputerUsePermissionSetup(),
             },
           });
         } catch {
@@ -1873,38 +1876,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
   }), [props.sessionId, renderedMessages]);
   useControlAction(sessionLatestMessageControlAction);
 
-  const sessionReadTranscriptControlAction = useMemo<LegalworkControlAction>(() => ({
-    id: "session.read_transcript",
-    label: t("control.read_transcript"),
-    description: "Return the last messages from the current session transcript as readable text, including the session ID, title, and message count.",
-    sideEffect: "none",
-    args: [{ name: "count", type: "number", required: false, description: "Number of recent messages to return, from 1 to 30. Defaults to 10." }],
-    execute: (args) => {
-      const count = typeof args === "object" && args !== null && "count" in args && typeof (args as { count?: unknown }).count === "number"
-        ? Math.min(Math.max(1, (args as { count: number }).count), 30)
-        : 10;
-      const total = renderedMessages.length;
-      const slice = renderedMessages.slice(-count);
-      if (!slice.length) return { ok: false, error: "No messages in this session" };
-      return {
-        ok: true,
-        sessionId: props.sessionId,
-        messageCount: total,
-        returned: slice.length,
-        messages: slice.map((message, index) => ({
-          index: total - slice.length + index,
-          role: message.role,
-          text: messageToReadableText(message),
-        })),
-      };
-    },
-  }), [props.sessionId, renderedMessages]);
-  useControlAction(sessionReadTranscriptControlAction);
 
   return (
     <DevProfiler id="SessionSurface">
     <div className="lw-session-typography relative flex h-full min-h-0 flex-col">
       <SessionSandbox key={`${props.workspaceId}:${props.sessionId}`} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} />
+      <SessionSubagents key={`subagents:${props.workspaceId}:${props.sessionId}`} workspaceId={props.workspaceId} workspaceRoot={props.workspaceRoot} sessionId={props.sessionId} client={opencodeClient} serverClient={props.client} waiting={props.pendingInteractionSessionIds} onOpen={props.onOpenInteractionSession} />
+      <MarkdownStreamLinks workspaceId={props.workspaceId} sessionId={props.sessionId} onOpen={target => props.onOpenTarget?.(target, undefined, props.sessionId)} />
       {fusionAvailable ? <FusionIntroDialog open={fusionIntroOpen} onOpenChange={setFusionIntroOpen} /> : null}
       {model.transitionState === "switching" && showDelayedLoading ? (
         <div className="flex justify-center px-6 pt-4">
@@ -1914,7 +1892,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         </div>
       ) : null}
 
-      <div className="relative min-h-0 flex-1 overflow-hidden">
+      <div className="relative min-h-0 flex-1">
         <div
           ref={scrollRef}
           aria-hidden={props.realtimeVoiceActive || undefined}
@@ -2049,6 +2027,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
             onJumpToStartOfMessage={sessionScroll.jumpToStartOfMessage}
           />
         )}
+        <BackgroundTabStack key={props.sessionId} sessionId={props.sessionId} workspaceId={props.workspaceId} />
       </div>
 
       <div ref={composerShellRef} className={cn("shrink-0 px-0 pb-2 pt-2",

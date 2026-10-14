@@ -1,4 +1,5 @@
 import type { PanelTabDestination } from "./panel-tab-request";
+import { ViewHostProvider } from "../../views/view-host";
 import { documentControlTarget } from "./document-control-target";
 import { DocumentControlSessions, useDocumentControlSessions } from "../../../shell/control/document-control-sessions";
 import { isFileIntakeTarget, isFileSidebarDrag } from "./file-drop-intent";
@@ -36,11 +37,14 @@ import {
   Workflow,
   MessageSquare,
   TableProperties,
+  BookOpen,
+  Network,
 } from "lucide-react";
 
 import { openDesktopUrl } from "@/app/lib/desktop";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { PanelTab, PanelTabClose, PanelTabItem, PanelTabList } from "@/components/panel-tabs";
+import { ChatTabIcon } from "@/components/chat/chat-tab-icon";
 import { toast } from "@/components/ui/sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { hasViewerFileDrag, readViewerFileDrop, viewerFileTabs } from "./viewer-file-drop";
@@ -61,6 +65,7 @@ import { PanelEmptyState, PanelHeaderPortal } from "@/react-app/design-system/pa
 import { cn } from "@/lib/utils";
 
 import { ArtifactIcon } from "../artifacts/artifact-icon";
+import { classifyOpenTarget } from "../artifacts/open-target";
 import { confirmDiscardSessionDocuments, waitForDocumentDiscardPrompt } from "../artifacts/docx-document-state";
 import { ArtifactPanel } from "../artifacts/artifact-panel";
 import { ExpandedDocumentBar } from "../artifacts/expanded-document-bar";
@@ -83,6 +88,7 @@ import { t } from "@/i18n";
 import { TaskPanel } from "@/react-app/domains/tasks/task-panel";
 import { WorkflowEditorPanel } from "@/react-app/domains/settings/pages/workflow-editor-panel";
 import { WorkflowResourceEditorPanel } from "@/react-app/domains/settings/pages/workflow-resource-editor-panel";
+import type { WikiPanelTab } from "../../wiki/wiki-tabs";
 import {
   computeBounds,
   getElectronBrowser,
@@ -110,9 +116,12 @@ type SidePanelProps = {
   onFocusChat?: (sessionId: string) => void;
   onCloseChat?: (sessionId: string, nextSessionId: string | null) => void;
   onNewChat?: (pane: string) => void;
+  onOpenWiki?: (pane: string) => void;
+  onOpenWikiGraph?: (pane: string) => void;
   renderProjectView?: (view: ProjectView, active: boolean) => React.ReactNode;
   onOpenTabWindow?: (tab: PanelTabEntry) => void;
   onDropChat?: (sessionIds: string[], pane: string, edge?: DocumentDropEdge) => void;
+  renderWikiTab?: (tab: WikiPanelTab) => React.ReactNode;
 };
 
 // HMR can remount this module without unmounting BrowserPanelContent, leaving
@@ -163,6 +172,9 @@ type TabDropZoneProps = {
   className?: string;
   children: React.ReactNode;
 };
+
+const ViewPanel = React.lazy(() => import("../../views/view-panel").then(module => ({ default: module.ViewPanel })));
+const ViewDraftPanel = React.lazy(() => import("../../views/view-panel").then(module => ({ default: module.ViewDraftPanel })));
 
 function TabDropZone({ pane, dragging, edge = false, splitBlocked = false, inset = false, shieldFileDrops = true, workspaceId, onChatDrop, onProjectViewDrop, onProjectItemDrop, onTabInsert, label, onDrop, onFileDrop, className, children }: TabDropZoneProps) {
   const [over, setOver] = React.useState<{ pane: ViewerPane; file: boolean; split: DocumentDropEdge | null } | null>(null);
@@ -331,6 +343,7 @@ function TabDropZone({ pane, dragging, edge = false, splitBlocked = false, inset
 
 type SidePanelTabProps = {
   tab: PanelTabEntry;
+  workspaceId: string | null;
   fileSource?: ProjectFileSource;
   projectId?: string;
   pane: ViewerPane;
@@ -349,7 +362,7 @@ type SidePanelTabProps = {
   onDragChange: (tabId: string | null) => void;
 };
 
-function SidePanelTab({ tab, fileSource, projectId, pane, destinations, canSplit, active, canMove, preview, onKeepOpen, onOpenWindow, onSelect, onClose, onClosePane, onMove, onSplit, onDragChange }: SidePanelTabProps) {
+function SidePanelTab({ tab, workspaceId, fileSource, projectId, pane, destinations, canSplit, active, canMove, preview, onKeepOpen, onOpenWindow, onSelect, onClose, onClosePane, onMove, onSplit, onDragChange }: SidePanelTabProps) {
   const tabRef = React.useRef<HTMLDivElement>(null);
   const sourceName = useProjectFiles()?.projects.find(project => project.projectId === fileSource?.projectId)?.name;
   const label = tab.type === "artifact" && tab.value && !tab.storage
@@ -405,12 +418,14 @@ function SidePanelTab({ tab, fileSource, projectId, pane, destinations, canSplit
             ) : (
               <Globe />
             )
-          ) : tab.type === "project-view" ? <ProjectViewIcon view={tab.view} /> : tab.type === "chat" ? <MessageSquare /> : tab.type === "review" ? <TableProperties /> : tab.type === "task" ? (
+          ) : tab.type === "project-view" ? <ProjectViewIcon view={tab.view} /> : tab.type === "chat" ? <ChatTabIcon workspaceId={workspaceId} sessionId={tab.sessionId} /> : tab.type === "review" ? <TableProperties /> : tab.type === "task" ? (
             <ListTodo />
           ) : tab.type === "workflow" ? (
             <Workflow />
           ) : tab.type === "workflow-resource" ? (
             <FileText />
+          ) : (tab.type === "view" || tab.type === "view-draft") ? <TableProperties /> : tab.type === "wiki" ? (
+            tab.location.kind === "asset" ? <ArtifactIcon type={classifyOpenTarget(tab.location.path, "file")} /> : <BookOpen />
           ) : (
             <ArtifactIcon type={tab.preview} />
           )}
@@ -725,7 +740,8 @@ function SidePanelContent({
   visible: workspaceVisible = true,
   onFocusChat,
   onCloseChat,
-  onNewChat, renderProjectView, onOpenTabWindow, onDropChat, projectId,
+  onNewChat, onOpenWiki, onOpenWikiGraph, renderProjectView, onOpenTabWindow, onDropChat, projectId,
+  renderWikiTab,
 }: SidePanelProps) {
   const controlSessionIds = useDocumentControlSessions(sessionId);
   const projectFiles = useProjectFiles();
@@ -899,30 +915,6 @@ function SidePanelContent({
     return draggingTabId && pane ? { id: draggingTabId, pane: pane.id } : null;
   }, [draggingTabId, panes]);
 
-  const selectFileAction = React.useMemo<LegalworkControlAction>(() => ({
-    id: "documents.select_open", label: "Show an open file", sideEffect: "navigation", requiresArgs: true,
-    args: [{ name: "sessionId", type: "string", required: true }, { name: "path", type: "string", required: true }, { name: "projectId", type: "string", required: false }],
-    execute: (args) => {
-      if (typeof args !== "object" || !args || !controlSessionIds.includes(Reflect.get(args, "sessionId"))) return { ok: false, error: "No matching sidebar for this session." };
-      const matches = openFiles.filter(file => file.path === Reflect.get(args, "path") && (!Reflect.get(args, "projectId") || file.projectId === Reflect.get(args, "projectId")));
-      if (matches.length > 1) return { ok: false, error: "Files from multiple projects match. Specify projectId." };
-      const file = matches[0];
-      if (!file) return { ok: false, error: "This file is not open in the sidebar." };
-      const visible = panes.some(pane => pane.activeTabId === file.id);
-      if (!visible) {
-        const session = usePanelTabStore.getState().sessions[sessionId];
-        const replaced = session?.panes.find(pane => pane.tabIds.includes(file.id))?.activeTabId ?? null;
-        if (!unified && !confirmDiscardSessionDocuments(sessionId, [replaced], () => false)) return { ok: false, error: "Save the current draft before switching files." };
-      }
-      setFocusedTabId(file.id);
-      selectTab(file.id);
-      const session = usePanelTabStore.getState().sessions[sessionId];
-      if (!session?.panes.some(pane => pane.activeTabId === file.id)) return { ok: false, error: "The file could not be selected." };
-      return { ok: true, file: { ...file, active: true }, message: "Read the document after the editor finishes loading." };
-    },
-  }), [controlSessionIds, openFiles, sessionId, selectTab, panes, unified]);
-  useControlAction(selectFileAction);
-
   const seedArtifactOverflowControlAction = React.useMemo<LegalworkControlAction | null>(() => {
     if (!import.meta.env.DEV) return null;
 
@@ -1029,7 +1021,7 @@ function SidePanelContent({
       <div data-window-caption-controls={docked && pane.id === controlsPane} className={cn("flex items-center gap-1 px-2", docked ? "h-full" : "h-11 border-b border-border/70")}>
         <div className="no-scrollbar min-w-0 overflow-x-auto">
           <PanelTabList values={paneTabs.map(tab => tab.id)} onReorder={reorderTabs}>
-            {paneTabs.map(tab => <SidePanelTab key={tab.id} projectId={projectId} tab={tab} fileSource={tab.type === "artifact" ? tab.sourceProject ?? (client && workspaceId && (tab.value || tab.storage) ? projectFiles?.identify(client, workspaceId, { name: tab.label, path: tab.storage?.file.path ?? tab.value!, connectionId: tab.storage?.root.id }) ?? undefined : undefined) : undefined} pane={pane.id} destinations={orderedPanes} canSplit={panes.length < MAX_DOCUMENT_PANES && paneTabs.length > 1} active={pane.activeTabId === tab.id} canMove={canMove} preview={pane.previewTabId === tab.id} onKeepOpen={() => usePanelTabStore.getState().keepTab(sessionId, tab.id)}
+            {paneTabs.map(tab => <SidePanelTab key={tab.id} workspaceId={workspaceId} projectId={projectId} tab={tab} fileSource={tab.type === "artifact" ? tab.sourceProject ?? (client && workspaceId && (tab.value || tab.storage) ? projectFiles?.identify(client, workspaceId, { name: tab.label, path: tab.storage?.file.path ?? tab.value!, connectionId: tab.storage?.root.id }) ?? undefined : undefined) : undefined} pane={pane.id} destinations={orderedPanes} canSplit={panes.length < MAX_DOCUMENT_PANES && paneTabs.length > 1} active={pane.activeTabId === tab.id} canMove={canMove} preview={pane.previewTabId === tab.id} onKeepOpen={() => usePanelTabStore.getState().keepTab(sessionId, tab.id)}
               onOpenWindow={onOpenTabWindow} onSelect={id => { selectTab(id); if (tab.type === "chat") onFocusChat?.(tab.sessionId); }} onClose={closeDocumentTab} onClosePane={closePaneTabs} onMove={moveToPane} onSplit={(id, split) => moveToPane(id, pane.id, split)} onDragChange={setDraggingTabId} />)}
           </PanelTabList>
         </div>
@@ -1038,6 +1030,8 @@ function SidePanelContent({
           <DropdownMenuContent align="end">
             {onNewChat && <DropdownMenuItem onClick={() => onNewChat(pane.id)}><MessageSquare /> {t("session.new_task")}</DropdownMenuItem>}
             <DropdownMenuItem disabled={!client || !workspaceId || Boolean(openingFile)} onClick={() => setFilePickerPane(pane.id)}><FolderInput /> {t("side_panel.files")}</DropdownMenuItem>
+            {onOpenWiki && <DropdownMenuItem onClick={() => onOpenWiki(pane.id)}><BookOpen />{t("wiki.open_page")}</DropdownMenuItem>}
+            {onOpenWikiGraph && <DropdownMenuItem onClick={() => onOpenWikiGraph(pane.id)}><Network />{t("wiki.graph")}</DropdownMenuItem>}
             {renderProjectView && (["calendar", "reviews", "tasks"] satisfies ProjectView[]).map(view => <DropdownMenuItem key={view} onClick={() => {
               const tab = projectViewTab(view, projectViewLabel(view));
               const store = usePanelTabStore.getState();
@@ -1124,6 +1118,9 @@ function SidePanelContent({
         const active = visible && tab.id === focusedId;
         const focus = () => { setFocusedTabId(tab.id); if (tab.type === "chat") onFocusChat?.(tab.sessionId); };
         const body = tab.type === "artifact" ? <ArtifactPanel sessionId={sessionId} tab={tab} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace} onClose={() => closeDocumentTab(tab)} />
+          : tab.type === "view-draft" ? <React.Suspense fallback={<div role="status" className="p-6 text-sm text-muted-foreground">Preparing view…</div>}><ViewDraftPanel tab={tab} sessionId={sessionId} /></React.Suspense>
+          : tab.type === "view" ? <React.Suspense fallback={<div role="status" className="p-6 text-sm text-muted-foreground">Loading view…</div>}><ViewPanel client={client} tab={tab} sessionId={sessionId} /></React.Suspense>
+          : tab.type === "wiki" ? renderWikiTab?.(tab)
           : tab.type === "project-view" ? renderProjectView?.(tab.view, visible)
           : tab.type === "chat" ? renderChat?.(tab.sessionId, active)
           : tab.type === "browser" ? <BrowserPanelContent tab={tab} visible={visible} onClose={() => closeDocumentTab(tab)} />
@@ -1133,7 +1130,7 @@ function SidePanelContent({
           : tab.type === "workflow-resource" ? <WorkflowResourceEditorPanel id={tab.id} onClose={() => closeDocumentTab(tab)} /> : null;
         return [<DocumentPane key={`${workspaceId}:${sessionId}:${tab.id}`} destination={pane ? destinations[pane.id] ?? null : null}>
           <ControlActionScope active={tab.type === "artifact" ? visible && tab.id === controlDocumentId : active}><div className="flex h-full min-h-0 flex-col" onFocusCapture={focus} onPointerDownCapture={focus} onInputCapture={() => usePanelTabStore.getState().keepTab(sessionId, tab.id)}>
-            <PanelTabDestinationProvider destination={tabDestination ?? (unified ? { kind: "workspace", workspaceId: sessionId.slice(10) } : { kind: "evals" })}>{body}</PanelTabDestinationProvider>
+            <PanelTabDestinationProvider destination={tabDestination ?? (unified ? { kind: "workspace", workspaceId: sessionId.slice(10), paneId: tab.type === "chat" ? undefined : pane?.id } : { kind: "evals" })}>{workspaceId ? <ViewHostProvider client={client} owner={{ kind: "workspace", id: workspaceId }}>{body}</ViewHostProvider> : body}</PanelTabDestinationProvider>
           </div></ControlActionScope>
         </DocumentPane>];
       })}

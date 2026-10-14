@@ -1,7 +1,10 @@
 import { CalendarEventDraftToolCard } from "./calendar-event-draft-card";
 import { EmailDraftToolCard } from "./email-draft-card";
+import { WikiSuggestionCard, useWikiSuggestions } from "@/react-app/domains/wiki/wiki-suggestion-card";
 import { useProjectFiles } from "@/react-app/domains/workspace/project-file-context";
 import { copyMessageWithAttachments } from "@/react-app/domains/session/surface/composer/attachment-clipboard";
+import { ViewToolCard } from "@/react-app/domains/views/view-tool-card";
+import { useViewGenerations } from "@/react-app/domains/views/use-view-generations";
 import { useRequestOpenTask } from "@/react-app/domains/session/panel/panel-tab-destination";
 import { ScheduledTaskToolCard } from "./scheduled-task-card";
 import { CalculationToolCard } from "./calculation/calculation-card";
@@ -172,6 +175,7 @@ class ToolMessage extends React.Component<ToolMessageProps, { failed: boolean }>
 }
 
 const ToolMessageInner = ({ part }: ToolMessageProps) => {
+  if (part.type === "dynamic-tool" && ["view_create", "view_update", "view_read"].includes(part.toolName)) return <ViewToolCard part={part} />;
   if (isBashToolPart(part)) {
     return <BashTool part={part} />
   }
@@ -440,6 +444,8 @@ const AssistantMessage = React.memo(
             if (group.kind === "scheduled-task") return <ScheduledTaskToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "calculation") return <CalculationToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "project") return <ProjectContentsTool key={group.part.toolCallId} part={group.part} />;
+            if (group.kind === "wiki-suggestion") return <WikiSuggestionCard key={group.part.toolCallId} part={group.part} />;
+            if (group.kind === "view") return <ViewToolCard key={group.part.toolCallId} part={group.part} />;
 
             if (group.kind === "file") {
               return (
@@ -1029,6 +1035,8 @@ interface MessageListProps {
 }
 
 export function MessageList({ eigenweltPlan = null, messages, status, retryStatus, renderUsageLimit }: MessageListProps) {
+  useViewGenerations(messages, status);
+  useWikiSuggestions(messages, status !== "ready");
   const isStreaming = status === "streaming" || status === "retrying"
   const items = React.useMemo(() => groupMessages(messages, status), [messages, status]);
   const error = useSessionErrorMessage();

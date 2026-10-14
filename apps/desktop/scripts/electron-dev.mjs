@@ -7,7 +7,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(__dirname, "..");
 const repoRoot = resolve(desktopRoot, "../..");
 const electronSidecarDir = resolve(desktopRoot, "resources", "sidecars");
-const electronHelperDir = resolve(desktopRoot, "resources", "helpers");
 const defaultDevDataDir = resolve(
   process.env.HOME ?? process.env.USERPROFILE ?? repoRoot,
   ".legalwork",
@@ -198,8 +197,8 @@ process.once("SIGINT", () => void stopAll(130));
 process.once("SIGTERM", () => void stopAll(143));
 
 if (process.env.LEGALWORK_ELECTRON_SKIP_SHARED_PREPARE !== "1") {
+  runSync(nodeCmd, [resolve(__dirname, "prepare-actaport-mcp.mjs")], { cwd: desktopRoot });
   runSync(nodeCmd, [resolve(__dirname, "prepare-sidecar.mjs"), "--force", "--outdir", electronSidecarDir], { cwd: desktopRoot });
-  runSync(nodeCmd, [resolve(__dirname, "prepare-computer-use-helper.mjs"), "--force", "--outdir", electronHelperDir], { cwd: desktopRoot });
   runSync(nodeCmd, [resolve(__dirname, "build-key-monitor.mjs")], { cwd: desktopRoot });
 }
 

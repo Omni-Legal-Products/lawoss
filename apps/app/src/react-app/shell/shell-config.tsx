@@ -7,9 +7,9 @@ import { useOrgPolicy } from "../domains/connections/org-policy";
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-export type ShellNavKey = "navHome" | "navScheduled" | "navCalendar" | "navProjects" | "navTasks" | "navWorkflows" | "navRecorder" | "navEvaluations";
+export type ShellNavKey = "navHome" | "navScheduled" | "navCalendar" | "navProjects" | "navTasks" | "navWorkflows" | "navRecorder" | "navWikis" | "navEvaluations";
 
-const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navProjects", "navCalendar", "navTasks", "navScheduled", "navWorkflows", "navRecorder", "navEvaluations"];
+const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navProjects", "navCalendar", "navTasks", "navScheduled", "navWorkflows", "navRecorder", "navWikis", "navEvaluations"];
 
 export type ChatSectionKey = "navNewChat" | "sectionPinned" | "sectionPinnedProjects" | "sectionSharedProjects" | "sectionProjects" | "sectionRecent";
 export type ProjectNavKey = "projectCalendar" | "projectHome" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";
@@ -42,6 +42,7 @@ export type ShellConfig = {
   navTasks: boolean;
   navWorkflows: boolean;
   navRecorder: boolean;
+  navWikis: boolean;
   navEvaluations: boolean;
   /** Display name shown in the title bar, sidebar, and welcome page. */
   appName: string;
@@ -100,6 +101,7 @@ export const DEFAULT_SHELL_CONFIG: ShellConfig = {
   navTasks: true,
   navWorkflows: true,
   navRecorder: true,
+  navWikis: true,
   navEvaluations: true,
   appName: "LegalWork",
   sidebarBrandName: "LegalWork",
@@ -160,6 +162,10 @@ export function readShellConfig(): ShellConfig {
     if (Array.isArray(savedNavOrder) && !savedNavOrder.includes("navScheduled")) {
       navOrder.splice(navOrder.indexOf("navScheduled"), 1);
       navOrder.splice(navOrder.indexOf("navTasks") + 1, 0, "navScheduled");
+    }
+    if (Array.isArray(savedNavOrder) && !savedNavOrder.includes("navWikis")) {
+      navOrder.splice(navOrder.indexOf("navWikis"), 1);
+      navOrder.splice(navOrder.indexOf("navRecorder") + 1, 0, "navWikis");
     }
     const chatSectionOrder = readChatOrder(next.chatSectionOrder);
     if (Array.isArray(next.chatSectionOrder) && !next.chatSectionOrder.includes("sectionPinnedProjects")) {

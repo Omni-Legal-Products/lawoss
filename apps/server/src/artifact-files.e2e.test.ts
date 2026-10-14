@@ -327,3 +327,17 @@ describe("artifact file routes", () => {
     expect(missingList.status).toBe(404);
   });
 });
+
+test("streamed Markdown creation never overwrites an existing file, including racing writers", async () => {
+  const root = await createWorkspaceRoot();
+  const { base, token } = await startLegalworkServer(root);
+  const create = (content: string) => fetch(`${base}/workspace/ws_1/files/content`, {
+    method: "POST", headers: auth(token), body: JSON.stringify({ path: "reports/new.md", content, createOnly: true }),
+  });
+  const results = await Promise.all([create("First draft"), create("Second draft")]);
+  expect(results.map(result => result.status).sort()).toEqual([200, 409]);
+  const saved = await readFile(join(root, "reports/new.md"), "utf8");
+  expect(["First draft", "Second draft"]).toContain(saved);
+  expect((await create("Overwrite")).status).toBe(409);
+  expect(await readFile(join(root, "reports/new.md"), "utf8")).toBe(saved);
+});

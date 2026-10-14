@@ -21,13 +21,25 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
   let transcriptSources: ProjectContentSources | undefined;
   let sourceSessionId = "";
   let uiActions = 0;
+  let documentReads = 0;
   const modelRequests: { tools: string[]; toolDefinitions: string; toolResults: string[]; system: string; users: string[] }[] = [];
   const created: ScheduledTaskInput[] = [];
   const sourceReads: string[] = [];
   const fixture = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === "/snapshot") return Response.json({ ok: true, route: "/unrelated-chat" });
-    if (path === "/execute") { uiActions++; return Response.json({ ok: true }); }
+    if (path === "/execute") {
+      const input = z.object({ actionId: z.string(), args: z.unknown().optional() }).parse(await request.json());
+      // Task document inventory is a background read, even though the bridge
+      // dispatches it through the action endpoint. All other actions still fail
+      // the no-foreground-actions assertion below.
+      if (input.actionId === "documents.list") {
+        expect(z.object({ sessionId: z.string().min(1) }).safeParse(input.args).success).toBe(true);
+        documentReads++;
+        return Response.json({ ok: true, result: { openFiles: [], surfaces: [], activeSurface: null } });
+      }
+      uiActions++; return Response.json({ ok: true });
+    }
     if (path === "/workspaces") return Response.json({ items: [{ id: "matter", path: folder }, { id: "other", path: join(root, "other") }] });
     if (path === "/scheduled-tasks/projects") return Response.json({ projects: [{ id: "matter", name: "Matter", path: folder }, { id: "other", name: "Other", path: join(root, "other") }] });
     if (path === "/workspace/matter/scheduled-tasks" && request.method === "POST") {
@@ -150,5 +162,6 @@ test.skipIf(!binary)("real engine enforces project scope and supplies local sche
       }
     }
     expect(uiActions).toBe(0);
+    expect(documentReads).toBeGreaterThan(0);
   } finally { engine.kill("SIGKILL"); await engine.exited; fixture.stop(true); await rm(root, { recursive: true, force: true }); }
 }, 60000);

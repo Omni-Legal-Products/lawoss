@@ -1,3 +1,4 @@
+import { DocumentRuntimeProvider } from "../domains/session/artifacts/document-runtime";
 /** @jsxImportSource react */
 
 import { useEffect } from "react";
@@ -58,6 +59,7 @@ export function AppRoot() {
         <ShellConfigProvider>
         <AppMenuProvider>
         <LegalworkControlProvider>
+          <DocumentRuntimeProvider>
           <LegalworkRouteControlActions />
           <Routes>
               <Route
@@ -79,6 +81,9 @@ export function AppRoot() {
                   </DevProfiler>
                 }
               />
+              <Route path="/wikis" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/wikis/:workspaceId" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
+              <Route path="/wikis/:workspaceId/session/:sessionId" element={<DevProfiler id="SessionRoute"><SessionRoute /></DevProfiler>} />
               <Route
                 path="/evals"
                 element={
@@ -158,6 +163,7 @@ export function AppRoot() {
               <Route path="/" element={<Navigate to="/home" replace />} />
               <Route path="*" element={<Navigate to="/home" replace />} />
           </Routes>
+          </DocumentRuntimeProvider>
         </LegalworkControlProvider>
         </AppMenuProvider>
         </ShellConfigProvider>

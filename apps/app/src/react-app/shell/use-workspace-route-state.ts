@@ -55,7 +55,7 @@ import {
   writeActiveWorkspaceId,
   writeWorkspaceOrderIds,
 } from "./session-memory";
-import { isSessionIndexRoute, legacySessionRoute, workspaceSessionRoute } from "./workspace-routes";
+import { isSessionIndexRoute, legacySessionRoute, wikiWorkspaceRoute, workspaceSessionRoute } from "./workspace-routes";
 
 export type UseWorkspaceRouteStateInput = {
   /** Invoked when the legalwork-server settings-changed event fires (the route bumps its settings version). */
@@ -67,6 +67,7 @@ export type UseWorkspaceRouteStateInput = {
 export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const navigate = useNavigate();
   const { pathname, search } = useLocation();
+  const globalWikiRoute = pathname === "/wikis" || pathname.startsWith("/wikis/");
   const local = useLocal();
   const params = useParams<{ workspaceId?: string; sessionId?: string }>();
   const routeWorkspaceId = params.workspaceId?.trim() || "";
@@ -77,7 +78,8 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       navigate(legacySessionRoute(sessionId), options);
       return;
     }
-    navigate(workspaceSessionRoute(id, sessionId), options);
+    const wiki = workspacesRef.current.some(workspace => workspace.id === id && workspace.preset === "wiki");
+    navigate(wiki ? wikiWorkspaceRoute(id, sessionId) : workspaceSessionRoute(id, sessionId), options);
   }, [navigate]);
 
   const { markRouteReady: markBootRouteReady } = useBootState();
@@ -85,6 +87,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const [client, setClient] = useState<LegalworkServerClient | null>(null);
   const [baseUrl, setBaseUrl] = useState("");
   const [token, setToken] = useState("");
+  const [hostToken, setHostToken] = useState("");
   const [workspaces, setWorkspaces] = useState<RouteWorkspace[]>([]);
   const [hasLoadedServerWorkspaces, setHasLoadedServerWorkspaces] = useState(false);
   const hasLoadedServerWorkspacesRef = useRef(false);
@@ -94,9 +97,11 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const [workspaceConnectionOverrides, setWorkspaceConnectionOverrides] = useState<Record<string, WorkspaceConnectionState>>({});
   const [routeError, setRouteError] = useState<string | null>(null);
   const [legacySelectedWorkspaceId, setLegacySelectedWorkspaceId] = useState<string>(() => readActiveWorkspaceId() ?? "");
-  const selectedWorkspaceId = hasLoadedServerWorkspaces
-    ? resolveRouteWorkspaceId(workspaces, [routeWorkspaceId, legacySelectedWorkspaceId])
-    : routeWorkspaceId || legacySelectedWorkspaceId;
+  // An explicit route may point at a wiki just created on the server. Never
+  // borrow another workspace's tabs, connection or agent directory while loading it.
+  const selectedWorkspaceId = routeWorkspaceId || (hasLoadedServerWorkspaces
+    ? resolveRouteWorkspaceId(workspaces, [legacySelectedWorkspaceId])
+    : legacySelectedWorkspaceId);
   const selectedWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? (selectedWorkspaceId ? null : workspaces[0] ?? null),
     [selectedWorkspaceId, workspaces],
@@ -110,10 +115,10 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   // would change on every `setBaseUrl`/`setToken`, which used to cascade up
   // through `loadWorkspaceSessionsInBackground` and `refreshRouteState` and
   // produce a tight render-refresh-setWorkspaces loop.
-  const localServerRef = useRef<{ baseUrl: string; token: string }>({ baseUrl: "", token: "" });
+  const localServerRef = useRef<{ baseUrl: string; token: string; hostToken: string }>({ baseUrl: "", token: "", hostToken: "" });
   useEffect(() => {
-    localServerRef.current = { baseUrl, token };
-  }, [baseUrl, token]);
+    localServerRef.current = { baseUrl, token, hostToken };
+  }, [baseUrl, token, hostToken]);
   const endpointForWorkspace = useCallback(
     (workspace: RouteWorkspace | null | undefined): ResolvedWorkspaceEndpoint | null =>
       resolveWorkspaceEndpoint(workspace, localServerRef.current),
@@ -397,10 +402,11 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         // Keep `localServerRef` in lockstep with the disconnected state.
         // Otherwise a previously-cached baseUrl/token would still resolve a
         // (now invalid) endpoint for any callback that consults the ref.
-        localServerRef.current = { baseUrl: "", token: "" };
+        localServerRef.current = { baseUrl: "", token: "", hostToken: "" };
         setClient(null);
         setBaseUrl("");
         setToken("");
+        setHostToken("");
         const orderedDesktopWorkspaces = orderRouteWorkspaces(desktopWorkspaces, workspaceOrderIdsRef.current);
         workspacesRef.current = orderedDesktopWorkspaces;
         setWorkspaces(orderedDesktopWorkspaces);
@@ -419,7 +425,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       // `loadWorkspaceSessionsInBackground` calls that fire later in this
       // function. Stale ref => `resolveWorkspaceEndpoint` returns null for
       // local workspaces => sidebar gets stuck in "loading" forever.
-      localServerRef.current = { baseUrl: normalizedBaseUrl, token: resolvedToken };
+      localServerRef.current = { baseUrl: normalizedBaseUrl, token: resolvedToken, hostToken: resolvedHostToken };
 
       const connectionKey = JSON.stringify([normalizedBaseUrl, resolvedToken, resolvedHostToken]);
       const legalworkClient = clientConnectionRef.current?.key === connectionKey
@@ -467,6 +473,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       setBaseUrl(normalizedBaseUrl);
       setToken(resolvedToken);
       workspacesRef.current = nextWorkspaces;
+      setHostToken(resolvedHostToken);
       setWorkspaces(nextWorkspaces);
       const nextSessionsByWorkspaceId = Object.fromEntries(cachedEntries.map((entry) => [entry.workspaceId, entry.sessions]));
       sessionsByWorkspaceIdRef.current = nextSessionsByWorkspaceId;
@@ -699,7 +706,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   // Once workspaces + sessions are loaded and the URL has no sessionId, try to
   // restore the last session the user opened in the active workspace.
   useEffect(() => {
-    if (loading) return;
+    if (loading || globalWikiRoute) return;
     // The desktop registry can omit projects created through the server. Do not
     // replace a valid deep link while booting or using a stale offline list.
     if (routeWorkspaceId && !workspaces.some((workspace) => workspace.id === routeWorkspaceId)) {
@@ -727,6 +734,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   }, [
     loading,
     hasLoadedServerWorkspaces,
+    globalWikiRoute,
     legacySelectedWorkspaceId,
     navigateToWorkspaceSession,
     routeWorkspaceId,
@@ -742,11 +750,11 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   // completed onboarding. This fires after the initial route refresh so
   // `loading` is false and we know for sure there are zero workspaces.
   useEffect(() => {
-    if (loading) return;
+    if (loading || globalWikiRoute) return;
     if (workspaces.length > 0) return;
     if (local.prefs.hasCompletedOnboarding) return;
     navigate("/welcome", { replace: true });
-  }, [loading, local.prefs.hasCompletedOnboarding, navigate, workspaces.length]);
+  }, [globalWikiRoute, loading, local.prefs.hasCompletedOnboarding, navigate, workspaces.length]);
 
   // NOTE: Blueprint seeding was removed from the route.
   // It was firing `materializeBlueprintSessions` + a session re-fetch on every
@@ -782,8 +790,8 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   // For remote workspaces this is the worker that owns the workspace; for
   // local workspaces it's the user's local LegalWork server.
   const selectedWorkspaceEndpoint = useMemo(
-    () => resolveWorkspaceEndpoint(selectedWorkspace, { baseUrl, token, localClient: client }),
-    [baseUrl, selectedWorkspace, token, client],
+    () => resolveWorkspaceEndpoint(selectedWorkspace, { baseUrl, token, hostToken, localClient: client }),
+    [baseUrl, hostToken, selectedWorkspace, token, client],
   );
   const selectedWorkspaceServerToken = selectedWorkspaceEndpoint?.token ?? "";
   const opencodeBaseUrl = selectedWorkspaceEndpoint?.opencodeBaseUrl ?? "";
@@ -812,10 +820,11 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       opencodeBaseUrl && selectedWorkspaceServerToken && !selectedWorkspaceError
         ? createClient(opencodeBaseUrl, selectedWorkspaceRoot || undefined, {
             token: selectedWorkspaceServerToken,
+            hostToken: selectedWorkspaceEndpoint?.hostToken,
             mode: "legalwork",
           })
         : null,
-    [opencodeBaseUrl, selectedWorkspaceError, selectedWorkspaceRoot, selectedWorkspaceServerToken],
+    [opencodeBaseUrl, selectedWorkspaceError, selectedWorkspaceRoot, selectedWorkspaceServerToken, selectedWorkspaceEndpoint?.hostToken],
   );
   const runRemoteWorkspaceConnectionCheck = useCallback(
     async (workspaceId: string, mode: "test" | "recover") => {
@@ -885,6 +894,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     client,
     baseUrl,
     token,
+    hostToken,
     workspaces,
     setWorkspaces,
     workspacesRef,

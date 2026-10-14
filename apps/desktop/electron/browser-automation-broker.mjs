@@ -78,6 +78,7 @@ export function createBrowserAutomationBroker({ authorize }) {
 
   async function sendCommand(grant, method, params = {}) {
     await authorizeGrant(grant);
+    grant.onActivity?.();
     const result = await grant.webContents.debugger.sendCommand(method, params);
     return method === "Accessibility.getFullAXTree" ? normalizeAccessibilityTree(result) : result;
   }
@@ -198,13 +199,13 @@ export function createBrowserAutomationBroker({ authorize }) {
   }
 
   return {
-    async grant(webContents, getDownloads = () => [], context) {
+    async grant(webContents, getDownloads = () => [], context, onActivity) {
       await authorize(context);
       await start();
       if (closed || webContents.isDestroyed()) throw new Error("Browser tab is closed");
       const token = randomBytes(32).toString("hex");
       const grant = {
-        token, targetId: String(webContents.id), webContents, getDownloads, context,
+        token, targetId: String(webContents.id), webContents, getDownloads, context, onActivity,
         clients: new Set(), users: 0, busy: false, checking: false, onDestroyed: () => revoke(grant),
       };
       grants.set(token, grant);
@@ -215,6 +216,21 @@ export function createBrowserAutomationBroker({ authorize }) {
       const grant = [...grants.values()].find((entry) => entry.webContents === webContents);
       if (!grant) throw new Error("Browser tab has no automation grant.");
       return withDebugger(grant, (send) => browserSnapshot(send, webContents));
+    },
+    async preview(webContents) {
+      const grant = [...grants.values()].find(entry => entry.webContents === webContents);
+      if (!grant) return null;
+      await authorizeGrant(grant);
+      acquire(grant);
+      try {
+        // Previewing from the app is not agent activity and must not reclaim a
+        // dismissed tab or detach a debugger another tool is still using.
+        const image = await webContents.debugger.sendCommand("Page.captureScreenshot", {
+          format: "png", captureBeyondViewport: true,
+          clip: { x: 0, y: 0, width: 1200, height: 800, scale: 0.4 },
+        });
+        return image.data ? `data:image/png;base64,${image.data}` : null;
+      } finally { release(grant); }
     },
     async close() {
       closed = true;

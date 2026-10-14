@@ -15,16 +15,17 @@ type ProviderLike = {
 };
 
 type SettingsExtensionControllerInput = {
+  isRemoteWorkspace: boolean;
   legalworkServerClient: LegalworkServerClient | null;
   hostLegalworkServerClient: LegalworkServerClient | null;
   enablementContext: EnablementContext;
   mcpServers: McpServerEntry[];
   mcpConnectingName: string | null;
-  onComputerUsePermissionsChange: (permissions: { accessibility: boolean; screenRecording: boolean }) => void;
   googleWorkspaceConnected: boolean;
   setGoogleWorkspaceConnected: (connected: boolean) => void;
   restartLocalServer?: () => Promise<boolean>;
-  connectMcp: (entry: McpDirectoryInfo) => void | Promise<void>;
+  connectMcp: (entry: McpDirectoryInfo) => Promise<boolean>;
+  removeMcp: (name: string) => void | Promise<void>;
   refreshMcpServers: () => void | Promise<void>;
   providers: ProviderLike[];
   providerConnectedIds: string[];
@@ -73,16 +74,22 @@ export function useSettingsExtensionController(input: SettingsExtensionControlle
       if (extensionId === "google-workspace") input.setGoogleWorkspaceConnected(connected);
       else setConnectorConnections((previous) => previous[extensionId] === connected ? previous : { ...previous, [extensionId]: connected });
     },
-    computerUse: {
-      connected: input.mcpServers.some((server) => server.name === "computer-use"),
-      connecting: input.mcpConnectingName === entry.name,
+    actaport: {
+      connected: input.mcpServers.some((server) => server.name === "actaport" && server.config.enabled !== false),
       onConnect: () => input.connectMcp(entry),
+      onDisconnect: () => input.removeMcp("actaport"),
       onRefresh: input.refreshMcpServers,
-      onPermissionsChange: input.onComputerUsePermissionsChange,
     },
     imageExtension: {
       ...input.imageExtension,
       envKeyDetected: hasOpenAiEnv(input),
+    },
+    openComputerUse: {
+      localDesktop: !input.isRemoteWorkspace,
+      connected: input.enablementContext.mcpStatuses?.["open-computer-use"]?.status === "connected",
+      connecting: input.mcpConnectingName === entry.name,
+      onConnect: () => input.connectMcp(entry),
+      onRefresh: input.refreshMcpServers,
     },
     localProvider: input.localProvider,
   }), [input, connectorConnections]);

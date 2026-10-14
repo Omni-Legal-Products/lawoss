@@ -72,14 +72,14 @@ export function registerScheduledTaskRoutes(options: {
   route("POST", "", async (ctx, workspace) => {
     const input = ScheduledTaskInputSchema.parse(await body(ctx));
     await checkSession(workspace, input.sessionId);
-    return { task: store.create(workspace.id, input) };
+    return { task: store.create(workspace.id, input, Date.now(), ctx.actor?.type === "host" || ctx.actor?.scope === "owner" ? "owner" : "collaborator") };
   });
   route("GET", "/:task", async (ctx, workspace) => ({ task: store.get(workspace.id, ctx.params.task), runs: store.runs(ctx.params.task) }));
   route("PATCH", "/:task", async (ctx, workspace) => {
     const { revision, ...patch } = ScheduledTaskInputSchema.partial().extend({ reuseChat: ScheduledTaskInputSchema.shape.reuseChat.removeDefault().optional(), pinSession: ScheduledTaskInputSchema.shape.pinSession.removeDefault().optional(), model: ScheduledTaskInputSchema.shape.model.removeDefault().optional(), projectAccess: ScheduledTaskInputSchema.shape.projectAccess.removeDefault().optional(), revision: z.number().int().positive(), status: z.enum(["active", "paused"]).optional() }).parse(await body(ctx));
     const current = store.get(workspace.id, ctx.params.task);
     if (patch.sessionId !== undefined || patch.status === "active") await checkSession(workspace, patch.sessionId === undefined ? current.sessionId : patch.sessionId);
-    return { task: store.update(workspace.id, ctx.params.task, revision, patch) };
+    return { task: store.update(workspace.id, ctx.params.task, revision, patch, Date.now(), ctx.actor?.type === "host" || ctx.actor?.scope === "owner" ? "owner" : "collaborator") };
   });
   route("DELETE", "/:task", async (ctx, workspace) => {
     const { revision } = z.object({ revision: z.number().int().positive() }).parse(await body(ctx));

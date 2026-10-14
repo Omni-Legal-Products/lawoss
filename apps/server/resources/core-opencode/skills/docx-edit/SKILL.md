@@ -54,13 +54,9 @@ backends**, and your FIRST step is always to pick the right one:
 For a named reference document that is not already open, inspect its saved file in the background with the FILE backend. Do not change the user's visible tab just to read a source. For an attached document to edit, first copy it to a visible project output with inapp_documents_open and copy_to. Keep the original attachment snapshot intact.
 
 
-1. Unless the user explicitly named a different workspace document, call
-   `inapp_docx_read_document` first. If it succeeds, the target is the document open in
-   LegalWork's right-hand editor: use the **IN-APP LIVE backend** below.
-2. If no matching in-app document is open, call `word_read_document`. If it succeeds,
-   the target is the document open in Microsoft Word: use the **WORD LIVE backend**.
-3. Only when both live reads report no matching document may you use the **FILE backend**.
-   Bash is the fallback, not the way to inspect a document already open beside the chat.
+1. For reading source records, research, extraction or wiki imports, read connected documents directly with `storage_read_file` (default format). It returns Word text, source version and coverage without an in-app viewer, Word or shell. Follow `next_offset` for remaining text. Do not probe live surfaces for this task.
+2. For the document the user is actively editing, use the matching live backend: `inapp_docx_read_document` in LegalWork, or `word_read_document` in Word. Preserve unsaved edits and use tracked changes.
+3. For other workspace documents, use the FILE backend. An in-app viewer is not a prerequisite for file-based reading.
 
 ## IN-APP LIVE mode — edit the document open in LegalWork
 

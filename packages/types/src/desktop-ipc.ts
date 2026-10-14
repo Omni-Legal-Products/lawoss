@@ -13,6 +13,16 @@
  * tighten them instead of widening call sites.
  */
 import type { WorkspaceWire } from "./workspace.js";
+
+export type ActaportToolset = "records" | "finance" | "administration" | "uploads";
+export type ActaportConnectionStatus = {
+  configured: boolean;
+  secureStorage: boolean;
+  allowWrites: boolean;
+  coreToolCount: number;
+  enabledToolsets: ActaportToolset[];
+  toolsets: Array<{ id: ActaportToolset; readTools: number; writeTools: number }>;
+};
 import type {
   AudioCapturePermissions,
   AudioDiarizationState,
@@ -45,6 +55,16 @@ export type OpencodeExecutionEnvEntry = {
   name: string;
   value: string;
   redacted: boolean;
+};
+
+export type OpenComputerUseStatus = {
+  version: string;
+  platform: string;
+  installed: boolean;
+  ready: boolean;
+  accessibility?: boolean;
+  screenRecording?: boolean;
+  error?: string;
 };
 
 export type OpencodeExecutionSnapshot = {
@@ -321,13 +341,6 @@ export type UiControlBridgeInfo = {
   token?: string;
 };
 
-export type ComputerUsePermissions = {
-  ok: boolean;
-  accessibility: boolean;
-  screenRecording: boolean;
-  error?: string;
-};
-
 export type RunningAppsResult = {
   ok: boolean;
   apps: string[];
@@ -397,7 +410,7 @@ export type DesktopCommandMap = {
   composeOutlookDraft: { args: [draft: NativeMailDraftInput]; result: void };
   // Native windows
   openAppWindow: {
-    args: [input: { page: "home" | "scheduled" | "calendar" | "projects" | "workflows" | "tasks" | "recorder" | "evals" }];
+    args: [input: { page: "home" | "scheduled" | "calendar" | "projects" | "workflows" | "tasks" | "recorder" | "wikis" | "evals" }];
     result: boolean;
   };
   openSessionWindow: {
@@ -484,14 +497,21 @@ export type DesktopCommandMap = {
   appBuildInfo: { args: []; result: AppBuildInfo };
   getUiControlBridgeInfo: { args: []; result: UiControlBridgeInfo | null };
   getLegalworkUiMcpCommand: { args: []; result: string[] };
-  getComputerUseMcpCommand: { args: []; result: string[] };
+  getActaportMcpCommand: { args: []; result: string[] };
+  getActaportMcpEnvironment: { args: []; result: Record<string, string> };
+  actaportStatus: { args: []; result: ActaportConnectionStatus };
+  actaportConnect: { args: [credentials: { realm: string; clientId: string; clientSecret: string; username: string; password: string }]; result: ActaportConnectionStatus };
+  actaportTest: { args: []; result: { ok: boolean } };
+  actaportSetWriteAccess: { args: [enabled: boolean]; result: ActaportConnectionStatus };
+  actaportSetToolsets: { args: [toolsets: ActaportToolset[]]; result: ActaportConnectionStatus };
+  actaportDisconnect: { args: []; result: ActaportConnectionStatus };
+  getOpenComputerUseMcpConfig: { args: []; result: { command: string[]; environment: Record<string, string> } };
+  checkOpenComputerUse: { args: []; result: OpenComputerUseStatus };
+  openOpenComputerUsePermissionSetup: { args: []; result: void };
   getLegalworkUiMcpEnvironment: { args: []; result: Record<string, string> };
 
   // Computer use
-  checkComputerUsePermissions: { args: []; result: ComputerUsePermissions };
   listRunningApps: { args: []; result: RunningAppsResult };
-  openComputerUsePermissionSetup: { args: []; result: ComputerUsePermissions };
-  openComputerUsePermissionSettings: { args: []; result: unknown };
 
   // Bootstrap config
   getDesktopBootstrapConfig: { args: []; result: DesktopBootstrapConfig };

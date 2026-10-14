@@ -31,6 +31,11 @@ export function workspaceSessionRoute(workspaceId: string, sessionId?: string | 
     : `/workspace/${workspace}/session`;
 }
 
+export function wikiWorkspaceRoute(workspaceId: string, sessionId?: string | null) {
+  const root = `/wikis/${encodeURIComponent(workspaceId.trim())}`;
+  return sessionId?.trim() ? `${root}/session/${encodeURIComponent(sessionId.trim())}` : root;
+}
+
 /** Last-session restoration belongs only to an empty chat route, never a project page. */
 export function isSessionIndexRoute(pathname: string) {
   return /^(?:\/workspace\/[^/]+)?\/session\/?$/.test(pathname);
@@ -78,6 +83,7 @@ export function projectViewFromPath(pathname: string): ProjectView | undefined {
 
 /** Routed main panes are derived synchronously so content and sidebar cannot disagree. */
 export function sessionMainPage(pathname: string) {
+  if (pathname.startsWith("/wikis/")) return "wikis";
   switch (pathname) {
     case "/projects": return "projects";
     case "/tasks": return "tasks";
@@ -85,6 +91,7 @@ export function sessionMainPage(pathname: string) {
     case "/calendar": return "calendar";
     case "/workflows": return "workflows";
     case "/recorder": return "recorder";
+    case "/wikis": return "wikis";
     case "/evals": return "evals";
     default: return /^\/workspace\/[^/]+\/evals$/.test(pathname) ? "evals" : null;
   }

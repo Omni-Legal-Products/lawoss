@@ -22,6 +22,8 @@ import { withStorage } from "./file-storage/service.js";
 import { StorageStore, mergeStorageSecrets } from "./file-storage/store.js";
 import { storagePath, providerError } from "./file-storage/common.js";
 import { webdavFixture } from "./file-storage/testing/webdav.js";
+import { zipSync, strToU8 } from "fflate";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 
 let temporary: string;
 let rootPath: string;
@@ -114,6 +116,40 @@ afterAll(async () => {
   await rm(temporary, { recursive: true, force: true });
   for (const key of Object.keys(process.env)) if (!(key in priorEnv)) delete process.env[key];
   Object.assign(process.env, priorEnv);
+});
+
+test("storage_read_file reads Office and PDF sources without a viewer or sandbox and preserves pagination", async () => {
+  const dav = webdavFixture();
+  const docx = Buffer.from(zipSync({ "word/document.xml": strToU8('<w:document><w:body><w:p><w:t>Client: Alder Ltd.</w:t></w:p><w:tbl><w:tr><w:tc><w:p><w:t>Matter: acquisition.</w:t></w:p></w:tc></w:tr></w:tbl></w:body></w:document>') }));
+  dav.files.set("first/source.docx", docx);
+  dav.files.set("first/broken.docx", Buffer.from("invalid zip"));
+  dav.files.set("first/deck.pptx", Buffer.from(zipSync({ "ppt/slides/slide1.xml": strToU8('<a:p><a:t>Board approval</a:t></a:p>') })));
+  dav.files.set("first/sheet.xlsx", Buffer.from(zipSync({ "xl/worksheets/sheet1.xml": strToU8('<worksheet><row><c t="inlineStr"><is><t>Budget</t></is></c><c><v>45000</v></c></row></worksheet>') })));
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  pdf.addPage().drawText("Client consent is required before assigning this engagement to another firm.", { font, size: 12 });
+  dav.files.set("first/source.pdf", Buffer.from(await pdf.save()));
+  const id = await connect(storageInputSchema.parse({ name: "Source reading", readOnly: true, config: { kind: "webdav", endpoint: `${dav.endpoint}/first` } }));
+  const { tool } = await LegalWorkStorageTools();
+  const read = (path: string, args: Record<string, unknown> = {}) => tool.storage_read_file.execute({ connection_id: id, path, ...args }, { directory: temporary }).then(JSON.parse);
+  try {
+    const first = await read("source.docx", { max_chars: 24 });
+    expect(first).toMatchObject({ complete: true, extraction: "native", writable: false, next_offset: 24 });
+    const rest = await read("source.docx", { offset: first.next_offset });
+    expect(first.text + rest.text).toContain("Client: Alder Ltd.");
+    expect(first.text + rest.text).toContain("Matter: acquisition.");
+    expect(first.text.length + rest.text.length).toBe(first.total_chars);
+    expect(rest).not.toHaveProperty("next_offset");
+    expect(rest.source_hash).toBe(first.source_hash);
+    expect((await read("source.pdf")).text).toContain("[Page 1]\nClient consent");
+    expect((await read("deck.pptx")).text).toContain("Board approval");
+    expect((await read("sheet.xlsx")).text).toContain("Budget\t45000");
+    expect(await read("broken.docx")).toMatchObject({ ok: false, code: "storage_document_read_failed" });
+    const download = await read("source.docx", { format: "download" });
+    expect(download).not.toHaveProperty("text");
+    expect(await readFile(join(temporary, download.local_path))).toEqual(docx);
+    expect(dav.files.get("first/source.docx")).toEqual(docx);
+  } finally { await api("DELETE", `/${id}`); dav.server.stop(true); }
 });
 
 describe("storage API access and validation", () => {

@@ -97,6 +97,8 @@ export type ExtensionDetailModalProps = {
   configSlot?: React.ReactNode;
   /** Native connectors show account settings directly, without extension metadata cards. */
   presentation?: "default" | "connector";
+  /** Put setup controls before the informational cards. Defaults to false. */
+  configSlotFirst?: boolean;
   showEnablementCard?: boolean;
   size?: "default" | "wide";
 };
@@ -230,6 +232,7 @@ export function ExtensionDetailModal({
   onShow,
   configSlot,
   presentation = "default",
+  configSlotFirst = false,
   showEnablementCard = true,
   size = "default",
 }: ExtensionDetailModalProps) {
@@ -298,6 +301,8 @@ export function ExtensionDetailModal({
             <div className={cn("text-sm leading-relaxed", presentation === "connector" ? "text-muted-foreground" : "text-card-foreground")}>
               {description}
             </div>
+
+            {configSlotFirst ? configSlot : null}
 
             {setupNote ? (
               <div className="text-sm leading-relaxed text-muted-foreground">{setupNote}</div>
@@ -494,7 +499,7 @@ export function ExtensionDetailModal({
             </>}
 
             {presentation === "connector" && disabledReason && <p className="text-sm text-amber-11">{disabledReason}</p>}
-            {configSlot}
+            {configSlotFirst ? null : configSlot}
             </div>
           </ScrollAreaViewport>
         </ScrollArea>

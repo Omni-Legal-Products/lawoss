@@ -12,7 +12,8 @@ function fixture(resolveDownloadDirectory = async () => null, authorizeBrowserAu
   class View {
     constructor() {
       const contents = Object.assign(new EventEmitter(), {
-        url: "about:blank", closed: false, reloads: 0,
+        id: views.length + 1, url: "about:blank", closed: false, reloads: 0,
+        debugger: Object.assign(new EventEmitter(), { attach() {}, detach() {}, sendCommand: async () => ({ result: { value: "Example page" } }) }),
         loadURL: async url => { contents.url = url; },
         getURL: () => contents.url, getTitle: () => "Test page", isLoading: () => false,
         canGoBack: () => false, canGoForward: () => false,
@@ -26,14 +27,14 @@ function fixture(resolveDownloadDirectory = async () => null, authorizeBrowserAu
     setBounds(bounds) { this.bounds = bounds; }
   }
   const window = focused => Object.assign(new EventEmitter(), {
-    focused, isDestroyed: () => false, isFocused() { return this.focused; },
+    focused, destroy() {}, isDestroyed: () => false, isFocused() { return this.focused; },
     webContents: { messages: [], url: "file:///app/index.html", getURL() { return this.url; }, isDestroyed: () => false, send(channel, payload) { this.messages.push({ channel, payload }); }, getZoomFactor: () => 1.25 },
     contentView: { children: [], addChildView(view) { this.children.push(view); }, removeChildView(view) { this.children = this.children.filter(child => child !== view); } },
   });
   const first = window(true), second = window(false), third = window(false);
   const handlers = new Map();
   const browserSession = new EventEmitter();
-  const controller = createBrowserPanel({ app: new EventEmitter(), WebContentsView: View, clipboard: { writeText: () => {} }, session: { fromPartition: () => browserSession },
+  const controller = createBrowserPanel({ app: new EventEmitter(), BaseWindow: class { constructor() { return window(false); } }, WebContentsView: View, clipboard: { writeText: () => {} }, session: { fromPartition: () => browserSession },
     getWindow: () => first, getWindowForEvent: event => [first, second, third].find(host => event.sender === host.webContents),
     resolveDownloadDirectory, authorizeBrowserAutomation,
     isAllowedAppNavigation: () => true, safeOpen: { openExternal: () => {} },
@@ -211,4 +212,78 @@ test("a window without a project route cannot borrow another window's download f
   assert.equal(await resolveBrowserProject({}, state, server, "file:///app/index.html#/workspace/missing/session"), null);
   assert.equal(await resolveBrowserProject({}, state, server, "http://localhost:5188/workspace/a/session"), root);
   assert.equal(await resolveBrowserProject({ directory: root }, state, server, "file:///app/index.html#/evals"), root);
+});
+
+
+test("agent browsers load and navigate without adopting the foreground pane", async t => {
+  const f = fixture(); t.after(() => f.controller.destroy());
+  const first = await f.call("openUrl", f.first, "https://example.com", "builtin", { directory: "/task-project" });
+  assert.equal(f.call("state", f.first).activeTabId, null);
+  assert.equal(f.call("state", f.first).tabs[0].background, true);
+  assert.equal(f.first.contentView.children.length, 0);
+  const foreground = (await f.call("createTab", f.first, "https://foreground.example")).tabId;
+  f.call("show", f.first, f.left, foreground);
+  f.first.webContents.messages.length = 0;
+  f.views[0].webContents.emit("did-start-navigation", {}, "https://example.com/next", false, true);
+  f.call("navigate", f.first, "https://example.com/next", first.tab_id);
+  f.views[0].webContents.emit("focus");
+  assert.equal(f.views[0].webContents.url, "https://example.com/next");
+  assert.equal(f.call("state", f.first).activeTabId, foreground);
+  assert.deepEqual(f.call("state", f.first).tabs.map(tab => tab.id), [first.tab_id, foreground]);
+  assert.deepEqual(f.first.contentView.children, [f.views[1]]);
+  assert.equal(f.first.webContents.messages.some(message => message.channel === "legalwork:browser:panel-opened"), false);
+  // Selecting the agent tab is a normal user action. After switching away,
+  // another focus event from its page must not select it again.
+  f.call("selectTab", f.first, first.tab_id);
+  f.call("hide", f.first, foreground);
+  f.call("show", f.first, f.left, first.tab_id);
+  assert.equal(f.call("state", f.first).tabs[0].background, false);
+  assert.equal(f.call("state", f.first).activeTabId, first.tab_id);
+  assert.deepEqual(f.first.contentView.children, [f.views[0]]);
+  f.call("selectTab", f.first, foreground);
+  f.call("hide", f.first, first.tab_id);
+  f.call("show", f.first, f.left, foreground);
+  f.views[0].webContents.emit("focus");
+  assert.equal(f.call("state", f.first).activeTabId, foreground);
+  assert.deepEqual(f.first.contentView.children, [f.views[1]]);
+  // Closing the selected tab follows normal neighbouring-tab selection.
+  f.call("closeTab", f.first, foreground);
+  assert.equal(f.call("state", f.first).activeTabId, first.tab_id);
+  f.call("show", f.first, f.left, first.tab_id);
+  assert.deepEqual(f.first.contentView.children, [f.views[0]]);
+});
+
+test("agent mini tabs are session-owned, survive promotion and close, and clean up independently", async t => {
+  const f = fixture(); t.after(() => f.controller.destroy());
+  const a = await f.call("openUrl", f.first, "https://example.com", "builtin", { workspaceId: "project", sessionId: "a" });
+  const b = await f.call("openUrl", f.first, "https://example.org", "builtin", { workspaceId: "project", sessionId: "b" });
+  assert.deepEqual(f.call("state", f.first).tabs.map(tab => [tab.taskSessionId, tab.background]), [["a", true], ["b", true]]);
+  f.call("selectTab", f.first, a.tab_id);
+  f.call("show", f.first, f.right, a.tab_id);
+  f.call("closeTab", f.first, a.tab_id);
+  assert.equal(f.views[0].webContents.isDestroyed(), false);
+  assert.equal(f.call("state", f.first).tabs[0].background, true);
+  assert.equal(f.call("state", f.first).activeTabId, null);
+  assert.equal(f.first.contentView.children.length, 0);
+  f.call("dismissTab", f.first, a.tab_id);
+  await f.call("previewTab", f.first, a.tab_id);
+  assert.equal(f.call("state", f.first).tabs[0].dismissed, true);
+  const response = await fetch(`${a.browser_url}/batch`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ steps: [] }) });
+  assert.equal(response.ok, true);
+  assert.equal(f.call("state", f.first).tabs[0].dismissed, false);
+  f.call("selectTab", f.first, a.tab_id);
+  f.call("closeAllTabs", f.first);
+  assert.equal(f.views[0].webContents.isDestroyed(), false);
+  assert.equal(f.views[1].webContents.isDestroyed(), false);
+  assert.equal(f.call("state", f.first).tabs.every(tab => tab.background), true);
+  f.call("releaseSession", f.first, "b");
+  assert.equal(f.views[1].webContents.isDestroyed(), true);
+  assert.deepEqual(f.call("state", f.first).tabs.map(tab => tab.id), [a.tab_id]);
+  f.call("selectTab", f.first, a.tab_id);
+  f.call("show", f.first, f.right, a.tab_id);
+  f.call("releaseSession", f.first, "a");
+  assert.equal(f.views[0].webContents.isDestroyed(), false);
+  assert.equal(f.call("state", f.first).tabs[0].taskSessionId, undefined);
+  f.call("closeTab", f.first, a.tab_id);
+  assert.equal(f.views[0].webContents.isDestroyed(), true);
 });

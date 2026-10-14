@@ -18,6 +18,7 @@ let n = 0;
 try { n = Number(fs.readFileSync(counter, "utf8")) || 0; } catch {}
 n += 1;
 fs.writeFileSync(counter, String(n));
+fs.writeFileSync(counter + ".skills", process.env.OPENCODE_DISABLE_EXTERNAL_SKILLS || "");
 const portIdx = process.argv.indexOf("--port");
 const port = portIdx >= 0 ? process.argv[portIdx + 1] : "0";
 if (n <= failUntil) {
@@ -58,6 +59,7 @@ test("retries the engine spawn while the DB is locked, then succeeds", async () 
   try {
     expect(server.url).toContain("http://127.0.0.1:");
     expect(server.running()).toBe(true);
+    expect(readFileSync(counter + ".skills", "utf8")).toBe("true");
     expect(Number(readFileSync(counter, "utf8"))).toBe(3); // 2 locked + 1 healthy
   } finally {
     await server.close();

@@ -1,4 +1,6 @@
 import { documentNavigationSchema } from "@legalwork/types/office-editor";
+import { suggestionIdFromFile } from "@legalwork/types/wiki-suggestions";
+import { PersistentArtifactPanel, useDocumentAgentControl, useDocumentRuntimeEntry, useDocumentTaskActive } from "./document-runtime";
 import { isDocumentReadTool } from "./document-agent-read";
 import { useDocumentControlSessions } from "../../../shell/control/document-control-sessions";
 import { ProjectFilePanel } from "../../workspace/project-file-panel";
@@ -52,6 +54,8 @@ const ArtifactPptxEditor = lazy(() => import("./artifact-pptx-editor").then((mod
 const ArtifactXlsxEditor = lazy(() => import("./artifact-xlsx-editor").then((module) => ({ default: module.ArtifactXlsxEditor })));
 
 const ArtifactMarkdownPanel = lazy(() => import("./artifact-markdown-panel").then((module) => ({ default: module.ArtifactMarkdownPanel })));
+const WikiSuggestionPanel = lazy(() => import("../../wiki/wiki-suggestion-panel").then(module => ({ default: module.WikiSuggestionPanel })));
+const ViewFilePanel = lazy(() => import("../../views/view-file-panel").then(module => ({ default: module.ViewFilePanel })));
 
 const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
 const StorageFilePanel = lazy(() => import("../panel/storage-file-panel").then((module) => ({ default: module.StorageFilePanel })));
@@ -59,7 +63,7 @@ const SearchSourcePanel = lazy(() => import("../../../shell/search-source-panel"
 const ReviewSourcePanel = lazy(() => import("../../reviews/review-source-panel").then(module => ({ default: module.ReviewSourcePanel })));
 const ReviewRecognitionPanel = lazy(() => import("../../reviews/review-recognition-panel").then(module => ({ default: module.ReviewRecognitionPanel })));
 
-type ArtifactPanelProps = {
+export type ArtifactPanelProps = {
   sessionId: string;
   tab: ArtifactPanelTab;
   client: LegalworkServerClient | null;
@@ -108,7 +112,12 @@ function isTextContent(target: OpenTarget): boolean {
   return ["markdown", "text", "sheet", "html"].includes(target.preview) && !/\.(xlsx|xls|ods)$/i.test(target.value);
 }
 
-export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, localReadOnly = false, onClose }: ArtifactPanelProps) {
+export function ArtifactPanel(props: ArtifactPanelProps) {
+  if (props.tab.pendingImportId || props.tab.sourceProject || props.tab.searchSources || props.tab.reviewCitation || props.tab.reviewRecognition || !props.client || !props.workspaceId) return <ArtifactPanelContent {...props} />;
+  return <PersistentArtifactPanel {...props} />;
+}
+
+export function ArtifactPanelContent({ sessionId, tab, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, localReadOnly = false, onClose }: ArtifactPanelProps) {
   const transcriptTargets = usePanelTabStore((state) => state.transcriptArtifactTargets[tab.sourceSessionId ?? sessionId] ?? EMPTY_TRANSCRIPT_TARGETS);
   const artifactTargets = useMemo(() => transcriptTargets.filter(isCollectibleArtifactTarget), [transcriptTargets]);
   // Tabs opened from the workspace file browser carry their own path, so they
@@ -160,6 +169,11 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
     <ReviewRecognitionPanel client={client} workspaceId={workspaceId} reference={tab.reviewRecognition} name={tab.label} onClose={onClose} />
   </Suspense></OfficeEditorBoundary>;
 
+  const suggestionId = tab.wikiSuggestion?.id ?? suggestionIdFromFile(target.value);
+  if (suggestionId) return <Suspense fallback={<PreviewLoading />}><WikiSuggestionPanel key={suggestionId} client={client} workspaceId={tab.wikiSuggestion?.workspaceId ?? workspaceId} id={suggestionId} tabId={tab.id} /></Suspense>;
+
+  if (target.preview === "view") return <Suspense fallback={<PreviewLoading />}><ViewFilePanel client={client} workspaceId={workspaceId} path={target.value} tabId={tab.id} /></Suspense>;
+
   if (target.preview === "markdown") {
     return <OfficeEditorBoundary key={`${workspaceId}:${target.id}`}><Suspense fallback={<PreviewLoading />}>
       <ArtifactMarkdownPanel sessionId={sessionId} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace} localReadOnly={localReadOnly} target={target} onClose={onClose} />
@@ -192,6 +206,8 @@ function stringProperty(value: Record<string, unknown>, key: string) {
 }
 
 export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActions, sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
+  const taskActive = useDocumentTaskActive();
+  const runtimeEntry = useDocumentRuntimeEntry();
   const controlSessionIds = useDocumentControlSessions(sessionId);
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -234,8 +250,8 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
 
   useEffect(() => {
     if (!isEditableDocument && !(hasSaveActions && isTextSheet)) return;
-    return registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, target.id), target.name, () => documentDirtyRef.current, () => { void docxApi.current?.discardRecovery().catch(() => toast.error(t("docx.recovery_not_cleared"))); });
-  }, [isEditableDocument, hasSaveActions, isTextSheet, sessionId, target.id, target.name, workspaceId]);
+    return registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, target.id), target.name, () => documentDirtyRef.current, () => { void docxApi.current?.discardRecovery().catch(() => toast.error(t("docx.recovery_not_cleared"))); }, taskActive);
+  }, [isEditableDocument, hasSaveActions, isTextSheet, sessionId, target.id, target.name, workspaceId, taskActive]);
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -258,7 +274,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
   });
 
   const { data, error, isError, isLoading, refetch } = useQuery<ArtifactQueryState>({
-    queryKey: ["artifact-panel", workspaceId, target.id, client.baseUrl] as const,
+    queryKey: ["artifact-panel", workspaceId, target.id, client.baseUrl, runtimeEntry?.generation] as const,
     queryFn: async () => {
       if (target.kind === "url") {
         throw new Error(t("artifact.urls_open_in_browser"));
@@ -423,7 +439,7 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
       if (savedDocx) { snapshotRef.current = savedDocx; setDocumentSnapshot(savedDocx); }
       access.saved();
       queryClient.setQueryData<ArtifactQueryState>(
-        ["artifact-panel", workspaceId, target.id, client.baseUrl] as const,
+        ["artifact-panel", workspaceId, target.id, client.baseUrl, runtimeEntry?.generation] as const,
         input.kind === "text"
           ? { kind: "text", data: result.content ?? input.data, updatedAt: result.updatedAt ?? null }
           : savedDocx ? publishedDocxSnapshot(savedDocx, nextBinaryRevision(result.updatedAt ?? null)) : {
@@ -599,12 +615,15 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         if (target.preview !== "word" && stringProperty(rawArgs, "path") !== target.value) return { ok: false, error: "The active file changed. Read the sidebar snapshot and select the intended file before retrying." };
         const api = target.preview === "word" ? docxApi.current : officeApi.current;
         if (!api) return { ok: false, error: "The in-app editor is still loading." };
-        if (toolName === "prepare_file_edit" && /\.pptx$/i.test(target.value)) {
-          if (!isEditableDocument) return { ok: false, error: "This presentation is read-only. Open an editable workspace copy first." };
-          if (!await api.save() || documentDirtyRef.current) return { ok: false, error: "The presentation still has unsaved changes. File editing is not ready; the draft remains open." };
+        if (toolName === "prepare_file_edit") {
+          if (!isEditableDocument) return { ok: false, error: "This document is read-only. Open an editable workspace copy first." };
+          await api.drain();
+          const saved = target.preview === "word" ? await docxApi.current?.flushSave()
+            : !documentDirtyRef.current || await api.save();
+          if (!saved || documentDirtyRef.current) return { ok: false, error: "The document still has unsaved changes. File editing is not ready; the draft remains open." };
           // Release the live editor before a file pipeline writes, so a stale
           // draft can never overwrite those changes. Opening again refetches it.
-          onClose();
+          if (!runtimeEntry) onClose();
           return { ok: true, saved: true, path: target.value, nextStep: "Edit the saved file, then use inapp_documents_open to reopen it before continuing." };
         }
         const result = await api.executeAgentTool(toolName, toolArgs);
@@ -617,8 +636,9 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
         };
       },
     } : null
-  ), [documentSurface, isBinaryEditor, controlSessionIds, sessionId, target.name, target.preview, target.value, isEditableDocument, access.editable, onClose]);
-  useControlAction(documentAgentControlAction);
+  ), [documentSurface, isBinaryEditor, controlSessionIds, sessionId, target.name, target.preview, target.value, isEditableDocument, access.editable, onClose, runtimeEntry]);
+  useDocumentAgentControl(documentSurface, documentAgentControlAction, () =>
+    access.status !== "checking" && Boolean(target.preview === "word" ? docxApi.current?.isReady() : officeApi.current?.isReady()), () => documentDirtyRef.current, () => snapshotRef.current?.updatedAt ?? null);
 
   useControlAction(useMemo<LegalworkControlAction | null>(() => documentSurface ? {
     id: "documents.navigate", label: "Show a requested document location", sideEffect: "navigation", requiresArgs: true,
@@ -676,8 +696,8 @@ export function ArtifactPanelView({ sourcePage, localReadOnly = false, saveActio
   useEffect(() => { if (textDirtyRef.current) usePanelTabStore.getState().keepTab(sessionId, target.id); }, [draft, data, sessionId, target.id]);
   useEffect(() => {
     if (!writableFile || isBinaryEditor || isTextSheet) return;
-    return registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, target.id), target.name, () => textDirtyRef.current);
-  }, [writableFile, isBinaryEditor, isTextSheet, workspaceId, sessionId, target.id, target.name]);
+    return registerUnsavedDocument(artifactDocumentKey(workspaceId, sessionId, target.id), target.name, () => textDirtyRef.current, undefined, taskActive);
+  }, [writableFile, isBinaryEditor, isTextSheet, workspaceId, sessionId, target.id, target.name, taskActive]);
 
   const runFileAction = async (action: () => Promise<void>) => {
     try {

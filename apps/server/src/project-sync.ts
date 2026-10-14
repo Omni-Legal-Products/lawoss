@@ -765,6 +765,10 @@ export function runProjectSync(
   const key = keyOf(config);
   const inFlight = rounds.get(key);
   if (inFlight) return inFlight;
+  // This round handles the pending changes; its old timer must not start another round later.
+  const pending = pendingRounds.get(key);
+  if (pending) clearTimeout(pending);
+  pendingRounds.delete(key);
   const round = runRound(config, options.platform ?? REAL_PLATFORM).finally(() => {
     if (rounds.get(key) === round) rounds.delete(key);
   });

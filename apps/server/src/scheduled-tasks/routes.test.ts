@@ -79,6 +79,16 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
       assert.equal((await call(path, "GET", undefined, viewer)).status, 200);
       assert.equal((await call(path, "POST", {}, viewer)).status, 403);
       const draft = { title: "Daily review", prompt: "Summarize open questions", sessionId: "existing", reuseChat: true, pinSession: false, model: { providerID: "test", modelID: "model" }, schedule: { kind: "rrule", startAt: "2099-01-01T09:00:00", timeZone: "Europe/Berlin", rrule: "FREQ=DAILY" } };
+      assert.equal((await call(path, "POST", { ...draft, wikiScope: "owner" })).status, 400);
+      const ownerCreated = await fetch(base + path, { method: "POST", headers: { "x-legalwork-host-token": "host", "content-type": "application/json" }, body: JSON.stringify(draft) });
+      const ownerTask = (await ownerCreated.json()).task;
+      assert.equal(ownerTask.wikiScope, "owner");
+      const collaboratorIssued = await fetch(base + "/tokens", { method: "POST", headers: { "x-legalwork-host-token": "host", "content-type": "application/json" }, body: JSON.stringify({ scope: "collaborator", label: "schedule editor" }) });
+      const collaborator = (await collaboratorIssued.json()).token;
+      assert.equal((await call(path + "/" + ownerTask.id, "PATCH", { revision: 1, wikiScope: "owner" }, collaborator)).status, 400);
+      const downgraded = (await (await call(path + "/" + ownerTask.id, "PATCH", { revision: 1, title: "Collaborator review" }, collaborator)).json()).task;
+      assert.equal(downgraded.wikiScope, "collaborator");
+      assert.equal((await call(path + "/" + ownerTask.id, "DELETE", { revision: 2 })).status, 200);
       assert.equal((await call(path, "POST", { ...draft, sessionId: "foreign" })).status, 400);
       assert.equal((await call(path, "POST", { ...draft, sessionId: "archived" })).status, 400);
       assert.equal((await call("/workspace/remote/scheduled-tasks", "POST", draft)).status, 400);

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { app, BrowserWindow, WebContentsView, clipboard, session } from "electron";
+import { app, BaseWindow, BrowserWindow, WebContentsView, clipboard, session } from "electron";
 import WebSocket from "ws";
 import { createBrowserPanel } from "../electron/browser-panel.mjs";
 import { requireBrowserNetwork } from "../electron/browser-network-policy.mjs";
@@ -41,7 +41,7 @@ app.whenReady().then(async () => {
   const server = { running: true, baseUrl: origin, clientToken: "fixture" };
   const main = new BrowserWindow({ show: false });
   const panel = createBrowserPanel({
-    app, WebContentsView, clipboard, session,
+    app, BaseWindow, WebContentsView, clipboard, session,
     getWindow: () => main, getWindowForEvent: () => main,
     authorizeBrowserAutomation: context => requireBrowserNetwork(context, server),
     isAllowedAppNavigation: () => false,
@@ -71,7 +71,7 @@ app.whenReady().then(async () => {
           const tab = await open(id);
           assert.equal(tab.snapshot.error, undefined);
           assert.ok(hits.includes(`/${id}`));
-          invoke("closeTab", tab.tab_id);
+          invoke("releaseSession", id);
         }
       }
     }

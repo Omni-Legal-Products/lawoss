@@ -1,3 +1,5 @@
+import { useMarkdownStreams } from "./markdown-stream";
+import { useDocumentAgentControl, useDocumentRuntimeEntry } from "./document-runtime";
 import { useDocumentControlSessions } from "../../../shell/control/document-control-sessions";
 import { usePanelTabStore } from "../panel/panel-tab-store";
 import { keepHandoffCopy } from "./document-handoff-copy";
@@ -10,11 +12,11 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { ArtifactFrame } from "./artifact-frame";
 import { ArtifactIcon } from "./artifact-icon";
-import { PreviewError, PreviewLoading } from "./preview";
+import { MarkdownPreview, PreviewError, PreviewLoading } from "./preview";
 import { ArtifactMarkdownEditor } from "./artifact-markdown-editor";
 import { artifactDocumentKey, registerUnsavedDocument } from "./docx-document-state";
 import { loadMarkdownDraft, savedMarkdownDraft, replaceMarkdownText, type MarkdownDraft } from "./markdown-draft";
-import { useControlAction, useControlSurface, type LegalworkControlAction, type LegalworkControlSurface } from "../../../shell/control/control-provider";
+import { useControlSurface, type LegalworkControlAction, type LegalworkControlSurface } from "../../../shell/control/control-provider";
 import type { OpenTarget } from "./open-target";
 import { DocumentAccessBanner, useDocumentOwnership } from "./use-document-ownership";
 import { t } from "@/i18n";
@@ -52,6 +54,10 @@ type Props = {
 };
 
 export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace, target, localReadOnly: sourceReadOnly = false, saveActions, onClose }: Props) {
+  const runtimeEntry = useDocumentRuntimeEntry();
+  const streams = useMarkdownStreams(state => state.items);
+  const stream = Object.values(streams).findLast(item => item.workspaceId === workspaceId && item.path === target.value);
+  const writing = stream?.status === "writing";
   const controlSessionIds = useDocumentControlSessions(sessionId);
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<MarkdownDraft | null>(null);
@@ -70,13 +76,15 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
     setDraft(draftRef.current);
   }, []);
   const query = useQuery({
-    queryKey: ["markdown-editor", workspaceId, target.value, client.baseUrl],
+    queryKey: ["markdown-editor", workspaceId, target.value, client.baseUrl, runtimeEntry?.generation],
     queryFn: () => client.readWorkspaceFile(workspaceId, target.value),
+    enabled: !writing,
+    retry: stream ? false : undefined,
     refetchOnWindowFocus: true,
     refetchInterval: sourceReadOnly ? 2000 : false,
   });
   const access = useDocumentOwnership({
-    enabled: !sourceReadOnly && target.kind === "file",
+    enabled: !sourceReadOnly && !writing && target.kind === "file",
     isLocalWorkspace: !isRemoteWorkspace,
     client, workspaceId, path: target.value,
     refresh: async () => {
@@ -100,7 +108,11 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
     },
     drain: async () => { await pendingSave.current; },
   });
-  const localReadOnly = sourceReadOnly || !access.ownsFile;
+  const streamingPreview = stream && (stream.status !== "complete" || !draft);
+  const localReadOnly = sourceReadOnly || Boolean(streamingPreview) || !access.ownsFile;
+  useEffect(() => {
+    if (stream?.status === "complete") void query.refetch();
+  }, [stream?.id, stream?.status]);
   useEffect(() => {
     if (query.data) update((current) => loadMarkdownDraft(current, query.data.content, query.data.updatedAt ?? null));
   }, [query.data, update]);
@@ -244,8 +256,14 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
       const tool = Reflect.get(args, "toolName");
       if (tool === "read") return { ok: true, data: { markdown: current.content, unsavedChanges: current.content !== current.baseline } };
       if (localReadOnly || !access.editable) return { ok: false, error: t("storage.read_only") };
+      if (tool === "prepare_file_edit") {
+        if (pendingSave.current && !await pendingSave.current) return { ok: false, saved: false };
+        const current = draftRef.current;
+        const saved = current !== null && (current.content === current.baseline || await save());
+        return { ok: saved, saved };
+      }
       if (savingRef.current) return { ok: false, error: t("markdown.save_in_progress") };
-      if (tool === "save") return { ok: await save() };
+      if (tool === "save") { const saved = await save(); return { ok: saved, saved }; }
       const values: unknown = Reflect.get(args, "args");
       if (tool !== "replace_text" || !values || typeof values !== "object") return { ok: false, error: t("markdown.unknown_tool") };
       const search: unknown = Reflect.get(values, "search");
@@ -258,11 +276,12 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
       } catch (error) { return { ok: false, error: error instanceof Error ? error.message : t("markdown.edit_failed") }; }
     },
   }), [target.name, target.value, controlSessionIds, sessionId, save, onChange, localReadOnly, access.editable]);
-  useControlAction(action);
+  useDocumentAgentControl(surface, action, () => Boolean(draftRef.current) && access.status !== "checking", () => Boolean(draftRef.current && draftRef.current.content !== draftRef.current.baseline));
 
   const download = () => {
-    if (!draftRef.current) return;
-    const url = URL.createObjectURL(new Blob([draftRef.current.content], { type: "text/markdown;charset=utf-8" }));
+    const content = streamingPreview ? stream.content : draftRef.current?.content;
+    if (content === undefined) return;
+    const url = URL.createObjectURL(new Blob([content], { type: "text/markdown;charset=utf-8" }));
     const anchor = document.createElement("a"); anchor.href = url; anchor.download = target.name; anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
@@ -274,14 +293,14 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") { event.preventDefault(); event.stopPropagation(); if (access.editable) void save(); }
   }}>
     <ArtifactFrame expandable title={projectFileDisplayName(target.value, target.name)} icon={<ArtifactIcon type="markdown" className="size-5" />}
-      meta={<span role="status">{saving ? t("common.saving") : automaticSave.error ? t("artifact.autosave_paused") : dirty ? t("common.unsaved_changes") : t("common.saved")}</span>}
+      meta={<span role="status">{writing ? t("markdown.agent_writing") : streamingPreview ? t("markdown.generation_stopped") : saving ? t("common.saving") : automaticSave.error ? t("artifact.autosave_paused") : dirty ? t("common.unsaved_changes") : t("common.saved")}</span>}
       actions={<>
-        {canAutosave && access.editable && <label className="me-3 flex shrink-0 items-center gap-1.5 text-xs" title={t("artifact.autosave_description")}>
+        {canAutosave && !streamingPreview && access.editable && <label className="me-3 flex shrink-0 items-center gap-1.5 text-xs" title={t("artifact.autosave_description")}>
           <Switch size="sm" checked={autosave} onCheckedChange={enabled => useDocumentPreferences.getState().setAutosave(autosaveKey, enabled)} />
           {t("artifact.autosave")}
         </label>}
-        {saveActions ? access.editable && saveActions(save, saving || !draft) : <Button size="sm" disabled={localReadOnly || !draft || !dirty || saving} onClick={() => void save()}>{t("common.save")}</Button>}
-        <Button variant="ghost" size="icon-sm" aria-label={t("artifact.download")} title={t("artifact.download_markdown")} onClick={download} disabled={!draft}><Download /></Button>
+        {saveActions ? access.editable && !streamingPreview && saveActions(save, saving || !draft) : <Button size="sm" disabled={localReadOnly || !draft || !dirty || saving} onClick={() => void save()}>{t("common.save")}</Button>}
+        <Button variant="ghost" size="icon-sm" aria-label={t("artifact.download")} title={t("artifact.download_markdown")} onClick={download} disabled={!draft && !stream}><Download /></Button>
         {!isRemoteWorkspace && <>
           <Button variant="ghost" size="icon-sm" aria-label={t("artifact.show_in_folder")} title={t("artifact.show_in_folder")} onClick={() => void runFileAction(() => revealDesktopItemInDir(absolutePath))}><FolderOpen /></Button>
           <Button variant="ghost" size="icon-sm" aria-label={t("markdown.open_externally")} title={t("markdown.open_externally")} onClick={() => void runFileAction(async () => {
@@ -294,7 +313,8 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
         <Button variant="ghost" size="icon-sm" aria-label={t("artifact.close")} title={t("artifact.close")} onClick={onClose} disabled={saving}><X /></Button>
       </>}
     >
-      <DocumentAccessBanner access={access} />
+      {!streamingPreview && <DocumentAccessBanner access={access} />}
+      {streamingPreview && <div role="status" className="border-b border-border bg-muted px-4 py-2 text-xs">{writing ? t("markdown.stream_read_only") : stream.status === "complete" && !query.isError ? t("common.saving") : t("markdown.stream_failed")}</div>}
       {clash ? <div role="alert" className="flex flex-wrap items-center gap-2 border-b border-border bg-muted px-4 py-2 text-xs">
           <span className="min-w-0 flex-1">{t("markdown.conflict_body")}</span>
           <Button size="sm" variant="outline" disabled={saving} onClick={() => void resolveClash("both")}>{t("markdown.keep_both")}</Button>
@@ -304,7 +324,7 @@ export function ArtifactMarkdownPanel({ sessionId, client, workspaceId, workspac
           {t("markdown.edits_still_here_download", { error: saveError })}
         </div>}
       <div className="min-h-0 flex-1 overflow-hidden" inert={access.status === "offering" || access.status === "releasing"}>
-        {draft ? <ArtifactMarkdownEditor value={draft.content} baseline={draft.baseline} readOnly={localReadOnly} onChange={onChange} imageUpload={imageUpload} imagePreview={imagePreview} />
+        {streamingPreview ? <div className="h-full overflow-auto" aria-label={t("markdown.agent_writing")}><MarkdownPreview content={stream.content} /></div> : draft ? <ArtifactMarkdownEditor value={draft.content} baseline={draft.baseline} readOnly={localReadOnly} onChange={onChange} imageUpload={imageUpload} imagePreview={imagePreview} />
           : query.isError ? <PreviewError message={query.error instanceof Error ? query.error.message : t("markdown.open_failed")} /> : <PreviewLoading />}
       </div>
     </ArtifactFrame>

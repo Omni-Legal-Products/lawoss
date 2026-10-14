@@ -7,6 +7,7 @@ import { t } from "@/i18n";
 export type OfficeAgentResult = { success: boolean; data?: unknown; saved?: boolean; error?: string };
 export type OfficeEditorApi = {
   navigate: (target: DocumentNavigationTarget) => Promise<unknown>;
+  isReady: () => boolean;
   save: () => Promise<boolean>;
   drain: () => Promise<void>;
   getBuffer: () => Promise<ArrayBuffer | null>;
@@ -30,6 +31,7 @@ export function useOfficeEditor(props: OfficeEditorProps) {
   const agentTool = useRef<((name: string, args: Record<string, unknown>) => Promise<{ data: unknown; mutated?: boolean }>) | null>(null);
   const navigation = useRef<((target: DocumentNavigationTarget) => Promise<unknown>) | null>(null);
   const afterSave = useRef<(() => void) | null>(null);
+  const ready = useRef<() => boolean>(() => true);
   const latest = useRef(props);
   latest.current = props;
   const revision = useRef(0);
@@ -106,7 +108,7 @@ export function useOfficeEditor(props: OfficeEditorProps) {
       if (!navigation.current) throw new Error("The document is still loading.");
       return navigation.current(documentNavigationTargetSchema.parse(target));
     };
-    const api = { navigate, save, getBuffer, revision: () => revision.current, executeAgentTool, drain: () => busy.current ? new Promise<void>(resolve => idle.current.push(resolve)) : Promise.resolve() };
+    const api = { isReady: () => Boolean(serialize.current && agentTool.current) && ready.current(), navigate, save, getBuffer, revision: () => revision.current, executeAgentTool, drain: () => busy.current ? new Promise<void>(resolve => idle.current.push(resolve)) : Promise.resolve() };
     props.apiRef.current = api;
     const element = host.current;
     const keydown = (event: KeyboardEvent) => {
@@ -119,5 +121,5 @@ export function useOfficeEditor(props: OfficeEditorProps) {
     element?.addEventListener("keydown", keydown, true);
     return () => { if (props.apiRef.current === api) props.apiRef.current = null; element?.removeEventListener("keydown", keydown, true); };
   }, [props.apiRef, changed]);
-  return { host, serialize, agentTool, navigation, afterSave, changed, saving, error, setError };
+  return { host, serialize, agentTool, navigation, afterSave, ready, changed, saving, error, setError };
 }

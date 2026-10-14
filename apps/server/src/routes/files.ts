@@ -1377,6 +1377,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       if (before && !before.isFile()) {
         throw new ApiError(400, "invalid_path", "Path must point to a file");
       }
+      if (body.createOnly === true && before) throw new ApiError(409, "file_exists", "A file already exists at this path. Choose a new filename.");
       const beforeUpdatedAt = before ? before.mtimeMs : null;
       let written = content;
       let merged = false;

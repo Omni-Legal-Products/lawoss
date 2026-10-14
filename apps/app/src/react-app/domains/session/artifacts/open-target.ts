@@ -5,7 +5,7 @@ import { attachmentFilename } from "@/app/lib/attachment-filename";
 import { LEGALMEMORY_URI_PATTERN } from "@/components/markdown/legalmemory-ref";
 
 type OpenTargetKind = "url" | "file";
-export type OpenTargetPreview = "browser" | "markdown" | "sheet" | "slides" | "word" | "image" | "audio" | "video" | "pdf" | "html" | "text" | "external";
+export type OpenTargetPreview = "view" | "browser" | "markdown" | "sheet" | "slides" | "word" | "image" | "audio" | "video" | "pdf" | "html" | "text" | "external";
 
 export interface TextData {
   kind: "text";
@@ -28,6 +28,7 @@ export type OpenTarget = {
   confidence: number;
   reason: string;
   exists?: boolean;
+  streaming?: boolean;
   size?: number;
   updatedAt?: number;
 };
@@ -38,7 +39,7 @@ const WORKSPACE_ID_PREFIX_PATTERN = /^workspace\/(?:ws_[^/]+|\d+|[0-9a-f-]{6,})\
 const FILE_PATTERN = /(?:^|[\s"'`([{*])((?:\.{1,2}[/\\]|~[/\\]|[/\\])?[\w.\-]+(?:[/\\][\w.\-]+)+\.[a-z][a-z0-9]{0,9}|[\w.\-]+\.[a-z][a-z0-9]{0,9})/gi;
 const URL_PATTERN = /https?:\/\/[^\s)\]}>"'`]+/gi;
 const SOCKET_PATTERN = /(?:ws|wss):\/\/[^\s)\]}>"'`]+/gi;
-const SIDEBAR_ARTIFACT_FILE_PREVIEWS = new Set<OpenTargetPreview>(["markdown", "sheet", "slides", "word", "image", "audio", "video", "pdf", "html", "text"]);
+const SIDEBAR_ARTIFACT_FILE_PREVIEWS = new Set<OpenTargetPreview>(["view", "markdown", "sheet", "slides", "word", "image", "audio", "video", "pdf", "html", "text"]);
 const MARKDOWN_LINK_PATTERN = /\[([^\]\n]+)\]\(([^)\s]+)\)/g;
 const DISCOVERY_TOOL_NAMES = new Set(["glob", "grep", "search", "find"]);
 const ARTIFACT_METADATA_TOOL_NAMES = new Set(["legalwork_extension_call"]);
@@ -85,6 +86,7 @@ function extname(value: string) {
 
 export function classifyOpenTarget(value: string, kind: OpenTargetKind): OpenTargetPreview {
   if (kind === "url") return "browser";
+  if (/\.view\.json$/i.test(attachmentFilename(value))) return "view";
   const ext = extname(attachmentFilename(value));
   if ([".md", ".markdown", ".mdx"].includes(ext)) return "markdown";
   if ([".csv", ".tsv", ".xlsx", ".xls", ".ods"].includes(ext)) return "sheet";
@@ -157,7 +159,7 @@ function isArtifactTarget(target: OpenTarget) {
 }
 
 export function isCollectibleArtifactTarget(target: OpenTarget) {
-  return target.kind === "file" && target.exists === true && SIDEBAR_ARTIFACT_FILE_PREVIEWS.has(target.preview);
+  return target.kind === "file" && (target.exists === true || target.streaming === true) && SIDEBAR_ARTIFACT_FILE_PREVIEWS.has(target.preview);
 }
 
 export function isOpenableFileTarget(target: OpenTarget) {
@@ -232,6 +234,50 @@ export function resolvePathOpenTarget(
   return built ? { ...built, exists: true } : null;
 }
 
+function localPathFromHref(href: string) {
+  const trimmed = href.trim();
+
+  if (!trimmed || trimmed.startsWith("#") || /^(?:https?|mailto):/i.test(trimmed)) {
+    return "";
+  }
+
+  if (/^file:/i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      const host = decodeURIComponent(parsed.hostname);
+      const pathname = decodeURIComponent(parsed.pathname);
+      const localPath = /^\/[A-Za-z]:\//.test(pathname) ? pathname.slice(1) : pathname;
+
+      if (host && host !== "localhost") {
+        return `//${host}${localPath.startsWith("/") ? localPath : `/${localPath}`}`;
+      }
+
+      return localPath;
+    } catch {
+      return "";
+    }
+  }
+
+  const path = trimmed.split(/[?#]/)[0] ?? trimmed;
+  try { return decodeURIComponent(path); }
+  catch { return path; }
+}
+
+export function resolveHrefOpenTarget(href: string, openTargets: OpenTarget[]) {
+  if (/^https?:\/\//i.test(href)) {
+    return { id: `url:${href}`, kind: "url", value: href, name: href, preview: "browser", confidence: 100, reason: "link" } satisfies OpenTarget;
+  }
+  const path = localPathFromHref(href);
+
+  if (!path) {
+    return null;
+  }
+
+  // Prefer a verified transcript artifact; otherwise build one from the path so
+  // plain file mentions (not just edited/attached files) are openable too.
+  return resolvePathOpenTarget(path, openTargets);
+}
+
 /**
  * Resolve a transcript file badge (PDF, DOCX, image, …) to an openable target.
  * Returns null for inline-only attachments with no recoverable workspace path
@@ -273,11 +319,11 @@ function scanText(
     if (!href) continue;
     // LegalMemory reference links are chips with their own click behavior,
     // never workspace files or browser URLs.
-    if (LEGALMEMORY_URI_PATTERN.test(href)) continue;
+    if (LEGALMEMORY_URI_PATTERN.test(href) || href.startsWith("legalwork-wiki://")) continue;
     if (/^(?:https?|wss?):\/\//i.test(href)) {
       addTarget(map, targetFromUrl(href, confidence, reason));
     } else if (options.includeFiles) {
-      addTarget(map, targetFromFile(href, confidence, reason));
+      addTarget(map, targetFromFile(localPathFromHref(href), confidence, reason));
     }
   }
 

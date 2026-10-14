@@ -1,3 +1,4 @@
+import { applyMarkdownStreamEvent } from "../artifacts/markdown-stream";
 import { usePanelTabStore } from "../panel/panel-tab-store";
 import type { UIMessage } from "ai";
 import type { HostApprovalRequest } from "@legalwork/types/desktop-ipc";
@@ -707,6 +708,7 @@ export function acknowledgeInteraction(workspaceId: string, sessionId: string, r
 }
 
 function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent) {
+  applyMarkdownStreamEvent(workspaceId, event);
   const queryClient = getReactQueryClient();
   const input = entry.input;
 
@@ -1060,6 +1062,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     // panel. Mark workspace previews stale so active files reload immediately
     // and closed files fetch fresh bytes the next time they are opened.
     void queryClient.invalidateQueries({ queryKey: ["artifact-panel", workspaceId] });
+    void queryClient.invalidateQueries({ queryKey: ["markdown-editor", workspaceId] });
     void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
     // Only emits for runs this client instrumented (markTaskRunStart in the
     // send path); also dedupes idle events from multiple workspace syncs.

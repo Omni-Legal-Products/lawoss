@@ -192,7 +192,9 @@ export async function createManagedOpencodeServer(options: {
   const username = randomSecret();
   const password = randomSecret();
   const command = options.bin?.trim() || "opencode";
-  const features = { OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: process.env.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS ?? "true" };
+  // LegalWork supplies its deduplicated skill catalog explicitly. The engine's
+  // recursive external scan also picks up nested packages for other agent apps.
+  const features = { OPENCODE_DISABLE_EXTERNAL_SKILLS: "true", OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: process.env.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS ?? "true" };
   const env = {
     ...process.env,
     ...features,
@@ -201,7 +203,8 @@ export async function createManagedOpencodeServer(options: {
     OPENCODE_SERVER_PASSWORD: password,
   };
   const injectedEnv = Object.entries({
-    ...features,    ...(options.env ?? {}),
+    ...features,
+    ...(options.env ?? {}),
     OPENCODE_SERVER_USERNAME: username,
     OPENCODE_SERVER_PASSWORD: password,
   })

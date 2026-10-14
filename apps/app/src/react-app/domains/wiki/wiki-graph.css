@@ -1,0 +1,29 @@
+.wiki-graph-workspace { display: flex; flex-direction: column; flex: 1; width: 100%; height: 100%; min-height: 420px; overflow: hidden; background: var(--background); }
+.wiki-graph-toolbar { display: flex; flex-shrink: 0; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+.wiki-graph-finder { display: flex; align-items: center; gap: 8px; position: relative; min-width: 100px; width: 280px; color: var(--muted-foreground); }
+.wiki-graph-finder > input { width: 100%; min-width: 0; height: 30px; background: transparent; color: var(--foreground); font-size: 12px; outline: none; }
+.wiki-graph-finder > input:focus-visible { box-shadow: 0 1px 0 var(--ring); }
+.wiki-graph-count { margin-left: auto; color: var(--muted-foreground); white-space: nowrap; font-size: 11px; }
+.wiki-graph-find-results { position: absolute; z-index: 20; top: 37px; left: 0; width: min(430px, 80vw); max-height: 380px; overflow-y: auto; background: var(--popover); color: var(--popover-foreground); border: 1px solid var(--border); border-radius: 9px; padding: 5px; box-shadow: 0 8px 24px #00000018; }
+.wiki-graph-find-results > div { display: flex; align-items: center; border-radius: 5px; }
+.wiki-graph-find-results > div:hover { background: var(--accent); }
+.wiki-graph-find-results button { display: flex; flex-direction: column; min-width: 0; gap: 2px; flex: 1; padding: 9px; text-align: left; }
+.wiki-graph-find-results strong { font-size: 12px; font-weight: 500; }
+.wiki-graph-find-results span { font-size: 10px; color: var(--muted-foreground); }
+.wiki-graph-find-results .wiki-graph-result-open { flex: none; font-size: 11px; color: var(--muted-foreground); }
+.wiki-graph-find-results > p { padding: 14px 9px; font-size: 12px; }
+.wiki-graph-body { position: relative; flex: 1; min-height: 360px; }
+.wiki-graph-stage, .wiki-graph-webgl { position: absolute; inset: 0; }
+.wiki-graph-stage:focus-visible { outline: 1px solid var(--ring); outline-offset: -2px; }
+.wiki-graph-webgl { touch-action: none; }
+.wiki-graph-camera-controls { position: absolute; z-index: 2; right: 16px; bottom: 45px; display: flex; flex-direction: column; gap: 5px; }
+.wiki-graph-camera-controls button { background: var(--background); }
+.wiki-graph-status { position: absolute; left: 16px; right: 16px; bottom: 12px; display: flex; justify-content: space-between; gap: 12px; pointer-events: none; color: var(--muted-foreground); font-size: 10px; }
+.wiki-graph-settings { position: absolute; z-index: 4; right: 16px; top: 12px; display: flex; flex-direction: column; gap: 12px; width: 230px; padding: 14px; border: 1px solid var(--border); border-radius: 9px; background: var(--popover); color: var(--popover-foreground); box-shadow: 0 5px 18px #0000000c; font-size: 12px; }
+.wiki-graph-settings > input, .wiki-graph-settings > select { width: 100%; padding: 7px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--background); color: var(--foreground); font-size: 11px; }
+.wiki-graph-settings label { display: flex; align-items: center; gap: 8px; }
+.wiki-graph-settings input[type=checkbox], .wiki-graph-settings input[type=range] { accent-color: var(--primary); }
+.wiki-graph-depth { flex-wrap: wrap; }
+.wiki-graph-depth input { width: 110px; }
+.wiki-graph-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 340px; height: 100%; padding: 30px; text-align: center; font-size: 12px; color: var(--muted-foreground); }
+@media (max-width: 650px) { .wiki-graph-status span:last-child { display: none; } .wiki-graph-count { font-size: 10px; } }

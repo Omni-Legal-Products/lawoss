@@ -3,6 +3,50 @@ import { setTimeout as delay } from "node:timers/promises";
 import { serve } from "./serve-node.js";
 
 describe("serve", () => {
+  test("accepts the encoded size of a permitted wiki attachment", async () => {
+    const totalBytes = Math.ceil(100 * 1024 * 1024 * 4 / 3) + 32 * 1024;
+    const chunk = new Uint8Array(64 * 1024);
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({ pull(controller) {
+      if (sent === totalBytes) { controller.close(); return; }
+      const size = Math.min(chunk.length, totalBytes - sent);
+      controller.enqueue(chunk.subarray(0, size));
+      sent += size;
+    } });
+    const server = await serve({ hostname: "127.0.0.1", port: 0, fetch: async request => {
+      const reader = request.body?.getReader();
+      if (!reader) throw new Error("Expected an attachment body");
+      let received = 0;
+      while (true) {
+        const item = await reader.read();
+        if (item.done) break;
+        received += item.value.byteLength;
+      }
+      return Response.json({ received });
+    } });
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.port}/attachment`, { method: "POST", body });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ received: totalBytes });
+    } finally { await server.stop(); }
+  }, 10_000);
+
+  test("keeps an active approval wait open beyond the connection idle timeout", async () => {
+    const server = await serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 1,
+      fetch: async request => {
+        const proposal = await request.json();
+        await delay(5_000);
+        return Response.json({ allowed: true, proposal });
+      },
+    });
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.port}/approval`, { method: "POST",
+        headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "wiki.write" }) });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ allowed: true, proposal: { action: "wiki.write" } });
+    } finally { await server.stop(); }
+  }, 10_000);
+
   test("aborts the Web request when the client disconnects while awaiting approval", async () => {
     let started: () => void = () => {};
     const ready = new Promise<void>((resolve) => { started = resolve; });

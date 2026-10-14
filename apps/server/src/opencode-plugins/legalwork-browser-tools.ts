@@ -1,3 +1,4 @@
+import { compactBrowserResult } from "./browser-snapshot.js";
 import { z } from "zod";
 
 const browserUrl = z.string().describe("Exact browser_url capability returned by legalwork_browser_open_url. Do not construct one or use a general debugging endpoint.");
@@ -9,6 +10,8 @@ const batchArgs = z.object({
     value: z.string().optional().describe("Value to enter for fill."),
     text: z.string().optional().describe("For wait_for: visible page text to wait for after navigation or an asynchronous update."),
   })).max(20).describe("Known actions in order. Add wait_for after navigation or an async update. An empty array reads the current page."),
+  snapshot_offset: z.number().int().min(0).optional().describe("Next snapshotOffset from snapshot.pagination; use steps:[] to read more content."),
+  controls_offset: z.number().int().min(0).optional().describe("Next controlsOffset from snapshot.pagination; use steps:[] to read more controls."),
   timeout_ms: z.number().int().min(100).max(30000).optional().describe("Total action/wait budget, default 15000 ms."),
 });
 const downloadsArgs = z.object({
@@ -49,7 +52,7 @@ export const legalworkBrowserTools = {
     args: batchArgs.shape,
     async execute(rawArgs: unknown) {
       const args = batchArgs.parse(rawArgs);
-      return JSON.stringify(await requestBrowser(args.browser_url, "batch", { steps: args.steps, timeout_ms: args.timeout_ms ?? 15000 }));
+      return JSON.stringify(compactBrowserResult(await requestBrowser(args.browser_url, "batch", { steps: args.steps, timeout_ms: args.timeout_ms ?? 15000 }), args.snapshot_offset, args.controls_offset));
     },
   },
   legalwork_browser_downloads: {

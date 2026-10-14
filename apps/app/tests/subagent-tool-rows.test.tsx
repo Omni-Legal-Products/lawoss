@@ -5,6 +5,7 @@ import type { ToolPart } from "@opencode-ai/sdk/v2/client";
 import type { WorkspaceSessionGroup } from "../src/app/types";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
 import { SubagentRow } from "../src/components/chat/subagent-tool-row";
+import { sessionSubagents, isRunningSubagent } from "../src/react-app/domains/session/surface/session-subagents";
 import { subagentDescription, subagentSessionId, subagentStatus } from "../src/components/chat/subagent-tool";
 import { getAssistantRenderGroups, groupAssistantToolRuns } from "../src/components/chat/utils";
 import { sidebarSessionGroups } from "../src/react-app/domains/session/sidebar/utils";
@@ -12,6 +13,21 @@ import { parseDynamicToolUIPart } from "../src/react-app/domains/session/sync/pa
 import { __applySessionSyncEventForTest, __createWorkspaceSessionSyncForTest, trackWorkspaceSessionSync, transcriptKey } from "../src/react-app/domains/session/sync/session-sync";
 
 afterEach(() => getReactQueryClient().clear());
+
+test("the monitor counts running descendants without unrelated, completed or waiting agents", () => {
+  const sessions = {
+    root: { id: "root", title: "Onboarding" },
+    child: { id: "child", title: "Matters", parentID: "root" },
+    nested: { id: "nested", title: "Sources", parentID: "child" },
+    done: { id: "done", title: "Clients", parentID: "root" },
+    waiting: { id: "waiting", title: "Approval", parentID: "root" },
+    unrelated: { id: "unrelated", title: "Other", parentID: "other" },
+  };
+  const agents = sessionSubagents("root", sessions, { child: "responding", nested: "thinking", done: "idle", waiting: "thinking", unrelated: "responding" }, ["waiting"]);
+  expect(agents.map(agent => agent.id)).toEqual(["child", "nested", "done", "waiting"]);
+  expect(agents.filter(agent => isRunningSubagent(agent.status))).toHaveLength(2);
+  expect(sessionSubagents("missing", sessions, {})).toEqual([]);
+});
 
 const taskInput = { description: "Review liability clauses", prompt: "Private instructions", subagent_type: "general" };
 const task: DynamicToolUIPart = {

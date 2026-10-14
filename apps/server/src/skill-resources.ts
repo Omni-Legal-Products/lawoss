@@ -81,6 +81,8 @@ function globalSkillsBaseDirs(): string[] {
 export async function resolveSkillDir(workspaceRoot: string, skillName: string): Promise<string> {
   const trimmed = skillName.trim();
   validateSkillName(trimmed); // kebab-case only — path-traversal safe
+  const fromVisible = await findSkillDirInBase(join(workspaceRoot, "Skills"), trimmed);
+  if (fromVisible) return fromVisible;
   const fromOpencode = await findSkillDirInBase(projectSkillsDir(workspaceRoot), trimmed);
   if (fromOpencode) return fromOpencode;
   const fromClaude = await findSkillDirInBase(join(workspaceRoot, ".claude", "skills"), trimmed);

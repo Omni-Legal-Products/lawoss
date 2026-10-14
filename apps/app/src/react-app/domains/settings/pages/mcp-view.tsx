@@ -218,7 +218,6 @@ export function McpView(props: McpViewProps) {
   const [detailPlugin, setDetailPlugin] = useState<ImportedPlugin | null>(null);
   const [legalworkUiMcpCommand, setLegalworkUiMcpCommand] = useState<string[] | null>(null);
   const [legalworkUiMcpEnvironment, setLegalworkUiMcpEnvironment] = useState<Record<string, string> | null>(null);
-  const [computerUseMcpCommand, setComputerUseMcpCommand] = useState<string[] | null>(null);
   const [directoryOpen, setDirectoryOpen] = useState(false);
   useEffect(() => {
     if (libraryLayout?.directoryRequest) setDirectoryOpen(true);
@@ -299,14 +298,9 @@ export function McpView(props: McpViewProps) {
             ),
           ));
         }
-        const computerUseCommand = await window.__LEGALWORK_ELECTRON__?.invokeDesktop?.("getComputerUseMcpCommand");
-        if (Array.isArray(computerUseCommand) && computerUseCommand.every((part) => typeof part === "string")) {
-          setComputerUseMcpCommand(computerUseCommand);
-        }
       } catch {
         setLegalworkUiMcpCommand(null);
         setLegalworkUiMcpEnvironment(null);
-        setComputerUseMcpCommand(null);
       }
     })();
   }, []);
@@ -366,7 +360,6 @@ export function McpView(props: McpViewProps) {
 
   const launchCommandForEntry = (entry: McpDirectoryInfo) => {
     if (entry.serverName === "legalwork-ui") return legalworkUiMcpCommand ?? undefined;
-    if (entry.serverName === "computer-use") return computerUseMcpCommand ?? entry.command;
     return entry.command;
   };
 
@@ -690,6 +683,7 @@ export function McpView(props: McpViewProps) {
             url={typeof detailEntry.url === "string" ? detailEntry.url : undefined}
             oauth={detailEntry.oauth}
             configSlot={disabledReason ? null : extensionConfigSlot}
+            configSlotFirst={detailEntry.id === "open-computer-use"}
             showEnablementCard={!isGoogleWorkspace}
             onConnect={disabledReason || detailEntry.requestAccessUrl ? undefined : isToggleOnlyExtension(detailEntry) ? () => {
               setLegalWorkExtensionEnabled(detailEntry, true);

@@ -1,8 +1,9 @@
+import { within } from "./files.js";
+import { withFileEditorHandoff } from "../opencode-plugins/file-editor-handoff.js";
 import { sandboxPaths } from "./paths.js";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { realpath } from "node:fs/promises";
-import { within } from "./files.js";
 import { listSkills } from "../skills.js";
 import { ApprovalService } from "../approvals.js";
 import { onOrgPolicyChange } from "../org-policy.js";
@@ -19,6 +20,10 @@ import { effectiveSandbox, onSandboxSettingsChange, writeSandboxNetworkMode, typ
 import { runHostCommand } from "./host.js";
 import { brokerRequest, prepareOutboundRequest, type OutboundRequest } from "./network.js";
 import { webRequest, webResult, type WebInput } from "./web.js";
+import { WikiStore } from "../wiki/store.js";
+import { WikiSync } from "../wiki/sync.js";
+import { assertWikiWorkspaceAccess, ownsWikis, wikiAgentCanAccess, wikiForDirectory } from "../wiki/access.js";
+import { buildWikiFilePolicy, wikiContentPath, wikiSafeSandboxMounts } from "../wiki/file-access-policy.js";
 
 export type SandboxCommand = { command: string; description?: string; sessionID?: string; workdir?: string; skills?: string[]; write: boolean; timeoutMs: number };
 export type AgentPermissionRule = { permission: string; pattern: string; action: PermissionAction };
@@ -105,6 +110,19 @@ export class AgentSandboxService {
     return this.withPolicy(workspace, command, actor, parentSignal, agentRules, lineage, async ({ settings, permissions, signal, ask, authorizeNetwork }) => {
       const networkMode = settings.networkMode;
       const runtime = await readRuntimeOpencodeConfig(this.config, workspace.id);
+      const wikiStore = new WikiStore(this.config);
+      const wikis = await wikiStore.list();
+      const wikiPolicy = await buildWikiFilePolicy(wikis, workspace.path, [wikiStore.baseDir, runtimeStorageDir(this.config)]);
+      const wikiAccess = new WikiSync(this.config, wikiStore);
+      const ownWiki = wikiForDirectory(wikis, wikiPolicy.directory);
+      if (ownWiki && settings.enabled) {
+        assertWikiWorkspaceAccess(actor, ownWiki);
+        await wikiAccess.ensureReadable(ownWiki, ownsWikis(actor));
+        if (command.write) {
+          if (!ownsWikis(actor) && actor.scope !== "collaborator") throw new ApiError(403, "wiki_read_only", "This chat has read-only access to its wiki.");
+          await wikiAccess.ensureWritable(ownWiki, ownsWikis(actor));
+        }
+      }
       const commandAction = (tool: string) => restrictive([wholeCommandAction(permissions, tool), wholeAgentAction(agentRules, tool)]);
       await ask("bash", command.command, `Run this command ${settings.enabled ? "in the protected environment" : "on this computer"}?\n\n${command.command}`, [workspace.path], commandAction("bash"));
       if (!settings.enabled) {
@@ -124,7 +142,7 @@ export class AgentSandboxService {
         }
         const cwd = command.workdir || workspace.path;
         if (!isAbsolute(cwd)) throw new ApiError(400, "command_directory", "Use an absolute folder path on this computer.");
-        return { ...await runHostCommand({ command: command.command, cwd, timeoutMs: command.timeoutMs, signal }), sandbox: "host" };
+        return { ...await withFileEditorHandoff(command, () => { signal.throwIfAborted(); return runHostCommand({ command: command.command, cwd, timeoutMs: command.timeoutMs, signal }); }), sandbox: "host" };
       }
       const writeAction = commandAction("edit");
       const externalRules = runtimeExternalDirectory(runtime);
@@ -153,15 +171,36 @@ export class AgentSandboxService {
       }
       await ask("read", "*", "Allow this command to read all files in these folders, including files covered by individual read rules?", mounts.map((mount) => mount.source), commandAction("read"));
       if (command.write) await ask("edit", "*", `Allow this command to change files in the listed folders?\n\n${command.command}`, sources, writeAction);
-      const safeMounts = await validateMounts(mounts, [runtimeStorageDir(this.config)]);
+      const wikiMounts = await wikiSafeSandboxMounts(wikiPolicy, mounts);
+      for (const mount of wikiMounts) for (const wiki of wikis) {
+        if (wiki.id === ownWiki?.id || !within(mount.source, wiki.root) && !within(wiki.root, mount.source)) continue;
+        assertWikiWorkspaceAccess(actor, wiki);
+        if (!await wikiAgentCanAccess(this.config, wikis, wiki, wikiPolicy.directory))
+          throw new ApiError(403, "wiki_access_denied", "This wiki is not available to this project. Remove it from the command's authorized folders.");
+        await wikiAccess.ensureReadable(wiki, ownsWikis(actor));
+      }
+      // Default wiki content lives below the private runtime's parent. Only
+      // registered content roots may be shared there, never their parent.
+      const safeMounts: SandboxMount[] = [];
+      for (const mount of wikiMounts) {
+        const checked = await validateMounts([{ ...mount, target: "/workspace" }], wikiContentPath(wikiPolicy, mount.source) ? [] : wikiPolicy.runtimeRoots);
+        safeMounts.push({ ...checked[0], target: mount.target });
+      }
       const cwd = sandboxPaths(command.workdir || "/workspace", safeMounts);
       if (!cwd.startsWith("/")) throw new ApiError(400, "sandbox_directory", "Use /workspace or an authorized sandbox folder.");
-      const result = await this.backend.run({ command: sandboxPaths(command.command, safeMounts), cwd, mounts: safeMounts,
+      const result = await withFileEditorHandoff(command, () => { signal.throwIfAborted(); return this.backend.run({ command: sandboxPaths(command.command, safeMounts), cwd, mounts: safeMounts,
         timeoutMs: command.timeoutMs, signal,
         // Scoped tool/agent rules require the request broker even in allow mode.
         networkMode: networkMode === "allow" && commandAction("webfetch") !== "allow" ? "approve" : networkMode,
         authorizeNetwork,
-      });
+        beforeCommit: async () => {
+          if (ownWiki && command.write) await wikiAccess.ensureWritable(await wikiStore.get(ownWiki.id), ownsWikis(actor));
+          const current = await buildWikiFilePolicy(await wikiStore.list(), workspace.path, wikiPolicy.runtimeRoots);
+          const checked = await wikiSafeSandboxMounts(current, safeMounts);
+          if (checked.some((mount, index) => mount.writable !== safeMounts[index].writable))
+            throw new ApiError(403, "wiki_sandbox_policy_changed", "A shared folder became a protected wiki while this command ran. Its file changes were not saved. Use approved wiki tools.");
+        },
+      }); });
       return { ...result, sandbox: "virtual-machine" };
     });
   }

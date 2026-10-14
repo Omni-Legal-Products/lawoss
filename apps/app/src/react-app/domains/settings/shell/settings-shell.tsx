@@ -80,6 +80,7 @@ export function SettingsShell(props: SettingsShellProps) {
     navTasks: { onClick: () => navigate("/tasks") },
     navWorkflows: { onClick: () => navigate("/workflows") },
     navRecorder: { onClick: () => navigate("/recorder") },
+    navWikis: { onClick: () => navigate("/wikis") },
     navEvaluations: { onClick: () => navigate("/evals") },
   };
 

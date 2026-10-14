@@ -5,6 +5,7 @@ import {
   classifyOpenTarget,
   deriveOpenTargets,
   isCollectibleArtifactTarget,
+  resolveHrefOpenTarget,
   selectAutoOpenTarget,
 } from "../src/react-app/domains/session/artifacts/open-target";
 
@@ -68,6 +69,34 @@ function toolMessage(id: string, toolName: string, input: Record<string, unknown
     }],
   };
 }
+
+describe("file chip links", () => {
+  it("decodes the reported wiki link before file verification and opening", () => {
+    const href = "Clients/Belmont%20Ridge%20Bank%20National%20Association.md";
+    const path = "Clients/Belmont Ridge Bank National Association.md";
+    const targets = deriveOpenTargets([message("profile", "assistant", `[Belmont Ridge’s profile](${href})`)]);
+    expect(targets.find(target => target.value === path)).toBeDefined();
+    expect(targets.some(target => target.value.includes("%20"))).toBe(false);
+    const verified = targets.map(target => ({ ...target, exists: target.value === path }));
+    const opened = resolveHrefOpenTarget(href, verified);
+    expect(opened).toMatchObject({ value: path, exists: true, preview: "markdown" });
+    expect(opened && isCollectibleArtifactTarget(opened)).toBe(true);
+  });
+
+  it("decodes spaces and Unicode in attachments, including file URLs", () => {
+    for (const [href, path] of [
+      ["Templates/Engagement%20letter.docx", "Templates/Engagement letter.docx"],
+      ["./Clients/M%C3%BCller.md#sources", "Clients/Müller.md"],
+      ["file:///wiki/Clients/Belmont%20Ridge.md", "/wiki/Clients/Belmont Ridge.md"],
+      ["file:///C:/wiki/Client%20profile.md", "C:/wiki/Client profile.md"],
+      ["Reports/100%25%20complete.md", "Reports/100% complete.md"],
+      ["Reports/Literal%2520name.md", "Reports/Literal%20name.md"],
+      ["Reports/100%complete.md", "Reports/100%complete.md"],
+    ]) expect(resolveHrefOpenTarget(href, [])?.value).toBe(path);
+    expect(resolveHrefOpenTarget("#sources", [])).toBeNull();
+    expect(resolveHrefOpenTarget("https://example.com/Client%20profile.md", [])).toMatchObject({ kind: "url", value: "https://example.com/Client%20profile.md" });
+  });
+});
 
 describe("deriveOpenTargets", () => {
   it("extracts file and localhost URL targets from recent assistant output", () => {

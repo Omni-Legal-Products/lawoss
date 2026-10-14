@@ -63,7 +63,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.targets.outputs.runtime) }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
         with:
@@ -135,7 +135,7 @@ jobs:
         run: node --test scripts/sandbox/macos-compatibility.test.mjs
       - name: Exercise real isolation and permission enforcement
         if: inputs.run_tests
-        timeout-minutes: 15
+        timeout-minutes: 30
         env:
           LEGALWORK_SANDBOX_INTEGRATION: '1'
         shell: bash

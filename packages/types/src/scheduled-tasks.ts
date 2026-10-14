@@ -18,6 +18,8 @@ export const ScheduledTaskInputSchema = z.strictObject({
   model: z.object({ providerID: z.string().min(1), modelID: z.string().min(1) }).nullable().default(null),
 });
 export const ScheduledTaskSchema = ScheduledTaskInputSchema.extend({
+  // Server-owned authority of the last user who created or edited the schedule.
+  wikiScope: z.enum(["owner", "collaborator"]).default("collaborator"),
   id: z.uuid(), workspaceId: z.string(), revision: z.number().int(),
   status: z.enum(["active", "paused", "completed"]), nextRunAt: z.string().nullable(),
   createdAt: z.string(), updatedAt: z.string(),

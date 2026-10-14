@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sessionMainPage } from "../src/react-app/shell/workspace-routes";
+import { isSessionIndexRoute, sessionMainPage, wikiWorkspaceRoute } from "../src/react-app/shell/workspace-routes";
 
 describe("main page navigation", () => {
   test("Tasks to Projects and browser history always resolve to a collapsed-sidebar page", () => {
@@ -10,8 +10,8 @@ describe("main page navigation", () => {
   });
 
   test("every global main pane is recognized on its first render", () => {
-    expect(["/scheduled", "/calendar", "/workflows", "/recorder", "/evals"].map(sessionMainPage))
-      .toEqual(["scheduled", "calendar", "workflows", "recorder", "evals"]);
+    expect(["/scheduled", "/calendar", "/workflows", "/recorder", "/wikis", "/evals"].map(sessionMainPage))
+      .toEqual(["scheduled", "calendar", "workflows", "recorder", "wikis", "evals"]);
     expect(sessionMainPage("/workspace/project-a/evals")).toBe("evals");
   });
 
@@ -22,5 +22,19 @@ describe("main page navigation", () => {
       "/workspace/project-a/session", "/workspace/project-a/session/tasks", "/workspace/project-a/session/evals",
     ];
     for (const path of paths) expect(sessionMainPage(path)).toBeNull();
+  });
+});
+
+describe("wiki workspace routes", () => {
+  test("wiki roots and chats stay in global navigation without restoring a project chat", () => {
+    const root = wikiWorkspaceRoute(" wiki / one ");
+    const chat = wikiWorkspaceRoute(" wiki / one ", " session #1 ");
+    expect(root).toBe("/wikis/wiki%20%2F%20one");
+    expect(chat).toBe("/wikis/wiki%20%2F%20one/session/session%20%231");
+    for (const route of [root, chat, root + "/"]) {
+      expect(sessionMainPage(route)).toBe("wikis");
+      expect(isSessionIndexRoute(route)).toBe(false);
+    }
+    expect(wikiWorkspaceRoute("wiki", " ")).toBe("/wikis/wiki");
   });
 });

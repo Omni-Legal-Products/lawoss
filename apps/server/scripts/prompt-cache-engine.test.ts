@@ -35,10 +35,15 @@ async function runFixture(injectTimestamp: boolean) {
   let epoch = "continuous";
   let modelID = "fixture";
   let contractError: Error | undefined;
-  const ui = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() {
-    return Response.json({ ok: true, route: `/workspace/matter/session/${activeSession}`, activeSurface: surface ? {
+  const ui = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    const snapshot = { ok: true, route: `/workspace/matter/session/${activeSession}`, activeSurface: surface ? {
       id: `${activeSession}:file:${surface}`, kind: "document", format: "docx", sessionId: activeSession, workspaceId: "matter", name: surface, path: surface, editable: true,
-    } : null, actions: [] });
+    } : null, actions: [] };
+    if (new URL(request.url).pathname === "/execute") {
+      const action = z.object({ actionId: z.literal("documents.list"), args: z.object({ sessionId: z.string() }) }).parse(await request.json());
+      return Response.json({ ok: true, result: { ...snapshot, activeSurface: action.args.sessionId === activeSession ? snapshot.activeSurface : null } });
+    }
+    return Response.json(snapshot);
   } });
   const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const input = CacheRequestSchema.parse(await request.json());

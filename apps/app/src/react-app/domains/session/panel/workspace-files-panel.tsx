@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn, formatFileSize } from "@/lib/utils";
 import { FolderIcon } from "@/react-app/design-system/folder-icon";
+import { FileBrowserRow } from "@/react-app/design-system/file-browser-row";
 import { PanelEmptyState, PanelHeader } from "@/react-app/design-system/panel-chrome";
 
 import { useFilePins } from "./file-pins";
@@ -125,6 +126,18 @@ function WorkspaceFilesPanelContent({
     refetchOnWindowFocus: "always",
   });
 
+  const savedViews = useQuery({
+    queryKey: ["workspace-view-files", client?.baseUrl, workspaceId],
+    queryFn: async () => {
+      if (!client || !workspaceId) throw new Error("Connect to open reports");
+      const wiki = (await client.listWikis()).items.find(item => item.workspaceId === workspaceId);
+      return client.listViews(wiki ? { kind: "wiki", id: wiki.id } : { kind: "workspace", id: workspaceId });
+    },
+    enabled: Boolean(active && client && workspaceId && data?.entries.some(entry => /\.view\.json$/i.test(entry.path))),
+    staleTime: 10_000, refetchInterval: active ? 10_000 : false,
+  });
+  const viewFiles = React.useMemo(() => new Map((savedViews.data?.items ?? []).map(view => [view.path ?? `Views/${view.id}.view.json`, view])), [savedViews.data?.items]);
+
   const crumbs = React.useMemo(() => {
     const segments = path.split("/").filter(Boolean);
     return [
@@ -155,14 +168,14 @@ function WorkspaceFilesPanelContent({
   }, []);
 
   const renderEntry = (entry: LegalworkWorkspaceDirectoryEntry, pinned = false) => {
-    const displayName = entry.kind === "file" ? projectFileDisplayName(entry.path, entry.name) : entry.name;
+    const view = viewFiles.get(entry.path);
+    const displayName = view?.title ?? (entry.kind === "file" ? projectFileDisplayName(entry.path, entry.name) : entry.name);
     return (
       <WorkspaceEntryMenu key={entry.path} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace}
         folderPath={entry.path.slice(0, Math.max(0, entry.path.lastIndexOf("/")))} entry={entry} onOpen={() => entry.kind === "dir" ? navigateTo(entry.path) : onOpenFile(entry)}
         onRefresh={() => void refetch()}>
-      <button
+      <FileBrowserRow
         data-project-folder={entry.kind === "dir" ? entry.path : undefined}
-        type="button"
         draggable={entry.kind === "file" && Boolean(workspaceId)}
         onDragStart={(event) => {
           if (entry.kind !== "file" || !workspaceId) { event.preventDefault(); return; }
@@ -173,22 +186,12 @@ function WorkspaceFilesPanelContent({
         onClick={() => (entry.kind === "dir" ? navigateTo(entry.path) : onOpenFile(entry))}
         onDoubleClick={() => { if (entry.kind !== "dir") onOpenFile(entry, true); }}
         title={entry.path}
-        className="group flex min-h-9 w-full items-center gap-2.5 rounded-lg border border-transparent px-2 py-1.5 text-left transition-colors hover:border-border/50 hover:bg-muted/60 data-[file-move-over]:bg-primary/10 data-[file-move-over]:ring-1 data-[file-move-over]:ring-primary/40 focus-visible:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
+        className="data-[file-move-over]:bg-primary/10 data-[file-move-over]:ring-1 data-[file-move-over]:ring-primary/40"
+        icon={entry.kind === "dir" ? <FolderIcon /> : <ArtifactIcon type={classifyOpenTarget(entry.name, "file")} className="size-5" />}
+        trailing={view ? <span className="shrink-0 text-[11px] text-muted-foreground">{view.mode === "dashboard" ? "Dashboard" : "Report"}</span> : entry.kind === "dir" ? <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" /> : entry.size !== undefined ? <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{formatFileSize(entry.size)}</span> : null}
       >
-        {entry.kind === "dir" ? (
-          <FolderIcon />
-        ) : (
-          <ArtifactIcon type={classifyOpenTarget(entry.name, "file")} className="size-5" />
-        )}
-        <span className="min-w-0 flex-1 text-[13px] text-foreground"><span className="block truncate">{displayName}</span>{pinned && entry.path.includes("/") && <span className="block truncate text-[10px] text-muted-foreground">{entry.path}</span>}</span>
-        {entry.kind === "dir" ? (
-          <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
-        ) : entry.size !== undefined ? (
-          <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-            {formatFileSize(entry.size)}
-          </span>
-        ) : null}
-      </button>
+        <span className="block truncate">{displayName}</span>{pinned && entry.path.includes("/") && <span className="block truncate text-[10px] text-muted-foreground">{entry.path}</span>}
+      </FileBrowserRow>
       </WorkspaceEntryMenu>
     );
   };

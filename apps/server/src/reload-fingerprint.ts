@@ -86,6 +86,7 @@ async function collectFiles(workspaceRoot: string, reason: ReloadReason): Promis
   }
 
   if (reason === "skills") {
+    await collectTreeFiles(files, join(root, "Skills"), (absPath) => /^SKILL\.md$/i.test(basename(absPath)));
     await collectTreeFiles(
       files,
       join(root, ".opencode", "skills"),

@@ -15,6 +15,11 @@ files:
   - "!server/dist/opencode-plugins/**"
   - package.json
 extraResources:
+  - from: resources/actaport-mcp
+    to: actaport-mcp
+    filter:
+      - index.mjs
+      - auth.mjs
   - from: resources/node
     to: node
     filter:
@@ -114,7 +119,6 @@ mac:
     - from: resources/helpers
       to: helpers
       filter:
-        - "LegalWork Computer Use.app/**"
         - LegalWorkAudioTap
         - LegalWorkKeyMonitor
   target:

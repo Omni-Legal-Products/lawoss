@@ -15,7 +15,7 @@ describe.skipIf(process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("real agent s
     workspace = await mkdtemp(join(tmpdir(), "legalwork-sandbox-canary-"));
     await sandbox.prepare();
     // Separate the cold-boot budget (up to 180 seconds under TCG) from the
-    // concurrency test's 120-second execution budget.
+    // concurrency test's execution budget.
     const warm = await sandbox.run({ command: "true", cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: false }], timeoutMs: 10000, signal: AbortSignal.timeout(210000), authorizeNetwork: async () => false });
     expect(warm.exitCode).toBe(0);
   }, 600_000);
@@ -63,7 +63,10 @@ PY`, cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writ
     const barrier = new Promise<void>((resolve) => { release = resolve; });
     const arrived = new Set<number>();
     const controllers = Array.from({ length: 10 }, () => new AbortController());
-    const deadline = setTimeout(() => { for (const controller of controllers) controller.abort(); release(); }, 120000);
+    // Hosted Intel macOS has no nested HVF. Ten Python workers under TCG
+    // need more than two minutes to reach the shared approval barrier.
+    const timeoutMs = 300000;
+    const deadline = setTimeout(() => { for (const controller of controllers) controller.abort(); release(); }, timeoutMs);
     try {
       const runs = await Promise.all(Array.from({ length: 10 }, async (_, index) => {
         const folder = join(root, String(index));
@@ -71,7 +74,7 @@ PY`, cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writ
         await writeFile(join(folder, "identity"), String(index));
         // Different backend objects, as used by services, must reuse the VM too.
         return new VmSandbox().run({ cwd: "/workspace", mounts: [{ source: folder, target: "/workspace", writable: index % 2 === 0 }],
-          timeoutMs: 120000, signal: controllers[index]!.signal,
+          timeoutMs, signal: controllers[index]!.signal,
           authorizeNetwork: async (request) => {
             expect(request.url).toBe(`https://example.com/session-${index}`);
             expect(Buffer.from(request.bodyBase64, "base64").toString()).toBe(String(index));
@@ -125,7 +128,7 @@ PY` });
       for (const controller of controllers) controller.abort();
       await rm(root, { recursive: true, force: true });
     }
-  }, 180000);
+  }, 360000);
 
   test("Python and Node work, approved writes appear in the project", async () => {
     await writeFile(join(workspace, "allowed.txt"), "original text");

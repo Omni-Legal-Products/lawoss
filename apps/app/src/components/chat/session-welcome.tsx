@@ -1,13 +1,16 @@
 "use client"
 
 import { motion, useReducedMotion } from "motion/react"
-import type { ReactNode } from "react"
+import { useContext, type ReactNode } from "react"
+import { ChatWorkspaceContext } from "./chat-workspace-context"
 import { useMessageList } from "@/components/chat/message-list-provider"
 import { TaskSuggestions } from "@/components/chat/task-suggestions"
 import { t } from "@/i18n";
 import "./session-surfaces.css"
 
 export function WelcomeHeading() {
+  const wiki = useContext(ChatWorkspaceContext) === "wiki"
+  const headline = t(wiki ? "session_welcome.wiki_headline" : "session_welcome.headline")
   return (
     <motion.div
       className="lw-session-welcome-heading"
@@ -18,15 +21,15 @@ export function WelcomeHeading() {
     >
       <h2 className="lw-session-welcome-title">
         {t("session_welcome.greeting")}{" "}
-        <span className="sr-only">{t("session_welcome.headline")}</span>
+        <span className="sr-only">{headline}</span>
         <span aria-hidden="true">
-          {Array.from(t("session_welcome.headline"), (letter, index) => (
+          {Array.from(headline, (letter, index) => (
             <span key={index} className="lw-welcome-letter" style={{ animationDelay: `${500 + index * 40}ms` }}>{letter}</span>
           ))}
         </span>
       </h2>
       <p className="lw-session-welcome-description">
-        {t("session_welcome.subtitle")}
+        {t(wiki ? "session_welcome.wiki_subtitle" : "session_welcome.subtitle")}
       </p>
     </motion.div>
   )

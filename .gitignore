@@ -18,6 +18,7 @@ _worktrees/
 
 # Desktop sidecars
 apps/desktop/resources/sidecars/
+apps/desktop/resources/actaport-mcp/
 apps/desktop/server/
 
 # SwiftPM build output (native audiotap helper)

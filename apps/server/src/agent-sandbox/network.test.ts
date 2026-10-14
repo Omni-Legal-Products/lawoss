@@ -57,6 +57,39 @@ describe("sandbox network boundary", () => {
     })).rejects.toThrow();
   });
 
+  test.each(["pending headers", "streaming body"])("cancellation settles the real HTTP broker with %s", async phase => {
+    let connected: () => void = () => {};
+    const connection = new Promise<void>(resolve => { connected = resolve; });
+    let release: () => void = () => {};
+    const responseReady = new Promise<void>(resolve => { release = resolve; });
+    const controller = new AbortController();
+    const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: async () => {
+      connected();
+      if (phase === "pending headers") await responseReady;
+      return new Response(new ReadableStream({ start(stream) { stream.enqueue(new TextEncoder().encode("partial")); } }));
+    } });
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const request = prepareOutboundRequest({ url: server.url.href, method: "GET", headers: {}, bodyBase64: "" }, { allowPrivate: true });
+      const result = brokerRequest(request, async () => true, controller.signal, undefined, { allowPrivate: true }).catch(error => error);
+      await connection;
+      // Exercise the in-flight body in addition to a response withheld before
+      // headers. The early-cancellation case requires no timing assumptions.
+      if (phase === "streaming body") await Bun.sleep(20);
+      const cancelled = new Error("Policy revoked during HTTP request");
+      controller.abort(cancelled);
+      const timeout = new Promise<never>((_, reject) => { deadline = setTimeout(() => reject(new Error("Cancelled HTTP request did not settle")), 1000); });
+      const outcome = await Promise.race([result, timeout]);
+      expect(outcome).toBeInstanceOf(Error);
+      expect(controller.signal.aborted).toBe(true);
+    } finally {
+      clearTimeout(deadline);
+      controller.abort();
+      release();
+      server.stop(true);
+    }
+  });
+
   test.each(["127.0.0.1", "10.4.3.2", "169.254.169.254", "100.100.100.200", "172.20.0.1", "192.168.1.1", "::1", "::ffff:127.0.0.1", "fd00:ec2::254", "fe80::1", "64:ff9b::7f00:1", "2002:7f00:1::", "0.0.0.0"])("blocks private/metadata/transition address %s", (address) => {
     expect(publicAddress(address)).toBe(false);
   });

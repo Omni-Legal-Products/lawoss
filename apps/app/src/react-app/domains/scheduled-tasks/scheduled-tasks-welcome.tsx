@@ -47,7 +47,7 @@ export function ScheduledTasksWelcome({ connected, hasProjects, onCreate }: {
     <section>
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2"><h2 className="text-base font-medium tracking-tight">{t("scheduled.start_routine")}</h2><p className="text-xs text-muted-foreground">{t("scheduled.templates_hint")}</p></div>
       <div className="grid gap-3 @md/welcome:grid-cols-2">
-        {templates.map(({ key, Icon, color, title, description, prompt, cadence, schedule }) => <Button key={key} variant="outline" disabled={disabled} onClick={() => onCreate({ title, prompt, schedule: schedule() })}
+        {templates.map(({ key, Icon, color, title, description, prompt, cadence, schedule }) => <Button key={key} variant="outline" disabled={disabled} onClick={() => onCreate({ title, prompt, schedule: schedule(), projectAccess: key === "review" ? "all" : "project" })}
           className="group h-auto min-w-0 flex-col items-stretch gap-0 whitespace-normal rounded-[var(--lw-radius-2xl)] p-4 text-left font-normal shadow-none transition-[background-color,border-color,box-shadow] hover:border-foreground/20 hover:bg-muted/30 hover:shadow-sm">
           <span className="flex items-center justify-between gap-3"><IconTile size="sm" className={color}><Icon /></IconTile><span className="text-[11px] text-muted-foreground">{cadence}</span></span>
           <span className="mt-3 text-sm font-medium text-foreground">{title}</span><span className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{description}</span>

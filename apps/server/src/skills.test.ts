@@ -3,6 +3,10 @@ import { mkdir, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deleteSkill, listSkills, resolveHubSkillKind, skillsDirForScope, upsertSkill } from "./skills.js";
+import { composedSkill } from "./skill-composition.js";
+import { resolveSkillDir } from "./skill-resources.js";
+import { computeReloadFingerprint } from "./reload-fingerprint.js";
+import { createWikiStarterFiles } from "./wiki/templates.js";
 import { exists } from "./utils.js";
 
 let workspace: string;
@@ -95,6 +99,29 @@ describe("upsertSkill", () => {
 });
 
 describe("listSkills", () => {
+  test("wiki skills are local, loadable and editable in place without leaking to another workspace", async () => {
+    for (const [path, content] of Object.entries(createWikiStarterFiles("firm", "Test firm"))) {
+      const target = join(workspace, path);
+      await mkdir(target.slice(0, target.lastIndexOf("/")), { recursive: true });
+      await writeFile(target, content);
+    }
+    const local = (await listSkills(workspace, false)).filter(item => item.name.startsWith("wiki-"));
+    expect(local).toHaveLength(4);
+    expect(local.every(item => item.scope === "project" && item.kind === "workflow")).toBe(true);
+    const loaded = await composedSkill(workspace, "wiki-setup");
+    expect(loaded.chain[0]?.content).toContain("# Set up this firm's wiki");
+    expect(await resolveSkillDir(workspace, "wiki-setup")).toBe(join(workspace, "Skills/wiki-setup"));
+    const sibling = join(workspace, "other-project");
+    await mkdir(sibling);
+    expect((await listSkills(sibling, false)).some(item => item.name === "wiki-setup")).toBe(false);
+    const before = await computeReloadFingerprint(workspace, "skills");
+    const result = await upsertSkill(workspace, { name: "wiki-setup", description: "Our customized setup.", content: "Keep our chosen organization." });
+    expect(result).toMatchObject({ action: "updated", path: join(workspace, "Skills/wiki-setup/SKILL.md") });
+    expect(await computeReloadFingerprint(workspace, "skills")).not.toBe(before);
+    expect((await composedSkill(workspace, "wiki-setup")).chain[0]?.content).toContain("Keep our chosen organization.");
+    await deleteSkill(workspace, "wiki-setup");
+    expect((await listSkills(workspace, false)).some(item => item.name === "wiki-setup")).toBe(false);
+  });
   test("accepts OpenCode-style colons and skips other malformed Claude skills", async () => {
     const claudeSkills = join(workspace, ".claude", "skills");
     const compatible = join(claudeSkills, "compatible-skill");

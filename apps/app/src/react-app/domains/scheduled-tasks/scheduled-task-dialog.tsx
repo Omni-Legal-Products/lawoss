@@ -18,7 +18,7 @@ import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { formatRunTime, localDateTime, repeatMode, repeatOptions, weeklyRuleForStart } from "./schedule-format";
 
-export type ScheduledTaskDraft = { title: string; prompt: string; schedule?: TaskSchedule };
+export type ScheduledTaskDraft = { title: string; prompt: string; schedule?: TaskSchedule; projectAccess?: ScheduledTaskInput["projectAccess"] };
 export type ScheduleProject = { id: string; name: string };
 export type ScheduleClient = Pick<LegalworkServerClient, "baseUrl" | "scheduledTasks" | "scheduledTask" | "scheduledTaskChats" | "previewTaskSchedule" | "createScheduledTask" | "updateScheduledTask" | "deleteScheduledTask">;
 
@@ -52,7 +52,7 @@ export function ScheduledTaskEditor({ client, projects, task, initial, defaultMo
   const id = useId();
   const initialSchedule = task?.schedule ?? initial?.schedule;
   const [workspaceId, setWorkspaceId] = useState(task?.workspaceId ?? "");
-  const [projectAccess, setProjectAccess] = useState<ScheduledTaskInput["projectAccess"]>(task?.projectAccess ?? "project");
+  const [projectAccess, setProjectAccess] = useState<ScheduledTaskInput["projectAccess"]>(task?.projectAccess ?? initial?.projectAccess ?? "project");
   const [model, setModel] = useState<ScheduledTaskInput["model"]>(task ? task.model : defaultModel ?? null);
   const [modelOpen, setModelOpen] = useState(false);
   const [pinSession, setPinSession] = useState(task?.pinSession ?? true);
