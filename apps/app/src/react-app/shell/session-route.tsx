@@ -1298,7 +1298,8 @@ export function SessionRoute() {
   }, [opencodeBaseUrl, opencodeClient, selectedWorkspaceRoot]);
 
   const modelLabel = local.prefs.defaultModel
-    ? resolveModelDisplayName(local.prefs.defaultModel.modelID)
+    ? providerCatalog[local.prefs.defaultModel.providerID]?.[local.prefs.defaultModel.modelID]?.name
+      ?? resolveModelDisplayName(local.prefs.defaultModel.modelID)
     : t("session.default_model");
 
   const listSlashCommands = useCallback(async (): Promise<SlashCommandOption[]> => {
