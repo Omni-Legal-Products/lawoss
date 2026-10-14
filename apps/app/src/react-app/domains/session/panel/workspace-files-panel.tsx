@@ -169,7 +169,11 @@ export function WorkspaceFilesPanel({
   return (
     <TooltipProvider delay={1000}>
       <ProjectFilesDropzone projectId={projectId ?? workspaceId ?? ""} workspaceId={workspaceId ?? ""} isRemoteWorkspace={isRemoteWorkspace || !client || !workspaceId} destinationPath={path}>
-      <div className="flex h-full min-h-0 flex-col bg-background/90">
+      <div className="flex h-full min-h-0 flex-col bg-background/90"
+        data-files-workspace-id={workspaceId ?? ""}
+        data-files-folder-path={path}
+        data-files-client-identity={client ? documentClientIdentity(client) : undefined}
+        data-files-workspace-root={workspaceRoot}>
         <PanelHeader headerTarget={headerTarget} title={t("workspace_files.files")}>
           <DropdownMenu>
             <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={sortLabel} title={sortLabel} disabled={!workspaceId} />}>
