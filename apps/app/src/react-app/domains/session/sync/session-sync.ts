@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import { QueryObserver } from "@tanstack/react-query";
 import type { FilePart, Part, PermissionRequest, PermissionV2Request, QuestionRequest, Session, SessionStatus, Todo } from "@opencode-ai/sdk/v2/client";
 
 import { getReactQueryClient } from "../../../infra/query-client";
@@ -44,6 +45,7 @@ type SyncEntry = {
   dispose: () => void;
   disposeTimer: ReturnType<typeof setTimeout> | null;
   trackedSessionRefs: Map<string, number>;
+  statusObservationReleases: Map<string, () => void>;
   retainedSessionTimers: Map<string, ReturnType<typeof setTimeout>>;
   sessionUpdatedListeners: Set<NonNullable<SyncOptions["onSessionUpdated"]>>;
   sessionStatusListeners: Set<NonNullable<SyncOptions["onSessionStatus"]>>;
@@ -305,6 +307,8 @@ function partHasVisibleAssistantOutput(part: Part) {
 
 function clearTrackedSession(input: SyncOptions, entry: SyncEntry, sessionId: string) {
   entry.trackedSessionRefs.delete(sessionId);
+  entry.statusObservationReleases.get(sessionId)?.();
+  entry.statusObservationReleases.delete(sessionId);
   const retainedTimer = entry.retainedSessionTimers.get(sessionId);
   if (retainedTimer) clearTimeout(retainedTimer);
   entry.retainedSessionTimers.delete(sessionId);
@@ -334,6 +338,8 @@ function disposeWorkspaceSync(key: string, entry: SyncEntry) {
   }
   for (const timer of entry.retainedSessionTimers.values()) clearTimeout(timer);
   entry.retainedSessionTimers.clear();
+  for (const release of entry.statusObservationReleases.values()) release();
+  entry.statusObservationReleases.clear();
   entry.dispose();
   if (syncs.get(key) === entry) syncs.delete(key);
 }
@@ -1247,6 +1253,7 @@ export function ensureWorkspaceSessionSync(input: SyncOptions) {
     dispose: () => {},
     disposeTimer: null,
     trackedSessionRefs: new Map(),
+    statusObservationReleases: new Map(),
     retainedSessionTimers: new Map(),
     sessionUpdatedListeners: new Set(input.onSessionUpdated ? [input.onSessionUpdated] : []),
     sessionStatusListeners: new Set(input.onSessionStatus ? [input.onSessionStatus] : []),
@@ -1371,6 +1378,17 @@ export function trackWorkspaceSessionSync(input: SyncOptions, sessionId: string 
   const entry = syncs.get(syncKey(input));
   if (!entry) return () => {};
 
+  if (!entry.statusObservationReleases.has(normalizedSessionId)) {
+    // Runtime owners can outlive the UI's status query subscription. Preserve
+    // its existing evidence (including timestamps) until their last release,
+    // without fetching or extending GC for this or any other query.
+    const observer = new QueryObserver<SessionStatus>(getReactQueryClient(), {
+      queryKey: statusKey(input.workspaceId, normalizedSessionId),
+      enabled: false,
+    });
+    entry.statusObservationReleases.set(normalizedSessionId, observer.subscribe(() => {}));
+  }
+
   const retainedTimer = entry.retainedSessionTimers.get(normalizedSessionId);
   if (retainedTimer) {
     clearTimeout(retainedTimer);
@@ -1387,6 +1405,8 @@ export function trackWorkspaceSessionSync(input: SyncOptions, sessionId: string 
     if (current <= 1) {
       entry.trackedSessionRefs.delete(normalizedSessionId);
       const status = getReactQueryClient().getQueryState<SessionStatus>(statusKey(input.workspaceId, normalizedSessionId));
+      entry.statusObservationReleases.get(normalizedSessionId)?.();
+      entry.statusObservationReleases.delete(normalizedSessionId);
       const activity = useSessionActivityStore.getState().recordsByWorkspaceId[input.workspaceId]?.[normalizedSessionId];
       // Idle was already observed before untracking, so no future idle event
       // will shorten the usual background retention. Release its HTTP slot;
@@ -1425,6 +1445,7 @@ export function __createWorkspaceSessionSyncForTest(input: SyncOptions) {
     dispose: () => {},
     disposeTimer: null,
     trackedSessionRefs: new Map(),
+    statusObservationReleases: new Map(),
     retainedSessionTimers: new Map(),
     sessionUpdatedListeners: new Set(),
     sessionStatusListeners: new Set(),
@@ -1436,6 +1457,7 @@ export function __createWorkspaceSessionSyncForTest(input: SyncOptions) {
     const entry = syncs.get(key);
     if (entry) {
       for (const timer of entry.retainedSessionTimers.values()) clearTimeout(timer);
+      for (const release of entry.statusObservationReleases.values()) release();
     }
     syncs.delete(key);
   };
