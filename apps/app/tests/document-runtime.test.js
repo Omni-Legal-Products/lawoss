@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createDocumentRuntime } from "../src/react-app/domains/session/artifacts/document-runtime-store";
+import { usePanelTabStore } from "../src/react-app/domains/session/panel/panel-tab-store";
 
 function fixture() {
   const runtime = createDocumentRuntime(() => ({ className: "" }));
@@ -97,6 +98,30 @@ describe("task document runtime", () => {
     expect(await runtime.execute("document.agent_tool", { sessionId: "left", toolName: "read" })).toBe("readable");
     await expect(runtime.execute("office.agent_tool", { sessionId: "left", format: "xlsx" })).rejects.toThrow("different format");
   });
+});
+
+test("selecting a PDF returns without waiting for an editor it never gets", async () => {
+  const { runtime, clients } = fixture();
+  runtime.ensure({ client: clients.a, workspaceId: "a", workspaceRoot: "/a", sessionId: "workspace:a",
+    tab: { id: "file:ruling.pdf", type: "artifact", value: "ruling.pdf", label: "ruling.pdf", preview: "pdf" }, onClose() {} });
+  expect(await runtime.select({ sessionId: "left", path: "ruling.pdf" })).toMatchObject({ ok: true });
+});
+
+test("show opens a task document beside its chat; without it the user's view is unchanged", async () => {
+  const { runtime, document, clients } = fixture();
+  clients.a.statWorkspaceFile = async (_workspace, path) => ({ path, exists: true, kind: "file", size: 1, updatedAt: 1 });
+  document("a", "one.docx"); document("a", "two.docx");
+  usePanelTabStore.getState().adoptChat("workspace:a", "left", "Task");
+  const visible = () => usePanelTabStore.getState().sessions["workspace:a"].panes.flatMap(pane => pane.tabIds);
+  try {
+    expect((await runtime.open({ sessionId: "left", path: "one.docx" })).message).toContain("has not changed");
+    expect(visible()).toEqual(["chat:left"]);
+    expect((await runtime.open({ sessionId: "left", path: "two.docx", show: true })).message).toContain("beside the chat");
+    expect(visible()).toEqual(["chat:left", "file:two.docx"]);
+  } finally {
+    const { "workspace:a": removed, ...sessions } = usePanelTabStore.getState().sessions;
+    usePanelTabStore.setState({ sessions });
+  }
 });
 
 test("closed clean editors are released after the task finishes; unsaved drafts survive", async () => {

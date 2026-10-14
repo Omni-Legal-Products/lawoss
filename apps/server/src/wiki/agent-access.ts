@@ -98,15 +98,15 @@ function narrowWikiPath(method: string, pathname: string): boolean {
   return ["GET", "PUT", "DELETE"].includes(method) && /^\/wikis\/[^/]+\/page$/.test(pathname);
 }
 
-/** Existing storage/sandbox tools need the originating member's access to their own wiki workspace. */
+/** Existing storage/sandbox/skill tools need the originating member's access to their own wiki workspace. */
 function workspaceToolPath(method: string, pathname: string): string | null {
   const match = pathname.match(/^\/workspace\/([^/]+)\/(.+)$/);
   if (!match) return null;
   const route = match[2]!;
   const suggestion = (["GET", "POST"].includes(method) && route === "wiki-suggestions") || (["GET", "PUT"].includes(method) && /^wiki-suggestions\/[^/]+$/.test(route));
   const allowed = suggestion || (method === "GET"
-    ? /^(?:storage\/roots|storage\/[^/]+\/(?:capabilities|children|search|file)|sandbox\/session\/[^/]+)$/.test(route)
-    : method === "POST" && /^(?:storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders)|sandbox\/(?:execute|web))$/.test(route));
+    ? /^(?:storage\/roots|storage\/[^/]+\/(?:capabilities|children|search|file)|sandbox\/session\/[^/]+|skills|skills\/[^/]+\/(?:composed|package-file))$/.test(route)
+    : method === "POST" && /^(?:storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders)|sandbox\/(?:execute|web)|skills|skills\/(?!hub\/)[^/]+\/resources)$/.test(route));
   return allowed ? decodeURIComponent(match[1]!) : null;
 }
 

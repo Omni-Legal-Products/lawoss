@@ -7,6 +7,7 @@ import { classifyOpenTarget } from "./open-target";
 import { usePanelTabStore, workspacePanelKey } from "../panel/panel-tab-store";
 import { storageFileTab } from "../panel/storage-file-tab";
 import { createDocumentTaskQueue } from "./document-task-queue";
+import { openBackgroundTab } from "../background/open-background-tab";
 
 export type DocumentProject = { projectId: string; workspaceId: string; workspaceRoot: string; client: LegalworkServerClient; isRemoteWorkspace: boolean };
 export type Registration = { surface: LegalworkControlSurface; action: LegalworkControlAction; ready: () => boolean; dirty: () => boolean; updatedAt?: () => number | null };
@@ -33,6 +34,10 @@ export function stringArg(args: unknown, key: string) {
 }
 function validPath(path: string) {
   return Boolean(path) && !/[\\\x00-\x1f\x7f]/.test(path) && path.split("/").every(part => part && part !== "." && part !== "..");
+}
+/** Only these formats register an agent editor; waiting on any other file would hang. */
+function editsLive(preview: string | undefined, name: string) {
+  return preview === "word" || preview === "markdown" || /\.(xlsx|pptx)$/i.test(name);
 }
 
 export function createDocumentRuntime(createHost = () => document.createElement("div"), fallbackProject?: (sessionId: string) => Promise<DocumentProject>, flush = (run: () => void) => run()) {
@@ -268,9 +273,13 @@ export function createDocumentRuntime(createHost = () => document.createElement(
           entry.generation = ++generation;
         }
         select(entry, sessionId);
-        const liveEditing = ["word", "markdown"].includes(preview) || /\.(xlsx|pptx)$/i.test(path);
+        const liveEditing = editsLive(preview, path);
         if (liveEditing) await waitUntilReady(entry);
-        return { ok: true, name, path: entry.registration?.surface.path ?? path, liveEditing, ...(copyTo ? { copied: true } : {}), message: "The document is ready for this task. Use the matching inapp_* tools. The user's view has not changed." };
+        const show = Boolean(args && typeof args === "object" && Reflect.get(args, "show") === true);
+        // Same as the user opening the task's card: the tab moves beside the chat.
+        if (show) openBackgroundTab(entry.props.sessionId, sessionId, entry.props.tab);
+        return { ok: true, name, path: entry.registration?.surface.path ?? path, liveEditing, ...(copyTo ? { copied: true } : {}),
+          message: show ? "The document is ready for this task and now open beside the chat." : "The document is ready for this task. Use the matching inapp_* tools. The user's view has not changed." };
       });
     },
     async list(args: unknown) {
@@ -293,7 +302,7 @@ export function createDocumentRuntime(createHost = () => document.createElement(
       const entry = current(sessionId, await getProject(sessionId), stringArg(args, "path"));
       return queue(entry.key, async () => {
         select(entry, sessionId);
-        await waitUntilReady(entry);
+        if (editsLive(entry.props.tab.preview, entry.props.tab.label)) await waitUntilReady(entry);
         return { ok: true, path: entry.registration?.surface.path, message: "Selected for this task. The user's view has not changed." };
       });
     },

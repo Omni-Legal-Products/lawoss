@@ -1,6 +1,7 @@
 import { useTaskBrowserTabs } from "../background/task-browser-tabs";
+import { openBackgroundTab } from "../background/open-background-tab";
 import { useSessionActivityStore } from "../status/session-activity-store";
-import { usePanelTabStore } from "../panel/panel-tab-store";
+import { usePanelTabStore, workspacePanelKey } from "../panel/panel-tab-store";
 import { resolveDocumentProject } from "./document-project";
 import { createDocumentRuntime, documentKey, stringArg, type Entry, type DocumentProject } from "./document-runtime-store";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -78,7 +79,12 @@ export function DocumentRuntimeProvider({ children }: { children: ReactNode }) {
     if (provider !== "auto" && provider !== "builtin") throw new Error("This browser provider is unavailable.");
     const browser = window.__LEGALWORK_ELECTRON__?.browser;
     if (!browser?.openUrl) throw new Error("The built-in browser is unavailable.");
-    return browser.openUrl(url, provider, { directory, workspaceId: stringArg(args, "workspaceId"), sessionId: stringArg(args, "sessionId") });
+    const result = await browser.openUrl(url, provider, { directory, workspaceId: stringArg(args, "workspaceId"), sessionId: stringArg(args, "sessionId") });
+    const show = Boolean(args && typeof args === "object" && Reflect.get(args, "show") === true);
+    const tab = show ? (await browser.getState?.())?.tabs?.find(item => item.id === result.tab_id) : undefined;
+    // Same as the user opening the task's card: the tab moves beside the chat and outlives the run.
+    if (tab) openBackgroundTab(workspacePanelKey(stringArg(args, "workspaceId")), stringArg(args, "sessionId"), { ...tab, background: false });
+    return result;
   } });
   useControlAction({ id: "browser.set_proxy", label: "Set the task browser proxy", background: true, execute: async args => {
     const browser = window.__LEGALWORK_ELECTRON__?.browser;

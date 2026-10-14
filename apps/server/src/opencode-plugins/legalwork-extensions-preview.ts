@@ -48,6 +48,7 @@ const uiExecuteArgsSchema = z.object({
 const browserOpenUrlArgsSchema = z.object({
   url: z.string().describe("The website URL to open in the LegalWork built-in browser."),
   provider: z.enum(["auto", "builtin", "external"]).optional().describe("Browser provider. Use builtin or auto; external is reserved for future support."),
+  show: z.boolean().optional().describe("Also show the tab beside the chat and keep it open after this turn. Only set this when the user explicitly asks to see or open the page. Never set it for research or automation."),
 });
 
 const browserSetProxyArgsSchema = z.object({
@@ -371,17 +372,18 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
       },
     },
     inapp_documents_open: {
-      description: "Prepare a file for this task without changing the user's visible workspace or tab. For a new deliverable from a template, supply copy_to to copy it to a new workspace filename and open that copy without changing the template. path is relative to the workspace or connection_id root. Then use inapp_documents_list and matching inapp_* read/edit tools to work on its draft, including in the background. Preserves unsaved drafts and refuses to overwrite an existing copy_to file.",
+      description: "Prepare a file for this task without changing the user's visible workspace or tab, unless show is set. For a new deliverable from a template, supply copy_to to copy it to a new workspace filename and open that copy without changing the template. path is relative to the workspace or connection_id root. Then use inapp_documents_list and matching inapp_* read/edit tools to work on its draft, including in the background. Preserves unsaved drafts and refuses to overwrite an existing copy_to file.",
       args: {
         path: z.string().min(1).max(4096).describe("Relative file path in the workspace or connection root."),
         connection_id: z.string().min(1).max(200).optional().describe("For connected files, the ID from storage_list_connections. Omit for workspace files."),
         copy_to: z.string().min(1).max(4096).optional().describe("For a new deliverable, copy the source to this new workspace-relative filename (same extension), then open the copy for editing. The original is unchanged."),
+        show: z.boolean().optional().describe("Also open the file beside the chat so the user sees it. Only set this when the user explicitly asks to see or open the file. Never set it just to read, edit or summarize."),
       },
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         if (!context.sessionID) return JSON.stringify({ ok: false, error: "A session is required to open a file." });
-        const args = z.object({ path: z.string().min(1).max(4096), connection_id: z.string().min(1).max(200).optional(), copy_to: z.string().min(1).max(4096).optional() }).parse(rawArgs);
+        const args = z.object({ path: z.string().min(1).max(4096), connection_id: z.string().min(1).max(200).optional(), copy_to: z.string().min(1).max(4096).optional(), show: z.boolean().optional() }).parse(rawArgs);
         return JSON.stringify(await uiBridgeRequest("/execute", { method: "POST", timeoutMs: 900_000, body: {
-          actionId: "documents.open", args: { sessionId: context.sessionID, path: args.path, ...(args.connection_id ? { connectionId: args.connection_id } : {}), ...(args.copy_to ? { copyTo: args.copy_to } : {}) },
+          actionId: "documents.open", args: { sessionId: context.sessionID, path: args.path, ...(args.connection_id ? { connectionId: args.connection_id } : {}), ...(args.copy_to ? { copyTo: args.copy_to } : {}), ...(args.show ? { show: true } : {}) },
         } }));
       },
     },
@@ -408,7 +410,7 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
         requireInteractiveRun(context);
         const args = documentNavigationSchema.parse(rawArgs);
         const surface = inAppDocumentSurface(await uiBridgeRequest("/snapshot"), context.sessionID);
-        if (!context.sessionID || !surface || surface.path !== args.path) return JSON.stringify({ ok: false, error: "The requested document is not active in this session. Use inapp_documents_list and select the intended file first." });
+        if (!context.sessionID || !surface || surface.path !== args.path) return JSON.stringify({ ok: false, error: "The requested document is not open in the user's view. If the user asked to see it, open it with inapp_documents_open and show=true first." });
         const kind = args.target.kind;
         if (!((kind === "page" && (surface.format === "pdf" || surface.format === "docx")) || (kind === "slide" && surface.format === "pptx") || (kind === "cells" && surface.format === "xlsx"))) return JSON.stringify({ ok: false, error: "The destination does not match the active document format." });
         return JSON.stringify(await uiBridgeRequest("/execute", { method: "POST", body: { actionId: "documents.navigate", args: { ...args, sessionId: context.sessionID } } }));
@@ -639,7 +641,7 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
     },
     ...legalworkBrowserTools,
     legalwork_browser_open_url: {
-      description: "Open a URL in a LegalWork browser tab bound to this session project. Returns the initial page snapshot, browser_url, target_id, and project download directory. Use legalwork_browser_batch for subsequent actions and legalwork_browser_downloads for completed file paths.",
+      description: "Open a URL in a LegalWork browser tab bound to this session project. Returns the initial page snapshot, browser_url, target_id, and project download directory. Use legalwork_browser_batch for subsequent actions and legalwork_browser_downloads for completed file paths. Without show, the tab runs in the background and closes when this turn ends, so never tell the user it is open for them.",
       args: browserOpenUrlArgsSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = browserOpenUrlArgsSchema.parse(rawArgs);
@@ -648,7 +650,7 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
           method: "POST",
           body: {
             actionId: "browser.open_url",
-            args: { url: args.url, provider: args.provider ?? "builtin", ...browserContext },
+            args: { url: args.url, provider: args.provider ?? "builtin", ...(args.show ? { show: true } : {}), ...browserContext },
           },
           timeoutMs: 45000,
         });

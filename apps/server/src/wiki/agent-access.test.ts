@@ -172,3 +172,16 @@ test("workspace tools retain the session origin and cannot borrow another worksp
   await grantWikiAgentSession(config, { sessionId: "session-1", directory: root, scope: "viewer" });
   expect((await authenticateWikiAgentRequest(config, request("/workspace/project/storage/roots")))?.actor.scope).toBe("viewer");
 });
+
+test("skill tools keep the session origin and stay limited to their own workspace", async () => {
+  const { config, root, request } = await fixture();
+  const nested = join(root, "wiki"); await mkdir(nested);
+  config.workspaces.push({ id: "wiki", name: "Wiki", path: nested, preset: "starter", workspaceType: "local" });
+  await grantWikiAgentSession(config, { sessionId: "session-1", directory: root, scope: "owner" });
+  for (const [path, method] of [["/workspace/project/skills", "GET"], ["/workspace/project/skills/vertrag/composed", "GET"],
+    ["/workspace/project/skills/vertrag/package-file", "GET"], ["/workspace/project/skills", "POST"], ["/workspace/project/skills/vertrag/resources", "POST"]])
+    expect((await authenticateWikiAgentRequest(config, request(path, { method })))?.actor.scope).toBe("owner");
+  await expect(authenticateWikiAgentRequest(config, request("/workspace/wiki/skills/vertrag/composed"))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
+  for (const [path, method] of [["/workspace/project/skills/vertrag", "DELETE"], ["/workspace/project/skills/hub/resources", "POST"], ["/workspace/project/skills/vertrag/promote-workflow", "POST"]])
+    await expect(authenticateWikiAgentRequest(config, request(path, { method }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
+});
