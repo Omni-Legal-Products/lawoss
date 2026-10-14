@@ -152,5 +152,13 @@ Aktuální stav 14. 10. 2026: publikované bdaba06e prošlo source Linux/macOS a
 - [x] Zachovat původní chybu inicializace i chybu zavření a vlastnictví částečně otevřené databáze ve všech osmi adaptérech a nezávislých přímých store instancích.
 - [x] Po skutečných RED/GREEN dokončit zmrazené úplné kontroly a čerstvou immutable revizi těchto tří oprav před další publikací. Fix 1a6f89ff: server1575/21existujících skip/0fail, strict/build0, Node2/0skip/0fail; I1–I3 nezávisle potvrzeny jako odstraněné.
 - [x] Opravit dva nové testové typy `any` bezpečným zúžením `unknown`, zachovat všechny behaviorální kontroly a uzavřít malou scoped revizi. Test-only 71bce45c: focused34/0fail/153assertions, strict0; čerstvá scoped revize Minor ADDRESSED bez dalších zjištění. Produkční kód a jeho úplné testy se tím nemění.
-- [ ] Prokázat a opravit zrušení streamu přes celý autentizovaný produkční proxy; samostatný Node adapter probe již prokázal otevřený upstream po odpojení, ale ne příčinu browser timeoutů.
+- [x] Prokázat a opravit zrušení streamu přes celý autentizovaný produkční proxy; c4ba6455/1e0d7d2e a fresh reviews potvrzují signal/reader cleanup i druhý živý stream. To samo neprokazuje příčinu browser timeoutů.
 - [ ] Doložit příčinu Linux/macOS nativního zaseknutí a Windows resetu na skutečných platformách; zpřesnit bezpečné diagnostiky, zachovat normální obnovení enginu a všechny dosavadní akceptační podmínky.
+
+### Nové skutečně prokázané streamové hranice (2026-10-14)
+
+- [x] Prokázat únik přes skutečný autentizovaný produkční proxy/HTTP, včetně zrušení před hlavičkami a ohraničeným metadata fetch. Oprava c4ba6455: fullserver1585/21existujících skip/0fail, Node13/0skip/0fail, strict/build/import233/2350; druhý stream zůstává funkční, normální odpovědi a prompt/file kontrola zachované.
+- [x] Dokončit nezávislou immutable revizi proxy/reader/signal a nového macOS/Windows CI výběru před dalším production writerem. Production design schválen; Minor logger fixture opraven1e0d7d2e s Bun17/0fail, Node15/0skip/0fail, strict/build0 a čerstvou M1 ADDRESSED revizí bez dalších zjištění.
+- [x] Prokázat nový idle-owner/cache-GC problém: skutečný SDK stream a React runtime dekódují dokončení/idle, ale po přirozeném16.5s vypršení15s status query zůstane po posledním release workspace SSE otevřený. Okamžité release a druhý vlastník fungují. Toto samo neprokazuje native CI zahlcení.
+- [ ] Zachovat autoritativní idle evidence v bounded session-sync lifetime nezávisle na krátké UI query cache; skutečný decoder/cache regression a přirozený browser GC průchod musí projít, včetně busy/unknown/error/accepted/wait/second-owner ochran. Žádné plošné zvýšení gcTime, zkrácení timeoutu nebo pokládání chybějícího stavu za idle.
+- [ ] Po nových clean reviews zopakovat poslední sestavení/nativní a skutečné remote OS kontroly; původní Windows reset/config publication, protected dev a skutečné public/provider/CUA kroky zůstávají otevřené.
