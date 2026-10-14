@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { serve } from "./serve-node.js";
+import { adapterCancellationCases, verifyAdapterCancellation } from "./test-support/opencode-proxy-cancellation.js";
+
+for (const scenario of adapterCancellationCases) {
+  test(`HTTP response body ownership: ${scenario}`, () => verifyAdapterCancellation(serve, scenario), 10_000);
+}
 
 describe("serve", () => {
   test("aborts the Web request when the client disconnects while awaiting approval", async () => {

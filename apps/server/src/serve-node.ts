@@ -136,26 +136,43 @@ async function writeWebResponse(webRes: Response, nodeRes: ServerResponse): Prom
     }
   });
 
-  if (!isResponseWritable(nodeRes)) return;
-
-  nodeRes.writeHead(webRes.status, headersObj);
-
   if (!webRes.body) {
+    if (!isResponseWritable(nodeRes)) return;
+    nodeRes.writeHead(webRes.status, headersObj);
     endResponse(nodeRes);
     return;
   }
 
   const reader = webRes.body.getReader();
+  let completed = false;
+  let cancellation: Promise<void> | undefined;
+  const cancel = () => {
+    // Cancel even while read() is idle. A cleanup rejection must not replace
+    // the primary read/write failure or become an unhandled rejection.
+    cancellation ??= reader.cancel().catch(() => undefined);
+    return cancellation;
+  };
+  nodeRes.once("close", cancel);
+  nodeRes.once("error", cancel);
   try {
-    while (true) {
+    if (!isResponseWritable(nodeRes)) return;
+    nodeRes.writeHead(webRes.status, headersObj);
+    while (isResponseWritable(nodeRes)) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        completed = true;
+        break;
+      }
       if (!isResponseWritable(nodeRes)) break;
       if (!nodeRes.write(value)) {
         await waitForDrainOrClose(nodeRes);
       }
     }
   } finally {
+    nodeRes.off("close", cancel);
+    nodeRes.off("error", cancel);
+    if (!completed) await cancel();
+    else await cancellation;
     reader.releaseLock();
     endResponse(nodeRes);
   }
@@ -176,13 +193,14 @@ export function serve(options: ServeOptions): Promise<ServeResult> {
     const close = () => { if (!nodeRes.writableEnded) abort(); };
     nodeReq.once("aborted", abort);
     nodeRes.once("close", close);
-    nodeRes.on("error", (error) => {
+    const responseError = (error: Error) => {
       if (isWriteAfterEndError(error)) {
         console.warn("[serve-node] Ignored response write after end");
         return;
       }
       console.error("[serve-node] Response stream error:", error);
-    });
+    };
+    nodeRes.on("error", responseError);
 
     try {
       const webReq = toWebRequest(nodeReq, hostname, boundPort, scheme, controller.signal);
@@ -204,6 +222,7 @@ export function serve(options: ServeOptions): Promise<ServeResult> {
     } finally {
       nodeReq.off("aborted", abort);
       nodeRes.off("close", close);
+      nodeRes.off("error", responseError);
     }
   };
 

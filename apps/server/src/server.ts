@@ -1247,7 +1247,7 @@ async function proxyOpencodeRequest(input: {
     const metadataHeaders = new Headers(headers);
     metadataHeaders.delete("content-length");
     metadataHeaders.delete("content-type");
-    const metadata = await fetch(metadataUrl, { headers: metadataHeaders, signal: AbortSignal.timeout(10_000) });
+    const metadata = await fetch(metadataUrl, { headers: metadataHeaders, signal: AbortSignal.any([input.request.signal, AbortSignal.timeout(10_000)]) });
     if (!metadata.ok) throw new ApiError(404, "session_not_found", "Session not found");
     const parsed = sessionInfoSchema.safeParse(await metadata.json());
     if (!parsed.success || !workspaceOwnsSession(workspace, parsed.data)) throw new ApiError(404, "session_not_found", "Session does not belong to this project");
@@ -1274,6 +1274,7 @@ async function proxyOpencodeRequest(input: {
     method,
     headers,
     body,
+    signal: input.request.signal,
   });
 
   if (workspace && method === "GET" && scopedProxyPath === "/session" && response.ok && (workspace.previousPaths?.length || workspace.appFilesStorageKey)) {

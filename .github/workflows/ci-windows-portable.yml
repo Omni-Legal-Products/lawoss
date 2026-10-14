@@ -74,6 +74,10 @@ on:
       - apps/server/src/project-contents.test.ts
       - apps/server/src/test-support/runtime-db-handles.ts
       - apps/server/scripts/runtime-db-lifecycle.node.test.mjs
+      - apps/server/scripts/opencode-proxy-cancellation.node.test.mjs
+      - apps/server/src/opencode-proxy-cancellation.e2e.test.ts
+      - apps/server/src/test-support/opencode-proxy-cancellation.ts
+      - apps/server/src/serve-node*
       - apps/server/src/embedded-app-files.e2e.test.ts
       - apps/server/src/embedded.ts
       - apps/server/src/cloud-plugins.ts
@@ -155,6 +159,10 @@ on:
       - apps/server/src/project-contents.test.ts
       - apps/server/src/test-support/runtime-db-handles.ts
       - apps/server/scripts/runtime-db-lifecycle.node.test.mjs
+      - apps/server/scripts/opencode-proxy-cancellation.node.test.mjs
+      - apps/server/src/opencode-proxy-cancellation.e2e.test.ts
+      - apps/server/src/test-support/opencode-proxy-cancellation.ts
+      - apps/server/src/serve-node*
       - apps/server/src/embedded-app-files.e2e.test.ts
       - apps/server/src/embedded.ts
       - apps/server/src/cloud-plugins.ts
@@ -216,7 +224,7 @@ jobs:
       # lawoss-path-containment: workspace v koreni disku (subst) a zdieľania (net share).
       - name: LAWOSS server (onboarding, register existing, triage, memory, paths, containment, reload watcher, process tree)
         working-directory: apps/server
-        run: bun test lawoss reload-watcher workspace-reconnect artifact-files isir-case-attachments runtime-db-lifecycle runtime-opencode-config-store legalwork-workspace-config-store legalwork-runtime-config session-groups eigenwelt-connection-store eigenwelt-hub-installs-store eigenwelt-sync-events task-store task-sync task-notifications project-sync project-contents cloud-plugins cloud-plugin-resources runtime-config-migrate mcp-shared-store eigenwelt-refresh
+        run: bun test lawoss reload-watcher workspace-reconnect artifact-files isir-case-attachments runtime-db-lifecycle runtime-opencode-config-store legalwork-workspace-config-store legalwork-runtime-config session-groups eigenwelt-connection-store eigenwelt-hub-installs-store eigenwelt-sync-events task-store task-sync task-notifications project-sync project-contents cloud-plugins cloud-plugin-resources runtime-config-migrate mcp-shared-store eigenwelt-refresh opencode-proxy-cancellation serve-node
 
       # Node 24 používa node:sqlite bez postinstall/native addon rebuildu. Proces
       # ostáva živý počas kontroly handle aj skutočného odstránenia databázy.
@@ -224,6 +232,8 @@ jobs:
         run: pnpm --filter legalwork-server build
       - name: Node SQLite final release, overlapping owners and restart
         run: node --test apps/server/scripts/runtime-db-lifecycle.node.test.mjs
+      - name: Node production engine proxy and idle response cancellation
+        run: node --test apps/server/scripts/opencode-proxy-cancellation.node.test.mjs
 
       - name: ISIR attachments in ten case folders (synthetic offline corpus)
         run: pnpm test:isir
