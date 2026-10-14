@@ -19,7 +19,10 @@ import { createClient } from "@/app/lib/opencode";
 import { createLegalworkServerClient, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
 import {
+  createWorkspaceEndpoint,
   resolveWorkspaceEndpoint,
+  resolveWorkspaceEndpointConnection,
+  type LocalServerHandle,
   type ResolvedWorkspaceEndpoint,
 } from "@/app/lib/workspace-endpoint";
 import type { WorkspaceConnectionState } from "@/app/types";
@@ -85,6 +88,22 @@ export function sessionsWithinWorkspace(workspace: RouteWorkspace, sessions: Rou
     const normalizedDirectory = normalizeDirectoryPath(directory);
     return normalizedDirectory === root || normalizedDirectory.startsWith(`${root}/`);
   });
+}
+
+/** Metadata refreshes must not replace the selected workspace's transport. */
+export function useSelectedWorkspaceEndpoint(workspace: RouteWorkspace | null | undefined, localServer: LocalServerHandle) {
+  const connection = resolveWorkspaceEndpointConnection(workspace, localServer);
+  const baseUrl = connection?.baseUrl;
+  const token = connection?.token;
+  const workspaceId = connection?.workspaceId;
+  const isRemote = connection?.isRemote;
+  const selectedId = workspace?.id.trim();
+  return useMemo(
+    () => baseUrl !== undefined && token !== undefined && workspaceId !== undefined && isRemote !== undefined
+      ? createWorkspaceEndpoint({ baseUrl, token, workspaceId, isRemote })
+      : null,
+    [baseUrl, isRemote, selectedId, token, workspaceId],
+  );
 }
 
 export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
@@ -792,10 +811,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   // Single source of truth for the selected workspace's server URL/token/id.
   // For remote workspaces this is the worker that owns the workspace; for
   // local workspaces it's the user's local LegalWork server.
-  const selectedWorkspaceEndpoint = useMemo(
-    () => resolveWorkspaceEndpoint(selectedWorkspace, { baseUrl, token }),
-    [baseUrl, selectedWorkspace, token],
-  );
+  const selectedWorkspaceEndpoint = useSelectedWorkspaceEndpoint(selectedWorkspace, { baseUrl, token });
   const selectedWorkspaceServerToken = selectedWorkspaceEndpoint?.token ?? "";
   const opencodeBaseUrl = selectedWorkspaceEndpoint?.opencodeBaseUrl ?? "";
   const selectedWorkspaceIsLoading = retryingWorkspaceIds.includes(selectedWorkspaceId);

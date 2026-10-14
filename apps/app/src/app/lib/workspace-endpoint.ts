@@ -48,6 +48,9 @@ export type LocalServerHandle = {
   token: string | null | undefined;
 };
 
+/** Effective routing/auth operands, without allocating a transport. */
+export type WorkspaceEndpointConnection = Pick<ResolvedWorkspaceEndpoint, "baseUrl" | "token" | "workspaceId" | "isRemote">;
+
 type WorkspaceEndpointInput = Pick<
   WorkspaceInfo,
   | "id"
@@ -103,13 +106,13 @@ function pickRemoteToken(workspace: WorkspaceEndpointInput): string {
 /**
  * Resolve the right server endpoint for a workspace. Returns null when the
  * workspace can't be reached (remote with no baseUrl, or local with no local
- * server connected yet). The returned object's `client`, `mountedBaseUrl`, and
- * `opencodeBaseUrl` are ready to use for any workspace-scoped API call.
+ * server connected yet). Resolve these scalar operands before deciding whether
+ * an existing transport can be retained across workspace metadata refreshes.
  */
-export function resolveWorkspaceEndpoint(
+export function resolveWorkspaceEndpointConnection(
   workspace: WorkspaceEndpointInput,
   localServer: LocalServerHandle,
-): ResolvedWorkspaceEndpoint | null {
+): WorkspaceEndpointConnection | null {
   if (!workspace) return null;
 
   if (isRemoteWorkspace(workspace)) {
@@ -117,42 +120,33 @@ export function resolveWorkspaceEndpoint(
     if (!baseUrl) return null;
     const token = pickRemoteToken(workspace);
     const workspaceId = workspaceServerId(workspace);
-    const client = createLegalworkServerClient({
-      baseUrl,
-      token: token || undefined,
-    });
-    const mountedBaseUrl = (
-      buildLegalworkWorkspaceBaseUrl(baseUrl, workspaceId) ?? baseUrl
-    ).replace(/\/+$/, "");
-    return {
-      baseUrl,
-      token,
-      workspaceId,
-      isRemote: true,
-      client,
-      mountedBaseUrl,
-      opencodeBaseUrl: `${mountedBaseUrl}/opencode`,
-    };
+    return { baseUrl, token, workspaceId, isRemote: true };
   }
 
   const localBaseUrl = (localServer.baseUrl ?? "").trim();
   if (!localBaseUrl) return null;
   const localToken = (localServer.token ?? "").trim();
   const workspaceId = workspace.id.trim();
-  const client = createLegalworkServerClient({
-    baseUrl: localBaseUrl,
-    token: localToken || undefined,
-  });
+  return { baseUrl: localBaseUrl, token: localToken, workspaceId, isRemote: false };
+}
+
+/** Allocate a client only after the caller has resolved the connection. */
+export function createWorkspaceEndpoint(connection: WorkspaceEndpointConnection): ResolvedWorkspaceEndpoint {
+  const { baseUrl, token, workspaceId } = connection;
+  const client = createLegalworkServerClient({ baseUrl, token: token || undefined });
   const mountedBaseUrl = (
-    buildLegalworkWorkspaceBaseUrl(localBaseUrl, workspaceId) ?? localBaseUrl
+    buildLegalworkWorkspaceBaseUrl(baseUrl, workspaceId) ?? baseUrl
   ).replace(/\/+$/, "");
   return {
-    baseUrl: localBaseUrl,
-    token: localToken,
-    workspaceId,
-    isRemote: false,
+    ...connection,
     client,
     mountedBaseUrl,
     opencodeBaseUrl: `${mountedBaseUrl}/opencode`,
   };
+}
+
+/** Resolve and allocate a ready-to-use workspace client and mounted URLs. */
+export function resolveWorkspaceEndpoint(workspace: WorkspaceEndpointInput, localServer: LocalServerHandle): ResolvedWorkspaceEndpoint | null {
+  const connection = resolveWorkspaceEndpointConnection(workspace, localServer);
+  return connection ? createWorkspaceEndpoint(connection) : null;
 }

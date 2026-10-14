@@ -20,6 +20,7 @@ import { sha256 } from "../lawoss/testing/isir/corpus.mjs";
 import { prepareNativeEngineFiles, probeNativeEngineVersion, verifyNativeEngineRuntime } from "../lawoss/testing/isir/native/engine-identity.mjs";
 
 const debugPair=process.argv.includes('--debug-case-pair');
+const requestedEndpointRefresh=process.env.LAWOSS_ISIR_NATIVE_ENDPOINT_REFRESH==='1';
 assert.ok(!debugPair || !process.env.CI,'CI must run the complete ten-case native gate');
 if(debugPair)console.log('DEBUG: real cases1+10 only; this is not the full native gate');
 const repo = fileURLToPath(new URL("../", import.meta.url));
@@ -28,6 +29,10 @@ const requireApp = createRequire(path.join(repo, "apps/app/package.json"));
 const electron = process.env.LAWOSS_ISIR_NATIVE_ELECTRON ?? requireDesktop("electron");
 await access(path.join(repo, "apps/server/dist/embedded.js"));
 const corpus = await loadNativeCorpus(process.env.LAWOSS_ISIR_CORPUS);
+assert.ok(!requestedEndpointRefresh || (process.env.CI && corpus.mode==='synthetic' && !debugPair),'Explicit controlled route refresh requires the complete isolated synthetic CI gate');
+// Ordinary complete synthetic native runs always cover metadata refresh. An
+// external corpus and the explicitly partial debug mode keep their own scope.
+const endpointRefresh=corpus.mode==='synthetic' && !debugPair;
 const diagnostics = createNativeDiagnostics({ enabled: process.env.LAWOSS_ISIR_NATIVE_DIAGNOSTICS === '1', ci: Boolean(process.env.CI), mode: corpus.mode, outputFile: process.env.LAWOSS_ISIR_NATIVE_DIAGNOSTICS_FILE });
 const nativeFetch = diagnostics.fetch;
 // An explicit fixture is preflighted, but never substitutes for a prepared
@@ -196,6 +201,36 @@ try {
     await until(()=>cdp.evaluate(`(()=>{const button=document.querySelector('button[aria-label="Refresh folder"]');return button&&!button.disabled})()`),'current native folder query settled');
     await until(()=>cdp.evaluate(`(()=>{const upload=[...document.querySelectorAll('[role="menuitem"],button')].find(e=>e.textContent.trim()==='Upload files'&&e.getBoundingClientRect().width>0&&!e.disabled);if(upload){window.__isirChooserBoundary.capture();upload.click();window.__isirChooserBoundary.sample('after-upload');return true}const nav=document.querySelector('[aria-label="Current folder"]');const folder=document.querySelector('[data-project-folder="Dokumenty"]');if(!folder||nav?.querySelector('button')?.textContent.trim()!==${JSON.stringify(workspace.name)})return false;window.__isirChooserBoundary.sample('before-menu');folder.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:100,clientY:200,button:2}));return false})()`),'current project native upload menu action');
     const chooser=await until(()=>cdp.events.slice(eventStart).find(e=>e.method==='Page.fileChooserOpened'),'actual native HTML chooser request');
+    // The display-name ACK is independent of client identity: GREEN must keep
+    // the same client. All raw connection operands remain inside the renderer.
+    const refreshName = async name => {
+      const receipt=await cdp.evaluate(`(async()=>{
+        const headers=${JSON.stringify(serverAuth)},base=${JSON.stringify(serverInfo.baseUrl)},id=${JSON.stringify(workspace.id)};
+        const read=async(response)=>{if(response.status!==200)throw new Error('Controlled metadata HTTP status');return response.json()};
+        const before=(await read(await fetch(base+'/workspaces',{headers}))).workspaces.find(w=>w.id===id);
+        const after=(await read(await fetch(base+'/workspaces/'+encodeURIComponent(id)+'/display-name',{method:'PATCH',headers,body:JSON.stringify({displayName:${JSON.stringify(name)}})}))).workspaces.find(w=>w.id===id);
+        const fields=['id','workspaceType','path','baseUrl','legalworkHostUrl','legalworkToken','legalworkClientToken','legalworkHostToken','legalworkWorkspaceId'];
+        const unchanged=!!before&&!!after&&fields.every(key=>Object.is(before[key],after[key]));
+        if(!unchanged)throw new Error('Controlled metadata changed connection or root');
+        const prior=new Set(window.__legalwork.events(200));
+        window.__isirEndpointRefresh={prior,id,name:${JSON.stringify(name)}};
+        window.dispatchEvent(new CustomEvent('legalwork-server-settings-changed'));
+        return {routingAndRootUnchanged:unchanged,fieldCount:fields.length};
+      })()`);
+      const ack=await until(()=>cdp.evaluate(`(()=>{const control=window.__isirEndpointRefresh,route=window.__legalwork.slice('route');const complete=window.__legalwork.events(200).some(e=>!control.prior.has(e)&&e.name==='route.refresh.complete'&&e.data?.selectedWorkspaceId===control.id);const metadata=route?.workspaces.find(w=>w.id===control.id)?.displayNameResolved===control.name;return complete&&metadata&&route.loading===false?{complete:true,metadataCommitted:true,loading:false}:false})()`),'actual route refresh completion and committed metadata acknowledgment');
+      return {...receipt,...ack};
+    };
+    const controlled=endpointRefresh && selectedIndex===1;
+    let pickerError=null;
+    try {
+    if(controlled){
+      const before=await cdp.evaluate("window.__isirChooserBoundary.sample('before-controlled-refresh')");
+      assert.equal(before.capturedConnected,true,'Controlled refresh starts with the original mounted chooser input');
+      const ack=await refreshName(`${workspace.name} refresh acknowledgement`);
+      const after=await cdp.evaluate("window.__isirChooserBoundary.sample('after-controlled-refresh')");
+      await writeFile(path.join(root,'endpoint-refresh.json'),JSON.stringify({schema:1,ack,before,after},null,2),{mode:0o600});
+      console.log(`Controlled native route refresh: ${JSON.stringify({ack,clientIdentityEqual:before.clientIdentity===after.clientIdentity,capturedConnected:after.capturedConnected})}`);
+    }
     const resolved=await cdp.send('DOM.resolveNode',{backendNodeId:chooser.params.backendNodeId});
     const observed=await cdp.send('Runtime.callFunctionOn',{objectId:resolved.object.objectId,functionDeclaration:`function(){window.__isirPickerChange=null;this.addEventListener('change',()=>{window.__isirChooserBoundary.event(this);window.__isirPickerChange={connected:this.isConnected,files:[...this.files].map(f=>({name:f.name,size:f.size}))}},{once:true});return {connected:this.isConnected,type:this.type,boundary:window.__isirChooserBoundary.event(this)}}`,returnByValue:true});
     const inputIdentity={backendNodeId:chooser.params.backendNodeId,...observed.result.value};
@@ -211,6 +246,17 @@ try {
     const copied=await until(async()=>{const lines=(await readFile(path.join(root,'copy-receipts.jsonl'),'utf8').catch(()=>'' )).trim().split('\n').filter(Boolean).map(JSON.parse);return lines.findLast(r=>r.workspaceId===workspace.id&&JSON.stringify(r.paths)===JSON.stringify(paths)&&r.folder==='Dokumenty')},'actual picker preload/IPC receipt');
     assert.equal(copied.error,undefined);assert.ok(copied.result.files.every(f=>f.status==='copied'));
     return {inputIdentity,changed,copied};
+    } catch(error){pickerError=error;throw error;}
+    finally {
+      if(controlled){
+        let cleanupError=null;
+        try {const ack=await refreshName(workspace.name);console.log(`Controlled native metadata rollback: ${JSON.stringify(ack)}`);}
+        catch(error){console.error('Controlled native metadata rollback failed',JSON.stringify(errorMetadata(error)));cleanupError=error;}
+        try {await cdp.evaluate('delete window.__isirEndpointRefresh');}
+        catch(error){console.error('Controlled native refresh control cleanup failed',JSON.stringify(errorMetadata(error)));cleanupError??=error;}
+        if(!pickerError&&cleanupError)throw cleanupError;
+      }
+    }
   };
   const hashes = async (entry,workspace) => {
     for (const document of entry.documents) {
@@ -227,6 +273,12 @@ try {
     await until(()=>cdp.evaluate(`!!document.querySelector('[data-project-folder="Dokumenty"]')`),'native source folder');
     const pickerReceipt=await picker([path.join(root,'originals',entry.id,entry.documents[0].name)],workspace);
     await until(async()=>{try{return sha256(await readFile(path.join(workspace.path,'Dokumenty',entry.documents[0].name)))===sha256(entry.documents[0].bytes)}catch{return false}},'actual picker copied bytes');
+    if(endpointRefresh && index===0){
+      const behavior=await cdp.evaluate(`(async()=>{const tests=await import('/tests/workspace-endpoint-stability.test.tsx');return tests.runNativeEndpointStabilityBehavior()})()`);
+      assert.equal(behavior.actualMountedHook,true);assert.equal(behavior.checks,26,'Every mounted routing/auth/root transition completed');
+      await writeFile(path.join(root,'endpoint-hook-behavior.json'),JSON.stringify(behavior,null,2),{mode:0o600});
+      console.log(`Mounted native endpoint behavior: ${JSON.stringify(behavior)}`);
+    }
     await click('Dokumenty');
     await drop(entry.documents.slice(1).map(d=>path.join(root,'originals',entry.id,d.name)));
     await until(async()=>{try{await hashes(entry,workspace);return true}catch{return false}},'actual OS-backed drop hashes');
