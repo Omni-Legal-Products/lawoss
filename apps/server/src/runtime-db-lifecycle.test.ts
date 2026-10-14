@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { acquireRuntimeDbLifetime, runtimeDbPath, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
+import { RuntimeDbCleanupError, acquireRuntimeDbLifetime, runtimeDbPath, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { initializeSqlite, openSqlite } from "./runtime-db.js";
 import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { readLegalworkWorkspaceConfig } from "./legalwork-workspace-config-store.js";
@@ -196,10 +196,11 @@ for (const [name, open] of initializationCases) test(`initialization preserves a
   const { Database } = await import("bun:sqlite");
   const close = Database.prototype.close; let partial: InstanceType<typeof Database> | undefined;
   Database.prototype.close = function(...args) { if (!partial) { partial = this; throw new Error("injected cleanup before native close"); } return close.apply(this, args); };
-  let failure: any;
+  let failure: unknown;
   try {
     failure = await open(f.config, f.path, f.root).catch(error => error);
     expect(failure).toBeInstanceOf(AggregateError);
+    if (!(failure instanceof RuntimeDbCleanupError)) throw new Error("Expected recoverable initialization failure", { cause: failure });
     const messages = (error: unknown): string => error instanceof AggregateError ? error.errors.map(messages).join("\n") : String(error);
     expect(messages(failure)).toContain("not a database");
     expect(messages(failure)).toContain("injected cleanup before native close");
@@ -207,7 +208,10 @@ for (const [name, open] of initializationCases) test(`initialization preserves a
     await failure.retryCleanup(); await failure.retryCleanup(); expect(await runtimeDbHandles(f.path)).toBe(0);
     await rm(f.path); await open(f.config, f.path, f.root); expect(await runtimeDbHandles(f.path)).toBe(0);
     await rm(f.root, { recursive: true });
-  } finally { await failure?.retryCleanup?.().catch(() => undefined); Database.prototype.close = close; if (partial) close.call(partial); }
+  } finally {
+    try { if (failure instanceof RuntimeDbCleanupError) await failure.retryCleanup(); }
+    finally { Database.prototype.close = close; if (partial) close.call(partial); }
+  }
 });
 
 
@@ -239,7 +243,7 @@ test("recovering a failed independent open cannot close another caller's connect
   healthy.setSyncState({ orgId: "fixture", pullCursor: "kept", lastPullAt: 1, lastPushAt: null, lastError: null });
   const { Database } = await import("bun:sqlite");
   const exec = Database.prototype.exec, close = Database.prototype.close;
-  let partial: InstanceType<typeof Database> | undefined, failedClose = false, failure: any;
+  let partial: InstanceType<typeof Database> | undefined, failedClose = false, failure: unknown;
   Database.prototype.exec = function(...args) {
     if (!partial) { partial = this; return exec.call(this, "SELECT * FROM missing_initialization_table"); }
     return exec.apply(this, args);
@@ -251,11 +255,12 @@ test("recovering a failed independent open cannot close another caller's connect
   try {
     failure = await ProjectSyncStore.open(f.path).catch(error => error);
     expect(failure).toBeInstanceOf(AggregateError);
+    if (!(failure instanceof RuntimeDbCleanupError)) throw new Error("Expected recoverable independent-open failure", { cause: failure });
     await failure.retryCleanup(); await failure.retryCleanup();
     expect(healthy.getSyncState("fixture").pullCursor).toBe("kept");
   } finally {
-    await failure?.retryCleanup?.(); Database.prototype.exec = exec; Database.prototype.close = close;
-    healthy.close();
+    try { if (failure instanceof RuntimeDbCleanupError) await failure.retryCleanup(); }
+    finally { Database.prototype.exec = exec; Database.prototype.close = close; healthy.close(); }
   }
   expect(await runtimeDbHandles(f.path)).toBe(0); await rm(f.root, { recursive: true });
 });
