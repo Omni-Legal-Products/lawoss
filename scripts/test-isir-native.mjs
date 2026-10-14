@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, mkdir, readFile, writeFile, rm, access, symlink, realpath, readlink, rename, readdir } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm, access, symlink, realpath, rename, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
@@ -12,6 +12,7 @@ import { partialPdf } from "../lawoss/testing/isir/native/partial-pdf.mjs";
 import { connectRenderer, until } from "../lawoss/testing/isir/native/cdp.mjs";
 import { parseCsv } from "../apps/server/dist/lawoss/documents/validation.js";
 import { sha256 } from "../lawoss/testing/isir/corpus.mjs";
+import { prepareNativeEngineFiles, probeNativeEngineVersion, verifyNativeEngineRuntime } from "../lawoss/testing/isir/native/engine-identity.mjs";
 
 const debugPair=process.argv.includes('--debug-case-pair');
 assert.ok(!debugPair || !process.env.CI,'CI must run the complete ten-case native gate');
@@ -19,21 +20,17 @@ if(debugPair)console.log('DEBUG: real cases1+10 only; this is not the full nativ
 const repo = fileURLToPath(new URL("../", import.meta.url));
 const requireDesktop = createRequire(path.join(repo, "apps/desktop/package.json"));
 const requireApp = createRequire(path.join(repo, "apps/app/package.json"));
-const engine = process.env.LAWOSS_ISIR_NATIVE_ENGINE ?? path.join(repo, "apps/desktop/resources/sidecars", process.platform === "win32" ? "opencode.exe" : "opencode");
 const electron = process.env.LAWOSS_ISIR_NATIVE_ELECTRON ?? requireDesktop("electron");
-const version = spawnSync(engine, ["--version"], { encoding: "utf8" });
-assert.equal(version.status, 0, "Real pinned sidecar must be installed by the desktop build");
-assert.equal(version.stdout.trim(), "1.18.29", "Arbitrary PATH engine cannot replace pinned desktop engine");
 await access(path.join(repo, "apps/server/dist/embedded.js"));
-const bundledEngine = path.join(repo, "apps/desktop/resources/sidecars", process.platform === "win32" ? "opencode.exe" : "opencode");
 const corpus = await loadNativeCorpus(process.env.LAWOSS_ISIR_CORPUS);
-let provisionedEngine = false;
-if (path.resolve(engine) !== path.resolve(bundledEngine)) {
-  try { await access(bundledEngine); } catch {
-    await mkdir(path.dirname(bundledEngine), {recursive:true});
-    await symlink(engine, bundledEngine); provisionedEngine = true;
-  }
-}
+// An explicit fixture is preflighted, but never substitutes for a prepared
+// platform target or bypasses its manifest. PATH discovery is not permitted.
+const externalEngine = process.env.LAWOSS_ISIR_NATIVE_ENGINE;
+if (externalEngine !== undefined) probeNativeEngineVersion(externalEngine);
+const preparedEngine = await prepareNativeEngineFiles({ bundleDir: path.join(repo, "apps/desktop/resources/sidecars"), externalEngine });
+try {
+const engine = preparedEngine.path;
+probeNativeEngineVersion(engine);
 const root = await realpath(await mkdtemp(path.join(tmpdir(), "lawoss-isir-native-")));
 const profile = path.join(root, "profile");
 const children = [];
@@ -97,7 +94,7 @@ const cleanup = () => cleanupPromise ??= (async () => {
   cdp?.close();
   for (const { child } of [...children].reverse()) await stop(child);
   await provider.close();
-  if (provisionedEngine && await readlink(bundledEngine).catch(()=>null) === engine) await rm(bundledEngine);
+  await preparedEngine.cleanup();
   const processes=children.map(({child,label})=>({label,pid:child.pid,exitCode:child.exitCode,signal:child.signalCode}));
   await writeFile(path.join(root,'process-receipts.json'),JSON.stringify({cleaned:true,processes},null,2),{mode:0o600});
   console.log(`Owned native process trees stopped; private evidence: ${root}`);
@@ -120,10 +117,11 @@ try {
     await until(() => cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('button,a,[role="button"],[role="menuitem"],[role="option"]')].find(e=>e.textContent.trim()===${JSON.stringify(text)}&&e.getBoundingClientRect().width>0&&!e.disabled);if(!e)return false;e.click();return true})()`), `visible native control ${text}`);
   };
   const liveEngine = await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('engineInfo')");
-  assert.equal(path.resolve(liveEngine.opencodeBinPath),path.resolve(bundledEngine));
   const apiAuth = {authorization:'Basic '+Buffer.from(`${liveEngine.opencodeUsername}:${liveEngine.opencodePassword}`).toString('base64'),'content-type':'application/json'};
   const health = await (await fetch(`${liveEngine.baseUrl}/global/health`,{headers:apiAuth})).json();
-  assert.equal(health.version,'1.18.29');
+  const initialEngineIdentity = await verifyNativeEngineRuntime(preparedEngine, liveEngine.opencodeBinPath, health);
+  const engineIdentities = [{ phase: 'initial', ...initialEngineIdentity }];
+  await writeFile(path.join(root,'engine-identity-receipts.json'),JSON.stringify(engineIdentities,null,2),{mode:0o600});
   let serverInfo = await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('legalworkServerInfo')");
   let serverAuth = {authorization:'Bearer '+(serverInfo.ownerToken||serverInfo.clientToken),'content-type':'application/json'};
   const providerConfig = JSON.parse(env.OPENCODE_CONFIG_CONTENT).provider;
@@ -289,7 +287,7 @@ try {
     evidence.push({workspaceId:workspace.id,pickerReceipt,nativeRevision:terminalBinding.nativeRevision,documentIds:prepared.map(d=>d.id),sessionId:binding.sessionId,messageId:binding.messageId,sourceHashes:entry.documents.map(d=>sha256(d.bytes)),outputHashes:actualHashes,nativeSubmission:{messageID:payload.messageID,model:payload.model,agent:payload.agent,variant:payload.variant,status:204},assistantParentIds:[...new Set(snapshot.messages.filter(m=>m.info.role==='assistant').map(m=>m.info.parentID))],toolNames:parts.filter(p=>p.type==='tool').map(p=>p.tool)});
     console.log(`${debugPair?"DEBUG":"PASS"} native case ${index+1}/10: picker/drop, all sources, real engine tools, saved/validated hashes, native204+terminal`);
   }
-  await writeFile(path.join(root,'native-receipts.json'),JSON.stringify({mode:corpus.mode,fullMatrix:!debugPair,engineVersion:health.version,cases:evidence},null,2),{mode:0o600});
+  await writeFile(path.join(root,'native-receipts.json'),JSON.stringify({mode:corpus.mode,fullMatrix:!debugPair,engineVersion:health.version,engineIdentities,cases:evidence},null,2),{mode:0o600});
 
   // The ordinary composer submits an OS-backed attachment through its real
   // binary upload route before the native engine receives the saved reference.
@@ -462,14 +460,15 @@ try {
   await openFiles(first);await click('Dokumenty');await click('Prepare this folder');
   await until(async()=> (await panelText()).includes('Format and sources verified'),'recovered native renderer shows actual current verification');
   const finalEngine=await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('engineInfo')");
-  assert.equal(path.resolve(finalEngine.opencodeBinPath),path.resolve(bundledEngine));
   const relaunchedHealth=await (await fetch(`${finalEngine.baseUrl}/global/health`,{headers:{authorization:'Basic '+Buffer.from(`${finalEngine.opencodeUsername}:${finalEngine.opencodePassword}`).toString('base64')}})).json();
-  assert.equal(relaunchedHealth.version,'1.18.29');
+  const relaunchedEngineIdentity=await verifyNativeEngineRuntime(preparedEngine,finalEngine.opencodeBinPath,relaunchedHealth);
+  engineIdentities.push({ phase: 'relaunch', ...relaunchedEngineIdentity });
+  await writeFile(path.join(root,'engine-identity-receipts.json'),JSON.stringify(engineIdentities,null,2),{mode:0o600});
   const artifacts={};
   for(const file of ['apps/server/dist/embedded.js','apps/server/dist/lawoss/documents/export.js','apps/server/dist/lawoss/workspace-history-sessions.js','apps/server/dist/opencode-plugins/legalwork-project-tools.js','apps/desktop/electron/runtime.mjs','apps/app/src/react-app/domains/session/sync/session-sync.ts'])artifacts[file]=sha256(await readFile(path.join(repo,file)));
   extraEvidence.artifactHashes=artifacts;extraEvidence.relaunchedEngineVersion=relaunchedHealth.version;
   evidence[0].recoveredPath=moved;
-  await writeFile(path.join(root,'native-receipts.json'),JSON.stringify({mode:corpus.mode,fullMatrix:!debugPair,engineVersion:health.version,applicationRelaunch:true,nativeReconnect:true,cases:evidence,extras:extraEvidence},null,2),{mode:0o600});
+  await writeFile(path.join(root,'native-receipts.json'),JSON.stringify({mode:corpus.mode,fullMatrix:!debugPair,engineVersion:health.version,engineIdentities,applicationRelaunch:true,nativeReconnect:true,cases:evidence,extras:extraEvidence},null,2),{mode:0o600});
   console.log(`${debugPair?'DEBUG':'PASS'} actual application relaunch, native folder reconnect, same project/session/message IDs, all exercised original/output SHA-256`);
 } catch (error) {
   for (const owner of children) await writeFile(path.join(root, `${owner.label}.log`), owner.output(), { mode: 0o600 });
@@ -479,4 +478,8 @@ try {
   throw error;
 } finally {
   await cleanup();
+}
+} finally {
+  // Also cover pre-launch/version/setup failures before process cleanup exists.
+  await preparedEngine.cleanup();
 }
