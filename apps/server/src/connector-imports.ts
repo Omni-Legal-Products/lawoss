@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile } from "node:fs/promises";
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import type { PluginImportCandidate, PluginImportConnector, PluginImportProvider } from "@legalwork/types/plugin-import";
 import { ApiError } from "./errors.js";
@@ -52,7 +52,7 @@ export async function discoverConnectorImports(provider: PluginImportProvider, w
         if (!record(entries)) return;
         for (const [name, entry] of Object.entries(entries)) {
           if (candidates.length >= 100) return;
-          if (!record(entry) || !(typeof entry.url === "string" || typeof entry.command === "string" || Array.isArray(entry.command))) continue;
+          if (!record(entry)) continue;
           candidates.push({ path: absolute, name, version: null, kind: "connector", connector: { name, ...(project !== undefined ? { project } : {}) }, description: project !== undefined ? `Claude Code · ${basename(project)}` : label });
         }
       };
@@ -67,24 +67,50 @@ export async function discoverConnectorImports(provider: PluginImportProvider, w
   return candidates;
 }
 
-export function normalizeImportedConnector(original: Record<string, unknown>, warnings: string[]): Record<string, unknown> {
+export function normalizeImportedConnector(original: Record<string, unknown>, warnings: string[], provider?: PluginImportProvider | "legalwork"): Record<string, unknown> {
   const config = { ...original };
   const env = record(original.env) ? { ...original.env } : {};
-  if (Array.isArray(original.env_vars)) for (const name of original.env_vars) if (typeof name === "string" && !Object.hasOwn(env, name)) env[name] = `\${${name}}`;
+  if (Array.isArray(original.env_vars)) for (const entry of original.env_vars) {
+    const name = typeof entry === "string" ? entry : record(entry) && entry.source !== "remote" && typeof entry.name === "string" ? entry.name : null;
+    if (name && !Object.hasOwn(env, name)) env[name] = `\${${name}}`;
+  }
   if (Object.keys(env).length) config.env = env;
   const headers = { ...(record(original.http_headers) ? original.http_headers : {}), ...(record(original.headers) ? original.headers : {}) };
   if (record(original.env_http_headers)) for (const [header, name] of Object.entries(original.env_http_headers)) if (typeof name === "string") headers[header] = `\${${name}}`;
   if (typeof original.bearer_token_env_var === "string") headers.Authorization = `Bearer \${${original.bearer_token_env_var}}`;
   if (Object.keys(headers).length) config.headers = headers;
+  // GitHub documents PAT authentication for hosts without their own GitHub
+  // OAuth app. A bare Claude/Codex URL does not transfer that app registration.
+  // https://github.com/github/github-mcp-server#install-in-other-mcp-hosts
+  if (provider !== "legalwork" && typeof original.url === "string" && original.oauth === undefined && original.auth === undefined && !Object.keys(headers).some(isCredentialHeader) && !(record(original.extensions) && record(original.extensions["com.openai"]) && original.extensions["com.openai"].auth)) {
+    try {
+      const url = new URL(original.url);
+      if (url.protocol === "https:" && url.hostname === "api.githubcopilot.com" && /^\/mcp(?:\/|$)/.test(url.pathname)) {
+        config.headers = { ...headers, Authorization: "Bearer ${GITHUB_TOKEN}" };
+        config.oauth = false;
+      }
+    } catch { /* Invalid and templated URLs are assessed separately. */ }
+  }
   if (record(original.oauth)) {
     const oauth = original.oauth;
     config.oauth = {
       ...(typeof (oauth.clientId ?? oauth.client_id) === "string" ? { clientId: oauth.clientId ?? oauth.client_id } : {}),
       ...(typeof (oauth.clientSecret ?? oauth.client_secret) === "string" ? { clientSecret: oauth.clientSecret ?? oauth.client_secret } : {}),
-      ...(typeof oauth.scope === "string" ? { scope: oauth.scope } : {}),
+      ...(typeof (oauth.scope ?? oauth.scopes) === "string" ? { scope: oauth.scope ?? oauth.scopes } : {}),
+      ...(oauth.tokenEndpointAuthMethod === "client_secret_post" && !oauth.clientSecret && !oauth.client_secret ? { clientSecret: "${OAUTH_CLIENT_SECRET}" } : {}),
       ...(typeof (oauth.callbackPort ?? oauth.callback_port) === "number" ? { callbackPort: oauth.callbackPort ?? oauth.callback_port } : {}),
       ...(typeof (oauth.redirectUri ?? oauth.callbackUrl ?? oauth.callback_url) === "string" ? { redirectUri: oauth.redirectUri ?? oauth.callbackUrl ?? oauth.callback_url } : {}),
     };
+    if (record(config.oauth) && !config.oauth.redirectUri && config.oauth.clientId && provider === "claude") config.oauth.redirectUri = `http://localhost:${typeof config.oauth.callbackPort === "number" ? config.oauth.callbackPort : 19876}/callback`;
+    if (record(config.oauth) && typeof config.oauth.redirectUri === "string") {
+      try {
+        const callback = new URL(config.oauth.redirectUri);
+        if (callback.hostname === "127.0.0.1" && callback.protocol === "http:" && !callback.port) {
+          callback.port = String(typeof config.oauth.callbackPort === "number" ? config.oauth.callbackPort : 19876);
+          config.oauth.redirectUri = callback.toString();
+        }
+      } catch { /* Compatibility assessment reports invalid callbacks. */ }
+    }
   }
   if (original.oauth === undefined && Object.keys(headers).some(isCredentialHeader)) config.oauth = false;
   // Context7 normalizes OAuth callbacks to localhost during authorization and
@@ -104,7 +130,6 @@ export function normalizeImportedConnector(original: Record<string, unknown>, wa
   }
   if (typeof original.timeout !== "number" && typeof original.startup_timeout_sec === "number") config.timeout = original.startup_timeout_sec * 1000;
   if (original.http_headers_helper) config.headersHelper = original.http_headers_helper;
-  if (original.auth === "chatgpt") warnings.push("ChatGPT-only authentication is not supported for this connector.");
   const policies = ["enabled_tools", "disabled_tools", "tools", "default_tools_approval_mode"];
   if (policies.some(key => original[key] !== undefined)) warnings.push("Codex tool restrictions and approval rules will not carry over. LegalWork's tool permissions apply instead.");
   return config;
@@ -118,9 +143,17 @@ export async function connectorImportBundle(provider: PluginImportProvider, path
   const original = own(servers(source, provider, connector.project), connector.name);
   if (!record(original)) throw new ApiError(400, "invalid_connector_import", "This connector is no longer in its source configuration. Rescan and choose it again.");
   const warnings: string[] = [];
-  const config = normalizeImportedConnector(original, warnings);
-  config.enabled = false;
-  if (original.type === "sdk") throw new ApiError(400, "invalid_connector_import", "This connector requires its original SDK host and cannot run as a standalone MCP server.");
+  // Keep source authentication semantics intact until compatibility assessment.
+  const config: Record<string, unknown> = { ...original, enabled: false };
+  if (provider === "chatgpt" && original.oauth !== false && typeof original.url === "string" && (source.mcp_oauth_callback_port !== undefined || source.mcp_oauth_callback_url !== undefined)) {
+    config.oauth = {
+      ...(source.mcp_oauth_callback_port !== undefined ? { callback_port: source.mcp_oauth_callback_port } : {}),
+      ...(source.mcp_oauth_callback_url !== undefined ? { callback_url: source.mcp_oauth_callback_url } : {}),
+      ...(record(original.oauth) ? original.oauth : {}),
+    };
+  }
+  if (!config.url && typeof config.cwd === "string" && !isAbsolute(config.cwd) && !connectorConfigTemplate(config.cwd)) config.cwd = resolve(connector.project ?? dirname(path), config.cwd);
+  if (!config.url && typeof config.command === "string" && config.command.startsWith("./")) config.command = resolve(connector.project ?? dirname(path), config.command);
   const name = `connector-${connector.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 32)}-${createHash("sha256").update(JSON.stringify({ provider, path: resolve(path), connector })).digest("hex").slice(0, 12)}`;
   const displayName = connector.name.replace(/[-_]+/g, " ").replace(/\b\w/g, letter => letter.toUpperCase());
   const files: Record<string, string> = {
@@ -130,3 +163,5 @@ export async function connectorImportBundle(provider: PluginImportProvider, path
   };
   return { files, warnings };
 }
+
+function connectorConfigTemplate(value: string): boolean { return /\$\{|\{env:/.test(value); }

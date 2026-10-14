@@ -143,8 +143,8 @@ describe("complete plugin imports", () => {
     expect(notes).toContain("runtime substitutions and dynamic commands will not run");
     expect(notes).toContain('source model "sonnet" will not be selected automatically');
     expect(notes).toContain("tool restrictions, separate execution context will not carry over");
-    expect(notes).toContain("automatic credential script will not run");
-    expect(notes).toContain("custom sign-in endpoints and confidential-client authentication will not be imported");
+    expect(plan!.preview.connectors).toEqual(expect.arrayContaining([expect.objectContaining({ name: "helper", status: "blocked", code: "credential_helper" }), expect.objectContaining({ name: "customAuth", status: "blocked", code: "oauth_override" })]));
+    expect(plan!.preview.components.some(component => component.type === "mcp")).toBe(false);
     expect(notes).toContain("Automatic hooks (hooks) will not run");
     expect(notes).not.toMatch(/review .*settings|configure .*before connecting|metadata is preserved/);
   });
@@ -154,7 +154,7 @@ describe("complete plugin imports", () => {
     expect(plan!.preview.components).toEqual([]);
     expect(plan!.preview.warnings).toEqual([
       "Connector bundle server.mcpb: its connectors will not be installed. This bundle format is not supported.",
-      "No usable skills, agents, commands or connectors will be installed. Only source files will be saved.",
+      "This package has no supported skills, agents, commands or connectors to import.",
     ]);
   });
 
@@ -279,7 +279,12 @@ describe("complete plugin imports", () => {
   test("a failed connector install restores the previous files and config", async () => temp(async (root, config) => {
     const [original] = await resolvePluginImports(request(), root); await installPluginImport(config, "test", root, original!, false);
     const before = await readRuntimeOpencodeConfig(config, "test");
-    const [broken] = await resolvePluginImports(request({ ".claude-plugin/plugin.json": '{"name":"patent"}', ".mcp.json": '{"mcpServers":{"bad":{"url":"file:///invalid"}}}', "skills/changed/SKILL.md": skill }), root);
+    const [broken] = await resolvePluginImports(request({ ".claude-plugin/plugin.json": '{"name":"patent"}', ".mcp.json": '{"mcpServers":{"bad":{"url":"https://valid.example/mcp"}}}', "skills/changed/SKILL.md": skill }), root);
+    // Force a storage-time failure after planning; invalid source URLs are now
+    // excluded before installation rather than discovered during a write.
+    const version = broken!.resolved.memberships.find(item => item.configObject?.objectType === "mcp")?.configObject?.latestVersion;
+    if (!version) throw new Error("Missing connector fixture");
+    version.normalizedPayloadJson = { mcpServers: { bad: { url: "file:///invalid" } } };
     await expect(installPluginImport(config, "test", root, broken!, false)).rejects.toThrow();
     const ns = pluginNamespace("patent", original!.preview.id);
     expect(await readFile(join(root, ".opencode/imported-plugins", ns, "server.js"), "utf8")).toBe("console.log('server')");

@@ -508,6 +508,7 @@ function StorageFolder(props: FolderProps) {
               </StorageEntryMenu>
             ),
           )}
+          {children.data?.pages.some((page) => page.truncated) && <p role="status" style={{ paddingLeft: 25 + depth * 15 }} className="py-2 text-xs text-muted-foreground">{t("storage.results_incomplete")}</p>}
           {children.isError && (
             <div style={{ paddingLeft: 25 + depth * 15 }} className="py-2 text-xs text-destructive">
               <p className="break-words">

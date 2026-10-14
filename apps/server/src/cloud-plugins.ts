@@ -47,6 +47,9 @@ export type CloudPluginResolved = {
     name: string;
     displayName?: string;
     sourceKind?: "plugin" | "skill" | "connector";
+    excludedConnectors?: Array<{ name: string; message: string }>;
+    /** Import-time baseline, separate from the merged connection used for validation. */
+    connectorDefaults?: Record<string, Record<string, unknown>>;
     description: string | null;
     updatedAt: string | null;
   };
@@ -63,6 +66,7 @@ export type CloudImportedPluginFile = {
 };
 
 export type CloudImportedPlugin = {
+  excludedConnectors?: Array<{ name: string; message: string }>;
   scope?: "global";
   sourceKind?: "plugin" | "skill" | "connector";
   pluginId: string;
@@ -372,7 +376,7 @@ function mcpCommandFromConfig(config: Record<string, unknown>): string[] {
   return [command, ...readStringArray(config.args)];
 }
 
-function normalizePluginMcpConfig(input: unknown): Record<string, unknown> | null {
+export function normalizePluginMcpConfig(input: unknown): Record<string, unknown> | null {
   if (!isRecord(input)) return null;
   const requestedEnabled = typeof input.enabled === "boolean"
     ? input.enabled
@@ -431,7 +435,7 @@ function pluginMcpConfigsFromPayload(object: CloudPluginConfigObject, namespace:
 }
 
 /** Three-way update: source defaults can change without replacing connection setup. */
-function mergeConnectorSetup(next: Record<string, unknown>, current: Record<string, unknown>, previous?: Record<string, unknown>): Record<string, unknown> {
+export function mergeConnectorSetup(next: Record<string, unknown>, current: Record<string, unknown>, previous?: Record<string, unknown>): Record<string, unknown> {
   const baseline = previous ?? next;
   const changedEndpoint = previous ? next.url !== previous.url : next.url !== current.url && !connectorConfigVariables(next.url).length;
   if (next.type !== baseline.type || changedEndpoint || next.type !== current.type) return { ...next, enabled: false };
@@ -489,6 +493,7 @@ function readCloudImports(config: Record<string, unknown>): WorkspaceCloudImport
       }];
     }) : [];
     const plugin: CloudImportedPlugin = {
+      ...(Array.isArray(value.excludedConnectors) ? { excludedConnectors: value.excludedConnectors.flatMap(entry => isRecord(entry) && typeof entry.name === "string" && typeof entry.message === "string" ? [{ name: entry.name, message: entry.message }] : []) } : {}),
       ...(value.scope === "global" ? { scope: "global" } : {}),
       ...(value.sourceKind === "plugin" || value.sourceKind === "skill" || value.sourceKind === "connector" ? { sourceKind: value.sourceKind } : {}),
       pluginId,
@@ -701,7 +706,7 @@ export async function installCloudPlugin(input: {
     if (object.objectType === "mcp") {
       const configs = pluginMcpConfigsFromPayload(object, namespace);
       for (const config of configs) {
-        connectorDefaults[config.name] = config.config;
+        connectorDefaults[config.name] = input.resolved.plugin.connectorDefaults?.[config.name] ?? config.config;
         const previousConfig = previousMcp[config.name];
         const connection = existing && previousConfig ? mergeConnectorSetup(config.config, previousConfig, existing.connectorDefaults?.[config.name]) : config.config;
         // Plugins are installed per workspace, so the MCPs they bring stay with it.
@@ -763,6 +768,7 @@ export async function installCloudPlugin(input: {
   await Promise.all(removedMcpNames.map((name) => removeMcp(input.serverConfig, input.workspaceId, name)));
 
   const imported: CloudImportedPlugin = {
+    ...(input.resolved.plugin.excludedConnectors ? { excludedConnectors: input.resolved.plugin.excludedConnectors } : {}),
     ...(input.global ? { scope: "global" } : {}),
     ...(input.resolved.plugin.sourceKind ? { sourceKind: input.resolved.plugin.sourceKind } : {}),
     pluginId: input.resolved.plugin.id,

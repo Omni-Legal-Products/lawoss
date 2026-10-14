@@ -65,6 +65,14 @@ describe("Memory Drive filename search", () => {
     expect(html).not.toContain("No files match");
     cache.clear();
   });
+  test("incomplete provider results are reported instead of claiming no matching files", () => {
+    const cache = new QueryClient();
+    for (const root of roots) seed(cache, root.id, { scanned: 100, entries: [], complete: false, truncated: true });
+    const html = renderSearch(cache);
+    expect(html).toContain("The provider returned incomplete results");
+    expect(html).not.toContain("No matching files");
+    cache.clear();
+  });
   test("keeps the search field available without a LegalMemory connection", async () => {
     const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     cache.setQueryData(["storage-roots", "workspace", client.baseUrl], { roots });

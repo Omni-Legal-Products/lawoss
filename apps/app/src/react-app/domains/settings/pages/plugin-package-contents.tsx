@@ -32,9 +32,10 @@ export function ImportedPackageContents(props: { plugin: ImportedPlugin; skills?
   const connectorState = useIntegrationLibraryLayout()?.connectorState;
   const query = (props.query ?? "").trim().toLowerCase();
   const groups = sections.map(section => ({ ...section, items: props.plugin.files.filter(file => file.objectType === section.type).map(file => ({ file, name: pluginComponentLabel(file), description: file.objectType === "skill" ? props.skills?.find(skill => skill.name === pluginFileInstalledName(file))?.description ?? "" : "", state: file.objectType === "mcp" ? connectorState?.(pluginFileInstalledName(file)) : undefined })) }));
-  if (!groups.some(group => group.items.length)) return <p className="text-sm text-muted-foreground">{t("extensions.import_no_components")}</p>;
+  const excluded = props.plugin.excludedConnectors?.filter(item => `${item.name} ${item.message}`.toLowerCase().includes(query)) ?? [];
+  if (!groups.some(group => group.items.length) && !excluded.length) return <p className="text-sm text-muted-foreground">{t("extensions.import_no_components")}</p>;
   const visible = groups.map(group => ({ ...group, matches: group.items.filter(item => `${item.name} ${item.description}`.toLowerCase().includes(query)) }));
-  if (!visible.some(group => group.matches.length)) return <p role="status" className="py-6 text-center text-sm text-muted-foreground">{t("plugin_details.no_matches")}</p>;
+  if (!visible.some(group => group.matches.length) && !excluded.length) return <p role="status" className="py-6 text-center text-sm text-muted-foreground">{t("plugin_details.no_matches")}</p>;
   return <div className="space-y-5">{visible.map(({ type, label, Icon, matches }) => matches.length ? <section key={type} className="space-y-1">
     <h3 className="px-3 pb-1 text-xs font-medium text-muted-foreground">{t(label, { count: matches.length })}</h3>
     <ul>{matches.map(({ file, name, description, state }) => <li key={file.path}>
@@ -45,5 +46,5 @@ export function ImportedPackageContents(props: { plugin: ImportedPlugin; skills?
         <ChevronRight className="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />
       </button> : <div className="flex items-center gap-2 px-3 py-2 text-sm"><Icon className="size-4 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1 break-words">{name}</span>{state !== undefined ? <ConnectorStatus state={state} /> : null}</div>}
     </li>)}</ul>
-  </section> : null)}</div>;
+  </section> : null)}{excluded.length ? <section className="space-y-2 px-3"><h3 className="text-xs font-medium text-muted-foreground">{t("extensions.import_excluded_connectors")}</h3>{excluded.map(item => <div key={item.name} className="rounded-lg border border-border p-3"><p className="text-sm font-medium">{item.name}</p><p className="mt-1 text-sm leading-relaxed text-muted-foreground">{item.message}</p></div>)}</section> : null}</div>;
 }

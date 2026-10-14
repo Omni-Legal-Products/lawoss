@@ -7,28 +7,11 @@ import { nativePagePath, parseNative } from "../connectors/native.js";
 import { checkResponse, chunks, sourceSize } from "./oauth/http.js";
 import { nativeDriveAdapter, type DriveItem } from "./native-drive.js";
 import { conflict, type StorageAdapter } from "./common.js";
+import { googleDriveTree, googleFolder, googleExports } from "./google-drive-tree.js";
 
 export const cloudStorageProviders = ["google-drive", "onedrive", "onedrive-personal", "sharepoint-files"];
 export function isCloudStorage(config: StorageConfig): config is Extract<StorageConfig, { kind: "oauth" }> {
   return config.kind === "oauth" && cloudStorageProviders.includes(config.provider);
-}
-const googleFolder = "application/vnd.google-apps.folder";
-const exports = {
-  "application/vnd.google-apps.document": { extension: "docx", type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
-  "application/vnd.google-apps.spreadsheet": { extension: "xlsx", type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
-  "application/vnd.google-apps.presentation": { extension: "pptx", type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" },
-  "application/vnd.google-apps.drawing": { extension: "pdf", type: "application/pdf" },
-};
-const googleFile = z.object({ id: z.string(), name: z.string(), mimeType: z.string(), size: z.string().optional(), modifiedTime: z.string().optional(), version: z.string().optional(), parents: z.array(z.string()).default([]), webViewLink: z.string().optional(), trashed: z.boolean().optional() });
-const googleFields = "id,name,mimeType,size,modifiedTime,version,parents,webViewLink,trashed";
-const literal = (value: string) => value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-function googleItem(file: z.infer<typeof googleFile>, etag?: string | null): DriveItem {
-  if (file.trashed) throw new ApiError(404, "storage_not_found", "This file is in the trash.");
-  const format = Object.entries(exports).find(([mime]) => mime === file.mimeType)?.[1];
-  return { id: file.id, name: format ? `${file.name}.${format.extension}` : file.name, folder: file.mimeType === googleFolder,
-    parents: file.parents, size: Number(file.size ?? 0), version: etag ?? `sha256:${file.version ?? file.modifiedTime ?? file.id}`,
-    contentType: format?.type ?? file.mimeType, modifiedAt: file.modifiedTime, webUrl: file.webViewLink,
-    exported: file.mimeType.startsWith("application/vnd.google-apps.") && file.mimeType !== googleFolder };
 }
 function sessionPath(location: string | null) {
   if (!location) throw new ApiError(502, "storage_invalid_response", "The provider did not create an upload session.");
@@ -37,28 +20,18 @@ function sessionPath(location: string | null) {
   return `${url.pathname}${url.search}`;
 }
 export async function googleStorageAdapter(config: Extract<StorageConfig, { kind: "oauth" }>, request: StreamingConnectorRequest): Promise<StorageAdapter> {
-  const get = async (id: string) => {
-    const response = await request.response(`/drive/v3/files/${encodeURIComponent(id)}?${new URLSearchParams({ fields: googleFields, supportsAllDrives: "true" })}`);
-    return googleItem(parseNative(googleFile, await response.json()), response.headers.get("etag"));
-  };
-  const root = await get(config.root || "root");
-  if (!root.folder) throw new ApiError(400, "invalid_storage_root", "Choose a Google Drive folder ID.");
-  const children = async (id: string, cursor?: string, search?: { mode: string; query: string }) => {
-    const filters = ["trashed = false", `'${literal(id)}' in parents`];
-    if (search) filters.push(`${search.mode === "name" ? "name" : "fullText"} contains '${literal(search.query)}'`);
-    const query = new URLSearchParams({ q: filters.join(" and "), pageSize: "100", fields: `nextPageToken,incompleteSearch,files(${googleFields})`, supportsAllDrives: "true", includeItemsFromAllDrives: "true" });
-    if (cursor) query.set("pageToken", cursor);
-    const result = parseNative(z.object({ files: z.array(googleFile).default([]), nextPageToken: z.string().optional(), incompleteSearch: z.boolean().optional() }), await request(`/drive/v3/files?${query}`));
-    return { items: result.files.map((item) => googleItem(item)), nextCursor: result.nextPageToken, truncated: result.incompleteSearch };
-  };
-  return nativeDriveAdapter({ root, namespace: `google-drive:${config.accountId}:${root.id}`, get, children,
-    search: (parent, input) => children(parent.id, input.cursor, input), searchScope: "folder",
+  const tree = await googleDriveTree(config, request);
+  const adapter = nativeDriveAdapter({ ...tree,
     async download(item) {
-      if (item.exported && !Object.values(exports).some((format) => format.type === item.contentType)) throw new ApiError(415, "storage_export_unsupported", "This Google file cannot be exported to a supported editor format. Open its provider link.");
-      const path = `/drive/v3/files/${encodeURIComponent(item.id)}`;
-      return request.response(item.exported ? `${path}/export?${new URLSearchParams({ mimeType: item.contentType })}` : `${path}?alt=media&supportsAllDrives=true`, { bytes: true });
+      if (item.exported && !Object.values(googleExports).some((format) => format.type === item.contentType)) throw new ApiError(415, "storage_export_unsupported", "This Google file cannot be exported to a supported editor format. Open its provider link.");
+      const file = await tree.get(item.id);
+      const target = file.targetId ?? file.id;
+      const key = file.targetResourceKey ?? file.resourceKey;
+      const path = `/drive/v3/files/${encodeURIComponent(target)}`;
+      return request.response(item.exported ? `${path}/export?${new URLSearchParams({ mimeType: item.contentType })}` : `${path}?alt=media&supportsAllDrives=true`, { bytes: true, ...(key ? { headers: { "X-Goog-Drive-Resource-Keys": `${target}/${key}` } } : {}) });
     },
     async upload(parent, name, current, source, type, condition) {
+      parent = await tree.writeParent(parent);
       const size = await sourceSize(source);
       const headers = { "X-Upload-Content-Type": type, "X-Upload-Content-Length": String(size), ...(condition.version ? { "If-Match": condition.version } : {}) };
       const path = `/upload/drive/v3/files${current ? `/${encodeURIComponent(current.id)}` : ""}?uploadType=resumable&supportsAllDrives=true&fields=id`;
@@ -82,9 +55,11 @@ export async function googleStorageAdapter(config: Extract<StorageConfig, { kind
       if (offset !== size) conflict();
     },
     async mkdir(parent, name) {
+      parent = await tree.writeParent(parent);
       await request(`/drive/v3/files?supportsAllDrives=true&fields=id`, { method: "POST", body: { name, mimeType: googleFolder, parents: [parent.id] } });
     },
     async rename(item, parent, name) {
+      parent = await tree.writeParent(parent);
       const query = new URLSearchParams({ supportsAllDrives: "true", fields: "id" });
       if (!item.parents.includes(parent.id)) { query.set("addParents", parent.id); query.set("removeParents", item.parents.join(",")); }
       await request(`/drive/v3/files/${encodeURIComponent(item.id)}?${query}`, { method: "PATCH", body: { name }, headers: { "If-Match": item.version } });
@@ -93,6 +68,13 @@ export async function googleStorageAdapter(config: Extract<StorageConfig, { kind
       await request(`/drive/v3/files/${encodeURIComponent(item.id)}?supportsAllDrives=true`, { method: "PATCH", body: { trashed: true }, headers: { "If-Match": version ?? item.version } });
     },
   });
+  return { ...adapter, ...(tree.listFilesAtRoot ? { listFilesAtRoot: tree.listFilesAtRoot } : {}),
+    async restrictToFolder(reference) {
+      if (!reference.id || reference.id.startsWith("legalwork:google:")) return null;
+      const folder = await tree.get(reference.id);
+      return googleStorageAdapter({ ...config, root: folder.targetId ?? folder.id, driveId: undefined }, request);
+    },
+  };
 }
 const graphFile = z.object({ id: z.string(), name: z.string(), size: z.number().default(0), lastModifiedDateTime: z.string().optional(), eTag: z.string().optional(), webUrl: z.string().optional(),
   file: z.object({ mimeType: z.string().optional() }).optional(), folder: z.object({}).optional(),

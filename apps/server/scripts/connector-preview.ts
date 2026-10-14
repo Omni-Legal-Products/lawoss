@@ -53,13 +53,24 @@ globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init
   const url = new URL(input instanceof Request ? input.url : input.toString());
   if (showStorage && url.hostname === "www.googleapis.com") {
     const folder = { id: "google-root", name: "My Drive", mimeType: "application/vnd.google-apps.folder", parents: [], version: "1" };
+    const company = { ...folder, id: "company-drive", name: "Example firm", driveId: "company-drive" };
+    const shared = { ...folder, id: "shared-folder", name: "Shared client documents", parents: ["other-account"], sharedWithMeTime: "2026-10-01T00:00:00Z" };
     const files = [
       { id: "doc-1", name: "Review notes", mimeType: "application/vnd.google-apps.document", parents: [folder.id], version: "1", webViewLink: "https://docs.google.com/document/d/fixture" },
       { id: "pdf-1", name: "Agreement.pdf", mimeType: "application/pdf", size: "12", parents: [folder.id], version: "1" },
       { id: "pdf-2", name: "Agreement.pdf", mimeType: "application/pdf", size: "14", parents: [folder.id], version: "1" },
+      { id: "shared-contract", name: "Shared agreement.pdf", mimeType: "application/pdf", size: "14", parents: [shared.id], version: "1" },
+      { id: "company-contract", name: "Company agreement.pdf", mimeType: "application/pdf", size: "14", parents: [company.id], driveId: company.id, version: "1" },
     ];
-    if (url.pathname.endsWith("/files")) return Response.json({ files });
-    return Response.json(files.find(file => url.pathname.endsWith(`/${file.id}`)) ?? folder, { headers: { etag: '"fixture-file-version"' } });
+    if (url.pathname.endsWith("/drives")) return Response.json({ drives: [{ id: company.id, name: company.name }] });
+    if (url.pathname.endsWith("/files")) {
+      const query = url.searchParams.get("q") ?? "";
+      const parent = /'([^']+)' in parents/.exec(query)?.[1];
+      const name = /(?:name|fullText) contains '([^']+)'/.exec(query)?.[1];
+      const values = [...files, shared].filter(file => (!parent || file.parents.includes(parent)) && (!name || file.name.toLowerCase().includes(name.toLowerCase())) && (!query.includes("sharedWithMe") || "sharedWithMeTime" in file) && (url.searchParams.get("corpora") !== "drive" || ("driveId" in file && file.driveId === url.searchParams.get("driveId"))) && (url.searchParams.get("corpora") !== "user" || !("driveId" in file)));
+      return Response.json({ files: values });
+    }
+    return Response.json([...files, shared, company].find(file => url.pathname.endsWith(`/${file.id}`)) ?? folder, { headers: { etag: '"fixture-file-version"' } });
   }
   if (showStorage && (url.hostname === "graph.microsoft.com" || url.hostname === "api.onedrive.com")) {
     if (url.pathname.endsWith("/sites")) return Response.json({ value: [{ id: "site-1", displayName: "Example firm", webUrl: "https://fixture.sharepoint.com/sites/example" }] });

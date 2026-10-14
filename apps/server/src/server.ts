@@ -79,6 +79,7 @@ import { EnvService } from "./env-file.js";
 import { discoverPluginImports, parsePluginImportRequest, resolvePluginImports, withPluginImportLock } from "./plugin-imports.js";
 import { createdPluginId, parsePluginCreateRequest, planPluginCreation, pluginCreateOptions } from "./plugin-create.js";
 import { installPluginImport } from "./plugin-import-install.js";
+import { preparePluginImport, reviewedPluginImport } from "./plugin-import-checks.js";
 import { assertPluginDestination, installCloudPlugin, readCloudPluginResolved, readInstalledCloudPlugins, removeCloudPlugin, resolveWorkspaceInstallPath } from "./cloud-plugins.js";
 import { resolveClaudePluginBundle } from "./claude-plugin-bundle.js";
 import {
@@ -2133,13 +2134,19 @@ function createRoutes(
     await requireOrgPolicyAllows(config, "plugins.allowCustom");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const plans = await resolvePluginImports(request, workspace.path);
+    const registry = request.scope === "global" ? GLOBAL_MCP_ID : workspace.id;
+    const installed = await readInstalledCloudPlugins(config, registry);
+    const current = (await readRuntimeOpencodeConfig(config, registry)).mcp ?? {};
+    const importTarget = (plan: typeof plans[number]) => ({ workspace: workspace.path, scope: request.scope, current, installed: installed.plugins[plan.preview.id] });
     if (action === "preview") {
-      const installed = await readInstalledCloudPlugins(config, request.scope === "global" ? GLOBAL_MCP_ID : workspace.id);
-      return jsonResponse({ items: plans.map(plan => ({ ...plan.preview, warnings: [...plan.preview.warnings, ...(installed.plugins[plan.preview.id] ? ["This import replaces the installed package with this name, including its files and connector settings."] : [])] })) });
+      if (plans.some(plan => plan.preview.components.some(component => component.type === "mcp"))) await requireOrgPolicyAllows(config, "connectors.allowCustom");
+      const checked = plans.length === 1 ? [await preparePluginImport(plans[0], importTarget(plans[0]), {}, request.recheck)] : plans;
+      return jsonResponse({ items: checked.map(plan => ({ ...plan.preview, warnings: [...plan.preview.warnings, ...(installed.plugins[plan.preview.id] ? ["This import replaces the installed package with this name, including its files and connector settings."] : [])] })) });
     }
     ensureWritable(config);
     if (plans.length !== 1 || !request.digest || request.digest !== plans[0].preview.digest) throw new ApiError(409, "plugin_preview_changed", "The plugin changed or has not been reviewed. Preview it again before importing.");
-    const plan = plans[0];
+    const plan = reviewedPluginImport(plans[0], importTarget(plans[0]), request.validationId);
+    if (!plan.preview.components.length) throw new ApiError(400, "no_importable_components", "This package has no supported items to import.");
     if (plan.preview.components.some(entry => entry.type === "skill")) await requireOrgPolicyAllows(config, "skills.allowCustom");
     if (plan.preview.components.some(entry => entry.type === "mcp")) await requireOrgPolicyAllows(config, "connectors.allowCustom");
     const global = request.scope === "global";

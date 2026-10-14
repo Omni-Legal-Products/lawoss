@@ -450,6 +450,7 @@ function StorageConnectionDialog({
             <FieldLabel htmlFor="storage-oauth-root">{t("storage.oauth_root")}</FieldLabel>
             <Input id="storage-oauth-root" value={values.root ?? ""} onChange={(event) => change("root", event.target.value)} placeholder={provider?.rootHint} />
             <FieldDescription>{cloud ? t(values.provider === "google-drive" ? "storage.google_root_hint" : "storage.microsoft_root_hint") : provider?.rootHint ?? t("storage.oauth_root_hint")} {cloud ? t("storage.account_reused") : t("storage.oauth_edit_root")}</FieldDescription>
+            {cloud && values.provider === "google-drive" && <StorageCloudLocations client={client} provider={values.provider} accountId={values.accountId!} onSelect={(id) => change("root", id)} />}
           </Field>}
           {cloud && values.provider !== "google-drive" && <Field>
             <FieldLabel htmlFor="storage-drive-id">{t("storage.drive_id")}</FieldLabel>

@@ -80,8 +80,11 @@ test("sandbox off permits host reads and writes with external wikis registered",
     const file = join(wiki.root, "host-access.txt");
     await writeFile(file, "host-read");
     await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });
-    const quoted = `'${file.replaceAll("'", "'\\''")}'`;
-    const result = await f.service.run(f.workspace, { command: `cat ${quoted} && printf host-write > ${quoted}`, write: true, timeoutMs: 5000 }, { type: "host" }, new AbortController().signal);
+    const quoted = process.platform === "win32" ? `'${file.replaceAll("'", "''")}'` : `'${file.replaceAll("'", "'\\''")}'`;
+    const command = process.platform === "win32"
+      ? `[Console]::Write([IO.File]::ReadAllText(${quoted})); [IO.File]::WriteAllText(${quoted}, 'host-write')`
+      : `cat ${quoted} && printf host-write > ${quoted}`;
+    const result = await f.service.run(f.workspace, { command, write: true, timeoutMs: 5000 }, { type: "host" }, new AbortController().signal);
     expect(result).toMatchObject({ sandbox: "host", output: "host-read", exitCode: 0 });
     expect(await readFile(file, "utf8")).toBe("host-write");
     expect((await effectiveSandbox(f.config, f.workspace.id, [])).enabled).toBe(false);

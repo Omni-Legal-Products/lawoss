@@ -45,7 +45,7 @@ test("discovers individual bundled connectors for both providers alongside stand
     else await write(join(root, ".claude.json"), { mcpServers: { search: { url: "https://standalone.example/mcp" } } });
     const items = await discoverPluginImports(provider, root);
     const connectors = items.filter(item => item.kind === "connector");
-    expect(connectors.filter(item => item.bundledIn).map(item => item.name).sort()).toEqual(["local", "search", "second"]);
+    expect(connectors.filter(item => item.bundledIn).map(item => item.name).sort()).toEqual(["local", "sdk", "search", "second"]);
     expect(connectors.filter(item => item.name === "search")).toHaveLength(2);
     expect(connectors.find(item => item.bundledIn)?.bundledIn).toEqual({ name: "patent", displayName: "Patent Studio" });
     expect(connectors.find(item => item.bundledIn)?.connector?.pluginRoot).toBe("");

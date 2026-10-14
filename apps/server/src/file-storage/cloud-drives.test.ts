@@ -23,7 +23,7 @@ test("Google exports Docs, Sheets and Slides into their correct editable Office 
   for (const [kind, extension, type] of [["document", "docx", "wordprocessingml.document"], ["spreadsheet", "xlsx", "spreadsheetml.sheet"], ["presentation", "pptx", "presentationml.presentation"]]) {
     const file = { id: "native", name: "Report", mimeType: `application/vnd.google-apps.${kind}`, parents: [root.id], version: "2" };
     const { request, calls } = requestFixture("https://www.googleapis.com", (url) => url.pathname.endsWith("/export") ? new Response("exported bytes") : url.pathname.endsWith("/native") ? google(file) : url.pathname.endsWith("/files") ? google({ files: [file] }) : google(root));
-    const adapter = await googleStorageAdapter({ kind: "oauth", provider: "google-drive", root: "", accountId: "account" }, request);
+    const adapter = await googleStorageAdapter({ kind: "oauth", provider: "google-drive", root: root.id, accountId: "account" }, request);
     const entry = (await adapter.list("")).entries[0]; expect(entry.name).toBe(`Report.${extension}`); expect(entry.exported).toBe(true);
     const copy = await adapter.read(entry.path); expect(copy.writable).toBe(false); expect(copy.data.toString()).toBe("exported bytes");
     expect(calls.find((call) => call.url.pathname.endsWith("/export"))?.url.searchParams.get("mimeType")).toContain(type!);

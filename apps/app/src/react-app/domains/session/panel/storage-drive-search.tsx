@@ -55,6 +55,7 @@ function ConnectionSearch({
     ...new Map((search.data?.pages.flatMap((page) => page.entries) ?? []).map((entry) => [entry.path, entry])).values(),
   ];
   const scanned = search.data?.pages.reduce((count, page) => count + page.scanned, 0) ?? 0;
+  const incomplete = search.data?.pages.some((page) => page.truncated);
   const continuing = Boolean(search.hasNextPage && entries.length < visibleLimit && !search.isError);
   // Empty listing pages are progress, not "no matches". Keep scanning until the
   // source is exhausted or a display page is ready; changing the query cancels it.
@@ -103,7 +104,8 @@ function ConnectionSearch({
           </Button>
         </div>
       ) : null}
-      {!loading && !search.isError && entries.length === 0 ? (
+      {!loading && !search.isError && incomplete ? <p role="status" className="px-2 py-2 text-xs text-muted-foreground">{t("storage.results_incomplete")}</p> : null}
+      {!loading && !search.isError && !incomplete && entries.length === 0 ? (
         <p className="px-2 py-2 text-xs text-muted-foreground">{t("legalmemory.no_matches")}</p>
       ) : null}
       {!loading && !search.isError && (search.hasNextPage || entries.length > visibleLimit) ? (

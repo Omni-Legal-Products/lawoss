@@ -23,7 +23,7 @@ const engine = Bun.serve({ port: 0, async fetch(request) {
   if (path === "/session" && request.method === "POST") return Response.json({ id: "review-worker" });
   if (path === "/session/status") return Response.json(quota ? { "review-worker": { type: "retry", attempt: 1, message: "You have no credits remaining.", next: Date.now() + 60_000 } } : {});
   if (quota && path === "/session/review-worker/message") await Bun.sleep(2500);
-  if (path === "/session/review-worker/message" && stalledPrompts-- > 0) await Bun.sleep(300);
+  if (path === "/session/review-worker/message" && stalledPrompts-- > 0) { await Bun.sleep(300); return new Response("Stalled", { status: 504 }); }
   if (path === "/session/review-worker/message" && engineError) return Response.json({ name: "UnknownError", data: { message: 'Agent not found: "document-extractor"' } }, { status: 500 });
   if (path === "/session/review-worker/message" && malformedResponses-- > 0) return Response.json({ info: { modelID: "chat", providerID: "firm" }, parts: [{ type: "text", text: '{"cells":{"assignment":{"value":"Yes" "reason":"broken"}}}' }] });
   if (path === "/session/review-worker/message" && invalidStructures-- > 0) return Response.json({ info: { modelID: "chat", providerID: "firm", structured: { cells: { wrong: {} } } }, parts: [] });

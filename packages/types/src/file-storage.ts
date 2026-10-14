@@ -218,7 +218,7 @@ export const storageFileSourceSchema = z.object({
   }),
 });
 
-export type StoragePage = { entries: StorageEntry[]; nextCursor?: string };
+export type StoragePage = { entries: StorageEntry[]; nextCursor?: string; truncated?: boolean };
 export const storageTransferSchema = z.object({
   path: z.string().min(1).max(4096),
   kind: z.enum(["file", "folder"]),

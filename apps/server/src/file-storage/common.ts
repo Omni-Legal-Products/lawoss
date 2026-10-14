@@ -23,10 +23,14 @@ export interface StorageAdapter {
   /** Native identity where supported; resolution must recheck permissions and the configured root. */
   folderReference?(path: string): Promise<FolderReference>;
   resolveFolder?(reference: FolderReference): Promise<string>;
+  /** Native providers can enforce a physical subtree boundary, including shortcut targets. */
+  restrictToFolder?(reference: FolderReference): Promise<StorageAdapter | null>;
   list(path: string, cursor?: string): Promise<StoragePage>;
   findEntry?(path: string, kind?: StorageEntry["kind"]): Promise<StorageEntry | null>;
   /** Flat metadata listing for object stores; avoids walking virtual folders. */
   listFiles?(path: string, cursor?: string, signal?: AbortSignal): Promise<StoragePage>;
+  /** An account-wide flat scan; scoped folder views must keep using their own tree. */
+  listFilesAtRoot?(cursor?: string, signal?: AbortSignal): Promise<StoragePage>;
   searchCapabilities?(): Promise<StorageCapabilities["search"]>;
   search?(input: StorageSearch): Promise<StorageSearchPage>;
   stat(path: string): Promise<FileInfo | null>;

@@ -4,6 +4,7 @@ import { ApiError } from "../errors.js";
 import { connectorStatus, savedConnectorStatus, createConnectorFlows, disconnectConnector, setConnectorActivation } from "../connectors/broker.js";
 import { microsoftFilesAdapter, driveListInput, siteListInput } from "../connectors/files.js";
 import { createConnectorRequest } from "../connectors/request.js";
+import { listGoogleSharedDrives } from "../file-storage/google-drive-tree.js";
 import { connectorDefinition } from "../connectors/definition.js";
 import { callConnectorExtensionAction } from "../connectors/index.js";
 import { addRoute, type Route } from "./registry.js";
@@ -68,10 +69,15 @@ export function registerConnectorRoutes(options: {
   });
   add("GET", "/connectors/:connectorId/storage-locations", async (ctx) => {
     const id = ctx.params.connectorId;
-    if (connectorDefinition(id).kind !== "files" || id === "google-drive") throw new ApiError(400, "invalid_payload", "Choose a Microsoft storage account.");
+    if (connectorDefinition(id).kind !== "files") throw new ApiError(400, "invalid_payload", "Choose a storage account.");
     const query = Object.fromEntries(ctx.url.searchParams);
     const { kind, ...args } = query;
     const request = await createConnectorRequest(config, id, query.connectionId);
+    if (id === "google-drive") {
+      if (kind !== "drives") throw new ApiError(400, "invalid_payload", "Choose a Google shared drive.");
+      const input = driveListInput.parse(args);
+      return jsonResponse(await listGoogleSharedDrives(request, input.pageToken));
+    }
     const adapter = microsoftFilesAdapter({ personal: id === "onedrive-personal", sharepoint: id === "sharepoint-files" });
     return jsonResponse(kind === "sites" ? await adapter.sites(request, siteListInput.parse(args)) : await adapter.drives(request, driveListInput.parse(args)));
   });

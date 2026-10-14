@@ -4,12 +4,16 @@ import { checkCondition, collectStream, conflict, receiveFile, storagePath, type
 
 export type DriveItem = {
   id: string; name: string; folder: boolean; parents: string[]; size: number; version: string;
-  contentType: string; modifiedAt?: string; webUrl?: string; exported?: boolean;
+  contentType: string; modifiedAt?: string; webUrl?: string; exported?: boolean; readOnly?: boolean;
 };
 export type DriveDriver = {
   root: DriveItem; namespace: string;
   get: (id: string) => Promise<DriveItem>;
-  children: (id: string, cursor?: string) => Promise<{ items: DriveItem[]; nextCursor?: string }>;
+  children: (id: string, cursor?: string) => Promise<{ items: DriveItem[]; nextCursor?: string; truncated?: boolean }>;
+  contains?: (parent: DriveItem, item: DriveItem) => Promise<boolean>;
+  lookup?: (parent: DriveItem, name: string) => Promise<DriveItem | null>;
+  relativePath?: (item: DriveItem) => Promise<string>;
+  searchPath?: (item: DriveItem, input: StorageSearch) => Promise<string>;
   download: (item: DriveItem) => Promise<Response>;
   upload: (parent: DriveItem, name: string, current: DriveItem | null, source: Buffer | string, contentType: string, condition: WriteCondition) => Promise<void>;
   mkdir: (parent: DriveItem, name: string) => Promise<void>;
@@ -35,12 +39,13 @@ function segmentId(value: string) {
 }
 function info(item: DriveItem): FileInfo {
   const usableVersion = /^(?:W\/)?"[^"\r\n]+"$/.test(item.version) && !item.version.startsWith("W/");
-  return { size: item.size, version: item.version, contentType: item.contentType, writable: usableVersion && !item.exported, exported: item.exported };
+  return { size: item.size, version: item.version, contentType: item.contentType, writable: usableVersion && !item.exported && !item.readOnly, exported: item.exported };
 }
 function requireFile(item: DriveItem) {
   if (item.folder) throw new ApiError(415, "storage_unsupported_file", "Choose a file to open.");
 }
 function requireVersion(item: DriveItem) {
+  if (item.readOnly) throw new ApiError(403, "storage_read_only", "This location or shortcut cannot be changed. Open the original file in its drive.");
   if (!info(item).writable && !item.exported) throw new ApiError(409, "storage_conditional_write_unsupported", "The provider did not supply a safe file version. Refresh before changing this file.");
   if (!/^(?:W\/)?"[^"\r\n]+"$/.test(item.version) || item.version.startsWith("W/")) throw new ApiError(409, "storage_conditional_write_unsupported", "The provider did not supply a safe file version. Refresh before changing this file.");
 }
@@ -56,16 +61,19 @@ export function nativeDriveAdapter(driver: DriveDriver): StorageAdapter {
       if (cursor && seen.has(cursor)) throw new ApiError(502, "storage_invalid_response", "The drive repeated a folder page.");
       if (cursor) seen.add(cursor);
     } while (cursor);
-    return found ?? null;
+    return found ?? await driver.lookup?.(parent, name) ?? null;
   };
   const resolve = async (path: string) => {
     let current = await driver.get(driver.root.id);
     if (!current.folder) throw missing();
+    const seen = new Set([current.id]);
     for (const segment of storagePath(path).split("/").filter(Boolean)) {
       if (!current.folder) throw missing();
       const id = segmentId(segment);
       const next = id ? await driver.get(id) : await childrenByName(current, segment);
-      if (!next || !next.parents.includes(current.id)) throw missing();
+      if (!next || !(driver.contains ? await driver.contains(current, next) : next.parents.includes(current.id))) throw missing();
+      if (seen.has(next.id)) throw new ApiError(502, "storage_invalid_response", "The drive returned a folder or shortcut cycle.");
+      seen.add(next.id);
       current = next;
     }
     return current;
@@ -82,6 +90,7 @@ export function nativeDriveAdapter(driver: DriveDriver): StorageAdapter {
     return { parent, name };
   };
   const relativePath = async (item: DriveItem): Promise<string> => {
+    if (driver.relativePath) return driver.relativePath(item);
     const parts: string[] = [];
     const seen = new Set<string>();
     let current = item;
@@ -102,6 +111,7 @@ export function nativeDriveAdapter(driver: DriveDriver): StorageAdapter {
     const current = await existing(path);
     checkCondition(current ? info(current) : null, condition);
     if (current?.folder) conflict();
+    if (current?.readOnly) requireVersion(current);
     if (current?.exported) throw new ApiError(403, "storage_export_read_only", "This is an exported Google document. Save a separate Office or workspace copy; the native document cannot be replaced with exported bytes.");
     if (current) { requireVersion(current); if (!condition.version) conflict(); }
     if (!current && segmentId(name)) throw missing();
@@ -117,7 +127,7 @@ export function nativeDriveAdapter(driver: DriveDriver): StorageAdapter {
       const folder = await resolve(path);
       if (!folder.folder) throw missing();
       const page = await driver.children(folder.id, cursor);
-      return { entries: page.items.map((item) => entry(item, [path, nativeSegment(item)].filter(Boolean).join("/"))), ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}) };
+      return { entries: page.items.map((item) => entry(item, [path, nativeSegment(item)].filter(Boolean).join("/"))), ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}), ...(page.truncated ? { truncated: true } : {}) };
     },
     async folderReference(path) {
       const item = await resolve(path);
@@ -136,7 +146,7 @@ export function nativeDriveAdapter(driver: DriveDriver): StorageAdapter {
       const page = await driver.search!(await resolve(input.path), input);
       const entries: StorageEntry[] = [];
       for (const item of page.items) {
-        const path = await relativePath(item);
+        const path = driver.searchPath ? await driver.searchPath(item, input) : await relativePath(item);
         if (input.path && !path.startsWith(`${input.path}/`)) continue;
         entries.push(entry(item, path));
       }

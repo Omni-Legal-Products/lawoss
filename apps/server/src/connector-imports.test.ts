@@ -105,9 +105,10 @@ test("ordinary connector setup has no compatibility warning, while unsupported a
   expect(JSON.stringify(setup!.resolved)).toContain('"Authorization":"Bearer ${GITHUB_TOKEN}"');
   const [bound] = await resolvePluginImports({ source: { provider: "chatgpt", path, connector: { name: "bound" } }, scope: "global" }, root);
   expect(bound!.preview.warnings).toEqual([
-    "ChatGPT-only authentication is not supported for this connector.",
     "Codex tool restrictions and approval rules will not carry over. LegalWork's tool permissions apply instead.",
   ]);
+  expect(bound!.preview.connectors?.[0]).toMatchObject({ status: "blocked", code: "platform_session" });
+  expect(bound!.preview.components).toEqual([]);
 }));
 
 test("imports only a selected connector, replaces it, prunes its old entry and removes it globally", async () => fixture(async root => {

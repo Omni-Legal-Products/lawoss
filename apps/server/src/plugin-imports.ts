@@ -4,12 +4,13 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, posix, resolve } from "node:path";
 import { unzipSync } from "fflate";
 import { z } from "zod";
-import type { PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest } from "@legalwork/types/plugin-import";
+import type { ConnectorImportCheck, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest } from "@legalwork/types/plugin-import";
 import { ApiError } from "./errors.js";
 import { buildFrontmatter, parseFrontmatter } from "./frontmatter.js";
 import { pluginNamespace, resolveWorkspaceInstallPath, type CloudPluginResolved } from "./cloud-plugins.js";
 import { connectorImportBundle, discoverConnectorImports, normalizeImportedConnector } from "./connector-imports.js";
 import { connectorConfigVariables } from "./connector-config.js";
+import { assessImportedConnector } from "./connector-import-compatibility.js";
 
 const MAX_BYTES = 64 * 1024 * 1024;
 const MAX_FILES = 5000;
@@ -18,7 +19,7 @@ const sourceSchema = z.discriminatedUnion("provider", [
   z.object({ provider: z.literal("chatgpt"), path: z.string().min(1).optional(), zipBase64: z.string().max(90 * 1024 * 1024).optional(), connector: connectorSchema.optional() }),
   z.object({ provider: z.literal("claude"), path: z.string().min(1).optional(), zipBase64: z.string().max(90 * 1024 * 1024).optional(), connector: connectorSchema.optional() }),
 ]);
-const requestSchema = z.object({ source: sourceSchema, root: z.string().optional(), scope: z.enum(["global", "project"]), digest: z.string().optional() });
+const requestSchema = z.object({ source: sourceSchema, root: z.string().optional(), scope: z.enum(["global", "project"]), digest: z.string().optional(), validationId: z.string().max(100).optional(), recheck: z.boolean().optional() });
 export function parsePluginImportRequest(value: unknown): PluginImportRequest {
   const parsed = requestSchema.safeParse(value);
   if (!parsed.success) throw new ApiError(400, "invalid_plugin_import", "Choose a plugin folder or ZIP and installation scope.");
@@ -42,7 +43,7 @@ function safePath(value: string): string {
 }
 export type PackageFile = { path: string; bytes: Uint8Array; mode: number };
 type PackageFiles = Map<string, PackageFile>;
-export type PluginImportPlan = { preview: PluginImportPreview; resolved: CloudPluginResolved; resourceFiles: PackageFile[] };
+export type PluginImportPlan = { preview: PluginImportPreview; resolved: CloudPluginResolved; resourceFiles: PackageFile[]; connectorConfigs?: Record<string, Record<string, unknown>> };
 
 export async function readPluginFolder(root: string): Promise<PackageFiles> {
   const files: PackageFiles = new Map();
@@ -224,7 +225,6 @@ function bundledConnectorFiles(files: PackageFiles, request: PluginImportRequest
   const { servers, configPaths } = packageConnectors(files, manifest, portable, []);
   const selected = Object.hasOwn(servers, selector.name) ? servers[selector.name] : undefined;
   if (!record(selected)) fail("This connector is no longer in the plugin. Scan again and select another connector.");
-  if (selected.type === "sdk") fail("Provider-managed SDK connectors need to be reconnected in LegalWork.");
   const pluginName = str(base.name) ?? str(manifest.name) ?? basename(request.source.path);
   const presentation = record(manifest.interface) ? manifest.interface : {};
   const pluginLabel = str(presentation.displayName) ?? pluginName;
@@ -338,29 +338,29 @@ function planPluginFiles(files: PackageFiles, root: string, target: { provider: 
   }
   const { servers } = packageConnectors(files, manifest, portable, warnings);
   const normalizedServers: Record<string, unknown> = {};
+  const connectorConfigs: Record<string, Record<string, unknown>> = {};
+  const connectorChecks: ConnectorImportCheck[] = [];
   for (const [serverName, original] of Object.entries(servers)) {
     if (serverName === "$schema") continue;
     if (!record(original)) fail(`Invalid MCP server: ${serverName}`);
-    const expanded = expandRoot(normalizeImportedConnector(original, warnings), absoluteBundle);
+    const expanded = expandRoot(normalizeImportedConnector(original, warnings, target.provider), absoluteBundle);
     if (!record(expanded)) fail(`Invalid MCP server: ${serverName}`);
     const normalized: Record<string, unknown> = { ...expanded };
     if (typeof normalized.cwd === "string" && !isAbsolute(normalized.cwd) && !normalized.cwd.includes("${")) normalized.cwd = resolve(absoluteBundle, normalized.cwd);
     if (Array.isArray(normalized.args)) normalized.args = normalized.args.map(argument => typeof argument === "string" && files.has(argument.replace(/^\.\//, "")) ? join(absoluteBundle, argument.replace(/^\.\//, "")) : argument);
     if (typeof normalized.command === "string" && !normalized.url) normalized.env = { ...(record(normalized.env) ? normalized.env : {}), CLAUDE_PLUGIN_ROOT: absoluteBundle, CODEX_PLUGIN_ROOT: absoluteBundle, PLUGIN_ROOT: absoluteBundle };
-    if (normalized.headersHelper) warnings.push(`Connector ${serverName}: its automatic credential script will not run. LegalWork does not support this authentication helper.`);
     if (typeof normalized.command === "string" && /^\.\//.test(normalized.command)) normalized.command = join(absoluteBundle, safePath(normalized.command));
     const auth = record(normalized.extensions) && record(normalized.extensions["com.openai"]) && record(normalized.extensions["com.openai"].auth) ? normalized.extensions["com.openai"].auth : null;
     if (auth?.type === "none") normalized.oauth = false;
     else if (auth?.type === "api_key") {
       normalized.oauth = false;
       const header = auth.headerScheme === "custom_header" ? str(auth.headerName) : "Authorization";
-      if (!header || /^host$/i.test(header)) fail(`Connector ${serverName} has an invalid API key header.`);
-      normalized.headers = { ...(record(normalized.headers) ? normalized.headers : {}), [header]: auth.headerScheme === "bearer" ? "Bearer ${API_KEY}" : auth.headerScheme === "basic" ? "Basic ${BASIC_AUTH_CREDENTIALS}" : "${API_KEY}" };
+      if (header && !/^host$/i.test(header)) normalized.headers = { ...(record(normalized.headers) ? normalized.headers : {}), [header]: auth.headerScheme === "bearer" ? "Bearer ${API_KEY}" : auth.headerScheme === "basic" ? "Basic ${BASIC_AUTH_CREDENTIALS}" : "${API_KEY}" };
     }
     else if (auth?.type === "oauth" || auth?.type === "mixed") {
       const client = record(auth.client) ? auth.client : {};
-      normalized.oauth = { ...(str(client.clientId) ? { clientId: client.clientId } : {}), ...(Array.isArray(auth.baseScopes) ? { scope: auth.baseScopes.filter(scope => typeof scope === "string").join(" ") } : {}) };
-      if (auth.authorizationUrl || auth.tokenUrl || (client.tokenEndpointAuthMethod && client.tokenEndpointAuthMethod !== "none")) { normalized.enabled = false; warnings.push(`Connector ${serverName}: custom sign-in endpoints and confidential-client authentication will not be imported.`); }
+      const scopes = Array.isArray(auth.defaultScopes) ? auth.defaultScopes : auth.baseScopes;
+      normalized.oauth = { ...(record(normalized.oauth) ? normalized.oauth : {}), ...(str(client.clientId) ? { clientId: client.clientId } : {}), ...(client.mode === "provided" && client.tokenEndpointAuthMethod === "client_secret_post" ? { clientSecret: "${OAUTH_CLIENT_SECRET}" } : {}), ...(Array.isArray(scopes) ? { scope: scopes.filter(scope => typeof scope === "string").join(" ") } : {}) };
     }
     if (connectorConfigVariables(normalized).length || auth?.type === "api_key" || normalized.userConfig) {
       normalized.enabled = false;
@@ -371,8 +371,15 @@ function planPluginFiles(files: PackageFiles, root: string, target: { provider: 
     if (normalized.headersHelper) normalized.enabled = false;
     if (Array.isArray(normalized.command) && (!normalized.command.length || normalized.command.some(part => typeof part !== "string") || !str(normalized.command[0]))) fail(`Invalid command array for connector ${serverName}`);
     if (normalized.args && (!Array.isArray(normalized.args) || normalized.args.some(part => typeof part !== "string"))) fail(`Invalid arguments for connector ${serverName}`);
-    if (!str(normalized.url) && !(str(normalized.command) || Array.isArray(normalized.command))) fail(`Connector ${serverName} requires a URL or command.`);
     const installedName = `${namespace}-${target.scope === "global" ? "global" : createHash("sha256").update(resolve(workspaceRoot)).digest("hex").slice(0, 8)}-${slug(serverName)}-${createHash("sha256").update(serverName).digest("hex").slice(0, 6)}`;
+    if (target.provider !== "legalwork") {
+      connectorConfigs[installedName] = normalized;
+      const check = assessImportedConnector(serverName, installedName, original, normalized);
+      connectorChecks.push(check);
+      if (check.status === "blocked") continue;
+      // Imported declarations never run before users finish their own setup.
+      normalized.enabled = false;
+    }
     normalizedServers[installedName] = normalized;
     components.push({ type: "mcp", name: serverName, installedName });
   }
@@ -385,10 +392,10 @@ function planPluginFiles(files: PackageFiles, root: string, target: { provider: 
   for (const [field, label] of Object.entries(unsupported)) if (manifest[field] || (field === "hooks" && files.has("hooks/hooks.json")) || (field === "lspServers" && files.has(".lsp.json")) || [...files.keys()].some(path => path.startsWith(`${field}/`))) warnings.push(`${label} (${field}) will not run in LegalWork. Their source files will be saved without activating them.`);
   if (manifest.experimental) warnings.push("Experimental Claude features will not run in LegalWork. Their source files will be saved without activating them.");
   if (manifest.apps || files.has(".app.json")) warnings.push("ChatGPT app connections will not be imported. Provider app IDs are saved as source files, not installed as working connectors.");
-  if (components.length === 0) warnings.push("No usable skills, agents, commands or connectors will be installed. Only source files will be saved.");
+  if (components.length === 0 && !connectorChecks.length) warnings.push("This package has no supported skills, agents, commands or connectors to import.");
   const hash = createHash("sha256").update(JSON.stringify({ provider: target.provider, root, scope: target.scope, workspaceRoot: resolve(workspaceRoot) }));
   for (const file of [...files.values()].sort((a, b) => a.path.localeCompare(b.path))) hash.update(file.path).update(String(file.mode)).update(file.bytes);
-  const preview: PluginImportPreview = { id, digest: hash.digest("hex"), name, displayName, description, version: str(manifest.version), format: target.connector ? "connectors" : portable ? "portable" : files.has(legacyPath) ? target.provider === "chatgpt" ? "codex" : "claude" : "skills", root, fileCount: files.size, bytes: [...files.values()].reduce((sum, file) => sum + file.bytes.length, 0), components, warnings: [...new Set(warnings)] };
+  const preview: PluginImportPreview = { id, digest: hash.digest("hex"), name, displayName, description, version: str(manifest.version), format: target.connector ? "connectors" : portable ? "portable" : files.has(legacyPath) ? target.provider === "chatgpt" ? "codex" : "claude" : "skills", root, fileCount: files.size, bytes: [...files.values()].reduce((sum, file) => sum + file.bytes.length, 0), components, warnings: [...new Set(warnings)], ...(connectorChecks.length ? { connectors: connectorChecks } : {}) };
   let reportName = "LEGALWORK-IMPORT.json";
   for (let i = 2; files.has(reportName); i++) reportName = `LEGALWORK-IMPORT-${i}.json`;
   resourceFiles.push({ path: `${bundlePath}/${reportName}`, bytes: Buffer.from(JSON.stringify(preview, null, 2)), mode: 0o600 });
@@ -404,7 +411,7 @@ function planPluginFiles(files: PackageFiles, root: string, target: { provider: 
       version.rawSourceText = buildFrontmatter(parsed.data) + "\n" + body + `\nComponent mapping: ${components.map(entry => `${entry.type} ${entry.name} → ${entry.installedName}`).join(", ")}.\n`;
     }
   }
-  return { preview, resolved: { plugin: { id, name, displayName, description, updatedAt: null, sourceKind: preview.format === "connectors" ? "connector" : preview.format === "skills" && components.every(component => component.type === "skill") ? "skill" : "plugin" }, memberships }, resourceFiles };
+  return { preview, resolved: { plugin: { id, name, displayName, description, updatedAt: null, sourceKind: preview.format === "connectors" ? "connector" : preview.format === "skills" && components.every(component => component.type === "skill") ? "skill" : "plugin" }, memberships }, resourceFiles, ...(connectorChecks.length ? { connectorConfigs } : {}) };
 }
 export async function resolvePluginImports(request: PluginImportRequest, workspaceRoot: string): Promise<PluginImportPlan[]> {
   if ("path" in request.source && request.source.connector && request.source.connector.pluginRoot === undefined) {
@@ -458,7 +465,7 @@ export async function discoverPluginImports(provider: PluginImportProvider, work
             results.set(path, { ...plugin, path, version, description: str(ui.shortDescription) ?? str(base.description) ?? str(metadata.description), kind: "plugin" });
             const { servers } = packageConnectors(files, metadata, portable, []);
             for (const [name, definition] of Object.entries(servers)) {
-              if (name === "$schema" || !record(definition) || definition.type === "sdk" || !(str(definition.url) || str(definition.command) || Array.isArray(definition.command))) continue;
+              if (name === "$schema" || !record(definition)) continue;
               results.set(JSON.stringify([path, name]), { path, name, version, kind: "connector", connector: { name, pluginRoot: "" }, bundledIn: plugin });
             }
           } catch { /* Keep the whole plugin discoverable; its preview reports invalid or unsupported MCP configuration. */ }

@@ -32,7 +32,7 @@ const fixtureDraftsSchema = z.object({ workspaceId: z.string(), gmail: EmailDraf
 const noop = () => {};
 
 function StoragePreview() {
-  const roots = useQuery({ queryKey: ["fixture-storage-roots"], queryFn: () => client.storageRoots("fixture-project"), refetchInterval: 1000 });
+  const roots = useQuery({ queryKey: ["fixture-storage-roots"], queryFn: () => client.storageRoots("fixture-project"), refetchOnWindowFocus: false });
   return <PlatformProvider value={createDefaultPlatform()}><TooltipProvider><main className="mx-auto min-h-dvh max-w-6xl space-y-6 p-8">
     <h1 className="text-xl font-semibold">File Storage · Synthetic accounts</h1>
     <div className="grid gap-8 md:grid-cols-[15rem_1fr]">
