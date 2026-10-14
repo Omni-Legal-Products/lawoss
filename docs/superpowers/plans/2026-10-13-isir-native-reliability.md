@@ -133,3 +133,14 @@ Revize celé větve k `45a325e1` odhalila dvě Important chyby v propojení již
 - [x] Dokončit modulové testy, strict/build, signed commit a jednu nezávislou scoped re-review obou oprav. Poté pokračovat všemi otevřenými sestavovacími, CI, nasazovacími a živými kroky Task 5.
 
 Finální sestavení odhalilo ještě nesprávnou kontrolu názvu enginu v testu. Harness-only `ec197e1d` ověřuje skutečnou platformní binárku, manifest/hash i executable/health verzi při startu a restartu; samostatná scoped revize je čistá. Nový celý nativní průchod deseti syntetických spisů i macOS package/startup prošly. Toto uzavírá lokální kódové/testové kroky, nikoli otevřené remote CI, protected `dev` a skutečné public/provider/CUA kroky výše.
+
+
+### Nová kola podle skutečného remote CI (PR #156)
+
+První publikovaný HEAD dad974fd prošel source testy Linux/macOS a i18n. Windows portable a všechny tři natívní package průchody selhaly; lokální zelený průchod je nenahrazuje.
+
+- [x] Reprodukovat zastaralý zápis při shodném mtime přes skutečné HTTP; odmítnout konfliktní baseContent i bez změny času, zachovat merge/force. Oprava 251b523a, cílený RED/GREEN.
+- [x] Zachovat testy hlaviček s Windows-valid názvy a úplnými file URL pro child import; přidat bezpečně omezené synthetic-only native/cleanup diagnostiky, které zachovají původní chybu. Commit 2fd12637, covering49server/23helpers GREEN.
+- [ ] Nezávislá immutable scoped review, aktuální úplné lokální testy/build a feature publikace.
+- [ ] Z nových remote výsledků/artifacts určit skutečnou příčinu native timeoutů a Windows EBUSY; opravit jen doložené příčiny, bez skipů či potlačení chyb. Sdílené DB shutdown vlastnictví musí prokázat souběžně živý druhý server i poslední release/restart.
+- [ ] Zelené požadované OS CI, běžné schválení PR a začlenění do dev; potom zachovaný uživatelský profil, skutečné public/provider/CUA testy a závěrečný audit Task5 výše.
