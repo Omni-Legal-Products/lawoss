@@ -20,6 +20,10 @@ export async function historicalWorkspaceSessions(config: ServerConfig, workspac
   for (let page = 0; page < 20; page++) {
     const url = new URL(`${connection.baseUrl.replace(/\/+$/, "")}/experimental/session`);
     url.searchParams.set("limit", "1000");
+    // Native unarchive uses time.archived=0. The pinned engine's default
+    // global listing selects SQL NULL only; include archived metadata so
+    // reconnect captures zero/null/archived history before ownership filtering.
+    url.searchParams.set("archived", "true");
     if (cursor !== undefined) url.searchParams.set("cursor", String(cursor));
     if (input.roots !== undefined) url.searchParams.set("roots", String(input.roots));
     if (input.start !== undefined) url.searchParams.set("start", String(input.start));

@@ -313,7 +313,7 @@ function clearTrackedSession(input: SyncOptions, entry: SyncEntry, sessionId: st
   );
   const queryClient = getReactQueryClient();
   queryClient.removeQueries({ queryKey: permissionKey(input.workspaceId, sessionId), exact: true });
-  if (entry.refs <= 0 && entry.retainedSessionTimers.size === 0) {
+  if (entry.refs <= 0 && entry.trackedSessionRefs.size === 0 && entry.retainedSessionTimers.size === 0) {
     disposeWorkspaceSync(syncKey(input), entry);
   }
 }
@@ -327,7 +327,7 @@ function retainSession(input: SyncOptions, entry: SyncEntry, sessionId: string, 
 }
 
 function disposeWorkspaceSync(key: string, entry: SyncEntry) {
-  if (entry.refs > 0) return;
+  if (entry.refs > 0 || entry.trackedSessionRefs.size > 0) return;
   if (entry.disposeTimer) {
     clearTimeout(entry.disposeTimer);
     entry.disposeTimer = null;
@@ -1269,7 +1269,7 @@ function releaseWorkspaceSessionSync(input: SyncOptions) {
   if (input.onSessionStatus) existing.sessionStatusListeners.delete(input.onSessionStatus);
   existing.refs -= 1;
   if (existing.refs > 0) return;
-  if (existing.retainedSessionTimers.size === 0) {
+  if (existing.trackedSessionRefs.size === 0 && existing.retainedSessionTimers.size === 0) {
     disposeWorkspaceSync(key, existing);
   }
 }
@@ -1386,6 +1386,17 @@ export function trackWorkspaceSessionSync(input: SyncOptions, sessionId: string 
     const current = entry.trackedSessionRefs.get(normalizedSessionId) ?? 0;
     if (current <= 1) {
       entry.trackedSessionRefs.delete(normalizedSessionId);
+      const status = getReactQueryClient().getQueryState<SessionStatus>(statusKey(input.workspaceId, normalizedSessionId));
+      const activity = useSessionActivityStore.getState().recordsByWorkspaceId[input.workspaceId]?.[normalizedSessionId];
+      // Idle was already observed before untracking, so no future idle event
+      // will shorten the usual background retention. Release its HTTP slot;
+      // optimistic accepted prompts, live retries and waiting still retain it.
+      const knownIdle = status?.data?.type === "idle" && (!activity?.errorActive || status.dataUpdatedAt > activity.updatedAt);
+      if (knownIdle && !activity?.runActive && !activity?.compacting && !activity?.waitingPermissionIds.length && !activity?.waitingQuestionIds.length) {
+        flushDeltas(entry, input.workspaceId);
+        clearTrackedSession(input, entry, normalizedSessionId);
+        return;
+      }
       retainSession(input, entry, normalizedSessionId);
       return;
     }
@@ -1439,6 +1450,7 @@ export function __disposeWorkspaceSessionSyncForTest(input: SyncOptions) {
   const entry = syncs.get(key);
   if (!entry) return;
   entry.refs = 0;
+  entry.trackedSessionRefs.clear();
   disposeWorkspaceSync(key, entry);
 }
 

@@ -9,3 +9,5 @@ Autorizace: uživatel dne 13. 10. 2026 požádal o plán, produkční implementa
 5. Automatizovaný test skutečného rendereru a Electron bridge pokrývá picker, drag/drop, chat, generování, validaci a restart. Vedle deterministického CI testu se po pushi zopakuje živý běh s místními vzorky deseti řízení. Chyba snímání externího nástroje není zaměněna za úspěšný GUI test.
 
 Dokončení: všechny pokrývající testy, typecheck a build zelené; čerstvý nezávislý review bez otevřených odchylek od 1–5; ověřený remote dev commit a CI; spuštěný nový build a opakovaná skutečná akceptace. Neprokázané body zůstávají otevřené. Právní správnost libovolného tvrzení modelu není nahrazena technickým testem.
+
+Automatizované rozhraní je `pnpm test:isir:native`; skutečné předpoklady a rozsah jsou v [README](README.md#produkční-nativní-regrese). CI jej spouští v desktop packaging matrix po běžné instalaci a sestavení sidecaru/serveru. Jedinou modelovou náhradou je lokální protokolový poskytovatel; výsledek tohoto běhu neuzavírá následnou živou akceptaci ani distribuovaný build/CUA gate. `pnpm test:isir` je samostatný rychlý offline transportní balík.

@@ -76,6 +76,47 @@ export class DocumentExports {
     }
     return { absolute: requested, path: relative(root, requested).replaceAll("\\", "/") };
   }
+  // Source aliases may resolve inside the selected workspace. Output ownership
+  // still uses file(), which deliberately refuses symlink outputs.
+  private async sourceFile(workspace: WorkspaceInfo, path: string) {
+    const root = await realpath(workspace.path), requested = resolve(root, path);
+    if (!within(root, requested) || requested === root)
+      throw new Error("Reference source escapes the selected project.");
+    const absolute = await realpath(requested);
+    if (!within(root, absolute) || absolute === root)
+      throw new Error("Reference source alias escapes the selected project.");
+    const info = await lstat(absolute);
+    if (!info.isFile() || info.size > 64 * 1024 * 1024)
+      throw new Error("Reference source must be a bounded regular file.");
+    return absolute;
+  }
+  private async reference(workspace: WorkspaceInfo, record: DocumentEvidence, references: z.infer<typeof manifestSchema>["documents"]) {
+    const selected = await this.sourceFile(workspace, record.path);
+    if (sha(await readFile(selected)) !== record.hash)
+      throw new Error("Selected source hash differs.");
+    const root = await realpath(workspace.path);
+    let candidates = references.filter(d => resolve(root, d.file) === resolve(root, record.path));
+    if (!candidates.length) {
+      // A listed canonical alias with a wrong hash must not borrow another
+      // reference merely because that other file has the selected hash.
+      for (const reference of references) {
+        try {
+          if (await this.sourceFile(workspace, reference.file) === selected) candidates.push(reference);
+        } catch (error) {
+          if (reference.sha256 === record.hash) throw error;
+        }
+      }
+      if (!candidates.length) candidates = references.filter(d => d.sha256 === record.hash);
+    }
+    const identities = new Set(candidates.map(d => JSON.stringify([d.documentId, d.url, d.sha256])));
+    if (!candidates.length || identities.size !== 1 || candidates.some(d => d.sha256 !== record.hash))
+      throw new Error("Source reference is missing, mismatched or ambiguous in selected manifest.");
+    const reference = candidates[0];
+    const original = await this.sourceFile(workspace, reference.file);
+    if (sha(await readFile(original)) !== reference.sha256)
+      throw new Error("Manifest source hash differs.");
+    return reference;
+  }
   private async context(workspace: WorkspaceInfo, documentIds: string[]) {
     await realpath(workspace.path);
     let sourceKind: "isir" | "workspace" = "workspace", manifestHash: string | null = null;
@@ -110,12 +151,12 @@ export class DocumentExports {
       const record = await this.documents.evidence(workspace, id);
       if (record.provenance.parentId)
         throw new Error("Select original sources; attachment citations remain separate.");
-      const reference = sourceKind === "isir" ? manifest.documents.find(d => resolve(workspace.path, d.file) === resolve(workspace.path, record.path) && d.sha256 === record.hash) : { file: record.path, documentId: record.id, url: "", sha256: record.hash };
-      if (!reference)
-        throw new Error("Source is missing or mismatched in selected manifest.");
-      const sourceFile = await this.file(workspace, reference.file, 64 * 1024 * 1024);
-      if (sha(await readFile(sourceFile.absolute)) !== reference.sha256)
+      const reference = sourceKind === "isir" ? await this.reference(workspace, record, manifest.documents) : { file: record.path, documentId: record.id, url: "", sha256: record.hash };
+      const sourceFile = await this.sourceFile(workspace, reference.file);
+      if (sha(await readFile(sourceFile)) !== reference.sha256)
         throw new Error("Manifest source hash differs.");
+      if (sourceKind === "isir" && selected.some(item => item.record.hash === record.hash && (item.reference.documentId !== reference.documentId || item.reference.url !== reference.url)))
+        throw new Error("Selected identical bytes have ambiguous official references.");
       const children: DocumentEvidence[] = [];
       const descendants = new Set([id]);
       for (const item of all)

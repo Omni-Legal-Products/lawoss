@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile, rm, symlink, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -130,4 +130,58 @@ test("rejected visible identity companion cannot verify its CSV in either path o
   const reloaded=await new DocumentExports(documents).list(w);
   expect(reloaded.outputs.find(o=>o.path==="agent.csv")?.verified).toBe(false);
  }
+}));
+
+
+test("unlisted same-hash native copies validate in either selection order without another reference row",()=>fixture(async(exports,w,root,id,documents)=>{
+ const bytes=await readFile(join(root,"source.txt"));
+ await writeFile(join(root,"source (1).txt"),bytes);
+ const [copy]=await documents.prepare(w,["source (1).txt"]);
+ for(let i=0;i<200;i++){if((await documents.list(w)).find(d=>d.id===copy.id)?.status==="readable")break;await new Promise(r=>setTimeout(r,10));}
+ for(const [index,ids] of [[copy.id,id],[id,copy.id]].entries()){
+  const output=await exports.export(w,exportInputSchema.parse({path:`native-copy-${index}.csv`,kind:"registry",outputLanguage:"cs",documentIds:ids,entries:[]}));
+  const rows=parseCsv(await readFile(join(root,output.path),"utf8"));expect(rows).toHaveLength(2);expect(rows[1][1]).toBe("D1");expect(rows[1][0]).toBe("source.txt");
+  expect((await exports.validate(w,{paths:[output.path],documentIds:ids,outputLanguage:"cs"})).valid).toBe(true);
+ }
+ expect(await readFile(join(root,"source.txt"))).toEqual(bytes);expect(await readFile(join(root,"source (1).txt"))).toEqual(bytes);
+ await writeFile(join(root,"source.txt"),"Changed listed reference");
+ expect((await exports.list(w)).outputs.every(o=>!o.verified)).toBe(true);
+ await writeFile(join(root,"source.txt"),bytes);
+ expect((await exports.validate(w,{paths:["native-copy-0.csv","native-copy-1.csv"],documentIds:[copy.id,id],outputLanguage:"cs"})).valid).toBe(true);
+ await writeFile(join(root,"source (1).txt"),"Changed duplicate");
+ expect((await exports.list(w)).outputs.every(o=>!o.verified)).toBe(true);
+}));
+
+test("canonical within-case file/folder aliases resolve the known reference while external aliases reject",()=>fixture(async(exports,w,root,id,documents)=>{
+ await mkdir(join(root,"inside"));
+ await symlink(join(root,"source.txt"),join(root,"inside","alias.txt"));
+ await symlink(join(root,"inside"),join(root,"folder-alias"),process.platform==="win32"?"junction":"dir");
+ const [alias]=await documents.prepare(w,["folder-alias/alias.txt"]);
+ for(let i=0;i<200;i++){if((await documents.list(w)).find(d=>d.id===alias.id)?.status==="readable")break;await new Promise(r=>setTimeout(r,10));}
+ const output=await exports.export(w,exportInputSchema.parse({path:"alias.csv",kind:"registry",outputLanguage:"cs",documentIds:[alias.id,id],entries:[]}));
+ expect(parseCsv(await readFile(join(root,output.path),"utf8"))).toHaveLength(2);
+ expect((await exports.validate(w,{paths:[output.path],documentIds:[alias.id,id],outputLanguage:"cs"})).valid).toBe(true);
+ const outside=await mkdtemp(join(tmpdir(),"native-reference-outside-"));
+ try{
+  await writeFile(join(outside,"foreign.txt"),await readFile(join(root,"source.txt")));
+  await symlink(join(outside,"foreign.txt"),join(root,"external.txt"));
+  const manifest=JSON.parse(await readFile(join(root,"TEST_ZDROJE_ISIR.json"),"utf8"));manifest.documents[0].file="external.txt";
+  await writeFile(join(root,"TEST_ZDROJE_ISIR.json"),JSON.stringify(manifest));
+  await expect(exports.export(w,exportInputSchema.parse({path:"external.csv",kind:"registry",outputLanguage:"cs",documentIds:[id],entries:[]}))).rejects.toThrow();
+ }finally{await rm(outside,{recursive:true,force:true});}
+}));
+
+test("listed-path hash mismatch cannot borrow another matching reference; ambiguous unlisted hashes reject",()=>fixture(async(exports,w,root,id,documents)=>{
+ const bytes=await readFile(join(root,"source.txt"));await writeFile(join(root,"copy.txt"),bytes);
+ const [copy]=await documents.prepare(w,["copy.txt"]);
+ for(let i=0;i<200;i++){if((await documents.list(w)).find(d=>d.id===copy.id)?.status==="readable")break;await new Promise(r=>setTimeout(r,10));}
+ const file=join(root,"TEST_ZDROJE_ISIR.json"),original=JSON.parse(await readFile(file,"utf8"));
+ const other={...original.documents[0],file:"copy.txt",documentId:"D2",url:"https://isir.justice.cz/isir/document/D2"};
+ await writeFile(file,JSON.stringify({...original,documents:[{...original.documents[0],sha256:"0".repeat(64)},other]}));
+ await expect(exports.export(w,exportInputSchema.parse({path:"wrong-listed.csv",kind:"registry",outputLanguage:"cs",documentIds:[id],entries:[]}))).rejects.toThrow();
+ await writeFile(join(root,"same-bytes.txt"),bytes);
+ const [unlisted]=await documents.prepare(w,["same-bytes.txt"]);
+ for(let i=0;i<200;i++){if((await documents.list(w)).find(d=>d.id===unlisted.id)?.status==="readable")break;await new Promise(r=>setTimeout(r,10));}
+ await writeFile(file,JSON.stringify({...original,documents:[...original.documents,other]}));
+ await expect(exports.export(w,exportInputSchema.parse({path:"ambiguous.csv",kind:"registry",outputLanguage:"cs",documentIds:[unlisted.id],entries:[]}))).rejects.toThrow();
 }));

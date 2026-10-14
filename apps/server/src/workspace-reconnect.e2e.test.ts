@@ -216,3 +216,42 @@ test("failed host persistence restores project-owned memory grants", async () =>
   f.config.reconnectHostWorkspace=async()=>{throw new Error("host storage failed")};await rename(f.a,f.b);expect((await f.request()).ok).toBe(false);
   expect(runtimeExternalDirectory(await readRuntimeOpencodeConfig(f.config,"stable"))).toEqual(rules);expect(f.config.workspaces[0]?.path).toBe(f.a);
 });
+
+test("reconnect captures native archived-zero and genuinely archived history as well as SQL-null history, preserving restart and future-foreign isolation",async()=>{
+ const f=await fixture();
+ const sessions=[
+  {id:"native-zero",directory:f.a,title:"Native",time:{created:1,updated:3,archived:0}},
+  // The engine API omits archived for SQL NULL.
+  {id:"legacy-null",directory:f.a,title:"Legacy",time:{created:1,updated:2}},
+  {id:"genuine-archive",directory:f.a,title:"Archived",time:{created:1,updated:1,archived:1}},
+  {id:"foreign-project",directory:join(f.root,"elsewhere"),title:"Foreign",time:{created:1,updated:4,archived:0}},
+ ];
+ let late=false;const moved:string[]=[];
+ const engine=Bun.serve({port:0,fetch:async request=>{
+  expect(request.headers.get("authorization")).toBe("Basic "+Buffer.from("synthetic:local").toString("base64"));
+  const url=new URL(request.url),all=late?[...sessions,{id:"future-foreign",directory:f.a,title:"Later reused path",time:{created:4,updated:5,archived:0}}]:sessions;
+  if(url.pathname==="/experimental/session"){
+   expect(url.searchParams.get("directory")).toBeNull();expect(url.searchParams.get("limit")).toBe("1000");
+   return Response.json(url.searchParams.get("archived")==="true"?all:all.filter(session=>!("archived" in session.time)));
+  }
+  if(url.pathname==="/experimental/control-plane/move-session"){
+   const body=await request.json();expect(body.moveChanges).toBe(false);expect(body.destination.directory).toBe(f.b);
+   const session=sessions.find(item=>item.id===body.sessionID);expect(session).toBeDefined();session!.directory=body.destination.directory;moved.push(session!.id);
+   return new Response(null,{status:204});
+  }
+  if(url.pathname==="/session")return Response.json(all);
+  const id=url.pathname.split("/")[2];return Response.json(all.find(session=>session.id===id));
+ }});cleanup.push(()=>Promise.resolve(engine.stop(true)));
+ f.config.opencodeBaseUrl=`http://127.0.0.1:${engine.port}`;f.config.opencodeUsername="synthetic";f.config.opencodePassword="local";
+ await rename(f.a,f.b);expect((await f.request()).status).toBe(200);
+ expect(new Set(moved)).toEqual(new Set(["native-zero","legacy-null","genuine-archive"]));
+ expect(new Set(f.config.workspaces[0]?.previousSessionIds)).toEqual(new Set(moved));
+ const persisted=JSON.parse(await readFile(f.config.configPath!,"utf8"));late=true;
+ const restarted=await startServer({...f.config,port:0,workspaces:buildWorkspaceInfos(persisted.workspaces,f.root),authorizedRoots:persisted.authorizedRoots});cleanup.push(()=>Promise.resolve(restarted.stop()));
+ const base=`http://127.0.0.1:${restarted.port}/workspace/stable`,headers={Authorization:"Bearer client"};
+ for(const path of ["/sessions","/opencode/session"]){const response=await fetch(base+path,{headers});expect(response.status).toBe(200);const body=await response.json();expect(new Set((Array.isArray(body)?body:body.items).map((session:{id:string})=>session.id))).toEqual(new Set(moved));}
+ expect((await fetch(`${base}/opencode/session/native-zero`,{headers})).status).toBe(200);
+ expect((await fetch(`${base}/opencode/session/future-foreign`,{headers})).status).toBe(404);
+ expect((await fetch(`${base}/opencode/session/foreign-project`,{headers})).status).toBe(404);
+ expect(persisted.authorizedRoots).toEqual([f.b]);expect(await readFile(join(f.b,"source.pdf"),"utf8")).toBe("%PDF-original");
+});

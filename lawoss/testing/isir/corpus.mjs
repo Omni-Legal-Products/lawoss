@@ -6,7 +6,7 @@ export const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex"
 
 // A complete, small PDF, so offline tests exercise binary documents as well as
 // filenames. Live acceptance uses originals downloaded from ISIR instead.
-function pdf(label) {
+export function syntheticPdf(label) {
   const stream = `BT /F1 12 Tf 36 72 Td (${label}) Tj ET`;
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
@@ -33,8 +33,8 @@ export async function loadISIRCorpus(manifestPath = process.env.LAWOSS_ISIR_CORP
     cases: Array.from({ length: 10 }, (_, index) => ({
       id: `case-${String(index + 1).padStart(2, "0")}`,
       documents: [
-        { name: "Usnesení (A-1) — originál.pdf", bytes: pdf(`SYNTHETIC case ${index + 1} A-1`) },
-        { name: "Zpráva správce [B-2].pdf", bytes: pdf(`SYNTHETIC case ${index + 1} B-2`) },
+        { name: "Usnesení (A-1) — originál.pdf", bytes: syntheticPdf(`SYNTHETIC case ${index + 1} A-1`) },
+        { name: "Zpráva správce [B-2].pdf", bytes: syntheticPdf(`SYNTHETIC case ${index + 1} B-2`) },
       ],
     })),
   };

@@ -69,6 +69,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: pnpm --filter @legalwork/desktop build:electron
+      # Real isolated dev renderer + pinned sidecar + provider protocol fixture.
+      # The packaged CDP prohibition stays covered by the existing security gate.
+      - name: Native ISIR renderer, tools and application relaunch (Linux)
+        if: runner.os == 'Linux'
+        timeout-minutes: 12
+        run: xvfb-run -a pnpm test:isir:native
+      - name: Native ISIR renderer, tools and application relaunch (Windows and macOS)
+        if: runner.os != 'Linux'
+        timeout-minutes: 12
+        run: pnpm test:isir:native
       - name: Package desktop app
         run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --${{ matrix.platform }} --${{ matrix.arch }} ${{ runner.os == 'macOS' && '-c.mac.identity=-' || '' }} --dir --publish never
       # LAWOSS: importuje každý modul servera priamo zo zabaleného app.asar (Electron ako Node).

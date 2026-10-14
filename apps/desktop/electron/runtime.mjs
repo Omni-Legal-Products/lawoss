@@ -2,7 +2,7 @@ import { canonicalRealpath } from "./lawoss-picked-path.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -1759,6 +1759,12 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     if (!safeProjectDir) {
       throw new Error("projectDir is required");
     }
+    // Project creation/home setup explicitly creates its directory. A stale
+    // registered project must stay missing so the native recovery UI can act;
+    // check before healthy reuse, provisioning or resetting a healthy host.
+    if (!(await stat(safeProjectDir).catch(() => null))?.isDirectory()) {
+      throw new Error("Project folder is unavailable; reconnect an existing project directory.");
+    }
 
     // Reuse a healthy server instead of tearing it down. During boot the
     // main process kicks off bootRuntimeForSelectedWorkspace while renderer
@@ -1784,7 +1790,6 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     }
 
     if (appFiles === "inside") {
-      await mkdir(safeProjectDir, { recursive: true });
       await ensureOpencodeConfig(safeProjectDir, appFiles);
     }
     await prepareFreshRuntime();

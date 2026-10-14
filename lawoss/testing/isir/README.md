@@ -1,6 +1,6 @@
 # Testy používání příloh ve spisech — ISIR
 
-Základ: `4fdc8dc9`, dev z 13. 10. 2026. Testovací spisy jsou oddělené od klientských dat; žádné dokumenty se neposílají modelu ani soudu.
+Základ: `4fdc8dc9`, dev z 13. 10. 2026. Testovací spisy jsou oddělené od klientských dat; výchozí automatické běhy posílají syntetické podklady pouze lokálnímu protokolovému poskytovateli. Žádný běh nepodává dokumenty soudu.
 
 ## Automatické spuštění
 
@@ -57,3 +57,22 @@ Zaznamenejte verzi, OS, soubor, cílový spis/podsložku, očekávání, výsled
 Vybraný workspace `ws-gui` odkazoval na `/private/tmp/okf-test/ws-gui`. Složka již nebyla dostupná a aplikace vracela `project_folder_unavailable`. Testovací sada proto používá trvalé místní adresáře. Závěr vysvětluje ověřený vybraný projekt; nevylučuje jinou závadu u ostatních spisů.
 
 Testy ověřují přenos a umístění příloh, nikoli právní správnost, OCR či odpověď modelu. Bezpečnostní balík PR #142 je samostatná změna, kterou tento základ nezahrnuje.
+
+## Produkční nativní regrese
+
+```sh
+pnpm --filter legalwork-server build
+pnpm test:isir:native
+```
+
+Vyžaduje Node 24, běžnou instalaci závislostí včetně skutečného Electron binary a desktop sidecar OpenCode **1.18.29**. Desktop `build:electron` připraví server, pluginy a sidecar v CI. Na Linuxu spusťte příkaz přes `xvfb-run -a`; potřebný je Xvfb a systémové knihovny Electronu. Windows potřebuje podporu NTFS junctionů; macOS místní GUI session. Chybějící předpoklad ukončí běh chybou, nezpůsobí přeskočení testu. Výslovné místní cesty `LAWOSS_ISIR_NATIVE_ELECTRON` a `LAWOSS_ISIR_NATIVE_ENGINE` dovolují použít již existující binary bez instalace do uživatelského profilu. Verze se kontroluje také u skutečně spuštěného enginu.
+
+Deset syntetických spisů má třicet referenčních PDF a jednu nevyjmenovanou shodnou kopii. Běh používá samostatný profil, HOME/XDG, autentizaci, databáze, procesy a explicitní loopback CDP/Vite porty. Nikdy se nepřipojuje k uživatelské aplikaci. Registry je vstupní fixture; nativní opětovné připojení přesunuté složky následně prochází produkční transakcí se zachováním ID a historie.
+
+Skutečný dev Electron renderer provede výběr souborů přes OS-backed HTML input a přetažení, produkční preload/IPC kopii, přípravu a čtení celé složky, výběr modelu a varianty, generování přes skutečný SDK a engine, skutečné dokumentové nástroje a mounted server/storage. Simulovaná je pouze transportní odpověď lokálního modelového poskytovatele. Poskytovatel žádné nástroje nevolá a žádné výstupy nezapisuje. Runner ověří skutečné CSV/Markdown bajty, SHA-256, korelaci messageID/parentID, okamžité 204 a nativní SSE lifecycle; všechny projekty zpracuje bez reloadů mezi spisy. Zahrnuje přílohu chatu, kolizi názvů, částečné čtení, neplatnou identitu, editovaný výstup a odmítnutí cizího pracovního adresáře. Aplikaci skutečně zavře, přesune složku, znovu spustí se stejným profilem a přes nativní chooser obnoví projekt, historii a ověřené soubory. V původní relaci odešle nový dotaz, provede skutečné čtení dokumentu a skutečný `pwd` (na Windows `node -p "process.cwd()"`), jehož výstup musí odpovídat přesunuté složce.
+
+Testovací entry poskytne cestu obnovovacího chooseru z vlastní fixture a pasivně zaznamená původní argumenty/výsledek kopírovacího handleru. Nenahrazuje produkční IPC ani výsledek operace. CDP ovládání není důkaz skutečného ručního/CUA ovládání systémového chooseru. Běh používá dev aplikaci; ochrana zakazující CDP v distribuované aplikaci zůstává zapnutá. Živý poskytovatel, placený účet, uživatelský profil, packaged build a následná CUA akceptace zůstávají samostatné gates.
+
+`LAWOSS_ISIR_CORPUS=/absolutni/cesta/corpus.json pnpm test:isir:native` načte místní snapshot, ale stále použije lokální modelovou simulaci. Skutečný obsah ani autentizaci neukládejte do Gitu. Runner kontroluje originály i výsledné kopie; protokolové receipts se zapisují pouze pro syntetický režim. Diagnostika zůstává ve vypsané soukromé dočasné složce mimo checkout. `pnpm test:isir` zůstává rychlý offline transportní/helper balík, který sám nativní renderer neprokazuje.
+
+Diagnostický `node scripts/test-isir-native.mjs --debug-case-pair` provede pouze skutečné spisy 1 a 10. Receipt má `fullMatrix: false`; tento příkaz je v CI odmítnut a nenahrazuje závěrečný průchod všech deseti spisů.

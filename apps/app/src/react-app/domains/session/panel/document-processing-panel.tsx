@@ -131,8 +131,17 @@ export function DocumentProcessingPanel(props: DocumentProcessingPanelProps) {
   });
   const sourceStatusLabel = (record: FreshDocument) => {
     if (sources.isFetching) return t("documents.checking");
-    if (record.freshness !== "current") return t(`documents.${record.freshness}`);
-    return t(`documents.status_${record.status}`);
+    if (record.freshness !== "current") {
+      const labels: Record<Exclude<FreshDocument["freshness"], "current">, string> = {
+        pending: t("documents.pending"), stale: t("documents.stale"), error: t("documents.error"),
+      };
+      return labels[record.freshness];
+    }
+    const labels: Record<FreshDocument["status"], string> = {
+      uploaded: t("documents.status_uploaded"), preparing: t("documents.status_preparing"),
+      readable: t("documents.status_readable"), partial: t("documents.status_partial"), failed: t("documents.status_failed"),
+    };
+    return labels[record.status];
   };
   const preparationActive = (record: FreshDocument) => record.status === "preparing" || record.status === "uploaded";
   const canCancelPreparation = (record: FreshDocument) => preparationActive(record) && !record.provenance.parentId;
@@ -161,7 +170,11 @@ export function DocumentProcessingPanel(props: DocumentProcessingPanelProps) {
     if (outputs.isFetching || sources.isFetching) return t("documents.checking");
     if (!current) return t("documents.output_invalid");
     const failedCurrentValidation = !output.verified && failedValidation[output.path] !== undefined && failedValidation[output.path] === output.currentHash;
-    return t(`documents.output_${failedCurrentValidation ? "invalid" : documentOutputState(output)}`);
+    const labels: Record<ReturnType<typeof documentOutputState>, string> = {
+      invalid: t("documents.output_invalid"), edited: t("documents.output_edited"),
+      verified: t("documents.output_verified"), generated: t("documents.output_generated"),
+    };
+    return labels[failedCurrentValidation ? "invalid" : documentOutputState(output)];
   };
   return <section aria-label={t("documents.title")} className="max-h-[50%] shrink-0 overflow-auto border-b border-border px-3 py-2 text-xs">
     <p className="font-semibold">{t("documents.title")}</p>
