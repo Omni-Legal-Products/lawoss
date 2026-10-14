@@ -16,12 +16,15 @@ test("Node production engine proxy cancellation", async context => {
   try {
     const { startServer } = await import("../dist/server.js");
     const { serve } = await import("../dist/serve-node.js");
-    const { proxyCancellationCases, verifyProxyCancellation, adapterCancellationCases, verifyAdapterCancellation } = await import("../dist/test-support/opencode-proxy-cancellation.js");
+    const { proxyCancellationCases, verifyProxyCancellation, adapterCancellationCases, verifyAdapterCancellation, adapterLoggerIsolationCases, verifyAdapterLoggerIsolation } = await import("../dist/test-support/opencode-proxy-cancellation.js");
     for (const scenario of proxyCancellationCases) {
       await context.test(scenario, () => verifyProxyCancellation(startServer, scenario));
     }
     for (const scenario of adapterCancellationCases) {
       await context.test(`HTTP adapter: ${scenario}`, () => verifyAdapterCancellation(serve, scenario));
+    }
+    for (const scenario of adapterLoggerIsolationCases) {
+      await context.test(`fixture logger isolation: ${scenario}`, () => verifyAdapterLoggerIsolation(serve, scenario));
     }
   } finally {
     os.homedir = originalHome;

@@ -172,36 +172,37 @@ export async function verifyAdapterCancellation(start: typeof serve, scenario: A
   const originalError = console.error;
   console.error = (...args: unknown[]) => { errors.push(args); };
   let producer: ReadableStreamDefaultController<Uint8Array> | undefined;
-  const server = await start({
-    hostname: "127.0.0.1", port: 0,
-    async fetch(request) {
-      if (new URL(request.url).pathname === "/health") return Response.json({ ok: true });
-      incoming = request;
-      ready.resolve();
-      if (scenario === "late response") {
-        await new Promise<void>(resolve => request.signal.addEventListener("abort", () => resolve(), { once: true }));
-      }
-      let reads = 0;
-      body = new ReadableStream<Uint8Array>({
-        start(controller) { producer = controller; },
-        pull(controller) {
-          if (scenario === "read error before chunk" || (scenario === "read error after chunk" && reads > 0)) {
-            controller.error(primary); return;
-          }
-          if (reads++ === 0) controller.enqueue(new TextEncoder().encode("first"));
-          if (scenario === "normal completion") controller.close();
-        },
-        cancel() {
-          cancelCalls++; cancelled.resolve();
-          if (scenario === "cancel rejection") throw cleanupFailure;
-        },
-      });
-      return new Response(body, { headers: { "X-Fixture": "kept" } });
-    },
-  });
+  let server: Awaited<ReturnType<typeof start>> | undefined;
   const controller = new AbortController();
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   try {
+    server = await start({
+      hostname: "127.0.0.1", port: 0,
+      async fetch(request) {
+        if (new URL(request.url).pathname === "/health") return Response.json({ ok: true });
+        incoming = request;
+        ready.resolve();
+        if (scenario === "late response") {
+          await new Promise<void>(resolve => request.signal.addEventListener("abort", () => resolve(), { once: true }));
+        }
+        let reads = 0;
+        body = new ReadableStream<Uint8Array>({
+          start(controller) { producer = controller; },
+          pull(controller) {
+            if (scenario === "read error before chunk" || (scenario === "read error after chunk" && reads > 0)) {
+              controller.error(primary); return;
+            }
+            if (reads++ === 0) controller.enqueue(new TextEncoder().encode("first"));
+            if (scenario === "normal completion") controller.close();
+          },
+          cancel() {
+            cancelCalls++; cancelled.resolve();
+            if (scenario === "cancel rejection") throw cleanupFailure;
+          },
+        });
+        return new Response(body, { headers: { "X-Fixture": "kept" } });
+      },
+    });
     const pending = fetch(`http://127.0.0.1:${server.port}/stream`, { signal: controller.signal });
     const outcome = pending.catch(() => undefined);
     await ready.promise;
@@ -235,11 +236,61 @@ export async function verifyAdapterCancellation(start: typeof serve, scenario: A
     const health = await fetch(`http://127.0.0.1:${server.port}/health`);
     assert.deepEqual(await health.json(), { ok: true });
   } finally {
-    controller.abort();
-    await reader?.cancel().catch(() => undefined); reader?.releaseLock();
-    // Release the unchanged adapter's pending read in intentional RED runs.
-    if (body?.locked) { try { producer?.close(); } catch { /* already errored/closed */ } }
-    await server.stop();
+    try {
+      controller.abort();
+      await reader?.cancel().catch(() => undefined); reader?.releaseLock();
+      // Release the unchanged adapter's pending read in intentional RED runs.
+      if (body?.locked) { try { producer?.close(); } catch { /* already errored/closed */ } }
+      await server?.stop();
+    } finally {
+      console.error = originalError;
+    }
+  }
+}
+
+export const adapterLoggerIsolationCases = ["startup rejection", "stop rejection"] as const;
+
+export async function verifyAdapterLoggerIsolation(start: typeof serve, scenario: typeof adapterLoggerIsolationCases[number]) {
+  const originalError = console.error;
+  let failure: unknown = new Error("synthetic stop failure after real listener close");
+  let ownedServer: Awaited<ReturnType<typeof start>> | undefined;
+  let stopped = false;
+  try {
+    await assert.rejects(() => verifyAdapterCancellation(async options => {
+      if (scenario === "startup rejection") {
+        try {
+          ownedServer = await start({ ...options, port: -1 });
+        } catch (error) {
+          failure = error;
+          throw error;
+        }
+        throw new Error("invalid port unexpectedly started a listener");
+      }
+      ownedServer = await start(options);
+      const server = ownedServer;
+      return {
+        ...server,
+        async stop() {
+          await server.stop();
+          stopped = true;
+          throw failure;
+        },
+      };
+    }, "normal completion"), error => error === failure);
+    if (scenario === "stop rejection") {
+      assert.equal(stopped, true, "real listener must stop before the synthetic cleanup rejection");
+      assert.ok(ownedServer);
+      const replacement = await start({ hostname: "127.0.0.1", port: ownedServer.port, fetch: () => Response.json({ ok: true }) });
+      try {
+        assert.equal(replacement.port, ownedServer.port, "the stopped listener's port must be reusable");
+      } finally {
+        await replacement.stop();
+      }
+    }
+    assert.equal(console.error, originalError, "fixture must restore the original global logger after setup or cleanup rejects");
+  } finally {
+    // A RED must not capture subsequent diagnostics for the rest of the suite.
     console.error = originalError;
+    await ownedServer?.stop();
   }
 }
