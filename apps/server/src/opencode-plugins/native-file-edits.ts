@@ -1,5 +1,5 @@
 import { relative, resolve, isAbsolute } from "node:path";
-import { beginFileEditorHandoff } from "./file-editor-handoff.js";
+import { beginFileEditorHandoff } from "../file-editor-handoff.js";
 
 /** Native file tools have no execution wrapper, so pair the before/after hooks
  * and the engine's error event. Shell processes are coordinated at execution. */

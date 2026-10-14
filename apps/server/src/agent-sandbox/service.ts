@@ -1,5 +1,5 @@
 import { within } from "./files.js";
-import { withFileEditorHandoff } from "../opencode-plugins/file-editor-handoff.js";
+import { withFileEditorHandoff } from "../file-editor-handoff.js";
 import { sandboxPaths } from "./paths.js";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getBooleanProperty, inAppDocumentSurface, uiBridgeRequest } from "./inapp-document-bridge.js";
+import { getBooleanProperty, inAppDocumentSurface, uiBridgeRequest } from "../inapp-document-bridge.js";
 
 import {
   callOfficeTool,

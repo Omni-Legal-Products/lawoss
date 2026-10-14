@@ -2,7 +2,7 @@ import { nativeFileEdits } from "./native-file-edits.js";
 import { compactBrowserResult } from "./browser-snapshot.js";
 import { legalworkBrowserTools } from "./legalwork-browser-tools.js";
 import { requireBrowserNetwork } from "./browser-network-policy.js";
-import { uiBridgeRequest, taskDocumentSnapshot, inAppDocumentSurface, documentMatchesSession, getStringProperty, getBooleanProperty, type InAppDocumentSurface } from "./inapp-document-bridge.js";
+import { uiBridgeRequest, taskDocumentSnapshot, inAppDocumentSurface, documentMatchesSession, getStringProperty, getBooleanProperty, type InAppDocumentSurface } from "../inapp-document-bridge.js";
 import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
 import { z } from "zod";
 import { connectorDefinitions } from "@legalwork/types/connectors";
