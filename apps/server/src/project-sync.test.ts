@@ -1,5 +1,9 @@
+import { startTaskSyncTimer } from "./task-sync.js";
+import { startProjectSyncTimer } from "./project-sync.js";
+import { acquireRuntimeDbLifetime } from "./runtime-db-lifecycle.js";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { createServer } from "node:http";
 import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -189,11 +193,16 @@ async function machine(userId: string, userName: string) {
     authorizedRoots: [],
     projectsDirectory: join(dir, "Projects"),
   } as unknown as ServerConfig;
+  const lifetime = acquireRuntimeDbLifetime(config);
+  cleanups.push(() => lifetime.release());
+  cleanups.push(startTaskSyncTimer(config, 60_000, 60_000));
+  const stopProjectTimer = startProjectSyncTimer(config, 60_000, 60_000);
+  cleanups.push(stopProjectTimer);
   await writeEigenweltConnection(config, {
     platformToken: `tok_${userId}`,
     account: { userId, userName, userEmail: `${userId}@kanzlei.test`, orgId: ORG, orgName: "Kanzlei" },
   });
-  return { config, dir, userId };
+  return { config, dir, userId, stopProjectTimer };
 }
 
 async function localProject(config: ServerConfig, name: string): Promise<WorkspaceInfo> {
@@ -798,3 +807,46 @@ test("team project configuration shares folder references and setup status even 
   expect((await readProjectDetails(akte.path)).remote?.folders).toEqual([]);
   expect((await readProjectDetails(akte.path)).remote).not.toHaveProperty("context");
 });
+
+test("stopping project sync awaits the already running round before releasing its producers", async () => {
+  const { startProjectSyncTimer } = await import("./project-sync.js");
+  const { platform } = fakeFirm(); const owner = await machine("user_anna", "Anna");
+  let enter!: () => void, resume!: () => void;
+  const entered = new Promise<void>(resolve => { enter = resolve; }); const barrier = new Promise<void>(resolve => { resume = resolve; });
+  const originalList = platform.listProjects;
+  platform.listProjects = async (...args) => { enter(); await barrier; return originalList(...args); };
+  const stop = startProjectSyncTimer(owner.config, 60_000, 60_000);
+  const round = runProjectSync(owner.config, { platform }); await entered;
+  let stopped = false; const closing = Promise.resolve(stop()).then(() => { stopped = true; });
+  try { await new Promise(resolve => setTimeout(resolve, 10)); expect(stopped).toBe(false); }
+  finally { resume(); await round; await closing; }
+  expect((await projectSyncOverview(owner.config)).connected).toBeDefined();
+});
+
+
+test("a shared project watcher dispatches to the surviving timer owner", async () => {
+  const owner = await machine("user_anna", "Anna");
+  const { platform } = fakeFirm();
+  const workspace = await localProject(owner.config, "Retained watcher");
+  await saveProjectSyncSettings(owner.config, workspace, settings());
+  await runProjectSync(owner.config, { platform });
+  let calls = 0;
+  const http = createServer((request, response) => {
+    calls++; request.resume(); response.writeHead(500, { "Content-Type": "application/json" }).end(JSON.stringify({ code: "unavailable" }));
+  });
+  await new Promise<void>(resolve => http.listen(0, "127.0.0.1", resolve));
+  cleanups.push(() => new Promise<void>(resolve => http.close(() => resolve())));
+  const address = http.address(); if (!address || typeof address === "string") throw new Error("platform failed to bind");
+  const previousPlatform = process.env.EIGENWELT_PLATFORM_URL;
+  process.env.EIGENWELT_PLATFORM_URL = `http://127.0.0.1:${address.port}`;
+  cleanups.push(async () => { if (previousPlatform === undefined) delete process.env.EIGENWELT_PLATFORM_URL; else process.env.EIGENWELT_PLATFORM_URL = previousPlatform; });
+  await writeEigenweltConnection(owner.config, { platformURL: process.env.EIGENWELT_PLATFORM_URL });
+  const secondConfig = { ...owner.config };
+  const stopSecond = startProjectSyncTimer(secondConfig, 60_000, 60_000); cleanups.push(stopSecond);
+  await owner.stopProjectTimer();
+  await write(workspace, "surviving-owner.txt", "watcher still dispatches");
+  const deadline = Date.now() + 4_500;
+  while (!calls && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+  expect(calls).toBeGreaterThan(0);
+  await stopSecond();
+}, 10_000);

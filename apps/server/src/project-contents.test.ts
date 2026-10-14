@@ -7,15 +7,18 @@ import { listProjectContents, readProjectContent, type ProjectContentSources } f
 import { updateProjectDetails, readProjectDetails } from "./project-store.js";
 
 const roots: string[] = [];
-afterEach(async () => { for (const path of roots.splice(0)) await rm(path, { recursive: true, force: true }); });
+const stores: TaskStore[] = [];
+afterEach(async () => { for (const store of stores.splice(0)) store.close(); for (const path of roots.splice(0)) await rm(path, { recursive: true, force: true }); });
 async function setup(): Promise<ProjectContentSources> {
   const root = await mkdtemp(join(tmpdir(), "project-contents-"));
   roots.push(root);
   const path = join(root, "project");
   await mkdir(join(path, "Notes"), { recursive: true });
+  const tasks = await TaskStore.open(join(root, "tasks.sqlite"), join(root, "attachments"));
+  stores.push(tasks);
   return {
     workspace: { id: "ws-project", name: "Original", displayName: "Renamed project", path, preset: "default", workspaceType: "local" },
-    tasks: await TaskStore.open(join(root, "tasks.sqlite"), join(root, "attachments")),
+    tasks,
     orgId: null,
     sessions: async () => [],
   };

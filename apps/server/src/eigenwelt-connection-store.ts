@@ -1,8 +1,7 @@
+import { openSqlite } from "./runtime-db.js";
+import { runtimeDbPath, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { randomUUID } from "node:crypto";
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { and, eq, sql } from "drizzle-orm";
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { dirname } from "node:path";
 import type { EigenweltAccountIdentity, EigenweltEntitlements } from "./eigenwelt-auth.js";
 import {
   eigenweltPlatformUrl,
@@ -26,19 +25,6 @@ import { eigenweltAccountEnabled } from "./lawoss/commercial-services.js";
 
 /** The single row's key in the `workspace_id` column (never a workspace id). */
 const ACCOUNT_ROW_ID = "eigenwelt-account";
-
-const eigenweltConnections = sqliteTable("eigenwelt_connections", {
-  workspaceId: text("workspace_id").primaryKey(),
-  entitlementsJson: text("entitlements_json"),
-  accountJson: text("account_json"),
-  platformUrl: text("platform_url"),
-  platformToken: text("platform_token"),
-  refreshToken: text("refresh_token"),
-  refreshRequestId: text("refresh_request_id"),
-  refreshError: text("refresh_error"),
-  platformTokenExpiresAt: integer("platform_token_expires_at"),
-  updatedAt: integer("updated_at").notNull(),
-});
 
 type EigenweltConnectionRow = {
   entitlementsJson: string | null;
@@ -65,6 +51,7 @@ type UpsertValue = {
 };
 
 type EigenweltConnectionDb = {
+  close: () => void;
   get: (workspaceId: string) => EigenweltConnectionRow | undefined;
   upsert: (value: UpsertValue) => void;
   updateIfCurrent: (value: UpsertValue, expected: RefreshSnapshot) => boolean;
@@ -127,73 +114,10 @@ const ACCOUNT_ROW_MIGRATION = [
   `DELETE FROM eigenwelt_connections WHERE workspace_id <> '${ACCOUNT_ROW_ID}'`,
 ];
 
-export function runtimeDbPath(config: ServerConfig): string {
-  const override = process.env.LEGALWORK_RUNTIME_DB?.trim();
-  if (override) return resolve(override);
-  const configPath = config.configPath?.trim();
-  const configDir = configPath ? dirname(configPath) : join(homedir(), ".config", "legalwork");
-  return join(configDir, "runtime.sqlite");
-}
-
 async function openDb(path: string): Promise<EigenweltConnectionDb> {
   await ensureDir(dirname(path));
-  if (typeof process.versions.bun === "string") {
-    const { Database } = await import("bun:sqlite");
-    const { drizzle } = await import("drizzle-orm/bun-sqlite");
-    const sqlite = new Database(path, { create: true });
-    sqlite.run("PRAGMA busy_timeout = 5000");
-    sqlite.run(CREATE_TABLE_SQL);
-    for (const sql of MIGRATION_COLUMNS) {
-      try {
-        sqlite.run(sql);
-      } catch {
-        // column already exists
-      }
-    }
-    try {
-      for (const sql of ACCOUNT_ROW_MIGRATION) sqlite.run(sql);
-    } catch {
-      // copy failed: the legacy rows stay, and the next open retries
-    }
-    const db = drizzle(sqlite);
-    return {
-      get: (workspaceId) =>
-        db
-          .select()
-          .from(eigenweltConnections)
-          .where(eq(eigenweltConnections.workspaceId, workspaceId))
-          .get(),
-      upsert: (value) => {
-        const { workspaceId, updatedAt, ...set } = value;
-        db
-          .insert(eigenweltConnections)
-          .values(value)
-          .onConflictDoUpdate({
-            target: eigenweltConnections.workspaceId,
-            set: { ...set, updatedAt },
-          })
-          .run();
-      },
-      updateIfCurrent: (value, expected) => {
-        const { workspaceId, ...set } = value;
-        return db.update(eigenweltConnections).set(set).where(and(
-          eq(eigenweltConnections.workspaceId, workspaceId),
-          eq(eigenweltConnections.refreshToken, expected.refreshToken),
-          eq(eigenweltConnections.refreshRequestId, expected.refreshRequestId),
-        )).returning({ id: eigenweltConnections.workspaceId }).get() !== undefined;
-      },
-      claimRequest: (refreshToken, requestId) => {
-        const row = db.update(eigenweltConnections).set({
-          refreshRequestId: sql`coalesce(${eigenweltConnections.refreshRequestId}, ${requestId})`,
-        }).where(and(eq(eigenweltConnections.workspaceId, ACCOUNT_ROW_ID),
-          eq(eigenweltConnections.refreshToken, refreshToken)))
-          .returning({ requestId: eigenweltConnections.refreshRequestId }).get();
-        return row?.requestId ?? null;
-      },
-    };
-  }
-  const { DatabaseSync } = await import("node:sqlite");
-  const sqlite = new DatabaseSync(path);
+  const sqlite = await openSqlite(path);
+  try {
   sqlite.exec("PRAGMA busy_timeout = 5000");
   sqlite.exec(CREATE_TABLE_SQL);
   for (const sql of MIGRATION_COLUMNS) {
@@ -221,6 +145,7 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
     "UPDATE eigenwelt_connections SET refresh_request_id = coalesce(refresh_request_id, ?) WHERE workspace_id = ? AND refresh_token = ? RETURNING refresh_request_id",
   );
   return {
+    close: () => sqlite.close(),
     get: (workspaceId) => {
       const row = get.get(workspaceId);
       if (!isRecord(row)) return undefined;
@@ -260,17 +185,13 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
       return isRecord(row) && typeof row.refresh_request_id === "string" ? row.refresh_request_id : null;
     },
   };
+  } catch (error) { sqlite.close(); throw error; }
 }
 
-const dbByPath = new Map<string, Promise<EigenweltConnectionDb>>();
+const resourceKey = Symbol("eigenwelt-connection-store");
 
 async function connectionDb(config: ServerConfig): Promise<EigenweltConnectionDb> {
-  const path = runtimeDbPath(config);
-  const existing = dbByPath.get(path);
-  if (existing) return existing;
-  const db = openDb(path);
-  dbByPath.set(path, db);
-  return db;
+  return runtimeDbResource(config, resourceKey, openDb);
 }
 
 function decodeEntitlements(json: string | null): EigenweltEntitlements | null {
@@ -293,6 +214,7 @@ function decodeAccount(json: string | null): EigenweltAccountIdentity | null {
 
 /** Full connection incl. the secret tokens — server-side callers only. */
 export async function readEigenweltConnection(config: ServerConfig): Promise<EigenweltConnection> {
+  return withRuntimeDb(config, async () => {
   // LAWOSS: bez povoleného účtu sa uložené pripojenie nečíta (lawoss/commercial-services.ts).
   const row = eigenweltAccountEnabled() ? (await connectionDb(config)).get(ACCOUNT_ROW_ID) : undefined;
   if (!row) {
@@ -317,6 +239,8 @@ export async function readEigenweltConnection(config: ServerConfig): Promise<Eig
     refreshError: row.refreshError,
     platformTokenExpiresAt: row.platformTokenExpiresAt,
   };
+
+  });
 }
 
 /** App-safe read: entitlements + platformURL, with the secret tokens stripped. */
@@ -367,6 +291,7 @@ async function persistConnection(
   input: WriteEigenweltConnectionInput,
   expected?: RefreshSnapshot,
 ): Promise<boolean> {
+  return withRuntimeDb(config, async () => {
   const db = await connectionDb(config);
   const current = db.get(ACCOUNT_ROW_ID);
 
@@ -420,12 +345,17 @@ async function persistConnection(
   if (expected) return db.updateIfCurrent(value, expected);
   db.upsert(value);
   return true;
+
+  });
 }
 
 export async function writeEigenweltConnection(config: ServerConfig,
   input: WriteEigenweltConnectionInput): Promise<EigenweltEntitlementsView> {
+  return withRuntimeDb(config, async () => {
   await persistConnection(config, input);
   return readEigenweltEntitlementsView(config);
+
+  });
 }
 
 /** Conditional SQLite update: a delayed response cannot change another session,
@@ -437,17 +367,25 @@ export async function writeEigenweltConnectionIfCurrent(config: ServerConfig,
 
 /** Claim durably before network I/O. Concurrent processes get the same ID. */
 export async function claimEigenweltRefreshRequest(config: ServerConfig, refreshToken: string): Promise<string | null> {
+  return withRuntimeDb(config, async () => {
   return (await connectionDb(config)).claimRequest(refreshToken, randomUUID());
+
+  });
 }
 
 // Keep account writes and asynchronous manifest writes in the same order within
 // this server. Network calls stay outside this queue so a new sign-in can proceed.
 const mutationQueues = new Map<string, Promise<unknown>>();
 export async function withEigenweltConnectionLock<T>(config: ServerConfig, operation: () => Promise<T>): Promise<T> {
+  return withRuntimeDb(config, async () => {
   const path = runtimeDbPath(config);
   const previous = mutationQueues.get(path) ?? Promise.resolve();
   const run = previous.catch(() => undefined).then(operation);
   mutationQueues.set(path, run);
   try { return await run; }
   finally { if (mutationQueues.get(path) === run) mutationQueues.delete(path); }
+
+  });
 }
+
+export { runtimeDbPath } from "./runtime-db-lifecycle.js";

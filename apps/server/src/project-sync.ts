@@ -1,3 +1,4 @@
+import { runtimeDbPath, runtimeDbScopeActive, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { updateProjectRemote } from "./project-store.js";
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
@@ -123,10 +124,10 @@ type Host = { onWorkspacesChanged: () => void };
 type RoundState = { offline: boolean; error: string | null; at: number | null };
 
 function keyOf(config: ServerConfig): string {
-  return process.env.LEGALWORK_RUNTIME_DB?.trim() || config.configPath?.trim() || "default";
+  return runtimeDbPath(config);
 }
 
-const hosts = new Map<string, Host>();
+const hosts = new Map<string, Set<Host>>();
 const revisions = new Map<string, number>();
 /** Whether the firm's pokes reach this computer now. */
 const poked = new Map<string, boolean>();
@@ -137,6 +138,9 @@ const removedWorkspaces = new Map<string, Set<string>>();
 const roundStates = new Map<string, RoundState>();
 const rounds = new Map<string, Promise<ProjectSyncResult>>();
 const pendingRounds = new Map<string, ReturnType<typeof setTimeout>>();
+const timerOwners = new Map<string, Map<symbol, ServerConfig>>();
+const configTimers = new WeakMap<ServerConfig, number>();
+const stoppedConfigs = new WeakSet<ServerConfig>();
 const watchers = new Map<string, Map<string, FSWatcher>>();
 
 /** The firm's pokes reach this computer (or stopped reaching it): the timer steps back (or in again). */
@@ -145,15 +149,17 @@ export function setProjectSyncPoked(config: ServerConfig, live: boolean): void {
 }
 
 /** How the server hosting project sync hears that its project list changed. */
-export function configureProjectSync(config: ServerConfig, host: Host): void {
-  hosts.set(keyOf(config), host);
+export function configureProjectSync(config: ServerConfig, host: Host): () => void {
+  const key = keyOf(config), current = hosts.get(key) ?? new Set<Host>();
+  current.add(host); hosts.set(key, current);
+  return () => { current.delete(host); if (!current.size && hosts.get(key) === current) hosts.delete(key); };
 }
 
 /** The project list changed (a project arrived, left or was renamed): the app reloads it. */
 function workspacesChanged(config: ServerConfig): void {
   const key = keyOf(config);
   revisions.set(key, (revisions.get(key) ?? 0) + 1);
-  hosts.get(key)?.onWorkspacesChanged();
+  for (const host of hosts.get(key) ?? []) host.onWorkspacesChanged();
   announceSyncChange(config, "projects");
 }
 
@@ -742,6 +748,7 @@ export function runProjectSync(
 }
 
 async function runRound(config: ServerConfig, platform: ProjectSyncPlatform): Promise<ProjectSyncResult> {
+  return withRuntimeDb(config, async () => {
   await ensureFreshPlatformToken(config).catch(() => null);
   const connection = await readEigenweltConnection(config);
   const orgId = connectedTaskOrgId(connection);
@@ -778,15 +785,19 @@ async function runRound(config: ServerConfig, platform: ProjectSyncPlatform): Pr
   // What the round changed (states, files, conflicts) shows in the app now.
   announceSyncChange(config, "projects");
   return result;
+
+  });
 }
 
 /** A round soon, coalescing a burst of changes into one. */
 export function scheduleProjectSync(config: ServerConfig, delayMs: number = CHANGE_DEBOUNCE_MS): void {
+  if (stoppedConfigs.has(config) || !runtimeDbScopeActive(config)) return;
   const key = keyOf(config);
   const pending = pendingRounds.get(key);
   if (pending) clearTimeout(pending);
   const timer = setTimeout(() => {
     pendingRounds.delete(key);
+    if (stoppedConfigs.has(config) || !runtimeDbScopeActive(config)) return;
     void runProjectSync(config).catch(() => undefined);
   }, delayMs);
   timer.unref?.();
@@ -795,7 +806,9 @@ export function scheduleProjectSync(config: ServerConfig, delayMs: number = CHAN
 
 /** Changes in a synced project's folder start a round soon, rather than waiting for the timer. */
 function refreshWatchers(config: ServerConfig, links: ProjectLink[]): void {
+  if (stoppedConfigs.has(config) || !runtimeDbScopeActive(config)) return;
   const key = keyOf(config);
+  if (!timerOwners.get(key)?.size) return;
   const current = watchers.get(key) ?? new Map<string, FSWatcher>();
   watchers.set(key, current);
   const wanted = new Map<string, string>();
@@ -812,10 +825,13 @@ function refreshWatchers(config: ServerConfig, links: ProjectLink[]): void {
     if (current.has(workspaceId)) continue;
     try {
       const watcher = watch(path, { recursive: true }, (_event, name) => {
+        // Shared watchers dispatch through a live owner after their creator stops.
+        const liveConfig = timerOwners.get(key)?.values().next().value;
+        if (!liveConfig) return;
         // Sync's own bookkeeping and hidden files are not changes to carry; reviews are.
         const parts = String(name ?? "").split(/[\\/]/);
-        if (parts[0] && !syncExcluded(parts[0])) scheduleProjectSync(config);
-        else if (parts.slice(0, 3).join("/") === ".opencode/legalwork/reviews") scheduleProjectSync(config, REVIEW_DEBOUNCE_MS);
+        if (parts[0] && !syncExcluded(parts[0])) scheduleProjectSync(liveConfig);
+        else if (parts.slice(0, 3).join("/") === ".opencode/legalwork/reviews") scheduleProjectSync(liveConfig, REVIEW_DEBOUNCE_MS);
       });
       watcher.on("error", () => {
         watcher.close();
@@ -833,7 +849,12 @@ export function startProjectSyncTimer(
   config: ServerConfig,
   intervalMs: number = TIMER_INTERVAL_MS,
   firstRoundDelayMs = 4_000,
-): () => void {
+): () => Promise<void> {
+  const startKey = keyOf(config), owner = Symbol();
+  const owners = timerOwners.get(startKey) ?? new Map<symbol, ServerConfig>();
+  owners.set(owner, config); timerOwners.set(startKey, owners);
+  configTimers.set(config, (configTimers.get(config) ?? 0) + 1);
+  stoppedConfigs.delete(config);
   const key = keyOf(config);
   const timer = setInterval(() => {
     const last = roundStates.get(key)?.at ?? 0;
@@ -842,13 +863,27 @@ export function startProjectSyncTimer(
   }, intervalMs);
   timer.unref?.();
   scheduleProjectSync(config, firstRoundDelayMs);
-  return () => {
-    clearInterval(timer);
+  const disposeShared = () => {
     const pending = pendingRounds.get(key);
     if (pending) clearTimeout(pending);
     pendingRounds.delete(key);
     for (const watcher of watchers.get(key)?.values() ?? []) watcher.close();
     watchers.delete(key);
+  };
+  let stopPromise: Promise<void> | undefined;
+  return () => {
+    if (stopPromise) return stopPromise;
+    clearInterval(timer);
+    const count = (configTimers.get(config) ?? 1) - 1;
+    configTimers.set(config, count);
+    if (!count) stoppedConfigs.add(config);
+    owners.delete(owner);
+    if (!owners.size) disposeShared();
+    stopPromise = (async () => {
+      await rounds.get(key);
+      if (!owners.size) { disposeShared(); timerOwners.delete(key); }
+    })();
+    return stopPromise;
   };
 }
 
@@ -876,6 +911,7 @@ function stateOf(
 }
 
 export async function projectSyncStatus(config: ServerConfig, workspace: WorkspaceInfo): Promise<ProjectSyncStatus> {
+  return withRuntimeDb(config, async () => {
   const store = await projectSyncStore(config);
   const { orgId, userId } = await connectedOrg(config);
   const link = store.linkByWorkspace(workspace.id);
@@ -927,9 +963,12 @@ export async function projectSyncStatus(config: ServerConfig, workspace: Workspa
     ownFolder: link.origin === "local" && link.role === "member",
     offer: null,
   };
+
+  });
 }
 
 export async function projectSyncOverview(config: ServerConfig): Promise<ProjectSyncOverview> {
+  return withRuntimeDb(config, async () => {
   const store = await projectSyncStore(config);
   const { orgId } = await connectedOrg(config);
   const round = roundStates.get(keyOf(config));
@@ -958,6 +997,8 @@ export async function projectSyncOverview(config: ServerConfig): Promise<Project
     contents: Object.fromEntries(contentRevisions.get(keyOf(config)) ?? []),
     removed: [...(removedWorkspaces.get(keyOf(config)) ?? [])],
   };
+
+  });
 }
 
 /** A synced project's settings are its owner's to change; a local one's are whoever has it. */
@@ -977,6 +1018,7 @@ export async function saveProjectSyncSettings(
   workspace: WorkspaceInfo,
   settings: ProjectSyncSettings,
 ): Promise<ProjectSyncStatus> {
+  return withRuntimeDb(config, async () => {
   const { orgId, userId } = await connectedOrg(config);
   if (orgId === null) {
     throw new ApiError(409, "project_sync_not_connected", "Sign in with Eigenwelt to sync this project with your firm.");
@@ -1019,6 +1061,8 @@ export async function saveProjectSyncSettings(
   }
   scheduleProjectSync(config, 500);
   return projectSyncStatus(config, workspace);
+
+  });
 }
 
 /**
@@ -1026,6 +1070,7 @@ export async function saveProjectSyncSettings(
  * everything in it, and leaves the firm and every colleague's computer.
  */
 export async function stopProjectSync(config: ServerConfig, workspace: WorkspaceInfo): Promise<ProjectSyncStatus> {
+  return withRuntimeDb(config, async () => {
   const store = await projectSyncStore(config);
   const link = store.linkByWorkspace(workspace.id);
   if (!link) return projectSyncStatus(config, workspace);
@@ -1038,6 +1083,8 @@ export async function stopProjectSync(config: ServerConfig, workspace: Workspace
   }
   scheduleProjectSync(config, 500);
   return projectSyncStatus(config, workspace);
+
+  });
 }
 
 export const projectSyncActionSchema = z.discriminatedUnion("action", [
@@ -1068,6 +1115,7 @@ export async function resolveProjectSync(
   workspace: WorkspaceInfo,
   input: ProjectSyncAction,
 ): Promise<ProjectSyncStatus> {
+  return withRuntimeDb(config, async () => {
   const store = await projectSyncStore(config);
   if (input.action === "use_folder" || input.action === "keep_apart") {
     const offer = store.pendingOffers().find((entry) => entry.workspaceId === workspace.id);
@@ -1140,6 +1188,8 @@ export async function resolveProjectSync(
   }
   scheduleProjectSync(config, 500);
   return projectSyncStatus(config, workspace);
+
+  });
 }
 
 // --- Local edits the firm has to hear about -----------------------------------------------
@@ -1150,6 +1200,7 @@ export async function noteProjectDetailsSaved(
   before: ProjectField[],
   after: ProjectField[],
 ): Promise<void> {
+  return withRuntimeDb(config, async () => {
   const store = await projectSyncStore(config);
   const link = store.linkByWorkspace(workspaceId);
   if (!link || link.state !== "active" || !link.settings.scope.metadata) return;
@@ -1157,25 +1208,33 @@ export async function noteProjectDetailsSaved(
   if (changes.length === 0 && order === null) return;
   store.enqueue(link.projectId, { kind: "fields", changes, order, changedAt: new Date().toISOString() });
   scheduleProjectSync(config);
+
+  });
 }
 
 export async function noteProjectRenamed(config: ServerConfig, workspaceId: string, name: string): Promise<void> {
+  return withRuntimeDb(config, async () => {
   workspacesChanged(config);
   const store = await projectSyncStore(config);
   const link = store.linkByWorkspace(workspaceId);
   if (!link || link.state !== "active") return;
   store.enqueue(link.projectId, { kind: "rename", name, changedAt: new Date().toISOString() });
   scheduleProjectSync(config);
+
+  });
 }
 
 /** Removed from the project list here: it stops syncing here, and a pull does not bring it back. */
 export async function noteProjectRemoved(config: ServerConfig, workspaceId: string): Promise<void> {
+  return withRuntimeDb(config, async () => {
   const store = await projectSyncStore(config);
   const link = store.linkByWorkspace(workspaceId);
   if (!link) return;
   store.markRemoved(link.projectId, link.orgId);
   store.discardOutbox(link.projectId);
   store.removeLink(workspaceId);
+
+  });
 }
 
 // --- Sign-out -------------------------------------------------------------------------------
@@ -1194,6 +1253,7 @@ export async function signOutOfFirmProjects(
   config: ServerConfig,
   options: { force?: boolean; platform?: ProjectSyncPlatform; apply?: boolean } = {},
 ): Promise<ProjectSignOutResult> {
+  return withRuntimeDb(config, async () => {
   const { orgId } = await connectedOrg(config);
   if (orgId === null) return { ok: true, removed: 0 };
   await runProjectSync(config, { platform: options.platform }).catch(() => undefined);
@@ -1211,9 +1271,12 @@ export async function signOutOfFirmProjects(
   store.forgetOrg(orgId);
   workspacesChanged(config);
   return { ok: true, removed: copies.length };
+
+  });
 }
 
 export async function noteProjectFoldersChanged(config: ServerConfig, workspaceId: string): Promise<void> {
+  return withRuntimeDb(config, async () => {
   const store = await projectSyncStore(config);
   const link = store.linkByWorkspace(workspaceId);
   const workspace = workspaceOf(config, workspaceId);
@@ -1222,4 +1285,6 @@ export async function noteProjectFoldersChanged(config: ServerConfig, workspaceI
   if (!details.remote) return;
   store.enqueue(link.projectId, { kind: "remote", remote: details.remote, changedAt: new Date().toISOString() });
   scheduleProjectSync(config);
+
+  });
 }

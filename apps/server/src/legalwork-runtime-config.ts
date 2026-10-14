@@ -1,3 +1,4 @@
+import { acquireRuntimeDbLifetime, runtimeDbPath, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { readSystemOneSettings } from "./systemone.js";
 /**
  * Runtime OpenCode configuration injected via a server-managed config file
@@ -338,6 +339,7 @@ const fileWriteQueue = new Map<string, Promise<void>>();
  * mid-dispose.
  */
 export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, workspaceId: string): Promise<string> {
+  return withRuntimeDb(config, async () => {
   const path = legalworkRuntimeConfigFilePath(config);
   const job = async () => {
     const content = await buildLegalworkRuntimeConfig(config, workspaceId);
@@ -349,8 +351,10 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
   const previous = fileWriteQueue.get(path) ?? Promise.resolve();
   const next = previous.then(job, job);
   fileWriteQueue.set(path, next);
-  await next;
-  return path;
+  try { await next; return path; }
+  finally { if (fileWriteQueue.get(path) === next) fileWriteQueue.delete(path); }
+
+  });
 }
 
 /**
@@ -358,8 +362,12 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
  * instance rebuild reads fresh state instead of a spawn-time snapshot.
  * Returns an unsubscribe function.
  */
-export function keepLegalworkRuntimeConfigFileFresh(config: ServerConfig, workspaceId: string): () => void {
-  return onRuntimeOpencodeConfigWrite((writeConfig, writtenWorkspaceId) => {
+export function keepLegalworkRuntimeConfigFileFresh(config: ServerConfig, workspaceId: string): () => Promise<void> {
+  const owner = acquireRuntimeDbLifetime(config);
+  const jobs = new Set<Promise<unknown>>();
+  const failures: unknown[] = [];
+  const unsubscribe = onRuntimeOpencodeConfigWrite((writeConfig, writtenWorkspaceId) => {
+    if (runtimeDbPath(writeConfig) !== owner.path) return;
     // Global tool-permission, personalisation and connector writes affect
     // every workspace's derived config.
     if (
@@ -369,6 +377,19 @@ export function keepLegalworkRuntimeConfigFileFresh(config: ServerConfig, worksp
       writtenWorkspaceId !== GLOBAL_MCP_ID &&
       writtenWorkspaceId !== GLOBAL_PROVIDERS_ID
     ) return;
-    void writeLegalworkRuntimeConfigFile(writeConfig, workspaceId).catch(() => undefined);
+    const job = owner.run(() => writeLegalworkRuntimeConfigFile(config, workspaceId));
+    jobs.add(job);
+    void job.then(() => jobs.delete(job), error => { failures.push(error); jobs.delete(job); });
   });
+  let stopPromise: Promise<void> | undefined;
+  return () => {
+    if (stopPromise) return stopPromise;
+    unsubscribe();
+    stopPromise = (async () => {
+      await Promise.allSettled([...jobs]);
+      try { await owner.release(); } catch (error) { failures.push(error); }
+      if (failures.length) throw new AggregateError(failures, "Failed to update runtime configuration");
+    })();
+    return stopPromise;
+  };
 }

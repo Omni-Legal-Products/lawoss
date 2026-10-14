@@ -1,3 +1,4 @@
+import { acquireRuntimeDbLifetime } from "./runtime-db-lifecycle.js";
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
@@ -19,6 +20,7 @@ async function makeStore(): Promise<{ store: TaskStore; notes: () => Array<{ kin
   cleanups.push(() => rm(dir, { recursive: true, force: true }));
   const path = join(dir, "runtime.sqlite");
   const store = await TaskStore.open(path, join(dir, "task-attachments"));
+  cleanups.push(() => store.close());
   const db = new Database(path);
   cleanups.push(() => db.close());
   const notes = () =>
@@ -244,6 +246,8 @@ describe("task notifications: the reminder check", () => {
     expect(existsSync(join(dir, "nested"))).toBe(false);
     expect(state.prunedDay).toBeNull();
 
+    const lifetime = acquireRuntimeDbLifetime(config);
+    cleanups.push(() => lifetime.release());
     const store = await taskStore(config);
     store.createTask({ title: "Fällig", dueDate: dueOn(17) }, ADA, at(15));
     expect(await runTaskReminders(config, state, at(17))).toBe(1);

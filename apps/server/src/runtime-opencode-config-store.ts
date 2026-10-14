@@ -1,7 +1,6 @@
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { eq } from "drizzle-orm";
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { openSqlite } from "./runtime-db.js";
+import { runtimeDbPath, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
+import { dirname } from "node:path";
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
 
@@ -49,13 +48,8 @@ export const DEFAULT_PERSONALIZATION_SETTINGS: PersonalizationSettings = {
 
 export const MAX_CUSTOM_INSTRUCTIONS_LENGTH = 12_000;
 
-const runtimeOpencodeConfigs = sqliteTable("runtime_opencode_configs", {
-  workspaceId: text("workspace_id").primaryKey(),
-  configJson: text("config_json").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-});
-
 type RuntimeOpencodeDb = {
+  close: () => void;
   get: (workspaceId: string) => { configJson: string } | undefined;
   upsert: (value: { workspaceId: string; configJson: string; updatedAt: number }) => void;
 };
@@ -128,14 +122,6 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
   };
 }
 
-function runtimeDbPath(config: ServerConfig): string {
-  const override = process.env.LEGALWORK_RUNTIME_DB?.trim();
-  if (override) return resolve(override);
-  const configPath = config.configPath?.trim();
-  const configDir = configPath ? dirname(configPath) : join(homedir(), ".config", "legalwork");
-  return join(configDir, "runtime.sqlite");
-}
-
 /** Directory holding runtime state (the SQLite DB and derived files). */
 export function runtimeStorageDir(config: ServerConfig): string {
   return dirname(runtimeDbPath(config));
@@ -157,36 +143,13 @@ export function onRuntimeOpencodeConfigWrite(listener: RuntimeOpencodeConfigWrit
 
 async function openRuntimeDb(path: string): Promise<RuntimeOpencodeDb> {
   await ensureDir(dirname(path));
-  if (typeof process.versions.bun === "string") {
-    const { Database } = await import("bun:sqlite");
-    const { drizzle } = await import("drizzle-orm/bun-sqlite");
-    const sqlite = new Database(path, { create: true });
-    sqlite.run("CREATE TABLE IF NOT EXISTS runtime_opencode_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)");
-    const db = drizzle(sqlite);
-    return {
-      get: (workspaceId) => db
-        .select()
-        .from(runtimeOpencodeConfigs)
-        .where(eq(runtimeOpencodeConfigs.workspaceId, workspaceId))
-        .get(),
-      upsert: ({ workspaceId, configJson, updatedAt }) => {
-        db
-          .insert(runtimeOpencodeConfigs)
-          .values({ workspaceId, configJson, updatedAt })
-          .onConflictDoUpdate({
-            target: runtimeOpencodeConfigs.workspaceId,
-            set: { configJson, updatedAt },
-          })
-          .run();
-      },
-    };
-  }
-  const { DatabaseSync } = await import("node:sqlite");
-  const sqlite = new DatabaseSync(path);
+  const sqlite = await openSqlite(path);
+  try {
   sqlite.exec("CREATE TABLE IF NOT EXISTS runtime_opencode_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)");
   const get = sqlite.prepare("SELECT config_json AS configJson FROM runtime_opencode_configs WHERE workspace_id = ?");
   const upsert = sqlite.prepare("INSERT INTO runtime_opencode_configs (workspace_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at");
   return {
+    close: () => sqlite.close(),
     get: (workspaceId) => {
       const row = get.get(workspaceId);
       if (!isRecord(row) || typeof row.configJson !== "string") return undefined;
@@ -196,17 +159,13 @@ async function openRuntimeDb(path: string): Promise<RuntimeOpencodeDb> {
       upsert.run(workspaceId, configJson, updatedAt);
     },
   };
+  } catch (error) { sqlite.close(); throw error; }
 }
 
-const dbByPath = new Map<string, Promise<RuntimeOpencodeDb>>();
+const resourceKey = Symbol("runtime-opencode-config-store");
 
 async function runtimeDb(config: ServerConfig): Promise<RuntimeOpencodeDb> {
-  const path = runtimeDbPath(config);
-  const existing = dbByPath.get(path);
-  if (existing) return existing;
-  const db = openRuntimeDb(path);
-  dbByPath.set(path, db);
-  return db;
+  return runtimeDbResource(config, resourceKey, openRuntimeDb);
 }
 
 /**
@@ -309,6 +268,7 @@ export function runtimeExternalDirectory(config: RuntimeOpencodeConfig): Record<
 }
 
 export async function readRuntimeOpencodeConfig(config: ServerConfig, workspaceId: string): Promise<RuntimeOpencodeConfig> {
+  return withRuntimeDb(config, async () => {
   const db = await runtimeDb(config);
   const row = db.get(workspaceId);
   if (!row) return {};
@@ -317,6 +277,8 @@ export async function readRuntimeOpencodeConfig(config: ServerConfig, workspaceI
   } catch {
     return {};
   }
+
+  });
 }
 
 export async function writeRuntimeOpencodeConfig(
@@ -324,6 +286,7 @@ export async function writeRuntimeOpencodeConfig(
   workspaceId: string,
   updater: (current: RuntimeOpencodeConfig) => RuntimeOpencodeConfig,
 ): Promise<RuntimeOpencodeConfig> {
+  return withRuntimeDb(config, async () => {
   const db = await runtimeDb(config);
   const next = normalizeRuntimeOpencodeConfig(updater(await readRuntimeOpencodeConfig(config, workspaceId)));
   const now = Date.now();
@@ -331,6 +294,8 @@ export async function writeRuntimeOpencodeConfig(
   db.upsert({ workspaceId, configJson, updatedAt: now });
   for (const listener of writeListeners) listener(config, workspaceId);
   return next;
+
+  });
 }
 
 /**

@@ -1,3 +1,4 @@
+import { runtimeDbPath, runtimeDbScopeActive, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { announceSyncChange } from "./app-sync-events.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import {
@@ -360,9 +361,12 @@ async function pullChanges(
 
 const rounds = new Map<string, Promise<TaskSyncResult>>();
 const pendingRounds = new Map<string, ReturnType<typeof setTimeout>>();
+const timerOwners = new Map<string, Set<symbol>>();
+const configTimers = new WeakMap<ServerConfig, number>();
+const stoppedConfigs = new WeakSet<ServerConfig>();
 
 function keyOf(config: ServerConfig): string {
-  return process.env.LEGALWORK_RUNTIME_DB?.trim() || config.configPath?.trim() || "default";
+  return runtimeDbPath(config);
 }
 
 /**
@@ -384,6 +388,7 @@ export function runTaskSync(
 }
 
 async function runRound(config: ServerConfig, platform: TaskSyncPlatform): Promise<TaskSyncResult> {
+  return withRuntimeDb(config, async () => {
   await ensureFreshPlatformToken(config).catch(() => null);
   const connection = await readEigenweltConnection(config);
   const orgId = connectedTaskOrgId(connection);
@@ -433,6 +438,8 @@ async function runRound(config: ServerConfig, platform: TaskSyncPlatform): Promi
     announceSyncChange(config, "tasks");
   }
   return result;
+
+  });
 }
 
 export type TaskSignOutResult =
@@ -452,6 +459,7 @@ export async function signOutOfFirmTasks(
   config: ServerConfig,
   options: { force?: boolean; platform?: TaskSyncPlatform } = {},
 ): Promise<TaskSignOutResult> {
+  return withRuntimeDb(config, async () => {
   const connection = await readEigenweltConnection(config);
   const orgId = connectedTaskOrgId(connection);
   if (orgId === null) return { ok: true, removed: 0 };
@@ -462,15 +470,19 @@ export async function signOutOfFirmTasks(
   const { tasks } = await store.forgetFirm(orgId);
   announceSyncChange(config, "tasks");
   return { ok: true, removed: tasks };
+
+  });
 }
 
 /** A round soon, coalescing a burst of local writes into one. */
 export function scheduleTaskSync(config: ServerConfig, delayMs: number = WRITE_DEBOUNCE_MS): void {
+  if (stoppedConfigs.has(config) || !runtimeDbScopeActive(config)) return;
   const key = keyOf(config);
   const pending = pendingRounds.get(key);
   if (pending) clearTimeout(pending);
   const timer = setTimeout(() => {
     pendingRounds.delete(key);
+    if (stoppedConfigs.has(config) || !runtimeDbScopeActive(config)) return;
     void runTaskSync(config).catch(() => undefined);
   }, delayMs);
   timer.unref?.();
@@ -492,7 +504,12 @@ export function startTaskSyncTimer(
   config: ServerConfig,
   intervalMs: number = TIMER_INTERVAL_MS,
   firstRoundDelayMs = 3_000,
-): () => void {
+): () => Promise<void> {
+  const startKey = keyOf(config), owner = Symbol();
+  const owners = timerOwners.get(startKey) ?? new Set<symbol>();
+  owners.add(owner); timerOwners.set(startKey, owners);
+  configTimers.set(config, (configTimers.get(config) ?? 0) + 1);
+  stoppedConfigs.delete(config);
   const timer = setInterval(() => {
     void runTaskSync(config).catch(() => undefined);
   }, intervalMs);
@@ -500,10 +517,19 @@ export function startTaskSyncTimer(
   // The first round does not wait for the interval: a fresh start with a
   // connected firm should show the platform's tasks right away.
   scheduleTaskSync(config, firstRoundDelayMs);
-  const startKey = keyOf(config);
+  let stopPromise: Promise<void> | undefined;
   return () => {
+    if (stopPromise) return stopPromise;
     clearInterval(timer);
-    cancelScheduledTaskSync(startKey);
-    cancelScheduledTaskSync(keyOf(config));
+    const count = (configTimers.get(config) ?? 1) - 1;
+    configTimers.set(config, count);
+    if (!count) stoppedConfigs.add(config);
+    owners.delete(owner);
+    if (!owners.size) cancelScheduledTaskSync(startKey);
+    stopPromise = (async () => {
+      await rounds.get(startKey);
+      if (!owners.size) { cancelScheduledTaskSync(startKey); timerOwners.delete(startKey); }
+    })();
+    return stopPromise;
   };
 }

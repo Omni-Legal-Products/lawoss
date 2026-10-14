@@ -20,11 +20,11 @@ import {
 import type { ServerConfig } from "./types.js";
 
 const roots: string[] = [];
-const cleanups: Array<() => void> = [];
+const cleanups: Array<() => void | Promise<void>> = [];
 let previousDb: string | undefined;
 
 afterEach(async () => {
-  while (cleanups.length) cleanups.pop()?.();
+  while (cleanups.length) await cleanups.pop()?.();
   while (roots.length) await rm(roots.pop()!, { recursive: true, force: true });
   if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
   else process.env.LEGALWORK_RUNTIME_DB = previousDb;

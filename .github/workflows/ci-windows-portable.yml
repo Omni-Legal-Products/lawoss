@@ -59,6 +59,22 @@ on:
       - apps/server/src/routes/files.ts
       - apps/server/src/paths.ts
       - apps/server/src/server.ts
+      - apps/server/src/runtime-db*
+      - apps/server/src/runtime-opencode-config-store*
+      - apps/server/src/legalwork-workspace-config-store*
+      - apps/server/src/legalwork-runtime-config*
+      - apps/server/src/session-groups*
+      - apps/server/src/eigenwelt-connection-store*
+      - apps/server/src/eigenwelt-hub-installs-store*
+      - apps/server/src/eigenwelt-sync-events*
+      - apps/server/src/task-store*
+      - apps/server/src/task-sync*
+      - apps/server/src/task-notifications*
+      - apps/server/src/project-sync*
+      - apps/server/src/project-contents.test.ts
+      - apps/server/src/test-support/runtime-db-handles.ts
+      - apps/server/scripts/runtime-db-lifecycle.node.test.mjs
+      - apps/server/src/embedded-app-files.e2e.test.ts
       - apps/server/src/embedded.ts
       - apps/server/src/cloud-plugins.ts
       - apps/server/src/opencode-plugins/office-plugin-shared.ts
@@ -124,6 +140,22 @@ on:
       - apps/server/src/routes/files.ts
       - apps/server/src/paths.ts
       - apps/server/src/server.ts
+      - apps/server/src/runtime-db*
+      - apps/server/src/runtime-opencode-config-store*
+      - apps/server/src/legalwork-workspace-config-store*
+      - apps/server/src/legalwork-runtime-config*
+      - apps/server/src/session-groups*
+      - apps/server/src/eigenwelt-connection-store*
+      - apps/server/src/eigenwelt-hub-installs-store*
+      - apps/server/src/eigenwelt-sync-events*
+      - apps/server/src/task-store*
+      - apps/server/src/task-sync*
+      - apps/server/src/task-notifications*
+      - apps/server/src/project-sync*
+      - apps/server/src/project-contents.test.ts
+      - apps/server/src/test-support/runtime-db-handles.ts
+      - apps/server/scripts/runtime-db-lifecycle.node.test.mjs
+      - apps/server/src/embedded-app-files.e2e.test.ts
       - apps/server/src/embedded.ts
       - apps/server/src/cloud-plugins.ts
       - apps/server/src/opencode-plugins/office-plugin-shared.ts
@@ -179,12 +211,19 @@ jobs:
         working-directory: apps/app
         run: bun test lawoss- okf- document-processing native-document-generation project-folder-recovery workspace-attachment home-submission fusion-routing session-sync-permissions session-sync-tool-parts message-queue-runner session-sync-retention
       # Server s onboardingom, registráciou existujúceho priečinka, roztriedením,
-      # pamäťou a kanonickými cestami beží na Windows prvýkrát; dist sa tu nestavia,
-      # takže filter zachytí len zdrojové testy (bez lomky kvôli cestám s `\`).
+      # pamäťou a kanonickými cestami. Filtre zachytia zdrojové testy
+      # bez lomky kvôli cestám s `\`; dist pre Node zostavujeme až potom.
       # lawoss-path-containment: workspace v koreni disku (subst) a zdieľania (net share).
       - name: LAWOSS server (onboarding, register existing, triage, memory, paths, containment, reload watcher, process tree)
         working-directory: apps/server
-        run: bun test lawoss reload-watcher workspace-reconnect artifact-files isir-case-attachments
+        run: bun test lawoss reload-watcher workspace-reconnect artifact-files isir-case-attachments runtime-db-lifecycle runtime-opencode-config-store legalwork-workspace-config-store legalwork-runtime-config session-groups eigenwelt-connection-store eigenwelt-hub-installs-store eigenwelt-sync-events task-store task-sync task-notifications project-sync project-contents cloud-plugins cloud-plugin-resources runtime-config-migrate mcp-shared-store eigenwelt-refresh
+
+      # Node 24 používa node:sqlite bez postinstall/native addon rebuildu. Proces
+      # ostáva živý počas kontroly handle aj skutočného odstránenia databázy.
+      - name: Build server for the Windows Node SQLite lifecycle gate
+        run: pnpm --filter legalwork-server build
+      - name: Node SQLite final release, overlapping owners and restart
+        run: node --test apps/server/scripts/runtime-db-lifecycle.node.test.mjs
 
       - name: ISIR attachments in ten case folders (synthetic offline corpus)
         run: pnpm test:isir

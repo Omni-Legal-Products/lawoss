@@ -1,3 +1,4 @@
+import { acquireRuntimeDbLifetime } from "./runtime-db-lifecycle.js";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
@@ -39,6 +40,8 @@ async function makeConfig(): Promise<{ config: ServerConfig; store: TaskStore }>
   cleanups.push(() => rm(dir, { recursive: true, force: true }));
   process.env.LEGALWORK_RUNTIME_DB = join(dir, "runtime.sqlite");
   const config = { configPath: join(dir, "legalwork.json") } as ServerConfig;
+  const lifetime = acquireRuntimeDbLifetime(config);
+  cleanups.push(() => lifetime.release());
   return { config, store: await taskStore(config) };
 }
 
@@ -558,6 +561,23 @@ describe("task-sync: the background timer", () => {
     return { calls: () => calls };
   }
 
+  test("stopping one owner leaves the other owner's background round functional", async () => {
+    const { config } = await makeConfig(); await connect(config);
+    const platform = await countingPlatform();
+    const secondConfig = { ...config };
+    const stopFirst = startTaskSyncTimer(config, 60_000, 60_000);
+    const stopSecond = startTaskSyncTimer(secondConfig, 60_000, 20);
+    cleanups.push(stopFirst, stopSecond);
+    await stopFirst();
+    const deadline = Date.now() + 2_000;
+    while (!platform.calls() && Date.now() < deadline) await Bun.sleep(10);
+    expect(platform.calls()).toBeGreaterThan(0);
+    await stopSecond();
+    const before = platform.calls();
+    await Bun.sleep(50);
+    expect(platform.calls()).toBe(before);
+  });
+
   test("its first round reaches the platform, but not once the server has stopped", async () => {
     const { config } = await makeConfig();
     await connect(config);
@@ -577,4 +597,19 @@ describe("task-sync: the background timer", () => {
     await Bun.sleep(300);
     expect(platform.calls()).toBe(before);
   });
+});
+
+test("stopping task sync awaits the already running round before releasing its producers", async () => {
+  const { config, store } = await makeConfig(); await connect(config);
+  const { platform } = fakePlatform({});
+  let enter!: () => void, resume!: () => void;
+  const entered = new Promise<void>(resolve => { enter = resolve; }); const barrier = new Promise<void>(resolve => { resume = resolve; });
+  const pull = platform.pullTasks;
+  platform.pullTasks = async (...args) => { enter(); await barrier; return pull(...args); };
+  const stop = startTaskSyncTimer(config, 60_000, 60_000);
+  const round = runTaskSync(config, { platform }); await entered;
+  let stopped = false; const closing = Promise.resolve(stop()).then(() => { stopped = true; });
+  try { await new Promise(resolve => setTimeout(resolve, 10)); expect(stopped).toBe(false); }
+  finally { resume(); await round; await closing; }
+  expect(store.getSyncState(ORG).lastPullAt).not.toBeNull();
 });

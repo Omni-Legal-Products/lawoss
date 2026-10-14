@@ -1,3 +1,4 @@
+import { runtimeDbResource } from "./runtime-db-lifecycle.js";
 import { projectRemoteSchema } from "./project-schema.js";
 import { dirname } from "node:path";
 import type { ProjectSyncConflict, ProjectSyncSettings, ProjectSyncSkipped } from "@legalwork/types/workspace";
@@ -306,10 +307,15 @@ export class ProjectSyncStore {
   static async open(path: string): Promise<ProjectSyncStore> {
     await ensureDir(dirname(path));
     const db = await openSqlite(path);
+    try {
     db.exec("PRAGMA busy_timeout = 5000");
     for (const statement of PROJECT_SYNC_SCHEMA) db.exec(statement);
     return new ProjectSyncStore(db);
+    } catch (error) { db.close(); throw error; }
   }
+
+  /** Independently opened stores belong to their caller; cached stores to their lifetime. */
+  close(): void { this.db.close(); }
 
   // --- Links -------------------------------------------------------------------
 
@@ -674,14 +680,12 @@ export class ProjectSyncStore {
   }
 }
 
-const storeByPath = new Map<string, Promise<ProjectSyncStore>>();
+const resourceKey = Symbol("project-sync-store");
 
-/** The machine's project sync store, opened once per runtime DB path. */
+/** The machine's project sync store, borrowed from an active runtime lifetime.
+ * Standalone callers must hold acquireRuntimeDbLifetime(config) across every
+ * awaited use, then release it. Use ProjectSyncStore.open for an independently owned instance.
+ */
 export function projectSyncStore(config: ServerConfig): Promise<ProjectSyncStore> {
-  const path = runtimeDbPath(config);
-  const existing = storeByPath.get(path);
-  if (existing) return existing;
-  const opened = ProjectSyncStore.open(path);
-  storeByPath.set(path, opened);
-  return opened;
+  return runtimeDbResource(config, resourceKey, path => ProjectSyncStore.open(path));
 }

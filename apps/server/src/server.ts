@@ -1,3 +1,4 @@
+import { acquireRuntimeDbLifetime } from "./runtime-db-lifecycle.js";
 import { LawossDocuments } from "./lawoss/documents/service.js";
 import { registerLawossDocumentRoutes } from "./routes/lawoss-documents.js";
 import { workspaceOwnsSession } from "./lawoss/workspace-history.js";
@@ -778,33 +779,63 @@ export type StartedServer = ServeResult & {
 };
 
 export async function startServer(config: ServerConfig, runtimeOptions: { documentLayout?: import("./document-preparation/structure.js").DocumentLayout } = {}): Promise<StartedServer> {
+  const lifetime = acquireRuntimeDbLifetime(config);
+  const cleanups: Array<() => void | Promise<unknown>> = [];
+  const producerStops: Array<() => void | Promise<unknown>> = [];
+  let stopping = false;
+  let stopPromise: Promise<void> | undefined;
+  const stop = () => {
+    if (stopPromise) return stopPromise;
+    stopping = true;
+    stopPromise = (async () => {
+      const errors: unknown[] = [];
+      const producers = producerStops.map(async cancel => { try { await cancel(); } catch (error) { errors.push(error); } });
+      for (const cleanup of cleanups.reverse()) {
+        try { await cleanup(); } catch (error) { errors.push(error); }
+      }
+      await Promise.all(producers);
+      try { await lifetime.release(); } catch (error) { errors.push(error); }
+      if (errors.length) throw new AggregateError(errors, "Failed to stop server resources");
+    })();
+    return stopPromise;
+  };
+  try { return await lifetime.run(async () => {
+
   const approvals = new ApprovalService(config.approval, config.requestHostApproval);
+  cleanups.push(() => approvals.dispose());
   const reloadEvents = new ReloadEventStore();
   const tokens = new TokenService(config);
   const env = new EnvService();
   const logger = createServerLogger(config);
   let watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
+  cleanups.push(() => { watcherHandle.close(); workspaceBootstrapPromises.delete(config); reloadBaselineRefreshers.delete(config); });
   reloadBaselineRefreshers.set(
     config,
     (workspaceId, reasons) => watcherHandle.refreshWorkspace(workspaceId, reasons),
   );
   const restartReloadWatchers = () => {
+    if (stopping) return;
     watcherHandle.close();
     watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   };
   // Tasks push and pull with the firm's account in the background (a no-op
   // while no firm is connected); each local write also asks for a round.
   const stopTaskSync = startTaskSyncTimer(config);
+  producerStops.push(stopTaskSync);
   // Synced projects (Akten) likewise; a project arriving from the firm is a
   // new folder for the reload watchers too.
-  configureProjectSync(config, { onWorkspacesChanged: () => restartReloadWatchers() });
+  cleanups.push(configureProjectSync(config, { onWorkspacesChanged: () => restartReloadWatchers() }));
   const stopProjectSyncTimer = startProjectSyncTimer(config);
+  producerStops.push(stopProjectSyncTimer);
   // The firm pokes this computer when something changed, so rounds start at once.
   const stopSyncEvents = startSyncEvents(config);
+  producerStops.push(stopSyncEvents);
   // Due days are checked every minute, connected or not, for the app to announce.
   const stopTaskReminders = startTaskReminderTimer(config);
+  producerStops.push(stopTaskReminders);
   // LAWOSS: týždenná kontrola vydaní LAWOSS Marketplace, nikdy hneď pri štarte (lawoss/marketplace-updates.ts).
   const stopMarketplaceCheck = startWeeklyMarketplaceCheck(config);
+  producerStops.push(stopMarketplaceCheck);
   const officeTools = new OfficeToolRelay();
   const benchmarkRunner = new BenchmarkRunner({
     config,
@@ -815,8 +846,11 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   });
   // LAWOSS: OCR models download only after the lawyer turns OCR on (lawoss/ocr-opt-in.ts).
   const ocr = new LawossOcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"));
+  cleanups.push(() => { benchmarkRunner.dispose(); ocr.stop(); });
   const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout });
+  cleanups.push(() => preparation.stop());
   const documents = new LawossDocuments(config, preparation);
+  cleanups.push(() => documents.stop());
   const corpus = new CorpusService({
     selection: async () => {
       const settings = await readSystemOneSettings(config);
@@ -829,7 +863,9 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     extract: (workspace, path, signal) => extractCorpusText(workspace, path, preparation, signal),
     infer: (request, selection, signal) => systemOne(config, request, { providerId: selection.providerId, signal, retry: false }),
   });
+  cleanups.push(() => corpus.stop());
   const reviews = new ReviewService(new ReviewExecutor(config), preparation, new ReviewDefaults(runtimeStorageDir(config)));
+  cleanups.push(() => reviews.stop());
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, documents);
 
   const serverOptions: {
@@ -839,7 +875,9 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   } = {
     hostname: config.host,
     port: config.port,
-    fetch: async (request: Request) => {
+    fetch: (request: Request) => {
+      if (stopping) return new Response("Server stopping", { status: 503 });
+      return lifetime.run(async () => {
       const url = new URL(request.url);
       const startedAt = Date.now();
       let authMode: AuthMode = "none";
@@ -993,6 +1031,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
         errorMessage = apiError.message;
         return finalize(jsonResponse(formatError(apiError), apiError.status));
       }
+      });
     },
   };
 
@@ -1000,6 +1039,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     ...serverOptions,
     idleTimeout: 120,
   });
+
+  cleanups.push(() => server.stop());
 
   if (config.autoDownloadOcr && !config.readOnly) void ocr.downloadDefaultIfNeeded();
 
@@ -1025,6 +1066,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
           idleTimeout: 120,
           tls: tlsMaterial.tls,
         });
+        cleanups.push(() => wordAddinServer?.stop());
         // Keep the manifest in sync with the actually bound port.
         config.wordAddin = { ...config.wordAddin, port: wordAddinServer.port };
         logger.log(
@@ -1041,26 +1083,12 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   return {
     ...server,
     wordAddinPort: wordAddinServer?.port ?? null,
-    stop: async () => {
-      approvals.dispose();
-      await corpus.stop();
-      reviews.stop();
-      await documents.stop();
-      preparation.stop();
-      ocr.stop();
-      stopTaskSync();
-      stopProjectSyncTimer();
-      stopSyncEvents();
-      stopTaskReminders();
-      stopMarketplaceCheck();
-      benchmarkRunner.dispose();
-      watcherHandle.close();
-      workspaceBootstrapPromises.delete(config);
-      reloadBaselineRefreshers.delete(config);
-      await wordAddinServer?.stop();
-      await server.stop();
-    },
+    stop,
   };
+  }); } catch (error) {
+    try { await stop(); } catch (cleanupError) { throw new AggregateError([error, cleanupError], "Server startup and cleanup failed"); }
+    throw error;
+  }
 }
 
 function buildOpencodeProxyUrl(baseUrl: string, path: string, search: string) {
