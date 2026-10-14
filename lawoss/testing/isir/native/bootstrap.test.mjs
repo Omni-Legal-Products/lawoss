@@ -7,7 +7,54 @@ import {createServer} from 'node:http';
 import {mkdtemp,mkdir,realpath,rm} from 'node:fs/promises';
 import {configureNativeProvider} from './bootstrap.mjs';
 
+// The production pretty logger writes to stdout and has no injected test sink.
+// Capture only its exact expected fixture line; preserve every other write.
+async function withExpectedWatcherLog(run,stream=process.stdout){
+  const originalWrite=stream.write;
+  const expected='Reload watcher enabled (1)\n';
+  const captured=[];
+  stream.write=function(chunk,encoding,callback){
+    if(chunk!==expected)return Reflect.apply(originalWrite,this,arguments);
+    captured.push(chunk);
+    const done=typeof encoding==='function'?encoding:callback;
+    if(typeof done==='function')process.nextTick(done);
+    return true;
+  };
+  try {
+    const result=await run();
+    assert.deepEqual(captured,[expected]);
+    return result;
+  } finally {
+    stream.write=originalWrite;
+  }
+}
+
+test('expected watcher capture forwards other writes and restores after setup or cleanup rejection',async()=>{
+  const forwarded=[];
+  const stream={write(...args){forwarded.push({receiver:this,args});return false;}};
+  const originalWrite=stream.write;
+  const callback=()=>{};
+  await withExpectedWatcherLog(async()=>{
+    await new Promise(resolve=>assert.equal(stream.write('Reload watcher enabled (1)\n',resolve),true));
+    assert.equal(stream.write('warning: fixture\n','utf8',callback),false);
+    assert.equal(stream.write(Buffer.from('error: fixture\n'),callback),false);
+  },stream);
+  assert.equal(stream.write,originalWrite);
+  assert.deepEqual(forwarded.map(item=>item.args),[['warning: fixture\n','utf8',callback],[Buffer.from('error: fixture\n'),callback]]);
+  assert.ok(forwarded.every(item=>item.receiver===stream));
+  for(const phase of ['setup','cleanup']){
+    const failure=new Error(phase);
+    await assert.rejects(withExpectedWatcherLog(async()=>{
+      if(phase==='setup')throw failure;
+      try {await Promise.resolve();}finally{throw failure;}
+    },stream),error=>error===failure);
+    assert.equal(stream.write,originalWrite);
+  }
+});
+
 test('bootstrap uses the authenticated production host reload for the selected workspace and awaits readiness',async()=>{
+  const originalWrite=process.stdout.write;
+  await withExpectedWatcherLog(async()=>{
   const root=await realpath(await mkdtemp(path.join(os.tmpdir(),'native-bootstrap-contract-')));
   const originalHome=os.homedir;
   const names=['LEGALWORK_SERVER_CONFIG','LEGALWORK_RUNTIME_DB','LEGALWORK_DATA_DIR','LEGALWORK_PROJECTS_DIR','XDG_CONFIG_HOME','XDG_DATA_HOME'];
@@ -76,4 +123,6 @@ test('bootstrap uses the authenticated production host reload for the selected w
     }
     assert.equal(engine.listening,false);
   }
+  });
+  assert.equal(process.stdout.write,originalWrite);
 });
