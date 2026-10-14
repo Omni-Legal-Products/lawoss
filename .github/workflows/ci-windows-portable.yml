@@ -235,5 +235,8 @@ jobs:
       - name: Node production engine proxy and idle response cancellation
         run: node --test apps/server/scripts/opencode-proxy-cancellation.node.test.mjs
 
+      - name: Verify native ISIR bootstrap, diagnostics and owned resources
+        run: node --test lawoss/testing/isir/native/*.test.mjs
+
       - name: ISIR attachments in ten case folders (synthetic offline corpus)
         run: pnpm test:isir

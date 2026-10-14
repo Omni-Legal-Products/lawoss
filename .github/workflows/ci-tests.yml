@@ -137,6 +137,9 @@ jobs:
         if: runner.os == 'macOS'
         run: node --test apps/server/scripts/runtime-db-lifecycle.node.test.mjs apps/server/scripts/opencode-proxy-cancellation.node.test.mjs
 
+      - name: Verify native ISIR bootstrap, diagnostics and owned resources
+        run: node --test lawoss/testing/isir/native/*.test.mjs
+
       # LAWOSS: server/dist musí fungovať aj v rozložení app.asar, kde koreňový lawoss/ chýba.
       - name: Verify packaged server modules load
         if: runner.os == 'Linux'

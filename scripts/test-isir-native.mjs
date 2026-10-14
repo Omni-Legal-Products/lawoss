@@ -12,6 +12,7 @@ import { partialPdf } from "../lawoss/testing/isir/native/partial-pdf.mjs";
 import { connectRenderer, until } from "../lawoss/testing/isir/native/cdp.mjs";
 import { stopNativeChild as stop } from "../lawoss/testing/isir/native/owned-process.mjs";
 import { createNativeDiagnostics, settleCleanup, errorMetadata } from "../lawoss/testing/isir/native/diagnostics.mjs";
+import { configureNativeProvider } from "../lawoss/testing/isir/native/bootstrap.mjs";
 import { parseCsv } from "../apps/server/dist/lawoss/documents/validation.js";
 import { sha256 } from "../lawoss/testing/isir/corpus.mjs";
 import { prepareNativeEngineFiles, probeNativeEngineVersion, verifyNativeEngineRuntime } from "../lawoss/testing/isir/native/engine-identity.mjs";
@@ -111,6 +112,7 @@ try {
   await until(async () => (await nativeFetch(env.LEGALWORK_ELECTRON_START_URL)).ok, "owned Vite");
   let appChild = launch(electron, [...(process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : []), path.join(repo, "apps/desktop/scripts/isir-native-entry.mjs")], path.join(repo, "apps/desktop"), "electron");
   cdp = await connectRenderer(`http://127.0.0.1:${cdpPort}`, nativeFetch);
+  await cdp.send('Page.enable');
   await cdp.send('Emulation.setDeviceMetricsOverride',{width:1800,height:1400,deviceScaleFactor:1,mobile:false});
   await until(() => cdp.evaluate("!!window.__legalworkControl"), "native renderer controls", 90000);
   await until(() => cdp.evaluate("!document.body.innerText.includes('Loading your workspaces') && document.body.innerText.length > 150"), "workspace ready", 90000);
@@ -131,13 +133,8 @@ try {
   let serverAuth = {authorization:'Bearer '+(serverInfo.ownerToken||serverInfo.clientToken),'content-type':'application/json'};
   diagnostics.phase("configure-provider");
   const providerConfig = JSON.parse(env.OPENCODE_CONFIG_CONTENT).provider;
-  const patched = await nativeFetch(`${serverInfo.baseUrl}/workspace/${workspaces[0].id}/config`,{method:'PATCH',headers:serverAuth,body:JSON.stringify({opencode:{provider:providerConfig}})});
-  assert.equal(patched.status,200);
-  assert.equal((await nativeFetch(`${liveEngine.baseUrl}/auth/isir-native`,{method:'PUT',headers:apiAuth,body:JSON.stringify({type:'api',key:'synthetic-local-only'})})).status,200);
-  await nativeFetch(`${liveEngine.baseUrl}/instance/dispose`,{method:'POST',headers:apiAuth});
-  const providerList = await (await nativeFetch(`${liveEngine.baseUrl}/provider?directory=${encodeURIComponent(workspaces[0].path)}`,{headers:apiAuth})).json();
-  console.log('PASS running engine1.18.29; actual configured providers',JSON.stringify({connected:providerList.connected,custom:providerList.all?.filter(p=>p.id==='isir-native').map(p=>({id:p.id,source:p.source,models:Object.keys(p.models)}))}));
-  assert.ok(providerList.connected.includes('isir-native'));
+  await configureNativeProvider({request:nativeFetch,serverInfo,serverAuth,liveEngine,apiAuth,workspace:workspaces[0],providerConfig});
+  console.log('PASS running engine1.18.29; configured synthetic provider connected after supported workspace reload');
   // Persisted selected-agent is fixture input, consumed by the ordinary
   // native preference loader. It does not replace any send/tool callback.
   await cdp.send('Page.enable');
@@ -149,16 +146,15 @@ try {
   await until(()=>cdp.evaluate("window.__legalworkControl?.listActions().some(a=>a.id==='session.create_task'&&!a.disabled)"),'configured native renderer',60000);
   assert.equal(await cdp.evaluate(`JSON.parse(localStorage.getItem('legalwork.preferences')??'{}').selectedAgent`),'legalwork','Ordinary persisted selected-agent fixture loaded by the actual new document');
 
-  boundaryProbe = async () => {
-    const info = await nativeFetch(`${serverInfo.baseUrl}/workspace/${workspaces[0].id}/lawoss/documents`,{headers:serverAuth},5000);
-    await info.body?.cancel();
-  };
+  let selectedIndex=1;
+  boundaryProbe = () => diagnostics.probeWorkspace({serverInfo,serverAuth,workspaces,selectedIndex});
   const api = async (workspace, route, input) => {
     const response = await nativeFetch(`${serverInfo.baseUrl}/workspace/${workspace.id}/${route}`,{headers:serverAuth,...(input===undefined?{}:{method:'POST',body:JSON.stringify(input)})});
     return {response,body:await response.json()};
   };
   const panelText = () => cdp.evaluate(`document.querySelector('[aria-label="Document processing"]')?.innerText??''`);
   const openFiles = async workspace => {
+    selectedIndex=workspaces.indexOf(workspace)+1;
     await until(()=>cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(workspace.name)}&&e.closest('[data-slot="collapsible"]'));if(!e)return false;e.click();return true})()`),`select native project ${workspace.id}`);
     await until(()=>cdp.evaluate(`(()=>{const title=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(workspace.name)}&&e.closest('[data-slot="collapsible"]'));const group=title.closest('[data-slot="collapsible"]');const e=[...group.querySelectorAll('button,a')].find(e=>e.textContent.trim()==='Files'&&e.getBoundingClientRect().width>0);if(!e){group.querySelector('[aria-label="Expand"]')?.click();return false}e.click();return true})()`),'native project files action');
     await until(()=>cdp.evaluate(`!!document.querySelector('[aria-label="Document processing"]')`),'native processing panel');
@@ -302,6 +298,7 @@ try {
   }
   await writeFile(path.join(root,'native-receipts.json'),JSON.stringify({mode:corpus.mode,fullMatrix:!debugPair,engineVersion:health.version,engineIdentities,cases:evidence},null,2),{mode:0o600});
 
+  diagnostics.phase('extra-cases');
   // The ordinary composer submits an OS-backed attachment through its real
   // binary upload route before the native engine receives the saved reference.
   const chatWorkspace=workspaces.at(-1),chatEvidence=evidence.at(-1),chatSource=corpus.cases.at(-1).documents[0];
@@ -411,6 +408,7 @@ try {
   await writeFile(path.join(root,'chooser.json'),JSON.stringify({paths:[moved]}));
   appChild=launch(electron,[...(process.platform==='linux'?['--no-sandbox','--disable-gpu']:[]),path.join(repo,'apps/desktop/scripts/isir-native-entry.mjs')],path.join(repo,'apps/desktop'),'electron-relaunch');
   cdp=await connectRenderer(`http://127.0.0.1:${cdpPort}`, nativeFetch);
+  await cdp.send('Page.enable');
   await cdp.send('Emulation.setDeviceMetricsOverride',{width:1800,height:1400,deviceScaleFactor:1,mobile:false});
   await until(()=>cdp.evaluate('!!window.__legalworkControl'),'relaunched native renderer',90000);
   await openFiles(first);
