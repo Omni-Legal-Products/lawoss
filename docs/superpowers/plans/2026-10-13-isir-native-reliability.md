@@ -121,3 +121,13 @@ expect(await readThroughApp(originalId, "Dokumenty/source.pdf")).toEqual(origina
 - [ ] Fetch both remotes, integrate any dev advancement, rerun relevant checks; publish the same tested feature SHA to obtain the five required remote CI checks. After all green, attempt ordinary fast-forward HEAD:dev without force as explicitly authorized. If hosted PR/approval rules reject it, open a concrete ready PR without changing protections and keep deployment incomplete until required review permits updating dev. Verify remote SHA and CI outcomes; never claim feature-branch push as dev deployment.
 - [ ] Snapshot existing profile/test data and stop old application cleanly; launch freshly built pushed SHA using preserved profile. Retest original ten local ISIR samples through native UI and real agent, choosing new output locations to preserve previous evidence. Never print credentials or use client cases/free models.
 - [ ] Audit all numbered requirements against actual evidence and keep goal active for any gap. Any finding opens a new failing test → implementation → green tests → commit/push → rerun loop. Completion is clean scoped requirements/acceptance with actual UI/live evidence, not an assertion that all software can never fail.
+
+### Závěrečná revize: oprava dvou doložených regresí
+
+Revize celé větve k `45a325e1` odhalila dvě Important chyby v propojení již implementovaných částí. Opravy jsou podmínkou čisté revize Task 5, nikoli změnou původního cíle.
+
+- [x] Reprodukovat skutečnou přípravu portfolia A → B → A a výběr přes nativního konzumenta včetně uloženého stavu, nového procesu služby a shodných časů. Test před opravou vybírá starou B i její přílohu.
+- [x] Reprodukovat CSV s platnou identitou, které pro nečitelný zdroj tvrdí úplné čtení a získává ověření, včetně historického uloženého stavu.
+- [x] Oddělit trvalé přijetí aktuálního originálu od času extrakce; zachovat původní ID, provenienci a výběr správných příloh i po reloadu.
+- [x] Vyžadovat prokazatelné aktuální pokrytí pro ověření CSV/summary i při zobrazení starších záznamů. Legacy text zůstává čitelný, ale neuděluje neprokazatelné ověření; pravdivý partial/failed export je přípustný.
+- [ ] Dokončit modulové testy, strict/build, signed commit a jednu nezávislou scoped re-review obou oprav. Poté pokračovat všemi otevřenými sestavovacími, CI, nasazovacími a živými kroky Task 5.
