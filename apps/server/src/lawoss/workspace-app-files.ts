@@ -25,9 +25,9 @@ export function usesExternalWorkspaceAppFiles(
  */
 export function externalAppFilesRoot(
   config: Pick<ServerConfig, "configPath">,
-  workspace: Pick<WorkspaceInfo, "path">,
+  workspace: Pick<WorkspaceInfo, "path" | "previousPaths" | "appFilesStorageKey">,
 ): string {
-  const key = resolve(workspace.path);
+  const key = workspace.appFilesStorageKey ?? resolve(workspace.previousPaths?.[0] ?? workspace.path);
   const hash = createHash("sha256").update(key).digest("hex");
   return join(runtimeStorageDir(config as ServerConfig), "workspace-app-files", hash);
 }

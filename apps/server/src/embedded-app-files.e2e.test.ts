@@ -141,3 +141,25 @@ process.on("SIGTERM", () => process.exit(0));
   }
 // Two process starts, two bounded 3s synchronization waits, and shutdown exceed the default 5s budget.
 }, 15_000);
+
+test("fresh desktop seed preserves host ID, persisted registry wins on restart", async () => {
+  const root = await mkdtemp(join(tmpdir(), "reconnect-bootstrap-"));
+  const folder = join(root, "matter"); const configPath = join(root, "server.json");
+  await mkdir(folder);
+  const oldData = process.env.LEGALWORK_DATA_DIR; const oldConfig = process.env.XDG_CONFIG_HOME;
+  process.env.LEGALWORK_DATA_DIR = join(root, "data"); process.env.XDG_CONFIG_HOME = join(root, "xdg");
+  let server: Awaited<ReturnType<typeof startEmbeddedServer>> | undefined;
+  const hostEntry = { id: "stable-desktop", name: "Matter", path: folder, preset: "starter", workspaceType: "local" as const, appFiles: "outside" as const };
+  try {
+    server = await startEmbeddedServer({ host: "127.0.0.1", port: 0, configPath, workspaces: [folder], hostWorkspaces: [hostEntry], token: "client", hostToken: "host", logRequests: false, wordAddin: false, manageOpencode: false });
+    expect(server.config.workspaces[0]?.id).toBe("stable-desktop"); await server.stop(); server = undefined;
+    await writeFile(configPath, JSON.stringify({ workspaces: [{ ...hostEntry, id: "persisted-id" }], authorizedRoots: [folder] }));
+    server = await startEmbeddedServer({ host: "127.0.0.1", port: 0, configPath, workspaces: [], hostWorkspaces: [hostEntry], token: "client", hostToken: "host", logRequests: false, wordAddin: false, manageOpencode: false });
+    expect(server.config.workspaces[0]?.id).toBe("persisted-id");
+  } finally {
+    await server?.stop();
+    if (oldData === undefined) delete process.env.LEGALWORK_DATA_DIR; else process.env.LEGALWORK_DATA_DIR = oldData;
+    if (oldConfig === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = oldConfig;
+    await rm(root, { recursive: true, force: true });
+  }
+});

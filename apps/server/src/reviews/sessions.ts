@@ -1,8 +1,8 @@
-import { resolve } from "node:path";
+import { workspaceOwnsSession } from "../lawoss/workspace-history.js";
 import { z } from "zod";
 import type { WorkspaceInfo } from "../types.js";
 import type { SavedReview } from "./schema.js";
-import { ReviewStore, serialized, within } from "./storage.js";
+import { ReviewStore, serialized } from "./storage.js";
 
 type Session = { id: string; directory?: string | null; time?: { created?: number; updated?: number; archived?: number } };
 export type ReviewSessionClient = {
@@ -23,7 +23,7 @@ export class ReviewSessions {
   private legacy = new Map<string, { expires: number; value: Promise<string | null> }>();
   constructor(private client: (workspace: WorkspaceInfo) => ReviewSessionClient) {}
   private inProject(workspace: WorkspaceInfo, session: Session) {
-    return !!session.directory && within(resolve(workspace.path), resolve(session.directory));
+    return !!session.directory && workspaceOwnsSession(workspace, session);
   }
   private async find(workspace: WorkspaceInfo, review: SavedReview, client: ReviewSessionClient) {
     if (review.sessionId) {

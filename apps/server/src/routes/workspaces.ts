@@ -1,7 +1,11 @@
+import { rebaseWorkspaceMemoryAuthority } from "../lawoss/workspace-reconnect-memory.js";
+import { rebindWorkspaceSessions } from "../lawoss/workspace-session-rebind.js";
+import { serializeWorkspaceMutation } from "../lawoss/workspace-registry-lock.js";
+import { historicalWorkspaceSessions } from "../lawoss/workspace-history-sessions.js";
 import type { registerProjectFolderRoutes } from "./project-folders.js";
 import { readFile, rename, rm, writeFile, lstat } from "node:fs/promises";
 import { realpath } from "../lawoss/canonical-path.js";
-import { basename, dirname, resolve, isAbsolute } from "node:path";
+import { basename, dirname, resolve, isAbsolute, relative, sep } from "node:path";
 import { recordAudit } from "../audit.js";
 import { ApiError } from "../errors.js";
 import { inheritWorkspaceOpencodeConnection, resolveWorkspaceOpencodeConnection } from "../opencode-connection.js";
@@ -198,12 +202,14 @@ function serializeWorkspaceConfigEntry(workspace: WorkspaceInfo): Record<string,
   return {
     id: workspace.id,
     path: workspace.path,
+    ...(workspace.appFilesStorageKey ? { appFilesStorageKey: workspace.appFilesStorageKey } : {}),
+    ...(workspace.previousPaths?.length ? { previousPaths: workspace.previousPaths, previousSessionIds: workspace.previousSessionIds ?? [] } : {}),
     name: workspace.name,
     preset: workspace.preset,
     workspaceType: workspace.workspaceType,
     ...(workspace.remoteType ? { remoteType: workspace.remoteType } : {}),
     ...(!isLocalWorkspace && workspace.baseUrl ? { baseUrl: workspace.baseUrl } : {}),
-    ...(!isLocalWorkspace && workspace.directory ? { directory: workspace.directory } : {}),
+    ...(workspace.directory ? { directory: workspace.directory } : {}),
     ...(workspace.displayName ? { displayName: workspace.displayName } : {}),
     ...(isLocalWorkspace ? { appFiles: workspace.appFiles === "outside" ? "outside" : "inside" } : {}),
     ...(workspace.legalworkHostUrl ? { legalworkHostUrl: workspace.legalworkHostUrl } : {}),
@@ -261,66 +267,78 @@ export async function registerLocalProject(
     appFiles?: "inside" | "outside";
   },
 ): Promise<{ workspace: WorkspaceInfo; persisted: boolean }> {
-  const workspacePath = resolve(input.folderPath);
-  const workspaceId = workspaceIdForPath(workspacePath);
-  const registered = config.workspaces.find((entry) => entry.id === workspaceId);
-  if ((input.appFiles === "outside" || registered?.appFiles === "outside") && !input.registerExisting) {
-    throw new ApiError(400, "invalid_payload", "outside app files require an existing directory");
-  }
-  if (input.registerExisting) {
-    try {
-      if (!isAbsolute(input.folderPath) || !(await lstat(workspacePath)).isDirectory() || await realpath(workspacePath) !== workspacePath) {
-        throw new Error("Not a canonical existing directory");
-      }
-    } catch {
-      throw new ApiError(400, "invalid_payload", "registerExisting requires an existing canonical directory");
+  return serializeWorkspaceMutation(config, async () => {
+    const workspacePath = resolve(input.folderPath);
+    const registered = config.workspaces.find((entry) => entry.workspaceType !== "remote" && resolve(entry.path) === workspacePath);
+    const pathId = workspaceIdForPath(workspacePath);
+    const pathIdTaken = config.workspaces.some(entry => entry.id === pathId);
+    const workspaceId = registered?.id ?? (pathIdTaken ? workspaceIdForPath(`${workspacePath}::${shortId()}`) : pathId);
+    const storagePathTaken = config.workspaces.some(entry => entry.workspaceType !== "remote" && entry.path !== workspacePath && resolve(entry.previousPaths?.[0] ?? entry.path) === workspacePath);
+    const appFilesStorageKey = registered?.appFilesStorageKey ?? (!registered && (pathIdTaken || storagePathTaken) ? `${workspacePath}::${workspaceId}` : undefined);
+    if ((input.appFiles === "outside" || registered?.appFiles === "outside") && !input.registerExisting) {
+      throw new ApiError(400, "invalid_payload", "outside app files require an existing directory");
     }
-  } else {
-    await ensureDir(workspacePath);
-    await ensureWorkspaceFiles(workspacePath, input.preset);
-    if (input.projectFields) await initializeProjectFields(workspacePath, input.projectFields);
-  }
+    if (input.registerExisting) {
+      try {
+        if (!isAbsolute(input.folderPath) || !(await lstat(workspacePath)).isDirectory() || await realpath(workspacePath) !== workspacePath) {
+          throw new Error("Not a canonical existing directory");
+        }
+      } catch {
+        throw new ApiError(400, "invalid_payload", "registerExisting requires an existing canonical directory");
+      }
+    } else {
+      await ensureDir(workspacePath);
+      await ensureWorkspaceFiles(workspacePath, input.preset);
+      if (input.projectFields) await initializeProjectFields(workspacePath, input.projectFields);
+    }
 
-  const displayName = registered?.displayName?.trim() || undefined;
-  const appFiles = input.appFiles ?? registered?.appFiles ?? "inside";
-  const workspace: WorkspaceInfo = {
-    id: workspaceId,
-    name: displayName ?? input.name,
-    path: workspacePath,
-    preset: input.preset,
-    workspaceType: "local",
-    appFiles,
-    ...(displayName ? { displayName } : {}),
-    ...inheritWorkspaceOpencodeConnection(config),
-  };
-  const others = config.workspaces.filter((entry) => entry.id !== workspace.id);
-  config.workspaces = input.position === "last" ? [...others, workspace] : [workspace, ...others];
-  if (!config.authorizedRoots.some((root) => resolve(root) === workspacePath)) {
-    config.authorizedRoots = [...config.authorizedRoots, workspacePath];
-  }
-  return { workspace, persisted: await persistServerWorkspaceState(config) };
+    const displayName = registered?.displayName?.trim() || undefined;
+    const appFiles = input.appFiles ?? registered?.appFiles ?? "inside";
+    const workspace: WorkspaceInfo = {
+      id: workspaceId,
+      name: displayName ?? input.name,
+      path: workspacePath,
+      preset: input.preset,
+      workspaceType: "local",
+      appFiles,
+      ...(appFilesStorageKey ? { appFilesStorageKey } : {}),
+      ...(registered?.previousPaths?.length ? { previousPaths: registered.previousPaths, previousSessionIds: registered.previousSessionIds ?? [] } : {}),
+      ...(displayName ? { displayName } : {}),
+      ...inheritWorkspaceOpencodeConnection(config),
+    };
+    const others = config.workspaces.filter((entry) => entry.id !== workspace.id);
+    config.workspaces = input.position === "last" ? [...others, workspace] : [workspace, ...others];
+    if (!config.authorizedRoots.some((root) => resolve(root) === workspacePath)) {
+      config.authorizedRoots = [...config.authorizedRoots, workspacePath];
+    }
+    return { workspace, persisted: await persistServerWorkspaceState(config) };
+  });
 }
 
 /** Change a workspace's display name and persist the registry; false when there is no such workspace. */
 export async function renameRegisteredWorkspace(config: ServerConfig, id: string, displayName: string | undefined): Promise<boolean> {
-  if (!config.workspaces.some((entry) => entry.id === id)) return false;
-  config.workspaces = config.workspaces.map((entry) =>
-    entry.id === id ? { ...entry, displayName, name: displayName ?? entry.name } : entry,
-  );
-  await persistServerWorkspaceState(config);
-  return true;
+  return serializeWorkspaceMutation(config, async () => {
+    if (!config.workspaces.some((entry) => entry.id === id)) return false;
+    config.workspaces = config.workspaces.map((entry) =>
+      entry.id === id ? { ...entry, displayName, name: displayName ?? entry.name } : entry,
+    );
+    await persistServerWorkspaceState(config);
+    return true;
+  });
 }
 
 /** Take a workspace out of the registry (its folder stays) and persist it. */
 export async function unregisterWorkspace(config: ServerConfig, workspace: WorkspaceInfo): Promise<{ deleted: boolean; persisted: boolean }> {
-  const before = config.workspaces.length;
-  config.workspaces = config.workspaces.filter((entry) => entry.id !== workspace.id);
-  const deleted = before !== config.workspaces.length;
-  if (deleted && workspace.workspaceType === "local") {
-    // Only remove exact matches; authorizedRoots can contain broader entries.
-    config.authorizedRoots = config.authorizedRoots.filter((root) => resolve(root) !== resolve(workspace.path));
-  }
-  return { deleted, persisted: await persistServerWorkspaceState(config) };
+  return serializeWorkspaceMutation(config, async () => {
+    const before = config.workspaces.length;
+    config.workspaces = config.workspaces.filter((entry) => entry.id !== workspace.id);
+    const deleted = before !== config.workspaces.length;
+    if (deleted && workspace.workspaceType === "local") {
+      // Only remove exact matches; authorizedRoots can contain broader entries.
+      config.authorizedRoots = config.authorizedRoots.filter((root) => resolve(root) !== resolve(workspace.path));
+    }
+    return { deleted, persisted: await persistServerWorkspaceState(config) };
+  });
 }
 
 export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions): void {
@@ -371,8 +389,72 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     const title = readStringField(body, "title") || undefined;
     const defaultPath = readStringField(body, "defaultPath") || undefined;
     const returnFocusTo = readStringField(body, "returnFocusTo") || undefined;
-    const path = await picker({ title, defaultPath, returnFocusTo });
+    const path = await picker({ title, defaultPath, returnFocusTo, existingOnly: body.existingOnly === true });
     return jsonResponse({ supported: true, path: path ?? null });
+  });
+
+  // Serialize recovery and check the expected path inside the lock.
+  addRoute(routes, "POST", "/workspace/:id/reconnect", "host", async (ctx) => {
+    ensureWritable(config);
+    const body = await readJsonBody(ctx.request);
+    const run = serializeWorkspaceMutation(config, async () => {
+      const previous = config.workspaces.find((entry) => entry.id === ctx.params.id);
+      if (!previous) throw new ApiError(404, "workspace_not_found", "Workspace not found");
+      if (previous.workspaceType === "remote") throw new ApiError(400, "invalid_payload", "Only local projects can be reconnected");
+      const expectedPath = readStringField(body, "expectedPath");
+      const folderPath = readStringField(body, "folderPath");
+      if (!expectedPath || expectedPath !== previous.path) throw new ApiError(409, "workspace_changed", "Project folder has changed; refresh before reconnecting");
+      try {
+        await lstat(previous.path);
+        throw new ApiError(409, "project_folder_available", "The original project folder is still present");
+      } catch (error) {
+        if (error instanceof ApiError) throw error;
+        if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw new ApiError(422, "project_folder_unavailable", "Unable to verify the original folder");
+      }
+      let destination: string;
+      try {
+        destination = resolve(folderPath);
+        if (!isAbsolute(folderPath) || !(await lstat(destination)).isDirectory() || await realpath(destination) !== destination) throw new Error("Noncanonical directory");
+      } catch { throw new ApiError(400, "invalid_payload", "Choose an existing canonical directory"); }
+      for (const entry of config.workspaces) {
+        if (entry.id === previous.id || entry.workspaceType === "remote") continue;
+        const canonical = await realpath(entry.path).catch(() => resolve(entry.path));
+        if (canonical === destination) throw new ApiError(409, "workspace_already_registered", "Folder belongs to another project");
+      }
+      if (!config.configPath?.trim()) throw new ApiError(422, "workspace_persistence_failed", "Persistent workspace registry is unavailable");
+      let directory = previous.directory;
+      if (directory) {
+        const child = relative(previous.path, resolve(directory));
+        if (isAbsolute(child) || child === ".." || child.startsWith(`..${sep}`)) throw new ApiError(422, "workspace_session_rebind_failed", "Project execution directory escapes its original root");
+        directory = resolve(destination, child);
+      }
+      const captured = await historicalWorkspaceSessions(config, { ...previous, path: destination, previousPaths: [previous.path] }, {}, previous.path);
+      const workspace = { ...previous, path: destination, ...(directory ? { directory } : {}), previousPaths: Array.from(new Set([...(previous.previousPaths ?? []), previous.path])), previousSessionIds: Array.from(new Set([...(previous.previousSessionIds ?? []), ...captured.map(session => session.id)])) };
+      const beforeWorkspaces = config.workspaces;
+      const beforeRoots = config.authorizedRoots;
+      let rollbackHost: (() => Promise<void>) | undefined;
+      let rollbackSessions: (() => Promise<void>) | undefined;
+      let rollbackMemory: (() => Promise<void>) | undefined;
+      try {
+        rollbackMemory = await rebaseWorkspaceMemoryAuthority(config, previous, destination);
+        rollbackSessions = await rebindWorkspaceSessions(config, previous, destination, captured);
+        rollbackHost = await config.reconnectHostWorkspace?.(workspace, previous);
+        config.workspaces = beforeWorkspaces.map((entry) => entry.id === previous.id ? workspace : entry);
+        config.authorizedRoots = Array.from(new Set([...beforeRoots.filter(root => resolve(root) !== resolve(previous.path)), destination]));
+        await persistServerWorkspaceState(config);
+      } catch (error) {
+        config.workspaces = beforeWorkspaces;
+        config.authorizedRoots = beforeRoots;
+        const rollbacks = await Promise.allSettled([rollbackHost?.(), rollbackSessions?.(), rollbackMemory?.()]);
+        const failedRollback = rollbacks.find(result => result.status === "rejected");
+        if (failedRollback) throw new ApiError(422, "workspace_recovery_rollback_failed", "Project recovery rollback needs attention", { reconciliationRequired: true, workspaceId: previous.id, previousPath: previous.path, destinationPath: destination, sessionIds: captured.map(session => session.id) });
+        if (error instanceof ApiError && error.code === "workspace_recovery_rollback_failed") throw error;
+        throw new ApiError(422, "workspace_persistence_failed", "Project recovery could not be saved", { error: String(error) });
+      }
+      onWorkspacesChanged();
+      return jsonResponse({ workspace: serializeWorkspace(workspace), persisted: true });
+    });
+    return run;
   });
 
   addRoute(routes, "GET", "/workspaces/project-defaults", "host", async () => {
@@ -472,95 +554,97 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
   });
 
   addRoute(routes, "POST", "/workspaces/remote", "host", async (ctx) => {
-    ensureWritable(config);
-    const body = await readJsonBody(ctx.request);
-    const baseUrl = readStringField(body, "baseUrl");
-    if (!baseUrl) {
-      throw new ApiError(400, "invalid_payload", "baseUrl is required");
-    }
-    if (!/^https?:\/\//i.test(baseUrl)) {
-      throw new ApiError(400, "invalid_payload", "baseUrl must start with http:// or https://");
-    }
-
-    const remoteType = readStringField(body, "remoteType") === "opencode" ? "opencode" : "legalwork";
-    const directory = readStringField(body, "directory") || null;
-    const displayName = readStringField(body, "displayName") || null;
-    const rawLegalworkHostUrl = readStringField(body, "legalworkHostUrl") || null;
-    const legalworkHostUrl = remoteType === "legalwork"
-      ? stripLegalworkWorkspaceMount(rawLegalworkHostUrl ?? baseUrl)
-      : rawLegalworkHostUrl;
-    const legalworkToken = readStringField(body, "legalworkToken");
-    const legalworkHostToken = readStringField(body, "legalworkHostToken");
-    const sandboxBackend = readStringField(body, "sandboxBackend");
-    const sandboxRunId = readStringField(body, "sandboxRunId");
-    const sandboxContainerName = readStringField(body, "sandboxContainerName");
-    let legalworkWorkspaceId = remoteType === "legalwork"
-      ? readStringField(body, "legalworkWorkspaceId")
-        || parseLegalworkWorkspaceIdFromUrl(rawLegalworkHostUrl)
-        || parseLegalworkWorkspaceIdFromUrl(baseUrl)
-      : "";
-    let legalworkWorkspaceName = readStringField(body, "legalworkWorkspaceName") || null;
-
-    if (remoteType === "legalwork" && !legalworkWorkspaceId) {
-      const discovered = await discoverLegalworkWorkspace({
-        hostUrl: legalworkHostUrl ?? baseUrl,
-        token: legalworkToken,
-        hostToken: legalworkHostToken,
-        directory,
-      });
-      legalworkWorkspaceId = discovered ? readStringField(discovered, "id") : "";
-      legalworkWorkspaceName = discovered ? legalworkWorkspaceDisplayName(discovered) : legalworkWorkspaceName;
-      if (!legalworkWorkspaceId) {
-        throw new ApiError(
-          400,
-          "legalwork_workspace_not_found",
-          directory
-            ? `LegalWork server has no workspace matching ${directory}.`
-            : "LegalWork server returned no workspaces.",
-        );
+    return serializeWorkspaceMutation(config, async () => {
+      ensureWritable(config);
+      const body = await readJsonBody(ctx.request);
+      const baseUrl = readStringField(body, "baseUrl");
+      if (!baseUrl) {
+        throw new ApiError(400, "invalid_payload", "baseUrl is required");
       }
-    }
+      if (!/^https?:\/\//i.test(baseUrl)) {
+        throw new ApiError(400, "invalid_payload", "baseUrl must start with http:// or https://");
+      }
 
-    const workspace: WorkspaceInfo = {
-      id: remoteType === "legalwork"
-        ? legalworkRemoteWorkspaceId(legalworkHostUrl ?? baseUrl, legalworkWorkspaceId)
-        : workspaceIdForRemote(baseUrl, directory),
-      name: displayName ?? legalworkWorkspaceName ?? "Remote workspace",
-      path: directory ?? "",
-      preset: "remote",
-      workspaceType: "remote",
-      remoteType,
-      baseUrl: remoteType === "legalwork" ? (legalworkHostUrl ?? baseUrl) : baseUrl,
-      ...(directory ? { directory } : {}),
-      ...(displayName ? { displayName } : {}),
-      ...(remoteType === "legalwork" && legalworkHostUrl ? { legalworkHostUrl } : {}),
-      ...(legalworkToken ? { legalworkToken } : {}),
-      ...(remoteType === "legalwork" && legalworkWorkspaceId ? { legalworkWorkspaceId } : {}),
-      ...(remoteType === "legalwork" && legalworkWorkspaceName ? { legalworkWorkspaceName } : {}),
-      ...(sandboxBackend ? { sandboxBackend } : {}),
-      ...(sandboxRunId ? { sandboxRunId } : {}),
-      ...(sandboxContainerName ? { sandboxContainerName } : {}),
-    };
+      const remoteType = readStringField(body, "remoteType") === "opencode" ? "opencode" : "legalwork";
+      const directory = readStringField(body, "directory") || null;
+      const displayName = readStringField(body, "displayName") || null;
+      const rawLegalworkHostUrl = readStringField(body, "legalworkHostUrl") || null;
+      const legalworkHostUrl = remoteType === "legalwork"
+        ? stripLegalworkWorkspaceMount(rawLegalworkHostUrl ?? baseUrl)
+        : rawLegalworkHostUrl;
+      const legalworkToken = readStringField(body, "legalworkToken");
+      const legalworkHostToken = readStringField(body, "legalworkHostToken");
+      const sandboxBackend = readStringField(body, "sandboxBackend");
+      const sandboxRunId = readStringField(body, "sandboxRunId");
+      const sandboxContainerName = readStringField(body, "sandboxContainerName");
+      let legalworkWorkspaceId = remoteType === "legalwork"
+        ? readStringField(body, "legalworkWorkspaceId")
+          || parseLegalworkWorkspaceIdFromUrl(rawLegalworkHostUrl)
+          || parseLegalworkWorkspaceIdFromUrl(baseUrl)
+        : "";
+      let legalworkWorkspaceName = readStringField(body, "legalworkWorkspaceName") || null;
 
-    config.workspaces = [workspace, ...config.workspaces.filter((entry) => entry.id !== workspace.id)];
-    const persisted = await persistServerWorkspaceState(config);
-    onWorkspacesChanged();
+      if (remoteType === "legalwork" && !legalworkWorkspaceId) {
+        const discovered = await discoverLegalworkWorkspace({
+          hostUrl: legalworkHostUrl ?? baseUrl,
+          token: legalworkToken,
+          hostToken: legalworkHostToken,
+          directory,
+        });
+        legalworkWorkspaceId = discovered ? readStringField(discovered, "id") : "";
+        legalworkWorkspaceName = discovered ? legalworkWorkspaceDisplayName(discovered) : legalworkWorkspaceName;
+        if (!legalworkWorkspaceId) {
+          throw new ApiError(
+            400,
+            "legalwork_workspace_not_found",
+            directory
+              ? `LegalWork server has no workspace matching ${directory}.`
+              : "LegalWork server returned no workspaces.",
+          );
+        }
+      }
 
-    await recordAudit(workspace.path, {
-      id: shortId(),
-      workspaceId: workspace.id,
-      actor: ctx.actor ?? { type: "host" },
-      action: "workspace.create",
-      target: workspace.path || workspace.baseUrl || "workspace",
-      summary: `Created remote workspace ${workspace.name}`,
-      timestamp: Date.now(),
+      const workspace: WorkspaceInfo = {
+        id: remoteType === "legalwork"
+          ? legalworkRemoteWorkspaceId(legalworkHostUrl ?? baseUrl, legalworkWorkspaceId)
+          : workspaceIdForRemote(baseUrl, directory),
+        name: displayName ?? legalworkWorkspaceName ?? "Remote workspace",
+        path: directory ?? "",
+        preset: "remote",
+        workspaceType: "remote",
+        remoteType,
+        baseUrl: remoteType === "legalwork" ? (legalworkHostUrl ?? baseUrl) : baseUrl,
+        ...(directory ? { directory } : {}),
+        ...(displayName ? { displayName } : {}),
+        ...(remoteType === "legalwork" && legalworkHostUrl ? { legalworkHostUrl } : {}),
+        ...(legalworkToken ? { legalworkToken } : {}),
+        ...(remoteType === "legalwork" && legalworkWorkspaceId ? { legalworkWorkspaceId } : {}),
+        ...(remoteType === "legalwork" && legalworkWorkspaceName ? { legalworkWorkspaceName } : {}),
+        ...(sandboxBackend ? { sandboxBackend } : {}),
+        ...(sandboxRunId ? { sandboxRunId } : {}),
+        ...(sandboxContainerName ? { sandboxContainerName } : {}),
+      };
+
+      config.workspaces = [workspace, ...config.workspaces.filter((entry) => entry.id !== workspace.id)];
+      const persisted = await persistServerWorkspaceState(config);
+      onWorkspacesChanged();
+
+      await recordAudit(workspace.path, {
+        id: shortId(),
+        workspaceId: workspace.id,
+        actor: ctx.actor ?? { type: "host" },
+        action: "workspace.create",
+        target: workspace.path || workspace.baseUrl || "workspace",
+        summary: `Created remote workspace ${workspace.name}`,
+        timestamp: Date.now(),
+      });
+
+      return jsonResponse({
+        activeId: workspace.id,
+        workspaces: config.workspaces.map(serializeWorkspace),
+        persisted,
+      }, 201);
     });
-
-    return jsonResponse({
-      activeId: workspace.id,
-      workspaces: config.workspaces.map(serializeWorkspace),
-      persisted,
-    }, 201);
   });
 
   addRoute(routes, "PATCH", "/workspaces/:id/display-name", "host", async (ctx) => {
@@ -593,33 +677,35 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
   });
 
   addRoute(routes, "POST", "/workspaces/:id/activate", "host", async (ctx) => {
-    const workspace = await resolveWorkspaceForRegistry(ctx.params.id);
-    // Engine activation can create its state directory. Validate the original
-    // local folder first, so a disconnected project is not replaced by an empty one.
-    if (workspace.workspaceType === "local") await resolveWorkspace(config, workspace.id);
-    const queryPersist = parseOptionalBoolean(ctx.url.searchParams.get("persist"), "persist");
-    const body = queryPersist === undefined ? await readOptionalJsonBody(ctx.request) : {};
-    const persist = queryPersist ?? (body.persist === true);
-    if (persist) ensureWritable(config);
-    config.workspaces = [
-      workspace,
-      ...config.workspaces.filter((entry) => entry.id !== workspace.id),
-    ];
-    const persisted = persist ? await persistServerWorkspaceState(config) : false;
-    if (persist) onWorkspacesChanged();
-    await recordAudit(workspace.path, {
-      id: shortId(),
-      workspaceId: workspace.id,
-      actor: ctx.actor ?? { type: "host" },
-      action: "workspace.activate",
-      target: "workspace",
-      summary: "Switched active workspace",
-      timestamp: Date.now(),
+    return serializeWorkspaceMutation(config, async () => {
+      const workspace = await resolveWorkspaceForRegistry(ctx.params.id);
+      // Engine activation can create its state directory. Validate the original
+      // local folder first, so a disconnected project is not replaced by an empty one.
+      if (workspace.workspaceType === "local") await resolveWorkspace(config, workspace.id);
+      const queryPersist = parseOptionalBoolean(ctx.url.searchParams.get("persist"), "persist");
+      const body = queryPersist === undefined ? await readOptionalJsonBody(ctx.request) : {};
+      const persist = queryPersist ?? (body.persist === true);
+      if (persist) ensureWritable(config);
+      config.workspaces = [
+        workspace,
+        ...config.workspaces.filter((entry) => entry.id !== workspace.id),
+      ];
+      const persisted = persist ? await persistServerWorkspaceState(config) : false;
+      if (persist) onWorkspacesChanged();
+      await recordAudit(workspace.path, {
+        id: shortId(),
+        workspaceId: workspace.id,
+        actor: ctx.actor ?? { type: "host" },
+        action: "workspace.activate",
+        target: "workspace",
+        summary: "Switched active workspace",
+        timestamp: Date.now(),
+      });
+      if (workspace.workspaceType === "local" && resolveWorkspaceOpencodeConnection(config, workspace).baseUrl?.trim()) {
+        await reloadOpencodeEngine(config, workspace);
+      }
+      return jsonResponse({ activeId: workspace.id, workspace: serializeWorkspace(workspace), persisted });
     });
-    if (workspace.workspaceType === "local" && resolveWorkspaceOpencodeConnection(config, workspace).baseUrl?.trim()) {
-      await reloadOpencodeEngine(config, workspace);
-    }
-    return jsonResponse({ activeId: workspace.id, workspace: serializeWorkspace(workspace), persisted });
   });
 
   addRoute(routes, "DELETE", "/workspaces/:id", "host", async (ctx) => {

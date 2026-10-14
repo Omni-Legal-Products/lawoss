@@ -1,7 +1,8 @@
+import { canonicalRealpath } from "./lawoss-picked-path.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -91,8 +92,8 @@ export function resolveLegalworkServerConfigPath(env = process.env) {
 }
 
 /** Matches the server's outside-mode app-files root for a canonical workspace. */
-export function externalWorkspaceAppFilesRoot(serverConfigPath, workspacePath) {
-  const hash = createHash("sha256").update(path.resolve(String(workspacePath))).digest("hex");
+export function externalWorkspaceAppFilesRoot(serverConfigPath, workspacePath, storageKey) {
+  const hash = createHash("sha256").update(storageKey ?? path.resolve(String(workspacePath))).digest("hex");
   return path.join(path.dirname(path.resolve(String(serverConfigPath))), "workspace-app-files", hash);
 }
 
@@ -614,7 +615,7 @@ function loadUserEnvFile() {
   }
 }
 
-export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, listLocalWorkspaceAppFiles, recorder, onSidecarExit, getApprovalWindow }) {
+export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, listLocalWorkspaceAppFiles, listLocalWorkspaces, reconnectHostWorkspace, recorder, onSidecarExit, getApprovalWindow }) {
   const requestHostApproval = createHostApprovalHandler({
     getWindow: getApprovalWindow,
     showMessageBox: async (window, options) => {
@@ -1472,6 +1473,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       configPath: serverConfigPath,
       workspaces: workspacePaths,
       hostWorkspaceAppFiles,
+      hostWorkspaces: await listLocalWorkspaces?.(),
+      reconnectHostWorkspace,
       token: tokens.clientToken,
       hostToken: tokens.hostToken,
       opencodeBaseUrl: options.opencodeBaseUrl ?? undefined,
@@ -1490,7 +1493,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
         const result = await dialog.showOpenDialog({
           title: pickOptions?.title,
           defaultPath: pickOptions?.defaultPath,
-          properties: ["openDirectory", "createDirectory"],
+          properties: pickOptions?.existingOnly ? ["openDirectory"] : ["openDirectory", "createDirectory"],
         });
         const officeBundleIds = {
           word: "com.microsoft.Word",
@@ -1501,7 +1504,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
         if (process.platform === "darwin" && bundleId) {
           spawn("open", ["-b", bundleId], { stdio: "ignore", detached: true }).unref();
         }
-        return result.canceled ? null : (result.filePaths[0] ?? null);
+        const selected = result.canceled ? null : (result.filePaths[0] ?? null);
+        return selected && pickOptions?.existingOnly ? canonicalRealpath(selected) : selected;
       },
       recorder,
       // Word/Excel/PowerPoint add-in listener — enabled via the Office Add-ins
@@ -1755,6 +1759,12 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     if (!safeProjectDir) {
       throw new Error("projectDir is required");
     }
+    // Project creation/home setup explicitly creates its directory. A stale
+    // registered project must stay missing so the native recovery UI can act;
+    // check before healthy reuse, provisioning or resetting a healthy host.
+    if (!(await stat(safeProjectDir).catch(() => null))?.isDirectory()) {
+      throw new Error("Project folder is unavailable; reconnect an existing project directory.");
+    }
 
     // Reuse a healthy server instead of tearing it down. During boot the
     // main process kicks off bootRuntimeForSelectedWorkspace while renderer
@@ -1780,7 +1790,6 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     }
 
     if (appFiles === "inside") {
-      await mkdir(safeProjectDir, { recursive: true });
       await ensureOpencodeConfig(safeProjectDir, appFiles);
     }
     await prepareFreshRuntime();

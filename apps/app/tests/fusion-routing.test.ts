@@ -50,3 +50,34 @@ describe("fusion task-tool prompts", () => {
     expect(prompt).toContain("Review the NDA for risk issues.");
   });
 });
+
+import { runFusionSend } from "../src/react-app/domains/session/fusion/fusion-controller";
+import type { Client } from "../src/app/types";
+
+test("fusion forwards optional native message identity only to its existing main prompt", async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  const client = { session: {
+    messages: async () => ({ data: [] }),
+    promptAsync: async (request: Record<string, unknown>) => {
+      requests.push(request);
+      return { error: { name: "APIError", message: "synthetic rejection" } };
+    },
+  } } as unknown as Client;
+  const candidateModels = [{ providerID: "candidate", modelID: "selected" }];
+  const input = { client, mainSessionId: "main", directory: "/root/work", parts: [{ type: "text" as const, text: "task" }], userText: "task", candidateModels, mainModel: { providerID: "main", modelID: "chosen" }, agent: "agent", variant: "variant" };
+  await expect(runFusionSend({ ...input, messageID: "msg_000000000001abcdefghijklmn" })).rejects.toThrow();
+  await expect(runFusionSend(input)).rejects.toThrow();
+  expect(requests).toHaveLength(2);
+  expect(requests[0].messageID).toBe("msg_000000000001abcdefghijklmn");
+  expect(requests[1]).not.toHaveProperty("messageID");
+  for (const request of requests) {
+    expect(request.sessionID).toBe("main");
+    expect(request.directory).toBe(input.directory);
+    expect(request.model).toEqual(input.mainModel);
+    expect(request.agent).toBe("agent");
+    expect(request.variant).toBe("variant");
+    expect(request.parts).toEqual(input.parts);
+    expect(request.system).toContain("candidate/selected");
+  }
+  expect(candidateModels).toEqual([{ providerID: "candidate", modelID: "selected" }]);
+});

@@ -1,3 +1,8 @@
+import { allDocumentGenerations, applyDocumentGenerationRunStatus, documentGenerationKey, getDocumentGeneration, reconcileDocumentGeneration, readDocumentGenerationSnapshot, isDocumentGenerationSnapshotCurrent, observeDocumentGeneration, subscribeDocumentGenerations, documentGenerationsRevision, submitBoundDocumentGeneration } from "../domains/session/panel/document-generation-lifecycle";
+import { ensureWorkspaceSessionSync, trackWorkspaceSessionSync } from "../domains/session/sync/session-sync";
+import { generationPrompt, type DocumentGenerationRequest } from "../domains/session/panel/document-processing";
+import { documentExecutionDirectory, preflightDocumentGeneration } from "../domains/session/panel/native-document-preflight";
+import { PROJECT_FOLDER_RECONNECTED_EVENT } from "../domains/workspace/project-folder-recovery";
 import { projectErrorMessage } from "../domains/workspace/project-errors";
 /** @jsxImportSource react */
 import {
@@ -6,6 +11,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useLocale } from "@/i18n/use-locale";
@@ -33,6 +39,7 @@ import type {
   AgentPartInput,
   FilePartInput,
   ProviderListResponse,
+  SessionStatus,
   TextPartInput,
 } from "@opencode-ai/sdk/v2/client";
 
@@ -128,7 +135,7 @@ import { firstLineLocalFileParts } from "@/react-app/domains/session/sync/prompt
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
 import { runFusionSend } from "@/react-app/domains/session/fusion/fusion-controller";
-import { getFusionSelectedModels, isFusionEnabled } from "@/react-app/domains/session/fusion/fusion-store";
+import { getFusionSelectedModels, isFusionEnabled, useFusionStore } from "@/react-app/domains/session/fusion/fusion-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { NovySpisPanel } from "@/lawoss/domains/novy-spis/novy-spis-page";
@@ -525,6 +532,12 @@ export function SessionRoute() {
     [opencodeBaseUrl, selectedSessionDirectory, selectedWorkspaceError, selectedWorkspaceRoot, selectedWorkspaceServerToken],
   );
   // Projects synced with the firm arrive, leave and get renamed in the background.
+  useEffect(() => {
+    const refresh = () => { void refreshRouteState(); };
+    window.addEventListener(PROJECT_FOLDER_RECONNECTED_EVENT, refresh);
+    return () => window.removeEventListener(PROJECT_FOLDER_RECONNECTED_EVENT, refresh);
+  }, [refreshRouteState]);
+
   useProjectSyncPoller(client, () => void refreshRouteState(), (workspaceIds) => {
     // Sync changed files of these projects here: whatever shows them reloads.
     for (const id of workspaceIds) {
@@ -1311,6 +1324,120 @@ export function SessionRoute() {
     navigate(target, { state: { workspaceId, sessionId } });
   }, [navigate, selectedSessionId, sidebarActiveWorkspaceId]);
 
+  const sendNativeDraft = useCallback(async (draft: ComposerDraft, sessionId: string, options: { waitForCompletion?: boolean; waitForFusion?: boolean; messageID?: string } | undefined, scope: {
+    opencode: NonNullable<typeof sessionOpencodeClient>; legalwork: LegalworkServerClient; directory: string; projectId: string; runtimeKey?: string; preflighted?: boolean;
+  }) => {
+    const targetSessionId = sessionId.trim() || selectedSessionId;
+    if (!targetSessionId) return;
+    const text = (draft.resolvedText ?? draft.text).trim();
+    if (!text && draft.attachments.length === 0) return;
+    // Nothing selected at all (a fresh install that skipped the AI step,
+    // or a selection cleared by the free-tier retirement): the composer is
+    // locked behind the connect-AI bar, so this only backstops programmatic
+    // sends. Without it the prompt reaches the engine with no model and
+    // fails there with a generic error.
+    if (!local.prefs.defaultModel) throw new Error(t("session_route.no_model"));
+    if (!scope.preflighted && scope.projectId === selectedWorkspaceId && selectedModelUnavailable) throw new Error(t("session_route.model_unavailable"));
+
+    const fusionModels = getFusionSelectedModels(targetSessionId);
+    captureAnalyticsEvent("task_message_sent", {
+      session_id: targetSessionId,
+      is_command: Boolean(draft.command),
+      provider_id: local.prefs.defaultModel?.providerID ?? null,
+      model_id: local.prefs.defaultModel?.modelID ?? null,
+      surface: analyticsSurface(),
+      fusion_enabled: isFusionEnabled(targetSessionId),
+      fusion_model_count: fusionModels.length,
+      fusion_models: fusionModels.map((m) => `${m.providerID}/${m.modelID}`),
+    });
+    markTaskRunStart(targetSessionId);
+
+    if (draft.mode === "shell") {
+      await shellInSession(scope.opencode, targetSessionId, text);
+      return;
+    }
+
+    if (draft.command) {
+      const result = await scope.opencode.session.command({
+        sessionID: targetSessionId,
+        command: draft.command.name,
+        arguments: draft.command.arguments,
+        model: local.prefs.defaultModel
+          ? `${local.prefs.defaultModel.providerID}/${local.prefs.defaultModel.modelID}`
+          : undefined,
+        agent: selectedAgent ?? undefined,
+        variant: modelVariantValue ?? undefined,
+      });
+      if (result.error) {
+        throw new Error(serializeSDKError(result.error));
+      }
+      return;
+    }
+
+    const parts = await draftToParts(draft, scope.directory);
+    const envSystemContext = await buildLegalworkEnvSystemContext(scope.legalwork, {
+      cacheKey: targetSessionId,
+      runtimeKey: scope.runtimeKey,
+    });
+    const turnSystemContext = [envSystemContext, draft.modelContext]
+      .filter((context): context is string => Boolean(context?.trim()))
+      .join("\n\n");
+
+    if (!isOfficeAddinRuntime() && isFusionEnabled(targetSessionId)) {
+      const candidateModels = getFusionSelectedModels(targetSessionId);
+      if (candidateModels.length === 0) {
+        // No candidates picked for this chat: warn and fall through to a
+        // normal single-model send.
+        toast.error(t("fusion.not_configured"));
+      } else {
+        // Deliberately not awaited: the composer should clear as soon as
+        // the message is handed off, not when the whole fusion turn
+        // (task calls + synthesis) finishes. Progress streams
+        // through the fusion store; failures surface as a session error.
+        const run = runFusionSend({
+          client: scope.opencode,
+          directory: scope.directory || undefined,
+          mainSessionId: targetSessionId,
+          messageID: options?.messageID,
+          parts,
+          userText: text,
+          candidateModels,
+          mainModel: local.prefs.defaultModel ?? undefined,
+          agent: selectedAgent ?? undefined,
+          variant: modelVariantValue ?? undefined,
+          baseSystem: turnSystemContext || undefined,
+        }).catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          toast.error(t("fusion.turn_failed"), { description: message });
+          useSessionActivityStore.getState().setError(scope.projectId, targetSessionId, message);
+          if (options?.waitForCompletion || options?.waitForFusion) throw error;
+        });
+        if (options?.waitForCompletion || options?.waitForFusion) await run;
+        return;
+      }
+    }
+
+    const request = {
+      sessionID: targetSessionId,
+      ...(options?.messageID ? { messageID: options.messageID } : {}),
+      parts,
+      model: local.prefs.defaultModel ?? undefined,
+      agent: selectedAgent ?? undefined,
+      ...(modelVariantValue ? { variant: modelVariantValue } : {}),
+      ...(turnSystemContext ? { system: turnSystemContext } : {}),
+    };
+    if (options?.waitForCompletion) {
+      // The queue advances after the engine's whole loop, not after a tool
+      // step, a streamed assistant message, or the prompt_async HTTP 204.
+      const result = unwrap(await scope.opencode.session.prompt(request));
+      if (result.info.error) throw new Error(serializeSDKError(result.info.error));
+    } else {
+      const result = await scope.opencode.session.promptAsync(request);
+      if (result.error) throw new Error(serializeSDKError(result.error));
+    }
+
+  }, [local, selectedSessionId, selectedWorkspaceId, selectedModelUnavailable, selectedAgent, modelVariantValue]);
+
   const surfaceProps = useMemo(() => {
     if (!client || !selectedWorkspaceId || !selectedSessionId || !opencodeBaseUrl || !token || !sessionOpencodeClient) {
       return null;
@@ -1385,114 +1512,10 @@ export function SessionRoute() {
       onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "providers") => {
         handleOpenSettings(section === "skills" ? "/settings/extensions/skills" : section === "mcps" ? "/settings/extensions/mcp" : section === "plugins" ? "/settings/extensions/plugins" : section === "providers" ? "/settings/ai" : "/settings/general");
       },
-      onSendDraft: async (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean }) => {
-        const targetSessionId = sessionId.trim() || selectedSessionId;
-        if (!targetSessionId) return;
-        const text = (draft.resolvedText ?? draft.text).trim();
-        if (!text && draft.attachments.length === 0) return;
-        // Nothing selected at all (a fresh install that skipped the AI step,
-        // or a selection cleared by the free-tier retirement): the composer is
-        // locked behind the connect-AI bar, so this only backstops programmatic
-        // sends. Without it the prompt reaches the engine with no model and
-        // fails there with a generic error.
-        if (!local.prefs.defaultModel) throw new Error(t("session_route.no_model"));
-        if (selectedModelUnavailable) throw new Error(t("session_route.model_unavailable"));
-
-        const fusionModels = getFusionSelectedModels(targetSessionId);
-        captureAnalyticsEvent("task_message_sent", {
-          session_id: targetSessionId,
-          is_command: Boolean(draft.command),
-          provider_id: local.prefs.defaultModel?.providerID ?? null,
-          model_id: local.prefs.defaultModel?.modelID ?? null,
-          surface: analyticsSurface(),
-          fusion_enabled: isFusionEnabled(targetSessionId),
-          fusion_model_count: fusionModels.length,
-          fusion_models: fusionModels.map((m) => `${m.providerID}/${m.modelID}`),
-        });
-        markTaskRunStart(targetSessionId);
-
-        if (draft.mode === "shell") {
-          await shellInSession(sessionOpencodeClient, targetSessionId, text);
-          return;
-        }
-
-        if (draft.command) {
-          const result = await sessionOpencodeClient.session.command({
-            sessionID: targetSessionId,
-            command: draft.command.name,
-            arguments: draft.command.arguments,
-            model: local.prefs.defaultModel
-              ? `${local.prefs.defaultModel.providerID}/${local.prefs.defaultModel.modelID}`
-              : undefined,
-            agent: selectedAgent ?? undefined,
-            variant: modelVariantValue ?? undefined,
-          });
-          if (result.error) {
-            throw new Error(serializeSDKError(result.error));
-          }
-          return;
-        }
-
-        const parts = await draftToParts(draft, selectedSessionDirectory || selectedWorkspaceRoot);
-        const envSystemContext = await buildLegalworkEnvSystemContext(client, {
-          cacheKey: targetSessionId,
-          runtimeKey: environmentRuntimeKey,
-        });
-        const turnSystemContext = [envSystemContext, draft.modelContext]
-          .filter((context): context is string => Boolean(context?.trim()))
-          .join("\n\n");
-
-        if (!isOfficeAddinRuntime() && isFusionEnabled(targetSessionId)) {
-          const candidateModels = getFusionSelectedModels(targetSessionId);
-          if (candidateModels.length === 0) {
-            // No candidates picked for this chat: warn and fall through to a
-            // normal single-model send.
-            toast.error(t("fusion.not_configured"));
-          } else {
-            // Deliberately not awaited: the composer should clear as soon as
-            // the message is handed off, not when the whole fusion turn
-            // (task calls + synthesis) finishes. Progress streams
-            // through the fusion store; failures surface as a session error.
-            const run = runFusionSend({
-              client: sessionOpencodeClient,
-              directory: selectedSessionDirectory || selectedWorkspaceRoot || undefined,
-              mainSessionId: targetSessionId,
-              parts,
-              userText: text,
-              candidateModels,
-              mainModel: local.prefs.defaultModel ?? undefined,
-              agent: selectedAgent ?? undefined,
-              variant: modelVariantValue ?? undefined,
-              baseSystem: turnSystemContext || undefined,
-            }).catch((error: unknown) => {
-              const message = error instanceof Error ? error.message : String(error);
-              toast.error(t("fusion.turn_failed"), { description: message });
-              useSessionActivityStore.getState().setError(selectedWorkspaceId, targetSessionId, message);
-              if (options?.waitForCompletion) throw error;
-            });
-            if (options?.waitForCompletion) await run;
-            return;
-          }
-        }
-
-        const request = {
-          sessionID: targetSessionId,
-          parts,
-          model: local.prefs.defaultModel ?? undefined,
-          agent: selectedAgent ?? undefined,
-          ...(modelVariantValue ? { variant: modelVariantValue } : {}),
-          ...(turnSystemContext ? { system: turnSystemContext } : {}),
-        };
-        if (options?.waitForCompletion) {
-          // The queue advances after the engine's whole loop, not after a tool
-          // step, a streamed assistant message, or the prompt_async HTTP 204.
-          const result = unwrap(await sessionOpencodeClient.session.prompt(request));
-          if (result.info.error) throw new Error(serializeSDKError(result.info.error));
-        } else {
-          const result = await sessionOpencodeClient.session.promptAsync(request);
-          if (result.error) throw new Error(serializeSDKError(result.error));
-        }
-      },
+      onSendDraft: (draft: ComposerDraft, sessionId: string, options?: { waitForCompletion?: boolean }) => sendNativeDraft(draft, sessionId, options, {
+        opencode: sessionOpencodeClient, legalwork: client, directory: selectedSessionDirectory || selectedWorkspaceRoot,
+        projectId: selectedWorkspaceId, runtimeKey: environmentRuntimeKey,
+      }),
       onDraftChange: () => {
         // Draft persistence will be wired once the full React shell owns session state.
       },
@@ -1577,6 +1600,7 @@ export function SessionRoute() {
         : undefined,
     };
   }, [
+    sendNativeDraft,
     client,
     modelPicker.compactOpen,
     handleOpenSettings,
@@ -1707,6 +1731,91 @@ export function SessionRoute() {
     [client, forgetWorkspaceHere, refreshRouteState],
   );
 
+
+  const documentGenerationRevision = useSyncExternalStore(subscribeDocumentGenerations, documentGenerationsRevision, documentGenerationsRevision);
+  useEffect(() => {
+    const releases: Array<() => void> = [];
+    for (const [key, binding] of allDocumentGenerations()) {
+      if (binding.phase === "completed" || binding.phase === "error") continue;
+      const workspace = workspaces.find(item => item.id === binding.projectId);
+      const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token });
+      if (!workspace || !endpoint || endpoint.baseUrl !== binding.baseUrl || endpoint.workspaceId !== binding.workspaceId || workspace.path !== binding.root) continue;
+      const sync = {
+        workspaceId: workspace.id,
+        baseUrl: endpoint.opencodeBaseUrl,
+        legalworkToken: endpoint.token,
+        directory: binding.directory,
+        onSessionStatus: (update: { sessionId: string; status: SessionStatus }) => {
+          if (update.sessionId === binding.sessionId) applyDocumentGenerationRunStatus(key, update.status);
+        },
+      };
+      releases.push(ensureWorkspaceSessionSync(sync), trackWorkspaceSessionSync(sync, binding.sessionId), observeDocumentGeneration(key, workspace.id));
+    }
+    return () => { for (const release of releases) release(); };
+  }, [documentGenerationRevision, workspaces, baseUrl, token]);
+  const handleGenerateDocuments = async (request: DocumentGenerationRequest): Promise<string> => {
+    const workspace = workspaces.find(item => item.id === request.projectId);
+    if (!workspace || isLawossHomeWorkspace(workspace)) throw new Error(t("workspace.not_found"));
+    const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl, token });
+    if (!endpoint) throw new Error(t("session_route.create_server_unavailable"));
+    const root = workspace.path?.trim() || "";
+    const { relative, directory } = documentExecutionDirectory(root, request.caseDirectory, endpoint.isRemote);
+    const scopedClient = createClient(endpoint.opencodeBaseUrl, directory, { token: endpoint.token, mode: "legalwork" });
+    const metadata = { projectId: workspace.id, baseUrl: endpoint.baseUrl, workspaceId: endpoint.workspaceId, root, directory };
+    const key = documentGenerationKey(metadata, request.outputLanguage, request.sources);
+    const existing = getDocumentGeneration(key);
+    if (existing) {
+      const result = await readDocumentGenerationSnapshot(key, async () => (await endpoint.client.getSessionSnapshot(endpoint.workspaceId, existing.sessionId, { limit: 20 })).item);
+      reconcileDocumentGeneration(key, result);
+      if (isDocumentGenerationSnapshotCurrent(getDocumentGeneration(key), result) && (result.snapshot.status.type === "busy" || result.snapshot.status.type === "retry")) return existing.sessionId;
+    }
+    try {
+      return await submitBoundDocumentGeneration({
+        key,
+        metadata,
+        newGeneration: request.newGeneration,
+        preflight: async () => {
+          try {
+            await preflightDocumentGeneration({ queryClient: getReactQueryClient(), sdk: scopedClient, baseUrl: endpoint.opencodeBaseUrl,
+              directory, relative, legalwork: endpoint.client, workspaceId: endpoint.workspaceId, model: local.prefs.defaultModel, request });
+          } catch (cause) { throw new Error(t("documents.preflight_failed", { message: describeRouteError(cause) })); }
+        },
+        create: async () => {
+          const session = unwrap(await scopedClient.session.create({ directory }));
+          rememberPendingCreatedSession(workspace.id, session.id);
+          if (selectedSessionId && selectedWorkspaceId === workspace.id) {
+            const fusion = useFusionStore.getState();
+            fusion.setEnabled(session.id, isFusionEnabled(selectedSessionId));
+            fusion.setSelectedModels(session.id, getFusionSelectedModels(selectedSessionId));
+          }
+          setSessionsByWorkspaceId(current => {
+            const next = { ...current, [workspace.id]: [session, ...(current[workspace.id] ?? [])] };
+            sessionsByWorkspaceIdRef.current = next; return next;
+          });
+          captureAnalyticsEvent("task_created", { source: "document-processing", surface: analyticsSurface() });
+          return session.id;
+        },
+        send: async (sessionId, messageID) => {
+          // Select immediately, retaining this chat if inference/auth/billing fails.
+          setLegacySelectedWorkspaceId(workspace.id); writeActiveWorkspaceId(workspace.id);
+          writeLastSessionFor(workspace.id, sessionId); navigateToWorkspaceSession(workspace.id, sessionId);
+          void refreshRouteState();
+          const text = generationPrompt(request.outputLanguage, request.sources);
+          try {
+            await sendNativeDraft({ mode: "prompt", text, parts: [{ type: "text", text }], attachments: [],
+              modelContext: `Selected project root: ${JSON.stringify(root)}. Working directory: ${JSON.stringify(directory)}. Source and export paths are relative to the selected project ROOT, not the working subfolder. The working subfolder does not change legal identity; do not infer another case.` }, sessionId, { waitForFusion: true, messageID },
+              { opencode: scopedClient, legalwork: endpoint.client, directory, projectId: workspace.id, preflighted: true });
+          } catch (cause) {
+            throw Object.assign(new Error(t("documents.send_failed", { message: describeRouteError(cause) })), { sessionId });
+          }
+        },
+      });
+    } catch (cause) {
+      const binding = getDocumentGeneration(key);
+      if (binding && cause instanceof Error) Object.assign(cause, { sessionId: binding.sessionId });
+      throw cause;
+    }
+  };
 
   const handleCreateChatInWorkspace = useCallback(async (workspaceId: string, options?: { shareRecordingId: string }) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
@@ -2461,6 +2570,7 @@ export function SessionRoute() {
       projectsPage={location.pathname === "/projects" && !showWorkflows && !showExtensions && !showEvals && !showTasks && !showRecorder}
       projectPage={(location.pathname.endsWith("/project") || location.pathname.endsWith("/tasks") || location.pathname.endsWith("/reviews")) && !showWorkflows && !showExtensions && !showEvals && !showTasks && !showRecorder ? location.pathname.endsWith("/reviews") ? "reviews" : location.pathname.endsWith("/tasks") ? "tasks" : "home" : undefined}
       onRenameProject={(name) => handleRenameWorkspace(selectedWorkspaceId, name)}
+      onGenerateDocuments={handleGenerateDocuments}
       onCreateProjectSession={async (shareRecording) => {
         if (recordingSessionStarting.current) return;
         recordingSessionStarting.current = true;

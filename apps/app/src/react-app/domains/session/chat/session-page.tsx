@@ -1,3 +1,4 @@
+import type { DocumentGenerationCallback } from "../panel/document-processing";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { ProjectReviews } from "../../reviews/project-reviews";
 import { ProjectsPage } from "../../workspace/projects-page";
@@ -231,6 +232,7 @@ export type SessionPageProps = {
   onRenameProject?: (name: string) => Promise<boolean>;
   projectTasksView?: React.ReactNode;
   onStartProjectRecording: () => void;
+  onGenerateDocuments?: DocumentGenerationCallback;
   onCreateProjectSession?: (shareRecording: boolean) => void | Promise<void>;
   terminalOpen?: boolean;
   onTerminalOpenChange?: (open: boolean) => void;
@@ -1084,6 +1086,8 @@ export function SessionPage(props: SessionPageProps) {
           headerTarget={!mobile && filesRailActive ? filesHeaderTarget : null}
           client={props.legalworkServerClient}
           workspaceId={props.runtimeWorkspaceId}
+          projectId={props.selectedWorkspaceId}
+          onGenerateDocuments={props.onGenerateDocuments}
           workspaceRoot={props.selectedWorkspaceRoot}
           isRemoteWorkspace={props.selectedWorkspaceDisplay.workspaceType === "remote"}
           projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name}

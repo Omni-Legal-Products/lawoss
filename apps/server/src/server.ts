@@ -1,3 +1,8 @@
+import { LawossDocuments } from "./lawoss/documents/service.js";
+import { registerLawossDocumentRoutes } from "./routes/lawoss-documents.js";
+import { workspaceOwnsSession } from "./lawoss/workspace-history.js";
+import { sessionInfoSchema } from "./session-read-model.js";
+import { historicalWorkspaceSessions } from "./lawoss/workspace-history-sessions.js";
 import { getWorkspaceMemoryContext, getWorkspaceMemoryGrants, getWorkspaceMemoryStatus } from "./lawoss/workspace-memory.js";
 import { z } from "zod";
 import { reviewSourcePage } from "./reviews/source-page.js";
@@ -811,6 +816,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
   // LAWOSS: OCR models download only after the lawyer turns OCR on (lawoss/ocr-opt-in.ts).
   const ocr = new LawossOcrManager(join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ocr"));
   const preparation = new DocumentPreparation(ocr, { layout: runtimeOptions.documentLayout });
+  const documents = new LawossDocuments(config, preparation);
   const corpus = new CorpusService({
     selection: async () => {
       const settings = await readSystemOneSettings(config);
@@ -824,7 +830,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
     infer: (request, selection, signal) => systemOne(config, request, { providerId: selection.providerId, signal, retry: false }),
   });
   const reviews = new ReviewService(new ReviewExecutor(config), preparation, new ReviewDefaults(runtimeStorageDir(config)));
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus);
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, documents);
 
   const serverOptions: {
     hostname: string;
@@ -1039,6 +1045,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       approvals.dispose();
       await corpus.stop();
       reviews.stop();
+      await documents.stop();
       preparation.stop();
       ocr.stop();
       stopTaskSync();
@@ -1178,6 +1185,7 @@ async function proxyOpencodeRequest(input: {
   }
 
   const proxyPath = input.proxyPath ?? input.url.pathname;
+  const scopedProxyPath = normalizeOpencodeProxyPath(proxyPath);
   let targetUrl = buildOpencodeProxyUrl(baseUrl, proxyPath, input.url.search);
   const headers = new Headers(input.request.headers);
   headers.delete("authorization");
@@ -1199,6 +1207,22 @@ async function proxyOpencodeRequest(input: {
   const auth = workspace ? resolveWorkspaceOpencodeConnection(input.config, workspace).authHeader ?? null : null;
   if (auth) {
     headers.set("Authorization", auth);
+  }
+
+  if (scopedProxyPath === "/experimental/session") {
+    throw new ApiError(403, "workspace_history_internal", "Global session history is host-internal");
+  }
+  const sessionMatch = scopedProxyPath.match(/^\/session\/([^/]+)(?:\/|$)/);
+  if (workspace && (workspace.previousPaths?.length || workspace.appFilesStorageKey) && sessionMatch && !["status", "list"].includes(sessionMatch[1]!)) {
+    const sessionId = decodeURIComponent(sessionMatch[1]!);
+    const metadataUrl = buildOpencodeProxyUrl(baseUrl, `/session/${encodeURIComponent(sessionId)}`, "");
+    const metadataHeaders = new Headers(headers);
+    metadataHeaders.delete("content-length");
+    metadataHeaders.delete("content-type");
+    const metadata = await fetch(metadataUrl, { headers: metadataHeaders, signal: AbortSignal.timeout(10_000) });
+    if (!metadata.ok) throw new ApiError(404, "session_not_found", "Session not found");
+    const parsed = sessionInfoSchema.safeParse(await metadata.json());
+    if (!parsed.success || !workspaceOwnsSession(workspace, parsed.data)) throw new ApiError(404, "session_not_found", "Session does not belong to this project");
   }
 
   const method = input.request.method.toUpperCase();
@@ -1223,6 +1247,20 @@ async function proxyOpencodeRequest(input: {
     headers,
     body,
   });
+
+  if (workspace && method === "GET" && scopedProxyPath === "/session" && response.ok && (workspace.previousPaths?.length || workspace.appFilesStorageKey)) {
+    const current = sessionInfoSchema.array().safeParse(await response.json());
+    if (!current.success) throw new ApiError(502, "opencode_invalid_response", "Invalid session list");
+    const historical = await historicalWorkspaceSessions(input.config, workspace, {
+      roots: parseOptionalBoolean(input.url.searchParams.get("roots"), "roots"),
+      start: parseOptionalNonNegativeInteger(input.url.searchParams.get("start"), "start"),
+      search: input.url.searchParams.get("search") ?? undefined,
+    });
+    const merged = new Map([...historical, ...current.data].filter(session => workspaceOwnsSession(workspace, session)).map(session => [session.id, session]));
+    const ordered = [...merged.values()].sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0));
+    const limit = parseOptionalPositiveInteger(input.url.searchParams.get("limit"), "limit");
+    return jsonResponse(limit ? ordered.slice(0, limit) : ordered);
+  }
 
   return sanitizeProxyResponse(response);
 }
@@ -1595,6 +1633,7 @@ function createRoutes(
   preparation: DocumentPreparation,
   reviews: ReviewService,
   corpus: CorpusService,
+  documents: LawossDocuments,
 ): Route[] {
   const routes: Route[] = [];
   registerSystemOneRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope, onSettingsChanged: async () => {
@@ -1619,7 +1658,10 @@ function createRoutes(
         if (result.response?.status === 404) return null;
         return unwrapOpencodeResult(result, "/session");
       },
-      list: async () => unwrapOpencodeResult(await client.session.list(), "/session"),
+      list: async () => {
+        const lists = await Promise.all([client.session.list().then(result => unwrapOpencodeResult(result, "/session")), historicalWorkspaceSessions(config, workspace)]);
+        return [...new Map(lists.flat().map(session => [session.id, session])).values()];
+      },
       messages: async (id, limit) => unwrapOpencodeResult(await client.session.messages({ sessionID: id, limit }), "/session/message"),
       create: async title => unwrapOpencodeResult(await client.session.create({ title }), "/session"),
       unarchive: async id => unwrapOpencodeResult(await client.session.update({ sessionID: id, time: { archived: 0 } }), "/session"),
@@ -1627,6 +1669,7 @@ function createRoutes(
   });
   registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerDocumentPreparationRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
+  registerLawossDocumentRoutes({ routes, config, documents, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
   registerLawossOcrRoutes({ routes, config, ocr, jsonResponse, readJsonBodyLimited, ensureWritable });
   const projectFolders = registerStorageRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace, onProjectFoldersChanged: (id) => noteProjectFoldersChanged(config, id), onProjectRenamed: (id, name) => noteProjectRenamed(config, id, name) });
@@ -3207,8 +3250,8 @@ function createRoutes(
     return {
       workspace, orgId, tasks: await taskStore(config), recorder: config.recorder,
       sessions: async (limit) => {
-        const result = await createWorkspaceOpencodeClient(config, workspace).session.list({ limit });
-        return unwrapOpencodeResult(result, "/session");
+        const lists = await Promise.all([createWorkspaceOpencodeClient(config, workspace).session.list({ limit }).then(result => unwrapOpencodeResult(result, "/session")), historicalWorkspaceSessions(config, workspace)]);
+        return [...new Map(lists.flat().map(session => [session.id, session])).values()].map(session => ({ id: session.id, title: session.title ?? "", directory: session.directory ?? workspace.path, time: { updated: session.time?.updated ?? 0 } }));
       },
     };
   };
