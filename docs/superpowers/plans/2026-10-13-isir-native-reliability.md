@@ -172,3 +172,20 @@ PR #156 je skutečně sloučený do dev1c1dc431; jeho strom odpovídá publikova
 - [ ] Po clean reviews začlenit aktuální dev a nové opravy do nové běžné PR, dokončit všechny požadované lokální/native/remote OS kontroly a schválení; poté zachovaný profil, deset public ISIR spisů přes skutečné UI a vybraný placený provider, restart/hash audit a otevření ověřené aplikace.
 
 Bootstrap9dc1f5e má čerstvou nezávislou spec/quality revizi bez Critical/Important. Jediný Minor očekávaného fixture logu odstraněn test-only284d60b5; focused2/allhelpers34pass0fail0skip/syntax0 a fresh scoped Minor ADDRESSED bez nových zjištění. Skutečný celkový native/OS průchod tím není zelený; další krok je evidence-driven chooser scope výše.
+
+### Opětovně otevřená spolehlivost nativního resetu (2026-10-14)
+
+Následující skutečný observer baseline1767 skončil ještě před chooserem: configPATCH200/auth200, supported workspace reload TimeoutError30002ms. Předchozí supported B28.853s +2 případy tedy nedokazuje spolehlivý bootstrap. Scoped helper/diagnostic revize9dc/284 zůstává dokladem svého omezeného kódu, nikoli uzavřením této nové runtime hranice. Tento stav je historický: po doložené initial-only readiness změně byly observer/startup soubory commitnuty5807 a I1 opravena4414; současná hranice je příprava osmého spisu níže. Chooser stále nemá prokázanou příčinu dřívějšího odpojení ani lifetime opravu.
+
+- [ ] Ve skutečném připnutém hostu rozlišit scoped dispose, readiness GET/mcp, restoration a odpověď; jedno nové izolované stage měření, bez opakování nezměněného plného průchodu, skipu/reset workaroundu nebo navýšení timeoutu.
+- [ ] Z doložené příčiny odvodit konkrétní behaviorální RED, nejmenší produkční opravu a GREEN/čerstvou revizi. Config persistence není důkaz derived-file publication; streamové pending počty nejsou socket census.
+- [ ] Potom obnovit stejného chooser implementera, prokázat jeho actual lifetime/owner hranici a dokončit původní celý native/remote/dev/preserved-profile/public-provider/CUA řetězec.
+
+### Aktuální příprava osmého spisu a revize startu (2026-10-14)
+
+- [x] Zmrazit nový commit `5807e787` a získat nezávislou revizi přesného diffu. Kontrola počáteční instance prošla v původním 90s rozpočtu; běžný reset má stále 30s. Osm skutečných dialogů mělo správného vlastníka a připojený stejný vstup; nejde o prokázanou opravu dřívějšího odpojení vstupu.
+- [x] Opravit a nezávisle znovu zrevidovat I1: neplatné JSON tělo nesmí proniknout do zprávy, stacku ani cause; transportní chyby a deadline zachovávají původní identitu. Skutečný HTTP RED před opravou, úplné pokrývající helper testy po opravě.
+- [x] Ověřit uchovaný úplný CDP záznam bez zveřejnění surových dat. Pro spisy1–7 bylo15 POST prepare a všechny200; pro spis8 nebyl POST prepare odeslán. CDP events jsou append-only; hypotéza chybného indexu kvůli ořezu pole není podložena. Kopie25souborů odpovídají originálům,14výstupů je uložených;31originálů beze změn.
+- [x] Oddělit historické streamy od aktuálního dokumentu: před osmým dialogem aktuální epoch1 obsahovala5sledovaných streamů, při selhání6; samostatný starý app-sync patří do historie. Stejný origin/HTTP1.1 a odlišné pozorované connectionId jsou vodítka, nikoli census živých socketů nebo důkaz příčiny.
+- [ ] Po čisté revizi I1 mapovat skutečnou posloupnost klik → discovery/files → prepare a vlastníky transportů. Nové měření musí odlišit neprovedenou akci, čekající discovery/OPTIONS, chybu UI a serverovou chybu; příčina musí být doložená před produkční opravou. Žádné delší timeouty, neověřený retry, vynechání spisu nebo plošné rušení aktivních relací.
+- [ ] Skutečný nový úplný průchod10spisů/31zdrojů/20výstupů včetně restartu/history/přesunu/cwd/hashes po doložené opravě, poté původní úplné remoteOS/PR/dev/profil/public-provider/CUA/finalaudit gates. Sedm průchozích spisů nezavírá celý cíl.

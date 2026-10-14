@@ -602,3 +602,12 @@ PR #156 už obsahuje staršiu publikovanú sériu bdaba06e; následné SQL/proxy
 | --- | --- | --- |
 | `scripts/test-isir-native.mjs` | Provider bootstrap používa existujúci autentizovaný host workspace reload s normalizáciou directory/readiness/MCP. Failure probe sleduje skutočný failing/selected case; Page epoch events sú povolené pri štarte aj relaunch. Nové downstream helpery majú HTTP auth/scope/readiness/persistence RED/GREEN, bounded monotonic/current-history projekcie a safe probe. MacOS A/B potvrdzuje unscoped timeout a2tool/file prípady po scoped reload, nie celý native/OS gate ani derived-config publication. | `fix/isir-native-reliability` (nová lokálna séria po merge #156) |
 | `.github/workflows/ci-tests.yml`, `.github/workflows/ci-windows-portable.yml` | Všetky native helper testy sa spustia po existujúcom server build na Linux/macOS/Windows. Explicitný offline attachment runner ostáva bez nového build prerequisite; install/verzie/upload allowlist sa nemenia. CI výber a lokálnych33GREEN nie sú remote OS úspech. | `fix/isir-native-reliability` (nová lokálna séria po merge #156) |
+
+
+### Počiatočná pripravenosť inštancie a meranie natívneho vstupu (2026-10-14)
+
+| Upstream súbory | Downstream doplnenie | Vetva |
+| --- | --- | --- |
+| `apps/app/src/react-app/domains/session/panel/workspace-files-panel.tsx` | Štyri readonly data atribúty existujúceho panelu umožňujú testu overiť fyzického vlastníka, klientsku identitu a vybraný priečinok vstupu. Nemenia stav, query, sieť, UI tok ani lifetime. Skutočných8chooserov zachovalo presný event/backendNodeId; skoršie odpojenie sa nereprodukovalo, jeho príčina zostáva neznáma. | `fix/isir-native-reliability` (nová lokálna séria po merge #156) |
+
+Downstream natívny harness používa iba pri počiatočnom existujúcom registrovanom koreni autentizované `/path` a celé telo s presnou directory kontrolou. UI/global-health/body zdieľajú pôvodný90s absolutný rozpočet; bežný reset30s a relaunch/recovery zostávajú nezmenené. Parser SyntaxError má fixný text bez cause; skutočné HTTP regresie zachovávajú transportné chyby/deadline. Scoped revízie5807/4414 a42helpertestov sú čisté. Aktuálny úplný beh skončil pri príprave spisu8 po7kompletných prípadoch; nejde o uzavretie10spisov/31zdrojov/20výstupov, remoteOS, dev ani živého profilu.
