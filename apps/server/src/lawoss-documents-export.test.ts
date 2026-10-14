@@ -185,3 +185,82 @@ test("listed-path hash mismatch cannot borrow another matching reference; ambigu
  await writeFile(file,JSON.stringify({...original,documents:[...original.documents,other]}));
  await expect(exports.export(w,exportInputSchema.parse({path:"ambiguous.csv",kind:"registry",outputLanguage:"cs",documentIds:[unlisted.id],entries:[]}))).rejects.toThrow();
 }));
+
+// Removing unsupported-coverage rejection would endorse legacy model text,
+// scalar/array JSON or absent fields despite current failed/partial extraction.
+test("ordinary saved CSV and summaries require provable coverage for actual failed, partial and readable sources",()=>fixture(async(exports,w,root,_id,documents)=>{
+ await rm(join(root,"TEST_ZDROJE_ISIR.json"));
+ await writeFile(join(root,"failed.txt"),"binary\0content");
+ const {PDFDocument,StandardFonts}=await import("pdf-lib");
+ const pdf=await PDFDocument.create(),font=await pdf.embedFont(StandardFonts.Helvetica);
+ pdf.addPage().drawText("Synthetic partial cover",{font}); await pdf.attach(new Uint8Array([1,2,3]),"unsupported.exe");
+ await writeFile(join(root,"partial.pdf"),await pdf.save());
+ await documents.prepare(w,["failed.txt","partial.pdf"]);
+ let records=await documents.list(w);
+ for(let i=0;i<200&&records.some(r=>["uploaded","preparing"].includes(r.status));i++){await new Promise(resolve=>setTimeout(resolve,10));records=await documents.list(w);}
+ const {serializeCsv,renderSummaryVisible,summarySchema}=await import("./lawoss/documents/validation.js");
+ const variants=["Complete; all pages read","",'"Complete"',"true","null","[]","[{}]"];
+ for(const path of ["failed.txt","partial.pdf","source.txt"]){
+  const source=records.find(r=>r.path===path&&!r.provenance.parentId)!;
+  expect(source.status).toBe(path==="failed.txt"?"failed":path==="partial.pdf"?"partial":"readable");
+  const baseline=`baseline-${source.id}.csv`,summary=`baseline-${source.id}.md`;
+  await exports.export(w,{path:baseline,kind:"registry",outputLanguage:"cs",documentIds:[source.id],entries:[]});
+  await exports.export(w,{path:summary,kind:"summary",outputLanguage:"cs",documentIds:[source.id],entries:[]});
+  const rows=parseCsv(await readFile(join(root,baseline),"utf8")); rows[0][6]="ctitelnost";
+  const markdown=await readFile(join(root,summary),"utf8"),start=markdown.lastIndexOf("```json\n"),end=markdown.lastIndexOf("```");
+  const data=JSON.parse(markdown.slice(start+8,end));
+  const ordinary=`ordinary-${source.id}.csv`,ordinarySummary=`ordinary-${source.id}.md`;
+  await writeFile(join(root,`${ordinary}.lawoss.json`),JSON.stringify({caseNumber:null,company:null,sourceUrl:null,project:w.name,outputLanguage:"cs"}));
+  // Structured truthful incomplete coverage is valid; completeness is not required.
+  await writeFile(join(root,ordinary),serializeCsv(rows));
+  expect((await exports.validate(w,{paths:[ordinary,summary],documentIds:[source.id],outputLanguage:"cs"})).valid).toBe(true);
+  for(const unsupported of variants){
+   rows[1][6]=unsupported; await writeFile(join(root,ordinary),serializeCsv(rows));
+   const result=await exports.validate(w,{paths:[ordinary],documentIds:[source.id],outputLanguage:"cs"});
+   expect(result.valid).toBe(false); expect(result.issues.map(issue=>issue.code)).toContain("unsupported_coverage"); expect(result.outputs[0].verified).toBe(false); expect(result.outputs[0].owned).toBe(false);
+   const altered=structuredClone(data); altered.sources[0].coverage=unsupported===""?undefined:unsupported==="Complete; all pages read"?unsupported:JSON.parse(unsupported);
+   await writeFile(join(root,ordinarySummary),`${renderSummaryVisible(summarySchema.parse(altered))}\`\`\`json\n${JSON.stringify(altered)}\n\`\`\`\n`);
+   const summaryResult=await exports.validate(w,{paths:[ordinarySummary],documentIds:[source.id],outputLanguage:"cs"});
+   expect(summaryResult.valid).toBe(false); expect(summaryResult.issues.map(issue=>issue.code)).toContain("unsupported_coverage"); expect(summaryResult.outputs[0].verified).toBe(false);
+   const reloaded=await new DocumentExports(documents).list(w);
+   expect(reloaded.outputs.filter(output=>[ordinary,ordinarySummary].includes(output.path)).every(output=>!output.verified)).toBe(true);
+  }
+  const changed=structuredClone(data); changed.sources[0].coverage.complete=!source.complete;
+  await writeFile(join(root,ordinary),serializeCsv([rows[0],[...rows[1].slice(0,6),JSON.stringify(changed.sources[0].coverage)]]));
+  const mismatch=await exports.validate(w,{paths:[ordinary],documentIds:[source.id],outputLanguage:"cs"});
+  expect(mismatch.issues.map(issue=>issue.code)).toContain("coverage"); expect(mismatch.outputs[0].verified).toBe(false);
+ }
+}));
+
+test("reload retracts historical unsupported-coverage receipts and their dependent CSV without a new validation",()=>fixture(async(exports,w,root,id,documents)=>{
+ await rm(join(root,"TEST_ZDROJE_ISIR.json"));
+ await exports.export(w,{path:"current.csv",kind:"registry",outputLanguage:"cs",documentIds:[id],entries:[]});
+ await exports.export(w,{path:"current.md",kind:"summary",outputLanguage:"cs",documentIds:[id],entries:[]});
+ expect((await exports.validate(w,{paths:["current.csv","current.md"],documentIds:[id],outputLanguage:"cs"})).valid).toBe(true);
+ const csvReceipt=(await documents.outputRecord(w,"current.csv"))!,summaryReceipt=(await documents.outputRecord(w,"current.md"))!;
+ const {serializeCsv,renderSummaryVisible,summarySchema}=await import("./lawoss/documents/validation.js");
+ const rows=parseCsv(await readFile(join(root,"current.csv"),"utf8")); rows[1][6]="Complete; all pages read";
+ const csv=serializeCsv(rows),markdown=await readFile(join(root,"current.md"),"utf8");
+ const data=JSON.parse(markdown.slice(markdown.lastIndexOf("```json\n")+8,markdown.lastIndexOf("```"))); data.sources[0].coverage="Complete; all pages read";
+ const legacyMarkdown=`${renderSummaryVisible(summarySchema.parse(data))}\`\`\`json\n${JSON.stringify(data)}\n\`\`\`\n`;
+ await writeFile(join(root,"legacy.csv"),csv);await writeFile(join(root,"legacy.md"),legacyMarkdown);
+ // Explicit migration fixtures represent receipts the old validator admitted;
+ // the baseline source, ownership schema and fingerprint come from real validation.
+ await documents.saveOutputRecord(w,{...csvReceipt,path:"legacy.csv",owned:false,hash:sha(csv),verifiedHash:sha(csv)});
+ await documents.saveOutputRecord(w,{...summaryReceipt,path:"legacy.md",owned:false,hash:sha(legacyMarkdown),verifiedHash:sha(legacyMarkdown)});
+ const currentCsv=await readFile(join(root,"current.csv"),"utf8");await writeFile(join(root,"dependent.csv"),currentCsv);
+ await documents.saveOutputRecord(w,{...csvReceipt,path:"dependent.csv",owned:false,hash:sha(currentCsv),verifiedHash:sha(currentCsv),identityPath:"legacy.md",identityHash:sha(legacyMarkdown)});
+ const listed=(await new DocumentExports(documents).list(w)).outputs;
+ expect(listed.filter(output=>output.path.startsWith("current")).every(output=>output.verified)).toBe(true);
+ for(const path of ["legacy.csv","legacy.md","dependent.csv"]) expect(listed.find(output=>output.path===path)?.verified).toBe(false);
+}));
+
+test("saved summary identity and source kind still match their persisted verification receipt",()=>fixture(async(exports,w,root,id,documents)=>{
+ await exports.export(w,{path:"summary.md",kind:"summary",outputLanguage:"cs",documentIds:[id],entries:[]});
+ expect((await exports.validate(w,{paths:["summary.md"],documentIds:[id],outputLanguage:"cs"})).valid).toBe(true);
+ const receipt=(await documents.outputRecord(w,"summary.md"))!;
+ for(const change of [{identity:{...receipt.identity,caseNumber:"OTHER CASE"}},{sourceKind:"workspace" as const}]){
+  await documents.saveOutputRecord(w,{...receipt,...change});
+  expect((await new DocumentExports(documents).list(w)).outputs[0].verified).toBe(false);
+ }
+}));

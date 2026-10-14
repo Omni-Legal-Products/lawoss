@@ -921,7 +921,7 @@ export type LegalworkWorkspaceFileStat = {
 export type LawossDocumentSummary = {
   id: string; workspaceId: string; path: string; hash: string;
   status: "uploaded" | "preparing" | "readable" | "partial" | "failed";
-  extraction?: "native" | "ocr"; complete: boolean; issue?: string; updatedAt: number;
+  extraction?: "native" | "ocr"; complete: boolean; issue?: string; updatedAt: number; admittedAt?: number;
   provenance: { sourcePath: string; parentId?: string; parentHash?: string; attachmentName?: string; depth: number };
   pageCount: number; readablePages: number;
 };

@@ -99,10 +99,14 @@ export class LawossDocuments {
       const records = await this.records(workspace), result: DocumentSummary[] = [];
       const launches: Array<{ id: string; source: Awaited<ReturnType<LawossDocuments["source"]>> }> = [];
       const plannedIds = new Set<string>();
+      // Admission, not asynchronous extraction updates, selects the current
+      // original. Advance past legacy timestamps and ties under a coarse clock.
+      let admittedAt = records.filter(record => !record.provenance.parentId).reduce((latest, record) => Math.max(latest, record.admittedAt ?? record.updatedAt), Date.now());
       // Plan against the final record set, before persisting or launching work.
       // Reuse consumes no slot; retries free their old attachment descendants.
       for (const source of sources) {
         let record = records.find(record => !record.provenance.parentId && record.path === source.path && record.hash === source.hash);
+        if (record) record.admittedAt = ++admittedAt;
         if (record && (this.active.has(record.id) || record.status === "readable" || plannedIds.has(record.id))) { result.push(summary(record)); continue; }
         if (record) {
           const descendants = new Set([record.id]);
@@ -110,7 +114,7 @@ export class LawossDocuments {
           for (let i = records.length - 1; i >= 0; i--) if (descendants.has(records[i].id) && records[i].id !== record.id) records.splice(i, 1);
           record.pages = []; record.issue = undefined; record.extraction = undefined; record.complete = false; record.status = "uploaded";
         } else {
-          record = { id: randomUUID(), workspaceId: workspace.id, path: source.path, hash: source.hash, status: "uploaded", pages: [], complete: false, updatedAt: Date.now(), provenance: { sourcePath: source.path, depth: 0 } }; records.push(record);
+          record = { id: randomUUID(), workspaceId: workspace.id, path: source.path, hash: source.hash, status: "uploaded", pages: [], complete: false, updatedAt: Date.now(), admittedAt: ++admittedAt, provenance: { sourcePath: source.path, depth: 0 } }; records.push(record);
         }
         launches.push({ id: record.id, source }); plannedIds.add(record.id); result.push(summary(record));
       }

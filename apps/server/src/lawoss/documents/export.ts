@@ -234,22 +234,24 @@ export class DocumentExports {
     const records = await this.documents.outputRecords(workspace);
     const outputs: OutputStatus[] = [];
     for (const record of records.slice(offset, offset + limit)) {
-      let currentHash: string | null = null;
+      const inspection = await this.inspect(workspace, record.path);
+      const currentHash = inspection.hash;
       let currentSourceHash: string | null = null;
-      let representationCurrent = true;
+      let context: SourceContext | undefined;
+      let representationCurrent = inspection.issues.length === 0;
+      if (inspection.summary)
+        representationCurrent = representationCurrent && isDeepStrictEqual(inspection.identity, record.identity)
+          && inspection.language === record.outputLanguage
+          && (!inspection.summary.sourceKind || inspection.summary.sourceKind === record.sourceKind);
       let identityCurrent = true;
       try {
-        const file = await this.file(workspace, record.path);
-        const bytes = await readFile(file.absolute);
-        currentHash = sha(bytes);
-        if (record.kind === "summary")
-          representationCurrent = savedSummaryMatches(file.path, bytes.toString("utf8"), record.identity, record.outputLanguage, record.sourceKind);
-      }
-      catch {
-        representationCurrent = false;
-      }
-      try {
-        currentSourceHash = (await this.context(workspace, record.documentIds)).fingerprint;
+        context = await this.context(workspace, record.documentIds);
+        currentSourceHash = context.fingerprint;
+        // Historical receipts are not sufficient when their saved coverage
+        // cannot satisfy the current validator, even if no bytes changed.
+        validateRows(inspection, context);
+        if (inspection.summary) validateIdentity(inspection, context, workspace, record.outputLanguage);
+        representationCurrent = representationCurrent && inspection.issues.length === 0;
       }
       catch { /* Stale sources are unverified. */ }
       if (record.identityPath) {
@@ -259,6 +261,9 @@ export class DocumentExports {
           identityCurrent = sha(bytes) === record.identityHash;
           if (file.path.endsWith(".md") || file.path.endsWith(".json") && !file.path.endsWith(".lawoss.json")) {
             identityCurrent = identityCurrent && savedSummaryMatches(file.path, bytes.toString("utf8"), record.identity, record.outputLanguage, record.sourceKind);
+            const companion = await this.inspect(workspace, file.path);
+            validateRows(companion, context);
+            identityCurrent = identityCurrent && companion.issues.length === 0;
           }
         }
         catch {
@@ -470,13 +475,16 @@ function validateRows(item: OutputInspection, context: SourceContext | undefined
       addIssue(item, "extra_source", "Registry includes an unselected source ID.", index + 1);
     else if (row[0] !== source.reference.file || row[2] !== source.reference.url)
       addIssue(item, "source_url", "Filename or document reference URL differs from selected source metadata.", index + 1);
-    if (source && row[6]?.trimStart().startsWith("{")) {
+    if (source) {
       try {
-        if (!isDeepStrictEqual(JSON.parse(row[6]), coverage(source.record, source.children)))
+        const saved: unknown = JSON.parse(row[6]);
+        if (!saved || typeof saved !== "object" || Array.isArray(saved))
+          addIssue(item, "unsupported_coverage", "Extraction coverage cannot be verified; re-export with structured current source coverage.", index + 1);
+        else if (!isDeepStrictEqual(saved, coverage(source.record, source.children)))
           addIssue(item, "coverage", "Structured extraction coverage, hashes, pages or attachment provenance differ from current preparation.", index + 1);
       }
       catch {
-        addIssue(item, "coverage", "Structured extraction coverage is malformed.", index + 1);
+        addIssue(item, row[6]?.trimStart().startsWith("{") ? "coverage" : "unsupported_coverage", "Extraction coverage is malformed or unsupported; re-export with structured current source coverage.", index + 1);
       }
     }
     if (seen.has(row[1]))

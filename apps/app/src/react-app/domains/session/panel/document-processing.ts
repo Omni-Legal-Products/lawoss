@@ -90,7 +90,7 @@ export async function freshDocumentSources(client: Pick<LegalworkServerClient, "
   // The latest admitted original owns descendants, never a historical same-path version.
   const roots = paths.map(path => {
     const originals = [...records].reverse().filter(record => record.path === path && !record.provenance.parentId);
-    return originals.sort((left, right) => right.updatedAt - left.updatedAt)[0];
+    return originals.sort((left, right) => (right.admittedAt ?? right.updatedAt) - (left.admittedAt ?? left.updatedAt))[0];
   }).filter((record): record is LawossDocumentSummary => Boolean(record));
   const selected = new Set(roots.map(r => r.id));
   for (let changed = true; changed;) {

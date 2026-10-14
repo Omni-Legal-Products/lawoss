@@ -4,7 +4,7 @@ export const documentRecordSchema = z.object({
   id: z.string().uuid(), workspaceId: z.string(), path: z.string(), hash: z.string().regex(/^[a-f0-9]{64}$/),
   status: z.enum(["uploaded", "preparing", "readable", "partial", "failed"]),
   extraction: z.enum(["native", "ocr"]).optional(), pages: z.array(documentPageSchema).max(2001),
-  complete: z.boolean(), issue: z.string().optional(), updatedAt: z.number(),
+  complete: z.boolean(), issue: z.string().optional(), updatedAt: z.number(), admittedAt: z.number().int().nonnegative().optional(),
   provenance: z.object({ sourcePath: z.string(), parentId: z.string().uuid().optional(), parentHash: z.string().optional(), attachmentName: z.string().optional(), depth: z.number().int().nonnegative() }),
 });
 export type DocumentRecord = z.infer<typeof documentRecordSchema>;

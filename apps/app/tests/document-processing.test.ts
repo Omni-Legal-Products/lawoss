@@ -103,3 +103,24 @@ test("older or mismatched folder-boundary acknowledgment fails closed before adm
     await expect(discoverDocumentSources({ listWorkspaceDirectory: async (_workspace, path) => ({ path, enforcedWithin, truncated: false, entries: [{ path: "selected/a.txt", name: "a.txt", kind: "file" as const }] }) }, "target", "selected")).rejects.toThrow();
   }
 });
+
+test("explicit admission wins over later extraction updates without preferring old readability", async () => {
+  for (const pending of [false, true]) {
+    const historical = { ...source("historical"), admittedAt: 2, updatedAt: 999 };
+    const restored = { ...source("restored"), admittedAt: 3, status: pending ? "uploaded" as const : "readable" as const, complete: !pending };
+    const records = [historical, source("historical-child", "a.pdf", historical.id), restored, source("restored-child", "a.pdf", restored.id)];
+    const fresh = await freshDocumentSources({ readLawossDocument: async (_workspace, id) => {
+      if (pending) throw Object.assign(new Error("pending"), { code: "document_pending" });
+      return { ...records.find(record => record.id === id)!, text: "", pages: [], offset: 0, nextOffset: null, untrusted: true };
+    } }, "target", ["a.pdf"], records);
+    expect(fresh.map(record => record.id)).toEqual(["restored", "restored-child"]);
+    expect(fresh.every(record => record.freshness === (pending ? "pending" : "current"))).toBe(true);
+    expect(documentCoverage(fresh).complete).toBe(!pending);
+  }
+});
+
+test("legacy originals with tied extraction timestamps retain last-listed selection", async () => {
+  const records = [source("earlier"), source("later")];
+  const fresh = await freshDocumentSources({ readLawossDocument: async (_workspace, id) => ({ ...records.find(record => record.id === id)!, text: "", pages: [], offset: 0, nextOffset: null, untrusted: true }) }, "target", ["a.pdf"], records);
+  expect(fresh.map(record => record.id)).toEqual(["later"]);
+});
