@@ -361,7 +361,7 @@ async function pullChanges(
 
 const rounds = new Map<string, Promise<TaskSyncResult>>();
 const pendingRounds = new Map<string, ReturnType<typeof setTimeout>>();
-const timerOwners = new Map<string, Set<symbol>>();
+const timerOwners = new Map<string, Map<symbol, ServerConfig>>();
 const configTimers = new WeakMap<ServerConfig, number>();
 const stoppedConfigs = new WeakSet<ServerConfig>();
 
@@ -482,8 +482,9 @@ export function scheduleTaskSync(config: ServerConfig, delayMs: number = WRITE_D
   if (pending) clearTimeout(pending);
   const timer = setTimeout(() => {
     pendingRounds.delete(key);
-    if (stoppedConfigs.has(config) || !runtimeDbScopeActive(config)) return;
-    void runTaskSync(config).catch(() => undefined);
+    if (!runtimeDbScopeActive(config)) return;
+    const liveConfig = stoppedConfigs.has(config) ? timerOwners.get(key)?.values().next().value : config;
+    if (liveConfig) void runTaskSync(liveConfig).catch(() => undefined);
   }, delayMs);
   timer.unref?.();
   pendingRounds.set(key, timer);
@@ -506,8 +507,8 @@ export function startTaskSyncTimer(
   firstRoundDelayMs = 3_000,
 ): () => Promise<void> {
   const startKey = keyOf(config), owner = Symbol();
-  const owners = timerOwners.get(startKey) ?? new Set<symbol>();
-  owners.add(owner); timerOwners.set(startKey, owners);
+  const owners = timerOwners.get(startKey) ?? new Map<symbol, ServerConfig>();
+  owners.set(owner, config); timerOwners.set(startKey, owners);
   configTimers.set(config, (configTimers.get(config) ?? 0) + 1);
   stoppedConfigs.delete(config);
   const timer = setInterval(() => {

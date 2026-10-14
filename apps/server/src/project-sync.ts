@@ -797,8 +797,9 @@ export function scheduleProjectSync(config: ServerConfig, delayMs: number = CHAN
   if (pending) clearTimeout(pending);
   const timer = setTimeout(() => {
     pendingRounds.delete(key);
-    if (stoppedConfigs.has(config) || !runtimeDbScopeActive(config)) return;
-    void runProjectSync(config).catch(() => undefined);
+    if (!runtimeDbScopeActive(config)) return;
+    const liveConfig = stoppedConfigs.has(config) ? timerOwners.get(key)?.values().next().value : config;
+    if (liveConfig) void runProjectSync(liveConfig).catch(() => undefined);
   }, delayMs);
   timer.unref?.();
   pendingRounds.set(key, timer);

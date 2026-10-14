@@ -1,4 +1,4 @@
-import { openSqlite } from "./runtime-db.js";
+import { initializeSqlite } from "./runtime-db.js";
 import { runtimeDbPath, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { dirname } from "node:path";
 import type { ServerConfig } from "./types.js";
@@ -91,8 +91,7 @@ export function normalizeSessionGroupState(value: unknown): SessionGroupState {
 
 async function openSessionGroupDb(path: string): Promise<SessionGroupDb> {
   await ensureDir(dirname(path));
-  const sqlite = await openSqlite(path);
-  try {
+  return initializeSqlite(path, (sqlite) => {
   sqlite.exec("CREATE TABLE IF NOT EXISTS session_group_states (workspace_id TEXT PRIMARY KEY NOT NULL, state_json TEXT NOT NULL, schema_version INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL)");
   const get = sqlite.prepare("SELECT state_json AS stateJson, updated_at AS updatedAt FROM session_group_states WHERE workspace_id = ?");
   const upsert = sqlite.prepare("INSERT INTO session_group_states (workspace_id, state_json, schema_version, updated_at) VALUES (?, ?, 1, ?) ON CONFLICT(workspace_id) DO UPDATE SET state_json = excluded.state_json, schema_version = excluded.schema_version, updated_at = excluded.updated_at");
@@ -107,7 +106,7 @@ async function openSessionGroupDb(path: string): Promise<SessionGroupDb> {
       upsert.run(workspaceId, stateJson, updatedAt);
     },
   };
-  } catch (error) { sqlite.close(); throw error; }
+  });
 }
 
 const resourceKey = Symbol("session-groups");

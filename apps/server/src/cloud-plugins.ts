@@ -1,4 +1,4 @@
-import { openSqlite } from "./runtime-db.js";
+import { initializeSqlite } from "./runtime-db.js";
 import { runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -487,8 +487,7 @@ function readCloudImports(config: Record<string, unknown>): WorkspaceCloudImport
 
 async function openCloudPluginDb(path: string): Promise<CloudPluginDb> {
   await ensureDir(dirname(path));
-  const sqlite = await openSqlite(path);
-  try {
+  return initializeSqlite(path, (sqlite) => {
   sqlite.exec("CREATE TABLE IF NOT EXISTS cloud_plugin_install_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)");
   const get = sqlite.prepare("SELECT config_json AS configJson FROM cloud_plugin_install_configs WHERE workspace_id = ?");
   const upsert = sqlite.prepare("INSERT INTO cloud_plugin_install_configs (workspace_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at");
@@ -503,7 +502,7 @@ async function openCloudPluginDb(path: string): Promise<CloudPluginDb> {
       upsert.run(workspaceId, configJson, updatedAt);
     },
   };
-  } catch (error) { sqlite.close(); throw error; }
+  });
 }
 
 const resourceKey = Symbol("cloud-plugins");

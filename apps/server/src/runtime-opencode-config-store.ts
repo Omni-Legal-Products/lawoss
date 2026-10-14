@@ -1,4 +1,4 @@
-import { openSqlite } from "./runtime-db.js";
+import { initializeSqlite } from "./runtime-db.js";
 import { runtimeDbPath, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { dirname } from "node:path";
 import type { ServerConfig } from "./types.js";
@@ -143,8 +143,7 @@ export function onRuntimeOpencodeConfigWrite(listener: RuntimeOpencodeConfigWrit
 
 async function openRuntimeDb(path: string): Promise<RuntimeOpencodeDb> {
   await ensureDir(dirname(path));
-  const sqlite = await openSqlite(path);
-  try {
+  return initializeSqlite(path, (sqlite) => {
   sqlite.exec("CREATE TABLE IF NOT EXISTS runtime_opencode_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)");
   const get = sqlite.prepare("SELECT config_json AS configJson FROM runtime_opencode_configs WHERE workspace_id = ?");
   const upsert = sqlite.prepare("INSERT INTO runtime_opencode_configs (workspace_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at");
@@ -159,7 +158,7 @@ async function openRuntimeDb(path: string): Promise<RuntimeOpencodeDb> {
       upsert.run(workspaceId, configJson, updatedAt);
     },
   };
-  } catch (error) { sqlite.close(); throw error; }
+  });
 }
 
 const resourceKey = Symbol("runtime-opencode-config-store");

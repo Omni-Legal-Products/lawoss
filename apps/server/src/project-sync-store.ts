@@ -8,7 +8,7 @@ import type { FileBase, FileBaseStore } from "./project-file-sync.js";
 import type { ReviewBase, ReviewBaseStore } from "./project-review-sync.js";
 import type { RemoteFileIndex } from "./eigenwelt-project-storage.js";
 import type { RemoteProjectFile } from "./eigenwelt-projects.js";
-import { openSqlite, runtimeDbPath, type Row, type SqliteHandle } from "./runtime-db.js";
+import { initializeSqlite, runtimeDbPath, type Row, type SqliteHandle } from "./runtime-db.js";
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
 
@@ -306,12 +306,11 @@ export class ProjectSyncStore {
 
   static async open(path: string): Promise<ProjectSyncStore> {
     await ensureDir(dirname(path));
-    const db = await openSqlite(path);
-    try {
+    return initializeSqlite(path, (db) => {
     db.exec("PRAGMA busy_timeout = 5000");
     for (const statement of PROJECT_SYNC_SCHEMA) db.exec(statement);
     return new ProjectSyncStore(db);
-    } catch (error) { db.close(); throw error; }
+    });
   }
 
   /** Independently opened stores belong to their caller; cached stores to their lifetime. */

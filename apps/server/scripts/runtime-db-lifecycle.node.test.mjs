@@ -17,7 +17,7 @@ process.env.LAWOSS_EIGENWELT_ACCOUNT = "1";
 delete process.env.LEGALWORK_RUNTIME_DB;
 const { startServer } = await import("../dist/server.js");
 const { runtimeDbHandles } = await import("../dist/test-support/runtime-db-handles.js");
-const { acquireRuntimeDbLifetime } = await import("../dist/runtime-db-lifecycle.js");
+const { acquireRuntimeDbLifetime, runtimeDbResource, withRuntimeDb } = await import("../dist/runtime-db-lifecycle.js");
 const { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } = await import("../dist/runtime-opencode-config-store.js");
 const { readLegalworkWorkspaceConfig, writeLegalworkWorkspaceConfig } = await import("../dist/legalwork-workspace-config-store.js");
 const { readSessionGroupState, writeSessionGroupState } = await import("../dist/session-groups.js");
@@ -26,7 +26,10 @@ const { readHubInstalls, recordHubInstall } = await import("../dist/eigenwelt-hu
 const { readInstalledCloudPlugins } = await import("../dist/cloud-plugins.js");
 const { TaskStore, taskStore } = await import("../dist/task-store.js");
 const { ProjectSyncStore, projectSyncStore } = await import("../dist/project-sync-store.js");
-const { startProjectSyncTimer, runProjectSync } = await import("../dist/project-sync.js");
+const { startProjectSyncTimer, runProjectSync, scheduleProjectSync } = await import("../dist/project-sync.js");
+
+const { openSqlite } = await import("../dist/runtime-db.js");
+const { startTaskSyncTimer, scheduleTaskSync } = await import("../dist/task-sync.js");
 
 test("Node native SQLite releases every adapter after overlapping servers, reconnect, retained direct owner and reopen", async () => {
   const path = join(root, "matter"); await mkdir(path);
@@ -68,6 +71,9 @@ test("Node native SQLite releases every adapter after overlapping servers, recon
     a.close(); a.close(); c.close(); assert.equal(b.getSyncState("fixture").pullCursor, "cursor"); assert.deepEqual(d.links(), []); b.close(); d.close();
     assert.equal(await runtimeDbHandles(db), 0);
     await verifyWatcherOwnerHandoff({ ...config, workspaces: [{ ...config.workspaces[0], path: moved }] });
+    await verifyPendingOwnerHandoff(config);
+    await verifyFailureRecovery();
+    await verifyIndependentFailureRecovery();
     assert.equal(await runtimeDbHandles(db), 0);
     await rm(root, { recursive: true }); await mkdir(root);
     assert.deepEqual(await readRuntimeOpencodeConfig(config, "stable"), {});
@@ -120,4 +126,117 @@ async function verifyWatcherOwnerHandoff(firstConfig) {
     if (previousFirmServices === undefined) delete process.env.LAWOSS_EIGENWELT_FIRM_SERVICES; else process.env.LAWOSS_EIGENWELT_FIRM_SERVICES = previousFirmServices;
     await new Promise(resolve => http.close(() => resolve()));
   }
+}
+
+
+async function verifyPendingOwnerHandoff(config) {
+  const previousPlatform = process.env.EIGENWELT_PLATFORM_URL, previousFirm = process.env.LAWOSS_EIGENWELT_FIRM_SERVICES;
+  let calls = 0;
+  const http = createServer((request, response) => { calls++; request.resume(); response.writeHead(500).end("unavailable"); });
+  await new Promise(resolve => http.listen(0, "127.0.0.1", resolve));
+  const address = http.address(); assert.ok(address && typeof address !== "string");
+  process.env.EIGENWELT_PLATFORM_URL = `http://127.0.0.1:${address.port}`; process.env.LAWOSS_EIGENWELT_FIRM_SERVICES = "1";
+  const results = {};
+  try {
+    for (const [name, start, schedule] of [["tasks", startTaskSyncTimer, scheduleTaskSync], ["projects", startProjectSyncTimer, scheduleProjectSync]]) {
+      const firstConfig = { ...config }, secondConfig = { ...config };
+      const first = acquireRuntimeDbLifetime(firstConfig), second = acquireRuntimeDbLifetime(secondConfig);
+      let stopFirst, stopSecond;
+      try {
+        await writeEigenweltConnection(config, { platformToken: "fixture", platformURL: process.env.EIGENWELT_PLATFORM_URL });
+        await first.run(async () => { stopFirst = start(firstConfig, 60_000, 60_000); });
+        await second.run(async () => { stopSecond = start(secondConfig, 60_000, 60_000); });
+        const before = calls;
+        await first.run(async () => { schedule(firstConfig, 25); });
+        await stopFirst(); await first.release();
+        const deadline = Date.now() + 500;
+        while (calls === before && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+        results[name] = calls > before;
+      } finally { await stopFirst?.(); await stopSecond?.(); await first.release(); await second.release(); }
+    }
+    assert.deepEqual(results, { tasks: true, projects: true }, "pending 25ms rounds must transfer without manual schedule or 60s fallback");
+  } finally {
+    if (previousPlatform === undefined) delete process.env.EIGENWELT_PLATFORM_URL; else process.env.EIGENWELT_PLATFORM_URL = previousPlatform;
+    if (previousFirm === undefined) delete process.env.LAWOSS_EIGENWELT_FIRM_SERVICES; else process.env.LAWOSS_EIGENWELT_FIRM_SERVICES = previousFirm;
+    await new Promise(resolve => http.close(() => resolve()));
+  }
+}
+
+
+async function verifyFailureRecovery() {
+  const directory = join(root, "failed-close"); await mkdir(directory);
+  const config = { configPath: join(directory, "server.json") }, path = join(directory, "runtime.sqlite");
+  const owner = acquireRuntimeDbLifetime(config), db = await openSqlite(path);
+  let attempts = 0, siblingCloses = 0, successor, failure;
+  try {
+    await runtimeDbResource(config, Symbol(), async () => ({ close: () => { if (++attempts === 1) throw new Error("before native close"); db.close(); } }));
+    await runtimeDbResource(config, Symbol(), async path => { const sibling = await openSqlite(path); return { close: () => { siblingCloses++; sibling.close(); } }; });
+    failure = await owner.release().catch(error => error);
+    assert.ok(failure instanceof AggregateError); assert.equal(attempts, 1); assert.equal(siblingCloses, 1);
+    if (process.platform !== "win32") assert.ok(await runtimeDbHandles(path) > 0);
+    successor = acquireRuntimeDbLifetime(config);
+    let state = "waiting";
+    const reading = successor.run(() => readRuntimeOpencodeConfig(config, "fixture")).then(() => { state = "read"; }, () => { state = "rejected"; });
+    await new Promise(resolve => setTimeout(resolve, 20)); assert.equal(state, "waiting");
+    config.configPath = join(root, "unrelated", "server.json");
+    await failure.retryCleanup(); await owner.retryCleanup(); await reading;
+    assert.equal(state, "read"); assert.equal(attempts, 2); assert.equal(siblingCloses, 1);
+    await assert.rejects(owner.release(), /Failed to close runtime database resources/);
+  } finally { await failure?.retryCleanup?.(); db.close(); await successor?.release(); }
+  assert.equal(await runtimeDbHandles(path), 0); await rm(directory, { recursive: true });
+
+  const cases = [
+    ["runtime", config => readRuntimeOpencodeConfig(config, "fixture")],
+    ["workspace", config => readLegalworkWorkspaceConfig(config, "fixture")],
+    ["session", config => readSessionGroupState(config, "fixture")],
+    ["account", config => readEigenweltConnection(config)],
+    ["hub", config => readHubInstalls(config, "fixture")],
+    ["cloud", config => readInstalledCloudPlugins(config, "fixture")],
+    ["tasks", config => withRuntimeDb(config, async () => (await taskStore(config)).getSyncState("fixture"))],
+    ["projects", config => withRuntimeDb(config, async () => (await projectSyncStore(config)).links())],
+    ["direct-tasks", async (_config, path, root) => (await TaskStore.open(path, join(root, "attachments"))).close()],
+    ["direct-projects", async (_config, path) => (await ProjectSyncStore.open(path)).close()],
+  ];
+  const { DatabaseSync } = await import("node:sqlite");
+  for (const [name, open] of cases) {
+    const directory = join(root, `failed-init-${name}`); await mkdir(directory);
+    const path = join(directory, "runtime.sqlite"), config = { configPath: join(directory, "server.json") };
+    await writeFile(path, "not a sqlite database");
+    const close = DatabaseSync.prototype.close; let partial, recovered = false, failure;
+    DatabaseSync.prototype.close = function(...args) { if (!partial) { partial = this; throw new Error("injected cleanup before native close"); } return close.apply(this, args); };
+    try {
+      failure = await open(config, path, directory).catch(error => error);
+      assert.ok(failure instanceof AggregateError, name);
+      const messages = error => error instanceof AggregateError ? error.errors.map(messages).join("\n") : String(error);
+      assert.match(messages(failure), /not a database/); assert.match(messages(failure), /injected cleanup before native close/);
+      if (process.platform !== "win32") assert.ok(await runtimeDbHandles(path) > 0);
+      await failure.retryCleanup(); await failure.retryCleanup(); recovered = true;
+      assert.equal(await runtimeDbHandles(path), 0);
+      await rm(path); await open(config, path, directory); assert.equal(await runtimeDbHandles(path), 0);
+      await rm(directory, { recursive: true });
+    } finally {
+      await failure?.retryCleanup?.(); DatabaseSync.prototype.close = close;
+      if (partial && !recovered) { try { close.call(partial); } catch {} }
+    }
+  }
+}
+
+
+async function verifyIndependentFailureRecovery() {
+  const directory = join(root, "independent-failed-init"); await mkdir(directory);
+  const path = join(directory, "runtime.sqlite");
+  const healthy = await TaskStore.open(path, join(directory, "attachments"));
+  healthy.setSyncState({ orgId: "fixture", pullCursor: "kept", lastPullAt: 1, lastPushAt: null, lastError: null });
+  const { DatabaseSync } = await import("node:sqlite");
+  const exec = DatabaseSync.prototype.exec, close = DatabaseSync.prototype.close;
+  let partial, failedClose = false, failure;
+  DatabaseSync.prototype.exec = function(...args) { if (!partial) { partial = this; return exec.call(this, "SELECT * FROM missing_initialization_table"); } return exec.apply(this, args); };
+  DatabaseSync.prototype.close = function(...args) { if (this === partial && !failedClose) { failedClose = true; throw new Error("independent cleanup before native close"); } return close.apply(this, args); };
+  try {
+    failure = await ProjectSyncStore.open(path).catch(error => error);
+    assert.ok(failure instanceof AggregateError);
+    await failure.retryCleanup(); await failure.retryCleanup();
+    assert.equal(healthy.getSyncState("fixture").pullCursor, "kept");
+  } finally { await failure?.retryCleanup?.(); DatabaseSync.prototype.exec = exec; DatabaseSync.prototype.close = close; healthy.close(); }
+  assert.equal(await runtimeDbHandles(path), 0); await rm(directory, { recursive: true });
 }

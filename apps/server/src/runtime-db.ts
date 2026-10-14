@@ -1,3 +1,4 @@
+import { RuntimeDbInitializationError } from "./runtime-db-lifecycle.js";
 /**
  * runtime.sqlite, the machine's own store beside the server config: the
  * statements its stores need, over bun:sqlite (bun) or node:sqlite (Node /
@@ -63,3 +64,21 @@ export async function openSqlite(path: string): Promise<SqliteHandle> {
 }
 
 export { runtimeDbPath } from "./runtime-db-lifecycle.js";
+
+
+/** Close partial initialization without discarding either failure or its real native handle. */
+export async function initializeSqlite<T>(path: string, initialize: (db: SqliteHandle) => T | Promise<T>): Promise<T> {
+  const db = await openSqlite(path);
+  try { return await initialize(db); }
+  catch (initializationError) {
+    try { db.close(); }
+    catch (cleanupError) {
+      let retry: Promise<void> | undefined;
+      throw new RuntimeDbInitializationError([initializationError, cleanupError], db, () => {
+        retry ??= Promise.resolve().then(() => db.close()).catch(error => { retry = undefined; throw error; });
+        return retry;
+      });
+    }
+    throw initializationError;
+  }
+}

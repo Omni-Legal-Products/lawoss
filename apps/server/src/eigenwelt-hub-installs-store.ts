@@ -1,4 +1,4 @@
-import { openSqlite } from "./runtime-db.js";
+import { initializeSqlite } from "./runtime-db.js";
 import { runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { dirname } from "node:path";
 import type { EigenweltHubKind } from "./eigenwelt-hub.js";
@@ -40,8 +40,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 async function openDb(path: string): Promise<EigenweltHubInstallsDb> {
   await ensureDir(dirname(path));
-  const sqlite = await openSqlite(path);
-  try {
+  return initializeSqlite(path, (sqlite) => {
   sqlite.exec(CREATE_TABLE_SQL);
   const get = sqlite.prepare(
     "SELECT installs_json AS installsJson FROM eigenwelt_hub_installs WHERE workspace_id = ?",
@@ -60,7 +59,7 @@ async function openDb(path: string): Promise<EigenweltHubInstallsDb> {
       upsert.run(workspaceId, installsJson, updatedAt);
     },
   };
-  } catch (error) { sqlite.close(); throw error; }
+  });
 }
 
 const resourceKey = Symbol("eigenwelt-hub-installs-store");

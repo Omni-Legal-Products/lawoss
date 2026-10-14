@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 
 import { ApiError } from "./errors.js";
 import { PROJECT_SYNC_SCHEMA } from "./project-sync-store.js";
-import { openSqlite, runtimeDbPath, type Row, type SqliteHandle, type SqlValue } from "./runtime-db.js";
+import { initializeSqlite, runtimeDbPath, type Row, type SqliteHandle, type SqlValue } from "./runtime-db.js";
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
 
@@ -631,8 +631,7 @@ export class TaskStore {
 
   static async open(path: string, filesDir: string): Promise<TaskStore> {
     await ensureDir(dirname(path));
-    const db = await openSqlite(path);
-    try {
+    return initializeSqlite(path, (db) => {
     // Several store modules hold their own connection to runtime.sqlite, so a
     // write must wait for a sibling's rather than fail at once.
     db.exec("PRAGMA busy_timeout = 5000");
@@ -659,7 +658,7 @@ export class TaskStore {
       db.exec("DROP TABLE task_session_links");
     }
     return new TaskStore(db, filesDir);
-    } catch (error) { db.close(); throw error; }
+    });
   }
 
   /** Independently opened stores belong to their caller; cached stores to their lifetime. */

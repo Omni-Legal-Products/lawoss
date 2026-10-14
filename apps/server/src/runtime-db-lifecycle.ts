@@ -11,12 +11,31 @@ type Entry = {
   operations: number;
   resources: Map<symbol, Promise<Resource>>;
   ready: Promise<void>;
+  predecessor?: Entry;
   closing?: Promise<void>;
+  closeFailed: boolean;
+  closeFailures: Map<symbol, unknown>;
+  closed: Promise<void>;
+  resolveClosed: () => void;
   waiters: Array<{ resolve: () => void; reject: (error: unknown) => void }>;
 };
 type Scope = { config: ServerConfig; entry: Entry; active: boolean };
 const entries = new Map<string, Entry>();
 const context = new AsyncLocalStorage<Scope>();
+
+/** Recovery always targets the captured failed resource/generation, never the current path. */
+export class RuntimeDbCleanupError extends AggregateError {
+  constructor(errors: unknown[], message: string, public retryCleanup: () => Promise<void>) {
+    super(errors, message);
+  }
+}
+
+/** A factory could not initialize or release its partially opened native connection. */
+export class RuntimeDbInitializationError extends RuntimeDbCleanupError {
+  constructor(errors: unknown[], public resource: Resource, retryCleanup: () => Promise<void>) {
+    super(errors, "Runtime database initialization and cleanup failed", retryCleanup);
+  }
+}
 
 // Resolve existing symlink parents too, before the database itself exists.
 function canonicalPath(path: string): string {
@@ -48,33 +67,57 @@ function entryFor(config: ServerConfig): Entry {
   const path = runtimeDbPath(config);
   const current = entries.get(path);
   if (current && !current.closing) return current;
-  const entry: Entry = { path, owners: 0, operations: 0, resources: new Map(), ready: current?.closing ?? Promise.resolve(), waiters: [] };
+  let resolveClosed!: () => void;
+  const closed = new Promise<void>(resolve => { resolveClosed = resolve; });
+  const entry: Entry = { path, owners: 0, operations: 0, resources: new Map(), ready: current?.closed ?? Promise.resolve(), predecessor: current, waiters: [], closeFailed: false, closeFailures: new Map(), closed, resolveClosed };
   entries.set(path, entry);
+  // A readiness promise alone does not retain its failed predecessor/native resources.
+  void entry.ready.then(() => { entry.predecessor = undefined; });
   return entry;
 }
 
-function closeIfIdle(entry: Entry): Promise<void> | undefined {
+function closeIfIdle(entry: Entry, retry = false): Promise<void> | undefined {
   if (entry.operations) return;
   if (entry.owners) {
     for (const waiter of entry.waiters.splice(0)) waiter.resolve();
     return;
   }
   if (entry.closing) return entry.closing;
+  entry.closeFailed = false;
   entry.closing = (async () => {
     await entry.ready;
-    const results = await Promise.allSettled([...entry.resources.values()].map(async resource => (await resource).close()));
-    entry.resources.clear();
-    const failures = results.flatMap(result => result.status === "rejected" ? [result.reason] : []);
-    if (failures.length) throw new AggregateError(failures, "Failed to close runtime database resources");
+    await Promise.all([...entry.resources].map(async ([key, resource]) => {
+      if (!retry && entry.closeFailures.has(key)) return;
+      try {
+        await (await resource).close();
+        if (entry.resources.get(key) === resource) entry.resources.delete(key);
+        entry.closeFailures.delete(key);
+      } catch (error) {
+        // A failed factory already removed or retained its partial native handle.
+        if (entry.resources.get(key) === resource) entry.closeFailures.set(key, error);
+      }
+    }));
+    if (entry.closeFailures.size) {
+      entry.closeFailed = true;
+      throw new RuntimeDbCleanupError([...entry.closeFailures.values()], "Failed to close runtime database resources", () => retryCleanup(entry));
+    }
   })();
   void entry.closing.then(() => {
     if (entries.get(entry.path) === entry) entries.delete(entry.path);
+    entry.resolveClosed();
     for (const waiter of entry.waiters.splice(0)) waiter.resolve();
   }, error => {
-    // Keep a failed generation: a later acquisition must not silently reopen it.
+    // Retain failed native resources; successors wait for explicit successful recovery.
     for (const waiter of entry.waiters.splice(0)) waiter.reject(error);
   });
   return entry.closing;
+}
+
+async function retryCleanup(entry: Entry): Promise<void> {
+  if (entry.owners || entry.operations) throw new Error("Runtime database cleanup requires every owner and operation to release");
+  if (entry.closing && !entry.closeFailed) return entry.closing;
+  entry.closing = undefined;
+  await closeIfIdle(entry, true);
 }
 
 function waitForFinalClose(entry: Entry): Promise<void> {
@@ -97,6 +140,7 @@ export function acquireRuntimeDbLifetime(config: ServerConfig) {
       void run.then(() => running.delete(run), () => running.delete(run));
       return run;
     },
+    retryCleanup: () => retryCleanup(entry),
     release(): Promise<void> {
       if (releasePromise) return releasePromise;
       released = true;
@@ -125,7 +169,7 @@ async function runOperation<T>(config: ServerConfig, entry: Entry, operation: ()
     entry.operations--;
     try { await closeIfIdle(entry); }
     catch (cleanupError) {
-      if (failure) throw new AggregateError([failure.error, cleanupError], "Runtime operation and cleanup failed");
+      if (failure) throw new RuntimeDbCleanupError([failure.error, cleanupError], "Runtime operation and cleanup failed", () => retryCleanup(entry));
       throw cleanupError;
     }
   }
@@ -146,6 +190,7 @@ export function withRuntimeDb<T>(config: ServerConfig, operation: () => Promise<
 export async function runtimeDbResource<T extends Resource>(config: ServerConfig, key: symbol, open: (path: string) => Promise<T>): Promise<T> {
   const entry = entryFor(config);
   if (!entry.owners && !entry.operations) throw new Error("Cached runtime stores require an active database lifetime");
+  if (entry.closeFailures.has(key)) throw entry.closeFailures.get(key);
   const existing = entry.resources.get(key);
   // A private adapter symbol has exactly one resource type for this generation.
   if (existing) return existing as Promise<T>;
@@ -153,7 +198,13 @@ export async function runtimeDbResource<T extends Resource>(config: ServerConfig
   entry.resources.set(key, opened);
   try { return await opened; }
   catch (error) {
-    if (entry.resources.get(key) === opened) entry.resources.delete(key);
+    if (entry.resources.get(key) === opened) {
+      if (error instanceof RuntimeDbInitializationError) {
+        entry.resources.set(key, Promise.resolve(error.resource));
+        entry.closeFailures.set(key, error);
+        error.retryCleanup = () => retryCleanup(entry);
+      } else entry.resources.delete(key);
+    }
     throw error;
   }
 }

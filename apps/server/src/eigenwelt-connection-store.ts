@@ -1,4 +1,4 @@
-import { openSqlite } from "./runtime-db.js";
+import { initializeSqlite } from "./runtime-db.js";
 import { runtimeDbPath, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
@@ -116,8 +116,7 @@ const ACCOUNT_ROW_MIGRATION = [
 
 async function openDb(path: string): Promise<EigenweltConnectionDb> {
   await ensureDir(dirname(path));
-  const sqlite = await openSqlite(path);
-  try {
+  return initializeSqlite(path, (sqlite) => {
   sqlite.exec("PRAGMA busy_timeout = 5000");
   sqlite.exec(CREATE_TABLE_SQL);
   for (const sql of MIGRATION_COLUMNS) {
@@ -185,7 +184,7 @@ async function openDb(path: string): Promise<EigenweltConnectionDb> {
       return isRecord(row) && typeof row.refresh_request_id === "string" ? row.refresh_request_id : null;
     },
   };
-  } catch (error) { sqlite.close(); throw error; }
+  });
 }
 
 const resourceKey = Symbol("eigenwelt-connection-store");

@@ -3,8 +3,13 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { acquireRuntimeDbLifetime, runtimeDbPath, runtimeDbResource, withRuntimeDb } from "./runtime-db-lifecycle.js";
-import { openSqlite } from "./runtime-db.js";
+import { initializeSqlite, openSqlite } from "./runtime-db.js";
 import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { readLegalworkWorkspaceConfig } from "./legalwork-workspace-config-store.js";
+import { readSessionGroupState } from "./session-groups.js";
+import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
+import { readHubInstalls } from "./eigenwelt-hub-installs-store.js";
+import { readInstalledCloudPlugins } from "./cloud-plugins.js";
 import { TaskStore, taskStore } from "./task-store.js";
 import { ProjectSyncStore, projectSyncStore } from "./project-sync-store.js";
 import { runtimeDbHandles } from "./test-support/runtime-db-handles.js";
@@ -150,4 +155,107 @@ test("operation failure remains visible when final resource cleanup also fails",
   expect(result).toBeInstanceOf(AggregateError);
   expect(result.errors).toContain(primary);
   expect(await runtimeDbHandles(f.path)).toBe(0);
+});
+
+test("failed close retains its native resource until explicit captured-generation recovery", async () => {
+  const f = await fixture(), owner = acquireRuntimeDbLifetime(f.config);
+  const db = await openSqlite(f.path); let attempts = 0, siblingCloses = 0;
+  cleanups.push(() => db.close());
+  await runtimeDbResource(f.config, Symbol(), async () => ({ close: () => { if (++attempts === 1) throw new Error("before native close"); db.close(); } }));
+  await runtimeDbResource(f.config, Symbol(), async path => { const sibling = await openSqlite(path); return { close: () => { siblingCloses++; sibling.close(); } }; });
+  await expect(owner.release()).rejects.toThrow("Failed to close runtime database resources");
+  expect(attempts).toBe(1); expect(siblingCloses).toBe(1);
+  if (process.platform !== "win32") expect(await runtimeDbHandles(f.path)).toBeGreaterThan(0);
+  const successor = acquireRuntimeDbLifetime(f.config);
+  let state = "waiting";
+  const reading = successor.run(() => readRuntimeOpencodeConfig(f.config, "fixture")).then(() => { state = "read"; }, () => { state = "rejected"; });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  try {
+    expect(state).toBe("waiting");
+    await owner.retryCleanup(); await owner.retryCleanup(); await reading;
+    expect(state).toBe("read"); expect(attempts).toBe(2); expect(siblingCloses).toBe(1);
+    await expect(owner.release()).rejects.toThrow("Failed to close runtime database resources");
+  } finally { await owner.retryCleanup?.().catch(() => undefined); db.close(); await successor.release().catch(() => undefined); }
+  expect(await runtimeDbHandles(f.path)).toBe(0); await rm(f.root, { recursive: true });
+});
+
+const initializationCases: Array<[string, (config: ServerConfig, path: string, root: string) => Promise<unknown>]> = [
+  ["runtime config", config => readRuntimeOpencodeConfig(config, "fixture")],
+  ["workspace config", config => readLegalworkWorkspaceConfig(config, "fixture")],
+  ["session groups", config => readSessionGroupState(config, "fixture")],
+  ["account", config => readEigenweltConnection(config)],
+  ["hub installs", config => readHubInstalls(config, "fixture")],
+  ["cloud plugins", config => readInstalledCloudPlugins(config, "fixture")],
+  ["cached tasks", config => withRuntimeDb(config, async () => (await taskStore(config)).getSyncState("fixture"))],
+  ["cached projects", config => withRuntimeDb(config, async () => (await projectSyncStore(config)).links())],
+  ["independent tasks", async (_config, path, root) => (await TaskStore.open(path, join(root, "attachments"))).close()],
+  ["independent projects", async (_config, path) => (await ProjectSyncStore.open(path)).close()],
+];
+for (const [name, open] of initializationCases) test(`initialization preserves and recovers the partial native handle: ${name}`, async () => {
+  const f = await fixture(); await writeFile(f.path, "not a sqlite database");
+  const { Database } = await import("bun:sqlite");
+  const close = Database.prototype.close; let partial: InstanceType<typeof Database> | undefined;
+  Database.prototype.close = function(...args) { if (!partial) { partial = this; throw new Error("injected cleanup before native close"); } return close.apply(this, args); };
+  let failure: any;
+  try {
+    failure = await open(f.config, f.path, f.root).catch(error => error);
+    expect(failure).toBeInstanceOf(AggregateError);
+    const messages = (error: unknown): string => error instanceof AggregateError ? error.errors.map(messages).join("\n") : String(error);
+    expect(messages(failure)).toContain("not a database");
+    expect(messages(failure)).toContain("injected cleanup before native close");
+    if (process.platform !== "win32") expect(await runtimeDbHandles(f.path)).toBeGreaterThan(0);
+    await failure.retryCleanup(); await failure.retryCleanup(); expect(await runtimeDbHandles(f.path)).toBe(0);
+    await rm(f.path); await open(f.config, f.path, f.root); expect(await runtimeDbHandles(f.path)).toBe(0);
+    await rm(f.root, { recursive: true });
+  } finally { await failure?.retryCleanup?.().catch(() => undefined); Database.prototype.close = close; if (partial) close.call(partial); }
+});
+
+
+test("release racing a partial initialization keeps its failed native cleanup recoverable", async () => {
+  const f = await fixture(), owner = acquireRuntimeDbLifetime(f.config), gate = barrier(), entered = barrier();
+  let attempts = 0;
+  const opening = runtimeDbResource(f.config, Symbol(), path => initializeSqlite(path, async db => {
+    const close = db.close;
+    db.close = () => { if (++attempts === 1) throw new Error("partial close failed before native close"); close(); };
+    entered.resolve(); await gate.promise;
+    db.exec("SELECT * FROM missing_initialization_table");
+    return db;
+  })).catch(error => error);
+  await entered.promise;
+  const releasing = owner.release().catch(error => error);
+  gate.resolve();
+  const [initialization, cleanup] = await Promise.all([opening, releasing]);
+  try {
+    expect(initialization).toBeInstanceOf(AggregateError); expect(cleanup).toBeInstanceOf(AggregateError);
+    expect(attempts).toBe(1);
+    if (process.platform !== "win32") expect(await runtimeDbHandles(f.path)).toBeGreaterThan(0);
+    await owner.retryCleanup(); expect(attempts).toBe(2); expect(await runtimeDbHandles(f.path)).toBe(0);
+  } finally { await owner.retryCleanup(); }
+});
+
+test("recovering a failed independent open cannot close another caller's connection", async () => {
+  const f = await fixture(), healthy = await TaskStore.open(f.path, join(f.root, "attachments"));
+  cleanups.push(() => healthy.close());
+  healthy.setSyncState({ orgId: "fixture", pullCursor: "kept", lastPullAt: 1, lastPushAt: null, lastError: null });
+  const { Database } = await import("bun:sqlite");
+  const exec = Database.prototype.exec, close = Database.prototype.close;
+  let partial: InstanceType<typeof Database> | undefined, failedClose = false, failure: any;
+  Database.prototype.exec = function(...args) {
+    if (!partial) { partial = this; return exec.call(this, "SELECT * FROM missing_initialization_table"); }
+    return exec.apply(this, args);
+  };
+  Database.prototype.close = function(...args) {
+    if (this === partial && !failedClose) { failedClose = true; throw new Error("independent cleanup before native close"); }
+    return close.apply(this, args);
+  };
+  try {
+    failure = await ProjectSyncStore.open(f.path).catch(error => error);
+    expect(failure).toBeInstanceOf(AggregateError);
+    await failure.retryCleanup(); await failure.retryCleanup();
+    expect(healthy.getSyncState("fixture").pullCursor).toBe("kept");
+  } finally {
+    await failure?.retryCleanup?.(); Database.prototype.exec = exec; Database.prototype.close = close;
+    healthy.close();
+  }
+  expect(await runtimeDbHandles(f.path)).toBe(0); await rm(f.root, { recursive: true });
 });

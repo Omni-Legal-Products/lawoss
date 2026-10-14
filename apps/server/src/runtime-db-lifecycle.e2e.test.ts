@@ -152,3 +152,37 @@ test("embedded bootstrap and repeated stop release its initial and server databa
   await server.stop(); await server.stop(); expect(await runtimeDbHandles(f.db)).toBe(0);
   await rm(f.root, { recursive: true });
 });
+
+
+for (const kind of ["tasks", "projects"] as const) test(`an accepted pending ${kind} round survives its originating owner stopping`, async () => {
+  const f = await fixture();
+  const { createServer } = await import("node:http");
+  const { acquireRuntimeDbLifetime } = await import("./runtime-db-lifecycle.js");
+  const { writeEigenweltConnection } = await import("./eigenwelt-connection-store.js");
+  const task = await import("./task-sync.js"), project = await import("./project-sync.js");
+  const start = kind === "tasks" ? task.startTaskSyncTimer : project.startProjectSyncTimer;
+  const schedule = kind === "tasks" ? task.scheduleTaskSync : project.scheduleProjectSync;
+  const firstConfig = f.config, secondConfig = { ...f.config };
+  const first = acquireRuntimeDbLifetime(firstConfig), second = acquireRuntimeDbLifetime(secondConfig);
+  const previousPlatform = process.env.EIGENWELT_PLATFORM_URL;
+  let calls = 0, stopFirst: (() => Promise<void>) | undefined, stopSecond: (() => Promise<void>) | undefined;
+  const http = createServer((request, response) => { calls++; request.resume(); response.writeHead(500).end("unavailable"); });
+  try {
+    await new Promise<void>(resolve => http.listen(0, "127.0.0.1", resolve));
+    const address = http.address(); if (!address || typeof address === "string") throw new Error("platform failed to bind");
+    process.env.EIGENWELT_PLATFORM_URL = `http://127.0.0.1:${address.port}`;
+    await writeEigenweltConnection(f.config, { platformToken: "fixture", platformURL: process.env.EIGENWELT_PLATFORM_URL, account: { userId: "fixture", userName: "Fixture", userEmail: "fixture@example.test", orgId: "fixture", orgName: "Fixture" } });
+    await first.run(async () => { stopFirst = start(firstConfig, 60_000, 60_000); });
+    await second.run(async () => { stopSecond = start(secondConfig, 60_000, 60_000); });
+    await first.run(async () => { schedule(firstConfig, 25); });
+    await stopFirst!(); await first.release();
+    const deadline = Date.now() + 500;
+    while (!calls && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+    expect(calls).toBeGreaterThan(0);
+  } finally {
+    await stopFirst?.(); await stopSecond?.(); await first.release(); await second.release();
+    await new Promise<void>(resolve => http.close(() => resolve()));
+    if (previousPlatform === undefined) delete process.env.EIGENWELT_PLATFORM_URL; else process.env.EIGENWELT_PLATFORM_URL = previousPlatform;
+  }
+  expect(await runtimeDbHandles(f.db)).toBe(0); await rm(f.root, { recursive: true });
+});
