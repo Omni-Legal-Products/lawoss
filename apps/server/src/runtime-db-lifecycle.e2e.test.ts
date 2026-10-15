@@ -197,6 +197,30 @@ for (const kind of ["tasks", "projects"] as const) test(`an accepted pending ${k
     const previousPlatform = process.env.EIGENWELT_PLATFORM_URL;
     let calls = 0, stopFirst: (() => Promise<void>) | undefined, stopSecond: (() => Promise<void>) | undefined;
     const http = createServer((request, response) => { calls++; if (calls === 1) timing?.record("http.arrived", calls); request.resume(); response.writeHead(500).end("unavailable"); });
+    let primaryFailed = false, cancelArrival = () => {};
+    let cleanupPromise: Promise<void> | undefined;
+    const cleanup = () => cleanupPromise ??= (async () => {
+      cancelArrival();
+      timing?.record("cleanup.enter");
+      let cleanupFailed = false, cleanupError: unknown;
+      const failed = (error: unknown) => { timing?.record("cleanup.failed"); if (!cleanupFailed) { cleanupFailed = true; cleanupError = error; } };
+      try {
+        try { await stopFirst?.(); } catch (error) { failed(error); }
+        timing?.record("owner.second.stop.enter");
+        try { await stopSecond?.(); timing?.record("owner.second.stop.done"); } catch (error) { failed(error); }
+        try { await first.release(); } catch (error) { failed(error); }
+        try { await second.release(); } catch (error) { failed(error); }
+        try { await new Promise<void>(resolve => http.close(() => resolve())); } catch (error) { failed(error); }
+      } finally {
+        if (previousPlatform === undefined) delete process.env.EIGENWELT_PLATFORM_URL; else process.env.EIGENWELT_PLATFORM_URL = previousPlatform;
+        if (!cleanupFailed) timing?.record("cleanup.drained", calls);
+        timing?.record("cleanup.attempts.done", calls);
+        if (!calls) timing?.record("http.no-http-observed");
+      }
+      if (cleanupFailed && !primaryFailed) throw cleanupError;
+    })();
+    // Bun owns the unchanged 5000ms bound. A runner timeout must still release the waiter and owners.
+    cleanups.push(async () => { primaryFailed = true; await cleanup(); });
     try {
       await new Promise<void>(resolve => http.listen(0, "127.0.0.1", resolve));
       timing?.record("http.listening");
@@ -211,6 +235,14 @@ for (const kind of ["tasks", "projects"] as const) test(`an accepted pending ${k
       timing?.record("owner.second.start.enter");
       await second.run(async () => { stopSecond = start(secondConfig, 60_000, 60_000); });
       timing?.record("owner.second.start.done");
+      let onArrival!: () => void;
+      const arrived = new Promise<true>(resolve => {
+        onArrival = () => resolve(true);
+        http.once("request", onArrival);
+      });
+      const cancelled = new Promise<false>(resolve => {
+        cancelArrival = () => { http.off("request", onArrival); resolve(false); };
+      });
       timing?.record("schedule.call.enter");
       await first.run(async () => { schedule(firstConfig, 25); });
       timing?.record("schedule.call.returned");
@@ -220,40 +252,17 @@ for (const kind of ["tasks", "projects"] as const) test(`an accepted pending ${k
       timing?.record("owner.first.release.enter");
       await first.release();
       timing?.record("owner.first.release.done");
-      const deadline = Date.now() + 500;
       const windowStarted = timing ? performance.now() : 0;
       timing?.record("assertion.window.enter");
-      while (!calls && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+      // Only runner-owned cleanup can cancel; it must not reject an already timed-out test.
+      if (!await Promise.race([arrived, cancelled])) return;
       timing?.record("assertion.check", calls, performance.now() - windowStarted);
       expect(calls).toBeGreaterThan(0);
     } catch (error) {
+      primaryFailed = true;
       if (timing) { timing.primaryFailed = true; timing.record("primary.failed"); }
       throw error;
-    } finally {
-      if (!timing) {
-        await stopFirst?.(); await stopSecond?.(); await first.release(); await second.release();
-        await new Promise<void>(resolve => http.close(() => resolve()));
-        if (previousPlatform === undefined) delete process.env.EIGENWELT_PLATFORM_URL; else process.env.EIGENWELT_PLATFORM_URL = previousPlatform;
-      } else {
-        timing.record("cleanup.enter");
-        let cleanupFailed = false, cleanupError: unknown;
-        const failed = (error: unknown) => { timing.record("cleanup.failed"); if (!cleanupFailed) { cleanupFailed = true; cleanupError = error; } };
-        try {
-          try { await stopFirst?.(); } catch (error) { failed(error); }
-          timing.record("owner.second.stop.enter");
-          try { await stopSecond?.(); timing.record("owner.second.stop.done"); } catch (error) { failed(error); }
-          try { await first.release(); } catch (error) { failed(error); }
-          try { await second.release(); } catch (error) { failed(error); }
-          try { await new Promise<void>(resolve => http.close(() => resolve())); } catch (error) { failed(error); }
-        } finally {
-          if (previousPlatform === undefined) delete process.env.EIGENWELT_PLATFORM_URL; else process.env.EIGENWELT_PLATFORM_URL = previousPlatform;
-          if (!cleanupFailed) timing.record("cleanup.drained", calls);
-          timing.record("cleanup.attempts.done", calls);
-          if (!calls) timing.record("http.no-http-observed");
-        }
-        if (cleanupFailed && !timing.primaryFailed) throw cleanupError;
-      }
-    }
+    } finally { await cleanup(); }
     expect(await runtimeDbHandles(f.db)).toBe(0); await rm(f.root, { recursive: true });
   } catch (error) {
     if (timing && !timing.primaryFailed) { timing.primaryFailed = true; timing.record("primary.failed"); }

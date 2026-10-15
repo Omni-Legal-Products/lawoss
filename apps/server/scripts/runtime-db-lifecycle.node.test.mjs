@@ -141,18 +141,32 @@ async function verifyPendingOwnerHandoff(config) {
     for (const [name, start, schedule] of [["tasks", startTaskSyncTimer, scheduleTaskSync], ["projects", startProjectSyncTimer, scheduleProjectSync]]) {
       const firstConfig = { ...config }, secondConfig = { ...config };
       const first = acquireRuntimeDbLifetime(firstConfig), second = acquireRuntimeDbLifetime(secondConfig);
-      let stopFirst, stopSecond;
+      let stopFirst, stopSecond, arrivalTimeout, onArrival, primaryFailed = false;
       try {
         await writeEigenweltConnection(config, { platformToken: "fixture", platformURL: process.env.EIGENWELT_PLATFORM_URL });
         await first.run(async () => { stopFirst = start(firstConfig, 60_000, 60_000); });
         await second.run(async () => { stopSecond = start(secondConfig, 60_000, 60_000); });
         const before = calls;
+        // Observe only the real request, before scheduling, with a cancellable finite Node bound.
+        const arrived = new Promise(resolve => {
+          onArrival = () => resolve(true);
+          http.once("request", onArrival);
+          arrivalTimeout = setTimeout(() => resolve(false), 5_000);
+        });
         await first.run(async () => { schedule(firstConfig, 25); });
         await stopFirst(); await first.release();
-        const deadline = Date.now() + 500;
-        while (calls === before && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
-        results[name] = calls > before;
-      } finally { await stopFirst?.(); await stopSecond?.(); await first.release(); await second.release(); }
+        results[name] = await arrived && calls > before;
+        assert.ok(results[name], `pending ${name} round must reach HTTP within the bounded arrival wait`);
+      } catch (error) { primaryFailed = true; throw error; }
+      finally {
+        clearTimeout(arrivalTimeout);
+        if (onArrival) http.off("request", onArrival);
+        let cleanupFailed = false, cleanupError;
+        for (const release of [() => stopFirst?.(), () => stopSecond?.(), () => first.release(), () => second.release()]) {
+          try { await release(); } catch (error) { if (!cleanupFailed) { cleanupFailed = true; cleanupError = error; } }
+        }
+        if (cleanupFailed && !primaryFailed) throw cleanupError;
+      }
     }
     assert.deepEqual(results, { tasks: true, projects: true }, "pending 25ms rounds must transfer without manual schedule or 60s fallback");
   } finally {
