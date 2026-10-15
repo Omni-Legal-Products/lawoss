@@ -11,7 +11,7 @@ import { startProvider } from "../lawoss/testing/isir/native/provider.mjs";
 import { partialPdf } from "../lawoss/testing/isir/native/partial-pdf.mjs";
 import { connectRenderer, until } from "../lawoss/testing/isir/native/cdp.mjs";
 import { stopNativeChild } from "../lawoss/testing/isir/native/owned-process.mjs";
-import { createNativeDiagnostics, settleCleanup, errorMetadata } from "../lawoss/testing/isir/native/diagnostics.mjs";
+import { createNativeDiagnostics, settleCleanup, errorMetadata, observePromptClick } from "../lawoss/testing/isir/native/diagnostics.mjs";
 import { configureNativeProvider } from "../lawoss/testing/isir/native/bootstrap.mjs";
 import { installChooserBoundary } from "../lawoss/testing/isir/native/chooser-boundary.mjs";
 import { awaitDirectoryInstance } from "../lawoss/testing/isir/native/startup-readiness.mjs";
@@ -134,9 +134,10 @@ try {
   engineLogDeadlineWallMs=startupDeadline;
   const startupRemaining=()=>Math.max(0,startupDeadline-Date.now());
   await until(() => cdp.evaluate("window.__legalworkControl.listActions().some(a=>a.id==='session.create_task'&&!a.disabled)"), "native engine workspace ready", startupRemaining());
-  const click = async text => {
+  const click = async (text, promptObservation=null) => {
     await cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()==='Got it');e?.click()})()`);
-    await until(() => cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('button,a,[role="button"],[role="menuitem"],[role="option"]')].find(e=>e.textContent.trim()===${JSON.stringify(text)}&&e.getBoundingClientRect().width>0&&!e.disabled);if(!e)return false;e.click();return true})()`), `visible native control ${text}`);
+    const clicked=await until(() => cdp.evaluate(`(()=>{const e=[...document.querySelectorAll('button,a,[role="button"],[role="menuitem"],[role="option"]')].find(e=>e.textContent.trim()===${JSON.stringify(text)}&&e.getBoundingClientRect().width>0&&!e.disabled);if(!e)return false;${promptObservation?`let observation=null;try{observation=(${observePromptClick.toString()})(${JSON.stringify(promptObservation.context)},e)}catch{}e.click();return {clicked:true,observation}`:'e.click();return true'}})()`), `visible native control ${text}`);
+    try{if(promptObservation&&clicked?.clicked===true)diagnostics.promptClick(promptObservation.role,clicked.observation);}catch{}
   };
   const liveEngine = await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('engineInfo')");
   const apiAuth = {authorization:'Basic '+Buffer.from(`${liveEngine.opencodeUsername}:${liveEngine.opencodePassword}`).toString('base64'),'content-type':'application/json'};
@@ -400,8 +401,11 @@ try {
   await until(()=>cdp.evaluate(`(()=>{const e=document.querySelector('[contenteditable="true"]');if(!e)return false;e.focus();const r=document.createRange();r.selectNodeContents(e);r.collapse(false);const s=window.getSelection();s.removeAllRanges();s.addRange(r);return true})()`),'ordinary native prompt editor');
   await cdp.send('Input.insertText',{text:'\nNative attachment submission fixture.'});
   const chatStart=cdp.events.length;
-  await click('Run task');
+  const chatObservation={role:'attachment',context:{sessionId:chatEvidence.sessionId,workspaceId:chatWorkspace.id,marker:'Native attachment submission fixture.'}};
+  diagnostics.promptStart('attachment',cdp.events,chatStart,chatObservation.context);
+  await click('Run task',chatObservation);
   const chatRequest=await until(()=>cdp.events.slice(chatStart).find(e=>e.method==='Network.requestWillBeSent'&&e.params.request.method==='POST'&&e.params.request.url.endsWith('/prompt_async')),'ordinary native chat submission');
+  diagnostics.promptEnd('attachment');
   const attachmentPath=path.relative(chatWorkspace.path,attachment).replaceAll('\\','/');
   assert.match(attachmentPath,/^\.legalwork\/attachments\/[a-f0-9-]{36}\//);
   assert.ok(chatRequest.params.request.postData.includes(attachmentPath),'Native prompt carries this newly saved attachment reference');
@@ -526,12 +530,15 @@ try {
   diagnostics.recoveryStage('composer-wait');
   await until(()=>cdp.evaluate(`(()=>{const e=document.querySelector('[contenteditable="true"]');if(!e||e.innerText.trim())return false;e.focus();return true})()`),'recovered original session composer');
   const recoveryPromptStart=cdp.events.length;
+  const recoveryObservation={role:'recovery',context:{sessionId:evidence[0].sessionId,workspaceId:first.id,marker:'NATIVE_RECOVERED_CWD_PROOF'}};
+  diagnostics.promptStart('recovery',cdp.events,recoveryPromptStart,recoveryObservation.context);
   diagnostics.recoveryStage('prompt-insert');
   await cdp.send('Input.insertText',{text:'NATIVE_RECOVERED_CWD_PROOF'});
   diagnostics.recoveryStage('prompt-click');
-  await click('Run task');
+  await click('Run task',recoveryObservation);
   diagnostics.recoveryStage('prompt-observe');
   const recoveryRequest=await until(()=>cdp.events.slice(recoveryPromptStart).find(e=>e.method==='Network.requestWillBeSent'&&e.params.request.method==='POST'&&e.params.request.url.endsWith('/prompt_async')&&e.params.request.postData?.includes('NATIVE_RECOVERED_CWD_PROOF')),'actual recovered-session native prompt');
+  diagnostics.promptEnd('recovery');
   diagnostics.recoveryStage('fresh-poll');
   const freshRead=await until(async()=>{
     const {body}=await api(first,`sessions/${evidence[0].sessionId}/snapshot?limit=20`),item=body.item;

@@ -100,6 +100,104 @@ export function summarizeNetwork(events) {
   // Historical pending means no terminal CDP event was observed, not a live socket.
   return {epoch,...current,trackingDropped,requests:project(currentRows),history:{...history,requests:project(historyRows)}};
 }
+// Runs only inside the existing successful click evaluation. The inspector is
+// effect-published and can lag React; these are observations, never readiness or
+// causal assertions. Missing/mismatched/inconsistent slices leave state unknown.
+export function observePromptClick(context, selected) {
+  const result={slicePresent:null,sessionMatches:null,workspaceMatches:null,markerInDraft:null,draftEmpty:null,attachmentsPresent:null,sending:null,errorPresent:null,editorCount:null,markerInEditor:null,focusInside:null,selectionInside:null,nativeButton:null,disabled:null,ariaDisabled:null,uniqueMatch:null};
+  try {
+    const slice=window.__legalwork?.slice?.('composer');
+    result.slicePresent=!!slice;
+    if(slice){
+      result.sessionMatches=typeof slice.sessionId==='string'?slice.sessionId===context.sessionId:null;
+      result.workspaceMatches=typeof slice.workspaceId==='string'?slice.workspaceId===context.workspaceId:null;
+      if(result.sessionMatches===true&&result.workspaceMatches===true&&typeof slice.draft==='string'&&slice.draftLength===slice.draft.length){
+        result.markerInDraft=slice.draft.includes(context.marker);result.draftEmpty=slice.draft.length===0;
+        result.attachmentsPresent=Array.isArray(slice.attachments)?slice.attachments.length>0:null;
+        result.sending=typeof slice.sending==='boolean'?slice.sending:null;
+        result.errorPresent=slice.error===null?false:typeof slice.error==='object'&&slice.error!==null?true:typeof slice.error==='string'?slice.error.length>0:null;
+      }
+    }
+  }catch{}
+  try {
+    const editors=document.querySelectorAll('[contenteditable="true"]'),editor=editors[0];
+    result.editorCount=editors.length===0?'0':editors.length===1?'1':'many';
+    if(editor){
+      result.markerInEditor=typeof editor.innerText==='string'?editor.innerText.includes(context.marker):null;
+      result.focusInside=editor.contains(document.activeElement);
+      const selection=window.getSelection();
+      result.selectionInside=selection?editor.contains(selection.anchorNode)&&editor.contains(selection.focusNode):null;
+    }
+    result.nativeButton=selected.tagName==='BUTTON';result.disabled=typeof selected.disabled==='boolean'?selected.disabled:null;
+    const aria=selected.getAttribute('aria-disabled');result.ariaDisabled=aria===null?false:aria==='true'?true:aria==='false'?false:null;
+    result.uniqueMatch=[...document.querySelectorAll('button,a,[role="button"],[role="menuitem"],[role="option"]')].filter(e=>e.textContent.trim()===selected.textContent.trim()&&e.getBoundingClientRect().width>0&&!e.disabled).length===1;
+  }catch{}
+  return result;
+}
+function projectPromptClick(value){
+  if(!value)return null;
+  const result={};
+  for(const key of ['slicePresent','sessionMatches','workspaceMatches','markerInDraft','draftEmpty','attachmentsPresent','sending','errorPresent','editorCount','markerInEditor','focusInside','selectionInside','nativeButton','disabled','ariaDisabled','uniqueMatch']){
+    result[key]=key==='editorCount'?['0','1','many'].includes(value[key])?value[key]:null:typeof value[key]==='boolean'?value[key]:null;
+  }
+  return result;
+}
+// Same captured event interval and original wait budget; no postData fetches.
+// Private IDs correlate at most128 requests; counters cap128 and scanning8192.
+export function summarizePromptEvents(events,context,start=0,end=events.length){
+  const statuses=()=>({unknown:0,informational:0,success:0,redirect:0,clientError:0,serverError:0});
+  const prompt={count:0,originalSuffix:0,queryPresent:0,sessionMatch:0,sessionMismatch:0,workspaceMatch:0,workspaceMismatch:0,workspaceUnknown:0,bodyKnown:0,bodyUnknown:0,bodyOversized:0,inlineMarker:0,jsonValid:0,jsonInvalid:0,jsonTextMarker:0,loadingFailed:0,responses:statuses()};
+  const restore={attempted:0,responses:statuses(),loadingFailed:0};
+  const count=(row,key)=>{row[key]=Math.min(128,row[key]+1);};
+  start=Math.max(0,Math.min(events.length,start));end=Math.max(start,Math.min(events.length,end));
+  const limit=Math.min(end,start+8192),active=new Map();
+  const result={scannedEvents:limit-start,droppedEvents:Math.min(2147483647,end-limit),correlationDropped:0,anyPost:0,prompt,restore};
+  const finish=entry=>{count(entry.row.responses,entry.status);if(entry.failed)count(entry.row,'loadingFailed');};
+  for(let i=start;i<limit;i++){
+    const event=events[i],p=event.params??{};
+    if(event.method==='Network.requestWillBeSent'){
+      const previous=active.get(p.requestId);
+      if(previous){finish(previous);active.delete(p.requestId);}
+      const request=p.request??{};if(request.method==='POST')count(result,'anyPost');
+      let url;try{url=new URL(request.url);}catch{continue;}
+      const match=url.pathname.match(/^(?:\/workspace\/([^/]+)\/opencode)?\/session\/([^/]+)(\/prompt_async)?$/);
+      if(!match)continue;
+      let row;
+      if(request.method==='POST'&&match[3]){
+        row=prompt;count(row,'count');
+        if(request.url.endsWith('/prompt_async'))count(row,'originalSuffix');
+        if(url.search.length)count(row,'queryPresent');
+        count(row,match[2]===context.sessionId?'sessionMatch':'sessionMismatch');
+        count(row,match[1]===undefined?'workspaceUnknown':match[1]===context.workspaceId?'workspaceMatch':'workspaceMismatch');
+        const body=request.postData;
+        if(typeof body!=='string'||body.length>65536){count(row,'bodyUnknown');if(typeof body==='string')count(row,'bodyOversized');}
+        else{
+          count(row,'bodyKnown');if(body.includes(context.marker))count(row,'inlineMarker');
+          try{
+            const parsed=JSON.parse(body);count(row,'jsonValid');
+            if(Array.isArray(parsed?.parts)&&parsed.parts.some(part=>part?.type==='text'&&typeof part.text==='string'&&part.text.includes(context.marker)))count(row,'jsonTextMarker');
+          }catch{count(row,'jsonInvalid');}
+        }
+      }else if(request.method==='PATCH'&&!match[3]&&match[2]===context.sessionId&&(match[1]===undefined||match[1]===context.workspaceId)){
+        row=restore;count(row,'attempted');
+      }else continue;
+      if(typeof p.requestId!=='string'){count(row.responses,'unknown');continue;}
+      active.set(p.requestId,{row,status:'unknown',failed:false});
+      if(active.size>128){const key=active.keys().next().value;finish(active.get(key));active.delete(key);count(result,'correlationDropped');}
+    }else{
+      const entry=active.get(p.requestId);if(!entry)continue;
+      if(event.method==='Network.responseReceived'){
+        const status=p.response?.status;
+        entry.status=Number.isInteger(status)&&status>=100&&status<600?['informational','success','redirect','clientError','serverError'][Math.floor(status/100)-1]:'unknown';
+      }
+      if(event.method==='Network.loadingFailed'||event.method==='Network.loadingFinished'){
+        entry.failed=event.method==='Network.loadingFailed';finish(entry);active.delete(p.requestId);
+      }
+    }
+  }
+  for(const entry of active.values())finish(entry);
+  return result;
+}
 export async function settleCleanup(primary, operations) {
   const failures=[];
   for(const operation of operations)try {await operation();}catch(error){failures.push(error);}
@@ -266,6 +364,18 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
     'verification-prepare','verification-wait','engine-info','engine-health','engine-identity','receipt-write'];
   let engineLog=emptyEngineLog(),engineLogCaptured=false;
   const requests=[],startup=[],ownedProcesses=[];
+  const promptRuns={attachment:null,recovery:null};
+  const endPrompt=role=>{
+    const run=promptRuns[role];
+    if(run&&!run.ended){
+      run.ended=true;
+      try{run.network=summarizePromptEvents(run.events,run.context,run.start,run.events.length);}catch{}
+      run.events=null;run.context=null;
+    }
+  };
+  const promptProjection=()=>Object.fromEntries(['attachment','recovery'].map(role=>{
+    const run=promptRuns[role];return [role,run?{click:run.click,network:run.network}:null];
+  }));
   let startupDropped=0,ownedProcessesDropped=0;
   const observationStarted=performance.now();
   const startupStages=['request','headers','body','verified'];
@@ -282,6 +392,15 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
     finally {record.elapsedMs=Math.round(performance.now()-started);}
   };
   return {
+    promptStart(role,events,start,context){
+      if(recoveryFrozen||!['attachment','recovery'].includes(role)||promptRuns[role])return;
+      promptRuns[role]={events,start,context,click:null,network:null,ended:false};
+    },
+    promptClick(role,value){
+      if(recoveryFrozen||!['attachment','recovery'].includes(role)||!promptRuns[role]||promptRuns[role].ended)return;
+      try{promptRuns[role].click=projectPromptClick(value);}catch{}
+    },
+    promptEnd(role){if(!recoveryFrozen&&['attachment','recovery'].includes(role))endPrompt(role);},
     bindOwnedRoot(value){
       if(!ownedRootShape(value)||ownedRoot!==undefined&&ownedRoot!==value)throw new Error('Invalid or replaced diagnostic owned root');
       ownedRoot=value;
@@ -329,12 +448,12 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
     },
     async write({events=[],error=null,cleanupErrors=[]}={}){
       if(!enabled)return;
-      const data={schema:5,recoveryStage:error&&recoveryFrozen?recoveryStage:null,engineLog,mode:'synthetic',platform:process.platform,phase,caseIndex,requests,startup,startupDropped,ownedProcesses,ownedProcessesDropped,network:summarizeNetwork(events),...(error?{error:errorMetadata(error)}:{}),cleanupErrors:cleanupErrors.map(e=>errorMetadata(e))};
+      const data={schema:6,promptObservations:promptProjection(),recoveryStage:error&&recoveryFrozen?recoveryStage:null,engineLog,mode:'synthetic',platform:process.platform,phase,caseIndex,requests,startup,startupDropped,ownedProcesses,ownedProcessesDropped,network:summarizeNetwork(events),...(error?{error:errorMetadata(error)}:{}),cleanupErrors:cleanupErrors.map(e=>errorMetadata(e))};
       await writeFile(outputFile,JSON.stringify(data,null,2),{mode:0o600});
     },
     failure(error){
       // Called first at the primary catch, before probes or cleanup can run.
-      if(!recoveryFrozen){recoveryStage=phase==='recovery'?recoveryStage??'unknown':null;recoveryFrozen=true;}
+      if(!recoveryFrozen){recoveryStage=phase==='recovery'?recoveryStage??'unknown':null;recoveryFrozen=true;for(const role of ['attachment','recovery'])endPrompt(role);}
       return {phase,caseIndex,recoveryStage,error:errorMetadata(error)};
     },
   };

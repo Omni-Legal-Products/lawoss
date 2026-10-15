@@ -5,7 +5,7 @@ import * as fs from 'node:fs/promises';
 import { mkdtemp, readFile, rm, mkdir, writeFile, realpath, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createNativeDiagnostics, summarizeNetwork, errorMetadata, settleCleanup, projectEngineLog } from './diagnostics.mjs';
+import { createNativeDiagnostics, summarizeNetwork, errorMetadata, settleCleanup, projectEngineLog, observePromptClick, summarizePromptEvents } from './diagnostics.mjs';
 
 test('network diagnostics retain pending prepare and streams without payload, IDs, URLs or headers', () => {
   const events = [
@@ -166,7 +166,7 @@ test('selected-instance category and finite startup/census projections are bound
     assert.throws(()=>d.ownedProcess({stage:'term-wait',index:-1}),/census/);
     await d.write({events:[{method:'Network.requestWillBeSent',params:{requestId:'PRIVATE-ID',timestamp:1,request:{url:'http://private-host/path?directory=PRIVATE-ROOT&token=PRIVATE-TOKEN'}}}]});
     const text=await readFile(outputFile,'utf8'),result=JSON.parse(text);
-    assert.equal(result.schema,5);assert.equal(result.network.requests[0].endpoint,'engine.path');
+    assert.equal(result.schema,6);assert.equal(result.network.requests[0].endpoint,'engine.path');
     assert.equal(result.startup.length,32);assert.equal(result.startupDropped,8);
     assert.equal(result.ownedProcesses.length,128);assert.equal(result.ownedProcessesDropped,22);
     assert.deepEqual(result.ownedProcesses[0],{phase:'startup',stage:'term-wait',index:23,elapsedMs:22,knownLive:1,unknown:0,moved:0,mismatched:0,leaderExited:true,anchored:true});
@@ -219,7 +219,7 @@ test('default engine log uses exact tuples, private fields and selected-director
     const selected=['creating instance','fromDirectory','bootstrapping','reloading instance','disposing instance'];
     await writeFile(f.logFile,selected.map(m=>logLine(m,`directory=${JSON.stringify(f.selectedDirectory)} ${extras}`)).join('')+known.map(([m,l])=>logLine(m,extras,l)).join(''));
     const result=await capturedLog(f),log=result.engineLog;
-    assert.equal(result.schema,5);assertClosedLog(log);assert.equal(log.status,'available');
+    assert.equal(result.schema,6);assertClosedLog(log);assert.equal(log.status,'available');
     assert.deepEqual(log.events.slice(0,5),['instance.create-observed','project.resolve-observed','bootstrap.enter-observed','instance.reload-observed','instance.dispose-observed'].map(event=>({event,evidenceScope:'selected-directory'})));
     assert.deepEqual(log.events.slice(5),known.map(([, ,event])=>({event,evidenceScope:'engine-run'})));
     assert.equal(log.runCount,1);assert.equal(log.directoryCount,1);assert.equal(log.ambiguous,false);
@@ -437,7 +437,7 @@ test('primary recovery stage freezes before secondary diagnostics and cleanup',a
     assert.equal(diagnostics.failure(new Error('private-secondary')).recoveryStage,'snapshot-body');
     await diagnostics.write({error:primary});
     const result=JSON.parse(await readFile(outputFile,'utf8'));
-    assert.equal(result.schema,5);assert.equal(result.recoveryStage,'snapshot-body');
+    assert.equal(result.schema,6);assert.equal(result.recoveryStage,'snapshot-body');
     assert.doesNotMatch(JSON.stringify(result),/private/);
   }finally{await rm(root,{recursive:true,force:true});}
 });
@@ -508,4 +508,133 @@ test('API after-headers metadata failure cannot replace body result or rejection
     // Existing callers omit the callback and keep their original result.
     if(!rejectBody)assert.equal((await api({id:'fixture'},'snapshot')).body,'safe');
   }
+});
+
+
+const promptContext={sessionId:'PRIVATE-SESSION',workspaceId:'PRIVATE-WORKSPACE',marker:'PRIVATE-MARKER'};
+const promptRequest=(id,url='/workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/prompt_async',body=JSON.stringify({parts:[{type:'text',text:'PRIVATE-MARKER'}]}),method='POST')=>({method:'Network.requestWillBeSent',params:{requestId:id,request:{method,url:url.startsWith('/')?'http://PRIVATE-HOST'+url:url,...(body===null?{}:{postData:body}),headers:{authorization:'PRIVATE-SECRET'}}}});
+const promptResponse=(id,status)=>({method:'Network.responseReceived',params:{requestId:id,response:{status,url:'PRIVATE-IGNORED',headers:{cookie:'PRIVATE-SECRET'}}}});
+const countKeys=['count','originalSuffix','queryPresent','sessionMatch','sessionMismatch','workspaceMatch','workspaceMismatch','workspaceUnknown','bodyKnown','bodyUnknown','bodyOversized','inlineMarker','jsonValid','jsonInvalid','jsonTextMarker','loadingFailed'];
+const statusKeys=['unknown','informational','success','redirect','clientError','serverError'];
+function assertPromptClosed(result){
+  assert.deepEqual(Object.keys(result),['scannedEvents','droppedEvents','correlationDropped','anyPost','prompt','restore']);
+  assert.deepEqual(Object.keys(result.prompt),[...countKeys,'responses']);
+  assert.deepEqual(Object.keys(result.restore),['attempted','responses','loadingFailed']);
+  for(const row of [result.prompt.responses,result.restore.responses])assert.deepEqual(Object.keys(row),statusKeys);
+  assert.doesNotMatch(JSON.stringify(result),/PRIVATE/);
+}
+test('prompt classifier separates original suffix, scope, inline body and correlated response without disclosing operands',()=>{
+  const events=[promptRequest('PRIVATE-ID'),promptResponse('PRIVATE-ID',204),promptResponse('PRIVATE-UNRELATED',500),
+    promptRequest('query','/workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION/prompt_async?directory=PRIVATE-ROOT'),promptResponse('query',400),
+    promptRequest('wrong','/workspace/OTHER/opencode/session/OTHER/prompt_async',null),
+    promptRequest('direct','/session/PRIVATE-SESSION/prompt_async',JSON.stringify({parts:[{type:'file',text:'PRIVATE-MARKER'}]})),
+    promptRequest('bad','PRIVATE-BAD-URL'),promptRequest('suffix','/session/PRIVATE-SESSION/prompt_async/extra'),
+    promptRequest('restore','/workspace/PRIVATE-WORKSPACE/opencode/session/PRIVATE-SESSION',null,'PATCH'),promptResponse('restore',503),
+    {method:'Network.loadingFailed',params:{requestId:'direct',errorText:'PRIVATE-ERROR'}}];
+  const result=summarizePromptEvents(events,promptContext);assertPromptClosed(result);
+  assert.equal(result.anyPost,6);assert.equal(result.prompt.count,4);assert.equal(result.prompt.originalSuffix,3);assert.equal(result.prompt.queryPresent,1);
+  assert.equal(result.prompt.sessionMatch,3);assert.equal(result.prompt.sessionMismatch,1);assert.equal(result.prompt.workspaceMatch,2);assert.equal(result.prompt.workspaceMismatch,1);assert.equal(result.prompt.workspaceUnknown,1);
+  assert.equal(result.prompt.bodyKnown,3);assert.equal(result.prompt.bodyUnknown,1);assert.equal(result.prompt.inlineMarker,3);assert.equal(result.prompt.jsonTextMarker,2);
+  assert.deepEqual(result.prompt.responses,{unknown:2,informational:0,success:1,redirect:0,clientError:1,serverError:0});
+  assert.equal(result.prompt.loadingFailed,1);assert.equal(result.restore.attempted,1);assert.equal(result.restore.responses.serverError,1);
+});
+test('missing, malformed and oversized bodies remain bounded unknown; JSON text marker differs from substring',()=>{
+  const result=summarizePromptEvents([promptRequest('missing',undefined,null),promptRequest('invalid',undefined,'PRIVATE-MARKER'),promptRequest('other',undefined,JSON.stringify({parts:[{type:'text',text:'other'}],private:'PRIVATE-MARKER'})),promptRequest('huge',undefined,'PRIVATE-MARKER'.repeat(10000))],promptContext);
+  assertPromptClosed(result);assert.equal(result.prompt.bodyUnknown,2);assert.equal(result.prompt.bodyOversized,1);assert.equal(result.prompt.bodyKnown,2);assert.equal(result.prompt.jsonInvalid,1);assert.equal(result.prompt.inlineMarker,2);assert.equal(result.prompt.jsonTextMarker,0);
+});
+test('prompt correlation and counters are capped, missing responses stay unknown, original event boundary is respected',()=>{
+  const events=Array.from({length:9000},(_,i)=>promptRequest('PRIVATE-'+i));events.push(promptResponse('PRIVATE-0',200));
+  const result=summarizePromptEvents(events,promptContext,1,9000);assertPromptClosed(result);
+  assert.equal(result.scannedEvents,8192);assert.equal(result.droppedEvents,807);assert.equal(result.correlationDropped,128);assert.equal(result.anyPost,128);assert.equal(result.prompt.count,128);assert.equal(result.prompt.responses.unknown,128);
+  const bounded=summarizePromptEvents([promptRequest('before'),promptRequest('inside'),promptResponse('inside',204),promptResponse('inside',500)],promptContext,1,3);
+  assert.equal(bounded.prompt.count,1);assert.equal(bounded.prompt.responses.success,1);assert.equal(bounded.prompt.responses.serverError,0);
+});
+const clickKeys=['slicePresent','sessionMatches','workspaceMatches','markerInDraft','draftEmpty','attachmentsPresent','sending','errorPresent','editorCount','markerInEditor','focusInside','selectionInside','nativeButton','disabled','ariaDisabled','uniqueMatch'];
+function clickFixture(slice){
+  const editor={innerText:'PRIVATE-MARKER',contains:value=>value==='inside'};
+  const button={tagName:'BUTTON',disabled:false,getAttribute:()=>null,textContent:'Run task',getBoundingClientRect:()=>({width:1})};
+  const document={activeElement:'inside',querySelectorAll:selector=>selector==='[contenteditable="true"]'?[editor]:[button]};
+  const window={__legalwork:{slice:()=>slice},getSelection:()=>({anchorNode:'inside',focusNode:'inside'})};
+  return {editor,button,document,window};
+}
+function readClick(fixture){return runInNewContext('('+observePromptClick.toString()+')(context,button)',{...fixture,context:promptContext});}
+test('click observation returns only closed booleans and buckets; mismatched or failing hook leaves draft unknown',()=>{
+  const fixture=clickFixture({...promptContext,draft:'PRIVATE-MARKER',draftLength:14,attachments:[{name:'PRIVATE-FILE'}],sending:false,error:null});
+  const result=readClick(fixture);assert.deepEqual(Object.keys(result),clickKeys);
+  assert.equal(result.markerInDraft,true);assert.equal(result.markerInEditor,true);assert.equal(result.focusInside,true);assert.equal(result.selectionInside,true);assert.equal(result.nativeButton,true);assert.equal(result.uniqueMatch,true);
+  assert.doesNotMatch(JSON.stringify(result),/PRIVATE/);
+  for(const slice of [undefined,{...promptContext,sessionId:'OTHER',draft:'PRIVATE-MARKER'}, {...promptContext,draft:'PRIVATE-MARKER',draftLength:0}]){
+    fixture.window.__legalwork.slice=()=>slice;const observed=readClick(fixture);assert.equal(observed.markerInDraft,null);assert.equal(observed.sending,null);
+  }
+  fixture.window.__legalwork.slice=()=>{throw new Error('PRIVATE-GETTER');};
+  assert.equal(readClick(fixture).slicePresent,null);assert.equal(readClick(fixture).markerInEditor,true);
+});
+test('prompt role projections freeze before secondary events and reject arbitrary observation fields',async()=>{
+  const root=await mkdtemp(path.join(tmpdir(),'native-prompt-test-'));
+  try{
+    const outputFile=path.join(root,'safe.json');const d=createNativeDiagnostics({enabled:true,ci:true,mode:'synthetic',outputFile});
+    const events=[promptRequest('before')];d.promptStart('attachment',events,1,promptContext);
+    events.push(promptRequest('inside'));d.promptClick('attachment',{markerInDraft:true,editorCount:'many',private:'PRIVATE-SENTINEL'});d.promptEnd('attachment');
+    d.promptStart('recovery',events,events.length,promptContext);events.push(promptRequest('recovered'));
+    d.phase('recovery');d.recoveryStage('prompt-observe');const primary=new Error('PRIVATE-PRIMARY');d.failure(primary);
+    events.push(promptResponse('recovered',500));d.promptClick('recovery',{markerInDraft:true});d.promptStart('PRIVATE-ROLE',events,0,promptContext);
+    await d.write({error:primary});const result=JSON.parse(await readFile(outputFile,'utf8'));
+    assert.equal(result.schema,6);assert.deepEqual(Object.keys(result.promptObservations),['attachment','recovery']);
+    assert.equal(result.promptObservations.attachment.network.prompt.count,1);assert.equal(result.promptObservations.attachment.click.markerInDraft,true);assert.equal(result.promptObservations.attachment.click.editorCount,'many');
+    assert.deepEqual(Object.keys(result.promptObservations.attachment.click),clickKeys);
+    assert.equal(result.promptObservations.recovery.network.prompt.responses.unknown,1);assert.equal(result.promptObservations.recovery.click,null);
+    assert.equal(result.recoveryStage,'prompt-observe');assert.doesNotMatch(JSON.stringify(result),/PRIVATE/);
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+
+// Execute the actual harness helper in a renderer-shaped VM: evaluate returns
+// the result of the real selection/click expression, not a canned click receipt.
+test('actual click retries false, observes only successful configured click and preserves primary errors without extra actions',async()=>{
+  const source=await readFile(new URL('../../../../scripts/test-isir-native.mjs',import.meta.url),'utf8');
+  const helper=source.match(/  const click = (async[\s\S]*?\n  };)/)[1].slice(0,-1);
+  for(const configured of [false,true]){
+    let clicks=0,evaluations=0,attempts=0,captures=0,captured=null;
+    const f=clickFixture({...promptContext,draft:'PRIVATE-MARKER',draftLength:14,attachments:[],sending:false,error:{message:'PRIVATE-ERROR'}});
+    f.button.click=()=>{clicks++;};
+    const select=f.document.querySelectorAll;
+    f.document.querySelectorAll=selector=>selector==='button'?[]:attempts===1?[]:select(selector);
+    const cdp={evaluate:async expression=>{evaluations++;return runInNewContext(expression,f);}};
+    const until=async read=>{attempts++;assert.equal(await read(),false);attempts++;return await read();};
+    const diagnostics={promptClick:(role,value)=>{captures++;captured={role,value};throw new Error('PRIVATE-METADATA');}};
+    const click=runInNewContext('('+helper+')',{cdp,until,diagnostics,observePromptClick});
+    await click('Run task',configured?{role:'recovery',context:promptContext}:undefined);
+    assert.equal(clicks,1);assert.equal(evaluations,3);assert.equal(captures,configured?1:0);
+    if(configured){assert.equal(captured.role,'recovery');assert.equal(captured.value.nativeButton,true);assert.equal(captured.value.errorPresent,true);}
+    const primary=new Error('PRIVATE-CDP');cdp.evaluate=async()=>{throw primary;};
+    await assert.rejects(click('Run task',configured?{role:'recovery',context:promptContext}:undefined),error=>error===primary);
+    assert.equal(clicks,1);
+  }
+});
+
+test('unavailable hook, absent editors and duplicate controls retain explicit unknowns without serializing hook payloads',()=>{
+  const f=clickFixture(undefined);delete f.window.__legalwork;
+  f.document.querySelectorAll=selector=>selector==='[contenteditable="true"]'?[]:[f.button,f.button];
+  const result=readClick(f);assert.deepEqual(Object.keys(result),clickKeys);
+  assert.equal(result.slicePresent,false);assert.equal(result.markerInDraft,null);assert.equal(result.editorCount,'0');assert.equal(result.markerInEditor,null);assert.equal(result.selectionInside,null);assert.equal(result.uniqueMatch,false);
+  for(const [aria,want] of [['true',true],['false',false],['PRIVATE-ARIA',null]]){
+    f.button.getAttribute=()=>aria;assert.equal(readClick(f).ariaDisabled,want);
+  }
+  f.window.__legalwork={slice:()=>({...promptContext,draft:'',draftLength:0,attachments:[],sending:true,error:null,private:'PRIVATE-SLICE'})};
+  const empty=readClick(f);assert.equal(empty.draftEmpty,true);assert.equal(empty.sending,true);assert.equal(empty.attachmentsPresent,false);assert.doesNotMatch(JSON.stringify(empty),/PRIVATE/);
+});
+test('prompt status classes, restore failure and ID correlations do not borrow unrelated responses or scopes',()=>{
+  const events=[];
+  for(const [id,status] of [['a',103],['b',302],['c',499],['d',599],['e',999]])events.push(promptRequest(id),promptResponse(id,status));
+  events.push(promptRequest('restore','/session/PRIVATE-SESSION',null,'PATCH'),{method:'Network.loadingFailed',params:{requestId:'restore',errorText:'PRIVATE-ERROR'}},promptRequest('wrong-restore','/workspace/OTHER/opencode/session/PRIVATE-SESSION',null,'PATCH'),promptResponse('wrong-restore',200),promptResponse('PRIVATE-NEVER-REQUESTED',200));
+  const result=summarizePromptEvents(events,promptContext);assertPromptClosed(result);
+  assert.deepEqual(result.prompt.responses,{unknown:1,informational:1,success:0,redirect:1,clientError:1,serverError:1});
+  assert.equal(result.restore.attempted,1);assert.equal(result.restore.loadingFailed,1);assert.equal(result.restore.responses.unknown,1);assert.equal(result.restore.responses.success,0);
+  const reused=summarizePromptEvents([promptRequest('same'),promptResponse('same',204),{method:'Network.loadingFinished',params:{requestId:'same'}},promptRequest('same')],promptContext);
+  assert.equal(reused.prompt.responses.success,1);assert.equal(reused.prompt.responses.unknown,1);
+});
+test('projection fault cannot replace the primary failure or reopen a frozen role',()=>{
+  const d=createNativeDiagnostics({});const primary=new Error('PRIVATE-PRIMARY');
+  d.promptStart('recovery',[{get method(){d.recoveryStage('fresh-poll');throw new Error('PRIVATE-METADATA');}}],0,promptContext);
+  d.phase('recovery');d.recoveryStage('prompt-observe');
+  assert.doesNotThrow(()=>d.failure(primary));assert.equal(d.failure(primary).recoveryStage,'prompt-observe');
 });
