@@ -24,9 +24,9 @@ function processTable() {
 }
 const sameIdentity = (a,b) => a.pid===b.pid&&a.group===b.group&&a.uid===b.uid&&a.start===b.start;
 
-async function stopPosixGroup(child, timeout, {readTable=processTable,kill=(pid,kind)=>process.kill(pid,kind),observe=()=>{}}) {
+async function stopPosixGroup(child, timeout, {readTable=processTable,kill=(pid,kind)=>process.kill(pid,kind),observe=()=>{},now=()=>performance.now()}) {
   const started=performance.now();let index=1,ownershipEstablished=false;
-  let table=readTable();
+  const table=readTable();
   const members=table.filter(row=>row.group===child.pid&&row.running);
   const owned=new Map(members.map(member=>[member.pid,member]));
   const census=(stage,rows)=>{
@@ -48,8 +48,7 @@ async function stopPosixGroup(child, timeout, {readTable=processTable,kill=(pid,
   const leader=members.find(row=>row.pid===child.pid);
   if(!leader||leader.parent!==process.pid||leader.uid!==process.getuid())throw new Error('Native detached child ownership could not be established');
   ownershipEstablished=true;
-  const inspect=stage=>{
-    table=readTable();
+  const admit=(stage,table)=>{
     census(stage,table);
     const moved=table.some(row=>{
       const previous=owned.get(row.pid);
@@ -65,25 +64,48 @@ async function stopPosixGroup(child, timeout, {readTable=processTable,kill=(pid,
     for(const member of unknown){owned.set(member.pid,member);living.push(member);}
     return living;
   };
-  const signal=(kind,stage)=>{
-    for(const identity of inspect(stage).sort((a,b)=>Number(a.pid===leader.pid)-Number(b.pid===leader.pid))) {
-      // Re-read immediately before each individual PID signal. In particular,
-      // leader exit never turns its old PGID into permission to kill a group.
-      const fresh=readTable();census('signal-recheck',fresh);
-      const current=fresh.find(row=>row.pid===identity.pid&&row.running);
-      if(!current||!sameIdentity(identity,current))continue;
-      try {kill(identity.pid,kind);}catch(error){if(error.code!=='ESRCH')throw error;}
-    }
+  const inspect=stage=>admit(stage,readTable());
+  const phase=async(kind,signalStage,waitStage)=>{
+    // Discovery, every signal recheck, and waiting share this phase's original
+    // budget. A stream of newly anchored members cannot restart the timeout.
+    const deadline=now()+timeout,attempted=new Set(),replacements=new Set();
+    const key=row=>JSON.stringify([row.pid,row.group,row.uid,row.start]);
+    const signal=members=>{
+      let living=members;
+      while(now()<deadline) {
+        const identity=living.filter(row=>!attempted.has(key(row)))
+          .sort((a,b)=>Number(replacements.has(key(a)))-Number(replacements.has(key(b)))||Number(a.pid===leader.pid)-Number(b.pid===leader.pid))[0];
+        if(!identity)return;
+        attempted.add(key(identity));
+        // Re-read immediately before each individual PID signal. In particular,
+        // leader exit never turns its old PGID into permission to kill a group.
+        const fresh=readTable();living=admit('signal-recheck',fresh);
+        if(now()>=deadline)return;
+        const current=fresh.find(row=>row.pid===identity.pid&&row.running);
+        if(!current||!sameIdentity(identity,current)) {
+          // Keep already queued identities ahead of a changed PID's new birth;
+          // its admission cannot borrow the stale candidate's signal attempt.
+          if(current)replacements.add(key(current));
+          continue;
+        }
+        try {kill(identity.pid,kind);}catch(error){if(error.code!=='ESRCH')throw error;}
+      }
+    };
+    signal(inspect(signalStage));
+    if(now()>=deadline)return false;
+    do {
+      const living=inspect(waitStage);
+      if(!living.length)return true;
+      // Graceful-wait discoveries retain the existing force-escalation policy.
+      // Force-wait discoveries need their own fresh, individual signal too.
+      if(kind==='SIGKILL')signal(living);
+      if(now()>=deadline)break;
+      await delay(Math.min(20,deadline-now()));
+    }while(now()<deadline);
+    return !inspect(waitStage).length;
   };
-  const waitForMembers=async stage=>{
-    const deadline=Date.now()+timeout;
-    do {if(!inspect(stage).length)return true;await delay(20);}while(Date.now()<deadline);
-    return !inspect(stage).length;
-  };
-  signal('SIGTERM','term-signal');
-  if(!await waitForMembers('term-wait')) {
-    signal('SIGKILL','kill-signal');
-    if(!await waitForMembers('kill-wait'))throw new Error('Owned native descendants did not exit');
+  if(!await phase('SIGTERM','term-signal','term-wait')) {
+    if(!await phase('SIGKILL','kill-signal','kill-wait'))throw new Error('Owned native descendants did not exit');
   }
 }
 
