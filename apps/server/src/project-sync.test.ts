@@ -1,7 +1,7 @@
-import { startTaskSyncTimer } from "./task-sync.js";
+import { scheduleTaskSync, startTaskSyncTimer } from "./task-sync.js";
 import { startProjectSyncTimer } from "./project-sync.js";
 import { acquireRuntimeDbLifetime } from "./runtime-db-lifecycle.js";
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
@@ -24,6 +24,7 @@ import {
   projectSyncStatus,
   resolveProjectSync,
   runProjectSync,
+  scheduleProjectSync,
   saveProjectSyncSettings,
   stopProjectSync,
   type ProjectSyncPlatform,
@@ -195,7 +196,7 @@ function fakeFirm() {
 }
 
 /** One member's computer: its own server config, runtime DB and projects folder. */
-async function machine(userId: string, userName: string) {
+async function machine(userId: string, userName: string, options: { syncMode?: "manual" | "background" } = {}) {
   const dir = await mkdtemp(join(tmpdir(), `legalwork-${userId}-`));
   cleanups.push(() => rm(dir, { recursive: true, force: true }));
   const config = {
@@ -206,15 +207,51 @@ async function machine(userId: string, userName: string) {
   } as unknown as ServerConfig;
   const lifetime = acquireRuntimeDbLifetime(config);
   cleanups.push(() => lifetime.release());
-  cleanups.push(startTaskSyncTimer(config, 60_000, 60_000));
+  const stopTaskTimer = startTaskSyncTimer(config, 60_000, 60_000);
+  cleanups.push(stopTaskTimer);
   const stopProjectTimer = startProjectSyncTimer(config, 60_000, 60_000);
   cleanups.push(stopProjectTimer);
   await writeEigenweltConnection(config, {
     platformToken: `tok_${userId}`,
     account: { userId, userName, userEmail: `${userId}@kanzlei.test`, orgId: ORG, orgName: "Kanzlei" },
   });
-  return { config, dir, userId, stopProjectTimer };
+  // Manual rounds retain the DB lifetime, but automatic producers must be stopped.
+  if (options.syncMode !== "background") await Promise.all([stopProjectTimer(), stopTaskTimer()]);
+  return { config, dir, userId, stopProjectTimer, stopTaskTimer };
 }
+
+test("manual machines reject automatic rounds while allowing explicit project sync", async () => {
+  const fetchSpy = spyOn(globalThis, "fetch").mockRejectedValue(new Error("unexpected fixture request"));
+  const timerSpy = spyOn(globalThis, "setTimeout");
+  let owner: Awaited<ReturnType<typeof machine>> | undefined;
+  try {
+    owner = await machine("user_anna", "Anna");
+    timerSpy.mockClear();
+    scheduleProjectSync(owner.config, 500);
+    scheduleTaskSync(owner.config, 500);
+    expect(timerSpy.mock.calls.filter(([, delay]) => delay === 500)).toHaveLength(0);
+
+    const { platform } = fakeFirm();
+    const originalList = platform.listProjects;
+    let fakeRounds = 0;
+    platform.listProjects = async (...args) => { fakeRounds++; return originalList(...args); };
+    expect(await runProjectSync(owner.config, { platform })).toEqual({
+      ran: true, pushed: 0, pulled: 0, arrived: 0, removed: 0, error: null,
+    });
+    expect(fakeRounds).toBe(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  } finally {
+    try {
+      if (owner) {
+        const stopped = await Promise.allSettled([owner.stopProjectTimer(), owner.stopTaskTimer()]);
+        for (const result of stopped) if (result.status === "rejected") throw result.reason;
+      }
+    } finally {
+      timerSpy.mockRestore();
+      fetchSpy.mockRestore();
+    }
+  }
+});
 
 async function localProject(config: ServerConfig, name: string): Promise<WorkspaceInfo> {
   const folderPath = join(config.projectsDirectory ?? "", name);
@@ -917,7 +954,7 @@ test("team project configuration shares folder references and setup status even 
 
 test("stopping project sync awaits the already running round before releasing its producers", async () => {
   const { startProjectSyncTimer } = await import("./project-sync.js");
-  const { platform } = fakeFirm(); const owner = await machine("user_anna", "Anna");
+  const { platform } = fakeFirm(); const owner = await machine("user_anna", "Anna", { syncMode: "background" });
   let enter!: () => void, resume!: () => void;
   const entered = new Promise<void>(resolve => { enter = resolve; }); const barrier = new Promise<void>(resolve => { resume = resolve; });
   const originalList = platform.listProjects;
@@ -932,7 +969,7 @@ test("stopping project sync awaits the already running round before releasing it
 
 
 test("a shared project watcher dispatches to the surviving timer owner", async () => {
-  const owner = await machine("user_anna", "Anna");
+  const owner = await machine("user_anna", "Anna", { syncMode: "background" });
   const { platform } = fakeFirm();
   const workspace = await localProject(owner.config, "Retained watcher");
   await saveProjectSyncSettings(owner.config, workspace, settings());
