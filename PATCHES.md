@@ -5,6 +5,7 @@
 | Súbory | Downstream doplnenie a dôvod |
 | --- | --- |
 | `package.json`, `apps/desktop/package.json`, `.github/workflows/ci-windows-portable.yml` | Príkaz `test:isir`, zaradenie testu desktopového kopírovania a Windows behu s desiatimi syntetickými spismi. Živé dáta ISIR sa sťahujú iba na výslovné miestne spustenie mimo Git; originály, oddelenie spisov a chýbajúce cesty overujú regresie. |
+| `apps/app/src/react-app/domains/session/status/session-activity-store.ts`, `apps/app/src/react-app/domains/session/surface/session-render-state.ts`, `apps/app/src/react-app/domains/session/surface/session-surface.tsx`, `apps/app/src/react-app/domains/session/sync/session-sync.ts`, `apps/app/src/react-app/domains/session/sync/transcript-reconcile.ts`, `apps/app/tests/session-sync-retention.test.ts`, `scripts/test-isir-native.mjs`, `.github/workflows/ci-windows-portable.yml` | Explicitné poradie native/accepted akcií a dokončených čítaní chráni aktuálny stav pred oneskoreným HTTP snapshotom bez zmeny ochrany accepted/wait/compaction. Spoločná overená raw/UI hranica bráni návratu revertovaných správ aj pri súbežnom raw a error alias ID. Regresie zahŕňajú skutočný SDK/SSE HTTP race, produkčný render consumer a mounted SessionSurface v predvolenom native teste; Windows výber zahŕňa nový test. |
 
 This file records every LAWOSS modification to a file inherited from `eigenweltlabs/legalwork`.
 
