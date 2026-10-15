@@ -117,7 +117,13 @@ Finite content-free errors are `INVALID_INPUT`, `NATIVE_HOME_MISMATCH`,
 layer `loadError` even when load resolves: ENOENT/ENOTDIR are ordinary missing
 npmrc paths, other read failures refuse. Actual Config validation rejects invalid
 typed configuration/auth; its INI parser is permissive, so text it accepts is not
-invented into a parse failure. There is no builtin-byte adapter or fallback `{}`.
+invented into a parse failure. The existing instance-local `invalidHandler`
+records only a boolean refusal flag, preventing raw invalid-value/credential
+validation events without throwing inside nopt's global callback. Genuine Config
+load/validation and legacy-auth rejection remain active; refused instances never
+escape. This does not globally silence upstream source metadata/read-path
+diagnostics: future production transport/logging must not forward library events.
+There is no builtin-byte adapter or fallback `{}`.
 
 **Do not wire a managed caller yet:** compiled engine npmPath/import.meta.url,
 virtual builtin npmrc provenance and plain Node visibility remain unproved.

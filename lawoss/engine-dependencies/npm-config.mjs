@@ -50,6 +50,11 @@ export async function loadEngineNpmConfig(input) {
       argv: [engineExecPath, engineExecPath], execPath: engineExecPath,
       platform: process.platform, definitions, flatten, nerfDarts, shorthands, warn: false,
     });
+    // Config's existing invalidHandler logs raw values even with warn:false.
+    // Record only refusal state locally; never throw here, because nopt clears
+    // its module-global callback only after the handler returns normally.
+    let invalidSeen = false;
+    config.invalidHandler = () => { invalidSeen = true; };
     await config.load();
     // load() can resolve despite read errors. Ordinary absent path components
     // are normal; permissions, directory reads and other failures are not.
@@ -58,7 +63,8 @@ export async function loadEngineNpmConfig(input) {
     }
     // Actual Config validation also detects invalid typed values and legacy
     // unscoped authentication. Do not silently return its sanitized fallback.
-    if (!config.validate() || !config.valid) throw refusal('CONFIG_LOAD_FAILED');
+    const valid = config.validate() && config.valid;
+    if (invalidSeen || !valid) throw refusal('CONFIG_LOAD_FAILED');
     return config.flat;
   } catch {
     throw refusal('CONFIG_LOAD_FAILED');

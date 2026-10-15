@@ -88,6 +88,9 @@ test('real builtin/global/user/project/environment precedence, credentials and t
 test('environment captured synchronously and caller inputs remain untouched', async t => {
   const f = await fixture(t); const environment = { ...f.environment, npm_config_registry: 'https://captured.invalid/' };
   const input = { ...f, environment }; const originalProcess = { ...process.env };
+  const unchanged = JSON.stringify(environment);
+  await loadEngineNpmConfig(input);
+  assert.ok(JSON.stringify(environment) === unchanged, 'unchanged caller environment remains identical');
   const pending = loadEngineNpmConfig(input);
   environment.npm_config_registry = 'https://later.invalid/';
   assert.equal((await pending).registry, 'https://captured.invalid/');
@@ -127,4 +130,34 @@ test('local tooling required: ancestor fallback and wrong local version refuse',
   await writeFile(path.join(fake, 'package.json'), '{"name":"@npmcli/config","version":"0.0.0","main":"index.js"}');
   await writeFile(path.join(fake, 'index.js'), 'throw new Error("must not evaluate wrong tooling")');
   await assert.rejects(other.loadEngineNpmConfig(f), { code: 'TOOLING_UNAVAILABLE', message: 'TOOLING_UNAVAILABLE' });
+});
+
+test('invalid values and legacy auth refuse without raw sentinel events; native validation survives', async t => {
+  const f = await fixture(t);
+  const sentinel = 'synthetic-diagnostic-sentinel';
+  let sentinelEvents = 0;
+  const listener = (...args) => {
+    if (args.some(value => typeof value === 'string' && value.includes(sentinel))) sentinelEvents++;
+  };
+  process.on('log', listener);
+  try {
+    await writeFile(f.environment.npm_config_userconfig, `fetch-retries=${sentinel}\n`);
+    await assert.rejects(loadEngineNpmConfig(f), { code: 'CONFIG_LOAD_FAILED', message: 'CONFIG_LOAD_FAILED' });
+    assert.equal(sentinelEvents, 0, 'invalid typed value must not emit its raw value');
+    await writeFile(f.environment.npm_config_userconfig, `registry=https://${sentinel}.invalid/\n_authToken=${sentinel}\n`);
+    await assert.rejects(loadEngineNpmConfig(f), { code: 'CONFIG_LOAD_FAILED', message: 'CONFIG_LOAD_FAILED' });
+    assert.equal(sentinelEvents, 0, 'legacy auth refusal must not emit credential/registry values');
+  } finally {
+    process.removeListener('log', listener);
+  }
+  // The refused helper must not strand nopt's module-global callback. A new
+  // ordinary Config still uses its original invalid handler/validity machinery.
+  const configRequire = createRequire(require.resolve('@npmcli/config'));
+  const nopt = configRequire('nopt');
+  assert.ok(nopt.invalidHandler == null, 'callback cleared after refused helper');
+  await writeFile(f.environment.npm_config_userconfig, 'fetch-retries=ordinary-invalid-number\n');
+  const normal = await reference(f);
+  assert.equal(normal.validate(), false);
+  assert.equal(normal.valid, false);
+  assert.ok(nopt.invalidHandler == null, 'native validation clears callback');
 });
