@@ -81,7 +81,7 @@ describe("Markdown wiki store", () => {
     if (first.kind !== "snapshot") throw new Error("Expected initial graph");
     expect(first.nodes.map((node) => node.path)).toContain("A.md");
     expect(first.edges.some((edge) => edge.source === "A.md" && edge.target === "B.md")).toBe(true);
-    expect(first.nodes.every((node) => !("properties" in node) && !("excerpt" in node))).toBe(true);
+    expect(first.nodes.every((node) => node.properties !== undefined && !("excerpt" in node))).toBe(true);
     const contentBefore = (await store.graph(wiki.id, undefined, true)).revision;
     await store.write(wiki.id, "A.md", "# A\n[[B]]\nChanged body", a.revision);
     expect((await store.graph(wiki.id, undefined, true)).revision).not.toBe(contentBefore);

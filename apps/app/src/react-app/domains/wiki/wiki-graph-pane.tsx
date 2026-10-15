@@ -1,3 +1,5 @@
+import { WikiGraphPropertyFilters } from "./wiki-graph-property-filters";
+import { graphPropertyFields } from "./wiki-graph-properties";
 import { lazy, Suspense, useCallback, useDeferredValue, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, SlidersHorizontal, X } from "lucide-react";
@@ -49,13 +51,14 @@ function WikiGraphWorkspace(props: Props & { storageKey: string }) {
     const graph = wikiGraph(props.pages, null);
     return {
       revision: "local",
-      nodes: graph.pages.map((page) => ({ id: page.path, path: page.path, title: page.title, type: page.type })),
+      nodes: graph.pages.map((page) => ({ id: page.path, path: page.path, title: page.title, type: page.type, properties: page.properties })),
       edges: graph.edges.map((edge) => ({ id: JSON.stringify([edge.from, edge.to, edge.label]), source: edge.from, target: edge.to, relation: edge.label })),
     };
   }, [props.client, props.wikiId, props.pages]);
   const data = query.data ?? fallback;
   const index = useMemo(() => indexWikiGraph(data), [data]);
   const visible = useMemo(() => filterWikiGraph(index, deferredFilter, props.focus), [index, deferredFilter, props.focus]);
+  const propertyFields = useMemo(() => graphPropertyFields(data.nodes), [data]);
   const types = useMemo(() => [...new Set(data.nodes.map((node) => node.type))].sort(), [data]);
   const folders = useMemo(() => [...new Set(data.nodes.flatMap((node) => node.path.includes("/") ? [node.path.split("/")[0]] : []))].sort(), [data]);
   const matches = useMemo(() => {
@@ -95,6 +98,7 @@ function WikiGraphWorkspace(props: Props & { storageKey: string }) {
         <input value={filter.query} placeholder={t("wiki.graph_filter_pages")} aria-label={t("wiki.graph_filter_pages")} onChange={(event) => updateFilter({ query: event.target.value })} />
         <select value={filter.type} aria-label={t("wiki.graph_all_types")} onChange={(event) => updateFilter({ type: event.target.value })}><option value="">{t("wiki.graph_all_types")}</option>{types.map((type) => <option key={type} value={type}>{type}</option>)}</select>
         <select value={filter.folder} aria-label={t("wiki.graph_all_folders")} onChange={(event) => updateFilter({ folder: event.target.value })}><option value="">{t("wiki.graph_all_folders")}</option>{folders.map((folder) => <option key={folder} value={folder}>{folder}</option>)}</select>
+        <WikiGraphPropertyFilters fields={propertyFields} conditions={filter.conditions} mode={filter.conditionMode} onChange={conditions => updateFilter({ conditions })} onModeChange={conditionMode => updateFilter({ conditionMode })} />
         <label><input type="checkbox" checked={filter.local} disabled={!props.focus} onChange={(event) => updateFilter({ local: event.target.checked })} />{t("wiki.graph_local")}</label>
         {filter.local && props.focus ? <label className="wiki-graph-depth">{t("wiki.graph_depth")}<input type="range" min="1" max="5" value={filter.depth} onChange={(event) => updateFilter({ depth: Number(event.target.value) })} /><span>{filter.depth}</span></label> : null}
         <label><input type="checkbox" checked={filter.orphans} onChange={(event) => updateFilter({ orphans: event.target.checked })} />{t("wiki.graph_orphans")}</label>

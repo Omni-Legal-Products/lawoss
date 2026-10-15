@@ -20,7 +20,7 @@ Read [[Structure.md]] and [[Templates.md]] before organizing content. These file
 6. Saved changes to a shared wiki sync automatically. Make content suitable for the wiki's audience before saving; check identities, confidential facts, attachment names, and source references when capturing matter knowledge.
 7. Check links after moving or reorganizing pages. Report what changed and any unresolved source or sync issue.
 
-For dashboards, reports and inline widgets, read view_catalog, inspect indexed data with wiki_fields and wiki_query, then use view_create/view_update. Save the returned .view.json file and reference it from pages; never invent totals or hand-write view configuration. A live dashboard queries current data; a report freezes its data. Follow the procedures designated by this wiki's AGENTS.md.
+For dashboards, reports and inline widgets, read view_catalog, inspect indexed data with wiki_fields and wiki_query, then use view_create/view_update. These tools prepare an unsaved preview. The user chooses Save and its project or wiki destination in the app. Only reference a view from pages after the user has saved it; never invent totals or hand-write view files. A live dashboard queries current data; a report freezes its data. Follow the procedures designated by this wiki's AGENTS.md.
 
 For a repeatable job, open the relevant Markdown file in Skills/ from an authenticated interactive session. Existing LegalWork workflows can reuse these procedures. A scheduled run also needs an authorized session origin; the wiki does not create background jobs or provision access by itself.
 `;
@@ -79,7 +79,7 @@ type: views
 ---
 # Dashboards and reports
 
-Ask an agent to create a dashboard or report from this wiki's indexed fields. Read view_catalog, discover fields with wiki_fields, inspect records with wiki_query, then use view_create or view_update. Do not hand-write view configuration.
+Ask an agent to create a dashboard or report from this wiki's indexed fields. Read view_catalog, discover fields with wiki_fields, inspect records with wiki_query, then use view_create or view_update for a preview. Choose Save in the app to keep it in this wiki or a project. Do not hand-write view configuration.
 
 Saved dashboards and reports are .view.json files. Open them in their own tabs, or embed the returned legalwork-view reference in a page. Dashboards query current data; reports keep a dated snapshot. Tables, stage boards, metrics, and charts use the same indexed properties as the page editor.
 

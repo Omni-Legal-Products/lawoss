@@ -1,3 +1,4 @@
+import { parseGraphCondition } from "./wiki-graph-properties";
 import { defaultGraphFilter, type WikiGraphFilter } from "./wiki-graph-data";
 
 export type WikiGraphCamera = { x: number; y: number; ratio: number; angle: number };
@@ -12,6 +13,11 @@ export function readGraphPreferences(key: string): WikiGraphPreferences {
     const camera = "camera" in raw ? raw.camera : null;
     const result: WikiGraphPreferences = { filter: { ...defaultGraphFilter } };
     if (filter && typeof filter === "object") {
+      if ("conditions" in filter && Array.isArray(filter.conditions)) result.filter.conditions = filter.conditions.flatMap((condition: unknown) => {
+        const parsed = parseGraphCondition(condition);
+        return parsed ? [parsed] : [];
+      });
+      if ("conditionMode" in filter && (filter.conditionMode === "all" || filter.conditionMode === "any")) result.filter.conditionMode = filter.conditionMode;
       if ("query" in filter && typeof filter.query === "string") result.filter.query = filter.query;
       if ("type" in filter && typeof filter.type === "string") result.filter.type = filter.type;
       if ("folder" in filter && typeof filter.folder === "string") result.filter.folder = filter.folder;

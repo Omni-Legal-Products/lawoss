@@ -13,6 +13,14 @@ const client: Pick<LegalworkServerClient, "storageRoots" | "legalMemoryOpen" | "
 };
 
 describe("files dropped into document panes", () => {
+  test("wiki drags preserve the wiki editor and reject a different server", async () => {
+    const drop = { ...empty, wiki: { serverUrl: "http://127.0.0.1:1234", wikiId: "wiki", workspaceId: "wiki-workspace", path: "Clients/Client.md", name: "Client.md" }, workspace: { workspaceId: "wiki-workspace", path: "Clients/Client.md", name: "Client.md" } };
+    const result = await viewerFileTabs(client, "wiki-workspace", drop, drop.wiki.serverUrl).next();
+    expect(result.value).toMatchObject({ type: "wiki", wikiId: "wiki", location: { kind: "page", path: "Clients/Client.md" } });
+    await expect(viewerFileTabs(client, "wiki-workspace", drop, "https://other.example").next()).rejects.toThrow();
+    const asset = await viewerFileTabs(client, "wiki-workspace", { ...drop, wiki: { ...drop.wiki, path: "source.pdf", name: "source.pdf" } }, drop.wiki.serverUrl).next();
+    expect(asset.value).toMatchObject({ type: "wiki", location: { kind: "asset", path: "source.pdf" } });
+  });
   test("opens the original project file without copying or normalizing its path", async () => {
     const drop = { ...empty, workspace: { workspaceId: "workspace", path: "Matters/Contract.docx", name: "Contract.docx" } };
     const result = await viewerFileTabs(client, "workspace", drop).next();
@@ -34,7 +42,7 @@ describe("files dropped into document panes", () => {
     expect(result.value).toMatchObject({ type: "artifact", preview: "word", storage: {
       workspaceId: "workspace", root, file: { path: "Matter/A.docx", name: "A.docx", kind: "file" },
     } });
-    expect(result.value?.value).toBeUndefined();
+    expect(result.value && "value" in result.value ? result.value.value : undefined).toBeUndefined();
   });
 
   test("rejects disconnected Memory Drive sources", async () => {
@@ -50,7 +58,8 @@ describe("files dropped into document panes", () => {
       copied.push(payload.path);
       return { ok: true, path: payload.path, bytes: payload.data.byteLength, updatedAt: 42 };
     } }, "workspace", drop);
-    expect((await tabs.next()).value?.value).toStartWith(".legalwork/tmp/");
+    const first = (await tabs.next()).value;
+    expect(first && "value" in first ? first.value : undefined).toStartWith(".legalwork/tmp/");
     await tabs.return();
     expect(copied).toHaveLength(1);
   });

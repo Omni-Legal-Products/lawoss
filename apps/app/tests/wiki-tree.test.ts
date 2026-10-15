@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { wikiCopyPath, wikiTree } from "../src/react-app/domains/wiki/wiki-tree";
+import { wikiCopyPath, wikiTree, wikiFolderEmpty } from "../src/react-app/domains/wiki/wiki-tree";
 
 test("wiki folders form a real hierarchy, including empty folders and attachments", () => {
   const tree = wikiTree(["Research/Deals/Note.md", "Research/scan.pdf", "Wiki.md"], ["Research/Empty"]);
@@ -7,6 +7,9 @@ test("wiki folders form a real hierarchy, including empty folders and attachment
   expect(tree[0].children.map((node) => node.path)).toEqual(["Research/Deals", "Research/Empty", "Research/scan.pdf"]);
   expect(tree[0].children[0].children[0].path).toBe("Research/Deals/Note.md");
   expect(tree[0].children[1].children).toEqual([]);
+  expect(wikiFolderEmpty(tree[0].children[1])).toBe(true);
+  expect(wikiFolderEmpty(wikiTree([], ["Parent/Empty"])[0])).toBe(false);
+  expect(wikiFolderEmpty(tree[0].children[0])).toBe(false);
 });
 
 test("duplicate paths retain their extension and avoid existing files", () => {

@@ -10,7 +10,7 @@ import { reviewExportData } from "./review-export.js";
 import { ReportEvidenceIndexSchema, ReportEvidenceSchema, ReportTemplateFieldsSchema, reportClassText, reportDraftData, reportPacketFiles, reportSourceText, reviewReportData } from "../reviews/report-data.js";
 import { ReviewLibraryEntrySchema, reviewLibraryKind } from "@legalwork/types/reviews";
 import { CreateReviewSchema, EditReviewSchema, QueryReviewResultsSchema, RunReviewSchema, SaveReviewLibrarySchema, SavedReviewSchema, WaitReviewsSchema } from "../reviews/schema.js";
-import { listWorkspaces, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
+import { listWorkspaces, resolveWorkspaceId, serverToken, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 
 const id = z.string().uuid();
 const settingsArgs = z.strictObject({ reviewId: id.optional() });
@@ -141,7 +141,16 @@ export const LegalWorkReviewTools = async (context: OpenCodeContext & { client?:
     return folderContext.value;
   };
   const folders = appStateReminders("project-folders", readFolders, "The project folder listing is no longer available.", context);
-  const recover = context.client ? recoverEmptyReviewResponse(context.client, context.directory) : null;
+  const recover = context.client ? recoverEmptyReviewResponse(context.client, context.directory, async (sessionID, messageId) => {
+    const source = { ...context, sessionID };
+    const workspaceId = await resolveWorkspaceId(source, { requireDirectory: true });
+    // Recovery must participate in the server's deletion/send exclusion too.
+    const response = await fetch(`${serverUrl()}/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionID)}/review-recovery`, {
+      method: "POST", headers: { ...await workspaceToolHeaders(source), "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId }), signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) throw new Error("Review recovery is no longer available.");
+  }) : null;
   const ddSessions = new Set<string>(), draftingSessions = new Set<string>();
   const ddSkills = ["workflow-assistant-due-diligence", "saas-acquisition-dd", "workflow-assistant-saas-acquisition-dd"];
   const ddHelpers = ["docx-edit", "author-review-prompts", "start-tabular-review", "pdf-tools"];

@@ -292,6 +292,10 @@ describe("artifact file routes", () => {
 
   test("lists workspace directories with dirs-first ordering and path safety", async () => {
     const root = await createWorkspaceRoot();
+    await mkdir(join(root, "empty"));
+    await mkdir(join(root, "hidden-only"));
+    await writeFile(join(root, "hidden-only", ".keep"), "");
+    await mkdir(join(root, "nested-only", "child"), { recursive: true });
     for (const name of ["Matter 10.txt", "Matter 2.txt", "München.txt", "münchen 2.txt"]) {
       await writeFile(join(root, "reports", name), "fixture");
     }
@@ -303,7 +307,10 @@ describe("artifact file routes", () => {
     expect(rootListing.path).toBe("");
     expect(rootListing.truncated).toBe(false);
     expect(rootListing.entries.map((entry) => entry.name)).toContain("reports");
-    expect(rootListing.entries.find((entry) => entry.name === "reports")).toMatchObject({ kind: "dir", path: "reports" });
+    expect(rootListing.entries.find((entry) => entry.name === "reports")).toMatchObject({ kind: "dir", path: "reports", empty: false });
+    expect(rootListing.entries.find((entry) => entry.name === "empty")).toMatchObject({ kind: "dir", empty: true });
+    expect(rootListing.entries.find((entry) => entry.name === "hidden-only")).toMatchObject({ kind: "dir", empty: false });
+    expect(rootListing.entries.find((entry) => entry.name === "nested-only")).toMatchObject({ kind: "dir", empty: false });
 
     const reportsList = await fetch(`${base}/workspace/ws_1/files/list?path=${encodeURIComponent("reports")}`, { headers: auth(token) });
     expect(reportsList.status).toBe(200);

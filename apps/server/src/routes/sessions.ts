@@ -1,9 +1,13 @@
+import type { SessionViewPreview } from "@legalwork/types/views";
+import { beginSessionDeletion, withSessionExecution } from "../session-execution-gate.js";
+import { REVIEW_RECOVERY_PROMPT } from "../opencode-plugins/recover-empty-review-response.js";
+import { reviewSessionViews, savedSessionViews, sessionViewPreviews } from "../views/session-previews.js";
 import { retryStopReason } from "../session-retry-policy.js";
 import { queueActionSchema, queuedPromptPayload, type QueueEntry } from "../session-queue-schema.js";
 import { QueuePreparationError, registerMessageQueue } from "../session-message-queue.js";
 import { assertNoHostShellInterpolation, assertSandboxProxyAllowed } from "../agent-sandbox/proxy-gate.js";
 import { WikiStore } from "../wiki/store.js";
-import { grantWikiAgentSession } from "../wiki/agent-access.js";
+import { grantWikiAgentSession, revokeWikiAgentSession } from "../wiki/agent-access.js";
 import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { ApiError } from "../errors.js";
 import { canonicalFilePath } from "../file-write-lock.js";
@@ -110,7 +114,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       const statuses = unwrapOpencodeResult(await client.session.status(), "session/status");
       return !statuses[sessionId] || statuses[sessionId].type === "idle";
     },
-    send: async (workspaceId, sessionID, entry) => {
+    send: (workspaceId, sessionID, entry) => withSessionExecution(config, sessionID, async () => {
       ensureWritable(config);
       const client = await (async () => {
         try {
@@ -132,7 +136,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
         return { pause: Boolean(result.info.error), reason: result.info.error?.name === "MessageAbortedError" ? "stop" : "error" };
       } else if (execution.kind === "command") unwrapOpencodeResult(await client.session.command({ sessionID, ...execution }), "session/command");
       else unwrapOpencodeResult(await client.session.shell({ sessionID, command: execution.command }), "session/shell");
-    },
+    }, true),
   });
   addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/queue", "client", async ctx => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
@@ -141,20 +145,22 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   });
   addRoute(routes, "POST", "/workspace/:id/sessions/:sessionId/queue", "client", async ctx => {
     ensureWritable(config); requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const parsed = queueActionSchema.safeParse(await readJsonBodyLimited(ctx.request, 64 * 1024 * 1024));
-    if (!parsed.success) throw new ApiError(400, "invalid_queue_action", "Invalid message queue action.");
-    // Reject stale/deleted or cross-workspace sessions before storing executable work.
-    const client = await queueClient(workspace, ctx.params.sessionId);
-    if (parsed.data.type === "enqueue") await validateQueuedExecution(client, parsed.data.execution);
-    // Queued prompts bypass the public engine proxy. Refresh their authenticated
-    // origin here too, including an existing chat resumed after server restart.
-    await grantWikiAgentSession(config, {
-      sessionId: ctx.params.sessionId,
-      directory: workspace.directory?.trim() || workspace.path,
-      scope: ctx.actor?.type === "host" ? "owner" : ctx.actor?.scope ?? "viewer",
+    return withSessionExecution(config, ctx.params.sessionId, async () => {
+      const workspace = await resolveWorkspace(config, ctx.params.id);
+      const parsed = queueActionSchema.safeParse(await readJsonBodyLimited(ctx.request, 64 * 1024 * 1024));
+      if (!parsed.success) throw new ApiError(400, "invalid_queue_action", "Invalid message queue action.");
+      // Reject stale/deleted or cross-workspace sessions before storing executable work.
+      const client = await queueClient(workspace, ctx.params.sessionId);
+      if (parsed.data.type === "enqueue") await validateQueuedExecution(client, parsed.data.execution);
+      // Queued prompts bypass the public engine proxy. Refresh their authenticated
+      // origin here too, including an existing chat resumed after server restart.
+      await grantWikiAgentSession(config, {
+        sessionId: ctx.params.sessionId,
+        directory: workspace.directory?.trim() || workspace.path,
+        scope: ctx.actor?.type === "host" ? "owner" : ctx.actor?.scope ?? "viewer",
     });
     return jsonResponse(await messageQueue.act(workspace.id, ctx.params.sessionId, parsed.data));
+    });
   });
 
 
@@ -503,6 +509,62 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     },
   );
 
+  const recoveredRequests = new Map<string, string>();
+  addRoute(routes, "POST", "/workspace/:id/sessions/:sessionId/review-recovery", "client", async ctx => {
+    ensureWritable(config); requireClientScope(ctx, "collaborator");
+    return withSessionExecution(config, ctx.params.sessionId, async () => {
+      const workspace = await resolveWorkspace(config, ctx.params.id), sessionID = ctx.params.sessionId;
+      const client = await queueClient(workspace, sessionID);
+      const { messageId } = await readJsonBodyLimited(ctx.request, 4096);
+      const last = unwrapOpencodeResult(await client.session.messages({ sessionID, limit: 1 }), "session messages").at(-1);
+      if (!last || last.info.id !== messageId || last.info.role !== "assistant" || last.info.finish !== "stop" || last.info.error || last.info.summary
+        || !last.parts.some(part => part.type === "reasoning" && part.text.trim()) || last.parts.some(part => part.type === "tool" || part.type === "text" && part.text.trim()))
+        throw new ApiError(409, "recovery_changed", "The chat no longer needs recovery.");
+      const user = unwrapOpencodeResult(await client.session.message({ sessionID, messageID: last.info.parentID }), "session message");
+      if (user.info.role !== "user" || !user.parts.some(part => part.type === "text" && !part.synthetic) || user.parts.some(part => part.type === "compaction"))
+        throw new ApiError(409, "recovery_changed", "The originating request is unavailable.");
+      const todos = unwrapOpencodeResult(await client.session.todo({ sessionID }), "session todo");
+      if (!todos.some(todo => todo.status === "pending" || todo.status === "in_progress")) return jsonResponse({ ok: true });
+      const latest = unwrapOpencodeResult(await client.session.messages({ sessionID, limit: 1 }), "session messages").at(-1);
+      if (latest?.info.id !== messageId) throw new ApiError(409, "recovery_changed", "New input takes precedence over recovery.");
+      await requireIdle(client, [sessionID]);
+      if (recoveredRequests.get(sessionID) === user.info.id) return jsonResponse({ ok: true });
+      recoveredRequests.set(sessionID, user.info.id);
+      const result = await client.session.promptAsync({ sessionID, agent: user.info.agent, model: user.info.model,
+        parts: [{ type: "text", synthetic: true, text: REVIEW_RECOVERY_PROMPT }] });
+      if (!result.response?.ok) throw new ApiError(502, "recovery_send", "Could not confirm recovery delivery. Check the chat before retrying.");
+      return jsonResponse({ ok: true });
+    });
+  });
+
+  async function viewReview(workspace: WorkspaceInfo, sessionId: string, lock?: (id: string) => void) {
+    const pending = [sessionId], sessionIds = new Set<string>(), items: SessionViewPreview[] = [];
+    while (pending.length) {
+      const id = pending.shift()!;
+      if (sessionIds.has(id)) throw new ApiError(409, "invalid_session_tree", "This chat's related chats could not be verified.");
+      if (sessionIds.size >= 1000) throw new ApiError(413, "session_tree_too_large", "Review and delete related chats in smaller groups.");
+      sessionIds.add(id);
+      lock?.(id);
+      const client = await queueClient(workspace, id);
+      if (lock) await requireIdle(client, [id]);
+      const [messageResult, childResult] = await Promise.all([client.session.messages({ sessionID: id }), client.session.children({ sessionID: id })]);
+      const messages = unwrapOpencodeResult(messageResult, "session messages");
+      if (lock && messages.some(message => message.parts.some(part => part.type === "tool" && (part.state.status === "pending" || part.state.status === "running"))))
+        throw new ApiError(409, "session_busy", "A tool is still running in this chat. Wait for it to finish before deleting.");
+      items.push(...sessionViewPreviews(messages).map(item => ({ ...item, sessionId: id })));
+      pending.push(...unwrapOpencodeResult(childResult, "session children").map(child => child.id));
+    }
+    return { review: reviewSessionViews(items, items.length ? await savedSessionViews(config) : [], workspace.id, sessionId), sessionIds: [...sessionIds] };
+  }
+  async function requireIdle(client: WorkspaceOpencodeClient, sessionIds: string[]) {
+    const statuses = unwrapOpencodeResult(await client.session.status(), "session/status");
+    if (sessionIds.some(id => statuses[id] && statuses[id].type !== "idle")) throw new ApiError(409, "session_busy", "Stop this chat and its related agent chats before deleting, so their dashboards can be checked.");
+  }
+  addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/views", "client", async ctx => {
+    requireClientScope(ctx, "viewer");
+    return jsonResponse((await viewReview(await resolveWorkspace(config, ctx.params.id), ctx.params.sessionId)).review);
+  });
+
   addRoute(routes, "DELETE", "/workspace/:id/sessions/:sessionId", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
@@ -513,16 +575,28 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       throw new ApiError(400, "invalid_payload", "sessionId is required");
     }
 
-    const opencode = createWorkspaceOpencodeClient(config, workspace);
-    // Stop pending sends before deleting the underlying chat.
-    await messageQueue.act(workspace.id, sessionId, { type: "pause", paused: true });
-    unwrapOpencodeResult(
-      await opencode.session.delete({ sessionID: sessionId }),
-      `/session/${encodeURIComponent(sessionId)}`,
-    );
-    await messageQueue.removeSession(workspace.id, sessionId);
-    await deleteSessionUsageLimits(config, workspace.id, sessionId);
+    const locks = new Map<string, () => void>();
+    const lock = (id: string) => { if (!locks.has(id)) locks.set(id, beginSessionDeletion(config, id)); };
+    try {
+      lock(sessionId);
+      const opencode = await queueClient(workspace, sessionId);
+      const { review, sessionIds } = await viewReview(workspace, sessionId, lock);
+      await requireIdle(opencode, sessionIds);
+      const discardReview = ctx.url.searchParams.get("discardReview");
+      if (review.items.length && discardReview !== review.reviewToken) throw new ApiError(409, "unsaved_session_views", "Save or explicitly discard this chat's dashboards before deleting it.", review);
+      // Dispatch gates stay held until engine deletion and queue cleanup finish.
+      unwrapOpencodeResult(
+        await opencode.session.delete({ sessionID: sessionId }),
+        `/session/${encodeURIComponent(sessionId)}`,
+      );
+      for (const id of sessionIds) {
+        revokeWikiAgentSession(config, id);
+        recoveredRequests.delete(id);
+        await messageQueue.removeSession(workspace.id, id);
+        await deleteSessionUsageLimits(config, workspace.id, id);
+      }
 
-    return jsonResponse({ ok: true });
+      return jsonResponse({ ok: true });
+    } finally { for (const release of locks.values()) release(); }
   });
 }

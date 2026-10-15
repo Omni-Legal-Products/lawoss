@@ -1,6 +1,6 @@
 import { isWorkspacePanelScope } from "./panel-scope";
 import { suggestionIdFromFile } from "@legalwork/types/wiki-suggestions";
-import { replaceGenerationTab, type ViewDraftTab } from "../../views/view-generation";
+import { useViewGenerationStore, replaceGenerationTab, type ViewDraftTab } from "../../views/view-generation";
 import { parseViewReference, viewPanelTab, type ViewPanelTab } from "../../views/view-reference";
 import { projectFileSourceSchema, type ProjectFileSource } from "@legalwork/types/project-files";
 import { projectFileTab } from "../../workspace/project-file-tab";
@@ -734,7 +734,7 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
         
         let changed = false;
         for (const [key, session] of Object.entries(nextSessions)) {
-          const tabs = session.tabs.filter(tab => tab.type !== "chat" || tab.sessionId !== sessionId);
+          const tabs = session.tabs.filter(tab => tab.type === "chat" ? tab.sessionId !== sessionId : tab.type !== "view-draft" || useViewGenerationStore.getState().entries[tab.generationId]?.sessionId !== sessionId);
           if (tabs.length !== session.tabs.length) {
             nextSessions[key] = normalizeSession({ ...session, tabs });
             changed = true;
@@ -751,6 +751,7 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
           changed = true;
         }
 
+        useViewGenerationStore.getState().forgetSession(sessionId);
         if (!changed) {
           return state;
         }

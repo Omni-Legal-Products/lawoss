@@ -13,6 +13,7 @@ import { workspaceIdForPath, workspaceIdForRemote } from "../workspaces.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
 import { initializeProjectFields, parseProjectFields, createDefaultProjectFolder, defaultProjectRoot, readProjectDetails, updateProjectDetails, updateProjectFieldValues } from "../project-store.js";
 import { WikiStore } from "../wiki/store.js";
+import { revokeWikiProjectEverywhere } from "../wiki/project-access.js";
 import { assertProjectFolderIndependent } from "../wiki/workspace-safety.js";
 
 type JsonResponse = (data: unknown, status?: number) => Response;
@@ -274,6 +275,8 @@ export async function registerLocalProject(
     workspaceType: "local",
     ...inheritWorkspaceOpencodeConnection(config),
   };
+  const previous = config.workspaces.find(entry => entry.id === workspace.id);
+  if (previous && (previous.workspaceType !== workspace.workspaceType || (previous.directory || previous.path) !== workspace.path)) revokeWikiProjectEverywhere(config, workspace.id);
   const others = config.workspaces.filter((entry) => entry.id !== workspace.id);
   config.workspaces = input.position === "last" ? [...others, workspace] : [workspace, ...others];
   if (!config.authorizedRoots.some((root) => resolve(root) === workspacePath)) {
@@ -295,6 +298,7 @@ export async function renameRegisteredWorkspace(config: ServerConfig, id: string
 /** Take a workspace out of the registry (its folder stays) and persist it. */
 export async function unregisterWorkspace(config: ServerConfig, workspace: WorkspaceInfo): Promise<{ deleted: boolean; persisted: boolean }> {
   const before = config.workspaces.length;
+  revokeWikiProjectEverywhere(config, workspace.id);
   config.workspaces = config.workspaces.filter((entry) => entry.id !== workspace.id);
   const deleted = before !== config.workspaces.length;
   if (deleted && workspace.workspaceType === "local") {
@@ -534,6 +538,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       ...(sandboxContainerName ? { sandboxContainerName } : {}),
     };
 
+    revokeWikiProjectEverywhere(config, workspace.id);
     config.workspaces = [workspace, ...config.workspaces.filter((entry) => entry.id !== workspace.id)];
     const persisted = await persistServerWorkspaceState(config);
     onWorkspacesChanged();

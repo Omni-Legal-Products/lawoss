@@ -4,16 +4,18 @@ import { cn } from "@/lib/utils";
 
 export type FolderIconProps = Omit<ComponentProps<"svg">, "children"> & {
   open?: boolean;
+  empty?: boolean;
   /** Shared with others: two people on its front. */
   shared?: boolean;
 };
 
 /** A light-blue folder asset, drawn in layers so it stays crisp at any density. */
-export function FolderIcon({ open = false, shared = false, className, ...props }: FolderIconProps) {
+export function FolderIcon({ open = false, empty = false, shared = false, className, ...props }: FolderIconProps) {
   const id = useId();
 
   return (
     <svg
+      data-empty={empty || undefined}
       viewBox="0 0 24 24"
       fill="none"
       aria-hidden="true"

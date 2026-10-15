@@ -1,3 +1,5 @@
+import { WikiProjectFilesDialog, WIKI_PROJECT_PICKER_EVENT } from "../../wiki/wiki-project-files-dialog";
+import { ChatWorkspaceContext } from "@/components/chat/chat-workspace-context";
 import { BackgroundTabStack } from "../background/background-tab-stack";
 import { MarkdownStreamLinks } from "../artifacts/markdown-stream-links";
 import { useProjectFiles } from "../../workspace/project-file-context";
@@ -12,7 +14,7 @@ import { hasAssistantReplyAfter } from "@/react-app/domains/connections/usage-co
 import { eigenweltUsageLimitFromError, isProviderUsageLimitError, parseProviderUsageLimit, providerFromUsageLimitError } from "@/app/lib/provider-usage-limit";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "@/app/types";
 import { RecordingDetailDialog } from "../../recorder/recorder-pane";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useContext, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { UIMessage } from "ai";
 import { useQuery } from "@tanstack/react-query";
 import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
@@ -502,6 +504,16 @@ function revokeAttachmentPreview(attachment: { previewUrl?: string | undefined }
 
 export function SessionSurface(props: SessionSurfaceProps) {
   const projectFiles = useProjectFiles();
+  const chatWorkspace = useContext(ChatWorkspaceContext);
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const wikiQuery = useQuery({ queryKey: ["wikis", props.client.baseUrl], queryFn: () => props.client.listWikis(), enabled: chatWorkspace === "wiki" });
+  const chatWiki = wikiQuery.data?.items.find(wiki => wiki.workspaceId === props.workspaceId);
+  useEffect(() => {
+    const open = (event: Event) => { if (event instanceof CustomEvent && event.detail === props.sessionId && chatWorkspace === "wiki") setProjectPickerOpen(true); };
+    window.addEventListener(WIKI_PROJECT_PICKER_EVENT, open);
+    return () => window.removeEventListener(WIKI_PROJECT_PICKER_EVENT, open);
+  }, [props.sessionId, chatWorkspace]);
+
   const local = useLocal();
   const { config: shellConfig } = useShellConfig();
   // No model connected at all (free tier retired): offer trial / BYO inline.
@@ -1880,6 +1892,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   return (
     <DevProfiler id="SessionSurface">
     <div className="lw-session-typography relative flex h-full min-h-0 flex-col">
+      {chatWorkspace === "wiki" && <WikiProjectFilesDialog open={projectPickerOpen} onOpenChange={setProjectPickerOpen} client={props.client} wikiId={chatWiki?.id} workspaceId={props.workspaceId} sessionId={props.sessionId} />}
       <SessionSandbox key={`${props.workspaceId}:${props.sessionId}`} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} />
       <SessionSubagents key={`subagents:${props.workspaceId}:${props.sessionId}`} workspaceId={props.workspaceId} workspaceRoot={props.workspaceRoot} sessionId={props.sessionId} client={opencodeClient} serverClient={props.client} waiting={props.pendingInteractionSessionIds} onOpen={props.onOpenInteractionSession} />
       <MarkdownStreamLinks workspaceId={props.workspaceId} sessionId={props.sessionId} onOpen={target => props.onOpenTarget?.(target, undefined, props.sessionId)} />
@@ -2093,6 +2106,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         onDropLegalMemoryFile={handleDropLegalMemoryFile}
         onDropLegalMemoryFolder={handleDropLegalMemoryFolder}
         onDropStorageFile={handleDropStorageFile}
+        onPickProjectFiles={chatWorkspace === "wiki" ? () => setProjectPickerOpen(true) : undefined}
         onDropProjectFile={source => { try { if (!projectFiles) throw new Error(t("project_files.source_unavailable")); projectFiles.attach(source, props.sessionId); } catch (error) { toast.error(error instanceof Error ? error.message : t("project_files.failed")); } }}
         onDropWorkspaceFile={handleDropWorkspaceFile}
         inputHistory={inputHistory}

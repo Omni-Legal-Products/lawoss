@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, Loader2, MoreHorizontal, Plus, RotateCcw, Search, Settings2, Trash2, Users, LockKeyhole } from "lucide-react";
+import { BookOpen, Loader2, MessageSquarePlus, MoreHorizontal, Plus, RotateCcw, Search, Settings2, Trash2, Users, LockKeyhole } from "lucide-react";
 import type { WikiVault } from "@legalwork/types/wiki";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import { CreateWikiDialog, WikiSettingsDialog, formatWikiSize, wikiError, type W
 import { wikiHasUnsavedChanges } from "./wiki-drafts";
 import { usePanelTabStore, workspacePanelKey } from "../session/panel/panel-tab-store";
 
-export function WikiManager(props: { client: LegalworkServerClient | null; serverUrl: string; workspaces: WikiWorkspaceOption[]; onChanged: () => void; onOpen: (wiki: WikiVault) => void }) {
+export function WikiManager(props: { client: LegalworkServerClient | null; serverUrl: string; workspaces: WikiWorkspaceOption[]; onChanged: () => void; onOpen: (wiki: WikiVault) => void; onNewChat: (wiki: WikiVault) => Promise<void> }) {
   const { client, serverUrl } = props;
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -23,12 +23,20 @@ export function WikiManager(props: { client: LegalworkServerClient | null; serve
   const [settings, setSettings] = useState<WikiVault | null>(null);
   const [deleting, setDeleting] = useState<{ wiki: WikiVault; removeOnly: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [startingChat, setStartingChat] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const list = useQuery({ queryKey: ["wikis", serverUrl], queryFn: () => client!.listWikis(), enabled: Boolean(client) });
   const deleted = useQuery({ queryKey: ["deleted-wikis", serverUrl], queryFn: () => client!.deletedWikis(), enabled: Boolean(client) });
   const matches = (name: string) => name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase());
   const items = (list.data?.items ?? []).filter(wiki => matches(wiki.name) && (tab !== "personal" || !wiki.sync) && (tab !== "shared" || Boolean(wiki.sync))).sort((a, b) => a.name.localeCompare(b.name));
   const removed = (deleted.data?.items ?? []).filter(item => matches(item.wiki.name)).sort((a, b) => b.deletedAt - a.deletedAt);
+  const chatWikis = [...(list.data?.items ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+  const startChat = async (wiki: WikiVault) => {
+    setStartingChat(true);
+    try { await props.onNewChat(wiki); }
+    catch (cause) { toast.error(t("wiki.operation_failed"), { description: wikiError(cause) }); }
+    finally { setStartingChat(false); }
+  };
   const refresh = async () => {
     await Promise.all([queryClient.invalidateQueries({ queryKey: ["wikis", serverUrl] }), queryClient.invalidateQueries({ queryKey: ["deleted-wikis", serverUrl] }), queryClient.invalidateQueries({ queryKey: ["wiki-team", serverUrl] })]);
     props.onChanged();
@@ -63,7 +71,16 @@ export function WikiManager(props: { client: LegalworkServerClient | null; serve
   const loading = tab === "deleted" ? deleted.isLoading : list.isLoading;
   return <div className="h-full min-h-0 overflow-y-auto bg-background">
     <div className="mx-auto w-full max-w-5xl px-6 py-10 sm:px-10">
-      <header className="mb-8 flex items-center justify-between gap-4"><div><h1 className="text-3xl font-semibold tracking-tight">{t("wiki.manage_all")}</h1><p className="mt-2 text-sm text-muted-foreground">{t("wiki.manager_hint")}</p></div><Button disabled={!client} onClick={() => setCreating(true)}><Plus size={16} />{t("wiki.new_wiki")}</Button></header>
+      <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
+        <div><h1 className="text-3xl font-semibold tracking-tight">{t("wiki.manage_all")}</h1><p className="mt-2 text-sm text-muted-foreground">{t("wiki.manager_hint")}</p></div>
+        <div className="flex items-center gap-2">
+          {chatWikis.length > 1 ? <DropdownMenu>
+            <DropdownMenuTrigger render={<Button disabled={!client || startingChat} />}><MessageSquarePlus size={16} />{t("session.new_task")}</DropdownMenuTrigger>
+            <DropdownMenuContent align="end">{chatWikis.map(wiki => <DropdownMenuItem key={wiki.id} onClick={() => void startChat(wiki)}><BookOpen size={15} />{wiki.name}</DropdownMenuItem>)}</DropdownMenuContent>
+          </DropdownMenu> : <Button disabled={!client || !chatWikis.length || startingChat} onClick={() => { if (chatWikis[0]) void startChat(chatWikis[0]); }}><MessageSquarePlus size={16} />{t("session.new_task")}</Button>}
+          <Button variant="outline" disabled={!client} onClick={() => setCreating(true)}><Plus size={16} />{t("wiki.new_wiki")}</Button>
+        </div>
+      </header>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-4"><Tabs value={tab} onValueChange={setTab}><TabsList><TabsTrigger value="all">{t("wiki.manager_all")}</TabsTrigger><TabsTrigger value="personal">{t("wiki.personal_label")}</TabsTrigger><TabsTrigger value="shared">{t("wiki.shared_label")}</TabsTrigger><TabsTrigger value="deleted"><Trash2 size={14} />{t("wiki.manager_trash")}</TabsTrigger></TabsList></Tabs><div className="relative min-w-48"><Search className="pointer-events-none absolute left-3 top-2.5 size-4 text-muted-foreground" /><Input className="pl-9" aria-label={t("wiki.manager_search")} placeholder={t("wiki.manager_search")} value={search} onChange={event => setSearch(event.target.value)} /></div></div>
       {!client ? <p className="py-12 text-center text-muted-foreground">{t("wiki.offline")}</p> : failure ? <div role="alert" className="py-10 text-center"><p>{wikiError(failure)}</p><Button variant="ghost" onClick={() => void refresh()}>{t("wiki.retry")}</Button></div> : loading ? <div className="flex justify-center py-16"><Loader2 className="animate-spin" aria-label={t("wiki.loading")} /></div> : <div className="divide-y border-y">
         {tab === "deleted" ? removed.map(({ wiki, deletedAt }) => <div key={wiki.id} className="flex items-center gap-4 py-5"><BookOpen className="size-5 shrink-0 text-muted-foreground" /><div className="min-w-0 flex-1"><p className="truncate font-medium">{wiki.name}</p><p className="mt-1 text-xs text-muted-foreground">{new Date(deletedAt).toLocaleString()}</p></div><Button variant="outline" size="sm" disabled={busy} onClick={() => void restore(wiki.id)}><RotateCcw size={14} />{t("wiki.restore")}</Button></div>) : items.map(wiki => <div key={wiki.id} className="group flex items-center gap-3 py-2">

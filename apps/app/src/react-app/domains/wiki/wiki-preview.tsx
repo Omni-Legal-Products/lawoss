@@ -1,8 +1,10 @@
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { InlineView } from "../views/view-inline";
 import { useViewPortals } from "../views/view-portals";
 import { useViewHost } from "../views/view-host";
 import { parseViewReference, viewPanelTab } from "../views/view-reference";
 import { useRequestPanelTab } from "../session/panel/panel-tab-destination";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { Marked } from "marked";
 import DOMPurify from "dompurify";
 import type { WikiPage } from "@legalwork/types/wiki";
@@ -59,6 +61,7 @@ export function WikiPreview(props: {
 }) {
   const element = useRef<HTMLDivElement>(null);
   const host = useViewHost();
+  const [historicalLink, setHistoricalLink] = useState<string | null>(null);
   const requestTab = useRequestPanelTab();
   const { html, outline, anchors } = useMemo(() => {
     const document = new DOMParser().parseFromString(renderWikiMarkdown(props.content), "text/html");
@@ -85,6 +88,8 @@ export function WikiPreview(props: {
     }
     return { html: document.body.innerHTML, outline: headings, anchors };
   }, [props.content]);
+  // Keep the HTML prop stable when portals mount; resetting innerHTML would erase their DOM.
+  const markup = useMemo(() => ({ __html: html }), [html]);
   const viewPortals = useViewPortals(element, html);
   const scrollToHeading = useCallback((id: string) => {
     const exact = element.current?.querySelector(`[id="${CSS.escape(id)}"]`);
@@ -113,7 +118,7 @@ export function WikiPreview(props: {
   return <div className={`wiki-reader${showOutline ? " wiki-reader-with-outline" : ""}`}><div
     ref={element}
     className="lw-markdown-page wiki-preview"
-    dangerouslySetInnerHTML={{ __html: html }}
+    dangerouslySetInnerHTML={markup}
     onClick={(event) => {
       if (!(event.target instanceof Element)) return;
       const anchor = event.target.closest("a");
@@ -121,6 +126,7 @@ export function WikiPreview(props: {
       if (!href) return;
       event.preventDefault();
       const view = parseViewReference(href);
+      if (view && host?.historicalViews) { setHistoricalLink(href); return; }
       if (view && host?.client) { requestTab(viewPanelTab(host.client.baseUrl, view, anchor?.textContent ?? "Report")); return; }
       if (/^https?:|^mailto:|^tel:/i.test(href)) { void openDesktopUrl(href); return; }
       if (href.startsWith("#")) {
@@ -140,5 +146,5 @@ export function WikiPreview(props: {
       else if (href.startsWith("wiki:") || /\.md(?:#.*)?$/i.test(href)) props.onMissing(target);
       else props.onAsset(target);
     }}
-  />{viewPortals}{showOutline ? <aside className="wiki-reader-outline"><nav aria-label={t("wiki.on_this_page")}><p className="wiki-outline-title">{t("wiki.on_this_page")}</p>{outline.map((heading) => <a key={heading.id} className={`wiki-outline-link${heading.nested ? " wiki-outline-subsection" : ""}`} href={`#${heading.id}`} onClick={(event) => { event.preventDefault(); scrollToHeading(heading.id); }}>{heading.title}</a>)}</nav></aside> : null}</div>;
+  />{viewPortals}{historicalLink && <Dialog open onOpenChange={open => { if (!open) setHistoricalLink(null); }}><DialogContent className="max-h-[85vh] overflow-auto sm:max-w-4xl"><DialogTitle>{t("wiki.views_at_revision")}</DialogTitle><InlineView source={historicalLink} /></DialogContent></Dialog>}{showOutline ? <aside className="wiki-reader-outline"><nav aria-label={t("wiki.on_this_page")}><p className="wiki-outline-title">{t("wiki.on_this_page")}</p>{outline.map((heading) => <a key={heading.id} className={`wiki-outline-link${heading.nested ? " wiki-outline-subsection" : ""}`} href={`#${heading.id}`} onClick={(event) => { event.preventDefault(); scrollToHeading(heading.id); }}>{heading.title}</a>)}</nav></aside> : null}</div>;
 }

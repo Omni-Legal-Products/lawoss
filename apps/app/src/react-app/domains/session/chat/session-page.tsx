@@ -1,3 +1,7 @@
+import { openWikiProjectPicker } from "../../wiki/wiki-project-files-dialog";
+import { sessionDeleteError } from "../../views/session-view-delete";
+import { viewPanelTab } from "../../views/view-reference";
+import { ProjectDashboards } from "../../views/project-dashboards";
 import { workflowsPanelKey } from "../panel/panel-scope";
 import { WorkspaceWindowButton } from "../panel/workspace-window-button";
 import { WorkspaceTabDropTarget } from "../sidebar/workspace-tab-drop-target";
@@ -669,8 +673,9 @@ export function SessionPage(props: SessionPageProps) {
     setCurrentSidePanel(null);
   }, [setCurrentSidePanel]);
   const openFilesRailPane = useCallback(() => {
+    if (wikiWorkspace && props.selectedSessionId) { openWikiProjectPicker(props.selectedSessionId); return; }
     toggleCurrentSidePanel("files");
-  }, [toggleCurrentSidePanel]);
+  }, [toggleCurrentSidePanel, wikiWorkspace, props.selectedSessionId]);
   const openWorkspaceFileEntry = useCallback((entry: LegalworkWorkspaceDirectoryEntry, permanent = false) => {
     const preview = classifyOpenTarget(entry.name, "file");
     if (preview === "external" || preview === "browser") {
@@ -980,11 +985,13 @@ export function SessionPage(props: SessionPageProps) {
 
   const confirmDelete = async () => {
     const sessionId = sessionActionId;
-    if (!sessionId || !props.onDeleteSession) return;
+    if (!sessionId || !props.onDeleteSession || deleteBusy) return;
     setDeleteBusy(true);
     try {
       await props.onDeleteSession(sessionId);
       setDeleteOpen(false);
+    } catch (error) {
+      toast.error(t("session.delete_failed"), { description: sessionDeleteError(error) });
     } finally {
       setDeleteBusy(false);
     }
@@ -1026,7 +1033,9 @@ export function SessionPage(props: SessionPageProps) {
     newChatDisabled={props.sidebar.newChatDisabled}
   /> : props.mainView;
   const renderProjectTasks = (embedded: boolean, inWorkspace: boolean) => typeof props.projectTasksView === "function" ? props.projectTasksView(embedded, inWorkspace) : props.projectTasksView;
-  const renderProjectView = (view: ProjectView, inWorkspace = true, active = true) => view === "reviews" ? (
+  const renderProjectView = (view: ProjectView, inWorkspace = true, active = true) => view === "dashboards" ? (
+    props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectDashboards client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} onOpen={view => { openTab(workspaceScope, viewPanelTab(props.legalworkServerClient!.baseUrl, { owner: view.owner, viewId: view.id }, view.title)); navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace"); }} /> : <p className="p-6">{t("projects.connecting")}</p>
+  ) : view === "reviews" ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectReviews overview={inWorkspace} localNavigation={!inWorkspace} onOpenInWorkspace={inWorkspace ? undefined : review => { openTab(workspaceScope, review ? { id: `review:${review.id}`, type: "review", reviewId: review.id, label: review.name } : projectViewTab("reviews", projectViewLabel("reviews"))); navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace"); }} onOpenSession={sessionId => openSessionTab(props.selectedWorkspaceId, sessionId)} key={props.selectedWorkspaceId} client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId} /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>
   ) : view === "files" ? <ProjectFilesPage
     local={{ client: props.legalworkServerClient, workspaceId: props.runtimeWorkspaceId, workspaceRoot: props.selectedWorkspaceRoot, projectName: props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name, isRemoteWorkspace: props.selectedWorkspaceDisplay.workspaceType === "remote", active, onOpenFile: openWorkspaceFileEntry }}
@@ -1099,9 +1108,10 @@ export function SessionPage(props: SessionPageProps) {
       size="icon-sm"
       className={cn("lw-session-rail-button hover:bg-muted hover:text-foreground", filesRailActive && "text-foreground")}
       onClick={openFilesRailPane}
-      title={t("session.workspace_files")}
-      aria-label={t("session.workspace_files")}
-      aria-pressed={filesRailActive}
+      title={t(wikiWorkspace && props.selectedSessionId ? "wiki.project_files" : "session.workspace_files")}
+      aria-label={t(wikiWorkspace && props.selectedSessionId ? "wiki.project_files" : "session.workspace_files")}
+      aria-pressed={wikiWorkspace && props.selectedSessionId ? undefined : filesRailActive}
+      aria-haspopup={wikiWorkspace && props.selectedSessionId ? "dialog" : undefined}
       disabled={!props.legalworkServerClient || !props.runtimeWorkspaceId}
     >
       <Folder size={17} />
@@ -1336,7 +1346,7 @@ export function SessionPage(props: SessionPageProps) {
           >
             {wikiWorkspace && props.wiki && wikiNavigationOpen ? <>
               <ResizablePanel key={wikiWorkspace.workspaceId} id="wiki-navigation" defaultSize={`${readWikiNavigationWidth(wikiWorkspace.workspaceId)}px`} onResize={size => writeWikiNavigationWidth(wikiWorkspace.workspaceId, size.inPixels)} groupResizeBehavior="preserve-pixel-size" minSize="200px" maxSize="440px" className="min-w-0 border-r border-border">
-                <WikiPane key={wikiWorkspace.id} {...props.wiki} display="navigation" hideHeader tab={activePanelTab?.type === "wiki" ? activePanelTab : undefined} />
+                <WikiPane key={wikiWorkspace.id} {...props.wiki} chatHistory={{ group: listedSessionGroups.find(group => group.workspace.id === wikiWorkspace.workspaceId), selectedSessionId: props.selectedSessionId, onOpen: id => openSessionTab(wikiWorkspace.workspaceId, id) }} display="navigation" hideHeader tab={activePanelTab?.type === "wiki" ? activePanelTab : undefined} />
               </ResizablePanel>
               <ResizableHandle />
             </> : null}

@@ -179,7 +179,7 @@ test("project writes, fields, wiki views and deletes cannot bypass the suggestio
   for (const call of calls) {
     const response = await f.agent(call.path, call.method, call.body);
     expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({ code: "wiki_suggestion_required" });
+    expect(await response.json()).toMatchObject({ code: call.path.startsWith("/ui-views") ? "wiki_agent_endpoint_denied" : "wiki_suggestion_required" });
   }
   expect(await listApprovals(f.url, f.config.hostToken)).toEqual([]);
   await f.unchanged();

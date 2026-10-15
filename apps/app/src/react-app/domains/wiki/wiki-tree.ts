@@ -42,3 +42,8 @@ export function wikiCopyPath(path: string, existing: string[]): string {
   while (existing.includes(candidate)) candidate = `${stem} copy ${++count}${extension}`;
   return candidate;
 }
+
+/** A folder is empty only when it contains neither files nor subfolders. */
+export function wikiFolderEmpty(node: WikiTreeNode): boolean {
+  return node.kind === "folder" && node.children.length === 0;
+}

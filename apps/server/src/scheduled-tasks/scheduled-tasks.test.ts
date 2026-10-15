@@ -5,6 +5,8 @@ import { join } from "node:path";
 import type { ScheduledTaskInput, TaskSchedule } from "@legalwork/types/scheduled-tasks";
 import { nextOccurrence } from "./schedule.js";
 import { ScheduledTaskStore } from "./store.js";
+import { beginSessionDeletion, withSessionExecution } from "../session-execution-gate.js";
+import type { ServerConfig } from "../types.js";
 import { ScheduledTaskRunner, type ScheduledExecutor } from "./runner.js";
 
 const now = Date.parse("2026-10-06T10:00:00Z");
@@ -264,4 +266,28 @@ test("scheduled wiki access retains the authorizing user scope and downgrades on
   const edited = reopened.update("project", task.id, task.revision, { prompt: "Changed task" }, now, "collaborator");
   expect(edited.wikiScope).toBe("collaborator");
   expect(store.get("project", task.id).wikiScope).toBe("collaborator");
+});
+
+
+test("scheduled sends wait through a refused deletion review without pausing the task", async () => {
+  const { store } = await open();
+  const config: ServerConfig = { host: "localhost", port: 0, token: "test", hostToken: "host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [], authorizedRoots: [], readOnly: false, startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  const task = store.create("project", { ...input, schedule: recurring("FREQ=DAILY", schedule.startAt) }, now);
+  const release = beginSessionDeletion(config, "chat");
+  let deliveryStarted = () => {};
+  const started = new Promise<void>(resolve => { deliveryStarted = resolve; });
+  let sent = 0;
+  const runner = new ScheduledTaskRunner(store, {
+    available: async () => true,
+    createSession: async () => "chat",
+    send: async (_task, sessionId) => { deliveryStarted(); await withSessionExecution(config, sessionId, async () => { sent++; }, true); },
+  }, () => Date.parse("2026-10-06T11:05:00Z"));
+  const ticking = runner.tick();
+  await started;
+  expect(sent).toBe(0);
+  release(); // the review found an unsaved preview, so deletion did not happen
+  await ticking;
+  expect(sent).toBe(1);
+  expect(store.runs(task.id)[0].status).toBe("sent");
+  expect(store.get("project", task.id).status).toBe("active");
 });

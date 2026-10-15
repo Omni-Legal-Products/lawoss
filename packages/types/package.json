@@ -57,7 +57,8 @@
     "./connector-config": "./src/connector-config.ts",
     "./wiki": "./src/wiki.ts",
     "./wiki-suggestions": "./src/wiki-suggestions.ts",
-    "./views": "./src/views.ts"
+    "./views": "./src/views.ts",
+    "./line-diff": "./src/line-diff.ts"
   },
   "files": [
     "src",

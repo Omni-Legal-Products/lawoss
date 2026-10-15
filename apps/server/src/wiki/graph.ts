@@ -20,10 +20,10 @@ export class WikiGraphIndex {
     const nodes: WikiGraphNode[] = [], edges: WikiGraphEdge[] = [];
     const resolved = resolveWikiLinks(pages);
     for (const page of resolved) {
-      const node = { id: page.path, path: page.path, title: page.title, type: page.type };
+      const node = { id: page.path, path: page.path, title: page.title, type: page.type, properties: page.properties };
       const previous = this.nodes.get(node.id);
       nextNodes.set(node.id, node);
-      if (!previous || previous.title !== node.title || previous.type !== node.type) nodes.push(node);
+      if (!previous || previous.title !== node.title || previous.type !== node.type || JSON.stringify(previous.properties) !== JSON.stringify(node.properties)) nodes.push(node);
       for (const link of page.links) {
         if (!link.resolved || link.target === page.path) continue;
         const id = JSON.stringify([page.path, link.target, link.property]);

@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import type { DynamicToolUIPart } from "ai";
 import { reconcileViewGenerations, syncViewGeneration } from "../src/react-app/domains/views/view-generation-sync";
-import { useViewGenerationStore, viewGenerationId, type ViewDraftTab } from "../src/react-app/domains/views/view-generation";
+import { useViewGenerationStore, viewGenerationId, viewToolOutcome, type ViewDraftTab } from "../src/react-app/domains/views/view-generation";
 import { usePanelTabStore } from "../src/react-app/domains/session/panel/panel-tab-store";
 import { parseDynamicToolUIPart } from "../src/react-app/domains/session/sync/parse-tool-parts";
 import { getAssistantRenderGroups } from "../src/components/chat/utils";
@@ -13,7 +13,7 @@ const saved = { version: 1, id: "11111111-1111-4111-8111-111111111111", owner: {
 const done = { ...pending, state: "output-available", output: saved } satisfies DynamicToolUIPart;
 const opened: ViewDraftTab[] = [];
 const open = (tab: ViewDraftTab) => { opened.push(tab); usePanelTabStore.getState().openTab("workspace:wiki", tab); };
-beforeEach(() => { opened.length = 0; useViewGenerationStore.setState({ entries: {} }); usePanelTabStore.setState({ sessions: {} }); });
+beforeEach(() => { opened.length = 0; useViewGenerationStore.setState({ entries: {}, savedResults: {} }); usePanelTabStore.setState({ sessions: {} }); });
 
 test("a view opens immediately with empty args, before the first program token", async () => {
   const part = parseDynamicToolUIPart({ type: "tool", id: "part", messageID: "message", sessionID: "session", callID: "call", tool: "view_create", state: { status: "pending", raw: "", input: {} } });
@@ -103,4 +103,78 @@ test.each([0, 1600])("a streamed dashboard opens beside chat even with a source 
   expect(layout.panes).toHaveLength(2);
   expect(layout.panes[0].activeTabId).toBe("chat:session");
   expect(layout.panes[1].activeTabId).toBe(id);
+});
+
+test("completed previews stay unsaved, can reopen from history, and replay never undoes a user save", async () => {
+  const preview = { status: "preview", owner: saved.owner, input: { version: saved.version, title: saved.title, program: saved.program, queries: {}, catalog: saved.catalog, mode: saved.mode } };
+  await syncViewGeneration(context, pending, open);
+  await syncViewGeneration(context, { ...done, output: preview }, open);
+  expect(useViewGenerationStore.getState().entries[id].status).toBe("preview");
+  expect(useViewGenerationStore.getState().entries[id].saved).toBeUndefined();
+  expect(usePanelTabStore.getState().sessions["workspace:wiki"].tabs[0].type).toBe("view-draft");
+  await syncViewGeneration(context, { ...done, toolCallId: "historical-preview", output: preview }, open);
+  expect(opened).toHaveLength(1);
+  await syncViewGeneration(context, done, open);
+  await syncViewGeneration(context, { ...done, output: preview }, open);
+  expect(useViewGenerationStore.getState().entries[id].status).toBe("saved");
+});
+
+
+test("a saved destination is remembered when the preview transcript replays after reopening", async () => {
+  await syncViewGeneration(context, pending, open);
+  await syncViewGeneration(context, done, open);
+  const outcome = viewToolOutcome(saved);
+  if (!("view" in outcome)) throw new Error("Expected a saved view fixture");
+  const view = outcome.view;
+  // Save results contain only identity metadata, never programs or source data.
+  useViewGenerationStore.getState().markSaved(id, view);
+  expect(useViewGenerationStore.getState().savedResults[id]).not.toHaveProperty("program");
+  expect(useViewGenerationStore.getState().savedResults[id]).not.toHaveProperty("datasets");
+  useViewGenerationStore.setState({ entries: {} });
+  const { version, title, mode, catalog, program, queries, owner } = saved;
+  await syncViewGeneration(context, { ...done, output: { status: "preview", owner, input: { version, title, mode, catalog, program, queries } } }, open);
+  expect(useViewGenerationStore.getState().entries[id].status).toBe("saved");
+  expect(useViewGenerationStore.getState().entries[id].saved?.id).toBe(saved.id);
+  expect(useViewGenerationStore.getState().entries[id].preview?.input.program).toBe(program);
+  expect(opened).toHaveLength(1);
+});
+
+test("a completed unsaved preview is rebuilt from chat history after all window state is lost", async () => {
+  const { version, title, mode, catalog, program, queries, owner } = saved;
+  const preview = { status: "preview", owner, input: { version, title, mode, catalog, program, queries, datasets: { overview: { rows: [{ name: "Retained result" }], total: 1, revision: "snapshot", asOf: 1, truncated: false } } } };
+  const part = parseDynamicToolUIPart({ type: "tool", id: "part", messageID: "message", sessionID: "session", callID: "call", tool: "view_create", state: { status: "completed", input: {}, output: JSON.stringify(preview), title, metadata: {}, time: { start: 1, end: 2 } } });
+  if (!part) throw new Error("Expected a completed transcript tool part");
+  await syncViewGeneration(context, pending, open);
+  await syncViewGeneration(context, part, open);
+  useViewGenerationStore.setState({ entries: {}, savedResults: {} });
+  usePanelTabStore.setState({ sessions: {} });
+  opened.length = 0;
+
+  await reconcileViewGenerations(context, [part]);
+  expect(useViewGenerationStore.getState().entries[id]).toMatchObject({ status: "preview", program, preview });
+  expect(useViewGenerationStore.getState().savedResults).toEqual({});
+  expect(opened).toHaveLength(0);
+  const restored = useViewGenerationStore.getState().entries[id];
+  open({ id, type: "view-draft", generationId: id, serverUrl: context.serverUrl, label: restored.title });
+  expect(usePanelTabStore.getState().sessions["workspace:wiki"].tabs[0].type).toBe("view-draft");
+});
+
+test("large preview data is recovered from persisted tool metadata even if tool text is shortened", async () => {
+  const { version, title, mode, catalog, program, queries, owner } = saved;
+  const preview = { status: "preview", owner, input: { version, title, mode, catalog, program, queries, datasets: { large: { rows: [{ value: "x".repeat(60_000) }], total: 1, revision: "snapshot", asOf: 1, truncated: false } } } };
+  const part = parseDynamicToolUIPart({ type: "tool", id: "part", messageID: "message", sessionID: "session", callID: "call", tool: "view_create", state: { status: "completed", input: {}, output: "Preview ready", title, metadata: { legalworkViewPreview: preview }, time: { start: 1, end: 2 } } });
+  if (!part) throw new Error("Expected a completed transcript tool part");
+  await reconcileViewGenerations(context, [part]);
+  expect(useViewGenerationStore.getState().entries[id]).toMatchObject({ status: "preview", preview });
+  expect(opened).toHaveLength(0);
+});
+
+
+test("deleting a chat removes its transient dashboard tabs but retains saved views", async () => {
+  await syncViewGeneration(context, pending, open);
+  const scope = "workspace:wiki";
+  usePanelTabStore.getState().openTab(scope, { type: "view", id: "saved-view", serverUrl: "local", owner: { kind: "wiki", id: "wiki" }, viewId: saved.id, label: "Saved" });
+  usePanelTabStore.getState().clearSession("session");
+  expect(usePanelTabStore.getState().sessions[scope].tabs.map(tab => tab.type)).toEqual(["view"]);
+  expect(useViewGenerationStore.getState().entries[id]).toBeUndefined();
 });

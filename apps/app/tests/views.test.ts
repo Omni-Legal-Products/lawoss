@@ -69,11 +69,11 @@ test("a generated view becomes the saved tab in its pane and draft tabs never re
 test("generation errors and malformed success output cannot become a saved report", async () => {
   const { viewToolOutcome, viewProgramInput, useViewGenerationStore, viewGenerationId } = await import("../src/react-app/domains/views/view-generation");
   expect(viewToolOutcome({ok:false,error:{message:"Permission denied"}})).toEqual({error:"Permission denied"});
-  expect(viewToolOutcome("created something")).toEqual({error:"The agent did not return a saved view."});
+  expect(viewToolOutcome("created something")).toEqual({error:"The agent did not return a preview."});
   const reminder = '\n\n<system-reminder topic="project-folders">\nFolders changed\n</system-reminder>';
   expect(viewToolOutcome(JSON.stringify({ok:false,error:{message:"Permission denied"}}) + reminder)).toEqual({error:"Permission denied"});
   for (const output of ['{"title":"Unfinished"', '{"title":"Missing saved record"}', 'created something', '{}\nUnexpected trailing text']) {
-    expect(viewToolOutcome(output + reminder)).toEqual({error:"The agent did not return a saved view."});
+    expect(viewToolOutcome(output + reminder)).toEqual({error:"The agent did not return a preview."});
   }
   const raw = await parsePartialJson('{"input":{"title":"Client dashboard","program":"root = Text(\\"Client');
   expect(viewProgramInput(raw.value)).toEqual({title:"Client dashboard",program:'root = Text("Client'});

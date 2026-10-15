@@ -1,3 +1,4 @@
+import { DashboardIcon } from "@/react-app/design-system/dashboard-icon";
 import { useRef, useState, type ChangeEvent } from "react";
 import { BookOpen, Users, CalendarDays, House, FolderOpen, LayoutGrid, Pin, Clock, TableProperties, ListTodo, Files, MessageSquare, Check, FlaskConical, GripVertical, Inbox, Loader2, Mic, PenLine, Upload, Workflow, X } from "lucide-react";
 import { LazyMotion, Reorder, domMax, useDragControls } from "motion/react";
@@ -23,6 +24,7 @@ export const SIDEBAR_ITEMS = {
   sectionRecent: { label: "sidebar.recent_sessions", icon: Clock },
   projectCalendar: { label: "calendar.title", icon: CalendarDays },
   projectHome: { label: "projects.home", icon: House },
+  projectDashboards: { label: "views.dashboards", icon: DashboardIcon },
   projectReviews: { label: "projects.tab_review", icon: TableProperties },
   projectTasks: { label: "projects.tasks", icon: ListTodo },
   projectFiles: { label: "projects.files", icon: Files },

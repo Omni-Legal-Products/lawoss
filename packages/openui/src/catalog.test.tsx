@@ -52,3 +52,10 @@ test("empty stages survive and move controls require a host capability, disabled
     expect(html).not.toContain('draggable="true"');
   }
 });
+
+test("query-bound tables, charts and boards wait for rows instead of throwing during initial render", () => {
+  const program = 'data = Query("data", {name:"rows"})\nroot = Stack([Table(data.rows,[{field:"name",label:"Name"}]), BarChart(data.rows,"name",["count"]), LineChart(data.rows,"name",["count"]), PieChart(data.rows,"name","count"), Board(data.rows,"stage","name")])';
+  const html = renderToStaticMarkup(<OpenUIView program={program} query={async () => ({ rows: [] })} />);
+  expect(html).toContain('role="status"');
+  expect(html).not.toContain("No matching records");
+});

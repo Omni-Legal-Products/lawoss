@@ -3,7 +3,7 @@ import type { ProjectFileSource } from "@legalwork/types/project-files";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
-import { AppWindowMac, ArrowUp, AudioLines, Blend, ChevronDown, FileText, Paperclip, Plug, Square, Terminal, X } from "lucide-react";
+import { AppWindowMac, ArrowUp, AudioLines, Blend, ChevronDown, FileText, Paperclip, Plus, Plug, Square, Terminal, X } from "lucide-react";
 import fuzzysort from "fuzzysort";
 import { toast } from "@/components/ui/sonner";
 import { IconTile } from "@/react-app/design-system/surface";
@@ -77,6 +77,7 @@ type ComposerProps = {
   onModelChange: (model: ModelRef) => void;
   attachments: ComposerAttachment[];
   onAttachFiles: (files: File[]) => void;
+  onPickProjectFiles?: () => void;
   onRemoveAttachment: (id: string) => void;
   attachmentsEnabled: boolean;
   uploading?: boolean;
@@ -1033,6 +1034,13 @@ export function ReactSessionComposer(props: ComposerProps) {
                     event.currentTarget.value = "";
                   }}
                 />
+                {props.onPickProjectFiles ? <DropdownMenu>
+                  <DropdownMenuTrigger disabled={!props.attachmentsEnabled} className="lw-composer-control inline-flex h-9 w-9 items-center justify-center text-gray-10 hover:bg-gray-3 disabled:opacity-60" aria-label={t("composer.attach_files")} title={props.attachmentsDisabledReason ?? t("composer.attach_files")}><Plus size={16} /></DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuItem onClick={props.onPickProjectFiles}><FileText size={16} />{t("wiki.project_files")}</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => fileInput?.click()}><Paperclip size={16} />{t("wiki.project_upload")}</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu> : <>
                 <button
                   type="button"
                   className={`lw-composer-control inline-flex h-9 max-h-9 w-9 items-center justify-center text-gray-10 hover:bg-gray-3 ${
@@ -1048,6 +1056,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                 >
                   <Paperclip size={16} />
                 </button>
+                </>}
                 <Popover open={toolMenuOpen} onOpenChange={setToolMenuOpen}>
                   <PopoverTrigger
                     type="button"

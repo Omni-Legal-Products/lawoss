@@ -1,6 +1,7 @@
 import { readSkillPackageFile } from "./skill-package.js";
 import { startSandboxSettingsSync } from "./agent-sandbox/sync.js";
 import { stopMessageQueue } from "./session-message-queue.js";
+import { withSessionExecution } from "./session-execution-gate.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, hasProjectTaskBoundary } from "./scheduled-tasks/access.js";
 import { ScheduledTaskStore } from "./scheduled-tasks/store.js";
@@ -770,6 +771,9 @@ export function assertOpencodeProxyAllowed(actor: Actor, method: string, proxyPa
   if (scope === "viewer" && m !== "GET" && m !== "HEAD") {
     throw new ApiError(403, "forbidden", "Viewer tokens are read-only");
   }
+  if (m === "DELETE" && /^\/session\/[^/]+$/.test(normalizeOpencodeProxyPath(proxyPath))) {
+    throw new ApiError(409, "session_delete_requires_review", "Delete chats through the LegalWork session API so unsaved dashboards can be reviewed.");
+  }
 
   // Prevent viewers from self-approving OpenCode permission requests via the
   // proxy. OpenCode uses /permission/:requestId/reply (and historically also
@@ -883,7 +887,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       const client = createWorkspaceOpencodeClient(config, await scheduledWorkspace(task));
       return unwrapOpencodeResult(await client.session.create({ title: task.title }, { signal: AbortSignal.timeout(10000) }), "/session").id;
     },
-    send: async (task, sessionId) => {
+    send: (task, sessionId) => withSessionExecution(config, sessionId, async () => {
       const workspace = await scheduledWorkspace(task);
       const client = createWorkspaceOpencodeClient(config, workspace);
       const session = unwrapOpencodeResult(await client.session.get({ sessionID: sessionId }, { signal: AbortSignal.timeout(10000) }), "/session");
@@ -901,7 +905,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: { docume
       const result = await client.session.promptAsync({ sessionID: sessionId, agent, ...(task.model ? { model: task.model } : {}),
         parts: [{ type: "text", text: `[Scheduled task: ${task.title}]\n\n${task.prompt}` }] }, { signal: AbortSignal.timeout(30000) });
       if (!result.response?.ok) throw new ApiError(502, "schedule_send", "Could not confirm delivery. Check the chat before resuming this task.");
-    },
+    }, true),
   });
   const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync);
   configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) =>
@@ -1323,6 +1327,14 @@ async function proxyOpencodeRequest(input: {
   proxyPath?: string;
   actor?: Actor;
 }) {
+  const path = normalizeOpencodeProxyPath(input.proxyPath ?? input.url.pathname);
+  const session = path.match(/^\/session\/([^/]+)\/(?:message|prompt_async|command|fork|shell|summarize)$/);
+  return input.request.method === "POST" && session
+    ? withSessionExecution(input.config, decodeURIComponent(session[1]), () => forwardOpencodeRequest(input))
+    : forwardOpencodeRequest(input);
+}
+
+async function forwardOpencodeRequest(input: Parameters<typeof proxyOpencodeRequest>[0]) {
   const workspace = input.workspace;
   const baseUrl = workspace ? resolveWorkspaceOpencodeConnection(input.config, workspace).baseUrl?.trim() ?? "" : "";
   if (!baseUrl) {
@@ -1376,11 +1388,14 @@ async function proxyOpencodeRequest(input: {
       if (!definition) throw new ApiError(404, "command_not_found", "Command not found.");
       assertNoHostShellInterpolation(definition.template);
     }
-    void fetch(targetUrl, {
+    // Keep the dispatch reservation after returning the command acknowledgement.
+    const commandSession = normalizedPath.match(/^\/session\/([^/]+)\/command$/);
+    if (!commandSession) throw new ApiError(400, "invalid_command", "A chat command is required.");
+    void withSessionExecution(input.config, decodeURIComponent(commandSession[1]), () => fetch(targetUrl, {
       method,
       headers,
       body,
-    }).catch(() => {
+    })).catch(() => {
       // Command failures are surfaced through the OpenCode event stream.
     });
     return jsonResponse({ ok: true, accepted: true });

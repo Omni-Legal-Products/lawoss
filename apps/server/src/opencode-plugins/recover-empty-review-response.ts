@@ -1,10 +1,11 @@
 import type { Event, createOpencodeClient } from "@opencode-ai/sdk";
 
 type Client = ReturnType<typeof createOpencodeClient>;
+export const REVIEW_RECOVERY_PROMPT = "The previous response stopped with reasoning only, without an answer or tool call. Continue the already-authorised unfinished review tasks from their saved state. Reuse existing reviews; do not rerun completed inference. Complete the requested deliverables or explain a concrete blocker.";
 
 /** One recovery per user request, only for a reasoning-only normal stop during
  * unfinished review work. Never recover errors, cancellations or budget stops. */
-export function recoverEmptyReviewResponse(client: Client, directory?: string) {
+export function recoverEmptyReviewResponse(client: Client, directory?: string, send?: (sessionId: string, messageId: string) => Promise<void>) {
   const recovering = new Set<string>();
   const retried = new Map<string, string>();
   const reviewSessions = new Set<string>();
@@ -56,9 +57,10 @@ export function recoverEmptyReviewResponse(client: Client, directory?: string) {
       const status = await client.session.status({ query });
       if (status.data?.[sessionId]?.type !== "idle") return;
       retried.set(sessionId, user.info.id);
-      await client.session.promptAsync({ path: { id: sessionId }, query, body: {
+      if (send) await send(sessionId, last.info.id);
+      else await client.session.promptAsync({ path: { id: sessionId }, query, body: {
         agent: user.info.agent, model: user.info.model,
-        parts: [{ type: "text", synthetic: true, text: "The previous response stopped with reasoning only, without an answer or tool call. Continue the already-authorised unfinished review tasks from their saved state. Reuse existing reviews; do not rerun completed inference. Complete the requested deliverables or explain a concrete blocker." }],
+        parts: [{ type: "text", synthetic: true, text: REVIEW_RECOVERY_PROMPT }],
       } });
     } catch {
       // Recovery is optional; never hide the original stop or create a retry loop.

@@ -1,6 +1,6 @@
-.lw-saved-view { max-width: 1240px; margin: 0 auto; padding: 32px clamp(20px, 5vw, 64px) 48px; }
+.lw-saved-view { max-width: 1240px; margin: 0 auto; width: 100%; min-width: 0; padding: 24px clamp(16px, 4cqw, 40px) 40px; }
 .lw-saved-view-inline { padding: 16px 20px 20px; }
-.lw-saved-view-toolbar { display: flex; align-items: center; justify-content: space-between; color: var(--muted-foreground); font-size: 11px; margin-bottom: 20px; padding-right: 24px; }
+.lw-saved-view-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; color: var(--muted-foreground); font-size: 11px; margin-bottom: 20px; }
 .lw-saved-view-loading { display: flex; gap: 8px; align-items: center; color: var(--muted-foreground); font-size: 13px; min-height: 80px; }
 .lw-saved-view-error { font-size: 13px; padding: 16px; color: var(--destructive); }
 .lw-saved-view-error pre { white-space: pre-wrap; font-size: 12px; }
@@ -10,4 +10,4 @@
 .lw-inline-view { position: relative; border: 1px solid var(--border); border-radius: 12px; margin: 20px 0; overflow: hidden; }
 .lw-inline-view-open { position: absolute; right: 12px; top: 18px; z-index: 2; padding: 2px; color: var(--muted-foreground); cursor: pointer; }
 
-.lw-saved-view-inline .lw-saved-view-toolbar { justify-content: flex-end; margin-bottom: 12px; min-height: 20px; }
+.lw-saved-view-inline .lw-saved-view-toolbar { padding-right: 20px; justify-content: flex-end; margin-bottom: 12px; min-height: 20px; }

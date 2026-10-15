@@ -29,5 +29,5 @@ export function WikiMarkdownEditor({ linkTargets = [], titleInEditor = false, ..
     event.preventDefault();
     event.stopPropagation();
     props.onOpenLink?.(wikiEditorLinkTarget(href));
-  }}><ArtifactMarkdownEditor {...props} LinkDialog={WikiLinkDialog} serializeRichText={titleInEditor ? undefined : preserveWikiPageHeading} onOpenLink={props.onOpenLink ? url => props.onOpenLink?.(wikiEditorLinkTarget(url)) : undefined} extensions={titleInEditor ? inlineTitleExtensions : extensions} suppressHtmlProcessing /></div></WikiLinkTargetsContext.Provider>;
+  }}><ArtifactMarkdownEditor {...props} LinkDialog={WikiLinkDialog} serializeRichText={titleInEditor ? undefined : preserveWikiPageHeading} onOpenLink={props.onOpenLink ? url => props.onOpenLink?.(wikiEditorLinkTarget(url)) : undefined} extensions={titleInEditor ? inlineTitleExtensions : extensions} suppressHtmlProcessing allowDiff={false} /></div></WikiLinkTargetsContext.Provider>;
 }

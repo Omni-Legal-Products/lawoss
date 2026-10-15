@@ -187,7 +187,8 @@ function WorkspaceFilesPanelContent({
         onDoubleClick={() => { if (entry.kind !== "dir") onOpenFile(entry, true); }}
         title={entry.path}
         className="data-[file-move-over]:bg-primary/10 data-[file-move-over]:ring-1 data-[file-move-over]:ring-primary/40"
-        icon={entry.kind === "dir" ? <FolderIcon /> : <ArtifactIcon type={classifyOpenTarget(entry.name, "file")} className="size-5" />}
+        muted={entry.kind === "dir" && entry.empty === true}
+        icon={entry.kind === "dir" ? <FolderIcon empty={entry.empty === true} /> : <ArtifactIcon type={classifyOpenTarget(entry.name, "file")} className="size-5" />}
         trailing={view ? <span className="shrink-0 text-[11px] text-muted-foreground">{view.mode === "dashboard" ? "Dashboard" : "Report"}</span> : entry.kind === "dir" ? <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" /> : entry.size !== undefined ? <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{formatFileSize(entry.size)}</span> : null}
       >
         <span className="block truncate">{displayName}</span>{pinned && entry.path.includes("/") && <span className="block truncate text-[10px] text-muted-foreground">{entry.path}</span>}

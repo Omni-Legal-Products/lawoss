@@ -45,7 +45,15 @@ describe("Compact wiki graph index", () => {
     expect(matter.properties).toMatchObject({ status: "active", stage: "review" });
     const revision = index.revision;
     index.update([{ ...matter, properties: { ...matter.properties, status: "review", stage: "active" } }, ...targets]);
-    expect(index.response(revision)).toEqual({ kind: "unchanged", revision });
+    const changed = index.response(revision);
+    if (changed.kind !== "delta") throw new Error("Expected property delta");
+    expect(changed.nodes).toHaveLength(1);
+    expect(changed.nodes[0].properties).toMatchObject({ status: "review", stage: "active" });
+    expect(changed.edges).toEqual([]);
+    index.update([{ ...matter, properties: { type: "matter" } }, ...targets]);
+    const removed = index.response(changed.revision);
+    if (removed.kind !== "delta") throw new Error("Expected property removal delta");
+    expect(removed.nodes[0].properties).toEqual({ type: "matter" });
   });
   test("body-only edits preserve the compact revision, while graph edits send only their delta", () => {
     const index = new WikiGraphIndex(), a = page("A.md", "# A\n[[B]]"), b = page("B.md", "# B");

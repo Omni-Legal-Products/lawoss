@@ -1,7 +1,9 @@
+import { WikiDiffStats } from "./wiki-diff";
+import { WikiRevisionDialog } from "./wiki-revision-dialog";
 import { useEffect, useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Check, ChevronDown, Copy, FileText, FolderOpen, History, Loader2, RotateCcw, Trash2, UserRound, Users } from "lucide-react";
-import type { WikiCreateInput, WikiPage, WikiSharingInput, WikiTeamOverview, WikiUpdateInput, WikiVault } from "@legalwork/types/wiki";
+import type { WikiRevision, WikiCreateInput, WikiPage, WikiSharingInput, WikiTeamOverview, WikiUpdateInput, WikiVault } from "@legalwork/types/wiki";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { pickDirectory } from "@/app/lib/desktop";
 import { Button } from "@/components/ui/button";
@@ -220,7 +222,8 @@ export function NewWikiPageDialog(props: { pages: WikiPage[]; initialPath?: stri
 
 export function formatWikiSize(bytes: number) { return bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`; }
 
-export function WikiHistoryDialog(props: { client: LegalworkServerClient; wikiId: string; initialPath: string; serverUrl?: string; writable?: boolean; onClose: () => void; onRestore: (path: string, revisionId: string) => Promise<void>; onRestoreTrash: (id: string) => Promise<void> }) {
+export function WikiHistoryDialog(props: { client: LegalworkServerClient; wikiId: string; initialPath: string; serverUrl?: string; writable?: boolean; onClose: () => void; onRestore: (path: string, revisionId: string, baseRevision: string) => Promise<void>; onRestoreTrash: (id: string) => Promise<void> }) {
+  const [selected, setSelected] = useState<WikiRevision | null>(null);
   const [tab, setTab] = useState("history");
   const [path, setPath] = useState(props.initialPath);
   const [limit, setLimit] = useState(50);
@@ -238,11 +241,11 @@ export function WikiHistoryDialog(props: { client: LegalworkServerClient; wikiId
         <div className="wiki-history-list overflow-hidden rounded-xl border">
           {history.isLoading ? <div className="flex justify-center p-8"><Loader2 size={20} className="animate-spin text-muted-foreground" aria-label={t("wiki.loading")} /></div> : null}
           {history.data?.items.length === 0 ? <div className="p-8 text-center"><History size={24} className="mx-auto mb-3 text-muted-foreground" /><p className="text-sm text-muted-foreground">{t("wiki.no_history")}</p></div> : null}
-          {history.data?.items.slice(0, limit).map((revision) => <div key={`${revision.path}/${revision.id}`} className="wiki-history-row flex items-center gap-3 border-b p-4 last:border-b-0">
+          {history.data?.items.slice(0, limit).map((revision) => <button type="button" key={`${revision.path}/${revision.id}`} onClick={() => setSelected(revision)} className="wiki-history-row flex w-full items-center gap-3 border-b p-4 text-left last:border-b-0 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring">
             <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted/40 text-muted-foreground">{revision.action === "delete" ? <Trash2 size={15} /> : revision.action === "restore" ? <RotateCcw size={15} /> : <FileText size={15} />}</span>
             <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{revision.path.split("/").at(-1)?.replace(/\.md$/i, "")}</p><p className="mt-0.5 truncate text-xs text-muted-foreground">{new Date(revision.createdAt).toLocaleString()} · {revision.action === "delete" ? t("wiki.revision_delete") : revision.action === "restore" ? t("wiki.revision_restore") : t("wiki.revision_write")} · {formatWikiSize(revision.size)}</p>{revision.path.includes("/") ? <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground/75">{revision.path}</p> : null}</div>
-            {revision.action !== "delete" && props.writable !== false ? <Button variant="outline" size="sm" disabled={Boolean(busyId)} onClick={() => { setBusyId(revision.id); setError(null); void props.onRestore(revision.path, revision.id).then(() => history.refetch()).catch((err) => setError(wikiError(err))).finally(() => setBusyId(null)); }}>{busyId === revision.id ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}{t("wiki.restore")}</Button> : null}
-          </div>)}
+            <span className="flex shrink-0 flex-col items-end gap-1"><WikiDiffStats changes={revision.changes} /><span className="text-xs text-muted-foreground">{t("wiki.preview_version")} →</span></span>
+          </button>)}
         </div>
         {history.data && history.data.items.length > limit ? <Button type="button" variant="ghost" size="sm" onClick={() => setLimit((current) => current + 50)}>{t("wiki.show_more", { remaining: history.data.items.length - limit })}</Button> : null}
         <DialogError message={error || (history.error ? wikiError(history.error) : null)} />
@@ -254,5 +257,6 @@ export function WikiHistoryDialog(props: { client: LegalworkServerClient; wikiId
       </Tabs>
       <DialogFooter className="wiki-dialog-footer shrink-0 mx-0 mb-0"><Button type="button" variant="ghost" disabled={Boolean(busyId)} onClick={props.onClose}>{t("common.close")}</Button></DialogFooter>
     </DialogContent>
+    {selected && <WikiRevisionDialog client={props.client} wikiId={props.wikiId} revision={selected} writable={props.writable !== false} onClose={() => setSelected(null)} onRestore={async (path, id, baseRevision) => { await props.onRestore(path, id, baseRevision); await history.refetch(); }} />}
   </Dialog>;
 }

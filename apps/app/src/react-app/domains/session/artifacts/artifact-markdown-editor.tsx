@@ -1,12 +1,13 @@
 import { viewMarkdownPlugin } from "../../views/view-markdown-plugin";
-import { useEffect, useMemo, useRef, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactElement, type ReactNode } from "react";
+import { getResolvedThemeMode, subscribeToTheme } from "@/app/theme";
 import { createPortal } from "react-dom";
 import {
   MDXEditor, type MDXEditorMethods,
   headingsPlugin, listsPlugin, quotePlugin, linkPlugin, linkDialogPlugin,
   imagePlugin, tablePlugin, thematicBreakPlugin, frontmatterPlugin,
   codeBlockPlugin, codeMirrorPlugin, diffSourcePlugin, toolbarPlugin, markdownShortcutPlugin,
-  realmPlugin, viewMode$, readOnly$, activeEditor$, openLinkEditDialog$, markdownProcessingError$, markdown$, muteChange$, createRootEditorSubscription$, useCellValue, usePublisher, type RealmPlugin, type ViewMode,
+  realmPlugin, addSyntaxExtension$, viewMode$, readOnly$, activeEditor$, openLinkEditDialog$, markdownProcessingError$, markdown$, muteChange$, createRootEditorSubscription$, useCellValue, usePublisher, type RealmPlugin, type ViewMode,
 } from "@mdxeditor/editor";
 import { EditorView } from "@codemirror/view";
 import { Transaction } from "@codemirror/state";
@@ -20,7 +21,7 @@ import { markdownCodeTheme } from "./markdown-code-theme";
 import { t } from "@/i18n";
 import { markdownBlocksPlugin } from "./markdown-block-controls";
 import { preservedFrontmatterPlugin } from "./markdown-frontmatter-plugin";
-import { documentFingerprint, requiresMarkdownSource } from "./markdown-document-sync";
+import { documentFingerprint, literalHtmlSyntax, requiresMarkdownSource } from "./markdown-document-sync";
 import { preserveMarkdownFrontmatter } from "./markdown-block-model";
 
 type Props = {
@@ -36,20 +37,22 @@ type Props = {
   LinkDialog?: () => ReactElement;
   /** Place page options beside an external title instead of above the editor body. */
   toolbarTarget?: HTMLElement | null;
+  toolbarMenuItems?: ReactNode;
   onOpenLink?: (url: string) => void;
   suppressHtmlProcessing?: boolean;
+  allowDiff?: boolean;
   /** Render typed properties outside the editor while keeping full-file Source editing. */
   externalFrontmatter?: boolean;
   /** Reattach page content managed outside the rich-text body. Source stays complete. */
   serializeRichText?: (previous: string, body: string) => string;
 };
 
-function MarkdownToolbar({ rawMarkdown, showLink = true }: { rawMarkdown: () => string; showLink?: boolean }) {
+function MarkdownToolbar({ rawMarkdown, showLink = true, allowDiff, literalHtml, menuItems }: { rawMarkdown: () => string; showLink?: boolean; allowDiff: boolean; literalHtml: boolean; menuItems?: ReactNode }) {
   const mode = useCellValue(viewMode$);
   const readOnly = useCellValue(readOnly$);
   const editLink = usePublisher(openLinkEditDialog$);
   const activeEditor = useCellValue(activeEditor$);
-  const sourceRequired = requiresMarkdownSource(rawMarkdown());
+  const sourceRequired = requiresMarkdownSource(rawMarkdown(), literalHtml);
   const changeMode = usePublisher(viewMode$);
   const changeSource = usePublisher(markdown$);
   const selectMode = (next: ViewMode) => {
@@ -65,16 +68,18 @@ function MarkdownToolbar({ rawMarkdown, showLink = true }: { rawMarkdown: () => 
       <DropdownMenuContent align="end">
         <DropdownMenuItem disabled={sourceRequired} onClick={() => selectMode("rich-text")}><FileText />{t("markdown.toolbar.richText")}</DropdownMenuItem>
         <DropdownMenuItem onClick={() => selectMode("source")}><Code />{t("markdown.toolbar.source")}</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => selectMode("diff")}><GitCompareArrows />{t("markdown.toolbar.diffMode")}</DropdownMenuItem>
+        {allowDiff && <DropdownMenuItem onClick={() => selectMode("diff")}><GitCompareArrows />{t("markdown.toolbar.diffMode")}</DropdownMenuItem>}
+        {menuItems}
       </DropdownMenuContent>
     </DropdownMenu>
   </div>;
 }
 
-export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onChange, imageUpload, imagePreview, extensions, viewModeRequest, linkSuggestions, LinkDialog, toolbarTarget, onOpenLink, suppressHtmlProcessing = false, externalFrontmatter = false, serializeRichText }: Props) {
+export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onChange, imageUpload, imagePreview, extensions, viewModeRequest, linkSuggestions, LinkDialog, toolbarTarget, toolbarMenuItems, onOpenLink, suppressHtmlProcessing = false, allowDiff = true, externalFrontmatter = false, serializeRichText }: Props) {
+  const theme = useSyncExternalStore(subscribeToTheme, getResolvedThemeMode, getResolvedThemeMode);
   const editor = useRef<MDXEditorMethods>(null);
   const initial = useRef(value);
-  const initialMode = useRef<ViewMode>(requiresMarkdownSource(value) ? "source" : viewModeRequest?.mode ?? "rich-text");
+  const initialMode = useRef<ViewMode>(viewModeRequest?.mode === "diff" ? "diff" : requiresMarkdownSource(value, suppressHtmlProcessing) ? "source" : viewModeRequest?.mode ?? "rich-text");
   const lastValue = useRef(value);
   const syncSource = useRef<((value: string, previous: string) => void) | null>(null);
   const lastViewRequest = useRef(viewModeRequest);
@@ -93,8 +98,9 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
   })], []);
   const requestedViewPlugin = useMemo(() => realmPlugin<{ mode: ViewMode }>({
     init(realm) {
+      if (suppressHtmlProcessing) realm.pub(addSyntaxExtension$, literalHtmlSyntax);
       syncSource.current = (value, previous) => {
-        if (requiresMarkdownSource(value)) realm.pub(viewMode$, "source");
+        if (mode.current === "rich-text" && requiresMarkdownSource(value, suppressHtmlProcessing)) realm.pub(viewMode$, "source");
         if (mode.current !== "rich-text") {
           // Source edits update the visible CodeMirror document independently of
           // markdown$. Advance that cell through the previous raw value so an
@@ -121,12 +127,12 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
       }));
       realm.sub(viewMode$, value => {
         mode.current = value;
-        if (value === "rich-text" && requiresMarkdownSource(lastValue.current)) { realm.pub(viewMode$, "source"); return; }
+        if (value === "rich-text" && requiresMarkdownSource(lastValue.current, suppressHtmlProcessing)) { realm.pub(viewMode$, "source"); return; }
         if (value !== "rich-text") realm.pub(markdown$, lastValue.current);
       });
       realm.sub(markdownProcessingError$, error => {
         if (!error) return;
-        realm.pub(viewMode$, "source");
+        if (mode.current !== "diff") realm.pub(viewMode$, "source");
         realm.pub(markdown$, lastValue.current);
       });
     },
@@ -135,7 +141,7 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
       lastViewRequest.current = request;
       if (request) realm.pub(viewMode$, request.mode);
     },
-  }), []);
+  }), [suppressHtmlProcessing]);
   const plugins = useMemo(() => [
     headingsPlugin(), listsPlugin(), quotePlugin(), linkPlugin(), linkDialogPlugin({ LinkDialog, linkAutocompleteSuggestions: linkSuggestions, onClickLinkCallback: onOpenLink }),
     imagePlugin({ imageUploadHandler: imageUpload, imagePreviewHandler: imagePreview, ImageDialog: MarkdownImageDialog }),
@@ -149,9 +155,9 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
     markdownShortcutPlugin(),
     markdownBlocksPlugin(),
     toolbarPlugin({ toolbarContents: () => toolbarTarget === undefined
-      ? <MarkdownToolbar rawMarkdown={() => lastValue.current} />
-      : toolbarTarget ? createPortal(<MarkdownToolbar rawMarkdown={() => lastValue.current} showLink={false} />, toolbarTarget) : null }),
-  ], [baseline, sourceExtensions, imageUpload, imagePreview, extensions, requestedViewPlugin, viewModeRequest, linkSuggestions, LinkDialog, toolbarTarget, onOpenLink, externalFrontmatter, readOnly]);
+      ? <MarkdownToolbar rawMarkdown={() => lastValue.current} allowDiff={allowDiff} literalHtml={suppressHtmlProcessing} menuItems={toolbarMenuItems} />
+      : toolbarTarget ? createPortal(<MarkdownToolbar rawMarkdown={() => lastValue.current} showLink={false} allowDiff={allowDiff} literalHtml={suppressHtmlProcessing} menuItems={toolbarMenuItems} />, toolbarTarget) : null }),
+  ], [baseline, sourceExtensions, imageUpload, imagePreview, extensions, requestedViewPlugin, viewModeRequest, linkSuggestions, LinkDialog, toolbarTarget, toolbarMenuItems, onOpenLink, externalFrontmatter, readOnly, allowDiff, suppressHtmlProcessing]);
 
   useEffect(() => {
     if (value === lastValue.current) return;
@@ -168,7 +174,7 @@ export function ArtifactMarkdownEditor({ value, baseline, readOnly = false, onCh
       const translated = t(translationKey, Object.fromEntries(Object.entries(interpolations ?? {}).map(([name, value]) => [name, String(value)])));
       return translated === translationKey ? defaultValue : translated;
     }}
-    className={toolbarTarget === undefined ? "lw-markdown-editor" : "lw-markdown-editor lw-markdown-external-toolbar"}
+    className={`lw-markdown-editor${toolbarTarget === undefined ? "" : " lw-markdown-external-toolbar"}${theme === "dark" ? " dark-theme" : ""}`}
     contentEditableClassName="lw-markdown-page"
     markdown={initial.current}
     trim={false}

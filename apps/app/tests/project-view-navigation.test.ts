@@ -16,7 +16,7 @@ function payload() {
 }
 
 describe("project view navigation", () => {
-  const views: ProjectView[] = ["home", "calendar", "tasks", "reviews", "files", "sessions"];
+  const views: ProjectView[] = ["home", "calendar", "tasks", "reviews", "files", "sessions", "dashboards"];
   for (const view of views) {
     test(`${view} has an unambiguous project route`, () => {
       const route = workspaceViewRoute("project / a", view);

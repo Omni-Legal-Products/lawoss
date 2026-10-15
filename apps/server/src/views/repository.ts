@@ -37,7 +37,10 @@ export class ViewRepository {
         if (bytes.length > MAX_BYTES) throw new Error("Record exceeds 2 MB");
         const raw: unknown = JSON.parse(bytes.toString("utf8"));
         id = z.object({ id: z.string().uuid() }).safeParse(raw).data?.id ?? id;
-        const parsed = StoredViewSchema.parse(raw);
+        // Early preview builds wrote local receipt metadata into shared files.
+        // Accept those files, but never expose or perpetuate that metadata.
+        const { savedFrom: _legacySource, ...stored } = z.object({ savedFrom: z.unknown().optional() }).passthrough().parse(raw);
+        const parsed = StoredViewSchema.parse(stored);
         if (!isLocalOpenUIProgram(parsed.program)) throw new Error("Unsupported program");
         if (ids.has(parsed.id)) issues.push({ path, id: parsed.id, code: "view_revision_conflict", message: "Competing copies of this view need reconciliation. Both copies have been preserved." });
         ids.add(parsed.id);
@@ -49,6 +52,7 @@ export class ViewRepository {
     const blocked = new Set(issues.flatMap(issue => issue.id ? [issue.id] : []));
     return { records: records.filter(item => !blocked.has(item.record.id)), issues };
   }
+  async readAll(): Promise<ViewRecord[]> { return (await this.records()).records.map(item => item.record); }
   async list(): Promise<{ items: ViewSummary[]; issues: ViewIssue[] }> {
     const { records, issues } = await this.records();
     return { items: records.map(({ path, record: { id, title, mode, updatedAt, revision, owner } }) => ({ path, id, title, mode, updatedAt, revision, owner })).sort((a, b) => b.updatedAt - a.updatedAt), issues };
@@ -112,6 +116,7 @@ export function workspaceViewFiles(root: string): ViewFiles {
     } finally { await handle.close(); }
   };
   return {
+    dashboardFolder: async () => "Dashboards",
     async list() {
       const paths: string[] = [];
       let count = 0;
@@ -134,7 +139,7 @@ export function workspaceViewFiles(root: string): ViewFiles {
       if (!name || !isRecordPath(path)) throw new ApiError(400, "invalid_view_path", "Invalid saved view path.");
       if (revision === "") {
         const destination = parts.join("/");
-        if (destination !== "Views" && destination !== "Reports") throw new ApiError(400, "invalid_view_path", "New views belong in Views or Reports.");
+        if (destination !== "Views" && destination !== "Reports" && destination !== "Dashboards") throw new ApiError(400, "invalid_view_path", "New views belong in Dashboards or Reports.");
         const base = await realpath(root), folder = join(base, destination);
         try { await mkdir(folder); } catch (error) { if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error; }
         if ((await lstat(folder)).isSymbolicLink()) throw new ApiError(403, "invalid_view_path", "The view folder cannot be a symbolic link.");

@@ -19,6 +19,7 @@ export const WikiSuggestionSchema = WikiSuggestionInputSchema.extend({
 export type WikiSuggestion = z.infer<typeof WikiSuggestionSchema>;
 export type WikiSuggestionInput = z.infer<typeof WikiSuggestionInputSchema>;
 export type WikiSuggestionDestination = z.infer<typeof WikiSuggestionDestinationSchema>;
+export type WikiContribution = Omit<WikiSuggestion, "content"> & { projectName: string; changes?: import("./line-diff.js").LineChanges | null };
 
 export function wikiSuggestionFile(id: string) { return `.legalwork/tmp/wiki-suggestions/${id}/draft.md`; }
 export function suggestionIdFromFile(path: string) {

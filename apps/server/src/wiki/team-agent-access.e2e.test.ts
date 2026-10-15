@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { ViewRecordSchema, type WikiDataResult } from "@legalwork/types/views";
+import { ViewRecordSchema, ViewPreviewSchema, type WikiDataResult } from "@legalwork/types/views";
 import { startServer } from "../server.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { LegalWorkWikiTools } from "../opencode-plugins/legalwork-wiki-tools.js";
@@ -16,6 +16,8 @@ import { VmSandbox } from "../agent-sandbox/vm.js";
 import { writeSandboxDefault } from "../agent-sandbox/settings.js";
 import { GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import { ApprovalService } from "../approvals.js";
+
+const previewResult = z.object({ metadata: z.object({ legalworkViewPreview: ViewPreviewSchema }) }).transform(result => result.metadata.legalworkViewPreview);
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -75,18 +77,21 @@ async function teamFlow(sandbox?: VmSandbox) {
   expect((await b.request(`/workspace/${project.id}/wiki-suggestions/${staged.suggestion.id}/save`, "POST", { revision: staged.suggestion.revision })).status).toBe(200);
   expect(JSON.parse(await inside.tool.wiki_write.execute({ wiki_id: wiki.id, path: "From-wiki.md", content: "# Wiki knowledge\n", base_revision: null })).ok).toBe(true);
   expect(await listApprovals(b.url, member.config.hostToken)).toEqual([]);
-  const view = JSON.parse(await inside.tool.view_create.execute({ wiki_id: wiki.id, input: { version: 1, title: "Firm overview", mode: "dashboard", catalog: "legalwork-1", queries: {}, program: 'root = Text("No firm records reviewed yet")' } }));
+  const view = previewResult.parse(await inside.tool.view_create.execute({ wiki_id: wiki.id, input: { version: 1, title: "Firm overview", mode: "dashboard", catalog: "legalwork-1", queries: {}, program: 'root = Text("No firm records reviewed yet")' } }));
   expect(view).not.toHaveProperty("error");
+  expect(view.status).toBe("preview");
+  expect((await (await b.request(`/wikis/${wiki.id}/ui-views`)).json()).items).toEqual([]);
+  const savedView = ViewRecordSchema.parse(await (await b.request(`/wikis/${wiki.id}/ui-views`, "POST", view.input)).json());
   const views = await (await b.request(`/wikis/${wiki.id}/ui-views`)).json();
-  expect(views.items.find((item: { id: string }) => item.id === view.id).path).toBe(`Dashboards/${view.id}.view.json`);
+  expect(views.items.find((item: { id: string }) => item.id === savedView.id).path).toBe(`Dashboards/${savedView.id}.view.json`);
 
   // A project report/dashboard needs no wiki destination or wiki query.
   const datasets: Record<string, WikiDataResult> = { invoices: { rows: [{ path: "invoice.csv", amount: 42 }], total: 1, revision: "invoice-1", asOf: Date.now(), truncated: false, sourceOwner: { kind: "workspace", id: project.id } } };
   for (const mode of ["report", "dashboard"]) {
-    const raw = JSON.parse(await outside.tool.view_create.execute({ input: { version: 1, title: `Invoice ${mode}`, mode, catalog: "legalwork-1", queries: {}, datasets, program: 'invoice = Query("data", {name:"invoices"}, {rows:[],total:0})\nroot = Table(invoice.rows, [{field:"amount",label:"Amount"}])' } }));
+    const raw = previewResult.parse(await outside.tool.view_create.execute({ input: { version: 1, title: `Invoice ${mode}`, mode, catalog: "legalwork-1", queries: {}, datasets, program: 'invoice = Query("data", {name:"invoices"}, {rows:[],total:0})\nroot = Table(invoice.rows, [{field:"amount",label:"Amount"}])' } }));
     expect(raw).not.toHaveProperty("error");
-    const { reference, url, content_is_data, ...record } = raw;
-    const saved = ViewRecordSchema.parse(record);
+    expect(raw.status).toBe("preview");
+    const saved = ViewRecordSchema.parse(await (await b.request(`/workspace/${project.id}/ui-views`, "POST", raw.input)).json());
     expect(saved.owner).toEqual({ kind: "workspace", id: project.id });
     expect(saved.datasets).toEqual(datasets);
     expect(JSON.parse(await outside.tool.view_read.execute({ view_id: saved.id })).revision).toBe(saved.revision);

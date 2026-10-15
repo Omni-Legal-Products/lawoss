@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ViewInput } from "@legalwork/types/views";
@@ -17,8 +17,9 @@ describe("saved view records", () => {
     const repo = new ViewRepository({ kind: "wiki", id: "test-wiki" }, workspaceViewFiles(root));
     const dashboard = await repo.create({ ...input, mode: "dashboard", datasets: undefined });
     const report = await repo.create(input);
-    expect((await repo.list()).items.find(item => item.id === dashboard.id)?.path).toBe(`Views/${dashboard.id}.view.json`);
+    expect((await repo.list()).items.find(item => item.id === dashboard.id)?.path).toBe(`Dashboards/${dashboard.id}.view.json`);
     expect((await repo.list()).items.find(item => item.id === report.id)?.path).toBe(`Reports/${report.id}.view.json`);
+    await mkdir(join(root, "Views"));
     await rename(join(root, "Reports", `${report.id}.view.json`), join(root, "Views", `${report.id}.view.json`));
     await repo.update(report.id, { ...input, title: "Legacy report" }, report.revision);
     expect(await repo.location(report.id)).toBe(`Views/${report.id}.view.json`);
@@ -57,7 +58,7 @@ describe("saved view records", () => {
   test("project dashboards persist arbitrary source datasets and refresh with a revision-checked update", async () => {
     const repo = repository();
     const saved = await repo.create({ ...input, mode: "dashboard" });
-    expect(await repo.location(saved.id)).toBe(`Views/${saved.id}.view.json`);
+    expect(await repo.location(saved.id)).toBe(`Dashboards/${saved.id}.view.json`);
     expect((await repo.read(saved.id)).datasets).toEqual(input.datasets);
     const datasets = { invoices: { rows: [{ file: "invoice.csv", total: 250 }], total: 1, asOf: 200, revision: "csv-2", truncated: false } };
     const updated = await repo.update(saved.id, { ...input, mode: "dashboard", datasets }, saved.revision);

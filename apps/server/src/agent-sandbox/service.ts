@@ -1,3 +1,5 @@
+import { verifiedWikiSessionOrigin } from "../wiki/agent-access.js";
+import { wikiProjectAccessSignal, validWikiProjectGrants, wikiProjectSandboxMounts } from "../wiki/project-access.js";
 import { within } from "./files.js";
 import { withFileEditorHandoff } from "../file-editor-handoff.js";
 import { sandboxPaths } from "./paths.js";
@@ -115,6 +117,21 @@ export class AgentSandboxService {
       const wikiPolicy = await buildWikiFilePolicy(wikis, workspace.path, [wikiStore.baseDir, runtimeStorageDir(this.config)]);
       const wikiAccess = new WikiSync(this.config, wikiStore);
       const ownWiki = wikiForDirectory(wikis, wikiPolicy.directory);
+      if (ownWiki && !settings.enabled) throw new ApiError(403, "wiki_sandbox_required", "Enable protected execution to run commands in a wiki chat. Approved projects remain available through the read-only project tools.");
+      const projectOrigin = ownWiki && command.sessionID ? await verifiedWikiSessionOrigin(this.config, workspace, command.sessionID, actor.scope ?? "owner", signal) : undefined;
+      const projectGrants = ownWiki && command.sessionID && projectOrigin ? await validWikiProjectGrants(this.config, command.sessionID, ownWiki.id, projectOrigin.generation, projectOrigin.scope) : [];
+      const projectSignal = ownWiki && command.sessionID ? wikiProjectAccessSignal(this.config, command.sessionID) : undefined;
+      const executionSignal = projectSignal ? AbortSignal.any([signal, projectSignal]) : signal;
+      const projectMounts = async (mounts: SandboxMount[]) => {
+        if (!ownWiki) return mounts;
+        if (!command.sessionID || !projectOrigin) throw new ApiError(403, "wiki_project_session_required", "Run protected commands from an authenticated wiki chat.");
+        executionSignal.throwIfAborted();
+        const currentOrigin = await verifiedWikiSessionOrigin(this.config, workspace, command.sessionID, actor.scope ?? "owner", executionSignal);
+        if (currentOrigin.generation !== projectOrigin.generation) throw new ApiError(403, "wiki_project_access_changed", "This chat's project access changed.");
+        const checked = await wikiProjectSandboxMounts(this.config, ownWiki.id, new Set(wikis.map(wiki => wiki.workspaceId)), command.sessionID, currentOrigin.generation, currentOrigin.scope, mounts);
+        executionSignal.throwIfAborted();
+        return checked;
+      };
       if (ownWiki && settings.enabled) {
         assertWikiWorkspaceAccess(actor, ownWiki);
         await wikiAccess.ensureReadable(ownWiki, ownsWikis(actor));
@@ -146,7 +163,7 @@ export class AgentSandboxService {
       }
       const writeAction = commandAction("edit");
       const externalRules = runtimeExternalDirectory(runtime);
-      const sources = [workspace.path, ...authorizedFolders(externalRules)];
+      const sources = [...new Set(await Promise.all([workspace.path, ...authorizedFolders(externalRules), ...projectGrants.map(grant => grant.root)].map(source => ownWiki ? realpath(source).catch(() => { throw new ApiError(403, "wiki_project_mount_unavailable", "A shared folder is unavailable. Review this chat's project access."); }) : Promise.resolve(source))))];
       if (sources.length > 1 && Object.entries(externalRules).some(([pattern, action]) => pattern !== "*" && action === "deny")) {
         throw new ApiError(403, "sandbox_directory_scope", "A scoped folder denial cannot be enforced by sharing the whole folder. Choose narrower authorized folders.");
       }
@@ -171,7 +188,7 @@ export class AgentSandboxService {
       }
       await ask("read", "*", "Allow this command to read all files in these folders, including files covered by individual read rules?", mounts.map((mount) => mount.source), commandAction("read"));
       if (command.write) await ask("edit", "*", `Allow this command to change files in the listed folders?\n\n${command.command}`, sources, writeAction);
-      const wikiMounts = await wikiSafeSandboxMounts(wikiPolicy, mounts);
+      const wikiMounts = await projectMounts(await wikiSafeSandboxMounts(wikiPolicy, mounts));
       for (const mount of wikiMounts) for (const wiki of wikis) {
         if (wiki.id === ownWiki?.id || !within(mount.source, wiki.root) && !within(wiki.root, mount.source)) continue;
         assertWikiWorkspaceAccess(actor, wiki);
@@ -188,12 +205,15 @@ export class AgentSandboxService {
       }
       const cwd = sandboxPaths(command.workdir || "/workspace", safeMounts);
       if (!cwd.startsWith("/")) throw new ApiError(400, "sandbox_directory", "Use /workspace or an authorized sandbox folder.");
-      const result = await withFileEditorHandoff(command, () => { signal.throwIfAborted(); return this.backend.run({ command: sandboxPaths(command.command, safeMounts), cwd, mounts: safeMounts,
-        timeoutMs: command.timeoutMs, signal,
+      const result = await withFileEditorHandoff(command, () => { executionSignal.throwIfAborted(); return this.backend.run({ command: sandboxPaths(command.command, safeMounts), cwd, mounts: safeMounts,
+        timeoutMs: command.timeoutMs, signal: executionSignal,
         // Scoped tool/agent rules require the request broker even in allow mode.
         networkMode: networkMode === "allow" && commandAction("webfetch") !== "allow" ? "approve" : networkMode,
         authorizeNetwork,
         beforeCommit: async () => {
+          const currentProjectMounts = await projectMounts(safeMounts);
+          if (currentProjectMounts.some((mount, index) => mount.writable !== safeMounts[index].writable))
+            throw new ApiError(403, "wiki_project_access_changed", "A shared folder became a read-only project while this command ran. Its file changes were not saved.");
           if (ownWiki && command.write) await wikiAccess.ensureWritable(await wikiStore.get(ownWiki.id), ownsWikis(actor));
           const current = await buildWikiFilePolicy(await wikiStore.list(), workspace.path, wikiPolicy.runtimeRoots);
           const checked = await wikiSafeSandboxMounts(current, safeMounts);

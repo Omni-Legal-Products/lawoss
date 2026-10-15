@@ -48,8 +48,8 @@ type FolderState = {
 };
 
 type TreeRow =
-  | { kind: "root"; key: string; depth: number; root: LegalMemoryTreeRoot; open: boolean }
-  | { kind: "folder"; key: string; depth: number; sourceId: string; folder: LegalMemoryTreeFolder; open: boolean }
+  | { kind: "root"; key: string; depth: number; root: LegalMemoryTreeRoot; open: boolean; empty: boolean }
+  | { kind: "folder"; key: string; depth: number; sourceId: string; folder: LegalMemoryTreeFolder; open: boolean; empty: boolean }
   | { kind: "file"; key: string; depth: number; file: LegalMemoryTreeFile; searchResult: boolean }
   | { kind: "more"; key: string; depth: number; sourceId: string; path: string; loaded: number; remaining: number }
   | { kind: "status"; key: string; depth: number; label: string; spinning?: boolean };
@@ -249,6 +249,10 @@ function LegalMemoryFilesPanelContent({
 
     const roots = rootsQuery.data?.roots ?? [];
     const next: TreeRow[] = [];
+    const isEmpty = (key: string) => {
+      const state = folders.get(key);
+      return state?.status === "idle" && state.total === 0 && state.files.length === 0 && state.folders.length === 0;
+    };
     const walk = (sourceId: string, path: string, depth: number) => {
       const key = folderKey(sourceId, path);
       const state = folders.get(key);
@@ -267,7 +271,7 @@ function LegalMemoryFilesPanelContent({
       for (const folder of state.folders) {
         const childKey = folderKey(sourceId, folder.path);
         const isOpen = openFolders.has(childKey);
-        next.push({ kind: "folder", key: childKey, depth, sourceId, folder, open: isOpen });
+        next.push({ kind: "folder", key: childKey, depth, sourceId, folder, open: isOpen, empty: isEmpty(childKey) });
         if (isOpen) walk(sourceId, folder.path, depth + 1);
       }
       for (const file of state.files) {
@@ -291,7 +295,7 @@ function LegalMemoryFilesPanelContent({
     for (const root of roots) {
       const key = folderKey(root.source_id, "");
       const isOpen = openFolders.has(key);
-      next.push({ kind: "root", key, depth: 0, root, open: isOpen });
+      next.push({ kind: "root", key, depth: 0, root, open: isOpen, empty: isEmpty(key) });
       if (isOpen) walk(root.source_id, "", 1);
     }
     return next;
@@ -514,8 +518,8 @@ function LegalMemoryTreeRow({
         className="group flex min-h-9 w-full items-center gap-1.5 rounded-lg pr-2 text-left transition-colors hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
       >
         <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", row.open && "rotate-90")} />
-        <FolderIcon open={row.open} />
-        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">{row.root.display_name}</span>
+        <FolderIcon open={row.open} empty={row.empty} />
+        <span className={cn("min-w-0 flex-1 truncate text-[13px] font-medium", row.empty ? "text-muted-foreground" : "text-foreground")}>{row.root.display_name}</span>
         {!row.root.source_id.startsWith("__legalmemory_mcp__:") ? (
           <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">{row.root.files.toLocaleString()}</span>
         ) : null}
@@ -537,8 +541,8 @@ function LegalMemoryTreeRow({
         className="group flex min-h-9 w-full items-center gap-1.5 rounded-lg pr-2 text-left transition-colors hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
       >
         <ChevronRight className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", row.open && "rotate-90")} />
-        <FolderIcon open={row.open} />
-        <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">{row.folder.name}</span>
+        <FolderIcon open={row.open} empty={row.empty} />
+        <span className={cn("min-w-0 flex-1 truncate text-[13px]", row.empty ? "text-muted-foreground" : "text-foreground")}>{row.folder.name}</span>
         <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100">{row.folder.files.toLocaleString()}</span>
       </button>
       </MemoryEntryMenu>

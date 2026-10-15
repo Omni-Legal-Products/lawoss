@@ -19,7 +19,7 @@
 .wiki-graph-camera-controls { position: absolute; z-index: 2; right: 16px; bottom: 45px; display: flex; flex-direction: column; gap: 5px; }
 .wiki-graph-camera-controls button { background: var(--background); }
 .wiki-graph-status { position: absolute; left: 16px; right: 16px; bottom: 12px; display: flex; justify-content: space-between; gap: 12px; pointer-events: none; color: var(--muted-foreground); font-size: 10px; }
-.wiki-graph-settings { position: absolute; z-index: 4; right: 16px; top: 12px; display: flex; flex-direction: column; gap: 12px; width: 230px; padding: 14px; border: 1px solid var(--border); border-radius: 9px; background: var(--popover); color: var(--popover-foreground); box-shadow: 0 5px 18px #0000000c; font-size: 12px; }
+.wiki-graph-settings { position: absolute; z-index: 4; right: 16px; top: 12px; display: flex; flex-direction: column; gap: 12px; width: 300px; max-width: calc(100% - 32px); max-height: calc(100% - 24px); overflow-y: auto; padding: 14px; border: 1px solid var(--border); border-radius: 9px; background: var(--popover); color: var(--popover-foreground); box-shadow: 0 5px 18px #0000000c; font-size: 12px; }
 .wiki-graph-settings > input, .wiki-graph-settings > select { width: 100%; padding: 7px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--background); color: var(--foreground); font-size: 11px; }
 .wiki-graph-settings label { display: flex; align-items: center; gap: 8px; }
 .wiki-graph-settings input[type=checkbox], .wiki-graph-settings input[type=range] { accent-color: var(--primary); }

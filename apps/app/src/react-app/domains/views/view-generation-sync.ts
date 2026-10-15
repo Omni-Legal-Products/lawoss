@@ -12,7 +12,7 @@ export async function syncViewGeneration(context: Context, part: DynamicToolUIPa
   const store = useViewGenerationStore.getState();
   const previous = store.entries[id];
   if (part.state === "input-streaming" || part.state === "input-available") {
-    if (previous?.status === "saved" || previous?.status === "failed") return;
+    if (previous?.status === "saved" || previous?.status === "preview" || previous?.status === "failed") return;
     const input = viewProgramInput(part.input);
     const next: ViewGeneration = { ...context, toolCallId: part.toolCallId, title: input.title === "Creating view…" ? previous?.title ?? input.title : input.title,
       program: input.program || previous?.program || "", status: "streaming" };
@@ -33,7 +33,17 @@ export async function syncViewGeneration(context: Context, part: DynamicToolUIPa
   const input = viewProgramInput(part.input);
   const current: ViewGeneration = previous ?? { ...context, toolCallId: part.toolCallId, title: input.title, program: input.program, status: "streaming" };
   const outcome = part.state === "output-available" ? viewToolOutcome(part.output) : { error: part.state === "output-error" ? part.errorText : "Generation ended without a saved view." };
-  if ("view" in outcome) {
+  if ("preview" in outcome) {
+    // Replayed transcript output must not undo a Save made in this app session.
+    if (previous?.status === "saved") return;
+    const saved = store.savedResults[id];
+    if (saved) {
+      store.update(id, { ...current, status: "saved", saved, preview: outcome.preview, program: outcome.preview.input.program, title: saved.title, error: undefined });
+      usePanelTabStore.getState().resolveViewTab(id, viewPanelTab(context.serverUrl, { owner: saved.owner, viewId: saved.id }, saved.title));
+      return;
+    }
+    store.update(id, { ...current, status: "preview", preview: outcome.preview, program: outcome.preview.input.program, title: outcome.preview.input.title, error: undefined });
+  } else if ("view" in outcome) {
     const view = outcome.view;
     store.update(id, { ...current, status: "saved", saved: view, title: view.title, error: undefined });
     usePanelTabStore.getState().resolveViewTab(id, viewPanelTab(context.serverUrl, { owner: view.owner, viewId: view.id }, view.title));

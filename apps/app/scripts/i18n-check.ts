@@ -48,7 +48,7 @@ const GERMAN_KEEPS_ENGLISH = new Set<string>([
   "review.sets", "review.prompts", "workflows.workflow", // Established product terminology in both languages.
   "systemone.typesafe",
   // Wiki uses the same established terms in German.
-  "wiki.title", "wiki.name", "wiki.graph", "wiki.markdown", "wiki.chats", "wiki.property_text",
+  "views.dashboard", "views.dashboards", "views.wikis", "wiki.title", "wiki.name", "wiki.graph", "wiki.markdown", "wiki.chats", "wiki.property_text",
   // Storage protocol names and the shared technical term "Port".
   "storage.provider_webdav", "storage.provider_sftp", "storage.provider_ftp", "storage.field_port",
   // Tool transcript: loanwords and identical tokens

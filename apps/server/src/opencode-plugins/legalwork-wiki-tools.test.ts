@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import type { WikiDocument, WikiVault } from "@legalwork/types/wiki";
 import { LegalWorkWikiTools } from "./legalwork-wiki-tools.js";
+import { LegalWorkSkillTools } from "./legalwork-skill-tools.js";
 
 const SERVER = "http://127.0.0.1:9948";
 const originalFetch = globalThis.fetch;
@@ -355,4 +356,95 @@ test("requested project contributions stage files and never call the direct wiki
     expect(result.suggestion.filePath).toStartWith(".legalwork/tmp/");
   }
   expect(requests.filter(item => item.method !== "GET").every(item => item.path === "/workspace/project-1/wiki-suggestions")).toBe(true);
+});
+
+
+test("wiki guard covers unmanaged bash and custom tools that read host files", async () => {
+  const plugin = await LegalWorkWikiTools({ directory: wikiRoot });
+  await expect(plugin["tool.execute.before"]({ tool: "bash", sessionID: "wiki-chat" }, { args: { command: "cat ../project/secret.txt" } }))
+    .rejects.toMatchObject({ code: "wiki_sandbox_required" });
+  await expect(plugin["shell.env"]({ sessionID: "wiki-chat" })).rejects.toMatchObject({ code: "wiki_sandbox_required" });
+  for (const [tool, key] of [["legalwork_task_attach", "paths"], ["benchmark_create_task", "documentPaths"]]) {
+    await expect(plugin["tool.execute.before"]({ tool, sessionID: "wiki-chat" }, { args: { [key]: [join(projectRoot, "secret.txt")] } }))
+      .rejects.toMatchObject({ code: "wiki_native_project_access" });
+    await expect(plugin["tool.execute.before"]({ tool, sessionID: "wiki-chat" }, { args: { [key]: ["wiki-note.md"] } })).resolves.toBeUndefined();
+  }
+  await expect(plugin["tool.execute.before"]({ tool: "legalwork_shell", sessionID: "wiki-chat" }, { args: { command: "true" } })).resolves.toBeUndefined();
+  const project = await LegalWorkWikiTools({ directory: projectRoot });
+  await expect(project["tool.execute.before"]({ tool: "bash", sessionID: "project-chat" }, { args: { command: "true" } })).resolves.toBeUndefined();
+  await expect(project["shell.env"]({ sessionID: "project-chat" })).resolves.toBeUndefined();
+});
+
+
+test("native project tools classify once per turn and don't depend on repeated server calls", async () => {
+  const plugin = await LegalWorkWikiTools({ directory: projectRoot });
+  await plugin["tool.execute.before"]({ tool: "read", sessionID: "project-chat" }, { args: { filePath: "notes.md" } });
+  expect(requests.filter(item => item.path === "/wikis")).toHaveLength(1);
+  expect(requests.filter(item => item.path === "/workspaces")).toHaveLength(1);
+  malformed = true;
+  await plugin["tool.execute.before"]({ tool: "write", sessionID: "project-chat" }, { args: { filePath: "notes.md" } });
+  expect(requests.filter(item => item.path === "/wikis")).toHaveLength(1);
+});
+
+test("unregistered directories do not fail workspace discovery or retain a negative wiki classification", async () => {
+  const plugin = await LegalWorkWikiTools({ directory: otherRoot });
+  await plugin["tool.execute.before"]({ tool: "read", sessionID: "chat" }, { args: { filePath: "notes.md" } });
+  wikis.push(vault("new-wiki", otherRoot, false));
+  await expect(plugin["tool.execute.before"]({ tool: "read", sessionID: "chat" }, { args: { filePath: join(projectRoot, "private.md") } })).rejects.toMatchObject({ code: "wiki_native_project_access" });
+});
+
+test("nested wiki sessions resolve native and attachment paths from their working directory", async () => {
+  const directory = join(wikiRoot, "nested");
+  await mkdir(directory);
+  await writeFile(join(projectRoot, "secret.txt"), "Private project canary");
+  await symlink(projectRoot, join(directory, "project-link"));
+  await writeFile(join(wikiRoot, "wiki-note.md"), "Wiki resource");
+  const plugin = await LegalWorkWikiTools({ directory });
+  for (const tool of ["read", "write", "edit", "glob", "grep", "list"]) {
+    await expect(plugin["tool.execute.before"]({ tool, sessionID: "nested-chat" }, { args: { path: "project-link/secret.txt" } }))
+      .rejects.toMatchObject({ code: "wiki_native_project_access" });
+    await expect(plugin["tool.execute.before"]({ tool, sessionID: "nested-chat" }, { args: { path: "../wiki-note.md" } })).resolves.toBeUndefined();
+  }
+  for (const [tool, key] of [["legalwork_task_attach", "paths"], ["benchmark_create_task", "documentPaths"], ["legalwork_skill_create", "resourcePaths"]]) {
+    await expect(plugin["tool.execute.before"]({ tool, sessionID: "nested-chat" }, { args: { [key]: ["project-link/secret.txt"] } }))
+      .rejects.toMatchObject({ code: "wiki_native_project_access" });
+    await expect(plugin["tool.execute.before"]({ tool, sessionID: "nested-chat" }, { args: { [key]: ["../wiki-note.md"] } })).resolves.toBeUndefined();
+  }
+});
+
+test("unmanaged wiki skill creation cannot upload project resources but retains wiki resources", async () => {
+  // Exercise the real bundled reader after the hook, with only the server API mocked.
+  process.env.LEGALWORK_SERVER_URL = "http://127.0.0.1:9958";
+  const directory = join(wikiRoot, "nested");
+  await mkdir(directory);
+  await writeFile(join(projectRoot, "secret.txt"), "Private project canary");
+  await writeFile(join(directory, "template.txt"), "Wiki template");
+  await writeFile(join(wikiRoot, "shared.txt"), "Wiki parent resource");
+  await symlink(projectRoot, join(directory, "project-link"));
+  const serverFetch = globalThis.fetch;
+  const uploads: { name: string; content: string }[] = [];
+  globalThis.fetch = Object.assign(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+    if (url.pathname === "/workspaces") return response({ items: [{ id: "ws-wiki-1", path: wikiRoot }] });
+    if (url.pathname === "/workspace/ws-wiki-1/skills") return response(init?.method === "POST" ? { path: "test-skill/SKILL.md" } : { items: [] });
+    if (url.pathname === "/workspace/ws-wiki-1/skills/test-skill/resources") {
+      const body = z.object({ name: z.string(), contentBase64: z.string() }).parse(JSON.parse(String(init?.body)));
+      uploads.push({ name: body.name, content: Buffer.from(body.contentBase64, "base64").toString("utf8") });
+      return response({ ok: true });
+    }
+    return serverFetch(input, init);
+  }, { preconnect: serverFetch.preconnect });
+  const context = { directory, sessionID: "skill-chat" };
+  const plugin = await LegalWorkWikiTools(context), skills = await LegalWorkSkillTools();
+  const execute = async (resourcePaths?: string[]) => {
+    const args = { name: "test-skill", description: "Use when testing resource boundaries", instructions: "Use the attached template.", ...(resourcePaths === undefined ? {} : { resourcePaths }) };
+    await plugin["tool.execute.before"]({ tool: "legalwork_skill_create", sessionID: context.sessionID }, { args });
+    return JSON.parse(await skills.tool.legalwork_skill_create.execute(args, context));
+  };
+  for (const path of [join(projectRoot, "secret.txt"), "project-link/secret.txt"])
+    await expect(execute([path])).rejects.toMatchObject({ code: "wiki_native_project_access" });
+  expect(uploads).toEqual([]);
+  expect(await execute()).toMatchObject({ ok: true });
+  expect(await execute(["template.txt", "../shared.txt"])).toMatchObject({ ok: true, attachedResources: ["template.txt", "shared.txt"] });
+  expect(uploads).toEqual([{ name: "template.txt", content: "Wiki template" }, { name: "shared.txt", content: "Wiki parent resource" }]);
 });

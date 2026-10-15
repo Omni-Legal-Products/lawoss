@@ -1,3 +1,4 @@
+import type { WikiViewSnapshots } from "./views.js";
 /** Wiki content and configuration live in Markdown; these are API projections. */
 export type WikiPageReference = { wikiId: string; path: string };
 
@@ -64,8 +65,8 @@ export type WikiVault = WikiRegistration & {
 };
 export type DeletedWiki = { wiki: WikiRegistration; deletedAt: number };
 export type WikiLink = { target: string; label: string; property: string | null; resolved: boolean };
-/** Compact graph projection. Page bodies, excerpts and arbitrary metadata stay on the server. */
-export type WikiGraphNode = { id: string; path: string; title: string; type: string };
+/** Graph projection with indexed page properties; page bodies and excerpts stay on the server. */
+export type WikiGraphNode = { id: string; path: string; title: string; type: string; properties?: Record<string, WikiValue> };
 export type WikiGraphEdge = { id: string; source: string; target: string; relation: string | null };
 export type WikiGraphData = { revision: string; nodes: WikiGraphNode[]; edges: WikiGraphEdge[] };
 export type WikiGraphResponse =
@@ -97,8 +98,11 @@ export type WikiSnapshot = {
   folders?: string[];
   warnings: string[];
 };
-export type WikiDocument = { path: string; content: string; revision: string; updatedAt: number };
-export type WikiRevision = { id: string; path: string; createdAt: number; action: "write" | "delete" | "restore"; size: number };
+export type WikiDocument = {
+  viewSnapshots?: WikiViewSnapshots;
+  path: string; content: string; revision: string; updatedAt: number;
+};
+export type WikiRevision = { id: string; path: string; createdAt: number; action: "write" | "delete" | "restore"; size: number; changes?: import("./line-diff.js").LineChanges | null };
 export type WikiCreateInput = {
   name: string;
   root?: string;

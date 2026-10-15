@@ -1,5 +1,6 @@
 import type { DynamicToolUIPart, TextUIPart } from "ai";
 import type { ToolPart } from "@opencode-ai/sdk/v2/client";
+import { ViewPreviewSchema } from "@legalwork/types/views";
 
 import { safeStringify } from "@/app/utils";
 
@@ -59,13 +60,15 @@ export function parseDynamicToolUIPart(part: ToolPart): DynamicToolUIPart | null
   }
 
   if (part.state.status === "completed") {
+    const preview = part.tool === "view_create" || part.tool === "view_update"
+      ? ViewPreviewSchema.safeParse(metadata?.legalworkViewPreview).data : undefined;
     return {
       type: "dynamic-tool",
       toolName: part.tool,
       toolCallId: part.callID,
       state: "output-available",
       input: part.state.input,
-      output: part.state.output,
+      output: preview ?? part.state.output,
       callProviderMetadata,
     };
   }

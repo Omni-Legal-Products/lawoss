@@ -1,6 +1,8 @@
+import { viewSaveSource, recordViewSaveSource } from "../views/save-source.js";
+import { registerWikiProjectRoutes } from "./wiki-projects.js";
 import { registerWikiSuggestionRoutes } from "./wiki-suggestions.js";
 import { z } from "zod";
-import { ViewInputSchema, WikiDataQuerySchema } from "../views/schema.js";
+import { ViewSaveInputSchema, WikiDataQuerySchema } from "../views/schema.js";
 import { ViewRepository } from "../views/repository.js";
 import { queryWikiPages, wikiPageFields } from "../wiki/data-query.js";
 import { wikiPropertiesPatchSchema } from "../wiki/properties.js";
@@ -73,6 +75,7 @@ export function registerWikiRoutes(options: Options): WikiStore {
     }
     return wiki;
   };
+  registerWikiProjectRoutes({ routes, config, store, selected, jsonResponse });
   const vault = async (ctx: RequestContext, snapshot: WikiSnapshot): Promise<WikiVault> => {
     let writable = !config.readOnly && editor(ctx);
     if (writable && options.ensureWikiWritable) {
@@ -133,13 +136,13 @@ export function registerWikiRoutes(options: Options): WikiStore {
   });
 
   const views = (id: string) => new ViewRepository({ kind: "wiki", id }, {
-    dashboardFolder: async () => (await store.snapshot(id)).folders?.includes("Dashboards") ? "Dashboards" : "Views",
+    dashboardFolder: async () => "Dashboards",
     list: async () => (await store.files(id)).map(file => file.path),
     read: path => store.readAsset(id, path),
     write: async (path, bytes, revision) => { await store.writeAsset(id, path, bytes, revision); },
   });
   const viewInput = async (ctx: RequestContext) => {
-    const result = ViewInputSchema.safeParse(await readJsonBodyLimited(ctx.request, 2 * 1024 * 1024));
+    const result = ViewSaveInputSchema.safeParse(await readJsonBodyLimited(ctx.request, 2 * 1024 * 1024));
     if (!result.success) throw new ApiError(400, "invalid_view", "Check the view title, program and data bindings.");
     return result.data;
   };
@@ -171,23 +174,29 @@ export function registerWikiRoutes(options: Options): WikiStore {
     return jsonResponse(await views(wiki.id).read(ctx.params.viewId));
   });
   addRoute(routes, "POST", "/wikis/:wikiId/ui-views", "client", async ctx => {
+    if (ctx.request.headers.has("x-legalwork-wiki-agent-token")) throw new ApiError(403, "human_save_required", "Only the user can save a dashboard or report. Return a preview first.");
     const wiki = await selected(ctx, true), input = await viewInput(ctx);
     if (input.mode === "report" && Object.keys(input.queries).length) {
       const pages = await store.indexedPages(wiki.id);
-      input.datasets = { ...input.datasets, ...Object.fromEntries(Object.entries(input.queries).map(([name, query]) => [name, queryWikiPages(pages, query)])) };
+      input.datasets = { ...input.datasets, ...Object.fromEntries(Object.entries(input.queries).map(([name, query]) => [name, input.datasets?.[name] ?? { ...queryWikiPages(pages, query), sourceOwner: { kind: "wiki", id: wiki.id } }])) };
     }
-    await authorize(ctx, wiki, "wiki.view.create", [input.mode === "report" ? "Reports" : "Views"], input);
+    const source = viewSaveSource(ctx.request);
+    await authorize(ctx, wiki, "wiki.view.create", [input.mode === "report" ? "Reports" : "Dashboards"], input);
     const result = await views(wiki.id).create(input);
+    await recordViewSaveSource(config, result, source);
     change(wiki.id);
     return jsonResponse(result, 201);
   });
   addRoute(routes, "PUT", "/wikis/:wikiId/ui-views/:viewId", "client", async ctx => {
+    if (ctx.request.headers.has("x-legalwork-wiki-agent-token")) throw new ApiError(403, "human_save_required", "Only the user can save a dashboard or report. Return a preview first.");
     const wiki = await selected(ctx, true);
-    const parsed = z.object({ baseRevision: z.string().min(1).max(200), input: ViewInputSchema }).strict().safeParse(await readJsonBodyLimited(ctx.request, 2 * 1024 * 1024));
+    const parsed = z.object({ baseRevision: z.string().min(1).max(200), input: ViewSaveInputSchema }).strict().safeParse(await readJsonBodyLimited(ctx.request, 2 * 1024 * 1024));
     if (!parsed.success) throw new ApiError(400, "invalid_view", "Read the view before changing its definition.");
     const repository = views(wiki.id);
+    const source = viewSaveSource(ctx.request);
     await authorize(ctx, wiki, "wiki.view.update", [await repository.location(ctx.params.viewId)], parsed.data);
     const result = await repository.update(ctx.params.viewId, parsed.data.input, parsed.data.baseRevision);
+    await recordViewSaveSource(config, result, source);
     change(wiki.id);
     return jsonResponse(result);
   });
@@ -361,6 +370,10 @@ export function registerWikiRoutes(options: Options): WikiStore {
     await store.remove(wiki.id, path, parsed.data.baseRevision);
     change(wiki.id);
     return jsonResponse({ ok: true });
+  });
+  addRoute(routes, "GET", "/wikis/:wikiId/history/:revisionId", "client", async (ctx) => {
+    await selected(ctx);
+    return jsonResponse(await store.revision(ctx.params.wikiId, ctx.url.searchParams.get("path") ?? "", ctx.params.revisionId));
   });
   addRoute(routes, "GET", "/wikis/:wikiId/history", "client", async (ctx) => {
     await selected(ctx);

@@ -50,7 +50,7 @@ export const OPENUI_CATALOG = {
     "Rows carry source provenance from the host. Board and table filters are local to returned rows. Human board moves use the host's revision-checked property API; agent edits require typed wiki tools.",
     "Use one page heading, a row of metrics, then charts and tables. Metric is already an OpenUI overview card: do not wrap each metric in another Card. Avoid nested cards and repeated titles. Use short supporting text; a brief Badge or Text is enough for demo-data labels.",
     "Reports and dashboards work with project files, connected sources, user-provided data, and wikis. Pass non-wiki data as named datasets with queries: {}. Query(\"data\", {name:\"binding\"}, {rows:[],total:0}) reads either a dataset or a live wiki binding. Dataset dashboards refresh when their saved data is updated; they do not automatically re-fetch the original documents or external sources.",
-    "Only a view ID belongs in a legalwork-view Markdown fence. Use view_create/view_update instead of writing serialized record files.",
+    "view_create/view_update return unsaved previews. The user chooses Save and a destination in the app. Never persist view files yourself. Only an already-saved view ID from view_read/view_list belongs in a legalwork-view Markdown fence.",
   ],
   example: 'clients = Query("wiki_query", {name:"clients"}, {rows:[],total:0})\nroot = Stack([Heading("Client engagements", 1), Metric("Clients", clients.total), Card("Engagement stages", [Board(clients.rows, "properties.stage", "title", [{field:"properties.partner",label:"Partner"}])])])',
 };

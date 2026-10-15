@@ -348,6 +348,7 @@ function StorageFolder(props: FolderProps) {
       ]),
     ).values(),
   ];
+  const empty = children.isSuccess && !children.hasNextPage && entries.length === 0 && !(props.pendingTransfer?.rootId === root.id && props.pendingTransfer.parentPath === path);
   const incoming = props.pendingTransfer;
   if (incoming?.rootId === root.id && incoming.parentPath === path && !entries.some((entry) => entry.path === incoming.entry.path)) {
     entries.push(incoming.entry);
@@ -443,10 +444,10 @@ function StorageFolder(props: FolderProps) {
             className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")}
           />
           <span className="relative flex size-5 shrink-0 items-center justify-center">
-            {depth === 0 && root.provider && connectorDefinitions.some((item) => item.id === root.provider) ? <img src={resolveBrandIconSrc(undefined, connectorDefinitions.find((item) => item.id === root.provider)?.icon)} alt="" className="size-4 object-contain" /> : <FolderIcon open={open} />}
+            {depth === 0 && root.provider && connectorDefinitions.some((item) => item.id === root.provider) ? <img src={resolveBrandIconSrc(undefined, connectorDefinitions.find((item) => item.id === root.provider)?.icon)} alt="" className="size-4 object-contain" /> : <FolderIcon open={open} empty={empty} />}
             {isPending && <span className="absolute -right-1 -bottom-1 flex size-3.5 items-center justify-center rounded-full bg-background text-foreground ring-2 ring-background"><Loader2 className="size-3 animate-spin" /></span>}
           </span>
-          <span className={cn("min-w-0 flex-1 truncate", depth === 0 && "font-medium")}>{name}</span>
+          <span className={cn("min-w-0 flex-1 truncate", depth === 0 && "font-medium", empty && "text-muted-foreground")}>{name}</span>
           {!root.writable && depth === 0 && <LockKeyhole className="size-3 text-muted-foreground" />}
         </button>
         {open && (
@@ -523,11 +524,6 @@ function StorageFolder(props: FolderProps) {
                 {t("storage.retry")}
               </Button>
             </div>
-          )}
-          {!children.isLoading && !children.isError && entries.length === 0 && (
-            <p style={{ paddingLeft: 25 + depth * 15 }} className="py-2 text-xs text-muted-foreground">
-              {t("storage.empty_folder")}
-            </p>
           )}
           {children.hasNextPage && (
             <Button

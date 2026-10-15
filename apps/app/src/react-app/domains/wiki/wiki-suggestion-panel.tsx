@@ -1,3 +1,6 @@
+import { WikiContentPreview } from "./wiki-content-preview";
+import { WikiDiff, WikiContentStats } from "./wiki-diff";
+import { t } from "@/i18n";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2 } from "lucide-react";
@@ -38,7 +41,13 @@ export function WikiSuggestionPanel({ client, workspaceId, id, tabId }: { client
   }, [draft, replaceTab, tabId, client.baseUrl]);
   const current = useRef<WikiSuggestion | null>(null), saved = useRef<string>(""), saving = useRef<Promise<WikiSuggestion> | null>(null);
   const [busy, setBusy] = useState(false), [savingDraft, setSavingDraft] = useState(false), [error, setError] = useState("");
-  const [baseline, setBaseline] = useState("");
+  const [mode, setMode] = useState<"preview" | "diff" | "edit">("preview");
+  const destinationPage = useQuery({ queryKey: ["wiki-contribution-current", client.baseUrl, draft?.destination.wikiId, draft?.destination.path, snapshot.data?.pages.find(page => page.path === draft?.destination.path)?.revision], enabled: Boolean(draft), queryFn: async () => {
+    if (!draft) throw new Error("The draft is still loading.");
+    try { return await client.readWikiPage(draft.destination.wikiId, draft.destination.path); }
+    catch (error) { if (error instanceof LegalworkServerError && error.status === 404) return { content: "", revision: "" }; throw error; }
+  } });
+  const baseline = destinationPage.data?.content ?? "";
   const [existing, setExisting] = useState<{ content: string; revision: string } | null>(null);
   const [conflict, setConflict] = useState<WikiSuggestion | null>(null);
   const dirty = () => Boolean(current.current && fingerprint(current.current) !== saved.current);
@@ -93,6 +102,7 @@ export function WikiSuggestionPanel({ client, workspaceId, id, tabId }: { client
       const result = await client.reviewWikiSuggestion(workspaceId, id, action, ready.revision);
       current.current = result; saved.current = fingerprint(result); setDraft(result); cache.setQueryData(key, result);
       void cache.invalidateQueries({ queryKey: ["wiki-suggestions", client.baseUrl, workspaceId] });
+      void cache.invalidateQueries({ queryKey: ["wiki-contributions", client.baseUrl] });
       if (action === "save") {
         await cache.invalidateQueries({ queryKey: ["wiki-snapshot", client.baseUrl, result.destination.wikiId] });
         replaceTab(tabId, wikiPanelTab(client.baseUrl, result.destination.wikiId, { kind: "page", path: result.destination.path }, wikiPageHeading(result.content, result.title).title));
@@ -134,19 +144,26 @@ export function WikiSuggestionPanel({ client, workspaceId, id, tabId }: { client
     </div>
     <div className="min-h-0 flex-1 overflow-auto">
       <div className="mx-auto w-full max-w-[880px] px-[clamp(32px,4vw,56px)] pt-6">
-        <div className="flex min-w-0 items-center gap-1"><span className="shrink-0 text-xs text-muted-foreground">Save in</span><WikiSuggestionDestinationPicker client={client} wikis={available} value={draft.destination} disabled={!pending || busy} onChange={destination => { setExisting(null); setBaseline(""); change({ destination }); }} /></div>
+        <div className="flex min-w-0 items-center gap-1"><span className="shrink-0 text-xs text-muted-foreground">Save in</span><WikiSuggestionDestinationPicker client={client} wikis={available} value={draft.destination} disabled={!pending || busy} onChange={destination => { setExisting(null); change({ destination }); }} /></div>
         {pending && <p className="mt-2 text-xs text-muted-foreground" role="status">{snapshot.isLoading ? "Checking destination…" : snapshot.error ? "Could not check this wiki. Choose the location again." : !validDestination ? "Choose an existing folder in this wiki." : needsReview ? <>A page with this name already exists. <button className="underline underline-offset-2" onClick={() => void inspectDestination()}>Review before replacing</button>, or choose a different name.</> : targetPage ? "Updates the existing page when you save." : "Creates a new page when you save."}</p>}
         {error && <div role="alert" className="mt-3 text-sm text-destructive">{error} {!conflict && <button className="underline" onClick={() => { if (!dirty()) void query.refetch(); else void persist().catch(handleError); }}>Retry</button>}</div>}
         {conflict && <div className="mt-4 rounded-lg border p-4"><p className="text-sm font-medium">The draft changed while you were editing</p><p className="mt-1 text-xs text-muted-foreground">Your edits are still below. Review the latest version before continuing.</p><pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs">{conflict.content}</pre><div className="mt-3 flex gap-2"><Button size="sm" variant="outline" onClick={() => resolveConflict(false)}>Use latest draft</Button>{conflict.status === "pending" && <Button size="sm" variant="outline" onClick={() => resolveConflict(true)}>Keep my edited draft</Button>}</div></div>}
-        {existing && <div className="mt-4 rounded-lg border p-4"><p className="text-sm font-medium">Current wiki page</p><pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs">{existing.content}</pre><Button className="mt-3" size="sm" variant="outline" onClick={() => { setBaseline(existing.content); change({ destination: { ...draft.destination, baseRevision: existing.revision } }); setExisting(null); }}>Use this page as the destination</Button></div>}
+        {existing && <div className="mt-4 rounded-lg border p-4"><p className="text-sm font-medium">Current wiki page</p><WikiDiff before={existing.content} after={draft.content} beforeLabel={t("wiki.current_version")} afterLabel={t("wiki.proposed_contribution")} /><Button className="mt-3" size="sm" variant="outline" onClick={() => { change({ destination: { ...draft.destination, baseRevision: existing.revision } }); setExisting(null); }}>Use this page as the destination</Button></div>}
       </div>
-      <div className="wiki-editor-content">
+      <div className="flex flex-wrap items-center gap-2 border-b px-5 py-3">
+        <Button size="sm" aria-pressed={mode === "preview"} variant={mode === "preview" ? "secondary" : "ghost"} onClick={() => setMode("preview")}>{t("wiki.version_content")}</Button>
+        <Button size="sm" aria-pressed={mode === "diff"} variant={mode === "diff" ? "secondary" : "ghost"} onClick={() => setMode("diff")}>{t("wiki.compare_contribution")}</Button>
+        {pending && <Button size="sm" aria-pressed={mode === "edit"} variant={mode === "edit" ? "secondary" : "ghost"} onClick={() => setMode("edit")}>{t("wiki.edit_markdown")}</Button>}
+        {destinationPage.data && <WikiContentStats before={baseline} after={draft.content} />}
+      </div>
+      {destinationPage.error && <p role="alert" className="p-4 text-sm text-destructive">{destinationPage.error.message}<Button size="sm" variant="ghost" onClick={() => void destinationPage.refetch()}>{t("wiki.retry")}</Button></p>}
+      {mode === "diff" ? destinationPage.data ? <WikiDiff before={baseline} after={draft.content} beforeLabel={t("wiki.current_version")} afterLabel={t("wiki.proposed_contribution")} /> : <p className="p-4">{t("wiki.loading")}</p> : mode === "preview" ? <WikiContentPreview client={client} wikiId={draft.destination.wikiId} path={draft.destination.path} content={draft.content} /> : <div className="wiki-editor-content">
         <WikiPageHeader toolbarRef={setToolbarTarget} content={draft.content} fallbackTitle={draft.title} pages={pages} path={draft.destination.path}
           readOnly={!pending || busy} onChange={content => change({ content })} onSource={() => setViewModeRequest({ mode: "source" })} onOpen={openPage} />
         <WikiMarkdownEditor toolbarTarget={toolbarTarget} externalFrontmatter value={draft.content} baseline={baseline} onChange={content => change({ content })} readOnly={!pending || busy}
           viewModeRequest={viewModeRequest} linkTargets={pages.map(page => ({ path: page.path, title: page.title }))} onOpenLink={openLink}
           imageUpload={async () => { throw new Error("Wiki suggestions contain Markdown. Add reusable attachments in the wiki workspace."); }} imagePreview={async source => source} />
-      </div>
+      </div>}
       {remaining.length > 0 && <div className="mx-auto max-w-3xl border-t px-6 py-5"><p className="mb-2 text-xs text-muted-foreground">Other suggestions to review</p>{remaining.map(item => <Button key={item.id} size="sm" variant="ghost" className="mr-2" onClick={() => open(suggestionTab(item), { besideChat: true })}>{item.title}</Button>)}</div>}
     </div>
   </div>;

@@ -12,9 +12,9 @@ export type ShellNavKey = "navHome" | "navScheduled" | "navCalendar" | "navProje
 const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navProjects", "navCalendar", "navTasks", "navScheduled", "navWorkflows", "navRecorder", "navWikis", "navEvaluations"];
 
 export type ChatSectionKey = "navNewChat" | "sectionPinned" | "sectionPinnedProjects" | "sectionSharedProjects" | "sectionProjects" | "sectionRecent";
-export type ProjectNavKey = "projectCalendar" | "projectHome" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";
+export type ProjectNavKey = "projectCalendar" | "projectHome" | "projectDashboards" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";
 const DEFAULT_CHAT_ORDER: ChatSectionKey[] = ["navNewChat", "sectionPinned", "sectionPinnedProjects", "sectionSharedProjects", "sectionProjects", "sectionRecent"];
-const DEFAULT_PROJECT_ORDER: ProjectNavKey[] = ["projectHome", "projectCalendar", "projectReviews", "projectTasks", "projectFiles", "projectSessions"];
+const DEFAULT_PROJECT_ORDER: ProjectNavKey[] = ["projectHome", "projectCalendar", "projectReviews", "projectDashboards", "projectTasks", "projectFiles", "projectSessions"];
 
 export type ShellConfig = {
   newWindowBehavior: "ask" | "empty" | "copy";
@@ -32,6 +32,7 @@ export type ShellConfig = {
   projectCalendar: boolean;
   projectHome: boolean;
   projectReviews: boolean;
+  projectDashboards: boolean;
   projectTasks: boolean;
   projectFiles: boolean;
   /** Retained for saved config compatibility; sessions are always enabled. */
@@ -93,6 +94,7 @@ export const DEFAULT_SHELL_CONFIG: ShellConfig = {
   projectCalendar: true,
   projectHome: true,
   projectReviews: true,
+  projectDashboards: true,
   projectTasks: true,
   projectFiles: true,
   projectSessions: true,

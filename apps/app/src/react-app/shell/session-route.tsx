@@ -1,3 +1,5 @@
+import { SessionViewDeleteDialog, type SessionViewDeleteRequest } from "@/react-app/domains/views/session-view-delete-dialog";
+import { deleteOrReviewSession } from "@/react-app/domains/views/session-view-delete";
 import { useDocumentProjectResolver } from "../domains/session/artifacts/document-runtime";
 import { registerEmptySession } from "@/react-app/domains/session/sidebar/session-list-visibility";
 import { projectViewFromPath } from "./workspace-routes";
@@ -28,6 +30,7 @@ import { TasksPane } from "../domains/tasks/tasks-pane";
 import { openTaskProject } from "../domains/tasks/task-project-navigation";
 import { useQuery } from "@tanstack/react-query";
 import { WikiManager } from "../domains/wiki/wiki-manager";
+import { PageLoading, PageLoadingSpinner } from "@/components/page";
 import type { WikiVault } from "@legalwork/types/wiki";
 import { useComposerStateStore } from "../domains/session/surface/composer-state-store";
 import {
@@ -501,23 +504,30 @@ export function SessionRoute() {
     onServerSettingsChanged: () => setLegalworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setLegalworkServerHostInfoState,
   });
+  const currentSessionRoute = useRef({ sessionId: selectedSessionId, workspaceId: selectedWorkspaceId });
+  currentSessionRoute.current = { sessionId: selectedSessionId, workspaceId: selectedWorkspaceId };
   const wikis = useQuery({
     queryKey: ["wikis", baseUrl],
     queryFn: () => client!.listWikis(),
     enabled: Boolean(client),
   });
   const activeWiki = showWikis ? wikis.data?.items.find(wiki => wiki.workspaceId === routeWorkspaceId) : undefined;
+  const rememberedWikiWorkspaceId = readLastWikiWorkspaceId(baseUrl);
+  const preferredWiki = wikis.data?.items.find(wiki => wiki.workspaceId === rememberedWikiWorkspaceId) ?? wikis.data?.items[0];
+  // The manager is a destination, not a placeholder while restoring a wiki.
+  const openingWiki = showWikis && !manageWikis && !activeWiki && (Boolean(preferredWiki)
+    || (!wikis.data && !wikis.isError && (Boolean(client) || effectiveLoading)));
   useEffect(() => {
     if (isDesktopRuntime() && wikis.data) usePanelTabStore.getState().reconnectWikiTabs(baseUrl, wikis.data.items.map(wiki => wiki.id));
   }, [baseUrl, wikis.data]);
-  const openWikiWorkspace = useCallback((wiki: WikiVault) => {
+  const openWikiWorkspace = useCallback((wiki: WikiVault, options?: { replace?: boolean }) => {
     // Wikis created by another window or API can precede the workspace list.
     if (!workspacesRef.current.some(workspace => workspace.id === wiki.workspaceId)) void refreshRouteState();
     writeLastWikiWorkspaceId(baseUrl, wiki.workspaceId);
     const panel = usePanelTabStore.getState().sessions[workspacePanelKey(wiki.workspaceId)];
     const activeId = panel?.panes.find(pane => pane.id === panel.focusedPaneId)?.activeTabId ?? panel?.activeTabId;
     const active = panel?.tabs.find(tab => tab.id === activeId);
-    navigate(wikiWorkspaceRoute(wiki.workspaceId, active?.type === "chat" ? active.sessionId : null));
+    navigate(wikiWorkspaceRoute(wiki.workspaceId, active?.type === "chat" ? active.sessionId : null), options);
   }, [baseUrl, navigate, refreshRouteState, workspacesRef]);
   useEffect(() => {
     if (!wikis.data) return;
@@ -528,11 +538,9 @@ export function SessionRoute() {
     }
     if (!showWikis || manageWikis) return;
     if (activeWiki) { writeLastWikiWorkspaceId(baseUrl, activeWiki.workspaceId); return; }
-    const remembered = readLastWikiWorkspaceId(baseUrl);
-    const wiki = wikis.data.items.find(item => item.workspaceId === remembered) ?? wikis.data.items[0];
-    if (wiki) openWikiWorkspace(wiki);
+    if (preferredWiki) openWikiWorkspace(preferredWiki, { replace: true });
     else if (routeWorkspaceId) navigate("/wikis", { replace: true });
-  }, [wikis.data, showWikis, manageWikis, activeWiki, baseUrl, routeWorkspaceId, selectedWorkspace, selectedSessionId, location.pathname, location.search, navigate, openWikiWorkspace]);
+  }, [wikis.data, showWikis, manageWikis, activeWiki, preferredWiki, baseUrl, routeWorkspaceId, selectedWorkspace, selectedSessionId, location.pathname, location.search, navigate, openWikiWorkspace]);
   // Projects synced with the firm arrive, leave and get renamed in the background.
   useProjectTemplateCatalog(client);
   useProjectSyncPoller(client, () => void refreshRouteState(), (workspaceIds) => {
@@ -592,6 +600,7 @@ export function SessionRoute() {
   // overlapping route refreshes from queueing up when the user clicks fast.
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const [newChatOpen, setNewChatOpen] = useState(false);
+  const [viewDeleteRequest, setViewDeleteRequest] = useState<SessionViewDeleteRequest | null>(null);
   const [selectCreatedProjectForHome, setSelectCreatedProjectForHome] = useState(false);
   const [createWorkspaceBusy, setCreateWorkspaceBusy] = useState(false);
   const [createWorkspaceError, setCreateWorkspaceError] = useState<string | null>(null);
@@ -2677,7 +2686,8 @@ export function SessionRoute() {
         });
       }}
       mainView={
-        showWikis && (manageWikis || !activeWiki) ? <WikiManager client={client} serverUrl={baseUrl} workspaces={sidebarWorkspaces} onChanged={() => void refreshRouteState()} onOpen={openWikiWorkspace} /> : scheduledPage ? (
+        openingWiki ? <PageLoading role="status" aria-label={t("wiki.loading")}><PageLoadingSpinner /></PageLoading>
+        : showWikis && (manageWikis || !activeWiki) ? <WikiManager client={client} serverUrl={baseUrl} workspaces={sidebarWorkspaces} onChanged={() => void refreshRouteState()} onOpen={openWikiWorkspace} onNewChat={handleOpenWikiSession} /> : scheduledPage ? (
           <ScheduledTasksPage client={client}
             projects={workspaces.filter(workspace => workspace.workspaceType !== "remote").sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId)).map(workspace => ({ id: workspace.id, name: workspace.displayNameResolved || workspace.name || workspace.id }))}
             defaultModel={local.prefs.defaultModel ? { providerID: local.prefs.defaultModel.providerID, modelID: local.prefs.defaultModel.modelID } : null}
@@ -2778,7 +2788,7 @@ export function SessionRoute() {
         onNewChat: () => setNewChatOpen(true),
         onShowChats: () => navigate("/home"),
         onShowProjects: () => navigate("/projects"),
-        onShowWikis: () => navigate("/wikis"),
+        onShowWikis: () => preferredWiki ? openWikiWorkspace(preferredWiki) : navigate("/wikis"),
         onShowEvals: showEvalsPane,
         onShowWorkflows: showWorkflowsPane,
         onShowExtensions: () => navigate(`/workspace/${encodeURIComponent(selectedWorkspaceId)}/settings/extensions/mcp`),
@@ -2913,15 +2923,19 @@ export function SessionRoute() {
         client && selectedWorkspaceId
           ? async (sessionId) => {
               const { workspace, endpoint } = sessionTarget(sessionId);
-              await endpoint.client.deleteSession(endpoint.workspaceId, sessionId);
-              usePanelTabStore.getState().clearSession(sessionId);
-              forgetSession(workspace.id, sessionId);
-              await loadWorkspaceSessionsInBackground([workspace]);
-              if (selectedSessionId === sessionId) {
-                writeLastSessionFor(selectedWorkspaceId, null);
-                navigate("/home");
-              }
-              await refreshRouteState();
+              const deleteChat = async (discardReview?: string) => {
+                await endpoint.client.deleteSession(endpoint.workspaceId, sessionId, discardReview);
+                usePanelTabStore.getState().clearSession(sessionId);
+                forgetSession(workspace.id, sessionId);
+                await loadWorkspaceSessionsInBackground([workspace]);
+                if (currentSessionRoute.current.sessionId === sessionId && currentSessionRoute.current.workspaceId === workspace.id) {
+                  writeLastSessionFor(workspace.id, null);
+                  navigate("/home");
+                }
+                await refreshRouteState();
+              };
+              const review = await deleteOrReviewSession(deleteChat);
+              if (review) setViewDeleteRequest({ client: endpoint.client, workspaceId: endpoint.workspaceId, sessionId, review, onDelete: deleteChat });
             }
           : undefined
       }
@@ -2929,6 +2943,7 @@ export function SessionRoute() {
       statusBar={{ loading: showPreparingStatus }}
       notFoundMessage={routeNotFoundMessage}
     />
+    {viewDeleteRequest && <SessionViewDeleteDialog request={viewDeleteRequest} onClose={() => setViewDeleteRequest(null)} />}
     {newChatOpen && <NewChatDialog
       groups={workspaceSessionGroups}
       disabled={!canCreateChat}

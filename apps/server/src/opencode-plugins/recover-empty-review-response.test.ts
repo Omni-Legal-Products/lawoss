@@ -61,3 +61,10 @@ test("live review events support arbitrarily long workflows, while unrelated sto
   expect(prompts).toHaveLength(1);
 });
 function beforeCase() { finish = "stop"; error = false; text = ""; hasTool = false; pending = true; summary = false; synthetic = false; }
+
+test("managed recovery delegates to the server gate without a direct engine send", async () => {
+  const calls: string[][] = [];
+  await recoverEmptyReviewResponse(client, "/project", async (sessionId, messageId) => { calls.push([sessionId, messageId]); })(idle);
+  expect(calls).toEqual([["test", "empty"]]);
+  expect(prompts).toHaveLength(0);
+});

@@ -166,6 +166,8 @@
   --lw-asset-edge: color-mix(in srgb, var(--lw-folder-accent) 82%, var(--lw-surface));
 }
 
+.lw-folder-icon[data-empty] { --lw-folder-accent: var(--muted-foreground); opacity: .6; }
+
 .lw-document-icon {
   --lw-file-accent: var(--lw-text-secondary);
   --lw-asset-back: color-mix(in srgb, var(--lw-file-accent) 22%, var(--lw-surface));

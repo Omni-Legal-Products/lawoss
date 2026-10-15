@@ -2,7 +2,7 @@ import { projectFileLinkSchema, projectFileSourceSchema, projectFilePath } from 
 import { importProjectFile, renameProjectFileEntry, projectFileParent, readProjectFileLinks, updateProjectFileLinks } from "../project-file-links.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, opendir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { recordAudit } from "../audit.js";
@@ -1199,7 +1199,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     }
 
     const dirents = await readdir(absPath, { withFileTypes: true });
-    type DirectoryEntry = { name: string; path: string; kind: "file" | "dir"; size?: number; updatedAt?: number };
+    type DirectoryEntry = { name: string; path: string; kind: "file" | "dir"; empty?: boolean; size?: number; updatedAt?: number };
     const entries = (
       await Promise.all(
         dirents.map(async (dirent): Promise<DirectoryEntry | null> => {
@@ -1207,7 +1207,13 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
           try {
             const entryInfo = await stat(join(absPath, dirent.name));
             if (entryInfo.isDirectory()) {
-              return { name: dirent.name, path: entryPath, kind: "dir" };
+              let empty: boolean | undefined;
+              try {
+                const directory = await opendir(join(absPath, dirent.name));
+                try { empty = await directory.read() === null; }
+                finally { await directory.close(); }
+              } catch { /* An unreadable directory is not known to be empty. */ }
+              return { name: dirent.name, path: entryPath, kind: "dir", empty };
             }
             if (entryInfo.isFile()) {
               return { name: dirent.name, path: entryPath, kind: "file", size: entryInfo.size, updatedAt: entryInfo.mtimeMs };

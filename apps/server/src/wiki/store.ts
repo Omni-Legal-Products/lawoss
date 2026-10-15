@@ -1,10 +1,14 @@
+import { captureWikiViews } from "./view-snapshots.js";
+import { ViewInputSchema } from "../views/schema.js";
+import type { WikiViewSnapshots } from "@legalwork/types/views";
+import { lineChanges } from "./line-diff.js";
 import { createHash, randomUUID } from "node:crypto";
 import { constants, watch, type FSWatcher } from "node:fs";
 import { chmod, cp, link, lstat, mkdir, open, readdir, readFile, realpath, rename, rm, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
-import type { WikiGraphResponse, WikiAsset, WikiCreateInput, WikiDocument, WikiEntry, WikiEntryOperation, WikiRegistration, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiTrashEntry, WikiUpdateInput } from "@legalwork/types/wiki";
+import type { WikiGraphResponse, WikiAsset, WikiCreateInput, WikiDocument, WikiEntry, WikiEntryOperation, WikiPage, WikiRegistration, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiTrashEntry, WikiUpdateInput } from "@legalwork/types/wiki";
 import type { ServerConfig } from "../types.js";
 import { ApiError } from "../errors.js";
 import { workspaceIdForPath } from "../workspaces.js";
@@ -32,6 +36,26 @@ const indexRowSchema = z.object({
   path: z.string(), content: z.string(), revision: z.string(), mtime: z.number(), ctime: z.number(),
   size: z.number(), updatedAt: z.number(), warning: z.string().nullable(),
 });
+const revisionRowSchema = z.object({ id: z.string(), path: z.string(), createdAt: z.number(), action: z.enum(["write", "delete", "restore"]), size: z.number() });
+const snapshotMetadataSchema = z.record(z.string(), z.record(z.string(), ViewInputSchema.shape.datasets.unwrap().valueType.pick({ revision: true, asOf: true, nextCursor: true })));
+
+/** Keep observation metadata per revision, while sharing unchanged programs and data rows. */
+function snapshotStorage(snapshots: WikiViewSnapshots) {
+  const payload: WikiViewSnapshots = {}, metadata: z.infer<typeof snapshotMetadataSchema> = {};
+  for (const [key, input] of Object.entries(snapshots)) {
+    payload[key] = { ...input };
+    metadata[key] = {};
+    if (!input.datasets) continue;
+    payload[key].datasets = {};
+    for (const [name, dataset] of Object.entries(input.datasets)) {
+      const { revision, asOf, nextCursor, ...data } = dataset;
+      payload[key].datasets[name] = { ...data, revision: "snapshot", asOf: 0 };
+      metadata[key][name] = { revision, asOf, ...(nextCursor ? { nextCursor } : {}) };
+    }
+  }
+  const content = JSON.stringify(payload), id = hash(content);
+  return { content, metadata: JSON.stringify(metadata), id };
+}
 const trashSchema = z.object({ id: z.string().uuid(), path: z.string().refine(isWikiPath), kind: z.enum(["file", "folder"]), deletedAt: z.number() });
 type IndexedPage = Omit<z.infer<typeof indexRowSchema>, "warning"> & ReturnType<typeof parseWikiPage>;
 type GraphState = { index: WikiGraphIndex; watcher?: FSWatcher; changed: Set<string>; reconcile: boolean; dirty: boolean; lastScan: number; contentRevision: string; configuration: string };
@@ -97,6 +121,10 @@ export class WikiStore {
         CREATE TABLE IF NOT EXISTS wiki_pages (wiki TEXT NOT NULL,path TEXT NOT NULL,content TEXT NOT NULL,revision TEXT NOT NULL,mtime REAL NOT NULL,ctime REAL NOT NULL,size INTEGER NOT NULL,updatedAt REAL NOT NULL,warning TEXT, PRIMARY KEY(wiki,path));
         CREATE VIRTUAL TABLE IF NOT EXISTS wiki_search USING fts5(wiki UNINDEXED,path UNINDEXED,title,body);
         CREATE TABLE IF NOT EXISTS wiki_history (id TEXT PRIMARY KEY,wiki TEXT NOT NULL,path TEXT NOT NULL,createdAt REAL NOT NULL,action TEXT NOT NULL,size INTEGER NOT NULL,content TEXT NOT NULL,revision TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS wiki_history_views (historyId TEXT PRIMARY KEY,content TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS wiki_view_snapshots (id TEXT PRIMARY KEY,content TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS wiki_history_view_links (historyId TEXT PRIMARY KEY,snapshot TEXT NOT NULL,metadata TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS wiki_history_changes (historyId TEXT PRIMARY KEY,added INTEGER,removed INTEGER);
         CREATE TABLE IF NOT EXISTS wiki_folders (root TEXT PRIMARY KEY,id TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS wiki_history_path ON wiki_history(wiki,path,createdAt DESC);`);
       return db;
@@ -320,11 +348,52 @@ export class WikiStore {
     }
     return index;
   }
-  private async record(id: string, path: string, content: string, action: WikiRevision["action"]): Promise<void> {
+  private async record(id: string, path: string, content: string, action: WikiRevision["action"], knownFiles?: WikiAsset[], knownPages?: Map<string, WikiPage>): Promise<void> {
     const db = await this.db(), revision = hash(content);
-    const latest = z.object({ action: z.string(), revision: z.string() }).optional().parse(db.all("SELECT action,revision FROM wiki_history WHERE wiki=? AND path=? ORDER BY createdAt DESC,rowid DESC LIMIT 1", [id, path])[0]);
+    const latest = z.object({ action: z.string(), revision: z.string(), content: z.string() }).optional().parse(db.all("SELECT action,revision,content FROM wiki_history WHERE wiki=? AND path=? ORDER BY createdAt DESC,rowid DESC LIMIT 1", [id, path])[0]);
     if (latest?.revision === revision && (latest.action === action || (action === "write" && latest.action !== "delete"))) return;
-    db.run("INSERT INTO wiki_history(id,wiki,path,createdAt,action,size,content,revision) VALUES(?,?,?,?,?,?,?,?)", [randomUUID(), id, path, Date.now(), action, Buffer.byteLength(content), content, revision]);
+    const historyId = randomUUID(), createdAt = Date.now();
+    const wiki = await this.get(id);
+    let inventory = knownFiles;
+    const files = async () => inventory ??= (await this.inventory(wiki)).files;
+    const snapshots = await captureWikiViews(content, { kind: "wiki", id }, {
+      list: async () => (await files()).map(file => file.path),
+      read: path => this.fileBytes(wiki, path, WIKI_MAX_PAGE_BYTES),
+      write: async () => { throw new Error("Read only"); },
+    }, async () => {
+      const pages = [], index = await this.index(id);
+      for (const file of await files()) {
+        if (!isMarkdown(file.path) || file.size > WIKI_MAX_PAGE_BYTES) continue;
+        if (file.path === path) {
+          pages.push(parseWikiPage(path, content, revision, file.updatedAt).page);
+          continue;
+        }
+        const staged = knownPages?.get(file.path);
+        if (staged) { pages.push(staged); continue; }
+        const cached = index.get(file.path);
+        if (cached && cached.mtime === file.updatedAt && cached.ctime === file.changedAt && cached.size === file.size) {
+          pages.push(cached.page);
+          continue;
+        }
+        const bytes = await this.fileBytes(wiki, file.path, WIKI_MAX_PAGE_BYTES);
+        pages.push(parseWikiPage(file.path, bytes.toString("utf8"), hash(bytes), file.updatedAt).page);
+      }
+      return pages;
+    });
+    const snapshot = Object.keys(snapshots).length ? snapshotStorage(snapshots) : undefined;
+    const changes = lineChanges(latest?.action === "delete" ? "" : latest?.content ?? "", action === "delete" ? "" : content);
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.run("INSERT INTO wiki_history(id,wiki,path,createdAt,action,size,content,revision) VALUES(?,?,?,?,?,?,?,?)", [historyId, id, path, createdAt, action, Buffer.byteLength(content), content, revision]);
+      db.run("INSERT INTO wiki_history_changes(historyId,added,removed) VALUES(?,?,?)", [historyId, changes?.added ?? null, changes?.removed ?? null]);
+      if (snapshot) {
+        db.run("INSERT OR IGNORE INTO wiki_view_snapshots(id,content) VALUES(?,?)", [snapshot.id, snapshot.content]);
+        db.run("INSERT INTO wiki_history_view_links(historyId,snapshot,metadata) VALUES(?,?,?)", [historyId, snapshot.id, snapshot.metadata]);
+      }
+      // Older builds can still read the page and show embeds as unavailable.
+      db.run("INSERT INTO wiki_history_views(historyId,content) VALUES(?,?)", [historyId, "{}"]);
+      db.exec("COMMIT");
+    } catch (error) { db.exec("ROLLBACK"); throw error; }
   }
   private async remember(id: string, path: string, content: string, knownWiki?: WikiRegistration, knownFile?: WikiAsset): Promise<IndexedPage> {
     const wiki = knownWiki ?? await this.get(id);
@@ -358,6 +427,9 @@ export class WikiStore {
   }
   private async refresh(id: string): Promise<{ files: WikiAsset[]; folders: string[]; warnings: string[] }> {
     const wiki = await this.get(id), inventory = await this.inventory(wiki), index = await this.index(id);
+    const records: { path: string; content: string; action: WikiRevision["action"] }[] = [];
+    const pages = new Map([...index].map(([path, row]) => [path, row.page]));
+    const changed: { file: WikiAsset; content: string }[] = [], removed: string[] = [];
     const inventoryRevision = hash(JSON.stringify([inventory.files, inventory.folders]));
     if (this.inventoryRevisions.get(id) !== inventoryRevision) {
       this.inventoryRevisions.set(id, inventoryRevision);
@@ -370,20 +442,28 @@ export class WikiStore {
       existing.add(file.path);
       if (file.size > WIKI_MAX_PAGE_BYTES) {
         inventory.warnings.push(`${file.path}: exceeds the 2 MB Markdown limit.`);
-        if (index.has(file.path)) await this.drop(id, file.path);
+        if (index.has(file.path)) removed.push(file.path);
+        pages.delete(file.path);
         continue;
       }
       const current = index.get(file.path);
       if (current && current.mtime === file.updatedAt && current.ctime === file.changedAt && current.size === file.size) continue;
       const content = (await this.fileBytes(wiki, file.path, WIKI_MAX_PAGE_BYTES)).toString("utf8");
-      if (current && current.revision !== hash(content)) await this.record(id, file.path, current.content, "write");
-      await this.record(id, file.path, content, "write");
-      await this.remember(id, file.path, content, wiki, file);
+      if (current && current.revision !== hash(content)) records.push({ path: file.path, content: current.content, action: "write" });
+      records.push({ path: file.path, content, action: "write" });
+      changed.push({ file, content });
+      pages.set(file.path, parseWikiPage(file.path, content, hash(content), file.updatedAt).page);
     }
     for (const [path, cached] of index) if (!existing.has(path)) {
-      await this.record(id, path, cached.content, "delete");
-      await this.drop(id, path);
+      records.push({ path, content: cached.content, action: "delete" });
+      removed.push(path);
+      pages.delete(path);
     }
+    // Stage all changed pages before querying embeds; a batch import must not
+    // reread the wiki for every history entry or depend on filename ordering.
+    for (const record of records) await this.record(id, record.path, record.content, record.action, inventory.files, pages);
+    for (const { file, content } of changed) await this.remember(id, file.path, content, wiki, file);
+    for (const path of removed) await this.drop(id, path);
     return inventory;
   }
   /** Graph polling refreshes changed files, not full rich snapshots. Explicit snapshots still reconcile. */
@@ -666,8 +746,53 @@ export class WikiStore {
     if (path) wikiPath(path);
     await this.snapshot(id);
     const db = await this.db();
-    const sql = `SELECT id,path,createdAt,action,size FROM wiki_history WHERE wiki=?${path ? " AND path=?" : ""} ORDER BY createdAt DESC,rowid DESC LIMIT 200`;
-    return db.all(sql, path ? [id, path] : [id]).map((row) => z.object({ id: z.string(), path: z.string(), createdAt: z.number(), action: z.enum(["write", "delete", "restore"]), size: z.number() }).parse(row));
+    const sql = `SELECT h.id,h.path,h.createdAt,h.action,h.size,c.historyId AS counted,c.added,c.removed
+      FROM wiki_history h LEFT JOIN wiki_history_changes c ON c.historyId=h.id
+      WHERE h.wiki=?${path ? " AND h.path=?" : ""} ORDER BY h.createdAt DESC,h.rowid DESC LIMIT 200`;
+    return db.all(sql, path ? [id, path] : [id]).map(raw => {
+      const { counted, added, removed, ...row } = revisionRowSchema.extend({ counted: z.string().nullable(), added: z.number().nullable(), removed: z.number().nullable() }).parse(raw);
+      if (counted) return { ...row, changes: added === null || removed === null ? null : { added, removed } };
+      // Older databases are backfilled once, only for the revisions being shown.
+      const contents = z.object({ content: z.string(), previous: z.string().nullable() }).parse(db.all(`SELECT h.content,
+        (SELECT CASE WHEN p.action='delete' THEN '' ELSE p.content END FROM wiki_history p
+         WHERE p.wiki=h.wiki AND p.path=h.path AND (p.createdAt<h.createdAt OR (p.createdAt=h.createdAt AND p.rowid<h.rowid))
+         ORDER BY p.createdAt DESC,p.rowid DESC LIMIT 1) AS previous FROM wiki_history h WHERE h.id=?`, [row.id])[0]);
+      const changes = lineChanges(contents.previous ?? "", row.action === "delete" ? "" : contents.content);
+      db.run("INSERT OR IGNORE INTO wiki_history_changes(historyId,added,removed) VALUES(?,?,?)", [row.id, changes?.added ?? null, changes?.removed ?? null]);
+      return { ...row, changes };
+    });
+  }
+  async revision(id: string, path: string, revisionId: string): Promise<WikiDocument> {
+    await this.get(id);
+    const db = await this.db();
+    const raw = db.all("SELECT path,content,revision,createdAt AS updatedAt FROM wiki_history WHERE id=? AND wiki=? AND path=?", [revisionId, id, wikiPath(path)])[0];
+    if (!raw) throw new ApiError(404, "wiki_revision_not_found", "This revision is unavailable for this page.");
+    const document = z.object({ path: z.string(), content: z.string(), revision: z.string(), updatedAt: z.number() }).parse(raw);
+    const snapshot = z.object({ content: z.string() }).optional().parse(db.all("SELECT content FROM wiki_history_views WHERE historyId=?", [revisionId])[0]);
+    const link = z.object({ snapshot: z.string(), metadata: z.string() }).optional().parse(db.all("SELECT snapshot,metadata FROM wiki_history_view_links WHERE historyId=?", [revisionId])[0]);
+    if (!snapshot && !link) return document;
+    const viewSnapshots: WikiViewSnapshots = {};
+    try {
+      const stored = link ? z.object({ content: z.string() }).optional().parse(db.all("SELECT content FROM wiki_view_snapshots WHERE id=?", [link.snapshot])[0]) : snapshot;
+      const metadata = link ? snapshotMetadataSchema.parse(JSON.parse(link.metadata)) : undefined;
+      const payload: unknown = stored ? JSON.parse(stored.content) : {};
+      const entries = z.record(z.string(), z.unknown()).parse(payload);
+      for (const [key, value] of Object.entries(entries)) {
+        const legacy = z.object({ savedFrom: z.unknown().optional() }).passthrough().safeParse(value);
+        if (!legacy.success) continue;
+        const { savedFrom: _localReceipt, ...candidate } = legacy.data;
+        const parsed = ViewInputSchema.safeParse(candidate);
+        if (!parsed.success) continue;
+        const input = parsed.data;
+        if (metadata && input.datasets) {
+          const observation = metadata[key];
+          if (Object.keys(input.datasets).some(name => !observation?.[name])) continue;
+          for (const [name, dataset] of Object.entries(input.datasets)) input.datasets[name] = { ...dataset, ...observation[name] };
+        }
+        viewSnapshots[key] = input;
+      }
+    } catch { /* A damaged embed must not prevent reading or restoring the page. */ }
+    return { ...document, viewSnapshots };
   }
   async restore(id: string, path: string, revisionId: string, baseRevision?: string): Promise<WikiDocument> {
     return serial(`${this.path}:${id}`, async () => {

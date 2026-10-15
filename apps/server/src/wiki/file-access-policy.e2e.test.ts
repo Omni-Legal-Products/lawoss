@@ -37,8 +37,12 @@ test("wiki tools respect project access without overriding host file access", as
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
   });
   const project = await LegalWorkWikiTools({ directory: workspace.path });
-  expect(project).not.toHaveProperty("tool.execute.before");
+  await expect(project["tool.execute.before"]({ tool: "read", sessionID: "project-session" }, { args: { filePath: join(root, "outside.txt") } })).resolves.toBeUndefined();
   expect(project).not.toHaveProperty("shell.env");
+  const ownWiki = await LegalWorkWikiTools({ directory: wiki.root });
+  await expect(ownWiki["tool.execute.before"]({ tool: "read", sessionID: "wiki-session" }, { args: { filePath: join(workspace.path, "outside.txt") } })).rejects.toMatchObject({ code: "wiki_native_project_access" });
+  await expect(ownWiki["tool.execute.before"]({ tool: "write", sessionID: "wiki-session" }, { args: { filePath: join(workspace.path, "new.txt") } })).rejects.toMatchObject({ code: "wiki_native_project_access" });
+  await expect(ownWiki["tool.execute.before"]({ tool: "read", sessionID: "wiki-session" }, { args: { filePath: join(wiki.root, "AGENTS.md") } })).resolves.toBeUndefined();
   expect(JSON.parse(await project.tool.wiki_list.execute({}, { sessionID: "project-session" })).wikis).toEqual([]);
   const headers = { authorization: `Bearer ${config.token}`, "x-legalwork-host-token": config.hostToken, "content-type": "application/json" };
   for (const path of ["/session/project-session/shell", "/pty"]) {

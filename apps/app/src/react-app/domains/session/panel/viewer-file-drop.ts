@@ -1,5 +1,7 @@
 import { hasProjectFileDrag, readProjectFilesDrag } from "@/app/lib/project-file-drag";
 import { projectFileTab } from "../../workspace/project-file-tab";
+import { readWikiFileDrag } from "@/app/lib/wiki-file-drag";
+import { wikiPanelTab, type WikiPanelTab } from "../../wiki/wiki-tabs";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { hasWorkspaceFileDrag, readWorkspaceFileDrag } from "@/app/lib/workspace-file-drag";
 import { hasStorageFileDrag, readStorageFileDrag } from "@/app/lib/storage-file-drag";
@@ -16,7 +18,9 @@ export function hasViewerFileDrag(data: DataTransfer) {
 
 /** Read drag data synchronously: browsers clear its contents after drop returns. */
 export function readViewerFileDrop(data: DataTransfer) {
+  const wiki = readWikiFileDrag(data);
   return {
+    ...(wiki ? { wiki } : {}),
     projects: readProjectFilesDrag(data),
     workspace: readWorkspaceFileDrag(data),
     storage: readStorageFileDrag(data),
@@ -27,8 +31,12 @@ export function readViewerFileDrop(data: DataTransfer) {
 
 type DropClient = Pick<LegalworkServerClient, "storageRoots" | "legalMemoryOpen" | "downloadWorkspaceFile" | "writeWorkspaceBinaryFile">;
 
-export async function* viewerFileTabs(client: DropClient, workspaceId: string, drop: ReturnType<typeof readViewerFileDrop>): AsyncGenerator<ArtifactPanelTab> {
-  if (drop.projects.length) {
+export async function* viewerFileTabs(client: DropClient, workspaceId: string, drop: ReturnType<typeof readViewerFileDrop>, serverUrl?: string): AsyncGenerator<ArtifactPanelTab | WikiPanelTab> {
+  if (drop.wiki) {
+    if (drop.wiki.serverUrl !== serverUrl) throw new Error(t("side_panel.drop_other_workspace"));
+    const { wikiId, path, name } = drop.wiki;
+    yield wikiPanelTab(drop.wiki.serverUrl, wikiId, { kind: /\.md$/i.test(path) ? "page" : "asset", path }, name.replace(/\.md$/i, ""));
+  } else if (drop.projects.length) {
     for (const source of drop.projects) yield projectFileTab(source);
   } else if (drop.workspace) {
     if (drop.workspace.workspaceId !== workspaceId) throw new Error(t("side_panel.drop_other_workspace"));

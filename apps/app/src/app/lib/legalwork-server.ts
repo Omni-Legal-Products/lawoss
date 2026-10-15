@@ -2,7 +2,7 @@ import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
 import type { EmailDraft } from "@legalwork/types/email-draft";
 import type { ConnectorWriteSetting } from "@legalwork/types/connectors";
 import type { PluginCreateOptions, PluginCreateRequest, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest } from "@legalwork/types/plugin-import";
-import type { WikiSuggestion, WikiSuggestionInput } from "@legalwork/types/wiki-suggestions";
+import type { WikiSuggestion, WikiSuggestionInput, WikiContribution } from "@legalwork/types/wiki-suggestions";
 import type { ProjectFileSource, ProjectFileLink } from "@legalwork/types/project-files";
 import type { SessionQueue, QueueAction } from "@legalwork/types/session-queue";
 import type { ScheduledTask, ScheduledTaskInput, ScheduledRun, TaskSchedule } from "@legalwork/types/scheduled-tasks";
@@ -36,7 +36,7 @@ import type { ConnectorStatus, ConnectorConnect, ConnectorFlow, ConnectorOAuthCl
 import { storageTransferEventSchema, type StorageInput, type StorageTeamStatus, type StorageWorkingCopy, type StorageConnection, type StorageRoot, type StoragePage, type StorageFilenameSearch, type StorageFilenameSearchPage, type StorageFile, type StorageTransfer, type StorageTransferProgress } from "@legalwork/types/file-storage";
 import type { DeletedWiki, WikiGraphResponse, WikiCreateInput, WikiDocument, WikiEntry, WikiEntryOperation, WikiPage, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiTrashEntry, WikiUpdateInput, WikiVault, WikiTeamOverview, WikiSharingInput } from "@legalwork/types/wiki";
 import { ViewGenerationChunkSchema, type ViewGenerationChunk } from "@legalwork/types/views";
-import type { ViewInput, ViewOwner, ViewRecord, ViewSummary, ViewIssue, WikiDataQuery, WikiDataResult, WikiFields } from "@legalwork/types/views";
+import type { SessionViewReview, ViewSaveSource, ViewInput, ViewOwner, ViewRecord, ViewSummary, ViewIssue, WikiDataQuery, WikiDataResult, WikiFields } from "@legalwork/types/views";
 import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
 import { desktopFetch, desktopStreamFetch } from "./desktop";
 import { isDesktopRuntime } from "./runtime-env";
@@ -945,6 +945,8 @@ export type LegalworkWorkspaceFileStat = {
 };
 
 export type LegalworkWorkspaceDirectoryEntry = {
+  /** Only present when the server could inspect the directory. */
+  empty?: boolean;
   name: string;
   path: string;
   kind: "file" | "dir";
@@ -1712,10 +1714,15 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
   return {
     baseUrl,
     token,
+    wikiContributions: (wikiId: string) => requestJson<{ items: WikiContribution[]; unavailableProjects: string[] }>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/suggestions`, { token, hostToken }),
+    wikiRevision: (wikiId: string, path: string, revisionId: string) => requestJson<WikiDocument>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/history/${encodeURIComponent(revisionId)}?path=${encodeURIComponent(path)}`, { token, hostToken }),
     wikiSuggestions: (workspaceId: string) => requestJson<{ items: Omit<WikiSuggestion, "content">[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/wiki-suggestions`, { token, hostToken }),
     wikiSuggestion: (workspaceId: string, id: string) => requestJson<WikiSuggestion>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/wiki-suggestions/${encodeURIComponent(id)}`, { token, hostToken }),
     updateWikiSuggestion: (workspaceId: string, id: string, input: WikiSuggestionInput & { revision: string }) => requestJson<WikiSuggestion>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/wiki-suggestions/${encodeURIComponent(id)}`, { token, hostToken, method: "PUT", body: input }),
     reviewWikiSuggestion: (workspaceId: string, id: string, action: "save" | "dismiss", revision: string) => requestJson<WikiSuggestion>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/wiki-suggestions/${encodeURIComponent(id)}/${action}`, { token, hostToken, method: "POST", body: { revision } }),
+    wikiProjects: (wikiId: string, sessionId: string) => requestJson<{ items: { id: string; name: string; granted: boolean }[] }>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/sessions/${encodeURIComponent(sessionId)}/projects`, { token, hostToken }),
+    requestWikiProjectAccess: (wikiId: string, sessionId: string, projectId: string) => requestJson<{ granted: boolean }>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/sessions/${encodeURIComponent(sessionId)}/projects/${encodeURIComponent(projectId)}/access`, { token, hostToken, method: "POST", body: {}, timeoutMs: 900_000 }),
+    revokeWikiProjectAccess: (wikiId: string, sessionId: string, projectId: string) => requestJson<{ granted: boolean }>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/sessions/${encodeURIComponent(sessionId)}/projects/${encodeURIComponent(projectId)}/access`, { token, hostToken, method: "DELETE" }),
     listWikis: () => requestJson<{ items: WikiVault[] }>(baseUrl, "/wikis", { token, hostToken }),
     wikiTeam: () => requestJson<WikiTeamOverview>(baseUrl, "/wikis/team", { token, hostToken, timeoutMs: 30_000 }),
     joinWiki: (input: { wikiId: string; root?: string }) => requestJson<{ wiki: WikiVault }>(baseUrl, "/wikis/join", { token, hostToken, method: "POST", body: input, timeoutMs: 300_000 }),
@@ -1739,8 +1746,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     },
     listViews: (owner: ViewOwner) => requestJson<{ items: ViewSummary[]; issues: ViewIssue[] }>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views`, { token, hostToken }),
     readView: (owner: ViewOwner, id: string) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views/${encodeURIComponent(id)}`, { token, hostToken }),
-    createView: (owner: ViewOwner, input: ViewInput) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views`, { token, hostToken, method: "POST", body: input }),
-    updateView: (owner: ViewOwner, id: string, input: { baseRevision: string; input: ViewInput }) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views/${encodeURIComponent(id)}`, { token, hostToken, method: "PUT", body: input }),
+    createView: (owner: ViewOwner, input: ViewInput, savedFrom?: ViewSaveSource) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views${savedFrom ? `?source=${encodeURIComponent(JSON.stringify(savedFrom))}` : ""}`, { token, hostToken, method: "POST", body: input }),
+    updateView: (owner: ViewOwner, id: string, input: { baseRevision: string; input: ViewInput }, savedFrom?: ViewSaveSource) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views/${encodeURIComponent(id)}${savedFrom ? `?source=${encodeURIComponent(JSON.stringify(savedFrom))}` : ""}`, { token, hostToken, method: "PUT", body: input }),
     queryWiki: (id: string, query: WikiDataQuery) => requestJson<WikiDataResult>(baseUrl, `/wikis/${encodeURIComponent(id)}/query`, { token, hostToken, method: "POST", body: query }),
     updateWikiProperties: (id: string, input: { path: string; baseRevision: string; patch: { set: Record<string, string> } }) => requestJson<WikiDocument>(baseUrl, `/wikis/${encodeURIComponent(id)}/properties`, { token, hostToken, method: "PATCH", body: input }),
     wikiFields: (id: string) => requestJson<WikiFields>(baseUrl, `/wikis/${encodeURIComponent(id)}/fields`, { token, hostToken }),
@@ -1985,10 +1992,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspaces/${encodeURIComponent(workspaceId)}`,
         { token, hostToken, method: "DELETE", timeoutMs: timeouts.deleteWorkspace },
       ),
-    deleteSession: (workspaceId: string, sessionId: string) =>
+    sessionViewReview: (workspaceId: string, sessionId: string) => requestJson<SessionViewReview>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/views`, { token, hostToken }),
+    deleteSession: (workspaceId: string, sessionId: string, discardReview?: string) =>
       requestJson<{ ok: boolean }>(
         baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}`,
+        `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}${discardReview ? `?discardReview=${encodeURIComponent(discardReview)}` : ""}`,
         { token, hostToken, method: "DELETE", timeoutMs: timeouts.deleteSession },
       ),
     listSessions: (

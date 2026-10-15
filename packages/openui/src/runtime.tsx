@@ -1,5 +1,5 @@
-import { createContext, useContext, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { createLibrary, defineComponent, Renderer } from "@openuidev/react-lang";
+import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { createLibrary, defineComponent, Renderer, useIsQueryLoading } from "@openuidev/react-lang";
 import { Card } from "@openuidev/react-ui/Card";
 import { CardHeader } from "@openuidev/react-ui/CardHeader";
 import { TextContent } from "@openuidev/react-ui/TextContent";
@@ -99,17 +99,30 @@ function Chart({ kind, rows, category, series, title }: { kind: "bar" | "line" |
   return <div className="lw-view-chart">{title && <h3>{title}</h3>}{data.length ? kind === "pie" ? <PieChart data={data} categoryKey={categoryName} dataKey={seriesNames[0]} variant="donut" height={300} /> : kind === "bar" ? <BarChart data={data} categoryKey={categoryName} height={300} legend={series.length > 1} /> : <LineChart data={data} categoryKey={categoryName} height={300} /> : <p className="lw-view-muted">No numeric data to display</p>}<details><summary>View chart data</summary><DataTable rows={data} columns={[categoryName, ...seriesNames].map(field => ({ field, label: field }))} searchable={false} /></details></div>;
 }
 
+// Query references are null until the renderer resolves them, despite the catalog's
+// final-value schema. Do not mount a data component into a permanent error boundary.
+function RowsReady({ rows, children }: { rows: Row[] | null | undefined; children: ReactNode }) {
+  const loading = useIsQueryLoading();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  const { streaming } = useContext(Host);
+  if (rows != null) return children;
+  // Queries start after the first commit; keep that initial frame recoverable.
+  if (!mounted || loading || streaming) return <p className="lw-view-query-status" role="status">Loading data…</p>;
+  return <p className="lw-view-board-error" role="alert">This view's data is unavailable. Check the dataset name and rows binding.</p>;
+}
+
 export const openUILibrary = createLibrary({ id: "legalwork-1", components: [
   defineComponent({ name: "Stack", props: schemas.Stack, description: "Responsive layout", component: ({ props, renderNode }) => <div className="lw-view-stack" style={{ gridTemplateColumns: `repeat(${Math.min(4, Math.max(1, Math.round(props.columns ?? 1)))}, minmax(0, 1fr))` }}>{props.children.map((child, i) => <div className="lw-view-stack-item" key={i}>{renderNode(child)}</div>)}</div> }),
   defineComponent({ name: "Card", props: schemas.Card, description: "Titled card", component: ({ props, renderNode }) => <Card width="full" className="lw-view-card"><CardHeader title={props.title} subtitle={props.subtitle} /><div className="lw-view-card-body">{props.children.map((child, i) => <div key={i}>{renderNode(child)}</div>)}</div></Card> }),
   defineComponent({ name: "Heading", props: schemas.Heading, description: "Section heading", component: ({ props }) => props.level === 1 ? <h1 className="lw-view-title">{props.text}</h1> : <h2 className="lw-view-heading">{props.text}</h2> }),
   defineComponent({ name: "Text", props: schemas.Text, description: "Plain prose", component: ({ props }) => <TextContent variant="clear"><p className="lw-view-prose">{props.text}</p></TextContent> }),
   defineComponent({ name: "Metric", props: schemas.Metric, description: "Metric with context", component: ({ props }) => <OverviewCardBlock items={[{ top: props.label, bottom: { value: display(props.value), subtext: props.detail } }]} /> }),
-  defineComponent({ name: "Table", props: schemas.Table, description: "Data table", component: ({ props }) => <DataTable {...props} /> }),
-  defineComponent({ name: "Board", props: schemas.Board, description: "Grouped stage board", component: ({ props }) => <Board {...props} /> }),
-  defineComponent({ name: "BarChart", props: schemas.BarChart, description: "Bar chart", component: ({ props }) => <Chart {...props} kind="bar" /> }),
-  defineComponent({ name: "LineChart", props: schemas.LineChart, description: "Line chart", component: ({ props }) => <Chart {...props} kind="line" /> }),
-  defineComponent({ name: "PieChart", props: schemas.PieChart, description: "Donut chart", component: ({ props }) => <Chart rows={props.rows} category={props.category} series={[props.value]} title={props.title} kind="pie" /> }),
+  defineComponent({ name: "Table", props: schemas.Table, description: "Data table", component: ({ props }) => <RowsReady rows={props.rows}><DataTable {...props} /></RowsReady> }),
+  defineComponent({ name: "Board", props: schemas.Board, description: "Grouped stage board", component: ({ props }) => <RowsReady rows={props.rows}><Board {...props} /></RowsReady> }),
+  defineComponent({ name: "BarChart", props: schemas.BarChart, description: "Bar chart", component: ({ props }) => <RowsReady rows={props.rows}><Chart {...props} kind="bar" /></RowsReady> }),
+  defineComponent({ name: "LineChart", props: schemas.LineChart, description: "Line chart", component: ({ props }) => <RowsReady rows={props.rows}><Chart {...props} kind="line" /></RowsReady> }),
+  defineComponent({ name: "PieChart", props: schemas.PieChart, description: "Donut chart", component: ({ props }) => <RowsReady rows={props.rows}><Chart rows={props.rows} category={props.category} series={[props.value]} title={props.title} kind="pie" /></RowsReady> }),
   defineComponent({ name: "Badge", props: schemas.Badge, description: "Status", component: ({ props }) => <Tag text={props.text} variant={props.tone} size="sm" /> }),
   defineComponent({ name: "Callout", props: schemas.Callout, description: "Notice", component: ({ props }) => <Callout title={props.title} description={props.description} variant={props.tone ?? "info"} /> }),
   defineComponent({ name: "Source", props: schemas.Source, description: "Local source", component: ({ props }) => <SourceButton path={props.path} binding={props.binding}>{props.label ?? props.path}</SourceButton> }),

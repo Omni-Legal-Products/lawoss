@@ -1,5 +1,9 @@
 import { marked } from "marked";
+import type { Extension } from "micromark-util-types";
 import { markdownFrontmatter } from "./markdown-block-model";
+
+/** Wikis display HTML-like placeholders literally, without interpreting tags. */
+export const literalHtmlSyntax: Extension = { disable: { null: ["htmlText", "htmlFlow"] } };
 
 /** Compare document content, excluding parser offsets and table editor identity caches. */
 export function documentFingerprint(value: unknown): string {
@@ -13,11 +17,11 @@ export function documentFingerprint(value: unknown): string {
 }
 
 /** These dialects are not represented by the configured rich editor schema. */
-export function requiresMarkdownSource(source: string): boolean {
+export function requiresMarkdownSource(source: string, literalHtml = false): boolean {
   const tokens = marked.lexer(markdownFrontmatter(source).body);
   let unsupported = false;
   marked.walkTokens(tokens, token => {
-    if (token.type === "html") unsupported = true;
+    if (token.type === "html" && !literalHtml) unsupported = true;
     if (token.type === "paragraph" && /^ {0,3}:{2,}[\w-]+/m.test(token.raw)) unsupported = true;
     if ((token.type === "text" && !("tokens" in token && token.tokens) || token.type === "link") && /\[\^[^\]\r\n]+\]|(?:^|\s):[a-zA-Z][\w-]*\[/.test(token.raw)) unsupported = true;
   });

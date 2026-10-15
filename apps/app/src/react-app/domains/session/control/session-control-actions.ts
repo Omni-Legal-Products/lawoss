@@ -9,6 +9,7 @@ import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import { useControlAction, type LegalworkControlAction } from "../../../shell/control/control-provider";
 import { useSessionManagementStore } from "../sidebar/session-management-store";
 import { t } from "@/i18n";
+import { deleteOrReviewSession } from "../../views/session-view-delete";
 
 type SessionLike = {
   id?: string;
@@ -172,7 +173,8 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
 
       const targetWorkspace = findSessionWorkspace(workspaces, sessionsByWorkspaceId, sessionId);
       if (!targetWorkspace) return { ok: false, error: t("control.session_not_found") };
-      await legalworkClient.deleteSession(targetWorkspace.id, sessionId);
+      const review = await deleteOrReviewSession(async () => { await legalworkClient.deleteSession(targetWorkspace.id, sessionId); });
+      if (review) return { ok: false, code: "unsaved_session_views", error: t("views.delete_use_chat_action"), sessionId, unsavedDashboards: review.items.map(item => ({ title: item.title, canSave: Boolean(item.preview) })) };
       usePanelTabStore.getState().clearSession(sessionId);
       if (selectedSessionId === sessionId) {
         navigateToSessionRoot();
