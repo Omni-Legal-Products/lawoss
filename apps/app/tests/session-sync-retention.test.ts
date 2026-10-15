@@ -359,6 +359,75 @@ test("snapshot preserves non-timeout transport error identity and sanitizes malf
  try{expect(await f.legalwork.getSessionSnapshot(f.input.workspaceId,"session-one").catch(error=>error)).toBe(failure);}finally{spy.mockRestore();}
 });
 
+async function renderSessionSurface(f:Awaited<ReturnType<typeof fixture>>, sessionId="session-one") {
+ const [{SessionSurface},{LocalProvider},{ShellConfigProvider},{LegalworkControlProvider},{WorkspaceProvider}]=await Promise.all([
+  import("../src/react-app/domains/session/surface/session-surface"),import("../src/react-app/kernel/local-provider"),import("../src/react-app/shell/shell-config"),import("../src/react-app/shell/control/control-provider"),import("../src/react-app/shell/workspace-provider"),
+ ]);
+ const surface=createElement(SessionSurface,{client:f.legalwork,workspaceId:f.input.workspaceId,workspaceRoot:"/synthetic/selected",sessionId,opencodeBaseUrl:f.input.baseUrl,legalworkToken:f.input.legalworkToken,developerMode:false,modelLabel:"Synthetic",onModelClick:()=>{},modelPickerOpen:false,selectedModel:{providerID:"synthetic",modelID:"synthetic"},onModelPickerOpenChange:()=>{},onModelChange:()=>{},onSendDraft:()=>{},onDraftChange:()=>{},attachmentsEnabled:false,attachmentsDisabledReason:null,modelVariantLabel:"Synthetic",modelVariant:null,onModelVariantChange:()=>{},agentLabel:"Synthetic",selectedAgent:null,listAgents:async()=>[],onSelectAgent:()=>{},listCommands:async()=>[],recentFiles:[],searchFiles:async()=>[],isRemoteWorkspace:false,isSandboxWorkspace:false});
+ const previousWindow=Object.getOwnPropertyDescriptor(globalThis,"window");
+ Object.defineProperty(globalThis,"window",{configurable:true,value:{localStorage:{getItem:()=>null},addEventListener:()=>{},removeEventListener:()=>{}}});
+ let html:string;
+ try{html=renderToStaticMarkup(createElement(MemoryRouter,null,createElement(QueryClientProvider,{client:getReactQueryClient()},createElement(LocalProvider,null,createElement(ShellConfigProvider,null,createElement(LegalworkControlProvider,null,createElement(WorkspaceProvider,{client:null,selectedWorkspaceRoot:"/synthetic/selected"},surface)))))));}finally{if(previousWindow)Object.defineProperty(globalThis,"window",previousWindow);else Reflect.deleteProperty(globalThis,"window");}
+ return html;
+}
+
+for(const history of ["live","empty"] as const){
+ for(const fails of [true,false]){
+  test(`initial snapshot ${fails?"boundary failure":"success"} with ${history} history discloses exactly the required load state`,async()=>{
+   const value=busySnapshot();value.messages=history==="live"?value.messages.slice(0,1):[];
+   if(fails)value.session.revert={messageID:"absent-initial-full-cursor"};
+   const f=await fixture({snapshot:value});
+   if(history==="live"){
+    // This history arrives through actual SSE before any snapshot succeeds.
+    const message=busySnapshot().messages[0];
+    f.wire({type:"message.updated",properties:{info:message.info}});
+    f.wire({type:"message.part.updated",properties:{part:message.parts[0]}});
+    await waitFor(()=>getReactQueryClient().getQueryData<Array<{parts:Array<{text?:string}>}>>(transcriptKey(f.input.workspaceId,"session-one"))?.some(message=>message.parts.some(part=>part.text?.includes("Synthetic selected source")))===true);
+   }
+   const key=snapshotKey(f.input.workspaceId,"session-one"),client=getReactQueryClient();
+   expect(client.getQueryData(key)).toBeUndefined();
+   // SSR has no mount phase. Render the settled existing empty-error branch
+   // without its default optimistic retry-on-mount transition.
+   if(fails && history==="empty"){
+    const previousDefaults=client.getQueryDefaults(key);
+    client.setQueryDefaults(key,{...previousDefaults,retryOnMount:false});
+    cleanups.push(async()=>{client.setQueryDefaults(key,previousDefaults);});
+   }
+   const observer=new QueryObserver(client,{queryKey:key,queryFn:async({signal})=>(await f.legalwork.getSessionSnapshot(f.input.workspaceId,"session-one",{limit:140,signal})).item});
+   const release=observer.subscribe(()=>{});cleanups.push(async()=>release());
+   await waitFor(()=>fails?observer.getCurrentResult().isError:observer.getCurrentResult().isSuccess);
+   const result=observer.getCurrentResult();
+   if(fails)expect(result.error).toMatchObject({code:"session_revert_boundary_unresolved"});
+   else expect(result.error).toBeNull();
+   const html=await renderSessionSurface(f);
+   expect({requests:f.snapshotReads(),snapshotPresent:Boolean(result.data),historyVisible:html.includes("Synthetic selected source"),loadFailureVisible:html.includes(t("session.load_failed")),alertVisible:html.includes('role="alert"')}).toEqual({requests:fails?["140",null]:["140"],snapshotPresent:!fails,historyVisible:history==="live",loadFailureVisible:fails,alertVisible:fails && history==="live"});
+   expect(html.split(t("session.load_failed")).length-1).toBe(fails?1:0);
+   expect(html).not.toContain("absent-initial-full-cursor");
+   if(fails && history==="live"){
+    const releaseOther=trackWorkspaceSessionSync(f.input,"session-two");cleanups.push(async()=>releaseOther());
+    const other=busySnapshot().messages[0];
+    f.wire({type:"message.updated",properties:{info:{...other.info,id:"other-session-user",sessionID:"session-two"}}});
+    f.wire({type:"message.part.updated",properties:{part:{...other.parts[0],id:"other-session-part",messageID:"other-session-user",sessionID:"session-two",text:"Synthetic other session history"}}});
+    await waitFor(()=>client.getQueryData<Array<{parts:Array<{text?:string}>}>>(transcriptKey(f.input.workspaceId,"session-two"))?.some(message=>message.parts.some(part=>part.text==="Synthetic other session history"))===true);
+    const otherHtml=await renderSessionSurface(f,"session-two");
+    expect(otherHtml).toContain("Synthetic other session history");
+    expect(otherHtml).not.toContain(t("session.load_failed"));expect(otherHtml).not.toContain('role="alert"');
+    expect(client.getQueryState(snapshotKey(f.input.workspaceId,"session-two"))?.error).toBeNull();
+    const returnedHtml=await renderSessionSurface(f);
+    expect(returnedHtml).toContain('role="alert"');expect(returnedHtml.split(t("session.load_failed")).length-1).toBe(1);
+    expect(f.snapshotReads()).toEqual(["140",null]);
+    value.session.revert=undefined;
+    expect((await observer.refetch()).isSuccess).toBe(true);
+    const recoveredHtml=await renderSessionSurface(f);
+    expect(recoveredHtml).toContain("Synthetic selected source");
+    expect(recoveredHtml).not.toContain(t("session.load_failed"));
+    expect(recoveredHtml).not.toContain('role="alert"');
+    expect(f.snapshotReads()).toEqual(["140",null,"140"]);
+   }
+  });
+ }
+}
+
 test("an unresolved boundary is visibly localized beside a previously cached SessionSurface transcript",async()=>{
  const value=busySnapshot();value.messages.splice(1);
  let transientFailures=0;
@@ -371,15 +440,8 @@ test("an unresolved boundary is visibly localized beside a previously cached Ses
  value.session.revert={messageID:"absent-full-cursor"};
  await getReactQueryClient().refetchQueries({queryKey:observed.key,exact:true});
  expect(observed.result().error).toBeInstanceOf(LegalworkServerError);
- const [{SessionSurface},{LocalProvider},{ShellConfigProvider},{LegalworkControlProvider},{WorkspaceProvider}]=await Promise.all([
-  import("../src/react-app/domains/session/surface/session-surface"),import("../src/react-app/kernel/local-provider"),import("../src/react-app/shell/shell-config"),import("../src/react-app/shell/control/control-provider"),import("../src/react-app/shell/workspace-provider"),
- ]);
- const surface=createElement(SessionSurface,{client:f.legalwork,workspaceId:f.input.workspaceId,workspaceRoot:"/synthetic/selected",sessionId:"session-one",opencodeBaseUrl:f.input.baseUrl,legalworkToken:f.input.legalworkToken,developerMode:false,modelLabel:"Synthetic",onModelClick:()=>{},modelPickerOpen:false,selectedModel:{providerID:"synthetic",modelID:"synthetic"},onModelPickerOpenChange:()=>{},onModelChange:()=>{},onSendDraft:()=>{},onDraftChange:()=>{},attachmentsEnabled:false,attachmentsDisabledReason:null,modelVariantLabel:"Synthetic",modelVariant:null,onModelVariantChange:()=>{},agentLabel:"Synthetic",selectedAgent:null,listAgents:async()=>[],onSelectAgent:()=>{},listCommands:async()=>[],recentFiles:[],searchFiles:async()=>[],isRemoteWorkspace:false,isSandboxWorkspace:false});
- const previousWindow=Object.getOwnPropertyDescriptor(globalThis,"window");
- Object.defineProperty(globalThis,"window",{configurable:true,value:{localStorage:{getItem:()=>null},addEventListener:()=>{},removeEventListener:()=>{}}});
- let html:string;
- try{html=renderToStaticMarkup(createElement(MemoryRouter,null,createElement(QueryClientProvider,{client:getReactQueryClient()},createElement(LocalProvider,null,createElement(ShellConfigProvider,null,createElement(LegalworkControlProvider,null,createElement(WorkspaceProvider,{client:null,selectedWorkspaceRoot:"/synthetic/selected"},surface)))))));}finally{if(previousWindow)Object.defineProperty(globalThis,"window",previousWindow);else Reflect.deleteProperty(globalThis,"window");}
- expect(html).toContain('role="alert"');expect(html).toContain(t("session.load_failed"));
+ const html=await renderSessionSurface(f);
+ expect(html).toContain('role="alert"');expect(html.split(t("session.load_failed")).length-1).toBe(1);
  expect(html).toContain("Synthetic selected source");expect(html).not.toContain("absent-full-cursor");
  // Exercise the real Surface queryFn/retry options through an actual observer.
  const query=getReactQueryClient().getQueryCache().find({queryKey:observed.key,exact:true});

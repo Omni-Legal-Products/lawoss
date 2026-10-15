@@ -980,6 +980,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
     [snapshot, transcriptState],
   );
   const queryClient = useQueryClient();
+  // Optimistic remount results can omit the last settled no-data load error.
+  const snapshotLoadError = snapshotQuery.error ?? queryClient.getQueryState(snapshotQueryKey)?.error;
   const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
   const openTargetsFingerprint = useMemo(
     () => openTargets.map((target) => `${target.kind}:${target.value}:${target.confidence}`).join("|"),
@@ -2063,7 +2065,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
           )}
         >
           <div ref={contentRef} className="lw-session-column">
-            {snapshot && snapshotQuery.error instanceof LegalworkServerError && snapshotQuery.error.code === "session_revert_boundary_unresolved" ? (
+            {(snapshot || renderedMessages.length > 0) && snapshotLoadError instanceof LegalworkServerError && snapshotLoadError.code === "session_revert_boundary_unresolved" ? (
               <div role="alert" className="mx-auto mb-4 max-w-xl rounded-3xl border border-red-6/40 bg-red-3/20 px-6 py-5 text-sm text-red-11">
                 {t("session.load_failed")}
               </div>
