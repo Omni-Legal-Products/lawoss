@@ -47,6 +47,8 @@ const engine = preparedEngine.path;
 probeNativeEngineVersion(engine);
 const root = await realpath(await mkdtemp(path.join(tmpdir(), "lawoss-isir-native-")));
 const profile = path.join(root, "profile");
+diagnostics.bindOwnedRoot(root);
+let engineLogLaunchWallMs=null,engineLogDeadlineWallMs=null;
 const children = [];
 let cdp;
 let boundaryProbe;
@@ -119,6 +121,7 @@ try {
   diagnostics.phase("startup");
   launch(process.execPath, [path.join(path.dirname(requireApp.resolve("vite/package.json")), "bin/vite.js"), "--host", "127.0.0.1", "--port", String(uiPort), "--strictPort"], path.join(repo, "apps/app"), "vite");
   await until(async () => (await nativeFetch(env.LEGALWORK_ELECTRON_START_URL)).ok, "owned Vite");
+  engineLogLaunchWallMs=Date.now();
   let appChild = launch(electron, [...(process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : []), path.join(repo, "apps/desktop/scripts/isir-native-entry.mjs")], path.join(repo, "apps/desktop"), "electron");
   cdp = await connectRenderer(`http://127.0.0.1:${cdpPort}`, nativeFetch);
   await cdp.send('Page.enable');
@@ -128,6 +131,7 @@ try {
   await cdp.evaluate("window.__legalworkControl.execute('lawoss.lite.mode.set', {mode:'pro'})");
   await cdp.evaluate("window.__legalworkControl.execute('route.session')");
   const startupStarted=performance.now(),startupDeadline=Date.now()+90000;
+  engineLogDeadlineWallMs=startupDeadline;
   const startupRemaining=()=>Math.max(0,startupDeadline-Date.now());
   await until(() => cdp.evaluate("window.__legalworkControl.listActions().some(a=>a.id==='session.create_task'&&!a.disabled)"), "native engine workspace ready", startupRemaining());
   const click = async text => {
@@ -559,6 +563,7 @@ try {
 } catch (error) {
   primaryError = error;
   console.error('Primary native failure before cleanup', JSON.stringify(diagnostics.failure(error)));
+  await diagnostics.captureEngineLog({error,selectedDirectory:workspaces[0].path,launchWallMs:engineLogLaunchWallMs,deadlineWallMs:engineLogDeadlineWallMs}).catch(()=>undefined);
   await boundaryProbe?.().catch(()=>undefined);
   await diagnostics.write({events:cdp?.events,error}).catch(e=>console.error('Diagnostic publication failed',JSON.stringify(errorMetadata(e))));
   for (const owner of children) await writeFile(path.join(root, `${owner.label}.log`), owner.output(), { mode: 0o600 });

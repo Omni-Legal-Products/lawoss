@@ -225,6 +225,7 @@ jobs:
       # na Windows a nevložia Node helpery do Bun; dist zostavujeme až potom.
       # lawoss-path-containment: workspace v koreni disku (subst) a zdieľania (net share).
       - name: LAWOSS server (onboarding, register existing, triage, memory, paths, containment, reload watcher, process tree)
+        id: windows_server_source
         working-directory: apps/server
         run: >-
           bun test
@@ -278,6 +279,13 @@ jobs:
           ./src/task-store.test.ts
           ./src/task-sync.test.ts
           ./src/workspace-reconnect.e2e.test.ts
+
+      - name: Diagnose pending task handoff in a fresh Bun process
+        if: ${{ failure() && steps.windows_server_source.outcome == 'failure' }}
+        working-directory: apps/server
+        run: >-
+          bun test ./src/runtime-db-lifecycle.e2e.test.ts
+          --test-name-pattern '^an accepted pending tasks round survives its originating owner stopping$'
 
       # Node 24 používa node:sqlite bez postinstall/native addon rebuildu. Proces
       # ostáva živý počas kontroly handle aj skutočného odstránenia databázy.
