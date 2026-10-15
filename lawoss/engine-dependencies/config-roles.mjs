@@ -132,7 +132,8 @@ export async function discoverConfigRoles(input = {}, adapters = {}) {
     if (platform !== 'win32' || !/^[a-zA-Z]:(?![\\/])/.test(value)) return p.resolve(cwd, value);
     const drive = value.slice(0, 2);
     if (cwd.slice(0, 2).toLowerCase() === drive.toLowerCase()) return p.resolve(cwd, value);
-    const driveCwd = environment[`=${drive}`];
+    const driveKey = `=${drive}`.toLowerCase();
+    const driveCwd = Object.entries(environment).find(([key]) => key.toLowerCase() === driveKey)?.[1];
     const anchor = driveCwd || `${drive}\\`;
     if (!p.isAbsolute(anchor) || anchor.slice(0, 2).toLowerCase() !== drive.toLowerCase()) {
       throw failure('INVALID_INPUT');

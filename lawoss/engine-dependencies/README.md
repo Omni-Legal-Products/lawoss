@@ -39,7 +39,8 @@ Existence is metadata, not directory type: an ordinary `.opencode` file counts
 because the pinned source counts it. A later preparer must refuse unsupported
 mutation targets. Relative G/H/E strings retain logical spelling while metadata
 and `physicalPath` resolve from the actual engine cwd, never the selected scope.
-Windows cross-drive relative strings use captured `=D:` drive cwd or the native
+Windows cross-drive relative strings look up captured `=D:` drive keys
+case-insensitively and use that drive cwd or the native
 same-drive/root fallback; malformed captured drive cwd refuses with `INVALID_INPUT`.
 The caller must supply the effective environment keys used by the child.
 

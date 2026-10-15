@@ -434,3 +434,26 @@ test('preaborted operation does not begin filesystem discovery', async t => {
   } }), { code: 'ABORTED', message: 'ABORTED' });
   assert.equal(reads, 0);
 });
+
+// Windows native environment lookup folds drive-key case; plain snapshots must
+// retain that behavior without changing the caller's logical drive spelling.
+test('win32 MODEL mixed-case captured drive keys preserve instance project and explicit paths', async () => {
+  for (const [drive, key, anchor] of [['d', '=D:', 'D:\\captured'], ['D', '=d:', 'd:\\captured']]) {
+    const directory = drive === 'd' ? 'd:\\captured\\case' : 'D:\\captured\\case';
+    const project = drive === 'd' ? 'd:\\captured\\case\\.opencode' : 'D:\\captured\\case\\.opencode';
+    const explicit = drive === 'd' ? 'd:\\captured\\extra' : 'D:\\captured\\extra';
+    const input = { instanceDirectory: `${drive}:case`, engineCwd: 'C:\\engine', homeDirectory: 'C:\\home',
+      environment: { [key]: anchor, OPENCODE_CONFIG_DIR: `${drive}:extra` }, deadline: Date.now() + 1000 };
+    const adapters = { pathModel: { path: path.win32, platform: 'win32' }, filesystem: {
+      realpath: async p => p, realpathNative: async p => p, exists: async p => p === project,
+    } };
+    const result = await discoverConfigRoles(input, adapters);
+    assert.equal(result.directory, directory);
+    assert.deepEqual(paths(result), ['C:\\home\\.config\\opencode', project, `${drive}:extra`]);
+    assert.deepEqual(result.roles[1].roles, ['project']);
+    assert.equal(result.roles[1].physicalPath, project);
+    assert.equal(result.roles.at(-1).physicalPath, explicit);
+    input.environment[key] = 'malformed-private-anchor';
+    await assert.rejects(discoverConfigRoles(input, adapters), { code: 'INVALID_INPUT', message: 'INVALID_INPUT' });
+  }
+});
