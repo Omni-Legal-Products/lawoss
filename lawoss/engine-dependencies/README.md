@@ -153,3 +153,11 @@ Run the new configuration suite with the verified shipped Node22.23.2 executable
 Tests use only `.work/test-fixtures` synthetic profiles/targets and real Config,
 compare the exact engine tuple against the helper tuple, preserve target bytes
 and create no target node_modules. macOS execution does not prove Windows parity.
+
+The PR workflow `.github/workflows/engine-npm-config.yml` runs that exact test
+command under actual Node22.23.2 on Windows 2022 and Ubuntu 24.04. It first
+installs only the frozen `runtime-tools/` closure with pnpm11.4.0 under captured
+Node24.21.0 and an owned installer HOME/config/cache/store. The subsequent
+Node22 step runs the native suite; its authenticated CI conclusion is the
+execution gate. Native results remain pending until the workflow is published
+and completes. This does not establish application packaging or startup.
