@@ -730,3 +730,10 @@ Detaily a source API jsou v SDD task-24-brief.md. Produkční distribuce/notices
 **Ruling:** correctexplicitruntimeinvariantwithgenuineCLI, noengineguardrelaxation/missingenvguess or provenrootcauseclaim; originalfullgoal/newapp/devapproval+merge/tenGUIprovider remainOPEN.
 
 **Task26 sourcecomplete:**0d596c1f/workflowa1613d95/freshindependentSPEC PASS/QUALITY PASS/0;21SDKfilesunchanged. Rootsource/DCO/parity/review+contractbindingPASS, previous9bc7allterminalroot361entries/22reportsdirectauditPASS. NormalSDKpublicationnext/actualWindowsOPEN; noNode20causeclaim/newpaid0.
+
+**Task26 fix1 actual argv defect:** exactcachedpnpm11.4nopt exploratoryunknownconfig.*withSPACE→Booleantrue/positionalcachepaths→installremappedadd/frozenunknown. =formkeepsString/intendedinstall. BarefrozenSUPPORTED; initialunsupportedversioninterpretationsuperseded.
+- [x] Actualfreshcorrectliteral17argvROOTpreflight/positiveexit0/113reuse0download113added; Arbo9.4fixturelocalresolverPASS; negativeERR_PNPM_OUTDATED_LOCKFILE/source+fixturelockunchanged. Old2malformedcontrolsINVALIDremainpreserved.
+- [x] Minimalquotedcache/state=value2arguments/sourceDCO/review/binding, allotherworkflow/21SDKfiles/44+4/strictguardunchanged.
+- [ ] NewactualWindows gateaftereb118allterminalroot377entries24reportsauditPASS; no app/fullgoalclaim.
+
+**Task26 fix1 sourcecomplete:** c2e8cac8/workflow9e6cd309/freshscopedSPEC PASS/QUALITY PASS/0. RootDCO/source/review/21SDKparity/docs/contractbindingPASS; actuallocalpositive/resolver/frozennegativeproofrootaudited, prior377CIentries24reportsunchanged. NewactualWindows gate/normalSDKpublicationnext; barefrozenretained/nofullgoalclaim/newpaid0.
