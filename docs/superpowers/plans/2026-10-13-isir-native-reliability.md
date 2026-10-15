@@ -504,6 +504,30 @@ Skutečný29f Windows serverový krok má čtyři5000ms timeouty v project-sync;
 
 - [x] Test-only pevné statement indexy v původním těle prvního testu, snapshot zmrazený při vstupu do původního cleanup, oddělené bounded dokončení/odmítnutí cleanup. Původní assertions, await pořadí, callbacky, LIFO/failfast a5000ms limit beze změny; žádná produktová oprava se z toho netvrdí.
 - [x] Nový čistý helper/RED-GREEN a exact Bun1.4.2/preloads; explicitní test-only flag pouze v původním Windows server kroku14. Další task/native protokoly beze změny, žádné raw chyby/cesty/data.
-- [ ] Nezávislá scoped SPEC/QUALITY revize, integrace a společná publikace až po dokončení aktuálních CI. Živé AI/GUI, ostatní Windows selhání a chráněný dev merge zůstávají otevřené.
+- [x] Nezávislá scoped SPEC/QUALITY revize, integrace a publikace6ccc po dokončení29f CI. Živé AI/GUI, ostatní Windows selhání a chráněný dev merge zůstávají otevřené.
 
 Task9 lokálně integrován71cd0c5a→6966df66 po scoped SPEC PASS / QUALITY APPROVED, nové0. ExactBun1.4.2 helper9/selected1/full21, strict0; root4sourceSHA/5nezměněných zdrojů a DCO ověřeny. Skutečné Windows statement důkazy dosud nejsou, další tři selhání otevřená. Diagnostika testů se publikuje samostatně po své revizi, aby Windows měření běželo souběžně s přípravou compile monitoru. Jeho další push počká na dokončení nynější baseline.
+
+
+### Task 10: Oddělené pozorování výjimky při veřejném upstream buildu
+
+Skutečný29f baseline má installclosed0/buildclosed1 a značku normal-target-enter; bez binárky/nativního výsledku. Zdroj Bun1.3.14 potvrzuje non-suppressing uncaughtExceptionMonitor i rejected top-level await. Nový oddělený experiment zachová původní baseline3 i produkci.
+
+- [x] Samostatný Windows diagnostic job pouze s Node/builtins, veřejným pinned source/Bun1.3.14, strict same-run baseline3 guard a nejprve skutečným malým nativeResolveMessage capability testem. Žádný LAWOSS desktop build/staging/nativní aplikace ani retry původní baseline.
+- [x] Jeden preload s přesným entry/argv guardem a uzavřenými omezenými error typy/kódy/číselnými source indexy, žádné raw chyby/cesty/zdroj/text/args. Nový namespace/sole finalizer/single-file artifact; cause/readiness neprokazuje. Fresh models hash porovnán, rozdíl není kauzální ekvivalence.
+- [x] Exact Node24 RED/GREEN a nezměněný baseline helper, skutečný lokální oficiálně hashově ověřený Bun1.3.14 capability test, nezávislá scoped SPEC/QUALITY revize a integrace. Aktuální6ccc baseline je dokončená; skutečná nová Windows diagnostika, původní startup a dev merge zůstávají otevřené.
+
+
+Aktuální6ccc Task9: původní Windows server krok14 RED; uzavřené měření zmrazené v5921ms ukazuje statement5 `saveProjectSyncSettings`, enter978ms/lastCompleted4. Oddělený cleanup odmítnutý; vnitřní krok ani příčina nejsou známé. Celé Linux/macOS package, zdrojové testy a i18n PASS; Windows startup stále RED. Navazující baseline je živá, další push čeká.
+
+### Task 11: Změřit vnitřní kroky prvního ukládání nastavení
+
+Cílená source analýza neprokázala konkrétní chybu. Nejmenší navazující měření ponechá původní await/return/SQL/scheduler pořadí i5s test limit. Implementace až po dokončení Task10 writeru; oddělená revize, žádní současní implementátoři.
+
+- [x] Pouze volitelný čtvrtý callback na saveProjectSyncSettings,16pevných synchronních checkpointů; bez callbacku žádný observer/clock/wrapper. Produkce nečte diagnostické env ani test support. Přímý return projectSyncStatus zůstává doslova; status-call není dokončení.
+- [x] Callback pouze první outer statement5 a jen při stávajících třech explicitních test flazích; samostatný uzavřený settings protokol ≤4096B,16events max, freeze při stávajícím cleanupEntry. Původní body/cleanup schema1 beze změny. Žádné raw hodnoty, chyby, cesty, dotazy, další timery nebo modelové volání.
+- [x] Smysluplné pure RED/GREEN, rozpoznatelná AST/source parity původní funkce a jediného calleru, původní selected fixture jednou/exactBun1.4.2/preloads/defaultbudget a finální strict server tsc. Těžké mockování všech závislostí se nepřidává; jeho chybějící coverage bude výslovně označená.
+- [x] Nezávislá scoped SPEC/QUALITY revize a integrace; aktuální baseline dokončená. Následuje publikace do stejného PR. Konkrétní opravu vybrat teprve podle skutečného vnitřního checkpointu; žádný timeout-only/DBlock/globalpath/scheduler závěr z hypotézy.
+
+
+2026-10-15T10:55:12.643823+00:00: Integrace Task10:0899f152→f3b663e3, oprava Windows testových identit7a8ca4d9→40babd12; původní Important nález ADDRESSED po scoped SPEC PASS / QUALITY APPROVED, nové blokující0. Původní Minor formátování owneru je neblokující a odložené; neopravuje se nesouvisejícím reformatem. Finální Node25/25, nezměněný baseline39/39 jednou, přesný oficiální MacBun1.3.14 native capability + descendant silence PASS; Windows se z toho netvrdí. Task11:891cc57b→b3db4487 po nezávislé SPEC PASS / QUALITY APPROVED, nálezy0; Bun22/4132expects, původní selected fixture1/12expects/no frames, strict0. Root ověřil všech8sourceSHA, původní10608B workflow prefix, šest nezměněných zdrojů/DCO a skutečný6ccc baseline pure admission. Žádný lokální upstream/native/app build, profil ani nové modelové volání. Nové Windows CI, konkrétní příčina a plná GUI/provider/dev akceptace zůstávají otevřené.
