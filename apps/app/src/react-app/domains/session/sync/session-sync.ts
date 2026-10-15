@@ -108,7 +108,8 @@ export function observeSessionReadExecution(input: SyncOptions, sessionId: strin
     if (isCurrent()) query!.setState({ fetchStatus: "idle" });
     throw new CancelledError({ silent: true });
   };
-  let latest: { source: "action" | "read" | "activity"; status: SessionStatus | undefined; error: boolean } | undefined;
+  let latest: { status: SessionStatus | undefined; error: boolean } | undefined;
+  let activityGuard: { error: boolean } | undefined;
   const releaseActivity = useSessionActivityStore.subscribe((next, previous) => {
     const evidence = next.recordsByWorkspaceId[input.workspaceId]?.[sessionId]?.executionEvidence;
     if (!evidence || evidence === previous.recordsByWorkspaceId[input.workspaceId]?.[sessionId]?.executionEvidence) return;
@@ -117,7 +118,13 @@ export function observeSessionReadExecution(input: SyncOptions, sessionId: strin
     const status = value && typeof value === "object" && "type" in value
       && (value.type === "idle" || value.type === "busy" || value.type === "retry")
       ? value as SessionStatus : undefined;
-    latest = { source: evidence.source, status, error: evidence.error };
+    // Activity has no status authority. In particular, a late reply/end must
+    // not forget an already observed terminal status and revive the raw body.
+    if (evidence.source === "activity") activityGuard = { error: evidence.error };
+    else {
+      latest = { status, error: evidence.error };
+      activityGuard = undefined;
+    }
   });
   let disposed = false;
   const dispose = () => {
@@ -134,12 +141,13 @@ export function observeSessionReadExecution(input: SyncOptions, sessionId: strin
   return {
     status(status: SessionStatus): SessionStatus {
       validate();
-      if (latest?.error) return discard();
-      if (latest?.source === "activity" && !isLiveStatus(status)) {
+      if (latest?.error || activityGuard?.error) return discard();
+      const candidate = latest?.status ?? status;
+      if (activityGuard && !isLiveStatus(candidate)) {
         const activity = useSessionActivityStore.getState().recordsByWorkspaceId[input.workspaceId]?.[sessionId];
         if (activity && activity.status !== "idle") return discard();
       }
-      return latest?.status ?? status;
+      return candidate;
     },
     complete(status: SessionStatus, snapshot = false) {
       validate();

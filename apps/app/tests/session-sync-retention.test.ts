@@ -1422,3 +1422,117 @@ for(const direction of ["snapshot","status"] as const)for(const different of ["w
   const result=old.getCurrentResult().data;expect(result&&("session" in result?result.status.type:result.type)).toBe("busy");
  });
 }
+
+for(const reader of ["snapshot","status"] as const)for(const ending of ["none","permission.replied","session.next.compaction.ended","session.compacted"] as const){
+ test(`ordered authority ${reader} idle then ${ending}`,async()=>{
+  const value=busySnapshot();let finish:(()=>void)|undefined;
+  const reply=(response:ServerResponse,body:unknown,held:boolean)=>{response.writeHead(200,{"content-type":"application/json"});const text=JSON.stringify(body);if(held){response.flushHeaders();finish=()=>response.end(text);}else response.end(text);};
+  const f=await fixture({directory:"/synthetic/selected",snapshot:value,
+   snapshotReply:(_limit,response,read)=>reply(response,{item:value},reader==="snapshot"&&read===2),
+   statusReply:response=>reply(response,{"session-one":{type:"busy"}},true),
+  });
+  await renderSessionSurface(f);
+  const client=getReactQueryClient(),snapshots=observeSurfaceReader<LegalworkSessionSnapshot>(snapshotKey(f.input.workspaceId,"session-one"),true),statuses=observeSurfaceReader<SessionStatus>(statusKey(f.input.workspaceId,"session-one"));
+  await snapshots.refetch();await f.wireStatus({type:"busy"});
+  f.wire({type:"session.updated",properties:{info:{id:"session-one",time:{created:1,updated:2}}}});await waitFor(()=>f.updated()===1);
+  const pending=reader==="snapshot"?snapshots.refetch():statuses.refetch();await waitFor(()=>Boolean(finish));
+  f.wire({type:"session.idle",properties:{sessionID:"session-one"}});
+  await waitFor(()=>client.getQueryData<SessionStatus>(statusKey(f.input.workspaceId,"session-one"))?.type==="idle");
+  if(ending!=="none")f.wire({type:ending,properties:{sessionID:"session-one",requestID:"synthetic-completed-wait"}});
+  f.wire({type:"session.updated",properties:{info:{id:"session-one",time:{created:1,updated:3}}}});await waitFor(()=>f.updated()===2);
+  expect(useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]?.runActive).toBe(false);
+  expect(client.getQueryData<SessionStatus>(statusKey(f.input.workspaceId,"session-one"))?.type).toBe("idle");
+  finish?.();await pending;
+  expect(client.getQueryData<SessionStatus>(statusKey(f.input.workspaceId,"session-one"))?.type).toBe("idle");
+  expect(client.getQueryData<LegalworkSessionSnapshot>(snapshotKey(f.input.workspaceId,"session-one"))?.status.type).toBe("idle");
+  expect(useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]).toMatchObject({status:"idle",runActive:false,compacting:false,waitingPermissionIds:[],waitingQuestionIds:[]});
+ });
+}
+
+for(const reader of ["snapshot","status"] as const)for(const sequence of ["start-idle","ask-idle","idle-start","idle-ask","idle-busy-end","idle-busy-start","idle-accepted-reply","idle-accepted-ask","idle-read-end","error-end","error-start","error-busy-end","idle-other-activity","idle-manual"] as const){
+ test(`ordered execution fold ${reader} ${sequence}`,async()=>{
+  const value=busySnapshot();value.session.revert={messageID:"reverted-turn"};let finish:(()=>void)|undefined,holding=true,barriers=0,laterRead=false;
+  const raw:SessionStatus={type:sequence.includes("busy")||sequence.includes("accepted")?"idle":"busy"};
+  const reply=(response:ServerResponse,body:unknown,held:boolean)=>{response.writeHead(200,{"content-type":"application/json"});const text=JSON.stringify(body);if(held){response.flushHeaders();finish=()=>response.end(text);}else response.end(text);};
+  const f=await fixture({allowConnectionChanges:true,directory:"/synthetic/selected",snapshot:value,
+   snapshotReply:(_limit,response,read)=>reply(response,{item:{...value,status:read===1?{type:"busy"}:laterRead?{type:"idle"}:raw}},reader==="snapshot"&&read===2),
+   statusReply:response=>reply(response,{"session-one":holding&&!laterRead?raw:{type:"idle"}},reader==="status"&&holding),
+  });
+  await renderSessionSurface(f);
+  const client=getReactQueryClient(),snapshotQueryKey=snapshotKey(f.input.workspaceId,"session-one"),statusQueryKey=statusKey(f.input.workspaceId,"session-one");
+  const snapshots=observeSurfaceReader<LegalworkSessionSnapshot>(snapshotQueryKey,true),statuses=observeSurfaceReader<SessionStatus>(statusQueryKey);
+  const record=()=>useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"];
+  const barrier=async()=>{const count=++barriers;f.wire({type:"session.updated",properties:{info:{id:"session-one",revert:value.session.revert,time:{created:1,updated:count+1}}}});await waitFor(()=>f.updated()===count);};
+  const event=async(kind:string)=>{
+   if(kind==="idle"||kind==="busy")f.wire({type:"session.status",properties:{sessionID:"session-one",status:{type:kind}}});
+   else if(kind==="error")f.wire({type:"session.error",properties:{sessionID:"session-one",error:{name:"UnknownError",data:{message:"Synthetic ordered failure"}}}});
+   else if(kind==="accepted"){
+    await submitBoundDocumentGeneration({key:`fold-${f.input.workspaceId}`,metadata:{projectId:f.input.workspaceId,workspaceId:f.input.workspaceId,baseUrl:f.input.baseUrl,root:"/synthetic/selected",directory:"/synthetic/selected"},preflight:async()=>{},create:async()=>"session-one",send:async()=>{}});
+    expect(getDocumentGeneration(`fold-${f.input.workspaceId}`)?.nativeRevision).toBe(0);
+   }else f.wire({type:kind==="start"?"session.next.compaction.started":kind==="end"?"session.next.compaction.ended":kind==="ask"?"question.asked":"question.replied",properties:{id:"synthetic-sequence-wait",sessionID:"session-one",requestID:"synthetic-sequence-wait",questions:[]}});
+   await barrier();
+  };
+  await snapshots.refetch();await event("busy");
+  const pending=reader==="snapshot"?snapshots.refetch():statuses.refetch();await waitFor(()=>Boolean(finish));
+  if(sequence==="idle-other-activity"){
+   await event("idle");
+   const input={...f.input,legalworkToken:"synthetic-other-fold-scope"},owner=ensureWorkspaceSessionSync(input),release=trackWorkspaceSessionSync(input,"session-one");
+   cleanups.push(async()=>{release();owner();__disposeWorkspaceSessionSyncForTest(input);});await waitFor(()=>f.opened()===2);
+   f.wire({type:"session.next.compaction.ended",properties:{sessionID:"session-one"}},{token:input.legalworkToken,directory:input.directory});
+   await waitFor(()=>record()?.executionEvidence?.scope?.(`${input.workspaceId}:${input.baseUrl}:${input.legalworkToken}:${input.directory}`)===true);
+  }else if(sequence==="idle-read-end"){
+   await event("idle");laterRead=true;
+   if(reader==="snapshot")await statuses.refetch();else await snapshots.refetch();
+   expect(record()?.executionEvidence?.source).toBe("read");
+   await event("end");
+  }else if(sequence==="idle-manual"){
+   await event("idle");
+   const evidence=record()?.executionEvidence;
+   client.setQueryData(snapshotQueryKey,{...value,status:{type:"busy"}});
+   client.setQueryData(statusQueryKey,{type:"busy"});
+   useSessionActivityStore.getState().markMessageRole(f.input.workspaceId,"session-one","synthetic-metadata-role","assistant");
+   expect(record()?.executionEvidence).toBe(evidence);
+  }else for(const kind of sequence.split("-"))await event(kind);
+  const before=record(),beforeStatus=client.getQueryData<SessionStatus>(statusQueryKey)?.type,beforeSnapshotStatus=client.getQueryData<LegalworkSessionSnapshot>(snapshotQueryKey)?.status.type,discarded=["idle-start","idle-ask","error-end","error-start"].includes(sequence);
+  if(sequence==="error-start")expect(before).toMatchObject({errorActive:false,compacting:true,runActive:true});
+  // The real compaction action clears error and the ordered metadata replay
+  // hydrates the existing busy cache before the held body is released.
+  finish?.();holding=false;await pending;
+  expect(client.getQueryData<LegalworkSessionSnapshot>(snapshotQueryKey)?.session.revert).toEqual({messageID:"reverted-turn"});
+  if(discarded){
+   expect(record()?.executionEvidence).toBe(before?.executionEvidence);
+   // Cancelling the read notifies the existing hydration subscribers, whose
+   // normal clock may advance. Execution fields and both caches must not.
+   expect(record()).toEqual({...before,updatedAt:record()?.updatedAt});
+   expect(client.getQueryData<SessionStatus>(statusQueryKey)?.type).toBe(beforeStatus);
+   expect(client.getQueryData<LegalworkSessionSnapshot>(snapshotQueryKey)?.status.type).toBe(beforeSnapshotStatus);
+  }else if(sequence==="idle-manual"&&reader==="snapshot"){
+   expect(snapshots.getCurrentResult().data?.status.type).toBe("idle");
+   // Manual busy hydration is not authority for this read, but the original
+   // conservative snapshot seed does not terminate that preexisting activity.
+   expect(client.getQueryData<SessionStatus>(statusQueryKey)?.type).toBe("busy");
+   expect(record()?.runActive).toBe(true);
+  }else{
+   const expected=sequence.includes("busy")||sequence.includes("accepted")?"busy":"idle";
+   expect(client.getQueryData<SessionStatus>(statusQueryKey)?.type).toBe(expected);
+   expect(client.getQueryData<LegalworkSessionSnapshot>(snapshotQueryKey)?.status.type).toBe(expected);
+   expect(record()?.runActive).toBe(expected==="busy");
+  }
+  expect(reader==="snapshot"?snapshots.getCurrentResult().fetchStatus:statuses.getCurrentResult().fetchStatus).toBe("idle");
+  if(sequence==="idle-start")expect(record()).toMatchObject({status:"compacting",compacting:true,runActive:false});
+  if(sequence==="idle-ask")expect(record()).toMatchObject({status:"waiting",waitingQuestionIds:["synthetic-sequence-wait"],runActive:false});
+  if(sequence==="error-end")expect(record()).toMatchObject({errorActive:true,runActive:false});
+  if(sequence==="error-start")expect(record()).toMatchObject({errorActive:false,compacting:true,runActive:before?.runActive});
+  if(sequence==="idle-busy-start")expect(record()).toMatchObject({runActive:true,compacting:true});
+  if(sequence==="idle-accepted-ask")expect(record()).toMatchObject({runActive:true,waitingQuestionIds:["synthetic-sequence-wait"]});
+  // Existing fresh status recovery remains available after a genuine cleanup.
+  if(sequence==="idle-start"||sequence==="error-start"||sequence==="idle-busy-start")await event("end");
+  if(sequence==="idle-ask"||sequence==="idle-accepted-ask")await event("reply");
+  await statuses.refetch();
+  expect(client.getQueryData<SessionStatus>(statusQueryKey)?.type).toBe("idle");
+  expect(client.getQueryData<LegalworkSessionSnapshot>(snapshotQueryKey)?.status.type).toBe("idle");
+  expect(record()?.runActive).toBe(false);
+  expect(record()?.compacting).toBe(false);expect(record()?.waitingQuestionIds).toEqual([]);
+  expect(client.getQueryData<LegalworkSessionSnapshot>(snapshotQueryKey)?.session.revert).toEqual({messageID:"reverted-turn"});
+ });
+}
