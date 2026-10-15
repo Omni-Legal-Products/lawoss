@@ -285,18 +285,20 @@ test('health publication snapshots validated companion before asynchronous write
   assert.equal(saved.receiptSha256,sha(await fs.readFile(output)));
 });
 
-test('health refusal retry reaches real listener once and selected work sees verified frozen boundary',async t=>{
-  const f=await fixture(t,'ready',true);let attempts=0;
-  const pair=await api.testOnlyRun({...f.options,ownedNoopSdkMetadataHealth:true,healthRequest:(request,url)=>{
-    attempts++;if(attempts===1)throw Object.assign(new TypeError('PRIVATE'),{cause:{code:'ECONNREFUSED'}});
-    return request(url);
-  }});
-  assert.equal(attempts,2);assert.equal(pair.receipt.outcome,'UNKNOWN');assert.equal(pair.receipt.reason,'plugin-unobserved');
-  assert.equal(pair.companion.healthStage,'verified');assert.equal(pair.companion.connectionRefusals,1);
-  assert.equal(pair.companion.errorName,'none');assert.equal(pair.companion.errorCode,'none');
-  assert.equal(pair.companion.ownerAborted,false);assert.equal(pair.companion.deadlineExpired,false);
-  assert.ok(pair.companion.healthElapsedMs>0);assert.ok(!JSON.stringify(pair.companion).includes('PRIVATE'));
-  t.after(()=>fs.rm(f.privateRoot,{recursive:true,force:true}));
+test('health refusal retry reaches real listener and selected work sees verified frozen boundary',async t=>{
+  for(const forcedRefusals of [1,2]) {
+    const f=await fixture(t,'ready',true);let attempts=0;
+    const pair=await api.testOnlyRun({...f.options,ownedNoopSdkMetadataHealth:true,healthRequest:(request,url)=>{
+      attempts++;if(attempts<=forcedRefusals)throw Object.assign(new TypeError('PRIVATE'),{cause:{code:'ECONNREFUSED'}});
+      return request(url);
+    }});
+    assert.ok(attempts>=forcedRefusals+1);assert.equal(pair.receipt.outcome,'UNKNOWN');assert.equal(pair.receipt.reason,'plugin-unobserved');assert.equal(pair.receipt.pluginObserved,false);
+    assert.equal(pair.companion.healthStage,'verified');assert.equal(pair.companion.connectionRefusals,attempts-1);assert.ok(Object.isFrozen(pair.companion));
+    assert.equal(pair.companion.errorName,'none');assert.equal(pair.companion.errorCode,'none');
+    assert.equal(pair.companion.ownerAborted,false);assert.equal(pair.companion.deadlineExpired,false);
+    assert.ok(pair.companion.healthElapsedMs>0);assert.ok(!JSON.stringify(pair.companion).includes('PRIVATE'));
+    t.after(()=>fs.rm(f.privateRoot,{recursive:true,force:true}));
+  }
 });
 
 test('health refusal exhaustion retains exact retry rule, deadline and terminal name',async t=>{
