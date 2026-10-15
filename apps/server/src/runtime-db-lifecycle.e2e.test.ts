@@ -234,6 +234,8 @@ for (const kind of ["tasks", "projects"] as const) test(`an accepted pending ${k
       timing?.record("owner.first.start.done");
       timing?.record("owner.second.start.enter");
       await second.run(async () => { stopSecond = start(secondConfig, 60_000, 60_000); });
+      // A runner timeout may have completed cleanup while this existing start result was pending.
+      if (cleanupPromise) return;
       timing?.record("owner.second.start.done");
       let onArrival!: () => void;
       const arrived = new Promise<true>(resolve => {
