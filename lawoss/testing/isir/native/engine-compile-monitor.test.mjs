@@ -171,9 +171,9 @@ test('post-input verification detects every changed pinned byte and preserves th
 test('preload is inert on import and a mismatched descendant entry even with explicit config',async t=>{
   const root=await fixture(t),source=path.join(root,'source');await fs.mkdir(source);const entry=path.join(source,'entry.mjs'),other=path.join(source,'vite.mjs');
   const content='process.stdout.write(String(process.listenerCount("uncaughtExceptionMonitor")));\n';await fs.writeFile(entry,content);await fs.writeFile(other,content);
-  const manifest=api.makeManifest([{path:'entry.mjs',blob:commit},{path:'vite.mjs',blob:commit}]);const prepared=await api.prepareMonitor(path.join(root,'monitor'),{root:source,entry,argv:[process.execPath,entry],mode:'build',manifest});
+  const manifest=api.makeManifest([{path:'entry.mjs',blob:commit},{path:'vite.mjs',blob:commit}]);const prepared=await api.prepareMonitor(path.join(root,'monitor with # and %'),{root:source,entry,argv:[process.execPath,entry],mode:'build',manifest});
   for(const [file,selected] of [[fileURLToPath(new URL('./engine-compile-monitor-preload.mjs',import.meta.url)),false],[prepared.preloadFile,true]]){
-    const c=spawn(process.execPath,['--import',file,other],{env:{PATH:process.env.PATH,...(selected?{BUN_INSPECT_PRELOAD:file}:{})},stdio:['ignore','pipe','pipe']});const result=await collectChild(c,{capture:true,timeoutMs:5000,limit:1024});assert.equal(result.outcome,'ok');assert.equal(result.text,'0');
+    const c=spawn(process.execPath,['--import',pathToFileURL(file).href,other],{env:{PATH:process.env.PATH,...(selected?{BUN_INSPECT_PRELOAD:file}:{})},stdio:['ignore','pipe','pipe']});const result=await collectChild(c,{capture:true,timeoutMs:5000,limit:1024});assert.equal(result.outcome,'ok');assert.equal(result.text,'0');
   }
 });
 test('closed receipt rejects future-stage data and unsupported capability evidence',()=>{
