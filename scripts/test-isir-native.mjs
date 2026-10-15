@@ -160,6 +160,11 @@ try {
   await until(()=>cdp.evaluate("window.__legalworkControl?.listActions().some(a=>a.id==='session.create_task'&&!a.disabled)"),'configured native renderer',60000);
   assert.equal(await cdp.evaluate(`JSON.parse(localStorage.getItem('legalwork.preferences')??'{}').selectedAgent`),'legalwork','Ordinary persisted selected-agent fixture loaded by the actual new document');
 
+  const renderBoundary=await cdp.evaluate(`(async()=>{const tests=await import('/tests/session-render-boundary.test.tsx');return tests.runNativeSessionRenderBoundary(${JSON.stringify({baseUrl:serverInfo.baseUrl,token:serverInfo.ownerToken||serverInfo.clientToken,workspaceId:workspaces[0].id,workspaceRoot:workspaces[0].path})})})()`);
+  assert.equal(renderBoundary.actualMountedSurface,true);
+  await writeFile(path.join(root,'session-render-boundary.json'),JSON.stringify(renderBoundary,null,2),{mode:0o600});
+  console.log(`Mounted native Surface boundary: ${JSON.stringify(renderBoundary)}`);
+
   let selectedIndex=1;
   boundaryProbe = () => diagnostics.probeWorkspace({serverInfo,serverAuth,workspaces,selectedIndex});
   const api = async (workspace, route, input) => {

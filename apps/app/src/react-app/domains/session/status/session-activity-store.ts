@@ -7,7 +7,16 @@ export type SessionActivityStatus = "idle" | "thinking" | "responding" | "error"
 
 type SessionMessageRole = "assistant" | "system" | "user";
 
+export type SessionExecutionEvidence = {
+  /** Native transport identity, or a local action in this workspace/session. */
+  scope: ((candidate: string) => boolean) | null;
+  status: unknown;
+  error: boolean;
+};
+
 type SessionActivityRecord = {
+  /** Ephemeral action token; hydration and role/metadata updates preserve it. */
+  executionEvidence?: SessionExecutionEvidence;
   status: SessionActivityStatus;
   runActive: boolean;
   assistantOutput: boolean;
@@ -35,12 +44,12 @@ type SessionActivityStore = {
   getSessionError: (workspaceId: string, sessionId: string) => string | null;
   seedWorkspaceSessions: (workspaceId: string, sessions: SessionLike[]) => void;
   seedSessionRun: (workspaceId: string, sessionId: string, status: unknown, assistantOutput: boolean) => void;
-  setRunStatus: (workspaceId: string, sessionId: string, status: unknown) => void;
+  setRunStatus: (workspaceId: string, sessionId: string, status: unknown, scope?: ((candidate: string) => boolean) | null | false) => void;
   markMessageRole: (workspaceId: string, sessionId: string, messageId: string, role: SessionMessageRole) => void;
   markAssistantOutput: (workspaceId: string, sessionId: string, messageId?: string, options?: { allowUnknownMessageRole?: boolean }) => void;
   setWaitingRequest: (workspaceId: string, sessionId: string, kind: "permission" | "question", requestId: string, waiting: boolean) => void;
   replaceWaitingRequests: (workspaceId: string, sessionId: string, kind: "permission" | "question", requestIds: string[]) => void;
-  setError: (workspaceId: string, sessionId: string, message?: string, errorUserMessageId?: string | null) => void;
+  setError: (workspaceId: string, sessionId: string, message?: string, errorUserMessageId?: string | null, scope?: ((candidate: string) => boolean) | null) => void;
   clearError: (workspaceId: string, sessionId: string) => void;
   setCompacting: (workspaceId: string, sessionId: string, compacting: boolean) => void;
   removeSession: (workspaceId: string, sessionId: string) => void;
@@ -209,7 +218,7 @@ export const useSessionActivityStore = create<SessionActivityStore>((set, get) =
       };
     }));
   },
-  setRunStatus: (workspaceId, sessionId, status) => {
+  setRunStatus: (workspaceId, sessionId, status, scope = null) => {
     const workspace = workspaceId.trim();
     const session = sessionId.trim();
     if (!workspace || !session) return;
@@ -218,6 +227,7 @@ export const useSessionActivityStore = create<SessionActivityStore>((set, get) =
       const runActive = normalized === "running" || normalized === "retry";
       return {
         ...record,
+        ...(scope === false ? {} : { executionEvidence: { scope, status, error: false } }),
         runActive,
         assistantOutput: runActive && record.runActive ? record.assistantOutput : false,
         errorActive: runActive ? false : record.errorActive,
@@ -277,12 +287,13 @@ export const useSessionActivityStore = create<SessionActivityStore>((set, get) =
       [kind === "permission" ? "waitingPermissionIds" : "waitingQuestionIds"]: ids,
     })));
   },
-  setError: (workspaceId, sessionId, message, errorUserMessageId) => {
+  setError: (workspaceId, sessionId, message, errorUserMessageId, scope = null) => {
     const workspace = workspaceId.trim();
     const session = sessionId.trim();
     if (!workspace || !session) return;
     set((state) => updateRecord(state, workspace, session, (record) => ({
       ...record,
+      executionEvidence: { scope, status: undefined, error: true },
       errorActive: true,
       errorMessage: message ? message : t("session.failed"),
       errorUserMessageId: errorUserMessageId?.trim() || null,

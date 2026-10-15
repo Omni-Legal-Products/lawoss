@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { createServer, type ServerResponse } from "node:http";
+import type { UIMessage } from "ai";
 import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
 import { randomUUID } from "node:crypto";
 import { applyDocumentGenerationRunStatus, clearDocumentGenerationsForTest, getDocumentGeneration, observeDocumentGeneration, submitBoundDocumentGeneration } from "../src/react-app/domains/session/panel/document-generation-lifecycle";
@@ -16,12 +17,12 @@ import { ensureWorkspaceSessionSync, trackWorkspaceSessionSync, seedSessionState
 const cleanups: Array<() => Promise<void>>=[];
 afterEach(async()=>{while(cleanups.length)await cleanups.pop()?.();getReactQueryClient().clear();clearDocumentGenerationsForTest();useSessionActivityStore.setState({recordsByWorkspaceId:{},statusesByWorkspaceId:{}});});
 async function waitFor(read:()=>boolean){for(let i=0;i<100;i++){if(read())return;await new Promise(r=>setTimeout(r,10));}expect(read()).toBe(true);}
-async function fixture(options: { gcTime?: number; workspaceId?: string; directory?: string; token?: string; hostToken?: string; snapshot?: LegalworkSessionSnapshot; fullSnapshot?: LegalworkSessionSnapshot; snapshotReply?: (limit:string|null,response:ServerResponse,read:number)=>void } = {}){
+async function fixture(options: { gcTime?: number; workspaceId?: string; directory?: string; token?: string; hostToken?: string; snapshot?: LegalworkSessionSnapshot; fullSnapshot?: LegalworkSessionSnapshot; snapshotReply?: (limit:string|null,response:ServerResponse,read:number)=>void; statusReply?: (response:ServerResponse,read:number)=>void } = {}){
  let opened=0,closed=0,ready=false,updated=0;
  const responses = new Set<ServerResponse>();
  const token = options.token ?? "synthetic-sync-token";
  const workspaceId = options.workspaceId ?? randomUUID();
- const snapshotReads:Array<string|null>=[];
+ const snapshotReads:Array<string|null>=[];let statusReads=0;
  const server=createServer((request,response)=>{
   const requestUrl=new URL(request.url ?? "","http://fixture");
   if (requestUrl.pathname === `/workspace/${encodeURIComponent(workspaceId)}/sessions/session-one/snapshot` && options.snapshot) {
@@ -33,6 +34,7 @@ async function fixture(options: { gcTime?: number; workspaceId?: string; directo
    response.end(JSON.stringify({item:limit===null?(options.fullSnapshot ?? options.snapshot):options.snapshot}));
    return;
   }
+  if(requestUrl.pathname==="/session/status" && options.statusReply){options.statusReply(response,++statusReads);return;}
   expect(request.url?.split("?")[0]).toBe("/event");expect(request.headers.authorization).toBe(`Bearer ${token}`);
   if(options.snapshot && options.directory) expect(new URL(request.url ?? "", "http://fixture").searchParams.get("directory")).toBe(options.directory);
   response.writeHead(200,{"content-type":"text/event-stream"});response.write('data: {"type":"server.connected","properties":{}}\n\n');opened++;responses.add(response);
@@ -1000,3 +1002,199 @@ test("different transport identities release only their own status observers and
  expect(query?.getObserversCount()).toBe(0);
  await waitFor(()=>getReactQueryClient().getQueryState(statusKey(workspaceId,"session-one"))===undefined);
 });
+
+// The reader comes from the real Surface; this is not a test-owned queryFn.
+test("Surface held HTTP response cannot resurrect a run after actual SSE idle", async () => {
+ const value=busySnapshot(); let finish:(()=>void)|undefined;
+ const f=await fixture({directory:"/synthetic/selected",snapshot:value,snapshotReply:(_limit,response,read)=>{
+  response.writeHead(200,{"content-type":"application/json"});
+  const body=JSON.stringify({item:value});
+  if(read===2){response.flushHeaders();finish=()=>response.end(body);}else response.end(body);
+ }});
+ await renderSessionSurface(f);
+ const client=getReactQueryClient(),key=snapshotKey(f.input.workspaceId,"session-one");
+ const query=client.getQueryCache().find({queryKey:key,exact:true});
+ if(!query)throw new Error("Actual Surface reader missing");
+ const observer=new QueryObserver<LegalworkSessionSnapshot>(client,{...query.options,queryKey:key,enabled:false});
+ const release=observer.subscribe(result=>{if(result.data)for(let caller=0;caller<2;caller++)seedSessionState(f.input.workspaceId,result.data);});
+ cleanups.push(async()=>release());
+ await observer.refetch();
+ const pending=observer.refetch();await waitFor(()=>Boolean(finish));
+ f.wire({type:"session.idle",properties:{sessionID:"session-one"}});
+ await waitFor(()=>client.getQueryData<SessionStatus>(statusKey(f.input.workspaceId,"session-one"))?.type==="idle");
+ expect(useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]?.runActive).toBe(false);
+ finish?.();await pending;
+ expect(observer.getCurrentResult().data?.status.type).toBe("idle");
+ expect(client.getQueryData<SessionStatus>(statusKey(f.input.workspaceId,"session-one"))?.type).toBe("idle");
+ expect(useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]?.runActive).toBe(false);
+});
+
+for(const scenario of ["initial-idle","same-idle","native-busy","error","metadata-only","new-accepted","same-busy-accepted","other-session","other-scope"] as const){
+ test(`actual Surface reader execution ordering: ${scenario}`,async()=>{
+  const value=busySnapshot();let finish:(()=>void)|undefined;
+  if(scenario==="native-busy"||scenario==="new-accepted")value.status={type:"idle"};
+  const initial=scenario==="initial-idle";
+  const f=await fixture({directory:"/synthetic/selected",snapshot:value,snapshotReply:(_limit,response,read)=>{
+   response.writeHead(200,{"content-type":"application/json"});const body=JSON.stringify({item:value});
+   if(read===(initial?1:2)){response.flushHeaders();finish=()=>response.end(body);}else response.end(body);
+  }});
+  await renderSessionSurface(f);
+  const client=getReactQueryClient(),key=snapshotKey(f.input.workspaceId,"session-one");
+  const query=client.getQueryCache().find({queryKey:key,exact:true});if(!query)throw new Error("Surface reader absent");
+  const observer=new QueryObserver<LegalworkSessionSnapshot>(client,{...query.options,queryKey:key,enabled:false});
+  const release=observer.subscribe(result=>{if(result.data)for(let caller=0;caller<2;caller++)seedSessionState(f.input.workspaceId,result.data);});cleanups.push(async()=>release());
+  if(!initial)await observer.refetch();
+  if(scenario==="same-idle")await f.wireStatus({type:"idle"});
+  if(scenario==="same-busy-accepted")value.status={type:"idle"};
+  if(scenario==="error")value.messages.push({info:{id:"newer-in-stale-body",sessionID:"session-one",role:"user",agent:"synthetic",model:{providerID:"synthetic",modelID:"synthetic"},time:{created:0}},parts:[]});
+  const pending=observer.refetch();await waitFor(()=>Boolean(finish));
+  let expected:SessionStatus["type"]="busy";
+  if(initial||scenario==="same-idle"){
+   f.wire({type:"session.idle",properties:{sessionID:"session-one"}});
+   await waitFor(()=>useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]?.runActive===false);
+   // A metadata marker is ordered after idle on the same native SSE stream.
+   f.wire({type:"session.updated",properties:{info:{id:"session-one",time:{created:0,updated:9}}}});await waitFor(()=>f.updated()===1);
+   expected="idle";
+  }else if(scenario==="native-busy")await f.wireStatus({type:"busy"});
+  else if(scenario==="error"){
+   f.wire({type:"session.error",properties:{sessionID:"session-one",error:{name:"UnknownError",data:{message:"Synthetic ordering failure"}}}});
+   await waitFor(()=>useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]?.errorActive===true);
+  }else if(scenario==="metadata-only"){
+   value.status={type:"idle"}; // This response is already captured as busy; test next read below too.
+   f.wire({type:"session.updated",properties:{info:{id:"session-one",title:"Synthetic metadata",time:{created:0,updated:3}}}});
+   await waitFor(()=>f.updated()===1);
+  }else if(scenario==="new-accepted"||scenario==="same-busy-accepted"){
+   await submitBoundDocumentGeneration({key:`ordering-${f.input.workspaceId}`,metadata:{projectId:f.input.workspaceId,workspaceId:f.input.workspaceId,baseUrl:f.input.baseUrl,root:"/synthetic/selected",directory:"/synthetic/selected"},preflight:async()=>{},create:async()=>"session-one",send:async()=>{}});
+   expect(getDocumentGeneration(`ordering-${f.input.workspaceId}`)?.nativeRevision).toBe(0);
+  }else if(scenario==="other-session"){
+   f.wire({type:"session.idle",properties:{sessionID:"another-session"}});
+   await waitFor(()=>useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["another-session"]?.runActive===false);
+  }else{
+   const other=await fixture({workspaceId:f.input.workspaceId,directory:"/synthetic/other",token:"synthetic-other-scope"});
+   await other.wireStatus({type:"idle"});
+  }
+  finish?.();await pending;
+  expect(observer.getCurrentResult().data?.status.type).toBe(expected);
+  const activity=useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"];
+  if(scenario==="error")expect(activity).toMatchObject({errorActive:true,runActive:false});
+  else expect(activity?.runActive).toBe(expected==="busy");
+  if(scenario!=="error"){
+   // A later read is not permanently pinned by evidence preceding its start.
+   value.status={type:"busy"};
+   await observer.refetch();expect(observer.getCurrentResult().data?.status.type).toBe("busy");
+  }
+ });
+}
+
+for(const mode of ["native-idle","native-error","fresh-poll","metadata-only"] as const){
+ test(`actual Surface snapshot and status readers: ${mode}`,async()=>{
+  const value=busySnapshot();let finishSnapshot:(()=>void)|undefined,finishStatus:(()=>void)|undefined;
+  const f=await fixture({directory:"/synthetic/selected",snapshot:value,snapshotReply:(_limit,response,read)=>{
+   response.writeHead(200,{"content-type":"application/json"});const body=JSON.stringify({item:value});
+   if(read===2){response.flushHeaders();finishSnapshot=()=>response.end(body);}else response.end(body);
+  },statusReply:(response)=>{
+   response.writeHead(200,{"content-type":"application/json"});
+   if(mode==="fresh-poll"||mode==="metadata-only")response.end(JSON.stringify({"session-one":{type:"idle"}}));
+   else{response.flushHeaders();finishStatus=()=>response.end(JSON.stringify({"session-one":{type:"busy"}}));}
+  }});
+  await renderSessionSurface(f);const client=getReactQueryClient();
+  const observe=<T,>(key:readonly string[])=>{
+   const query=client.getQueryCache().find({queryKey:key,exact:true});if(!query)throw new Error("Surface query absent");
+   const observer=new QueryObserver<T>(client,{...query.options,queryKey:key,enabled:false});
+   const release=observer.subscribe(()=>{});cleanups.push(async()=>release());return observer;
+  };
+  const snapshots=observe<LegalworkSessionSnapshot>(snapshotKey(f.input.workspaceId,"session-one"));
+  const statuses=observe<SessionStatus>(statusKey(f.input.workspaceId,"session-one"));
+  const hydrate=snapshots.subscribe(result=>{if(result.data)for(let caller=0;caller<2;caller++)seedSessionState(f.input.workspaceId,result.data);});cleanups.push(async()=>hydrate());
+  await snapshots.refetch();
+  const snapshotPending=snapshots.refetch();await waitFor(()=>Boolean(finishSnapshot));
+  const statusPending=mode==="metadata-only"?undefined:statuses.refetch();
+  if(mode==="native-idle"||mode==="native-error"){
+   await waitFor(()=>Boolean(finishStatus));
+   if(mode==="native-idle")await f.wireStatus({type:"idle"});
+   else{f.wire({type:"session.error",properties:{sessionID:"session-one",error:{name:"UnknownError",data:{message:"Synthetic poll ordering error"}}}});await waitFor(()=>useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]?.errorActive===true);}
+  }else await statusPending;
+  f.wire({type:"session.updated",properties:{info:{id:"session-one",title:"Synthetic latest metadata",time:{created:0,updated:44}}}});await waitFor(()=>f.updated()===1);
+  const publications:Array<{error:boolean|undefined;title:string|undefined}>=[];
+  const watch=snapshots.subscribe(result=>publications.push({error:useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]?.errorActive,title:result.data?.session.title}));cleanups.push(async()=>watch());
+  finishStatus?.();await statusPending;finishSnapshot?.();await snapshotPending;
+  if(mode==="native-error"){
+   expect(publications.every(value=>value.error===true&&value.title==="Synthetic latest metadata")).toBe(true);
+   expect(snapshots.getCurrentResult().data?.session.title).toBe("Synthetic latest metadata");
+   expect(snapshots.getCurrentResult().fetchStatus).toBe("idle");
+   expect(statuses.getCurrentResult().fetchStatus).toBe("idle");
+  }else{
+   const expected=mode==="metadata-only"?"busy":"idle";
+   expect(snapshots.getCurrentResult().data?.status.type).toBe(expected);
+   expect(client.getQueryData<SessionStatus>(statusKey(f.input.workspaceId,"session-one"))?.type).toBe(expected);
+  }
+  expect(useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]?.runActive).toBe(mode==="metadata-only");
+ });
+}
+
+for(const mode of ["initial-error","initial-absent-sync","replaced-query","fresh-after-error"] as const){
+ test(`actual Surface read ownership: ${mode}`,async()=>{
+  const value=busySnapshot();let finish:(()=>void)|undefined;
+  const f=await fixture({directory:"/synthetic/selected",snapshot:value,snapshotReply:(_limit,response,read)=>{
+   response.writeHead(200,{"content-type":"application/json"});const body=JSON.stringify({item:value});
+   if(read===1){response.flushHeaders();finish=()=>response.end(body);}else response.end(body);
+  }});
+  if(mode==="initial-absent-sync"){__disposeWorkspaceSessionSyncForTest(f.input);await waitFor(()=>f.closed()===1);}
+  await renderSessionSurface(f);const client=getReactQueryClient(),key=snapshotKey(f.input.workspaceId,"session-one");
+  const query=client.getQueryCache().find({queryKey:key,exact:true});if(!query)throw new Error("Surface query absent");
+  const observer=new QueryObserver<LegalworkSessionSnapshot>(client,{...query.options,queryKey:key,enabled:false});
+  const release=observer.subscribe(result=>{if(result.data)for(let caller=0;caller<2;caller++)seedSessionState(f.input.workspaceId,result.data);});cleanups.push(async()=>release());
+  const pending=observer.refetch();await waitFor(()=>Boolean(finish));
+  if(mode==="initial-absent-sync"){const owner=ensureWorkspaceSessionSync(f.input),tracked=trackWorkspaceSessionSync(f.input,"session-one");cleanups.push(async()=>{tracked();owner();});await waitFor(()=>f.opened()===2);}
+  f.wire({type:"message.updated",properties:{info:value.messages[0].info}});await waitFor(()=>client.getQueryData<UIMessage[]>(transcriptKey(f.input.workspaceId,"session-one"))?.some(message=>message.id==="source-turn")===true);
+  f.wire({type:"session.error",properties:{sessionID:"session-one",error:{name:"UnknownError",data:{message:"Synthetic first read failure"}}}});await waitFor(()=>useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]?.errorActive===true);
+  if(mode==="replaced-query"){
+   release();client.removeQueries({queryKey:key,exact:true});
+   const replacement={...value,session:{...value.session,title:"Synthetic replacement owner"},status:{type:"idle"} as SessionStatus};
+   client.setQueryData(key,replacement);
+   finish?.();await pending;
+   expect(client.getQueryData<LegalworkSessionSnapshot>(key)?.session.title).toBe("Synthetic replacement owner");
+  }else{
+   finish?.();await pending;
+   expect(observer.getCurrentResult().data).toBeUndefined();expect(observer.getCurrentResult().fetchStatus).toBe("idle");
+   expect(useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]?.errorActive).toBe(true);
+   if(mode==="fresh-after-error"){
+    await observer.refetch();
+    expect(observer.getCurrentResult().data?.status.type).toBe("busy");
+    expect(useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]).toMatchObject({errorActive:false,runActive:true});
+   }
+  }
+ });
+}
+
+test("native execution scope remains exact and is absent from serialized activity",async()=>{
+ const f=await fixture({directory:"/synthetic/selected",token:"synthetic-private-token"});
+ await f.wireStatus({type:"busy"});
+ const record=useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"];
+ expect(record?.executionEvidence?.scope?.(`${f.input.workspaceId}:${f.input.baseUrl}:${f.input.legalworkToken}:${f.input.directory}`)).toBe(true);
+ for(const input of [{...f.input,legalworkToken:"other"},{...f.input,baseUrl:"http://synthetic-other"},{...f.input,directory:"/synthetic/other"}])expect(record?.executionEvidence?.scope?.(`${input.workspaceId}:${input.baseUrl}:${input.legalworkToken}:${input.directory}`)).toBe(false);
+ expect(JSON.stringify(record)).not.toContain(f.input.legalworkToken);expect(JSON.stringify(record)).not.toContain(f.input.baseUrl);
+ useSessionActivityStore.getState().removeSession(f.input.workspaceId,"session-one");
+ expect(useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]).toBeUndefined();
+});
+
+for(const mode of ["accepted-before-read","waiting","compacting"] as const){
+ test(`fresh actual Surface snapshot preserves ${mode}`,async()=>{
+  const value=busySnapshot();value.status={type:"idle"};
+  const f=await fixture({directory:"/synthetic/selected",snapshot:value});
+  await submitBoundDocumentGeneration({key:`safe-${f.input.workspaceId}`,metadata:{projectId:f.input.workspaceId,workspaceId:f.input.workspaceId,baseUrl:f.input.baseUrl,root:"/synthetic/selected",directory:"/synthetic/selected"},preflight:async()=>{},create:async()=>"session-one",send:async()=>{}});
+  const store=useSessionActivityStore.getState();
+  if(mode==="waiting")store.setWaitingRequest(f.input.workspaceId,"session-one","permission","synthetic-permission",true);
+  if(mode==="compacting")store.setCompacting(f.input.workspaceId,"session-one",true);
+  await renderSessionSurface(f);
+  const client=getReactQueryClient(),key=snapshotKey(f.input.workspaceId,"session-one"),query=client.getQueryCache().find({queryKey:key,exact:true});if(!query)throw new Error("Surface reader absent");
+  const observer=new QueryObserver<LegalworkSessionSnapshot>(client,{...query.options,queryKey:key,enabled:false});
+  const release=observer.subscribe(result=>{if(result.data)for(let caller=0;caller<2;caller++)seedSessionState(f.input.workspaceId,result.data);});cleanups.push(async()=>release());
+  await observer.refetch();
+  const activity=useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"];
+  expect(activity?.runActive).toBe(true);
+  expect(getDocumentGeneration(`safe-${f.input.workspaceId}`)?.nativeRevision).toBe(0);
+  if(mode==="waiting")expect(activity?.waitingPermissionIds).toEqual(["synthetic-permission"]);
+  if(mode==="compacting")expect(activity?.compacting).toBe(true);
+ });
+}

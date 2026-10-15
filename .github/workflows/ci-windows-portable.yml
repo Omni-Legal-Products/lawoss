@@ -24,6 +24,7 @@ on:
       - apps/app/tests/workspace-attachment.test.ts
       - apps/app/tests/home-submission.test.ts
       - apps/app/tests/session-sync-retention.test.ts
+      - apps/app/tests/session-render-boundary.test.tsx
       - apps/app/src/react-app/domains/session/sync/session-sync.ts
       - apps/app/tests/fusion-routing.test.ts
       - apps/server/src/workspace-reconnect.e2e.test.ts
@@ -109,6 +110,7 @@ on:
       - apps/app/tests/workspace-attachment.test.ts
       - apps/app/tests/home-submission.test.ts
       - apps/app/tests/session-sync-retention.test.ts
+      - apps/app/tests/session-render-boundary.test.tsx
       - apps/app/src/react-app/domains/session/sync/session-sync.ts
       - apps/app/tests/fusion-routing.test.ts
       - apps/server/src/workspace-reconnect.e2e.test.ts
@@ -217,7 +219,7 @@ jobs:
       # Filtre bez lomky, aby sedeli aj na cestách so spätnou lomkou.
       - name: LAWOSS app logic (OKF views, onboarding, Lite)
         working-directory: apps/app
-        run: bun test lawoss- okf- document-processing native-document-generation project-folder-recovery workspace-attachment home-submission fusion-routing session-sync-permissions session-sync-tool-parts message-queue-runner session-sync-retention
+        run: bun test lawoss- okf- document-processing native-document-generation project-folder-recovery workspace-attachment home-submission fusion-routing session-sync-permissions session-sync-tool-parts message-queue-runner session-sync-retention session-render-boundary
       # Server s onboardingom, registráciou existujúceho priečinka, roztriedením,
       # pamäťou a kanonickými cestami. Filtre zachytia zdrojové testy
       # bez lomky kvôli cestám s `\`; dist pre Node zostavujeme až potom.

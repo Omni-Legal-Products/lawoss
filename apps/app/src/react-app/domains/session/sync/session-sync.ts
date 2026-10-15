@@ -1,5 +1,5 @@
 import type { UIMessage } from "ai";
-import { QueryObserver, type Query } from "@tanstack/react-query";
+import { CancelledError, QueryObserver, type Query } from "@tanstack/react-query";
 import type { FilePart, Part, PermissionRequest, PermissionV2Request, QuestionRequest, Session, SessionStatus, Todo } from "@opencode-ai/sdk/v2/client";
 
 import { getReactQueryClient } from "../../../infra/query-client";
@@ -17,7 +17,7 @@ import {
   STRUCTURED_OUTPUT_TOOL,
 } from "./parse-tool-parts";
 import type { LegalworkSessionSnapshot } from "@/app/lib/legalwork-server";
-import { applyRevertCursor, reconcileTranscriptMessages } from "./transcript-reconcile";
+import { applyRevertCursor, applySnapshotRevertCursor, reconcileTranscriptMessages } from "./transcript-reconcile";
 import {
   useSessionActivityStore,
 } from "../status/session-activity-store";
@@ -80,6 +80,61 @@ export const questionKey = (workspaceId: string, sessionId: string) =>
 
 function syncKey(input: SyncOptions) {
   return `${input.workspaceId}:${input.baseUrl}:${input.legalworkToken}:${input.directory ?? ""}`;
+}
+
+function executionScope(input: SyncOptions) {
+  const owner = syncKey(input);
+  // The credential-bearing key stays inside a closure, never in serializable
+  // activity state or diagnostics. This does not retain a transport owner.
+  return (candidate: string) => candidate === owner;
+}
+
+/** One HTTP read's causal boundary. No clock, retained observer, or transport owner. */
+export function observeSessionReadExecution(input: SyncOptions, sessionId: string, query: Query | undefined, signal: AbortSignal) {
+  const client = getReactQueryClient();
+  const scope = syncKey(input);
+  let latest: { status: SessionStatus | undefined; error: boolean } | undefined;
+  const releaseActivity = useSessionActivityStore.subscribe((next, previous) => {
+    const evidence = next.recordsByWorkspaceId[input.workspaceId]?.[sessionId]?.executionEvidence;
+    if (!evidence || evidence === previous.recordsByWorkspaceId[input.workspaceId]?.[sessionId]?.executionEvidence) return;
+    if (evidence.scope !== null && !evidence.scope(scope)) return;
+    const value = evidence.status;
+    const status = value && typeof value === "object" && "type" in value
+      && (value.type === "idle" || value.type === "busy" || value.type === "retry")
+      ? value as SessionStatus : undefined;
+    latest = { status, error: evidence.error };
+  });
+  // A valid later poll is also newer execution evidence. Hydration/native
+  // setQueryData writes are manual and must not impersonate a completed read.
+  const statusQuery = client.getQueryCache().find({ queryKey: statusKey(input.workspaceId, sessionId), exact: true });
+  const snapshotQuery = client.getQueryCache().find({ queryKey: snapshotKey(input.workspaceId, sessionId), exact: true });
+  const releaseStatus = client.getQueryCache().subscribe((event) => {
+    if (event.type !== "updated" || event.action.type !== "success" || event.action.manual) return;
+    const activity = useSessionActivityStore.getState().recordsByWorkspaceId[input.workspaceId]?.[sessionId];
+    const error = activity?.errorActive ?? false;
+    if (event.query === statusQuery) latest = { status: event.action.data as SessionStatus, error };
+    else if (event.query === snapshotQuery) {
+      const status = (event.action.data as LegalworkSessionSnapshot).status;
+      // Snapshot hydration intentionally cannot close accepted/waiting work.
+      // Such an idle read is not completion evidence for a concurrent poll.
+      if (!isLiveStatus(status) && activity && activity.status !== "idle") return;
+      latest = { status, error };
+    }
+  });
+  return {
+    status(status: SessionStatus): SessionStatus {
+      signal.throwIfAborted();
+      if (latest?.error) {
+        // Cancel only this still-current read, without restoring stale query
+        // data/metadata or converting a native failure into manufactured idle.
+        void query?.cancel({ silent: true, revert: false });
+        query?.setState({ fetchStatus: "idle" });
+        throw new CancelledError({ silent: true });
+      }
+      return latest?.status ?? status;
+    },
+    dispose() { releaseActivity(); releaseStatus(); },
+  };
 }
 
 function getErrorStatus(error: unknown) {
@@ -736,7 +791,7 @@ export function coalescePendingDeltas(items: PendingDelta[]) {
   return ordered;
 }
 
-function publishSessionStatus(workspaceId: string, sessionId: string, status: SessionStatus) {
+export function publishSessionStatus(workspaceId: string, sessionId: string, status: SessionStatus) {
   const queryClient = getReactQueryClient();
   queryClient.setQueryData(statusKey(workspaceId, sessionId), status);
   // Metadata/revert updates replay this snapshot through both hydration effects.
@@ -833,7 +888,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
         });
       }
       const errorUserMessageId = latestUserMessageId(queryClient.getQueryData<UIMessage[]>(transcriptKey(workspaceId, sessionId)));
-      useSessionActivityStore.getState().setError(workspaceId, sessionId, errorText, errorUserMessageId);
+      useSessionActivityStore.getState().setError(workspaceId, sessionId, errorText, errorUserMessageId, executionScope(entry.input));
       if (isTrackedSession(entry, sessionId)) {
         queryClient.setQueryData<UIMessage[]>(transcriptKey(workspaceId, sessionId), (current = []) => {
           // Key the error to the latest assistant turn so it lands beside the
@@ -867,7 +922,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "session.status") {
     const props = (event.properties ?? {}) as { sessionID?: string; status?: SessionStatus };
     if (!props.sessionID || !props.status) return;
-    useSessionActivityStore.getState().setRunStatus(workspaceId, props.sessionID, props.status);
+    useSessionActivityStore.getState().setRunStatus(workspaceId, props.sessionID, props.status, executionScope(entry.input));
     const tracked = isTrackedSession(entry, props.sessionID);
     if (tracked) publishSessionStatus(workspaceId, props.sessionID, props.status);
     for (const listener of entry.sessionStatusListeners) listener({ sessionId: props.sessionID, status: props.status });
@@ -969,7 +1024,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     // Only a terminal answer/error may substitute for a missing idle event.
     if (info.role === "assistant" && !info.summary && typeof info.time?.completed === "number"
       && (info.error || (info.finish && info.finish !== "tool-calls" && info.finish !== "unknown"))) {
-      useSessionActivityStore.getState().setRunStatus(workspaceId, info.sessionID, idleStatus);
+      useSessionActivityStore.getState().setRunStatus(workspaceId, info.sessionID, idleStatus, executionScope(entry.input));
       if (isTrackedSession(entry, info.sessionID)) {
         publishSessionStatus(workspaceId, info.sessionID, idleStatus);
       }
@@ -1111,7 +1166,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
         duration_ms: Date.now() - runStartedAt,
       });
     }
-    useSessionActivityStore.getState().setRunStatus(workspaceId, props.sessionID, idleStatus);
+    useSessionActivityStore.getState().setRunStatus(workspaceId, props.sessionID, idleStatus, executionScope(entry.input));
     const tracked = isTrackedSession(entry, props.sessionID);
     if (tracked) publishSessionStatus(workspaceId, props.sessionID, idleStatus);
     for (const listener of entry.sessionStatusListeners) listener({ sessionId: props.sessionID, status: idleStatus });
@@ -1345,18 +1400,6 @@ export function seedTodoState(
   queryClient.setQueryData(key, todos);
 }
 
-function snapshotRevertUIMessageId(snapshot: LegalworkSessionSnapshot, incoming: UIMessage[]) {
-  const rawId = snapshot.session.revert?.messageID;
-  if (!rawId) return null;
-  if (incoming.some((message) => message.id === rawId)) return rawId;
-  const rawMessage = snapshot.messages.find((message) => message.info.id === rawId);
-  if (rawMessage?.info.role !== "assistant" || !rawMessage.info.error) return rawId;
-  // The adapter can replace this exact empty errored assistant with its error
-  // row. Resolve only an alias actually produced from the same raw snapshot.
-  const errorId = `${SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX}${rawId}`;
-  return incoming.some((message) => message.id === errorId) ? errorId : rawId;
-}
-
 function snapshotHasNewerUser(
   snapshot: LegalworkSessionSnapshot,
   knownUserId: string | null | undefined,
@@ -1399,20 +1442,10 @@ export function seedSessionState(workspaceId: string, snapshot: LegalworkSession
   // The snapshot's revert cursor is authoritative: messages at/after it are
   // reverted server-side, so the cache must not keep them alive (a later
   // merge would resurrect them once the server deletes them on next prompt).
-  const revertUIMessageId = snapshotRevertUIMessageId(snapshot, incoming);
-  const boundaryKnown = !snapshot.session.revert
-    || incoming.some((message) => message.id === revertUIMessageId)
-    || existing?.some((message) => message.id === revertUIMessageId);
-  // A limited page may omit the cursor after a prior hydration removed it.
-  // Preserve the known transcript until a read can establish that boundary.
-  queryClient.setQueryData(key, boundaryKnown ? applyRevertCursor(
-    reconcileTranscriptMessages({
-      currentMessages: existing ?? [],
-      snapshotMessages: incoming,
-      reason: "snapshot",
-    }),
-    revertUIMessageId,
-  ) : existing ?? []);
+  queryClient.setQueryData(key, applySnapshotRevertCursor(
+    reconcileTranscriptMessages({ currentMessages: existing ?? [], snapshotMessages: incoming, reason: "snapshot" }),
+    snapshot, incoming, existing ?? [],
+  ));
 
   // An older idle snapshot must not overwrite a newer busy event / accepted prompt.
   const activity = useSessionActivityStore.getState().recordsByWorkspaceId[workspaceId]?.[snapshot.session.id];

@@ -112,6 +112,8 @@ import { usePanelTabStore } from "@/react-app/domains/session/panel/panel-tab-st
 import {
   injectSessionErrorMessage,
   seedSessionState,
+  observeSessionReadExecution,
+  publishSessionStatus,
   seedTodoState,
   captureRunOutcome,
   snapshotKey as reactSnapshotKey,
@@ -785,9 +787,16 @@ export function SessionSurface(props: SessionSurfaceProps) {
     queryKey: snapshotQueryKey,
     queryFn: async ({ signal }) => {
       const startedAt = Date.now();
-      const snapshot = (await props.client.getSessionSnapshot(props.workspaceId, props.sessionId, fullHistorySession.current === props.sessionId ? { signal } : { limit: 140, signal })).item;
-      seedTodoState(props.workspaceId, props.sessionId, snapshot.todos, startedAt);
-      return snapshot;
+      const execution = observeSessionReadExecution(
+        { workspaceId: props.workspaceId, baseUrl: props.opencodeBaseUrl, legalworkToken: props.legalworkToken, directory: props.workspaceRoot.trim() || undefined },
+        props.sessionId, queryClient.getQueryCache().find({ queryKey: snapshotQueryKey, exact: true }), signal,
+      );
+      try {
+        const snapshot = (await props.client.getSessionSnapshot(props.workspaceId, props.sessionId, fullHistorySession.current === props.sessionId ? { signal } : { limit: 140, signal })).item;
+        const status = execution.status(snapshot.status);
+        seedTodoState(props.workspaceId, props.sessionId, snapshot.todos, startedAt);
+        return { ...snapshot, status };
+      } finally { execution.dispose(); }
     },
     staleTime: 500,
     retry: (failureCount, error) => !(error instanceof LegalworkServerError && error.code === "session_revert_boundary_unresolved")
@@ -800,15 +809,18 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // Reconcile the visible session with the engine, independently of transcript snapshots.
   const statusQuery = useQuery<SessionStatus>({
     queryKey: statusQueryKey,
-    queryFn: async () => {
-      const startedAt = Date.now();
-      const statuses = unwrap(await opencodeClient.session.status({ directory: props.workspaceRoot.trim() || undefined }));
-      const activity = useSessionActivityStore.getState().recordsByWorkspaceId[props.workspaceId]?.[props.sessionId];
-      // A prompt submitted while this request was in flight supersedes its idle result.
-      if (activity?.runActive && activity.updatedAt > startedAt) return { type: "busy" };
-      const status = statuses[props.sessionId] ?? IDLE_STATUS;
-      useSessionActivityStore.getState().setRunStatus(props.workspaceId, props.sessionId, status);
-      return status;
+    queryFn: async ({ signal }) => {
+      const execution = observeSessionReadExecution(
+        { workspaceId: props.workspaceId, baseUrl: props.opencodeBaseUrl, legalworkToken: props.legalworkToken, directory: props.workspaceRoot.trim() || undefined },
+        props.sessionId, queryClient.getQueryCache().find({ queryKey: statusQueryKey, exact: true }), signal,
+      );
+      try {
+        const statuses = unwrap(await opencodeClient.session.status({ directory: props.workspaceRoot.trim() || undefined }, { signal }));
+        const status = execution.status(statuses[props.sessionId] ?? IDLE_STATUS);
+        useSessionActivityStore.getState().setRunStatus(props.workspaceId, props.sessionId, status, false);
+        publishSessionStatus(props.workspaceId, props.sessionId, status);
+        return status;
+      } finally { execution.dispose(); }
     },
     refetchInterval: 2_000,
     refetchOnWindowFocus: "always",
