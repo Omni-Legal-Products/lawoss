@@ -13,13 +13,38 @@ import { readInstalledCloudPlugins } from "./cloud-plugins.js";
 import { taskStore } from "./task-store.js";
 import { projectSyncStore } from "./project-sync-store.js";
 import { runtimeDbHandles } from "./test-support/runtime-db-handles.js";
+import { createSyncFixtureTiming } from "./test-support/sync-fixture-timing.js";
+
+// Test-only allowlist: never retain configs, paths, HTTP payloads or error objects.
+const ownerStopStages = ["fixture.enter", "fixture.ready", "http.listening", "connection.write.enter", "connection.write.done", "owner.first.start.enter", "owner.first.start.done", "owner.second.start.enter", "owner.second.start.done", "schedule.call.enter", "schedule.call.returned", "owner.first.stop.enter", "owner.first.stop.done", "owner.first.release.enter", "owner.first.release.done", "assertion.window.enter", "assertion.check", "http.arrived", "http.no-http-observed", "primary.failed", "cleanup.enter", "owner.second.stop.enter", "owner.second.stop.done", "cleanup.drained", "cleanup.attempts.done", "cleanup.failed", "fixture.cleanup.enter", "fixture.cleanup.done"] as const;
+function createOwnerStopTiming() {
+  return { ...createSyncFixtureTiming("tasks-owner-stop", ownerStopStages), primaryFailed: false, completed: false };
+}
+let ownerStopTiming: ReturnType<typeof createOwnerStopTiming> | undefined;
 
 let previousRuntimeDb: string | undefined;
 beforeEach(() => { previousRuntimeDb = process.env.LEGALWORK_RUNTIME_DB; delete process.env.LEGALWORK_RUNTIME_DB; });
 const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => {
-  try { while (cleanups.length) await cleanups.pop()?.(); }
-  finally { if (previousRuntimeDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = previousRuntimeDb; }
+  const timing = ownerStopTiming; ownerStopTiming = undefined;
+  const incompleteAtCleanup = timing ? !timing.completed : false;
+  let cleanupFailed = false, cleanupError: unknown;
+  timing?.record("fixture.cleanup.enter");
+  try {
+    while (cleanups.length) {
+      try { await cleanups.pop()?.(); }
+      catch (error) {
+        if (!timing) throw error;
+        timing.record("cleanup.failed");
+        if (!cleanupFailed) { cleanupFailed = true; cleanupError = error; }
+      }
+    }
+  } finally {
+    if (previousRuntimeDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = previousRuntimeDb;
+    timing?.record("fixture.cleanup.done");
+    if (timing && (incompleteAtCleanup || timing.primaryFailed || cleanupFailed)) timing.publish(incompleteAtCleanup ? "incomplete-at-cleanup" : timing.primaryFailed ? "primary-failed" : "cleanup-failed");
+  }
+  if (cleanupFailed && timing && !incompleteAtCleanup && !timing.primaryFailed) throw cleanupError;
 });
 async function fixture() {
   const root = await realpath(await mkdtemp(join(tmpdir(), "runtime-lifecycle-")));
@@ -155,34 +180,135 @@ test("embedded bootstrap and repeated stop release its initial and server databa
 
 
 for (const kind of ["tasks", "projects"] as const) test(`an accepted pending ${kind} round survives its originating owner stopping`, async () => {
-  const f = await fixture();
-  const { createServer } = await import("node:http");
-  const { acquireRuntimeDbLifetime } = await import("./runtime-db-lifecycle.js");
-  const { writeEigenweltConnection } = await import("./eigenwelt-connection-store.js");
-  const task = await import("./task-sync.js"), project = await import("./project-sync.js");
-  const start = kind === "tasks" ? task.startTaskSyncTimer : project.startProjectSyncTimer;
-  const schedule = kind === "tasks" ? task.scheduleTaskSync : project.scheduleProjectSync;
-  const firstConfig = f.config, secondConfig = { ...f.config };
-  const first = acquireRuntimeDbLifetime(firstConfig), second = acquireRuntimeDbLifetime(secondConfig);
-  const previousPlatform = process.env.EIGENWELT_PLATFORM_URL;
-  let calls = 0, stopFirst: (() => Promise<void>) | undefined, stopSecond: (() => Promise<void>) | undefined;
-  const http = createServer((request, response) => { calls++; request.resume(); response.writeHead(500).end("unavailable"); });
+  const timing = kind === "tasks" ? createOwnerStopTiming() : undefined;
+  ownerStopTiming = timing;
+  timing?.record("fixture.enter");
   try {
-    await new Promise<void>(resolve => http.listen(0, "127.0.0.1", resolve));
-    const address = http.address(); if (!address || typeof address === "string") throw new Error("platform failed to bind");
-    process.env.EIGENWELT_PLATFORM_URL = `http://127.0.0.1:${address.port}`;
-    await writeEigenweltConnection(f.config, { platformToken: "fixture", platformURL: process.env.EIGENWELT_PLATFORM_URL, account: { userId: "fixture", userName: "Fixture", userEmail: "fixture@example.test", orgId: "fixture", orgName: "Fixture" } });
-    await first.run(async () => { stopFirst = start(firstConfig, 60_000, 60_000); });
-    await second.run(async () => { stopSecond = start(secondConfig, 60_000, 60_000); });
-    await first.run(async () => { schedule(firstConfig, 25); });
-    await stopFirst!(); await first.release();
-    const deadline = Date.now() + 500;
-    while (!calls && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
-    expect(calls).toBeGreaterThan(0);
-  } finally {
-    await stopFirst?.(); await stopSecond?.(); await first.release(); await second.release();
-    await new Promise<void>(resolve => http.close(() => resolve()));
-    if (previousPlatform === undefined) delete process.env.EIGENWELT_PLATFORM_URL; else process.env.EIGENWELT_PLATFORM_URL = previousPlatform;
-  }
-  expect(await runtimeDbHandles(f.db)).toBe(0); await rm(f.root, { recursive: true });
+    const f = await fixture();
+    timing?.record("fixture.ready");
+    const { createServer } = await import("node:http");
+    const { acquireRuntimeDbLifetime } = await import("./runtime-db-lifecycle.js");
+    const { writeEigenweltConnection } = await import("./eigenwelt-connection-store.js");
+    const task = await import("./task-sync.js"), project = await import("./project-sync.js");
+    const start = kind === "tasks" ? task.startTaskSyncTimer : project.startProjectSyncTimer;
+    const schedule = kind === "tasks" ? task.scheduleTaskSync : project.scheduleProjectSync;
+    const firstConfig = f.config, secondConfig = { ...f.config };
+    const first = acquireRuntimeDbLifetime(firstConfig), second = acquireRuntimeDbLifetime(secondConfig);
+    const previousPlatform = process.env.EIGENWELT_PLATFORM_URL;
+    let calls = 0, stopFirst: (() => Promise<void>) | undefined, stopSecond: (() => Promise<void>) | undefined;
+    const http = createServer((request, response) => { calls++; if (calls === 1) timing?.record("http.arrived", calls); request.resume(); response.writeHead(500).end("unavailable"); });
+    try {
+      await new Promise<void>(resolve => http.listen(0, "127.0.0.1", resolve));
+      timing?.record("http.listening");
+      const address = http.address(); if (!address || typeof address === "string") throw new Error("platform failed to bind");
+      process.env.EIGENWELT_PLATFORM_URL = `http://127.0.0.1:${address.port}`;
+      timing?.record("connection.write.enter");
+      await writeEigenweltConnection(f.config, { platformToken: "fixture", platformURL: process.env.EIGENWELT_PLATFORM_URL, account: { userId: "fixture", userName: "Fixture", userEmail: "fixture@example.test", orgId: "fixture", orgName: "Fixture" } });
+      timing?.record("connection.write.done");
+      timing?.record("owner.first.start.enter");
+      await first.run(async () => { stopFirst = start(firstConfig, 60_000, 60_000); });
+      timing?.record("owner.first.start.done");
+      timing?.record("owner.second.start.enter");
+      await second.run(async () => { stopSecond = start(secondConfig, 60_000, 60_000); });
+      timing?.record("owner.second.start.done");
+      timing?.record("schedule.call.enter");
+      await first.run(async () => { schedule(firstConfig, 25); });
+      timing?.record("schedule.call.returned");
+      timing?.record("owner.first.stop.enter");
+      await stopFirst!();
+      timing?.record("owner.first.stop.done");
+      timing?.record("owner.first.release.enter");
+      await first.release();
+      timing?.record("owner.first.release.done");
+      const deadline = Date.now() + 500;
+      const windowStarted = timing ? performance.now() : 0;
+      timing?.record("assertion.window.enter");
+      while (!calls && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+      timing?.record("assertion.check", calls, performance.now() - windowStarted);
+      expect(calls).toBeGreaterThan(0);
+    } catch (error) {
+      if (timing) { timing.primaryFailed = true; timing.record("primary.failed"); }
+      throw error;
+    } finally {
+      if (!timing) {
+        await stopFirst?.(); await stopSecond?.(); await first.release(); await second.release();
+        await new Promise<void>(resolve => http.close(() => resolve()));
+        if (previousPlatform === undefined) delete process.env.EIGENWELT_PLATFORM_URL; else process.env.EIGENWELT_PLATFORM_URL = previousPlatform;
+      } else {
+        timing.record("cleanup.enter");
+        let cleanupFailed = false, cleanupError: unknown;
+        const failed = (error: unknown) => { timing.record("cleanup.failed"); if (!cleanupFailed) { cleanupFailed = true; cleanupError = error; } };
+        try {
+          try { await stopFirst?.(); } catch (error) { failed(error); }
+          timing.record("owner.second.stop.enter");
+          try { await stopSecond?.(); timing.record("owner.second.stop.done"); } catch (error) { failed(error); }
+          try { await first.release(); } catch (error) { failed(error); }
+          try { await second.release(); } catch (error) { failed(error); }
+          try { await new Promise<void>(resolve => http.close(() => resolve())); } catch (error) { failed(error); }
+        } finally {
+          if (previousPlatform === undefined) delete process.env.EIGENWELT_PLATFORM_URL; else process.env.EIGENWELT_PLATFORM_URL = previousPlatform;
+          if (!cleanupFailed) timing.record("cleanup.drained", calls);
+          timing.record("cleanup.attempts.done", calls);
+          if (!calls) timing.record("http.no-http-observed");
+        }
+        if (cleanupFailed && !timing.primaryFailed) throw cleanupError;
+      }
+    }
+    expect(await runtimeDbHandles(f.db)).toBe(0); await rm(f.root, { recursive: true });
+  } catch (error) {
+    if (timing && !timing.primaryFailed) { timing.primaryFailed = true; timing.record("primary.failed"); }
+    throw error;
+  } finally { if (timing) timing.completed = true; }
+});
+
+// Collector boundary checks do not start a runtime or alter the target fixture.
+test("owner-stop collector bounds and allowlists failure evidence without replacing errors", () => {
+  const timing = createOwnerStopTiming();
+  const privateValue = "https://private.test/token/private-path?body=secret";
+  for (let i = 0; i < 80; i++) timing.record("fixture.enter", i);
+  Reflect.apply(timing.record, undefined, [privateValue, privateValue]);
+  let output = "";
+  timing.publish("primary-failed", (line) => { output = line; });
+  const result = JSON.parse(output);
+  expect(result.events).toHaveLength(64);
+  expect(result.dropped).toBe(17);
+  expect(result.events.every((event: { elapsedMs: number; count: number }) => Number.isFinite(event.elapsedMs) && Number.isInteger(event.count))).toBe(true);
+  expect(output).not.toContain(privateValue);
+  expect(Object.keys(result).sort()).toEqual(["dropped", "events", "fixture", "outcome", "schema"]);
+  let publishedAgain = false;
+  timing.publish("primary-failed", () => { publishedAgain = true; });
+  expect(publishedAgain).toBe(false);
+  const sanitized = createOwnerStopTiming();
+  Reflect.apply(sanitized.record, undefined, [privateValue, 1]);
+  Reflect.apply(sanitized.record, undefined, ["fixture.enter", privateValue, { token: privateValue, cause: privateValue }]);
+  sanitized.record("fixture.enter", Infinity);
+  sanitized.record("fixture.enter", -1);
+  sanitized.record("fixture.enter", 1e100);
+  sanitized.publish("primary-failed", (line) => { output = line; });
+  const safe = JSON.parse(output);
+  expect(safe.events).toHaveLength(4);
+  expect(safe.dropped).toBe(1);
+  expect(output).not.toContain(privateValue);
+  expect(safe.events.map((event: { count?: number }) => event.count)).toEqual([undefined, undefined, 0, 65_535]);
+  expect(safe.events.every((event: { elapsedMs: number }, i: number) => i === 0 || event.elapsedMs >= safe.events[i - 1].elapsedMs)).toBe(true);
+  const invalidOutcome = createOwnerStopTiming();
+  let invalidPublished = false;
+  Reflect.apply(invalidOutcome.publish, undefined, [privateValue, () => { invalidPublished = true; }]);
+  expect(invalidPublished).toBe(false);
+  const signout = createSyncFixtureTiming("task-signout", ["fixture.enter"]);
+  signout.record("fixture.enter");
+  signout.publish("incomplete-at-cleanup", (line) => { output = line; });
+  expect(JSON.parse(output).fixture).toBe("task-signout");
+  const primary = new Error(privateValue);
+  const brokenOutput = createOwnerStopTiming();
+  let caught: unknown;
+  try { try { throw primary; } finally { brokenOutput.publish("primary-failed", () => { throw new Error(privateValue); }); } }
+  catch (error) { caught = error; }
+  expect(caught).toBe(primary);
+  const brokenStages: string[] = [];
+  brokenStages.includes = () => { throw new Error(privateValue); };
+  const brokenRecord = createSyncFixtureTiming("tasks-owner-stop", brokenStages);
+  try { try { throw primary; } finally { brokenRecord.record("fixture.enter"); } }
+  catch (error) { caught = error; }
+  expect(caught).toBe(primary);
 });

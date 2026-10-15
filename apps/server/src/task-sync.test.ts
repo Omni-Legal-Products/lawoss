@@ -13,6 +13,14 @@ import { projectSyncStore, type ProjectLink } from "./project-sync-store.js";
 import { taskStore, type TaskStore } from "./task-store.js";
 import { runTaskSync, signOutOfFirmTasks, startTaskSyncTimer, type TaskSyncPlatform } from "./task-sync.js";
 import type { ServerConfig } from "./types.js";
+import { createSyncFixtureTiming } from "./test-support/sync-fixture-timing.js";
+
+// Test-only allowlist: never retain configs, paths, HTTP payloads or error objects.
+const signoutStages = ["fixture.enter", "make-config.enter", "make-config.done", "connect.enter", "connect.done", "apply-remote.enter", "apply-remote.done", "patch.enter", "patch.done", "signout.first.enter", "signout.first.done", "platform.patch-called", "get-task.first.enter", "get-task.first.done", "signout.force.enter", "signout.force.done", "assertions.enter", "assertions.done", "reconnect.enter", "reconnect.done", "sync.enter", "sync.done", "assertion.final.enter", "assertion.final.done", "primary.failed", "cleanup.enter", "lifetime.release.enter", "lifetime.release.done", "directory.remove.enter", "directory.remove.done", "cleanup.drained", "cleanup.attempts.done", "cleanup.failed"] as const;
+function createSignoutTiming() {
+  return { ...createSyncFixtureTiming("task-signout", signoutStages), primaryFailed: false, completed: false };
+}
+let signoutTiming: ReturnType<typeof createSignoutTiming> | undefined;
 
 const ORG = "org_kanzlei";
 const ACCOUNT = { userId: "user_ada", userName: "Ada", userEmail: "ada@kanzlei.test", orgId: ORG, orgName: "Kanzlei" };
@@ -27,21 +35,44 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  while (cleanups.length) await cleanups.pop()?.();
-  if (originalRuntimeDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
-  else process.env.LEGALWORK_RUNTIME_DB = originalRuntimeDb;
-  if (originalPlatformUrl === undefined) delete process.env.EIGENWELT_PLATFORM_URL;
-  else process.env.EIGENWELT_PLATFORM_URL = originalPlatformUrl;
+  const timing = signoutTiming; signoutTiming = undefined;
+  const incompleteAtCleanup = timing ? !timing.completed : false;
+  if (!timing) {
+    while (cleanups.length) await cleanups.pop()?.();
+    if (originalRuntimeDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
+    else process.env.LEGALWORK_RUNTIME_DB = originalRuntimeDb;
+    if (originalPlatformUrl === undefined) delete process.env.EIGENWELT_PLATFORM_URL;
+    else process.env.EIGENWELT_PLATFORM_URL = originalPlatformUrl;
+    return;
+  }
+  let cleanupFailed = false, cleanupError: unknown;
+  timing.record("cleanup.enter");
+  try {
+    while (cleanups.length) {
+      try { await cleanups.pop()?.(); }
+      catch (error) { timing.record("cleanup.failed"); if (!cleanupFailed) { cleanupFailed = true; cleanupError = error; } }
+    }
+  } finally {
+    if (originalRuntimeDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
+    else process.env.LEGALWORK_RUNTIME_DB = originalRuntimeDb;
+    if (originalPlatformUrl === undefined) delete process.env.EIGENWELT_PLATFORM_URL;
+    else process.env.EIGENWELT_PLATFORM_URL = originalPlatformUrl;
+    if (!cleanupFailed) timing.record("cleanup.drained");
+    timing.record("cleanup.attempts.done");
+    // Runner-owned timeout is not catchable here; unfinished body/late continuations remain unknown.
+    if (incompleteAtCleanup || timing.primaryFailed || cleanupFailed) timing.publish(incompleteAtCleanup ? "incomplete-at-cleanup" : timing.primaryFailed ? "primary-failed" : "cleanup-failed");
+  }
+  if (cleanupFailed && !incompleteAtCleanup && !timing.primaryFailed) throw cleanupError;
 });
 
 /** A fresh runtime DB per test, holding both the connection and the tasks. */
-async function makeConfig(): Promise<{ config: ServerConfig; store: TaskStore }> {
+async function makeConfig(timing?: ReturnType<typeof createSignoutTiming>): Promise<{ config: ServerConfig; store: TaskStore }> {
   const dir = await mkdtemp(join(tmpdir(), "legalwork-task-sync-"));
-  cleanups.push(() => rm(dir, { recursive: true, force: true }));
+  cleanups.push(timing ? async () => { timing.record("directory.remove.enter"); await rm(dir, { recursive: true, force: true }); timing.record("directory.remove.done"); } : () => rm(dir, { recursive: true, force: true }));
   process.env.LEGALWORK_RUNTIME_DB = join(dir, "runtime.sqlite");
   const config = { configPath: join(dir, "legalwork.json") } as ServerConfig;
   const lifetime = acquireRuntimeDbLifetime(config);
-  cleanups.push(() => lifetime.release());
+  cleanups.push(timing ? async () => { timing.record("lifetime.release.enter"); await lifetime.release(); timing.record("lifetime.release.done"); } : () => lifetime.release());
   return { config, store: await taskStore(config) };
 }
 
@@ -511,27 +542,57 @@ describe("task-sync: signing out", () => {
   });
 
   test("stops while changes could not be pushed, and signs out on force", async () => {
-    const { config, store } = await makeConfig();
-    await connect(config);
-    const pulled = store.applyRemoteTask(
-      { ...remoteTask({ id: "44444444-4444-4444-8444-444444444444" }), notes: [], submission: null },
-      ORG,
-    );
-    store.patchTask(pulled.id, { status: "done" }, ADA);
-    const { platform } = fakePlatform({ fail: { patchTask: new ApiError(502, "intake_unreachable", "down") } });
+    const timing = createSignoutTiming(); signoutTiming = timing;
+    timing.record("fixture.enter");
+    try {
+      timing.record("make-config.enter");
+      const { config, store } = await makeConfig(timing);
+      timing.record("make-config.done");
+      timing.record("connect.enter");
+      await connect(config);
+      timing.record("connect.done");
+      timing.record("apply-remote.enter");
+      const pulled = store.applyRemoteTask(
+        { ...remoteTask({ id: "44444444-4444-4444-8444-444444444444" }), notes: [], submission: null },
+        ORG,
+      );
+      timing.record("apply-remote.done");
+      timing.record("patch.enter");
+      store.patchTask(pulled.id, { status: "done" }, ADA);
+      timing.record("patch.done");
+      const { platform } = fakePlatform({ fail: { patchTask: new ApiError(502, "intake_unreachable", "down") } });
 
-    expect(await signOutOfFirmTasks(config, { platform })).toEqual({ ok: false, pending: 1 });
-    expect(store.getTask(pulled.id)).not.toBeNull();
+      const patchTask = platform.patchTask;
+      let patchCalls = 0;
+      platform.patchTask = (...args) => { timing.record("platform.patch-called", ++patchCalls); return patchTask(...args); };
+      timing.record("signout.first.enter");
+      expect(await signOutOfFirmTasks(config, { platform })).toEqual({ ok: false, pending: 1 });
+      timing.record("signout.first.done");
+      timing.record("get-task.first.enter");
+      expect(store.getTask(pulled.id)).not.toBeNull();
+      timing.record("get-task.first.done");
+      timing.record("signout.force.enter");
 
-    expect(await signOutOfFirmTasks(config, { platform, force: true })).toEqual({ ok: true, removed: 1 });
-    expect(store.getTask(pulled.id)).toBeNull();
-    expect(store.outboxSize()).toBe(0);
-    // The pane can say a sign-out happened…
-    expect(store.signedOutBefore()).toBe(true);
-    // …until the next round with a firm, which clears the flag.
-    await connect(config);
-    await runTaskSync(config, { platform: fakePlatform().platform });
-    expect(store.signedOutBefore()).toBe(false);
+      expect(await signOutOfFirmTasks(config, { platform, force: true })).toEqual({ ok: true, removed: 1 });
+      timing.record("signout.force.done");
+      timing.record("assertions.enter");
+      expect(store.getTask(pulled.id)).toBeNull();
+      expect(store.outboxSize()).toBe(0);
+      // The pane can say a sign-out happened…
+      expect(store.signedOutBefore()).toBe(true);
+      // …until the next round with a firm, which clears the flag.
+      timing.record("assertions.done");
+      timing.record("reconnect.enter");
+      await connect(config);
+      timing.record("reconnect.done");
+      timing.record("sync.enter");
+      await runTaskSync(config, { platform: fakePlatform().platform });
+      timing.record("sync.done");
+      timing.record("assertion.final.enter");
+      expect(store.signedOutBefore()).toBe(false);
+      timing.record("assertion.final.done");
+    } catch (error) { timing.primaryFailed = true; timing.record("primary.failed"); throw error; }
+    finally { timing.completed = true; }
   });
 
   test("with no firm connected there is nothing to remove", async () => {
