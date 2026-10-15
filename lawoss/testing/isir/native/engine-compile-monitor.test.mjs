@@ -12,6 +12,8 @@ import { collectChild } from './engine-baseline-probe.mjs';
 const api=await import('./engine-compile-monitor.mjs').catch(()=>({}));
 const preload=await import('./engine-compile-monitor-preload.mjs').catch(()=>({}));
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
+// Fixture creation and queries follow the preload's host-platform identity.
+const sourceIdentity=file=>process.platform==='win32'?file.toLowerCase():file;
 const commit='a'.repeat(40),manifestHash='b'.repeat(64);
 const scope=()=>({mode:'build',manifestSha256:manifestHash,fileCount:2});
 const position=()=>({status:'absent',sourceRole:'unknown',sourceIndex:null,line:null,column:null,length:null,offset:null});
@@ -22,8 +24,8 @@ const frame=value=>Buffer.from(`LAWOSS_PUBLIC_COMPILE_MONITOR ${JSON.stringify(v
 function child(){const c=new EventEmitter();c.stdout=new PassThrough();c.stderr=new PassThrough();c.exitCode=null;c.signalCode=null;c.kill=()=>{};c.unref=()=>{};return c;}
 async function fixture(t){const root=await fs.realpath(await fs.mkdtemp(path.join(tmpdir(),'lawoss-monitor-test-')));await fs.chmod(root,0o700);t.after(()=>fs.rm(root,{recursive:true,force:true}));return root;}
 test('finite projection guards poisonous getters, caps members and never serializes errors',()=>{
-  const secret='PRIVATE_ERROR';const source=path.resolve('owned/source.ts');
-  const indexes=new Map([[source,{sourceIndex:0,sourceRole:'workspace'}]]);
+  const secret='PRIVATE_ERROR';const source=path.resolve('Owned/Source.ts');
+  const indexes=new Map([[sourceIdentity(source),{sourceIndex:0,sourceRole:'workspace'}]]);
   const member={name:'ResolveMessage',code:'MODULE_NOT_FOUND',position:{file:source,line:1,column:0,length:2,offset:0,lineText:secret},toJSON(){throw Error(secret);}};
   const value={name:'AggregateError',errors:Array.from({length:12},()=>member),message:secret};
   const out=preload.projectException(value,'unhandledRejection',indexes,'build');
@@ -54,7 +56,7 @@ test('manifest is deterministic, regular, bounded and rejects escaping/colliding
   const root=await fixture(t);await fs.writeFile(path.join(root,'b.ts'),'b');await fs.writeFile(path.join(root,'a.ts'),'a');
   const rows=[{path:'b.ts',blob:'b'.repeat(40)},{path:'a.ts',blob:'a'.repeat(40)}];
   const manifest=api.makeManifest(rows);assert.deepEqual(manifest.files.map(v=>v.path),['a.ts','b.ts']);
-  const map=preload.prepareSourceMap(root,path.join(root,'a.ts'),manifest);assert.equal(map.get(path.join(root,'a.ts')).sourceRole,'build-script');
+  const map=preload.prepareSourceMap(root,path.join(root,'a.ts'),manifest);assert.equal(map.get(sourceIdentity(path.join(root,'a.ts'))).sourceRole,'build-script');
   for(const rows of [[{path:'../a',blob:commit}],[{path:'a',blob:commit},{path:'A',blob:commit}],[{path:'a',blob:commit},{path:'a',blob:commit}],Array.from({length:8193},(_,i)=>({path:String(i),blob:commit}))])assert.throws(()=>api.makeManifest(rows));
   await fs.symlink(path.join(root,'a.ts'),path.join(root,'link'));assert.throws(()=>preload.prepareSourceMap(root,path.join(root,'a.ts'),api.makeManifest([{path:'link',blob:commit}])));
 });
@@ -220,4 +222,34 @@ test('a synchronous writer after direct close cannot add missing monitor evidenc
   const c=child(),pending=api.collectMonitored(c,scope(),{buildObservation:{packages:['synthetic']}});c.emit('spawn');c.emit('close',1,null);
   c.stderr.emit('data',Buffer.concat([frame(ack()),frame(exception())]));
   const result=await pending;assert.equal(result.monitorObservation.status,'missing');assert.equal(result.monitorObservation.scannedBytes,0);
+});
+
+
+test('mixed-case Windows identity model covers fixture keys, manifest queries and path/file-URL projection',async t=>{
+  const root=path.join(await fixture(t),'MixedRoot');await fs.mkdir(root);
+  const entry=path.join(root,'Entry.mjs'),source=path.join(root,'Source.ts');
+  await fs.writeFile(entry,'');await fs.writeFile(source,'');
+  // Only this isolated child selects the actual preload's win32 identity branch.
+  // node:path/file URLs retain host-native semantics: this is not Windows proof.
+  const code=`
+    import path from 'node:path';
+    import { pathToFileURL } from 'node:url';
+    Object.defineProperty(process,'platform',{value:'win32'});
+    const sourceIdentity=${sourceIdentity.toString()};
+    const preload=await import(process.argv[1]);
+    const root=process.argv[2],entry=path.join(root,'Entry.mjs'),source=path.join(root,'Source.ts');
+    const fixtureMap=new Map([[sourceIdentity(source),{sourceIndex:0,sourceRole:'workspace'}]]);
+    const manifest={sourceCommit:preload.SOURCE,files:[{path:'Entry.mjs',blob:'a'.repeat(40)},{path:'Source.ts',blob:'b'.repeat(40)}]};
+    const preparedMap=preload.prepareSourceMap(root,entry,manifest);
+    const index=(file,map)=>preload.projectException({name:'ResolveMessage',code:'ERR_MODULE_NOT_FOUND',position:{file,line:1,column:0,length:1,offset:0}},'other',map,'build').root.position.sourceIndex;
+    const results=[source,source.toUpperCase(),source.toLowerCase()].map(file=>({
+      fixturePath:index(file,fixtureMap),fixtureURL:index(pathToFileURL(file).href,fixtureMap),
+      manifestQuery:preparedMap.get(sourceIdentity(file))?.sourceRole??null,
+      manifestPath:index(file,preparedMap),manifestURL:index(pathToFileURL(file).href,preparedMap)
+    }));
+    process.stdout.write(JSON.stringify({entryRole:preparedMap.get(sourceIdentity(entry))?.sourceRole??null,results}));
+  `;
+  const c=spawn(process.execPath,['--input-type=module','-e',code,new URL('./engine-compile-monitor-preload.mjs',import.meta.url).href,root],{env:{},stdio:['ignore','pipe','pipe']});
+  const observed=await collectChild(c,{capture:true,timeoutMs:5000,limit:2048});assert.equal(observed.outcome,'ok');
+  assert.deepEqual(JSON.parse(observed.text),{entryRole:'build-script',results:Array.from({length:3},()=>({fixturePath:0,fixtureURL:0,manifestQuery:'workspace',manifestPath:1,manifestURL:1}))});
 });
