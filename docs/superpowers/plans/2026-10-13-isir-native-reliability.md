@@ -431,3 +431,29 @@ Původní Windows server suite, build i Node SQLite/proxy kontroly skutečně pr
 - [ ] Skutečným novým CI zjistit primární recoveryStage a teprve z doložené příčiny připravit případnou opravu. Lokální diagnostické testy nejsou úspěchem obnovy ani její opravou.
 - [ ] Pro Windows určit skutečnou čekající část selected bootstrapu. Výchozí/DEBUG log ani soubory instalačního zámku neprokazují dokončení či příčinu čekání. Samostatný párový diagnostický build z přesného upstream commitu je zatím pouze posuzovaný plán; není implementovaný ani náhradou původní binárky a jejího RED. Engine verze, závislosti, oprávnění a původní90s limit se nemění.
 - [ ] Publikovat revidované změny běžným feature pushem, ověřit nové přesné CI a pokračovat původními protected-dev a skutečnými GUI/provider akceptačními kroky. Nová testovací metadata nejsou produkční opravou neprokázané příčiny.
+
+
+### Přesný f665 výsledek a další pozorování odeslání
+
+Na f665 prošly celé sourceLinux/macOS, Windows portable včetně opravených helperů a desetisložkového korpusu, packageLinux a i18n. Windows native startup stále selhal. macOS nyní selhal přesně při prompt-observe s vlastním kódem expirace: snapshot body/check a otevření/editace/kliknutí vrátily, ale odpovídající POST nebyl přijat predikátem do30s. Samotná příčina se neví.
+
+- [x] V původním click evaluate pozorovat pouze pevné booleany konkrétního composeru/editoru/tlačítka přes existující read-only slice; nevracet raw state/IDs/text. Použít původní attachment send jako pozitivní kontrolu, bez dalšího odeslání.
+- [x] Ve stejném původním CDP event slice klasifikovat omezené endpoint/scope/body/marker/restorePATCH/response údaje; při chybějícím těle ponechat unknown. Žádné URL, těla, hlavičky ani error text do artefaktu. Zachovat původní predikát, akce, await/request pořadí i limity. Schema6 obsahuje dvě pevné role; primary freeze a runtime schema1 zůstávají.
+- [x] RED/GREEN Node24 diagnostics38/38 a nezávislá scoped spec/quality revize bez nálezů; d70d85c3 → 113fe308. Původní celý tok a oba predikáty zachované.
+- [ ] Normální publikace a nové skutečné CI musí určit další větev. Pozorování není opravou neprokázané příčiny.
+
+Podklady pro případný Windows párový rebuild: čistý přesný veřejný upstream16747470 a hashované build vstupy jsou lokálně připravené; celá oddělená kopie f665 má zdrojově ověřenou striktní výběrovou cestu bez nového override. Žádný rebuild, alternativní engine ani instalace závislostí zatím neproběhly. Původní release a jeho RED zůstávají autoritativní.
+
+
+### Oddělená Windows baseline kontrola — pouze nezměněný rebuild
+
+- [x] Implementovat samostatný Windows job závislý na původní packaging matici; původní job/limity/výsledky zůstanou stejné. Lehký guard čte pouze dvě původní projektované Windows JSON stejného runu; chybějící či jiná hranice přeskočí těžké kroky s unknown/not-needed.
+- [x] Implementovat pipeline pro vlastní fyzický checkout a běžné matching LAWOSS sestavení; oddělený upstream16747470/Bun1.3.14/frozen vstupy a jeden hashově zmrazený models snapshot. Zvolit zdrojově potvrzený Windows x64-baseline target, semantic1.18.29/latest, OPENCODE_RELEASE nepředávat. Žádný lokální heavy build či instalace.
+- [x] Implementovat ověření před změnou pouze vlastních prostředků: porovnat původní asset proti runtime artefaktu, všechny přítomné manifesty a zavřené vlastní děti. Uchovat originály; striktní úplná staging validace a bezpečný rollback. Timeout/neověřený zánik potomků znamená unknown, zachování souborů a žádný další běh.
+- [x] Implementovat volání nezměněného celého nativního harnessu v této samostatné kopii se stejným transportem a limity. Výstup pouze bounded provenance a znovu projektovaná existující diagnostika. Reprodukovaná hranice není důkaz stejné příčiny; úspěch rebuildu neuzavírá původní RED. Žádná instrumentovaná varianta ani změna produkčního enginu.
+- [x] Node24 RED/GREEN jednotkové ověření guardů, hashů, staging/rollback, procesů/unknown a projekcí; YAML a nezměněné bajty původního jobu; nezávislá scoped revize před publikací. Skutečná sestavitelnost a reprodukce zůstávají neověřené do CI.
+
+
+Integrace 2026-10-15T05:57:04.954464+00:00: Windows838d+4be3367e →45cc3946+c18dc31c. Nezávislá revize nalezla dva P2 (pozdní child zápis do upload cesty; chybná klasifikace cleanupErrors); oba opraveny a scoped re-review ADDRESSED, SPEC/QUALITY PASS, nové0. Soukromý raw výstup už nesdílí publikační cestu, finalize sám vytváří schválenou projekci a cleanup chyba zůstává unknown. Matching Node24.21 společně Mac38+baseline19 =57/57, YAML a původní workflow prefix i tři SHA ověřeny.
+
+- [ ] Publikovat tuto revidovanou sadu do stejného PR a vyčkat na celý původní CI včetně oddělené baseline. Skutečný Windows build/target/staging/nativní výsledek se dosud netvrdí; marker varianta není implementovaná. Původní dev approval a skutečná GUI/provider akceptace zůstávají otevřené.
