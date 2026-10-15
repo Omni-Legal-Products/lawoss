@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
+import path from "node:path";
 import { parseRuntimeOutput, collectRuntimeProbe, syntheticRuntimeEnvironment } from "./engine-runtime-smoke.mjs";
 
 const valid = "LAWOSS_ENGINE_RUNTIME_BUN=1.3.14\n1.18.29\n";
@@ -72,9 +73,20 @@ test("an exited leader is never signalled and absent close stays unknown", async
 });
 
 test("synthetic environment contains only owned directories, preload and the Windows loader root", () => {
-  const env = syntheticRuntimeEnvironment("/synthetic", "/synthetic/preload.mjs", "linux", { TOKEN: "secret", HOME: "/private" });
-  assert.deepEqual(Object.keys(env).sort(), ["APPDATA", "BUN_INSPECT_PRELOAD", "HOME", "LOCALAPPDATA", "TEMP", "TMP", "TMPDIR", "USERPROFILE", "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"].sort());
-  for (const value of Object.values(env)) assert.ok(value.startsWith("/synthetic"));
-  assert.equal(syntheticRuntimeEnvironment("/synthetic", "/synthetic/preload.mjs", "win32", { SystemRoot: "C:\\Windows", TOKEN: "secret" }).SystemRoot, "C:\\Windows");
-  assert.throws(() => syntheticRuntimeEnvironment("/synthetic", "/synthetic/preload.mjs", "win32", { SystemRoot: "\\\\remote\\private" }));
+  // The platform argument selects loader variables; paths always use the host's node:path.
+  const root = path.resolve("synthetic"), preload = path.join(root, "preload.mjs");
+  const inherited = { SystemRoot: "C:\\Windows", TOKEN: "secret", HOME: path.resolve("private") };
+  const expected = {
+    HOME: root, USERPROFILE: root,
+    XDG_CONFIG_HOME: path.join(root, "config"), XDG_CACHE_HOME: path.join(root, "cache"),
+    XDG_DATA_HOME: path.join(root, "data"), XDG_STATE_HOME: path.join(root, "state"),
+    APPDATA: path.join(root, "appdata"), LOCALAPPDATA: path.join(root, "local"),
+    TMPDIR: path.join(root, "tmp"), TMP: path.join(root, "tmp"), TEMP: path.join(root, "tmp"),
+    BUN_INSPECT_PRELOAD: preload,
+  };
+  assert.deepEqual(syntheticRuntimeEnvironment(root, preload, "linux", inherited), expected);
+  assert.deepEqual(syntheticRuntimeEnvironment(root, preload, "win32", inherited), {
+    ...expected, SystemRoot: inherited.SystemRoot,
+  });
+  assert.throws(() => syntheticRuntimeEnvironment(root, preload, "win32", { SystemRoot: "\\\\remote\\private" }));
 });
