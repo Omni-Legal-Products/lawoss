@@ -36,23 +36,31 @@ jobs:
           bun-version: 1.3.14
       - name: Assert tools and install only the frozen standalone tool closure
         run: |
-          if ((node --version) -ne 'v24.21.0') { throw 'NODE_VERSION' }
-          $payloadPnpmVersion = (pnpm --version).Trim()
+          try {
+            $payloadPnpm = (Get-Command pnpm -CommandType Application -ErrorAction Stop).Source
+            $payloadNode = (Get-Command node -CommandType Application -ErrorAction Stop).Source
+            if (-not [IO.Path]::IsPathFullyQualified($payloadPnpm) -or -not [IO.Path]::IsPathFullyQualified($payloadNode)) { throw 'TOOLS_INSTALL_FAILED' }
+          } catch { throw 'TOOLS_INSTALL_FAILED' }
+          if ((& $payloadNode --version) -ne 'v24.21.0') { throw 'NODE_VERSION' }
+          $payloadPnpmVersion = (& $payloadPnpm --version).Trim()
           if ($payloadPnpmVersion -ne '11.4.0') { throw 'PNPM_VERSION' }
           if ((bun --version) -ne '1.3.14') { throw 'BUN_VERSION' }
           "LAWOSS_PNPM_VERSION=$payloadPnpmVersion" >> $env:GITHUB_ENV
-          $payloadRoot = node -e "console.log(require('node:path').resolve('lawoss/build/plugin-payload'))"
+          $payloadRoot = & $payloadNode -e "console.log(require('node:path').resolve('lawoss/build/plugin-payload'))"
           $payloadHome = Join-Path $payloadRoot '.work/tool-home'
           New-Item -ItemType Directory -Path $payloadHome -Force | Out-Null
           $payloadConfig = Join-Path $payloadRoot '.work/empty-tool-npmrc'
           New-Item -ItemType File -Path $payloadConfig | Out-Null
           # Isolate install configuration; setup acquisition is separate from SDK priming.
           $payloadPath = $env:PATH
+          $payloadPathExt = $env:PATHEXT
           $payloadSystemRoot = $env:SystemRoot
+          $payloadComSpec = $env:ComSpec
           Get-ChildItem Env: | ForEach-Object { Remove-Item "Env:$($_.Name)" }
           $env:PATH = $payloadPath
+          $env:PATHEXT = $payloadPathExt
           $env:SystemRoot = $payloadSystemRoot
-          $env:ComSpec = Join-Path $payloadSystemRoot 'System32/cmd.exe'
+          $env:ComSpec = $payloadComSpec
           $env:HOME = $payloadHome
           $env:USERPROFILE = $payloadHome
           $env:APPDATA = Join-Path $payloadHome 'AppData/Roaming'
@@ -67,9 +75,19 @@ jobs:
           $payloadStore = Join-Path $payloadRoot '.work/tool-store'
           $payloadCache = Join-Path $payloadRoot '.work/tool-cache'
           $payloadState = Join-Path $payloadRoot '.work/tool-state'
-          pnpm --dir $payloadTools install --frozen-lockfile --ignore-workspace --ignore-scripts --registry=https://registry.npmjs.org/ --store-dir $payloadStore --config.cache-dir $payloadCache --config.state-dir $payloadState
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Offline units, finite SDK prime, guarded Node replay and separate Bun smoke
+          $global:LASTEXITCODE = $null
+          try {
+            & $payloadPnpm --dir $payloadTools install --prod=false --frozen-lockfile --ignore-workspace --ignore-scripts --registry=https://registry.npmjs.org/ --store-dir $payloadStore --config.cache-dir $payloadCache --config.state-dir $payloadState
+            $payloadInstallExit = $LASTEXITCODE
+          } catch { throw 'TOOLS_INSTALL_FAILED' }
+          if ($payloadInstallExit -isnot [int] -or $payloadInstallExit -ne 0) { throw 'TOOLS_INSTALL_FAILED' }
+          $global:LASTEXITCODE = $null
+          try {
+            & $payloadNode (Join-Path $payloadRoot 'tools-preflight.mjs')
+            $payloadPreflightExit = $LASTEXITCODE
+          } catch { throw 'TOOLS_ADMISSION_FAILED' }
+          if ($payloadPreflightExit -isnot [int] -or $payloadPreflightExit -ne 0) { throw 'TOOLS_ADMISSION_FAILED' }
+      - name: 44 offline units, finite SDK prime, guarded Node replay and separate Bun smoke
         run: |
           $payloadBun = (Get-Command bun -CommandType Application).Source
           node lawoss/build/plugin-payload/native-validation.mjs $payloadBun

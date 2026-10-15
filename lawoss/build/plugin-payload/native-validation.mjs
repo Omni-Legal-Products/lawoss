@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { readFile, writeFile, mkdir, realpath, rm, lstat } from 'node:fs/promises';
 import { initialize, prepare, runChild } from './prepare.mjs';
 import { primeAcceptedCache, ACCEPTED, acceptedArtifacts } from './prime-cache.mjs';
+import { preflightTools } from './tools-preflight.mjs';
 import { fail, sha256, IMPORTS, canonical, verifyPayload } from './validate.mjs';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export function assertConsumer(value) {
@@ -53,7 +54,7 @@ export function checkSummary(summary) {
     if (summary.code !== null || summary.failedStage !== null || Object.values(summary.assertions).some(value => value !== true) || !summary.node || !summary.bun || summary.acquisition?.outcome !== 'complete' || summary.acquisition.verified !== 32 || summary.acquisition.totalBytes > 256 * 1024 * 1024) fail('SUMMARY_INVALID');
     assertConsumer(summary.node); assertConsumer(summary.bun);
     if (!summary.tests.unit || !summary.tests.integration) fail('SUMMARY_INVALID');
-    testCounts(Object.entries(summary.tests.unit).map(([key, value]) => `# ${key} ${value}`).join('\n'), 33);
+    testCounts(Object.entries(summary.tests.unit).map(([key, value]) => `# ${key} ${value}`).join('\n'), 44);
     testCounts(Object.entries(summary.tests.integration).map(([key, value]) => `# ${key} ${value}`).join('\n'), 4);
   } else if (!['admission', 'unit', 'acquisition', 'integration', 'node', 'bun-identity', 'bun'].includes(summary.failedStage) || !/^[A-Z_]{1,40}$/.test(summary.code ?? '')) fail('SUMMARY_INVALID');
   if (Buffer.byteLength(JSON.stringify(summary)) > 65536) fail('SUMMARY_INVALID');
@@ -72,8 +73,8 @@ async function validateWindows(bunExecutable) {
   try {
     if (process.platform !== 'win32' || process.arch !== 'x64' || process.version !== 'v24.21.0' || process.env.LAWOSS_PNPM_VERSION !== '11.4.0') fail('IDENTITY_INVALID');
     await acceptedArtifacts();
+    await preflightTools();
     const require = createRequire(new URL('./tools/package.json', import.meta.url));
-    if (require('@npmcli/arborist/package.json').version !== '9.4.0') fail('TOOLS_INVALID');
     summary.tools.node = { version: process.version, sha256: await executableHash(process.execPath) };
     summary.tools.arborist = '9.4.0'; summary.tools.pnpm = process.env.LAWOSS_PNPM_VERSION;
     const base = path.join(HERE, '.work'); await mkdir(base, { recursive: true });
@@ -85,7 +86,7 @@ async function validateWindows(bunExecutable) {
       catch (error) { try { summary.tests[kind] = parseCounts(error.output); } catch {} throw error; }
       summary.tests[kind] = parseCounts(tap); testCounts(tap, expected);
     };
-    await runTests('unit', ['prepare.test.mjs', 'prime-cache.test.mjs', 'native-validation.test.mjs'], 33, 180000);
+    await runTests('unit', ['prepare.test.mjs', 'prime-cache.test.mjs', 'native-validation.test.mjs'], 44, 180000);
     stage = 'acquisition';
     let acquisition;
     try { acquisition = await primeAcceptedCache({ workspace }); }

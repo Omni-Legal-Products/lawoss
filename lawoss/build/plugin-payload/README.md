@@ -13,7 +13,8 @@ Four published packages omit a separate license file; their declared licenses
 are recorded, and source-license collection remains a redistribution follow-up.
 
 Build tools and SDK dependencies are separate closures. Acquire tools with the
-committed tools manifest/lock, disabled scripts, an explicit public registry,
+committed tools manifest/lock, explicit dev-dependency inclusion, disabled scripts,
+an explicit public registry,
 empty private npm configuration and a dedicated store. For this checkout:
 
 ```sh
@@ -26,12 +27,22 @@ env -i PATH="/Users/vojte/.nvm/versions/node/v24.21.0/bin:/usr/bin:/bin" \
   npm_config_userconfig="$PAYLOAD_ROOT/.work/empty-npmrc" \
   npm_config_globalconfig="$PAYLOAD_ROOT/.work/empty-npmrc" \
   npm_config_cache="$PAYLOAD_ROOT/.work/pnpm-cache" \
-  pnpm --dir "$PAYLOAD_ROOT/tools" install --ignore-workspace --ignore-scripts \
+  pnpm --dir "$PAYLOAD_ROOT/tools" install --prod=false --ignore-workspace --ignore-scripts \
   --frozen-lockfile --registry=https://registry.npmjs.org/ \
   --store-dir="$PAYLOAD_ROOT/.work/pnpm-store" \
   --config.cache-dir="$PAYLOAD_ROOT/.work/pnpm-cache" \
   --config.state-dir="$PAYLOAD_ROOT/.work/pnpm-state"
+/Users/vojte/.nvm/versions/node/v24.21.0/bin/node "$PAYLOAD_ROOT/tools-preflight.mjs"
 ```
+
+`tools-preflight.mjs` checks the expected tools-local Arborist entry, a bounded
+package manifest with exact name/version, and tools-anchored resolver realpath
+identity. It accepts pnpm symlinks/junctions and refuses ancestor-only fallback,
+without loading Arborist implementation or SDK code. Importing the module performs
+no I/O; the CLI has no path override. Fixed refusals are `TOOLS_LINK_ABSENT`,
+`TOOLS_MANIFEST_ABSENT`, `TOOLS_INVALID` and `TOOLS_ADMISSION_FAILED`.
+Acceptance proves only the local manifest/version/resolver context, not the full
+transitive tool closure.
 
 Tool reproduction uses the same command with `--offline` and a populated store.
 The SDK replay needs the separately retained, populated **Arborist** cache;
@@ -113,12 +124,26 @@ bytes remain with an incomplete receipt;
 replay refuses that workspace and retries require a new owned workspace.
 
 `native-validation.mjs` is a separate Windows/x64 Node 24.21.0 entry for the
-PR-only workflow. It runs all offline units, primes a new cache (no retained
+PR-only workflow. It runs exactly 44 offline units (16 prepare, 11 primer,
+17 native-validation), primes a new cache (no retained
 SDK cache transplant), runs all four guarded integration cases with zero skips,
 then prepares/verifies a separate Node payload. A cold tarball-only cache may
 still fail ideal-tree construction; that failure remains red without fetching
 metadata or changing the accepted lock. The workflow installs only the frozen
-standalone tools with pnpm 11.4.0, public registry and private empty config/store.
+standalone tools with pnpm 11.4.0, explicit `--prod=false`, public registry and
+private empty config/store. Before clearing inherited environment it captures
+absolute pnpm/Node Application paths and PATH/PATHEXT/SystemRoot/ComSpec. Foreground
+installation must produce a fresh actual zero native exit status; invocation
+failure or absent/nonzero status fails with `TOOLS_INSTALL_FAILED`. Only then can
+the shared manifest preflight run, and its fresh zero exit is also required before
+setup succeeds. Native admission repeats that same preflight before recording any
+tool identity. Complete summary acceptance still requires all 44 units and four
+integration cases, with zero failures, cancellations, skips or todos.
+
+These deterministic setup checks do not establish the unique cause of the prior
+49e admission failure: actual installer configuration/tree and missing module
+identity remain unknown. Actual Windows command flow and installation under these
+flags require a fresh Windows job; local fixtures do not prove that execution.
 
 Bun 1.3.14 consumes the already Node-verified payload using the existing copied
 probe, explicit executable, clean synthetic home/XDG/temp environment, a 60 s /
