@@ -557,7 +557,7 @@ Linux packaging na heade `7bde0842` úspešne overil aplikáciu a renderer, no p
 
 | Súbory upstreamu | Úprava a dôvod | Vetva |
 |---|---|---|
-| `apps/server/src/opencode-plugins/legalwork-project-tools.ts` | Scoped export/validate tools nad LAWOSS document service, explicitný jazyk výstupu a pokyny pre kontrolu skutočne uložených súborov s ohraničenou opravou. Identita, vlastníctvo, zdroje a stav overenia zostávajú v serverovej doméne; odpoveď modelu sama nepriznáva úspech. | `fix/isir-native-reliability` |
+| `apps/server/src/opencode-plugins/legalwork-project-tools.ts` | Scoped export/validate tools nad LAWOSS document service, explicitný jazyk výstupu a pokyny pre kontrolu skutočne uložených súborov s ohraničenou opravou. Identita, vlastníctvo, zdroje a stav overenia zostávajú v serverovej doméne; odpoveď modelu sama nepriznáva úspech. Modelová hranica prijíma presne prázdny expectedHash ako neprítomný create-only parameter a z HTTP JSON ho úplne vynechá; neplatné nenulové/null vstupy sa odmietajú pred HTTP a serverové CAS/vlastníctvo zostáva striktné. Skutočná širšia engine wire schema sa overuje oddelene od execute/HTTP. | `fix/isir-native-reliability` |
 
 ### Natívna príprava a generovanie dokumentov (2026-10-14)
 

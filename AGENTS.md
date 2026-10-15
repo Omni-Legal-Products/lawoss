@@ -139,6 +139,7 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 - Validate visible source attribution and coverage as well as machine metadata. An invalid identity companion cannot confer verification on a dependent output, regardless of validation order. Recheck output, source and dependency hashes when displaying persisted verification.
 - Parsing legacy coverage prose does not prove extraction coverage. Require verifiable current structured coverage for verified status, including truthful partial/failed results; apply the same rule when listing historical verification receipts.
 - Keep file ownership separate from successful inspection. Validating an ordinary file does not authorize overwriting it; generated-output repairs require the registered current hash and caller's expected hash. Format/provenance verification never means legal approval.
+- At the native model-tool boundary, missing or literal-empty expected hash means create-only absence: omit the HTTP property completely. Reject invalid nonempty hashes and null; never convert a wrong hash to absence. Verify actual advertised wire schema separately from strict tool execution and HTTP validation because engine serialization can broaden format constraints.
 - Resolve known copies and canonical aliases within the selected case before deduplicating references. Verify current selected/reference bytes and reject ambiguous official identities; an explicitly listed path with a mismatched hash must not borrow another reference.
 
 ## Native document generation
