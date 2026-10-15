@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PDFDocument, StandardFonts } from "pdf-lib";
@@ -254,6 +254,30 @@ test("actual HTTP and registered agent document tools enforce authorization, pag
     const exported=JSON.parse(await plugin.tool.lawoss_documents_export.execute(exportBody,context)); expect(exported.verified).toBe(false); expect(exported.path).toBe("registry.csv");
     const checked=JSON.parse(await plugin.tool.lawoss_documents_validate.execute({paths:["registry.csv"],documentIds:[id],outputLanguage:"cs"},context)); expect(checked.valid).toBe(true); expect(checked.legalApproval).toBe(false);
     const saved=await (await fetch(`${endpoint}/outputs?limit=1`,{headers})).json(); expect(saved.outputs[0].verified).toBe(true); expect(saved.outputs[0].currentHash).toBe(exported.hash); expect(saved.nextOffset).toBeNull();
+    // Only the model-tool boundary recognizes literal empty as create-only;
+    // direct HTTP retains its strict hash schema and all real ownership guards.
+    for (const expectedHash of ["", null, "wrong"]) expect((await fetch(`${endpoint}/export`, { headers, method: "POST", body: JSON.stringify({ ...exportBody, path: "http-invalid.csv", expectedHash }) })).status).toBe(400);
+    const emptyCreated = JSON.parse(await plugin.tool.lawoss_documents_export.execute({ ...exportBody, path: "empty-created.csv", expectedHash: "" }, context));
+    expect(emptyCreated.path).toBe("empty-created.csv"); expect(emptyCreated.hash).toMatch(/^[a-f0-9]{64}$/);
+    const before = await readFile(join(path, "registry.csv"), "utf8");
+    for (const extra of [{}, { expectedHash: "" }, { expectedHash: "0".repeat(64) }]) {
+      const conflict = JSON.parse(await plugin.tool.lawoss_documents_export.execute({ ...exportBody, ...extra }, context));
+      expect(conflict.error).toContain("409");
+      expect(await readFile(join(path, "registry.csv"), "utf8")).toBe(before);
+    }
+    expect((await fetch(`${endpoint}/export`, { headers, method: "POST", body: JSON.stringify(exportBody) })).status).toBe(409);
+    await writeFile(join(path, "ordinary.csv"), "Ordinary user bytes");
+    const ordinaryHash = createHash("sha256").update("Ordinary user bytes").digest("hex");
+    for (const extra of [{}, { expectedHash: "" }, { expectedHash: ordinaryHash }]) {
+      const conflict = JSON.parse(await plugin.tool.lawoss_documents_export.execute({ ...exportBody, path: "ordinary.csv", ...extra }, context));
+      expect(conflict.error).toContain("409");
+      expect(await readFile(join(path, "ordinary.csv"), "utf8")).toBe("Ordinary user bytes");
+    }
+    const repaired = JSON.parse(await plugin.tool.lawoss_documents_export.execute({ ...exportBody, expectedHash: exported.hash, entries: [{ documentId: id, summary: "Synthetic owned repair" }] }, context));
+    expect(repaired.path).toBe("registry.csv"); expect(repaired.hash).not.toBe(exported.hash);
+    expect(await readFile(join(path, "registry.csv"), "utf8")).toContain("Synthetic owned repair");
+    const staleRepair = JSON.parse(await plugin.tool.lawoss_documents_export.execute({ ...exportBody, expectedHash: exported.hash }, context));
+    expect(staleRepair.error).toContain("409");
     expect((await fetch(`${endpoint}/export`,{headers,method:"POST",body:JSON.stringify({...exportBody,outputLanguage:"de"})})).status).toBe(400);
     expect((await fetch(`${endpoint}/${id}/read`)).status).toBe(401);
     expect((await fetch(`${endpoint}/prepare`, { headers, method: "POST", body: '{"paths":["../server.json"]}' })).status).toBe(403);

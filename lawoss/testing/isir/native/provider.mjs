@@ -1,4 +1,6 @@
 import http from "node:http";
+import { createRequire } from "node:module";
+const { z } = createRequire(new URL("../../../../apps/server/package.json", import.meta.url))("zod");
 
 // Only the remote completion protocol is fake. Tool execution is never called
 // here: the real OpenCode loop executes the advertised production tool names.
@@ -42,14 +44,49 @@ export async function startProvider() {
             const result = last ? decoded(last) : null;
             if (!result || result.nextOffset != null) { call = {name:"lawoss_documents_read",args:{id:source.id,limit:16000,...(result?.nextOffset == null ? {} : {offset:result.nextOffset})}}; break; }
           }
-          if (!call && !previous("lawoss_documents_export", args => args.kind === "registry")) call = {name:"lawoss_documents_export",args:{path:"native-registry.csv",kind:"registry",outputLanguage:language,documentIds:originalIds,entries:originalIds.map(documentId=>({documentId,summary:'Synthetic; "quoted" protocol evidence\nsecond line'}))}};
+          if (!call && !previous("lawoss_documents_export", args => args.kind === "registry")) call = {name:"lawoss_documents_export",args:{path:"native-registry.csv",expectedHash:"",kind:"registry",outputLanguage:language,documentIds:originalIds,entries:originalIds.map(documentId=>({documentId,summary:'Synthetic; "quoted" protocol evidence\nsecond line'}))}};
           if (!call && !previous("lawoss_documents_export", args => args.kind === "summary")) call = {name:"lawoss_documents_export",args:{path:"native-summary.md",kind:"summary",outputLanguage:language,documentIds:originalIds,entries:[]}};
           if (!call && !previous("lawoss_documents_validate")) call = {name:"lawoss_documents_validate",args:{paths:["native-registry.csv","native-summary.md"],outputLanguage:language,documentIds:originalIds}};
         }
       }
       const names = (body.tools ?? []).map(t => t.function?.name);
       if (call && !names.includes(call.name)) throw new Error(`Real engine did not advertise ${call.name}`);
-      receipts.push({ model: body.model, path: req.url, sources: sources.map(s => ({ id: s.id, hash: s.hash })), call, toolResults });
+      let exportSchemaVerified, exportWireAcceptance;
+      if (call?.name === "lawoss_documents_export") {
+        // Validate the real engine-advertised JSON schema, independently of its
+        // combinator encoding; no successful export is fabricated here.
+        const advertised = body.tools.find(t => t.function?.name === call.name);
+        const schema = z.fromJSONSchema(advertised.function.parameters);
+        const { expectedHash, ...input } = call.args;
+        if (!schema.safeParse(call.args).success || !schema.safeParse(input).success) throw new Error("Real engine export schema rejects create-only arguments");
+        // The pinned engine drops the regex in its wire schema. Record that
+        // broader advertisement; strict rejection belongs to plugin execute
+        // and HTTP, not to the provider serializer's unsupported constraint.
+        exportWireAcceptance = { missing: schema.safeParse(input).success };
+        for (const [variant, hash, expectedAccepted] of [["empty", "", true], ["valid", "a".repeat(64), true], ["null", null, false], ["whitespace", " ", false], ["invalid", "invalid", false], ["uppercase", "A".repeat(64), false]]) {
+          const actualAccepted = schema.safeParse({ ...input, expectedHash: hash }).success;
+          exportWireAcceptance[variant] = actualAccepted;
+          if (expectedAccepted && !actualAccepted) {
+            // Finite projection of this one schema field, never raw requests,
+            // descriptions, property names, values, paths, auth or source text.
+            const project = (field, depth = 0) => {
+              if (!field || typeof field !== "object" || depth > 3) return { truncated: true };
+              const types = ["string", "null", "object", "array", "number", "integer", "boolean"];
+              const type = Array.isArray(field.type) ? field.type.filter(t => types.includes(t)).slice(0, 7) : types.includes(field.type) ? field.type : undefined;
+              const literal = value => value === "" ? "empty" : value === null ? "null" : "other";
+              return { ...(type === undefined ? {} : { type }),
+                ...(Object.hasOwn(field, "const") ? { literal: literal(field.const) } : {}),
+                ...(Array.isArray(field.enum) ? { literals: field.enum.slice(0, 8).map(literal) } : {}),
+                ...(Object.hasOwn(field, "pattern") ? { pattern: field.pattern === "^[a-f0-9]{64}$" ? "lowercase-sha256" : "other" } : {}),
+                ...Object.fromEntries(["anyOf", "oneOf", "allOf"].filter(key => Array.isArray(field[key])).map(key => [key, field[key].slice(0, 8).map(value => project(value, depth + 1))])) };
+            };
+            throw new Error("Real engine export schema hash contract mismatch " + JSON.stringify({ variant, expectedAccepted, actualAccepted, required: advertised.function.parameters.required?.includes("expectedHash") === true, field: project(advertised.function.parameters.properties?.expectedHash) }));
+          }
+        }
+        if (!receipts.some(receipt => receipt.exportSchemaVerified)) console.log("Native export wire acceptance", JSON.stringify(exportWireAcceptance));
+        exportSchemaVerified = true;
+      }
+      receipts.push({ model: body.model, path: req.url, sources: sources.map(s => ({ id: s.id, hash: s.hash })), call, toolResults, ...(exportSchemaVerified ? { exportSchemaVerified, exportWireAcceptance } : {}) });
       const id = `chatcmpl-native-${receipts.length}`;
       const base = { id, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: body.model };
       await new Promise(resolve=>setTimeout(resolve,sources.length&&toolResults.length===0?250:25));

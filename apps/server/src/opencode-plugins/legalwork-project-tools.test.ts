@@ -79,3 +79,53 @@ test("sessions receive folder configuration and can finish setup without storing
     if (oldToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = oldToken;
   }
 });
+
+test("document export native advertised schema accepts only empty absence or exact lowercase hash", async () => {
+  const { z } = await import("zod");
+  const module = await import("./legalwork-project-tools.js");
+  expect(Object.keys(module)).toEqual(["LegalWorkProjectTools"]);
+  const plugin = await LegalWorkProjectTools(), tool = plugin.tool.lawoss_documents_export;
+  const args = z.object(tool.args), advertised = z.fromJSONSchema(z.toJSONSchema(args));
+  const base = { path: "synthetic.csv", kind: "registry", outputLanguage: "cs", documentIds: ["00000000-0000-4000-8000-000000000001"], entries: [] };
+  expect(args.safeParse(base).success).toBe(true); expect(advertised.safeParse(base).success).toBe(true);
+  for (const expectedHash of ["", "a".repeat(64)]) {
+    expect(args.safeParse({ ...base, expectedHash }).success).toBe(true);
+    expect(advertised.safeParse({ ...base, expectedHash }).success).toBe(true);
+  }
+  for (const expectedHash of [null, " ", "wrong", "a".repeat(63), "a".repeat(65), "A".repeat(64), 0]) {
+    expect(args.safeParse({ ...base, expectedHash }).success).toBe(false);
+    expect(advertised.safeParse({ ...base, expectedHash }).success).toBe(false);
+  }
+  expect(tool.description).toContain("create-only");
+  expect(plugin.tool.lawoss_documents_list.description).toContain("50");
+  expect(plugin.tool.lawoss_documents_read.description).toContain("characters");
+  expect(plugin.tool.lawoss_documents_read.description).toContain("16000");
+});
+
+test("document export forwards missing/empty hashes with property fully absent and valid hashes unchanged", async () => {
+  const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = process.env.LEGALWORK_SERVER_TOKEN;
+  const bodies: unknown[] = [];
+  const server = Bun.serve({ port: 0, async fetch(request) {
+    expect(request.headers.get("authorization")).toBe("Bearer synthetic-model-token");
+    if (new URL(request.url).pathname === "/workspaces") return Response.json({ items: [{ id: "synthetic", path: "/synthetic" }] });
+    expect(request.method).toBe("POST");
+    expect(new URL(request.url).pathname).toBe("/workspace/synthetic/lawoss/documents/export");
+    bodies.push(await request.json());
+    // Transport receipt only: does not pretend to prove a saved export.
+    return Response.json({ received: true });
+  } });
+  process.env.LEGALWORK_SERVER_URL = server.url.origin; process.env.LEGALWORK_SERVER_TOKEN = "synthetic-model-token";
+  try {
+    const { z } = await import("zod"), plugin = await LegalWorkProjectTools(), tool = plugin.tool.lawoss_documents_export;
+    const args = z.object(tool.args), base = { path: "synthetic.csv", kind: "registry", outputLanguage: "cs", documentIds: ["00000000-0000-4000-8000-000000000001"], entries: [] };
+    for (const input of [base, { ...base, expectedHash: "" }, { ...base, expectedHash: "a".repeat(64) }]) await tool.execute(args.parse(input), { directory: "/synthetic" });
+    expect(bodies).toEqual([base, base, { ...base, expectedHash: "a".repeat(64) }]);
+    expect(Object.hasOwn(bodies[0]!, "expectedHash")).toBe(false); expect(Object.hasOwn(bodies[1]!, "expectedHash")).toBe(false);
+    for (const expectedHash of [null, " ", "wrong", "A".repeat(64)]) expect(() => tool.execute({ ...base, expectedHash }, { directory: "/synthetic" })).toThrow();
+    expect(bodies).toHaveLength(3);
+  } finally {
+    server.stop(true);
+    if (oldUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = oldUrl;
+    if (oldToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = oldToken;
+  }
+});
