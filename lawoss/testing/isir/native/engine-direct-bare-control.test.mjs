@@ -272,6 +272,19 @@ test('health companion records admission before any health request and fixed exc
   const other=path.join(f.root,'other.json');await assert.rejects(api.publishHealthPair(other,pair));await assert.rejects(fs.lstat(other));
 });
 
+test('health publication snapshots validated companion before asynchronous writes',async t=>{
+  const f=await fixture(t),output=path.join(f.root,'published.json');
+  const pair=await api.testOnlyRun({...f.options,fixtureSha256:'0'.repeat(64),ownedNoopSdkMetadataHealth:true});
+  const mutable={...pair.companion},expected=`${JSON.stringify(mutable)}\n`;
+  const publishing=api.publishHealthPair(output,{receipt:pair.receipt,companion:mutable});
+  mutable.errorName='PRIVATE_SENTINEL';mutable.receiptSha256='0'.repeat(64);
+  await publishing;
+  const bytes=await fs.readFile(path.join(f.root,'engine-direct-health-boundary-v1.json'),'utf8');
+  assert.equal(bytes,expected);assert.ok(!bytes.includes('PRIVATE_SENTINEL'));
+  const saved=api.projectHealthBoundary(JSON.parse(bytes));
+  assert.equal(saved.receiptSha256,sha(await fs.readFile(output)));
+});
+
 test('health refusal retry reaches real listener once and selected work sees verified frozen boundary',async t=>{
   const f=await fixture(t,'ready',true);let attempts=0;
   const pair=await api.testOnlyRun({...f.options,ownedNoopSdkMetadataHealth:true,healthRequest:(request,url)=>{

@@ -110,14 +110,16 @@ export async function publishHealthPair(output,{receipt,companion}) {
   assert.ok(path.isAbsolute(output));assert.notEqual(path.basename(output).toLowerCase(),healthFile.toLowerCase());
   const sibling=path.join(path.dirname(output),healthFile);
   const validated=projectNoopSdkMetadataReceipt(receipt),baseBytes=`${JSON.stringify(validated)}\n`;
-  assert.deepEqual(projectHealthBoundary(companion),companion);
-  assert.equal(companion.receiptSha256,createHash('sha256').update(baseBytes).digest('hex'));
+  const validatedCompanion=projectHealthBoundary(companion);
+  assert.deepEqual(validatedCompanion,companion);
+  assert.equal(validatedCompanion.receiptSha256,createHash('sha256').update(baseBytes).digest('hex'));
+  const companionBytes=`${JSON.stringify(validatedCompanion)}\n`;
   for(const target of [output,sibling]) {
     try {await fs.lstat(target);throw new Error('occupied output');}
     catch(error) {if(error?.code!=='ENOENT')throw error;}
   }
   await fs.writeFile(output,baseBytes,{flag:'wx'});
-  await fs.writeFile(sibling,`${JSON.stringify(companion)}\n`,{flag:'wx'});
+  await fs.writeFile(sibling,companionBytes,{flag:'wx'});
 }
 
 const seedRoles=['config/opencode','empty-config'];
