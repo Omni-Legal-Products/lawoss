@@ -37,9 +37,9 @@ jobs:
       - name: Assert tools and install only the frozen standalone tool closure
         run: |
           try {
-            $payloadPnpm = (Get-Command pnpm -CommandType Application -ErrorAction Stop).Source
-            $payloadNode = (Get-Command node -CommandType Application -ErrorAction Stop).Source
-            if (-not [IO.Path]::IsPathFullyQualified($payloadPnpm) -or -not [IO.Path]::IsPathFullyQualified($payloadNode)) { throw 'TOOLS_INSTALL_FAILED' }
+            $payloadPnpm = (Get-Command pnpm -CommandType Application -TotalCount 1 -ErrorAction Stop).Source
+            $payloadNode = (Get-Command node -CommandType Application -TotalCount 1 -ErrorAction Stop).Source
+            if ($payloadPnpm -isnot [string] -or $payloadNode -isnot [string] -or -not [IO.Path]::IsPathFullyQualified($payloadPnpm) -or -not [IO.Path]::IsPathFullyQualified($payloadNode)) { throw 'TOOLS_INSTALL_FAILED' }
           } catch { throw 'TOOLS_INSTALL_FAILED' }
           if ((& $payloadNode --version) -ne 'v24.21.0') { throw 'NODE_VERSION' }
           $payloadPnpmVersion = (& $payloadPnpm --version).Trim()
@@ -89,7 +89,8 @@ jobs:
           if ($payloadPreflightExit -isnot [int] -or $payloadPreflightExit -ne 0) { throw 'TOOLS_ADMISSION_FAILED' }
       - name: 44 offline units, finite SDK prime, guarded Node replay and separate Bun smoke
         run: |
-          $payloadBun = (Get-Command bun -CommandType Application).Source
+          $payloadBun = (Get-Command bun -CommandType Application -TotalCount 1 -ErrorAction Stop).Source
+          if ($payloadBun -isnot [string] -or -not [IO.Path]::IsPathFullyQualified($payloadBun)) { throw 'TOOLS_ADMISSION_FAILED' }
           node lawoss/build/plugin-payload/native-validation.mjs $payloadBun
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload only closed small summary
