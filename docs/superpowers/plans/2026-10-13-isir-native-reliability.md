@@ -645,9 +645,23 @@ Task18 Windows run38786267859/job116598923077 ověřil DIRECT_READY: stejná1.18
 
 - [x] Přidat jediný pevný opt-in s vlastněným prázdným filepluginem, který při skutečném zavolání zapíše pevný aktivnímarker. Výchozíbared25schema/settings/supervisor zůstanou stejné; nový uzavřený26namespace zahrne pluginObserved.
 - [x] Behaviorální RED/GREEN testy ověří skutečné provedení pluginu, odmítnutí chybějícího/chybného/link markeru, privacy/identitu a oddělené schéma. PřesnýNode24.21; původní21regresí zachovány.
-- [ ] Nezávislá scoped SPEC/QUALITY revize; po greenpříslušnýchkontrolách normalpush pouze fix/pr157-direct-noop-control. HlavníPR157e65 i původníbarebranch5ad zmrazeny, dev se nemerguje.
-- [ ] Jeden skutečný Windowsběh se stejnou binárkou, síťovým nastavením/snapshotem, izolací,90s a cleanupem určí pouze výsledek jedinédeklarované změny. Ani selhání neidentifikuje samotný SDKinstall/await; žádná produkčníoprava z předpokladu.
+- [x] Nezávislá scoped SPEC/QUALITY revize; po greenpříslušnýchkontrolách normalpush pouze fix/pr157-direct-noop-control. HlavníPR157e65 i původníbarebranch5ad zmrazeny, dev se nemerguje.
+- [x] Jeden skutečný Windowsběh se stejnou binárkou, síťovým nastavením/snapshotem, izolací,90s a cleanupem určí pouze výsledek jedinédeklarované změny. Ani selhání neidentifikuje samotný SDKinstall/await; žádná produkčníoprava z předpokladu.
 
 Rozhraní a přesnýrozsah3souborů je task-19-brief.md ve vlastnímSDDworkspace. Samostatný exactbranch workflow využije původní acquisitionbezezměny; novýartifact engine-direct-noop-plugin-control.json. Žádné npmpluginy/fullappbuild/providercalls/pinchange/dalšícase po neuzavřenémprocesu.
 
 Task19 sourcef6689baf: final26/26exactNode24.21/syntax/YAML/diffPASS, původní21assertions a bareprojector/settings/supervisor/body/acquisition byteparity; fresh SPEC/QUALITYPASS/findings0. Root3file/DCO/helperSHAauditPASS. SamostatnýWindowsnoopběh pending; mainPRa původníbarekontrola bezezměny.
+
+
+### Task 20: Dvě známé vlastněné role a metadata instalačního fastpath
+
+SkutečnýTask19 Windows86b/run38788360877/job116606138258 skončil DIRECT_SELECTED_FAILED/deadline/pluginObservedfalse/request87866ms; health200, identita/manifests i ownedcleanup ověřeny. Stejnýengine v barekontrole prošel. PinnedsourceConfigPaths+Npm.install připouští další omezený metadatafastpath control; přesná xdgbasedir5.1.0 implementace byla získána z veřejného tarballu a ověřena proti SHA512 připnutéhov upstreambun.lock, bez instalace/exekuce. Dvě deklarované role jsou ownedroot/config/opencode a ownedroot/empty-config, další skutečné discoveredroles zůstávajíunknown.
+
+- [x] Přidat ONEfixedopt-in se stejnýmnoopmodulem a pouze testovacími metadata ve dvou známých rolích: empty node_modules, přesné packageJSON/lock rootdependency names. Nejde o skutečně nainstalované SDK ani produkčnísetup.
+- [x] Ověřit fyzickéownpaths, pravidelnésoubory/exaktní malébytes, prázdnýnode_modules a sourcepredicate předspawn/poownedclose; jakákoli změna/unclosed je UNKNOWN/rootretained. Zachovat bare25/noop26/supervisor/transport/acquisition, novýstrict28namespace seedPrepared+sourcePredicateSatisfied.
+- [ ] Behaviorální TDD/newcases a celý změněnýnewfile přesnýNode24.21, nezávisláSPEC/QUALITYrevize; normálníDCOcommit/push jen fix/pr157-direct-sdk-metadata-control po relevantníchgreenchecks.
+- [ ] Jeden Windowsběh bezezměnyengine/90s/env/pluginu/cleanup určí pouze výsledek tohoto metadatazásahu. Nikdy netvrdit reifySkipped/joinCompleted/SDKInstalled z metadatapredikátu ani z tohoto vyvozovat hotovouopravu plnéaplikace.
+
+Přesnýkontrakt task-20-brief.md a pr157-next-sdk-fastpath-control-design-report.md ve vlastnímSDDworkspace. Root vlastní společnédocs, writer pouze3diagnosticsoubory. Žádné actualSDK/packageacquisition/fullbuild/providercalls/pinchange/poznámky v uživatelskémprofilu; hlavníPR i předchozí kontrolnívětve zmrazeny.
+
+Task20 sourcec5eda830: focused5RED/GREEN/final31/31přesnýNode24.21, syntax/YAML/diffPASS. Old25/26projectors/core/acquisition+26testbody byteparity, noopmodule610fe… nezměněn. FreshSPEC/QUALITYPASS/nálezy0, root3file/DCO/helperSHAauditPASS. SkutečnýWindowsmetadatacontrolpending, SDKnenínainstalované/žádnáprodukčníoprava.
