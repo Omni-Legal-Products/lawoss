@@ -660,3 +660,24 @@ Tento task je komponenta pro následnou produkční integraci, nikoli uzavření
 Původní startup/portable RED, protected dev approval/merge, nová běžící aplikace a skutečná desetispisová GUI/provider akceptace zůstávají otevřené. Detailní binding brief je v SDD task-23-brief.md.
 
 **Task23 lokálně uzavřen:** source6112f036+fix4e128703, final29/29 exactNode24/darwinarm64, syntax2/diffPASS. Initial review Important drive-key case bug fixed with focused RED→GREEN; fresh scoped SPEC/QUALITY PASS/new0. Root4sourceSHA/DCO/report/review/fetchedbase/dev auditPASS. Runtime hooks, ownership/merge/preparation a skutečnéWindows/Bun zůstávají další kroky; původní fullgoal otevřený. Publikace do existujícího SDK draft PR158 následuje.
+
+
+### Task24: Přesná SDK cache a nativní ověření Windows/Bun
+
+**Výchozí stav:** Task23 source6112+fix4e128/rootdocs e7ace3f6 publikován do stávajícího SDK draft PR158. Final29/29 Node24/darwinarm64 a scoped SPEC/QUALITY PASS; rootsource/review/DCO/remoteSHA+clean/dev1c auditPASS. Nové e7a generické CI probíhá; žádné SDK/Windows/runtime ověření z něj neplyne.
+
+**Scope:** SDK green folder `lawoss/build/plugin-payload/**` a jeden nový `.github/workflows/plugin-sdk-payload.yml`; root čtyři dokumenty. Nová izolovaná větev `fix/pr157-sdk-native-validation` od e7ace3f6. Bez runtime hooků, přepisu accepted SDK/tool locků nebo dalšího generování candidate.
+
+- [x] Malý cache primer: přesně accepted32URL/SRI, žádné redirects/retries/packuments/onlineArborist, 32MiB/archive, 256MiB total, 45s/request a jeden300s absolute deadline. Backpressure/integrity/digest verification, own empty workspace/admission, primary error a skutečné zavření streamů.
+- [x] Offline testy reálné cacache se syntetickým transportem, preflight/hash/byte/error/deadline/abort/refusal; zachovat původní SDK testy a skutečný native-load oracle. Review zdrojů před prvním live acquisition.
+- [x] Node zůstane SDK producer; oddělený bounded Bun1.3.14 import smoke přes existující probe, pozorované guard preload admission, native loaded, Node payload inventory beze změny. Žádné tvrzení o shodném compiled-engine buildu ze samotné semver.
+- [x] PR-only paths-filtered Windows2022/x64 job: přesné nástroje, pouze standalone tools install, unit testy → cold exact primer → offline replay/integration → Bun smoke, malý uzavřený výsledek. Bez mainapp/provider/clientdata.
+- [x] DCO commit a fresh SPEC/QUALITY; root audit a publikace do PR158 až po terminálním e7aCI. Následně první skutečné Windows SDK ověření, ne opakování až do zelené. Chybějící cache metadata nebo native/Bun chyba zůstane konkrétní RED bez online solver fallbacku.
+
+Detaily a source API jsou v SDD task-24-brief.md. Produkční distribuce/notices, sdílené user-directory merges/locking/recovery, current/later-instance hooks, původní startup/portableRED, protected dev approval/merge, nová aplikace a skutečná10GUI/provider akceptace zůstávají samostatně otevřené.
+
+**Task24 reviewI1 / root Ruling:** real pinnedcacache delayed-index test prokázal návrat po outer streamclose před dokončením zápisu. Původní put.stream mandate nahrazen supported async put/get.byDigest + boundedarchive buffer; limity a všechny error/admission oracles zachovány. Cena: boundedextra memory. Na již zahájené I/O se čeká při cleanup, bez další práce po deadline a bez tvrzení o univerzálním zrušení OSoperací. Fixround1 a freshscopedrereview nutné před publikací/liveacquisition.
+
+**Task24 source/offline fáze lokálně uzavřena:** a0c0d58c+fix676f1872, earlier33/33offline a poslední covering11/11 po I1fixu. InitialreviewI1 skutečnýflushoutlivesstreamclose napraven publicawaitablecachepromises/boundedbuffer; focusedrealcacheRED→GREEN, freshscopedSPEC/QUALITYPASS/new0. Root11source/3immutable/bothDCO/TAP/review/producer94ec+workflowf174 contract auditPASS.
+
+- [ ] První skutečné Windows SDK acquisition/replay/integration/Bun výsledky po publikaci. Žádné dosavadní source/offline PASS tuto položku ani původní Windowsstartup/fullgoal neuzavírá.
