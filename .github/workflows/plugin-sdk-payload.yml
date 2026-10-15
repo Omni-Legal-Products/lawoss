@@ -75,6 +75,23 @@ jobs:
           $payloadStore = Join-Path $payloadRoot '.work/tool-store'
           $payloadCache = Join-Path $payloadRoot '.work/tool-cache'
           $payloadState = Join-Path $payloadRoot '.work/tool-state'
+          $payloadSanitizedOutput = @()
+          $payloadSanitizedThrew = $false
+          $payloadSanitizedExit = $null
+          $global:LASTEXITCODE = $null
+          try {
+            $payloadSanitizedOutput = @(& $payloadPnpm --version 2>$null)
+            $payloadSanitizedExit = $LASTEXITCODE
+          } catch { $payloadSanitizedExit = $LASTEXITCODE; $payloadSanitizedThrew = $true }
+          $payloadSanitizedVersion = 'other'
+          if ($payloadSanitizedThrew) { $payloadSanitizedVersion = 'threw' }
+          elseif ($payloadSanitizedOutput.Count -eq 0) { $payloadSanitizedVersion = 'absent' }
+          elseif ($payloadSanitizedOutput.Count -eq 1 -and $payloadSanitizedOutput[0] -is [string] -and $payloadSanitizedOutput[0] -ceq '11.4.0') { $payloadSanitizedVersion = 'exact' }
+          $payloadSanitizedExitKind = 'other'
+          $payloadSanitizedExitValue = 'unknown'
+          if ($null -eq $payloadSanitizedExit) { $payloadSanitizedExitKind = 'absent' }
+          elseif ($payloadSanitizedExit -is [int]) { $payloadSanitizedExitKind = 'int32'; $payloadSanitizedExitValue = $payloadSanitizedExit.ToString([Globalization.CultureInfo]::InvariantCulture) }
+          Write-Output "LAWOSS_PNPM_SANITIZED_VERSION:${payloadSanitizedVersion}:${payloadSanitizedExitKind}:${payloadSanitizedExitValue}"
           $global:LASTEXITCODE = $null
           try {
             & $payloadPnpm --dir $payloadTools install --prod=false --frozen-lockfile --ignore-workspace --ignore-scripts --registry=https://registry.npmjs.org/ --store-dir $payloadStore --config.cache-dir $payloadCache --config.state-dir $payloadState
