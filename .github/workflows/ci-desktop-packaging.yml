@@ -80,9 +80,21 @@ jobs:
         timeout-minutes: 12
         run: xvfb-run -a pnpm test:isir:native
       - name: Native ISIR renderer, tools and application relaunch (Windows and macOS)
+        id: native-isir-non-linux
         if: runner.os != 'Linux'
         timeout-minutes: 12
         run: pnpm test:isir:native
+      - name: Probe bundled engine runtime after Windows native failure
+        if: runner.os == 'Windows' && failure() && steps.native-isir-non-linux.outcome == 'failure'
+        run: node lawoss/testing/isir/native/engine-runtime-smoke.mjs "${{ runner.temp }}/isir-engine-runtime-smoke.json"
+      - name: Upload synthetic engine runtime metadata
+        if: runner.os == 'Windows' && failure() && steps.native-isir-non-linux.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: isir-engine-runtime-smoke-${{ matrix.os }}
+          path: ${{ runner.temp }}/isir-engine-runtime-smoke.json
+          if-no-files-found: ignore
+          retention-days: 7
       # Only the allowlisted projection is uploaded; never the private test root.
       - name: Upload synthetic native boundary diagnostics
         if: always()
