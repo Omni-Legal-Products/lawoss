@@ -120,6 +120,7 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 
 ## Document evidence and resource bounds
 
+- Trace environment values through every child-launch merge before designing a flag experiment. An absent outer-harness variable does not establish an absent effective child setting; keep direct-engine controls separate from full application acceptance.
 - Capture the canonical database path and generation in its lifetime owner. Async request/producer work must keep that owner until completion; stopping one server must preserve another live server's borrowed stores, watchers and accepted pending synchronization.
 - Failed native close is not released ownership. Retain the exact failed resource and both initialization/cleanup errors for explicit captured-generation recovery; close successful siblings only once and keep successor readiness blocked until cleanup succeeds.
 - Verify database release using real Bun and Node drivers, own-process handles and normal directory removal while the process stays alive. A returned close call or garbage collection is not proof that retained prepared statements released their native handles.

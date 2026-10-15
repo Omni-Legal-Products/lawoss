@@ -624,3 +624,16 @@ Cílená source analýza neprokázala konkrétní chybu. Nejmenší navazující
 **Task16 skutečné733 ověření:** ALL4/ALL11 terminální; celý Windows portable včetně helper19/korpusu20 PASS a samostatný empty-auth unit4 PASS. Tím je oprava writer lifetime provozně doložená na Windows; historická job membership/příčina se netvrdí. OriginalWindows startup RED87057ms; empty-authguard UNKNOWN/notrun, žádný skutečný experiment. Baseline install1/no build, compileguard UNKNOWN/no capability. Root report77evidence/11Gitproducer audit PASS. Task17 řeší konkrétní admission mezeru; původní startup/GUI/provider/protecteddev zůstávají otevřené.
 
 **Task17 lokálně uzavřeno:** workere575c3f2 → root8b5d9dcd. Pouze fyzicky následné Windows separator spelling a5nových skutečných filesystem/guard regresí; original33 byte-prefix přesně zachovaný. Exact Node24 focused5/5 a final38/38 jednou, syntax2/diff PASS. Fresh SPEC PASS / QUALITY APPROVED, nálezy0, root source/parity/report/review/DCO i733 ALL4/ALL11+77hash/11Gitproducer audit PASS. Žádný host Windows RED/GREEN ani konkrétní historická exception se netvrdí. Normální publikace a nové skutečné Windows run/native ověření následují.
+
+### Task 18: Oddělená přímá Windows kontrola stejné binárky
+
+Aktuálníe65 kontrola auth skutečně proběhla a start neopravila; stejnábinárka/manifests/appliedproducer, selectedpathfailed/health200/closed1. Mac/Linux packagePASS, původníWinstartupRED88434ms. Rootaudit98evidence+11Gitproducer/all4+11terminal PASS. Jedno opakování pouzeportable běží na nezměněnéme65; dalšíopakování nepovoleno.
+
+- [x] Nový samostatný runner/test a exactbranch Windowsworkflow bez Electronu/buildů změří původní připnutou SHA32675fbf… /1.18.29 pomocí autentizovaného health+selected /path, celkové90s, boundedbody/stdio, ověření identity před/po a vlastněného cleanupu.
+- [x] Syntetické behaviorální RED/GREEN testy pro admission/scope/body/deadline/close/cleanup a uzavřený výstup bez tajemství; čerstvá nezávislá SPEC+QUALITY review.
+- [ ] Po terminálnímportable repeatu a root auditu samostatný featurepush pouzediagnostickévětve; hlavníPR157head bezezměny, žádnýdevmerge.
+- [ ] Skutečný Windowsvýsledek zhodnotit jako přímou kontrolu, nikdy jako opravu původní aplikace nebo důkaz příčiny. Žádné dalšíprobe po neuzavřeném procesu.
+
+Rozsah a rozhraní: task-18-brief.md a pr157-next-bootstrap-control-design-report.md ve vlastním SDD workspace. Jedenwriter vlastní pouze3novésoubory; root společnédocs. Fixníkonfigurace: izolovanýsyntetickýprofil, modelsfetch/share/update disable, vestavěnýsnapshot bez catalogpath, bezexterníchpluginů/providerrequests. managed-opencode jižinjektuje síťovoupolitiku; absenceproměnné ve vnějšíharnessnenídůkaz efektivníhochildenv. Neměnísepin/authdefault/původnínativeharness/collector/workflow/artifactschemas.
+
+Task18 implementace64d4de43 +scopedfixe32fb116: final21/21 přesnýNode24.21, syntax/YAML/diffPASS; fresh SPEC/QUALITYPASS, envadapter+SHAspy nálezy ADDRESSED. Root3source/DCO/11nezměněnýchproducerauditPASS. SamostatnýWindowsběh pending, žádný důkaz opravy aplikace.
