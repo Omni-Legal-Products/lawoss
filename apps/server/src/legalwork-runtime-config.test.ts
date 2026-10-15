@@ -92,6 +92,22 @@ test.each([false, true])("the built-in review worker is registered with sandboxi
   expect(parsed).not.toHaveProperty("agent.document-extractor.prompt", "Stored override");
 });
 
+test("saved-output access is enabled before user rules and bundled with the runtime", async () => {
+  const { config } = await setup();
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { "*": "deny", read: "deny" } }));
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  const denied = await readConfigFile(config);
+  expect(denied).toMatchObject({ permission: { legalwork_tool_output_read: "allow", "*": "deny", read: "deny" } });
+  const rules = Object.keys(Object(denied.permission));
+  expect(rules.indexOf("legalwork_tool_output_read")).toBeLessThan(rules.indexOf("*"));
+  expect(JSON.stringify(denied.plugin)).toContain("legalwork-tool-output");
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { "*": "allow", legalwork_tool_output_read: "deny" } }));
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  const explicit = await readConfigFile(config);
+  expect(explicit).toMatchObject({ permission: { legalwork_tool_output_read: "deny" } });
+  expect(Object.keys(Object(explicit.permission)).indexOf("legalwork_tool_output_read")).toBeGreaterThan(Object.keys(Object(explicit.permission)).indexOf("*"));
+});
+
 describe("legalwork runtime config file", () => {
   test("writes runtime-DB MCPs and legalwork defaults into the file", async () => {
     const { config } = await setup();

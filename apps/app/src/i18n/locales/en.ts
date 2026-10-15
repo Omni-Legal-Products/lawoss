@@ -3026,6 +3026,8 @@ export default {
   "mcp.quick_connect_legalwork_ui_title": "LegalWork UI Control",
   "mcp.quick_connect_relativity_desc": "Query the firm's RelativityOne eDiscovery instance in natural language — manage matters, workspaces, and access. Enter your tenant hostname and the Client ID from Relativity Support; you act as a signed-in System Administrator.",
   "mcp.quick_connect_relativity_title": "Relativity",
+  "mcp.quick_connect_patent_connector_desc": "Search patents, trademarks, designs, prosecution records, and examination manuals from official IP sources.",
+  "mcp.quick_connect_patent_connector_note": "Sign in with your Patent Connector account. Some sources require your own patent-office API keys, configured in Patent Connector.",
   "mcp.quick_connect_ruly_desc": "Search jurisdiction-specific court rules, local rules, and procedural statutes with grounded citations. Sign in with your Ruly account; an active subscription is required.",
   "mcp.quick_connect_ruly_title": "Ruly",
   "mcp.quick_connect_sharepoint_desc": "Search and manage matter files across the firm's SharePoint sites and OneDrive. Enter your tenant ID; admin consent required.",

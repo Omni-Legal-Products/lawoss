@@ -12,6 +12,7 @@ import {
   readGlobalMcpMap,
   readGlobalToolPermissions,
   readRuntimeOpencodeConfig,
+  onRuntimeOpencodeConfigWrite,
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
 import { startServer } from "./server.js";
@@ -394,5 +395,28 @@ describe("runtime OpenCode config store", () => {
         await server.stop(true);
       }
     });
+  });
+});
+
+
+test("config notifications skip exact no-ops but retain mutation and permission rule ordering", async () => {
+  await withWorkspace(async ({ config }) => {
+    await writeRuntimeOpencodeConfig(config, WORKSPACE_ID, () => ({ permission: { read: { "*": "allow", "*.secret": "deny" } } }));
+    const changes: string[] = [];
+    const stop = onRuntimeOpencodeConfigWrite((source, workspace) => { if (source === config) changes.push(workspace); });
+    try {
+      await writeRuntimeOpencodeConfig(config, WORKSPACE_ID, current => current);
+      expect(changes).toEqual([]);
+      await writeRuntimeOpencodeConfig(config, WORKSPACE_ID, current => {
+        current.permission = { read: { "*.secret": "deny", "*": "allow" } };
+        return current;
+      });
+      expect(changes).toEqual([WORKSPACE_ID]);
+      await writeRuntimeOpencodeConfig(config, WORKSPACE_ID, current => {
+        current.permission = { read: "deny" };
+        return current;
+      });
+      expect(changes).toEqual([WORKSPACE_ID, WORKSPACE_ID]);
+    } finally { stop(); }
   });
 });

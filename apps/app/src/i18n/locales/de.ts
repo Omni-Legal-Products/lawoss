@@ -3156,6 +3156,8 @@ const de = {
   "mcp.quick_connect_relativity_desc":
     "Fragen Sie die RelativityOne-eDiscovery-Instanz der Kanzlei in natürlicher Sprache ab und verwalten Sie Mandate, Workspaces und Zugriffe. Geben Sie Ihren Tenant-Hostnamen und die Client-ID vom Relativity-Support an; Sie handeln als angemeldeter Systemadministrator.",
   "mcp.quick_connect_relativity_title": "Relativity",
+  "mcp.quick_connect_patent_connector_desc": "Durchsuchen Sie Patente, Marken, Designs, Verfahrensakten und Prüfungsrichtlinien aus offiziellen Quellen zum geistigen Eigentum.",
+  "mcp.quick_connect_patent_connector_note": "Melden Sie sich mit Ihrem Patent-Connector-Konto an. Einige Quellen benötigen Ihre eigenen API-Schlüssel der Patentämter, die Sie in Patent Connector hinterlegen.",
   "mcp.quick_connect_ruly_desc": "Gerichtsspezifische Regeln, lokale Regeln und Verfahrensvorschriften mit belegten Fundstellen durchsuchen. Melden Sie sich mit Ihrem Ruly-Konto an; ein aktives Abonnement ist erforderlich.",
   "mcp.quick_connect_ruly_title": "Ruly",
   "mcp.quick_connect_sharepoint_desc":

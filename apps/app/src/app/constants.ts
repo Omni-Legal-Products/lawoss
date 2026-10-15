@@ -505,6 +505,19 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     kind: "mcp",
   },
   {
+    name: "Patent Connector",
+    serverName: "patent-connector",
+    get description() { return t("mcp.quick_connect_patent_connector_desc"); },
+    // Hosted endpoint published by patent.dev. OAuth discovery supports
+    // PKCE and dynamic client registration, so no client credentials are needed.
+    url: "https://mcp.patent.dev/mcp",
+    type: "remote",
+    oauth: true,
+    kind: "mcp",
+    get setupNote() { return t("mcp.quick_connect_patent_connector_note"); },
+    setupUrl: "https://patent.dev/patent-connector/",
+  },
+  {
     get name() { return t("mcp.quick_connect_ruly_title"); },
     serverName: "ruly",
     get description() { return t("mcp.quick_connect_ruly_desc"); },

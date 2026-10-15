@@ -314,6 +314,8 @@ test("changing permission settings aborts a running command before more network 
   const service = new AgentSandboxService(fixtureState.config, new ApprovalService(fixtureState.config.approval), {
     status: async () => ({ available: true }), prepare: async () => "test-image",
     run: async (input) => {
+      await writeRuntimeOpencodeConfig(fixtureState.config, GLOBAL_TOOL_PERMISSIONS_ID, current => current);
+      expect(input.signal.aborted).toBe(false);
       await writeRuntimeOpencodeConfig(fixtureState.config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { webfetch: "deny" } }));
       stopped = input.signal.aborted;
       await input.authorizeNetwork(prepareOutboundRequest({ url: "https://example.com/", method: "GET", headers: {}, bodyBase64: "" }));
@@ -788,4 +790,59 @@ test("a new read-only project boundary cannot commit an older writable mount", a
     };
     await f.service.run(own, { command: "true", sessionID: "wiki-chat", write: true, timeoutMs: 1000 }, { type: "host" }, signal);
   } finally { await store.close(); }
+});
+
+test("remembered network approval repeats only for an identical request in the same chat", async () => {
+  const f = await fixture({ webfetch: "allow" });
+  const net = observedWebNetwork();
+  const input = webInput("https://example.com/document");
+  const run = (request = input, lineage = [request.sessionID]) => f.service.web(f.workspace, request,
+    { type: "host" }, new AbortController().signal, [], lineage, net.send);
+  const first = run();
+  const [approval] = await waitForWebApproval(f.service);
+  expect(approval.canRemember).toBe(true);
+  f.service.approvals.respond(approval.id, "always");
+  await first;
+  await run();
+  expect(f.service.approvals.list()).toEqual([]);
+  expect(net.sent).toHaveLength(2);
+
+  for (const request of [{ ...input, url: "https://example.com/other-document" }, { ...input, sessionID: "child" }]) {
+    const result = run(request, [request.sessionID, input.sessionID]).catch(error => error);
+    const [changed] = await waitForWebApproval(f.service);
+    f.service.approvals.respond(changed.id, "deny");
+    expect(await result).toBeInstanceOf(Error);
+  }
+  expect(net.sent).toHaveLength(2);
+  await writeRuntimeOpencodeConfig(f.config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { webfetch: "deny" } }));
+  await expect(run()).rejects.toThrow("blocked by your permissions");
+  expect(net.sent).toHaveLength(2);
+});
+
+test("unchanged config writes retain remembered network approval but permission changes revoke it", async () => {
+  const f = await fixture({ webfetch: "allow" });
+  const net = observedWebNetwork();
+  const run = () => f.service.web(f.workspace, webInput("https://example.com/document"),
+    { type: "host" }, new AbortController().signal, [], undefined, net.send);
+  const first = run();
+  const [approval] = await waitForWebApproval(f.service);
+  f.service.approvals.respond(approval.id, "always");
+  await first;
+  await run();
+  expect(f.service.approvals.list()).toEqual([]);
+
+  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, current => current);
+  await writeRuntimeOpencodeConfig(f.config, GLOBAL_TOOL_PERMISSIONS_ID, current => current);
+  await run();
+  expect(f.service.approvals.list()).toEqual([]);
+  expect(net.sent).toHaveLength(3);
+
+  await writeRuntimeOpencodeConfig(f.config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { webfetch: "ask" } }));
+  const repeated = run().catch(error => error);
+  const [again] = await waitForWebApproval(f.service);
+  expect(again.network).toEqual(approval.network);
+  expect(again.sessionID).toBe(approval.sessionID);
+  f.service.approvals.respond(again.id, "deny");
+  expect(await repeated).toBeInstanceOf(Error);
+  expect(net.sent).toHaveLength(3);
 });

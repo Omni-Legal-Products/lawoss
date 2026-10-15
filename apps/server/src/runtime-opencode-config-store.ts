@@ -300,9 +300,14 @@ export async function writeRuntimeOpencodeConfig(
   updater: (current: RuntimeOpencodeConfig) => RuntimeOpencodeConfig,
 ): Promise<RuntimeOpencodeConfig> {
   const db = await runtimeDb(config);
-  const next = normalizeRuntimeOpencodeConfig(updater(await readRuntimeOpencodeConfig(config, workspaceId)));
-  const now = Date.now();
+  const current = await readRuntimeOpencodeConfig(config, workspaceId);
+  // Snapshot before the updater, which may mutate current in place. Keep key
+  // order: ordered permission rules can change meaning when reordered.
+  const previous = JSON.stringify(current);
+  const next = normalizeRuntimeOpencodeConfig(updater(current));
   const configJson = JSON.stringify(next);
+  if (configJson === previous) return next;
+  const now = Date.now();
   db.upsert({ workspaceId, configJson, updatedAt: now });
   for (const listener of writeListeners) listener(config, workspaceId);
   return next;

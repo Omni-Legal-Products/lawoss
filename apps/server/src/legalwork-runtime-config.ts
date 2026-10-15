@@ -36,6 +36,7 @@ import {
   legalworkDraftToolsPluginPath,
   legalworkScheduledTaskToolsPluginPath,
   legalworkProjectToolsPluginPath,
+  legalworkToolOutputPluginPath,
   legalworkReviewToolsPluginPath,
   legalworkWikiToolsPluginPath,
   legalworkExcelToolsPluginPath,
@@ -268,7 +269,10 @@ export async function buildLegalworkRuntimeConfigObject(
   const workspace = config?.workspaces.find((item) => item.id === workspaceId);
   const result = {
     ...runtimeConfig,
-    permission: { ...permission, legalwork_project_set_instructions: instructionPermission },
+    // Enable bounded output reads in the native explore agent, whose default
+    // denies unknown tools. User and firm rules follow and keep precedence.
+    permission: { ...(!Object.hasOwn(permission, "legalwork_tool_output_read") ? { legalwork_tool_output_read: "allow" } : {}),
+      ...permission, legalwork_project_set_instructions: instructionPermission },
     // A refusal remains a tool error visible to the model. The engine should
     // continue within the user's boundaries instead of silently ending the turn.
     experimental: { continue_loop_on_deny: true },
@@ -323,6 +327,7 @@ export async function buildLegalworkRuntimeConfigObject(
       bundledPluginSpec(legalworkDraftToolsPluginPath(), config),
       bundledPluginSpec(legalworkScheduledTaskToolsPluginPath(), config),
       bundledPluginSpec(legalworkProjectToolsPluginPath(), config),
+      bundledPluginSpec(legalworkToolOutputPluginPath(), config),
       bundledPluginSpec(legalworkReviewToolsPluginPath(), config),
       bundledPluginSpec(legalworkWikiToolsPluginPath(), config),
       bundledPluginSpec(legalworkOrgPolicyGuardPluginPath(), config),
