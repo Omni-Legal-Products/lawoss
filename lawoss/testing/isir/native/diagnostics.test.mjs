@@ -151,3 +151,23 @@ test('failure probes reach the actual failing case and otherwise the selected wo
     await rm(root,{recursive:true});
   }
 });
+
+test('selected-instance category and finite startup/census projections are bounded and exclude raw identity',async()=>{
+  const root=await mkdtemp(path.join(tmpdir(),'native-stages-test-'));
+  try{
+    const outputFile=path.join(root,'safe.json'),d=createNativeDiagnostics({enabled:true,ci:true,mode:'synthetic',outputFile});
+    d.phase('startup');
+    for(let i=0;i<40;i++)d.startup(['request','headers','body','verified'][i%4]);
+    for(let i=0;i<150;i++)d.ownedProcess({stage:'term-wait',index:i+1,elapsedMs:i,knownLive:1,unknown:0,moved:0,mismatched:0,leaderExited:true,anchored:true,pid:987654,uid:987654,start:'PRIVATE-IDENTITY',command:'PRIVATE-COMMAND',directory:'PRIVATE-ROOT'});
+    assert.throws(()=>d.startup('PRIVATE-STAGE'),/stage/);
+    assert.throws(()=>d.ownedProcess({stage:'PRIVATE-STAGE'}),/stage/);
+    assert.throws(()=>d.ownedProcess({stage:'term-wait',index:-1}),/census/);
+    await d.write({events:[{method:'Network.requestWillBeSent',params:{requestId:'PRIVATE-ID',timestamp:1,request:{url:'http://private-host/path?directory=PRIVATE-ROOT&token=PRIVATE-TOKEN'}}}]});
+    const text=await readFile(outputFile,'utf8'),result=JSON.parse(text);
+    assert.equal(result.schema,3);assert.equal(result.network.requests[0].endpoint,'engine.path');
+    assert.equal(result.startup.length,32);assert.equal(result.startupDropped,8);
+    assert.equal(result.ownedProcesses.length,128);assert.equal(result.ownedProcessesDropped,22);
+    assert.deepEqual(result.ownedProcesses[0],{phase:'startup',stage:'term-wait',index:23,elapsedMs:22,knownLive:1,unknown:0,moved:0,mismatched:0,leaderExited:true,anchored:true});
+    assert.doesNotMatch(text,/PRIVATE|private-host|987654|"pid"|"uid"|command|directory/);
+  }finally{await rm(root,{recursive:true,force:true});}
+});

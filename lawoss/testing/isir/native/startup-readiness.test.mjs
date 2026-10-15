@@ -135,3 +135,36 @@ test('Windows separators/case normalize but POSIX distinct names remain distinct
     } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
   }
 });
+
+test('finite startup observations distinguish held body from verified selected instance', async () => {
+  await fixture(async ({baseUrl,arrived,release})=>{
+    const stages=[];
+    const pending=awaitDirectoryInstance({request:fetch,baseUrl,headers:{authorization:'Basic fixture'},directory:'/fixture/č',deadline:Date.now()+2000,observe:stage=>stages.push(stage)});
+    await arrived;
+    await (await fetch(baseUrl+'/tick')).text();
+    assert.deepEqual(stages,['request','headers']);
+    release('/fixture/č');await pending;
+    assert.deepEqual(stages,['request','headers','body','verified']);
+  });
+});
+
+test('finite startup observations stop at headers for malformed JSON and body for invalid scope',async()=>{
+  for(const [body,expected] of [['private-malformed',['request','headers']],[JSON.stringify({directory:'/private-wrong'}),['request','headers','body']]]) {
+    const server=createServer((req,res)=>res.end(body));
+    await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+    try{
+      const stages=[];
+      await assert.rejects(awaitDirectoryInstance({request:fetch,baseUrl:`http://127.0.0.1:${server.address().port}`,headers:{authorization:'Basic private'},directory:'/fixture',deadline:Date.now()+2000,observe:stage=>stages.push(stage)}));
+      assert.deepEqual(stages,expected);
+    }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+  }
+});
+
+test('a held header timeout records only request and preserves primary timeout identity',async()=>{
+  const server=createServer(()=>{});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try{
+    const stages=[];let original;
+    await assert.rejects(awaitDirectoryInstance({request:async(...args)=>{try{return await fetch(...args)}catch(error){original=error;throw error}},baseUrl:`http://127.0.0.1:${server.address().port}`,headers:{authorization:'Basic fixture'},directory:'/fixture',deadline:Date.now()+60,observe:stage=>stages.push(stage)}),error=>error===original&&error.name==='TimeoutError');
+    assert.deepEqual(stages,['request']);
+  }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+});

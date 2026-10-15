@@ -10,7 +10,7 @@ import { loadNativeCorpus } from "../lawoss/testing/isir/native/corpus.mjs";
 import { startProvider } from "../lawoss/testing/isir/native/provider.mjs";
 import { partialPdf } from "../lawoss/testing/isir/native/partial-pdf.mjs";
 import { connectRenderer, until } from "../lawoss/testing/isir/native/cdp.mjs";
-import { stopNativeChild as stop } from "../lawoss/testing/isir/native/owned-process.mjs";
+import { stopNativeChild } from "../lawoss/testing/isir/native/owned-process.mjs";
 import { createNativeDiagnostics, settleCleanup, errorMetadata } from "../lawoss/testing/isir/native/diagnostics.mjs";
 import { configureNativeProvider } from "../lawoss/testing/isir/native/bootstrap.mjs";
 import { installChooserBoundary } from "../lawoss/testing/isir/native/chooser-boundary.mjs";
@@ -35,6 +35,7 @@ assert.ok(!requestedEndpointRefresh || (process.env.CI && corpus.mode==='synthet
 const endpointRefresh=corpus.mode==='synthetic' && !debugPair;
 const diagnostics = createNativeDiagnostics({ enabled: process.env.LAWOSS_ISIR_NATIVE_DIAGNOSTICS === '1', ci: Boolean(process.env.CI), mode: corpus.mode, outputFile: process.env.LAWOSS_ISIR_NATIVE_DIAGNOSTICS_FILE });
 const nativeFetch = diagnostics.fetch;
+const stop = child => stopNativeChild(child,3000,{observe:diagnostics.ownedProcess});
 // An explicit fixture is preflighted, but never substitutes for a prepared
 // platform target or bypasses its manifest. PATH discovery is not permitted.
 const externalEngine = process.env.LAWOSS_ISIR_NATIVE_ENGINE;
@@ -143,7 +144,7 @@ try {
   let serverAuth = {authorization:'Bearer '+(serverInfo.ownerToken||serverInfo.clientToken),'content-type':'application/json'};
   // Initial registered root only. A restart after moving the folder must never
   // probe or recreate its missing historical root.
-  const startupReceipt=await awaitDirectoryInstance({request:(url,options)=>nativeFetch(url,options,Math.max(1,startupRemaining())),baseUrl:liveEngine.baseUrl,headers:apiAuth,directory:workspaces[0].path,deadline:startupDeadline});
+  const startupReceipt=await awaitDirectoryInstance({request:(url,options)=>nativeFetch(url,options,Math.max(1,startupRemaining())),baseUrl:liveEngine.baseUrl,headers:apiAuth,directory:workspaces[0].path,deadline:startupDeadline,observe:diagnostics.startup});
   console.log('Native selected-instance startup',JSON.stringify({...startupReceipt,elapsedMs:Math.round(performance.now()-startupStarted),remainingMs:startupRemaining()}));
   diagnostics.phase("configure-provider");
   const providerConfig = JSON.parse(env.OPENCODE_CONFIG_CONTENT).provider;

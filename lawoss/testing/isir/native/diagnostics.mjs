@@ -21,7 +21,7 @@ function endpoint(url) {
   if (/\/prompt_async$/.test(pathname)) return 'prompt';
   if (/\/sessions?\/[^/]+\/snapshot$/.test(pathname)) return 'snapshot';
   if (/\/files\/(?:list|raw|content)$/.test(pathname)) return 'files';
-  const fixed = new Map([['/global/health','engine.health'],['/provider','provider'],['/instance/dispose','engine.dispose'],['/auth/isir-native','synthetic.auth'],['/json/list','cdp.targets'],['/experimental/session','engine.sessions'],['/','ui']]);
+  const fixed = new Map([['/path','engine.path'],['/global/health','engine.health'],['/provider','provider'],['/instance/dispose','engine.dispose'],['/auth/isir-native','synthetic.auth'],['/json/list','cdp.targets'],['/experimental/session','engine.sessions'],['/','ui']]);
   if(fixed.has(pathname))return fixed.get(pathname);
   if (/\/workspace\/[^/]+\/config$/.test(pathname))return 'workspace.config';
   if (/\/workspace\/[^/]+\/engine\/reload$/.test(pathname))return 'workspace.reload';
@@ -103,7 +103,11 @@ export async function settleCleanup(primary, operations) {
 export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile}) {
   if(enabled&&(!ci||mode!=='synthetic'||!outputFile))throw new Error('Published native diagnostics require explicit CI synthetic mode and output file');
   let phase='setup',caseIndex=null;
-  const requests=[];
+  const requests=[],startup=[],ownedProcesses=[];
+  let startupDropped=0,ownedProcessesDropped=0;
+  const observationStarted=performance.now();
+  const startupStages=['request','headers','body','verified'];
+  const processStages=['capture','term-signal','term-wait','kill-signal','kill-wait','signal-recheck'];
   const phases=['setup','startup','configure-provider','native-case','preparation-admission','generation','extra-cases','relaunch','recovery','complete'];
   const request=async(url,options={},timeout=30_000,probeCaseIndex=null)=>{
     const record={phase,caseIndex,...(probeCaseIndex===null?{}:{probeCaseIndex}),endpoint:endpoint(url),state:'pending',status:null,elapsedMs:0};
@@ -118,6 +122,18 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile}
   return {
     phase(value,index=null){if(!phases.includes(value))throw new Error('Unknown diagnostic phase');phase=value;caseIndex=Number.isInteger(index)?index:null;},
     fetch:request,
+    startup(stage){
+      if(!startupStages.includes(stage))throw new Error('Unknown startup diagnostic stage');
+      startup.push({stage,elapsedMs:Math.round(performance.now()-observationStarted)});
+      if(startup.length>32){startup.shift();startupDropped++;}
+    },
+    ownedProcess(value){
+      if(!processStages.includes(value?.stage))throw new Error('Unknown process diagnostic stage');
+      const counts=['index','elapsedMs','knownLive','unknown','moved','mismatched'];
+      if(!counts.every(key=>Number.isSafeInteger(value[key])&&value[key]>=0)||typeof value.leaderExited!=='boolean'||typeof value.anchored!=='boolean')throw new Error('Invalid process diagnostic census');
+      ownedProcesses.push({phase,stage:value.stage,index:value.index,elapsedMs:value.elapsedMs,knownLive:value.knownLive,unknown:value.unknown,moved:value.moved,mismatched:value.mismatched,leaderExited:value.leaderExited,anchored:value.anchored});
+      if(ownedProcesses.length>128){ownedProcesses.shift();ownedProcessesDropped++;}
+    },
     async probeWorkspace({serverInfo,serverAuth,workspaces,selectedIndex=1}){
       const index=caseIndex??selectedIndex;
       if(!Number.isInteger(index)||index<1)throw new Error('Invalid diagnostic workspace index');
@@ -128,7 +144,7 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile}
     },
     async write({events=[],error=null,cleanupErrors=[]}={}){
       if(!enabled)return;
-      const data={schema:2,mode:'synthetic',platform:process.platform,phase,caseIndex,requests,network:summarizeNetwork(events),...(error?{error:errorMetadata(error)}:{}),cleanupErrors:cleanupErrors.map(e=>errorMetadata(e))};
+      const data={schema:3,mode:'synthetic',platform:process.platform,phase,caseIndex,requests,startup,startupDropped,ownedProcesses,ownedProcessesDropped,network:summarizeNetwork(events),...(error?{error:errorMetadata(error)}:{}),cleanupErrors:cleanupErrors.map(e=>errorMetadata(e))};
       await writeFile(outputFile,JSON.stringify(data,null,2),{mode:0o600});
     },
     failure(error){return {phase,caseIndex,error:errorMetadata(error)};},

@@ -13,7 +13,7 @@ function directoryKey(value, platform) {
 // /path awaits the pinned engine's selected-directory InstanceContextMiddleware.
 // One request and its entire body consume the existing absolute startup budget.
 // Only initial bootstrap calls this: never probe a missing historical move root.
-export async function awaitDirectoryInstance({ request, baseUrl, headers, directory, deadline, platform = process.platform }) {
+export async function awaitDirectoryInstance({ request, baseUrl, headers, directory, deadline, platform = process.platform, observe = () => {} }) {
   const remaining = deadline - Date.now();
   if (!Number.isFinite(remaining) || remaining <= 0) throw new DOMException('Startup readiness budget expired', 'TimeoutError');
   if (!new Headers(headers).get('authorization') || directoryKey(directory, platform) === null) throw new Error('Selected instance readiness scope required');
@@ -21,7 +21,9 @@ export async function awaitDirectoryInstance({ request, baseUrl, headers, direct
   const timer = setTimeout(() => controller.abort(new DOMException('Startup readiness budget expired', 'TimeoutError')), remaining);
   let response;
   try {
+    observe('request');
     response = await request(`${baseUrl}/path?directory=${encodeURIComponent(directory)}`, { headers, signal: controller.signal });
+    observe('headers');
     if (response.status !== 200) throw new Error('Selected instance readiness HTTP contract failed');
     let body;
     try { body = await response.json(); }
@@ -31,8 +33,10 @@ export async function awaitDirectoryInstance({ request, baseUrl, headers, direct
       if (!(error instanceof SyntaxError)) throw error;
       throw new Error('Selected instance readiness JSON contract failed');
     }
+    observe('body');
     if (directoryKey(body?.directory, platform) !== directoryKey(directory, platform)) throw new Error('Selected instance readiness scope mismatch');
     if (Date.now() >= deadline) throw new DOMException('Startup readiness budget expired', 'TimeoutError');
+    observe('verified');
     return { status: 200, authenticated: true, directoryMatches: true, worktreeMatchesDirectory: directoryKey(body.worktree, platform) === directoryKey(directory, platform), bodyCompleted: true };
   } finally {
     clearTimeout(timer);

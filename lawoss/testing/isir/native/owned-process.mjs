@@ -24,9 +24,21 @@ function processTable() {
 }
 const sameIdentity = (a,b) => a.pid===b.pid&&a.group===b.group&&a.uid===b.uid&&a.start===b.start;
 
-async function stopPosixGroup(child, timeout) {
-  let table=processTable();
+async function stopPosixGroup(child, timeout, {readTable=processTable,kill=(pid,kind)=>process.kill(pid,kind),observe=()=>{}}) {
+  const started=performance.now();let index=1,ownershipEstablished=false;
+  let table=readTable();
   const members=table.filter(row=>row.group===child.pid&&row.running);
+  const owned=new Map(members.map(member=>[member.pid,member]));
+  const census=(stage,rows)=>{
+    const matching=row=>owned.has(row.pid)&&sameIdentity(owned.get(row.pid),row);
+    const knownLive=rows.filter(row=>row.running&&matching(row)).length;
+    observe({stage,index:index++,elapsedMs:Math.round(performance.now()-started),knownLive,
+      unknown:rows.filter(row=>row.running&&row.group===child.pid&&!matching(row)).length,
+      moved:rows.filter(row=>{const old=owned.get(row.pid);return row.running&&old&&old.uid===row.uid&&old.start===row.start&&old.group!==row.group}).length,
+      mismatched:rows.filter(row=>row.running&&owned.has(row.pid)&&!matching(row)).length,
+      leaderExited:exited(child),anchored:ownershipEstablished&&knownLive>0});
+  };
+  census('capture',table);
   if(exited(child)) {
     // No live captured identity establishes ownership now. A numeric group ID
     // alone (potentially reused) must never authorize a late group signal.
@@ -35,10 +47,10 @@ async function stopPosixGroup(child, timeout) {
   }
   const leader=members.find(row=>row.pid===child.pid);
   if(!leader||leader.parent!==process.pid||leader.uid!==process.getuid())throw new Error('Native detached child ownership could not be established');
-  const owned=new Map(members.map(member=>[member.pid,member]));
-
-  const inspect=()=>{
-    table=processTable();
+  ownershipEstablished=true;
+  const inspect=stage=>{
+    table=readTable();
+    census(stage,table);
     const moved=table.some(row=>{
       const previous=owned.get(row.pid);
       return row.running&&previous&&previous.uid===row.uid&&previous.start===row.start&&previous.group!==row.group;
@@ -53,34 +65,35 @@ async function stopPosixGroup(child, timeout) {
     for(const member of unknown){owned.set(member.pid,member);living.push(member);}
     return living;
   };
-  const signal=kind=>{
-    for(const identity of inspect().sort((a,b)=>Number(a.pid===leader.pid)-Number(b.pid===leader.pid))) {
+  const signal=(kind,stage)=>{
+    for(const identity of inspect(stage).sort((a,b)=>Number(a.pid===leader.pid)-Number(b.pid===leader.pid))) {
       // Re-read immediately before each individual PID signal. In particular,
       // leader exit never turns its old PGID into permission to kill a group.
-      const current=processTable().find(row=>row.pid===identity.pid&&row.running);
+      const fresh=readTable();census('signal-recheck',fresh);
+      const current=fresh.find(row=>row.pid===identity.pid&&row.running);
       if(!current||!sameIdentity(identity,current))continue;
-      try {process.kill(identity.pid,kind);}catch(error){if(error.code!=='ESRCH')throw error;}
+      try {kill(identity.pid,kind);}catch(error){if(error.code!=='ESRCH')throw error;}
     }
   };
-  const waitForMembers=async()=>{
+  const waitForMembers=async stage=>{
     const deadline=Date.now()+timeout;
-    do {if(!inspect().length)return true;await delay(20);}while(Date.now()<deadline);
-    return !inspect().length;
+    do {if(!inspect(stage).length)return true;await delay(20);}while(Date.now()<deadline);
+    return !inspect(stage).length;
   };
-  signal('SIGTERM');
-  if(!await waitForMembers()) {
-    signal('SIGKILL');
-    if(!await waitForMembers())throw new Error('Owned native descendants did not exit');
+  signal('SIGTERM','term-signal');
+  if(!await waitForMembers('term-wait')) {
+    signal('SIGKILL','kill-signal');
+    if(!await waitForMembers('kill-wait'))throw new Error('Owned native descendants did not exit');
   }
 }
 
-export async function stopNativeChild(child, timeout=3000) {
+export async function stopNativeChild(child, timeout=3000, inspection={}) {
   if(!child.pid)return;
   if(process.platform==='win32') {
     if(exited(child))return;
     const result=spawnSync('taskkill',['/pid',String(child.pid),'/T','/F'],{stdio:'ignore'});
     if(result.error)throw result.error;
-  } else await stopPosixGroup(child,timeout);
+  } else await stopPosixGroup(child,timeout,inspection);
   if(!await waitForExit(child,timeout))throw new Error('Owned native child did not exit');
   child.stdout?.destroy();child.stderr?.destroy();
 }
