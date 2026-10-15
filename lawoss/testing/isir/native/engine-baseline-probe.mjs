@@ -105,6 +105,7 @@ export function privateEnvironment(root,toolDirectory,inherited=process.env) {
     XDG_CONFIG_HOME:path.join(root,'config'),XDG_CACHE_HOME:path.join(root,'cache'),XDG_DATA_HOME:path.join(root,'data'),XDG_STATE_HOME:path.join(root,'state'),
     TEMP:path.join(root,'tmp'),TMP:path.join(root,'tmp'),TMPDIR:path.join(root,'tmp'),
     NPM_CONFIG_USERCONFIG:path.join(root,'empty.npmrc'),GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:path.join(root,'empty.gitconfig'),GIT_TERMINAL_PROMPT:'0',
+    GIT_CONFIG_COUNT:'1',GIT_CONFIG_KEY_0:'core.longpaths',GIT_CONFIG_VALUE_0:'true',
     BUN_INSTALL_CACHE_DIR:path.join(root,'bun-cache')};
 }
 export function nativeDiagnosticEnvironment(root,env) {
@@ -112,14 +113,106 @@ export function nativeDiagnosticEnvironment(root,env) {
   return {...env,NODE_OPTIONS:'--max-old-space-size=6144',LAWOSS_ISIR_NATIVE_DIAGNOSTICS:'1',
     LAWOSS_ISIR_NATIVE_DIAGNOSTICS_FILE:path.join(root,'native-diagnostics.private.json')};
 }
+const scripts=['preinstall','install','postinstall','prepare','preprepare','postprepare'];
+const exitCode=v=>Number.isInteger(v)&&v>=-2147483648&&v<=4294967295;
+const signals=[null,'SIGTERM','SIGKILL','SIGABRT','SIGSEGV','other'];
+const childErrors=[null,'ENOENT','EACCES','EPERM','other'];
+const closedKeys=(value,keys)=>{assert.ok(object(value));assert.deepEqual(Object.keys(value).sort(),[...keys].sort());};
+const bounded=(value,max)=>integer(value)&&value<=max;
+const packageName=v=>typeof v==='string'&&v.length<=214&&/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/.test(v);
+export function installPackageAllowlist(pkg) {
+  assert.ok(object(pkg)&&Array.isArray(pkg.trustedDependencies)&&pkg.trustedDependencies.length<128);
+  const packages=[pkg.name,...pkg.trustedDependencies];assert.ok(packages.every(packageName));
+  return [...new Set(packages)];
+}
+export function projectInstallObservation(value) {
+  closedKeys(value,['spawnObserved','closeObserved','exitCode','signal','childErrorCode','pipeFailure','stderr']);
+  for(const key of ['spawnObserved','closeObserved','pipeFailure'])assert.equal(typeof value[key],'boolean');
+  assert.ok(value.exitCode===null||exitCode(value.exitCode));assert.ok(signals.includes(value.signal)&&childErrors.includes(value.childErrorCode));
+  assert.ok(value.closeObserved||value.exitCode===null&&value.signal===null);
+  const s=value.stderr;
+  closedKeys(s,['scannedBytes','lineCount','oversizedLineCount','incompleteLineCount','unrecognizedLineCount','scanLimitReached','lineLimitReached','frozenRefusalSummaryCount','lifecycleExitSummaries','lifecycleExitSummaryDropped']);
+  assert.ok(bounded(s.scannedBytes,512*1024)&&bounded(s.lineCount,4096)&&bounded(s.incompleteLineCount,1));
+  for(const key of ['oversizedLineCount','unrecognizedLineCount','frozenRefusalSummaryCount','lifecycleExitSummaryDropped'])assert.ok(bounded(s[key],4096));
+  for(const key of ['scanLimitReached','lineLimitReached'])assert.equal(typeof s[key],'boolean');
+  assert.ok(!s.scanLimitReached||s.scannedBytes===512*1024);assert.ok(!s.lineLimitReached||s.lineCount===4096);
+  assert.ok(Array.isArray(s.lifecycleExitSummaries)&&s.lifecycleExitSummaries.length<=16);
+  const seen=new Set();let matched=s.frozenRefusalSummaryCount+s.lifecycleExitSummaryDropped;
+  const lifecycleExitSummaries=s.lifecycleExitSummaries.map(row=>{
+    closedKeys(row,['script','exitCode','count']);assert.ok(scripts.includes(row.script)&&exitCode(row.exitCode)&&bounded(row.count,4096)&&row.count>0);
+    const key=`${row.script}:${row.exitCode}`;assert.ok(!seen.has(key));seen.add(key);matched+=row.count;
+    return Object.freeze({script:row.script,exitCode:row.exitCode,count:row.count});
+  });
+  const accounted=matched+s.unrecognizedLineCount+s.oversizedLineCount;
+  assert.ok(s.lineCount<=accounted&&accounted<=s.lineCount+s.incompleteLineCount&&matched+s.unrecognizedLineCount<=s.lineCount);
+  assert.ok(s.lineCount+s.incompleteLineCount<=s.scannedBytes&&s.oversizedLineCount*4097<=s.scannedBytes);
+  assert.ok(s.lifecycleExitSummaryDropped===0||lifecycleExitSummaries.length===16);
+  return Object.freeze({spawnObserved:value.spawnObserved,closeObserved:value.closeObserved,exitCode:value.exitCode,signal:value.signal,childErrorCode:value.childErrorCode,pipeFailure:value.pipeFailure,
+    stderr:Object.freeze({scannedBytes:s.scannedBytes,lineCount:s.lineCount,oversizedLineCount:s.oversizedLineCount,incompleteLineCount:s.incompleteLineCount,unrecognizedLineCount:s.unrecognizedLineCount,
+      scanLimitReached:s.scanLimitReached,lineLimitReached:s.lineLimitReached,frozenRefusalSummaryCount:s.frozenRefusalSummaryCount,lifecycleExitSummaries:Object.freeze(lifecycleExitSummaries),lifecycleExitSummaryDropped:s.lifecycleExitSummaryDropped})});
+}
+function observeInstall(child,packages) {
+  assert.ok(Array.isArray(packages)&&packages.length>0&&packages.length<=128&&packages.every(packageName));
+  const allowed=new Set(packages),listeners=[];
+  const s={scannedBytes:0,lineCount:0,oversizedLineCount:0,incompleteLineCount:0,unrecognizedLineCount:0,scanLimitReached:false,lineLimitReached:false,frozenRefusalSummaryCount:0,lifecycleExitSummaries:[],lifecycleExitSummaryDropped:0};
+  const value={spawnObserved:false,closeObserved:false,exitCode:null,signal:null,childErrorCode:null,pipeFailure:false,stderr:s};
+  let partial=Buffer.alloc(0),oversized=false,unfinished=false;
+  const on=(emitter,event,listener)=>{if(emitter){emitter.on(event,listener);listeners.push([emitter,event,listener]);}};
+  const line=()=>{
+    s.lineCount++;
+    if(!oversized) {
+      let rendered;try {rendered=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(partial).replace(/\r$/,'').replace(/\x1b\[[0-9;]{0,32}m/g,'');}catch{/* unknown malformed bytes */}
+      // Bun 1.3.14 source-shaped summaries only. Lifecycle text can spoof them;
+      // these counts do not authenticate origin or establish an install cause.
+      if(rendered==='error: lockfile had changes, but lockfile is frozen')s.frozenRefusalSummaryCount++;
+      else {
+        const match=rendered?.match(/^error: (preinstall|install|postinstall|prepare|preprepare|postprepare) script from "([^"\r\n]+)" exited with (-?(?:0|[1-9][0-9]*))$/);
+        if(match&&allowed.has(match[2])&&exitCode(Number(match[3]))) {
+          const script=match[1],code=Number(match[3]),row=s.lifecycleExitSummaries.find(row=>row.script===script&&row.exitCode===code);
+          if(row)row.count++;
+          else if(s.lifecycleExitSummaries.length<16)s.lifecycleExitSummaries.push({script,exitCode:code,count:1});
+          else s.lifecycleExitSummaryDropped++;
+        }else s.unrecognizedLineCount++;
+      }
+    }
+    partial=Buffer.alloc(0);oversized=false;unfinished=false;
+  };
+  on(child,'spawn',()=>{value.spawnObserved=true;});
+  on(child,'close',(code,signal)=>{value.closeObserved=true;value.exitCode=exitCode(code)?code:null;value.signal=signal==null?null:signals.includes(signal)?signal:'other';});
+  on(child,'error',error=>{if(value.childErrorCode===null)value.childErrorCode=childErrors.slice(1,4).includes(error?.code)?error.code:'other';});
+  for(const pipe of [child.stdout,child.stderr])on(pipe,'error',()=>{value.pipeFailure=true;});
+  on(child.stderr,'data',chunk=>{
+    let offset=0;
+    while(offset<chunk.length) {
+      if(s.lineCount===4096){s.lineLimitReached=true;break;}
+      if(s.scannedBytes===512*1024){s.scanLimitReached=true;break;}
+      const end=Math.min(chunk.length,offset+512*1024-s.scannedBytes),index=chunk.subarray(offset,end).indexOf(10),newline=index<0?-1:offset+index,hasNewline=newline>=offset;
+      const next=hasNewline?newline:end,length=next-offset;
+      unfinished=true;
+      if(!oversized) {
+        if(partial.length+length>4096){oversized=true;s.oversizedLineCount++;partial=Buffer.alloc(0);}
+        else partial=Buffer.concat([partial,chunk.subarray(offset,next)]);
+      }
+      s.scannedBytes+=length+(hasNewline?1:0);offset=next+(hasNewline?1:0);
+      if(hasNewline)line();
+    }
+  });
+  return ()=>{
+    for(const [emitter,event,listener] of listeners)emitter.removeListener(event,listener);
+    s.incompleteLineCount=unfinished?1:0;partial=Buffer.alloc(0);allowed.clear();
+    return projectInstallObservation(value);
+  };
+}
 // Own direct child only. No exit event, arbitrary PID/group, shell or process
 // census grants cleanup authority. After timeout even a close cannot prove
 // descendant exit; caller stops all later staging/native work and retains files.
-export function collectChild(child,{timeoutMs=600000,drainMs=1000,limit=64*1024*1024,capture=false}={}) {
+export function collectChild(child,{timeoutMs=600000,drainMs=1000,limit=64*1024*1024,capture=false,installObservation=null}={}) {
   return new Promise(resolve=>{
+    const finishInstall=installObservation===null?null:observeInstall(child,installObservation.packages);
     let bytes=0,chunks=[],failure=null,done=false,drain;
     const finish=(closed,code)=>{if(done)return;done=true;clearTimeout(timer);clearTimeout(drain);
       const result={outcome:!closed?'child-unclosed':failure??(code===0?'ok':'child-error'),closed,code:integer(code)?code:null};
+      if(finishInstall)result.installObservation=finishInstall();
       if(capture&&result.outcome==='ok')result.text=Buffer.concat(chunks).toString('utf8');chunks=[];resolve(result);};
     const stop=reason=>{if(done||failure)return;failure=reason;chunks=[];
       if(child.exitCode===null&&child.signalCode===null)try{child.kill('SIGTERM');}catch{/* still require close */}
@@ -186,33 +279,46 @@ async function download(url,file,limit) {
   finally{await reader.cancel();reader.releaseLock();}
   const bytes=Buffer.concat(parts);await fs.writeFile(file,bytes,{flag:'wx',mode:0o600});return bytes;
 }
+function closedBoundary(value) {
+  closedKeys(value,['schema','mode','platform','phase','recoveryStage','cleanupErrors','startup','startupDropped','requests','engineLog',...(Object.hasOwn(value,'error')?['error']:[])]);
+  const error=e=>closedKeys(e,['name']);if(Object.hasOwn(value,'error'))error(value.error);
+  assert.ok(Array.isArray(value.cleanupErrors)&&value.cleanupErrors.length<=32&&Array.isArray(value.startup)&&value.startup.length<=32&&Array.isArray(value.requests)&&value.requests.length<=128);
+  value.cleanupErrors.forEach(error);value.startup.forEach(row=>closedKeys(row,['stage','elapsedMs']));
+  value.requests.forEach(row=>{closedKeys(row,['phase','endpoint','state','status','elapsedMs',...(Object.hasOwn(row,'error')?['error']:[])]);if(Object.hasOwn(row,'error'))error(row.error);assert.ok(['engine.path','engine.health'].includes(row.endpoint));});
+  closedKeys(value.engineLog,['status','clockWindowValid','fileChanged','unscannedBytesAtOpen','oversizedLineCount','partialLineCount','malformedCount','timestampOutlierCount','droppedEvents','lineLimitReached','eventLimitReached','selected']);
+  assert.ok(value.recoveryStage===null||value.recoveryStage==='other');
+  return value;
+}
 export function projectReceipt(value) {
-  assert.ok(object(value)&&value.schemaVersion===1&&value.experiment==='unmodified-windows-baseline'&&value.sourceCommit===SOURCE);
   const result=receipt();
+  closedKeys(value,Object.keys(result));
+  for(const key of ['schemaVersion','experiment','sourceCommit','lawossBunVersion','engineVersion','target','releaseModelsParity','signatureParity','causeEquivalence'])assert.equal(value[key],result[key]);
   const stages=['original-input','awaiting-lawoss-build','checkout-identity','original-identity','source-checkout','models-freeze','toolchain','toolchain-version','upstream-install','upstream-build','build-inputs-after','rebuilt-identity','bundle-staging','native','complete'];
   assert.ok(stages.includes(value.stage)&&['unknown','not-needed','boundary-reproduced','not-reproduced','different-boundary'].includes(value.outcome));
   assert.ok(['not-run','ok','child-error','child-unclosed','output-limit','timeout','invalid-output','validation-failed'].includes(value.exit));
   Object.assign(result,{stage:value.stage,outcome:value.outcome,exit:value.exit});
-  for(const key of ['checkoutCommit','prHeadCommit']) {assert.ok(value[key]===null||/^[a-f0-9]{40}$/.test(value[key]??''));result[key]=value[key];}
+  for(const key of ['checkoutCommit','prHeadCommit']) {assert.ok(value[key]===null||typeof value[key]==='string'&&/^[a-f0-9]{40}$/.test(value[key]));result[key]=value[key];}
   assert.match(value.nodeVersion,/^24\.\d+\.\d+$/);result.nodeVersion=value.nodeVersion;
-  assert.ok(value.bunVersion==null||value.bunVersion==='1.3.14');result.bunVersion=value.bunVersion??null;
+  assert.ok(value.bunVersion===null||value.bunVersion==='1.3.14');result.bunVersion=value.bunVersion;
   for(const key of ['sourceInputsSha256','lockSha256','modelsSha256','toolchainSha256','originalEngineSha256','rebuiltEngineSha256','originalManifestsSha256','rebuiltManifestsSha256']) {
-    assert.ok(value[key]==null||/^[a-f0-9]{64}$/.test(value[key]));result[key]=value[key]??null;
+    assert.ok(value[key]===null||typeof value[key]==='string'&&/^[a-f0-9]{64}$/.test(value[key]));result[key]=value[key];
   }
   for(const key of ['originalBoundary','rebuiltBoundary']) {
-    const boundary=value[key];if(boundary==null)continue;
+    const boundary=value[key];if(boundary===null)continue;closedBoundary(boundary);
     assert.ok(Array.isArray(boundary.engineLog?.selected)&&boundary.engineLog.selected.length<=64&&boundary.engineLog.selected.every(row=>markers.includes(row)));
     result[key]=projectBoundary({...boundary,engineLog:{...boundary.engineLog,events:boundary.engineLog.selected.map(event=>({event,evidenceScope:'selected-directory'}))}});
   }
+  assert.ok(value.installObservation===null||['upstream-install','upstream-build','build-inputs-after','rebuilt-identity','bundle-staging','native','complete'].includes(value.stage));
+  result.installObservation=value.installObservation===null?null:projectInstallObservation(value.installObservation);
   return result;
 }
 function receipt() {
   const validSha=v=>/^[a-f0-9]{40}$/.test(v??'')?v:null;
-  return {schemaVersion:1,experiment:'unmodified-windows-baseline',outcome:'unknown',stage:'original-input',exit:'not-run',
+  return {schemaVersion:2,experiment:'unmodified-windows-baseline',outcome:'unknown',stage:'original-input',exit:'not-run',
     sourceCommit:SOURCE,checkoutCommit:validSha(process.env.GITHUB_SHA),prHeadCommit:validSha(process.env.LAWOSS_PR_HEAD),
     nodeVersion:process.versions.node,bunVersion:null,lawossBunVersion:'1.4.2',engineVersion:VERSION,target:'windows-x64-baseline',
     sourceInputsSha256:null,lockSha256:null,modelsSha256:null,toolchainSha256:null,originalEngineSha256:null,rebuiltEngineSha256:null,
-    originalManifestsSha256:null,rebuiltManifestsSha256:null,originalBoundary:null,rebuiltBoundary:null,
+    originalManifestsSha256:null,rebuiltManifestsSha256:null,originalBoundary:null,rebuiltBoundary:null,installObservation:null,
     releaseModelsParity:'unknown',signatureParity:'unknown',causeEquivalence:'unknown'};
 }
 async function experiment(output) {
@@ -227,6 +333,7 @@ async function experiment(output) {
   const run=async(command,args,cwd,options={})=>{
     const child=spawn(command,args,{cwd,env:options.env??env,windowsHide:true,stdio:['ignore','pipe','pipe']});
     const observed=await collectChild(child,options);
+    if(options.installObservation)result.installObservation=observed.installObservation;
     if(observed.outcome!=='ok') {result.exit=observed.outcome;throw new Error('Owned command did not complete');}
     return observed.text;
   };
@@ -270,7 +377,7 @@ async function experiment(output) {
     const buildEnv={...privateEnvironment(root,path.dirname(bun)),OPENCODE_VERSION:VERSION,OPENCODE_CHANNEL:'latest',MODELS_DEV_API_JSON:models};
     assert.equal(buildEnv.OPENCODE_RELEASE,undefined);
     await stage('toolchain-version',async()=>{assert.equal((await run(bun,['--version'],upstream,{capture:true,limit:1024,env:buildEnv,timeoutMs:5000})).trim(),'1.3.14');result.bunVersion='1.3.14';result.toolchainSha256=sha(await fs.readFile(bun));});
-    await stage('upstream-install',()=>run(bun,['install','--frozen-lockfile','--linker','hoisted'],upstream,{env:buildEnv}));
+    await stage('upstream-install',()=>run(bun,['install','--frozen-lockfile','--linker','hoisted'],upstream,{env:buildEnv,installObservation:{packages:installPackageAllowlist(pkg)}}));
     await verifyInputs(upstream,sourceInputs);await run(git,['diff','--quiet','HEAD','--'],upstream);
     await stage('upstream-build',()=>run(bun,['run','packages/opencode/script/build.ts','--single','--baseline'],upstream,{env:buildEnv}));
     await stage('build-inputs-after',async()=>{await verifyInputs(upstream,sourceInputs);await run(git,['diff','--quiet','HEAD','--'],upstream);assert.equal(sha(await fs.readFile(models)),result.modelsSha256);assert.equal(sha(await fs.readFile(bun)),result.toolchainSha256);});
