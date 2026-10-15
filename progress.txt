@@ -1,4 +1,5 @@
 ## Codebase Patterns
+- A runner timeout can leave the async test body alive. Capture its observer and freeze statement evidence before cleanup awaits; preserve original drain/error semantics and do not infer the inner awaited cause from a pending statement.
 - Public-source build diagnostics preserve the exact entry command and separate-stream framing; fixed milestones and child exit metadata are observations, while missing markers and completed diagnostic jobs do not establish success.
 - Node subprocess script arguments require fileURLToPath, not URL.pathname; URL drive syntax and escaping are not host-native filenames.
 - Private child diagnostics and public upload paths must be distinct; finalize only closed validated projections. Native cleanup failures stay unknown even after direct-child close. Distinguish spawn, pipe and direct-close metadata; exact stderr templates are untrusted observations, not authenticated causes.
@@ -126,3 +127,7 @@
 2026-10-15T09:08:03.713939+00:00 Task8 preparation: actual22d upstream install closed exit0; build child failed, rebuilt/native absent. Updated plan and shared AGENTS/CLAUDE bounded passive-build pattern. Scoped implementation/review and new Windows CI required; no normal app/profile/provider actions.
 
 2026-10-15T09:20:31.805381+00:00: Task8 complete locally79fbeeee→44643e65 independentSPEC/QUALITYPASS/new0; root2sourceSHA/5unchangedworkflow+main/runtime/actual22dguard+schema3shapePASS, reviewinputhashes+Signedoffverified. ImplementerexactNode24focused12/full39/syntaxdiff0 accepted, no duplicatetest/build/native. Observeronly/no enginefixclaim; root4docsready, nextfetchboth/normalfeaturepush/samePR.
+
+2026-10-15T09:58:08.485907+00:00 Task9 preparation: minimal first project-sync failure diagnostics, captured/frozen statement evidence and original cleanup semantics; root owns AGENTS/CLAUDE/PATCHES/plan/progress. Pure observer RED/GREEN reported; fixture run/review/integration pending. Three other project-sync failures remain open. No app/native/profile/model change.
+
+2026-10-15T10:07:58.875307+00:00: Task9complete71cd0c5a→6966df66 independentspecqualityPASS/findings0; root4SHA/scope4/unchanged5/DCOverified. Finalpure9/full21/selected1/strict attributedworker,norerun. Other3failures/actualWin causeopen, notproductionfix. Docs5ready/sourceunpublishedpendingTask10 separatecompilemonitorreview.

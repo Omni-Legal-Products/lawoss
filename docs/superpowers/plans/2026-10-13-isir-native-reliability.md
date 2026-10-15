@@ -496,3 +496,14 @@ Actual22d: Windows helper i desetisložkový korpus PASS; původní native start
 - [ ] Publikovat do stejného PR a vyhodnotit skutečné nové CI. Původní Windows startup, GUI/provider akceptace i chráněný dev merge zůstávají otevřené.
 
 Integrace Task8: 79fbeeee → 44643e65, nezávislé SPEC PASS / QUALITY APPROVED / nové0. Exact Node24.21 focused12/12 a celý helper39/39, syntax/diff0; dva sourceSHA a pět nezměněných source/workflow souborů ověřeny. Skutečný22d original guard stále run; schema3 shape preflight nepředstavuje nová buildová metadata. Nové CI a původní startup/GUI/provider/dev merge zůstávají otevřené.
+
+
+### Task 9: Rozlišit primární project-sync timeout
+
+Skutečný29f Windows serverový krok má čtyři5000ms timeouty v project-sync; pozdní těla/cleanup mohou kaskádovat, ale příčina ani blokující await nejsou prokázané. Diagnostika nejprve změří první selhávající case revoke; další tři zůstávají otevřené.
+
+- [x] Test-only pevné statement indexy v původním těle prvního testu, snapshot zmrazený při vstupu do původního cleanup, oddělené bounded dokončení/odmítnutí cleanup. Původní assertions, await pořadí, callbacky, LIFO/failfast a5000ms limit beze změny; žádná produktová oprava se z toho netvrdí.
+- [x] Nový čistý helper/RED-GREEN a exact Bun1.4.2/preloads; explicitní test-only flag pouze v původním Windows server kroku14. Další task/native protokoly beze změny, žádné raw chyby/cesty/data.
+- [ ] Nezávislá scoped SPEC/QUALITY revize, integrace a společná publikace až po dokončení aktuálních CI. Živé AI/GUI, ostatní Windows selhání a chráněný dev merge zůstávají otevřené.
+
+Task9 lokálně integrován71cd0c5a→6966df66 po scoped SPEC PASS / QUALITY APPROVED, nové0. ExactBun1.4.2 helper9/selected1/full21, strict0; root4sourceSHA/5nezměněných zdrojů a DCO ověřeny. Skutečné Windows statement důkazy dosud nejsou, další tři selhání otevřená. Publikace společně s odděleným compile monitorem po jeho revizi.
