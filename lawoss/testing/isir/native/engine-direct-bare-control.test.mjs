@@ -7,23 +7,84 @@ import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
+import { pathToFileURL } from 'node:url';
 import * as api from './engine-direct-bare-control.mjs';
+import { syntheticRuntimeEnvironment } from './engine-runtime-smoke.mjs';
 
 const sha = b => createHash('sha256').update(b).digest('hex');
+const noopSource = "import { writeFile } from 'node:fs/promises';\nexport default async function () {\n  await writeFile(new URL('./owned-noop-activation', import.meta.url), 'lawoss-owned-noop-invoked-v1\\n', { flag: 'wx' });\n  return {};\n}\n";
 async function fixture(t, mode = 'ready') {
   const root = await fs.mkdtemp(path.join(tmpdir(), 'direct-control-test-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const file = path.join(root, 'opencode-x86_64-pc-windows-msvc.exe');
-  const source = `const http=require('node:http');const args=process.argv;const port=Number(args[args.indexOf('--port')+1]);const mode=${JSON.stringify(mode)};const server=http.createServer((req,res)=>{if(req.headers.authorization!=='Basic '+Buffer.from(process.env.OPENCODE_SERVER_USERNAME+':'+process.env.OPENCODE_SERVER_PASSWORD).toString('base64')){res.writeHead(401).end();return;}if(req.url==='/global/health'){const send=()=>res.end(JSON.stringify({healthy:true,version:'1.18.29'}));if(mode==='deadline')setTimeout(send,150);else send();return;}const dir=new URL(req.url,'http://localhost').searchParams.get('directory');if(mode==='stall'||mode==='deadline'){res.writeHead(200);res.write('{');return;}if(mode==='abort'){res.writeHead(200);res.write('{');setTimeout(()=>res.destroy(),10);return;}if(mode==='oversized'){res.end('x'.repeat(65537));return;}if(mode==='invalid-utf8'){res.end(Buffer.from([255]));return;}if(mode==='duplicate'){res.end('{"directory":"x","directory":"y"}');return;}if(mode==='malformed'){res.end('{PRIVATE');return;}if(mode==='flood'){process.stdout.write('x'.repeat(65537));}res.end(JSON.stringify({directory:mode==='scope'?'/wrong':dir,worktree:dir}));});server.listen(port,'127.0.0.1');`;
-  await fs.writeFile(file, source);
-  await fs.writeFile(path.join(root, 'versions.json'), JSON.stringify({ opencode: { version: '1.18.29', sha256: sha(source) } }));
+  const source = `const http=require('node:http');const args=process.argv;const port=Number(args[args.indexOf('--port')+1]);const mode=${JSON.stringify(mode.startsWith('noop-')?mode.slice(5):mode)};const server=http.createServer((req,res)=>{if(req.headers.authorization!=='Basic '+Buffer.from(process.env.OPENCODE_SERVER_USERNAME+':'+process.env.OPENCODE_SERVER_PASSWORD).toString('base64')){res.writeHead(401).end();return;}if(req.url==='/global/health'){const send=()=>res.end(JSON.stringify({healthy:true,version:'1.18.29'}));if(mode==='deadline')setTimeout(send,150);else send();return;}const dir=new URL(req.url,'http://localhost').searchParams.get('directory');if(mode==='stall'||mode==='deadline'){res.writeHead(200);res.write('{');return;}if(mode==='abort'){res.writeHead(200);res.write('{');setTimeout(()=>res.destroy(),10);return;}if(mode==='oversized'){res.end('x'.repeat(65537));return;}if(mode==='invalid-utf8'){res.end(Buffer.from([255]));return;}if(mode==='duplicate'){res.end('{"directory":"x","directory":"y"}');return;}if(mode==='malformed'){res.end('{PRIVATE');return;}if(mode==='flood'){process.stdout.write('x'.repeat(65537));}res.end(JSON.stringify({directory:mode==='scope'?'/wrong':dir,worktree:dir}));});server.listen(port,'127.0.0.1');`;
+  const activation = mode.startsWith('noop') ? `const fs=require('node:fs/promises');const path=require('node:path');const {fileURLToPath}=require('node:url');(async()=>{const config=JSON.parse(process.env.OPENCODE_CONFIG_CONTENT);require('node:assert/strict').deepEqual(Object.keys(config),['plugin']);require('node:assert/strict').equal(config.plugin.length,1);const url=config.plugin[0];const plugin=fileURLToPath(url);require('node:assert/strict').equal(await fs.realpath(plugin),path.join(path.dirname(process.cwd()),'owned-noop-plugin.mjs'));require('node:assert/strict').equal(await fs.readFile(plugin,'utf8'),${JSON.stringify(noopSource)});const ack=path.join(path.dirname(plugin),'owned-noop-activation');await require('node:assert/strict').rejects(fs.lstat(ack));const loaded=await import(url);await require('node:assert/strict').rejects(fs.lstat(ack));if(${JSON.stringify(mode)}==='noop-ready')await loaded.default();else if(${JSON.stringify(mode)}==='noop-wrong')await fs.writeFile(ack,'lawoss-owned-noop-invoked-v0\\n');else if(${JSON.stringify(mode)}==='noop-symlink'){const target=${JSON.stringify(path.join(root,'outside-ack'))};await fs.writeFile(target,'lawoss-owned-noop-invoked-v1\\n');await fs.symlink(target,ack);} ${source}})();` : source;
+  await fs.writeFile(file, activation);
+  await fs.writeFile(path.join(root, 'versions.json'), JSON.stringify({ opencode: { version: '1.18.29', sha256: sha(activation) } }));
   let privateRoot, spawnCount = 0, child;
-  const options = { bundleDir: root, fixtureSha256: sha(source), startupMs: 1500, closeMs: 100, drainMs: 100,
+  const options = { bundleDir: root, fixtureSha256: sha(activation), startupMs: 1500, closeMs: 100, drainMs: 100,
     onRoot: value => { privateRoot = value; },
     spawn: (executable,args,options) => { spawnCount++; child=spawn(process.execPath,[executable,...args],options); return child; },
     cleanupTree: async owned => { owned.kill('SIGTERM'); return true; } };
   return { root, file, options, get privateRoot(){return privateRoot;}, get spawnCount(){return spawnCount;}, get child(){return child;} };
 }
+
+test('noop child sees one fixed owned module and acknowledges only actual invocation',async t=>{
+  const f=await fixture(t,'noop-ready'),original=f.options.spawn;f.options.ownedNoopPlugin=true;
+  f.options.spawn=(exe,args,options)=>{
+    const config=JSON.parse(options.env.OPENCODE_CONFIG_CONTENT);assert.deepEqual(config,{plugin:[pathToFileURL(path.join(f.privateRoot,'owned-noop-plugin.mjs')).href]});
+    assert.equal(options.env.OPENCODE_DISABLE_DEFAULT_PLUGINS,'1');assert.equal(options.env.OPENCODE_DISABLE_MODELS_FETCH,'1');assert.equal(options.env.OPENCODE_DISABLE_SHARE,'1');assert.equal(options.env.OPENCODE_DISABLE_AUTOUPDATE,'1');
+    assert.equal(options.env.PATH,undefined);assert.equal(options.env.OPENCODE_MODELS_PATH,undefined);assert.equal(options.env.BUN_INSPECT_PRELOAD,undefined);
+    const environment=syntheticRuntimeEnvironment(f.privateRoot,undefined,process.platform);delete environment.BUN_INSPECT_PRELOAD;
+    assert.deepEqual(options.env,{...environment,OPENCODE_CONFIG_CONTENT:JSON.stringify(config),OPENCODE_DISABLE_DEFAULT_PLUGINS:'1',OPENCODE_DISABLE_MODELS_FETCH:'1',OPENCODE_DISABLE_SHARE:'1',OPENCODE_DISABLE_AUTOUPDATE:'1',OPENCODE_CONFIG_DIR:path.join(f.privateRoot,'empty-config'),OPENCODE_SERVER_USERNAME:options.env.OPENCODE_SERVER_USERNAME,OPENCODE_SERVER_PASSWORD:options.env.OPENCODE_SERVER_PASSWORD});
+    return original(exe,args,options);
+  };
+  const r=await api.testOnlyRun(f.options);
+  assert.equal(r.namespace,'engine-direct-noop-plugin-control-v1');assert.equal(r.pluginObserved,true);assert.equal(r.outcome,'DIRECT_READY');assert.equal(r.rootRemoved,true);assert.equal(f.spawnCount,1);
+  assert.ok(!JSON.stringify(r).includes(f.privateRoot));await assert.rejects(fs.stat(f.privateRoot));
+});
+
+test('noop missing, wrong and outside symlink acknowledgments retain unknown roots',async t=>{
+  for(const mode of ['noop-missing','noop-wrong','noop-symlink']) {
+    const f=await fixture(t,mode);f.options.ownedNoopPlugin=true;
+    const r=await api.testOnlyRun(f.options);
+    t.after(()=>fs.rm(f.privateRoot,{recursive:true,force:true}));
+    assert.equal(r.selectedStage,'verified');assert.equal(r.directClosed,true);assert.equal(r.pluginObserved,false);
+    assert.equal(r.outcome,'UNKNOWN');assert.equal(r.reason,'plugin-unobserved');assert.equal(r.rootRemoved,false);assert.ok(await fs.stat(f.privateRoot));assert.equal(f.spawnCount,1);
+    if(mode==='noop-wrong')assert.equal(await fs.readFile(path.join(f.privateRoot,'owned-noop-activation'),'utf8'),'lawoss-owned-noop-invoked-v0\n');
+    if(mode==='noop-symlink')assert.equal(await fs.readFile(path.join(f.root,'outside-ack'),'utf8'),'lawoss-owned-noop-invoked-v1\n');
+  }
+});
+
+test('noop scoped failure remains selected failed and inner initialization unknown',async t=>{
+  const f=await fixture(t,'noop-scope');f.options.ownedNoopPlugin=true;
+  const r=await api.testOnlyRun(f.options);
+  assert.equal(r.outcome,'DIRECT_SELECTED_FAILED');assert.equal(r.reason,'selected');assert.equal(r.pluginObserved,false);assert.equal(r.selectedDirectoryMatches,false);assert.equal(r.directClosed,true);assert.equal(r.rootRemoved,true);assert.equal(r.descendantsUnknown,true);assert.equal(f.spawnCount,1);
+});
+
+test('noop projection is exactly 26 frozen primitives and stays separate from bare 25',async t=>{
+  const f=await fixture(t,'noop-ready');f.options.ownedNoopPlugin=true;
+  const r=await api.testOnlyRun(f.options);
+  assert.equal(Object.keys(r).length,26);assert.ok(Object.isFrozen(r));assert.throws(()=>api.projectReceipt(r));
+  assert.throws(()=>api.projectNoopPluginReceipt({...r,extra:'PRIVATE'}));assert.throws(()=>api.projectNoopPluginReceipt({...r,selectedElapsedMs:Infinity}));assert.throws(()=>api.projectNoopPluginReceipt({...r,pluginObserved:false}));
+  assert.throws(()=>api.projectNoopPluginReceipt({...r,namespace:'engine-direct-bare-control-v1'}));assert.throws(()=>api.projectNoopPluginReceipt({...r,fixedSettingsSha256:'0'.repeat(64)}));
+  const input={...r},projected=api.projectNoopPluginReceipt(input);input.pluginObserved=false;assert.equal(projected.pluginObserved,true);assert.ok(Object.isFrozen(projected));
+  assert.equal(r.fixedSettingsSha256,'e7a2e06d81501fdbd60366eaef8f4e76a581110b4c9cc83406aed1eba73d4838');
+});
+
+test('noop CLI has one fixed flag, preserves binary pin and rejects arbitrary paths',async t=>{
+  const f=await fixture(t),runner=path.resolve('lawoss/testing/isir/native/engine-direct-bare-control.mjs');
+  async function cli(args) {
+    const child=spawn(process.execPath,[runner,...args],{env:{...process.env,NODE_TEST_CONTEXT:'child-v8',ENGINE_SHA256:f.options.fixtureSha256},stdio:['ignore','pipe','pipe']});
+    let text='';child.stdout.on('data',v=>{text+=v;});child.stderr.on('data',v=>{text+=v;});
+    const exit=await new Promise(resolve=>child.once('close',resolve));return {exit,text};
+  }
+  const output=path.join(f.root,'noop.json');const admitted=await cli([output,f.root,'--owned-noop-plugin']);assert.equal(admitted.exit,0);
+  const r=JSON.parse(await fs.readFile(output));assert.equal(r.namespace,'engine-direct-noop-plugin-control-v1');assert.equal(r.outcome,'UNKNOWN');assert.equal(r.reason,'admission');assert.equal(r.pluginObserved,false);assert.equal(Object.keys(r).length,26);assert.equal(r.expectedBinarySha256,'32675fbf8fcb804c6ee4e048ff0926cd64bf54d1b6185bf2c09e93a2662dd69d');
+  for(const flags of [['--owned-noop-plugin=/arbitrary'],['--owned-noop-plugin','/arbitrary'],['--plugin','/arbitrary']]) {
+    const refused=path.join(f.root,`refused-${flags.length}-${flags[0].replaceAll('/','_')}.json`);assert.equal((await cli([refused,f.root,...flags])).exit,1);await assert.rejects(fs.stat(refused));
+  }
+});
 
 test('mismatched pinned bytes refuse execution and produce a closed receipt', async t => {
   const f=await fixture(t); const r=await api.runDirectBareControl(f.root);

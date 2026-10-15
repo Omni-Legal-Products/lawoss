@@ -1,11 +1,11 @@
-name: Direct bare engine diagnostic
+name: Direct single noop file-plugin engine diagnostic
 on:
   push:
-    branches: [fix/pr157-direct-bare-control]
+    branches: [fix/pr157-direct-noop-control]
 permissions:
   contents: read
 jobs:
-  direct-bare:
+  direct-noop-plugin:
     runs-on: windows-2022
     timeout-minutes: 5
     steps:
@@ -76,7 +76,7 @@ jobs:
           } finally {
             foreach ($resource in @($extracted, $entryStream, $zip, $outputStream, $inputStream, $response, $client, $token)) { if ($null -ne $resource) { try { $resource.Dispose() } catch {} } }
           }
-      - name: One direct control or closed admission refusal
+      - name: One direct noop plugin control or closed admission refusal
         if: ${{ always() && steps.focused.outcome == 'success' }}
         shell: pwsh
         env:
@@ -84,12 +84,12 @@ jobs:
         run: |
           $bundle = Join-Path $env:RUNNER_TEMP 'direct-bare-not-acquired'
           if ($env:ENGINE_ADMITTED -eq 'true') { $bundle = Join-Path $env:RUNNER_TEMP 'direct-bare-acquisition/bundle' }
-          $receipt = Join-Path $env:RUNNER_TEMP 'engine-direct-bare-control.json'
-          node lawoss/testing/isir/native/engine-direct-bare-control.mjs $receipt $bundle
+          $receipt = Join-Path $env:RUNNER_TEMP 'engine-direct-noop-plugin-control.json'
+          node lawoss/testing/isir/native/engine-direct-bare-control.mjs $receipt $bundle --owned-noop-plugin
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
-          name: engine-direct-bare-control
-          path: ${{ runner.temp }}/engine-direct-bare-control.json
+          name: engine-direct-noop-plugin-control
+          path: ${{ runner.temp }}/engine-direct-noop-plugin-control.json
           if-no-files-found: error
           retention-days: 7

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomBytes, createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { tmpdir } from 'node:os';
 import net from 'node:net';
 import path from 'node:path';
@@ -15,6 +16,11 @@ import { killProcessTree } from '../../../../apps/desktop/electron/lawoss-proces
 const PIN='32675fbf8fcb804c6ee4e048ff0926cd64bf54d1b6185bf2c09e93a2662dd69d';
 const FIXED=Object.freeze({OPENCODE_CONFIG_CONTENT:'{}',OPENCODE_DISABLE_DEFAULT_PLUGINS:'1',OPENCODE_DISABLE_MODELS_FETCH:'1',OPENCODE_DISABLE_SHARE:'1',OPENCODE_DISABLE_AUTOUPDATE:'1'});
 const settingsHash=createHash('sha256').update(JSON.stringify(FIXED)).digest('hex');
+const noopSource="import { writeFile } from 'node:fs/promises';\nexport default async function () {\n  await writeFile(new URL('./owned-noop-activation', import.meta.url), 'lawoss-owned-noop-invoked-v1\\n', { flag: 'wx' });\n  return {};\n}\n";
+const noopMarker=Buffer.from('lawoss-owned-noop-invoked-v1\n');
+// Stable semantic URL stands for the fresh owned root, never its random absolute path.
+const noopSettings={...FIXED,OPENCODE_CONFIG_CONTENT:'{"plugin":["file:<owned-root>/owned-noop-plugin.mjs"]}',pluginModuleSha256:createHash('sha256').update(noopSource).digest('hex')};
+const noopSettingsHash=createHash('sha256').update(JSON.stringify(noopSettings)).digest('hex');
 const reasons=['none','admission','identity','health','selected','body-limit','deadline','output-limit','child-error','child-unclosed','tree-cleanup','root-cleanup','unexpected-close'];
 const stages=['not-started','request','headers','body','verified'];
 const hash=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
@@ -45,6 +51,30 @@ export function projectReceipt(value) {
   if(value.outcome!=='UNKNOWN')assert.ok(value.manifestBefore&&value.manifestAfter&&value.directClosed&&value.treeCleanup&&value.rootRemoved);
   if(value.outcome==='DIRECT_READY')assert.ok(value.healthStatus===200&&value.healthVersion===PINNED_ENGINE_VERSION&&value.selectedStage==='verified'&&value.selectedStatus===200&&value.selectedBodyCompleted&&value.selectedDirectoryMatches&&value.reason==='none');
   return Object.freeze({...value}); // Flat primitives only; no retained mutable references.
+}
+export function projectNoopPluginReceipt(value) {
+  assert.deepEqual(Object.keys(value).sort(),[...Object.keys(initial({})),'pluginObserved'].sort());
+  assert.equal(value.namespace,'engine-direct-noop-plugin-control-v1');assert.equal(value.fixedSettingsSha256,noopSettingsHash);
+  assert.equal(typeof value.pluginObserved,'boolean');
+  if(value.outcome==='DIRECT_READY')assert.equal(value.pluginObserved,true);
+  if(value.reason==='plugin-unobserved')assert.ok(value.outcome==='UNKNOWN'&&!value.pluginObserved&&!value.rootRemoved&&value.selectedStage==='verified');
+  const {pluginObserved,...bare}=value;
+  projectReceipt({...bare,namespace:'engine-direct-bare-control-v1',fixedSettingsSha256:settingsHash,reason:value.reason==='plugin-unobserved'?'selected':value.reason});
+  return Object.freeze({...value});
+}
+
+async function observedNoopPlugin(root) {
+  let handle;
+  try {
+    const file=path.join(root,'owned-noop-activation'),before=await fs.lstat(file);
+    if(!before.isFile()||before.isSymbolicLink()||before.size!==noopMarker.length)return false;
+    handle=await fs.open(file,constants.O_RDONLY|(constants.O_NOFOLLOW??0));
+    const opened=await handle.stat();
+    if(!opened.isFile()||opened.dev!==before.dev||opened.ino!==before.ino||opened.size!==noopMarker.length)return false;
+    const bytes=Buffer.alloc(noopMarker.length+1),read=await handle.read(bytes,0,bytes.length,0),after=await fs.lstat(file);
+    return !after.isSymbolicLink()&&after.isFile()&&after.dev===opened.dev&&after.ino===opened.ino&&after.size===opened.size&&after.mtimeMs===opened.mtimeMs&&after.ctimeMs===opened.ctimeMs&&read.bytesRead===noopMarker.length&&bytes.subarray(0,read.bytesRead).equals(noopMarker);
+  } catch {return false;}
+  finally {await handle?.close().catch(()=>{});}
 }
 
 async function portReservation() {
@@ -99,8 +129,9 @@ async function boundedResponse(url,options,deadline,ownerSignal) {
     },
   };
 }
-async function run(bundleDir,testing) {
+async function run(bundleDir,testing,ownedNoopPlugin=false) {
   const receipt=initial(process.env);let prepared,root,supervisor,reservation;let startupDeadline,cleanupEnv;
+  if(ownedNoopPlugin)Object.assign(receipt,{namespace:'engine-direct-noop-plugin-control-v1',fixedSettingsSha256:noopSettingsHash,pluginObserved:false});
   const abort=new AbortController();let deadlineTimer;
   const expected=testing?.fixtureSha256??PIN;
   try {
@@ -117,6 +148,10 @@ async function run(bundleDir,testing) {
     const directory=await fs.realpath(project);
     const user=randomBytes(16).toString('hex'),password=randomBytes(32).toString('hex');
     const env={...environment,...FIXED,OPENCODE_CONFIG_DIR:config,OPENCODE_SERVER_USERNAME:user,OPENCODE_SERVER_PASSWORD:password};
+    if(ownedNoopPlugin) {
+      const plugin=path.join(root,'owned-noop-plugin.mjs');await fs.writeFile(plugin,noopSource,{flag:'wx'});
+      env.OPENCODE_CONFIG_CONTENT=JSON.stringify({plugin:[pathToFileURL(plugin).href]});
+    }
     reservation=await portReservation();const origin=`http://127.0.0.1:${reservation.port}`;
     await reservation.close();reservation=null; // Bind races fail safely; never scan/retry another port.
     startupDeadline=Date.now()+(testing?.startupMs??90000);
@@ -163,26 +198,34 @@ async function run(bundleDir,testing) {
       try {await verifyNativeEngineFiles(prepared,prepared.path);receipt.manifestAfter=true;}
       catch{receipt.manifestAfter=false;receipt.outcome='UNKNOWN';receipt.reason='identity';}
     }
+    if(ownedNoopPlugin&&root&&receipt.directClosed) {
+      receipt.pluginObserved=await observedNoopPlugin(root);
+      if(receipt.outcome==='DIRECT_READY'&&!receipt.pluginObserved){receipt.outcome='UNKNOWN';receipt.reason='plugin-unobserved';}
+    }
     if(root&&receipt.outcome!=='UNKNOWN'&&receipt.directClosed&&receipt.treeCleanup&&receipt.manifestAfter) {
       try{await fs.rm(root,{recursive:true,force:true});receipt.rootRemoved=true;}
       catch{receipt.outcome='UNKNOWN';receipt.reason='root-cleanup';}
     }
   }
-  return projectReceipt(receipt);
+  return ownedNoopPlugin?projectNoopPluginReceipt(receipt):projectReceipt(receipt);
 }
 export function runDirectBareControl(bundleDir) {return run(bundleDir);}
+export function runDirectNoopPluginControl(bundleDir) {return run(bundleDir,undefined,true);}
 // Only Node's test runner exposes this narrow fixture seam. CLI never reads it or an env SHA.
 export function testOnlyRun(options) {
   assert.ok(process.env.NODE_TEST_CONTEXT);assert.ok(hash(options.fixtureSha256));
+  assert.ok(options.ownedNoopPlugin===undefined||typeof options.ownedNoopPlugin==='boolean');
   for(const [key,max] of [['startupMs',90000],['closeMs',5000],['drainMs',1000]])assert.ok(Number.isInteger(options[key])&&options[key]>0&&options[key]<=max);
-  return run(options.bundleDir,options);
+  return run(options.bundleDir,options,options.ownedNoopPlugin===true);
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href) {
   try {
-    assert.equal(process.versions.node.split('.')[0],'24');assert.equal(process.argv.length,4);
+    assert.equal(process.versions.node.split('.')[0],'24');
+    assert.ok(process.argv.length===4||process.argv.length===5&&process.argv[4]==='--owned-noop-plugin');
     assert.ok(path.isAbsolute(process.argv[2])&&path.isAbsolute(process.argv[3]));
-    const receipt=await runDirectBareControl(process.argv[3]);
+    const ownedNoopPlugin=process.argv.length===5;
+    const receipt=await (ownedNoopPlugin?runDirectNoopPluginControl:runDirectBareControl)(process.argv[3]);
     await fs.writeFile(process.argv[2],`${JSON.stringify(receipt)}\n`,{flag:'wx'});
-    process.stdout.write('Direct bare control receipt written.\n');
+    process.stdout.write(ownedNoopPlugin?'Direct noop plugin control receipt written.\n':'Direct bare control receipt written.\n');
   } catch {process.stderr.write('Direct bare control receipt unavailable.\n');process.exitCode=1;}
 }
