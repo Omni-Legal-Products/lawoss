@@ -28,7 +28,7 @@ async function fixture(t, mode = 'ready') {
 test('mismatched pinned bytes refuse execution and produce a closed receipt', async t => {
   const f=await fixture(t); const r=await api.runDirectBareControl(f.root);
   assert.equal(r.outcome,'UNKNOWN'); assert.equal(r.reason,'admission'); assert.equal(r.manifestBefore,true);
-  assert.notEqual(r.observedBinarySha256,r.expectedBinarySha256); assert.equal(f.spawnCount,0);
+  assert.notEqual(r.observedBinarySha256,r.expectedBinarySha256);
 });
 
 test('actual synthetic listener verifies auth, selected scope and clean owned close without leaking environment', async t => {
@@ -92,4 +92,27 @@ test('CLI admission refuses fixture bytes even with test context or SHA-like env
   const child=spawn(process.execPath,[path.resolve('lawoss/testing/isir/native/engine-direct-bare-control.mjs'),output,f.root],{env:{...process.env,NODE_TEST_CONTEXT:'child-v8',ENGINE_SHA256:f.options.fixtureSha256},stdio:['ignore','pipe','pipe']});
   let text='';child.stdout.on('data',v=>{text+=v;});child.stderr.on('data',v=>{text+=v;});await new Promise(resolve=>child.once('close',resolve));
   assert.equal(text,'Direct bare control receipt written.\n');const r=JSON.parse(await fs.readFile(output));assert.equal(r.outcome,'UNKNOWN');assert.equal(r.reason,'admission');assert.equal(r.expectedBinarySha256,'32675fbf8fcb804c6ee4e048ff0926cd64bf54d1b6185bf2c09e93a2662dd69d');
+});
+
+
+test('connected spawn spy refuses mismatched expected fixture SHA before spawning',async t=>{
+  const f=await fixture(t),actual=sha(await fs.readFile(f.file));f.options.fixtureSha256='0'.repeat(64);
+  const r=await api.testOnlyRun(f.options);
+  assert.equal(r.outcome,'UNKNOWN');assert.equal(r.reason,'admission');assert.equal(r.observedBinarySha256,actual);assert.equal(r.manifestBefore,true);assert.equal(f.spawnCount,0);assert.equal(f.privateRoot,undefined);
+});
+
+test('actual tree helper adapter forwards isolated cleanup env and owned cwd',async t=>{
+  const f=await fixture(t),previous={HOME:process.env.HOME,USERPROFILE:process.env.USERPROFILE,PRIVATE_CLEANUP_SENTINEL:process.env.PRIVATE_CLEANUP_SENTINEL};
+  Object.assign(process.env,{HOME:'PRIVATE_PARENT_PROFILE',USERPROFILE:'PRIVATE_PARENT_PROFILE',PRIVATE_CLEANUP_SENTINEL:'PRIVATE_PARENT_SECRET'});
+  t.after(()=>{for(const [key,value] of Object.entries(previous)){if(value===undefined)delete process.env[key];else process.env[key]=value;}});
+  t.after(()=>f.privateRoot&&fs.rm(f.privateRoot,{recursive:true,force:true}));
+  delete f.options.cleanupTree;f.options.cleanupPlatform='win32';let captured;
+  f.options.cleanupSpawn=(executable,args,options)=>{captured={executable,args,options};const taskkill=new EventEmitter();taskkill.kill=()=>{};f.child.kill('SIGTERM');queueMicrotask(()=>taskkill.emit('exit',0));return taskkill;};
+  const r=await api.testOnlyRun(f.options);
+  assert.ok(captured,'actual helper must invoke the runner spawn adapter');assert.equal(r.outcome,'DIRECT_READY');
+  assert.ok(captured.options.env,'cleanup child must receive explicit isolated env');
+  assert.equal(captured.executable,path.win32.join(captured.options.env.SystemRoot??'C:\\Windows','System32','taskkill.exe'));
+  assert.deepEqual(captured.args,['/pid',String(f.child.pid),'/T','/F']);assert.deepEqual(Object.keys(captured.options).sort(),['cwd','env','stdio','windowsHide']);assert.equal(captured.options.stdio,'ignore');assert.equal(captured.options.windowsHide,true);assert.equal(captured.options.cwd,f.privateRoot);
+  assert.equal(captured.options.env.HOME,f.privateRoot);assert.equal(captured.options.env.USERPROFILE,f.privateRoot);assert.equal(captured.options.env.PRIVATE_CLEANUP_SENTINEL,undefined);assert.equal(captured.options.env.PATH,undefined);assert.equal(captured.options.env.BUN_INSPECT_PRELOAD,undefined);assert.equal(captured.options.env.OPENCODE_SERVER_PASSWORD,undefined);
+  for(const [key,value] of Object.entries(captured.options.env))if(key!=='SystemRoot')assert.ok(value===f.privateRoot||value.startsWith(f.privateRoot+path.sep));
 });

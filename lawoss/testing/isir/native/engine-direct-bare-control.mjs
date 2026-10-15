@@ -152,7 +152,9 @@ async function run(bundleDir,testing) {
     clearTimeout(deadlineTimer);abort.abort();
     if(reservation)await reservation.close().catch(()=>{});
     if(supervisor) {
-      const result=await supervisor.stop(testing?.cleanupTree??(child=>killProcessTree(child.pid,{env:cleanupEnv})),testing?.closeMs??0,testing?.drainMs??1000);
+      const cleanup=child=>killProcessTree(child.pid,{env:cleanupEnv,platform:testing?.cleanupPlatform??process.platform,
+        spawn:(executable,args,options)=>(testing?.cleanupSpawn??spawn)(executable,args,{...options,env:cleanupEnv,cwd:root})});
+      const result=await supervisor.stop(testing?.cleanupTree??cleanup,testing?.closeMs??0,testing?.drainMs??1000);
       receipt.directClosed=result.directClosed;receipt.treeCleanup=result.treeCleanup;receipt.stdioBytes=result.stdioBytes;
       const failure=!result.directClosed?'child-unclosed':result.failure??(!result.treeCleanup?'tree-cleanup':null);
       if(failure){receipt.outcome='UNKNOWN';receipt.reason=failure;}
