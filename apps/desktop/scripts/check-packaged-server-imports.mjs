@@ -14,7 +14,8 @@ export function findMissingServerImports(archive) {
   const missing = [];
   for (const file of files) {
     if (!file.startsWith("server/dist/") || file.startsWith("server/dist/opencode-plugins/") || !file.endsWith(".js") || file.endsWith(".test.js")) continue;
-    const source = extractFile(archive, file).toString("utf8");
+    // ASAR looks up entries using the host separator, including on Windows.
+    const source = extractFile(archive, file.split("/").join(path.sep)).toString("utf8");
     for (const { fileName: specifier } of preProcessFile(source, true, true).importedFiles) {
       if (!specifier.startsWith(".")) continue;
       const target = path.posix.normalize(path.posix.join(path.posix.dirname(file), specifier));
