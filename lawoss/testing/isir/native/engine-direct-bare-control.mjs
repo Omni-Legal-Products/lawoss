@@ -21,6 +21,11 @@ const noopMarker=Buffer.from('lawoss-owned-noop-invoked-v1\n');
 // Stable semantic URL stands for the fresh owned root, never its random absolute path.
 const noopSettings={...FIXED,OPENCODE_CONFIG_CONTENT:'{"plugin":["file:<owned-root>/owned-noop-plugin.mjs"]}',pluginModuleSha256:createHash('sha256').update(noopSource).digest('hex')};
 const noopSettingsHash=createHash('sha256').update(JSON.stringify(noopSettings)).digest('hex');
+// Deliberate diagnostic metadata only: no SDK files or complete installation lock.
+const metadataPackage=JSON.stringify({private:true,dependencies:{'@opencode-ai/plugin':'1.18.29'}});
+const metadataLock=JSON.stringify({lockfileVersion:3,packages:{'':{dependencies:{'@opencode-ai/plugin':'1.18.29'}}}});
+const metadataRecipe={roles:['xdg-global-config:config/opencode','explicit-config:empty-config'],packageJson:metadataPackage,packageLockJson:metadataLock,nodeModules:'empty-regular-directory',sdkInstalled:false,diagnosticOnly:true,productionSetup:false};
+const metadataSettingsHash=createHash('sha256').update(JSON.stringify({...noopSettings,metadataRecipe})).digest('hex');
 const reasons=['none','admission','identity','health','selected','body-limit','deadline','output-limit','child-error','child-unclosed','tree-cleanup','root-cleanup','unexpected-close'];
 const stages=['not-started','request','headers','body','verified'];
 const hash=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
@@ -61,6 +66,88 @@ export function projectNoopPluginReceipt(value) {
   const {pluginObserved,...bare}=value;
   projectReceipt({...bare,namespace:'engine-direct-bare-control-v1',fixedSettingsSha256:settingsHash,reason:value.reason==='plugin-unobserved'?'selected':value.reason});
   return Object.freeze({...value});
+}
+
+export function projectNoopSdkMetadataReceipt(value) {
+  assert.deepEqual(Object.keys(value).sort(),[...Object.keys(initial({})),'pluginObserved','seedPrepared','sourcePredicateSatisfied'].sort());
+  assert.equal(value.namespace,'engine-direct-noop-sdk-metadata-control-v1');assert.equal(value.fixedSettingsSha256,metadataSettingsHash);
+  assert.equal(typeof value.seedPrepared,'boolean');assert.equal(typeof value.sourcePredicateSatisfied,'boolean');
+  assert.equal(value.seedPrepared,value.sourcePredicateSatisfied);
+  if(value.seedPrepared)assert.equal(value.directClosed,true);
+  if(value.outcome!=='UNKNOWN')assert.ok(value.seedPrepared&&value.sourcePredicateSatisfied);
+  const seedFailure=['seed-invalid','seed-changed'].includes(value.reason);
+  if(seedFailure)assert.ok(value.outcome==='UNKNOWN'&&!value.seedPrepared&&!value.rootRemoved);
+  const {seedPrepared,sourcePredicateSatisfied,...noop}=value;
+  projectNoopPluginReceipt({...noop,namespace:'engine-direct-noop-plugin-control-v1',fixedSettingsSha256:noopSettingsHash,reason:seedFailure?'admission':value.reason});
+  return Object.freeze({...value});
+}
+
+const seedRoles=['config/opencode','empty-config'];
+const sameNode=(a,b)=>a.dev===b.dev&&a.ino===b.ino;
+const seedIdentity=stat=>({dev:stat.dev,ino:stat.ino});
+async function seedAnchor(root) {
+  assert.ok(path.isAbsolute(root)&&path.resolve(root)===root);
+  const stat=await fs.lstat(root);assert.ok(stat.isDirectory()&&!stat.isSymbolicLink());
+  return {physical:await fs.realpath(root),...seedIdentity(stat)};
+}
+async function seedDirectory(root,relative,anchor) {
+  const rootStat=await fs.lstat(root);assert.ok(rootStat.isDirectory()&&!rootStat.isSymbolicLink()&&sameNode(rootStat,anchor));
+  assert.equal(await fs.realpath(root),anchor.physical);
+  let current=root,stat=rootStat;
+  const parts=relative?relative.split('/'):[];
+  for(let i=0;i<parts.length;i++) {
+    assert.ok(parts[i]&&parts[i]!=='.'&&parts[i]!=='..');current=path.join(current,parts[i]);
+    stat=await fs.lstat(current);assert.ok(stat.isDirectory()&&!stat.isSymbolicLink());
+    assert.equal(await fs.realpath(current),path.join(anchor.physical,...parts.slice(0,i+1)));
+  }
+  return seedIdentity(stat);
+}
+async function seedFile(root,role,name,expected,anchor) {
+  await seedDirectory(root,role,anchor);
+  const file=path.join(root,role,name),before=await fs.lstat(file);let handle;
+  assert.ok(before.isFile()&&!before.isSymbolicLink()&&before.nlink===1&&before.size===Buffer.byteLength(expected));
+  try {
+    handle=await fs.open(file,constants.O_RDONLY|(constants.O_NOFOLLOW??0));const opened=await handle.stat();
+    assert.ok(opened.isFile()&&opened.nlink===1&&sameNode(opened,before)&&opened.size===before.size);
+    const bytes=Buffer.alloc(Buffer.byteLength(expected)+1),read=await handle.read(bytes,0,bytes.length,0);
+    const after=await fs.lstat(file),fdAfter=await handle.stat();
+    for(const stat of [after,fdAfter])assert.ok(stat.isFile()&&!stat.isSymbolicLink()&&stat.nlink===1&&sameNode(stat,opened)&&stat.size===opened.size&&stat.mtimeMs===opened.mtimeMs&&stat.ctimeMs===opened.ctimeMs);
+    assert.equal(read.bytesRead,Buffer.byteLength(expected));assert.ok(bytes.subarray(0,read.bytesRead).equals(Buffer.from(expected)));
+    await seedDirectory(root,role,anchor);
+    return {...seedIdentity(opened),mtimeMs:opened.mtimeMs,ctimeMs:opened.ctimeMs};
+  } finally {await handle?.close();}
+}
+function metadataSourcePredicate() {
+  const declared=JSON.parse(metadataPackage),lockRoot=JSON.parse(metadataLock).packages[''];
+  const names=value=>['dependencies','devDependencies','peerDependencies','optionalDependencies'].flatMap(key=>Object.keys(value[key]??{}));
+  const requested=new Set([...names(declared),'@opencode-ai/plugin']),locked=new Set(names(lockRoot));
+  return [...requested].every(name=>locked.has(name));
+}
+async function inspectOwnedMetadata(root,anchor) {
+  const proof={root:await seedDirectory(root,'',anchor),roles:[]};
+  for(const role of seedRoles) {
+    const directory=await seedDirectory(root,role,anchor),modules=await seedDirectory(root,`${role}/node_modules`,anchor);
+    const stream=await fs.opendir(path.join(root,role,'node_modules'));
+    try {assert.equal(await stream.read(),null);}finally{await stream.close();}
+    const packageJson=await seedFile(root,role,'package.json',metadataPackage,anchor);
+    const packageLock=await seedFile(root,role,'package-lock.json',metadataLock,anchor);
+    assert.deepEqual(await seedDirectory(root,`${role}/node_modules`,anchor),modules);
+    proof.roles.push({directory,modules,packageJson,packageLock});
+  }
+  assert.ok(metadataSourcePredicate());return proof;
+}
+async function prepareOwnedMetadata(root) {
+  const anchor=await seedAnchor(root);
+  await seedDirectory(root,'config',anchor);await seedDirectory(root,'empty-config',anchor);
+  await fs.mkdir(path.join(root,'config','opencode')); // Exclusive fresh global role; never recursive or a fallback role.
+  for(const role of seedRoles) {
+    await seedDirectory(root,role,anchor);await fs.mkdir(path.join(root,role,'node_modules'));
+    for(const [name,bytes] of [['package.json',metadataPackage],['package-lock.json',metadataLock]]) {
+      await seedDirectory(root,role,anchor);
+      await fs.writeFile(path.join(root,role,name),bytes,{flag:'wx',mode:0o600});
+    }
+  }
+  return {anchor,proof:await inspectOwnedMetadata(root,anchor)};
 }
 
 async function observedNoopPlugin(root) {
@@ -129,9 +216,11 @@ async function boundedResponse(url,options,deadline,ownerSignal) {
     },
   };
 }
-async function run(bundleDir,testing,ownedNoopPlugin=false) {
+async function run(bundleDir,testing,ownedNoopPlugin=false,ownedNoopSdkMetadata=false) {
+  ownedNoopPlugin=ownedNoopPlugin||ownedNoopSdkMetadata;let seedState;
   const receipt=initial(process.env);let prepared,root,supervisor,reservation;let startupDeadline,cleanupEnv;
   if(ownedNoopPlugin)Object.assign(receipt,{namespace:'engine-direct-noop-plugin-control-v1',fixedSettingsSha256:noopSettingsHash,pluginObserved:false});
+  if(ownedNoopSdkMetadata)Object.assign(receipt,{namespace:'engine-direct-noop-sdk-metadata-control-v1',fixedSettingsSha256:metadataSettingsHash,seedPrepared:false,sourcePredicateSatisfied:false});
   const abort=new AbortController();let deadlineTimer;
   const expected=testing?.fixtureSha256??PIN;
   try {
@@ -151,6 +240,9 @@ async function run(bundleDir,testing,ownedNoopPlugin=false) {
     if(ownedNoopPlugin) {
       const plugin=path.join(root,'owned-noop-plugin.mjs');await fs.writeFile(plugin,noopSource,{flag:'wx'});
       env.OPENCODE_CONFIG_CONTENT=JSON.stringify({plugin:[pathToFileURL(plugin).href]});
+    }
+    if(ownedNoopSdkMetadata) {
+      receipt.reason='seed-invalid';await testing?.beforeSeed?.(root);seedState=await prepareOwnedMetadata(root);
     }
     reservation=await portReservation();const origin=`http://127.0.0.1:${reservation.port}`;
     await reservation.close();reservation=null; // Bind races fail safely; never scan/retry another port.
@@ -194,7 +286,7 @@ async function run(bundleDir,testing,ownedNoopPlugin=false) {
       const failure=!result.directClosed?'child-unclosed':result.failure??(!result.treeCleanup?'tree-cleanup':null);
       if(failure){receipt.outcome='UNKNOWN';receipt.reason=failure;}
     }
-    if(prepared) {
+    if(prepared&&(!ownedNoopSdkMetadata||!supervisor||receipt.directClosed)) {
       try {await verifyNativeEngineFiles(prepared,prepared.path);receipt.manifestAfter=true;}
       catch{receipt.manifestAfter=false;receipt.outcome='UNKNOWN';receipt.reason='identity';}
     }
@@ -202,30 +294,36 @@ async function run(bundleDir,testing,ownedNoopPlugin=false) {
       receipt.pluginObserved=await observedNoopPlugin(root);
       if(receipt.outcome==='DIRECT_READY'&&!receipt.pluginObserved){receipt.outcome='UNKNOWN';receipt.reason='plugin-unobserved';}
     }
+    if(ownedNoopSdkMetadata&&seedState&&receipt.directClosed) {
+      try {assert.deepEqual(await inspectOwnedMetadata(root,seedState.anchor),seedState.proof);receipt.seedPrepared=true;receipt.sourcePredicateSatisfied=true;}
+      catch {receipt.seedPrepared=false;receipt.sourcePredicateSatisfied=false;receipt.outcome='UNKNOWN';receipt.reason='seed-changed';}
+    }
     if(root&&receipt.outcome!=='UNKNOWN'&&receipt.directClosed&&receipt.treeCleanup&&receipt.manifestAfter) {
       try{await fs.rm(root,{recursive:true,force:true});receipt.rootRemoved=true;}
       catch{receipt.outcome='UNKNOWN';receipt.reason='root-cleanup';}
     }
   }
-  return ownedNoopPlugin?projectNoopPluginReceipt(receipt):projectReceipt(receipt);
+  return ownedNoopSdkMetadata?projectNoopSdkMetadataReceipt(receipt):ownedNoopPlugin?projectNoopPluginReceipt(receipt):projectReceipt(receipt);
 }
 export function runDirectBareControl(bundleDir) {return run(bundleDir);}
 export function runDirectNoopPluginControl(bundleDir) {return run(bundleDir,undefined,true);}
+export function runDirectNoopSdkMetadataControl(bundleDir) {return run(bundleDir,undefined,true,true);}
 // Only Node's test runner exposes this narrow fixture seam. CLI never reads it or an env SHA.
 export function testOnlyRun(options) {
   assert.ok(process.env.NODE_TEST_CONTEXT);assert.ok(hash(options.fixtureSha256));
   assert.ok(options.ownedNoopPlugin===undefined||typeof options.ownedNoopPlugin==='boolean');
+  assert.ok(options.ownedNoopSdkMetadata===undefined||typeof options.ownedNoopSdkMetadata==='boolean');
   for(const [key,max] of [['startupMs',90000],['closeMs',5000],['drainMs',1000]])assert.ok(Number.isInteger(options[key])&&options[key]>0&&options[key]<=max);
-  return run(options.bundleDir,options,options.ownedNoopPlugin===true);
+  return run(options.bundleDir,options,options.ownedNoopPlugin===true,options.ownedNoopSdkMetadata===true);
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href) {
   try {
     assert.equal(process.versions.node.split('.')[0],'24');
-    assert.ok(process.argv.length===4||process.argv.length===5&&process.argv[4]==='--owned-noop-plugin');
+    assert.ok(process.argv.length===4||process.argv.length===5&&['--owned-noop-plugin','--owned-noop-sdk-metadata'].includes(process.argv[4]));
     assert.ok(path.isAbsolute(process.argv[2])&&path.isAbsolute(process.argv[3]));
-    const ownedNoopPlugin=process.argv.length===5;
-    const receipt=await (ownedNoopPlugin?runDirectNoopPluginControl:runDirectBareControl)(process.argv[3]);
+    const ownedNoopPlugin=process.argv[4]==='--owned-noop-plugin',ownedMetadata=process.argv[4]==='--owned-noop-sdk-metadata';
+    const receipt=await (ownedMetadata?runDirectNoopSdkMetadataControl:ownedNoopPlugin?runDirectNoopPluginControl:runDirectBareControl)(process.argv[3]);
     await fs.writeFile(process.argv[2],`${JSON.stringify(receipt)}\n`,{flag:'wx'});
-    process.stdout.write(ownedNoopPlugin?'Direct noop plugin control receipt written.\n':'Direct bare control receipt written.\n');
+    process.stdout.write(ownedMetadata?'Direct noop SDK metadata control receipt written.\n':ownedNoopPlugin?'Direct noop plugin control receipt written.\n':'Direct bare control receipt written.\n');
   } catch {process.stderr.write('Direct bare control receipt unavailable.\n');process.exitCode=1;}
 }

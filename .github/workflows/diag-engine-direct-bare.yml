@@ -1,11 +1,11 @@
-name: Direct single noop file-plugin engine diagnostic
+name: Direct fixed two-role SDK metadata diagnostic (no installed SDK)
 on:
   push:
-    branches: [fix/pr157-direct-noop-control]
+    branches: [fix/pr157-direct-sdk-metadata-control]
 permissions:
   contents: read
 jobs:
-  direct-noop-plugin:
+  direct-noop-sdk-metadata:
     runs-on: windows-2022
     timeout-minutes: 5
     steps:
@@ -76,7 +76,7 @@ jobs:
           } finally {
             foreach ($resource in @($extracted, $entryStream, $zip, $outputStream, $inputStream, $response, $client, $token)) { if ($null -ne $resource) { try { $resource.Dispose() } catch {} } }
           }
-      - name: One direct noop plugin control or closed admission refusal
+      - name: One diagnostic-only metadata control or closed admission refusal
         if: ${{ always() && steps.focused.outcome == 'success' }}
         shell: pwsh
         env:
@@ -84,12 +84,12 @@ jobs:
         run: |
           $bundle = Join-Path $env:RUNNER_TEMP 'direct-bare-not-acquired'
           if ($env:ENGINE_ADMITTED -eq 'true') { $bundle = Join-Path $env:RUNNER_TEMP 'direct-bare-acquisition/bundle' }
-          $receipt = Join-Path $env:RUNNER_TEMP 'engine-direct-noop-plugin-control.json'
-          node lawoss/testing/isir/native/engine-direct-bare-control.mjs $receipt $bundle --owned-noop-plugin
+          $receipt = Join-Path $env:RUNNER_TEMP 'engine-direct-noop-sdk-metadata-control.json'
+          node lawoss/testing/isir/native/engine-direct-bare-control.mjs $receipt $bundle --owned-noop-sdk-metadata
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
-          name: engine-direct-noop-plugin-control
-          path: ${{ runner.temp }}/engine-direct-noop-plugin-control.json
+          name: engine-direct-noop-sdk-metadata-control
+          path: ${{ runner.temp }}/engine-direct-noop-sdk-metadata-control.json
           if-no-files-found: error
           retention-days: 7
