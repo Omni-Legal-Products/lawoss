@@ -9,7 +9,7 @@ import { TextDecoder } from 'node:util';
 // URLs, error messages, headers, child output, user paths or provider payloads.
 export function errorMetadata(error, depth = 0) {
   const names = ['Error','TypeError','AssertionError','AggregateError','TimeoutError','AbortError'];
-  const codes = ['EPERM','ESRCH','ENOENT','EBUSY','ECONNREFUSED','ECONNRESET','UND_ERR_HEADERS_TIMEOUT','UND_ERR_CONNECT_TIMEOUT','ERR_ASSERTION'];
+  const codes = ['EPERM','ESRCH','ENOENT','EBUSY','ECONNREFUSED','ECONNRESET','UND_ERR_HEADERS_TIMEOUT','UND_ERR_CONNECT_TIMEOUT','ERR_ASSERTION','ISIR_NATIVE_WAIT_EXPIRED'];
   return { name: names.includes(error?.name) ? error.name : 'Error',
     ...(codes.includes(error?.code) ? {code:error.code} : {}),
     ...(depth < 3 && error?.cause ? {cause:errorMetadata(error.cause,depth+1)} : {}) };
@@ -259,6 +259,11 @@ async function readOwnedEngineLog(io,root,context){
 export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,ownedRoot,engineLogFs=fs}) {
   if(enabled&&(!ci||mode!=='synthetic'||!outputFile))throw new Error('Published native diagnostics require explicit CI synthetic mode and output file');
   let phase='setup',caseIndex=null;
+  let recoveryStage=null,recoveryFrozen=false;
+  const recoveryStages=['snapshot-request','snapshot-body','snapshot-save','snapshot-check',
+    'session-open','composer-wait','prompt-insert','prompt-click','prompt-observe',
+    'fresh-poll','fresh-check','retained-files','verification-open','verification-folder',
+    'verification-prepare','verification-wait','engine-info','engine-health','engine-identity','receipt-write'];
   let engineLog=emptyEngineLog(),engineLogCaptured=false;
   const requests=[],startup=[],ownedProcesses=[];
   let startupDropped=0,ownedProcessesDropped=0;
@@ -281,7 +286,10 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
       if(!ownedRootShape(value)||ownedRoot!==undefined&&ownedRoot!==value)throw new Error('Invalid or replaced diagnostic owned root');
       ownedRoot=value;
     },
-    phase(value,index=null){if(!phases.includes(value))throw new Error('Unknown diagnostic phase');phase=value;caseIndex=Number.isInteger(index)?index:null;},
+    phase(value,index=null){if(!phases.includes(value))throw new Error('Unknown diagnostic phase');phase=value;caseIndex=Number.isInteger(index)?index:null;if(!recoveryFrozen)recoveryStage=null;},
+    recoveryStage(value){
+      if(!recoveryFrozen&&phase==='recovery')recoveryStage=recoveryStages.includes(value)?value:'unknown';
+    },
     fetch:request,
     startup(stage){
       if(!startupStages.includes(stage))throw new Error('Unknown startup diagnostic stage');
@@ -321,9 +329,13 @@ export function createNativeDiagnostics({enabled=false,ci=false,mode,outputFile,
     },
     async write({events=[],error=null,cleanupErrors=[]}={}){
       if(!enabled)return;
-      const data={schema:4,engineLog,mode:'synthetic',platform:process.platform,phase,caseIndex,requests,startup,startupDropped,ownedProcesses,ownedProcessesDropped,network:summarizeNetwork(events),...(error?{error:errorMetadata(error)}:{}),cleanupErrors:cleanupErrors.map(e=>errorMetadata(e))};
+      const data={schema:5,recoveryStage:error&&recoveryFrozen?recoveryStage:null,engineLog,mode:'synthetic',platform:process.platform,phase,caseIndex,requests,startup,startupDropped,ownedProcesses,ownedProcessesDropped,network:summarizeNetwork(events),...(error?{error:errorMetadata(error)}:{}),cleanupErrors:cleanupErrors.map(e=>errorMetadata(e))};
       await writeFile(outputFile,JSON.stringify(data,null,2),{mode:0o600});
     },
-    failure(error){return {phase,caseIndex,error:errorMetadata(error)};},
+    failure(error){
+      // Called first at the primary catch, before probes or cleanup can run.
+      if(!recoveryFrozen){recoveryStage=phase==='recovery'?recoveryStage??'unknown':null;recoveryFrozen=true;}
+      return {phase,caseIndex,recoveryStage,error:errorMetadata(error)};
+    },
   };
 }

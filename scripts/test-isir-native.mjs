@@ -172,8 +172,9 @@ try {
 
   let selectedIndex=1;
   boundaryProbe = () => diagnostics.probeWorkspace({serverInfo,serverAuth,workspaces,selectedIndex});
-  const api = async (workspace, route, input) => {
+  const api = async (workspace, route, input, afterHeaders) => {
     const response = await nativeFetch(`${serverInfo.baseUrl}/workspace/${workspace.id}/${route}`,{headers:serverAuth,...(input===undefined?{}:{method:'POST',body:JSON.stringify(input)})});
+    try { afterHeaders?.(); } catch {}
     return {response,body:await response.json()};
   };
   const panelText = () => cdp.evaluate(`document.querySelector('[aria-label="Document processing"]')?.innerText??''`);
@@ -512,17 +513,26 @@ try {
     console.log('DEBUG actual history transport',JSON.stringify(probe.map(p=>({label:p.label,status:p.status,count:Array.isArray(p.sessions)?p.sessions.length:null}))));
   }
   diagnostics.phase("recovery");
-  const recovered=await api(first,`sessions/${evidence[0].sessionId}/snapshot?limit=20`);
+  diagnostics.recoveryStage('snapshot-request');
+  const recovered=await api(first,`sessions/${evidence[0].sessionId}/snapshot?limit=20`,undefined,()=>diagnostics.recoveryStage('snapshot-body'));
+  diagnostics.recoveryStage('snapshot-save');
   await writeFile(path.join(root,'recovered-snapshot.json'),JSON.stringify(recovered.body,null,2),{mode:0o600});
+  diagnostics.recoveryStage('snapshot-check');
   assert.equal(recovered.response.status,200);assert.equal(recovered.body.item.session.id,evidence[0].sessionId);
   assert.equal(recovered.body.item.session.directory,moved);
   assert.ok(recovered.body.item.messages.some(m=>m.info.id===evidence[0].messageId),'Original engine message ID/history survives native reconnect');
+  diagnostics.recoveryStage('session-open');
   await cdp.evaluate(`window.__legalworkControl.execute('session.open',{sessionId:${JSON.stringify(evidence[0].sessionId)}})`);
+  diagnostics.recoveryStage('composer-wait');
   await until(()=>cdp.evaluate(`(()=>{const e=document.querySelector('[contenteditable="true"]');if(!e||e.innerText.trim())return false;e.focus();return true})()`),'recovered original session composer');
   const recoveryPromptStart=cdp.events.length;
+  diagnostics.recoveryStage('prompt-insert');
   await cdp.send('Input.insertText',{text:'NATIVE_RECOVERED_CWD_PROOF'});
+  diagnostics.recoveryStage('prompt-click');
   await click('Run task');
+  diagnostics.recoveryStage('prompt-observe');
   const recoveryRequest=await until(()=>cdp.events.slice(recoveryPromptStart).find(e=>e.method==='Network.requestWillBeSent'&&e.params.request.method==='POST'&&e.params.request.url.endsWith('/prompt_async')&&e.params.request.postData?.includes('NATIVE_RECOVERED_CWD_PROOF')),'actual recovered-session native prompt');
+  diagnostics.recoveryStage('fresh-poll');
   const freshRead=await until(async()=>{
     const {body}=await api(first,`sessions/${evidence[0].sessionId}/snapshot?limit=20`),item=body.item;
     const user=item?.messages.find(m=>m.info.role==='user'&&m.parts.some(p=>p.type==='text'&&p.text.includes('NATIVE_RECOVERED_CWD_PROOF')));
@@ -531,6 +541,7 @@ try {
     const cwd=user&&item.messages.filter(m=>m.info.parentID===user.info.id).flatMap(m=>m.parts).find(p=>p.type==='tool'&&p.tool==='bash'&&p.state.status==='completed'&&p.state.input.command===(process.platform==='win32'?'node -p "process.cwd()"':'pwd'));
     return item?.status.type==='idle'&&assistant&&read&&cwd?{session:item.session,user:user.info.id,read,cwd}:false;
   },'real engine executes a fresh scoped document read after native reconnect',60000);
+  diagnostics.recoveryStage('fresh-check');
   assert.equal(freshRead.session.directory,moved);assert.equal(freshRead.session.id,evidence[0].sessionId);
   assert.ok(evidence[0].documentIds.includes(freshRead.read.state.input.id));
   assert.equal(freshRead.cwd.state.output.trim(),moved,"Actual engine process cwd uses the moved folder, without an absolute read operand");
@@ -538,6 +549,7 @@ try {
   extraEvidence.recoveryRead={sessionId:freshRead.session.id,messageId:freshRead.user,directory:freshRead.session.directory,actualPwd:freshRead.cwd.state.output.trim(),documentId:freshRead.read.state.input.id,promptRequestId:recoveryRequest.params.requestId};
   // Every output, source and project is independently reread after an actual
   // Electron shutdown and launch with the same profile, not store reconstruction.
+  diagnostics.recoveryStage('retained-files');
   for(const [index,entry] of caseRuns){
     const workspace=workspaces[index];
     await hashes(entry,workspace);
@@ -546,13 +558,23 @@ try {
     const outputs=await api(workspace,'lawoss/documents/outputs');
     assert.equal(outputs.response.status,200);assert.equal(outputs.body.outputs.length,2);assert.ok(outputs.body.outputs.every(o=>o.verified&&o.hash===o.currentHash));
   }
-  await openFiles(first);await click('Dokumenty');await click('Prepare this folder');
+  diagnostics.recoveryStage('verification-open');
+  await openFiles(first);
+  diagnostics.recoveryStage('verification-folder');
+  await click('Dokumenty');
+  diagnostics.recoveryStage('verification-prepare');
+  await click('Prepare this folder');
+  diagnostics.recoveryStage('verification-wait');
   await until(async()=> (await panelText()).includes('Format and sources verified'),'recovered native renderer shows actual current verification');
+  diagnostics.recoveryStage('engine-info');
   const finalEngine=await cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('engineInfo')");
+  diagnostics.recoveryStage('engine-health');
   const relaunchedHealth=await (await nativeFetch(`${finalEngine.baseUrl}/global/health`,{headers:{authorization:'Basic '+Buffer.from(`${finalEngine.opencodeUsername}:${finalEngine.opencodePassword}`).toString('base64')}})).json();
+  diagnostics.recoveryStage('engine-identity');
   const relaunchedEngineIdentity=await verifyNativeEngineRuntime(preparedEngine,finalEngine.opencodeBinPath,relaunchedHealth);
   engineIdentities.push({ phase: 'relaunch', ...relaunchedEngineIdentity });
   await writeFile(path.join(root,'engine-identity-receipts.json'),JSON.stringify(engineIdentities,null,2),{mode:0o600});
+  diagnostics.recoveryStage('receipt-write');
   const artifacts={};
   for(const file of ['apps/server/dist/embedded.js','apps/server/dist/lawoss/documents/export.js','apps/server/dist/lawoss/workspace-history-sessions.js','apps/server/dist/opencode-plugins/legalwork-project-tools.js','apps/desktop/electron/runtime.mjs','apps/app/src/react-app/domains/session/sync/session-sync.ts'])artifacts[file]=sha256(await readFile(path.join(repo,file)));
   extraEvidence.artifactHashes=artifacts;extraEvidence.relaunchedEngineVersion=relaunchedHealth.version;
@@ -562,7 +584,8 @@ try {
   diagnostics.phase("complete");
 } catch (error) {
   primaryError = error;
-  console.error('Primary native failure before cleanup', JSON.stringify(diagnostics.failure(error)));
+  const failure = diagnostics.failure(error);
+  console.error('Primary native failure before cleanup', JSON.stringify(failure));
   await diagnostics.captureEngineLog({error,selectedDirectory:workspaces[0].path,launchWallMs:engineLogLaunchWallMs,deadlineWallMs:engineLogDeadlineWallMs}).catch(()=>undefined);
   await boundaryProbe?.().catch(()=>undefined);
   await diagnostics.write({events:cdp?.events,error}).catch(e=>console.error('Diagnostic publication failed',JSON.stringify(errorMetadata(e))));

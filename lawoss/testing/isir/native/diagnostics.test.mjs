@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { runInNewContext } from 'node:vm';
 import * as fs from 'node:fs/promises';
 import { mkdtemp, readFile, rm, mkdir, writeFile, realpath, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -165,7 +166,7 @@ test('selected-instance category and finite startup/census projections are bound
     assert.throws(()=>d.ownedProcess({stage:'term-wait',index:-1}),/census/);
     await d.write({events:[{method:'Network.requestWillBeSent',params:{requestId:'PRIVATE-ID',timestamp:1,request:{url:'http://private-host/path?directory=PRIVATE-ROOT&token=PRIVATE-TOKEN'}}}]});
     const text=await readFile(outputFile,'utf8'),result=JSON.parse(text);
-    assert.equal(result.schema,4);assert.equal(result.network.requests[0].endpoint,'engine.path');
+    assert.equal(result.schema,5);assert.equal(result.network.requests[0].endpoint,'engine.path');
     assert.equal(result.startup.length,32);assert.equal(result.startupDropped,8);
     assert.equal(result.ownedProcesses.length,128);assert.equal(result.ownedProcessesDropped,22);
     assert.deepEqual(result.ownedProcesses[0],{phase:'startup',stage:'term-wait',index:23,elapsedMs:22,knownLive:1,unknown:0,moved:0,mismatched:0,leaderExited:true,anchored:true});
@@ -218,7 +219,7 @@ test('default engine log uses exact tuples, private fields and selected-director
     const selected=['creating instance','fromDirectory','bootstrapping','reloading instance','disposing instance'];
     await writeFile(f.logFile,selected.map(m=>logLine(m,`directory=${JSON.stringify(f.selectedDirectory)} ${extras}`)).join('')+known.map(([m,l])=>logLine(m,extras,l)).join(''));
     const result=await capturedLog(f),log=result.engineLog;
-    assert.equal(result.schema,4);assertClosedLog(log);assert.equal(log.status,'available');
+    assert.equal(result.schema,5);assertClosedLog(log);assert.equal(log.status,'available');
     assert.deepEqual(log.events.slice(0,5),['instance.create-observed','project.resolve-observed','bootstrap.enter-observed','instance.reload-observed','instance.dispose-observed'].map(event=>({event,evidenceScope:'selected-directory'})));
     assert.deepEqual(log.events.slice(5),known.map(([, ,event])=>({event,evidenceScope:'engine-run'})));
     assert.equal(log.runCount,1);assert.equal(log.directoryCount,1);assert.equal(log.ambiguous,false);
@@ -397,4 +398,114 @@ test('late root binding performs no filesystem operation and cannot replace the 
     const real=f.make({ownedRoot:undefined});real.bindOwnedRoot(f.root);
     assert.equal((await capturedLog(f,real)).engineLog.status,'available');
   });
+});
+
+
+// A missing stage, an unbounded value or a secondary overwrite would make the
+// primary failure ambiguous or disclose operands in the published projection.
+test('primary recovery failure publishes only the fixed operation stages',()=>{
+  const stages=['snapshot-request','snapshot-body','snapshot-save','snapshot-check',
+    'session-open','composer-wait','prompt-insert','prompt-click','prompt-observe',
+    'fresh-poll','fresh-check','retained-files','verification-open','verification-folder',
+    'verification-prepare','verification-wait','engine-info','engine-health','engine-identity','receipt-write'];
+  for(const stage of stages){
+    const diagnostics=createNativeDiagnostics({});
+    diagnostics.phase('recovery');diagnostics.recoveryStage(stage);
+    assert.equal(diagnostics.failure(new Error('private-error')).recoveryStage,stage);
+  }
+  for(const value of [undefined,null,'','private-path/secret','snapshot-request-private',{},Symbol('private')]){
+    const diagnostics=createNativeDiagnostics({});
+    diagnostics.phase('recovery');diagnostics.recoveryStage(value);
+    const failure=diagnostics.failure(new Error('private-error'));
+    assert.equal(failure.recoveryStage,'unknown');
+    assert.doesNotMatch(JSON.stringify(failure),/private|secret|path/);
+  }
+  const unset=createNativeDiagnostics({});unset.phase('recovery');
+  assert.equal(unset.failure(new Error()).recoveryStage,'unknown');
+});
+
+test('primary recovery stage freezes before secondary diagnostics and cleanup',async()=>{
+  const root=await mkdtemp(path.join(tmpdir(),'native-stage-test-'));
+  try{
+    const outputFile=path.join(root,'safe.json');
+    const diagnostics=createNativeDiagnostics({enabled:true,ci:true,mode:'synthetic',outputFile});
+    diagnostics.phase('recovery');diagnostics.recoveryStage('snapshot-body');
+    const primary=new Error('private-primary');
+    assert.equal(diagnostics.failure(primary).recoveryStage,'snapshot-body');
+    diagnostics.recoveryStage('fresh-check');diagnostics.phase('complete');
+    await settleCleanup(primary,[()=>{diagnostics.recoveryStage('receipt-write');throw new Error('private-cleanup');}]);
+    assert.equal(diagnostics.failure(new Error('private-secondary')).recoveryStage,'snapshot-body');
+    await diagnostics.write({error:primary});
+    const result=JSON.parse(await readFile(outputFile,'utf8'));
+    assert.equal(result.schema,5);assert.equal(result.recoveryStage,'snapshot-body');
+    assert.doesNotMatch(JSON.stringify(result),/private/);
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+
+test('recovery stage is null without a primary recovery failure',async()=>{
+  const root=await mkdtemp(path.join(tmpdir(),'native-stage-null-test-'));
+  try{
+    const outputFile=path.join(root,'safe.json');
+    const diagnostics=createNativeDiagnostics({enabled:true,ci:true,mode:'synthetic',outputFile});
+    diagnostics.phase('recovery');diagnostics.recoveryStage('snapshot-save');
+    await diagnostics.write();
+    assert.equal(JSON.parse(await readFile(outputFile,'utf8')).recoveryStage,null);
+    diagnostics.phase('native-case');diagnostics.recoveryStage('snapshot-body');
+    assert.equal(diagnostics.failure(new Error()).recoveryStage,null);
+    diagnostics.phase('recovery');diagnostics.recoveryStage('snapshot-check');
+    await diagnostics.write({error:new Error()});
+    assert.equal(JSON.parse(await readFile(outputFile,'utf8')).recoveryStage,null);
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+
+test('only the exact own wait code is projected and arbitrary messages stay generic',()=>{
+  assert.deepEqual(errorMetadata(Object.assign(new Error('private'),{code:'ISIR_NATIVE_WAIT_EXPIRED'})),{name:'Error',code:'ISIR_NATIVE_WAIT_EXPIRED'});
+  for(const error of [new Error('ISIR_NATIVE_WAIT_EXPIRED'),new Error('Timed out: private; last=secret'),Object.assign(new Error(),{code:'ISIR_NATIVE_WAIT_EXPIRED-private'}),new SyntaxError('ISIR_NATIVE_WAIT_EXPIRED')]){
+    assert.deepEqual(errorMetadata(error),{name:'Error'});
+  }
+});
+
+// Execute the actual local API helper, avoiding the harness's app/engine side
+// effects. Only nativeFetch is controlled; the header/body await seam is real.
+test('first snapshot body remains pending or rejected at snapshot-body with one fetch',async()=>{
+  const source=await readFile(new URL('../../../../scripts/test-isir-native.mjs',import.meta.url),'utf8');
+  const apiSource=source.match(/  const api = (async[\s\S]*?\n  });/)[1];
+  for(const rejectBody of [false,true]){
+    const diagnostics=createNativeDiagnostics({});diagnostics.phase('recovery');
+    diagnostics.recoveryStage('snapshot-request');
+    let release,bodyStarted,bodyReads=0,fetches=0;
+    const started=new Promise(resolve=>{bodyStarted=resolve;});
+    const failure=new SyntaxError('private-body');
+    const pending=new Promise((resolve,reject)=>{release=()=>rejectBody?reject(failure):resolve({item:'safe'});});
+    const response={json(){bodyReads++;bodyStarted();return pending;}};
+    const nativeFetch=async(url,options)=>{
+      fetches++;assert.equal(url,'http://controlled/workspace/fixture/snapshot');
+      assert.equal(options.headers.authorization,'controlled');return response;
+    };
+    const api=runInNewContext('('+apiSource+')',{nativeFetch,serverInfo:{baseUrl:'http://controlled'},serverAuth:{authorization:'controlled'}});
+    const operation=api({id:'fixture'},'snapshot',undefined,()=>diagnostics.recoveryStage('snapshot-body'));
+    await started;
+    assert.equal(diagnostics.failure(new Error()).recoveryStage,'snapshot-body');
+    assert.equal(fetches,1);assert.equal(bodyReads,1);
+    release();
+    if(rejectBody)await assert.rejects(operation,error=>error===failure);
+    else{const result=await operation;assert.equal(result.response,response);assert.equal(result.body.item,'safe');}
+  }
+});
+
+test('API after-headers metadata failure cannot replace body result or rejection',async()=>{
+  const source=await readFile(new URL('../../../../scripts/test-isir-native.mjs',import.meta.url),'utf8');
+  const apiSource=source.match(/  const api = (async[\s\S]*?\n  });/)[1];
+  const failure=new Error('private-original');
+  for(const rejectBody of [false,true]){
+    let fetches=0,bodyReads=0,metadataCalls=0;
+    const response={async json(){bodyReads++;if(rejectBody)throw failure;return 'safe';}};
+    const api=runInNewContext('('+apiSource+')',{nativeFetch:async()=>{fetches++;return response;},serverInfo:{baseUrl:'http://controlled'},serverAuth:{}});
+    const operation=api({id:'fixture'},'snapshot',undefined,()=>{metadataCalls++;throw new Error('private-metadata');});
+    if(rejectBody)await assert.rejects(operation,error=>error===failure);
+    else assert.equal((await operation).body,'safe');
+    assert.equal(fetches,1);assert.equal(bodyReads,1);assert.equal(metadataCalls,1);
+    // Existing callers omit the callback and keep their original result.
+    if(!rejectBody)assert.equal((await api({id:'fixture'},'snapshot')).body,'safe');
+  }
 });
