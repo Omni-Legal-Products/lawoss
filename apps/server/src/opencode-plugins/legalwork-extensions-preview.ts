@@ -55,6 +55,27 @@ const browserSetProxyArgsSchema = z.object({
   proxy: z.string().describe("Proxy URL like http://user:pass@host:8080 or socks5://host:1080. Prefer env:NAME (resolves the LEGALWORK_BROWSER_PROXY_NAME environment variable on the user's machine) so credentials never enter the conversation."),
 });
 
+// Share the model-facing schema with execution. Models sometimes fill unused
+// optional fields with "" or null; both mean no connection/copy, not a retry.
+const inAppDocumentsOpenArgsSchema = z.object({
+  path: z.string().min(1).max(4096).describe("Required non-empty relative file path in the workspace or connection root (at most 4096 characters)."),
+  connection_id: z.string().max(200).nullish().describe("For connected files, the ID from storage_list_connections (at most 200 characters). For workspace files, omit this field or use null or an empty string."),
+  copy_to: z.string().max(4096).nullish().describe("For a new deliverable, copy the source to this new workspace-relative filename (same extension, at most 4096 characters), then open the copy without changing the original. Omit, null or an empty string opens the source without copying."),
+  show: z.boolean().nullish().describe("Also open the file beside the chat so the user sees it. Set true only when the user explicitly asks to see or open the file. Omit, null or false prepares the task draft in the background."),
+});
+
+const inAppDocxReadArgsSchema = z.object({
+  // Vertex rejects empty enum choices. Accept unset strings here; after
+  // normalization the shared editor schema still validates non-empty values.
+  path: z.string().nullish().describe("Exact document path from inapp_documents_list. Omit, null or empty uses this task's selected document."),
+  view: z.string().nullish().describe("all, text, structure or formatting. Omit, null or empty defaults to all."),
+  paraId: z.string().nullish().describe("Exact paragraph handle from a previous live read for one paragraph. Omit, null or empty reads the document; never invent a handle or use * as a wildcard."),
+  fromIndex: docxReadSchema.shape.fromIndex.nullable().describe("Optional zero-based first paragraph index: a whole number >= 0. Omit or null starts at 0."),
+  toIndex: docxReadSchema.shape.toIndex.nullable().describe("Optional inclusive last paragraph index: a whole number >= fromIndex. Omit or null reads through the end unless limit is supplied."),
+  limit: docxReadSchema.shape.limit.nullable().describe("Optional paragraph count: a whole number >= 1. Omit or null reads the whole document. When paginating, follow nextIndex."),
+  includeStyles: docxReadSchema.shape.includeStyles.nullable().describe("Include native style definitions with inheritance and explicit OOXML units. Omit or null defaults to false."),
+});
+
 const inAppDocxFindArgsSchema = z.object({
   path: officeFileSchema.shape.path.optional(),
   query: z.string().min(1).describe("Text to find in the open document."),
@@ -369,15 +390,10 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
     },
     inapp_documents_open: {
       description: "Prepare a file for this task without changing the user's visible workspace or tab, unless show is set. For a new deliverable from a template, supply copy_to to copy it to a new workspace filename and open that copy without changing the template. path is relative to the workspace or connection_id root. Then use inapp_documents_list and matching inapp_* read/edit tools to work on its draft, including in the background. Preserves unsaved drafts and refuses to overwrite an existing copy_to file.",
-      args: {
-        path: z.string().min(1).max(4096).describe("Relative file path in the workspace or connection root."),
-        connection_id: z.string().min(1).max(200).optional().describe("For connected files, the ID from storage_list_connections. Omit for workspace files."),
-        copy_to: z.string().min(1).max(4096).optional().describe("For a new deliverable, copy the source to this new workspace-relative filename (same extension), then open the copy for editing. The original is unchanged."),
-        show: z.boolean().optional().describe("Also open the file beside the chat so the user sees it. Only set this when the user explicitly asks to see or open the file. Never set it just to read, edit or summarize."),
-      },
+      args: inAppDocumentsOpenArgsSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         if (!context.sessionID) return JSON.stringify({ ok: false, error: "A session is required to open a file." });
-        const args = z.object({ path: z.string().min(1).max(4096), connection_id: z.string().min(1).max(200).optional(), copy_to: z.string().min(1).max(4096).optional(), show: z.boolean().optional() }).parse(rawArgs);
+        const args = inAppDocumentsOpenArgsSchema.parse(rawArgs);
         return JSON.stringify(await uiBridgeRequest("/execute", { method: "POST", timeoutMs: 900_000, body: {
           actionId: "documents.open", args: { sessionId: context.sessionID, path: args.path, ...(args.connection_id ? { connectionId: args.connection_id } : {}), ...(args.copy_to ? { copyTo: args.copy_to } : {}), ...(args.show ? { show: true } : {}) },
         } }));
@@ -493,9 +509,11 @@ export const LegalWorkExtensionsPreview = async (input: SavedConversations = {})
     inapp_docx_read_document: {
       description:
         "Read the Word document currently open in LegalWork's right-hand in-app editor for this session. Returns live text, native field codes/targets/status, linked notes, controls/locks, sections and run/paragraph formatting. Reads cover the whole document by default. Pagination is optional via limit/fromIndex/toIndex; when paginating, follow nextIndex. Use view or paraId for focused reads, includeStyles for inheritance. Returns documentId/draftRevision for native edits. Always try this before word_read_document or a file-based DOCX pipeline when the user refers to the open/current document.",
-      args: docxReadSchema.shape,
+      args: inAppDocxReadArgsSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
-        return callInAppDocxTool(context, "read_document", docxReadSchema.parse(rawArgs ?? {}));
+        const args = inAppDocxReadArgsSchema.parse(rawArgs ?? {});
+        const supplied = Object.fromEntries(Object.entries(args).filter(([, value]) => value !== null && value !== ""));
+        return callInAppDocxTool(context, "read_document", docxReadSchema.parse(supplied));
       },
     },
     inapp_docx_edit: {

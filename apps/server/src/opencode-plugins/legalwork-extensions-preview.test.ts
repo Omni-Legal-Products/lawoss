@@ -376,6 +376,19 @@ test("live Office tool schemas are serializable for model tool calling", async (
   }
 });
 
+test("live Office schemas have no empty enum choices rejected by Vertex", async () => {
+  const plugin = await LegalWorkExtensionsPreview();
+  function checkEnums(value: unknown) {
+    if (!value || typeof value !== "object") return;
+    const choices = Reflect.get(value, "enum");
+    if (Array.isArray(choices)) expect(choices).not.toContain("");
+    Object.values(value).forEach(checkEnums);
+  }
+  for (const [name, tool] of Object.entries(plugin.tool)) {
+    if (name.startsWith("inapp_")) checkEnums(z.toJSONSchema(z.object(tool.args)));
+  }
+});
+
 describe("in-app Markdown routing", () => {
   test("reads and edits the live draft with exact session/path routing", async () => {
     const surface = { kind: "document", format: "md", sessionId: "ses_md", name: "Brief.md", path: "matter/Brief.md", editable: true, agentEditsTracked: false };
@@ -411,6 +424,47 @@ test("opens workspace and connected files in the engine session, then exposes li
   expect(output.system.join("\n")).toContain("inapp_md_*");
   expect(output.system.join("\n")).toContain("Source reading, extraction and wiki imports never require opening a viewer");
   expect(output.system.join("\n")).toContain("Document work is independent of the user's screen");
+});
+
+test("opens local documents when models send unused optional arguments", async () => {
+  const calls: unknown[] = [];
+  await withBridge({}, body => { calls.push(body); return { ok: true, status: "opening" }; });
+  const plugin = await LegalWorkExtensionsPreview();
+  const tool = plugin.tool.inapp_documents_open;
+  const modelArgs = z.object(tool.args);
+  // Captured GPT call: the unused fields were repeated as empty strings four
+  // times, so opening the successfully created file never reached the UI.
+  for (const args of [
+    { path: "Neues-Dokument.docx", connection_id: "", copy_to: "", show: true },
+    { path: "Neues-Dokument.docx", connection_id: null, copy_to: null, show: true },
+    { path: "Neues-Dokument.docx", show: true },
+  ]) {
+    expect(modelArgs.safeParse(args).success).toBe(true);
+    await tool.execute(args, { sessionID: "ses_this" });
+  }
+  expect(calls).toEqual(Array.from({ length: 3 }, () => ({
+    actionId: "documents.open",
+    args: { sessionId: "ses_this", path: "Neues-Dokument.docx", show: true },
+  })));
+  await tool.execute({ path: "Neues-Dokument.docx", show: null }, { sessionID: "ses_this" });
+  expect(calls.at(-1)).toEqual({ actionId: "documents.open", args: { sessionId: "ses_this", path: "Neues-Dokument.docx" } });
+});
+
+test("document-open schemas retain required paths and optional argument limits", async () => {
+  const calls: unknown[] = [];
+  await withBridge({}, body => { calls.push(body); return { ok: true }; });
+  const tool = (await LegalWorkExtensionsPreview()).tool.inapp_documents_open;
+  for (const args of [
+    {}, { path: "" }, { path: null }, { path: "x".repeat(4097) },
+    { path: "Draft.docx", connection_id: 1 },
+    { path: "Draft.docx", connection_id: "x".repeat(201) },
+    { path: "Draft.docx", copy_to: "x".repeat(4097) },
+    { path: "Draft.docx", show: "true" },
+  ]) {
+    expect(z.object(tool.args).safeParse(args).success).toBe(false);
+    await expect(tool.execute(args, { sessionID: "ses_this" })).rejects.toThrow();
+  }
+  expect(calls).toEqual([]);
 });
 
 describe("PowerPoint visual feedback", () => {
@@ -578,6 +632,36 @@ test("Word reads preserve whole-document defaults and accept optional ranges abo
   }
   expect(plugin.tool.inapp_docx_read_document.description).toContain("whole document by default");
   await expect(plugin.tool.inapp_docx_read_document.execute({ fromIndex: 2, toIndex: 1 }, { sessionID: "ses_open" })).rejects.toThrow("ordered paragraph range");
+});
+
+test("Word reads treat empty or null optional selectors as whole-document defaults", async () => {
+  const requests: unknown[] = [];
+  await withBridge({}, body => { requests.push(body); return { ok: true, result: { success: true } }; });
+  const tool = (await LegalWorkExtensionsPreview()).tool.inapp_docx_read_document;
+  const modelArgs = z.object(tool.args);
+  const input = { path: "Draft.docx", view: "all", paraId: "", fromIndex: 0, toIndex: 10000, limit: 10000, includeStyles: false };
+  expect(modelArgs.safeParse(input).success).toBe(true);
+  await tool.execute(input, { sessionID: "ses_this" });
+  expect(requests.at(-1)).toEqual({ actionId: "document.agent_tool", args: {
+    sessionId: "ses_this", path: "Draft.docx", toolName: "read_document",
+    args: { path: "Draft.docx", view: "all", fromIndex: 0, toIndex: 10000, limit: 10000, includeStyles: false },
+  } });
+  for (const args of [
+    { path: null, view: null, paraId: null, fromIndex: null, toIndex: null, limit: null, includeStyles: null },
+    { path: "", view: "", paraId: "" },
+  ]) {
+    expect(modelArgs.safeParse(args).success).toBe(true);
+    await tool.execute(args, { sessionID: "ses_this" });
+    expect(requests.at(-1)).toEqual({ actionId: "document.agent_tool", args: { sessionId: "ses_this", toolName: "read_document", args: {} } });
+  }
+  const focused = { path: "Draft.docx", paraId: "P1", view: "formatting", includeStyles: true };
+  await tool.execute(focused, { sessionID: "ses_this" });
+  expect(requests.at(-1)).toEqual({ actionId: "document.agent_tool", args: { sessionId: "ses_this", path: "Draft.docx", toolName: "read_document", args: focused } });
+  const count = requests.length;
+  for (const args of [{ limit: 0 }, { fromIndex: -1 }, { fromIndex: 0.5 }, { fromIndex: 2, toIndex: 1 }, { view: "invented" }]) {
+    await expect(tool.execute(args, { sessionID: "ses_this" })).rejects.toThrow();
+  }
+  expect(requests).toHaveLength(count);
 });
 
 test("Word exposes fifteen focused tools and routes typed batches, controls and copy workflows", async () => {
