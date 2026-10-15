@@ -712,3 +712,9 @@ Detaily a source API jsou v SDD task-24-brief.md. Produkční distribuce/notices
 - [ ] Actual nextWindows typedreceipt/SDKgate; no unchangedheadrerun or relaxedexitcheck.
 
 **Fix2 source complete:** b254d4ec/workflow1ca586d2, freshscopedSPEC PASS/QUALITY APPROVED/new0;21SDKfilesunchanged. Rootf664allterminal328entries/18reportsdirectauditPASS. Diagnostic-onlypublication/newactualWindowsreceipt next; actualtypedvalue/cause/fullgoalOPEN.
+
+**Task25 fix3 finite launch control:** actuald041installerexitint32/1; preclear--version11.4.0 passed, postclearlaunchunobserved. SourcecheckedPSwritesglobalInt32, no verifiedmandatoryomittedWindowsenvcause.
+- [x] One SAMEcapturedpnpm--version aftersanitation, stdoutclassifiedexact|absent|other|threw andfreshtypedexitonly; preserveoriginalinstall/reset/guard/all21SDKbytes, freshscopedreview/sourcebinding.
+- [ ] NextactualWindowscontrolledreceipt +SDKgate, no env/registryguess or claimunderlyingappfix.
+
+**Fix3 sourcecomplete:**8f4ab6f8/workflow3f53993a/freshscopedSPEC PASS/QUALITY APPROVED/new0;21SDKfilesunchanged. Rootd041allterminal345entries/20reportsdirectauditPASS. ActualnextWindowsversioncontrol/SDKgateOPEN; actualinstallerInt32/1/innercauseUNKNOWN.
