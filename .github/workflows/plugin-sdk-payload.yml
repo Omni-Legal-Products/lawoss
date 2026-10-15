@@ -26,7 +26,8 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24.21.0
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - id: payload-pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 11.4.0
           package_json_file: lawoss/build/plugin-payload/tools/package.json
@@ -35,14 +36,31 @@ jobs:
         with:
           bun-version: 1.3.14
       - name: Assert tools and install only the frozen standalone tool closure
+        env:
+          LAWOSS_PNPM_DEST: ${{ steps.payload-pnpm.outputs.dest }}
         run: |
           try {
-            $payloadPnpm = (Get-Command pnpm -CommandType Application -TotalCount 1 -ErrorAction Stop).Source
+            $payloadPnpmDest = $env:LAWOSS_PNPM_DEST
             $payloadNode = (Get-Command node -CommandType Application -TotalCount 1 -ErrorAction Stop).Source
-            if ($payloadPnpm -isnot [string] -or $payloadNode -isnot [string] -or -not [IO.Path]::IsPathFullyQualified($payloadPnpm) -or -not [IO.Path]::IsPathFullyQualified($payloadNode)) { throw 'TOOLS_INSTALL_FAILED' }
+            if ($payloadPnpmDest -isnot [string] -or [string]::IsNullOrWhiteSpace($payloadPnpmDest) -or -not [IO.Path]::IsPathFullyQualified($payloadPnpmDest)) { throw 'TOOLS_INSTALL_FAILED' }
+            if ($payloadNode -isnot [string] -or [string]::IsNullOrWhiteSpace($payloadNode) -or -not [IO.Path]::IsPathFullyQualified($payloadNode)) { throw 'TOOLS_INSTALL_FAILED' }
+            # The action dest locates the genuine package; bind its fixed CLI to captured Node.
+            $payloadPnpmPackage = Join-Path $payloadPnpmDest 'node_modules/pnpm'
+            $payloadPnpmManifestPath = Join-Path $payloadPnpmPackage 'package.json'
+            $payloadPnpmCli = Join-Path $payloadPnpmPackage 'bin/pnpm.mjs'
+            $payloadPnpmManifestFile = Get-Item -LiteralPath $payloadPnpmManifestPath -ErrorAction Stop
+            if ($payloadPnpmManifestFile -isnot [IO.FileInfo] -or $payloadPnpmManifestFile.Length -le 0 -or $payloadPnpmManifestFile.Length -gt 65536) { throw 'TOOLS_INSTALL_FAILED' }
+            $payloadPnpmManifestBytes = [IO.File]::ReadAllBytes($payloadPnpmManifestPath)
+            if ($payloadPnpmManifestBytes.Length -gt 65536) { throw 'TOOLS_INSTALL_FAILED' }
+            $payloadPnpmManifestText = [Text.UTF8Encoding]::new($false, $true).GetString($payloadPnpmManifestBytes)
+            $payloadPnpmManifest = ConvertFrom-Json -InputObject $payloadPnpmManifestText -AsHashtable -NoEnumerate -ErrorAction Stop
+            if ($payloadPnpmManifest -isnot [Collections.IDictionary]) { throw 'TOOLS_INSTALL_FAILED' }
+            if ($payloadPnpmManifest.name -isnot [string] -or $payloadPnpmManifest.name -cne 'pnpm' -or $payloadPnpmManifest.version -isnot [string] -or $payloadPnpmManifest.version -cne '11.4.0') { throw 'TOOLS_INSTALL_FAILED' }
+            if ($payloadPnpmManifest.bin -isnot [Collections.IDictionary] -or $payloadPnpmManifest.bin.pnpm -isnot [string] -or $payloadPnpmManifest.bin.pnpm -cne 'bin/pnpm.mjs') { throw 'TOOLS_INSTALL_FAILED' }
+            if ((Get-Item -LiteralPath $payloadPnpmCli -ErrorAction Stop) -isnot [IO.FileInfo]) { throw 'TOOLS_INSTALL_FAILED' }
           } catch { throw 'TOOLS_INSTALL_FAILED' }
           if ((& $payloadNode --version) -ne 'v24.21.0') { throw 'NODE_VERSION' }
-          $payloadPnpmVersion = (& $payloadPnpm --version).Trim()
+          $payloadPnpmVersion = (& $payloadNode $payloadPnpmCli --version).Trim()
           if ($payloadPnpmVersion -ne '11.4.0') { throw 'PNPM_VERSION' }
           if ((bun --version) -ne '1.3.14') { throw 'BUN_VERSION' }
           "LAWOSS_PNPM_VERSION=$payloadPnpmVersion" >> $env:GITHUB_ENV
@@ -80,7 +98,7 @@ jobs:
           $payloadSanitizedExit = $null
           $global:LASTEXITCODE = $null
           try {
-            $payloadSanitizedOutput = @(& $payloadPnpm --version 2>$null)
+            $payloadSanitizedOutput = @(& $payloadNode $payloadPnpmCli --version 2>$null)
             $payloadSanitizedExit = $LASTEXITCODE
           } catch { $payloadSanitizedExit = $LASTEXITCODE; $payloadSanitizedThrew = $true }
           $payloadSanitizedVersion = 'other'
@@ -94,7 +112,7 @@ jobs:
           Write-Output "LAWOSS_PNPM_SANITIZED_VERSION:${payloadSanitizedVersion}:${payloadSanitizedExitKind}:${payloadSanitizedExitValue}"
           $global:LASTEXITCODE = $null
           try {
-            & $payloadPnpm --dir $payloadTools install --prod=false --frozen-lockfile --ignore-workspace --ignore-scripts --registry=https://registry.npmjs.org/ --store-dir $payloadStore --config.cache-dir $payloadCache --config.state-dir $payloadState
+            & $payloadNode $payloadPnpmCli --dir $payloadTools install --prod=false --frozen-lockfile --ignore-workspace --ignore-scripts --registry=https://registry.npmjs.org/ --store-dir $payloadStore --config.cache-dir $payloadCache --config.state-dir $payloadState
             $payloadInstallExit = $LASTEXITCODE
           } catch { throw 'TOOLS_INSTALL_FAILED' }
           if ($null -eq $payloadInstallExit) {
