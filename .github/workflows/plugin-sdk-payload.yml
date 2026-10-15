@@ -112,7 +112,7 @@ jobs:
           Write-Output "LAWOSS_PNPM_SANITIZED_VERSION:${payloadSanitizedVersion}:${payloadSanitizedExitKind}:${payloadSanitizedExitValue}"
           $global:LASTEXITCODE = $null
           try {
-            & $payloadNode $payloadPnpmCli --dir $payloadTools install --prod=false --frozen-lockfile --ignore-workspace --ignore-scripts --registry=https://registry.npmjs.org/ --store-dir $payloadStore --config.cache-dir $payloadCache --config.state-dir $payloadState
+            & $payloadNode $payloadPnpmCli --dir $payloadTools install --prod=false --frozen-lockfile --ignore-workspace --ignore-scripts --registry=https://registry.npmjs.org/ --store-dir $payloadStore "--config.cache-dir=$payloadCache" "--config.state-dir=$payloadState"
             $payloadInstallExit = $LASTEXITCODE
           } catch { throw 'TOOLS_INSTALL_FAILED' }
           if ($null -eq $payloadInstallExit) {
