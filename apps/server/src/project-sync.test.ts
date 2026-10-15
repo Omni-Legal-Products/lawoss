@@ -519,7 +519,7 @@ describe("project sync between computers", () => {
       await write(akte, "a.txt", "a");
       observer.done(4);
       observer.enter(5);
-      await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
+      await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }), observer.settingsCheckpoint);
       observer.done(5);
       observer.enter(6);
       await runProjectSync(owner.config, { platform });

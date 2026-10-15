@@ -1009,6 +1009,24 @@ function requireOwner(link: ProjectLink | null): void {
   }
 }
 
+export type ProjectSyncSettingsCheckpoint =
+  | "callback-enter"
+  | "connection-enter"
+  | "connection-done"
+  | "project-store-enter"
+  | "project-store-done"
+  | "task-store-enter"
+  | "task-store-done"
+  | "link-checks-enter"
+  | "link-checks-done"
+  | "metadata-enter"
+  | "metadata-done"
+  | "mutations-enter"
+  | "mutations-done"
+  | "schedule-enter"
+  | "schedule-done"
+  | "status-call";
+
 /**
  * Turn sync on for a project (its owner, on this machine), or change what it
  * syncs and who sees it. Changing the scope takes effect here at once: tasks
@@ -1018,23 +1036,39 @@ export async function saveProjectSyncSettings(
   config: ServerConfig,
   workspace: WorkspaceInfo,
   settings: ProjectSyncSettings,
+  diagnostic?: (checkpoint: ProjectSyncSettingsCheckpoint) => void,
 ): Promise<ProjectSyncStatus> {
+  const checkpoint = diagnostic ? (value: ProjectSyncSettingsCheckpoint) => {
+    try { diagnostic(value); } catch {}
+  } : undefined;
   return withRuntimeDb(config, async () => {
+  checkpoint?.("callback-enter");
+  checkpoint?.("connection-enter");
   const { orgId, userId } = await connectedOrg(config);
+  checkpoint?.("connection-done");
   if (orgId === null) {
     throw new ApiError(409, "project_sync_not_connected", "Sign in with Eigenwelt to sync this project with your firm.");
   }
+  checkpoint?.("project-store-enter");
   const store = await projectSyncStore(config);
+  checkpoint?.("project-store-done");
+  checkpoint?.("task-store-enter");
   const tasks = await taskStore(config);
+  checkpoint?.("task-store-done");
+  checkpoint?.("link-checks-enter");
   const link = store.linkByWorkspace(workspace.id);
   requireOwner(link);
   if (!link && store.pendingOffers(orgId).some((offer) => offer.workspaceId === workspace.id)) {
     throw new ApiError(409, "project_sync_offer_pending", "This folder is already a project shared with you: decide first whether to use it as your copy.");
   }
+  checkpoint?.("link-checks-done");
   if (!link) {
     // Shared again after its owner stopped: the same project at the firm, not a second one.
+    checkpoint?.("metadata-enter");
     const projectId = store.takeStopped(workspace.id, orgId) ?? randomUUID();
     await setProjectSyncId(workspace.path, projectId);
+    checkpoint?.("metadata-done");
+    checkpoint?.("mutations-enter");
     store.saveLink({
       workspaceId: workspace.id,
       projectId,
@@ -1055,12 +1089,17 @@ export async function saveProjectSyncSettings(
     store.enqueue(projectId, { kind: "create" });
     if (settings.scope.tasks) tasks.publishProjectTasks(workspace.id);
   } else {
+    checkpoint?.("mutations-enter");
     store.updateLink(workspace.id, { settings, lastError: null });
     store.enqueue(link.projectId, { kind: "settings", settings });
     if (link.settings.scope.tasks && !settings.scope.tasks) tasks.keepProjectTasksLocal(workspace.id);
     if (!link.settings.scope.tasks && settings.scope.tasks) tasks.publishProjectTasks(workspace.id);
   }
+  checkpoint?.("mutations-done");
+  checkpoint?.("schedule-enter");
   scheduleProjectSync(config, 500);
+  checkpoint?.("schedule-done");
+  checkpoint?.("status-call");
   return projectSyncStatus(config, workspace);
 
   });
