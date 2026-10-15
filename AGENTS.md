@@ -191,4 +191,4 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 
 - A dependency stream close does not prove that backing asynchronous cache writes have settled. Use a supported awaited completion API for publication and cancellation, retain the primary error and hold owned admission until known writes settle.
 
-- Build-tool installation must verify its tools-local manifest/version through the same resolver context used by the consumer; an ancestor package or zero installer exit alone is insufficient. On Windows capture native application paths before environment sanitization, retain PATHEXT and require a fresh native exit status.
+- Build-tool installation must verify its tools-local manifest/version through the same resolver context used by the consumer; an ancestor package or zero installer exit alone is insufficient. On Windows capture exactly the first native application before environment sanitization: Get-Command with CommandType can enumerate several paths even without All. Retain PATHEXT and require a fresh native exit status.

@@ -700,3 +700,9 @@ Detaily a source API jsou v SDD task-24-brief.md. Produkční distribuce/notices
 - [ ] Actual Windows SDK44units/4integration/acquisition/Node/Bun gate, original runtime/startup/GUI acceptance and protected dev merge remain OPEN.
 
 **Source/offline completion:** 75b0e393, fresh independent SPEC PASS / QUALITY APPROVED/no findings; actual changed-file17/17 from implementer, syntax/YAML/diff PASS. Root source/TAP/DCO/review/hash binding PASS; prior suites byte-identical and not repeated. Normal feature publication follows; no actual Windows claim.
+
+**Task25 actual3f44/fix1:** Windows setupfailedbeforeSDKproducer; finiteexistinglogprojection onlyobservedrenderedNodeversioncheck, actualversion/causeUNKNOWN. PrimaryPowerShellsource establishesCommandType-suppliedGetCommandmultiplicitywithoutAll.
+- [x] SelectfirstscalarApplication atall3Node/pnpm/Bun lookups, preserveversions/flags/closedsummary/44+4; scopedindependentreview andsourcebinding.
+- [ ] NewsourceWindowsCIafterall3f44terminalaudit; no sameheadrerun/causalstartupclaim.
+
+**Fix1 source completion:**95dc3201/workflow0cbbe64b, all21SDKbytesunchanged; freshscopedSPEC PASS/QUALITY APPROVED/new0. Current3f44ALLterminal root309entries/15reportsdirectauditPASS. NewWindows gateOPEN; actual3f44version/causeUNKNOWN.
