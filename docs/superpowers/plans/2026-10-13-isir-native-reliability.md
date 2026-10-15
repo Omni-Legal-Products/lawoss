@@ -457,3 +457,31 @@ Podklady pro případný Windows párový rebuild: čistý přesný veřejný up
 Integrace 2026-10-15T05:57:04.954464+00:00: Windows838d+4be3367e →45cc3946+c18dc31c. Nezávislá revize nalezla dva P2 (pozdní child zápis do upload cesty; chybná klasifikace cleanupErrors); oba opraveny a scoped re-review ADDRESSED, SPEC/QUALITY PASS, nové0. Soukromý raw výstup už nesdílí publikační cestu, finalize sám vytváří schválenou projekci a cleanup chyba zůstává unknown. Matching Node24.21 společně Mac38+baseline19 =57/57, YAML a původní workflow prefix i tři SHA ověřeny.
 
 - [ ] Publikovat tuto revidovanou sadu do stejného PR a vyčkat na celý původní CI včetně oddělené baseline. Skutečný Windows build/target/staging/nativní výsledek se dosud netvrdí; marker varianta není implementovaná. Původní dev approval a skutečná GUI/provider akceptace zůstávají otevřené.
+
+
+### Skutečné386e CI a testovací CLI cesta na Windows
+
+Source Linux/macOS, i18n a celé packageLinux/macOS prošly. Mac schema6 má complete/errornull/cleanup0; obě attachment/recovery pozorování prokazují správný scope/text a skutečný odpovídající POST bez ztracených korelací. Starší f665 selhání se v tomto běhu neopakovalo, příčina tím není zpětně určena. Původní Windows native startup zůstává RED. Závislý baseline job přijal guard a běží v odděleném checkoutu; jeho rebuild/výsledek se dosud netvrdí.
+
+Windows portable38689643038 je nový RED ve helper kroku19: dvě NEW baseline CLI kontroly skončily child-error místo ok, původní server/build/SQLite/proxy prošly, desetisložkový korpus byl přeskočen. Bounded unit-step metadata odkazují na dvě new URL(...).pathname v testu; jde o doloženou neportabilní tvorbu argumentu, ne o získaný raw module-loader error. Není to stará opravená POSIX env-prefix kontrola.
+
+- [x] V jediném testu převést oba CLI argumenty pomocí fileURLToPath, beze změny produkčního helperu, assertions, timeoutů, skip či workflow.
+- [x] Exact Node24.21 focused helper19 + syntax/diff, nezávislá scoped spec/quality revize; skutečný Windows výsledek musí ověřit další CI.
+- [x] Dokončit původní baseline běh před dalším feature pushem; neukončit jej novou publikací. Celkový dev merge, GUI/provider/10spisová akceptace zůstávají otevřené.
+
+
+2026-10-15T06:15:13.215753+00:00: Jednosouborová oprava7b2310bf→464ea5d0 integrována po nezávislé SPEC/QUALITY PASS/nové0. Node24.21 focused19/19, syntax/diff0; root kontrola jediné cesty a SHA souhlasí. Původní CLI argv/env/5000ms/striktní assertions zůstaly; nový actualWindows gate stále nutný. Publikace držena do dokončení aktuální baseline.
+
+
+### Windows baseline instalace — skutečné selhání přípravy
+
+386e experiment ukončen jako UNKNOWN/upstream-install/child-error; žádný rebuilt engine/manifest/native výsledek. Běžná LAWOSS instalace/build prošly. Přesné source/Bun/Node a Windows hoisted postup odpovídají upstreamu; žádná deterministická příčina instalace není prokázaná. Izolace ovšem ztrácí workflow Git core.longpaths=true, protože používá prázdný globální config. To je doložená ztráta nastavení, nikoli důkaz příčiny selhání. Frozen lockfile a všechny hashe se zachovají.
+
+- [x] Přenést pouze pevné Git longpaths nastavení do vlastního env bez globálních credentials/config.
+- [x] Rozšířit pouze opt-in install collector o uzavřené spawn/close/exit/signal/error-code/pipe metadáta a bounded úplné source-verified Bun frozen/lifecycle summary pozorování. Allowlist package identit odvodit přechodně z ověřeného root manifestu, nic z tokenů/řádků/URL/cest ani rawstderr nepublikovat. Pozorování nejsou autentizovanou příčinou.
+- [x] Baseline-only schema2 s jediným nullable installObservation, striktní pure projekcí a finalize jako jediným publisherem. Původní main6/runtime1, collector opt-out, příkazy a budžety nezměněné; timeout/unknown potomci stále zakazují další fáze.
+- [x] Exact Node24.21 RED/GREEN cílených syntetických chunk/close/error/limit/late-event/forged-receipt/CLI kontrol a nezávislá scoped SPEC/QUALITY revize před integrací. Žádný lokální install/build/native.
+- [ ] Publikovat spolu s již revidovanou jednosouborovou CLI opravou, ověřit skutečné nové Windows CI a další přípravu. Rebuild, reprodukce a původní startup příčina jsou nadále otevřené; žádná instrumentovaná ani produkční binárka se nepřipravuje.
+
+
+2026-10-15T06:39:03.732330+00:00: Implementace458c951d→5080eaef integrována po nezávislé SPEC/QUALITY PASS/nové0, dva soubory. Node24.21 focused27/27; root společně diagnostics38+baseline27=65/65, syntax/diff0, pět sourceSHA a nezměněný workflow/main/runtime ověřeny. Skutečný386e guard přijímá i nová projekce bez změny původního boundary; to je tvarový preflight, ne nová Windows metadata. Pevné Git longpaths je oprava ztráty konfigurace, nikoli prokázané příčiny instalace. Nový actualWindows test/rebuild/instalace/startup/provider/GUI/dev merge zůstávají otevřené.
