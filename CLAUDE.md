@@ -120,6 +120,7 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 
 ## Document evidence and resource bounds
 
+- A declared plugin is not proof of activation. Fixed plugin controls must observe an owned invocation marker independently, preserve the original control, and retain UNKNOWN when readiness cannot be tied to activation.
 - Trace environment values through every child-launch merge before designing a flag experiment. An absent outer-harness variable does not establish an absent effective child setting; keep direct-engine controls separate from full application acceptance.
 - Capture the canonical database path and generation in its lifetime owner. Async request/producer work must keep that owner until completion; stopping one server must preserve another live server's borrowed stores, watchers and accepted pending synchronization.
 - Failed native close is not released ownership. Retain the exact failed resource and both initialization/cleanup errors for explicit captured-generation recovery; close successful siblings only once and keep successor readiness blocked until cleanup succeeds.

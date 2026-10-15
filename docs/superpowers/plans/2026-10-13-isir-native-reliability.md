@@ -631,9 +631,23 @@ Aktuálníe65 kontrola auth skutečně proběhla a start neopravila; stejnábin�
 
 - [x] Nový samostatný runner/test a exactbranch Windowsworkflow bez Electronu/buildů změří původní připnutou SHA32675fbf… /1.18.29 pomocí autentizovaného health+selected /path, celkové90s, boundedbody/stdio, ověření identity před/po a vlastněného cleanupu.
 - [x] Syntetické behaviorální RED/GREEN testy pro admission/scope/body/deadline/close/cleanup a uzavřený výstup bez tajemství; čerstvá nezávislá SPEC+QUALITY review.
-- [ ] Po terminálnímportable repeatu a root auditu samostatný featurepush pouzediagnostickévětve; hlavníPR157head bezezměny, žádnýdevmerge.
-- [ ] Skutečný Windowsvýsledek zhodnotit jako přímou kontrolu, nikdy jako opravu původní aplikace nebo důkaz příčiny. Žádné dalšíprobe po neuzavřeném procesu.
+- [x] Po terminálnímportable repeatu a root auditu samostatný featurepush pouzediagnostickévětve; hlavníPR157head bezezměny, žádnýdevmerge.
+- [x] Skutečný Windowsvýsledek zhodnotit jako přímou kontrolu, nikdy jako opravu původní aplikace nebo důkaz příčiny. Žádné dalšíprobe po neuzavřeném procesu.
 
 Rozsah a rozhraní: task-18-brief.md a pr157-next-bootstrap-control-design-report.md ve vlastním SDD workspace. Jedenwriter vlastní pouze3novésoubory; root společnédocs. Fixníkonfigurace: izolovanýsyntetickýprofil, modelsfetch/share/update disable, vestavěnýsnapshot bez catalogpath, bezexterníchpluginů/providerrequests. managed-opencode jižinjektuje síťovoupolitiku; absenceproměnné ve vnějšíharnessnenídůkaz efektivníhochildenv. Neměnísepin/authdefault/původnínativeharness/collector/workflow/artifactschemas.
 
 Task18 implementace64d4de43 +scopedfixe32fb116: final21/21 přesnýNode24.21, syntax/YAML/diffPASS; fresh SPEC/QUALITYPASS, envadapter+SHAspy nálezy ADDRESSED. Root3source/DCO/11nezměněnýchproducerauditPASS. SamostatnýWindowsběh pending, žádný důkaz opravy aplikace.
+
+
+### Task 19: Přímá kontrola jediného aktivovaného file pluginu
+
+Task18 Windows run38786267859/job116598923077 ověřil DIRECT_READY: stejná1.18.29/SHA32675…, health200, selected/path200+scope/body/364ms, directclose/treecleanup/rootremovedtrue, descendantsunknown. Root13evidence+8GitSHA auditPASS. Původní plný start e65 zůstáváRED; samotnýengine v redukovanékonfiguraci funguje.
+
+- [x] Přidat jediný pevný opt-in s vlastněným prázdným filepluginem, který při skutečném zavolání zapíše pevný aktivnímarker. Výchozíbared25schema/settings/supervisor zůstanou stejné; nový uzavřený26namespace zahrne pluginObserved.
+- [x] Behaviorální RED/GREEN testy ověří skutečné provedení pluginu, odmítnutí chybějícího/chybného/link markeru, privacy/identitu a oddělené schéma. PřesnýNode24.21; původní21regresí zachovány.
+- [ ] Nezávislá scoped SPEC/QUALITY revize; po greenpříslušnýchkontrolách normalpush pouze fix/pr157-direct-noop-control. HlavníPR157e65 i původníbarebranch5ad zmrazeny, dev se nemerguje.
+- [ ] Jeden skutečný Windowsběh se stejnou binárkou, síťovým nastavením/snapshotem, izolací,90s a cleanupem určí pouze výsledek jedinédeklarované změny. Ani selhání neidentifikuje samotný SDKinstall/await; žádná produkčníoprava z předpokladu.
+
+Rozhraní a přesnýrozsah3souborů je task-19-brief.md ve vlastnímSDDworkspace. Samostatný exactbranch workflow využije původní acquisitionbezezměny; novýartifact engine-direct-noop-plugin-control.json. Žádné npmpluginy/fullappbuild/providercalls/pinchange/dalšícase po neuzavřenémprocesu.
+
+Task19 sourcef6689baf: final26/26exactNode24.21/syntax/YAML/diffPASS, původní21assertions a bareprojector/settings/supervisor/body/acquisition byteparity; fresh SPEC/QUALITYPASS/findings0. Root3file/DCO/helperSHAauditPASS. SamostatnýWindowsnoopběh pending; mainPRa původníbarekontrola bezezměny.
