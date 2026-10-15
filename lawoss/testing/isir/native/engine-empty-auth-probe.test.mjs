@@ -52,3 +52,46 @@ test('raw artifact limits and unsafe paths close admission before any build',asy
 test('guard cannot publish through the reserved sole-finalizer public filename',async t=>{const dir=await root(t);await assert.rejects(api.guard(path.join(dir,'engine-empty-auth-probe.json'),path.join(dir,'missing'),path.join(dir,'missing'),context()));await assert.rejects(fs.lstat(path.join(dir,'engine-empty-auth-probe.json')),{code:'ENOENT'});});
 test('actual inherited pipe stays unclosed and late private writer cannot alter sole publication',async t=>{const dir=await root(t),privateFile=path.join(dir,'owner.private.json'),env={...context(),GITHUB_SHA:await api.actualCheckout()},receipt=api.newReceipt(env);await fs.writeFile(privateFile,JSON.stringify(receipt));const writer=`setTimeout(()=>require('node:fs').writeFileSync(process.argv[1],'PRIVATE LATE'),400)`;const parent=`const {spawn}=require('node:child_process');const child=spawn(process.execPath,['-e',${JSON.stringify(writer)},process.argv[1]],{stdio:['ignore',process.stdout,process.stderr]});child.unref();process.stdout.write('ready');`;const child=spawn(process.execPath,['-e',parent,privateFile],{stdio:['ignore','pipe','pipe']});await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('fixture startup timeout')),5000);child.stdout.once('data',()=>{clearTimeout(timer);resolve();});child.once('error',error=>{clearTimeout(timer);reject(error);});});const result=await collectChild(child,{timeoutMs:50,drainMs:50});assert.deepEqual(result,{outcome:'child-unclosed',closed:false,code:null});const output=path.join(dir,'engine-empty-auth-probe.json');await api.finalize(privateFile,output,env);const frozen=await fs.readFile(output);const deadline=Date.now()+5000;while((await fs.readFile(privateFile,'utf8'))!=='PRIVATE LATE'&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,25));assert.equal(await fs.readFile(privateFile,'utf8'),'PRIVATE LATE');assert.deepEqual(await fs.readFile(output),frozen);assert.deepEqual(result,{outcome:'child-unclosed',closed:false,code:null});});
 test('receipt cannot move closed evidence back into pre-native stages or hide it in unknown admission',()=>{for(const mutate of [v=>v.stage='native',v=>{v.eligibility='unknown';v.stage='guard';},v=>{v.stage='native';v.lifecycle={closed:false,code:null,descendants:'unknown'};v.exit='child-unclosed';v.engine.afterSha256=null;v.engine.afterManifestsSha256=null;}]){const r=observedReceipt();mutate(r);assert.throws(()=>api.projectReceipt(r));}const unknown=api.newReceipt(context());unknown.inputs.mainSha256=hash('unbound');assert.throws(()=>api.projectReceipt(unknown));});
+const reservedAliases = [
+  'ENGINE-EMPTY-AUTH-PROBE.JSON',
+  'Engine-Empty-Auth-Probe.Json',
+  'engine-empty-auth-probe.json.',
+  'engine-empty-auth-probe.json ',
+  'EnGine-empty-auth-probe.JSON. . ',
+];
+for (const alias of reservedAliases) {
+  test(`guard rejects Windows reserved public alias ${JSON.stringify(alias)} before creation`, async t => {
+    const dir = await root(t), file = path.join(dir, alias);
+    await assert.rejects(api.guard(file, path.join(dir, 'missing-main'), path.join(dir, 'missing-runtime'), context()));
+    await assert.rejects(fs.lstat(file), { code: 'ENOENT' });
+    assert.deepEqual(await fs.readdir(dir), []);
+  });
+}
+test('guard alias refusal preserves existing sole-finalizer public bytes', async t => {
+  const dir = await root(t), publicFile = path.join(dir, 'engine-empty-auth-probe.json');
+  const bytes = Buffer.from('existing public snapshot');
+  await fs.writeFile(publicFile, bytes, { flag: 'wx' });
+  for (const alias of reservedAliases) {
+    await assert.rejects(
+      api.guard(path.join(dir, alias), path.join(dir, 'missing-main'), path.join(dir, 'missing-runtime'), context()),
+      { code: 'ERR_ASSERTION' },
+    );
+    assert.deepEqual(await fs.readFile(publicFile), bytes);
+    assert.deepEqual(await fs.readdir(dir), ['engine-empty-auth-probe.json']);
+  }
+});
+test('same normalized reserved-name check precedes both private create and update branches in source', async () => {
+  // The pinned Windows run gate remains intact: this is source-order evidence,
+  // not a claim that the internal update branch executed on the current host.
+  const source = await fs.readFile(entry, 'utf8');
+  const start = source.indexOf('async function writePrivate(file,value,exclusive=false) {');
+  assert.ok(start >= 0);
+  const end = source.indexOf('\nasync function boundReceipt(', start);
+  assert.ok(end > start);
+  const writer = source.slice(start, end);
+  const check = "assert.notEqual(path.basename(file).replace(/[. ]+$/,'').toLowerCase(),'engine-empty-auth-probe.json');";
+  assert.equal(writer.split(check).length, 2);
+  for (const operation of ['await canonicalParent(file)', 'if(exclusive)', 'await fs.writeFile(file', 'await fs.open(file', 'await handle.truncate(0)']) {
+    assert.ok(writer.indexOf(check) < writer.indexOf(operation), operation);
+  }
+});

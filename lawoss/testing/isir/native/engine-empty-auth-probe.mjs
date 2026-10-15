@@ -193,7 +193,7 @@ function boundedJson(bytes,limit) {
   visit(value);return value;
 }
 async function writePrivate(file,value,exclusive=false) {
-  assert.notEqual(path.basename(file),'engine-empty-auth-probe.json');
+  assert.notEqual(path.basename(file).replace(/[. ]+$/,'').toLowerCase(),'engine-empty-auth-probe.json');
   await canonicalParent(file);const bytes=Buffer.from(JSON.stringify(projectReceipt(value)));assert.ok(bytes.length<=65536);
   if(exclusive){await fs.writeFile(file,bytes,{flag:'wx',mode:0o600});return;}
   const before=await fs.lstat(file);assert.ok(before.isFile()&&!before.isSymbolicLink());
