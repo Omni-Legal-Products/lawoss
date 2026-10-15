@@ -96,3 +96,54 @@ Tests create private fixtures only below `.work/test-fixtures`, sanitize HOME/XD
 Git configuration, use real host metadata and isolated Git init/linked-worktree
 fixtures, and verify actual owned-child close. No SDK generation, package install,
 network, provider, profile, application or CI run is needed for this suite.
+
+## Standalone engine npm configuration (Node 22)
+
+`loadEngineNpmConfig({ directory, environment, engineExecPath, engineNpmPath,
+nativeHome })` in `npm-config.mjs` loads genuine `@npmcli/config@10.8.1` with
+the engine's explicit executable and npm source directory. All paths are native
+absolute paths. The complete captured environment is copied synchronously; the
+caller must pass the same environment to its eventual engine. `nativeHome` is the
+helper's actual native home, checked when HOME is empty/absent, never injected.
+This component neither installs target dependencies nor connects a runtime caller.
+
+The exact upstream constructor tuple preserves builtin/global/user/project/env
+precedence, PREFIX/Unix DESTDIR defaults, user-selected registry/cache/auth/omit/
+offline settings, and prefix-derived globalconfig. No helper path or helper CLI
+arguments substitute for engine context. Return values may contain credentials:
+pass them directly to the future Arborist owner, never serialize or log them.
+Finite content-free errors are `INVALID_INPUT`, `NATIVE_HOME_MISMATCH`,
+`TOOLING_UNAVAILABLE`, and `CONFIG_LOAD_FAILED`. Config records read failures in
+layer `loadError` even when load resolves: ENOENT/ENOTDIR are ordinary missing
+npmrc paths, other read failures refuse. Actual Config validation rejects invalid
+typed configuration/auth; its INI parser is permissive, so text it accepts is not
+invented into a parse failure. There is no builtin-byte adapter or fallback `{}`.
+
+**Do not wire a managed caller yet:** compiled engine npmPath/import.meta.url,
+virtual builtin npmrc provenance and plain Node visibility remain unproved.
+Native Windows execution and application packaging are separate pending gates.
+
+`runtime-tools/` is a new private isolated future-runtime tooling closure, separate
+from the existing Node24 build tools: exact `@npmcli/arborist@9.4.0` and
+`@npmcli/config@10.8.1`, pnpm11.4.0, runtime Node22.23.2. Arborist is not evaluated
+by configuration preflight. Its genuine generated lock records integrity for all
+115 acquired packages, including direct integrity values:
+
+- Arborist: `sha512-4Bm8hNixJG/sii1PMnag0V9i/sGOX9VRzFrUiZMSBJpGlLR38f+Btl85d07G9GL56xO0l0OZjvrGNYsDYp0xKA==`
+- Config: `sha512-MAYk9IlIGiyC0c9fnjdBSQfIFPZT0g1MfeSiD1UXTq2zJOLX55jS9/sETJHqw/7LN18JjITrhYfgCfapbmZHiQ==`
+
+Acquisition used the authorized cached pnpm11.4 CLI under Node24.21.0 once,
+ignore-workspace/ignore-scripts, public npm registry and isolated `.work` HOME,
+config/cache/store, then one fresh frozen/offline replay (115 reused, zero
+network downloads). This proves lock replay, not that these tools ship in any
+application. No SDK payload, candidate, build-tool lock or root workspace changed.
+
+Run the new configuration suite with the verified shipped Node22.23.2 executable:
+
+```sh
+/path/to/verified/node22 --test lawoss/engine-dependencies/npm-config.test.mjs
+```
+
+Tests use only `.work/test-fixtures` synthetic profiles/targets and real Config,
+compare the exact engine tuple against the helper tuple, preserve target bytes
+and create no target node_modules. macOS execution does not prove Windows parity.
