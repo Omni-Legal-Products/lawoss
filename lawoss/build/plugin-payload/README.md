@@ -90,3 +90,47 @@ and normal owned removal do not establish that proof. Earlier test fixtures also
 used the OS temp directory; final fixtures use `.work/`. These historical gates
 remain failed/unknown in the Task22 report. Neither this component nor its tests
 establish production engine startup or full PR157 acceptance.
+
+## Accepted-artifact validation (Task24 source; native CI evidence pending)
+
+`prime-cache.mjs` exposes only `primeAcceptedCache({workspace, signal})` and a
+single-workspace CLI. Importing it performs no I/O. It admits the byte-pinned
+accepted input/full lock/tools lock, a fresh owned empty cache and a one-shot
+`.admit-primer` directory. All 32 non-root accepted records, including foreign
+optionals, are checked before the first request. It fetches sequential exact
+public HTTPS tarball URLs with identity encoding, no redirects/retries/profile
+credentials or packuments, into the already pinned cacache 20.0.4 API. Limits:
+32 requests, 32 MiB/archive, 256 MiB total, 45 s/request and one absolute 300 s
+budget from admission through final revalidation. Body bytes are counted, writes
+respect backpressure, and flushed content is read again by digest. Cancellation
+or failure destroys and awaits the owned request/stream closures; admission is
+released only afterward. Partial cache bytes remain with an incomplete receipt;
+replay refuses that workspace and retries require a new owned workspace.
+
+`native-validation.mjs` is a separate Windows/x64 Node 24.21.0 entry for the
+PR-only workflow. It runs all offline units, primes a new cache (no retained
+SDK cache transplant), runs all four guarded integration cases with zero skips,
+then prepares/verifies a separate Node payload. A cold tarball-only cache may
+still fail ideal-tree construction; that failure remains red without fetching
+metadata or changing the accepted lock. The workflow installs only the frozen
+standalone tools with pnpm 11.4.0, public registry and private empty config/store.
+
+Bun 1.3.14 consumes the already Node-verified payload using the existing copied
+probe, explicit executable, clean synthetic home/XDG/temp environment, a 60 s /
+64 KiB child bound and the guard preload. The probe refuses missing admission
+**before** SDK imports; the marker is installed only after supported Node JS
+socket/DNS/global-fetch interception. Bun compatibility is not yet demonstrated;
+there is no unguarded fallback. Ten imports, successful msgpackr roundtrip and
+native `loaded` are required; `fallback`/`absent` remain visible failures. Probe
+removal is identity checked, and Node verifies unchanged payload inventory again.
+The Node receipt is never relabeled as Bun evidence. Executable version,
+revision (or unknown), SHA256 and pinned setup origin are recorded separately;
+matching standalone semver does not prove identical compiled-engine build.
+
+Only a schema-checked JSON summary (64 KiB maximum, seven-day retention) leaves
+the Windows job. It contains exact hashes/tool identities, actual test counts,
+acquisition counts/bytes, separate Node/Bun observations and bounded failed stage
+/code. Unexecuted assertions remain unknown. No payload, cache, file inventory,
+raw output or user/provider data is uploaded. Local offline tests are source and
+synthetic-stream evidence only; Windows, Bun, native cold replay and application
+startup/production integration remain unverified until their separate gates run.

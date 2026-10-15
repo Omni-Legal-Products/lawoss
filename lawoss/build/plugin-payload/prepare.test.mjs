@@ -43,7 +43,7 @@ test('inventory catches file corruption, outside/bin links and hardlinks', async
   const before = await inventory(tree);
   await writeFile(path.join(tree, 'data'), 'b');
   assert.notDeepEqual(await inventory(tree), before);
-  await symlink('../../../../outside', path.join(tree, 'node_modules/.bin/bad'));
+  await symlink('../../../../outside', path.join(tree, 'node_modules/.bin/bad'), 'file');
   await assert.rejects(inventory(tree));
   await rm(path.join(tree, 'node_modules/.bin/bad'));
   await link(path.join(tree, 'data'), path.join(tree, 'copy'));
@@ -57,7 +57,7 @@ test('owned publication rejects outside paths, symlink ancestors, collision and 
   await assert.rejects(payload.initialize(workspace), { code: 'WORKSPACE_INVALID' });
   await assert.rejects(payload.transaction(root, 'out', async () => {}), { code: 'WORKSPACE_INVALID' });
   await assert.rejects(payload.transaction(workspace, '../out', async () => {}), { code: 'OUTPUT_INVALID' });
-  await symlink(workspace, path.join(root, 'alias'));
+  await symlink(workspace, path.join(root, 'alias'), 'dir');
   await assert.rejects(payload.transaction(path.join(root, 'alias'), 'out', async () => {}), { code: 'WORKSPACE_INVALID' });
   let release;
   const gate = new Promise(resolve => { release = resolve; });
@@ -88,11 +88,12 @@ test('failed and cancelled operations remove only their exact stage and retain p
 test('isolated child environment excludes provider secrets, npm config and NODE_OPTIONS', () => {
   process.env.PAYLOAD_TEST_SECRET = 'secret';
   try {
-    const env = payload.childEnvironment('/owned');
+    const workspace = path.resolve('owned');
+    const env = payload.childEnvironment(workspace);
     assert.equal(env.PAYLOAD_TEST_SECRET, undefined);
     assert.equal(env.NODE_OPTIONS, undefined);
-    assert.equal(env.HOME, '/owned/home');
-    assert.equal(env.npm_config_userconfig, '/owned/empty-npmrc');
+    assert.equal(env.HOME, path.join(workspace, 'home'));
+    assert.equal(env.npm_config_userconfig, path.join(workspace, 'empty-npmrc'));
   } finally { delete process.env.PAYLOAD_TEST_SECRET; }
 });
 
@@ -100,7 +101,7 @@ test('offline guard denies TCP, TLS, UDP, DNS and fetch before clients load', ()
   const guard = new URL('./network-guard.mjs', import.meta.url).href;
   const probe = `import net from 'node:net'; import tls from 'node:tls'; import dns from 'node:dns'; import dgram from 'node:dgram';
 for (const fn of [()=>net.connect(9,'127.0.0.1'), ()=>tls.connect(9,'127.0.0.1'), ()=>dns.lookup('example.com'), ()=>dns.promises.lookup('example.com'), ()=>dgram.createSocket('udp4').send('x',9,'127.0.0.1')]) { try { await fn(); throw Error('allowed'); } catch(e) { if(e.code!=='NETWORK_DISABLED') throw e; } } try { await fetch('https://example.com'); throw Error('allowed'); } catch(e) { if(e.cause?.code!=='NETWORK_DISABLED' && e.code!=='NETWORK_DISABLED') throw e; }`;
-  const child = spawnSync(process.execPath, ['--import', guard, '--input-type=module', '-e', probe], { timeout: 5000, encoding: 'utf8', env: payload.childEnvironment('/owned') });
+  const child = spawnSync(process.execPath, ['--import', guard, '--input-type=module', '-e', probe], { timeout: 5000, encoding: 'utf8', env: payload.childEnvironment(path.resolve('owned')) });
   assert.equal(child.status, 0, child.stderr);
 });
 
@@ -172,7 +173,9 @@ test('owned child cancellation and timeout observe close before stage cleanup', 
     await new Promise(resolve => setTimeout(resolve, 10));
   }
   controller.abort(); await rejection;
-  assert.deepEqual(childProof, { closed: true, exitCode: null, signal: 'SIGTERM', descendants: 'unknown' });
+  assert.equal(childProof.closed, true); assert.equal(childProof.descendants, 'unknown');
+  if (process.platform === 'win32') assert.ok((childProof.signal === 'SIGTERM' && childProof.exitCode === null) || (childProof.signal === null && Number.isInteger(childProof.exitCode) && childProof.exitCode !== 0), 'Windows termination still requires SIGTERM or a nonzero termination exit');
+  else assert.deepEqual(childProof, { closed: true, exitCode: null, signal: 'SIGTERM', descendants: 'unknown' });
   await assert.rejects(payload.runChild(['--input-type=module', '-e', 'setInterval(()=>{},1000)'], workspace, { timeout: 25 }), error => error.code === 'OPERATION_TIMEOUT' && error.child.closed === true);
   assert.deepEqual((await readdir(workspace)).filter(name => name.startsWith('.stage-') || name === 'cancelled'), []);
 });
@@ -184,7 +187,7 @@ test('publication refuses a substituted stage and leaves replacement and existin
   await writeFile(path.join(outside, 'payload-manifest.json'), '{}');
   let replacement;
   await assert.rejects(payload.transaction(workspace, 'out', async stage => {
-    await rm(stage, { recursive: true }); await symlink(outside, stage); replacement = stage;
+    await rm(stage, { recursive: true }); await symlink(outside, stage, 'dir'); replacement = stage;
   }), { code: 'PUBLICATION_INVALID' });
   assert.equal(await readFile(path.join(outside, 'payload-manifest.json'), 'utf8'), '{}');
   assert.equal((await readdir(workspace)).includes('out'), false);
@@ -214,7 +217,7 @@ test('child creation keeps inherited offline-only guard even if a caller asks fo
 test('owned cache cannot contain an outside symlink before worker admission', async t => {
   const root = await fixture(t); const workspace = path.join(root, 'owned'); await payload.initialize(workspace);
   const outside = path.join(root, 'outside'); await writeFile(outside, 'keep');
-  await symlink(outside, path.join(workspace, 'cache/escape'));
+  await symlink(outside, path.join(workspace, 'cache/escape'), 'file');
   await assert.rejects(payload.prepare({ workspace }), { code: 'TREE_UNSAFE' });
   assert.equal(await readFile(outside, 'utf8'), 'keep');
 });

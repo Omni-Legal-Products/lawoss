@@ -48,7 +48,9 @@ export async function verifyWorkspace(workspace) {
 export function childEnvironment(workspace) {
   return {
     PATH: `${path.dirname(process.execPath)}${path.delimiter}/usr/bin${path.delimiter}/bin`,
-    HOME: path.join(workspace, 'home'), XDG_CONFIG_HOME: path.join(workspace, 'home/config'),
+    HOME: path.join(workspace, 'home'), USERPROFILE: path.join(workspace, 'home'),
+    APPDATA: path.join(workspace, 'home/AppData/Roaming'), LOCALAPPDATA: path.join(workspace, 'home/AppData/Local'),
+    XDG_CONFIG_HOME: path.join(workspace, 'home/config'), XDG_CACHE_HOME: path.join(workspace, 'home/cache'), XDG_DATA_HOME: path.join(workspace, 'home/data'),
     TMPDIR: workspace, TEMP: workspace, TMP: workspace,
     npm_config_userconfig: path.join(workspace, 'empty-npmrc'), npm_config_globalconfig: path.join(workspace, 'empty-npmrc'),
     npm_config_cache: path.join(workspace, 'cache'), npm_config_registry: 'https://registry.npmjs.org/',
@@ -89,11 +91,13 @@ export async function transaction(workspace, outputName, operation) {
     if (currentAdmission?.ino === admissionIdentity.ino && currentAdmission.dev === admissionIdentity.dev && currentAdmission.isDirectory() && !currentAdmission.isSymbolicLink()) await rmdir(admission).catch(() => {});
   }
 }
-export async function runChild(args, workspace, { signal, offline = true, timeout = 180000 } = {}) {
+export async function runChild(args, workspace, { signal, offline = true, timeout = 180000, executable = process.execPath, runtime = 'node', json = true, validationWorkspace } = {}) {
   if (signal?.aborted) fail('CANCELLED');
+  if (!['node', 'bun'].includes(runtime) || !path.isAbsolute(executable)) fail('CHILD_INVALID');
   const denyNetwork = offline || networkDisabled();
+  if (runtime === 'bun' && !denyNetwork) fail('CHILD_INVALID');
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [...(denyNetwork ? ['--import', pathToFileURL(path.join(HERE, 'network-guard.mjs')).href] : []), ...args], { cwd: workspace, env: childEnvironment(workspace), detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(executable, [...(denyNetwork ? runtime === 'bun' ? ['--preload', path.join(HERE, 'network-guard.mjs')] : ['--import', pathToFileURL(path.join(HERE, 'network-guard.mjs')).href] : []), ...args], { cwd: workspace, env: { ...childEnvironment(workspace), ...(validationWorkspace === workspace ? { PAYLOAD_VALIDATION_WORKSPACE: workspace } : {}) }, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
     let reason;
     let bytes = 0;
     let output = '';
@@ -122,8 +126,8 @@ export async function runChild(args, workspace, { signal, offline = true, timeou
       let projection;
       try { projection = JSON.parse(diagnostics.trim()); } catch {}
       const safeCode = /^[A-Z_]{1,40}$/.test(projection?.code) ? projection.code : 'CHILD_FAILED';
-      if (reason || spawnError || code !== 0) reject(Object.assign(new Error(reason ?? safeCode), { code: reason ?? safeCode, child: { closed: true, exitCode: code, signal: child.signalCode, descendants: 'unknown' } }));
-      else { let result; try { result = JSON.parse(output.trim()); } catch {} resolve(result); }
+      if (reason || spawnError || code !== 0) reject(Object.assign(new Error(reason ?? safeCode), { code: reason ?? safeCode, child: { closed: true, exitCode: code, signal: child.signalCode, descendants: 'unknown' }, ...(!json ? { output } : {}) }));
+      else { let result = output; if (json) { try { result = JSON.parse(output.trim()); } catch { result = undefined; } } resolve(result); }
     });
   });
 }
@@ -132,6 +136,15 @@ export async function prepare({ workspace, mode = 'replay', outputName = 'payloa
   if (!['candidate', 'replay'].includes(mode)) fail('MODE_INVALID');
   if (signal?.aborted) fail('CANCELLED');
   if (mode === 'candidate') candidatePreflight(!(await absent(path.join(HERE, 'sdk/package-lock.json'))));
+  // A failed one-shot primer can never supply replay, even with partial valid bytes.
+  await verifyWorkspace(workspace);
+  const acquisition = path.join(workspace, 'acquisition.json');
+  if (!(await absent(acquisition))) {
+    const stat = await lstat(acquisition);
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size > 4096) fail('CACHE_INCOMPLETE');
+    let receipt; try { receipt = JSON.parse(await readFile(acquisition)); } catch { fail('CACHE_INCOMPLETE'); }
+    if (receipt.schema !== 1 || receipt.outcome !== 'complete') fail('CACHE_INCOMPLETE');
+  }
   return transaction(workspace, outputName, async stage => {
     await inventory(path.join(workspace, 'cache'));
     await runChild([path.join(HERE, 'worker.mjs'), workspace, stage, mode], workspace, { offline: mode === 'replay', signal });

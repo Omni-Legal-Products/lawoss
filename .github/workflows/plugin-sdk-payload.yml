@@ -1,0 +1,84 @@
+name: Fixed plugin SDK Windows artifact
+on:
+  pull_request:
+    paths:
+      - 'lawoss/build/plugin-payload/**'
+      - '.github/workflows/plugin-sdk-payload.yml'
+permissions:
+  contents: read
+concurrency:
+  group: plugin-sdk-payload-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  windows-artifact:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      LAWOSS_PR_HEAD: ${{ github.event.pull_request.head.sha }}
+      LAWOSS_CHECKOUT_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.21.0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.4.0
+          package_json_file: lawoss/build/plugin-payload/tools/package.json
+          run_install: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+      - name: Assert tools and install only the frozen standalone tool closure
+        run: |
+          if ((node --version) -ne 'v24.21.0') { throw 'NODE_VERSION' }
+          $payloadPnpmVersion = (pnpm --version).Trim()
+          if ($payloadPnpmVersion -ne '11.4.0') { throw 'PNPM_VERSION' }
+          if ((bun --version) -ne '1.3.14') { throw 'BUN_VERSION' }
+          "LAWOSS_PNPM_VERSION=$payloadPnpmVersion" >> $env:GITHUB_ENV
+          $payloadRoot = node -e "console.log(require('node:path').resolve('lawoss/build/plugin-payload'))"
+          $payloadHome = Join-Path $payloadRoot '.work/tool-home'
+          New-Item -ItemType Directory -Path $payloadHome -Force | Out-Null
+          $payloadConfig = Join-Path $payloadRoot '.work/empty-tool-npmrc'
+          New-Item -ItemType File -Path $payloadConfig | Out-Null
+          # Isolate install configuration; setup acquisition is separate from SDK priming.
+          $payloadPath = $env:PATH
+          $payloadSystemRoot = $env:SystemRoot
+          Get-ChildItem Env: | ForEach-Object { Remove-Item "Env:$($_.Name)" }
+          $env:PATH = $payloadPath
+          $env:SystemRoot = $payloadSystemRoot
+          $env:ComSpec = Join-Path $payloadSystemRoot 'System32/cmd.exe'
+          $env:HOME = $payloadHome
+          $env:USERPROFILE = $payloadHome
+          $env:APPDATA = Join-Path $payloadHome 'AppData/Roaming'
+          $env:LOCALAPPDATA = Join-Path $payloadHome 'AppData/Local'
+          $env:XDG_CONFIG_HOME = Join-Path $payloadHome 'config'
+          $env:TEMP = Join-Path $payloadRoot '.work'
+          $env:TMP = $env:TEMP
+          $env:npm_config_userconfig = $payloadConfig
+          $env:npm_config_globalconfig = $payloadConfig
+          $env:npm_config_cache = Join-Path $payloadRoot '.work/tool-cache'
+          $payloadTools = Join-Path $payloadRoot 'tools'
+          $payloadStore = Join-Path $payloadRoot '.work/tool-store'
+          $payloadCache = Join-Path $payloadRoot '.work/tool-cache'
+          $payloadState = Join-Path $payloadRoot '.work/tool-state'
+          pnpm --dir $payloadTools install --frozen-lockfile --ignore-workspace --ignore-scripts --registry=https://registry.npmjs.org/ --store-dir $payloadStore --config.cache-dir $payloadCache --config.state-dir $payloadState
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Offline units, finite SDK prime, guarded Node replay and separate Bun smoke
+        run: |
+          $payloadBun = (Get-Command bun -CommandType Application).Source
+          node lawoss/build/plugin-payload/native-validation.mjs $payloadBun
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload only closed small summary
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: plugin-sdk-windows-artifact-summary
+          path: lawoss/build/plugin-payload/.work/windows-summary.json
+          if-no-files-found: ignore
+          retention-days: 7

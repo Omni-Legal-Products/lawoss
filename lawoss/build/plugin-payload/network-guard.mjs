@@ -4,7 +4,6 @@ import tls from 'node:tls';
 import dns from 'node:dns';
 import dgram from 'node:dgram';
 import { syncBuiltinESMExports } from 'node:module';
-Object.defineProperty(globalThis, Symbol.for('lawoss.payload.networkDisabled'), { value: true, configurable: false });
 const deny = () => { throw Object.assign(new Error('NETWORK_DISABLED'), { code: 'NETWORK_DISABLED' }); };
 net.Socket.prototype.connect = deny;
 net.connect = net.createConnection = tls.connect = deny;
@@ -14,4 +13,7 @@ for (const key of Object.keys(dns.promises)) if (/^(?:lookup|resolve|reverse)/.t
 for (const prototype of [dns.Resolver.prototype, dns.promises.Resolver.prototype]) {
   for (const key of Object.getOwnPropertyNames(prototype)) if (/^(?:resolve|reverse)/.test(key)) prototype[key] = deny;
 }
+globalThis.fetch = deny;
 syncBuiltinESMExports();
+// Admission is observable only after every supported JS interception is installed.
+Object.defineProperty(globalThis, Symbol.for('lawoss.payload.networkDisabled'), { value: true, configurable: false });
