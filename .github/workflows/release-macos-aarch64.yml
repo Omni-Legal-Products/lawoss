@@ -288,31 +288,37 @@ jobs:
             artifact: electron-macos-arm64
             electron_args: "--mac --arm64"
             target_triple: aarch64-apple-darwin
+            executable: mac-arm64/LegalWork.app/Contents/MacOS/LegalWork
           - platform: macos-14
             os_type: macos
             artifact: electron-macos-x64
             electron_args: "--mac --x64"
             target_triple: x86_64-apple-darwin
+            executable: mac/LegalWork.app/Contents/MacOS/LegalWork
           - platform: ubuntu-24.04
             os_type: linux
             artifact: electron-linux-x64
             electron_args: "--linux --x64"
             target_triple: x86_64-unknown-linux-gnu
+            executable: linux-unpacked/legalwork
           - platform: ubuntu-24.04-arm
             os_type: linux
             artifact: electron-linux-arm64
             electron_args: "--linux --arm64"
             target_triple: aarch64-unknown-linux-gnu
+            executable: linux-arm64-unpacked/legalwork
           - platform: windows-2022
             os_type: windows
             artifact: electron-windows-x64
             electron_args: "--win --x64"
             target_triple: x86_64-pc-windows-msvc
+            executable: win-unpacked/LegalWork.exe
           - platform: windows-11-arm
             os_type: windows
             artifact: electron-windows-arm64
             electron_args: "--win --arm64"
             target_triple: aarch64-pc-windows-msvc
+            executable: win-arm64-unpacked/LegalWork.exe
 
     steps:
       - name: Checkout
@@ -552,6 +558,19 @@ jobs:
         if: matrix.artifact == 'electron-windows-arm64'
         shell: bash
         run: mv apps/desktop/dist-electron/latest.yml apps/desktop/dist-electron/latest-arm64.yml
+
+      - name: Verify packaged startup
+        timeout-minutes: 3
+        shell: bash
+        env:
+          PACKAGED_EXECUTABLE: apps/desktop/dist-electron/${{ matrix.executable }}
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a node apps/desktop/scripts/packaged-startup-regression.mjs "$PACKAGED_EXECUTABLE"
+          else
+            node apps/desktop/scripts/packaged-startup-regression.mjs "$PACKAGED_EXECUTABLE"
+          fi
 
       - name: Upload Electron release assets
         env:
