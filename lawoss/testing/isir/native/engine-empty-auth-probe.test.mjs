@@ -104,7 +104,7 @@ async function inheritedPipePublication(t,driverDelayMs=0){
     const parent=`
       const fs=require('node:fs'),{spawn}=require('node:child_process');
       const watchdog=setTimeout(()=>process.exit(2),10000);
-      const child=spawn(process.execPath,['-e',${JSON.stringify(writer)},process.argv[1],process.argv[2]],{stdio:['ignore',process.stdout,process.stderr]});
+      const child=spawn(process.execPath,['-e',${JSON.stringify(writer)},process.argv[1],process.argv[2]],{detached:process.platform==='win32',stdio:['ignore',process.stdout,process.stderr]});
       child.once('error',()=>process.exit(3));
       child.once('spawn',()=>{
         fs.writeFileSync(process.argv[3],String(child.pid)+'\\n',{flag:'wx'});
