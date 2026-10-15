@@ -80,6 +80,13 @@ jobs:
             & $payloadPnpm --dir $payloadTools install --prod=false --frozen-lockfile --ignore-workspace --ignore-scripts --registry=https://registry.npmjs.org/ --store-dir $payloadStore --config.cache-dir $payloadCache --config.state-dir $payloadState
             $payloadInstallExit = $LASTEXITCODE
           } catch { throw 'TOOLS_INSTALL_FAILED' }
+          if ($null -eq $payloadInstallExit) {
+            Write-Output 'LAWOSS_TOOLS_INSTALL_EXIT:absent:unknown'
+          } elseif ($payloadInstallExit -is [int]) {
+            Write-Output "LAWOSS_TOOLS_INSTALL_EXIT:int32:$($payloadInstallExit.ToString([Globalization.CultureInfo]::InvariantCulture))"
+          } else {
+            Write-Output 'LAWOSS_TOOLS_INSTALL_EXIT:other:unknown'
+          }
           if ($payloadInstallExit -isnot [int] -or $payloadInstallExit -ne 0) { throw 'TOOLS_INSTALL_FAILED' }
           $global:LASTEXITCODE = $null
           try {
