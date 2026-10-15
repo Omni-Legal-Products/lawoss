@@ -317,16 +317,18 @@ test("actual HTTP export preconditions reject child IDs and missing parents with
   const { workspaceAppFilesRoot } = await import("./lawoss/workspace-app-files.js");
   const { parseCsv } = await import("./lawoss/documents/validation.js");
   const root = await mkdtemp(join(tmpdir(), "lawoss-export-preconditions-")), path = join(root, "workspace"), outside = join(root, "outside");
-  await mkdir(path); await mkdir(outside); await mkdir(join(path, "existing"));
-  const oldDb = process.env.LEGALWORK_RUNTIME_DB;
-  process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
-  const workspace: WorkspaceInfo = { id: "synthetic-preconditions", name: "Synthetic", path, preset: "starter", workspaceType: "local", appFiles: "outside", appFilesStorageKey: "synthetic-preconditions" };
-  const config: import("./types.js").ServerConfig = {
-    host: "127.0.0.1", port: 0, token: "synthetic-token", hostToken: "synthetic-host", configPath: join(root, "server.json"), approval: { mode: "auto", timeoutMs: 0 }, corsOrigins: [],
-    workspaces: [workspace], authorizedRoots: [path], readOnly: false, startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false,
-  };
-  const server = await startServer(config);
+  const oldDb = Object.getOwnPropertyDescriptor(process.env, "LEGALWORK_RUNTIME_DB");
+  let server: Awaited<ReturnType<typeof startServer>> | undefined;
+  const errors: unknown[] = [];
   try {
+    await mkdir(path); await mkdir(outside); await mkdir(join(path, "existing"));
+    process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
+    const workspace: WorkspaceInfo = { id: "synthetic-preconditions", name: "Synthetic", path, preset: "starter", workspaceType: "local", appFiles: "outside", appFilesStorageKey: "synthetic-preconditions" };
+    const config: import("./types.js").ServerConfig = {
+      host: "127.0.0.1", port: 0, token: "synthetic-token", hostToken: "synthetic-host", configPath: join(root, "server.json"), approval: { mode: "auto", timeoutMs: 0 }, corsOrigins: [],
+      workspaces: [workspace], authorizedRoots: [path], readOnly: false, startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false,
+    };
+    server = await startServer(config);
     const endpoint = `http://127.0.0.1:${server.port}/workspace/${workspace.id}/lawoss/documents`, headers = { Authorization: "Bearer synthetic-token", "content-type": "application/json" };
     const post = (route: string, body: unknown) => fetch(`${endpoint}/${route}`, { headers, method: "POST", body: JSON.stringify(body) });
     const portfolio = await PDFDocument.load(await pdf("Synthetic original evidence"));
@@ -396,11 +398,26 @@ test("actual HTTP export preconditions reject child IDs and missing parents with
       expect(unavailable.status).toBe(404); expect((await unavailable.json()).code).toBe("project_folder_unavailable");
       await expect(stat(path)).rejects.toThrow(); expect(await readdir(outside)).toEqual([]);
     } finally { await rename(`${path}-moved`, path); }
+  } catch (error) {
+    errors.push(error);
   } finally {
-    await server.stop();
-    if (oldDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = oldDb;
-    await removeSyntheticTestDir(root);
+    try {
+      await server?.stop();
+    } catch (error) {
+      errors.push(error);
+    } finally {
+      try {
+        if (oldDb) Object.defineProperty(process.env, "LEGALWORK_RUNTIME_DB", oldDb);
+        else delete process.env.LEGALWORK_RUNTIME_DB;
+      } catch (error) {
+        errors.push(error);
+      } finally {
+        try { await removeSyntheticTestDir(root); } catch (error) { errors.push(error); }
+      }
+    }
   }
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) throw new AggregateError(errors, "Export precondition test and cleanup failed", { cause: errors[0] });
 }, 20000);
 
 test("source/text limits reject oversized inputs without silent truncation", () => fixture(async (service, workspace, root) => {
