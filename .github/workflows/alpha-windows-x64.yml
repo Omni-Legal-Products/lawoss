@@ -274,6 +274,14 @@ jobs:
         # sha512/size in latest.yml so the updater accepts the signed binary.
         run: node scripts/release/apply-signpath-windows-artifact.mjs "$RUNNER_TEMP/signpath-signed" apps/desktop/dist-electron
 
+      - name: Verify packaged startup
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          $appDir = if ($env:ALPHA_ARCH -eq 'arm64') { 'win-arm64-unpacked' } else { 'win-unpacked' }
+          node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/$appDir/LegalWork.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Separate Windows ARM64 updater feed
         if: matrix.arch == 'arm64'
         shell: bash

@@ -1,6 +1,6 @@
 import type { SessionViewPreview } from "@legalwork/types/views";
 import { beginSessionDeletion, withSessionExecution } from "../session-execution-gate.js";
-import { REVIEW_RECOVERY_PROMPT } from "../opencode-plugins/recover-empty-review-response.js";
+import { REVIEW_RECOVERY_PROMPT } from "../reviews/recover-empty-review-response.js";
 import { reviewSessionViews, savedSessionViews, sessionViewPreviews } from "../views/session-previews.js";
 import { retryStopReason } from "../session-retry-policy.js";
 import { queueActionSchema, queuedPromptPayload, type QueueEntry } from "../session-queue-schema.js";

@@ -214,6 +214,10 @@ jobs:
             --arm64 \
             --publish never
 
+      - name: Verify packaged startup
+        timeout-minutes: 3
+        run: node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/mac-arm64/LegalWork.app/Contents/MacOS/LegalWork"
+
       - name: Create immutable alpha prerelease
         shell: bash
         env:

@@ -4,7 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { projectContentsSchema } from "@legalwork/types/workspace";
 import type { createOpencodeClient } from "@opencode-ai/sdk";
-import { recoverEmptyReviewResponse } from "./recover-empty-review-response.js";
+import { recoverEmptyReviewResponse } from "../reviews/recover-empty-review-response.js";
 import { appStateReminders } from "./app-state-reminders.js";
 import { reviewExportData } from "./review-export.js";
 import { ReportEvidenceIndexSchema, ReportEvidenceSchema, ReportTemplateFieldsSchema, reportClassText, reportDraftData, reportPacketFiles, reportSourceText, reviewReportData } from "../reviews/report-data.js";
