@@ -160,3 +160,36 @@ test('rebuilt bytes changed after readiness are rejected before replacing any or
   await assert.rejects(api.stageBaseline({bundle,rebuilt,originalHash:hash('original'),expectedRebuiltHash:'0'.repeat(64)}));
   assert.equal(hash(await readFile(path.join(bundle,'opencode.exe'))),hash('original'));
 });
+test('native cleanup failure remains unknown for startup and complete phases; clean other boundary remains distinct',()=>{
+  const startup=boundary();startup.cleanupErrors=[{name:'Error'}];
+  assert.equal(api.classifyBaseline(api.projectBoundary(startup),1),'unknown');
+  const completed=boundary();completed.phase='complete';delete completed.error;completed.cleanupErrors=[{name:'Error'}];
+  assert.equal(api.classifyBaseline(api.projectBoundary(completed),1),'unknown');
+  const different=boundary();different.phase='recovery';
+  assert.equal(api.classifyBaseline(api.projectBoundary(different),1),'different-boundary');
+});
+test('late native writer can only change private raw diagnostics after public finalization',async t=>{
+  const {spawn}=await import('node:child_process');
+  const root=await mkdtemp(path.join(tmpdir(),'lawoss-baseline-late-'));t.after(()=>rm(root,{recursive:true,force:true}));
+  const owned=path.join(root,'owned');await mkdir(owned);
+  const output=path.join(root,'receipt.json'),published=path.join(root,'native-public.json');
+  const nativeEnv=api.nativeDiagnosticEnvironment(owned,{});
+  const privateFile=nativeEnv.LAWOSS_ISIR_NATIVE_DIAGNOSTICS_FILE;
+  assert.equal(path.dirname(privateFile),owned);assert.notEqual(privateFile,published);
+  const cli=async(args)=>{
+    const c=spawn(process.execPath,[new URL('./engine-baseline-probe.mjs',import.meta.url).pathname,...args],{env:{},stdio:['ignore','pipe','pipe']});
+    assert.equal((await api.collectChild(c,{timeoutMs:5000})).outcome,'ok');
+  };
+  await cli(['guard',output,path.join(root,'missing-main'),path.join(root,'missing-runtime')]);
+  const retained=JSON.parse(await readFile(output,'utf8'));
+  // The stopped/unclosed writer is released only after finalization, without
+  // timing races. It retains exactly the filename supplied to the real child.
+  const lateWrite=()=>writeFile(privateFile,'PRIVATE unapproved late payload');
+  await cli(['finalize',output,published]);await lateWrite();
+  await assert.rejects(lstat(published),{code:'ENOENT'});
+  assert.equal(await readFile(privateFile,'utf8'),'PRIVATE unapproved late payload');
+  retained.rebuiltBoundary=api.projectBoundary(boundary());await writeFile(output,JSON.stringify(retained));
+  await cli(['finalize',output,published]);const approved=await readFile(published,'utf8');
+  await lateWrite();assert.equal(await readFile(published,'utf8'),approved);
+  assert.ok(!approved.includes('PRIVATE'));
+});

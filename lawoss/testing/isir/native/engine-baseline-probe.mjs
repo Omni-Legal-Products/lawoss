@@ -90,6 +90,8 @@ export function assessOriginal(main,runtime) {
   }catch{return {decision:'unknown'};}
 }
 export function classifyBaseline(main,code) {
+  // Direct child close cannot repair an explicitly reported resource failure.
+  if(!Array.isArray(main?.cleanupErrors)||main.cleanupErrors.length!==0)return 'unknown';
   if(code===0)return complete(main)?'not-reproduced':'unknown';
   if(!Number.isInteger(code)||code===0)return 'unknown';
   return sameBoundary(main)?'boundary-reproduced':'different-boundary';
@@ -104,6 +106,11 @@ export function privateEnvironment(root,toolDirectory,inherited=process.env) {
     TEMP:path.join(root,'tmp'),TMP:path.join(root,'tmp'),TMPDIR:path.join(root,'tmp'),
     NPM_CONFIG_USERCONFIG:path.join(root,'empty.npmrc'),GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:path.join(root,'empty.gitconfig'),GIT_TERMINAL_PROMPT:'0',
     BUN_INSTALL_CACHE_DIR:path.join(root,'bun-cache')};
+}
+export function nativeDiagnosticEnvironment(root,env) {
+  assert.ok(path.isAbsolute(root));
+  return {...env,NODE_OPTIONS:'--max-old-space-size=6144',LAWOSS_ISIR_NATIVE_DIAGNOSTICS:'1',
+    LAWOSS_ISIR_NATIVE_DIAGNOSTICS_FILE:path.join(root,'native-diagnostics.private.json')};
 }
 // Own direct child only. No exit event, arbitrary PID/group, shell or process
 // census grants cleanup authority. After timeout even a close cannot prove
@@ -208,7 +215,7 @@ function receipt() {
     originalManifestsSha256:null,rebuiltManifestsSha256:null,originalBoundary:null,rebuiltBoundary:null,
     releaseModelsParity:'unknown',signatureParity:'unknown',causeEquivalence:'unknown'};
 }
-async function experiment(output,nativeFile) {
+async function experiment(output) {
   const result=projectReceipt(await readJson(output,131072));assert.equal(result.experiment,'unmodified-windows-baseline');assert.equal(result.stage,'awaiting-lawoss-build');
   assert.equal(process.env.CI,'true');assert.equal(process.env.GITHUB_ACTIONS,'true');
   assert.equal(process.platform,'win32');assert.equal(process.arch,'x64');assert.equal(process.versions.node.split('.')[0],'24');
@@ -271,13 +278,14 @@ async function experiment(output,nativeFile) {
     await stage('rebuilt-identity',async()=>{await regular(rebuilt,upstream);assert.equal((await run(rebuilt,['--version'],root,{capture:true,limit:1024,timeoutMs:5000})).trim(),VERSION);result.rebuiltEngineSha256=sha(await fs.readFile(rebuilt));});
     await stage('bundle-staging',async()=>{const staged=await stageBaseline({bundle,rebuilt,originalHash:ORIGINAL,expectedRebuiltHash:result.rebuiltEngineSha256});result.originalManifestsSha256=staged.originalManifestHash;result.rebuiltManifestsSha256=staged.rebuiltManifestHash;assert.equal(staged.rebuiltHash,result.rebuiltEngineSha256);});
     await stage('native',async()=>{
-      const nativeEnv={...env,NODE_OPTIONS:'--max-old-space-size=6144',LAWOSS_ISIR_NATIVE_DIAGNOSTICS:'1',LAWOSS_ISIR_NATIVE_DIAGNOSTICS_FILE:nativeFile};
+      const nativeEnv=nativeDiagnosticEnvironment(root,env);
+      const privateNativeFile=nativeEnv.LAWOSS_ISIR_NATIVE_DIAGNOSTICS_FILE;
       const child=spawn(process.execPath,[path.join(repo,'scripts/test-isir-native.mjs')],{cwd:repo,env:nativeEnv,windowsHide:true,stdio:['ignore','pipe','pipe']});
       const observed=await collectChild(child,{timeoutMs:12*60*1000});result.exit=observed.outcome;
       if(!observed.closed||!['ok','child-error'].includes(observed.outcome))throw new Error('Native lifecycle unknown');
-      const projected=projectBoundary(await readJson(nativeFile,256*1024));result.rebuiltBoundary=projected;
+      const projected=projectBoundary(await readJson(privateNativeFile,256*1024));result.rebuiltBoundary=projected;
       result.outcome=classifyBaseline(projected,observed.code);
-      await writeJson(nativeFile,projected); // Publish only our second explicit projection.
+      // Only finalize may materialize public native output from this receipt.
     });
     result.stage='complete';
   }catch {result.outcome='unknown';if(result.exit==='not-run')result.exit='validation-failed';}
@@ -294,11 +302,11 @@ async function main() {
     result.originalBoundary=assessed.boundary??null;result.outcome=assessed.decision==='not-needed'?'not-needed':'unknown';
     result.stage=assessed.decision==='run'?'awaiting-lawoss-build':'original-input';await writeJson(output,result);
     if(process.env.GITHUB_OUTPUT)await fs.appendFile(process.env.GITHUB_OUTPUT,`run=${assessed.decision==='run'}\n`);
-  }else if(mode==='run')await experiment(output,nativeFile);
+  }else if(mode==='run')await experiment(output);
   else if(mode==='finalize') {
     let result;try{result=projectReceipt(await readJson(output,131072));}catch{result=receipt();}
-    // A killed process may leave a partial/raw native file. Recreate publication
-    // only from the bounded selected projection held in the provenance receipt.
+    // The native writer only knows its retained private raw filename. Recreate
+    // public output solely from the bounded projection held in this receipt.
     await fs.rm(nativeFile,{force:true});
     if(result.rebuiltBoundary)await writeJson(nativeFile,result.rebuiltBoundary);
     await writeJson(output,result);
