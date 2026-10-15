@@ -215,3 +215,50 @@ jobs:
             ${{ runner.temp }}/engine-baseline-native.json
           if-no-files-found: ignore
           retention-days: 7
+
+  # Public-source monitor only: this never replaces the original baseline or
+  # native startup gate. No executable or child-written artifact is published.
+  windows-engine-compile-monitor:
+    name: Windows public compile monitor (diagnostic only)
+    needs: [windows-engine-baseline]
+    if: ${{ !cancelled() && (needs.windows-engine-baseline.result == 'success' || needs.windows-engine-baseline.result == 'failure') }}
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      LAWOSS_PR_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.21.0
+      - name: Test closed compile monitor before any network or heavy work
+        run: node --test lawoss/testing/isir/native/engine-compile-monitor.test.mjs
+      - name: Download only same-run baseline provenance into private input
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: isir-engine-baseline-windows-2022
+          path: ${{ runner.temp }}/compile-monitor-input
+      - name: Guard exact same-head baseline build failure
+        id: compile-monitor-guard
+        run: node lawoss/testing/isir/native/engine-compile-monitor.mjs guard "${{ runner.temp }}/compile-monitor.private.json" "${{ runner.temp }}/compile-monitor-input/engine-baseline-provenance.json"
+      - name: Observe one isolated public-source compilation
+        if: steps.compile-monitor-guard.outputs.run == 'true'
+        run: node lawoss/testing/isir/native/engine-compile-monitor.mjs run "${{ runner.temp }}/compile-monitor.private.json" "${{ runner.temp }}/compile-monitor-input/engine-baseline-provenance.json"
+      - name: Publish only validated closed compile monitor metadata
+        id: compile-monitor-finalize
+        if: always()
+        run: node lawoss/testing/isir/native/engine-compile-monitor.mjs finalize "${{ runner.temp }}/compile-monitor.private.json" "${{ runner.temp }}/engine-compile-monitor.json"
+      - name: Upload only compile monitor projection
+        if: always() && steps.compile-monitor-finalize.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: isir-engine-compile-monitor-windows-2022
+          path: ${{ runner.temp }}/engine-compile-monitor.json
+          if-no-files-found: error
+          retention-days: 7
