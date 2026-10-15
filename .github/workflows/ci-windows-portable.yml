@@ -221,12 +221,63 @@ jobs:
         working-directory: apps/app
         run: bun test lawoss- okf- document-processing native-document-generation project-folder-recovery workspace-attachment home-submission fusion-routing session-sync-permissions session-sync-tool-parts message-queue-runner session-sync-retention session-render-boundary
       # Server s onboardingom, registráciou existujúceho priečinka, roztriedením,
-      # pamäťou a kanonickými cestami. Filtre zachytia zdrojové testy
-      # bez lomky kvôli cestám s `\`; dist pre Node zostavujeme až potom.
+      # pamäťou a kanonickými cestami. Explicitné ./src cesty fungujú aj
+      # na Windows a nevložia Node helpery do Bun; dist zostavujeme až potom.
       # lawoss-path-containment: workspace v koreni disku (subst) a zdieľania (net share).
       - name: LAWOSS server (onboarding, register existing, triage, memory, paths, containment, reload watcher, process tree)
         working-directory: apps/server
-        run: bun test lawoss reload-watcher workspace-reconnect artifact-files isir-case-attachments runtime-db-lifecycle runtime-opencode-config-store legalwork-workspace-config-store legalwork-runtime-config session-groups eigenwelt-connection-store eigenwelt-hub-installs-store eigenwelt-sync-events task-store task-sync task-notifications project-sync project-contents cloud-plugins cloud-plugin-resources runtime-config-migrate mcp-shared-store eigenwelt-refresh opencode-proxy-cancellation serve-node
+        run: >-
+          bun test
+          ./src/artifact-files.e2e.test.ts
+          ./src/cloud-plugin-resources.test.ts
+          ./src/cloud-plugins.test.ts
+          ./src/eigenwelt-connection-store.test.ts
+          ./src/eigenwelt-hub-installs-store.test.ts
+          ./src/eigenwelt-refresh.test.ts
+          ./src/eigenwelt-sync-events.test.ts
+          ./src/isir-case-attachments.e2e.test.ts
+          ./src/lawoss-anthropic-runtime.test.ts
+          ./src/lawoss-documents-export.test.ts
+          ./src/lawoss-documents.e2e.test.ts
+          ./src/lawoss-global-providers.e2e.test.ts
+          ./src/lawoss-okf-config-encoding.e2e.test.ts
+          ./src/lawoss-onboarding.e2e.test.ts
+          ./src/lawoss-path-containment.e2e.test.ts
+          ./src/lawoss-register-existing.e2e.test.ts
+          ./src/lawoss-triage.e2e.test.ts
+          ./src/lawoss-workspace-memory-context.e2e.test.ts
+          ./src/lawoss-workspace-memory.e2e.test.ts
+          ./src/lawoss/canonical-path.test.ts
+          ./src/lawoss/chatgpt-subscription.test.ts
+          ./src/lawoss/commercial-services.test.ts
+          ./src/lawoss/eigenwelt-account.test.ts
+          ./src/lawoss/engine-network.test.ts
+          ./src/lawoss/marketplace-global.test.ts
+          ./src/lawoss/marketplace-updates.test.ts
+          ./src/lawoss/ocr-on-demand.test.ts
+          ./src/lawoss/ocr-opt-in.test.ts
+          ./src/lawoss/path-within.test.ts
+          ./src/lawoss/plugin-provenance.test.ts
+          ./src/lawoss/process-tree.test.ts
+          ./src/lawoss/test-support/inspect-cleanup.test.ts
+          ./src/lawoss/test-support/owned-child-process.test.ts
+          ./src/legalwork-runtime-config.test.ts
+          ./src/mcp-shared-store.test.ts
+          ./src/opencode-proxy-cancellation.e2e.test.ts
+          ./src/project-contents.test.ts
+          ./src/project-sync.test.ts
+          ./src/reload-watcher.test.ts
+          ./src/runtime-config-migrate.e2e.test.ts
+          ./src/runtime-db-lifecycle.e2e.test.ts
+          ./src/runtime-db-lifecycle.test.ts
+          ./src/runtime-opencode-config-store.provider-patch.test.ts
+          ./src/runtime-opencode-config-store.test.ts
+          ./src/serve-node.test.ts
+          ./src/session-groups.e2e.test.ts
+          ./src/task-notifications.test.ts
+          ./src/task-store.test.ts
+          ./src/task-sync.test.ts
+          ./src/workspace-reconnect.e2e.test.ts
 
       # Node 24 používa node:sqlite bez postinstall/native addon rebuildu. Proces
       # ostáva živý počas kontroly handle aj skutočného odstránenia databázy.

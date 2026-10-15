@@ -1,19 +1,10 @@
-import { createRoot } from "react-dom/client";
-import { flushSync } from "react-dom";
-import { QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
 import type { UIMessage } from "ai";
-import { createLegalworkServerClient, type LegalworkSessionSnapshot } from "../src/app/lib/legalwork-server";
+import type { LegalworkSessionSnapshot } from "../src/app/lib/legalwork-server";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
 import { seedSessionState, snapshotKey, statusKey, transcriptKey } from "../src/react-app/domains/session/sync/session-sync";
-import { useComposerStateStore } from "../src/react-app/domains/session/surface/composer-state-store";
 import { useSessionActivityStore } from "../src/react-app/domains/session/status/session-activity-store";
 import { deriveRenderedSessionMessages } from "../src/react-app/domains/session/surface/session-render-state";
-import { SessionSurface, type SessionSurfaceProps } from "../src/react-app/domains/session/surface/session-surface";
-import { LocalProvider } from "../src/react-app/kernel/local-provider";
-import { ShellConfigProvider } from "../src/react-app/shell/shell-config";
-import { LegalworkControlProvider } from "../src/react-app/shell/control/control-provider";
-import { WorkspaceProvider } from "../src/react-app/shell/workspace-provider";
+import type { SessionSurfaceProps } from "../src/react-app/domains/session/surface/session-surface";
 
 function boundarySnapshot(sessionId: string): LegalworkSessionSnapshot {
  const user=(id:string,text:string):LegalworkSessionSnapshot["messages"][number]=>({info:{id,sessionID:sessionId,role:"user",agent:"synthetic",model:{providerID:"synthetic",modelID:"synthetic"},time:{created:0}},parts:[{id:`part-${id}`,sessionID:sessionId,messageID:id,type:"text",text}]});
@@ -46,6 +37,21 @@ function boundaryScenarios(sessionId:string){
 
 /** Full production Surface mounted in the owned native Chromium renderer. */
 export async function runNativeSessionRenderBoundary(input:{baseUrl:string;token:string;workspaceId:string;workspaceRoot:string}) {
+ // Mount-only imports must not initialize browser stores in the Bun unit runner
+ // before the stores' own tests install their browser storage fixtures.
+ const [{createRoot},{flushSync},{QueryClientProvider},{MemoryRouter},{createLegalworkServerClient},{useComposerStateStore},{SessionSurface},{LocalProvider},{ShellConfigProvider},{LegalworkControlProvider},{WorkspaceProvider}]=await Promise.all([
+  import("react-dom/client"),
+  import("react-dom"),
+  import("@tanstack/react-query"),
+  import("react-router-dom"),
+  import("../src/app/lib/legalwork-server"),
+  import("../src/react-app/domains/session/surface/composer-state-store"),
+  import("../src/react-app/domains/session/surface/session-surface"),
+  import("../src/react-app/kernel/local-provider"),
+  import("../src/react-app/shell/shell-config"),
+  import("../src/react-app/shell/control/control-provider"),
+  import("../src/react-app/shell/workspace-provider"),
+ ]);
  const client=getReactQueryClient(),sessionId=`synthetic-render-boundary-${crypto.randomUUID()}`;
  const keys=[snapshotKey(input.workspaceId,sessionId),statusKey(input.workspaceId,sessionId),transcriptKey(input.workspaceId,sessionId)];
  const host=document.createElement("div");host.style.cssText="position:fixed;inset:0;z-index:2147483647;background:white";document.body.appendChild(host);
