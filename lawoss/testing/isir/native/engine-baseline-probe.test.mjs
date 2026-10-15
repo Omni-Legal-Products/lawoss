@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, lstat, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
@@ -145,7 +146,7 @@ test('real CLI missing-artifact guard skips heavy work and finalizer removes una
   const root=await mkdtemp(path.join(tmpdir(),'lawoss-baseline-cli-'));t.after(()=>rm(root,{recursive:true,force:true}));
   const output=path.join(root,'receipt.json'),native=path.join(root,'native.json'),githubOutput=path.join(root,'github-output');
   const launch=async(args)=>{
-    const c=spawn(process.execPath,[new URL('./engine-baseline-probe.mjs',import.meta.url).pathname,...args],{env:{GITHUB_OUTPUT:githubOutput},stdio:['ignore','pipe','pipe']});
+    const c=spawn(process.execPath,[fileURLToPath(new URL('./engine-baseline-probe.mjs',import.meta.url)),...args],{env:{GITHUB_OUTPUT:githubOutput},stdio:['ignore','pipe','pipe']});
     const result=await api.collectChild(c,{timeoutMs:5000});assert.equal(result.outcome,'ok');
   };
   await launch(['guard',output,path.join(root,'missing-main'),path.join(root,'missing-runtime')]);
@@ -177,7 +178,7 @@ test('late native writer can only change private raw diagnostics after public fi
   const privateFile=nativeEnv.LAWOSS_ISIR_NATIVE_DIAGNOSTICS_FILE;
   assert.equal(path.dirname(privateFile),owned);assert.notEqual(privateFile,published);
   const cli=async(args)=>{
-    const c=spawn(process.execPath,[new URL('./engine-baseline-probe.mjs',import.meta.url).pathname,...args],{env:{},stdio:['ignore','pipe','pipe']});
+    const c=spawn(process.execPath,[fileURLToPath(new URL('./engine-baseline-probe.mjs',import.meta.url)),...args],{env:{},stdio:['ignore','pipe','pipe']});
     assert.equal((await api.collectChild(c,{timeoutMs:5000})).outcome,'ok');
   };
   await cli(['guard',output,path.join(root,'missing-main'),path.join(root,'missing-runtime')]);
