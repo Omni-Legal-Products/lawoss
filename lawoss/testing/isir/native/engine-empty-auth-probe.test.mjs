@@ -50,7 +50,115 @@ test('closed publication CLI rejects wrong filename with fixed nonraw error and 
 test('owner finalizer maps oversized, duplicate, nonfinite, malformed and symlink receipts to clean unknown',async t=>{const dir=await root(t),env={...context(),GITHUB_SHA:await api.actualCheckout()},r=api.newReceipt(env);const poisoned=[Buffer.alloc(65537),Buffer.from([0xff]),Buffer.from(JSON.stringify(r).replace('"schemaVersion":1','"schemaVersion":1,"schemaVersion":1')),Buffer.from(JSON.stringify(r).replace('"runId":123','"runId":1e999')),Buffer.from(JSON.stringify({...r,delta:{...r.delta,private:'PRIVATE'}}))];for(const [i,payload] of poisoned.entries()){const sub=path.join(dir,String(i));await fs.mkdir(sub);const file=path.join(sub,'owner.private.json');await fs.writeFile(file,payload);assert.deepEqual(await api.finalize(file,path.join(sub,'engine-empty-auth-probe.json'),env),r);}const linked=path.join(dir,'linked');await fs.symlink(path.join(dir,'0','owner.private.json'),linked);assert.deepEqual(await api.finalize(linked,path.join(dir,'engine-empty-auth-probe.json'),env),r);});
 test('raw artifact limits and unsafe paths close admission before any build',async t=>{const dir=await root(t),env={...context(),GITHUB_SHA:await api.actualCheckout()},mainFile=path.join(dir,'main'),runtimeFile=path.join(dir,'runtime');const cases=[[Buffer.alloc(256*1024+1),Buffer.from(JSON.stringify(runtime()))],[Buffer.from(JSON.stringify(main())),Buffer.alloc(4097)],[Buffer.from(JSON.stringify({...main(),unselected:Infinity}).replace('"unselected":null','"unselected":1e999')),Buffer.from(JSON.stringify(runtime()))],[Buffer.from([0xff]),Buffer.from(JSON.stringify(runtime()))]];for(const [i,[m,r]] of cases.entries()){await fs.writeFile(mainFile,m);await fs.writeFile(runtimeFile,r);assert.equal((await api.guard(path.join(dir,`owner-${i}`),mainFile,runtimeFile,env)).eligibility,'unknown');}await fs.rm(mainFile);await fs.symlink(runtimeFile,mainFile);assert.equal((await api.guard(path.join(dir,'owner-linked'),mainFile,runtimeFile,env)).eligibility,'unknown');});
 test('guard cannot publish through the reserved sole-finalizer public filename',async t=>{const dir=await root(t);await assert.rejects(api.guard(path.join(dir,'engine-empty-auth-probe.json'),path.join(dir,'missing'),path.join(dir,'missing'),context()));await assert.rejects(fs.lstat(path.join(dir,'engine-empty-auth-probe.json')),{code:'ENOENT'});});
-test('actual inherited pipe stays unclosed and late private writer cannot alter sole publication',async t=>{const dir=await root(t),privateFile=path.join(dir,'owner.private.json'),env={...context(),GITHUB_SHA:await api.actualCheckout()},receipt=api.newReceipt(env);await fs.writeFile(privateFile,JSON.stringify(receipt));const writer=`setTimeout(()=>require('node:fs').writeFileSync(process.argv[1],'PRIVATE LATE'),400)`;const parent=`const {spawn}=require('node:child_process');const child=spawn(process.execPath,['-e',${JSON.stringify(writer)},process.argv[1]],{stdio:['ignore',process.stdout,process.stderr]});child.unref();process.stdout.write('ready');`;const child=spawn(process.execPath,['-e',parent,privateFile],{stdio:['ignore','pipe','pipe']});await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('fixture startup timeout')),5000);child.stdout.once('data',()=>{clearTimeout(timer);resolve();});child.once('error',error=>{clearTimeout(timer);reject(error);});});const result=await collectChild(child,{timeoutMs:50,drainMs:50});assert.deepEqual(result,{outcome:'child-unclosed',closed:false,code:null});const output=path.join(dir,'engine-empty-auth-probe.json');await api.finalize(privateFile,output,env);const frozen=await fs.readFile(output);const deadline=Date.now()+5000;while((await fs.readFile(privateFile,'utf8'))!=='PRIVATE LATE'&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,25));assert.equal(await fs.readFile(privateFile,'utf8'),'PRIVATE LATE');assert.deepEqual(await fs.readFile(output),frozen);assert.deepEqual(result,{outcome:'child-unclosed',closed:false,code:null});});
+const fixturePause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function fixtureDeadline(promise,label,ms=5000){
+  let timer;
+  try{return await Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(label)),ms);})]);}
+  finally{clearTimeout(timer);}
+}
+async function inheritedPipePublication(t,driverDelayMs=0){
+  // This root has one combined cleanup; root(t)'s unconditional removal would
+  // race a still-running writer on setup/assertion failure.
+  const dir=await fs.mkdtemp(path.join(await fs.realpath(tmpdir()),'empty-auth pipe #%-'));
+  const privateFile=path.join(dir,'owner.private.json'),releaseFile=path.join(dir,'release'),pidFile=path.join(dir,'writer.pid');
+  let child,writerPid,parentExited=false,childClosed=false,stdoutClosed=false,streamError=false,primary;
+  const cleanup=async()=>{
+    if(!child){await fs.rm(dir,{recursive:true,force:true});return;}
+    // Release only this prestarted fixture, including when startup/assertions fail.
+    await fs.writeFile(releaseFile,'release',{flag:'wx'}).catch(error=>{if(error.code!=='EEXIST')throw error;});
+    const deadline=Date.now()+12000;
+    while(Date.now()<deadline){
+      if(writerPid===undefined){
+        try{
+          const bytes=await fs.readFile(pidFile);
+          if(bytes.length<=12&&/^[1-9][0-9]*\n$/.test(bytes.toString()))writerPid=Number(bytes.toString().trim());
+        }catch(error){if(error.code!=='ENOENT')throw error;}
+      }
+      let writerGone=false;
+      if(Number.isSafeInteger(writerPid)&&writerPid>1){
+        // Read-only disappearance observation, never PID-based signaling. A
+        // live/reused/ambiguous PID retains the root and fails conservatively.
+        try{process.kill(writerPid,0);}catch(error){if(error.code==='ESRCH')writerGone=true;else throw error;}
+      }
+      if(childClosed&&((parentExited&&writerGone)||child.pid===undefined)){
+        await fs.rm(dir,{recursive:true,force:true});return;
+      }
+      await fixturePause(25);
+    }
+    throw new Error('fixture termination unproven; private root retained');
+  };
+  try{
+    const env={...context(),GITHUB_SHA:await api.actualCheckout()},receipt=api.newReceipt(env);
+    const original=Buffer.from(JSON.stringify(receipt));
+    await fs.writeFile(privateFile,original);
+    const writer=`
+      const fs=require('node:fs');
+      const watchdog=setTimeout(()=>process.exit(2),10000);
+      const gate=setInterval(()=>{
+        if(!fs.existsSync(process.argv[2]))return;
+        fs.writeFileSync(process.argv[1],'PRIVATE LATE');
+        clearInterval(gate);clearTimeout(watchdog);
+      },10);
+      process.stdout.write('WRITER_READY:'+process.pid+'\\n');
+    `;
+    const parent=`
+      const fs=require('node:fs'),{spawn}=require('node:child_process');
+      const watchdog=setTimeout(()=>process.exit(2),10000);
+      const child=spawn(process.execPath,['-e',${JSON.stringify(writer)},process.argv[1],process.argv[2]],{stdio:['ignore',process.stdout,process.stderr]});
+      child.once('error',()=>process.exit(3));
+      child.once('spawn',()=>{
+        fs.writeFileSync(process.argv[3],String(child.pid)+'\\n',{flag:'wx'});
+        child.unref();clearTimeout(watchdog);
+      });
+    `;
+    let readyResolve,readyReject,exitResolve,exitReject,readyBytes=Buffer.alloc(0);
+    const ready=new Promise((resolve,reject)=>{readyResolve=resolve;readyReject=reject;});
+    const exited=new Promise((resolve,reject)=>{exitResolve=resolve;exitReject=reject;});
+    // Register observations synchronously before launch can deliver any events.
+    ready.catch(()=>{});exited.catch(()=>{});
+    child=spawn(process.execPath,['-e',parent,privateFile,releaseFile,pidFile],{stdio:['ignore','pipe','pipe']});
+    const observeReady=chunk=>{
+      if(readyBytes.length+chunk.length>64){readyReject(new Error('fixture ready record exceeds bound'));return;}
+      readyBytes=Buffer.concat([readyBytes,chunk]);
+      if(!readyBytes.includes(10))return;
+      const match=/^WRITER_READY:([1-9][0-9]*)\n$/.exec(readyBytes.toString());
+      if(!match||!Number.isSafeInteger(Number(match[1]))||Number(match[1])<=1){readyReject(new Error('invalid fixture ready record'));return;}
+      writerPid=Number(match[1]);readyResolve();
+    };
+    child.stdout.on('data',observeReady);
+    child.stdout.once('close',()=>{stdoutClosed=true;readyReject(new Error('fixture pipe closed before ready'));});
+    for(const stream of [child.stdout,child.stderr])stream.on('error',()=>{streamError=true;readyReject(new Error('fixture stream error'));});
+    child.once('error',()=>{readyReject(new Error('fixture parent launch failed'));exitReject(new Error('fixture parent launch failed'));});
+    child.once('exit',(code,signal)=>{parentExited=true;exitResolve({code,signal});});
+    child.once('close',()=>{childClosed=true;});
+    const [,parentExit]=await fixtureDeadline(Promise.all([ready,exited]),'fixture startup timeout');
+    assert.deepEqual(parentExit,{code:0,signal:null});
+    assert.equal(await fs.readFile(pidFile,'utf8'),`${writerPid}\n`);
+    child.stdout.off('data',observeReady);
+    if(driverDelayMs)Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,driverDelayMs);
+    // Exit belongs to the direct parent; ready belongs to its real writer.
+    // Its inherited read stream must still be held before the real collector.
+    assert.equal(childClosed,false);assert.equal(stdoutClosed,false);
+    assert.equal(child.stdout.destroyed,false);assert.equal(child.stdout.readableEnded,false);assert.equal(streamError,false);
+    const result=await collectChild(child,{timeoutMs:50,drainMs:50});
+    assert.deepEqual(result,{outcome:'child-unclosed',closed:false,code:null});
+    const output=path.join(dir,'engine-empty-auth-probe.json');
+    await api.finalize(privateFile,output,env);
+    const frozen=await fs.readFile(output);
+    assert.deepEqual(await fs.readFile(privateFile),original);
+    await assert.rejects(fs.lstat(releaseFile),{code:'ENOENT'});
+    await fs.writeFile(releaseFile,'release',{flag:'wx'});
+    const writeDeadline=Date.now()+5000;
+    while((await fs.readFile(privateFile,'utf8'))!=='PRIVATE LATE'&&Date.now()<writeDeadline)await fixturePause(25);
+    assert.equal(await fs.readFile(privateFile,'utf8'),'PRIVATE LATE');
+    assert.deepEqual(await fs.readFile(output),frozen);
+    assert.deepEqual(result,{outcome:'child-unclosed',closed:false,code:null});
+  }catch(error){primary=error;}
+  try{await cleanup();}catch(error){if(!primary)throw error;t.diagnostic('fixture cleanup failed; private root retained');}
+  if(primary)throw primary;
+}
+test('actual inherited pipe stays unclosed and late private writer cannot alter sole publication',async t=>{await inheritedPipePublication(t);});
+test('inherited pipe publication stays unclosed after a 650ms delayed driver',async t=>{await inheritedPipePublication(t,650);});
 test('receipt cannot move closed evidence back into pre-native stages or hide it in unknown admission',()=>{for(const mutate of [v=>v.stage='native',v=>{v.eligibility='unknown';v.stage='guard';},v=>{v.stage='native';v.lifecycle={closed:false,code:null,descendants:'unknown'};v.exit='child-unclosed';v.engine.afterSha256=null;v.engine.afterManifestsSha256=null;}]){const r=observedReceipt();mutate(r);assert.throws(()=>api.projectReceipt(r));}const unknown=api.newReceipt(context());unknown.inputs.mainSha256=hash('unbound');assert.throws(()=>api.projectReceipt(unknown));});
 const reservedAliases = [
   'ENGINE-EMPTY-AUTH-PROBE.JSON',
