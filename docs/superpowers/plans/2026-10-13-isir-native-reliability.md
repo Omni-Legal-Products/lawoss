@@ -718,3 +718,15 @@ Detaily a source API jsou v SDD task-24-brief.md. Produkční distribuce/notices
 - [ ] NextactualWindowscontrolledreceipt +SDKgate, no env/registryguess or claimunderlyingappfix.
 
 **Fix3 sourcecomplete:**8f4ab6f8/workflow3f53993a/freshscopedSPEC PASS/QUALITY APPROVED/new0;21SDKfilesunchanged. Rootd041allterminal345entries/20reportsdirectauditPASS. ActualnextWindowsversioncontrol/SDKgateOPEN; actualinstallerInt32/1/innercauseUNKNOWN.
+
+### Task26: Skutečné pnpm CLI pod přesně zachyceným Node24
+
+**Facts:** actual9bc7postclearlauncher--versionEXACT11.4.0/int32/0, installint32/1/causeUNKNOWN. toolsmanifestrequiresNode24.21.0, nativeApplicationpathdoesnotbindnestedruntime; source doesNOTproveNode20actualcause. Freshisolatedbranchfix/pr158-pnpm-node-installer/base9bc7, solefreshworkerworkflow/optionalREADME/root4docs.
+- [x] Pinnedactionid/documenteddestoutputasstepenvdata; validatefixedgenuinepnpmmanifestname/version/bin.pnpm+expectedCLIentry, allownormalmodulejunction.
+- [x] All3pnpmcalls viaexactcapturedNode24 +genuinebin/pnpm.mjs, preserveversions/isolation/frozenflags/freshnativeexit/postcondition/control/44+4.
+- [x] YAML/scope/sourcechecks/unchangedSDKbytes; PowerShellNOTEXECUTEDifunavailable, no mirroredtests/unchangedsuitereruns; normalDCO/freshSPECQUALITY/rootaudit.
+- [ ] NormalSDKPR158publicationonlyafter9bc7ALLterminalaudit/sourcecontractnewhashbinding; newactualWindowsgate.
+
+**Ruling:** correctexplicitruntimeinvariantwithgenuineCLI, noengineguardrelaxation/missingenvguess or provenrootcauseclaim; originalfullgoal/newapp/devapproval+merge/tenGUIprovider remainOPEN.
+
+**Task26 sourcecomplete:**0d596c1f/workflowa1613d95/freshindependentSPEC PASS/QUALITY PASS/0;21SDKfilesunchanged. Rootsource/DCO/parity/review+contractbindingPASS, previous9bc7allterminalroot361entries/22reportsdirectauditPASS. NormalSDKpublicationnext/actualWindowsOPEN; noNode20causeclaim/newpaid0.
