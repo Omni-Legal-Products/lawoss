@@ -681,3 +681,22 @@ Detaily a source API jsou v SDD task-24-brief.md. Produkční distribuce/notices
 **Task24 source/offline fáze lokálně uzavřena:** a0c0d58c+fix676f1872, earlier33/33offline a poslední covering11/11 po I1fixu. InitialreviewI1 skutečnýflushoutlivesstreamclose napraven publicawaitablecachepromises/boundedbuffer; focusedrealcacheRED→GREEN, freshscopedSPEC/QUALITYPASS/new0. Root11source/3immutable/bothDCO/TAP/review/producer94ec+workflowf174 contract auditPASS.
 
 - [ ] První skutečné Windows SDK acquisition/replay/integration/Bun výsledky po publikaci. Žádné dosavadní source/offline PASS tuto položku ani původní Windowsstartup/fullgoal neuzavírá.
+
+
+### Task25: Deterministická instalace build nástroje a její postcondition
+
+**Skutečný stav49e:** all3workflows/5jobs terminální, Linux/macOS SUCCESS, SDKWindowsFAIL admission/MODULE_NOT_FOUND předobservovanýmiunit/acquisition/Node/Bun. Step6toolsinstall metadataSUCCESS bezpoužitelné runtimeinstallační účtenky v jediném boundedlogprojection. Root17+263 a10+280 hash/source/summary audityPASS; nyní290frozenentries/12reports. Přesný chybějící modul/physicaltree/effectiveconfig/cause UNKNOWN; sourceonlyinspection vymezil jediný tools package manifest require.
+
+**Scope:** pouze SDK native-validation helper/test/README, jeden malý core-only tools-preflight modul a existing SDK workflow. Izolovaná větev `fix/pr158-sdk-tools-install` od49ef8ba8. Žádné SDK/tool manifest/lock/primer/consumer/app/runtime změny. Root4docs.
+
+- [x] Capture absolute pnpm Application (případně Node) předenvsanitization, zachovatPATHEXT/PATH/SystemRoot/ComSpec; explicitforegroundinvoke, freshLASTEXITCODE/actualzero, `--prod=false`, ostatnífrozenisolatedflags zachovat.
+- [x] Jeden sdílený tools-local manifest/name/version/resolver-realpath postcondition pro workflow i nativeadmission; pnpm symlink/junction podporovat, ancestor-onlyfallback odmítnout, nevyhodnocovatArboJS/SDK.
+- [x] Fixedobserved failurecodes TOOLSLINK/MANIFESTABSENT/INVALID/ADMISSIONFAILED v existujícím code/failedStage; žádný nový artifact/schema. Unitcounts aktualizovat dle actualnovýchtestů, původnístrict33+4oracles zachovat.
+- [x] TDDowned filesystem/refusal/symlink/ancestor/noJSsentinelcases v changednative-validation.test; exactNode24, finalchangedfileonce/syntax/diff/YAML. PWSHnativeflow jenpokudavailable, jinakexplicitNOTEXECUTED.
+- [x] DCO/freshSPECQUALITY/rootaudit/sourcehash+newunitcount readercontract rebind přednormálníSDKPR158publikací. NovéactualWindows gatebezsameheadrerunu; unresolvedcause/SDKnative/fullexistinggoal netvrditjakoopravené.
+
+**Ruling:** explicitdevinclude/capturedApplication+PATHEXT/checkedexit/sharedpostcondition je deterministické zlepšení, nikoli důkaz jediné příčiny49e. Cena při chybě další explicitsetuprefusal/CIcycle; žádné productdata/devmutation. Podrobný bindingbrief SDD task-25-brief.md.
+
+- [ ] Actual Windows SDK44units/4integration/acquisition/Node/Bun gate, original runtime/startup/GUI acceptance and protected dev merge remain OPEN.
+
+**Source/offline completion:** 75b0e393, fresh independent SPEC PASS / QUALITY APPROVED/no findings; actual changed-file17/17 from implementer, syntax/YAML/diff PASS. Root source/TAP/DCO/review/hash binding PASS; prior suites byte-identical and not repeated. Normal feature publication follows; no actual Windows claim.
