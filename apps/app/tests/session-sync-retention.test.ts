@@ -368,17 +368,43 @@ test("snapshot preserves non-timeout transport error identity and sanitizes malf
  try{expect(await f.legalwork.getSessionSnapshot(f.input.workspaceId,"session-one").catch(error=>error)).toBe(failure);}finally{spy.mockRestore();}
 });
 
+async function withSurfaceStorage<T>(run:()=>Promise<T>):Promise<T> {
+ const previousStorage=Object.getOwnPropertyDescriptor(globalThis,"localStorage"),previousWindow=Object.getOwnPropertyDescriptor(globalThis,"window");
+ const values=new Map<string,string>();
+ const storage:Storage={getItem:key=>values.get(key)??null,setItem:(key,value)=>{values.set(key,value);},removeItem:key=>{values.delete(key);},clear:()=>values.clear(),key:index=>[...values.keys()][index]??null,get length(){return values.size;}};
+ try {
+  Object.defineProperty(globalThis,"localStorage",{configurable:true,value:storage});
+  Object.defineProperty(globalThis,"window",{configurable:true,value:{localStorage:storage,fetch:globalThis.fetch,addEventListener:()=>{},removeEventListener:()=>{}}});
+  return await run();
+ } finally {
+  try{if(previousWindow)Object.defineProperty(globalThis,"window",previousWindow);else Reflect.deleteProperty(globalThis,"window");}
+  finally{if(previousStorage)Object.defineProperty(globalThis,"localStorage",previousStorage);else Reflect.deleteProperty(globalThis,"localStorage");}
+ }
+}
+
 async function renderSessionSurface(f:Awaited<ReturnType<typeof fixture>>, sessionId="session-one") {
+ return withSurfaceStorage(async()=>{
  const [{SessionSurface},{LocalProvider},{ShellConfigProvider},{LegalworkControlProvider},{WorkspaceProvider}]=await Promise.all([
   import("../src/react-app/domains/session/surface/session-surface"),import("../src/react-app/kernel/local-provider"),import("../src/react-app/shell/shell-config"),import("../src/react-app/shell/control/control-provider"),import("../src/react-app/shell/workspace-provider"),
  ]);
  const surface=createElement(SessionSurface,{client:f.legalwork,workspaceId:f.input.workspaceId,workspaceRoot:f.input.directory ?? "/synthetic/selected",sessionId,opencodeBaseUrl:f.input.baseUrl,legalworkToken:f.input.legalworkToken,developerMode:false,modelLabel:"Synthetic",onModelClick:()=>{},modelPickerOpen:false,selectedModel:{providerID:"synthetic",modelID:"synthetic"},onModelPickerOpenChange:()=>{},onModelChange:()=>{},onSendDraft:()=>{},onDraftChange:()=>{},attachmentsEnabled:false,attachmentsDisabledReason:null,modelVariantLabel:"Synthetic",modelVariant:null,onModelVariantChange:()=>{},agentLabel:"Synthetic",selectedAgent:null,listAgents:async()=>[],onSelectAgent:()=>{},listCommands:async()=>[],recentFiles:[],searchFiles:async()=>[],isRemoteWorkspace:false,isSandboxWorkspace:false});
- const previousWindow=Object.getOwnPropertyDescriptor(globalThis,"window");
- Object.defineProperty(globalThis,"window",{configurable:true,value:{localStorage:{getItem:()=>null},addEventListener:()=>{},removeEventListener:()=>{}}});
- let html:string;
- try{html=renderToStaticMarkup(createElement(MemoryRouter,null,createElement(QueryClientProvider,{client:getReactQueryClient()},createElement(LocalProvider,null,createElement(ShellConfigProvider,null,createElement(LegalworkControlProvider,null,createElement(WorkspaceProvider,{client:null,selectedWorkspaceRoot:"/synthetic/selected"},surface)))))));}finally{if(previousWindow)Object.defineProperty(globalThis,"window",previousWindow);else Reflect.deleteProperty(globalThis,"window");}
- return html;
+ return renderToStaticMarkup(createElement(MemoryRouter,null,createElement(QueryClientProvider,{client:getReactQueryClient()},createElement(LocalProvider,null,createElement(ShellConfigProvider,null,createElement(LegalworkControlProvider,null,createElement(WorkspaceProvider,{client:null,selectedWorkspaceRoot:"/synthetic/selected"},surface)))))));
+ });
 }
+
+test("SSR storage restores original descriptors after awaited fixture failure",async()=>{
+ const previousStorage=Object.getOwnPropertyDescriptor(globalThis,"localStorage"),previousWindow=Object.getOwnPropertyDescriptor(globalThis,"window");
+ const failure=new Error("Synthetic awaited SSR fixture failure");
+ await expect(withSurfaceStorage(async()=>{
+  expect(window.localStorage).toBe(globalThis.localStorage);
+  localStorage.setItem("synthetic","owned");expect(window.localStorage.getItem("synthetic")).toBe("owned");
+  expect(localStorage.length).toBe(1);expect(localStorage.key(0)).toBe("synthetic");
+  localStorage.removeItem("synthetic");expect(localStorage.length).toBe(0);localStorage.clear();
+  await Promise.resolve();throw failure;
+ })).rejects.toBe(failure);
+ expect(Object.getOwnPropertyDescriptor(globalThis,"localStorage")).toEqual(previousStorage);
+ expect(Object.getOwnPropertyDescriptor(globalThis,"window")).toEqual(previousWindow);
+});
 
 for(const history of ["live","empty"] as const){
  for(const fails of [true,false]){
