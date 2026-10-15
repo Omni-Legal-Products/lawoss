@@ -101,10 +101,15 @@ optionals, are checked before the first request. It fetches sequential exact
 public HTTPS tarball URLs with identity encoding, no redirects/retries/profile
 credentials or packuments, into the already pinned cacache 20.0.4 API. Limits:
 32 requests, 32 MiB/archive, 256 MiB total, 45 s/request and one absolute 300 s
-budget from admission through final revalidation. Body bytes are counted, writes
-respect backpressure, and flushed content is read again by digest. Cancellation
-or failure destroys and awaits the owned request/stream closures; admission is
-released only afterward. Partial cache bytes remain with an incomplete receipt;
+budget from admission through final revalidation. Body bytes are counted with
+backpressure into only the current hard-capped archive buffer. Public `cacache.put` and `cacache.get.byDigest` promises are
+awaited through actual content/index/read settlement, with size/SRI verification.
+Cancellation or failure destroys and awaits the owned request/response closures
+and joins any already-started cache promise before admission release. No further
+request, cache write or verification starts after cancellation/expiry; waiting
+for owned I/O settlement is cleanup, not extra work budget or force-cancelled OS
+I/O. Archive chunks/body/readback references are cleared promptly. Partial cache
+bytes remain with an incomplete receipt;
 replay refuses that workspace and retries require a new owned workspace.
 
 `native-validation.mjs` is a separate Windows/x64 Node 24.21.0 entry for the

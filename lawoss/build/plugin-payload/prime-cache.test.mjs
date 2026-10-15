@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { EventEmitter } from 'node:events';
-import { Readable, PassThrough, Writable } from 'node:stream';
-import { cp, mkdir, mkdtemp, realpath, rm, readdir, writeFile, readFile, lstat, symlink } from 'node:fs/promises';
+import { Readable, PassThrough } from 'node:stream';
+import { cp, mkdir, mkdtemp, realpath, rm, readdir, writeFile, readFile, lstat, symlink, rmdir } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { initialize } from './prepare.mjs';
@@ -95,16 +95,54 @@ test('headers and slow chunks share one absolute deadline, distinct from request
   assert.equal(closed, true);
 });
 
-test('caller abort during streaming and asynchronous flush waits for stream closure', async t => {
-  const workspace = await fixture(t);
-  for (const flush of [false, true]) {
-    const controller = new AbortController(); let writerClosed = false;
-    const wire = transport(flush ? undefined : () => { const response = new PassThrough(); response.write(data.subarray(0, 1)); queueMicrotask(() => controller.abort()); return response; });
-    const cacheApi = flush ? { ...cacache, put: { stream: () => {
-      const writer = new Writable({ write(chunk, encoding, cb) { cb(); }, final(cb) { controller.abort(); setTimeout(cb, 10); }, destroy(error, cb) { setTimeout(() => { writerClosed = true; cb(error); }, 20); } }); return writer;
-    } } } : cacache;
-    await assert.rejects((await transfer())({ cache: path.join(workspace, 'cache'), records: [record], cacheApi, open: wire.open, limits, signal: controller.signal }), { code: 'CANCELLED' });
-    assert.equal(wire.closed, 1); if (flush) assert.equal(writerClosed, true);
+test('caller abort streaming and real cache put/read cancellation keep admission until actual settlement', async t => {
+  const workspace = await fixture(t); const controller = new AbortController();
+  const wire = transport(() => { const response = new PassThrough(); response.write(data.subarray(0, 1)); queueMicrotask(() => controller.abort()); return response; });
+  await assert.rejects((await transfer())({ cache: path.join(workspace, 'cache'), records: [record], cacheApi: cacache, open: wire.open, limits, signal: controller.signal }), { code: 'CANCELLED' });
+  assert.equal(wire.closed, 1);
+  // Private fault injection only: production uses the public promises, never these internals.
+  const index = createRequire(createRequire(require.resolve('@npmcli/arborist')).resolve('cacache'))('./entry-index.js');
+  const fs = require('node:fs/promises');
+  for (const phase of ['put', 'read']) for (const trigger of ['abort', 'deadline', 'request']) {
+    const owned = await fixture(t); const cache = path.join(owned, 'cache');
+    const lease = path.join(owned, '.admit-primer'); await mkdir(lease);
+    let release, enter, finish; let operationEntered = false; let operationFinished = false; let returned = false; let primary; let inserts = 0; let reads = 0;
+    const gate = new Promise(resolve => { release = resolve; });
+    const entered = new Promise(resolve => { enter = resolve; });
+    const settled = new Promise(resolve => { finish = resolve; });
+    const originalInsert = index.insert; const originalRead = fs.readFile; const originalTimer = globalThis.setTimeout;
+    const delayOperation = async operation => { operationEntered = true; enter(); await gate; try { return await operation(); } finally { operationFinished = true; finish(); } };
+    index.insert = (...args) => { inserts++; return phase === 'put' ? delayOperation(() => originalInsert(...args)) : originalInsert(...args); };
+    fs.readFile = (name, ...args) => {
+      if (typeof name !== 'string' || !name.startsWith(path.join(cache, 'content-v2') + path.sep)) return originalRead(name, ...args);
+      reads++; return phase === 'read' ? delayOperation(() => originalRead(name, ...args)) : originalRead(name, ...args);
+    };
+    let elapsed = 0; let expire; let timerMock;
+    const timerMilliseconds = trigger === 'request' ? 5000 : 10000;
+    if (trigger !== 'abort') timerMock = t.mock.method(globalThis, 'setTimeout', (callback, milliseconds, ...args) => {
+      if (milliseconds === timerMilliseconds) { expire = callback; return originalTimer(() => {}, milliseconds); }
+      return originalTimer(callback, milliseconds, ...args);
+    });
+    const aborter = new AbortController(); const transportCase = transport();
+    const pending = (await transfer())({ cache, records: [record, record], cacheApi: cacache, open: transportCase.open, signal: aborter.signal, now: () => elapsed, limits: { ...limits, deadlineMs: 10000, requestMs: trigger === 'request' ? 5000 : 20000 } })
+      .catch(error => { primary = error; }).finally(async () => { await rmdir(lease); returned = true; });
+    try {
+      await Promise.race([entered, pending.then(() => { throw Error('cache operation never entered'); })]);
+      if (trigger === 'abort') aborter.abort(); else { assert.equal(typeof expire, 'function'); elapsed = timerMilliseconds; expire(); }
+      await new Promise(resolve => originalTimer(resolve, 30));
+      assert.equal(returned, false, `${phase}/${trigger}: return must wait for real pinned cacache settlement`);
+      assert.equal(operationFinished, false); assert.equal((await lstat(lease)).isDirectory(), true);
+      assert.equal(transportCase.calls, 1, 'no next request during cancellation cleanup');
+      release(); await settled; await pending;
+      assert.equal(primary?.code, trigger === 'abort' ? 'CANCELLED' : trigger === 'deadline' ? 'PRIMER_DEADLINE' : 'REQUEST_TIMEOUT');
+      assert.equal(operationFinished, true); assert.equal(returned, true); assert.equal(transportCase.calls, 1);
+      assert.equal(inserts, 1); assert.equal(reads, phase === 'put' ? 0 : 1, 'no later verification after cancellation');
+      assert.equal(primary.progress.verified, 0);
+      assert.equal((await readdir(owned)).includes('.admit-primer'), false);
+    } finally {
+      release(); await pending; if (operationEntered) await settled;
+      index.insert = originalInsert; fs.readFile = originalRead; timerMock?.mock.restore();
+    }
   }
 });
 
