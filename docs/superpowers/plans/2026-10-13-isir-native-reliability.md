@@ -534,3 +534,25 @@ Cílená source analýza neprokázala konkrétní chybu. Nejmenší navazující
 
 
 2026-10-15T11:20:56.430016+00:00: Task10 navazující test-only oprava R2: skutečný83a helper19 má1selhání inert/mismatched preload testu, zatímco server14 PASS neprokazuje opravu dřívějších timeoutů. Node --import používá ESM specifier; test nově převádí pouze jeho preload argument přes pathToFileURL, Bun env zůstává nativní. Rezervované mezery/#/% prokázaly RED/GREEN; finální25testů PASS.616d4973→d9ea19df po scoped SPEC PASS / QUALITY APPROVED / nové blokující0, root8SHA/1file scope/DCO ověřeny. Windows vnitřní child chyba zůstává nepozorovaná a původní startup se z toho nevysvětluje. Publikace počká na dokončení83a baseline i compile jobu; žádný lokální build či modelové volání.
+
+
+### Task 12: Rozlišit nové původní OKF a project-sync selhání
+
+- [x] Zachovat původní149 pokus1 RED a jednou zopakovat pouze portable job stejného SHA. OKF se neopakovalo; pokus2 má serverový runner-timeout5000 u původního conflict testu453,474testů/467pass/1fail/6skip. Původní server/helper/corpus výsledky se mezi pokusy nepřenášejí.
+- [x] Původní dva CLI testy jednou lokálně2PASS a conflict jednou1PASS; místní rychlost není oprava Windows. Čerstvá vlastní syntetická kontrola ověřila přesný Bun1.4.2 timeout marker; uzavřená CI projekce následně potvrdila5000ms, vnitřní příčina neznámá.
+- [x] Úzká source analýza a řízený skutečný500ms scheduler RED/GREEN bez sítě prokázaly mezeru fixtures: automatický default-platform round převezme ruční fake volání. Po řádném zastavení obou timerů před scénářem při zachovaném runtime lifetime ruční fake round projde. To je samostatně opravitelná chyba izolace testu, nikoli důkaz původní Windows příčiny.
+
+### Task 13: Oddělený původní-binary empty-auth experiment — návrh připraven, implementace odložená
+
+Čtyřsouborový source návrh je připraven v pracovním ledgeru: nový owner/test, úzký fixed synthetic env producer v původním harnessu, připojený samostatný Windows job. Žádný produkční auth default, engine rebuild, wrapper nebo změna původních workflow bloků; první pokus/run identity, fixed{} a oddělená uzavřená provenance. Výsledek není kauzální oprava. Nyní dostává přednost konkrétní RED/GREEN oprava fixtures v Task14. Teprve po ní rozhodnout o nutnosti implementace experimentu podle nového evidence.
+
+### Task 14: Izolovat ručně řízené project-sync fixtures od automatických roundů
+
+**Own one file:** `apps/server/src/project-sync.test.ts`. Root vlastní společné docs. Žádné změny produkčních schedulerů, platform API, resource ownerů, helper protokolů, workflow, timeoutů nebo assertions původních konfliktů.
+
+- [x] Nejprve přidat úzký behaviorální RED: skutečná defaultní machine fixture, pozorované skutečné timer admission bez náhrady časovačů, skutečné scheduleProjectSync a scheduleTaskSync s500ms; ručně řízená fixture nesmí přijmout automatický round. Ověřit, že explicitní fake run stále skutečně proběhne. RED před opravou musí zachytit mezeru, ne vzniknout z chybějícího importu.
+- [x] Defaultní machine musí zachovat vlastní directory/lifetime i oba idempotentní cleanup callbacks; spustit dosavadní timer vlastníky, po zápisu původního synthetic spojení oba řádně zastavit/awaitnout před vrácením fixture. Samotné vynechání startu nestačí: schedule stráží stoppedConfigs/runtime scope, nikoli timerOwners. Explicitní manual run při drženém lifetime zůstane dovolený.
+- [x] Přidat explicitní background režim pouze pro dva existující timer/lifetime testy: současný test918 musí nadále mít původního i dodatečného vlastníka, současný934 musí mít původního vlastníka pro stopProjectTimer a druhého config vlastníka. Zachovat jejich assertions a skutečnou automatickou práci. Zbývající machine volání zůstávají ručně řízené podle svého scénáře; nerozšiřovat DI ani globální mutable fake platform.
+- [x] GREEN cíleného regression, finálně celý project-sync soubor jednou a nezměněný first-failure timing helper včetně AST/default wire kontraktů; strict server tsc/syntax/diff. Stejný Bun1.4.2/preloads/Node24.21 a původní limity: default5s i existující10s watcher test; žádný full app/server/native build jen kvůli fixtures. Doložit přirozený cleanup, obnovení spy/fetch a žádné skutečné síťové požadavky v novém kontrolním testu.
+- [x] Čerstvá scoped SPEC/QUALITY revize, podepsaný commit a integrace.
+- [ ] Normální publikace do stejného PR a nové skutečné Windows CI. Původní timeout5000/inner příčina zůstávají historicky otevřené, dokud je nové evidence nerozliší. Původní native startup, skutečná GUI/provider akceptace a protected dev merge zůstávají samostatné povinnosti.
