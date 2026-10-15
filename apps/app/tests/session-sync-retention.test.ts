@@ -17,26 +17,28 @@ import { ensureWorkspaceSessionSync, trackWorkspaceSessionSync, seedSessionState
 const cleanups: Array<() => Promise<void>>=[];
 afterEach(async()=>{while(cleanups.length)await cleanups.pop()?.();getReactQueryClient().clear();clearDocumentGenerationsForTest();useSessionActivityStore.setState({recordsByWorkspaceId:{},statusesByWorkspaceId:{}});});
 async function waitFor(read:()=>boolean){for(let i=0;i<100;i++){if(read())return;await new Promise(r=>setTimeout(r,10));}expect(read()).toBe(true);}
-async function fixture(options: { gcTime?: number; workspaceId?: string; directory?: string; token?: string; hostToken?: string; snapshot?: LegalworkSessionSnapshot; fullSnapshot?: LegalworkSessionSnapshot; snapshotReply?: (limit:string|null,response:ServerResponse,read:number)=>void; statusReply?: (response:ServerResponse,read:number)=>void } = {}){
+async function fixture(options: { allowConnectionChanges?: boolean; gcTime?: number; workspaceId?: string; directory?: string; token?: string; hostToken?: string; snapshot?: LegalworkSessionSnapshot; fullSnapshot?: LegalworkSessionSnapshot; snapshotReply?: (limit:string|null,response:ServerResponse,read:number,sessionId:string)=>void; statusReply?: (response:ServerResponse,read:number)=>void } = {}){
  let opened=0,closed=0,ready=false,updated=0;
  const responses = new Set<ServerResponse>();
  const token = options.token ?? "synthetic-sync-token";
  const workspaceId = options.workspaceId ?? randomUUID();
  const snapshotReads:Array<string|null>=[];let statusReads=0;
+ const requestScopes:Array<{path:string;authorization:string|undefined;directory:string|null}>=[];
  const server=createServer((request,response)=>{
   const requestUrl=new URL(request.url ?? "","http://fixture");
-  if (requestUrl.pathname === `/workspace/${encodeURIComponent(workspaceId)}/sessions/session-one/snapshot` && options.snapshot) {
-   expect(request.headers.authorization).toBe(`Bearer ${token}`);
+  requestScopes.push({path:requestUrl.pathname,authorization:request.headers.authorization,directory:requestUrl.searchParams.get("directory")});
+  if (options.snapshot && (requestUrl.pathname === `/workspace/${encodeURIComponent(workspaceId)}/sessions/session-one/snapshot` || (options.allowConnectionChanges && /^\/workspace\/[^/]+\/sessions\/[^/]+\/snapshot$/.test(requestUrl.pathname)))) {
+   if(!options.allowConnectionChanges)expect(request.headers.authorization).toBe(`Bearer ${token}`);
    expect(request.headers["x-legalwork-host-token"]).toBe(options.hostToken);
    const limit=requestUrl.searchParams.get("limit");snapshotReads.push(limit);
-   if(options.snapshotReply){options.snapshotReply(limit,response,snapshotReads.length);return;}
+   if(options.snapshotReply){options.snapshotReply(limit,response,snapshotReads.length,decodeURIComponent(requestUrl.pathname.split("/").at(-2)!));return;}
    response.writeHead(200,{"content-type":"application/json"});
    response.end(JSON.stringify({item:limit===null?(options.fullSnapshot ?? options.snapshot):options.snapshot}));
    return;
   }
   if(requestUrl.pathname==="/session/status" && options.statusReply){options.statusReply(response,++statusReads);return;}
-  expect(request.url?.split("?")[0]).toBe("/event");expect(request.headers.authorization).toBe(`Bearer ${token}`);
-  if(options.snapshot && options.directory) expect(new URL(request.url ?? "", "http://fixture").searchParams.get("directory")).toBe(options.directory);
+  expect(request.url?.split("?")[0]).toBe("/event");if(!options.allowConnectionChanges)expect(request.headers.authorization).toBe(`Bearer ${token}`);
+  if(options.snapshot && options.directory && !options.allowConnectionChanges) expect(new URL(request.url ?? "", "http://fixture").searchParams.get("directory")).toBe(options.directory);
   response.writeHead(200,{"content-type":"text/event-stream"});response.write('data: {"type":"server.connected","properties":{}}\n\n');opened++;responses.add(response);
   response.write('data: {"type":"session.status","properties":{"sessionID":"fixture-ready","status":{"type":"idle"}}}\n\n');
   const heartbeat=setInterval(()=>response.write(': heartbeat\n\n'),50);
@@ -54,13 +56,18 @@ async function fixture(options: { gcTime?: number; workspaceId?: string; directo
  const owner=ensureWorkspaceSessionSync(input),release=trackWorkspaceSessionSync(input,"session-one");
  await waitFor(()=>opened===1 && ready);
  const status=(value: {type:"idle"}|{type:"busy"}|{type:"retry";attempt:number;message:string;next:number})=>__applySessionSyncEventForTest(input,{type:"session.status",properties:{sessionID:"session-one",status:value}});
- const wire = (event: unknown) => { for(const response of responses) response.write(`data: ${JSON.stringify(event)}\n\n`); };
+ const wire = (event: unknown, scope?: { token:string; directory?:string }) => {
+  for(const response of responses){
+   if(scope && (response.req.headers.authorization!==`Bearer ${scope.token}` || new URL(response.req.url ?? "","http://fixture").searchParams.get("directory")!==(scope.directory ?? null)))continue;
+   response.write(`data: ${JSON.stringify(event)}\n\n`);
+  }
+ };
  const wireStatus = async(value: SessionStatus) => {
   wire({type:"session.status",properties:{sessionID:"session-one",status:value}});
   await waitFor(()=>getReactQueryClient().getQueryData<SessionStatus>(statusKey(input.workspaceId,"session-one"))?.type === value.type);
  };
  const legalwork=createLegalworkServerClient({baseUrl:input.baseUrl,token,hostToken:options.hostToken});
- return {input,owner,release,status,wire,wireStatus,legalwork,snapshotReads:()=>snapshotReads.slice(),updated:()=>updated,opened:()=>opened,closed:()=>closed};
+ return {input,owner,release,status,wire,wireStatus,legalwork,requestScopes,snapshotReads:()=>snapshotReads.slice(),updated:()=>updated,opened:()=>opened,closed:()=>closed};
 }
 
 function busySnapshot(): LegalworkSessionSnapshot {
@@ -365,7 +372,7 @@ async function renderSessionSurface(f:Awaited<ReturnType<typeof fixture>>, sessi
  const [{SessionSurface},{LocalProvider},{ShellConfigProvider},{LegalworkControlProvider},{WorkspaceProvider}]=await Promise.all([
   import("../src/react-app/domains/session/surface/session-surface"),import("../src/react-app/kernel/local-provider"),import("../src/react-app/shell/shell-config"),import("../src/react-app/shell/control/control-provider"),import("../src/react-app/shell/workspace-provider"),
  ]);
- const surface=createElement(SessionSurface,{client:f.legalwork,workspaceId:f.input.workspaceId,workspaceRoot:"/synthetic/selected",sessionId,opencodeBaseUrl:f.input.baseUrl,legalworkToken:f.input.legalworkToken,developerMode:false,modelLabel:"Synthetic",onModelClick:()=>{},modelPickerOpen:false,selectedModel:{providerID:"synthetic",modelID:"synthetic"},onModelPickerOpenChange:()=>{},onModelChange:()=>{},onSendDraft:()=>{},onDraftChange:()=>{},attachmentsEnabled:false,attachmentsDisabledReason:null,modelVariantLabel:"Synthetic",modelVariant:null,onModelVariantChange:()=>{},agentLabel:"Synthetic",selectedAgent:null,listAgents:async()=>[],onSelectAgent:()=>{},listCommands:async()=>[],recentFiles:[],searchFiles:async()=>[],isRemoteWorkspace:false,isSandboxWorkspace:false});
+ const surface=createElement(SessionSurface,{client:f.legalwork,workspaceId:f.input.workspaceId,workspaceRoot:f.input.directory ?? "/synthetic/selected",sessionId,opencodeBaseUrl:f.input.baseUrl,legalworkToken:f.input.legalworkToken,developerMode:false,modelLabel:"Synthetic",onModelClick:()=>{},modelPickerOpen:false,selectedModel:{providerID:"synthetic",modelID:"synthetic"},onModelPickerOpenChange:()=>{},onModelChange:()=>{},onSendDraft:()=>{},onDraftChange:()=>{},attachmentsEnabled:false,attachmentsDisabledReason:null,modelVariantLabel:"Synthetic",modelVariant:null,onModelVariantChange:()=>{},agentLabel:"Synthetic",selectedAgent:null,listAgents:async()=>[],onSelectAgent:()=>{},listCommands:async()=>[],recentFiles:[],searchFiles:async()=>[],isRemoteWorkspace:false,isSandboxWorkspace:false});
  const previousWindow=Object.getOwnPropertyDescriptor(globalThis,"window");
  Object.defineProperty(globalThis,"window",{configurable:true,value:{localStorage:{getItem:()=>null},addEventListener:()=>{},removeEventListener:()=>{}}});
  let html:string;
@@ -1196,5 +1203,222 @@ for(const mode of ["accepted-before-read","waiting","compacting"] as const){
   expect(getDocumentGeneration(`safe-${f.input.workspaceId}`)?.nativeRevision).toBe(0);
   if(mode==="waiting")expect(activity?.waitingPermissionIds).toEqual(["synthetic-permission"]);
   if(mode==="compacting")expect(activity?.compacting).toBe(true);
+ });
+}
+
+
+// SSR extracts production query functions; QueryObserver executes their actual SDK reads.
+function observeSurfaceReader<T>(key:readonly string[], hydrate=false){
+ const client=getReactQueryClient(),query=client.getQueryCache().find({queryKey:key,exact:true});
+ if(!query)throw new Error("Actual Surface query missing");
+ const observer=new QueryObserver<T>(client,{...query.options,queryKey:key,enabled:false});
+ const release=observer.subscribe(result=>{if(hydrate&&result.data)for(let caller=0;caller<2;caller++)seedSessionState(key[1],result.data as LegalworkSessionSnapshot);});
+ cleanups.push(async()=>release());return observer;
+}
+for(const direction of ["snapshot","status"] as const)for(const scope of ["same","auth","base","directory"] as const)for(const later of ["idle","busy"] as const){
+ test(`producing HTTP scope ${direction} ${scope} later-${later}`,async()=>{
+  const raw:SessionStatus={type:later==="idle"?"busy":"idle"},value=busySnapshot();value.status=raw;
+  let finish:(()=>void)|undefined;
+  const reply=(response:ServerResponse,body:unknown,held:boolean)=>{response.writeHead(200,{"content-type":"application/json"});const text=JSON.stringify(body);if(held){response.flushHeaders();finish=()=>response.end(text);}else response.end(text);};
+  const f=await fixture({allowConnectionChanges:true,directory:"/synthetic/selected",snapshot:value,
+   snapshotReply:(_limit,response)=>reply(response,{item:{...value,status:direction==="snapshot"?raw:{type:later}}},direction==="snapshot"),
+   statusReply:response=>reply(response,{"session-one":direction==="status"?raw:{type:later}},direction==="status"),
+  });
+  await renderSessionSurface(f);
+  const key=direction==="snapshot"?snapshotKey(f.input.workspaceId,"session-one"):statusKey(f.input.workspaceId,"session-one");
+  const old=observeSurfaceReader<LegalworkSessionSnapshot|SessionStatus>(key,direction==="snapshot");
+  const pending=old.refetch();await waitFor(()=>Boolean(finish));
+  let other=f;
+  if(scope==="base")other=await fixture({workspaceId:f.input.workspaceId,directory:f.input.directory,snapshot:{...value,status:{type:later}},statusReply:response=>reply(response,{"session-one":{type:later}},false)});
+  else if(scope!=="same"){
+   const input={...f.input,...(scope==="auth"?{legalworkToken:"synthetic-other-read-token"}:{directory:"/synthetic/other"})};
+   other={...f,input,legalwork:createLegalworkServerClient({baseUrl:input.baseUrl,token:input.legalworkToken})};
+  }
+  await renderSessionSurface(other);
+  const laterKey=direction==="snapshot"?statusKey(f.input.workspaceId,"session-one"):snapshotKey(f.input.workspaceId,"session-one");
+  await observeSurfaceReader<LegalworkSessionSnapshot|SessionStatus>(laterKey,direction==="status").refetch();finish?.();await pending;
+  const result=old.getCurrentResult().data;
+  expect(result && ("session" in result?result.status.type:result.type)).toBe(scope==="same"?later:raw.type);
+  const requests=[...f.requestScopes,...(other===f?[]:other.requestScopes)].filter(request=>request.path!=="/event");
+  expect(requests.some(request=>request.authorization===`Bearer ${other.input.legalworkToken}`)).toBe(true);
+  if(direction==="snapshot")expect(requests.some(request=>request.path==="/session/status"&&request.directory===other.input.directory)).toBe(true);
+ });
+}
+for(const mode of ["permission","permission-v2","question","compaction"] as const){
+ test(`older actual status read preserves native ${mode}`,async()=>{
+  const value=busySnapshot();let finish:(()=>void)|undefined;
+  const f=await fixture({directory:"/synthetic/selected",snapshot:value,statusReply:(response,read)=>{
+   response.writeHead(200,{"content-type":"application/json"});const body=JSON.stringify({"session-one":{type:"idle"}});
+   if(read===1){response.flushHeaders();finish=()=>response.end(body);}else response.end(body);
+  }});
+  await renderSessionSurface(f);
+  const client=getReactQueryClient(),snapshots=observeSurfaceReader<LegalworkSessionSnapshot>(snapshotKey(f.input.workspaceId,"session-one"),true);
+  const statuses=observeSurfaceReader<SessionStatus>(statusKey(f.input.workspaceId,"session-one"));
+  await snapshots.refetch();await f.wireStatus({type:"busy"});
+  f.wire({type:"session.updated",properties:{info:{id:"session-one",time:{created:1,updated:2}}}});await waitFor(()=>f.updated()===1);
+  const pending=statuses.refetch();await waitFor(()=>Boolean(finish));
+  const type=mode==="compaction"?"session.next.compaction.started":mode==="permission-v2"?"permission.v2.asked":`${mode}.asked`;
+  f.wire({type,properties:{id:"synthetic-guard",sessionID:"session-one",permission:"read",patterns:[],always:[],metadata:{},questions:[]}});
+  const record=()=>useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"];
+  await waitFor(()=>record()?.status===(mode==="compaction"?"compacting":"waiting"));
+  finish?.();await pending;
+  expect(record()).toMatchObject({runActive:true,status:mode==="compaction"?"compacting":"waiting",compacting:mode==="compaction"});
+  expect(record()?.waitingPermissionIds).toEqual(mode.startsWith("permission")?["synthetic-guard"]:[]);
+  expect(record()?.waitingQuestionIds).toEqual(mode==="question"?["synthetic-guard"]:[]);
+  expect(client.getQueryData<SessionStatus>(statusKey(f.input.workspaceId,"session-one"))?.type).toBe("busy");
+  expect(client.getQueryData<LegalworkSessionSnapshot>(snapshotKey(f.input.workspaceId,"session-one"))?.status.type).toBe("busy");
+  expect(statuses.getCurrentResult().fetchStatus).toBe("idle");
+  f.wire({type:mode==="compaction"?"session.next.compaction.ended":mode==="permission-v2"?"permission.v2.replied":`${mode}.replied`,properties:{sessionID:"session-one",requestID:"synthetic-guard"}});
+  await waitFor(()=>record()?.status==="thinking");
+  await statuses.refetch();
+  expect(record()).toMatchObject({runActive:false,status:"idle",compacting:false,waitingPermissionIds:[],waitingQuestionIds:[]});
+  expect(client.getQueryData<LegalworkSessionSnapshot>(snapshotKey(f.input.workspaceId,"session-one"))?.status.type).toBe("idle");
+ });
+}
+
+
+for(const mode of ["idle","terminal-idle","metadata","accepted","accepted-same-busy","other-auth","other-base","other-directory"] as const){
+ test(`actual status guard control ${mode}`,async()=>{
+  const value=busySnapshot();let finish:(()=>void)|undefined;
+  const f=await fixture({allowConnectionChanges:true,directory:"/synthetic/selected",snapshot:value,statusReply:response=>{response.writeHead(200,{"content-type":"application/json"});response.flushHeaders();finish=()=>response.end(JSON.stringify({"session-one":{type:"idle"}}));}});
+  await renderSessionSurface(f);
+  const client=getReactQueryClient(),snapshots=observeSurfaceReader<LegalworkSessionSnapshot>(snapshotKey(f.input.workspaceId,"session-one"),true),statuses=observeSurfaceReader<SessionStatus>(statusKey(f.input.workspaceId,"session-one"));
+  await snapshots.refetch();await f.wireStatus({type:"busy"});
+  f.wire({type:"session.updated",properties:{info:{id:"session-one",time:{created:1,updated:2}}}});await waitFor(()=>f.updated()===1);
+  const pending=statuses.refetch();await waitFor(()=>Boolean(finish));
+  const record=()=>useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"];
+  if(mode==="idle"||mode==="terminal-idle"){
+   f.wire({type:"permission.asked",properties:{id:"synthetic-guard",sessionID:"session-one",permission:"read",patterns:[],always:[],metadata:{}}});
+   await waitFor(()=>record()?.status==="waiting");
+   if(mode==="idle")await f.wireStatus({type:"idle"});
+   else{f.wire({type:"session.idle",properties:{sessionID:"session-one"}});await waitFor(()=>record()?.status==="idle");}
+  }else if(mode==="metadata"){
+   const before=record()?.executionEvidence;
+   useSessionActivityStore.getState().replaceWaitingRequests(f.input.workspaceId,"session-one","permission",["hydrated-wait"]);
+   useSessionActivityStore.getState().markMessageRole(f.input.workspaceId,"session-one","metadata-role","assistant");
+   f.wire({type:"session.updated",properties:{info:{id:"session-one",title:"Synthetic metadata during read",time:{created:1,updated:3}}}});await waitFor(()=>f.updated()===2);
+   expect(record()?.executionEvidence).toBe(before);
+  }else if(mode.startsWith("accepted")){
+   if(mode==="accepted")await f.wireStatus({type:"idle"});
+   await submitBoundDocumentGeneration({key:`status-${f.input.workspaceId}`,metadata:{projectId:f.input.workspaceId,workspaceId:f.input.workspaceId,baseUrl:f.input.baseUrl,root:"/synthetic/selected",directory:"/synthetic/selected"},preflight:async()=>{},create:async()=>"session-one",send:async()=>{}});
+   expect(getDocumentGeneration(`status-${f.input.workspaceId}`)?.nativeRevision).toBe(0);
+  }else{
+   if(mode==="other-base"){
+    const other=await fixture({workspaceId:f.input.workspaceId,directory:f.input.directory,token:f.input.legalworkToken});
+    other.wire({type:"session.next.compaction.started",properties:{sessionID:"session-one"}});
+   }else{
+    const input={...f.input,...(mode==="other-auth"?{legalworkToken:"synthetic-activity-other"}:{directory:"/synthetic/other"})};
+    const owner=ensureWorkspaceSessionSync(input),release=trackWorkspaceSessionSync(input,"session-one");
+    cleanups.push(async()=>{release();owner();__disposeWorkspaceSessionSyncForTest(input);});
+    await waitFor(()=>f.opened()===2);
+    f.wire({type:"session.next.compaction.started",properties:{sessionID:"session-one"}},{token:input.legalworkToken,directory:input.directory});
+   }
+   await waitFor(()=>record()?.compacting===true);
+  }
+  finish?.();await pending;
+  const expected=mode.startsWith("accepted")?"busy":"idle";
+  expect(client.getQueryData<SessionStatus>(statusKey(f.input.workspaceId,"session-one"))?.type).toBe(expected);
+  expect(client.getQueryData<LegalworkSessionSnapshot>(snapshotKey(f.input.workspaceId,"session-one"))?.status.type).toBe(expected);
+  expect(record()?.runActive).toBe(expected==="busy");
+  if(expected==="idle")expect(record()).toMatchObject({waitingPermissionIds:[],waitingQuestionIds:[],compacting:false});
+  if(mode==="metadata")expect(client.getQueryData<LegalworkSessionSnapshot>(snapshotKey(f.input.workspaceId,"session-one"))?.session.title).toBe("Synthetic metadata during read");
+ });
+}
+
+for(const direction of ["snapshot","status"] as const)for(const mode of ["abort","remove","replacement"] as const){
+ test(`producing reader cleanup ${direction} ${mode}`,async()=>{
+  const value=busySnapshot();let oldBody:(()=>void)|undefined,newBody:(()=>void)|undefined;
+  const reply=(response:ServerResponse,body:unknown,read:number)=>{response.writeHead(200,{"content-type":"application/json"});response.flushHeaders();const complete=()=>response.end(JSON.stringify(body));if(read===1)oldBody=complete;else newBody=complete;};
+  const f=await fixture({directory:"/synthetic/selected",snapshot:value,snapshotReply:(_limit,response,read)=>reply(response,{item:value},read),statusReply:(response,read)=>reply(response,{"session-one":{type:"busy"}},read)});
+  await renderSessionSurface(f);
+  const client=getReactQueryClient(),key=direction==="snapshot"?snapshotKey(f.input.workspaceId,"session-one"):statusKey(f.input.workspaceId,"session-one");
+  const observer=observeSurfaceReader<LegalworkSessionSnapshot|SessionStatus>(key);
+  const subscribe=useSessionActivityStore.subscribe;let active=0;
+  const spy=spyOn(useSessionActivityStore,"subscribe").mockImplementation(listener=>{active++;const release=subscribe(listener);return()=>{active--;release();};});
+  cleanups.push(async()=>spy.mockRestore());
+  const pending=observer.refetch();await waitFor(()=>Boolean(oldBody));expect(active).toBe(1);
+  if(mode==="remove")client.removeQueries({queryKey:key,exact:true});
+  else await client.cancelQueries({queryKey:key,exact:true},{silent:true,revert:false});
+  await waitFor(()=>active===0);
+  const before=useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]?.executionEvidence;
+  if(mode==="replacement"){
+   const replacement=observer.refetch();await waitFor(()=>Boolean(newBody));expect(active).toBe(1);
+   oldBody?.();await pending;
+   expect(observer.getCurrentResult().fetchStatus).toBe("fetching");expect(active).toBe(1);
+   expect(useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]?.executionEvidence).toBe(before);
+   newBody?.();await replacement;
+   expect(observer.getCurrentResult().isSuccess).toBe(true);
+   expect(useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]?.executionEvidence?.source).toBe("read");
+  }else{oldBody?.();await pending;expect(useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]?.executionEvidence).toBe(before);}
+  expect(active).toBe(0);
+ });
+}
+
+test("validated read token changes only provenance and never serializes its scope",async()=>{
+ const value=busySnapshot(),f=await fixture({directory:"/synthetic/selected",token:"synthetic-read-private-token",snapshot:value});
+ await f.wireStatus({type:"busy"});
+ await renderSessionSurface(f);
+ const before=useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"];
+ const observer=observeSurfaceReader<LegalworkSessionSnapshot>(snapshotKey(f.input.workspaceId,"session-one"));await observer.refetch();
+ const after=useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"];
+ expect(after).toEqual({...before,executionEvidence:after?.executionEvidence});
+ expect(after?.executionEvidence?.source).toBe("read");
+ expect(after?.executionEvidence?.scope?.(`${f.input.workspaceId}:${f.input.baseUrl}:${f.input.legalworkToken}:${f.input.directory}`)).toBe(true);
+ for(const input of [{...f.input,legalworkToken:"other"},{...f.input,baseUrl:"http://synthetic-other"},{...f.input,directory:"/synthetic/other"}])expect(after?.executionEvidence?.scope?.(`${input.workspaceId}:${input.baseUrl}:${input.legalworkToken}:${input.directory}`)).toBe(false);
+ expect(JSON.stringify(after)).not.toContain(f.input.legalworkToken);expect(JSON.stringify(after)).not.toContain(f.input.baseUrl);
+ useSessionActivityStore.getState().removeSession(f.input.workspaceId,"session-one");expect(useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]).toBeUndefined();
+});
+
+
+test("fresh status poll after revision-zero acceptance keeps the existing HTTP recovery contract",async()=>{
+ const f=await fixture({directory:"/synthetic/selected",statusReply:response=>{response.writeHead(200,{"content-type":"application/json"});response.end(JSON.stringify({"session-one":{type:"idle"}}));}});
+ await submitBoundDocumentGeneration({key:`fresh-${f.input.workspaceId}`,metadata:{projectId:f.input.workspaceId,workspaceId:f.input.workspaceId,baseUrl:f.input.baseUrl,root:"/synthetic/selected",directory:"/synthetic/selected"},preflight:async()=>{},create:async()=>"session-one",send:async()=>{}});
+ await renderSessionSurface(f);
+ const status=observeSurfaceReader<SessionStatus>(statusKey(f.input.workspaceId,"session-one"));await status.refetch();
+ expect(status.getCurrentResult().data?.type).toBe("idle");
+ expect(getDocumentGeneration(`fresh-${f.input.workspaceId}`)).toMatchObject({phase:"accepted",nativeRevision:0,nativeRunObserved:false});
+});
+
+
+for(const direction of ["snapshot","status"] as const){
+ test(`manual hydration cannot impersonate a producing ${direction} read`,async()=>{
+  const value=busySnapshot();let finish:(()=>void)|undefined;
+  const reply=(response:ServerResponse,body:unknown)=>{response.writeHead(200,{"content-type":"application/json"});response.flushHeaders();finish=()=>response.end(JSON.stringify(body));};
+  const f=await fixture({directory:"/synthetic/selected",snapshot:value,snapshotReply:(_limit,response)=>reply(response,{item:value}),statusReply:response=>reply(response,{"session-one":{type:"busy"}})});
+  await renderSessionSurface(f);
+  const client=getReactQueryClient(),key=direction==="snapshot"?snapshotKey(f.input.workspaceId,"session-one"):statusKey(f.input.workspaceId,"session-one");
+  const observer=observeSurfaceReader<LegalworkSessionSnapshot|SessionStatus>(key);
+  const pending=observer.refetch();await waitFor(()=>Boolean(finish));
+  const store=useSessionActivityStore.getState(),before=store.recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]?.executionEvidence;
+  client.setQueryData(snapshotKey(f.input.workspaceId,"session-one"),{...value,status:{type:"idle"}});
+  client.setQueryData(statusKey(f.input.workspaceId,"session-one"),{type:"idle"});
+  store.seedWorkspaceSessions(f.input.workspaceId,[{id:"session-one",status:{type:"idle"}}]);
+  store.seedSessionRun(f.input.workspaceId,"session-one",{type:"idle"},false);
+  store.replaceWaitingRequests(f.input.workspaceId,"session-one","question",[]);
+  expect(useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]?.executionEvidence).toBe(before);
+  finish?.();await pending;
+  const result=observer.getCurrentResult().data;expect(result&&("session" in result?result.status.type:result.type)).toBe("busy");
+ });
+}
+
+
+for(const direction of ["snapshot","status"] as const)for(const different of ["workspace","session"] as const){
+ test(`producing read keeps another ${different} isolated from ${direction}`,async()=>{
+  const value=busySnapshot();let finish:(()=>void)|undefined;
+  const reply=(response:ServerResponse,body:unknown,hold:boolean)=>{response.writeHead(200,{"content-type":"application/json"});const text=JSON.stringify(body);if(hold){response.flushHeaders();finish=()=>response.end(text);}else response.end(text);};
+  const f=await fixture({allowConnectionChanges:true,directory:"/synthetic/selected",snapshot:value,
+   snapshotReply:(_limit,response,_read,sessionId)=>reply(response,{item:{...value,session:{...value.session,id:sessionId},status:{type:direction==="snapshot"?"busy":"idle"}}},direction==="snapshot"),
+   statusReply:response=>reply(response,{"session-one":{type:direction==="status"?"busy":"idle"},"session-two":{type:"idle"}},direction==="status"),
+  });
+  await renderSessionSurface(f);
+  const oldKey=direction==="snapshot"?snapshotKey(f.input.workspaceId,"session-one"):statusKey(f.input.workspaceId,"session-one");
+  const old=observeSurfaceReader<LegalworkSessionSnapshot|SessionStatus>(oldKey);
+  const pending=old.refetch();await waitFor(()=>Boolean(finish));
+  const other={...f,input:{...f.input,workspaceId:different==="workspace"?randomUUID():f.input.workspaceId}},sessionId=different==="session"?"session-two":"session-one";
+  await renderSessionSurface(other,sessionId);
+  const otherKey=direction==="snapshot"?statusKey(other.input.workspaceId,sessionId):snapshotKey(other.input.workspaceId,sessionId);
+  await observeSurfaceReader<LegalworkSessionSnapshot|SessionStatus>(otherKey).refetch();
+  finish?.();await pending;
+  const result=old.getCurrentResult().data;expect(result&&("session" in result?result.status.type:result.type)).toBe("busy");
  });
 }

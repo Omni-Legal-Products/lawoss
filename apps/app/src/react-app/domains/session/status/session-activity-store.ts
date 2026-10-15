@@ -8,14 +8,15 @@ export type SessionActivityStatus = "idle" | "thinking" | "responding" | "error"
 type SessionMessageRole = "assistant" | "system" | "user";
 
 export type SessionExecutionEvidence = {
-  /** Native transport identity, or a local action in this workspace/session. */
+  source: "action" | "read" | "activity";
+  /** Exact transport identity, or a local action in this workspace/session. */
   scope: ((candidate: string) => boolean) | null;
   status: unknown;
   error: boolean;
 };
 
 type SessionActivityRecord = {
-  /** Ephemeral action token; hydration and role/metadata updates preserve it. */
+  /** Ephemeral execution token; hydration and role/metadata updates preserve it. */
   executionEvidence?: SessionExecutionEvidence;
   status: SessionActivityStatus;
   runActive: boolean;
@@ -45,13 +46,14 @@ type SessionActivityStore = {
   seedWorkspaceSessions: (workspaceId: string, sessions: SessionLike[]) => void;
   seedSessionRun: (workspaceId: string, sessionId: string, status: unknown, assistantOutput: boolean) => void;
   setRunStatus: (workspaceId: string, sessionId: string, status: unknown, scope?: ((candidate: string) => boolean) | null | false) => void;
+  recordExecutionRead: (workspaceId: string, sessionId: string, status: unknown, scope: (candidate: string) => boolean) => void;
   markMessageRole: (workspaceId: string, sessionId: string, messageId: string, role: SessionMessageRole) => void;
   markAssistantOutput: (workspaceId: string, sessionId: string, messageId?: string, options?: { allowUnknownMessageRole?: boolean }) => void;
-  setWaitingRequest: (workspaceId: string, sessionId: string, kind: "permission" | "question", requestId: string, waiting: boolean) => void;
+  setWaitingRequest: (workspaceId: string, sessionId: string, kind: "permission" | "question", requestId: string, waiting: boolean, scope?: (candidate: string) => boolean) => void;
   replaceWaitingRequests: (workspaceId: string, sessionId: string, kind: "permission" | "question", requestIds: string[]) => void;
   setError: (workspaceId: string, sessionId: string, message?: string, errorUserMessageId?: string | null, scope?: ((candidate: string) => boolean) | null) => void;
   clearError: (workspaceId: string, sessionId: string) => void;
-  setCompacting: (workspaceId: string, sessionId: string, compacting: boolean) => void;
+  setCompacting: (workspaceId: string, sessionId: string, compacting: boolean, scope?: (candidate: string) => boolean) => void;
   removeSession: (workspaceId: string, sessionId: string) => void;
 };
 
@@ -227,7 +229,7 @@ export const useSessionActivityStore = create<SessionActivityStore>((set, get) =
       const runActive = normalized === "running" || normalized === "retry";
       return {
         ...record,
-        ...(scope === false ? {} : { executionEvidence: { scope, status, error: false } }),
+        ...(scope === false ? {} : { executionEvidence: { source: "action" as const, scope, status, error: false } }),
         runActive,
         assistantOutput: runActive && record.runActive ? record.assistantOutput : false,
         errorActive: runActive ? false : record.errorActive,
@@ -238,6 +240,20 @@ export const useSessionActivityStore = create<SessionActivityStore>((set, get) =
         waitingQuestionIds: runActive ? record.waitingQuestionIds : [],
       };
     }));
+  },
+  recordExecutionRead: (workspaceId, sessionId, status, scope) => {
+    set((state) => {
+      const workspaceRecords = state.recordsByWorkspaceId[workspaceId] ?? {};
+      const record = workspaceRecords[sessionId] ?? createRecord();
+      // A validated read advances provenance only, not the activity clock or
+      // run/error/wait fields used by hydration and generation lifecycle.
+      return { recordsByWorkspaceId: {
+        ...state.recordsByWorkspaceId,
+        [workspaceId]: { ...workspaceRecords, [sessionId]: {
+          ...record, executionEvidence: { source: "read", scope, status, error: record.errorActive },
+        } },
+      } };
+    });
   },
   markMessageRole: (workspaceId, sessionId, messageId, role) => {
     const workspace = workspaceId.trim();
@@ -264,7 +280,7 @@ export const useSessionActivityStore = create<SessionActivityStore>((set, get) =
       return { ...record, assistantOutput: true };
     }));
   },
-  setWaitingRequest: (workspaceId, sessionId, kind, requestId, waiting) => {
+  setWaitingRequest: (workspaceId, sessionId, kind, requestId, waiting, scope) => {
     const workspace = workspaceId.trim();
     const session = sessionId.trim();
     const request = requestId.trim();
@@ -273,6 +289,7 @@ export const useSessionActivityStore = create<SessionActivityStore>((set, get) =
       const key = kind === "permission" ? "waitingPermissionIds" : "waitingQuestionIds";
       return {
         ...record,
+        ...(scope ? { executionEvidence: { source: "activity" as const, scope, status: undefined, error: record.errorActive } } : {}),
         [key]: waiting ? addValue(record[key], request) : removeValue(record[key], request),
       };
     }));
@@ -293,7 +310,7 @@ export const useSessionActivityStore = create<SessionActivityStore>((set, get) =
     if (!workspace || !session) return;
     set((state) => updateRecord(state, workspace, session, (record) => ({
       ...record,
-      executionEvidence: { scope, status: undefined, error: true },
+      executionEvidence: { source: "action", scope, status: undefined, error: true },
       errorActive: true,
       errorMessage: message ? message : t("session.failed"),
       errorUserMessageId: errorUserMessageId?.trim() || null,
@@ -313,12 +330,13 @@ export const useSessionActivityStore = create<SessionActivityStore>((set, get) =
       errorUserMessageId: null,
     })));
   },
-  setCompacting: (workspaceId, sessionId, compacting) => {
+  setCompacting: (workspaceId, sessionId, compacting, scope) => {
     const workspace = workspaceId.trim();
     const session = sessionId.trim();
     if (!workspace || !session) return;
     set((state) => updateRecord(state, workspace, session, (record) => ({
       ...record,
+      ...(scope ? { executionEvidence: { source: "activity" as const, scope, status: undefined, error: compacting ? false : record.errorActive } } : {}),
       compacting,
       errorActive: compacting ? false : record.errorActive,
       errorMessage: compacting ? null : record.errorMessage,

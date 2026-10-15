@@ -795,6 +795,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         const snapshot = (await props.client.getSessionSnapshot(props.workspaceId, props.sessionId, fullHistorySession.current === props.sessionId ? { signal } : { limit: 140, signal })).item;
         const status = execution.status(snapshot.status);
         seedTodoState(props.workspaceId, props.sessionId, snapshot.todos, startedAt);
+        execution.complete(status, true);
         return { ...snapshot, status };
       } finally { execution.dispose(); }
     },
@@ -819,6 +820,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         const status = execution.status(statuses[props.sessionId] ?? IDLE_STATUS);
         useSessionActivityStore.getState().setRunStatus(props.workspaceId, props.sessionId, status, false);
         publishSessionStatus(props.workspaceId, props.sessionId, status);
+        execution.complete(status);
         return status;
       } finally { execution.dispose(); }
     },

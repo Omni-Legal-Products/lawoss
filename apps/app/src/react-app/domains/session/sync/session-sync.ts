@@ -93,7 +93,22 @@ function executionScope(input: SyncOptions) {
 export function observeSessionReadExecution(input: SyncOptions, sessionId: string, query: Query | undefined, signal: AbortSignal) {
   const client = getReactQueryClient();
   const scope = syncKey(input);
-  let latest: { status: SessionStatus | undefined; error: boolean } | undefined;
+  const read = query?.promise;
+  const isCurrent = () => query !== undefined && query.promise === read
+    && client.getQueryCache().find({ queryKey: query.queryKey, exact: true }) === query;
+  const validate = () => {
+    signal.throwIfAborted();
+    if (!isCurrent()) throw new CancelledError({ silent: true });
+  };
+  const discard = (): never => {
+    validate();
+    // No await: cancellation belongs to the captured read only. A synchronous
+    // subscriber can start a replacement, which must never be marked idle.
+    void query!.cancel({ silent: true, revert: false });
+    if (isCurrent()) query!.setState({ fetchStatus: "idle" });
+    throw new CancelledError({ silent: true });
+  };
+  let latest: { source: "action" | "read" | "activity"; status: SessionStatus | undefined; error: boolean } | undefined;
   const releaseActivity = useSessionActivityStore.subscribe((next, previous) => {
     const evidence = next.recordsByWorkspaceId[input.workspaceId]?.[sessionId]?.executionEvidence;
     if (!evidence || evidence === previous.recordsByWorkspaceId[input.workspaceId]?.[sessionId]?.executionEvidence) return;
@@ -102,38 +117,39 @@ export function observeSessionReadExecution(input: SyncOptions, sessionId: strin
     const status = value && typeof value === "object" && "type" in value
       && (value.type === "idle" || value.type === "busy" || value.type === "retry")
       ? value as SessionStatus : undefined;
-    latest = { status, error: evidence.error };
+    latest = { source: evidence.source, status, error: evidence.error };
   });
-  // A valid later poll is also newer execution evidence. Hydration/native
-  // setQueryData writes are manual and must not impersonate a completed read.
-  const statusQuery = client.getQueryCache().find({ queryKey: statusKey(input.workspaceId, sessionId), exact: true });
-  const snapshotQuery = client.getQueryCache().find({ queryKey: snapshotKey(input.workspaceId, sessionId), exact: true });
-  const releaseStatus = client.getQueryCache().subscribe((event) => {
-    if (event.type !== "updated" || event.action.type !== "success" || event.action.manual) return;
-    const activity = useSessionActivityStore.getState().recordsByWorkspaceId[input.workspaceId]?.[sessionId];
-    const error = activity?.errorActive ?? false;
-    if (event.query === statusQuery) latest = { status: event.action.data as SessionStatus, error };
-    else if (event.query === snapshotQuery) {
-      const status = (event.action.data as LegalworkSessionSnapshot).status;
-      // Snapshot hydration intentionally cannot close accepted/waiting work.
-      // Such an idle read is not completion evidence for a concurrent poll.
-      if (!isLiveStatus(status) && activity && activity.status !== "idle") return;
-      latest = { status, error };
-    }
-  });
+  let disposed = false;
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    releaseActivity();
+    signal.removeEventListener("abort", dispose);
+  };
+  signal.addEventListener("abort", dispose, { once: true });
+  if (signal.aborted) dispose();
+  // The token is issued by the producing reader, never inferred from a shared
+  // Query object's mutable options or an unscoped cache success notification.
+  const producerScope = executionScope(input);
   return {
     status(status: SessionStatus): SessionStatus {
-      signal.throwIfAborted();
-      if (latest?.error) {
-        // Cancel only this still-current read, without restoring stale query
-        // data/metadata or converting a native failure into manufactured idle.
-        void query?.cancel({ silent: true, revert: false });
-        query?.setState({ fetchStatus: "idle" });
-        throw new CancelledError({ silent: true });
+      validate();
+      if (latest?.error) return discard();
+      if (latest?.source === "activity" && !isLiveStatus(status)) {
+        const activity = useSessionActivityStore.getState().recordsByWorkspaceId[input.workspaceId]?.[sessionId];
+        if (activity && activity.status !== "idle") return discard();
       }
       return latest?.status ?? status;
     },
-    dispose() { releaseActivity(); releaseStatus(); },
+    complete(status: SessionStatus, snapshot = false) {
+      validate();
+      const activity = useSessionActivityStore.getState().recordsByWorkspaceId[input.workspaceId]?.[sessionId];
+      // Conservative snapshot hydration cannot close accepted/waiting work;
+      // its raw idle must not close a concurrent status read either.
+      if (snapshot && !isLiveStatus(status) && activity && activity.status !== "idle") return;
+      useSessionActivityStore.getState().recordExecutionRead(input.workspaceId, sessionId, status, producerScope);
+    },
+    dispose,
   };
 }
 
@@ -909,13 +925,13 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
 
   if (event.type === "session.next.compaction.started") {
     const sessionId = sessionIdFromProperties(event.properties);
-    if (sessionId) useSessionActivityStore.getState().setCompacting(workspaceId, sessionId, true);
+    if (sessionId) useSessionActivityStore.getState().setCompacting(workspaceId, sessionId, true, executionScope(entry.input));
     return;
   }
 
   if (event.type === "session.next.compaction.ended" || event.type === "session.compacted") {
     const sessionId = sessionIdFromProperties(event.properties);
-    if (sessionId) useSessionActivityStore.getState().setCompacting(workspaceId, sessionId, false);
+    if (sessionId) useSessionActivityStore.getState().setCompacting(workspaceId, sessionId, false, executionScope(entry.input));
     return;
   }
 
@@ -941,7 +957,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "permission.asked") {
     const permission = event.properties as PermissionRequest;
     if (!permission?.id || !permission.sessionID) return;
-    useSessionActivityStore.getState().setWaitingRequest(workspaceId, permission.sessionID, "permission", permission.id, true);
+    useSessionActivityStore.getState().setWaitingRequest(workspaceId, permission.sessionID, "permission", permission.id, true, executionScope(entry.input));
     if (!isTrackedSession(entry, permission.sessionID)) return;
     const receivedAt = Date.now();
     queryClient.setQueryData<PendingPermission[]>(permissionKey(workspaceId, permission.sessionID), (current = []) => {
@@ -958,7 +974,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "permission.v2.asked") {
     const permission = event.properties as PermissionV2Request;
     if (!permission?.id || !permission.sessionID) return;
-    useSessionActivityStore.getState().setWaitingRequest(workspaceId, permission.sessionID, "permission", permission.id, true);
+    useSessionActivityStore.getState().setWaitingRequest(workspaceId, permission.sessionID, "permission", permission.id, true, executionScope(entry.input));
     if (!isTrackedSession(entry, permission.sessionID)) return;
     const receivedAt = Date.now();
     queryClient.setQueryData<PendingPermission[]>(permissionKey(workspaceId, permission.sessionID), (current = []) => {
@@ -975,7 +991,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "permission.replied" || event.type === "permission.v2.replied") {
     const props = (event.properties ?? {}) as { sessionID?: string; requestID?: string };
     if (!props.sessionID || !props.requestID) return;
-    useSessionActivityStore.getState().setWaitingRequest(workspaceId, props.sessionID, "permission", props.requestID, false);
+    useSessionActivityStore.getState().setWaitingRequest(workspaceId, props.sessionID, "permission", props.requestID, false, executionScope(entry.input));
     if (!isTrackedSession(entry, props.sessionID)) return;
     queryClient.setQueryData<PendingPermission[]>(permissionKey(workspaceId, props.sessionID), (current = []) =>
       current.filter((permission) => permission.id !== props.requestID),
@@ -986,7 +1002,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "question.asked") {
     const question = event.properties as QuestionRequest;
     if (!question?.id || !question.sessionID) return;
-    useSessionActivityStore.getState().setWaitingRequest(workspaceId, question.sessionID, "question", question.id, true);
+    useSessionActivityStore.getState().setWaitingRequest(workspaceId, question.sessionID, "question", question.id, true, executionScope(entry.input));
     if (!isTrackedSession(entry, question.sessionID)) return;
     const receivedAt = Date.now();
     queryClient.setQueryData<PendingQuestion[]>(questionKey(workspaceId, question.sessionID), (current = []) => {
@@ -1003,7 +1019,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "question.replied" || event.type === "question.rejected") {
     const props = (event.properties ?? {}) as { sessionID?: string; requestID?: string };
     if (!props.sessionID || !props.requestID) return;
-    useSessionActivityStore.getState().setWaitingRequest(workspaceId, props.sessionID, "question", props.requestID, false);
+    useSessionActivityStore.getState().setWaitingRequest(workspaceId, props.sessionID, "question", props.requestID, false, executionScope(entry.input));
     if (!isTrackedSession(entry, props.sessionID)) return;
     queryClient.setQueryData<PendingQuestion[]>(questionKey(workspaceId, props.sessionID), (current = []) =>
       current.filter((question) => question.id !== props.requestID),
