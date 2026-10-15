@@ -203,16 +203,137 @@ function observeInstall(child,packages) {
     return projectInstallObservation(value);
   };
 }
+
+// Pinned upstream progress and Bun/Vite source-shaped output are untrusted
+// observations, never authenticated causes or permission to continue the probe.
+const buildScanBytes=64*1024*1024,buildLineLimit=65536;
+const buildProgress=new Map([
+  ['Loaded models.dev snapshot','models-loaded'],
+  ['Building Web UI to embed in the binary','web-ui-enter'],
+  ['building opencode-windows-x64','normal-target-enter'],
+  ['building opencode-windows-x64-baseline','baseline-target-enter'],
+  ['Running smoke test: dist/opencode-windows-x64/bin/opencode --version','normal-smoke-enter'],
+  ['Running smoke test: dist/opencode-windows-x64-baseline/bin/opencode --version','baseline-smoke-enter'],
+  ['Smoke test passed: 1.18.29','smoke-pass'],
+]);
+export function projectBuildObservation(value) {
+  closedKeys(value,['spawnObserved','closeObserved','exitCode','signal','childErrorCode','pipeFailure','scannedBytes','scanLimitReached','stdout','stderr']);
+  for(const key of ['spawnObserved','closeObserved','pipeFailure','scanLimitReached'])assert.equal(typeof value[key],'boolean');
+  assert.ok(value.exitCode===null||exitCode(value.exitCode));assert.ok(signals.includes(value.signal)&&childErrors.includes(value.childErrorCode));
+  assert.ok(value.closeObserved||value.exitCode===null&&value.signal===null);
+  assert.ok(bounded(value.scannedBytes,buildScanBytes));assert.ok(!value.scanLimitReached||value.scannedBytes===buildScanBytes);
+  const common=['scannedBytes','lineCount','oversizedLineCount','incompleteLineCount','unrecognizedLineCount','lineLimitReached'];
+  const out=value.stdout,err=value.stderr;
+  closedKeys(out,[...common,'progressEvents','progressEventDropped','eventLimitReached']);
+  closedKeys(err,[...common,'frozenRefusalSummaryCount','viteBuildFailureSummaryCount','exitSummaries','exitSummaryDropped','summaryLimitReached']);
+  for(const stream of [out,err]) {
+    assert.ok(bounded(stream.scannedBytes,buildScanBytes)&&bounded(stream.lineCount,buildLineLimit)&&bounded(stream.incompleteLineCount,1));
+    assert.ok(bounded(stream.oversizedLineCount,buildLineLimit+1)&&bounded(stream.unrecognizedLineCount,buildLineLimit));
+    assert.equal(typeof stream.lineLimitReached,'boolean');assert.ok(!stream.lineLimitReached||stream.lineCount===buildLineLimit);
+    assert.ok(stream.lineCount+stream.incompleteLineCount<=stream.scannedBytes&&stream.oversizedLineCount*4097<=stream.scannedBytes);
+  }
+  assert.equal(value.scannedBytes,out.scannedBytes+err.scannedBytes);
+  assert.ok(Array.isArray(out.progressEvents)&&out.progressEvents.length<=32&&out.progressEvents.every(event=>[...buildProgress.values()].includes(event)));
+  assert.deepEqual(Object.keys(out.progressEvents),Array.from({length:out.progressEvents.length},(_,index)=>String(index)));
+  assert.ok(bounded(out.progressEventDropped,buildLineLimit));assert.equal(typeof out.eventLimitReached,'boolean');assert.equal(out.eventLimitReached,out.progressEventDropped>0);
+  assert.ok(out.progressEventDropped===0||out.progressEvents.length===32);
+  for(const key of ['frozenRefusalSummaryCount','viteBuildFailureSummaryCount','exitSummaryDropped'])assert.ok(bounded(err[key],buildLineLimit));
+  assert.equal(typeof err.summaryLimitReached,'boolean');assert.equal(err.summaryLimitReached,err.exitSummaryDropped>0);
+  assert.ok(Array.isArray(err.exitSummaries)&&err.exitSummaries.length<=16);assert.ok(err.exitSummaryDropped===0||err.exitSummaries.length===16);
+  assert.deepEqual(Object.keys(err.exitSummaries),Array.from({length:err.exitSummaries.length},(_,index)=>String(index)));
+  const seen=new Set();let matched=err.frozenRefusalSummaryCount+err.viteBuildFailureSummaryCount+err.exitSummaryDropped;
+  const exitSummaries=err.exitSummaries.map(row=>{
+    assert.ok(object(row)&&['nested-build','lifecycle'].includes(row.role));
+    closedKeys(row,['role','exitCode','count',...(row.role==='lifecycle'?['script']:[])]);
+    assert.ok(exitCode(row.exitCode)&&bounded(row.count,buildLineLimit)&&row.count>0);
+    if(row.role==='lifecycle')assert.ok(scripts.includes(row.script));
+    const key=`${row.role}:${row.script??''}:${row.exitCode}`;assert.ok(!seen.has(key));seen.add(key);matched+=row.count;
+    return Object.freeze({...row});
+  });
+  for(const [stream,recognized] of [[out,out.progressEvents.length+out.progressEventDropped],[err,matched]]) {
+    const accounted=recognized+stream.unrecognizedLineCount+stream.oversizedLineCount;
+    assert.ok(stream.lineCount<=accounted&&accounted<=stream.lineCount+stream.incompleteLineCount&&recognized+stream.unrecognizedLineCount<=stream.lineCount);
+  }
+  return Object.freeze({spawnObserved:value.spawnObserved,closeObserved:value.closeObserved,exitCode:value.exitCode,signal:value.signal,childErrorCode:value.childErrorCode,pipeFailure:value.pipeFailure,
+    scannedBytes:value.scannedBytes,scanLimitReached:value.scanLimitReached,
+    stdout:Object.freeze({...out,progressEvents:Object.freeze([...out.progressEvents])}),stderr:Object.freeze({...err,exitSummaries:Object.freeze(exitSummaries)})});
+}
+function observeBuild(child,packages) {
+  assert.ok(Array.isArray(packages)&&packages.length>0&&packages.length<=128&&packages.every(packageName));
+  const allowed=new Set(packages),listeners=[];
+  const stream=()=>({scannedBytes:0,lineCount:0,oversizedLineCount:0,incompleteLineCount:0,unrecognizedLineCount:0,lineLimitReached:false});
+  const stdout={...stream(),progressEvents:[],progressEventDropped:0,eventLimitReached:false};
+  const stderr={...stream(),frozenRefusalSummaryCount:0,viteBuildFailureSummaryCount:0,exitSummaries:[],exitSummaryDropped:0,summaryLimitReached:false};
+  const value={spawnObserved:false,closeObserved:false,exitCode:null,signal:null,childErrorCode:null,pipeFailure:false,scannedBytes:0,scanLimitReached:false,stdout,stderr};
+  const states=[stdout,stderr].map(summary=>({summary,partial:Buffer.alloc(0),oversized:false,unfinished:false}));
+  let active=true;
+  const on=(emitter,event,listener)=>{if(emitter){emitter.on(event,listener);listeners.push([emitter,event,listener]);}};
+  const summary=(role,code,script)=>{
+    const row=stderr.exitSummaries.find(row=>row.role===role&&row.exitCode===code&&row.script===script);
+    if(row)row.count++;
+    else if(stderr.exitSummaries.length<16)stderr.exitSummaries.push({role,...(script===undefined?{}:{script}),exitCode:code,count:1});
+    else {stderr.exitSummaryDropped++;stderr.summaryLimitReached=true;}
+  };
+  const line=state=>{
+    const s=state.summary;s.lineCount++;
+    if(!state.oversized) {
+      let rendered;try{rendered=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(state.partial).replace(/\x1b\[[0-9;]{0,32}m/g,'').replace(/\r$/,'');}catch{/* malformed UTF8 is unrecognized */}
+      if(s===stdout) {
+        const event=buildProgress.get(rendered);
+        if(event){if(stdout.progressEvents.length<32)stdout.progressEvents.push(event);else{stdout.progressEventDropped++;stdout.eventLimitReached=true;}}
+        else s.unrecognizedLineCount++;
+      }else if(rendered==='error during build:')stderr.viteBuildFailureSummaryCount++;
+      else if(rendered==='error: lockfile had changes, but lockfile is frozen')stderr.frozenRefusalSummaryCount++;
+      else {
+        const nested=rendered?.match(/^error: script "build" exited with code (-?(?:0|[1-9][0-9]*))$/);
+        const lifecycle=rendered?.match(/^error: (preinstall|install|postinstall|prepare|preprepare|postprepare) script from "([^"\r\n]+)" exited with (-?(?:0|[1-9][0-9]*))$/);
+        if(nested&&exitCode(Number(nested[1])))summary('nested-build',Number(nested[1]));
+        else if(lifecycle&&allowed.has(lifecycle[2])&&exitCode(Number(lifecycle[3])))summary('lifecycle',Number(lifecycle[3]),lifecycle[1]);
+        else s.unrecognizedLineCount++;
+      }
+    }
+    state.partial=Buffer.alloc(0);state.oversized=false;state.unfinished=false;
+  };
+  const read=(state,chunk)=>{
+    if(!active)return;
+    let offset=0;const s=state.summary;
+    while(offset<chunk.length) {
+      if(value.scannedBytes===buildScanBytes){value.scanLimitReached=true;break;}
+      if(s.lineCount===buildLineLimit){s.lineLimitReached=true;break;}
+      const end=Math.min(chunk.length,offset+buildScanBytes-value.scannedBytes),index=chunk.subarray(offset,end).indexOf(10),newline=index<0?-1:offset+index;
+      const hasNewline=newline>=offset,next=hasNewline?newline:end,length=next-offset;
+      state.unfinished=true;
+      if(!state.oversized) {
+        if(state.partial.length+length>4096){state.oversized=true;s.oversizedLineCount++;state.partial=Buffer.alloc(0);}
+        else state.partial=Buffer.concat([state.partial,chunk.subarray(offset,next)]);
+      }
+      const bytes=length+(hasNewline?1:0);s.scannedBytes+=bytes;value.scannedBytes+=bytes;offset+=bytes;
+      if(hasNewline)line(state);
+    }
+  };
+  on(child,'spawn',()=>{if(active)value.spawnObserved=true;});
+  on(child,'close',(code,signal)=>{if(active){value.closeObserved=true;value.exitCode=exitCode(code)?code:null;value.signal=signal==null?null:signals.includes(signal)?signal:'other';}});
+  on(child,'error',error=>{if(active&&value.childErrorCode===null)value.childErrorCode=childErrors.slice(1,4).includes(error?.code)?error.code:'other';});
+  for(const pipe of [child.stdout,child.stderr])on(pipe,'error',()=>{if(active)value.pipeFailure=true;});
+  on(child.stdout,'data',chunk=>read(states[0],chunk));on(child.stderr,'data',chunk=>read(states[1],chunk));
+  return ()=>{
+    active=false;for(const [emitter,event,listener] of listeners)emitter.removeListener(event,listener);
+    for(const state of states){state.summary.incompleteLineCount=state.unfinished?1:0;state.partial=Buffer.alloc(0);state.unfinished=false;}
+    allowed.clear();return projectBuildObservation(value);
+  };
+}
 // Own direct child only. No exit event, arbitrary PID/group, shell or process
 // census grants cleanup authority. After timeout even a close cannot prove
 // descendant exit; caller stops all later staging/native work and retains files.
-export function collectChild(child,{timeoutMs=600000,drainMs=1000,limit=64*1024*1024,capture=false,installObservation=null}={}) {
+export function collectChild(child,{timeoutMs=600000,drainMs=1000,limit=64*1024*1024,capture=false,installObservation=null,buildObservation=null}={}) {
   return new Promise(resolve=>{
     const finishInstall=installObservation===null?null:observeInstall(child,installObservation.packages);
+    const finishBuild=buildObservation===null?null:observeBuild(child,buildObservation.packages);
     let bytes=0,chunks=[],failure=null,done=false,drain;
     const finish=(closed,code)=>{if(done)return;done=true;clearTimeout(timer);clearTimeout(drain);
       const result={outcome:!closed?'child-unclosed':failure??(code===0?'ok':'child-error'),closed,code:integer(code)?code:null};
       if(finishInstall)result.installObservation=finishInstall();
+      if(finishBuild)result.buildObservation=finishBuild();
       if(capture&&result.outcome==='ok')result.text=Buffer.concat(chunks).toString('utf8');chunks=[];resolve(result);};
     const stop=reason=>{if(done||failure)return;failure=reason;chunks=[];
       if(child.exitCode===null&&child.signalCode===null)try{child.kill('SIGTERM');}catch{/* still require close */}
@@ -310,15 +431,17 @@ export function projectReceipt(value) {
   }
   assert.ok(value.installObservation===null||['upstream-install','upstream-build','build-inputs-after','rebuilt-identity','bundle-staging','native','complete'].includes(value.stage));
   result.installObservation=value.installObservation===null?null:projectInstallObservation(value.installObservation);
+  assert.ok(value.buildObservation===null||['upstream-build','build-inputs-after','rebuilt-identity','bundle-staging','native','complete'].includes(value.stage));
+  result.buildObservation=value.buildObservation===null?null:projectBuildObservation(value.buildObservation);
   return result;
 }
 function receipt() {
   const validSha=v=>/^[a-f0-9]{40}$/.test(v??'')?v:null;
-  return {schemaVersion:2,experiment:'unmodified-windows-baseline',outcome:'unknown',stage:'original-input',exit:'not-run',
+  return {schemaVersion:3,experiment:'unmodified-windows-baseline',outcome:'unknown',stage:'original-input',exit:'not-run',
     sourceCommit:SOURCE,checkoutCommit:validSha(process.env.GITHUB_SHA),prHeadCommit:validSha(process.env.LAWOSS_PR_HEAD),
     nodeVersion:process.versions.node,bunVersion:null,lawossBunVersion:'1.4.2',engineVersion:VERSION,target:'windows-x64-baseline',
     sourceInputsSha256:null,lockSha256:null,modelsSha256:null,toolchainSha256:null,originalEngineSha256:null,rebuiltEngineSha256:null,
-    originalManifestsSha256:null,rebuiltManifestsSha256:null,originalBoundary:null,rebuiltBoundary:null,installObservation:null,
+    originalManifestsSha256:null,rebuiltManifestsSha256:null,originalBoundary:null,rebuiltBoundary:null,installObservation:null,buildObservation:null,
     releaseModelsParity:'unknown',signatureParity:'unknown',causeEquivalence:'unknown'};
 }
 async function experiment(output) {
@@ -334,6 +457,7 @@ async function experiment(output) {
     const child=spawn(command,args,{cwd,env:options.env??env,windowsHide:true,stdio:['ignore','pipe','pipe']});
     const observed=await collectChild(child,options);
     if(options.installObservation)result.installObservation=observed.installObservation;
+    if(options.buildObservation)result.buildObservation=observed.buildObservation;
     if(observed.outcome!=='ok') {result.exit=observed.outcome;throw new Error('Owned command did not complete');}
     return observed.text;
   };
@@ -379,7 +503,7 @@ async function experiment(output) {
     await stage('toolchain-version',async()=>{assert.equal((await run(bun,['--version'],upstream,{capture:true,limit:1024,env:buildEnv,timeoutMs:5000})).trim(),'1.3.14');result.bunVersion='1.3.14';result.toolchainSha256=sha(await fs.readFile(bun));});
     await stage('upstream-install',()=>run(bun,['install','--frozen-lockfile','--linker','hoisted'],upstream,{env:buildEnv,installObservation:{packages:installPackageAllowlist(pkg)}}));
     await verifyInputs(upstream,sourceInputs);await run(git,['diff','--quiet','HEAD','--'],upstream);
-    await stage('upstream-build',()=>run(bun,['run','packages/opencode/script/build.ts','--single','--baseline'],upstream,{env:buildEnv}));
+    await stage('upstream-build',()=>run(bun,['run','packages/opencode/script/build.ts','--single','--baseline'],upstream,{env:buildEnv,buildObservation:{packages:installPackageAllowlist(pkg)}}));
     await stage('build-inputs-after',async()=>{await verifyInputs(upstream,sourceInputs);await run(git,['diff','--quiet','HEAD','--'],upstream);assert.equal(sha(await fs.readFile(models)),result.modelsSha256);assert.equal(sha(await fs.readFile(bun)),result.toolchainSha256);});
     const rebuilt=path.join(upstream,'packages/opencode/dist/opencode-windows-x64-baseline/bin/opencode.exe');
     await stage('rebuilt-identity',async()=>{await regular(rebuilt,upstream);assert.equal((await run(rebuilt,['--version'],root,{capture:true,limit:1024,timeoutMs:5000})).trim(),VERSION);result.rebuiltEngineSha256=sha(await fs.readFile(rebuilt));});

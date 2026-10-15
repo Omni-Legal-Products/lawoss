@@ -139,16 +139,16 @@ test('only the target-specific manifest remains target-specific after staging',a
   assert.equal(JSON.parse(await readFile(path.join(bundle,'versions.json-x86_64-pc-windows-msvc.exe'),'utf8')).opencode.sha256,hash('rebuilt'));
 });
 function baselineReceipt() {
-  return {schemaVersion:2,experiment:'unmodified-windows-baseline',outcome:'unknown',stage:'source-checkout',exit:'child-unclosed',
+  return {schemaVersion:3,experiment:'unmodified-windows-baseline',outcome:'unknown',stage:'source-checkout',exit:'child-unclosed',
     sourceCommit:'16747470f976aca3d362ad730bcd3fe82ecc2c9a',checkoutCommit:'a'.repeat(40),prHeadCommit:'b'.repeat(40),nodeVersion:'24.21.0',
     bunVersion:null,lawossBunVersion:'1.4.2',engineVersion:'1.18.29',target:'windows-x64-baseline',sourceInputsSha256:null,lockSha256:null,
     modelsSha256:null,toolchainSha256:null,originalEngineSha256:null,rebuiltEngineSha256:null,originalManifestsSha256:null,rebuiltManifestsSha256:null,
-    originalBoundary:api.projectBoundary(boundary()),rebuiltBoundary:null,releaseModelsParity:'unknown',signatureParity:'unknown',causeEquivalence:'unknown',installObservation:null};
+    originalBoundary:api.projectBoundary(boundary()),rebuiltBoundary:null,releaseModelsParity:'unknown',signatureParity:'unknown',causeEquivalence:'unknown',installObservation:null,buildObservation:null};
 }
 test('final publication reconstructs closed receipts and rejects forged or oversized selected data',()=>{
   const value=baselineReceipt();
   const projected=api.projectReceipt(value);
-  assert.equal(projected.schemaVersion,2);assert.equal(projected.installObservation,null);assert.equal(projected.exit,'child-unclosed');assert.equal(projected.checkoutCommit,'a'.repeat(40));
+  assert.equal(projected.schemaVersion,3);assert.equal(projected.installObservation,null);assert.equal(projected.exit,'child-unclosed');assert.equal(projected.checkoutCommit,'a'.repeat(40));
   value.secret='PRIVATE';assert.throws(()=>api.projectReceipt(value));delete value.secret;
   value.originalBoundary.engineLog.selected=['PRIVATE'];assert.throws(()=>api.projectReceipt(value));
   value.originalBoundary=null;value.stage='PRIVATE';assert.throws(()=>api.projectReceipt(value));
@@ -164,7 +164,7 @@ test('real CLI missing-artifact guard skips heavy work and finalizer removes una
   await launch(['guard',output,path.join(root,'missing-main'),path.join(root,'missing-runtime')]);
   assert.equal((await readFile(githubOutput,'utf8')).trim(),'run=false');
   assert.equal(JSON.parse(await readFile(output,'utf8')).outcome,'unknown');
-  assert.equal(JSON.parse(await readFile(output,'utf8')).schemaVersion,2);
+  assert.equal(JSON.parse(await readFile(output,'utf8')).schemaVersion,3);
   assert.equal(JSON.parse(await readFile(output,'utf8')).installObservation,null);
   await writeFile(native,'PRIVATE unapproved bytes');await launch(['finalize',output,native]);
   await assert.rejects(lstat(native),{code:'ENOENT'});
@@ -294,7 +294,7 @@ test('manifest-derived install package allowlist is finite, bounded and rejects 
   assert.deepEqual(api.installPackageAllowlist({name:'opencode',trustedDependencies:['esbuild','@safe/pkg','esbuild']}),['opencode','esbuild','@safe/pkg']);
   for(const pkg of [{name:'../private',trustedDependencies:[]},{name:'ok',trustedDependencies:['https://private']},{name:'ok',trustedDependencies:['a'.repeat(215)]},{name:'ok',trustedDependencies:Array.from({length:128},(_,i)=>`pkg-${i}`)},{name:'ok',trustedDependencies:'PRIVATE'}])assert.throws(()=>api.installPackageAllowlist(pkg));
 });
-test('schema2 install publication is closed at every nested boundary and retains historical install failures',async()=>{
+test('schema3 install publication is closed at every nested boundary and retains historical install failures',async()=>{
   const observation=(await installLines(['error: install script from "opencode" exited with 7\n'])).installObservation;
   const value=baselineReceipt();value.stage='upstream-install';value.exit='child-error';value.installObservation=observation;
   const valid=api.projectReceipt(value);assert.deepEqual(valid.installObservation,observation);assert.notEqual(valid.installObservation,observation);
@@ -319,7 +319,7 @@ test('default child collection does not install observers or change result and c
   const captured=child(),capture=api.collectChild(captured,{timeoutMs:100,capture:true});captured.stdout.write('version');captured.emit('close',0);
   assert.deepEqual(await capture,{outcome:'ok',closed:true,code:0,text:'version'});
 });
-test('real finalizer retains bounded install metadata and discards forged schema2 observations',async t=>{
+test('real finalizer retains bounded install metadata and discards forged schema3 observations',async t=>{
   const {spawn}=await import('node:child_process');
   const root=await mkdtemp(path.join(tmpdir(),'lawoss-install-finalizer-'));t.after(()=>rm(root,{recursive:true,force:true}));
   const output=path.join(root,'receipt.json'),native=path.join(root,'native.json');
@@ -327,5 +327,174 @@ test('real finalizer retains bounded install metadata and discards forged schema
   const finalize=async()=>{const c=spawn(process.execPath,[fileURLToPath(new URL('./engine-baseline-probe.mjs',import.meta.url)),'finalize',output,native],{env:{},stdio:['ignore','pipe','pipe']});assert.equal((await api.collectChild(c,{timeoutMs:5000})).outcome,'ok');return JSON.parse(await readFile(output,'utf8'));};
   await writeFile(output,JSON.stringify(value));assert.deepEqual((await finalize()).installObservation,value.installObservation);
   value.installObservation=structuredClone(value.installObservation);value.installObservation.stderr.raw='PRIVATE';await writeFile(output,JSON.stringify(value));
-  const refused=await finalize();assert.equal(refused.schemaVersion,2);assert.equal(refused.installObservation,null);assert.equal(refused.outcome,'unknown');assert.ok(!JSON.stringify(refused).includes('PRIVATE'));
+  const refused=await finalize();assert.equal(refused.schemaVersion,3);assert.equal(refused.installObservation,null);assert.equal(refused.outcome,'unknown');assert.ok(!JSON.stringify(refused).includes('PRIVATE'));
+});
+
+
+const buildOptions=()=>({buildObservation:{packages:api.installPackageAllowlist({name:'opencode',trustedDependencies:['esbuild','node-pty']})},timeoutMs:1000,drainMs:10});
+const buildMarkers=[
+  'Loaded models.dev snapshot','Building Web UI to embed in the binary',
+  'building opencode-windows-x64','Running smoke test: dist/opencode-windows-x64/bin/opencode --version','Smoke test passed: 1.18.29',
+  'building opencode-windows-x64-baseline','Running smoke test: dist/opencode-windows-x64-baseline/bin/opencode --version','Smoke test passed: 1.18.29',
+];
+async function buildLines(stdout=[],stderr=[],code=1,signal=null) {
+  const c=child(),pending=api.collectChild(c,buildOptions());c.emit('spawn');
+  for(const chunk of stdout)c.stdout.write(chunk);
+  for(const chunk of stderr)c.stderr.write(chunk);
+  c.emit('close',code,signal);return pending;
+}
+test('build observation preserves ordered stdout events including unassigned smoke passes and separated stderr summaries',async()=>{
+  const result=await buildLines([`${buildMarkers.join('\n')}\n`],[
+    'error: script "build" exited with code -1\n','error during build:\n',
+    'error: lockfile had changes, but lockfile is frozen\n','error: install script from "esbuild" exited with 4294967295\n',
+    'error: script "build" exited with code -1\n',
+  ],4294967295,'SIGABRT');
+  const b=result.buildObservation;
+  assert.equal(result.outcome,'child-error');assert.equal(result.code,4294967295);
+  assert.deepEqual(b.stdout.progressEvents,['models-loaded','web-ui-enter','normal-target-enter','normal-smoke-enter','smoke-pass','baseline-target-enter','baseline-smoke-enter','smoke-pass']);
+  assert.deepEqual(b.stderr.exitSummaries,[{role:'nested-build',exitCode:-1,count:2},{role:'lifecycle',script:'install',exitCode:4294967295,count:1}]);
+  assert.equal(b.stderr.viteBuildFailureSummaryCount,1);assert.equal(b.stderr.frozenRefusalSummaryCount,1);
+  assert.equal(b.exitCode,4294967295);assert.equal(b.signal,'SIGABRT');assert.equal(b.closeObserved,true);assert.equal(b.spawnObserved,true);
+  const unassigned=(await buildLines(['Smoke test passed: 1.18.29\n'])).buildObservation;
+  assert.deepEqual(unassigned.stdout.progressEvents,['smoke-pass']);assert.equal(Object.hasOwn(unassigned,'failedStage'),false);
+  assert.ok(!JSON.stringify(b).includes('opencode'));assert.ok(!JSON.stringify(b).includes('esbuild'));
+});
+test('build observation frames each pipe separately and accepts only complete exact bounded SGR UTF8 lines',async()=>{
+  const marker=Buffer.from('\x1b[31mLoaded models.dev snapshot\x1b[0m\r\n');
+  const c=child(),pending=api.collectChild(c,buildOptions());
+  c.stdout.write(marker.subarray(0,11));c.stderr.write('Loaded models.dev snapshot\n');c.stdout.write(marker.subarray(11));
+  c.stdout.write('building opencode-');c.stderr.write('windows-x64\n');c.stdout.write('windows-x64\n');
+  for(const line of ['prefix Loaded models.dev snapshot','Loaded models.dev snapshot trailing','\ufeffLoaded models.dev snapshot','\x1b[2KLoaded models.dev snapshot',`\x1b[${'1'.repeat(33)}mLoaded models.dev snapshot`,'PRIVATE https://private/path','    at PRIVATE (C:\\private\\build.ts:1:2)'])c.stdout.write(`${line}\n`);
+  const utf8=Buffer.from('ž\n');c.stdout.write(utf8.subarray(0,1));c.stdout.write(utf8.subarray(1));c.stdout.write(Buffer.from([255,10]));
+  c.stdout.write('Smoke test passed: 1.18.29');c.stderr.write('error during build:');c.emit('close',-1073741819);
+  const b=(await pending).buildObservation;
+  assert.deepEqual(b.stdout.progressEvents,['models-loaded','normal-target-enter']);assert.equal(b.stdout.unrecognizedLineCount,9);
+  assert.equal(b.stdout.incompleteLineCount,1);assert.equal(b.stderr.incompleteLineCount,1);assert.equal(b.stderr.viteBuildFailureSummaryCount,0);
+  assert.equal(b.stderr.unrecognizedLineCount,2);assert.equal(b.exitCode,-1073741819);assert.ok(!JSON.stringify(b).includes('PRIVATE'));
+  const poisoned=(await buildLines(['error during build:\n'],[
+    'Loaded models.dev snapshot\n','error during build: trailing\n','prefix error during build:\n',
+    'error: script "build" exited with code +1\n','error: script "build" exited with code 01\n','error: script "build" exited with code 4294967296\n',
+    'error: install script from "unknown" exited with 1\n','error: other script from "esbuild" exited with 1\n','error: install script from "esbuild" exited with 1 trailing\n',
+    'error: install script from "https://PRIVATE" exited with 1\n','    at PRIVATE (C:\\private\\build.ts:1:2)\n',
+  ])).buildObservation;
+  assert.equal(poisoned.stdout.unrecognizedLineCount,1);assert.equal(poisoned.stderr.unrecognizedLineCount,11);assert.deepEqual(poisoned.stderr.exitSummaries,[]);
+});
+test('build observation caps events and shared summary tuples while counting later repeated tuples',async()=>{
+  const stderr=Array.from({length:17},(_,n)=>`error: script "build" exited with code ${n}\n`);
+  stderr.push('error: install script from "esbuild" exited with 1\n','error: script "build" exited with code 0\n');
+  const b=(await buildLines(['Smoke test passed: 1.18.29\n'.repeat(34)],stderr)).buildObservation;
+  assert.equal(b.stdout.progressEvents.length,32);assert.equal(b.stdout.progressEventDropped,2);assert.equal(b.stdout.eventLimitReached,true);
+  assert.equal(b.stderr.exitSummaries.length,16);assert.deepEqual(b.stderr.exitSummaries[0],{role:'nested-build',exitCode:0,count:2});
+  assert.equal(b.stderr.exitSummaryDropped,2);assert.equal(b.stderr.summaryLimitReached,true);
+});
+test('build observation bounds lines per stream, oversized and incomplete buffers without killing a child',async()=>{
+  const c=child(),pending=api.collectChild(c,buildOptions());
+  c.stdout.write('\n'.repeat(65536));c.stdout.write('Loaded models.dev snapshot\n');c.stderr.write('error during build:\n');
+  c.emit('close',0);const b=(await pending).buildObservation;
+  assert.equal(b.stdout.lineCount,65536);assert.equal(b.stdout.lineLimitReached,true);assert.equal(b.stderr.viteBuildFailureSummaryCount,1);assert.equal(c.killCount,0);
+  const d=(await buildLines(['x'.repeat(4096),'y','\n','x'.repeat(4097)],['x'.repeat(4096),'\n'])).buildObservation;
+  assert.equal(d.stdout.oversizedLineCount,2);assert.equal(d.stdout.incompleteLineCount,1);assert.equal(d.stdout.lineCount,1);assert.equal(d.stderr.oversizedLineCount,0);assert.equal(d.stderr.unrecognizedLineCount,1);
+  const e=(await buildLines([],['\n'.repeat(65536),'error during build:\n'])).buildObservation;
+  assert.equal(e.stderr.lineLimitReached,true);assert.equal(e.stderr.lineCount,65536);assert.equal(e.stderr.viteBuildFailureSummaryCount,0);
+});
+test('build observation shares the original 64 MiB scan ceiling across both pipes without changing collector output limits',async()=>{
+  const c=child(),pending=api.collectChild(c,buildOptions());const half=Buffer.alloc(32*1024*1024,120);
+  c.stdout.write(half);c.stderr.write(half);assert.equal(c.killCount,0);
+  c.stderr.write('error during build:\n');c.emit('close',1);const result=await pending,b=result.buildObservation;
+  assert.equal(result.outcome,'output-limit');assert.equal(c.killCount,1);assert.equal(b.scannedBytes,64*1024*1024);assert.equal(b.scanLimitReached,true);
+  for(const s of [b.stdout,b.stderr]){assert.equal(s.scannedBytes,32*1024*1024);assert.equal(s.oversizedLineCount,1);assert.equal(s.incompleteLineCount,1);}
+  assert.equal(b.stderr.viteBuildFailureSummaryCount,0);
+});
+test('build observation distinguishes spawn and pipe failures, direct close, deadline and inert late events',async()=>{
+  for(const code of ['ENOENT','EACCES','EPERM','PRIVATE']) {
+    const c=child(),pending=api.collectChild(c,buildOptions());c.emit('error',Object.assign(new Error('PRIVATE'),{code}));c.emit('close',-1,'PRIVATE');
+    const b=(await pending).buildObservation;assert.equal(b.spawnObserved,false);assert.equal(b.childErrorCode,code==='PRIVATE'?'other':code);assert.equal(b.signal,'other');assert.equal(b.exitCode,-1);
+  }
+  for(const pipe of ['stdout','stderr']) {
+    const c=child(),pending=api.collectChild(c,buildOptions());c.emit('spawn');c[pipe].emit('error',new Error('PRIVATE'));c.emit('close',null,'SIGKILL');
+    const b=(await pending).buildObservation;assert.equal(b.pipeFailure,true);assert.equal(b.childErrorCode,null);assert.equal(b.signal,'SIGKILL');
+  }
+  for(const closed of [true,false]) {
+    const c=child(),pending=api.collectChild(c,{...buildOptions(),timeoutMs:5,drainMs:30});c.emit('spawn');c.stdout.write('Loaded models.dev snapshot');
+    if(closed)setTimeout(()=>c.emit('close',0),10);
+    const result=await pending,b=result.buildObservation,snapshot=JSON.stringify(b);
+    assert.equal(result.outcome,closed?'timeout':'child-unclosed');assert.equal(b.closeObserved,closed);assert.equal(b.exitCode,closed?0:null);
+    assert.equal(c.listenerCount('spawn'),0);assert.equal(c.listenerCount('close'),closed?0:1);assert.equal(c.stdout.listenerCount('data'),1);assert.equal(c.stderr.listenerCount('data'),1);
+    c.emit('spawn');c.emit('close',4294967295,'SIGSEGV');c.emit('error',new Error('PRIVATE'));c.stdout.emit('data',Buffer.from('\nLoaded models.dev snapshot\n'));c.stderr.emit('data',Buffer.from('error during build:\n'));c.stderr.emit('error',new Error('PRIVATE'));
+    assert.equal(JSON.stringify(b),snapshot);assert.ok(Object.isFrozen(b)&&Object.isFrozen(b.stdout)&&Object.isFrozen(b.stdout.progressEvents)&&Object.isFrozen(b.stderr)&&Object.isFrozen(b.stderr.exitSummaries));
+  }
+});
+test('build publication closes every nested field and rejects impossible bounds and pre-build stages',async()=>{
+  const value=baselineReceipt();value.stage='upstream-build';value.buildObservation=(await buildLines(['Loaded models.dev snapshot\n'],['error: script "build" exited with code 1\n'])).buildObservation;
+  const valid=api.projectReceipt(value);assert.deepEqual(valid.buildObservation,value.buildObservation);assert.notEqual(valid.buildObservation,value.buildObservation);assert.ok(Object.isFrozen(valid.buildObservation.stderr.exitSummaries[0]));
+  for(const mutate of [
+    v=>v.schemaVersion=2,v=>v.stage='upstream-install',v=>v.buildObservation.extra='PRIVATE',v=>v.buildObservation.spawnObserved=1,v=>v.buildObservation.closeObserved=false,
+    v=>v.buildObservation.exitCode=-2147483649,v=>v.buildObservation.exitCode=4294967296,v=>v.buildObservation.exitCode=1.2,v=>v.buildObservation.signal='PRIVATE',v=>v.buildObservation.childErrorCode='PRIVATE',v=>v.buildObservation.pipeFailure=1,
+    v=>v.buildObservation.scannedBytes++,v=>v.buildObservation.scannedBytes=67108865,v=>v.buildObservation.scanLimitReached=true,
+    v=>v.buildObservation.stdout.extra='PRIVATE',v=>v.buildObservation.stdout.scannedBytes=0,v=>v.buildObservation.stdout.lineCount=65537,v=>v.buildObservation.stdout.incompleteLineCount=2,v=>v.buildObservation.stdout.oversizedLineCount=1,v=>v.buildObservation.stdout.unrecognizedLineCount++,
+    v=>v.buildObservation.stdout.progressEvents=['PRIVATE'],v=>v.buildObservation.stdout.progressEvents=Array(33).fill('smoke-pass'),v=>v.buildObservation.stdout.progressEventDropped=-1,v=>v.buildObservation.stdout.eventLimitReached=true,v=>v.buildObservation.stdout.lineLimitReached=true,
+    v=>v.buildObservation.stderr.extra='PRIVATE',v=>v.buildObservation.stderr.viteBuildFailureSummaryCount++,v=>v.buildObservation.stderr.frozenRefusalSummaryCount=-1,v=>v.buildObservation.stderr.exitSummaryDropped=1,v=>v.buildObservation.stderr.summaryLimitReached=true,
+    v=>v.buildObservation.stderr.exitSummaries[0].raw='PRIVATE',v=>v.buildObservation.stderr.exitSummaries[0].role='PRIVATE',v=>v.buildObservation.stderr.exitSummaries[0].script='install',v=>v.buildObservation.stderr.exitSummaries[0].exitCode=4294967296,v=>v.buildObservation.stderr.exitSummaries[0].count=0,
+    v=>v.buildObservation.stderr.exitSummaries.push({...v.buildObservation.stderr.exitSummaries[0]}),
+  ]) {const forged=structuredClone(value);mutate(forged);assert.throws(()=>api.projectReceipt(forged));}
+  for(const stage of ['upstream-build','build-inputs-after','rebuilt-identity','bundle-staging','native','complete']){value.stage=stage;assert.deepEqual(api.projectReceipt(value).buildObservation,value.buildObservation);}
+});
+test('build observation disabled preserves exact result shape, capture and original collector lifecycle limits',async()=>{
+  for(const options of [{},{buildObservation:null}]) {
+    const c=child(),pending=api.collectChild(c,{timeoutMs:100,...options});assert.equal(c.listenerCount('spawn'),0);c.stdout.write('Loaded models.dev snapshot\n');c.emit('close',-1);
+    assert.deepEqual(await pending,{outcome:'child-error',closed:true,code:null});
+  }
+  const c=child(),pending=api.collectChild(c,{...buildOptions(),limit:1});c.stdout.write('xx');c.emit('close',0);assert.equal((await pending).outcome,'output-limit');
+});
+test('real CLI build finalizer publishes only closed schema3 build observations and refuses poisoned historical schemas',async t=>{
+  const {spawn}=await import('node:child_process');const root=await mkdtemp(path.join(tmpdir(),'lawoss-build-finalizer-'));t.after(()=>rm(root,{recursive:true,force:true}));
+  const output=path.join(root,'receipt.json'),native=path.join(root,'native.json'),value=baselineReceipt();value.stage='upstream-build';value.exit='child-error';
+  value.buildObservation=(await buildLines(['Smoke test passed: 1.18.29\n'],['error during build:\n'])).buildObservation;
+  value.installObservation=(await installLines([] ,0)).installObservation;
+  const finalize=async()=>{const c=spawn(process.execPath,[fileURLToPath(new URL('./engine-baseline-probe.mjs',import.meta.url)),'finalize',output,native],{env:{},stdio:['ignore','pipe','pipe']});assert.equal((await api.collectChild(c,{timeoutMs:5000})).outcome,'ok');return JSON.parse(await readFile(output,'utf8'));};
+  await writeFile(output,JSON.stringify(value));const published=await finalize();assert.deepEqual(published.buildObservation,value.buildObservation);assert.deepEqual(published.installObservation,value.installObservation);
+  for(const mutate of [v=>v.schemaVersion=2,v=>v.buildObservation.stdout.raw='PRIVATE',v=>v.stage='toolchain']) {
+    const forged=structuredClone(value);mutate(forged);await writeFile(output,JSON.stringify(forged));await writeFile(native,'PRIVATE');const refused=await finalize();
+    assert.equal(refused.schemaVersion,3);assert.equal(refused.buildObservation,null);assert.equal(refused.outcome,'unknown');assert.ok(!JSON.stringify(refused).includes('PRIVATE'));await assert.rejects(lstat(native),{code:'ENOENT'});
+  }
+});
+test('build observation removes bounded terminal SGR before optional final CR',async()=>{
+  const b=(await buildLines(['Loaded models.dev snapshot\r\x1b[0m\n'],['error during build:\r\x1b[0m\n'])).buildObservation;
+  assert.deepEqual(b.stdout.progressEvents,['models-loaded']);assert.equal(b.stderr.viteBuildFailureSummaryCount,1);
+});
+test('build publication rejects sparse event arrays and unclosed array properties',async()=>{
+  const observation=(await buildLines(['Loaded models.dev snapshot\n'],['error: script "build" exited with code 1\n'])).buildObservation;
+  for(const mutate of [b=>b.stdout.progressEvents=Array(1),b=>b.stdout.progressEvents.raw='PRIVATE',b=>b.stderr.exitSummaries.raw='PRIVATE']) {
+    const forged=structuredClone(observation);mutate(forged);assert.throws(()=>api.projectBuildObservation(forged));
+  }
+});
+test('upstream-build invocation retains exact executable argv cwd environment and default budgets before preserving failure',async()=>{
+  // Execute the real local run/stage closures and upstream-build invocation
+  // against a synthetic owned child. This never enters experiment setup or Bun.
+  const source=await readFile(new URL('./engine-baseline-probe.mjs',import.meta.url),'utf8');
+  const start=source.indexOf('  const run=async(command,args,cwd,options={})=>{');
+  const end=source.indexOf('  try {\n    const git=',start);
+  const invocation=source.split('\n').find(line=>line.startsWith("    await stage('upstream-build',"));
+  assert.ok(start>=0&&end>start&&invocation);
+  const execute=new Function('spawn','collectChild','result','bun','upstream','buildEnv','env','installPackageAllowlist','pkg','writeJson','output',`return (async()=>{${source.slice(start,end)}${invocation}})()`);
+  const env=Object.freeze({CI:'true',OPENCODE_VERSION:'1.18.29',OPENCODE_CHANNEL:'latest',MODELS_DEV_API_JSON:'synthetic-models'}),result=baselineReceipt();
+  const pkg={name:'opencode',trustedDependencies:['esbuild']};
+  let calls=0;
+  const spawn=(command,args,options)=>{
+    calls++;assert.equal(command,'synthetic-bun');assert.deepEqual(args,['run','packages/opencode/script/build.ts','--single','--baseline']);
+    assert.deepEqual(options,{cwd:'synthetic-upstream',env,windowsHide:true,stdio:['ignore','pipe','pipe']});assert.equal(options.env,env);
+    const c=child();setImmediate(()=>{c.emit('spawn');c.stdout.write('Building Web UI to embed in the binary\n');c.stderr.write('error during build:\n');c.emit('close',1);});return c;
+  };
+  const collect=(c,options)=>{
+    assert.deepEqual(Object.keys(options).sort(),['buildObservation','env']);assert.equal(options.env,env);assert.deepEqual(options.buildObservation.packages,['opencode','esbuild']);
+    return api.collectChild(c,options);
+  };
+  const timerCalls=[];const originalTimer=globalThis.setTimeout;
+  try {
+    globalThis.setTimeout=(callback,delay,...args)=>{timerCalls.push(delay);return originalTimer(callback,delay,...args);};
+    await assert.rejects(execute(spawn,collect,result,'synthetic-bun','synthetic-upstream',env,env,api.installPackageAllowlist,pkg,async()=>{},'synthetic-receipt'),/Owned command did not complete/);
+  }finally{globalThis.setTimeout=originalTimer;}
+  assert.equal(calls,1);assert.deepEqual(timerCalls,[600000]);assert.equal(result.stage,'upstream-build');assert.equal(result.exit,'child-error');assert.equal(result.outcome,'unknown');
+  assert.deepEqual(result.buildObservation.stdout.progressEvents,['web-ui-enter']);assert.equal(result.buildObservation.stderr.viteBuildFailureSummaryCount,1);
+  assert.ok(Object.isFrozen(result.buildObservation));assert.equal(result.installObservation,null);
 });
