@@ -17,8 +17,10 @@ import { installChooserBoundary } from "../lawoss/testing/isir/native/chooser-bo
 import { awaitDirectoryInstance } from "../lawoss/testing/isir/native/startup-readiness.mjs";
 import { parseCsv } from "../apps/server/dist/lawoss/documents/validation.js";
 import { sha256 } from "../lawoss/testing/isir/corpus.mjs";
+import { validateProbeOption, applyProducer } from "../lawoss/testing/isir/native/engine-empty-auth-probe.mjs";
 import { prepareNativeEngineFiles, probeNativeEngineVersion, verifyNativeEngineRuntime } from "../lawoss/testing/isir/native/engine-identity.mjs";
 
+const emptyAuthProbe = await validateProbeOption(process.argv.slice(2));
 const debugPair=process.argv.includes('--debug-case-pair');
 const requestedEndpointRefresh=process.env.LAWOSS_ISIR_NATIVE_ENDPOINT_REFRESH==='1';
 assert.ok(!debugPair || !process.env.CI,'CI must run the complete ten-case native gate');
@@ -71,6 +73,7 @@ Object.assign(env, {
   LAWOSS_ISIR_NATIVE_ROOT: root, OPENCODE_DISABLE_AUTOUPDATE: "1", OPENCODE_DISABLE_DEFAULT_PLUGINS: "1",
   OPENCODE_CONFIG_CONTENT: JSON.stringify({ model: "isir-native/synthetic", small_model: "isir-native/synthetic", provider: { "isir-native": { npm: "@ai-sdk/openai-compatible", name: "ISIR synthetic protocol", options: { baseURL: provider.url, apiKey: "synthetic-local-only" }, models: { synthetic: { name: "ISIR synthetic", limit: { context: 128000, output: 16000 }, tool_call: true, reasoning:true, variants:{low:{reasoningEffort:"low"},high:{reasoningEffort:"high"}} } } } } }),
 });
+await applyProducer(env, emptyAuthProbe, preparedEngine.expectedHash);
 for (const dir of [profile,env.APPDATA,env.LOCALAPPDATA,env.HOME, path.join(root, "documents"), path.join(root, "runtime"), env.XDG_CONFIG_HOME, env.XDG_DATA_HOME, env.XDG_CACHE_HOME, env.XDG_STATE_HOME]) await mkdir(dir, { recursive: true });
 const configDir = path.join(profile, "legalwork-dev-data/xdg/config/opencode");
 await mkdir(configDir, {recursive:true});
