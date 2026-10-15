@@ -1,0 +1,95 @@
+name: Direct bare engine diagnostic
+on:
+  push:
+    branches: [fix/pr157-direct-bare-control]
+permissions:
+  contents: read
+jobs:
+  direct-bare:
+    runs-on: windows-2022
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.21.0
+      - name: Focused synthetic contracts
+        id: focused
+        run: node --test lawoss/testing/isir/native/engine-direct-bare-control.test.mjs
+      - name: Acquire exact same-byte diagnostic engine
+        id: acquire
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $client = $null; $response = $null; $inputStream = $null; $outputStream = $null; $zip = $null; $entryStream = $null; $extracted = $null
+          $token = [System.Threading.CancellationTokenSource]::new(30000)
+          try {
+            $private = Join-Path $env:RUNNER_TEMP 'direct-bare-acquisition'
+            [System.IO.Directory]::CreateDirectory($private) > $null
+            $archive = Join-Path $private 'engine.zip'
+            $client = [System.Net.Http.HttpClient]::new()
+            $client.Timeout = [TimeSpan]::FromSeconds(30)
+            $url = 'https://github.com/anomalyco/opencode/releases/download/v1.18.29/opencode-windows-x64-baseline.zip'
+            $response = $client.GetAsync($url, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead, $token.Token).GetAwaiter().GetResult()
+            $response.EnsureSuccessStatusCode() > $null
+            if ($response.Content.Headers.ContentLength -ne 60655377) { throw 'acquisition' }
+            $inputStream = $response.Content.ReadAsStreamAsync($token.Token).GetAwaiter().GetResult()
+            $outputStream = [System.IO.File]::Open($archive, [System.IO.FileMode]::CreateNew)
+            $buffer = [byte[]]::new(65536); $total = 0L
+            while (($read = $inputStream.ReadAsync($buffer, 0, $buffer.Length, $token.Token).GetAwaiter().GetResult()) -gt 0) {
+              $total += $read
+              if ($total -gt 268435456 -or $total -gt 60655377) { throw 'acquisition' }
+              $outputStream.Write($buffer, 0, $read)
+            }
+            $outputStream.Dispose(); $outputStream = $null
+            if ($total -ne 60655377 -or (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne '81ea8263923572e3e40cbd22f89d0008efa567b8a812389db042082b03bd2582') { throw 'acquisition' }
+            $zip = [System.IO.Compression.ZipFile]::OpenRead($archive)
+            if ($zip.Entries.Count -ne 1) { throw 'acquisition' }
+            $entry = $zip.Entries[0]
+            $unixType = ($entry.ExternalAttributes -shr 16) -band 0xF000
+            if ($entry.FullName -cne 'opencode.exe' -or $entry.Length -le 0 -or $entry.Length -gt 268435456 -or ($unixType -ne 0 -and $unixType -ne 0x8000) -or ($entry.ExternalAttributes -band 0x10) -ne 0) { throw 'acquisition' }
+            # No general archive extraction: only this exact, single regular-file entry.
+            $candidate = Join-Path $private 'verified-candidate.exe'
+            $entryStream = $entry.Open()
+            $extracted = [System.IO.File]::Open($candidate, [System.IO.FileMode]::CreateNew)
+            $entryTotal = 0L
+            while (($read = $entryStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+              $entryTotal += $read
+              if ($entryTotal -gt 268435456 -or $token.IsCancellationRequested) { throw 'acquisition' }
+              $extracted.Write($buffer, 0, $read)
+            }
+            $extracted.Dispose(); $extracted = $null
+            $actual = (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($entryTotal -ne $entry.Length -or $actual -ne '32675fbf8fcb804c6ee4e048ff0926cd64bf54d1b6185bf2c09e93a2662dd69d' -or $token.IsCancellationRequested) { throw 'acquisition' }
+            $bundle = Join-Path $private 'bundle'
+            [System.IO.Directory]::CreateDirectory($bundle) > $null
+            [System.IO.File]::Copy($candidate, (Join-Path $bundle 'opencode-x86_64-pc-windows-msvc.exe'), $false)
+            [System.IO.File]::Copy($candidate, (Join-Path $bundle 'opencode.exe'), $false)
+            $manifest = @{opencode = @{version = '1.18.29'; sha256 = $actual}} | ConvertTo-Json -Compress
+            [System.IO.File]::WriteAllText((Join-Path $bundle 'versions.json'), $manifest)
+            [System.IO.File]::WriteAllText((Join-Path $bundle 'versions.json-x86_64-pc-windows-msvc.exe'), $manifest)
+            if ($token.IsCancellationRequested) { throw 'acquisition' }
+            'admitted=true' >> $env:GITHUB_OUTPUT
+          } catch {
+            'admitted=false' >> $env:GITHUB_OUTPUT
+            Write-Output 'Diagnostic acquisition refused.'
+          } finally {
+            foreach ($resource in @($extracted, $entryStream, $zip, $outputStream, $inputStream, $response, $client, $token)) { if ($null -ne $resource) { try { $resource.Dispose() } catch {} } }
+          }
+      - name: One direct control or closed admission refusal
+        if: ${{ always() && steps.focused.outcome == 'success' }}
+        shell: pwsh
+        env:
+          ENGINE_ADMITTED: ${{ steps.acquire.outputs.admitted }}
+        run: |
+          $bundle = Join-Path $env:RUNNER_TEMP 'direct-bare-not-acquired'
+          if ($env:ENGINE_ADMITTED -eq 'true') { $bundle = Join-Path $env:RUNNER_TEMP 'direct-bare-acquisition/bundle' }
+          $receipt = Join-Path $env:RUNNER_TEMP 'engine-direct-bare-control.json'
+          node lawoss/testing/isir/native/engine-direct-bare-control.mjs $receipt $bundle
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: engine-direct-bare-control
+          path: ${{ runner.temp }}/engine-direct-bare-control.json
+          if-no-files-found: error
+          retention-days: 7
