@@ -737,3 +737,32 @@ Detaily a source API jsou v SDD task-24-brief.md. Produkční distribuce/notices
 - [ ] NewactualWindows gateaftereb118allterminalroot377entries24reportsauditPASS; no app/fullgoalclaim.
 
 **Task26 fix1 sourcecomplete:** c2e8cac8/workflow9e6cd309/freshscopedSPEC PASS/QUALITY PASS/0. RootDCO/source/review/21SDKparity/docs/contractbindingPASS; actuallocalpositive/resolver/frozennegativeproofrootaudited, prior377CIentries24reportsunchanged. NewactualWindows gate/normalSDKpublicationnext; barefrozenretained/nofullgoalclaim/newpaid0.
+
+
+### Task 28: Zachovat npm konfiguraci enginu v pomocném procesu Node22
+
+**Context:** Předchozí navazující komponenty jsou doložené v pracovní ledger/briefs stejného plánu. PR158 head24214 má skutečný Windows SDK PASS44+4 a obecné Linux/macOS CI PASS. To neprokazuje produkční spuštění aplikace. Samostatná příprava SDK nesmí přepsat vlastní závislosti a npm konfiguraci uživatele.
+
+**Scope:** Nové `lawoss/engine-dependencies/npm-config.mjs`, test a oddělené `runtime-tools/` s přesně připnutými Arborist9.4.0/config10.8.1. Žádné volání z produkčního serveru, instalace do uživatelských složek ani změny přijatého SDK payloadu. Podrobná prováděcí specifikace je v task-28-brief.md pracovního adresáře tohoto plánu; schválený produktový cíl zůstává původních pět akceptačních zjištění.
+
+- [x] Genuine oddělená pnpm11.4 tools closure s vlastním frozen lockem; Node24 pouze pro správce balíčků. Žádný nový SDK-only candidate/lock, root install nebo uživatelský profil.
+- [x] Na skutečném přibaleném Node22.23.2 nejprve behavioral RED pro odlišný engine-v-helper executable prefix, poté explicitní engine constructor context a GREEN.
+- [x] Přesná Config10.8.1 precedence builtin/global/user/project/env, registry/auth/cache/omit/offline bez výrobních override; kopie prostředí před await, chybějící npmrc je normální, skutečné chyby nesmějí potichu vracet prázdnou konfiguraci.
+- [x] Syntetické izolované fixtures dokazují zachování manifestu/locku a absenci target node_modules; obsah a přístupové údaje se nelogují. Test celé nové sady a syntax/diff; nezměněné sady neopakovat.
+- [ ] Nezávislá SPEC + QUALITY revize, signed-off commit a běžná publikace feature PR. Skutečný Windows/helper packaging i compiled npmPath/builtin provenience zůstávají před produkčním hookem samostatnými gates.
+
+**Runtime exception:** Repo a CI standard Node24 se nemění; tento nový helper cílí na již dodávaný Node22.23.2. Dokud není doložený built-in kontext kompilovaného enginu, nesmí být komponenta zapojena do spravovaného spuštění.
+
+**Task28 lokálně:** source5064d367 +445517bd, finální8/8 na skutečném přibaleném Node22.23.2/darwin-arm64; skutečný prefix a diagnostický sentinel RED→GREEN. Nezávislá scoped SPEC PASS/QUALITY APPROVED; root šestisouborový Git/runtime/lock/DCO/TAP audit PASS. Historické procesní odchylky zůstávají výslovně evidované: acquisition komunikace nejprve bufferovala před zkrácením; neúspěšná ambient-env assertion vypsala hodnoty do lokální diagnostiky a ztracený raw hash/velikost nelze rekonstruovat. Oprava ani pozdější PASS neznamenají zpětné splnění těchto protokolů nebo zneplatnění zveřejněných údajů. Žádný produkční caller.
+
+### Task 29: Skutečné nativní ověření konfigurace na Node22
+
+**Own:** nový `.github/workflows/engine-npm-config.yml` a README CI poznámka. Native matrix windows-2022 +ubuntu-24.04, přesně Node22.23.2 pro testy, Node24.21.0/pnpm11.4.0 pro frozen tools install. Root workspace/payload/selector/locks i produkční callers beze změny.
+
+- [x] Přesně připnuté Actions, contents:read, PR-path omezení, checkout bez credentials a vlastní concurrency; shell pwsh/matrix,10min.
+- [x] Ověřený genuine pnpm CLI spouštěný explicitním Node24; izolované instalační konfigurace/cache/store, frozen lock a ignore-scripts; generic config.key=value jako jednotlivé argumenty, přísný čerstvý Int32 exit0.
+- [x] Samostatný setup Node22 a skutečný nový npm-config test soubor; žádné modelové Windows tvrzení, catch-success, retry nebo oslabení assertions.
+- [x] YAML/diff kontrola, DCO commit a nezávislá SPEC/QUALITY revize před běžným feature pushem; první actual CI z daného head je autoritativní.
+- [ ] Root ověří skutečné CI joby/step výsledky. Úspěšný SDK komponentní proof se nepřevádí na důkaz spouštění aplikace; původních pět zjištění a chráněný dev merge/GUI/provider zůstávají povinné.
+
+**Task29 lokálně:** sourced6a14b04, YAML/diff PASS, nezávislá SPEC/QUALITY Approved/no findings; root workflow/lock/suite/DCO/review audit PASS. První skutečné nativní CI teprve po normální publikaci; žádné runtimehook/app/provider tvrzení.
