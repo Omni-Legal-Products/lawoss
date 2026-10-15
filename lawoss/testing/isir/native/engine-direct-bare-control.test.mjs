@@ -17,7 +17,7 @@ async function fixture(t, mode = 'ready', sdkMetadata = false) {
   const root = await fs.mkdtemp(path.join(tmpdir(), 'direct-control-test-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const file = path.join(root, 'opencode-x86_64-pc-windows-msvc.exe');
-  const source = `const http=require('node:http');const args=process.argv;const port=Number(args[args.indexOf('--port')+1]);const mode=${JSON.stringify(mode.startsWith('noop-')?mode.slice(5):mode)};const server=http.createServer((req,res)=>{if(req.headers.authorization!=='Basic '+Buffer.from(process.env.OPENCODE_SERVER_USERNAME+':'+process.env.OPENCODE_SERVER_PASSWORD).toString('base64')){res.writeHead(401).end();return;}if(req.url==='/global/health'){const send=()=>res.end(JSON.stringify({healthy:true,version:'1.18.29'}));if(mode==='deadline')setTimeout(send,150);else send();return;}const dir=new URL(req.url,'http://localhost').searchParams.get('directory');if(mode==='stall'||mode==='deadline'){res.writeHead(200);res.write('{');return;}if(mode==='abort'){res.writeHead(200);res.write('{');setTimeout(()=>res.destroy(),10);return;}if(mode==='oversized'){res.end('x'.repeat(65537));return;}if(mode==='invalid-utf8'){res.end(Buffer.from([255]));return;}if(mode==='duplicate'){res.end('{"directory":"x","directory":"y"}');return;}if(mode==='malformed'){res.end('{PRIVATE');return;}if(mode==='flood'){process.stdout.write('x'.repeat(65537));}res.end(JSON.stringify({directory:mode==='scope'?'/wrong':dir,worktree:dir}));});server.listen(port,'127.0.0.1');`;
+  const source = `const http=require('node:http');const args=process.argv;const port=Number(args[args.indexOf('--port')+1]);const mode=${JSON.stringify(mode.startsWith('noop-')?mode.slice(5):mode)};const server=http.createServer((req,res)=>{if(req.headers.authorization!=='Basic '+Buffer.from(process.env.OPENCODE_SERVER_USERNAME+':'+process.env.OPENCODE_SERVER_PASSWORD).toString('base64')){res.writeHead(401).end();return;}if(req.url==='/global/health'){if(mode==='health-stall'){res.writeHead(200);res.write('{');return;}if(mode==='health-malformed'){res.end('{PRIVATE');return;}if(mode==='health-invalid-utf8'){res.end(Buffer.from([255]));return;}if(mode==='health-duplicate'){res.end('{"healthy":true,"healthy":false}');return;}if(mode==='health-status'){res.writeHead(503).end('{}');return;}if(mode==='health-unhealthy'){res.end(JSON.stringify({healthy:false,version:'1.18.29'}));return;}if(mode==='health-version'){res.end(JSON.stringify({healthy:true,version:'PRIVATE'}));return;}const send=()=>res.end(JSON.stringify({healthy:true,version:'1.18.29'}));if(mode==='deadline')setTimeout(send,150);else send();return;}const dir=new URL(req.url,'http://localhost').searchParams.get('directory');if(mode==='stall'||mode==='deadline'){res.writeHead(200);res.write('{');return;}if(mode==='abort'){res.writeHead(200);res.write('{');setTimeout(()=>res.destroy(),10);return;}if(mode==='oversized'){res.end('x'.repeat(65537));return;}if(mode==='invalid-utf8'){res.end(Buffer.from([255]));return;}if(mode==='duplicate'){res.end('{"directory":"x","directory":"y"}');return;}if(mode==='malformed'){res.end('{PRIVATE');return;}if(mode==='flood'){process.stdout.write('x'.repeat(65537));}res.end(JSON.stringify({directory:mode==='scope'?'/wrong':dir,worktree:dir}));});server.listen(port,'127.0.0.1');`;
   const metadataCheck = sdkMetadata ? `const assert=require('node:assert/strict');const root=process.env.HOME;assert.equal(await fs.realpath(root),path.dirname(process.cwd()));assert.equal(process.env.XDG_CONFIG_HOME,path.join(root,'config'));assert.equal(process.env.OPENCODE_CONFIG_DIR,path.join(root,'empty-config'));for(const role of [path.join(root,'config','opencode'),path.join(root,'empty-config')]){assert.equal(await fs.readFile(path.join(role,'package.json'),'utf8'),'{'+'"private":true,"dependencies":{"@opencode-ai/plugin":"1.18.29"}}');assert.equal(await fs.readFile(path.join(role,'package-lock.json'),'utf8'),'{'+'"lockfileVersion":3,"packages":{"":{"dependencies":{"@opencode-ai/plugin":"1.18.29"}}}}');assert.deepEqual(await fs.readdir(path.join(role,'node_modules')),[]);await assert.rejects(fs.lstat(path.join(role,'node_modules','@opencode-ai','plugin')));}assert.equal(await fs.readFile(path.join(root,'empty-config','opencode.json'),'utf8'),'{}');` : '';
   const activation = mode.startsWith('noop') ? `const fs=require('node:fs/promises');const path=require('node:path');const {fileURLToPath}=require('node:url');(async()=>{${metadataCheck}const config=JSON.parse(process.env.OPENCODE_CONFIG_CONTENT);require('node:assert/strict').deepEqual(Object.keys(config),['plugin']);require('node:assert/strict').equal(config.plugin.length,1);const url=config.plugin[0];const plugin=fileURLToPath(url);require('node:assert/strict').equal(await fs.realpath(plugin),path.join(path.dirname(process.cwd()),'owned-noop-plugin.mjs'));require('node:assert/strict').equal(await fs.readFile(plugin,'utf8'),${JSON.stringify(noopSource)});const ack=path.join(path.dirname(plugin),'owned-noop-activation');await require('node:assert/strict').rejects(fs.lstat(ack));const loaded=await import(url);await require('node:assert/strict').rejects(fs.lstat(ack));if(${JSON.stringify(mode)}==='noop-ready')await loaded.default();else if(${JSON.stringify(mode)}==='noop-wrong')await fs.writeFile(ack,'lawoss-owned-noop-invoked-v0\\n');else if(${JSON.stringify(mode)}==='noop-symlink'){const target=${JSON.stringify(path.join(root,'outside-ack'))};await fs.writeFile(target,'lawoss-owned-noop-invoked-v1\\n');await fs.symlink(target,ack);} ${source}})();` : source;
   await fs.writeFile(file, activation);
@@ -239,4 +239,111 @@ test('SDK metadata CLI cannot bypass pin or accept arbitrary role flags',async t
   async function cli(output,flags){const child=spawn(process.execPath,[runner,output,f.root,...flags],{env:{...process.env,NODE_TEST_CONTEXT:'child-v8',ENGINE_SHA256:f.options.fixtureSha256},stdio:['ignore','pipe','pipe']});let text='';child.stdout.on('data',v=>text+=v);child.stderr.on('data',v=>text+=v);return {exit:await new Promise(resolve=>child.once('close',resolve)),text};}
   const output=path.join(f.root,'metadata.json');assert.equal((await cli(output,['--owned-noop-sdk-metadata'])).exit,0);const r=JSON.parse(await fs.readFile(output));assert.equal(r.namespace,'engine-direct-noop-sdk-metadata-control-v1');assert.equal(r.outcome,'UNKNOWN');assert.equal(r.reason,'admission');assert.equal(r.seedPrepared,false);assert.equal(r.sourcePredicateSatisfied,false);assert.equal(r.expectedBinarySha256,'32675fbf8fcb804c6ee4e048ff0926cd64bf54d1b6185bf2c09e93a2662dd69d');assert.equal(Object.keys(r).length,28);
   for(const [index,flags] of [['--owned-noop-sdk-metadata=/arbitrary'],['--owned-noop-sdk-metadata','/arbitrary'],['--seed-role','/arbitrary']].entries()){const refused=path.join(f.root,`refused-sdk-${index}.json`);assert.equal((await cli(refused,flags)).exit,1);await assert.rejects(fs.lstat(refused));}
+});
+
+test('health companion is strict, frozen, and bound to exact newline-terminated metadata receipt',async t=>{
+  const f=await fixture(t,'noop-ready',true);
+  const {receipt,companion}=await api.testOnlyRun({...f.options,ownedNoopSdkMetadataHealth:true});
+  assert.equal(receipt.namespace,'engine-direct-noop-sdk-metadata-control-v1');
+  assert.equal(Object.keys(receipt).length,28);
+  assert.deepEqual(Object.keys(companion).sort(),['namespace','receiptSha256','healthStage','healthElapsedMs','connectionRefusals','errorName','errorCode','deadlineExpired','ownerAborted'].sort());
+  assert.equal(companion.namespace,'engine-direct-health-boundary-v1');
+  assert.equal(companion.receiptSha256,sha(Buffer.from(`${JSON.stringify(receipt)}\n`)));
+  assert.equal(companion.healthStage,'verified');assert.equal(companion.errorName,'none');assert.equal(companion.errorCode,'none');
+  assert.ok(Object.isFrozen(companion));
+  for(const change of [{extra:'PRIVATE'},{healthElapsedMs:Infinity},{connectionRefusals:-1},{healthStage:'PRIVATE'},{errorName:'PRIVATE'},{errorCode:'PRIVATE'},{receiptSha256:'PRIVATE'}])assert.throws(()=>api.projectHealthBoundary({...companion,...change}));
+  await assert.rejects(api.publishHealthPair(path.join(f.root,'wrong.json'),{receipt,companion:{...companion,receiptSha256:'0'.repeat(64)}}));
+  assert.throws(()=>api.projectReceipt(companion));assert.throws(()=>api.projectNoopPluginReceipt(companion));assert.throws(()=>api.projectNoopSdkMetadataReceipt(companion));
+  const input={...companion},copy=api.projectHealthBoundary(input);input.healthStage='request';assert.equal(copy.healthStage,'verified');
+});
+
+test('health companion records admission before any health request and fixed exclusive publication',async t=>{
+  const f=await fixture(t);const output=path.join(f.root,'receipt.json');
+  const pair=await api.testOnlyRun({...f.options,fixtureSha256:'0'.repeat(64),ownedNoopSdkMetadataHealth:true});
+  assert.equal(pair.receipt.reason,'admission');assert.equal(f.spawnCount,0);
+  assert.equal(pair.companion.healthStage,'not-started');assert.equal(pair.companion.healthElapsedMs,0);assert.equal(pair.companion.connectionRefusals,0);
+  assert.equal(pair.companion.errorName,'none');assert.equal(pair.companion.errorCode,'none');
+  assert.equal(pair.companion.deadlineExpired,false);assert.equal(pair.companion.ownerAborted,false);
+  await api.publishHealthPair(output,pair);
+  assert.equal(await fs.readFile(output,'utf8'),`${JSON.stringify(pair.receipt)}\n`);
+  assert.equal(await fs.readFile(path.join(f.root,'engine-direct-health-boundary-v1.json'),'utf8'),`${JSON.stringify(pair.companion)}\n`);
+  await assert.rejects(api.publishHealthPair(output,pair));
+  await assert.rejects(api.publishHealthPair(path.join(f.root,'ENGINE-DIRECT-HEALTH-BOUNDARY-V1.JSON'),pair));
+  const other=path.join(f.root,'other.json');await assert.rejects(api.publishHealthPair(other,pair));await assert.rejects(fs.lstat(other));
+});
+
+test('health refusal retry reaches real listener once and selected work sees verified frozen boundary',async t=>{
+  const f=await fixture(t,'ready',true);let attempts=0;
+  const pair=await api.testOnlyRun({...f.options,ownedNoopSdkMetadataHealth:true,healthRequest:(request,url)=>{
+    attempts++;if(attempts===1)throw Object.assign(new TypeError('PRIVATE'),{cause:{code:'ECONNREFUSED'}});
+    return request(url);
+  }});
+  assert.equal(attempts,2);assert.equal(pair.receipt.outcome,'UNKNOWN');assert.equal(pair.receipt.reason,'plugin-unobserved');
+  assert.equal(pair.companion.healthStage,'verified');assert.equal(pair.companion.connectionRefusals,1);
+  assert.equal(pair.companion.errorName,'none');assert.equal(pair.companion.errorCode,'none');
+  assert.equal(pair.companion.ownerAborted,false);assert.equal(pair.companion.deadlineExpired,false);
+  assert.ok(pair.companion.healthElapsedMs>0);assert.ok(!JSON.stringify(pair.companion).includes('PRIVATE'));
+  t.after(()=>fs.rm(f.privateRoot,{recursive:true,force:true}));
+});
+
+test('health refusal exhaustion retains exact retry rule, deadline and terminal name',async t=>{
+  const f=await fixture(t,'ready',true);f.options.startupMs=220;let attempts=0;
+  const pair=await api.testOnlyRun({...f.options,ownedNoopSdkMetadataHealth:true,healthRequest:()=>{attempts++;throw Object.assign(new TypeError('PRIVATE'),{cause:{code:'ECONNREFUSED'}});}});
+  assert.equal(pair.receipt.outcome,'UNKNOWN');assert.equal(pair.receipt.reason,'health');assert.equal(pair.receipt.healthStatus,null);
+  assert.equal(pair.companion.healthStage,'request');assert.equal(pair.companion.connectionRefusals,attempts);
+  assert.ok(attempts>=2);assert.equal(pair.companion.errorName,'TimeoutError');assert.equal(pair.companion.errorCode,'other');
+  assert.equal(pair.companion.deadlineExpired,true);assert.ok(pair.companion.healthElapsedMs>=150);
+  t.after(()=>fs.rm(f.privateRoot,{recursive:true,force:true}));
+});
+
+test('health preheaders nonrefusal is terminal and projects only finite code/name',async t=>{
+  for(const [name,code,causeCode,expectedName,expectedCode] of [['TypeError','ECONNRESET',undefined,'TypeError','ECONNRESET'],['PRIVATE','PRIVATE',undefined,'other','other'],['none','none',undefined,'other','other'],['Error','ECONNREFUSED','EPIPE','Error','ECONNREFUSED']]) {
+    const f=await fixture(t,'ready',true);let attempts=0;const error=Object.assign(new Error('PRIVATE'),{name,code});
+    if(causeCode)error.cause={code:causeCode};
+    const pair=await api.testOnlyRun({...f.options,ownedNoopSdkMetadataHealth:true,healthRequest:()=>{attempts++;throw error;}});
+    assert.equal(attempts,1);assert.equal(pair.receipt.reason,'health');assert.equal(pair.receipt.healthStatus,null);
+    assert.equal(pair.companion.healthStage,'request');assert.equal(pair.companion.connectionRefusals,0);
+    assert.equal(pair.companion.errorName,expectedName);assert.equal(pair.companion.errorCode,expectedCode);
+    assert.equal(pair.companion.deadlineExpired,false);assert.ok(!JSON.stringify(pair.companion).includes('PRIVATE'));
+    t.after(()=>fs.rm(f.privateRoot,{recursive:true,force:true}));
+  }
+});
+
+test('health CLI produces fixed sibling on admission refusal and rejects extra flags',async t=>{
+  const f=await fixture(t),runner=path.resolve('lawoss/testing/isir/native/engine-direct-bare-control.mjs');
+  async function cli(output,flags){const child=spawn(process.execPath,[runner,output,f.root,...flags],{env:{...process.env,NODE_TEST_CONTEXT:'child-v8',ENGINE_SHA256:f.options.fixtureSha256},stdio:['ignore','pipe','pipe']});let text='';child.stdout.on('data',v=>text+=v);child.stderr.on('data',v=>text+=v);return {exit:await new Promise(resolve=>child.once('close',resolve)),text};}
+  const output=path.join(f.root,'base.json');const result=await cli(output,['--owned-noop-sdk-metadata-health']);
+  assert.equal(result.exit,0);assert.equal(result.text,'Direct noop SDK metadata health control receipts written.\n');
+  const baseBytes=await fs.readFile(output),companion=JSON.parse(await fs.readFile(path.join(f.root,'engine-direct-health-boundary-v1.json')));
+  assert.equal(JSON.parse(baseBytes).namespace,'engine-direct-noop-sdk-metadata-control-v1');assert.equal(companion.receiptSha256,sha(baseBytes));
+  for(const flags of [['--owned-noop-sdk-metadata-health=/arbitrary'],['--owned-noop-sdk-metadata-health','/arbitrary']]){
+    const refused=path.join(f.root,`refused-health-${flags.length}.json`);assert.equal((await cli(refused,flags)).exit,1);await assert.rejects(fs.lstat(refused));
+  }
+});
+
+test('real health body and assertion boundaries preserve original receipt outcomes',async t=>{
+  for(const [mode,stage,status,reason] of [
+    ['health-stall','headers',200,'health'],['health-malformed','headers',200,'health'],
+    ['health-invalid-utf8','headers',200,'health'],['health-duplicate','headers',200,'health'],
+    ['health-status','body',503,'health'],['health-unhealthy','body',200,'health'],['health-version','body',200,'health'],
+  ]) {
+    const f=await fixture(t,mode,true);if(mode==='health-stall')f.options.startupMs=250;
+    const pair=await api.testOnlyRun({...f.options,ownedNoopSdkMetadataHealth:true});
+    assert.equal(pair.receipt.outcome,'UNKNOWN',mode);assert.equal(pair.receipt.reason,reason,mode);
+    assert.equal(pair.receipt.healthStatus,status,mode);assert.equal(pair.companion.healthStage,stage,mode);
+    assert.ok(pair.companion.connectionRefusals>=0,mode);assert.notEqual(pair.companion.errorName,'none',mode);
+    assert.equal(pair.companion.deadlineExpired,mode==='health-stall',mode);
+    assert.ok(pair.companion.healthElapsedMs>=0&&pair.companion.healthElapsedMs<=300000,mode);
+    t.after(()=>fs.rm(f.privateRoot,{recursive:true,force:true}));
+  }
+});
+
+test('successful health snapshot remains verified after selected stall and cleanup abort',async t=>{
+  const f=await fixture(t,'stall',true);f.options.startupMs=300;
+  const pair=await api.testOnlyRun({...f.options,ownedNoopSdkMetadataHealth:true});
+  assert.equal(pair.receipt.outcome,'DIRECT_SELECTED_FAILED');assert.equal(pair.receipt.reason,'deadline');
+  assert.equal(pair.receipt.selectedStage,'headers');assert.equal(pair.companion.healthStage,'verified');
+  assert.equal(pair.companion.deadlineExpired,false);assert.equal(pair.companion.ownerAborted,false);
+  assert.equal(pair.companion.errorName,'none');assert.equal(pair.companion.errorCode,'none');
+  assert.ok(pair.companion.healthElapsedMs<pair.receipt.selectedElapsedMs+300);
 });

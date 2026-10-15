@@ -82,6 +82,44 @@ export function projectNoopSdkMetadataReceipt(value) {
   return Object.freeze({...value});
 }
 
+const healthFile='engine-direct-health-boundary-v1.json';
+const healthNames=['none','AbortError','TimeoutError','TypeError','SyntaxError','AssertionError','Error','other'];
+const healthCodes=['none','BODY_LIMIT','ECONNREFUSED','ECONNRESET','EPIPE','ETIMEDOUT','ENETUNREACH','EHOSTUNREACH','UND_ERR_CONNECT_TIMEOUT','UND_ERR_HEADERS_TIMEOUT','UND_ERR_SOCKET','ABORT_ERR','ERR_ASSERTION','other'];
+const healthStages=['not-started','request','headers','body','verified'];
+export function projectHealthBoundary(value) {
+  assert.deepEqual(Object.keys(value).sort(),['namespace','receiptSha256','healthStage','healthElapsedMs','connectionRefusals','errorName','errorCode','deadlineExpired','ownerAborted'].sort());
+  assert.equal(value.namespace,'engine-direct-health-boundary-v1');assert.ok(hash(value.receiptSha256));
+  assert.ok(healthStages.includes(value.healthStage));assert.ok(count(value.healthElapsedMs));assert.ok(count(value.connectionRefusals));
+  assert.ok(healthNames.includes(value.errorName));assert.ok(healthCodes.includes(value.errorCode));
+  assert.equal(typeof value.deadlineExpired,'boolean');assert.equal(typeof value.ownerAborted,'boolean');
+  if(value.healthStage==='not-started')assert.ok(value.healthElapsedMs===0&&value.connectionRefusals===0&&value.errorName==='none'&&value.errorCode==='none');
+  if(value.healthStage==='verified')assert.ok(value.errorName==='none'&&value.errorCode==='none');
+  if(value.errorName==='none')assert.equal(value.errorCode,'none');
+  else assert.notEqual(value.healthStage,'verified');
+  return Object.freeze({...value});
+}
+function terminalHealth(health,error,deadline,signal) {
+  if(health.stage==='not-started')return Object.freeze({healthStage:'not-started',healthElapsedMs:0,connectionRefusals:0,errorName:'none',errorCode:'none',deadlineExpired:deadline!==undefined&&Date.now()>=deadline,ownerAborted:signal.aborted});
+  const name=error?.name,code=error?.code??error?.cause?.code;
+  return Object.freeze({healthStage:health.stage,healthElapsedMs:Math.min(300000,Math.max(0,Date.now()-health.started)),connectionRefusals:health.refusals,
+    errorName:error?(name!=='none'&&healthNames.includes(name)?name:'other'):'none',errorCode:error?(code!=='none'&&healthCodes.includes(code)?code:'other'):'none',
+    deadlineExpired:Date.now()>=deadline,ownerAborted:signal.aborted});
+}
+
+export async function publishHealthPair(output,{receipt,companion}) {
+  assert.ok(path.isAbsolute(output));assert.notEqual(path.basename(output).toLowerCase(),healthFile.toLowerCase());
+  const sibling=path.join(path.dirname(output),healthFile);
+  const validated=projectNoopSdkMetadataReceipt(receipt),baseBytes=`${JSON.stringify(validated)}\n`;
+  assert.deepEqual(projectHealthBoundary(companion),companion);
+  assert.equal(companion.receiptSha256,createHash('sha256').update(baseBytes).digest('hex'));
+  for(const target of [output,sibling]) {
+    try {await fs.lstat(target);throw new Error('occupied output');}
+    catch(error) {if(error?.code!=='ENOENT')throw error;}
+  }
+  await fs.writeFile(output,baseBytes,{flag:'wx'});
+  await fs.writeFile(sibling,`${JSON.stringify(companion)}\n`,{flag:'wx'});
+}
+
 const seedRoles=['config/opencode','empty-config'];
 const sameNode=(a,b)=>a.dev===b.dev&&a.ino===b.ino;
 const seedIdentity=stat=>({dev:stat.dev,ino:stat.ino});
@@ -216,9 +254,10 @@ async function boundedResponse(url,options,deadline,ownerSignal) {
     },
   };
 }
-async function run(bundleDir,testing,ownedNoopPlugin=false,ownedNoopSdkMetadata=false) {
+async function run(bundleDir,testing,ownedNoopPlugin=false,ownedNoopSdkMetadata=false,observeHealth=false) {
   ownedNoopPlugin=ownedNoopPlugin||ownedNoopSdkMetadata;let seedState;
   const receipt=initial(process.env);let prepared,root,supervisor,reservation;let startupDeadline,cleanupEnv;
+  const health=observeHealth?{stage:'not-started',started:0,refusals:0}:undefined;let healthSnapshot;
   if(ownedNoopPlugin)Object.assign(receipt,{namespace:'engine-direct-noop-plugin-control-v1',fixedSettingsSha256:noopSettingsHash,pluginObserved:false});
   if(ownedNoopSdkMetadata)Object.assign(receipt,{namespace:'engine-direct-noop-sdk-metadata-control-v1',fixedSettingsSha256:metadataSettingsHash,seedPrepared:false,sourcePredicateSatisfied:false});
   const abort=new AbortController();let deadlineTimer;
@@ -254,16 +293,24 @@ async function run(bundleDir,testing,ownedNoopPlugin=false,ownedNoopSdkMetadata=
     const headers={authorization:`Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`};
     const request=(url,options={})=>boundedResponse(url,{...options,origin,headers},startupDeadline,abort.signal);
     receipt.reason='health';
-    while(true) {
-      if(abort.signal.aborted||Date.now()>=startupDeadline)throw new DOMException('','TimeoutError');
-      try {
-        const response=await request(`${origin}/global/health`);receipt.healthStatus=response.status;
-        const body=await response.json();assert.equal(response.status,200);assert.equal(body?.healthy,true);assert.equal(body?.version,PINNED_ENGINE_VERSION);receipt.healthVersion=body.version;break;
-      } catch(error) {
-        // Retry only initial listener connection refusal, never bad health/body/identity.
-        if(error?.cause?.code!=='ECONNREFUSED')throw error;
-        await sleep(Math.min(50,Math.max(1,startupDeadline-Date.now())));
+    try {
+      while(true) {
+        if(abort.signal.aborted||Date.now()>=startupDeadline)throw new DOMException('','TimeoutError');
+        try {
+          if(health){health.stage='request';health.started||=Date.now();}
+          const response=await (testing?.healthRequest?testing.healthRequest(request,`${origin}/global/health`):request(`${origin}/global/health`));if(health)health.stage='headers';receipt.healthStatus=response.status;
+          const body=await response.json();if(health)health.stage='body';assert.equal(response.status,200);assert.equal(body?.healthy,true);assert.equal(body?.version,PINNED_ENGINE_VERSION);receipt.healthVersion=body.version;if(health)health.stage='verified';break;
+        } catch(error) {
+          // Retry only initial listener connection refusal, never bad health/body/identity.
+          if(error?.cause?.code!=='ECONNREFUSED')throw error;
+          if(health)health.refusals=Math.min(300000,health.refusals+1);
+          await sleep(Math.min(50,Math.max(1,startupDeadline-Date.now())));
+        }
       }
+      if(health)healthSnapshot=terminalHealth(health,null,startupDeadline,abort.signal);
+    } catch(error) {
+      if(health)healthSnapshot=terminalHealth(health,error,startupDeadline,abort.signal);
+      throw error;
     }
     receipt.reason='selected';const selectedStart=Date.now();
     try {
@@ -274,6 +321,7 @@ async function run(bundleDir,testing,ownedNoopPlugin=false,ownedNoopSdkMetadata=
       receipt.outcome=error?.code==='BODY_LIMIT'?'UNKNOWN':'DIRECT_SELECTED_FAILED';receipt.reason=error?.code==='BODY_LIMIT'?'body-limit':Date.now()>=startupDeadline?'deadline':'selected';
     } finally {receipt.selectedElapsedMs=Math.min(300000,Math.max(0,Date.now()-selectedStart));}
   } catch(error) {
+    if(health&&!healthSnapshot)healthSnapshot=terminalHealth(health,error,startupDeadline,abort.signal);
     receipt.outcome='UNKNOWN';if(error?.code==='BODY_LIMIT')receipt.reason='body-limit';
   } finally {
     clearTimeout(deadlineTimer);abort.abort();
@@ -303,27 +351,35 @@ async function run(bundleDir,testing,ownedNoopPlugin=false,ownedNoopSdkMetadata=
       catch{receipt.outcome='UNKNOWN';receipt.reason='root-cleanup';}
     }
   }
-  return ownedNoopSdkMetadata?projectNoopSdkMetadataReceipt(receipt):ownedNoopPlugin?projectNoopPluginReceipt(receipt):projectReceipt(receipt);
+  const projected=ownedNoopSdkMetadata?projectNoopSdkMetadataReceipt(receipt):ownedNoopPlugin?projectNoopPluginReceipt(receipt):projectReceipt(receipt);
+  if(!observeHealth)return projected;
+  const boundary=healthSnapshot;assert.ok(boundary);
+  const baseBytes=`${JSON.stringify(projected)}\n`;
+  return Object.freeze({receipt:projected,companion:projectHealthBoundary({namespace:'engine-direct-health-boundary-v1',receiptSha256:createHash('sha256').update(baseBytes).digest('hex'),...boundary})});
 }
 export function runDirectBareControl(bundleDir) {return run(bundleDir);}
 export function runDirectNoopPluginControl(bundleDir) {return run(bundleDir,undefined,true);}
 export function runDirectNoopSdkMetadataControl(bundleDir) {return run(bundleDir,undefined,true,true);}
+export function runDirectNoopSdkMetadataHealthControl(bundleDir) {return run(bundleDir,undefined,true,true,true);}
 // Only Node's test runner exposes this narrow fixture seam. CLI never reads it or an env SHA.
 export function testOnlyRun(options) {
   assert.ok(process.env.NODE_TEST_CONTEXT);assert.ok(hash(options.fixtureSha256));
   assert.ok(options.ownedNoopPlugin===undefined||typeof options.ownedNoopPlugin==='boolean');
   assert.ok(options.ownedNoopSdkMetadata===undefined||typeof options.ownedNoopSdkMetadata==='boolean');
+  assert.ok(options.ownedNoopSdkMetadataHealth===undefined||typeof options.ownedNoopSdkMetadataHealth==='boolean');
+  assert.ok(options.healthRequest===undefined||options.ownedNoopSdkMetadataHealth===true&&typeof options.healthRequest==='function');
   for(const [key,max] of [['startupMs',90000],['closeMs',5000],['drainMs',1000]])assert.ok(Number.isInteger(options[key])&&options[key]>0&&options[key]<=max);
-  return run(options.bundleDir,options,options.ownedNoopPlugin===true,options.ownedNoopSdkMetadata===true);
+  return run(options.bundleDir,options,options.ownedNoopPlugin===true,options.ownedNoopSdkMetadata===true||options.ownedNoopSdkMetadataHealth===true,options.ownedNoopSdkMetadataHealth===true);
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href) {
   try {
     assert.equal(process.versions.node.split('.')[0],'24');
-    assert.ok(process.argv.length===4||process.argv.length===5&&['--owned-noop-plugin','--owned-noop-sdk-metadata'].includes(process.argv[4]));
+    assert.ok(process.argv.length===4||process.argv.length===5&&['--owned-noop-plugin','--owned-noop-sdk-metadata','--owned-noop-sdk-metadata-health'].includes(process.argv[4]));
     assert.ok(path.isAbsolute(process.argv[2])&&path.isAbsolute(process.argv[3]));
-    const ownedNoopPlugin=process.argv[4]==='--owned-noop-plugin',ownedMetadata=process.argv[4]==='--owned-noop-sdk-metadata';
-    const receipt=await (ownedMetadata?runDirectNoopSdkMetadataControl:ownedNoopPlugin?runDirectNoopPluginControl:runDirectBareControl)(process.argv[3]);
-    await fs.writeFile(process.argv[2],`${JSON.stringify(receipt)}\n`,{flag:'wx'});
-    process.stdout.write(ownedMetadata?'Direct noop SDK metadata control receipt written.\n':ownedNoopPlugin?'Direct noop plugin control receipt written.\n':'Direct bare control receipt written.\n');
+    const ownedNoopPlugin=process.argv[4]==='--owned-noop-plugin',ownedMetadata=process.argv[4]==='--owned-noop-sdk-metadata',ownedHealth=process.argv[4]==='--owned-noop-sdk-metadata-health';
+    const receipt=await (ownedHealth?runDirectNoopSdkMetadataHealthControl:ownedMetadata?runDirectNoopSdkMetadataControl:ownedNoopPlugin?runDirectNoopPluginControl:runDirectBareControl)(process.argv[3]);
+    if(ownedHealth)await publishHealthPair(process.argv[2],receipt);
+    else await fs.writeFile(process.argv[2],`${JSON.stringify(receipt)}\n`,{flag:'wx'});
+    process.stdout.write(ownedHealth?'Direct noop SDK metadata health control receipts written.\n':ownedMetadata?'Direct noop SDK metadata control receipt written.\n':ownedNoopPlugin?'Direct noop plugin control receipt written.\n':'Direct bare control receipt written.\n');
   } catch {process.stderr.write('Direct bare control receipt unavailable.\n');process.exitCode=1;}
 }

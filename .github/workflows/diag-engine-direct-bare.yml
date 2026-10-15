@@ -1,7 +1,7 @@
-name: Direct fixed two-role SDK metadata diagnostic (no installed SDK)
+name: Direct fixed two-role SDK metadata health diagnostic (no installed SDK)
 on:
   push:
-    branches: [fix/pr157-direct-sdk-metadata-control]
+    branches: [fix/pr157-direct-health-boundary]
 permissions:
   contents: read
 jobs:
@@ -85,11 +85,18 @@ jobs:
           $bundle = Join-Path $env:RUNNER_TEMP 'direct-bare-not-acquired'
           if ($env:ENGINE_ADMITTED -eq 'true') { $bundle = Join-Path $env:RUNNER_TEMP 'direct-bare-acquisition/bundle' }
           $receipt = Join-Path $env:RUNNER_TEMP 'engine-direct-noop-sdk-metadata-control.json'
-          node lawoss/testing/isir/native/engine-direct-bare-control.mjs $receipt $bundle --owned-noop-sdk-metadata
+          node lawoss/testing/isir/native/engine-direct-bare-control.mjs $receipt $bundle --owned-noop-sdk-metadata-health
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
           name: engine-direct-noop-sdk-metadata-control
           path: ${{ runner.temp }}/engine-direct-noop-sdk-metadata-control.json
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: engine-direct-health-boundary
+          path: ${{ runner.temp }}/engine-direct-health-boundary-v1.json
           if-no-files-found: error
           retention-days: 7
