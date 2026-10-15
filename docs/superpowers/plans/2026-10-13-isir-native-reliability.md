@@ -485,3 +485,14 @@ Windows portable38689643038 je nový RED ve helper kroku19: dvě NEW baseline CL
 
 
 2026-10-15T06:39:03.732330+00:00: Implementace458c951d→5080eaef integrována po nezávislé SPEC/QUALITY PASS/nové0, dva soubory. Node24.21 focused27/27; root společně diagnostics38+baseline27=65/65, syntax/diff0, pět sourceSHA a nezměněný workflow/main/runtime ověřeny. Skutečný386e guard přijímá i nová projekce bez změny původního boundary; to je tvarový preflight, ne nová Windows metadata. Pevné Git longpaths je oprava ztráty konfigurace, nikoli prokázané příčiny instalace. Nový actualWindows test/rebuild/instalace/startup/provider/GUI/dev merge zůstávají otevřené.
+
+
+### Task 8: Bezpečně rozlišit fáze nezměněného upstream buildu
+
+Actual22d: Windows helper i desetisložkový korpus PASS; původní native startup RED. Samostatná baseline instalace prokazatelně closed/exit0, poté upstream-build/child-error, rebuiltSHA/native chybí. Nejde o frozen refusal ani doloženou příčinu startupu.
+
+- [x] Pouze ve dvou baseline helper/test souborech přidat opt-in pasivní buildObservation: skutečný spawn/close/signal/exit a source-proved pevné stdout milestones + stderr Bun/Vite summaries; schema3, uzavřená bounded projekce. Žádné raw chyby/cesty/URL/stacky/source, změny příkazu/vstupů/budgetu/wrapperu ani závěry z absence značek. Instalační pozorování a původní výsledky zachovat.
+- [x] Matching Node24.21 syntetické RED/GREEN, celý baseline helper test/syntax/diff a nezávislá scoped SPEC/QUALITY revize před integrací.
+- [ ] Publikovat do stejného PR a vyhodnotit skutečné nové CI. Původní Windows startup, GUI/provider akceptace i chráněný dev merge zůstávají otevřené.
+
+Integrace Task8: 79fbeeee → 44643e65, nezávislé SPEC PASS / QUALITY APPROVED / nové0. Exact Node24.21 focused12/12 a celý helper39/39, syntax/diff0; dva sourceSHA a pět nezměněných source/workflow souborů ověřeny. Skutečný22d original guard stále run; schema3 shape preflight nepředstavuje nová buildová metadata. Nové CI a původní startup/GUI/provider/dev merge zůstávají otevřené.
