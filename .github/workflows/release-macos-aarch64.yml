@@ -289,7 +289,7 @@ jobs:
             electron_args: "--mac --arm64"
             target_triple: aarch64-apple-darwin
             executable: mac-arm64/LegalWork.app/Contents/MacOS/LegalWork
-          - platform: macos-14
+          - platform: macos-15-intel
             os_type: macos
             artifact: electron-macos-x64
             electron_args: "--mac --x64"
