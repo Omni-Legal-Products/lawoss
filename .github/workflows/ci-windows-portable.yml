@@ -227,6 +227,8 @@ jobs:
       - name: LAWOSS server (onboarding, register existing, triage, memory, paths, containment, reload watcher, process tree)
         id: windows_server_source
         working-directory: apps/server
+        env:
+          LAWOSS_PROJECT_SYNC_TEST_DIAGNOSTICS: '1'
         run: >-
           bun test
           ./src/artifact-files.e2e.test.ts
@@ -279,6 +281,7 @@ jobs:
           ./src/task-store.test.ts
           ./src/task-sync.test.ts
           ./src/workspace-reconnect.e2e.test.ts
+          ./src/test-support/project-sync-first-failure-timing.test.ts
 
       - name: Diagnose pending task handoff in a fresh Bun process
         if: ${{ failure() && steps.windows_server_source.outcome == 'failure' }}

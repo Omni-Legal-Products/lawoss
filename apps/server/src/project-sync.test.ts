@@ -31,10 +31,12 @@ import {
 import { ReviewStore } from "./reviews/storage.js";
 import { registerLocalProject } from "./routes/workspaces.js";
 import { taskStore } from "./task-store.js";
+import { createProjectSyncFirstFailureTiming, type ProjectSyncFirstFailureTiming } from "./test-support/project-sync-first-failure-timing.js";
 import type { RecorderBridge, ServerConfig, WorkspaceInfo } from "./types.js";
 
 const ORG = "org_kanzlei";
 const cleanups: Array<() => Promise<void>> = [];
+let activeFirstFailureTiming: ProjectSyncFirstFailureTiming | undefined;
 const originalPlatformUrl = process.env.EIGENWELT_PLATFORM_URL;
 const originalRuntimeDb = process.env.LEGALWORK_RUNTIME_DB;
 
@@ -49,7 +51,16 @@ afterAll(() => {
   if (originalRuntimeDb !== undefined) process.env.LEGALWORK_RUNTIME_DB = originalRuntimeDb;
 });
 afterEach(async () => {
-  while (cleanups.length) await cleanups.pop()?.();
+  const observer = activeFirstFailureTiming;
+  activeFirstFailureTiming = undefined;
+  observer?.cleanupEntry(cleanups.length);
+  try {
+    while (cleanups.length) await cleanups.pop()?.();
+  } catch (error) {
+    observer?.cleanupExit(true, cleanups.length);
+    throw error;
+  }
+  observer?.cleanupExit(false, cleanups.length);
 });
 
 const ALL = { documents: true, notes: true, tasks: true, recordings: false, metadata: true, reviews: true };
@@ -483,60 +494,156 @@ describe("project sync between computers", () => {
   });
 
   test("a member taken off the project loses the copy — or decides, when changes made there had not reached the firm", async () => {
-    const { platform } = fakeFirm();
-    const owner = await machine("user_anna", "Anna");
-    const member = await machine("user_ben", "Ben");
-    const akte = await localProject(owner.config, "Akte");
-    await write(akte, "a.txt", "a");
-    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
-    await runProjectSync(owner.config, { platform });
-    await runProjectSync(member.config, { platform });
-    const [copy] = projectsOf(member.config);
+    const observer = createProjectSyncFirstFailureTiming({
+      env: {
+        LAWOSS_PROJECT_SYNC_TEST_DIAGNOSTICS: process.env.LAWOSS_PROJECT_SYNC_TEST_DIAGNOSTICS,
+        CI: process.env.CI,
+        GITHUB_ACTIONS: process.env.GITHUB_ACTIONS,
+      },
+      now: () => performance.now(),
+      write: (frame) => { console.error(frame.trimEnd()); },
+    });
+    activeFirstFailureTiming = observer;
+    try {
+      const { platform } = fakeFirm();
+      observer.enter(1);
+      const owner = await machine("user_anna", "Anna");
+      observer.done(1);
+      observer.enter(2);
+      const member = await machine("user_ben", "Ben");
+      observer.done(2);
+      observer.enter(3);
+      const akte = await localProject(owner.config, "Akte");
+      observer.done(3);
+      observer.enter(4);
+      await write(akte, "a.txt", "a");
+      observer.done(4);
+      observer.enter(5);
+      await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
+      observer.done(5);
+      observer.enter(6);
+      await runProjectSync(owner.config, { platform });
+      observer.done(6);
+      observer.enter(7);
+      await runProjectSync(member.config, { platform });
+      observer.done(7);
+      const [copy] = projectsOf(member.config);
 
-    // Offline edit on Ben's computer, then Anna takes him off the Akte.
-    await write(copy, "b.txt", "Ben's note");
-    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [] }));
-    await runProjectSync(owner.config, { platform });
-    const pull = await runProjectSync(member.config, { platform: { ...platform, storage: () => {
-      throw new ApiError(502, "intake_unreachable", "offline for documents");
-    } } });
-    expect(pull.removed).toBe(0);
-    expect(await projectSyncStatus(member.config, copy)).toMatchObject({ state: "revoked", pendingChanges: 1 });
-    expect(await read(copy, "b.txt")).toBe("Ben's note");
+      // Offline edit on Ben's computer, then Anna takes him off the Akte.
+      observer.enter(8);
+      await write(copy, "b.txt", "Ben's note");
+      observer.done(8);
+      observer.enter(9);
+      await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [] }));
+      observer.done(9);
+      observer.enter(10);
+      await runProjectSync(owner.config, { platform });
+      observer.done(10);
+      observer.enter(11);
+      const pull = await runProjectSync(member.config, { platform: { ...platform, storage: () => {
+        throw new ApiError(502, "intake_unreachable", "offline for documents");
+      } } });
+      observer.done(11);
+      observer.enter(12);
+      expect(pull.removed).toBe(0);
+      observer.done(12);
+      observer.enter(13);
+      expect(await projectSyncStatus(member.config, copy)).toMatchObject({ state: "revoked", pendingChanges: 1 });
+      observer.done(13);
+      observer.enter(14);
+      expect(await read(copy, "b.txt")).toBe("Ben's note");
+      observer.done(14);
 
-    // Given access again, the held-back copy syncs again, changes included.
-    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
-    await runProjectSync(owner.config, { platform });
-    await settleFiles(copy);
-    await runProjectSync(member.config, { platform });
-    await runProjectSync(owner.config, { platform });
-    expect((await projectSyncStatus(member.config, copy)).state).toBe("synced");
-    expect(await read(akte, "b.txt")).toBe("Ben's note");
+      // Given access again, the held-back copy syncs again, changes included.
+      observer.enter(15);
+      await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
+      observer.done(15);
+      observer.enter(16);
+      await runProjectSync(owner.config, { platform });
+      observer.done(16);
+      observer.enter(17);
+      await settleFiles(copy);
+      observer.done(17);
+      observer.enter(18);
+      await runProjectSync(member.config, { platform });
+      observer.done(18);
+      observer.enter(19);
+      await runProjectSync(owner.config, { platform });
+      observer.done(19);
+      observer.enter(20);
+      expect((await projectSyncStatus(member.config, copy)).state).toBe("synced");
+      observer.done(20);
+      observer.enter(21);
+      expect(await read(akte, "b.txt")).toBe("Ben's note");
+      observer.done(21);
 
-    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [] }));
-    await runProjectSync(owner.config, { platform });
-    await write(copy, "c.txt", "another offline note");
-    await runProjectSync(member.config, { platform: { ...platform, storage: () => {
-      throw new ApiError(502, "intake_unreachable", "offline for documents");
-    } } });
-    expect((await projectSyncStatus(member.config, copy)).state).toBe("revoked");
-    await resolveProjectSync(member.config, copy, { action: "keep_local" });
-    expect((await projectSyncStatus(member.config, copy)).mode).toBe("local");
-    expect(await read(copy, "c.txt")).toBe("another offline note");
+      observer.enter(22);
+      await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [] }));
+      observer.done(22);
+      observer.enter(23);
+      await runProjectSync(owner.config, { platform });
+      observer.done(23);
+      observer.enter(24);
+      await write(copy, "c.txt", "another offline note");
+      observer.done(24);
+      observer.enter(25);
+      await runProjectSync(member.config, { platform: { ...platform, storage: () => {
+        throw new ApiError(502, "intake_unreachable", "offline for documents");
+      } } });
+      observer.done(25);
+      observer.enter(26);
+      expect((await projectSyncStatus(member.config, copy)).state).toBe("revoked");
+      observer.done(26);
+      observer.enter(27);
+      await resolveProjectSync(member.config, copy, { action: "keep_local" });
+      observer.done(27);
+      observer.enter(28);
+      expect((await projectSyncStatus(member.config, copy)).mode).toBe("local");
+      observer.done(28);
+      observer.enter(29);
+      expect(await read(copy, "c.txt")).toBe("another offline note");
+      observer.done(29);
 
-    // Without such changes the copy simply goes.
-    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
-    await runProjectSync(owner.config, { platform });
-    await runProjectSync(member.config, { platform });
-    const second = projectsOf(member.config).find((workspace) => workspace.id !== copy.id);
-    expect(second).toBeDefined();
-    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [] }));
-    await runProjectSync(owner.config, { platform });
-    await runProjectSync(member.config, { platform });
-    expect(projectsOf(member.config).map((workspace) => workspace.id)).toEqual([copy.id]);
-    expect(await readdir(second?.path ?? "").catch(() => null)).toBeNull();
-    // The app's own list forgets it too.
-    expect((await projectSyncOverview(member.config)).removed).toEqual([second?.id ?? ""]);
+      // Without such changes the copy simply goes.
+      observer.enter(30);
+      await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
+      observer.done(30);
+      observer.enter(31);
+      await runProjectSync(owner.config, { platform });
+      observer.done(31);
+      observer.enter(32);
+      await runProjectSync(member.config, { platform });
+      observer.done(32);
+      const second = projectsOf(member.config).find((workspace) => workspace.id !== copy.id);
+      observer.enter(33);
+      expect(second).toBeDefined();
+      observer.done(33);
+      observer.enter(34);
+      await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [] }));
+      observer.done(34);
+      observer.enter(35);
+      await runProjectSync(owner.config, { platform });
+      observer.done(35);
+      observer.enter(36);
+      await runProjectSync(member.config, { platform });
+      observer.done(36);
+      observer.enter(37);
+      expect(projectsOf(member.config).map((workspace) => workspace.id)).toEqual([copy.id]);
+      observer.done(37);
+      observer.enter(38);
+      expect(await readdir(second?.path ?? "").catch(() => null)).toBeNull();
+      observer.done(38);
+      // The app's own list forgets it too.
+      observer.enter(39);
+      expect((await projectSyncOverview(member.config)).removed).toEqual([second?.id ?? ""]);
+      observer.done(39);
+      observer.complete();
+    } catch (error) {
+      observer.failed();
+      throw error;
+    } finally {
+      observer.settled();
+    }
   });
 
   test("a file whose time alone moved is no change: without real changes, the copy goes when access ends", async () => {
