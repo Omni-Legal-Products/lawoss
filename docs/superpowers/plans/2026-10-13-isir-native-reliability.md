@@ -706,3 +706,9 @@ Detaily a source API jsou v SDD task-24-brief.md. Produkční distribuce/notices
 - [ ] NewsourceWindowsCIafterall3f44terminalaudit; no sameheadrerun/causalstartupclaim.
 
 **Fix1 source completion:**95dc3201/workflow0cbbe64b, all21SDKbytesunchanged; freshscopedSPEC PASS/QUALITY APPROVED/new0. Current3f44ALLterminal root309entries/15reportsdirectauditPASS. NewWindows gateOPEN; actual3f44version/causeUNKNOWN.
+
+**Task25 fix2 observational gate:** actualf664setupFAIL/runtimeTOOLS_INSTALL_FAILED; observedexception/renderedline46 source-mapswithofficialrunnerone-lineprefix tobody45nativeexitguard, runnerpatchidentityunverified. Actualexitkind/value/causeUNKNOWN.
+- [x] Minimal finite logreceipt absent|int32|other plusint32|unknown immediatelybeforeunchangedinstallerexitguard; no appfix/schema/acquisition change, freshscopedreview/sourcebinding.
+- [ ] Actual nextWindows typedreceipt/SDKgate; no unchangedheadrerun or relaxedexitcheck.
+
+**Fix2 source complete:** b254d4ec/workflow1ca586d2, freshscopedSPEC PASS/QUALITY APPROVED/new0;21SDKfilesunchanged. Rootf664allterminal328entries/18reportsdirectauditPASS. Diagnostic-onlypublication/newactualWindowsreceipt next; actualtypedvalue/cause/fullgoalOPEN.
