@@ -3,7 +3,7 @@ import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { RecordingDetailDialog } from "../../recorder/recorder-pane";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UIMessage } from "ai";
-import { useQuery } from "@tanstack/react-query";
+import { environmentManager, useQuery } from "@tanstack/react-query";
 import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
 import { TriangleAlert } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -44,9 +44,10 @@ import {
   type StorageFileDragItem,
 } from "@/app/lib/storage-file-drag";
 import type { WorkspaceFileDragItem } from "@/app/lib/workspace-file-drag";
-import type {
-  LegalworkServerClient,
-  LegalworkSessionSnapshot,
+import {
+  LegalworkServerError,
+  type LegalworkServerClient,
+  type LegalworkSessionSnapshot,
 } from "@/app/lib/legalwork-server";
 import type {
   ComposerAttachment,
@@ -782,13 +783,15 @@ export function SessionSurface(props: SessionSurfaceProps) {
   if (searchMessageId) fullHistorySession.current = props.sessionId;
   const snapshotQuery = useQuery<LegalworkSessionSnapshot>({
     queryKey: snapshotQueryKey,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const startedAt = Date.now();
-      const snapshot = (await props.client.getSessionSnapshot(props.workspaceId, props.sessionId, fullHistorySession.current === props.sessionId ? undefined : { limit: 140 })).item;
+      const snapshot = (await props.client.getSessionSnapshot(props.workspaceId, props.sessionId, fullHistorySession.current === props.sessionId ? { signal } : { limit: 140, signal })).item;
       seedTodoState(props.workspaceId, props.sessionId, snapshot.todos, startedAt);
       return snapshot;
     },
     staleTime: 500,
+    retry: (failureCount, error) => !(error instanceof LegalworkServerError && error.code === "session_revert_boundary_unresolved")
+      && failureCount < (environmentManager.isServer() ? 0 : 3),
   });
 
   const currentSnapshot = snapshotQuery.data?.session.id === props.sessionId ? snapshotQuery.data : null;
@@ -2060,6 +2063,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
           )}
         >
           <div ref={contentRef} className="lw-session-column">
+            {snapshot && snapshotQuery.error instanceof LegalworkServerError && snapshotQuery.error.code === "session_revert_boundary_unresolved" ? (
+              <div role="alert" className="mx-auto mb-4 max-w-xl rounded-3xl border border-red-6/40 bg-red-3/20 px-6 py-5 text-sm text-red-11">
+                {t("session.load_failed")}
+              </div>
+            ) : null}
             {showDelayedLoading && pendingSessionLoad ? (
               <div className="px-6 py-16">
                 <div className="mx-auto max-w-sm rounded-3xl border border-dls-border bg-dls-hover/60 px-8 py-10 text-center">

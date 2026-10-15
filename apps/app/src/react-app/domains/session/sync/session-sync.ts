@@ -1,5 +1,5 @@
 import type { UIMessage } from "ai";
-import { QueryObserver } from "@tanstack/react-query";
+import { QueryObserver, type Query } from "@tanstack/react-query";
 import type { FilePart, Part, PermissionRequest, PermissionV2Request, QuestionRequest, Session, SessionStatus, Todo } from "@opencode-ai/sdk/v2/client";
 
 import { getReactQueryClient } from "../../../infra/query-client";
@@ -45,6 +45,7 @@ type SyncEntry = {
   dispose: () => void;
   disposeTimer: ReturnType<typeof setTimeout> | null;
   trackedSessionRefs: Map<string, number>;
+  pendingSnapshotCursors: Map<string, { query: Query; cursor: string | null }>;
   statusObservationReleases: Map<string, () => void>;
   retainedSessionTimers: Map<string, ReturnType<typeof setTimeout>>;
   sessionUpdatedListeners: Set<NonNullable<SyncOptions["onSessionUpdated"]>>;
@@ -311,6 +312,7 @@ function partHasVisibleAssistantOutput(part: Part) {
 
 function clearTrackedSession(input: SyncOptions, entry: SyncEntry, sessionId: string) {
   entry.trackedSessionRefs.delete(sessionId);
+  entry.pendingSnapshotCursors.delete(sessionId);
   entry.statusObservationReleases.get(sessionId)?.();
   entry.statusObservationReleases.delete(sessionId);
   const retainedTimer = entry.retainedSessionTimers.get(sessionId);
@@ -344,6 +346,7 @@ function disposeWorkspaceSync(key: string, entry: SyncEntry) {
   entry.retainedSessionTimers.clear();
   for (const release of entry.statusObservationReleases.values()) release();
   entry.statusObservationReleases.clear();
+  entry.pendingSnapshotCursors.clear();
   entry.dispose();
   if (syncs.get(key) === entry) syncs.delete(key);
 }
@@ -757,14 +760,39 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     // renderer derives the visible transcript from this cursor, so a revert
     // (or its cleanup on the next prompt) must reach the snapshot cache or
     // the transcript stays frozen on stale history.
+    const key = snapshotKey(workspaceId, update.sessionId);
+    const before = queryClient.getQueryData<LegalworkSessionSnapshot>(key);
+    const nextCursor = (update.info as { revert?: LegalworkSessionSnapshot["session"]["revert"] }).revert?.messageID;
+    const query = queryClient.getQueryCache().find({ queryKey: key, exact: true });
+    const remembered = entry.pendingSnapshotCursors.get(update.sessionId);
+    const previousCursor = before ? before.session.revert?.messageID
+      : remembered && remembered.query === query ? remembered.cursor ?? undefined : undefined;
+    if (before) entry.pendingSnapshotCursors.delete(update.sessionId);
+    else if (query?.isActive() && query.state.fetchStatus === "fetching") {
+      // Metadata can arrive before the first HTTP body. Keep only this query's
+      // cursor so repeated native updates do not restart that same read.
+      entry.pendingSnapshotCursors.set(update.sessionId, { query, cursor: nextCursor ?? null });
+    }
+    const cursorChanged = nextCursor !== previousCursor;
+    const replaceRead = cursorChanged && query?.isActive() && query.state.fetchStatus === "fetching";
+    const needsBoundary = before && nextCursor && cursorChanged
+      && !before.messages.some((message) => message.info.id === nextCursor);
+    if (replaceRead) {
+      // Initial reads also need explicit cancellation. Reverting query state
+      // would publish old metadata before the authoritative cursor is applied.
+      void queryClient.cancelQueries({ queryKey: key, exact: true }, { silent: true, revert: false });
+    }
     queryClient.setQueryData<LegalworkSessionSnapshot>(
-      snapshotKey(workspaceId, update.sessionId),
+      key,
       (current) => {
         if (!current) return current;
         const revert = (update.info as { revert?: LegalworkSessionSnapshot["session"]["revert"] }).revert;
         return { ...current, session: { ...current.session, ...update.info, id: update.sessionId, revert } };
       },
     );
+    if ((replaceRead || needsBoundary) && query?.isActive()) {
+      void queryClient.invalidateQueries({ queryKey: key, exact: true, refetchType: "active" }, { cancelRefetch: true });
+    }
     for (const listener of entry.sessionUpdatedListeners) listener(update);
     return;
   }
@@ -772,7 +800,10 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "session.deleted") {
     const props = (event.properties ?? {}) as { sessionID?: string; info?: { id?: string } };
     const sessionId = props.sessionID ?? props.info?.id ?? "";
-    if (sessionId) useSessionActivityStore.getState().removeSession(workspaceId, sessionId);
+    if (sessionId) {
+      entry.pendingSnapshotCursors.delete(sessionId);
+      useSessionActivityStore.getState().removeSession(workspaceId, sessionId);
+    }
     return;
   }
 
@@ -1270,6 +1301,7 @@ export function ensureWorkspaceSessionSync(input: SyncOptions) {
     dispose: () => {},
     disposeTimer: null,
     trackedSessionRefs: new Map(),
+    pendingSnapshotCursors: new Map(),
     statusObservationReleases: new Map(),
     retainedSessionTimers: new Map(),
     sessionUpdatedListeners: new Set(input.onSessionUpdated ? [input.onSessionUpdated] : []),
@@ -1313,21 +1345,35 @@ export function seedTodoState(
   queryClient.setQueryData(key, todos);
 }
 
+function snapshotRevertUIMessageId(snapshot: LegalworkSessionSnapshot, incoming: UIMessage[]) {
+  const rawId = snapshot.session.revert?.messageID;
+  if (!rawId) return null;
+  if (incoming.some((message) => message.id === rawId)) return rawId;
+  const rawMessage = snapshot.messages.find((message) => message.info.id === rawId);
+  if (rawMessage?.info.role !== "assistant" || !rawMessage.info.error) return rawId;
+  // The adapter can replace this exact empty errored assistant with its error
+  // row. Resolve only an alias actually produced from the same raw snapshot.
+  const errorId = `${SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX}${rawId}`;
+  return incoming.some((message) => message.id === errorId) ? errorId : rawId;
+}
+
 function snapshotHasNewerUser(
   snapshot: LegalworkSessionSnapshot,
   knownUserId: string | null | undefined,
-  incoming: UIMessage[],
 ) {
   if (!knownUserId) return false;
-  const visible = applyRevertCursor(incoming, snapshot.session.revert?.messageID);
-  const knownIndex = visible.findIndex((message) => message.role === "user" && message.id === knownUserId);
-  const newerIndex = visible.findLastIndex((message) => message.role === "user");
+  // UI conversion can replace an empty errored assistant's original id. Cut
+  // the authoritative raw boundary first; an unavailable cursor proves no work.
+  const revert = snapshot.session.revert;
+  const boundary = revert ? snapshot.messages.findIndex((message) => message.info.id === revert.messageID) : snapshot.messages.length;
+  if (boundary < 0) return false;
+  const visible = snapshot.messages.slice(0, boundary);
+  const knownIndex = visible.findIndex((message) => message.info.role === "user" && message.info.id === knownUserId);
+  const newerIndex = visible.findLastIndex((message) => message.info.role === "user");
   if (knownIndex < 0 || newerIndex <= knownIndex) return false;
-  const newerId = visible[newerIndex].id;
-  if (visible.slice(newerIndex + 1).some((message) => message.id.startsWith(SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX))) return false;
-  return !snapshot.messages.some((message) => message.info.role === "assistant"
-    && message.info.parentID === newerId && message.info.error
-    && visible.some((candidate) => candidate.id === `${SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX}${message.info.id}`));
+  const newerId = visible[newerIndex].info.id;
+  return !visible.some((message, index) => message.info.role === "assistant" && message.info.error
+    && (message.info.parentID === newerId || index > newerIndex));
 }
 
 export function seedSessionState(workspaceId: string, snapshot: LegalworkSessionSnapshot) {
@@ -1341,7 +1387,7 @@ export function seedSessionState(workspaceId: string, snapshot: LegalworkSession
   const activityStore = useSessionActivityStore.getState();
   const currentActivity = activityStore.recordsByWorkspaceId[workspaceId]?.[snapshot.session.id];
   if (!currentActivity?.errorActive
-    || (isLiveStatus(snapshot.status) && snapshotHasNewerUser(snapshot, currentActivity.errorUserMessageId, incoming))) {
+    || (isLiveStatus(snapshot.status) && snapshotHasNewerUser(snapshot, currentActivity.errorUserMessageId))) {
     activityStore.seedSessionRun(
       workspaceId,
       snapshot.session.id,
@@ -1353,14 +1399,20 @@ export function seedSessionState(workspaceId: string, snapshot: LegalworkSession
   // The snapshot's revert cursor is authoritative: messages at/after it are
   // reverted server-side, so the cache must not keep them alive (a later
   // merge would resurrect them once the server deletes them on next prompt).
-  queryClient.setQueryData(key, applyRevertCursor(
+  const revertUIMessageId = snapshotRevertUIMessageId(snapshot, incoming);
+  const boundaryKnown = !snapshot.session.revert
+    || incoming.some((message) => message.id === revertUIMessageId)
+    || existing?.some((message) => message.id === revertUIMessageId);
+  // A limited page may omit the cursor after a prior hydration removed it.
+  // Preserve the known transcript until a read can establish that boundary.
+  queryClient.setQueryData(key, boundaryKnown ? applyRevertCursor(
     reconcileTranscriptMessages({
       currentMessages: existing ?? [],
       snapshotMessages: incoming,
       reason: "snapshot",
     }),
-    snapshot.session.revert?.messageID ?? null,
-  ));
+    revertUIMessageId,
+  ) : existing ?? []);
 
   // An older idle snapshot must not overwrite a newer busy event / accepted prompt.
   const activity = useSessionActivityStore.getState().recordsByWorkspaceId[workspaceId]?.[snapshot.session.id];
@@ -1488,6 +1540,7 @@ export function __createWorkspaceSessionSyncForTest(input: SyncOptions) {
     dispose: () => {},
     disposeTimer: null,
     trackedSessionRefs: new Map(),
+    pendingSnapshotCursors: new Map(),
     statusObservationReleases: new Map(),
     retainedSessionTimers: new Map(),
     sessionUpdatedListeners: new Set(),
@@ -1501,6 +1554,7 @@ export function __createWorkspaceSessionSyncForTest(input: SyncOptions) {
     if (entry) {
       for (const timer of entry.retainedSessionTimers.values()) clearTimeout(timer);
       for (const release of entry.statusObservationReleases.values()) release();
+      entry.pendingSnapshotCursors.clear();
     }
     syncs.delete(key);
   };

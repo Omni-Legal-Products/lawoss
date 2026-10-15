@@ -1,10 +1,14 @@
-import { afterEach, expect, test } from "bun:test";
-import { QueryObserver } from "@tanstack/react-query";
+import { afterEach, expect, spyOn, test } from "bun:test";
+import { environmentManager, isServer, QueryClientProvider, QueryObserver } from "@tanstack/react-query";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router-dom";
 import { createServer, type ServerResponse } from "node:http";
 import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
 import { randomUUID } from "node:crypto";
 import { applyDocumentGenerationRunStatus, clearDocumentGenerationsForTest, getDocumentGeneration, observeDocumentGeneration, submitBoundDocumentGeneration } from "../src/react-app/domains/session/panel/document-generation-lifecycle";
-import { createLegalworkServerClient, type LegalworkSessionSnapshot } from "../src/app/lib/legalwork-server";
+import { createLegalworkServerClient, LegalworkServerError, type LegalworkSessionSnapshot } from "../src/app/lib/legalwork-server";
+import { t } from "../src/i18n";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
 import { useSessionActivityStore } from "../src/react-app/domains/session/status/session-activity-store";
 import { ensureWorkspaceSessionSync, trackWorkspaceSessionSync, seedSessionState, injectSessionErrorMessage, __applySessionSyncEventForTest, __hasWorkspaceSessionSyncForTest, __disposeWorkspaceSessionSyncForTest, snapshotKey, statusKey, transcriptKey } from "../src/react-app/domains/session/sync/session-sync";
@@ -12,16 +16,21 @@ import { ensureWorkspaceSessionSync, trackWorkspaceSessionSync, seedSessionState
 const cleanups: Array<() => Promise<void>>=[];
 afterEach(async()=>{while(cleanups.length)await cleanups.pop()?.();getReactQueryClient().clear();clearDocumentGenerationsForTest();useSessionActivityStore.setState({recordsByWorkspaceId:{},statusesByWorkspaceId:{}});});
 async function waitFor(read:()=>boolean){for(let i=0;i<100;i++){if(read())return;await new Promise(r=>setTimeout(r,10));}expect(read()).toBe(true);}
-async function fixture(options: { gcTime?: number; workspaceId?: string; directory?: string; token?: string; snapshot?: LegalworkSessionSnapshot } = {}){
- let opened=0,closed=0,ready=false;
+async function fixture(options: { gcTime?: number; workspaceId?: string; directory?: string; token?: string; hostToken?: string; snapshot?: LegalworkSessionSnapshot; fullSnapshot?: LegalworkSessionSnapshot; snapshotReply?: (limit:string|null,response:ServerResponse,read:number)=>void } = {}){
+ let opened=0,closed=0,ready=false,updated=0;
  const responses = new Set<ServerResponse>();
  const token = options.token ?? "synthetic-sync-token";
  const workspaceId = options.workspaceId ?? randomUUID();
+ const snapshotReads:Array<string|null>=[];
  const server=createServer((request,response)=>{
-  if (request.url === `/workspace/${encodeURIComponent(workspaceId)}/sessions/session-one/snapshot` && options.snapshot) {
+  const requestUrl=new URL(request.url ?? "","http://fixture");
+  if (requestUrl.pathname === `/workspace/${encodeURIComponent(workspaceId)}/sessions/session-one/snapshot` && options.snapshot) {
    expect(request.headers.authorization).toBe(`Bearer ${token}`);
+   expect(request.headers["x-legalwork-host-token"]).toBe(options.hostToken);
+   const limit=requestUrl.searchParams.get("limit");snapshotReads.push(limit);
+   if(options.snapshotReply){options.snapshotReply(limit,response,snapshotReads.length);return;}
    response.writeHead(200,{"content-type":"application/json"});
-   response.end(JSON.stringify({item:options.snapshot}));
+   response.end(JSON.stringify({item:limit===null?(options.fullSnapshot ?? options.snapshot):options.snapshot}));
    return;
   }
   expect(request.url?.split("?")[0]).toBe("/event");expect(request.headers.authorization).toBe(`Bearer ${token}`);
@@ -33,7 +42,7 @@ async function fixture(options: { gcTime?: number; workspaceId?: string; directo
  });
  await new Promise<void>(resolve=>server.listen(0,"127.0.0.1",resolve));
  const address=server.address();if(!address||typeof address==="string")throw new Error("Missing fixture address");
- const input={workspaceId,baseUrl:`http://127.0.0.1:${address.port}`,legalworkToken:token,directory:options.directory,onSessionStatus:(event:{sessionId:string})=>{if(event.sessionId==="fixture-ready")ready=true;}};
+ const input={workspaceId,baseUrl:`http://127.0.0.1:${address.port}`,legalworkToken:token,directory:options.directory,onSessionUpdated:()=>{updated++;},onSessionStatus:(event:{sessionId:string})=>{if(event.sessionId==="fixture-ready")ready=true;}};
  if(options.gcTime !== undefined){
   const client = getReactQueryClient();
   client.setQueryDefaults(statusKey(input.workspaceId,"session-one"), {gcTime:options.gcTime});
@@ -48,7 +57,8 @@ async function fixture(options: { gcTime?: number; workspaceId?: string; directo
   wire({type:"session.status",properties:{sessionID:"session-one",status:value}});
   await waitFor(()=>getReactQueryClient().getQueryData<SessionStatus>(statusKey(input.workspaceId,"session-one"))?.type === value.type);
  };
- return {input,owner,release,status,wire,wireStatus,opened:()=>opened,closed:()=>closed};
+ const legalwork=createLegalworkServerClient({baseUrl:input.baseUrl,token,hostToken:options.hostToken});
+ return {input,owner,release,status,wire,wireStatus,legalwork,snapshotReads:()=>snapshotReads.slice(),updated:()=>updated,opened:()=>opened,closed:()=>closed};
 }
 
 function busySnapshot(): LegalworkSessionSnapshot {
@@ -64,12 +74,12 @@ function busySnapshot(): LegalworkSessionSnapshot {
  };
 }
 
-async function observeHttpSnapshot(f: Awaited<ReturnType<typeof fixture>>) {
+async function observeHttpSnapshot(f: Awaited<ReturnType<typeof fixture>>, options:{limit?:number;hydrate?:boolean;onPublication?:(snapshot:LegalworkSessionSnapshot)=>void}={}) {
  const client = getReactQueryClient();
- const server = createLegalworkServerClient({baseUrl:f.input.baseUrl,token:f.input.legalworkToken});
+ const server = f.legalwork;
  const key = snapshotKey(f.input.workspaceId,"session-one");
- const observer = new QueryObserver(client,{queryKey:key,queryFn:async()=>(await server.getSessionSnapshot(f.input.workspaceId,"session-one")).item,staleTime:Infinity});
- const release = observer.subscribe(()=>{});
+ const observer = new QueryObserver(client,{queryKey:key,queryFn:async({signal})=>(await server.getSessionSnapshot(f.input.workspaceId,"session-one",{limit:options.limit,signal})).item,staleTime:Infinity});
+ const release = observer.subscribe(result=>{if(result.data){if(options.hydrate)for(let caller=0;caller<2;caller++)seedSessionState(f.input.workspaceId,result.data);options.onPublication?.(result.data);}});
  cleanups.push(async()=>release());
  await waitFor(()=>observer.getCurrentResult().isSuccess);
  const published = () => {
@@ -77,8 +87,321 @@ async function observeHttpSnapshot(f: Awaited<ReturnType<typeof fixture>>) {
   if (!value) throw new Error("Missing published synthetic snapshot");
   return value;
  };
- return {key,published,release};
+ return {key,published,release,result:()=>observer.getCurrentResult()};
 }
+
+test("tracked metadata without a snapshot query preserves no-synthesis and the live stream",async()=>{
+ const f=await fixture();
+ const key=snapshotKey(f.input.workspaceId,"session-one");
+ expect(getReactQueryClient().getQueryState(key)).toBeUndefined();
+ f.wire({type:"session.updated",properties:{info:{id:"session-one",title:"Synthetic metadata before any read",time:{created:1,updated:2},revert:{messageID:"not-loaded"}}}});
+ await waitFor(()=>f.updated()===1);
+ expect(getReactQueryClient().getQueryState(key)).toBeUndefined();
+ expect(getReactQueryClient().getQueryData(transcriptKey(f.input.workspaceId,"session-one"))).toBeUndefined();
+ expect(f.snapshotReads()).toEqual([]);
+ await f.wireStatus({type:"idle"});f.release();f.owner();await waitFor(()=>f.closed()===1);
+});
+
+test("limited SDK snapshot resolves a missing raw cursor with one full read in the same authenticated scope",async()=>{
+ const full=busySnapshot();full.session.revert={messageID:"source-turn"};
+ const limited={...full,messages:full.messages.slice(1)};
+ const f=await fixture({snapshot:limited,fullSnapshot:full,hostToken:"synthetic-host-token"});
+ const result=await f.legalwork.getSessionSnapshot(f.input.workspaceId,"session-one",{limit:140});
+ expect(f.snapshotReads()).toEqual(["140",null]);
+ expect(result.item.messages.map(message=>message.info.id)).toEqual(["source-turn","reverted-turn"]);
+ expect(result.item.session.revert).toEqual({messageID:"source-turn"});
+});
+
+test("an unresolved full SDK snapshot fails once with a localized content-free boundary error",async()=>{
+ const unresolved=busySnapshot();unresolved.session.revert={messageID:"synthetic-hidden-cursor"};
+ const f=await fixture({snapshot:unresolved});
+ const error=await f.legalwork.getSessionSnapshot(f.input.workspaceId,"session-one",{limit:140}).catch(cause=>cause);
+ expect(error).toBeInstanceOf(LegalworkServerError);
+ expect(error).toMatchObject({status:409,code:"session_revert_boundary_unresolved",message:t("session.load_failed")});
+ expect(error.details).toBeUndefined();expect(error.cause).toBeUndefined();
+ expect(error.stack).not.toContain("synthetic-hidden-cursor");
+ expect(f.snapshotReads()).toEqual(["140",null]);
+});
+
+function cursorSnapshot(): LegalworkSessionSnapshot {
+ const full=busySnapshot();
+ full.messages.splice(1,0,{info:{id:"cursor-user",sessionID:"session-one",role:"user",agent:"synthetic",model:{providerID:"synthetic",modelID:"synthetic"},time:{created:1.5}},parts:[]});
+ return full;
+}
+
+test("changed metadata cursor refreshes only the active snapshot and completes its missing boundary once",async()=>{
+ const full=cursorSnapshot(),limited={...full,messages:full.messages.slice(0,1)};
+ const f=await fixture({snapshot:limited,fullSnapshot:full,hostToken:"synthetic-host-token"});
+ const snapshot=await observeHttpSnapshot(f,{limit:140,hydrate:true});
+ full.session.revert={messageID:"cursor-user"};full.session.time.updated=2;
+ limited.messages=[full.messages[0],full.messages[2]];
+ f.wire({type:"session.updated",properties:{info:{id:"session-one",title:"Synthetic changed cursor",time:{created:1,updated:2},revert:{messageID:"cursor-user"}}}});
+ await waitFor(()=>f.snapshotReads().length===3 && snapshot.published().messages.some(message=>message.info.id==="cursor-user"));
+ expect(f.snapshotReads()).toEqual(["140","140",null]);
+ expect(getReactQueryClient().getQueryData<Array<{id:string}>>(transcriptKey(f.input.workspaceId,"session-one"))?.map(message=>message.id)).toEqual(["source-turn"]);
+ for(let index=3;index<6;index++){
+  f.wire({type:"session.updated",properties:{info:{id:"session-one",title:`Synthetic same cursor ${index}`,time:{created:1,updated:index},revert:{messageID:"cursor-user"}}}});
+  await waitFor(()=>snapshot.published().session.time.updated===index);
+ }
+ f.wire({type:"session.updated",properties:{info:{id:"session-one",title:"Synthetic title only",time:{created:1,updated:6}}}});
+ await waitFor(()=>snapshot.published().session.time.updated===6);
+ snapshot.release();
+ f.wire({type:"session.updated",properties:{info:{id:"session-one",title:"Synthetic unobserved cursor",time:{created:1,updated:7},revert:{messageID:"not-loaded"}}}});
+ await waitFor(()=>getReactQueryClient().getQueryData<LegalworkSessionSnapshot>(snapshot.key)?.session.time.updated===7);
+ expect(f.snapshotReads()).toEqual(["140","140",null]);
+});
+
+test("metadata cursor arriving during an old HTTP body preserves the latest revert and hides the reverted tail",async()=>{
+ const full=cursorSnapshot(),limited={...full,messages:[full.messages[0]]};
+ let releaseOld:(()=>void)|undefined;
+ const f=await fixture({snapshot:limited,fullSnapshot:full,snapshotReply:(limit,response,read)=>{
+  response.writeHead(200,{"content-type":"application/json"});
+  const body=JSON.stringify({item:limit===null?full:limited});
+  if(read===2){response.flushHeaders();releaseOld=()=>response.end(body);return;}
+  response.end(body);
+ }});
+ let changed=false;
+ const publications:Array<{cursor:string|undefined;errorActive:boolean|undefined}>=[];
+ const snapshot=await observeHttpSnapshot(f,{limit:140,hydrate:true,onPublication:value=>{if(changed)publications.push({cursor:value.session.revert?.messageID,errorActive:useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]?.errorActive});}});
+ f.wire({type:"session.error",properties:{sessionID:"session-one",error:{name:"UnknownError",data:{message:"Synthetic failed source before old body"}}}});
+ await waitFor(()=>useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]?.errorActive===true);
+ limited.messages=[full.messages[0],full.messages[2]];
+ const pending=getReactQueryClient().refetchQueries({queryKey:snapshot.key,exact:true});
+ await waitFor(()=>releaseOld!==undefined);
+ full.session.revert={messageID:"cursor-user"};full.session.time.updated=2;changed=true;
+ f.wire({type:"session.updated",properties:{info:{id:"session-one",title:"Synthetic latest revert",time:{created:1,updated:2},revert:{messageID:"cursor-user"}}}});
+ await waitFor(()=>snapshot.published().session.revert?.messageID==="cursor-user");
+ releaseOld?.();await pending;
+ await waitFor(()=>snapshot.result().fetchStatus==="idle");
+ expect({reads:f.snapshotReads(),cursor:snapshot.published().session.revert?.messageID,transcriptIds:getReactQueryClient().getQueryData<Array<{id:string}>>(transcriptKey(f.input.workspaceId,"session-one"))?.map(message=>message.id)}).toMatchObject({cursor:"cursor-user",transcriptIds:["source-turn","session-error:session-one"]});
+ expect(publications.length).toBeGreaterThan(0);expect(publications.every(value=>value.cursor==="cursor-user" && value.errorActive===true)).toBe(true);
+});
+
+for(const mode of ["initial","clear","known-change","same-cursor","same-title"] as const){
+ test(`a ${mode} cursor transition cannot be overwritten by an already running HTTP body`,async()=>{
+  const full=cursorSnapshot();
+  if(mode!=="initial")full.session.revert={messageID:"cursor-user"};
+  let releaseOld:(()=>void)|undefined,closed=false;
+  const f=await fixture({snapshot:full,snapshotReply:(_limit,response,read)=>{
+   response.writeHead(200,{"content-type":"application/json"});
+   const body=JSON.stringify({item:full});
+   if(read===(mode==="initial"?1:2)){
+    response.flushHeaders();releaseOld=()=>response.end(body);response.once("close",()=>{closed=true;});return;
+   }
+   response.end(body);
+  }});
+  const failSource=async()=>{
+   if(mode==="initial"){
+    f.wire({type:"message.updated",properties:{info:full.messages[0].info}});
+    await waitFor(()=>getReactQueryClient().getQueryData<Array<{id:string}>>(transcriptKey(f.input.workspaceId,"session-one"))?.some(message=>message.id==="source-turn")===true);
+   }
+   f.wire({type:"session.error",properties:{sessionID:"session-one",error:{name:"UnknownError",data:{message:"Synthetic failed source in cursor race"}}}});
+   await waitFor(()=>useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]?.errorActive===true);
+  };
+  if(mode==="initial")await failSource();
+  const client=getReactQueryClient(),key=snapshotKey(f.input.workspaceId,"session-one");
+  const observer=new QueryObserver(client,{queryKey:key,queryFn:async({signal})=>(await f.legalwork.getSessionSnapshot(f.input.workspaceId,"session-one",{limit:140,signal})).item,staleTime:Infinity});
+  const publications:Array<{cursor:string|undefined;errorActive:boolean|undefined}>=[];
+  let changed=false;
+  const release=observer.subscribe(result=>{if(result.data){for(let caller=0;caller<2;caller++)seedSessionState(f.input.workspaceId,result.data);if(changed)publications.push({cursor:result.data.session.revert?.messageID,errorActive:useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]?.errorActive});}});
+  cleanups.push(async()=>release());
+  let pending:Promise<void>|undefined;
+  if(mode!=="initial"){
+   await waitFor(()=>observer.getCurrentResult().isSuccess);
+   await failSource();
+   pending=client.refetchQueries({queryKey:key,exact:true});
+  }
+  await waitFor(()=>releaseOld!==undefined);
+  const nextCursor=mode==="clear"?undefined:mode==="known-change"?"source-turn":"cursor-user";
+  full.session.revert=nextCursor?{messageID:nextCursor}:undefined;full.session.time.updated=2;
+  changed=true;
+  f.wire({type:"session.updated",properties:{info:{id:"session-one",title:"Synthetic changed during fetch",time:{created:1,updated:2},revert:full.session.revert}}});
+  await waitFor(()=>f.updated()===1);
+  releaseOld?.();await pending;
+  await waitFor(()=>observer.getCurrentResult().fetchStatus==="idle");
+  expect({cursor:observer.getCurrentResult().data?.session.revert?.messageID,publications,reads:f.snapshotReads(),closed}).toMatchObject({cursor:nextCursor,closed:true});
+  expect(publications.every(value=>value.cursor===nextCursor && value.errorActive===(mode!=="clear"))).toBe(true);
+  expect(f.snapshotReads()).toHaveLength(mode==="initial"?2:mode==="same-cursor"||mode==="same-title"?2:3);
+ });
+}
+
+for(const transition of ["same","change","clear","recreate","cached","deleted","clear-owned","retained"] as const){
+ test(`pending initial cursor provenance handles ${transition} without stale or duplicate reads`,async()=>{
+  const value=cursorSnapshot();
+  const bodies:Array<()=>void>=[];
+  const f=await fixture({snapshot:value,snapshotReply:(_limit,response)=>{response.writeHead(200,{"content-type":"application/json"});response.flushHeaders();const body=JSON.stringify({item:value});bodies.push(()=>response.end(body));}});
+  const client=getReactQueryClient(),key=snapshotKey(f.input.workspaceId,"session-one");
+  const makeObserver=()=>new QueryObserver(client,{queryKey:key,queryFn:async({signal})=>(await f.legalwork.getSessionSnapshot(f.input.workspaceId,"session-one",{limit:140,signal})).item});
+  let observer=makeObserver(),release=observer.subscribe(()=>{});
+  cleanups.push(async()=>release());
+  await waitFor(()=>bodies.length===1);
+  value.session.revert={messageID:"cursor-user"};
+  f.wire({type:"session.updated",properties:{info:{id:"session-one",title:"Synthetic initial cursor",time:{created:1,updated:2},revert:value.session.revert}}});
+  await waitFor(()=>f.updated()===1 && bodies.length===2);
+  if(transition==="recreate"){
+   release();client.removeQueries({queryKey:key,exact:true});
+   observer=makeObserver();release=observer.subscribe(()=>{});await waitFor(()=>bodies.length===3);
+  }
+  if(transition==="cached"){
+   bodies[1]();await waitFor(()=>observer.getCurrentResult().isSuccess);
+   value.session.revert={messageID:"source-turn"};
+   const fresh=observer.refetch();await waitFor(()=>bodies.length===3);bodies[2]();await fresh;
+   expect(observer.getCurrentResult().data?.session.revert?.messageID).toBe("source-turn");
+   void observer.refetch();await waitFor(()=>bodies.length===4);
+  }
+  if(transition==="deleted")f.wire({type:"session.deleted",properties:{sessionID:"session-one"}});
+  if(transition==="clear-owned"){
+   await f.wireStatus({type:"idle"});f.release();
+   const retracked=trackWorkspaceSessionSync(f.input,"session-one");cleanups.push(async()=>retracked());
+  }
+  if(transition==="retained")f.release();
+  const nextCursor=transition==="clear"?undefined:transition==="change"?"source-turn":"cursor-user";
+  value.session.revert=nextCursor?{messageID:nextCursor}:undefined;
+  f.wire({type:"session.updated",properties:{info:{id:"session-one",title:"Synthetic initial changed/title cursor",time:{created:1,updated:3},revert:value.session.revert}}});
+  await waitFor(()=>f.updated()===2);
+  const expectedReads=transition==="same"||transition==="retained"?2:transition==="cached"?5:transition==="recreate"?4:3;
+  await waitFor(()=>bodies.length>=expectedReads);
+  await new Promise(resolve=>setTimeout(resolve,20));
+  for(const finish of bodies)finish();
+  await waitFor(()=>observer.getCurrentResult().isSuccess && observer.getCurrentResult().fetchStatus==="idle");
+  expect(f.snapshotReads()).toEqual(Array(expectedReads).fill("140"));
+  expect(observer.getCurrentResult().data?.session.revert?.messageID).toBe(nextCursor);
+ });
+}
+
+test("pending initial cursor provenance stays isolated from another workspace with the same session ID",async()=>{
+ for(let workspace=0;workspace<2;workspace++){
+  const value=cursorSnapshot(),bodies:Array<()=>void>=[];
+  const f=await fixture({snapshot:value,snapshotReply:(_limit,response)=>{response.writeHead(200,{"content-type":"application/json"});response.flushHeaders();const body=JSON.stringify({item:value});bodies.push(()=>response.end(body));}});
+  const key=snapshotKey(f.input.workspaceId,"session-one");
+  const observer=new QueryObserver(getReactQueryClient(),{queryKey:key,queryFn:async({signal})=>(await f.legalwork.getSessionSnapshot(f.input.workspaceId,"session-one",{limit:140,signal})).item});
+  const release=observer.subscribe(()=>{});cleanups.push(async()=>release());
+  await waitFor(()=>bodies.length===1);
+  value.session.revert={messageID:"cursor-user"};
+  f.wire({type:"session.updated",properties:{info:{id:"session-one",title:"Synthetic isolated initial cursor",time:{created:1,updated:2},revert:value.session.revert}}});
+  await waitFor(()=>f.updated()===1 && bodies.length===2);
+  for(const finish of bodies)finish();await waitFor(()=>observer.getCurrentResult().isSuccess);
+  expect(f.snapshotReads()).toEqual(["140","140"]);
+  expect(observer.getCurrentResult().data?.session.revert?.messageID).toBe("cursor-user");
+ }
+});
+
+test("complete and initial unlimited SDK snapshots never add an unnecessary full read",async()=>{
+ const snapshot=busySnapshot();snapshot.session.revert={messageID:"source-turn"};
+ const f=await fixture({snapshot});
+ await f.legalwork.getSessionSnapshot(f.input.workspaceId,"session-one",{limit:140});
+ expect(f.snapshotReads()).toEqual(["140"]);
+ await f.legalwork.getSessionSnapshot(f.input.workspaceId,"session-one");
+ expect(f.snapshotReads()).toEqual(["140",null]);
+ snapshot.session.revert=undefined;
+ await f.legalwork.getSessionSnapshot(f.input.workspaceId,"session-one",{limit:140});
+ expect(f.snapshotReads()).toEqual(["140",null,"140"]);
+});
+
+for(const heldStage of ["first-body","full-body"]){
+ test(`snapshot original deadline covers ${heldStage} and closes its owned HTTP response`,async()=>{
+  const snapshot=busySnapshot();snapshot.session.revert={messageID:"source-turn"};snapshot.messages.splice(0,1);
+  let bodyClosed=false;
+  const f=await fixture({snapshot,snapshotReply:(limit,response)=>{
+   response.writeHead(200,{"content-type":"application/json"});
+   if(heldStage==="full-body" && limit!==null){
+    const timer=setTimeout(()=>response.end(JSON.stringify({item:snapshot})),3000);
+    response.once("close",()=>clearTimeout(timer));return;
+   }
+   response.flushHeaders();response.write('{"item":');
+   response.once("close",()=>{bodyClosed=true;});
+  }});
+  const started=performance.now();
+  await expect(f.legalwork.getSessionSnapshot(f.input.workspaceId,"session-one",{limit:140})).rejects.toThrow(t("app.request_timed_out"));
+  expect(performance.now()-started).toBeLessThan(14000);
+  await waitFor(()=>bodyClosed);
+  expect(f.snapshotReads()).toEqual(heldStage==="first-body"?["140"]:["140",null]);
+ },20000);
+}
+
+test("snapshot deadline prevents a late uncancellable transport result from starting a fallback",async()=>{
+ const snapshot=busySnapshot();snapshot.session.revert={messageID:"absent-cursor"};
+ const f=await fixture({snapshot});
+ let finish:((response:Response)=>void)|undefined,calls=0;
+ const original=globalThis.fetch;
+ const spy=spyOn(globalThis,"fetch").mockImplementation(Object.assign((input:RequestInfo|URL,init?:RequestInit)=>{
+  if(String(input).includes("/sessions/session-one/snapshot")){calls++;return new Promise<Response>(resolve=>{finish=resolve;});}
+  return original(input,init);
+ },{preconnect:original.preconnect}));
+ try{
+  await expect(f.legalwork.getSessionSnapshot(f.input.workspaceId,"session-one",{limit:140})).rejects.toThrow(t("app.request_timed_out"));
+  finish?.(Response.json({item:snapshot}));
+  await new Promise(resolve=>setTimeout(resolve,20));
+  expect(calls).toBe(1);
+ }finally{spy.mockRestore();}
+},20000);
+
+test("snapshot caller abort retains its reason, closes the owned body, and never starts a full fallback",async()=>{
+ const snapshot=busySnapshot();snapshot.session.revert={messageID:"not-loaded"};
+ let opened=false,closed=false;
+ const f=await fixture({snapshot,snapshotReply:(_limit,response)=>{response.writeHead(200,{"content-type":"application/json"});response.flushHeaders();response.write('{"item":');opened=true;response.once("close",()=>{closed=true;});}});
+ const controller=new AbortController(),reason=new Error("Synthetic caller cancellation");
+ const pending=f.legalwork.getSessionSnapshot(f.input.workspaceId,"session-one",{limit:140,signal:controller.signal}).catch(error=>error);
+ await waitFor(()=>opened);controller.abort(reason);
+ expect(await pending).toBe(reason);await waitFor(()=>closed);expect(f.snapshotReads()).toEqual(["140"]);
+ const before=f.snapshotReads().length;
+ expect(await f.legalwork.getSessionSnapshot(f.input.workspaceId,"session-one",{signal:controller.signal}).catch(error=>error)).toBe(reason);
+ expect(f.snapshotReads()).toHaveLength(before);
+});
+
+test("snapshot preserves non-timeout transport error identity and sanitizes malformed JSON",async()=>{
+ const f=await fixture({snapshot:busySnapshot(),snapshotReply:(_limit,response)=>{response.writeHead(200,{"content-type":"application/json"});response.end('{"sensitive":"synthetic-parser-content",');}});
+ const malformed=await f.legalwork.getSessionSnapshot(f.input.workspaceId,"session-one").catch(error=>error);
+ expect(malformed.message).toBe(t("session.load_failed"));expect(malformed.cause).toBeUndefined();
+ expect(malformed.stack).not.toContain("synthetic-parser-content");
+ const failure=new TypeError("Synthetic transport identity"),original=globalThis.fetch;
+ const spy=spyOn(globalThis,"fetch").mockImplementation(Object.assign((input:RequestInfo|URL,init?:RequestInit)=>String(input).includes("/sessions/session-one/snapshot")?Promise.reject(failure):original(input,init),{preconnect:original.preconnect}));
+ try{expect(await f.legalwork.getSessionSnapshot(f.input.workspaceId,"session-one").catch(error=>error)).toBe(failure);}finally{spy.mockRestore();}
+});
+
+test("an unresolved boundary is visibly localized beside a previously cached SessionSurface transcript",async()=>{
+ const value=busySnapshot();value.messages.splice(1);
+ let transientFailures=0;
+ const f=await fixture({snapshot:value,snapshotReply:(_limit,response)=>{
+  response.writeHead(transientFailures>0?503:200,{"content-type":"application/json"});
+  if(transientFailures>0){transientFailures--;response.end(JSON.stringify({code:"synthetic_temporary",message:"Synthetic temporary transport failure"}));}
+  else response.end(JSON.stringify({item:value}));
+ }});
+ const observed=await observeHttpSnapshot(f,{hydrate:true});
+ value.session.revert={messageID:"absent-full-cursor"};
+ await getReactQueryClient().refetchQueries({queryKey:observed.key,exact:true});
+ expect(observed.result().error).toBeInstanceOf(LegalworkServerError);
+ const [{SessionSurface},{LocalProvider},{ShellConfigProvider},{LegalworkControlProvider},{WorkspaceProvider}]=await Promise.all([
+  import("../src/react-app/domains/session/surface/session-surface"),import("../src/react-app/kernel/local-provider"),import("../src/react-app/shell/shell-config"),import("../src/react-app/shell/control/control-provider"),import("../src/react-app/shell/workspace-provider"),
+ ]);
+ const surface=createElement(SessionSurface,{client:f.legalwork,workspaceId:f.input.workspaceId,workspaceRoot:"/synthetic/selected",sessionId:"session-one",opencodeBaseUrl:f.input.baseUrl,legalworkToken:f.input.legalworkToken,developerMode:false,modelLabel:"Synthetic",onModelClick:()=>{},modelPickerOpen:false,selectedModel:{providerID:"synthetic",modelID:"synthetic"},onModelPickerOpenChange:()=>{},onModelChange:()=>{},onSendDraft:()=>{},onDraftChange:()=>{},attachmentsEnabled:false,attachmentsDisabledReason:null,modelVariantLabel:"Synthetic",modelVariant:null,onModelVariantChange:()=>{},agentLabel:"Synthetic",selectedAgent:null,listAgents:async()=>[],onSelectAgent:()=>{},listCommands:async()=>[],recentFiles:[],searchFiles:async()=>[],isRemoteWorkspace:false,isSandboxWorkspace:false});
+ const previousWindow=Object.getOwnPropertyDescriptor(globalThis,"window");
+ Object.defineProperty(globalThis,"window",{configurable:true,value:{localStorage:{getItem:()=>null},addEventListener:()=>{},removeEventListener:()=>{}}});
+ let html:string;
+ try{html=renderToStaticMarkup(createElement(MemoryRouter,null,createElement(QueryClientProvider,{client:getReactQueryClient()},createElement(LocalProvider,null,createElement(ShellConfigProvider,null,createElement(LegalworkControlProvider,null,createElement(WorkspaceProvider,{client:null,selectedWorkspaceRoot:"/synthetic/selected"},surface)))))));}finally{if(previousWindow)Object.defineProperty(globalThis,"window",previousWindow);else Reflect.deleteProperty(globalThis,"window");}
+ expect(html).toContain('role="alert"');expect(html).toContain(t("session.load_failed"));
+ expect(html).toContain("Synthetic selected source");expect(html).not.toContain("absent-full-cursor");
+ // Exercise the real Surface queryFn/retry options through an actual observer.
+ const query=getReactQueryClient().getQueryCache().find({queryKey:observed.key,exact:true});
+ if(!query)throw new Error("Missing Surface snapshot query");
+ expect(typeof query.options.retry).toBe("function");
+ const retryObserver=new QueryObserver(getReactQueryClient(),{...query.options,queryKey:observed.key,retryDelay:0,enabled:false});
+ const releaseRetry=retryObserver.subscribe(()=>{});
+ try{
+  environmentManager.setIsServer(()=>false);
+  let before=f.snapshotReads().length;
+  await retryObserver.refetch();
+  expect(f.snapshotReads().slice(before)).toEqual(["140",null]);
+  expect(retryObserver.getCurrentResult().error).toMatchObject({code:"session_revert_boundary_unresolved"});
+  expect(retryObserver.getCurrentResult().data).toBe(observed.published());
+  value.session.revert=undefined;transientFailures=3;before=f.snapshotReads().length;
+  expect((await retryObserver.refetch()).isSuccess).toBe(true);
+  expect(f.snapshotReads().slice(before)).toEqual(["140","140","140","140"]);
+  environmentManager.setIsServer(()=>true);transientFailures=1;before=f.snapshotReads().length;
+  expect((await retryObserver.refetch()).isError).toBe(true);
+  expect(f.snapshotReads().slice(before)).toEqual(["140"]);
+ }finally{releaseRetry();environmentManager.setIsServer(()=>isServer);}
+});
 
 test("caller-order replay of both published metadata snapshots preserves native idle and closes the final unused SSE",async()=>{
  const f=await fixture({directory:"/synthetic/selected",snapshot:busySnapshot()});
@@ -275,6 +598,66 @@ test("HTTP snapshots with unavailable, older, reverted or failed newer-turn evid
   expect(useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"]).toMatchObject({runActive:false,errorActive:true});
   f.release();f.owner();expect(f.closed()).toBe(0);expect(__hasWorkspaceSessionSyncForTest(f.input)).toBe(true);
  }
+});
+
+for(const boundary of ["empty-error-answer","nonempty-error-answer","missing-raw-cursor","cached-raw-cursor","no-revert"]){
+ test(`raw accepted-work boundary ${boundary} is evaluated before error messages become UI rows`,async()=>{
+  const httpSnapshot=busySnapshot();httpSnapshot.messages.splice(1);
+  const f=await fixture({directory:"/synthetic/selected",snapshot:httpSnapshot});
+  const snapshot=await observeHttpSnapshot(f);
+  seedSessionState(f.input.workspaceId,snapshot.published());
+  await f.wireStatus({type:"busy"});
+  f.wire({type:"session.error",properties:{sessionID:"session-one",error:{name:"UnknownError",data:{message:"Synthetic failed source turn"}}}});
+  await waitFor(()=>useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"].errorActive===true);
+  if(boundary==="cached-raw-cursor"){
+   f.wire({type:"message.updated",properties:{info:{id:"cached-raw-cursor",sessionID:"session-one",role:"assistant",time:{created:2}}}});
+   await waitFor(()=>getReactQueryClient().getQueryData<Array<{id:string}>>(transcriptKey(f.input.workspaceId,"session-one"))?.some(message=>message.id==="cached-raw-cursor")===true);
+  }
+  const newer:LegalworkSessionSnapshot["messages"][number]={info:{id:"candidate-new-user",sessionID:"session-one",role:"user",agent:"synthetic",model:{providerID:"synthetic",modelID:"synthetic"},time:{created:3}},parts:[]};
+  f.wire({type:"message.updated",properties:{info:newer.info}});
+  await waitFor(()=>getReactQueryClient().getQueryData<Array<{id:string}>>(transcriptKey(f.input.workspaceId,"session-one"))?.some(message=>message.id==="candidate-new-user")===true);
+  const errorId=boundary==="nonempty-error-answer"?"nonempty-error-answer":"empty-error-answer";
+  httpSnapshot.messages.push({info:{id:errorId,sessionID:"session-one",role:"assistant",parentID:"source-turn",agent:"synthetic",mode:"synthetic",modelID:"synthetic",providerID:"synthetic",path:{cwd:"/synthetic/selected",root:"/synthetic/selected"},cost:0,tokens:{input:0,output:0,reasoning:0,cache:{read:0,write:0}},time:{created:2,completed:2},error:{name:"UnknownError",data:{message:"Synthetic failed answer"}}},parts:boundary==="nonempty-error-answer"?[{id:"visible-error-part",sessionID:"session-one",messageID:errorId,type:"text",text:"Synthetic visible failed response"}]:[]},newer);
+  const revert=boundary==="no-revert"?undefined:{messageID:boundary};
+  httpSnapshot.session.revert=revert;
+  await getReactQueryClient().refetchQueries({queryKey:snapshot.key,exact:true});
+  f.wire({type:"session.updated",properties:{info:{id:"session-one",title:"Synthetic authoritative revert",time:{created:1,updated:2},...(revert?{revert}:{})}}});
+  await waitFor(()=>snapshot.published().session.time.updated===2);
+  const unresolved=boundary==="missing-raw-cursor"||boundary==="cached-raw-cursor";
+  if(unresolved){
+   await waitFor(()=>snapshot.result().fetchStatus==="idle");
+   expect(snapshot.result().error).toMatchObject({code:"session_revert_boundary_unresolved"});
+   expect(snapshot.published().messages.map(message=>message.info.id)).toEqual(["source-turn"]);
+  }else expect(snapshot.published().messages.map(message=>message.info.id)).toEqual(["source-turn",errorId,"candidate-new-user"]);
+  expect(snapshot.published().session.revert).toEqual(revert);
+  // The SDK now refuses an unresolved full read. Still exercise the lower-level
+  // safe partial-page replay guard against actual live SSE transcript identities.
+  const replay=unresolved?{...httpSnapshot,session:snapshot.published().session}:snapshot.published();
+  seedSessionState(f.input.workspaceId,replay);
+  const firstHasNewer=getReactQueryClient().getQueryData<Array<{id:string}>>(transcriptKey(f.input.workspaceId,"session-one"))?.some(message=>message.id==="candidate-new-user");
+  seedSessionState(f.input.workspaceId,replay);
+  const activity=useSessionActivityStore.getState().recordsByWorkspaceId[f.input.workspaceId]?.["session-one"];
+  const transcript=getReactQueryClient().getQueryData<Array<{id:string}>>(transcriptKey(f.input.workspaceId,"session-one"));
+  const observed={runActive:activity?.runActive,errorActive:activity?.errorActive,errorUserMessageId:activity?.errorUserMessageId,revertMessageID:snapshot.published().session.revert?.messageID,transcriptIds:transcript?.map(message=>message.id)};
+  expect(observed).toMatchObject(boundary==="no-revert"?{runActive:true,errorActive:false,errorUserMessageId:null}:{runActive:false,errorActive:true,errorUserMessageId:"source-turn"});
+  const hasNewer=boundary==="no-revert"||boundary==="missing-raw-cursor";
+  expect({firstHasNewer,secondHasNewer:transcript?.some(message=>message.id==="candidate-new-user")}).toEqual({firstHasNewer:hasNewer,secondHasNewer:hasNewer});
+  expect(transcript?.some(message=>message.id==="source-turn")).toBe(true);
+  f.release();f.owner();expect(f.closed()).toBe(0);expect(__hasWorkspaceSessionSyncForTest(f.input)).toBe(true);
+  if(boundary==="no-revert"){
+   const owner=ensureWorkspaceSessionSync(f.input),release=trackWorkspaceSessionSync(f.input,"session-one");
+   await f.wireStatus({type:"idle"});release();owner();await waitFor(()=>f.closed()===1);
+  }
+ });
+}
+
+test("unresolved initial snapshot revert preserves an empty transcript without guessing a boundary",()=>{
+ const workspaceId="synthetic-unresolved-first-read",snapshot=busySnapshot();
+ snapshot.session.revert={messageID:"not-in-this-page"};
+ seedSessionState(workspaceId,snapshot);
+ expect(getReactQueryClient().getQueryData(transcriptKey(workspaceId,"session-one"))).toEqual([]);
+ expect(snapshot.session.revert).toEqual({messageID:"not-in-this-page"});
+ expect(getReactQueryClient().getQueryData(statusKey(workspaceId,"session-one"))).toEqual({type:"busy"});
 });
 
 for(const errorAfterUser of [false,true]){
