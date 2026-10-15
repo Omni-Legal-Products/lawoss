@@ -31,7 +31,10 @@ const acknowledgment=()=>({schemaVersion:1,experiment:EXPERIMENT,producerApplied
 async function canonicalParent(file) {
   assert.ok(typeof file==='string'&&path.isAbsolute(file));
   const parent=path.dirname(file),stat=await fs.lstat(parent);
-  assert.ok(stat.isDirectory()&&!stat.isSymbolicLink());assert.equal(await fs.realpath(parent),parent);
+  assert.ok(stat.isDirectory()&&!stat.isSymbolicLink());
+  const physical=await fs.realpath(parent);
+  const spelling=process.platform==='win32'?parent.replaceAll('/',path.sep):parent;
+  assert.equal(physical,spelling);
   return parent;
 }
 async function absent(file) {await assert.rejects(fs.lstat(file),{code:'ENOENT'});}

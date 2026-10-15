@@ -203,3 +203,67 @@ test('same normalized reserved-name check precedes both private create and updat
     assert.ok(writer.indexOf(check) < writer.indexOf(operation), operation);
   }
 });
+
+async function workflowInputs(t, value=main()) {
+  const nativeRoot=await root(t);
+  await fs.mkdir(path.join(nativeRoot,'empty-auth-input','native'),{recursive:true});
+  await fs.mkdir(path.join(nativeRoot,'empty-auth-input','runtime'),{recursive:true});
+  const mainBytes=Buffer.from(JSON.stringify(value)),runtimeBytes=Buffer.from(JSON.stringify(runtime()));
+  await fs.writeFile(path.join(nativeRoot,'empty-auth-input','native','isir-native-diagnostics.json'),mainBytes);
+  await fs.writeFile(path.join(nativeRoot,'empty-auth-input','runtime','isir-engine-runtime-smoke.json'),runtimeBytes);
+  return {
+    nativeRoot,mainBytes,runtimeBytes,
+    mainFile:`${nativeRoot}/empty-auth-input/native/isir-native-diagnostics.json`,
+    runtimeFile:`${nativeRoot}/empty-auth-input/runtime/isir-engine-runtime-smoke.json`,
+  };
+}
+test('actual workflow-style native and runtime input paths preserve exact bounded bytes',async t=>{
+  const input=await workflowInputs(t);
+  if(process.platform==='win32') {
+    assert.ok(input.nativeRoot.includes(path.sep));
+    assert.ok(input.mainFile.includes('/')&&input.runtimeFile.includes('/'));
+  }
+  assert.deepEqual(await api.readBounded(input.mainFile,256*1024),input.mainBytes);
+  assert.deepEqual(await api.readBounded(input.runtimeFile,4096),input.runtimeBytes);
+});
+test('actual workflow-style complete guard binds current checkout and the same main file hash',async t=>{
+  const complete=main();complete.phase='complete';delete complete.error;
+  const input=await workflowInputs(t,complete),env={...context(),GITHUB_SHA:await api.actualCheckout()};
+  const privateFile=`${input.nativeRoot}/empty-auth-owner.private.json`;
+  const receipt=await api.guard(privateFile,input.mainFile,input.runtimeFile,env);
+  assert.equal(receipt.eligibility,'not-needed');assert.equal(receipt.outcome,'not-needed');
+  assert.equal(receipt.checkoutCommit,env.GITHUB_SHA);assert.equal(receipt.prHeadCommit,env.LAWOSS_PR_HEAD);
+  assert.deepEqual(receipt.inputs,{mainSha256:hash(input.mainBytes),runtimeSha256:null});
+  assert.equal(receipt.originalBoundary.phase,'complete');assert.equal(receipt.stage,'guard');
+  assert.deepEqual(JSON.parse(await fs.readFile(privateFile,'utf8')),receipt);
+});
+test('actual workflow-style startup guard preserves the original Windows x64 run admission',async t=>{
+  const input=await workflowInputs(t),env={...context(),GITHUB_SHA:await api.actualCheckout()};
+  const receipt=await api.guard(`${input.nativeRoot}/empty-auth-owner.private.json`,input.mainFile,input.runtimeFile,env);
+  if(process.platform==='win32'&&process.arch==='x64') {
+    assert.equal(receipt.eligibility,'run');assert.equal(receipt.stage,'awaiting-lawoss-build');
+    assert.deepEqual(receipt.inputs,{mainSha256:hash(input.mainBytes),runtimeSha256:hash(input.runtimeBytes)});
+    assert.deepEqual(receipt.originalBoundary,api.compactBoundary(main()));
+  } else {
+    assert.equal(receipt.eligibility,'unknown');assert.equal(receipt.stage,'guard');
+    assert.deepEqual(receipt.inputs,{mainSha256:null,runtimeSha256:null});
+  }
+});
+test('actual workflow-style input paths still reject dot-parent spellings',async t=>{
+  const input=await workflowInputs(t);
+  for(const parent of ['empty-auth-input/./native','empty-auth-input/native/../native']) {
+    const file=`${input.nativeRoot}/${parent}/isir-native-diagnostics.json`;
+    assert.deepEqual(await fs.readFile(file),input.mainBytes);
+    await assert.rejects(api.readBounded(file,256*1024),{code:'ERR_ASSERTION'});
+  }
+});
+test('actual workflow-style input paths still reject symlink or junction parents and ancestors',async t=>{
+  const input=await workflowInputs(t),linked=path.join(input.nativeRoot,'linked-input');
+  await fs.writeFile(path.join(input.nativeRoot,'empty-auth-input','parent.json'),input.mainBytes);
+  await fs.symlink(path.join(input.nativeRoot,'empty-auth-input'),linked,process.platform==='win32'?'junction':'dir');
+  for(const suffix of ['parent.json','native/isir-native-diagnostics.json']) {
+    const file=`${input.nativeRoot}/linked-input/${suffix}`;
+    assert.deepEqual(await fs.readFile(file),input.mainBytes);
+    await assert.rejects(api.readBounded(file,256*1024),{code:'ERR_ASSERTION'});
+  }
+});
