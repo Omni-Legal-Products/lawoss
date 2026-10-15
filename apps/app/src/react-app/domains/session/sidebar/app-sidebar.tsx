@@ -1,4 +1,3 @@
-import { DashboardIcon } from "@/react-app/design-system/dashboard-icon";
 import { WorkspaceTabDropTarget } from "./workspace-tab-drop-target";
 import { ProjectFileDropTarget } from "../../workspace/project-file-transfer";
 import { startProjectViewDrag } from "./project-view-drag";
@@ -1123,7 +1122,6 @@ function WorkspaceSidebarGroup({
                       <span>{t("workspace.overview")}</span>
                     </SidebarMenuSubButton>
                   </SidebarMenuSubItem>,
-                  projectDashboards: <SidebarMenuSubItem key="projectDashboards"><SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "dashboards")} className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "dashboards"} onClick={() => void ctx.onOpenProjectPage(workspace.id, "dashboards")}><DashboardIcon className="size-4" strokeWidth={1.5} /><span>{t("views.dashboards")}</span></SidebarMenuSubButton></SidebarMenuSubItem>,
                   projectReviews: <SidebarMenuSubItem key="projectReviews">
                     <SidebarMenuSubButton draggable onDragStart={event => startProjectViewDrag(event.dataTransfer, workspace.id, "reviews")} className={PROJECT_FEATURE_CLASS} isActive={isSelected && ctx.activeProjectFeature === "reviews"} onDoubleClick={() => ctx.onOpenProjectWindow?.(workspace.id, "reviews")} onClick={() => { void ctx.onOpenProjectPage(workspace.id, "reviews"); }}>
                       <TableProperties className="size-4" strokeWidth={1.5} />
