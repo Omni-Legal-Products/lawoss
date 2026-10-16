@@ -106,7 +106,12 @@ filenames identify the source hash pins.
 - `NOT_REPRODUCED`: full authenticated selected body and directory scope verified,
   with clean closure; diagnostic exits 0. This is not native app acceptance.
 - `UNKNOWN`: refusal, acquisition/setup/other readiness failure, unexpected
-  provider call or unconfirmed cleanup. Primary failure survives cleanup failure.
+  provider call or unconfirmed cleanup. Primary failure survives cleanup failure. Separate finite booleans retain engine
+close rejection, unconfirmed engine close, provider close rejection and root
+removal failure. Any unsuccessful owned shutdown forces UNKNOWN and retains
+owned roots even when the engine later emits close. Provider call count is frozen
+after awaited shutdown/drain, including its finally path on rejection; calls
+serviced during shutdown cannot preserve either positive outcome.
 
 The real Windows feedback loop and its original 90-second outcome remain pending.
 No application, provider, acquisition, engine, CI or publication run is implied by

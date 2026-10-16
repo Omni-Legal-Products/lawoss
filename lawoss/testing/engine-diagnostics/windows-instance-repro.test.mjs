@@ -8,7 +8,7 @@ import * as fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { awaitDirectoryInstance } from '../isir/native/startup-readiness.mjs';
-import { IDENTITY, SOURCE_PINS, assertAdmission, verifySources, syntheticEnv, runManaged, observeSpawn, awaitClosed, emptyState, encodeReceipt, validateReceipt, withProduction, boundedResponse, validateArchiveEntries, verifyEngine, acquireArchive } from './windows-instance-repro.mjs';
+import { IDENTITY, SOURCE_PINS, assertAdmission, verifySources, syntheticEnv, runManaged, observeSpawn, awaitClosed, emptyState, finalizeOwned, encodeReceipt, validateReceipt, withProduction, boundedResponse, validateArchiveEntries, verifyEngine, acquireArchive } from './windows-instance-repro.mjs';
 const repo=fileURLToPath(new URL('../../../',import.meta.url));
 const BIN=path.resolve('/synthetic/engine');
 const DIRECTORY=path.resolve('/synthetic/workspace');
@@ -198,4 +198,55 @@ test('native factory rejects incomplete health before any selected request',asyn
 test('unconfirmed close preserves timeout primary but downgrades outcome to UNKNOWN',async()=>{
   const {state,f}=await run({close:false,pathResponse:(url,{signal})=>pendingResponse(signal)});
   assert.equal(state.failure,'PATH_TIMEOUT');assert.equal(state.cleanup,'UNKNOWN');assert.equal(state.outcome,'UNKNOWN');f.engine().finish();
+});
+
+test('primary path timeout plus engine close rejection retains cleanup evidence and root',async()=>{
+  const f=fixture({pathResponse:(url,{signal})=>pendingResponse(signal)});
+  const state=await runManaged({repo,bin:BIN,directory:DIRECTORY,env:syntheticEnv('/synthetic','http://127.0.0.1:1'),spawn:f.spawn,request:f.request,selectedMs:25,closeMs:10,closeServer:async server=>{await server.close();throw Error('synthetic close rejection');}});
+  let removed=false;
+  await finalizeOwned({state,root:'/synthetic/owned',remove:async()=>{removed=true;}});
+  assert.equal(state.failure,'PATH_TIMEOUT');assert.equal(state.engineCloseFailed,true);assert.equal(state.cleanup,'UNKNOWN');assert.equal(state.outcome,'UNKNOWN');assert.equal(removed,false);assert.equal(state.rootsRemoved,false);
+  assert.equal(validateReceipt(encodeReceipt(state)),true);
+});
+test('primary path failure plus provider close rejection retains cleanup evidence and root',async()=>{
+  const {state}=await run({pathResponse:()=>Response.json({directory:'/other'})});
+  let calls=0,removed=false;
+  const provider={count:()=>calls,close:async()=>{await Promise.resolve();calls++;throw Error('synthetic provider close rejection');}};
+  await finalizeOwned({state,provider,root:'/synthetic/owned',remove:async()=>{removed=true;}});
+  assert.equal(state.failure,'PATH_SCOPE');assert.equal(state.providerCloseFailed,true);assert.equal(state.providerCalls,1);assert.equal(state.cleanup,'UNKNOWN');assert.equal(state.outcome,'UNKNOWN');assert.equal(removed,false);assert.equal(state.rootsRemoved,false);
+  assert.equal(validateReceipt(encodeReceipt(state)),true);
+});
+for(const initial of ['REPRODUCED','NOT_REPRODUCED'])test(`provider calls during async close cannot retain ${initial}`,async()=>{
+  const {state}=await run(initial==='REPRODUCED'?{pathResponse:(url,{signal})=>pendingResponse(signal)}:{});
+  assert.equal(state.outcome,initial);
+  let calls=0;
+  await finalizeOwned({state,provider:{count:()=>calls,close:async()=>{await Promise.resolve();calls++;}}});
+  assert.equal(state.providerCalls,1);assert.equal(state.outcome,'UNKNOWN');assert.equal(state.failure,initial==='REPRODUCED'?'PATH_TIMEOUT':'PROVIDER_CALLED');
+  assert.equal(validateReceipt(encodeReceipt(state)),true);
+});
+
+for(const initial of ['REPRODUCED','NOT_REPRODUCED'])test(`provider close rejection cannot retain ${initial} even with no calls`,async()=>{
+  const {state}=await run(initial==='REPRODUCED'?{pathResponse:(url,{signal})=>pendingResponse(signal)}:{});
+  let counted=false,removed=false;
+  await finalizeOwned({state,provider:{count:()=>{counted=true;return 0;},close:async()=>{throw Error('synthetic shutdown failure');}},root:'/synthetic/owned',remove:async()=>{removed=true;}});
+  assert.equal(counted,true);assert.equal(state.failure,initial==='REPRODUCED'?'PATH_TIMEOUT':'CLEANUP_FAILED');assert.equal(state.providerCloseFailed,true);assert.equal(state.cleanup,'UNKNOWN');assert.equal(state.outcome,'UNKNOWN');assert.equal(removed,false);
+  assert.equal(validateReceipt(encodeReceipt(state)),true);
+});
+test('all cleanup observations survive alongside primary without raw errors',async()=>{
+  const state={...emptyState(),failure:'PATH_SCOPE',failurePhase:'selected-path',engineCloseFailed:true,engineCloseUnconfirmed:true,cleanup:'UNKNOWN'};
+  await finalizeOwned({state,provider:{count:()=>0,close:async()=>{throw Error('private URL/path');}}});
+  const receipt=encodeReceipt(state);
+  assert.equal(state.failure,'PATH_SCOPE');assert.equal(state.engineCloseFailed,true);assert.equal(state.engineCloseUnconfirmed,true);assert.equal(state.providerCloseFailed,true);assert.equal(/private URL|path'/.test(receipt),false);assert.equal(validateReceipt(receipt),true);
+});
+test('root deletion failure independently survives primary and forces UNKNOWN',async()=>{
+  const state={...emptyState(),failure:'PATH_TIMEOUT',failurePhase:'selected-path',healthVerified:true,cleanup:'CLOSED',outcome:'REPRODUCED'};
+  await finalizeOwned({state,root:'/synthetic/owned',remove:async()=>{throw Error('private filesystem message');}});
+  assert.equal(state.failure,'PATH_TIMEOUT');assert.equal(state.rootsRemovalFailed,true);assert.equal(state.rootsRemoved,false);assert.equal(state.cleanup,'UNKNOWN');assert.equal(state.outcome,'UNKNOWN');assert.equal(validateReceipt(encodeReceipt(state)),true);
+});
+test('positive receipt refuses independent cleanup failure or nonzero final provider count',()=>{
+  for(const outcome of ['REPRODUCED','NOT_REPRODUCED']) {
+    const state={...emptyState(),healthVerified:true,pathVerified:true,cleanup:'CLOSED',outcome,failure:outcome==='REPRODUCED'?'PATH_TIMEOUT':'NONE'};
+    for(const flag of ['engineCloseFailed','engineCloseUnconfirmed','providerCloseFailed','rootsRemovalFailed'])assert.throws(()=>encodeReceipt({...state,[flag]:true}),{diagnosticCode:'REFUSED'});
+    assert.throws(()=>encodeReceipt({...state,providerCalls:1}),{diagnosticCode:'REFUSED'});
+  }
 });

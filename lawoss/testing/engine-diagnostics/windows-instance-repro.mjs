@@ -144,10 +144,17 @@ function classify(error, phase, deadline) {
   return phase==='selected-path'?'PATH_FAILED':'MANAGED_START_FAILED';
 }
 export function emptyState() {
-  return { phase:'preflight', failure:'NONE', failurePhase:'none', outcome:'UNKNOWN', sourceVerified:false, engineVerified:false, healthHeaders:false, healthBody:false, healthVerified:false, pathHeaders:false, pathBody:false, pathVerified:false, pathRequests:0, spawnCount:0, exitCount:0, closeCount:0, outputBytes:0, providerCalls:0, acquisitionClosed:true, cleanup:'UNKNOWN', rootsRemoved:false, acquisitionMs:0, managedMs:0, healthMs:0, selectedMs:0, cleanupMs:0, elapsedMs:0 };
+  return { phase:'preflight', failure:'NONE', failurePhase:'none', outcome:'UNKNOWN', sourceVerified:false, engineVerified:false, healthHeaders:false, healthBody:false, healthVerified:false, pathHeaders:false, pathBody:false, pathVerified:false, pathRequests:0, spawnCount:0, exitCount:0, closeCount:0, outputBytes:0, providerCalls:0, acquisitionClosed:true, cleanup:'UNKNOWN', rootsRemoved:false, engineCloseFailed:false, engineCloseUnconfirmed:false, providerCloseFailed:false, rootsRemovalFailed:false, acquisitionMs:0, managedMs:0, healthMs:0, selectedMs:0, cleanupMs:0, elapsedMs:0 };
+}
+function hasCleanupFailure(state) {
+  return state.engineCloseFailed||state.engineCloseUnconfirmed||state.providerCloseFailed||state.rootsRemovalFailed||!state.acquisitionClosed;
+}
+function recordCleanupFailure(state,field,code='CLEANUP_FAILED') {
+  state[field]=true;state.cleanup='UNKNOWN';state.outcome='UNKNOWN';
+  if(state.failure==='NONE'){state.failure=code;state.failurePhase='cleanup';}
 }
 // Dependencies below are fake-only seams; CLI supplies no overrides or timing inputs.
-export async function runManaged({ repo=REPO, bin, directory, env, spawn=childProcess.spawn, request=globalThis.fetch, selectedMs=90000, closeMs=7000, state=emptyState() }) {
+export async function runManaged({ repo=REPO, bin, directory, env, spawn=childProcess.spawn, request=globalThis.fetch, selectedMs=90000, closeMs=7000, closeServer=server=>server.close(), state=emptyState() }) {
   const ambient={...process.env}, originalFetch=globalThis.fetch;
   const originalError=console.error, originalWarn=console.warn;
   const started=performance.now();
@@ -192,12 +199,12 @@ export async function runManaged({ repo=REPO, bin, directory, env, spawn=childPr
         if(firstHealthAt&&!state.healthMs)state.healthMs=Math.round(performance.now()-firstHealthAt);
         state.phase='cleanup';
         const cleanupAt=performance.now();
-        try { await server?.close(); } catch { fail('CLEANUP_FAILED'); }
+        try { if(server)await closeServer(server); } catch { recordCleanupFailure(state,'engineCloseFailed'); }
         // If the factory failed it already ran its own terminator. Do not signal
         // a numeric PID or group, especially after the leader's exit event.
         const closed=await awaitClosed(observer.children,closeMs);
-        state.cleanup=closed?'CLOSED':'UNKNOWN';
-        if(!closed){fail('CLEANUP_UNKNOWN');state.outcome='UNKNOWN';}
+        state.cleanup=closed&&!hasCleanupFailure(state)?'CLOSED':'UNKNOWN';
+        if(!closed)recordCleanupFailure(state,'engineCloseUnconfirmed','CLEANUP_UNKNOWN');
         state.cleanupMs=Math.round(performance.now()-cleanupAt);
         if(state.failure!=='NONE' && state.outcome==='NOT_REPRODUCED')state.outcome='UNKNOWN';
       }
@@ -277,8 +284,9 @@ const STATE_KEYS=Object.keys(emptyState()).sort();
 export function encodeReceipt(state) {
   if(Object.keys(state).sort().join()!==STATE_KEYS.join())throw failure('REFUSED');
   if(!PHASES.includes(state.phase)||!['none',...PHASES].includes(state.failurePhase)||!CODES.includes(state.failure)||!['UNKNOWN','REPRODUCED','NOT_REPRODUCED'].includes(state.outcome)||!['UNKNOWN','CLOSED'].includes(state.cleanup))throw failure('REFUSED');
+  if(state.outcome!=='UNKNOWN'&&hasCleanupFailure(state))throw failure('REFUSED');
   if(state.outcome==='NOT_REPRODUCED'&&(!state.healthVerified||!state.pathVerified||state.cleanup!=='CLOSED'||state.failure!=='NONE'||state.providerCalls!==0))throw failure('REFUSED');
-  if(state.outcome==='REPRODUCED'&&(!state.healthVerified||state.failure!=='PATH_TIMEOUT'||state.cleanup!=='CLOSED'))throw failure('REFUSED');
+  if(state.outcome==='REPRODUCED'&&(!state.healthVerified||state.failure!=='PATH_TIMEOUT'||state.cleanup!=='CLOSED'||state.providerCalls!==0))throw failure('REFUSED');
   for(const [key,value]of Object.entries(state)) {
     if(typeof emptyState()[key]==='boolean' && typeof value!=='boolean')throw failure('REFUSED');
     if(typeof emptyState()[key]==='number' && (!Number.isSafeInteger(value)||value<0||value>1000000000))throw failure('REFUSED');
@@ -302,6 +310,24 @@ async function validatePublishedReceipt() {
   const stat=await fs.lstat(filename);
   if(!stat.isFile()||stat.isSymbolicLink()||stat.size>RECEIPT_CAP)throw failure('REFUSED');
   validateReceipt(await fs.readFile(filename,'utf8'));
+}
+
+export async function finalizeOwned({state,provider,root,remove=fs.rm}) {
+  state.phase='cleanup';
+  if(provider) {
+    try {await provider.close();}
+    catch {recordCleanupFailure(state,'providerCloseFailed');}
+    finally {state.providerCalls=provider.count();}
+  }
+  if(state.providerCalls) {
+    if(state.failure==='NONE'){state.failure='PROVIDER_CALLED';state.failurePhase='cleanup';}
+    state.outcome='UNKNOWN';
+  }
+  if(state.spawnCount===0&&!hasCleanupFailure(state))state.cleanup='CLOSED';
+  if(root&&state.cleanup==='CLOSED'&&!hasCleanupFailure(state)) {
+    try {await remove(root,{recursive:true});state.rootsRemoved=true;}
+    catch {recordCleanupFailure(state,'rootsRemovalFailed');}
+  }
 }
 
 export async function runCi() {
@@ -336,10 +362,7 @@ export async function runCi() {
     await runManaged({bin:await fs.realpath(bin),directory,env,state});
   } catch(error) { if(state.failure==='NONE'){state.failure=CODES.includes(error?.diagnosticCode)?error.diagnosticCode:'SETUP_FAILED';state.failurePhase=state.phase;} }
   finally {
-    try { if(provider) {state.providerCalls=provider.count();await provider.close();} } catch {if(state.failure==='NONE'){state.failure='CLEANUP_FAILED';state.failurePhase='cleanup';}}
-    if(state.providerCalls){if(state.failure==='NONE'){state.failure='PROVIDER_CALLED';state.failurePhase='selected-path';}state.outcome='UNKNOWN';}
-    if(state.spawnCount===0&&state.acquisitionClosed)state.cleanup='CLOSED';
-    if(root && state.cleanup==='CLOSED')try {await fs.rm(root,{recursive:true});state.rootsRemoved=true;} catch {if(state.failure==='NONE'){state.failure='CLEANUP_FAILED';state.failurePhase='cleanup';}state.cleanup='UNKNOWN';state.outcome='UNKNOWN';}
+    await finalizeOwned({state,provider,root});
     state.elapsedMs=Math.round(performance.now()-started);
     if(state.failure==='NONE')state.phase='complete';
     if(state.failure!=='NONE'&&state.outcome==='NOT_REPRODUCED')state.outcome='UNKNOWN';
