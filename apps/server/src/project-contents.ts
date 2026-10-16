@@ -3,9 +3,10 @@ import { isAbsolute, relative, resolve, sep, extname } from "node:path";
 import { z } from "zod";
 import type { ProjectContents, ProjectContentItem, ProjectContentKind, ProjectContentSection } from "@legalwork/types/workspace";
 import type { TaskStore } from "./task-store.js";
-import type { RecorderBridge, WorkspaceInfo } from "./types.js";
+import type { RecorderBridge, TokenScope, WorkspaceInfo } from "./types.js";
 import { ApiError } from "./errors.js";
 import { readProjectDetails } from "./project-store.js";
+import { resolveReadableWorkspaceFilePath, resolveWorkspaceFilePath, viewerProtectedPaths } from "./lawoss/filesystem-boundary.js";
 
 export const contentKind = z.enum(["tasks", "notes", "files", "recordings", "sessions"]);
 export const projectListQuery = z.object({
@@ -26,6 +27,8 @@ export type ProjectContentSources = {
   orgId: string | null;
   recorder?: RecorderBridge | null;
   sessions: (limit: number) => Promise<SessionSummary[]>;
+  // 🟡 LAWOSS: rola volajúceho; viewer nevidí chránenú konfiguráciu ani jej aliasy.
+  scope: TokenScope;
 };
 
 const textExtensions = new Set([".md", ".txt", ".csv", ".json", ".html", ".xml", ".yaml", ".yml", ".log"]);
@@ -42,6 +45,13 @@ async function projectPath(root: string, path: string) {
   const local = relative(base, target);
   if (isAbsolute(local) || local === ".." || local.startsWith(`..${sep}`)) missing();
   return target;
+}
+
+/** 🟡 LAWOSS: rovnaká hranica pre viewera ako vo files/*, vrátane kanonických aliasov. */
+async function viewerVisible(root: string, scope: TokenScope): Promise<(path: string) => Promise<boolean>> {
+  if (scope !== "viewer") return async () => true;
+  const isProtected = await viewerProtectedPaths(root);
+  return (path) => resolveWorkspaceFilePath(root, path || ".", { allowRoot: true }).then((location) => !isProtected(location, path), () => false);
 }
 
 async function readText(path: string, maxBytes: number) {
@@ -65,7 +75,7 @@ function pageItems(items: ProjectContentItem[], limit: number, cursor?: string) 
   return { items: page, nextCursor: items.length > start + limit ? page[page.length - 1].id : null };
 }
 
-async function fileSection(root: string, kind: "notes" | "files", path: string, limit: number, cursor?: string) {
+async function fileSection(root: string, kind: "notes" | "files", path: string, limit: number, scope: TokenScope, cursor?: string) {
   const folder = kind === "notes" ? "Notes" : path;
   let directory: string;
   try { directory = await projectPath(root, folder); }
@@ -73,10 +83,15 @@ async function fileSection(root: string, kind: "notes" | "files", path: string, 
     if (kind === "notes" && error instanceof Error && "code" in error && error.code === "ENOENT") return { items: [], nextCursor: null };
     throw error;
   }
-  const entries = (await readdir(directory, { withFileTypes: true }))
+  const visibleTo = await viewerVisible(root, scope);
+  if (!(await visibleTo(folder))) missing();
+  const listed = (await readdir(directory, { withFileTypes: true }))
     .filter((entry) => !entry.name.startsWith(".") && (entry.isFile() || entry.isDirectory()) &&
       (kind !== "notes" || entry.isFile() && /\.md$/i.test(entry.name)))
     .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name, "en"));
+  // Filter before paging, so cursors stay stable and one protected file does not hide the section.
+  const visible = await Promise.all(listed.map((entry) => visibleTo(folder ? `${folder}/${entry.name}` : entry.name)));
+  const entries = listed.filter((_, index) => visible[index]);
   const items: ProjectContentItem[] = entries.map((entry) => ({
     id: folder ? `${folder}/${entry.name}` : entry.name, kind,
     title: (kind === "notes" || folder === "Notes") && /\.md$/i.test(entry.name) ? noteTitle(entry.name) : entry.name,
@@ -105,7 +120,7 @@ export async function listProjectContents(sources: ProjectContentSources, input:
           dueDate: task.dueDate, attachmentCount: task.attachments.length,
         })) };
       } else if (kind === "files" || kind === "notes") {
-        page = await fileSection(workspace.path, kind, query.path, query.limit, query.cursor);
+        page = await fileSection(workspace.path, kind, query.path, query.limit, sources.scope, query.cursor);
       } else if (kind === "recordings") {
         if (!recorder?.listProjectRecordings) throw new Error("recordings_unavailable");
         const recordings = await recorder.listProjectRecordings(workspace.id);
@@ -157,6 +172,7 @@ export async function readProjectContent(sources: ProjectContentSources, input: 
       throw new ApiError(400, "document_tool_required", "Use the document tools to read this file; its project-relative path is the listed id.");
     }
     const path = await projectPath(workspace.path, query.id);
+    if (sources.scope === "viewer") await resolveReadableWorkspaceFilePath(workspace.path, query.id, sources.scope);
     if ((await stat(path)).size > 2_000_000) throw new ApiError(413, "file_too_large", "Use the file tools for this large document.");
     content = await readText(path, 2_000_000);
   }

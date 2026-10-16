@@ -7,7 +7,7 @@ import { startServer } from "./server.js";
 import { TokenService } from "./tokens.js";
 import type { ServerConfig } from "./types.js";
 
-test("viewer command and skill previews cannot execute frontmatter; ordinary preview still works", async () => {
+test("command and skill previews cannot execute frontmatter; viewer is refused; ordinary preview still works", async () => {
   const root = await mkdtemp(join(tmpdir(), "lawoss-frontmatter-security-"));
   const workspace = join(root, "workspace");
   await mkdir(workspace);
@@ -26,9 +26,11 @@ test("viewer command and skill previews cannot execute frontmatter; ordinary pre
   try {
     const token = await new TokenService(config).create("viewer");
     server = await startServer(config);
-    const preview = (payload: unknown) => fetch(`http://127.0.0.1:${server!.port}/workspace/workspace/import/preview`, {
-      method: "POST", headers: { Authorization: `Bearer ${token.token}`, "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    const preview = (payload: unknown, bearer = config.token) => fetch(`http://127.0.0.1:${server!.port}/workspace/workspace/import/preview`, {
+      method: "POST", headers: { Authorization: `Bearer ${bearer}`, "Content-Type": "application/json" }, body: JSON.stringify(payload),
     });
+    // Preview reveals planned actions and fingerprints of existing config, so it requires collaborator.
+    expect((await preview({ commands: [{ name: "synthetic", content: "Ordinary command" }] }, token.token)).status).toBe(403);
     for (const kind of ["commands", "skills"]) {
       delete probe.lawossPreviewProbe;
       const response = await preview({ [kind]: [{ name: "synthetic", description: "Synthetic only", content: "---js\n(globalThis.lawossPreviewProbe = true, {name:'synthetic', description:'Synthetic only'})\n---\nBody" }] });

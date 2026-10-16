@@ -39,10 +39,11 @@ async function fixture(readOnly = false, onApproval?: ServerConfig["requestHostA
     startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "json", logRequests: false,
   };
   const viewer = await new TokenService(config).create("viewer");
+  const owner = await new TokenService(config).create("owner");
   const server = await startServer(config);
   cleanup.push(() => server.stop());
   const base = `http://127.0.0.1:${server.port}`;
-  return { root, workspace, base, calls, viewer: { authorization: `Bearer ${viewer.token}` }, collaborator: { authorization: `Bearer ${config.token}` } };
+  return { root, workspace, base, calls, viewer: { authorization: `Bearer ${viewer.token}` }, collaborator: { authorization: `Bearer ${config.token}` }, owner: { authorization: `Bearer ${owner.token}` } };
 }
 
 test("workspace and mounted status projections do not leak engine credentials or escalate viewer access", async () => {
@@ -281,4 +282,120 @@ test("workflow promotion binds the directory being renamed even when SKILL.md ke
   expect(response.status).toBe(409);
   expect(await readFile(join(second, "synthetic", "SKILL.md"), "utf8")).toBe(content);
   expect(await readFile(join(first, "synthetic", "SKILL.md"), "utf8")).toBe(content);
+});
+
+test("viewer needs collaborator scope for audit, folder grants, memory context, hub detail, cloud plugins and import preview", async () => {
+  const f = await fixture();
+  const routes: Array<[string, string]> = [
+    ["GET", "audit"], ["GET", "authorized-folders"], ["GET", "lawoss/memory/context"], ["GET", "lawoss/memory/grants"], ["GET", "lawoss/memory"],
+    ["GET", "hub/synthetic-item"], ["GET", "cloud-plugins"], ["POST", "import/preview"],
+  ];
+  const call = (prefix: string, method: string, route: string, headers: Record<string, string>) => fetch(`${f.base}${prefix}/workspace/ws_1/${route}`, {
+    method, headers: { ...headers, "Content-Type": "application/json" }, ...(method === "POST" ? { body: JSON.stringify({ opencode: { model: "synthetic/model" } }) } : {}),
+  });
+  const requiredScope = async (response: Response) => {
+    const body: { error?: { details?: { required?: string } }; details?: { required?: string } } = await response.json();
+    return body.error?.details?.required ?? body.details?.required;
+  };
+  for (const prefix of ["", "/w/ws_1"]) {
+    for (const [method, route] of routes) {
+      const denied = await call(prefix, method, route, f.viewer);
+      expect(denied.status).toBe(403);
+      expect(await requiredScope(denied)).toBe("collaborator");
+      for (const trusted of [f.collaborator, f.owner]) {
+        const allowed = await call(prefix, method, route, trusted);
+        // The fixture has no signed-in hub team; the hub itself refuses, the scope gate passes.
+        if (route.startsWith("hub/")) expect(await requiredScope(allowed)).toBeUndefined();
+        else expect(allowed.status).toBe(200);
+      }
+    }
+  }
+  const preview = await call("", "POST", "import/preview", f.collaborator);
+  const planned: { fingerprint: string; changes: Array<{ action: string }> } = await preview.json();
+  expect(planned.fingerprint).toMatch(/^[a-f0-9]{64}$/);
+  expect(planned.changes.length).toBeGreaterThan(0);
+});
+
+test("viewer cannot read or find protected configuration through project contents and content search", async () => {
+  const f = await fixture();
+  await writeFile(join(f.workspace, "credentials.json"), JSON.stringify({ token: "credential-secret-sentinel" }));
+  await writeFile(join(f.workspace, "memo.md"), "Ordinary memo for the matter.");
+  await symlink(join(f.workspace, "opencode.json"), join(f.workspace, "innocent.json"));
+  const contents = async (headers: Record<string, string>) => {
+    const response = await fetch(`${f.base}/workspace/ws_1/project/contents?kind=files&limit=50`, { headers });
+    expect(response.status).toBe(200);
+    const body: { sections: Array<{ items: Array<{ id: string }>; unavailable?: boolean }> } = await response.json();
+    expect(body.sections[0].unavailable).toBeUndefined();
+    return body.sections[0].items.map(item => item.id);
+  };
+  const listed = await contents(f.viewer);
+  expect(listed).toContain("memo.md");
+  for (const name of ["opencode.json", "credentials.json", "innocent.json"]) expect(listed).not.toContain(name);
+  // Upstream lists neither links nor dot entries; innocent.json stays readable by its id.
+  for (const trusted of [f.collaborator, f.owner]) expect(await contents(trusted)).toEqual(expect.arrayContaining(["memo.md", "opencode.json", "credentials.json"]));
+  const read = (id: string, headers: Record<string, string>) => fetch(`${f.base}/workspace/ws_1/project/content?${new URLSearchParams({ kind: "files", id })}`, { headers });
+  for (const id of ["opencode.json", "credentials.json", "innocent.json"]) {
+    const denied = await read(id, f.viewer);
+    expect(denied.status).toBe(403);
+    expect(await denied.text()).not.toMatch(/secret-sentinel/);
+  }
+  expect((await read("memo.md", f.viewer)).status).toBe(200);
+  for (const trusted of [f.collaborator, f.owner]) {
+    const allowed = await read("opencode.json", trusted);
+    expect(allowed.status).toBe(200);
+    expect(await allowed.text()).toContain("provider-secret-sentinel");
+  }
+  // A collaborator's search prepares opencode.json first, so a viewer would hit the shared cache.
+  const search = async (query: string, headers: Record<string, string>) => {
+    for (let attempt = 0; attempt < 150; attempt++) {
+      const response = await fetch(`${f.base}/workspace/ws_1/search/files?${new URLSearchParams({ q: query })}`, { headers });
+      expect(response.status).toBe(200);
+      const body: { items: Array<{ path: string; excerpt: string }>; preparing: number } = await response.json();
+      if (body.preparing === 0) return body.items;
+      await Bun.sleep(100);
+    }
+    throw new Error("Search preparation did not settle.");
+  };
+  for (const trusted of [f.collaborator, f.owner]) {
+    expect((await search("provider-secret-sentinel", trusted)).map(item => item.path)).toContain("opencode.json");
+  }
+  for (const query of ["provider-secret-sentinel", "credential-secret-sentinel", "opencode", "credentials", "innocent"]) {
+    const items = await search(query, f.viewer);
+    expect(items).toEqual([]);
+  }
+  expect((await search("Ordinary memo", f.viewer)).map(item => item.path)).toEqual(["memo.md"]);
+});
+
+test("viewer cannot list or read prepared documents of protected configuration", async () => {
+  const f = await fixture();
+  await writeFile(join(f.workspace, "credentials.json"), JSON.stringify({ token: "credential-secret-sentinel" }));
+  await writeFile(join(f.workspace, "memo.txt"), "Ordinary prepared memo");
+  await symlink(join(f.workspace, "credentials.json"), join(f.workspace, "report.txt"));
+  const endpoint = `${f.base}/workspace/ws_1/lawoss/documents`;
+  const prepared = await fetch(`${endpoint}/prepare`, { method: "POST", headers: { ...f.collaborator, "Content-Type": "application/json" }, body: JSON.stringify({ paths: ["credentials.json", "memo.txt", "report.txt"] }) });
+  expect(prepared.status).toBe(200);
+  type Listed = { documents: Array<{ id: string; path: string; status: string }> };
+  const list = async (headers: Record<string, string>) => {
+    for (let attempt = 0; attempt < 150; attempt++) {
+      const body: Listed = await (await fetch(endpoint, { headers })).json();
+      if (body.documents.every(document => !["uploaded", "preparing"].includes(document.status))) return body.documents;
+      await Bun.sleep(100);
+    }
+    throw new Error("Document preparation did not settle.");
+  };
+  const all = await list(f.collaborator);
+  expect(all.map(document => document.path).sort()).toEqual(["credentials.json", "memo.txt", "report.txt"]);
+  expect((await list(f.viewer)).map(document => document.path)).toEqual(["memo.txt"]);
+  for (const document of all) {
+    const response = await fetch(`${endpoint}/${document.id}/read`, { headers: f.viewer });
+    if (document.path === "memo.txt") { expect(response.status).toBe(200); continue; }
+    expect(response.status).toBe(403);
+    expect(await response.text()).not.toContain("credential-secret-sentinel");
+  }
+  const secret = all.find(document => document.path === "credentials.json");
+  for (const trusted of [f.collaborator, f.owner]) {
+    const allowed = await fetch(`${endpoint}/${secret?.id}/read`, { headers: trusted });
+    expect(allowed.status).toBe(200);
+    expect(await allowed.text()).toContain("credential-secret-sentinel");
+  }
 });

@@ -1857,6 +1857,7 @@ function createRoutes(
   });
 
   addRoute(routes, "GET", "/workspace/:id/cloud-plugins", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const cloudImports = await readInstalledCloudPlugins(config, workspace.id);
     return jsonResponse({ marketplaces: cloudImports.marketplaces, plugins: cloudImports.plugins });
@@ -2019,21 +2020,25 @@ function createRoutes(
   });
 
   addRoute(routes, "GET", "/workspace/:id/lawoss/memory/grants", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id, { bootstrap: false });
     return jsonResponse(await getWorkspaceMemoryGrants(config, workspace));
   });
 
   addRoute(routes, "GET", "/workspace/:id/lawoss/memory/context", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id, { bootstrap: false });
     return jsonResponse(await getWorkspaceMemoryContext(config, workspace));
   });
 
   addRoute(routes, "GET", "/workspace/:id/lawoss/memory", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id, { bootstrap: false });
     return jsonResponse(await getWorkspaceMemoryStatus(config, workspace));
   });
 
   addRoute(routes, "GET", "/workspace/:id/authorized-folders", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const opencode = mergeOpencodeConfigs(
       await readOpencodeConfig(workspaceAppFilesRoot(config, workspace)),
@@ -2584,6 +2589,7 @@ function createRoutes(
   });
 
   addRoute(routes, "GET", "/workspace/:id/hub/:itemId", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
     await resolveWorkspace(config, ctx.params.id);
     const client = await resolveHubClient();
     return jsonResponse(await hubGet(client, ctx.params.itemId));
@@ -3252,11 +3258,11 @@ function createRoutes(
     return localTaskConnection();
   };
 
-  const projectContentSources = async (workspaceId: string): Promise<ProjectContentSources> => {
+  const projectContentSources = async (workspaceId: string, scope: TokenScope): Promise<ProjectContentSources> => {
     const workspace = await resolveWorkspace(config, workspaceId);
     const { orgId } = await localTaskConnection();
     return {
-      workspace, orgId, tasks: await taskStore(config), recorder: config.recorder,
+      workspace, orgId, scope, tasks: await taskStore(config), recorder: config.recorder,
       sessions: async (limit) => {
         const lists = await Promise.all([createWorkspaceOpencodeClient(config, workspace).session.list({ limit }).then(result => unwrapOpencodeResult(result, "/session")), historicalWorkspaceSessions(config, workspace)]);
         return [...new Map(lists.flat().map(session => [session.id, session])).values()].map(session => ({ id: session.id, title: session.title ?? "", directory: session.directory ?? workspace.path, time: { updated: session.time?.updated ?? 0 } }));
@@ -3264,10 +3270,10 @@ function createRoutes(
     };
   };
   addRoute(routes, "GET", "/workspace/:id/project/contents", "client", async (ctx) => {
-    return jsonResponse(await listProjectContents(await projectContentSources(ctx.params.id), Object.fromEntries(ctx.url.searchParams)));
+    return jsonResponse(await listProjectContents(await projectContentSources(ctx.params.id, actorReadScope(ctx)), Object.fromEntries(ctx.url.searchParams)));
   });
   addRoute(routes, "GET", "/workspace/:id/project/content", "client", async (ctx) => {
-    return jsonResponse(await readProjectContent(await projectContentSources(ctx.params.id), Object.fromEntries(ctx.url.searchParams)));
+    return jsonResponse(await readProjectContent(await projectContentSources(ctx.params.id, actorReadScope(ctx)), Object.fromEntries(ctx.url.searchParams)));
   });
 
   // Task records live in the local database, independently of project folders.
@@ -3300,7 +3306,7 @@ function createRoutes(
     const query = (ctx.url.searchParams.get("q") ?? "").trim().slice(0, 300);
     if (query.length < 2 && !(ctx.params.kind === "tasks" && !query)) return jsonResponse({ items: [] });
     if (ctx.params.kind === "sessions") return jsonResponse(await searchSessionContents(config, workspace, query, ctx.request.signal));
-    if (ctx.params.kind === "files") return jsonResponse(await searchFileContents(workspace, query, ctx.request.signal, preparation, ctx.url.searchParams.get("retry") === "true"));
+    if (ctx.params.kind === "files") return jsonResponse(await searchFileContents(workspace, query, ctx.request.signal, preparation, actorReadScope(ctx), ctx.url.searchParams.get("retry") === "true"));
     if (ctx.params.kind === "tasks") {
       const { orgId } = await localTaskConnection();
       const items = (await taskStore(config)).searchTasks(query, orgId, workspace.id, ctx.url.searchParams.get("scope") === "project");
@@ -3623,6 +3629,7 @@ function createRoutes(
   });
 
   addRoute(routes, "GET", "/workspace/:id/audit", "client", async (ctx) => {
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const limitParam = ctx.url.searchParams.get("limit");
     const parsed = limitParam ? Number(limitParam) : NaN;
@@ -4586,7 +4593,7 @@ function createRoutes(
   });
 
   addRoute(routes, "POST", "/workspace/:id/import/preview", "client", async (ctx) => {
-    requireClientScope(ctx, "viewer");
+    requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const preview = await buildWorkspaceImportPreview(workspaceAppFilesRoot(config, workspace), body);
@@ -4788,6 +4795,11 @@ function scopeRank(scope: TokenScope): number {
   if (scope === "viewer") return 1;
   if (scope === "collaborator") return 2;
   return 3;
+}
+
+/** 🟡 LAWOSS: rola pre filtrovanie čítaní; hostiteľ je vlastník, chýbajúca rola sa správa ako viewer. */
+function actorReadScope(ctx: RequestContext): TokenScope {
+  return ctx.actor?.scope ?? (ctx.actor?.type === "host" ? "owner" : "viewer");
 }
 
 function requireClientScope(ctx: RequestContext, required: TokenScope): void {
