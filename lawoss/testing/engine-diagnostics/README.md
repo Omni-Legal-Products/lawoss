@@ -170,3 +170,21 @@ serviced during shutdown cannot preserve either positive outcome.
 The real Windows feedback loop and its original 90-second outcome remain pending.
 No application, provider, acquisition, engine, CI or publication run is implied by
 local source validation. Broader app tests are outside this four-file diagnostic.
+
+Task43 adds a separate, source-only prepared coupled headless app-start diagnostic
+(`windows-app-start-{repro,host,embedded-observer,repro.test}.mjs`). Its temporary
+workflow now admits only `chore/windows-app-start-repro-*`, with exact Node24.21.0,
+pnpm11.4.0/Bun1.4.2 frozen dependencies and the genuine server build, followed by
+locked Electron43.7.5 RUN_AS_NODE import/SQLite preflight before original-engine
+acquisition. The one actual manager/store case preserves the factory defaults,
+90000ms selected helper, 60000ms normal-stop observation and 7000ms engine pipe
+observation. Only strict `windows-app-start-receipt.json` (<=32768B) is publishable;
+pending/rejected/missing closure retains UNKNOWN and its root. Build provenance,
+Electron installer cache and roots remain private. Local pure/fake checks are
+source preparation only; real build/preflight/manager integration and one manual
+Windows run require subsequent review/authorization. Full Windows app remains
+RED unchanged, full-native acceptance false and cause UNKNOWN.
+The automatic failure-only desktop doctor keeps its real original-EXE results,
+with diagnostic 15000ms / 65536B per-stream sync bounds on its exact two argv
+forms. Any doctor invocation retains UNKNOWN/root; these synchronous probes do
+not provide the engine pipe-close evidence required for a closed result.
