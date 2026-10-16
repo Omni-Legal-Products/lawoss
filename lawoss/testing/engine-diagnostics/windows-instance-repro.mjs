@@ -258,7 +258,7 @@ function Mark($s){[Console]::Out.WriteLine('LAWOSS_EXTRACT:'+$s)}
 $z=$null; $i=$null; $o=$null; $failed='NONE'; $disposeFailed=$false; $op='ASSEMBLY'
 Mark 'started'
 try {
- Add-Type -AssemblyName System.IO.Compression.FileSystem
+ [void][System.Reflection.Assembly]::Load('System.IO.Compression.FileSystem, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089')
  Mark 'assembly-ready'; $op='OPEN_ARCHIVE'
  $z=[IO.Compression.ZipFile]::OpenRead($args[0])
  Mark 'archive-open'; $op='METADATA'
@@ -271,7 +271,7 @@ try {
  Mark 'metadata-admitted'; $op='OPEN_ENTRY'; $i=$e.Open()
  $op='OPEN_OUTPUT'; $o=[IO.File]::Open($args[1],[IO.FileMode]::CreateNew)
  Mark 'output-open'; $op='COPY'
- $buffer=New-Object byte[] 65536; $total=0L
+ [byte[]]$buffer=[System.Array]::CreateInstance([byte],65536); $total=0L
  while(($n=$i.Read($buffer,0,$buffer.Length)) -gt 0){$total+=$n; if($total -gt 268435456 -or $total -gt $e.Length){$failed='COPY_SIZE';throw 'refused'}; $o.Write($buffer,0,$n)}
  if($total -ne $e.Length){$failed='COPY_SIZE';throw 'refused'}
  Mark 'copy-complete'; $op='DISPOSE'

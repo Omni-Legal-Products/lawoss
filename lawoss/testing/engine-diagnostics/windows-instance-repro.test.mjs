@@ -270,7 +270,7 @@ function done(child,code=0,signal=null){child.emit('exit',code,signal);child.emi
 test('actual extraction bridge success uses exact script argv native env and positive close',async()=>{
   const r=await extractionCase((c,t,tick)=>{c.stdout.write(protocol);tick();done(c);});
   assert.equal(r.error,undefined);assert.equal(r.observation.status,'PASS');assert.equal(r.observation.elapsedMs,11);assert.equal(r.observation.closed,true);assert.equal(r.state.acquisitionClosed,true);
-  assert.equal(r.script,EXTRACT);assert.equal(EXTRACT.indexOf("Mark 'started'")<EXTRACT.indexOf(' Add-Type'),true);
+  assert.equal(r.script,EXTRACT);const started=EXTRACT.indexOf("Mark 'started'");const assemblyReady=EXTRACT.indexOf("Mark 'assembly-ready'");assert.equal(started>=0,true);assert.equal(assemblyReady>started,true);
   assert.deepEqual(r.argv.slice(0,5),['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File']);
   assert.equal(r.argv.length,8);assert.deepEqual(r.options.stdio,['ignore','pipe','pipe']);assert.equal(Object.hasOwn(r.options.env,'NODE_OPTIONS'),false);
   assert.equal(r.state.control.status,'NOT_RUN');

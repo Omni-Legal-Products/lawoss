@@ -92,6 +92,11 @@ file is never executed. Control failure blocks public download and engine startu
 Pure fake-child tests exercise this actual bridge/controller seam; they do not
 execute PowerShell/.NET or establish a Windows control pass.
 
+Task 42's source candidate replaces the assembly and byte-buffer cmdlets with
+direct CLR calls. Task 41's native control reached `started` and was terminated
+by its extraction timer before `assembly-ready`; the exact inner cause remains
+unknown. Task 42 has not been run on Windows and is not an application fix.
+
 The accepted boundary is a dedicated ephemeral GitHub Windows VM with public
 synthetic data and no supplied user/provider auth. Fresh owned HOME, USERPROFILE,
 APPDATA, LOCALAPPDATA, XDG, temp, database and config paths are used. After public
@@ -126,8 +131,9 @@ Each extraction observation records native spawn error, timer-fired flag, positi
 close, normalized close kind/code/signal, process-only monotonic elapsed time
 (with a separate measured flag, from spawn attempt through close/backstop),
 source-issued progress/failure phase, independent disposal failure and bounded
-stdout/stderr byte counts. Progress precedes Add-Type, then marks assembly ready,
-archive open, metadata admitted, output open, copy complete and dispose complete.
+stdout/stderr byte counts. Progress marks `started`, then the direct CLR assembly
+load must return before `assembly-ready`, archive open, metadata admitted, output
+open, copy complete and dispose complete.
 Strict ordered finite protocol is capped at 4,096 stdout bytes before buffering;
 stderr is counted before discard up to a 65,536-byte cap. Unknown, duplicate,
 malformed, extra and out-of-order protocol refuses. A source-issued category is
