@@ -1152,12 +1152,12 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const requested = (ctx.url.searchParams.get("path") ?? "").trim();
     // An empty path lists the workspace root; normalizeWorkspaceRelativePath rejects it.
     const relativePath = requested ? normalizeWorkspaceRelativePath(requested, { allowSubdirs: true }) : "";
+    // Validate canonical containment before inspecting or enumerating a selected folder.
+    const scopedPath = await resolveWithinRoot(workspace.path, relativePath || ".");
     const absPath = await readable(ctx, workspace.path, relativePath || ".", true);
     if (!(await exists(absPath))) {
       throw new ApiError(404, "dir_not_found", "Directory not found");
     }
-    // Validate canonical containment before inspecting or enumerating a selected folder.
-    const scopedPath = await resolveWithinRoot(workspace.path, relativePath || ".");
     const requestedBoundary = ctx.url.searchParams.get("within");
     const within = requestedBoundary === null ? undefined : requestedBoundary.trim()
       ? normalizeWorkspaceRelativePath(requestedBoundary.trim(), { allowSubdirs: true }) : "";
