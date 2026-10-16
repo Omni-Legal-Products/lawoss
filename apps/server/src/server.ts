@@ -3798,16 +3798,6 @@ function createRoutes(
 
       const providerUpdate = ensurePlainObject(provider);
       if (Object.keys(providerUpdate).length) {
-        // Mark disconnections before deleting config: the engine may still
-        // return its old provider until the client finishes reloading it.
-        await writeLegalworkWorkspaceConfig(config, workspace.id, (current) => {
-          const settings = readModelRefreshSettings(current.customProviderModelRefresh);
-          for (const [id, provider] of Object.entries(providerUpdate)) {
-            if (provider === null) settings[id] = { ...settings[id], enabled: false, disconnected: true, pendingReload: false };
-            else if (settings[id]?.disconnected) settings[id] = { ...settings[id], disconnected: false };
-          }
-          return { ...current, customProviderModelRefresh: settings };
-        });
         // LAWOSS: vlastní poskytovatelia sú globálni (GLOBAL_PROVIDERS_ID). `null` odstráni
         // poskytovateľa z globálneho riadku aj zo starého riadku priečinka.
         const globalRuntime = await readRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID);
@@ -3835,6 +3825,16 @@ function createRoutes(
         if (providerConflicts.length && body.confirmProviderOverwrite !== true) {
           throw new ApiError(409, "provider_conflict", "Another workspace has a different provider with the same id.", { providerConflicts });
         }
+        // Mark disconnections before deleting config: the engine may still
+        // return its old provider until the client finishes reloading it.
+        await writeLegalworkWorkspaceConfig(config, workspace.id, (current) => {
+          const settings = readModelRefreshSettings(current.customProviderModelRefresh);
+          for (const [id, provider] of Object.entries(providerUpdate)) {
+            if (provider === null) settings[id] = { ...settings[id], enabled: false, disconnected: true, pendingReload: false };
+            else if (settings[id]?.disconnected) settings[id] = { ...settings[id], disconnected: false };
+          }
+          return { ...current, customProviderModelRefresh: settings };
+        });
         const nextGlobal = mergeRuntimeProviderPatch(globalProviders, providerUpdate);
         await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, (current) => ({
           ...current,

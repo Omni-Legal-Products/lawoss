@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "./server.js";
 import { GLOBAL_PROVIDERS_ID, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { readLegalworkWorkspaceConfig, writeLegalworkWorkspaceConfig } from "./legalwork-workspace-config-store.js";
+import { createCustomProviderModelRefresh } from "./custom-provider-model-refresh.js";
 import type { ServerConfig } from "./types.js";
 import { removeTestDir } from "./lawoss/test-support/remove-test-dir.js";
 
@@ -185,3 +187,85 @@ test("nový poskytovateľ, ktorého ostatní klienti nemali, nie je zmena adresy
   const response = await fetch(`${baseUrl}/workspace/${ws.id}/config`, { method: "PATCH", headers: { authorization: "Bearer client", "content-type": "application/json" }, body: JSON.stringify({ opencode: { provider: { ollama: { ...ollama, options: { baseURL: "https://cloud.example/v1" } } } } }) });
   expect(response.status).toBe(200);
 });
+
+
+for (const change of ["replacement", "deletion"] as const) {
+  test(`rejected provider ${change} preserves complete refresh state and confirmed changes retain audit and stale-engine guards`, async () => {
+    const { config, baseUrl, ws } = await fixture();
+    let discoveries = 0, reloads = 0;
+    const endpoint = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() {
+      discoveries++;
+      return Response.json({ data: [{ id: "stale-model" }] });
+    } });
+    cleanups.push(async () => { endpoint.stop(true); });
+    const local = { ...ollama, name: "Synthetic local provider", options: { baseURL: `http://127.0.0.1:${endpoint.port}/v1` } };
+    const different = { ...ollama, name: "Synthetic conflicting provider", options: { baseURL: "http://other-workspace.example.test/v1" } };
+    const replacement = { ...local, name: "Synthetic replacement" };
+    const refreshed = { enabled: true, disconnected: change === "replacement", baseURL: local.options.baseURL,
+      availableModels: ["selected-model", "inventory-model"], lastCheckedAt: 100, lastUpdatedAt: 90,
+      lastError: "Synthetic retained discovery failure", pendingReload: true };
+    const unrelated = { enabled: true, disconnected: false, baseURL: "http://unrelated.example.test/v1",
+      availableModels: ["unrelated-model"], lastCheckedAt: 200, lastUpdatedAt: 180, lastError: null, pendingReload: false };
+    await writeLegalworkWorkspaceConfig(config, ws.id, () => ({ sentinel: { keep: "complete workspace configuration" },
+      customProviderModelRefresh: { ollama: refreshed, unrelated } }));
+    await writeLegalworkWorkspaceConfig(config, "second", () => ({ sentinel: "Other workspace metadata", customProviderModelRefresh: { unrelated } }));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID, () => ({ default_agent: "global-sentinel" }));
+    await writeRuntimeOpencodeConfig(config, ws.id, () => ({ default_agent: "office-sentinel", provider: { ollama: local } }));
+    await writeRuntimeOpencodeConfig(config, "second", () => ({ default_agent: "second-sentinel", provider: { ollama: different } }));
+    const ids = [GLOBAL_PROVIDERS_ID, ws.id, "second"];
+    const auditOf = async (id: string) => {
+      const response = await fetch(`${baseUrl}/workspace/${id}/audit`, { headers: { authorization: "Bearer client" } });
+      expect(response.status).toBe(200);
+      const body: { items: { action: string }[] } = await response.json();
+      return body.items;
+    };
+    const snapshot = async () => ({
+      runtime: await Promise.all(ids.map(id => readRuntimeOpencodeConfig(config, id))),
+      legalwork: await Promise.all(ids.map(id => readLegalworkWorkspaceConfig(config, id))),
+      audit: await Promise.all([ws.id, "second"].map(auditOf)),
+    });
+    const before = await snapshot();
+    const value = change === "deletion" ? null : replacement;
+    const patch = (confirmed: boolean) => fetch(`${baseUrl}/workspace/${ws.id}/config`, {
+      method: "PATCH", headers: { authorization: "Bearer client", "content-type": "application/json" },
+      body: JSON.stringify({ opencode: { provider: { ollama: value } }, ...(confirmed ? { confirmProviderOverwrite: true } : {}) }),
+    });
+    const refused = await patch(false);
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toMatchObject({ code: "provider_conflict", details: { providerConflicts: [{ providerId: "ollama", workspaces: [{ id: "second", name: "Second" }] }] } });
+    const after = await snapshot();
+    expect(after.runtime).toEqual(before.runtime);
+    expect(after.legalwork).toEqual(before.legalwork);
+    expect(after.audit).toEqual(before.audit);
+
+    const confirmed = await patch(true);
+    expect(confirmed.status).toBe(200);
+    await confirmed.json();
+    const acceptedConfig = await readLegalworkWorkspaceConfig(config, ws.id);
+    expect(acceptedConfig).toEqual({ sentinel: { keep: "complete workspace configuration" }, customProviderModelRefresh: {
+      ollama: change === "deletion" ? { ...refreshed, enabled: false, disconnected: true, pendingReload: false } : { ...refreshed, disconnected: false },
+      unrelated,
+    } });
+    expect(await readLegalworkWorkspaceConfig(config, "second")).toEqual(before.legalwork[2]);
+    expect((await readRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID)).provider ?? {}).toEqual(change === "deletion" ? {} : { ollama: replacement });
+    for (const id of [ws.id, "second"]) expect((await readRuntimeOpencodeConfig(config, id)).provider ?? {}).toEqual({});
+    for (const [index, id] of ids.entries()) expect((await readRuntimeOpencodeConfig(config, id)).default_agent).toBe(before.runtime[index]?.default_agent);
+    expect(await auditOf(ws.id)).toEqual(expect.arrayContaining([expect.objectContaining({ action: "config.patch" })]));
+    expect(await auditOf("second")).toEqual(expect.arrayContaining([expect.objectContaining({ action: "config.provider.overwrite" })]));
+    if (change === "deletion") {
+      // The real refresh consumer may still receive the engine's stale provider
+      // snapshot. Accepted disconnection must prevent discovery and restoration.
+      const refresh = createCustomProviderModelRefresh({ config, readProviders: async () => ({ ollama: local }),
+        isBusy: async () => false, reload: async () => { reloads++; } });
+      const result = await refresh(ws, { providerId: "ollama", force: true });
+      expect(result.providers.ollama.disconnected).toBe(true);
+      expect(result.providers.ollama.pendingReload).toBe(false);
+      expect(result.reloaded).toBe(false);
+      expect(await readLegalworkWorkspaceConfig(config, ws.id)).toEqual(acceptedConfig);
+      expect((await readRuntimeOpencodeConfig(config, GLOBAL_PROVIDERS_ID)).provider ?? {}).toEqual({});
+      expect((await readRuntimeOpencodeConfig(config, ws.id)).provider ?? {}).toEqual({});
+    }
+    expect(discoveries).toBe(0);
+    expect(reloads).toBe(0);
+  });
+}

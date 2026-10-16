@@ -749,3 +749,10 @@ Baseline `dev` `0e67695c`, upstream `v0.2.4`. Merge má 18 textových konfliktov
 | `.github/workflows/ci-windows-portable.yml` | Iba existujúci postfailure diagnostický krok teraz raz spustí celý project-sync.test.ts v čerstvom Bun procese, rovnaký failure condition/cwd a2min strop kroku. Pôvodný povinný51-file command, poradie/preloads/env/5000ms assertions zostávajú. Nový zdroj zahŕňa6 personalization predchodcov a calendar facade; nejde o reprodukciu historického983 ani určenie Windows príčiny. |
 
 Integrované gate receipts sú samostatné od upstream historických výsledkov. Actual-engine app test:e2e a celý Electron/native build zostávajú pre osobitne prijatý postreview/CI beh; zdrojové buildy/testy nepotvrdzujú GUI, provider ani Windows/macOS native acceptance.
+
+
+### Task53 fix1: provider confirmation bez vedľajšieho zápisu (2026-10-16)
+
+| Súbory | Úzka oprava a overenie |
+| --- | --- |
+| `apps/server/src/server.ts`, `apps/server/src/lawoss-global-providers.e2e.test.ts` | Celý pôvodný refresh/disconnection metadata blok sa vykoná až po úplnom provider-conflict/confirmation guard, stále pred prijatou zmenou alebo vymazaním provider configu. Dve nezávislé skutočné HTTP RED regresie odhalili pri409 vymazanie disconnected flagu pri replacement a disable/reset pendingReload pri null. Po presune kontrolujú úplný nezmenený runtime/workspace config aj audit pri odmietnutí, potvrdenú replacement/deletion, zachovanie nesúvisiacej metadata a účinný stale-engine refresh guard bez discovery/reload po odpojení. API, approval/permission a semantika prijatého metadata bloku zostávajú; nejde o rozšírenie transakcie. |
