@@ -14,7 +14,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ACCEPT, METADATA_LIMITS, VERSIONS, RUNTIME_LOCK, runtimeApis, namedArtifacts, metadataRequest, publicCode, active } from './native-merged-cache-worker.mjs';
-import { validateAcquisition, failureReceipt, validateTap, sourceTestCount, ownedValidation, TEST_FILES } from './native-merged-validation.mjs';
+import { validateAcquisition, failureReceipt, validateTap, sourceTestCount, ownedValidation, TEST_FILES, readOperationReceipt, failedTap, validationChild, retainAcquisition } from './native-merged-validation.mjs';
 import { runChild, childEnvironment } from '../build/plugin-payload/prepare.mjs';
 import { ACCEPTED } from '../build/plugin-payload/prime-cache.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -98,7 +98,7 @@ test('caller cancellation destroys idle owned response', async () => {
 test('finite public errors never reflect raw values or arbitrary uppercase codes', () => {
   const error = Object.assign(Error('private-sentinel'), { code: 'SECRET_TOKEN' });
   assert.equal(publicCode(error), 'ACQUISITION_FAILED');
-  assert.deepEqual(failureReceipt(error), { schema: 1, phase: 'validation', status: 'failed', code: 'NATIVE_VALIDATION_FAILED' });
+  assert.deepEqual(failureReceipt(error), { schema: 1, phase: 'initialize', status: 'failed', code: 'NATIVE_VALIDATION_FAILED', childClosed: 'unknown', exitCode: null, signal: 'unknown', worker: null, tests: null });
   assert.throws(() => active(NaN), { code: 'PRIMER_DEADLINE' });
 });
 test('genuine pinned local API closure admits exactly immutable 32 distinct records offline', async () => {
@@ -197,4 +197,93 @@ test('genuine pacote offline cache miss never opens a socket or falls back to ne
       await assert.rejects(pacote.packument(record.name, { cache: path.join(workspace, 'cache/_cacache'), offline: true, fullMetadata, registry: 'https://registry.npmjs.org/', retry: { retries: 0 } }), { code: 'ENOTCACHED' });
     }
   });
+});
+
+test('uncoded operation failure retains initialize phase and never masquerades as cleanup', async () => {
+  await assert.rejects(ownedValidation(async () => { throw Error('private-primary'); }), error => {
+    const receipt = failureReceipt(error);
+    assert.equal(receipt.code, 'NATIVE_VALIDATION_FAILED');
+    assert.equal(receipt.phase, 'initialize'); return true;
+  });
+});
+
+test('mixed stderr retains finite worker file only after actual close; missing receipt stays unknown', async () => {
+  for (const mode of ['worker-receipt', 'failure']) await assert.rejects(ownedValidation(async (workspace, context) => {
+    context.phase = 'acquisition';
+    await validationChild([path.join(here, 'fixtures/native-merged-child.mjs'), mode, workspace], workspace, {}, context);
+  }, { cleanup: async (workspace, opts) => {
+    assert.equal(await fs.readFile(path.join(workspace, 'settled'), 'utf8'), 'closed-before-cleanup'); await fs.rm(workspace, opts);
+  } }), error => {
+    const value = failureReceipt(error);
+    assert.equal(value.phase, 'acquisition'); assert.equal(value.childClosed, true); assert.equal(value.exitCode, 1);
+    assert.equal(value.code, mode === 'worker-receipt' ? 'METADATA_DIST' : 'CHILD_FAILED');
+    assert.equal(value.worker?.stage ?? null, mode === 'worker-receipt' ? 'metadata' : null);
+    assert.equal(JSON.stringify(value).includes('private-sentinel'), false); return true;
+  });
+});
+test('worker receipt refuses unclosed reads, extra fields, bytes, symlinks and multiple links', async () => {
+  const { OPERATION_RECEIPT, writeOperationReceipt } = await import('./native-merged-cache-worker.mjs');
+  await ownedValidation(async workspace => {
+    const file = path.join(workspace, OPERATION_RECEIPT);
+    const value = { schema: 1, status: 'failed', stage: 'metadata', code: 'METADATA_DIST', tarballs: 32, metadata: 1, offline: 0 };
+    await writeOperationReceipt(workspace, value);
+    assert.equal(await readOperationReceipt(workspace, { closed: false }), null);
+    assert.deepEqual(await readOperationReceipt(workspace, { closed: true }), value);
+    await assert.rejects(writeOperationReceipt(workspace, value), { code: 'EEXIST' });
+    for (const bad of [{ ...value, raw: 'private-sentinel' }, { ...value, code: 'SECRET' }, { ...value, metadata: 65 }, { ...value, stage: 'secret' }]) {
+      await fs.writeFile(file, JSON.stringify(bad)); assert.equal(await readOperationReceipt(workspace, { closed: true }), null);
+    }
+    await fs.writeFile(file, ' '.repeat(4097)); assert.equal(await readOperationReceipt(workspace, { closed: true }), null);
+    await fs.writeFile(file, JSON.stringify(value)); await fs.link(file, path.join(workspace, 'hardlink'));
+    assert.equal(await readOperationReceipt(workspace, { closed: true }), null);
+    await fs.unlink(file); await fs.symlink(path.join(workspace, 'hardlink'), file);
+    assert.equal(await readOperationReceipt(workspace, { closed: true }), null);
+  });
+});
+test('validated acquisition survives later actual failed test child and cleanup failure', async () => {
+  for (const cleanupFailure of [false, true]) {
+    let owned; const emitted = [];
+    try {
+      await assert.rejects(ownedValidation(async (workspace, context) => {
+        owned = workspace;
+        await validationChild([path.join(here, 'fixtures/native-merged-child.mjs'), 'success', workspace], workspace, {}, context);
+        retainAcquisition(goodReceipt(), context, r => emitted.push(r)); // controlled receipt, not genuine cache proof
+        context.phase = 'tests'; context.expected = 1;
+        if (!cleanupFailure) await validationChild([path.join(here, 'fixtures/native-merged-child.mjs'), 'failed-tap', workspace], workspace, { json: false }, context);
+      }, { cleanup: async (workspace, opts) => { if (cleanupFailure) throw Error('private-cleanup'); await fs.rm(workspace, opts); } }), error => {
+        assert.equal(emitted.length, 1); assert.deepEqual(error.private.context.acquisition, goodReceipt());
+        const value = failureReceipt(error); assert.equal(value.phase, cleanupFailure ? 'cleanup' : 'tests');
+        if (!cleanupFailure) { assert.equal(value.tests.fail, 1); assert.equal(value.tests.failures[0].registration, 1); }
+        assert.equal(JSON.stringify(value).includes('private-'), false); return true;
+      });
+    } finally { await fs.rm(owned, { recursive: true, force: true }); }
+  }
+  assert.throws(() => retainAcquisition(goodReceipt(), { child: { closed: false } }, () => assert.fail()), { code: 'RECEIPT_INVALID' });
+});
+test('failed TAP requires complete numeric plan and fixed-source declaration identity', async () => {
+  const declarations = await Promise.all(TEST_FILES.map(async file => new Set((await fs.readFile(path.join(here, file), 'utf8')).split('\n').flatMap((line, i) => /^\s*test\(/.test(line) ? [i + 1] : []))));
+  for (let i = 0; i < 3; i++) {
+    const line = [...declarations[i]][0];
+    const value = tap(1).replace('ok 1 - synthetic', `not ok 1 - private-sentinel\n  ---\n  location: '${path.join(here, TEST_FILES[i])}:${line}:1'\n  error: private-sentinel\n  ...`).replace('# pass 1', '# pass 0').replace('# fail 0', '# fail 1');
+    const result = failedTap(value, 1, declarations);
+    assert.equal(result.failures[0].source, ['config', 'lease', 'target'][i]); assert.equal(result.failures[0].line, line);
+    assert.equal(JSON.stringify(result).includes('private-sentinel'), false);
+    assert.equal(failedTap(value.replace('# todo 0', ''), 1, declarations), null);
+    assert.equal(failedTap(value + '# tests 1\n', 1, declarations), null);
+    assert.equal(failedTap(value.replace('1..1', '1..2'), 1, declarations), null);
+    assert.equal(failedTap(value.replace(`:${line}:1`, ':999999:1'), 1, declarations).failures[0].source, 'unknown');
+  }
+});
+
+test('absence of positive close keeps workspace and refuses receipt reads or cleanup', async () => {
+  let owned, cleaned = false; const controller = new AbortController(); controller.abort();
+  try {
+    await assert.rejects(ownedValidation(async (workspace, context) => {
+      owned = workspace; context.phase = 'acquisition';
+      await validationChild([path.join(here, 'fixtures/native-merged-child.mjs'), 'success', workspace], workspace, { signal: controller.signal }, context);
+    }, { cleanup: async () => { cleaned = true; } }), error => {
+      assert.equal(failureReceipt(error).childClosed, 'unknown'); assert.equal(failureReceipt(error).worker, null); return true;
+    });
+    assert.equal(cleaned, false); assert.equal((await fs.lstat(owned)).isDirectory(), true);
+  } finally { await fs.rm(owned, { recursive: true }); }
 });

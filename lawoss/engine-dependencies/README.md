@@ -335,10 +335,42 @@ skips, cancellations or TODOs. Four genuine-cache target cases must therefore
 run. Test fixtures remain separately owned beneath their existing `.work` roots;
 the supervisor deletes only its own cache root after child close. It does not
 remove another test's fixtures, upload caches, or forward raw child diagnostics.
-Primary and cleanup errors remain available privately in memory; public failures
-use finite codes. Success emits two closed JSON receipts: `phase: acquisition`
-with immutable hashes, versions and bounded byte/count totals; `phase: tests`
-with per-file counts and `childClosed: true`.
+Primary and cleanup errors remain nonserializable in memory. The acquisition
+success receipt (unchanged hashes/versions/counts/byte schema) is now emitted
+immediately after a positively closed successful worker and strict validation,
+even if later tests or cleanup fail. It proves acquisition only. The unchanged
+`phase: tests` success receipt is emitted only after successful tests and cleanup.
+
+Public failure is exactly `{schema:1, phase, status:"failed", code, childClosed,
+exitCode, signal, worker, tests}`. `phase` is initialize|admission|acquisition|
+tests|cleanup|complete; `code` is the source allowlisted finite refusal code
+(unknown errors become NATIVE_VALIDATION_FAILED); `childClosed` is true|false|
+"unknown"; `exitCode` is an observed integer 0..255 or null; `signal` is none|
+SIGTERM|SIGKILL|SIGINT|other|unknown. Child fields describe the last observed
+child, not descendants or proof of a cleanup cause. Unknown close retains the
+owned root. A partially initialized root without verified identity likewise
+remains untouched; transactional initialization is not claimed.
+
+`worker` is null or exactly `{schema:1,status:"failed",stage,code,tarballs,
+metadata,offline}`. The worker exclusively writes `native-operation.json` in
+its existing trusted workspace on caught failure. Stages are admission|tarballs|
+metadata|offline|revalidation; counts are completed observations (tarballs 0..32,
+metadata/offline 0..64), never acceptance. Receipt write failure stays private
+alongside the primary error. Parent reads only after positive actual worker
+close, with a 4096-byte bound, regular/single-link checks and before/open/after
+identity checks. Missing, malformed or pre-catch failure receipts stay null;
+no stderr parsing is added and no receipt can turn a failed worker successful.
+
+`tests` is null unless failed-child bounded stdout contains a complete strict
+TAP plan and consistent numeric counters. Its exact shape is `{plan,tests,
+suites,pass,fail,cancelled,skipped,todo,failures:[{source,registration,line,column}]}`.
+Each failure has a top-level numeric registration; `source` is config|lease|
+target|unknown. Only exact paths to the fixed three sources and actual test
+declaration lines admit positive line/column numbers (column <=4096); otherwise
+both are null. No title, arbitrary location, message, stack, actual/expected,
+raw TAP or stderr is emitted. Partial TAP stays null and proves no acceptance.
+Cancellation/skip/TODO summaries also stay unknown in this failure-only parser.
+The unchanged acceptance parser and all original 47 oracles remain authoritative.
 
 Public registry metadata is mutable. If it chooses new transitives absent from
 the accepted tarballs, genuine offline reify must fail; no lock union, synthetic

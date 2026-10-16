@@ -1,6 +1,6 @@
 // CI-only acquisition. The disposable process contains unjoinable HTTP-cache
 // abort writes; only the supervisor's positive child close releases ownership.
-import { readFile, realpath, readdir } from 'node:fs/promises';
+import { readFile, realpath, readdir, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -105,7 +105,20 @@ export async function metadataRequest({ fetch, cache, record, accept, budget, de
     response?.body?.destroy();
   }
 }
+export const OPERATION_RECEIPT = 'native-operation.json';
+export function validateOperationReceipt(value) {
+  if (!value || Object.keys(value).sort().join(',') !== 'code,metadata,offline,schema,stage,status,tarballs' || value.schema !== 1 || value.status !== 'failed' ||
+      !['admission', 'tarballs', 'metadata', 'offline', 'revalidation'].includes(value.stage) || !codes.has(value.code) ||
+      !['tarballs', 'metadata', 'offline'].every(key => Number.isSafeInteger(value[key]) && value[key] >= 0 && value[key] <= (key === 'tarballs' ? 32 : 64))) refuse('RECEIPT_INVALID');
+  return value;
+}
+export async function writeOperationReceipt(workspace, value) {
+  validateOperationReceipt(value); await verifyWorkspace(workspace);
+  await writeFile(path.join(workspace, OPERATION_RECEIPT), JSON.stringify(value), { flag: 'wx', mode: 0o600 });
+}
 export async function acquireNativeCache(workspace, deadline, signal) {
+  const progress = { schema: 1, status: 'failed', stage: 'admission', code: 'ACQUISITION_FAILED', tarballs: 0, metadata: 0, offline: 0 };
+  try {
   if (process.version !== 'v22.23.2') refuse('NODE_VERSION');
   active(deadline, signal);
   if (deadline - Date.now() > 300000) refuse('PRIMER_DEADLINE');
@@ -115,23 +128,33 @@ export async function acquireNativeCache(workspace, deadline, signal) {
   const apis = await runtimeApis(); const records = await namedArtifacts(apis.npa);
   active(deadline, signal);
   if (globalThis[Symbol.for('lawoss.payload.networkDisabled')] || process.env.LAWOSS_PAYLOAD_OFFLINE_ONLY === '1') refuse('NETWORK_DISABLED');
+  progress.stage = 'tarballs';
   const tarballs = await acquireArtifacts({ cache, records, cacheApi: apis.cacache, signal, deadline, now: Date.now });
+  progress.tarballs = tarballs.verified; progress.stage = 'metadata';
   const budget = { bytes: 0 }; let metadata = 0, offline = 0;
   for (const record of records) for (const accept of ACCEPT) {
-    await metadataRequest({ fetch: apis.fetch, cache, record, accept, budget, deadline, signal }); metadata++;
+    await metadataRequest({ fetch: apis.fetch, cache, record, accept, budget, deadline, signal }); metadata++; progress.metadata = metadata;
   }
+  progress.stage = 'offline';
   for (const record of records) for (const fullMetadata of [true, false]) {
     active(deadline, signal);
     try {
       const value = await apis.pacote.packument(record.name, { cache, offline: true, fullMetadata, registry: 'https://registry.npmjs.org/', retry: { retries: 0 }, strictSSL: true, signal });
       validateMetadata(value, record);
     } catch { refuse('OFFLINE_READBACK'); }
-    active(deadline, signal); offline++;
+    active(deadline, signal); offline++; progress.offline = offline;
   }
+  progress.stage = 'revalidation';
   await acceptedArtifacts(); await runtimeApis(); await verifyWorkspace(workspace); active(deadline, signal);
   return { schema: 1, phase: 'acquisition', status: 'complete', ...ACCEPTED, runtimeLockSha256: RUNTIME_LOCK,
     node: process.version, platform: process.platform, versions: VERSIONS,
     tarballs: tarballs.verified, names: records.length, metadata, offline, archiveBytes: tarballs.totalBytes, metadataBytes: budget.bytes };
+  } catch (primary) {
+    let receiptError;
+    try { await writeOperationReceipt(workspace, { ...progress, code: publicCode(primary) }); } catch (error) { receiptError = error; }
+    const error = Object.assign(new Error(publicCode(primary)), { code: publicCode(primary) });
+    Object.defineProperty(error, 'private', { value: { primary, receiptError } }); throw error;
+  }
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const controller = new AbortController(); const cancel = () => controller.abort();
