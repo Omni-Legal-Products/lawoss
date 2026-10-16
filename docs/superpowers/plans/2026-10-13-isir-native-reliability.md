@@ -880,11 +880,24 @@ Task31→37 zachovává relativní runtime-tools loader a immutable lock; deskto
 ### Task 39: Změřit skutečný kontext zabaleného enginu před runtime integrací
 
 - [x] Readonly rozbor známého lokálního Bun graphu a oficiálního Inspector wait seam; žádný engine/provider běh. První privátní source fixture selection12/12 PASS na exactNode24.21.0.
-- [ ] Opravit pět konkrétních source-review findings: skutečný AST kontext bindingu, kontrola zakázaného zápisu mimo owned root, samostatný direct-exit/stdio-close stav, idempotentní omezené chyby a poctivý deadline kontrakt. Pure lifecycle/AST counterexamples RED→GREEN, potom nezávislá scoped revize.
-- [ ] Teprve po source revizi samostatný root admission pro stejný sandbox profil a všechny pozitivní/negativní kontroly; při neúplné kontrole engine vůbec nespustit.
+- [x] Opravit pět konkrétních source-review findings: skutečný AST kontext bindingu, kontrola zakázaného zápisu mimo owned root, samostatný direct-exit/stdio-close stav, idempotentní omezené chyby a poctivý deadline kontrakt. Pure lifecycle/AST counterexamples RED→GREEN, potom nezávislá scoped revize.
+- [x] Po source revizi samostatný root admission pro stejný sandbox profil a všechny pozitivní/negativní kontroly; při neúplné kontrole engine vůbec nespustit.
 - [ ] Nejvýše jedno měření přes Inspector v syntetickém owned prostředí: původní binary hash, přesný source/frame/UTF16 breakpoint, jen primitive npmPath. Pozitivní child close před úmyslným odpojením; bez hledání jiného breakpointu nebo opakování při inconclusive.
 - [ ] Výsledek použít pouze v rozsahu doložené platformy. Darwin neprokazuje Windows kontext, builtin npmrc nebo produkční readiness. Windows zůstává samostatný gate před zapojením helperu.
 
 **Rozhodnutí o čase:** původní slib absolutního30s života controlleru je při nepotvrzené smrti pozastaveného enginu v rozporu s bezpečným zachováním Inspector spojení. Nový kontrakt má původní absolutní28s cutoff práce, zbytek do30s pro cleanup a žádné nové operace po cut-off. Pokud child close chybí, výsledek je INCONCLUSIVE a život controlleru UNKNOWN; neukončovat jej násilně ani neodpojovat debugger pro zdánlivé splnění limitu. Náklad: možný zadržený privátní diagnostický proces; žádný zásah do běžící aplikace nebo klientského spisu. Podrobnosti a neměnné review jsou v privátním SDD workspace.
 
 **Aktuální Windows compile diagnostika:** existující9e31 artifact validně pozoroval zavřený build exit1 a výjimku bez konečného code/source position/members. Samostatná resolver capability chyba není skutečná build příčina; causeEquivalence vůči původnímu /path timeoutu zůstává UNKNOWN. Žádná oprava veřejného source buildu z tohoto výstupu neplyne.
+
+
+**Task39 skutečný výsledek:** finální source24/24 pure PASS/nezávislé revize schválené. První controller odmítl nativní macOS marker; přesná oprava guardu zachovala ostatní odmítnutí. Následný control odmítl chybnou syntaxi numeric-host v Seatbelt; samostatný veřejný CLI test s true prokázal nutný localhost. Opravený profil prošel všemi reálnými kontrolami vlastního/zakázaného/vnějšího zápisu a příchozího/odchozího spojení, directchildclose potvrzen. První a jediný Darwin engine byl pozastaven, ale odmítnut jako INCONCLUSIVE/BREAKPOINT_LOCATION před čtením hodnoty. Directchildclose potvrzen a původní binary nezávisle hashově beze změny. npmPath stále UNKNOWN; místní once-engine budget vyčerpán, bez opakování/jiného breakpointu. Úspěšné kontroly izolace nejsou produkční akceptace.
+
+### Task40: Minimální Windows reprodukce selected-instance timeoutu
+
+- [x] Izolovaná diagnostická větev z přesného9e31, bez PR/tagu/pushe/CI. Jedna ephemeral Windows VM s veřejným syntetickým spisem a bez provider credentials je přijatá hranice; není to procesový write/network sandbox.
+- [x] Rozhraní a preflight scan: skutečný produkční managed factory přes úzký Node24 TS loader; skutečný awaitDirectoryInstance a původních90s; nutné vyčistit process.env před factory, protože options.env neodstraní zděděné hodnoty; známý originální Windows executable SHA.
+- [ ] Source implementace a pure/fake testy, pak nezávislá SPEC/QUALITY a root audit. Žádné klonování factory, změny produkčních souborů ani plný Electron build.
+- [ ] Teprve po review normální push temporary větve a jeden přesně vázaný Windows manual dispatch. Ověřit default workflow event/ref, zachovat jméno/input schema a zabránit ostatním automatickým workflows. Publikovat jen finite synthetic receipt po cleanup, žádné binárky/logy/profily.
+- [ ] Skutečně potvrdit minimální RED se stejným /path timeoutem. Pokud samostatná instance projde, výsledek je NOT_REPRODUCED, nikoli opravená aplikace; pokračovat rozlišením app prostředí a souběhu více workspace. Hypotézu neopravovat před věrohodnou reprodukcí.
+
+První diagnostická větev se nikdy nemerguje jako produktová změna. Původní mainPR158 zůstává draft9e31/WindowsRED a Task38 source902f zůstává lokální. Protected dev, nová uživatelská aplikace i reálná desetispisová GUI/provider akceptace jsou stále otevřené.
