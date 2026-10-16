@@ -96,6 +96,14 @@ export function isolatedEnvironment(home) {
   for (const key of ['SystemRoot', 'SYSTEMROOT', 'WINDIR', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[key]) env[key] = process.env[key];
   return env;
 }
+export function retainCleanupFailure(primary, cleanup) {
+  const previous = primary.cleanup;
+  const value = previous === undefined ? cleanup : new AggregateError(
+    previous instanceof AggregateError ? [...previous.errors, cleanup] : [previous, cleanup],
+    'Runtime packaging cleanup failed');
+  Object.defineProperty(primary, 'cleanup', { value, configurable: true });
+  return primary;
+}
 // Publish only into an absent or recognized owned output. This is build-local,
 // not a transaction against concurrent hostile mutation of trusted parents.
 export async function publishRuntime(stage, out) {
@@ -110,7 +118,7 @@ export async function publishRuntime(stage, out) {
   catch (primary) {
     if (backup) {
       try { await fs.rename(backup, out); }
-      catch (cleanup) { Object.defineProperty(primary, 'cleanup', { value: cleanup }); }
+      catch (cleanup) { retainCleanupFailure(primary, cleanup); }
     }
     throw primary;
   }
@@ -167,7 +175,7 @@ export async function packageRuntime({ node, pnpmCli, out, scratch, store, offli
   } catch (e) { primary = e; throw e; }
   finally {
     try { if (!published) await fs.rm(stage, { recursive: true, force: true }); await fs.rm(home, { recursive: true, force: true }); }
-    catch (cleanup) { if (!primary) throw fail('CLEANUP_FAILED'); Object.defineProperty(primary, 'cleanup', { value: cleanup }); }
+    catch (cleanup) { if (!primary) throw fail('CLEANUP_FAILED'); retainCleanupFailure(primary, cleanup); }
   }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

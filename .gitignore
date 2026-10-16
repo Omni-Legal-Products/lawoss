@@ -67,3 +67,8 @@ apps/app/dist-docx-performance/
 
 # Checksum-pinned runtime downloaded during desktop builds.
 apps/desktop/resources/node/
+
+# Local packaging evidence and generated runtime dependencies.
+/.work/
+/apps/desktop/resources/engine-dependencies/
+/apps/desktop/resources/.engine-dependencies-build/

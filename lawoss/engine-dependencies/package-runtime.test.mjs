@@ -152,3 +152,17 @@ test('marked output replacement and failed publication restore the exact old tre
     assert.equal(await fs.readFile(path.join(out, 'value'), 'utf8'), 'new');
   } finally { await fs.rm(root, {recursive:true,force:true}); }
 });
+
+test('compound packaging cleanup retains primary identity and ordered nonenumerable failures', async () => {
+  const {retainCleanupFailure} = await import('./package-runtime.mjs');
+  const primary = Error('publish failed');
+  const rollback = Error('rollback failed');
+  const removal = Error('stage removal failed');
+  assert.equal(retainCleanupFailure(primary, rollback), primary);
+  assert.equal(primary.cleanup, rollback);
+  assert.equal(retainCleanupFailure(primary, removal), primary);
+  assert.ok(primary.cleanup instanceof AggregateError);
+  assert.deepEqual(primary.cleanup.errors, [rollback, removal]);
+  assert.equal(Object.getOwnPropertyDescriptor(primary, 'cleanup').enumerable, false);
+  assert.equal(primary.message, 'publish failed');
+});
