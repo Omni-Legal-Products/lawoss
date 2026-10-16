@@ -10,6 +10,7 @@ import { loadNativeCorpus } from "../lawoss/testing/isir/native/corpus.mjs";
 import { startProvider } from "../lawoss/testing/isir/native/provider.mjs";
 import { partialPdf } from "../lawoss/testing/isir/native/partial-pdf.mjs";
 import { connectRenderer, until } from "../lawoss/testing/isir/native/cdp.mjs";
+import { stopForRelaunch } from "../lawoss/testing/isir/native/relaunch-stop.mjs";
 import { stopNativeChild } from "../lawoss/testing/isir/native/owned-process.mjs";
 import { createNativeDiagnostics, settleCleanup, errorMetadata, observePromptClick } from "../lawoss/testing/isir/native/diagnostics.mjs";
 import { configureNativeProvider } from "../lawoss/testing/isir/native/bootstrap.mjs";
@@ -102,6 +103,7 @@ const launch = (command, args, cwd, label) => {
   return child;
 };
 
+const relaunchCleanupErrors=[];
 let cleanupPromise;
 const cleanup = () => cleanupPromise ??= (async () => {
   const result = await settleCleanup(primaryError, [
@@ -114,7 +116,7 @@ const cleanup = () => cleanupPromise ??= (async () => {
   for (const error of result.failures) console.error('Owned native cleanup failure', JSON.stringify(errorMetadata(error)));
   const processes=children.map(({child,label})=>({label,pid:child.pid,exitCode:child.exitCode,signal:child.signalCode}));
   await writeFile(path.join(root,'process-receipts.json'),JSON.stringify({cleaned:result.failures.length===0,processes},null,2),{mode:0o600});
-  await diagnostics.write({events:cdp?.events,error:primaryError,cleanupErrors:result.failures});
+  await diagnostics.write({events:cdp?.events,error:primaryError,cleanupErrors:[...relaunchCleanupErrors,...result.failures]});
   console.log(`Owned native cleanup ${result.failures.length ? 'failed' : 'completed'}; private evidence: ${root}`);
   if (result.error) throw result.error;
 })();
@@ -487,7 +489,10 @@ try {
   const first=workspaces[0],oldPath=first.path,moved=path.join(root,'cases','case-01 přesunutý spis');
   await openFiles(first);
   diagnostics.phase("relaunch");
-  cdp.close();cdp=null;await stop(appChild);
+  await stopForRelaunch({
+    requestQuit:()=>cdp.evaluate("window.__LEGALWORK_ELECTRON__.invokeDesktop('isirNativeQuit')"),
+    closeCdp:()=>{cdp.close();cdp=null;},child:appChild,stop,cleanupFailures:relaunchCleanupErrors,
+  });
   await rename(oldPath,moved);
   await writeFile(path.join(root,'chooser.json'),JSON.stringify({paths:[moved]}));
   appChild=launch(electron,[...(process.platform==='linux'?['--no-sandbox','--disable-gpu']:[]),path.join(repo,'apps/desktop/scripts/isir-native-entry.mjs')],path.join(repo,'apps/desktop'),'electron-relaunch');
@@ -594,6 +599,7 @@ try {
   diagnostics.phase("complete");
 } catch (error) {
   primaryError = error;
+  for(const failure of relaunchCleanupErrors)console.error('Relaunch owned cleanup failure',JSON.stringify(errorMetadata(failure)));
   const failure = diagnostics.failure(error);
   console.error('Primary native failure before cleanup', JSON.stringify(failure));
   await diagnostics.captureEngineLog({error,selectedDirectory:workspaces[0].path,launchWallMs:engineLogLaunchWallMs,deadlineWallMs:engineLogDeadlineWallMs}).catch(()=>undefined);
