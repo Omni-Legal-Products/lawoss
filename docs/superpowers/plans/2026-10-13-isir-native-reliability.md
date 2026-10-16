@@ -836,3 +836,18 @@ Detaily a source API jsou v SDD task-24-brief.md. Produkční distribuce/notices
 - [x] Fresh nezávislá SPEC/QUALITY0findings a root exact-one-field/YAML2OS10min/DCO2 audit PASS před společným feature pushem. PůvodníWindows2e6cancelled není nový native výsledek.
 
 **Task35 provenance:** První lokální31df obsahoval omylem literal S/task-35-report.md, protože brief nedefinoval absolutníS cestu. Harmless synthetic report byl přenesen do exact externího scratch a normálním cleanup commitem22cf odstraněn, bez rewrite historie; finální netdiff je jediný YAML field. Žádná klientská data/credentials/runtime akce.
+
+### Task 36: Naměřená kompatibilita metadata a pravdivé health fixture
+
+Aktuální c213 CI je terminální: oba native joby skončily při metadata acquisition s METADATA_BODY_LIMIT (32 tarballs/14 metadata/0 offline); oba generic server joby selhaly. Source28 guardů prošlo; actual47 zůstává UNKNOWN. Root audit vazeb evidence PASS, nikoli runtime PASS. Čtyři samostatné public metadata streamy naměřily plné plugin/SDK odpovědi27–28MB, takže16MiB limit byl nekompatibilní.
+
+- [x] Změnit pouze default decoded-body bound na64MiB, ponechat aggregate128MiB/deadlines/retry0/TLS a genuine APIs/locky/47 oracles.
+- [x] Realistický28MiB streamed JSON RED→GREEN a crossing65MiB refusal bez čtení tail; final30/30 na shippedNode22.23.2.
+- [x] Pouze dvě fake-engine fixture odpovídají skutečným /global/health JSON protokolem; produkční health/auth/timeout beze změny. Controlled RED odmítnutí a constructor cleanup/PID absence; nikoli universal child/pipe close.
+- [x] Finální ordinary server selection1618pass32existing skip0fail/1650tests200files a typecheck0 na Node24.21.0/pnpm11.4.0/Bun1.4.2. Root retained-evidence/source/DCO identity auditPASS.
+- [x] Fresh nezávislá source SPEC compliant/QUALITY Approved; procesní odchylky explicitně přijaté pro reversible source publikaci, nikoli zpětně splněné. Root dokumentace a evidence audit PASS.
+- [ ] Normální feature push a nové skutečné Windows+Ubuntu32/64/64/47 CI, vše terminální a root audit před dalším pushem.
+
+**Procesní odchylky:** Corepack version probe pod isolated HOME oznámil pnpm bootstrap, přestože source fáze měla být offline; původní request bytes/count UNKNOWN, bez SDK kandidáta. Následné kroky používají validovaný genuine CLI přímo pod capturedNode a COREPACK_ENABLE_NETWORK=0. První whole-server běh měl neplatnou lokální app dependency instalaci; covering běh následoval explicitní opravu readonly linků a reálný import preflight. Commit6c0 vznikl během covering běhu, finální exact source teprve následně prošel: neoznačovat jako tests-before-commit. Žádný rewrite ani nový běh pro přikrášlení historie.
+
+Produkční SDK helper/captured compiled context/packaging/transport pro current-and-later instances/CLI stále vyžadují integraci. Protected dev potřebuje skutečný approval a required-green CI; původní app/portable/public10GUI/provider cíle zůstávají otevřené.

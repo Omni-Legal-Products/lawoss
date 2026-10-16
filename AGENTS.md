@@ -200,3 +200,5 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 - HTTP-cache validation must use the consumer exact metadata representations and genuine offline readback. Join the disposable writer process before passing its cache to tests or removing its owned root; retain failures when metadata drifts.
 - Managed-engine readiness must validate the registered instance-free API health payload under the original absolute startup budget. A UI fallback, arbitrary HTTP response or headers alone cannot establish readiness.
 - Preserve completed phase receipts when later work fails, and bind finite failure diagnostics to the actual phase and positively closed child. Mixed stderr or absent receipts must remain unknown rather than becoming guessed causes or success.
+
+- Tool-version checks through Corepack shims can bootstrap downloads under a new HOME. For offline validation, verify the genuine cached package CLI and invoke it with the captured exact Node executable and network bootstrap disabled.

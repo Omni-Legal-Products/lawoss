@@ -634,3 +634,9 @@ Skutočný podporovaný metadata refresh pri zachytenom native chooseri na staro
 | Upstream súbory | Downstream doplnenie a dôvod | PR |
 | --- | --- | --- |
 | `apps/server/src/managed-opencode.ts`, `apps/server/src/managed-opencode.test.ts` | Namiesto UI catch-all `/health` sa overuje registrované instance-free `/global/health`: status200, celé JSON healthy/version do16KiB, pôvodný absolútny deadline a žijúci child. Auth/env/cwd/terminácia ostávajú; idle/oversized/invalid/dead-child nemôžu znamenať ready. Behavioral HTML RED a celý14-testový modul/typecheck PASS; nejde o dôkaz SDK/instance/fullapp pripravenosti alebo príčiny starého timeoutu. | [#158](https://github.com/Omni-Legal-Products/lawoss/pull/158) |
+
+### Testovacie fixture pre skutočnú API health odpoveď (2026-10-16)
+
+| Upstream súbory | Downstream doplnenie a dôvod | PR |
+| --- | --- | --- |
+| `apps/server/src/embedded-app-files.e2e.test.ts`, `apps/server/src/lawoss/engine-network.test.ts` | Dva existujúce fake-engine servery vracajú pre registrované `/global/health` status200 a JSON healthy/version. Ostatné odpovede, request log, env/scope/persistence assertions ostávajú; produkčná kontrola health sa neoslabuje. Controlled refusal RED, následný covering server1618pass/32existing skip/0fail a typecheck0; nejde o native app acceptance. | [#158](https://github.com/Omni-Legal-Products/lawoss/pull/158) |
