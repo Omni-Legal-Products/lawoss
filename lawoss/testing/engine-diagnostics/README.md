@@ -1,6 +1,6 @@
 # Temporary Windows selected-instance diagnostic
 
-Source-only Task 40 from the reliability plan; temporary nonmergeable branch
+Task 41 source-only setup observations extend Task 40 from the reliability plan; temporary nonmergeable branch
 `chore/windows-instance-repro-20261016`, based on
 `9e31ec38ead353d44e1f2ab38bac87494373d07d`. This is a smaller feedback loop for
 Windows global-health success followed by selected `/path` startup timeout.
@@ -70,7 +70,27 @@ built-in .NET ZipArchive, through fixed PowerShell source, accepts exactly one
 regular `opencode.exe` member, streams at most 256 MiB to a fixed owned filename
 `opencode-x86_64-pc-windows-msvc.exe`, and never extracts archive entry paths.
 Extra, directory, link, traversal, oversized or hash-mismatched entries refuse.
-The PowerShell bridge itself remains **unexecuted on Windows** in source review.
+The Task 40 Windows attempt failed during acquisition with `ARCHIVE_MISMATCH`,
+engine spawn count zero and total elapsed 31,691 ms. That total does not measure
+extraction time or establish timeout, malformed ZIP, or any application cause.
+The new Task 41 bridge/control remains **unexecuted on Windows** in source review.
+No additional Windows run, archive download or native extraction is authorized
+by these source changes.
+
+The original ZIP is independently SHA-256 checked before original extraction:
+`81ea8263923572e3e40cbd22f89d0008efa567b8a812389db042082b03bd2582`.
+This expected pin does not retroactively authenticate Task 40's downloaded bytes.
+`archiveVerified` reports completion separately from executable verification.
+
+After admission, source verification and fresh owned-root creation, the controller
+first writes a fixed tiny regular one-member ZIP containing `opencode.exe` and a
+harmless marker. It uses the **same** `extractArchive` function, native PowerShell
+command, EXTRACT script, sanitized environment and 30-second extraction plus
+7-second close limits as the original attempt. It checks exact extracted marker
+bytes and positive process close before the public original download. The marker
+file is never executed. Control failure blocks public download and engine startup.
+Pure fake-child tests exercise this actual bridge/controller seam; they do not
+execute PowerShell/.NET or establish a Windows control pass.
 
 The accepted boundary is a dedicated ephemeral GitHub Windows VM with public
 synthetic data and no supplied user/provider auth. Fresh owned HOME, USERPROFILE,
@@ -94,12 +114,40 @@ Production Windows cleanup retains its original owned-child lifetime behavior.
 
 Only `windows-instance-receipt.json` is uploaded, after controller finalization
 and a separate `--validate-receipt` closed-schema/size check (maximum 32 KiB).
-Its public source/engine identity fields are expected pins; `sourceVerified` and
+Schema version **2** adds separate `control` and `extraction` finite observations.
+Its public source/engine/archive identity fields are expected pins; `sourceVerified` and
 `engineVerified` separately say whether those validations completed. It contains
 fixed phase/failure enums, timing/count fields, health/body/scope booleans and
 cleanup status. No synthetic/user paths, raw URLs, env, headers, bodies, errors,
 profiles, source contents, roots or binaries are artifacts. Fixed public source
 filenames identify the source hash pins.
+
+Each extraction observation records native spawn error, timer-fired flag, positive
+close, normalized close kind/code/signal, process-only monotonic elapsed time
+(with a separate measured flag, from spawn attempt through close/backstop),
+source-issued progress/failure phase, independent disposal failure and bounded
+stdout/stderr byte counts. Progress precedes Add-Type, then marks assembly ready,
+archive open, metadata admitted, output open, copy complete and dispose complete.
+Strict ordered finite protocol is capped at 4,096 stdout bytes before buffering;
+stderr is counted before discard up to a 65,536-byte cap. Unknown, duplicate,
+malformed, extra and out-of-order protocol refuses. A source-issued category is
+an observation of this script, never a cause inferred from raw error text. A
+marker does not prove unseen work. Complete protocol, exit zero, positive close
+and no timer event are all required for extraction success. Unconfirmed close
+retains roots; late events cannot revise a finalized observation. No numeric
+PID/group is signaled. Control and original evidence never substitute for each
+other. Download, ZIP verification, extraction and control phases remain distinct;
+`*Measured` booleans distinguish finalized zero-duration measurements from work
+not measured, including failed phases.
+
+Deferred M1 semantic-validation boundary: receipt validation still checks shape
+more strongly than full evidence consistency/finalization. A hypothetical
+`NOT_REPRODUCED` state can pass without all source/engine/body/request/lifecycle
+proof, and an empty unfinished preflight state is accepted. New extraction PASS
+and verified-control/engine guards constrain some new fields, but do not close
+that whole predicate. No actual-producer contradiction is demonstrated. Root
+independently checks actual receipt invariants; M1 remains for final whole-branch
+review.
 
 - `REPRODUCED`: production health verified, then the actual helper reached its
   selected deadline; diagnostic exits 1. It does not identify a cause.

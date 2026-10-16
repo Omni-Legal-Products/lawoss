@@ -8,7 +8,7 @@ import * as fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { awaitDirectoryInstance } from '../isir/native/startup-readiness.mjs';
-import { IDENTITY, SOURCE_PINS, assertAdmission, verifySources, syntheticEnv, runManaged, observeSpawn, awaitClosed, emptyState, finalizeOwned, encodeReceipt, validateReceipt, withProduction, boundedResponse, validateArchiveEntries, verifyEngine, acquireArchive } from './windows-instance-repro.mjs';
+import { IDENTITY, SOURCE_PINS, assertAdmission, verifySources, syntheticEnv, runManaged, observeSpawn, awaitClosed, emptyState, finalizeOwned, encodeReceipt, validateReceipt, withProduction, boundedResponse, validateArchiveEntries, verifyEngine, acquireArchive, extractArchive, EXTRACT, emptyExtraction, tinyControlZip, CONTROL_MARKER, verifyControl, verifyArchive, prepareArchives, sha256 } from './windows-instance-repro.mjs';
 const repo=fileURLToPath(new URL('../../../',import.meta.url));
 const BIN=path.resolve('/synthetic/engine');
 const DIRECTORY=path.resolve('/synthetic/workspace');
@@ -249,4 +249,143 @@ test('positive receipt refuses independent cleanup failure or nonzero final prov
     for(const flag of ['engineCloseFailed','engineCloseUnconfirmed','providerCloseFailed','rootsRemovalFailed'])assert.throws(()=>encodeReceipt({...state,[flag]:true}),{diagnosticCode:'REFUSED'});
     assert.throws(()=>encodeReceipt({...state,providerCalls:1}),{diagnosticCode:'REFUSED'});
   }
+});
+
+test('extraction success requires source protocol plus positive close',async()=>{
+  const state=emptyState();
+  await assert.rejects(extractArchive('/owned','/owned/original.zip','/owned/engine',{},state,{write:async()=>{},spawn:()=>{const c=fakeChild();queueMicrotask(()=>c.finish());return c;}}),{diagnosticCode:'ARCHIVE_MISMATCH'});
+});
+
+const protocol=['started','assembly-ready','archive-open','metadata-admitted','output-open','copy-complete','dispose-complete'].map(p=>`LAWOSS_EXTRACT:${p}\n`).join('');
+async function extractionCase(action,{attempt='extraction'}={}) {
+  const state=emptyState(),child=fakeChild({close:false}),timers=[];let clock=100,script,argv,options;
+  const run=extractArchive('/owned','/owned/original.zip','/owned/engine',syntheticEnv('/owned','http://127.0.0.1:1',{}),state,{
+    attempt,write:async(file,bytes)=>{script=bytes;},spawn:(command,args,opts)=>{argv=args;options=opts;queueMicrotask(()=>action(child,timers,()=>{clock+=11;}));return child;},
+    now:()=>clock,schedule:(fn,ms)=>{const t={fn,ms};timers.push(t);return t;},cancel:()=>{},
+  });
+  let error;try{await run;}catch(e){error=e;}
+  return {state,observation:state[attempt],error,child,timers,script,argv,options};
+}
+function done(child,code=0,signal=null){child.emit('exit',code,signal);child.emit('close',code,signal);}
+test('actual extraction bridge success uses exact script argv native env and positive close',async()=>{
+  const r=await extractionCase((c,t,tick)=>{c.stdout.write(protocol);tick();done(c);});
+  assert.equal(r.error,undefined);assert.equal(r.observation.status,'PASS');assert.equal(r.observation.elapsedMs,11);assert.equal(r.observation.closed,true);assert.equal(r.state.acquisitionClosed,true);
+  assert.equal(r.script,EXTRACT);assert.equal(EXTRACT.indexOf("Mark 'started'")<EXTRACT.indexOf(' Add-Type'),true);
+  assert.deepEqual(r.argv.slice(0,5),['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File']);
+  assert.equal(r.argv.length,8);assert.deepEqual(r.options.stdio,['ignore','pipe','pipe']);assert.equal(Object.hasOwn(r.options.env,'NODE_OPTIONS'),false);
+  assert.equal(r.state.control.status,'NOT_RUN');
+});
+test('timer fired remains failure even when complete protocol later closes zero',async()=>{
+  const r=await extractionCase((c,t)=>{t.find(x=>x.ms===30000).fn();c.stdout.write(protocol);c.finish();});
+  assert.equal(r.observation.timerFired,true);assert.equal(r.observation.exitCode,0);assert.equal(r.observation.closed,true);assert.equal(r.observation.status,'FAIL');assert.equal(r.error.diagnosticCode,'ARCHIVE_MISMATCH');
+});
+for(const [label,action,kind,code,spawnError]of [
+  ['nonzero',c=>done(c,7),'CODE',7,false],['signal',c=>done(c,null,'SIGTERM'),'SIGNAL',0,false],
+  ['spawn error',c=>{c.emit('error',Error('private path'));c.finish();},'CODE',0,true],
+  ['unknown close',c=>done(c,null,null),'UNKNOWN',0,false],
+])test(`extraction finite observation distinguishes ${label}`,async()=>{
+  const r=await extractionCase(action);assert.equal(r.observation.exitKind,kind);assert.equal(r.observation.exitCode,code);assert.equal(r.observation.spawnError,spawnError);assert.equal(r.observation.status,'FAIL');assert.equal(validateReceipt(encodeReceipt(r.state)),true);
+});
+test('exit before close cannot succeed and unconfirmed close retains roots and primary',async()=>{
+  const r=await extractionCase((c,t)=>{c.stdout.write(protocol);c.exitCode=0;c.emit('exit',0,null);t.find(x=>x.ms===30000).fn();t.find(x=>x.ms===7000).fn();});
+  assert.equal(r.state.acquisitionClosed,false);assert.equal(r.observation.closed,false);assert.equal(r.observation.status,'FAIL');
+  r.state.failure='ARCHIVE_MISMATCH';r.state.failurePhase='extraction';let removed=false;
+  await finalizeOwned({state:r.state,root:'/owned',remove:async()=>{removed=true;}});
+  assert.equal(removed,false);assert.equal(r.state.failure,'ARCHIVE_MISMATCH');assert.equal(r.state.cleanup,'UNKNOWN');
+  const frozen=encodeReceipt(r.state);r.child.finish();r.child.stderr.write('late');assert.equal(encodeReceipt(r.state),frozen);
+});
+for(const [label,bytes]of [
+  ['unknown','LAWOSS_EXTRACT:private\n'],['duplicate','LAWOSS_EXTRACT:started\nLAWOSS_EXTRACT:started\n'],
+  ['order','LAWOSS_EXTRACT:assembly-ready\n'],['trailing',protocol+'extra'],['extra',protocol+'extra\n'],
+  ['malformed',Buffer.from([255])],['cap',Buffer.alloc(4097,65)],
+])test(`extraction protocol rejects ${label} before unbounded buffering`,async()=>{
+  const r=await extractionCase(c=>{c.stdout.write(bytes);c.finish();});
+  assert.equal(r.observation.status,'FAIL');assert.equal(r.observation.protocol,'INVALID');assert.equal(r.observation.stdoutBytes<=4097,true);
+});
+test('extraction counts discarded stderr and rejects overlimit without retaining bytes',async()=>{
+  const r=await extractionCase(c=>{c.stdout.write(protocol);c.stderr.write(Buffer.alloc(70000));c.finish();});
+  assert.equal(r.observation.stderrBytes,65537);assert.equal(r.observation.status,'FAIL');assert.equal(/private|70000/.test(encodeReceipt(r.state)),false);
+});
+test('source script operation failure and independent dispose failure survive separately',async()=>{
+  const r=await extractionCase(c=>{c.stdout.write('LAWOSS_EXTRACT:started\nLAWOSS_EXTRACT:assembly-ready\nLAWOSS_FAIL:OPEN_ARCHIVE\nLAWOSS_CLEANUP:DISPOSE_FAILED\n');done(c,1);});
+  assert.equal(r.observation.phase,'assembly-ready');assert.equal(r.observation.scriptFailure,'OPEN_ARCHIVE');assert.equal(r.observation.disposeFailed,true);
+  r.state.failure='ARCHIVE_MISMATCH';let removed=false;await finalizeOwned({state:r.state,root:'/owned',remove:async()=>{removed=true;}});assert.equal(removed,false);assert.equal(r.state.failure,'ARCHIVE_MISMATCH');
+});
+for(const code of ['COUNT','NAME','DECLARED_SIZE','TYPE','DIRECTORY'])test(`source predicate ${code} is finite and tied to archive-open`,async()=>{
+  const r=await extractionCase(c=>{c.stdout.write('LAWOSS_EXTRACT:started\nLAWOSS_EXTRACT:assembly-ready\nLAWOSS_EXTRACT:archive-open\nLAWOSS_FAIL:'+code+'\n');done(c,1);});
+  assert.equal(r.observation.scriptFailure,code);assert.equal(r.observation.protocol,'INCOMPLETE');
+});
+test('partial protocol chunks parse; failed source category at wrong phase refuses',async()=>{
+  const good=await extractionCase(c=>{for(const byte of Buffer.from(protocol))c.stdout.write(Buffer.from([byte]));done(c);});assert.equal(good.observation.status,'PASS');
+  const bad=await extractionCase(c=>{c.stdout.write('LAWOSS_EXTRACT:started\nLAWOSS_FAIL:COUNT\n');done(c,1);});assert.equal(bad.observation.protocol,'INVALID');
+});
+test('synchronous native spawn throw remains separate and requires no child cleanup',async()=>{
+  const state=emptyState();await assert.rejects(extractArchive('/owned','/owned/original.zip','/owned/bin',{},state,{write:async()=>{},spawn:()=>{throw Error('private');}}),{diagnosticCode:'ARCHIVE_MISMATCH'});
+  assert.equal(state.extraction.spawnError,true);assert.equal(state.extraction.closed,false);assert.equal(state.extraction.exitKind,'NONE');assert.equal(state.acquisitionClosed,true);
+});
+// Independent stored-ZIP structural/CRC oracle for the fixed fixture; no native extraction.
+function readTinyZip(bytes){
+  assert.equal(bytes.readUInt32LE(0),0x04034b50);assert.equal(bytes.readUInt16LE(8),0);
+  const size=bytes.readUInt32LE(18),nameSize=bytes.readUInt16LE(26),name=bytes.subarray(30,30+nameSize).toString('ascii');assert.equal(name,'opencode.exe');
+  const content=bytes.subarray(30+nameSize,30+nameSize+size),central=30+nameSize+size;
+  let crc=0xffffffff;for(const b of content){crc^=b;for(let bit=0;bit<8;bit++)crc=crc&1?0xedb88320^(crc>>>1):crc>>>1;}assert.equal(bytes.readUInt32LE(14),(crc^0xffffffff)>>>0);
+  assert.equal(bytes.readUInt32LE(central),0x02014b50);assert.equal(bytes.readUInt32LE(central+38)>>>16,0x81a4);
+  const end=central+46+nameSize;assert.equal(bytes.readUInt32LE(end),0x06054b50);assert.equal(bytes.readUInt16LE(end+10),1);assert.equal(bytes.readUInt32LE(end+16),central);assert.equal(end+22,bytes.length);return content;
+}
+test('tiny valid regular ZIP contains only fixed marker and exact extracted bytes are required',()=>{
+  const zip=tinyControlZip();assert.equal(zip.length<1024,true);verifyControl(readTinyZip(zip));
+  for(const bytes of [Buffer.alloc(0),Buffer.from('wrong'),Buffer.concat([CONTROL_MARKER,Buffer.from('x')])])assert.throws(()=>verifyControl(bytes),{diagnosticCode:'ARCHIVE_MISMATCH'});
+  const corrupt=Buffer.from(zip);corrupt[45]^=1;assert.throws(()=>readTinyZip(corrupt));
+});
+function archiveFixture({controlFailure=false,marker=CONTROL_MARKER,verify=()=>{}}={}){
+  const state=emptyState(),events=[];
+  return {state,events,args:{root:'/owned',env:syntheticEnv('/owned','http://127.0.0.1:1',{}),state,write:async(file,bytes)=>{events.push('write-control');readTinyZip(bytes);},
+    read:async file=>file.endsWith('control-output.bin')?marker:Buffer.from('fake original'),download:async()=>{events.push('download');},verify,
+    extract:async(root,archive,bin,env,state,opts)=>{
+      events.push(opts?.attempt==='control'?'control':'original');
+      const result=await extractionCase(c=>{if(!controlFailure||!opts)c.stdout.write(protocol);done(c);},{attempt:opts?.attempt??'extraction'});
+      Object.assign(state,{[opts?.attempt??'extraction']:result.observation,acquisitionClosed:result.state.acquisitionClosed});if(result.error)throw result.error;
+    }} };
+}
+test('genuine same-bridge fake control precedes public download and original evidence remains separate',async()=>{
+  const f=archiveFixture();await prepareArchives(f.args);assert.deepEqual(f.events,['write-control','control','download','original']);
+  assert.equal(f.state.controlVerified,true);assert.equal(f.state.archiveVerified,true);assert.equal(f.state.control.status,'PASS');assert.equal(f.state.extraction.status,'PASS');assert.notEqual(f.state.control,f.state.extraction);
+  for(const field of ['controlMeasured','downloadMeasured','archiveVerificationMeasured','acquisitionMeasured'])assert.equal(f.state[field],true);
+  assert.equal(validateReceipt(encodeReceipt(f.state)),true);
+});
+for(const config of [{controlFailure:true},{marker:Buffer.from('wrong')}])test('failed control blocks public download and engine, remains UNKNOWN',async()=>{
+  const f=archiveFixture(config);await assert.rejects(prepareArchives(f.args));assert.deepEqual(f.events,['write-control','control']);assert.equal(f.state.controlVerified,false);assert.equal(f.state.archiveVerified,false);assert.equal(f.state.extraction.status,'NOT_RUN');assert.equal(f.state.spawnCount,0);assert.equal(f.state.outcome,'UNKNOWN');assert.equal(f.state.controlMeasured,true);assert.equal(f.state.downloadMeasured,false);
+});
+test('pinned original ZIP mismatch blocks original extraction independently from passed control',async()=>{
+  const f=archiveFixture({verify:verifyArchive});await assert.rejects(prepareArchives(f.args),{diagnosticCode:'ARCHIVE_IDENTITY_MISMATCH'});
+  assert.deepEqual(f.events,['write-control','control','download']);assert.equal(f.state.controlVerified,true);assert.equal(f.state.archiveVerified,false);assert.equal(f.state.extraction.status,'NOT_RUN');assert.equal(f.state.phase,'archive-verification');assert.equal(f.state.archiveVerificationMeasured,true);
+  assert.equal(IDENTITY.archiveSha256,'81ea8263923572e3e40cbd22f89d0008efa567b8a812389db042082b03bd2582');assert.notEqual(sha256(Buffer.from('fake original')),IDENTITY.archiveSha256);
+});
+test('failed download finalizes measured failed phase and keeps original extraction unobserved',async()=>{
+  const f=archiveFixture();f.args.download=async()=>{throw Error('private');};await assert.rejects(prepareArchives(f.args));assert.equal(f.state.phase,'download');assert.equal(f.state.downloadMeasured,true);assert.equal(f.state.acquisitionMeasured,true);assert.equal(f.state.extraction.status,'NOT_RUN');
+});
+test('finite v2 publication refuses invalid nested extraction fields and invalid success',()=>{
+  for(const patch of [{raw:'private'},{phase:'private'},{exitCode:NaN},{signal:'private'},{stdoutBytes:4098},{stderrBytes:65538},{closed:'yes'},{status:'RUNNING'},{status:'PASS'}]){
+    const state=emptyState();state.extraction={...emptyExtraction(),...patch};assert.throws(()=>encodeReceipt(state),{diagnosticCode:'REFUSED'});
+  }
+  const state=emptyState();assert.equal(JSON.parse(encodeReceipt(state)).schemaVersion,2);
+  assert.throws(()=>encodeReceipt({...state,controlVerified:true}),{diagnosticCode:'REFUSED'});
+});
+
+test('script assembly failure is observed separately from native spawn failure',async()=>{
+  const r=await extractionCase(c=>{c.stdout.write('LAWOSS_EXTRACT:started\nLAWOSS_FAIL:ASSEMBLY\n');done(c,1);});
+  assert.equal(r.observation.spawnError,false);assert.equal(r.observation.phase,'started');assert.equal(r.observation.scriptFailure,'ASSEMBLY');assert.equal(r.observation.closed,true);
+});
+test('boundary stdout and stderr counts accept complete protocol without overlimit buffering',async()=>{
+  const r=await extractionCase(c=>{c.stdout.write(protocol);c.stderr.write(Buffer.alloc(65536));done(c);});assert.equal(r.observation.status,'PASS');assert.equal(r.observation.stderrBytes,65536);
+});
+test('control uses identical PowerShell source bridge and separate owned script filename',async()=>{
+  const r=await extractionCase(c=>{c.stdout.write(protocol);done(c);},{attempt:'control'});
+  assert.equal(r.script,EXTRACT);assert.equal(r.argv[5].endsWith('control-extract.ps1'),true);assert.equal(r.state.control.status,'PASS');assert.equal(r.state.extraction.status,'NOT_RUN');
+});
+
+test('script-write setup failure does not claim process spawn or measured process time',async()=>{
+  const state=emptyState();let spawns=0;
+  await assert.rejects(extractArchive('/owned','/owned/original.zip','/owned/bin',{},state,{write:async()=>{throw Error('private');},spawn:()=>{spawns++;}}));
+  assert.equal(spawns,0);assert.equal(state.extraction.elapsedMeasured,false);assert.equal(state.extraction.spawnError,false);assert.equal(state.extraction.closed,false);assert.equal(state.acquisitionClosed,true);assert.equal(validateReceipt(encodeReceipt(state)),true);
 });
