@@ -736,7 +736,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       }
       return;
     }
-    if (["/home", "/projects", "/tasks", "/workflows", "/recorder", "/evals"].includes(pathname)) return;
+    if (["/home", "/calendar", "/projects", "/tasks", "/workflows", "/recorder", "/evals"].includes(pathname)) return;
     if (!routeWorkspaceId && selectedWorkspaceId) {
       // LAWOSS: vybraný domovský priestor ostáva na úvodnej stránke, nie je to projekt (P8).
       if (!conversationWorkspaceId(workspaces, selectedWorkspaceId)) return;

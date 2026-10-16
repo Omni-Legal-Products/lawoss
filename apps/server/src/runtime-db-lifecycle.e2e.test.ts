@@ -90,6 +90,84 @@ test("two servers retain all adapters until final stop, reopen persisted state a
   await rm(f.root, { recursive: true }); expect(await access(f.root).then(() => true, () => false)).toBe(false);
 }, 20_000);
 
+test("calendar API retains overlapping owners, releases handles and reopens a fresh generation", async () => {
+  const f = await fixture();
+  const errors: unknown[] = [];
+  const servers: Awaited<ReturnType<typeof f.start>>[] = [];
+  const start = async () => { const server = await f.start(); servers.push(server); return server; };
+  const request = async (server: Awaited<ReturnType<typeof f.start>>, suffix = "", method = "GET") => {
+    const response = await fetch(`http://127.0.0.1:${server.port}/workspace/stable/calendar${suffix}`, {
+      method, headers: { Authorization: "Bearer client", "Content-Type": "application/json" },
+      ...(method === "POST" ? { body: JSON.stringify({ title: "Lifecycle sentinel", start: "2026-10-16" }) } : {}),
+    });
+    const data = await response.json();
+    expect(response.status).toBe(200);
+    return data;
+  };
+  try {
+    const first = await start(), second = await start();
+    const { item } = await request(first, "", "POST");
+    expect((await request(second, `/${item.id}`)).item.title).toBe("Lifecycle sentinel");
+    await first.stop();
+    expect((await request(second, `/${item.id}`)).item.id).toBe(item.id);
+    await second.stop();
+    expect(await runtimeDbHandles(f.db)).toBe(0);
+    const persisted = await start();
+    expect((await request(persisted, `/${item.id}`)).item.id).toBe(item.id);
+    await persisted.stop();
+    expect(await runtimeDbHandles(f.db)).toBe(0);
+    await rm(f.root, { recursive: true });
+    expect(await access(f.root).then(() => true, () => false)).toBe(false);
+    await mkdir(f.config.workspaces[0]!.path, { recursive: true });
+    const fresh = await start();
+    expect((await request(fresh)).items).toEqual([]);
+    const replacement = (await request(fresh, "", "POST")).item;
+    expect(replacement.id).not.toBe(item.id);
+    expect((await request(fresh, `/${replacement.id}`)).item.title).toBe("Lifecycle sentinel");
+    await fresh.stop();
+    expect(await runtimeDbHandles(f.db)).toBe(0);
+  } catch (error) { errors.push(error); }
+  finally {
+    for (const server of servers.reverse()) {
+      try { await server.stop(); } catch (error) { errors.push(error); }
+    }
+  }
+  if (errors.length) throw new AggregateError(errors, "Calendar lifecycle and cleanup failures");
+}, 20_000);
+
+test("calendar captured generation and independently opened stores retain separate ownership", async () => {
+  const f = await fixture();
+  const { acquireRuntimeDbLifetime } = await import("./runtime-db-lifecycle.js");
+  const { CalendarStore, calendarStore } = await import("./calendar/store.js");
+  const owner = acquireRuntimeDbLifetime(f.config);
+  const errors: unknown[] = [];
+  let independent: Awaited<ReturnType<typeof CalendarStore.open>> | undefined, survivor: Awaited<ReturnType<typeof CalendarStore.open>> | undefined;
+  try {
+    const captured = await calendarStore(f.config);
+    const item = captured.create("stable", { title: "Captured generation", start: "2026-10-16" });
+    independent = await CalendarStore.open(f.db); survivor = await CalendarStore.open(f.db);
+    const originalPath = f.config.configPath;
+    await owner.run(async () => {
+      f.config.configPath = join(f.root, "other", "server.json");
+      await Promise.resolve();
+      expect(await calendarStore(f.config)).toBe(captured);
+    });
+    await owner.release();
+    expect(() => captured.list("stable")).toThrow();
+    independent.close();
+    expect(survivor.get("stable", item.id).id).toBe(item.id);
+    survivor.close();
+    expect(await runtimeDbHandles(f.db)).toBe(0);
+    f.config.configPath = originalPath;
+  } catch (error) { errors.push(error); }
+  finally {
+    for (const close of [() => independent?.close(), () => survivor?.close(), () => owner.release()]) {
+      try { await close(); } catch (error) { errors.push(error); }
+    }
+  }
+  if (errors.length) throw new AggregateError(errors, "Calendar generation and cleanup failures");
+});
+
 test("canonical reconnect completes and final stop releases the actual runtime database", async () => {
   const f = await fixture(); const server = await f.start();
   const old = f.config.workspaces[0]!.path, moved = join(f.root, "moved");

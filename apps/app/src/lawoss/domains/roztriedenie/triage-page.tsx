@@ -261,6 +261,8 @@ function ModelPanel({ root, connection, locale, preview, busy, inPlace, onOpen, 
 }
 
 const ROLE_KEYS = ["inbox", "client_documents", "research", "drafts", "outputs", "correspondence", "important_mail"] as const;
+/** Pôvod veci v náhľade; `folder` je existujúci priečinok veci, ktorý dostane len kartu. */
+const MATTER_SOURCE_KEYS = { rules: "matter_from_rules", model: "matter_from_model", folder: "matter_from_folder" } as const;
 const RULE_KEYS = new Set(["email_file", "data_box", "power_of_attorney", "court_decision", "demand_letter", "draft_marker", "filing_final", "filing_draft", "contract", "invoice", "registry_extract", "research", "final_output", "folder_hint", "unknown"]);
 
 function reasonOf(move: TriageMoveView, text: Text): string {
@@ -309,7 +311,7 @@ export function TriagePreviewView({ preview, text, busy, inPlace = false, onKeep
               <li key={matter.key} className="lw-triage-panel lw-triage-matter">
                 <strong>{matter.title}</strong>
                 <small>{[matter.caseNumber ? text("matter_case", { case: matter.caseNumber }) : "", matter.counterparty ? text("matter_counterparty", { name: matter.counterparty }) : "", text("matter_documents", { count: matter.documents })].filter(Boolean).join(" · ")}</small>
-                <small className="lw-triage-muted">{matter.source === "model" ? text("matter_from_model") : text("matter_from_rules")}{matter.dateSource === "today" ? ` · ${text("matter_date_today")}` : ""}</small>
+                <small className="lw-triage-muted">{text(MATTER_SOURCE_KEYS[matter.source])}{matter.dateSource === "today" ? ` · ${text("matter_date_today")}` : ""}</small>
               </li>
             ))}
           </ul>

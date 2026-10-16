@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import os from "node:os";
 import { syncBuiltinESMExports } from "node:module";
-import { mkdtemp, mkdir, realpath, rm, rename, access, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, rename, access, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createServer } from "node:http";
 
@@ -24,6 +24,7 @@ const { readSessionGroupState, writeSessionGroupState } = await import("../dist/
 const { readEigenweltConnection, writeEigenweltConnection } = await import("../dist/eigenwelt-connection-store.js");
 const { readHubInstalls, recordHubInstall } = await import("../dist/eigenwelt-hub-installs-store.js");
 const { readInstalledCloudPlugins } = await import("../dist/cloud-plugins.js");
+const { CalendarStore, calendarStore } = await import("../dist/calendar/store.js");
 const { TaskStore, taskStore } = await import("../dist/task-store.js");
 const { ProjectSyncStore, projectSyncStore } = await import("../dist/project-sync-store.js");
 const { startProjectSyncTimer, runProjectSync, scheduleProjectSync } = await import("../dist/project-sync.js");
@@ -47,9 +48,19 @@ test("Node native SQLite releases every adapter after overlapping servers, recon
     await readEigenweltConnection(config);
     await recordHubInstall(config, "stable", "fixture", { kind: "workflow", name: "Sentinel", version: 7, installedAt: 1 });
     await readInstalledCloudPlugins(config, "stable");
+    const calendarRequest = async (server, suffix = "", method = "GET") => {
+      const response = await fetch(`http://127.0.0.1:${server.port}/workspace/stable/calendar${suffix}`, {
+        method, headers: { Authorization: "Bearer client", "Content-Type": "application/json" },
+        ...(method === "POST" ? { body: JSON.stringify({ title: "Lifecycle sentinel", start: "2026-10-16" }) } : {}),
+      });
+      const body = await response.json(); assert.equal(response.status, 200); return body;
+    };
+    const calendarItem = (await calendarRequest(first, "", "POST")).item;
+    assert.equal((await calendarRequest(second, `/${calendarItem.id}`)).item.title, "Lifecycle sentinel");
     const tasks = await taskStore(config), projects = await projectSyncStore(config);
     tasks.setSyncState({ orgId: "fixture", pullCursor: "cursor", lastPullAt: 1, lastPushAt: 2, lastError: null });
     await first.stop(); await first.stop();
+    assert.equal((await calendarRequest(second, `/${calendarItem.id}`)).item.id, calendarItem.id);
     const base = `http://127.0.0.1:${second.port}`;
     const project = await fetch(`${base}/workspace/stable/project`, { headers: { Authorization: "Bearer client" } }); assert.equal(project.status, 200); await project.arrayBuffer();
     assert.equal(tasks.getSyncState("fixture").pullCursor, "cursor"); assert.deepEqual(projects.links(), []);
@@ -57,7 +68,10 @@ test("Node native SQLite releases every adapter after overlapping servers, recon
     const reconnect = await fetch(`${base}/workspace/stable/reconnect`, { method: "POST", headers: { "X-LegalWork-Host-Token": "host", "Content-Type": "application/json" }, body: JSON.stringify({ folderPath: moved, expectedPath: path }) });
     assert.equal(reconnect.status, 200); await reconnect.arrayBuffer(); await second.stop();
     assert.equal(await runtimeDbHandles(db), 0);
+    const restarted = JSON.parse(await readFile(config.configPath, "utf8"));
+    config.workspaces = restarted.workspaces; config.authorizedRoots = restarted.authorizedRoots;
     const third = await start();
+    assert.equal((await calendarRequest(third, `/${calendarItem.id}`)).item.id, calendarItem.id);
     direct = acquireRuntimeDbLifetime(config);
     const retained = await taskStore(config); await third.stop();
     assert.equal(retained.getSyncState("fixture").pullCursor, "cursor");
@@ -69,6 +83,11 @@ test("Node native SQLite releases every adapter after overlapping servers, recon
     const a = await TaskStore.open(db, join(root, "attachments")), b = await TaskStore.open(db, join(root, "attachments"));
     const c = await ProjectSyncStore.open(db), d = await ProjectSyncStore.open(db);
     a.close(); a.close(); c.close(); assert.equal(b.getSyncState("fixture").pullCursor, "cursor"); assert.deepEqual(d.links(), []); b.close(); d.close();
+    const calendarA = await CalendarStore.open(db), calendarB = await CalendarStore.open(db);
+    try {
+      calendarA.close(); calendarA.close();
+      assert.equal(calendarB.get("stable", calendarItem.id).id, calendarItem.id);
+    } finally { calendarA.close(); calendarB.close(); }
     assert.equal(await runtimeDbHandles(db), 0);
     await verifyWatcherOwnerHandoff({ ...config, workspaces: [{ ...config.workspaces[0], path: moved }] });
     await verifyPendingOwnerHandoff(config);
@@ -77,6 +96,13 @@ test("Node native SQLite releases every adapter after overlapping servers, recon
     assert.equal(await runtimeDbHandles(db), 0);
     await rm(root, { recursive: true }); await mkdir(root);
     assert.deepEqual(await readRuntimeOpencodeConfig(config, "stable"), {});
+    await mkdir(config.workspaces[0].path, { recursive: true });
+    const fresh = await start();
+    assert.deepEqual((await calendarRequest(fresh)).items, []);
+    const replacement = (await calendarRequest(fresh, "", "POST")).item;
+    assert.notEqual(replacement.id, calendarItem.id);
+    assert.equal((await calendarRequest(fresh, `/${replacement.id}`)).item.title, "Lifecycle sentinel");
+    await fresh.stop();
     assert.equal(await runtimeDbHandles(db), 0);
   } finally {
     for (const server of servers.reverse()) await server.stop();

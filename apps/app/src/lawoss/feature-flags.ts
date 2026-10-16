@@ -92,6 +92,14 @@ export const isCommercialSurfaceHidden = (surface: CommercialSurface): boolean =
   HIDDEN_COMMERCIAL_SURFACES.has(surface);
 
 /**
+ * Prihlásenie predplatným ChatGPT (OpenAI OAuth) je v LAWOSS vždy dostupné.
+ * Upstream #211 ho ponúka len pri pripojenom účte Eigenwelt s `org_management`,
+ * čo by pri skrytom účte Eigenwelt zrušilo každú OpenAI OAuth metódu.
+ */
+export const allowChatGptSubscription = (upstreamAllowed: boolean): boolean =>
+  isCommercialSurfaceHidden("eigenwelt-account") || upstreamAllowed;
+
+/**
  * Analytika je natrvalo vypnutá (MČ 5. 10. 2026). `app/lib/analytics.ts` nemá
  * kľúč, adresu ani sieťové volanie a prepínač sa nezobrazí nikde: v onboardingu,
  * v Nastaveniach > Súkromie ani na upstream uvítacej obrazovke. Nie je to voľba

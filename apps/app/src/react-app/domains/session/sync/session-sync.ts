@@ -6,17 +6,20 @@ import { getReactQueryClient } from "../../../infra/query-client";
 import { analyticsSurface, captureAnalyticsEvent, isAnalyticsSending, takeTaskRunStart } from "@/app/lib/analytics";
 import { analyticsErrorService, analyticsErrorStatus } from "@/app/lib/analytics-error";
 import { allowlistedErrorName, sessionErrorFingerprint } from "@/app/lib/app-error";
-import { createClient } from "@/app/lib/opencode";
+import { createClient, resolveLegalworkWorkspaceMount, unwrap } from "@/app/lib/opencode";
+import { abortSessionSafe } from "@/app/lib/opencode-session";
+import { isAnthropicUsageLimitError, isProviderUsageLimitError, providerUsageLimitErrorText, usageLimitRetryEvent } from "@/app/lib/provider-usage-limit";
+import { useComposerStateStore } from "../surface/composer-state-store";
 import { normalizeEvent } from "@/app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX, type OpencodeEvent, type PendingPermission, type PendingQuestion } from "@/app/types";
-import { consumeEigenweltBudgetStop, EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT } from "@/app/lib/eigenwelt-budget";
+import { consumeProviderUsageLimitStop, markEigenweltBudgetStop, updateProviderUsageLimitStop } from "@/app/lib/eigenwelt-budget";
 import { createSessionErrorUIMessage, describeOpencodeSessionError, snapshotToUIMessages } from "./usechat-adapter";
 import {
   parseDynamicToolUIPart,
   parseStructuredOutputUIPart,
   STRUCTURED_OUTPUT_TOOL,
 } from "./parse-tool-parts";
-import type { LegalworkSessionSnapshot } from "@/app/lib/legalwork-server";
+import { createLegalworkServerClient, type LegalworkSessionSnapshot } from "@/app/lib/legalwork-server";
 import { applyRevertCursor, applySnapshotRevertCursor, reconcileTranscriptMessages } from "./transcript-reconcile";
 import {
   useSessionActivityStore,
@@ -59,6 +62,8 @@ type SyncEntry = {
   deltaFlushBuffer: PendingDelta[];
   deltaFlushScheduled: boolean;
 };
+
+const usageLimitStops = new Set<string>();
 
 const idleStatus: SessionStatus = { type: "idle" };
 const syncs = new Map<string, SyncEntry>();
@@ -426,6 +431,9 @@ function disposeWorkspaceSync(key: string, entry: SyncEntry) {
   for (const release of entry.statusObservationReleases.values()) release();
   entry.statusObservationReleases.clear();
   entry.pendingSnapshotCursors.clear();
+  for (const key of usageLimitStops) {
+    if (key.startsWith(`${entry.input.workspaceId}:`)) usageLimitStops.delete(key);
+  }
   entry.dispose();
   if (syncs.get(key) === entry) syncs.delete(key);
 }
@@ -827,6 +835,44 @@ export function publishSessionStatus(workspaceId: string, sessionId: string, sta
   );
 }
 
+async function stopUsageLimitRetry(entry: SyncEntry, workspaceId: string, sessionId: string, error: unknown) {
+  const key = `${workspaceId}:${sessionId}`;
+  if (usageLimitStops.has(key)) return;
+  const queryClient = getReactQueryClient();
+  const snapshot = queryClient.getQueryData<LegalworkSessionSnapshot>(snapshotKey(workspaceId, sessionId));
+  const client = createClient(entry.input.baseUrl, undefined, {token: entry.input.legalworkToken, mode: "legalwork"});
+  let ownsStop = false;
+  try {
+    const session = snapshot?.session ?? unwrap(await client.session.get({sessionID:sessionId}));
+    // Legacy retry status only contains prose. Resolve the current turn before
+    // classifying it so Claude never falls through to another provider's regex.
+    const currentMessages = unwrap(await client.session.messages({ sessionID: sessionId, directory: session.directory }));
+    const currentInfo = currentMessages.at(-1)?.info;
+    const currentProvider = currentInfo?.role === "assistant" ? currentInfo.providerID : currentInfo?.model.providerID;
+    if (!isProviderUsageLimitError(error, currentProvider) || usageLimitStops.has(key)) return;
+    usageLimitStops.add(key);
+    ownsStop = true;
+    useComposerStateStore.getState().setQueuePaused(sessionId, true);
+    const pendingText = providerUsageLimitErrorText("");
+    injectSessionErrorMessage(workspaceId, sessionId, pendingText);
+    markEigenweltBudgetStop(sessionId, Date.now(), pendingText);
+    const stopped = await abortSessionSafe(client, sessionId, session.directory);
+    if (!stopped) usageLimitStops.delete(key);
+    // A cached snapshot can predate this run's newly created assistant turn.
+    const messages = unwrap(await client.session.messages({ sessionID: sessionId, directory: session.directory }));
+    const info = messages.at(-1)?.info;
+    const providerId = info?.role === "assistant" ? info.providerID : info?.model.providerID ?? "";
+    const errorText = providerUsageLimitErrorText(providerId);
+    updateProviderUsageLimitStop(sessionId, errorText);
+    injectSessionErrorMessage(workspaceId, sessionId, errorText);
+    const mount = resolveLegalworkWorkspaceMount(entry.input.baseUrl);
+    if (stopped && mount && info?.role === "assistant") {
+      const server = createLegalworkServerClient({ baseUrl: mount.baseUrl, token: entry.input.legalworkToken });
+      await server.recordSessionUsageLimit(mount.workspaceId, sessionId, info.id);
+    }
+  } catch { if (ownsStop) usageLimitStops.delete(key); }
+}
+
 function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent) {
   const queryClient = getReactQueryClient();
   const input = entry.input;
@@ -883,6 +929,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
       entry.pendingSnapshotCursors.delete(sessionId);
       useSessionActivityStore.getState().removeSession(workspaceId, sessionId);
     }
+    usageLimitStops.delete(`${workspaceId}:${sessionId}`);
     return;
   }
 
@@ -895,9 +942,11 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
       // Substitute the matching copy so the terminal chat message renders as
       // the friendly limit / top-up card instead of "The message was
       // interrupted".
-      const errorText = consumeEigenweltBudgetStop(sessionId)
-        ? EIGENWELT_BUDGET_EXCEEDED_ERROR_TEXT
-        : describeOpencodeSessionError(sessionError);
+      const snapshot = queryClient.getQueryData<LegalworkSessionSnapshot>(snapshotKey(workspaceId, sessionId));
+      const info = snapshot?.messages.at(-1)?.info;
+      const provider = info?.role === "assistant" ? info.providerID : info?.model.providerID;
+      const errorText = consumeProviderUsageLimitStop(sessionId) ?? describeOpencodeSessionError(sessionError, "Session failed", provider);
+      if (isAnthropicUsageLimitError(sessionError)) useComposerStateStore.getState().setQueuePaused(sessionId, true);
       const runStartedAt = takeTaskRunStart(sessionId);
       if (runStartedAt !== null) {
         captureRunOutcome(workspaceId, sessionId, "task_run_errored", {
@@ -943,9 +992,19 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     return;
   }
 
+  if (event.type === "session.next.retried") {
+    const retry = usageLimitRetryEvent(event.properties);
+    if (retry && isAnthropicUsageLimitError(retry.error)) {
+      void stopUsageLimitRetry(entry, workspaceId, retry.sessionId, retry.error);
+    }
+    return;
+  }
+
   if (event.type === "session.status") {
     const props = (event.properties ?? {}) as { sessionID?: string; status?: SessionStatus };
     if (!props.sessionID || !props.status) return;
+    if (props.status.type === "busy") usageLimitStops.delete(`${workspaceId}:${props.sessionID}`);
+    if (props.status.type === "retry" && isProviderUsageLimitError(props.status.message)) void stopUsageLimitRetry(entry, workspaceId, props.sessionID, props.status.message);
     useSessionActivityStore.getState().setRunStatus(workspaceId, props.sessionID, props.status, executionScope(entry.input));
     const tracked = isTrackedSession(entry, props.sessionID);
     if (tracked) publishSessionStatus(workspaceId, props.sessionID, props.status);
@@ -1563,7 +1622,14 @@ export function trackWorkspaceSessionSync(input: SyncOptions, sessionId: string 
       // Idle was already observed before untracking, so no future idle event
       // will shorten the usual background retention. Release its HTTP slot;
       // optimistic accepted prompts, live retries and waiting still retain it.
-      const knownIdle = status?.data?.type === "idle" && (!activity?.errorActive || status.dataUpdatedAt > activity.updatedAt);
+      const evidence = activity?.executionEvidence;
+      const latestStatus = evidence?.status;
+      // A scoped native idle is ordered after the quota stop even when both
+      // publications share a clock tick. A later error replaces this evidence.
+      const nativeIdle = evidence?.source === "action" && !evidence.error
+        && evidence.scope !== null && evidence.scope(syncKey(input))
+        && latestStatus && typeof latestStatus === "object" && "type" in latestStatus && latestStatus.type === "idle";
+      const knownIdle = status?.data?.type === "idle" && (!activity?.errorActive || nativeIdle || status.dataUpdatedAt > activity.updatedAt);
       if (knownIdle && !activity?.runActive && !activity?.compacting && !activity?.waitingPermissionIds.length && !activity?.waitingQuestionIds.length) {
         flushDeltas(entry, input.workspaceId);
         clearTrackedSession(input, entry, normalizedSessionId);

@@ -303,12 +303,11 @@ jobs:
           ./src/workspace-reconnect.e2e.test.ts
           ./src/test-support/project-sync-first-failure-timing.test.ts
 
-      - name: Diagnose pending task handoff in a fresh Bun process
+      - name: Diagnose project sync in a fresh Bun process
         if: ${{ failure() && steps.windows_server_source.outcome == 'failure' }}
         working-directory: apps/server
-        run: >-
-          bun test ./src/runtime-db-lifecycle.e2e.test.ts
-          --test-name-pattern '^an accepted pending tasks round survives its originating owner stopping$'
+        timeout-minutes: 2
+        run: bun test ./src/project-sync.test.ts
 
       # Node 24 používa node:sqlite bez postinstall/native addon rebuildu. Proces
       # ostáva živý počas kontroly handle aj skutočného odstránenia databázy.

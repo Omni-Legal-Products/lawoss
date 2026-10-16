@@ -37,10 +37,12 @@ export const CZ_MATTER_WORDS: readonly string[] = [
   "exekuce", "řízení", "odvolání", "dovolání", "stížnost", "vymáhání", "pohledávka", "rozvod", "dědictví",
   "dědické", "insolvence", "oddlužení", "trestní", "správní", "výpověď", "náhrada", "platební", "darování", "věc",
 ];
-const MATTER_WORDS = new Set([...SK_MATTER_WORDS, ...CZ_MATTER_WORDS]);
-/** Prvé slovo názvu (NFC, malými písmenami) je slovo veci zo zoznamu SK alebo CZ. */
+/** Malé písmená bez diakritiky: priečinky z e-mailu, skenera či starého systému ju často nemajú („Kupa haly“). */
+const fold = (word: string): string => word.normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerCase("sk");
+const MATTER_WORDS = new Set([...SK_MATTER_WORDS, ...CZ_MATTER_WORDS].map(fold));
+/** Prvé slovo názvu je slovo veci zo zoznamu SK alebo CZ, s diakritikou aj bez nej (test 16. 10. 2026, N2). */
 export const startsWithMatterWord = (name: string): boolean => {
-  const first = name.normalize("NFC").trim().toLocaleLowerCase("sk").split(/[\s,.;:()_-]+/u)[0] ?? "";
-  return MATTER_WORDS.has(first);
+  const first = name.normalize("NFC").trim().split(/[\s,.;:()_-]+/u)[0] ?? "";
+  return MATTER_WORDS.has(fold(first));
 };
 export const looksLikeMatterName = (name: string): boolean => !isBareDate(name) && (MATTER_DATE.test(name) || findCaseNumber(name) !== undefined || startsWithMatterWord(name));
