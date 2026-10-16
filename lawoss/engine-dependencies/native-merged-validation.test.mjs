@@ -287,3 +287,10 @@ test('absence of positive close keeps workspace and refuses receipt reads or cle
     assert.equal(cleaned, false); assert.equal((await fs.lstat(owned)).isDirectory(), true);
   } finally { await fs.rm(owned, { recursive: true }); }
 });
+
+test('missing failure block cannot borrow the next registration location', async () => {
+  const source = await fs.readFile(path.join(here, TEST_FILES[0]), 'utf8');
+  const line = source.split('\n').findIndex(v => /^\s*test\(/.test(v)) + 1;
+  const value = `TAP version 13\nnot ok 1 - first\nok 2 - second\n  ---\n  location: '${path.join(here, TEST_FILES[0])}:${line}:1'\n  ...\n1..2\n# tests 2\n# suites 0\n# pass 1\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n`;
+  assert.equal(failedTap(value, 2, [new Set([line])]).failures[0].source, 'unknown');
+});

@@ -59,7 +59,9 @@ export function failedTap(tap, expected, declarations = []) {
       summary.pass + summary.fail + summary.cancelled + summary.skipped + summary.todo !== expected || summary.fail === 0 ||
       summary.skipped !== 0 || summary.todo !== 0 || summary.cancelled !== 0 || results.filter(r => r[1] === 'not ok').length !== summary.fail) return null;
   const failures = results.filter(r => r[1] === 'not ok').map(r => {
-    const end = tap.indexOf('\n  ...', r.index), block = end < 0 ? '' : tap.slice(r.index, end);
+    const next = results.find(candidate => candidate.index > r.index)?.index ?? tap.length;
+    const end = tap.indexOf('\n  ...', r.index);
+    const block = end < 0 || end >= next ? '' : tap.slice(r.index, end);
     const locations = [...block.matchAll(/^  location: '([^'\n]+):(\d+):(\d+)'$/gm)];
     let source = 'unknown', line = null, column = null;
     if (locations.length === 1) {
