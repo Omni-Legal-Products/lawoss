@@ -210,3 +210,5 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 
 - Diagnostic seam tests must exercise the actual entry composition as well as helpers. A parse check cannot detect an unbound runtime identifier; isolated fake helpers do not establish native application startup.
 - Keep containment installed while owned producers may resume. Share outer-expiry decisions with the host before later removal; represent late identity failure independently from observed resource closure and removal, preserving an encodable finite unknown result.
+
+- Bind executable admission ceilings to their tool roles without weakening generic file limits. Strict finalized diagnostic records must reconcile command reason, returned handle, actual exit/close and output observations; a successful command can still precede a failed version or identity check.

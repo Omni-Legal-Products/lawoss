@@ -927,13 +927,28 @@ M1 semantic receipt validator Minor je explicitně odložený pro finální revi
 - [x] Narrow baseline skutečně prošel; není oprávnění zopakovat nezměněný fullapp test a prohlásit jej za fix.
 - [x] Readonly sourcegapmap: full runtime manager má privátní HOME/XDG/configdir/Node shim, enginecwd=profile/managed-opencode-workdir místo selecteddirectory, skutečné workspace/config/plugin generátory a počáteční sequential MCPsync. Deset registrovaných spisů není deset enginů ani důkaz desetisouběhu. První native/path probíhá před pozdější providerconfiguration/reload.
 - [x] Source architecture: použít skutečný createWorkspaceStore/createRuntimeManager pod genuine locked Electron43.7.5 RUN_AS_NODE, skutečně sestavený server/dist/pluginy a automatický sequential MCP, jeden syntetický spis. Žádný nový production prep seam/sourcealiases/fakeplugins ani plainNode fallback; neověřené prerequisite odmítnout před enginem. Exact-edge observation zachová skutečné embedded start/options/error/stop a odhalí chybu stopu, kterou manager potlačuje; pending/error znamená UNKNOWN/root retained.
-- [ ] Fresh source-only writer v izolovaném W43/chore/windows-app-start-repro-20261016, base371852f8: bounded controller/host/observer/tests a temporarymanualworkflow. Připravit genuine Node24.21/pnpm11.4/Bun1.4.2 frozeninstall+server-only build a explicit supported Electron install.js (wrapper nemá postinstall), ownedcacheZIP s oficiálním checksumem. Žádný build/install/network/Electron/engine/push/CI v této source fázi. Lokální behaviorální RED→GREEN/syntax/diff před normálním signedoffcommitem, potom nezávislý SPEC+QUALITY review a root audit.
-- [ ] Až po source review samostatně posoudit jeden changed Windows run. Deadline factory15000 a selected90000/retries beze změn, stopobservace60000/directclose7000, workflow25min pouze outer containment. Zdrojový test ani samotný headlesspass nepotvrzují celé GUI/native acceptance. Deset registrací až podle prvního výsledku, bez vymyšleného Promise.all/warm reuse.
+- [x] Fresh source-only writer v izolovaném W43/chore/windows-app-start-repro-20261016, base371852f8: bounded controller/host/observer/tests a temporarymanualworkflow. Připravit genuine Node24.21/pnpm11.4/Bun1.4.2 frozeninstall+server-only build a explicit supported Electron install.js (wrapper nemá postinstall), ownedcacheZIP s oficiálním checksumem. Žádný build/install/network/Electron/engine/push/CI v této source fázi. Lokální behaviorální RED→GREEN/syntax/diff před normálním signedoffcommitem, potom nezávislý SPEC+QUALITY review a root audit.
+- [x] Až po source review samostatně posoudit jeden changed Windows run. Deadline factory15000 a selected90000/retries beze změn, stopobservace60000/directclose7000, workflow25min pouze outer containment. Zdrojový test ani samotný headlesspass nepotvrzují celé GUI/native acceptance. Deset registrací až podle prvního výsledku, bez vymyšleného Promise.all/warm reuse.
 
 PR158 draft zůstává9e31/dev1c a body odděluje oba temporary diagnostic výsledky od app acceptance. LokálníTask38source902f i rootdocs zůstávají held; helperruntime caller/publictenGUI/provider/realapproval/dev/newapp gate stále OPEN, newpaid0.
 
 ### Task43 source-gate completion checkpoint (2026-10-16)
 
 - [x] Source53e3 and fix08ff94c7 prepared actual coupled onecase manager/store host; initial independent5Important+mandatoryM1 repaired, scoped SPEC PASS/Task quality Approved. Final45/45 exactNode24 purefake/syntax4/static/diff PASS before normal DCO commit; root source/evidence audits PASS. This is SOURCE ONLY, not native acceptance.
-- [ ] Separate root runtime admission after source-equal docs, final-head decoder rebind, both remotes and CI terminal preflight. At most one new changed manual Windows run; no default workflow/old rerun/fullnative timeout widening.
+- [x] Separate root runtime admission after source-equal docs, final-head decoder rebind, both remotes and CI terminal preflight. At most one new changed manual Windows run; no default workflow/old rerun/fullnative timeout widening.
 - [ ] Genuine build/Electron/sqlite/import/actualmanager/MCP/path/lifetimes, actual public ten GUI/provider/newapp/protecteddev still open. Temporary diagnostic workflow must never merge as product.
+
+
+### Task43 terminal runtime checkpoint (2026-10-16)
+
+- [x] Source review/finalhead736/sourcebound reader and one manual Windowsrun38887294121 executed; all terminal/rootmetadataauditPASS. Buildstep8FAIL/app9SKIP/artifacts0; causeUNKNOWN, no app/engine/provider/cleanup measurements. Conditional bodyrequests0/ineligible; prior runbudget consumed, no unchanged retry/refetch.
+- [x] Official Node24.21.0 win-x64 HEAD93580104 exceeds current67108864 tool cap: actual admission defect, not proof of unique prior CI cause. Bun package unpacked86097473 is aggregate metadata, not actualCIexe measurement.
+
+### Task44 bounded build preparation visibility
+
+- [x] Source07d8 +fixcca8 in separate W44; sharedtools Node/Bun128MiB only, original guards/pins/commands/budgets retained. Same actual23phase build and bounded command/file events, exclusive single fixed public envelope, honest unknown retained resources. Failedbuild/appskipped mode distinct from APP; no successintermediary/publicfailuredeletion.
+- [x] Purefake meaningful mutationRED/correctedcanonicalBASEbodyRED; initial invalidfixture preserved/disclosed. Final103/103exactNode24 +syntax4/static/diff0 before normal signedofffixcommit; root retained manifests/2758immutable files auditPASS.
+- [x] Independent scoped R1fix review SPEC PASS/QUALITY Approved, soleinitialImportant reason/lifecyclecontradiction repaired. Root sourceequal docs freeze/newmodeaware independentreader finalhead bind follows.
+- [ ] Separate future changedmanualWindowsrun only after source+reader+terminal+remote preflight. No source-only native claim, protecteddev/newapp/publictenGUI/providerOPEN.
+
+Task45 read-only candidate: actual runtime startup-error collection invokes two time-unbounded synchronous doctor probes, can block error delivery. Nodeimplicit maxBuffer1MiB already bounds output; rootcause UNKNOWN. Minimalfiniteoptions candidate notimplemented/admitted here; no product/pinchange in temporarydiagnostic.
