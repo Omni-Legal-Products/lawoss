@@ -8,11 +8,11 @@ export async function relocationSmoke({ staged, parent, node }) {
   await inspectTree(staged);
   const marker = await fs.readFile(path.join(staged, '.lawoss-runtime-build'), 'utf8');
   if (marker !== 'lawoss-engine-dependencies-v1\n') throw Error('UNOWNED_STAGE');
-  const root = await fs.mkdtemp(path.join(parent, 'relocated # % '));
-  const relocated = path.join(root, 'engine-dependencies');
   const hidden = `${staged}.hidden`;
   if (await fs.lstat(hidden).then(() => true, e => { if (e.code === 'ENOENT') return false; throw e; })) throw Error('HIDDEN_EXISTS');
-  let moved = false;
+  const root = await fs.mkdtemp(path.join(parent, 'relocated # % '));
+  const relocated = path.join(root, 'engine-dependencies');
+  let moved = false, primary;
   try {
     await fs.cp(staged, relocated, { recursive: true, dereference: false });
     await fs.rename(staged, hidden); moved = true;
@@ -43,9 +43,20 @@ export async function relocationSmoke({ staged, parent, node }) {
     `;
     const result = await closedChild(node, ['--input-type=module', '--eval', program], { cwd: relocated, env: isolatedEnvironment(home) });
     return JSON.parse(result);
-  } finally {
-    if (moved) await fs.rename(hidden, staged);
-    await fs.rm(root, { recursive: true, force: true });
+  } catch (error) { primary = error; throw error; }
+  finally { await cleanupRelocation({ root, hidden, staged, moved, primary }); }
+}
+// Attempt both cleanup operations; preserve the child failure and restoration evidence.
+export async function cleanupRelocation({ root, hidden, staged, moved, primary }, filesystem = fs) {
+  const failures = [];
+  if (moved) {
+    try { await filesystem.rename(hidden, staged); } catch (error) { failures.push(error); }
+  }
+  try { await filesystem.rm(root, { recursive: true, force: true }); } catch (error) { failures.push(error); }
+  if (failures.length) {
+    const cleanup = new AggregateError(failures, 'RELOCATION_CLEANUP_FAILED');
+    if (primary) Object.defineProperty(primary, 'cleanup', { value: cleanup });
+    else throw cleanup;
   }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

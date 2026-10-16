@@ -91,3 +91,64 @@ test('relocation refuses missing closure and restores original marked artifact',
     assert.deepEqual((await fs.readdir(root)).sort(), ['stage']);
   } finally { await fs.rm(root, {recursive:true,force:true}); }
 });
+
+test('preexisting hidden artifact refuses before allocating relocation temporary root', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'runtime-test-'));
+  try {
+    const stage = path.join(root, 'stage');
+    await fs.mkdir(stage);
+    await fs.writeFile(path.join(stage, '.lawoss-runtime-build'), 'lawoss-engine-dependencies-v1\n');
+    await fs.mkdir(`${stage}.hidden`);
+    const before = (await fs.readdir(root)).sort();
+    const {relocationSmoke} = await import('./relocation-smoke.mjs');
+    await assert.rejects(relocationSmoke({staged:stage,parent:root,node:process.execPath}), /HIDDEN_EXISTS/);
+    assert.deepEqual((await fs.readdir(root)).sort(), before);
+  } finally { await fs.rm(root, {recursive:true,force:true}); }
+});
+
+test('relocation cleanup retains primary error and attempts removal after restoration fails', async () => {
+  const {cleanupRelocation} = await import('./relocation-smoke.mjs');
+  const primary = Error('CHILD_FAILED');
+  const restore = Error('restore failure');
+  const remove = Error('remove failure');
+  const calls = [];
+  await cleanupRelocation({root:'owned',hidden:'hidden',staged:'staged',moved:true,primary}, {
+    async rename() { calls.push('restore'); throw restore; },
+    async rm() { calls.push('remove'); throw remove; },
+  });
+  assert.equal(primary.message, 'CHILD_FAILED');
+  assert.deepEqual(primary.cleanup.errors, [restore, remove]);
+  assert.deepEqual(calls, ['restore', 'remove']);
+  await assert.rejects(cleanupRelocation({root:'owned',moved:false}, {
+    async rm() { throw remove; },
+  }), /RELOCATION_CLEANUP_FAILED/);
+});
+
+test('marked output replacement and failed publication restore the exact old tree', async () => {
+  const {publishRuntime} = await import('./package-runtime.mjs');
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'runtime-test-'));
+  try {
+    const out = path.join(root, 'output');
+    const stage = path.join(root, 'stage');
+    await prepareScratch(out);
+    await fs.writeFile(path.join(out, 'value'), 'old');
+    await prepareScratch(stage);
+    await fs.writeFile(path.join(stage, 'value'), 'new');
+    await publishRuntime(stage, out);
+    assert.equal(await fs.readFile(path.join(out, 'value'), 'utf8'), 'new');
+    assert.deepEqual(await fs.readdir(root), ['output']);
+    // The missing stage forces a genuine rename failure after old output backup.
+    await assert.rejects(publishRuntime(stage, out), {code:'ENOENT'});
+    assert.equal(await fs.readFile(path.join(out, 'value'), 'utf8'), 'new');
+    assert.deepEqual(await fs.readdir(root), ['output']);
+    await fs.mkdir(stage);
+    await fs.mkdir(`${stage}-previous`);
+    await fs.writeFile(path.join(`${stage}-previous`, 'keep'), 'unrelated');
+    await assert.rejects(publishRuntime(stage, out), /BACKUP_EXISTS/);
+    assert.equal(await fs.readFile(path.join(out, 'value'), 'utf8'), 'new');
+    assert.equal(await fs.readFile(path.join(`${stage}-previous`, 'keep'), 'utf8'), 'unrelated');
+    await fs.rm(path.join(out, '.lawoss-runtime-build'));
+    await assert.rejects(publishRuntime(stage, out));
+    assert.equal(await fs.readFile(path.join(out, 'value'), 'utf8'), 'new');
+  } finally { await fs.rm(root, {recursive:true,force:true}); }
+});

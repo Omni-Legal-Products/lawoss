@@ -96,6 +96,26 @@ export function isolatedEnvironment(home) {
   for (const key of ['SystemRoot', 'SYSTEMROOT', 'WINDIR', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[key]) env[key] = process.env[key];
   return env;
 }
+// Publish only into an absent or recognized owned output. This is build-local,
+// not a transaction against concurrent hostile mutation of trusted parents.
+export async function publishRuntime(stage, out) {
+  let backup;
+  if (await absent(out)) {
+    await owned(out, 'UNOWNED_OUTPUT');
+    backup = `${stage}-previous`;
+    if (await absent(backup)) throw fail('BACKUP_EXISTS');
+    await fs.rename(out, backup);
+  }
+  try { await fs.rename(stage, out); }
+  catch (primary) {
+    if (backup) {
+      try { await fs.rename(backup, out); }
+      catch (cleanup) { Object.defineProperty(primary, 'cleanup', { value: cleanup }); }
+    }
+    throw primary;
+  }
+  if (backup) await fs.rm(backup, { recursive: true });
+}
 export async function packageRuntime({ node, pnpmCli, out, scratch, store, offline }) {
   if (typeof offline !== 'boolean') throw fail('NETWORK_POLICY_REQUIRED');
   if (!path.isAbsolute(node) || await closedChild(node, ['--version'], { env: isolatedEnvironment(path.dirname(node)) }) !== 'v24.21.0') throw fail('INVALID_NODE');
@@ -141,16 +161,8 @@ export async function packageRuntime({ node, pnpmCli, out, scratch, store, offli
     const closure = await inspectTree(stage);
     await fs.writeFile(path.join(stage, marker), identity);
     await fs.writeFile(path.join(stage, 'build-manifest.json'), `${JSON.stringify({ schema: 1, sourcePin: '16747470f976aca3d362ad730bcd3fe82ecc2c9a', node: '24.21.0', pnpm: '11.4.0', offline, sourceHashes, closure }, null, 2)}\n`);
-    // Replace only a recognized previous artifact. Keep its contents on failure.
-    let backup;
-    if (await absent(out)) {
-      await owned(out, 'UNOWNED_OUTPUT');
-      backup = `${stage}-previous`;
-      await fs.rename(out, backup);
-    }
-    try { await fs.rename(stage, out); published = true; }
-    catch (error) { if (backup) await fs.rename(backup, out); throw error; }
-    if (backup) await fs.rm(backup, { recursive: true });
+    await publishRuntime(stage, out);
+    published = true;
     return { schema: 1, status: 'packaged', ...closure, node: '24.21.0', pnpm: '11.4.0' };
   } catch (e) { primary = e; throw e; }
   finally {
