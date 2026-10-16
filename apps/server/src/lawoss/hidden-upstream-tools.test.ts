@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,13 +7,15 @@ import { permissionAction } from "../agent-sandbox/permissions.js";
 import { legalworkRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from "../legalwork-runtime-config.js";
 import { GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig } from "../types.js";
+import { removeTestDir } from "./test-support/remove-test-dir.js";
 import { appendLawossToolDenials, LAWOSS_DENIED_UPSTREAM_TOOLS, LAWOSS_LOAD_WIKI_TOOLS } from "./hidden-upstream-tools.js";
 
 const roots: string[] = [];
 let previousDb: string | undefined;
 
 afterEach(async () => {
-  while (roots.length) await rm(roots.pop() ?? "", { recursive: true, force: true });
+  // Windows: runtime.sqlite ostáva otvorená (EBUSY), removeTestDir ju nechá v %TEMP%.
+  while (roots.length) await removeTestDir(roots.pop() ?? "");
   if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
   else process.env.LEGALWORK_RUNTIME_DB = previousDb;
 });
