@@ -549,6 +549,14 @@ export async function preferOpenClient(
     return null;
   }
 }
+/**
+ * „+ Nová vec“ pre klienta vybraného v prehľade praxe: zapíše ho ako klienta formulára.
+ * Server overí, že priečinok je klient; chybu ohlási volajúci.
+ */
+export async function chooseClient(api: Pick<WelcomeApi, "updateOnboardingProfile">, profile: OnboardingProfile | null, clientRoot: string): Promise<OnboardingProfile | null> {
+  if (sameFolder(clientRoot, profile?.clientRoot)) return null;
+  return api.updateOnboardingProfile({ clientRoot, step: "matter" });
+}
 /** Meno klienta pre formulár veci; bez prístupu k pracovným priestorom názov priečinka. */
 async function clientTitleFor(api: WelcomeApi, root: string): Promise<string> {
   const fallback = root.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? root;
@@ -626,7 +634,11 @@ export function LawossWelcomePage({
       .then(async (status) => {
         setProfile(status.profile);
         if (initialStep === "matter") {
-          const preferred = await preferOpenClient(api, status.profile, readActiveWorkspaceId());
+          // Klient vybraný v prehľade praxe (`?root=`, MČ 16. 10. 2026) má prednosť pred otvoreným klientom.
+          // Ak ho nastaviť nejde, formulár to povie; nová vec nesmie potichu vzniknúť u iného klienta.
+          const preferred = initialRoot
+            ? await chooseClient(api, status.profile, initialRoot).catch((reason: unknown) => { setError(onboardingErrorMessage(reason, locale)); return null; })
+            : await preferOpenClient(api, status.profile, readActiveWorkspaceId());
           if (preferred) setProfile(preferred);
           setOpenClientPending(false);
         }
@@ -647,7 +659,7 @@ export function LawossWelcomePage({
         setOpenClientPending(false);
         setError(tr("error"));
       });
-  }, [api, initialStep]);
+  }, [api, initialStep, initialRoot]);
   const savedClientRoot = profile?.clientRoot;
   useEffect(() => {
     let cancelled = false;
