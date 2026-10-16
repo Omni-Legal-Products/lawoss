@@ -47,7 +47,7 @@ export function serializeCalendar(root: ICAL.Component): string {
   }).join("\r\n") + "\r\n";
 }
 export function emptyCalendar(): ICAL.Component {
-  const root = new ICAL.Component("vcalendar"); root.addPropertyWithValue("version", "2.0"); root.addPropertyWithValue("prodid", "-//Eigenwelt Labs//LegalWork//EN"); return root;
+  const root = new ICAL.Component("vcalendar"); root.addPropertyWithValue("version", "2.0"); root.addPropertyWithValue("prodid", "-//Omni Legal Products//LAWOSS//EN"); return root; // 🟡 LAWOSS: značka v exportovaných .ics
 }
 function valueTime(value: string, zone: string): ICAL.Time {
   if (value.length === 10) return ICAL.Time.fromDateString(value);

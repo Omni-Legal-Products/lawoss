@@ -639,3 +639,5 @@ Baseline `dev` `0e67695c`, upstream `v0.2.4`. Merge má 18 textových konfliktov
 | `apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx` | „Povoliť pre reláciu“ sa skryje pri bráne zápisu pamäte (Lite) aj pri návrhu pokynov projektu (#205). |
 | `apps/app/src/react-app/domains/settings/pages/personalisation-view.tsx` | Prepínače lokálnej pamäte odstránené podľa upstreamu; autor dokumentu, profil kancelárie a `locale` ostávajú. |
 | `apps/app/src/i18n/locales/en.ts`, `apps/app/src/i18n/locales/de.ts` | Spready LAWOSS slovníkov zachované vedľa nových upstream kľúčov; odstránený upstream zrušený `budget.retry_title`. |
+| `apps/server/src/calendar/ical.ts` | `PRODID` exportovaných kalendárov `-//Omni Legal Products//LAWOSS//EN` namiesto `-//Eigenwelt Labs//LegalWork//EN` (1 hodnota). Stráž značky `apps/server` nepokrýva. |
+| `apps/app/src/i18n/locales/sk.ts`, `apps/app/src/i18n/locales/cs.ts` | Zelená zóna, uvedené kvôli úplnosti: kľúče `calc.period_*`, `calc.passages`, `calendar.minutes_before` majú tvar „Dni: {count}“, lebo angličtina nemá `_other` a test parity nepovoľuje tvary few a many. |

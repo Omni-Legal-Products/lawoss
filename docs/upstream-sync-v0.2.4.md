@@ -40,6 +40,7 @@ macOS arm64, Node 24.19.0, pnpm 11.4.0, Bun 1.4.3. Testy bežali s izolovaným `
 | `bun test tests/` v `apps/app` | 1 596 pass, 2 skip, 0 fail |
 | `pnpm --filter @legalwork/desktop test` | 345 pass, 4 skip, 0 fail |
 | `pnpm --filter @legalwork/app test:i18n`, `node scripts/i18n-audit.mjs --ci` | prešlo, sk/cs úplné |
+| `pnpm --filter legalwork-server build`, `pnpm --filter @legalwork/app build` | prešlo |
 
 Desktop smoke na zabalenej appke sa v tomto kroku nerobil; plánuje sa po v0.2.9. Kontroly `Package and launch` a `portable-windows` padajú na `dev` od #156 a v tomto PR sa očakávajú rovnako.
 
@@ -47,4 +48,6 @@ Desktop smoke na zabalenej appke sa v tomto kroku nerobil; plánuje sa po v0.2.9
 
 - Metadáta a pokyny projektu (`.legalwork/project.json`) sa zapisujú do `workspace.path`, nie do `workspaceAppFilesRoot`. V režime `outside` tak vznikajú v pôvodnom priečinku klienta. Stav je starší ako tento sync (týka sa aj metadát z v0.2.1), #205 pridáva ďalší zápis. Riešenie patrí do samostatného PR.
 - SK a CZ pravidlá pre výpočty lehôt a ich prepojenie s `lehoty` z OKF: návrh v koordinačnom repe.
-- Množné tvary `calc.period_*` majú v SK a CS len tvar pre 5 a viac, lebo angličtina nemá kľúč `_other` a test parity iné tvary nepovoľuje.
+- Kľúče `calc.period_*`, `calc.passages` a `calendar.minutes_before` majú v SK a CS tvar bez skloňovania („Dni: {count}“), lebo angličtina nemá kľúč `_other` a test parity tvary few a many nepovoľuje.
+- Exportované `.ics` nesú `PRODID` LAWOSS. Doplnok Word (`word-addin.ts`) stále uvádza poskytovateľa Eigenwelt Labs; je to starší stav mimo tohto syncu.
+- Server build pri lokálnom Bun 1.4.3 pregeneruje `apps/server/src/calendar/calculator-code.ts` inak; commitnutá je upstream verzia, CI používa pinnutý Bun 1.4.2.
