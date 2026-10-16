@@ -2,6 +2,8 @@
 
 ## Dočasná vetva diagnostiky Windows inštancie (2026-10-16)
 
+Task41 source `ef6f7ba8` dopĺňa finite exact-extractor protocol/lifecycle pozorovania, tiny same-bridge control pred budúcim public download a originálny ZIPdigest guard. Workflow sa nemení. ExactNode24 retained69/69 pure/fake PASS pred commitom a nezávislý SPEC/QUALITY review8102e79a bez nálezov; Windows/PowerShell execution ešte neprebehla. Prvý skutočný run38847709601 skončil UNKNOWN/ARCHIVE_MISMATCH pred EXEverification/engine0; nejde o app reprodukciu ani fix. Pôvodné časové/veľkostné limity a production factory/native helper ostávajú, M1 semantic receipt validator Minor zostáva explicitný. Rovnaká temporary/nonmergeable hranica platí naďalej.
+
 Iba vetva `chore/windows-instance-repro-20261016`, bez PR a bez merge do produktu: `.github/workflows/storage-oauth-review.yml` zachováva názov a vstupnú schému, ale nahrádza build jediným ručne povoleným Windows2022 testom pôvodného enginu cez nezmenenú produkčnú factory a native `/path` helper. Presný Node24.21.0, pôvodné readiness limity, bez inštalácie balíčkov/Electronu/SDK/modelových požiadaviek; jediný artefakt je konečný validovaný syntetický receipt. Zdrojové commity `2a9e1eca` a `1021b988` prešli nezávislým SPEC/QUALITY review po oprave súbežných cleanup chýb a konečného provider countera; 34/34 čistých/fake testov PASS. Skutočné Windows správanie zostáva neoverené do samostatného behu. Táto diagnostická náhrada workflowu sa nesmie mergeovať ako produktová zmena.
 
 ## ISIR attachment acceptance (2026-10-13)
