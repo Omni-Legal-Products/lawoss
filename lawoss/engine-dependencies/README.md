@@ -206,3 +206,93 @@ compiled-engine/Effect interoperability. Actual engine startup is a separate gat
 
 The explicit Windows/Ubuntu Node22 workflow also selects this suite. Local tests
 are not Windows acceptance; that gate requires the published workflow's result.
+
+## Standalone preserving target preparation (source phase, Node 22)
+
+`prepareEngineDependencyTarget(input)` prepares **one existing explicitly authorized
+configuration directory**, returning `{ status: 'ready', code: 'READY',
+verifiedSdkNodes }` or `{ status: 'blocked', code }`. The caller must block dependent
+startup on every non-ready result. There is no runtime caller, discovery, target
+root creation, installer CLI, profile redirection, or SDK-only artifact copy path.
+
+Input contains `directory` (native absolute target), captured `stateDirectory`,
+all known exact `logicalDirectories` aliases for this target, `engineExecPath`,
+`engineNpmPath`, `nativeHome`, complete `environment`, original absolute `deadline`,
+optional `signal`, and an existing trusted app-owned `recoveryParent` outside the
+target. Authority comes from the owner, never from pathname, role or writability.
+The environment and alias array are copied synchronously. This slice rejects
+symlink target roots, symlink/hardlinked/nonregular metadata, non-directory or
+symlink node_modules, workspaces, npm-shrinkwrap precedence, malformed manifests,
+locks other than package-lock v2/v3, and captured global-install mode (which has
+different save/tree semantics; refusal never rewrites that policy). Intermediate symlink ancestors are bound
+by repeated realpath/device/inode observations, not claimed universally atomic.
+
+The exact existing shared lease is acquired before target reads, configuration or
+mutation. Genuine Config10.8.1 loads the explicit engine tuple. Genuine tools-local
+Arborist9.4.0 is identity checked without evaluating it during preflight; ancestor
+fallback is refused. Shared identity code preserves Config's original error and
+nativeHome boundary. There are no registry/auth/cache/omit/offline/prefix overrides.
+Arborist receives the pinned source constructor flags `binLinks:true`,
+`progress:false`, `savePrefix:''`, `ignoreScripts:true`, and genuine reify receives
+`add:['@opencode-ai/plugin@1.18.29'], save:true, saveType:'prod'`. When exactly
+1.18.29 is already declared in dependencies and a supported existing lock is
+present, `add:[]` repairs that graph without requesting a fresh packument. Both
+branches must pass the same physical checks; neither accepts declarations alone.
+
+Success requires fresh `loadActual({forceActual:true})`, exact installed SDK/root
+lock versions, required SDK dependency edges and physical package manifests,
+concrete node/import/require/default/types public entrypoint files (wildcards and
+custom conditions are not expanded), required non-omitted root edges, and preserved
+custom declarations in all four sections plus nondependency manifest fields.
+Only SDK declarations and absent-versus-empty dependency section normalization are
+allowed. User omit policies remain active; omitted dev/peer and optional nodes are
+not forced into existence. This is structural tree readiness, not an exhaustive
+file-integrity audit or an executed Bun/native import receipt. No user package code
+is imported by verification. The merged lock is genuine Arborist output, never a
+union/replacement of the old lock with the accepted SDK-only lock.
+
+Each admitted attempt retains a unique private recovery directory: original
+package.json (max 1 MiB), package-lock.json (max 16 MiB), SHA-256/absence/inode
+records, and observed or failed metadata. Reads have fixed bound+1 allocations
+and verify opened/path identities. Files use exclusive 0600 creation; mkdtemp
+uses 0700 on Unix. No Windows ACL guarantee is made. On target replacement,
+original evidence is retained and successor metadata is not read for recovery.
+Failures include a finite result record; raw primary, recovery and lease cleanup
+errors survive only in the non-enumerable `result.private.cause`, alongside
+`result.private.recoveryDirectory`. **Do not serialize/forward this private member,
+config values, library diagnostics or recovery contents into product transport.**
+No proc-log listener or global logging mute is installed. Trusted-owner retention
+and manual recovery policy remain future work; this helper never removes recovery,
+rolls back metadata, copies whole node_modules, or deletes a shared tree.
+
+Identity/hash checks catch some drift. Advisory aliases/state roots cannot exclude
+unknown aliases or noncooperating writers; in-place reify can already have written
+before a postcondition refuses. This is not a transaction or a universal guarantee
+against lost edits. Signal is passed through constructor/reify/loadActual options;
+library cancellation support is incomplete. The helper awaits reify settlement
+before releasing the lease, including cancellation, and never races/drops it to
+meet a deadline. External git descendant termination, a hard callback-return
+budget and production transport remain separate required gates.
+
+The optional second argument `{ arboristFactory(Class, options) }` supports narrow
+controlled failure tests. It never substitutes for the fresh genuine loadActual
+verification, and injected results are not genuine installation evidence.
+
+```sh
+/path/to/verified/node22 --test lawoss/engine-dependencies/npm-config.test.mjs lawoss/engine-dependencies/prepare-target.test.mjs
+```
+
+Ordinary target tests use synthetic owned `.work/test-fixtures` only and deny
+sockets. The four genuine-cache tests require an explicitly supplied
+`LAWOSS_TEST_ACCEPTED_SDK_CACHE` pointing to an existing accepted cacache root;
+otherwise they are visibly skipped. Each clones that source read-only into a new
+fixture's configured cache/_cacache. Tests never acquire tools/SDK over the network
+or transplant an SDK lock into an existing custom graph. The first genuine test
+creates a custom-only lock with real Arborist, then merges exact SDK offline,
+preserves four sections/metadata, and repairs a removed SDK subtree. Other genuine
+tests cover post-reify controlled corruption, omit=dev, and initially absent
+metadata in an existing root. Failure/cancellation/token/replacement seams are
+explicitly controlled tests. No Windows/Linux or production packaging acceptance
+is implied by local source tests. Compiled builtin context, owned-child transport,
+CLI distribution, native merged graph imports and original application gates remain
+unresolved before any production hook.

@@ -44,6 +44,7 @@ test('engine tuple wins over helper-derived prefix and relocation', async t => {
   assert.equal(actual.npmBin, path.join(f.engineNpmPath, 'bin/npm-cli.js'));
   const relocated = path.join(f.root, 'relocated-helper');
   await mkdir(relocated);
+  await writeFile(path.join(relocated, 'runtime-tools.mjs'), await readFile(new URL('./runtime-tools.mjs', import.meta.url)));
   await writeFile(path.join(relocated, 'npm-config.mjs'), await readFile(new URL('./npm-config.mjs', import.meta.url)));
   await symlink(path.join(here, 'runtime-tools'), path.join(relocated, 'runtime-tools'), 'dir');
   const other = await import(pathToFileURL(path.join(relocated, 'npm-config.mjs')));
@@ -123,6 +124,7 @@ test('strict inputs and absent-HOME native parity', async t => {
 test('local tooling required: ancestor fallback and wrong local version refuse', async t => {
   const f = await fixture(t);
   const helper = path.join(f.root, 'missing-tools'); await mkdir(helper);
+  await writeFile(path.join(helper, 'runtime-tools.mjs'), await readFile(new URL('./runtime-tools.mjs', import.meta.url)));
   await writeFile(path.join(helper, 'npm-config.mjs'), await readFile(new URL('./npm-config.mjs', import.meta.url)));
   const other = await import(pathToFileURL(path.join(helper, 'npm-config.mjs')));
   await assert.rejects(other.loadEngineNpmConfig(f), { code: 'TOOLING_UNAVAILABLE', message: 'TOOLING_UNAVAILABLE' });

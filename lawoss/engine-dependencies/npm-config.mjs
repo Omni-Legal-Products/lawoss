@@ -1,31 +1,12 @@
-import { createRequire } from 'node:module';
-import { readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { localRuntimePackage } from './runtime-tools.mjs';
 
-const tools = fileURLToPath(new URL('./runtime-tools/', import.meta.url));
-const require = createRequire(new URL('./runtime-tools/package.json', import.meta.url));
 const refusal = code => Object.assign(new Error(code), { code });
 const absolute = value => typeof value === 'string' && value.length > 0 && !value.includes('\0') && path.isAbsolute(value);
-
 function tooling() {
-  try {
-    // Compare real package identities, allowing pnpm's local symlinks but refusing
-    // Node's otherwise silent ancestor node_modules fallback.
-    const local = realpathSync(path.join(tools, 'node_modules/@npmcli/config'));
-    const manifest = require.resolve('@npmcli/config/package.json');
-    if (realpathSync(path.dirname(manifest)) !== local) throw refusal('TOOLING_UNAVAILABLE');
-    const pkg = JSON.parse(readFileSync(manifest, 'utf8'));
-    if (pkg.name !== '@npmcli/config' || pkg.version !== '10.8.1') throw refusal('TOOLING_UNAVAILABLE');
-    for (const specifier of ['@npmcli/config', '@npmcli/config/lib/definitions']) {
-      const relative = path.relative(local, realpathSync(require.resolve(specifier)));
-      if (relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) throw refusal('TOOLING_UNAVAILABLE');
-    }
-    return { Config: require('@npmcli/config'), definitions: require('@npmcli/config/lib/definitions') };
-  } catch {
-    throw refusal('TOOLING_UNAVAILABLE');
-  }
+  const load = localRuntimePackage('@npmcli/config', '10.8.1', ['@npmcli/config/lib/definitions']);
+  return { Config: load('@npmcli/config'), definitions: load('@npmcli/config/lib/definitions') };
 }
 
 /** Load the source engine's constructor context. Not a compiled-path adapter. */
