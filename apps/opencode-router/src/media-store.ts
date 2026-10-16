@@ -151,10 +151,7 @@ export class MediaStore {
       info = await stat(resolved);
     } catch (error) {
       if (error instanceof Error && "status" in error && error.status === 403) throw error;
-      const wrapped = new Error(`File not found: ${raw}`) as Error & { status?: number };
-      wrapped.status = 404;
-      (wrapped as any).cause = error;
-      throw wrapped;
+      throw Object.assign(new Error(`File not found: ${raw}`, { cause: error }), { status: 404 });
     }
 
     if (!info.isFile()) {
