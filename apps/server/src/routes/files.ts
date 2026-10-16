@@ -3,6 +3,7 @@ import { remapHistoricalFilePath } from "../lawoss/workspace-history.js";
 import { writeConditionalText } from "../lawoss/conditional-text-write.js";
 import { childPathWithin } from "../lawoss/path-within.js";
 import { resolveWorkspaceFilePath, resolveReadableWorkspaceFilePath, recheckWorkspaceFilePath } from "../lawoss/filesystem-boundary.js";
+import { statWithAdvancedMtime } from "../lawoss/advance-mtime.js";
 import { readWorkspaceText } from "../lawoss/workspace-text.js";
 import { projectFileLinkSchema, projectFileSourceSchema, projectFilePath } from "../project-file-schema.js";
 import { importProjectFile, renameProjectFileEntry, projectFileParent, readProjectFileLinks, updateProjectFileLinks } from "../project-file-links.js";
@@ -969,7 +970,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
           const tmp = `${entry.absPath}.tmp-${shortId()}`;
           await writeFile(tmp, entry.bytes, { flag: "wx" });
           await rename(tmp, entry.absPath);
-          const after = await stat(entry.absPath);
+          const after = await statWithAdvancedMtime(entry.absPath, before ? before.mtimeMs : null); // 🟡 LAWOSS: Windows granularita času
           const revision = fileRevision(after);
 
           recordWorkspaceFileEvent(workspace.id, { type: "write", path: entry.path, revision });
@@ -1361,7 +1362,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       const tmp = `${absPath}.tmp-${shortId()}`;
       await writeFile(tmp, bytes, { flag: "wx" });
       await rename(tmp, absPath);
-      const after = await stat(absPath);
+      const after = await statWithAdvancedMtime(absPath, beforeUpdatedAt); // 🟡 LAWOSS: Windows granularita času
       const revision = fileRevision(after);
       recordWorkspaceFileEvent(workspace.id, { type: "write", path: relativePath, revision });
       await recordAudit(workspace.path, {
@@ -1451,7 +1452,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
       await recheckWorkspaceFilePath(workspace.path, relativePath, absPath);
       await writeConditionalText(workspace.path, join(workspace.path, relativePath), written, expectedContent);
-      const after = await stat(absPath);
+      const after = await statWithAdvancedMtime(absPath, beforeUpdatedAt); // 🟡 LAWOSS: Windows granularita času
       const revision = fileRevision(after);
 
       recordWorkspaceFileEvent(workspace.id, {
