@@ -160,6 +160,8 @@ export type MatterOperationsInput = {
   title: string; date: string; kind: MatterKind; area: string; jurisdiction: "sk" | "cz";
   subject?: string; language?: "sk" | "cs" | "en"; workingProfile?: WorkingProfile;
   clientTitle?: string; clientCardPath?: string; extras?: MatterCardExtras;
+  /** Existujúci priečinok veci relatívne ku klientovi (roztriedenie doplní kartu na mieste); inak `Spisy/<RRRR-MM> <názov>`. */
+  folder?: string;
 };
 /**
  * Deterministické operácie jednej novej veci relatívne ku klientovi (`Spisy/<RRRR-MM> <názov>/…`)
@@ -168,7 +170,7 @@ export type MatterOperationsInput = {
 export function buildMatterOperations(input: MatterOperationsInput): { name: string; folder: string; operations: CreateOperation[] } {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date) || !["contentious", "non_contentious"].includes(input.kind)) throw new Error("Valid date and matter kind are required.");
   // Oblasť je údaj veci (`area:` v matter.md), nie priečinok.
-  const area = safeSegment(input.area), name = `${input.date.slice(0, 7)} ${safeSegment(input.title)}`, folder = `${MATTERS_DIR}/${name}`;
+  const area = safeSegment(input.area), name = input.folder?.split("/").pop() ?? `${input.date.slice(0, 7)} ${safeSegment(input.title)}`, folder = input.folder ?? `${MATTERS_DIR}/${name}`;
   const generated = planEntity({ type: "spis", dir: folder, title: input.title, language: input.language, jurisdiction: input.jurisdiction, date: input.date, workingProfile: input.workingProfile, matterKind: input.kind === "contentious" ? "dispute" : "other", ...(input.clientTitle ? { klient: input.clientTitle } : {}), ...(input.clientCardPath ? { clientCardPath: input.clientCardPath } : {}), ...(input.extras?.caseNumber ? { spzn: input.extras.caseNumber } : {}), ...(input.extras?.counterparty ? { protistrana: input.extras.counterparty } : {}), ...(input.extras?.court ? { sud: input.extras.court } : {}) }, LOCALIZED_TEMPLATES, () => false);
   const template = templateOperations(folder, generated.entries).filter(operation => operation.path !== folder);
   const operations = [directory(folder), ...template.map(operation => operation.path === `${folder}/matter.md` && operation.kind === "file" ? file(operation.path, (operation.content ?? "").replace("type: spis", `type: matter\nkind: ${input.kind}\narea: ${yaml(area)}\nsubject: ${yaml(input.subject ?? "")}`)) : operation)];

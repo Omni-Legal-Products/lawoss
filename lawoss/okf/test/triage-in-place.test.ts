@@ -110,10 +110,116 @@ test("priečinok veci bez karty (`2025-01 Spor`) sa nerozpustí, ostatné podpri
   await writeFile(join(root, "2025-01 Spor", "Žaloba.pdf"), "%PDF-1.4 synthetic claim in matter");
   await grantInPlaceReorganize(root, NOW);
   const inventory = await scanTriage(root, HOST);
-  expect(inventory.skipped).toContainEqual({ path: "2025-01 Spor/Žaloba.pdf", reason: "in_matter" });
+  expect(inventory.matters).toContainEqual(expect.objectContaining({ path: "2025-01 Spor", implicit: {} }));
   const { plan } = await prepareTriage(root, { now: NOW, ...HOST });
-  expect(plan.moves.some(move => move.from.startsWith("2025-01 Spor/"))).toBe(false);
+  // Dokument veci sa zaradí v rámci veci, nie na úroveň klienta (test 16. 10. 2026, N2).
+  expect(plan.moves.find(move => move.from === "2025-01 Spor/Žaloba.pdf")?.to).toBe("2025-01 Spor/04_Vystupy/Žaloba.pdf");
+  expect(plan.create).toContainEqual(expect.objectContaining({ path: "2025-01 Spor/matter.md", kind: "file" }));
   expect(plan.moves.some(move => move.from === "Stare/priloha.pdf")).toBe(true);
+});
+
+/**
+ * Syntetický klient z testu 16. 10. 2026 (TEST-OKF-2026-10-16/gen_korpus.py, nálezy N2 a N5):
+ * vec so spisovou značkou v názve a vec bez značky aj bez diakritiky, obe bez karty.
+ */
+const SPOR = "Spor BETA - dielo 18Cb-47-2026";
+const KUPA = "Kupa haly Senec";
+const ALFA: Readonly<Record<string, string>> = {
+  [`${SPOR}/Zmluva o dielo 2025-03-14.pdf`]: "%PDF-1.4 synthetic contract",
+  [`${SPOR}/2026-05-12 Zaloba o zaplatenie.docx`]: "synthetic claim draft",
+  [`${SPOR}/2026-08-28 Vyjadrenie zalovaneho.pdf`]: "%PDF-1.4 synthetic statement",
+  [`${SPOR}/2026-10-06 Uznesenie KS BA - vyzva na repliku.pdf`]: "%PDF-1.4 synthetic resolution",
+  [`${SPOR}/poznamky z porady 2026-09-02.txt`]: "synteticke poznamky",
+  [`${KUPA}/Kupna zmluva - navrh v3.docx`]: "synthetic purchase draft",
+  [`${KUPA}/LV 1234 Senec 2026-10-01.pdf`]: "%PDF-1.4 synthetic title extract",
+  [`${KUPA}/2026-10-10 email predavajuci.txt`]: "synteticky email",
+};
+async function alfaClient(): Promise<string> {
+  const base = await directory("okf-in-place-alfa-");
+  const root = join(base, "ALFA STAV s.r.o");
+  await mkdir(root);
+  await writeTriageFixture(root, ALFA);
+  const preview = await planOnboarding(parseOnboardingRequest({ action: "existing", root, mode: "convert", title: "ALFA STAV s.r.o.", clientType: "po", language: "sk", jurisdiction: "sk", date: "2026-10-16", confirmUnknownClient: true }));
+  await applyOnboarding(preview, { journalDirectory: await directory("okf-journal-"), externalProfileDirectory: await directory("okf-external-") });
+  await grantInPlaceReorganize(root, NOW);
+  return root;
+}
+const inFolder = (folder: string) => (path: string) => path.startsWith(`${folder}/`);
+
+test("vec so spisovou značkou v názve ostane vecou: kartu dostane na mieste, dokumenty sa zaradia v nej", async () => {
+  const root = await alfaClient();
+  const before = await documentsHash(root);
+  const { inventory, plan } = await prepareTriage(root, { now: NOW, ...HOST });
+  expect(inventory.documents.filter(document => inFolder(SPOR)(document.path))).toHaveLength(5);
+  expect(plan.matters).toContainEqual(expect.objectContaining({ folder: SPOR, source: "folder", kind: "contentious", caseNumber: "18Cb 47/2026", documents: 5 }));
+  // Spisová značka z cesty nezaloží druhú vec v Spisy/, ktorá by spor vyprázdnila.
+  expect(plan.matters.some(matter => matter.folder.startsWith("Spisy/"))).toBe(false);
+  const fromSpor = plan.moves.filter(move => inFolder(SPOR)(move.from));
+  expect(fromSpor).toHaveLength(5);
+  for (const move of fromSpor) expect(move.to.startsWith(`${SPOR}/`)).toBe(true);
+  expect(plan.create.every(operation => !operation.path.startsWith("Spisy/"))).toBe(true);
+  expect(plan.create.some(operation => operation.path === SPOR)).toBe(false);
+
+  await applyTriagePlan(plan, HOST);
+  const card = await readFile(join(root, SPOR, "matter.md"), "utf8");
+  expect(card).toContain("18Cb 47/2026");
+  expect(card).toContain("kind: contentious");
+  const undone = await undoTriage(root, plan.runId, HOST);
+  expect(undone.status).toBe("undone");
+  expect(await documentsHash(root)).toBe(before);
+});
+
+test("vec bez spisovej značky a bez diakritiky (`Kupa haly Senec`) sa nerozpustí do priečinkov klienta", async () => {
+  const root = await alfaClient();
+  const { plan } = await prepareTriage(root, { now: NOW, ...HOST });
+  expect(plan.matters).toContainEqual(expect.objectContaining({ folder: KUPA, source: "folder", kind: "non_contentious", documents: 3 }));
+  const fromKupa = plan.moves.filter(move => inFolder(KUPA)(move.from));
+  expect(fromKupa).toHaveLength(3);
+  for (const move of fromKupa) expect(move.to.startsWith(`${KUPA}/`)).toBe(true);
+  expect(plan.moves.find(move => move.from === `${KUPA}/Kupna zmluva - navrh v3.docx`)?.to).toBe(`${KUPA}/03_Drafty/Kupna zmluva - navrh v3.docx`);
+  // Nejasný dokument ide na zatriedenie vo veci, nie do `00_Na_zatriedenie` klienta.
+  expect(plan.moves.find(move => move.from === `${KUPA}/2026-10-10 email predavajuci.txt`)?.to).toBe(`${KUPA}/00_Na_zatriedenie/2026-10-10 email predavajuci.txt`);
+
+  await applyTriagePlan(plan, HOST);
+  expect(await readFile(join(root, KUPA, "matter.md"), "utf8")).toContain("kind: non_contentious");
+  for (const folder of [KUPA, SPOR]) expect((await readdir(join(root, folder))).length).toBeGreaterThan(0);
+  // Ďalšie usporiadanie (nový súhlas) vidí obe veci s kartou a nič z nich nepresúva.
+  await rm(join(root, IN_PLACE_MARKER));
+  await grantInPlaceReorganize(root, NOW);
+  const again = await prepareTriage(root, { now: NOW, ...HOST });
+  expect(again.plan.moves.filter(move => inFolder(KUPA)(move.from) || inFolder(SPOR)(move.from))).toHaveLength(0);
+  expect(again.inventory.matters.some(matter => matter.implicit)).toBe(false);
+});
+
+test("vec so značkou bez diakritiky (`Zaloba o zaplaceni 23 C 118-2026`) má čo usporiadať", async () => {
+  const base = await directory("okf-in-place-horak-");
+  const root = join(base, "Horák s.r.o.");
+  const matter = "Zaloba o zaplaceni 23 C 118-2026";
+  await mkdir(root);
+  await writeTriageFixture(root, { [`${matter}/Zaloba.pdf`]: "%PDF-1.4 synthetic claim", [`${matter}/Platebni rozkaz.pdf`]: "%PDF-1.4 synthetic order" });
+  const preview = await planOnboarding(parseOnboardingRequest({ action: "existing", root, mode: "convert", title: "Horák s.r.o.", clientType: "po", language: "cs", jurisdiction: "cz", date: "2026-10-16", confirmUnknownClient: true }));
+  await applyOnboarding(preview, { journalDirectory: await directory("okf-journal-"), externalProfileDirectory: await directory("okf-external-") });
+  await grantInPlaceReorganize(root, NOW);
+  const { inventory, plan } = await prepareTriage(root, { now: NOW, ...HOST });
+  expect(inventory.documents).toHaveLength(2);
+  expect(plan.moves).toHaveLength(2);
+  for (const move of plan.moves) expect(move.to.startsWith(`${matter}/`)).toBe(true);
+  expect(plan.matters).toEqual([expect.objectContaining({ folder: matter, caseNumber: "23C 118/2026", kind: "contentious", jurisdiction: "cz" })]);
+});
+
+test("vec bez karty s vlastnými inštrukciami a podpriečinkami: nič existujúce sa neprepíše", async () => {
+  const root = await alfaClient();
+  await writeFile(join(root, KUPA, "AGENTS.md"), "vlastne instrukcie");
+  await mkdir(join(root, KUPA, "03_Drafty"));
+  await writeFile(join(root, KUPA, "03_Drafty", "starsi navrh v1.docx"), "synthetic older draft");
+  const { inventory, plan } = await prepareTriage(root, { now: NOW, ...HOST });
+  expect(inventory.skipped).toContainEqual({ path: `${KUPA}/03_Drafty/starsi navrh v1.docx`, reason: "already_sorted" });
+  const created = plan.create.map(operation => operation.path);
+  expect(created).toContain(`${KUPA}/matter.md`);
+  for (const path of [`${KUPA}/AGENTS.md`, `${KUPA}/CLAUDE.md`, `${KUPA}/03_Drafty`, `${KUPA}/03_Drafty/.keep`]) expect(created).not.toContain(path);
+  expect(plan.moves.find(move => move.from === `${KUPA}/Kupna zmluva - navrh v3.docx`)?.to).toBe(`${KUPA}/03_Drafty/Kupna zmluva - navrh v3.docx`);
+  await applyTriagePlan(plan, HOST);
+  expect(await readFile(join(root, KUPA, "AGENTS.md"), "utf8")).toBe("vlastne instrukcie");
 });
 
 /** Zámok simulovaný chybou EBUSY pri otvorení súboru (Word na Windows). */

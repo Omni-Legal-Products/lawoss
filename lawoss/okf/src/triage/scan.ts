@@ -232,21 +232,46 @@ export async function scanTriage(rootInput: string, options: TriageTargetOptions
     const caseKey = fields.spisova_znacka ? findCaseNumber(fields.spisova_znacka)?.key : undefined;
     matters.push({ id: `existing-${sha(dir).slice(0, 12)}`, path: dir, ...(fields.title ? { title: fields.title } : {}), ...(caseKey ? { caseKey } : {}), roles });
   }
+  const under = (path: string, folder: string) => path.startsWith(`${folder}/`);
+  // Priamy podpriečinok klienta pomenovaný ako vec (`Kupa haly Senec`, `Spor BETA 18Cb-47-2026`) je vec aj bez
+  // karty. Ostáva na mieste: jeho dokumenty sa zaraďujú len v rámci neho a plán mu doplní kartu (test 16. 10. 2026, N2, N5).
+  // Pracovné priečinky klienta, `Spisy`, pamäť a kancelária vecami nie sú; priečinok s kartou vnútri rieši karta.
+  const clientFolders = new Set([...profile.folders, ...Object.values(profile.roles)].map(folder => folder.split("/")[0]!.toLocaleLowerCase()));
+  const matterProfile = workingProfile(newMatterProfile?.folders, newMatterProfile?.roles, newMatterProfile?.naming, language);
+  for (const dir of [...directories].filter(dir => !dir.includes("/") && !hidden(dir)).sort()) {
+    if (["spisy", "memory", "office", "_kancelaria"].includes(dir.toLocaleLowerCase()) || clientFolders.has(dir.toLocaleLowerCase())) continue;
+    if (!looksLikeMatterName(dir) || entityDirs.some(entity => entity === dir || under(entity, dir))) continue;
+    if (![...files.keys()].some(path => under(path, dir) && !hidden(path))) continue;
+    const caseNumber = findCaseNumber(dir);
+    let roles = matterProfile.roles;
+    try { const text = await readSmall(clone.root, `${dir}/${PROFILE_FILE}`); if (text) roles = parseWorkingProfile(text).roles; } catch { roles = matterProfile.roles; }
+    matters.push({ id: `existing-${sha(dir).slice(0, 12)}`, path: dir, title: dir, ...(caseNumber ? { caseKey: caseNumber.key } : {}), roles, implicit: caseNumber ? { caseNumber: caseNumber.display } : {} });
+  }
   const inbox = profile.roles.inbox;
   const sortedFolders = Object.entries(profile.roles).filter(([role]) => role !== "inbox").map(([, folder]) => folder);
-  const under = (path: string, folder: string) => path.startsWith(`${folder}/`);
+  /** Vec bez karty, v ktorej dokument leží, a dôvod, ak sa v nej netriedi (vnorená vec, už zaradený). */
+  const implicitHome = (path: string): { matter: ExistingMatter; reason?: SkipReason } | undefined => {
+    const matter = matters.find(item => item.implicit && under(path, item.path));
+    if (!matter) return undefined;
+    const rest = path.slice(matter.path.length + 1);
+    if (rest.split("/").slice(0, -1).some(looksLikeMatterName)) return { matter, reason: "in_matter" };
+    const sorted = Object.entries(matter.roles).filter(([role]) => role !== "inbox").map(([, folder]) => folder);
+    return sorted.some(folder => under(rest, folder)) && !(matter.roles.inbox && under(rest, matter.roles.inbox)) ? { matter, reason: "already_sorted" } : { matter };
+  };
   const documents: TriageDocument[] = [];
   const skipped: { path: string; reason: SkipReason }[] = [];
   for (const entry of files.values()) {
     const name = entry.path.split("/").pop()!;
+    const home = implicitHome(entry.path);
     const reason: SkipReason | undefined = hidden(entry.path) ? "hidden"
       : entry.path.split("/")[0] === "memory" ? "memory"
       : !entry.path.includes("/") && (CARD_NAMES.has(name.toLowerCase()) || SYSTEM_NAMES.test(name)) ? "system"
       : CARD_NAMES.has(name.toLowerCase()) || SYSTEM_NAMES.test(name) ? "system_name"
-      : matters.some(matter => under(entry.path, matter.path)) ? "in_matter"
+      : matters.some(matter => !matter.implicit && under(entry.path, matter.path)) ? "in_matter"
       : entityDirs.some(dir => under(entry.path, dir)) ? "inside_entity"
-      // Priečinok pomenovaný ako vec (`2025-01 Spor`, spisová značka) je vec aj bez karty; rozpoznanie ho tak
-      // aj ohlási („klient s vecami“). Jeho dokumenty ostanú spolu na mieste, roztriedenie vec nerozpustí.
+      : home ? home.reason
+      // Hlbšie vnorený priečinok pomenovaný ako vec (`Stare/2025-01 Spor`) je vec aj bez karty. Jeho dokumenty
+      // ostanú spolu na mieste, roztriedenie vec nerozpustí; kartu dostane len priamy podpriečinok klienta (vyššie).
       : entry.path.split("/").slice(0, -1).some(looksLikeMatterName) ? "in_matter"
       : sortedFolders.some(folder => under(entry.path, folder)) && !(inbox && under(entry.path, inbox)) ? "already_sorted"
       : undefined;
@@ -254,7 +279,7 @@ export async function scanTriage(rootInput: string, options: TriageTargetOptions
     // Otvorený vo Worde: na čítanie áno, presunúť sa nedá. Preskočí sa a nahlási ako zamknutý.
     if (await lockedForWrite(join(clone.root, entry.path), options.hooks)) { skipped.push({ path: entry.path, reason: "locked" }); continue; }
     const dot = name.lastIndexOf(".");
-    documents.push({ id: `d${sha(entry.path).slice(0, 16)}`, path: entry.path, name, ext: dot > 0 ? name.slice(dot + 1).toLowerCase() : "", size: entry.size, sha256: entry.digest! });
+    documents.push({ id: `d${sha(entry.path).slice(0, 16)}`, path: entry.path, name, ext: dot > 0 ? name.slice(dot + 1).toLowerCase() : "", size: entry.size, sha256: entry.digest!, ...(home ? { matter: home.matter.id } : {}) });
   }
   for (const issue of inspection.issues) if (issue.code === "locked_file") skipped.push({ path: issue.path, reason: "locked" });
   if (documents.length > MAX_TRIAGE_DOCUMENTS) throw new Error(`Priečinok má ${documents.length} dokumentov na roztriedenie; naraz sa dá najviac ${MAX_TRIAGE_DOCUMENTS}.`);
