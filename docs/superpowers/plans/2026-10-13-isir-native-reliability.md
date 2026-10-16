@@ -908,5 +908,16 @@ M1 semantic receipt validator Minor je explicitně odložený pro finální revi
 
 - [x] Readonly source triage: broad ARCHIVE_MISMATCH sloučí proces/script/predikáty/timeout; JS archive test nevolá skutečný PowerShell. Žádný bezpodmínečný bridge/API/bound defect prokázán.
 - [x] Root preflight rozhraní a source-only ruling; původní30000/7000ms/256MiB/192MiB/90s/EXE i production source beze změny. Veřejné release API ověřilo ZIPdigest81ea8263/60655377B a tagcommit16747470. Oddělený bounded64KiB tail Range skončil501/body0, bez opakování nebo fallbacku; nic neprokázal o ZIP shape ani starém CI.
-- [ ] Fresh source implementer: přesné finite extraction lifecycle/script-phase pozorování a tiny genuine samebridge control CODE před budoucím publicdownload; nezávislé control/original údaje a ZIPdigest guard. Nyní pouze pure/fake testy, bez PowerShell/engine/download/CI/pushe.
-- [ ] Fresh nezávislý SPEC/QUALITY a root audit před případným novým admission pro jiný reviewed head. Starý run se neopakuje a původní application startup zůstává RED.
+- [x] Sourceef6f7ba8: přesné finite extraction lifecycle/script-phase pozorování, tiny genuine samebridge control před publicdownload, nezávislé control/original údaje a ZIPdigest guard. ExactNode24 retained69/69 pure/fake PASS5checks0 před commitem, freshSPEC/QUALITY8102e79a Approved/root9source auditPASS; žádné místní PowerShell/engine spuštění.
+- [x] Root docs/publication fe09dc33/tree72454362, exactremote/18workflow hashes/bothremotes fetch ověřeny. Jeden NEWmanualWindowsrun38849456033, žádný rerun starého běhu/PR/tag/dev merge.
+- [ ] Původní application startup stále RED; nový skutečný control nedošel k engine ani původnímu ZIPu.
+
+**Skutečný Task41 control:** Windows fake krok SUCCESS, ale tiny control timerFired/30036ms, positiveclose SIGNAL/SIGTERM, protocolINCOMPLETE/lastphasestarted/stdout24/stderr0. Originaldownload/extraction/engine NOT_RUN. Receipt2366B/6631e861 a ZIP1268B/4c345e69, strictschema2+independentM1PASS; sourcefirst106parserfixtures/root12manifest auditPASS. Kontrolovaný proces uzavřen/rootremoved/provider0. Source interval po started a před dokončením assembly-ready zahrnuje Add-Type resolution/autoload/binding/load/next marker; přesný vnitřní důvod UNKNOWN, nikoli prokázaný CLR hang. Starý Task40 neznámý důvod se zpětně nepřiřazuje. One-run/body budget vyčerpán, bez dalšího spuštění.
+
+### Task42: Přímá CLR alternativa ve dvou pevných operacích
+
+- [x] Readonly primarysource plán: Assembly.Load(String) a Array.CreateInstance(Type,Int32) dokumentovány pro Framework; exactlongidentity FileSystem4.0.0.0/b77a5c561934e089 potvrzena Microsoft-owned manifestem, nikoli DLL na runneru. Žádná native garance.
+- [x] Root ruling/preflight: jako kontrolovaný candidate přesně dvě náhrady cmdletů Add-Type/New-Object za voidAssembly.Load a typedbyte[]CreateInstance65536; všechny markery/limity/schema a source/ZIP/EXE pins stejné. Obsolete textguard pouze na pořadí pevných markerů, ne falešný native test. ActualTask41control je pravý RED.
+- [ ] Fresh implementer SOURCE ONLY tři diagfiles/69purefake/syntax/diff/evidence před commitem, potom fresh nezávislá SPEC/QUALITY a root audit; žádný nový push/runtime admission zatím.
+
+PR158 draft zůstává9e31/dev1c a body odděluje oba temporary diagnostic výsledky od app acceptance. LokálníTask38source902f i rootdocs zůstávají held; helperruntime caller/publictenGUI/provider/realapproval/dev/newapp gate stále OPEN, newpaid0.
