@@ -204,3 +204,5 @@ If maintaining a downstream patch becomes disproportionately expensive, prefer r
 - Tool-version checks through Corepack shims can bootstrap downloads under a new HOME. For offline validation, verify the genuine cached package CLI and invoke it with the captured exact Node executable and network bootstrap disabled.
 
 - Validate packaged dependency closures from a relocated owned tree with the original stage unavailable and physical module resolutions confined to the relocated tree. Preserve all package files and notices; generated CLI shims are separate from dependency contents.
+
+- A failed required check holds the commit, including a run with missing build prerequisites. Restore the CI-matching setup and obtain a covering PASS first; report failures outside ownership before committing.

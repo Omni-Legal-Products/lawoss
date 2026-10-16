@@ -864,3 +864,13 @@ Produkční SDK helper/captured compiled context/packaging/transport pro current
 **Task37 source:**0aabd546+c16fbab2; původní8fixturePASS po sourcefix11/11PASS; genuineoffline package2162files/8582d90b a actualNode22relocation505localmodules PASS předcommit. Source-onlyRED je pouze setup; skutečné odmítnutí generated.bin a HIDDEN_EXISTS leak jsou zachovány jako behavioralevidence. Minor compoundcleanup masking explicitně do wholebranchreview; npmagentISCnoticesgap předrelease.
 
 Task31→37 zachovává relativní runtime-tools loader a immutable lock; desktop→37 pouze build/resources; CI→37 izolované offline zpracování po frozen install. CLI dostupnost, compiled engine context a produkční owner-bound current-and-later request transport zůstávají další samostatné integrační kroky. Distribuce sama neprokazuje aplikaci ani původních10 veřejných spisů.
+
+### Task 38: Aktuální workflow reference a bezpečné build artefakty
+
+- [x] Zachovat currentprefix guard po explicitně reviewed2Nodepins: původní13304/94cd431d přesnětransformovanýna13314/d3726555; ostatní suffix/first-attempt/Windows/budget oracles beze změny. Skutečný localassertionRED zachován, ne pouze změna golden pro zelenou.
+- [x] Compound publish/rollback/outercleanup drží původníerroridentity a oběcleanup chyby vpořadí; regressionRED→12/12 packagingPASS.
+- [x] Tři přesné anchored ignorecesty pro generatedresources/rootowned scratch, sourcesneignorované.
+- [x] Node24 whole204native helperPASS po skutečném serverbuild prerequisite/exactBun1.4.2; retainedfirstinvalidsetup202pass2fail. FreshsourceSPEC/QUALITYApproved/rootauditPASS.
+- [ ] Publikace společně s relevantním novým Windowsruntimefixem po ALLcurrent9e31terminal/rootaudit; neopakovat samotný unchangedWindowsapp gate jen kvůli dokumentaci/reference opravě.
+
+**Task38 source902fbc53:**Commit vznikl před corrected-prerequisite204PASS; jde o historickou procesníodchylku, nikoli tests-before-commit shodu. Exactcommittedsource následněprošel, žádný rewrite/emptycommit. Root release/pushgate zachován. Skutečný9e31Desktop Linux/macOS uspěl; Windowsstartup healthheaders200 a /path timeout88312ms předgeneration, unikátní vnitřní příčina neověřená. SDKhelper není produkčnězapojen.

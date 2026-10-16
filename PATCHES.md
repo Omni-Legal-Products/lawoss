@@ -648,3 +648,9 @@ Skutočný podporovaný metadata refresh pri zachytenom native chooseri na staro
 | `apps/desktop/scripts/electron-build.mjs`, `apps/desktop/electron-builder.yml` | Po existujúcej príprave Node sa genuine frozen runtime-tools closure pripraví pomocou host Node24/pnpm11 a pribalia sa helper sources/licencie mimo asar. Žiadny foreign-target Node sa nespúšťa, runtime hook ani usertree install nie je zapnutý. Nový owned staging a relocationsmoke overuje lokálny closure po premiestnení bez pôvodného stage; actual Electron packaging je ďalší gate. | [#158](https://github.com/Omni-Legal-Products/lawoss/pull/158) |
 
 Pri tejto integrácii sa len Node selector v existujúcich desktop build joboch zhoduje s host contractom24.21.0: `.github/workflows/ci-desktop-packaging.yml` (2), `alpha-macos-aarch64.yml`, `alpha-windows-x64.yml`, `storage-oauth-review.yml` a job publish-electron v `release-macos-aarch64.yml` (po1). Žiadna zmena events, release/tag/signing pravidiel, runtime/opencode verzií alebo ostatných jobs.
+
+### Generované portable resources a súkromný build scratch (2026-10-16)
+
+| Upstream súbory | Downstream doplnenie a dôvod | PR |
+| --- | --- | --- |
+| `.gitignore` | Iba tri anchored cesty pre owned root `.work`, nový `apps/desktop/resources/engine-dependencies` a `.engine-dependencies-build`; helper source/test/runtime manifest ostávajú viditeľné. Bez zmeny runtime alebo CI výberu. | [#158](https://github.com/Omni-Legal-Products/lawoss/pull/158) |
