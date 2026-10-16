@@ -2,7 +2,15 @@
 
 Tento záznam doplňuje [implementační plán](../superpowers/plans/2026-10-13-isir-native-reliability.md) a [regresní kritéria](../../lawoss/testing/isir/native-reliability-acceptance.md). Popisuje lokální ověření konkrétního zdroje; nenahrazuje výsledky CI nebo přijetí aplikace uživatelem.
 
-## Změny
+## Nativní navigace po v0.2.4 — 133d0de4
+
+Na publikovaném `d2c4c858` prošly obecné Linux/macOS testy, Windows serverové testy, i18n, SDK artefakt i obě konfigurace. Všechny tři native package joby selhaly. Linux a macOS přitom ověřily všech deset syntetických spisů i skutečné přiložení do chatu; selhaly až při dalším otevření Dokumenty před edit invalidation/relaunch. Nejde o živou akceptaci deseti veřejných spisů.
+
+Zdroj nové v0.2.4 má záměrný Files toggle s aria-pressed; starý helper na něj klikl i při otevřeném panelu a následně uznal přítomné, ale skryté DOM. Skutečný stav viditelnosti v okamžiku CI chyby nebyl zachycen; mechanismus prokazuje cílená regrese importující přesný helper používaný driverem. Neutrální extrakce zachovala původní chování, následný RED měl4PASS/20FAIL; opravený helper má27PASS, celý pure Node native helper souborový výběr253PASS/0SKIP/0FAIL, syntax čtyř JS souborů exit0. Původní4 wait operace a limity, frozen driver SHA i produkční UI zůstaly zachované. VM fixture není mounted renderer; nové opakované otevření viditelného panelu je přidané do existujícího native průchodu bez dalšího modelového požadavku a čeká na nové CI. Source review: SPEC PASS / QUALITY Approved; root source/provenance audit PASS.
+
+Windows dál selhává při startu: globální health headers200, vybraný engine.path nevrátí headers v původním90s rozpočtu. Příčina je UNKNOWN; doctor hardening ani úspěšný standalone smoke ji neprokazují. Není proveden spekulativní engine pin, SDK zapojení ani zvýšení timeoutu. Windows startup, celé native průchody včetně restartu a skutečné GUI/provider přijetí zůstávají otevřené.
+
+## Předchozí integrační změny
 
 - Integrační commit `c4c50b74a760457b96be4ab9f687edc7637bfb90` zachovává spolehlivost z `26a2e345` a bezpečnostní změny [PR142](https://github.com/Omni-Legal-Products/lawoss/pull/142) z `5909e96d`.
 - Sanitizované veřejné workspace odpovědi již neposkytují přihlašovací údaje enginu. Desktop je získává soukromě z aktuálního vlastněného serverového handle podle identity workspace. Regrese skutečného runtime/vestavěného serveru před opravou vracela u čerstvého managed i external spuštění HTTP401, po opravě HTTP200; veřejné odpovědi nadále údaje neobsahují.
