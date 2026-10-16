@@ -5,6 +5,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createMcpOAuthCallbackBroker } from "../../desktop/electron/mcp-oauth-callback.mjs";
 import { spawnOwnedChild, stopOwnedChild } from "./lawoss/test-support/owned-child-process.js";
+import { normalizeImportedConnector } from "./connector-imports.js";
+import { resolvePluginImports } from "./plugin-imports.js";
+import { preparePluginImport, reviewedPluginImport } from "./plugin-import-checks.js";
+import { zipSync, strToU8 } from "fflate";
 
 /**
  * Full MCP OAuth flow e2e:
@@ -244,6 +248,47 @@ describeMaybe("mcp oauth flow against mock provider", () => {
     90_000,
   );
 
+  test("Context7's canonical imported callback survives provider normalization, consent and token exchange", async () => {
+    const port = await getFreePort();
+    const providerUrl = `http://127.0.0.1:${port}`;
+    const callbackPort = await getFreePort();
+    const mock = spawnOwnedChild("node", [join(repoRoot, "scripts/mock-oauth-mcp-server.mjs")], {
+      env: { ...process.env, PORT: String(port), AUTO_APPROVE: "1", NORMALIZE_LOOPBACK_CALLBACK: "1" },
+      stdio: "ignore",
+    });
+    let listenerId = "";
+    try {
+      await waitFor(async () => (await fetch(`${providerUrl}/health`)).ok ? true : null, 10_000, "normalizing OAuth provider");
+      const beforeName = "context7-default-callback";
+      const beforeConfig = { type: "remote", url: `${providerUrl}/mcp`, enabled: true, oauth: { callbackPort } };
+      expect((await engineFetch("/mcp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: beforeName, config: beforeConfig }) })).ok).toBe(true);
+      const before = await (await engineFetch(`/mcp/${beforeName}/auth`, { method: "POST" })).json();
+      const rejected = await fetch(before.authorizationUrl, { redirect: "manual" });
+      expect(rejected.status).toBe(400);
+      expect((await rejected.json()).error_description).toContain("registered redirect URLs");
+
+      const imported = normalizeImportedConnector({ url: "https://mcp.context7.com/mcp?client=claude-code-plugin", oauth: { callbackPort } }, []);
+      const oauth = imported.oauth;
+      if (!oauth || typeof oauth !== "object" || !("redirectUri" in oauth) || typeof oauth.redirectUri !== "string") throw new Error("Missing imported OAuth callback");
+      const listener = await callbacks.listen({ redirectUri: oauth.redirectUri });
+      listenerId = listener.listenerId;
+      const name = "context7-imported-callback";
+      const config = { ...imported, type: "remote", url: `${providerUrl}/mcp`, enabled: true };
+      expect((await engineFetch("/mcp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, config }) })).ok).toBe(true);
+      const started = await (await engineFetch(`/mcp/${name}/auth`, { method: "POST" })).json();
+      const authorizationUrl = new URL(started.authorizationUrl);
+      expect(authorizationUrl.searchParams.get("redirect_uri")).toBe(oauth.redirectUri);
+      const waiting = callbacks.wait({ listenerId, state: started.oauthState });
+      expect((await fetch(authorizationUrl)).ok).toBe(true);
+      const complete = await engineFetch(`/mcp/${name}/auth/callback`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(await waiting) });
+      expect(complete.ok).toBe(true);
+      expect(await complete.json()).toEqual({ status: "connected" });
+    } finally {
+      callbacks.cancel(listenerId);
+      await stopOwnedChild(mock);
+    }
+  }, 45_000);
+
   test("logout removes stored tokens and drops the connection", async () => {
     const disconnect = await engineFetch(`/mcp/${MCP_NAME}/disconnect`, { method: "POST" });
     expect(disconnect.ok).toBe(true);
@@ -337,5 +382,57 @@ describeMaybe("mcp oauth flow against mock provider", () => {
     });
     expect(complete.ok).toBe(true);
     expect(await complete.json()).toEqual({ status: "connected" });
+  }, 30_000);
+
+  test("an import-prepared client completes real engine OAuth without registering a second client", async () => {
+    const port = await getFreePort();
+    const redirectUri = `http://localhost:${port}/callback/imported`;
+    const files = { ".claude-plugin/plugin.json": '{"name":"prepared"}', ".mcp.json": JSON.stringify({ mcpServers: { prepared: { type: "http", url: `${mockUrl()}/mcp`, oauth: { redirectUri } } } }) };
+    const zipBase64 = Buffer.from(zipSync(Object.fromEntries(Object.entries(files).map(([path, content]) => [path, strToU8(content)])))).toString("base64");
+    const [plan] = await resolvePluginImports({ source: { provider: "claude", zipBase64 }, scope: "project" }, workDir);
+    if (!plan) throw new Error("Missing import plan");
+    const target = { workspace: workDir, scope: "project", current: {} } satisfies Parameters<typeof preparePluginImport>[1];
+    const prepared = await preparePluginImport(plan, target);
+    expect(prepared.preview.connectors?.[0]?.status).toBe("setup");
+    const reviewed = reviewedPluginImport(plan, target, prepared.preview.validationId);
+    const component = reviewed.preview.components[0];
+    const config = reviewed.connectorConfigs?.[component.installedName];
+    if (!config) throw new Error("Missing prepared connector");
+    const before = await (await fetch(`${mockUrl()}/requests`)).json();
+    const registrations = before.requests.filter((request: { path: string }) => request.path === "/register").length;
+    const listener = await callbacks.listen({ redirectUri });
+    try {
+      const add = await engineFetch("/mcp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: component.installedName, config: { ...config, enabled: true } }) });
+      expect(add.ok).toBe(true);
+      const start = await engineFetch(`/mcp/${component.installedName}/auth`, { method: "POST" });
+      expect(start.ok).toBe(true);
+      const started = await start.json();
+      const authorization = new URL(started.authorizationUrl);
+      expect(authorization.searchParams.get("redirect_uri")).toBe(redirectUri);
+      const waiting = callbacks.wait({ listenerId: listener.listenerId, state: started.oauthState });
+      expect((await fetch(authorization)).ok).toBe(true);
+      const complete = await engineFetch(`/mcp/${component.installedName}/auth/callback`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(await waiting) });
+      expect(complete.ok).toBe(true);
+      expect(await complete.json()).toEqual({ status: "connected" });
+      const after = await (await fetch(`${mockUrl()}/requests`)).json();
+      expect(after.requests.filter((request: { path: string }) => request.path === "/register").length).toBe(registrations);
+    } finally { callbacks.cancel(listener.listenerId); }
+  }, 45_000);
+
+  test("the current engine expands a configured scope, so Claude permission pins are blocked in import", async () => {
+    const port = await getFreePort();
+    const name = "scope-pin-regression";
+    const imported = normalizeImportedConnector({ url: `${mockUrl()}/mcp`, oauth: { scopes: "mcp:read", callbackPort: port } }, [], "claude");
+    const listener = await callbacks.listen({ redirectUri: `http://127.0.0.1:${port}/mcp/oauth/callback` });
+    try {
+      expect((await engineFetch("/mcp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, config: { ...imported, type: "remote", enabled: true } }) })).ok).toBe(true);
+      const start = await engineFetch(`/mcp/${name}/auth`, { method: "POST" });
+      expect(start.ok).toBe(true);
+      const started = await start.json();
+      expect(new URL(started.authorizationUrl).searchParams.get("scope")).toBe("mcp:read mcp:write");
+    } finally {
+      callbacks.cancel(listener.listenerId);
+      await engineFetch(`/mcp/${name}/auth`, { method: "DELETE" });
+    }
   }, 30_000);
 });

@@ -76,8 +76,9 @@ test("fusion forwards optional native message identity only to its existing main
     expect(request.model).toEqual(input.mainModel);
     expect(request.agent).toBe("agent");
     expect(request.variant).toBe("variant");
-    expect(request.parts).toEqual(input.parts);
-    expect(request.system).toContain("candidate/selected");
+    // Od LegalWork v0.2.9 ide kontext Fusion ako skrytá časť správy, nie ako `system`.
+    expect(request.parts).toEqual([...input.parts, expect.objectContaining({ type: "text", synthetic: true, text: expect.stringContaining("candidate/selected") })]);
+    expect(request).not.toHaveProperty("system");
   }
   expect(candidateModels).toEqual([{ providerID: "candidate", modelID: "selected" }]);
 });

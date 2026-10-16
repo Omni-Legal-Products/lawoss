@@ -21,6 +21,7 @@ void i18n.init({ lng: "en", fallbackLng: "en", keySeparator: false, resources: {
 export function ArtifactPptxEditor(props: OfficeEditorProps) {
   const editor = useRef<PowerPointViewerHandle>(null);
   const state = useOfficeEditor(props);
+  state.ready.current = () => Boolean(editor.current?.getSlideCount());
   const onDirtyChange = useCallback((dirty: boolean) => { if (dirty) state.changed(); }, [state.changed]);
   state.afterSave.current = () => editor.current?.markSaved();
   const [content] = useState(() => new Uint8Array(props.content));
@@ -34,7 +35,7 @@ export function ArtifactPptxEditor(props: OfficeEditorProps) {
     const fit = () => {
       if (!host.querySelector("[data-pptx-viewport]")) return;
       const width = host.clientWidth;
-      if (width < 960 && (lastWidth === 0 || lastWidth >= 960) && host.querySelector("[data-pptx-inspector]")) host.querySelector<HTMLButtonElement>('[aria-label="Toggle inspector panel"]')?.click();
+      if ((lastWidth === 0 || (width < 960 && lastWidth >= 960)) && host.querySelector("[data-pptx-inspector]")) host.querySelector<HTMLButtonElement>('[aria-label="Toggle inspector panel"]')?.click();
       if (width < 760 && (lastWidth === 0 || lastWidth >= 760) && host.querySelector('aside[aria-label="Slides"]')) host.querySelector<HTMLButtonElement>('[aria-label="Toggle slides panel"]')?.click();
       lastWidth = width;
     };
@@ -43,6 +44,15 @@ export function ArtifactPptxEditor(props: OfficeEditorProps) {
     resize.observe(host); mount.observe(host, { childList: true, subtree: true }); fit();
     return () => { resize.disconnect(); mount.disconnect(); };
   }, [state.host]);
+  state.navigation.current = async (target) => {
+    if (target.kind !== "slide") throw new Error("PowerPoint navigation requires a slide number.");
+    const api = editor.current;
+    if (!api || !api.getSlideCount()) throw new Error(t("pptx.still_loading"));
+    if (target.slide > api.getSlideCount()) throw new Error(`This presentation has ${api.getSlideCount()} slides.`);
+    api.setActiveSlideIndex(target.slide - 1);
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    return { slide: target.slide, slideCount: api.getSlideCount() };
+  };
   state.serialize.current = async () => {
     if (!editor.current || editor.current.getSlideCount() === 0) throw new Error(t("pptx.still_loading"));
     const bytes = await editor.current.getContent();

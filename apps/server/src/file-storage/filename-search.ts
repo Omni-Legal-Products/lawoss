@@ -13,6 +13,7 @@ const frameSchema = z.object({
 const cursorSchema = z.object({
   scope: z.string(),
   frames: z.array(frameSchema).min(1).max(2048),
+  truncated: z.boolean().optional(),
 });
 const invalidCursor = () =>
   new ApiError(400, "invalid_storage_cursor", "This search page is no longer valid. Start the search again.");
@@ -23,7 +24,7 @@ const fold = (value: string) => value.normalize("NFC").toLowerCase();
  * The cursor retains positions, never file contents or a persistent index.
  */
 export async function searchFilenames(
-  adapter: Pick<StorageAdapter, "list" | "listFiles">,
+  adapter: Pick<StorageAdapter, "list" | "listFiles" | "listFilesAtRoot">,
   input: StorageFilenameSearch,
   connectionRevision: string,
   signal?: AbortSignal,
@@ -31,11 +32,12 @@ export async function searchFilenames(
   const root = storagePath(input.path);
   const query = fold(input.query);
   const match = input.match ?? "filename";
-  const flat = Boolean(adapter.listFiles);
+  const flat = Boolean(adapter.listFiles || (!root && adapter.listFilesAtRoot));
   const scope = createHash("sha256")
     .update(JSON.stringify([connectionRevision, root, query, flat, match]))
     .digest("hex");
   let frames: z.infer<typeof frameSchema>[] = [{ name: "", offset: 0 }];
+  let truncated = false;
   if (input.cursor) {
     try {
       const cursor = cursorSchema.parse(JSON.parse(Buffer.from(input.cursor, "base64url").toString("utf8")));
@@ -45,6 +47,7 @@ export async function searchFilenames(
         if (storagePath(frame.name, false).includes("/")) throw invalidCursor();
       }
       frames = cursor.frames;
+      truncated = Boolean(cursor.truncated);
     } catch {
       throw invalidCursor();
     }
@@ -61,11 +64,14 @@ export async function searchFilenames(
     let page = pages.get(key);
     if (!page) {
       if (pages.size >= 10 || (pages.size > 0 && Date.now() >= deadline)) break;
-      page = adapter.listFiles
+      page = !root && adapter.listFilesAtRoot
+        ? await adapter.listFilesAtRoot(frame.cursor, signal)
+        : adapter.listFiles
         ? await adapter.listFiles(path, frame.cursor, signal)
         : await adapter.list(path, frame.cursor);
       signal?.throwIfAborted();
       pages.set(key, page);
+      truncated ||= Boolean(page.truncated);
     }
     if (frame.offset >= page.entries.length) {
       if (page.nextCursor) {
@@ -94,8 +100,8 @@ export async function searchFilenames(
       if (fold(candidate).includes(query)) entries.push(item);
     }
   }
-  const nextCursor = frames.length ? Buffer.from(JSON.stringify({ scope, frames })).toString("base64url") : undefined;
+  const nextCursor = frames.length ? Buffer.from(JSON.stringify({ scope, frames, ...(truncated ? { truncated: true } : {}) })).toString("base64url") : undefined;
   if (nextCursor && nextCursor.length > 65_536)
     throw new ApiError(422, "storage_search_too_deep", "Search within a smaller folder to continue.");
-  return { entries, scanned, complete: !nextCursor, ...(nextCursor ? { nextCursor } : {}) };
+  return { entries, scanned, complete: !nextCursor && !truncated, ...(nextCursor ? { nextCursor } : {}), ...(truncated ? { truncated: true } : {}) };
 }

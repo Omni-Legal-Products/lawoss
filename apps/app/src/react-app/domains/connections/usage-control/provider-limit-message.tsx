@@ -1,7 +1,8 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Check, Loader2, Plus } from "lucide-react";
 import type { UsageControlView } from "@legalwork/types/usage-control";
+import type { UsageLimitDetails } from "@legalwork/types/provider-usage-limit";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import type { EigenweltBudgetPlan } from "@/app/lib/eigenwelt-budget";
 import { usageLimitOptions } from "@/app/lib/provider-usage-limit";
@@ -28,8 +29,8 @@ import { CardTopUp } from "./payment-components";
 import { SeatPlanUpgrade, pendingSeatUpgrade } from "./seat-plan-upgrade";
 import { AdminUsageIntent } from "./admin-usage-intent";
 import { usageIntentForReason, type UsageIntent } from "./usage-intent";
-import { usageBlockMessageKey, usageBlockNeedsSettings } from "./usage-block";
-import { isCardTopUpAction, planChangeRecovery, usageIsAvailable, type TopUpRecovery } from "./usage-recovery";
+import { usageBlockMessageKey, usageBlockNeedsSettings, usageRequestMessageKey } from "./usage-block";
+import { isCardTopUpAction, planChangeRecovery, requestUsageBlockReason, usageIsAvailable, type TopUpRecovery } from "./usage-recovery";
 
 const PROVIDER_NAMES: Record<string, string> = {
   openai: "ChatGPT / OpenAI",
@@ -43,6 +44,7 @@ export function ProviderLimitMessage({
   workspaceId,
   plan,
   providerId,
+  limit: suppliedLimit = null,
   onChoosePlan,
   resolved = false,
 }: {
@@ -50,9 +52,11 @@ export function ProviderLimitMessage({
   workspaceId: string;
   plan: EigenweltBudgetPlan;
   providerId: string;
+  limit?: UsageLimitDetails | null;
   onChoosePlan?: (plan: "plus" | "pro") => Promise<void>;
   resolved?: boolean;
 }) {
+  const limit = useMemo(() => suppliedLimit, [suppliedLimit?.reason, suppliedLimit?.requiredMicros, suppliedLimit?.availableMicros]);
   const transport = useDesktopUsageTransport(client, workspaceId);
   const locale = useLocale();
   const account = useEigenweltEntitlements({ client, workspaceId });
@@ -79,12 +83,12 @@ export function ProviderLimitMessage({
       setView(next);
       setSettingChecking(false);
       setTopUpRecovery(previous => previous && previous.status !== "checking"
-        ? { status: usageIsAvailable(next) ? "ready" : "blocked", view: next, refreshFailed: false }
+        ? { status: usageIsAvailable(next, limit) ? "ready" : "blocked", view: next, refreshFailed: false }
         : previous);
     }
     catch (err) { setRefreshFailed(true); throw err; }
     finally { setRefreshing(false); }
-  }, [transport]);
+  }, [transport, limit]);
   useEffect(() => {
     if (resolved) return;
     let active = true;
@@ -103,16 +107,17 @@ export function ProviderLimitMessage({
   const pendingRequest = requestSent || managed?.requests.some(request => request.userId === managed.me.userId && request.status === "pending");
   const currentPlan = managed ? managed.me.plan === "none" ? null : managed.me.plan : plan;
   const options = usageLimitOptions(currentPlan);
-  const recovery = topUpRecovery?.status ?? (upgradedPlan ? planChangeRecovery(view, upgradedPlan)
-    : settingUpdated ? settingChecking || !view ? "checking" : usageIsAvailable(view) ? "ready" : "blocked" : null);
+  const recovery = topUpRecovery?.status ?? (upgradedPlan ? planChangeRecovery(view, upgradedPlan, limit)
+    : settingUpdated ? settingChecking || !view ? "checking" : usageIsAvailable(view, limit) ? "ready" : "blocked"
+    : limit && managed && usageIsAvailable(managed, limit) ? "ready" : null);
   const recovered = resolved || recovery === "ready";
-  const topUpReadyHint = providerId === "eigenwelt" ? "limits.topup_ready_hint" : "limits.topup_external_hint";
+  const topUpReadyHint = providerId === "eigenwelt" ? limit ? "limits.request_ready" : "limits.topup_ready_hint" : "limits.topup_external_hint";
   const recoveryBody = topUpRecovery ? recovery === "ready" ? t(topUpReadyHint)
-    : recovery === "blocked" && topUpRecovery.view ? t(usageBlockMessageKey(topUpRecovery.view.me.blockedReason, topUpRecovery.view.isAdmin))
+    : recovery === "blocked" && topUpRecovery.view ? t(limit ? usageRequestMessageKey(requestUsageBlockReason(topUpRecovery.view, limit), topUpRecovery.view.isAdmin) : usageBlockMessageKey(topUpRecovery.view.me.blockedReason, topUpRecovery.view.isAdmin))
       : t(topUpRecovery.refreshFailed ? "limits.topup_refresh_error" : "limits.topup_paid_hint")
-    : recovery === "ready" ? t(settingUpdated ? "limits.intent_ready" : "provider_limit.usage_available")
+    : recovery === "ready" ? t(limit ? "limits.request_ready" : settingUpdated ? "limits.intent_ready" : "provider_limit.usage_available")
     : recovery === "blocked" && managed
-      ? t(usageBlockMessageKey(managed.me.blockedReason, managed.isAdmin))
+      ? t(limit ? usageRequestMessageKey(requestUsageBlockReason(managed, limit), managed.isAdmin) : usageBlockMessageKey(managed.me.blockedReason, managed.isAdmin))
       : refreshFailed ? t(settingUpdated ? "limits.intent_refresh_error" : "provider_limit.upgrade_refresh_error") : t("provider_limit.refreshing_usage");
   const confirmation = upgradedPlan ? (
     <div className="space-y-4">
@@ -129,7 +134,7 @@ export function ProviderLimitMessage({
       <Button className="w-full" disabled={busy} onClick={() => setOpen(null)}>{t("provider_limit.back_to_chat")}</Button>
     </div>
   ) : null;
-  const reason = providerId === "eigenwelt" ? managed?.me.blockedReason ?? null : null;
+  const reason = providerId === "eigenwelt" ? managed ? requestUsageBlockReason(managed, limit) : limit?.reason ?? null : null;
   const needsSettings = usageBlockNeedsSettings(reason);
   const provider = PROVIDER_NAMES[providerId] ?? providerId;
   const updateTopUpRecovery = useCallback((next: TopUpRecovery) => {
@@ -175,26 +180,27 @@ export function ProviderLimitMessage({
         {topUpRecovery?.status === "checking" && !topUpRecovery.refreshFailed || settingChecking && !refreshFailed ? <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin" /> : recovered || upgradedPlan || topUpRecovery || settingUpdated ? <Check className="mt-0.5 size-4 shrink-0" /> : <AlertTriangle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
         <div className="space-y-1">
           <p className="font-medium">
-            {resolved ? t("provider_limit.resumed") : topUpRecovery ? t(topUpRecovery.status === "checking" ? "limits.topup_paid" : "limits.credits_added") : settingUpdated ? t(recovered ? "provider_limit.usage_ready" : "limits.intent_saved") : upgradedPlan ? t("provider_limit.plan_now", { plan: upgradedPlan === "pro" ? "Pro" : "Plus" }) : t(
-              reason === "member_limit" ? "provider_limit.member_title"
-                : reason === "organization_limit" ? "provider_limit.organization_title"
-                : reason === "wallet_empty" ? "provider_limit.wallet_title"
+            {resolved ? t("provider_limit.resumed") : topUpRecovery ? t(topUpRecovery.status === "checking" ? "limits.topup_paid" : "limits.credits_added") : settingUpdated ? t(recovered ? "provider_limit.usage_ready" : "limits.intent_saved") : upgradedPlan ? t("provider_limit.plan_now", { plan: upgradedPlan === "pro" ? "Pro" : "Plus" }) : recovered ? t("provider_limit.usage_ready") : t(
+              reason === "member_limit" ? limit ? "provider_limit.member_request_title" : "provider_limit.member_title"
+                : reason === "organization_limit" ? limit ? "provider_limit.organization_request_title" : "provider_limit.organization_title"
+                : reason === "wallet_empty" ? limit ? "provider_limit.wallet_request_title" : "provider_limit.wallet_title"
                 : reason === "extra_disabled" ? "provider_limit.disabled_title"
+                : providerId === "eigenwelt" ? "provider_limit.request_title"
                 : "provider_limit.title",
             )}
           </p>
           {!resolved && <p className="text-muted-foreground">
-            {upgradedPlan || topUpRecovery || settingUpdated ? recoveryBody : providerId === "eigenwelt"
-              ? reason && managed
-                ? t(usageBlockMessageKey(reason, managed.isAdmin))
-                : t(managed?.isAdmin ? "provider_limit.eigenwelt_admin_body" : "provider_limit.eigenwelt_body")
+            {upgradedPlan || topUpRecovery || settingUpdated || recovered ? recoveryBody : providerId === "eigenwelt"
+              ? reason && (managed || limit)
+                ? t(limit ? usageRequestMessageKey(reason, managed?.isAdmin ?? false) : usageBlockMessageKey(reason, managed?.isAdmin ?? false))
+                : t("provider_limit.eigenwelt_unknown_body")
               : t("provider_limit.external_body", { provider })}
           </p>}
         </div>
       </div>
       <div className="flex flex-wrap gap-2 empty:hidden">
         {!recovered && recovery !== "checking" && <>
-        {options.plans.length > 0 && !needsSettings && (
+        {options.plans.length > 0 && !needsSettings && reason !== "service_limit" && (
           <Button
             size="sm"
             onClick={() => { setOfferedPlans(options.plans); showDialog("plans"); }}
@@ -219,6 +225,7 @@ export function ProviderLimitMessage({
           </Button>
         )}
         {needsSettings && managed?.isAdmin && <Button size="sm" variant="outline" onClick={() => void openManagement()}>{t("limits.manage_platform")}</Button>}
+        {providerId === "eigenwelt" && managed?.isAdmin && (!reason || reason === "service_limit") && <Button size="sm" variant="outline" onClick={() => void openManagement()}>{t("limits.manage_platform")}</Button>}
         {options.topUp && managed && !managed.isAdmin && (
           <Button size="sm" onClick={() => showDialog("admin")}>
             <Plus />{t("limits.request")}
@@ -242,8 +249,8 @@ export function ProviderLimitMessage({
         </>}
         {options.topUp && managed?.isAdmin && (
           <CardTopUp transport={transport} run={run} busy={busy} t={t} triggerSize="sm"
-            hideTrigger={recovered || needsSettings || reason === "seat_required" || (!topUpRecovery && recovery === "checking")}
-            returnLabel="limits.back_to_chat" readyHint={topUpReadyHint} onRecoveryChange={updateTopUpRecovery} />
+            hideTrigger={recovered || needsSettings || reason === "seat_required" || reason === "service_limit" || (!reason && managed.walletCents !== null && managed.walletCents > 0) || (!topUpRecovery && recovery === "checking")}
+            returnLabel="limits.back_to_chat" readyHint={topUpReadyHint} onRecoveryChange={updateTopUpRecovery} limit={limit} />
         )}
       </div>
       {!resolved && !topUpRecovery && recovery === "checking" && refreshFailed && <Button size="sm" variant="outline" disabled={refreshing} onClick={() => void refresh().catch(() => {})}>{t("limits.refresh")}</Button>}
@@ -289,7 +296,7 @@ export function ProviderLimitMessage({
           ) : (
             <UsageRequestForm key={dialogKind} run={run} busy={busy} t={t} initialKind={dialogKind === "plans" ? "upgrade" : "temporary"} />
           ) : dialogKind === "admin" && managed?.isAdmin && adminIntent ? (
-            <AdminUsageIntent key={adminIntent} intent={adminIntent} view={managed} transport={transport} t={t}
+            <AdminUsageIntent key={adminIntent} intent={adminIntent} view={managed} transport={transport} t={t} limit={limit}
               onSaved={() => { setSettingUpdated(true); setSettingChecking(true); }}
               onUpdated={next => { setView(next); setSettingChecking(false); setRefreshFailed(false); }}
               onRefreshError={() => setRefreshFailed(true)}

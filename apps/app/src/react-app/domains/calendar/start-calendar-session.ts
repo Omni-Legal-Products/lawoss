@@ -30,7 +30,7 @@ export async function startCalendarSession(input: {
     }, "PATCH");
   } catch (error) {
     // This chat is still empty. Remove it if linking fails so a retry cannot duplicate it.
-    await opencode.session.delete({ sessionID: session.id, directory }).catch(() => undefined);
+    await input.client.deleteSession(input.workspaceId, session.id).catch(() => undefined);
     throw error;
   }
   const reference = createCalendarComposerMention(input.item.id, input.item.title);

@@ -1,6 +1,6 @@
 import { useId, useMemo, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, FolderOpen, MessageSquare, MoreHorizontal, Pencil, PenLine, Pin, PinOff, Plus, Search, Trash2, WandSparkles } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, FolderOpen, MessageSquare, MoreHorizontal, PanelsTopLeft, Pencil, PenLine, Pin, PinOff, Plus, Search, Trash2, WandSparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type { WorkspaceSessionGroup } from "@/app/types";
@@ -8,6 +8,7 @@ import { formatRelativeTime, isMacPlatform } from "@/app/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getDisplaySessionTitle } from "@/app/lib/session-title";
 import { t } from "@/i18n";
+import { hideCommercialSidebarItems } from "@/lawoss/feature-flags";
 import { cn } from "@/lib/utils";
 import { ProjectFolderIcon } from "./project-sync";
 import { useProjectSyncStore } from "./project-sync-store";
@@ -19,7 +20,7 @@ import { useShellConfig, type ProjectNavKey } from "../../shell/shell-config";
 import { SIDEBAR_ITEMS } from "../session/sidebar/sidebar-customization";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
-import { defaultAkteFields, useProjectDefaultsStore, withInitialProjectFields } from "./project-defaults-store";
+import { defaultProjectFields, useProjectDefaultsStore, withInitialProjectFields } from "./project-defaults-store";
 import { collectProjectFilterFields, matchesProjectFilters, useProjectFilterStore } from "./project-filters";
 import { ProjectFilterBar } from "./project-filter-bar";
 import { ProjectViews } from "./project-views";
@@ -29,7 +30,7 @@ type ProjectPage = Exclude<ProjectNavKey, "projectSessions">;
 type Props = {
   client: LegalworkServerClient | null;
   groups: WorkspaceSessionGroup[];
-  onOpenProject: (id: string, page: ProjectPage) => void;
+  onOpenProject: (id: string, page: ProjectPage | "workspace") => void;
   onOpenSession: (workspaceId: string, sessionId: string) => void;
   onNewChat: (workspaceId: string) => void;
   onCreate: () => void;
@@ -56,8 +57,8 @@ export function ProjectsPage(props: Props) {
   const syncStates = useProjectSyncStore(state => state.states);
   const filtered = filterState.teamOnly || filterState.filters.length > 0;
   const { descending, setDescending } = filterState;
-  const savedDefaults = useProjectDefaultsStore(state => state.fields);
-  const defaults = savedDefaults ?? defaultAkteFields();
+  const savedDefaults = useProjectDefaultsStore(defaultProjectFields);
+  const defaults = savedDefaults;
   const endpoints = useMemo(() => props.groups.map(({ workspace }) => resolveWorkspaceEndpoint(workspace, { baseUrl: props.client?.baseUrl, token: props.client?.token })), [props.groups, props.client]);
   // Use the same project cache as Home; values edited there update filters too.
   // Read metadata for every project, not just the current page.
@@ -137,7 +138,7 @@ function ProjectRow({ group, updated, ...props }: Props & { group: WorkspaceSess
   const sessions = allProjectSessions([group]);
   const pages = Math.max(1, Math.ceil(sessions.length / PAGE_SIZE));
   const current = Math.min(page, pages - 1);
-  const projectPages = config.projectNavOrder.filter((key): key is ProjectPage => key !== "projectSessions" && config[key]);
+  const projectPages = hideCommercialSidebarItems(config.projectNavOrder).filter((key): key is ProjectPage => key !== "projectSessions" && config[key]);
   return <section className="border-b border-border/70 py-1.5">
     <div className={cn(rowGrid, "relative min-h-12 rounded-lg px-2")}>
       <button type="button" className="absolute inset-0 cursor-pointer rounded-lg transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={name} aria-expanded={expanded} aria-controls={contentId} onClick={() => setExpanded(value => !value)} />
@@ -153,6 +154,8 @@ function ProjectRow({ group, updated, ...props }: Props & { group: WorkspaceSess
         <DropdownMenu>
           <DropdownMenuTrigger render={<Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs" aria-label={t("projects.open_project")}><span>{t("projects.open")}</span><ChevronDown className="size-3" /></Button>} />
           <DropdownMenuContent align="end" className="min-w-44">
+            <DropdownMenuItem onClick={() => props.onOpenProject(id, "workspace")}><PanelsTopLeft className="size-4" />{t("workspace.workbench")}</DropdownMenuItem>
+            <DropdownMenuSeparator />
             {projectPages.map(key => {
               const { icon: Icon, label } = SIDEBAR_ITEMS[key];
               return <DropdownMenuItem key={key} onClick={() => props.onOpenProject(id, key)}><Icon className="size-4" />{t(label)}</DropdownMenuItem>;
@@ -174,12 +177,13 @@ function ProjectRow({ group, updated, ...props }: Props & { group: WorkspaceSess
     <div id={contentId} hidden={!expanded} className="relative pb-1 pt-0.5">
       {expanded && <>
         <span aria-hidden className="pointer-events-none absolute bottom-2 left-[2.625rem] top-1 w-px bg-border/75" />
-        {projectPages.length > 0 && <nav aria-label={name} className="mb-2 ml-12 mr-2 flex flex-wrap items-center gap-1 pt-1">
+        <nav aria-label={name} className="mb-2 ml-12 mr-2 flex flex-wrap items-center gap-1 pt-1">
+          <Button variant="ghost" size="sm" className="gap-1.5 px-2 text-xs font-normal" onClick={() => props.onOpenProject(id, "workspace")}><PanelsTopLeft className="size-3.5" />{t("workspace.workbench")}</Button>
           {projectPages.map(key => {
             const { icon: Icon, label } = SIDEBAR_ITEMS[key];
             return <Button key={key} variant="ghost" size="sm" className="gap-1.5 px-2 text-xs font-normal" onClick={() => props.onOpenProject(id, key)}><Icon className="size-3.5" />{t(label)}</Button>;
           })}
-        </nav>}
+        </nav>
         <div className="space-y-0.5">
           {sessions.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE).map(({ session }) => <SessionProjectHover key={session.id} session={session} projectName={name}>
             <button type="button" className={cn(rowGrid, "group min-h-9 w-full cursor-pointer rounded-lg px-2 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")} onClick={() => props.onOpenSession(id, session.id)}>

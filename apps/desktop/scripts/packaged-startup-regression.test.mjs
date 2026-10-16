@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -8,14 +9,32 @@ import { fileURLToPath } from "node:url";
 
 const regression = fileURLToPath(new URL("./packaged-startup-regression.mjs", import.meta.url));
 
+// Od upstream v0.2.9 (#287) skript najprv overí importy servera v app.asar vedľa spustiteľného
+// súboru. Syntetické appky dostanú prázdny platný archív na tom istom mieste.
+async function packagedArchiveFor(target) {
+  const resources = path.resolve(path.dirname(target), process.platform === "darwin" ? "../Resources" : "resources");
+  const source = await mkdtemp(path.join(tmpdir(), "packaged-archive-src-"));
+  await writeFile(path.join(source, "package.json"), "{}");
+  await mkdir(resources, { recursive: true });
+  // @electron/asar je závislosť electron-builderu, rovnako ako v check-packaged-server-imports.mjs.
+  const require = createRequire(import.meta.url);
+  const libRequire = createRequire(createRequire(require.resolve("electron-builder")).resolve("app-builder-lib"));
+  await libRequire("@electron/asar").createPackage(source, path.join(resources, "app.asar"));
+  await rm(source, { recursive: true, force: true });
+}
+
 function killIfRunning(pid) {
   try { process.kill(pid, "SIGKILL"); }
   catch (error) { if (error.code !== "ESRCH") throw error; }
 }
 
-test("packaged startup cleanup preserves an early exit diagnostic after close already fired", { timeout: 15_000 }, async () => {
+test("packaged startup cleanup preserves an early exit diagnostic after close already fired", {
+  timeout: 15_000,
+  skip: process.platform === "win32" ? "vyžaduje syntetický archív vedľa spustiteľného súboru" : false,
+}, async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "packaged-early-exit-test-"));
-  const fixture = path.join(directory, "early-exit.mjs");
+  await mkdir(path.join(directory, "app"));
+  const fixture = path.join(directory, "app", "early-exit.mjs");
   const profileFile = path.join(directory, "profile.txt");
   await writeFile(fixture, `#!${process.execPath}
 import { writeFileSync } from "node:fs";
@@ -27,6 +46,7 @@ process.exit(42);
   // Windows cannot execute a shebang fixture. Node without arguments and with
   // ignored stdin is an equally inert executable that exits immediately with 0.
   const target = process.platform === "win32" ? process.execPath : fixture;
+  await packagedArchiveFor(target);
   const runner = spawn(process.execPath, [regression, target], {
     detached: process.platform !== "win32",
     env: { ...process.env, CLEANUP_TEST_PROFILE_FILE: profileFile },
@@ -68,7 +88,8 @@ test("packaged startup cleanup terminates descendants holding output pipes open"
   timeout: 20_000,
 }, async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "packaged-cleanup-test-"));
-  const fixture = path.join(directory, "fake-app.mjs");
+  await mkdir(path.join(directory, "app"));
+  const fixture = path.join(directory, "app", "fake-app.mjs");
   const pidFile = path.join(directory, "descendant.pid");
   await writeFile(fixture, `#!${process.execPath}
 import { spawn } from "node:child_process";
@@ -87,6 +108,7 @@ server.listen(0, "127.0.0.1", () => {
 });
 `);
   await chmod(fixture, 0o755);
+  await packagedArchiveFor(fixture);
   const runner = spawn(process.execPath, [regression, fixture], {
     detached: true,
     env: { ...process.env, CLEANUP_TEST_PID_FILE: pidFile },

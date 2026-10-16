@@ -2,7 +2,27 @@ import { buildStorageRefUri, parseStorageRef, type StorageRef } from "@/componen
 import { taskReference } from "@/react-app/domains/tasks/task-reference";
 
 /** What a composer `@token` refers to: an agent, a workspace file, an uploaded file, a LegalMemory file, a connected-storage file, a macOS app, or an intake task. */
-export type ComposerMentionKind = "agent" | "file" | "memory" | "upload" | "storage" | "app" | "task" | "review" | "calendar";
+export type ComposerMentionKind = "agent" | "file" | "memory" | "upload" | "storage" | "app" | "task" | "review" | "calendar" | "plugin";
+
+/** Store identity, not a snapshot of instructions or connector credentials. */
+export function createPluginComposerMention(pluginId: string, label: string): string {
+  return `legalwork-plugin://${encodeURIComponent(pluginId)}?${new URLSearchParams({ name: label })}`;
+}
+
+export function parsePluginComposerMention(value: string): { pluginId: string; label: string } | null {
+  const match = /^legalwork-plugin:\/\/([^?\s]+)\?([^\s]*)$/.exec(value);
+  if (!match?.[1]) return null;
+  try {
+    const pluginId = decodeURIComponent(match[1]);
+    if (!pluginId.trim()) return null;
+    return { pluginId, label: new URLSearchParams(match[2]).get("name")?.trim() || pluginId };
+  } catch { return null; }
+}
+
+export function pluginComposerDisplayText(value: string): string {
+  const mention = parsePluginComposerMention(value);
+  return mention ? `[plugin ${JSON.stringify(mention.label)}]` : value;
+}
 
 /**
  * Percent-encode a mention value so it can be embedded in the draft as a single `@token` with no spaces.

@@ -1,3 +1,4 @@
+import { isReviewWorkerSession } from "./reviews/schema.js";
 import { z } from "zod";
 import type {
   SessionGetResponse,
@@ -126,7 +127,7 @@ function parseOrThrow<T>(schema: z.ZodType<T>, value: unknown, label: string): T
 }
 
 export function buildSessionList(value: SessionListResponse): SessionInfoReadModel[] {
-  return parseOrThrow(sessionListSchema, value, "session list");
+  return parseOrThrow(sessionListSchema, value, "session list").filter(session => !isReviewWorkerSession(session));
 }
 
 export function buildSession(value: SessionGetResponse): SessionInfoReadModel {

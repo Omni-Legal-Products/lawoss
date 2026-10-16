@@ -9,21 +9,12 @@
       "development": "./src/index.ts",
       "default": "./src/index.ts"
     },
-    "./den/desktop-app-restrictions": {
-      "types": "./src/den/desktop-app-restrictions.ts",
-      "development": "./src/den/desktop-app-restrictions.ts",
-      "default": "./src/den/desktop-app-restrictions.ts"
-    },
-    "./den/desktop-policies": {
-      "types": "./src/den/desktop-policies.ts",
-      "development": "./src/den/desktop-policies.ts",
-      "default": "./src/den/desktop-policies.ts"
-    },
     "./den/inference": {
       "types": "./src/den/inference.ts",
       "development": "./src/den/inference.ts",
       "default": "./src/den/inference.ts"
     },
+    "./project-files": "./src/project-files.ts",
     "./workspace": {
       "types": "./src/workspace.ts",
       "development": "./src/workspace.ts",
@@ -34,6 +25,7 @@
       "development": "./src/desktop-ipc.ts",
       "default": "./src/desktop-ipc.ts"
     },
+    "./connectors": "./src/connectors.ts",
     "./audio": {
       "types": "./src/audio.ts",
       "development": "./src/audio.ts",
@@ -43,6 +35,8 @@
     "./file-storage": "./src/file-storage.ts",
     "./model-limits": "./src/model-limits.ts",
     "./usage-control": "./src/usage-control.ts",
+    "./provider-usage-limit": "./src/provider-usage-limit.ts",
+    "./eigenwelt-checkout": "./src/eigenwelt-checkout.ts",
     "./systemone": "./src/systemone.ts",
     "./ocr": "./src/ocr.ts",
     "./document-structure": "./src/document-structure.ts",
@@ -51,7 +45,20 @@
     "./search": "./src/search.ts",
     "./sync-events": "./src/sync-events.ts",
     "./calendar": "./src/calendar.ts",
-    "./calculation": "./src/calculation.ts"
+    "./calendar-event-draft": "./src/calendar-event-draft.ts",
+    "./email-draft": "./src/email-draft.ts",
+    "./calculation": "./src/calculation.ts",
+    "./session-queue": "./src/session-queue.ts",
+    "./scheduled-tasks": "./src/scheduled-tasks.ts",
+    "./org-policy": "./src/org-policy.ts",
+    "./org-policy-view": "./src/org-policy-view.ts",
+    "./firm-hub": "./src/firm-hub.ts",
+    "./plugin-import": "./src/plugin-import.ts",
+    "./connector-config": "./src/connector-config.ts",
+    "./wiki": "./src/wiki.ts",
+    "./wiki-suggestions": "./src/wiki-suggestions.ts",
+    "./views": "./src/views.ts",
+    "./line-diff": "./src/line-diff.ts"
   },
   "files": [
     "src",

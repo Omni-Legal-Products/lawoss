@@ -24,7 +24,7 @@ import {
 import { OcrSettingsSection } from "@/react-app/domains/settings/pages/ocr-settings-section";
 import { megabytes, OCR_SETTINGS_ANCHOR, type LawossOcrClient, type LawossOcrView } from "./ocr-opt-in";
 
-type Client = LawossOcrClient & Pick<LegalworkServerClient, "getOcrSettings" | "testOcrEngine" | "saveOcrServer" | "setDefaultOcrEngine" | "installOcrEngine" | "cancelOcrInstall" | "removeOcrServer">;
+type Client = LawossOcrClient & Pick<LegalworkServerClient, "getOcrSettings" | "testOcrEngine" | "saveOcrServer" | "setDefaultOcrEngine" | "installOcrEngine" | "cancelOcrInstall" | "removeOcrServer" | "setOcrMemberKey">;
 type Stage = NonNullable<OcrSettingsView["installation"]>["stage"];
 const ACTIVE: ReadonlySet<Stage> = new Set(["runtime", "dependencies", "models", "checking"]);
 const LOCAL_SETUP = new Set(["local-fast", "local-layout"]);

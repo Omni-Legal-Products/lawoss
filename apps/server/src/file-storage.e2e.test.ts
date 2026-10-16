@@ -12,12 +12,18 @@ import {
   storageInputSchema,
   type StorageInput,
   type StoragePage,
+  storageTransferEventSchema,
+  type StorageTransferEvent,
 } from "@legalwork/types/file-storage";
+import { serverSentEvents } from "@legalwork/types/sync-events";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 import { withStorage } from "./file-storage/service.js";
 import { StorageStore, mergeStorageSecrets } from "./file-storage/store.js";
 import { storagePath, providerError } from "./file-storage/common.js";
+import { webdavFixture } from "./file-storage/testing/webdav.js";
+import { zipSync, strToU8 } from "fflate";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 
 let temporary: string;
 let rootPath: string;
@@ -39,6 +45,7 @@ async function api(
   body?: unknown,
   scope: "owner" | "collaborator" | "viewer" | "none" = "owner",
   workspaceId = "storage-test",
+  extraHeaders: Record<string, string> = {},
 ) {
   const response = await fetch(`${base}/workspace/${workspaceId}/storage${suffix}`, {
     method,
@@ -46,6 +53,7 @@ async function api(
       "content-type": "application/json",
       ...(scope !== "none" ? { authorization: `Bearer ${scope === "viewer" ? viewerToken : config.token}` } : {}),
       ...(scope === "owner" ? { "x-legalwork-host-token": config.hostToken } : {}),
+      ...extraHeaders,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -110,7 +118,108 @@ afterAll(async () => {
   Object.assign(process.env, priorEnv);
 });
 
+test("storage_read_file reads Office and PDF sources without a viewer or sandbox and preserves pagination", async () => {
+  const dav = webdavFixture();
+  const docx = Buffer.from(zipSync({ "word/document.xml": strToU8('<w:document><w:body><w:p><w:t>Client: Alder Ltd.</w:t></w:p><w:tbl><w:tr><w:tc><w:p><w:t>Matter: acquisition.</w:t></w:p></w:tc></w:tr></w:tbl></w:body></w:document>') }));
+  dav.files.set("first/source.docx", docx);
+  dav.files.set("first/broken.docx", Buffer.from("invalid zip"));
+  dav.files.set("first/deck.pptx", Buffer.from(zipSync({ "ppt/slides/slide1.xml": strToU8('<a:p><a:t>Board approval</a:t></a:p>') })));
+  dav.files.set("first/sheet.xlsx", Buffer.from(zipSync({ "xl/worksheets/sheet1.xml": strToU8('<worksheet><row><c t="inlineStr"><is><t>Budget</t></is></c><c><v>45000</v></c></row></worksheet>') })));
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  pdf.addPage().drawText("Client consent is required before assigning this engagement to another firm.", { font, size: 12 });
+  dav.files.set("first/source.pdf", Buffer.from(await pdf.save()));
+  const id = await connect(storageInputSchema.parse({ name: "Source reading", readOnly: true, config: { kind: "webdav", endpoint: `${dav.endpoint}/first` } }));
+  const { tool } = await LegalWorkStorageTools();
+  const read = (path: string, args: Record<string, unknown> = {}) => tool.storage_read_file.execute({ connection_id: id, path, ...args }, { directory: temporary }).then(JSON.parse);
+  try {
+    const first = await read("source.docx", { max_chars: 24 });
+    expect(first).toMatchObject({ complete: true, extraction: "native", writable: false, next_offset: 24 });
+    const rest = await read("source.docx", { offset: first.next_offset });
+    expect(first.text + rest.text).toContain("Client: Alder Ltd.");
+    expect(first.text + rest.text).toContain("Matter: acquisition.");
+    expect(first.text.length + rest.text.length).toBe(first.total_chars);
+    expect(rest).not.toHaveProperty("next_offset");
+    expect(rest.source_hash).toBe(first.source_hash);
+    expect((await read("source.pdf")).text).toContain("[Page 1]\nClient consent");
+    expect((await read("deck.pptx")).text).toContain("Board approval");
+    expect((await read("sheet.xlsx")).text).toContain("Budget\t45000");
+    expect(await read("broken.docx")).toMatchObject({ ok: false, code: "storage_document_read_failed" });
+    const download = await read("source.docx", { format: "download" });
+    expect(download).not.toHaveProperty("text");
+    expect(await readFile(join(temporary, download.local_path))).toEqual(docx);
+    expect(dav.files.get("first/source.docx")).toEqual(docx);
+  } finally { await api("DELETE", `/${id}`); dav.server.stop(true); }
+});
+
 describe("storage API access and validation", () => {
+  test("streams folder progress before the transfer finishes, and reports the final path", async () => {
+    const dav = webdavFixture(20);
+    const ids: string[] = [];
+    try {
+      for (const folder of ["first", "second"])
+        ids.push(await connect(storageInputSchema.parse({ name: folder, config: { kind: "webdav", endpoint: `${dav.endpoint}/${folder}` } })));
+      const body = { path: "matter", kind: "folder", destinationId: ids[1], destinationPath: "", mode: "move" };
+      expect((await api("POST", `/${ids[0]}/transfer`, body, "viewer", "storage-test", { Accept: "text/event-stream" })).status).toBe(403);
+      const response = await api("POST", `/${ids[0]}/transfer`, body, "owner", "storage-test", { Accept: "text/event-stream" });
+      expect(response.headers.get("content-type")).toContain("text/event-stream");
+      if (!response.body) throw new Error("Missing stream");
+      const events: StorageTransferEvent[] = [];
+      let sawPartialCopy = false;
+      const feed = serverSentEvents((data) => {
+        const event = storageTransferEventSchema.parse(JSON.parse(data));
+        events.push(event);
+        if (event.type === "progress" && event.progress.phase === "transferring" && event.progress.completedFiles === 1) {
+          sawPartialCopy = true;
+          expect(dav.files.has("first/matter/a.txt")).toBe(true);
+          expect(dav.folders.has("second/matter")).toBe(true);
+        }
+      });
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      for (let part = await reader.read(); !part.done; part = await reader.read()) feed(decoder.decode(part.value, { stream: true }));
+      expect(sawPartialCopy).toBe(true);
+      expect(events.at(-1)).toEqual({ type: "result", path: "matter" });
+      expect(events.some((event) => event.type === "progress" && event.progress.phase === "completed" && event.progress.completedFiles === 2)).toBe(true);
+      expect(dav.folders.has("first/matter")).toBe(false);
+    } finally {
+      for (const id of ids) await api("DELETE", `/${id}`);
+      await dav.server.stop(true);
+    }
+  });
+  test("moves files and nested folders through real WebDAV connections and enforces transfer access", async () => {
+    const dav = webdavFixture();
+    const ids: string[] = [];
+    try {
+      for (const [name, folder, readOnly] of [["First", "first", false], ["Second", "second", false], ["Reference", "readonly", true]]) {
+        ids.push(await connect(storageInputSchema.parse({ name, config: { kind: "webdav", endpoint: `${dav.endpoint}/${folder}` }, readOnly })));
+      }
+      const [first, second, reference] = ids;
+      const body = { path: "matter", kind: "folder", destinationId: second, destinationPath: "", mode: "move" };
+      expect((await api("POST", `/${first}/transfer`, body, "viewer")).status).toBe(403);
+      expect((await api("POST", `/${first}/transfer`, { ...body, path: "../outside" })).status).toBe(400);
+      expect((await api("POST", `/${first}/transfer`, { ...body, destinationId: first, destinationPath: "matter/nested" })).status).toBe(400);
+      expect((await api("POST", `/${first}/transfer`, { ...body, destinationId: reference })).status).toBe(403);
+      expect((await api("POST", `/${first}/transfer`, body)).status).toBe(200);
+      expect(dav.files.get("second/matter/nested/b.txt")?.toString()).toBe("beta");
+      expect(dav.folders.has("second/matter/empty")).toBe(true);
+      expect(dav.folders.has("first/matter")).toBe(false);
+      expect((await api("POST", `/${first}/transfer`, { path: "note.txt", kind: "file", destinationId: first, destinationPath: "archive", mode: "move" })).status).toBe(200);
+      expect(dav.files.get("first/archive/note.txt")?.toString()).toBe("note");
+      expect(dav.files.has("first/note.txt")).toBe(false);
+      const copy = { path: "reference.txt", kind: "file", destinationId: second, destinationPath: "", mode: "copy" };
+      expect((await api("POST", `/${reference}/transfer`, { ...copy, mode: "move" })).status).toBe(403);
+      expect((await api("POST", `/${reference}/transfer`, copy)).status).toBe(200);
+      expect(dav.files.get("second/reference.txt")?.toString()).toBe("reference");
+      expect(dav.files.has("readonly/reference.txt")).toBe(true);
+      expect((await api("POST", `/${reference}/transfer`, copy)).status).toBe(409);
+      expect((await api("POST", `/${first}/transfer`, { ...body, destinationId: "missing" })).status).toBe(404);
+      expect((await api("POST", `/${first}/transfer`, body, "owner", "other-workspace")).status).toBe(404);
+    } finally {
+      for (const id of ids) await api("DELETE", `/${id}`);
+      await dav.server.stop(true);
+    }
+  });
   test("requires authentication and owner access for managing connections", async () => {
     expect((await api("POST", "/missing/filename-search", { query: "file" }, "none")).status).toBe(401);
     expect((await api("GET", "/roots", undefined, "none")).status).toBe(401);

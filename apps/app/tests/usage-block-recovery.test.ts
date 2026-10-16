@@ -15,7 +15,7 @@ describe("managed AI usage recovery", () => {
       const member = en[usageBlockMessageKey(reason, false)];
       expect(member).toContain("Ask your admin");
       if (reason !== "extra_disabled") {
-        expect(admin).toContain("Adding credits does not raise");
+        expect(admin).toContain("Increase");
         expect(member).not.toContain("add credits");
       }
     },

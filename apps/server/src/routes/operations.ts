@@ -61,7 +61,11 @@ export function registerOperationRoutes(options: RegisterOperationRoutesOptions)
 
   addRoute(routes, "POST", "/approvals/:id", "host", async (ctx) => {
     const body = await readJsonBody(ctx.request);
-    const reply = body.reply === "allow" ? "allow" : "deny";
+    const pending = ctx.approvals.list().find((item) => item.id === ctx.params.id);
+    if (pending?.sessionID && (body.sessionID !== pending.sessionID || body.workspaceId !== pending.workspaceId)) {
+      throw new ApiError(409, "approval_session_mismatch", "This approval belongs to another chat.");
+    }
+    const reply = body.reply === "allow" ? "allow" : body.reply === "always" ? "always" : "deny";
     const result = ctx.approvals.respond(ctx.params.id, reply);
     if (!result) {
       throw new ApiError(404, "approval_not_found", "Approval request not found");

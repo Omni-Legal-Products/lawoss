@@ -10,6 +10,7 @@ import type {
 } from "@opencode-ai/sdk/v2/client";
 import type { createClient } from "./lib/opencode";
 import type { OpencodeConfigFile, WorkspaceInfo } from "./lib/desktop-types";
+import type { ConnectorConfig } from "@legalwork/types/connector-config";
 
 export type Client = ReturnType<typeof createClient>;
 
@@ -99,6 +100,7 @@ export type ComposerPart =
   | { type: "text"; text: string }
   | { type: "agent"; name: string }
   | { type: "skill"; name: string }
+  | { type: "plugin"; pluginId: string; label: string }
   | { type: "file"; path: string; label?: string }
   /** A macOS app targeted via Computer Use (composer "@App" mention). */
   | { type: "app"; name: string }
@@ -299,6 +301,8 @@ export type SkillCard = {
   kind?: string;
   /** SKILL.md frontmatter `workflow_type` — "tabular" | "assistant" for workflows. */
   workflowType?: string;
+  /** From the firm's hub: installed for everyone, or added by the member. Members cannot change or remove it here. */
+  firm?: "automatic" | "optional";
 };
 
 /** A file attached to a skill — lives in the skill's own resources/ folder. */
@@ -347,17 +351,7 @@ export type PluginScope = "project" | "global";
 
 export type McpServerSource = "config.project" | "config.global" | "config.remote";
 
-export type McpServerConfig = {
-  type: "remote" | "local";
-  url?: string;
-  command?: string[];
-  cwd?: string;
-  enabled?: boolean;
-  headers?: Record<string, string>;
-  environment?: Record<string, string>;
-  oauth?: McpOAuthConfig | false;
-  timeout?: number;
-};
+export type McpServerConfig = ConnectorConfig;
 
 export type McpServerEntry = {
   name: string;
@@ -403,12 +397,16 @@ export type ReloadTrigger = {
 export type PendingPermission = Omit<ApiPermissionRequest, "always"> & {
   always: unknown;
   receivedAt: number;
-  protocol: "legacy" | "v2";
+  protocol: "legacy" | "v2" | "host";
+  host?: import("@legalwork/types/desktop-ipc").HostApprovalRequest;
   v2?: Pick<PermissionV2Request, "action" | "resources" | "save">;
+  sourceSession?: { id: string; title: string };
 };
 
 export type PendingQuestion = QuestionRequest & {
   receivedAt: number;
+  protocol?: "legacy" | "v2";
+  sourceSession?: { id: string; title: string };
 };
 
 export type TodoItem = {
@@ -426,6 +424,7 @@ export type ModelRef = {
 export type ModelBehaviorOption = {
   value: string | null;
   label: string;
+  isDefault?: boolean;
   description: string;
 };
 

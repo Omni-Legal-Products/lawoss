@@ -4,11 +4,11 @@ import { appMentionInstruction } from "../src/react-app/domains/session/surface/
 import { decodeComposerMentionValue, encodeComposerMentionValue } from "../src/react-app/domains/session/surface/composer/mention-encoding";
 
 describe("app-mentions", () => {
-  test("instruction names the app and steers to a computer-use snapshot", () => {
+  test("instruction names the app and steers to Open Computer Use state", () => {
     const instruction = appMentionInstruction("Music");
     expect(instruction).toContain('"Music"');
-    expect(instruction).toContain("computer-use");
-    expect(instruction).toContain('snapshot {"app": "Music"}');
+    expect(instruction).toContain("open-computer-use");
+    expect(instruction).toContain('get_app_state {"app": "Music"}');
   });
 
   test("app names with spaces round-trip through mention encoding", () => {

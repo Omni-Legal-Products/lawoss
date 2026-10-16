@@ -1,5 +1,6 @@
 import type { SystemOneConfiguration } from "@legalwork/types/systemone";
 import { useSyncExternalStore } from "react";
+import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
 import { useSyncProviderSetupState } from "./sync-provider-setup-state";
 import { isEigenweltEntitledStatus } from "@/app/lib/eigenwelt-trial";
 
@@ -36,6 +37,7 @@ import type {
   EigenweltSignInPayload,
   CustomProviderModelRefreshStatus,
 } from "../../../../app/lib/legalwork-server";
+import { LegalworkServerError } from "../../../../app/lib/legalwork-server";
 import { invalidateEigenweltEntitlements } from "../eigenwelt-entitlements";
 import type { EigenweltPlanId } from "../../../../app/lib/eigenwelt-plans";
 
@@ -56,6 +58,7 @@ import { dispatchNewProviders } from "../../../../app/lib/provider-events";
 import { customProviderModelEntry, customProviderModelFromEntry } from "./custom-provider-config";
 import { localProviderTimeouts } from "@/lawoss/providers/local-timeouts";
 import { patchProviderConfirmingOverwrite } from "@/lawoss/providers/overwrite-confirm";
+import { orgPolicyAllows } from "../org-policy";
 
 type ProviderReturnFocusTarget = "none" | "composer";
 
@@ -166,6 +169,7 @@ export type ProviderAuthStoreSnapshot = {
 
 type CreateProviderAuthStoreOptions = {
   client: () => Client | null;
+  baseUrl: () => string;
   providers: () => ProviderListItem[];
   providerDefaults: () => Record<string, string>;
   providerConnectedIds: () => string[];
@@ -764,8 +768,12 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
             reloaded = true;
           }
         }
-      } catch {
-        // fall back to a direct engine dispose below
+      } catch (error) {
+        // Keep direct recovery for slow cloud-backed folders, after the
+        // server reload's extended deadline. Missing or forbidden workspaces
+        // cannot be recovered by disposing the engine again.
+        if (error instanceof LegalworkServerError &&
+          (error.code === "workspace_not_found" || error.status === 401 || error.status === 403)) throw error;
       }
 
       if (!reloaded) {
@@ -777,13 +785,12 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       }
 
       try {
-        await waitForHealthy(options.client() ?? c, { timeoutMs: 8000, pollMs: 250 });
+        await waitForHealthy(options.client() ?? c, { timeoutMs: 30_000, pollMs: 250 });
       } catch {
         // ignore health wait failures and still attempt provider reads
       }
-      // The composer and model picker cache the list under a key that carries
-      // the engine URL, which this store does not know. Refetch every cached
-      // list, or they keep showing the engine as it was before the reload.
+      // Refresh active observers and drop inactive lists before reading the
+      // same cache below. A forced second fetch would enumerate models twice.
       await refreshProviderListQueries(getReactQueryClient()).catch(() => undefined);
     }
 
@@ -805,8 +812,8 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       const updated = filterProviderList(
         await ensureProviderListQuery(getReactQueryClient(), {
           client: activeClient,
+          baseUrl: options.baseUrl(),
           directory: options.selectedWorkspaceRoot(),
-          force: Boolean(optionsArg?.dispose),
         }),
         disabledProviders,
       );
@@ -870,22 +877,22 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       const updated = await refreshProviders({ dispose: true });
       const connectedNow = Array.isArray(updated?.connected) && updated.connected.includes(resolved);
       if (connectedNow) {
-        return { connected: true, message: `${t("status.connected")} ${resolved}` };
+        return { connected: true, message: t("providers.connected_named", { name: providerName(resolved) }) };
       }
       const connected = await waitForProviderConnection();
       if (connected) {
-        return { connected: true, message: `${t("status.connected")} ${resolved}` };
+        return { connected: true, message: t("providers.connected_named", { name: providerName(resolved) }) };
       }
       return { connected: false, pending: true };
     } catch (error) {
       if (isPendingOauthError(error)) {
         const updated = await refreshProviders({ dispose: true });
         if (Array.isArray(updated?.connected) && updated.connected.includes(resolved)) {
-          return { connected: true, message: `${t("status.connected")} ${resolved}` };
+          return { connected: true, message: t("providers.connected_named", { name: providerName(resolved) }) };
         }
         const connected = await waitForProviderConnection();
         if (connected) {
-          return { connected: true, message: `${t("status.connected")} ${resolved}` };
+          return { connected: true, message: t("providers.connected_named", { name: providerName(resolved) }) };
         }
         return { connected: false, pending: true };
       }
@@ -910,7 +917,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     try {
       await c.auth.set({ providerID: providerId, auth: { type: "api", key: trimmed } });
       await refreshProviders({ dispose: true });
-      return `${t("status.connected")} ${providerId}`;
+      return t("providers.connected_named", { name: providerName(providerId) });
     } catch (error) {
       const message = describeProviderError(error, t("providers.save_api_key_failed"));
       setStateField("providerAuthError", message);
@@ -1174,7 +1181,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       } else {
         await refreshProviders({ dispose: true });
       }
-      return `${t("status.connected")} ${name}`;
+      return t("providers.connected_named", { name });
     } catch (error) {
       const message = describeProviderError(error, t("providers.save_api_key_failed"));
       setStateField("providerAuthError", message);
@@ -1232,29 +1239,27 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     // account (entitlements + tokens) AND the gateway manifest ({baseURL, apiKey,
     // models}) to the LegalWork server, which caches them globally and injects
     // the `eigenwelt` provider into EVERY workspace's engine config (like the
-    // free tier). No per-workspace provider block is written here. Best-effort:
-    // a persistence failure must not fail the sign-in itself.
+    // free tier). The browser callback is not a completed sign-in until these
+    // credentials have been saved. Never hide a failed save behind a reload.
     const { legalworkClient, legalworkWorkspaceId, canUseLegalworkServer } =
       await resolveLegalworkConfigTarget("write");
-    if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
-      try {
-        await legalworkClient.eigenweltSaveConnection(legalworkWorkspaceId, {
-          systemOne: payload.systemOne,
-          account: payload.account ?? null,
-          entitlements: payload.entitlements ?? null,
-          platformURL: payload.platformURL ?? null,
-          platformToken: payload.platformToken ?? null,
-          refreshToken: payload.refreshToken ?? null,
-          accessTokenExpiresAt: payload.accessTokenExpiresAt ?? null,
-          ...(baseURL && payload.apiKey ? { baseURL, apiKey: payload.apiKey, models } : {}),
-        });
-        invalidateEigenweltEntitlements();
-      } catch {
-        // ignore: best-effort — a persistence failure must not fail the sign-in.
-      }
+    if (!canUseLegalworkServer || !legalworkClient || !legalworkWorkspaceId) {
+      throw new Error(t("providers.not_connected"));
     }
+    await legalworkClient.eigenweltSaveConnection(legalworkWorkspaceId, {
+      systemOne: payload.systemOne,
+      account: payload.account ?? null,
+      entitlements: payload.entitlements ?? null,
+      platformURL: payload.platformURL ?? null,
+      platformToken: payload.platformToken ?? null,
+      refreshToken: payload.refreshToken ?? null,
+      accessTokenExpiresAt: payload.accessTokenExpiresAt ?? null,
+      ...(baseURL && payload.apiKey ? { baseURL, apiKey: payload.apiKey, models } : {}),
+    });
+    invalidateEigenweltEntitlements();
 
-    options.markOpencodeConfigReloadRequired();
+    // This refresh already reloads the engine. Scheduling the automatic
+    // reload as well disposes the instance a second time during sign-in.
     await refreshProviders({ dispose: true });
   };
 
@@ -1264,6 +1269,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     intent?: "sign-in";
     /** The plan picked on the plan screen: its checkout opens in the browser. */
     plan?: EigenweltPlanId;
+    checkout?: EigenweltCheckoutSelection;
   }): Promise<{ authorizeUrl: string; sessionId: string }> {
     setStateField("providerAuthError", null);
     try {
@@ -1305,7 +1311,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
           result.entitlements?.plan === "sync" && isEigenweltEntitledStatus(result.entitlements.subscriptionStatus)) {
           useSyncProviderSetupState.getState().reset(`${result.account.orgId}:${result.account.userId}`);
         }
-        return { connected: true, preferredAiProvider: "preferredAiProvider" in result ? result.preferredAiProvider : undefined, message: `${t("status.connected")} Eigenwelt Subscription` };
+        return { connected: true, preferredAiProvider: "preferredAiProvider" in result ? result.preferredAiProvider : undefined, message: t("providers.connected_named", { name: "Eigenwelt" }) };
       }
       throw new Error(t("providers.eigenwelt_signin_timeout"));
     } catch (error) {
@@ -1315,6 +1321,10 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       throw error instanceof Error ? error : new Error(message);
     }
   }
+
+  /** A provider's name as the member sees it, for the messages after connecting or disconnecting. */
+  const providerName = (providerId: string) =>
+    options.providers().find((provider) => provider.id === providerId)?.name ?? providerId;
 
   async function disconnectProvider(providerId: string) {
     setStateField("providerAuthError", null);
@@ -1352,10 +1362,11 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       if (Array.isArray(updated?.connected) && updated.connected.includes(resolved)) {
         // Still connected (e.g. via an env var we can't unset). Report what we
         // did rather than silently doing nothing.
-        return `Removed stored credentials for ${resolved}${t("providers.still_connected_suffix")}`;
+        return t("providers.still_connected", { name: providerName(resolved) });
       }
+      const name = providerName(resolved);
       removeProviderFromState(resolved);
-      return `${t("providers.disconnected_prefix")} ${resolved}`;
+      return t("providers.disconnected_named", { name });
     } catch (error) {
       const message = describeProviderError(error, t("providers.disconnect_failed"));
       setStateField("providerAuthError", message);
@@ -1367,7 +1378,11 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     returnFocusTarget?: ProviderReturnFocusTarget;
     preferredProviderId?: string;
     startOAuth?: boolean;
+    /** Connecting one of the firm's providers: allowed whatever the firm allows of the member's own. */
+    firm?: boolean;
   }) {
+    // Every way to add a provider leads here: the firm may not allow members' own.
+    if (!optionsArg?.firm && !(await orgPolicyAllows("ai.chat.allowCustom"))) return;
     mutateState((current) => ({
       ...current,
       providerAuthReturnFocusTarget: optionsArg?.returnFocusTarget ?? "none",

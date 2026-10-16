@@ -1,0 +1,5888 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Actaport API",
+    "description": "Die Nutzung der Actaport API ermöglicht eine nahtlose Integration Ihrer eigenen Tools mit den Arbeitsläufen, die bereits mittels Actaport organisiert werden. Damit werden Medienbrüche verhindert und Prozesse beschleunigt.",
+    "contact": {
+      "name": "Actaport Support",
+      "email": "support@actaport.de"
+    },
+    "version": "1.0.0"
+  },
+  "x-source": {
+    "url": "https://api.actaport.de/api-docs/public-api.json",
+    "sha256": "2d485ea84af6cbe526fa3b98f3cd097db63566a6c5ce4be0e2baa367e59e59aa"
+  },
+  "paths": {
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/verguetungspositionen/aufwaende": {
+      "get": {
+        "summary": "Listet alle Zeitaufwände einer Akte auf.",
+        "description": "Listet alle Zeitaufwände einer Akte auf.",
+        "operationId": "getAufwaendeByAktennummer",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Nullbasierter Seitenindex (0..N)",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Die Größe der zurückzugebenden Seite",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sortierkriterien im Format: property,(asc | desc). Die Standardsortierreihenfolge ist aufsteigend. Mehrere Sortierkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "Filterkriterien im Format: operator(field,'value'). Mehrere Filterkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "eq(name,'Mustermann')"
+          }
+        ]
+      },
+      "post": {
+        "summary": "Erstellt einen neuen Zeitaufwand.",
+        "description": "Erstellt einen neuen Zeitaufwand.",
+        "operationId": "createZeitaufwand",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerguetungspositionAufwandRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/uploads/tus": {
+      "post": {
+        "summary": "Initialisierung eines Datei-Uploads",
+        "description": "Diese Methode wird aufgerufen, um einen neuen Datei-Upload zu initialisieren.",
+        "operationId": "initaliazeTusUpload",
+        "parameters": [
+          {
+            "name": "Tus-Resumable",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Upload-Metadata",
+            "in": "header",
+            "description": "Kommaseparierte Schlüssel-Wert-Paare. Schlüssel und Wert sind durch ein Leerzeichen getrennt, der Wert ist Base64-kodiert. Erwartet werden 'filename' und 'filetype', z.B.: filename QXBpLnBkZg==, filetype YXBwbGljYXRpb24vcGRm",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Upload-Length",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ]
+      },
+      "options": {
+        "summary": "Serverseitige Konfiguration für den Datei-Upload",
+        "description": "Diese Methode gibt die aktuelle Konfiguration für den Datei-Upload zurück.",
+        "operationId": "getTusUploadProtocolOptions"
+      }
+    },
+    "/v1/rechnungen": {
+      "get": {
+        "summary": "Listet alle Rechnungen auf.",
+        "description": "Listet alle Rechnungen auf.",
+        "operationId": "getRechnungen",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Nullbasierter Seitenindex (0..N)",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Die Größe der zurückzugebenden Seite",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sortierkriterien im Format: property,(asc | desc). Die Standardsortierreihenfolge ist aufsteigend. Mehrere Sortierkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "Filterkriterien im Format: operator(field,'value'). Mehrere Filterkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "eq(name,'Mustermann')"
+          }
+        ]
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/verguetungspositionen/aufwaende/{id}": {
+      "get": {
+        "summary": "Liefert einen Zeitaufwand einer Akte zurück.",
+        "description": "Liefert einen Zeitaufwand einer Akte zurück.",
+        "operationId": "getAufwandByAktennummer",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id des Zeitaufwands",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 1
+          }
+        ]
+      },
+      "put": {
+        "summary": "Aktualisiert den Zeitaufwand mit der angegebenen Id.",
+        "description": "Aktualisiert den Zeitaufwand mit der angegebenen Id.",
+        "operationId": "updateZeitaufwand",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id des Zeitaufwands",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 1
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartialVerguetungspositionAufwandRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/notizen": {
+      "get": {
+        "summary": "Listet alle Notizen der Akte mit der angegebenen Aktennummer.",
+        "description": "Listet alle Notizen der Akte mit der angegebenen Aktennummer.",
+        "operationId": "getNotizen",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Nullbasierter Seitenindex (0..N)",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Die Größe der zurückzugebenden Seite",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sortierkriterien im Format: property,(asc | desc). Die Standardsortierreihenfolge ist aufsteigend. Mehrere Sortierkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "Filterkriterien im Format: operator(field,'value'). Mehrere Filterkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "eq(name,'Mustermann')"
+          }
+        ]
+      },
+      "post": {
+        "summary": "Erstellt eine neue Notiz für die Akte mit der angegebenen Aktennummer.",
+        "description": "Erstellt eine neue Notiz für die Akte mit der angegebenen Aktennummer.",
+        "operationId": "createNotiz",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotizRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/wiedervorlagen": {
+      "post": {
+        "summary": "Erstellt eine neue Wiedervorlage.",
+        "description": "Erstellt eine neue Wiedervorlage.",
+        "operationId": "createWiedervorlage",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WiedervorlageRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/notizen/{id}": {
+      "get": {
+        "summary": "Liefert die Notiz der Akte mit der angegebenen Aktennummer und Id.",
+        "description": "Liefert die Notiz der Akte mit der angegebenen Aktennummer und Id.",
+        "operationId": "getNotiz",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id der Notiz",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 1
+          }
+        ]
+      },
+      "put": {
+        "summary": "Aktualisiert eine Notiz der Akte mit der angegebenen Aktennummer und Id.",
+        "description": "Aktualisiert eine Notiz der Akte mit der angegebenen Aktennummer und Id.",
+        "operationId": "updateNotiz",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id der Notiz",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 1
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotizRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/verguetungspositionen/rvg": {
+      "get": {
+        "summary": "Liefert die Metadaten aller RVG Positionen zu einer Akte.",
+        "description": "Liefert die Metadaten aller RVG Positionen zu einer Akte.",
+        "operationId": "getRvgPositionen",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Nullbasierter Seitenindex (0..N)",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Die Größe der zurückzugebenden Seite",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sortierkriterien im Format: property,(asc | desc). Die Standardsortierreihenfolge ist aufsteigend. Mehrere Sortierkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "Filterkriterien im Format: operator(field,'value'). Mehrere Filterkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "eq(name,'Mustermann')"
+          }
+        ]
+      },
+      "post": {
+        "summary": "Erstellt eine neue RVG Position.",
+        "description": "Erstellt eine neue RVG Position.",
+        "operationId": "createRvgPosition",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RvgRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/zusatzinformation/kategorien/{id}": {
+      "get": {
+        "summary": "Liefert eine Zusatzinformationskategorie zurück.",
+        "description": "Liefert eine Zusatzinformationskategorie zurück.",
+        "operationId": "getZusatzinformationskategorie",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id der Zusatzinformationskategorie",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/verguetungspositionen/eigene-auslagen/{id}": {
+      "get": {
+        "summary": "Liefert die Metadaten einer eigenen Auslage.",
+        "description": "Liefert die Metadaten einer eigenen Auslage.",
+        "operationId": "getEigeneAuslage",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id der eigenen Auslage",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 1
+          }
+        ]
+      },
+      "put": {
+        "summary": "Aktualisiert eine eigene Auslage.",
+        "description": "Aktualisiert eine eigene Auslage.",
+        "operationId": "updateEigeneAuslage",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id einer noch nicht abgerechnete eigenen Auslage",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 1
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartialEigeneAuslageRequest"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Löscht eine eigene Auslage.",
+        "description": "Löscht eine eigene Auslage.",
+        "operationId": "deleteEigeneAuslage",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id einer noch nicht abgerechnete eigenen Auslage",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 1
+          }
+        ]
+      }
+    },
+    "/v1/webhooks/dashboard": {
+      "get": {
+        "summary": "Liefert das Dashboard für Webhooks",
+        "description": "Liefert das Dashboard für Webhooks.\n\n <p>Liefert die Information für das Webhook Self-Service Portal von Actaport. Dort können Events\n abonniert und mit eigenen Integrationslösungen verknüpft werden.",
+        "operationId": "getDashboard"
+      }
+    },
+    "/v1/uploads/tus/{id}": {
+      "get": {
+        "summary": "Uploadstand abfrage",
+        "description": "Diese Methode gibt den aktuellen Stand des Uploads zurück.",
+        "operationId": "getTusUploadStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id des Dokuments",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Löschen eines Uploads",
+        "description": "Diese Methode wird verwendet, um einen bestehenden Upload zu löschen.",
+        "operationId": "deleteTusUpload",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id des Dokuments",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      },
+      "head": {
+        "summary": "Uploadstand abfrage",
+        "description": "Diese Methode gibt den aktuellen Stand des Uploads zurück.",
+        "operationId": "getTusUploadStatus_1",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id des Dokuments",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "summary": "Hochladen eines Datenpakets",
+        "description": "Diese Methode wird verwendet, um ein Datenpaket hochzuladen.",
+        "operationId": "processTusUpload",
+        "parameters": [
+          {
+            "name": "Tus-Resumable",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Upload-Offset",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id des Uploads",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Rohe Bytes des Datenpakets.",
+          "content": {
+            "application/offset+octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/aufgaben": {
+      "get": {
+        "summary": "Liefert alle Aufgaben nach dem angegebenen Filter.",
+        "description": "Liefert alle Aufgaben nach dem angegebenen Filter.",
+        "operationId": "getAufgaben",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Nullbasierter Seitenindex (0..N)",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Die Größe der zurückzugebenden Seite",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sortierkriterien im Format: property,(asc | desc). Die Standardsortierreihenfolge ist aufsteigend. Mehrere Sortierkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "Filterkriterien im Format: operator(field,'value'). Mehrere Filterkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "eq(name,'Mustermann')"
+          }
+        ]
+      },
+      "post": {
+        "summary": "Erstellt eine neue Aufgabe.",
+        "description": "Erstellt eine neue Aufgabe.",
+        "operationId": "createAufgabe",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AufgabeRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/kostenstellen/{id}": {
+      "get": {
+        "summary": "Listet eine Kostenstelle",
+        "description": "Listet eine Kostenstelle",
+        "operationId": "getKostenstelle",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id der Kostenstelle",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 1
+          }
+        ]
+      },
+      "put": {
+        "summary": "Aktualisiert eine Kostenstelle\n\n ",
+        "description": "Aktualisiert eine Kostenstelle\n\n <p><sub>⚠️ Bitte beachten Sie, dass der Endpunkt die Berechtigung 'Kanzleieinstellungen'\n erfordert.</sub>",
+        "operationId": "updateKostenstelle",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id der Kostenstelle",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 1
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Löscht eine Kostenstelle\n\n ",
+        "description": "Löscht eine Kostenstelle\n\n <p><sub>⚠️ Bitte beachten Sie, dass der Endpunkt die Berechtigung 'Kanzleieinstellungen'\n erfordert.</sub>",
+        "operationId": "deleteKostenstelle",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id der Kostenstelle",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 1
+          }
+        ]
+      }
+    },
+    "/v1/documents/{id}/download-status": {
+      "get": {
+        "summary": "Liefert den Download-Status eines Dokuments",
+        "description": "Liefert den Download-Status eines Dokuments.\n\n <p>Dokumente, die größer als 60 MB sind, werden nicht direkt heruntergeladen. Stattdessen wird\n ein zeitlich begrenzter Link asynchron vorbereitet.\n\n <p>Solange die Vorbereitung läuft, hat die Antwort den Status <code>IN_PROGRESS</code>. Sobald der\n Link bereitsteht, wechselt der Status auf <code>READY</code>, und der Link ist unter der Relation\n <code>download</code> enthalten. Schlägt die Vorbereitung fehl, ist der Status <code>FAILED</code>.\n\n <p>Der Link ist eine absolute URL auf den externen Storage und ist ab seiner erfolgreichen\n Erstellung 10 Minuten gültig; der genaue Ablaufzeitpunkt steht in <code>expiresAt</code>. Danach\n muss der Download erneut angefordert werden.",
+        "operationId": "getDocumentDownloadStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id des Dokuments",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "0b1ea559-72b3-4b1e-bd19-7436ac25a628"
+          }
+        ]
+      }
+    },
+    "/v1/verguetungspositionen/aufwaende": {
+      "get": {
+        "summary": "Listet alle Zeitaufwände auf.",
+        "description": "Listet alle Zeitaufwände auf.",
+        "operationId": "getAufwaendeuebersicht",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Nullbasierter Seitenindex (0..N)",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Die Größe der zurückzugebenden Seite",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sortierkriterien im Format: property,(asc | desc). Die Standardsortierreihenfolge ist aufsteigend. Mehrere Sortierkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "Filterkriterien im Format: operator(field,'value'). Mehrere Filterkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "eq(name,'Mustermann')"
+          }
+        ]
+      }
+    },
+    "/v1/documents/search": {
+      "get": {
+        "summary": "Sucht Dokumente anhand eines Suchbegriffs",
+        "description": "Sucht Dokumente anhand eines Suchbegriffs.\n\n <p>Der Suchbegriff wird auf verschiedene Felder des Dokuments und deren Inhalt angewendet, um\n relevante Ergebnisse zu liefern.\n\n <p><sub>⚠️ Bitte beachten Sie, dass der Suchbegriff nicht mit einer Wildcard (<code>*</code>)\n beginnen darf.</sub>",
+        "operationId": "searchDocuments",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Nullbasierter Seitenindex (0..N)",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Die Größe der zurückzugebenden Seite",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            }
+          },
+          {
+            "name": "suchbegriff",
+            "in": "query",
+            "description": "Der Suchbegriff, nach dem gesucht werden soll.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "Mustermann"
+          },
+          {
+            "name": "aktennummer",
+            "in": "query",
+            "description": "Die Aktennummer, nach der gesucht werden soll.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "Mustermann"
+          }
+        ]
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/dokumente/uebersicht": {
+      "get": {
+        "summary": "Liefert die Übersicht aller Dokumente einer Akte.",
+        "description": "Liefert die Übersicht aller Dokumente einer Akte.",
+        "operationId": "getDocumentsOverview",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Nullbasierter Seitenindex (0..N)",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Die Größe der zurückzugebenden Seite",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sortierkriterien im Format: property,(asc | desc). Die Standardsortierreihenfolge ist aufsteigend. Mehrere Sortierkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "Filterkriterien im Format: operator(field,'value'). Mehrere Filterkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "eq(name,'Mustermann')"
+          }
+        ]
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/verguetungspositionen/rvg/{id}": {
+      "get": {
+        "summary": "Liefert die Metadaten einer RVG Position.",
+        "description": "Liefert die Metadaten einer RVG Position.",
+        "operationId": "getRvgPosition",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id der RVG Position",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 1
+          }
+        ]
+      },
+      "put": {
+        "summary": "Aktualisiert eine RVG Position.",
+        "description": "Aktualisiert eine RVG Position.",
+        "operationId": "updateRvgPosition",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id einer noch nicht abgerechneten RVG Position",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 1
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartialRvgRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      },
+      "delete": {
+        "summary": "Löscht eine RVG Position.",
+        "description": "Löscht eine RVG Position.",
+        "operationId": "deleteRvgPosition",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id einer noch nicht abgerechneten RVG Position",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 1
+          }
+        ]
+      }
+    },
+    "/v1/wiedervorlagen": {
+      "get": {
+        "summary": "Listet alle Wiedervorlage auf",
+        "description": "Listet alle Wiedervorlage auf",
+        "operationId": "getWiedervorlagen",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Nullbasierter Seitenindex (0..N)",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Die Größe der zurückzugebenden Seite",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sortierkriterien im Format: property,(asc | desc). Die Standardsortierreihenfolge ist aufsteigend. Mehrere Sortierkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "Filterkriterien im Format: operator(field,'value'). Mehrere Filterkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "eq(name,'Mustermann')"
+          }
+        ]
+      }
+    },
+    "/v1/benutzer": {
+      "get": {
+        "summary": "Liefert die Benutzerdaten aller Benutzer.",
+        "description": "Liefert die Benutzerdaten aller Benutzer.",
+        "operationId": "getBenutzer",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Nullbasierter Seitenindex (0..N)",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Die Größe der zurückzugebenden Seite",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sortierkriterien im Format: property,(asc | desc). Die Standardsortierreihenfolge ist aufsteigend. Mehrere Sortierkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "Filterkriterien im Format: operator(field,'value'). Mehrere Filterkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "eq(name,'Mustermann')"
+          }
+        ]
+      }
+    },
+    "/v1/auswahlliste/{id}": {
+      "get": {
+        "summary": "Übertragung einer Auswahlliste",
+        "description": "Übertragung einer Auswahlliste.\n\n <p>Auswahllisten haben definierte Namen/IDs über die sie abgerufen werden können.\n\n <p>Kontakte:\n\n <ul>\n   <li>akademischer_titel_grad - Titel/Akademischer Grad für natürliche Personen\n   <li>anreden - Anreden für natürliche Personen\n   <li>rechtsformen - Rechtsformen für juristische Personen\n   <li>kontakt_schlagwoerter - Schlagwörter für Kontakte\n   <li>gesetzliche_vertreter_jur - Typen für gesetzliche Vertreter juristischer Personen\n   <li>gesetzliche_vertreter_nat - Typen für gesetzliche Vertreter natürlicher Personen\n </ul>\n\n <p>Akten:\n\n <ul>\n   <li>rechtsgebiete - Rechtsgebiete für Akten\n   <li>schlagwoerter - Schlagwörter für Akten\n </ul>\n\n <p>Dokumente:\n\n <ul>\n   <li>dokument_typ - Typen für Dokumente\n   <li>dokument_status - Status für Dokumente\n </ul>\n\n <p>weitere Enitäten:\n\n <ul>\n   <li>wiedervorlage_gruende - Grund für Wiedervorlage\n   <li>fristgruende - Grund für Frist\n   <li>aufgaben_titel - Titel für Aufgabe\n   <li>taetigkeitsarten - Tätigkeitsart für Zeiterfassung\n   <li>stundenzettel_taetigkeiten - Tätigkeit für Zeiterfassung\n </ul>",
+        "operationId": "getAuswahlliste",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id der Auswahlliste",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "fristgruende"
+          }
+        ]
+      }
+    },
+    "/v1/aufgaben/{id}/status/{status}": {
+      "put": {
+        "summary": "Aktualisiert den Status der Aufgabe mit der angegebenen Id.",
+        "description": "Aktualisiert den Status der Aufgabe mit der angegebenen Id.",
+        "operationId": "updateAufgabeStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id der Aufgabe",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 1
+            }
+          },
+          {
+            "name": "status",
+            "in": "path",
+            "description": "Neuer Status der Aufgabe",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "OFFEN",
+                "ERLEDIGT",
+                "ZU_PRUEFEN"
+              ],
+              "example": "ERLEDIGT"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/verguetungspositionen/fremde-auslagen": {
+      "get": {
+        "summary": "Liefert die Metadaten aller fremden Auslagen zu einer Akte.",
+        "description": "Liefert die Metadaten aller fremden Auslagen zu einer Akte.",
+        "operationId": "getFremdeAuslagen",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Nullbasierter Seitenindex (0..N)",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Die Größe der zurückzugebenden Seite",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sortierkriterien im Format: property,(asc | desc). Die Standardsortierreihenfolge ist aufsteigend. Mehrere Sortierkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "Filterkriterien im Format: operator(field,'value'). Mehrere Filterkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "eq(name,'Mustermann')"
+          }
+        ]
+      },
+      "post": {
+        "summary": "Erstellt eine neue fremde Auslage.",
+        "description": "Erstellt eine neue fremde Auslage.",
+        "operationId": "createFremdeAuslage",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FremdeAuslageRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/verguetungspositionen/fremde-auslagen/{id}": {
+      "get": {
+        "summary": "Liefert die Metadaten einer fremden Auslage.",
+        "description": "Liefert die Metadaten einer fremden Auslage.",
+        "operationId": "getFremdeAuslage",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id der fremden Auslage",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 1
+          }
+        ]
+      },
+      "put": {
+        "summary": "Aktualisiert eine fremde Auslage.",
+        "description": "Aktualisiert eine fremde Auslage.",
+        "operationId": "updateFremdeAuslage",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id einer noch nicht abgerechnete fremden Auslage",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 1
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartialFremdeAuslageRequest"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Löscht eine fremde Auslage.",
+        "description": "Löscht eine fremde Auslage.",
+        "operationId": "deleteFremdeAuslage",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id einer noch nicht abgerechnete fremden Auslage",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 1
+          }
+        ]
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/dokumente/{id:[0-9a-fA-F\\\\-]{36}}": {
+      "get": {
+        "summary": "Liefert die Metadaten eines Dokuments.",
+        "description": "Liefert die Metadaten eines Dokuments.",
+        "operationId": "getDocument",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          }
+        ]
+      }
+    },
+    "/v1/kontakte": {
+      "get": {
+        "summary": "Liefert alle Kontakte.",
+        "description": "Liefert alle Kontakte.",
+        "operationId": "getKontakte",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Nullbasierter Seitenindex (0..N)",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Die Größe der zurückzugebenden Seite",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sortierkriterien im Format: property,(asc | desc). Die Standardsortierreihenfolge ist aufsteigend. Mehrere Sortierkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "Filterkriterien im Format: operator(field,'value'). Mehrere Filterkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "eq(name,'Mustermann')"
+          }
+        ]
+      },
+      "post": {
+        "summary": "Erstellt einen neuen Kontakt.",
+        "description": "Erstellt einen neuen Kontakt.",
+        "operationId": "createKontakt",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KontaktRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/beteiligte/{beteiligteId}/honorar": {
+      "get": {
+        "summary": "Liefert das Honorar eines Beteiligtes zurück",
+        "description": "Liefert das Honorar eines Beteiligtes zurück",
+        "operationId": "getBeteiligteHonorar",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "beteiligteId",
+            "in": "path",
+            "description": "Id des Beteiligtes",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 1
+          }
+        ]
+      },
+      "put": {
+        "summary": "Aktualisiert das Honorar eines Beteiligtes",
+        "description": "Aktualisiert das Honorar eines Beteiligtes",
+        "operationId": "updateBeteiligteHonorar",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "beteiligteId",
+            "in": "path",
+            "description": "Id des Beteiligtes",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 1
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartialHonorarRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/kontakte/{id:\\d+}": {
+      "get": {
+        "summary": "Liefert die Metadaten eines Kontakts.",
+        "description": "Liefert die Metadaten eines Kontakts.",
+        "operationId": "getKontakt",
+        "parameters": []
+      },
+      "put": {
+        "summary": "Aktualisiert die Metadaten eines Kontakts.",
+        "description": "Aktualisiert die Metadaten eines Kontakts.",
+        "operationId": "updateKontakt",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KontaktRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/gruppen/{id}": {
+      "get": {
+        "summary": "Liefert eine Gruppe zurück",
+        "description": "Liefert eine Gruppe zurück",
+        "operationId": "getGruppe",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id der Gruppe",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "a887d131-5b45-486f-beee-123c55f81745"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/aufgaben/{id}": {
+      "get": {
+        "summary": "Liefert die Aufgabe mit der angegebenen Id zurück.",
+        "description": "Liefert die Aufgabe mit der angegebenen Id zurück.",
+        "operationId": "getAufgabe",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id der Aufgabe",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 1
+            }
+          }
+        ]
+      },
+      "put": {
+        "summary": "Aktualisiert die Aufgabe mit der angegebenen Id.",
+        "description": "Aktualisiert die Aufgabe mit der angegebenen Id.",
+        "operationId": "updateAufgabe",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id der Aufgabe",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartialAufgabeRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/dokumente/neu": {
+      "post": {
+        "summary": "Erstellt ein neues Dokument in der Akte",
+        "description": "Erstellt ein neues Dokument in der Akte.\n\n <p><b>Hinweise zum initialen Inhalt und zur Vorlagen-/Briefkopf-Logik:</b>\n\n <ul>\n   <li>Ein Dokument, das <b>ohne Vorlage</b> erstellt wird, ist initial <b>leer</b>.\n   <li>Ein <b>Briefkopf</b> setzt die <b>Existenz einer Vorlage</b> voraus; daraus wird später\n       ein <b>kombiniertes Dokument</b> (Briefkopf & Vorlage) erzeugt.\n   <li><b>Standard-Systemplatzhalter</b> mit Bezug zur <b>Akte</b> werden automatisch ersetzt,\n       sofern sie in der Vorlage vorhanden sind.\n   <li>Die <b>Platzhalterersetzung</b> erfolgt ausschließlich für Dokumente vom Typ <b>WORD</b>\n       und nur, wenn eine <b>Vorlage</b> verwendet wird.\n </ul>\n\n <p><b>Platzhalterübergabe:</b> Platzhalterwerte werden als Key-Value-Paare im Format <code>\n &quot;placeholderKey&quot;:&quot;placeholderValue&quot;</code> übergeben.\n\n <p>Die Keys entsprechen exakt den in der Vorlage definierten Platzhaltern (ohne <code>{{\n </code>}},sofern diese im Template enthalten sind). Führende und folgende Leerzeichen um den\n eigentlichen Platzhalterwert sind wegzulassen.\n\n <p>Beispiel: <code>{{ Ansprechpartner Name </code>}} wird über den Key <code>&quot;Ansprechpartner\n Name&quot;</code> befüllt. Platzhalterschlüssel sind <b>case-sensitiv</b>; die Groß-/Kleinschreibung muss\n übereinstimmen.",
+        "operationId": "createDocument",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/zusatzinformation/kategorien": {
+      "get": {
+        "summary": "Liefert alle definierte Zusatzinformationskategorien für eine Akte zurück.",
+        "description": "Liefert alle definierte Zusatzinformationskategorien für eine Akte zurück.",
+        "operationId": "getZusatzinformationskategorien"
+      }
+    },
+    "/v1/info/me": {
+      "get": {
+        "summary": "Liefert Informationen über den angemeldeten Benutzer.",
+        "description": "Der Endpunkt gibt Details über den aktuell angemeldeten Benutzer zurück, einschließlich seiner ID, Vorname, Nachname, Anzeigename, E-Mail-Adresse und Tenant-Informationen.",
+        "operationId": "getUserInfo"
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/wiedervorlagen/{id}/status/{status}": {
+      "put": {
+        "summary": "Aktualisiert den Status einer Wiedervorlage.",
+        "description": "Aktualisiert den Status einer Wiedervorlage.",
+        "operationId": "updateWiedervorlageStatus",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id der Wiedervorlage",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "example": 1
+          },
+          {
+            "name": "status",
+            "in": "path",
+            "description": "Neuer Status der Wiedervorlage",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "OFFEN",
+                "ERLEDIGT"
+              ],
+              "example": "ERLEDIGT"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/fristen/{id}": {
+      "get": {
+        "summary": "Liefert eine Frist zurück",
+        "operationId": "getFrist",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Id der Frist"
+            }
+          }
+        ]
+      },
+      "put": {
+        "summary": "Aktualisiert eine Frist",
+        "operationId": "updateFrist",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Id der Frist"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartialFristRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/fristen": {
+      "post": {
+        "summary": "Erstellt eine neue Frist",
+        "operationId": "createFrist",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FristRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/uploads/tus/{id}/link": {
+      "post": {
+        "summary": "Upload zu einer Akte verlinken",
+        "description": "Verlinkt das hochgeladene Dokument mit einer bestimmten Akte und einem bestimmten Ordner und setzt dabei Eigenschaften wie Status, Typ und Beschreibung.",
+        "operationId": "linkTusUpload",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id des Dokuments",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TusUploadLinkRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/verguetungspositionen/eigene-auslagen": {
+      "get": {
+        "summary": "Liefert die Metadaten aller eigenen Auslagen zu einer Akte.",
+        "description": "Liefert die Metadaten aller eigenen Auslagen zu einer Akte.",
+        "operationId": "getEigeneAuslagen",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Nullbasierter Seitenindex (0..N)",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Die Größe der zurückzugebenden Seite",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sortierkriterien im Format: property,(asc | desc). Die Standardsortierreihenfolge ist aufsteigend. Mehrere Sortierkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "Filterkriterien im Format: operator(field,'value'). Mehrere Filterkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "eq(name,'Mustermann')"
+          }
+        ]
+      },
+      "post": {
+        "summary": "Erstellt eine neue eigene Auslage",
+        "description": "Erstellt eine neue eigene Auslage.\n\n <p>Sie haben die Möglichkeit, entweder den Netto-Betrag (`netto`) oder den Brutto-Betrag\n (`brutto`) inklusive Umsatzsteuer anzugeben. Falls Sie keinen Umsatzsteuerbetrag angeben, wird\n dieser auf `0` gesetzt und entspricht somit einer Netto-Auslage.\n\n <p>Die Netto- und Brutto-Beträge müssen in Cent angegeben werden und dürfen nicht negativ sein.",
+        "operationId": "createEigeneAuslage",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EigeneAuslageRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/fristen": {
+      "get": {
+        "summary": "Listet alle Fristen auf",
+        "operationId": "getFristen",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Nullbasierter Seitenindex (0..N)",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Die Größe der zurückzugebenden Seite",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sortierkriterien im Format: property,(asc | desc). Die Standardsortierreihenfolge ist aufsteigend. Mehrere Sortierkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "Filterkriterien im Format: operator(field,'value'). Mehrere Filterkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "eq(name,'Mustermann')"
+          }
+        ]
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/ordner": {
+      "get": {
+        "summary": "Liefert die Ordnerstruktur einer Akte.",
+        "description": "Liefert die Ordnerstruktur einer Akte.",
+        "operationId": "getOrdnerstruktur",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sortierkriterien im Format: property,(asc | desc). Die Standardsortierreihenfolge ist aufsteigend. Mehrere Sortierkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "post": {
+        "summary": "Erstellt einen neuen Ordner in der Akte.",
+        "description": "Erstellt einen neuen Ordner in der Akte.",
+        "operationId": "createOrdner",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrdnerRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/akten": {
+      "get": {
+        "summary": "Listet alle Akten.",
+        "description": "Listet alle Akten.",
+        "operationId": "getAkten",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Nullbasierter Seitenindex (0..N)",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Die Größe der zurückzugebenden Seite",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sortierkriterien im Format: property,(asc | desc). Die Standardsortierreihenfolge ist aufsteigend. Mehrere Sortierkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "Filterkriterien im Format: operator(field,'value'). Mehrere Filterkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "eq(name,'Mustermann')"
+          }
+        ]
+      },
+      "post": {
+        "summary": "Erstellt eine neue Akte",
+        "description": "Erstellt eine neue Akte.\n\n <p>Erstellt eine neue Akte mit den angegebenen Daten. Die Aktennummer wird automatisch\n vergeben.\n\n <p><sub>⚠️ Bitte beachten Sie, dass derzeit nur die Erstellung von regulären Akten unterstützt\n wird.",
+        "operationId": "createAkte",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AkteRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/uploads/tus/{id}/assembly": {
+      "get": {
+        "summary": "Assemblierungsstatus abfragen",
+        "description": "Ruft den Assemblierungsstatus der hochgeladenen Datenpakete ab",
+        "operationId": "getTusUploadAssemblyStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id des Dokuments",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/kostenstellen": {
+      "get": {
+        "summary": "Listet alle Kostenstellen auf",
+        "description": "Listet alle Kostenstellen auf",
+        "operationId": "getKostenstellen"
+      },
+      "post": {
+        "summary": "Erstellt eine Kostenstelle\n\n ",
+        "description": "Erstellt eine Kostenstelle\n\n <p><sub>⚠️ Bitte beachten Sie, dass der Endpunkt die Berechtigung 'Kanzleieinstellungen'\n erfordert.</sub>",
+        "operationId": "createKostenstelle"
+      }
+    },
+    "/v1/documents/{id:[0-9a-fA-F\\\\-]{36}}": {
+      "get": {
+        "summary": "Lädt ein Dokument herunter",
+        "description": "Lädt ein Dokument herunter.\n\n <p>Ist das Dokument höchstens 60 MB groß, wird der Inhalt direkt mit Status <code>200</code>\n zurückgegeben.\n\n <p>Bei größeren Dokumenten wird der Inhalt nicht über diesen Endpunkt gestreamt. Stattdessen\n wird ein Link asynchron vorbereitet und die Antwort mit Status <code>201</code> zurückgegeben. Der\n <code>Location</code>-Header enthält die relative URL des Download-Status (<code>\n /v1/documents/&#123;id&#125;/download-status</code>). Über diese URL kann der Stand der\n Vorbereitung abgefragt werden; sobald der Link bereitsteht, ist er dort enthalten und kann zum\n Herunterladen des Dokuments verwendet werden. Nach erfolgreicher Erstellung ist der Link 10\n Minuten gültig.",
+        "operationId": "downloadDocument",
+        "parameters": []
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/dokumente": {
+      "get": {
+        "summary": "Liefert alle Dokumente einer Akte",
+        "description": "Liefert alle Dokumente einer Akte.\n\n <p>Dieser Endpunkt ist veraltet. Bitte verwenden Sie stattdessen <a\n href=\"https://api.actaport.de/api-docs/rest-api/reference/public#tag/Dokumente/operation/getDocumentsOverview\">\n den neuen Endpunkt </a>.",
+        "operationId": "getAllDocuments",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "Filterkriterien im Format: operator(field,'value'). Mehrere Filterkriterien werden unterstützt.",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "eq(name,'Mustermann')"
+          }
+        ]
+      },
+      "post": {
+        "summary": "Lädt ein Dokument hoch",
+        "description": "Lädt ein Dokument hoch.\n\n <p>Die Datei wird in der Akte hochgeladen und gespeichert. Der Ordnername ist optional und kann\n angegeben werden, um das Dokument in einem bestimmten Ordner zu speichern.\n\n <p>Verschachtelte Ordnerpfade können mit \"/\" getrennt angegeben werden (z.B.\n \"Dokumente/Verträge\"). Enthält ein Ordnername selbst einen Schrägstrich, muss dieser mit \"\\/\"\n escaped werden.\n\n <p>Der Dateninhalt wird als Multipart-Formulardaten gesendet. Der Dateiname wird kann über den\n Header <code>Content-Disposition</code> angegeben werden. Beispiel <code>\n Content-Disposition: form-data; name=\"file\"; filename=\"example.txt\"</code>.\n\n <p>Weitere Beispiele finden Sie im Bereich \"Code Beispiele\" der Dokumentation.\n\n <p><sub>⚠️ Bitte beachten Sie, dass derzeit die maximale Dateigröße für den Upload auf 50 MB\n beschränkt ist und die maximale Ordnertiefe 50 Ebenen beträgt.",
+        "operationId": "uploadDocument",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "ordner": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/kontakte/suche": {
+      "get": {
+        "summary": "Sucht Kontakte anhand eines Suchbegriffs",
+        "description": "Sucht Kontakte anhand eines Suchbegriffs.\n\n <p>Der Suchbegriff wird auf verschiedene Felder des Kontakts angewendet, um relevante\n Ergebnisse zu liefern.\n\n <p><sub>⚠️ Bitte beachten Sie, dass der Suchbegriff nicht mit einer Wildcard (<code>*</code>)\n beginnen darf.</sub>",
+        "operationId": "searchKontakte",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Nullbasierter Seitenindex (0..N)",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Die Größe der zurückzugebenden Seite",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            }
+          },
+          {
+            "name": "suchbegriff",
+            "in": "query",
+            "description": "Der Suchbegriff, nach dem gesucht werden soll.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "Mustermann"
+          }
+        ]
+      }
+    },
+    "/v1/documents/{id}/metadata": {
+      "put": {
+        "summary": "Aktualisiert die Metadaten eines Dokuments.",
+        "description": "Aktualisiert die Metadaten eines Dokuments.",
+        "operationId": "updateDocumentMetadata",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id des Dokuments",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "0b1ea559-72b3-4b1e-bd19-7436ac25a628"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartialDocumentMetadataRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/info/kanzlei/dezernate": {
+      "get": {
+        "summary": "Liefert Informationen über die Dezernate.",
+        "description": "Liefert Informationen über die Dezernate.",
+        "operationId": "getDezernate",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Nullbasierter Seitenindex (0..N)",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Die Größe der zurückzugebenden Seite",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sortierkriterien im Format: property,(asc | desc). Die Standardsortierreihenfolge ist aufsteigend. Mehrere Sortierkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "Filterkriterien im Format: operator(field,'value'). Mehrere Filterkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "eq(name,'Mustermann')"
+          }
+        ]
+      }
+    },
+    "/v1/gruppen": {
+      "get": {
+        "summary": "Liefert alle Gruppe zurück.",
+        "description": "Liefert alle Gruppe zurück.",
+        "operationId": "getGruppen",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Nullbasierter Seitenindex (0..N)",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Die Größe der zurückzugebenden Seite",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sortierkriterien im Format: property,(asc | desc). Die Standardsortierreihenfolge ist aufsteigend. Mehrere Sortierkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "Filterkriterien im Format: operator(field,'value'). Mehrere Filterkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "eq(name,'Mustermann')"
+          }
+        ]
+      }
+    },
+    "/v1/info/kanzlei/dezernate/{id}": {
+      "get": {
+        "summary": "Liefert Informationen über ein Dezernat.",
+        "description": "Liefert Informationen über ein Dezernat.",
+        "operationId": "getDezernat",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id des Dezernats",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "a887d131-5b45-486f-beee-123c55f81745"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/wiedervorlagen/{id}": {
+      "get": {
+        "summary": "Liefert die Metadaten einer Wiedervorlage zurück.",
+        "description": "Liefert die Metadaten einer Wiedervorlage zurück.",
+        "operationId": "getWiedervorlage",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id der Wiedervorlage",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "example": 1
+          }
+        ]
+      },
+      "put": {
+        "summary": "Aktualisiert eine Wiedervorlage.",
+        "description": "Aktualisiert eine Wiedervorlage.",
+        "operationId": "updateWiedervorlage",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id der Wiedervorlage",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "example": 1
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartialWiedervorlageRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/benutzer/{id}": {
+      "get": {
+        "summary": "Liefert die Benutzerdaten eines Benutzers.",
+        "description": "Liefert die Benutzerdaten eines Benutzers.",
+        "operationId": "getBenutzerSelf",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id des Benutzers",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "0b1ea559-72b3-4b1e-bd19-7436ac25a628"
+          }
+        ]
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}": {
+      "get": {
+        "summary": "Liefert die Akte mit der angegebenen Aktennummer.",
+        "description": "Liefert die Akte mit der angegebenen Aktennummer.",
+        "operationId": "getAkte",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          }
+        ]
+      },
+      "put": {
+        "summary": "Aktualisiert eine Akte",
+        "description": "Aktualisiert eine Akte.\n\n <p>Aktualisiert die Akte mit der angegebenen Aktennummer und den übergebenen Daten.\n\n <p><sub> ⚠️ Bitte beachten Sie, dass derzeit nur die Aktualisierung von regulären Akten\n unterstützt wird.",
+        "operationId": "updateAkte",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartialAkteRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/vorlagen": {
+      "get": {
+        "summary": "Liefert alle Vorlagen.",
+        "description": "Liefert alle Vorlagen.",
+        "operationId": "getVorlagen",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Nullbasierter Seitenindex (0..N)",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "description": "Die Größe der zurückzugebenden Seite",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "Sortierkriterien im Format: property,(asc | desc). Die Standardsortierreihenfolge ist aufsteigend. Mehrere Sortierkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "description": "Filterkriterien im Format: operator(field,'value'). Mehrere Filterkriterien werden unterstützt.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "eq(name,'Mustermann')"
+          }
+        ]
+      }
+    },
+    "/v1/rechnungen/{id}": {
+      "get": {
+        "summary": "Listet die Rechnung mit der angegebenen Id auf.",
+        "description": "Listet die Rechnung mit der angegebenen Id auf.",
+        "operationId": "getRechnung",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id der Rechnung",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 1
+          }
+        ]
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/fristen/{id}/status/{status}": {
+      "put": {
+        "summary": "Aktualisiert den Status einer Frist",
+        "operationId": "updateFristStatus",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Id der Frist"
+            }
+          },
+          {
+            "name": "status",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Neuer Status der Frist",
+              "enum": [
+                "OFFEN",
+                "ZUGENEHMIGEN",
+                "VORFRIST_ERLEDIGT",
+                "ERLEDIGT"
+              ],
+              "example": "ERLEDIGT"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FristRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/ordner/{id}": {
+      "get": {
+        "summary": "Liefert die Metadaten eines Ordners.",
+        "description": "Liefert die Metadaten eines Ordners.",
+        "operationId": "getOrdner",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id des Ordners.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 1526
+          }
+        ]
+      }
+    },
+    "/v1/kollisionspruefung": {
+      "get": {
+        "summary": "Prüft Kollisionen für einen Mandanten",
+        "operationId": "getKollisionspruefung",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "description": "Name des Kontakts",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "Mustermann"
+          },
+          {
+            "name": "vorname",
+            "in": "query",
+            "description": "Vorname des Kontakts",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "Mustermann"
+          },
+          {
+            "name": "rolle",
+            "in": "query",
+            "description": "Hauptrolle des Kontakts",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "examples": [
+                "Mandant",
+                "Gegner"
+              ]
+            }
+          },
+          {
+            "name": "strasse",
+            "in": "query",
+            "description": "Straße des Kontakts",
+            "schema": {
+              "type": "string"
+            },
+            "example": "Weißfelder Straße"
+          },
+          {
+            "name": "hausnummer",
+            "in": "query",
+            "description": "Hausnummer des Kontakts",
+            "schema": {
+              "type": "string"
+            },
+            "example": "12A"
+          },
+          {
+            "name": "plz",
+            "in": "query",
+            "description": "Postleitzahl des Kontakts",
+            "schema": {
+              "type": "string"
+            },
+            "example": "04347"
+          },
+          {
+            "name": "ort",
+            "in": "query",
+            "description": "Ort des Kontakts",
+            "schema": {
+              "type": "string"
+            },
+            "example": "Leipzig"
+          },
+          {
+            "name": "geburtsdatum",
+            "in": "query",
+            "description": "Geburtsdatum des Kontakts",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "example": "1980-01-01"
+          }
+        ]
+      }
+    },
+    "/v1/akten/{laufendeNummer}/{bezugsJahr}/uebergeordnete-akte/vorschlaege": {
+      "get": {
+        "summary": "Vorschlagsliste für zulässige Hauptakten\n\n ",
+        "description": "Vorschlagsliste für zulässige Hauptakten\n\n <p>Liefert Aktevorschläge für die angegebene Aktennummer, die als übergeordnete Akte zugeordnet\n werden können.",
+        "operationId": "getUebergeordneteAkteVorschlaege",
+        "parameters": [
+          {
+            "name": "laufendeNummer",
+            "in": "path",
+            "description": "Laufende Nummer der Akte innerhalb des Bezugsjahres.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": 42,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "bezugsJahr",
+            "in": "path",
+            "description": "Bezugsjahr der Akte.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "example": 25
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Nullbasierter Seitenindex (0..N)",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          }
+        ]
+      }
+    },
+    "/v1/vorlagen/{id}": {
+      "get": {
+        "summary": "Liefert die Metadaten einer Vorlage.",
+        "description": "Liefert die Metadaten einer Vorlage.",
+        "operationId": "getVorlage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Id der Vorlage",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": 1
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BaseBenutzer": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Id des Benutzers",
+            "example": "123e4567-e89b-12d3-a456-426614174000"
+          },
+          "anzeigename": {
+            "type": "string",
+            "description": "Anzeigename des Benutzers",
+            "example": "Max Mustermann"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "MinimalMandantRequest": {
+        "type": "object",
+        "description": "Der Mandant des Aufwands",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Eindeutige Id des Mandanten",
+            "example": 1
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "PartialVerguetungspositionAufwandRequest": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Start des Aufwands. Der Start muss vor dem Ende liegen.",
+            "example": "2025-01-01T12:00:00Z"
+          },
+          "ende": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Ende des Aufwands. Das Ende muss nach dem Start liegen.",
+            "example": "2025-01-01T13:00:00Z"
+          },
+          "erfasst": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Die erfasste Zeit in Minuten",
+            "minimum": 0
+          },
+          "abrechenbar": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Die abrechenbare Zeit in Minuten",
+            "minimum": 0
+          },
+          "stundensatz": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Der Stundensatz in Euro",
+            "minimum": 0
+          },
+          "mandant": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MinimalMandantRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "benutzer": {
+            "$ref": "#/components/schemas/BaseBenutzer"
+          },
+          "taetigkeit": {
+            "type": "string",
+            "description": "Die Tätigkeitsbeschreibung"
+          },
+          "taetigkeitsart": {
+            "type": "string",
+            "description": "Die Tätigkeitsart zum Aufwand"
+          }
+        }
+      },
+      "NotizRequest": {
+        "type": "object",
+        "properties": {
+          "titel": {
+            "type": "string",
+            "description": "Titel der Notiz.",
+            "minLength": 1
+          },
+          "beschreibung": {
+            "type": "string",
+            "description": "Beschreibung der Notiz."
+          },
+          "typ": {
+            "$ref": "#/components/schemas/NotizTyp",
+            "description": "Typ der Notiz."
+          }
+        },
+        "required": [
+          "titel",
+          "typ"
+        ]
+      },
+      "NotizTyp": {
+        "type": "string",
+        "enum": [
+          "AKTENNOTIZ",
+          "TERMINNOTIZ",
+          "TELEFONNOTIZ"
+        ]
+      },
+      "WiedervorlageRequest": {
+        "type": "object",
+        "properties": {
+          "grund": {
+            "type": "string",
+            "description": "Grund der Wiedervorlage",
+            "minLength": 1
+          },
+          "vorlagedatum": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Datum der Wiedervorlage"
+          },
+          "anmerkung": {
+            "type": "string",
+            "description": "Anmerkung zur Wiedervorlage",
+            "maxLength": 5000,
+            "minLength": 0
+          }
+        },
+        "required": [
+          "grund",
+          "vorlagedatum"
+        ]
+      },
+      "RegularBeteiligteRolle": {
+        "type": "object",
+        "properties": {
+          "hauptrolle": {
+            "type": "string",
+            "enum": [
+              "Mandant_Gegner",
+              "Mandant",
+              "Gegner",
+              "Gericht/Behörde",
+              "Sonstige Beteiligte"
+            ],
+            "minLength": 1
+          },
+          "unterrolle": {
+            "type": "string",
+            "examples": [
+              "Kläger",
+              "Klägerin",
+              "Beklagter",
+              "Beklagte",
+              "Zeuge",
+              "Sachverständiger"
+            ],
+            "minLength": 1
+          }
+        },
+        "required": [
+          "hauptrolle",
+          "unterrolle"
+        ]
+      },
+      "VerguetungspositionAufwandRequest": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Start des Aufwands. Der Start muss vor dem Ende liegen.",
+            "example": "2025-01-01T12:00:00Z"
+          },
+          "ende": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Ende des Aufwands. Das Ende muss nach dem Start liegen.",
+            "example": "2025-01-01T13:00:00Z"
+          },
+          "erfasst": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Die erfasste Zeit in Minuten",
+            "minimum": 0
+          },
+          "abrechenbar": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Die abrechenbare Zeit in Minuten",
+            "minimum": 0
+          },
+          "stundensatz": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Der Stundensatz in Euro",
+            "minimum": 0
+          },
+          "mandant": {
+            "$ref": "#/components/schemas/MinimalMandantRequest",
+            "description": "Der Mandant des Aufwands"
+          },
+          "benutzer": {
+            "$ref": "#/components/schemas/BaseBenutzer",
+            "description": "Benutzer, der den Aufwand getätigt hat"
+          },
+          "taetigkeit": {
+            "type": "string",
+            "description": "Die Tätigkeitsbeschreibung"
+          },
+          "taetigkeitsart": {
+            "type": "string",
+            "description": "Die Tätigkeitsart zum Aufwand"
+          }
+        },
+        "required": [
+          "benutzer",
+          "ende",
+          "start"
+        ]
+      },
+      "AufgabeEmpfaenger": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Eindeutige Id des Empfängers",
+            "example": "12345",
+            "minLength": 1
+          },
+          "anzeigename": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Anzeigename des Empfängers",
+            "example": "Max Mustermann"
+          },
+          "type": {
+            "$ref": "#/components/schemas/AufgabeEmpfaengerType",
+            "description": "Typ des Empfängers",
+            "example": "BENUTZER"
+          }
+        },
+        "required": [
+          "id",
+          "type"
+        ]
+      },
+      "AufgabeEmpfaengerType": {
+        "type": "string",
+        "enum": [
+          "BENUTZER",
+          "GROUP"
+        ]
+      },
+      "AufgabePriorisierung": {
+        "type": "string",
+        "enum": [
+          "VERFUEGUNG",
+          "NIEDRIG",
+          "NEUTRAL",
+          "HOCH"
+        ]
+      },
+      "AufgabeRequest": {
+        "type": "object",
+        "properties": {
+          "titel": {
+            "type": "string",
+            "description": "Titel der Aufgabe"
+          },
+          "beschreibung": {
+            "type": "string",
+            "description": "Beschreibung der Aufgabe"
+          },
+          "faelligkeit": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Datum der Fälligkeit der Aufgabe"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AufgabeStatus",
+            "default": "OFFEN",
+            "description": "Status der Aufgabe"
+          },
+          "priorisierung": {
+            "$ref": "#/components/schemas/AufgabePriorisierung",
+            "description": "Priorisierung der Aufgabe"
+          },
+          "empfaenger": {
+            "$ref": "#/components/schemas/AufgabeEmpfaenger",
+            "description": "Empfänger der Aufgabe"
+          },
+          "akte": {
+            "$ref": "#/components/schemas/MinimalAkteRequest",
+            "description": "Akte zu der die Aufgabe gehört"
+          },
+          "zurKenntnis": {
+            "type": "array",
+            "description": "Benutzer, der die Aufgabe zur Kenntnis nehmen sollen",
+            "items": {
+              "$ref": "#/components/schemas/BaseBenutzer"
+            }
+          },
+          "zurPruefung": {
+            "$ref": "#/components/schemas/BaseBenutzer",
+            "description": "Benutzer, der die Aufgabe zur Prüfung erhalten soll"
+          },
+          "aktendokumente": {
+            "type": "array",
+            "description": "Dokumente zu der Aufgabe",
+            "items": {
+              "$ref": "#/components/schemas/BaseDocumentRequest"
+            }
+          },
+          "notizen": {
+            "type": "array",
+            "description": "Notizen zu der Aufgabe",
+            "items": {
+              "$ref": "#/components/schemas/BaseNotizRequest"
+            }
+          }
+        },
+        "required": [
+          "empfaenger",
+          "faelligkeit",
+          "priorisierung",
+          "titel"
+        ]
+      },
+      "AufgabeStatus": {
+        "type": "string",
+        "enum": [
+          "OFFEN",
+          "ERLEDIGT",
+          "ZU_PRUEFEN"
+        ]
+      },
+      "BaseDocumentRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Eindeutige Id des Dokuments."
+          },
+          "name": {
+            "type": "string",
+            "description": "Name des Dokuments."
+          },
+          "mimeType": {
+            "type": "string",
+            "description": "Dateityp des Dokuments."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "BaseNotizRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Eindeutige Id der Notiz.",
+            "minLength": 1
+          },
+          "titel": {
+            "type": "string",
+            "description": "Titel der Notiz."
+          },
+          "typ": {
+            "$ref": "#/components/schemas/NotizTyp",
+            "description": "Typ der Notiz."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "MinimalAkteRequest": {
+        "type": "object",
+        "properties": {
+          "aktennummer": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "aktennummer"
+        ]
+      },
+      "Adresse": {
+        "type": "object",
+        "properties": {
+          "strassePostfach": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 0
+          },
+          "hausnummer": {
+            "type": "string",
+            "maxLength": 10,
+            "minLength": 0
+          },
+          "adresszusatz": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 0
+          },
+          "empfaenger": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 0
+          },
+          "postleitzahl": {
+            "type": "string",
+            "maxLength": 10,
+            "minLength": 0
+          },
+          "ort": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 0
+          },
+          "land": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 0
+          },
+          "postalischeAdresse": {
+            "type": "boolean"
+          },
+          "typ": {
+            "$ref": "#/components/schemas/AdresseTyp"
+          }
+        },
+        "required": [
+          "postalischeAdresse",
+          "typ"
+        ]
+      },
+      "AdresseTyp": {
+        "type": "string",
+        "enum": [
+          "PRIVAT",
+          "GESCHAEFTLICH",
+          "ANDERE"
+        ]
+      },
+      "Ansprechpartner": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "anzeigename": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "BuyerReference": {
+        "type": "object",
+        "properties": {
+          "bezeichnung": {
+            "type": "string",
+            "description": "Die Bezeichnung der Käuferreferenz",
+            "example": "Stadt Dresden"
+          },
+          "typ": {
+            "$ref": "#/components/schemas/BuyerReferenceTyp",
+            "description": "Der Typ der Käuferreferenz",
+            "example": "LEITWEG_ID"
+          },
+          "value": {
+            "type": "string",
+            "description": "Der Wert der Käuferreferenz\n\n <p>Für den Typ \"LEITWEG_ID\" muss hier eine gültige Leitweg-ID angegeben werden.\n\n <p>Genaue Anforderungen an die Leitweg-ID können den entsprechenden Normen entnommen werden.",
+            "example": "14612000-SV01-11",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "typ",
+          "value"
+        ]
+      },
+      "BuyerReferenceTyp": {
+        "type": "string",
+        "enum": [
+          "LEITWEG_ID"
+        ]
+      },
+      "Faxnummer": {
+        "type": "object",
+        "properties": {
+          "wert": {
+            "type": "string",
+            "description": "Wert der Faxnummern",
+            "example": "+49 123 4567890",
+            "minLength": 1,
+            "pattern": "[\\+\\-/\\d\\s]+"
+          },
+          "typ": {
+            "$ref": "#/components/schemas/FaxnummerTyp",
+            "description": "Typ der Faxnummern",
+            "example": "GESCHAEFTLICH"
+          }
+        },
+        "required": [
+          "typ",
+          "wert"
+        ]
+      },
+      "FaxnummerTyp": {
+        "type": "string",
+        "enum": [
+          "PRIVAT",
+          "GESCHAEFTLICH"
+        ]
+      },
+      "KontaktERechnungRequest": {
+        "type": "object",
+        "properties": {
+          "buyerReferences": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BuyerReference"
+            }
+          }
+        }
+      },
+      "KontaktRequest": {
+        "type": "object",
+        "properties": {
+          "vorname": {
+            "type": "string",
+            "description": "Vorname des Kontakts",
+            "example": "Max"
+          },
+          "name": {
+            "type": "string",
+            "description": "Nachname des Kontakts",
+            "example": "Mustermann"
+          },
+          "namensvorsatz": {
+            "type": "string",
+            "description": "Namensvorsatz des Kontakts",
+            "example": "von"
+          },
+          "akademischerTitel": {
+            "type": "array",
+            "description": "Akademischer Titel des Kontakts",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "anrede": {
+            "type": "string",
+            "description": "Anrede des Kontakts",
+            "example": "Herr"
+          },
+          "briefanrede": {
+            "type": "string",
+            "description": "Briefanrede des Kontakts.\n\n <p>Bitte beachten Sie, dass die Briefanrede automatisch vom System generiert wird, falls das\n Feld leer ist.\n\n <p>Die Briefanrede wird auf Grundlage der Felder <em>Name</em>, <em>Anrede</em>,\n <em>Namensvorsatz</em> und <em>akademische Titel</em> anhand des folgenden Musters generiert:\n <br>\n „Sehr geehrte/er&nbsp;[Anrede]&nbsp;[Akademischer Titel]&nbsp;[Namensvorsatz]&nbsp;[Name]“.\n\n <p>Fehlt die Anrede vollständig, wird standardmäßig die Formulierung „Sehr geehrte Damen und\n Herren“ verwendet.\n\n <p>Ist die Anrede als <em>Eheleute</em> definiert, ergibt sich das folgende Muster: <br>\n „Sehr geehrte Frau&nbsp;[Akademischer Titel]&nbsp;[Namensvorsatz]&nbsp;[Name], sehr geehrter\n Herr&nbsp;[Akademischer Titel]&nbsp;[Namensvorsatz]&nbsp;[Name]“.\n\n <p>Die im System verfügbaren akademischen Titel können über den folgenden Endpunkt eingesehen\n werden: <a\n href=\"https://api.actaport.de/api-docs/rest-api/reference/public#tag/Allgemeines/operation/getAuswahlliste\">\n Auswahlliste (Akademische Titel)</a>.",
+            "example": "Sehr geehrte Damen und Herren"
+          },
+          "typ": {
+            "$ref": "#/components/schemas/KontaktTyp",
+            "description": "Typ des Kontakts",
+            "example": "NATUERLICHE_PERSON"
+          },
+          "geburtsdatum": {
+            "type": "string",
+            "format": "date",
+            "description": "Geburtsdatum des Kontakts",
+            "example": "2000-01-01"
+          },
+          "emailAdressen": {
+            "type": "array",
+            "description": "E-Mail-Adressen des Kontakts",
+            "items": {
+              "type": "string",
+              "maxLength": 254,
+              "minLength": 0,
+              "pattern": "[^@]+@[^.]+\\..+"
+            },
+            "maxItems": 3,
+            "minItems": 0
+          },
+          "rechtsform": {
+            "type": "string",
+            "description": "Rechtsform des Kontakts",
+            "example": "GmbH"
+          },
+          "bemerkung": {
+            "type": "string",
+            "description": "Bemerkung zum Kontakt"
+          },
+          "favorit": {
+            "type": "boolean",
+            "description": "Favorit des Kontakts",
+            "example": true
+          },
+          "adressen": {
+            "type": "array",
+            "description": "Adressen des Kontakts",
+            "items": {
+              "$ref": "#/components/schemas/Adresse"
+            },
+            "maxItems": 3,
+            "minItems": 0
+          },
+          "telefonnummern": {
+            "type": "array",
+            "description": "Telefonnummern des Kontakts",
+            "items": {
+              "$ref": "#/components/schemas/Telefonnummer"
+            }
+          },
+          "faxnummern": {
+            "type": "array",
+            "description": "Faxnummern des Kontakts",
+            "items": {
+              "$ref": "#/components/schemas/Faxnummer"
+            },
+            "maxItems": 2,
+            "minItems": 0
+          },
+          "ansprechpartner": {
+            "type": "array",
+            "description": "Ansprechpartner des Kontakts",
+            "items": {
+              "$ref": "#/components/schemas/Ansprechpartner"
+            },
+            "maxItems": 250,
+            "minItems": 0
+          },
+          "kontoverbindungen": {
+            "type": "array",
+            "description": "Kontoverbindungen des Kontakts",
+            "items": {
+              "$ref": "#/components/schemas/Kontoverbindung"
+            }
+          },
+          "gesetzlicheVertreter": {
+            "type": "array",
+            "description": "Gesetzliche Vertreter des Kontakts",
+            "items": {
+              "$ref": "#/components/schemas/VertreterRequest"
+            },
+            "maxItems": 30,
+            "minItems": 0
+          },
+          "staatsangehoerigkeit": {
+            "type": "string",
+            "description": "Staatsangehörigkeit des Kontakts",
+            "example": "Deutsch",
+            "maxLength": 100,
+            "minLength": 0
+          },
+          "beruf": {
+            "type": "string",
+            "description": "Beruf des Kontakts",
+            "example": "Rechtsanwalt",
+            "maxLength": 50,
+            "minLength": 0
+          },
+          "steuernummer": {
+            "type": "string",
+            "description": "Steuernummer des Kontakts",
+            "example": "123/456/78901",
+            "maxLength": 30,
+            "minLength": 0
+          },
+          "ustIdNr": {
+            "type": "string",
+            "description": "Umsatzsteuer-Identifikationsnummer des Kontakts",
+            "example": "DE123456789",
+            "maxLength": 50,
+            "minLength": 0
+          },
+          "rechtsschutzversicherung": {
+            "type": "boolean",
+            "default": false,
+            "description": "Rechtschutzversicherung vorhanden?",
+            "example": true
+          },
+          "versicherungsnummer": {
+            "type": "string",
+            "description": "Versicherungsnummer des Kontakts",
+            "example": "RS123456789",
+            "maxLength": 30,
+            "minLength": 0
+          },
+          "eRechnung": {
+            "$ref": "#/components/schemas/KontaktERechnungRequest",
+            "description": "E-Rechnung Einstellungen des Kontakts"
+          }
+        },
+        "required": [
+          "name",
+          "typ"
+        ]
+      },
+      "KontaktTyp": {
+        "type": "string",
+        "enum": [
+          "NATUERLICHE_PERSON",
+          "JURISTISCHE_PERSON"
+        ]
+      },
+      "Kontoverbindung": {
+        "type": "object",
+        "properties": {
+          "iban": {
+            "type": "string",
+            "description": "IBAN",
+            "example": "DE89370400440532013000"
+          },
+          "bic": {
+            "type": "string",
+            "description": "BIC",
+            "example": "COBADEFFXXX",
+            "maxLength": 11,
+            "minLength": 0,
+            "pattern": "([a-zA-Z]){6}([0-9a-zA-Z]){2}([0-9a-zA-Z]{3})?"
+          },
+          "kontoinhaber": {
+            "type": "string",
+            "description": "Kontoinhaber",
+            "example": "Max Mustermann"
+          },
+          "kreditinstitut": {
+            "type": "string",
+            "description": "Kreditinstitut",
+            "example": "Commerzbank",
+            "maxLength": 50,
+            "minLength": 0
+          }
+        }
+      },
+      "MinimalKontaktRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Id des Kontakts"
+          },
+          "anzeigename": {
+            "type": "string",
+            "description": "Anzeigename des Kontakts"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "Telefonnummer": {
+        "type": "object",
+        "properties": {
+          "wert": {
+            "type": "string",
+            "description": "Telefonnummer",
+            "example": "+49 123 4567890"
+          },
+          "typ": {
+            "$ref": "#/components/schemas/TelefonnummerTyp",
+            "description": "Telefonnummer-Typ",
+            "example": "GESCHAEFTLICH"
+          }
+        },
+        "required": [
+          "typ",
+          "wert"
+        ]
+      },
+      "TelefonnummerTyp": {
+        "type": "string",
+        "enum": [
+          "PRIVAT",
+          "GESCHAEFTLICH",
+          "MOBIL",
+          "ANDERE"
+        ]
+      },
+      "VertreterRequest": {
+        "type": "object",
+        "properties": {
+          "typ": {
+            "type": "string",
+            "description": "Typ des Vertreters",
+            "example": "Vorstand",
+            "minLength": 1
+          },
+          "kontakt": {
+            "$ref": "#/components/schemas/MinimalKontaktRequest",
+            "description": "Kontaktinformationen des Vertreters"
+          }
+        },
+        "required": [
+          "kontakt",
+          "typ"
+        ]
+      },
+      "AuslagenpauschaleIntervall": {
+        "type": "string",
+        "description": "Intervall der Auslagenpauschale",
+        "enum": [
+          "EINMALIG",
+          "MONATLICH",
+          "QUARTALSWEISE",
+          "JAEHRLICH"
+        ]
+      },
+      "AuslagenpauschaleType": {
+        "type": "string",
+        "description": "Typ der Auslagenpauschale",
+        "enum": [
+          "KEINE",
+          "FIX",
+          "PROZENTUAL"
+        ]
+      },
+      "NestedHonorartyp": {
+        "type": "string",
+        "description": "Typ des Honorars",
+        "enum": [
+          "RVG",
+          "STUNDENSATZ",
+          "PAUSCHAL",
+          "PAUSCHALZEIT"
+        ]
+      },
+      "PartialAuslagenpauschaleRequest": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/AuslagenpauschaleType"
+          },
+          "value": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Wert der Auslagenpauschale",
+            "exclusiveMinimum": 0
+          },
+          "intervall": {
+            "$ref": "#/components/schemas/AuslagenpauschaleIntervall"
+          }
+        }
+      },
+      "PartialBenutzerStundensatzRequest": {
+        "type": "object",
+        "properties": {
+          "benutzer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BaseBenutzer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stundensatz": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Der Stundensatz in Euro",
+            "exclusiveMinimum": 0
+          }
+        }
+      },
+      "PartialErloesverteilungRequest": {
+        "type": "object",
+        "properties": {
+          "kostenstelle": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PartialKostenstelleRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "verteilung": {
+            "$ref": "#/components/schemas/Verteilungstyp"
+          },
+          "anteil": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Anteil der Verteilung",
+            "exclusiveMinimum": 0
+          }
+        }
+      },
+      "PartialHonorarRequest": {
+        "type": "object",
+        "discriminator": {
+          "propertyName": "typ",
+          "mapping": {
+            "RVG": "#/components/schemas/PartialRVGHonorarRequest",
+            "STUNDENSATZ": "#/components/schemas/PartialStundensatzHonorarRequest",
+            "PAUSCHAL": "#/components/schemas/PartialPauschalHonorarRequest",
+            "PAUSCHALZEIT": "#/components/schemas/PartialPauschalzeitHonorarRequest"
+          }
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PartialRVGHonorarRequest"
+          },
+          {
+            "$ref": "#/components/schemas/PartialStundensatzHonorarRequest"
+          },
+          {
+            "$ref": "#/components/schemas/PartialPauschalHonorarRequest"
+          },
+          {
+            "$ref": "#/components/schemas/PartialPauschalzeitHonorarRequest"
+          }
+        ],
+        "properties": {
+          "typ": {
+            "$ref": "#/components/schemas/NestedHonorartyp",
+            "description": "Typ des Honorars"
+          },
+          "erloesverteilungNachKostenstellen": {
+            "type": "boolean",
+            "description": "Gibt an, ob die Erlösverteilung nach Kostenstellen erfolgt"
+          },
+          "erloesverteilungen": {
+            "type": "array",
+            "description": "Liste der Erlösverteilungen",
+            "items": {
+              "$ref": "#/components/schemas/PartialErloesverteilungRequest"
+            }
+          },
+          "kostenstellenzuordnungen": {
+            "type": "array",
+            "description": "Liste der Kostenstellenzuordnungen",
+            "items": {
+              "$ref": "#/components/schemas/PartialKostenstellenzuordnungRequest"
+            }
+          },
+          "auslagenpauschale": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PartialAuslagenpauschaleRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "typ"
+        ]
+      },
+      "PartialKostenstelleRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Eindeutige Id der Kostenstellen",
+            "minLength": 1
+          },
+          "kostenstellennummer": {
+            "type": "string",
+            "description": "Eindeutige Nummer der Kostenstellen",
+            "maxLength": 6,
+            "minLength": 1
+          },
+          "bezeichnung": {
+            "type": "string",
+            "description": "Bezeichnung der Kostenstellen",
+            "maxLength": 50,
+            "minLength": 1
+          },
+          "benutzer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BaseBenutzer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "aktiv": {
+            "type": "boolean",
+            "description": "Ist die Kostenstelle aktiv?"
+          }
+        }
+      },
+      "PartialKostenstellenzuordnungRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "benutzer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BaseBenutzer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kostenstelle": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PartialKostenstelleRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "PartialPauschalHonorarRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PartialHonorarRequest"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "auslagenpauschale": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PartialAuslagenpauschaleRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pauschal": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "description": "Pauschaler Honorarbetrag",
+                "exclusiveMinimum": 0
+              }
+            }
+          }
+        ],
+        "required": [
+          "typ"
+        ]
+      },
+      "PartialPauschalzeitHonorarRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PartialHonorarRequest"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "auslagenpauschale": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PartialAuslagenpauschaleRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "pauschal": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "description": "Pauschaler Honorarbetrag",
+                "exclusiveMinimum": 0
+              },
+              "benutzerStundensaetze": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "description": "Stundensätze der Benutzer",
+                "items": {
+                  "$ref": "#/components/schemas/PartialBenutzerStundensatzRequest"
+                }
+              },
+              "taktung": {
+                "$ref": "#/components/schemas/Taktung"
+              },
+              "inklusivstunden": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "description": "Inklusivstunden bei Pauschalzeit",
+                "exclusiveMinimum": 0,
+                "maximum": 9999
+              }
+            }
+          }
+        ],
+        "required": [
+          "typ"
+        ]
+      },
+      "PartialRVGHonorarRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PartialHonorarRequest"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "auslagenpauschale": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PartialAuslagenpauschaleRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "required": [
+          "typ"
+        ]
+      },
+      "PartialStundensatzHonorarRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PartialHonorarRequest"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "auslagenpauschale": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PartialAuslagenpauschaleRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "benutzerStundensaetze": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "description": "Stundensätze der Benutzer",
+                "items": {
+                  "$ref": "#/components/schemas/PartialBenutzerStundensatzRequest"
+                }
+              },
+              "taktung": {
+                "$ref": "#/components/schemas/Taktung"
+              }
+            }
+          }
+        ],
+        "required": [
+          "typ"
+        ]
+      },
+      "Taktung": {
+        "type": "string",
+        "enum": [
+          "TAKT_1",
+          "TAKT_6",
+          "TAKT_10",
+          "TAKT_15"
+        ]
+      },
+      "Verteilungstyp": {
+        "type": "string",
+        "description": "Typ der Verteilung",
+        "enum": [
+          "ERLOES",
+          "PROZENT"
+        ]
+      },
+      "EigeneAuslageTyp": {
+        "type": "string",
+        "description": "Typ der eigenen Auslage",
+        "enum": [
+          "AUFWENDUNG",
+          "FREMDLEISTUNG_INLAND",
+          "FREMDLEISTUNG_EU",
+          "FREMDLEISTUNG_DRITTLAND"
+        ]
+      },
+      "PartialEigeneAuslageRequest": {
+        "type": "object",
+        "properties": {
+          "grundlage": {
+            "type": "string",
+            "description": "Grundlage der Auslage",
+            "example": "Nr. 7000 ff. VV RVG",
+            "maxLength": 100,
+            "minLength": 0
+          },
+          "art": {
+            "type": "string",
+            "description": "Art der Auslage",
+            "example": "DOKUMENT_DRUCK_SW_7000_1",
+            "maxLength": 200,
+            "minLength": 0
+          },
+          "bemerkung": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Bemerkung zur Auslage",
+            "example": "Druckkosten für Dokumente",
+            "maxLength": 100,
+            "minLength": 0
+          },
+          "typ": {
+            "$ref": "#/components/schemas/EigeneAuslageTyp"
+          },
+          "umsatzsteuer": {
+            "type": "number",
+            "description": "Umsatzsteuer",
+            "example": 0.19
+          },
+          "netto": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Nettobetrag der Auslage in Cent",
+            "example": 12000,
+            "minimum": 0
+          },
+          "brutto": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Bruttobetrag der Auslage in Cent",
+            "example": 14280,
+            "minimum": 0
+          },
+          "anzahl": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Anzahl der Auslage",
+            "example": 1,
+            "maximum": 9999,
+            "minimum": 1
+          },
+          "aktennummer": {
+            "type": "string",
+            "description": "Aktennummer der Auslage",
+            "example": "1/25"
+          },
+          "datum": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Erste Erstellungsdatum der Auslage",
+            "example": "2025-07-01T12:00:00Z"
+          },
+          "benutzer": {
+            "$ref": "#/components/schemas/BaseBenutzer"
+          },
+          "mandant": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MinimalMandantRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "aktendokumente": {
+            "type": "array",
+            "description": "Dokumente zu der Auslage",
+            "items": {
+              "$ref": "#/components/schemas/BaseDocumentRequest"
+            }
+          }
+        }
+      },
+      "DocumentDetails": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 0
+          },
+          "typ": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 0
+          },
+          "beschreibung": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 0
+          }
+        }
+      },
+      "DocumentRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name des Dokuments",
+            "example": "Vertrag.docx",
+            "minLength": 1
+          },
+          "ordnerId": {
+            "type": "string",
+            "description": "ID des Ordners, in dem das Dokument gespeichert werden soll",
+            "example": "12345"
+          },
+          "dokumenttyp": {
+            "$ref": "#/components/schemas/DocumentType",
+            "description": "Typ des Dokuments",
+            "example": "WORD"
+          },
+          "briefkopf": {
+            "$ref": "#/components/schemas/DocumentTemplate",
+            "description": "Briefkopfvorlage für das Dokument"
+          },
+          "vorlage": {
+            "$ref": "#/components/schemas/DocumentTemplate",
+            "description": "Vorlage für das Dokument"
+          },
+          "details": {
+            "$ref": "#/components/schemas/DocumentDetails",
+            "description": "Details zum Dokument"
+          },
+          "standort": {
+            "$ref": "#/components/schemas/MinimalKanzleiStandortRequest",
+            "description": "Kanzleistandort, der für die Erstellung des Dokuments verwendet werden soll"
+          },
+          "platzhalter": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Platzhalter und deren Werte für die Dokumentenerstellung"
+          }
+        },
+        "required": [
+          "dokumenttyp",
+          "name",
+          "ordnerId"
+        ]
+      },
+      "DocumentTemplate": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "DocumentType": {
+        "type": "string",
+        "enum": [
+          "WORD",
+          "EXCEL",
+          "POWERPOINT"
+        ]
+      },
+      "MinimalKanzleiStandortRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Id des Kanzleistandorts"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "PartialFristRequest": {
+        "type": "object",
+        "properties": {
+          "anmerkung": {
+            "type": "string",
+            "description": "Anmerkung zur Frist",
+            "example": "Rechnung fällig"
+          },
+          "fristbeginn": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Beginn der Frist",
+            "example": "2025-02-01T00:00:00Z"
+          },
+          "fristende": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Ende der Frist",
+            "example": "2024-03-31T00:00:00Z"
+          },
+          "fristgrund": {
+            "type": "string",
+            "examples": [
+              "Einspruch",
+              "Stellungnahme",
+              "Widerspruch"
+            ],
+            "minLength": 1
+          },
+          "notfrist": {
+            "type": "boolean",
+            "description": "Notfrist",
+            "example": false
+          },
+          "vorfrist": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Vorfrist",
+            "example": "2024-02-01T00:00:00Z"
+          },
+          "vorlaeufig": {
+            "type": "boolean",
+            "description": "Vorläufige Frist",
+            "example": true
+          },
+          "aktendokument": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BaseDocumentRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "FristRequest": {
+        "type": "object",
+        "properties": {
+          "anmerkung": {
+            "type": "string",
+            "description": "Anmerkung zur Frist",
+            "example": "Rechnung fällig"
+          },
+          "fristbeginn": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Beginn der Frist",
+            "example": "2025-02-01T00:00:00Z"
+          },
+          "fristende": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Ende der Frist",
+            "example": "2024-03-31T00:00:00Z"
+          },
+          "fristgrund": {
+            "type": "string",
+            "description": "Grund für die Frist.\n\n <p>Prinzipiell gibt es in Actaport die Möglichkeit, Fristgründe aus einer frei konfigurierbaren\n Liste zu wählen, allerdings können auch beliebige Werte eingegeben werden.",
+            "examples": [
+              "Einspruch",
+              "Stellungnahme",
+              "Widerspruch"
+            ],
+            "minLength": 1
+          },
+          "notfrist": {
+            "type": "boolean",
+            "description": "Notfrist",
+            "example": false
+          },
+          "vorfrist": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Vorfrist",
+            "example": "2024-02-01T00:00:00Z"
+          },
+          "vorlaeufig": {
+            "type": "boolean",
+            "description": "Vorläufige Frist",
+            "example": true
+          },
+          "aktendokument": {
+            "$ref": "#/components/schemas/BaseDocumentRequest",
+            "description": "Aktendokument, das mit der Frist verknüpft werden soll"
+          }
+        },
+        "required": [
+          "fristende",
+          "fristgrund"
+        ]
+      },
+      "RvgPositionRequest": {
+        "type": "object",
+        "properties": {
+          "beschreibung": {
+            "type": "string",
+            "description": "Beschreibung der RVG Position",
+            "example": "1,6-Verfahrensgebühr, Nr. VV (Wert: 120,00 €)",
+            "minLength": 1
+          },
+          "nettobetrag": {
+            "type": "number",
+            "description": "Netto-Betrag der RVG Position in Cent",
+            "example": 12000
+          },
+          "vvnr": {
+            "type": "string",
+            "description": "Vergütungsverzeichnisnummer der RVG Position",
+            "example": "3200"
+          }
+        },
+        "required": [
+          "beschreibung"
+        ]
+      },
+      "RvgRequest": {
+        "type": "object",
+        "properties": {
+          "taetigkeit": {
+            "type": "string",
+            "description": "Tätigkeit",
+            "example": "Gerichtliche Tätigkeit",
+            "minLength": 1
+          },
+          "umsatzsteuer": {
+            "type": "number",
+            "description": "Umsatzsteuer",
+            "example": 0.19
+          },
+          "positionen": {
+            "type": "array",
+            "description": "RVG Positionen",
+            "items": {
+              "$ref": "#/components/schemas/RvgPositionRequest"
+            },
+            "maxItems": 2147483647,
+            "minItems": 1
+          },
+          "benutzer": {
+            "$ref": "#/components/schemas/BaseBenutzer",
+            "description": "Benutzer, für den die RVG Position erstellt wird"
+          },
+          "mandant": {
+            "$ref": "#/components/schemas/MinimalMandantRequest",
+            "description": "Mandant, für den die RVG Position abgerechnet wird"
+          }
+        },
+        "required": [
+          "benutzer",
+          "positionen",
+          "taetigkeit",
+          "umsatzsteuer"
+        ]
+      },
+      "MinimalOrdnerRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID des ordners",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "TusUploadLinkRequest": {
+        "type": "object",
+        "properties": {
+          "akte": {
+            "$ref": "#/components/schemas/MinimalAkteRequest",
+            "description": "Akte, der das hochgeladene Dokument zugewiesen wird."
+          },
+          "ordner": {
+            "$ref": "#/components/schemas/MinimalOrdnerRequest",
+            "description": "Ordner, in dem das hochgeladene Dokument abgelegt wird."
+          },
+          "name": {
+            "type": "string",
+            "description": "Angepasster Name des hochgeladenen Dokuments, falls er sich von der initialen Eingabe während des Uploads unterscheidet."
+          },
+          "status": {
+            "type": "string",
+            "description": "Status des hochgeladenen Dokuments."
+          },
+          "typ": {
+            "type": "string",
+            "description": "Typ des hochgeladenen Dokuments."
+          },
+          "beschreibung": {
+            "type": "string",
+            "description": "Beschreibung des hochgeladenen Dokuments."
+          },
+          "erzeugtAmModifiziert": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Erstellungsdatum des hochgeladenen Dokuments."
+          }
+        },
+        "required": [
+          "akte",
+          "ordner"
+        ]
+      },
+      "EigeneAuslageRequest": {
+        "type": "object",
+        "properties": {
+          "grundlage": {
+            "type": "string",
+            "description": "Grundlage der Auslage",
+            "example": "Nr. 7000 ff. VV RVG",
+            "maxLength": 100,
+            "minLength": 0
+          },
+          "art": {
+            "type": "string",
+            "description": "Art der Auslage",
+            "example": "DOKUMENT_DRUCK_SW_7000_1",
+            "maxLength": 200,
+            "minLength": 0
+          },
+          "bemerkung": {
+            "type": "string",
+            "description": "Bemerkung zur Auslage",
+            "example": "Druckkosten für Dokumente",
+            "maxLength": 100,
+            "minLength": 0
+          },
+          "typ": {
+            "$ref": "#/components/schemas/EigeneAuslageTyp"
+          },
+          "umsatzsteuer": {
+            "type": "number",
+            "default": 0,
+            "description": "Umsatzsteuer",
+            "example": 0.19
+          },
+          "netto": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Nettobetrag der Auslage in Cent",
+            "example": 12000,
+            "minimum": 0
+          },
+          "brutto": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bruttobetrag der Auslage in Cent",
+            "example": 14280,
+            "minimum": 0
+          },
+          "anzahl": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Anzahl der Auslage",
+            "example": 1,
+            "maximum": 9999,
+            "minimum": 1
+          },
+          "datum": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Erste Erstellungsdatum der Auslage",
+            "example": "2025-07-01T12:00:00Z"
+          },
+          "benutzer": {
+            "$ref": "#/components/schemas/BaseBenutzer",
+            "description": "Benutzer, für den die fremde Auslage erstellt wird"
+          },
+          "mandant": {
+            "$ref": "#/components/schemas/MinimalMandantRequest",
+            "description": "Mandant, für den die fremde Auslage abgerechnet wird"
+          },
+          "aktendokumente": {
+            "type": "array",
+            "description": "Dokumente zu der fremden Auslage",
+            "items": {
+              "$ref": "#/components/schemas/BaseDocumentRequest"
+            }
+          }
+        },
+        "required": [
+          "anzahl",
+          "art",
+          "benutzer",
+          "datum",
+          "grundlage",
+          "typ",
+          "umsatzsteuer"
+        ]
+      },
+      "OrdnerRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Der Name des Ordners.",
+            "minLength": 1
+          },
+          "parentId": {
+            "type": "string",
+            "description": "Die ID des übergeordneten Ordners, falls nicht vorhanden, wird der Ordner im Stammverzeichnis erstellt."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "AkteRequest": {
+        "type": "object",
+        "properties": {
+          "aktenbezeichnung": {
+            "type": "string",
+            "description": "Aktenbezeichnung",
+            "example": "1/25",
+            "minLength": 1
+          },
+          "alternativesAktenzeichen": {
+            "type": "string",
+            "description": "Alternatives Aktenzeichen",
+            "example": "AZ. 1-25"
+          },
+          "mandatsuebernahme": {
+            "type": "string",
+            "format": "date",
+            "default": "heutiges Datum",
+            "description": "Datum der Mandatsübernahme der Akte",
+            "example": "2025-12-09"
+          },
+          "sachbearbeiter": {
+            "$ref": "#/components/schemas/BaseBenutzer",
+            "description": "Sachbearbeiter der Akte"
+          },
+          "assistenzen": {
+            "type": "array",
+            "description": "Assistenzen der Akte",
+            "items": {
+              "$ref": "#/components/schemas/BaseBenutzer"
+            },
+            "minItems": 1
+          },
+          "beteiligte": {
+            "type": "array",
+            "description": "Beteiligte der Akte",
+            "items": {
+              "$ref": "#/components/schemas/BeteiligteRequest"
+            },
+            "minItems": 1
+          },
+          "gegenstandswert": {
+            "type": "string",
+            "description": "Gegenstandswert der Akte"
+          },
+          "rechtsgebiete": {
+            "type": "array",
+            "description": "Rechtsgebiete der Akte",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "schlagworte": {
+            "type": "array",
+            "description": "Schlagworte der Akte",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "wegen": {
+            "type": "string",
+            "description": "Wegen der Akte"
+          },
+          "zusatzinformationen": {
+            "type": "array",
+            "description": "Zusatzinformationen der Akte",
+            "items": {
+              "$ref": "#/components/schemas/ZusatzinformationskategorieRequest"
+            }
+          },
+          "aktenrolle": {
+            "$ref": "#/components/schemas/Aktenrolle",
+            "description": "Rolle der Akte im System"
+          },
+          "uebergeordneteAkte": {
+            "$ref": "#/components/schemas/MinimalAkteRequest",
+            "description": "Übergeordnete Akte, an die diese Akte angehängt ist"
+          },
+          "dezernat": {
+            "$ref": "#/components/schemas/MinimalDezernatRequest",
+            "description": "Dezernat der Akte"
+          }
+        },
+        "required": [
+          "aktenbezeichnung",
+          "assistenzen",
+          "beteiligte",
+          "sachbearbeiter"
+        ]
+      },
+      "Aktenrolle": {
+        "type": "string",
+        "description": "Rolle der Akte im System",
+        "enum": [
+          "HAUPTAKTE",
+          "UNTERAKTE"
+        ]
+      },
+      "BeteiligteDetailsRequest": {
+        "type": "object",
+        "properties": {
+          "aktenzeichen": {
+            "type": "string",
+            "description": "Aktenzeichen des Beteiligten",
+            "example": "123456789"
+          },
+          "ansprechpartner": {
+            "type": "array",
+            "description": "Ansprechpartner des Beteiligten",
+            "items": {
+              "$ref": "#/components/schemas/MinimalKontaktRequest"
+            }
+          },
+          "umsatzsteuerlicheBehandlung": {
+            "$ref": "#/components/schemas/UmsatzsteuerlicheBehandlung",
+            "description": "Umsatzsteuerliche Behandlung des Beteiligten"
+          },
+          "vorsteuerabzug": {
+            "type": "boolean",
+            "description": "Vorsteuerabzugsberechtigung des Beteiligten"
+          }
+        }
+      },
+      "BeteiligteRequest": {
+        "type": "object",
+        "properties": {
+          "kontakt": {
+            "$ref": "#/components/schemas/MinimalKontaktRequest",
+            "description": "Kontakt des Beteiligten"
+          },
+          "rolle": {
+            "$ref": "#/components/schemas/RegularBeteiligteRolle",
+            "description": "Rolle des Beteiligten"
+          },
+          "details": {
+            "$ref": "#/components/schemas/BeteiligteDetailsRequest",
+            "description": "Details des Beteiligten"
+          },
+          "unterbeteiligte": {
+            "type": "array",
+            "description": "Unterbeteiligte des Beteiligten",
+            "items": {
+              "$ref": "#/components/schemas/UnterbeteiligteRequest"
+            }
+          }
+        },
+        "required": [
+          "kontakt",
+          "rolle"
+        ]
+      },
+      "MinimalDezernatRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Id des Dezernats"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "UmsatzsteuerlicheBehandlung": {
+        "type": "string",
+        "enum": [
+          "DE",
+          "EU",
+          "DRITTLAND"
+        ]
+      },
+      "UnterbeteiligteDetails": {
+        "type": "object",
+        "properties": {
+          "schadensnummer": {
+            "type": "string",
+            "description": "Schadensnummer des Unterbeteiligten",
+            "example": "SN-123-456"
+          },
+          "versicherungsnummer": {
+            "type": "string",
+            "description": "Versicherungsnummer des Unterbeteiligten",
+            "example": "VN-123-456"
+          }
+        }
+      },
+      "UnterbeteiligteRequest": {
+        "type": "object",
+        "properties": {
+          "kontakt": {
+            "$ref": "#/components/schemas/MinimalKontaktRequest",
+            "description": "Kontakt des Unterbeteiligten"
+          },
+          "rolle": {
+            "type": "string",
+            "examples": [
+              "Rechtsschutzversicherung",
+              "Schadenversicherung",
+              "Bevollmächtigter"
+            ],
+            "minLength": 1
+          },
+          "details": {
+            "$ref": "#/components/schemas/UnterbeteiligteDetails",
+            "description": "Details des Unterbeteiligten"
+          }
+        },
+        "required": [
+          "kontakt",
+          "rolle"
+        ]
+      },
+      "ZusatzfeldRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Id des Zusatzfeldes",
+            "example": "123e4567-e89b-12d3-a456-426614174000"
+          },
+          "value": {
+            "description": "Wert des Zusatzfeldes",
+            "examples": [
+              "AZT",
+              true,
+              123,
+              [
+                "value1",
+                "value2"
+              ]
+            ],
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer",
+                "format": "int32"
+              },
+              {}
+            ]
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "ZusatzinformationskategorieRequest": {
+        "type": "object",
+        "description": "Zusatzinformationen, die an einer Akte gespeichert werden können.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "zusatzfelder": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ZusatzfeldRequest"
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "id",
+          "zusatzfelder"
+        ]
+      },
+      "FremdeAuslageRequest": {
+        "type": "object",
+        "properties": {
+          "grundlage": {
+            "type": "string",
+            "description": "Grundlage der Auslage",
+            "example": "§§ 675, 670 BGB i.V.m. Vorbem. 7 Abs. 1 S. 2 VV",
+            "maxLength": 100,
+            "minLength": 0
+          },
+          "art": {
+            "type": "string",
+            "description": "Art der Auslage",
+            "example": "Gerichtskosten",
+            "maxLength": 200,
+            "minLength": 0
+          },
+          "bemerkung": {
+            "type": "string",
+            "description": "Bemerkung zur Auslage",
+            "example": "Reisekosten für Mandantenbesuch",
+            "maxLength": 100,
+            "minLength": 0
+          },
+          "anzahl": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Anzahl der Auslage",
+            "example": 1,
+            "maximum": 9999,
+            "minimum": 1
+          },
+          "netto": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Nettobetrag der Auslage in Cent",
+            "example": 12000,
+            "minimum": 0
+          },
+          "datum": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Erste Erstellungsdatum der Auslage",
+            "example": "2025-07-01T12:00:00Z"
+          },
+          "benutzer": {
+            "$ref": "#/components/schemas/BaseBenutzer",
+            "description": "Benutzer, für den die fremde Auslage erstellt wird"
+          },
+          "mandant": {
+            "$ref": "#/components/schemas/MinimalMandantRequest",
+            "description": "Mandant, für den die fremde Auslage abgerechnet wird"
+          },
+          "aktendokumente": {
+            "type": "array",
+            "description": "Dokumente zu der fremden Auslage",
+            "items": {
+              "$ref": "#/components/schemas/BaseDocumentRequest"
+            }
+          }
+        },
+        "required": [
+          "anzahl",
+          "art",
+          "benutzer",
+          "datum",
+          "grundlage",
+          "netto"
+        ]
+      },
+      "PartialFremdeAuslageRequest": {
+        "type": "object",
+        "properties": {
+          "grundlage": {
+            "type": "string",
+            "description": "Grundlage der Auslage",
+            "example": "§§ 675, 670 BGB i.V.m. Vorbem. 7 Abs. 1 S. 2 VV",
+            "maxLength": 100,
+            "minLength": 0
+          },
+          "art": {
+            "type": "string",
+            "description": "Art der Auslage",
+            "example": "Gerichtskosten",
+            "maxLength": 200,
+            "minLength": 0
+          },
+          "bemerkung": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Bemerkung zur Auslage",
+            "example": "Reisekosten für Mandantenbesuch",
+            "maxLength": 100,
+            "minLength": 0
+          },
+          "anzahl": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Anzahl der Auslage",
+            "example": 1,
+            "maximum": 9999,
+            "minimum": 1
+          },
+          "aktennummer": {
+            "type": "string",
+            "description": "Aktennummer der Auslage",
+            "example": "1/25"
+          },
+          "netto": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Nettobetrag der Auslage in Cent",
+            "example": 12000,
+            "minimum": 0
+          },
+          "datum": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Erste Erstellungsdatum der Auslage",
+            "example": "2025-07-01T12:00:00Z"
+          },
+          "benutzer": {
+            "$ref": "#/components/schemas/BaseBenutzer"
+          },
+          "mandant": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MinimalMandantRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "aktendokumente": {
+            "type": "array",
+            "description": "Dokumente zu der fremden Auslage",
+            "items": {
+              "$ref": "#/components/schemas/BaseDocumentRequest"
+            }
+          }
+        }
+      },
+      "PartialDocumentMetadataRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "beschreibung": {
+            "type": "string",
+            "description": "Angepasste Beschreibung des Dokuments."
+          },
+          "typ": {
+            "type": "string",
+            "description": "Angepasster Typ des Dokuments."
+          },
+          "status": {
+            "type": "string",
+            "description": "Angepasster Status des Dokuments."
+          },
+          "erzeugtAmModifiziert": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Angepasstes Erstellungsdatum des Dokuments."
+          },
+          "ordnerId": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "PartialAufgabeRequest": {
+        "type": "object",
+        "properties": {
+          "titel": {
+            "type": "string",
+            "description": "Titel der Aufgabe"
+          },
+          "beschreibung": {
+            "type": "string",
+            "description": "Beschreibung der Aufgabe"
+          },
+          "faelligkeit": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Datum der Fälligkeit der Aufgabe"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AufgabeStatus",
+            "description": "Status der Aufgabe"
+          },
+          "priorisierung": {
+            "$ref": "#/components/schemas/AufgabePriorisierung",
+            "description": "Priorisierung der Aufgabe"
+          },
+          "empfaenger": {
+            "$ref": "#/components/schemas/AufgabeEmpfaenger",
+            "description": "Empfänger der Aufgabe"
+          },
+          "akte": {
+            "$ref": "#/components/schemas/MinimalAkteRequest",
+            "description": "Akte zu der die Aufgabe gehört"
+          },
+          "zurKenntnis": {
+            "type": "array",
+            "description": "Benutzer, der die Aufgabe zur Kenntnis nehmen sollen",
+            "items": {
+              "$ref": "#/components/schemas/BaseBenutzer"
+            }
+          },
+          "zurPruefung": {
+            "$ref": "#/components/schemas/BaseBenutzer",
+            "description": "Benutzer, der die Aufgabe zur Prüfung erhalten soll"
+          },
+          "aktendokumente": {
+            "type": "array",
+            "description": "Dokumente zu der Aufgabe",
+            "items": {
+              "$ref": "#/components/schemas/BaseDocumentRequest"
+            }
+          },
+          "notizen": {
+            "type": "array",
+            "description": "Notizen zu der Aufgabe",
+            "items": {
+              "$ref": "#/components/schemas/BaseNotizRequest"
+            }
+          }
+        }
+      },
+      "PartialWiedervorlageRequest": {
+        "type": "object",
+        "properties": {
+          "grund": {
+            "type": "string",
+            "description": "Grund der Wiedervorlage"
+          },
+          "vorlagedatum": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Datum der Wiedervorlage"
+          },
+          "anmerkung": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Anmerkung zur Wiedervorlage",
+            "maxLength": 5000,
+            "minLength": 0
+          }
+        }
+      },
+      "PartialAkteRequest": {
+        "type": "object",
+        "properties": {
+          "aktenbezeichnung": {
+            "type": "string"
+          },
+          "alternativesAktenzeichen": {
+            "type": "string"
+          },
+          "mandatsuebernahme": {
+            "type": "string",
+            "format": "date"
+          },
+          "sachbearbeiter": {
+            "$ref": "#/components/schemas/BaseBenutzer"
+          },
+          "assistenzen": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BaseBenutzer"
+            }
+          },
+          "beteiligte": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PartialBeteiligteRequest"
+            }
+          },
+          "gegenstandswert": {
+            "type": "string"
+          },
+          "rechtsgebiete": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "schlagworte": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "wegen": {
+            "type": "string"
+          },
+          "zusatzinformationen": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ZusatzinformationskategorieRequest"
+            }
+          },
+          "aktenrolle": {
+            "$ref": "#/components/schemas/Aktenrolle"
+          },
+          "uebergeordneteAkte": {
+            "$ref": "#/components/schemas/MinimalAkteRequest"
+          },
+          "dezernat": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MinimalDezernatRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "PartialBeteiligteDetailsRequest": {
+        "type": "object",
+        "description": "Details des Beteiligten",
+        "properties": {
+          "aktenzeichen": {
+            "type": "string",
+            "description": "Aktenzeichen des Beteiligten",
+            "example": "123456789"
+          },
+          "ansprechpartner": {
+            "type": "array",
+            "description": "Ansprechpartner des Beteiligten",
+            "items": {
+              "$ref": "#/components/schemas/MinimalKontaktRequest"
+            }
+          },
+          "umsatzsteuerlicheBehandlung": {
+            "$ref": "#/components/schemas/UmsatzsteuerlicheBehandlung",
+            "description": "Umsatzsteuerliche Behandlung des Beteiligten"
+          },
+          "vorsteuerabzug": {
+            "type": "boolean",
+            "description": "Vorsteuerabzugsberechtigung des Beteiligten"
+          }
+        }
+      },
+      "PartialBeteiligteRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Id des Beteiligten"
+          },
+          "kontakt": {
+            "$ref": "#/components/schemas/MinimalKontaktRequest"
+          },
+          "rolle": {
+            "$ref": "#/components/schemas/RegularBeteiligteRolle"
+          },
+          "details": {
+            "$ref": "#/components/schemas/PartialBeteiligteDetailsRequest"
+          },
+          "unterbeteiligte": {
+            "type": "array",
+            "description": "Unterbeteiligte des Beteiligten",
+            "items": {
+              "$ref": "#/components/schemas/PartialUnterbeteiligteRequest"
+            }
+          }
+        }
+      },
+      "PartialUnterbeteiligteRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Id des Unterbeteiligten"
+          },
+          "kontakt": {
+            "$ref": "#/components/schemas/MinimalKontaktRequest"
+          },
+          "rolle": {
+            "type": "string",
+            "examples": [
+              "Rechtsschutzversicherung",
+              "Schadenversicherung",
+              "Bevollmächtigter"
+            ],
+            "minLength": 1
+          },
+          "details": {
+            "$ref": "#/components/schemas/UnterbeteiligteDetails",
+            "description": "Details des Unterbeteiligten"
+          }
+        }
+      },
+      "PartialRvgRequest": {
+        "type": "object",
+        "properties": {
+          "aktennummer": {
+            "type": "string",
+            "description": "Aktennummer der Position",
+            "example": "1/25",
+            "minLength": 1
+          },
+          "benutzer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BaseBenutzer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mandant": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MinimalMandantRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

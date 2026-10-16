@@ -37,10 +37,13 @@ export async function memoryFixture() {
   const content = JSON.stringify(profile);
   await writeFile(join(matter, ".lawoss/memory-profile.json"), content);
   const engineCalls: { method: string; path: string; directory: string | null }[] = [];
+  // Ako skutočný engine: každé založenie vráti nové ID. Server od LegalWork v0.2.9 viaže ID
+  // session na jej priečinok (wiki grant) a rovnaké ID v inom priečinku odmietne.
+  let createdSessions = 0;
   const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
     const url = new URL(request.url); const directory = url.searchParams.get("directory") ?? request.headers.get("x-opencode-directory");
     engineCalls.push({ method: request.method, path: url.pathname, directory });
-    if (url.pathname === "/session" && request.method === "POST") return Response.json({ id: "synthetic-session", directory });
+    if (url.pathname === "/session" && request.method === "POST") { createdSessions += 1; return Response.json({ id: createdSessions === 1 ? "synthetic-session" : `synthetic-session-${createdSessions}`, directory }); }
     if (url.pathname === "/global/health") return Response.json({ healthy: true, version: "1.18.29" });
     return Response.json({});
   } });

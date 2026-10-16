@@ -179,7 +179,7 @@ const highlightedMarkdownParser = new Marked<string, string>({
       return codeToHtml(code, {
         lang: language,
         meta: { __raw: props.join(" ") },
-        theme: "github-light",
+        themes: { light: "github-light", dark: "github-dark" },
         transformers: [
           transformerNotationDiff({ matchAlgorithm: "v3" }),
           transformerNotationHighlight({ matchAlgorithm: "v3" }),
@@ -191,7 +191,7 @@ const highlightedMarkdownParser = new Marked<string, string>({
         ],
       });
     },
-    container: `<div data-legalwork-shiki="true" class="my-4 overflow-hidden rounded-[18px] border border-dls-border/70 bg-gray-1/80 p-4 text-xs leading-6">%s</div>`,
+    container: `<div data-legalwork-shiki="true" class="my-4 overflow-x-auto rounded-[18px] border border-dls-border/70 bg-gray-1/80 p-4 text-xs leading-6">%s</div>`,
   }),
 );
 

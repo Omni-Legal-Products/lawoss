@@ -10,6 +10,7 @@ import {
   formatUpdaterErrorReason,
   registerUpdaterIpc,
   staleUpdaterStatePaths,
+  electronUpdaterFeedConfig,
 } from "./updater.mjs";
 
 // 🟡 LAWOSS: testy čítajú tracked feed z modulu namiesto literálu, aby
@@ -19,6 +20,14 @@ const STABLE_ORIGIN = new URL(STABLE_FEED).origin;
 const GITHUB_TAG_FEED = "https://github.com/Omni-Legal-Products/lawoss/releases/download/v0.2.0";
 
 const fakeApp = { getPath: (key) => (key === "home" ? "/Users/test" : `/Users/test/${key}`) };
+
+it("keeps Windows installer architectures separate on every update feed", () => {
+  for (const url of [STABLE_FEED, GITHUB_TAG_FEED, "https://example.test/alpha"]) { // 🟡 LAWOSS: feedy forku
+    assert.deepEqual(electronUpdaterFeedConfig(url, "win32", "arm64"), { provider: "generic", url, channel: "latest-arm64" });
+    assert.deepEqual(electronUpdaterFeedConfig(url, "win32", "x64"), { provider: "generic", url });
+    assert.deepEqual(electronUpdaterFeedConfig(url, "darwin", "arm64"), { provider: "generic", url });
+  }
+});
 
 /* A shipped app that can no longer self-update is the worst failure mode, so
    the feed fallback chain gets exercised directly: primary feed -> GitHub. */

@@ -22,7 +22,7 @@ function saved(status: SavedReview["status"], states: ReviewCell["status"][]): S
   });
 }
 function markup(review: SavedReview, available = true) {
-  return renderToStaticMarkup(<MemoryRouter><ReviewProgressCard progress={reviewCardProgress(reference, review)} href={workspaceReviewsRoute(reference.workspaceId, id)} available={available} /></MemoryRouter>);
+  return renderToStaticMarkup(<MemoryRouter><ReviewProgressCard progress={reviewCardProgress(reference, review)} workspaceId={reference.workspaceId} reviewId={id} available={available} /></MemoryRouter>);
 }
 
 function fullCard(review: SavedReview) {
@@ -60,9 +60,9 @@ test("unfinished cards keep start, continue and stop actions", () => {
   expect(fullCard(saved("running", ["complete"]))).toContain("Stop");
 });
 
-test("the whole card links to its exact review and keeps completed progress visible", () => {
+test("the whole card opens its review in a workspace tab and keeps completed progress visible", () => {
   const running = markup(saved("running", ["complete", "needs_review", "running", "queued"]));
-  expect(running).toContain(`href="/workspace/project/reviews?review=${id}"`);
+  expect(running).toStartWith('<button type="button"');
   expect(running).toContain('aria-label="Open review: NDA review"');
   expect(running).toContain('role="progressbar"');
   expect(running).toContain('aria-valuenow="50"');
@@ -75,9 +75,9 @@ test("the whole card links to its exact review and keeps completed progress visi
   expect(completed).not.toContain("queued");
 });
 
-test("compact review rows keep exact links, progress and unresolved counts", () => {
-  const html = renderToStaticMarkup(<MemoryRouter><ReviewProgressCard compact available progress={reviewCardProgress(reference, saved("needs_review", ["complete", "needs_review"]))} href={workspaceReviewsRoute(reference.workspaceId, id)} /></MemoryRouter>);
-  expect(html).toContain(`href="/workspace/project/reviews?review=${id}"`);
+test("compact review rows remain actionable, progress and unresolved counts", () => {
+  const html = renderToStaticMarkup(<MemoryRouter><ReviewProgressCard compact available progress={reviewCardProgress(reference, saved("needs_review", ["complete", "needs_review"]))} workspaceId={reference.workspaceId} reviewId={id} /></MemoryRouter>);
+  expect(html).toStartWith('<button type="button"');
   expect(html).toContain('aria-label="Open review: NDA review"');
   expect(html).toContain("Needs attention: 1");
   expect(html).toContain('aria-valuenow="100"');

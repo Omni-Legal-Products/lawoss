@@ -15,6 +15,7 @@ import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
 import { opencodeConfigPaths } from "./workspace-files.js";
 import { readJsoncFile } from "./jsonc.js";
 import {
+  GLOBAL_MCP_ID,
   readGlobalMcpMap,
   readRuntimeOpencodeConfig,
   writeRuntimeOpencodeConfig,
@@ -96,6 +97,47 @@ async function waitFor(check: () => Promise<boolean>, label: string) {
 }
 
 describe("shared connector store", () => {
+  test("retires the old helper from shared, workspace and file config without reconnecting it", async () => {
+    const { wsA, config, root } = await setup();
+    const runtimeConfigFile = join(root, "runtime-opencode-config.json");
+    const globalOpencodeConfigFile = join(root, "global", "opencode.jsonc");
+    const replacement = { type: "local", command: ["open-computer-use", "mcp"], enabled: true };
+    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: {
+      "computer-use": { type: "local", command: ["npx", "-y", "@legalwork/handsfree", "mcp"] },
+      "open-computer-use": replacement,
+    } }));
+    await writeRuntimeOpencodeConfig(config, "ws_a", () => ({ mcp: {
+      "computer-use": { type: "local", command: ["/Applications/LegalWork.app/Contents/Resources/helpers/LegalWork Computer Use.app/Contents/MacOS/ComputerUse", "mcp"] },
+    }, plugin: ["keep-me"] }));
+    await mkdir(join(root, "global"));
+    await writeFile(globalOpencodeConfigFile, '// Keep this comment\n{"mcp":{"computer-use":{"type":"local","command":["node","/repo/packages/handsfree/bin/legalwork-handsfree-computer-use.mjs","mcp"]}}}\n');
+    const projectConfig = opencodeConfigPaths(wsA)[0];
+    await writeFile(projectConfig, JSON.stringify({ mcp: {
+      "computer-use": { type: "local", command: ["C:\\repo\\packages\\handsfree\\bin\\legalwork-handsfree-computer-use.mjs", "mcp"] },
+    } }));
+
+    expect((await importConnectorsIntoSharedRow(config, { runtimeConfigFile, globalOpencodeConfigFile })).imported).toEqual([]);
+    expect(await readGlobalMcpMap(config)).toEqual({ "open-computer-use": replacement });
+    expect(await readRuntimeOpencodeConfig(config, "ws_a")).toMatchObject({ plugin: ["keep-me"] });
+    expect((await readRuntimeOpencodeConfig(config, "ws_a")).mcp).toBeUndefined();
+    for (const path of [projectConfig, globalOpencodeConfigFile]) {
+      expect((await readJsoncFile<Record<string, unknown>>(path, {})).data.mcp).toEqual({});
+    }
+    expect(await readFile(globalOpencodeConfigFile, "utf8")).toContain("Keep this comment");
+    await importConnectorsIntoSharedRow(config, { runtimeConfigFile, globalOpencodeConfigFile });
+    expect(await readGlobalMcpMap(config)).toEqual({ "open-computer-use": replacement });
+  });
+
+  test("preserves a custom computer-use MCP with a different command", async () => {
+    const { config, root } = await setup();
+    const custom = { type: "local", command: ["/firm/custom-computer-use", "mcp"], enabled: true };
+    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: { "computer-use": custom } }));
+    await importConnectorsIntoSharedRow(config, {
+      runtimeConfigFile: join(root, "runtime.json"), globalOpencodeConfigFile: join(root, "opencode.jsonc"),
+    });
+    expect(await readGlobalMcpMap(config)).toEqual({ "computer-use": custom });
+  });
+
   test("a connector is shared by default: listed in every workspace, in every workspace's engine config", async () => {
     const { wsA, wsB, config } = await setup();
     expect(await addMcp(config, "ws_a", "fibery", FIBERY)).toEqual({ action: "added" });

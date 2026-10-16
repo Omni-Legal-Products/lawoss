@@ -141,7 +141,8 @@ def calculate(inputs, recorder):
     day = recorder.step("Two-week response period", "Count weeks from the service event", end, inputs["service"], 2)
     return {"status": "calculated", "results": [{"title": "Ordinary response", "date": day, "cutoff": "2026-01-26T23:00:00Z", "timeZone": "Europe/Berlin"}]}
 `;
-test("community code records actual function inputs/outputs; payment-order selection refuses a fabricated longstop", async () => {
+// The sandbox runtime job supplies the VM assets; ordinary unit tests do not.
+test.skipIf(process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("community code records actual function inputs/outputs; payment-order selection refuses a fabricated longstop", async () => {
   const ordinary = await executePython(python, { purpose: "ordinary_response", service: "2026-01-12" });
   expect(ordinary.result.results[0].date).toBe("2026-01-26");
   expect(ordinary.steps[0].inputs).toEqual({ trigger: "2026-01-12", weeks: 2 });
@@ -151,7 +152,8 @@ test("community code records actual function inputs/outputs; payment-order selec
   expect(absolute.result.status).toBe("needs_information");
   expect(absolute.result.results).toEqual([]);
   await expect(executePython(`def calculate(inputs, recorder):\n return {"status":"needs_information", "results":[{"title":"Wrong", "date":"2026-01-26", "cutoff":"2026-01-26T23:00:00Z", "timeZone":"Europe/Berlin"}]}`, {})).rejects.toThrow("Missing-information");
-});
+// Allow the shared VM cold boot and three isolated commands under software emulation.
+}, 600000);
 
 test("chat card envelopes cannot include executable bundles or grow past engine truncation limits", async () => {
   const { CalculationCardSchema } = await import("./schema.js");

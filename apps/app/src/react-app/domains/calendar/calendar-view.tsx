@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight, FolderOpen, Link2, ListFilter, Loader2, MoreHorizontal, Plus, RefreshCw, Tags, Trash2, UserRound, X } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, FolderOpen, Link2, ListFilter, Loader2, MoreHorizontal, MoveHorizontal, Plus, RefreshCw, Tags, Trash2, UserRound, X } from "lucide-react";
 import type { CalendarItem, CalendarOccurrence } from "@legalwork/types/calendar";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
@@ -81,7 +81,7 @@ export function CalendarView(props: CalendarViewProps) {
     <div className="lw-page-content lw-page-top space-y-5 pb-8">
       <SectionHeading size="page" title={t("calendar.title")} description={!props.workspaceId ? t("calendar.all_projects_short") : undefined} action={<>
         {/* LAWOSS: odber kalendára je odkaz cez platformu Eigenwelt (calendar/subscriptions.ts), ktorá je vypnutá. */}
-        {isCommercialSurfaceHidden("eigenwelt-account") ? null : <Button variant="outline" disabled={!props.client} onClick={() => setSubscriptionOpen(true)}><Link2 />{t("calendar.subscribe")}</Button>}
+        {isCommercialSurfaceHidden("calendar-subscription") ? null : <Button variant="outline" disabled={!props.client} onClick={() => setSubscriptionOpen(true)}><Link2 />{t("calendar.subscribe")}</Button>}
         {canCreate && <Button disabled={!props.client} onClick={() => create()}><Plus />{t("calendar.add")}</Button>}
         <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("common.refresh")} disabled={query.isFetching} onClick={refresh} />}><RefreshCw className={cn(query.isFetching && "animate-spin")} /></TooltipTrigger><TooltipContent>{t("common.refresh")}</TooltipContent></Tooltip>
         {props.workspaceId && <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("calendar.more_actions")} />}><MoreHorizontal /></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem disabled={records.isPending || records.isError} onClick={() => setTrashOpen(true)}><Trash2 />{t("calendar.trash")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu>}
@@ -130,7 +130,9 @@ export function CalendarView(props: CalendarViewProps) {
 
 function CalendarGrid(props: { view: "week" | "month"; anchor: Date; start: Date; items: CalendarOccurrence[]; projectId?: string; showProjects: boolean; onOpen: (item: CalendarOccurrence) => void; onCreate?: (day: string) => void }) {
   const week = props.view === "week", today = calendarDay(new Date());
-  return <div className="overflow-x-auto rounded-xl border border-border/70">
+  return <div className="@container/calendar-grid">
+    <p className="mb-2 flex items-center gap-2 text-xs text-muted-foreground @min-[700px]/calendar-grid:hidden"><MoveHorizontal className="size-3.5 shrink-0" />{t("calendar.scroll_days")}</p>
+    <div tabIndex={0} role="region" aria-label={t(week ? "calendar.week" : "calendar.month")} className="overflow-x-auto rounded-xl border border-border/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40">
     <div className="grid min-w-[700px] grid-cols-7">
       {Array.from({ length: 7 }, (_, index) => {
         const day = shiftDay(props.start, index), key = calendarDay(day);
@@ -153,6 +155,7 @@ function CalendarGrid(props: { view: "week" | "month"; anchor: Date; start: Date
           {week && props.onCreate && <div className="mt-3 flex justify-center"><DayAdd day={key} onCreate={props.onCreate} /></div>}
         </div>;
       })}
+    </div>
     </div>
   </div>;
 }

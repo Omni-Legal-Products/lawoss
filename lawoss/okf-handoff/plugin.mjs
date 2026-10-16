@@ -34,9 +34,12 @@ export async function LawossOkfHandoff(input, { mode = "standalone" } = {}) {
     async "experimental.chat.system.transform"({ sessionID }, output) {
       if (!sessionID) return;
       const result = await checkpoint(sessionID, "before-turn");
+      // Systémový text sa mení len pri zmene stavu (úspech, zlyhanie), nie s textom chyby,
+      // aby poskytovateľ nezahadzoval cache promptu (upstream #220/#249/#259). Cesta checkpointu
+      // je pre reláciu stála; podrobnosti chyby idú do logu a stavového súboru.
       output.system.push(result.ok
         ? `This workspace uses persisted matter memory at ${handoff.root}. A derived checkpoint is available at ${result.path}. Read current persisted memory with /okf-pamat before substantive work; the checkpoint does not include facts that were never recorded. Record work through the normal approval and revision gates before the final answer.`
-        : `Memory handoff FAILED: ${result.error}. The previous checkpoint is not current. Read the matter directly; do not treat incomplete context as empty or verified.`);
+        : "Memory handoff FAILED for this session. The previous checkpoint is not current. Read the matter directly; do not treat incomplete context as empty or verified.");
     },
   };
 }

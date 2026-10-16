@@ -81,13 +81,13 @@ export function parseToolPermissions(permission: Record<string, unknown>): ToolP
 
 function serializeToolSetting(setting: ToolPermissionSetting): PermissionAction | Record<string, PermissionAction> | null {
   const entries: Record<string, PermissionAction> = {};
+  // OpenCode evaluates the LAST matching rule. Write the fallback first so
+  // specific allow/deny patterns retain the behavior shown by the editor.
+  if (setting.action) entries["*"] = setting.action;
   for (const rule of setting.rules) {
     if (rule.pattern && rule.pattern !== "*") entries[rule.pattern] = rule.action;
   }
-  if (Object.keys(entries).length) {
-    if (setting.action) entries["*"] = setting.action;
-    return entries;
-  }
+  if (Object.keys(entries).some((pattern) => pattern !== "*")) return entries;
   return setting.action;
 }
 
@@ -123,6 +123,36 @@ export function applyPermissionPatch(
   const next: Record<string, unknown> = { ...loadedPermission, ...patch };
   for (const [key, value] of Object.entries(patch)) {
     if (value === null) delete next[key];
+  }
+  return next;
+}
+
+/** The tool each quick safety toggle changes. */
+export const QUICK_TOGGLE_TOOLS: Record<QuickPermissionToggle, ManagedPermissionTool> = {
+  ask_before_edit: "edit",
+  ask_before_shell: "bash",
+  block_internet: "webfetch",
+};
+
+const STRICTNESS: Record<PermissionAction, number> = { allow: 0, ask: 1, deny: 2 };
+
+/**
+ * The member's permission record with the firm's rules applied, as the
+ * server applies them (org-policy-engine.ts): a default replaces the
+ * member's rule; an enforced rule is the minimum, so a stricter plain action
+ * of the member's stays.
+ */
+export function withFirmPermissions(
+  own: Record<string, unknown>,
+  firm: { mode: "enforced" | "default"; value: Partial<Record<string, PermissionAction | Record<string, PermissionAction>>> },
+): Record<string, unknown> {
+  const next = { ...own };
+  for (const [tool, rule] of Object.entries(firm.value)) {
+    if (rule === undefined) continue;
+    const mine = own[tool];
+    next[tool] = firm.mode === "enforced" && typeof rule === "string" && isPermissionAction(mine) && STRICTNESS[mine] > STRICTNESS[rule]
+      ? mine
+      : rule;
   }
   return next;
 }

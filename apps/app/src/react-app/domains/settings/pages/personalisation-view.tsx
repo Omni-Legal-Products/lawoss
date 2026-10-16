@@ -32,6 +32,8 @@ import {
 import { SettingsNotice } from "../settings-section";
 import { t, type Language } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
+import { changeOrgPolicySetting, useOrgPolicy } from "../../connections/org-policy";
+import { FirmInstructions, OrgPolicyNote } from "../../connections/org-policy-ui";
 
 const DEFAULT_SETTINGS: LegalworkPersonalizationSettings = {
   customInstructions: "",
@@ -128,6 +130,7 @@ export function PersonalisationView(props: PersonalisationViewProps) {
 
   // Not memoised on []: the labels come from `t()`, so they must rebuild when
   // the language changes.
+  const firmPersonality = useOrgPolicy("personalization.personality");
   const labels = personalityLabels(locale);
   const personalityItems = LEGALWORK_PERSONALITY_VALUES.map((value) => ({
     value,
@@ -197,6 +200,7 @@ export function PersonalisationView(props: PersonalisationViewProps) {
               {t("personalisation.characters_remaining", locale, { count: remainingCharacters.toLocaleString() })}
             </div>
           </div>
+          <FirmInstructions />
         </LayoutSection>
 
         <LayoutSection>
@@ -269,15 +273,16 @@ export function PersonalisationView(props: PersonalisationViewProps) {
             <LayoutSectionItemHeader>
               <LayoutSectionItemTitle>{t("personalisation.personality", locale)}</LayoutSectionItemTitle>
               <LayoutSectionItemDescription>{t("personalisation.tone_desc", locale)}</LayoutSectionItemDescription>
+              <OrgPolicyNote policyKey="personalization.personality" />
               <LayoutSectionItemHeaderActions>
                 <Select
-                  value={settings.personality}
+                  value={firmPersonality?.value ?? settings.personality}
                   // Base UI resolves the trigger label from `items`; without it
                   // the trigger shows the raw value ("pragmatic").
                   items={personalityItems}
-                  disabled={disabled}
+                  disabled={disabled || firmPersonality?.locked === true}
                   onValueChange={(value) => {
-                    if (isPersonality(value)) void persist({ ...settings, personality: value });
+                    if (isPersonality(value)) void changeOrgPolicySetting("personalization.personality", () => persist({ ...settings, personality: value }));
                   }}
                 >
                   <SelectTrigger className="w-44" aria-label={t("personalisation.personality", locale)}>
