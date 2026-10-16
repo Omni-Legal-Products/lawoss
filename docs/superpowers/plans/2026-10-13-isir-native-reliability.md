@@ -918,6 +918,14 @@ M1 semantic receipt validator Minor je explicitně odložený pro finální revi
 
 - [x] Readonly primarysource plán: Assembly.Load(String) a Array.CreateInstance(Type,Int32) dokumentovány pro Framework; exactlongidentity FileSystem4.0.0.0/b77a5c561934e089 potvrzena Microsoft-owned manifestem, nikoli DLL na runneru. Žádná native garance.
 - [x] Root ruling/preflight: jako kontrolovaný candidate přesně dvě náhrady cmdletů Add-Type/New-Object za voidAssembly.Load a typedbyte[]CreateInstance65536; všechny markery/limity/schema a source/ZIP/EXE pins stejné. Obsolete textguard pouze na pořadí pevných markerů, ne falešný native test. ActualTask41control je pravý RED.
-- [ ] Fresh implementer SOURCE ONLY tři diagfiles/69purefake/syntax/diff/evidence před commitem, potom fresh nezávislá SPEC/QUALITY a root audit; žádný nový push/runtime admission zatím.
+- [x] Source69purefake/syntax/diff PASS, nezávislý sourceSPEC/QUALITY577f92d7 Approved. Root zachytil missingDCO v lokálním6375; nepublikován/odmítnut, beze změny historie. Nový normální signedoff4143966c z publishedfe09 v samostatné chore/windows-instance-repro-20261016-clr/W42 má identický celýtreec7c29967/sourcehashes, starý unsigned není předkem. Scopedreview0a06585e/rootauditDCO PASS; žádný retest kvůli identickému přenosu.
+- [x] Rootdocs371852f8/tree348420da, normalNEWbranchpush/remote+tree/0autotrigger ověřeny, jediný NEWmanualWindowsrun38850868109. Všechny joby terminální SUCCESS; sourcefirst106parserfixtures/root12manifest/schema2/M1 auditPASS, singleZIP1222B765beb62/receipt2377Bc68bf907.
+- [x] Skutečný tiny controlPASS3492ms a originalextractionPASS1549ms, fullprotocol/exit0/positiveclose/timerfalse; ZIP+EXEpins souhlasí, originalenginehealthcomplete a selectedheaders/body/scopePASS jedním requestem278ms. Engine spawn/exit/close1/1/1/provider0/rootsremoved/elapsed9166ms. Výsledek NOT_REPRODUCED pro jednu samostatnou syntetickou instanci; předchozí innercauseUNKNOWN a celé appWindowsRED zůstávají.
+
+### Task43: Věrně reprodukovat rozdíl proti startu celé aplikace
+
+- [x] Narrow baseline skutečně prošel; není oprávnění zopakovat nezměněný fullapp test a prohlásit jej za fix.
+- [ ] Readonly sourcegapmap: full runtime manager má privátní HOME/XDG/configdir/Node shim, enginecwd=profile/managed-opencode-workdir místo selecteddirectory, skutečné workspace/config/plugin generátory a počáteční sequential MCPsync. Deset registrovaných spisů není deset enginů ani důkaz desetisouběhu. První native/path probíhá před pozdější providerconfiguration/reload.
+- [ ] Určit přímo použitelné skutečné generator APIs/dependencies/pluginresource prerequisites a nejmenší věrný RED fixture; nepoužívat falešné pluginy, klonované konfigurace nebo vymyšlené Promise.all requesty. Potom samostatný sourceplan/review/admission; zatím žádný writer/nový běh.
 
 PR158 draft zůstává9e31/dev1c a body odděluje oba temporary diagnostic výsledky od app acceptance. LokálníTask38source902f i rootdocs zůstávají held; helperruntime caller/publictenGUI/provider/realapproval/dev/newapp gate stále OPEN, newpaid0.
