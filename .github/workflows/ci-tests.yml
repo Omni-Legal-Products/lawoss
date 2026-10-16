@@ -52,6 +52,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.package_desktop
     needs: sandbox-runtime
     uses: ./.github/workflows/ci-desktop-packaging.yml
+    with:
+      runtime_provided: true
   windows-drafts:
     runs-on: windows-latest
     steps:

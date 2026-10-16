@@ -8,13 +8,28 @@ on:
   push:
     branches: [dev]
   workflow_call:
+    inputs:
+      runtime_provided:
+        description: Volajúci workflow už pripravil artefakty sandbox-runtime-<platform>-<arch>
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
+  # 🟡 LAWOSS: pri samostatnom behu (PR, push) si balenie runtime izolovaného prostredia
+  # postaví samo, len pre platformy z matice a bez sandbox testov (tie bežia v ci-tests).
+  sandbox-runtime:
+    if: ${{ !inputs.runtime_provided }}
+    uses: ./.github/workflows/sandbox-runtime.yml
+    with:
+      targets: linux-x64,win32-x64,win32-arm64,darwin-arm64
+      run_tests: false
   package-smoke:
     name: Package and launch (${{ matrix.os }})
+    needs: sandbox-runtime
+    if: ${{ !cancelled() && (needs.sandbox-runtime.result == 'success' || needs.sandbox-runtime.result == 'skipped') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
