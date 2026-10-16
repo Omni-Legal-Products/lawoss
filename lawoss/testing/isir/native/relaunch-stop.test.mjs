@@ -20,7 +20,7 @@ function producerModel() {
     kill:(pid,kind)=>signals.push([pid,kind]),
     observe:value=>{observations.push(value);if(value.stage==='term-wait')clock=3001;if(value.stage==='kill-signal')force=true;},
   };
-  return {child,events,signals,observations,
+  return {platform:'darwin',child,events,signals,observations,
     requestQuit:async()=>{events.push('quit-request');drained=true;events.push('producer-drained');child.exitCode=0;child.emit('exit',0);},
     closeCdp:()=>events.push('cdp-close'),
     stop:async value=>{events.push('strict-stop');await stopNativeChild(value,3000,inspection);events.push('closure-proved');},
@@ -73,7 +73,7 @@ test('request rejection retains primary identity and ordered close/strict failur
   const child=Object.assign(new EventEmitter(),{exitCode:null,signalCode:null});
   const primary=new Error('request failed'),close=new Error('close failed'),strict=new Error('strict failed');
   const events=[],cleanupFailures=[],clock=windowClock();
-  await assert.rejects(stopForRelaunch({child,...clock,cleanupFailures,
+  await assert.rejects(stopForRelaunch({platform:'darwin',child,...clock,cleanupFailures,
     requestQuit:async()=>{events.push('request');throw primary;},
     closeCdp:()=>{events.push('close');throw close;},
     stop:async()=>{events.push('stop');throw strict;},
@@ -100,7 +100,7 @@ test('already-exited leader plus survivor remains refusal after quit acknowledge
 
 test('an unanswered request cannot restart its single window or skip strict closure',async()=>{
   const child=Object.assign(new EventEmitter(),{exitCode:null,signalCode:null}),clock=windowClock(),events=[];
-  const pending=stopForRelaunch({child,...clock,
+  const pending=stopForRelaunch({platform:'darwin',child,...clock,
     requestQuit:()=>{events.push('request');return new Promise(()=>{});},
     closeCdp:()=>events.push('close'),stop:async()=>events.push('strict-closure'),
   });
@@ -112,11 +112,56 @@ test('an unanswered request cannot restart its single window or skip strict clos
 
 test('leader exit without request acknowledgement waits only the same window',async()=>{
   const child=Object.assign(new EventEmitter(),{exitCode:null,signalCode:null}),clock=windowClock(),events=[];
-  const pending=stopForRelaunch({child,...clock,
+  const pending=stopForRelaunch({platform:'darwin',child,...clock,
     requestQuit:()=>{child.exitCode=0;child.emit('exit',0);return new Promise(()=>{});},
     closeCdp:()=>events.push('close'),stop:async()=>events.push('strict-closure'),
   });
   await Promise.resolve();await Promise.resolve();assert.deepEqual(events,[]);
   clock.expire();await pending;
   assert.deepEqual(events,['close','strict-closure']);assert.deepEqual(clock.durations,[3000]);
+});
+
+// Model the unchanged Windows stop contract without replacing process.platform
+// or running taskkill: an exited leader returns before descendant action.
+function windowsModel({stopError}={}) {
+  const child=Object.assign(new EventEmitter(),{exitCode:null,signalCode:null});
+  const events=[];
+  let descendantAlive=true;
+  return {...windowClock(),platform:'win32',child,events,descendantAlive:()=>descendantAlive,
+    requestQuit:async()=>{events.push('quit');child.exitCode=0;child.emit('exit',0);},
+    closeCdp:()=>events.push('cdp-close'),
+    stop:async()=>{
+      if(child.exitCode!==null||child.signalCode!==null){events.push('stop-early-return');return;}
+      events.push('strict-stop-live');
+      if(stopError)throw stopError;
+      descendantAlive=false;child.exitCode=0;child.emit('exit',0);
+    },
+  };
+}
+
+test('Windows preserves close then stop with a live leader instead of inducing the exited-leader bypass',async()=>{
+  const f=windowsModel();
+  await stopForRelaunch(f);f.events.push('rename');
+  assert.deepEqual(f.events,['cdp-close','strict-stop-live','rename']);
+  assert.equal(f.descendantAlive(),false);
+  assert.deepEqual(f.durations,[]);assert.equal(f.child.listenerCount('exit'),0);
+});
+
+test('Windows strict-stop refusal retains its identity and blocks rename',async()=>{
+  const primary=new Error('modeled strict Windows stop refused'),f=windowsModel({stopError:primary});
+  await assert.rejects((async()=>{await stopForRelaunch(f);f.events.push('rename');})(),error=>error===primary);
+  assert.deepEqual(f.events,['cdp-close','strict-stop-live']);
+  assert.equal(f.descendantAlive(),true);
+  assert.deepEqual(f.durations,[]);assert.equal(f.child.listenerCount('exit'),0);
+});
+
+test('Windows close rejection still attempts stop and retains both ordered failures',async()=>{
+  const closeError=new Error('modeled CDP close failed'),stopError=new Error('modeled Windows stop failed');
+  const f=windowsModel({stopError}),cleanupFailures=[];
+  f.closeCdp=()=>{f.events.push('cdp-close');throw closeError;};
+  await assert.rejects(stopForRelaunch({...f,cleanupFailures}),error=>error===closeError);
+  assert.deepEqual(f.events,['cdp-close','strict-stop-live']);
+  assert.deepEqual(cleanupFailures,[closeError,stopError]);
+  assert.deepEqual(f.durations,[]);assert.equal(f.child.listenerCount('exit'),0);
+  assert.equal(f.descendantAlive(),true);
 });
