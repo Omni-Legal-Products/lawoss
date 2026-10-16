@@ -206,10 +206,14 @@ jobs:
         run: pnpm test:isir
 
       - name: Security boundaries and Windows archive destinations
+        # Beží aj po páde predchádzajúceho kroku, aby sa bezpečnostné regresie na Windows vždy overili.
+        if: ${{ !cancelled() }}
         working-directory: apps/server
         run: bun test src/frontmatter.test.ts src/frontmatter-security.e2e.test.ts src/security-auth-boundaries.e2e.test.ts src/security-file-boundary.e2e.test.ts src/word-addin.e2e.test.ts src/word-addin-shell.test.ts src/benchmarks/document-path.test.ts src/benchmarks/task-zip.test.ts src/benchmarks/harvey-catalog.test.ts src/benchmarks/store.test.ts
 
       - name: Messaging control and local media isolation
+        # Beží aj po páde predchádzajúceho kroku, aby sa bezpečnostné regresie na Windows vždy overili.
+        if: ${{ !cancelled() }}
         run: |
           pnpm --filter opencode-router test:unit
           node --test apps/orchestrator/scripts/router-control-security.test.mjs
