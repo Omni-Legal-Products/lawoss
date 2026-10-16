@@ -792,3 +792,17 @@ Detaily a source API jsou v SDD task-24-brief.md. Produkční distribuce/notices
 - [ ] Publikace feature PR a skutečná native Windows+Ubuntu akceptace merged graphu. Transport/compiled context/packaging/current+later engine dispatch a původních pět app/dev/GUI gates stále povinné.
 
 **Limit:** Advisory lease neřeší všechny nespolupracující zapisovače; in-place reify není transakce. In-process cancellation čeká na skutečné dokončení a neprokazuje pevný návratový deadline ani zavření externích potomků. Fyzická strukturální kontrola neprokazuje hash každého souboru ani všechny export conditions/native imports.
+
+### Task 32: Skutečný nativní test sloučení SDK na Windows a Ubuntu
+
+**Scope:** CI-only izolovaný Node22 acquisition worker/supervisor, přímé genuine make-fetch-happen HTTP cache full+corgi metadata, existující ověřený transfer32 přijatých archivů; následně nezměněné skutečné Config8+lease25+target14 testy. Žádný runtime caller ani změna přijatého SDK locku.
+
+- [x] Source-first implementace s novými offline behavioral testy21/21; původní47 testů lokálně zbytečně neopakováno.
+- [x] Explicitní owned prostředí/cache, max64metadata+32tarball requests, bez retry/redirect, per-body/aggregate limity a jeden300s acquisition deadline.
+- [x] Skutečné subprocess close před předáním cache nebo smazáním; pouze uzavřené malé počty/hashes, žádné raw config nebo diagnostika.
+- [ ] Fresh nezávislá SPEC/QUALITY revize, root unchanged-input audit a běžná feature publikace.
+- [ ] První skutečné Windows+Ubuntu CI: genuine mergedgraph testy nepřeskočené, skutečné počty a všechny required checks zelené. Při změně reálných metadata/rozlišení zůstává failure autoritativní; nefalšovat cache ani přepisovat accepted lock.
+
+**Hranice:** Do source review žádné síťové spuštění této komponenty. Cache tee může vidět mezní chunk před refusal; nejde o byte-exact disk quota. Nový nativní mergedgraph PASS stále neprokazuje produkční hook, packaging ani původní app/GUI/dev kritéria.
+
+**Task32 source:**7a44b3ec, fresh SPEC/QUALITY Approved/noCriticalImportant; root immutable/source/DCO auditPASS. Dva Minor jsou evidované pro wholebranchreview: částečně inicializovaný root bez prokázané identity se nemaže; uncoded operation error může nést nepřesné CLEANUP_FAILED. Source21/21 jsou původní worker execution evidence v toolhistory, nikoli uložený raw TAP/hash; native47 skutečně dosud nespouštěné.
